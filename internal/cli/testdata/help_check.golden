@@ -1,0 +1,23 @@
+Run project checks and install hook guards.
+
+`wd check` (or `wd check run`) executes the commands declared in .warden/check.yml
+and returns only failures. Guard subcommands are hook-facing entry points installed
+by warden; they preserve the stdin/stdout JSON protocol and fail-open semantics of
+the legacy `hook` paths.
+
+Usage:
+  warden check [name] [flags]
+
+Commands:
+  run                  Run the project's configured checks and report only failures
+  guard                PreToolUse check-redirect guard (reads hook JSON on stdin)
+  boundary             PreToolUse isolation guard (reads hook JSON on stdin)
+  root-guard           PreToolUse main-worktree guard (reads hook JSON on stdin)
+
+Flags:
+  -h, --help   help for check
+      --json   emit the raw result as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)

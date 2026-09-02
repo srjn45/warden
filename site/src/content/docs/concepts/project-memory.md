@@ -23,7 +23,7 @@ beside the existing `.warden/check.yml`:
   every machine benefits, and every change to it is a reviewable git diff.
 - **Keyed implicitly by the repo root** (`git rev-parse --show-toplevel`). No
   `wd init`, no registration — the file is auto-created the first time you use
-  `wd memory`.
+  `wd project memory`.
 - **Backend-neutral.** It is not CLAUDE.md, AGENTS.md, or CONVENTIONS.md. warden
   **reads and respects** those human-authored files but **never rewrites them** —
   `.warden/memory.md` is warden's own, so machine-managed content never clobbers a
@@ -60,7 +60,7 @@ backends, warden manages only its own delimited block and **merge-preserves** an
 existing `AGENTS.md` / `CRUSH.md` / `.goosehints` content, and the dropped file is
 git-excluded so it never lands in the agent's diff.
 
-`wd memory` (with no flags) prints exactly the render that gets injected — so it
+`wd project memory` (with no flags) prints exactly the render that gets injected — so it
 always shows what the next agent will read.
 
 ## Cost discipline
@@ -90,7 +90,7 @@ memory:
 
 ## Curating it — by hand, or auto-proposed (gated)
 
-You can always curate `.warden/memory.md` **by hand** — `wd memory --edit` opens it
+You can always curate `.warden/memory.md` **by hand** — `wd project memory --edit` opens it
 in `$EDITOR`, and the committed diff is the review gate.
 
 warden can also **auto-propose** entries for you, off by default behind
@@ -130,7 +130,7 @@ memory:
 ## Ask project memory locally — grounding (`memory.ground`)
 
 Projection *adds* input tokens to every spawn. **Grounding** is the opposite lever:
-in [`wd repl`](/warden/multi-agent/repl/) you can **ask** the memory a question and
+in [`wd backend repl`](/warden/multi-agent/repl/) you can **ask** the memory a question and
 warden answers it **locally**, *removing* a cloud round-trip instead of adding one.
 
 Ask it two ways — the deterministic **`/memory <question>`** command (aliases
@@ -172,6 +172,6 @@ memory:
 
 ## See also
 
-- [`wd memory` in the CLI reference](/warden/reference/cli/#warden-memory)
+- [`wd project memory` in the CLI reference](/warden/reference/cli/#warden-memory)
 - [Lifecycle commands & rails](/warden/guides/lifecycle-and-rails/)
 - [Agent backends](/warden/concepts/agent-backends/)

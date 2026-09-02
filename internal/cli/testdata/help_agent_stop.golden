@@ -1,0 +1,41 @@
+Stop an agent. The single umbrella teardown verb.
+
+<AGENT> is any identifier `wd ls` shows — the agent's name, its id, or its
+ticket. All teardown verbs resolve by name-or-id.
+
+By default `wd agent stop <TICKET>` does a FULL teardown: terminate the
+tmux+claude session, clear (archive) the record, and remove the git worktree +
+branch (asking for confirmation first, unless --yes). Subtractive flags keep
+parts around; --pr opens a GitHub PR first while the agent is still intact.
+
+The four older verbs are kept as thin aliases — each is just `stop` with a
+fixed flag combo:
+
+  old verb                    equivalent
+  --------------------------  ------------------------------------------------
+  wd terminate <T>            wd agent stop <T> --keep-record --keep-worktree
+  wd delete <T> [--hard]      wd agent stop <T> --keep-worktree (record only)
+  wd remove-worktree <T>      wd agent stop <T> --keep-record  (worktree only)
+  wd done <T> [--hard|--pr]   wd agent stop <T> --keep-worktree [--hard|--pr]
+  wd agent stop <T>                 terminate + clear record + remove worktree
+
+Safe ordering is always: PR -> terminate -> clear record -> remove worktree, so
+a failed push leaves the agent running.
+
+Usage:
+  warden agent stop <AGENT> [flags]
+
+Flags:
+      --base string             base branch for the PR (default main); only meaningful with --pr
+      --delete-adopted-branch   also delete the branch even if warden did not create it (adopted branches are kept by default)
+      --force                   override the alive/uncommitted/unpushed worktree guards
+      --hard                    purge the record instead of archiving
+  -h, --help                    help for stop
+      --keep-record             do not clear the stored record
+      --keep-worktree           do not remove the git worktree (this + default == the old 'done')
+      --pr                      open a GitHub PR for the agent's branch (pushes first; title+body from the digest) before tearing down
+      --yes                     skip the worktree-removal confirmation prompt
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)

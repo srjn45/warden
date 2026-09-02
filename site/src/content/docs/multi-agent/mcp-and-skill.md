@@ -3,11 +3,11 @@ title: "Orchestration: MCP & skill"
 description: Register warden as an MCP server so an orchestrator agent can manage the fleet, and install the /warden skill.
 ---
 
-`warden mcp` is a stdio MCP server so an orchestrator agent session (e.g. Claude) can manage the fleet through tool calls.
+`warden daemon mcp` is a stdio MCP server so an orchestrator agent session (e.g. Claude) can manage the fleet through tool calls.
 
 ## Register the MCP server
 
-Register `warden mcp` as an MCP server in your orchestrator agent's MCP config. For a Claude Code orchestrator that's `~/.claude/claude_desktop_config.json` or the project-level `.claude/mcp.json`; other MCP-capable agents use their own config path:
+Register `warden daemon mcp` as an MCP server in your orchestrator agent's MCP config. For a Claude Code orchestrator that's `~/.claude/claude_desktop_config.json` or the project-level `.claude/mcp.json`; other MCP-capable agents use their own config path:
 
 ```json
 {
@@ -37,7 +37,7 @@ Register `warden mcp` as an MCP server in your orchestrator agent's MCP config. 
 | `delete_agent` / `remove_worktree` | Clear record / remove worktree (guarded) |
 | `list_worktrees` / `prune_worktrees` | List / reconcile a repo's worktrees |
 | `handoff_agent` / `rotate_agent` | Hand off work — delegate to new/`to` existing agent, or `retire`→successor in place; `rotate_agent` is an alias for `handoff_agent {retire:true}` |
-| `fork_agent` | Fork an agent's recorded session into a new managed agent (branches the conversation; Codex-only; source keeps running) — wraps `spawn_agent` with `fork_from` set, mirrors `wd fork` |
+| `fork_agent` | Fork an agent's recorded session into a new managed agent (branches the conversation; Codex-only; source keeps running) — wraps `spawn_agent` with `fork_from` set, mirrors `wd agent fork` |
 | `ctx_set` / `ctx_get` / `ctx_list` | Shared-context blackboard |
 | `ctx_cas` / `ctx_append` | Compare-and-set / append-to-list context writes (lock-free coordination) |
 | `send_message` / `read_inbox` / `wait_for_message` | Directed messaging, incl. a blocking long-poll wait |
@@ -73,7 +73,7 @@ Example orchestrator prompts:
 - *"Kick off the analyze-implement-review pipeline on /path/to/repo"* → `create_pipeline` (template) + `start_pipeline`
 - *"Commit and push agent-4f2a's branch"* → `commit` then `push`; *"is anyone else editing auth.go?"* → `who_is_editing_file`
 
-> Prefer natural language over tool calls? `warden repl` is a local-LLM conductor REPL that drives these same operations from plain English without an orchestrator agent session — see [Interactive REPL](/warden/multi-agent/repl/).
+> Prefer natural language over tool calls? `warden backend repl` is a local-LLM conductor REPL that drives these same operations from plain English without an orchestrator agent session — see [Interactive REPL](/warden/multi-agent/repl/).
 
 ## The `/warden` Claude skill
 

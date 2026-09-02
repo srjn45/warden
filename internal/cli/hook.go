@@ -42,10 +42,18 @@ func newHookCmd() *cobra.Command {
 		Short:  "Internal hooks invoked by Claude Code (not for direct use)",
 		Hidden: true,
 	}
-	cmd.AddCommand(newHookGuardCmd())
-	cmd.AddCommand(newHookRootGuardCmd())
-	cmd.AddCommand(newHookGitGuardCmd())
-	cmd.AddCommand(newHookCheckGuardCmd())
+	guardCmd := newHookGuardCmd()
+	markCompatibilityCommand(guardCmd, "warden check boundary")
+	cmd.AddCommand(guardCmd)
+	rootGuardCmd := newHookRootGuardCmd()
+	markCompatibilityCommand(rootGuardCmd, "warden check root-guard")
+	cmd.AddCommand(rootGuardCmd)
+	gitGuardCmd := newHookGitGuardCmd()
+	markCompatibilityCommand(gitGuardCmd, "warden git guard")
+	cmd.AddCommand(gitGuardCmd)
+	checkGuardCmd := newHookCheckGuardCmd()
+	markCompatibilityCommand(checkGuardCmd, "warden check guard")
+	cmd.AddCommand(checkGuardCmd)
 	return cmd
 }
 

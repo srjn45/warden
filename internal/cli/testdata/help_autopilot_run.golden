@@ -1,0 +1,20 @@
+Start, pause, resume, stop, and unregister individual registered runs.
+Distinct from repository enablement (`autopilot enable` / `autopilot disable`).
+
+Usage:
+  warden autopilot run [flags]
+
+Commands:
+  list                 List all registered autopilot runs
+  start                start one autopilot run
+  pause                pause one autopilot run
+  resume               resume one autopilot run
+  stop                 stop one autopilot run
+  unregister           unregister one autopilot run
+
+Flags:
+  -h, --help   help for run
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)

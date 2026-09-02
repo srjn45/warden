@@ -66,17 +66,17 @@ to a paid backend.
   tier is the system-set `local`; the terminal candidate of every internal-thinking
   walk.
 
-## CLI — `warden backends`
+## CLI — `warden backend`
 
 | Command | Does |
 |---|---|
-| `warden backends list` (alias `ls`) | Print the registry table (ID, installed, tier, default, enabled, limited) + the thinking mode |
-| `warden backends rescan` | Re-detect installed CLIs, reconcile detection, preserve preferences |
-| `warden backends tier <id> <tier>` | Assign a tier (`free`\|`subscription`\|`pay_per_use`\|`unclassified`) |
-| `warden backends default <id>` | Set the single default (rejects unknown/uninstalled/disabled/`local`) |
-| `warden backends enable <id>` | Enable a backend |
-| `warden backends disable <id>` | Disable a backend |
-| `warden backends thinking-mode <mode>` | Set `local_only` \| `free_plus_local` |
+| `warden backend list` (alias `ls`) | Print the registry table (ID, installed, tier, default, enabled, limited) + the thinking mode |
+| `warden backend rescan` | Re-detect installed CLIs, reconcile detection, preserve preferences |
+| `warden backend tier <id> <tier>` | Assign a tier (`free`\|`subscription`\|`pay_per_use`\|`unclassified`) |
+| `warden backend default <id>` | Set the single default (rejects unknown/uninstalled/disabled/`local`) |
+| `warden backend enable <id>` | Enable a backend |
+| `warden backend disable <id>` | Disable a backend |
+| `warden backend thinking-mode <mode>` | Set `local_only` \| `free_plus_local` |
 
 The generated [CLI reference](/warden/reference/cli/) has the full flag/help detail.
 

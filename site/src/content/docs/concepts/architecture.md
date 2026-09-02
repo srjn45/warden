@@ -25,7 +25,7 @@ and `~/.warden/closed/`. It now runs on an **embedded ScrivaDB** rooted at
 `~/.warden/sessions-db/` (`active` + `closed` collections, keyed by session id), so
 a mutation appends one record instead of rewriting a whole file. This is an
 **internal storage swap** — the daemon's REST API, the CLI/MCP clients, and
-`warden export`/`import` are byte-for-byte unchanged.
+`warden inspect export`/`import` are byte-for-byte unchanged.
 
 On the **first daemon launch after upgrading**, warden runs a one-time import:
 

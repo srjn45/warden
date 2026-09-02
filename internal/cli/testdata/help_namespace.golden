@@ -1,0 +1,29 @@
+Define and run DAG pipelines of agent jobs.
+
+Use validate locally before create; template list shows built-in starters;
+start/pause/resume/cancel control lifecycle; show lists per-job status and handoffs.
+
+Usage:
+  warden pipeline [flags]
+
+Commands:
+  validate             Validate a pipeline YAML spec without creating it
+  create               Create a pipeline from a YAML spec or a built-in template
+  template             Built-in pipeline templates
+  list                 List pipelines
+  show                 Show a pipeline's jobs and their status
+  start                Start a pipeline (spawns jobs with no dependencies)
+  pause                Pause a running pipeline (in-flight jobs finish; no new jobs spawn)
+  resume               Resume a paused pipeline (spawns jobs that became ready while paused)
+  cancel               Cancel a pipeline (terminates running jobs)
+  delete               Delete a pipeline's record (must not have live jobs — cancel first)
+  emit                 Publish this job's handoff (run from inside a pipeline job)
+  edit-job             Edit a pending job's prompt and/or handoff
+  retry                Re-run a failed or needs-attention job (reopens skipped descendants)
+
+Flags:
+  -h, --help   help for pipeline
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)

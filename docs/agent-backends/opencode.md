@@ -94,5 +94,5 @@ modes stay interactive.
 
 - Discover-then-pin the minted `ses_…` session id (enables exact-id resume/export
   without the dir-scoped fallback; the adapter already prefers a pinned id).
-- Wire warden spend/savings to OpenCode's native cost/tokens.
+- Wire warden usage spend/savings to OpenCode's native cost/tokens.
 - Map interactive TUI approvals (`DetectState` / `ParseApproval`).

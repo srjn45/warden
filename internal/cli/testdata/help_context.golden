@@ -1,0 +1,19 @@
+Read and write the shared context (a namespaced key/value store agents share)
+
+Usage:
+  warden context [flags]
+
+Commands:
+  set                  Set a context key (value inline, or --file / --stdin)
+  cas                  Set a key only if its current value matches --expected (atomic compare-and-set)
+  append               Atomically append to a key's value (creates it if absent)
+  get                  Print the value at a context key
+  list                 List context keys (optionally filtered by prefix)
+  delete               Delete a context key
+
+Flags:
+  -h, --help   help for context
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)

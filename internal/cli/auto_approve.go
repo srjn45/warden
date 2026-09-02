@@ -9,11 +9,47 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+func newAutoApproveSetCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "set <agent-id> <on|off>",
+		Short: "Toggle per-agent auto-approve participation",
+		Args:  cobra.ExactArgs(2),
+		RunE:  runAutoApproveSet,
+	}
+}
+
+func runAutoApproveSet(cmd *cobra.Command, args []string) error {
+	id := args[0]
+	mode := args[1]
+
+	var enabled bool
+	switch mode {
+	case "on", "1", "true":
+		enabled = true
+	case "off", "0", "false":
+		enabled = false
+	default:
+		return fmt.Errorf("mode must be 'on' or 'off', got %q", mode)
+	}
+
+	c := clientFor(cmd)
+	if err := c.SetAutoApprove(cmd.Context(), id, enabled); err != nil {
+		return err
+	}
+
+	status := "disabled"
+	if enabled {
+		status = "enabled"
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "auto-approve %s for %s\n", status, id)
+	return nil
+}
+
 func newAutoApproveCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "auto-approve <agent-id> <on|off>",
-		Short: "Toggle per-agent auto-approve, or manage the auto-approve rule policy",
-		Long: `Control automatic approval of recognized tool-permission prompts.
+	cmd := newAutoApproveSetCmd()
+	cmd.Use = "auto-approve <agent-id> <on|off>"
+	cmd.Short = "Toggle per-agent auto-approve, or manage the auto-approve rule policy"
+	cmd.Long = `Control automatic approval of recognized tool-permission prompts.
 
 Two layers cooperate:
 
@@ -43,35 +79,7 @@ Examples:
   warden auto-approve allow --agent reviewer --tool Grep
   warden auto-approve clear --agent reviewer        # drop reviewer's overrides
 
-Rule changes take effect immediately (no restart) and are persisted to config.`,
-		Args: cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			id := args[0]
-			mode := args[1]
-
-			var enabled bool
-			switch mode {
-			case "on", "1", "true":
-				enabled = true
-			case "off", "0", "false":
-				enabled = false
-			default:
-				return fmt.Errorf("mode must be 'on' or 'off', got %q", mode)
-			}
-
-			c := clientFor(cmd)
-			if err := c.SetAutoApprove(cmd.Context(), id, enabled); err != nil {
-				return err
-			}
-
-			status := "disabled"
-			if enabled {
-				status = "enabled"
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "auto-approve %s for %s\n", status, id)
-			return nil
-		},
-	}
+Rule changes take effect immediately (no restart) and are persisted to config.`
 	cmd.AddCommand(
 		newAutoApproveRulesCmd(),
 		newAutoApproveAddRuleCmd("allow"),

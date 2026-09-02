@@ -44,7 +44,7 @@ plugins:
 Inspect what's loaded:
 
 ```sh
-warden plugin list   # paths, custom task types (+ isolation), subscribed events, config errors
+warden project plugin list   # paths, custom task types (+ isolation), subscribed events, config errors
 ```
 
 ## Worked examples

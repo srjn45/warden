@@ -1,6 +1,6 @@
 ---
 title: Backend superpowers (review, model menu & session fork)
-description: Surface a backend's native extras as first-class warden verbs — wd review (the agent's own diff reviewer, with machine-readable findings), wd models (its live runtime model menu), and wd fork (branch a Codex session into a new managed agent).
+description: Surface a backend's native extras as first-class warden verbs — wd git review (the agent's own diff reviewer, with machine-readable findings), wd backend model (its live runtime model menu), and wd agent fork (branch a Codex session into a new managed agent).
 ---
 
 Warden drives many [agent backends](/warden/concepts/agent-backends/), and some of
@@ -8,31 +8,31 @@ them ship capabilities Claude Code doesn't have. Warden surfaces those as
 first-class verbs — added **on top** of the agent, never as a restriction. Three are
 available today:
 
-- **`wd review`** — ask the backend to review its OWN diff (with a `--json`
+- **`wd git review`** — ask the backend to review its OWN diff (with a `--json`
   machine-readable path).
-- **`wd models`** — list the backend's **live** runtime model menu.
-- **`wd fork`** — branch the agent's recorded **session** (its conversation /
+- **`wd backend model`** — list the backend's **live** runtime model menu.
+- **`wd agent fork`** — branch the agent's recorded **session** (its conversation /
   reasoning) into a new managed agent.
 
 :::note[Two are CLI-only; fork is a managed spawn]
-`wd review` and `wd models` **exec in the agent's worktree with no daemon
+`wd git review` and `wd backend model` **exec in the agent's worktree with no daemon
 round-trip** — exactly like `wd check`. That makes them CLI-local by design: they
-are **not** MCP tools and have no web/TUI surface. `wd fork` is different — it's a
+are **not** MCP tools and have no web/TUI surface. `wd agent fork` is different — it's a
 **managed spawn** that crosses the daemon (it just sets the `fork_from` field on the
 spawn the orchestrator already uses), so it has full **MCP + CLI parity** via the
 `fork_agent` tool. An orchestrating agent runs review/models through the CLI, and
 fork through either.
 :::
 
-## `wd review` — the backend's own diff reviewer
+## `wd git review` — the backend's own diff reviewer
 
-`wd review` is the agent-native counterpart to `wd check`:
+`wd git review` is the agent-native counterpart to `wd check`:
 
 | | Runs | Surface |
 |---|---|---|
 | `wd check` | the project's configured **test/lint/build** commands (`.warden/check.yml`) | local exec |
 | `pr-review` agent | a **whole reviewer session** (an isolated checkout you spawn) | a full agent |
-| `wd review` | the backend's **own one-shot reviewer** against the working diff | local exec |
+| `wd git review` | the backend's **own one-shot reviewer** against the working diff | local exec |
 
 It resolves the agent's backend, type-asserts the additive `agentbackend.Reviewer`
 interface, and — if the backend implements it — execs the native reviewer in the
@@ -41,10 +41,10 @@ worktree and streams the findings to you. **Codex** implements it
 $0-local Ollama rig and a paid setup both work unchanged.
 
 ```sh
-wd review                       # review my uncommitted changes (staged + unstaged + untracked)
-wd review --base main           # review this branch's changes against a base instead
-wd review --prompt "focus on error handling and nil checks"
-wd review --backend codex       # target a specific backend (default: the current agent's)
+wd git review                       # review my uncommitted changes (staged + unstaged + untracked)
+wd git review --base main           # review this branch's changes against a base instead
+wd git review --prompt "focus on error handling and nil checks"
+wd git review --backend codex       # target a specific backend (default: the current agent's)
 ```
 
 Backends **without** a native reviewer (e.g. Claude) are not offered the verb — it
@@ -52,7 +52,7 @@ exits non-zero pointing you at `wd check` or a `pr-review` agent. That's the
 "add on top" rule in action: warden never lowers a capable backend to a
 lowest-common-denominator.
 
-### `wd review --json` — machine-readable findings
+### `wd git review --json` — machine-readable findings
 
 Pass `--json` for a structured result. Warden runs the backend's **structured**
 review form (Codex: `codex exec review`), then normalizes the backend's NATIVE
@@ -85,23 +85,23 @@ severity. `findings` is always present (emitted as `[]`, never `null`).
 :::caution[Quality rides the backend's model]
 The pilot proves the *plumbing* (verb → adapter → review run → parse/stream), not
 review accuracy. On a tiny local model (e.g. `qwen2.5-coder:3b`) review quality is
-weak and may report no findings at all — in which case `wd review --json` reports a
+weak and may report no findings at all — in which case `wd git review --json` reports a
 clean "no structured review output" rather than erroring. The operator's real
 model is where this earns its keep.
 :::
 
-## `wd models` — the backend's live model menu
+## `wd backend model` — the backend's live model menu
 
 Warden ships a small static alias table (`opus`/`sonnet`/`haiku`/`fable`) for the
 Claude backend. Other backends expose a **live, multi-vendor menu** that the
 operator's account/plan can change at any time — so guessing from a hard-coded
-table is wrong. `wd models` surfaces the real menu:
+table is wrong. `wd backend model` surfaces the real menu:
 
 ```sh
-wd models                       # the current agent's backend menu, one id per line
-wd models --backend antigravity # e.g. Gemini 3.5 Flash (Low), Claude Opus 4.6 (Thinking), …
-wd models --backend cursor      # e.g. auto, gpt-5.3-codex-low, glm-5.2-max, …
-wd models --json                # emit the menu as a JSON array instead
+wd backend model                       # the current agent's backend menu, one id per line
+wd backend model --backend antigravity # e.g. Gemini 3.5 Flash (Low), Claude Opus 4.6 (Thinking), …
+wd backend model --backend cursor      # e.g. auto, gpt-5.3-codex-low, glm-5.2-max, …
+wd backend model --json                # emit the menu as a JSON array instead
 ```
 
 It runs the backend's own list subcommand via the additive
@@ -114,14 +114,14 @@ generation request, so it spends no hosted-tier quota.
 Backends with a static model set (e.g. Claude) have no live menu and are not
 offered the verb — it exits non-zero pointing you at `--model` with a known id.
 
-## `wd fork` — branch an agent's session into a new agent
+## `wd agent fork` — branch an agent's session into a new agent
 
-`wd review` and `wd models` add capability *within* one agent. `wd fork` adds a
+`wd git review` and `wd backend model` add capability *within* one agent. `wd agent fork` adds a
 **whole new agent** — it branches the source's recorded session sideways:
 
 ```sh
-wd fork agent-7                  # fork agent-7, continue its conversation
-wd fork agent-7 "now try X"      # fork and seed a divergent first prompt
+wd agent fork agent-7                  # fork agent-7, continue its conversation
+wd agent fork agent-7 "now try X"      # fork and seed a divergent first prompt
 ```
 
 A fork continues the source agent's conversation/reasoning (Codex's session
@@ -133,9 +133,9 @@ shorthand for `wd start --fork-from <agent>`.
 
 | verb | what it does | the source |
 |---|---|---|
-| `wd fork` | **branches the conversation** sideways into a new agent | keeps running |
-| `wd snapshot` restore | **rewinds** one timeline to a checkpoint | is the same agent |
-| `wd rotate` / `wd handoff` | **carry the task, drop the conversation** | retired or kept, task moves |
+| `wd agent fork` | **branches the conversation** sideways into a new agent | keeps running |
+| `wd workspace snapshot` restore | **rewinds** one timeline to a checkpoint | is the same agent |
+| `wd agent rotate` / `wd agent handoff` | **carry the task, drop the conversation** | retired or kept, task moves |
 
 A few things worth knowing:
 
@@ -172,7 +172,7 @@ Each superpower is an **optional, type-asserted interface** on
 `ContextInjector` seams. A backend that doesn't implement an interface simply isn't
 offered that verb — **Claude stays untouched and regression-locked**, no registry or
 neutral-type churn. The review/models verbs are CLI-local execs (no daemon API
-change); `wd fork` rides the **existing** spawn route by adding one `fork_from`
+change); `wd agent fork` rides the **existing** spawn route by adding one `fork_from`
 field — still no new endpoint. The full
 design is `docs/superpowers/specs/2026-06-29-t1-superpowers-design.md`; per-backend
 notes live in the gap docs ([codex](https://github.com/srjn45/warden/blob/main/docs/agent-backends/codex.md),

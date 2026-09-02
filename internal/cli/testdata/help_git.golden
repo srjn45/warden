@@ -1,0 +1,23 @@
+Commit, push, sync, and review an agent worktree on warden rails.
+
+Git verbs run locally in the agent's worktree (or the current directory when no
+agent session is bound). They enforce branch rails, hook bookkeeping, and the
+daemon-side session link — the high-frequency flat shortcuts `wd commit`,
+`wd push`, and `wd sync` remain permanently supported wrappers.
+
+Usage:
+  warden git [flags]
+
+Commands:
+  commit               Stage and commit the worktree (warden rails + hooks + bookkeeping)
+  push                 Push the current branch to origin (warden rails + bookkeeping)
+  sync                 Fetch and rebase the current branch onto its base (warden conflict detect)
+  review               Run the agent backend's native diff review on the worktree
+  guard                PreToolUse git-redirect guard (reads hook JSON on stdin)
+
+Flags:
+  -h, --help   help for git
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)

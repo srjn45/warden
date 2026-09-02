@@ -1,11 +1,11 @@
 ---
 title: Token-savings ledger
-description: The append-only ledger of tokens warden's lifecycle features keep out of agents' context — and the warden savings report.
+description: The append-only ledger of tokens warden's lifecycle features keep out of agents' context — and the warden usage savings report.
 ---
 
 Every time one of warden's lifecycle features avoids dumping output into an agent's
 transcript, it records the saving to a real, **append-only ledger** under
-`<data_dir>/savings/`. `warden savings` reads it back — a measured ledger of token
+`<data_dir>/savings/`. `warden usage savings` reads it back — a measured ledger of token
 counts (the dollar figures are list-price estimates; see below). Gated by the
 `savings` config setting (default on); the daemon serves
 it at `GET /api/v1/savings` (403 when off).
@@ -30,12 +30,12 @@ The report keeps two honest claims separate:
 ## Reading the report
 
 ```sh
-warden savings                    # per-feature table (saved/raw tokens, events)
-warden savings --benchmark        # headline A/B proof, built to screenshot
-warden savings --since 7d         # scope to a window (24h/7d/2w) or a date
-warden savings --json             # structured summary for tooling
-warden savings --audit            # raw-vs-kept provenance samples (needs savings_samples)
-warden savings --calibrate        # measure this workload's true bytes/token ratio
+warden usage savings                    # per-feature table (saved/raw tokens, events)
+warden usage savings --benchmark        # headline A/B proof, built to screenshot
+warden usage savings --since 7d         # scope to a window (24h/7d/2w) or a date
+warden usage savings --json             # structured summary for tooling
+warden usage savings --audit            # raw-vs-kept provenance samples (needs savings_samples)
+warden usage savings --calibrate        # measure this workload's true bytes/token ratio
 ```
 
 `--benchmark` is the persuasive view: *without warden* (raw tokens that would have
@@ -85,23 +85,23 @@ budget floor — bring-your-own-model backends report tokens, not dollars.
 
 The web **Metrics** tab uses this: short windows (`24h`/`48h`) request `bucket=hour`,
 longer ones `bucket=day`, and the card plots per-bucket saved tokens, the cumulative
-line, and a per-feature stacked breakdown. `warden savings --benchmark` requests the
+line, and a per-feature stacked breakdown. `warden usage savings --benchmark` requests the
 daily buckets for its sparkline.
 
-## Cost governance — `warden spend` + the budget gate
+## Cost governance — `warden usage spend` + the budget gate
 
 Savings reports what warden kept **out** of context; **cost governance** reports what
 agents **actually billed** the model provider. The daemon already reads each agent's REAL
-input/output tokens from its transcript; `warden spend` prices that per model into
+input/output tokens from its transcript; `warden usage spend` prices that per model into
 dollars and rolls it up. Dollar pricing currently covers the **Claude backend** (the
 per-model rates below); bring-your-own-model backends report tokens only. Gated by the
 same `savings` switch; served at `GET /api/v1/spend` (403 when off) and exposed as the
 `spend` MCP tool.
 
 ```sh
-warden spend                      # total / today / this week, then per-agent/repo/day $ tables
-warden spend --by agent           # show just one rollup: agent, repo, or day
-warden spend --json               # structured rollup for tooling
+warden usage spend                      # total / today / this week, then per-agent/repo/day $ tables
+warden usage spend --by agent           # show just one rollup: agent, repo, or day
+warden usage spend --json               # structured rollup for tooling
 ```
 
 Per-model pricing (`$/Mtok`, in/out): **Opus** `$5/$25`, **Sonnet** `$3/$15`,
@@ -127,7 +127,7 @@ hard-blocks.
 
 ### Where else cost shows up
 
-- **`warden ls`** gains a **COST** column (also in `warden search` / `warden history`).
+- **`warden ls`** gains a **COST** column (also in `warden inspect search` / `warden inspect history`).
 - The web **Metrics** tab adds a **Cost per agent** card: the `total / today / this
   week` headline plus a live per-agent cost bar chart (sorted by `$`, top-N
   costliest with the rest folded into an `others` row) beside the RSS/CPU charts.
@@ -135,20 +135,20 @@ hard-blocks.
 ## One umbrella — `warden cost`
 
 `warden cost` gathers both financial views under a single discoverable command,
-mirroring how `warden library` unifies presets, prompt templates, and pipeline
+mirroring how `warden project library` unifies presets, prompt templates, and pipeline
 templates:
 
 ```sh
 warden cost                       # combined: a SPEND section + a SAVINGS section
-warden cost spend --by agent      # same as `warden spend --by agent`
-warden cost savings --benchmark   # same as `warden savings --benchmark`
+warden usage spend --by agent      # same as `warden usage spend --by agent`
+warden usage savings --benchmark   # same as `warden usage savings --benchmark`
 ```
 
-`warden cost spend` and `warden cost savings` are the very same commands as the
-top-level `warden spend` / `warden savings` — every flag wired straight through —
+`warden usage spend` and `warden usage savings` are the very same commands as the
+top-level `warden usage spend` / `warden usage savings` — every flag wired straight through —
 and the top-level commands remain available as aliases. With no subcommand,
 `warden cost` prints a combined at-a-glance summary that reuses both reports'
 render logic, so the figures never disagree. Purely additive: no new storage,
 pricing, or MCP tool (both axes already ship the `spend` and `savings` MCP tools).
 Resource footprint — memory/CPU/pressure — is a **different axis** and stays under
-[`warden stats`](/warden/reference/observability/), deliberately not folded in.
+[`warden inspect resources`](/warden/reference/observability/), deliberately not folded in.

@@ -10,7 +10,7 @@ description: Prerequisites, installing the binary, running the daemon as a servi
 - **git** — worktree creation and guarded cleanup
 - **Claude Code** (`claude` on PATH) — the default agent runtime launched in each session (other backends are opt-in via `--backend` — see [Agent backends](/warden/concepts/agent-backends/))
 - **`gh`** (GitHub CLI) — required for `pr-review` sessions to check out the PR branch
-- **Ollama** (optional) — only needed if you enable the local-LLM features (`local_llm`) or the `warden repl` REPL; warden falls back to Claude when it's off or unreachable
+- **Ollama** (optional) — only needed if you enable the local-LLM features (`local_llm`) or the `warden backend repl` REPL; warden falls back to Claude when it's off or unreachable
 
 :::tip
 Once you have the `warden` binary, run **`warden doctor`** to check these
@@ -106,7 +106,7 @@ systemctl --user stop warden       # stop without disabling
 journalctl --user -u warden -f     # follow the unit's own journal
 ```
 
-The unit also writes stdout/stderr to the same log files used on macOS (see [Logs](#logs) below). When you enable [remote access](/warden/guides/remote-access/), the unit gains an `EnvironmentFile=` line pointing at your token file so the daemon picks up `WARDEN_TOKEN` on start; `warden token rotate` issues `systemctl --user restart warden` to apply a new token.
+The unit also writes stdout/stderr to the same log files used on macOS (see [Logs](#logs) below). When you enable [remote access](/warden/guides/remote-access/), the unit gains an `EnvironmentFile=` line pointing at your token file so the daemon picks up `WARDEN_TOKEN` on start; `warden daemon token rotate` issues `systemctl --user restart warden` to apply a new token.
 
 ### Stop macOS "warden would like to access…" prompts (optional, macOS)
 

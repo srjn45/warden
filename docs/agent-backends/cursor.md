@@ -101,7 +101,7 @@ warden **cannot source this minimally**: there is **no `export` command** in
 cursor-agent (cf. `opencode export <id>`, which is how the OpenCode adapter avoids
 touching SQLite), there is **no `sqlite3` binary** on the rig, and warden carries **no
 SQLite dependency**. So `TranscriptPath` returns `false` and `StructuredTranscript` is
-**off** — `wd digest` shows "no transcript" for Cursor agents rather than guessing.
+**off** — `wd agent digest` shows "no transcript" for Cursor agents rather than guessing.
 
 ### What's parseable (the headless path — implemented, not wired)
 
@@ -193,7 +193,7 @@ the workspace are auto-applied in the default posture and do not raise this menu
 the command case is the representative approval shape.)*
 
 **Workspace-trust prompt — a 1-time manual step, not a launch blocker.** A fresh
-warden worktree is an untrusted directory, so the *interactive* launch shows a one-time
+warden workspace is an untrusted directory, so the *interactive* launch shows a one-time
 box:
 
 ```
@@ -318,9 +318,9 @@ reachable, not flatten them away. Future enhancements should surface, not suppre
 
 Two of the superpowers above are now actually wired through warden, not just noted:
 
-- **Live model menu via `wd models`** — Cursor implements `agentbackend.ModelLister`
+- **Live model menu via `wd backend model`** — Cursor implements `agentbackend.ModelLister`
   (`ListModels` runs `cursor-agent --list-models` and parses the `<id> - <Display
-  Name>` lines down to ids), so `wd models --backend cursor` prints the account's live
+  Name>` lines down to ids), so `wd backend model --backend cursor` prints the account's live
   catalog — Composer, GPT-5.x/Codex, Claude Opus/Sonnet, Gemini, Grok, … — one id per
   line (`--json` for an array). These are the exact ids `--model` accepts (including
   parameterized forms like `claude-opus-4-8[context=1m,effort=high,fast=false]`). The

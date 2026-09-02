@@ -13,7 +13,7 @@ The fastest path is **prompt mode**: give a plain-English task and let warden ha
 
 ```sh
 warden start "review the auth module for security issues"
-# spawned agent-a1b2 (classifying…) — attach with `warden attach agent-a1b2`
+# spawned agent-a1b2 (classifying…) — attach with `warden agent attach agent-a1b2`
 ```
 
 What just happened:
@@ -27,10 +27,10 @@ Now watch and interact:
 ```sh
 warden ls                         # see it in the list
 warden status agent-a1b2          # full detail + event history
-warden tail agent-a1b2            # recent terminal output
+warden agent tail agent-a1b2            # recent terminal output
 warden send agent-a1b2 "also check the session cookie handling"
-warden attach agent-a1b2          # drop into its terminal (Ctrl-b d to detach)
-warden done agent-a1b2            # tear it down when finished
+warden agent attach agent-a1b2          # drop into its terminal (Ctrl-b d to detach)
+warden agent done agent-a1b2            # tear it down when finished
 ```
 
 That's the whole loop. Everything else is variations on it.
@@ -51,9 +51,9 @@ Status is driven by Claude Code lifecycle hooks plus the daemon's poller. You do
 ```sh
 warden start "find and fix the flaky test in the payments suite"
 warden ls
-warden tail <id>
+warden agent tail <id>
 warden send <id> "skip the integration tests for now"
-warden done <id>
+warden agent done <id>
 ```
 
 **Ticketed development (managed worktree):**
@@ -61,14 +61,14 @@ warden done <id>
 ```sh
 warden start PROJ-350 --type development     # worktree + branch
 warden status PROJ-350
-warden attach PROJ-350                       # jump in when needed
-warden done PROJ-350                          # guarded teardown
+warden agent attach PROJ-350                       # jump in when needed
+warden agent done PROJ-350                          # guarded teardown
 ```
 
 **Reviewing a PR:**
 
 ```sh
 warden start --type pr-review --pr 1234
-warden tail prreview-...
-warden done prreview-...
+warden agent tail prreview-...
+warden agent done prreview-...
 ```

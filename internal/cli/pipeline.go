@@ -36,13 +36,62 @@ func newPipelineCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "pipeline",
 		Short: "Define and run DAG pipelines of agent jobs",
+		Long: "Define and run DAG pipelines of agent jobs.\n\n" +
+			"Use validate locally before create; template list shows built-in starters;\n" +
+			"start/pause/resume/cancel control lifecycle; show lists per-job status and handoffs.",
 	}
-	cmd.AddCommand(newPipelineValidateCmd(), newPipelineCreateCmd(), newPipelineListTemplatesCmd(),
+	SetCommandHelpMetadata(cmd, "run", 20, "warden pipeline", "", NodeNamespace)
+
+	children := []*cobra.Command{
+		newPipelineValidateCmd(), newPipelineCreateCmd(), newPipelineTemplateCmd(),
 		newPipelineListCmd(), newPipelineShowCmd(),
 		newPipelineStartCmd(), newPipelinePauseCmd(), newPipelineResumeCmd(),
 		newPipelineCancelCmd(), newPipelineDeleteCmd(), newPipelineEmitCmd(),
-		newPipelineEditJobCmd(), newPipelineRetryCmd())
+		newPipelineEditJobCmd(), newPipelineRetryCmd(),
+	}
+	for i, child := range children {
+		SetCommandHelpMetadata(child, "run", (i+1)*10, "warden pipeline "+child.Name(), "", nodeKind(child))
+		cmd.AddCommand(child)
+	}
+	listTemplatesAlias := newPipelineListTemplatesCmd()
+	markCompatibilityChild(listTemplatesAlias, "warden pipeline template list")
+	cmd.AddCommand(listTemplatesAlias)
 	return cmd
+}
+
+func newPipelineTemplateCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "template",
+		Short: "Built-in pipeline templates",
+		Long:  "Built-in pipeline templates render via create --template and support placeholder substitution.",
+	}
+	SetCommandHelpMetadata(cmd, "run", 30, "warden pipeline template", "", NodeNamespace)
+	list := canonicalPipelineCommand(newPipelineListTemplatesCmd(), "list")
+	SetCommandHelpMetadata(list, "run", 10, "warden pipeline template list", "", NodeLeaf)
+	cmd.AddCommand(list)
+	return cmd
+}
+
+func canonicalPipelineCommand(cmd *cobra.Command, name string) *cobra.Command {
+	parts := strings.SplitN(cmd.Use, " ", 2)
+	legacyName := parts[0]
+	rewritePipelineHelpPaths(cmd, legacyName, name)
+	cmd.Use = name
+	if len(parts) == 2 {
+		cmd.Use += " " + parts[1]
+	}
+	cmd.Aliases = nil
+	return cmd
+}
+
+func rewritePipelineHelpPaths(cmd *cobra.Command, legacyName, canonicalName string) {
+	replacer := strings.NewReplacer(
+		"warden pipeline "+legacyName, "warden pipeline template "+canonicalName,
+		"wd pipeline "+legacyName, "wd pipeline template "+canonicalName,
+		"pipeline "+legacyName, "pipeline template "+canonicalName,
+	)
+	cmd.Long = replacer.Replace(cmd.Long)
+	cmd.Example = replacer.Replace(cmd.Example)
 }
 
 func newPipelineValidateCmd() *cobra.Command {
@@ -82,7 +131,7 @@ func newPipelineCreateCmd() *cobra.Command {
 			"template (--template). Templates render with placeholder substitution: --name\n" +
 			"fills {{NAME}} (default the template name), --repo fills {{REPO}} (default the\n" +
 			"current directory), and each remaining {{KEY}} is filled with --set KEY=VALUE.\n" +
-			"Run `warden pipeline list-templates` to see templates and their placeholders.",
+			"Run `warden pipeline template list` to see templates and their placeholders.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			file, _ := cmd.Flags().GetString("file")
@@ -115,7 +164,7 @@ func newPipelineCreateCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringP("file", "f", "", "path to the pipeline YAML spec")
-	cmd.Flags().String("template", "", "built-in template to render (see `pipeline list-templates`)")
+	cmd.Flags().String("template", "", "built-in template to render (see `pipeline template list`)")
 	cmd.Flags().String("name", "", "pipeline name — fills {{NAME}} (default: the template name)")
 	cmd.Flags().String("repo", "", "repo path — fills {{REPO}} (default: the current directory)")
 	cmd.Flags().StringArray("set", nil, "fill a template placeholder, KEY=VALUE (repeatable)")

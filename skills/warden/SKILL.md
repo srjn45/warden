@@ -50,16 +50,24 @@ The everyday verbs, so the common path needs no reference-file round-trip:
 | Task | CLI |
 |---|---|
 | list / triage | `warden ls` (`--json`, `--watch`) |
-| one agent's status / output | `warden status <id>` · `warden tail <id>` |
+| one agent's status / output | `warden status <id>` · `warden agent tail <id>` |
 | spawn from a prompt | `warden start "<prompt>"` (`--name`, `--model`, `--backend`) |
 | message an agent | `warden send <id> "<text>"` |
-| stop (full teardown, confirm first) | `warden stop <id>` |
-| finish, keep worktree | `warden done <id>` (`--create-pr`) |
+| stop (full teardown, confirm first) | `warden agent stop <id>` |
+| finish, keep worktree | `warden agent done <id>` (`--create-pr`) |
 | git lifecycle / checks | `wd commit` / `wd push` / `wd sync` / `wd check [name]` |
 | pipelines | `warden pipeline create -f spec.yaml` → `warden pipeline start/show <id>` |
 
 For anything beyond these, open the matching reference file — each carries the
 full CLI map next to the MCP tools.
+
+**Canonical paths.** Prefer namespace spellings in new work (`warden agent start`,
+`warden context set`, `warden inspect search`, `warden git commit`, …). The
+permanent shortcuts above (`ls`, `start`, `status`, `send`, `commit`, `push`,
+`sync`, `check`) remain supported. Every pre-redesign flat path still runs as a
+hidden alias — see `warden help --all` when a script or doc mentions an old name.
+Use `warden help <path…>` or `warden <cmd> --help` for discovery; never
+`warden agent help`.
 
 You put agents to work three ways, and warden also owns the deterministic plumbing
 around an agent (git, checks, snapshots, coordination):
@@ -107,7 +115,7 @@ OS and avoiding compaction spikes.
 |---|---|---|
 | **Plain agent** *(default)* | one self-contained task; OR several **independent** tasks (none needs another's result — just spawn several) | `spawn_agent` / `warden start "…"` |
 | **Pipeline** | **dependent stages** — sequential handoff (analyze→implement→review), fan-out→fan-in (parallel work → a synthesis/merge step), code flowing downstream, or anything to run **unattended** | MCP `create_pipeline`+`start_pipeline`, or `warden pipeline create -f spec.yaml` then `start` |
-| **ctx / msg** | ad-hoc coordination between otherwise-independent agents — a shared scratchpad, or one agent asking another a question | `ctx_*` / `send_message` MCP, or `warden ctx …` / `warden msg …` |
+| **ctx / msg** | ad-hoc coordination between otherwise-independent agents — a shared scratchpad, or one agent asking another a question | `ctx_*` / `send_message` MCP, or `warden context …` / `warden message …` |
 
 **Don't:** use a pipeline for a single task (use a plain agent); use plain agents +
 manual relay for a clear dependency chain (that's what a pipeline automates);
@@ -215,17 +223,17 @@ on input (automatic; generous cadences — a backstop, not a pacer).
 
 > ⚠️ **Unattended operation is inherently risky.** Always confirm the user
 > understands the kill switch before enabling. Workers never merge to `main`
-> directly. Every action is in `warden audit log`.
+> directly. Every action is in `warden inspect audit`.
 
 ### MCP tools
 
 | Tool | What it does | CLI equivalent |
 |---|---|---|
-| `set_autopilot { enabled: true, repo? }` | Enable autopilot **for one repo** (runs preflight); `repo` defaults to the daemon's working directory | `warden autopilot on [--repo <root>]` |
-| `set_autopilot { enabled: false, repo? }` | Disable autopilot for one repo — the kill switch | `warden autopilot off [--repo <root>]` |
+| `set_autopilot { enabled: true, repo? }` | Enable autopilot **for one repo** (runs preflight); `repo` defaults to the daemon's working directory | `warden autopilot enable [--repo <root>]` |
+| `set_autopilot { enabled: false, repo? }` | Disable autopilot for one repo — the kill switch | `warden autopilot disable [--repo <root>]` |
 | `autopilot_status` | Enabled repos + each run's state, manager id, task counts, tier, backoff | `warden autopilot status` |
 | `autopilot_complete` | **Manager-only.** Declare the caller's OWN run complete once `done_when` is verified — writes the in-place `status: complete` marker into the plan file, tears the manager down (workers keep running), retains the ledger. Idempotent | _(automatic; the manager calls it)_ |
-| `land { ticket: "<agent-or-branch>" }` | Land a worker branch into the integration branch | `warden land <agent-or-branch>` |
+| `land { ticket: "<agent-or-branch>" }` | Land a worker branch into the integration branch | `warden autopilot land <agent-or-branch>` |
 
 The switch is **per-repository**: enabling one repo does not touch others, and the
 enabled set is persisted so repos come back up across a daemon restart. Do not
@@ -252,7 +260,7 @@ keys (use dots, not slashes):
 ### Guardrails for autopilot operations
 
 - **Never enable autopilot without a plan file.** Run `warden autopilot init` first
-  to scaffold it; the preflight in `warden autopilot on` will surface a missing file.
+  to scaffold it; the preflight in `warden autopilot enable` will surface a missing file.
 - **Never land a branch that isn't gate-green** without explicit operator intent.
   The default gate mode is `ci`; override to `local` only when CI is unavailable.
 - **Ownership guard:** autopilot-owned agents (`run:<run_id>` tag) reject destructive

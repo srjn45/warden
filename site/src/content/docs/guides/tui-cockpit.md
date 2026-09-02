@@ -112,7 +112,7 @@ arrows alone (`↑` scrolls back up and re-enters the controls at the top):
 
 The navigation nests one level deep: **control tree → (`i`) agent info → (`e`) events**,
 and `esc` walks back out one level at a time (events → info → tree). Edits apply
-immediately via the daemon (the same paths as `warden approve`-policy and the
+immediately via the daemon (the same paths as `warden approval answer`-policy and the
 `set_force_compact` MCP tool), and the pane re-renders on the next poll so the shown
 values and event count stay live. `pgup`/`pgdn`/`g`/`G` scroll the field dump; `r`
 renames the agent.

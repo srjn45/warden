@@ -35,46 +35,184 @@ func newRootCmd() *cobra.Command {
 	root.SetVersionTemplate(currentBuildInfo().String() + "\n")
 	root.PersistentFlags().String("addr", "", "daemon address (overrides the addr config setting)")
 	root.PersistentFlags().String("config", "", "config file path (default ~/.warden/config.yaml)")
-	root.AddCommand(newDaemonCmd())
-	root.AddCommand(newConfigCmd())
-	root.AddCommand(newPresetCmd())
-	root.AddCommand(newPromptTemplateCmd())
-	root.AddCommand(newLibraryCmd())
-	root.AddCommand(newCostCmd())
-	root.AddCommand(newLsCmd(), newStatusCmd(), newDigestCmd(), newStatsCmd(), newInsightsCmd(), newSavingsCmd(), newSpendCmd())
-	root.AddCommand(newSearchCmd(), newHistoryCmd())
-	root.AddCommand(newAuditCmd())
-	root.AddCommand(newExportCmd(), newImportCmd())
-	root.AddCommand(newStartCmd(), newForkCmd(), newStopCmd(), newTerminateCmd(), newDeleteCmd(), newRemoveWorktreeCmd(), newDoneCmd(), newRestoreCmd(), newAttachCmd(), newAdoptCmd(), newRecoverCmd())
-	root.AddCommand(newWorktreeCmd(), newPruneCmd())
-	root.AddCommand(newSendCmd(), newTailCmd())
-	root.AddCommand(newCommitCmd(), newPushCmd(), newSyncCmd(), newCheckCmd(), newReviewCmd(), newModelsCmd())
-	root.AddCommand(newBackendsCmd())
-	root.AddCommand(newUsageCmd())
-	root.AddCommand(newMemoryCmd())
-	root.AddCommand(newSnapshotCmd())
-	root.AddCommand(newPluginCmd())
-	root.AddCommand(newApprovalsCmd(), newApproveCmd(), newAutoApproveCmd(), newForceCompactCmd(), newSetPermissionModeCmd(), newSetRoleCmd(), newRoleCmd(), newRotateCmd(), newHandoffCmd(), newSwitchCmd())
-	root.AddCommand(newTokenCmd())
-	root.AddCommand(newHookCmd())
-	root.AddCommand(newCtxCmd())
-	root.AddCommand(newMsgCmd())
-	root.AddCommand(newCollabCmd())
-	root.AddCommand(newBranchesCmd())
-	root.AddCommand(newPipelineCmd())
+	root.AddCommand(newAgentCmd())
+	root.AddCommand(newProjectCmd(), newWorkspaceCmd())
+	root.AddCommand(newBackendCmd())
+	root.AddCommand(newUsageNamespaceCmd())
+	root.AddCommand(newInspectCmd())
 	root.AddCommand(newScheduleCmd())
+	root.AddCommand(newConfigCmd())
+	root.AddCommand(newDaemonCmd())
+	costCmd := newCostCmd()
+	for _, child := range costCmd.Commands() {
+		markCompatibilityChild(child, "warden usage "+child.Name())
+	}
+	markCompatibilityCommand(costCmd, "warden cost")
+	root.AddCommand(costCmd)
+	lsCmd, statusCmd := newLsCmd(), newStatusCmd()
+	markPermanentAgentShortcut(lsCmd, "warden agent list")
+	markPermanentAgentShortcut(statusCmd, "warden agent status")
+	digestCmd := newDigestCmd()
+	markCompatibilityCommand(digestCmd, "warden agent digest")
+	root.AddCommand(lsCmd, statusCmd, digestCmd)
+	for _, legacy := range []struct {
+		cmd       *cobra.Command
+		canonical string
+	}{
+		{newStatsCmd(), "warden inspect resources"},
+		{newInsightsCmd(), "warden usage insights"},
+		{newSavingsCmd(), "warden usage savings"},
+		{newSpendCmd(), "warden usage spend"},
+	} {
+		markCompatibilityCommand(legacy.cmd, legacy.canonical)
+		root.AddCommand(legacy.cmd)
+	}
+	for _, legacy := range []struct {
+		cmd       *cobra.Command
+		canonical string
+	}{
+		{newSearchCmd(), "warden inspect search"},
+		{newHistoryCmd(), "warden inspect history"},
+		{newExportCmd(), "warden inspect export"},
+		{newImportCmd(), "warden inspect import"},
+	} {
+		markCompatibilityCommand(legacy.cmd, legacy.canonical)
+		root.AddCommand(legacy.cmd)
+	}
+	auditCmd := newAuditCmd()
+	markCompatibilityCommand(auditCmd, "warden inspect audit")
+	for _, child := range auditCmd.Commands() {
+		if child.Annotations == nil {
+			child.Annotations = map[string]string{}
+		}
+		child.Annotations[AnnotationCanonicalPath] = "warden inspect audit"
+	}
+	root.AddCommand(auditCmd)
+	repairCmd := newRepairCmd()
+	markCompatibilityCommand(repairCmd, "warden inspect repair")
+	root.AddCommand(repairCmd)
+	startCmd := newStartCmd()
+	markPermanentAgentShortcut(startCmd, "warden agent start")
+	root.AddCommand(startCmd)
+	for _, legacy := range []struct {
+		cmd       *cobra.Command
+		canonical string
+	}{
+		{newForkCmd(), "warden agent fork"}, {newStopCmd(), "warden agent stop"},
+		{newTerminateCmd(), "warden agent terminate"}, {newDeleteCmd(), "warden agent delete"},
+		{newRemoveWorktreeCmd(), "warden agent remove-worktree"}, {newDoneCmd(), "warden agent done"},
+		{newRestoreCmd(), "warden agent restore"}, {newAttachCmd(), "warden agent attach"},
+		{newAdoptCmd(), "warden agent adopt"}, {newRecoverCmd(), "warden agent recover"},
+	} {
+		markCompatibilityCommand(legacy.cmd, legacy.canonical)
+		root.AddCommand(legacy.cmd)
+	}
+	for _, legacy := range []struct {
+		cmd       *cobra.Command
+		canonical string
+		mark      func(*cobra.Command, string)
+	}{
+		{newMemoryCmd(), "warden project memory", markCompatibilityCommand},
+		{newPresetCmd(), "warden project preset", markCompatibilityCommand},
+		{newPromptTemplateCmd(), "warden project prompt-template", markCompatibilityCommand},
+		{newLibraryCmd(), "warden project library", func(cmd *cobra.Command, _ string) { markProjectLibraryCompatibility(cmd) }},
+		{newPluginCmd(), "warden project plugin", markCompatibilityCommand},
+		{newWorktreeCmd(), "warden workspace", markCompatibilityCommand},
+		{newPruneCmd(), "warden workspace prune", markCompatibilityCommand},
+		{newSnapshotCmd(), "warden workspace snapshot", markCompatibilityCommand},
+		{newBranchesCmd(), "warden workspace branches", markCompatibilityCommand},
+		{newCollabCmd(), "warden workspace", func(cmd *cobra.Command, _ string) { markWorkspaceCollabCompatibility(cmd) }},
+	} {
+		legacy.mark(legacy.cmd, legacy.canonical)
+		root.AddCommand(legacy.cmd)
+	}
+	sendCmd := newSendCmd()
+	markPermanentAgentShortcut(sendCmd, "warden agent send")
+	tailCmd := newTailCmd()
+	markCompatibilityCommand(tailCmd, "warden agent tail")
+	root.AddCommand(sendCmd, tailCmd)
+	root.AddCommand(newGitCmd(), newCheckNamespaceCmd())
+	commitCmd, pushCmd, syncCmd := newCommitCmd(), newPushCmd(), newSyncCmd()
+	markPermanentGitShortcut(commitCmd, "warden git commit")
+	markPermanentGitShortcut(pushCmd, "warden git push")
+	markPermanentGitShortcut(syncCmd, "warden git sync")
+	root.AddCommand(commitCmd, pushCmd, syncCmd)
+	reviewCmd := newReviewCmd()
+	markCompatibilityCommand(reviewCmd, "warden git review")
+	root.AddCommand(reviewCmd)
+	modelsCmd := newModelsCmd()
+	markCompatibilityCommand(modelsCmd, "warden backend model")
+	backendsCmd := newBackendsCmd()
+	markCompatibilityCommand(backendsCmd, "warden backend")
+	root.AddCommand(modelsCmd, backendsCmd)
+	root.AddCommand(newContextCmd(), newMessageCmd(), newApprovalCmd())
+	ctxCmd := newCtxCmd()
+	markCtxCompatibility(ctxCmd)
+	root.AddCommand(ctxCmd)
+	msgCmd := newMsgCmd()
+	markMsgCompatibility(msgCmd)
+	root.AddCommand(msgCmd)
+	approvalsCmd := newApprovalsCmd()
+	markApprovalsCompatibility(approvalsCmd)
+	approveCmd := newApproveCmd()
+	markApproveCompatibility(approveCmd)
+	autoApproveCmd := newAutoApproveCmd()
+	markAutoApproveCompatibility(autoApproveCmd)
+	root.AddCommand(approvalsCmd, approveCmd, autoApproveCmd)
+	for _, legacy := range []struct {
+		cmd       *cobra.Command
+		canonical string
+	}{
+		{newForceCompactCmd(), "warden agent compact set"},
+		{newSetPermissionModeCmd(), "warden agent permission-mode set"},
+		{newSetRoleCmd(), "warden agent role set"}, {newRoleCmd(), "warden agent role"},
+		{newRotateCmd(), "warden agent rotate"}, {newHandoffCmd(), "warden agent handoff"},
+		{newSwitchCmd(), "warden agent switch"},
+	} {
+		markCompatibilityCommand(legacy.cmd, legacy.canonical)
+		root.AddCommand(legacy.cmd)
+	}
+	tokenAlias := newTokenCmd()
+	markCompatibilityCommand(tokenAlias, "warden daemon token")
+	root.AddCommand(tokenAlias)
+	root.AddCommand(newHookCmd())
+	root.AddCommand(newPipelineCmd())
 	root.AddCommand(newAutopilotCmd())
-	root.AddCommand(newLandCmd())
-	root.AddCommand(newMCPCmd())
-	root.AddCommand(newTUICmd())
-	root.AddCommand(newReplCmd())
-	root.AddCommand(newLLMCmd())
-	root.AddCommand(newDoctorCmd())
-	root.AddCommand(newRepairCmd())
-	root.AddCommand(newSetupCmd())
-	root.AddCommand(newTutorialCmd())
+	landCmd := newLandCmd()
+	markCompatibilityCommand(landCmd, "warden autopilot land")
+	root.AddCommand(landCmd)
+	mcpAlias := newMCPCmd()
+	markCompatibilityCommand(mcpAlias, "warden daemon mcp")
+	root.AddCommand(mcpAlias)
+	tuiCmd := newTUICmd()
+	markEntryPoint(tuiCmd, 40)
+	root.AddCommand(tuiCmd)
+	replCmd := newReplCmd()
+	markCompatibilityCommand(replCmd, "warden backend repl")
+	llmCmd := newLLMCmd()
+	llmCmd.Hidden = true
+	SetCommandHelpMetadata(llmCmd, "observe", 150, "warden backend suggest", AliasCompatibility, NodeNamespace)
+	for _, child := range llmCmd.Commands() {
+		child.Hidden = true
+		SetCommandHelpMetadata(child, "observe", 150, "warden backend suggest", AliasCompatibility, nodeKind(child))
+	}
+	root.AddCommand(replCmd, llmCmd)
+	doctorCmd := newDoctorCmd()
+	markEntryPoint(doctorCmd, 30)
+	root.AddCommand(doctorCmd)
+	setupCmd := newSetupCmd()
+	markEntryPoint(setupCmd, 10)
+	root.AddCommand(setupCmd)
+	tutorialCmd := newTutorialCmd()
+	markEntryPoint(tutorialCmd, 20)
+	root.AddCommand(tutorialCmd)
 	root.AddCommand(newCompletionCmd())
-	root.AddCommand(newVersionCmd())
+	versionCmd := newVersionCmd()
+	markEntryPoint(versionCmd, 60)
+	root.AddCommand(versionCmd)
+	if err := installCommandHelp(root); err != nil {
+		panic(err)
+	}
 	root.Args = cobra.NoArgs
 	var rootTmuxNative bool
 	root.Flags().BoolVar(&rootTmuxNative, "tmux-native", false, "lay the cockpit out as a native tmux window in the current session instead of a nested tmux (auto-enabled when launched inside tmux; requires $TMUX)")

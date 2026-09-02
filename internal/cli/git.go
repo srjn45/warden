@@ -137,15 +137,15 @@ func newSyncCmd() *cobra.Command {
 	return cmd
 }
 
-func newCheckCmd() *cobra.Command {
+func newCheckRunCmd() *cobra.Command {
 	var asJSON bool
 	cmd := &cobra.Command{
-		Use:   "check [name]",
+		Use:   "run [name]",
 		Short: "Run the project's configured checks and report only failures",
 		Long: "Run the check command(s) declared in this project's .warden/check.yml and\n" +
 			"return a pass/fail summary — with captured output for the FAILING checks only,\n" +
 			"in place of the hundreds of lines a raw test run spills into the transcript.\n\n" +
-			"`wd check` runs every configured check; `wd check <name>` runs one (e.g. test,\n" +
+			"`wd check run` runs every configured check; `wd check run <name>` runs one (e.g. test,\n" +
 			"lint, build). Commands come from the project, so warden stays language-agnostic;\n" +
 			"a repo with no .warden/check.yml has nothing to run. Exits non-zero on failure.",
 		Args: cobra.MaximumNArgs(1),

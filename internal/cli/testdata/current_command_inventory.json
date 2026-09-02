@@ -1,0 +1,3585 @@
+[
+  {
+    "path": ".",
+    "use": "warden",
+    "runnable": true,
+    "local_flags": [
+      "addr",
+      "config",
+      "tmux-native"
+    ]
+  },
+  {
+    "path": "adopt",
+    "use": "adopt",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "dir",
+      "session-id"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "agent",
+    "use": "agent",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "agent adopt",
+    "use": "adopt",
+    "runnable": true,
+    "local_flags": [
+      "dir",
+      "session-id"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "agent attach",
+    "use": "attach \u003cTICKET\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "agent compact",
+    "use": "compact",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "agent compact set",
+    "use": "set \u003cagent-id\u003e \u003con|off|inherit\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "agent delete",
+    "use": "delete \u003cAGENT\u003e",
+    "runnable": true,
+    "local_flags": [
+      "hard"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "agent digest",
+    "use": "digest \u003cTICKET\u003e",
+    "runnable": true,
+    "local_flags": [
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "agent done",
+    "use": "done \u003cAGENT\u003e",
+    "runnable": true,
+    "local_flags": [
+      "base",
+      "create-pr",
+      "hard"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "agent fork",
+    "use": "fork \u003cagent\u003e [\"\u003cprompt\u003e\"]",
+    "runnable": true,
+    "local_flags": [
+      "force",
+      "model",
+      "name",
+      "permission-mode",
+      "type"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "agent handoff",
+    "use": "handoff",
+    "runnable": true,
+    "local_flags": [
+      "as",
+      "branch",
+      "confirm",
+      "force",
+      "name",
+      "repo",
+      "resume-file",
+      "resume-prompt",
+      "retire",
+      "to",
+      "type"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "agent list",
+    "use": "list",
+    "runnable": true,
+    "local_flags": [
+      "all",
+      "json",
+      "tag",
+      "watch"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "agent permission-mode",
+    "use": "permission-mode",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "agent permission-mode set",
+    "use": "set \u003cagent-id\u003e \u003cmode\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "agent recover",
+    "use": "recover",
+    "runnable": true,
+    "local_flags": [
+      "apply",
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "agent remove-worktree",
+    "use": "remove-worktree \u003cAGENT\u003e",
+    "runnable": true,
+    "local_flags": [
+      "delete-adopted-branch",
+      "force",
+      "yes"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "agent restore",
+    "use": "restore \u003cTICKET\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "agent role",
+    "use": "role",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "agent role list",
+    "use": "list",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "agent role set",
+    "use": "set \u003cagent-id\u003e \u003crole\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "agent role set-tier",
+    "use": "set-tier \u003crole\u003e \u003ctier\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "agent role tier",
+    "use": "tier",
+    "runnable": true,
+    "local_flags": [
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "agent role tier list",
+    "use": "list",
+    "aliases": [
+      "ls"
+    ],
+    "runnable": true,
+    "local_flags": [
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "agent rotate",
+    "use": "rotate",
+    "runnable": true,
+    "local_flags": [
+      "confirm",
+      "resume-file",
+      "resume-prompt"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "agent send",
+    "use": "send \u003cTICKET\u003e \u003cmessage...\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "agent start",
+    "use": "start --role \u003cROLE\u003e [TICKET|\"\u003cprompt\u003e\"] [--type \u003cTYPE\u003e] [--dir \u003cPATH\u003e] [--backend \u003cID\u003e]",
+    "runnable": true,
+    "local_flags": [
+      "auto-restart",
+      "backend",
+      "branch",
+      "dir",
+      "force",
+      "fork-from",
+      "in-repo",
+      "kind",
+      "model",
+      "name",
+      "permission-mode",
+      "pr",
+      "preset",
+      "prompt-template",
+      "repo",
+      "role",
+      "set",
+      "supervised",
+      "tags",
+      "task",
+      "tier",
+      "type",
+      "worktree"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "agent status",
+    "use": "status \u003cTICKET\u003e",
+    "runnable": true,
+    "local_flags": [
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "agent stop",
+    "use": "stop \u003cAGENT\u003e",
+    "runnable": true,
+    "local_flags": [
+      "base",
+      "delete-adopted-branch",
+      "force",
+      "hard",
+      "keep-record",
+      "keep-worktree",
+      "pr",
+      "yes"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "agent switch",
+    "use": "switch [agent-id]",
+    "runnable": true,
+    "local_flags": [
+      "backend",
+      "json",
+      "model",
+      "prompt",
+      "reason",
+      "role",
+      "tier"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "agent tail",
+    "use": "tail \u003cTICKET\u003e",
+    "runnable": true,
+    "local_flags": [
+      "lines"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "agent terminate",
+    "use": "terminate \u003cAGENT\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "approval",
+    "use": "approval",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "approval answer",
+    "use": "answer \u003cTICKET\u003e \u003coption\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "approval auto",
+    "use": "auto",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "approval auto allow",
+    "use": "allow",
+    "runnable": true,
+    "local_flags": [
+      "agent",
+      "paths",
+      "pattern",
+      "regex",
+      "tool"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "approval auto clear",
+    "use": "clear",
+    "runnable": true,
+    "local_flags": [
+      "agent"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "approval auto deny",
+    "use": "deny",
+    "runnable": true,
+    "local_flags": [
+      "agent",
+      "paths",
+      "pattern",
+      "regex",
+      "tool"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "approval auto disable",
+    "use": "disable",
+    "runnable": true,
+    "local_flags": [
+      "agent"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "approval auto enable",
+    "use": "enable",
+    "runnable": true,
+    "local_flags": [
+      "agent"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "approval auto rules",
+    "use": "rules",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "approval auto set",
+    "use": "set \u003cagent-id\u003e \u003con|off\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "approval list",
+    "use": "list",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "approvals",
+    "use": "approvals",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "approve",
+    "use": "approve \u003cTICKET\u003e \u003coption\u003e",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "attach",
+    "use": "attach \u003cTICKET\u003e",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "audit",
+    "use": "audit",
+    "hidden": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "audit log",
+    "use": "log",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "action",
+      "json",
+      "since",
+      "tail",
+      "target",
+      "until"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "auto-approve",
+    "use": "auto-approve \u003cagent-id\u003e \u003con|off\u003e",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "auto-approve allow",
+    "use": "allow",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "agent",
+      "paths",
+      "pattern",
+      "regex",
+      "tool"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "auto-approve clear",
+    "use": "clear",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "agent"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "auto-approve deny",
+    "use": "deny",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "agent",
+      "paths",
+      "pattern",
+      "regex",
+      "tool"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "auto-approve disable",
+    "use": "disable",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "agent"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "auto-approve enable",
+    "use": "enable",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "agent"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "auto-approve rules",
+    "use": "rules",
+    "aliases": [
+      "policy",
+      "show"
+    ],
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "autopilot",
+    "use": "autopilot",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "autopilot disable",
+    "use": "disable",
+    "runnable": true,
+    "local_flags": [
+      "repo"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "autopilot enable",
+    "use": "enable",
+    "runnable": true,
+    "local_flags": [
+      "repo"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "autopilot init",
+    "use": "init",
+    "runnable": true,
+    "local_flags": [
+      "name"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "autopilot land",
+    "use": "land \u003cagent-or-branch\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "autopilot list",
+    "use": "list",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "autopilot off",
+    "use": "off",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "repo"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "autopilot on",
+    "use": "on",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "repo"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "autopilot pause",
+    "use": "pause \u003crun-id-or-name\u003e",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "autopilot register",
+    "use": "register \u003cplan-file\u003e",
+    "runnable": true,
+    "local_flags": [
+      "name",
+      "repo"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "autopilot resume",
+    "use": "resume \u003crun-id-or-name\u003e",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "autopilot run",
+    "use": "run",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "autopilot run list",
+    "use": "list",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "autopilot run pause",
+    "use": "pause \u003crun-id-or-name\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "autopilot run resume",
+    "use": "resume \u003crun-id-or-name\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "autopilot run start",
+    "use": "start \u003crun-id-or-name\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "autopilot run stop",
+    "use": "stop \u003crun-id-or-name\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "autopilot run unregister",
+    "use": "unregister \u003crun-id-or-name\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "autopilot start",
+    "use": "start \u003crun-id-or-name\u003e",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "autopilot status",
+    "use": "status",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "autopilot stop",
+    "use": "stop \u003crun-id-or-name\u003e",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "autopilot unregister",
+    "use": "unregister \u003crun-id-or-name\u003e",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "backend",
+    "use": "backend",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "backend default",
+    "use": "default \u003cid\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "backend disable",
+    "use": "disable \u003cid\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "backend enable",
+    "use": "enable \u003cid\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "backend list",
+    "use": "list",
+    "aliases": [
+      "ls"
+    ],
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "backend model",
+    "use": "model",
+    "runnable": true,
+    "local_flags": [
+      "backend",
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "backend model list",
+    "use": "list",
+    "aliases": [
+      "ls"
+    ],
+    "runnable": true,
+    "local_flags": [
+      "backend",
+      "by-tier",
+      "json",
+      "tier"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "backend model tier",
+    "use": "tier \u003cbackend\u003e \u003cmodel\u003e \u003ctier\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "backend repl",
+    "use": "repl",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "backend rescan",
+    "use": "rescan",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "backend suggest",
+    "use": "suggest",
+    "runnable": true,
+    "local_flags": [
+      "free-gb",
+      "json",
+      "samples",
+      "total-gb"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "backend thinking-mode",
+    "use": "thinking-mode \u003cmode\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "backend tier",
+    "use": "tier \u003cid\u003e \u003ctier\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "backends",
+    "use": "backends",
+    "hidden": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "backends default",
+    "use": "default \u003cid\u003e",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "backends disable",
+    "use": "disable \u003cid\u003e",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "backends enable",
+    "use": "enable \u003cid\u003e",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "backends list",
+    "use": "list",
+    "aliases": [
+      "ls"
+    ],
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "backends rescan",
+    "use": "rescan",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "backends thinking-mode",
+    "use": "thinking-mode \u003cmode\u003e",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "backends tier",
+    "use": "tier \u003cid\u003e \u003ctier\u003e",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "branches",
+    "use": "branches",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "check",
+    "use": "check [name]",
+    "runnable": true,
+    "local_flags": [
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "check boundary",
+    "use": "boundary",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "check guard",
+    "use": "guard",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "check root-guard",
+    "use": "root-guard",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "check run",
+    "use": "run [name]",
+    "runnable": true,
+    "local_flags": [
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "collab",
+    "use": "collab",
+    "hidden": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "collab conflicts",
+    "use": "conflicts",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "collab who-is-editing",
+    "use": "who-is-editing \u003cfile\u003e",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "commit",
+    "use": "commit",
+    "runnable": true,
+    "local_flags": [
+      "json",
+      "message"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "completion",
+    "use": "completion",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "completion bash",
+    "use": "bash",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "completion fish",
+    "use": "fish",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "completion powershell",
+    "use": "powershell",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "completion zsh",
+    "use": "zsh",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "config",
+    "use": "config",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "config init",
+    "use": "init",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "config path",
+    "use": "path",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "context",
+    "use": "context",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "context append",
+    "use": "append \u003ckey\u003e [value]",
+    "runnable": true,
+    "local_flags": [
+      "as",
+      "file",
+      "sep",
+      "stdin"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "context cas",
+    "use": "cas \u003ckey\u003e [value]",
+    "runnable": true,
+    "local_flags": [
+      "as",
+      "expected",
+      "file",
+      "stdin"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "context delete",
+    "use": "delete \u003ckey\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "context get",
+    "use": "get \u003ckey\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "context list",
+    "use": "list [prefix]",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "context set",
+    "use": "set \u003ckey\u003e [value]",
+    "runnable": true,
+    "local_flags": [
+      "as",
+      "file",
+      "stdin"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "cost",
+    "use": "cost",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "cost savings",
+    "use": "savings",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "audit",
+      "benchmark",
+      "calibrate",
+      "calibrate-max",
+      "json",
+      "since"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "cost spend",
+    "use": "spend",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "by",
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "ctx",
+    "use": "ctx",
+    "hidden": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "ctx append",
+    "use": "append \u003ckey\u003e [value]",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "as",
+      "file",
+      "sep",
+      "stdin"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "ctx cas",
+    "use": "cas \u003ckey\u003e [value]",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "as",
+      "expected",
+      "file",
+      "stdin"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "ctx del",
+    "use": "del \u003ckey\u003e",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "ctx get",
+    "use": "get \u003ckey\u003e",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "ctx list",
+    "use": "list [prefix]",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "ctx set",
+    "use": "set \u003ckey\u003e [value]",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "as",
+      "file",
+      "stdin"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "daemon",
+    "use": "daemon",
+    "runnable": true,
+    "local_flags": [
+      "log-format",
+      "log-level"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "daemon mcp",
+    "use": "mcp",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "daemon token",
+    "use": "token",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "daemon token generate",
+    "use": "generate",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "daemon token rotate",
+    "use": "rotate",
+    "runnable": true,
+    "local_flags": [
+      "no-restart"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "daemon token show",
+    "use": "show",
+    "runnable": true,
+    "local_flags": [
+      "readonly"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "delete",
+    "use": "delete \u003cAGENT\u003e",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "hard"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "digest",
+    "use": "digest \u003cTICKET\u003e",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "doctor",
+    "use": "doctor",
+    "runnable": true,
+    "local_flags": [
+      "sessions"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "done",
+    "use": "done \u003cAGENT\u003e",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "base",
+      "create-pr",
+      "hard"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "export",
+    "use": "export",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "all"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "force-compact",
+    "use": "force-compact \u003cagent-id\u003e \u003con|off|inherit\u003e",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "fork",
+    "use": "fork \u003cagent\u003e [\"\u003cprompt\u003e\"]",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "force",
+      "model",
+      "name",
+      "permission-mode",
+      "type"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "git",
+    "use": "git",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "git commit",
+    "use": "commit",
+    "runnable": true,
+    "local_flags": [
+      "json",
+      "message"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "git guard",
+    "use": "guard",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "git push",
+    "use": "push",
+    "runnable": true,
+    "local_flags": [
+      "force-with-lease",
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "git review",
+    "use": "review",
+    "runnable": true,
+    "local_flags": [
+      "backend",
+      "base",
+      "json",
+      "prompt"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "git sync",
+    "use": "sync",
+    "runnable": true,
+    "local_flags": [
+      "base",
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "handoff",
+    "use": "handoff",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "as",
+      "branch",
+      "confirm",
+      "force",
+      "name",
+      "repo",
+      "resume-file",
+      "resume-prompt",
+      "retire",
+      "to",
+      "type"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "history",
+    "use": "history",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "json",
+      "limit",
+      "since",
+      "type"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "hook",
+    "use": "hook",
+    "hidden": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "hook check-guard",
+    "use": "check-guard",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "hook git-guard",
+    "use": "git-guard",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "hook guard",
+    "use": "guard",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "hook root-guard",
+    "use": "root-guard",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "import",
+    "use": "import",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "json",
+      "merge"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "insights",
+    "use": "insights",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "json",
+      "limit",
+      "session",
+      "since"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "inspect",
+    "use": "inspect",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "inspect audit",
+    "use": "audit",
+    "runnable": true,
+    "local_flags": [
+      "action",
+      "json",
+      "since",
+      "tail",
+      "target",
+      "until"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "inspect export",
+    "use": "export",
+    "runnable": true,
+    "local_flags": [
+      "all"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "inspect history",
+    "use": "history",
+    "runnable": true,
+    "local_flags": [
+      "json",
+      "limit",
+      "since",
+      "type"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "inspect import",
+    "use": "import",
+    "runnable": true,
+    "local_flags": [
+      "json",
+      "merge"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "inspect repair",
+    "use": "repair",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "inspect repair sessions",
+    "use": "sessions",
+    "runnable": true,
+    "local_flags": [
+      "apply",
+      "backup",
+      "dry-run",
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "inspect resources",
+    "use": "resources",
+    "runnable": true,
+    "local_flags": [
+      "agent",
+      "history",
+      "json",
+      "watch"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "inspect search",
+    "use": "search \u003cQUERY...\u003e",
+    "runnable": true,
+    "local_flags": [
+      "closed",
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "land",
+    "use": "land \u003cagent-or-branch\u003e",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "library",
+    "use": "library",
+    "aliases": [
+      "lib"
+    ],
+    "hidden": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "library list",
+    "use": "list",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "library save-preset",
+    "use": "save-preset \u003cname\u003e [spawn flags]",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "auto-restart",
+      "in-repo",
+      "model",
+      "permission-mode",
+      "supervised",
+      "type",
+      "worktree"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "library save-prompt",
+    "use": "save-prompt \u003cname\u003e --prompt \"\u003cbody with {{VAR}} placeholders\u003e\"",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "prompt"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "llm",
+    "use": "llm",
+    "hidden": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "llm suggest",
+    "use": "suggest",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "free-gb",
+      "json",
+      "samples",
+      "total-gb"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "ls",
+    "use": "ls",
+    "runnable": true,
+    "local_flags": [
+      "all",
+      "json",
+      "tag",
+      "watch"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "mcp",
+    "use": "mcp",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "memory",
+    "use": "memory",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "edit",
+      "path",
+      "raw"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "message",
+    "use": "message",
+    "local_flags": [
+      "as"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "message inbox",
+    "use": "inbox",
+    "runnable": true,
+    "local_flags": [
+      "unread"
+    ],
+    "inherited_flags": [
+      "addr",
+      "as",
+      "config"
+    ]
+  },
+  {
+    "path": "message send",
+    "use": "send \u003cto\u003e \u003cmessage...\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "as",
+      "config"
+    ]
+  },
+  {
+    "path": "message wait",
+    "use": "wait",
+    "runnable": true,
+    "local_flags": [
+      "from",
+      "timeout"
+    ],
+    "inherited_flags": [
+      "addr",
+      "as",
+      "config"
+    ]
+  },
+  {
+    "path": "models",
+    "use": "models",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "backend",
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "models list",
+    "use": "list",
+    "aliases": [
+      "ls"
+    ],
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "backend",
+      "by-tier",
+      "json",
+      "tier"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "models tier",
+    "use": "tier \u003cbackend\u003e \u003cmodel\u003e \u003ctier\u003e",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "msg",
+    "use": "msg",
+    "hidden": true,
+    "local_flags": [
+      "as"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "msg inbox",
+    "use": "inbox",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "unread"
+    ],
+    "inherited_flags": [
+      "addr",
+      "as",
+      "config"
+    ]
+  },
+  {
+    "path": "msg send",
+    "use": "send \u003cto\u003e \u003cmessage...\u003e",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "as",
+      "config"
+    ]
+  },
+  {
+    "path": "msg wait",
+    "use": "wait",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "from",
+      "timeout"
+    ],
+    "inherited_flags": [
+      "addr",
+      "as",
+      "config"
+    ]
+  },
+  {
+    "path": "pipeline",
+    "use": "pipeline",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "pipeline cancel",
+    "use": "cancel \u003cpipeline\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "pipeline create",
+    "use": "create (-f \u003cspec.yaml\u003e | --template \u003cname\u003e)",
+    "runnable": true,
+    "local_flags": [
+      "file",
+      "name",
+      "repo",
+      "set",
+      "template"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "pipeline delete",
+    "use": "delete \u003cpipeline\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "pipeline edit-job",
+    "use": "edit-job \u003cpipeline\u003e \u003cjob\u003e",
+    "runnable": true,
+    "local_flags": [
+      "handoff",
+      "prompt"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "pipeline emit",
+    "use": "emit \u003ctext\u003e",
+    "runnable": true,
+    "local_flags": [
+      "job",
+      "pipeline"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "pipeline list",
+    "use": "list",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "pipeline list-templates",
+    "use": "list-templates",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "pipeline pause",
+    "use": "pause \u003cpipeline\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "pipeline resume",
+    "use": "resume \u003cpipeline\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "pipeline retry",
+    "use": "retry \u003cpipeline\u003e \u003cjob\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "pipeline show",
+    "use": "show \u003cpipeline\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "pipeline start",
+    "use": "start \u003cpipeline\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "pipeline template",
+    "use": "template",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "pipeline template list",
+    "use": "list",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "pipeline validate",
+    "use": "validate -f \u003cspec.yaml\u003e",
+    "runnable": true,
+    "local_flags": [
+      "file"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "plugin",
+    "use": "plugin",
+    "hidden": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "plugin list",
+    "use": "list",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "preset",
+    "use": "preset",
+    "hidden": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "preset list",
+    "use": "list",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "preset save",
+    "use": "save \u003cname\u003e [spawn flags]",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "auto-restart",
+      "in-repo",
+      "model",
+      "permission-mode",
+      "supervised",
+      "type",
+      "worktree"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "project",
+    "use": "project",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "project library",
+    "use": "library",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "project library list",
+    "use": "list",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "project library save-preset",
+    "use": "save-preset \u003cname\u003e [spawn flags]",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "auto-restart",
+      "in-repo",
+      "model",
+      "permission-mode",
+      "supervised",
+      "type",
+      "worktree"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "project library save-prompt",
+    "use": "save-prompt \u003cname\u003e --prompt \"\u003cbody with {{VAR}} placeholders\u003e\"",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "prompt"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "project memory",
+    "use": "memory",
+    "runnable": true,
+    "local_flags": [
+      "edit",
+      "path",
+      "raw"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "project plugin",
+    "use": "plugin",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "project plugin list",
+    "use": "list",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "project preset",
+    "use": "preset",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "project preset list",
+    "use": "list",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "project preset save",
+    "use": "save \u003cname\u003e [spawn flags]",
+    "runnable": true,
+    "local_flags": [
+      "auto-restart",
+      "in-repo",
+      "model",
+      "permission-mode",
+      "supervised",
+      "type",
+      "worktree"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "project prompt-template",
+    "use": "prompt-template",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "project prompt-template list",
+    "use": "list",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "project prompt-template save",
+    "use": "save \u003cname\u003e --prompt \"\u003cbody with {{VAR}} placeholders\u003e\"",
+    "runnable": true,
+    "local_flags": [
+      "prompt"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "prompt-template",
+    "use": "prompt-template",
+    "aliases": [
+      "prompt-templates",
+      "pt"
+    ],
+    "hidden": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "prompt-template list",
+    "use": "list",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "prompt-template save",
+    "use": "save \u003cname\u003e --prompt \"\u003cbody with {{VAR}} placeholders\u003e\"",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "prompt"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "prune",
+    "use": "prune",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "dry-run",
+      "force",
+      "include-archived",
+      "json",
+      "repo",
+      "yes"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "push",
+    "use": "push",
+    "runnable": true,
+    "local_flags": [
+      "force-with-lease",
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "recover",
+    "use": "recover",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "apply",
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "remove-worktree",
+    "use": "remove-worktree \u003cAGENT\u003e",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "delete-adopted-branch",
+      "force",
+      "yes"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "repair",
+    "use": "repair",
+    "hidden": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "repair sessions",
+    "use": "sessions",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "apply",
+      "backup",
+      "dry-run",
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "repl",
+    "use": "repl",
+    "aliases": [
+      "i",
+      "interactive"
+    ],
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "restore",
+    "use": "restore \u003cTICKET\u003e",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "review",
+    "use": "review",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "backend",
+      "base",
+      "json",
+      "prompt"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "role",
+    "use": "role",
+    "hidden": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "role list",
+    "use": "list",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "role set-tier",
+    "use": "set-tier \u003crole\u003e \u003ctier\u003e",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "role tier",
+    "use": "tier",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "role tier list",
+    "use": "list",
+    "aliases": [
+      "ls"
+    ],
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "rotate",
+    "use": "rotate",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "confirm",
+      "resume-file",
+      "resume-prompt"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "savings",
+    "use": "savings",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "audit",
+      "benchmark",
+      "calibrate",
+      "calibrate-max",
+      "json",
+      "since"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "schedule",
+    "use": "schedule",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "schedule create",
+    "use": "create \u003cname\u003e (--cron \u003cspec\u003e | --at \u003ctime\u003e) [--type \u003ct\u003e --repo \u003cp\u003e --prompt \u003cs\u003e | --pipeline \u003cspec.yaml\u003e]",
+    "runnable": true,
+    "local_flags": [
+      "agent",
+      "at",
+      "branch",
+      "cron",
+      "pipeline",
+      "prompt",
+      "repo",
+      "type"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "schedule delete",
+    "use": "delete \u003cid\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "schedule disable",
+    "use": "disable \u003cid\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "schedule enable",
+    "use": "enable \u003cid\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "schedule get",
+    "use": "get \u003cid\u003e",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "schedule list",
+    "use": "list",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "schedule show",
+    "use": "show \u003cid\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "search",
+    "use": "search \u003cQUERY...\u003e",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "closed",
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "send",
+    "use": "send \u003cTICKET\u003e \u003cmessage...\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "set-permission-mode",
+    "use": "set-permission-mode \u003cagent-id\u003e \u003cmode\u003e",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "set-role",
+    "use": "set-role \u003cagent-id\u003e \u003crole\u003e",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "setup",
+    "use": "setup",
+    "runnable": true,
+    "local_flags": [
+      "yes"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "snapshot",
+    "use": "snapshot",
+    "hidden": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "snapshot create",
+    "use": "create [name]",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "json",
+      "message"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "snapshot list",
+    "use": "list [name]",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "all",
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "snapshot restore",
+    "use": "restore \u003csnapshot-id\u003e",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "force",
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "spend",
+    "use": "spend",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "by",
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "start",
+    "use": "start --role \u003cROLE\u003e [TICKET|\"\u003cprompt\u003e\"] [--type \u003cTYPE\u003e] [--dir \u003cPATH\u003e] [--backend \u003cID\u003e]",
+    "runnable": true,
+    "local_flags": [
+      "auto-restart",
+      "backend",
+      "branch",
+      "dir",
+      "force",
+      "fork-from",
+      "in-repo",
+      "kind",
+      "model",
+      "name",
+      "permission-mode",
+      "pr",
+      "preset",
+      "prompt-template",
+      "repo",
+      "role",
+      "set",
+      "supervised",
+      "tags",
+      "task",
+      "tier",
+      "type",
+      "worktree"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "stats",
+    "use": "stats",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "agent",
+      "history",
+      "json",
+      "watch"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "status",
+    "use": "status \u003cTICKET\u003e",
+    "runnable": true,
+    "local_flags": [
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "stop",
+    "use": "stop \u003cAGENT\u003e",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "base",
+      "delete-adopted-branch",
+      "force",
+      "hard",
+      "keep-record",
+      "keep-worktree",
+      "pr",
+      "yes"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "switch",
+    "use": "switch [agent-id]",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "backend",
+      "json",
+      "model",
+      "prompt",
+      "reason",
+      "role",
+      "tier"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "sync",
+    "use": "sync",
+    "runnable": true,
+    "local_flags": [
+      "base",
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "tail",
+    "use": "tail \u003cTICKET\u003e",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "lines"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "terminate",
+    "use": "terminate \u003cAGENT\u003e",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "token",
+    "use": "token",
+    "hidden": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "token generate",
+    "use": "generate",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "token rotate",
+    "use": "rotate",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "no-restart"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "token show",
+    "use": "show",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "readonly"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "tui",
+    "use": "tui",
+    "runnable": true,
+    "local_flags": [
+      "agent",
+      "agent-pane",
+      "job",
+      "kill-window",
+      "pane",
+      "pipeline",
+      "rebuild-web-cockpit",
+      "terminal-pane",
+      "tmux-native"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "tutorial",
+    "use": "tutorial",
+    "runnable": true,
+    "local_flags": [
+      "reset",
+      "skip"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "usage",
+    "use": "usage",
+    "runnable": true,
+    "local_flags": [
+      "json",
+      "refresh"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "usage insights",
+    "use": "insights",
+    "runnable": true,
+    "local_flags": [
+      "json",
+      "limit",
+      "session",
+      "since"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "usage savings",
+    "use": "savings",
+    "runnable": true,
+    "local_flags": [
+      "audit",
+      "benchmark",
+      "calibrate",
+      "calibrate-max",
+      "json",
+      "since"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "usage spend",
+    "use": "spend",
+    "runnable": true,
+    "local_flags": [
+      "by",
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "version",
+    "use": "version",
+    "runnable": true,
+    "local_flags": [
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "workspace",
+    "use": "workspace",
+    "runnable": true,
+    "local_flags": [
+      "json",
+      "repo"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "workspace branches",
+    "use": "branches",
+    "runnable": true,
+    "local_flags": [
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "workspace conflicts",
+    "use": "conflicts",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "workspace list",
+    "use": "list",
+    "runnable": true,
+    "local_flags": [
+      "json",
+      "repo"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "workspace prune",
+    "use": "prune",
+    "runnable": true,
+    "local_flags": [
+      "dry-run",
+      "force",
+      "include-archived",
+      "json",
+      "repo",
+      "yes"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "workspace snapshot",
+    "use": "snapshot",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "workspace snapshot create",
+    "use": "create [name]",
+    "runnable": true,
+    "local_flags": [
+      "json",
+      "message"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "workspace snapshot list",
+    "use": "list [name]",
+    "runnable": true,
+    "local_flags": [
+      "all",
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "workspace snapshot restore",
+    "use": "restore \u003csnapshot-id\u003e",
+    "runnable": true,
+    "local_flags": [
+      "force",
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "workspace who-is-editing",
+    "use": "who-is-editing \u003cfile\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "worktree",
+    "use": "worktree",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "json",
+      "repo"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "worktree list",
+    "use": "list",
+    "aliases": [
+      "ls"
+    ],
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "json",
+      "repo"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "worktree prune",
+    "use": "prune",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "dry-run",
+      "force",
+      "include-archived",
+      "json",
+      "repo",
+      "yes"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  }
+]

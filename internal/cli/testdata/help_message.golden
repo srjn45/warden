@@ -1,0 +1,16 @@
+Send and receive directed messages between agents
+
+Usage:
+  warden message [flags]
+
+Commands:
+  send                 Send a message to an agent (wakes it if it's idle/waiting)
+  inbox                Show this agent's messages (marks them read)
+  wait                 Block until a message arrives (or timeout), then print it
+
+Flags:
+  -h, --help   help for message
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)

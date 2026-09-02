@@ -1,0 +1,306 @@
+Complete command tree:
+  warden agent                         Create, inspect, communicate with, and manage agents
+  warden agent list                    List all active agent sessions
+  warden agent start                   Spawn an agent — `start --role <ROLE> "<prompt>"` (auto-typed), `start --role <ROLE> --dir <path>` (interactive: open Claude & wait), or `start --role <ROLE> TICKET --type <TYPE>` (managed worktree)
+  warden agent status                  Show full status for one session
+  warden agent digest                  Summarize what an agent accomplished (files, branch, turns, narrative)
+  warden agent fork                    Fork an agent's session into a new managed agent (branches the conversation; the source keeps running)
+  warden agent restore                 Recreate and resume a lost/orphaned agent (claude --resume)
+  warden agent recover                 Revive archived agent records whose tmux session is still alive (dry run unless --apply)
+  warden agent adopt                   Register the Claude session in this directory (resume it under tmux, or register the current tmux session live)
+  warden agent attach                  Attach to the agent's tmux session
+  warden agent stop                    Tear down an agent — the single umbrella verb (default: terminate + clear record + remove worktree)
+  warden agent terminate               Stop an agent: kill its tmux+claude session (keeps the record and worktree) — alias for `stop --keep-record --keep-worktree`
+  warden agent done                    Terminate an agent and clear its record (does NOT remove the worktree) — alias for `stop --keep-worktree`
+  warden agent delete                  Clear an agent's stored record (archives by default; --hard to purge) — alias for `stop --keep-worktree` (record only)
+  warden agent remove-worktree         Remove an agent's git worktree + branch (always asks; --force overrides guards) — alias for `stop --keep-record` (worktree only)
+  warden agent send                    Type a message into an agent's claude session and press Enter
+  warden agent tail                    Print the recent output of an agent's claude session
+  warden agent handoff                 Hand off work: delegate to a new/existing agent (--to), or retire self into a successor (--retire)
+  warden agent rotate                  Retire this agent and hand its work to a fresh successor in the same workspace (alias for `handoff --retire`)
+  warden agent switch                  Hot-swap an agent session to a different backend, model, or tier mid-task
+  warden agent permission-mode         Manage an agent's permission mode
+  warden agent permission-mode set     Set the permission mode for an agent
+  warden agent role                    Inspect warden's built-in agent roles and tier mappings
+  warden agent role list               List the built-in agent roles and their descriptions
+  warden agent role set                Switch an agent's built-in role (relaunches to re-inject the persona)
+  warden agent role set-tier           Set the default model tier for an agent role (tier-1|tier-2|tier-3)
+  warden agent role tier               Inspect and manage role-to-tier mappings
+  warden agent role tier list          List agent roles and their default model tiers
+  warden agent compact                 Manage an agent's force-compact override
+  warden agent compact set             Override force-compact for one agent (interrupt → /compact → resume)
+  warden pipeline                      Define and run DAG pipelines of agent jobs
+  warden pipeline validate             Validate a pipeline YAML spec without creating it
+  warden pipeline create               Create a pipeline from a YAML spec or a built-in template
+  warden pipeline template             Built-in pipeline templates
+  warden pipeline template list        List the built-in pipeline templates and their placeholders
+  warden pipeline list                 List pipelines
+  warden pipeline show                 Show a pipeline's jobs and their status
+  warden pipeline start                Start a pipeline (spawns jobs with no dependencies)
+  warden pipeline pause                Pause a running pipeline (in-flight jobs finish; no new jobs spawn)
+  warden pipeline resume               Resume a paused pipeline (spawns jobs that became ready while paused)
+  warden pipeline cancel               Cancel a pipeline (terminates running jobs)
+  warden pipeline delete               Delete a pipeline's record (must not have live jobs — cancel first)
+  warden pipeline emit                 Publish this job's handoff (run from inside a pipeline job)
+  warden pipeline edit-job             Edit a pending job's prompt and/or handoff
+  warden pipeline retry                Re-run a failed or needs-attention job (reopens skipped descendants)
+  warden autopilot                     Turn autopilot mode on/off per repo and show its status
+  warden autopilot enable              Enable autopilot for this repo (runs the enable-time preflight)
+  warden autopilot disable             Disable autopilot for this repo (kill switch — stops spawning/landing)
+  warden autopilot status              Show autopilot status (which repos are enabled, and each run)
+  warden autopilot init                Scaffold autopilot adoption in the current repo
+  warden autopilot register            Register a named autopilot plan
+  warden autopilot land                Land an autopilot worker branch into the integration branch
+  warden autopilot run                 Manage registered autopilot runs
+  warden autopilot run list            List all registered autopilot runs
+  warden autopilot run start           start one autopilot run
+  warden autopilot run pause           pause one autopilot run
+  warden autopilot run resume          resume one autopilot run
+  warden autopilot run stop            stop one autopilot run
+  warden autopilot run unregister      unregister one autopilot run
+  warden schedule                      Schedule recurring (--cron) or single-shot (--at) agents and pipelines
+  warden schedule create               Create a schedule that fires an agent or a pipeline
+  warden schedule list                 List schedules
+  warden schedule show                 Show one schedule, including its last-run outcome
+  warden schedule enable               Enable a schedule so it fires again (re-arms next run)
+  warden schedule disable              Disable a schedule so it stops firing (history preserved)
+  warden schedule delete               Delete a schedule
+  warden project                       Manage repo-local warden configuration: memory, presets, templates, and plugins
+  warden project memory                Show or edit this repo's warden project memory (.warden/memory.md)
+  warden project preset                Save and list named spawn configs (replay with `warden start --preset <name>`)
+  warden project preset list           List saved presets and their defaults
+  warden project preset save           Save the given spawn flags as a named preset
+  warden project prompt-template       Save and list reusable, variabled prompt templates (fill with `warden start --prompt-template <name> --set VAR=value`)
+  warden project prompt-template list  List saved prompt templates and their variables
+  warden project prompt-template save  Save a named prompt template with {{VAR}} placeholders
+  warden project library               Browse saved spawn presets, prompt templates, and pipeline templates in one place
+  warden project library list          List saved spawn presets and built-in pipeline templates
+  warden project plugin                Inspect warden's plugin system (#47): custom task types + lifecycle hooks
+  warden project plugin list           List registered plugins, their custom task types, and subscribed hook events
+  warden workspace                     Inspect and manage warden git worktrees, snapshots, branches, and file collisions
+  warden workspace list                List warden worktrees under .worktrees, joined to active/archived records
+  warden workspace prune               Reclaim orphaned warden worktrees under .worktrees (always asks; --force overrides guards)
+  warden workspace snapshot            Checkpoint an agent's worktree + transcript, list checkpoints, and restore one
+  warden workspace snapshot create     Capture the worktree state + transcript of an agent (defaults to the current one)
+  warden workspace snapshot list       List snapshots for an agent (newest first); --all for every session
+  warden workspace snapshot restore    Re-apply a snapshot onto its recorded worktree (refuses a dirty tree unless --force)
+  warden workspace branches            Per-agent CI + branch-vs-main status
+  warden workspace conflicts           List files currently being edited by more than one agent
+  warden workspace who-is-editing      Show which agents are editing a specific file
+  warden git                           Commit, push, sync, and review an agent worktree on warden rails
+  warden git commit                    Stage and commit the worktree (warden rails + hooks + bookkeeping)
+  warden git push                      Push the current branch to origin (warden rails + bookkeeping)
+  warden git sync                      Fetch and rebase the current branch onto its base (warden conflict detect)
+  warden git review                    Run the agent backend's native diff review on the worktree
+  warden check                         Run project checks and install hook guards
+  warden check run                     Run the project's configured checks and report only failures
+  warden context                       Read and write the shared context (a namespaced key/value store agents share)
+  warden context set                   Set a context key (value inline, or --file / --stdin)
+  warden context cas                   Set a key only if its current value matches --expected (atomic compare-and-set)
+  warden context append                Atomically append to a key's value (creates it if absent)
+  warden context get                   Print the value at a context key
+  warden context list                  List context keys (optionally filtered by prefix)
+  warden context delete                Delete a context key
+  warden message                       Send and receive directed messages between agents
+  warden message send                  Send a message to an agent (wakes it if it's idle/waiting)
+  warden message inbox                 Show this agent's messages (marks them read)
+  warden message wait                  Block until a message arrives (or timeout), then print it
+  warden approval                      Manage tool-permission prompts and auto-approve policy
+  warden approval list                 List pending tool-permission prompts waiting for an answer
+  warden approval answer               Answer a pending tool-permission prompt by option number
+  warden approval auto                 Toggle per-agent auto-approve and manage the rule policy
+  warden approval auto set             Toggle per-agent auto-approve participation
+  warden approval auto rules           Show the live auto-approve policy (default rules + per-agent overrides)
+  warden approval auto allow           Append an allow rule to the auto-approve policy
+  warden approval auto deny            Append an deny rule to the auto-approve policy
+  warden approval auto clear           Clear auto-approve rules (default, or a per-agent override with --agent)
+  warden approval auto enable          Enable the auto-approve policy (global, or per-agent with --agent)
+  warden approval auto disable         Disable the auto-approve policy (global, or per-agent with --agent)
+  warden inspect                       Search, audit, export, repair, and measure warden's fleet and resources
+  warden inspect resources             Show warden's resource footprint (per-agent memory/CPU, system pressure, daemon stats)
+  warden inspect search                Full-text search agents by subject, prompt, type, name, branch, or pane text
+  warden inspect history               Browse archived (closed) agents, newest first
+  warden inspect audit                 Show recent audited actions, newest last
+  warden inspect export                Serialize agent session metadata to JSON on stdout
+  warden inspect import                Insert agent session metadata from a JSON dump on stdin
+  warden inspect repair                Offline, backup-first repair tools
+  warden inspect repair sessions       Diagnose or reconstruct the offline session store
+  warden backend                       Inspect and manage the agent-backend registry
+  warden backend default               Set the default backend (rejects the reserved local row)
+  warden backend disable               Disable a backend so it is no longer used
+  warden backend enable                Enable a backend so it may be used
+  warden backend list                  List detected backends (installed, tier, default, enabled, limited)
+  warden backend rescan                Re-detect installed backend CLIs and print the updated table
+  warden backend thinking-mode         Set the internal-thinking routing mode (local_only|free_plus_local)
+  warden backend tier                  Set a backend's billing tier (free|subscription|pay_per_use|unclassified)
+  warden backend model                 Inspect and manage model catalog and live model menus
+  warden backend model list            List models in the catalog and their assigned tiers
+  warden backend model tier            Set a model's tier classification (tier-1|tier-2|tier-3)
+  warden backend suggest               Recommend local models for the REPL, sized to this machine's memory
+  warden backend repl                  Interactive REPL for agents, pipelines, and the git/check lifecycle (local LLM + `/` commands).
+  warden usage                         Show provider usage for subscription backends
+  warden usage spend                   Show measured Claude spend in dollars, per agent / repo / day
+  warden usage savings                 Show the token reductions warden's lifecycle features have earned
+  warden usage insights                Mine agent history for patterns and parallelization suggestions
+  warden config                        Show the resolved configuration (and its file path)
+  warden config path                   Print the resolved config file path
+  warden config init                   Create the config file (or migrate it, adding any missing keys and upgrading deprecated flat keys to namespaced blocks)
+  warden daemon                        Run the warden hub (HTTP API + poller; the single writer to the file store)
+  warden daemon mcp                    Run the MCP stdio server so an orchestrator Claude can manage agents
+  warden daemon token                  Manage the daemon's remote-access bearer token
+  warden daemon token generate         Generate a random bearer token for remote (non-loopback) access
+  warden daemon token show             Print the current bearer token (for pasting into a remote client)
+  warden daemon token rotate           Generate a new bearer token, persist it, and restart the daemon
+  warden completion                    Generate shell completion scripts
+  warden completion bash               Generate bash completion script
+  warden completion zsh                Generate zsh completion script
+  warden completion fish               Generate fish completion script
+  warden completion powershell         Generate PowerShell completion script
+  warden setup                         Install missing dependencies (tmux, git, claude; optional gh, ollama)
+  warden tutorial                      Run the first-run guided walkthrough of warden's core loop
+  warden doctor                        Run preflight checks (required binaries, daemon, data dir, configured local model)
+  warden tui                           Live terminal cockpit for agents
+  warden version                       Print warden version and build information
+  warden start                         Spawn an agent — `start --role <ROLE> "<prompt>"` (auto-typed), `start --role <ROLE> --dir <path>` (interactive: open Claude & wait), or `start --role <ROLE> TICKET --type <TYPE>` (managed worktree)
+  warden ls                            List all active agent sessions
+  warden status                        Show full status for one session
+  warden send                          Type a message into an agent's claude session and press Enter
+  warden commit                        Stage and commit the worktree (warden rails + hooks + bookkeeping)
+  warden push                          Push the current branch to origin (warden rails + bookkeeping)
+  warden sync                          Fetch and rebase the current branch onto its base (warden conflict detect)
+
+Compatibility aliases:
+  warden adopt -> warden agent adopt (compatibility)
+  warden agent role tier ls -> warden agent role tier list (compatibility)
+  warden approvals -> warden approval list (compatibility)
+  warden approve -> warden approval answer (compatibility)
+  warden attach -> warden agent attach (compatibility)
+  warden audit -> warden inspect audit (compatibility)
+  warden audit log -> warden inspect audit (compatibility)
+  warden auto-approve -> warden approval auto set (compatibility)
+  warden auto-approve allow -> warden approval auto allow (compatibility)
+  warden auto-approve clear -> warden approval auto clear (compatibility)
+  warden auto-approve deny -> warden approval auto deny (compatibility)
+  warden auto-approve disable -> warden approval auto disable (compatibility)
+  warden auto-approve enable -> warden approval auto enable (compatibility)
+  warden auto-approve policy -> warden approval auto rules (compatibility)
+  warden auto-approve rules -> warden approval auto rules (compatibility)
+  warden auto-approve show -> warden approval auto rules (compatibility)
+  warden autopilot list -> warden autopilot run list (compatibility)
+  warden autopilot off -> warden autopilot disable (compatibility)
+  warden autopilot on -> warden autopilot enable (compatibility)
+  warden autopilot pause -> warden autopilot run pause (compatibility)
+  warden autopilot resume -> warden autopilot run resume (compatibility)
+  warden autopilot start -> warden autopilot run start (compatibility)
+  warden autopilot stop -> warden autopilot run stop (compatibility)
+  warden autopilot unregister -> warden autopilot run unregister (compatibility)
+  warden backend ls -> warden backend list (compatibility)
+  warden backend model ls -> warden backend model list (compatibility)
+  warden backends -> warden backend (compatibility)
+  warden backends default -> warden backend default (compatibility)
+  warden backends disable -> warden backend disable (compatibility)
+  warden backends enable -> warden backend enable (compatibility)
+  warden backends list -> warden backend list (compatibility)
+  warden backends ls -> warden backend list (compatibility)
+  warden backends rescan -> warden backend rescan (compatibility)
+  warden backends thinking-mode -> warden backend thinking-mode (compatibility)
+  warden backends tier -> warden backend tier (compatibility)
+  warden branches -> warden workspace branches (compatibility)
+  warden collab -> warden workspace (compatibility)
+  warden collab conflicts -> warden workspace conflicts (compatibility)
+  warden collab who-is-editing -> warden workspace who-is-editing (compatibility)
+  warden cost (compatibility; no canonical equivalent)
+  warden cost savings -> warden usage savings (compatibility)
+  warden cost spend -> warden usage spend (compatibility)
+  warden ctx -> warden context (compatibility)
+  warden ctx append -> warden context append (compatibility)
+  warden ctx cas -> warden context cas (compatibility)
+  warden ctx del -> warden context delete (compatibility)
+  warden ctx get -> warden context get (compatibility)
+  warden ctx list -> warden context list (compatibility)
+  warden ctx set -> warden context set (compatibility)
+  warden delete -> warden agent delete (compatibility)
+  warden digest -> warden agent digest (compatibility)
+  warden done -> warden agent done (compatibility)
+  warden export -> warden inspect export (compatibility)
+  warden force-compact -> warden agent compact set (compatibility)
+  warden fork -> warden agent fork (compatibility)
+  warden handoff -> warden agent handoff (compatibility)
+  warden history -> warden inspect history (compatibility)
+  warden hook check-guard -> warden check guard (compatibility)
+  warden hook git-guard -> warden git guard (compatibility)
+  warden hook guard -> warden check boundary (compatibility)
+  warden hook root-guard -> warden check root-guard (compatibility)
+  warden i -> warden backend repl (compatibility)
+  warden import -> warden inspect import (compatibility)
+  warden insights -> warden usage insights (compatibility)
+  warden interactive -> warden backend repl (compatibility)
+  warden land -> warden autopilot land (compatibility)
+  warden lib -> warden project library (compatibility)
+  warden library -> warden project library (compatibility)
+  warden library list -> warden project library list (compatibility)
+  warden library save-preset -> warden project preset save (compatibility)
+  warden library save-prompt -> warden project prompt-template save (compatibility)
+  warden llm -> warden backend suggest (compatibility)
+  warden llm suggest -> warden backend suggest (compatibility)
+  warden mcp -> warden daemon mcp (compatibility)
+  warden memory -> warden project memory (compatibility)
+  warden models -> warden backend model (compatibility)
+  warden models list -> warden backend model list (compatibility)
+  warden models ls -> warden backend model list (compatibility)
+  warden models tier -> warden backend model tier (compatibility)
+  warden msg -> warden message (compatibility)
+  warden msg inbox -> warden message inbox (compatibility)
+  warden msg send -> warden message send (compatibility)
+  warden msg wait -> warden message wait (compatibility)
+  warden pipeline list-templates -> warden pipeline template list (compatibility)
+  warden plugin -> warden project plugin (compatibility)
+  warden plugin list -> warden project plugin list (compatibility)
+  warden preset -> warden project preset (compatibility)
+  warden preset list -> warden project preset list (compatibility)
+  warden preset save -> warden project preset save (compatibility)
+  warden project library save-preset -> warden project preset save (compatibility)
+  warden project library save-prompt -> warden project prompt-template save (compatibility)
+  warden prompt-template -> warden project prompt-template (compatibility)
+  warden prompt-template list -> warden project prompt-template list (compatibility)
+  warden prompt-template save -> warden project prompt-template save (compatibility)
+  warden prompt-templates -> warden project prompt-template (compatibility)
+  warden prune -> warden workspace prune (compatibility)
+  warden pt -> warden project prompt-template (compatibility)
+  warden recover -> warden agent recover (compatibility)
+  warden remove-worktree -> warden agent remove-worktree (compatibility)
+  warden repair -> warden inspect repair (compatibility)
+  warden repair sessions -> warden inspect repair sessions (compatibility)
+  warden repl -> warden backend repl (compatibility)
+  warden restore -> warden agent restore (compatibility)
+  warden review -> warden git review (compatibility)
+  warden role -> warden agent role (compatibility)
+  warden role list -> warden agent role list (compatibility)
+  warden role set-tier -> warden agent role set-tier (compatibility)
+  warden role tier -> warden agent role tier (compatibility)
+  warden role tier list -> warden agent role tier list (compatibility)
+  warden role tier ls -> warden agent role tier list (compatibility)
+  warden rotate -> warden agent rotate (compatibility)
+  warden savings -> warden usage savings (compatibility)
+  warden schedule get -> warden schedule show (compatibility)
+  warden search -> warden inspect search (compatibility)
+  warden set-permission-mode -> warden agent permission-mode set (compatibility)
+  warden set-role -> warden agent role set (compatibility)
+  warden snapshot -> warden workspace snapshot (compatibility)
+  warden snapshot create -> warden workspace snapshot create (compatibility)
+  warden snapshot list -> warden workspace snapshot list (compatibility)
+  warden snapshot restore -> warden workspace snapshot restore (compatibility)
+  warden spend -> warden usage spend (compatibility)
+  warden stats -> warden inspect resources (compatibility)
+  warden stop -> warden agent stop (compatibility)
+  warden switch -> warden agent switch (compatibility)
+  warden tail -> warden agent tail (compatibility)
+  warden terminate -> warden agent terminate (compatibility)
+  warden token -> warden daemon token (compatibility)
+  warden token generate -> warden daemon token generate (compatibility)
+  warden token rotate -> warden daemon token rotate (compatibility)
+  warden token show -> warden daemon token show (compatibility)
+  warden worktree -> warden workspace (compatibility)
+  warden worktree list -> warden workspace list (compatibility)
+  warden worktree ls -> warden workspace list (compatibility)
+  warden worktree prune -> warden workspace prune (compatibility)

@@ -153,7 +153,7 @@ available to the agent and are candidates for deeper warden integration:
 - **MCP client** — Crush can itself consume MCP servers.
 - **Native cost & token accounting** — `session show --json` `meta` carries
   `cost`, `prompt_tokens`, `completion_tokens`, `total_tokens` per session; the
-  natural source for a future first-class warden spend wiring.
+  natural source for a future first-class warden usage spend wiring.
 - **`crush server` / host socket** — a server mode (`-H/--host`) that could back
   a richer programmatic integration than the CLI shell-out.
 - **`CRUSH.md` context files & config agents** — already the home warden uses to
@@ -164,6 +164,6 @@ available to the agent and are candidates for deeper warden integration:
 
 - Discover-then-pin the minted 16-hex session id (enables exact-id resume/show
   without the dir-scoped fallback; the adapter already prefers a pinned id).
-- Wire warden spend/savings to Crush's native `meta` cost/tokens.
+- Wire warden usage spend/savings to Crush's native `meta` cost/tokens.
 - Map interactive TUI approvals (`DetectState`/`ParseApproval`).
 - Richer programmatic TUI integration via `crush server` or a future prompt flag.

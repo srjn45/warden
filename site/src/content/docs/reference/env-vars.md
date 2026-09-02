@@ -23,9 +23,9 @@ plumbing, not configuration.
 
 | Variable | Default | Description |
 |---|---|---|
-| `WARDEN_TOKEN` | unset | Bearer token for remote (non-loopback) access — clients send it, the daemon requires it when bound off-loopback. Manage with `warden token`. See [Remote access](/warden/guides/remote-access/) |
-| `WARDEN_READONLY_TOKEN` | unset | Optional read-only bearer token: may read everything (GETs + the live event stream) but every write and the interactive attach return `403`. Only honored alongside `WARDEN_TOKEN`. Print it with `warden token show --readonly`. See [Remote access](/warden/guides/remote-access/) |
-| `ANTHROPIC_API_KEY` | unset | Used only by `warden savings --calibrate` to call Claude's `count_tokens` endpoint. Never printed; calibration is the only command that reads it |
+| `WARDEN_TOKEN` | unset | Bearer token for remote (non-loopback) access — clients send it, the daemon requires it when bound off-loopback. Manage with `warden daemon token`. See [Remote access](/warden/guides/remote-access/) |
+| `WARDEN_READONLY_TOKEN` | unset | Optional read-only bearer token: may read everything (GETs + the live event stream) but every write and the interactive attach return `403`. Only honored alongside `WARDEN_TOKEN`. Print it with `warden daemon token show --readonly`. See [Remote access](/warden/guides/remote-access/) |
+| `ANTHROPIC_API_KEY` | unset | Used only by `warden usage savings --calibrate` to call Claude's `count_tokens` endpoint. Never printed; calibration is the only command that reads it |
 
 ## Config-file settings
 
@@ -42,30 +42,30 @@ Common settings (run `warden config` for the complete, live list):
 | `notify.enabled` | `false` | macOS/libnotify desktop notifications when an agent needs attention |
 | `notify.webhook_enabled` / `notify.webhook_url` | `false` / _(empty)_ | POST notifications to a webhook (a Slack incoming-webhook URL works out of the box) |
 | `approvals` | `true` | The approvals inbox: parse recognized tool-permission prompts and surface them for one-click answers |
-| `auto_approve` | `false` | Auto-answer recognized prompts. Bare on/off, or an allow/deny rule policy (by tool / glob / regex / paths, with per-agent overrides); manage with `warden auto-approve` |
+| `auto_approve` | `false` | Auto-answer recognized prompts. Bare on/off, or an allow/deny rule policy (by tool / glob / regex / paths, with per-agent overrides); manage with `warden approval auto set` |
 | `auto_approve.max_repeats` | `10` | Circuit breaker: consecutive identical approvals allowed per agent before auto-approve halts and escalates to a human (`0` = default, negative = off) |
 | `http.timeout_fast` / `http.timeout_slow` | `30s` / `10m` | Daemon write budgets: fast bounds ordinary data/action routes; slow bounds lifecycle routes (spawn's worktree checkout, commit/push hooks, checks). Backstops against a wedged handler — keep generous, especially in large monorepos |
 | `tokens.guard` | `true` | Context-size guard master switch (gauge + alert + auto-compact) |
 | `tokens.warn_alert` | `true` | Fire a desktop notification once per upward crossing into warning/critical |
 | `tokens.auto_compact` | `true` | Auto-send `/compact` when an agent is `critical` and idle/waiting |
-| `tokens.force_compact` | `false` | Interrupt a `critical` **busy** agent, `/compact`, then resume it (destructive). Per-agent override via `warden force-compact` |
+| `tokens.force_compact` | `false` | Interrupt a `critical` **busy** agent, `/compact`, then resume it (destructive). Per-agent override via `warden agent compact set` |
 | `tokens.compact_resume_prompt` | _(built-in)_ | Resume message sent to a force-compacted agent once compaction lands |
 | `tokens.warn` | `200000` | Warning threshold in context tokens (inclusive) |
 | `tokens.critical` | `400000` | Critical threshold in context tokens (inclusive) — the auto-`/compact` band |
 | `local_llm.enabled` | `false` | Enable the local-LLM provider (REPL, commit-message/insights narration, classify/summarize offload) |
-| `backends.limit_retry` | `15m` | Go duration — how long the internal free/local **thinking router** skips a free CLI backend after a rate-limit / spend signal, before retrying it. Backend **tiers**, the **default**, **enabled** flags, and the **thinking mode** live in the [backend registry](/warden/guides/backend-registry/) store (`~/.warden/backends`), not this file — edit them with `warden backends …`, the web 🧩 panel, or the TUI |
-| `metrics` | `true` | Record per-agent performance history for `warden stats --history` |
+| `backends.limit_retry` | `15m` | Go duration — how long the internal free/local **thinking router** skips a free CLI backend after a rate-limit / spend signal, before retrying it. Backend **tiers**, the **default**, **enabled** flags, and the **thinking mode** live in the [backend registry](/warden/guides/backend-registry/) store (`~/.warden/backends`), not this file — edit them with `warden backend …`, the web 🧩 panel, or the TUI |
+| `metrics` | `true` | Record per-agent performance history for `warden inspect resources --history` |
 | `spawn_gate` / `spawn_gate_max_agents` | `true` / `0` | Memory-pressure spawn gate + concurrent-agent cap (0 = no cap). Blocks a spawn only at **critical** pressure or the agent cap; **warn** pressure is advisory (spawns proceed). |
 | `pipeline.keep_done` / `pipeline.hint` | — | Pipeline retention + the decomposition nudge |
 | `memory.inject` | `true` | Project the repo's curated `.warden/memory.md` into every spawned agent's system prompt (Claude → `--append-system-prompt`; other backends → their `AGENTS.md`/`CRUSH.md`/`.goosehints` warden block). Off, or an empty/absent file, is byte-identical to no injection. See [Project memory](/warden/concepts/project-memory/) |
 | `memory.curate` | `false` | Auto-propose durable memory entries from completion digests into `.warden/memory.md`. A debounced pass writes **`unverified`, timestamped, provenance-tagged** proposals to the **working tree only** — it never commits or pushes, so the committed diff is the human review gate. Proposals promote to `trusted` only on corroboration; contradictions supersede (tombstone) older entries; un-recorroborated entries age out; vanished paths are flagged stale. Prefers the `$0` local model, degrading to `claude -p` only where configured. Opt-in. See [Project memory](/warden/concepts/project-memory/) |
-| `savings` | `true` | Record the token-savings ledger (`warden savings`, `GET /api/v1/savings`) |
-| `savings_samples` | `false` | Retain raw-vs-kept provenance samples for `warden savings --audit` (may hold sensitive output) |
+| `savings` | `true` | Record the token-savings ledger (`warden usage savings`, `GET /api/v1/savings`) |
+| `savings_samples` | `false` | Retain raw-vs-kept provenance samples for `warden usage savings --audit` (may hold sensitive output) |
 | `scheduler_enabled` | `false` | Enable the native cron/at scheduler (`warden schedule`) |
-| `branch_track.enabled` | `false` | Enable the per-agent branch monitor (`warden branches`) |
+| `branch_track.enabled` | `false` | Enable the per-agent branch monitor (`warden workspace branches`) |
 | `branch_track.interval` | `2m` | Poll interval for the branch monitor |
-| `snapshots` | `true` | Enable the worktree+transcript checkpoint store (`warden snapshot`) |
-| `insights` | `true` | Enable history-mined insights (`warden insights`) |
+| `snapshots` | `true` | Enable the worktree+transcript checkpoint store (`warden workspace snapshot`) |
+| `insights` | `true` | Enable history-mined insights (`warden usage insights`) |
 | `tutorial` | `true` | Show the first-run walkthrough nudge (`warden tutorial`) |
 | `api_docs` | `true` | Serve the OpenAPI spec + Swagger UI at `/api/docs` |
 | `plugins.enabled` | `false` | Enable the plugin system. **Default off** — plugins run external code |

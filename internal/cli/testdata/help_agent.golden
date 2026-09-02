@@ -1,0 +1,40 @@
+Create, inspect, communicate with, and manage agents.
+
+Lifecycle commands deliberately remain distinct: terminate keeps the record and
+worktree; done clears the record but keeps the worktree; delete changes only the
+record; remove-worktree changes only the worktree; and stop composes teardown
+steps according to its keep flags and preserves its confirmation safeguards.
+
+Usage:
+  warden agent [flags]
+
+Commands:
+  list                 List all active agent sessions
+  start                Spawn an agent — `start --role <ROLE> "<prompt>"` (auto-typed), `start --role <ROLE> --dir <path>` (interactive: open Claude & wait), or `start --role <ROLE> TICKET --type <TYPE>` (managed worktree)
+  status               Show full status for one session
+  digest               Summarize what an agent accomplished (files, branch, turns, narrative)
+  fork                 Fork an agent's session into a new managed agent (branches the conversation; the source keeps running)
+  restore              Recreate and resume a lost/orphaned agent (claude --resume)
+  recover              Revive archived agent records whose tmux session is still alive (dry run unless --apply)
+  adopt                Register the Claude session in this directory (resume it under tmux, or register the current tmux session live)
+  attach               Attach to the agent's tmux session
+  stop                 Tear down an agent — the single umbrella verb (default: terminate + clear record + remove worktree)
+  terminate            Stop an agent: kill its tmux+claude session (keeps the record and worktree) — alias for `stop --keep-record --keep-worktree`
+  done                 Terminate an agent and clear its record (does NOT remove the worktree) — alias for `stop --keep-worktree`
+  delete               Clear an agent's stored record (archives by default; --hard to purge) — alias for `stop --keep-worktree` (record only)
+  remove-worktree      Remove an agent's git worktree + branch (always asks; --force overrides guards) — alias for `stop --keep-record` (worktree only)
+  send                 Type a message into an agent's claude session and press Enter
+  tail                 Print the recent output of an agent's claude session
+  handoff              Hand off work: delegate to a new/existing agent (--to), or retire self into a successor (--retire)
+  rotate               Retire this agent and hand its work to a fresh successor in the same workspace (alias for `handoff --retire`)
+  switch               Hot-swap an agent session to a different backend, model, or tier mid-task
+  permission-mode      Manage an agent's permission mode
+  role                 Inspect warden's built-in agent roles and tier mappings
+  compact              Manage an agent's force-compact override
+
+Flags:
+  -h, --help   help for agent
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)

@@ -141,7 +141,7 @@ its own git worktree, this resolution is unambiguous.
 | `PermissionModes`      | ✅    | `default`, `sandbox`, `dangerously-skip-permissions` (`agy`'s native posture flags). |
 | `SessionIDControl`     | ❌    | `agy` mints its own UUID conv-id; no flag to assign one at launch. |
 | `SystemPromptInject`   | ✅ via rules file | no `--append-system-prompt` equivalent on the launch command, but warden delivers the same addendum out-of-band via the `AGENTS.md` rules file `agy` reads on startup (`InjectContext`). The Caps flag stays `false` — it tracks the *launch flag* specifically. |
-| `Pricing`              | ❌    | Google-hosted free tier; tokens in `/usage` TUI, dollars not wired into warden spend. |
+| `Pricing`              | ❌    | Google-hosted free tier; tokens in `/usage` TUI, dollars not wired into warden usage spend. |
 
 ---
 
@@ -171,7 +171,7 @@ its own git worktree, this resolution is unambiguous.
   permission posture — `--dangerously-skip-permissions` raises no prompt, and the
   `agy -p` headless path is non-interactive.
 - **Workspace-trust prompt surfaced as an approval** — when `agy` launches in a
-  directory it has not trusted (every fresh warden worktree), it blocks on a
+  directory it has not trusted (every fresh warden workspace), it blocks on a
   `Do you trust the contents of this project?` prompt **before any model call**.
   `ParseApproval` normalizes it (the directory under question as the Action, the
   `Yes, I trust this folder` / `No, exit` options, sticky affirmative — trusting
@@ -232,7 +232,7 @@ reachable, not flatten them away. Future enhancements should surface, not suppre
 
 - **Multi-vendor model menu** — one agent can run Gemini, Claude, *and* GPT-OSS models
   (`agy models`) under a single hosted login; a natural fit for per-agent model
-  routing. **Surfaced (step 6 PR-C):** `wd models` exposes this live menu via the
+  routing. **Surfaced (step 6 PR-C):** `wd backend model` exposes this live menu via the
   additive `agentbackend.ModelLister` interface — the adapter runs `agy models` and
   normalizes its one-id-per-line stdout into the ids you pass to `--model` (e.g.
   `Gemini 3.5 Flash (Low)`, `Claude Opus 4.6 (Thinking)`). Listing is a metadata read,

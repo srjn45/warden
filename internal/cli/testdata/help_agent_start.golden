@@ -1,0 +1,60 @@
+Spawn an agent. --role is required (see 'warden role list'); there is no
+implicit fallback role.
+
+Free-form:   warden agent start --role <ROLE> "<prompt>" [--dir <path>]   (autonomous)
+Interactive: warden agent start --role <ROLE> --dir <path>                (opens the agent and waits)
+Managed:     warden agent start --role <ROLE> TICKET --type <TYPE>        (isolated worktree)
+
+The spawn's backend+model is resolved (top wins): an explicit --backend/--model
+pin > --tier (or --task, which derives a tier) routed through the quota-balanced
+resolver > the resolver routed by --role alone > warden's configured defaults.
+So --role on its own is always enough to spawn — --tier/--backend/--model are
+optional refinements, not additional requirements.
+
+Backends (--backend): warden drives Claude Code by default. Accepted values:
+  claude (default, stable), aider, opencode, codex, crush, goose, cursor, antigravity.
+Only claude is fully tested; codex and antigravity are beta, the rest experimental / WIP.
+Terminal (--kind terminal): not an AI agent — opens a plain interactive shell ($SHELL)
+in --dir, managed with the same worktree/git/tmux lifecycle as any agent. It is a
+session kind, not a backend, so --backend/--model/--role/prompt are ignored.
+Aider: BYO model (pass --model), no resume, runs a one-shot --message task.
+OpenCode: BYO model (pass --model), structured transcript, DOES resume.
+Codex: BYO provider (via ~/.codex/config.toml), DOES resume (dir-scoped).
+Crush: BYO model (config-driven TUI; --model for headless), DOES resume (dir-scoped); initial prompt auto-typed post-launch.
+Goose: BYO provider (GOOSE_PROVIDER/GOOSE_MODEL env), DOES resume (name-deterministic); no --model on session launch.
+Cursor: hosted model catalog; pass --model to override (cursor-agent --list-models / wd models); DOES resume (dir-scoped --continue); warden owns the worktree (cursor's own -w never passed).
+Antigravity: Google-hosted agy; defaults gemini-3.5-flash; pass --model (agy models / wd models); DOES resume (dir-scoped agy -c).
+All non-claude backends show tokens-only spend. Claude remains full-fidelity.
+
+Usage:
+  warden agent start --role <ROLE> [TICKET|"<prompt>"] [--type <TYPE>] [--dir <PATH>] [--backend <ID>] [flags]
+
+Flags:
+      --auto-restart                             auto-resume this agent if it crashes (errored), capped at a few attempts
+      --backend warden start --help              agent backend: claude (default, stable) | aider | opencode | codex | crush | goose | cursor | antigravity — only claude is fully tested; codex/antigravity are beta, the rest experimental. See warden start --help for per-backend notes
+      --branch string                            new branch (development) or checkout target (pr-review)
+      --dir string                               directory to launch the agent from (default: current directory)
+      --force                                    spawn even when the memory-pressure gate warns
+      --fork-from codex fork                     fork an existing agent's recorded session into this new managed agent (codex codex fork): branches the source's conversation in a fresh sibling worktree off its branch, carrying its uncommitted tracked changes; the source keeps running. Defaults --type to development; the fork inherits the source's repo+backend. See `warden fork` for the shorthand
+  -h, --help                                     help for start
+      --in-repo                                  write-agent opt-out: run in the shared repo instead of an isolated worktree (ignored for pr-review)
+      --kind string                              session kind: empty/agent (default) spawns an AI agent; terminal opens a plain interactive shell ($SHELL) in --dir (not an AI agent — --backend/--model/--role/prompt ignored)
+      --model string                             claude model: opus, sonnet, haiku, fable, or full model ID (default: the model_default config setting, i.e. sonnet)
+      --name string                              optional human-friendly name (max 32 chars, alphanumeric + hyphens/underscores)
+      --permission-mode string                   permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan (default: from config or 'auto')
+      --pr string                                PR number/url (pr-review)
+      --preset warden preset                     load saved spawn defaults from a named preset (see warden preset); explicit flags override
+      --prompt-template warden prompt-template   fill a saved prompt template (see warden prompt-template) as the spawn prompt; a positional prompt still wins
+      --repo string                              repo path (default: current directory)
+      --role warden role list                    REQUIRED — built-in agent role: general | orchestrator | planner | worker (legacy aliases implementer/auto-merger/reviewer resolve to worker). Injects the role's persona as a system-prompt addendum and applies its default flags. See warden role list
+      --set stringArray                          supply a prompt-template variable as VAR=value (repeatable, e.g. --set FILE=foo.go --set X=y)
+      --supervised                               alias for --permission-mode acceptEdits (kept for backwards compatibility)
+      --tags warden ls --tag                     comma-separated labels for grouping/filtering (e.g. --tags backend,urgent); searchable and filterable via warden ls --tag
+      --task string                              task name (task registry) used to derive the model tier when --tier is empty. Empty = none
+      --tier string                              model tier for the quota-balanced resolver that picks the backend+model: tier-1|tier-2|tier-3. Empty derives the tier from --task, then --role (--role is required, so this always has a role to derive from). An explicit --backend/--model still wins over the resolver
+      --type string                              task type: development|analysis|spike|pr-review|code|docs|website|debug-ci|tests|other
+      --worktree                                 create a scratch worktree for analysis/spike
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
