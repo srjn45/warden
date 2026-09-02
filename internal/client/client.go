@@ -1282,6 +1282,24 @@ func (c *Client) ControlAutopilotRun(ctx context.Context, runID, action string) 
 	return out, err
 }
 
+func (c *Client) RenameAutopilotRun(ctx context.Context, runID, name string) (AutopilotRunStatus, error) {
+	var out AutopilotRunStatus
+	err := c.doT(ctx, longTimeout, http.MethodPost, "/autopilot/runs/"+url.PathEscape(runID)+"/rename", map[string]string{"name": name}, &out)
+	return out, err
+}
+
+func (c *Client) RetargetAutopilotRun(ctx context.Context, runID, integrationBranch string, derive bool) (AutopilotRunStatus, error) {
+	body := map[string]any{}
+	if derive {
+		body["derive"] = true
+	} else {
+		body["integration_branch"] = integrationBranch
+	}
+	var out AutopilotRunStatus
+	err := c.doT(ctx, longTimeout, http.MethodPost, "/autopilot/runs/"+url.PathEscape(runID)+"/retarget", body, &out)
+	return out, err
+}
+
 type AutopilotPlanTask struct {
 	ID       string   `json:"id"`
 	Prompt   string   `json:"prompt"`

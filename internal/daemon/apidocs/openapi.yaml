@@ -2321,6 +2321,82 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
 
+  /api/v1/autopilot/runs/{run_id}/rename:
+    parameters:
+      - in: path
+        name: run_id
+        required: true
+        schema: { type: string }
+    post:
+      operationId: renameAutopilotRun
+      tags: [Autopilot]
+      summary: Rename a run's display name and slot scope
+      description: >
+        Updates the display name and derived slot scope without changing the
+        path-derived run_id. The integration branch is unchanged; retarget it
+        explicitly with renameAutopilotRunRetarget when ready.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AutopilotRenameRequest" }
+      responses:
+        "200":
+          description: Updated run
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AutopilotRun" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403":
+          description: Autopilot is not configured
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Illegal rename (active run or name conflict)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v1/autopilot/runs/{run_id}/retarget:
+    parameters:
+      - in: path
+        name: run_id
+        required: true
+        schema: { type: string }
+    post:
+      operationId: retargetAutopilotRun
+      tags: [Autopilot]
+      summary: Retarget a run's integration branch
+      description: >
+        Sets a new stored merge target explicitly or derives one from the run's
+        current display name. Open PRs on the previous branch are not migrated;
+        land rejects them with wrong_base until rebased or retargeted.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AutopilotRetargetRequest" }
+      responses:
+        "200":
+          description: Updated run
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AutopilotRun" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403":
+          description: Autopilot is not configured
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Illegal retarget (active run or branch conflict)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
   /api/v1/autopilot/land:
     post:
       operationId: landAutopilot
@@ -3881,6 +3957,25 @@ components:
         repo: { type: string }
         plan_file: { type: string }
       required: [name, repo, plan_file]
+
+    AutopilotRenameRequest:
+      type: object
+      properties:
+        name: { type: string, description: "new display name within the repository" }
+      required: [name]
+
+    AutopilotRetargetRequest:
+      type: object
+      properties:
+        integration_branch:
+          type: string
+          description: "explicit new merge target branch"
+        derive:
+          type: boolean
+          description: "re-derive from the run's current display name and global template"
+      description: >
+        Provide integration_branch or derive=true. Open PRs on the previous
+        branch are not migrated automatically.
 
     AutopilotRun:
       x-go-type: autopilot.RunStatus

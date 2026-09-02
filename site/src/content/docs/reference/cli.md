@@ -1275,6 +1275,8 @@ Commands:
   resume               resume one autopilot run
   stop                 stop one autopilot run
   unregister           unregister one autopilot run
+  rename               Rename a run's display name and slot scope
+  retarget             Retarget a run's integration branch
 
 Flags:
   -h, --help   help for run
@@ -1374,6 +1376,45 @@ Usage:
 
 Flags:
   -h, --help   help for unregister
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden autopilot run rename
+
+```text
+Updates the display name and derived slot scope without changing the
+path-derived run_id. The integration branch is unchanged; retarget it
+explicitly with `warden autopilot run retarget` when ready.
+
+Usage:
+  warden autopilot run rename <run-id-or-name> [flags]
+
+Flags:
+  -h, --help          help for rename
+      --name string   new display name within the repository
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden autopilot run retarget
+
+```text
+Sets a new stored merge target explicitly or derives one from the run's
+current display name. Open PRs on the previous branch are not migrated;
+land rejects them with wrong_base until rebased or retargeted.
+
+Usage:
+  warden autopilot run retarget <run-id-or-name> [flags]
+
+Flags:
+      --branch string   explicit new merge target branch
+      --derive          re-derive from the run's current display name
+  -h, --help            help for retarget
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
