@@ -79,13 +79,14 @@ func TestGuardianVisibilityAndRunStopCleanup(t *testing.T) {
 	status, err := c.Enable(context.Background(), "")
 	require.NoError(t, err)
 	runID := status.Runs[0].RunID
-	guardianID := "guardian-" + strings.TrimPrefix(runID, "ap-")
+	guardianID := autopilot.GuardianSlotID("guardian")
+	managerID := autopilot.ManagerSlotID("guardian")
 
 	listed, err := srv.ListSessions(context.Background(), oapi.ListSessionsRequestObject{})
 	require.NoError(t, err)
 	visible := listed.(oapi.ListSessions200JSONResponse)
 	require.Len(t, visible.Sessions, 1)
-	require.Equal(t, "agent-test", visible.Sessions[0].ID)
+	require.Equal(t, managerID, visible.Sessions[0].ID)
 
 	listed, err = srv.ListSessions(context.Background(), oapi.ListSessionsRequestObject{Params: oapi.ListSessionsParams{All: true}})
 	require.NoError(t, err)

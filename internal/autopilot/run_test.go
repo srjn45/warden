@@ -86,8 +86,13 @@ func (r *fakeRuntime) SpawnBrain(_ context.Context, spec BrainSpec) (BrainHandle
 		return BrainHandle{}, r.spawnErr
 	}
 	r.spawned = append(r.spawned, spec)
-	r.nextID++
-	return BrainHandle{AgentID: fmt.Sprintf("brain-%d", r.nextID), Backend: spec.Backend}, nil
+	id := fmt.Sprintf("brain-%d", r.nextID+1)
+	if spec.SlotScope != "" {
+		id = ManagerSlotID(spec.SlotScope)
+	} else {
+		r.nextID++
+	}
+	return BrainHandle{AgentID: id, Backend: spec.Backend}, nil
 }
 
 func (r *fakeRuntime) TerminateBrain(_ context.Context, agentID string) error {
@@ -108,8 +113,11 @@ type guardianAgentFake struct {
 	missing        []string
 }
 
-func (r *guardianAgentFake) SpawnGuardian(_ context.Context, runID, _ string) (string, error) {
-	id := "guardian-" + runID
+func (r *guardianAgentFake) SpawnGuardian(_ context.Context, runID, slotScope, _ string) (string, error) {
+	id := GuardianSlotID(slotScope)
+	if slotScope == "" {
+		id = "guardian-" + runID
+	}
 	r.guardians = append(r.guardians, id)
 	return id, nil
 }
@@ -218,7 +226,7 @@ func TestControllerSpawnsAndTearsDownBrain(t *testing.T) {
 
 	// Status reflects the brain.
 	require.NotNil(t, st.Runs[0].Brain)
-	require.Equal(t, "brain-1", st.Runs[0].Brain.AgentID)
+	require.Equal(t, ManagerSlotID("plan"), st.Runs[0].Brain.AgentID)
 	require.Equal(t, "antigravity", st.Runs[0].Brain.Backend)
 
 	// Idempotent re-enable does not kill/respawn the healthy brain.
@@ -232,7 +240,7 @@ func TestControllerSpawnsAndTearsDownBrain(t *testing.T) {
 	require.False(t, dst.Enabled)
 	require.Len(t, dst.Runs, 1)
 	require.Equal(t, StateStopped, dst.Runs[0].State)
-	require.Equal(t, []string{"brain-1"}, rt.killed)
+	require.Equal(t, []string{ManagerSlotID("plan")}, rt.killed)
 }
 
 // TestControllerInstallsDefaultPolicyOnEnable proves enabling autopilot installs
@@ -276,7 +284,7 @@ func TestActiveBrainForRun(t *testing.T) {
 
 	brainID, ok := c.ActiveBrainForRun(runID)
 	require.True(t, ok)
-	require.Equal(t, "brain-1", brainID)
+	require.Equal(t, ManagerSlotID("plan"), brainID)
 
 	_, ok = c.ActiveBrainForRun("ap-nonexistent")
 	require.False(t, ok, "an unknown run has no brain")
