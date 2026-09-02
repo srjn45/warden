@@ -101,6 +101,7 @@ type Controller struct {
 	mu      sync.Mutex
 	runtime Runtime         // nil ⇒ inert (S1): no brain spawns
 	runs    map[string]*run // keyed by run_id (across all enabled repos)
+	claims  *claimRegistry  // slot scope + reserved manager/guardian id claims
 }
 
 // run is one registered plan execution: identity + state plus, once the brain
@@ -120,6 +121,7 @@ type run struct {
 
 	brain      *BrainHandle       // nil until the brain spawns; nil again after teardown
 	guardianID string             // daemon-owned system session representing the guardian loop
+	slotScope  string             // stable scope for <scope>-autopilot / <scope>-guardian slot ids
 	cancel     context.CancelFunc // stops the plan-watch goroutine (nil in inert mode)
 
 	// Guardian-owned state (autopilot.md §2.3, §7). All mutated only under c.mu, by
@@ -177,6 +179,7 @@ func NewController(cfg ControllerConfig, env Env) *Controller {
 		enableStore:       newEnableStore(cfg.DataDir),
 		store:             cfg.RunStore,
 		runs:              map[string]*run{},
+		claims:            newClaimRegistry(),
 	}
 	if c.store == nil && strings.TrimSpace(cfg.DataDir) != "" {
 		if st, err := NewRunStore(cfg.DataDir); err != nil {
@@ -376,6 +379,32 @@ func (c *Controller) Enable(ctx context.Context, repo string) (Status, error) {
 		sort.Strings(fails)
 		return c.statusLocked(), &PreflightError{Failures: dedupe(fails)}
 	}
+	batchNames := map[string]string{}
+	for id, res := range resolvedByID {
+		name := defaultRunName(res.absFile)
+		if err := validatePlanNameReservedSuffixes(name); err != nil {
+			fails = append(fails, fmt.Sprintf("plan %s: %v", res.file, err))
+			continue
+		}
+		key := res.repo + "\x00" + name
+		if other, ok := batchNames[key]; ok {
+			fails = append(fails, fmt.Sprintf("plan %s: %v", res.file,
+				fmt.Errorf("%w: run name %q already exists in %s (plan %s)", ErrRunConflict, name, res.repo, resolvedByID[other].file)))
+			continue
+		}
+		batchNames[key] = id
+		if err := c.validateRunNameLocked(res.repo, name, id); err != nil {
+			fails = append(fails, fmt.Sprintf("plan %s: %v", res.file, err))
+			continue
+		}
+		if _, err := c.allocateSlotScopeLocked(name, id); err != nil {
+			fails = append(fails, fmt.Sprintf("plan %s: %v", res.file, err))
+		}
+	}
+	if len(fails) > 0 {
+		sort.Strings(fails)
+		return c.statusLocked(), &PreflightError{Failures: dedupe(fails)}
+	}
 	if matched == 0 {
 		// No plan targets this repo and nothing else was wrong — a clean, actionable
 		// per-repo signal rather than a silent no-op.
@@ -434,6 +463,12 @@ func (c *Controller) Enable(ctx context.Context, repo string) (Status, error) {
 			defaultBranch: res.defaultBranch,
 			tried:         map[string]bool{},
 		}
+		scope, err := c.allocateSlotScopeLocked(r.name, id)
+		if err != nil {
+			slog.Warn("autopilot: slot scope allocation failed", "run", id, "err", err)
+			continue
+		}
+		r.slotScope = scope
 		if info, err := os.Stat(res.absFile); err == nil {
 			r.planModTime = info.ModTime()
 		}
@@ -450,6 +485,9 @@ func (c *Controller) Enable(ctx context.Context, repo string) (Status, error) {
 			go c.watchPlan(wctx, r, planWatchInterval)
 		}
 		newRuns[id] = r
+		if err := c.claims.claim(id, r.slotScope); err != nil {
+			slog.Warn("autopilot: slot scope claim failed", "run", id, "err", err)
+		}
 		c.persistRunLocked(r)
 	}
 	for id, old := range c.runs {
