@@ -210,6 +210,11 @@ func TestControllerSpawnsAndTearsDownBrain(t *testing.T) {
 	require.Contains(t, spec.Tags, autopilotTag)
 	require.Contains(t, spec.Tags, runTag(st.Runs[0].RunID))
 	require.Contains(t, spec.Prompt, "ship it", "opening brief is the recovery digest")
+	require.Contains(t, spec.Prompt, "Integration branch: autopilot/plan")
+	require.Contains(t, spec.Prompt, WorkerSpawnBranchPrompt("autopilot/plan"))
+	branch, err := rt.NewLedger(st.Runs[0].RunID).IntegrationBranch()
+	require.NoError(t, err)
+	require.Equal(t, "autopilot/plan", branch)
 
 	// Status reflects the brain.
 	require.NotNil(t, st.Runs[0].Brain)

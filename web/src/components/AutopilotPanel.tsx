@@ -122,6 +122,8 @@ function RunCard({ run, sessions, onChanged, onError }: { run: AutopilotRun; ses
         <span className={`autopilot-run-state state-${run.state}`}>{run.state}</span>
 		<span className="muted" title={run.repo}>{run.name || run.plan_file}</span>
         <span className="muted">gate: {run.gate}</span>
+		{run.integration_branch && <span className="muted" title="integration branch">base: {run.integration_branch}</span>}
+		{run.gate_warning && <span className="warn" title={run.gate_warning}>gate warning</span>}
       </div>
 	  <div className="autopilot-run-controls">
 		<button disabled={busy || !['active','paused','degraded','healing'].includes(run.state)} onClick={() => act(run.state === 'paused' ? 'resume' : 'pause')}>{run.state === 'paused' ? 'Resume' : 'Pause'}</button>

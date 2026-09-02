@@ -3895,6 +3895,8 @@ components:
         repo: { type: string }
         state: { type: string, enum: [registered, starting, active, paused, stopped, degraded, healing, complete] }
         gate: { type: string }
+        integration_branch: { type: string, description: "resolved per-plan merge target workers must base PRs on" }
+        gate_warning: { type: string, description: "set when gate auto downgraded to local because workflows do not cover the integration branch" }
       required: [run_id, name, plan_file, repo, state]
 
     AutopilotStatus:
@@ -3949,6 +3951,8 @@ components:
                   next_retry_at: { type: string }
                   last_error: { type: string }
               landed_total: { type: integer }
+              integration_branch: { type: string, description: "resolved per-plan merge target workers must base PRs on" }
+              gate_warning: { type: string, description: "set when gate auto downgraded to local because workflows do not cover the integration branch" }
       required: [enabled, runs]
 
     AutopilotPreflightFailure:

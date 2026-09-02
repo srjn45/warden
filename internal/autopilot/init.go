@@ -364,7 +364,7 @@ func printCIHint(repo, branch string, out io.Writer) {
 	if !ciCoversIntegration(repo, branch) {
 		fmt.Fprintf(out, "\nhint: no CI workflow found that covers %s pull requests\n", branch)
 		fmt.Fprintf(out, "      autopilot will use gate: local (project checks instead of CI)\n")
-		fmt.Fprintf(out, "      to enable CI gating, add %q to on.pull_request.branches in\n", branch)
-		fmt.Fprintf(out, "      one of your .github/workflows/*.yml files\n")
+		fmt.Fprintf(out, "      to enable CI gating, add %q to on.pull_request.branches in\n", "autopilot/**")
+		fmt.Fprintf(out, "      one of your .github/workflows/*.yml files (covers every per-plan branch)\n")
 	}
 }

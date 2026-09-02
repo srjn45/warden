@@ -100,6 +100,7 @@ func (c *Controller) persistRunLocked(r *run) {
 }
 
 func (c *Controller) persistRunLockedErr(r *run) error {
+	c.persistIntegrationBranch(r)
 	if c.store == nil {
 		return nil
 	}
@@ -115,6 +116,19 @@ func (c *Controller) persistRunLockedErr(r *run) error {
 	rec.CreatedAt = old.CreatedAt
 	_, err = c.store.Update(r.runID, func(dst *RunRecord) error { *dst = rec; return nil })
 	return err
+}
+
+func (c *Controller) persistIntegrationBranch(r *run) {
+	if c.runtime == nil || r == nil || strings.TrimSpace(r.integrationBranch) == "" {
+		return
+	}
+	l := c.runtime.NewLedger(r.runID)
+	if l == nil {
+		return
+	}
+	if err := l.WriteIntegrationBranch(r.integrationBranch, ledgerWriter); err != nil {
+		slog.Warn("autopilot: persist integration branch to ledger failed", "run", r.runID, "err", err)
+	}
 }
 
 // Register validates and durably registers a named plan without starting it.
@@ -451,7 +465,8 @@ func (c *Controller) UnregisterRun(_ context.Context, id string) (RunStatus, err
 func (c *Controller) runStatusLocked(r *run) RunStatus {
 	return RunStatus{RunID: r.runID, Name: r.name, PlanFile: r.planFile, Repo: r.repo,
 		State: r.state, Gate: c.runGate(r), Tasks: TaskCounts{},
-		PlanTasks: append([]PlanTask(nil), r.plan.Tasks...), GuardianID: r.guardianID}
+		PlanTasks: append([]PlanTask(nil), r.plan.Tasks...), GuardianID: r.guardianID,
+		IntegrationBranch: r.integrationBranch, GateWarning: r.gateWarning}
 }
 
 func (c *Controller) Close() error {

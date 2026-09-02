@@ -33,19 +33,21 @@ type Status struct {
 // always nil, WorkersInFlight/Tasks/LandedTotal are zero, and Backoff is nil —
 // those go live in S3/S4/S5.
 type RunStatus struct {
-	RunID           string       `json:"run_id"`
-	Name            string       `json:"name"`
-	PlanFile        string       `json:"plan_file"`
-	Repo            string       `json:"repo"`
-	State           RunState     `json:"state"`
-	Gate            string       `json:"gate"`
-	Brain           *BrainStatus `json:"brain"`
-	WorkersInFlight int          `json:"workers_in_flight"`
-	Tasks           TaskCounts   `json:"tasks"`
-	Backoff         *Backoff     `json:"backoff"`
-	LandedTotal     int          `json:"landed_total"`
-	PlanTasks       []PlanTask   `json:"plan_tasks"`
-	GuardianID      string       `json:"guardian_id,omitempty"`
+	RunID             string       `json:"run_id"`
+	Name              string       `json:"name"`
+	PlanFile          string       `json:"plan_file"`
+	Repo              string       `json:"repo"`
+	State             RunState     `json:"state"`
+	Gate              string       `json:"gate"`
+	Brain             *BrainStatus `json:"brain"`
+	WorkersInFlight   int          `json:"workers_in_flight"`
+	Tasks             TaskCounts   `json:"tasks"`
+	Backoff           *Backoff     `json:"backoff"`
+	LandedTotal       int          `json:"landed_total"`
+	PlanTasks         []PlanTask   `json:"plan_tasks"`
+	GuardianID        string       `json:"guardian_id,omitempty"`
+	IntegrationBranch string       `json:"integration_branch,omitempty"`
+	GateWarning       string       `json:"gate_warning,omitempty"`
 }
 
 // BrainStatus describes the run's brain agent (autopilot.md §5). Nil in S1.

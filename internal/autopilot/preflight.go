@@ -3,6 +3,7 @@ package autopilot
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"strings"
 )
@@ -29,6 +30,7 @@ type resolved struct {
 	defaultBranch     string // repo default branch — the land guard's protected name
 	integrationBranch string // per-run merge target, resolved once
 	skipComplete      bool   // the plan carries the completion marker (§2.1): skip, don't register
+	gateWarning       string // set when gate auto downgrades to local (uncovered branch)
 }
 
 // preflightPlan runs the enable-time checks that concern a single plan in
@@ -141,6 +143,10 @@ func (c *Controller) preflightPlan(ctx context.Context, file string, pending map
 		}
 	}
 	r.resolvedGate = resolveGateMode(c.gate, covers)
+	r.gateWarning = gateDowngradeWarning(c.gate, r.resolvedGate, branch, covers)
+	if r.gateWarning != "" {
+		slog.Warn("autopilot: "+r.gateWarning, "run", r.runID, "branch", branch)
+	}
 
 	return r, fails
 }
@@ -150,6 +156,19 @@ func (c *Controller) preflightPlan(ctx context.Context, file string, pending map
 func isAutoGate(gate string) bool {
 	g := strings.ToLower(strings.TrimSpace(gate))
 	return g == "" || g == "auto"
+}
+
+// gateDowngradeWarning is the operator-visible note when `auto` falls back to
+// `local` because no workflow covers the resolved integration branch.
+func gateDowngradeWarning(configured, resolved, branch string, covers bool) string {
+	if !isAutoGate(configured) || resolved != "local" || covers {
+		return ""
+	}
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		return ""
+	}
+	return fmt.Sprintf("gate auto downgraded to local: no CI workflow covers %q; add %q to on.pull_request.branches", branch, "autopilot/**")
 }
 
 // isProtectedBranch reports whether branch is a name autopilot must not merge
