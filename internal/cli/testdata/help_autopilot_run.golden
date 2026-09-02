@@ -11,6 +11,8 @@ Commands:
   resume               resume one autopilot run
   stop                 stop one autopilot run
   unregister           unregister one autopilot run
+  rename               Rename a run's display name and slot scope
+  retarget             Retarget a run's integration branch
 
 Flags:
   -h, --help   help for run
