@@ -202,7 +202,8 @@ func TestCharacterization_GuardianRotationWalksIdChurn(t *testing.T) {
 	c.guardianTick(ctx)
 	ids = append(ids, c.runs[runID].brain.AgentID)
 
-	require.Equal(t, []string{"brain-1", "brain-2", "brain-3"}, ids,
-		"each heal escalation mints a new manager id; WP5 preserves slot id")
-	require.Equal(t, []string{"brain-1", "brain-2"}, fake.killed)
+	require.Equal(t, []string{"brain-1", "brain-1", "brain-1"}, ids,
+		"WP5 heal escalations HotSwap in place on the manager slot id")
+	require.Empty(t, fake.killed, "guardian heal ladder must not terminate the manager")
+	require.Len(t, fake.rotated, 2, "restart and rotate each call RotateBrain")
 }
