@@ -892,3 +892,28 @@ func TestAutopilotRunScopedKeyboardActions(t *testing.T) {
 	_ = cmd()
 	require.Equal(t, "stop", f.autopilotAction)
 }
+
+func TestAutopilotOwnedAgentsHiddenFromFlatGrid(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9", "")
+	m.projects = []projectstore.Project{{ID: "/repo", Name: "Repo", Path: "/repo", Status: projectstore.StatusOpen}}
+	m.autopilot = client.AutopilotStatus{Runs: []client.AutopilotRunStatus{{RunID: "ap-1", Name: "release", Repo: "/repo", State: "active"}}}
+	m.sessions = []*store.Session{
+		{ID: "plain", Repo: "/repo", Status: store.StatusIdle},
+		{ID: "tagged-worker", Repo: "/repo", Status: store.StatusWorking, Tags: []string{"autopilot", "run:ap-1"}},
+		{ID: "backref-worker", Repo: "/repo", Status: store.StatusWorking, AutopilotRunID: "ap-1", AutopilotSlot: store.AutopilotSlotWorker},
+	}
+	items := m.items()
+	require.Contains(t, itemSessionIDs(items), "plain")
+	require.Contains(t, itemSessionIDs(items), "tagged-worker")
+	require.Contains(t, itemSessionIDs(items), "backref-worker")
+
+	var roots []string
+	for _, it := range items {
+		if it.session != nil && it.apSlot == "" && it.depth == 0 {
+			roots = append(roots, it.session.ID)
+		}
+	}
+	require.Equal(t, []string{"plain"}, roots, "autopilot-owned agents must not appear as flat-grid roots")
+	require.Equal(t, store.AutopilotSlotWorker, items[itemIndexBySessionID(items, "tagged-worker")].apSlot)
+	require.Equal(t, store.AutopilotSlotWorker, items[itemIndexBySessionID(items, "backref-worker")].apSlot)
+}
