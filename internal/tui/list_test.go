@@ -323,6 +323,74 @@ func TestProjectGroupedItemsCollapsedAutopilotRunHidesChildren(t *testing.T) {
 	require.NotNil(t, items[1].apRun)
 }
 
+// WP1 characterization: freeze current TUI run tree rendering before WP8 changes
+// hierarchy (workers node, back-ref filtering, integration branch on header).
+// Seam inventory: docs/specs/2026-09-01-autopilot-plan-scoped-hierarchy-wp1-seams.md
+func TestCharacterization_RenderAutopilotRunTreeGolden(t *testing.T) {
+	projs := []projectstore.Project{{ID: "/repos/alpha", Name: "Alpha", Path: "/repos/alpha", Status: projectstore.StatusOpen}}
+	runs := []client.AutopilotRunStatus{{
+		RunID: "ap-deadbeef1234", Name: "release", Repo: "/repos/alpha", State: "active",
+		GuardianID: "guardian-deadbeef1234",
+		Tasks:      client.AutopilotTaskCounts{Landed: 1},
+		PlanTasks: []client.AutopilotPlanTask{
+			{ID: "ship", Prompt: "Ship the release", Status: "active"},
+			{ID: "docs", Prompt: "Update docs", Status: "done"},
+		},
+		WorkersInFlight: 2,
+	}}
+	sessions := []*store.Session{
+		{ID: "agent-brain01", Repo: "/repos/alpha", Role: "autopilot", Status: store.StatusWorking, Tags: []string{"autopilot", "run:ap-deadbeef1234"}},
+		{ID: "agent-worker1", Repo: "/repos/alpha", ParentID: "agent-brain01", Status: store.StatusWorking, Tags: []string{"autopilot", "run:ap-deadbeef1234"}},
+		{ID: "guardian-deadbeef1234", Repo: "/repos/alpha", Status: store.StatusIdle, Tags: []string{"system:true", "autopilot-run:ap-deadbeef1234"}},
+	}
+	items := projectGroupedItems(projs, nil, nil, sessions, nil, nil, nil, runs)
+
+	require.NotNil(t, items[1].apRun)
+	require.Equal(t, "release", items[1].apRun.Name)
+	require.Equal(t, "ship", items[2].apTask.ID)
+	require.Equal(t, "docs", items[3].apTask.ID)
+	require.Equal(t, []string{"agent-brain01", "agent-worker1", "guardian-deadbeef1234"}, itemSessionIDs(items))
+	for _, id := range []string{"agent-brain01", "agent-worker1", "guardian-deadbeef1234"} {
+		require.Equal(t, 1, items[itemIndexBySessionID(items, id)].depth,
+			"run-tagged sessions nest at depth 1 under the plan root")
+	}
+
+	out := renderList(items, 1, 120, 12)
+	require.Contains(t, out, "release")
+	require.Contains(t, out, "Ship the release")
+	require.Contains(t, out, "docs")
+	require.Contains(t, out, "1/2 tasks")
+	require.Contains(t, out, "2 workers")
+	require.Contains(t, out, "agent-brain01")
+	require.Contains(t, out, "agent-worker1")
+	require.Contains(t, out, "guardian-deadbeef1234")
+}
+
+func TestCharacterization_RenderAutopilotRunCollapsedGolden(t *testing.T) {
+	runs := []client.AutopilotRunStatus{{
+		RunID: "ap-1", Name: "paused-run", Repo: "/repo", State: "paused",
+		PlanTasks: []client.AutopilotPlanTask{{ID: "one", Prompt: "Only task"}},
+	}}
+	items := projectGroupedItems(nil, nil, nil, nil, nil, nil, map[string]bool{"aprun\x00ap-1": true}, runs)
+	require.Len(t, items, 2)
+	require.NotNil(t, items[1].apRun)
+	require.Equal(t, "paused-run", items[1].apRun.Name)
+
+	out := renderList(items, 1, 120, 6)
+	require.Contains(t, out, "paused-run")
+	require.Contains(t, out, "paused")
+	require.NotContains(t, out, "Only task", "collapsed run hides plan tasks")
+}
+
+func itemIndexBySessionID(items []item, id string) int {
+	for i, it := range items {
+		if it.session != nil && it.session.ID == id {
+			return i
+		}
+	}
+	return -1
+}
+
 // A spawned child nests directly under its parent, indented, and the parent
 // becomes a collapsible header.
 func TestBuildItemsNestsChildUnderParent(t *testing.T) {
