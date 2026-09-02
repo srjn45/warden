@@ -113,9 +113,9 @@ func TestLandTypedErrors(t *testing.T) {
 			want:   ErrWrongBase,
 		},
 		{
-			name:   "wrong_base: PR based on main, not integration",
-			mutate: func(*LandRequest) {},
-			host:   func() *fakeLandHost { h := greenHost(); h.pr.BaseRef = "main"; return h },
+			name:   "wrong_base: PR based on another plan's integration branch",
+			mutate: func(r *LandRequest) { r.IntegrationBranch = "autopilot/alpha" },
+			host:   func() *fakeLandHost { h := greenHost(); h.pr.BaseRef = "autopilot/beta"; return h },
 			want:   ErrWrongBase,
 		},
 		{

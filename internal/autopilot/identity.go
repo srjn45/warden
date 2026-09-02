@@ -80,12 +80,19 @@ func validateSlotScopeToken(scope string) error {
 	return store.SafeID(scope)
 }
 
-func disambiguateScope(base, runID string) string {
+func runIDSuffix(runID string) string {
 	hex := strings.TrimPrefix(runID, "ap-")
 	if len(hex) > 6 {
 		hex = hex[:6]
 	}
-	suffix := "_" + hex
+	if hex == "" {
+		hex = "000000"
+	}
+	return "_" + hex
+}
+
+func disambiguateScope(base, runID string) string {
+	suffix := runIDSuffix(runID)
 	maxBase := maxSlotScopeLen - len(suffix)
 	if len(base) > maxBase {
 		base = base[:maxBase]

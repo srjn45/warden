@@ -115,9 +115,9 @@ func TestEnableHappyPath(t *testing.T) {
 	require.Equal(t, "local", st.Runs[0].Gate)
 	require.Equal(t, plan, st.Runs[0].PlanFile)
 	require.Nil(t, st.Runs[0].Brain, "no brain in the S1 inert core")
-	// integration branch was auto-created off the default branch
+	// integration branch was auto-created off the default branch (per-plan derive)
 	require.Len(t, env.created, 1)
-	require.Contains(t, env.created[0], "autopilot/integration|main")
+	require.Contains(t, env.created[0], "autopilot/plan|main")
 
 	// idempotent: re-enable yields the same run id and does not re-create the branch
 	st2, err := c.Enable(context.Background(), "")
@@ -172,7 +172,7 @@ func TestLandParamsUnknownRun(t *testing.T) {
 func TestEnableBranchAlreadyExists(t *testing.T) {
 	dir := t.TempDir()
 	plan := writePlan(t, dir, "plan.yaml", "g")
-	env := &fakeEnv{exists: map[string]bool{dir + "\x00autopilot/integration": true}}
+	env := &fakeEnv{exists: map[string]bool{dir + "\x00autopilot/plan": true}}
 	c := NewController(ControllerConfig{Plans: []string{plan}, BaseDir: dir}, env)
 
 	_, err := c.Enable(context.Background(), "")

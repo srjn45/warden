@@ -190,7 +190,7 @@ type AutopilotBackends struct {
 // AutopilotMergeConfig governs how the brain lands worker branches into the
 // integration branch (autopilot.md §6).
 type AutopilotMergeConfig struct {
-	TargetBranch string `yaml:"target_branch"`
+	TargetBranch string `yaml:"target_branch"` // merge target template; empty/legacy default derives per plan, {{plan}} expands
 	Strategy     string `yaml:"strategy"`
 	Gate         string `yaml:"gate"` // auto | ci | local
 	DeleteBranch bool   `yaml:"delete_branch"`
@@ -1568,8 +1568,10 @@ func (c Config) AutopilotPlanFiles() []string {
 	return out
 }
 
-// AutopilotIntegrationBranch returns the configured merge target (the only branch
-// autopilot merges into).
+// AutopilotIntegrationBranch returns the configured merge-target template
+// (autopilot.merge.target_branch). New runs derive a per-plan branch when this
+// is empty or the legacy default "autopilot/integration"; a value containing
+// {{plan}} is expanded per run; any other value is a custom global override.
 func (c Config) AutopilotIntegrationBranch() string { return c.Autopilot.Merge.TargetBranch }
 
 // AutopilotGate returns the configured gate mode (auto|ci|local).

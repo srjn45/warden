@@ -163,47 +163,11 @@ func TestCharacterization_CanBrainCompleteAfterSimulatedRestart(t *testing.T) {
 		"only the in-memory brain id may complete the run")
 }
 
-// TestCharacterization_ConcurrentRunsShareGlobalIntegrationBranch records the
-// present-tense defect (spec §2.6): two active plans in one repo both resolve to
-// the controller's global integrationBranch. WP9 derives per-plan branches.
+// TestCharacterization_ConcurrentRunsShareGlobalIntegrationBranch is superseded
+// by WP9 (TestTwoPlansInOneRepoResolveDistinctBranches). Kept as a thin alias
+// so WP1 seam inventory still names a test; it now asserts the new contract.
 func TestCharacterization_ConcurrentRunsShareGlobalIntegrationBranch(t *testing.T) {
-	dir := t.TempDir()
-	p1 := writePlan(t, dir, "alpha.yaml", "alpha goal")
-	p2 := writePlan(t, dir, "beta.yaml", "beta goal")
-	runStore, err := NewRunStore(t.TempDir())
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = runStore.Close() })
-
-	const globalBranch = "autopilot/integration"
-	c := NewController(ControllerConfig{
-		Plans:             []string{p1, p2},
-		IntegrationBranch: globalBranch,
-		BaseDir:           dir,
-		RunStore:          runStore,
-		Resolver:          &fakeResolver{backendID: "a", tier: "free"},
-	}, &fakeEnv{})
-	rt := newFakeRuntime()
-	c.SetRuntime(rt)
-
-	st, err := c.Enable(context.Background(), dir)
-	require.NoError(t, err)
-	require.Len(t, st.Runs, 2, "V2 allows two concurrent runs in one repo")
-
-	branches := map[string]string{}
-	for _, r := range st.Runs {
-		lp, ok := c.LandParams(r.RunID)
-		require.True(t, ok)
-		require.Equal(t, globalBranch, lp.IntegrationBranch)
-		branches[r.RunID] = lp.IntegrationBranch
-
-		rec, err := runStore.Get(r.RunID)
-		require.NoError(t, err)
-		require.Equal(t, globalBranch, rec.IntegrationBranch,
-			"recordLocked mirrors global config, not per-plan derivation")
-	}
-	require.Len(t, branches, 2)
-	require.Equal(t, branches[st.Runs[0].RunID], branches[st.Runs[1].RunID],
-		"both runs land into the same integration branch today")
+	TestTwoPlansInOneRepoResolveDistinctBranches(t)
 }
 
 // TestCharacterization_GuardianRotationWalksIdChurn documents the full heal-ladder

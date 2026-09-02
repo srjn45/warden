@@ -46,13 +46,13 @@ func TestInit_CreatesIntegrationBranch(t *testing.T) {
 		IntegrationBranch: "autopilot/integration",
 	}, &out)
 	require.NoError(t, err)
-	require.Contains(t, env.created, dir+"|autopilot/integration|main")
+	require.Contains(t, env.created, dir+"|autopilot/plan|main")
 	require.Contains(t, out.String(), "✓ created integration branch")
 }
 
 func TestInit_SkipsBranchIfExists(t *testing.T) {
 	repo := t.TempDir()
-	env := &fakeEnv{exists: map[string]bool{repo + "\x00autopilot/integration": true}}
+	env := &fakeEnv{exists: map[string]bool{repo + "\x00autopilot/plan": true}}
 	var out bytes.Buffer
 	require.NoError(t, Init(context.Background(), env, repo, InitConfig{
 		PlanFile:          "plan.yaml",
@@ -69,8 +69,30 @@ func TestInit_DefaultsApplied(t *testing.T) {
 	require.NoError(t, Init(context.Background(), env, dir, InitConfig{}, &out))
 	// default plan file
 	require.FileExists(t, filepath.Join(dir, "plans", "default.yaml"))
-	// default integration branch created
-	require.Contains(t, env.created, dir+"|autopilot/integration|main")
+	// default integration branch created from the plan name
+	require.Contains(t, env.created, dir+"|autopilot/default|main")
+}
+
+func TestInit_CustomOverrideHonored(t *testing.T) {
+	env := &fakeEnv{}
+	dir := t.TempDir()
+	var out bytes.Buffer
+	require.NoError(t, Init(context.Background(), env, dir, InitConfig{
+		Name:              "release",
+		IntegrationBranch: "ap/custom",
+	}, &out))
+	require.Contains(t, env.created, dir+"|ap/custom|main")
+}
+
+func TestInit_PlanTemplateExpands(t *testing.T) {
+	env := &fakeEnv{}
+	dir := t.TempDir()
+	var out bytes.Buffer
+	require.NoError(t, Init(context.Background(), env, dir, InitConfig{
+		Name:              "release",
+		IntegrationBranch: "integration/{{plan}}",
+	}, &out))
+	require.Contains(t, env.created, dir+"|integration/release|main")
 }
 
 func TestInitRegistersNamedPlan(t *testing.T) {
