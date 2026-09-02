@@ -1247,19 +1247,32 @@ type AutopilotStatus struct {
 
 // AutopilotRunStatus is one run's slice of AutopilotStatus.
 type AutopilotRunStatus struct {
-	RunID           string              `json:"run_id"`
-	Name            string              `json:"name"`
-	PlanFile        string              `json:"plan_file"`
-	Repo            string              `json:"repo"`
-	State           string              `json:"state"`
-	Gate            string              `json:"gate"`
-	Brain           *AutopilotBrain     `json:"brain"`
-	WorkersInFlight int                 `json:"workers_in_flight"`
-	Tasks           AutopilotTaskCounts `json:"tasks"`
-	Backoff         *AutopilotBackoff   `json:"backoff"`
-	LandedTotal     int                 `json:"landed_total"`
-	PlanTasks       []AutopilotPlanTask `json:"plan_tasks"`
-	GuardianID      string              `json:"guardian_id,omitempty"`
+	RunID             string                `json:"run_id"`
+	Name              string                `json:"name"`
+	PlanFile          string                `json:"plan_file"`
+	Repo              string                `json:"repo"`
+	State             string                `json:"state"`
+	Gate              string                `json:"gate"`
+	Brain             *AutopilotBrain       `json:"brain"`
+	WorkersInFlight   int                   `json:"workers_in_flight"`
+	Tasks             AutopilotTaskCounts   `json:"tasks"`
+	Backoff           *AutopilotBackoff     `json:"backoff"`
+	LandedTotal       int                   `json:"landed_total"`
+	PlanTasks         []AutopilotPlanTask   `json:"plan_tasks"`
+	GuardianID        string                `json:"guardian_id,omitempty"`
+	SlotScope         string                `json:"slot_scope,omitempty"`
+	ManagerSlotID     string                `json:"manager_slot_id,omitempty"`
+	GuardianSlotID    string                `json:"guardian_slot_id,omitempty"`
+	IntegrationBranch string                `json:"integration_branch,omitempty"`
+	GateWarning       string                `json:"gate_warning,omitempty"`
+	Workers           map[string][]string   `json:"workers,omitempty"`
+	LedgerTasks       []AutopilotLedgerTask `json:"ledger_tasks,omitempty"`
+}
+
+// AutopilotLedgerTask is one ledger row used to order the TUI/web workers tree.
+type AutopilotLedgerTask struct {
+	ID    string `json:"id"`
+	State string `json:"state"`
 }
 
 // RegisterAutopilotRun adds a named plan to the durable registry without
@@ -1279,6 +1292,24 @@ func (c *Client) ListAutopilotRuns(ctx context.Context) ([]AutopilotRunStatus, e
 func (c *Client) ControlAutopilotRun(ctx context.Context, runID, action string) (AutopilotRunStatus, error) {
 	var out AutopilotRunStatus
 	err := c.doT(ctx, longTimeout, http.MethodPost, "/autopilot/runs/"+url.PathEscape(runID)+"/"+url.PathEscape(action), nil, &out)
+	return out, err
+}
+
+func (c *Client) RenameAutopilotRun(ctx context.Context, runID, name string) (AutopilotRunStatus, error) {
+	var out AutopilotRunStatus
+	err := c.doT(ctx, longTimeout, http.MethodPost, "/autopilot/runs/"+url.PathEscape(runID)+"/rename", map[string]string{"name": name}, &out)
+	return out, err
+}
+
+func (c *Client) RetargetAutopilotRun(ctx context.Context, runID, integrationBranch string, derive bool) (AutopilotRunStatus, error) {
+	body := map[string]any{}
+	if derive {
+		body["derive"] = true
+	} else {
+		body["integration_branch"] = integrationBranch
+	}
+	var out AutopilotRunStatus
+	err := c.doT(ctx, longTimeout, http.MethodPost, "/autopilot/runs/"+url.PathEscape(runID)+"/retarget", body, &out)
 	return out, err
 }
 

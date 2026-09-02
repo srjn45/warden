@@ -245,17 +245,23 @@ scaffold `plans/<name>.yaml` and register it with the daemon.
 
 ### Key ledger context keys
 
-The manager writes run state into warden's shared context (`ctx_*` tools). Key dot-notation
-keys (use dots, not slashes):
+The manager writes run state into warden's shared context (`ctx_*` tools). Keys are
+dot-namespaced (the ctx store rejects `/`). Canonical storage is one JSON array
+per run — not a per-task key tree:
 
 | Key | Contents |
 |---|---|
 | `autopilot.run_id` | Stable run identifier |
 | `autopilot.state` | `starting` / `active` / `healing` / `degraded` / `complete` |
 | `autopilot.brain` | Manager agent id (key name kept for back-compat — the "brain" is the manager) |
-| `autopilot.tasks.<id>.state` | Per-task state: `pending`/`assigned`/`in_progress`/`pr_open`/`gated`/`landed` |
-| `autopilot.tasks.<id>.branch` | The worker branch for the task |
-| `autopilot.tasks.<id>.landed_at` | Landing timestamp (RFC3339) |
+| `autopilot.<run_id>.tasks` | **Canonical task ledger** — JSON array of `{id, state, worker_id, branch, pr, note, updated_at}`. `state` is one of `pending` / `assigned` / `in_progress` / `pr_open` / `gated` / `landed` (validated on write). |
+| `autopilot.<run_id>.landings` | Append-only landings, daemon-written: `{branch, sha, pr, landed_at}` |
+| `autopilot.<run_id>.journal` | Rolling decision log (newest-first) |
+| `autopilot.<run_id>.tasks.<id>.state` | Optional overlay of one task's canonical state — TUI segmentation; the array remains source of truth |
+| `autopilot.<run_id>.tasks.<id>.branch` | Optional overlay of the worker branch for that task |
+
+Plan-file task statuses (`pending` / `active` / `done` / `failed`) are a separate
+checklist enum, not ledger states.
 
 ### Guardrails for autopilot operations
 

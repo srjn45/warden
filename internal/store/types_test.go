@@ -224,3 +224,45 @@ func TestSession_RateLimitFields_Omitempty(t *testing.T) {
 	require.NotContains(t, string(b), "rate_limit_restore_at")
 	require.NotContains(t, string(b), "rate_limit_retry_count")
 }
+
+func TestSessionAutopilotBackRefsJSONRoundTrip(t *testing.T) {
+	s := Session{
+		ID:             "default-autopilot",
+		Type:           TypeDevelopment,
+		Status:         StatusWorking,
+		AutopilotRunID: "ap-abc123def456",
+		AutopilotSlot:  AutopilotSlotManager,
+		CreatedAt:      time.Now().UTC().Truncate(time.Second),
+		UpdatedAt:      time.Now().UTC().Truncate(time.Second),
+	}
+	raw, err := json.Marshal(s)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), `"autopilot_run_id":"ap-abc123def456"`)
+	require.Contains(t, string(raw), `"autopilot_slot":"autopilot"`)
+	require.NotContains(t, string(raw), `"autopilot_task_id"`)
+
+	worker := Session{
+		ID:              "agent-worker",
+		Type:            TypeDevelopment,
+		Status:          StatusWorking,
+		AutopilotRunID:  "ap-abc123def456",
+		AutopilotSlot:   AutopilotSlotWorker,
+		AutopilotTaskID: "wp3-session-backrefs",
+		CreatedAt:       s.CreatedAt,
+		UpdatedAt:       s.UpdatedAt,
+	}
+	raw, err = json.Marshal(worker)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), `"autopilot_task_id":"wp3-session-backrefs"`)
+
+	var got Session
+	require.NoError(t, json.Unmarshal(raw, &got))
+	require.Equal(t, "ap-abc123def456", got.AutopilotRunID)
+	require.Equal(t, AutopilotSlotWorker, got.AutopilotSlot)
+	require.Equal(t, "wp3-session-backrefs", got.AutopilotTaskID)
+
+	// Legacy sessions without back-refs stay omitempty-clean.
+	legacy, err := json.Marshal(Session{ID: "agent-legacy", Type: TypeDevelopment, Status: StatusWorking})
+	require.NoError(t, err)
+	require.NotContains(t, string(legacy), "autopilot_")
+}

@@ -546,6 +546,21 @@ type AutopilotRegisterRequest struct {
 	Repo     string `json:"repo"`
 }
 
+// AutopilotRenameRequest defines model for AutopilotRenameRequest.
+type AutopilotRenameRequest struct {
+	// Name new display name within the repository
+	Name string `json:"name"`
+}
+
+// AutopilotRetargetRequest Provide integration_branch or derive=true. Open PRs on the previous branch are not migrated automatically.
+type AutopilotRetargetRequest struct {
+	// Derive re-derive from the run's current display name and global template
+	Derive bool `json:"derive,omitempty"`
+
+	// IntegrationBranch explicit new merge target branch
+	IntegrationBranch string `json:"integration_branch,omitempty"`
+}
+
 // AutopilotRun defines model for AutopilotRun.
 type AutopilotRun = autopilot.RunStatus
 
@@ -1506,6 +1521,12 @@ type LandAutopilotJSONRequestBody = AutopilotLandRequest
 // RegisterAutopilotRunJSONRequestBody defines body for RegisterAutopilotRun for application/json ContentType.
 type RegisterAutopilotRunJSONRequestBody = AutopilotRegisterRequest
 
+// RenameAutopilotRunJSONRequestBody defines body for RenameAutopilotRun for application/json ContentType.
+type RenameAutopilotRunJSONRequestBody = AutopilotRenameRequest
+
+// RetargetAutopilotRunJSONRequestBody defines body for RetargetAutopilotRun for application/json ContentType.
+type RetargetAutopilotRunJSONRequestBody = AutopilotRetargetRequest
+
 // UpdateAutopilotTaskStatusJSONRequestBody defines body for UpdateAutopilotTaskStatus for application/json ContentType.
 type UpdateAutopilotTaskStatusJSONRequestBody = AutopilotTaskStatusRequest
 
@@ -1673,6 +1694,12 @@ type ServerInterface interface {
 	// Register a named plan
 	// (POST /api/v1/autopilot/runs)
 	RegisterAutopilotRun(w http.ResponseWriter, r *http.Request)
+	// Rename a run's display name and slot scope
+	// (POST /api/v1/autopilot/runs/{run_id}/rename)
+	RenameAutopilotRun(w http.ResponseWriter, r *http.Request, runId string)
+	// Retarget a run's integration branch
+	// (POST /api/v1/autopilot/runs/{run_id}/retarget)
+	RetargetAutopilotRun(w http.ResponseWriter, r *http.Request, runId string)
 	// Start, pause, resume, stop, or unregister one run
 	// (POST /api/v1/autopilot/runs/{run_id}/{action})
 	ControlAutopilotRun(w http.ResponseWriter, r *http.Request, runId string, action string)
@@ -2027,6 +2054,18 @@ func (_ Unimplemented) ListAutopilotRuns(w http.ResponseWriter, r *http.Request)
 // Register a named plan
 // (POST /api/v1/autopilot/runs)
 func (_ Unimplemented) RegisterAutopilotRun(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Rename a run's display name and slot scope
+// (POST /api/v1/autopilot/runs/{run_id}/rename)
+func (_ Unimplemented) RenameAutopilotRun(w http.ResponseWriter, r *http.Request, runId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Retarget a run's integration branch
+// (POST /api/v1/autopilot/runs/{run_id}/retarget)
+func (_ Unimplemented) RetargetAutopilotRun(w http.ResponseWriter, r *http.Request, runId string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2812,6 +2851,70 @@ func (siw *ServerInterfaceWrapper) RegisterAutopilotRun(w http.ResponseWriter, r
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RegisterAutopilotRun(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RenameAutopilotRun operation middleware
+func (siw *ServerInterfaceWrapper) RenameAutopilotRun(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "run_id" -------------
+	var runId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "run_id", chi.URLParam(r, "run_id"), &runId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "run_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RenameAutopilotRun(w, r, runId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RetargetAutopilotRun operation middleware
+func (siw *ServerInterfaceWrapper) RetargetAutopilotRun(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "run_id" -------------
+	var runId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "run_id", chi.URLParam(r, "run_id"), &runId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "run_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RetargetAutopilotRun(w, r, runId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -5927,6 +6030,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/api/v1/autopilot/runs", wrapper.RegisterAutopilotRun)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/autopilot/runs/{run_id}/rename", wrapper.RenameAutopilotRun)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/autopilot/runs/{run_id}/retarget", wrapper.RetargetAutopilotRun)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/autopilot/runs/{run_id}/{action}", wrapper.ControlAutopilotRun)
 	})
 	r.Group(func(r chi.Router) {
@@ -6573,6 +6682,164 @@ func (response RegisterAutopilotRun403JSONResponse) VisitRegisterAutopilotRunRes
 type RegisterAutopilotRun409JSONResponse Error
 
 func (response RegisterAutopilotRun409JSONResponse) VisitRegisterAutopilotRunResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenameAutopilotRunRequestObject struct {
+	RunId string `json:"run_id"`
+	Body  *RenameAutopilotRunJSONRequestBody
+}
+
+type RenameAutopilotRunResponseObject interface {
+	VisitRenameAutopilotRunResponse(w http.ResponseWriter) error
+}
+
+type RenameAutopilotRun200JSONResponse AutopilotRun
+
+func (response RenameAutopilotRun200JSONResponse) VisitRenameAutopilotRunResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenameAutopilotRun400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response RenameAutopilotRun400JSONResponse) VisitRenameAutopilotRunResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenameAutopilotRun403JSONResponse Error
+
+func (response RenameAutopilotRun403JSONResponse) VisitRenameAutopilotRunResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenameAutopilotRun404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RenameAutopilotRun404JSONResponse) VisitRenameAutopilotRunResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenameAutopilotRun409JSONResponse Error
+
+func (response RenameAutopilotRun409JSONResponse) VisitRenameAutopilotRunResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RetargetAutopilotRunRequestObject struct {
+	RunId string `json:"run_id"`
+	Body  *RetargetAutopilotRunJSONRequestBody
+}
+
+type RetargetAutopilotRunResponseObject interface {
+	VisitRetargetAutopilotRunResponse(w http.ResponseWriter) error
+}
+
+type RetargetAutopilotRun200JSONResponse AutopilotRun
+
+func (response RetargetAutopilotRun200JSONResponse) VisitRetargetAutopilotRunResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RetargetAutopilotRun400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response RetargetAutopilotRun400JSONResponse) VisitRetargetAutopilotRunResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RetargetAutopilotRun403JSONResponse Error
+
+func (response RetargetAutopilotRun403JSONResponse) VisitRetargetAutopilotRunResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RetargetAutopilotRun404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RetargetAutopilotRun404JSONResponse) VisitRetargetAutopilotRunResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RetargetAutopilotRun409JSONResponse Error
+
+func (response RetargetAutopilotRun409JSONResponse) VisitRetargetAutopilotRunResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -10121,6 +10388,12 @@ type StrictServerInterface interface {
 	// Register a named plan
 	// (POST /api/v1/autopilot/runs)
 	RegisterAutopilotRun(ctx context.Context, request RegisterAutopilotRunRequestObject) (RegisterAutopilotRunResponseObject, error)
+	// Rename a run's display name and slot scope
+	// (POST /api/v1/autopilot/runs/{run_id}/rename)
+	RenameAutopilotRun(ctx context.Context, request RenameAutopilotRunRequestObject) (RenameAutopilotRunResponseObject, error)
+	// Retarget a run's integration branch
+	// (POST /api/v1/autopilot/runs/{run_id}/retarget)
+	RetargetAutopilotRun(ctx context.Context, request RetargetAutopilotRunRequestObject) (RetargetAutopilotRunResponseObject, error)
 	// Start, pause, resume, stop, or unregister one run
 	// (POST /api/v1/autopilot/runs/{run_id}/{action})
 	ControlAutopilotRun(ctx context.Context, request ControlAutopilotRunRequestObject) (ControlAutopilotRunResponseObject, error)
@@ -10711,6 +10984,72 @@ func (sh *strictHandler) RegisterAutopilotRun(w http.ResponseWriter, r *http.Req
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RegisterAutopilotRunResponseObject); ok {
 		if err := validResponse.VisitRegisterAutopilotRunResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RenameAutopilotRun operation middleware
+func (sh *strictHandler) RenameAutopilotRun(w http.ResponseWriter, r *http.Request, runId string) {
+	var request RenameAutopilotRunRequestObject
+
+	request.RunId = runId
+
+	var body RenameAutopilotRunJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RenameAutopilotRun(ctx, request.(RenameAutopilotRunRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RenameAutopilotRun")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RenameAutopilotRunResponseObject); ok {
+		if err := validResponse.VisitRenameAutopilotRunResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RetargetAutopilotRun operation middleware
+func (sh *strictHandler) RetargetAutopilotRun(w http.ResponseWriter, r *http.Request, runId string) {
+	var request RetargetAutopilotRunRequestObject
+
+	request.RunId = runId
+
+	var body RetargetAutopilotRunJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RetargetAutopilotRun(ctx, request.(RetargetAutopilotRunRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RetargetAutopilotRun")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RetargetAutopilotRunResponseObject); ok {
+		if err := validResponse.VisitRetargetAutopilotRunResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

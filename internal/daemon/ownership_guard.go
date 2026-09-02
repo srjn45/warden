@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/srjn45/warden/internal/auth"
+	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -100,4 +101,57 @@ func (s *Server) inheritOwnershipTags(ctx context.Context, tags []string) []stri
 		}
 	}
 	return tags
+}
+
+func isAutopilotWorkerSpawnRole(role string) bool {
+	return autopilot.WorkerSpawnRole(role)
+}
+
+// stampAutopilotSpawnBackRefs sets explicit run back-ref fields on worker spawns
+// from an autopilot-owned caller and clears parent_id — autopilot workers are
+// grouped by back-ref, not a live parent chain (plan-scoped hierarchy WP6).
+func (s *Server) stampAutopilotSpawnBackRefs(ctx context.Context, sr *SpawnRequest) {
+	if sr == nil {
+		return
+	}
+	caller := s.callerSession(ctx)
+	if caller == nil || !caller.HasTag(autopilotOwnershipTag) {
+		return
+	}
+	if !isAutopilotWorkerSpawnRole(sr.Role) {
+		return
+	}
+	runID := strings.TrimPrefix(callerRunTag(caller), runTagPrefix)
+	if runID == "" {
+		runID = autopilot.SessionRunID(caller)
+	}
+	if runID == "" {
+		return
+	}
+	sr.ParentID = ""
+	sr.AutopilotRunID = runID
+	sr.AutopilotSlot = store.AutopilotSlotWorker
+	sr.AutopilotTaskID = strings.TrimSpace(sr.Task)
+}
+
+// annotateAutopilotWorkerPrompt appends the resolved integration branch to a
+// worker spawn prompt so workers do not guess the PR base. No-op for non-worker
+// roles, non-autopilot callers, or when the branch is already in the prompt.
+func (s *Server) annotateAutopilotWorkerPrompt(ctx context.Context, sr *SpawnRequest) {
+	if sr == nil || !isAutopilotWorkerSpawnRole(sr.Role) {
+		return
+	}
+	caller := s.callerSession(ctx)
+	if caller == nil || !caller.HasTag(autopilotOwnershipTag) {
+		return
+	}
+	runID := strings.TrimPrefix(callerRunTag(caller), runTagPrefix)
+	if runID == "" || s.autopilot == nil {
+		return
+	}
+	lp, ok := s.autopilot.LandParams(runID)
+	if !ok {
+		return
+	}
+	sr.Prompt = autopilot.AppendWorkerSpawnBranch(sr.Prompt, lp.IntegrationBranch)
 }

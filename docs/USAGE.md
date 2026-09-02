@@ -2369,6 +2369,17 @@ tasks:           # optional — manager decomposes goal if empty
 The plan file is **editable mid-flight** — the manager re-reads it on each planning
 cycle. Add tasks or change constraints while a run is active.
 
+### Run ledger
+
+Live task progress is a JSON array at the ctx key `autopilot.<run_id>.tasks`
+(dot-namespaced; slashes are rejected). Each row's `state` is one of `pending`,
+`assigned`, `in_progress`, `pr_open`, `gated`, `landed` and is validated on
+write. Optional overlay keys `autopilot.<run_id>.tasks.<id>.state` and
+`.branch` exist so the TUI can segment workers by ledger state; the array is
+the source of truth. Landings are daemon-written at
+`autopilot.<run_id>.landings`. Plan-file statuses (`pending` / `active` /
+`done` / `failed`) are a separate checklist, not ledger states.
+
 ### Integration branch {#integration-branch}
 
 `autopilot/integration` (configurable via `autopilot.integration_branch`). The

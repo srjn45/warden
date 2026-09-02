@@ -56,7 +56,7 @@ func newLandServer(t *testing.T, host *stubLandHost) (*httptest.Server, *Server,
 	srv.landHostFn = func(string) autopilot.LandHost { return *host }
 	srv.SetAutopilotController(autopilot.NewController(autopilot.ControllerConfig{
 		Plans:             []string{plan},
-		IntegrationBranch: "autopilot/integration",
+		IntegrationBranch: autopilot.DefaultIntegrationBranch,
 		Gate:              "ci",
 		Strategy:          "squash",
 		DeleteBranch:      true,
@@ -100,7 +100,7 @@ func postLand(t *testing.T, url, ref string) (int, map[string]any) {
 func TestLandRouteSuccessWritesLedger(t *testing.T) {
 	merges := 0
 	host := &stubLandHost{
-		pr:       autopilot.PRInfo{Number: 7, BaseRef: "autopilot/integration", HeadSHA: "sha-head", Mergeable: true},
+		pr:       autopilot.PRInfo{Number: 7, BaseRef: "autopilot/plan", HeadSHA: "sha-head", Mergeable: true},
 		prFound:  true,
 		ci:       autopilot.GateGreen,
 		mergeSHA: "sha-merge",
@@ -140,7 +140,7 @@ func TestLandRouteSuccessWritesLedger(t *testing.T) {
 func TestLandRouteAlreadyMergedPR(t *testing.T) {
 	merges := 0
 	host := &stubLandHost{
-		pr:      autopilot.PRInfo{Number: 9, BaseRef: "autopilot/integration", HeadSHA: "h", Merged: true, MergeCommit: "m"},
+		pr:      autopilot.PRInfo{Number: 9, BaseRef: "autopilot/plan", HeadSHA: "h", Merged: true, MergeCommit: "m"},
 		prFound: true,
 		merges:  &merges,
 	}
@@ -169,7 +169,7 @@ func TestLandRouteNotOwned(t *testing.T) {
 func TestLandRouteGateRed(t *testing.T) {
 	merges := 0
 	host := &stubLandHost{
-		pr:      autopilot.PRInfo{Number: 7, BaseRef: "autopilot/integration", HeadSHA: "h", Mergeable: true},
+		pr:      autopilot.PRInfo{Number: 7, BaseRef: "autopilot/plan", HeadSHA: "h", Mergeable: true},
 		prFound: true,
 		ci:      autopilot.GateRed,
 		merges:  &merges,

@@ -56,13 +56,14 @@ func (l BackendLadder) firstFree() string {
 // agent lifecycle. The Controller composes it; the daemon runtime adapter maps it
 // onto a spawn request (role autopilot, headless, prompt = recovery digest).
 type BrainSpec struct {
-	RunID    string   // owning run
-	Repo     string   // repo root (agent cwd)
-	PlanFile string   // absolute plan-file path
-	Backend  string   // selected backend ("" ⇒ the daemon's default)
-	Prompt   string   // opening brief: the recovery digest
-	Tags     []string // [autopilot, run:<run_id>]
-	Headless bool     // run non-interactively (unattended)
+	RunID     string   // owning run
+	Repo      string   // repo root (agent cwd)
+	PlanFile  string   // absolute plan-file path
+	SlotScope string   // stable scope for Ticket = <scope>-autopilot
+	Backend   string   // selected backend ("" ⇒ the daemon's default)
+	Prompt    string   // opening brief: the recovery digest
+	Tags      []string // [autopilot, run:<run_id>]
+	Headless  bool     // run non-interactively (unattended)
 }
 
 // BrainHandle identifies a spawned brain.
@@ -70,6 +71,22 @@ type BrainHandle struct {
 	AgentID string
 	Backend string
 }
+
+// RotateBrainSpec is the guardian's in-place slot rotation request. HotSwap
+// keeps AgentID so the manager slot does not churn and workers need no
+// parent_id rewrite. Reason is a lifecycle.SwapReason value; empty means manual.
+type RotateBrainSpec struct {
+	AgentID string // current manager session id (the slot)
+	Backend string // pinned successor backend
+	Prompt  string // extra continuation instruction (recovery digest)
+	Reason  string // "manual" (heal ladder) or "context_fill" (plannedRotate)
+}
+
+// Rotate reasons recorded on the HotSwap handoff. Values match lifecycle.SwapReason.
+const (
+	RotateReasonHeal    = "manual"       // restart / rotate-down the heal ladder
+	RotateReasonContext = "context_fill" // plannedRotate on context pressure
+)
 
 // Runtime is the daemon-provided surface the Controller drives once a run is
 // live: spawn/teardown the brain, read the ledger and digest sources, and notify
@@ -79,9 +96,14 @@ type BrainHandle struct {
 type Runtime interface {
 	// SpawnBrain launches the run's headless brain and returns its handle. A
 	// failure leaves the run degraded (autopilot.md §2.1); the guardian (S5)
-	// heals it.
+	// heals it. Used for first start and for a missing slot (brain gone).
 	SpawnBrain(ctx context.Context, spec BrainSpec) (BrainHandle, error)
-	// TerminateBrain gracefully stops the brain agent (kill switch / rotation).
+	// RotateBrain hot-swaps the successor backend into the existing manager
+	// session (same id, same worktree). Workers keep their parent_id; the
+	// BackendRecoveryCoordinator is not involved — guardian rotation is a
+	// separate owner from quota recovery.
+	RotateBrain(ctx context.Context, spec RotateBrainSpec) (BrainHandle, error)
+	// TerminateBrain gracefully stops the brain agent (kill switch / teardown).
 	// In-flight workers are untouched.
 	TerminateBrain(ctx context.Context, agentID string) error
 	// NewLedger returns a run-scoped ledger over the daemon's ctx store.
@@ -131,41 +153,24 @@ type GuardianRuntime interface {
 // lightweight system session. It is optional so embedders and older Runtime
 // fakes retain the daemon-loop-only behavior.
 type GuardianAgentRuntime interface {
-	SpawnGuardian(ctx context.Context, runID, repo string) (agentID string, err error)
+	SpawnGuardian(ctx context.Context, runID, slotScope, repo string) (agentID string, err error)
 	TerminateGuardian(ctx context.Context, agentID string) error
 	// ReconcileGuardians removes guardian sessions not present in valid, keyed by
 	// run id. It runs once when the daemon runtime is attached at boot.
 	ReconcileGuardians(ctx context.Context, valid map[string]string) (missingRunIDs []string, err error)
 }
 
-// rotateBrain is the guardian's rotation hook (autopilot.md §7): terminate the
-// current brain and spawn a fresh one on backend, cold-starting from the ledger
-// via a freshly composed digest. S3 provides the signature and the mechanical
-// terminate-then-respawn; S5 drives it from the heal ladder + tier selection.
-// Workers in flight are untouched — the new brain re-adopts them from list_agents
-// + tags.
-func (c *Controller) rotateBrain(ctx context.Context, r *run, backend string) error {
+// rotateBrain is the guardian's rotation hook (autopilot.md §7): hot-swap the
+// successor backend into the existing manager slot so the session id is
+// unchanged. A missing brain (cold start / failed prior spawn) still goes
+// through spawnBrain. Workers in flight are untouched — they already point at
+// the stable slot id (or at tags) and need no parent_id rewrite.
+func (c *Controller) rotateBrain(ctx context.Context, r *run, backend, reason string) error {
 	if c.runtime == nil {
 		return nil
 	}
-	if r.brain != nil && r.brain.AgentID != "" {
-		if err := c.runtime.TerminateBrain(ctx, r.brain.AgentID); err != nil {
-			return fmt.Errorf("rotate: terminate current brain: %w", err)
-		}
-		r.brain = nil
-	}
-	return c.spawnBrain(ctx, r, backend)
-}
-
-// spawnBrain composes the recovery digest and launches the run's brain, recording
-// the handle on r and advancing it to active. On a spawn failure the run is left
-// degraded (brain nil) and the error is returned — Enable does not fail the whole
-// switch for one degraded run (the guardian, S5, heals it). A nil runtime is the
-// inert path: the run collapses straight to active with no brain (S1 behavior).
-func (c *Controller) spawnBrain(ctx context.Context, r *run, backend string) error {
-	if c.runtime == nil {
-		r.state = StateActive
-		return nil
+	if r.brain == nil || r.brain.AgentID == "" {
+		return c.spawnBrain(ctx, r, backend)
 	}
 	prompt, err := ComposeDigest(ctx, DigestInput{
 		RunID:    r.runID,
@@ -179,22 +184,67 @@ func (c *Controller) spawnBrain(ctx context.Context, r *run, backend string) err
 		r.state = StateDegraded
 		return fmt.Errorf("compose digest: %w", err)
 	}
+	handle, err := c.runtime.RotateBrain(ctx, RotateBrainSpec{
+		AgentID: r.brain.AgentID,
+		Backend: backend,
+		Prompt:  prompt,
+		Reason:  reason,
+	})
+	if err != nil {
+		r.state = StateDegraded
+		return fmt.Errorf("rotate: hot-swap brain: %w", err)
+	}
+	r.brain = &handle
+	r.brainSpawnedAt = c.now() // fresh successor counts as a heartbeat until it acts
+	r.state = StateActive
+	return nil
+}
+
+// spawnBrain composes the recovery digest and launches the run's brain, recording
+// the handle on r and advancing it to active. On a spawn failure the run is left
+// degraded (brain nil) and the error is returned — Enable does not fail the whole
+// switch for one degraded run (the guardian, S5, heals it). A nil runtime is the
+// inert path: the run collapses straight to active with no brain (S1 behavior).
+func (c *Controller) spawnBrain(ctx context.Context, r *run, backend string) error {
+	if c.runtime == nil {
+		r.state = StateActive
+		return nil
+	}
+	prompt, err := ComposeDigest(ctx, DigestInput{
+		RunID:             r.runID,
+		Repo:              r.repo,
+		PlanFile:          r.absPlanFile,
+		Plan:              r.plan,
+		Ledger:            c.runtime.NewLedger(r.runID),
+		Sources:           c.runtime.DigestSources(),
+		IntegrationBranch: r.integrationBranch,
+	})
+	if err != nil {
+		r.state = StateDegraded
+		return fmt.Errorf("compose digest: %w", err)
+	}
+	c.persistIntegrationBranch(r)
 	handle, err := c.runtime.SpawnBrain(ctx, BrainSpec{
-		RunID:    r.runID,
-		Repo:     r.repo,
-		PlanFile: r.absPlanFile,
-		Backend:  backend,
-		Prompt:   prompt,
-		Tags:     []string{autopilotTag, runTag(r.runID)},
-		Headless: true,
+		RunID:     r.runID,
+		Repo:      r.repo,
+		PlanFile:  r.absPlanFile,
+		SlotScope: r.slotScope,
+		Backend:   backend,
+		Prompt:    prompt,
+		Tags:      []string{autopilotTag, runTag(r.runID)},
+		Headless:  true,
 	})
 	if err != nil {
 		r.state = StateDegraded
 		return fmt.Errorf("spawn brain: %w", err)
 	}
 	r.brain = &handle
+	wantGuardian := GuardianSlotID(r.slotScope)
+	if r.guardianID != "" && r.guardianID != wantGuardian {
+		r.guardianID = ""
+	}
 	if gr, ok := c.runtime.(GuardianAgentRuntime); ok && r.guardianID == "" {
-		id, gerr := gr.SpawnGuardian(ctx, r.runID, r.repo)
+		id, gerr := gr.SpawnGuardian(ctx, r.runID, r.slotScope, r.repo)
 		if gerr != nil {
 			_ = c.runtime.TerminateBrain(ctx, handle.AgentID)
 			r.brain = nil

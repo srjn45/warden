@@ -158,6 +158,15 @@ type controlAutopilotRunArgs struct {
 	RunID  string `json:"run_id"`
 	Action string `json:"action" jsonschema:"start, pause, resume, or stop"`
 }
+type renameAutopilotRunArgs struct {
+	RunID string `json:"run_id"`
+	Name  string `json:"name"`
+}
+type retargetAutopilotRunArgs struct {
+	RunID             string `json:"run_id"`
+	IntegrationBranch string `json:"integration_branch,omitempty"`
+	Derive            bool   `json:"derive,omitempty"`
+}
 type updateTaskStatusArgs struct {
 	RunID    string `json:"run_id"`
 	TaskID   string `json:"task_id"`
@@ -473,6 +482,20 @@ func (s *Server) registerExtraTools() {
 	})
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{Name: "control_autopilot_run", Description: "Start, pause, resume, or stop one autopilot run by stable run id."}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a controlAutopilotRunArgs) (*mcpsdk.CallToolResult, any, error) {
 		r, err := s.cl.ControlAutopilotRun(ctx, a.RunID, a.Action)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(r)
+	})
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{Name: "rename_autopilot_run", Description: "Rename a run's display name and slot scope without changing its run_id or integration branch."}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a renameAutopilotRunArgs) (*mcpsdk.CallToolResult, any, error) {
+		r, err := s.cl.RenameAutopilotRun(ctx, a.RunID, a.Name)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(r)
+	})
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{Name: "retarget_autopilot_run", Description: "Retarget a run's stored integration branch explicitly or derive it from the current display name. Open PRs on the old branch are not migrated."}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a retargetAutopilotRunArgs) (*mcpsdk.CallToolResult, any, error) {
+		r, err := s.cl.RetargetAutopilotRun(ctx, a.RunID, a.IntegrationBranch, a.Derive)
 		if err != nil {
 			return textResult("error: " + err.Error()), nil, nil
 		}

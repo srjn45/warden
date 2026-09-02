@@ -46,13 +46,13 @@ func TestInit_CreatesIntegrationBranch(t *testing.T) {
 		IntegrationBranch: "autopilot/integration",
 	}, &out)
 	require.NoError(t, err)
-	require.Contains(t, env.created, dir+"|autopilot/integration|main")
+	require.Contains(t, env.created, dir+"|autopilot/plan|main")
 	require.Contains(t, out.String(), "✓ created integration branch")
 }
 
 func TestInit_SkipsBranchIfExists(t *testing.T) {
 	repo := t.TempDir()
-	env := &fakeEnv{exists: map[string]bool{repo + "\x00autopilot/integration": true}}
+	env := &fakeEnv{exists: map[string]bool{repo + "\x00autopilot/plan": true}}
 	var out bytes.Buffer
 	require.NoError(t, Init(context.Background(), env, repo, InitConfig{
 		PlanFile:          "plan.yaml",
@@ -69,8 +69,30 @@ func TestInit_DefaultsApplied(t *testing.T) {
 	require.NoError(t, Init(context.Background(), env, dir, InitConfig{}, &out))
 	// default plan file
 	require.FileExists(t, filepath.Join(dir, "plans", "default.yaml"))
-	// default integration branch created
-	require.Contains(t, env.created, dir+"|autopilot/integration|main")
+	// default integration branch created from the plan name
+	require.Contains(t, env.created, dir+"|autopilot/default|main")
+}
+
+func TestInit_CustomOverrideHonored(t *testing.T) {
+	env := &fakeEnv{}
+	dir := t.TempDir()
+	var out bytes.Buffer
+	require.NoError(t, Init(context.Background(), env, dir, InitConfig{
+		Name:              "release",
+		IntegrationBranch: "ap/custom",
+	}, &out))
+	require.Contains(t, env.created, dir+"|ap/custom|main")
+}
+
+func TestInit_PlanTemplateExpands(t *testing.T) {
+	env := &fakeEnv{}
+	dir := t.TempDir()
+	var out bytes.Buffer
+	require.NoError(t, Init(context.Background(), env, dir, InitConfig{
+		Name:              "release",
+		IntegrationBranch: "integration/{{plan}}",
+	}, &out))
+	require.Contains(t, env.created, dir+"|integration/release|main")
 }
 
 func TestInitRegistersNamedPlan(t *testing.T) {
@@ -100,6 +122,44 @@ func TestInit_ProtectedBranchSkipped(t *testing.T) {
 	}, &out)
 	require.NoError(t, err) // warning, not fatal
 	require.Contains(t, out.String(), "warning: integration branch")
+}
+
+func TestInit_CIHintRecommendsAutopilotGlob(t *testing.T) {
+	dir := t.TempDir()
+	wfDir := filepath.Join(dir, ".github", "workflows")
+	require.NoError(t, os.MkdirAll(wfDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(wfDir, "ci.yml"), []byte(`on:
+  pull_request:
+    branches:
+      - autopilot/integration
+jobs: {}
+`), 0o644))
+	var out bytes.Buffer
+	require.NoError(t, Init(context.Background(), &fakeEnv{}, dir, InitConfig{
+		Name:              "ship",
+		IntegrationBranch: DefaultIntegrationBranch,
+	}, &out))
+	require.Contains(t, out.String(), "autopilot/**")
+	require.Contains(t, out.String(), "gate: local")
+	require.NotContains(t, out.String(), `add "autopilot/ship"`)
+}
+
+func TestInit_NoCIHintWhenGlobCovers(t *testing.T) {
+	dir := t.TempDir()
+	wfDir := filepath.Join(dir, ".github", "workflows")
+	require.NoError(t, os.MkdirAll(wfDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(wfDir, "ci.yml"), []byte(`on:
+  pull_request:
+    branches:
+      - autopilot/**
+jobs: {}
+`), 0o644))
+	var out bytes.Buffer
+	require.NoError(t, Init(context.Background(), &fakeEnv{}, dir, InitConfig{
+		Name:              "ship",
+		IntegrationBranch: DefaultIntegrationBranch,
+	}, &out))
+	require.NotContains(t, out.String(), "no CI workflow")
 }
 
 // --- ciCoversIntegration ---
@@ -187,6 +247,28 @@ jobs: {}
 `,
 			branch: "autopilot/integration",
 			want:   false,
+		},
+		{
+			name: "exact autopilot/integration does not cover per-plan branch",
+			workflow: `on:
+  pull_request:
+    branches:
+      - autopilot/integration
+jobs: {}
+`,
+			branch: "autopilot/foo",
+			want:   false,
+		},
+		{
+			name: "autopilot/** covers per-plan branch",
+			workflow: `on:
+  pull_request:
+    branches:
+      - autopilot/**
+jobs: {}
+`,
+			branch: "autopilot/foo",
+			want:   true,
 		},
 	}
 

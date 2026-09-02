@@ -2321,6 +2321,82 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
 
+  /api/v1/autopilot/runs/{run_id}/rename:
+    parameters:
+      - in: path
+        name: run_id
+        required: true
+        schema: { type: string }
+    post:
+      operationId: renameAutopilotRun
+      tags: [Autopilot]
+      summary: Rename a run's display name and slot scope
+      description: >
+        Updates the display name and derived slot scope without changing the
+        path-derived run_id. The integration branch is unchanged; retarget it
+        explicitly with renameAutopilotRunRetarget when ready.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AutopilotRenameRequest" }
+      responses:
+        "200":
+          description: Updated run
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AutopilotRun" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403":
+          description: Autopilot is not configured
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Illegal rename (active run or name conflict)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v1/autopilot/runs/{run_id}/retarget:
+    parameters:
+      - in: path
+        name: run_id
+        required: true
+        schema: { type: string }
+    post:
+      operationId: retargetAutopilotRun
+      tags: [Autopilot]
+      summary: Retarget a run's integration branch
+      description: >
+        Sets a new stored merge target explicitly or derives one from the run's
+        current display name. Open PRs on the previous branch are not migrated;
+        land rejects them with wrong_base until rebased or retargeted.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AutopilotRetargetRequest" }
+      responses:
+        "200":
+          description: Updated run
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AutopilotRun" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403":
+          description: Autopilot is not configured
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Illegal retarget (active run or branch conflict)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
   /api/v1/autopilot/land:
     post:
       operationId: landAutopilot
@@ -2784,10 +2860,10 @@ components:
         id:
           type: string
           description: >
-            opaque, kind-agnostic session token. Always carries the `agent-`
-            prefix regardless of kind (terminals included) — it is NOT a kind
-            hint. Never parse kind (or anything else) from the id; classify with
-            the `kind` field.
+            opaque, kind-agnostic session token. Not a kind hint — ids may use
+            the `agent-` prefix, `guardian-*`, `<pipeline>-<job>`, or plan-scoped
+            autopilot slot forms. Never parse kind (or anything else) from the id;
+            classify with the `kind` field.
         name:
           type: string
           description: >
@@ -2848,6 +2924,23 @@ components:
             operator-facing name of that schedule (== schedule_id today), carried
             for display so a client need not re-fetch the schedule. Absent when
             schedule_id is.
+        autopilot_run_id:
+          type: string
+          description: >
+            back-ref to the owning autopilot run id (`ap-…`). Set on manager,
+            guardian, and worker sessions in the plan-scoped hierarchy. Absent
+            (omitempty) on non-autopilot sessions and legacy records.
+        autopilot_slot:
+          type: string
+          enum: [autopilot, guardian, worker]
+          description: >
+            which slot in the plan-scoped tree this session occupies. Absent on
+            non-autopilot sessions.
+        autopilot_task_id:
+          type: string
+          description: >
+            plan task id for worker sessions. Absent on manager/guardian slots and
+            non-autopilot sessions.
         model: { type: string }
         project_id:
           type: string
@@ -3882,6 +3975,25 @@ components:
         plan_file: { type: string }
       required: [name, repo, plan_file]
 
+    AutopilotRenameRequest:
+      type: object
+      properties:
+        name: { type: string, description: "new display name within the repository" }
+      required: [name]
+
+    AutopilotRetargetRequest:
+      type: object
+      properties:
+        integration_branch:
+          type: string
+          description: "explicit new merge target branch"
+        derive:
+          type: boolean
+          description: "re-derive from the run's current display name and global template"
+      description: >
+        Provide integration_branch or derive=true. Open PRs on the previous
+        branch are not migrated automatically.
+
     AutopilotRun:
       x-go-type: autopilot.RunStatus
       x-go-type-import:
@@ -3895,6 +4007,17 @@ components:
         repo: { type: string }
         state: { type: string, enum: [registered, starting, active, paused, stopped, degraded, healing, complete] }
         gate: { type: string }
+        slot_scope: { type: string, description: "stable scope token for manager/guardian slot ids" }
+        manager_slot_id: { type: string, description: "stable manager session id (<scope>-autopilot)" }
+        guardian_slot_id: { type: string, description: "stable guardian session id (<scope>-guardian)" }
+        integration_branch: { type: string, description: "resolved per-plan merge target workers must base PRs on" }
+        gate_warning: { type: string, description: "set when gate auto downgraded to local because workflows do not cover the integration branch" }
+        workers:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
+          description: "task_id -> worker session ids (tree grouping metadata)"
       required: [run_id, name, plan_file, repo, state]
 
     AutopilotStatus:
@@ -3949,6 +4072,18 @@ components:
                   next_retry_at: { type: string }
                   last_error: { type: string }
               landed_total: { type: integer }
+              guardian_id: { type: string }
+              slot_scope: { type: string, description: "stable scope token for manager/guardian slot ids" }
+              manager_slot_id: { type: string, description: "stable manager session id (<scope>-autopilot)" }
+              guardian_slot_id: { type: string, description: "stable guardian session id (<scope>-guardian)" }
+              integration_branch: { type: string, description: "resolved per-plan merge target workers must base PRs on" }
+              gate_warning: { type: string, description: "set when gate auto downgraded to local because workflows do not cover the integration branch" }
+              workers:
+                type: object
+                additionalProperties:
+                  type: array
+                  items: { type: string }
+                description: "task_id -> worker session ids (tree grouping metadata)"
       required: [enabled, runs]
 
     AutopilotPreflightFailure:
