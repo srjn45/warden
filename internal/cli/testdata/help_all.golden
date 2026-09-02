@@ -58,8 +58,6 @@ Complete command tree:
   warden autopilot run resume          resume one autopilot run
   warden autopilot run stop            stop one autopilot run
   warden autopilot run unregister      unregister one autopilot run
-  warden autopilot run rename          Rename a run's display name and slot scope
-  warden autopilot run retarget        Retarget a run's integration branch
   warden schedule                      Schedule recurring (--cron) or single-shot (--at) agents and pipelines
   warden schedule create               Create a schedule that fires an agent or a pipeline
   warden schedule list                 List schedules

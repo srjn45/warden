@@ -83,12 +83,6 @@ func newAutopilotRunCmd() *cobra.Command {
 		SetCommandHelpMetadata(child, "run", (i+2)*10, "warden autopilot run "+action, "", NodeLeaf)
 		cmd.AddCommand(child)
 	}
-	rename := newAutopilotRenameCmd()
-	SetCommandHelpMetadata(rename, "run", 70, "warden autopilot run rename", "", NodeLeaf)
-	cmd.AddCommand(rename)
-	retarget := newAutopilotRetargetCmd()
-	SetCommandHelpMetadata(retarget, "run", 80, "warden autopilot run retarget", "", NodeLeaf)
-	cmd.AddCommand(retarget)
 	return cmd
 }
 
@@ -154,9 +148,25 @@ func newAutopilotRegisterCmd() *cobra.Command {
 
 func newAutopilotRunActionCmd(action string) *cobra.Command {
 	return &cobra.Command{Use: action + " <run-id-or-name>", Short: action + " one autopilot run", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		id, err := resolveAutopilotRunID(cmd, args[0])
-		if err != nil {
-			return err
+		id := args[0]
+		if !strings.HasPrefix(id, "ap-") {
+			runs, err := clientFor(cmd).ListAutopilotRuns(cmd.Context())
+			if err != nil {
+				return err
+			}
+			var matches []string
+			for _, r := range runs {
+				if r.Name == id {
+					matches = append(matches, r.RunID)
+				}
+			}
+			if len(matches) == 0 {
+				return fmt.Errorf("autopilot run %q not found", id)
+			}
+			if len(matches) > 1 {
+				return fmt.Errorf("autopilot run name %q is ambiguous across repositories; use a run id", id)
+			}
+			id = matches[0]
 		}
 		r, err := clientFor(cmd).ControlAutopilotRun(cmd.Context(), id, action)
 		if err != nil {
@@ -165,94 +175,6 @@ func newAutopilotRunActionCmd(action string) *cobra.Command {
 		fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\n", r.RunID, r.Name, r.State)
 		return nil
 	}}
-}
-
-func newAutopilotRenameCmd() *cobra.Command {
-	var name string
-	cmd := &cobra.Command{
-		Use:   "rename <run-id-or-name>",
-		Short: "Rename a run's display name and slot scope",
-		Long: "Updates the display name and derived slot scope without changing the\n" +
-			"path-derived run_id. The integration branch is unchanged; retarget it\n" +
-			"explicitly with `warden autopilot run retarget` when ready.",
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if strings.TrimSpace(name) == "" {
-				return fmt.Errorf("--name is required")
-			}
-			id, err := resolveAutopilotRunID(cmd, args[0])
-			if err != nil {
-				return err
-			}
-			r, err := clientFor(cmd).RenameAutopilotRun(cmd.Context(), id, name)
-			if err != nil {
-				return err
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "renamed %s (%s)\n", r.Name, r.RunID)
-			return nil
-		},
-	}
-	cmd.Flags().StringVar(&name, "name", "", "new display name within the repository")
-	_ = cmd.MarkFlagRequired("name")
-	return cmd
-}
-
-func newAutopilotRetargetCmd() *cobra.Command {
-	var branch string
-	var derive bool
-	cmd := &cobra.Command{
-		Use:   "retarget <run-id-or-name>",
-		Short: "Retarget a run's integration branch",
-		Long: "Sets a new stored merge target explicitly or derives one from the run's\n" +
-			"current display name. Open PRs on the previous branch are not migrated;\n" +
-			"land rejects them with wrong_base until rebased or retargeted.",
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if !derive && strings.TrimSpace(branch) == "" {
-				return fmt.Errorf("set --branch or --derive")
-			}
-			if derive && strings.TrimSpace(branch) != "" {
-				return fmt.Errorf("set --branch or --derive, not both")
-			}
-			id, err := resolveAutopilotRunID(cmd, args[0])
-			if err != nil {
-				return err
-			}
-			r, err := clientFor(cmd).RetargetAutopilotRun(cmd.Context(), id, branch, derive)
-			if err != nil {
-				return err
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "retargeted %s (%s)\n", r.Name, r.RunID)
-			return nil
-		},
-	}
-	cmd.Flags().StringVar(&branch, "branch", "", "explicit new merge target branch")
-	cmd.Flags().BoolVar(&derive, "derive", false, "re-derive from the run's current display name")
-	return cmd
-}
-
-func resolveAutopilotRunID(cmd *cobra.Command, idOrName string) (string, error) {
-	id := idOrName
-	if strings.HasPrefix(id, "ap-") {
-		return id, nil
-	}
-	runs, err := clientFor(cmd).ListAutopilotRuns(cmd.Context())
-	if err != nil {
-		return "", err
-	}
-	var matches []string
-	for _, r := range runs {
-		if r.Name == id {
-			matches = append(matches, r.RunID)
-		}
-	}
-	if len(matches) == 0 {
-		return "", fmt.Errorf("autopilot run %q not found", id)
-	}
-	if len(matches) > 1 {
-		return "", fmt.Errorf("autopilot run name %q is ambiguous across repositories; use a run id", id)
-	}
-	return matches[0], nil
 }
 
 func newAutopilotOnCmd() *cobra.Command {
@@ -364,8 +286,8 @@ func newAutopilotStatusCmd() *cobra.Command {
 // printAutopilotRuns renders one line per run: id, state, gate, plan file, repo.
 func printAutopilotRuns(cmd *cobra.Command, st client.AutopilotStatus) {
 	for _, r := range st.Runs {
-		fmt.Fprintf(cmd.OutOrStdout(), "  %s\t%s\tgate=%s\tbranch=%s\t%s\t%s\n",
-			r.RunID, r.State, r.Gate, r.IntegrationBranch, r.PlanFile, r.Repo)
+		fmt.Fprintf(cmd.OutOrStdout(), "  %s\t%s\tgate=%s\t%s\t%s\n",
+			r.RunID, r.State, r.Gate, r.PlanFile, r.Repo)
 	}
 }
 
