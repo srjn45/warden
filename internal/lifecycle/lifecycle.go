@@ -752,27 +752,30 @@ func (l *Lifecycle) backendFor(id string) agentbackend.Backend {
 
 // SpawnRequest is the type-aware input to Spawn (design §2 / §6).
 type SpawnRequest struct {
-	Type           store.Type
-	Ticket         string // optional; becomes the id when present
-	Name           string // optional; human-readable name for the agent
-	Repo           string
-	Branch         string            // optional; development branch / pr-review checkout target
-	PR             string            // optional; pr-review
-	Worktree       bool              // analysis/spike opt-in
-	InRepo         bool              // write-agent opt-out: share the repo instead of isolating in a worktree (ignored for pr-review)
-	Prompt         string            // free-form: the agent's initial prompt (no repo/worktree); empty = interactive
-	Cwd            string            // free-form: dir to launch claude from (the caller's "master shell"); required
-	PermissionMode string            // explicit mode override; empty = use global default
-	AutoRestart    bool              // opt-in: auto-resume this agent when it errors (capped)
-	AutoApprove    bool              // opt-in: auto-approve yes/no prompts (also filled by a role default)
-	Model          string            // claude model (opus/sonnet/haiku or full ID); empty = default
-	Backend        string            // agent backend id (claude, aider, …); empty = claude (the default)
-	Kind           store.SessionKind // "" ⇒ agent (the default); "terminal" ⇒ a plain ${SHELL:-bash} pane, not an AI agent
-	Tags           []string          // optional free-form labels for grouping/filtering (#30)
-	Role           string            // built-in role (persona + default flags); empty = "general" (no persona)
-	Tier           string            // explicit model tier ("tier-1"/"tier-2"/"tier-3") for the quota-balanced resolver; empty = derive from task/role
-	Task           string            // task name (task registry) for tier routing via task.TierFor; empty = none
-	ParentID       string            // id of the agent that spawned this one; empty = root (operator/CLI spawn)
+	Type            store.Type
+	Ticket          string // optional; becomes the id when present
+	Name            string // optional; human-readable name for the agent
+	Repo            string
+	Branch          string            // optional; development branch / pr-review checkout target
+	PR              string            // optional; pr-review
+	Worktree        bool              // analysis/spike opt-in
+	InRepo          bool              // write-agent opt-out: share the repo instead of isolating in a worktree (ignored for pr-review)
+	Prompt          string            // free-form: the agent's initial prompt (no repo/worktree); empty = interactive
+	Cwd             string            // free-form: dir to launch claude from (the caller's "master shell"); required
+	PermissionMode  string            // explicit mode override; empty = use global default
+	AutoRestart     bool              // opt-in: auto-resume this agent when it errors (capped)
+	AutoApprove     bool              // opt-in: auto-approve yes/no prompts (also filled by a role default)
+	Model           string            // claude model (opus/sonnet/haiku or full ID); empty = default
+	Backend         string            // agent backend id (claude, aider, …); empty = claude (the default)
+	Kind            store.SessionKind // "" ⇒ agent (the default); "terminal" ⇒ a plain ${SHELL:-bash} pane, not an AI agent
+	Tags            []string          // optional free-form labels for grouping/filtering (#30)
+	Role            string            // built-in role (persona + default flags); empty = "general" (no persona)
+	Tier            string            // explicit model tier ("tier-1"/"tier-2"/"tier-3") for the quota-balanced resolver; empty = derive from task/role
+	Task            string            // task name (task registry) for tier routing via task.TierFor; empty = none
+	ParentID        string            // id of the agent that spawned this one; empty = root (operator/CLI spawn)
+	AutopilotRunID  string            // owning ap- run id (autopilot back-ref)
+	AutopilotSlot   string            // autopilot | guardian | worker
+	AutopilotTaskID string            // plan task id (workers only)
 
 	// Fork fields (codex fork superpower, #52). Set by the daemon adapter when a
 	// spawn carries fork_from: the adapter (which owns the store) resolves the
@@ -1495,6 +1498,9 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 	if req.ParentID != id {
 		sess.ParentID = req.ParentID
 	}
+	sess.AutopilotRunID = req.AutopilotRunID
+	sess.AutopilotSlot = req.AutopilotSlot
+	sess.AutopilotTaskID = req.AutopilotTaskID
 	// Only pinning backends (Caps.SessionIDControl) take a warden-minted session
 	// id — for them the id is pinned at launch for a deterministic transcript path
 	// + --resume. A non-pinning backend (codex, cursor, antigravity, …) mints its

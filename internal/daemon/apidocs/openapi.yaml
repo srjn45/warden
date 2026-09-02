@@ -2924,6 +2924,18 @@ components:
             operator-facing name of that schedule (== schedule_id today), carried
             for display so a client need not re-fetch the schedule. Absent when
             schedule_id is.
+        autopilot_run_id:
+          type: string
+          description: >
+            back-ref to the owning autopilot run id (`ap-…`). Set on manager,
+            guardian, and worker sessions in the plan-scoped hierarchy.
+        autopilot_slot:
+          type: string
+          enum: [autopilot, guardian, worker]
+          description: which slot in the plan-scoped tree this session occupies.
+        autopilot_task_id:
+          type: string
+          description: plan task id for worker sessions.
         model: { type: string }
         project_id:
           type: string
