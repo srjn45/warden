@@ -15,8 +15,9 @@ mitigations before enabling:
   immediately (in-flight workers keep running). Use it any time you need to
   regain control.
 - **Integration-branch boundary:** workers never merge to `main` directly —
-  all changes land in `autopilot/integration` first, where you review them
-  before deciding to fast-forward `main`.
+  each run lands into its own integration branch (default `autopilot/<plan-name>`;
+  existing runs on `autopilot/integration` are grandfathered). Review before
+  fast-forwarding `main`.
 - **Audit log:** every autopilot action (manager spawn, worker spawn, land, heal)
   is written to `warden inspect audit` — a permanent, append-only record of what
   ran.
@@ -70,12 +71,12 @@ Run `init` inside the repo you want autopilot to drive:
 
 ```sh
 cd /path/to/my-repo
-warden autopilot init
+warden autopilot init --name notifications
 ```
 
-This creates two files (without overwriting either if they already exist):
+This creates (without overwriting if they already exist):
 
-**`autopilot.plan.yaml`** — edit this to describe your goal:
+**`plans/notifications.yaml`** — edit this to describe your goal:
 
 ```yaml
 version: 1
@@ -90,19 +91,31 @@ tasks: []           # leave empty to let the manager decompose the goal automati
 ```yaml
 autopilot:
   enabled: false
-  plan_file: /path/to/my-repo/autopilot.plan.yaml
-  integration_branch: autopilot/integration
-  gate_mode: ci            # ci | local | auto (default: auto picks ci when available)
+  merge:
+    target_branch: autopilot/integration   # legacy default; new runs derive autopilot/<plan>
+    gate: auto            # auto | ci | local (auto picks ci when a workflow covers the branch)
 ```
 
-Commit `autopilot.plan.yaml` to your repo so the manager can read it from its
+`warden autopilot init` also prints a CI hint when no workflow covers the
+resolved integration branch — add `autopilot/**` to `on.pull_request.branches`
+in one of your `.github/workflows/*.yml` files so `gate: auto` covers every
+per-plan branch:
+
+```yaml
+on:
+  pull_request:
+    branches:
+      - autopilot/**
+```
+
+Commit `plans/<name>.yaml` to your repo so the manager can read it from its
 worktree.
 
 ---
 
 ## Step 2 — edit your plan file
 
-Open `autopilot.plan.yaml` and fill in the goal. The manager decomposes the goal
+Open `plans/notifications.yaml` and fill in the goal. The manager decomposes the goal
 into tasks automatically if you leave the `tasks:` list empty. Or provide coarse
 tasks yourself to guide decomposition:
 
@@ -162,9 +175,13 @@ daemon warns if they linger). Manage tiers with `warden backend tier` from then 
 
 ---
 
-## Step 4 — enable autopilot
+## Step 4 — start the run
 
-The switch is **per-repository**. Run inside the repo you want to drive:
+```sh
+warden autopilot run start notifications
+```
+
+Or use the legacy enable flow for a single plan:
 
 ```sh
 warden autopilot enable
@@ -177,10 +194,10 @@ unattended run — now, while you're present — and prints actionable errors if
 anything is missing:
 
 ```
-✗ plan file not found: autopilot.plan.yaml
-✗ integration branch does not exist: autopilot/integration
+✗ plan file not found: plans/notifications.yaml
+✗ integration branch does not exist: autopilot/notifications
 ✗ no authenticated backend available
-hint: run `warden autopilot init` to scaffold a plan file and config block
+hint: run `warden autopilot init --name notifications` to scaffold a plan file and config block
 ```
 
 Fix any reported issues and re-run `warden autopilot enable`. When the preflight
@@ -200,8 +217,9 @@ warden agent tail <manager-id>         # recent manager output
 warden inspect audit                 # full append-only audit trail of every action
 ```
 
-The TUI cockpit (`warden tui`) shows the manager and its workers as a nested
-sub-tree under the run. The web dashboard shows an **Autopilot** panel when a run
+The TUI cockpit (`warden tui`) shows each run as a **plan-scoped tree** — manager
+(`<scope>-autopilot`), guardian (`<scope>-guardian`), plan checklist, and workers
+grouped by ledger state. The web dashboard shows an **Autopilot** panel when a run
 is active. The TUI header has a status badge (press `ctrl+a` to toggle autopilot
 on/off without leaving the cockpit).
 
@@ -240,18 +258,20 @@ preflight**, so a finished run is never re-run by mistake on a future enable or
 daemon restart. To re-run it, remove the `status: complete` line (or point the
 config at a fresh plan file).
 
-The integration branch (`autopilot/integration` by default) holds all the
-merged worker branches — one merge commit per landed task.
+The integration branch for a run (default `autopilot/<plan-name>`; shown in
+`warden autopilot status` as `integration_branch`) holds all the merged worker
+branches — one merge commit per landed task. Runs already on the legacy
+`autopilot/integration` branch keep it across upgrade.
 
 Review the branch, then fast-forward `main` when you're satisfied:
 
 ```sh
-git log autopilot/integration --oneline   # inspect landed commits
-git diff main..autopilot/integration      # full diff
+git log autopilot/notifications --oneline   # example per-plan branch
+git diff main..autopilot/notifications
 
 # fast-forward main (after your review)
 git checkout main
-git merge --ff-only autopilot/integration
+git merge --ff-only autopilot/notifications
 git push
 ```
 
@@ -285,10 +305,11 @@ doing, or abort a run that is heading in the wrong direction.
 
 | Command | What it does |
 |---|---|
-| `warden autopilot init` | Scaffold `autopilot.plan.yaml` + config block |
+| `warden autopilot init [--name <name>]` | Scaffold `plans/<name>.yaml` + config block |
+| `warden autopilot run start <name>` | Start a named run |
 | `warden autopilot enable [--repo <root>]` | Enable autopilot for this repo (runs preflight first) |
 | `warden autopilot disable [--repo <root>]` | Disable autopilot for this repo — the kill switch |
-| `warden autopilot status` | Show enabled repos + each run's state, manager id, task summary |
+| `warden autopilot status` | Show enabled repos + each run's state, manager slot id, integration branch, task summary |
 | `warden autopilot land <agent-or-branch>` | Land a worker branch into the integration branch |
 
 ## MCP tools

@@ -213,13 +213,19 @@ and the rotate/handoff workflows.
 ## Autopilot
 
 Autopilot is warden's goal-directed autonomous run mode. A **manager** agent
-(role `autopilot`) drives the run: it spawns **worker** agents (role `worker`,
-one per task, each owning implement → self-review → PR → gate → merge and
-reporting back) and, on demand, a **resolver** (role `brain`) to unblock a stuck
-worker or make an ad-hoc design call — gating PRs and landing them into
-`autopilot/integration`, all without human intervention. A daemon-internal
-**overwatch** backstop nudges the manager to tend workers that fall idle or wait
-on input (automatic; generous cadences — a backstop, not a pacer).
+(role `autopilot`) occupies a stable `<scope>-autopilot` slot and drives the run:
+it spawns **worker** agents (role `worker`, one per task, each owning implement →
+self-review → PR → gate → merge and reporting back) and, on demand, a **resolver**
+(role `brain`) to unblock a stuck worker or make an ad-hoc design call — gating
+PRs and landing them into the run's **per-plan integration branch** (default
+`autopilot/<plan-name>`; legacy `autopilot/integration` runs are grandfathered),
+all without human intervention. Guardian heal-ladder rotation is an in-place
+**hot-swap** into the same manager slot (not a new `agent-<hex>` id). A
+daemon-internal **overwatch** backstop nudges the manager to tend workers that
+fall idle or wait on input (automatic; generous cadences — a backstop, not a
+pacer). Multiple named runs can be active in one repo concurrently — each gets
+its own integration branch and plan-scoped tree (`<scope>-autopilot`,
+`<scope>-guardian`, plan checklist, workers grouped by ledger state).
 
 > ⚠️ **Unattended operation is inherently risky.** Always confirm the user
 > understands the kill switch before enabling. Workers never merge to `main`
@@ -231,9 +237,9 @@ on input (automatic; generous cadences — a backstop, not a pacer).
 |---|---|---|
 | `set_autopilot { enabled: true, repo? }` | Enable autopilot **for one repo** (runs preflight); `repo` defaults to the daemon's working directory | `warden autopilot enable [--repo <root>]` |
 | `set_autopilot { enabled: false, repo? }` | Disable autopilot for one repo — the kill switch | `warden autopilot disable [--repo <root>]` |
-| `autopilot_status` | Enabled repos + each run's state, manager id, task counts, tier, backoff | `warden autopilot status` |
+| `autopilot_status` | Enabled repos + each run's state, manager slot id, integration branch, task counts, tier, backoff | `warden autopilot status` |
 | `autopilot_complete` | **Manager-only.** Declare the caller's OWN run complete once `done_when` is verified — writes the in-place `status: complete` marker into the plan file, tears the manager down (workers keep running), retains the ledger. Idempotent | _(automatic; the manager calls it)_ |
-| `land { ticket: "<agent-or-branch>" }` | Land a worker branch into the integration branch | `warden autopilot land <agent-or-branch>` |
+| `land { ticket: "<agent-or-branch>" }` | Land a worker branch into the run's integration branch | `warden autopilot land <agent-or-branch>` |
 
 The switch is **per-repository**: enabling one repo does not touch others, and the
 enabled set is persisted so repos come back up across a daemon restart. Do not
@@ -253,7 +259,8 @@ per run — not a per-task key tree:
 |---|---|
 | `autopilot.run_id` | Stable run identifier |
 | `autopilot.state` | `starting` / `active` / `healing` / `degraded` / `complete` |
-| `autopilot.brain` | Manager agent id (key name kept for back-compat — the "brain" is the manager) |
+| `autopilot.brain` | Manager slot id (key name kept for back-compat — the "brain" is the manager; value is `<scope>-autopilot`) |
+| `autopilot.<run_id>.integration_branch` | Resolved per-plan merge target workers must base PRs on |
 | `autopilot.<run_id>.tasks` | **Canonical task ledger** — JSON array of `{id, state, worker_id, branch, pr, note, updated_at}`. `state` is one of `pending` / `assigned` / `in_progress` / `pr_open` / `gated` / `landed` (validated on write). |
 | `autopilot.<run_id>.landings` | Append-only landings, daemon-written: `{branch, sha, pr, landed_at}` |
 | `autopilot.<run_id>.journal` | Rolling decision log (newest-first) |
@@ -279,8 +286,15 @@ checklist enum, not ledger states.
   is skipped by preflight; to re-run it the user must remove that line (or point
   the config at a fresh plan file). Don't re-enable a completed plan expecting it
   to run again.
+- **Per-plan integration branches.** New runs default to `autopilot/<plan-name>`.
+  Workers must open PRs against the branch in the manager digest / status API /
+  ledger — never guess. Wrong PR base fails land with `ErrWrongBase`. Add
+  `autopilot/**` to CI workflow `pull_request` triggers so `gate: auto` covers
+  every per-plan branch (listing only `autopilot/integration` does not).
 - **Config is hot-reloaded.** Edits to `~/.warden/config.yaml` — including the
-  whole `autopilot` block — apply with no daemon restart (a bad edit keeps the
-  last-good config). Don't tell the user to restart the daemon after a config
-  change unless it touches a restart-only key (`addr`, `data_dir`, timers, loop
-  cadences, the guardian tick `interval`).
+  whole `autopilot` block and `autopilot.merge.target_branch` — apply with no
+  daemon restart (a bad edit keeps the last-good config). Empty or legacy
+  `target_branch: autopilot/integration` derives per-plan branches for new runs;
+  existing runs on `autopilot/integration` are grandfathered. Don't tell the user
+  to restart the daemon after a config change unless it touches a restart-only
+  key (`addr`, `data_dir`, timers, loop cadences, the guardian tick `interval`).
