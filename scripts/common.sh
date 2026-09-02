@@ -295,7 +295,7 @@ report_health() {
     ""|"0.0.0.0"|"::"|"*") host="127.0.0.1" ;;
   esac
   url="http://$host:$port/healthz"
-  for i in $(seq 1 25); do
+  for i in $(seq 1 60); do
     if curl -fsS -o /dev/null "$url" 2>/dev/null; then
       info "${_C_GRN}daemon healthy${_C_RST} — $url"
       return 0
