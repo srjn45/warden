@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Session } from '../lib/types';
 import { groupSessions } from '../lib/group';
+import { isAutopilotOwned } from '../lib/autopilot-tree';
 import AgentGrid from './AgentGrid';
 import BulkActionBar from './BulkActionBar';
 import FleetStats from './FleetStats';
@@ -20,11 +21,16 @@ export default function CockpitTab({ sessions, onSelect, onCreated }: {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const lastRef = useRef<string | null>(null);
 
+  const gridSessions = useMemo(
+    () => sessions.filter((s) => !isAutopilotOwned(s)),
+    [sessions],
+  );
+
   // Flat id order matching the grid's render order, so shift-select spans the
   // visible range across directory groups.
   const orderedIds = useMemo(
-    () => groupSessions(sessions).flatMap((g) => g.sessions.map((s) => s.id)),
-    [sessions],
+    () => groupSessions(gridSessions).flatMap((g) => g.sessions.map((s) => s.id)),
+    [gridSessions],
   );
 
   // Drop selections for agents that have ended (pruned from the live list).
@@ -67,7 +73,7 @@ export default function CockpitTab({ sessions, onSelect, onCreated }: {
         <FleetStats sessions={sessions} />
       </section>
       <AgentGrid
-        sessions={sessions}
+        sessions={gridSessions}
         onSelect={onSelect}
         lines={14}
         onCreated={onCreated}

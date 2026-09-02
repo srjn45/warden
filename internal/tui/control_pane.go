@@ -220,16 +220,12 @@ func (m controlPaneModel) items() []item {
 	// ── Projects tab (§4 tree nesting): agents and pipelines nested under their
 	// project (or a loose directory / the Ungrouped bucket), each group a navigable,
 	// collapsible header. Open projects always show (even empty, IDE-style).
-	runIDs := map[string]bool{}
-	for _, r := range m.autopilot.Runs {
-		runIDs[r.RunID] = true
-	}
 	visible := agents[:0]
 	for _, s := range agents {
 		if s.HasTag("system:true") && !m.showSystemAgents {
 			continue
 		}
-		if runIDs[sessionRunID(s)] {
+		if isAutopilotOwned(s) {
 			continue
 		} // rendered inside its run node
 		visible = append(visible, s)
@@ -1559,6 +1555,18 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// collapse/expand is on Left/Right. No-op for now.
 			return m, nil
 		}
+		if it.apRun != nil {
+			key := apRunKey(it.apRun.RunID)
+			m.collapsed[key] = !m.collapsed[key]
+			m.repin(key)
+			return m, nil
+		}
+		if it.apWorkers {
+			key := apWorkersKey(it.apWorkersRun)
+			m.collapsed[key] = !m.collapsed[key]
+			m.repin(key)
+			return m, nil
+		}
 		if it.apprView != nil {
 			if m.apprEnabled && len(recognizedApprovals(m.approvals)) > 0 {
 				m.mode = modeApprovals
@@ -1616,7 +1624,9 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case it.projHdr != nil:
 			m.collapsed[projKey(it.projHdr.id)] = false
 		case it.apRun != nil:
-			m.collapsed["aprun\x00"+it.apRun.RunID] = false
+			m.collapsed[apRunKey(it.apRun.RunID)] = false
+		case it.apWorkers:
+			m.collapsed[apWorkersKey(it.apWorkersRun)] = false
 		case it.pipeline != nil:
 			m.collapsed[it.pipeline.ID] = false
 		case it.session != nil && it.hasKids:
@@ -1636,7 +1646,15 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.collapsed[projKey(it.projHdr.id)] = true
 			m.repin(projKey(it.projHdr.id))
 		case it.apRun != nil:
-			key := "aprun\x00" + it.apRun.RunID
+			key := apRunKey(it.apRun.RunID)
+			m.collapsed[key] = true
+			m.repin(key)
+		case it.apWorkers:
+			key := apWorkersKey(it.apWorkersRun)
+			m.collapsed[key] = true
+			m.repin(key)
+		case it.apWorkerGroup != "":
+			key := apWorkersKey(it.apTaskRun)
 			m.collapsed[key] = true
 			m.repin(key)
 		case it.pipeline != nil:

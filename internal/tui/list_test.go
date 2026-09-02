@@ -309,23 +309,28 @@ func TestProjectGroupedItemsAutopilotRunChecklistAndAgents(t *testing.T) {
 	sessions := []*store.Session{{ID: "brain-1", Repo: "/repos/alpha", Role: "autopilot", Tags: []string{"autopilot", "run:ap-1"}}, {ID: "worker-1", Repo: "/repos/alpha", Tags: []string{"autopilot", "run:ap-1"}}, {ID: "guardian-1", Repo: "/repos/alpha", Tags: []string{"system:true", "autopilot-run:ap-1"}}}
 	items := projectGroupedItems(projs, nil, nil, sessions, nil, nil, nil, runs)
 	require.NotNil(t, items[1].apRun)
-	require.Equal(t, "ship", items[2].apTask.ID)
-	require.Equal(t, []string{"brain-1", "worker-1", "guardian-1"}, itemSessionIDs(items))
-	out := renderList(items, 1, 120, 10)
+	require.Equal(t, "brain-1", items[2].session.ID)
+	require.Equal(t, store.AutopilotSlotManager, items[2].apSlot)
+	require.Equal(t, "guardian-1", items[3].session.ID)
+	require.Equal(t, store.AutopilotSlotGuardian, items[3].apSlot)
+	require.Equal(t, "ship", items[4].apTask.ID)
+	require.True(t, items[5].apWorkers)
+	require.Equal(t, []string{"brain-1", "guardian-1", "worker-1"}, itemSessionIDs(items))
+	out := renderList(items, 1, 120, 12)
 	require.Contains(t, out, "release")
 	require.Contains(t, out, "Ship it")
+	require.Contains(t, out, "workers")
 }
 
 func TestProjectGroupedItemsCollapsedAutopilotRunHidesChildren(t *testing.T) {
 	runs := []client.AutopilotRunStatus{{RunID: "ap-1", Repo: "/repo", PlanTasks: []client.AutopilotPlanTask{{ID: "one"}}}}
-	items := projectGroupedItems(nil, nil, nil, nil, nil, nil, map[string]bool{"aprun\x00ap-1": true}, runs)
+	items := projectGroupedItems(nil, nil, nil, nil, nil, nil, map[string]bool{apRunKey("ap-1"): true}, runs)
 	require.Len(t, items, 2) // loose project header + run header
 	require.NotNil(t, items[1].apRun)
 }
 
-// WP1 characterization: freeze current TUI run tree rendering before WP8 changes
-// hierarchy (workers node, back-ref filtering, integration branch on header).
-// Seam inventory: docs/specs/2026-09-01-autopilot-plan-scoped-hierarchy-wp1-seams.md
+// WP8: plan root → manager → guardian → plan tasks → workers node, matching
+// docs/specs/2026-09-01-autopilot-plan-scoped-hierarchy.md §4.
 func TestCharacterization_RenderAutopilotRunTreeGolden(t *testing.T) {
 	projs := []projectstore.Project{{ID: "/repos/alpha", Name: "Alpha", Path: "/repos/alpha", Status: projectstore.StatusOpen}}
 	runs := []client.AutopilotRunStatus{{
@@ -336,7 +341,8 @@ func TestCharacterization_RenderAutopilotRunTreeGolden(t *testing.T) {
 			{ID: "ship", Prompt: "Ship the release", Status: "active"},
 			{ID: "docs", Prompt: "Update docs", Status: "done"},
 		},
-		WorkersInFlight: 2,
+		WorkersInFlight:   2,
+		IntegrationBranch: "autopilot/release",
 	}}
 	sessions := []*store.Session{
 		{ID: "agent-brain01", Repo: "/repos/alpha", Role: "autopilot", Status: store.StatusWorking, Tags: []string{"autopilot", "run:ap-deadbeef1234"}},
@@ -347,18 +353,18 @@ func TestCharacterization_RenderAutopilotRunTreeGolden(t *testing.T) {
 
 	require.NotNil(t, items[1].apRun)
 	require.Equal(t, "release", items[1].apRun.Name)
-	require.Equal(t, "ship", items[2].apTask.ID)
-	require.Equal(t, "docs", items[3].apTask.ID)
-	require.Equal(t, []string{"agent-brain01", "agent-worker1", "guardian-deadbeef1234"}, itemSessionIDs(items))
-	for _, id := range []string{"agent-brain01", "agent-worker1", "guardian-deadbeef1234"} {
-		require.Equal(t, 1, items[itemIndexBySessionID(items, id)].depth,
-			"run-tagged sessions nest at depth 1 under the plan root")
-	}
+	require.Equal(t, []string{"agent-brain01", "guardian-deadbeef1234", "agent-worker1"}, itemSessionIDs(items))
+	require.Equal(t, store.AutopilotSlotManager, items[itemIndexBySessionID(items, "agent-brain01")].apSlot)
+	require.Equal(t, store.AutopilotSlotGuardian, items[itemIndexBySessionID(items, "guardian-deadbeef1234")].apSlot)
+	require.Equal(t, store.AutopilotSlotWorker, items[itemIndexBySessionID(items, "agent-worker1")].apSlot)
+	require.True(t, items[itemIndexBySessionID(items, "agent-worker1")].depth >= 2, "workers nest under the workers node")
 
-	out := renderList(items, 1, 120, 12)
+	out := renderList(items, 1, 120, 14)
 	require.Contains(t, out, "release")
+	require.Contains(t, out, "autopilot/release")
 	require.Contains(t, out, "Ship the release")
 	require.Contains(t, out, "docs")
+	require.Contains(t, out, "workers")
 	require.Contains(t, out, "1/2 tasks")
 	require.Contains(t, out, "2 workers")
 	require.Contains(t, out, "agent-brain01")
@@ -371,7 +377,7 @@ func TestCharacterization_RenderAutopilotRunCollapsedGolden(t *testing.T) {
 		RunID: "ap-1", Name: "paused-run", Repo: "/repo", State: "paused",
 		PlanTasks: []client.AutopilotPlanTask{{ID: "one", Prompt: "Only task"}},
 	}}
-	items := projectGroupedItems(nil, nil, nil, nil, nil, nil, map[string]bool{"aprun\x00ap-1": true}, runs)
+	items := projectGroupedItems(nil, nil, nil, nil, nil, nil, map[string]bool{apRunKey("ap-1"): true}, runs)
 	require.Len(t, items, 2)
 	require.NotNil(t, items[1].apRun)
 	require.Equal(t, "paused-run", items[1].apRun.Name)
@@ -380,6 +386,14 @@ func TestCharacterization_RenderAutopilotRunCollapsedGolden(t *testing.T) {
 	require.Contains(t, out, "paused-run")
 	require.Contains(t, out, "paused")
 	require.NotContains(t, out, "Only task", "collapsed run hides plan tasks")
+	require.False(t, func() bool {
+		for _, it := range items {
+			if it.apWorkers {
+				return true
+			}
+		}
+		return false
+	}(), "collapsed run hides the workers node")
 }
 
 func TestRenderAutopilotRunHeaderShowsIntegrationBranch(t *testing.T) {
@@ -393,6 +407,66 @@ func TestRenderAutopilotRunHeaderShowsIntegrationBranch(t *testing.T) {
 	out := renderList(items, 1, 120, 6)
 	require.Contains(t, out, "ship")
 	require.Contains(t, out, "autopilot/ship")
+	require.Contains(t, out, "workers")
+}
+
+func TestProjectGroupedItemsWorkersOrderedByLedgerState(t *testing.T) {
+	runs := []client.AutopilotRunStatus{{
+		RunID: "ap-1", Name: "release", Repo: "/repo", State: "active",
+		PlanTasks: []client.AutopilotPlanTask{{ID: "docs"}, {ID: "ship"}},
+		LedgerTasks: []client.AutopilotLedgerTask{
+			{ID: "docs", State: "pending"},
+			{ID: "ship", State: "in_progress"},
+		},
+	}}
+	sessions := []*store.Session{
+		{ID: "w-docs", Repo: "/repo", AutopilotRunID: "ap-1", AutopilotSlot: store.AutopilotSlotWorker, AutopilotTaskID: "docs"},
+		{ID: "w-ship", Repo: "/repo", AutopilotRunID: "ap-1", AutopilotSlot: store.AutopilotSlotWorker, AutopilotTaskID: "ship"},
+	}
+	items := projectGroupedItems(nil, nil, nil, sessions, nil, nil, nil, runs)
+	var groups []string
+	var workers []string
+	for _, it := range items {
+		if it.apWorkerGroup != "" {
+			groups = append(groups, it.apLedgerState+":"+it.apWorkerGroup)
+		}
+		if it.session != nil {
+			workers = append(workers, it.session.ID)
+		}
+	}
+	require.Equal(t, []string{"pending:docs", "in_progress:ship"}, groups)
+	require.Equal(t, []string{"w-docs", "w-ship"}, workers)
+	out := renderList(items, 1, 120, 14)
+	require.Contains(t, out, "pending")
+	require.Contains(t, out, "in_progress")
+}
+
+func TestProjectGroupedItemsPrefersBackRefOverTags(t *testing.T) {
+	runs := []client.AutopilotRunStatus{{RunID: "ap-new", Name: "voyage", Repo: "/repo", State: "active"}}
+	sessions := []*store.Session{
+		{ID: "mgr", Repo: "/repo", AutopilotRunID: "ap-new", AutopilotSlot: store.AutopilotSlotManager, Tags: []string{"run:ap-legacy"}},
+		{ID: "plain", Repo: "/repo"},
+	}
+	items := projectGroupedItems(nil, nil, []*store.Session{sessions[1]}, sessions, nil, nil, nil, runs)
+	require.Equal(t, []string{"mgr", "plain"}, itemSessionIDs(items))
+	require.Equal(t, store.AutopilotSlotManager, items[itemIndexBySessionID(items, "mgr")].apSlot)
+}
+
+func TestCollapsedWorkersNodeHidesWorkerSessions(t *testing.T) {
+	runs := []client.AutopilotRunStatus{{
+		RunID: "ap-1", Name: "release", Repo: "/repo", State: "active",
+		PlanTasks: []client.AutopilotPlanTask{{ID: "ship", Prompt: "Ship it"}},
+	}}
+	sessions := []*store.Session{
+		{ID: "w1", Repo: "/repo", AutopilotRunID: "ap-1", AutopilotSlot: store.AutopilotSlotWorker, AutopilotTaskID: "ship"},
+	}
+	items := projectGroupedItems(nil, nil, nil, sessions, nil, nil, map[string]bool{apWorkersKey("ap-1"): true}, runs)
+	require.NotContains(t, itemSessionIDs(items), "w1")
+	require.True(t, items[len(items)-1].apWorkers)
+	require.True(t, items[len(items)-1].collapsed)
+	out := renderList(items, 1, 120, 10)
+	require.Contains(t, out, "workers")
+	require.NotContains(t, out, "w1")
 }
 
 func itemIndexBySessionID(items []item, id string) int {

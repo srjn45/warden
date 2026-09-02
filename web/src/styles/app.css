@@ -453,7 +453,12 @@ kbd {
 .autopilot-run-backoff { font-size: .84rem; }
 .autopilot-run-controls { display: flex; gap: .4rem; }
 .autopilot-run-controls button { padding: .25rem .55rem; }
-.autopilot-task-list, .autopilot-agent-list { display: grid; gap: .25rem; padding: .35rem 0 0 .75rem; border-left: 1px solid var(--border); }
+.autopilot-task-list, .autopilot-agent-list, .autopilot-worker-list { display: grid; gap: .25rem; padding: .35rem 0 0 .75rem; border-left: 1px solid var(--border); }
+.autopilot-tree { display: grid; gap: .2rem; padding: .35rem 0 0 .75rem; border-left: 1px solid var(--border); }
+.autopilot-tree-slot, .autopilot-worker { display: flex; gap: .4rem; align-items: baseline; }
+.autopilot-tree-node { font-weight: 600; margin-top: .35rem; color: var(--fg-muted); }
+.autopilot-worker-group { display: grid; gap: .15rem; padding-left: .75rem; }
+.autopilot-worker-group-head { display: flex; gap: .4rem; align-items: baseline; }
 .autopilot-task { display: grid; grid-template-columns: 1rem minmax(5rem, auto) 1fr; gap: .4rem; align-items: baseline; }
 .autopilot-task.task-done { color: var(--ok); }
 .autopilot-task.task-active { color: var(--attention); }
