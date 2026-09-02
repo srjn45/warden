@@ -212,6 +212,26 @@ func (c *Controller) allocateSlotScopeLocked(name, runID string) (string, error)
 	return scope, nil
 }
 
+// RetargetIntegrationBranchRequest selects a new merge target for a run.
+// Either IntegrationBranch is set explicitly or Derive requests resolution from
+// the run's current display name and the global template — never both.
+type RetargetIntegrationBranchRequest struct {
+	IntegrationBranch string `json:"integration_branch,omitempty"`
+	Derive            bool   `json:"derive,omitempty"`
+}
+
+func (c *Controller) retargetableRunLocked(id string) (*run, error) {
+	r, ok := c.runs[id]
+	if !ok {
+		return nil, ErrRunNotFound
+	}
+	switch r.state {
+	case StateActive, StateStarting, StateHealing, StateDegraded:
+		return nil, fmt.Errorf("%w: cannot retarget run in state %s", ErrRunConflict, r.state)
+	}
+	return r, nil
+}
+
 // RenameRun changes a run's display name and slot scope without altering its
 // path-derived run_id. Integration branch retarget is explicit (WP11).
 func (c *Controller) RenameRun(_ context.Context, id, newName string) (RunStatus, error) {
@@ -224,13 +244,9 @@ func (c *Controller) RenameRun(_ context.Context, id, newName string) (RunStatus
 	if newName == "" {
 		return RunStatus{}, fmt.Errorf("%w: run name is required", ErrRunConflict)
 	}
-	r, ok := c.runs[id]
-	if !ok {
-		return RunStatus{}, ErrRunNotFound
-	}
-	switch r.state {
-	case StateActive, StateStarting, StateHealing, StateDegraded:
-		return RunStatus{}, fmt.Errorf("%w: cannot rename run in state %s", ErrRunConflict, r.state)
+	r, err := c.retargetableRunLocked(id)
+	if err != nil {
+		return RunStatus{}, err
 	}
 	if r.name == newName {
 		return c.runStatusLocked(r), nil
@@ -258,6 +274,59 @@ func (c *Controller) RenameRun(_ context.Context, id, newName string) (RunStatus
 		r.name = oldName
 		r.slotScope = oldScope
 		_ = c.claims.claim(id, oldScope)
+		return RunStatus{}, err
+	}
+	return c.runStatusLocked(r), nil
+}
+
+// RetargetIntegrationBranch updates the stored merge target for a run. Open PRs
+// on the previous branch are not migrated automatically; land continues to use
+// the stored value and rejects PRs based on the old branch with ErrWrongBase.
+func (c *Controller) RetargetIntegrationBranch(_ context.Context, id string, req RetargetIntegrationBranchRequest) (RunStatus, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.storeErr != nil {
+		return RunStatus{}, c.storeErr
+	}
+	r, err := c.retargetableRunLocked(id)
+	if err != nil {
+		return RunStatus{}, err
+	}
+	explicit := strings.TrimSpace(req.IntegrationBranch)
+	switch {
+	case explicit != "" && req.Derive:
+		return RunStatus{}, fmt.Errorf("%w: set integration_branch or derive, not both", ErrRunConflict)
+	case explicit == "" && !req.Derive:
+		return RunStatus{}, fmt.Errorf("%w: integration branch or derive is required", ErrRunConflict)
+	}
+	var branch string
+	if req.Derive {
+		branch, err = resolveIntegrationBranch(branchResolveOpts{
+			planName: r.name,
+			runID:    r.runID,
+			template: c.integrationBranch,
+			taken:    c.branchTakenLocked(r.repo, r.runID, nil),
+		})
+	} else {
+		branch = explicit
+		if err = validateIntegrationBranch(branch); err != nil {
+			return RunStatus{}, err
+		}
+		if c.branchTakenLocked(r.repo, r.runID, nil)(branch) {
+			return RunStatus{}, fmt.Errorf("%w: integration branch %q is already claimed", ErrRunConflict, branch)
+		}
+	}
+	if err != nil {
+		return RunStatus{}, err
+	}
+	if branch == r.integrationBranch {
+		return c.runStatusLocked(r), nil
+	}
+	oldBranch := r.integrationBranch
+	r.integrationBranch = branch
+	c.warnSameBranchLocked(r.repo, branch, r.runID, nil)
+	if err := c.persistRunLockedErr(r); err != nil {
+		r.integrationBranch = oldBranch
 		return RunStatus{}, err
 	}
 	return c.runStatusLocked(r), nil

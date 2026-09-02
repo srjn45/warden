@@ -834,9 +834,34 @@
     ]
   },
   {
+    "path": "autopilot run rename",
+    "use": "rename \u003crun-id-or-name\u003e",
+    "runnable": true,
+    "local_flags": [
+      "name"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
     "path": "autopilot run resume",
     "use": "resume \u003crun-id-or-name\u003e",
     "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "autopilot run retarget",
+    "use": "retarget \u003crun-id-or-name\u003e",
+    "runnable": true,
+    "local_flags": [
+      "branch",
+      "derive"
+    ],
     "inherited_flags": [
       "addr",
       "config"
