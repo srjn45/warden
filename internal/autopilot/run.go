@@ -168,17 +168,19 @@ func (c *Controller) spawnBrain(ctx context.Context, r *run, backend string) err
 		return nil
 	}
 	prompt, err := ComposeDigest(ctx, DigestInput{
-		RunID:    r.runID,
-		Repo:     r.repo,
-		PlanFile: r.absPlanFile,
-		Plan:     r.plan,
-		Ledger:   c.runtime.NewLedger(r.runID),
-		Sources:  c.runtime.DigestSources(),
+		RunID:             r.runID,
+		Repo:              r.repo,
+		PlanFile:          r.absPlanFile,
+		Plan:              r.plan,
+		Ledger:            c.runtime.NewLedger(r.runID),
+		Sources:           c.runtime.DigestSources(),
+		IntegrationBranch: r.integrationBranch,
 	})
 	if err != nil {
 		r.state = StateDegraded
 		return fmt.Errorf("compose digest: %w", err)
 	}
+	c.persistIntegrationBranch(r)
 	handle, err := c.runtime.SpawnBrain(ctx, BrainSpec{
 		RunID:    r.runID,
 		Repo:     r.repo,

@@ -121,6 +121,7 @@ type run struct {
 	resolvedGate      string // gate mode resolved at preflight (§6.1): ci | local
 	defaultBranch     string // repo default branch — the land guard's protected name
 	integrationBranch string // per-run merge target, resolved once and persisted
+	gateWarning       string // operator-visible auto→local CI coverage warning
 
 	brain      *BrainHandle       // nil until the brain spawns; nil again after teardown
 	guardianID string             // daemon-owned system session representing the guardian loop
@@ -445,6 +446,7 @@ func (c *Controller) Enable(ctx context.Context, repo string) (Status, error) {
 			existing.resolvedGate = res.resolvedGate
 			existing.defaultBranch = res.defaultBranch
 			existing.plan = res.plan
+			existing.gateWarning = res.gateWarning
 			if existing.integrationBranch == "" {
 				existing.integrationBranch = res.integrationBranch
 				c.persistRunLocked(existing)
@@ -473,6 +475,7 @@ func (c *Controller) Enable(ctx context.Context, repo string) (Status, error) {
 			resolvedGate:      res.resolvedGate,
 			defaultBranch:     res.defaultBranch,
 			integrationBranch: res.integrationBranch,
+			gateWarning:       res.gateWarning,
 			tried:             map[string]bool{},
 		}
 		scope, err := c.allocateSlotScopeLocked(r.name, id)
@@ -873,18 +876,20 @@ func (c *Controller) statusLocked() Status {
 			}
 		}
 		st.Runs = append(st.Runs, RunStatus{
-			RunID:           r.runID,
-			Name:            r.name,
-			PlanFile:        r.planFile,
-			Repo:            r.repo,
-			State:           r.state,
-			Gate:            c.runGate(r), // the mode resolved at preflight (§6.1)
-			Brain:           brain,
-			WorkersInFlight: r.workersInFlight, // last roster count from the overwatch tick
-			Tasks:           counts,
-			Backoff:         r.backoffStatus(),
-			PlanTasks:       append([]PlanTask(nil), r.plan.Tasks...),
-			GuardianID:      r.guardianID,
+			RunID:             r.runID,
+			Name:              r.name,
+			PlanFile:          r.planFile,
+			Repo:              r.repo,
+			State:             r.state,
+			Gate:              c.runGate(r), // the mode resolved at preflight (§6.1)
+			Brain:             brain,
+			WorkersInFlight:   r.workersInFlight, // last roster count from the overwatch tick
+			Tasks:             counts,
+			Backoff:           r.backoffStatus(),
+			PlanTasks:         append([]PlanTask(nil), r.plan.Tasks...),
+			GuardianID:        r.guardianID,
+			IntegrationBranch: r.integrationBranch,
+			GateWarning:       r.gateWarning,
 		})
 	}
 	sort.Slice(st.Runs, func(i, j int) bool { return st.Runs[i].RunID < st.Runs[j].RunID })

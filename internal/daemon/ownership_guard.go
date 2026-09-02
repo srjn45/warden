@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/srjn45/warden/internal/auth"
+	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -100,4 +101,35 @@ func (s *Server) inheritOwnershipTags(ctx context.Context, tags []string) []stri
 		}
 	}
 	return tags
+}
+
+func isAutopilotWorkerSpawnRole(role string) bool {
+	switch strings.ToLower(strings.TrimSpace(role)) {
+	case "worker", "implementer", "auto-merger", "reviewer":
+		return true
+	default:
+		return false
+	}
+}
+
+// annotateAutopilotWorkerPrompt appends the resolved integration branch to a
+// worker spawn prompt so workers do not guess the PR base. No-op for non-worker
+// roles, non-autopilot callers, or when the branch is already in the prompt.
+func (s *Server) annotateAutopilotWorkerPrompt(ctx context.Context, sr *SpawnRequest) {
+	if sr == nil || !isAutopilotWorkerSpawnRole(sr.Role) {
+		return
+	}
+	caller := s.callerSession(ctx)
+	if caller == nil || !caller.HasTag(autopilotOwnershipTag) {
+		return
+	}
+	runID := strings.TrimPrefix(callerRunTag(caller), runTagPrefix)
+	if runID == "" || s.autopilot == nil {
+		return
+	}
+	lp, ok := s.autopilot.LandParams(runID)
+	if !ok {
+		return
+	}
+	sr.Prompt = autopilot.AppendWorkerSpawnBranch(sr.Prompt, lp.IntegrationBranch)
 }
