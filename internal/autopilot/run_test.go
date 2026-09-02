@@ -72,6 +72,7 @@ type fakeRuntime struct {
 	store    *fakeStore
 	sources  fakeSources
 	spawned  []BrainSpec
+	rotated  []RotateBrainSpec
 	killed   []string
 	notified []string
 	spawnErr error
@@ -93,6 +94,11 @@ func (r *fakeRuntime) SpawnBrain(_ context.Context, spec BrainSpec) (BrainHandle
 		r.nextID++
 	}
 	return BrainHandle{AgentID: id, Backend: spec.Backend}, nil
+}
+
+func (r *fakeRuntime) RotateBrain(_ context.Context, spec RotateBrainSpec) (BrainHandle, error) {
+	r.rotated = append(r.rotated, spec)
+	return BrainHandle{AgentID: spec.AgentID, Backend: spec.Backend}, nil
 }
 
 func (r *fakeRuntime) TerminateBrain(_ context.Context, agentID string) error {
