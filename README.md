@@ -589,7 +589,7 @@ Warden reads all settings from a single YAML file (default `~/.warden/config.yam
 | `tokens.critical` | `400000` | Critical threshold in context tokens (inclusive lower bound) — the auto-`/compact` trigger band |
 | `auto_approve` | `false` | Auto-answer recognized permission prompts. Bare on/off, or an allow/deny **rule policy** (by tool / glob / regex / paths, with per-agent overrides) — see `warden approval auto set` |
 | `notify.webhook_enabled` / `notify.webhook_url` | `false` / _(empty)_ | POST a JSON payload to `webhook_url` on attention + context-size alerts (a Slack incoming-webhook URL works out of the box); runs alongside `notify.enabled` |
-| `collab.enabled` / `collab.interval` / `collab.hint` | `true` / … / `true` | File-conflict detection across worktrees, scan interval, and the spawn-time coordination hint |
+| `collab.enabled` / `collab.interval` / `collab.git_reconcile_interval` / `collab.hint` | `true` / `10s` / `2m` / `true` | File-conflict detection: fsnotify-first dirty tracking, watch-reconcile interval, git-diff backstop, and the spawn-time coordination hint |
 | `rails.isolation_guard` / `rails.git_redirect` / `rails.check_redirect` / `rails.git_conventions` | `true` | Boundary-enforcement hooks (see [Lifecycle commands & boundary enforcement](#lifecycle-commands--boundary-enforcement)) |
 | `log.level` / `log.format` | `info` / `text` | Daemon log verbosity (`debug`/`info`/`warn`/`error`) and format (`text`/`json`); `warden daemon --log-level`/`--log-format` override |
 | `local_llm.enabled` (+ `.url`/`.model`/`.timeout`) | `false` | Route fuzzy-cheap work (classify, summarize, commit messages) to a local Ollama model; falls back to Claude on any error. Powers the natural-language half of `warden backend repl` (its `/` commands work without it) |
@@ -1097,7 +1097,7 @@ warden workspace conflicts                 # current cross-agent file conflicts
 warden workspace who-is-editing <file>     # which agents (if any) are touching a file
 ```
 
-Tunable via the `collab.enabled` / `collab.interval` / `collab.hint` config settings; also exposed as the `get_collaboration_status` / `who_is_editing_file` MCP tools and a **File conflicts** card on the dashboard.
+Tunable via the `collab.enabled` / `collab.interval` / `collab.git_reconcile_interval` / `collab.hint` config settings; also exposed as the `get_collaboration_status` / `who_is_editing_file` MCP tools and a **File conflicts** card on the dashboard.
 
 ### Git & check lifecycle — `warden commit` / `push` / `sync` / `check`
 

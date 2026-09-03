@@ -95,9 +95,10 @@ type AutoRestartConfig struct {
 
 // CollabConfig groups the file-conflict collaboration settings.
 type CollabConfig struct {
-	Enabled  bool   `yaml:"enabled"`
-	Interval string `yaml:"interval"`
-	Hint     bool   `yaml:"hint"`
+	Enabled              bool   `yaml:"enabled"`
+	Interval             string `yaml:"interval"`
+	GitReconcileInterval string `yaml:"git_reconcile_interval"`
+	Hint                 bool   `yaml:"hint"`
 }
 
 // MemoryConfig groups the project-memory (.warden/memory.md) settings.
@@ -322,7 +323,7 @@ var schema = []setting{
 	{"local_llm", "Local-model, REPL, and LLM-offload settings (previously flat keys: local_llm, local_llm_url, local_llm_model, local_llm_timeout, local_llm_escalate, local_llm_tier, local_llm_classifier, repl). Sub-keys: enabled (was local_llm), url, model, timeout, escalate, tier, classifier, repl. Flat keys still load as deprecated aliases."},
 	{"pipeline", "Pipeline-execution settings (previously flat keys: pipeline_keep_done, pipeline_hint). Sub-keys: keep_done (keep a pipeline job's agent alive after it completes), hint (append the pipeline-decomposition hint to standalone agents). Flat keys still load as deprecated aliases. Values: true | false"},
 	{"auto_restart", "Auto-restart supervisor for errored opted-in agents (previously flat keys: auto_restart_max, auto_restart_reset). Sub-keys: max (integer >= 0, max restart attempts), reset (Go duration, e.g. 5m — sustained-health window that resets the counter). Flat keys still load as deprecated aliases."},
-	{"collab", "File-conflict collaboration settings (previously flat keys: collab_enabled, collab_interval, collab_hint). Sub-keys: enabled (warn agents editing the same file), interval (Go duration, e.g. 10s — scan interval), hint (append the conflict-check hint to spawned agents). Flat keys still load as deprecated aliases."},
+	{"collab", "File-conflict collaboration settings (previously flat keys: collab_enabled, collab_interval, collab_hint). Sub-keys: enabled (warn agents editing the same file), interval (Go duration, e.g. 10s — watch reconcile + in-memory scan), git_reconcile_interval (Go duration, e.g. 2m — git diff backstop when fsnotify is active), hint (append the conflict-check hint to spawned agents). Flat keys still load as deprecated aliases."},
 	{"memory", "Project-memory (.warden/memory.md) settings (previously flat keys: memory_inject, memory_curate, memory_ground). Sub-keys: inject (project the repo's curated durable facts into every spawned agent via its system-prompt seam; off or an empty/absent file is byte-identical to no injection), curate (auto-propose UNVERIFIED entries from completion digests into the WORKING TREE only, gated by the committed diff — default OFF, opt-in), ground (answer project questions locally in `wd repl` on the local model, read-only, default ON — it REMOVES cloud round-trips). Flat keys still load as deprecated aliases. Values: true | false"},
 	{"branch_track", "Branch/CI tracker settings (previously flat keys: branch_track_enabled, branch_track_interval). Sub-keys: enabled (monitor each agent's branch for CI failures and drift from main, delivering informational inbox/desktop alerts), interval (Go duration, e.g. 2m — scan interval). Flat keys still load as deprecated aliases."},
 	{"rate_limit", "Rate-limit auto-resume scheduler settings (previously flat keys: rate_limit_retry_interval, rate_limit_spend_retry_interval, rate_limit_buffer, rate_limit_auto_resume, rate_limit_resume_prompt). Sub-keys: retry_interval (Go duration, e.g. 30m — fallback wait before retrying a session/weekly limit whose reset time could not be parsed), spend_retry_interval (Go duration, e.g. 6h — longer fallback for a monthly spend cap, which carries no reset time), buffer (Go duration, e.g. 1m — extra wait on top of a parsed reset time), auto_resume (true | false — auto-pick the wait-for-reset menu choice and resume agents after any limit clears), resume_prompt (text to type when a limit clears so the agent picks its work back up; default \"continue\", set to empty for a bare keypress with no injected user turn). Flat keys still load as deprecated aliases."},
@@ -424,9 +425,10 @@ func defaults() Config {
 			Reset: "5m",
 		},
 		Collab: CollabConfig{
-			Enabled:  true,
-			Interval: "10s",
-			Hint:     true,
+			Enabled:              true,
+			Interval:             "10s",
+			GitReconcileInterval: "2m",
+			Hint:                 true,
 		},
 		Memory: MemoryConfig{
 			Inject: true,
@@ -617,6 +619,7 @@ func validate(c *Config) {
 	c.Log.Format = validLogFormat(c.Log.Format, d.Log.Format)
 	c.AutoRestart.Reset = validDuration(c.AutoRestart.Reset, d.AutoRestart.Reset)
 	c.Collab.Interval = validDuration(c.Collab.Interval, d.Collab.Interval)
+	c.Collab.GitReconcileInterval = validDuration(c.Collab.GitReconcileInterval, d.Collab.GitReconcileInterval)
 	c.BranchTrack.Interval = validDuration(c.BranchTrack.Interval, d.BranchTrack.Interval)
 	c.RateLimit.RetryInterval = validDuration(c.RateLimit.RetryInterval, d.RateLimit.RetryInterval)
 	c.RateLimit.SpendRetryInterval = validDuration(c.RateLimit.SpendRetryInterval, d.RateLimit.SpendRetryInterval)
@@ -1526,9 +1529,15 @@ func (c Config) RateLimitSpendRetryIntervalDuration() time.Duration {
 	return durOr(c.RateLimit.SpendRetryInterval, 6*time.Hour)
 }
 
-// CollabIntervalDuration returns the file-conflict scan interval.
+// CollabIntervalDuration returns the file-conflict watch-reconcile interval.
 func (c Config) CollabIntervalDuration() time.Duration {
 	return durOr(c.Collab.Interval, 10*time.Second)
+}
+
+// CollabGitReconcileIntervalDuration returns how often git diff refreshes dirty
+// file state when fsnotify is active.
+func (c Config) CollabGitReconcileIntervalDuration() time.Duration {
+	return durOr(c.Collab.GitReconcileInterval, 2*time.Minute)
 }
 
 // BranchTrackIntervalDuration returns the branch-tracker scan interval.

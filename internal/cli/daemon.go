@@ -225,6 +225,7 @@ func newDaemonRunCmd() *cobra.Command {
 			})
 			if cfg.Collab.Enabled {
 				srv.SetCollabInterval(cfg.CollabIntervalDuration())
+				srv.SetCollabGitReconcileInterval(cfg.CollabGitReconcileIntervalDuration())
 			} else {
 				srv.SetCollabInterval(0)
 			}

@@ -1,24 +1,22 @@
 // Package collab provides inter-agent file-conflict detection: a daemon-side
-// monitor scans each active agent's worktree with `git diff` and warns agents
-// that are editing the same file as another agent.
+// monitor tracks which files each active agent has touched and warns when two
+// or more agents overlap on the same path.
 //
-// Detection runs on two cadences: an fsnotify watcher over each worktree gives
-// subsecond reaction to edits, and a slower poll loop reconciles the watch set
-// against the active-session view and acts as a safety net when events are
-// missed or watches can't be added. The watcher degrades cleanly to pure
-// polling when fsnotify is unavailable or the inotify budget is exhausted.
+// Detection is fsnotify-first: edits record dirty paths in memory and conflict
+// checks compare those sets without spawning git. A slower git-diff reconcile
+// loop refreshes state after commits/reverts and when events are missed. The
+// watcher degrades cleanly to pure git polling when fsnotify is unavailable or
+// the inotify budget is exhausted.
 //
-// Design: docs/superpowers/specs/2026-06-14-intelligent-inter-agent-collaboration-design.md
-// (Hardened MVP + deferred FSNotify real-time detection). Warnings are
-// informational, delivered through the existing mailbox, and never block an
-// agent. State is in-memory and ephemeral.
+// Design: docs/specs/2026-09-03-collab-fsnotify-first-detection.md
 package collab
 
 import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os/exec"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -34,20 +32,13 @@ const (
 	// span. The mailbox bounds storage growth, but not re-warn spam: without
 	// this an open conflict would re-warn every tick.
 	dedupWindow = 5 * time.Minute
-	// gitDiffTimeout bounds each `git diff` subprocess so one wedged worktree
-	// can't stall the scan.
-	gitDiffTimeout = 5 * time.Second
 	// daemonSender is the reserved provenance id stamped on monitor warnings.
-	// Agents are blocked from forging it by daemon.sanitizeSender; daemon-internal
-	// writes (like this one) are trusted by construction and call Append directly.
 	daemonSender = "daemon"
-	// watchDebounce coalesces a burst of filesystem events into a single rescan,
-	// so saving several files at once triggers at most one conflict scan.
+	// watchDebounce coalesces a burst of filesystem events into a single rescan.
 	watchDebounce = 300 * time.Millisecond
 )
 
-// Lister is the slice of the session store the monitor needs. store.Store
-// satisfies it; tests supply a fake.
+// Lister is the slice of the session store the monitor needs.
 type Lister interface {
 	List(ctx context.Context) ([]*store.Session, error)
 }
@@ -68,57 +59,83 @@ type Conflict struct {
 type Monitor struct {
 	store Lister
 	mbox  *mailbox.Store
-	// diff returns the modified files in a worktree; overridable in tests.
-	diff func(ctx context.Context, worktree string) []string
-
-	// watch is the real-time fsnotify layer; nil when fsnotify is unavailable,
-	// in which case detection runs on the poll loop alone.
+	diff  func(ctx context.Context, worktree string) []string
 	watch *watcher
 
+	dirtyMu sync.RWMutex
+	dirty   map[string]map[string]struct{}
+
+	cacheMu    sync.RWMutex
+	cached     []Conflict
+	cacheValid bool
+
 	mu    sync.Mutex
-	dedup map[string]time.Time // "agentID\x00file" -> last warned
+	dedup map[string]time.Time
 }
 
 // NewMonitor returns a Monitor backed by the session store and mailbox.
 func NewMonitor(st Lister, mbox *mailbox.Store) *Monitor {
-	return &Monitor{store: st, mbox: mbox, diff: gitDiffFiles, dedup: map[string]time.Time{}}
+	return &Monitor{
+		store: st,
+		mbox:  mbox,
+		diff:  gitDiffFiles,
+		dedup: map[string]time.Time{},
+		dirty: map[string]map[string]struct{}{},
+	}
 }
 
-// Run scans until ctx is cancelled. A non-positive interval disables the
-// monitor (returns immediately). When fsnotify is available, a watcher reacts
-// to edits in subseconds; the interval poll reconciles the watch set against
-// the active-session view and serves as a safety net regardless.
-func (m *Monitor) Run(ctx context.Context, interval time.Duration) {
+// Run scans until ctx is cancelled. interval is the watch-reconcile and
+// in-memory scan cadence; gitReconcile controls git-diff refresh when fsnotify
+// is active (default 2m when zero or negative).
+func (m *Monitor) Run(ctx context.Context, interval, gitReconcile time.Duration) {
 	if interval <= 0 {
 		return
 	}
-	// Real-time layer: best-effort. If fsnotify can't initialize (e.g. inotify
-	// instances exhausted), detection degrades to the poll loop below.
+	if gitReconcile <= 0 {
+		gitReconcile = defaultGitReconcileInterval
+	}
+
+	fsnotifyOn := false
 	if w, err := newWatcher(); err != nil {
 		slog.Warn("collab: real-time watcher unavailable, polling only", "err", err)
 	} else {
 		m.watch = w
+		fsnotifyOn = true
 		defer w.Close()
 		m.reconcileWatches(ctx)
 		go m.watchLoop(ctx)
 	}
 
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
+	m.gitReconcile(ctx)
+	m.refreshAndWarn(ctx)
+
+	pollTicker := time.NewTicker(interval)
+	defer pollTicker.Stop()
+
+	var gitC <-chan time.Time
+	if fsnotifyOn {
+		gitTicker := time.NewTicker(gitReconcile)
+		defer gitTicker.Stop()
+		gitC = gitTicker.C
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-pollTicker.C:
 			m.reconcileWatches(ctx)
-			m.tick(ctx)
+			if !fsnotifyOn {
+				m.gitReconcile(ctx)
+			}
+			m.refreshAndWarn(ctx)
+		case <-gitC:
+			m.gitReconcile(ctx)
+			m.refreshAndWarn(ctx)
 		}
 	}
 }
 
-// reconcileWatches points the watcher at the current tracked-worktree set,
-// adding watches for new agents and dropping them for departed ones. It is a
-// no-op when the real-time layer is disabled.
 func (m *Monitor) reconcileWatches(ctx context.Context) {
 	if m.watch == nil {
 		return
@@ -137,10 +154,6 @@ func (m *Monitor) reconcileWatches(ctx context.Context) {
 	m.watch.reconcile(roots)
 }
 
-// watchLoop debounces filesystem events into conflict rescans, so a burst of
-// edits triggers at most one scan. Newly created directories are added to the
-// watch set as they appear (inotify is not recursive). It returns when ctx is
-// cancelled or the watcher's channels close.
 func (m *Monitor) watchLoop(ctx context.Context) {
 	timer := time.NewTimer(watchDebounce)
 	if !timer.Stop() {
@@ -159,6 +172,9 @@ func (m *Monitor) watchLoop(ctx context.Context) {
 			if ev.Op&fsnotify.Create == fsnotify.Create {
 				m.watch.noteCreate(ev.Name)
 			}
+			if ev.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Rename|fsnotify.Remove) != 0 {
+				m.noteFileChange(ev.Name)
+			}
 			if !pending {
 				pending = true
 				timer.Reset(watchDebounce)
@@ -170,20 +186,106 @@ func (m *Monitor) watchLoop(ctx context.Context) {
 			slog.Warn("collab: watcher error", "err", err)
 		case <-timer.C:
 			pending = false
-			m.tick(ctx)
+			m.refreshAndWarn(ctx)
 		}
 	}
 }
 
-// tick recomputes conflicts and warns each participant (subject to dedup).
-func (m *Monitor) tick(ctx context.Context) {
-	conflicts, err := m.Conflicts(ctx)
+func (m *Monitor) noteFileChange(absPath string) {
+	if m.watch == nil || absPath == "" {
+		return
+	}
+	info, err := os.Stat(absPath)
+	if err == nil && info.IsDir() {
+		return
+	}
+	root := m.watch.worktreeFor(absPath)
+	if root == "" {
+		return
+	}
+	rel, err := filepath.Rel(root, absPath)
+	if err != nil || strings.HasPrefix(rel, "..") || rel == "." {
+		return
+	}
+	rel = filepath.ToSlash(rel)
+	if rel == ".git" || strings.HasPrefix(rel, ".git/") {
+		return
+	}
+	m.addDirty(root, rel)
+}
+
+func (m *Monitor) addDirty(worktree, rel string) {
+	m.dirtyMu.Lock()
+	defer m.dirtyMu.Unlock()
+	set, ok := m.dirty[worktree]
+	if !ok {
+		set = map[string]struct{}{}
+		m.dirty[worktree] = set
+	}
+	set[rel] = struct{}{}
+}
+
+func (m *Monitor) setDirty(worktree string, files []string) {
+	m.dirtyMu.Lock()
+	defer m.dirtyMu.Unlock()
+	if len(files) == 0 {
+		delete(m.dirty, worktree)
+		return
+	}
+	set := make(map[string]struct{}, len(files))
+	for _, f := range files {
+		if f != "" {
+			set[f] = struct{}{}
+		}
+	}
+	m.dirty[worktree] = set
+}
+
+func (m *Monitor) dirtyFiles(worktree string) []string {
+	m.dirtyMu.RLock()
+	defer m.dirtyMu.RUnlock()
+	set := m.dirty[worktree]
+	if len(set) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(set))
+	for f := range set {
+		out = append(out, f)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func (m *Monitor) gitReconcile(ctx context.Context) {
+	sessions, err := m.store.List(ctx)
 	if err != nil {
+		slog.Warn("collab: git reconcile: list sessions failed", "err", err)
+		return
+	}
+	active := map[string]struct{}{}
+	for _, s := range sessions {
+		if !tracked(s) {
+			continue
+		}
+		active[s.Worktree] = struct{}{}
+		m.setDirty(s.Worktree, m.diff(ctx, s.Worktree))
+	}
+	m.dirtyMu.Lock()
+	for wt := range m.dirty {
+		if _, ok := active[wt]; !ok {
+			delete(m.dirty, wt)
+		}
+	}
+	m.dirtyMu.Unlock()
+}
+
+func (m *Monitor) refreshAndWarn(ctx context.Context) {
+	if err := m.refreshConflicts(ctx); err != nil {
 		slog.Warn("collab: conflict scan failed", "err", err)
 		return
 	}
 	m.pruneDedup()
-	for _, c := range conflicts {
+	for _, c := range m.cachedSnapshot() {
 		for _, a := range c.Agents {
 			if !m.shouldWarn(a.ID, c.File) {
 				continue
@@ -196,19 +298,28 @@ func (m *Monitor) tick(ctx context.Context) {
 	}
 }
 
-// Conflicts lists files edited by two or more tracked agents right now. It is
-// recomputed on demand (cheap at warden's scale; no shared cache to invalidate).
+// Conflicts returns the cached conflict snapshot so API polls do not spawn git.
 func (m *Monitor) Conflicts(ctx context.Context) ([]Conflict, error) {
+	if snap, ok := m.cachedSnapshotIfValid(); ok {
+		return snap, nil
+	}
+	if err := m.refreshConflicts(ctx); err != nil {
+		return nil, err
+	}
+	return m.cachedSnapshot(), nil
+}
+
+func (m *Monitor) refreshConflicts(ctx context.Context) error {
 	sessions, err := m.store.List(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	fileAgents := map[string][]AgentInfo{}
 	for _, s := range sessions {
 		if !tracked(s) {
 			continue
 		}
-		for _, f := range m.diff(ctx, s.Worktree) {
+		for _, f := range m.filesForWorktree(ctx, s.Worktree) {
 			fileAgents[f] = append(fileAgents[f], AgentInfo{ID: s.ID, Name: s.Name})
 		}
 	}
@@ -219,12 +330,48 @@ func (m *Monitor) Conflicts(ctx context.Context) ([]Conflict, error) {
 		}
 	}
 	sort.Slice(conflicts, func(i, j int) bool { return conflicts[i].File < conflicts[j].File })
-	return conflicts, nil
+
+	m.cacheMu.Lock()
+	m.cached = conflicts
+	m.cacheValid = true
+	m.cacheMu.Unlock()
+	return nil
 }
 
-// tracked reports whether a session should be scanned: it has a worktree and is
-// not in a terminal state. Crucially this includes idle/waiting_for_input/
-// rate_limited agents — a paused agent still holds uncommitted edits.
+func (m *Monitor) filesForWorktree(ctx context.Context, worktree string) []string {
+	if files := m.dirtyFiles(worktree); len(files) > 0 {
+		return files
+	}
+	if m.watch == nil {
+		return m.diff(ctx, worktree)
+	}
+	return nil
+}
+
+func (m *Monitor) cachedSnapshotIfValid() ([]Conflict, bool) {
+	m.cacheMu.RLock()
+	defer m.cacheMu.RUnlock()
+	if !m.cacheValid {
+		return nil, false
+	}
+	return copyConflicts(m.cached), true
+}
+
+func (m *Monitor) cachedSnapshot() []Conflict {
+	m.cacheMu.RLock()
+	defer m.cacheMu.RUnlock()
+	return copyConflicts(m.cached)
+}
+
+func copyConflicts(in []Conflict) []Conflict {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]Conflict, len(in))
+	copy(out, in)
+	return out
+}
+
 func tracked(s *store.Session) bool {
 	if s.Worktree == "" {
 		return false
@@ -236,28 +383,6 @@ func tracked(s *store.Session) bool {
 	return true
 }
 
-// gitDiffFiles returns the repo-relative paths modified in worktree (vs HEAD).
-// Any error — missing/GC'd worktree, timeout, not-a-repo — yields no files, so
-// that worktree is simply skipped this tick.
-func gitDiffFiles(ctx context.Context, worktree string) []string {
-	cctx, cancel := context.WithTimeout(ctx, gitDiffTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(cctx, "git", "-C", worktree, "diff", "--name-only", "HEAD")
-	out, err := cmd.Output()
-	if err != nil {
-		return nil
-	}
-	var files []string
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if line != "" {
-			files = append(files, line)
-		}
-	}
-	return files
-}
-
-// shouldWarn reports whether (agentID, file) is outside its dedup window, and
-// records the warning time when it is.
 func (m *Monitor) shouldWarn(agentID, file string) bool {
 	key := agentID + "\x00" + file
 	now := time.Now()
@@ -270,8 +395,6 @@ func (m *Monitor) shouldWarn(agentID, file string) bool {
 	return true
 }
 
-// pruneDedup drops dedup entries older than the window so the map can't grow
-// unbounded across a long-lived daemon.
 func (m *Monitor) pruneDedup() {
 	now := time.Now()
 	m.mu.Lock()
@@ -283,7 +406,6 @@ func (m *Monitor) pruneDedup() {
 	}
 }
 
-// formatWarning builds the inbox message sent to selfID about a shared file.
 func formatWarning(file, selfID string, agents []AgentInfo) string {
 	var others []string
 	for _, a := range agents {

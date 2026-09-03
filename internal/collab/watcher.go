@@ -178,3 +178,22 @@ func (w *watcher) watchedDirs() int {
 	defer w.mu.Unlock()
 	return w.count
 }
+
+// worktreeFor returns the watched worktree root containing absPath, or "".
+func (w *watcher) worktreeFor(absPath string) string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	var best string
+	for root := range w.roots {
+		if root == "" {
+			continue
+		}
+		if absPath != root && !strings.HasPrefix(absPath, root+string(os.PathSeparator)) {
+			continue
+		}
+		if len(root) > len(best) {
+			best = root
+		}
+	}
+	return best
+}

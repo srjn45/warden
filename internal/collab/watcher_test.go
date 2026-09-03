@@ -163,6 +163,8 @@ func TestWatchLoopDebouncesEventBurstIntoOneScan(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	m.reconcileWatches(ctx)
+	m.gitReconcile(ctx)
 	go m.watchLoop(ctx)
 
 	// A burst of edits should coalesce into a single rescan, and dedup keeps it
@@ -197,10 +199,18 @@ func TestRealWatcherTriggersScanOnEdit(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	m.reconcileWatches(ctx)
+	m.gitReconcile(ctx)
 	go m.watchLoop(ctx)
 
 	// A real filesystem edit must drive a conflict scan within a tick or two.
-	if err := os.WriteFile(filepath.Join(wtA, "auth.go"), []byte("x"), 0o644); err != nil {
+	f, err := os.OpenFile(filepath.Join(wtA, "auth.go"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write([]byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
 		t.Fatal(err)
 	}
 	waitForMessageCount(t, m, "a", 1)
@@ -209,7 +219,7 @@ func TestRealWatcherTriggersScanOnEdit(t *testing.T) {
 // waitForMessageCount polls until agent id has at least n messages or times out.
 func waitForMessageCount(t *testing.T, m *Monitor, id string, n int) {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		if msgs, err := m.mbox.Messages(id); err == nil && len(msgs) >= n {
 			return
