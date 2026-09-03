@@ -51,6 +51,7 @@ Observe and configure:
 Operate warden:
   daemon               Run the warden hub (HTTP API + poller; the single writer to the file store)
   completion           Generate shell completion scripts
+  factory-reset        Reset warden to a fresh-install state (scoped wipe of daemon data)
 
 Get started and interact:
   setup                Install missing dependencies (tmux, git, claude; optional gh, ollama)
@@ -3612,6 +3613,51 @@ Usage:
 
 Flags:
   -h, --help   help for powershell
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden factory-reset
+
+```text
+Reset warden's persisted state toward a clean new install.
+
+This is destructive. Always stop the daemon before the offline wipe phase — the
+session store lock is held while the hub is running.
+
+Phases:
+  1. Drain (when the daemon is reachable): terminate agents, cancel pipelines,
+     stop autopilot runs, delete schedules.
+  2. Offline wipe: remove on-disk stores for the selected scope.
+
+Scopes:
+  runtime  — live fleet + coordination scratch (active agents, pipelines,
+             context, inbox, prompts/hints/settings/exits). Keeps archived
+             history, projects, backends, metrics, and config.
+  data     — every daemon store under data_dir (default). Keeps config.yaml,
+             presets, prompt templates, and token unless you choose full.
+  full     — data scope plus fresh config.yaml (unless --keep-config),
+             presets, prompt templates, token, REPL history, and tutorial marker.
+
+Examples:
+  warden factory-reset --scope data --backup ~/.warden.bak --yes
+  warden factory-reset --scope full --yes
+  warden factory-reset --scope runtime --prune-worktrees --yes
+
+Usage:
+  warden factory-reset [flags]
+
+Flags:
+      --backup string     copy data_dir here before wiping (must not exist)
+  -h, --help              help for factory-reset
+      --keep-backends     keep the backend registry (tiers/models) for data/full scopes
+      --keep-config       with --scope full, keep config.yaml instead of rewriting defaults
+      --prune-worktrees   during drain, remove agent worktrees and prune orphans per repo
+      --scope string      reset scope: runtime, data, or full (default "data")
+      --skip-drain        skip the live drain phase (daemon may be down; wipe still requires it stopped)
+      --yes               confirm the destructive reset without prompting
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)

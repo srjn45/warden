@@ -1302,6 +1302,17 @@ func writeFile(path string, data []byte) error {
 	return os.WriteFile(path, data, 0o644)
 }
 
+// WriteFresh replaces path with a full default config document — the same
+// content Reconcile would generate for a missing file. Existing values and
+// comments are discarded.
+func WriteFresh(path string) error {
+	out, err := renderFull()
+	if err != nil {
+		return err
+	}
+	return writeFile(path, out)
+}
+
 // legacyEnvNames are the config var basenames warden read from the environment
 // before the move to a config file. They are now ignored; WarnIfLegacyEnv warns
 // once at startup if any are still set.

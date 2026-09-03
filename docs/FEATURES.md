@@ -24,6 +24,7 @@ on-disk state:
 | **Stable code identity** | One-time self-signed code-signing cert keeps the macOS TCC (Full Disk Access) grant stable across rebuilds. |
 | **Security hardening** | `0700` data dir, slowloris/body/write timeouts (bypassed for SSE/WS/long-poll), refuses a non-loopback bind without a bearer token (`WARDEN_TOKEN`). |
 | **`warden doctor`** | Preflight checks: required binaries (`tmux`, `git`, `claude`), optional ones (`gh`, `ollama`, warn-only), daemon reachability, data directory. |
+| **`warden factory-reset`** | Scoped wipe back toward a fresh install: drain live agents/pipelines/autopilot/schedules via the daemon, then offline-remove on-disk stores (`--scope runtime|data|full`). Optional `--backup`, `--keep-config`, `--keep-backends`, `--prune-worktrees`. Requires `--yes`. **CLI-only** — destructive; the daemon must be stopped for the wipe phase. |
 | **`warden setup`** | Verifies the install with doctor's checks, then installs whatever is missing (idempotent — only touches absent deps). Confirm-each prompts (or `--yes` for automation); auto-detects Homebrew (macOS, never auto-bootstrapped) / `apt`/`dnf`/`pacman` (Linux); Claude Code + Ollama via their official installers. Re-runs the checks and prints a doctor-style report. **CLI-only** (installs host packages) — not exposed over MCP/daemon. |
 | **`warden version`** | Prints version + build metadata (commit, build date, Go version, platform); `--version` shows the same, `version --json` for scripting. Stamped via ldflags (goreleaser + `make build`) with a VCS-stamp fallback. |
 
