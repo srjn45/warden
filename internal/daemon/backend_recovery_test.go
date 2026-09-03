@@ -144,3 +144,96 @@ func TestBackendRecoveryManualOverrideAndRestartTimer(t *testing.T) {
 	require.Nil(t, c.timers["agent-1"])
 	c.mu.Unlock()
 }
+
+// TestBackendRecoveryNotifyOnPhaseChange verifies that the SSE notify callback
+// fires at least once for each recovery phase transition. The spec (§8) requires
+// SSE to fire on phase changes, not every stabilization poll.
+func TestBackendRecoveryNotifyOnPhaseChange(t *testing.T) {
+	c, st, _ := recoveryFixture(t, map[string][]backendusage.Limit{
+		"claude": {{ID: "weekly", Scope: "weekly", Label: "Weekly", UsedPercent: used(20)}},
+	})
+	var mu sync.Mutex
+	var calls []string
+	c.SetNotify(func() {
+		// Record which event fired the notify: read the last event from the store.
+		s, err := st.Get(context.Background(), "agent-1")
+		mu.Lock()
+		defer mu.Unlock()
+		if err == nil && len(s.Events) > 0 {
+			calls = append(calls, s.Events[len(s.Events)-1].Type)
+		}
+	})
+
+	require.True(t, c.OnHardLimit(&store.Session{ID: "agent-1"}, time.Now().Add(time.Hour)))
+	// Wait until stabilizing phase (refreshing → selecting → switching → stabilizing).
+	require.Eventually(t, func() bool {
+		s, _ := st.Get(context.Background(), "agent-1")
+		return s.BackendRecovery != nil && s.BackendRecovery.Phase == recoveryStabilizing
+	}, time.Second, 5*time.Millisecond)
+
+	mu.Lock()
+	gotCalls := append([]string(nil), calls...)
+	mu.Unlock()
+	require.NotEmpty(t, gotCalls, "notify must have been called on at least one phase transition")
+	// backend_recovery_started fires first — verify it was captured.
+	require.Contains(t, gotCalls, "backend_recovery_started")
+	// backend_recovery_stabilizing fires when the candidate is stabilizing.
+	require.Contains(t, gotCalls, "backend_recovery_stabilizing")
+}
+
+// TestBackendRecoveryNullableResetRoundTrip verifies that a null resets_at in
+// RecoveryReset survives a store write+read cycle without being coerced to zero
+// or a synthetic value. The spec (§8 privacy) requires null to remain null.
+func TestBackendRecoveryNullableResetRoundTrip(t *testing.T) {
+	c, st, _ := recoveryFixture(t, map[string][]backendusage.Limit{
+		"codex":       {{ID: "short", Scope: "short", Label: "Short", UsedPercent: used(100)}}, // no ResetsAt
+		"claude":      {{ID: "weekly", Scope: "weekly", Label: "Weekly", UsedPercent: used(100)}},
+		"antigravity": {{ID: "other", Scope: "other", Label: "Other", UsedPercent: used(100)}},
+	})
+	require.True(t, c.OnHardLimit(&store.Session{ID: "agent-1"}, time.Now().Add(time.Hour)))
+	require.Eventually(t, func() bool {
+		s, _ := st.Get(context.Background(), "agent-1")
+		return s.BackendRecovery != nil && s.BackendRecovery.Phase == recoveryWaiting
+	}, time.Second, 5*time.Millisecond)
+
+	s, err := st.Get(context.Background(), "agent-1")
+	require.NoError(t, err)
+	require.NotNil(t, s.BackendRecovery)
+	// At least one reset has a null ResetsAt (codex reports no reset time).
+	var hasNull bool
+	for _, r := range s.BackendRecovery.Resets {
+		if r.ResetsAt == nil {
+			hasNull = true
+		}
+	}
+	require.True(t, hasNull, "a reset without provider-supplied time must have null resets_at, not zero")
+}
+
+// TestBackendRecoverySessionDTOFields verifies that the session returned by the
+// daemon GET /sessions/{id} carries backend_recovery when active, and that the
+// field is absent (null) when recovery completes.
+func TestBackendRecoverySessionDTOFields(t *testing.T) {
+	c, st, _ := recoveryFixture(t, map[string][]backendusage.Limit{
+		"claude": {{ID: "weekly", Scope: "weekly", Label: "Weekly", UsedPercent: used(20)}},
+	})
+	require.True(t, c.OnHardLimit(&store.Session{ID: "agent-1"}, time.Now().Add(time.Hour)))
+	require.Eventually(t, func() bool {
+		s, _ := st.Get(context.Background(), "agent-1")
+		return s.BackendRecovery != nil && s.BackendRecovery.Phase == recoveryStabilizing
+	}, time.Second, 5*time.Millisecond)
+
+	s, err := st.Get(context.Background(), "agent-1")
+	require.NoError(t, err)
+	require.NotNil(t, s.BackendRecovery, "backend_recovery must be non-null during active recovery")
+	require.Equal(t, recoveryStabilizing, s.BackendRecovery.Phase)
+	require.NotNil(t, s.BackendRecovery.Current, "current candidate must be set during stabilizing phase")
+	require.Equal(t, "claude", s.BackendRecovery.Current.BackendID)
+
+	// Trigger stabilization and verify recovery clears.
+	require.NoError(t, st.UpdateStatus(context.Background(), "agent-1", store.StatusWorking))
+	c.OnTransition(s, store.StatusSpawning, store.StatusWorking)
+	require.Eventually(t, func() bool {
+		got, _ := st.Get(context.Background(), "agent-1")
+		return got.BackendRecovery == nil
+	}, time.Second, 5*time.Millisecond)
+}

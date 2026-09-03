@@ -519,6 +519,7 @@ func newDaemonRunCmd() *cobra.Command {
 			// operator notifier seam (desktop + webhook).
 			srv.SetAutopilotNotifier(notifSwitch)
 			recoveryCoordinator := daemon.NewBackendRecoveryCoordinator(st, backendStore, usageService, life)
+			recoveryCoordinator.SetNotify(srv.Notify)
 			srv.SetBackendRecovery(recoveryCoordinator)
 			rateLimitSched.OnHardLimit = recoveryCoordinator.OnHardLimit
 			if err := recoveryCoordinator.Reconstruct(context.Background()); err != nil {

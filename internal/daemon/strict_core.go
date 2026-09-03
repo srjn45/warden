@@ -34,7 +34,7 @@ import (
 // (a degraded active scan returns 503 from GET /api/v1/sessions and is never a
 // silent partial) and exposes GET /api/v1/store/health for operator/TUI
 // diagnostics.
-var serverCapabilities = []string{"terminal-sessions", "scheduled-agents", "store-health"}
+var serverCapabilities = []string{"terminal-sessions", "scheduled-agents", "store-health", "backend-recovery"}
 
 // GetCapabilities implements GET /api/v1/capabilities.
 func (s *Server) GetCapabilities(_ context.Context, _ oapi.GetCapabilitiesRequestObject) (oapi.GetCapabilitiesResponseObject, error) {

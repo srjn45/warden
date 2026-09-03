@@ -2776,7 +2776,9 @@ components:
             Stable capability-flag strings. Known flags: "terminal-sessions"
             (session `kind` support — see GET /api/v1/capabilities), "store-health"
             (the GET /api/v1/store/health endpoint + complete-or-error active
-            reads / 503 on degradation).
+            reads / 503 on degradation), "backend-recovery" (the session
+            `backend_recovery` field is present and SSE fires on recovery phase
+            changes — reactive hard-limit provider switching is active).
 
     StoreScanFailure:
       type: object
@@ -2849,6 +2851,160 @@ components:
         ts: { type: string, format: date-time }
         type: { type: string }
         detail: { type: string }
+
+    BackendCandidate:
+      x-go-type: store.BackendCandidate
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/store
+        name: store
+      type: object
+      description: >
+        Identifies one provider capacity pool by (backend_id, model_id). Model is
+        part of the identity because providers may meter independent model pools
+        separately — two models on the same backend can have unrelated limits.
+      properties:
+        backend_id: { type: string, description: "Agent backend identifier (e.g. claude, codex)." }
+        model_id: { type: string, description: "Model identifier within that backend." }
+      required: [backend_id, model_id]
+
+    RecoveryAttempt:
+      x-go-type: store.RecoveryAttempt
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/store
+        name: store
+      type: object
+      description: One attempt to switch to a candidate during reactive hard-limit recovery.
+      properties:
+        candidate: { $ref: "#/components/schemas/BackendCandidate" }
+        round:
+          type: integer
+          format: uint64
+          description: >
+            Recovery round index. 0 = first attempt; increments after each
+            waiting_for_capacity → retry cycle.
+        started_at: { type: string, format: date-time }
+        outcome:
+          type: string
+          description: >
+            "hard_limit" = original pool confirmed limited at recovery start;
+            "immediate_hard_limit" = candidate hit a limit right after switching;
+            "launch_failed" = process or handoff launch failed;
+            "stabilized" = successfully stabilized (recovery complete);
+            "superseded" = invalidated by a manual switch/stop/delete.
+      required: [candidate, round, started_at, outcome]
+
+    RecoveryReset:
+      x-go-type: store.RecoveryReset
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/store
+        name: store
+      type: object
+      description: >
+        Known reset window for a limited backend/model pool, as reported by the
+        provider via the backend-usage service. resets_at is null when the provider
+        supplied no reset time; never coerce null to zero or any synthetic value —
+        render as "unknown".
+      properties:
+        backend_id: { type: string }
+        limit_id: { type: string, description: "Provider-assigned limit identifier (stable key)." }
+        scope: { type: string, description: "Stable scope key for display. Never use as a locator." }
+        resets_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: >
+            When this limit resets, in UTC. Null means the provider gave no reset
+            time. Never coerce null to zero, a past time, or "full"; render as "unknown".
+      required: [backend_id, limit_id, scope]
+
+    BackendRecovery:
+      x-go-type: store.BackendRecovery
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/store
+        name: store
+      type: object
+      description: >
+        Reactive hard-limit recovery state. Non-null on a session while the
+        coordinator is automatically switching to a new provider after a confirmed
+        hard usage limit. Null means no recovery is active.
+
+        Phase strings (§8 of the reactive-backend-limit-recovery spec):
+          "refreshing_usage"    → UI: "recovering: refreshing usage"
+          "switching"           → UI: "recovering: trying <backend>/<model> (n/m)"
+          "stabilizing"         → UI: "recovering: stabilizing <backend>/<model>"
+          "waiting_for_capacity"→ UI: "waiting for capacity; retry <time|fallback>; attempted n"
+        A superseded recovery is cleared and the session carries no BackendRecovery.
+
+        PRIVACY: this field never exposes provider credentials, account or email
+        identifiers, raw CLI/provider output, terminal banners, prompts, or
+        transcript content. Unknown usage/resets render as "unknown" — never as
+        zero or "full". Exact percentages are omitted from remote API surfaces.
+
+        SSE notifications (GET /api/v1/events) fire on phase changes; subscribe
+        there for live updates without polling. The "backend-recovery" capability
+        flag (GET /api/v1/capabilities) signals that this field is supported.
+      properties:
+        generation:
+          type: integer
+          format: uint64
+          description: >
+            Monotonic generation counter. Increments each time a new recovery
+            starts. Generation-checked callbacks ensure stale timers and late
+            poll events cannot overwrite a newer manual action.
+        round:
+          type: integer
+          format: uint64
+          description: >
+            Retry round index. 0 = first sequential attempt; increments after each
+            waiting_for_capacity → retry refresh cycle.
+        phase:
+          type: string
+          enum: [refreshing_usage, switching, stabilizing, waiting_for_capacity]
+          description: >
+            Current recovery phase. See schema description for UI string mapping.
+        original:
+          $ref: "#/components/schemas/BackendCandidate"
+          description: The backend/model pool that hit the confirmed hard limit.
+        current:
+          allOf:
+            - $ref: "#/components/schemas/BackendCandidate"
+          nullable: true
+          description: >
+            Backend/model currently being tried or in stabilization. Null when
+            no candidate has been selected yet or between sequential attempts.
+        attempts:
+          type: array
+          items: { $ref: "#/components/schemas/RecoveryAttempt" }
+          description: >
+            Ordered history of all candidate attempts in the current generation.
+            Use len(attempts) for "attempted n" in status display.
+        resets:
+          type: array
+          items: { $ref: "#/components/schemas/RecoveryReset" }
+          description: >
+            Known reset windows for exhausted pools, used to schedule the next
+            retry. May be empty when no provider supplied reset times.
+        next_retry_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: >
+            Earliest time the coordinator will retry after waiting_for_capacity.
+            Null when not in the waiting phase or no retry is scheduled.
+            Never coerce null to zero or a synthetic time.
+        stable_since:
+          type: string
+          format: date-time
+          nullable: true
+          description: >
+            Start of the stabilization observation window. Null until the first
+            live non-rate-limited poll arrives after a candidate switch. For
+            display only; cleared on recovery completion.
+        updated_at:
+          type: string
+          format: date-time
+          description: When this recovery record was last written (UTC).
+      required: [generation, round, phase, original, attempts, updated_at]
 
     Session:
       x-go-type: store.Session
@@ -2953,6 +3109,17 @@ components:
             the SSE stream so a client can group agents by project.
         context_tokens: { type: integer }
         context_state: { type: string, enum: ["", ok, warning, critical] }
+        backend_recovery:
+          allOf:
+            - $ref: "#/components/schemas/BackendRecovery"
+          nullable: true
+          description: >
+            Reactive hard-limit recovery state. Null when no automatic recovery
+            is active. Non-null while the coordinator is refreshing usage,
+            trying a candidate (switching), stabilizing, or waiting for capacity
+            after all candidates were exhausted.
+            SSE (GET /api/v1/events) fires on phase transitions — subscribe there
+            rather than polling. Requires the "backend-recovery" capability flag.
       required: [id, type, status, created_at, updated_at]
 
     SessionList:
