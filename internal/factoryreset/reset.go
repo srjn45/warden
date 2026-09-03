@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/srjn45/warden/internal/auth"
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/lifecycle"
@@ -266,7 +267,6 @@ func dataPaths(keepBackends bool) []string {
 		".provenance-migrated",
 		".worktrees",
 		"addr",
-		"token.env",
 		"tutorial-complete",
 		"orch_history",
 	}
@@ -322,6 +322,9 @@ func wipeConfigSide(opts Options) error {
 		filepath.Base(prompttemplate.DefaultPath()),
 	} {
 		_ = os.Remove(filepath.Join(cfgDir, name))
+	}
+	if tokPath := auth.DefaultTokenFile(); tokPath != "" {
+		_ = os.Remove(tokPath)
 	}
 	return nil
 }

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/srjn45/warden/internal/auth"
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/lifecycle"
@@ -28,6 +29,45 @@ func TestRelPathsScopes(t *testing.T) {
 
 	dataNoBackends := RelPaths(ScopeData, false)
 	require.Contains(t, dataNoBackends, "backends")
+}
+
+// TestRelPathsDataKeepsToken guards against token.env sitting in the shared
+// dataPaths() list: scope=data must keep it (per the ScopeData doc comment and
+// the factory-reset CLI help), only scope=full removes it, and it does so via
+// auth.DefaultTokenFile() in wipeConfigSide rather than a dataDir-relative path.
+func TestRelPathsDataKeepsToken(t *testing.T) {
+	require.NotContains(t, RelPaths(ScopeData, true), "token.env")
+	require.NotContains(t, RelPaths(ScopeFull, true), "token.env")
+}
+
+func TestWipeDataKeepsTokenFile(t *testing.T) {
+	dir := t.TempDir()
+	tokPath := filepath.Join(dir, "token.env")
+	require.NoError(t, os.WriteFile(tokPath, []byte("WARDEN_TOKEN=abc\n"), 0o600))
+
+	require.NoError(t, Wipe(Options{DataDir: dir, Scope: ScopeData}))
+
+	require.FileExists(t, tokPath)
+}
+
+func TestWipeFullRemovesTokenFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	tokPath := auth.DefaultTokenFile()
+	require.NoError(t, os.MkdirAll(filepath.Dir(tokPath), 0o700))
+	require.NoError(t, os.WriteFile(tokPath, []byte("WARDEN_TOKEN=abc\n"), 0o600))
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	require.NoError(t, os.WriteFile(cfgPath, []byte("addr: localhost:9999\n"), 0o644))
+
+	require.NoError(t, Wipe(Options{
+		DataDir:    dir,
+		ConfigPath: cfgPath,
+		Scope:      ScopeFull,
+	}))
+
+	require.NoFileExists(t, tokPath)
 }
 
 func TestWipeRuntimeKeepsClosedAndProjects(t *testing.T) {
