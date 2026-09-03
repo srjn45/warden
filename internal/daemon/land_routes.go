@@ -111,6 +111,13 @@ func (s *Server) LandAutopilot(ctx context.Context, req oapi.LandAutopilotReques
 		s.recordAuditCtx(ctx, audit.ActionAutopilotLand, tgt.runID, map[string]string{
 			"branch": res.Branch, "sha": res.SHA, "pr": strconv.Itoa(res.PR),
 		})
+		if s.autopilot != nil && res.PR > 0 && tgt.owned && tgt.runID != "" && tgt.taskID != "" {
+			if _, err := s.autopilot.UpdateTaskStatus(tgt.runID, tgt.taskID, autopilot.TaskStatusDone, res.PR); err != nil {
+				s.recordAuditCtx(ctx, audit.ActionAutopilotLand, tgt.runID, map[string]string{
+					"branch": res.Branch, "task_id": tgt.taskID, "task_status_error": err.Error(),
+				})
+			}
+		}
 	}
 
 	return oapi.LandAutopilot200JSONResponse{
@@ -136,6 +143,7 @@ type landTarget struct {
 	branch   string
 	worktree string
 	runID    string
+	taskID   string
 	owned    bool
 }
 
@@ -165,7 +173,11 @@ func (s *Server) resolveLandTarget(ctx context.Context, ref string) landTarget {
 // sessionLandTarget builds a landTarget from a resolved session.
 func sessionLandTarget(sess *store.Session, branch string) landTarget {
 	owned, runID := ownershipFromTags(sess.Tags)
-	return landTarget{branch: branch, worktree: sess.Worktree, runID: runID, owned: owned}
+	taskID := strings.TrimSpace(sess.AutopilotTaskID)
+	if taskID == "" {
+		taskID = strings.TrimSpace(sess.Task)
+	}
+	return landTarget{branch: branch, worktree: sess.Worktree, runID: runID, taskID: taskID, owned: owned}
 }
 
 // isAutopilotOwned reports whether tags carry the autopilot ownership tag.

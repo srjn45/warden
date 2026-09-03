@@ -1561,6 +1561,12 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.repin(key)
 			return m, nil
 		}
+		if it.apPlan {
+			key := apPlanKey(it.apPlanRun)
+			m.collapsed[key] = !m.collapsed[key]
+			m.repin(key)
+			return m, nil
+		}
 		if it.apWorkers {
 			key := apWorkersKey(it.apWorkersRun)
 			m.collapsed[key] = !m.collapsed[key]
@@ -1601,8 +1607,12 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				// instead of attaching to a dead session (which leaves a blank pane).
 				return m, openJobDetailCmd(m.agentPane, jobPipe, jobID)
 			case agentDetail != "":
-				// A terminal agent (tombstone or finished) has no live tmux — render
-				// its stored detail rather than attaching to a dead session.
+				// A terminal agent (tombstone or finished) or internal session (e.g. guardian)
+				// has no tmux session — render its stored detail.
+				m.openedAgent = agentDetail
+				if it.session != nil {
+					m.openedAgentDir = sourceDir(it.session)
+				}
 				return m, openAgentDetailCmd(m.agentPane, agentDetail)
 			}
 		}
@@ -1625,6 +1635,8 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.collapsed[projKey(it.projHdr.id)] = false
 		case it.apRun != nil:
 			m.collapsed[apRunKey(it.apRun.RunID)] = false
+		case it.apPlan:
+			m.collapsed[apPlanKey(it.apPlanRun)] = false
 		case it.apWorkers:
 			m.collapsed[apWorkersKey(it.apWorkersRun)] = false
 		case it.pipeline != nil:
@@ -1647,6 +1659,14 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.repin(projKey(it.projHdr.id))
 		case it.apRun != nil:
 			key := apRunKey(it.apRun.RunID)
+			m.collapsed[key] = true
+			m.repin(key)
+		case it.apPlan:
+			key := apPlanKey(it.apPlanRun)
+			m.collapsed[key] = true
+			m.repin(key)
+		case it.apTask != nil:
+			key := apPlanKey(it.apTaskRun)
 			m.collapsed[key] = true
 			m.repin(key)
 		case it.apWorkers:
@@ -2185,7 +2205,7 @@ func cockpitDetailCmd(it item) (attach, jobPipe, jobID, agentDetail string) {
 		return it.pjJob.SessionID, "", "", ""
 	}
 	if it.session != nil {
-		if liveStatus(it.session.Status) {
+		if liveStatus(it.session.Status) && it.session.TmuxSession != "" {
 			return it.session.TmuxSession, "", "", ""
 		}
 		return "", "", "", it.session.ID

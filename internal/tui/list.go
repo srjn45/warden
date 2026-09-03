@@ -203,6 +203,8 @@ type item struct {
 
 	projHdr   *projectHeader // non-nil ⇒ a project group-header row (§4 tree nesting)
 	apRun     *client.AutopilotRunStatus
+	apPlan    bool // synthetic "plan" header under a run
+	apPlanRun string
 	apTask    *client.AutopilotPlanTask
 	apTaskRun string
 
@@ -259,6 +261,9 @@ func itemKey(it item) string {
 	if it.apRun != nil {
 		return apRunKey(it.apRun.RunID)
 	}
+	if it.apPlan {
+		return apPlanKey(it.apPlanRun)
+	}
 	if it.apWorkers {
 		return apWorkersKey(it.apWorkersRun)
 	}
@@ -288,7 +293,7 @@ func itemKey(it item) string {
 // all live outside the Agents dir grouping. Only Agents-section agent rows carry
 // a dir group.
 func (it item) noDirGroup() bool {
-	return it.section != "" || it.projHdr != nil || it.apRun != nil || it.apTask != nil || it.apWorkers || it.apWorkerGroup != "" || it.underProject || it.apprView != nil || it.pipeline != nil || it.pjJob != nil ||
+	return it.section != "" || it.projHdr != nil || it.apRun != nil || it.apPlan || it.apTask != nil || it.apWorkers || it.apWorkerGroup != "" || it.underProject || it.apprView != nil || it.pipeline != nil || it.pjJob != nil ||
 		(it.session != nil && it.session.IsTerminal())
 }
 
@@ -1037,6 +1042,12 @@ func renderItemLine(it item, selected bool, width int) string {
 		if r.IntegrationBranch != "" {
 			line += stMuted.Render(" · " + r.IntegrationBranch)
 		}
+	case it.apPlan:
+		glyph := "▾"
+		if it.collapsed {
+			glyph = "▸"
+		}
+		line = "      " + glyph + " " + stPaneTitle.Render("plan")
 	case it.apWorkers:
 		glyph := "▾"
 		if it.collapsed {
@@ -1061,7 +1072,7 @@ func renderItemLine(it item, selected bool, width int) string {
 		case "failed":
 			glyph, sty = "✗", stError
 		}
-		line = "      " + sty.Render(glyph+" "+t.ID) + "  " + stMuted.Render(trunc(t.Prompt, 48))
+		line = "        " + sty.Render(glyph+" "+t.ID) + "  " + stMuted.Render(trunc(t.Prompt, 48))
 	case it.apprView != nil:
 		v := it.apprView
 		q := v.Question
