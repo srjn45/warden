@@ -16,7 +16,7 @@ import (
 var (
 	// ErrNoCandidate is returned when no candidate model matches the requested criteria.
 	ErrNoCandidate = errors.New("router: no eligible candidate available")
-	// ErrAllExhausted is returned when all potential candidates exceed the quota threshold (>= 90%) or are limited.
+	// ErrAllExhausted is returned when all evaluated candidates are currently rate-limited or otherwise ineligible.
 	ErrAllExhausted = errors.New("router: all candidate backends are exhausted or limited")
 	// ErrBackendNotFound is returned when an explicitly preferred backend does not exist.
 	ErrBackendNotFound = errors.New("router: requested backend not found or not installed")

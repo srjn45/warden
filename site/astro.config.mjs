@@ -63,6 +63,7 @@ export default defineConfig({
           { label: 'Lifecycle commands & rails', slug: 'guides/lifecycle-and-rails' },
           { label: 'Backend superpowers (review & models)', slug: 'guides/backend-superpowers' },
           { label: 'Backend registry', slug: 'guides/backend-registry' },
+          { label: 'Backend hard-limit recovery', slug: 'guides/backend-recovery' },
           { label: 'Fleet operations', slug: 'guides/fleet-operations' },
           { label: 'Self-rotation & digests', slug: 'guides/rotation-digests' },
           { label: 'Scheduling agents & pipelines', slug: 'guides/scheduling' },

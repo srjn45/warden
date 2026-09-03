@@ -1,7 +1,7 @@
 # Reactive Backend Hard-Limit Recovery — Implementation Plan
 
 **Date:** 2026-09-01  
-**Status:** Approved design; implementation pending  
+**Status:** Shipped — all phases complete (engine: 6fb3a0f; phase 7 threshold deprecation: 99aec3c; phase 8 API/MCP/SSE: 4072bfe; phase 9 test matrix + docs + review: recovery-finish-12-docs-and-review)  
 **Scope:** Documentation of the implementation plan only
 
 ## 1. Outcome and non-goals

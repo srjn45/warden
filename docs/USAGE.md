@@ -2004,6 +2004,48 @@ rate_limit:
   resume_prompt: continue     # text typed to resume a cleared agent; "" = bare keypress (default: continue)
 ```
 
+### Reactive backend recovery (automatic backend switching)
+
+When a confirmed hard limit fires (session, weekly, or monthly spend cap), the
+daemon's recovery coordinator goes beyond same-backend resume: it automatically
+**tries eligible subscription backends** from the backend registry so the agent
+keeps working even if the current provider is fully exhausted.
+
+**How it works:**
+
+1. **Detection** — `StatusRateLimited` transition claims one recovery generation per agent.
+2. **Refresh** — backend-usage windows are read from the `internal/backendusage` service.
+3. **Rank** — eligible candidates `(backend, model)` are ranked by minimum known headroom across applicable usage pools. Unknown headroom (no data) ranks after known-positive headroom. Disabled, uninstalled, local-only, and pay-per-use backends are excluded.
+4. **Switch** — the coordinator calls the existing `HotSwap` lifecycle for a different backend/model, or the same-backend `Restore` path for the original pool.
+5. **Stabilize** — the candidate must stay in a live non-rate-limited status for `rate_limit.recovery.stabilization_window` (default 10 s) before recovery clears. A process launch alone is not success.
+6. **Immediate hard limit** — if the new candidate is immediately rate-limited, that attempt is recorded and the coordinator advances to the next candidate in the same generation.
+7. **Exhaustion** — if no unattempted candidate is available, the session persists `waiting_for_capacity` with known reset times and retries automatically on the earliest reset.
+
+**Manual actions win.** A `warden switch`, stop, or delete always supersedes automatic recovery; stale timers and late callbacks cannot undo it.
+
+**What is preserved.** Session ID, pipeline job, Autopilot run/task, worktree, branch, role, parentage, and all tags survive recovery unchanged.
+
+**Status strings shown in TUI / API:**
+
+| Phase | Displayed as |
+|---|---|
+| `refreshing_usage` | `recovering: refreshing usage` |
+| `switching` | `recovering: trying <backend>/<model> (n/m)` |
+| `stabilizing` | `recovering: stabilizing <backend>/<model>` |
+| `waiting_for_capacity` | `waiting for capacity; retry <time\|fallback>; attempted n` |
+| cleared (manual) | `recovery superseded by manual <switch\|stop\|delete>` |
+
+**Configuration:**
+
+```yaml
+rate_limit:
+  recovery:
+    enabled: true              # set false to disable; falls back to same-backend auto-resume only
+    stabilization_window: 10s  # duration a candidate must stay live before recovery clears
+```
+
+> **Deprecated fields:** `handover.threshold_percent` and `handover.rolling_quota_threshold` are decoded for one compatibility window but have **no effect** — confirmed hard-limit recovery replaced proactive quota prediction. Use `context_fill_threshold` (unchanged) to control context handoff.
+
 ### Manual intervention
 
 You can override the scheduler:

@@ -107,6 +107,12 @@ capability is missing:
 | **System-prompt injection** | Warden delivers its pipeline/collab/git hints via a rules file the agent reads on startup (`InjectContext`: `AGENTS.md` for Codex/OpenCode/Cursor/Antigravity, `CRUSH.md`, `.goosehints`); only a backend that auto-reads no such file (Aider) skips the hints entirely — no invalid flags ever reach the agent |
 | **Session-id control** | Warden discovers the agent-generated id post-launch (`DiscoverSessionID`, e.g. Codex) and pins it, or falls back to a workdir-based transcript path, instead of assigning one |
 
+## Automatic backend switching on hard limits
+
+When an agent hits a confirmed provider hard limit (session, weekly, or monthly cap), warden's **reactive backend recovery coordinator** automatically tries the next eligible subscription backend from the [backend registry](/warden/guides/backend-registry/) — no operator action needed. It reads live usage windows from `internal/backendusage`, ranks candidates by minimum known headroom, switches the agent via the existing hot-swap lifecycle, and only clears the recovery once the new backend stays live for a configurable stabilization window. If all candidates are exhausted, the session persists `waiting_for_capacity` and retries automatically on the earliest known reset.
+
+Session identity, pipeline job, Autopilot ownership, worktree, branch, role, and tags are preserved through recovery. A manual `warden switch`, stop, or delete always supersedes automatic work. See [Backend hard-limit recovery guide](/warden/guides/backend-recovery/) for full details.
+
 ## Backend superpowers (`wd git review`, `wd backend model`, `wd agent fork`)
 
 Degradation is the *deficit* side — making a feature warden has work everywhere.
