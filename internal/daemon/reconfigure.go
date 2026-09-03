@@ -129,6 +129,7 @@ func (s *Server) logRestartOnly(old, cur config.Config) {
 	add("local_llm.*", old.LocalLLM != cur.LocalLLM)
 	add("collab.enabled", old.Collab.Enabled != cur.Collab.Enabled)
 	add("collab.interval", old.Collab.Interval != cur.Collab.Interval)
+	add("collab.git_reconcile_interval", old.Collab.GitReconcileInterval != cur.Collab.GitReconcileInterval)
 	add("branch_track.enabled", old.BranchTrack.Enabled != cur.BranchTrack.Enabled)
 	add("branch_track.interval", old.BranchTrack.Interval != cur.BranchTrack.Interval)
 	add("rate_limit.*", old.RateLimit != cur.RateLimit)

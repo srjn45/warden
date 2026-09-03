@@ -81,8 +81,8 @@ func TestTickWarnsBothAgentsOnceWithinWindow(t *testing.T) {
 	diffs := map[string][]string{"/wt/a": {"auth.go"}, "/wt/b": {"auth.go"}}
 	m := newTestMonitor(t, sessions, diffs)
 
-	m.tick(context.Background())
-	m.tick(context.Background()) // within dedup window → no new warnings
+	m.refreshAndWarn(context.Background())
+	m.refreshAndWarn(context.Background()) // within dedup window → no new warnings
 
 	for _, id := range []string{"a", "b"} {
 		msgs, err := m.mbox.Messages(id)
@@ -106,14 +106,14 @@ func TestTickReWarnsAfterDedupExpiry(t *testing.T) {
 	diffs := map[string][]string{"/wt/a": {"auth.go"}, "/wt/b": {"auth.go"}}
 	m := newTestMonitor(t, sessions, diffs)
 
-	m.tick(context.Background())
+	m.refreshAndWarn(context.Background())
 	// Expire the dedup window by backdating recorded warnings.
 	m.mu.Lock()
 	for k := range m.dedup {
 		m.dedup[k] = m.dedup[k].Add(-2 * dedupWindow)
 	}
 	m.mu.Unlock()
-	m.tick(context.Background())
+	m.refreshAndWarn(context.Background())
 
 	msgs, err := m.mbox.Messages("a")
 	if err != nil {

@@ -104,8 +104,11 @@ type Server struct {
 	exec *Executor
 	// collab scans active worktrees for inter-agent file conflicts.
 	collab *collab.Monitor
-	// collabInterval is the file-conflict poll interval; <=0 disables the monitor.
+	// collabInterval is the file-conflict watch-reconcile interval; <=0 disables.
 	collabInterval time.Duration
+	// collabGitReconcile is how often git diff refreshes dirty state when fsnotify
+	// is active.
+	collabGitReconcile time.Duration
 	// branchTracker reports each agent's CI status + branch-vs-main state (#44).
 	branchTracker *branchtrack.Tracker
 	// branchTrackInterval is the branch-tracker poll interval; <=0 disables it.

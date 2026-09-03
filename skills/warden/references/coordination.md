@@ -52,7 +52,7 @@ check first and coordinate via `send_message` rather than overwriting.**
 - CLI `warden workspace conflicts` / `warden workspace who-is-editing <file>`.
 - Also check `read_inbox` for file-conflict warnings the daemon delivers.
 
-Tunable via `collab.enabled` / `collab.interval` / `collab.hint`. Spawned agents
+Tunable via `collab.enabled` / `collab.interval` / `collab.git_reconcile_interval` / `collab.hint`. Spawned agents
 get a system-prompt hint to do exactly this before editing shared files.
 
 ## Branch & CI tracking (read-only, informational)

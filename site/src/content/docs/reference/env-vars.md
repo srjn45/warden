@@ -62,6 +62,10 @@ Common settings (run `warden config` for the complete, live list):
 | `savings` | `true` | Record the token-savings ledger (`warden usage savings`, `GET /api/v1/savings`) |
 | `savings_samples` | `false` | Retain raw-vs-kept provenance samples for `warden usage savings --audit` (may hold sensitive output) |
 | `scheduler_enabled` | `false` | Enable the native cron/at scheduler (`warden schedule`) |
+| `collab.enabled` | `true` | File-conflict detection across agent worktrees |
+| `collab.interval` | `10s` | Watch-reconcile + in-memory conflict scan interval |
+| `collab.git_reconcile_interval` | `2m` | Git-diff backstop when fsnotify is active (polling-only mode uses `collab.interval` instead) |
+| `collab.hint` | `true` | Append the conflict-check coordination hint to spawned agents |
 | `branch_track.enabled` | `false` | Enable the per-agent branch monitor (`warden workspace branches`) |
 | `branch_track.interval` | `2m` | Poll interval for the branch monitor |
 | `snapshots` | `true` | Enable the worktree+transcript checkpoint store (`warden workspace snapshot`) |
