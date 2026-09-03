@@ -261,6 +261,30 @@ func (f *fakeStore) UpdateRole(_ context.Context, id string, role string) error 
 	return nil
 }
 
+// snapSession returns a point-in-time copy of the session, taken under the
+// store lock. Use this instead of Get in require.Eventually closures and any
+// reads that race with concurrent coordinator goroutines.
+func (f *fakeStore) snapSession(id string) *store.Session {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	s, ok := f.data[id]
+	if !ok {
+		return nil
+	}
+	cp := *s
+	if s.BackendRecovery != nil {
+		br := *s.BackendRecovery
+		br.Attempts = append([]store.RecoveryAttempt(nil), s.BackendRecovery.Attempts...)
+		br.Resets = append([]store.RecoveryReset(nil), s.BackendRecovery.Resets...)
+		cp.BackendRecovery = &br
+	}
+	cp.Events = append([]store.Event(nil), s.Events...)
+	if s.Tags != nil {
+		cp.Tags = append([]string(nil), s.Tags...)
+	}
+	return &cp
+}
+
 func testServer(t *testing.T, fs *fakeStore) *httptest.Server {
 	t.Helper()
 	srv := &Server{store: fs}
