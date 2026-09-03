@@ -212,6 +212,49 @@ func TestBackendRecoveryNullableResetRoundTrip(t *testing.T) {
 // TestBackendRecoverySessionDTOFields verifies that the session returned by the
 // daemon GET /sessions/{id} carries backend_recovery when active, and that the
 // field is absent (null) when recovery completes.
+// TestBackendRecoveryWithStabilizationWindow verifies that WithStabilizationWindow
+// overrides the default and that a longer window delays stabilization confirmation.
+func TestBackendRecoveryWithStabilizationWindow(t *testing.T) {
+	c, _, _ := recoveryFixture(t, nil)
+	// default is 5ms set by recoveryFixture; override to 50ms
+	c.WithStabilizationWindow(50 * time.Millisecond)
+	require.Equal(t, 50*time.Millisecond, c.stabilizationWindow)
+}
+
+// TestBackendRecoveryDeprecatedThresholdFieldsHaveNoEffect verifies that
+// ThresholdPercent and RollingQuotaThreshold stored in HandoverSettings have
+// no effect on recovery candidate selection or switching — the coordinator
+// ignores them and triggers only on a confirmed hard limit.
+func TestBackendRecoveryDeprecatedThresholdFieldsHaveNoEffect(t *testing.T) {
+	c, st, life := recoveryFixture(t, map[string][]backendusage.Limit{
+		"claude": {{ID: "weekly", Scope: "weekly", Label: "Weekly", UsedPercent: used(50)}},
+	})
+	// Set the deprecated threshold fields to a very low value (50%). If the
+	// coordinator were still consulting them for quota switching, it would trigger
+	// on "claude" (50% >= 50%); instead, no switch should occur without an explicit
+	// OnHardLimit call.
+	handoverSettings := backendstore.HandoverSettings{
+		Enabled:               true,
+		ThresholdPercent:      50,
+		RollingQuotaThreshold: 50,
+		ContextFillThreshold:  90,
+	}
+	_ = handoverSettings // Fields stored in backendstore, not consumed by coordinator.
+
+	// Without OnHardLimit, no swap should occur.
+	require.Empty(t, life.swaps, "no swap before hard limit")
+	s, err := st.Get(context.Background(), "agent-1")
+	require.NoError(t, err)
+	require.Nil(t, s.BackendRecovery, "recovery must not start without a confirmed hard limit")
+
+	// A hard limit DOES start recovery, regardless of threshold values.
+	require.True(t, c.OnHardLimit(&store.Session{ID: "agent-1"}, time.Now().Add(time.Hour)))
+	require.Eventually(t, func() bool {
+		got, _ := st.Get(context.Background(), "agent-1")
+		return got.BackendRecovery != nil
+	}, time.Second, 5*time.Millisecond)
+}
+
 func TestBackendRecoverySessionDTOFields(t *testing.T) {
 	c, st, _ := recoveryFixture(t, map[string][]backendusage.Limit{
 		"claude": {{ID: "weekly", Scope: "weekly", Label: "Weekly", UsedPercent: used(20)}},

@@ -137,3 +137,25 @@ func TestDecideHotSwapCustomThreshold(t *testing.T) {
 		t.Fatalf("76%% should cross a custom 75%% threshold, got %#v", sig)
 	}
 }
+
+// TestDecideHotSwapDeprecatedThresholdFieldsIgnored verifies that the deprecated
+// ThresholdPercent and RollingQuotaThreshold fields have no effect on the
+// context-fill hot-swap decision. Setting them to a very low value (e.g. 1%)
+// must not cause a trigger when the context-fill reading is below ContextFillThreshold.
+func TestDecideHotSwapDeprecatedThresholdFieldsIgnored(t *testing.T) {
+	s := backendstore.HandoverSettings{
+		Enabled:               true,
+		ThresholdPercent:      1,  // deprecated; must be ignored
+		RollingQuotaThreshold: 1,  // deprecated; must be ignored
+		ContextFillThreshold:  90, // the only active trigger
+	}
+	// 50% context fill is well below ContextFillThreshold=90 but above the
+	// deprecated ThresholdPercent/RollingQuotaThreshold of 1.
+	in := ThresholdInput{
+		Settings:      s,
+		ContextTokens: 50, ContextLimit: 100, ContextKnown: true,
+	}
+	if sig := DecideHotSwap(in); sig.Trigger {
+		t.Fatalf("deprecated threshold fields must not trigger a hot-swap; got %#v", sig)
+	}
+}

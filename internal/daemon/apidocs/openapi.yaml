@@ -3450,13 +3450,35 @@ components:
         path: github.com/srjn45/warden/internal/backendstore
         name: backendstore
       type: object
-      description: Configuration for mid-session context handover and quota headroom triggers.
+      description: >-
+        Configuration for mid-session context handover. context_fill_threshold is the
+        only active trigger; threshold_percent and rolling_quota_threshold are deprecated
+        and have no effect — confirmed hard-limit recovery (via the backend recovery
+        coordinator) now owns all provider-quota switching. These deprecated fields are
+        retained for one compatibility window and will be removed in a future release.
       required: [enabled, threshold_percent, rolling_quota_threshold, context_fill_threshold, cooldown_period]
       properties:
         enabled: { type: boolean }
-        threshold_percent: { type: integer, deprecated: true, description: "Deprecated; ignored for provider quota switching." }
-        rolling_quota_threshold: { type: integer, deprecated: true, description: "Deprecated; ignored for provider quota switching." }
-        context_fill_threshold: { type: integer }
+        threshold_percent:
+          type: integer
+          deprecated: true
+          description: >-
+            Deprecated; has no effect. Provider quota switching is triggered only by
+            confirmed hard limits via the backend recovery coordinator.
+            Use rate_limit.recovery.enabled to control recovery behaviour.
+        rolling_quota_threshold:
+          type: integer
+          deprecated: true
+          description: >-
+            Deprecated; has no effect. Provider quota switching is triggered only by
+            confirmed hard limits via the backend recovery coordinator.
+            Use rate_limit.recovery.enabled to control recovery behaviour.
+        context_fill_threshold:
+          type: integer
+          description: >-
+            Context-window fill percentage (0–100) at which a mid-session handover is
+            triggered. This is the only active threshold; it controls context-fill
+            detection only and has no role in provider-quota switching.
         cooldown_period: { type: integer, description: "cooldown period in nanoseconds" }
 
     SwapResult:

@@ -810,7 +810,7 @@ type GuardVerdict struct {
 // GuardVerdictDecision defines model for GuardVerdict.Decision.
 type GuardVerdictDecision string
 
-// HandoverSettings Configuration for mid-session context handover and quota headroom triggers.
+// HandoverSettings Configuration for mid-session context handover. context_fill_threshold is the only active trigger; threshold_percent and rolling_quota_threshold are deprecated and have no effect — confirmed hard-limit recovery (via the backend recovery coordinator) now owns all provider-quota switching. These deprecated fields are retained for one compatibility window and will be removed in a future release.
 type HandoverSettings = backendstore.HandoverSettings
 
 // ImportResult defines model for ImportResult.

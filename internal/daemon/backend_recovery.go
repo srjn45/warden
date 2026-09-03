@@ -56,6 +56,16 @@ func NewBackendRecoveryCoordinator(st store.Store, backends *backendstore.Store,
 // without polling. Call before the coordinator handles any hard-limit events.
 func (c *BackendRecoveryCoordinator) SetNotify(fn func()) { c.notifyFn = fn }
 
+// WithStabilizationWindow overrides the stabilization observation window (how
+// long an agent must stay in a live non-rate-limited status before the candidate
+// is declared stable and recovery clears). Defaults to 10s when not set.
+func (c *BackendRecoveryCoordinator) WithStabilizationWindow(d time.Duration) *BackendRecoveryCoordinator {
+	if d > 0 {
+		c.stabilizationWindow = d
+	}
+	return c
+}
+
 func (c *BackendRecoveryCoordinator) sessionLock(id string) *sync.Mutex {
 	c.mu.Lock()
 	defer c.mu.Unlock()

@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/stretchr/testify/require"
@@ -364,6 +365,26 @@ func TestLoad_RateLimit_FlatDeprecated(t *testing.T) {
 	require.Equal(t, "2m", c.RateLimit.Buffer)
 	require.False(t, c.RateLimit.AutoResume)
 	require.Equal(t, "go", c.RateLimit.ResumePrompt)
+}
+
+func TestLoad_RateLimitRecovery_Defaults(t *testing.T) {
+	c := Load(tmpConfig(t, ""))
+	require.True(t, c.RateLimit.Recovery.Enabled, "recovery enabled by default")
+	require.Equal(t, "10s", c.RateLimit.Recovery.StabilizationWindow)
+	require.Equal(t, 10*time.Second, c.RecoveryStabilizationWindowDuration())
+}
+
+func TestLoad_RateLimitRecovery_Override(t *testing.T) {
+	c := Load(tmpConfig(t, "rate_limit:\n  recovery:\n    enabled: false\n    stabilization_window: 2m\n"))
+	require.False(t, c.RateLimit.Recovery.Enabled)
+	require.Equal(t, "2m", c.RateLimit.Recovery.StabilizationWindow)
+	require.Equal(t, 2*time.Minute, c.RecoveryStabilizationWindowDuration())
+}
+
+func TestLoad_RateLimitRecovery_StabilizationWindowInvalid(t *testing.T) {
+	c := Load(tmpConfig(t, "rate_limit:\n  recovery:\n    stabilization_window: not-a-duration\n"))
+	require.Equal(t, 10*time.Second, c.RecoveryStabilizationWindowDuration(),
+		"invalid duration falls back to the 10s default")
 }
 
 func TestLoad_HTTP_Namespaced(t *testing.T) {

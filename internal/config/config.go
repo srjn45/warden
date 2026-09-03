@@ -114,13 +114,28 @@ type BranchTrackConfig struct {
 	Interval string `yaml:"interval"`
 }
 
+// RecoveryConfig groups the reactive hard-limit recovery engine settings
+// (rate_limit.recovery sub-block; docs/specs/2026-09-01-reactive-backend-limit-recovery.md §7).
+// These settings control stabilization observation and retry timing.
+// They must not include a usage-percent trigger — recovery fires only on a confirmed
+// hard limit, never on a predicted threshold.
+type RecoveryConfig struct {
+	// Enabled toggles the reactive hard-limit recovery engine.
+	Enabled bool `yaml:"enabled"`
+	// StabilizationWindow is the observation period an agent must spend in a
+	// non-rate-limited live status before a candidate is declared stable and
+	// recovery cleared. Go duration string; defaults to 10s.
+	StabilizationWindow string `yaml:"stabilization_window"`
+}
+
 // RateLimitConfig groups the rate-limit auto-resume scheduler settings.
 type RateLimitConfig struct {
-	RetryInterval      string `yaml:"retry_interval"`
-	SpendRetryInterval string `yaml:"spend_retry_interval"`
-	Buffer             string `yaml:"buffer"`
-	AutoResume         bool   `yaml:"auto_resume"`
-	ResumePrompt       string `yaml:"resume_prompt"`
+	RetryInterval      string         `yaml:"retry_interval"`
+	SpendRetryInterval string         `yaml:"spend_retry_interval"`
+	Buffer             string         `yaml:"buffer"`
+	AutoResume         bool           `yaml:"auto_resume"`
+	ResumePrompt       string         `yaml:"resume_prompt"`
+	Recovery           RecoveryConfig `yaml:"recovery"`
 }
 
 // BackendsConfig groups the agent-backend registry / internal-thinking router
@@ -326,7 +341,7 @@ var schema = []setting{
 	{"collab", "File-conflict collaboration settings (previously flat keys: collab_enabled, collab_interval, collab_hint). Sub-keys: enabled (warn agents editing the same file), interval (Go duration, e.g. 10s — watch reconcile + in-memory scan), git_reconcile_interval (Go duration, e.g. 2m — git diff backstop when fsnotify is active), hint (append the conflict-check hint to spawned agents). Flat keys still load as deprecated aliases."},
 	{"memory", "Project-memory (.warden/memory.md) settings (previously flat keys: memory_inject, memory_curate, memory_ground). Sub-keys: inject (project the repo's curated durable facts into every spawned agent via its system-prompt seam; off or an empty/absent file is byte-identical to no injection), curate (auto-propose UNVERIFIED entries from completion digests into the WORKING TREE only, gated by the committed diff — default OFF, opt-in), ground (answer project questions locally in `wd repl` on the local model, read-only, default ON — it REMOVES cloud round-trips). Flat keys still load as deprecated aliases. Values: true | false"},
 	{"branch_track", "Branch/CI tracker settings (previously flat keys: branch_track_enabled, branch_track_interval). Sub-keys: enabled (monitor each agent's branch for CI failures and drift from main, delivering informational inbox/desktop alerts), interval (Go duration, e.g. 2m — scan interval). Flat keys still load as deprecated aliases."},
-	{"rate_limit", "Rate-limit auto-resume scheduler settings (previously flat keys: rate_limit_retry_interval, rate_limit_spend_retry_interval, rate_limit_buffer, rate_limit_auto_resume, rate_limit_resume_prompt). Sub-keys: retry_interval (Go duration, e.g. 30m — fallback wait before retrying a session/weekly limit whose reset time could not be parsed), spend_retry_interval (Go duration, e.g. 6h — longer fallback for a monthly spend cap, which carries no reset time), buffer (Go duration, e.g. 1m — extra wait on top of a parsed reset time), auto_resume (true | false — auto-pick the wait-for-reset menu choice and resume agents after any limit clears), resume_prompt (text to type when a limit clears so the agent picks its work back up; default \"continue\", set to empty for a bare keypress with no injected user turn). Flat keys still load as deprecated aliases."},
+	{"rate_limit", "Rate-limit auto-resume scheduler settings (previously flat keys: rate_limit_retry_interval, rate_limit_spend_retry_interval, rate_limit_buffer, rate_limit_auto_resume, rate_limit_resume_prompt). Sub-keys: retry_interval (Go duration, e.g. 30m — fallback wait before retrying a session/weekly limit whose reset time could not be parsed), spend_retry_interval (Go duration, e.g. 6h — longer fallback for a monthly spend cap, which carries no reset time), buffer (Go duration, e.g. 1m — extra wait on top of a parsed reset time), auto_resume (true | false — auto-pick the wait-for-reset menu choice and resume agents after any limit clears), resume_prompt (text to type when a limit clears so the agent picks its work back up; default \"continue\", set to empty for a bare keypress with no injected user turn), recovery (reactive hard-limit recovery engine settings — sub-keys: enabled (true | false — master switch for automatic backend switching on confirmed hard limits; default true), stabilization_window (Go duration, e.g. 10s — how long an agent must remain in a live non-rate-limited status before a candidate is declared stable and recovery cleared; default 10s)). Flat keys still load as deprecated aliases."},
 	{"http", "Daemon HTTP write budgets (previously flat keys: http_timeout_fast, http_timeout_slow). Backstops against a wedged handler, not pacing devices — keep them generous, especially in large monorepos where git operations are slow. Sub-keys: timeout_fast (Go duration, e.g. 30s — ordinary data/action routes: list, status, send, …), timeout_slow (Go duration, e.g. 10m — slow lifecycle routes: spawn's worktree checkout, commit/push and their hooks, checks, snapshots, pipeline ops). Flat keys still load as deprecated aliases."},
 	{"log", "Structured-logging settings (previously flat keys: log_level, log_format). Sub-keys: level (debug | info | warn | error — minimum severity the daemon logs), format (text (human-readable) | json (structured)). Flat keys still load as deprecated aliases."},
 	{"plugins", "Plugin system (#47) settings (previously flat keys: plugins, plugin_registry). OFF by default — plugins execute external code, so this is deliberately opt-in. A broken, slow, or missing plugin fails open (logged and skipped); it never blocks or crashes an agent. Sub-keys: enabled (was plugins; load the executables in registry, register their custom task types, and invoke their subscribed lifecycle hooks over JSON-over-stdio), registry (was plugin_registry; a list of entries, each with name, path (the plugin executable), events (subscribed lifecycle hooks: any of pre-spawn, post-spawn, pre-commit, post-commit, pre-check, post-check, pre-teardown), and task_types (custom agent task types, each {name, worktree})). Flat keys still load as deprecated aliases."},
@@ -445,6 +460,10 @@ func defaults() Config {
 			Buffer:             "1m",
 			AutoResume:         true,
 			ResumePrompt:       defaultRateLimitResumePrompt,
+			Recovery: RecoveryConfig{
+				Enabled:             true,
+				StabilizationWindow: "10s",
+			},
 		},
 		HTTP: HTTPConfig{
 			TimeoutFast: "30s",
@@ -1559,6 +1578,13 @@ func (c Config) BranchTrackIntervalDuration() time.Duration {
 // RateLimitBufferDuration returns the buffer added to a parsed rate-limit reset.
 func (c Config) RateLimitBufferDuration() time.Duration {
 	return durOr(c.RateLimit.Buffer, time.Minute)
+}
+
+// RecoveryStabilizationWindowDuration returns the observation window an agent
+// must spend in a live non-rate-limited status before a recovery candidate is
+// declared stable. Defaults to 10s (same as the previous hardcoded value).
+func (c Config) RecoveryStabilizationWindowDuration() time.Duration {
+	return durOr(c.RateLimit.Recovery.StabilizationWindow, 10*time.Second)
 }
 
 func durOr(s string, def time.Duration) time.Duration {
