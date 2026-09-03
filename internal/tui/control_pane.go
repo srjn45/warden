@@ -99,10 +99,14 @@ type controlPaneModel struct {
 	// than sitting on the always-present Approvals section header — so opening the
 	// cockpit lands you on the first agent/pipeline, matching pre-sections UX.
 	focused bool
-	// defaultTerminalReady guards the startup "ensure ≥1 terminal" step so it runs
-	// once: on the first session list we either adopt an existing live terminal
-	// into the terminal pane or spawn a default one in the launch cwd (§5).
+	// defaultTerminalReady records that the startup ensure step (§5) has run: on the
+	// first session list we either adopt an existing live terminal into the terminal
+	// pane or spawn a default one in the launch cwd.
 	defaultTerminalReady bool
+	// terminalSpawnPending guards reconcile from firing another default-terminal
+	// spawn while one is already in flight (the list may still show zero live
+	// terminals until the spawn completes and is polled).
+	terminalSpawnPending bool
 	showSystemAgents     bool // toggled with S; reveals system agents in the flat fleet
 	// openedAgent is the id of the agent currently shown in the agent pane; it
 	// anchors §8 M-a/M-p rotation (advance from here) and is set on every agent
@@ -526,21 +530,62 @@ func (m controlPaneModel) liveTerminalInDir(dir string) *store.Session {
 	return nil
 }
 
-// ensureDefaultTerminalCmd guarantees the cockpit shows a terminal in its terminal
-// pane at startup (§5): it adopts the first existing live terminal, or spawns a
-// default one in the launch cwd when none exists. It runs once (guarded by
-// defaultTerminalReady) and is a no-op in the tmux-native cockpit (no terminal
-// pane). The startup open does not steal focus — the control pane stays focused.
-func (m *controlPaneModel) ensureDefaultTerminalCmd() tea.Cmd {
-	if m.terminalPane == "" || m.defaultTerminalReady {
+// liveTerminalByID returns the live terminal with id, or nil when it is absent or
+// no longer live.
+func (m controlPaneModel) liveTerminalByID(id string) *store.Session {
+	for _, t := range m.liveTerminals() {
+		if t.ID == id {
+			return t
+		}
+	}
+	return nil
+}
+
+// reconcileTerminalPaneCmd keeps the terminal pane healthy (§5 startup + §11
+// ongoing): always maintain ≥1 live terminal, clear a stale openedTerminal when
+// its session exits, and re-attach when the pane is dead ([exited]) after a daemon
+// restart or attach dropout. A no-op in the tmux-native cockpit (no terminal pane).
+// Re-opens never steal focus — the control pane stays focused unless the user
+// explicitly opens or rotates a terminal.
+func (m *controlPaneModel) reconcileTerminalPaneCmd() tea.Cmd {
+	if m.terminalPane == "" {
 		return nil
 	}
-	m.defaultTerminalReady = true
-	if live := m.liveTerminals(); len(live) > 0 {
+
+	live := m.liveTerminals()
+
+	if m.openedTerminal != "" && m.liveTerminalByID(m.openedTerminal) == nil {
+		delete(m.termInfo, m.openedTerminal)
+		m.openedTerminal = ""
+	}
+
+	if len(live) == 0 {
+		if m.terminalSpawnPending {
+			return nil
+		}
+		m.defaultTerminalReady = true
+		m.terminalSpawnPending = true
+		return spawnTerminalCmd(m.api, m.fallbackDir(), false)
+	}
+	m.terminalSpawnPending = false
+
+	// First successful session list at startup: adopt without stealing focus (§5).
+	if !m.defaultTerminalReady {
+		m.defaultTerminalReady = true
 		m.openedTerminal = live[0].ID
 		return openInTerminalCmd(m.terminalPane, live[0].TmuxSession, false)
 	}
-	return spawnTerminalCmd(m.api, m.fallbackDir(), false)
+
+	target := m.liveTerminalByID(m.openedTerminal)
+	if target == nil {
+		target = live[0]
+		m.openedTerminal = target.ID
+	}
+
+	if isTmuxPaneDead(m.terminalPane) {
+		return openInTerminalCmd(m.terminalPane, target.TmuxSession, false)
+	}
+	return nil
 }
 
 // bodyH is the height of the framed pane body, shared by View and the inspector
@@ -697,10 +742,11 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.vp.SetContent(eventsBody(s, m.vp.Width))
 			}
 		}
-		// Once we have a session list, make sure a default terminal exists and is
-		// shown in the terminal pane (§5). Runs once (defaultTerminalReady guard).
-		return m, m.ensureDefaultTerminalCmd()
+		// Keep the terminal pane healthy: ensure ≥1 live terminal (§5/§11) and
+		// re-attach when the nested tmux attach died (e.g. after a daemon restart).
+		return m, m.reconcileTerminalPaneCmd()
 	case terminalSpawnedMsg:
+		m.terminalSpawnPending = false
 		if msg.err != nil {
 			m.status = "terminal failed: " + msg.err.Error()
 			return m, nil

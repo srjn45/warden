@@ -3,7 +3,9 @@ package lifecycle
 import (
 	"context"
 	"errors"
+	"os"
 	"os/exec"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -123,6 +125,44 @@ func TestCommandInstallHintOllama(t *testing.T) {
 func TestCommandInstallHintUnknownCommand(t *testing.T) {
 	hint := commandInstallHint("unknown")
 	require.Contains(t, hint, "Install unknown")
+}
+
+func TestScrubTMUXFromEnviron(t *testing.T) {
+	got := scrubTMUXFromEnviron([]string{
+		"HOME=/home/me",
+		"TMUX=/tmp/tmux-1000/default,123,0",
+		"PATH=/bin",
+	})
+	require.Equal(t, []string{"HOME=/home/me", "PATH=/bin"}, got)
+}
+
+func TestIsTmuxCommand(t *testing.T) {
+	require.True(t, isTmuxCommand("tmux"))
+	require.True(t, isTmuxCommand("/usr/bin/tmux"))
+	require.False(t, isTmuxCommand("git"))
+	require.False(t, isTmuxCommand("/usr/bin/git"))
+}
+
+// TestExecRunnerScrubsTMUXForLiveness requires tmux and verifies that a session
+// created on the default server is found by has-session even when the test
+// process inherits a bogus $TMUX pointing at a different server.
+func TestExecRunnerScrubsTMUXForLiveness(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not installed")
+	}
+	t.Setenv("TMUX", "/nonexistent/fake-tmux-server,1,0")
+
+	run := ExecRunner{}
+	ctx := context.Background()
+	id := "warden-tmux-scrub-" + strconv.Itoa(os.Getpid())
+	if out, err := run.Run(ctx, "", "tmux", "new-session", "-d", "-s", id); err != nil {
+		t.Fatalf("new-session: %v %s", err, out)
+	}
+	defer run.Run(ctx, "", "tmux", "kill-session", "-t", id)
+
+	if _, err := run.Run(ctx, "", "tmux", "has-session", "-t", id); err != nil {
+		t.Fatalf("has-session with inherited TMUX should still find session: %v", err)
+	}
 }
 
 func TestCommandInstallHintStripsFakeSuffix(t *testing.T) {

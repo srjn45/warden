@@ -127,11 +127,45 @@ func TestEnsureDefaultTerminalSpawnsWhenNone(t *testing.T) {
 	cmd()
 	require.NotNil(t, f.spawned)
 	require.Equal(t, terminalKind, f.spawned.Kind, "a terminal is created by kind, not a backend")
-	// A second session list must not spawn again.
+	// A second session list must not spawn again while the first spawn is pending.
 	f.spawned = nil
 	nm, cmd = m.Update(sessionsMsg{sessions: []*store.Session{{ID: "a1", Workdir: "/w"}}})
 	m = nm.(controlPaneModel)
-	require.Nil(t, cmd, "the default terminal is ensured only once")
+	require.Nil(t, cmd, "a pending default-terminal spawn must not fire twice")
+}
+
+// When every live terminal disappears, reconcile spawns a replacement (§11).
+func TestReconcileSpawnsWhenAllTerminalsDie(t *testing.T) {
+	f := &fakeAPI{}
+	m := newListPane(f, "%9", "%1")
+	m = lstep(m, sessionsMsg{sessions: []*store.Session{liveTerminal("t1", "/w", time.Now())}})
+	m.defaultTerminalReady = true
+	m.openedTerminal = "t1"
+
+	nm, cmd := m.Update(sessionsMsg{sessions: []*store.Session{{ID: "a1", Workdir: "/w"}}})
+	m = nm.(controlPaneModel)
+	require.NotNil(t, cmd, "no live terminals ⇒ spawn a default replacement")
+	require.Empty(t, m.openedTerminal, "stale openedTerminal is cleared")
+	cmd()
+	require.NotNil(t, f.spawned)
+	require.Equal(t, terminalKind, f.spawned.Kind)
+}
+
+// When the terminal pane is dead but a live terminal exists, reconcile re-attaches.
+func TestReconcileReattachesDeadPane(t *testing.T) {
+	old := isTmuxPaneDead
+	isTmuxPaneDead = func(string) bool { return true }
+	t.Cleanup(func() { isTmuxPaneDead = old })
+
+	f := &fakeAPI{}
+	m := newListPane(f, "%9", "%1")
+	m.defaultTerminalReady = true
+	m.openedTerminal = "t1"
+
+	nm, cmd := m.Update(sessionsMsg{sessions: []*store.Session{liveTerminal("t1", "/w", time.Now())}})
+	m = nm.(controlPaneModel)
+	require.NotNil(t, cmd, "a dead terminal pane must be re-opened")
+	require.Nil(t, f.spawned, "re-attach must not spawn a new terminal")
 }
 
 // When a live terminal already exists at startup, it is adopted into the terminal
