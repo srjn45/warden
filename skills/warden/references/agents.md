@@ -11,7 +11,7 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
 
 | The user wants to… | Do this |
 |---|---|
-| list / check / triage agents | `list_agents`; summarize by status. Call out `waiting_for_input` (needs them) and `errored`/`orphaned`. Show each agent's `subject` and `workdir`. |
+| list / check / triage agents | `list_agents`; summarize by status. Call out `waiting_for_input` (needs them), `errored`/`orphaned`, and any agent with a non-null `backend_recovery` field (automatically switching backends after a provider hard limit — see **Backend recovery** below). Show each agent's `subject` and `workdir`. |
 | spin up an agent to do X | `spawn_agent {prompt: "X"}` (auto-typed, no repo needed). Only add `type`+`repo` (+`branch`/`pr`/`worktree`) for a managed worktree tied to a repo/ticket. Add `model`, `permission_mode`/`supervised`, `tags`, `role` as needed. |
 | give an agent a role / persona | `spawn_agent {..., role: "worker"}` at spawn, or `set_role {ticket, role}` on a running agent (relaunches to re-inject; `general`/empty clears it). `list_roles` returns the catalog. Over MCP, routing follows the role's default tier (no `task`/`tier` params). See **Roles** below. |
 | fork agent <id>'s session into a new one | `fork_agent {source: "<id>", prompt?}` — branches the source's recorded conversation into a NEW managed agent (fresh sibling worktree, dirty-tree carry; the source keeps running). **Codex-only** (a non-forking backend like Claude returns a clean "cannot fork"); the source's session id must already be pinned (let it run a turn first). See **Fork** below. |
@@ -365,3 +365,30 @@ Worth knowing:
 - **Inherits repo + backend** (resolved daemon-side); `--type` defaults to
   `development` (a fork needs its own worktree). If the memory-pressure gate warns,
   add `--force` / `force:true`.
+
+
+## Backend recovery
+
+When an agent hits a confirmed provider hard limit, the **reactive backend recovery coordinator** automatically tries eligible subscription backends from the backend registry — no operator action needed. Watch for a non-null `backend_recovery` field on sessions from `list_agents` / `get_agent`.
+
+**Recovery phases:**
+
+| `backend_recovery.phase` | Meaning |
+|---|---|
+| `refreshing_usage` | Coordinator reading usage windows from all backends |
+| `switching` | Hot-swapping to the selected candidate |
+| `stabilizing` | Candidate running; waiting for the stabilization window to elapse |
+| `waiting_for_capacity` | All candidates exhausted; retry timer armed |
+
+**Key fields:**
+- `backend_recovery.current` — `{backend_id, model_id}` of the candidate being tried
+- `backend_recovery.attempts` — ordered list of all tried candidates and their outcomes
+- `backend_recovery.next_retry_at` — when the coordinator will retry (while waiting)
+- `backend_recovery` null — no recovery active (normal operation or recovery complete)
+
+**When surfacing recovery to the user:**
+- Treat `waiting_for_capacity` like `rate_limited` — the agent needs capacity, not intervention.
+- If the user wants to override: `switch_agent` / `stop_agent` automatically supersedes recovery; `send_to_agent` also works once the new backend is running.
+- You do NOT need to manually manage recovery timers; the daemon owns them.
+
+SSE subscribers get a notification on every phase transition — `list_agents` or `get_agent` after an SSE event gives the current state.

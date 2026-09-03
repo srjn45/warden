@@ -33,12 +33,19 @@ type RoleTierMapping struct {
 	DefaultTier ModelTier `json:"default_tier"`
 }
 
-// HandoverSettings holds configurations for mid-session context handover and quota headroom triggers.
+// HandoverSettings holds configurations for mid-session context handover.
+// The ContextFillThreshold is the only active trigger; ThresholdPercent and
+// RollingQuotaThreshold are retained for one compatibility window but have no
+// effect — confirmed hard-limit recovery owns provider-quota switching.
 type HandoverSettings struct {
 	Enabled bool `json:"enabled"`
-	// Deprecated: provider quota switching is triggered only by confirmed hard limits.
+	// Deprecated: has no effect. Provider quota switching is triggered only by
+	// confirmed hard limits via the backend recovery coordinator. Kept for
+	// one compatibility window; will be removed in a future release.
 	ThresholdPercent int `json:"threshold_percent"`
-	// Deprecated: provider quota switching is triggered only by confirmed hard limits.
+	// Deprecated: has no effect. Provider quota switching is triggered only by
+	// confirmed hard limits via the backend recovery coordinator. Kept for
+	// one compatibility window; will be removed in a future release.
 	RollingQuotaThreshold int           `json:"rolling_quota_threshold"`
 	ContextFillThreshold  int           `json:"context_fill_threshold"`
 	CooldownPeriod        time.Duration `json:"cooldown_period"`

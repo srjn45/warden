@@ -590,6 +590,22 @@ type AutopilotToggleRequest struct {
 // Backend One row of the agent-backend registry. Detection fields (installed/binary_path/detected_at) are facts refreshed by a rescan; tier/default/enabled are user preferences a rescan preserves. is_local marks the reserved $0 local-model row (never limited, never a default).
 type Backend = backendstore.Backend
 
+// BackendCandidate Identifies one provider capacity pool by (backend_id, model_id). Model is part of the identity because providers may meter independent model pools separately — two models on the same backend can have unrelated limits.
+type BackendCandidate = store.BackendCandidate
+
+// BackendRecovery Reactive hard-limit recovery state. Non-null on a session while the coordinator is automatically switching to a new provider after a confirmed hard usage limit. Null means no recovery is active.
+// Phase strings (§8 of the reactive-backend-limit-recovery spec):
+//
+//	"refreshing_usage"    → UI: "recovering: refreshing usage"
+//	"switching"           → UI: "recovering: trying <backend>/<model> (n/m)"
+//	"stabilizing"         → UI: "recovering: stabilizing <backend>/<model>"
+//	"waiting_for_capacity"→ UI: "waiting for capacity; retry <time|fallback>; attempted n"
+//
+// A superseded recovery is cleared and the session carries no BackendRecovery.
+// PRIVACY: this field never exposes provider credentials, account or email identifiers, raw CLI/provider output, terminal banners, prompts, or transcript content. Unknown usage/resets render as "unknown" — never as zero or "full". Exact percentages are omitted from remote API surfaces.
+// SSE notifications (GET /api/v1/events) fire on phase changes; subscribe there for live updates without polling. The "backend-recovery" capability flag (GET /api/v1/capabilities) signals that this field is supported.
+type BackendRecovery = store.BackendRecovery
+
 // BackendSettings Store-level backend policy (the singleton settings record).
 type BackendSettings = backendstore.Settings
 
@@ -616,7 +632,7 @@ type CIStatusState string
 
 // CapabilitiesResponse The optional capability flags this daemon supports (feature detection).
 type CapabilitiesResponse struct {
-	// Capabilities Stable capability-flag strings. Known flags: "terminal-sessions" (session `kind` support — see GET /api/v1/capabilities), "store-health" (the GET /api/v1/store/health endpoint + complete-or-error active reads / 503 on degradation).
+	// Capabilities Stable capability-flag strings. Known flags: "terminal-sessions" (session `kind` support — see GET /api/v1/capabilities), "store-health" (the GET /api/v1/store/health endpoint + complete-or-error active reads / 503 on degradation), "backend-recovery" (the session `backend_recovery` field is present and SSE fires on recovery phase changes — reactive hard-limit provider switching is active).
 	Capabilities []string `json:"capabilities"`
 }
 
@@ -794,7 +810,7 @@ type GuardVerdict struct {
 // GuardVerdictDecision defines model for GuardVerdict.Decision.
 type GuardVerdictDecision string
 
-// HandoverSettings Configuration for mid-session context handover and quota headroom triggers.
+// HandoverSettings Configuration for mid-session context handover. context_fill_threshold is the only active trigger; threshold_percent and rolling_quota_threshold are deprecated and have no effect — confirmed hard-limit recovery (via the backend recovery coordinator) now owns all provider-quota switching. These deprecated fields are retained for one compatibility window and will be removed in a future release.
 type HandoverSettings = backendstore.HandoverSettings
 
 // ImportResult defines model for ImportResult.
@@ -943,6 +959,12 @@ type RecoverResult struct {
 	TmuxSession string `json:"tmux_session"`
 	Workdir     string `json:"workdir"`
 }
+
+// RecoveryAttempt One attempt to switch to a candidate during reactive hard-limit recovery.
+type RecoveryAttempt = store.RecoveryAttempt
+
+// RecoveryReset Known reset window for a limited backend/model pool, as reported by the provider via the backend-usage service. resets_at is null when the provider supplied no reset time; never coerce null to zero or any synthetic value — render as "unknown".
+type RecoveryReset = store.RecoveryReset
 
 // RemoveWorktreeRequest defines model for RemoveWorktreeRequest.
 type RemoveWorktreeRequest struct {

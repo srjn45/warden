@@ -31,6 +31,9 @@ type BackendRecoveryCoordinator struct {
 	usage    *backendusage.Service
 	life     backendRecoveryLife
 	now      func() time.Time
+	// notifyFn is called after each phase-transition event to wake SSE subscribers.
+	// May be nil (tests that don't need SSE leave it unset).
+	notifyFn func()
 
 	mu                  sync.Mutex
 	locks               map[string]*sync.Mutex
@@ -46,6 +49,21 @@ type backendRecoveryLife interface {
 
 func NewBackendRecoveryCoordinator(st store.Store, backends *backendstore.Store, usage *backendusage.Service, life backendRecoveryLife) *BackendRecoveryCoordinator {
 	return &BackendRecoveryCoordinator{store: st, backends: backends, usage: usage, life: life, now: time.Now, locks: make(map[string]*sync.Mutex), timers: make(map[string]*time.Timer), stabilizationWindow: 10 * time.Second}
+}
+
+// SetNotify wires an SSE publish callback. It is called once per recovery
+// phase transition so remote clients (web, Android, MCP) see state changes
+// without polling. Call before the coordinator handles any hard-limit events.
+func (c *BackendRecoveryCoordinator) SetNotify(fn func()) { c.notifyFn = fn }
+
+// WithStabilizationWindow overrides the stabilization observation window (how
+// long an agent must stay in a live non-rate-limited status before the candidate
+// is declared stable and recovery clears). Defaults to 10s when not set.
+func (c *BackendRecoveryCoordinator) WithStabilizationWindow(d time.Duration) *BackendRecoveryCoordinator {
+	if d > 0 {
+		c.stabilizationWindow = d
+	}
+	return c
 }
 
 func (c *BackendRecoveryCoordinator) sessionLock(id string) *sync.Mutex {
@@ -412,6 +430,12 @@ func (c *BackendRecoveryCoordinator) Reconstruct(ctx context.Context) error {
 
 func (c *BackendRecoveryCoordinator) event(id, typ, detail string) {
 	_ = c.store.AppendEvent(context.Background(), id, store.Event{TS: c.now().UTC(), Type: typ, Detail: detail})
+	// Wake SSE subscribers on every phase-transition event. The spec (§8) says
+	// "SSE/store notifications fire on phase changes, not every stabilization poll",
+	// and every call to event() in this coordinator corresponds to a phase change.
+	if c.notifyFn != nil {
+		c.notifyFn()
+	}
 }
 
 func candidateKey(backend, model string) string { return backend + "\x00" + model }

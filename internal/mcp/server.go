@@ -264,7 +264,7 @@ func NewServer(daemonBase string) *Server {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "list_agents",
-		Description: "List all active Claude Code agents and their current status.",
+		Description: "List all active Claude Code agents and their current status. Each session includes a `backend_recovery` field (null when idle) that describes automatic hard-limit recovery state: phase (refreshing_usage/switching/stabilizing/waiting_for_capacity), current candidate backend/model, attempt count, known reset times, and next retry time. Use get_agent for full recovery detail on one session.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ listArgs) (*mcpsdk.CallToolResult, any, error) {
 		sessions, err := s.cl.List(ctx)
 		if err != nil {
@@ -275,8 +275,19 @@ func NewServer(daemonBase string) *Server {
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
-		Name:        "get_agent",
-		Description: "Get full detail (status, events, worktree) for one agent.",
+		Name: "get_agent",
+		Description: "Get full detail (status, events, worktree, backend recovery) for one agent. " +
+			"The `backend_recovery` field is non-null during automatic hard-limit recovery and contains: " +
+			"phase (refreshing_usage|switching|stabilizing|waiting_for_capacity), " +
+			"current candidate (backend_id/model_id, null between attempts), " +
+			"attempts list (outcome: hard_limit|immediate_hard_limit|launch_failed|stabilized|superseded), " +
+			"resets (known provider reset windows; resets_at is null when unknown — never treat as zero), " +
+			"next_retry_at (null when not waiting). " +
+			"Status display: refreshing_usage → 'recovering: refreshing usage'; " +
+			"switching → 'recovering: trying <backend>/<model> (n/m)'; " +
+			"stabilizing → 'recovering: stabilizing <backend>/<model>'; " +
+			"waiting_for_capacity → 'waiting for capacity; retry <time|fallback>; attempted n'. " +
+			"Null backend_recovery means no recovery is active.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a ticketArgs) (*mcpsdk.CallToolResult, any, error) {
 		sess, err := s.cl.Get(ctx, a.Ticket)
 		if err != nil {

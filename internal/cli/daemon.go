@@ -328,10 +328,10 @@ func newDaemonRunCmd() *cobra.Command {
 			lc.PeerContextFn = srv.PeerContext
 			if handoverSettings, err := backendStore.GetHandoverSettings(); err == nil {
 				pl.HandoverEnabled = handoverSettings.Enabled
-				if handoverSettings.ThresholdPercent != 0 || handoverSettings.RollingQuotaThreshold != 0 {
-					slog.Warn("handover quota thresholds are deprecated and ignored; confirmed hard-limit recovery now controls provider switching",
-						"keys", "threshold_percent, rolling_quota_threshold")
-				}
+				slog.Warn("handover.threshold_percent and handover.rolling_quota_threshold are deprecated and ignored; "+
+					"confirmed hard-limit recovery via the backend recovery coordinator now controls provider-quota switching — "+
+					"remove these fields from your configuration; context_fill_threshold remains active and controls context-window handover only",
+					"keys", "threshold_percent, rolling_quota_threshold")
 			}
 			pl.OnHotSwap = func(sess *store.Session, tokens int) {
 				settings, err := backendStore.GetHandoverSettings()
@@ -518,7 +518,9 @@ func newDaemonRunCmd() *cobra.Command {
 			// Autopilot guardian escalations (§2.3) fan out through the same
 			// operator notifier seam (desktop + webhook).
 			srv.SetAutopilotNotifier(notifSwitch)
-			recoveryCoordinator := daemon.NewBackendRecoveryCoordinator(st, backendStore, usageService, life)
+			recoveryCoordinator := daemon.NewBackendRecoveryCoordinator(st, backendStore, usageService, life).
+				WithStabilizationWindow(cfg.RecoveryStabilizationWindowDuration())
+			recoveryCoordinator.SetNotify(srv.Notify)
 			srv.SetBackendRecovery(recoveryCoordinator)
 			rateLimitSched.OnHardLimit = recoveryCoordinator.OnHardLimit
 			if err := recoveryCoordinator.Reconstruct(context.Background()); err != nil {
