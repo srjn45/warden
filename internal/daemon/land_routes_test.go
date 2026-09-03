@@ -216,3 +216,60 @@ func TestLandRouteMissingRef(t *testing.T) {
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
+
+func TestLandRouteSuccessMarksTaskDone(t *testing.T) {
+	merges := 0
+	host := &stubLandHost{
+		pr:       autopilot.PRInfo{Number: 12, BaseRef: "autopilot/plan", HeadSHA: "sha-task-1", Mergeable: true},
+		prFound:  true,
+		ci:       autopilot.GateGreen,
+		mergeSHA: "sha-merge-task-1",
+		merges:   &merges,
+	}
+	dir := t.TempDir()
+	plan := filepath.Join(dir, "plan.yaml")
+	planContent := "version: 1\ngoal: ship\ntasks:\n  - id: t1\n    prompt: do work\n"
+	require.NoError(t, os.WriteFile(plan, []byte(planContent), 0o644))
+
+	cs, err := ctxstore.New(t.TempDir())
+	require.NoError(t, err)
+	srv := &Server{store: newFakeStore(), life: &fakeLife{}, cstore: cs, hub: newHub(), done: make(chan struct{})}
+	srv.landHostFn = func(string) autopilot.LandHost { return *host }
+	srv.SetAutopilotController(autopilot.NewController(autopilot.ControllerConfig{
+		Plans:             []string{plan},
+		IntegrationBranch: autopilot.DefaultIntegrationBranch,
+		Gate:              "ci",
+		Strategy:          "squash",
+		DeleteBranch:      true,
+		Resolver:          autopilotTestResolver{},
+	}, &apFakeEnv{repo: dir}))
+
+	var st autopilot.Status
+	code := apPostJSON(t, httptest.NewServer(srv.router()).URL+"/api/v1/autopilot", `{"enabled":true}`, &st)
+	require.Equal(t, http.StatusOK, code)
+	require.Len(t, st.Runs, 1)
+	runID := st.Runs[0].RunID
+
+	ts := httptest.NewServer(srv.router())
+	defer ts.Close()
+
+	require.NoError(t, srv.store.Insert(context.Background(), &store.Session{
+		ID:              "W-task-1",
+		Branch:          "autopilot/t1-branch",
+		Worktree:        t.TempDir(),
+		Status:          store.StatusWorking,
+		Tags:            []string{"autopilot", "run:" + runID},
+		AutopilotTaskID: "t1",
+	}))
+
+	landCode, body := postLand(t, ts.URL, "W-task-1")
+	require.Equal(t, http.StatusOK, landCode)
+	require.Equal(t, false, body["already_landed"])
+	require.Equal(t, 1, merges)
+
+	runs := srv.autopilot.Status().Runs
+	require.Len(t, runs, 1)
+	require.Len(t, runs[0].PlanTasks, 1)
+	require.Equal(t, "t1", runs[0].PlanTasks[0].ID)
+	require.Equal(t, "done", runs[0].PlanTasks[0].Status)
+}

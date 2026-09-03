@@ -3,8 +3,10 @@ package daemon
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/autopilot"
@@ -87,5 +89,36 @@ func (s *Server) CompleteAutopilot(ctx context.Context, _ oapi.CompleteAutopilot
 		return nil, err
 	}
 	s.recordAuditCtx(ctx, audit.ActionAutopilotComplete, runID, nil)
+
+	if params, ok := s.autopilot.LandParams(runID); ok && params.Repo != "" && params.IntegrationBranch != "" && params.DefaultBranch != "" {
+		host := s.landHost(params.Repo)
+		if prInfo, found, err := host.FindPR(ctx, params.IntegrationBranch); err == nil {
+			if !found {
+				if dHost, ok := host.(daemonLandHost); ok {
+					title := fmt.Sprintf("autopilot: complete %s", runID)
+					body := fmt.Sprintf("Autopilot run %s completed successfully.", runID)
+					if out, prErr := dHost.runGH(ctx, "pr", "create", "--base", params.DefaultBranch, "--head", params.IntegrationBranch, "--title", title, "--body", body); prErr != nil {
+						s.recordAuditCtx(ctx, audit.ActionAutopilotComplete, runID, map[string]string{
+							"integration_branch": params.IntegrationBranch,
+							"default_branch":     params.DefaultBranch,
+							"pr_create_error":    prErr.Error(),
+						})
+					} else {
+						s.recordAuditCtx(ctx, audit.ActionAutopilotComplete, runID, map[string]string{
+							"integration_branch": params.IntegrationBranch,
+							"default_branch":     params.DefaultBranch,
+							"pr_url":             strings.TrimSpace(out),
+						})
+					}
+				}
+			} else {
+				s.recordAuditCtx(ctx, audit.ActionAutopilotComplete, runID, map[string]string{
+					"integration_branch": params.IntegrationBranch,
+					"pr":                 strconv.Itoa(prInfo.Number),
+				})
+			}
+		}
+	}
+
 	return oapi.CompleteAutopilot200JSONResponse(st), nil
 }

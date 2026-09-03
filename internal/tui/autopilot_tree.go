@@ -10,6 +10,8 @@ import (
 
 func apRunKey(runID string) string { return "aprun\x00" + runID }
 
+func apPlanKey(runID string) string { return "applan\x00" + runID }
+
 func apWorkersKey(runID string) string { return "apworkers\x00" + runID }
 
 func apWorkerGroupKey(runID, taskID string) string {
@@ -164,14 +166,21 @@ func appendAutopilotRunItems(items []item, r *client.AutopilotRunStatus, session
 	}
 
 	managers, guardians, workers := partitionRunSessions(sessions, r)
-	for _, s := range managers {
-		items = append(items, item{session: s, dir: sourceDir(s), depth: 1, underProject: true, apSlot: store.AutopilotSlotManager})
+
+	planKey := apPlanKey(r.RunID)
+	planCollapsed := collapsed[planKey]
+	items = append(items, item{apPlan: true, apPlanRun: r.RunID, collapsed: planCollapsed, hasKids: len(r.PlanTasks) > 0, underProject: true})
+	if !planCollapsed {
+		for j := range r.PlanTasks {
+			items = append(items, item{apTask: &r.PlanTasks[j], apTaskRun: r.RunID, underProject: true})
+		}
 	}
+
 	for _, s := range guardians {
 		items = append(items, item{session: s, dir: sourceDir(s), depth: 1, underProject: true, apSlot: store.AutopilotSlotGuardian})
 	}
-	for j := range r.PlanTasks {
-		items = append(items, item{apTask: &r.PlanTasks[j], apTaskRun: r.RunID, underProject: true})
+	for _, s := range managers {
+		items = append(items, item{session: s, dir: sourceDir(s), depth: 1, underProject: true, apSlot: store.AutopilotSlotManager})
 	}
 
 	wKey := apWorkersKey(r.RunID)
