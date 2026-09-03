@@ -20,7 +20,7 @@ description: How agents are spawned and auto-classified, and the commands that s
 |---|---|
 | `stop` | **The single umbrella teardown verb.** Default = full teardown: terminate + clear (archive) record + remove worktree (asks first unless `--yes`). Subtractive flags: `--keep-record`, `--keep-worktree` (`--keep-worktree` alone == `done`), `--hard`, `--pr`/`--base`, `--force`, `--delete-adopted-branch`. Safe order: PR → terminate → clear record → remove worktree. |
 | `terminate` | Stop an agent (kill tmux + the agent process); **keeps** the record and worktree. The safe, reversible "stop" default. Alias for `stop --keep-record --keep-worktree`. |
-| `restore` | Recreate and resume a lost/orphaned agent's session (`claude --resume`). |
+| `restore` | Recreate and resume a lost/orphaned agent's session (`claude --resume`). In Cockpit TUI, select the orphaned agent and press `r`. |
 | `recover` | Safety net for the tombstone reaper: revive an **archived** record whose tmux session is confirmed still alive. Bare `recover` only reports candidates; `--apply` re-inserts each one under its original id (children reconnect automatically). |
 | `done` | Terminate **and** clear the record in one step (worktree kept). `--hard` purges instead of archiving. Alias for `stop --keep-worktree`. |
 | `delete` | Clear the stored record (archive by default, `--hard` purge). Leaves tmux + worktree alone. Alias for `stop --keep-worktree` (record only). |
