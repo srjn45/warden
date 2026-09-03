@@ -104,8 +104,12 @@ CLI `/usage` pager. There is no `cursor-agent usage` subcommand; warden does not
 scrape the TUI or invent percents from spend cents. Antigravity supplies two
 never-flattened windows (`gemini` and `non-gemini`) from
 `POST https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels`
-using the local `agy` OAuth credentials. Claude currently supplies safe
-plan/login metadata but reports usage as `unsupported`. Warden deliberately
+using the local `agy` OAuth credentials. Claude supplies a single session
+(`five_hour`) window — `used_percent` and `resets_at` — from
+`GET https://api.anthropic.com/api/oauth/usage` (the endpoint the `claude`
+CLI's `/usage` pager uses), authenticated with the local Claude Code OAuth
+access token and degrading gracefully to one `null`-percentage row when the
+endpoint is unreachable. Warden deliberately
 does not substitute its local synthetic quota estimates. Account labels,
 credentials, raw provider output, paths, and request IDs are excluded. An
 API-key-only Cursor login (no `auth.json` access token) still emits the three

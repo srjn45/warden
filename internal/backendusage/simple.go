@@ -2,55 +2,10 @@ package backendusage
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	"github.com/srjn45/warden/internal/backendstore"
 )
-
-type ClaudeAdapter struct {
-	Runner CommandRunner
-	Now    func() time.Time
-}
-
-func (a ClaudeAdapter) BackendID() string { return "claude" }
-func (a ClaudeAdapter) Fetch(ctx context.Context, b backendstore.Backend) Result {
-	now := clock(a.Now)
-	if !b.Installed {
-		return notInstalled(b.ID, now)
-	}
-	r := a.Runner
-	if r == nil {
-		r = execRunner{}
-	}
-	out, err := r.Output(ctx, binary(b, "claude"), "auth", "status", "--json")
-	var v struct {
-		LoggedIn         bool   `json:"loggedIn"`
-		AuthMethod       string `json:"authMethod"`
-		APIProvider      string `json:"apiProvider"`
-		SubscriptionType string `json:"subscriptionType"`
-	}
-	decoded := json.Unmarshal(out, &v) == nil
-	if err != nil {
-		if decoded && !v.LoggedIn {
-			return unauthenticated(b.ID, now)
-		}
-		return commandFailure(b.ID, ctx, now)
-	}
-	if !decoded {
-		return malformed(b.ID, now)
-	}
-	if !v.LoggedIn {
-		return unauthenticated(b.ID, now)
-	}
-	login := v.AuthMethod
-	if login == "" {
-		login = v.APIProvider
-	}
-	res := unsupported(b.ID, "installed Claude CLI has no structured usage interface", now)
-	res.Account = &Account{Plan: v.SubscriptionType, LoginMethod: login}
-	return res
-}
 
 type GenericAdapter struct {
 	ID  string
