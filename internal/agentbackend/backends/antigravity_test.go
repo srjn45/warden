@@ -1,7 +1,11 @@
 package backends
 
 import (
+	"context"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -436,4 +440,71 @@ func TestAntigravityListModelsDegradesOnError(t *testing.T) {
 	}
 	_, ok := Antigravity{}.ListModels()
 	require.False(t, ok, "a command error degrades to ok=false")
+}
+
+// --- Usage limits (UsageLimiter) --------------------------------------------
+
+func TestAntigravityFetchUsageUnauthenticated(t *testing.T) {
+	orig := agyTokenPath
+	t.Cleanup(func() { agyTokenPath = orig })
+	agyTokenPath = func() string { return "/nonexistent/token" }
+
+	got, ok := Antigravity{}.FetchUsage(context.Background())
+	require.True(t, ok)
+	require.Equal(t, "unauthenticated", got.Status)
+	require.Empty(t, got.Usage)
+}
+
+func TestAntigravityFetchUsageDualWindow(t *testing.T) {
+	raw, err := os.ReadFile("../../backendusage/testdata/antigravity-available-models.json")
+	require.NoError(t, err)
+
+	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"access_token":"refreshed_token"}`)
+	}))
+	defer tokenSrv.Close()
+
+	modelsSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "Bearer refreshed_token", r.Header.Get("Authorization"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(raw)
+	}))
+	defer modelsSrv.Close()
+
+	origTokenPath := agyTokenPath
+	origReadFile := agyReadFile
+	origEndpoint := agyEndpoint
+	origTokenURL := agyTokenURL
+	t.Cleanup(func() {
+		agyTokenPath = origTokenPath
+		agyReadFile = origReadFile
+		agyEndpoint = origEndpoint
+		agyTokenURL = origTokenURL
+	})
+
+	agyTokenPath = func() string { return "/test/token" }
+	agyReadFile = func(string) ([]byte, error) {
+		return []byte(`{
+			"token": {
+				"access_token": "expired",
+				"refresh_token": "valid_refresh",
+				"expiry": "2026-09-01T00:00:00Z"
+			},
+			"auth_method": "consumer"
+		}`), nil
+	}
+	agyEndpoint = modelsSrv.URL
+	agyTokenURL = tokenSrv.URL
+
+	got, ok := Antigravity{}.FetchUsage(context.Background())
+	require.True(t, ok)
+	require.Equal(t, "ok", got.Status)
+	require.NotNil(t, got.Account)
+	require.Equal(t, "Free Tier", got.Account.Plan)
+	require.Len(t, got.Usage, 2)
+	require.Equal(t, "antigravity:gemini", got.Usage[0].ID)
+	require.InDelta(t, 32.03, *got.Usage[0].UsedPercent, 0.01)
+	require.Equal(t, "antigravity:non-gemini", got.Usage[1].ID)
+	require.InDelta(t, 0.0, *got.Usage[1].UsedPercent, 0.01)
 }

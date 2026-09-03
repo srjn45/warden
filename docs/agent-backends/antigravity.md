@@ -142,6 +142,7 @@ its own git worktree, this resolution is unambiguous.
 | `SessionIDControl`     | ❌    | `agy` mints its own UUID conv-id; no flag to assign one at launch. |
 | `SystemPromptInject`   | ✅ via rules file | no `--append-system-prompt` equivalent on the launch command, but warden delivers the same addendum out-of-band via the `AGENTS.md` rules file `agy` reads on startup (`InjectContext`). The Caps flag stays `false` — it tracks the *launch flag* specifically. |
 | `Pricing`              | ❌    | Google-hosted free tier; tokens in `/usage` TUI, dollars not wired into warden usage spend. |
+| `UsageLimits`          | ✅    | Provider quota tracked via `fetchAvailableModels`: dual buckets (`antigravity:gemini`, `antigravity:non-gemini`) with live usage % and reset times. |
 
 ---
 

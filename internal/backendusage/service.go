@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentbackend"
 	"github.com/srjn45/warden/internal/backendstore"
 )
 
@@ -88,6 +89,13 @@ func (s *Service) collect(ctx context.Context, b backendstore.Backend, refresh b
 		}
 	}
 	a := s.adapters[b.ID]
+	if a == nil {
+		if ab, err := agentbackend.Get(b.ID); err == nil {
+			if ul, ok := ab.(agentbackend.UsageLimiter); ok {
+				a = backendUsageLimiterAdapter{id: b.ID, limiter: ul, now: s.now}
+			}
+		}
+	}
 	if a == nil {
 		a = GenericAdapter{ID: b.ID, Now: s.now}
 	}
@@ -208,4 +216,60 @@ func project(b backendstore.Backend, r Result, cached, stale bool, warning *Prov
 		r.Error = &ProviderError{Code: warning.Code, Message: warning.Message}
 	}
 	return BackendResult{ID: b.ID, Tier: b.Tier, Installed: b.Installed, Enabled: b.Enabled, Status: r.Status, Account: r.Account, Usage: r.Usage, ObservedAt: r.ObservedAt, Cached: cached, Stale: stale, Error: r.Error}
+}
+
+type backendUsageLimiterAdapter struct {
+	id      string
+	limiter agentbackend.UsageLimiter
+	now     func() time.Time
+}
+
+func (a backendUsageLimiterAdapter) BackendID() string { return a.id }
+
+func (a backendUsageLimiterAdapter) Fetch(ctx context.Context, b backendstore.Backend) Result {
+	now := clock(a.now)
+	if !b.Installed {
+		return notInstalled(b.ID, now)
+	}
+	res, ok := a.limiter.FetchUsage(ctx)
+	if !ok {
+		return unsupported(b.ID, "backend does not support live usage queries", now)
+	}
+
+	result := Result{
+		BackendID:  b.ID,
+		Status:     Status(res.Status),
+		ObservedAt: res.ObservedAt,
+	}
+	if result.ObservedAt.IsZero() {
+		result.ObservedAt = now
+	}
+	if res.Account != nil {
+		result.Account = &Account{
+			Plan:        res.Account.Plan,
+			LoginMethod: res.Account.LoginMethod,
+		}
+	}
+	if res.ErrorCode != "" || res.ErrorMsg != "" {
+		result.Error = &ProviderError{
+			Code:    res.ErrorCode,
+			Message: res.ErrorMsg,
+		}
+	}
+	result.Usage = make([]Limit, 0, len(res.Usage))
+	for _, u := range res.Usage {
+		result.Usage = append(result.Usage, Limit{
+			ID:               u.ID,
+			Scope:            u.Scope,
+			Label:            u.Label,
+			ModelFamilies:    u.ModelFamilies,
+			Models:           u.Models,
+			UsedPercent:      u.UsedPercent,
+			RemainingPercent: u.RemainingPercent,
+			DurationMinutes:  u.DurationMinutes,
+			ResetsAt:         u.ResetsAt,
+			LimitState:       u.LimitState,
+		})
+	}
+	return result
 }
