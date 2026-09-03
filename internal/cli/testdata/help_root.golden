@@ -21,6 +21,7 @@ config
 Operate
 daemon
 completion
+factory-reset
 Get
 setup
 tutorial
