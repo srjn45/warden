@@ -146,6 +146,23 @@ func terminalInfoCmd(terminals []*store.Session) tea.Cmd {
 	}
 }
 
+// isTmuxPaneDead reports whether pane is showing [exited] (remain-on-exit) rather
+// than running a live attach/shell. Overridden in tests.
+var isTmuxPaneDead = tmuxPaneDead
+
+// tmuxPaneDead returns true when the tmux pane has exited and is being kept alive
+// by remain-on-exit (the nested attach died, e.g. after a daemon restart).
+func tmuxPaneDead(pane string) bool {
+	if pane == "" {
+		return false
+	}
+	out, err := exec.Command("tmux", "display-message", "-p", "-t", pane, "#{pane_dead}").Output()
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(out)) == "1"
+}
+
 // tmuxPanePath returns the current working directory of the (single) pane in the
 // given tmux session — how a terminal's live cwd is read without shell hooks. An
 // empty result (no such session, tmux gone) signals the caller to keep the

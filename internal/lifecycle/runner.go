@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -14,13 +15,44 @@ type Runner interface {
 	Run(ctx context.Context, dir string, name string, args ...string) (string, error)
 }
 
+// ExecRunner runs subprocesses. When the command is tmux, $TMUX is scrubbed from
+// the child environment so spawn/liveness/pane capture always target the default
+// tmux server (or TMUX_TMPDIR when set), not an interactive outer session the
+// daemon inherited — without this, a restart that changes launch context (e.g.
+// systemd vs a shell inside tmux) makes has-session look at the wrong server and
+// marks live agents orphaned.
 type ExecRunner struct{}
 
 func (ExecRunner) Run(ctx context.Context, dir, name string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
+	if isTmuxCommand(name) {
+		cmd.Env = scrubTMUXFromEnviron(os.Environ())
+	}
 	out, err := cmd.CombinedOutput()
 	return string(out), err
+}
+
+// isTmuxCommand reports whether name invokes the tmux client (path-safe).
+func isTmuxCommand(name string) bool {
+	base := name
+	if idx := strings.LastIndex(name, "/"); idx >= 0 {
+		base = name[idx+1:]
+	}
+	return base == "tmux"
+}
+
+// scrubTMUXFromEnviron returns a copy of env with TMUX removed so tmux resolves
+// the server from TMUX_TMPDIR / the default socket instead of an inherited session.
+func scrubTMUXFromEnviron(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "TMUX=") {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
 }
 
 // HintingExecRunner wraps a Runner and enhances command-not-found errors
