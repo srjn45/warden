@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentbackend"
 	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/stretchr/testify/require"
 )
@@ -200,4 +201,62 @@ func TestServiceRejectsDuplicateLimitIDsAndNullsInvalidPercent(t *testing.T) {
 func TestServiceRegistryFailureProducesNoDocument(t *testing.T) {
 	_, err := NewService(fakeRegistry{err: errors.New("boom")}).Snapshot(context.Background(), false)
 	require.Error(t, err)
+}
+
+type fakeUsageLimiterBackend struct {
+	agentbackend.Backend
+	id     string
+	result agentbackend.UsageResult
+	ok     bool
+}
+
+func (f fakeUsageLimiterBackend) ID() string { return f.id }
+func (f fakeUsageLimiterBackend) FetchUsage(context.Context) (agentbackend.UsageResult, bool) {
+	return f.result, f.ok
+}
+
+func TestServiceDispatchesToAgentbackendUsageLimiter(t *testing.T) {
+	backendID := "mocklimiter"
+	used := 42.5
+	agentbackend.Register(fakeUsageLimiterBackend{
+		id: backendID,
+		result: agentbackend.UsageResult{
+			Status: "ok",
+			Account: &agentbackend.UsageAccount{
+				Plan: "Pro",
+			},
+			Usage: []agentbackend.UsageLimit{
+				{
+					ID:          "mock:primary",
+					Scope:       "primary",
+					Label:       "Primary Window",
+					UsedPercent: &used,
+				},
+			},
+		},
+		ok: true,
+	})
+
+	reg := fakeRegistry{rows: []backendstore.Backend{
+		{ID: backendID, Tier: backendstore.TierSubscription, Installed: true, Enabled: true},
+	}}
+
+	// Create service without explicit adapter for mocklimiter
+	s := &Service{
+		registry: reg,
+		now:      time.Now,
+		cache:    make(map[string]cacheEntry),
+		adapters: make(map[string]Adapter),
+	}
+
+	got, err := s.Snapshot(context.Background(), false)
+	require.NoError(t, err)
+	require.Len(t, got.Backends, 1)
+	require.Equal(t, backendID, got.Backends[0].ID)
+	require.Equal(t, StatusOK, got.Backends[0].Status)
+	require.NotNil(t, got.Backends[0].Account)
+	require.Equal(t, "Pro", got.Backends[0].Account.Plan)
+	require.Len(t, got.Backends[0].Usage, 1)
+	require.Equal(t, "mock:primary", got.Backends[0].Usage[0].ID)
+	require.Equal(t, 42.5, *got.Backends[0].Usage[0].UsedPercent)
 }

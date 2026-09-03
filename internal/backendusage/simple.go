@@ -52,17 +52,6 @@ func (a ClaudeAdapter) Fetch(ctx context.Context, b backendstore.Backend) Result
 	return res
 }
 
-type AntigravityAdapter struct{ Now func() time.Time }
-
-func (a AntigravityAdapter) BackendID() string { return "antigravity" }
-func (a AntigravityAdapter) Fetch(_ context.Context, b backendstore.Backend) Result {
-	now := clock(a.Now)
-	if !b.Installed {
-		return notInstalled(b.ID, now)
-	}
-	return unsupported(b.ID, "installed Antigravity CLI has no structured usage interface", now)
-}
-
 type GenericAdapter struct {
 	ID  string
 	Now func() time.Time

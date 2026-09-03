@@ -101,12 +101,15 @@ protocol. Cursor supplies three never-flattened windows (`included`, `auto`, `ap
 from `POST https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage`
 using the local `cursor-agent` login token — the same RPC as the feature-flagged
 CLI `/usage` pager. There is no `cursor-agent usage` subcommand; warden does not
-scrape the TUI or invent percents from spend cents. Claude currently supplies
-safe plan/login metadata but reports usage as `unsupported`; Antigravity reports
-`unsupported`. Warden deliberately does not substitute its local synthetic quota
-estimates. Account labels, credentials, raw provider output, paths, and request IDs
-are excluded. An API-key-only Cursor login (no `auth.json` access token) still
-emits the three Cursor limit rows with `used_percent: null`.
+scrape the TUI or invent percents from spend cents. Antigravity supplies two
+never-flattened windows (`gemini` and `non-gemini`) from
+`POST https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels`
+using the local `agy` OAuth credentials. Claude currently supplies safe
+plan/login metadata but reports usage as `unsupported`. Warden deliberately
+does not substitute its local synthetic quota estimates. Account labels,
+credentials, raw provider output, paths, and request IDs are excluded. An
+API-key-only Cursor login (no `auth.json` access token) still emits the three
+Cursor limit rows with `used_percent: null`.
 
 The command exits 0 when every row is `ok` or truthfully `unsupported`, 2 after
 rendering a partial result with an operational provider failure, and 1 when no
@@ -134,14 +137,13 @@ Omitted percents stay JSON `null` — they are never defaulted to 0.
   "status": "ok",
   "usage": [
     {"id": "antigravity:gemini", "scope": "gemini", "label": "Gemini models", "model_families": ["gemini"], "models": null, "used_percent": 50, "resets_at": "2026-09-01T12:00:00Z"},
-    {"id": "antigravity:non-gemini", "scope": "non-gemini", "label": "Non-Gemini models", "model_families": null, "models": null, "used_percent": null, "resets_at": null}
+    {"id": "antigravity:non-gemini", "scope": "non-gemini", "label": "Non-Gemini models", "model_families": null, "models": null, "used_percent": 0, "resets_at": "2026-09-01T16:00:00Z"}
   ]
 }
 ```
 
-The Antigravity example illustrates the contract for a future structured adapter;
-the current installed CLI has no supported structured usage source and therefore
-returns `status: "unsupported"` with an empty `usage` array.
+The Antigravity adapter maps live quota fractions from the provider models API
+into `antigravity:gemini` and `antigravity:non-gemini` windows with exact reset times.
 
 ## MCP tools
 

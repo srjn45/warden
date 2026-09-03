@@ -15,6 +15,7 @@
 package agentbackend
 
 import (
+	"context"
 	"io"
 	"sort"
 	"strings"
@@ -289,6 +290,46 @@ type ModelLister interface {
 	// backend lists them). ok=false ⇒ no live menu is available (command missing or
 	// errored) — the caller reports a clean degrade rather than erroring.
 	ListModels() (models []string, ok bool)
+}
+
+// UsageLimit is one distinct provider-owned allowance/reset window returned by
+// an agent backend's native usage interface.
+type UsageLimit struct {
+	ID               string     `json:"id"`
+	Scope            string     `json:"scope"`
+	Label            string     `json:"label"`
+	ModelFamilies    []string   `json:"model_families"`
+	Models           []string   `json:"models"`
+	UsedPercent      *float64   `json:"used_percent"`
+	RemainingPercent *float64   `json:"remaining_percent,omitempty"`
+	DurationMinutes  *int       `json:"duration_minutes,omitempty"`
+	ResetsAt         *time.Time `json:"resets_at"`
+	LimitState       *string    `json:"limit_state,omitempty"`
+}
+
+// UsageAccount carries account/plan details returned alongside usage limits.
+type UsageAccount struct {
+	Plan        string `json:"plan,omitempty"`
+	LoginMethod string `json:"login_method,omitempty"`
+}
+
+// UsageResult is the structured result returned by a UsageLimiter implementation.
+type UsageResult struct {
+	Status     string        `json:"status"` // "ok", "rate_limited", "unauthenticated", "unavailable", etc.
+	Account    *UsageAccount `json:"account,omitempty"`
+	Usage      []UsageLimit  `json:"usage"`
+	ErrorCode  string        `json:"error_code,omitempty"`
+	ErrorMsg   string        `json:"error_message,omitempty"`
+	ObservedAt time.Time     `json:"observed_at"`
+}
+
+// UsageLimiter is an optional Backend extension for agents that expose a backend-native
+// interface for retrieving provider usage limits and quotas (e.g. Antigravity models RPC,
+// Cursor Connect-RPC, Codex app-server).
+type UsageLimiter interface {
+	// FetchUsage queries the provider's live usage limits. ok=false indicates the backend
+	// has no supported structured usage interface.
+	FetchUsage(ctx context.Context) (result UsageResult, ok bool)
 }
 
 // SessionIDDiscoverer is an optional Backend extension implemented by agents that
