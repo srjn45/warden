@@ -917,3 +917,33 @@ func TestAutopilotOwnedAgentsHiddenFromFlatGrid(t *testing.T) {
 	require.Equal(t, store.AutopilotSlotWorker, items[itemIndexBySessionID(items, "tagged-worker")].apSlot)
 	require.Equal(t, store.AutopilotSlotWorker, items[itemIndexBySessionID(items, "backref-worker")].apSlot)
 }
+
+func TestRestoreOrphanedAgentOnRKey(t *testing.T) {
+	f := &fakeAPI{}
+	m := newListPane(f, "%9", "")
+	m.sessions = []*store.Session{
+		{ID: "orphaned-agent", Status: store.StatusOrphaned, Repo: "/repo", Workdir: "/repo"},
+		{ID: "working-agent", Status: store.StatusWorking, Repo: "/repo", Workdir: "/repo"},
+	}
+
+	// 1. Pressing 'r' on an orphaned agent restores it
+	m.cursor = cursorOn(m, func(it item) bool { return it.session != nil && it.session.ID == "orphaned-agent" })
+	_, cmd := m.handleKey(key("r"))
+	require.NotNil(t, cmd)
+	msg := cmd()
+	require.IsType(t, restoreDoneMsg{}, msg)
+	require.Equal(t, "orphaned-agent", f.restored)
+
+	// 2. restoreDoneMsg sets status and triggers list refresh
+	nm, refreshCmd := m.Update(msg)
+	m = nm.(controlPaneModel)
+	require.Equal(t, "restored orphaned-agent", m.status)
+	require.NotNil(t, refreshCmd)
+
+	// 3. Pressing 'r' on a non-orphaned agent does not restore it
+	f.restored = ""
+	m.cursor = cursorOn(m, func(it item) bool { return it.session != nil && it.session.ID == "working-agent" })
+	_, cmd = m.handleKey(key("r"))
+	require.Nil(t, cmd)
+	require.Empty(t, f.restored)
+}

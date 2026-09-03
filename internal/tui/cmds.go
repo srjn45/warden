@@ -259,6 +259,19 @@ func killCmd(a api, id string) tea.Cmd {
 	}
 }
 
+type restoreDoneMsg struct {
+	id  string
+	err error
+}
+
+func restoreCmd(a api, id string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bg()
+		defer cancel()
+		return restoreDoneMsg{id: id, err: a.Restore(ctx, id)}
+	}
+}
+
 func tick() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg(t) })
 }

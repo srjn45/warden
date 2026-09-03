@@ -59,7 +59,7 @@ func helpText() string {
 		"  p            answer pending approvals (or enter on the ⏳ row; 1-9 to answer, tab for next)\n" +
 		"  c            shared-context + message-traffic inspector\n" +
 		"  b            agent-backend registry page (tier / default / enable · r rescan · m thinking-mode)\n" +
-		"  r            retry a failed/needs-attention pipeline job\n" +
+		"  r            restore an orphaned agent / retry a failed pipeline job\n" +
 		"  x            kill agent / cancel pipeline / close project or dir (context-sensitive;\n" +
 		"               closing a project hibernates it — its agents are restored on reopen)\n" +
 		"  D            delete a stopped pipeline's record (confirm y/N)\n" +

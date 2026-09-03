@@ -34,7 +34,7 @@ default; each in its own tmux session, most in a git worktree).
 | **Tear down (umbrella)** | `stop` | `stop_agent` | ✓ | ✓ | `x` | [fleet-operations](https://srjn45.github.io/warden/guides/fleet-operations/) |
 | Finish cleanly (commit/push guard) | `done` (= `stop --keep-worktree`) | `terminate_agent` (`force`) | ✓ | ✓ | `x` | [lifecycle-and-rails](https://srjn45.github.io/warden/guides/lifecycle-and-rails/) |
 | Terminate | `terminate` (= `stop --keep-record --keep-worktree`) | `terminate_agent` | ✓ | ✓ | `x` | [lifecycle-and-rails](https://srjn45.github.io/warden/guides/lifecycle-and-rails/) |
-| Restore an orphaned agent | `restore` | `restore_agent` | ✓ | ✓ | — | [agents-lifecycle](https://srjn45.github.io/warden/concepts/agents-lifecycle/) |
+| Restore an orphaned agent | `restore` | `restore_agent` | ✓ | ✓ | `r` | [agents-lifecycle](https://srjn45.github.io/warden/concepts/agents-lifecycle/) |
 | Recover an archived-but-alive agent (tombstone-reaper safety net) | `recover` | `recover_agents` | ✓ | — | — | [agents-lifecycle](https://srjn45.github.io/warden/concepts/agents-lifecycle/) |
 | Delete / hard-purge | `delete` (= `stop --keep-worktree`, record only) | `delete_agent` | ✓ | ✓ | `D` | [fleet-operations](https://srjn45.github.io/warden/guides/fleet-operations/) |
 | Rename an agent | `adopt --name` / spawn `name` | `spawn_agent` (`name`) | ✓ | ✓ | — | [fleet-operations](https://srjn45.github.io/warden/guides/fleet-operations/) |

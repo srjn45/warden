@@ -845,6 +845,14 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "remove failed: " + msg.err.Error()
 		}
 		return m, nil
+	case restoreDoneMsg:
+		m.mode = modeNormal
+		if msg.err != nil {
+			m.status = "restore failed: " + msg.err.Error()
+		} else {
+			m.status = "restored " + msg.id
+		}
+		return m, listCmd(m.api, true)
 	case attachDoneMsg:
 		if msg.err != nil {
 			m.status = "attach failed: " + msg.err.Error()
@@ -1752,6 +1760,10 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if it.pjJob != nil && (it.pjJob.Status == pipeline.JobFailed || it.pjJob.Status == pipeline.JobNeedsAttention) {
 			m.status = "retrying " + it.pjPipe + "/" + it.pjJob.ID
 			return m, retryJobCmd(m.api, it.pjPipe, it.pjJob.ID)
+		}
+		if it.session != nil && it.session.Status == store.StatusOrphaned {
+			m.status = "restoring " + it.session.ID + "…"
+			return m, restoreCmd(m.api, it.session.ID)
 		}
 	case "a":
 		if id := m.selectedID(); id != "" {

@@ -18,6 +18,7 @@ type api interface {
 	Output(ctx context.Context, id string, lines int) (string, error)
 	Spawn(ctx context.Context, p client.SpawnParams) (*store.Session, error)
 	Terminate(ctx context.Context, id string) error
+	Restore(ctx context.Context, id string) error
 	Delete(ctx context.Context, id string, hard bool) error
 	Input(ctx context.Context, id, text string) error
 	SetName(ctx context.Context, id, name string) error

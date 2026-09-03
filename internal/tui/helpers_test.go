@@ -22,6 +22,8 @@ type fakeAPI struct {
 	spawned        *client.SpawnParams
 	terminated     string
 	termErr        error
+	restored       string
+	restoreErr     error
 	deleted        string
 	deleteErr      error
 	sentTo         string
@@ -116,6 +118,10 @@ func (f *fakeAPI) Spawn(_ context.Context, p client.SpawnParams) (*store.Session
 func (f *fakeAPI) Terminate(_ context.Context, id string) error {
 	f.terminated = id
 	return f.termErr
+}
+func (f *fakeAPI) Restore(_ context.Context, id string) error {
+	f.restored = id
+	return f.restoreErr
 }
 func (f *fakeAPI) Delete(_ context.Context, id string, _ bool) error {
 	f.deleted = id
