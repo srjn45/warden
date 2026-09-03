@@ -410,25 +410,35 @@ func newDaemonRunCmd() *cobra.Command {
 			apBaseDir, _ := os.Getwd()
 			apCtrl := autopilot.NewController(buildAutopilotControllerConfig(cfg, apBaseDir, lc.Resolver), nil)
 			defer apCtrl.Close()
-			migratedPlans, err := autopilot.MigrateLegacyPlans(ctx, autopilot.NewExecEnv(), apCtrl, cfg.AutopilotPlanFiles(), apBaseDir, os.Stderr)
-			if err != nil {
-				slog.Warn("autopilot: legacy plan migration incomplete (will retry next boot)", "err", err)
-			}
-			apCfg := buildAutopilotControllerConfig(cfg, apBaseDir, lc.Resolver)
-			apCfg.Plans = migratedPlans
-			apCtrl.Reconfigure(ctx, apCfg)
 			srv.SetAutopilotController(apCtrl)
-			// Boot re-enable: the on/off bit is persisted per-repo, so bring every
-			// previously-enabled repo back up across a daemon restart. Enable is
-			// per-repo and best-effort here — a repo whose preflight now fails (e.g.
-			// gh logged out) is logged and skipped rather than blocking startup; a
-			// later `warden autopilot on` re-enables it. (Runtime is wired above, so
-			// this respects the current inert-or-live state.)
-			for _, repo := range apCtrl.PersistedEnabled() {
-				if _, err := apCtrl.Enable(ctx, repo); err != nil {
-					slog.Warn("autopilot: boot re-enable skipped", "repo", repo, "err", err)
+			// Legacy plan migration and the per-repo boot re-enable below can shell
+			// out to git/gh (MigrateLegacyPlans, Enable's preflight gate check),
+			// which must not delay the HTTP listener from coming up. Run them in
+			// the background — apCtrl already has its config-driven plans from
+			// NewController above, so it's usable immediately; Reconfigure picks up
+			// the migrated legacy plans once ready, same pattern the config
+			// hot-reload watcher below already uses for re-migration.
+			go func() {
+				migratedPlans, err := autopilot.MigrateLegacyPlans(ctx, autopilot.NewExecEnv(), apCtrl, cfg.AutopilotPlanFiles(), apBaseDir, os.Stderr)
+				if err != nil {
+					slog.Warn("autopilot: legacy plan migration incomplete (will retry next boot)", "err", err)
 				}
-			}
+				apCfg := buildAutopilotControllerConfig(cfg, apBaseDir, lc.Resolver)
+				apCfg.Plans = migratedPlans
+				apCtrl.Reconfigure(ctx, apCfg)
+
+				// Boot re-enable: the on/off bit is persisted per-repo, so bring every
+				// previously-enabled repo back up across a daemon restart. Enable is
+				// per-repo and best-effort here — a repo whose preflight now fails (e.g.
+				// gh logged out) is logged and skipped rather than blocking startup; a
+				// later `warden autopilot on` re-enables it. (Runtime is wired above, so
+				// this respects the current inert-or-live state.)
+				for _, repo := range apCtrl.PersistedEnabled() {
+					if _, err := apCtrl.Enable(ctx, repo); err != nil {
+						slog.Warn("autopilot: boot re-enable skipped", "repo", repo, "err", err)
+					}
+				}
+			}()
 			// Plugin system (#47): only wired when the operator opts in (plugins
 			// execute external code). On a config error we log and continue with
 			// plugins off rather than refusing to start the daemon. Once loaded,
