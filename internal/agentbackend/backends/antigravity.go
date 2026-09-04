@@ -22,7 +22,7 @@ import (
 
 func init() { agentbackend.Register(Antigravity{}) }
 
-// Antigravity is the **experimental** Backend adapter for Google's Antigravity CLI
+// Antigravity is the **stable** Backend adapter for Google's Antigravity CLI
 // (the `agy` binary). It is breadth-first work (#52): a thin, correct adapter that
 // launches `agy` and sources its transcript, with the gaps documented rather than
 // papered over (docs/agent-backends/antigravity.md).

@@ -1,4 +1,4 @@
-# Codex CLI backend (beta)
+# Codex CLI backend (stable)
 
 warden's adapter for **OpenAI's Codex CLI** (the `codex` binary), added breadth-first
 under #52. This is a thin, honest adapter: warden opens a tmux session and launches

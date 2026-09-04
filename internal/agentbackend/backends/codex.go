@@ -17,7 +17,7 @@ import (
 
 func init() { agentbackend.Register(Codex{}) }
 
-// Codex is the **experimental** Backend adapter for OpenAI's Codex CLI (the
+// Codex is the **stable** Backend adapter for OpenAI's Codex CLI (the
 // `codex` binary). It is breadth-first work (#52): a thin, correct adapter that
 // launches Codex and sources its transcript, with the gaps documented rather than
 // papered over (docs/agent-backends/codex.md).

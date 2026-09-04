@@ -14,7 +14,7 @@ import (
 
 func init() { agentbackend.Register(Cursor{}) }
 
-// Cursor is the **experimental** Backend adapter for Cursor's CLI agent (the
+// Cursor is the **stable** Backend adapter for Cursor's CLI agent (the
 // `cursor-agent` binary). It is breadth-first work (#52): a thin, honest adapter
 // that opens cursor-agent in a warden-managed tmux session and documents the gaps
 // rather than pretending Cursor is a drop-in for Claude Code. warden adds capability
@@ -682,7 +682,7 @@ func parseCursorModels(out []byte) []string {
 
 // --- Capabilities -----------------------------------------------------------
 
-// Capabilities reports Cursor as an experimental **Tier-C** backend: resume works
+// Capabilities reports Cursor as a stable **Tier-C** backend: resume works
 // (dir/workspace-scoped `--continue`; exact-id once discover-then-pin lands) and
 // there is a headless one-shot, but the interactive transcript is an unreadable
 // SQLite store so StructuredTranscript is off (digests degrade). Cursor mints its own

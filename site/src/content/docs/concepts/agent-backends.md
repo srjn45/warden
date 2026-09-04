@@ -9,7 +9,7 @@ each console coding agent is normalized behind a neutral `Backend` interface
 binary directly. You pick the backend **per agent at spawn time**.
 
 :::caution[Backend maturity]
-Warden is fully tested only with **Claude Code**. **Codex CLI** and **Antigravity CLI** are **β beta** — live-verified state, approval, and transcript fidelity, still maturing. The remaining non-`claude` backends (Aider, OpenCode, Crush, Goose, Cursor) are **experimental / work-in-progress** — functionality may be reduced or unverified.
+**Claude Code**, **Codex CLI**, **Cursor CLI**, and **Antigravity CLI** are all **stable** — live-verified state, approval, and transcript fidelity. The remaining backends (Aider, OpenCode, Crush, Goose) are **experimental / work-in-progress** — functionality may be reduced or unverified.
 :::
 
 :::tip[The backend registry]
@@ -26,13 +26,13 @@ and warden's free/local thinking router.
 | Agent | Status |
 |---|---|
 | Claude Code | ✅ Stable — fully tested, reference backend |
+| Codex CLI | ✅ Stable |
+| Cursor CLI | ✅ Stable |
+| Antigravity CLI | ✅ Stable |
 | Aider | 🧪 Experimental (WIP) |
 | OpenCode | 🧪 Experimental (WIP) |
-| Codex CLI | β Beta |
 | Crush | 🧪 Experimental (WIP) |
 | Goose | 🧪 Experimental (WIP) |
-| Cursor CLI | 🧪 Experimental (WIP) |
-| Antigravity CLI | β Beta |
 
 ## Selecting a backend
 
@@ -41,11 +41,11 @@ and warden's free/local thinking router.
 | **Claude Code** (default) | `claude` | A | Full fidelity — digests, savings, priced spend, resume, all permission modes |
 | **Aider** | `aider` | A | 🧪 Experimental. Bring-your-own-model; structured markdown transcript ⇒ real digests; no resume, no priced spend |
 | **OpenCode** | `opencode` | A | 🧪 Experimental. Bring-your-own-model; structured JSON transcript (via `opencode export`) ⇒ real digests; **resumes** the worktree's last session; no priced spend (BYO model) |
-| **Codex CLI** | `codex` | A | β Beta. BYO provider (Codex config / `-m`); structured JSONL transcript (rollout files) ⇒ real digests; **resumes** dir-scoped, upgraded to exact-id via discover-then-pin; live state + approval detection; context injection (AGENTS.md); no priced spend |
+| **Codex CLI** | `codex` | A | ✅ Stable. BYO provider (Codex config / `-m`); structured JSONL transcript (rollout files) ⇒ real digests; **resumes** dir-scoped, upgraded to exact-id via discover-then-pin; live state + approval detection; context injection (AGENTS.md); no priced spend |
 | **Crush** | `crush` | A | 🧪 Experimental. BYO model (config-driven TUI); structured JSON transcript (via `crush session show --json`) ⇒ real digests; **resumes** dir-scoped; initial prompt auto-typed post-launch via `PromptSeeder`; no priced spend |
 | **Goose** | `goose` | A | 🧪 Experimental. BYO provider (`GOOSE_PROVIDER`/`GOOSE_MODEL` env); structured JSON transcript (via `goose session export`) ⇒ real digests; **resumes** name-deterministic; no model flag on session launch; no priced spend |
-| **Cursor CLI** | `cursor` | C | 🧪 Experimental. Hosted plan (`cursor-agent`, billed to your Cursor subscription); rich native permission modes (`plan`/`ask`/`auto-review`/`force`); **resumes** dir-scoped; live state + approval/trust detection; **no structured transcript yet** ⇒ no digests; no priced spend |
-| **Antigravity CLI** | `antigravity` | A | β Beta. Google-hosted free tier (`agy`, multi-vendor model menu); structured trajectory JSONL (incl. tool calls / files changed) ⇒ real digests; **resumes** dir-scoped; live state + approval/trust detection; no priced spend |
+| **Cursor CLI** | `cursor` | C | ✅ Stable. Hosted plan (`cursor-agent`, billed to your Cursor subscription); rich native permission modes (`plan`/`ask`/`auto-review`/`force`); **resumes** dir-scoped; live state + approval/trust detection; **no structured transcript yet** ⇒ no digests; no priced spend |
+| **Antigravity CLI** | `antigravity` | A | ✅ Stable. Google-hosted free tier (`agy`, multi-vendor model menu); structured trajectory JSONL (incl. tool calls / files changed) ⇒ real digests; **resumes** dir-scoped; live state + approval/trust detection; no priced spend |
 
 > A plain **terminal** is not a `--backend` — it's a first-class session kind
 > (`kind=terminal`): a managed `$SHELL` seat beside the fleet with warden's normal
