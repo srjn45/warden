@@ -53,6 +53,7 @@ Common settings (run `warden config` for the complete, live list):
 | `tokens.warn` | `200000` | Warning threshold in context tokens (inclusive) |
 | `tokens.critical` | `400000` | Critical threshold in context tokens (inclusive) — the auto-`/compact` band |
 | `local_llm.enabled` | `false` | Enable the local-LLM provider (REPL, commit-message/insights narration, classify/summarize offload) |
+| `local_llm.repl` | `false` | **Deprecated / no-op.** Historically started the cockpit's shell pane in `warden backend repl` mode; the cockpit no longer has a REPL-hosting pane (its bottom-left pane is now a first-class terminal). Run the REPL standalone with `warden backend repl`. |
 | `backends.limit_retry` | `15m` | Go duration — how long the internal free/local **thinking router** skips a free CLI backend after a rate-limit / spend signal, before retrying it. Backend **tiers**, the **default**, **enabled** flags, and the **thinking mode** live in the [backend registry](/warden/guides/backend-registry/) store (`~/.warden/backends`), not this file — edit them with `warden backend …`, the web 🧩 panel, or the TUI |
 | `metrics` | `true` | Record per-agent performance history for `warden inspect resources --history` |
 | `spawn_gate` / `spawn_gate_max_agents` | `true` / `0` | Memory-pressure spawn gate + concurrent-agent cap (0 = no cap). Blocks a spawn only at **critical** pressure or the agent cap; **warn** pressure is advisory (spawns proceed). |
