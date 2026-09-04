@@ -7,6 +7,68 @@ When a coding agent hits a provider hard limit — Claude's 5-hour session clock
 
 No operator action is required unless every known backend is exhausted.
 
+<style>{`
+  .wrcdiag {
+    --d-surface: #ffffff; --d-surface2: #eef1f5; --d-ink: #1b1f27;
+    --d-muted: #59616f; --d-border: #dee3ea; --d-accent: #35618c;
+    --d-accent-soft: #e7eff7;
+    --d-shadow: 0 1px 3px rgba(20,30,45,.06), 0 6px 20px -10px rgba(20,30,45,.14);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .wrcdiag {
+      --d-surface: #171b23; --d-surface2: #1e232d; --d-ink: #e7ebf1;
+      --d-muted: #9aa4b4; --d-border: #2a313d; --d-accent: #6aa0d0;
+      --d-accent-soft: #1b2735;
+      --d-shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -12px rgba(0,0,0,.55);
+    }
+  }
+  :root[data-theme="dark"] .wrcdiag {
+    --d-surface: #171b23; --d-surface2: #1e232d; --d-ink: #e7ebf1;
+    --d-muted: #9aa4b4; --d-border: #2a313d; --d-accent: #6aa0d0;
+    --d-accent-soft: #1b2735;
+    --d-shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -12px rgba(0,0,0,.55);
+  }
+  .wrcdiag { background: var(--d-surface); border: 1px solid var(--d-border); border-radius: 12px; padding: 20px 16px 14px; box-shadow: var(--d-shadow); overflow-x: auto; margin: 1.5rem 0; }
+  .wrcdiag svg { display: block; min-width: 580px; max-width: 100%; height: auto; margin: 0 auto; }
+  .wrcdiag .n rect { fill: var(--d-surface); stroke: var(--d-border); stroke-width: 1.5; }
+  .wrcdiag .n.mgr rect { fill: var(--d-accent-soft); stroke: var(--d-accent); stroke-width: 2; }
+  .wrcdiag .n .t { fill: var(--d-ink); font-family: ui-monospace, "Cascadia Code", monospace; font-size: 14px; font-weight: 600; }
+  .wrcdiag .n .s { fill: var(--d-muted); font-family: ui-monospace, "Cascadia Code", monospace; font-size: 11px; }
+  .wrcdiag .edge.spine { stroke: var(--d-accent); stroke-width: 2; fill: none; }
+  .wrcdiag .arrowhead.acc { fill: var(--d-accent); }
+  .wrcdiag figcaption { font-size: 13px; color: var(--d-muted); margin-top: 12px; max-width: 72ch; }
+  .wrcdiag figcaption b { color: var(--d-ink); }
+`}</style>
+
+<figure>
+<div class="wrcdiag">
+<svg viewBox="0 0 900 145" role="img" aria-label="Four-step recovery flow: agent hits a hard limit, the coordinator reads live usage windows and ranks candidates, hot-swaps the backend via the existing lifecycle, then waits for a stabilization window before declaring recovery complete.">
+  <defs>
+    <marker id="wrc" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto">
+      <path class="arrowhead acc" d="M0,0 L8,3 L0,6 Z"/>
+    </marker>
+  </defs>
+  <g class="n"><rect x="75" y="18" width="175" height="60" rx="8"/><text class="t" x="162" y="44" text-anchor="middle" style="font-size:12.5px">hard limit detected</text><text class="s" x="162" y="61" text-anchor="middle">session / weekly / monthly cap</text></g>
+  <g class="n mgr"><rect x="295" y="18" width="175" height="60" rx="8"/><text class="t" x="382" y="44" text-anchor="middle" style="font-size:12.5px">coordinator</text><text class="s" x="382" y="61" text-anchor="middle">reads live usage windows</text></g>
+  <g class="n"><rect x="515" y="18" width="175" height="60" rx="8"/><text class="t" x="602" y="44" text-anchor="middle" style="font-size:12.5px">backend hot-swap</text><text class="s" x="602" y="61" text-anchor="middle">next eligible subscription backend</text></g>
+  <g class="n"><rect x="735" y="18" width="150" height="60" rx="8"/><text class="t" x="810" y="44" text-anchor="middle" style="font-size:12.5px">stabilize · done</text><text class="s" x="810" y="61" text-anchor="middle">N-min window · auto-retry</text></g>
+  <line class="edge spine" x1="251" y1="48" x2="293" y2="48" marker-end="url(#wrc)"/>
+  <line class="edge spine" x1="471" y1="48" x2="513" y2="48" marker-end="url(#wrc)"/>
+  <line class="edge spine" x1="691" y1="48" x2="733" y2="48" marker-end="url(#wrc)"/>
+  <text class="s" x="162" y="100" text-anchor="middle">provider limit confirmed</text>
+  <text class="s" x="162" y="115" text-anchor="middle">session preserved in place</text>
+  <text class="s" x="382" y="100" text-anchor="middle">ranks by minimum headroom</text>
+  <text class="s" x="382" y="115" text-anchor="middle">skips exhausted candidates</text>
+  <text class="s" x="602" y="100" text-anchor="middle">identity · worktree · branch</text>
+  <text class="s" x="602" y="115" text-anchor="middle">pipeline · role · tags preserved</text>
+  <text class="s" x="810" y="100" text-anchor="middle">if all exhausted:</text>
+  <text class="s" x="810" y="115" text-anchor="middle">waiting_for_capacity</text>
+  <text class="s" x="810" y="130" text-anchor="middle">→ retry on earliest reset</text>
+</svg>
+</div>
+<figcaption><b>The claim:</b> recovery is reactive and automatic — the coordinator fires on a confirmed hard-limit signal, ranks all subscription backends by their minimum known remaining headroom, and advances to the next candidate if the winning backend is immediately rate-limited. Only when every candidate is exhausted does the session enter <code>waiting_for_capacity</code>, where it auto-retries on the earliest known quota reset without operator action.</figcaption>
+</figure>
+
 ## How it works
 
 ### Detection
