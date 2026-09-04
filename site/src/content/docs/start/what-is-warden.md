@@ -16,6 +16,6 @@ One binary, multiple faces: `warden daemon` is the single writer to the on-disk 
 | **TUI cockpit** | `warden tui` (or bare `warden`) — a live tmux-based terminal dashboard of the whole fleet. | When you want a terminal cockpit. |
 | **Web GUI** | A React dashboard the daemon embeds and serves alongside the API — tabbed mission control with live SSE, interactive terminals, and an attention queue. | Open the daemon's address in a browser. |
 | **MCP server** | `warden daemon mcp` — a stdio bridge so an *orchestrator* agent session (e.g. Claude) can manage agents through tool calls. | Wired into an orchestrator agent's MCP config. |
-| **Interactive REPL** *(experimental)* | `warden backend repl` — a [local-LLM conductor REPL](/warden/multi-agent/repl/) that turns plain-English intent into confirmed warden actions, spending no cloud-model tokens. | When you want NL control without an MCP orchestrator session. |
+| **Interactive REPL** | `warden backend repl` — a [local-LLM conductor REPL](/warden/multi-agent/repl/) that turns plain-English intent into confirmed warden actions, spending no cloud-model tokens. | When you want NL control without an MCP orchestrator session. |
 
 Settings live in a config file (`~/.warden/config.yaml`; `warden config` prints the resolved values), overridable by environment variables. Everything flows through the daemon, so **the daemon must be running** before any other command will work.

@@ -468,22 +468,22 @@ the backend per agent at spawn time with `--backend` (CLI) or the `backend` para
 | Claude Code | ✅ Stable — fully tested, reference backend |
 | Aider | 🧪 Experimental (WIP) |
 | OpenCode | 🧪 Experimental (WIP) |
-| Codex CLI | β Beta |
+| Codex CLI | ✅ Stable |
 | Crush | 🧪 Experimental (WIP) |
 | Goose | 🧪 Experimental (WIP) |
-| Cursor CLI | 🧪 Experimental (WIP) |
-| Antigravity CLI | β Beta |
+| Cursor CLI | ✅ Stable |
+| Antigravity CLI | ✅ Stable |
 
 | Backend | `--backend` | Tier | Notes |
 |---|---|---|---|
 | **Claude Code** (default) | `claude` | A | Full fidelity — digests, savings, priced spend, resume, all permission modes |
 | **Aider** | `aider` | A | 🧪 Experimental. Bring-your-own-model (pass `--model`, e.g. `ollama_chat/qwen2.5-coder:3b`); structured markdown transcript ⇒ real digests; **no** resume, **no** priced spend (tokens only), runs an autonomous `--message` task that exits when done |
 | **OpenCode** | `opencode` | A | 🧪 Experimental. Bring-your-own-model (pass `--model`, e.g. `ollama/qwen2.5-coder:3b`); structured JSON transcript (via `opencode export`) ⇒ real digests; **resumes** the worktree's last session (`opencode -c`); spend tokens-only (BYO model) |
-| **Codex CLI** | `codex` | A | β Beta. BYO provider (via Codex config / `-m`); structured JSONL transcript (rollout files) ⇒ real digests; **resumes** dir-scoped (`codex resume --last`), upgraded to exact-id via discover-then-pin; live state + approval detection; context injection via `AGENTS.md`; spend tokens-only. See [`docs/agent-backends/codex.md`](docs/agent-backends/codex.md) |
+| **Codex CLI** | `codex` | A | ✅ Stable. BYO provider (via Codex config / `-m`); structured JSONL transcript (rollout files) ⇒ real digests; **resumes** dir-scoped (`codex resume --last`), upgraded to exact-id via discover-then-pin; live state + approval detection; context injection via `AGENTS.md`; spend tokens-only. See [`docs/agent-backends/codex.md`](docs/agent-backends/codex.md) |
 | **Crush** | `crush` | A | 🧪 Experimental. BYO model (config-driven TUI; headless `crush run` accepts `-m`); structured JSON transcript (via `crush session show --json`) ⇒ real digests; **resumes** dir-scoped (`--continue`); initial prompt auto-typed into the TUI after launch via `PromptSeeder`; context injection via `CRUSH.md`; spend tokens-only. See [`docs/agent-backends/crush.md`](docs/agent-backends/crush.md) |
 | **Goose** | `goose` | A | 🧪 Experimental. BYO provider (`GOOSE_PROVIDER`/`GOOSE_MODEL` env); structured JSON transcript (via `goose session export`) ⇒ real digests; **resumes** name-deterministic (`goose session -r --name <id>`); no model flag on session launch; context injection via `.goosehints`; spend tokens-only. See [`docs/agent-backends/goose.md`](docs/agent-backends/goose.md) |
-| **Cursor CLI** | `cursor` | C | 🧪 Experimental. Hosted plan (`cursor-agent`, billed to your Cursor subscription); rich native permission modes (`plan`/`ask`/`auto-review`/`force`); **resumes** dir-scoped (`--continue`); live state + approval/trust detection; context injection via `AGENTS.md`. **No structured transcript yet** (interactive store is unreadable SQLite) ⇒ no digests; spend tokens-only. See [`docs/agent-backends/cursor.md`](docs/agent-backends/cursor.md) |
-| **Antigravity CLI** | `antigravity` | A | β Beta. Google-hosted free tier (`agy`, multi-vendor model menu); structured trajectory JSONL (incl. tool calls / files changed) ⇒ real digests; **resumes** dir-scoped (`agy -c`); live state + approval/trust detection; context injection via `AGENTS.md`; spend tokens-only. See [`docs/agent-backends/antigravity.md`](docs/agent-backends/antigravity.md) |
+| **Cursor CLI** | `cursor` | C | ✅ Stable. Hosted plan (`cursor-agent`, billed to your Cursor subscription); rich native permission modes (`plan`/`ask`/`auto-review`/`force`); **resumes** dir-scoped (`--continue`); live state + approval/trust detection; context injection via `AGENTS.md`. **No structured transcript yet** (interactive store is unreadable SQLite) ⇒ no digests; spend tokens-only. See [`docs/agent-backends/cursor.md`](docs/agent-backends/cursor.md) |
+| **Antigravity CLI** | `antigravity` | A | ✅ Stable. Google-hosted free tier (`agy`, multi-vendor model menu); structured trajectory JSONL (incl. tool calls / files changed) ⇒ real digests; **resumes** dir-scoped (`agy -c`); live state + approval/trust detection; context injection via `AGENTS.md`; spend tokens-only. See [`docs/agent-backends/antigravity.md`](docs/agent-backends/antigravity.md) |
 
 ```bash
 # Drive Aider against a local Ollama model (free, offline)

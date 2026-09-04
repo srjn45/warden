@@ -1,4 +1,4 @@
-# Cursor CLI backend (experimental)
+# Cursor CLI backend (stable)
 
 warden's adapter for **Cursor's CLI agent** (the `cursor-agent` binary), added
 breadth-first under #52. This is a thin, honest adapter: warden opens a tmux session
