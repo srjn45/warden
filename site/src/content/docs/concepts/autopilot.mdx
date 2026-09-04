@@ -34,6 +34,97 @@ A run is a small fleet with clearly separated jobs:
   live-but-quiet manager to tend workers that fall idle or wait on input. See
   [Overwatch](#overwatch) below.
 
+<style>{`
+  .wapdiag {
+    --d-surface: #ffffff; --d-surface2: #eef1f5; --d-ink: #1b1f27;
+    --d-muted: #59616f; --d-border: #dee3ea; --d-accent: #35618c;
+    --d-accent-soft: #e7eff7;
+    --d-shadow: 0 1px 3px rgba(20,30,45,.06), 0 6px 20px -10px rgba(20,30,45,.14);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .wapdiag {
+      --d-surface: #171b23; --d-surface2: #1e232d; --d-ink: #e7ebf1;
+      --d-muted: #9aa4b4; --d-border: #2a313d; --d-accent: #6aa0d0;
+      --d-accent-soft: #1b2735;
+      --d-shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -12px rgba(0,0,0,.55);
+    }
+  }
+  :root[data-theme="dark"] .wapdiag {
+    --d-surface: #171b23; --d-surface2: #1e232d; --d-ink: #e7ebf1;
+    --d-muted: #9aa4b4; --d-border: #2a313d; --d-accent: #6aa0d0;
+    --d-accent-soft: #1b2735;
+    --d-shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -12px rgba(0,0,0,.55);
+  }
+  .wapdiag { background: var(--d-surface); border: 1px solid var(--d-border); border-radius: 12px; padding: 20px 16px 14px; box-shadow: var(--d-shadow); overflow-x: auto; margin: 1.5rem 0; }
+  .wapdiag svg { display: block; min-width: 680px; max-width: 100%; height: auto; margin: 0 auto; }
+  .wapdiag .n rect { fill: var(--d-surface); stroke: var(--d-border); stroke-width: 1.5; }
+  .wapdiag .n.mgr rect { fill: var(--d-accent-soft); stroke: var(--d-accent); stroke-width: 2; }
+  .wapdiag .n.sub rect { fill: var(--d-surface2); stroke: var(--d-border); stroke-width: 1.25; }
+  .wapdiag .n .t { fill: var(--d-ink); font-family: ui-monospace, "Cascadia Code", monospace; font-size: 14px; font-weight: 600; }
+  .wapdiag .n .s { fill: var(--d-muted); font-family: ui-monospace, "Cascadia Code", monospace; font-size: 11px; }
+  .wapdiag .edge { stroke: var(--d-muted); stroke-width: 1.6; fill: none; }
+  .wapdiag .edge.dash { stroke-dasharray: 6 5; }
+  .wapdiag .edge.dot  { stroke-dasharray: 2 4; }
+  .wapdiag .edge.spine { stroke: var(--d-accent); stroke-width: 2; }
+  .wapdiag .arrowhead { fill: var(--d-muted); }
+  .wapdiag .arrowhead.acc { fill: var(--d-accent); }
+  .wapdiag .elabel { fill: var(--d-muted); font-family: ui-monospace, "Cascadia Code", monospace; font-size: 11px; }
+  .wapdiag .elabel.on { fill: var(--d-ink); }
+  .wapdiag figcaption { font-size: 13px; color: var(--d-muted); margin-top: 12px; max-width: 72ch; }
+  .wapdiag figcaption b { color: var(--d-ink); }
+  .wapdiag .legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--d-border); font-family: ui-monospace, monospace; font-size: 11.5px; color: var(--d-muted); }
+  .wapdiag .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .wapdiag .legend svg { width: 32px; height: 12px; min-width: 32px; }
+`}</style>
+
+<figure>
+<div class="wapdiag">
+<svg viewBox="0 0 980 440" role="img" aria-label="An autopilot manager driven by a plan file spawns one worker per task; workers run implement, self-review, PR and gate then land on the integration branch.">
+  <defs>
+    <marker id="waa" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto"><path class="arrowhead" d="M0,0 L8,3 L0,6 Z"/></marker>
+    <marker id="waa-acc" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto"><path class="arrowhead acc" d="M0,0 L8,3 L0,6 Z"/></marker>
+    <marker id="waa-s" markerWidth="9" markerHeight="9" refX="0.5" refY="3" orient="auto"><path class="arrowhead" d="M8,0 L0,3 L8,6 Z"/></marker>
+  </defs>
+  <g class="n"><rect x="470" y="14" width="210" height="40" rx="8"/><text class="t" x="575" y="39" text-anchor="middle" style="font-size:13px">overwatch · daemon</text></g>
+  <path class="edge dash" d="M500,54 C470,74 445,78 420,90" marker-end="url(#waa)"/>
+  <text class="elabel" x="452" y="78" text-anchor="end">nudge if idle</text>
+  <path class="edge" d="M296,90 C296,58 384,58 384,90" marker-end="url(#waa)"/>
+  <text class="elabel" x="340" y="50" text-anchor="middle">guardian · in-place hot-swap</text>
+  <g class="n"><rect x="24" y="96" width="150" height="70" rx="9"/><text class="t" x="99" y="120" text-anchor="middle" style="font-size:13px">plan file</text><text class="s" x="99" y="138" text-anchor="middle">goal · tasks</text><text class="s" x="99" y="153" text-anchor="middle">done_when</text></g>
+  <g class="n mgr"><rect x="250" y="90" width="180" height="80" rx="10"/><text class="t" x="340" y="118" text-anchor="middle">manager</text><text class="s" x="340" y="136" text-anchor="middle">role: autopilot</text><text class="s" x="340" y="151" text-anchor="middle">&lt;scope&gt;-autopilot slot</text></g>
+  <g class="n"><rect x="520" y="96" width="150" height="70" rx="9"/><text class="t" x="595" y="124" text-anchor="middle" style="font-size:13px">worker</text><text class="s" x="595" y="145" text-anchor="middle">role: worker · 1/task</text></g>
+  <g class="n"><rect x="790" y="96" width="166" height="70" rx="9"/><text class="t" x="873" y="124" text-anchor="middle" style="font-size:12.5px">integration branch</text><text class="s" x="873" y="145" text-anchor="middle">autopilot/&lt;plan&gt;</text></g>
+  <line class="edge spine" x1="174" y1="131" x2="248" y2="131" marker-end="url(#waa-acc)"/>
+  <text class="elabel" x="211" y="122" text-anchor="middle">drives</text>
+  <line class="edge spine" x1="430" y1="131" x2="518" y2="131" marker-end="url(#waa-acc)"/>
+  <text class="elabel on" x="474" y="122" text-anchor="middle">spawns 1 / task</text>
+  <line class="edge" x1="670" y1="131" x2="788" y2="131" marker-end="url(#waa)"/>
+  <text class="elabel on" x="729" y="122" text-anchor="middle">land · gate-green</text>
+  <line class="edge dot" x1="595" y1="166" x2="595" y2="222" marker-end="url(#waa)"/>
+  <text class="elabel" x="608" y="196" text-anchor="start">task lifecycle</text>
+  <g class="n sub"><rect x="470" y="222" width="330" height="50" rx="9"/><text class="s" x="635" y="252" text-anchor="middle" style="font-size:12px">implement · self-review · open PR · gate (ci)</text></g>
+  <line class="edge" x1="372" y1="170" x2="428" y2="222" marker-start="url(#waa-s)" marker-end="url(#waa)"/>
+  <text class="elabel" x="470" y="200" text-anchor="start">unblock · design (on-demand)</text>
+  <g class="n"><rect x="360" y="224" width="180" height="52" rx="9"/><text class="t" x="450" y="249" text-anchor="middle" style="font-size:13px">resolver</text><text class="s" x="450" y="266" text-anchor="middle">role: brain</text></g>
+  <line class="edge" x1="298" y1="170" x2="180" y2="224" marker-end="url(#waa)"/>
+  <text class="elabel" x="196" y="200" text-anchor="middle">autopilot_complete</text>
+  <g class="n"><rect x="24" y="224" width="150" height="52" rx="9"/><text class="t" x="99" y="249" text-anchor="middle" style="font-size:12.5px">status: complete</text><text class="s" x="99" y="266" text-anchor="middle">→ plan file</text></g>
+  <path class="edge dash" d="M292,170 L226,190 L226,388 L248,388" marker-end="url(#waa)"/>
+  <text class="elabel" x="218" y="320" text-anchor="end">writes ledger</text>
+  <line class="edge dash" x1="635" y1="272" x2="635" y2="358" marker-end="url(#waa)"/>
+  <text class="elabel" x="648" y="318" text-anchor="start">reports</text>
+  <g class="n sub"><rect x="250" y="360" width="470" height="56" rx="9"/><text class="t" x="485" y="385" text-anchor="middle" style="font-size:12.5px">run ledger — shared context</text><text class="s" x="485" y="403" text-anchor="middle">autopilot.&lt;run&gt;.tasks[] · journal · landings</text></g>
+</svg>
+<div class="legend">
+  <span><svg viewBox="0 0 32 12"><line x1="2" y1="6" x2="30" y2="6" stroke="var(--d-accent)" stroke-width="2"/></svg>control spine</span>
+  <span><svg viewBox="0 0 32 12"><line x1="2" y1="6" x2="30" y2="6" stroke="var(--d-muted)" stroke-width="1.6"/></svg>spawn / flow</span>
+  <span><svg viewBox="0 0 32 12"><line x1="2" y1="6" x2="30" y2="6" stroke="var(--d-muted)" stroke-width="1.6" stroke-dasharray="6 5"/></svg>async / backstop</span>
+  <span><svg viewBox="0 0 32 12"><line x1="2" y1="6" x2="30" y2="6" stroke="var(--d-muted)" stroke-width="1.6" stroke-dasharray="2 4"/></svg>detail</span>
+</div>
+</div>
+<figcaption><b>The claim:</b> the run is self-healing — workers land only on the per-plan integration branch, and only when the gate is green. The manager is kept alive by an in-place guardian hot-swap and nudged by a daemon overwatch; the ledger in shared context is the single source of truth a restart reconstructs from.</figcaption>
+</figure>
+
 ---
 
 ## Core concepts
