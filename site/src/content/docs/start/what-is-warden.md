@@ -18,4 +18,101 @@ One binary, multiple faces: `warden daemon` is the single writer to the on-disk 
 | **MCP server** | `warden daemon mcp` — a stdio bridge so an *orchestrator* agent session (e.g. Claude) can manage agents through tool calls. | Wired into an orchestrator agent's MCP config. |
 | **Interactive REPL** | `warden backend repl` — a [local-LLM conductor REPL](/warden/multi-agent/repl/) that turns plain-English intent into confirmed warden actions, spending no cloud-model tokens. | When you want NL control without an MCP orchestrator session. |
 
+<style>
+  .wbdiag {
+    --d-surface: #ffffff; --d-surface2: #eef1f5;
+    --d-ink: #1b1f27; --d-muted: #59616f; --d-border: #dee3ea;
+    --d-accent: #35618c; --d-accent-soft: #e7eff7;
+    --d-shadow: 0 1px 2px rgba(20,30,45,.06),0 8px 24px -12px rgba(20,30,45,.12);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .wbdiag {
+      --d-surface: #171b23; --d-surface2: #1e232d;
+      --d-ink: #e7ebf1; --d-muted: #9aa4b4; --d-border: #2a313d;
+      --d-accent: #6aa0d0; --d-accent-soft: #1b2735;
+      --d-shadow: 0 1px 2px rgba(0,0,0,.3),0 10px 30px -14px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="dark"] .wbdiag {
+    --d-surface: #171b23; --d-surface2: #1e232d;
+    --d-ink: #e7ebf1; --d-muted: #9aa4b4; --d-border: #2a313d;
+    --d-accent: #6aa0d0; --d-accent-soft: #1b2735;
+    --d-shadow: 0 1px 2px rgba(0,0,0,.3),0 10px 30px -14px rgba(0,0,0,.6);
+  }
+  .wbdiag .diagram {
+    background: var(--d-surface); border: 1px solid var(--d-border);
+    border-radius: 14px; padding: 26px 22px 18px;
+    box-shadow: var(--d-shadow); overflow-x: auto; margin-bottom: 0;
+  }
+  .wbdiag .diagram svg { display: block; min-width: 560px; max-width: 100%; height: auto; margin: 0 auto; }
+  .wbdiag .legend {
+    display: flex; flex-wrap: wrap; gap: 16px;
+    margin-top: 16px; padding-top: 14px;
+    border-top: 1px dashed var(--d-border);
+    font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 11.5px;
+    color: var(--d-muted);
+  }
+  .wbdiag .legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .wbdiag .legend svg { width: 34px; height: 12px; min-width: 34px; }
+  .wbdiag figcaption {
+    font-size: 13.5px; color: var(--d-muted);
+    margin-top: 14px; max-width: 72ch; line-height: 1.55;
+  }
+  .wbdiag figcaption b { color: var(--d-ink); font-weight: 600; }
+  /* SVG node styles */
+  .wbdiag .n rect  { fill: var(--d-surface); stroke: var(--d-border); stroke-width: 1.5; }
+  .wbdiag .n.mgr rect { fill: var(--d-accent-soft); stroke: var(--d-accent); stroke-width: 2; }
+  .wbdiag .n .t { fill: var(--d-ink); font-family: "IBM Plex Mono",ui-monospace,monospace; font-size: 14px; font-weight: 600; }
+  .wbdiag .n .s { fill: var(--d-muted); font-family: "IBM Plex Mono",ui-monospace,monospace; font-size: 11px; }
+  .wbdiag .edge { stroke: var(--d-muted); stroke-width: 1.6; fill: none; }
+  .wbdiag .edge.spine { stroke: var(--d-accent); stroke-width: 2; }
+  .wbdiag .arrowhead { fill: var(--d-muted); }
+  .wbdiag .arrowhead.acc { fill: var(--d-accent); }
+  .wbdiag .elabel { fill: var(--d-muted); font-family: "IBM Plex Mono",ui-monospace,monospace; font-size: 11px; }
+  .wbdiag .elabel.on { fill: var(--d-ink); }
+</style>
+
+<div class="wbdiag" style="margin:2rem 0">
+  <figure>
+    <div class="diagram">
+      <svg viewBox="0 0 900 345" role="img" aria-label="Five faces of the warden binary: CLI, TUI, Web GUI, and MCP server connect via HTTP to the central daemon, which manages agent and terminal sessions via tmux.">
+        <defs>
+          <marker id="wab" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto"><path class="arrowhead" d="M0,0 L8,3 L0,6 Z"/></marker>
+          <marker id="wab-acc" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto"><path class="arrowhead acc" d="M0,0 L8,3 L0,6 Z"/></marker>
+        </defs>
+        <!-- Row 1: interface boxes -->
+        <g class="n"><rect x="113" y="18" width="155" height="62" rx="8"/><text class="t" x="190" y="44" text-anchor="middle" style="font-size:13px">CLI client</text><text class="s" x="190" y="62" text-anchor="middle">wd ls · start · attach · send</text></g>
+        <g class="n"><rect x="296" y="18" width="155" height="62" rx="8"/><text class="t" x="373" y="44" text-anchor="middle" style="font-size:13px">TUI cockpit</text><text class="s" x="373" y="62" text-anchor="middle">warden tui · live fleet view</text></g>
+        <g class="n"><rect x="479" y="18" width="155" height="62" rx="8"/><text class="t" x="556" y="44" text-anchor="middle" style="font-size:13px">Web GUI</text><text class="s" x="556" y="62" text-anchor="middle">React · SSE · live terminals</text></g>
+        <g class="n"><rect x="662" y="18" width="155" height="62" rx="8"/><text class="t" x="739" y="44" text-anchor="middle" style="font-size:13px">MCP server</text><text class="s" x="739" y="62" text-anchor="middle">warden daemon mcp · stdio</text></g>
+        <!-- Edge labels -->
+        <text class="elabel" x="234" y="106" text-anchor="middle">HTTP</text>
+        <text class="elabel" x="370" y="106" text-anchor="middle">HTTP · SSE ←</text>
+        <text class="elabel" x="556" y="106" text-anchor="middle">embedded + served</text>
+        <text class="elabel" x="700" y="106" text-anchor="middle">stdio bridge</text>
+        <!-- Arrows to daemon -->
+        <line class="edge" x1="190" y1="80" x2="296" y2="138" marker-end="url(#wab)"/>
+        <line class="edge" x1="373" y1="80" x2="392" y2="138" marker-end="url(#wab)"/>
+        <line class="edge" x1="556" y1="80" x2="540" y2="138" marker-end="url(#wab)"/>
+        <line class="edge" x1="739" y1="80" x2="624" y2="138" marker-end="url(#wab)"/>
+        <!-- Daemon -->
+        <g class="n mgr"><rect x="220" y="138" width="460" height="70" rx="10"/><text class="t" x="450" y="164" text-anchor="middle">warden daemon</text><text class="s" x="450" y="182" text-anchor="middle">ScrivaDB session store · REST API (:8765 loopback) · background poller</text><text class="s" x="450" y="197" text-anchor="middle">live SSE event stream · config file · embedded web server</text></g>
+        <!-- Spawn label -->
+        <text class="elabel on" x="450" y="240" text-anchor="middle">spawn · monitor · tmux</text>
+        <!-- Arrows to fleet -->
+        <line class="edge spine" x1="340" y1="208" x2="258" y2="268" marker-end="url(#wab-acc)"/>
+        <line class="edge spine" x1="560" y1="208" x2="642" y2="268" marker-end="url(#wab-acc)"/>
+        <!-- Fleet -->
+        <g class="n"><rect x="80" y="268" width="320" height="57" rx="8"/><text class="t" x="240" y="294" text-anchor="middle" style="font-size:12.5px">agent session ×N</text><text class="s" x="240" y="312" text-anchor="middle">any backend · tmux pane + git worktree</text></g>
+        <g class="n"><rect x="500" y="268" width="320" height="57" rx="8"/><text class="t" x="660" y="294" text-anchor="middle" style="font-size:12.5px">terminal session ×N</text><text class="s" x="660" y="312" text-anchor="middle">kind=terminal · $SHELL · managed tmux · no AI</text></g>
+      </svg>
+    </div>
+    <div class="legend">
+      <span><svg viewBox="0 0 34 12"><line x1="2" y1="6" x2="30" y2="6" stroke="var(--d-muted)" stroke-width="1.6"/></svg>HTTP client → daemon</span>
+      <span><svg viewBox="0 0 34 12"><line x1="2" y1="6" x2="30" y2="6" stroke="var(--d-accent)" stroke-width="2"/></svg>spawn / lifecycle</span>
+    </div>
+    <figcaption><b>Key claim:</b> every CLI verb, the TUI, the web dashboard, and the MCP tool bridge are thin HTTP clients to the same daemon REST API. The daemon is the single writer; the embedded ScrivaDB session store is the single source of truth. An orchestrator agent with the MCP server wired in gets exactly the same operations as a human at the terminal, through the same API surface.</figcaption>
+  </figure>
+</div>
+
 Settings live in a config file (`~/.warden/config.yaml`; `warden config` prints the resolved values), overridable by environment variables. Everything flows through the daemon, so **the daemon must be running** before any other command will work.
