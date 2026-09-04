@@ -114,6 +114,9 @@ default; each in its own tmux session, most in a git worktree).
 | Project memory — projected into every spawn (`memory.inject`) | config (`memory.inject`, default on) | automatic (all backends but aider) | ✓ | — | — | [project-memory](https://srjn45.github.io/warden/concepts/project-memory/) |
 | Project memory — auto-curation from digests (`memory.curate`) | config (`memory.curate`, default **off**) | automatic on completion (proposes `unverified` entries to the working tree; never commits) | ✓ | — | — | [project-memory](https://srjn45.github.io/warden/concepts/project-memory/) |
 | Project memory — local grounding in the REPL (`memory.ground`) | `repl` → `/memory <q>` (`/mem`, `/ask`) + `project_memory` tool | **REPL-only** (local model, `$0`, no cloud round-trip) | ✓ | — | — | [project-memory](https://srjn45.github.io/warden/concepts/project-memory/) |
+| **Project groups** — named collections of projects shown in the TUI tree; each member carries the group label beside the project name | REST API (`/api/v1/project-groups`) | — | — | ✓ (read) | ✓ | [project-groups](https://srjn45.github.io/warden/guides/project-groups/) |
+| **Per-project auto-spawn** — daemon guarantees one live `orch-<project>` orchestrator whenever a project is opened; idempotent (revives from transcript if recorded-but-dead; spawns fresh otherwise) | automatic on project open | — | — | — | ✓ | [project-groups](https://srjn45.github.io/warden/guides/project-groups/) |
+| **Peer awareness** — grouped orchestrators learn their Project Group name and sibling orchestrator names via context injection at every (re)launch | automatic (daemon-wired via `PeerContextFn`) | — | — | — | — | [project-groups](https://srjn45.github.io/warden/guides/project-groups/) |
 
 ## 6. Approvals & permissions
 
@@ -304,6 +307,7 @@ out / rotating the very token that guards the MCP and HTTP channels).
 | First-run tutorial | `tutorial` | interactive walkthrough | [quickstart](https://srjn45.github.io/warden/start/quickstart/) |
 | Shell completion | `completion` | shell integration | [install](https://srjn45.github.io/warden/start/install/) |
 | Hook entry points (guards) | `hook` / `*-guard` | invoked by Claude Code hooks | [lifecycle-and-rails](https://srjn45.github.io/warden/guides/lifecycle-and-rails/) |
+| **Scoped factory-reset** (`--scope runtime\|data\|full`; `--backup`, `--keep-config`, `--keep-backends`, `--prune-worktrees`; requires `--yes`) | `factory-reset` | destructive host wipe; daemon must be stopped for the data phase | [cli](https://srjn45.github.io/warden/reference/cli/#warden-factory-reset) |
 | Version | `version` | — | — |
 
 ---
