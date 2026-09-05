@@ -157,6 +157,7 @@ Complete command tree:
   warden completion fish               Generate fish completion script
   warden completion powershell         Generate PowerShell completion script
   warden factory-reset                 Reset warden to a fresh-install state (scoped wipe of daemon data)
+  warden login                         Authenticate this node with a warden-hub relay using the device flow
   warden setup                         Install missing dependencies (tmux, git, claude; optional gh, ollama)
   warden tutorial                      Run the first-run guided walkthrough of warden's core loop
   warden doctor                        Run preflight checks (required binaries, daemon, data dir, configured local model)
