@@ -1,0 +1,75 @@
+{
+  "framings": [
+    {
+      "name": "native_full",
+      "open": {
+        "version": 1,
+        "kind": 1,
+        "scope": 2,
+        "grantee": "user_abc123",
+        "corr_id": "corr-42"
+      },
+      "frame_hex": "00000019010102000b757365725f6162633132330007636f72722d3432"
+    },
+    {
+      "name": "native_readonly",
+      "open": {
+        "version": 1,
+        "kind": 1,
+        "scope": 1,
+        "grantee": "user_ro",
+        "corr_id": "corr-ro"
+      },
+      "frame_hex": "000000150101010007757365725f726f0007636f72722d726f"
+    },
+    {
+      "name": "web_terminated",
+      "open": {
+        "version": 1,
+        "kind": 2,
+        "scope": 1,
+        "grantee": "user_web",
+        "corr_id": "corr-web-7"
+      },
+      "frame_hex": "000000190102010008757365725f776562000a636f72722d7765622d37"
+    }
+  ],
+  "narrowings": [
+    {
+      "name": "cert_full_hdr_full",
+      "cert_implied": 2,
+      "asserted": 2,
+      "effective": 2
+    },
+    {
+      "name": "cert_readonly_hdr_full",
+      "cert_implied": 1,
+      "asserted": 2,
+      "effective": 1
+    },
+    {
+      "name": "cert_full_hdr_readonly",
+      "cert_implied": 2,
+      "asserted": 1,
+      "effective": 1
+    },
+    {
+      "name": "cert_readonly_hdr_readonly",
+      "cert_implied": 1,
+      "asserted": 1,
+      "effective": 1
+    },
+    {
+      "name": "cert_none_hdr_full",
+      "cert_implied": 0,
+      "asserted": 2,
+      "effective": 0
+    },
+    {
+      "name": "cert_full_hdr_none",
+      "cert_implied": 2,
+      "asserted": 0,
+      "effective": 0
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "fixtures": [
+    {
+      "name": "EnrollmentTokenRequest",
+      "json": {
+        "label": "home-server",
+        "ttl_seconds": 3600
+      }
+    },
+    {
+      "name": "EnrollmentTokenResponse",
+      "json": {
+        "token": "ent_one_time_abc123",
+        "expires_at": "2026-09-05T12:00:00Z"
+      }
+    },
+    {
+      "name": "EnrollRequest",
+      "json": {
+        "token": "ent_one_time_abc123",
+        "csr_pem": "-----BEGIN CERTIFICATE REQUEST-----\nMIH...sampleCSR...\n-----END CERTIFICATE REQUEST-----\n",
+        "hostname": "home-server",
+        "caps": [
+          "terminal-sessions",
+          "scheduled-agents"
+        ]
+      }
+    },
+    {
+      "name": "EnrollResponse",
+      "json": {
+        "daemon_id": "d-11111111-2222-3333-4444-555555555555",
+        "cert_pem": "-----BEGIN CERTIFICATE-----\nMIIB...sampleLeaf...\n-----END CERTIFICATE-----\n",
+        "ca_cert_pem": "-----BEGIN CERTIFICATE-----\nMIIB...sampleCA...\n-----END CERTIFICATE-----\n"
+      }
+    }
+  ]
+}
