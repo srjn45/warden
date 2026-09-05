@@ -18,7 +18,7 @@ One binary, multiple faces: `warden daemon` is the single writer to the on-disk 
 | **MCP server** | `warden daemon mcp` — a stdio bridge so an *orchestrator* agent session (e.g. Claude) can manage agents through tool calls. | Wired into an orchestrator agent's MCP config. |
 | **Interactive REPL** | `warden backend repl` — a [local-LLM conductor REPL](/warden/multi-agent/repl/) that turns plain-English intent into confirmed warden actions, spending no cloud-model tokens. | When you want NL control without an MCP orchestrator session. |
 
-<style>
+<style>{`
   .wbdiag {
     --d-surface: #ffffff; --d-surface2: #eef1f5;
     --d-ink: #1b1f27; --d-muted: #59616f; --d-border: #dee3ea;
@@ -49,28 +49,24 @@ One binary, multiple faces: `warden daemon` is the single writer to the on-disk 
     display: flex; flex-wrap: wrap; gap: 16px;
     margin-top: 16px; padding-top: 14px;
     border-top: 1px dashed var(--d-border);
-    font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 11.5px;
+    font-family: ui-monospace, monospace; font-size: 11.5px;
     color: var(--d-muted);
   }
   .wbdiag .legend span { display: inline-flex; align-items: center; gap: 7px; }
   .wbdiag .legend svg { width: 34px; height: 12px; min-width: 34px; }
-  .wbdiag figcaption {
-    font-size: 13.5px; color: var(--d-muted);
-    margin-top: 14px; max-width: 72ch; line-height: 1.55;
-  }
+  .wbdiag figcaption { font-size: 13.5px; color: var(--d-muted); margin-top: 14px; max-width: 72ch; line-height: 1.55; }
   .wbdiag figcaption b { color: var(--d-ink); font-weight: 600; }
-  /* SVG node styles */
-  .wbdiag .n rect  { fill: var(--d-surface); stroke: var(--d-border); stroke-width: 1.5; }
+  .wbdiag .n rect { fill: var(--d-surface); stroke: var(--d-border); stroke-width: 1.5; }
   .wbdiag .n.mgr rect { fill: var(--d-accent-soft); stroke: var(--d-accent); stroke-width: 2; }
-  .wbdiag .n .t { fill: var(--d-ink); font-family: "IBM Plex Mono",ui-monospace,monospace; font-size: 14px; font-weight: 600; }
-  .wbdiag .n .s { fill: var(--d-muted); font-family: "IBM Plex Mono",ui-monospace,monospace; font-size: 11px; }
+  .wbdiag .n .t { fill: var(--d-ink); font-family: ui-monospace, monospace; font-size: 14px; font-weight: 600; }
+  .wbdiag .n .s { fill: var(--d-muted); font-family: ui-monospace, monospace; font-size: 11px; }
   .wbdiag .edge { stroke: var(--d-muted); stroke-width: 1.6; fill: none; }
   .wbdiag .edge.spine { stroke: var(--d-accent); stroke-width: 2; }
   .wbdiag .arrowhead { fill: var(--d-muted); }
   .wbdiag .arrowhead.acc { fill: var(--d-accent); }
-  .wbdiag .elabel { fill: var(--d-muted); font-family: "IBM Plex Mono",ui-monospace,monospace; font-size: 11px; }
+  .wbdiag .elabel { fill: var(--d-muted); font-family: ui-monospace, monospace; font-size: 11px; }
   .wbdiag .elabel.on { fill: var(--d-ink); }
-</style>
+`}</style>
 
 <div class="wbdiag" style="margin:2rem 0">
   <figure>
@@ -80,29 +76,22 @@ One binary, multiple faces: `warden daemon` is the single writer to the on-disk 
           <marker id="wab" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto"><path class="arrowhead" d="M0,0 L8,3 L0,6 Z"/></marker>
           <marker id="wab-acc" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto"><path class="arrowhead acc" d="M0,0 L8,3 L0,6 Z"/></marker>
         </defs>
-        <!-- Row 1: interface boxes -->
         <g class="n"><rect x="113" y="18" width="155" height="62" rx="8"/><text class="t" x="190" y="44" text-anchor="middle" style="font-size:13px">CLI client</text><text class="s" x="190" y="62" text-anchor="middle">wd ls · start · attach · send</text></g>
         <g class="n"><rect x="296" y="18" width="155" height="62" rx="8"/><text class="t" x="373" y="44" text-anchor="middle" style="font-size:13px">TUI cockpit</text><text class="s" x="373" y="62" text-anchor="middle">warden tui · live fleet view</text></g>
         <g class="n"><rect x="479" y="18" width="155" height="62" rx="8"/><text class="t" x="556" y="44" text-anchor="middle" style="font-size:13px">Web GUI</text><text class="s" x="556" y="62" text-anchor="middle">React · SSE · live terminals</text></g>
         <g class="n"><rect x="662" y="18" width="155" height="62" rx="8"/><text class="t" x="739" y="44" text-anchor="middle" style="font-size:13px">MCP server</text><text class="s" x="739" y="62" text-anchor="middle">warden daemon mcp · stdio</text></g>
-        <!-- Edge labels -->
         <text class="elabel" x="234" y="106" text-anchor="middle">HTTP</text>
         <text class="elabel" x="370" y="106" text-anchor="middle">HTTP · SSE ←</text>
         <text class="elabel" x="556" y="106" text-anchor="middle">embedded + served</text>
         <text class="elabel" x="700" y="106" text-anchor="middle">stdio bridge</text>
-        <!-- Arrows to daemon -->
         <line class="edge" x1="190" y1="80" x2="296" y2="138" marker-end="url(#wab)"/>
         <line class="edge" x1="373" y1="80" x2="392" y2="138" marker-end="url(#wab)"/>
         <line class="edge" x1="556" y1="80" x2="540" y2="138" marker-end="url(#wab)"/>
         <line class="edge" x1="739" y1="80" x2="624" y2="138" marker-end="url(#wab)"/>
-        <!-- Daemon -->
         <g class="n mgr"><rect x="220" y="138" width="460" height="70" rx="10"/><text class="t" x="450" y="164" text-anchor="middle">warden daemon</text><text class="s" x="450" y="182" text-anchor="middle">ScrivaDB session store · REST API (:8765 loopback) · background poller</text><text class="s" x="450" y="197" text-anchor="middle">live SSE event stream · config file · embedded web server</text></g>
-        <!-- Spawn label -->
         <text class="elabel on" x="450" y="240" text-anchor="middle">spawn · monitor · tmux</text>
-        <!-- Arrows to fleet -->
         <line class="edge spine" x1="340" y1="208" x2="258" y2="268" marker-end="url(#wab-acc)"/>
         <line class="edge spine" x1="560" y1="208" x2="642" y2="268" marker-end="url(#wab-acc)"/>
-        <!-- Fleet -->
         <g class="n"><rect x="80" y="268" width="320" height="57" rx="8"/><text class="t" x="240" y="294" text-anchor="middle" style="font-size:12.5px">agent session ×N</text><text class="s" x="240" y="312" text-anchor="middle">any backend · tmux pane + git worktree</text></g>
         <g class="n"><rect x="500" y="268" width="320" height="57" rx="8"/><text class="t" x="660" y="294" text-anchor="middle" style="font-size:12.5px">terminal session ×N</text><text class="s" x="660" y="312" text-anchor="middle">kind=terminal · $SHELL · managed tmux · no AI</text></g>
       </svg>
