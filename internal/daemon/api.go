@@ -30,6 +30,7 @@ import (
 	"github.com/srjn45/warden/internal/poller"
 	"github.com/srjn45/warden/internal/pressure"
 	"github.com/srjn45/warden/internal/projectstore"
+	"github.com/srjn45/warden/internal/relay"
 	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/schedule"
 	"github.com/srjn45/warden/internal/snapshot"
@@ -157,6 +158,9 @@ type Server struct {
 	// authLimiter throttles repeated failed-auth attempts per source IP; nil
 	// when auth is disabled. See authlimit.go.
 	authLimiter *authLimiter
+	// relayPolicy is the accept-side policy for hub-opened relay streams (config
+	// relay.*). Its zero value rejects KindWebTerminated streams. See relay.go.
+	relayPolicy relay.Policy
 	// audit is the append-only action trail (audit.jsonl). nil ⇒ auditing off;
 	// recordAudit is then a no-op. See audit_hook.go.
 	audit *audit.Writer
