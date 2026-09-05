@@ -19,21 +19,48 @@ func sseServer(t *testing.T, fs *fakeStore) *Server {
 	return &Server{store: fs, hub: newHub()}
 }
 
-// readEvent reads lines until a blank line, returning the joined "data:" payload.
+// readEvent reads until a blank line and returns the joined "data:" payload of
+// the next UNNAMED (default) event — modeling an EventSource `onmessage` handler,
+// which only fires for events with no `event:` name. Named events (e.g. `tree`)
+// are skipped, exactly as an old client that never registered a listener for them
+// would ignore them. This keeps the back-compat guarantee under test: the
+// sessions frame stays the unnamed default event.
 func readEvent(t *testing.T, r *bufio.Reader) string {
 	t.Helper()
+	return readEventFor(t, r, "")
+}
+
+// readNamedEvent returns the "data:" payload of the next event whose `event:`
+// name matches — modeling `addEventListener(name, …)`.
+func readNamedEvent(t *testing.T, r *bufio.Reader, name string) string {
+	t.Helper()
+	return readEventFor(t, r, name)
+}
+
+// readEventFor reads event blocks until one whose event name equals `want`
+// (empty want = the unnamed default event), returning its joined data payload.
+func readEventFor(t *testing.T, r *bufio.Reader, want string) string {
+	t.Helper()
 	var data []string
+	name := ""
 	for {
 		line, err := r.ReadString('\n')
 		require.NoError(t, err)
 		line = strings.TrimRight(line, "\n")
 		if line == "" {
 			if len(data) > 0 {
-				return strings.Join(data, "\n")
+				if name == want {
+					return strings.Join(data, "\n")
+				}
+				data, name = nil, "" // not the wanted event; skip this block
+				continue
 			}
 			continue // heartbeat / comment-only block
 		}
-		if strings.HasPrefix(line, "data: ") {
+		switch {
+		case strings.HasPrefix(line, "event: "):
+			name = strings.TrimPrefix(line, "event: ")
+		case strings.HasPrefix(line, "data: "):
 			data = append(data, strings.TrimPrefix(line, "data: "))
 		}
 	}
@@ -112,9 +139,11 @@ func TestSSEReleasedOnServerShutdown(t *testing.T) {
 	finished := make(chan struct{})
 	go func() { srv.handleEventsStream(rec, req); close(finished) }()
 
-	// Drain the initial snapshot so the handler is parked in its select loop.
+	// Drain the initial snapshot (both unnamed sessions and named tree) so the
+	// handler has finished its initial send() and is parked in its select loop.
 	r := bufio.NewReader(rec.reader())
 	require.Contains(t, readEvent(t, r), `"A-1"`)
+	require.Contains(t, readNamedEvent(t, r, "tree"), `"roots"`)
 
 	close(srv.done) // simulate the server beginning shutdown
 	select {

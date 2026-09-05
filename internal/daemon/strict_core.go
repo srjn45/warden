@@ -34,7 +34,12 @@ import (
 // (a degraded active scan returns 503 from GET /api/v1/sessions and is never a
 // silent partial) and exposes GET /api/v1/store/health for operator/TUI
 // diagnostics.
-var serverCapabilities = []string{"terminal-sessions", "scheduled-agents", "store-health", "backend-recovery"}
+// "project-tree" means the daemon computes the full typed project hierarchy
+// server-side: GET /api/v1/tree returns it and the /api/v1/events/stream SSE
+// feed carries the same shape as a named `tree` event. Clients feature-detect
+// this exact string and, if absent, prompt to upgrade the node (there is no
+// client-side tree-assembly fallback).
+var serverCapabilities = []string{"terminal-sessions", "scheduled-agents", "store-health", "backend-recovery", "project-tree"}
 
 // GetCapabilities implements GET /api/v1/capabilities.
 func (s *Server) GetCapabilities(_ context.Context, _ oapi.GetCapabilitiesRequestObject) (oapi.GetCapabilitiesResponseObject, error) {

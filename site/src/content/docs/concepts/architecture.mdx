@@ -1,0 +1,136 @@
+---
+title: Architecture & the daemon
+description: How warden is built — one binary, a local daemon, an embedded ScrivaDB session store, and Claude Code hooks.
+---
+
+One self-contained Go binary that wears several faces, all sharing the same on-disk state:
+
+| Capability | Description |
+|---|---|
+| **Single-binary distribution** | `warden` bundles the daemon, CLI clients, MCP server, TUI, and (in release builds) the embedded web GUI. `wd` is an installed symlink. |
+| **Local daemon** | The single writer to the session store. Serves a loopback REST API (`127.0.0.1:8765`) and runs a background poller that keeps each agent's status and subject fresh. |
+| **Embedded ScrivaDB session store** | Sessions persist in an embedded ScrivaDB (`github.com/srjn45/scriva`, `SyncModeNone`) rooted at `~/.warden/sessions-db/` — an `active` collection for live sessions and a `closed` one for archived, each record keyed by session id. A mutation appends one record instead of rewriting a whole JSON file; still no database server to run. On first launch after upgrading, warden imports the legacy `sessions/`+`closed/` JSON once and keeps it as a read-only backup — see [Upgrading & storage migration](#upgrading--storage-migration). |
+| **Claude Code lifecycle hooks** | A hook script posts `SessionStart`/`Notification`/`Stop`/`SubagentStop`/`SessionEnd` to the daemon so status updates in real time without polling. Fails soft (never blocks the agent). |
+| **launchd auto-start (macOS)** | Installs as an auto-starting, crash-restarting background service. |
+| **Stable code identity** | One-time self-signed code-signing cert keeps the macOS TCC (Full Disk Access) grant stable across rebuilds. |
+| **Security hardening** | `0700` data dir, slowloris/body/write timeouts (bypassed for SSE/WS/long-poll), refuses non-loopback bind unless `WARDEN_ALLOW_NONLOOPBACK=1`. |
+| **`warden doctor`** | Preflight checks: required binaries (`tmux`, `git`, `claude`, `gh`), daemon reachability, data directory. |
+
+![warden architecture](/warden/media/architecture.svg)
+
+## Multi-project peer orchestrators
+
+When projects are organized into a **project group**, the daemon guarantees one live `orch-<project>` orchestrator per project. These orchestrators are **peers** — there is no global orchestrator above them. Each one plans and delegates to local workers, planners, and pipelines; it reaches the other projects by messaging their orchestrator directly.
+
+<style>{`
+  .worchdiag {
+    --d-surface: #ffffff;
+    --d-surface2: #eef1f5;
+    --d-ink: #1b1f27;
+    --d-muted: #59616f;
+    --d-border: #dee3ea;
+    --d-accent: #35618c;
+    --d-accent-soft: #e7eff7;
+    --d-shadow: 0 1px 3px rgba(20,30,45,.06), 0 6px 20px -10px rgba(20,30,45,.14);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .worchdiag {
+      --d-surface: #171b23; --d-surface2: #1e232d; --d-ink: #e7ebf1;
+      --d-muted: #9aa4b4; --d-border: #2a313d; --d-accent: #6aa0d0;
+      --d-accent-soft: #1b2735;
+      --d-shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -12px rgba(0,0,0,.55);
+    }
+  }
+  :root[data-theme="dark"] .worchdiag {
+    --d-surface: #171b23; --d-surface2: #1e232d; --d-ink: #e7ebf1;
+    --d-muted: #9aa4b4; --d-border: #2a313d; --d-accent: #6aa0d0;
+    --d-accent-soft: #1b2735;
+    --d-shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -12px rgba(0,0,0,.55);
+  }
+  .worchdiag { background: var(--d-surface); border: 1px solid var(--d-border); border-radius: 12px; padding: 20px 16px 14px; box-shadow: var(--d-shadow); overflow-x: auto; margin: 1.5rem 0; }
+  .worchdiag svg { display: block; min-width: 600px; max-width: 100%; height: auto; margin: 0 auto; }
+  .worchdiag .n rect { fill: var(--d-surface); stroke: var(--d-border); stroke-width: 1.5; }
+  .worchdiag .n.mgr rect { fill: var(--d-accent-soft); stroke: var(--d-accent); stroke-width: 2; }
+  .worchdiag .n.sub rect { fill: var(--d-surface2); stroke: var(--d-border); stroke-width: 1.25; }
+  .worchdiag .n .t { fill: var(--d-ink); font-family: ui-monospace, "Cascadia Code", monospace; font-size: 14px; font-weight: 600; }
+  .worchdiag .n .s { fill: var(--d-muted); font-family: ui-monospace, "Cascadia Code", monospace; font-size: 11px; }
+  .worchdiag .edge { stroke: var(--d-muted); stroke-width: 1.6; fill: none; }
+  .worchdiag .edge.dot { stroke-dasharray: 2 4; }
+  .worchdiag .arrowhead { fill: var(--d-muted); }
+  .worchdiag .elabel { fill: var(--d-muted); font-family: ui-monospace, "Cascadia Code", monospace; font-size: 11px; }
+  .worchdiag .elabel.on { fill: var(--d-ink); }
+  .worchdiag .boundary { fill: none; stroke: var(--d-accent); stroke-width: 1.4; stroke-dasharray: 7 6; opacity: .55; }
+  .worchdiag .blabel { fill: var(--d-accent); font-family: ui-monospace, "Cascadia Code", monospace; font-size: 11px; letter-spacing: .1em; }
+  .worchdiag figcaption { font-size: 13px; color: var(--d-muted); margin-top: 12px; max-width: 72ch; }
+  .worchdiag figcaption b { color: var(--d-ink); }
+  .worchdiag .legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--d-border); font-family: ui-monospace, monospace; font-size: 11.5px; color: var(--d-muted); }
+  .worchdiag .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .worchdiag .legend svg { width: 32px; height: 12px; min-width: 32px; }
+`}</style>
+
+<figure>
+<div class="worchdiag">
+<svg viewBox="0 0 920 400" role="img" aria-label="Two project orchestrators as peers inside a project group, each delegating to local worker, planner and pipeline agents, coordinating over a shared-context and mailbox substrate.">
+  <defs>
+    <marker id="wo" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto"><path class="arrowhead" d="M0,0 L8,3 L0,6 Z"/></marker>
+    <marker id="wo-s" markerWidth="9" markerHeight="9" refX="0.5" refY="3" orient="auto"><path class="arrowhead" d="M8,0 L0,3 L8,6 Z"/></marker>
+  </defs>
+  <rect class="boundary" x="16" y="26" width="888" height="176" rx="12"/>
+  <text class="blabel" x="34" y="48">PROJECT GROUP — e.g. app-suite</text>
+  <g class="n"><rect x="70" y="72" width="214" height="66" rx="9"/><text class="t" x="177" y="104" text-anchor="middle">orch-frontend</text><text class="s" x="177" y="123" text-anchor="middle">orchestrator · never writes code</text></g>
+  <g class="n"><rect x="636" y="72" width="214" height="66" rx="9"/><text class="t" x="743" y="104" text-anchor="middle">orch-backend</text><text class="s" x="743" y="123" text-anchor="middle">orchestrator · peer</text></g>
+  <line class="edge" x1="288" y1="99" x2="632" y2="99" marker-start="url(#wo-s)" marker-end="url(#wo)"/>
+  <text class="elabel on" x="460" y="88" text-anchor="middle">send_message — task ⇄ reply</text>
+  <line class="edge" x1="177" y1="138" x2="115" y2="248" marker-end="url(#wo)"/>
+  <line class="edge" x1="177" y1="138" x2="245" y2="248" marker-end="url(#wo)"/>
+  <line class="edge" x1="177" y1="138" x2="378" y2="248" marker-end="url(#wo)"/>
+  <text class="elabel" x="150" y="232" text-anchor="middle">spawns / delegates</text>
+  <g class="n"><rect x="50" y="250" width="130" height="58" rx="8"/><text class="t" x="115" y="277" text-anchor="middle" style="font-size:13px">worker</text><text class="s" x="115" y="295" text-anchor="middle">implement → PR</text></g>
+  <g class="n"><rect x="188" y="250" width="130" height="58" rx="8"/><text class="t" x="253" y="277" text-anchor="middle" style="font-size:13px">planner</text><text class="s" x="253" y="295" text-anchor="middle">spec · plan mode</text></g>
+  <g class="n"><rect x="326" y="250" width="130" height="58" rx="8"/><text class="t" x="391" y="277" text-anchor="middle" style="font-size:13px">pipeline</text><text class="s" x="391" y="295" text-anchor="middle">DAG of jobs</text></g>
+  <line class="edge" x1="743" y1="138" x2="680" y2="248" marker-end="url(#wo)"/>
+  <line class="edge" x1="743" y1="138" x2="812" y2="248" marker-end="url(#wo)"/>
+  <text class="elabel" x="743" y="232" text-anchor="middle">spawns</text>
+  <g class="n"><rect x="615" y="250" width="130" height="58" rx="8"/><text class="t" x="680" y="277" text-anchor="middle" style="font-size:13px">worker</text><text class="s" x="680" y="295" text-anchor="middle">implement → PR</text></g>
+  <g class="n"><rect x="753" y="250" width="130" height="58" rx="8"/><text class="t" x="818" y="277" text-anchor="middle" style="font-size:13px">pipeline</text><text class="s" x="818" y="295" text-anchor="middle">DAG of jobs</text></g>
+  <line class="edge dot" x1="391" y1="308" x2="391" y2="344"/>
+  <line class="edge dot" x1="680" y1="308" x2="680" y2="344"/>
+  <g class="n sub"><rect x="16" y="344" width="888" height="40" rx="9"/><text class="s" x="460" y="369" text-anchor="middle" style="font-size:12px">shared context (ctx) + mailbox — coordination substrate</text></g>
+</svg>
+<div class="legend">
+  <span><svg viewBox="0 0 32 12"><line x1="2" y1="6" x2="30" y2="6" stroke="var(--d-muted)" stroke-width="1.6"/></svg>spawn / delegate</span>
+  <span><svg viewBox="0 0 32 12"><line x1="4" y1="6" x2="28" y2="6" stroke="var(--d-muted)" stroke-width="1.6"/><polygon points="2,6 8,3 8,9" fill="var(--d-muted)"/><polygon points="30,6 24,3 24,9" fill="var(--d-muted)"/></svg>peer message (both ways)</span>
+  <span><svg viewBox="0 0 32 12"><line x1="2" y1="6" x2="30" y2="6" stroke="var(--d-muted)" stroke-width="1.6" stroke-dasharray="2 4"/></svg>coordination substrate</span>
+</div>
+</div>
+<figcaption><b>The claim:</b> orchestrators are peers, not a hierarchy. When <code>frontend</code> needs a change in <code>backend</code>, <code>orch-frontend</code> messages <code>orch-backend</code> — which coordinates its own local agents and replies. warden auto-spawns the <code>orch-&lt;project&gt;</code> agent on first group use and injects peer awareness (group name + sibling names) into each one at every relaunch.</figcaption>
+</figure>
+
+## Upgrading & storage migration
+
+The session store used to be one JSON file per session under `~/.warden/sessions/`
+and `~/.warden/closed/`. It now runs on an **embedded ScrivaDB** rooted at
+`~/.warden/sessions-db/` (`active` + `closed` collections, keyed by session id), so
+a mutation appends one record instead of rewriting a whole file. This is an
+**internal storage swap** — the daemon's REST API, the CLI/MCP clients, and
+`warden inspect export`/`import` are byte-for-byte unchanged.
+
+On the **first daemon launch after upgrading**, warden runs a one-time import:
+
+- Every legacy `sessions/*.json` and `closed/*.json` is decoded individually into
+  the new collections (a corrupt or unsafe-id file is skipped with a warning, never
+  blocking the upgrade), folding in the former provenance backfill.
+- A `~/.warden/.sessions-filedb-imported` sentinel is written **last**, only after
+  both collections load. If the import dies partway the sentinel is absent, so the
+  next boot wipes the half-built `sessions-db/` and re-imports from the intact
+  legacy JSON — nothing is lost.
+
+The legacy `sessions/`/`closed/` directories are **read-only from now on and kept
+as a cold backup**; this release never deletes them.
+
+:::caution[Downgrade caveat]
+Downgrading to a pre-migration binary still reads your **pre-upgrade** history from
+the intact legacy JSON — nothing from before the upgrade is lost. But sessions
+**created or mutated after** the upgrade live only in `sessions-db/`, and a
+downgrade cannot see them. This is inherent to any forward migration.
+:::
