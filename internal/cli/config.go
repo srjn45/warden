@@ -86,6 +86,7 @@ func printConfig(out io.Writer, cfg config.Config) {
 			{"claude_projects_dir", cfg.ClaudeProjectsDir},
 			{"workspace_path", cfg.WorkspacePath},
 			{"allow_nonloopback", fmt.Sprintf("%t", cfg.AllowNonLoopback)},
+			{"relay.allow_web_terminated", fmt.Sprintf("%t", cfg.Relay.AllowWebTerminated)},
 		}},
 		{"agents", [][2]string{
 			{"default_permission_mode", cfg.DefaultPermissionMode},

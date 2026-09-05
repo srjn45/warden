@@ -91,6 +91,16 @@ func (s *Server) hostGuard(next http.Handler) http.Handler {
 // distinguish the local CLI from a same-host reverse proxy (e.g. Cloudflare
 // Tunnel) forwarding a remote client, so there is no loopback exemption.
 func (s *Server) authorize(r *http.Request) (bool, authScope) {
+	// A request relayed over an accepted hub stream (AcceptRelayStream) carries its
+	// effective scope on the context instead of a bearer token: the hub already
+	// authenticated the user, and for KindWebTerminated there is no token to
+	// present. Honor that scope so the same per-request enforcement (notably the
+	// /attach write-guard) applies — a read-only relay grant is denied writes and
+	// attach exactly like a read-only token. It overrides token auth because a
+	// relayed request has no local token to compare.
+	if scope, ok := relayScopeFromContext(r.Context()); ok {
+		return scope != scopeNone, scope
+	}
 	if s.authToken == "" {
 		return true, scopeFull
 	}

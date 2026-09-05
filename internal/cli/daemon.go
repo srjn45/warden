@@ -38,6 +38,7 @@ import (
 	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/poller"
 	"github.com/srjn45/warden/internal/projectstore"
+	"github.com/srjn45/warden/internal/relay"
 	"github.com/srjn45/warden/internal/router"
 	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/schedule"
@@ -467,6 +468,7 @@ func newDaemonRunCmd() *cobra.Command {
 			srv.SetSpawnGate(cfg.Worktree.SpawnGate, cfg.Worktree.SpawnGateMax)
 			srv.SetBudget(cfg.Tokens.BudgetGate, cfg.Tokens.BudgetDailyUSD, cfg.Tokens.BudgetWeeklyUSD)
 			srv.SetWorktreeRetention(cfg.Worktree.KeepDone, cfg.Worktree.AutoPrune)
+			srv.SetRelayPolicy(relay.Policy{AllowWebTerminated: cfg.Relay.AllowWebTerminated})
 			srv.SetAudit(audit.NewWriter(filepath.Join(cfg.DataDir, "audit.jsonl")))
 			srv.SetAuditTrustedProxies(trustedProxies)
 			mcol := metrics.NewCollector(runner, daemon.NewAgentLister(st), srv.PressureName)

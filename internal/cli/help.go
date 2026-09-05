@@ -73,7 +73,7 @@ var rootHelpPlacement = map[string]struct {
 	"export": {"observe", 130}, "import": {"observe", 140}, "llm": {"observe", 150}, "repair": {"observe", 160},
 	"daemon": {"operate", 10}, "completion": {"operate", 20}, "mcp": {"operate", 30}, "token": {"operate", 40},
 	"factory-reset": {"operate", 50},
-	"setup":         {"entry", 10}, "tutorial": {"entry", 20}, "doctor": {"entry", 30}, "tui": {"entry", 40}, "repl": {"entry", 50}, "version": {"entry", 60},
+	"login":         {"entry", 5}, "setup": {"entry", 10}, "tutorial": {"entry", 20}, "doctor": {"entry", 30}, "tui": {"entry", 40}, "repl": {"entry", 50}, "version": {"entry", 60},
 }
 
 // SetCommandHelpMetadata is the extension point used by namespace factories.

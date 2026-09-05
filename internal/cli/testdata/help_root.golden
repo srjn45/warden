@@ -23,6 +23,7 @@ daemon
 completion
 factory-reset
 Get
+login
 setup
 tutorial
 doctor
