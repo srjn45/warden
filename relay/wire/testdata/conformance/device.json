@@ -1,0 +1,40 @@
+{
+  "fixtures": [
+    {
+      "name": "DeviceStartRequest",
+      "json": {
+        "hostname": "home-server"
+      }
+    },
+    {
+      "name": "DeviceStartResponse",
+      "json": {
+        "device_code": "dc_high_entropy_secret_xyz",
+        "user_code": "WDN-4821",
+        "verification_uri": "http://localhost:9876/login/device",
+        "expires_in": 900,
+        "interval": 5
+      }
+    },
+    {
+      "name": "DeviceTokenRequest",
+      "json": {
+        "device_code": "dc_high_entropy_secret_xyz",
+        "csr_pem": "-----BEGIN CERTIFICATE REQUEST-----\nMIH...sampleCSR...\n-----END CERTIFICATE REQUEST-----\n",
+        "hostname": "home-server",
+        "caps": [
+          "terminal-sessions",
+          "scheduled-agents"
+        ]
+      }
+    },
+    {
+      "name": "DeviceTokenResponse",
+      "json": {
+        "daemon_id": "d-66666666-7777-8888-9999-000000000000",
+        "cert_pem": "-----BEGIN CERTIFICATE-----\nMIIB...sampleLeaf...\n-----END CERTIFICATE-----\n",
+        "ca_cert_pem": "-----BEGIN CERTIFICATE-----\nMIIB...sampleCA...\n-----END CERTIFICATE-----\n"
+      }
+    }
+  ]
+}
