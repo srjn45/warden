@@ -34,6 +34,7 @@ import (
 	snapshot "github.com/srjn45/warden/internal/snapshot"
 	spend "github.com/srjn45/warden/internal/spend"
 	store "github.com/srjn45/warden/internal/store"
+	tree "github.com/srjn45/warden/internal/tree"
 )
 
 const (
@@ -1163,6 +1164,15 @@ type SyncResult = lifecycle.SyncResult
 // TaskType Normalized task type
 type TaskType string
 
+// Tree The top-level project-tree frame. Returned by GET /api/v1/tree and carried verbatim in the SSE `tree` event.
+type Tree = tree.Tree
+
+// TreeNode One node in the hierarchy under a uniform envelope. An unrecognized `type` still renders generically from label/status/children. Structure only — session detail (repo/branch/backend/model/spend) is joined client-side via session_id against /sessions; no node embeds a session.
+type TreeNode = tree.Node
+
+// TreeNodeDetail Small, type-specific light fields a client needs to render a node without a second lookup. Never embeds a full session. Every field is omitempty.
+type TreeNodeDetail = tree.Detail
+
 // UpdateProjectGroupRequest defines model for UpdateProjectGroupRequest.
 type UpdateProjectGroupRequest struct {
 	// Name group display name (required)
@@ -1515,6 +1525,15 @@ type ListSnapshotsParams struct {
 // RestoreSnapshotJSONBody defines parameters for RestoreSnapshot.
 type RestoreSnapshotJSONBody struct {
 	Force bool `json:"force,omitempty"`
+}
+
+// GetTreeParams defines parameters for GetTree.
+type GetTreeParams struct {
+	// ProjectId Scope to a single project's subtree. An unknown project_id returns 200 with empty roots (not 404 — the project may simply have nothing in it yet). Omitted returns every root, including the "No project" bucket.
+	ProjectId string `form:"project_id,omitempty" json:"project_id,omitempty"`
+
+	// All Include system sessions (tagged system:true) in the tree. Omitted or false hides them — mirrors /sessions and /events/stream exactly.
+	All bool `form:"all,omitempty" json:"all,omitempty"`
 }
 
 // GetUsageParams defines parameters for GetUsage.
@@ -2007,6 +2026,9 @@ type ServerInterface interface {
 	// Session-store health
 	// (GET /api/v1/store/health)
 	GetStoreHealth(w http.ResponseWriter, r *http.Request)
+	// The full typed project hierarchy
+	// (GET /api/v1/tree)
+	GetTree(w http.ResponseWriter, r *http.Request, params GetTreeParams)
 	// Get subscription-backend provider usage
 	// (GET /api/v1/usage)
 	GetUsage(w http.ResponseWriter, r *http.Request, params GetUsageParams)
@@ -2658,6 +2680,12 @@ func (_ Unimplemented) GetSpend(w http.ResponseWriter, r *http.Request) {
 // Session-store health
 // (GET /api/v1/store/health)
 func (_ Unimplemented) GetStoreHealth(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The full typed project hierarchy
+// (GET /api/v1/tree)
+func (_ Unimplemented) GetTree(w http.ResponseWriter, r *http.Request, params GetTreeParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -5830,6 +5858,58 @@ func (siw *ServerInterfaceWrapper) GetStoreHealth(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// GetTree operation middleware
+func (siw *ServerInterfaceWrapper) GetTree(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetTreeParams
+
+	// ------------- Optional query parameter "project_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "project_id", r.URL.Query(), &params.ProjectId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "project_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "all" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "all", r.URL.Query(), &params.All, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "all"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "all", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetTree(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetUsage operation middleware
 func (siw *ServerInterfaceWrapper) GetUsage(w http.ResponseWriter, r *http.Request) {
 
@@ -6341,6 +6421,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/store/health", wrapper.GetStoreHealth)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/tree", wrapper.GetTree)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/usage", wrapper.GetUsage)
@@ -10304,6 +10387,50 @@ func (response GetStoreHealth200JSONResponse) VisitGetStoreHealthResponse(w http
 	return err
 }
 
+type GetTreeRequestObject struct {
+	Params GetTreeParams
+}
+
+type GetTreeResponseObject interface {
+	VisitGetTreeResponse(w http.ResponseWriter) error
+}
+
+type GetTree200ResponseHeaders struct {
+	CacheControl string
+}
+
+type GetTree200JSONResponse struct {
+	Body    Tree
+	Headers GetTree200ResponseHeaders
+}
+
+func (response GetTree200JSONResponse) VisitGetTreeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTree503JSONResponse Error
+
+func (response GetTree503JSONResponse) VisitGetTreeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetUsageRequestObject struct {
 	Params GetUsageParams
 }
@@ -10701,6 +10828,9 @@ type StrictServerInterface interface {
 	// Session-store health
 	// (GET /api/v1/store/health)
 	GetStoreHealth(ctx context.Context, request GetStoreHealthRequestObject) (GetStoreHealthResponseObject, error)
+	// The full typed project hierarchy
+	// (GET /api/v1/tree)
+	GetTree(ctx context.Context, request GetTreeRequestObject) (GetTreeResponseObject, error)
 	// Get subscription-backend provider usage
 	// (GET /api/v1/usage)
 	GetUsage(ctx context.Context, request GetUsageRequestObject) (GetUsageResponseObject, error)
@@ -13807,6 +13937,32 @@ func (sh *strictHandler) GetStoreHealth(w http.ResponseWriter, r *http.Request) 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetStoreHealthResponseObject); ok {
 		if err := validResponse.VisitGetStoreHealthResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetTree operation middleware
+func (sh *strictHandler) GetTree(w http.ResponseWriter, r *http.Request, params GetTreeParams) {
+	var request GetTreeRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetTree(ctx, request.(GetTreeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetTree")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetTreeResponseObject); ok {
+		if err := validResponse.VisitGetTreeResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

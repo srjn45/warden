@@ -1,0 +1,94 @@
+version: 1
+goal: >-
+  Implement the warden-node half of remote-access MVP: relay/wire device-flow
+  types and conformance fixtures (N1–N2), the daemon-owned project-tree service
+  (N3–N7), and the relay accept path plus `warden login` (N8–N9), per
+  docs/specs/2026-09-05-node-implementation-plan.md and
+  docs/specs/2026-09-05-project-tree-service.md.
+constraints:
+  - "Normative specs are docs/specs/2026-09-05-node-implementation-plan.md and docs/specs/2026-09-05-project-tree-service.md. Locked decisions in those files are not to be relitigated."
+  - "Work in an isolated git worktree branched off origin/main or the plan integration branch; one worker per task."
+  - "Keep the tree green — run wd check (or make verify-fast) before every commit/push."
+  - "API is spec-first — edit internal/daemon/apidocs/openapi.yaml then make generate; never hand-edit generated code."
+  - "relay/wire is the normative hub-node contract. Daemon-holds-key CSR; never add, accept, or return key_pem."
+  - "GET /api/v1/sessions and the unnamed SSE sessions frame stay unchanged. Tree is additive (named event tree, cap project-tree)."
+  - "BUILD-1 (stamp project_id) and BUILD-2 (Pipeline.creator_session_id) are out of scope. BUILD-3 is already shipped."
+  - "Do not enable or land to main. PRs target autopilot/node-remote-access."
+  - "Confirm with the maintainer before pushing any v* tag (wire train needs a tag so the hub can import)."
+tasks:
+  - id: Phase1_WireContracts
+    prompt: >-
+      Phase 1 (N1+N2 — Device-flow types & conformance fixtures):
+      Add relay/wire/device.go with DeviceStartRequest/Response and DeviceTokenRequest/Response
+      matching warden-hub hub-node-contract.md §3.9 exactly (json tags, no private-key field,
+      CSRPEM on the token request). Update relay/wire/doc.go to mention device authorization
+      as a sibling of enroll, not a fourth relay leg. Add conformance fixtures (N2) for
+      WriteFrame/ReadFrame golden vectors, AuthDigest with DomainSepAuth exact bytes,
+      StreamOpen including min(cert-implied, Scope) narrowing and KindWebTerminated,
+      close-code table, and enrollment+device JSON fixtures that never contain key_pem.
+      Export testdata so the hub CI can run the same vectors. `go test ./relay/wire` must pass.
+      This unblocks hub Phase 1 (import relay/wire + Leg-0 CSR reconcile).
+    status: completed
+
+  - id: Phase2_TreePackage
+    prompt: >-
+      Phase 2 (N3 — internal/tree service):
+      Extract the structural core of internal/tui/list.go into a pure internal/tree package
+      (Service.Build(Inputs, projectID) *Tree). No daemon or TUI imports. Implement membership,
+      exactly-once nesting (autopilot_run_id > pipeline+job > parent_id > project), composite ids,
+      the shared 7-value status enum, canonical sibling order, synthetic project:__none__,
+      closed projects kept and marked, and per-subtree Degraded. Goldens: RFC §18 populated tree;
+      empty; unknown project_id → empty roots; closed-project; autopilot worker with cleared
+      parent_id nested under its task. Package tests only — no HTTP.
+    after: [Phase1_WireContracts]
+    status: completed
+
+  - id: Phase3_TreeAPIAndSSE
+    prompt: >-
+      Phase 3 (N4+N5 — GET /api/v1/tree, project-tree cap, named tree SSE):
+      Spec-first: add /api/v1/tree (query project_id, all) and Tree/TreeNode/TreeNodeDetail
+      to internal/daemon/apidocs/openapi.yaml, then make generate. Handler gathers existing
+      snapshots (sessions, projects, pipelines, autopilot.Status()) and calls tree.Service.Build.
+      Unknown project_id → 200 empty roots. 503 only when the session scan is degraded.
+      ScopeReadOnly is enough. Append "project-tree" to serverCapabilities in
+      internal/daemon/strict_core.go (feeds Hello.Caps). On GET /api/v1/events/stream add
+      named event: tree with the same Tree JSON; keep the sessions frame unnamed; independent
+      lastSess/lastTree dedup; ?all=true applies to both.
+    after: [Phase2_TreePackage]
+    status: completed
+
+  - id: Phase4_TUIAndDocs
+    prompt: >-
+      Phase 4 (N6+N7 — TUI adapter and documentation):
+      Rewrite the TUI to consume tree.Service.Build. New view adapter walks Tree.Roots,
+      applies collapse/cursor re-keyed onto composite node ids, home-abbreviated paths,
+      optional "↳ from <parent>" from session parent_id, flattens to existing []listRow.
+      Do not rewrite render functions. Re-point list goldens. Then DoD docs: FEATURES.md,
+      USAGE.md, site guide+reference under site/src/content/docs/, skill one-liner if agents
+      should prefer /tree. Run make gendocs only if CLI help changed. make gendocs-check clean.
+    after: [Phase3_TreeAPIAndSSE]
+    status: completed
+
+  - id: Phase5_RelayClient
+    prompt: >-
+      Phase 5 (N8+N9 — KindWebTerminated + warden login):
+      Accept wire.StreamOpen KindWebTerminated on the daemon relay path. Gate with
+      relay.allow_web_terminated (default off). Reject with close code 4004 when disabled.
+      Honor hub-asserted {Grantee, Scope}; ScopeReadOnly must not attach (/attach stays 403).
+      Implement `warden login [--hub <url>]`: device start, print verification URI + user code,
+      poll with a locally generated CSR, persist cert and key, never send or accept key_pem.
+      Cover the four poll errors (authorization_pending, slow_down, expired_token, access_denied).
+      Run make gendocs after the CLI help change.
+    after: [Phase1_WireContracts, Phase4_TUIAndDocs]
+    status: completed
+
+done_when:
+  - "wd check passes on autopilot/node-remote-access."
+  - "relay/wire exports device-flow types and conformance fixtures; no key_pem in any response type."
+  - "GET /api/v1/tree returns the nested hierarchy; capabilities lists project-tree."
+  - "SSE stream emits named event: tree and still emits the unnamed sessions frame."
+  - "TUI list is rendered from internal/tree (composite ids), not from projectGroupedItems."
+  - "warden login device-flow client exists and refuses private-key fields."
+  - "KindWebTerminated is accepted when relay.allow_web_terminated is on, rejected with 4004 when off."
+status: complete
+completed_at: "2026-09-05T21:24:00Z"

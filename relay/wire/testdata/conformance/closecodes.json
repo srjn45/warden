@@ -1,0 +1,36 @@
+{
+  "table": [
+    {
+      "name": "CloseNormal",
+      "code": 4000
+    },
+    {
+      "name": "CloseProtocolError",
+      "code": 4001
+    },
+    {
+      "name": "CloseUnsupportedVersion",
+      "code": 4002
+    },
+    {
+      "name": "CloseUnknownStreamKind",
+      "code": 4003
+    },
+    {
+      "name": "CloseWebTerminatedDisabled",
+      "code": 4004
+    },
+    {
+      "name": "CloseUnauthorized",
+      "code": 4005
+    },
+    {
+      "name": "CloseEnrollmentRequired",
+      "code": 4006
+    },
+    {
+      "name": "CloseInternal",
+      "code": 4007
+    }
+  ]
+}

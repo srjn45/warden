@@ -493,9 +493,9 @@ func TestListPaneCollapsesCompletedPipelinesByDefault(t *testing.T) {
 		{ID: "cancel1", Status: pipeline.StatusCanceled, Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobDone}}},
 		{ID: "run1", Status: pipeline.StatusRunning, Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobRunning}}},
 	}})
-	require.True(t, m.collapsed["done1"], "done pipeline collapsed by default")
-	require.True(t, m.collapsed["cancel1"], "canceled pipeline collapsed by default")
-	require.False(t, m.collapsed["run1"], "running pipeline stays expanded")
+	require.True(t, m.collapsed["pipeline:done1"], "done pipeline collapsed by default")
+	require.True(t, m.collapsed["pipeline:cancel1"], "canceled pipeline collapsed by default")
+	require.False(t, m.collapsed["pipeline:run1"], "running pipeline stays expanded")
 }
 
 func TestListPaneRespectsManualExpandAcrossRefresh(t *testing.T) {
@@ -504,10 +504,10 @@ func TestListPaneRespectsManualExpandAcrossRefresh(t *testing.T) {
 		{ID: "done1", Status: pipeline.StatusDone, Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobDone}}},
 	}
 	m = lstep(m, pipelinesMsg{pipelines: pipes})
-	require.True(t, m.collapsed["done1"], "completed pipeline starts collapsed")
-	m.collapsed["done1"] = false // user expands it
+	require.True(t, m.collapsed["pipeline:done1"], "completed pipeline starts collapsed")
+	m.collapsed["pipeline:done1"] = false // user expands it
 	m = lstep(m, pipelinesMsg{pipelines: pipes})
-	require.False(t, m.collapsed["done1"], "manual expand survives refresh; not re-collapsed")
+	require.False(t, m.collapsed["pipeline:done1"], "manual expand survives refresh; not re-collapsed")
 }
 
 func TestListPanePipelinesAndCancel(t *testing.T) {
@@ -612,7 +612,7 @@ func TestListPaneCollapseAgentHeaderHidesSubtree(t *testing.T) {
 
 	require.Equal(t, "p1", m.selectedID(), "cursor starts on the parent header")
 	m = lstep(m, key("h")) // collapse the sub-tree
-	require.True(t, m.collapsed["p1"], "h on an agent header collapses its sub-tree")
+	require.True(t, m.collapsed["session:p1"], "h on an agent header collapses its sub-tree")
 	require.Equal(t, []string{"p1"}, itemSessionIDs(m.items()), "collapsed sub-tree hides the child")
 	require.Equal(t, "p1", m.selectedID(), "cursor re-pins to the collapsed header")
 }
@@ -625,7 +625,7 @@ func TestListPaneExpandAgentHeaderShowsSubtree(t *testing.T) {
 	require.Equal(t, []string{"p1"}, itemSessionIDs(m.items()))
 
 	m = lstep(m, key("l")) // re-expand
-	require.False(t, m.collapsed["p1"], "l on a collapsed agent header re-expands it")
+	require.False(t, m.collapsed["session:p1"], "l on a collapsed agent header re-expands it")
 	require.Equal(t, []string{"p1", "c1"}, itemSessionIDs(m.items()), "expanded sub-tree shows the child again")
 }
 

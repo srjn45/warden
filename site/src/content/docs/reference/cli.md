@@ -54,6 +54,7 @@ Operate warden:
   factory-reset        Reset warden to a fresh-install state (scoped wipe of daemon data)
 
 Get started and interact:
+  login                Authenticate this node with a warden-hub relay using the device flow
   setup                Install missing dependencies (tmux, git, claude; optional gh, ollama)
   tutorial             Run the first-run guided walkthrough of warden's core loop
   doctor               Run preflight checks (required binaries, daemon, data dir, configured local model)
@@ -3658,6 +3659,29 @@ Flags:
       --scope string      reset scope: runtime, data, or full (default "data")
       --skip-drain        skip the live drain phase (daemon may be down; wipe still requires it stopped)
       --yes               confirm the destructive reset without prompting
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden login
+
+```text
+Authenticate this node with a warden-hub relay using the device flow.
+
+The node generates an ECDSA keypair locally and initiates device authorization with
+the hub. You will receive a verification URL and user code to approve in your browser.
+Once approved, the signed node certificate and CA chain are stored locally in
+~/.warden/identity. The private key never leaves this machine.
+
+Usage:
+  warden login [flags]
+
+Flags:
+  -h, --help              help for login
+      --hostname string   display hostname override for this node
+      --hub string        warden-hub base URL (default http://localhost:9876)
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)

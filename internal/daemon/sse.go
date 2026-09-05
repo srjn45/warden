@@ -25,15 +25,23 @@ func (s *Server) handleEventsStream(w http.ResponseWriter, r *http.Request) {
 	ch, unsub := s.hub.subscribe()
 	defer unsub()
 
-	var last []byte
+	all := r.URL.Query().Get("all") == "true"
+
+	// Two independently-deduplicated frames ride this one stream (spec §10): the
+	// sessions snapshot as the UNNAMED default event (unchanged, back-compat) and
+	// the project tree as a NAMED `tree` event. Each keeps its own last-sent bytes
+	// so a pure status change re-sends only sessions and a structural change
+	// re-sends only the tree — keeping the phone payload small over a relay.
+	var lastSess, lastTree []byte
 	send := func() bool {
 		sessions, err := s.store.List(r.Context())
 		if err != nil {
 			// Complete-or-error: a degraded active scan must NOT publish a partial
-			// snapshot. Keep the last complete payload (do not touch `last`) and wait
-			// for a later clean scan — the SSE consumer keeps showing last-known-good.
-			// On a degraded INITIAL scan, `last` is still empty, so nothing is emitted
-			// until the first complete read, which is exactly the desired behavior.
+			// snapshot. Keep the last complete payloads (do not touch lastSess/lastTree)
+			// and wait for a later clean scan — the SSE consumer keeps showing
+			// last-known-good. On a degraded INITIAL scan both buffers are still empty,
+			// so nothing is emitted until the first complete read, which is exactly the
+			// desired behavior.
 			if d, ok := store.IsDegraded(err); ok {
 				logStoreDegraded(d)
 			}
@@ -42,7 +50,7 @@ func (s *Server) handleEventsStream(w http.ResponseWriter, r *http.Request) {
 		if sessions == nil {
 			sessions = []*store.Session{}
 		}
-		if r.URL.Query().Get("all") != "true" {
+		if !all {
 			visible := make([]*store.Session, 0, len(sessions))
 			for _, sess := range sessions {
 				if !sess.HasTag("system:true") {
@@ -51,28 +59,39 @@ func (s *Server) handleEventsStream(w http.ResponseWriter, r *http.Request) {
 			}
 			sessions = visible
 		}
-		// Autopilot rides the fleet stream so cockpit run trees update on the same
-		// notification as their brain/worker/guardian sessions.  The field is
-		// additive: older clients continue decoding only `sessions`.
+		// Gather the tree inputs once; the autopilot status it computed feeds both
+		// frames (spec §10 — one Status() call, no double computation).
+		in := s.treeInputsFor(sessions)
+
+		// Sessions frame (unnamed). Autopilot rides the fleet stream so cockpit run
+		// trees update on the same notification as their brain/worker/guardian
+		// sessions. The field is additive: older clients continue decoding only
+		// `sessions`.
 		frame := struct {
 			Sessions  []*store.Session `json:"sessions"`
 			Autopilot any              `json:"autopilot,omitempty"`
 		}{Sessions: sessions}
 		if s.autopilot != nil {
-			frame.Autopilot = s.autopilot.Status()
+			frame.Autopilot = in.Autopilot
 		}
-		payload, err := json.Marshal(frame)
-		if err != nil {
-			return true
+		if payload, merr := json.Marshal(frame); merr == nil && !bytes.Equal(payload, lastSess) {
+			lastSess = payload
+			if _, werr := fmt.Fprintf(w, "data: %s\n\n", payload); werr != nil {
+				return false
+			}
+			flusher.Flush()
 		}
-		if bytes.Equal(payload, last) {
-			return true // nothing changed since last send
+
+		// Tree frame (named `tree`, same shape as GET /api/v1/tree). ?all applies to
+		// both frames — `sessions` is already filtered above and feeds the tree.
+		t := treeService.Build(in, "")
+		if tpayload, merr := json.Marshal(t); merr == nil && !bytes.Equal(tpayload, lastTree) {
+			lastTree = tpayload
+			if _, werr := fmt.Fprintf(w, "event: tree\ndata: %s\n\n", tpayload); werr != nil {
+				return false
+			}
+			flusher.Flush()
 		}
-		last = payload
-		if _, err := fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
-			return false
-		}
-		flusher.Flush()
 		return true
 	}
 

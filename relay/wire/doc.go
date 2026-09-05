@@ -22,6 +22,13 @@
 //	       separate daemon-opened control stream carries Hello / Heartbeat / Bye /
 //	       ConfigPush.
 //
+// Device authorization (`warden login`, DeviceStart/DeviceToken{Request,Response})
+// is a SIBLING of Leg-0 enrollment, not a fourth relay leg: it is a second
+// plain-REST, daemon-holds-key CSR provisioning path that mints a daemon identity
+// before Leg 1 can be dialed. Enrollment consumes a one-time operator token; the
+// device flow is the interactive browser-approved path. Both hand back a signed
+// cert and CA chain and never a private key. See device.go.
+//
 // All framing uses one primitive: WriteFrame / ReadFrame (a uint32 big-endian
 // length prefix followed by the payload). StreamOpen bodies are binary; control
 // messages are JSON.

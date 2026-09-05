@@ -1267,18 +1267,80 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/GuardVerdict" }
 
+  /api/v1/tree:
+    get:
+      operationId: getTree
+      tags: [Tree]
+      summary: The full typed project hierarchy
+      description: |
+        Returns the daemon-computed project tree: projects (registered, loose-dir
+        and the synthetic "No project" bucket) with their agents, terminals,
+        pipelines and autopilot runs nested under one uniform envelope. The tree
+        is derived from the same snapshots the daemon serves at /sessions,
+        /projects, /pipelines and the autopilot status — clients render structure
+        from this and join per-node detail via the session_id references against
+        /sessions. A read route: ScopeReadOnly suffices.
+
+        The identical Tree shape rides the /events/stream SSE feed as a named
+        `tree` event (see that endpoint).
+      parameters:
+        - name: project_id
+          in: query
+          required: false
+          schema: { type: string }
+          description: >-
+            Scope to a single project's subtree. An unknown project_id returns
+            200 with empty roots (not 404 — the project may simply have nothing
+            in it yet). Omitted returns every root, including the "No project"
+            bucket.
+        - name: all
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
+          description: >-
+            Include system sessions (tagged system:true) in the tree. Omitted or
+            false hides them — mirrors /sessions and /events/stream exactly.
+      responses:
+        "200":
+          description: The project hierarchy (a live snapshot; never cached)
+          headers:
+            Cache-Control:
+              description: Always "no-store" — the tree is a live snapshot.
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Tree" }
+        "503":
+          description: >-
+            The underlying session scan is degraded (complete-or-error, same
+            contract as GET /sessions). Distinct from offline; the client shows
+            "node degraded".
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
   /api/v1/events/stream:
     get:
       operationId: streamEvents
       tags: [Events]
       summary: Live session snapshot stream (SSE)
       description: |
-        Server-Sent Events stream. Emits the full sessions snapshot once on
-        connect and again on every state change. Long-lived; not a
-        request/response endpoint.
+        Server-Sent Events stream. Emits two independently-deduplicated frames:
+
+        - the full sessions snapshot as the **unnamed** default event
+          (`data: {"sessions":[...],"autopilot":{...}}`) — unchanged, so every
+          existing client keeps working with zero changes; and
+        - the full project tree (the same shape as GET /api/v1/tree) as a
+          **named** `tree` event (`event: tree\ndata: {"roots":[...]}`).
+
+        The two frames dedup separately: a pure status change re-sends only the
+        sessions frame, a structural change re-sends only the tree frame. Old
+        clients ignore the named `tree` event; new clients add one
+        `addEventListener('tree', …)`. `?all=true` applies to both frames.
+        Long-lived; not a request/response endpoint.
       responses:
         "200":
-          description: text/event-stream of session snapshots
+          description: text/event-stream of session + tree snapshots
           content:
             text/event-stream:
               schema: { type: string }
@@ -3843,6 +3905,106 @@ components:
         jobs:
           type: array
           items: { $ref: "#/components/schemas/PipelineJob" }
+
+    Tree:
+      x-go-type: tree.Tree
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/tree
+        name: tree
+      type: object
+      description: >-
+        The top-level project-tree frame. Returned by GET /api/v1/tree and
+        carried verbatim in the SSE `tree` event.
+      required: [roots]
+      properties:
+        roots:
+          type: array
+          description: >-
+            Ordered root nodes: registered projects (open first, then closed),
+            loose-dir groups, then the synthetic "No project" bucket last.
+            Never null — an empty fleet returns [].
+          items: { $ref: "#/components/schemas/TreeNode" }
+        degraded:
+          type: boolean
+          description: >-
+            A subsystem (pipelines/autopilot) failed and its subtree is marked in
+            place; the rest of the tree is still trustworthy. Distinct from a 503
+            (the whole session scan is degraded). Omitted when false.
+        truncated:
+          type: boolean
+          description: >-
+            A soft node cap was hit and some children were elided. Omitted when
+            false.
+
+    TreeNode:
+      x-go-type: tree.Node
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/tree
+        name: tree
+      type: object
+      description: >-
+        One node in the hierarchy under a uniform envelope. An unrecognized
+        `type` still renders generically from label/status/children. Structure
+        only — session detail (repo/branch/backend/model/spend) is joined
+        client-side via session_id against /sessions; no node embeds a session.
+      required: [type, id, label, status]
+      properties:
+        type:
+          type: string
+          description: >-
+            Node type: project | agent | terminal | pipeline | job |
+            autopilot_run | manager | guardian | task | worker.
+          enum: [project, agent, terminal, pipeline, job, autopilot_run, manager, guardian, task, worker]
+        id:
+          type: string
+          description: >-
+            Composite, stable id minted from structure (e.g. session:<id>,
+            project:<id>, pipeline:<id>/job:<id>, run:<id>/task:<id>). Opaque —
+            clients key view state off it and never parse it.
+        label: { type: string, description: display name, node-supplied }
+        status:
+          type: string
+          description: >-
+            Normalized lifecycle rollup, one shared 7-value enum: active |
+            waiting | idle | done | error | blocked | unknown.
+          enum: [active, waiting, idle, done, error, blocked, unknown]
+        session_id:
+          type: string
+          description: >-
+            REFERENCE only, on session-backed nodes (agent/terminal/manager/
+            guardian/worker, and a job once it has spawned). Join detail against
+            /sessions. Omitted on structural nodes.
+        detail: { $ref: "#/components/schemas/TreeNodeDetail" }
+        children:
+          type: array
+          description: >-
+            Ordered by the node (never re-sorted by clients). Omitted when empty.
+          items: { $ref: "#/components/schemas/TreeNode" }
+
+    TreeNodeDetail:
+      x-go-type: tree.Detail
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/tree
+        name: tree
+      type: object
+      description: >-
+        Small, type-specific light fields a client needs to render a node
+        without a second lookup. Never embeds a full session. Every field is
+        omitempty.
+      properties:
+        kind: { type: string, description: "session kind: agent | terminal (session-backed nodes)" }
+        backend: { type: string, description: "agent nodes: backend id, for an icon before session detail arrives" }
+        depends_on:
+          type: array
+          items: { type: string }
+          description: "job nodes: the DAG edges"
+        repo: { type: string, description: "project/pipeline/run nodes: resolved repo path" }
+        path: { type: string, description: "project nodes: local checkout path" }
+        slot: { type: string, description: "autopilot lane: autopilot | guardian | worker" }
+        gate: { type: string, description: "autopilot_run nodes: gate mode" }
+        synthetic: { type: boolean, description: "true for the \"No project\" bucket" }
+        degraded: { type: boolean, description: "subtree degraded in place" }
+        closed: { type: boolean, description: "true for a node under a closed/hibernated project" }
 
     GitDirRequest:
       type: object

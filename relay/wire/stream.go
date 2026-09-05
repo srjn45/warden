@@ -45,6 +45,20 @@ const (
 	ScopeFull Scope = 2
 )
 
+// NarrowScope returns the effective authorization for a KindNativeE2E stream: the
+// more restrictive (numerically lower, since higher == more permissive) of the
+// scope implied by the inner client certificate and the hub-asserted
+// StreamOpen.Scope ceiling. A relay header can only ever NARROW authority, never
+// widen it, so the daemon takes this minimum — min(cert-implied, Scope). For
+// KindWebTerminated there is no inner client cert and the daemon trusts
+// StreamOpen.Scope directly (no narrowing).
+func NarrowScope(certImplied, asserted Scope) Scope {
+	if certImplied < asserted {
+		return certImplied
+	}
+	return asserted
+}
+
 // StreamOpen is the header the hub writes (as a single WriteFrame payload)
 // before any client bytes when it opens a stream to the daemon. It feeds the
 // daemon's relay-identity branch in authorize():
