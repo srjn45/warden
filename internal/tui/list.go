@@ -251,41 +251,54 @@ type item struct {
 func dirKey(dir string) string { return "dir\x00" + dir }
 
 // itemKey is the stable identity used to re-pin the cursor across refreshes.
+// Keys match the tree service's composite node ids (spec §6) so collapse/cursor
+// survive a rebuild against tree.Build output.
 func itemKey(it item) string {
 	if it.section != "" {
 		return secKey(it.section)
 	}
 	if it.projHdr != nil {
-		return projKey(it.projHdr.id)
+		if it.projHdr.id == "" {
+			return "project:__none__"
+		}
+		return "project:" + it.projHdr.id
 	}
 	if it.apRun != nil {
-		return apRunKey(it.apRun.RunID)
+		return "run:" + it.apRun.RunID
 	}
 	if it.apPlan {
-		return apPlanKey(it.apPlanRun)
+		return apPlanKey(it.apPlanRun) // legacy synthetic; unused by tree adapter
 	}
 	if it.apWorkers {
-		return apWorkersKey(it.apWorkersRun)
+		return apWorkersKey(it.apWorkersRun) // legacy synthetic; unused by tree adapter
 	}
 	if it.apWorkerGroup != "" {
-		return apWorkerGroupKey(it.apTaskRun, it.apWorkerGroup)
+		return "run:" + it.apTaskRun + "/task:" + it.apWorkerGroup
 	}
 	if it.apTask != nil {
-		return "aptask\x00" + it.apTaskRun + "\x00" + it.apTask.ID
+		return "run:" + it.apTaskRun + "/task:" + it.apTask.ID
 	}
 	if it.apprView != nil {
 		return "appr\x00" + it.apprView.ID
 	}
 	if it.pipeline != nil {
-		return "pipe\x00" + it.pipeline.ID
+		return "pipeline:" + it.pipeline.ID
 	}
 	if it.pjJob != nil {
-		return "pjob\x00" + it.pjPipe + "\x00" + it.pjJob.ID
+		return "pipeline:" + it.pjPipe + "/job:" + it.pjJob.ID
 	}
 	if it.session != nil {
-		return it.session.ID
+		return "session:" + it.session.ID
 	}
 	return dirKey(it.dir)
+}
+
+// projNodeID is the composite collapse/cursor key for a project group header.
+func projNodeID(id string) string {
+	if id == "" {
+		return "project:__none__"
+	}
+	return "project:" + id
 }
 
 // noDirGroup reports whether a row must render bare, never under a dir-group
@@ -306,95 +319,6 @@ func liveStatus(s store.Status) bool {
 		return true
 	}
 	return false // done/errored/orphaned/rate_limited
-}
-
-// buildItems flattens grouped sessions plus opened directories into the list the
-// cursor walks, nesting agent-spawned children under their parent (agent sub-tree
-// grouping). Dir grouping is over ROOT agents only — a child nests under its
-// root's dir regardless of its own sourceDir. Directory groups are ordered
-// chronologically by their FIRST (oldest) root's CreatedAt (asc), so a directory
-// keeps its place as new agents are created under it; an empty opened dir's key is
-// when it was opened, so it sorts in among the dirs by that time (newest → bottom).
-// An opened dir that has agents emits its sub-trees and no placeholder; one with none
-// emits a single placeholder. A node listed in `collapsed` hides its whole
-// sub-tree. Pure: returns a new slice, leaves inputs untouched. Callers pass
-// sessions already grouped by groupSort; within-group root order is preserved.
-// agentForest splits sessions into the root agents plus the parent→children and
-// child→parent-label maps that drive sub-tree nesting (§4.1). A child nests under
-// its parent only when they share a project (same sourceDir); a cross-project child
-// surfaces as its own root carrying a "↳ from <parent>" backlink. An orphan (parent
-// absent from the set) is promoted to a root so it never vanishes. Shared by the
-// dir-grouped buildItems and the project-grouped projectGroupedItems.
-func agentForest(sessions []*store.Session) (roots []*store.Session, childrenByParent map[string][]*store.Session, crossParent map[string]string) {
-	byID := make(map[string]*store.Session, len(sessions))
-	for _, s := range sessions {
-		byID[s.ID] = s
-	}
-	childrenByParent = map[string][]*store.Session{}
-	crossParent = map[string]string{}
-	for _, s := range sessions {
-		if parent := byID[s.ParentID]; s.ParentID != "" && parent != nil {
-			if sourceDir(s) == sourceDir(parent) {
-				childrenByParent[s.ParentID] = append(childrenByParent[s.ParentID], s)
-				continue
-			}
-			crossParent[s.ID] = parentLabel(parent) // cross-project → root with backlink
-		}
-		roots = append(roots, s)
-	}
-	return roots, childrenByParent, crossParent
-}
-
-func buildItems(sessions []*store.Session, opened map[string]time.Time, collapsed map[string]bool) []item {
-	roots, childrenByParent, crossParent := agentForest(sessions)
-
-	type grp struct {
-		first time.Time
-		seen  int
-	}
-	groups := map[string]*grp{}
-	var order []string
-	note := func(dir string, t time.Time) {
-		g := groups[dir]
-		if g == nil {
-			groups[dir] = &grp{first: t, seen: len(order)}
-			order = append(order, dir)
-			return
-		}
-		if t.Before(g.first) {
-			g.first = t
-		}
-	}
-	for _, s := range roots {
-		note(sourceDir(s), s.CreatedAt)
-	}
-	for dir, at := range opened {
-		note(dir, at)
-	}
-	sort.SliceStable(order, func(a, b int) bool {
-		ga, gb := groups[order[a]], groups[order[b]]
-		if ga.first.Equal(gb.first) {
-			return ga.seen < gb.seen
-		}
-		return ga.first.Before(gb.first)
-	})
-	byDir := map[string][]*store.Session{}
-	for _, s := range roots {
-		byDir[sourceDir(s)] = append(byDir[sourceDir(s)], s)
-	}
-	var items []item
-	seen := map[string]bool{} // cycle guard across the whole forest
-	for _, dir := range order {
-		rs := byDir[dir]
-		if len(rs) == 0 {
-			items = append(items, item{dir: dir}) // empty opened dir → placeholder
-			continue
-		}
-		for _, s := range rs {
-			items = appendSubtree(items, s, dir, 0, childrenByParent, crossParent, collapsed, seen)
-		}
-	}
-	return items
 }
 
 // parentLabel is the lineage backlink text for a §4.1 cross-project child: the
@@ -475,52 +399,6 @@ func terminalDisplayName(index int, cwd, repoRoot, branch string) string {
 	return fmt.Sprintf("%d. %s", index, label)
 }
 
-// appendSubtree emits s then, unless it is collapsed, its descendants in DFS
-// pre-order, assigning tree depth. A node with children renders as a collapsible
-// header (▸/▾); a terminal (non-live) parent is a tombstone — header-only, no
-// live badge/gauge — carrying the count of live descendants still under it. seen
-// guards against a malformed parent cycle.
-func appendSubtree(items []item, s *store.Session, dir string, depth int, childrenByParent map[string][]*store.Session, crossParent map[string]string, collapsed, seen map[string]bool) []item {
-	if seen[s.ID] {
-		return items
-	}
-	seen[s.ID] = true
-
-	kids := childrenByParent[s.ID]
-	it := item{session: s, dir: dir, depth: depth, hasKids: len(kids) > 0, fromParent: crossParent[s.ID]}
-	if it.hasKids {
-		it.collapsed = collapsed[s.ID]
-		if !liveStatus(s.Status) {
-			it.tombstone = true
-			it.runningKids = liveDescendants(s.ID, childrenByParent, map[string]bool{})
-		}
-	}
-	items = append(items, it)
-	if it.hasKids && !it.collapsed {
-		for _, c := range kids {
-			items = appendSubtree(items, c, dir, depth+1, childrenByParent, crossParent, collapsed, seen)
-		}
-	}
-	return items
-}
-
-// liveDescendants counts the live (non-terminal) agents anywhere under id — the
-// figure the tombstone header reports as "N running". seen guards against cycles.
-func liveDescendants(id string, childrenByParent map[string][]*store.Session, seen map[string]bool) int {
-	if seen[id] {
-		return 0
-	}
-	seen[id] = true
-	n := 0
-	for _, c := range childrenByParent[id] {
-		if liveStatus(c.Status) {
-			n++
-		}
-		n += liveDescendants(c.ID, childrenByParent, seen)
-	}
-	return n
-}
-
 // pipelineItems flattens pipelines into a header row per pipeline followed by an
 // indented row per job. Each job row holds a distinct *Job pointer plus, when the
 // job has spawned an agent, the matching live session (for the state badge, token
@@ -533,7 +411,7 @@ func pipelineItems(ps []*pipeline.Pipeline, sessions []*store.Session, collapsed
 	}
 	var out []item
 	for _, p := range ps {
-		c := collapsed[p.ID]
+		c := collapsed["pipeline:"+p.ID] || collapsed[p.ID]
 		out = append(out, item{pipeline: p, collapsed: c})
 		if c {
 			continue
@@ -563,214 +441,80 @@ type projectHeader struct {
 
 // projKey is the collapse-map / cursor-pin identity for a project group header.
 // The NUL separator keeps it distinct from any agent/pipeline id or section key.
-func projKey(id string) string { return "proj\x00" + id }
+func projKey(id string) string { return projNodeID(id) } // legacy name → composite id
 
-// ungroupedLabel is the display name of the catch-all bucket for agents/pipelines
-// that belong to no open project (§4.1: "Ungrouped").
-const ungroupedLabel = "Ungrouped"
+// ungroupedLabel is the display name of the synthetic bucket for agents/pipelines
+// with no project (tree label: "No project").
+const ungroupedLabel = "No project"
 
-// resolveGroupKey maps an agent/pipeline's (projectID, sourceDir) to the group key
-// it renders under: a matching OPEN project's id; "" (Ungrouped) when it matches a
-// CLOSED project (hidden per §4.1) or has no location; else the bare dir, which
-// forms a loose group so agents still cluster by directory before any project is
-// registered. openByKey holds every open project keyed by BOTH id and path;
-// closedByKey the same for closed projects.
-func resolveGroupKey(projectID, dir string, openByKey, closedByKey map[string]string) string {
-	if projectID != "" {
-		if k, ok := openByKey[projectID]; ok {
-			return k
-		}
-		if _, ok := closedByKey[projectID]; ok {
-			return "" // linked to a hibernated project → Ungrouped
-		}
-	}
-	if dir == "" || dir == "—" {
-		return ""
-	}
-	if k, ok := openByKey[dir]; ok {
-		return k
-	}
-	if _, ok := closedByKey[dir]; ok {
-		return ""
-	}
-	return dir // loose dir group
-}
-
-// projectGroupedItems is the §4 compositor: it renders agents and pipelines nested
-// under their project (or loose directory), each group a navigable, collapsible
-// header. Open projects always appear (even empty, IDE-style); loose directories
-// that hold work — or were explicitly opened — appear after them; an Ungrouped
-// bucket collects anything with no location. Agent sub-trees reuse the §4.1 forest
-// (children nest under a same-project parent, cross-project children surface with a
-// backlink); pipelines render under their project via pipelineItems. Pure: returns
-// a new slice, leaves inputs untouched.
-// allSessions is the full session list (including pipeline-owned ones) used only
-// to link a pipeline job row to its live session; agents is the flat, non-pipeline
-// set that forms the project-nested sub-trees.
-// groupByProject maps a project id to the name of the ProjectGroup it belongs to
-// (Phase 1); a real-project header shows this label beside its name.
+// projectGroupedItems is retained as a thin test/helper wrapper around
+// buildProjectItems (tree.Build + view adapter). Production uses buildProjectItems
+// directly via controlPaneModel.items.
 func projectGroupedItems(projects []projectstore.Project, groupByProject map[string]string, agents, allSessions []*store.Session, pipelines []*pipeline.Pipeline, opened map[string]time.Time, collapsed map[string]bool, runSets ...[]client.AutopilotRunStatus) []item {
 	var runs []client.AutopilotRunStatus
 	if len(runSets) > 0 {
 		runs = runSets[0]
 	}
-	// Index open/closed projects by both id and path so a match on either resolves.
-	openByKey := map[string]string{}   // id|path → group key (the project id)
-	closedByKey := map[string]string{} // id|path → "" (presence marks hibernated)
-	openMeta := map[string]projectstore.Project{}
-	for _, p := range projects {
-		if projectstore.NormalizeStatus(p.Status) == projectstore.StatusClosed {
-			closedByKey[p.ID] = p.ID
-			if p.Path != "" {
-				closedByKey[p.Path] = p.ID
-			}
+	sessions := allSessions
+	if len(sessions) == 0 {
+		sessions = agents
+	}
+	// Rebuild ProjectGroup slice so group labels survive the adapter path.
+	byName := map[string][]string{}
+	for pid, gname := range groupByProject {
+		if gname == "" {
 			continue
 		}
-		openByKey[p.ID] = p.ID
-		if p.Path != "" {
-			openByKey[p.Path] = p.ID
-		}
-		openMeta[p.ID] = p
+		byName[gname] = append(byName[gname], pid)
 	}
+	var groups []projectstore.ProjectGroup
+	for name, ids := range byName {
+		groups = append(groups, projectstore.ProjectGroup{Name: name, ProjectIDs: ids})
+	}
+	// Normalize legacy collapse keys (proj\x00, aprun\x00, bare ids) onto composite ids.
+	collapsed = normalizeCollapseKeys(collapsed)
+	return buildProjectItems(projects, groups, sessions, pipelines, client.AutopilotStatus{Runs: runs}, opened, collapsed, true)
+}
 
-	roots, childrenByParent, crossParent := agentForest(agents)
-
-	// Assign every root agent and pipeline to a group key, recording group order by
-	// first appearance for the loose (non-project) groups.
-	rootsByGroup := map[string][]*store.Session{}
-	pipesByGroup := map[string][]*pipeline.Pipeline{}
-	runsByGroup := map[string][]client.AutopilotRunStatus{}
-	var looseOrder []string
-	looseSeen := map[string]bool{}
-	noteLoose := func(key string) {
-		// Open projects are ordered by the store (name-sorted); only loose dir groups
-		// and Ungrouped need first-seen ordering here.
-		if key == "" || openMeta[key].ID != "" || looseSeen[key] {
-			return
-		}
-		looseSeen[key] = true
-		looseOrder = append(looseOrder, key)
+// normalizeCollapseKeys maps pre-N6 collapse identities onto composite node ids
+// so older tests and in-memory state keep working across the re-key.
+func normalizeCollapseKeys(in map[string]bool) map[string]bool {
+	if len(in) == 0 {
+		return in
 	}
-	for _, s := range roots {
-		key := resolveGroupKey(s.ProjectID, sourceDir(s), openByKey, closedByKey)
-		rootsByGroup[key] = append(rootsByGroup[key], s)
-		noteLoose(key)
-	}
-	for _, p := range pipelines {
-		key := resolveGroupKey(p.ProjectID, normalizePipelineDir(p), openByKey, closedByKey)
-		pipesByGroup[key] = append(pipesByGroup[key], p)
-		noteLoose(key)
-	}
-	for i := range runs {
-		key := resolveGroupKey("", normalizeAutopilotDir(runs[i].Repo), openByKey, closedByKey)
-		runsByGroup[key] = append(runsByGroup[key], runs[i])
-		noteLoose(key)
-	}
-	// Explicitly-opened dirs (o → Local/Remote/New) that are not themselves projects
-	// still deserve a group so a freshly opened empty dir is visible.
-	for dir := range opened {
-		key := resolveGroupKey("", dir, openByKey, closedByKey)
-		noteLoose(key)
-	}
-
-	// Per-group agent counts (roots + descendants) for the header badges, resolved by
-	// each agent's OWN location so a cross-project child counts under where it renders.
-	agentCount := map[string]int{}
-	liveCount := map[string]int{}
-	for _, s := range agents {
-		key := resolveGroupKey(s.ProjectID, sourceDir(s), openByKey, closedByKey)
-		agentCount[key]++
-		if liveStatus(s.Status) {
-			liveCount[key]++
-		}
-	}
-
-	// Ordered group keys: open projects (store order) first, then loose dirs, then
-	// the Ungrouped bucket last (only when it actually holds something).
-	var order []string
-	for _, p := range projects {
-		if projectstore.NormalizeStatus(p.Status) != projectstore.StatusClosed {
-			order = append(order, p.ID)
-		}
-	}
-	order = append(order, looseOrder...)
-	if len(rootsByGroup[""]) > 0 || len(pipesByGroup[""]) > 0 || len(runsByGroup[""]) > 0 {
-		order = append(order, "")
-	}
-
-	seen := map[string]bool{} // cycle guard shared across the whole forest
-	var items []item
-	for _, key := range order {
-		hdr := groupHeaderFor(key, openMeta, groupByProject, agentCount[key], liveCount[key])
-		items = append(items, item{projHdr: hdr, dir: hdr.path, collapsed: collapsed[projKey(key)]})
-		if collapsed[projKey(key)] {
+	out := make(map[string]bool, len(in))
+	for k, v := range in {
+		if !v {
 			continue
 		}
-		pipes := pipesByGroup[key]
-		apRuns := runsByGroup[key]
-		rs := rootsByGroup[key]
-		if len(pipes) == 0 && len(rs) == 0 && len(apRuns) == 0 {
-			// An empty group (open project or freshly opened dir) shows a spawn hint.
-			items = append(items, item{dir: hdr.path, underProject: true})
-			continue
-		}
-		for i := range apRuns {
-			r := &apRuns[i]
-			items = appendAutopilotRunItems(items, r, allSessions, collapsed)
-		}
-		items = append(items, pipelineItems(pipes, allSessions, collapsed)...)
-		start := len(items)
-		for _, s := range rs {
-			items = appendSubtree(items, s, sourceDir(s), 0, childrenByParent, crossParent, collapsed, seen)
-		}
-		// The projHdr above already groups these rows; flag them so buildRows does
-		// not emit a redundant dir-group header for them.
-		for i := start; i < len(items); i++ {
-			items[i].underProject = true
+		switch {
+		case strings.HasPrefix(k, "proj\x00"):
+			out[projNodeID(strings.TrimPrefix(k, "proj\x00"))] = true
+		case strings.HasPrefix(k, "aprun\x00"):
+			out["run:"+strings.TrimPrefix(k, "aprun\x00")] = true
+		case strings.HasPrefix(k, "apworkers\x00"):
+			// Workers header removed; collapse the run instead.
+			out["run:"+strings.TrimPrefix(k, "apworkers\x00")] = true
+		case strings.HasPrefix(k, "pipe\x00"):
+			out["pipeline:"+strings.TrimPrefix(k, "pipe\x00")] = true
+		case strings.HasPrefix(k, "session:"), strings.HasPrefix(k, "project:"), strings.HasPrefix(k, "pipeline:"), strings.HasPrefix(k, "run:"):
+			out[k] = true
+		case strings.Contains(k, "\x00"):
+			out[k] = true // section keys etc.
+		default:
+			// Bare pipeline or session id.
+			out[k] = true
+			out["session:"+k] = true
+			out["pipeline:"+k] = true
 		}
 	}
-	return items
+	return out
 }
 
-func normalizeAutopilotDir(dir string) string {
-	p := &pipeline.Pipeline{Repo: dir}
-	return normalizePipelineDir(p)
-}
-
-// groupHeaderFor builds the projectHeader for a group key: a registered open
-// project (named, closable) when key is in openMeta, the Ungrouped bucket when key
-// is "", else a loose directory labelled by its basename.
-func groupHeaderFor(key string, openMeta map[string]projectstore.Project, groupByProject map[string]string, agents, live int) *projectHeader {
-	switch {
-	case key == "":
-		return &projectHeader{id: "", name: ungroupedLabel, agentCount: agents, liveAgents: live}
-	default:
-		if p, ok := openMeta[key]; ok {
-			name := p.Name
-			if name == "" {
-				name = filepath.Base(p.ID)
-			}
-			return &projectHeader{id: p.ID, name: name, path: p.Path, isProject: true, group: groupByProject[p.ID], agentCount: agents, liveAgents: live}
-		}
-		return &projectHeader{id: key, name: filepath.Base(key), path: key, agentCount: agents, liveAgents: live}
-	}
-}
-
-// normalizePipelineDir is the grouping directory for a pipeline: its Repo,
-// normalized the same way sourceDir normalizes an agent's (absolute, worktree
-// stripped) so a pipeline lands in the same group as agents in that repo.
-func normalizePipelineDir(p *pipeline.Pipeline) string {
-	dir := p.Repo
-	if dir == "" {
-		return ""
-	}
-	if abs, err := filepath.Abs(dir); err == nil {
-		dir = abs
-	}
-	if idx := strings.Index(dir, string(filepath.Separator)+".worktrees"); idx != -1 {
-		dir = dir[:idx]
-	}
-	return dir
+// buildItems is the legacy dir-grouped list helper, now routed through the
+// project-tree adapter (loose dirs + No project) so goldens share one structure.
+func buildItems(sessions []*store.Session, opened map[string]time.Time, collapsed map[string]bool) []item {
+	return projectGroupedItems(nil, nil, sessions, sessions, nil, opened, collapsed)
 }
 
 // listRow is one rendered line: a group header (header != "") or a body row that
@@ -1252,7 +996,7 @@ func renderProjectHeader(it item) string {
 		// The group a project belongs to (Phase 1), shown right after the name.
 		line += " " + stMuted.Render("• "+h.group)
 	}
-	if h.isProject && h.path != "" {
+	if h.path != "" {
 		line += " " + stMuted.Render("["+abbrevHome(h.path)+"]")
 	}
 	line += stMuted.Render(fmt.Sprintf(" (%d)", h.agentCount))

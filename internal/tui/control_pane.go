@@ -208,34 +208,19 @@ func tabBarTitle(active tab) string {
 // section header is always present within its tab; collapsing one (its secKey in
 // m.collapsed) folds away its whole sub-tree.
 func (m controlPaneModel) items() []item {
-	agents, terminals := splitByKind(flatSessions(m.sessions, m.pipelines))
-	var out []item
-
 	// ── Terminals tab: plain shells only, named per §7 (live cwd/branch from termInfo).
 	if m.currentTab == tabTerminals {
+		_, terminals := splitByKind(flatSessions(m.sessions, m.pipelines))
 		termCollapsed := m.collapsed[secKey(secTerminals)]
-		out = append(out, item{section: secTerminals, secCount: len(terminals), collapsed: termCollapsed})
+		out := []item{{section: secTerminals, secCount: len(terminals), collapsed: termCollapsed}}
 		if !termCollapsed {
 			out = append(out, terminalItems(terminals, m.termInfo)...)
 		}
 		return out
 	}
 
-	// ── Projects tab (§4 tree nesting): agents and pipelines nested under their
-	// project (or a loose directory / the Ungrouped bucket), each group a navigable,
-	// collapsible header. Open projects always show (even empty, IDE-style).
-	visible := agents[:0]
-	for _, s := range agents {
-		if s.HasTag("system:true") && !m.showSystemAgents {
-			continue
-		}
-		if isAutopilotOwned(s) {
-			continue
-		} // rendered inside its run node
-		visible = append(visible, s)
-	}
-	out = append(out, projectGroupedItems(m.projects, groupLabels(m.projectGroups), visible, m.sessions, m.pipelines, m.openedDirs, m.collapsed, m.autopilot.Runs)...)
-	return out
+	// ── Projects tab: tree.Service.Build + view adapter (N6).
+	return buildProjectItems(m.projects, m.projectGroups, m.sessions, m.pipelines, m.autopilot, m.openedDirs, m.collapsed, m.showSystemAgents)
 }
 
 // groupLabels maps each member project id to the name of the group it belongs to
@@ -491,12 +476,12 @@ func (m controlPaneModel) rotateAgent(set []*store.Session, emptyMsg string, ste
 	m.openedAgentDir = sourceDir(next)
 	m.currentTab = tabProjects
 	if next.ProjectID != "" {
-		delete(m.collapsed, projKey(next.ProjectID))
+		delete(m.collapsed, projNodeID(next.ProjectID))
 	}
-	delete(m.collapsed, projKey(sourceDir(next)))
-	delete(m.collapsed, projKey("")) // Ungrouped
+	delete(m.collapsed, projNodeID(sourceDir(next)))
+	delete(m.collapsed, projNodeID("")) // No project bucket
 	if next.ParentID != "" {
-		delete(m.collapsed, next.ParentID)
+		delete(m.collapsed, "session:"+next.ParentID)
 	}
 	items := m.items()
 	for i, it := range items {
@@ -616,7 +601,7 @@ func (m *controlPaneModel) applyDefaultCollapse() {
 		}
 		m.seen[p.ID] = true
 		if pipelineIsCompleted(p.Status) {
-			m.collapsed[p.ID] = true
+			m.collapsed["pipeline:"+p.ID] = true
 		}
 	}
 }
@@ -847,7 +832,7 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tp.Blur()
 		m.tpn.Blur()
 		m.dirCandidates = nil
-		m.pendingSelect = projKey(msg.proj.ID)
+		m.pendingSelect = projNodeID(msg.proj.ID)
 		m.status = "opened " + msg.proj.Name
 		m.repin("")
 		return m, tea.Batch(projectsCmd(m.api), listCmd(m.api, true))
@@ -860,7 +845,7 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.err != nil:
 			m.status = "spawn failed: " + msg.err.Error()
 		default:
-			m.status, m.pendingSelect = "spawned "+msg.id, msg.id
+			m.status, m.pendingSelect = "spawned "+msg.id, "session:"+msg.id
 		}
 		return m, nil
 	case inputDoneMsg:
@@ -1610,13 +1595,19 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if it.apRun != nil {
-			key := apRunKey(it.apRun.RunID)
+			key := itemKey(it)
 			m.collapsed[key] = !m.collapsed[key]
 			m.repin(key)
 			return m, nil
 		}
 		if it.apPlan {
 			key := apPlanKey(it.apPlanRun)
+			m.collapsed[key] = !m.collapsed[key]
+			m.repin(key)
+			return m, nil
+		}
+		if it.apTask != nil && it.hasKids {
+			key := itemKey(it)
 			m.collapsed[key] = !m.collapsed[key]
 			m.repin(key)
 			return m, nil
@@ -1685,18 +1676,16 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch {
 		case it.section != "":
 			m.collapsed[secKey(it.section)] = false
-		case it.projHdr != nil:
-			m.collapsed[projKey(it.projHdr.id)] = false
-		case it.apRun != nil:
-			m.collapsed[apRunKey(it.apRun.RunID)] = false
+		case it.projHdr != nil, it.apRun != nil, it.pipeline != nil:
+			m.collapsed[itemKey(it)] = false
 		case it.apPlan:
 			m.collapsed[apPlanKey(it.apPlanRun)] = false
+		case it.apTask != nil && it.hasKids:
+			m.collapsed[itemKey(it)] = false
 		case it.apWorkers:
 			m.collapsed[apWorkersKey(it.apWorkersRun)] = false
-		case it.pipeline != nil:
-			m.collapsed[it.pipeline.ID] = false
 		case it.session != nil && it.hasKids:
-			m.collapsed[it.session.ID] = false
+			m.collapsed[itemKey(it)] = false
 		}
 	case "left", "h":
 		it := itemAt(m.items(), m.cursor)
@@ -1707,12 +1696,11 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.collapsed[secKey(it.section)] = true
 			m.repin(secKey(it.section))
 		case it.projHdr != nil:
-			// Fold the project's whole sub-tree; re-pin to the header so the cursor
-			// stays on it rather than a now-hidden child (§4.3).
-			m.collapsed[projKey(it.projHdr.id)] = true
-			m.repin(projKey(it.projHdr.id))
+			key := itemKey(it)
+			m.collapsed[key] = true
+			m.repin(key)
 		case it.apRun != nil:
-			key := apRunKey(it.apRun.RunID)
+			key := itemKey(it)
 			m.collapsed[key] = true
 			m.repin(key)
 		case it.apPlan:
@@ -1720,29 +1708,45 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.collapsed[key] = true
 			m.repin(key)
 		case it.apTask != nil:
-			key := apPlanKey(it.apTaskRun)
-			m.collapsed[key] = true
-			m.repin(key)
+			key := itemKey(it)
+			if it.hasKids {
+				m.collapsed[key] = true
+				m.repin(key)
+			} else if it.apTaskRun != "" {
+				// Collapse the owning run when Left is pressed on a leaf task.
+				runKey := "run:" + it.apTaskRun
+				m.collapsed[runKey] = true
+				m.repin(runKey)
+			}
 		case it.apWorkers:
 			key := apWorkersKey(it.apWorkersRun)
 			m.collapsed[key] = true
 			m.repin(key)
 		case it.apWorkerGroup != "":
-			key := apWorkersKey(it.apTaskRun)
+			key := itemKey(it)
 			m.collapsed[key] = true
 			m.repin(key)
 		case it.pipeline != nil:
-			m.collapsed[it.pipeline.ID] = true
+			key := itemKey(it)
+			m.collapsed[key] = true
+			m.repin(key)
 		case it.pjJob != nil:
 			// Collapsing hides the job under the cursor; re-pin to the parent
 			// header so the cursor never lands on a now-hidden row.
-			m.collapsed[it.pjPipe] = true
-			m.repin(itemKey(item{pipeline: &pipeline.Pipeline{ID: it.pjPipe}}))
+			key := "pipeline:" + it.pjPipe
+			m.collapsed[key] = true
+			m.repin(key)
 		case it.session != nil && it.hasKids:
-			// Hide this agent's sub-tree; the header row stays, so re-pin to it (its
-			// key is the session id) — the cursor never lands on a now-hidden child.
-			m.collapsed[it.session.ID] = true
-			m.repin(it.session.ID)
+			key := itemKey(it)
+			m.collapsed[key] = true
+			m.repin(key)
+		case it.session != nil && it.apSlot != "" && it.apSlot != store.AutopilotSlotManager:
+			// Worker/guardian under a run: Left collapses the owning run.
+			if rid := sessionRunID(it.session); rid != "" {
+				key := "run:" + rid
+				m.collapsed[key] = true
+				m.repin(key)
+			}
 		}
 	case "n":
 		m.targetDir = m.activeDir()
