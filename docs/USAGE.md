@@ -1297,7 +1297,10 @@ prompts and building pipelines in the TUI are not yet available.)
 
 Agents spawned by another agent (via the `spawn_agent` MCP tool) **nest under
 their parent** as a collapsible sub-tree — a `▸ / ▾` header indented per depth,
-toggled with `h`/`l` (`←`/`→`), the same affordance pipelines use. Deleting a
+toggled with `h`/`l` (`←`/`→`), the same affordance pipelines use. On the
+**Projects** tab the navigator is built from the shared project-tree service
+(same shape as `GET /api/v1/tree`): projects hold autopilot runs, pipelines, and
+agent forests; work with no project lands under **No project**. Deleting a
 parent that still has live children keeps it as a muted **terminated tombstone**
 header (`terminated · N running`) with no attach pane, so the children
 never orphan; the daemon reaps the tombstone once the whole sub-tree goes

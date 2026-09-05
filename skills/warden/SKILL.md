@@ -167,7 +167,7 @@ The per-agent MCP tools take a `ticket` argument — the agent's **id** from
 
 | The user wants to… | Do this |
 |---|---|
-| list / check / triage agents | `list_agents` (`warden ls`); summarize by status. Call out `waiting_for_input` (needs them) and `errored`/`orphaned`. Show each agent's `subject` and `workdir`. |
+| list / check / triage agents | `list_agents` (`warden ls`); summarize by status. Call out `waiting_for_input` (needs them) and `errored`/`orphaned`. Show each agent's `subject` and `workdir`. For a nested fleet view (projects → runs/pipelines → agents), prefer `GET /api/v1/tree` over joining sessions/pipelines/autopilot client-side. |
 | spin up an agent to do X | `spawn_agent {prompt: "X"}` (auto-typed, no repo needed). Use `type`+`repo` only for a managed worktree tied to a repo/ticket. |
 | what is agent <id> doing | `get_agent` (status/subject/workdir/events) + `get_agent_output` (recent terminal) → report concisely. |
 | tell / ask agent <id> to do Y | `send_to_agent` (id as `ticket`, `text`). Echo back what you sent. |
