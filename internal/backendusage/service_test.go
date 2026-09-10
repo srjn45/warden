@@ -167,14 +167,14 @@ func TestServiceSortsDistinctUsageLimitsWithoutFlattening(t *testing.T) {
 	resetGemini := now.Add(2 * time.Hour)
 	a := fakeAdapter{id: "antigravity", fetch: func(context.Context, backendstore.Backend) Result {
 		return Result{Status: StatusOK, ObservedAt: now, Usage: []Limit{
-			{ID: "antigravity:non-gemini", Scope: "non-gemini", Label: "Non-Gemini models", ModelFamilies: []string{"claude"}, UsedPercent: &usedOther},
-			{ID: "antigravity:gemini", Scope: "gemini", Label: "Gemini models", ModelFamilies: []string{"gemini"}, UsedPercent: &usedGemini, ResetsAt: &resetGemini},
+			{ID: "antigravity:non-gemini-weekly", Scope: "non-gemini", Label: "Non-Gemini weekly", ModelFamilies: []string{"claude"}, UsedPercent: &usedOther},
+			{ID: "antigravity:gemini-5h", Scope: "gemini", Label: "Gemini 5-hour", ModelFamilies: []string{"gemini"}, UsedPercent: &usedGemini, ResetsAt: &resetGemini},
 		}}
 	}}
 	s := NewService(fakeRegistry{rows: []backendstore.Backend{{ID: "antigravity", Tier: backendstore.TierSubscription, Installed: true}}}, a)
 	got, err := s.Snapshot(context.Background(), false)
 	require.NoError(t, err)
-	require.Equal(t, []string{"antigravity:gemini", "antigravity:non-gemini"}, []string{got.Backends[0].Usage[0].ID, got.Backends[0].Usage[1].ID})
+	require.Equal(t, []string{"antigravity:gemini-5h", "antigravity:non-gemini-weekly"}, []string{got.Backends[0].Usage[0].ID, got.Backends[0].Usage[1].ID})
 	require.Equal(t, "gemini", got.Backends[0].Usage[0].Scope)
 	require.Nil(t, got.Backends[0].Usage[1].ResetsAt, "unknown reset must remain unknown")
 }

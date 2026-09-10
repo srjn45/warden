@@ -19,8 +19,9 @@ func TestScopedLimitsFixtureRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	var snapshot Snapshot
 	require.NoError(t, json.Unmarshal(raw, &snapshot))
-	require.Len(t, snapshot.Backends[0].Usage, 2)
+	require.Len(t, snapshot.Backends[0].Usage, 4)
 	require.Equal(t, "gemini", snapshot.Backends[0].Usage[0].Scope)
-	require.Nil(t, snapshot.Backends[0].Usage[1].UsedPercent)
-	require.Nil(t, snapshot.Backends[0].Usage[1].ResetsAt)
+	require.Equal(t, "antigravity:gemini-5h", snapshot.Backends[0].Usage[0].ID)
+	require.Nil(t, snapshot.Backends[0].Usage[2].UsedPercent)
+	require.Nil(t, snapshot.Backends[0].Usage[2].ResetsAt)
 }

@@ -13,7 +13,7 @@ func TestUsageRefreshAndSchemaValidation(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		query = r.URL.RawQuery
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"schema_version":1,"generated_at":"2026-09-01T10:00:00Z","backends":[{"id":"antigravity","tier":"subscription","installed":true,"enabled":true,"status":"ok","account":{"plan":"pro"},"usage":[{"id":"antigravity:gemini","scope":"gemini","label":"Gemini models","model_families":["gemini"],"models":null,"used_percent":50,"resets_at":"2026-09-01T12:00:00Z"},{"id":"antigravity:non-gemini","scope":"non-gemini","label":"Non-Gemini models","model_families":null,"models":null,"used_percent":null,"resets_at":null}],"observed_at":"2026-09-01T10:00:00Z","cached":false,"stale":false}]}`))
+		_, _ = w.Write([]byte(`{"schema_version":1,"generated_at":"2026-09-01T10:00:00Z","backends":[{"id":"antigravity","tier":"subscription","installed":true,"enabled":true,"status":"ok","account":{"plan":"pro"},"usage":[{"id":"antigravity:gemini-5h","scope":"gemini","label":"Gemini 5-hour","model_families":["gemini"],"models":null,"used_percent":50,"resets_at":"2026-09-01T12:00:00Z"},{"id":"antigravity:non-gemini-weekly","scope":"non-gemini","label":"Non-Gemini weekly","model_families":null,"models":null,"used_percent":null,"resets_at":null}],"observed_at":"2026-09-01T10:00:00Z","cached":false,"stale":false}]}`))
 	}))
 	defer ts.Close()
 	got, err := New(ts.URL).Usage(t.Context(), true)

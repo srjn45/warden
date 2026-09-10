@@ -11,21 +11,43 @@
       "account": {"plan": "synthetic"},
       "usage": [
         {
-          "id": "antigravity:gemini",
+          "id": "antigravity:gemini-5h",
           "scope": "gemini",
-          "label": "Gemini models",
+          "label": "Gemini 5-hour",
           "model_families": ["gemini"],
           "models": null,
           "used_percent": 50,
+          "duration_minutes": 300,
           "resets_at": "2026-09-01T12:00:00Z"
         },
         {
-          "id": "antigravity:non-gemini",
+          "id": "antigravity:gemini-weekly",
+          "scope": "gemini",
+          "label": "Gemini weekly",
+          "model_families": ["gemini"],
+          "models": null,
+          "used_percent": 20,
+          "duration_minutes": 10080,
+          "resets_at": "2026-09-08T10:00:00Z"
+        },
+        {
+          "id": "antigravity:non-gemini-5h",
           "scope": "non-gemini",
-          "label": "Non-Gemini models",
+          "label": "Non-Gemini 5-hour",
           "model_families": null,
           "models": null,
           "used_percent": null,
+          "duration_minutes": 300,
+          "resets_at": null
+        },
+        {
+          "id": "antigravity:non-gemini-weekly",
+          "scope": "non-gemini",
+          "label": "Non-Gemini weekly",
+          "model_families": null,
+          "models": null,
+          "used_percent": null,
+          "duration_minutes": 10080,
           "resets_at": null
         }
       ],

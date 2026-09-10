@@ -1317,10 +1317,11 @@ successful rows when another provider fails (exit 2). Codex has structured usage
 (`included` / `auto` / `api`) from the dashboard `GetCurrentPeriodUsage` RPC —
 Composer and `cursor-grok-*` on included, exact `auto` on auto, and Claude/GPT/Gemini/Kimi/GLM
 on api — never flattened to one percent. Antigravity supplies **two** subscription
-windows (`gemini` / `non-gemini`) parsed from its `fetchAvailableModels` RPC (local
-OAuth2 token discovery + refresh), mirroring the free tier's separate Gemini and
+windows (`gemini` / `non-gemini` × 5-hour / weekly) parsed from its
+`retrieveUserQuotaSummary` RPC (local OAuth2 token discovery + refresh; same source
+as the `agy /usage` TUI), mirroring the free tier's separate Gemini and
 non-Gemini model pools — never flattened to one percent, and degrading gracefully to
-two `null`-percentage rows if the endpoint is unreachable. Claude reports a **single**
+four `null`-percentage rows if the endpoint is unreachable. Claude reports a **single**
 session (`five_hour`) window — used percent + reset time — read from the OAuth
 `/api/oauth/usage` endpoint the `claude` CLI's `/usage` pager uses, authenticated with
 the local Claude Code access token and degrading gracefully to one `null`-percentage
