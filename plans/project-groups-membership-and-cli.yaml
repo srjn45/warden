@@ -1,0 +1,124 @@
+version: 1
+goal: >-
+  Fix project-group membership (#432) and add first-class CLI for projects &
+  project groups, per docs/specs/2026-09-05-project-groups-membership-and-cli.md
+  and https://github.com/srjn45/warden/issues/432. Expose the existing store
+  AddProjectToGroup/RemoveProjectFromGroup via a real /members sub-resource,
+  wire client methods, add `warden projects` + `warden project-groups`, then
+  finish DoD docs (including fixing the site guide that already documents
+  /members as if it worked).
+constraints:
+  - "Normative plan: docs/specs/2026-09-05-project-groups-membership-and-cli.md (also on disk at /home/srjn45/dev/warden/docs/specs/2026-09-05-project-groups-membership-and-cli.md). Locked decisions there are not to be relitigated."
+  - "Issue: https://github.com/srjn45/warden/issues/432"
+  - "Work in an isolated git worktree branched off origin/main or the plan integration branch; one worker per task."
+  - "Keep the tree green — run `wd check` (or make verify-fast) before every commit/push."
+  - "API is spec-first — edit internal/daemon/apidocs/openapi.yaml then `make generate`; never hand-edit generated code (api.gen.go)."
+  - "Do not add /members ops to oapi/config.yaml exclude-operation-ids."
+  - "warden project (singular) stays repo-local config. New namespaces are plural: `warden projects` and `warden project-groups`."
+  - "No MCP tools for projects/groups today — do not invent MCP surface (J6 deferred)."
+  - "Member ids need NOT resolve to registered projects (match CreateGroup/UpdateGroup)."
+  - "DELETE /members uses a JSON body {project_id}. If DELETE-with-body fails in the stack, fall back to POST …/members/remove with the same body."
+  - "Do not merge to main. PRs target autopilot/pg-members-cli."
+  - "Confirm with the maintainer before pushing any v* tag (patch release after merge)."
+  - "Leave the warden-hub autopilot run alone — this run is only for /home/srjn45/dev/warden."
+tasks:
+  - id: Phase1_MembershipAPI
+    prompt: >-
+      Phase 1 (J1–J3 + route tests — membership bug fix):
+      Root cause: there is NO /members route. Store methods AddProjectToGroup and
+      RemoveProjectFromGroup in internal/projectstore/groups.go already work and
+      are tested; they are dead code above the store. OpenAPI only has PUT full-replace.
+
+      1) Commit/land docs/specs/2026-09-05-project-groups-membership-and-cli.md if
+      missing on the branch (copy from /home/srjn45/dev/warden/docs/specs/ if needed).
+
+      2) OpenAPI (internal/daemon/apidocs/openapi.yaml):
+      - Add path /api/v1/project-groups/{id}/members
+      - post → operationId addProjectGroupMember, body AddProjectGroupMemberRequest
+        { project_id: string }, 200 ProjectGroup, 400, 404
+      - delete → operationId removeProjectGroupMember, same body, 200/400/404
+      - Tighten PUT /project-groups/{id} description: full-replace/bulk-set; point to /members for incremental edits
+      - Run `make generate` and commit regenerated api.gen.go
+
+      3) Daemon handlers in internal/daemon/strict_project_groups.go:
+      - AddProjectGroupMember / RemoveProjectGroupMember
+      - blank/missing project_id → 400 with non-empty JSON error body
+      - ErrGroupNotFound → 404; ErrInvalidID → 400; else 200 with updated group
+      - Remove of absent member is store no-op → 200
+
+      4) Client (internal/client/client.go): add
+      AddProjectGroupMember, RemoveProjectGroupMember, GetProjectGroup,
+      CreateProjectGroup, UpdateProjectGroup, DeleteProjectGroup, OpenProject
+      (POST /projects/open). Percent-encode ids like CloseProject.
+
+      5) Tests: internal/daemon/project_groups_routes_test.go — POST/DELETE /members
+      happy path, 404 unknown group, 400 blank project_id with NON-EMPTY error body
+      (regression guard for #432), double-add dedupe, remove-absent idempotency.
+
+      Open a PR against autopilot/pg-members-cli. End with
+      `wd job done --summary '…'` once CI is green / gate ready.
+    status: active
+    # no after — starts first
+
+  - id: Phase2_CLI
+    prompt: >-
+      Phase 2 (J4–J5 — CLI namespaces):
+      Depends on Phase1 client methods being available.
+
+      1) New internal/cli/projects.go — wire into root + help.go metadata:
+      - warden projects list [--json]
+      - warden projects open <id> [--name]
+      - warden projects open-local <path> [--name]
+      - warden projects open-remote <url> [--name]
+      - warden projects new <name>
+      - warden projects close <id>
+      Thin client wrappers; table/--json like backends.
+
+      2) New internal/cli/project_groups.go:
+      - warden project-groups list [--json]
+      - warden project-groups show <id>
+      - warden project-groups create <name> [--project <id>]…
+      - warden project-groups update <id> [--name] [--project <id>]…  (bulk-set)
+      - warden project-groups delete <id>
+      - warden project-groups members add <id> <project-id>
+      - warden project-groups members remove <id> <project-id>
+
+      3) Extend command_inventory_test.go / commands*_cli_test.go so namespaces
+      and help metadata are registered.
+
+      4) Run `make gendocs` and commit site/src/content/docs/reference/cli.md
+      (never hand-edit it).
+
+      Do NOT add MCP tools. Open PR against autopilot/pg-members-cli. End with
+      `wd job done --summary '…'` once gate-ready.
+    after: [Phase1_MembershipAPI]
+
+  - id: Phase3_DocsDoD
+    prompt: >-
+      Phase 3 (DoD docs — CLAUDE.md checklist):
+      After CLI lands, update all affected docs:
+
+      - README.md — mention new CLI namespaces if CLI overview lists them
+      - docs/FEATURES.md + root FEATURES.md — projects/groups CLI + /members rows;
+        MCP column stays — (honest parity)
+      - docs/USAGE.md — usage examples for the new commands
+      - site/src/content/docs/guides/project-groups.md — it ALREADY shows
+        POST …/members curl as if it worked (that is the bug). Replace curl-only
+        flows with CLI examples; keep a short REST note
+      - site reference/features.md MCP/CLI columns
+      - skills/warden/ — note new CLI verbs (no MCP verbs)
+      - Run make gendocs if needed; make gendocs-check clean
+      - Close out #432 in the PR description when everything is done
+
+      Open PR against autopilot/pg-members-cli. End with
+      `wd job done --summary '…'` once gate-ready.
+    after: [Phase2_CLI]
+
+done_when:
+  - "wd check passes on autopilot/pg-members-cli."
+  - "POST and DELETE /api/v1/project-groups/{id}/members work; errors return non-empty JSON bodies."
+  - "PUT /project-groups/{id} remains the full-replace path and is documented as such."
+  - "Client exposes group CRUD + member add/remove + OpenProject."
+  - "`warden projects` and `warden project-groups` (incl. members add|remove) work; `make gendocs-check` clean."
+  - "Site project-groups guide no longer documents a broken /members-only curl path as the primary flow."
+  - "FEATURES matrix reflects CLI ✓ and MCP — for projects/groups membership."
