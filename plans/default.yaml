@@ -1,0 +1,31 @@
+version: 1
+goal: >-
+  Implement the Project Groups & Orchestrator Collaboration architecture (Feature #5)  described in docs/specs/2026-08-30-project-groups-architecture.md.  This introduces peer-to-peer Project Orchestrators.
+constraints:
+  - Read ONLY docs/specs/2026-08-30-project-groups-architecture.md.
+  - Work in an isolated git worktree branched off the latest origin/main; one worker per task.
+  - Keep the tree green — run `make verify-fast` before every commit/push.
+  - API is spec-first — edit internal/daemon/apidocs/openapi.yaml then `make generate`; never hand-edit generated code.
+  - End each task with `wd job done --summary '<what shipped>'` once the PR is up and CI is green.
+tasks:
+  - id: Phase1
+    prompt: "Phase 1 (Database & Registry): Update internal/projectstore to support a ProjectGroup schema (id, name, array of project IDs). Add HTTP endpoints in internal/daemon/apidocs/openapi.yaml (e.g., /api/v1/project-groups) and implement them to create/list/manage groups. Update the Cockpit TUI to display the group next to the project."
+  - id: Phase2
+    prompt: "Phase 2 (Orchestrator Daemon Loop): Add a hook in the daemon so when a project is activated/opened in Cockpit, it guarantees an agent named `orch-<project-name>` (role: orchestrator) is alive. Implement auto-wakeup if it receives a message in the mailbox."
+    after: [Phase1]
+  - id: Phase3
+    prompt: "Phase 3 (Peer Awareness Context Injection): Modify internal/lifecycle/poller.go to dynamically inject peer context into the Orchestrator's system prompt at runtime based on its ProjectGroup (e.g., 'Your peers are orch-backend, orch-docs')."
+    after: [Phase2]
+  - id: Phase4
+    prompt: "Phase 4 (Subagent & Pipeline Ergonomics): Verify and polish the `invoke_subagent` and `create_pipeline` MCP tools so the Orchestrator has flawless APIs to spin up `planner` and `worker` agents locally. Ensure `wait_for_message` behaves reliably."
+  - id: Phase5
+    prompt: "Phase 5 (Cleanup): Delete the local and remote git branches `stage-b5`, `stage-b6`, `stage-b7`, and `stage-c2`. Delete the old specs `docs/specs/2026-08-26-collaboration-groups*.md` to clear technical debt."
+    after: [Phase1, Phase2, Phase3, Phase4]
+done_when:
+  - "wd check passes on the integration branch."
+  - "Project Groups can be created and stored in projectstore."
+  - "Orchestrators are auto-spawned when projects are opened."
+  - "Peer context is properly injected into orchestrator system prompts."
+  - "Old stage branches and collaboration specs are deleted."
+status: complete
+completed_at: "2026-08-30T16:10:20Z"
