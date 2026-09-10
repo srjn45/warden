@@ -101,10 +101,11 @@ protocol. Cursor supplies three never-flattened windows (`included`, `auto`, `ap
 from `POST https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage`
 using the local `cursor-agent` login token — the same RPC as the feature-flagged
 CLI `/usage` pager. There is no `cursor-agent usage` subcommand; warden does not
-scrape the TUI or invent percents from spend cents. Antigravity supplies two
-never-flattened windows (`gemini` and `non-gemini`) from
-`POST https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels`
-using the local `agy` OAuth credentials. Claude supplies a single session
+scrape the TUI or invent percents from spend cents. Antigravity supplies four
+never-flattened windows (`gemini`/`non-gemini` × 5-hour/weekly) from
+`POST https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary`
+using the local `agy` OAuth credentials — the same RPC as the `agy /usage` TUI.
+Claude supplies a single session
 (`five_hour`) window — `used_percent` and `resets_at` — from
 `GET https://api.anthropic.com/api/oauth/usage` (the endpoint the `claude`
 CLI's `/usage` pager uses), authenticated with the local Claude Code OAuth
@@ -138,16 +139,18 @@ Omitted percents stay JSON `null` — they are never defaulted to 0.
 ```json
 {
   "id": "antigravity",
-  "status": "ok",
+  "status": "rate_limited",
   "usage": [
-    {"id": "antigravity:gemini", "scope": "gemini", "label": "Gemini models", "model_families": ["gemini"], "models": null, "used_percent": 50, "resets_at": "2026-09-01T12:00:00Z"},
-    {"id": "antigravity:non-gemini", "scope": "non-gemini", "label": "Non-Gemini models", "model_families": null, "models": null, "used_percent": 0, "resets_at": "2026-09-01T16:00:00Z"}
+    {"id": "antigravity:gemini-5h", "scope": "gemini", "label": "Gemini 5-hour", "model_families": ["gemini"], "models": null, "used_percent": 100, "duration_minutes": 300, "resets_at": "2026-09-05T21:40:45Z"},
+    {"id": "antigravity:gemini-weekly", "scope": "gemini", "label": "Gemini weekly", "model_families": ["gemini"], "models": null, "used_percent": 17.73, "duration_minutes": 10080, "resets_at": "2026-09-10T19:03:34Z"},
+    {"id": "antigravity:non-gemini-5h", "scope": "non-gemini", "label": "Non-Gemini 5-hour", "model_families": null, "models": null, "used_percent": 0, "duration_minutes": 300, "resets_at": "2026-09-06T01:04:38Z"},
+    {"id": "antigravity:non-gemini-weekly", "scope": "non-gemini", "label": "Non-Gemini weekly", "model_families": null, "models": null, "used_percent": 0, "duration_minutes": 10080, "resets_at": "2026-09-12T20:04:38Z"}
   ]
 }
 ```
 
-The Antigravity adapter maps live quota fractions from the provider models API
-into `antigravity:gemini` and `antigravity:non-gemini` windows with exact reset times.
+The Antigravity adapter maps `retrieveUserQuotaSummary` buckets into four windows
+(`gemini`/`non-gemini` × 5-hour/weekly) with exact reset times — matching `agy /usage`.
 
 ## MCP tools
 

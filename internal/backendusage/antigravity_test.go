@@ -17,9 +17,9 @@ func antigravityBackend() backendstore.Backend {
 	return backendstore.Backend{ID: "antigravity", Installed: true, BinaryPath: "/synthetic/agy"}
 }
 
-func fixtureAvailableModels(t *testing.T) []byte {
+func fixtureQuotaSummary(t *testing.T) []byte {
 	t.Helper()
-	raw, err := os.ReadFile("testdata/antigravity-available-models.json")
+	raw, err := os.ReadFile("testdata/antigravity-quota-summary.json")
 	require.NoError(t, err)
 	return raw
 }
@@ -57,9 +57,9 @@ func TestAntigravityAdapterUnauthenticatedWhenEmptyToken(t *testing.T) {
 	require.Empty(t, got.Usage)
 }
 
-func TestAntigravityAdapterDualWindowFromFixture(t *testing.T) {
-	modelsFixture := fixtureAvailableModels(t)
-	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
+func TestAntigravityAdapterFourWindowsFromSummary(t *testing.T) {
+	summaryFixture := fixtureQuotaSummary(t)
+	now := time.Date(2026, 9, 5, 20, 0, 0, 0, time.UTC)
 
 	var tokenRefreshed bool
 	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -70,20 +70,21 @@ func TestAntigravityAdapterDualWindowFromFixture(t *testing.T) {
 	}))
 	defer tokenSrv.Close()
 
-	var modelsCalled bool
-	modelsSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		modelsCalled = true
+	var summaryCalled bool
+	summarySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		summaryCalled = true
 		require.Equal(t, http.MethodPost, r.Method)
 		require.Equal(t, "Bearer refreshed_test_token", r.Header.Get("Authorization"))
 		require.Equal(t, antigravityUserAgent, r.Header.Get("User-Agent"))
+		require.Contains(t, r.URL.Path, "retrieveUserQuotaSummary")
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(modelsFixture)
+		_, _ = w.Write(summaryFixture)
 	}))
-	defer modelsSrv.Close()
+	defer summarySrv.Close()
 
 	a := AntigravityAdapter{
 		Now:           func() time.Time { return now },
-		Endpoint:      modelsSrv.URL,
+		Endpoint:      summarySrv.URL,
 		TokenEndpoint: tokenSrv.URL,
 		TokenPath:     func() string { return "/synthetic/token" },
 		ReadFile: func(string) ([]byte, error) {
@@ -91,7 +92,7 @@ func TestAntigravityAdapterDualWindowFromFixture(t *testing.T) {
 				"token": {
 					"access_token": "expired_token",
 					"refresh_token": "valid_refresh_token",
-					"expiry": "2026-09-03T11:00:00Z"
+					"expiry": "2026-09-05T11:00:00Z"
 				},
 				"auth_method": "consumer"
 			}`), nil
@@ -100,47 +101,49 @@ func TestAntigravityAdapterDualWindowFromFixture(t *testing.T) {
 
 	got := a.Fetch(context.Background(), antigravityBackend())
 	require.True(t, tokenRefreshed)
-	require.True(t, modelsCalled)
-	require.Equal(t, StatusOK, got.Status)
+	require.True(t, summaryCalled)
+	require.Equal(t, StatusRateLimited, got.Status)
 	require.NotNil(t, got.Account)
 	require.Equal(t, "Free Tier", got.Account.Plan)
 	require.Equal(t, "consumer", got.Account.LoginMethod)
 
-	require.Len(t, got.Usage, 2)
-	// Check gemini window
-	gemini := got.Usage[0]
-	require.Equal(t, "antigravity:gemini", gemini.ID)
-	require.Equal(t, "gemini", gemini.Scope)
-	require.Equal(t, "Gemini models", gemini.Label)
-	require.Equal(t, []string{"gemini"}, gemini.ModelFamilies)
-	require.Nil(t, gemini.Models)
-	require.NotNil(t, gemini.UsedPercent)
-	// remainingFraction in fixture was 0.6797259 => used % = 32.03
-	require.InDelta(t, 32.03, *gemini.UsedPercent, 0.01)
-	require.InDelta(t, 67.97, *gemini.RemainingPercent, 0.01)
-	require.NotNil(t, gemini.ResetsAt)
-	expectedReset, _ := time.Parse(time.RFC3339, "2026-09-03T13:22:40Z")
-	require.Equal(t, expectedReset.UTC(), *gemini.ResetsAt)
+	require.Len(t, got.Usage, 4)
 
-	// Check non-gemini window
-	nonGemini := got.Usage[1]
-	require.Equal(t, "antigravity:non-gemini", nonGemini.ID)
-	require.Equal(t, "non-gemini", nonGemini.Scope)
-	require.Equal(t, "Non-Gemini models", nonGemini.Label)
-	require.Nil(t, nonGemini.ModelFamilies)
-	require.Nil(t, nonGemini.Models)
-	require.NotNil(t, nonGemini.UsedPercent)
-	// remainingFraction for claude/gpt was 1 => used % = 0
-	require.InDelta(t, 0.0, *nonGemini.UsedPercent, 0.01)
-	require.InDelta(t, 100.0, *nonGemini.RemainingPercent, 0.01)
-	require.NotNil(t, nonGemini.ResetsAt)
-	expectedNonGeminiReset, _ := time.Parse(time.RFC3339, "2026-09-03T16:30:36Z")
-	require.Equal(t, expectedNonGeminiReset.UTC(), *nonGemini.ResetsAt)
+	gemini5h := got.Usage[0]
+	require.Equal(t, "antigravity:gemini-5h", gemini5h.ID)
+	require.Equal(t, "gemini", gemini5h.Scope)
+	require.Equal(t, "Gemini 5-hour", gemini5h.Label)
+	require.Equal(t, []string{"gemini"}, gemini5h.ModelFamilies)
+	require.Equal(t, float64(100), *gemini5h.UsedPercent)
+	require.Equal(t, float64(0), *gemini5h.RemainingPercent)
+	require.Equal(t, antigravityFiveHourMinutes, *gemini5h.DurationMinutes)
+	require.Equal(t, "reached", *gemini5h.LimitState)
+	expected5h, _ := time.Parse(time.RFC3339, "2026-09-05T21:40:45Z")
+	require.Equal(t, expected5h.UTC(), *gemini5h.ResetsAt)
+
+	geminiWeekly := got.Usage[1]
+	require.Equal(t, "antigravity:gemini-weekly", geminiWeekly.ID)
+	require.Equal(t, "gemini", geminiWeekly.Scope)
+	require.InDelta(t, 17.73, *geminiWeekly.UsedPercent, 0.01)
+	require.InDelta(t, 82.27, *geminiWeekly.RemainingPercent, 0.01)
+	require.Equal(t, antigravityWeeklyMinutes, *geminiWeekly.DurationMinutes)
+	expectedWeekly, _ := time.Parse(time.RFC3339, "2026-09-10T19:03:34Z")
+	require.Equal(t, expectedWeekly.UTC(), *geminiWeekly.ResetsAt)
+
+	nonGemini5h := got.Usage[2]
+	require.Equal(t, "antigravity:non-gemini-5h", nonGemini5h.ID)
+	require.Equal(t, "non-gemini", nonGemini5h.Scope)
+	require.InDelta(t, 0.0, *nonGemini5h.UsedPercent, 0.01)
+	require.InDelta(t, 100.0, *nonGemini5h.RemainingPercent, 0.01)
+
+	nonGeminiWeekly := got.Usage[3]
+	require.Equal(t, "antigravity:non-gemini-weekly", nonGeminiWeekly.ID)
+	require.InDelta(t, 0.0, *nonGeminiWeekly.UsedPercent, 0.01)
+	require.InDelta(t, 100.0, *nonGeminiWeekly.RemainingPercent, 0.01)
 }
 
 func TestAntigravityAdapterFallbackWhenRPCFails(t *testing.T) {
 	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
-	// When server returns 500, adapter falls back to null percents but remains StatusOK
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 	}))
@@ -163,54 +166,13 @@ func TestAntigravityAdapterFallbackWhenRPCFails(t *testing.T) {
 
 	got := a.Fetch(context.Background(), antigravityBackend())
 	require.Equal(t, StatusOK, got.Status)
-	require.Len(t, got.Usage, 2)
-	require.Equal(t, "antigravity:gemini", got.Usage[0].ID)
+	require.Len(t, got.Usage, 4)
+	require.Equal(t, "antigravity:gemini-5h", got.Usage[0].ID)
 	require.Nil(t, got.Usage[0].UsedPercent)
-	require.Equal(t, "antigravity:non-gemini", got.Usage[1].ID)
+	require.Equal(t, "antigravity:gemini-weekly", got.Usage[1].ID)
 	require.Nil(t, got.Usage[1].UsedPercent)
-}
-
-func TestAntigravityAdapterRateLimited(t *testing.T) {
-	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{
-			"models": {
-				"gemini-3.5-flash-low": {
-					"displayName": "Gemini 3.5 Flash",
-					"modelProvider": "MODEL_PROVIDER_GOOGLE",
-					"apiProvider": "API_PROVIDER_GOOGLE_GEMINI",
-					"quotaInfo": {
-						"remainingFraction": 0,
-						"resetTime": "2026-09-03T13:22:40Z"
-					}
-				}
-			}
-		}`)
-	}))
-	defer srv.Close()
-
-	a := AntigravityAdapter{
-		Now:       func() time.Time { return now },
-		Endpoint:  srv.URL,
-		TokenPath: func() string { return "/synthetic/token" },
-		ReadFile: func(string) ([]byte, error) {
-			return []byte(`{
-				"token": {
-					"access_token": "valid_token",
-					"expiry": "2026-09-03T13:00:00Z"
-				},
-				"auth_method": "consumer"
-			}`), nil
-		},
-	}
-
-	got := a.Fetch(context.Background(), antigravityBackend())
-	require.Equal(t, StatusRateLimited, got.Status)
-	require.NotNil(t, got.Error)
-	require.Equal(t, "rate_limited", got.Error.Code)
-	require.Len(t, got.Usage, 2)
-	require.Equal(t, float64(100), *got.Usage[0].UsedPercent)
-	require.Equal(t, float64(0), *got.Usage[0].RemainingPercent)
-	require.Equal(t, "reached", *got.Usage[0].LimitState)
+	require.Equal(t, "antigravity:non-gemini-5h", got.Usage[2].ID)
+	require.Nil(t, got.Usage[2].UsedPercent)
+	require.Equal(t, "antigravity:non-gemini-weekly", got.Usage[3].ID)
+	require.Nil(t, got.Usage[3].UsedPercent)
 }

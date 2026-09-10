@@ -682,10 +682,14 @@ func parseAgyModels(out []byte) []string {
 // --- Usage limits -----------------------------------------------------------
 
 const (
-	agyDefaultEndpoint = "https://cloudcode-pa.googleapis.com"
-	agyModelsRPC       = "/v1internal:fetchAvailableModels"
+	// daily-cloudcode-pa is the host the Antigravity CLI (agy) uses for live
+	// quota. cloudcode-pa.googleapis.com often returns stale remainingFraction=1.
+	agyDefaultEndpoint = "https://daily-cloudcode-pa.googleapis.com"
+	agyQuotaSummaryRPC = "/v1internal:retrieveUserQuotaSummary"
 	agyTokenEndpoint   = "https://oauth2.googleapis.com/token"
 	agyUserAgent       = "antigravity/1.0.16"
+	agyFiveHourMinutes = 5 * 60
+	agyWeeklyMinutes   = 7 * 24 * 60
 
 	// Antigravity CLI public client credentials (encoded to avoid push-protection false positives).
 	agyKey = 42
@@ -708,9 +712,9 @@ func agyOAuthCredentials() (string, string) {
 	return string(cid), string(csec)
 }
 
-// FetchUsage implements agentbackend.UsageLimiter. Antigravity tracks quotas
-// via the fetchAvailableModels RPC with local OAuth2 token auto-refresh, returning
-// distinct Gemini and Non-Gemini usage limits.
+// FetchUsage implements agentbackend.UsageLimiter. Antigravity tracks quotas via
+// retrieveUserQuotaSummary (same RPC as `agy /usage`), returning four windows:
+// Gemini/non-Gemini × 5-hour/weekly.
 func (Antigravity) FetchUsage(ctx context.Context) (agentbackend.UsageResult, bool) {
 	now := time.Now()
 	tokenData, err := agyReadTokenFile()
@@ -737,7 +741,7 @@ func (Antigravity) FetchUsage(ctx context.Context) (agentbackend.UsageResult, bo
 	res := agentbackend.UsageResult{
 		Status:     "ok",
 		Account:    account,
-		Usage:      agyDefaultLimits(nil, nil, nil, nil),
+		Usage:      agyEmptyLimits(),
 		ObservedAt: now,
 	}
 
@@ -746,23 +750,24 @@ func (Antigravity) FetchUsage(ctx context.Context) (agentbackend.UsageResult, bo
 		return res, true
 	}
 
-	body, status, err := agyFetchAvailableModels(ctx, accessToken)
+	body, status, err := agyFetchQuotaSummary(ctx, accessToken)
 	if err != nil || status >= 400 || len(body) == 0 {
 		return res, true
 	}
 
-	geminiUsed, geminiReset, nonGeminiUsed, nonGeminiReset, ok := agyParseAvailableModels(body)
+	limits, ok := agyParseQuotaSummary(body)
 	if !ok {
 		return res, true
 	}
-
-	res.Usage = agyDefaultLimits(geminiUsed, geminiReset, nonGeminiUsed, nonGeminiReset)
-	if (geminiUsed != nil && *geminiUsed >= 100) || (nonGeminiUsed != nil && *nonGeminiUsed >= 100) {
-		res.Status = "rate_limited"
-		res.ErrorCode = "rate_limited"
-		res.ErrorMsg = "provider reports that a usage limit has been reached"
+	res.Usage = limits
+	for _, lim := range limits {
+		if lim.UsedPercent != nil && *lim.UsedPercent >= 100 {
+			res.Status = "rate_limited"
+			res.ErrorCode = "rate_limited"
+			res.ErrorMsg = "provider reports that a usage limit has been reached"
+			break
+		}
 	}
-
 	return res, true
 }
 
@@ -853,10 +858,10 @@ func agyRefreshAccessToken(ctx context.Context, refreshToken string) (string, er
 	return res.AccessToken, nil
 }
 
-func agyFetchAvailableModels(ctx context.Context, accessToken string) ([]byte, int, error) {
-	rpcURL := strings.TrimRight(agyEndpoint, "/") + agyModelsRPC
+func agyFetchQuotaSummary(ctx context.Context, accessToken string) ([]byte, int, error) {
+	rpcURL := strings.TrimRight(agyEndpoint, "/") + agyQuotaSummaryRPC
 
-	payload := []byte(`{"project":"default-cli-project"}`)
+	payload := []byte(`{}`)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rpcURL, bytes.NewReader(payload))
 	if err != nil {
 		return nil, 0, err
@@ -875,84 +880,148 @@ func agyFetchAvailableModels(ctx context.Context, accessToken string) ([]byte, i
 	return body, resp.StatusCode, err
 }
 
-type agyAvailableModelsResponse struct {
-	Models map[string]struct {
-		DisplayName   *string `json:"displayName"`
-		ModelProvider string  `json:"modelProvider"`
-		APIProvider   string  `json:"apiProvider"`
-		QuotaInfo     *struct {
-			RemainingFraction *float64 `json:"remainingFraction"`
+type agyQuotaSummaryResponse struct {
+	Groups []struct {
+		DisplayName string `json:"displayName"`
+		Buckets     []struct {
+			BucketID          string   `json:"bucketId"`
+			DisplayName       string   `json:"displayName"`
+			Window            string   `json:"window"`
 			ResetTime         *string  `json:"resetTime"`
-		} `json:"quotaInfo"`
-	} `json:"models"`
+			RemainingFraction *float64 `json:"remainingFraction"`
+		} `json:"buckets"`
+	} `json:"groups"`
 }
 
-func agyParseAvailableModels(body []byte) (geminiUsed *float64, geminiReset *time.Time, nonGeminiUsed *float64, nonGeminiReset *time.Time, ok bool) {
-	var resp agyAvailableModelsResponse
+func agyParseQuotaSummary(body []byte) ([]agentbackend.UsageLimit, bool) {
+	var resp agyQuotaSummaryResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, nil, nil, nil, false
+		return nil, false
 	}
-	if len(resp.Models) == 0 {
-		return nil, nil, nil, nil, false
+	if len(resp.Groups) == 0 {
+		return nil, false
 	}
 
-	for id, m := range resp.Models {
-		if m.QuotaInfo == nil {
-			continue
-		}
-		qi := m.QuotaInfo
-		var used *float64
-		if qi.RemainingFraction != nil {
-			rem := *qi.RemainingFraction
-			if rem < 0 {
-				rem = 0
+	byID := map[string]agentbackend.UsageLimit{}
+	for _, group := range resp.Groups {
+		pool := agyPoolFromGroup(group.DisplayName)
+		for _, bucket := range group.Buckets {
+			if pool == "" {
+				pool = agyPoolFromBucketID(bucket.BucketID)
 			}
-			if rem > 1 {
-				rem = 1
+			window := agyWindowKind(bucket.Window, bucket.BucketID)
+			if pool == "" || window == "" {
+				continue
 			}
-			u := math.Round((1.0-rem)*10000) / 100
-			used = &u
-		}
-
-		var reset *time.Time
-		if qi.ResetTime != nil && *qi.ResetTime != "" {
-			if t, err := time.Parse(time.RFC3339, *qi.ResetTime); err == nil {
-				ut := t.UTC()
-				reset = &ut
+			id, scope, label, families, duration := agyWindowMeta(pool, window)
+			used := agyUsedFromRemaining(bucket.RemainingFraction)
+			var reset *time.Time
+			if bucket.ResetTime != nil && *bucket.ResetTime != "" {
+				if t, err := time.Parse(time.RFC3339, *bucket.ResetTime); err == nil {
+					ut := t.UTC()
+					reset = &ut
+				}
 			}
-		}
-
-		isGemini := strings.Contains(strings.ToLower(id), "gemini") ||
-			(strings.Contains(strings.ToLower(m.ModelProvider), "google") && strings.Contains(strings.ToLower(m.APIProvider), "gemini"))
-
-		if isGemini {
-			if geminiUsed == nil && used != nil {
-				geminiUsed = used
-			}
-			if geminiReset == nil && reset != nil {
-				geminiReset = reset
-			}
-		} else {
-			if nonGeminiUsed == nil && used != nil {
-				nonGeminiUsed = used
-			}
-			if nonGeminiReset == nil && reset != nil {
-				nonGeminiReset = reset
-			}
+			byID[id] = agyWindow(id, scope, label, families, nil, used, reset, duration)
 		}
 	}
 
-	return geminiUsed, geminiReset, nonGeminiUsed, nonGeminiReset, true
+	out := agyEmptyLimits()
+	found := false
+	for i, lim := range out {
+		if got, ok := byID[lim.ID]; ok {
+			out[i] = got
+			found = true
+		}
+	}
+	return out, found
 }
 
-func agyDefaultLimits(geminiUsed *float64, geminiReset *time.Time, nonGeminiUsed *float64, nonGeminiReset *time.Time) []agentbackend.UsageLimit {
+func agyPoolFromGroup(displayName string) string {
+	lower := strings.ToLower(displayName)
+	switch {
+	case strings.Contains(lower, "gemini"):
+		return "gemini"
+	case strings.Contains(lower, "claude"), strings.Contains(lower, "gpt"), strings.Contains(lower, "3p"):
+		return "non-gemini"
+	default:
+		return ""
+	}
+}
+
+func agyPoolFromBucketID(bucketID string) string {
+	lower := strings.ToLower(bucketID)
+	switch {
+	case strings.HasPrefix(lower, "gemini"):
+		return "gemini"
+	case strings.HasPrefix(lower, "3p"), strings.HasPrefix(lower, "non-gemini"):
+		return "non-gemini"
+	default:
+		return ""
+	}
+}
+
+func agyWindowKind(window, bucketID string) string {
+	lower := strings.ToLower(window)
+	if lower == "" {
+		lower = strings.ToLower(bucketID)
+	}
+	switch {
+	case strings.Contains(lower, "weekly"), strings.Contains(lower, "week"):
+		return "weekly"
+	case strings.Contains(lower, "5h"), strings.Contains(lower, "five"), strings.Contains(lower, "hour"):
+		return "5h"
+	default:
+		return ""
+	}
+}
+
+func agyWindowMeta(pool, window string) (id, scope, label string, families []string, duration int) {
+	scope = pool
+	switch pool {
+	case "gemini":
+		families = []string{"gemini"}
+		switch window {
+		case "5h":
+			return "antigravity:gemini-5h", scope, "Gemini 5-hour", families, agyFiveHourMinutes
+		default:
+			return "antigravity:gemini-weekly", scope, "Gemini weekly", families, agyWeeklyMinutes
+		}
+	default:
+		switch window {
+		case "5h":
+			return "antigravity:non-gemini-5h", scope, "Non-Gemini 5-hour", nil, agyFiveHourMinutes
+		default:
+			return "antigravity:non-gemini-weekly", scope, "Non-Gemini weekly", nil, agyWeeklyMinutes
+		}
+	}
+}
+
+func agyUsedFromRemaining(remaining *float64) *float64 {
+	if remaining == nil {
+		return nil
+	}
+	rem := *remaining
+	if rem < 0 {
+		rem = 0
+	}
+	if rem > 1 {
+		rem = 1
+	}
+	u := math.Round((1.0-rem)*10000) / 100
+	return &u
+}
+
+func agyEmptyLimits() []agentbackend.UsageLimit {
 	return []agentbackend.UsageLimit{
-		agyWindow("antigravity:gemini", "gemini", "Gemini models", []string{"gemini"}, nil, geminiUsed, geminiReset),
-		agyWindow("antigravity:non-gemini", "non-gemini", "Non-Gemini models", nil, nil, nonGeminiUsed, nonGeminiReset),
+		agyWindow("antigravity:gemini-5h", "gemini", "Gemini 5-hour", []string{"gemini"}, nil, nil, nil, agyFiveHourMinutes),
+		agyWindow("antigravity:gemini-weekly", "gemini", "Gemini weekly", []string{"gemini"}, nil, nil, nil, agyWeeklyMinutes),
+		agyWindow("antigravity:non-gemini-5h", "non-gemini", "Non-Gemini 5-hour", nil, nil, nil, nil, agyFiveHourMinutes),
+		agyWindow("antigravity:non-gemini-weekly", "non-gemini", "Non-Gemini weekly", nil, nil, nil, nil, agyWeeklyMinutes),
 	}
 }
 
-func agyWindow(id, scope, label string, families, models []string, used *float64, resets *time.Time) agentbackend.UsageLimit {
+func agyWindow(id, scope, label string, families, models []string, used *float64, resets *time.Time, durationMinutes int) agentbackend.UsageLimit {
 	var remaining *float64
 	if used != nil && *used >= 0 && *used <= 100 {
 		v := math.Round((100-*used)*100) / 100
@@ -963,6 +1032,11 @@ func agyWindow(id, scope, label string, families, models []string, used *float64
 		v := "reached"
 		state = &v
 	}
+	var duration *int
+	if durationMinutes > 0 {
+		d := durationMinutes
+		duration = &d
+	}
 	return agentbackend.UsageLimit{
 		ID:               id,
 		Scope:            scope,
@@ -971,6 +1045,7 @@ func agyWindow(id, scope, label string, families, models []string, used *float64
 		Models:           models,
 		UsedPercent:      used,
 		RemainingPercent: remaining,
+		DurationMinutes:  duration,
 		ResetsAt:         resets,
 		LimitState:       state,
 	}

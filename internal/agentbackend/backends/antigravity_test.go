@@ -456,7 +456,7 @@ func TestAntigravityFetchUsageUnauthenticated(t *testing.T) {
 }
 
 func TestAntigravityFetchUsageDualWindow(t *testing.T) {
-	raw, err := os.ReadFile("../../backendusage/testdata/antigravity-available-models.json")
+	raw, err := os.ReadFile("../../backendusage/testdata/antigravity-quota-summary.json")
 	require.NoError(t, err)
 
 	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -467,6 +467,7 @@ func TestAntigravityFetchUsageDualWindow(t *testing.T) {
 
 	modelsSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "Bearer refreshed_token", r.Header.Get("Authorization"))
+		require.Contains(t, r.URL.Path, "retrieveUserQuotaSummary")
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(raw)
 	}))
@@ -499,12 +500,16 @@ func TestAntigravityFetchUsageDualWindow(t *testing.T) {
 
 	got, ok := Antigravity{}.FetchUsage(context.Background())
 	require.True(t, ok)
-	require.Equal(t, "ok", got.Status)
+	require.Equal(t, "rate_limited", got.Status)
 	require.NotNil(t, got.Account)
 	require.Equal(t, "Free Tier", got.Account.Plan)
-	require.Len(t, got.Usage, 2)
-	require.Equal(t, "antigravity:gemini", got.Usage[0].ID)
-	require.InDelta(t, 32.03, *got.Usage[0].UsedPercent, 0.01)
-	require.Equal(t, "antigravity:non-gemini", got.Usage[1].ID)
-	require.InDelta(t, 0.0, *got.Usage[1].UsedPercent, 0.01)
+	require.Len(t, got.Usage, 4)
+	require.Equal(t, "antigravity:gemini-5h", got.Usage[0].ID)
+	require.Equal(t, float64(100), *got.Usage[0].UsedPercent)
+	require.Equal(t, "antigravity:gemini-weekly", got.Usage[1].ID)
+	require.InDelta(t, 17.73, *got.Usage[1].UsedPercent, 0.01)
+	require.InDelta(t, 82.27, *got.Usage[1].RemainingPercent, 0.01)
+	require.Equal(t, "antigravity:non-gemini-5h", got.Usage[2].ID)
+	require.InDelta(t, 0.0, *got.Usage[2].UsedPercent, 0.01)
+	require.Equal(t, "antigravity:non-gemini-weekly", got.Usage[3].ID)
 }

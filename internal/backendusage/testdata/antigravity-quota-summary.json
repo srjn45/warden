@@ -1,0 +1,47 @@
+{
+  "groups": [
+    {
+      "buckets": [
+        {
+          "bucketId": "gemini-weekly",
+          "displayName": "Weekly Limit Remaining",
+          "window": "weekly",
+          "resetTime": "2026-09-10T19:03:34Z",
+          "description": "You have hit your 5-hour limit, so the weekly limit does not currently apply. Your 5-hour limit will refresh in 1 hour, 36 minutes.",
+          "remainingFraction": 0.82267904
+        },
+        {
+          "bucketId": "gemini-5h",
+          "displayName": "Five Hour Limit Remaining",
+          "window": "5h",
+          "resetTime": "2026-09-05T21:40:45Z",
+          "description": "You have hit your 5-hour limit, it will refresh in 1 hour, 36 minutes. If on a supported paid plan, you can use AI credits in the interim.",
+          "remainingFraction": 0
+        }
+      ],
+      "displayName": "Gemini Models",
+      "description": "Models within this group: Gemini Flash, Gemini Pro"
+    },
+    {
+      "buckets": [
+        {
+          "bucketId": "3p-weekly",
+          "displayName": "Weekly Limit Remaining",
+          "window": "weekly",
+          "resetTime": "2026-09-12T20:04:38Z",
+          "remainingFraction": 1
+        },
+        {
+          "bucketId": "3p-5h",
+          "displayName": "Five Hour Limit Remaining",
+          "window": "5h",
+          "resetTime": "2026-09-06T01:04:38Z",
+          "remainingFraction": 1
+        }
+      ],
+      "displayName": "Claude and GPT models",
+      "description": "Models within this group: Claude Opus, Claude Sonnet, GPT-OSS"
+    }
+  ],
+  "description": "Within each group, models share a weekly limit and a 5-hour limit."
+}
