@@ -1150,9 +1150,11 @@ paths:
       tags: [Projects]
       summary: Update a project group
       description: >
-        Overwrites the group's name and membership in place. The name is required
-        and member ids are de-duplicated. Returns the updated group, 404 if the id
-        is unknown, or 400 on a blank name.
+        Full-replace / bulk-set path: overwrites the group's name and entire
+        membership in place. The name is required and member ids are de-duplicated.
+        For incremental add/remove of a single member, use POST/DELETE
+        /api/v1/project-groups/{id}/members instead. Returns the updated group,
+        404 if the id is unknown, or 400 on a blank name.
       parameters:
         - name: id
           in: path
@@ -1185,6 +1187,63 @@ paths:
           schema: { type: string }
       responses:
         "200": { $ref: "#/components/responses/OK" }
+
+  /api/v1/project-groups/{id}/members:
+    post:
+      operationId: addProjectGroupMember
+      tags: [Projects]
+      summary: Add a project to a group
+      description: >
+        Incrementally appends one project id to the group's membership
+        (de-duplicated). Member ids need not resolve to registered projects.
+        Returns the updated group. Prefer this over PUT for single-member edits;
+        PUT remains the full-replace / bulk-set path.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AddProjectGroupMemberRequest" }
+      responses:
+        "200":
+          description: The updated group
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProjectGroup" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      operationId: removeProjectGroupMember
+      tags: [Projects]
+      summary: Remove a project from a group
+      description: >
+        Incrementally drops one project id from the group's membership. Removing an
+        absent member is a no-op and still returns 200 with the current group.
+        Project ids may contain "/" or ":" so the id travels in the JSON body
+        rather than as a path segment. Prefer this over PUT for single-member
+        edits; PUT remains the full-replace / bulk-set path.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AddProjectGroupMemberRequest" }
+      responses:
+        "200":
+          description: The updated group
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProjectGroup" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /api/v1/sessions/{id}/name:
     patch:
@@ -3468,6 +3527,16 @@ components:
           type: array
           items: { type: string }
           description: "the full member set after the update (de-duplicated); omit or empty clears membership"
+
+    AddProjectGroupMemberRequest:
+      type: object
+      required: [project_id]
+      properties:
+        project_id:
+          type: string
+          description: >
+            Project id to add or remove (filesystem path or remote URL). Need not
+            resolve to a registered project. Blank/missing is rejected with 400.
 
     BackendsState:
       type: object

@@ -33,6 +33,8 @@ Run work:
 
 Work with a project:
   project              Manage repo-local warden configuration: memory, presets, templates, and plugins
+  projects             Inspect and manage daemon-registered projects
+  project-groups       Inspect and manage project groups and membership
   workspace            Inspect and manage warden git worktrees, snapshots, branches, and file collisions
   git                  Commit, push, sync, and review an agent worktree on warden rails
   check                Run project checks and install hook guards
@@ -1781,6 +1783,307 @@ Usage:
 
 Flags:
   -h, --help   help for list
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden projects
+
+```text
+Inspect and manage first-class daemon projects.
+
+Projects represent checkout roots or remote repositories tracked by the
+warden daemon. Agents and pipelines associate with these projects.
+
+Subcommands allow listing, opening (local or remote), creating, and closing projects.
+(For repo-local configuration like memory or presets, use `warden project`.)
+
+Usage:
+  warden projects [flags]
+
+Commands:
+  list                 List registered projects
+  open                 Register or reopen a project by its canonical ID
+  open-local           Register an existing local directory as a project
+  open-remote          Clone a remote Git repository and register it as a project
+  new                  Scaffold a brand-new project and register it
+  close                Hibernate a project and gracefully stop its active agents
+
+Flags:
+  -h, --help   help for projects
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden projects list
+
+```text
+List every project registered with the daemon, including open and closed (hibernated) projects.
+
+Usage:
+  warden projects list [flags]
+
+Flags:
+  -h, --help   help for list
+      --json   output as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+
+Aliases:
+  ls
+```
+
+## warden projects open
+
+```text
+Register or reopen a project by its canonical ID (checkout path or remote URL).
+
+Usage:
+  warden projects open <id> [flags]
+
+Flags:
+  -h, --help          help for open
+      --name string   optional display name
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden projects open-local
+
+```text
+Register an existing local directory as a project. The daemon normalizes the path and restores any hibernated agents.
+
+Usage:
+  warden projects open-local <path> [flags]
+
+Flags:
+  -h, --help          help for open-local
+      --name string   optional display name
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden projects open-remote
+
+```text
+Clone a remote Git repository into the daemon workspace and register it as a project.
+
+Usage:
+  warden projects open-remote <url> [flags]
+
+Flags:
+  -h, --help          help for open-remote
+      --name string   optional display name
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden projects new
+
+```text
+Scaffold a brand-new project with git init and initial commit in the daemon workspace, and register it.
+
+Usage:
+  warden projects new <name> [flags]
+
+Flags:
+  -h, --help   help for new
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden projects close
+
+```text
+Hibernate a project: keep the record in the store, set its status to closed, and gracefully stop its live agents.
+
+Usage:
+  warden projects close <id> [flags]
+
+Flags:
+  -h, --help   help for close
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden project-groups
+
+```text
+Inspect and manage project groups and their member projects.
+
+A project group is a named collection of projects displayed together in the
+cockpit TUI. Member projects carry the group label beside their name, and
+orchestrators in the same group gain peer awareness of each other.
+
+Usage:
+  warden project-groups [flags]
+
+Commands:
+  list                 List project groups
+  show                 Show details for a project group
+  create               Create a new project group
+  update               Update a project group's name and membership (bulk-set)
+  delete               Delete a project group
+  members              Manage project group members
+
+Flags:
+  -h, --help   help for project-groups
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden project-groups list
+
+```text
+List all project groups with their member projects.
+
+Usage:
+  warden project-groups list [flags]
+
+Flags:
+  -h, --help   help for list
+      --json   output as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+
+Aliases:
+  ls
+```
+
+## warden project-groups show
+
+```text
+Show detailed information about a project group, including its member projects.
+
+Usage:
+  warden project-groups show <id> [flags]
+
+Flags:
+  -h, --help   help for show
+      --json   output as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden project-groups create
+
+```text
+Create a new named project group with optional initial member projects.
+
+Usage:
+  warden project-groups create <name> [flags]
+
+Flags:
+  -h, --help              help for create
+  -p, --project strings   initial member project ID (repeatable)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden project-groups update
+
+```text
+Update a project group's display name and/or overwrite its member project list.
+
+Usage:
+  warden project-groups update <id> [flags]
+
+Flags:
+  -h, --help              help for update
+  -n, --name string       new display name
+  -p, --project strings   member project IDs to set (repeatable; overwrites full membership)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden project-groups delete
+
+```text
+Delete a project group. Member projects remain registered and are not touched.
+
+Usage:
+  warden project-groups delete <id> [flags]
+
+Flags:
+  -h, --help   help for delete
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden project-groups members
+
+```text
+Add or remove member projects in a project group incrementally.
+
+Usage:
+  warden project-groups members [flags]
+
+Commands:
+  add                  Add a project to a project group
+  remove               Remove a project from a project group
+
+Flags:
+  -h, --help   help for members
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden project-groups members add
+
+```text
+Incrementally add a project (canonical ID, path, or URL) to a project group.
+
+Usage:
+  warden project-groups members add <group-id> <project-id> [flags]
+
+Flags:
+  -h, --help   help for add
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden project-groups members remove
+
+```text
+Incrementally remove a project from a project group.
+
+Usage:
+  warden project-groups members remove <group-id> <project-id> [flags]
+
+Flags:
+  -h, --help   help for remove
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -4083,6 +4386,8 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | `warden preset save` | `warden project preset save` |
 | `warden project library save-preset` | `warden project preset save` |
 | `warden project library save-prompt` | `warden project prompt-template save` |
+| `warden project-groups ls` | `warden project-groups list` |
+| `warden projects ls` | `warden projects list` |
 | `warden prompt-template` | `warden project prompt-template` |
 | `warden prompt-template list` | `warden project prompt-template list` |
 | `warden prompt-template save` | `warden project prompt-template save` |

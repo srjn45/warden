@@ -13,6 +13,27 @@ Projects are registered the first time you open them. They are never hard-delete
 
 ## Creating and managing projects
 
+### Via CLI
+
+Manage registered projects with the `warden projects` command:
+
+```sh
+# Register an existing local directory
+warden projects open-local /home/you/repos/myapp --name myapp
+
+# Clone and register a remote repository
+warden projects open-remote https://github.com/org/repo --name repo
+
+# Register or reopen by canonical ID
+warden projects open /home/you/repos/myapp
+
+# List all registered projects
+warden projects list
+
+# Close (hibernate) a project
+warden projects close /home/you/repos/myapp
+```
+
 ### In the TUI
 
 Press **`o`** in the Cockpit control pane to open a project:
@@ -44,7 +65,34 @@ curl -s http://localhost:8765/api/v1/projects | jq '.projects[].name'
 
 A **project group** is a named collection of project ids. One project may belong to at most one group; membership is stored on the group, not on the project, so deleting a group never touches the repos inside it.
 
-Groups are managed through the REST API (`/api/v1/project-groups`) or the web interface. The TUI reads them to display the group label next to each project name in the tree.
+Groups can be managed directly via the `warden project-groups` CLI, the REST API (`/api/v1/project-groups`), or the web interface. The TUI reads them to display the group label next to each project name in the tree.
+
+### Via CLI
+
+```sh
+# Create a group with initial members
+warden project-groups create Platform --project /home/you/repos/api --project /home/you/repos/worker
+
+# List all groups and their members
+warden project-groups list
+
+# Show detailed group information
+warden project-groups show <group-id>
+
+# Add a project to an existing group incrementally
+warden project-groups members add <group-id> /home/you/repos/another
+
+# Remove a project from a group incrementally
+warden project-groups members remove <group-id> /home/you/repos/worker
+
+# Update group name or bulk-replace members
+warden project-groups update <group-id> --name "New Platform Name"
+
+# Delete a group (member projects remain intact)
+warden project-groups delete <group-id>
+```
+
+### Via REST
 
 ```sh
 # Create a group
@@ -54,9 +102,20 @@ curl -s -XPOST http://localhost:8765/api/v1/project-groups \
 # List groups
 curl -s http://localhost:8765/api/v1/project-groups | jq '.groups[].name'
 
-# Add a project to an existing group
+# Incrementally add a member to an existing group
 curl -s -XPOST http://localhost:8765/api/v1/project-groups/<group-id>/members \
+  -H "Content-Type: application/json" \
   -d '{"project_id":"/home/you/repos/another"}'
+
+# Incrementally remove a member from an existing group
+curl -s -XDELETE http://localhost:8765/api/v1/project-groups/<group-id>/members \
+  -H "Content-Type: application/json" \
+  -d '{"project_id":"/home/you/repos/worker"}'
+
+# Bulk replace group name and members
+curl -s -XPUT http://localhost:8765/api/v1/project-groups/<group-id> \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Platform","project_ids":["/home/you/repos/api"]}'
 ```
 
 ## Per-project orchestrators (auto-spawn)

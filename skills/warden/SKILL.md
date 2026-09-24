@@ -57,6 +57,7 @@ The everyday verbs, so the common path needs no reference-file round-trip:
 | finish, keep worktree | `warden agent done <id>` (`--create-pr`) |
 | git lifecycle / checks | `wd commit` / `wd push` / `wd sync` / `wd check [name]` |
 | pipelines | `warden pipeline create -f spec.yaml` → `warden pipeline start/show <id>` |
+| projects / groups | `warden projects list` · `warden project-groups list` |
 
 For anything beyond these, open the matching reference file — each carries the
 full CLI map next to the MCP tools.

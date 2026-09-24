@@ -110,7 +110,7 @@ Capability highlights from recent releases (full notes on the [releases page](ht
 - **Isolation guardrails (v5.0, breaking)** — write-type agents (`code`/`docs`/`website`/`debug-ci`/`tests`) now spawn into their own worktree by default (`--in-repo` opts out), backed by PreToolUse hooks that deny-redirect raw `git`/test commands to the first-class `warden commit`/`push`/`sync`/`check` tools. See [Lifecycle commands & boundary enforcement](#lifecycle-commands--boundary-enforcement).
 - **Interactive mode (`warden backend repl`)** — a terminal REPL with a real line editor (history, a live `/`-command menu, Tab completion, guided argument forms, colour) that drives the fleet via deterministic `/` commands (no model) or natural language (a local-LLM conductor that turns operator intent into confirmed warden tool calls without spending cloud-model tokens).
 - **Pipelines, end to end** — DAG pipelines are now drivable from the **MCP tools** (create/start/show/list/cancel), ship four built-in `--template` starters, and support `run_if` conditional steps.
-- **Project groups & per-project orchestrators** — organize repos into named project groups visible in the TUI tree (each member shows its group label). Opening a project in the Cockpit automatically guarantees one live orchestrator session named `orch-<project>` running in that directory (idempotent: revived from transcript if it was recorded-but-dead; spawned fresh otherwise). Grouped orchestrators learn their group name and sibling orchestrator names via context injection at every launch so they can coordinate without manual wiring. See [Project groups guide](https://srjn45.github.io/warden/guides/project-groups/).
+- **Project groups & per-project orchestrators** — organize repos into named project groups visible in the TUI tree (each member shows its group label), managed via first-class `warden projects` and `warden project-groups` CLI commands. Opening a project in the Cockpit automatically guarantees one live orchestrator session named `orch-<project>` running in that directory (idempotent: revived from transcript if it was recorded-but-dead; spawned fresh otherwise). Grouped orchestrators learn their group name and sibling orchestrator names via context injection at every launch so they can coordinate without manual wiring. See [Project groups guide](https://srjn45.github.io/warden/guides/project-groups/).
 - **Agent sub-trees in the TUI** — agents spawned by another agent nest under their parent as a collapsible sub-tree (`▸ / ▾`, indented per depth); deleting a parent with live children leaves a muted *terminated tombstone* header so the children never orphan, reaped once the sub-tree finishes.
 - **Fleet at scale** — full-text `warden inspect search` + tags, a `warden inspect history` archive, `warden inspect export`/`import`, an append-only `warden inspect audit`, spawn `preset`s and variabled `prompt-template`s (browse both via `warden project library`), and web batch operations.
 - **Observability** — per-agent metrics & performance history (`warden inspect resources`), crash/anomaly detection, the context-size guard, and webhook/Slack notifications.
@@ -1214,6 +1214,33 @@ warden project prompt-template save bugfix --prompt "Fix {{FILE}}"   # delegates
 ```
 
 Purely additive: it reuses the existing preset store, the prompt-template store, and the embedded template catalog, so `warden project preset`, `warden project prompt-template`, and `warden pipeline template list` keep working unchanged. Pipeline templates are embedded/read-only (no `save-template`; author one with `warden pipeline create -f <spec.yaml>`). Also exposed over MCP as `library_list` (returns `{presets, prompt_templates, templates}`).
+
+### `warden projects` — manage registered projects
+
+Manage first-class daemon projects (checkout roots or remote repos):
+
+```sh
+warden projects list                         # list all registered projects (alias: ls)
+warden projects open <id> [--name <name>]     # register or reopen by ID
+warden projects open-local <path>            # register an existing local directory
+warden projects open-remote <url>            # clone a remote repo and register it
+warden projects new <name>                   # scaffold a fresh project
+warden projects close <id>                   # hibernate project and gracefully stop agents
+```
+
+### `warden project-groups` — organize projects into groups
+
+Manage named collections of projects and group membership:
+
+```sh
+warden project-groups list                   # list all groups and member projects (alias: ls)
+warden project-groups show <id>              # show group details
+warden project-groups create <name>          # create a new group (--project <id> repeatable)
+warden project-groups update <id>            # bulk update name and/or projects
+warden project-groups delete <id>            # delete a group (projects remain intact)
+warden project-groups members add <id> <project-id>    # incrementally add member
+warden project-groups members remove <id> <project-id> # incrementally remove member
+```
 
 ### `warden inspect resources`
 

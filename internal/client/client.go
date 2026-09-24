@@ -853,6 +853,82 @@ func (c *Client) CloseProject(ctx context.Context, id string) (projectstore.Proj
 	return p, nil
 }
 
+// OpenProject registers a project by its canonical id and marks it open (or
+// reopens a closed one) via POST /projects/open. If name is non-empty, updates the
+// display name; otherwise leaves an existing name unchanged. Returns the project.
+func (c *Client) OpenProject(ctx context.Context, id, name string) (projectstore.Project, error) {
+	var p projectstore.Project
+	body := map[string]string{"id": id, "name": name}
+	if err := c.do(ctx, http.MethodPost, "/projects/open", body, &p); err != nil {
+		return projectstore.Project{}, err
+	}
+	return p, nil
+}
+
+// GetProjectGroup returns one project group by id via GET /project-groups/{id}.
+func (c *Client) GetProjectGroup(ctx context.Context, id string) (projectstore.ProjectGroup, error) {
+	var g projectstore.ProjectGroup
+	path := "/project-groups/" + url.PathEscape(id)
+	if err := c.do(ctx, http.MethodGet, path, nil, &g); err != nil {
+		return projectstore.ProjectGroup{}, err
+	}
+	return g, nil
+}
+
+// CreateProjectGroup creates a named project group with an optional initial member
+// set via POST /project-groups. Returns the created group.
+func (c *Client) CreateProjectGroup(ctx context.Context, name string, projectIDs []string) (projectstore.ProjectGroup, error) {
+	var g projectstore.ProjectGroup
+	body := map[string]any{"name": name, "project_ids": projectIDs}
+	if err := c.do(ctx, http.MethodPost, "/project-groups", body, &g); err != nil {
+		return projectstore.ProjectGroup{}, err
+	}
+	return g, nil
+}
+
+// UpdateProjectGroup overwrites a project group's name and membership via
+// PUT /project-groups/{id}. Returns the updated group.
+func (c *Client) UpdateProjectGroup(ctx context.Context, id, name string, projectIDs []string) (projectstore.ProjectGroup, error) {
+	var g projectstore.ProjectGroup
+	path := "/project-groups/" + url.PathEscape(id)
+	body := map[string]any{"name": name, "project_ids": projectIDs}
+	if err := c.do(ctx, http.MethodPut, path, body, &g); err != nil {
+		return projectstore.ProjectGroup{}, err
+	}
+	return g, nil
+}
+
+// DeleteProjectGroup removes a project group via DELETE /project-groups/{id}.
+// Idempotent: deleting an absent group is not an error.
+func (c *Client) DeleteProjectGroup(ctx context.Context, id string) error {
+	path := "/project-groups/" + url.PathEscape(id)
+	return c.do(ctx, http.MethodDelete, path, nil, nil)
+}
+
+// AddProjectGroupMember incrementally adds a project ID to a group via
+// POST /project-groups/{id}/members. Returns the updated group.
+func (c *Client) AddProjectGroupMember(ctx context.Context, groupID, projectID string) (projectstore.ProjectGroup, error) {
+	var g projectstore.ProjectGroup
+	path := "/project-groups/" + url.PathEscape(groupID) + "/members"
+	body := map[string]string{"project_id": projectID}
+	if err := c.do(ctx, http.MethodPost, path, body, &g); err != nil {
+		return projectstore.ProjectGroup{}, err
+	}
+	return g, nil
+}
+
+// RemoveProjectGroupMember incrementally removes a project ID from a group via
+// DELETE /project-groups/{id}/members. Returns the updated group.
+func (c *Client) RemoveProjectGroupMember(ctx context.Context, groupID, projectID string) (projectstore.ProjectGroup, error) {
+	var g projectstore.ProjectGroup
+	path := "/project-groups/" + url.PathEscape(groupID) + "/members"
+	body := map[string]string{"project_id": projectID}
+	if err := c.do(ctx, http.MethodDelete, path, body, &g); err != nil {
+		return projectstore.ProjectGroup{}, err
+	}
+	return g, nil
+}
+
 func (c *Client) Output(ctx context.Context, id string, lines int) (string, error) {
 	var resp struct {
 		Output string `json:"output"`

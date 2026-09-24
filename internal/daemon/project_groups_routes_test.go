@@ -156,3 +156,148 @@ func TestHandleDeleteProjectGroup(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp2.StatusCode)
 	resp2.Body.Close()
 }
+
+func deleteJSON(t *testing.T, url string, body any) *http.Response {
+	t.Helper()
+	b, err := json.Marshal(body)
+	require.NoError(t, err)
+	req, err := http.NewRequest(http.MethodDelete, url, bytes.NewReader(b))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	return resp
+}
+
+func TestHandleAddProjectGroupMemberHappyPath(t *testing.T) {
+	srv, ps := projectServer(t, newFakeStore())
+	created, err := ps.CreateGroup(projectstore.ProjectGroup{Name: "G"})
+	require.NoError(t, err)
+
+	resp := postJSON(t, srv.URL+"/api/v1/project-groups/"+created.ID+"/members", map[string]any{
+		"project_id": "/repos/a",
+	})
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	g := decodeGroup(t, resp)
+	require.Equal(t, []string{"/repos/a"}, g.ProjectIDs)
+
+	// Verify store state
+	got, err := ps.GetGroup(created.ID)
+	require.NoError(t, err)
+	require.Equal(t, []string{"/repos/a"}, got.ProjectIDs)
+}
+
+func TestHandleAddProjectGroupMemberDedupe(t *testing.T) {
+	srv, ps := projectServer(t, newFakeStore())
+	created, err := ps.CreateGroup(projectstore.ProjectGroup{Name: "G", ProjectIDs: []string{"/repos/a"}})
+	require.NoError(t, err)
+
+	resp := postJSON(t, srv.URL+"/api/v1/project-groups/"+created.ID+"/members", map[string]any{
+		"project_id": "/repos/a",
+	})
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	g := decodeGroup(t, resp)
+	require.Equal(t, []string{"/repos/a"}, g.ProjectIDs)
+}
+
+func TestHandleAddProjectGroupMemberNotFound(t *testing.T) {
+	srv, _ := projectServer(t, newFakeStore())
+	resp := postJSON(t, srv.URL+"/api/v1/project-groups/nonexistent/members", map[string]any{
+		"project_id": "/repos/a",
+	})
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusNotFound, resp.StatusCode)
+	var errResp struct {
+		Error string `json:"error"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&errResp))
+	require.NotEmpty(t, errResp.Error)
+}
+
+func TestHandleAddProjectGroupMemberBlankID(t *testing.T) {
+	srv, ps := projectServer(t, newFakeStore())
+	created, err := ps.CreateGroup(projectstore.ProjectGroup{Name: "G"})
+	require.NoError(t, err)
+
+	resp := postJSON(t, srv.URL+"/api/v1/project-groups/"+created.ID+"/members", map[string]any{
+		"project_id": "   ",
+	})
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	// Regression guard for #432: non-empty JSON error body
+	var errResp struct {
+		Error string `json:"error"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&errResp))
+	require.Equal(t, "project_id is required", errResp.Error)
+}
+
+func TestHandleRemoveProjectGroupMemberHappyPath(t *testing.T) {
+	srv, ps := projectServer(t, newFakeStore())
+	created, err := ps.CreateGroup(projectstore.ProjectGroup{
+		Name:       "G",
+		ProjectIDs: []string{"/repos/a", "/repos/b"},
+	})
+	require.NoError(t, err)
+
+	resp := deleteJSON(t, srv.URL+"/api/v1/project-groups/"+created.ID+"/members", map[string]any{
+		"project_id": "/repos/a",
+	})
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	g := decodeGroup(t, resp)
+	require.Equal(t, []string{"/repos/b"}, g.ProjectIDs)
+
+	// Verify store state
+	got, err := ps.GetGroup(created.ID)
+	require.NoError(t, err)
+	require.Equal(t, []string{"/repos/b"}, got.ProjectIDs)
+}
+
+func TestHandleRemoveProjectGroupMemberAbsent(t *testing.T) {
+	srv, ps := projectServer(t, newFakeStore())
+	created, err := ps.CreateGroup(projectstore.ProjectGroup{
+		Name:       "G",
+		ProjectIDs: []string{"/repos/a"},
+	})
+	require.NoError(t, err)
+
+	resp := deleteJSON(t, srv.URL+"/api/v1/project-groups/"+created.ID+"/members", map[string]any{
+		"project_id": "/repos/absent",
+	})
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	g := decodeGroup(t, resp)
+	require.Equal(t, []string{"/repos/a"}, g.ProjectIDs)
+}
+
+func TestHandleRemoveProjectGroupMemberNotFound(t *testing.T) {
+	srv, _ := projectServer(t, newFakeStore())
+	resp := deleteJSON(t, srv.URL+"/api/v1/project-groups/nonexistent/members", map[string]any{
+		"project_id": "/repos/a",
+	})
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusNotFound, resp.StatusCode)
+	var errResp struct {
+		Error string `json:"error"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&errResp))
+	require.NotEmpty(t, errResp.Error)
+}
+
+func TestHandleRemoveProjectGroupMemberBlankID(t *testing.T) {
+	srv, ps := projectServer(t, newFakeStore())
+	created, err := ps.CreateGroup(projectstore.ProjectGroup{Name: "G"})
+	require.NoError(t, err)
+
+	resp := deleteJSON(t, srv.URL+"/api/v1/project-groups/"+created.ID+"/members", map[string]any{
+		"project_id": "",
+	})
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	var errResp struct {
+		Error string `json:"error"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&errResp))
+	require.Equal(t, "project_id is required", errResp.Error)
+}
