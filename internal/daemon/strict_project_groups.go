@@ -109,6 +109,61 @@ func (s *Server) DeleteProjectGroup(_ context.Context, req oapi.DeleteProjectGro
 	return oapi.DeleteProjectGroup200JSONResponse{OKJSONResponse: oapi.OKJSONResponse{Status: "deleted"}}, nil
 }
 
+// AddProjectGroupMember implements POST /api/v1/project-groups/{id}/members: incrementally
+// add a project ID to the group. The project_id is required; an unknown group returns 404.
+func (s *Server) AddProjectGroupMember(_ context.Context, req oapi.AddProjectGroupMemberRequestObject) (oapi.AddProjectGroupMemberResponseObject, error) {
+	if s.projects == nil {
+		return nil, errStatus(http.StatusServiceUnavailable, "project store not configured")
+	}
+	if req.Body == nil {
+		return oapi.AddProjectGroupMember400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{Error: "project_id is required"}}, nil
+	}
+	projectID := strings.TrimSpace(req.Body.ProjectId)
+	if projectID == "" {
+		return oapi.AddProjectGroupMember400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{Error: "project_id is required"}}, nil
+	}
+	id := decodeID(req.Id)
+	g, err := s.projects.AddProjectToGroup(id, projectID)
+	if err != nil {
+		switch {
+		case errors.Is(err, projectstore.ErrGroupNotFound):
+			return oapi.AddProjectGroupMember404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "project group not found"}}, nil
+		case errors.Is(err, projectstore.ErrInvalidID):
+			return oapi.AddProjectGroupMember400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{Error: err.Error()}}, nil
+		}
+		return nil, errStatus(http.StatusInternalServerError, "add project group member: "+err.Error())
+	}
+	return oapi.AddProjectGroupMember200JSONResponse(g), nil
+}
+
+// RemoveProjectGroupMember implements DELETE /api/v1/project-groups/{id}/members: incrementally
+// remove a project ID from the group. The project_id is required; removing an absent member
+// is a no-op (still 200). Returns 404 if the group does not exist.
+func (s *Server) RemoveProjectGroupMember(_ context.Context, req oapi.RemoveProjectGroupMemberRequestObject) (oapi.RemoveProjectGroupMemberResponseObject, error) {
+	if s.projects == nil {
+		return nil, errStatus(http.StatusServiceUnavailable, "project store not configured")
+	}
+	if req.Body == nil {
+		return oapi.RemoveProjectGroupMember400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{Error: "project_id is required"}}, nil
+	}
+	projectID := strings.TrimSpace(req.Body.ProjectId)
+	if projectID == "" {
+		return oapi.RemoveProjectGroupMember400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{Error: "project_id is required"}}, nil
+	}
+	id := decodeID(req.Id)
+	g, err := s.projects.RemoveProjectFromGroup(id, projectID)
+	if err != nil {
+		switch {
+		case errors.Is(err, projectstore.ErrGroupNotFound):
+			return oapi.RemoveProjectGroupMember404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "project group not found"}}, nil
+		case errors.Is(err, projectstore.ErrInvalidID):
+			return oapi.RemoveProjectGroupMember400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{Error: err.Error()}}, nil
+		}
+		return nil, errStatus(http.StatusInternalServerError, "remove project group member: "+err.Error())
+	}
+	return oapi.RemoveProjectGroupMember200JSONResponse(g), nil
+}
+
 // decodeID percent-decodes an id-in-path segment, falling back to the raw value if
 // it is not valid encoding — mirroring the CloseProject handler's PathUnescape.
 func decodeID(raw string) string {

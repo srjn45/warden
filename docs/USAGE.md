@@ -896,6 +896,33 @@ warden project memory --edit                # open in $EDITOR (auto-creates it f
 warden project memory --path                # just the resolved path (scriptable)
 ```
 
+### `warden projects` (manage registered projects)
+
+Manage first-class daemon projects:
+
+```sh
+warden projects list                         # list registered projects (status, paths)
+warden projects open-local /path/to/repo     # register an existing local directory
+warden projects open-remote <git-url>        # clone remote repository and register it
+warden projects open <id> [--name <name>]    # register or reopen by canonical ID
+warden projects new <name>                   # scaffold a fresh project (git init)
+warden projects close <id>                   # hibernate project and stop its agents
+```
+
+### `warden project-groups` (manage project groups and membership)
+
+Manage named project groups and membership:
+
+```sh
+warden project-groups list                   # list groups and member projects
+warden project-groups show <id>              # show details of a group
+warden project-groups create <name> [--project <id>]... # create group with optional members
+warden project-groups update <id> [--name <name>]       # bulk update name / members
+warden project-groups delete <id>            # delete a group
+warden project-groups members add <id> <project-id>    # incrementally add a member
+warden project-groups members remove <id> <project-id> # incrementally remove a member
+```
+
 ### `warden agent adopt [--session-id <uuid>] [--dir <path>]`
 Register an existing Claude session into warden.
 

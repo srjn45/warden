@@ -317,3 +317,15 @@ MCP-first (all wrap `/api/v1/backends*`):
   upgrade, then ignored). Steer autopilot's spend with `set_backend_tier`, not config.
 - Config: `backends.limit_retry` (default `15m`) — how long the router skips a free
   backend after a rate-limit / spend signal.
+
+## Projects & Project groups — `wd projects` / `wd project-groups`
+
+Warden tracks daemon-registered checkout roots and remote repositories as first-class projects, organized into named Project Groups:
+
+- `warden projects list [--json]` — list registered projects (status, paths).
+- `warden projects open <id> [--name]` / `open-local <path>` / `open-remote <url>` — register/open projects.
+- `warden projects close <id>` — hibernate project and cleanly stop its agents.
+- `warden project-groups list [--json]` / `show <id>` — list groups and inspect members.
+- `warden project-groups create <name> [--project <id>]...` / `delete <id>` — create or remove groups.
+- `warden project-groups update <id> [--name <name>] [--project <id>]...` — bulk update name and/or projects.
+- `warden project-groups members add <id> <project-id>` / `remove <id> <project-id>` — manage group membership.

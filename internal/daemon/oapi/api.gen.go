@@ -440,6 +440,12 @@ func (e SetPermissionModeJSONBodyPermissionMode) Valid() bool {
 	}
 }
 
+// AddProjectGroupMemberRequest defines model for AddProjectGroupMemberRequest.
+type AddProjectGroupMemberRequest struct {
+	// ProjectId Project id to add or remove (filesystem path or remote URL). Need not resolve to a registered project. Blank/missing is rejected with 400.
+	ProjectId string `json:"project_id"`
+}
+
 // AdoptRequest defines model for AdoptRequest.
 type AdoptRequest struct {
 	// Cwd required; dir whose claude session to adopt
@@ -1634,6 +1640,12 @@ type CreateProjectGroupJSONRequestBody = CreateProjectGroupRequest
 // UpdateProjectGroupJSONRequestBody defines body for UpdateProjectGroup for application/json ContentType.
 type UpdateProjectGroupJSONRequestBody = UpdateProjectGroupRequest
 
+// RemoveProjectGroupMemberJSONRequestBody defines body for RemoveProjectGroupMember for application/json ContentType.
+type RemoveProjectGroupMemberJSONRequestBody = AddProjectGroupMemberRequest
+
+// AddProjectGroupMemberJSONRequestBody defines body for AddProjectGroupMember for application/json ContentType.
+type AddProjectGroupMemberJSONRequestBody = AddProjectGroupMemberRequest
+
 // OpenLocalProjectJSONRequestBody defines body for OpenLocalProject for application/json ContentType.
 type OpenLocalProjectJSONRequestBody = OpenLocalProjectRequest
 
@@ -1891,6 +1903,12 @@ type ServerInterface interface {
 	// Update a project group
 	// (PUT /api/v1/project-groups/{id})
 	UpdateProjectGroup(w http.ResponseWriter, r *http.Request, id string)
+	// Remove a project from a group
+	// (DELETE /api/v1/project-groups/{id}/members)
+	RemoveProjectGroupMember(w http.ResponseWriter, r *http.Request, id string)
+	// Add a project to a group
+	// (POST /api/v1/project-groups/{id}/members)
+	AddProjectGroupMember(w http.ResponseWriter, r *http.Request, id string)
 	// List first-class projects
 	// (GET /api/v1/projects)
 	ListProjects(w http.ResponseWriter, r *http.Request)
@@ -2410,6 +2428,18 @@ func (_ Unimplemented) GetProjectGroup(w http.ResponseWriter, r *http.Request, i
 // Update a project group
 // (PUT /api/v1/project-groups/{id})
 func (_ Unimplemented) UpdateProjectGroup(w http.ResponseWriter, r *http.Request, id string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Remove a project from a group
+// (DELETE /api/v1/project-groups/{id}/members)
+func (_ Unimplemented) RemoveProjectGroupMember(w http.ResponseWriter, r *http.Request, id string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Add a project to a group
+// (POST /api/v1/project-groups/{id}/members)
+func (_ Unimplemented) AddProjectGroupMember(w http.ResponseWriter, r *http.Request, id string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -4457,6 +4487,70 @@ func (siw *ServerInterfaceWrapper) UpdateProjectGroup(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r)
 }
 
+// RemoveProjectGroupMember operation middleware
+func (siw *ServerInterfaceWrapper) RemoveProjectGroupMember(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RemoveProjectGroupMember(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AddProjectGroupMember operation middleware
+func (siw *ServerInterfaceWrapper) AddProjectGroupMember(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AddProjectGroupMember(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListProjects operation middleware
 func (siw *ServerInterfaceWrapper) ListProjects(w http.ResponseWriter, r *http.Request) {
 
@@ -6286,6 +6380,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/api/v1/project-groups/{id}", wrapper.UpdateProjectGroup)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/api/v1/project-groups/{id}/members", wrapper.RemoveProjectGroupMember)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/project-groups/{id}/members", wrapper.AddProjectGroupMember)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/projects", wrapper.ListProjects)
@@ -8641,6 +8741,108 @@ func (response UpdateProjectGroup404JSONResponse) VisitUpdateProjectGroupRespons
 	return err
 }
 
+type RemoveProjectGroupMemberRequestObject struct {
+	Id   string `json:"id"`
+	Body *RemoveProjectGroupMemberJSONRequestBody
+}
+
+type RemoveProjectGroupMemberResponseObject interface {
+	VisitRemoveProjectGroupMemberResponse(w http.ResponseWriter) error
+}
+
+type RemoveProjectGroupMember200JSONResponse ProjectGroup
+
+func (response RemoveProjectGroupMember200JSONResponse) VisitRemoveProjectGroupMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveProjectGroupMember400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response RemoveProjectGroupMember400JSONResponse) VisitRemoveProjectGroupMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveProjectGroupMember404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RemoveProjectGroupMember404JSONResponse) VisitRemoveProjectGroupMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddProjectGroupMemberRequestObject struct {
+	Id   string `json:"id"`
+	Body *AddProjectGroupMemberJSONRequestBody
+}
+
+type AddProjectGroupMemberResponseObject interface {
+	VisitAddProjectGroupMemberResponse(w http.ResponseWriter) error
+}
+
+type AddProjectGroupMember200JSONResponse ProjectGroup
+
+func (response AddProjectGroupMember200JSONResponse) VisitAddProjectGroupMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddProjectGroupMember400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response AddProjectGroupMember400JSONResponse) VisitAddProjectGroupMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddProjectGroupMember404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response AddProjectGroupMember404JSONResponse) VisitAddProjectGroupMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListProjectsRequestObject struct {
 }
 
@@ -10693,6 +10895,12 @@ type StrictServerInterface interface {
 	// Update a project group
 	// (PUT /api/v1/project-groups/{id})
 	UpdateProjectGroup(ctx context.Context, request UpdateProjectGroupRequestObject) (UpdateProjectGroupResponseObject, error)
+	// Remove a project from a group
+	// (DELETE /api/v1/project-groups/{id}/members)
+	RemoveProjectGroupMember(ctx context.Context, request RemoveProjectGroupMemberRequestObject) (RemoveProjectGroupMemberResponseObject, error)
+	// Add a project to a group
+	// (POST /api/v1/project-groups/{id}/members)
+	AddProjectGroupMember(ctx context.Context, request AddProjectGroupMemberRequestObject) (AddProjectGroupMemberResponseObject, error)
 	// List first-class projects
 	// (GET /api/v1/projects)
 	ListProjects(ctx context.Context, request ListProjectsRequestObject) (ListProjectsResponseObject, error)
@@ -12618,6 +12826,72 @@ func (sh *strictHandler) UpdateProjectGroup(w http.ResponseWriter, r *http.Reque
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateProjectGroupResponseObject); ok {
 		if err := validResponse.VisitUpdateProjectGroupResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RemoveProjectGroupMember operation middleware
+func (sh *strictHandler) RemoveProjectGroupMember(w http.ResponseWriter, r *http.Request, id string) {
+	var request RemoveProjectGroupMemberRequestObject
+
+	request.Id = id
+
+	var body RemoveProjectGroupMemberJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RemoveProjectGroupMember(ctx, request.(RemoveProjectGroupMemberRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RemoveProjectGroupMember")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RemoveProjectGroupMemberResponseObject); ok {
+		if err := validResponse.VisitRemoveProjectGroupMemberResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AddProjectGroupMember operation middleware
+func (sh *strictHandler) AddProjectGroupMember(w http.ResponseWriter, r *http.Request, id string) {
+	var request AddProjectGroupMemberRequestObject
+
+	request.Id = id
+
+	var body AddProjectGroupMemberJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AddProjectGroupMember(ctx, request.(AddProjectGroupMemberRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AddProjectGroupMember")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AddProjectGroupMemberResponseObject); ok {
+		if err := validResponse.VisitAddProjectGroupMemberResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

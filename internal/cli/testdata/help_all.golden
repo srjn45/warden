@@ -77,6 +77,22 @@ Complete command tree:
   warden project library list          List saved spawn presets and built-in pipeline templates
   warden project plugin                Inspect warden's plugin system (#47): custom task types + lifecycle hooks
   warden project plugin list           List registered plugins, their custom task types, and subscribed hook events
+  warden projects                      Inspect and manage daemon-registered projects
+  warden projects list                 List registered projects
+  warden projects open                 Register or reopen a project by its canonical ID
+  warden projects open-local           Register an existing local directory as a project
+  warden projects open-remote          Clone a remote Git repository and register it as a project
+  warden projects new                  Scaffold a brand-new project and register it
+  warden projects close                Hibernate a project and gracefully stop its active agents
+  warden project-groups                Inspect and manage project groups and membership
+  warden project-groups list           List project groups
+  warden project-groups show           Show details for a project group
+  warden project-groups create         Create a new project group
+  warden project-groups update         Update a project group's name and membership (bulk-set)
+  warden project-groups delete         Delete a project group
+  warden project-groups members        Manage project group members
+  warden project-groups members add    Add a project to a project group
+  warden project-groups members remove Remove a project from a project group
   warden workspace                     Inspect and manage warden git worktrees, snapshots, branches, and file collisions
   warden workspace list                List warden worktrees under .worktrees, joined to active/archived records
   warden workspace prune               Reclaim orphaned warden worktrees under .worktrees (always asks; --force overrides guards)
@@ -263,6 +279,8 @@ Compatibility aliases:
   warden preset save -> warden project preset save (compatibility)
   warden project library save-preset -> warden project preset save (compatibility)
   warden project library save-prompt -> warden project prompt-template save (compatibility)
+  warden project-groups ls -> warden project-groups list (compatibility)
+  warden projects ls -> warden projects list (compatibility)
   warden prompt-template -> warden project prompt-template (compatibility)
   warden prompt-template list -> warden project prompt-template list (compatibility)
   warden prompt-template save -> warden project prompt-template save (compatibility)

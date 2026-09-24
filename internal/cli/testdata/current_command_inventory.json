@@ -2674,6 +2674,181 @@
     ]
   },
   {
+    "path": "project-groups",
+    "use": "project-groups",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "project-groups create",
+    "use": "create \u003cname\u003e",
+    "runnable": true,
+    "local_flags": [
+      "project"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "project-groups delete",
+    "use": "delete \u003cid\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "project-groups list",
+    "use": "list",
+    "aliases": [
+      "ls"
+    ],
+    "runnable": true,
+    "local_flags": [
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "project-groups members",
+    "use": "members",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "project-groups members add",
+    "use": "add \u003cgroup-id\u003e \u003cproject-id\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "project-groups members remove",
+    "use": "remove \u003cgroup-id\u003e \u003cproject-id\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "project-groups show",
+    "use": "show \u003cid\u003e",
+    "runnable": true,
+    "local_flags": [
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "project-groups update",
+    "use": "update \u003cid\u003e",
+    "runnable": true,
+    "local_flags": [
+      "name",
+      "project"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "projects",
+    "use": "projects",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "projects close",
+    "use": "close \u003cid\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "projects list",
+    "use": "list",
+    "aliases": [
+      "ls"
+    ],
+    "runnable": true,
+    "local_flags": [
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "projects new",
+    "use": "new \u003cname\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "projects open",
+    "use": "open \u003cid\u003e",
+    "runnable": true,
+    "local_flags": [
+      "name"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "projects open-local",
+    "use": "open-local \u003cpath\u003e",
+    "runnable": true,
+    "local_flags": [
+      "name"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "projects open-remote",
+    "use": "open-remote \u003curl\u003e",
+    "runnable": true,
+    "local_flags": [
+      "name"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
     "path": "prompt-template",
     "use": "prompt-template",
     "aliases": [

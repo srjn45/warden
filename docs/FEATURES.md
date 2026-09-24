@@ -1412,3 +1412,50 @@ duration, default `15m`) — how long the internal-thinking router skips a free 
 backend after it returns a rate-limit / spend signal, before retrying it. Tiers,
 the default, enabled flags, and the thinking mode live in the **store**, not the
 config file, and are edited via the surfaces above.
+
+---
+
+## 36. Projects & Project Groups
+
+warden tracks registered codebases as first-class daemon projects and organizes
+them into named project groups visible in the cockpit TUI tree.
+
+### 36.1 Projects (`warden projects`)
+
+A project is one repo checkout root or remote URL tracked by the daemon. Projects
+persist in ScrivaDB and support IDE-like hibernation (closing a project stops its
+agents gracefully and archives their records, ready to restore upon reopen).
+
+| Command | Action |
+|---|---|
+| `warden projects list [--json]` | List all registered projects (id, display name, status, local path) |
+| `warden projects open <id> [--name <name>]` | Register or reopen a project by its canonical ID |
+| `warden projects open-local <path> [--name <name>]` | Register an existing local directory |
+| `warden projects open-remote <url> [--name <name>]` | Clone a remote Git repository into the workspace and register it |
+| `warden projects new <name>` | Scaffold a fresh project (`git init` + initial commit) |
+| `warden projects close <id>` | Hibernate project and gracefully terminate its active agents |
+
+### 36.2 Project Groups (`warden project-groups`)
+
+A project group is a named collection of project IDs. Member projects display
+their group label in the cockpit TUI, and orchestrators running in member repos
+gain peer awareness of each other.
+
+| Command | Action |
+|---|---|
+| `warden project-groups list [--json]` | List all project groups and their member project IDs |
+| `warden project-groups show <id> [--json]` | Display group details and members |
+| `warden project-groups create <name> [--project <id>]...` | Create a new project group with optional initial members |
+| `warden project-groups update <id> [--name <name>] [--project <id>]...` | Bulk update display name or replace member project set |
+| `warden project-groups delete <id>` | Delete a group (referenced projects remain registered) |
+| `warden project-groups members add <id> <project-id>` | Incrementally add a member project to a group (`POST /members`) |
+| `warden project-groups members remove <id> <project-id>` | Incrementally remove a member project from a group (`DELETE /members`) |
+
+### 36.3 Surfaces
+
+| Surface | How |
+|---|---|
+| **CLI** | `warden projects` (list, open, open-local, open-remote, new, close) and `warden project-groups` (list, show, create, update, delete, members add\|remove) |
+| **REST** | `/api/v1/projects`, `/api/v1/projects/open`, `/api/v1/projects/local`, `/api/v1/projects/remote`, `/api/v1/projects/new`, `/api/v1/projects/{id}/close`, `/api/v1/project-groups`, `/api/v1/project-groups/{id}`, `/api/v1/project-groups/{id}/members` |
+| **TUI** | Cockpit tree groups member repos under group headers; `o` key opens projects (local, remote, new) |
+| **MCP** | Deferred (`—`) |
