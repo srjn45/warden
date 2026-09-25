@@ -51,11 +51,16 @@ func (s *Server) CreatePipeline(ctx context.Context, req oapi.CreatePipelineRequ
 	// parent_agent_id wins over the actor identity; when both are empty the pipeline
 	// is operator-created and owns no agent edge. Resolved from the live request
 	// before the async executor takes over, since jobs spawn later where no actor
-	// identity exists.
+	// identity exists. A terminal can never own a pipeline (§6.4): an explicit
+	// override naming a terminal is rejected (operator-owned) and must NOT fall
+	// back to the actor identity.
 	if bodyParentAgentID != "" {
-		p.ParentAgentID = bodyParentAgentID
-	}
-	if p.ParentAgentID == "" {
+		if owner, gerr := s.store.Get(ctx, bodyParentAgentID); gerr == nil && owner.IsTerminal() {
+			p.ParentAgentID = "" // rejected terminal override
+		} else {
+			p.ParentAgentID = bodyParentAgentID
+		}
+	} else if p.ParentAgentID == "" {
 		p.ParentAgentID = s.resolvePipelineParentAgentID(ctx)
 	}
 	// Captured at creation because jobs spawn later from the executor's ticker,
@@ -106,8 +111,11 @@ func (s *Server) DeletePipeline(ctx context.Context, req oapi.DeletePipelineRequ
 	// Reap each settled job's agent session so deleting never orphans agents.
 	for i := range p.Jobs {
 		if agentID := p.Jobs[i].AgentRef(); agentID != "" {
+			sess, gerr := s.store.Get(ctx, agentID)
 			_ = s.life.Terminate(ctx, agentID)
-			_ = s.store.Archive(ctx, agentID)
+			if aerr := s.store.Archive(ctx, agentID); aerr == nil && gerr == nil {
+				s.removeProjectMembership(sess)
+			}
 		}
 	}
 	if err := s.exec.pstore.Delete(pid); err != nil {

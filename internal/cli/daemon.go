@@ -461,6 +461,7 @@ func newDaemonRunCmd() *cobra.Command {
 			srv.SetAPIDocs(cfg.ApiDocs)
 			exec := daemon.NewExecutor(pstore, st, life, cstore, srv.Notify)
 			srv.SetExecutor(exec)
+			exec.SetProjects(projectStore)
 			// Digest narration is internal thinking too: route it through the same
 			// free/local walk. On an exhausted walk Complete errors and the narrator
 			// returns "" so the digest skips its summary line (never a paid call).

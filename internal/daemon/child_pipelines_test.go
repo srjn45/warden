@@ -179,11 +179,36 @@ func TestPipelineCreateStampsParentAgent(t *testing.T) {
 	require.Equal(t, "", pTerm.ParentAgentID)
 	require.Nil(t, childPipelines(t, ss, "term-1"))
 
-	// 5. Deleting an owned pipeline removes it from the owner's ChildPipelines[].
+	// 5. Explicit parent_agent_id override naming a terminal is rejected (§6.4).
+	pTermOverride := postPipeline(t, ts.URL, "agent-owner", mustJSON(t, map[string]string{"parent_agent_id": "term-1", "spec": spec("p5")}))
+	require.Equal(t, "", pTermOverride.ParentAgentID, "terminal parent_agent_id override must be cleared")
+	require.Nil(t, childPipelines(t, ss, "term-1"))
+	require.NotContains(t, childPipelines(t, ss, "agent-owner"), "p5", "rejected override must not fall back to the actor")
+
+	// 6. Deleting an owned pipeline removes it from the owner's ChildPipelines[].
 	delReq, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/v1/pipelines/p1", nil)
 	delResp, err := http.DefaultClient.Do(delReq)
 	require.NoError(t, err)
 	delResp.Body.Close()
 	require.Equal(t, http.StatusOK, delResp.StatusCode)
 	require.NotContains(t, childPipelines(t, ss, "agent-owner"), "p1")
+}
+
+// TestPipelineParentEdgeRejectsTerminalParent enforces §6.4 at the edge helper:
+// even a pipeline whose ParentAgentID already names a terminal must not write
+// ChildPipelines[] on that terminal.
+func TestPipelineParentEdgeRejectsTerminalParent(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.NewFileStore(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { st.Close(ctx) })
+	s := &Server{store: st}
+
+	term := &store.Session{ID: "term-owner", Kind: store.KindTerminal, Status: store.StatusWorking}
+	require.NoError(t, st.Insert(ctx, term))
+
+	p := &pipeline.Pipeline{ID: "pipe-term", ParentAgentID: "term-owner"}
+	s.addPipelineParentEdge(ctx, p)
+	require.Nil(t, childPipelines(t, st, "term-owner"), "terminal must not gain ChildPipelines[]")
+	require.Empty(t, p.ParentAgentID, "terminal owner back-ref must be cleared on the pipeline")
 }
