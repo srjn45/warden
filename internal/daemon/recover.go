@@ -32,16 +32,43 @@ type RecoverResult struct {
 //
 // apply=false only reports candidates and changes nothing. apply=true
 // re-inserts each candidate's full original record into the active store
-// under its original id, so any children (linked via ParentID, a one-way
-// pointer never touched by archiving) reconnect automatically with no edits
-// of their own. The stale closed copy is left in place — recovering does not
-// remove archived history.
+// under its original id (ParentID / ProjectID back-refs intact on the record).
+// Archive removed the matching forward edges (Project.agents[] /
+// parent.ChildAgents[]); after a successful re-insert this wrapper restores
+// both sides via addProjectMembership + addChildEdge (spec §6.1). The stale
+// closed copy is left in place — recovering does not remove archived history.
 func (s *Server) Recover(ctx context.Context, apply bool) ([]RecoverResult, error) {
 	var alive func(ctx context.Context, tmuxSession string) bool
 	if s.poller != nil {
 		alive = s.poller.SessionAlive
 	}
-	return recoverCandidates(ctx, s.store, alive, apply)
+	results, err := recoverCandidates(ctx, s.store, alive, apply)
+	if err != nil {
+		return results, err
+	}
+	if apply {
+		s.restoreRecoveredEdges(ctx, results)
+	}
+	return results, nil
+}
+
+// restoreRecoveredEdges re-adds Project.agents[]/terminals[] membership and the
+// parent's ChildAgents[] forward edge for each successfully re-inserted
+// candidate. Mirror of the Archive-time removeProjectMembership/removeChildEdge
+// pair (spec §6.1). Best-effort and idempotent; a no-op for project-less roots,
+// job agents on the child-edge side (D5), and terminals as children (§6.4).
+func (s *Server) restoreRecoveredEdges(ctx context.Context, results []RecoverResult) {
+	for _, r := range results {
+		if !r.Recovered {
+			continue
+		}
+		sess, err := s.store.Get(ctx, r.ID)
+		if err != nil {
+			continue
+		}
+		s.addProjectMembership(sess)
+		s.addChildEdge(ctx, sess)
+	}
 }
 
 // recoverCandidates is Recover's testable core: the store and liveness check
