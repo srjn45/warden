@@ -28,6 +28,13 @@ operations that are meaningless or unsafe over MCP/web).
 
 ## 1. Agent lifecycle
 
+Projects store complete `agents[]`, `pipelines[]`, and `terminals[]` membership
+lists. Agents store `parent_id`, `child_agents[]`, and `child_pipelines[]`;
+pipelines store `parent_agent_id`. Job agents belong to pipeline jobs, never
+the owning agent’s `child_agents[]`. New projects open empty; reopening restores
+hibernated members without auto-spawning an orchestrator. Agent UX states are
+`pending`, `busy`, `idle`, `need-input`, `done`, `orphaned`, and `rate_limited`.
+
 Spawn, inspect, message, and tear down per-task coding agents (Claude Code by
 default; each in its own tmux session, most in a git worktree).
 
@@ -46,7 +53,7 @@ default; each in its own tmux session, most in a git worktree).
 | Finish cleanly (commit/push guard) | `done` (= `stop --keep-worktree`) | `terminate_agent` (`force`) | ✓ | ✓ | `x` | [lifecycle-and-rails](https://srjn45.github.io/warden/guides/lifecycle-and-rails/) |
 | Terminate | `terminate` (= `stop --keep-record --keep-worktree`) | `terminate_agent` | ✓ | ✓ | `x` | [lifecycle-and-rails](https://srjn45.github.io/warden/guides/lifecycle-and-rails/) |
 | Restore an orphaned agent | `restore` | `restore_agent` | ✓ | ✓ | `r` | [agents-lifecycle](https://srjn45.github.io/warden/concepts/agents-lifecycle/) |
-| Recover an archived-but-alive agent (tombstone-reaper safety net) | `recover` | `recover_agents` | ✓ | — | — | [agents-lifecycle](https://srjn45.github.io/warden/concepts/agents-lifecycle/) |
+| Recover an archived `orphaned` agent with a live pane (tombstone-reaper safety net) | `recover` | `recover_agents` | ✓ | — | — | [agents-lifecycle](https://srjn45.github.io/warden/concepts/agents-lifecycle/) |
 | Delete / hard-purge | `delete` (= `stop --keep-worktree`, record only) | `delete_agent` | ✓ | ✓ | `D` | [fleet-operations](https://srjn45.github.io/warden/guides/fleet-operations/) |
 | Rename an agent | `adopt --name` / spawn `name` | `spawn_agent` (`name`) | ✓ | ✓ | — | [fleet-operations](https://srjn45.github.io/warden/guides/fleet-operations/) |
 | Tags (group / filter) | `start --tag`, `ls --tag` | `spawn_agent` (`tags`) | ✓ | ✓ | — | [fleet-operations](https://srjn45.github.io/warden/guides/fleet-operations/) |

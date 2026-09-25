@@ -11,7 +11,7 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
 
 | The user wants to… | Do this |
 |---|---|
-| list / check / triage agents | `list_agents`; summarize by status. Call out `waiting_for_input` (needs them), `errored`/`orphaned`, and any agent with a non-null `backend_recovery` field (automatically switching backends after a provider hard limit — see **Backend recovery** below). Show each agent's `subject` and `workdir`. For a nested fleet view, prefer `GET /api/v1/tree` over joining sessions/pipelines/autopilot client-side. |
+| list / check / triage agents | `list_agents`; summarize by status. Call out `need-input` (raw `waiting_for_input`), `orphaned`, and any agent with a non-null `backend_recovery` field (automatically switching backends after a provider hard limit — see **Backend recovery** below). Show each agent's `subject` and `workdir`. For a nested fleet view, prefer `GET /api/v1/tree` over joining sessions/pipelines/autopilot client-side. |
 | spin up an agent to do X | `spawn_agent {prompt: "X"}` (auto-typed, no repo needed). Only add `type`+`repo` (+`branch`/`pr`/`worktree`) for a managed worktree tied to a repo/ticket. Add `model`, `permission_mode`/`supervised`, `tags`, `role` as needed. |
 | give an agent a role / persona | `spawn_agent {..., role: "worker"}` at spawn, or `set_role {ticket, role}` on a running agent (relaunches to re-inject; `general`/empty clears it). `list_roles` returns the catalog. Over MCP, routing follows the role's default tier (no `task`/`tier` params). See **Roles** below. |
 | fork agent <id>'s session into a new one | `fork_agent {source: "<id>", prompt?}` — branches the source's recorded conversation into a NEW managed agent (fresh sibling worktree, dirty-tree carry; the source keeps running). **Codex-only** (a non-forking backend like Claude returns a clean "cannot fork"); the source's session id must already be pinned (let it run a turn first). See **Fork** below. |
@@ -22,7 +22,7 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
 | clear / delete an agent's record | `delete_agent` (id, `hard?`) — archives by default. Alias for `stop_agent {keep_worktree:true}` (record only). |
 | remove an agent's worktree | `remove_worktree` (id, `force?`) — DESTRUCTIVE; **confirm with the user first**; terminate the agent first. Alias for `stop_agent {keep_record:true}` (worktree only). |
 | restore a lost/orphaned agent | `restore_agent` (id) — only for sessions whose tmux is gone (status `orphaned`); resumes the same conversation. |
-| revive an archived record whose tmux is still alive | `recover_agents` (`apply?`) — safety net for the tombstone reaper; bare call reports candidates, `apply:true` re-inserts them (children reconnect automatically via `parent_id`). |
+| revive an archived `orphaned` record whose tmux is still alive | `recover_agents` (`apply?`) — safety net for the tombstone reaper; bare call reports candidates, `apply:true` re-inserts them (children reconnect automatically via `parent_id`). |
 | adopt an existing Claude session | `adopt_agent` (dir?, session_id?, tmux_session?). |
 
 ## CLI command map
@@ -41,7 +41,7 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
 | terminate + clear record (keeps worktree) | `warden agent done <id>` (= `warden agent stop <id> --keep-worktree`; `--create-pr` pushes the branch and opens a GitHub PR before terminating, `--base` sets target, default main) |
 | remove the worktree | `warden agent remove-worktree <id>` (= `warden agent stop <id> --keep-record`; guarded; `--force` overrides) |
 | restore a lost/orphaned agent | `warden agent restore <id>` |
-| revive an archived record whose tmux is still alive | `warden agent recover` (dry-run; `--apply` to actually revive, `--json` for scripting) |
+| revive an archived `orphaned` record whose tmux is still alive | `warden agent recover` (dry-run; `--apply` to actually revive, `--json` for scripting) |
 | adopt an existing session | `warden agent adopt [--session-id <uuid>] [--dir <path>]` |
 | attach interactively | `warden agent attach <id>` |
 | completion digest | MCP `digest {ticket}` / `warden agent digest <id>` (`--json`) — files touched, branch, turn count, narrative |
@@ -366,6 +366,47 @@ Worth knowing:
   `development` (a fork needs its own worktree). If the memory-pressure gate warns,
   add `--force` / `force:true`.
 
+
+## Stored hierarchy and presented status
+
+Warden has four separate entities: **Project, Agent, Terminal, and Pipeline**.
+A project's `agents[]`, `pipelines[]`, and `terminals[]` are complete,
+authoritative membership id lists, including nested agents and pipeline job
+agents. Clients render these stored lists instead of inferring membership from
+paths or scanning `project_id` back-references.
+
+Agents store `parent_id`, `child_agents[]`, and `child_pipelines[]`. A pipeline
+stores `parent_agent_id` (empty for an operator-created pipeline) as the reverse
+of its owner's `child_pipelines[]`. **Pipeline job agents never appear in the
+owner's `child_agents[]`**: reach them through the pipeline's jobs and their
+`pipeline_id`. Pipelines retain their own DAG; terminals are project leaf members
+with no agent children, AI transcript, or cost.
+
+Opening a new project leaves it empty; spawn agents and terminals explicitly.
+Reopening restores previously hibernated members but never auto-spawns an
+orchestrator. Record creation alone is distinct from launching a live session;
+spawn wires membership and parent/child edges. Stored lists are ordered and
+de-duplicated, and may retain ids whose records are unavailable or hibernated.
+
+| Presented state | Stored/API status | Meaning |
+|---|---|---|
+| `pending` | `spawning` | Launching |
+| `busy` | `working` | Actively working |
+| `idle` | `idle` | Alive, no active turn |
+| `need-input` | `waiting_for_input` | Waiting for input or approval |
+| `done` | `done` | Finished |
+| `orphaned` | `orphaned` | Process gone, record survives; eligible for recovery |
+| `rate_limited` | `rate_limited` | Paused at a provider limit; automatically resumes |
+
+These are presentation aliases; persisted and raw API statuses retain their
+existing names. Legacy `errored` records display as `done` when an exit code is
+recorded, otherwise as `orphaned`; there is no eighth UX state. A displayed alias
+does not itself grant recovery: restore/recover requires the stored `orphaned`
+state. Backend quota switching is a separate automatic mechanism.
+
+For archived records, `recover_agents` additionally requires a confirmed live
+tmux pane. `restore_agent` resumes an orphan whose pane is gone. Preserve stored
+membership and child edges across both paths.
 
 ## Backend recovery
 

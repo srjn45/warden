@@ -9,7 +9,7 @@ Run preflight checks — required binaries (`tmux`, `git`, `claude`), optional o
 
 ```sh
 warden doctor
-warden doctor --reconcile-membership   # offline: stamp project_id + rebuild membership lists (daemon must be stopped)
+warden doctor --reconcile-membership   # offline: stamp project_id + backfill missing membership; preserve stored lists (daemon must be stopped)
 ```
 
 The daemon also runs the membership reconcile automatically at boot. Use
