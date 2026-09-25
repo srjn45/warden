@@ -1,4 +1,5 @@
 import type { Session, ApprovalView, Pipeline, Digest, ContextEntry, Message, Conflict } from './types';
+import type { ProjectTree } from './tree';
 import type { Verdict, PressureStatus } from './pressure';
 import type { MetricsSample } from './metrics';
 import type { Summary } from './savings';
@@ -68,6 +69,10 @@ async function parse<T>(res: Response): Promise<T> {
 export async function listSessions(): Promise<Session[]> {
   const data = await parse<{ sessions: Session[] | null }>(await apiFetch('/sessions'));
   return data.sessions ?? [];
+}
+
+export async function getTree(): Promise<ProjectTree> {
+  return parse<ProjectTree>(await apiFetch('/tree'));
 }
 
 export async function getSession(id: string): Promise<Session> {
@@ -504,6 +509,7 @@ export function subscribeSessions(
   onError: () => void,
   onOpen: () => void,
 	onAutopilot?: (status: AutopilotStatus) => void,
+  onTree?: (tree: ProjectTree) => void,
 ): () => void {
   const es = new EventSource(withToken(API_PREFIX + '/events/stream'));
   es.onopen = () => onOpen();
@@ -514,6 +520,10 @@ export function subscribeSessions(
 		if (d.autopilot) onAutopilot?.({ ...d.autopilot, runs: d.autopilot.runs ?? [] });
     } catch { /* ignore malformed frame */ }
   };
+  if (onTree) es.addEventListener('tree', (event) => {
+    try { onTree(JSON.parse((event as MessageEvent).data) as ProjectTree); }
+    catch { /* ignore malformed frame; retain the last complete tree */ }
+  });
   es.onerror = () => onError();
   return () => es.close();
 }
