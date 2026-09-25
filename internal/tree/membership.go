@@ -68,29 +68,81 @@ func resolveGroupKey(projectID, dir string, openByKey, closedByKey map[string]st
 	return dir // loose dir group
 }
 
-// agentForest splits agent sessions into root agents plus a parent→children map
-// (spec §7 rule 3). A child nests under its parent only when they share a project
-// (same canonical dir); a cross-project child surfaces as its own root under its
-// OWN project (the edge is kept as structure; the "↳ from <parent>" label is a
-// client view concern, dropped here). An orphan whose parent is absent from the
-// set is promoted to a root so it never vanishes.
+// agentForest splits agent sessions into root agents plus a parent→children map,
+// preferring the STORED parent/child edges (spec D3) over path inference. A child
+// nests under its parent whenever a stored edge connects them — either the child's
+// parent_id points at a parent present in the set, or the parent lists the child in
+// its child_agents[] forward edge — regardless of whether they share a canonical
+// dir. Path is no longer consulted for nesting: with both ends of the edge stored,
+// the parent_id link is authoritative, so a child that runs in a worktree nests
+// correctly under its repo-rooted parent even though their canonical dirs differ.
+// Only legacy rows that carry no edge at all (empty parent_id and absent from every
+// child_agents[]) are treated by path — here that just means they are roots.
+//
+// Edge precedence follows spec §6.1/§6.3: the backward edge (child.parent_id) wins
+// when its target is present in the set; the forward edge (parent.child_agents[])
+// fills in a child whose own parent_id is empty or dangling. An orphan whose parent
+// is absent from the set is promoted to a root so it never vanishes, and a self- or
+// cyclic edge is broken by rendering the node as a root (dangling ids tolerated).
 func agentForest(sessions []*store.Session) (roots []*store.Session, childrenByParent map[string][]*store.Session) {
 	byID := make(map[string]*store.Session, len(sessions))
 	for _, s := range sessions {
 		byID[s.ID] = s
 	}
-	childrenByParent = map[string][]*store.Session{}
+
+	// Resolve each child's effective parent from the stored edges.
+	parentOf := make(map[string]string, len(sessions))
+	// Backward edge: child.parent_id (authoritative when its target is present).
 	for _, s := range sessions {
-		if parent := byID[s.ParentID]; s.ParentID != "" && parent != nil {
-			if sessionDir(s) == sessionDir(parent) {
-				childrenByParent[s.ParentID] = append(childrenByParent[s.ParentID], s)
+		if s.ParentID != "" && s.ParentID != s.ID && byID[s.ParentID] != nil {
+			parentOf[s.ID] = s.ParentID
+		}
+	}
+	// Forward edge: parent.child_agents[] fills in a child whose own parent_id is
+	// empty or dangling. The backward edge wins when both are present.
+	for _, p := range sessions {
+		for _, cid := range p.ChildAgents {
+			if cid == "" || cid == p.ID {
 				continue
 			}
-			// cross-project child → root under its own project
+			if _, resolved := parentOf[cid]; resolved {
+				continue
+			}
+			if byID[cid] != nil {
+				parentOf[cid] = p.ID
+			}
+		}
+	}
+
+	childrenByParent = map[string][]*store.Session{}
+	for _, s := range sessions {
+		if pid, ok := parentOf[s.ID]; ok && chainReachesRoot(s.ID, parentOf) {
+			childrenByParent[pid] = append(childrenByParent[pid], s)
+			continue
 		}
 		roots = append(roots, s)
 	}
 	return roots, childrenByParent
+}
+
+// chainReachesRoot reports whether following the parentOf chain from start ends at
+// a node with no parent (a real root) rather than looping. A cyclic chain returns
+// false so its members render as roots — nothing vanishes and the recursive subtree
+// build cannot spin forever.
+func chainReachesRoot(start string, parentOf map[string]string) bool {
+	seen := make(map[string]bool, len(parentOf))
+	cur := start
+	for {
+		next, ok := parentOf[cur]
+		if !ok {
+			return true
+		}
+		if seen[cur] {
+			return false
+		}
+		seen[cur] = true
+		cur = next
+	}
 }
 
 // isLive reports whether a session status is non-terminal (still running or
