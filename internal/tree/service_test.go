@@ -187,7 +187,7 @@ func TestGolden_RFC18PopulatedTree(t *testing.T) {
               "type": "manager",
               "id": "session:ap-42-brain",
               "label": "manager",
-              "status": "active",
+              "status": "busy",
               "session_id": "ap-42-brain",
               "detail": {
                 "kind": "agent",
@@ -215,7 +215,7 @@ func TestGolden_RFC18PopulatedTree(t *testing.T) {
                   "type": "worker",
                   "id": "session:w-9",
                   "label": "worker-9",
-                  "status": "active",
+                  "status": "busy",
                   "session_id": "w-9",
                   "detail": {
                     "kind": "agent",
@@ -262,7 +262,7 @@ func TestGolden_RFC18PopulatedTree(t *testing.T) {
           "type": "agent",
           "id": "session:agent-7",
           "label": "orch-warden",
-          "status": "waiting",
+          "status": "need-input",
           "session_id": "agent-7",
           "detail": {
             "kind": "agent",
@@ -273,7 +273,7 @@ func TestGolden_RFC18PopulatedTree(t *testing.T) {
               "type": "agent",
               "id": "session:agent-8",
               "label": "sub-explorer",
-              "status": "active",
+              "status": "busy",
               "session_id": "agent-8",
               "detail": {
                 "kind": "agent",
@@ -286,7 +286,7 @@ func TestGolden_RFC18PopulatedTree(t *testing.T) {
           "type": "terminal",
           "id": "session:term-3",
           "label": "warden ~ main",
-          "status": "idle",
+          "status": "busy",
           "session_id": "term-3",
           "detail": {
             "kind": "terminal"
@@ -298,7 +298,7 @@ func TestGolden_RFC18PopulatedTree(t *testing.T) {
       "type": "project",
       "id": "project:__none__",
       "label": "No project",
-      "status": "idle",
+      "status": "active",
       "detail": {
         "synthetic": true
       },
@@ -307,7 +307,7 @@ func TestGolden_RFC18PopulatedTree(t *testing.T) {
           "type": "terminal",
           "id": "session:term-9",
           "label": "shell",
-          "status": "idle",
+          "status": "busy",
           "session_id": "term-9",
           "detail": {
             "kind": "terminal"
@@ -558,7 +558,7 @@ func TestGolden_NestedAgent_AcrossWorktree(t *testing.T) {
           "type": "agent",
           "id": "session:orch",
           "label": "orchestrator",
-          "status": "waiting",
+          "status": "need-input",
           "session_id": "orch",
           "detail": {
             "kind": "agent",
@@ -569,7 +569,7 @@ func TestGolden_NestedAgent_AcrossWorktree(t *testing.T) {
               "type": "agent",
               "id": "session:wt-worker",
               "label": "worktree-worker",
-              "status": "active",
+              "status": "busy",
               "session_id": "wt-worker",
               "detail": {
                 "kind": "agent",
@@ -692,7 +692,7 @@ func TestGolden_NestedPipeline_UnderOwningAgent(t *testing.T) {
           "type": "agent",
           "id": "session:orch",
           "label": "orchestrator",
-          "status": "active",
+          "status": "busy",
           "session_id": "orch",
           "detail": {
             "kind": "agent",

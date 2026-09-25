@@ -518,7 +518,7 @@ func buildAutopilotRunNode(r *autopilot.RunStatus, sessions []*store.Session) *N
 			Type:      NodeTypeManager,
 			ID:        "session:" + managerSess.ID,
 			Label:     mLabel,
-			Status:    sessionStatus(managerSess.Status),
+			Status:    sessionStatus(managerSess.Status, managerSess.ExitCode),
 			SessionID: managerSess.ID,
 			Detail:    &Detail{Kind: "agent", Slot: "autopilot"},
 		})
@@ -534,7 +534,7 @@ func buildAutopilotRunNode(r *autopilot.RunStatus, sessions []*store.Session) *N
 			Type:      NodeTypeGuardian,
 			ID:        "session:" + guardianSess.ID,
 			Label:     gLabel,
-			Status:    sessionStatus(guardianSess.Status),
+			Status:    sessionStatus(guardianSess.Status, guardianSess.ExitCode),
 			SessionID: guardianSess.ID,
 			Detail:    &Detail{Kind: "agent", Slot: "guardian"},
 		})
@@ -561,7 +561,7 @@ func buildAutopilotRunNode(r *autopilot.RunStatus, sessions []*store.Session) *N
 				Type:      NodeTypeWorker,
 				ID:        "session:" + w.ID,
 				Label:     wLabel,
-				Status:    sessionStatus(w.Status),
+				Status:    sessionStatus(w.Status, w.ExitCode),
 				SessionID: w.ID,
 				Detail:    &Detail{Kind: "agent", Slot: "worker"},
 			})
@@ -590,7 +590,7 @@ func buildAutopilotRunNode(r *autopilot.RunStatus, sessions []*store.Session) *N
 			Type:      NodeTypeWorker,
 			ID:        "session:" + w.ID,
 			Label:     wLabel,
-			Status:    sessionStatus(w.Status),
+			Status:    sessionStatus(w.Status, w.ExitCode),
 			SessionID: w.ID,
 			Detail:    &Detail{Kind: "agent", Slot: "worker"},
 		})
@@ -731,7 +731,7 @@ func buildAgentSubtree(
 		Type:      NodeTypeAgent,
 		ID:        "session:" + s.ID,
 		Label:     label,
-		Status:    sessionStatus(s.Status),
+		Status:    sessionStatus(s.Status, s.ExitCode),
 		SessionID: s.ID,
 		Detail:    &Detail{Kind: "agent", Backend: backendOr(s)},
 	}
@@ -754,7 +754,7 @@ func buildTerminalNode(t *store.Session) *Node {
 		Type:      NodeTypeTerminal,
 		ID:        "session:" + t.ID,
 		Label:     terminalDisplayName(t),
-		Status:    sessionStatus(t.Status),
+		Status:    terminalStatus(t.Status, t.ExitCode),
 		SessionID: t.ID,
 		Detail:    &Detail{Kind: "terminal"},
 	}

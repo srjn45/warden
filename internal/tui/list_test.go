@@ -924,7 +924,7 @@ func TestRenderItemLineJobRowWithLiveSession(t *testing.T) {
 		ContextState:  store.ContextWarning,
 	}
 	row := renderItemLine(item{pjPipe: "demo", pjJob: job, pjSess: sess}, false, 100)
-	for _, want := range []string{"implement", "running", "needs-input", "120k", "feat/x"} {
+	for _, want := range []string{"implement", "running", "need-input", "120k", "feat/x"} {
 		if !strings.Contains(row, want) {
 			t.Fatalf("job row missing %q: %q", want, row)
 		}

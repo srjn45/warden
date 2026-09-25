@@ -3,27 +3,34 @@ import { busyIdle } from './status';
 
 describe('busyIdle', () => {
   it('maps working/spawning to busy', () => {
-    expect(busyIdle('working')).toEqual({ label: 'Busy', kind: 'busy' });
-    expect(busyIdle('spawning')).toEqual({ label: 'Starting', kind: 'busy' });
+    expect(busyIdle('working')).toEqual({ label: 'busy', kind: 'busy' });
+    expect(busyIdle('spawning')).toEqual({ label: 'pending', kind: 'busy' });
   });
   it('maps waiting_for_input to attention', () => {
-    expect(busyIdle('waiting_for_input')).toEqual({ label: 'Needs input', kind: 'attention' });
+    expect(busyIdle('waiting_for_input')).toEqual({ label: 'need-input', kind: 'attention' });
   });
   it('maps idle/done to idle', () => {
-    expect(busyIdle('idle')).toEqual({ label: 'Idle', kind: 'idle' });
-    expect(busyIdle('done')).toEqual({ label: 'Done', kind: 'idle' });
+    expect(busyIdle('idle')).toEqual({ label: 'idle', kind: 'idle' });
+    expect(busyIdle('done')).toEqual({ label: 'done', kind: 'idle' });
   });
   it('maps errored/orphaned to error', () => {
-    expect(busyIdle('errored')).toEqual({ label: 'Error', kind: 'error' });
-    expect(busyIdle('orphaned')).toEqual({ label: 'Orphaned', kind: 'error' });
+    expect(busyIdle('errored')).toEqual({ label: 'orphaned', kind: 'error' });
+    expect(busyIdle('orphaned')).toEqual({ label: 'orphaned', kind: 'error' });
   });
-  it('shows the exit code on an errored badge when present', () => {
-    expect(busyIdle('errored', 137).label).toBe('Error (137)');
+  it('uses done when exit evidence is present', () => {
+    expect(busyIdle('errored', 137).label).toBe('done');
   });
   it('errored without a code keeps the plain Error label', () => {
-    expect(busyIdle('errored').label).toBe('Error');
+    expect(busyIdle('errored').label).toBe('orphaned');
   });
-  it('errored with code 0 keeps the plain Error label', () => {
-    expect(busyIdle('errored', 0).label).toBe('Error');
+  it('uses done for a zero exit code', () => {
+    expect(busyIdle('errored', 0).label).toBe('done');
   });
+});
+
+it('presents all seven states exactly', () => {
+  expect(['spawning', 'working', 'idle', 'waiting_for_input', 'done', 'orphaned', 'rate_limited'].map(
+    s => busyIdle(s as import('./types').Status).label,
+  )).toEqual(['pending', 'busy', 'idle', 'need-input', 'done', 'orphaned', 'rate_limited']);
+  expect(busyIdle('rate_limited').kind).toBe('attention');
 });

@@ -1,8 +1,6 @@
 package tui
 
 import (
-	"fmt"
-
 	"github.com/charmbracelet/lipgloss"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -27,28 +25,15 @@ var (
 
 // badge maps a status to a short label + style (mirrors the web status.ts mapping).
 func badge(s store.Status, exitCode *int) (string, lipgloss.Style) {
-	switch s {
-	case store.StatusSpawning:
-		return "starting", stBusy
-	case store.StatusWorking:
-		return "busy", stBusy
-	case store.StatusWaitingForInput:
-		return "needs-input", stAttention
-	case store.StatusIdle:
-		return "idle", stIdle
-	case store.StatusDone:
-		return "done", stIdle
-	case store.StatusErrored:
-		if exitCode != nil && *exitCode != 0 {
-			return fmt.Sprintf("error %d", *exitCode), stError
-		}
-		return "error", stError
-	case store.StatusOrphaned:
-		return "orphaned", stError
+	label := store.PresentedStatus(s, exitCode)
+	switch label {
+	case "pending", "busy":
+		return label, stBusy
+	case "need-input", "rate_limited":
+		return label, stAttention
+	case "orphaned":
+		return label, stError
 	default:
-		if s == "" {
-			return "classifying", stMuted
-		}
-		return string(s), stIdle
+		return label, stIdle
 	}
 }

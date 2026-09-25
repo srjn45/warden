@@ -104,8 +104,8 @@ func TestContextCellColor(t *testing.T) {
 }
 
 func TestStatusCell(t *testing.T) {
-	// Without color the raw string passes through unchanged.
-	if got := statusCell(store.StatusWorking, false); got != string(store.StatusWorking) {
+	// Human-readable output uses the presentation alias even without color.
+	if got := statusCell(store.StatusWorking, false); got != "busy" {
 		t.Errorf("statusCell no-color = %q, want %q", got, store.StatusWorking)
 	}
 	cases := map[store.Status]string{
@@ -116,13 +116,13 @@ func TestStatusCell(t *testing.T) {
 	}
 	for st, code := range cases {
 		got := statusCell(st, true)
-		if !strings.HasPrefix(got, code) || !strings.Contains(got, string(st)) {
+		if !strings.HasPrefix(got, code) || !strings.Contains(got, store.PresentedStatus(st, nil)) {
 			t.Errorf("statusCell(%q) = %q, want prefix %q", st, got, code)
 		}
 	}
-	// An unrecognized status is returned verbatim even with color on.
-	if got := statusCell(store.Status("weird"), true); got != "weird" {
-		t.Errorf("statusCell(weird,true) = %q, want plain", got)
+	// An unclassified record remains within the seven-state vocabulary.
+	if got := statusCell(store.Status("weird"), true); got != "pending" {
+		t.Errorf("statusCell(weird,true) = %q, want pending", got)
 	}
 }
 
@@ -334,5 +334,15 @@ func TestLsTagFlagRegistered(t *testing.T) {
 	cmd := newLsCmd()
 	if f := cmd.Flags().Lookup("tag"); f == nil {
 		t.Fatal("--tag flag must be registered on ls")
+	}
+}
+
+func TestStatusCellExitEvidence(t *testing.T) {
+	code := 137
+	if got := statusCell(store.StatusErrored, false, &code); got != "done" {
+		t.Fatalf("got %q", got)
+	}
+	if got := statusCell(store.StatusErrored, false); got != "orphaned" {
+		t.Fatalf("got %q", got)
 	}
 }
