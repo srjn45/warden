@@ -164,28 +164,49 @@ func TestAgentForest_ForwardChildAgentsEdge(t *testing.T) {
 	}
 }
 
-// When two parents claim the same child via forward edges only, the lex-smallest
-// parent id wins (deterministic conflict tolerance). A valid backward edge still
-// beats every forward claim.
-func TestAgentForest_ForwardConflictPicksLexSmallestParent(t *testing.T) {
-	child := &store.Session{ID: "c", Kind: store.KindAgent}
+// When two parents claim the same child via forward edges, the lex-smallest
+// parent id wins. A forward child_agents[] claim also beats a contradictory
+// parent_id (spec §6.1: container list is membership of record).
+func TestAgentForest_ForwardWinsOverParentIDAndPicksLexSmallest(t *testing.T) {
+	child := &store.Session{ID: "c", ParentID: "z-parent", Kind: store.KindAgent}
 	// Intentionally unsorted input order: larger id first.
 	pZ := &store.Session{ID: "z-parent", Kind: store.KindAgent, ChildAgents: []string{"c"}}
 	pA := &store.Session{ID: "a-parent", Kind: store.KindAgent, ChildAgents: []string{"c"}}
 
 	_, childrenByParent := agentForest([]*store.Session{pZ, child, pA})
 	if kids := childrenByParent["a-parent"]; len(kids) != 1 || kids[0].ID != "c" {
-		t.Fatalf("lex-smallest forward parent must win: got %+v", childrenByParent)
+		t.Fatalf("lex-smallest forward parent must win over parent_id and larger forward claim: got %+v", childrenByParent)
 	}
 	if kids := childrenByParent["z-parent"]; len(kids) != 0 {
-		t.Fatalf("larger forward parent must not nest the child: got %+v", kids)
+		t.Fatalf("parent_id target / larger forward parent must not nest the child: got %+v", kids)
 	}
+}
 
-	// Backward edge beats both forward claims.
-	child.ParentID = "z-parent"
-	_, childrenByParent = agentForest([]*store.Session{pZ, child, pA})
-	if kids := childrenByParent["z-parent"]; len(kids) != 1 || kids[0].ID != "c" {
-		t.Fatalf("backward parent_id must beat forward claims: got %+v", childrenByParent)
+// Contradiction: child.parent_id=A while B.child_agents lists the child → B wins.
+func TestAgentForest_ChildAgentsBeatsContradictoryParentID(t *testing.T) {
+	a := &store.Session{ID: "a", Kind: store.KindAgent}
+	b := &store.Session{ID: "b", Kind: store.KindAgent, ChildAgents: []string{"c"}}
+	c := &store.Session{ID: "c", ParentID: "a", Kind: store.KindAgent}
+
+	_, childrenByParent := agentForest([]*store.Session{a, b, c})
+	if kids := childrenByParent["b"]; len(kids) != 1 || kids[0].ID != "c" {
+		t.Fatalf("child_agents[] must beat contradictory parent_id: got %+v", childrenByParent)
+	}
+	if kids := childrenByParent["a"]; len(kids) != 0 {
+		t.Fatalf("parent_id target must not nest when another parent's list claims the child: got %+v", kids)
+	}
+}
+
+// ChildAgents list order is preserved under the parent.
+func TestAgentForest_PreservesChildAgentsListOrder(t *testing.T) {
+	p := &store.Session{ID: "p", Kind: store.KindAgent, ChildAgents: []string{"c2", "c1", "ghost"}}
+	c1 := &store.Session{ID: "c1", Kind: store.KindAgent}
+	c2 := &store.Session{ID: "c2", Kind: store.KindAgent}
+
+	_, childrenByParent := agentForest([]*store.Session{c1, p, c2})
+	kids := childrenByParent["p"]
+	if len(kids) != 2 || kids[0].ID != "c2" || kids[1].ID != "c1" {
+		t.Fatalf("child_agents[] order must be preserved: got %+v", kids)
 	}
 }
 
@@ -210,8 +231,9 @@ func TestAgentForest_CycleBrokenToRoots(t *testing.T) {
 }
 
 // Project.agents[]/pipelines[]/terminals[] are the membership of record: they win
-// over a contradictory ProjectID or path. An entity listed nowhere falls back to
-// the legacy ProjectID/path resolver.
+// over a contradictory ProjectID or path. Legacy ProjectID/path applies only when
+// the candidate project's list is nil (missing field) — not when it is a non-nil
+// empty list or a non-nil list that excludes the entity.
 func TestResolveMembershipKey_AuthoritativeOverProjectIDAndPath(t *testing.T) {
 	projA := filepath.FromSlash("/home/u/dev/a")
 	projB := filepath.FromSlash("/home/u/dev/b")
@@ -222,18 +244,29 @@ func TestResolveMembershipKey_AuthoritativeOverProjectIDAndPath(t *testing.T) {
 	open := map[string]string{projA: projA, projB: projB}
 	closed := map[string]string{}
 
-	// Listed in both → lex-smallest project id (projA < projB by path).
+	// Listed in both → lex-smallest project id.
 	if got := resolveMembershipKey("agent-1", projB, projB, membershipAgents, projects, open, closed); got != projA {
 		t.Fatalf("membership list must win + lex-smallest on conflict: got %q want %q", got, projA)
 	}
 	// Contradictory ProjectID + path pointing at B, but listed only on A.
-	projects[1].Agents = nil
+	projects[1].Agents = []string{"other"}
 	if got := resolveMembershipKey("agent-1", projB, projB, membershipAgents, projects, open, closed); got != projA {
 		t.Fatalf("Agents[] must beat ProjectID/path: got %q want %q", got, projA)
 	}
-	// Not listed anywhere → legacy ProjectID wins.
-	if got := resolveMembershipKey("agent-2", projB, projA, membershipAgents, projects, open, closed); got != projB {
-		t.Fatalf("unlisted entity falls back to ProjectID: got %q want %q", got, projB)
+	// Explicit empty Agents on B: ProjectID=B must NOT regain membership.
+	projects[1].Agents = []string{}
+	if got := resolveMembershipKey("stranger", projB, projB, membershipAgents, projects, open, closed); got != "" {
+		t.Fatalf("non-nil empty Agents[] must block ProjectID/path regain: got %q", got)
+	}
+	// Non-nil excluding list on B: same exclusion.
+	projects[1].Agents = []string{"other"}
+	if got := resolveMembershipKey("stranger", projB, projB, membershipAgents, projects, open, closed); got != "" {
+		t.Fatalf("non-nil excluding Agents[] must block ProjectID/path regain: got %q", got)
+	}
+	// Nil Agents (legacy missing) → ProjectID wins.
+	projects[1].Agents = nil
+	if got := resolveMembershipKey("stranger", projB, projA, membershipAgents, projects, open, closed); got != projB {
+		t.Fatalf("nil Agents[] falls back to ProjectID: got %q want %q", got, projB)
 	}
 	// Pipelines / terminals membership.
 	if got := resolveMembershipKey("pipe-1", projB, projB, membershipPipelines, projects, open, closed); got != projA {

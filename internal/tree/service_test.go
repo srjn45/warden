@@ -730,6 +730,44 @@ func TestGolden_NestedPipeline_UnderOwningAgent(t *testing.T) {
 	require.JSONEq(t, expectedJSON, string(gotJSON))
 }
 
+// Contradiction: pipeline.parent_agent_id=A while B.child_pipelines lists the
+// pipeline → B owns it (container list wins, spec §6.1 / D4).
+func TestChildPipelinesBeatsContradictoryParentAgentID(t *testing.T) {
+	now := time.Date(2026, 9, 25, 16, 0, 0, 0, time.UTC)
+	in := Inputs{
+		Projects: []projectstore.Project{{
+			ID: "/repo", Name: "repo", Path: "/repo", Status: projectstore.StatusOpen,
+			Agents: []string{"a", "b"},
+		}},
+		Pipelines: []*pipeline.Pipeline{{
+			ID: "pipe", Name: "pipe", Repo: "/repo", ProjectID: "/repo",
+			ParentAgentID: "a",
+			Status:        pipeline.StatusRunning,
+			Jobs:          []pipeline.Job{{ID: "j", Status: pipeline.JobRunning}},
+		}},
+		Sessions: []*store.Session{
+			{ID: "a", Name: "alpha", ProjectID: "/repo", Repo: "/repo", Status: store.StatusIdle, Kind: store.KindAgent, CreatedAt: now},
+			{ID: "b", Name: "bravo", ProjectID: "/repo", Repo: "/repo", Status: store.StatusIdle, Kind: store.KindAgent, CreatedAt: now.Add(time.Minute), ChildPipelines: []string{"pipe"}},
+		},
+	}
+	tree := NewService().Build(in, "")
+	require.Len(t, tree.Roots, 1)
+	var bravo, alpha *Node
+	for _, ch := range tree.Roots[0].Children {
+		if ch.SessionID == "b" {
+			bravo = ch
+		}
+		if ch.SessionID == "a" {
+			alpha = ch
+		}
+	}
+	require.NotNil(t, bravo)
+	require.NotNil(t, alpha)
+	require.Len(t, bravo.Children, 1)
+	require.Equal(t, "pipeline:pipe", bravo.Children[0].ID)
+	require.Empty(t, alpha.Children, "parent_agent_id target must not own the pipeline when another agent's child_pipelines[] claims it")
+}
+
 // Test per-subtree degradation marking (spec §12)
 func TestPerSubtreeDegraded(t *testing.T) {
 	in := Inputs{

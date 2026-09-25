@@ -84,30 +84,45 @@ const (
 	membershipTerminals
 )
 
+// membershipList returns the project's stored id list for kind. A nil return
+// means the field was never written (legacy); a non-nil empty slice is an
+// explicit empty contract.
+func membershipList(p projectstore.Project, kind membershipKind) []string {
+	switch kind {
+	case membershipAgents:
+		return p.Agents
+	case membershipPipelines:
+		return p.Pipelines
+	case membershipTerminals:
+		return p.Terminals
+	}
+	return nil
+}
+
 // resolveMembershipKey returns the group key for an entity using the project's
-// stored membership lists as the authority (spec D2/§6.1). When one or more
-// projects list entityID, the lexicographically smallest project id wins
-// (deterministic conflict tolerance). Only when NO project lists the entity does
-// this fall back to ProjectID/path via resolveGroupKey — the legacy contract for
-// pre-field records and anything not yet written into a membership list.
+// stored membership lists as the authority (spec D2/§6.1). The container list
+// wins over contradictory ProjectID/path:
+//
+//  1. If one or more projects list entityID, the lexicographically smallest
+//     project id wins (deterministic multi-list conflict).
+//  2. Otherwise ProjectID/path are honored ONLY when the candidate project's
+//     list is nil (legacy missing field). A non-nil empty list or a non-nil
+//     list that excludes the entity is an explicit contract — the entity must
+//     NOT regain membership via back-ref or path.
 func resolveMembershipKey(
 	entityID, projectID, dir string,
 	kind membershipKind,
 	projects []projectstore.Project,
 	openByKey, closedByKey map[string]string,
 ) string {
+	projectByID := make(map[string]projectstore.Project, len(projects))
+	for _, p := range projects {
+		projectByID[p.ID] = p
+	}
+
 	var listed []string
 	for _, p := range projects {
-		var ids []string
-		switch kind {
-		case membershipAgents:
-			ids = p.Agents
-		case membershipPipelines:
-			ids = p.Pipelines
-		case membershipTerminals:
-			ids = p.Terminals
-		}
-		for _, id := range ids {
+		for _, id := range membershipList(p, kind) {
 			if id == entityID {
 				listed = append(listed, p.ID)
 				break
@@ -118,54 +133,69 @@ func resolveMembershipKey(
 		sort.Strings(listed)
 		return listed[0]
 	}
-	return resolveGroupKey(projectID, dir, openByKey, closedByKey)
+
+	// Not listed. Legacy ProjectID only when that project's list is nil.
+	if projectID != "" {
+		if p, ok := projectByID[projectID]; ok {
+			if membershipList(p, kind) == nil {
+				return projectID
+			}
+			// Non-nil contract excludes this entity — ignore ProjectID.
+		} else if k, ok := openByKey[projectID]; ok {
+			if membershipList(projectByID[k], kind) == nil {
+				return k
+			}
+		} else if k, ok := closedByKey[projectID]; ok {
+			if membershipList(projectByID[k], kind) == nil {
+				return k
+			}
+		}
+	}
+
+	// Path: only land under a registered project whose list is nil (legacy).
+	// If the path matches a project with a non-nil contract that excluded us,
+	// do NOT return the path (it often equals the project id and would re-home
+	// the entity under that project via the root builder) — fall to No-project.
+	if dir == "" {
+		return ""
+	}
+	if k, ok := openByKey[dir]; ok {
+		if membershipList(projectByID[k], kind) == nil {
+			return k
+		}
+		return ""
+	}
+	if k, ok := closedByKey[dir]; ok {
+		if membershipList(projectByID[k], kind) == nil {
+			return k
+		}
+		return ""
+	}
+	return dir // loose dir group (no registered project at this path)
 }
 
-// agentForest splits agent sessions into root agents plus a parent→children map,
-// preferring the STORED parent/child edges (spec D3) over path inference. A child
-// nests under its parent whenever a stored edge connects them — either the child's
-// parent_id points at a parent present in the set, or the parent lists the child in
-// its child_agents[] forward edge — regardless of whether they share a canonical
-// dir. Path is not consulted for nesting: with an explicit edge stored, the link is
-// authoritative, so a child that runs in another repo (or a worktree) nests under
-// its parent even when their canonical dirs differ. Only rows that carry no edge
-// at all (empty parent_id and absent from every child_agents[]) are roots.
-//
-// Edge precedence follows spec §6.1/§6.3: the backward edge (child.parent_id) wins
-// when its target is present in the set; the forward edge (parent.child_agents[])
-// fills in a child whose own parent_id is empty or dangling. When multiple parents
-// claim the same child via forward edges only, the lexicographically smallest
-// parent id wins (deterministic conflict tolerance). An orphan whose parent is
-// absent from the set is promoted to a root so it never vanishes, and a self- or
-// cyclic edge is broken by rendering the node as a root (dangling ids tolerated).
+// agentForest splits agent sessions into root agents plus a parent→children map
+// from STORED edges (spec D3), ignoring path. Spec §6.1: the container's
+// child_agents[] list is the membership of record when it disagrees with
+// parent_id — forward edges win over backward. parent_id is consulted only for
+// children that no present parent's child_agents[] claims. When multiple parents
+// list the same child, the lexicographically smallest parent id wins. Children
+// under a parent are emitted in that parent's child_agents[] order (list order
+// preserved); parent_id-only extras follow in id order. Cycles break to roots;
+// dangling ids are tolerated.
 func agentForest(sessions []*store.Session) (roots []*store.Session, childrenByParent map[string][]*store.Session) {
 	byID := make(map[string]*store.Session, len(sessions))
 	for _, s := range sessions {
 		byID[s.ID] = s
 	}
 
-	// Resolve each child's effective parent from the stored edges.
 	parentOf := make(map[string]string, len(sessions))
-	// Backward edge: child.parent_id (authoritative when its target is present).
-	for _, s := range sessions {
-		if s.ParentID != "" && s.ParentID != s.ID && byID[s.ParentID] != nil {
-			parentOf[s.ID] = s.ParentID
-		}
-	}
-	// Forward edge: parent.child_agents[] fills in a child whose own parent_id is
-	// empty or dangling. The backward edge wins when both are present. When several
-	// parents list the same unresolved child, the lex-smallest parent id wins.
+	// Forward first: container child_agents[] wins (spec §6.1).
 	forwardClaim := make(map[string]string)
 	for _, p := range sessions {
 		for _, cid := range p.ChildAgents {
-			if cid == "" || cid == p.ID {
-				continue
-			}
-			if byID[cid] == nil {
-				continue // dangling id tolerated — skip
-			}
-			if _, resolved := parentOf[cid]; resolved {
-				continue // backward edge already won
+			if cid == "" || cid == p.ID || byID[cid] == nil {
+				continue // dangling tolerated
 			}
 			if prev, ok := forwardClaim[cid]; ok && prev <= p.ID {
 				continue
@@ -173,17 +203,53 @@ func agentForest(sessions []*store.Session) (roots []*store.Session, childrenByP
 			forwardClaim[cid] = p.ID
 		}
 	}
+	claimedForward := make(map[string]bool, len(forwardClaim))
 	for cid, pid := range forwardClaim {
 		parentOf[cid] = pid
+		claimedForward[cid] = true
+	}
+	// Backward parent_id only when no forward claim listed the child.
+	for _, s := range sessions {
+		if claimedForward[s.ID] {
+			continue
+		}
+		if s.ParentID != "" && s.ParentID != s.ID && byID[s.ParentID] != nil {
+			parentOf[s.ID] = s.ParentID
+		}
 	}
 
 	childrenByParent = map[string][]*store.Session{}
+	placed := make(map[string]bool, len(sessions))
+	// Emit forward-claimed children in each parent's child_agents[] order.
+	for _, p := range sessions {
+		for _, cid := range p.ChildAgents {
+			if parentOf[cid] != p.ID || placed[cid] {
+				continue
+			}
+			if !chainReachesRoot(cid, parentOf) {
+				continue
+			}
+			childrenByParent[p.ID] = append(childrenByParent[p.ID], byID[cid])
+			placed[cid] = true
+		}
+	}
+	// parent_id-only children (no winning forward claim), stable by id.
+	var extras []*store.Session
 	for _, s := range sessions {
-		if pid, ok := parentOf[s.ID]; ok && chainReachesRoot(s.ID, parentOf) {
-			childrenByParent[pid] = append(childrenByParent[pid], s)
+		if placed[s.ID] {
+			continue
+		}
+		if _, ok := parentOf[s.ID]; ok && chainReachesRoot(s.ID, parentOf) {
+			extras = append(extras, s)
 			continue
 		}
 		roots = append(roots, s)
+	}
+	sort.Slice(extras, func(i, j int) bool { return extras[i].ID < extras[j].ID })
+	for _, s := range extras {
+		pid := parentOf[s.ID]
+		childrenByParent[pid] = append(childrenByParent[pid], s)
+		placed[s.ID] = true
 	}
 	return roots, childrenByParent
 }

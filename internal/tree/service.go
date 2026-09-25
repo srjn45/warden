@@ -137,25 +137,14 @@ func (s *Service) Build(in Inputs, projectID string) *Tree {
 		pipelineByID[p.ID] = p
 	}
 	ownerOfPipeline := map[string]string{}
-	// Backward edge: pipeline.parent_agent_id (authoritative when its target is a
-	// rendered agent).
-	for _, p := range in.Pipelines {
-		if p.ParentAgentID != "" && agentByID[p.ParentAgentID] != nil {
-			ownerOfPipeline[p.ID] = p.ParentAgentID
-		}
-	}
-	// Forward edge: agent.child_pipelines[] fills in a pipeline whose parent_agent_id
-	// is empty or dangling. The backward edge wins when both are present. When
-	// several agents claim the same unresolved pipeline, the lex-smallest agent id
-	// wins (deterministic conflict tolerance).
+	// Forward first: agent.child_pipelines[] is the container list of record
+	// (spec §6.1 / D4). When several agents list the same pipeline, the
+	// lex-smallest agent id wins.
 	forwardPipeClaim := make(map[string]string)
 	for _, s := range agents {
 		for _, pid := range s.ChildPipelines {
 			if pid == "" || pipelineByID[pid] == nil {
 				continue // dangling tolerated
-			}
-			if _, ok := ownerOfPipeline[pid]; ok {
-				continue // backward already won
 			}
 			if prev, ok := forwardPipeClaim[pid]; ok && prev <= s.ID {
 				continue
@@ -163,15 +152,40 @@ func (s *Service) Build(in Inputs, projectID string) *Tree {
 			forwardPipeClaim[pid] = s.ID
 		}
 	}
+	claimedForwardPipe := make(map[string]bool, len(forwardPipeClaim))
 	for pid, aid := range forwardPipeClaim {
 		ownerOfPipeline[pid] = aid
+		claimedForwardPipe[pid] = true
+	}
+	// Backward parent_agent_id only when no forward claim listed the pipeline.
+	for _, p := range in.Pipelines {
+		if claimedForwardPipe[p.ID] {
+			continue
+		}
+		if p.ParentAgentID != "" && agentByID[p.ParentAgentID] != nil {
+			ownerOfPipeline[p.ID] = p.ParentAgentID
+		}
 	}
 
 	ownedPipelinesByAgent := map[string][]*pipeline.Pipeline{}
 	pipelinesByGroup := map[string][]*pipeline.Pipeline{}
+	seenOwned := map[string]bool{}
+	// Preserve each owner's child_pipelines[] order.
+	for _, s := range agents {
+		for _, pid := range s.ChildPipelines {
+			if ownerOfPipeline[pid] != s.ID || seenOwned[pid] {
+				continue
+			}
+			ownedPipelinesByAgent[s.ID] = append(ownedPipelinesByAgent[s.ID], pipelineByID[pid])
+			seenOwned[pid] = true
+		}
+	}
 	for _, p := range in.Pipelines {
 		if owner, ok := ownerOfPipeline[p.ID]; ok {
-			ownedPipelinesByAgent[owner] = append(ownedPipelinesByAgent[owner], p)
+			if !seenOwned[p.ID] {
+				ownedPipelinesByAgent[owner] = append(ownedPipelinesByAgent[owner], p)
+				seenOwned[p.ID] = true
+			}
 			continue
 		}
 		key := resolveMembershipKey(
@@ -179,6 +193,31 @@ func (s *Service) Build(in Inputs, projectID string) *Tree {
 			membershipPipelines, in.Projects, openByKey, closedByKey,
 		)
 		pipelinesByGroup[key] = append(pipelinesByGroup[key], p)
+	}
+
+	// Order project-level members by the authoritative list when present.
+	for key, roots := range agentRootsByGroup {
+		if p, ok := projectByID[key]; ok && p.Agents != nil {
+			agentRootsByGroup[key] = orderSessionsByList(roots, p.Agents)
+		} else {
+			sortAgents(roots)
+		}
+	}
+	for key, terms := range terminalsByGroup {
+		if p, ok := projectByID[key]; ok && p.Terminals != nil {
+			terminalsByGroup[key] = orderSessionsByList(terms, p.Terminals)
+		} else {
+			sortTerminals(terms)
+		}
+	}
+	for key, pipes := range pipelinesByGroup {
+		if p, ok := projectByID[key]; ok && p.Pipelines != nil {
+			pipelinesByGroup[key] = orderPipelinesByList(pipes, p.Pipelines)
+		} else {
+			sort.SliceStable(pipes, func(i, j int) bool {
+				return pipes[i].Name < pipes[j].Name
+			})
+		}
 	}
 
 	// Identify all group keys to render
@@ -394,22 +433,17 @@ func buildGroupChildren(
 		children = append(children, buildAutopilotRunNode(r, autopilotSessionsByRun[r.RunID]))
 	}
 
-	// 2. Pipelines (project-level: those with no owning-agent edge)
-	sort.SliceStable(pipelines, func(i, j int) bool {
-		return pipelines[i].Name < pipelines[j].Name
-	})
+	// 2. Pipelines (project-level: those with no owning-agent edge) — pre-ordered.
 	for _, p := range pipelines {
 		children = append(children, buildPipelineNode(p, pipelineJobSessions))
 	}
 
-	// 3. Agent subtrees
-	sortAgents(agentRoots)
+	// 3. Agent subtrees — pre-ordered (Project.agents[] or sortAgents).
 	for _, s := range agentRoots {
 		children = append(children, buildAgentSubtree(s, childrenByParent, ownedPipelinesByAgent, pipelineJobSessions))
 	}
 
-	// 4. Terminals
-	sortTerminals(terminals)
+	// 4. Terminals — pre-ordered.
 	for _, t := range terminals {
 		children = append(children, buildTerminalNode(t))
 	}
@@ -680,10 +714,9 @@ func sortJobs(jobs []pipeline.Job) []pipeline.Job {
 }
 
 // buildAgentSubtree recursively builds an agent node and its stored children: the
-// sub-agents it spawned (parent_id / child_agents, spec §7) followed by the
-// pipelines it owns (parent_agent_id / child_pipelines, spec D4/D6). Child agents
-// are rendered before owned pipelines; within each kind the canonical sibling
-// ordering applies (agents by liveness then creation, pipelines by name).
+// sub-agents it spawned (child_agents / parent_id, spec §7) followed by the
+// pipelines it owns (child_pipelines / parent_agent_id, spec D4/D6). Child agents
+// and owned pipelines preserve the parent's stored list order.
 func buildAgentSubtree(
 	s *store.Session,
 	childrenByParent map[string][]*store.Session,
@@ -703,24 +736,14 @@ func buildAgentSubtree(
 		Detail:    &Detail{Kind: "agent", Backend: backendOr(s)},
 	}
 
-	// Child agents first.
-	kids := childrenByParent[s.ID]
-	if len(kids) > 0 {
-		sortAgents(kids)
-		for _, kid := range kids {
-			node.Children = append(node.Children, buildAgentSubtree(kid, childrenByParent, ownedPipelinesByAgent, pipelineJobSessions))
-		}
+	// Child agents first — already ordered by child_agents[] (list order).
+	for _, kid := range childrenByParent[s.ID] {
+		node.Children = append(node.Children, buildAgentSubtree(kid, childrenByParent, ownedPipelinesByAgent, pipelineJobSessions))
 	}
 
-	// Then pipelines this agent owns.
-	ownedPipes := ownedPipelinesByAgent[s.ID]
-	if len(ownedPipes) > 0 {
-		sort.SliceStable(ownedPipes, func(i, j int) bool {
-			return ownedPipes[i].Name < ownedPipes[j].Name
-		})
-		for _, p := range ownedPipes {
-			node.Children = append(node.Children, buildPipelineNode(p, pipelineJobSessions))
-		}
+	// Then pipelines this agent owns — already ordered by child_pipelines[].
+	for _, p := range ownedPipelinesByAgent[s.ID] {
+		node.Children = append(node.Children, buildPipelineNode(p, pipelineJobSessions))
 	}
 	return node
 }
@@ -737,7 +760,58 @@ func buildTerminalNode(t *store.Session) *Node {
 	}
 }
 
+// orderSessionsByList reorders sessions to match ids, appending any sessions
+// missing from ids (stable by id) so nothing vanishes.
+func orderSessionsByList(sessions []*store.Session, ids []string) []*store.Session {
+	byID := make(map[string]*store.Session, len(sessions))
+	for _, s := range sessions {
+		byID[s.ID] = s
+	}
+	out := make([]*store.Session, 0, len(sessions))
+	seen := make(map[string]bool, len(sessions))
+	for _, id := range ids {
+		if s := byID[id]; s != nil && !seen[id] {
+			out = append(out, s)
+			seen[id] = true
+		}
+	}
+	var rest []*store.Session
+	for _, s := range sessions {
+		if !seen[s.ID] {
+			rest = append(rest, s)
+		}
+	}
+	sort.Slice(rest, func(i, j int) bool { return rest[i].ID < rest[j].ID })
+	return append(out, rest...)
+}
+
+// orderPipelinesByList reorders pipelines to match ids, appending any missing
+// (stable by name) so nothing vanishes.
+func orderPipelinesByList(pipes []*pipeline.Pipeline, ids []string) []*pipeline.Pipeline {
+	byID := make(map[string]*pipeline.Pipeline, len(pipes))
+	for _, p := range pipes {
+		byID[p.ID] = p
+	}
+	out := make([]*pipeline.Pipeline, 0, len(pipes))
+	seen := make(map[string]bool, len(pipes))
+	for _, id := range ids {
+		if p := byID[id]; p != nil && !seen[id] {
+			out = append(out, p)
+			seen[id] = true
+		}
+	}
+	var rest []*pipeline.Pipeline
+	for _, p := range pipes {
+		if !seen[p.ID] {
+			rest = append(rest, p)
+		}
+	}
+	sort.SliceStable(rest, func(i, j int) bool { return rest[i].Name < rest[j].Name })
+	return append(out, rest...)
+}
+
 // sortAgents sorts sibling agents: live first, then by creation time ascending, then by ID (spec §8).
+// Used only for legacy rows with no authoritative Project.agents[] / child_agents[] order.
 func sortAgents(sessions []*store.Session) {
 	sort.SliceStable(sessions, func(i, j int) bool {
 		a, b := sessions[i], sessions[j]
