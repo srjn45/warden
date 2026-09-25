@@ -169,21 +169,27 @@ func isConnRefused(err error) bool {
 }
 
 func (c *Client) List(ctx context.Context) ([]*store.Session, error) {
-	return c.list(ctx, false)
+	return c.list(ctx, false, "agent")
 }
 
 // ListAll includes daemon-owned system sessions hidden from the ordinary fleet.
 func (c *Client) ListAll(ctx context.Context) ([]*store.Session, error) {
-	return c.list(ctx, true)
+	return c.list(ctx, true, "agent")
 }
 
-func (c *Client) list(ctx context.Context, all bool) ([]*store.Session, error) {
+// ListTerminals returns only plain shell sessions. It keeps the agent-centric
+// List/ListAll APIs from ever leaking terminal records to their callers.
+func (c *Client) ListTerminals(ctx context.Context) ([]*store.Session, error) {
+	return c.list(ctx, false, "terminal")
+}
+
+func (c *Client) list(ctx context.Context, all bool, kind string) ([]*store.Session, error) {
 	var resp struct {
 		Sessions []*store.Session `json:"sessions"`
 	}
-	path := "/sessions"
+	path := "/sessions?kind=" + kind
 	if all {
-		path += "?all=true"
+		path += "&all=true"
 	}
 	if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
 		return nil, err
@@ -333,7 +339,15 @@ func (c *Client) watch(ctx context.Context, all bool, onSnapshot func([]*store.S
 				Sessions []*store.Session `json:"sessions"`
 			}
 			if err := json.Unmarshal(data, &r); err == nil {
-				if err := onSnapshot(r.Sessions); err != nil {
+				// The stream contains both tracked entity kinds for terminal-aware
+				// UIs. Watch is the agent-facing API, so retain only AI sessions.
+				agents := r.Sessions[:0]
+				for _, session := range r.Sessions {
+					if !session.IsTerminal() {
+						agents = append(agents, session)
+					}
+				}
+				if err := onSnapshot(agents); err != nil {
 					return err
 				}
 			}

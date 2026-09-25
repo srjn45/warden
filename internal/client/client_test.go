@@ -25,6 +25,7 @@ func TestIsConnRefused(t *testing.T) {
 func TestListSessions(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/api/v1/sessions", r.URL.Path)
+		require.Equal(t, "agent", r.URL.Query().Get("kind"))
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"sessions":[{"id":"A-1","status":"working"}]}`))
 	}))
@@ -37,13 +38,28 @@ func TestListSessions(t *testing.T) {
 	require.Equal(t, "A-1", out[0].ID)
 }
 
+func TestListTerminals(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/api/v1/sessions", r.URL.Path)
+		require.Equal(t, "terminal", r.URL.Query().Get("kind"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"sessions":[{"id":"term-1","kind":"terminal"}]}`))
+	}))
+	defer ts.Close()
+
+	out, err := New(ts.URL).ListTerminals(t.Context())
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+	require.True(t, out[0].IsTerminal())
+}
+
 func TestWatchDeliversSnapshots(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/api/v1/events/stream", r.URL.Path)
 		fl := w.(http.Flusher)
 		w.Header().Set("Content-Type", "text/event-stream")
 		// Initial snapshot, a heartbeat comment (must be ignored), then a change.
-		_, _ = io.WriteString(w, "data: {\"sessions\":[{\"id\":\"A-1\",\"status\":\"working\"}]}\n\n")
+		_, _ = io.WriteString(w, "data: {\"sessions\":[{\"id\":\"A-1\",\"status\":\"working\"},{\"id\":\"T-1\",\"kind\":\"terminal\"}]}\n\n")
 		fl.Flush()
 		_, _ = io.WriteString(w, ": ping\n\n")
 		fl.Flush()
@@ -70,7 +86,7 @@ func TestWatchDeliversSnapshots(t *testing.T) {
 	})
 	require.ErrorIs(t, err, context.Canceled)
 	require.Equal(t, [][]string{{"A-1"}, {"A-1", "B-2"}}, snaps,
-		"heartbeat comment must not produce a snapshot")
+		"heartbeat comments and terminal sessions must not produce agent snapshots")
 }
 
 func TestWatchPropagatesCallbackError(t *testing.T) {
