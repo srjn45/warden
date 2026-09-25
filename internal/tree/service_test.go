@@ -494,6 +494,242 @@ func TestGolden_AutopilotWorkerClearedParentID(t *testing.T) {
 	require.Equal(t, "worker", worker.Detail.Slot)
 }
 
+// Golden test: a child agent running in a worktree nests under its repo-rooted
+// parent via the stored parent_id edge, even though their canonical dirs differ
+// (the path gate is gone — stored edges win). Both belong to the same project.
+func TestGolden_NestedAgent_AcrossWorktree(t *testing.T) {
+	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
+	in := Inputs{
+		Projects: []projectstore.Project{
+			{
+				ID:     "/home/u/dev/warden",
+				Name:   "warden",
+				Path:   "/home/u/dev/warden",
+				Status: projectstore.StatusOpen,
+			},
+		},
+		Sessions: []*store.Session{
+			// Parent orchestrator rooted at the repo.
+			{
+				ID:          "orch",
+				Name:        "orchestrator",
+				ProjectID:   "/home/u/dev/warden",
+				Repo:        "/home/u/dev/warden",
+				Backend:     "claude",
+				Status:      store.StatusWaitingForInput,
+				Kind:        store.KindAgent,
+				CreatedAt:   now.Add(1 * time.Minute),
+				ChildAgents: []string{"wt-worker"},
+			},
+			// Child worker in a worktree — a DIFFERENT canonical dir than the parent.
+			{
+				ID:        "wt-worker",
+				Name:      "worktree-worker",
+				ParentID:  "orch",
+				ProjectID: "/home/u/dev/warden",
+				Repo:      "/home/u/dev/warden/.worktrees/feature-x",
+				Backend:   "claude",
+				Status:    store.StatusWorking,
+				Kind:      store.KindAgent,
+				CreatedAt: now.Add(2 * time.Minute),
+			},
+		},
+	}
+
+	svc := NewService()
+	tree := svc.Build(in, "")
+
+	gotJSON, err := json.MarshalIndent(tree, "", "  ")
+	require.NoError(t, err)
+
+	expectedJSON := `{
+  "roots": [
+    {
+      "type": "project",
+      "id": "project:/home/u/dev/warden",
+      "label": "warden",
+      "status": "active",
+      "detail": {
+        "repo": "/home/u/dev/warden",
+        "path": "/home/u/dev/warden"
+      },
+      "children": [
+        {
+          "type": "agent",
+          "id": "session:orch",
+          "label": "orchestrator",
+          "status": "waiting",
+          "session_id": "orch",
+          "detail": {
+            "kind": "agent",
+            "backend": "claude"
+          },
+          "children": [
+            {
+              "type": "agent",
+              "id": "session:wt-worker",
+              "label": "worktree-worker",
+              "status": "active",
+              "session_id": "wt-worker",
+              "detail": {
+                "kind": "agent",
+                "backend": "claude"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}`
+
+	require.JSONEq(t, expectedJSON, string(gotJSON))
+}
+
+// Golden test: a pipeline owned by an agent (parent_agent_id / child_pipelines)
+// nests UNDER that agent's node — after its child agents — rather than sitting at
+// project level. A second, operator-created pipeline (no owning-agent edge) stays
+// at project level, confirming the legacy path/project fallback still applies.
+func TestGolden_NestedPipeline_UnderOwningAgent(t *testing.T) {
+	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
+	in := Inputs{
+		Projects: []projectstore.Project{
+			{
+				ID:     "/home/u/dev/warden",
+				Name:   "warden",
+				Path:   "/home/u/dev/warden",
+				Status: projectstore.StatusOpen,
+			},
+		},
+		Pipelines: []*pipeline.Pipeline{
+			// Owned by the orchestrator agent — nests under it.
+			{
+				ID:            "owned-pipe",
+				Name:          "owned-pipe",
+				Repo:          "/home/u/dev/warden",
+				ProjectID:     "/home/u/dev/warden",
+				ParentAgentID: "orch",
+				Status:        pipeline.StatusRunning,
+				Jobs: []pipeline.Job{
+					{ID: "build", Status: pipeline.JobRunning, SessionID: "job-build", DependsOn: []string{}},
+				},
+			},
+			// Operator-created (no parent_agent_id) — stays at project level.
+			{
+				ID:        "loose-pipe",
+				Name:      "loose-pipe",
+				Repo:      "/home/u/dev/warden",
+				ProjectID: "/home/u/dev/warden",
+				Status:    pipeline.StatusRunning,
+				Jobs: []pipeline.Job{
+					{ID: "deploy", Status: pipeline.JobRunning, DependsOn: []string{}},
+				},
+			},
+		},
+		Sessions: []*store.Session{
+			{
+				ID:             "orch",
+				Name:           "orchestrator",
+				ProjectID:      "/home/u/dev/warden",
+				Repo:           "/home/u/dev/warden",
+				Backend:        "claude",
+				Status:         store.StatusWorking,
+				Kind:           store.KindAgent,
+				CreatedAt:      now.Add(1 * time.Minute),
+				ChildPipelines: []string{"owned-pipe"},
+			},
+			// Pipeline job agent — reached via the pipeline, never a child_agents[] entry.
+			{
+				ID:         "job-build",
+				PipelineID: "owned-pipe",
+				JobID:      "build",
+				Status:     store.StatusWorking,
+				Kind:       store.KindAgent,
+				CreatedAt:  now.Add(2 * time.Minute),
+			},
+		},
+	}
+
+	svc := NewService()
+	tree := svc.Build(in, "")
+
+	gotJSON, err := json.MarshalIndent(tree, "", "  ")
+	require.NoError(t, err)
+
+	expectedJSON := `{
+  "roots": [
+    {
+      "type": "project",
+      "id": "project:/home/u/dev/warden",
+      "label": "warden",
+      "status": "active",
+      "detail": {
+        "repo": "/home/u/dev/warden",
+        "path": "/home/u/dev/warden"
+      },
+      "children": [
+        {
+          "type": "pipeline",
+          "id": "pipeline:loose-pipe",
+          "label": "loose-pipe",
+          "status": "active",
+          "detail": {
+            "repo": "/home/u/dev/warden"
+          },
+          "children": [
+            {
+              "type": "job",
+              "id": "pipeline:loose-pipe/job:deploy",
+              "label": "deploy",
+              "status": "active",
+              "detail": {
+                "depends_on": []
+              }
+            }
+          ]
+        },
+        {
+          "type": "agent",
+          "id": "session:orch",
+          "label": "orchestrator",
+          "status": "active",
+          "session_id": "orch",
+          "detail": {
+            "kind": "agent",
+            "backend": "claude"
+          },
+          "children": [
+            {
+              "type": "pipeline",
+              "id": "pipeline:owned-pipe",
+              "label": "owned-pipe",
+              "status": "active",
+              "detail": {
+                "repo": "/home/u/dev/warden"
+              },
+              "children": [
+                {
+                  "type": "job",
+                  "id": "pipeline:owned-pipe/job:build",
+                  "label": "build",
+                  "status": "active",
+                  "session_id": "job-build",
+                  "detail": {
+                    "depends_on": []
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}`
+
+	require.JSONEq(t, expectedJSON, string(gotJSON))
+}
+
 // Test per-subtree degradation marking (spec §12)
 func TestPerSubtreeDegraded(t *testing.T) {
 	in := Inputs{

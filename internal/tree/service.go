@@ -48,14 +48,6 @@ func (s *Service) Build(in Inputs, projectID string) *Tree {
 		}
 	}
 
-	// Group pipelines by group key
-	pipelinesByGroup := map[string][]*pipeline.Pipeline{}
-	for _, p := range in.Pipelines {
-		dir := canonicalDir(p.Repo)
-		key := resolveGroupKey(p.ProjectID, dir, openByKey, closedByKey)
-		pipelinesByGroup[key] = append(pipelinesByGroup[key], p)
-	}
-
 	// Group autopilot runs by group key
 	runsByGroup := map[string][]autopilot.RunStatus{}
 	for i := range in.Autopilot.Runs {
@@ -68,7 +60,7 @@ func (s *Service) Build(in Inputs, projectID string) *Tree {
 	// Partition sessions by exactly-once nesting precedence (spec §7):
 	// 1. autopilot_run_id
 	// 2. pipeline_id + job_id
-	// 3. parent_id within same project (agent forest)
+	// 3. parent_id / child_agents edge (agent forest — path no longer gates it)
 	// 4. resolved project
 	autopilotSessionsByRun := map[string][]*store.Session{}
 	isAutopilotSession := map[string]bool{}
@@ -124,6 +116,55 @@ func (s *Service) Build(in Inputs, projectID string) *Tree {
 		agentRootsByGroup[key] = append(agentRootsByGroup[key], sess)
 	}
 
+	// Resolve pipeline ownership by the stored agent→pipeline edges (spec D4/D6):
+	// a pipeline whose parent_agent_id names an agent in the fleet — or that appears
+	// in some agent's child_pipelines[] — nests UNDER that agent's node, following
+	// the agent wherever it renders, rather than sitting at project level. Only
+	// pipelines with no owning-agent edge (legacy/operator-created) fall back to
+	// project/path grouping via resolveGroupKey.
+	agentByID := make(map[string]*store.Session, len(agents))
+	for _, s := range agents {
+		agentByID[s.ID] = s
+	}
+	pipelineByID := make(map[string]*pipeline.Pipeline, len(in.Pipelines))
+	for _, p := range in.Pipelines {
+		pipelineByID[p.ID] = p
+	}
+	ownerOfPipeline := map[string]string{}
+	// Backward edge: pipeline.parent_agent_id (authoritative when its target is a
+	// rendered agent).
+	for _, p := range in.Pipelines {
+		if p.ParentAgentID != "" && agentByID[p.ParentAgentID] != nil {
+			ownerOfPipeline[p.ID] = p.ParentAgentID
+		}
+	}
+	// Forward edge: agent.child_pipelines[] fills in a pipeline whose parent_agent_id
+	// is empty or dangling. The backward edge wins when both are present.
+	for _, s := range agents {
+		for _, pid := range s.ChildPipelines {
+			if pid == "" {
+				continue
+			}
+			if _, ok := ownerOfPipeline[pid]; ok {
+				continue
+			}
+			if pipelineByID[pid] != nil {
+				ownerOfPipeline[pid] = s.ID
+			}
+		}
+	}
+
+	ownedPipelinesByAgent := map[string][]*pipeline.Pipeline{}
+	pipelinesByGroup := map[string][]*pipeline.Pipeline{}
+	for _, p := range in.Pipelines {
+		if owner, ok := ownerOfPipeline[p.ID]; ok {
+			ownedPipelinesByAgent[owner] = append(ownedPipelinesByAgent[owner], p)
+			continue
+		}
+		key := resolveGroupKey(p.ProjectID, canonicalDir(p.Repo), openByKey, closedByKey)
+		pipelinesByGroup[key] = append(pipelinesByGroup[key], p)
+	}
+
 	// Identify all group keys to render
 	groupKeySet := map[string]bool{}
 	for _, p := range in.Projects {
@@ -168,6 +209,7 @@ func (s *Service) Build(in Inputs, projectID string) *Tree {
 			pipelineJobSessions,
 			agentRootsByGroup[key],
 			childrenByParent,
+			ownedPipelinesByAgent,
 			terminalsByGroup[key],
 		)
 
@@ -322,6 +364,7 @@ func buildGroupChildren(
 	pipelineJobSessions map[string]*store.Session,
 	agentRoots []*store.Session,
 	childrenByParent map[string][]*store.Session,
+	ownedPipelinesByAgent map[string][]*pipeline.Pipeline,
 	terminals []*store.Session,
 ) []*Node {
 	var children []*Node
@@ -335,7 +378,7 @@ func buildGroupChildren(
 		children = append(children, buildAutopilotRunNode(r, autopilotSessionsByRun[r.RunID]))
 	}
 
-	// 2. Pipelines
+	// 2. Pipelines (project-level: those with no owning-agent edge)
 	sort.SliceStable(pipelines, func(i, j int) bool {
 		return pipelines[i].Name < pipelines[j].Name
 	})
@@ -346,7 +389,7 @@ func buildGroupChildren(
 	// 3. Agent subtrees
 	sortAgents(agentRoots)
 	for _, s := range agentRoots {
-		children = append(children, buildAgentSubtree(s, childrenByParent))
+		children = append(children, buildAgentSubtree(s, childrenByParent, ownedPipelinesByAgent, pipelineJobSessions))
 	}
 
 	// 4. Terminals
@@ -620,8 +663,17 @@ func sortJobs(jobs []pipeline.Job) []pipeline.Job {
 	return ordered
 }
 
-// buildAgentSubtree recursively builds an agent node and its same-project children (spec §7, §8).
-func buildAgentSubtree(s *store.Session, childrenByParent map[string][]*store.Session) *Node {
+// buildAgentSubtree recursively builds an agent node and its stored children: the
+// sub-agents it spawned (parent_id / child_agents, spec §7) followed by the
+// pipelines it owns (parent_agent_id / child_pipelines, spec D4/D6). Child agents
+// are rendered before owned pipelines; within each kind the canonical sibling
+// ordering applies (agents by liveness then creation, pipelines by name).
+func buildAgentSubtree(
+	s *store.Session,
+	childrenByParent map[string][]*store.Session,
+	ownedPipelinesByAgent map[string][]*pipeline.Pipeline,
+	pipelineJobSessions map[string]*store.Session,
+) *Node {
 	label := s.Name
 	if label == "" {
 		label = s.ID
@@ -635,11 +687,23 @@ func buildAgentSubtree(s *store.Session, childrenByParent map[string][]*store.Se
 		Detail:    &Detail{Kind: "agent", Backend: backendOr(s)},
 	}
 
+	// Child agents first.
 	kids := childrenByParent[s.ID]
 	if len(kids) > 0 {
 		sortAgents(kids)
 		for _, kid := range kids {
-			node.Children = append(node.Children, buildAgentSubtree(kid, childrenByParent))
+			node.Children = append(node.Children, buildAgentSubtree(kid, childrenByParent, ownedPipelinesByAgent, pipelineJobSessions))
+		}
+	}
+
+	// Then pipelines this agent owns.
+	ownedPipes := ownedPipelinesByAgent[s.ID]
+	if len(ownedPipes) > 0 {
+		sort.SliceStable(ownedPipes, func(i, j int) bool {
+			return ownedPipes[i].Name < ownedPipes[j].Name
+		})
+		for _, p := range ownedPipes {
+			node.Children = append(node.Children, buildPipelineNode(p, pipelineJobSessions))
 		}
 	}
 	return node

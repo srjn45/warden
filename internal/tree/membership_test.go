@@ -94,15 +94,16 @@ func TestBaseline_ResolveGroupKey_PathAndBackRefMatching(t *testing.T) {
 	}
 }
 
-// agentForest reconstructs the agent hierarchy from parent_id edges at render time:
-// a child nests under its parent only when they share a project (same canonical dir);
-// a cross-project child is promoted to a root under its own project; an orphan whose
-// parent is absent is promoted so it never vanishes.
+// agentForest reconstructs the agent hierarchy from the STORED parent/child edges
+// (spec D3), preferring them over path: a child nests under its parent whenever a
+// stored edge connects them — regardless of whether they share a canonical dir — so
+// a worktree child of a repo-rooted parent nests correctly. An orphan whose parent
+// is absent is promoted so it never vanishes.
 //
-// PHASE1+ (D3): parent_id gains a stored forward edge Agent.child_agents[]. The
-// forest is then read from that stored list rather than walked from parent_id, and
-// the "same project only" nesting rule is enforced where child_agents[] is populated.
-func TestBaseline_AgentForest_NestsSameProjectChildrenOnly(t *testing.T) {
+// This intentionally supersedes the Phase-0 baseline (a cross-project child used to
+// be promoted to a root); the change is the whole point of "Tree prefers stored
+// edges", and the previous baseline docstring flagged it as an expected diff.
+func TestAgentForest_NestsByStoredEdgesRegardlessOfPath(t *testing.T) {
 	repo := filepath.FromSlash("/home/u/dev/warden")
 	other := filepath.FromSlash("/home/u/dev/other")
 
@@ -113,9 +114,14 @@ func TestBaseline_AgentForest_NestsSameProjectChildrenOnly(t *testing.T) {
 
 	roots, childrenByParent := agentForest([]*store.Session{parent, sameProjChild, crossProjChild, orphan})
 
-	// c1 nests under p; c2 and the orphan are roots.
-	if kids := childrenByParent["p"]; len(kids) != 1 || kids[0].ID != "c1" {
-		t.Fatalf("only the same-project child nests under its parent: got %+v", kids)
+	// Both children nest under p by the parent_id edge — path is not consulted.
+	kids := childrenByParent["p"]
+	kidIDs := map[string]bool{}
+	for _, k := range kids {
+		kidIDs[k.ID] = true
+	}
+	if len(kids) != 2 || !kidIDs["c1"] || !kidIDs["c2"] {
+		t.Fatalf("both edge-linked children must nest under their parent regardless of path: got %+v", kids)
 	}
 	rootIDs := map[string]bool{}
 	for _, r := range roots {
@@ -124,13 +130,56 @@ func TestBaseline_AgentForest_NestsSameProjectChildrenOnly(t *testing.T) {
 	if !rootIDs["p"] {
 		t.Fatalf("the parent is a root: roots=%v", rootIDs)
 	}
-	if !rootIDs["c2"] {
-		t.Fatalf("a cross-project child is promoted to a root under its own project: roots=%v", rootIDs)
-	}
 	if !rootIDs["o"] {
 		t.Fatalf("an orphan whose parent is absent is promoted to a root: roots=%v", rootIDs)
 	}
-	if rootIDs["c1"] {
-		t.Fatalf("the nested same-project child must not also be a root: roots=%v", rootIDs)
+	if rootIDs["c1"] || rootIDs["c2"] {
+		t.Fatalf("a nested child must not also be a root: roots=%v", rootIDs)
+	}
+}
+
+// Forward edge: a parent's child_agents[] nests a child whose own parent_id is empty
+// or dangling (spec §6.1/§6.3, dangling ids tolerated).
+func TestAgentForest_ForwardChildAgentsEdge(t *testing.T) {
+	repo := filepath.FromSlash("/home/u/dev/warden")
+
+	// c1 has no parent_id but is listed in p.child_agents; c2 has a stale parent_id
+	// AND is listed forward — the forward edge still resolves it under p.
+	parent := &store.Session{ID: "p", Repo: repo, Kind: store.KindAgent, ChildAgents: []string{"c1", "c2", "ghost"}}
+	c1 := &store.Session{ID: "c1", Repo: repo, Kind: store.KindAgent}
+	c2 := &store.Session{ID: "c2", ParentID: "vanished", Repo: repo, Kind: store.KindAgent}
+
+	roots, childrenByParent := agentForest([]*store.Session{parent, c1, c2})
+
+	kids := childrenByParent["p"]
+	if len(kids) != 2 {
+		t.Fatalf("forward child_agents[] must nest both listed present children: got %+v", kids)
+	}
+	rootIDs := map[string]bool{}
+	for _, r := range roots {
+		rootIDs[r.ID] = true
+	}
+	if !rootIDs["p"] || rootIDs["c1"] || rootIDs["c2"] {
+		t.Fatalf("only the parent is a root: roots=%v", rootIDs)
+	}
+}
+
+// A parent_id/child_agents cycle is broken: members render as roots (never vanish,
+// never recurse forever).
+func TestAgentForest_CycleBrokenToRoots(t *testing.T) {
+	a := &store.Session{ID: "a", ParentID: "b", Kind: store.KindAgent}
+	b := &store.Session{ID: "b", ParentID: "a", Kind: store.KindAgent}
+
+	roots, childrenByParent := agentForest([]*store.Session{a, b})
+
+	if len(childrenByParent) != 0 {
+		t.Fatalf("a 2-cycle must nest nobody: got %+v", childrenByParent)
+	}
+	rootIDs := map[string]bool{}
+	for _, r := range roots {
+		rootIDs[r.ID] = true
+	}
+	if !rootIDs["a"] || !rootIDs["b"] {
+		t.Fatalf("both cycle members must be promoted to roots: roots=%v", rootIDs)
 	}
 }
