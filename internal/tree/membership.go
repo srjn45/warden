@@ -70,12 +70,9 @@ func resolveGroupKey(projectID, dir string, openByKey, closedByKey map[string]st
 
 // agentForest splits agent sessions into root agents plus a parent→children map,
 // preferring the STORED parent/child edges (spec D3) over path inference. A child
-// nests under its parent whenever a stored edge connects them — either the child's
-// parent_id points at a parent present in the set, or the parent lists the child in
-// its child_agents[] forward edge — regardless of whether they share a canonical
-// dir. Path is no longer consulted for nesting: with both ends of the edge stored,
-// the parent_id link is authoritative, so a child that runs in a worktree nests
-// correctly under its repo-rooted parent even though their canonical dirs differ.
+// nests under its parent whenever a stored edge connects them in the same
+// canonical directory. A cross-project child remains a root, where renderers can
+// show its lineage backlink without moving it out of its own project.
 // Only legacy rows that carry no edge at all (empty parent_id and absent from every
 // child_agents[]) are treated by path — here that just means they are roots.
 //
@@ -92,9 +89,11 @@ func agentForest(sessions []*store.Session) (roots []*store.Session, childrenByP
 
 	// Resolve each child's effective parent from the stored edges.
 	parentOf := make(map[string]string, len(sessions))
-	// Backward edge: child.parent_id (authoritative when its target is present).
+	// Backward edge: child.parent_id (authoritative when its target is present
+	// in the same project/directory).
 	for _, s := range sessions {
-		if s.ParentID != "" && s.ParentID != s.ID && byID[s.ParentID] != nil {
+		parent := byID[s.ParentID]
+		if s.ParentID != "" && s.ParentID != s.ID && parent != nil && sessionDir(s) == sessionDir(parent) {
 			parentOf[s.ID] = s.ParentID
 		}
 	}
@@ -108,7 +107,7 @@ func agentForest(sessions []*store.Session) (roots []*store.Session, childrenByP
 			if _, resolved := parentOf[cid]; resolved {
 				continue
 			}
-			if byID[cid] != nil {
+			if child := byID[cid]; child != nil && sessionDir(child) == sessionDir(p) {
 				parentOf[cid] = p.ID
 			}
 		}

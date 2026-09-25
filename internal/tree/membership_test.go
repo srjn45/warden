@@ -94,16 +94,10 @@ func TestBaseline_ResolveGroupKey_PathAndBackRefMatching(t *testing.T) {
 	}
 }
 
-// agentForest reconstructs the agent hierarchy from the STORED parent/child edges
-// (spec D3), preferring them over path: a child nests under its parent whenever a
-// stored edge connects them — regardless of whether they share a canonical dir — so
-// a worktree child of a repo-rooted parent nests correctly. An orphan whose parent
-// is absent is promoted so it never vanishes.
-//
-// This intentionally supersedes the Phase-0 baseline (a cross-project child used to
-// be promoted to a root); the change is the whole point of "Tree prefers stored
-// edges", and the previous baseline docstring flagged it as an expected diff.
-func TestAgentForest_NestsByStoredEdgesRegardlessOfPath(t *testing.T) {
+// agentForest reconstructs the agent hierarchy from stored parent/child edges in
+// the same canonical directory. A cross-project child is promoted to its own root
+// so renderers retain the project's structure and can show a lineage backlink.
+func TestAgentForest_NestsByStoredEdgesWithinProject(t *testing.T) {
 	repo := filepath.FromSlash("/home/u/dev/warden")
 	other := filepath.FromSlash("/home/u/dev/other")
 
@@ -114,14 +108,14 @@ func TestAgentForest_NestsByStoredEdgesRegardlessOfPath(t *testing.T) {
 
 	roots, childrenByParent := agentForest([]*store.Session{parent, sameProjChild, crossProjChild, orphan})
 
-	// Both children nest under p by the parent_id edge — path is not consulted.
+	// Only the same-project child nests under p.
 	kids := childrenByParent["p"]
 	kidIDs := map[string]bool{}
 	for _, k := range kids {
 		kidIDs[k.ID] = true
 	}
-	if len(kids) != 2 || !kidIDs["c1"] || !kidIDs["c2"] {
-		t.Fatalf("both edge-linked children must nest under their parent regardless of path: got %+v", kids)
+	if len(kids) != 1 || !kidIDs["c1"] {
+		t.Fatalf("same-project edge-linked child must nest under its parent: got %+v", kids)
 	}
 	rootIDs := map[string]bool{}
 	for _, r := range roots {
@@ -133,8 +127,8 @@ func TestAgentForest_NestsByStoredEdgesRegardlessOfPath(t *testing.T) {
 	if !rootIDs["o"] {
 		t.Fatalf("an orphan whose parent is absent is promoted to a root: roots=%v", rootIDs)
 	}
-	if rootIDs["c1"] || rootIDs["c2"] {
-		t.Fatalf("a nested child must not also be a root: roots=%v", rootIDs)
+	if rootIDs["c1"] || !rootIDs["c2"] {
+		t.Fatalf("cross-project child must be a root while nested child is not: roots=%v", rootIDs)
 	}
 }
 
