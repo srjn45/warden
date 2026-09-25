@@ -1037,7 +1037,7 @@ func TestGolden_AuthoritativeMembership_NestedPipelineJob_TerminalSeparation(t *
           "type": "agent",
           "id": "session:orch",
           "label": "orchestrator",
-          "status": "active",
+          "status": "busy",
           "session_id": "orch",
           "detail": {
             "kind": "agent",
@@ -1091,7 +1091,7 @@ func TestGolden_AuthoritativeMembership_NestedPipelineJob_TerminalSeparation(t *
           "type": "terminal",
           "id": "session:shell-1",
           "label": "dev-shell",
-          "status": "idle",
+          "status": "busy",
           "session_id": "shell-1",
           "detail": {
             "kind": "terminal"
