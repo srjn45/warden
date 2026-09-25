@@ -40,13 +40,28 @@ func TestRecoverCandidatesDryRunThenApply(t *testing.T) {
 // it was archived correctly and recover must not resurrect it.
 func TestRecoverCandidatesSkipsGenuinelyDead(t *testing.T) {
 	fs := newFakeStore()
-	fs.closed["gone"] = &store.Session{ID: "gone", TmuxSession: "gone", Status: store.StatusDone}
+	fs.closed["gone"] = &store.Session{ID: "gone", TmuxSession: "gone", Status: store.StatusOrphaned}
 	alive := func(context.Context, string) bool { return false }
 
 	results, err := recoverCandidates(context.Background(), fs, alive, true)
 	require.NoError(t, err)
 	require.Empty(t, results)
 	require.NotContains(t, fs.data, "gone")
+}
+
+// Spec D8: a live tmux pane on a non-orphaned archived record is not recovery
+// candidate material — only orphaned archives may be revived.
+func TestRecoverCandidatesSkipsNonOrphaned(t *testing.T) {
+	fs := newFakeStore()
+	fs.closed["done"] = &store.Session{ID: "done", TmuxSession: "done", Status: store.StatusDone}
+	fs.closed["idle"] = &store.Session{ID: "idle", TmuxSession: "idle", Status: store.StatusIdle}
+	alive := func(context.Context, string) bool { return true }
+
+	results, err := recoverCandidates(context.Background(), fs, alive, true)
+	require.NoError(t, err)
+	require.Empty(t, results)
+	require.NotContains(t, fs.data, "done")
+	require.NotContains(t, fs.data, "idle")
 }
 
 // A nil alive func (no liveness checker wired) yields zero candidates —

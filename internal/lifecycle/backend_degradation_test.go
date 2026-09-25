@@ -19,6 +19,7 @@ func TestRestoreRefusesNonResumableBackend(t *testing.T) {
 	lc := New(&FakeRunner{}, &FakeConfig{})
 	err := lc.Restore(context.Background(), &store.Session{
 		ID: "a1", TmuxSession: "a1", Backend: "aider", ClaudeSessionID: "irrelevant", Workdir: t.TempDir(),
+		Status: store.StatusOrphaned,
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "does not support")

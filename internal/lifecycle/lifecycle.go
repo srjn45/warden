@@ -1878,7 +1878,15 @@ func (l *Lifecycle) resumeInTmuxWithHints(ctx context.Context, b agentbackend.Ba
 // validates that the session is actually gone, has a pinned id, its workdir
 // still exists, and its transcript is present — returning a specific sentinel
 // otherwise — and never silently starts a fresh conversation.
+//
+// Spec D8: operator recovery is allowed only from orphaned. Project hibernation
+// reopen reuses this resume primitive for sessions marked Hibernated — that is
+// not recovery and must not be conflated with it. Resume/switch/role paths do
+// not call Restore.
 func (l *Lifecycle) Restore(ctx context.Context, sess *store.Session) error {
+	if !sess.Hibernated && sess.Status.Canonical() != store.StatusOrphaned {
+		return ErrNotOrphaned
+	}
 	b := l.backendFor(sess.Backend)
 	if !b.Capabilities().Resume {
 		// The agent's backend can't resume a prior session by id (e.g. Aider
@@ -2043,6 +2051,7 @@ var (
 	ErrNoSessionID         = errors.New("no pinned claude session id; re-spawn instead")
 	ErrWorkdirMissing      = errors.New("agent workdir is gone; re-spawn instead")
 	ErrNoTranscript        = errors.New("no transcript to resume")
+	ErrNotOrphaned         = errors.New("agent is not orphaned")
 	ErrForkSourceNotPinned = errors.New("fork source agent's session id is not yet known; let it run one turn, then retry")
 	ErrNoWorktree          = errors.New("session has no worktree")
 	ErrWorktreeAgentAlive  = errors.New("agent is still running; terminate it before removing its worktree")

@@ -349,21 +349,23 @@ func newRestoreCmd() *cobra.Command {
 // (internal/daemon/tombstone_reap.go). A record can only be archived out from
 // under a still-live tmux session by a stale orphaned status (the reaper now
 // reconfirms liveness before archiving one, but this covers whatever slips
-// through). Bare `wd recover` only reports candidates (archived records whose
-// tmux session is confirmed still alive) and changes nothing; --apply
+// through). Spec D8: only archived records whose status is orphaned are
+// candidates. Bare `wd recover` only reports candidates (orphaned archives
+// whose tmux session is confirmed still alive) and changes nothing; --apply
 // re-inserts each one into the active store under its original id, so any
 // children (linked via parent_id) reconnect automatically.
 func newRecoverCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "recover",
-		Short: "Revive archived agent records whose tmux session is still alive (dry run unless --apply)",
-		Long: "Scans archived (closed) agent records for ones whose tmux session is\n" +
-			"confirmed still alive — a live session's record should never end up\n" +
-			"archived, but a stale orphaned status racing a daemon restart could\n" +
-			"previously slip one past the tombstone reaper. Bare `wd recover` only\n" +
-			"reports what it finds; --apply re-inserts each candidate into the active\n" +
-			"store under its original id. Any children (linked via parent_id, untouched\n" +
-			"by archiving) reconnect automatically — no need to recover them separately.",
+		Short: "Revive archived orphaned agent records whose tmux session is still alive (dry run unless --apply)",
+		Long: "Scans archived (closed) agent records for ones whose status is orphaned\n" +
+			"(the only recovery source) and whose tmux session is confirmed still alive\n" +
+			"— a live session's record should never end up archived, but a stale orphaned\n" +
+			"status racing a daemon restart could previously slip one past the tombstone\n" +
+			"reaper. Bare `wd recover` only reports what it finds; --apply re-inserts each\n" +
+			"candidate into the active store under its original id. Any children (linked\n" +
+			"via parent_id, untouched by archiving) reconnect automatically — no need to\n" +
+			"recover them separately.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			apply, _ := cmd.Flags().GetBool("apply")
@@ -378,7 +380,7 @@ func newRecoverCmd() *cobra.Command {
 				return printJSON(cmd.OutOrStdout(), results)
 			}
 			if len(results) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "no recoverable agents found (nothing archived has a live tmux session)")
+				fmt.Fprintln(cmd.OutOrStdout(), "no recoverable agents found (no orphaned archive has a live tmux session)")
 				return nil
 			}
 			for _, r := range results {

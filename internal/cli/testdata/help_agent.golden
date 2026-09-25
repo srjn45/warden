@@ -15,7 +15,7 @@ Commands:
   digest               Summarize what an agent accomplished (files, branch, turns, narrative)
   fork                 Fork an agent's session into a new managed agent (branches the conversation; the source keeps running)
   restore              Recreate and resume a lost/orphaned agent (claude --resume)
-  recover              Revive archived agent records whose tmux session is still alive (dry run unless --apply)
+  recover              Revive archived orphaned agent records whose tmux session is still alive (dry run unless --apply)
   adopt                Register the Claude session in this directory (resume it under tmux, or register the current tmux session live)
   attach               Attach to the agent's tmux session
   stop                 Tear down an agent — the single umbrella verb (default: terminate + clear record + remove worktree)

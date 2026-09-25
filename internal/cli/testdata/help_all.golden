@@ -6,7 +6,7 @@ Complete command tree:
   warden agent digest                  Summarize what an agent accomplished (files, branch, turns, narrative)
   warden agent fork                    Fork an agent's session into a new managed agent (branches the conversation; the source keeps running)
   warden agent restore                 Recreate and resume a lost/orphaned agent (claude --resume)
-  warden agent recover                 Revive archived agent records whose tmux session is still alive (dry run unless --apply)
+  warden agent recover                 Revive archived orphaned agent records whose tmux session is still alive (dry run unless --apply)
   warden agent adopt                   Register the Claude session in this directory (resume it under tmux, or register the current tmux session live)
   warden agent attach                  Attach to the agent's tmux session
   warden agent stop                    Tear down an agent — the single umbrella verb (default: terminate + clear record + remove worktree)

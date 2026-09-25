@@ -95,7 +95,7 @@ Commands:
   digest               Summarize what an agent accomplished (files, branch, turns, narrative)
   fork                 Fork an agent's session into a new managed agent (branches the conversation; the source keeps running)
   restore              Recreate and resume a lost/orphaned agent (claude --resume)
-  recover              Revive archived agent records whose tmux session is still alive (dry run unless --apply)
+  recover              Revive archived orphaned agent records whose tmux session is still alive (dry run unless --apply)
   adopt                Register the Claude session in this directory (resume it under tmux, or register the current tmux session live)
   attach               Attach to the agent's tmux session
   stop                 Tear down an agent — the single umbrella verb (default: terminate + clear record + remove worktree)
@@ -300,13 +300,14 @@ Inherited flags:
 ## warden agent recover
 
 ```text
-Scans archived (closed) agent records for ones whose tmux session is
-confirmed still alive — a live session's record should never end up
-archived, but a stale orphaned status racing a daemon restart could
-previously slip one past the tombstone reaper. Bare `wd agent recover` only
-reports what it finds; --apply re-inserts each candidate into the active
-store under its original id. Any children (linked via parent_id, untouched
-by archiving) reconnect automatically — no need to recover them separately.
+Scans archived (closed) agent records for ones whose status is orphaned
+(the only recovery source) and whose tmux session is confirmed still alive
+— a live session's record should never end up archived, but a stale orphaned
+status racing a daemon restart could previously slip one past the tombstone
+reaper. Bare `wd agent recover` only reports what it finds; --apply re-inserts each
+candidate into the active store under its original id. Any children (linked
+via parent_id, untouched by archiving) reconnect automatically — no need to
+recover them separately.
 
 Usage:
   warden agent recover [flags]

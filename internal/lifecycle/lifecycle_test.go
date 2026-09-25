@@ -1107,7 +1107,7 @@ func TestRestoreRecreatesAndResumes(t *testing.T) {
 	}}
 	lc := New(fr, &FakeConfig{})
 	lc.ProjectsDir = root
-	sess := &store.Session{ID: "agent-r1", TmuxSession: "agent-r1", Workdir: workdir, ClaudeSessionID: sid}
+	sess := &store.Session{ID: "agent-r1", TmuxSession: "agent-r1", Workdir: workdir, ClaudeSessionID: sid, Status: store.StatusOrphaned}
 
 	require.NoError(t, lc.Restore(context.Background(), sess))
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", "agent-r1", "-e", "WARDEN_SESSION_ID=agent-r1", "-e", "AGENTCTL_SESSION_ID=agent-r1", "-c", workdir})
@@ -1120,23 +1120,52 @@ func TestRestorePreconditionErrors(t *testing.T) {
 		return &FakeRunner{Responses: map[string]FakeResp{"tmux has-session -t a": {Err: errStub("dead")}}}
 	}
 
+	// not orphaned (and not hibernated): recovery refused before any tmux call
+	require.ErrorIs(t, New(&FakeRunner{}, &FakeConfig{}).Restore(context.Background(),
+		&store.Session{ID: "a", TmuxSession: "a", Workdir: t.TempDir(), ClaudeSessionID: sid, Status: store.StatusDone}), ErrNotOrphaned)
+	require.ErrorIs(t, New(&FakeRunner{}, &FakeConfig{}).Restore(context.Background(),
+		&store.Session{ID: "a", TmuxSession: "a", Workdir: t.TempDir(), ClaudeSessionID: sid, Status: store.StatusIdle}), ErrNotOrphaned)
+
 	// no pinned session id (checked before any tmux call)
 	require.ErrorIs(t, New(&FakeRunner{}, &FakeConfig{}).Restore(context.Background(),
-		&store.Session{ID: "a", TmuxSession: "a", Workdir: t.TempDir()}), ErrNoSessionID)
+		&store.Session{ID: "a", TmuxSession: "a", Workdir: t.TempDir(), Status: store.StatusOrphaned}), ErrNoSessionID)
 
 	// already running: has-session succeeds (FakeRunner default = success = alive)
 	require.ErrorIs(t, New(&FakeRunner{}, &FakeConfig{}).Restore(context.Background(),
-		&store.Session{ID: "a", TmuxSession: "a", Workdir: t.TempDir(), ClaudeSessionID: sid}), ErrAlreadyRunning)
+		&store.Session{ID: "a", TmuxSession: "a", Workdir: t.TempDir(), ClaudeSessionID: sid, Status: store.StatusOrphaned}), ErrAlreadyRunning)
 
 	// workdir gone
 	require.ErrorIs(t, New(dead(), &FakeConfig{}).Restore(context.Background(),
-		&store.Session{ID: "a", TmuxSession: "a", Workdir: "/no/such/dir", ClaudeSessionID: sid}), ErrWorkdirMissing)
+		&store.Session{ID: "a", TmuxSession: "a", Workdir: "/no/such/dir", ClaudeSessionID: sid, Status: store.StatusOrphaned}), ErrWorkdirMissing)
 
 	// no transcript: dead, workdir exists, empty ProjectsDir
 	lc := New(dead(), &FakeConfig{})
 	lc.ProjectsDir = t.TempDir()
 	require.ErrorIs(t, lc.Restore(context.Background(),
-		&store.Session{ID: "a", TmuxSession: "a", Workdir: t.TempDir(), ClaudeSessionID: sid}), ErrNoTranscript)
+		&store.Session{ID: "a", TmuxSession: "a", Workdir: t.TempDir(), ClaudeSessionID: sid, Status: store.StatusOrphaned}), ErrNoTranscript)
+}
+
+// Hibernated reopen reuses Restore as a resume primitive (not D8 recovery): a
+// done+hibernated session must still restore even though it is not orphaned.
+func TestRestoreAllowsHibernated(t *testing.T) {
+	root := t.TempDir()
+	workdir := t.TempDir()
+	sid := "66666666-6666-4666-8666-666666666666"
+	pdir := claudeProjectDir(root, workdir)
+	require.NoError(t, os.MkdirAll(pdir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(pdir, sid+".jsonl"), []byte("{}"), 0o644))
+
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"tmux has-session -t agent-h1": {Err: errStub("no session")},
+	}}
+	lc := New(fr, &FakeConfig{})
+	lc.ProjectsDir = root
+	sess := &store.Session{
+		ID: "agent-h1", TmuxSession: "agent-h1", Workdir: workdir,
+		ClaudeSessionID: sid, Status: store.StatusDone, Hibernated: true,
+	}
+	require.NoError(t, lc.Restore(context.Background(), sess))
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", "agent-h1", "-e", "WARDEN_SESSION_ID=agent-h1", "-e", "AGENTCTL_SESSION_ID=agent-h1", "-c", workdir})
 }
 
 func TestTerminateKillsTmuxOnly(t *testing.T) {

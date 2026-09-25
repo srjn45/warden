@@ -26,6 +26,10 @@ type RecoverResult struct {
 // liveness reconfirm added there), and this is how to bring one back if it
 // ever happens regardless.
 //
+// Spec D8: only archived records whose status is orphaned are recovery
+// candidates — a done/idle/errored archive with a live tmux pane is not
+// revived by this path.
+//
 // apply=false only reports candidates and changes nothing. apply=true
 // re-inserts each candidate's full original record into the active store
 // under its original id, so any children (linked via ParentID, a one-way
@@ -50,6 +54,9 @@ func recoverCandidates(ctx context.Context, st store.Store, alive func(ctx conte
 	}
 	var results []RecoverResult
 	for _, rec := range closed {
+		if rec.Status.Canonical() != store.StatusOrphaned {
+			continue
+		}
 		if rec.TmuxSession == "" || alive == nil || !alive(ctx, rec.TmuxSession) {
 			continue
 		}
