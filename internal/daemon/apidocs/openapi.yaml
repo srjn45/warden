@@ -3999,7 +3999,8 @@ components:
         supervised: { type: boolean }
         type: { type: string }
         run_if: { type: string, enum: [success, failure, always] }
-        session_id: { type: string }
+        agent_id: { type: string, description: "id of the agent executing this job (project entity hierarchy D5). Supersedes session_id; both are written during the transition so older clients remain compatible." }
+        session_id: { type: string, description: "Deprecated: use agent_id. Kept for backward compatibility during the agent-id migration; mirrors agent_id on write." }
         status: { type: string }
         output: { type: string }
         branch: { type: string }

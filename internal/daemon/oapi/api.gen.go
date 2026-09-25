@@ -886,18 +886,22 @@ type Pipeline = pipeline.Pipeline
 
 // PipelineJob defines model for PipelineJob.
 type PipelineJob struct {
-	Branch     string           `json:"branch,omitempty"`
-	DependsOn  []string         `json:"depends_on,omitempty"`
-	Digest     Digest           `json:"digest,omitempty"`
-	Handoff    string           `json:"handoff,omitempty"`
-	Id         string           `json:"id,omitempty"`
-	Output     string           `json:"output,omitempty"`
-	Prompt     string           `json:"prompt,omitempty"`
-	RunIf      PipelineJobRunIf `json:"run_if,omitempty"`
-	SessionId  string           `json:"session_id,omitempty"`
-	Status     string           `json:"status,omitempty"`
-	Supervised bool             `json:"supervised,omitempty"`
-	Type       string           `json:"type,omitempty"`
+	// AgentId id of the agent executing this job (project entity hierarchy D5). Supersedes session_id; both are written during the transition so older clients remain compatible.
+	AgentId   string           `json:"agent_id,omitempty"`
+	Branch    string           `json:"branch,omitempty"`
+	DependsOn []string         `json:"depends_on,omitempty"`
+	Digest    Digest           `json:"digest,omitempty"`
+	Handoff   string           `json:"handoff,omitempty"`
+	Id        string           `json:"id,omitempty"`
+	Output    string           `json:"output,omitempty"`
+	Prompt    string           `json:"prompt,omitempty"`
+	RunIf     PipelineJobRunIf `json:"run_if,omitempty"`
+
+	// SessionId Deprecated: use agent_id. Kept for backward compatibility during the agent-id migration; mirrors agent_id on write.
+	SessionId  string `json:"session_id,omitempty"`
+	Status     string `json:"status,omitempty"`
+	Supervised bool   `json:"supervised,omitempty"`
+	Type       string `json:"type,omitempty"`
 
 	// Worktree none | fresh | from:<jobid>
 	Worktree string `json:"worktree,omitempty"`
