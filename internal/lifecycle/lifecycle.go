@@ -1460,6 +1460,7 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 	}
 
 	sess := &store.Session{
+		ChildAgents: []string{}, ChildPipelines: []string{},
 		ID:             id,
 		Name:           req.Name,
 		Type:           req.Type,
@@ -2007,6 +2008,7 @@ func (l *Lifecycle) Adopt(ctx context.Context, req AdoptRequest) (*store.Session
 		id = "agent-" + sid
 	}
 	sess := &store.Session{
+		ChildAgents: []string{}, ChildPipelines: []string{},
 		ID:              id,
 		TmuxSession:     id,
 		Type:            store.TypeOther,
@@ -2505,6 +2507,7 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*store.S
 	// hard-fail on resolution.
 	req.Backend, req.Model = l.resolveSpawnTarget(ctx, req.Role, req.Task, req.Tier, req.Backend, req.Model)
 	sess := &store.Session{
+		ChildAgents: []string{}, ChildPipelines: []string{},
 		ID: id, TmuxSession: id, Type: req.Type, Repo: req.Repo,
 		Prompt: req.Prompt, Subject: firstWords(req.Prompt, 10),
 		Status: store.StatusSpawning, PermissionMode: req.PermissionMode,

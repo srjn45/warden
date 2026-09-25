@@ -28,6 +28,9 @@ import (
 // agent collection a first-class Go entity to depend on.
 type Agent store.Session
 
+// MarshalJSON retains Session's legacy-vs-authoritative hierarchy semantics.
+func (a Agent) MarshalJSON() ([]byte, error) { return store.Session(a).MarshalJSON() }
+
 func (a *Agent) IsTerminal() bool { return a.Kind == store.KindTerminal }
 
 // HasTag retains Session's normalized tag lookup for callers moving to Agent.

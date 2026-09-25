@@ -160,16 +160,13 @@ func appendUnique(list []string, v string) []string {
 }
 
 // removeString returns list with every occurrence of v dropped, preserving order.
-// Returns nil when the result is empty so the field marshals away (omitempty).
+// Retains a non-nil empty result: an authoritative list must not become legacy.
 func removeString(list []string, v string) []string {
 	out := list[:0:0]
 	for _, x := range list {
 		if x != v {
 			out = append(out, x)
 		}
-	}
-	if len(out) == 0 {
-		return nil
 	}
 	return out
 }

@@ -55,9 +55,9 @@ func TestPipelineParentEdgeInvariant(t *testing.T) {
 	// --- delete: remove edge (both ends) ---
 	s.removePipelineParentEdge(ctx, p1)
 	require.Equal(t, []string{"pipe-2"}, childPipelines(t, st, "agent-owner"))
-	// removing the last owned pipeline clears the list entirely (omitempty).
+	// removing the last owned pipeline keeps an authoritative empty list.
 	s.removePipelineParentEdge(ctx, p2)
-	require.Nil(t, childPipelines(t, st, "agent-owner"))
+	require.Equal(t, []string{}, childPipelines(t, st, "agent-owner"))
 }
 
 // TestPipelineParentEdgeExclusions checks the no-op gating: an operator-created

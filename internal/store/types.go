@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
 )
@@ -276,6 +277,7 @@ type Session struct {
 	// job agents (they carry PipelineID/JobID and are reached via the pipeline, D5)
 	// and terminals (leaf members, §6.4) are excluded. Dangling ids are tolerated
 	// (§6.3): the list is not eagerly pruned when a child is orphaned/hibernated.
+	// Nil denotes a legacy missing list; non-nil, including [], is authoritative.
 	ChildAgents []string `json:"child_agents,omitempty"`
 	// ChildPipelines is the forward edge of Pipeline.ParentAgentID (project entity
 	// hierarchy spec D4/§3.2): the ids of the pipelines this agent owns — the ones
@@ -333,3 +335,23 @@ const (
 	ContextWarning  = "warning"
 	ContextCritical = "critical"
 )
+
+// MarshalJSON preserves explicit empty authoritative lists while omitting nil
+// legacy lists. Default unmarshaling retains the same distinction.
+func (v Session) MarshalJSON() ([]byte, error) {
+	type plain Session
+	optional := func(ids []string) *[]string {
+		if ids == nil {
+			return nil
+		}
+		return &ids
+	}
+	return json.Marshal(struct {
+		plain
+		ChildAgents    *[]string `json:"child_agents,omitempty"`
+		ChildPipelines *[]string `json:"child_pipelines,omitempty"`
+	}{plain: plain(v),
+		ChildAgents:    optional(v.ChildAgents),
+		ChildPipelines: optional(v.ChildPipelines),
+	})
+}

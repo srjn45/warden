@@ -11,38 +11,20 @@ import (
 	"github.com/srjn45/warden/internal/store"
 )
 
-// Project membership backfill / reconciliation
-// (docs/specs/2026-09-25-project-entity-hierarchy.md D2/§3.1, §5, §6).
-//
-// The live edges (spawn/delete) are maintained incrementally by
-// project_membership.go, but a store written before those lists existed — or one
-// that drifted — needs a one-shot repair. This is that repair. It treats the
-// members' back-refs as the source of truth for a migration (the project lists do
-// not yet exist, so they cannot be) and reconciles the two ends in two passes:
-//
-//  1. Stamp — a session or pipeline with an empty ProjectID is path-matched
-//     against the OPEN projects and, on a match, gains its back-ref. A closed
-//     (hibernated) project is never auto-matched: opening it is what re-associates
-//     its members. This mirrors the live-spawn rules in resolveProjectID /
-//     resolvePipelineProjectID.
-//  2. Rebuild — every project's authoritative agents[]/pipelines[]/terminals[]
-//     lists are recomputed from a full scan of the (now-stamped) back-refs and
-//     rewritten, sorted and de-duplicated, but only when they differ from what is
-//     stored.
-//
-// Runs at daemon boot (cli/daemon.go, in-process, no writer contention) and, for
-// manual repair when the daemon is down, from `warden doctor --reconcile-membership`.
+// Project membership reconciliation (spec D2/§6) treats non-nil forward lists
+// as authoritative, including empty lists. Only nil legacy lists are backfilled
+// from reverse edges and open-project path matches. Existing order and dangling
+// IDs survive every sweep. Conflicting forward claims choose the lowest project
+// ID for the reverse edge, without destructively rewriting either container.
+// Runs at startup or via doctor while the daemon is down (no writer contention).
 
 // MembershipReconcileReport summarizes one backfill/reconcile sweep.
 type MembershipReconcileReport struct {
-	// SessionsStamped is the number of sessions that gained a project_id back-ref
-	// via path-match (were previously project-less).
+	// SessionsStamped counts repaired session ProjectID back-refs.
 	SessionsStamped int
-	// PipelinesStamped is the number of pipelines that gained a project_id back-ref
-	// via path-match.
+	// PipelinesStamped counts repaired pipeline ProjectID back-refs.
 	PipelinesStamped int
-	// ProjectsRebuilt is the number of projects whose membership lists were rewritten
-	// (i.e. differed from the recomputed set).
+	// ProjectsRebuilt counts projects with newly backfilled legacy lists.
 	ProjectsRebuilt int
 }
 
@@ -52,11 +34,12 @@ func (r MembershipReconcileReport) Changed() bool {
 	return r.SessionsStamped > 0 || r.PipelinesStamped > 0 || r.ProjectsRebuilt > 0
 }
 
-// ReconcileProjectMembership performs the two-pass backfill/repair described above
+// ReconcileProjectMembership performs the backfill/repair described above
 // against the given stores. It is idempotent: a second run over an
 // already-reconciled store makes no writes and returns an all-zero report. It is
 // best-effort per row — a single session/pipeline/project store failure is logged
-// and skipped, never aborting the sweep — but a failure to list projects or
+// and skipped (legacy backfill is deferred if reverse repair fails), but a
+// failure to list projects or
 // sessions/pipelines up front is returned, since the sweep cannot proceed without
 // them. A nil projects store (unconfigured) or nil pipeline store (pipelines
 // unused) is tolerated: the corresponding pass is skipped.
@@ -73,99 +56,136 @@ func ReconcileProjectMembership(ctx context.Context, sstore store.Store, pstore 
 		return rep, nil
 	}
 
-	// Pass 1a: stamp project-less sessions by path-matching the open projects.
+	// Read all sources before writing. An unavailable store must not turn an
+	// unknown legacy list into an authoritative empty list.
 	var sessions []*store.Session
 	if sstore != nil {
 		sessions, err = sstore.List(ctx)
 		if err != nil {
 			return rep, fmt.Errorf("list sessions: %w", err)
 		}
-		for _, sess := range sessions {
-			if sess == nil || sess.ProjectID != "" {
-				continue
-			}
-			pid := matchOpenProjectForSession(sess, projs)
-			if pid == "" {
-				continue
-			}
-			if err := sstore.Update(ctx, sess.ID, func(s *store.Session) error {
-				if s.ProjectID == "" {
-					s.ProjectID = pid
-				}
-				return nil
-			}); err != nil {
-				slog.Warn("daemon: membership reconcile: stamp session failed", "agent", sess.ID, "project", pid, "err", err)
-				continue
-			}
-			sess.ProjectID = pid // reflect the write for the rebuild scan below
-			rep.SessionsStamped++
-		}
 	}
-
-	// Pass 1b: stamp project-less pipelines by path-matching the open projects.
 	var pipelines []*pipeline.Pipeline
 	if pstore != nil {
 		pipelines, err = pstore.List()
 		if err != nil {
 			return rep, fmt.Errorf("list pipelines: %w", err)
 		}
-		for _, p := range pipelines {
-			if p == nil || p.ProjectID != "" {
-				continue
+	}
+	sort.Slice(projs, func(i, j int) bool { return projs[i].ID < projs[j].ID })
+	agentOwners, terminalOwners, pipeOwners := map[string]string{}, map[string]string{}, map[string]string{}
+	byID := make(map[string]projectstore.Project, len(projs))
+	claim := func(owners map[string]string, ids []string, pid string) {
+		for _, id := range ids {
+			if _, exists := owners[id]; !exists {
+				owners[id] = pid
 			}
-			pid := matchOpenProjectForDir(normalizeProjectDir(p.Repo), projs)
-			if pid == "" {
-				continue
-			}
-			if err := pstore.Update(p.ID, func(up *pipeline.Pipeline) {
-				if up.ProjectID == "" {
-					up.ProjectID = pid
-				}
-			}); err != nil {
-				slog.Warn("daemon: membership reconcile: stamp pipeline failed", "pipeline", p.ID, "project", pid, "err", err)
-				continue
-			}
-			p.ProjectID = pid // reflect the write for the rebuild scan below
-			rep.PipelinesStamped++
 		}
 	}
-
-	// Pass 2: rebuild every project's membership lists from the back-refs (the
-	// source of truth), rewriting only the projects whose stored lists differ.
-	// Every project is rebuilt, including closed ones: a hibernated project's
-	// members keep their ProjectID and belong in its lists.
 	for _, proj := range projs {
-		agents, terminals := membersForProject(proj.ID, sessions)
-		pipes := pipelinesForProject(proj.ID, pipelines)
-		if stringsEqual(agents, proj.Agents) &&
-			stringsEqual(terminals, proj.Terminals) &&
-			stringsEqual(pipes, proj.Pipelines) {
+		byID[proj.ID] = proj
+		claim(agentOwners, proj.Agents, proj.ID)
+		claim(terminalOwners, proj.Terminals, proj.ID)
+		claim(pipeOwners, proj.Pipelines, proj.ID)
+	}
+	repairFailed := false
+	for _, sess := range sessions {
+		if sess == nil {
 			continue
 		}
-		proj.Agents = agents
-		proj.Pipelines = pipes
-		proj.Terminals = terminals
+		owners := agentOwners
+		list := func(p projectstore.Project) []string { return p.Agents }
+		if sess.IsTerminal() {
+			owners = terminalOwners
+			list = func(p projectstore.Project) []string { return p.Terminals }
+		}
+		pid := sess.ProjectID
+		if owner, ok := owners[sess.ID]; ok {
+			pid = owner
+		} else if p, ok := byID[pid]; ok && list(p) != nil {
+			pid = "" // the authoritative container excludes this reverse claim
+		}
+		if pid == "" && sess.ProjectID == "" {
+			// Path matching is migration-only, never a way to repopulate [] lists.
+			for _, p := range projs {
+				if list(p) == nil && projectstore.NormalizeStatus(p.Status) == projectstore.StatusOpen && sessionInProject(sess, p) {
+					pid = p.ID
+					break
+				}
+			}
+		}
+		if pid == sess.ProjectID {
+			continue
+		}
+		if err := sstore.Update(ctx, sess.ID, func(s *store.Session) error { s.ProjectID = pid; return nil }); err != nil {
+			repairFailed = true
+			slog.Warn("daemon: membership reconcile: repair session failed", "agent", sess.ID, "err", err)
+			continue
+		}
+		sess.ProjectID = pid
+		rep.SessionsStamped++
+	}
+	for _, p := range pipelines {
+		if p == nil {
+			continue
+		}
+		pid := p.ProjectID
+		if owner, ok := pipeOwners[p.ID]; ok {
+			pid = owner
+		} else if proj, ok := byID[pid]; ok && proj.Pipelines != nil {
+			pid = ""
+		}
+		if pid == "" && p.ProjectID == "" {
+			for _, proj := range projs {
+				if proj.Pipelines == nil && matchOpenProjectForDir(normalizeProjectDir(p.Repo), []projectstore.Project{proj}) != "" {
+					pid = proj.ID
+					break
+				}
+			}
+		}
+		if pid == p.ProjectID {
+			continue
+		}
+		if err := pstore.Update(p.ID, func(up *pipeline.Pipeline) { up.ProjectID = pid }); err != nil {
+			repairFailed = true
+			slog.Warn("daemon: membership reconcile: repair pipeline failed", "pipeline", p.ID, "err", err)
+			continue
+		}
+		p.ProjectID = pid
+		rep.PipelinesStamped++
+	}
+	// Retry legacy backfill later if a reverse repair failed; otherwise a stale
+	// reverse edge could become a new, competing authoritative forward claim.
+	if repairFailed {
+		return rep, nil
+	}
+	for _, proj := range projs {
+		changed := false
+		if sstore != nil {
+			agents, terminals := membersForProject(proj.ID, sessions)
+			if proj.Agents == nil {
+				proj.Agents = agents
+				changed = true
+			}
+			if proj.Terminals == nil {
+				proj.Terminals = terminals
+				changed = true
+			}
+		}
+		if pstore != nil && proj.Pipelines == nil {
+			proj.Pipelines = pipelinesForProject(proj.ID, pipelines)
+			changed = true
+		}
+		if !changed {
+			continue
+		}
 		if err := projects.Upsert(proj); err != nil {
-			slog.Warn("daemon: membership reconcile: rebuild project failed", "project", proj.ID, "err", err)
+			slog.Warn("daemon: membership reconcile: backfill project failed", "project", proj.ID, "err", err)
 			continue
 		}
 		rep.ProjectsRebuilt++
 	}
 	return rep, nil
-}
-
-// matchOpenProjectForSession returns the id of the OPEN project a project-less
-// session path-matches, or "" for none. Mirrors resolveProjectID's open-only rule.
-func matchOpenProjectForSession(sess *store.Session, projs []projectstore.Project) string {
-	for _, p := range projs {
-		if projectstore.NormalizeStatus(p.Status) != projectstore.StatusOpen {
-			continue
-		}
-		if sessionInProject(sess, p) {
-			return p.ID
-		}
-	}
-	return ""
 }
 
 // matchOpenProjectForDir returns the id of the OPEN project whose canonical
@@ -218,13 +238,11 @@ func pipelinesForProject(projectID string, pipelines []*pipeline.Pipeline) []str
 	return sortedDedupe(out)
 }
 
-// sortedDedupe returns ids sorted ascending with adjacent duplicates removed, or
-// nil for an empty input. A canonical order makes the rebuild deterministic (so
-// the diff-before-write stays idempotent regardless of store scan order), and nil
-// (not an empty slice) round-trips cleanly through the list fields' omitempty.
+// sortedDedupe gives newly backfilled lists a deterministic order and an explicit
+// empty value so migration completes even when no members exist.
 func sortedDedupe(ids []string) []string {
 	if len(ids) == 0 {
-		return nil
+		return []string{}
 	}
 	sort.Strings(ids)
 	out := ids[:1]
@@ -234,18 +252,4 @@ func sortedDedupe(ids []string) []string {
 		}
 	}
 	return out
-}
-
-// stringsEqual reports whether a and b hold the same elements in the same order,
-// treating nil and an empty slice as equal.
-func stringsEqual(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }

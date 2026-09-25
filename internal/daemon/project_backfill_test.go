@@ -33,17 +33,17 @@ func TestReconcileProjectMembershipFixtureDB(t *testing.T) {
 	// Two projects: alpha is open (path-matchable), beta is closed (never matched).
 	alphaDir := filepath.Join(dataDir, "alpha")
 	betaDir := filepath.Join(dataDir, "beta")
-	alpha, err := projects.OpenProject(alphaDir, "alpha", alphaDir)
-	require.NoError(t, err)
-	beta, err := projects.OpenProject(betaDir, "beta", betaDir)
-	require.NoError(t, err)
+	alpha := projectstore.Project{ID: alphaDir, Name: "alpha", Path: alphaDir}
+	require.NoError(t, projects.Upsert(alpha))
+	beta := projectstore.Project{ID: betaDir, Name: "beta", Path: betaDir}
+	require.NoError(t, projects.Upsert(beta))
 	_, err = projects.CloseProject(beta.ID)
 	require.NoError(t, err)
 	// gamma is closed but has a member via an explicit back-ref (a hibernated
 	// member): its lists must still be rebuilt even though it is not path-matchable.
 	gammaDir := filepath.Join(dataDir, "gamma")
-	gamma, err := projects.OpenProject(gammaDir, "gamma", gammaDir)
-	require.NoError(t, err)
+	gamma := projectstore.Project{ID: gammaDir, Name: "gamma", Path: gammaDir}
+	require.NoError(t, projects.Upsert(gamma))
 	_, err = projects.CloseProject(gamma.ID)
 	require.NoError(t, err)
 
@@ -66,7 +66,7 @@ func TestReconcileProjectMembershipFixtureDB(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, rep.SessionsStamped, "only agent-a1 path-matches an open project")
 	require.Equal(t, 1, rep.PipelinesStamped, "only pipe-1 path-matches an open project")
-	require.Equal(t, 2, rep.ProjectsRebuilt, "alpha and the closed gamma gain members")
+	require.Equal(t, 3, rep.ProjectsRebuilt, "all legacy lists become authoritative, including empty beta")
 	require.True(t, rep.Changed())
 
 	// Back-refs stamped for open-project matches only.
@@ -144,4 +144,108 @@ func getSession(t *testing.T, ctx context.Context, s store.Store, id string) *st
 	got, err := s.Get(ctx, id)
 	require.NoError(t, err)
 	return got
+}
+
+func TestReconcilePreservesForwardAuthority(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	ss, err := store.NewFileStore(dir)
+	require.NoError(t, err)
+	defer ss.Close(ctx)
+	ps, err := pipeline.NewStore(filepath.Join(dir, "pipelines"))
+	require.NoError(t, err)
+	defer ps.Close()
+	projects, err := projectstore.NewStore(filepath.Join(dir, "projects"))
+	require.NoError(t, err)
+	defer projects.Close()
+	// Name sort deliberately disagrees with ID sort. Duplicate forward claims
+	// retain their lists while the reverse edge chooses the lowest project ID.
+	a := projectstore.Project{ID: "a", Name: "Z", Status: projectstore.StatusClosed, Agents: []string{"z", "missing", "a1", "shared"}, Terminals: []string{"missing-t", "t"}, Pipelines: []string{"z-p", "missing-p", "p", "shared-p"}}
+	b := projectstore.Project{ID: "b", Name: "A", Agents: []string{"shared"}, Pipelines: []string{"shared-p"}, Terminals: []string{}}
+	empty := projectstore.Project{ID: "empty", Path: "/empty", Agents: []string{}, Terminals: []string{}, Pipelines: []string{}}
+	// Only the missing pipelines list may be backfilled on this mixed row.
+	mixed := projectstore.Project{ID: "mixed", Agents: []string{"dangling"}, Terminals: []string{}}
+	for _, p := range []projectstore.Project{a, b, empty, mixed} {
+		require.NoError(t, projects.Upsert(p))
+	}
+	for _, s := range []*store.Session{
+		{ID: "z", ProjectID: "b"}, {ID: "a1"}, {ID: "shared", ProjectID: "b"},
+		{ID: "t", Kind: store.KindTerminal, ProjectID: "b"},
+		{ID: "excluded", ProjectID: "empty", Repo: "/empty"}, {ID: "path-only", Repo: "/empty"},
+		{ID: "excluded-terminal", Kind: store.KindTerminal, ProjectID: "empty"},
+		{ID: "excluded-mixed", ProjectID: "mixed"},
+	} {
+		insertSession(t, ctx, ss, s)
+	}
+	for _, p := range []*pipeline.Pipeline{
+		{ID: "z-p", ProjectID: "b"}, {ID: "p"}, {ID: "shared-p", ProjectID: "b"},
+		{ID: "excluded-p", ProjectID: "empty", Repo: "/empty"}, {ID: "path-p", Repo: "/empty"},
+		{ID: "mixed-p", ProjectID: "mixed"},
+	} {
+		require.NoError(t, ps.Create(p))
+	}
+	rep, err := ReconcileProjectMembership(ctx, ss, ps, projects)
+	require.NoError(t, err)
+	require.True(t, rep.Changed())
+	require.Equal(t, 1, rep.ProjectsRebuilt)
+	for _, want := range []projectstore.Project{a, b, empty} {
+		got, err := projects.Get(want.ID)
+		require.NoError(t, err)
+		require.Equal(t, want.Agents, got.Agents)
+		require.Equal(t, want.Pipelines, got.Pipelines)
+		require.Equal(t, want.Terminals, got.Terminals)
+	}
+	got, err := projects.Get("mixed")
+	require.NoError(t, err)
+	require.Equal(t, []string{"mixed-p"}, got.Pipelines)
+	require.Equal(t, mixed.Agents, got.Agents)
+	require.Equal(t, mixed.Terminals, got.Terminals)
+	for _, id := range []string{"z", "a1", "shared", "t"} {
+		require.Equal(t, "a", getSession(t, ctx, ss, id).ProjectID)
+	}
+	for _, id := range []string{"excluded", "path-only", "excluded-terminal", "excluded-mixed"} {
+		require.Empty(t, getSession(t, ctx, ss, id).ProjectID)
+	}
+	for _, id := range []string{"z-p", "p", "shared-p"} {
+		p, err := ps.Get(id)
+		require.NoError(t, err)
+		require.Equal(t, "a", p.ProjectID)
+	}
+	for _, id := range []string{"excluded-p", "path-p"} {
+		p, err := ps.Get(id)
+		require.NoError(t, err)
+		require.Empty(t, p.ProjectID)
+	}
+	rep, err = ReconcileProjectMembership(ctx, ss, ps, projects)
+	require.NoError(t, err)
+	require.Equal(t, MembershipReconcileReport{}, rep)
+}
+
+func TestReconcileUnavailableStoresRetainLegacyLists(t *testing.T) {
+	projects, err := projectstore.NewStore(t.TempDir())
+	require.NoError(t, err)
+	defer projects.Close()
+	require.NoError(t, projects.Upsert(projectstore.Project{ID: "legacy"}))
+	rep, err := ReconcileProjectMembership(context.Background(), nil, nil, projects)
+	require.NoError(t, err)
+	require.False(t, rep.Changed())
+	p, err := projects.Get("legacy")
+	require.NoError(t, err)
+	require.Nil(t, p.Agents)
+	require.Nil(t, p.Pipelines)
+	require.Nil(t, p.Terminals)
+}
+
+func TestChildLastRemovalRetainsAuthorityInDB(t *testing.T) {
+	ctx := context.Background()
+	ss, err := store.NewFileStore(t.TempDir())
+	require.NoError(t, err)
+	defer ss.Close(ctx)
+	insertSession(t, ctx, ss, &store.Session{ID: "parent", ChildAgents: []string{"child"}, ChildPipelines: []string{"pipe"}})
+	s := &Server{store: ss}
+	s.removeChildEdge(ctx, &store.Session{ID: "child", ParentID: "parent"})
+	s.removePipelineParentEdge(ctx, &pipeline.Pipeline{ID: "pipe", ParentAgentID: "parent"})
+	got := getSession(t, ctx, ss, "parent")
+	require.Equal(t, []string{}, got.ChildAgents)
+	require.Equal(t, []string{}, got.ChildPipelines)
 }
