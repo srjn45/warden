@@ -142,13 +142,19 @@ func rollup(children []string) string {
 	}
 }
 
-// rollupNodes is rollup over a node slice — the container status from its
-// children's statuses.
+// rollupNodes is rollup over a node slice and every descendant. A project can
+// contain active work beneath a waiting direct child, so considering only the
+// first level would hide active work from the project's status.
 func rollupNodes(children []*Node) string {
-	statuses := make([]string, len(children))
-	for i, c := range children {
-		statuses[i] = c.Status
+	statuses := make([]string, 0, len(children))
+	var collect func([]*Node)
+	collect = func(nodes []*Node) {
+		for _, n := range nodes {
+			statuses = append(statuses, n.Status)
+			collect(n.Children)
+		}
 	}
+	collect(children)
 	return rollup(statuses)
 }
 

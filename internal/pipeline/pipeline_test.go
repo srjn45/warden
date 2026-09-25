@@ -154,3 +154,36 @@ func TestPipelineParentAgentIDJSON(t *testing.T) {
 		t.Fatalf("parent_agent_id did not round-trip: %q", got.ParentAgentID)
 	}
 }
+
+func TestJobAgentIDJSONCompatibility(t *testing.T) {
+	legacy := Job{ID: "build", SessionID: "agent-legacy"}
+	b, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire map[string]any
+	if err := json.Unmarshal(b, &wire); err != nil {
+		t.Fatal(err)
+	}
+	if wire["agent_id"] != "agent-legacy" || wire["session_id"] != "agent-legacy" {
+		t.Fatalf("transition JSON must write both ids, got %s", b)
+	}
+
+	for _, input := range []string{
+		`{"id":"build","agent_id":"agent-new"}`,
+		`{"id":"build","session_id":"agent-old"}`,
+		`{"id":"build","agent_id":"agent-new","session_id":"agent-old"}`,
+	} {
+		var got Job
+		if err := json.Unmarshal([]byte(input), &got); err != nil {
+			t.Fatalf("unmarshal %s: %v", input, err)
+		}
+		want := "agent-new"
+		if strings.Contains(input, "agent-old") && !strings.Contains(input, "agent-new") {
+			want = "agent-old"
+		}
+		if got.AgentID != want || got.SessionID != want || got.AgentRef() != want {
+			t.Fatalf("unmarshal %s got AgentID=%q SessionID=%q AgentRef=%q, want %q", input, got.AgentID, got.SessionID, got.AgentRef(), want)
+		}
+	}
+}

@@ -551,3 +551,48 @@ func TestPipelinePause404(t *testing.T) {
 		t.Fatalf("want 404, got %d", resp.StatusCode)
 	}
 }
+
+// TestGetPipelineJobAgentIDRoundtrip verifies that GET /api/v1/pipelines/{pid}
+// encodes both agent_id and session_id for a running job so that new clients
+// and legacy clients (that still read session_id) both see the agent reference.
+func TestGetPipelineJobAgentIDRoundtrip(t *testing.T) {
+	ts, ps := newPipeServer(t)
+	defer ts.Close()
+
+	http.Post(ts.URL+"/api/v1/pipelines", "application/json", strings.NewReader(yamlBody)) //nolint:errcheck
+
+	// Simulate the executor stamping an agent ID onto job "a".
+	const agentID = "agent-abc123"
+	ps.Update("demo", func(p *pipeline.Pipeline) {
+		p.Job("a").SetAgentID(agentID)
+		p.Job("a").Status = pipeline.JobRunning
+	})
+
+	resp, err := http.Get(ts.URL + "/api/v1/pipelines/demo")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var raw map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&raw))
+
+	jobs, ok := raw["jobs"].([]any)
+	require.True(t, ok && len(jobs) > 0, "jobs array missing from response")
+
+	// Find job "a" by id — the executor prepends a system span-out job.
+	var job map[string]any
+	for _, j := range jobs {
+		if m, ok := j.(map[string]any); ok && m["id"] == "a" {
+			job = m
+			break
+		}
+	}
+	require.NotNil(t, job, "job 'a' not found in response")
+
+	if job["agent_id"] != agentID {
+		t.Errorf("agent_id: want %q, got %v", agentID, job["agent_id"])
+	}
+	if job["session_id"] != agentID {
+		t.Errorf("session_id: want %q (backward-compat mirror), got %v", agentID, job["session_id"])
+	}
+}
