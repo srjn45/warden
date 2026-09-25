@@ -1879,14 +1879,12 @@ func (l *Lifecycle) resumeInTmuxWithHints(ctx context.Context, b agentbackend.Ba
 // still exists, and its transcript is present — returning a specific sentinel
 // otherwise — and never silently starts a fresh conversation.
 //
-// Spec D8: operator recovery is allowed only from orphaned. Project hibernation
-// reopen reuses this resume primitive for sessions marked Hibernated — that is
-// not recovery and must not be conflated with it. Resume/switch/role paths do
-// not call Restore.
+// Restore is the shared resume primitive used by operator recovery
+// (RestoreSession), project hibernation reopen, auto-restart, rate-limit
+// resume, and backend-recovery relaunch. Spec D8 orphaned-only gating belongs
+// on the operator recovery paths (RestoreSession / archived Recover) — not
+// here — so internal relaunch of errored/rate_limited sessions keeps working.
 func (l *Lifecycle) Restore(ctx context.Context, sess *store.Session) error {
-	if !sess.Hibernated && sess.Status.Canonical() != store.StatusOrphaned {
-		return ErrNotOrphaned
-	}
 	b := l.backendFor(sess.Backend)
 	if !b.Capabilities().Resume {
 		// The agent's backend can't resume a prior session by id (e.g. Aider
@@ -2045,12 +2043,15 @@ func (l *Lifecycle) Adopt(ctx context.Context, req AdoptRequest) (*store.Session
 }
 
 var (
-	ErrDirtyWorktree       = errors.New("worktree has uncommitted changes (use --force)")
-	ErrUnpushedCommits     = errors.New("worktree has unpushed commits (use --force)")
-	ErrAlreadyRunning      = errors.New("agent is already running (use send/attach)")
-	ErrNoSessionID         = errors.New("no pinned claude session id; re-spawn instead")
-	ErrWorkdirMissing      = errors.New("agent workdir is gone; re-spawn instead")
-	ErrNoTranscript        = errors.New("no transcript to resume")
+	ErrDirtyWorktree   = errors.New("worktree has uncommitted changes (use --force)")
+	ErrUnpushedCommits = errors.New("worktree has unpushed commits (use --force)")
+	ErrAlreadyRunning  = errors.New("agent is already running (use send/attach)")
+	ErrNoSessionID     = errors.New("no pinned claude session id; re-spawn instead")
+	ErrWorkdirMissing  = errors.New("agent workdir is gone; re-spawn instead")
+	ErrNoTranscript    = errors.New("no transcript to resume")
+	// ErrNotOrphaned is returned by operator recovery endpoints (RestoreSession)
+	// when the session is not orphaned. Kept here so daemon mapping and tests
+	// share one sentinel; lifecycle.Restore itself does not return it.
 	ErrNotOrphaned         = errors.New("agent is not orphaned")
 	ErrForkSourceNotPinned = errors.New("fork source agent's session id is not yet known; let it run one turn, then retry")
 	ErrNoWorktree          = errors.New("session has no worktree")

@@ -378,9 +378,11 @@ paths:
       summary: Restore (re-create + resume) a lost session
       description: >-
         Recreates the agent's tmux session and resumes its prior conversation.
-        Spec D8: recovery is allowed only when the session status is `orphaned`.
-        Other states return 409. Project hibernation reopen is a separate path
-        (not this endpoint) and must not be conflated with recovery.
+        Spec D8: this operator recovery endpoint is allowed only when the
+        session status is `orphaned`; other states return 409. Project
+        hibernation reopen, auto-restart, rate-limit resume, and backend
+        recovery use the shared lifecycle resume primitive directly and are
+        not gated by this endpoint.
       parameters: [{ $ref: "#/components/parameters/SessionId" }]
       responses:
         "200": { $ref: "#/components/responses/OK" }
