@@ -376,10 +376,27 @@ paths:
       operationId: restoreSession
       tags: [Sessions]
       summary: Restore (re-create + resume) a lost session
+      description: >-
+        Recreates the agent's tmux session and resumes its prior conversation.
+        Spec D8: this operator recovery endpoint is allowed only when the
+        session status is `orphaned`; other states return 409. Project
+        hibernation reopen, auto-restart, rate-limit resume, and backend
+        recovery use the shared lifecycle resume primitive directly and are
+        not gated by this endpoint.
       parameters: [{ $ref: "#/components/parameters/SessionId" }]
       responses:
         "200": { $ref: "#/components/responses/OK" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Session is not orphaned (or already running)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422":
+          description: Restore preconditions failed (no session id, workdir, or transcript)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
   /api/v1/sessions/{id}/create-pr:
     post:
@@ -1515,15 +1532,17 @@ paths:
     post:
       operationId: recoverAgents
       tags: [Sessions]
-      summary: Revive archived agent records whose tmux session is still alive
+      summary: Revive archived orphaned agent records whose tmux session is still alive
       description: >-
-        Scans archived (closed) records for ones whose tmux_session is
+        Scans archived (closed) records for ones whose status is `orphaned`
+        (spec D8 — the only recovery source) and whose tmux_session is
         confirmed still alive (a tombstone can be wrongly reaped by a stale
         orphaned status racing a daemon restart — see the poller/reaper
         liveness reconfirm), and re-inserts each one's full original record
-        into the active store under its original id. Because a child's
-        parent_id is a one-way pointer, any children already reconnect with no
-        edits of their own. apply=false (the default) only reports candidates;
+        into the active store under its original id. Non-orphaned archived
+        records are never candidates. Because a child's parent_id is a
+        one-way pointer, any children already reconnect with no edits of
+        their own. apply=false (the default) only reports candidates;
         apply=true performs the recovery.
       requestBody:
         content:

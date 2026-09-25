@@ -1943,7 +1943,7 @@ type ServerInterface interface {
 	// Reclaim orphan worktrees
 	// (POST /api/v1/prune)
 	PruneWorktrees(w http.ResponseWriter, r *http.Request)
-	// Revive archived agent records whose tmux session is still alive
+	// Revive archived orphaned agent records whose tmux session is still alive
 	// (POST /api/v1/recover)
 	RecoverAgents(w http.ResponseWriter, r *http.Request)
 	// List the built-in agent roles
@@ -2498,7 +2498,7 @@ func (_ Unimplemented) PruneWorktrees(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Revive archived agent records whose tmux session is still alive
+// Revive archived orphaned agent records whose tmux session is still alive
 // (POST /api/v1/recover)
 func (_ Unimplemented) RecoverAgents(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -10217,6 +10217,34 @@ func (response RestoreSession404JSONResponse) VisitRestoreSessionResponse(w http
 	return err
 }
 
+type RestoreSession409JSONResponse Error
+
+func (response RestoreSession409JSONResponse) VisitRestoreSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreSession422JSONResponse Error
+
+func (response RestoreSession422JSONResponse) VisitRestoreSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type SetRoleRequestObject struct {
 	Id   SessionId `json:"id"`
 	Body *SetRoleJSONRequestBody
@@ -10935,7 +10963,7 @@ type StrictServerInterface interface {
 	// Reclaim orphan worktrees
 	// (POST /api/v1/prune)
 	PruneWorktrees(ctx context.Context, request PruneWorktreesRequestObject) (PruneWorktreesResponseObject, error)
-	// Revive archived agent records whose tmux session is still alive
+	// Revive archived orphaned agent records whose tmux session is still alive
 	// (POST /api/v1/recover)
 	RecoverAgents(ctx context.Context, request RecoverAgentsRequestObject) (RecoverAgentsResponseObject, error)
 	// List the built-in agent roles

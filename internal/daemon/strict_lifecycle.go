@@ -398,10 +398,16 @@ func (s *Server) RemoveWorktree(ctx context.Context, req oapi.RemoveWorktreeRequ
 }
 
 // RestoreSession implements POST /api/v1/sessions/{id}/restore.
+// Spec D8: operator recovery is allowed only from the orphaned state. Project
+// hibernation reopen, auto-restart, rate-limit resume, and backend recovery
+// call lifecycle.Restore directly and are not gated here.
 func (s *Server) RestoreSession(ctx context.Context, req oapi.RestoreSessionRequestObject) (oapi.RestoreSessionResponseObject, error) {
 	sess, err := s.resolveSession(ctx, req.Id)
 	if err != nil {
 		return nil, err
+	}
+	if sess.Status.Canonical() != store.StatusOrphaned {
+		return nil, errStatus(http.StatusConflict, lifecycle.ErrNotOrphaned.Error())
 	}
 	if err := s.life.Restore(ctx, sess); err != nil {
 		switch {
