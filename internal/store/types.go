@@ -262,7 +262,16 @@ type Session struct {
 	// job agents (they carry PipelineID/JobID and are reached via the pipeline, D5)
 	// and terminals (leaf members, §6.4) are excluded. Dangling ids are tolerated
 	// (§6.3): the list is not eagerly pruned when a child is orphaned/hibernated.
-	ChildAgents     []string `json:"child_agents,omitempty"`
+	ChildAgents []string `json:"child_agents,omitempty"`
+	// ChildPipelines is the forward edge of Pipeline.ParentAgentID (project entity
+	// hierarchy spec D4/§3.2): the ids of the pipelines this agent owns — the ones
+	// it created or escalated. It is maintained on both ends in the same operation
+	// (spec §6.1): a pipeline created under this agent appends its id here and a
+	// pipeline delete removes it. Dangling ids are tolerated (§6.3): the list is
+	// not eagerly pruned when an owned pipeline is orphaned/hibernated. A
+	// pipeline's own job agents are NOT listed here (D5) — they are reached through
+	// the pipeline (ChildPipelines[] → Pipeline.jobs), never as child_agents[].
+	ChildPipelines  []string `json:"child_pipelines,omitempty"`
 	AutopilotRunID  string   `json:"autopilot_run_id,omitempty"`  // owning ap- run id (autopilot back-ref)
 	AutopilotSlot   string   `json:"autopilot_slot,omitempty"`    // autopilot | guardian | worker
 	AutopilotTaskID string   `json:"autopilot_task_id,omitempty"` // plan task id (workers only)

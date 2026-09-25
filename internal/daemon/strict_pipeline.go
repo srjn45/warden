@@ -27,9 +27,11 @@ func (s *Server) ListPipelines(_ context.Context, _ oapi.ListPipelinesRequestObj
 func (s *Server) CreatePipeline(ctx context.Context, req oapi.CreatePipelineRequestObject) (oapi.CreatePipelineResponseObject, error) {
 	spec := ""
 	bodyProjectID := ""
+	bodyParentAgentID := ""
 	if req.Body != nil {
 		spec = req.Body.Spec
 		bodyProjectID = req.Body.ProjectId
+		bodyParentAgentID = req.Body.ParentAgentId
 	}
 	p, err := pipeline.ParseSpec([]byte(spec))
 	if err != nil {
@@ -45,6 +47,17 @@ func (s *Server) CreatePipeline(ctx context.Context, req oapi.CreatePipelineRequ
 	if p.ProjectID == "" {
 		p.ProjectID = s.resolvePipelineProjectID(p)
 	}
+	// Stamp the owning agent (spec D6/§3.4). Precedence: an explicit request-body
+	// parent_agent_id wins over the actor identity; when both are empty the pipeline
+	// is operator-created and owns no agent edge. Resolved from the live request
+	// before the async executor takes over, since jobs spawn later where no actor
+	// identity exists.
+	if bodyParentAgentID != "" {
+		p.ParentAgentID = bodyParentAgentID
+	}
+	if p.ParentAgentID == "" {
+		p.ParentAgentID = s.resolvePipelineParentAgentID(ctx)
+	}
 	// Captured at creation because jobs spawn later from the executor's ticker,
 	// where no request (and so no actor identity) exists anymore.
 	p.Tags = s.inheritOwnershipTags(ctx, p.Tags)
@@ -55,6 +68,10 @@ func (s *Server) CreatePipeline(ctx context.Context, req oapi.CreatePipelineRequ
 	}
 	// Append to the project's authoritative pipelines[] membership list (best-effort).
 	s.addPipelineMembership(p)
+	// Wire the owning-agent forward edge (spec D4/§6.1): a pipeline created under an
+	// agent is appended to that agent's ChildPipelines[]. No-op for an
+	// operator-created pipeline (empty ParentAgentID).
+	s.addPipelineParentEdge(ctx, p)
 	return oapi.CreatePipeline201JSONResponse(*p), nil
 }
 
@@ -98,6 +115,10 @@ func (s *Server) DeletePipeline(ctx context.Context, req oapi.DeletePipelineRequ
 	}
 	// Drop this pipeline from its project's pipelines[] membership list (best-effort).
 	s.removePipelineMembership(p)
+	// Drop this pipeline from its owning agent's ChildPipelines[] forward edge — the
+	// delete-side mirror of the create-time add (spec D4/§6.1). No-op for an
+	// operator-created pipeline.
+	s.removePipelineParentEdge(ctx, p)
 	// Clear this pipeline's shared-context keys (best-effort).
 	if s.exec.cstore != nil {
 		_, _ = s.exec.cstore.DelPrefix("pipeline." + pid + ".")

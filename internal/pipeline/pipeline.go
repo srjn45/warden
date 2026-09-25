@@ -86,6 +86,17 @@ type Pipeline struct {
 	// pipeline-mode analogue of Session.ProjectID: it groups a pipeline and all
 	// its job agents under one parent project in the cockpit/TUI.
 	ProjectID string `json:"project_id,omitempty" yaml:"project_id,omitempty"`
+	// ParentAgentID back-refs the agent that created/escalated this pipeline
+	// (project entity hierarchy spec D6/§3.4); empty = created directly by the
+	// operator (CLI/TUI/app/MCP with no owning agent). It is daemon-stamped at
+	// creation (yaml:"-", never spec-authored: a pipeline cannot declare its own
+	// owner) from, in precedence order, an explicit request-body parent_agent_id
+	// or the identity of the agent behind the create request. It is the reverse
+	// edge of Session.ChildPipelines[]: the two are kept consistent in the same
+	// operation, and a dangling id (owner orphaned/hibernated) is tolerated,
+	// never eagerly pruned. Job agents are NOT owned this way (NG1/D5): they
+	// carry PipelineID and belong to the pipeline, not to the owning agent.
+	ParentAgentID string `json:"parent_agent_id,omitempty" yaml:"-"`
 }
 
 // Job returns a pointer to the job with id, or nil.

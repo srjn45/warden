@@ -59,6 +59,19 @@ func TestParseSpecProjectID(t *testing.T) {
 	}
 }
 
+func TestParseSpecIgnoresParentAgentID(t *testing.T) {
+	// parent_agent_id is daemon-stamped (yaml:"-"), NOT spec-authored: a pipeline
+	// cannot declare its own owner. A spec that tries to set it is ignored, leaving
+	// the field empty for the daemon to resolve from the actor/request body (D6).
+	p, err := ParseSpec([]byte("name: p\nrepo: /r\nparent_agent_id: agent-x\njobs:\n  - id: a\n    prompt: x\n"))
+	if err != nil {
+		t.Fatalf("ParseSpec: %v", err)
+	}
+	if p.ParentAgentID != "" {
+		t.Fatalf("parent_agent_id must not be parsed from the spec, got %q", p.ParentAgentID)
+	}
+}
+
 func TestParseSpecDefaultsWorktreeNone(t *testing.T) {
 	p, err := ParseSpec([]byte("name: p\nrepo: /r\njobs:\n  - id: a\n    prompt: x\n"))
 	if err != nil {
