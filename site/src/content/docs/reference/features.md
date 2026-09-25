@@ -303,7 +303,7 @@ out / rotating the very token that guards the MCP and HTTP channels).
 | Bearer token generate / show / rotate (+ read-only token) | `token` | the secret that protects every other surface; `show --readonly` for the view-only `WARDEN_READONLY_TOKEN` | [remote-access](https://srjn45.github.io/warden/guides/remote-access/) |
 | Local-LLM model picker (memory-ranked) | `llm suggest` | reads host hardware to size the orchestrator model | [repl](https://srjn45.github.io/warden/multi-agent/repl/) |
 | Configuration view / init / path | `config` | local file authoring | [env-vars](https://srjn45.github.io/warden/reference/env-vars/) |
-| Health / environment doctor | `doctor` | host diagnostics | [troubleshooting](https://srjn45.github.io/warden/reference/troubleshooting/) |
+| Health / environment doctor | `doctor` (`--reconcile-membership` offline membership repair) | host diagnostics | [troubleshooting](https://srjn45.github.io/warden/reference/troubleshooting/) |
 | Install missing dependencies | `setup` | installs host packages (brew/apt/dnf/pacman + official installers) | [install](https://srjn45.github.io/warden/start/install/) |
 | First-run tutorial | `tutorial` | interactive walkthrough | [quickstart](https://srjn45.github.io/warden/start/quickstart/) |
 | Shell completion | `completion` | shell integration | [install](https://srjn45.github.io/warden/start/install/) |

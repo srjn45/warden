@@ -1616,6 +1616,7 @@
     "use": "doctor",
     "runnable": true,
     "local_flags": [
+      "reconcile-membership",
       "sessions"
     ],
     "inherited_flags": [

@@ -329,3 +329,7 @@ Warden tracks daemon-registered checkout roots and remote repositories as first-
 - `warden project-groups create <name> [--project <id>]...` / `delete <id>` — create or remove groups.
 - `warden project-groups update <id> [--name <name>] [--project <id>]...` — bulk update name and/or projects.
 - `warden project-groups members add <id> <project-id>` / `remove <id> <project-id>` — manage group membership.
+- Membership repair (CLI-only): `warden doctor --reconcile-membership` stamps missing
+  `project_id` onto sessions/pipelines by path-matching open projects, then rebuilds
+  each project's `agents[]`/`pipelines[]`/`terminals[]` from those back-refs
+  (daemon must be stopped). The daemon also runs this reconcile at boot.

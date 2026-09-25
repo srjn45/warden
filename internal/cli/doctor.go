@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -12,7 +13,10 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/srjn45/warden/internal/config"
+	"github.com/srjn45/warden/internal/daemon"
 	"github.com/srjn45/warden/internal/llm"
+	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -134,6 +138,9 @@ func newDoctorCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg := config.Load(configPathFor(cmd))
+			if reconcile, _ := cmd.Flags().GetBool("reconcile-membership"); reconcile {
+				return runMembershipReconcile(cmd, cfg.DataDir)
+			}
 			sessions, _ := cmd.Flags().GetBool("sessions")
 			if sessions {
 				var report *store.RecoveryReport
@@ -183,5 +190,51 @@ func newDoctorCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().Bool("sessions", false, "diagnose the session store offline without modifying it")
+	cmd.Flags().Bool("reconcile-membership", false, "backfill missing project_id and rebuild project membership lists offline (daemon must be stopped)")
 	return cmd
+}
+
+// runMembershipReconcile is the `warden doctor --reconcile-membership` one-shot: an
+// offline backfill/repair of the project↔member edges
+// (docs/specs/2026-09-25-project-entity-hierarchy.md D2/§6). It stamps a project_id
+// onto any pre-back-ref session/pipeline by path-matching the open projects, then
+// rebuilds every project's authoritative agents[]/pipelines[]/terminals[] lists
+// from those back-refs. It must run with the daemon stopped: each on-disk store
+// takes an exclusive writer lock, so opening the session store while the daemon is
+// up fails fast (ErrStoreOwned) rather than racing writes. Idempotent — safe to
+// re-run; a fully-consistent store reports no changes. The daemon runs the same
+// reconcile automatically at boot.
+func runMembershipReconcile(cmd *cobra.Command, dataDir string) error {
+	sstore, err := store.NewFileStore(dataDir)
+	if err != nil {
+		return fmt.Errorf("open session store (stop the daemon first, then retry): %w", err)
+	}
+	defer func() { _ = sstore.Close(context.Background()) }()
+
+	pstore, err := pipeline.NewStore(filepath.Join(dataDir, "pipelines"))
+	if err != nil {
+		return fmt.Errorf("open pipeline store: %w", err)
+	}
+	defer pstore.Close()
+
+	projects, err := projectstore.NewStore(filepath.Join(dataDir, "projects"))
+	if err != nil {
+		return fmt.Errorf("open project store: %w", err)
+	}
+	defer projects.Close()
+
+	rep, err := daemon.ReconcileProjectMembership(cmd.Context(), sstore, pstore, projects)
+	if err != nil {
+		return fmt.Errorf("reconcile project membership: %w", err)
+	}
+
+	out := cmd.OutOrStdout()
+	fmt.Fprintln(out, "project membership reconcile complete")
+	fmt.Fprintf(out, "  sessions stamped:  %d\n", rep.SessionsStamped)
+	fmt.Fprintf(out, "  pipelines stamped: %d\n", rep.PipelinesStamped)
+	fmt.Fprintf(out, "  projects rebuilt:  %d\n", rep.ProjectsRebuilt)
+	if !rep.Changed() {
+		fmt.Fprintln(out, "already consistent — no changes")
+	}
+	return nil
 }

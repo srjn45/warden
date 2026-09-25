@@ -4053,8 +4053,9 @@ Usage:
   warden doctor [flags]
 
 Flags:
-  -h, --help       help for doctor
-      --sessions   diagnose the session store offline without modifying it
+  -h, --help                   help for doctor
+      --reconcile-membership   backfill missing project_id and rebuild project membership lists offline (daemon must be stopped)
+      --sessions               diagnose the session store offline without modifying it
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
