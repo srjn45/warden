@@ -1092,7 +1092,10 @@ type SpawnRequest struct {
 	ParentId       string `json:"parent_id,omitempty"`
 	PermissionMode string `json:"permission_mode,omitempty"`
 	Pr             string `json:"pr,omitempty"`
-	Prompt         string `json:"prompt,omitempty"`
+
+	// ProjectId id of the first-class project (projectstore) this agent/terminal joins. Empty = resolve by matching the launch path (cwd/repo) to an OPEN project; no match leaves the session project-less. On spawn the session is stamped with the resolved id and appended to the project's authoritative agents[]/terminals[] membership list.
+	ProjectId string `json:"project_id,omitempty"`
+	Prompt    string `json:"prompt,omitempty"`
 
 	// Repo required in typed mode
 	Repo string `json:"repo,omitempty"`

@@ -3289,6 +3289,7 @@ components:
             GET /api/v1/capabilities).
         tags: { type: array, items: { type: string } }
         parent_id: { type: string, description: "id of the agent that spawned this one; empty = root" }
+        project_id: { type: string, description: "id of the first-class project (projectstore) this agent/terminal joins. Empty = resolve by matching the launch path (cwd/repo) to an OPEN project; no match leaves the session project-less. On spawn the session is stamped with the resolved id and appended to the project's authoritative agents[]/terminals[] membership list." }
         role: { type: string, description: "built-in agent role name (general|orchestrator|implementer|auto-merger|reviewer); empty = general (no persona). The role's persona is injected as a system-prompt addendum and its default flags fill any request fields left unset." }
         tier: { type: string, description: "explicit model tier (tier-1|tier-2|tier-3) for the quota-balanced resolver that picks the backend+model at spawn. Empty derives the tier from task, then role. A pinned backend/model still wins over the resolver." }
         task: { type: string, description: "task name (task registry) used to derive the model tier via the task→tier map when tier is empty. Empty = none." }

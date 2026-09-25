@@ -773,6 +773,7 @@ type SpawnRequest struct {
 	Tier            string            // explicit model tier ("tier-1"/"tier-2"/"tier-3") for the quota-balanced resolver; empty = derive from task/role
 	Task            string            // task name (task registry) for tier routing via task.TierFor; empty = none
 	ParentID        string            // id of the agent that spawned this one; empty = root (operator/CLI spawn)
+	ProjectID       string            // id of the first-class project this session joins; empty = the daemon resolves it by path-match (lifecycle is store-free, so it only stamps what it is handed)
 	AutopilotRunID  string            // owning ap- run id (autopilot back-ref)
 	AutopilotSlot   string            // autopilot | guardian | worker
 	AutopilotTaskID string            // plan task id (workers only)
@@ -1498,6 +1499,10 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 	if req.ParentID != id {
 		sess.ParentID = req.ParentID
 	}
+	// Stamp the explicit owning-project back-ref when the request carried one. An
+	// empty value is left empty for the daemon to resolve by path-match post-spawn
+	// (lifecycle has no projects store), so an explicit id always wins over the match.
+	sess.ProjectID = req.ProjectID
 	sess.AutopilotRunID = req.AutopilotRunID
 	sess.AutopilotSlot = req.AutopilotSlot
 	sess.AutopilotTaskID = req.AutopilotTaskID
