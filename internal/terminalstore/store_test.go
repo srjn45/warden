@@ -33,6 +33,18 @@ func TestCRUD(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotFound)
 }
 
+func TestSpawnCreatesAndInitializesTerminal(t *testing.T) {
+	s, err := New(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+
+	require.NoError(t, s.Spawn(context.Background(), &Terminal{ID: "terminal-spawn", ProjectID: "project"}, "tmux-terminal"))
+	got, err := s.Get(context.Background(), "terminal-spawn")
+	require.NoError(t, err)
+	require.Equal(t, "tmux-terminal", got.TmuxSession)
+	require.Equal(t, "project", got.ProjectID)
+}
+
 func TestMigratesOnlyActiveTerminalSessions(t *testing.T) {
 	dir := t.TempDir()
 	legacy, err := store.NewFileStore(dir)

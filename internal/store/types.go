@@ -55,8 +55,22 @@ const (
 	StatusRateLimited     Status = "rate_limited"
 )
 
+// Canonical returns the persisted status for a status spelling. busy and
+// need-input were exposed by the first split-store clients; retain them as
+// input aliases while continuing to persist the established wire values.
+func (s Status) Canonical() Status {
+	switch Status(strings.ToLower(strings.TrimSpace(string(s)))) {
+	case "busy":
+		return StatusWorking
+	case "need-input":
+		return StatusWaitingForInput
+	default:
+		return s
+	}
+}
+
 func (s Status) Valid() bool {
-	switch s {
+	switch s.Canonical() {
 	case StatusSpawning, StatusWorking, StatusWaitingForInput,
 		StatusIdle, StatusDone, StatusErrored, StatusOrphaned,
 		StatusRateLimited:

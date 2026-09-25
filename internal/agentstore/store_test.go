@@ -31,6 +31,59 @@ func TestCRUD(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotFound)
 }
 
+func TestSpawnCreatesAndInitializesAgent(t *testing.T) {
+	s, err := New(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+
+	a := &Agent{ID: "agent-spawn", Name: "worker", Status: store.StatusSpawning}
+	require.NoError(t, s.Spawn(context.Background(), a, "tmux-agent-spawn", "ai-session-1"))
+	got, err := s.Get(context.Background(), a.ID)
+	require.NoError(t, err)
+	require.Equal(t, "tmux-agent-spawn", got.TmuxSession)
+	require.Equal(t, "ai-session-1", got.ClaudeSessionID)
+}
+
+func TestCreateCanonicalizesStatusAliases(t *testing.T) {
+	s, err := New(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+	require.NoError(t, s.Create(context.Background(), &Agent{ID: "busy-agent", Status: store.Status("busy")}))
+	got, err := s.Get(context.Background(), "busy-agent")
+	require.NoError(t, err)
+	require.Equal(t, store.StatusWorking, got.Status)
+}
+
+func TestTerminateAndDelete(t *testing.T) {
+	s, err := New(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+	ctx := context.Background()
+	require.NoError(t, s.Spawn(ctx, &Agent{ID: "agent-stop", Status: store.StatusWorking}, "tmux-stop", "ai-stop"))
+	require.NoError(t, s.Terminate(ctx, "agent-stop"))
+	got, err := s.Get(ctx, "agent-stop")
+	require.NoError(t, err)
+	require.Equal(t, store.StatusDone, got.Status)
+	require.NoError(t, s.Delete(ctx, "agent-stop"))
+	_, err = s.Get(ctx, "agent-stop")
+	require.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestRecoverOnlyRevivesOrphanedAgent(t *testing.T) {
+	s, err := New(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+	ctx := context.Background()
+	require.NoError(t, s.Insert(ctx, &Agent{ID: "orphan", Status: store.StatusOrphaned}))
+	require.NoError(t, s.Recover(ctx, "orphan"))
+	got, err := s.Get(ctx, "orphan")
+	require.NoError(t, err)
+	require.Equal(t, store.StatusWorking, got.Status)
+
+	require.NoError(t, s.Insert(ctx, &Agent{ID: "done", Status: store.StatusDone}))
+	require.ErrorIs(t, s.Recover(ctx, "done"), ErrNotOrphaned)
+}
+
 func TestMigratesOnlyActiveNonTerminalSessions(t *testing.T) {
 	dir := t.TempDir()
 	legacy, err := store.NewFileStore(dir)
