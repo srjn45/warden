@@ -3221,6 +3221,15 @@ components:
             plan task id for worker sessions. Absent on manager/guardian slots and
             non-autopilot sessions.
         model: { type: string }
+        parent_id:
+          type: string
+          description: >
+            back-ref to the user-facing agent (GET /api/v1/sessions) that
+            spawned this agent; empty/absent = a root agent created by an
+            operator. Its forward edge is the parent's child_agents[] list.
+            Pipeline job agents use pipeline_id/job_id instead and terminals
+            are never parented this way. Present the same way across GET
+            /sessions, GET /sessions/{id}, and the SSE stream.
         child_agents:
           type: array
           items: { type: string }
