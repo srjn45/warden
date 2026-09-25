@@ -730,6 +730,44 @@ func TestGolden_NestedPipeline_UnderOwningAgent(t *testing.T) {
 	require.JSONEq(t, expectedJSON, string(gotJSON))
 }
 
+// Contradiction: pipeline.parent_agent_id=A while B.child_pipelines lists the
+// pipeline → B owns it (container list wins, spec §6.1 / D4).
+func TestChildPipelinesBeatsContradictoryParentAgentID(t *testing.T) {
+	now := time.Date(2026, 9, 25, 16, 0, 0, 0, time.UTC)
+	in := Inputs{
+		Projects: []projectstore.Project{{
+			ID: "/repo", Name: "repo", Path: "/repo", Status: projectstore.StatusOpen,
+			Agents: []string{"a", "b"},
+		}},
+		Pipelines: []*pipeline.Pipeline{{
+			ID: "pipe", Name: "pipe", Repo: "/repo", ProjectID: "/repo",
+			ParentAgentID: "a",
+			Status:        pipeline.StatusRunning,
+			Jobs:          []pipeline.Job{{ID: "j", Status: pipeline.JobRunning}},
+		}},
+		Sessions: []*store.Session{
+			{ID: "a", Name: "alpha", ProjectID: "/repo", Repo: "/repo", Status: store.StatusIdle, Kind: store.KindAgent, CreatedAt: now},
+			{ID: "b", Name: "bravo", ProjectID: "/repo", Repo: "/repo", Status: store.StatusIdle, Kind: store.KindAgent, CreatedAt: now.Add(time.Minute), ChildPipelines: []string{"pipe"}},
+		},
+	}
+	tree := NewService().Build(in, "")
+	require.Len(t, tree.Roots, 1)
+	var bravo, alpha *Node
+	for _, ch := range tree.Roots[0].Children {
+		if ch.SessionID == "b" {
+			bravo = ch
+		}
+		if ch.SessionID == "a" {
+			alpha = ch
+		}
+	}
+	require.NotNil(t, bravo)
+	require.NotNil(t, alpha)
+	require.Len(t, bravo.Children, 1)
+	require.Equal(t, "pipeline:pipe", bravo.Children[0].ID)
+	require.Empty(t, alpha.Children, "parent_agent_id target must not own the pipeline when another agent's child_pipelines[] claims it")
+}
+
 // Test per-subtree degradation marking (spec §12)
 func TestPerSubtreeDegraded(t *testing.T) {
 	in := Inputs{
@@ -852,4 +890,227 @@ func TestStatusRollups(t *testing.T) {
 	require.Equal(t, StatusBlocked, taskStatus([]*Node{}))
 	// Task with worker rolls up worker status
 	require.Equal(t, StatusActive, taskStatus([]*Node{{Status: StatusActive}}))
+}
+
+// AuthoritativeTree fixture: Project.agents[]/pipelines[]/terminals[] beat
+// contradictory ProjectID/path; an owned nested pipeline keeps its job DAG under
+// the owning agent; a pipeline job agent is reached only via the pipeline (D5);
+// terminals stay project-level leaves and never nest under agents. Autopilot run
+// hierarchy and operator-created (unowned) pipelines are preserved.
+func TestGolden_AuthoritativeMembership_NestedPipelineJob_TerminalSeparation(t *testing.T) {
+	now := time.Date(2026, 9, 25, 15, 0, 0, 0, time.UTC)
+	projA := "/home/u/dev/alpha"
+	projB := "/home/u/dev/beta"
+
+	in := Inputs{
+		Projects: []projectstore.Project{
+			{
+				ID:        projA,
+				Name:      "alpha",
+				Path:      projA,
+				Status:    projectstore.StatusOpen,
+				Agents:    []string{"orch"},
+				Pipelines: []string{"loose-pipe"},
+				Terminals: []string{"shell-1"},
+			},
+			{
+				ID:     projB,
+				Name:   "beta",
+				Path:   projB,
+				Status: projectstore.StatusOpen,
+				// Intentionally empty membership — legacy ProjectID/path only.
+			},
+		},
+		Pipelines: []*pipeline.Pipeline{
+			{
+				ID:   "owned-pipe",
+				Name: "owned-pipe",
+				// Path + ProjectID deliberately point at beta — membership/edge win.
+				Repo:          projB,
+				ProjectID:     projB,
+				ParentAgentID: "orch",
+				Status:        pipeline.StatusRunning,
+				Jobs: []pipeline.Job{
+					{ID: "review", Status: pipeline.JobPending, DependsOn: []string{"build"}},
+					{ID: "build", Status: pipeline.JobRunning, SessionID: "job-build", DependsOn: []string{}},
+				},
+			},
+			{
+				ID:        "loose-pipe",
+				Name:      "loose-pipe",
+				Repo:      projB, // path says beta
+				ProjectID: projB, // back-ref says beta
+				Status:    pipeline.StatusPending,
+				Jobs: []pipeline.Job{
+					{ID: "solo", Status: pipeline.JobPending, DependsOn: []string{}},
+				},
+			},
+		},
+		Sessions: []*store.Session{
+			{
+				ID:   "orch",
+				Name: "orchestrator",
+				// Contradictory ProjectID/path → Agents[] on alpha wins.
+				ProjectID:      projB,
+				Repo:           projB,
+				Backend:        "claude",
+				Status:         store.StatusWorking,
+				Kind:           store.KindAgent,
+				CreatedAt:      now.Add(1 * time.Minute),
+				ChildAgents:    []string{"helper"},
+				ChildPipelines: []string{"owned-pipe"},
+			},
+			{
+				ID:        "helper",
+				Name:      "helper",
+				ParentID:  "orch",
+				ProjectID: projB,
+				Repo:      projB,
+				Backend:   "claude",
+				Status:    store.StatusIdle,
+				Kind:      store.KindAgent,
+				CreatedAt: now.Add(2 * time.Minute),
+			},
+			// Job agent: PipelineID+JobID nest under the pipeline, never as child_agents.
+			{
+				ID:         "job-build",
+				PipelineID: "owned-pipe",
+				JobID:      "build",
+				ProjectID:  projB,
+				Repo:       projB,
+				Status:     store.StatusWorking,
+				Kind:       store.KindAgent,
+				CreatedAt:  now.Add(3 * time.Minute),
+			},
+			// Terminal listed on alpha; contradictory ProjectID/path ignored.
+			{
+				ID:        "shell-1",
+				Name:      "dev-shell",
+				ProjectID: projB,
+				Repo:      projB,
+				Status:    store.StatusIdle,
+				Kind:      store.KindTerminal,
+				CreatedAt: now.Add(4 * time.Minute),
+			},
+		},
+	}
+
+	svc := NewService()
+	tree := svc.Build(in, "")
+
+	gotJSON, err := json.MarshalIndent(tree, "", "  ")
+	require.NoError(t, err)
+
+	expectedJSON := `{
+  "roots": [
+    {
+      "type": "project",
+      "id": "project:/home/u/dev/alpha",
+      "label": "alpha",
+      "status": "active",
+      "detail": {
+        "repo": "/home/u/dev/alpha",
+        "path": "/home/u/dev/alpha"
+      },
+      "children": [
+        {
+          "type": "pipeline",
+          "id": "pipeline:loose-pipe",
+          "label": "loose-pipe",
+          "status": "blocked",
+          "detail": {
+            "repo": "/home/u/dev/beta"
+          },
+          "children": [
+            {
+              "type": "job",
+              "id": "pipeline:loose-pipe/job:solo",
+              "label": "solo",
+              "status": "blocked",
+              "detail": {
+                "depends_on": []
+              }
+            }
+          ]
+        },
+        {
+          "type": "agent",
+          "id": "session:orch",
+          "label": "orchestrator",
+          "status": "active",
+          "session_id": "orch",
+          "detail": {
+            "kind": "agent",
+            "backend": "claude"
+          },
+          "children": [
+            {
+              "type": "agent",
+              "id": "session:helper",
+              "label": "helper",
+              "status": "idle",
+              "session_id": "helper",
+              "detail": {
+                "kind": "agent",
+                "backend": "claude"
+              }
+            },
+            {
+              "type": "pipeline",
+              "id": "pipeline:owned-pipe",
+              "label": "owned-pipe",
+              "status": "active",
+              "detail": {
+                "repo": "/home/u/dev/beta"
+              },
+              "children": [
+                {
+                  "type": "job",
+                  "id": "pipeline:owned-pipe/job:build",
+                  "label": "build",
+                  "status": "active",
+                  "session_id": "job-build",
+                  "detail": {
+                    "depends_on": []
+                  }
+                },
+                {
+                  "type": "job",
+                  "id": "pipeline:owned-pipe/job:review",
+                  "label": "review",
+                  "status": "blocked",
+                  "detail": {
+                    "depends_on": ["build"]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "terminal",
+          "id": "session:shell-1",
+          "label": "dev-shell",
+          "status": "idle",
+          "session_id": "shell-1",
+          "detail": {
+            "kind": "terminal"
+          }
+        }
+      ]
+    },
+    {
+      "type": "project",
+      "id": "project:/home/u/dev/beta",
+      "label": "beta",
+      "status": "idle",
+      "detail": {
+        "repo": "/home/u/dev/beta",
+        "path": "/home/u/dev/beta"
+      }
+    }
+  ]
+}`
+
+	require.JSONEq(t, expectedJSON, string(gotJSON))
 }
