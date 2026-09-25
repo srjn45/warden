@@ -795,3 +795,59 @@ func TestPauseUnknownPipeline(t *testing.T) {
 		t.Fatalf("want ErrNotFound, got %v", err)
 	}
 }
+
+// TestBaseline_EmitToComposePromptInjection pins the pipeline HANDOFF chain end to
+// end: a job's `warden pipeline emit <text>` (Executor.Emit) writes the text to
+// Job.Output, and when the downstream job spawns, ComposePrompt injects that upstream
+// output into the prompt actually handed to the agent (executor.go SpawnJob req.Prompt).
+//
+// This is the load-bearing multi-agent handoff mechanism. Per the entity-hierarchy
+// spec it is explicitly OUT of scope (NG1: no pipeline DAG rewrite) — so unlike the
+// PHASE1+ baselines, this contract MUST STAY GREEN FOREVER. It is not marked PHASE1+.
+func TestBaseline_EmitToComposePromptInjection(t *testing.T) {
+	e, ps, _ := newTestExecutor(t)
+	ps.Create(chain()) // a (worktree:none) → b (worktree:from:a)
+
+	// Spawn root job a.
+	if err := e.Reconcile(context.Background(), "p"); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if got, _ := ps.Get("p"); got.Job("a").Status != pipeline.JobRunning {
+		t.Fatalf("job a should be running before emit, got %s", got.Job("a").Status)
+	}
+
+	const handoff = "IMPORTANT_HANDOFF_TOKEN: the impl branch is ready"
+
+	// 1. Emit → Job.Output: the handoff text is recorded on the upstream job and it
+	//    is marked done. (Emit ends by reconciling, which spawns the dependent job b.)
+	if err := e.Emit(context.Background(), "p", "a", handoff); err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	got, _ := ps.Get("p")
+	if got.Job("a").Status != pipeline.JobDone {
+		t.Fatalf("emitting job a should mark it done, got %s", got.Job("a").Status)
+	}
+	if got.Job("a").Output != handoff {
+		t.Fatalf("Emit must store the handoff on Job.Output: got %q want %q", got.Job("a").Output, handoff)
+	}
+
+	// 2. Job.Output → ComposePrompt: the composed prompt for downstream job b injects
+	//    the upstream output under an "Upstream output — job `a`" block.
+	composed := pipeline.ComposePrompt(got, got.Job("b"))
+	if !strings.Contains(composed, "Upstream output — job `a`") || !strings.Contains(composed, handoff) {
+		t.Fatalf("ComposePrompt must inject upstream job a's output:\n%s", composed)
+	}
+
+	// 3. …and that composed prompt is what actually reaches the downstream agent: after
+	//    Emit's reconcile spawns b, the SpawnJob prompt carries the injected handoff.
+	if got.Job("b").Status != pipeline.JobRunning {
+		t.Fatalf("job b should be running after upstream emit, got %s", got.Job("b").Status)
+	}
+	fl := e.life.(*fakeLife)
+	fl.mu.Lock()
+	spawnPrompt := fl.lastJobPrompt
+	fl.mu.Unlock()
+	if !strings.Contains(spawnPrompt, handoff) {
+		t.Fatalf("the downstream agent's spawn prompt must carry the injected handoff:\n%s", spawnPrompt)
+	}
+}
