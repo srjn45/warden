@@ -105,9 +105,9 @@ func (s *Server) DeletePipeline(ctx context.Context, req oapi.DeletePipelineRequ
 	}
 	// Reap each settled job's agent session so deleting never orphans agents.
 	for i := range p.Jobs {
-		if sid := p.Jobs[i].SessionID; sid != "" {
-			_ = s.life.Terminate(ctx, sid)
-			_ = s.store.Archive(ctx, sid)
+		if agentID := p.Jobs[i].AgentRef(); agentID != "" {
+			_ = s.life.Terminate(ctx, agentID)
+			_ = s.store.Archive(ctx, agentID)
 		}
 	}
 	if err := s.exec.pstore.Delete(pid); err != nil {
@@ -194,8 +194,8 @@ func (s *Server) CancelPipeline(ctx context.Context, req oapi.CancelPipelineRequ
 	}
 	for i := range p.Jobs {
 		j := &p.Jobs[i]
-		if (j.Status == pipeline.JobRunning || j.Status == pipeline.JobNeedsAttention) && j.SessionID != "" {
-			_ = s.life.Terminate(ctx, j.SessionID)
+		if (j.Status == pipeline.JobRunning || j.Status == pipeline.JobNeedsAttention) && j.AgentRef() != "" {
+			_ = s.life.Terminate(ctx, j.AgentRef())
 		}
 	}
 	if err := s.exec.pstore.Update(pid, func(p *pipeline.Pipeline) {

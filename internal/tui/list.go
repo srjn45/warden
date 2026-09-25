@@ -418,7 +418,7 @@ func pipelineItems(ps []*pipeline.Pipeline, sessions []*store.Session, collapsed
 		}
 		for i := range p.Jobs {
 			j := p.Jobs[i] // fresh var each iteration → distinct pointer
-			out = append(out, item{pjPipe: p.ID, pjJob: &j, pjSess: byID[j.SessionID]})
+			out = append(out, item{pjPipe: p.ID, pjJob: &j, pjSess: byID[j.AgentRef()]})
 		}
 	}
 	return out

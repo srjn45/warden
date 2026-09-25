@@ -567,7 +567,7 @@ func buildPipelineNode(p *pipeline.Pipeline, jobSessions map[string]*store.Sessi
 	orderedJobs := sortJobs(p.Jobs)
 	var jobNodes []*Node
 	for _, j := range orderedJobs {
-		sessionID := j.SessionID
+		sessionID := j.AgentRef()
 		if sess, ok := jobSessions[p.ID+"/"+j.ID]; ok && sessionID == "" {
 			sessionID = sess.ID
 		}
