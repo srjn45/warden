@@ -40,6 +40,13 @@ func orchTestServer() (*Server, *fakeStore, *fakeLife) {
 	return &Server{store: fs, life: fl}, fs, fl
 }
 
+// PHASE1+ (spec D10 / plan Phase3_LifecycleStatesAndOpen): every test in this file
+// pins the CURRENT auto-spawn-orchestrator-on-open behavior. The entity-hierarchy
+// spec removes guaranteeOrchestrator from the project-open path so a freshly opened
+// project is empty. When that lands, these tests (and likely guaranteeOrchestrator
+// itself) change or are removed. They are the intentional baseline to diff against —
+// do not delete them silently.
+
 func TestGuaranteeOrchestratorSpawnsWhenMissing(t *testing.T) {
 	srv, fs, fl := orchTestServer()
 	dir := t.TempDir()
@@ -47,6 +54,7 @@ func TestGuaranteeOrchestratorSpawnsWhenMissing(t *testing.T) {
 
 	srv.guaranteeOrchestrator(context.Background(), p)
 
+	// PHASE1+ (D10): auto-spawn on open is removed; a missing orch is NOT minted.
 	require.NotNil(t, fl.spawned, "an orchestrator must be spawned when none exists")
 	require.Equal(t, "orch-demo", fl.spawned.Name)
 	require.Equal(t, orchestratorRole, fl.spawned.Role)
@@ -69,6 +77,7 @@ func TestGuaranteeOrchestratorNoOpWhenPresent(t *testing.T) {
 
 	srv.guaranteeOrchestrator(context.Background(), p)
 
+	// PHASE1+ (D10): the guarantee hook goes away; this idempotency contract is moot.
 	require.Nil(t, fl.spawned, "no second orchestrator when one is already alive")
 	require.Empty(t, fl.restored, "a live orch is not revived")
 }
@@ -84,6 +93,8 @@ func TestGuaranteeOrchestratorRevivesDeadOrch(t *testing.T) {
 
 	srv.guaranteeOrchestrator(context.Background(), p)
 
+	// PHASE1+ (D10): open no longer revives an orch either; only hibernation restore
+	// (restoreHibernatedAgents) revives members, and recovery is orphaned-only (D8).
 	require.Nil(t, fl.spawned, "a dead orch is revived, not re-spawned")
 	require.Equal(t, "dead-orch", fl.restored, "the existing orch is restored from its transcript")
 	got, err := fs.Get(context.Background(), "dead-orch")
@@ -118,6 +129,9 @@ func TestOpenProjectAutoSpawnsOrchestrator(t *testing.T) {
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
+	// PHASE1+ (D10): this is THE assertion that flips — opening a project must yield an
+	// empty project (no auto-spawned orch-<project>). When D10 lands, invert this to
+	// require.Nil(t, fl.spawned) and assert the project's membership lists are empty.
 	require.NotNil(t, fl.spawned, "opening a project must guarantee an orchestrator")
 	require.Equal(t, "orch-widget", fl.spawned.Name)
 	require.Equal(t, orchestratorRole, fl.spawned.Role)

@@ -89,6 +89,7 @@ type fakeLife struct {
 	hotSwapReq       lifecycle.SwapRequest
 	hotSwapResult    *lifecycle.SwapResult
 	hotSwapErr       error
+	lastJobPrompt    string // captured req.Prompt of the most recent SpawnJob
 }
 
 func (f *fakeLife) Spawn(_ context.Context, req SpawnRequest) (*store.Session, error) {
@@ -217,6 +218,9 @@ func (f *fakeLife) MemoryPressure(_ context.Context) (pressure.Level, error) {
 }
 
 func (f *fakeLife) SpawnJob(_ context.Context, req lifecycle.JobSpawnRequest) (*store.Session, error) {
+	f.mu.Lock()
+	f.lastJobPrompt = req.Prompt
+	f.mu.Unlock()
 	id := req.PipelineID + "-" + req.JobID
 	branch := ""
 	wt := ""
