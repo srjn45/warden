@@ -208,7 +208,8 @@ func (rt autopilotRuntime) SpawnGuardian(ctx context.Context, runID, slotScope, 
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return "", err
 	}
-	sess := &store.Session{ID: id, Name: id, Repo: repo, Workdir: repo,
+	sess := &store.Session{
+		ChildAgents: []string{}, ChildPipelines: []string{}, ID: id, Name: id, Repo: repo, Workdir: repo,
 		Status: store.StatusIdle, Tags: tags, CreatedAt: now, UpdatedAt: now}
 	if err := rt.s.store.Insert(ctx, sess); err != nil {
 		if errors.Is(err, store.ErrExists) {

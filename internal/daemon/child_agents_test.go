@@ -60,9 +60,9 @@ func TestChildEdgeInvariant(t *testing.T) {
 	// --- delete: remove edge (both ends) ---
 	s.removeChildEdge(ctx, child)
 	require.Equal(t, []string{"agent-child2"}, childAgents(t, st, "agent-parent"))
-	// removing the last child clears the list entirely (omitempty).
+	// removing the last child keeps an authoritative empty list.
 	s.removeChildEdge(ctx, child2)
-	require.Nil(t, childAgents(t, st, "agent-parent"))
+	require.Equal(t, []string{}, childAgents(t, st, "agent-parent"))
 
 	// --- reparent: move edge between parents (both ends maintained) ---
 	newParent := &store.Session{ID: "agent-parent2", Status: store.StatusWorking}
@@ -76,7 +76,7 @@ func TestChildEdgeInvariant(t *testing.T) {
 	// child's back-ref is updated by the caller.
 	s.reparentChildEdge(ctx, "agent-child", "agent-parent", "agent-parent2")
 	require.NoError(t, st.Update(ctx, "agent-child", func(c *store.Session) error { c.ParentID = "agent-parent2"; return nil }))
-	require.Nil(t, childAgents(t, st, "agent-parent"))
+	require.Equal(t, []string{}, childAgents(t, st, "agent-parent"))
 	assertBothEnds("agent-child", "agent-parent2", true)
 }
 
@@ -140,7 +140,7 @@ func TestChildEdgeRejectsTerminalParent(t *testing.T) {
 	require.Equal(t, []string{"agent-child"}, childAgents(t, st, "agent-parent"))
 
 	s.reparentChildEdge(ctx, "agent-child", "agent-parent", "term-parent")
-	require.Nil(t, childAgents(t, st, "agent-parent"), "detach from old parent still applies")
+	require.Equal(t, []string{}, childAgents(t, st, "agent-parent"), "detach from old parent still applies")
 	require.Nil(t, childAgents(t, st, "term-parent"), "attach to terminal parent must be rejected")
 	gotChild, err = st.Get(ctx, "agent-child")
 	require.NoError(t, err)

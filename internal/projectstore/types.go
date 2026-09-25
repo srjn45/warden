@@ -1,6 +1,9 @@
 package projectstore
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Status is a project's lifecycle state. A project is never deleted on close
 // (IDE-like hibernation, docs/specs/2026-08-28-project-centric-ui.md §4): closing
@@ -55,7 +58,7 @@ type Project struct {
 	// session ProjectID back-refs; the two are kept consistent, with this list as
 	// the membership of record. A member id need not still resolve to a live
 	// record (an orphaned or hibernated member is tolerated, not pruned).
-	// omitempty so a record that predates the field reads cleanly as an empty list.
+	// Nil means a legacy missing list; non-nil (including empty) is authoritative.
 	Agents []string `json:"agents,omitempty"`
 	// Pipelines is the complete, ordered, de-duplicated id list of member pipelines
 	// (spec D2/§3.1). Same authoritative-membership and dangling-id semantics as
@@ -87,4 +90,26 @@ type ProjectGroup struct {
 	ProjectIDs []string  `json:"project_ids"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+// MarshalJSON preserves explicit empty authoritative lists while omitting nil
+// legacy lists. Default unmarshaling retains the same distinction.
+func (v Project) MarshalJSON() ([]byte, error) {
+	type plain Project
+	optional := func(ids []string) *[]string {
+		if ids == nil {
+			return nil
+		}
+		return &ids
+	}
+	return json.Marshal(struct {
+		plain
+		Agents    *[]string `json:"agents,omitempty"`
+		Pipelines *[]string `json:"pipelines,omitempty"`
+		Terminals *[]string `json:"terminals,omitempty"`
+	}{plain: plain(v),
+		Agents:    optional(v.Agents),
+		Pipelines: optional(v.Pipelines),
+		Terminals: optional(v.Terminals),
+	})
 }
