@@ -2,9 +2,11 @@ package tree
 
 import (
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/srjn45/warden/internal/autopilot"
+	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -43,6 +45,11 @@ func sessionDir(s *store.Session) string {
 // there is no location). openByKey/closedByKey index every project by BOTH its
 // id and its path → the project id.
 //
+// This is the LEGACY path/back-ref fallback. Prefer resolveMembershipKey when the
+// caller has the project's stored agents[]/pipelines[]/terminals[] lists — those
+// are the membership of record (spec D2/§6.1) and win over a contradictory
+// ProjectID or path.
+//
 // This differs from the TUI's resolveGroupKey on one point (spec §16 D4 / Q-T5):
 // a match to a CLOSED project keeps the item under that project (later marked
 // closed) rather than folding it into Ungrouped. The service keeps closed
@@ -68,18 +75,68 @@ func resolveGroupKey(projectID, dir string, openByKey, closedByKey map[string]st
 	return dir // loose dir group
 }
 
+// membershipKind selects which Project membership list to consult.
+type membershipKind int
+
+const (
+	membershipAgents membershipKind = iota
+	membershipPipelines
+	membershipTerminals
+)
+
+// resolveMembershipKey returns the group key for an entity using the project's
+// stored membership lists as the authority (spec D2/§6.1). When one or more
+// projects list entityID, the lexicographically smallest project id wins
+// (deterministic conflict tolerance). Only when NO project lists the entity does
+// this fall back to ProjectID/path via resolveGroupKey — the legacy contract for
+// pre-field records and anything not yet written into a membership list.
+func resolveMembershipKey(
+	entityID, projectID, dir string,
+	kind membershipKind,
+	projects []projectstore.Project,
+	openByKey, closedByKey map[string]string,
+) string {
+	var listed []string
+	for _, p := range projects {
+		var ids []string
+		switch kind {
+		case membershipAgents:
+			ids = p.Agents
+		case membershipPipelines:
+			ids = p.Pipelines
+		case membershipTerminals:
+			ids = p.Terminals
+		}
+		for _, id := range ids {
+			if id == entityID {
+				listed = append(listed, p.ID)
+				break
+			}
+		}
+	}
+	if len(listed) > 0 {
+		sort.Strings(listed)
+		return listed[0]
+	}
+	return resolveGroupKey(projectID, dir, openByKey, closedByKey)
+}
+
 // agentForest splits agent sessions into root agents plus a parent→children map,
 // preferring the STORED parent/child edges (spec D3) over path inference. A child
-// nests under its parent whenever a stored edge connects them in the same
-// canonical directory. A cross-project child remains a root, where renderers can
-// show its lineage backlink without moving it out of its own project.
-// Only legacy rows that carry no edge at all (empty parent_id and absent from every
-// child_agents[]) are treated by path — here that just means they are roots.
+// nests under its parent whenever a stored edge connects them — either the child's
+// parent_id points at a parent present in the set, or the parent lists the child in
+// its child_agents[] forward edge — regardless of whether they share a canonical
+// dir. Path is not consulted for nesting: with an explicit edge stored, the link is
+// authoritative, so a child that runs in another repo (or a worktree) nests under
+// its parent even when their canonical dirs differ. Only rows that carry no edge
+// at all (empty parent_id and absent from every child_agents[]) are roots.
 //
 // Edge precedence follows spec §6.1/§6.3: the backward edge (child.parent_id) wins
 // when its target is present in the set; the forward edge (parent.child_agents[])
-// fills in a child whose own parent_id is empty or dangling. An orphan whose parent
-// is absent from the set is promoted to a root so it never vanishes, and a self- or
+// fills in a child whose own parent_id is empty or dangling. When multiple parents
+// claim the same child via forward edges only, the lexicographically smallest
+// parent id wins (deterministic conflict tolerance). An orphan whose parent is
+// absent from the set is promoted to a root so it never vanishes, and a self- or
 // cyclic edge is broken by rendering the node as a root (dangling ids tolerated).
 func agentForest(sessions []*store.Session) (roots []*store.Session, childrenByParent map[string][]*store.Session) {
 	byID := make(map[string]*store.Session, len(sessions))
@@ -89,28 +146,35 @@ func agentForest(sessions []*store.Session) (roots []*store.Session, childrenByP
 
 	// Resolve each child's effective parent from the stored edges.
 	parentOf := make(map[string]string, len(sessions))
-	// Backward edge: child.parent_id (authoritative when its target is present
-	// in the same project/directory).
+	// Backward edge: child.parent_id (authoritative when its target is present).
 	for _, s := range sessions {
-		parent := byID[s.ParentID]
-		if s.ParentID != "" && s.ParentID != s.ID && parent != nil && sessionDir(s) == sessionDir(parent) {
+		if s.ParentID != "" && s.ParentID != s.ID && byID[s.ParentID] != nil {
 			parentOf[s.ID] = s.ParentID
 		}
 	}
 	// Forward edge: parent.child_agents[] fills in a child whose own parent_id is
-	// empty or dangling. The backward edge wins when both are present.
+	// empty or dangling. The backward edge wins when both are present. When several
+	// parents list the same unresolved child, the lex-smallest parent id wins.
+	forwardClaim := make(map[string]string)
 	for _, p := range sessions {
 		for _, cid := range p.ChildAgents {
 			if cid == "" || cid == p.ID {
 				continue
 			}
+			if byID[cid] == nil {
+				continue // dangling id tolerated — skip
+			}
 			if _, resolved := parentOf[cid]; resolved {
+				continue // backward edge already won
+			}
+			if prev, ok := forwardClaim[cid]; ok && prev <= p.ID {
 				continue
 			}
-			if child := byID[cid]; child != nil && sessionDir(child) == sessionDir(p) {
-				parentOf[cid] = p.ID
-			}
+			forwardClaim[cid] = p.ID
 		}
+	}
+	for cid, pid := range forwardClaim {
+		parentOf[cid] = pid
 	}
 
 	childrenByParent = map[string][]*store.Session{}

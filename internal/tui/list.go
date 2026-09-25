@@ -243,7 +243,7 @@ type item struct {
 	hasKids     bool   // has ≥1 child agent → collapsible header (▸/▾)
 	tombstone   bool   // terminal parent: render header-only, no live badge/gauge
 	runningKids int    // live descendants under a tombstone (the "N running" badge)
-	fromParent  string // §4.1 cross-project child surfaced as a root: "↳ from <parent>" backlink
+	fromParent  string // §4.1 root with ParentID but not nested: "↳ from <parent>" backlink
 }
 
 // dirKey is the placeholder identity for an opened dir. The NUL separator can't
@@ -933,8 +933,7 @@ func renderItemLine(it item, selected bool, width int) string {
 		if it.apSlot != "" {
 			line += stMuted.Render("  " + it.apSlot)
 		}
-		// §4.1: a cross-project child surfaced under its own dir keeps a lineage
-		// backlink so the orchestration is still visible without cross-dir nesting.
+		// §4.1: a root agent that still names a parent keeps a lineage backlink.
 		if it.fromParent != "" {
 			line += stMuted.Render("  ↳ from " + trunc(it.fromParent, 16))
 		}

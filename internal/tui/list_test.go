@@ -1327,7 +1327,7 @@ func itemsFromSessions(ss []*store.Session) []item {
 
 // §4.1: a child in a DIFFERENT project than its parent is NOT nested; it surfaces
 // under its own dir as a root with a "↳ from <parent>" lineage backlink.
-func TestBuildItemsCrossProjectChildSurfacesAsRoot(t *testing.T) {
+func TestBuildItemsCrossProjectChildNestsByStoredEdge(t *testing.T) {
 	now := time.Now()
 	ss := []*store.Session{
 		{ID: "parent", Repo: "/repoA", Name: "boss", Status: store.StatusWorking, CreatedAt: now},
@@ -1340,15 +1340,34 @@ func TestBuildItemsCrossProjectChildSurfacesAsRoot(t *testing.T) {
 			byID[it.session.ID] = it
 		}
 	}
-	require.Equal(t, 0, byID["child"].depth, "cross-project child is a root, not nested")
-	require.Equal(t, "/repoB", byID["child"].dir, "child sits under its own project dir")
-	require.Equal(t, "boss", byID["child"].fromParent, "child keeps a lineage backlink to its parent")
-	require.False(t, byID["parent"].hasKids, "parent has no in-project child to nest")
-
-	require.Contains(t, renderItemLine(byID["child"], false, 100), "↳ from boss", "backlink renders on the row")
+	require.Equal(t, 1, byID["child"].depth, "authoritative parent_id nests across projects")
+	require.Equal(t, "", byID["child"].fromParent, "nested child carries no backlink")
+	require.True(t, byID["parent"].hasKids, "parent nests the cross-project child")
 }
 
-// A same-project child still nests (the §4.1 rule only re-homes cross-project kids).
+// Orphan root whose parent is still in the fleet (e.g. cycle broken) keeps a
+// lineage backlink so the operator can see where it came from.
+func TestBuildItemsOrphanRootKeepsParentBacklink(t *testing.T) {
+	now := time.Now()
+	ss := []*store.Session{
+		{ID: "a", ParentID: "b", Name: "alpha", Repo: "/repoA", Status: store.StatusWorking, CreatedAt: now},
+		{ID: "b", ParentID: "a", Name: "bravo", Repo: "/repoB", Status: store.StatusWorking, CreatedAt: now},
+	}
+	items := buildItems(ss, nil, nil)
+	byID := map[string]item{}
+	for _, it := range items {
+		if it.session != nil {
+			byID[it.session.ID] = it
+		}
+	}
+	require.Equal(t, 0, byID["a"].depth)
+	require.Equal(t, 0, byID["b"].depth)
+	require.Equal(t, "bravo", byID["a"].fromParent)
+	require.Equal(t, "alpha", byID["b"].fromParent)
+	require.Contains(t, renderItemLine(byID["a"], false, 100), "↳ from bravo")
+}
+
+// A same-project child still nests (authoritative edges, no path gate).
 func TestBuildItemsSameProjectChildStillNestsWithRepo(t *testing.T) {
 	now := time.Now()
 	ss := []*store.Session{

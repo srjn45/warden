@@ -61,7 +61,7 @@ func (s *Service) Build(in Inputs, projectID string) *Tree {
 	// 1. autopilot_run_id
 	// 2. pipeline_id + job_id
 	// 3. parent_id / child_agents edge (agent forest — path no longer gates it)
-	// 4. resolved project
+	// 4. stored Project.agents[] membership, else ProjectID/path
 	autopilotSessionsByRun := map[string][]*store.Session{}
 	isAutopilotSession := map[string]bool{}
 
@@ -102,7 +102,10 @@ func (s *Service) Build(in Inputs, projectID string) *Tree {
 			continue
 		}
 		if sess.IsTerminal() {
-			key := resolveGroupKey(sess.ProjectID, sessionDir(sess), openByKey, closedByKey)
+			key := resolveMembershipKey(
+				sess.ID, sess.ProjectID, sessionDir(sess),
+				membershipTerminals, in.Projects, openByKey, closedByKey,
+			)
 			terminalsByGroup[key] = append(terminalsByGroup[key], sess)
 		} else {
 			agents = append(agents, sess)
@@ -112,7 +115,10 @@ func (s *Service) Build(in Inputs, projectID string) *Tree {
 	agentRoots, childrenByParent := agentForest(agents)
 	agentRootsByGroup := map[string][]*store.Session{}
 	for _, sess := range agentRoots {
-		key := resolveGroupKey(sess.ProjectID, sessionDir(sess), openByKey, closedByKey)
+		key := resolveMembershipKey(
+			sess.ID, sess.ProjectID, sessionDir(sess),
+			membershipAgents, in.Projects, openByKey, closedByKey,
+		)
 		agentRootsByGroup[key] = append(agentRootsByGroup[key], sess)
 	}
 
@@ -121,7 +127,7 @@ func (s *Service) Build(in Inputs, projectID string) *Tree {
 	// in some agent's child_pipelines[] — nests UNDER that agent's node, following
 	// the agent wherever it renders, rather than sitting at project level. Only
 	// pipelines with no owning-agent edge (legacy/operator-created) fall back to
-	// project/path grouping via resolveGroupKey.
+	// project membership / path grouping.
 	agentByID := make(map[string]*store.Session, len(agents))
 	for _, s := range agents {
 		agentByID[s.ID] = s
@@ -139,19 +145,26 @@ func (s *Service) Build(in Inputs, projectID string) *Tree {
 		}
 	}
 	// Forward edge: agent.child_pipelines[] fills in a pipeline whose parent_agent_id
-	// is empty or dangling. The backward edge wins when both are present.
+	// is empty or dangling. The backward edge wins when both are present. When
+	// several agents claim the same unresolved pipeline, the lex-smallest agent id
+	// wins (deterministic conflict tolerance).
+	forwardPipeClaim := make(map[string]string)
 	for _, s := range agents {
 		for _, pid := range s.ChildPipelines {
-			if pid == "" {
-				continue
+			if pid == "" || pipelineByID[pid] == nil {
+				continue // dangling tolerated
 			}
 			if _, ok := ownerOfPipeline[pid]; ok {
+				continue // backward already won
+			}
+			if prev, ok := forwardPipeClaim[pid]; ok && prev <= s.ID {
 				continue
 			}
-			if pipelineByID[pid] != nil {
-				ownerOfPipeline[pid] = s.ID
-			}
+			forwardPipeClaim[pid] = s.ID
 		}
+	}
+	for pid, aid := range forwardPipeClaim {
+		ownerOfPipeline[pid] = aid
 	}
 
 	ownedPipelinesByAgent := map[string][]*pipeline.Pipeline{}
@@ -161,7 +174,10 @@ func (s *Service) Build(in Inputs, projectID string) *Tree {
 			ownedPipelinesByAgent[owner] = append(ownedPipelinesByAgent[owner], p)
 			continue
 		}
-		key := resolveGroupKey(p.ProjectID, canonicalDir(p.Repo), openByKey, closedByKey)
+		key := resolveMembershipKey(
+			p.ID, p.ProjectID, canonicalDir(p.Repo),
+			membershipPipelines, in.Projects, openByKey, closedByKey,
+		)
 		pipelinesByGroup[key] = append(pipelinesByGroup[key], p)
 	}
 
