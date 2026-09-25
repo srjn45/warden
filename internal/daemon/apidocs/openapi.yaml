@@ -4124,9 +4124,11 @@ components:
         status:
           type: string
           description: >-
-            Normalized lifecycle rollup, one shared 7-value enum: active |
-            waiting | idle | done | error | blocked | unknown.
-          enum: [active, waiting, idle, done, error, blocked, unknown]
+            Agent nodes use pending | busy | idle | need-input | done | orphaned |
+            rate_limited (entity hierarchy spec section 4). Containers, jobs,
+            pipelines and runs retain their existing rollup vocabulary. Terminals
+            use only busy, done or orphaned for liveness.
+          enum: [active, waiting, idle, done, error, blocked, unknown, pending, busy, need-input, orphaned, rate_limited]
         session_id:
           type: string
           description: >-

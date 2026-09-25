@@ -1,4 +1,5 @@
 import type { Session } from './types';
+import { presentedStatus } from './status';
 
 export interface SessionGroup {
   // key is the stable grouping identity (e.g. the dir path, type, status, or
@@ -52,7 +53,7 @@ function keysFor(s: Session, by: GroupBy): string[] {
   switch (by) {
     case 'type': return [s.type || UNTYPED];
     case 'backend': return [s.backend || DEFAULT_BACKEND];
-    case 'status': return [s.status];
+    case 'status': return [presentedStatus(s.status, s.exit_code)];
     case 'tag': {
       const tags = (s.tags ?? []).filter((t) => t.trim() !== '');
       return tags.length ? tags : [UNTAGGED];
@@ -93,7 +94,7 @@ function decorate(key: string, sessions: Session[], by: GroupBy): SessionGroup {
     return { key, label: baseName(key), sub: key, dir: key, sessions };
   }
   if (by === 'status') {
-    return { key, label: key.replace(/_/g, ' '), sessions };
+    return { key, label: key, sessions };
   }
   return { key, label: key, sessions };
 }
