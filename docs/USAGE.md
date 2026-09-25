@@ -1228,6 +1228,15 @@ via `plugins.enabled` + a `plugins.registry` list; a worked example lives under
 Preflight checks — required binaries (`tmux`, `git`, `claude`), optional ones
 (`gh`, `ollama`, warn-only), daemon reachability, and the data directory.
 
+Flags:
+- `--sessions` — diagnose the session store offline without modifying it
+  (daemon must be stopped).
+- `--reconcile-membership` — one-shot offline repair: stamp a `project_id` onto
+  any pre-back-ref session/pipeline by path-matching the open projects, then
+  rebuild every project's authoritative `agents[]`/`pipelines[]`/`terminals[]`
+  lists from those back-refs. Idempotent; the daemon also runs this
+  automatically at boot. Daemon must be stopped.
+
 ### `warden setup [--yes]`
 Verifies the install with the **same checks as `doctor`**, then installs whatever
 is missing. Idempotent — it only touches deps that aren't already on PATH. For
