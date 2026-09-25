@@ -3439,6 +3439,18 @@ components:
         name: { type: string, description: "human-friendly display name" }
         path: { type: string, description: "local absolute path of the main checkout (may be empty for a not-yet-cloned remote)" }
         status: { type: string, enum: [open, closed], description: "open | closed (hibernated, kept in the DB)" }
+        agents:
+          type: array
+          items: { type: string }
+          description: "complete, ordered, de-duplicated id list of member agents (authoritative membership; dangling ids tolerated)"
+        pipelines:
+          type: array
+          items: { type: string }
+          description: "complete, ordered, de-duplicated id list of member pipelines (authoritative membership; dangling ids tolerated)"
+        terminals:
+          type: array
+          items: { type: string }
+          description: "complete, ordered, de-duplicated id list of member terminals (leaf members; dangling ids tolerated)"
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
 
