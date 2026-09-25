@@ -26,12 +26,24 @@ func (s *Server) ListPipelines(_ context.Context, _ oapi.ListPipelinesRequestObj
 // CreatePipeline implements POST /api/v1/pipelines.
 func (s *Server) CreatePipeline(ctx context.Context, req oapi.CreatePipelineRequestObject) (oapi.CreatePipelineResponseObject, error) {
 	spec := ""
+	bodyProjectID := ""
 	if req.Body != nil {
 		spec = req.Body.Spec
+		bodyProjectID = req.Body.ProjectId
 	}
 	p, err := pipeline.ParseSpec([]byte(spec))
 	if err != nil {
 		return nil, errStatus(http.StatusBadRequest, err.Error())
+	}
+	// Stamp the owning project (spec D2/§3.1). Precedence: an explicit request-body
+	// project_id wins over any project_id in the YAML spec (already parsed onto
+	// p.ProjectID); when both are empty, resolve it by matching the pipeline repo to
+	// an OPEN project. No match leaves the pipeline project-less.
+	if bodyProjectID != "" {
+		p.ProjectID = bodyProjectID
+	}
+	if p.ProjectID == "" {
+		p.ProjectID = s.resolvePipelineProjectID(p)
 	}
 	// Captured at creation because jobs spawn later from the executor's ticker,
 	// where no request (and so no actor identity) exists anymore.
@@ -41,6 +53,8 @@ func (s *Server) CreatePipeline(ctx context.Context, req oapi.CreatePipelineRequ
 	} else if err != nil {
 		return nil, err
 	}
+	// Append to the project's authoritative pipelines[] membership list (best-effort).
+	s.addPipelineMembership(p)
 	return oapi.CreatePipeline201JSONResponse(*p), nil
 }
 
@@ -82,6 +96,8 @@ func (s *Server) DeletePipeline(ctx context.Context, req oapi.DeletePipelineRequ
 	if err := s.exec.pstore.Delete(pid); err != nil {
 		return nil, err
 	}
+	// Drop this pipeline from its project's pipelines[] membership list (best-effort).
+	s.removePipelineMembership(p)
 	// Clear this pipeline's shared-context keys (best-effort).
 	if s.exec.cstore != nil {
 		_, _ = s.exec.cstore.DelPrefix("pipeline." + pid + ".")

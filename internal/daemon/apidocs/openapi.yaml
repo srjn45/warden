@@ -1988,6 +1988,7 @@ paths:
               type: object
               properties:
                 spec: { type: string, description: "pipeline YAML" }
+                project_id: { type: string, description: "id of the first-class project (projectstore) this pipeline joins. Overrides a project_id set in the YAML spec; when both are empty the daemon resolves it by matching the pipeline repo to an OPEN project (no match leaves the pipeline project-less). On create the pipeline is stamped with the resolved id and appended to the project's authoritative pipelines[] membership list." }
       responses:
         "201":
           description: The parsed + stored pipeline
@@ -3977,6 +3978,14 @@ components:
         name: { type: string }
         repo: { type: string }
         status: { type: string }
+        project_id:
+          type: string
+          description: >-
+            back-ref to the first-class project (GET /api/v1/projects) this
+            pipeline belongs to; empty/absent = ungrouped. Set at creation from
+            the request body project_id, the YAML spec, or by matching the
+            pipeline repo to an OPEN project. Groups a pipeline and all its job
+            agents under one parent project.
         tags:
           type: array
           items: { type: string }

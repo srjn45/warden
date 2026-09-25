@@ -3,6 +3,7 @@ package daemon
 import (
 	"log/slog"
 
+	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -104,5 +105,64 @@ func (s *Server) removeProjectMembership(sess *store.Session) {
 	}
 	if err != nil {
 		slog.Warn("daemon: project membership: remove failed", "agent", sess.ID, "project", sess.ProjectID, "kind", sess.Kind, "err", err)
+	}
+}
+
+// resolvePipelineProjectID path-matches a freshly created pipeline's repo against
+// the OPEN projects, the pipeline-side mirror of resolveProjectID for sessions.
+// The caller has already applied the higher-precedence sources (an explicit
+// request-body project_id, then the YAML spec's project_id); this only fills the
+// still-empty case by location. Returns "" when no projects store is wired or no
+// open project matches — the pipeline is then project-less and joins no membership
+// list. A closed (hibernated) project is never auto-matched.
+func (s *Server) resolvePipelineProjectID(p *pipeline.Pipeline) string {
+	if p == nil || s.projects == nil {
+		return ""
+	}
+	dir := normalizeProjectDir(p.Repo)
+	if dir == "" {
+		return ""
+	}
+	projs, err := s.projects.List()
+	if err != nil {
+		slog.Warn("daemon: pipeline membership: list projects failed", "pipeline", p.ID, "err", err)
+		return ""
+	}
+	for _, proj := range projs {
+		if projectstore.NormalizeStatus(proj.Status) != projectstore.StatusOpen {
+			continue
+		}
+		if dir == proj.ID || (proj.Path != "" && dir == proj.Path) {
+			return proj.ID
+		}
+	}
+	return ""
+}
+
+// addPipelineMembership appends a created pipeline to its project's authoritative
+// Project.pipelines[] list (spec D2/§3.1), the pipeline analogue of
+// addProjectMembership. Best-effort: the add de-duplicates (a repeat is a no-op)
+// and a failure is logged, never fatal — the pipeline keeps its ProjectID back-ref
+// regardless. A project-less pipeline (empty ProjectID) or an unconfigured projects
+// store is a silent no-op. Call AFTER a successful pstore.Create.
+func (s *Server) addPipelineMembership(p *pipeline.Pipeline) {
+	if s.projects == nil || p == nil || p.ProjectID == "" {
+		return
+	}
+	if _, err := s.projects.AddPipelineToProject(p.ProjectID, p.ID); err != nil {
+		slog.Warn("daemon: pipeline membership: add failed", "pipeline", p.ID, "project", p.ProjectID, "err", err)
+	}
+}
+
+// removePipelineMembership drops a deleted pipeline from its project's
+// Project.pipelines[] list, the delete-side mirror of addPipelineMembership.
+// Best-effort (removing an absent member is a no-op) and a silent no-op for a
+// project-less pipeline or an unconfigured store. Call when a pipeline is deleted.
+func (s *Server) removePipelineMembership(p *pipeline.Pipeline) {
+	if s.projects == nil || p == nil || p.ProjectID == "" {
+		return
+	}
+	if _, err := s.projects.RemovePipelineFromProject(p.ProjectID, p.ID); err != nil {
+		slog.Warn("daemon: pipeline membership: remove failed", "pipeline", p.ID, "project", p.ProjectID, "err", err)
 	}
 }

@@ -79,10 +79,13 @@ type Pipeline struct {
 	ScheduleID   string `json:"schedule_id,omitempty" yaml:"-"`
 	ScheduleName string `json:"schedule_name,omitempty" yaml:"-"`
 	// ProjectID back-refs the first-class project (projectstore) this pipeline
-	// belongs to; empty = ungrouped. Daemon-stamped at creation (yaml:"-", not
-	// spec-authored), the pipeline-mode analogue of Session.ProjectID: it groups a
-	// pipeline and all its job agents under one parent project in the cockpit/TUI.
-	ProjectID string `json:"project_id,omitempty" yaml:"-"`
+	// belongs to; empty = ungrouped. It may be spec-authored (yaml:"project_id"),
+	// but the daemon has the final say at creation: an explicit request-body
+	// project_id overrides the spec value, and when both are empty the daemon
+	// resolves it by matching the pipeline repo to an OPEN project. The
+	// pipeline-mode analogue of Session.ProjectID: it groups a pipeline and all
+	// its job agents under one parent project in the cockpit/TUI.
+	ProjectID string `json:"project_id,omitempty" yaml:"project_id,omitempty"`
 }
 
 // Job returns a pointer to the job with id, or nil.

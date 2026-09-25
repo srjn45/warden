@@ -278,6 +278,14 @@ func projectSourceDir(sess *store.Session) string {
 	if dir == "" {
 		dir = sess.Workdir
 	}
+	return normalizeProjectDir(dir)
+}
+
+// normalizeProjectDir makes dir absolute and normalizes it to the parent project
+// root so a worktree checkout (…/.worktrees/<name>) maps to its repo rather than a
+// pseudo-project. An empty dir stays empty. Shared by the session path-match
+// (projectSourceDir) and the pipeline path-match (resolvePipelineProjectID).
+func normalizeProjectDir(dir string) string {
 	if dir == "" {
 		return ""
 	}

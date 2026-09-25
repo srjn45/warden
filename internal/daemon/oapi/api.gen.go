@@ -1373,6 +1373,9 @@ type SetModelTierJSONBody struct {
 
 // CreatePipelineJSONBody defines parameters for CreatePipeline.
 type CreatePipelineJSONBody struct {
+	// ProjectId id of the first-class project (projectstore) this pipeline joins. Overrides a project_id set in the YAML spec; when both are empty the daemon resolves it by matching the pipeline repo to an OPEN project (no match leaves the pipeline project-less). On create the pipeline is stamped with the resolved id and appended to the project's authoritative pipelines[] membership list.
+	ProjectId string `json:"project_id,omitempty"`
+
 	// Spec pipeline YAML
 	Spec string `json:"spec,omitempty"`
 }
