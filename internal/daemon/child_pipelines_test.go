@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -122,11 +123,20 @@ func postPipeline(t *testing.T, url, actor, body string) pipeline.Pipeline {
 	}
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
-	require.Equalf(t, http.StatusCreated, resp.StatusCode, "create pipeline")
+	responseBody, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	require.NoError(t, err)
+	require.Equalf(t, http.StatusCreated, resp.StatusCode, "create pipeline: %s", responseBody)
 	var p pipeline.Pipeline
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&p))
+	require.NoError(t, json.Unmarshal(responseBody, &p))
 	return p
+}
+
+func mustJSON(t *testing.T, v any) string {
+	t.Helper()
+	b, err := json.Marshal(v)
+	require.NoError(t, err)
+	return string(b)
 }
 
 // TestPipelineCreateStampsParentAgent exercises the create/delete route path (D4/D6):
@@ -150,22 +160,22 @@ func TestPipelineCreateStampsParentAgent(t *testing.T) {
 	}
 
 	// 1. Actor identity (the agent behind the request) becomes the owner.
-	p1 := postPipeline(t, ts.URL, "agent-owner", `{"spec":"`+spec("p1")+`"}`)
+	p1 := postPipeline(t, ts.URL, "agent-owner", mustJSON(t, map[string]string{"spec": spec("p1")}))
 	require.Equal(t, "agent-owner", p1.ParentAgentID)
 	require.Contains(t, childPipelines(t, ss, "agent-owner"), "p1")
 
 	// 2. Explicit request-body parent_agent_id wins over the actor identity.
-	p2 := postPipeline(t, ts.URL, "agent-owner", `{"parent_agent_id":"agent-other","spec":"`+spec("p2")+`"}`)
+	p2 := postPipeline(t, ts.URL, "agent-owner", mustJSON(t, map[string]string{"parent_agent_id": "agent-other", "spec": spec("p2")}))
 	require.Equal(t, "agent-other", p2.ParentAgentID)
 	require.Contains(t, childPipelines(t, ss, "agent-other"), "p2")
 	require.NotContains(t, childPipelines(t, ss, "agent-owner"), "p2", "body override must not credit the actor")
 
 	// 3. Operator create (no actor header) → no owning agent, no edge.
-	pOp := postPipeline(t, ts.URL, "", `{"spec":"`+spec("p3")+`"}`)
+	pOp := postPipeline(t, ts.URL, "", mustJSON(t, map[string]string{"spec": spec("p3")}))
 	require.Equal(t, "", pOp.ParentAgentID)
 
 	// 4. A terminal caller never owns a pipeline (§6.4).
-	pTerm := postPipeline(t, ts.URL, "term-1", `{"spec":"`+spec("p4")+`"}`)
+	pTerm := postPipeline(t, ts.URL, "term-1", mustJSON(t, map[string]string{"spec": spec("p4")}))
 	require.Equal(t, "", pTerm.ParentAgentID)
 	require.Nil(t, childPipelines(t, ss, "term-1"))
 
