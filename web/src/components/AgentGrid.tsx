@@ -1,147 +1,99 @@
-import { useState } from 'react';
 import type { Session } from '../lib/types';
-import {
-  groupSessionsBy, UNKNOWN_DIR,
-  GROUP_BY_VALUES, GROUP_BY_LABELS,
-  type GroupBy,
-} from '../lib/group';
+import type { ProjectTree, TreeNode } from '../lib/tree';
 import MiniTerminal from './MiniTerminal';
 import BusyIdleBadge from './BusyIdleBadge';
 import ContextBadge from './ContextBadge';
 import BackendLogo from './BackendLogo';
 import QuickAddButton from './QuickAddButton';
 
-// AgentGrid renders live thumbnail tiles for every agent, bucketed into titled
-// panes. By default it groups by directory; when `groupControl` is set it shows
-// a Group-by selector (Directory / Type / Status / Tag, #20) whose choice is
-// saved to localStorage, and every group header is a collapse toggle. Each pane
-// is a header bar (name + dim sub + count [+ quick-add]) over the tile grid.
-// Clicking a tile pins + focuses that agent. `lines` controls tile height
-// (Cockpit passes a larger value than the Overview mini-grid). When `onCreated`
-// is provided, each directory pane (except the unknown-dir '—' group) shows a
-// '+' that spawns a no-prompt agent in its dir.
-//
-// When `selectable` is set, each tile gains a checkbox; `selected` is the set of
-// chosen ids and `onToggleSelect(id, shift)` toggles one (shift = range-select).
-// Selection drives the bulk action bar (#21 batch operations).
-
-const GROUP_KEY = 'warden.grouping';
-
-function loadGroupBy(): GroupBy {
-  try {
-    const raw = localStorage.getItem(GROUP_KEY);
-    if (raw && (GROUP_BY_VALUES as string[]).includes(raw)) return raw as GroupBy;
-  } catch { /* unavailable storage */ }
-  return 'dir';
-}
-
-export default function AgentGrid({ sessions, onSelect, lines = 8, onCreated, selectable, selected, onToggleSelect, groupControl }: {
+// Render daemon placement verbatim. Session snapshots enrich tiles, never decide
+// their membership, parent, or ordering. Missing sessions remain visible as rows.
+export default function AgentGrid({ tree, sessions, onSelect, onTerminalSelect, lines = 8, onCreated, selectable, selected, onToggleSelect, collapsed, onToggleCollapse }: {
+  tree: ProjectTree;
   sessions: Session[];
   onSelect: (id: string) => void;
+  onTerminalSelect: (id: string) => void;
   lines?: number;
   onCreated?: (id: string) => void;
   selectable?: boolean;
   selected?: Set<string>;
   onToggleSelect?: (id: string, shift: boolean) => void;
-  groupControl?: boolean;
+  collapsed: Set<string>;
+  onToggleCollapse: (id: string) => void;
 }) {
-  const [groupBy, setGroupBy] = useState<GroupBy>(loadGroupBy);
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const byId = new Map(sessions.map((s) => [s.id, s]));
 
-  // Group control is only meaningful when shown; otherwise honor the saved
-  // preference but stick to the directory default for the compact mini-grid.
-  const mode: GroupBy = groupControl ? groupBy : 'dir';
-
-  function chooseGroup(g: GroupBy) {
-    setGroupBy(g);
-    setCollapsed(new Set());
-    try { localStorage.setItem(GROUP_KEY, g); } catch { /* unavailable storage */ }
+  function renderNode(node: TreeNode) {
+    const session = node.session_id ? byId.get(node.session_id) : undefined;
+    const terminal = node.type === 'terminal';
+    const children = node.children ?? [];
+    const isCollapsed = collapsed.has(node.id);
+    const isSelected = !!session && (selected?.has(session.id) ?? false);
+    const project = node.type === 'project';
+    const dir = node.detail?.path;
+    return (
+      <li key={node.id} data-node-id={node.id} data-node-type={node.type} style={{ listStyle: 'none', marginBlock: '0.5rem' }}>
+        <div className="grid-group-bar">
+          {children.length > 0 ? (
+            <button className="grid-group-toggle" aria-expanded={!isCollapsed}
+              aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${node.label}`}
+              onClick={() => onToggleCollapse(node.id)}>
+              <span className="grid-group-caret">{isCollapsed ? '▸' : '▾'}</span>
+              <span className="grid-group-name">{node.label}</span>
+            </button>
+          ) : <span className="grid-group-name">{node.label}</span>}
+          <span className="muted">{node.type.replaceAll('_', ' ')}</span>
+          {/* Container/job statuses use the tree vocabulary; agent tiles below
+              use the existing seven-state badge with exit-code handling. */}
+          {(!session || terminal) && <span className="muted">{node.status}</span>}
+          {node.detail?.closed && <span className="muted">closed</span>}
+          {node.detail?.degraded && <span className="warn">Partially available</span>}
+          {project && onCreated && dir && !node.detail?.closed && !node.detail?.synthetic && (
+            <QuickAddButton dir={dir} onCreated={onCreated} />
+          )}
+        </div>
+        {session && (terminal ? (
+          <button className="grid-tile" onClick={() => onTerminalSelect(session.id)}>
+            Open terminal {node.label}
+          </button>
+        ) : (
+          <div className="agent-grid">
+            <div className={`grid-tile-wrap${isSelected ? ' selected' : ''}`}>
+              {selectable && <input type="checkbox" className="tile-select" checked={isSelected}
+                aria-label={`Select ${session.id}`} onChange={() => { /* controlled via click */ }}
+                onClick={(e) => onToggleSelect?.(session.id, e.shiftKey)} />}
+              <button className="grid-tile" onClick={() => onSelect(session.id)}>
+                <div className="tile-head">
+                  <BackendLogo backend={session.backend} />
+                  <b>{session.id}</b> <BusyIdleBadge status={session.status} exitCode={session.exit_code} />
+                  <ContextBadge tokens={session.context_tokens} state={session.context_state} />
+                </div>
+                <MiniTerminal id={session.id} lines={lines} />
+              </button>
+            </div>
+          </div>
+        ))}
+        {project && children.length === 0 && (
+          <p className="muted">No agents, pipelines, or terminals in this project yet.</p>
+        )}
+        {!isCollapsed && children.length > 0 && (
+          <ul aria-label={`${node.label} members`} style={{ paddingInlineStart: '1.25rem', borderInlineStart: '1px solid var(--border)' }}>
+            {children.map(renderNode)}
+          </ul>
+        )}
+      </li>
+    );
   }
 
-  function toggleCollapse(key: string) {
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }
-
-  if (sessions.length === 0) {
-    return <p className="muted">No agents yet.</p>;
-  }
-  const groups = groupSessionsBy(sessions, mode);
   return (
     <>
-      {groupControl && (
-        <div className="grid-group-toolbar" role="group" aria-label="Group agents by">
-          <span className="muted">Group by</span>
-          {GROUP_BY_VALUES.map((g) => (
-            <button
-              key={g}
-              className={`group-by-btn${mode === g ? ' active' : ''}`}
-              aria-pressed={mode === g}
-              onClick={() => chooseGroup(g)}
-            >
-              {GROUP_BY_LABELS[g]}
-            </button>
-          ))}
-        </div>
+      {tree.degraded && <p className="warn" role="status">Some project hierarchy data is unavailable.</p>}
+      {tree.truncated && <p className="warn" role="status">Project hierarchy is truncated.</p>}
+      {(tree.roots?.length ?? 0) === 0 ? <p className="muted">No projects yet.</p> : (
+        <ul className="agent-grid-groups" aria-label="Project hierarchy" style={{ padding: 0 }}>
+          {tree.roots?.map(renderNode)}
+        </ul>
       )}
-      <div className="agent-grid-groups">
-        {groups.map((g) => {
-          const isCollapsed = collapsed.has(g.key);
-          return (
-            <div key={g.key} className="agent-grid-group">
-              <div className="grid-group-bar">
-                <button
-                  className="grid-group-toggle"
-                  aria-expanded={!isCollapsed}
-                  aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${g.label}`}
-                  onClick={() => toggleCollapse(g.key)}
-                >
-                  <span className="grid-group-caret">{isCollapsed ? '▸' : '▾'}</span>
-                  <span className="grid-group-name">{g.label}</span>
-                  {g.sub && <span className="grid-group-path">{g.sub}</span>}
-                </button>
-                <span className="grid-group-count">{g.sessions.length}</span>
-                {onCreated && g.dir && g.dir !== UNKNOWN_DIR && (
-                  <QuickAddButton dir={g.dir} onCreated={onCreated} />
-                )}
-              </div>
-              {!isCollapsed && (
-                <div className="agent-grid">
-                  {g.sessions.map((s) => {
-                    const isSel = selected?.has(s.id) ?? false;
-                    return (
-                      <div key={s.id} className={`grid-tile-wrap${isSel ? ' selected' : ''}`}>
-                        {selectable && (
-                          <input
-                            type="checkbox"
-                            className="tile-select"
-                            checked={isSel}
-                            aria-label={`Select ${s.id}`}
-                            onChange={() => { /* controlled via onClick */ }}
-                            onClick={(e) => onToggleSelect?.(s.id, e.shiftKey)}
-                          />
-                        )}
-                        <button className="grid-tile" onClick={() => onSelect(s.id)}>
-                          <div className="tile-head">
-                            <BackendLogo backend={s.backend} />
-                            <b>{s.id}</b> <BusyIdleBadge status={s.status} exitCode={s.exit_code} />
-                            <ContextBadge tokens={s.context_tokens} state={s.context_state} />
-                          </div>
-                          <MiniTerminal id={s.id} lines={lines} />
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
     </>
   );
 }
