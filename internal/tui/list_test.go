@@ -704,6 +704,26 @@ func TestActiveDirUsesCursorItemElseFallback(t *testing.T) {
 	require.Equal(t, "/fallback", activeDir(nil, 0, "/fallback"), "no items → fallback")
 }
 
+func TestActiveProjectIDWalksToEnclosingHeader(t *testing.T) {
+	items := []item{
+		{projHdr: &projectHeader{id: "/work/api", isProject: true}, dir: "/work/api"},    // 0: registered project header
+		{session: &store.Session{ID: "a1"}, dir: "/work/api", underProject: true},        // 1: agent under it
+		{projHdr: &projectHeader{id: "/loose/dir", isProject: false}, dir: "/loose/dir"}, // 2: loose opened dir
+		{session: &store.Session{ID: "a2"}, dir: "/loose/dir", underProject: true},       // 3: agent under loose dir
+		{projHdr: &projectHeader{id: "", isProject: false}},                              // 4: synthetic "No project" bucket
+		{session: &store.Session{ID: "a3"}, underProject: true},                          // 5: agent with no project
+	}
+	require.Equal(t, "/work/api", activeProjectID(items, 0), "on the registered header itself")
+	require.Equal(t, "/work/api", activeProjectID(items, 1), "agent under a registered project → its id")
+	require.Equal(t, "", activeProjectID(items, 2), "a loose opened dir has no project id")
+	require.Equal(t, "", activeProjectID(items, 3), "agent under a loose dir → no project id")
+	require.Equal(t, "", activeProjectID(items, 4), "synthetic No-project bucket → empty")
+	require.Equal(t, "", activeProjectID(items, 5), "agent in No-project bucket → empty")
+	require.Equal(t, "", activeProjectID(items, 99), "out-of-range clamps to last row (No-project bucket)")
+	require.Equal(t, "/work/api", activeProjectID(items, -5), "negative clamps to first row (registered header)")
+	require.Equal(t, "", activeProjectID(nil, 0), "no items → empty")
+}
+
 func TestExpandPath(t *testing.T) {
 	require.Equal(t, "/home/me", expandPath("~", "/home/me"))
 	require.Equal(t, "/home/me/work", expandPath("~/work", "/home/me"))

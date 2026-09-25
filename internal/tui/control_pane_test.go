@@ -464,6 +464,32 @@ func TestListPaneNewAgentResolvesTargetDir(t *testing.T) {
 	require.Equal(t, "/work/api", m.targetDir, "new agent defaults to the cursor group's dir")
 }
 
+func TestListPaneNewAgentInProjectPassesProjectID(t *testing.T) {
+	f := &fakeAPI{projects: []projectstore.Project{
+		{ID: "/repos/alpha", Name: "Alpha", Path: "/repos/alpha", Status: projectstore.StatusOpen},
+	}}
+	m := newListPane(f, "%9", "")
+	m = lstep(m, projectsMsg{projects: f.projects})
+	m = lstep(m, sessionsMsg{sessions: []*store.Session{{
+		ID:        "a1",
+		ProjectID: "/repos/alpha",
+		Workdir:   "/repos/alpha/.worktrees/feature",
+		Status:    store.StatusWorking,
+	}}})
+	m.cursor = cursorOn(m, func(it item) bool { return it.session != nil && it.session.ID == "a1" })
+	require.GreaterOrEqual(t, m.cursor, 0)
+
+	m = lstep(m, key("n"))
+	require.Equal(t, modeNewAgent, m.mode)
+	require.Equal(t, "/repos/alpha", m.targetProjectID)
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	require.NotNil(t, cmd)
+	cmd()
+	require.NotNil(t, f.spawned)
+	require.Equal(t, "/repos/alpha", f.spawned.ProjectID)
+}
+
 func TestListPaneCloseOpenedDirWithX(t *testing.T) {
 	m := newListPane(&fakeAPI{}, "%9", "")
 	m.openedDirs["/work/empty"] = time.Now()
