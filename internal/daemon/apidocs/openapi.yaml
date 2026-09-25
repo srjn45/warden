@@ -3220,6 +3220,19 @@ components:
             plan task id for worker sessions. Absent on manager/guardian slots and
             non-autopilot sessions.
         model: { type: string }
+        child_agents:
+          type: array
+          items: { type: string }
+          description: >
+            forward edge of `parent_id` (project entity hierarchy D3): the ids of
+            the user-facing sub-agents this agent spawned. Maintained on both ends
+            in the same operation — a spawn with a `parent_id` appends the child
+            here and delete/archive removes it. Holds ONLY user-facing spawned
+            agents: pipeline job agents (reached via the owning pipeline) and
+            terminals are excluded. Dangling ids are tolerated (a child that is
+            orphaned/hibernated is not eagerly pruned). Absent/empty for a leaf
+            agent. Present the same way across GET /sessions, GET /sessions/{id},
+            and the SSE stream.
         project_id:
           type: string
           description: >

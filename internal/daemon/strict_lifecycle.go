@@ -121,6 +121,10 @@ func (s *Server) SpawnAgent(ctx context.Context, req oapi.SpawnAgentRequestObjec
 		return nil, err
 	}
 	s.addProjectMembership(sess)
+	// Wire the parent→child forward edge (spec D3/§6.1): a sub-agent spawned with a
+	// parent_id is appended to its parent's ChildAgents[]. No-op for a root spawn, a
+	// job agent, or a terminal (childOfParent).
+	s.addChildEdge(ctx, sess)
 	s.notify()
 	s.recordAuditCtx(ctx, audit.ActionSpawn, sess.ID, spawnAuditDetail(sess, sr))
 	// post-spawn hook (#47): advisory, fail-open.
@@ -210,6 +214,9 @@ func (s *Server) AdoptSession(ctx context.Context, req oapi.AdoptSessionRequestO
 		return nil, err
 	}
 	s.addProjectMembership(sess)
+	// An adopted session that names a parent joins its parent's ChildAgents[] too
+	// (spec §6.1); a root/job/terminal adopt is a no-op.
+	s.addChildEdge(ctx, sess)
 	warn := ""
 	if claudeID == "" {
 		warn = "registered without a claude session id (monitoring only; restore unavailable)"
@@ -349,6 +356,10 @@ func (s *Server) DeleteSession(ctx context.Context, req oapi.DeleteSessionReques
 	// the spawn-time add (spec §6). A tombstoned parent (handled above) keeps its
 	// membership since its record stays active.
 	s.removeProjectMembership(sess)
+	// Drop the deleted child from its parent's ChildAgents[] forward edge — the
+	// delete-side mirror of the spawn-time add (spec §6.1). A tombstoned parent
+	// (handled above, early return) keeps its record and so keeps its own edge.
+	s.removeChildEdge(ctx, sess)
 	s.notify()
 	s.recordAuditCtx(ctx, audit.ActionDelete, id, map[string]string{"hard": strconv.FormatBool(hard)})
 	return oapi.DeleteSession200JSONResponse{Status: "deleted", Warning: warn}, nil
