@@ -153,6 +153,7 @@ func (s *Server) spawnOrchestrator(ctx context.Context, p projectstore.Project, 
 		slog.Warn("daemon: orchestrator: insert failed", "project", p.ID, "err", err)
 		return
 	}
+	s.addProjectMembership(sess)
 	s.notify()
 	slog.Info("daemon: orchestrator: auto-spawned", "project", p.ID, "agent", sess.ID, "name", name)
 }
