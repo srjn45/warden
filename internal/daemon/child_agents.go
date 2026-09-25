@@ -43,13 +43,22 @@ func childOfParent(sess *store.Session) bool {
 // fatal — the child keeps its ParentID back-ref regardless, and the two ends are
 // reconciled with this list as the source of truth. A root spawn (empty
 // ParentID), a job agent, or a terminal is a silent no-op (childOfParent).
-// A missing parent record is tolerated (dangling back-ref, §6.3). Call AFTER a
-// successful store.Insert.
+// A missing parent record is tolerated (dangling back-ref, §6.3). A terminal
+// parent is rejected on BOTH ends (§6.4 — terminals are leaf members and never
+// own children): the forward edge is not written and the child's ParentID
+// back-ref is cleared. Call AFTER a successful store.Insert.
 func (s *Server) addChildEdge(ctx context.Context, sess *store.Session) {
 	if !childOfParent(sess) {
 		return
 	}
+	if parent, err := s.store.Get(ctx, sess.ParentID); err == nil && parent.IsTerminal() {
+		s.clearTerminalParentBackRef(ctx, sess)
+		return
+	}
 	if err := s.store.Update(ctx, sess.ParentID, func(p *store.Session) error {
+		if p.IsTerminal() {
+			return nil // race: became terminal between Get and Update
+		}
 		p.ChildAgents = appendUnique(p.ChildAgents, sess.ID)
 		return nil
 	}); err != nil {
@@ -58,6 +67,23 @@ func (s *Server) addChildEdge(ctx context.Context, sess *store.Session) {
 		}
 		slog.Warn("daemon: child edge: add failed", "child", sess.ID, "parent", sess.ParentID, "err", err)
 	}
+}
+
+// clearTerminalParentBackRef drops a child's ParentID when it named a terminal,
+// so neither end claims a terminal owner (§6.4). Best-effort.
+func (s *Server) clearTerminalParentBackRef(ctx context.Context, sess *store.Session) {
+	if sess == nil || sess.ID == "" {
+		return
+	}
+	parentID := sess.ParentID
+	if err := s.store.Update(ctx, sess.ID, func(c *store.Session) error {
+		c.ParentID = ""
+		return nil
+	}); err != nil && !errors.Is(err, store.ErrNotFound) {
+		slog.Warn("daemon: child edge: clear terminal parent back-ref failed", "child", sess.ID, "parent", parentID, "err", err)
+		return
+	}
+	sess.ParentID = ""
 }
 
 // removeChildEdge drops a torn-down session from its parent agent's ChildAgents[]
@@ -101,7 +127,19 @@ func (s *Server) reparentChildEdge(ctx context.Context, childID, oldParentID, ne
 		}
 	}
 	if newParentID != "" && newParentID != childID {
+		if np, err := s.store.Get(ctx, newParentID); err == nil && np.IsTerminal() {
+			// §6.4: reject terminal parents on both ends — detach already applied
+			// above; clear the child's back-ref so it becomes a root.
+			_ = s.store.Update(ctx, childID, func(c *store.Session) error {
+				c.ParentID = ""
+				return nil
+			})
+			return
+		}
 		if err := s.store.Update(ctx, newParentID, func(p *store.Session) error {
+			if p.IsTerminal() {
+				return nil
+			}
 			p.ChildAgents = appendUnique(p.ChildAgents, childID)
 			return nil
 		}); err != nil && !errors.Is(err, store.ErrNotFound) {

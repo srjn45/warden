@@ -17,6 +17,7 @@ import (
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/pressure"
+	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -67,6 +68,8 @@ type Executor struct {
 	cstore *ctxstore.Store
 	notify func() // signals SSE subscribers that state changed (may be nil)
 
+	projects *projectstore.Store // nil ⇒ job agents stay project-less (membership no-op)
+
 	digestFn func(context.Context, *store.Session) digest.Digest // nil ⇒ skip snapshot
 	curator  Curator                                             // nil ⇒ memory auto-curation disabled
 	keepDone bool                                                // pipeline_keep_done config setting — keep done agents alive
@@ -78,6 +81,11 @@ func NewExecutor(ps *pipeline.Store, ss store.Store, life Lifecycle, cs *ctxstor
 }
 
 // Both setters are called once at server construction, before any concurrent use.
+
+// SetProjects wires the project store so executable job agents join
+// Project.agents[] (spec D2) when their pipeline carries a ProjectID. nil leaves
+// membership a no-op (tests without a projects store).
+func (e *Executor) SetProjects(ps *projectstore.Store) { e.projects = ps }
 
 // SetDigestFn wires the digest builder used to snapshot a job's completion digest
 // (bound to Server.buildDigest in production). nil ⇒ no snapshot.
@@ -92,6 +100,32 @@ func (e *Executor) SetKeepDoneAgents(v bool) { e.keepDone = v }
 // SetCurator wires the memory auto-curation seam (#53 PR-2); nil (the default) leaves
 // curation off. Set once at construction, before concurrent use.
 func (e *Executor) SetCurator(c Curator) { e.curator = c }
+
+// addJobProjectMembership appends a spawned job agent to its project's
+// Project.agents[] list (spec D2/§6.1), the executor-side mirror of
+// Server.addProjectMembership. Best-effort and a silent no-op when the job is
+// project-less or no projects store is wired. Job agents are NEVER added to any
+// agent.child_agents[] (D5) — that exclusion is enforced by childOfParent.
+func (e *Executor) addJobProjectMembership(sess *store.Session) {
+	if e.projects == nil || sess == nil || sess.ProjectID == "" {
+		return
+	}
+	if _, err := e.projects.AddAgentToProject(sess.ProjectID, sess.ID); err != nil {
+		slog.Warn("pipeline: job project membership: add failed", "agent", sess.ID, "project", sess.ProjectID, "err", err)
+	}
+}
+
+// removeJobProjectMembership drops a reaped/deleted job agent from its project's
+// Project.agents[] list, the delete-side mirror of addJobProjectMembership.
+// Best-effort; a silent no-op when project-less or unconfigured.
+func (e *Executor) removeJobProjectMembership(sess *store.Session) {
+	if e.projects == nil || sess == nil || sess.ProjectID == "" {
+		return
+	}
+	if _, err := e.projects.RemoveAgentFromProject(sess.ProjectID, sess.ID); err != nil {
+		slog.Warn("pipeline: job project membership: remove failed", "agent", sess.ID, "project", sess.ProjectID, "err", err)
+	}
+}
 
 // JobDigest returns a job's stored completion-digest snapshot, or nil.
 func (e *Executor) JobDigest(pid, jobID string) *digest.Digest {
@@ -305,6 +339,9 @@ func (e *Executor) Reconcile(ctx context.Context, pid string) error {
 			e.markJob(pid, job.ID, func(j *pipeline.Job) { j.Status = pipeline.JobFailed })
 			continue
 		}
+		// Inherit the pipeline's project before Insert so the back-ref lands in
+		// the same write (spec D2). Lifecycle stays store-free / ProjectID-agnostic.
+		sess.ProjectID = p.ProjectID
 		if ierr := e.sstore.Insert(ctx, sess); ierr != nil {
 			tctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			_ = e.life.Teardown(tctx, sess)
@@ -312,6 +349,9 @@ func (e *Executor) Reconcile(ctx context.Context, pid string) error {
 			e.markJob(pid, job.ID, func(j *pipeline.Job) { j.Status = pipeline.JobFailed })
 			continue
 		}
+		// Append to Project.agents[] (best-effort). Job agents stay off every
+		// agent.child_agents[] — childOfParent excludes PipelineID/JobID (D5).
+		e.addJobProjectMembership(sess)
 		ok = append(ok, spawned{job.ID, sess.ID, sess})
 	}
 
@@ -511,7 +551,9 @@ func (e *Executor) Retry(ctx context.Context, pid, jobID string) error {
 	if agentID := job.AgentRef(); agentID != "" {
 		if sess, gerr := e.sstore.Get(ctx, agentID); gerr == nil {
 			_ = e.life.Teardown(ctx, sess)
-			_ = e.sstore.Delete(ctx, sess.ID)
+			if derr := e.sstore.Delete(ctx, sess.ID); derr == nil {
+				e.removeJobProjectMembership(sess)
+			}
 		}
 	}
 	var ferr error
@@ -608,7 +650,11 @@ func (e *Executor) Emit(ctx context.Context, pid, jobID, text string) error {
 		// would otherwise linger only to be re-classified "orphaned" by the poller
 		// once its tmux session is gone. The digest snapshot below reads the
 		// in-memory sess struct + on-disk transcript, so deletion can't race it.
-		_ = e.sstore.Delete(context.Background(), sess.ID)
+		// Membership remove runs only after a successful delete so a failed
+		// Delete cannot drop a still-live record from Project.agents[].
+		if derr := e.sstore.Delete(context.Background(), sess.ID); derr == nil {
+			e.removeJobProjectMembership(sess)
+		}
 		if e.digestFn != nil {
 			e.snapWG.Add(1)
 			go func(s *store.Session) {
@@ -692,6 +738,7 @@ func (e *Executor) SweepDoneJobSessions(ctx context.Context) (int, error) {
 		// already died) and drop the redundant record.
 		_ = e.life.Terminate(ctx, s.TmuxSession)
 		if err := e.sstore.Delete(ctx, s.ID); err == nil {
+			e.removeJobProjectMembership(s)
 			removed++
 		}
 	}

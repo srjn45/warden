@@ -46,12 +46,23 @@ func (s *Server) resolvePipelineParentAgentID(ctx context.Context) string {
 // pipeline keeps its ParentAgentID back-ref regardless, and the two ends are
 // reconciled with this list as the source of truth. An operator-created pipeline
 // (empty ParentAgentID) is a silent no-op, and a missing owning agent is
-// tolerated (dangling back-ref, §6.3). Call AFTER a successful pstore.Create.
+// tolerated (dangling back-ref, §6.3). A terminal owner is rejected on BOTH ends
+// (§6.4 — terminals are leaf members and never own pipelines): the forward edge
+// is not written and the pipeline's ParentAgentID back-ref is cleared, even when
+// it was set via an explicit request-body override. Call AFTER a successful
+// pstore.Create.
 func (s *Server) addPipelineParentEdge(ctx context.Context, p *pipeline.Pipeline) {
 	if p == nil || p.ParentAgentID == "" {
 		return
 	}
+	if owner, err := s.store.Get(ctx, p.ParentAgentID); err == nil && owner.IsTerminal() {
+		s.clearTerminalPipelineOwner(p)
+		return
+	}
 	if err := s.store.Update(ctx, p.ParentAgentID, func(a *store.Session) error {
+		if a.IsTerminal() {
+			return nil
+		}
 		a.ChildPipelines = appendUnique(a.ChildPipelines, p.ID)
 		return nil
 	}); err != nil {
@@ -60,6 +71,20 @@ func (s *Server) addPipelineParentEdge(ctx context.Context, p *pipeline.Pipeline
 		}
 		slog.Warn("daemon: pipeline parent edge: add failed", "pipeline", p.ID, "agent", p.ParentAgentID, "err", err)
 	}
+}
+
+// clearTerminalPipelineOwner drops a pipeline's ParentAgentID when it named a
+// terminal, so neither end claims a terminal owner (§6.4). Best-effort.
+func (s *Server) clearTerminalPipelineOwner(p *pipeline.Pipeline) {
+	if p == nil || p.ID == "" {
+		return
+	}
+	agentID := p.ParentAgentID
+	if s.exec != nil && s.exec.pstore != nil {
+		_ = s.exec.pstore.Update(p.ID, func(pp *pipeline.Pipeline) { pp.ParentAgentID = "" })
+	}
+	p.ParentAgentID = ""
+	slog.Warn("daemon: pipeline parent edge: rejected terminal owner", "pipeline", p.ID, "agent", agentID)
 }
 
 // removePipelineParentEdge drops a deleted pipeline from its owning agent's

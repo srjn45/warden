@@ -109,6 +109,44 @@ func TestChildEdgeExclusions(t *testing.T) {
 	require.Nil(t, childAgents(t, st, "agent-parent"), "no excluded session should populate the forward edge")
 }
 
+// TestChildEdgeRejectsTerminalParent enforces §6.4 leaf ownership: a terminal
+// never owns children. Even when a child carries ParentID pointing at a
+// terminal, addChildEdge / reparentChildEdge must not write ChildAgents[].
+func TestChildEdgeRejectsTerminalParent(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.NewFileStore(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { st.Close(ctx) })
+	s := &Server{store: st}
+
+	term := &store.Session{ID: "term-parent", Kind: store.KindTerminal, Status: store.StatusWorking}
+	require.NoError(t, st.Insert(ctx, term))
+
+	child := &store.Session{ID: "agent-child", ParentID: "term-parent", Status: store.StatusWorking}
+	require.NoError(t, st.Insert(ctx, child))
+	s.addChildEdge(ctx, child)
+	require.Nil(t, childAgents(t, st, "term-parent"), "terminal must not gain ChildAgents[]")
+	gotChild, err := st.Get(ctx, "agent-child")
+	require.NoError(t, err)
+	require.Empty(t, gotChild.ParentID, "terminal parent back-ref must be cleared on the child")
+	require.Empty(t, child.ParentID, "in-memory child ParentID cleared too")
+
+	// reparent attach onto a terminal is likewise rejected.
+	agentParent := &store.Session{ID: "agent-parent", Status: store.StatusWorking}
+	require.NoError(t, st.Insert(ctx, agentParent))
+	child.ParentID = "agent-parent"
+	require.NoError(t, st.Update(ctx, "agent-child", func(c *store.Session) error { c.ParentID = "agent-parent"; return nil }))
+	s.addChildEdge(ctx, child)
+	require.Equal(t, []string{"agent-child"}, childAgents(t, st, "agent-parent"))
+
+	s.reparentChildEdge(ctx, "agent-child", "agent-parent", "term-parent")
+	require.Nil(t, childAgents(t, st, "agent-parent"), "detach from old parent still applies")
+	require.Nil(t, childAgents(t, st, "term-parent"), "attach to terminal parent must be rejected")
+	gotChild, err = st.Get(ctx, "agent-child")
+	require.NoError(t, err)
+	require.Empty(t, gotChild.ParentID, "reparent to terminal clears child back-ref")
+}
+
 // TestChildEdgeDanglingParent tolerates a missing parent record (§6.3): the add
 // is a logged no-op, never a fatal error.
 func TestChildEdgeDanglingParent(t *testing.T) {
