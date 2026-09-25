@@ -320,7 +320,7 @@ func (e *Executor) Reconcile(ctx context.Context, pid string) error {
 		for _, s := range ok {
 			if j := p.Job(s.jobID); j != nil {
 				j.Status = pipeline.JobRunning
-				j.SessionID = s.sessionID
+				j.SetAgentID(s.sessionID)
 			}
 		}
 		for _, id := range d.Skip {
@@ -508,8 +508,8 @@ func (e *Executor) Retry(ctx context.Context, pid, jobID string) error {
 		return ErrJobNotRetryable
 	}
 	// Clean up the stale session + worktree so the re-spawn's id is free.
-	if job.SessionID != "" {
-		if sess, gerr := e.sstore.Get(ctx, job.SessionID); gerr == nil {
+	if agentID := job.AgentRef(); agentID != "" {
+		if sess, gerr := e.sstore.Get(ctx, agentID); gerr == nil {
 			_ = e.life.Teardown(ctx, sess)
 			_ = e.sstore.Delete(ctx, sess.ID)
 		}
@@ -522,7 +522,7 @@ func (e *Executor) Retry(ctx context.Context, pid, jobID string) error {
 			return
 		}
 		j.Status = pipeline.JobPending
-		j.SessionID = ""
+		j.SetAgentID("")
 		j.Output = ""
 		j.Branch = ""
 		for i := range p.Jobs {
@@ -561,8 +561,8 @@ func (e *Executor) Emit(ctx context.Context, pid, jobID, text string) error {
 		return fmt.Errorf("%w (status %s)", ErrJobNotRunning, job.Status)
 	}
 	var sess *store.Session
-	if job.SessionID != "" {
-		sess, _ = e.sstore.Get(ctx, job.SessionID)
+	if agentID := job.AgentRef(); agentID != "" {
+		sess, _ = e.sstore.Get(ctx, agentID)
 	}
 	branch := ""
 	if sess != nil {

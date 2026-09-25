@@ -408,7 +408,7 @@ func (ctx *adaptCtx) adaptJob(n *tree.Node) []item {
 	pipeID, jobID := splitPipeJobID(n.ID)
 	j := ctx.jobsByKey[pipeID+"/"+jobID]
 	if j == nil {
-		j = &pipeline.Job{ID: jobID, Status: pipeline.JobStatus(n.Status), SessionID: n.SessionID}
+		j = &pipeline.Job{ID: jobID, Status: pipeline.JobStatus(n.Status), AgentID: n.SessionID, SessionID: n.SessionID}
 		if n.Detail != nil {
 			j.DependsOn = n.Detail.DependsOn
 		}

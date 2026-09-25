@@ -416,7 +416,7 @@ func (m controlPaneModel) pipelineAgents() []*store.Session {
 	var out []*store.Session
 	for _, p := range m.pipelines {
 		for i := range p.Jobs {
-			sid := p.Jobs[i].SessionID
+			sid := p.Jobs[i].AgentRef()
 			if sid == "" {
 				continue
 			}
@@ -1852,8 +1852,8 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if id := m.selectedID(); id != "" {
 			return m, switchClientCmd(id, m.killWindow)
 		}
-		if it := itemAt(m.items(), m.cursor); it.pjJob != nil && it.pjJob.SessionID != "" {
-			return m, switchClientCmd(it.pjJob.SessionID, m.killWindow)
+		if it := itemAt(m.items(), m.cursor); it.pjJob != nil && it.pjJob.AgentRef() != "" {
+			return m, switchClientCmd(it.pjJob.AgentRef(), m.killWindow)
 		}
 	case "d":
 		if s := m.selected(); s != nil {
@@ -2301,7 +2301,7 @@ func cockpitDetailCmd(it item) (attach, jobPipe, jobID, agentDetail string) {
 		if jobIsTerminal(it.pjJob.Status) {
 			return "", it.pjPipe, it.pjJob.ID, ""
 		}
-		return it.pjJob.SessionID, "", "", ""
+		return it.pjJob.AgentRef(), "", "", ""
 	}
 	if it.session != nil {
 		if liveStatus(it.session.Status) && it.session.TmuxSession != "" {
