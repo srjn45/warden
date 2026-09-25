@@ -11,6 +11,29 @@ the "what exists" reference — for *how to use it* day to day see
 
 ## 1. Core architecture
 
+Warden has four separate entities: **Project, Agent, Terminal, and Pipeline**.
+A project's `agents[]`, `pipelines[]`, and `terminals[]` are complete,
+authoritative membership id lists, including nested agents and pipeline job
+agents. Clients render these stored lists instead of inferring membership from
+paths or scanning `project_id` back-references.
+
+Agents store `parent_id`, `child_agents[]`, and `child_pipelines[]`. A pipeline
+stores `parent_agent_id` (empty for an operator-created pipeline) as the reverse
+of its owner's `child_pipelines[]`. **Pipeline job agents never appear in the
+owner's `child_agents[]`**: reach them through the pipeline's jobs and their
+`pipeline_id`. Pipelines retain their own DAG; terminals are project leaf members
+with no agent children, AI transcript, or cost.
+
+Opening a new project leaves it empty; spawn agents and terminals explicitly.
+Reopening restores previously hibernated members but never auto-spawns an
+orchestrator. Record creation alone is distinct from launching a live session;
+spawn wires membership and parent/child edges. Stored lists are ordered and
+de-duplicated, and may retain ids whose records are unavailable or hibernated.
+
+Agents present seven states: `pending`, `busy`, `idle`, `need-input`, `done`,
+`orphaned`, and `rate_limited`. Raw status aliases stay compatible; see the
+[mapping and recovery rules](USAGE.md#the-lifecycle-of-an-agent).
+
 One self-contained Go binary that wears several faces, all sharing the same
 on-disk state:
 
@@ -23,7 +46,7 @@ on-disk state:
 | **launchd auto-start (macOS)** | Installs as an auto-starting, crash-restarting background service. |
 | **Stable code identity** | One-time self-signed code-signing cert keeps the macOS TCC (Full Disk Access) grant stable across rebuilds. |
 | **Security hardening** | `0700` data dir, slowloris/body/write timeouts (bypassed for SSE/WS/long-poll), refuses a non-loopback bind without a bearer token (`WARDEN_TOKEN`). |
-| **`warden doctor`** | Preflight checks: required binaries (`tmux`, `git`, `claude`), optional ones (`gh`, `ollama`, warn-only), daemon reachability, data directory. Offline one-shots: `--sessions` (diagnose session store) and `--reconcile-membership` (backfill missing `project_id` + rebuild project membership lists; also runs automatically at daemon boot). |
+| **`warden doctor`** | Preflight checks: required binaries (`tmux`, `git`, `claude`), optional ones (`gh`, `ollama`, warn-only), daemon reachability, data directory. Offline one-shots: `--sessions` (diagnose session store) and `--reconcile-membership` (backfill missing `project_id` + backfill missing project membership while preserving stored lists; also runs automatically at daemon boot). |
 | **`warden factory-reset`** | Scoped wipe back toward a fresh install: drain live agents/pipelines/autopilot/schedules via the daemon, then offline-remove on-disk stores (`--scope runtime|data|full`). Optional `--backup`, `--keep-config`, `--keep-backends`, `--prune-worktrees`. Requires `--yes`. **CLI-only** — destructive; the daemon must be stopped for the wipe phase. |
 | **`warden setup`** | Verifies the install with doctor's checks, then installs whatever is missing (idempotent — only touches absent deps). Confirm-each prompts (or `--yes` for automation); auto-detects Homebrew (macOS, never auto-bootstrapped) / `apt`/`dnf`/`pacman` (Linux); Claude Code + Ollama via their official installers. Re-runs the checks and prints a doctor-style report. **CLI-only** (installs host packages) — not exposed over MCP/daemon. |
 | **`warden version`** | Prints version + build metadata (commit, build date, Go version, platform); `--version` shows the same, `version --json` for scripting. Stamped via ldflags (goreleaser + `make build`) with a VCS-stamp fallback. |
@@ -72,7 +95,7 @@ on-disk state:
 | `stop` | **The single umbrella teardown verb.** Default `wd agent stop <TICKET>` = full teardown: terminate the session, clear (archive) the record, **and** remove the git worktree + branch (asks for confirmation first unless `--yes`). Subtractive flags: `--keep-record`, `--keep-worktree` (`--keep-worktree` alone == the old `done`), `--hard` (purge record), `--pr`/`--base` (open a GitHub PR first while the agent is intact), `--force`/`--delete-adopted-branch` (worktree guards). Safe order: PR → terminate → clear record → remove worktree, so a failed push leaves the agent running. |
 | `terminate` | Stop an agent (kill tmux + claude); **keeps** the record and worktree. The safe, reversible "stop" default. Alias for `stop --keep-record --keep-worktree`. |
 | `restore` | Recreate and resume a lost/orphaned agent's session (`claude --resume`). |
-| `recover` | Safety net for the tombstone reaper: scans **archived** records for ones whose tmux session is confirmed still alive (a stale `orphaned` status racing a daemon restart could previously let one get archived out from under a live session). Bare `wd agent recover` only reports candidates; `--apply` re-inserts each one into the active store under its original id — any children (linked via `parent_id`, untouched by archiving) reconnect automatically. `--json` for scripting. Mirrors the `recover_agents` MCP tool. |
+| `recover` | Safety net for the tombstone reaper: scans **archived `orphaned`** records for ones whose tmux session is confirmed still alive (a stale `orphaned` status racing a daemon restart could previously let one get archived out from under a live session). Bare `wd agent recover` only reports candidates; `--apply` re-inserts each one into the active store under its original id — any children (linked via `parent_id`, untouched by archiving) reconnect automatically. `--json` for scripting. Mirrors the `recover_agents` MCP tool. |
 | `done` | Terminate **and** clear the record in one step (worktree kept). Alias for `stop --keep-worktree`. `--hard` purges instead of archiving. `--create-pr` first pushes the agent's branch and opens a GitHub PR (`gh`) titled from the agent and bodied from its digest (`--base` sets the target, default main) — the PR is opened *before* termination, so a failure leaves the agent running to retry; an existing PR for the branch is reported, not re-created. |
 | `delete` | Clear the stored record (archive by default, `--hard` purge). Leaves tmux + worktree alone. Alias for `stop --keep-worktree` (record only). |
 | `remove-worktree` | Remove the git worktree + branch. **Destructive** — refuses while the agent runs or has uncommitted/unpushed work unless `--force`. Alias for `stop --keep-record` (worktree only); always asks unless `--yes`. |

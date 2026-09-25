@@ -324,12 +324,15 @@ Warden tracks daemon-registered checkout roots and remote repositories as first-
 
 - `warden projects list [--json]` — list registered projects (status, paths).
 - `warden projects open <id> [--name]` / `open-local <path>` / `open-remote <url>` — register/open projects.
+- Opening a new project leaves it empty; reopening restores hibernated members.
+  Spawn an orchestrator explicitly when needed.
 - `warden projects close <id>` — hibernate project and cleanly stop its agents.
 - `warden project-groups list [--json]` / `show <id>` — list groups and inspect members.
 - `warden project-groups create <name> [--project <id>]...` / `delete <id>` — create or remove groups.
 - `warden project-groups update <id> [--name <name>] [--project <id>]...` — bulk update name and/or projects.
 - `warden project-groups members add <id> <project-id>` / `remove <id> <project-id>` — manage group membership.
 - Membership repair (CLI-only): `warden doctor --reconcile-membership` stamps missing
-  `project_id` onto sessions/pipelines by path-matching open projects, then rebuilds
-  each project's `agents[]`/`pipelines[]`/`terminals[]` from those back-refs
+  `project_id` onto legacy sessions/pipelines by path-matching open projects and
+  backfills missing membership. Existing authoritative `agents[]`/`pipelines[]`/
+  `terminals[]` lists, including dangling ids, are preserved
   (daemon must be stopped). The daemon also runs this reconcile at boot.

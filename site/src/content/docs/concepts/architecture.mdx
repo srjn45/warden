@@ -18,6 +18,30 @@ One self-contained Go binary that wears several faces, all sharing the same on-d
 
 ![warden architecture](/warden/media/architecture.svg)
 
+## Stored entity hierarchy
+
+Warden has four separate entities: **Project, Agent, Terminal, and Pipeline**.
+A project's `agents[]`, `pipelines[]`, and `terminals[]` are complete,
+authoritative membership id lists, including nested agents and pipeline job
+agents. Clients render these stored lists instead of inferring membership from
+paths or scanning `project_id` back-references.
+
+Agents store `parent_id`, `child_agents[]`, and `child_pipelines[]`. A pipeline
+stores `parent_agent_id` (empty for an operator-created pipeline) as the reverse
+of its owner's `child_pipelines[]`. **Pipeline job agents never appear in the
+owner's `child_agents[]`**: reach them through the pipeline's jobs and their
+`pipeline_id`. Pipelines retain their own DAG; terminals are project leaf members
+with no agent children, AI transcript, or cost.
+
+Opening a new project leaves it empty; spawn agents and terminals explicitly.
+Reopening restores previously hibernated members but never auto-spawns an
+orchestrator. Record creation alone is distinct from launching a live session;
+spawn wires membership and parent/child edges. Stored lists are ordered and
+de-duplicated, and may retain ids whose records are unavailable or hibernated.
+
+See [Agents & lifecycle](../agents-lifecycle/) for the seven presented states and
+recovery rules.
+
 ## Multi-project peer orchestrators
 
 When projects are organized into a **project group**, you run one `orch-<project>` orchestrator per project (spawned explicitly — the daemon does not create one on open). These orchestrators are **peers** — there is no global orchestrator above them. Each one plans and delegates to local workers, planners, and pipelines; it reaches the other projects by messaging their orchestrator directly.
@@ -70,7 +94,7 @@ When projects are organized into a **project group**, you run one `orch-<project
 
 <figure>
 <div class="worchdiag">
-<svg viewBox="0 0 920 400" role="img" aria-label="Two project orchestrators as peers inside a project group, each delegating to local worker, planner and pipeline agents, coordinating over a shared-context and mailbox substrate.">
+<svg viewBox="0 0 920 400" role="img" aria-label="Two project orchestrators as peers inside a project group, each delegating to local workers, planners and separate pipelines, coordinating over a shared-context and mailbox substrate.">
   <defs>
     <marker id="wo" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto"><path class="arrowhead" d="M0,0 L8,3 L0,6 Z"/></marker>
     <marker id="wo-s" markerWidth="9" markerHeight="9" refX="0.5" refY="3" orient="auto"><path class="arrowhead" d="M8,0 L0,3 L8,6 Z"/></marker>
