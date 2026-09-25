@@ -28,6 +28,24 @@ func TestStartFreeFormPrompt(t *testing.T) {
 	}
 }
 
+func TestStartProjectFlagPassesProjectID(t *testing.T) {
+	body := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"POST /api/v1/spawn": `{"id":"code-project","status":"spawning"}`,
+	}, nil, body))
+	_, err := runCLI(t, addr, "start", "work in project", "--role", "general", "--project", "/repos/alpha")
+	if err != nil {
+		t.Fatalf("start --project: %v", err)
+	}
+	var sent map[string]any
+	if err := json.Unmarshal([]byte(body["/api/v1/spawn"]), &sent); err != nil {
+		t.Fatalf("spawn body not JSON: %v", err)
+	}
+	if got := sent["project_id"]; got != "/repos/alpha" {
+		t.Fatalf("project_id not forwarded: %v", got)
+	}
+}
+
 // TestStartInteractiveNoPrompt covers the interactive variant (no prompt, no
 // --type): the daemon still spawns, but the CLI reports an interactive agent.
 func TestStartInteractiveNoPrompt(t *testing.T) {
@@ -50,7 +68,7 @@ func TestStartTypedManaged(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
 		"POST /api/v1/spawn": `{"id":"DEV-1","type":"development","status":"spawning"}`,
 	}, nil, body))
-	out, err := runCLI(t, addr, "start", "DEV-1", "--type", "development", "--repo", t.TempDir(), "--tags", "backend, urgent", "--role", "worker")
+	out, err := runCLI(t, addr, "start", "DEV-1", "--type", "development", "--repo", t.TempDir(), "--tags", "backend, urgent", "--project", "/repos/alpha", "--role", "worker")
 	if err != nil {
 		t.Fatalf("start typed: %v", err)
 	}
@@ -63,6 +81,9 @@ func TestStartTypedManaged(t *testing.T) {
 	}
 	if sent["type"] != "development" || sent["ticket"] != "DEV-1" {
 		t.Fatalf("typed spawn fields: %v", sent)
+	}
+	if sent["project_id"] != "/repos/alpha" {
+		t.Fatalf("project_id not forwarded: %v", sent["project_id"])
 	}
 	tags, _ := sent["tags"].([]any)
 	if len(tags) != 2 || tags[0] != "backend" || tags[1] != "urgent" {

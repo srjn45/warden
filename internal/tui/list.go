@@ -1421,6 +1421,36 @@ func activeDir(items []item, cursor int, fallback string) string {
 	return d
 }
 
+// activeProjectID returns the id of the registered project that owns the cursor
+// row, so an in-project spawn (n/t) can stamp Session.project_id explicitly rather
+// than leaving the daemon to path-match it (a match that misses when the launch
+// dir is a project subdir or a non-.worktrees checkout). In the flattened tree a
+// project header row precedes all of its descendants until the next header, so a
+// backward scan from the cursor finds the owning header. Only a registered project
+// (isProject) has a real project id; a loose opened dir or the synthetic "No
+// project" bucket returns "" — those have no project, so the daemon's path-match
+// (or none) still applies.
+func activeProjectID(items []item, cursor int) string {
+	if len(items) == 0 {
+		return ""
+	}
+	if cursor < 0 {
+		cursor = 0
+	}
+	if cursor >= len(items) {
+		cursor = len(items) - 1
+	}
+	for i := cursor; i >= 0; i-- {
+		if h := items[i].projHdr; h != nil {
+			if h.isProject {
+				return h.id
+			}
+			return ""
+		}
+	}
+	return ""
+}
+
 // listWindow returns the index of the first row to render so a window of
 // `visible` rows always contains the cursor. Stateless — derived from cursor +
 // height each render, so no scroll state is kept on the Model.

@@ -60,11 +60,11 @@ func listCmd(a api, includeSystem bool) tea.Cmd {
 	}
 }
 
-func spawnCmd(a api, prompt, name, cwd, role, backend string, force bool) tea.Cmd {
+func spawnCmd(a api, prompt, name, cwd, role, backend, projectID string, force bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := bgLong()
 		defer cancel()
-		s, err := a.Spawn(ctx, client.SpawnParams{Prompt: prompt, Name: name, Cwd: cwd, Role: role, Backend: backend, Force: force})
+		s, err := a.Spawn(ctx, client.SpawnParams{Prompt: prompt, Name: name, Cwd: cwd, Role: role, Backend: backend, ProjectID: projectID, Force: force})
 		if err != nil {
 			var cre *client.ErrConfirmationRequired
 			if errors.As(err, &cre) {
@@ -89,12 +89,13 @@ type terminalSpawnedMsg struct {
 // It spawns with kind=terminal — the explicit session-kind create field (stage 6);
 // the daemon launches a ${SHELL:-bash} pane, not an AI agent, ignoring
 // backend/model/role/prompt. focus is echoed back on the result so the caller can
-// decide whether to move focus onto the terminal pane after opening it.
-func spawnTerminalCmd(a api, cwd string, focus bool) tea.Cmd {
+// decide whether to move focus onto the terminal pane after opening it. projectID
+// stamps the terminal's owning project (empty = the daemon path-matches by cwd).
+func spawnTerminalCmd(a api, cwd, projectID string, focus bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := bgLong()
 		defer cancel()
-		s, err := a.Spawn(ctx, client.SpawnParams{Cwd: cwd, Kind: terminalKind})
+		s, err := a.Spawn(ctx, client.SpawnParams{Cwd: cwd, Kind: terminalKind, ProjectID: projectID})
 		if err != nil {
 			return terminalSpawnedMsg{focus: focus, err: err}
 		}

@@ -30,26 +30,27 @@ import (
 // new/send/terminate/attach actions. It owns selection: on Enter it opens the
 // selected agent in the agent pane via respawn-pane.
 type controlPaneModel struct {
-	api            api
-	agentPane      string // tmux pane id of the agent pane this list drives
-	terminalPane   string // tmux pane id of the terminal pane this list drives ("" in tmux-native, which has no terminal pane)
-	sessions       []*store.Session
-	cursor         int
-	ta             textarea.Model
-	ti             textinput.Model
-	tp             textinput.Model
-	tn             textinput.Model // agent name input (new-agent form + rename)
-	tpn            textinput.Model // new-project name input (modeOpenProjectNew)
-	openedDirs     map[string]time.Time
-	dirCandidates  []string
-	targetDir      string
-	openProjectIdx int             // selected option in the open-project menu (modeOpenProjectMenu, `o`)
-	roles          []role.Role     // built-in role catalog for the new-agent picker
-	roleIdx        int             // selected role in the new-agent form (0 ⇒ general)
-	backends       []backendChoice // registered backend catalog for the new-agent picker
-	backendIdx     int             // selected backend in the new-agent form (0 ⇒ claude default)
-	mode           mode
-	status         string
+	api             api
+	agentPane       string // tmux pane id of the agent pane this list drives
+	terminalPane    string // tmux pane id of the terminal pane this list drives ("" in tmux-native, which has no terminal pane)
+	sessions        []*store.Session
+	cursor          int
+	ta              textarea.Model
+	ti              textinput.Model
+	tp              textinput.Model
+	tn              textinput.Model // agent name input (new-agent form + rename)
+	tpn             textinput.Model // new-project name input (modeOpenProjectNew)
+	openedDirs      map[string]time.Time
+	dirCandidates   []string
+	targetDir       string
+	targetProjectID string          // registered project owning the new-agent form's target (n); "" = daemon path-matches
+	openProjectIdx  int             // selected option in the open-project menu (modeOpenProjectMenu, `o`)
+	roles           []role.Role     // built-in role catalog for the new-agent picker
+	roleIdx         int             // selected role in the new-agent form (0 ⇒ general)
+	backends        []backendChoice // registered backend catalog for the new-agent picker
+	backendIdx      int             // selected backend in the new-agent form (0 ⇒ claude default)
+	mode            mode
+	status          string
 	// fleet is the health of the last fleet poll; it drives the last-known-good
 	// banner. The zero value is fleetLive. On a failed poll the pane keeps the prior
 	// snapshot (rows/selection/layout) and only updates this + the banner.
@@ -57,36 +58,37 @@ type controlPaneModel struct {
 	// lastCompleteAt is the wall-clock of the last complete, authoritative fleet
 	// snapshot. It stamps the "showing last complete fleet from …" banner so the
 	// operator knows retained rows may be stale. Zero until the first success.
-	lastCompleteAt time.Time
-	pendingSelect  string
-	pipelines      []*pipeline.Pipeline
-	projects       []projectstore.Project      // persisted projects for the §4 project-grouped navigator
-	projectGroups  []projectstore.ProjectGroup // groups for the per-project group label (Phase 1)
-	collapsed      map[string]bool             // pipeline id → jobs hidden in the list
-	seen           map[string]bool             // pipeline ids the default-collapse has been applied to
-	pressure       client.PressureStatus
-	pendingPrompt  string
-	pendingName    string // name typed in the new-agent form, held across the pressure confirm
-	pendingDir     string
-	pendingRole    string                 // role chosen in the new-agent form, held across the pressure confirm
-	pendingBackend string                 // backend chosen in the new-agent form, held across the pressure confirm
-	renameID       string                 // agent id being renamed (modeRename)
-	spawnVerdict   string                 // reason text for the confirm prompt; "" when not confirming
-	pendingDelete  string                 // pid awaiting delete confirmation; "" when not confirming
-	pendingCloseID string                 // project id awaiting close confirmation (modeConfirmCloseProject); "" when not confirming
-	pendingCloseN  int                    // live-agent count shown in the close-project confirm prompt
-	ctxEntries     []client.ContextEntry  // inspector: shared-context snapshot
-	messages       []client.Message       // inspector: recent message traffic
-	vp             viewport.Model         // scroll viewport (modeInspector / modeDigest)
-	approvals      []approval.View        // pending tool-permission prompts
-	apprEnabled    bool                   // approvals config setting on
-	apprCursor     int                    // focused recognized approval (modeApprovals)
-	digest         *digest.Digest         // last fetched digest (modeDigest)
-	digestID       string                 // agent id the digest is for
-	detailSel      int                    // focused control row in modeDetails (0 auto-approve, 1 force-compact, 2 events)
-	autopilot      client.AutopilotStatus // last fetched autopilot status
-	backendsState  client.BackendsState   // agent-backend registry snapshot (modeBackends)
-	backendCursor  int                    // focused row in the Backends page
+	lastCompleteAt   time.Time
+	pendingSelect    string
+	pipelines        []*pipeline.Pipeline
+	projects         []projectstore.Project      // persisted projects for the §4 project-grouped navigator
+	projectGroups    []projectstore.ProjectGroup // groups for the per-project group label (Phase 1)
+	collapsed        map[string]bool             // pipeline id → jobs hidden in the list
+	seen             map[string]bool             // pipeline ids the default-collapse has been applied to
+	pressure         client.PressureStatus
+	pendingPrompt    string
+	pendingName      string // name typed in the new-agent form, held across the pressure confirm
+	pendingDir       string
+	pendingProjectID string                 // project owning the pending spawn, held across the pressure confirm so a forced retry stamps the same project
+	pendingRole      string                 // role chosen in the new-agent form, held across the pressure confirm
+	pendingBackend   string                 // backend chosen in the new-agent form, held across the pressure confirm
+	renameID         string                 // agent id being renamed (modeRename)
+	spawnVerdict     string                 // reason text for the confirm prompt; "" when not confirming
+	pendingDelete    string                 // pid awaiting delete confirmation; "" when not confirming
+	pendingCloseID   string                 // project id awaiting close confirmation (modeConfirmCloseProject); "" when not confirming
+	pendingCloseN    int                    // live-agent count shown in the close-project confirm prompt
+	ctxEntries       []client.ContextEntry  // inspector: shared-context snapshot
+	messages         []client.Message       // inspector: recent message traffic
+	vp               viewport.Model         // scroll viewport (modeInspector / modeDigest)
+	approvals        []approval.View        // pending tool-permission prompts
+	apprEnabled      bool                   // approvals config setting on
+	apprCursor       int                    // focused recognized approval (modeApprovals)
+	digest           *digest.Digest         // last fetched digest (modeDigest)
+	digestID         string                 // agent id the digest is for
+	detailSel        int                    // focused control row in modeDetails (0 auto-approve, 1 force-compact, 2 events)
+	autopilot        client.AutopilotStatus // last fetched autopilot status
+	backendsState    client.BackendsState   // agent-backend registry snapshot (modeBackends)
+	backendCursor    int                    // focused row in the Backends page
 	// currentTab selects which domain the navigator shows (§3 Phase 3): the
 	// Projects tab lists everything except plain terminal sessions (pipelines +
 	// agents); the Terminals tab lists only terminal sessions. Tab (modeNormal)
@@ -121,6 +123,10 @@ type controlPaneModel struct {
 	// termChoiceDir is the dir the modeTerminalChoice prompt (`t`) will create/focus
 	// a terminal in.
 	termChoiceDir string
+	// termChoiceProjectID is the project the modeTerminalChoice prompt (`t`) stamps a
+	// newly-created terminal into — the opened agent's project, so the terminal joins
+	// the same project deterministically. "" = daemon path-matches by dir.
+	termChoiceProjectID string
 	// termInfo holds each terminal's live cwd/branch (polled from its tmux pane on
 	// the tick, §7), keyed by session id; feeds the Terminals-section names.
 	termInfo map[string]terminalLiveInfo
@@ -323,6 +329,29 @@ func (m controlPaneModel) fallbackDir() string {
 
 func (m controlPaneModel) activeDir() string {
 	return activeDir(m.items(), m.cursor, m.fallbackDir())
+}
+
+// activeProjectID is the id of the registered project owning the cursor row, or ""
+// when the cursor is outside any project. A fresh agent (n) launched here passes it
+// as SpawnParams.ProjectID so its project membership is stamped deterministically
+// rather than resolved by the daemon's path-match.
+func (m controlPaneModel) activeProjectID() string {
+	return activeProjectID(m.items(), m.cursor)
+}
+
+// projectIDForSession returns the stamped project id of the session with id, or ""
+// if it is unknown or project-less. Used by the terminal (t) path, which launches
+// into the currently-opened agent's dir and should join that agent's project.
+func (m controlPaneModel) projectIDForSession(id string) string {
+	if id == "" {
+		return ""
+	}
+	for _, s := range m.sessions {
+		if s.ID == id {
+			return s.ProjectID
+		}
+	}
+	return ""
 }
 
 // closeProjectFromHeader handles x on a project group header (§4.4): a loose
@@ -550,7 +579,9 @@ func (m *controlPaneModel) reconcileTerminalPaneCmd() tea.Cmd {
 		}
 		m.defaultTerminalReady = true
 		m.terminalSpawnPending = true
-		return spawnTerminalCmd(m.api, m.fallbackDir(), false)
+		// The startup terminal opens in the daemon's cwd with no project context; the
+		// daemon path-matches it if that cwd is an open project.
+		return spawnTerminalCmd(m.api, m.fallbackDir(), "", false)
 	}
 	m.terminalSpawnPending = false
 
@@ -992,7 +1023,8 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = modeNormal
 			m.ta.Blur()
 			m.pendingPrompt, m.pendingName, m.pendingDir, m.pendingRole, m.pendingBackend = prompt, name, m.targetDir, role, backend
-			return m, spawnCmd(m.api, prompt, name, m.targetDir, role, backend, false)
+			m.pendingProjectID = m.targetProjectID
+			return m, spawnCmd(m.api, prompt, name, m.targetDir, role, backend, m.targetProjectID, false)
 		}
 		var cmd tea.Cmd
 		m.ta, cmd = m.ta.Update(msg)
@@ -1244,7 +1276,7 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			prompt, name, dir, role, backend := m.pendingPrompt, m.pendingName, m.pendingDir, m.pendingRole, m.pendingBackend
 			m.spawnVerdict = ""
 			m.status = "spawning (forced)…"
-			return m, spawnCmd(m.api, prompt, name, dir, role, backend, true)
+			return m, spawnCmd(m.api, prompt, name, dir, role, backend, m.pendingProjectID, true)
 		case "esc", "n", "N":
 			m.mode = modeNormal
 			m.spawnVerdict = ""
@@ -1512,7 +1544,7 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			dir := m.termChoiceDir
 			m.mode = modeNormal
 			m.status = "opening terminal in " + abbrevHome(dir)
-			return m, spawnTerminalCmd(m.api, dir, true)
+			return m, spawnTerminalCmd(m.api, dir, m.termChoiceProjectID, true)
 		case "f", "F":
 			// Focus an existing live terminal in that dir, else fall back to create.
 			dir := m.termChoiceDir
@@ -1523,7 +1555,7 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, openInTerminalCmd(m.terminalPane, t.TmuxSession, true)
 			}
 			m.status = "no terminal in " + abbrevHome(dir) + " — creating one"
-			return m, spawnTerminalCmd(m.api, dir, true)
+			return m, spawnTerminalCmd(m.api, dir, m.termChoiceProjectID, true)
 		}
 		return m, nil
 	case modeHelp:
@@ -1750,6 +1782,7 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "n":
 		m.targetDir = m.activeDir()
+		m.targetProjectID = m.activeProjectID()
 		m.mode = modeNewAgent
 		m.ta.Reset()
 		m.ta.Focus()
@@ -1885,6 +1918,10 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.termChoiceDir == "" {
 			m.termChoiceDir = homeDir()
 		}
+		// A terminal opened from an agent joins that agent's project, so a created
+		// terminal's membership is stamped deterministically; empty when the opened
+		// agent is project-less (or none is open) and the daemon then path-matches.
+		m.termChoiceProjectID = m.projectIDForSession(m.openedAgent)
 		m.mode = modeTerminalChoice
 	case "?":
 		m.mode = modeHelp
