@@ -186,6 +186,35 @@ func (s *Store) Insert(ctx context.Context, terminal *Terminal) error {
 	return s.insert(terminal)
 }
 
+// Create reserves a terminal record before its tmux pane is available. It is
+// the internal half of Spawn; operator-facing callers should use Spawn.
+func (s *Store) Create(ctx context.Context, terminal *Terminal) error { return s.Insert(ctx, terminal) }
+
+// Init persists the tmux identity assigned to a newly-created terminal pane.
+func (s *Store) Init(ctx context.Context, id, tmuxSession string) error {
+	return s.Update(ctx, id, func(terminal *Terminal) error {
+		terminal.TmuxSession = tmuxSession
+		return nil
+	})
+}
+
+// Spawn creates and initializes a terminal as one user-facing operation. A
+// failed initialization removes the new record to avoid a stranded terminal.
+func (s *Store) Spawn(ctx context.Context, terminal *Terminal, tmuxSession string) error {
+	if err := s.Create(ctx, terminal); err != nil {
+		return err
+	}
+	if err := s.Init(ctx, terminal.ID, tmuxSession); err != nil {
+		_ = s.Delete(context.Background(), terminal.ID)
+		return err
+	}
+	return nil
+}
+
+// Terminate removes the durable terminal record after the lifecycle runner has
+// stopped its pane. Unlike AI agents, terminals have no retained done state.
+func (s *Store) Terminate(ctx context.Context, id string) error { return s.Delete(ctx, id) }
+
 func (s *Store) Get(ctx context.Context, id string) (*Terminal, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

@@ -133,6 +133,10 @@ func TestSessionTagsJSONOmitemptyBackwardCompat(t *testing.T) {
 
 func TestStatusValid(t *testing.T) {
 	require.True(t, StatusWorking.Valid())
+	require.True(t, Status("busy").Valid())
+	require.Equal(t, StatusWorking, Status("busy").Canonical())
+	require.True(t, Status("need-input").Valid())
+	require.Equal(t, StatusWaitingForInput, Status("need-input").Canonical())
 	require.False(t, Status("bogus").Valid())
 }
 

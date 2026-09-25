@@ -37,6 +37,10 @@ var (
 	ErrNotFound = errors.New("agent not found")
 	ErrExists   = errors.New("agent already exists")
 	ErrNotAgent = errors.New("terminal sessions cannot be stored as agents")
+	// ErrNotOrphaned prevents recovery from reviving an agent that was not
+	// explicitly marked orphaned. Recovery is deliberately narrower than a
+	// generic status update: it is the safe repair path after daemon loss.
+	ErrNotOrphaned = errors.New("agent is not orphaned")
 )
 
 const importedMarker = ".agents-from-sessions-imported"
@@ -188,6 +192,7 @@ func (s *Store) Insert(ctx context.Context, a *Agent) error {
 	if a.CreatedAt.IsZero() {
 		a.CreatedAt = now
 	}
+	a.Status = a.Status.Canonical()
 	a.UpdatedAt = now
 	if a.Events == nil {
 		a.Events = []store.Event{}
@@ -201,6 +206,61 @@ func (s *Store) Insert(ctx context.Context, a *Agent) error {
 		return ErrExists
 	}
 	return err
+}
+
+// Create reserves and persists an agent before its runtime has started. It is
+// an internal lifecycle primitive; callers serving an operator request should
+// use Spawn so no half-initialized record is exposed on success.
+func (s *Store) Create(ctx context.Context, a *Agent) error { return s.Insert(ctx, a) }
+
+// Init records the runtime identity discovered when an agent starts. Tmux and
+// the AI CLI use different identifiers, both of which must survive restarts:
+// TmuxSession addresses the pane, while ClaudeSessionID pins the CLI resume
+// conversation (the field name is retained for wire compatibility).
+func (s *Store) Init(ctx context.Context, id, tmuxSession, aiCLISessionID string) error {
+	return s.Update(ctx, id, func(a *Agent) error {
+		a.TmuxSession = tmuxSession
+		a.ClaudeSessionID = aiCLISessionID
+		return nil
+	})
+}
+
+// Spawn is the user-facing lifecycle entry point. It creates the durable agent
+// row and initializes its runtime identities as one logical operation. Should
+// initialization fail, the newly-created row is removed so callers do not see
+// an agent that cannot be addressed or resumed.
+func (s *Store) Spawn(ctx context.Context, a *Agent, tmuxSession, aiCLISessionID string) error {
+	if err := s.Create(ctx, a); err != nil {
+		return err
+	}
+	if err := s.Init(ctx, a.ID, tmuxSession, aiCLISessionID); err != nil {
+		_ = s.Delete(context.Background(), a.ID)
+		return err
+	}
+	return nil
+}
+
+// Terminate marks an agent terminal after its tmux process has been stopped by
+// the lifecycle runner. Process management stays outside this persistence
+// package; this method owns only the durable state transition.
+func (s *Store) Terminate(ctx context.Context, id string) error {
+	return s.Update(ctx, id, func(a *Agent) error {
+		a.Status = store.StatusDone
+		return nil
+	})
+}
+
+// Recover revives only an orphaned agent. Done, idle, and active agents are
+// never valid recovery inputs: allowing them would turn an ordinary operator
+// action into an accidental restart.
+func (s *Store) Recover(ctx context.Context, id string) error {
+	return s.Update(ctx, id, func(a *Agent) error {
+		if a.Status.Canonical() != store.StatusOrphaned {
+			return ErrNotOrphaned
+		}
+		a.Status = store.StatusWorking
+		return nil
+	})
 }
 
 func (s *Store) Get(ctx context.Context, id string) (*Agent, error) {
@@ -255,6 +315,7 @@ func (s *Store) Update(ctx context.Context, id string, fn func(*Agent) error) er
 	if err := fn(a); err != nil {
 		return err
 	}
+	a.Status = a.Status.Canonical()
 	a.UpdatedAt = time.Now().UTC()
 	rec, err := toRecord(a)
 	if err != nil {
