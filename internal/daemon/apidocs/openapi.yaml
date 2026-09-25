@@ -1989,6 +1989,7 @@ paths:
               properties:
                 spec: { type: string, description: "pipeline YAML" }
                 project_id: { type: string, description: "id of the first-class project (projectstore) this pipeline joins. Overrides a project_id set in the YAML spec; when both are empty the daemon resolves it by matching the pipeline repo to an OPEN project (no match leaves the pipeline project-less). On create the pipeline is stamped with the resolved id and appended to the project's authoritative pipelines[] membership list." }
+                parent_agent_id: { type: string, description: "id of the agent that owns this pipeline (project entity hierarchy D6). Overrides the identity of the agent behind the request; when both are empty the pipeline is operator-created and has no owning agent. On create the pipeline is stamped with the resolved id and appended to the owning agent's child_pipelines[] forward edge." }
       responses:
         "201":
           description: The parsed + stored pipeline
@@ -3233,6 +3234,21 @@ components:
             orphaned/hibernated is not eagerly pruned). Absent/empty for a leaf
             agent. Present the same way across GET /sessions, GET /sessions/{id},
             and the SSE stream.
+        child_pipelines:
+          type: array
+          items: { type: string }
+          description: >
+            forward edge of `Pipeline.parent_agent_id` (project entity hierarchy
+            D4): the ids of the pipelines this agent owns — created or escalated by
+            it. Maintained on both ends in the same operation — a pipeline created
+            under this agent appends its id here and pipeline delete removes it. A
+            nested pipeline appears in both directions. A pipeline's own job agents
+            are NOT listed here (D5): they are reached through the pipeline
+            (child_pipelines[] -> Pipeline.jobs), never as child_agents. Dangling
+            ids are tolerated (an owned pipeline that is orphaned/hibernated is not
+            eagerly pruned). Absent/empty for an agent that owns no pipelines.
+            Present the same way across GET /sessions, GET /sessions/{id}, and the
+            SSE stream.
         project_id:
           type: string
           description: >
@@ -3999,6 +4015,16 @@ components:
             the request body project_id, the YAML spec, or by matching the
             pipeline repo to an OPEN project. Groups a pipeline and all its job
             agents under one parent project.
+        parent_agent_id:
+          type: string
+          description: >-
+            back-ref to the agent (GET /api/v1/sessions) that created or escalated
+            this pipeline (project entity hierarchy D6); empty/absent =
+            operator-created (no owning agent). Set at creation from the request
+            body parent_agent_id or the identity of the agent behind the request.
+            It is the reverse edge of the owning agent's child_pipelines[]: a
+            nested pipeline appears in both directions. Job agents are NOT owned
+            this way (D5) — they carry pipeline_id and belong to the pipeline.
         tags:
           type: array
           items: { type: string }

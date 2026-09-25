@@ -127,3 +127,30 @@ func TestJobDigestRoundTrips(t *testing.T) {
 		t.Fatalf("digest did not round-trip: %+v", got.Digest)
 	}
 }
+
+// TestPipelineParentAgentIDJSON pins the parent_agent_id back-ref (spec D6/§3.4):
+// it round-trips over JSON when set and is omitted entirely when empty so
+// operator-created (unowned) pipelines and pre-field records read cleanly.
+func TestPipelineParentAgentIDJSON(t *testing.T) {
+	// Empty → omitted from JSON (omitempty).
+	b, err := json.Marshal(&Pipeline{Name: "p", Repo: "/r"})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(b), "parent_agent_id") {
+		t.Fatalf("empty parent_agent_id should be omitted, got %s", b)
+	}
+
+	// Populated → round-trips intact.
+	b, err = json.Marshal(&Pipeline{Name: "p", Repo: "/r", ParentAgentID: "agent-owner"})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var got Pipeline
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.ParentAgentID != "agent-owner" {
+		t.Fatalf("parent_agent_id did not round-trip: %q", got.ParentAgentID)
+	}
+}

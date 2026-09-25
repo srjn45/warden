@@ -66,6 +66,29 @@ func TestSessionJSONRoundTrip(t *testing.T) {
 	require.Equal(t, "11111111-1111-4111-8111-111111111111", got.ClaudeSessionID)
 }
 
+// TestSessionChildPipelinesJSON pins the child_pipelines[] forward edge (spec
+// D4/§3.2): it round-trips when set and is omitted entirely when empty so
+// pre-field records read cleanly.
+func TestSessionChildPipelinesJSON(t *testing.T) {
+	// Empty → the field marshals away (omitempty), and an old record without it
+	// unmarshals to nil.
+	raw, err := json.Marshal(Session{ID: "a"})
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), "child_pipelines")
+	var old Session
+	require.NoError(t, json.Unmarshal([]byte(`{"id":"a"}`), &old))
+	require.Nil(t, old.ChildPipelines)
+
+	// Populated → round-trips intact.
+	s := Session{ID: "owner", ChildPipelines: []string{"pipe-1", "pipe-2"}}
+	raw, err = json.Marshal(s)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), `"child_pipelines":["pipe-1","pipe-2"]`)
+	var back Session
+	require.NoError(t, json.Unmarshal(raw, &back))
+	require.Equal(t, []string{"pipe-1", "pipe-2"}, back.ChildPipelines)
+}
+
 func TestNormalizeTags(t *testing.T) {
 	// Trim, lowercase, drop blanks, dedup, preserve first-seen order.
 	got := NormalizeTags([]string{"  Backend ", "urgent", "backend", "", "  ", "URGENT"})
