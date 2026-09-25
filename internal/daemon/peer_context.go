@@ -12,6 +12,14 @@ import (
 	"github.com/srjn45/warden/internal/store"
 )
 
+// orchestratorRole is the built-in role a per-project orchestrator runs under
+// (internal/role/roles/orchestrator.yaml): it coordinates a project's fleet rather
+// than writing code itself. Peer-awareness context (below) is projected only for
+// live agents in this role. Orchestrators are now spawned explicitly by an operator
+// or a parent agent — the daemon no longer auto-spawns one when a project is opened
+// (spec 2026-09-25-project-entity-hierarchy.md D10).
+const orchestratorRole = "orchestrator"
+
 // PeerContext is the daemon-side provider wired into lifecycle as PeerContextFn
 // (Project Groups Phase 3: Peer Awareness & Context Injection). Given an agent that
 // is about to (re)launch, it returns the dynamic system-prompt addendum naming the

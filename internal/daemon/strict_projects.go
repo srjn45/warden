@@ -56,8 +56,10 @@ func (s *Server) OpenProject(ctx context.Context, req oapi.OpenProjectRequestObj
 		}
 		return nil, errStatus(http.StatusInternalServerError, "open project: "+err.Error())
 	}
+	// Restore this project's previously-hibernated members (D10): opening a
+	// project brings back what closing it hibernated, but does NOT auto-spawn an
+	// orchestrator — a project with no restorable members opens empty.
 	s.restoreHibernatedAgents(ctx, p)
-	s.guaranteeOrchestrator(ctx, p)
 	return oapi.OpenProject200JSONResponse(p), nil
 }
 
@@ -89,8 +91,8 @@ func (s *Server) OpenLocalProject(ctx context.Context, req oapi.OpenLocalProject
 	if err != nil {
 		return nil, errStatus(http.StatusInternalServerError, "open local project: "+err.Error())
 	}
+	// D10: restore hibernated members but do not auto-spawn an orchestrator.
 	s.restoreHibernatedAgents(ctx, p)
-	s.guaranteeOrchestrator(ctx, p)
 	return oapi.OpenLocalProject200JSONResponse(p), nil
 }
 
@@ -133,7 +135,7 @@ func (s *Server) OpenRemoteProject(ctx context.Context, req oapi.OpenRemoteProje
 	if err != nil {
 		return nil, errStatus(http.StatusInternalServerError, "open remote project: "+err.Error())
 	}
-	s.guaranteeOrchestrator(ctx, p)
+	// D10: a freshly cloned project opens empty — no auto-spawned orchestrator.
 	return oapi.OpenRemoteProject200JSONResponse(p), nil
 }
 
@@ -174,7 +176,7 @@ func (s *Server) CreateProject(ctx context.Context, req oapi.CreateProjectReques
 	if err != nil {
 		return nil, errStatus(http.StatusInternalServerError, "create project: "+err.Error())
 	}
-	s.guaranteeOrchestrator(ctx, p)
+	// D10: a freshly scaffolded project opens empty — no auto-spawned orchestrator.
 	return oapi.CreateProject200JSONResponse(p), nil
 }
 

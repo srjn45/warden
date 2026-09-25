@@ -3,7 +3,7 @@ title: Project groups
 description: Organize repos into named groups, get a per-project orchestrator automatically, and let grouped orchestrators coordinate without manual wiring.
 ---
 
-Project groups are a lightweight organizational layer above projects: a named collection of repos that the Cockpit tree collapses and expands together. Opening any project in a group also guarantees a live orchestrator in that directory, and grouped orchestrators receive peer context at spawn so they can coordinate without you doing the wiring.
+Project groups are a lightweight organizational layer above projects: a named collection of repos that the Cockpit tree collapses and expands together. When you run an orchestrator in a grouped project, it receives peer context at spawn — its group name and the names of its sibling orchestrators — so they can coordinate across repos without you doing the wiring.
 
 ## What a project is
 
@@ -118,17 +118,15 @@ curl -s -XPUT http://localhost:8765/api/v1/project-groups/<group-id> \
   -d '{"name":"Platform","project_ids":["/home/you/repos/api"]}'
 ```
 
-## Per-project orchestrators (auto-spawn)
+## Per-project orchestrators
 
-When you open a project — whether via the TUI `o` flow, the web, or the REST API — the daemon runs a **guarantee hook** that ensures exactly one orchestrator session named `orch-<project>` is alive in the project directory:
+An orchestrator is an agent that runs in a project's root under the built-in `orchestrator` role and coordinates that project's fleet rather than writing code itself.
 
-- **Already running** — no-op.
-- **Recorded but not running** — the daemon revives it from its transcript so the conversation history is preserved.
-- **Not recorded** — a fresh orchestrator agent (role `orchestrator`, workdir = project root) is spawned and linked to the project via `ProjectID`.
+Orchestrators are **spawned explicitly** — by you (the TUI `o` flow, the web, the CLI, or an MCP client) or by a parent agent — into an open project. Opening a project does **not** auto-spawn one: a freshly opened project starts **empty** and stays that way until something spawns into it.
 
-The guarantee is **best-effort**: spawn/revive failures are logged but never fail the open request. The orchestrator hibernates with the project (archived when you close the project, restored when you reopen it).
+A common convention is to name the orchestrator `orch-<project>` (for a project named `myapp`, `orch-myapp`), which keeps sibling orchestrators easy to address across a group, but the name is up to you.
 
-The orchestrator session name is stable: `orch-` followed by a sanitized, length-capped slug of the project's display name. For a project named `myapp` the name is `orch-myapp`.
+Opening a project **restores** whatever members were hibernated when it was last closed — including an orchestrator you had spawned — but a project with no restorable members opens empty.
 
 ## Peer awareness (grouped orchestrators)
 
@@ -153,7 +151,7 @@ Once you have projects and groups the Cockpit tree renders like this:
 ```
 ▸ Platform                          ← group header (h/l to expand/collapse)
   ▾ api            /home/you/repos/api
-    orch-api  ●  orchestrator        ← auto-spawned per-project orchestrator
+    orch-api  ●  orchestrator        ← a per-project orchestrator you spawned
     agent-abc ●  development
   ▾ worker        /home/you/repos/worker
     orch-worker ●  orchestrator
@@ -166,11 +164,11 @@ Press **`←`/`→`** at any level — group, project, pipeline, or agent sub-tr
 
 ## FAQ
 
-**Can I disable the auto-spawn orchestrator?**
-Not per-project — the guarantee hook runs on every open path. If you need a project without a resident orchestrator, open it via the REST API directly (`POST /api/v1/projects/local`) rather than the TUI `o` flow; the hook still fires on all paths today, so the cleanest workaround is to stop the orchestrator after it spawns (`warden stop orch-<name>`).
+**Do I have to run an orchestrator per project?**
+No. Opening a project no longer auto-spawns one — a project runs an orchestrator only if you (or a parent agent) spawn it. Spawn one into the project root when you want a resident coordinator; skip it for a project you drive directly with workers.
 
 **What happens if the orchestrator crashes?**
-The daemon does not automatically restart it. The next time you open that project (e.g. reopen from the TUI or the web), the guarantee hook revives it.
+The daemon does not automatically restart it — spawn a new one. If it was hibernated together with a closed project (rather than crashing), reopening that project restores it where it left off.
 
 **Can a project belong to more than one group?**
 No. Each project may belong to at most one group. The TUI shows the first group by sort order if a project is somehow in multiple groups; the store prevents this at create/update time.
