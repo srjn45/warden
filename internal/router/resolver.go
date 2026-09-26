@@ -34,6 +34,7 @@ type Store interface {
 	GetHandoverSettings() (backendstore.HandoverSettings, error)
 	GetHeadroom(backendID string, now time.Time) (headroom float64, used float64, limit float64, limited bool, err error)
 	GetModelHeadroom(backendID, modelID string, now time.Time) (headroom float64, used float64, limit float64, limited bool, err error)
+	GetQuota(backendID string, scope ...string) (backendstore.BackendQuota, error)
 }
 
 // ResolveOptions configures the resolution request.
@@ -198,6 +199,8 @@ func (r *Resolver) EvaluateCandidates(ctx context.Context, targetTier backendsto
 
 		eval.Installed = b.Installed
 		eval.BackendTier = b.Tier
+		// Default to backend-row LimitedUntil; overwritten below when a scoped
+		// quota record exists (D6).
 		eval.LimitedUntil = b.LimitedUntil
 
 		if !m.Enabled {
@@ -261,8 +264,21 @@ func (r *Resolver) EvaluateCandidates(ctx context.Context, targetTier backendsto
 			continue
 		}
 
-		// Retrieve quota headroom and cooldown status
-		headroom, used, limit, limited, err := r.store.GetHeadroom(m.BackendID, now)
+		// Model-scoped headroom (D4). LimitedUntil prefers the scoped quota
+		// record; fall back to the backend row only when no scoped record exists (D6).
+		scope := m.QuotaScope
+		if scope == "" {
+			scope = backendstore.DefaultQuotaScope
+		}
+		hasScopedQuota := false
+		limitedUntil := b.LimitedUntil
+		if q, qErr := r.store.GetQuota(m.BackendID, scope); qErr == nil {
+			hasScopedQuota = true
+			limitedUntil = q.LimitedUntil
+		}
+		eval.LimitedUntil = limitedUntil
+
+		headroom, used, limit, modelLimited, err := r.store.GetModelHeadroom(m.BackendID, m.ModelID, now)
 		if err != nil {
 			// Unknown provider usage is eligible for trial; never fabricate it.
 			eval.Eligible = true
@@ -273,14 +289,24 @@ func (r *Resolver) EvaluateCandidates(ctx context.Context, targetTier backendsto
 		eval.Headroom = headroom
 		eval.Used = used
 		eval.Limit = limit
-		eval.Limited = limited
 		if limit > 0 {
 			eval.UsageRatio = used / limit
 		}
 
-		if limited || b.LimitedUntil.After(now) {
+		// Scoped LimitedUntil is authoritative when a scoped record exists.
+		// Without one, honour GetModelHeadroom's limited flag (which folds in
+		// the backend-row cooldown) and the backend LimitedUntil fallback.
+		limited := false
+		if hasScopedQuota {
+			limited = limitedUntil.After(now)
+		} else {
+			limited = modelLimited || limitedUntil.After(now)
+		}
+		eval.Limited = limited
+
+		if limited {
 			eval.Eligible = false
-			eval.RejectReason = fmt.Sprintf("backend is rate-limited / cooldown until %s", b.LimitedUntil.Format(time.RFC3339))
+			eval.RejectReason = fmt.Sprintf("backend is rate-limited / cooldown until %s", limitedUntil.Format(time.RFC3339))
 			evals = append(evals, eval)
 			continue
 		}
