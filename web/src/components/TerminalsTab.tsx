@@ -14,8 +14,8 @@ import BusyIdleBadge from './BusyIdleBadge';
 // terminates one. Selection follows the live list: a freshly created terminal is
 // auto-selected once it appears over SSE, and closing the selected one hands off
 // to whatever remains.
-export default function TerminalsTab({ terminals }: { terminals: Session[] }) {
-  const [selected, setSelected] = useState<string | null>(null);
+export default function TerminalsTab({ terminals, initialSelected }: { terminals: Session[]; initialSelected?: string | null }) {
+  const [selected, setSelected] = useState<string | null>(initialSelected ?? null);
   const [showNew, setShowNew] = useState(false);
 
   // Keep the selection valid as the live list changes: default to the first

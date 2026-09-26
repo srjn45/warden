@@ -151,7 +151,8 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 				backend, _ := cmd.Flags().GetString("backend")
 				kind, _ := cmd.Flags().GetString("kind")
 				tagsFlag, _ := cmd.Flags().GetString("tags")
-				s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{Name: name, Prompt: prompt, Cwd: dir, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model, Backend: backend, Kind: kind, Tags: parseTags(tagsFlag), Role: roleName, Tier: tier, Task: taskName, ParentID: os.Getenv("WARDEN_SESSION_ID")})
+				projectID, _ := cmd.Flags().GetString("project")
+				s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{Name: name, Prompt: prompt, Cwd: dir, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model, Backend: backend, Kind: kind, Tags: parseTags(tagsFlag), Role: roleName, Tier: tier, Task: taskName, ProjectID: projectID, ParentID: os.Getenv("WARDEN_SESSION_ID")})
 				if err != nil {
 					var cre *client.ErrConfirmationRequired
 					if errors.As(err, &cre) {
@@ -205,8 +206,9 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 			model := stringFlagOr(cmd, "model", pre.Model)
 			backend, _ := cmd.Flags().GetString("backend")
 			tagsFlag, _ := cmd.Flags().GetString("tags")
+			projectID, _ := cmd.Flags().GetString("project")
 			s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{
-				Name: name, Type: typ, Ticket: ticket, Repo: repo, Branch: branch, PR: pr, Worktree: worktree, InRepo: inRepo, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model, Backend: backend, Tags: parseTags(tagsFlag), ForkFrom: forkFrom, Role: roleName, Tier: tier, Task: taskName, ParentID: os.Getenv("WARDEN_SESSION_ID"),
+				Name: name, Type: typ, Ticket: ticket, Repo: repo, Branch: branch, PR: pr, Worktree: worktree, InRepo: inRepo, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model, Backend: backend, Tags: parseTags(tagsFlag), ForkFrom: forkFrom, Role: roleName, Tier: tier, Task: taskName, ProjectID: projectID, ParentID: os.Getenv("WARDEN_SESSION_ID"),
 			})
 			if err != nil {
 				var cre *client.ErrConfirmationRequired
@@ -244,6 +246,7 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 	cmd.Flags().String("prompt-template", "", "fill a saved prompt template (see `warden prompt-template`) as the spawn prompt; a positional prompt still wins")
 	cmd.Flags().StringArray("set", nil, "supply a prompt-template variable as VAR=value (repeatable, e.g. --set FILE=foo.go --set X=y)")
 	cmd.Flags().String("tags", "", "comma-separated labels for grouping/filtering (e.g. --tags backend,urgent); searchable and filterable via `warden ls --tag`")
+	cmd.Flags().String("project", "", "id of the daemon project this agent joins (its canonical path or remote URL, from `warden projects list`); stamps membership explicitly instead of leaving the daemon to path-match the launch dir. Empty = path-match")
 	cmd.Flags().String("role", "", "REQUIRED — built-in agent role: general | orchestrator | planner | worker (legacy aliases implementer/auto-merger/reviewer resolve to worker). Injects the role's persona as a system-prompt addendum and applies its default flags. See `warden role list`")
 	cmd.Flags().String("tier", "", "model tier for the quota-balanced resolver that picks the backend+model: tier-1|tier-2|tier-3. Empty derives the tier from --task, then --role (--role is required, so this always has a role to derive from). An explicit --backend/--model still wins over the resolver")
 	cmd.Flags().String("task", "", "task name (task registry) used to derive the model tier when --tier is empty. Empty = none")
@@ -346,21 +349,23 @@ func newRestoreCmd() *cobra.Command {
 // (internal/daemon/tombstone_reap.go). A record can only be archived out from
 // under a still-live tmux session by a stale orphaned status (the reaper now
 // reconfirms liveness before archiving one, but this covers whatever slips
-// through). Bare `wd recover` only reports candidates (archived records whose
-// tmux session is confirmed still alive) and changes nothing; --apply
+// through). Spec D8: only archived records whose status is orphaned are
+// candidates. Bare `wd recover` only reports candidates (orphaned archives
+// whose tmux session is confirmed still alive) and changes nothing; --apply
 // re-inserts each one into the active store under its original id, so any
 // children (linked via parent_id) reconnect automatically.
 func newRecoverCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "recover",
-		Short: "Revive archived agent records whose tmux session is still alive (dry run unless --apply)",
-		Long: "Scans archived (closed) agent records for ones whose tmux session is\n" +
-			"confirmed still alive — a live session's record should never end up\n" +
-			"archived, but a stale orphaned status racing a daemon restart could\n" +
-			"previously slip one past the tombstone reaper. Bare `wd recover` only\n" +
-			"reports what it finds; --apply re-inserts each candidate into the active\n" +
-			"store under its original id. Any children (linked via parent_id, untouched\n" +
-			"by archiving) reconnect automatically — no need to recover them separately.",
+		Short: "Revive archived orphaned agent records whose tmux session is still alive (dry run unless --apply)",
+		Long: "Scans archived (closed) agent records for ones whose status is orphaned\n" +
+			"(the only recovery source) and whose tmux session is confirmed still alive\n" +
+			"— a live session's record should never end up archived, but a stale orphaned\n" +
+			"status racing a daemon restart could previously slip one past the tombstone\n" +
+			"reaper. Bare `wd recover` only reports what it finds; --apply re-inserts each\n" +
+			"candidate into the active store under its original id. Any children (linked\n" +
+			"via parent_id, untouched by archiving) reconnect automatically — no need to\n" +
+			"recover them separately.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			apply, _ := cmd.Flags().GetBool("apply")
@@ -375,7 +380,7 @@ func newRecoverCmd() *cobra.Command {
 				return printJSON(cmd.OutOrStdout(), results)
 			}
 			if len(results) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "no recoverable agents found (nothing archived has a live tmux session)")
+				fmt.Fprintln(cmd.OutOrStdout(), "no recoverable agents found (no orphaned archive has a live tmux session)")
 				return nil
 			}
 			for _, r := range results {

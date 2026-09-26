@@ -20,8 +20,8 @@ description: How agents are spawned and auto-classified, and the commands that s
 |---|---|
 | `stop` | **The single umbrella teardown verb.** Default = full teardown: terminate + clear (archive) record + remove worktree (asks first unless `--yes`). Subtractive flags: `--keep-record`, `--keep-worktree` (`--keep-worktree` alone == `done`), `--hard`, `--pr`/`--base`, `--force`, `--delete-adopted-branch`. Safe order: PR → terminate → clear record → remove worktree. |
 | `terminate` | Stop an agent (kill tmux + the agent process); **keeps** the record and worktree. The safe, reversible "stop" default. Alias for `stop --keep-record --keep-worktree`. |
-| `restore` | Recreate and resume a lost/orphaned agent's session (`claude --resume`). In Cockpit TUI, select the orphaned agent and press `r`. |
-| `recover` | Safety net for the tombstone reaper: revive an **archived** record whose tmux session is confirmed still alive. Bare `recover` only reports candidates; `--apply` re-inserts each one under its original id (children reconnect automatically). |
+| `restore` | Recreate and resume a session only when its stored status is `orphaned` and its tmux session is gone (`claude --resume`). In Cockpit TUI, select the orphaned agent and press `r`. |
+| `recover` | Safety net for the tombstone reaper: revive an **archived `orphaned`** record whose tmux session is confirmed still alive. Bare `recover` only reports candidates; `--apply` re-inserts each one under its original id (children reconnect automatically). |
 | `done` | Terminate **and** clear the record in one step (worktree kept). `--hard` purges instead of archiving. Alias for `stop --keep-worktree`. |
 | `delete` | Clear the stored record (archive by default, `--hard` purge). Leaves tmux + worktree alone. Alias for `stop --keep-worktree` (record only). |
 | `remove-worktree` | Remove the git worktree + branch. **Destructive** — refuses while the agent runs or has uncommitted/unpushed work unless `--force`. Alias for `stop --keep-record` (worktree only). |
@@ -30,13 +30,18 @@ description: How agents are spawned and auto-classified, and the commands that s
 
 ## Status values you'll see
 
-| Status | Meaning |
-|---|---|
-| `spawning` | Session is being created |
-| `working` | Actively doing work |
-| `waiting_for_input` | Paused on a question/notification — `send` it an answer |
-| `idle` | Alive but not currently working |
-| `rate_limited` | Hit a session, weekly, or monthly-spend limit — warden auto-picks "Stop and wait", parks the agent, and auto-resumes when the limit clears (tune via `rate_limit.*`) |
-| `done` | Finished |
-| `errored` | Hit an error |
-| `orphaned` | The daemon lost track of its tmux session |
+| Presented state | Stored/API status | Meaning |
+|---|---|---|
+| `pending` | `spawning` | Launching |
+| `busy` | `working` | Actively working |
+| `idle` | `idle` | Alive, no active turn |
+| `need-input` | `waiting_for_input` | Waiting for input or approval |
+| `done` | `done` | Finished |
+| `orphaned` | `orphaned` | Process gone, record survives; eligible for recovery |
+| `rate_limited` | `rate_limited` | Paused at a provider limit; automatically resumes |
+
+These are presentation aliases; persisted and raw API statuses retain their
+existing names. Legacy `errored` records display as `done` when an exit code is
+recorded, otherwise as `orphaned`; there is no eighth UX state. A displayed alias
+does not itself grant recovery: restore/recover requires the stored `orphaned`
+state. Backend quota switching is a separate automatic mechanism.

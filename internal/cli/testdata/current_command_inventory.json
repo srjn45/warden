@@ -322,6 +322,7 @@
       "permission-mode",
       "pr",
       "preset",
+      "project",
       "prompt-template",
       "repo",
       "role",
@@ -1616,6 +1617,7 @@
     "use": "doctor",
     "runnable": true,
     "local_flags": [
+      "reconcile-membership",
       "sessions"
     ],
     "inherited_flags": [
@@ -3333,6 +3335,7 @@
       "permission-mode",
       "pr",
       "preset",
+      "project",
       "prompt-template",
       "repo",
       "role",

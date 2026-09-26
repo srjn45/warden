@@ -408,7 +408,7 @@ func (ctx *adaptCtx) adaptJob(n *tree.Node) []item {
 	pipeID, jobID := splitPipeJobID(n.ID)
 	j := ctx.jobsByKey[pipeID+"/"+jobID]
 	if j == nil {
-		j = &pipeline.Job{ID: jobID, Status: pipeline.JobStatus(n.Status), SessionID: n.SessionID}
+		j = &pipeline.Job{ID: jobID, Status: pipeline.JobStatus(n.Status), AgentID: n.SessionID, SessionID: n.SessionID}
 		if n.Detail != nil {
 			j.DependsOn = n.Detail.DependsOn
 		}
@@ -443,7 +443,7 @@ func (ctx *adaptCtx) adaptAgent(n *tree.Node, depth int) []item {
 		hasKids:      len(kids) > 0,
 		collapsed:    collapsed,
 		underProject: true,
-		fromParent:   ctx.backlink(s),
+		fromParent:   ctx.backlink(s, depth),
 	}
 	if it.hasKids && !liveStatus(s.Status) {
 		it.tombstone = true
@@ -484,19 +484,18 @@ func (ctx *adaptCtx) adaptTerminal(n *tree.Node) []item {
 	return []item{{session: s, dir: sourceDir(s), termName: n.Label, underProject: true}}
 }
 
-// backlink reconstructs the §4.1 "↳ from <parent>" label for a cross-project
-// child. The tree keeps the structural edge (child is a root under its own
-// project); the label is view-only from session.ParentID.
-func (ctx *adaptCtx) backlink(s *store.Session) string {
-	if s.ParentID == "" {
+// backlink reconstructs the §4.1 "↳ from <parent>" label for a ROOT agent whose
+// ParentID still names a known session (parent missing from the agent forest,
+// cycle broken to roots, etc.). Nested children — including cross-project ones
+// linked by an authoritative parent_id / child_agents edge — need no backlink;
+// the tree shows that edge structurally.
+func (ctx *adaptCtx) backlink(s *store.Session, depth int) string {
+	if depth > 0 || s.ParentID == "" {
 		return ""
 	}
 	parent := ctx.sessionsByID[s.ParentID]
 	if parent == nil {
 		return ""
-	}
-	if sourceDir(s) == sourceDir(parent) {
-		return "" // same-project children nest structurally; no backlink
 	}
 	return parentLabel(parent)
 }

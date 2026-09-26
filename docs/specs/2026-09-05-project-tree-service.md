@@ -201,6 +201,19 @@ vocabularies. Node-specific lifecycle stays available in the sessions/pipelines/
 autopilot detail channels for anyone who wants it; the *tree* status is the
 lowest-common-denominator rollup.
 
+September 25 amendment (entity hierarchy §4): agent-backed nodes (`agent`,
+`manager`, `guardian`, `worker`) present `pending`, `busy`, `idle`, `need-input`,
+`done`, `orphaned`, `rate_limited`. Stored session values remain unchanged.
+`errored` with a recorded exit code (including zero) presents `done`; without
+exit evidence it presents `orphaned`. Unknown/unclassified session values
+present `pending`. Terminal nodes expose only liveness: `busy` while alive and
+`done`/`orphaned` when stopped (entity hierarchy §3.3), using the same exit evidence rule.
+The shared schema adds these spellings without removing existing container
+values. Container rollups treat `busy`/`pending` as active, `need-input` as
+waiting, `orphaned` as error, and `rate_limited` as blocked; pipeline/job/run
+state machines and status projections remain unchanged. Agent entries in the
+older worked examples below use their corresponding presentation aliases.
+
 Shared enum (7 values):
 
 ```

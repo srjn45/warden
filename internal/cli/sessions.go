@@ -101,7 +101,7 @@ func renderSessions(w io.Writer, sessions []*store.Session, cost map[string]floa
 			permMode = "default"
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			name, s.ID, typeOrPending(s.Type), modelCell(s.Model), permMode, statusCell(s.Status, color), contextCell(s.ContextTokens, s.ContextState, color),
+			name, s.ID, typeOrPending(s.Type), modelCell(s.Model), permMode, statusCell(s.Status, color, s.ExitCode), contextCell(s.ContextTokens, s.ContextState, color),
 			costCell(cost, s.ID), age(s.UpdatedAt), dirName(s.Workdir), s.Subject)
 	}
 	return tw.Flush()
@@ -279,7 +279,7 @@ func newStatusCmd() *cobra.Command {
 				permMode = "default"
 			}
 			fmt.Fprintf(out, "id:              %s\nname:            %s\ntype:            %s\nmodel:           %s\nticket:          %s\nstatus:          %s\nrepo:            %s\nworkdir:         %s\nworktree:        %s\nbranch:          %s\npr:              %s\npermission_mode: %s\nsubject:         %s\nclaude:          %s\nupdated:         %s\n",
-				s.ID, name, typeOrPending(s.Type), modelOrDefault(s.Model), s.Ticket, statusCell(s.Status, color), s.Repo, s.Workdir, s.Worktree, s.Branch, s.PR, permMode, s.Subject, s.ClaudeSessionID, s.UpdatedAt.Format(time.RFC3339))
+				s.ID, name, typeOrPending(s.Type), modelOrDefault(s.Model), s.Ticket, statusCell(s.Status, color, s.ExitCode), s.Repo, s.Workdir, s.Worktree, s.Branch, s.PR, permMode, s.Subject, s.ClaudeSessionID, s.UpdatedAt.Format(time.RFC3339))
 
 			// Show rate limit info if present
 			if rateLimitInfo := formatRateLimitInfo(s); rateLimitInfo != "" {
@@ -317,19 +317,23 @@ func dirName(workdir string) string {
 
 // statusCell formats an agent's status with color. When color is true (stdout
 // is a TTY) the status is tinted by semantic meaning.
-func statusCell(status store.Status, color bool) string {
-	s := string(status)
+func statusCell(status store.Status, color bool, exitCodes ...*int) string {
+	var exitCode *int
+	if len(exitCodes) > 0 {
+		exitCode = exitCodes[0]
+	}
+	s := store.PresentedStatus(status, exitCode)
 	if !color {
 		return s
 	}
-	switch status {
-	case store.StatusDone:
+	switch s {
+	case "done":
 		return "\033[32m" + s + "\033[0m" // green
-	case store.StatusWorking:
+	case "busy":
 		return "\033[34m" + s + "\033[0m" // blue
-	case store.StatusErrored:
+	case "orphaned":
 		return "\033[31m" + s + "\033[0m" // red
-	case store.StatusRateLimited:
+	case "rate_limited", "need-input":
 		return "\033[33m" + s + "\033[0m" // yellow/amber (warning)
 	default:
 		return s

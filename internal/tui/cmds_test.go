@@ -9,7 +9,7 @@ import (
 
 func TestSpawnCmdUsesGivenCwd(t *testing.T) {
 	f := &fakeAPI{}
-	msg := spawnCmd(f, "do the thing", "my-agent", "/work/api", "reviewer", "aider", false)()
+	msg := spawnCmd(f, "do the thing", "my-agent", "/work/api", "reviewer", "aider", "/work/api", false)()
 	done, ok := msg.(spawnDoneMsg)
 	require.True(t, ok)
 	require.NoError(t, done.err)
@@ -19,6 +19,22 @@ func TestSpawnCmdUsesGivenCwd(t *testing.T) {
 	require.Equal(t, "my-agent", f.spawned.Name)
 	require.Equal(t, "reviewer", f.spawned.Role)
 	require.Equal(t, "aider", f.spawned.Backend)
+	require.Equal(t, "/work/api", f.spawned.ProjectID, "in-project spawn passes the resolved project id")
+}
+
+// TestSpawnTerminalCmdPassesProjectID proves the terminal spawn forwards the
+// project id (so a created terminal's membership is stamped deterministically).
+func TestSpawnTerminalCmdPassesProjectID(t *testing.T) {
+	f := &fakeAPI{}
+	msg := spawnTerminalCmd(f, "/work/api", "/work/api", true)()
+	done, ok := msg.(terminalSpawnedMsg)
+	require.True(t, ok)
+	require.NoError(t, done.err)
+	require.NotNil(t, f.spawned)
+	require.Equal(t, "/work/api", f.spawned.Cwd)
+	require.Equal(t, terminalKind, f.spawned.Kind)
+	require.Equal(t, "/work/api", f.spawned.ProjectID)
+	require.True(t, done.focus)
 }
 
 // TestCreateProjectCmd proves createProjectCmd calls the API's CreateProject

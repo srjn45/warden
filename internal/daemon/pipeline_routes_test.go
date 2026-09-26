@@ -12,6 +12,7 @@ import (
 
 	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
@@ -27,6 +28,74 @@ func newPipeServer(t *testing.T) (*httptest.Server, *pipeline.Store) {
 }
 
 const yamlBody = `{"spec":"name: demo\nrepo: /r\njobs:\n  - id: a\n    prompt: go\n    worktree: none\n"}`
+
+// newPipeServerWithProjects builds a server wired with both the pipeline executor
+// and a projects store, for the membership-stamping tests.
+func newPipeServerWithProjects(t *testing.T) (*httptest.Server, *pipeline.Store, *projectstore.Store) {
+	t.Helper()
+	ps, _ := pipeline.NewStore(t.TempDir())
+	cs, _ := ctxstore.New(t.TempDir())
+	ss := newFakeStore()
+	projs, err := projectstore.NewStore(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { projs.Close() })
+	exec := NewExecutor(ps, ss, &fakeLife{}, cs, func() {})
+	srv := &Server{store: ss, life: &fakeLife{}, exec: exec, projects: projs, hub: newHub(), done: make(chan struct{})}
+	return httptest.NewServer(srv.router()), ps, projs
+}
+
+// createPipeline POSTs a create request and returns the decoded pipeline.
+func createPipeline(t *testing.T, url, body string) pipeline.Pipeline {
+	t.Helper()
+	resp, err := http.Post(url+"/api/v1/pipelines", "application/json", strings.NewReader(body))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equalf(t, http.StatusCreated, resp.StatusCode, "create pipeline")
+	var p pipeline.Pipeline
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&p))
+	return p
+}
+
+func TestPipelineCreateStampsProjectAndMembership(t *testing.T) {
+	ts, _, projs := newPipeServerWithProjects(t)
+	defer ts.Close()
+
+	projectDir := t.TempDir()
+	proj, err := projs.OpenProject(projectDir, "myproj", projectDir)
+	require.NoError(t, err)
+
+	// 1. Explicit request-body project_id wins (even over a divergent repo path).
+	p1 := createPipeline(t, ts.URL, `{"project_id":"`+proj.ID+`","spec":"name: p1\nrepo: /elsewhere\njobs:\n  - id: a\n    prompt: go\n    worktree: none\n"}`)
+	require.Equal(t, proj.ID, p1.ProjectID)
+
+	// 2. YAML spec project_id (no request-body override) is honoured.
+	p2 := createPipeline(t, ts.URL, `{"spec":"name: p2\nrepo: /elsewhere\nproject_id: `+proj.ID+`\njobs:\n  - id: a\n    prompt: go\n    worktree: none\n"}`)
+	require.Equal(t, proj.ID, p2.ProjectID)
+
+	// 3. Neither set: resolve by matching the pipeline repo to the OPEN project.
+	p3 := createPipeline(t, ts.URL, `{"spec":"name: p3\nrepo: `+projectDir+`\njobs:\n  - id: a\n    prompt: go\n    worktree: none\n"}`)
+	require.Equal(t, proj.ID, p3.ProjectID)
+
+	// 4. No match and nothing explicit → project-less, no membership.
+	pNone := createPipeline(t, ts.URL, `{"spec":"name: p4\nrepo: /nowhere\njobs:\n  - id: a\n    prompt: go\n    worktree: none\n"}`)
+	require.Equal(t, "", pNone.ProjectID)
+
+	// All stamped pipelines appear on the project's authoritative pipelines[] list.
+	got, err := projs.Get(proj.ID)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"p1", "p2", "p3"}, got.Pipelines)
+
+	// 5. Deleting a pipeline removes it from the project's pipelines[] list.
+	delReq, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/v1/pipelines/p1", nil)
+	delResp, err := http.DefaultClient.Do(delReq)
+	require.NoError(t, err)
+	delResp.Body.Close()
+	require.Equal(t, http.StatusOK, delResp.StatusCode)
+
+	got, err = projs.Get(proj.ID)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"p2", "p3"}, got.Pipelines)
+}
 
 func TestPipelineCreateThenList(t *testing.T) {
 	ts, _ := newPipeServer(t)
@@ -480,5 +549,50 @@ func TestPipelinePause404(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("want 404, got %d", resp.StatusCode)
+	}
+}
+
+// TestGetPipelineJobAgentIDRoundtrip verifies that GET /api/v1/pipelines/{pid}
+// encodes both agent_id and session_id for a running job so that new clients
+// and legacy clients (that still read session_id) both see the agent reference.
+func TestGetPipelineJobAgentIDRoundtrip(t *testing.T) {
+	ts, ps := newPipeServer(t)
+	defer ts.Close()
+
+	http.Post(ts.URL+"/api/v1/pipelines", "application/json", strings.NewReader(yamlBody)) //nolint:errcheck
+
+	// Simulate the executor stamping an agent ID onto job "a".
+	const agentID = "agent-abc123"
+	ps.Update("demo", func(p *pipeline.Pipeline) {
+		p.Job("a").SetAgentID(agentID)
+		p.Job("a").Status = pipeline.JobRunning
+	})
+
+	resp, err := http.Get(ts.URL + "/api/v1/pipelines/demo")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var raw map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&raw))
+
+	jobs, ok := raw["jobs"].([]any)
+	require.True(t, ok && len(jobs) > 0, "jobs array missing from response")
+
+	// Find job "a" by id — the executor prepends a system span-out job.
+	var job map[string]any
+	for _, j := range jobs {
+		if m, ok := j.(map[string]any); ok && m["id"] == "a" {
+			job = m
+			break
+		}
+	}
+	require.NotNil(t, job, "job 'a' not found in response")
+
+	if job["agent_id"] != agentID {
+		t.Errorf("agent_id: want %q, got %v", agentID, job["agent_id"])
+	}
+	if job["session_id"] != agentID {
+		t.Errorf("session_id: want %q (backward-compat mirror), got %v", agentID, job["session_id"])
 	}
 }

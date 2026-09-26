@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
 )
@@ -55,8 +56,22 @@ const (
 	StatusRateLimited     Status = "rate_limited"
 )
 
+// Canonical returns the persisted status for a status spelling. busy and
+// need-input were exposed by the first split-store clients; retain them as
+// input aliases while continuing to persist the established wire values.
+func (s Status) Canonical() Status {
+	switch Status(strings.ToLower(strings.TrimSpace(string(s)))) {
+	case "busy":
+		return StatusWorking
+	case "need-input":
+		return StatusWaitingForInput
+	default:
+		return s
+	}
+}
+
 func (s Status) Valid() bool {
-	switch s {
+	switch s.Canonical() {
 	case StatusSpawning, StatusWorking, StatusWaitingForInput,
 		StatusIdle, StatusDone, StatusErrored, StatusOrphaned,
 		StatusRateLimited:
@@ -241,23 +256,42 @@ type Session struct {
 	UpdatedAt       time.Time   `json:"updated_at"`
 	Events          []Event     `json:"events"`
 	LastPaneExcerpt string      `json:"last_pane_excerpt"`
-	AutoRestart     bool        `json:"auto_restart,omitempty"`      // opt-in: auto-resume this agent when it errors (capped)
-	RestartCount    int         `json:"restart_count,omitempty"`     // consecutive auto-restart attempts since last sustained-healthy run
-	LastRestartAt   *time.Time  `json:"last_restart_at,omitempty"`   // when the most recent auto-restart fired
-	PermissionMode  string      `json:"permission_mode,omitempty"`   // explicit mode override; empty = use global default
-	Role            string      `json:"role,omitempty"`              // built-in role (persona + default flags); empty = "general" (no persona)
-	Task            string      `json:"task,omitempty"`              // assigned task dimension from the registry
-	AutoApprove     bool        `json:"auto_approve,omitempty"`      // opt-in: auto-approve yes/no prompts (always option 1)
-	ForceCompact    *bool       `json:"force_compact,omitempty"`     // per-agent force-compact override; nil = inherit global token_force_compact
-	PipelineID      string      `json:"pipeline_id,omitempty"`       // set for pipeline jobs (back-ref)
-	JobID           string      `json:"job_id,omitempty"`            // set for pipeline jobs (back-ref)
-	ScheduleID      string      `json:"schedule_id,omitempty"`       // set for schedule-fired runs (back-ref to the schedule that spawned this); agent-mode and pipeline-mode job sessions alike
-	ScheduleName    string      `json:"schedule_name,omitempty"`     // operator-facing name of that schedule (== ScheduleID today, carried for display)
-	ParentID        string      `json:"parent_id,omitempty"`         // id of the agent that spawned this one; empty = root (operator/CLI spawn)
-	AutopilotRunID  string      `json:"autopilot_run_id,omitempty"`  // owning ap- run id (autopilot back-ref)
-	AutopilotSlot   string      `json:"autopilot_slot,omitempty"`    // autopilot | guardian | worker
-	AutopilotTaskID string      `json:"autopilot_task_id,omitempty"` // plan task id (workers only)
-	Model           string      `json:"model,omitempty"`             // claude model (opus/sonnet/haiku or full ID)
+	AutoRestart     bool        `json:"auto_restart,omitempty"`    // opt-in: auto-resume this agent when it errors (capped)
+	RestartCount    int         `json:"restart_count,omitempty"`   // consecutive auto-restart attempts since last sustained-healthy run
+	LastRestartAt   *time.Time  `json:"last_restart_at,omitempty"` // when the most recent auto-restart fired
+	PermissionMode  string      `json:"permission_mode,omitempty"` // explicit mode override; empty = use global default
+	Role            string      `json:"role,omitempty"`            // built-in role (persona + default flags); empty = "general" (no persona)
+	Task            string      `json:"task,omitempty"`            // assigned task dimension from the registry
+	AutoApprove     bool        `json:"auto_approve,omitempty"`    // opt-in: auto-approve yes/no prompts (always option 1)
+	ForceCompact    *bool       `json:"force_compact,omitempty"`   // per-agent force-compact override; nil = inherit global token_force_compact
+	PipelineID      string      `json:"pipeline_id,omitempty"`     // set for pipeline jobs (back-ref)
+	JobID           string      `json:"job_id,omitempty"`          // set for pipeline jobs (back-ref)
+	ScheduleID      string      `json:"schedule_id,omitempty"`     // set for schedule-fired runs (back-ref to the schedule that spawned this); agent-mode and pipeline-mode job sessions alike
+	ScheduleName    string      `json:"schedule_name,omitempty"`   // operator-facing name of that schedule (== ScheduleID today, carried for display)
+	ParentID        string      `json:"parent_id,omitempty"`       // id of the agent that spawned this one; empty = root (operator/CLI spawn)
+	// ChildAgents is the forward edge of ParentID (project entity hierarchy spec
+	// D3): the ids of the user-facing sub-agents this agent spawned. It is
+	// maintained on both ends in the same operation (spec §6.1) — a spawn with a
+	// parent_id appends the child here, delete/archive removes it, and reparent
+	// moves it between parents. It holds ONLY user-facing spawned agents: pipeline
+	// job agents (they carry PipelineID/JobID and are reached via the pipeline, D5)
+	// and terminals (leaf members, §6.4) are excluded. Dangling ids are tolerated
+	// (§6.3): the list is not eagerly pruned when a child is orphaned/hibernated.
+	// Nil denotes a legacy missing list; non-nil, including [], is authoritative.
+	ChildAgents []string `json:"child_agents,omitempty"`
+	// ChildPipelines is the forward edge of Pipeline.ParentAgentID (project entity
+	// hierarchy spec D4/§3.2): the ids of the pipelines this agent owns — the ones
+	// it created or escalated. It is maintained on both ends in the same operation
+	// (spec §6.1): a pipeline created under this agent appends its id here and a
+	// pipeline delete removes it. Dangling ids are tolerated (§6.3): the list is
+	// not eagerly pruned when an owned pipeline is orphaned/hibernated. A
+	// pipeline's own job agents are NOT listed here (D5) — they are reached through
+	// the pipeline (ChildPipelines[] → Pipeline.jobs), never as child_agents[].
+	ChildPipelines  []string `json:"child_pipelines,omitempty"`
+	AutopilotRunID  string   `json:"autopilot_run_id,omitempty"`  // owning ap- run id (autopilot back-ref)
+	AutopilotSlot   string   `json:"autopilot_slot,omitempty"`    // autopilot | guardian | worker
+	AutopilotTaskID string   `json:"autopilot_task_id,omitempty"` // plan task id (workers only)
+	Model           string   `json:"model,omitempty"`             // claude model (opus/sonnet/haiku or full ID)
 	// ProjectID back-refs the first-class project (projectstore) this agent belongs
 	// to; empty = ungrouped. It is the PARENT project's canonical id: an agent
 	// running in a git worktree links to its repo's project here and keeps its own
@@ -301,3 +335,23 @@ const (
 	ContextWarning  = "warning"
 	ContextCritical = "critical"
 )
+
+// MarshalJSON preserves explicit empty authoritative lists while omitting nil
+// legacy lists. Default unmarshaling retains the same distinction.
+func (v Session) MarshalJSON() ([]byte, error) {
+	type plain Session
+	optional := func(ids []string) *[]string {
+		if ids == nil {
+			return nil
+		}
+		return &ids
+	}
+	return json.Marshal(struct {
+		plain
+		ChildAgents    *[]string `json:"child_agents,omitempty"`
+		ChildPipelines *[]string `json:"child_pipelines,omitempty"`
+	}{plain: plain(v),
+		ChildAgents:    optional(v.ChildAgents),
+		ChildPipelines: optional(v.ChildPipelines),
+	})
+}

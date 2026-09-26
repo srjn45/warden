@@ -376,10 +376,27 @@ paths:
       operationId: restoreSession
       tags: [Sessions]
       summary: Restore (re-create + resume) a lost session
+      description: >-
+        Recreates the agent's tmux session and resumes its prior conversation.
+        Spec D8: this operator recovery endpoint is allowed only when the
+        session status is `orphaned`; other states return 409. Project
+        hibernation reopen, auto-restart, rate-limit resume, and backend
+        recovery use the shared lifecycle resume primitive directly and are
+        not gated by this endpoint.
       parameters: [{ $ref: "#/components/parameters/SessionId" }]
       responses:
         "200": { $ref: "#/components/responses/OK" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Session is not orphaned (or already running)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422":
+          description: Restore preconditions failed (no session id, workdir, or transcript)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
   /api/v1/sessions/{id}/create-pr:
     post:
@@ -1515,15 +1532,17 @@ paths:
     post:
       operationId: recoverAgents
       tags: [Sessions]
-      summary: Revive archived agent records whose tmux session is still alive
+      summary: Revive archived orphaned agent records whose tmux session is still alive
       description: >-
-        Scans archived (closed) records for ones whose tmux_session is
+        Scans archived (closed) records for ones whose status is `orphaned`
+        (spec D8 — the only recovery source) and whose tmux_session is
         confirmed still alive (a tombstone can be wrongly reaped by a stale
         orphaned status racing a daemon restart — see the poller/reaper
         liveness reconfirm), and re-inserts each one's full original record
-        into the active store under its original id. Because a child's
-        parent_id is a one-way pointer, any children already reconnect with no
-        edits of their own. apply=false (the default) only reports candidates;
+        into the active store under its original id. Non-orphaned archived
+        records are never candidates. Because a child's parent_id is a
+        one-way pointer, any children already reconnect with no edits of
+        their own. apply=false (the default) only reports candidates;
         apply=true performs the recovery.
       requestBody:
         content:
@@ -1988,6 +2007,8 @@ paths:
               type: object
               properties:
                 spec: { type: string, description: "pipeline YAML" }
+                project_id: { type: string, description: "id of the first-class project (projectstore) this pipeline joins. Overrides a project_id set in the YAML spec; when both are empty the daemon resolves it by matching the pipeline repo to an OPEN project (no match leaves the pipeline project-less). On create the pipeline is stamped with the resolved id and appended to the project's authoritative pipelines[] membership list." }
+                parent_agent_id: { type: string, description: "id of the agent that owns this pipeline (project entity hierarchy D6). Overrides the identity of the agent behind the request; when both are empty the pipeline is operator-created and has no owning agent. On create the pipeline is stamped with the resolved id and appended to the owning agent's child_pipelines[] forward edge." }
       responses:
         "201":
           description: The parsed + stored pipeline
@@ -3219,6 +3240,43 @@ components:
             plan task id for worker sessions. Absent on manager/guardian slots and
             non-autopilot sessions.
         model: { type: string }
+        parent_id:
+          type: string
+          description: >
+            back-ref to the user-facing agent (GET /api/v1/sessions) that
+            spawned this agent; empty/absent = a root agent created by an
+            operator. Its forward edge is the parent's child_agents[] list.
+            Pipeline job agents use pipeline_id/job_id instead and terminals
+            are never parented this way. Present the same way across GET
+            /sessions, GET /sessions/{id}, and the SSE stream.
+        child_agents:
+          type: array
+          items: { type: string }
+          description: >
+            forward edge of `parent_id` (project entity hierarchy D3): the ids of
+            the user-facing sub-agents this agent spawned. Maintained on both ends
+            in the same operation — a spawn with a `parent_id` appends the child
+            here and delete/archive removes it. Holds ONLY user-facing spawned
+            agents: pipeline job agents (reached via the owning pipeline) and
+            terminals are excluded. Dangling ids are tolerated (a child that is
+            orphaned/hibernated is not eagerly pruned). Absent/empty for a leaf
+            agent. Present the same way across GET /sessions, GET /sessions/{id},
+            and the SSE stream.
+        child_pipelines:
+          type: array
+          items: { type: string }
+          description: >
+            forward edge of `Pipeline.parent_agent_id` (project entity hierarchy
+            D4): the ids of the pipelines this agent owns — created or escalated by
+            it. Maintained on both ends in the same operation — a pipeline created
+            under this agent appends its id here and pipeline delete removes it. A
+            nested pipeline appears in both directions. A pipeline's own job agents
+            are NOT listed here (D5): they are reached through the pipeline
+            (child_pipelines[] -> Pipeline.jobs), never as child_agents. Dangling
+            ids are tolerated (an owned pipeline that is orphaned/hibernated is not
+            eagerly pruned). Absent/empty for an agent that owns no pipelines.
+            Present the same way across GET /sessions, GET /sessions/{id}, and the
+            SSE stream.
         project_id:
           type: string
           description: >
@@ -3289,6 +3347,7 @@ components:
             GET /api/v1/capabilities).
         tags: { type: array, items: { type: string } }
         parent_id: { type: string, description: "id of the agent that spawned this one; empty = root" }
+        project_id: { type: string, description: "id of the first-class project (projectstore) this agent/terminal joins. Empty = resolve by matching the launch path (cwd/repo) to an OPEN project; no match leaves the session project-less. On spawn the session is stamped with the resolved id and appended to the project's authoritative agents[]/terminals[] membership list." }
         role: { type: string, description: "built-in agent role name (general|orchestrator|implementer|auto-merger|reviewer); empty = general (no persona). The role's persona is injected as a system-prompt addendum and its default flags fill any request fields left unset." }
         tier: { type: string, description: "explicit model tier (tier-1|tier-2|tier-3) for the quota-balanced resolver that picks the backend+model at spawn. Empty derives the tier from task, then role. A pinned backend/model still wins over the resolver." }
         task: { type: string, description: "task name (task registry) used to derive the model tier via the task→tier map when tier is empty. Empty = none." }
@@ -3439,6 +3498,18 @@ components:
         name: { type: string, description: "human-friendly display name" }
         path: { type: string, description: "local absolute path of the main checkout (may be empty for a not-yet-cloned remote)" }
         status: { type: string, enum: [open, closed], description: "open | closed (hibernated, kept in the DB)" }
+        agents:
+          type: array
+          items: { type: string }
+          description: "complete, ordered, de-duplicated id list of member agents (authoritative membership; dangling ids tolerated)"
+        pipelines:
+          type: array
+          items: { type: string }
+          description: "complete, ordered, de-duplicated id list of member pipelines (authoritative membership; dangling ids tolerated)"
+        terminals:
+          type: array
+          items: { type: string }
+          description: "complete, ordered, de-duplicated id list of member terminals (leaf members; dangling ids tolerated)"
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
 
@@ -3947,7 +4018,8 @@ components:
         supervised: { type: boolean }
         type: { type: string }
         run_if: { type: string, enum: [success, failure, always] }
-        session_id: { type: string }
+        agent_id: { type: string, description: "id of the agent executing this job (project entity hierarchy D5). Supersedes session_id; both are written during the transition so older clients remain compatible." }
+        session_id: { type: string, description: "Deprecated: use agent_id. Kept for backward compatibility during the agent-id migration; mirrors agent_id on write." }
         status: { type: string }
         output: { type: string }
         branch: { type: string }
@@ -3964,6 +4036,24 @@ components:
         name: { type: string }
         repo: { type: string }
         status: { type: string }
+        project_id:
+          type: string
+          description: >-
+            back-ref to the first-class project (GET /api/v1/projects) this
+            pipeline belongs to; empty/absent = ungrouped. Set at creation from
+            the request body project_id, the YAML spec, or by matching the
+            pipeline repo to an OPEN project. Groups a pipeline and all its job
+            agents under one parent project.
+        parent_agent_id:
+          type: string
+          description: >-
+            back-ref to the agent (GET /api/v1/sessions) that created or escalated
+            this pipeline (project entity hierarchy D6); empty/absent =
+            operator-created (no owning agent). Set at creation from the request
+            body parent_agent_id or the identity of the agent behind the request.
+            It is the reverse edge of the owning agent's child_pipelines[]: a
+            nested pipeline appears in both directions. Job agents are NOT owned
+            this way (D5) — they carry pipeline_id and belong to the pipeline.
         tags:
           type: array
           items: { type: string }
@@ -4034,9 +4124,11 @@ components:
         status:
           type: string
           description: >-
-            Normalized lifecycle rollup, one shared 7-value enum: active |
-            waiting | idle | done | error | blocked | unknown.
-          enum: [active, waiting, idle, done, error, blocked, unknown]
+            Agent nodes use pending | busy | idle | need-input | done | orphaned |
+            rate_limited (entity hierarchy spec section 4). Containers, jobs,
+            pipelines and runs retain their existing rollup vocabulary. Terminals
+            use only busy, done or orphaned for liveness.
+          enum: [active, waiting, idle, done, error, blocked, unknown, pending, busy, need-input, orphaned, rate_limited]
         session_id:
           type: string
           description: >-

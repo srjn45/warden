@@ -773,6 +773,7 @@ type SpawnRequest struct {
 	Tier            string            // explicit model tier ("tier-1"/"tier-2"/"tier-3") for the quota-balanced resolver; empty = derive from task/role
 	Task            string            // task name (task registry) for tier routing via task.TierFor; empty = none
 	ParentID        string            // id of the agent that spawned this one; empty = root (operator/CLI spawn)
+	ProjectID       string            // id of the first-class project this session joins; empty = the daemon resolves it by path-match (lifecycle is store-free, so it only stamps what it is handed)
 	AutopilotRunID  string            // owning ap- run id (autopilot back-ref)
 	AutopilotSlot   string            // autopilot | guardian | worker
 	AutopilotTaskID string            // plan task id (workers only)
@@ -1459,6 +1460,7 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 	}
 
 	sess := &store.Session{
+		ChildAgents: []string{}, ChildPipelines: []string{},
 		ID:             id,
 		Name:           req.Name,
 		Type:           req.Type,
@@ -1498,6 +1500,10 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 	if req.ParentID != id {
 		sess.ParentID = req.ParentID
 	}
+	// Stamp the explicit owning-project back-ref when the request carried one. An
+	// empty value is left empty for the daemon to resolve by path-match post-spawn
+	// (lifecycle has no projects store), so an explicit id always wins over the match.
+	sess.ProjectID = req.ProjectID
 	sess.AutopilotRunID = req.AutopilotRunID
 	sess.AutopilotSlot = req.AutopilotSlot
 	sess.AutopilotTaskID = req.AutopilotTaskID
@@ -1873,6 +1879,12 @@ func (l *Lifecycle) resumeInTmuxWithHints(ctx context.Context, b agentbackend.Ba
 // validates that the session is actually gone, has a pinned id, its workdir
 // still exists, and its transcript is present — returning a specific sentinel
 // otherwise — and never silently starts a fresh conversation.
+//
+// Restore is the shared resume primitive used by operator recovery
+// (RestoreSession), project hibernation reopen, auto-restart, rate-limit
+// resume, and backend-recovery relaunch. Spec D8 orphaned-only gating belongs
+// on the operator recovery paths (RestoreSession / archived Recover) — not
+// here — so internal relaunch of errored/rate_limited sessions keeps working.
 func (l *Lifecycle) Restore(ctx context.Context, sess *store.Session) error {
 	b := l.backendFor(sess.Backend)
 	if !b.Capabilities().Resume {
@@ -1996,6 +2008,7 @@ func (l *Lifecycle) Adopt(ctx context.Context, req AdoptRequest) (*store.Session
 		id = "agent-" + sid
 	}
 	sess := &store.Session{
+		ChildAgents: []string{}, ChildPipelines: []string{},
 		ID:              id,
 		TmuxSession:     id,
 		Type:            store.TypeOther,
@@ -2032,12 +2045,16 @@ func (l *Lifecycle) Adopt(ctx context.Context, req AdoptRequest) (*store.Session
 }
 
 var (
-	ErrDirtyWorktree       = errors.New("worktree has uncommitted changes (use --force)")
-	ErrUnpushedCommits     = errors.New("worktree has unpushed commits (use --force)")
-	ErrAlreadyRunning      = errors.New("agent is already running (use send/attach)")
-	ErrNoSessionID         = errors.New("no pinned claude session id; re-spawn instead")
-	ErrWorkdirMissing      = errors.New("agent workdir is gone; re-spawn instead")
-	ErrNoTranscript        = errors.New("no transcript to resume")
+	ErrDirtyWorktree   = errors.New("worktree has uncommitted changes (use --force)")
+	ErrUnpushedCommits = errors.New("worktree has unpushed commits (use --force)")
+	ErrAlreadyRunning  = errors.New("agent is already running (use send/attach)")
+	ErrNoSessionID     = errors.New("no pinned claude session id; re-spawn instead")
+	ErrWorkdirMissing  = errors.New("agent workdir is gone; re-spawn instead")
+	ErrNoTranscript    = errors.New("no transcript to resume")
+	// ErrNotOrphaned is returned by operator recovery endpoints (RestoreSession)
+	// when the session is not orphaned. Kept here so daemon mapping and tests
+	// share one sentinel; lifecycle.Restore itself does not return it.
+	ErrNotOrphaned         = errors.New("agent is not orphaned")
 	ErrForkSourceNotPinned = errors.New("fork source agent's session id is not yet known; let it run one turn, then retry")
 	ErrNoWorktree          = errors.New("session has no worktree")
 	ErrWorktreeAgentAlive  = errors.New("agent is still running; terminate it before removing its worktree")
@@ -2490,6 +2507,7 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*store.S
 	// hard-fail on resolution.
 	req.Backend, req.Model = l.resolveSpawnTarget(ctx, req.Role, req.Task, req.Tier, req.Backend, req.Model)
 	sess := &store.Session{
+		ChildAgents: []string{}, ChildPipelines: []string{},
 		ID: id, TmuxSession: id, Type: req.Type, Repo: req.Repo,
 		Prompt: req.Prompt, Subject: firstWords(req.Prompt, 10),
 		Status: store.StatusSpawning, PermissionMode: req.PermissionMode,

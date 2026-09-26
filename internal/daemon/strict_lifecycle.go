@@ -42,6 +42,7 @@ func spawnRequestFromOAPI(b oapi.SpawnRequest) SpawnRequest {
 		Kind:           string(b.Kind),
 		Tags:           b.Tags,
 		ParentID:       b.ParentId,
+		ProjectID:      b.ProjectId,
 		ForkFrom:       b.ForkFrom,
 		Role:           b.Role,
 		Tier:           b.Tier,
@@ -104,6 +105,11 @@ func (s *Server) SpawnAgent(ctx context.Context, req oapi.SpawnAgentRequestObjec
 	if err != nil {
 		return nil, err
 	}
+	// Resolve the owning project (explicit project_id, else path-match to an open
+	// project) and stamp sess.ProjectID BEFORE the insert so the back-ref persists in
+	// the same write. Membership on the project's agents[]/terminals[] list is added
+	// after a successful insert (spec D2/§3.1, §5).
+	s.stampProjectMembership(sess)
 	if err := s.store.Insert(ctx, sess); err != nil {
 		// Roll back the tmux session (and any worktree) so a failed insert doesn't
 		// leak an untracked agent.
@@ -114,6 +120,11 @@ func (s *Server) SpawnAgent(ctx context.Context, req oapi.SpawnAgentRequestObjec
 		}
 		return nil, err
 	}
+	s.addProjectMembership(sess)
+	// Wire the parent→child forward edge (spec D3/§6.1): a sub-agent spawned with a
+	// parent_id is appended to its parent's ChildAgents[]. No-op for a root spawn, a
+	// job agent, or a terminal (childOfParent).
+	s.addChildEdge(ctx, sess)
 	s.notify()
 	s.recordAuditCtx(ctx, audit.ActionSpawn, sess.ID, spawnAuditDetail(sess, sr))
 	// post-spawn hook (#47): advisory, fail-open.
@@ -185,6 +196,9 @@ func (s *Server) AdoptSession(ctx context.Context, req oapi.AdoptSessionRequestO
 		}
 		return nil, err
 	}
+	// An adopted session joins its project too — Adopt names none, so this is always
+	// the path-match branch (spec §5: adopt is a session create).
+	s.stampProjectMembership(sess)
 	if err := s.store.Insert(ctx, sess); err != nil {
 		// Only resume mode created the tmux session; never kill a live one.
 		if resume {
@@ -199,6 +213,10 @@ func (s *Server) AdoptSession(ctx context.Context, req oapi.AdoptSessionRequestO
 		}
 		return nil, err
 	}
+	s.addProjectMembership(sess)
+	// An adopted session that names a parent joins its parent's ChildAgents[] too
+	// (spec §6.1); a root/job/terminal adopt is a no-op.
+	s.addChildEdge(ctx, sess)
 	warn := ""
 	if claudeID == "" {
 		warn = "registered without a claude session id (monitoring only; restore unavailable)"
@@ -334,6 +352,14 @@ func (s *Server) DeleteSession(ctx context.Context, req oapi.DeleteSessionReques
 	if !hard && s.removeDoneWorktree && sess.Worktree != "" {
 		s.removeDoneWorktreeBestEffort(sess)
 	}
+	// Drop the session from its project's membership list — the delete-side mirror of
+	// the spawn-time add (spec §6). A tombstoned parent (handled above) keeps its
+	// membership since its record stays active.
+	s.removeProjectMembership(sess)
+	// Drop the deleted child from its parent's ChildAgents[] forward edge — the
+	// delete-side mirror of the spawn-time add (spec §6.1). A tombstoned parent
+	// (handled above, early return) keeps its record and so keeps its own edge.
+	s.removeChildEdge(ctx, sess)
 	s.notify()
 	s.recordAuditCtx(ctx, audit.ActionDelete, id, map[string]string{"hard": strconv.FormatBool(hard)})
 	return oapi.DeleteSession200JSONResponse{Status: "deleted", Warning: warn}, nil
@@ -372,10 +398,16 @@ func (s *Server) RemoveWorktree(ctx context.Context, req oapi.RemoveWorktreeRequ
 }
 
 // RestoreSession implements POST /api/v1/sessions/{id}/restore.
+// Spec D8: operator recovery is allowed only from the orphaned state. Project
+// hibernation reopen, auto-restart, rate-limit resume, and backend recovery
+// call lifecycle.Restore directly and are not gated here.
 func (s *Server) RestoreSession(ctx context.Context, req oapi.RestoreSessionRequestObject) (oapi.RestoreSessionResponseObject, error) {
 	sess, err := s.resolveSession(ctx, req.Id)
 	if err != nil {
 		return nil, err
+	}
+	if sess.Status.Canonical() != store.StatusOrphaned {
+		return nil, errStatus(http.StatusConflict, lifecycle.ErrNotOrphaned.Error())
 	}
 	if err := s.life.Restore(ctx, sess); err != nil {
 		switch {

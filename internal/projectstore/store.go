@@ -201,6 +201,18 @@ func (s *Store) upsert(p Project) error {
 	case err != nil:
 		return err
 	default:
+		// A partial metadata update must not erase existing list authority.
+		if prev, perr := projectFromRecord(existing.Data); perr == nil {
+			if p.Agents == nil {
+				p.Agents = prev.Agents
+			}
+			if p.Pipelines == nil {
+				p.Pipelines = prev.Pipelines
+			}
+			if p.Terminals == nil {
+				p.Terminals = prev.Terminals
+			}
+		}
 		// Preserve the original CreatedAt across updates.
 		if prev, perr := projectFromRecord(existing.Data); perr == nil && !prev.CreatedAt.IsZero() {
 			p.CreatedAt = prev.CreatedAt
@@ -230,7 +242,8 @@ func (s *Store) OpenProject(id, name, path string) (Project, error) {
 	}
 	p, err := s.get(id)
 	if errors.Is(err, ErrNotFound) {
-		p = Project{ID: id, Name: name, Path: path}
+		p = Project{ID: id, Name: name, Path: path,
+			Agents: []string{}, Pipelines: []string{}, Terminals: []string{}}
 	} else if err != nil {
 		return Project{}, err
 	} else {

@@ -1,0 +1,88 @@
+version: 1
+goal: >-
+  Make the warden entity model explicit and stored, per
+  docs/specs/2026-09-25-project-entity-hierarchy.md. Four first-class entities
+  (Project, Agent, Terminal, Pipeline — Pipeline stays separate); projects carry
+  complete membership id lists (agents[]/pipelines[]/terminals[]); agents carry
+  parent_id + child_agents[] + child_pipelines[]; pipelines carry
+  parent_agent_id. Job agents are NOT child_agents. Recovery only from orphaned.
+  Opening a project yields an empty project (no guaranteeOrchestrator).
+constraints:
+  - "Normative spec: docs/specs/2026-09-25-project-entity-hierarchy.md. Locked decisions (§2) are not to be relitigated."
+  - "Work in an isolated git worktree branched off the plan integration branch autopilot/entity-hierarchy; one worker per task."
+  - "Keep the tree green — run `wd check` (or make verify-fast) before every commit/push."
+  - "API is spec-first — edit internal/daemon/apidocs/openapi.yaml then `make generate`; never hand-edit generated code (api.gen.go)."
+  - "Do not merge to main. PRs target autopilot/entity-hierarchy."
+  - "Pipeline job agents are NOT child_agents[] of the owning agent (spec D5)."
+  - "Non-goals: pipeline DAG rewrite (NG1), pipeline-as-agent (NG2), agent-level deps[] (NG3)."
+  - "Confirm with the maintainer before pushing any v* tag."
+tasks:
+  - id: Phase0_SpecFreeze
+    prompt: >-
+      Phase 0 (docs only — spec freeze): Write
+      docs/specs/2026-09-25-project-entity-hierarchy.md capturing the locked
+      entity-redesign decisions and this plan file. No production code. Open a
+      PR against autopilot/entity-hierarchy titled
+      'docs(spec): project entity hierarchy spec freeze'. End with
+      `wd job done --summary '…'` once the gate is green.
+    status: active
+    # no after — starts first
+
+  - id: Phase1_StoreShapes
+    prompt: >-
+      Phase 1 (store shapes): Add the frozen fields to the store types (spec §3)
+      behind omitempty so pre-field records read cleanly:
+      - projectstore.Project: Agents[]/Pipelines[]/Terminals[] (complete id lists).
+      - store.Session: ChildAgents[]/ChildPipelines[] (parent_id already exists).
+      - pipeline.Pipeline: ParentAgentID (project_id already exists).
+      No behaviour change yet — just the fields, JSON tags, and doc comments.
+      Add unit round-trips (marshal/unmarshal, omitempty). Open a PR against
+      autopilot/entity-hierarchy. End with `wd job done --summary '…'`.
+    after: [Phase0_SpecFreeze]
+
+  - id: Phase2_EdgeMaintenance
+    prompt: >-
+      Phase 2 (edge maintenance + consistency): Populate and keep both ends of
+      every edge in sync (spec §6): on user-facing spawn set parent_id and append
+      to the parent's child_agents[] (or project agents[] for a root spawn) and to
+      Project.agents[]; set Pipeline.parent_agent_id + owner's child_pipelines[]
+      on pipeline create/escalate; add terminals to Project.terminals[]. Enforce
+      D5: pipeline job agents are excluded from child_agents[]. Tolerate dangling
+      ids (no eager pruning). Tests for two-edge consistency and the job-agent
+      exclusion. Open a PR against autopilot/entity-hierarchy. End with
+      `wd job done --summary '…'`.
+    after: [Phase1_StoreShapes]
+
+  - id: Phase3_LifecycleStatesAndOpen
+    prompt: >-
+      Phase 3 (lifecycle, states, empty-open): (a) Wire the seven-state UX
+      vocabulary (spec §4) as the presented set with aliases onto existing store
+      constants; no forced migration. (b) Recovery only from orphaned (spec D8) —
+      audit recover/restore paths. (c) Remove guaranteeOrchestrator from the
+      project-open path so a freshly opened project is empty (spec D10);
+      hibernation restore behaviour stays. Update daemon + clients. Tests for
+      empty-open and recovery-source gating. Open a PR against
+      autopilot/entity-hierarchy. End with `wd job done --summary '…'`.
+    after: [Phase2_EdgeMaintenance]
+
+  - id: Phase4_APIAndClients
+    prompt: >-
+      Phase 4 (API + clients + DoD docs): Surface the membership/child lists and
+      parent_agent_id over the daemon API (spec-first: edit openapi.yaml then
+      make generate) and reflect them in TUI/web/app renderers so all clients
+      render the stored contract instead of deriving it. Walk the CLAUDE.md
+      Definition-of-Done checklist: README, docs/FEATURES.md + root FEATURES.md,
+      docs/USAGE.md, site/src/content/docs/, skills/warden/, `make gendocs`
+      (gendocs-check clean). Open a PR against autopilot/entity-hierarchy. End
+      with `wd job done --summary '…'`.
+    after: [Phase3_LifecycleStatesAndOpen]
+
+done_when:
+  - "wd check passes on autopilot/entity-hierarchy."
+  - "Project carries complete agents[]/pipelines[]/terminals[] membership lists."
+  - "Agent carries parent_id + child_agents[] + child_pipelines[]; pipeline carries parent_agent_id."
+  - "Pipeline job agents never appear in an agent's child_agents[] (spec D5)."
+  - "Recovery is possible only from the orphaned state (spec D8)."
+  - "Opening a project yields an empty project — no guaranteeOrchestrator auto-spawn (spec D10)."
+  - "The seven-state UX vocabulary is presented with aliases onto existing store constants (spec §4)."
+  - "Non-goals held: no pipeline DAG rewrite, no pipeline-as-agent, no agent-level deps[]."

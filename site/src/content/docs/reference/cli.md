@@ -95,7 +95,7 @@ Commands:
   digest               Summarize what an agent accomplished (files, branch, turns, narrative)
   fork                 Fork an agent's session into a new managed agent (branches the conversation; the source keeps running)
   restore              Recreate and resume a lost/orphaned agent (claude --resume)
-  recover              Revive archived agent records whose tmux session is still alive (dry run unless --apply)
+  recover              Revive archived orphaned agent records whose tmux session is still alive (dry run unless --apply)
   adopt                Register the Claude session in this directory (resume it under tmux, or register the current tmux session live)
   attach               Attach to the agent's tmux session
   stop                 Tear down an agent — the single umbrella verb (default: terminate + clear record + remove worktree)
@@ -189,6 +189,7 @@ Flags:
       --permission-mode string                   permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan (default: from config or 'auto')
       --pr string                                PR number/url (pr-review)
       --preset warden preset                     load saved spawn defaults from a named preset (see warden preset); explicit flags override
+      --project warden projects list             id of the daemon project this agent joins (its canonical path or remote URL, from warden projects list); stamps membership explicitly instead of leaving the daemon to path-match the launch dir. Empty = path-match
       --prompt-template warden prompt-template   fill a saved prompt template (see warden prompt-template) as the spawn prompt; a positional prompt still wins
       --repo string                              repo path (default: current directory)
       --role warden role list                    REQUIRED — built-in agent role: general | orchestrator | planner | worker (legacy aliases implementer/auto-merger/reviewer resolve to worker). Injects the role's persona as a system-prompt addendum and applies its default flags. See warden role list
@@ -299,13 +300,14 @@ Inherited flags:
 ## warden agent recover
 
 ```text
-Scans archived (closed) agent records for ones whose tmux session is
-confirmed still alive — a live session's record should never end up
-archived, but a stale orphaned status racing a daemon restart could
-previously slip one past the tombstone reaper. Bare `wd agent recover` only
-reports what it finds; --apply re-inserts each candidate into the active
-store under its original id. Any children (linked via parent_id, untouched
-by archiving) reconnect automatically — no need to recover them separately.
+Scans archived (closed) agent records for ones whose status is orphaned
+(the only recovery source) and whose tmux session is confirmed still alive
+— a live session's record should never end up archived, but a stale orphaned
+status racing a daemon restart could previously slip one past the tombstone
+reaper. Bare `wd agent recover` only reports what it finds; --apply re-inserts each
+candidate into the active store under its original id. Any children (linked
+via parent_id, untouched by archiving) reconnect automatically — no need to
+recover them separately.
 
 Usage:
   warden agent recover [flags]
@@ -4053,8 +4055,9 @@ Usage:
   warden doctor [flags]
 
 Flags:
-  -h, --help       help for doctor
-      --sessions   diagnose the session store offline without modifying it
+  -h, --help                   help for doctor
+      --reconcile-membership   backfill missing project_id and rebuild project membership lists offline (daemon must be stopped)
+      --sessions               diagnose the session store offline without modifying it
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -4145,6 +4148,7 @@ Flags:
       --permission-mode string                   permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan (default: from config or 'auto')
       --pr string                                PR number/url (pr-review)
       --preset warden preset                     load saved spawn defaults from a named preset (see warden preset); explicit flags override
+      --project warden projects list             id of the daemon project this agent joins (its canonical path or remote URL, from warden projects list); stamps membership explicitly instead of leaving the daemon to path-match the launch dir. Empty = path-match
       --prompt-template warden prompt-template   fill a saved prompt template (see warden prompt-template) as the spawn prompt; a positional prompt still wins
       --repo string                              repo path (default: current directory)
       --role warden role list                    REQUIRED — built-in agent role: general | orchestrator | planner | worker (legacy aliases implementer/auto-merger/reviewer resolve to worker). Injects the role's persona as a system-prompt addendum and applies its default flags. See warden role list

@@ -115,6 +115,8 @@ func TestSpawnDevelopmentCreatesWorktreeTmuxAndDoc(t *testing.T) {
 		Type: store.TypeDevelopment, Ticket: "PROJ-350", Repo: "/repo",
 	})
 	require.NoError(t, err)
+	require.Equal(t, []string{}, s.ChildAgents)
+	require.Equal(t, []string{}, s.ChildPipelines)
 	require.Equal(t, "PROJ-350", s.ID)
 	require.Equal(t, store.TypeDevelopment, s.Type)
 	require.Equal(t, store.StatusSpawning, s.Status)
@@ -1139,6 +1141,36 @@ func TestRestorePreconditionErrors(t *testing.T) {
 		&store.Session{ID: "a", TmuxSession: "a", Workdir: t.TempDir(), ClaudeSessionID: sid}), ErrNoTranscript)
 }
 
+// Restore is the shared resume primitive: internal relaunch paths (auto-restart
+// from errored, rate-limit resume, hibernation reopen) must not be blocked by
+// D8 orphaned-only gating — that gate lives on operator recovery endpoints.
+func TestRestoreAcceptsInternalRelaunchSourceStates(t *testing.T) {
+	root := t.TempDir()
+	workdir := t.TempDir()
+	sid := "66666666-6666-4666-8666-666666666666"
+	pdir := claudeProjectDir(root, workdir)
+	require.NoError(t, os.MkdirAll(pdir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(pdir, sid+".jsonl"), []byte("{}"), 0o644))
+
+	for _, st := range []store.Status{store.StatusErrored, store.StatusRateLimited, store.StatusDone} {
+		t.Run(string(st), func(t *testing.T) {
+			fr := &FakeRunner{Responses: map[string]FakeResp{
+				"tmux has-session -t agent-rl": {Err: errStub("no session")},
+			}}
+			lc := New(fr, &FakeConfig{})
+			lc.ProjectsDir = root
+			sess := &store.Session{
+				ID: "agent-rl", TmuxSession: "agent-rl", Workdir: workdir,
+				ClaudeSessionID: sid, Status: st,
+			}
+			if st == store.StatusDone {
+				sess.Hibernated = true
+			}
+			require.NoError(t, lc.Restore(context.Background(), sess))
+		})
+	}
+}
+
 func TestTerminateKillsTmuxOnly(t *testing.T) {
 	fr := &FakeRunner{}
 	require.NoError(t, New(fr, &FakeConfig{}).Terminate(context.Background(), "A-1"))
@@ -1279,6 +1311,8 @@ func TestAdoptResumeMode(t *testing.T) {
 		ID: "agent-a1", Cwd: workdir, ClaudeSessionID: sid, TmuxSession: "",
 	})
 	require.NoError(t, err)
+	require.Equal(t, []string{}, sess.ChildAgents)
+	require.Equal(t, []string{}, sess.ChildPipelines)
 	require.Equal(t, "agent-a1", sess.ID)
 	require.Equal(t, "agent-a1", sess.TmuxSession)
 	require.Equal(t, sid, sess.ClaudeSessionID)
@@ -1558,6 +1592,8 @@ func TestSpawnJobFreshWorktreeAndEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SpawnJob: %v", err)
 	}
+	require.Equal(t, []string{}, s.ChildAgents)
+	require.Equal(t, []string{}, s.ChildPipelines)
 	if s.ID != "refactor-impl" || s.PipelineID != "refactor" || s.JobID != "impl" {
 		t.Fatalf("session ids wrong: %+v", s)
 	}

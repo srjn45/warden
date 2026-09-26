@@ -5,6 +5,7 @@
 package pipeline
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -52,6 +53,14 @@ type Job struct {
 	Backend    string   `json:"backend,omitempty" yaml:"backend,omitempty"`
 	Model      string   `json:"model,omitempty" yaml:"model,omitempty"`
 
+	// AgentID identifies the agent executing this job. It replaces SessionID:
+	// agents are now first-class entities and are no longer merely terminal
+	// sessions.
+	AgentID string `json:"agent_id,omitempty" yaml:"-"`
+	// SessionID is retained during the storage/API migration. New code must use
+	// AgentRef and SetAgentID; JSON writes mirror AgentID here so older clients
+	// and persisted pipeline readers continue to work.
+	// Deprecated: use AgentID.
 	SessionID string         `json:"session_id,omitempty" yaml:"-"`
 	Status    JobStatus      `json:"status,omitempty" yaml:"-"`
 	Output    string         `json:"output,omitempty" yaml:"-"`
@@ -59,6 +68,45 @@ type Job struct {
 	Workdir   string         `json:"workdir,omitempty" yaml:"-"`
 	System    bool           `json:"system,omitempty" yaml:"-"`
 	Digest    *digest.Digest `json:"digest,omitempty" yaml:"-"` // completion snapshot (nil until reaped)
+}
+
+// AgentRef returns the job's agent id, accepting legacy SessionID-only jobs
+// loaded from older pipeline records.
+func (j Job) AgentRef() string {
+	if j.AgentID != "" {
+		return j.AgentID
+	}
+	return j.SessionID
+}
+
+// SetAgentID updates both transition fields. Keeping the legacy mirror current
+// makes direct Go callers that still read SessionID behave exactly as before.
+func (j *Job) SetAgentID(id string) {
+	j.AgentID = id
+	j.SessionID = id
+}
+
+// MarshalJSON writes both agent_id and session_id during the transition. The
+// copy also upgrades a legacy SessionID-only value without mutating its caller.
+func (j Job) MarshalJSON() ([]byte, error) {
+	type wire Job
+	copy := j
+	copy.SetAgentID(j.AgentRef())
+	return json.Marshal(wire(copy))
+}
+
+// UnmarshalJSON accepts both the new agent_id and the legacy session_id. When
+// both are present agent_id is authoritative, and the two fields are mirrored
+// for callers on either side of the migration.
+func (j *Job) UnmarshalJSON(data []byte) error {
+	type wire Job
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*j = Job(decoded)
+	j.SetAgentID(j.AgentRef())
+	return nil
 }
 
 type Pipeline struct {
@@ -79,10 +127,24 @@ type Pipeline struct {
 	ScheduleID   string `json:"schedule_id,omitempty" yaml:"-"`
 	ScheduleName string `json:"schedule_name,omitempty" yaml:"-"`
 	// ProjectID back-refs the first-class project (projectstore) this pipeline
-	// belongs to; empty = ungrouped. Daemon-stamped at creation (yaml:"-", not
-	// spec-authored), the pipeline-mode analogue of Session.ProjectID: it groups a
-	// pipeline and all its job agents under one parent project in the cockpit/TUI.
-	ProjectID string `json:"project_id,omitempty" yaml:"-"`
+	// belongs to; empty = ungrouped. It may be spec-authored (yaml:"project_id"),
+	// but the daemon has the final say at creation: an explicit request-body
+	// project_id overrides the spec value, and when both are empty the daemon
+	// resolves it by matching the pipeline repo to an OPEN project. The
+	// pipeline-mode analogue of Session.ProjectID: it groups a pipeline and all
+	// its job agents under one parent project in the cockpit/TUI.
+	ProjectID string `json:"project_id,omitempty" yaml:"project_id,omitempty"`
+	// ParentAgentID back-refs the agent that created/escalated this pipeline
+	// (project entity hierarchy spec D6/§3.4); empty = created directly by the
+	// operator (CLI/TUI/app/MCP with no owning agent). It is daemon-stamped at
+	// creation (yaml:"-", never spec-authored: a pipeline cannot declare its own
+	// owner) from, in precedence order, an explicit request-body parent_agent_id
+	// or the identity of the agent behind the create request. It is the reverse
+	// edge of Session.ChildPipelines[]: the two are kept consistent in the same
+	// operation, and a dangling id (owner orphaned/hibernated) is tolerated,
+	// never eagerly pruned. Job agents are NOT owned this way (NG1/D5): they
+	// carry PipelineID and belong to the pipeline, not to the owning agent.
+	ParentAgentID string `json:"parent_agent_id,omitempty" yaml:"-"`
 }
 
 // Job returns a pointer to the job with id, or nil.

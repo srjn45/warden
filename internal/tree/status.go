@@ -6,10 +6,8 @@ import (
 	"github.com/srjn45/warden/internal/store"
 )
 
-// The shared 7-value status enum (spec §5). Every node type normalizes its
-// native lifecycle onto exactly one of these, so the three renderers (TUI, hub
-// web, android) key off identical strings and never learn per-type vocabularies.
-// Contract like serverCapabilities: append, never rename.
+// Container, pipeline, job and run statuses retain the original tree vocabulary
+// (tree spec §5). Agent nodes use store.PresentedStatus; terminals use liveness.
 const (
 	StatusActive  = "active"  // doing work now
 	StatusWaiting = "waiting" // needs a human
@@ -20,26 +18,28 @@ const (
 	StatusUnknown = "unknown" // no lifecycle / unmapped
 )
 
-// sessionStatus maps a store.Status onto the shared enum (spec §5). A live agent
-// working or spawning is active; one awaiting input is waiting; a rate-limited
-// one is blocked (queued behind its limit reset); errored/orphaned are error.
-func sessionStatus(s store.Status) string {
-	switch s {
-	case store.StatusWorking, store.StatusSpawning:
-		return StatusActive
-	case store.StatusWaitingForInput:
-		return StatusWaiting
-	case store.StatusIdle:
-		return StatusIdle
-	case store.StatusDone:
-		return StatusDone
-	case store.StatusErrored, store.StatusOrphaned:
-		return StatusError
-	case store.StatusRateLimited:
-		return StatusBlocked
-	default:
-		return StatusUnknown
+// sessionStatus presents agent states while preserving native store values.
+func sessionStatus(s store.Status, exitCodes ...*int) string {
+	var exitCode *int
+	if len(exitCodes) > 0 {
+		exitCode = exitCodes[0]
 	}
+	return store.PresentedStatus(s, exitCode)
+}
+
+// terminalStatus exposes liveness only, never an AI working/input state.
+func terminalStatus(s store.Status, exitCodes ...*int) string {
+	switch s.Canonical() {
+	case store.StatusSpawning, store.StatusWorking, store.StatusIdle, store.StatusWaitingForInput, store.StatusRateLimited:
+		return "busy"
+	case store.StatusDone:
+		return "done"
+	case store.StatusErrored:
+		if len(exitCodes) > 0 && exitCodes[0] != nil {
+			return "done"
+		}
+	}
+	return "orphaned"
 }
 
 // jobStatus maps a pipeline.JobStatus onto the shared enum (spec §5). A pending
@@ -117,13 +117,13 @@ func rollup(children []string) string {
 	}
 	anyActive, anyWaiting, allDone := false, false, true
 	for _, c := range children {
-		if c == StatusError {
+		if c == StatusError || c == "orphaned" {
 			return StatusError
 		}
 		switch c {
-		case StatusActive:
+		case StatusActive, "busy", "pending":
 			anyActive = true
-		case StatusWaiting:
+		case StatusWaiting, "need-input":
 			anyWaiting = true
 		}
 		if c != StatusDone {
@@ -142,13 +142,19 @@ func rollup(children []string) string {
 	}
 }
 
-// rollupNodes is rollup over a node slice — the container status from its
-// children's statuses.
+// rollupNodes is rollup over a node slice and every descendant. A project can
+// contain active work beneath a waiting direct child, so considering only the
+// first level would hide active work from the project's status.
 func rollupNodes(children []*Node) string {
-	statuses := make([]string, len(children))
-	for i, c := range children {
-		statuses[i] = c.Status
+	statuses := make([]string, 0, len(children))
+	var collect func([]*Node)
+	collect = func(nodes []*Node) {
+		for _, n := range nodes {
+			statuses = append(statuses, n.Status)
+			collect(n.Children)
+		}
 	}
+	collect(children)
 	return rollup(statuses)
 }
 

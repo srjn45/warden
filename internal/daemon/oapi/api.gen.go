@@ -886,18 +886,22 @@ type Pipeline = pipeline.Pipeline
 
 // PipelineJob defines model for PipelineJob.
 type PipelineJob struct {
-	Branch     string           `json:"branch,omitempty"`
-	DependsOn  []string         `json:"depends_on,omitempty"`
-	Digest     Digest           `json:"digest,omitempty"`
-	Handoff    string           `json:"handoff,omitempty"`
-	Id         string           `json:"id,omitempty"`
-	Output     string           `json:"output,omitempty"`
-	Prompt     string           `json:"prompt,omitempty"`
-	RunIf      PipelineJobRunIf `json:"run_if,omitempty"`
-	SessionId  string           `json:"session_id,omitempty"`
-	Status     string           `json:"status,omitempty"`
-	Supervised bool             `json:"supervised,omitempty"`
-	Type       string           `json:"type,omitempty"`
+	// AgentId id of the agent executing this job (project entity hierarchy D5). Supersedes session_id; both are written during the transition so older clients remain compatible.
+	AgentId   string           `json:"agent_id,omitempty"`
+	Branch    string           `json:"branch,omitempty"`
+	DependsOn []string         `json:"depends_on,omitempty"`
+	Digest    Digest           `json:"digest,omitempty"`
+	Handoff   string           `json:"handoff,omitempty"`
+	Id        string           `json:"id,omitempty"`
+	Output    string           `json:"output,omitempty"`
+	Prompt    string           `json:"prompt,omitempty"`
+	RunIf     PipelineJobRunIf `json:"run_if,omitempty"`
+
+	// SessionId Deprecated: use agent_id. Kept for backward compatibility during the agent-id migration; mirrors agent_id on write.
+	SessionId  string `json:"session_id,omitempty"`
+	Status     string `json:"status,omitempty"`
+	Supervised bool   `json:"supervised,omitempty"`
+	Type       string `json:"type,omitempty"`
 
 	// Worktree none | fresh | from:<jobid>
 	Worktree string `json:"worktree,omitempty"`
@@ -1092,7 +1096,10 @@ type SpawnRequest struct {
 	ParentId       string `json:"parent_id,omitempty"`
 	PermissionMode string `json:"permission_mode,omitempty"`
 	Pr             string `json:"pr,omitempty"`
-	Prompt         string `json:"prompt,omitempty"`
+
+	// ProjectId id of the first-class project (projectstore) this agent/terminal joins. Empty = resolve by matching the launch path (cwd/repo) to an OPEN project; no match leaves the session project-less. On spawn the session is stamped with the resolved id and appended to the project's authoritative agents[]/terminals[] membership list.
+	ProjectId string `json:"project_id,omitempty"`
+	Prompt    string `json:"prompt,omitempty"`
 
 	// Repo required in typed mode
 	Repo string `json:"repo,omitempty"`
@@ -1370,6 +1377,12 @@ type SetModelTierJSONBody struct {
 
 // CreatePipelineJSONBody defines parameters for CreatePipeline.
 type CreatePipelineJSONBody struct {
+	// ParentAgentId id of the agent that owns this pipeline (project entity hierarchy D6). Overrides the identity of the agent behind the request; when both are empty the pipeline is operator-created and has no owning agent. On create the pipeline is stamped with the resolved id and appended to the owning agent's child_pipelines[] forward edge.
+	ParentAgentId string `json:"parent_agent_id,omitempty"`
+
+	// ProjectId id of the first-class project (projectstore) this pipeline joins. Overrides a project_id set in the YAML spec; when both are empty the daemon resolves it by matching the pipeline repo to an OPEN project (no match leaves the pipeline project-less). On create the pipeline is stamped with the resolved id and appended to the project's authoritative pipelines[] membership list.
+	ProjectId string `json:"project_id,omitempty"`
+
 	// Spec pipeline YAML
 	Spec string `json:"spec,omitempty"`
 }
@@ -1930,7 +1943,7 @@ type ServerInterface interface {
 	// Reclaim orphan worktrees
 	// (POST /api/v1/prune)
 	PruneWorktrees(w http.ResponseWriter, r *http.Request)
-	// Revive archived agent records whose tmux session is still alive
+	// Revive archived orphaned agent records whose tmux session is still alive
 	// (POST /api/v1/recover)
 	RecoverAgents(w http.ResponseWriter, r *http.Request)
 	// List the built-in agent roles
@@ -2485,7 +2498,7 @@ func (_ Unimplemented) PruneWorktrees(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Revive archived agent records whose tmux session is still alive
+// Revive archived orphaned agent records whose tmux session is still alive
 // (POST /api/v1/recover)
 func (_ Unimplemented) RecoverAgents(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -10204,6 +10217,34 @@ func (response RestoreSession404JSONResponse) VisitRestoreSessionResponse(w http
 	return err
 }
 
+type RestoreSession409JSONResponse Error
+
+func (response RestoreSession409JSONResponse) VisitRestoreSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreSession422JSONResponse Error
+
+func (response RestoreSession422JSONResponse) VisitRestoreSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type SetRoleRequestObject struct {
 	Id   SessionId `json:"id"`
 	Body *SetRoleJSONRequestBody
@@ -10922,7 +10963,7 @@ type StrictServerInterface interface {
 	// Reclaim orphan worktrees
 	// (POST /api/v1/prune)
 	PruneWorktrees(ctx context.Context, request PruneWorktreesRequestObject) (PruneWorktreesResponseObject, error)
-	// Revive archived agent records whose tmux session is still alive
+	// Revive archived orphaned agent records whose tmux session is still alive
 	// (POST /api/v1/recover)
 	RecoverAgents(ctx context.Context, request RecoverAgentsRequestObject) (RecoverAgentsResponseObject, error)
 	// List the built-in agent roles

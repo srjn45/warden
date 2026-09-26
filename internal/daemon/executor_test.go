@@ -11,6 +11,7 @@ import (
 	"github.com/srjn45/warden/internal/curate"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -793,5 +794,158 @@ func TestPauseUnknownPipeline(t *testing.T) {
 	}
 	if err := e.Resume(context.Background(), "ghost"); !errors.Is(err, pipeline.ErrNotFound) {
 		t.Fatalf("want ErrNotFound, got %v", err)
+	}
+}
+
+// TestBaseline_EmitToComposePromptInjection pins the pipeline HANDOFF chain end to
+// end: a job's `warden pipeline emit <text>` (Executor.Emit) writes the text to
+// Job.Output, and when the downstream job spawns, ComposePrompt injects that upstream
+// output into the prompt actually handed to the agent (executor.go SpawnJob req.Prompt).
+//
+// This is the load-bearing multi-agent handoff mechanism. Per the entity-hierarchy
+// spec it is explicitly OUT of scope (NG1: no pipeline DAG rewrite) — so unlike the
+// PHASE1+ baselines, this contract MUST STAY GREEN FOREVER. It is not marked PHASE1+.
+func TestBaseline_EmitToComposePromptInjection(t *testing.T) {
+	e, ps, _ := newTestExecutor(t)
+	ps.Create(chain()) // a (worktree:none) → b (worktree:from:a)
+
+	// Spawn root job a.
+	if err := e.Reconcile(context.Background(), "p"); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if got, _ := ps.Get("p"); got.Job("a").Status != pipeline.JobRunning {
+		t.Fatalf("job a should be running before emit, got %s", got.Job("a").Status)
+	}
+
+	const handoff = "IMPORTANT_HANDOFF_TOKEN: the impl branch is ready"
+
+	// 1. Emit → Job.Output: the handoff text is recorded on the upstream job and it
+	//    is marked done. (Emit ends by reconciling, which spawns the dependent job b.)
+	if err := e.Emit(context.Background(), "p", "a", handoff); err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	got, _ := ps.Get("p")
+	if got.Job("a").Status != pipeline.JobDone {
+		t.Fatalf("emitting job a should mark it done, got %s", got.Job("a").Status)
+	}
+	if got.Job("a").Output != handoff {
+		t.Fatalf("Emit must store the handoff on Job.Output: got %q want %q", got.Job("a").Output, handoff)
+	}
+
+	// 2. Job.Output → ComposePrompt: the composed prompt for downstream job b injects
+	//    the upstream output under an "Upstream output — job `a`" block.
+	composed := pipeline.ComposePrompt(got, got.Job("b"))
+	if !strings.Contains(composed, "Upstream output — job `a`") || !strings.Contains(composed, handoff) {
+		t.Fatalf("ComposePrompt must inject upstream job a's output:\n%s", composed)
+	}
+
+	// 3. …and that composed prompt is what actually reaches the downstream agent: after
+	//    Emit's reconcile spawns b, the SpawnJob prompt carries the injected handoff.
+	if got.Job("b").Status != pipeline.JobRunning {
+		t.Fatalf("job b should be running after upstream emit, got %s", got.Job("b").Status)
+	}
+	fl := e.life.(*fakeLife)
+	fl.mu.Lock()
+	spawnPrompt := fl.lastJobPrompt
+	fl.mu.Unlock()
+	if !strings.Contains(spawnPrompt, handoff) {
+		t.Fatalf("the downstream agent's spawn prompt must carry the injected handoff:\n%s", spawnPrompt)
+	}
+}
+
+// TestReconcileJobAgentProjectMembership proves executable job agents inherit
+// Pipeline.ProjectID, join Project.agents[], and stay off every agent.child_agents[]
+// (spec D2/D5). DAG spawn/emit/ComposePrompt behavior is otherwise unchanged.
+func TestReconcileJobAgentProjectMembership(t *testing.T) {
+	e, ps, ss := newTestExecutor(t)
+	projStore, err := projectstore.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("projectstore.NewStore: %v", err)
+	}
+	t.Cleanup(func() { projStore.Close() })
+	proj, err := projStore.OpenProject("/projects/alpha", "alpha", "/projects/alpha")
+	if err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+	e.SetProjects(projStore)
+
+	// Owning agent for D5 exclusion check — job agents must never appear here.
+	owner := &store.Session{ID: "agent-owner", Status: store.StatusWorking, ChildAgents: nil}
+	if err := ss.Insert(context.Background(), owner); err != nil {
+		t.Fatalf("insert owner: %v", err)
+	}
+
+	p := &pipeline.Pipeline{
+		ID: "p", Name: "p", Repo: "/r", Status: pipeline.StatusPending,
+		ProjectID:     proj.ID,
+		ParentAgentID: "agent-owner",
+		Jobs: []pipeline.Job{
+			{ID: "a", Prompt: "first", Worktree: "none", Status: pipeline.JobPending},
+			{ID: "b", Prompt: "second", DependsOn: []string{"a"}, Worktree: "none", Status: pipeline.JobPending},
+		},
+	}
+	if err := ps.Create(p); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if err := e.Reconcile(context.Background(), "p"); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	sess, err := ss.Get(context.Background(), "p-a")
+	if err != nil {
+		t.Fatalf("job session missing: %v", err)
+	}
+	if sess.ProjectID != proj.ID {
+		t.Fatalf("job agent ProjectID=%q, want %q", sess.ProjectID, proj.ID)
+	}
+	if sess.PipelineID != "p" || sess.JobID != "a" {
+		t.Fatalf("job back-refs missing: %+v", sess)
+	}
+
+	gotProj, err := projStore.Get(proj.ID)
+	if err != nil {
+		t.Fatalf("Get project: %v", err)
+	}
+	if !contains(gotProj.Agents, "p-a") {
+		t.Fatalf("Project.agents[] must contain job agent p-a, got %v", gotProj.Agents)
+	}
+
+	ownerAfter, err := ss.Get(context.Background(), "agent-owner")
+	if err != nil {
+		t.Fatalf("get owner: %v", err)
+	}
+	if contains(ownerAfter.ChildAgents, "p-a") {
+		t.Fatalf("D5: job agent must not appear in owner.child_agents[], got %v", ownerAfter.ChildAgents)
+	}
+
+	// Emit → spawn dependent: membership + D5 still hold; ComposePrompt path intact.
+	if err := e.Emit(context.Background(), "p", "a", "handoff-a"); err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	got, _ := ps.Get("p")
+	if got.Job("a").Status != pipeline.JobDone {
+		t.Fatalf("a should be done, got %s", got.Job("a").Status)
+	}
+	if got.Job("b").Status != pipeline.JobRunning {
+		t.Fatalf("b should be running after emit, got %s", got.Job("b").Status)
+	}
+	sessB, err := ss.Get(context.Background(), "p-b")
+	if err != nil {
+		t.Fatalf("job b session missing: %v", err)
+	}
+	if sessB.ProjectID != proj.ID {
+		t.Fatalf("job b ProjectID=%q, want %q", sessB.ProjectID, proj.ID)
+	}
+	gotProj, _ = projStore.Get(proj.ID)
+	if !contains(gotProj.Agents, "p-b") {
+		t.Fatalf("Project.agents[] must contain p-b after dependent spawn, got %v", gotProj.Agents)
+	}
+	// Emit reaped p-a (keepDone=false): membership remove is the delete-side mirror.
+	if contains(gotProj.Agents, "p-a") {
+		t.Fatalf("reaped job a should leave Project.agents[], got %v", gotProj.Agents)
+	}
+	ownerAfter, _ = ss.Get(context.Background(), "agent-owner")
+	if contains(ownerAfter.ChildAgents, "p-b") {
+		t.Fatalf("D5: job b must not appear in owner.child_agents[]")
 	}
 }

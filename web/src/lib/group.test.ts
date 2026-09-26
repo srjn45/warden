@@ -59,13 +59,13 @@ describe('groupSessionsBy', () => {
     expect(out[1].sessions.map((s) => s.id)).toEqual(['b']);
   });
 
-  it('groups by status and humanizes the label', () => {
+  it('groups by presented status', () => {
     const out = groupSessionsBy([
       sess({ id: 'a', status: 'working', created_at: '2026-06-03T10:00:00Z' }),
       sess({ id: 'b', status: 'waiting_for_input', created_at: '2026-06-03T11:00:00Z' }),
     ], 'status');
-    expect(out.map((g) => g.key)).toEqual(['waiting_for_input', 'working']);
-    expect(out[0].label).toBe('waiting for input');
+    expect(out.map((g) => g.key)).toEqual(['need-input', 'busy']);
+    expect(out[0].label).toBe('need-input');
   });
 
   it('groups by tag, places a multi-tagged agent in every group, and buckets untagged', () => {
@@ -118,4 +118,16 @@ describe('baseName', () => {
   it('falls back to the original when there is no segment', () => {
     expect(baseName('/')).toBe('/');
   });
+});
+
+it('groups exited errors with done and unknown exits with orphaned', () => {
+  const groups = groupSessionsBy([
+    sess({ id: 'exited', status: 'errored', exit_code: 1 }),
+    sess({ id: 'done', status: 'done' }),
+    sess({ id: 'lost', status: 'errored' }),
+    sess({ id: 'orphan', status: 'orphaned' }),
+  ], 'status');
+  expect(groups.map(g => [g.key, g.sessions.map(s => s.id)])).toEqual([
+    ['done', ['exited', 'done']], ['orphaned', ['lost', 'orphan']],
+  ]);
 });

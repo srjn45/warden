@@ -42,6 +42,7 @@ func (a *lifecycleAdapter) Spawn(ctx context.Context, req SpawnRequest) (*store.
 		Kind:           store.SessionKind(req.Kind),
 		Tags:           req.Tags,
 		ParentID:       req.ParentID,
+		ProjectID:      req.ProjectID,
 		Role:           req.Role,
 		Tier:           req.Tier,
 		Task:           req.Task,

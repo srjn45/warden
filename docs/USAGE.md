@@ -48,12 +48,48 @@ One binary wears several hats:
 Everything flows through the daemon, so **the daemon must be running** before
 any other command will work.
 
+### Project membership and agent hierarchy
+
+Warden has four separate entities: **Project, Agent, Terminal, and Pipeline**.
+A project's `agents[]`, `pipelines[]`, and `terminals[]` are complete,
+authoritative membership id lists, including nested agents and pipeline job
+agents. Clients render these stored lists instead of inferring membership from
+paths or scanning `project_id` back-references.
+
+Agents store `parent_id`, `child_agents[]`, and `child_pipelines[]`. A pipeline
+stores `parent_agent_id` (empty for an operator-created pipeline) as the reverse
+of its owner's `child_pipelines[]`. **Pipeline job agents never appear in the
+owner's `child_agents[]`**: reach them through the pipeline's jobs and their
+`pipeline_id`. Pipelines retain their own DAG; terminals are project leaf members
+with no agent children, AI transcript, or cost.
+
+Opening a new project leaves it empty; spawn agents and terminals explicitly.
+Reopening restores previously hibernated members but never auto-spawns an
+orchestrator. Record creation alone is distinct from launching a live session;
+spawn wires membership and parent/child edges. Stored lists are ordered and
+de-duplicated, and may retain ids whose records are unavailable or hibernated.
+
 ### The lifecycle of an agent
 
-```
-start ──▶ spawning ──▶ working ⇄ idle ⇄ waiting_for_input ──▶ done
-                                                      └─▶ errored / orphaned
-```
+| Presented state | Stored/API status | Meaning |
+|---|---|---|
+| `pending` | `spawning` | Launching |
+| `busy` | `working` | Actively working |
+| `idle` | `idle` | Alive, no active turn |
+| `need-input` | `waiting_for_input` | Waiting for input or approval |
+| `done` | `done` | Finished |
+| `orphaned` | `orphaned` | Process gone, record survives; eligible for recovery |
+| `rate_limited` | `rate_limited` | Paused at a provider limit; automatically resumes |
+
+These are presentation aliases; persisted and raw API statuses retain their
+existing names. Legacy `errored` records display as `done` when an exit code is
+recorded, otherwise as `orphaned`; there is no eighth UX state. A displayed alias
+does not itself grant recovery: restore/recover requires the stored `orphaned`
+state. Backend quota switching is a separate automatic mechanism.
+
+Only an `orphaned` record can be restored with `warden agent restore <id>`.
+`warden agent recover` reports archived `orphaned` records whose tmux panes are
+still alive; `--apply` reconnects them, preserving membership and child edges.
 
 Status is driven by Claude Code lifecycle hooks (see §9) plus the daemon's
 poller. You don't set it manually.
@@ -1228,6 +1264,15 @@ via `plugins.enabled` + a `plugins.registry` list; a worked example lives under
 Preflight checks — required binaries (`tmux`, `git`, `claude`), optional ones
 (`gh`, `ollama`, warn-only), daemon reachability, and the data directory.
 
+Flags:
+- `--sessions` — diagnose the session store offline without modifying it
+  (daemon must be stopped).
+- `--reconcile-membership` — one-shot offline repair: stamp a `project_id` onto
+  any pre-back-ref session/pipeline by path-matching the open projects, then
+  rebuild every project's authoritative `agents[]`/`pipelines[]`/`terminals[]`
+  lists from those back-refs. Idempotent; the daemon also runs this
+  automatically at boot. Daemon must be stopped.
+
 ### `warden setup [--yes]`
 Verifies the install with the **same checks as `doctor`**, then installs whatever
 is missing. Idempotent — it only touches deps that aren't already on PATH. For
@@ -1545,7 +1590,7 @@ Tools exposed:
 | `check` | Run the project's configured `.warden/check.yml` checks (tests/lint/build); returns pass/fail with output for only the failing checks. `name` runs one, omit to run all |
 | `terminate_agent` | Stop an agent (kill tmux + claude); keeps record + worktree. Reversible via `restore_agent` — the default "stop" action |
 | `restore_agent` | Recreate and resume a lost/orphaned agent (`claude --resume`) |
-| `recover_agents` | Safety net for the tombstone reaper: revive archived records whose tmux session is confirmed still alive. `apply:false` (default) only reports candidates; `apply:true` re-inserts each one under its original id |
+| `recover_agents` | Safety net for the tombstone reaper: revive archived `orphaned` records whose tmux session is confirmed still alive. `apply:false` (default) only reports candidates; `apply:true` re-inserts each one under its original id |
 | `delete_agent` | Clear an agent's record (archives by default; `hard` purges) |
 | `remove_worktree` | Remove an agent's worktree + branch — **destructive**; refuses while running or with unsaved work unless `force` |
 

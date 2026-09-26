@@ -26,12 +26,42 @@ func (s *Server) ListPipelines(_ context.Context, _ oapi.ListPipelinesRequestObj
 // CreatePipeline implements POST /api/v1/pipelines.
 func (s *Server) CreatePipeline(ctx context.Context, req oapi.CreatePipelineRequestObject) (oapi.CreatePipelineResponseObject, error) {
 	spec := ""
+	bodyProjectID := ""
+	bodyParentAgentID := ""
 	if req.Body != nil {
 		spec = req.Body.Spec
+		bodyProjectID = req.Body.ProjectId
+		bodyParentAgentID = req.Body.ParentAgentId
 	}
 	p, err := pipeline.ParseSpec([]byte(spec))
 	if err != nil {
 		return nil, errStatus(http.StatusBadRequest, err.Error())
+	}
+	// Stamp the owning project (spec D2/§3.1). Precedence: an explicit request-body
+	// project_id wins over any project_id in the YAML spec (already parsed onto
+	// p.ProjectID); when both are empty, resolve it by matching the pipeline repo to
+	// an OPEN project. No match leaves the pipeline project-less.
+	if bodyProjectID != "" {
+		p.ProjectID = bodyProjectID
+	}
+	if p.ProjectID == "" {
+		p.ProjectID = s.resolvePipelineProjectID(p)
+	}
+	// Stamp the owning agent (spec D6/§3.4). Precedence: an explicit request-body
+	// parent_agent_id wins over the actor identity; when both are empty the pipeline
+	// is operator-created and owns no agent edge. Resolved from the live request
+	// before the async executor takes over, since jobs spawn later where no actor
+	// identity exists. A terminal can never own a pipeline (§6.4): an explicit
+	// override naming a terminal is rejected (operator-owned) and must NOT fall
+	// back to the actor identity.
+	if bodyParentAgentID != "" {
+		if owner, gerr := s.store.Get(ctx, bodyParentAgentID); gerr == nil && owner.IsTerminal() {
+			p.ParentAgentID = "" // rejected terminal override
+		} else {
+			p.ParentAgentID = bodyParentAgentID
+		}
+	} else if p.ParentAgentID == "" {
+		p.ParentAgentID = s.resolvePipelineParentAgentID(ctx)
 	}
 	// Captured at creation because jobs spawn later from the executor's ticker,
 	// where no request (and so no actor identity) exists anymore.
@@ -41,6 +71,12 @@ func (s *Server) CreatePipeline(ctx context.Context, req oapi.CreatePipelineRequ
 	} else if err != nil {
 		return nil, err
 	}
+	// Append to the project's authoritative pipelines[] membership list (best-effort).
+	s.addPipelineMembership(p)
+	// Wire the owning-agent forward edge (spec D4/§6.1): a pipeline created under an
+	// agent is appended to that agent's ChildPipelines[]. No-op for an
+	// operator-created pipeline (empty ParentAgentID).
+	s.addPipelineParentEdge(ctx, p)
 	return oapi.CreatePipeline201JSONResponse(*p), nil
 }
 
@@ -74,14 +110,23 @@ func (s *Server) DeletePipeline(ctx context.Context, req oapi.DeletePipelineRequ
 	}
 	// Reap each settled job's agent session so deleting never orphans agents.
 	for i := range p.Jobs {
-		if sid := p.Jobs[i].SessionID; sid != "" {
-			_ = s.life.Terminate(ctx, sid)
-			_ = s.store.Archive(ctx, sid)
+		if agentID := p.Jobs[i].AgentRef(); agentID != "" {
+			sess, gerr := s.store.Get(ctx, agentID)
+			_ = s.life.Terminate(ctx, agentID)
+			if aerr := s.store.Archive(ctx, agentID); aerr == nil && gerr == nil {
+				s.removeProjectMembership(sess)
+			}
 		}
 	}
 	if err := s.exec.pstore.Delete(pid); err != nil {
 		return nil, err
 	}
+	// Drop this pipeline from its project's pipelines[] membership list (best-effort).
+	s.removePipelineMembership(p)
+	// Drop this pipeline from its owning agent's ChildPipelines[] forward edge — the
+	// delete-side mirror of the create-time add (spec D4/§6.1). No-op for an
+	// operator-created pipeline.
+	s.removePipelineParentEdge(ctx, p)
 	// Clear this pipeline's shared-context keys (best-effort).
 	if s.exec.cstore != nil {
 		_, _ = s.exec.cstore.DelPrefix("pipeline." + pid + ".")
@@ -157,8 +202,8 @@ func (s *Server) CancelPipeline(ctx context.Context, req oapi.CancelPipelineRequ
 	}
 	for i := range p.Jobs {
 		j := &p.Jobs[i]
-		if (j.Status == pipeline.JobRunning || j.Status == pipeline.JobNeedsAttention) && j.SessionID != "" {
-			_ = s.life.Terminate(ctx, j.SessionID)
+		if (j.Status == pipeline.JobRunning || j.Status == pipeline.JobNeedsAttention) && j.AgentRef() != "" {
+			_ = s.life.Terminate(ctx, j.AgentRef())
 		}
 	}
 	if err := s.exec.pstore.Update(pid, func(p *pipeline.Pipeline) {

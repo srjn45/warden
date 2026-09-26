@@ -1,6 +1,9 @@
 package projectstore
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Status is a project's lifecycle state. A project is never deleted on close
 // (IDE-like hibernation, docs/specs/2026-08-28-project-centric-ui.md §4): closing
@@ -48,7 +51,23 @@ type Project struct {
 	// workspace (may be empty for a remote not yet cloned — filled in by Phase 2).
 	Path string `json:"path"`
 	// Status is Open or Closed (hibernated).
-	Status    Status    `json:"status"`
+	Status Status `json:"status"`
+	// Agents is the complete, ordered, de-duplicated id list of member agents
+	// (docs/specs/2026-09-25-project-entity-hierarchy.md D2/§3.1). This is the
+	// authoritative membership stored on the project, not re-derived by scanning
+	// session ProjectID back-refs; the two are kept consistent, with this list as
+	// the membership of record. A member id need not still resolve to a live
+	// record (an orphaned or hibernated member is tolerated, not pruned).
+	// Nil means a legacy missing list; non-nil (including empty) is authoritative.
+	Agents []string `json:"agents,omitempty"`
+	// Pipelines is the complete, ordered, de-duplicated id list of member pipelines
+	// (spec D2/§3.1). Same authoritative-membership and dangling-id semantics as
+	// Agents.
+	Pipelines []string `json:"pipelines,omitempty"`
+	// Terminals is the complete, ordered, de-duplicated id list of member terminals
+	// — plain shell panes (spec D2/§3.1, §3.3). Terminals are leaf members: they
+	// appear only here and never in any agent's child lists. Same semantics as Agents.
+	Terminals []string  `json:"terminals,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -71,4 +90,26 @@ type ProjectGroup struct {
 	ProjectIDs []string  `json:"project_ids"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+// MarshalJSON preserves explicit empty authoritative lists while omitting nil
+// legacy lists. Default unmarshaling retains the same distinction.
+func (v Project) MarshalJSON() ([]byte, error) {
+	type plain Project
+	optional := func(ids []string) *[]string {
+		if ids == nil {
+			return nil
+		}
+		return &ids
+	}
+	return json.Marshal(struct {
+		plain
+		Agents    *[]string `json:"agents,omitempty"`
+		Pipelines *[]string `json:"pipelines,omitempty"`
+		Terminals *[]string `json:"terminals,omitempty"`
+	}{plain: plain(v),
+		Agents:    optional(v.Agents),
+		Pipelines: optional(v.Pipelines),
+		Terminals: optional(v.Terminals),
+	})
 }

@@ -169,21 +169,27 @@ func isConnRefused(err error) bool {
 }
 
 func (c *Client) List(ctx context.Context) ([]*store.Session, error) {
-	return c.list(ctx, false)
+	return c.list(ctx, false, "agent")
 }
 
 // ListAll includes daemon-owned system sessions hidden from the ordinary fleet.
 func (c *Client) ListAll(ctx context.Context) ([]*store.Session, error) {
-	return c.list(ctx, true)
+	return c.list(ctx, true, "agent")
 }
 
-func (c *Client) list(ctx context.Context, all bool) ([]*store.Session, error) {
+// ListTerminals returns only plain shell sessions. It keeps the agent-centric
+// List/ListAll APIs from ever leaking terminal records to their callers.
+func (c *Client) ListTerminals(ctx context.Context) ([]*store.Session, error) {
+	return c.list(ctx, false, "terminal")
+}
+
+func (c *Client) list(ctx context.Context, all bool, kind string) ([]*store.Session, error) {
 	var resp struct {
 		Sessions []*store.Session `json:"sessions"`
 	}
-	path := "/sessions"
+	path := "/sessions?kind=" + kind
 	if all {
-		path += "?all=true"
+		path += "&all=true"
 	}
 	if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
 		return nil, err
@@ -333,7 +339,15 @@ func (c *Client) watch(ctx context.Context, all bool, onSnapshot func([]*store.S
 				Sessions []*store.Session `json:"sessions"`
 			}
 			if err := json.Unmarshal(data, &r); err == nil {
-				if err := onSnapshot(r.Sessions); err != nil {
+				// The stream contains both tracked entity kinds for terminal-aware
+				// UIs. Watch is the agent-facing API, so retain only AI sessions.
+				agents := r.Sessions[:0]
+				for _, session := range r.Sessions {
+					if !session.IsTerminal() {
+						agents = append(agents, session)
+					}
+				}
+				if err := onSnapshot(agents); err != nil {
 					return err
 				}
 			}
@@ -387,6 +401,7 @@ type SpawnParams struct {
 	Kind           string // "" / "agent" ⇒ AI agent; "terminal" ⇒ plain ${SHELL:-bash} pane (backend/model/role/prompt ignored)
 	Tags           []string
 	ParentID       string
+	ProjectID      string // id of the project this session joins; empty = daemon resolves it by path-match to an open project
 	ForkFrom       string // id of an existing agent whose recorded session to FORK (codex fork); empty = normal spawn
 	Role           string // built-in role name; empty = general (no persona). Persona injected + role defaults fill unset fields.
 	Tier           string // explicit model tier ("tier-1"/"tier-2"/"tier-3") for the quota-balanced resolver; empty = derive from task/role
@@ -401,7 +416,8 @@ func (c *Client) Spawn(ctx context.Context, p SpawnParams) (*store.Session, erro
 		"prompt": p.Prompt, "cwd": p.Cwd, "permission_mode": p.PermissionMode,
 		"auto_restart": p.AutoRestart, "force": p.Force,
 		"model": p.Model, "backend": p.Backend, "kind": p.Kind, "tags": p.Tags, "parent_id": p.ParentID,
-		"fork_from": p.ForkFrom, "role": p.Role, "tier": p.Tier, "task": p.Task,
+		"project_id": p.ProjectID,
+		"fork_from":  p.ForkFrom, "role": p.Role, "tier": p.Tier, "task": p.Task,
 	}
 	if err := c.doT(ctx, longTimeout, http.MethodPost, "/spawn", body, &s); err != nil {
 		var se *StatusError

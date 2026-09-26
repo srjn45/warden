@@ -461,6 +461,7 @@ func newDaemonRunCmd() *cobra.Command {
 			srv.SetAPIDocs(cfg.ApiDocs)
 			exec := daemon.NewExecutor(pstore, st, life, cstore, srv.Notify)
 			srv.SetExecutor(exec)
+			exec.SetProjects(projectStore)
 			// Digest narration is internal thinking too: route it through the same
 			// free/local walk. On an exhausted walk Complete errors and the narrator
 			// returns "" so the digest skips its summary line (never a paid call).
@@ -588,6 +589,20 @@ func newDaemonRunCmd() *cobra.Command {
 					}
 				}()
 				slog.Info("config: live-reload watching", "path", cfgPath)
+			}
+
+			// Project membership backfill/repair (docs/specs/2026-09-25-project-entity-hierarchy.md
+			// D2/§6): stamp any pre-back-ref session/pipeline onto its open project and
+			// rebuild every project's authoritative agents[]/pipelines[]/terminals[] lists
+			// from those back-refs. Idempotent one-shot; best-effort, so a failure logs and
+			// never blocks boot. Runs in-process here so there is no writer contention.
+			if rep, rerr := daemon.ReconcileProjectMembership(ctx, st, pstore, projectStore); rerr != nil {
+				slog.Warn("daemon: project membership reconcile failed", "err", rerr)
+			} else if rep.Changed() {
+				slog.Info("daemon: project membership reconciled",
+					"sessions_stamped", rep.SessionsStamped,
+					"pipelines_stamped", rep.PipelinesStamped,
+					"projects_rebuilt", rep.ProjectsRebuilt)
 			}
 
 			slog.Info("warden daemon listening", "addr", cfg.Addr)

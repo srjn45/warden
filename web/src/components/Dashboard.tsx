@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
+import type { ProjectTree } from '../lib/tree';
 import type { Session } from '../lib/types';
-import { listSessions, subscribeSessions } from '../lib/api';
+import { listSessions, getTree, subscribeSessions } from '../lib/api';
 import { hasToken, clearToken, onAuthRequired } from '../lib/token';
 import {
   useRoute, navigate, redirectRootToDefault, DEFAULT_ROUTE, type Route,
@@ -39,6 +40,9 @@ export default function Dashboard() {
   const route = useRoute();
 
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [tree, setTree] = useState<ProjectTree | null>(null);
+  const [treeError, setTreeError] = useState<string | null>(null);
+  const [terminalFocus, setTerminalFocus] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
@@ -64,10 +68,9 @@ export default function Dashboard() {
   sessionsRef.current = sessions;
 
   // Since stage 6 terminals ride the same SSE session stream as agents. Split
-  // them out once, here, so every agent-centric surface (the cockpit grid, fleet
-  // counts, attention, pinned tabs) sees agents only, while the Terminals tab
-  // gets the terminals. This one seam is what keeps terminals from rendering as
-  // bogus agents.
+  // them out for agent-only surfaces (attention and pinned tabs) and the
+  // Terminals tab. The cockpit receives both kinds and renders their distinct
+  // node types in the authoritative project hierarchy.
   const { agents, terminals } = partitionByKind(sessions);
 
   // Reflect the theme choice onto <html data-theme=…>, persist it, and track the
@@ -177,9 +180,20 @@ export default function Dashboard() {
   // Live session list over SSE. Re-runs after a new token is saved (authNonce)
   // so the stream and the initial load reconnect with the new credential.
   useEffect(() => {
-    listSessions().then(setSessions).catch(() => { /* SSE will populate */ });
-		const unsub = subscribeSessions(setSessions, () => setConnected(false), () => setConnected(true), setAutopilotLive);
-    return unsub;
+    let active = true;
+    let streamedTree = false;
+    listSessions().then((data) => { if (active) setSessions(data); }).catch(() => { /* SSE will populate */ });
+    getTree().then((data) => {
+      if (active && !streamedTree) { setTree(data); setTreeError(null); }
+    }).catch(() => {
+      if (active && !streamedTree) setTreeError('Project hierarchy unavailable. Reconnecting…');
+    });
+    const unsub = subscribeSessions(setSessions, () => setConnected(false), () => setConnected(true), setAutopilotLive, (data) => {
+      streamedTree = true;
+      setTree(data);
+      setTreeError(null);
+    });
+    return () => { active = false; unsub(); };
   }, [authNonce]);
 
   function onTokenSaved() {
@@ -274,9 +288,11 @@ export default function Dashboard() {
       />
       <main className="tab-content">
         {route.kind === 'others' && <OthersTab sessions={agents} onSelect={select} />}
-        {route.kind === 'cockpit' && <CockpitTab sessions={agents} onSelect={select} onCreated={select} />}
+        {route.kind === 'cockpit' && <CockpitTab sessions={sessions} tree={tree} treeError={treeError}
+          stale={!connected} onSelect={select} onCreated={select}
+          onTerminalSelect={(id) => { setTerminalFocus(id); navigate({ kind: 'terminals' }); }} />}
         {route.kind === 'pipelines' && <PipelinesTab onSelect={select} />}
-        {route.kind === 'terminals' && <TerminalsTab terminals={terminals} />}
+        {route.kind === 'terminals' && <TerminalsTab terminals={terminals} initialSelected={terminalFocus} />}
         {route.kind === 'metrics' && <MetricsTab contextHistory={contextHistory} />}
         {route.kind === 'archive' && <ArchiveTab />}
         {route.kind === 'agent' && (activeSession

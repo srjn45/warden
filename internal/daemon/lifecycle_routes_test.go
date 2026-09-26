@@ -89,6 +89,7 @@ type fakeLife struct {
 	hotSwapReq       lifecycle.SwapRequest
 	hotSwapResult    *lifecycle.SwapResult
 	hotSwapErr       error
+	lastJobPrompt    string // captured req.Prompt of the most recent SpawnJob
 }
 
 func (f *fakeLife) Spawn(_ context.Context, req SpawnRequest) (*store.Session, error) {
@@ -112,6 +113,7 @@ func (f *fakeLife) Spawn(_ context.Context, req SpawnRequest) (*store.Session, e
 		ID: id, Name: req.Name, Type: typ, Ticket: req.Ticket, Repo: req.Repo,
 		Prompt: req.Prompt, Status: store.StatusSpawning, Role: req.Role, Workdir: req.Cwd,
 		PermissionMode: req.PermissionMode, Tags: req.Tags, Kind: store.SessionKind(req.Kind),
+		ProjectID: req.ProjectID, // mirror lifecycle: an explicit project_id is stamped at spawn
 	}
 	return f.spawned, nil
 }
@@ -217,6 +219,9 @@ func (f *fakeLife) MemoryPressure(_ context.Context) (pressure.Level, error) {
 }
 
 func (f *fakeLife) SpawnJob(_ context.Context, req lifecycle.JobSpawnRequest) (*store.Session, error) {
+	f.mu.Lock()
+	f.lastJobPrompt = req.Prompt
+	f.mu.Unlock()
 	id := req.PipelineID + "-" + req.JobID
 	branch := ""
 	wt := ""
@@ -877,9 +882,27 @@ func TestHandleRestoreSucceeds(t *testing.T) {
 	require.Equal(t, store.StatusSpawning, got.Status)
 }
 
+// Spec D8: restore is recovery — only orphaned is a valid source state.
+func TestHandleRestoreRejectsNonOrphaned(t *testing.T) {
+	for _, st := range []store.Status{store.StatusDone, store.StatusIdle, store.StatusWorking, store.StatusErrored} {
+		t.Run(string(st), func(t *testing.T) {
+			fs := newFakeStore()
+			_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Status: st})
+			fl := &fakeLife{}
+			srv := lifeServer(t, fs, fl)
+
+			resp, err := http.Post(srv.URL+"/api/v1/sessions/A-1/restore", "application/json", nil)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+			require.Equal(t, http.StatusConflict, resp.StatusCode)
+			require.Empty(t, fl.restored, "lifecycle.Restore must not be called for non-orphaned")
+		})
+	}
+}
+
 func TestHandleRestoreMapsPreconditionErrors(t *testing.T) {
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1"})
+	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Status: store.StatusOrphaned})
 	fl := &fakeLife{restoreErr: lifecycle.ErrAlreadyRunning}
 	srv := lifeServer(t, fs, fl)
 

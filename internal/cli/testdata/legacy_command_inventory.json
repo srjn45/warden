@@ -33,7 +33,7 @@
   },
   {
     "path": "approve",
-    "use": "approve \u003cTICKET\u003e \u003coption\u003e",
+    "use": "approve <TICKET> <option>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -42,7 +42,7 @@
   },
   {
     "path": "attach",
-    "use": "attach \u003cTICKET\u003e",
+    "use": "attach <TICKET>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -77,7 +77,7 @@
   },
   {
     "path": "auto-approve",
-    "use": "auto-approve \u003cagent-id\u003e \u003con|off\u003e",
+    "use": "auto-approve <agent-id> <on|off>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -220,7 +220,7 @@
   },
   {
     "path": "autopilot pause",
-    "use": "pause \u003crun-id-or-name\u003e",
+    "use": "pause <run-id-or-name>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -229,7 +229,7 @@
   },
   {
     "path": "autopilot register",
-    "use": "register \u003cplan-file\u003e",
+    "use": "register <plan-file>",
     "runnable": true,
     "local_flags": [
       "name",
@@ -242,7 +242,7 @@
   },
   {
     "path": "autopilot resume",
-    "use": "resume \u003crun-id-or-name\u003e",
+    "use": "resume <run-id-or-name>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -251,7 +251,7 @@
   },
   {
     "path": "autopilot start",
-    "use": "start \u003crun-id-or-name\u003e",
+    "use": "start <run-id-or-name>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -269,7 +269,7 @@
   },
   {
     "path": "autopilot stop",
-    "use": "stop \u003crun-id-or-name\u003e",
+    "use": "stop <run-id-or-name>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -278,7 +278,7 @@
   },
   {
     "path": "autopilot unregister",
-    "use": "unregister \u003crun-id-or-name\u003e",
+    "use": "unregister <run-id-or-name>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -295,7 +295,7 @@
   },
   {
     "path": "backends default",
-    "use": "default \u003cid\u003e",
+    "use": "default <id>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -304,7 +304,7 @@
   },
   {
     "path": "backends disable",
-    "use": "disable \u003cid\u003e",
+    "use": "disable <id>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -313,7 +313,7 @@
   },
   {
     "path": "backends enable",
-    "use": "enable \u003cid\u003e",
+    "use": "enable <id>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -343,7 +343,7 @@
   },
   {
     "path": "backends thinking-mode",
-    "use": "thinking-mode \u003cmode\u003e",
+    "use": "thinking-mode <mode>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -352,7 +352,7 @@
   },
   {
     "path": "backends tier",
-    "use": "tier \u003cid\u003e \u003ctier\u003e",
+    "use": "tier <id> <tier>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -404,7 +404,7 @@
   },
   {
     "path": "collab who-is-editing",
-    "use": "who-is-editing \u003cfile\u003e",
+    "use": "who-is-editing <file>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -547,7 +547,7 @@
   },
   {
     "path": "ctx append",
-    "use": "append \u003ckey\u003e [value]",
+    "use": "append <key> [value]",
     "runnable": true,
     "local_flags": [
       "as",
@@ -562,7 +562,7 @@
   },
   {
     "path": "ctx cas",
-    "use": "cas \u003ckey\u003e [value]",
+    "use": "cas <key> [value]",
     "runnable": true,
     "local_flags": [
       "as",
@@ -577,7 +577,7 @@
   },
   {
     "path": "ctx del",
-    "use": "del \u003ckey\u003e",
+    "use": "del <key>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -586,7 +586,7 @@
   },
   {
     "path": "ctx get",
-    "use": "get \u003ckey\u003e",
+    "use": "get <key>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -604,7 +604,7 @@
   },
   {
     "path": "ctx set",
-    "use": "set \u003ckey\u003e [value]",
+    "use": "set <key> [value]",
     "runnable": true,
     "local_flags": [
       "as",
@@ -631,7 +631,7 @@
   },
   {
     "path": "delete",
-    "use": "delete \u003cAGENT\u003e",
+    "use": "delete <AGENT>",
     "runnable": true,
     "local_flags": [
       "hard"
@@ -643,7 +643,7 @@
   },
   {
     "path": "digest",
-    "use": "digest \u003cTICKET\u003e",
+    "use": "digest <TICKET>",
     "runnable": true,
     "local_flags": [
       "json"
@@ -659,6 +659,7 @@
     "use": "doctor",
     "runnable": true,
     "local_flags": [
+      "reconcile-membership",
       "sessions"
     ],
     "inherited_flags": [
@@ -668,7 +669,7 @@
   },
   {
     "path": "done",
-    "use": "done \u003cAGENT\u003e",
+    "use": "done <AGENT>",
     "runnable": true,
     "local_flags": [
       "base",
@@ -694,7 +695,7 @@
   },
   {
     "path": "force-compact",
-    "use": "force-compact \u003cagent-id\u003e \u003con|off|inherit\u003e",
+    "use": "force-compact <agent-id> <on|off|inherit>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -703,7 +704,7 @@
   },
   {
     "path": "fork",
-    "use": "fork \u003cagent\u003e [\"\u003cprompt\u003e\"]",
+    "use": "fork <agent> [\"<prompt>\"]",
     "runnable": true,
     "local_flags": [
       "force",
@@ -832,7 +833,7 @@
   },
   {
     "path": "land",
-    "use": "land \u003cagent-or-branch\u003e",
+    "use": "land <agent-or-branch>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -861,7 +862,7 @@
   },
   {
     "path": "library save-preset",
-    "use": "save-preset \u003cname\u003e [spawn flags]",
+    "use": "save-preset <name> [spawn flags]",
     "runnable": true,
     "local_flags": [
       "auto-restart",
@@ -879,7 +880,7 @@
   },
   {
     "path": "library save-prompt",
-    "use": "save-prompt \u003cname\u003e --prompt \"\u003cbody with {{VAR}} placeholders\u003e\"",
+    "use": "save-prompt <name> --prompt \"<body with {{VAR}} placeholders>\"",
     "runnable": true,
     "local_flags": [
       "prompt"
@@ -987,7 +988,7 @@
   },
   {
     "path": "models tier",
-    "use": "tier \u003cbackend\u003e \u003cmodel\u003e \u003ctier\u003e",
+    "use": "tier <backend> <model> <tier>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -1020,7 +1021,7 @@
   },
   {
     "path": "msg send",
-    "use": "send \u003cto\u003e \u003cmessage...\u003e",
+    "use": "send <to> <message...>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -1052,7 +1053,7 @@
   },
   {
     "path": "pipeline cancel",
-    "use": "cancel \u003cpipeline\u003e",
+    "use": "cancel <pipeline>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -1061,7 +1062,7 @@
   },
   {
     "path": "pipeline create",
-    "use": "create (-f \u003cspec.yaml\u003e | --template \u003cname\u003e)",
+    "use": "create (-f <spec.yaml> | --template <name>)",
     "runnable": true,
     "local_flags": [
       "file",
@@ -1077,7 +1078,7 @@
   },
   {
     "path": "pipeline delete",
-    "use": "delete \u003cpipeline\u003e",
+    "use": "delete <pipeline>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -1086,7 +1087,7 @@
   },
   {
     "path": "pipeline edit-job",
-    "use": "edit-job \u003cpipeline\u003e \u003cjob\u003e",
+    "use": "edit-job <pipeline> <job>",
     "runnable": true,
     "local_flags": [
       "handoff",
@@ -1099,7 +1100,7 @@
   },
   {
     "path": "pipeline emit",
-    "use": "emit \u003ctext\u003e",
+    "use": "emit <text>",
     "runnable": true,
     "local_flags": [
       "job",
@@ -1130,7 +1131,7 @@
   },
   {
     "path": "pipeline pause",
-    "use": "pause \u003cpipeline\u003e",
+    "use": "pause <pipeline>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -1139,7 +1140,7 @@
   },
   {
     "path": "pipeline resume",
-    "use": "resume \u003cpipeline\u003e",
+    "use": "resume <pipeline>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -1148,7 +1149,7 @@
   },
   {
     "path": "pipeline retry",
-    "use": "retry \u003cpipeline\u003e \u003cjob\u003e",
+    "use": "retry <pipeline> <job>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -1157,7 +1158,7 @@
   },
   {
     "path": "pipeline show",
-    "use": "show \u003cpipeline\u003e",
+    "use": "show <pipeline>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -1166,7 +1167,7 @@
   },
   {
     "path": "pipeline start",
-    "use": "start \u003cpipeline\u003e",
+    "use": "start <pipeline>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -1175,7 +1176,7 @@
   },
   {
     "path": "pipeline validate",
-    "use": "validate -f \u003cspec.yaml\u003e",
+    "use": "validate -f <spec.yaml>",
     "runnable": true,
     "local_flags": [
       "file"
@@ -1221,7 +1222,7 @@
   },
   {
     "path": "preset save",
-    "use": "save \u003cname\u003e [spawn flags]",
+    "use": "save <name> [spawn flags]",
     "runnable": true,
     "local_flags": [
       "auto-restart",
@@ -1260,7 +1261,7 @@
   },
   {
     "path": "prompt-template save",
-    "use": "save \u003cname\u003e --prompt \"\u003cbody with {{VAR}} placeholders\u003e\"",
+    "use": "save <name> --prompt \"<body with {{VAR}} placeholders>\"",
     "runnable": true,
     "local_flags": [
       "prompt"
@@ -1318,7 +1319,7 @@
   },
   {
     "path": "remove-worktree",
-    "use": "remove-worktree \u003cAGENT\u003e",
+    "use": "remove-worktree <AGENT>",
     "runnable": true,
     "local_flags": [
       "delete-adopted-branch",
@@ -1369,7 +1370,7 @@
   },
   {
     "path": "restore",
-    "use": "restore \u003cTICKET\u003e",
+    "use": "restore <TICKET>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -1411,7 +1412,7 @@
   },
   {
     "path": "role set-tier",
-    "use": "set-tier \u003crole\u003e \u003ctier\u003e",
+    "use": "set-tier <role> <tier>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -1489,7 +1490,7 @@
   },
   {
     "path": "schedule create",
-    "use": "create \u003cname\u003e (--cron \u003cspec\u003e | --at \u003ctime\u003e) [--type \u003ct\u003e --repo \u003cp\u003e --prompt \u003cs\u003e | --pipeline \u003cspec.yaml\u003e]",
+    "use": "create <name> (--cron <spec> | --at <time>) [--type <t> --repo <p> --prompt <s> | --pipeline <spec.yaml>]",
     "runnable": true,
     "local_flags": [
       "agent",
@@ -1508,7 +1509,7 @@
   },
   {
     "path": "schedule delete",
-    "use": "delete \u003cid\u003e",
+    "use": "delete <id>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -1517,7 +1518,7 @@
   },
   {
     "path": "schedule disable",
-    "use": "disable \u003cid\u003e",
+    "use": "disable <id>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -1526,7 +1527,7 @@
   },
   {
     "path": "schedule enable",
-    "use": "enable \u003cid\u003e",
+    "use": "enable <id>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -1535,7 +1536,7 @@
   },
   {
     "path": "schedule get",
-    "use": "get \u003cid\u003e",
+    "use": "get <id>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -1553,7 +1554,7 @@
   },
   {
     "path": "search",
-    "use": "search \u003cQUERY...\u003e",
+    "use": "search <QUERY...>",
     "runnable": true,
     "local_flags": [
       "closed",
@@ -1567,7 +1568,7 @@
   },
   {
     "path": "send",
-    "use": "send \u003cTICKET\u003e \u003cmessage...\u003e",
+    "use": "send <TICKET> <message...>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -1576,7 +1577,7 @@
   },
   {
     "path": "set-permission-mode",
-    "use": "set-permission-mode \u003cagent-id\u003e \u003cmode\u003e",
+    "use": "set-permission-mode <agent-id> <mode>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -1585,7 +1586,7 @@
   },
   {
     "path": "set-role",
-    "use": "set-role \u003cagent-id\u003e \u003crole\u003e",
+    "use": "set-role <agent-id> <role>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -1642,7 +1643,7 @@
   },
   {
     "path": "snapshot restore",
-    "use": "restore \u003csnapshot-id\u003e",
+    "use": "restore <snapshot-id>",
     "runnable": true,
     "local_flags": [
       "force",
@@ -1670,7 +1671,7 @@
   },
   {
     "path": "start",
-    "use": "start --role \u003cROLE\u003e [TICKET|\"\u003cprompt\u003e\"] [--type \u003cTYPE\u003e] [--dir \u003cPATH\u003e] [--backend \u003cID\u003e]",
+    "use": "start --role <ROLE> [TICKET|\"<prompt>\"] [--type <TYPE>] [--dir <PATH>] [--backend <ID>]",
     "runnable": true,
     "local_flags": [
       "auto-restart",
@@ -1686,6 +1687,7 @@
       "permission-mode",
       "pr",
       "preset",
+      "project",
       "prompt-template",
       "repo",
       "role",
@@ -1720,7 +1722,7 @@
   },
   {
     "path": "status",
-    "use": "status \u003cTICKET\u003e",
+    "use": "status <TICKET>",
     "runnable": true,
     "local_flags": [
       "json"
@@ -1733,7 +1735,7 @@
   },
   {
     "path": "stop",
-    "use": "stop \u003cAGENT\u003e",
+    "use": "stop <AGENT>",
     "runnable": true,
     "local_flags": [
       "base",
@@ -1785,7 +1787,7 @@
   },
   {
     "path": "tail",
-    "use": "tail \u003cTICKET\u003e",
+    "use": "tail <TICKET>",
     "runnable": true,
     "local_flags": [
       "lines"
@@ -1797,7 +1799,7 @@
   },
   {
     "path": "terminate",
-    "use": "terminate \u003cAGENT\u003e",
+    "use": "terminate <AGENT>",
     "runnable": true,
     "inherited_flags": [
       "addr",
