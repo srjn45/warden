@@ -49,7 +49,7 @@ func helpText() string {
 		"  enter        open the selected entity — an agent in the agent pane, a terminal in\n" +
 		"               the terminal pane (grabs focus) — or toggle a section header's fold\n" +
 		"               (reserved on a project header for future project details)\n" +
-		"  n            new agent (prompt)\n" +
+		"  n            new agent (prompt · ctrl+n name · ctrl+r role · ctrl+t tier · ctrl+s submit)\n" +
 		"  t            open a terminal in the focused agent's dir: (c)reate new or (f)ocus existing\n" +
 		"  o            open a project: Local / Remote / New (↑/↓ or j/k · enter · esc)\n" +
 		"  s            send a message to the selected agent\n" +

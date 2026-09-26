@@ -51,9 +51,9 @@ default; each in its own tmux session, most in a git worktree).
 | Switch a running agent's role (relaunch re-injects) | `set-role` | `set_role` | ✓ | — | — | [agent-roles](https://srjn45.github.io/warden/guides/agent-roles/) |
 | List the built-in role catalog | `role list` | `list_roles` | ✓ | ✓ (Role select) | list | [agent-roles](https://srjn45.github.io/warden/guides/agent-roles/) |
 | Tiered model routing — derive the model tier from a **task** | `start --task` (CLI + REST; no pipeline `task:`) | routes by `role` only (no `task` param) | — | — | — | [agent-roles](https://srjn45.github.io/warden/guides/agent-roles/#roles-tasks-and-tiers) |
-| Tiered model routing — pin the model **tier** for the quota-balanced resolver | `start --tier` (also pipeline `tier:`) | routes by `role` only (no `tier` param) | — | — | — | [agent-roles](https://srjn45.github.io/warden/guides/agent-roles/#roles-tasks-and-tiers) |
+| Tiered model routing — pin the model **tier** for the quota-balanced resolver | `start --tier` (also pipeline `tier:`) | routes by `role` only (no `tier` param) | ✓ | — | `ctrl+t` (new-agent; live candidate table) | [agent-roles](https://srjn45.github.io/warden/guides/agent-roles/#roles-tasks-and-tiers) |
 | List the backend's live model menu | `models` (`--backend`, `--json`) | **CLI-only** (agent-native; local worktree exec, no daemon round-trip) | ✓ | — | — | [backend-superpowers](https://srjn45.github.io/warden/guides/backend-superpowers/) |
-| Backend selection (Claude / Aider / OpenCode / Codex / Crush / Goose / Cursor / Antigravity) | `start --backend` | `spawn_agent` (`backend`) | ✓ | — | — | [agent-backends](https://srjn45.github.io/warden/concepts/agent-backends/) — only `claude` is stable; `codex` and `antigravity` are β beta; `aider`, `opencode`, `crush`, `goose`, and `cursor` are 🧪 experimental |
+| Backend selection (Claude / Aider / OpenCode / Codex / Crush / Goose / Cursor / Antigravity) | `start --backend` | `spawn_agent` (`backend`) | ✓ | — | — (CLI/MCP pin; TUI is tier-first) | [agent-backends](https://srjn45.github.io/warden/concepts/agent-backends/) — only `claude` is stable; `codex` and `antigravity` are β beta; `aider`, `opencode`, `crush`, `goose`, and `cursor` are 🧪 experimental |
 | Terminal session (`kind=terminal`) — managed `$SHELL` seat, no AI (prompt ignored); back-compat `backend=terminal` alias | `start --kind terminal` | `spawn_agent` (`kind`) | ✓ | ✓ (Terminals tab) | `t` | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
 | Handoff — delegate (new / `--to` existing) or retire self (`--retire`) | `handoff` | `handoff_agent` | ✓ | — | — | [rotation-digests](https://srjn45.github.io/warden/guides/rotation-digests/) |
 | Self-rotation (retire → successor) — alias for `handoff --retire` | `rotate` | `rotate_agent` | ✓ | — | — | [rotation-digests](https://srjn45.github.io/warden/guides/rotation-digests/) |
@@ -253,6 +253,7 @@ Includes a pipeline view and per-job info.
 | Agent sub-trees (spawned agents nest under parent; `h`/`l` collapse; tombstone on parent delete) | main pane | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
 | Spawn / attach / terminate / delete | keybindings | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
 | Role picker in the new-agent form (`ctrl+r`; built-in catalog, defaults `general`) | new-agent form | [agent-roles](https://srjn45.github.io/warden/guides/agent-roles/) |
+| Tier picker + live candidate table (`ctrl+t`; `auto` / `tier-1`/`2`/`3`; headroom bars; resolver picks backend+model) | new-agent form | [agent-roles](https://srjn45.github.io/warden/guides/agent-roles/) |
 | Shift-to-select (native copy under tmux mouse mode) | help hint | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
 | Native tmux window when launched inside tmux (no nesting; auto via `$TMUX`) | `tui --tmux-native` | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
 
