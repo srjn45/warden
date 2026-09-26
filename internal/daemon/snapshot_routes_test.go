@@ -41,8 +41,8 @@ func TestSnapshotCreatePinsToSessionWorktreeAndTmux(t *testing.T) {
 	ts := snapServer(t, fs, fr, true)
 	defer ts.Close()
 
-	// A spoofed dir must be ignored in favour of the agent's own worktree.
-	body, _ := json.Marshal(GitRequest{Session: "A-1", Dir: "/repo/.worktrees/OTHER", Message: "checkpoint"})
+	// Empty dir pins to the agent's own worktree.
+	body, _ := json.Marshal(GitRequest{Session: "A-1", Message: "checkpoint"})
 	resp, err := http.Post(ts.URL+"/api/v1/snapshots", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	defer resp.Body.Close()
@@ -51,7 +51,7 @@ func TestSnapshotCreatePinsToSessionWorktreeAndTmux(t *testing.T) {
 	var snap snapshot.Snapshot
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&snap))
 	require.Equal(t, "A-1", snap.SessionID)
-	require.Equal(t, "/repo/.worktrees/A-1", snap.Workdir, "pinned to the agent's own worktree, not the spoofed dir")
+	require.Equal(t, "/repo/.worktrees/A-1", snap.Workdir, "pinned to the agent's own worktree")
 	require.Equal(t, "stashsha", snap.StashSHA)
 	require.NotZero(t, snap.TranscriptLines, "transcript captured from the session's tmux pane")
 

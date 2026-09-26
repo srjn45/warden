@@ -4170,8 +4170,8 @@ components:
     GitDirRequest:
       type: object
       properties:
-        session: { type: string, description: "calling agent id ('' = human run); pins to the agent's worktree" }
-        dir: { type: string, description: "worktree directory (human fallback)" }
+        session: { type: string, description: "calling agent id ('' = human run); when set, empty/matching dir pins to the agent's worktree; an explicit dir must belong to the same git repository or the request is rejected" }
+        dir: { type: string, description: "worktree directory — honored when it shares the session's git repository (linked worktree ok); rejected when outside that repository; human fallback when session is unknown/empty" }
 
     GitPushRequest:
       allOf:
