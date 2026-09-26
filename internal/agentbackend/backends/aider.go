@@ -318,6 +318,33 @@ func (Aider) Pricing() (agentbackend.PricingTable, bool) {
 	return agentbackend.PricingTable{}, false
 }
 
+// --- Rate-limit detection ---------------------------------------------------
+
+// aiderRLRe matches rate-limit error output in Aider's trailing pane lines.
+// Aider shows multi-line API errors, so we inspect 8 lines and match the
+// canonical error class names and HTTP status codes.
+// TODO(confirm-wording): verify against a live Aider rate-limit pane fixture.
+var aiderRLRe = regexp.MustCompile(
+	`(?i)(rate_limit_error|RateLimitError|429|quota exceeded|Too Many Requests)`,
+)
+
+const aiderRLTailLines = 8
+
+// DetectRateLimit implements agentbackend.RateLimitDetector for Aider.
+func (Aider) DetectRateLimit(pane string) (bool, time.Time, bool) {
+	tail := limitLastLines(pane, aiderRLTailLines)
+	if !aiderRLRe.MatchString(tail) {
+		return false, time.Time{}, false
+	}
+	return true, time.Time{}, false
+}
+
+// ParseRateLimitReset implements agentbackend.RateLimitResetParser for Aider.
+// Aider surfaces no in-band reset time in its error output.
+func (Aider) ParseRateLimitReset(pane string) (time.Time, bool) {
+	return time.Time{}, false
+}
+
 // --- Capabilities -----------------------------------------------------------
 
 // Capabilities reports Aider as a Tier-C backend: headless-friendly and

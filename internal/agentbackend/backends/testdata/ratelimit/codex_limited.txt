@@ -1,0 +1,7 @@
+  OpenAI Codex (v0.142.3)
+
+  Applying changes…
+
+Error: API request failed
+Status: 429 Too Many Requests
+usage limit exceeded — please wait before retrying
