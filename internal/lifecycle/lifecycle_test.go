@@ -1142,6 +1142,40 @@ func TestRestorePreconditionErrors(t *testing.T) {
 		&store.Session{ID: "a", TmuxSession: "a", Workdir: t.TempDir(), ClaudeSessionID: sid}), ErrNoTranscript)
 }
 
+// Cursor resumes its workspace-scoped chat with --continue but stores history in
+// SQLite rather than a transcript format warden can read. A resumable backend
+// without structured transcripts must therefore not be rejected by Restore.
+func TestRestoreAllowsResumeWithoutStructuredTranscript(t *testing.T) {
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"tmux has-session -t agent-cursor": {Err: errStub("no session")},
+	}}
+	lc := New(fr, &FakeConfig{})
+	lc.ProjectsDir = t.TempDir()
+	sess := &store.Session{
+		ID: "agent-cursor", TmuxSession: "agent-cursor", Backend: "cursor", Workdir: t.TempDir(),
+	}
+
+	require.Empty(t, lc.transcriptPath(sess), "Cursor has no structured transcript path")
+	require.NoError(t, lc.Restore(context.Background(), sess))
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "agent-cursor", "cursor-agent --continue", "Enter"})
+}
+
+// SwitchRole shares Restore's transcript precondition: Cursor's resumable
+// workspace chat has no warden-readable transcript, but must still relaunch.
+func TestSwitchRoleAllowsResumeWithoutStructuredTranscript(t *testing.T) {
+	fr := &FakeRunner{}
+	lc := New(fr, &FakeConfig{})
+	lc.ProjectsDir = t.TempDir()
+	sess := &store.Session{
+		ID: "agent-cursor", TmuxSession: "agent-cursor", Backend: "cursor", Workdir: t.TempDir(), Role: "worker",
+	}
+
+	require.Empty(t, lc.transcriptPath(sess), "Cursor has no structured transcript path")
+	require.NoError(t, lc.SwitchRole(context.Background(), sess))
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "kill-session", "-t", "agent-cursor"})
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "agent-cursor", "cursor-agent --continue", "Enter"})
+}
+
 // Restore is the shared resume primitive: internal relaunch paths (auto-restart
 // from errored, rate-limit resume, hibernation reopen) must not be blocked by
 // D8 orphaned-only gating — that gate lives on operator recovery endpoints.

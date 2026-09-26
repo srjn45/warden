@@ -19,8 +19,8 @@ func TestCheckPinsToSessionWorkdir(t *testing.T) {
 	ts := lifeServer(t, fs, fl)
 	defer ts.Close()
 
-	// A spoofed dir must be ignored in favour of the agent's own worktree.
-	body, _ := json.Marshal(CheckRequest{Session: "A-1", Dir: "/repo/.worktrees/OTHER", Name: "test"})
+	// Empty dir pins to the agent's own worktree.
+	body, _ := json.Marshal(CheckRequest{Session: "A-1", Name: "test"})
 	resp, err := http.Post(ts.URL+"/api/v1/check", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	defer resp.Body.Close()

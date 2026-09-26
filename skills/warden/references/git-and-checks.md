@@ -9,8 +9,14 @@ rails, and the guard hooks will deny the raw escapes anyway.
 ## Git lifecycle — `commit` / `push` / `sync`
 
 MCP tools `commit` / `push` / `sync` (CLI `wd commit`/`push`/`sync`) operate on the
-agent's pinned worktree via the `lifecycle` runner, returning compact structs in
-place of git tool-spam.
+agent's worktree via the `lifecycle` runner, returning compact structs in
+place of git tool-spam. An explicit `dir` is honored when it is a usable Git
+worktree in the same repository (including linked worktrees); unrelated repositories
+are rejected with 403, and invalid directories with 400, without falling back to
+the session's worktree. This validation also applies to `check` and
+`snapshot_create`. MCP resolves relative `dir` values against its process cwd and
+sends its cwd when `dir` is omitted; an empty REST `dir` defaults to the session's
+worktree.
 
 | Tool | Does | Rails |
 |---|---|---|

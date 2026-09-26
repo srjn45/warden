@@ -2,8 +2,10 @@ package tui
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -23,8 +25,19 @@ import (
 	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/role"
 	"github.com/srjn45/warden/internal/store"
-	"path/filepath"
 )
+
+// Terminal auto-spawn rate limit / circuit breaker (#465). Without these,
+// reconcile fired spawnTerminalCmd on every empty list poll and could create
+// ~150 terminals in seconds when the daemon was slow or the listing raced.
+const (
+	terminalSpawnInitialBackoff = 2 * time.Second
+	terminalSpawnMaxBackoff     = 30 * time.Second
+	terminalSpawnMaxAttempts    = 3
+)
+
+// terminalSpawnNow is the clock used by the auto-spawn backoff (overridable in tests).
+var terminalSpawnNow = time.Now
 
 // controlPaneModel is the top-left cockpit pane: the agents list plus the
 // new/send/terminate/attach actions. It owns selection: on Enter it opens the
@@ -109,7 +122,20 @@ type controlPaneModel struct {
 	// spawn while one is already in flight (the list may still show zero live
 	// terminals until the spawn completes and is polled).
 	terminalSpawnPending bool
-	showSystemAgents     bool // toggled with S; reveals system agents in the flat fleet
+	// terminalSpawnAttempts counts consecutive auto-spawn tries that have not yet
+	// been followed by a confirmed live terminal in m.sessions (#465).
+	terminalSpawnAttempts int
+	// terminalLastSpawnAt is when the last auto-spawn was fired (backoff anchor).
+	terminalLastSpawnAt time.Time
+	// terminalSpawnBackoff is the minimum wait before the next auto-spawn after
+	// terminalLastSpawnAt. Starts at terminalSpawnInitialBackoff and doubles up
+	// to terminalSpawnMaxBackoff on each attempt.
+	terminalSpawnBackoff time.Duration
+	// terminalSpawnCircuitOpen suspends auto-spawning after terminalSpawnMaxAttempts
+	// consecutive failures/empty listings. Cleared when a live terminal appears or
+	// the user manually requests a terminal (`t` → create).
+	terminalSpawnCircuitOpen bool
+	showSystemAgents         bool // toggled with S; reveals system agents in the flat fleet
 	// openedAgent is the id of the agent currently shown in the agent pane; it
 	// anchors §8 M-a/M-p rotation (advance from here) and is set on every agent
 	// open/rotate. Empty until the first agent is opened.
@@ -555,12 +581,25 @@ func (m controlPaneModel) liveTerminalByID(id string) *store.Session {
 	return nil
 }
 
+// resetTerminalAutoSpawn clears the #465 backoff / circuit-breaker state after a
+// live terminal is confirmed (or the user manually requests one).
+func (m *controlPaneModel) resetTerminalAutoSpawn() {
+	m.terminalSpawnAttempts = 0
+	m.terminalLastSpawnAt = time.Time{}
+	m.terminalSpawnBackoff = 0
+	m.terminalSpawnCircuitOpen = false
+}
+
 // reconcileTerminalPaneCmd keeps the terminal pane healthy (§5 startup + §11
 // ongoing): always maintain ≥1 live terminal, clear a stale openedTerminal when
 // its session exits, and re-attach when the pane is dead ([exited]) after a daemon
 // restart or attach dropout. A no-op in the tmux-native cockpit (no terminal pane).
 // Re-opens never steal focus — the control pane stays focused unless the user
 // explicitly opens or rotates a terminal.
+//
+// Auto-spawn is rate-limited with exponential backoff and a circuit breaker (#465)
+// so an empty listing (daemon lag, listing error, startup race) cannot fire
+// unbounded spawnTerminalCmd calls on every poll cycle.
 func (m *controlPaneModel) reconcileTerminalPaneCmd() tea.Cmd {
 	if m.terminalPane == "" {
 		return nil
@@ -574,15 +613,10 @@ func (m *controlPaneModel) reconcileTerminalPaneCmd() tea.Cmd {
 	}
 
 	if len(live) == 0 {
-		if m.terminalSpawnPending {
-			return nil
-		}
-		m.defaultTerminalReady = true
-		m.terminalSpawnPending = true
-		// The startup terminal opens in the daemon's cwd with no project context; the
-		// daemon path-matches it if that cwd is an open project.
-		return spawnTerminalCmd(m.api, m.fallbackDir(), "", false)
+		return m.autoSpawnTerminalCmd()
 	}
+	// A confirmed live terminal resets the runaway-spawn circuit (#465).
+	m.resetTerminalAutoSpawn()
 	m.terminalSpawnPending = false
 
 	// First successful session list at startup: adopt without stealing focus (§5).
@@ -602,6 +636,51 @@ func (m *controlPaneModel) reconcileTerminalPaneCmd() tea.Cmd {
 		return openInTerminalCmd(m.terminalPane, target.TmuxSession, false)
 	}
 	return nil
+}
+
+// autoSpawnTerminalCmd fires a default terminal spawn when none are live, subject
+// to in-flight guard, exponential backoff, and the #465 circuit breaker.
+func (m *controlPaneModel) autoSpawnTerminalCmd() tea.Cmd {
+	if m.terminalSpawnCircuitOpen {
+		return nil
+	}
+	if m.terminalSpawnPending {
+		return nil
+	}
+	if m.terminalSpawnAttempts >= terminalSpawnMaxAttempts {
+		m.terminalSpawnCircuitOpen = true
+		m.status = "terminal auto-spawn suspended — press t to create one manually"
+		slog.Warn("terminal auto-spawn circuit breaker tripped",
+			"attempts", m.terminalSpawnAttempts,
+			"backoff", m.terminalSpawnBackoff.String())
+		return nil
+	}
+	if m.terminalSpawnAttempts > 0 {
+		wait := m.terminalSpawnBackoff
+		if wait <= 0 {
+			wait = terminalSpawnInitialBackoff
+		}
+		if terminalSpawnNow().Sub(m.terminalLastSpawnAt) < wait {
+			return nil
+		}
+	}
+
+	m.defaultTerminalReady = true
+	m.terminalSpawnPending = true
+	m.terminalSpawnAttempts++
+	m.terminalLastSpawnAt = terminalSpawnNow()
+	if m.terminalSpawnBackoff <= 0 {
+		m.terminalSpawnBackoff = terminalSpawnInitialBackoff
+	} else {
+		next := m.terminalSpawnBackoff * 2
+		if next > terminalSpawnMaxBackoff {
+			next = terminalSpawnMaxBackoff
+		}
+		m.terminalSpawnBackoff = next
+	}
+	// The startup terminal opens in the daemon's cwd with no project context; the
+	// daemon path-matches it if that cwd is an open project.
+	return spawnTerminalCmd(m.api, m.fallbackDir(), "", false)
 }
 
 // bodyH is the height of the framed pane body, shared by View and the inspector
@@ -762,6 +841,11 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// re-attach when the nested tmux attach died (e.g. after a daemon restart).
 		return m, m.reconcileTerminalPaneCmd()
 	case terminalSpawnedMsg:
+		// Clear only the in-flight guard. Do NOT reset terminalSpawnAttempts /
+		// circuit-breaker state here (#465): a successful spawn callback can still
+		// be followed by empty/stale listings, and resetting the budget on the
+		// callback alone would re-enable unbounded auto-spawn. Attempts reset only
+		// when reconcile confirms a live terminal in m.sessions.
 		m.terminalSpawnPending = false
 		if msg.err != nil {
 			m.status = "terminal failed: " + msg.err.Error()
@@ -1541,9 +1625,13 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "c", "C":
 			// Create a fresh terminal in the chosen dir and open it (focused).
+			// A manual request clears the #465 circuit breaker so auto-spawn can
+			// resume after this create is confirmed (or retry with a fresh budget).
 			dir := m.termChoiceDir
 			m.mode = modeNormal
 			m.status = "opening terminal in " + abbrevHome(dir)
+			m.resetTerminalAutoSpawn()
+			m.terminalSpawnPending = true
 			return m, spawnTerminalCmd(m.api, dir, m.termChoiceProjectID, true)
 		case "f", "F":
 			// Focus an existing live terminal in that dir, else fall back to create.
@@ -1552,9 +1640,12 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if t := m.liveTerminalInDir(dir); t != nil {
 				m.openedTerminal = t.ID
 				m.status = ""
+				m.resetTerminalAutoSpawn()
 				return m, openInTerminalCmd(m.terminalPane, t.TmuxSession, true)
 			}
 			m.status = "no terminal in " + abbrevHome(dir) + " — creating one"
+			m.resetTerminalAutoSpawn()
+			m.terminalSpawnPending = true
 			return m, spawnTerminalCmd(m.api, dir, m.termChoiceProjectID, true)
 		}
 		return m, nil
