@@ -1,0 +1,143 @@
+version: 1
+goal: >-
+  Remove the hollow guardian session record from autopilot. The daemon's
+  guardian goroutine already owns all liveness logic; the store session it
+  creates is pure overhead — a TUI noise row that means nothing actionable
+  to an operator and consumes a store write/delete on every run lifecycle.
+  All useful status (run state, backoff, last heartbeat) lives on the run
+  record, not the guardian session. This PR deletes the session, the
+  interface, and the reconcile leg that manages it.
+constraints:
+  - "API is spec-first: edit openapi.yaml then make generate; never hand-edit api.gen.go."
+  - "Work in an isolated git worktree branched off main; one PR."
+  - "Run wd check (make verify-fast) before every commit."
+  - "guardian_id and guardian_slot_id fields stay in RunStatus — they are computed
+    from the slot scope string, not read from the store, and existing API consumers
+    may depend on them."
+  - "GuardianSlotID() identity helper stays in internal/autopilot/identity.go —
+    it is still used to compute the status fields above."
+  - "No behaviour change to the daemon guardian goroutine (RunGuardian, guardianTick,
+    superviseRun) — only the hollow session side-effect is removed."
+tasks:
+  - id: Phase0_Spec
+    prompt: >-
+      Phase 0 (spec freeze — docs only): Write
+      docs/specs/2026-09-26-drop-guardian-session.md capturing the locked
+      decisions below. No production code. Open a PR against main titled
+      'docs(spec): drop autopilot guardian session'. End with
+      `wd job done --summary '...'` once the PR is green.
+
+      **Problem.** `SpawnGuardian` in `internal/daemon/autopilot_runtime.go`
+      creates a bare `store.Session` (no tmux, no aicli) whose only purpose is
+      to appear in the TUI agent list with the suffix `-guardian`. Every useful
+      piece of guardian state (run health, backoff stage, next retry, last
+      heartbeat) already lives on the run record exposed by `wd autopilot status`.
+      The session is noise in `list_agents` and the cockpit agent roster.
+
+      **Locked decisions:**
+
+      D1. Remove `GuardianAgentRuntime` interface from
+          `internal/autopilot/run.go`. Remove the two call-sites that check
+          `c.runtime.(GuardianAgentRuntime)` in `spawnBrain` and `teardownBrain`.
+
+      D2. Remove `SpawnGuardian` and `TerminateGuardian` methods from
+          `internal/daemon/autopilot_runtime.go`. Remove the
+          `guardianSystemTag`, `guardianRunPrefix` constants and the
+          `guardianRunIDFromTags` helper (used only by guardian session logic).
+          Remove the compile-time interface assertion
+          `_ autopilot.GuardianAgentRuntime = autopilotRuntime{}`.
+
+      D3. Remove `retireLegacyGuardian` from
+          `internal/daemon/autopilot_reconcile.go` and its call in
+          `ReconcileSessions`. Remove the `containsTag(sess.Tags, guardianSystemTag)`
+          guard in `reconcileWorkerBackRefs` — the condition was skipping guardian
+          sessions; with no guardian sessions that guard is dead code.
+
+      D4. `guardian_id`, `guardian_slot_id` fields stay in `RunStatus`
+          (`internal/autopilot/status.go`) and in the OpenAPI schema —
+          they are computed, not store-read, and preserve API compatibility.
+          `GuardianSlotID()` in `identity.go` stays for the same reason.
+
+      D5. The `r.guardianID` field on the internal `run` struct may be removed —
+          it was only written by `SpawnGuardian` and read in `teardownBrain`.
+          `persistRunLocked` writes `GuardianID` into the store record: that
+          field can be zeroed / removed from the store record too
+          (`internal/autopilot/store.go`).
+
+      D6. Test cleanup: remove `guardianAgentFake` from
+          `internal/autopilot/run_test.go` and any tests that assert
+          `SpawnGuardian` / `TerminateGuardian` were called. Existing tests
+          that assert the guardian goroutine behaviour (`guardian_test.go`) are
+          untouched — the goroutine itself is unchanged.
+    status: pending
+
+  - id: Phase1_Impl
+    prompt: >-
+      Phase 1 (implementation): Remove the guardian session per spec D1-D6.
+      Open a PR against main titled 'feat(autopilot): drop hollow guardian
+      session'. End with `wd job done --summary '...'` once the PR is green.
+
+      Read docs/specs/2026-09-26-drop-guardian-session.md before starting.
+
+      **Files to edit:**
+
+      1. internal/autopilot/run.go:
+         - Delete the `GuardianAgentRuntime` interface (lines ~152-158).
+         - In `spawnBrain`: delete the `if gr, ok := c.runtime.(GuardianAgentRuntime); ok` block
+           (~lines 246-255) that calls `gr.SpawnGuardian`.
+         - In `teardownBrain`: delete the `if gr, ok := c.runtime.(GuardianAgentRuntime); ok` block
+           (~lines 273-277) that calls `gr.TerminateGuardian`.
+         - Remove `r.guardianID` assignment sites.
+
+      2. internal/autopilot/store.go:
+         - Remove `GuardianID string` field from the persisted run record struct.
+         - Remove any read/write of `GuardianID` in persist/load helpers.
+
+      3. internal/autopilot/controller.go:
+         - Remove any reference to `r.guardianID` (check `valid` map build ~line 252,
+           status assembly ~line 897).
+
+      4. internal/autopilot/lifecycle.go:
+         - Remove `r.guardianID` / `rec.GuardianID` references (~lines 55-56, 103-104, 548, 550).
+
+      5. internal/autopilot/claims.go:
+         - `GuardianSlotID(scope)` entries in the claim registry may stay (they
+           reserve the name to prevent collisions) — or remove if no longer needed.
+           Verify nothing else depends on the reservation.
+
+      6. internal/daemon/autopilot_runtime.go:
+         - Remove compile-time assertion `_ autopilot.GuardianAgentRuntime = autopilotRuntime{}`.
+         - Remove `guardianSystemTag`, `guardianRunPrefix` constants.
+         - Delete `SpawnGuardian` method (~lines 188-229).
+         - Delete `TerminateGuardian` method (~lines 231-243).
+         - Delete `guardianRunIDFromTags` helper if it exists.
+         - Remove `TerminateGuardian` call in the teardown sweep (~line 273).
+
+      7. internal/daemon/autopilot_reconcile.go:
+         - Delete `retireLegacyGuardian` function (~lines 85-101).
+         - Remove its call in `ReconcileSessions` (~line 27).
+         - Remove the `containsTag(sess.Tags, guardianSystemTag)` skip guard in
+           `reconcileWorkerBackRefs` (~line 107) — that whole condition was only
+           for guardian sessions.
+
+      8. internal/autopilot/run_test.go:
+         - Delete `guardianAgentFake` struct and any tests asserting
+           `SpawnGuardian` / `TerminateGuardian` call counts.
+
+      Run wd check before committing.
+
+      After the PR is green, walk the CLAUDE.md Definition-of-Done checklist:
+      no CLI flags changed (make gendocs not needed); confirm
+      docs/FEATURES.md and site/src/content/docs/ need no update since this
+      is an internal cleanup with no user-visible behaviour change.
+    after: [Phase0_Spec]
+    status: pending
+
+done_when:
+  - "No store.Session is created or deleted for the guardian role on any autopilot run lifecycle event."
+  - "GuardianAgentRuntime interface is gone from internal/autopilot/run.go."
+  - "SpawnGuardian / TerminateGuardian are gone from autopilot_runtime.go."
+  - "retireLegacyGuardian is gone from autopilot_reconcile.go."
+  - "guardian_id and guardian_slot_id still appear in wd autopilot status JSON output."
+  - "make verify-fast passes on main."
+status: pending
