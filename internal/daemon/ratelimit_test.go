@@ -3,12 +3,14 @@ package daemon
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentbackend"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
@@ -617,4 +619,83 @@ func TestRateLimitScheduler_CancelTimer_NotExists(t *testing.T) {
 
 	// Should not panic
 	sched.CancelTimer("nonexistent")
+}
+
+// resetParserBackend is a minimal agentbackend.Backend that also implements
+// RateLimitResetParser, returning a fixed reset time.
+type resetParserBackend struct {
+	resetAt time.Time
+	ok      bool
+}
+
+func (resetParserBackend) ID() string                               { return "fake-parser" }
+func (resetParserBackend) DisplayName() string                      { return "Fake Parser" }
+func (resetParserBackend) Binary() string                           { return "fake" }
+func (resetParserBackend) InstallHint() string                      { return "" }
+func (resetParserBackend) LaunchCmd(agentbackend.LaunchOpts) string { return "" }
+func (resetParserBackend) ResumeCmd(agentbackend.ResumeOpts) (string, bool) {
+	return "", false
+}
+func (resetParserBackend) LaunchPromptArg(string) string       { return "" }
+func (resetParserBackend) HeadlessCmd(string) ([]string, bool) { return nil, false }
+func (resetParserBackend) TranscriptPath(_, _, _ string) (string, bool) {
+	return "", false
+}
+func (resetParserBackend) ParseTranscript(io.Reader) ([]agentbackend.Turn, error) {
+	return nil, nil
+}
+func (resetParserBackend) DetectState(string) agentbackend.State { return agentbackend.StateUnknown }
+func (resetParserBackend) ParseApproval(string) (*agentbackend.Approval, bool) {
+	return nil, false
+}
+func (resetParserBackend) SystemPromptFlag(string) (string, bool) { return "", false }
+func (resetParserBackend) Pricing() (agentbackend.PricingTable, bool) {
+	return agentbackend.PricingTable{}, false
+}
+func (resetParserBackend) Capabilities() agentbackend.Caps { return agentbackend.Caps{} }
+
+func (b resetParserBackend) ParseRateLimitReset(pane string) (time.Time, bool) {
+	return b.resetAt, b.ok
+}
+
+// TestLimitClearsAt_BackendResolver verifies that when BackendResolver is set and
+// the resolved backend implements RateLimitResetParser, limitClearsAt uses the
+// backend's result rather than the Claude legacy parsers.
+func TestLimitClearsAt_BackendResolver(t *testing.T) {
+	sched := NewRateLimitScheduler(nil, nil, 30*time.Minute, 6*time.Hour, time.Minute, true, "")
+
+	// Backend returns a reset time 2 hours from now.
+	wantReset := time.Now().Add(2 * time.Hour)
+	b := resetParserBackend{resetAt: wantReset, ok: true}
+	sched.BackendResolver = func(s *store.Session) agentbackend.Backend { return b }
+
+	sess := &store.Session{ID: "s1", LastPaneExcerpt: "some non-Claude pane text"}
+	got := sched.limitClearsAt(sess)
+
+	// Should be wantReset + buffer (1 minute).
+	want := wantReset.Add(sched.buffer)
+	diff := got.Sub(want)
+	if diff < 0 {
+		diff = -diff
+	}
+	require.Less(t, diff, time.Second, "limitClearsAt should use backend RateLimitResetParser result")
+}
+
+// TestLimitClearsAt_BackendResolverFallsThrough verifies that when BackendResolver
+// returns a backend with no RateLimitResetParser, limitClearsAt falls through to
+// the Claude legacy path.
+func TestLimitClearsAt_BackendResolverFallsThrough(t *testing.T) {
+	sched := NewRateLimitScheduler(nil, nil, 30*time.Minute, 6*time.Hour, time.Minute, true, "")
+
+	// Backend has no ParseRateLimitReset (resetParserBackend with ok=false falls through).
+	b := resetParserBackend{ok: false}
+	sched.BackendResolver = func(s *store.Session) agentbackend.Backend { return b }
+
+	// Pane has a Claude banner with parseable time; legacy path should handle it.
+	sess := &store.Session{ID: "s2", LastPaneExcerpt: sampleLimitBanner}
+	got := sched.limitClearsAt(sess)
+
+	// The result must be after now (retryInterval or parsed time) — at minimum
+	// it should be in the future (retryInterval is 30 minutes).
+	require.True(t, got.After(time.Now()), "limitClearsAt fallback should return a future time")
 }
