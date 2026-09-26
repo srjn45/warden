@@ -654,13 +654,13 @@ type CheckOutcome struct {
 
 // CheckRequest defines model for CheckRequest.
 type CheckRequest struct {
-	// Dir worktree directory (human fallback)
+	// Dir worktree directory — honored when it shares the session's git repository (linked worktree ok); rejected when outside that repository; human fallback when session is unknown/empty
 	Dir string `json:"dir,omitempty"`
 
 	// Name configured check entry ('' = all)
 	Name string `json:"name,omitempty"`
 
-	// Session calling agent id ('' = human run); pins to the agent's worktree
+	// Session calling agent id ('' = human run); when set, empty/matching dir pins to the agent's worktree; an explicit dir must belong to the same git repository or the request is rejected
 	Session string `json:"session,omitempty"`
 }
 
@@ -761,32 +761,32 @@ type FileChange struct {
 
 // GitCommitRequest defines model for GitCommitRequest.
 type GitCommitRequest struct {
-	// Dir worktree directory (human fallback)
+	// Dir worktree directory — honored when it shares the session's git repository (linked worktree ok); rejected when outside that repository; human fallback when session is unknown/empty
 	Dir     string `json:"dir,omitempty"`
 	Message string `json:"message,omitempty"`
 
-	// Session calling agent id ('' = human run); pins to the agent's worktree
+	// Session calling agent id ('' = human run); when set, empty/matching dir pins to the agent's worktree; an explicit dir must belong to the same git repository or the request is rejected
 	Session string `json:"session,omitempty"`
 }
 
 // GitDirRequest defines model for GitDirRequest.
 type GitDirRequest struct {
-	// Dir worktree directory (human fallback)
+	// Dir worktree directory — honored when it shares the session's git repository (linked worktree ok); rejected when outside that repository; human fallback when session is unknown/empty
 	Dir string `json:"dir,omitempty"`
 
-	// Session calling agent id ('' = human run); pins to the agent's worktree
+	// Session calling agent id ('' = human run); when set, empty/matching dir pins to the agent's worktree; an explicit dir must belong to the same git repository or the request is rejected
 	Session string `json:"session,omitempty"`
 }
 
 // GitPushRequest defines model for GitPushRequest.
 type GitPushRequest struct {
-	// Dir worktree directory (human fallback)
+	// Dir worktree directory — honored when it shares the session's git repository (linked worktree ok); rejected when outside that repository; human fallback when session is unknown/empty
 	Dir string `json:"dir,omitempty"`
 
 	// Force push with --force-with-lease (safe force: overwrites your own rebase/amend, aborts if the remote moved)
 	Force bool `json:"force,omitempty"`
 
-	// Session calling agent id ('' = human run); pins to the agent's worktree
+	// Session calling agent id ('' = human run); when set, empty/matching dir pins to the agent's worktree; an explicit dir must belong to the same git repository or the request is rejected
 	Session string `json:"session,omitempty"`
 }
 
@@ -794,10 +794,10 @@ type GitPushRequest struct {
 type GitSyncRequest struct {
 	Base string `json:"base,omitempty"`
 
-	// Dir worktree directory (human fallback)
+	// Dir worktree directory — honored when it shares the session's git repository (linked worktree ok); rejected when outside that repository; human fallback when session is unknown/empty
 	Dir string `json:"dir,omitempty"`
 
-	// Session calling agent id ('' = human run); pins to the agent's worktree
+	// Session calling agent id ('' = human run); when set, empty/matching dir pins to the agent's worktree; an explicit dir must belong to the same git repository or the request is rejected
 	Session string `json:"session,omitempty"`
 }
 

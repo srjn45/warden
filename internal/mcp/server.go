@@ -93,19 +93,19 @@ type stopArgs struct {
 
 type gitCommitArgs struct {
 	Message string `json:"message,omitempty" jsonschema:"the commit message — best to pass it, you wrote the change so you know the intent; if omitted warden generates one from the diff"`
-	Dir     string `json:"dir,omitempty" jsonschema:"worktree to commit; defaults to the current directory"`
+	Dir     string `json:"dir,omitempty" jsonschema:"worktree to commit (absolute or relative); defaults to the current directory. When this agent has a session, an explicit dir must belong to the same git repository (linked worktree ok) or the daemon rejects it — it will not silently commit the session worktree."`
 }
 type gitPushArgs struct {
-	Dir   string `json:"dir,omitempty" jsonschema:"worktree to push; defaults to the current directory"`
+	Dir   string `json:"dir,omitempty" jsonschema:"worktree to push; defaults to the current directory. Same-repo linked worktrees are honored; a dir outside this agent's repository is rejected."`
 	Force bool   `json:"force,omitempty" jsonschema:"push with --force-with-lease after a rebase or amend — overwrites your own remote branch but aborts if a teammate pushed to it since your last fetch"`
 }
 type gitSyncArgs struct {
 	Base string `json:"base,omitempty" jsonschema:"base branch to rebase onto; defaults to main"`
-	Dir  string `json:"dir,omitempty" jsonschema:"worktree to sync; defaults to the current directory"`
+	Dir  string `json:"dir,omitempty" jsonschema:"worktree to sync; defaults to the current directory. Same-repo linked worktrees are honored; a dir outside this agent's repository is rejected."`
 }
 type checkArgs struct {
 	Name string `json:"name,omitempty" jsonschema:"the configured check to run (e.g. test, lint, build); omit to run them all"`
-	Dir  string `json:"dir,omitempty" jsonschema:"worktree to check; defaults to the current directory"`
+	Dir  string `json:"dir,omitempty" jsonschema:"worktree to check; defaults to the current directory. Same-repo linked worktrees are honored; a dir outside this agent's repository is rejected."`
 }
 
 type ctxSetArgs struct {
@@ -165,7 +165,7 @@ type insightsArgs struct {
 
 type snapshotCreateArgs struct {
 	Message string `json:"message,omitempty" jsonschema:"optional label for the snapshot"`
-	Dir     string `json:"dir,omitempty" jsonschema:"worktree to snapshot; defaults to the current directory (pinned to this agent's own worktree)"`
+	Dir     string `json:"dir,omitempty" jsonschema:"worktree to snapshot; defaults to the current directory. Same-repo linked worktrees are honored; a dir outside this agent's repository is rejected."`
 }
 type snapshotListArgs struct {
 	Session string `json:"session,omitempty" jsonschema:"filter to one agent's snapshots; defaults to this agent ($WARDEN_SESSION_ID); empty with all=true lists every session"`
@@ -215,7 +215,9 @@ func ctxWriter() string {
 
 // mcpDir resolves the working dir for a git tool: the explicit arg (made
 // absolute) when given, else the process cwd. The agent calls these from its
-// worktree, so cwd is the right default.
+// worktree, so cwd is the right default. The daemon then validates an explicit
+// dir against the session's repository (same git-common-dir / linked worktree)
+// via pinnedWorkdir — so pass dir when targeting another worktree of this repo.
 func mcpDir(arg string) string {
 	if arg != "" {
 		if abs, err := filepath.Abs(arg); err == nil {
@@ -383,7 +385,7 @@ func NewServer(daemonBase string) *Server {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "commit",
-		Description: "Stage and commit every change in the worktree on its branch — one call in place of git status/add/commit/rev-parse. warden refuses protected branches (main/master), runs pre-commit hooks and returns ONLY a failure, and links the commit to this agent. Pass `message` when you can (you made the change, so you know the intent); omit it and warden writes one from the diff (local model, else a deterministic conventional-commit floor). Returns {committed, sha, branch, files} or a hook failure to fix.",
+		Description: "Stage and commit every change in the worktree on its branch — one call in place of git status/add/commit/rev-parse. Pass optional `dir` to target a linked worktree of this agent's repository (honored after same-repo validation); omit it to use cwd / the session worktree. A dir outside the agent's repo is rejected. warden refuses protected branches (main/master), runs pre-commit hooks and returns ONLY a failure, and links the commit to this agent. Pass `message` when you can (you made the change, so you know the intent); omit it and warden writes one from the diff (local model, else a deterministic conventional-commit floor). Returns {committed, sha, branch, files} or a hook failure to fix.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a gitCommitArgs) (*mcpsdk.CallToolResult, any, error) {
 		res, err := s.cl.GitCommit(ctx, sessionID(), mcpDir(a.Dir), a.Message)
 		if err != nil {
@@ -395,7 +397,7 @@ func NewServer(daemonBase string) *Server {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "push",
-		Description: "Push the current worktree branch to origin (sets upstream). warden refuses to push protected branches (main/master) directly — push your agent branch and open a PR. Pass force=true to push with --force-with-lease after a rebase or amend (safe force: overwrites your own remote branch, aborts if a teammate pushed since your last fetch). Returns {branch, remote, pushed, forced}.",
+		Description: "Push the current worktree branch to origin (sets upstream). Optional `dir` selects a same-repo linked worktree (validated); outside-repo paths are rejected. warden refuses to push protected branches (main/master) directly — push your agent branch and open a PR. Pass force=true to push with --force-with-lease after a rebase or amend (safe force: overwrites your own remote branch, aborts if a teammate pushed since your last fetch). Returns {branch, remote, pushed, forced}.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a gitPushArgs) (*mcpsdk.CallToolResult, any, error) {
 		res, err := s.cl.GitPush(ctx, sessionID(), mcpDir(a.Dir), a.Force)
 		if err != nil {
@@ -407,7 +409,7 @@ func NewServer(daemonBase string) *Server {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "sync",
-		Description: "Fetch origin and rebase the current branch onto origin/<base> (default main). Refuses a dirty tree (commit first). On conflict warden leaves the rebase in progress and returns ONLY the conflicting files — resolve those, then `git rebase --continue`. Returns {branch, base, updated, conflicts}.",
+		Description: "Fetch origin and rebase the current branch onto origin/<base> (default main). Optional `dir` selects a same-repo linked worktree (validated); outside-repo paths are rejected. Refuses a dirty tree (commit first). On conflict warden leaves the rebase in progress and returns ONLY the conflicting files — resolve those, then `git rebase --continue`. Returns {branch, base, updated, conflicts}.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a gitSyncArgs) (*mcpsdk.CallToolResult, any, error) {
 		res, err := s.cl.GitSync(ctx, sessionID(), mcpDir(a.Dir), a.Base)
 		if err != nil {
@@ -419,7 +421,7 @@ func NewServer(daemonBase string) *Server {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "check",
-		Description: "Run the project's configured checks (from .warden/check.yml) and get back a compact pass/fail summary with output for ONLY the failing checks — in place of running tests/lint/build in Bash and reading hundreds of lines. Pass `name` for one check (e.g. test, lint, build) or omit to run them all. Use this instead of raw `go test` / `npm test` / `make verify`. Returns {passed, checks:[{name,cmd,passed,exit_code,output}]}.",
+		Description: "Run the project's configured checks (from .warden/check.yml) and get back a compact pass/fail summary with output for ONLY the failing checks — in place of running tests/lint/build in Bash and reading hundreds of lines. Optional `dir` selects a same-repo linked worktree (validated); outside-repo paths are rejected. Pass `name` for one check (e.g. test, lint, build) or omit to run them all. Use this instead of raw `go test` / `npm test` / `make verify`. Returns {passed, checks:[{name,cmd,passed,exit_code,output}]}.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a checkArgs) (*mcpsdk.CallToolResult, any, error) {
 		res, err := s.cl.Check(ctx, sessionID(), mcpDir(a.Dir), a.Name)
 		if err != nil {
@@ -782,7 +784,7 @@ func NewServer(daemonBase string) *Server {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "snapshot_create",
-		Description: "Checkpoint this agent's worktree + session transcript at a known-good point (#46). Captures the worktree non-destructively (git stash create — the working tree is untouched) plus the recorded HEAD/branch/dirty-file list, and saves the transcript. Returns the snapshot {id, branch, head_sha, stash_sha, dirty_files, transcript_path}. Roll back later with snapshot_restore.",
+		Description: "Checkpoint this agent's worktree + session transcript at a known-good point (#46). Optional `dir` selects a same-repo linked worktree (validated); outside-repo paths are rejected. Captures the worktree non-destructively (git stash create — the working tree is untouched) plus the recorded HEAD/branch/dirty-file list, and saves the transcript. Returns the snapshot {id, branch, head_sha, stash_sha, dirty_files, transcript_path}. Roll back later with snapshot_restore.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a snapshotCreateArgs) (*mcpsdk.CallToolResult, any, error) {
 		snap, err := s.cl.SnapshotCreate(ctx, sessionID(), mcpDir(a.Dir), a.Message)
 		if err != nil {
