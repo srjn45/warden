@@ -1878,8 +1878,9 @@ func (l *Lifecycle) resumeInTmuxWithHints(ctx context.Context, b agentbackend.Ba
 // Restore recreates a lost agent's tmux session in its original workdir and
 // resumes the same claude conversation (claude --resume). It is resume-only: it
 // validates that the session is actually gone, has a pinned id, its workdir
-// still exists, and its transcript is present — returning a specific sentinel
-// otherwise — and never silently starts a fresh conversation.
+// still exists, and (for backends with structured transcripts) its transcript is
+// present — returning a specific sentinel otherwise — and never silently starts a
+// fresh conversation.
 //
 // Restore is the shared resume primitive used by operator recovery
 // (RestoreSession), project hibernation reopen, auto-restart, rate-limit
@@ -1908,7 +1909,7 @@ func (l *Lifecycle) Restore(ctx context.Context, sess *store.Session) error {
 	if fi, err := os.Stat(sess.Workdir); err != nil || !fi.IsDir() {
 		return ErrWorkdirMissing
 	}
-	if l.transcriptPath(sess) == "" {
+	if b.Capabilities().StructuredTranscript && l.transcriptPath(sess) == "" {
 		return ErrNoTranscript
 	}
 	mode := sess.PermissionMode
@@ -1941,7 +1942,7 @@ func (l *Lifecycle) SwitchRole(ctx context.Context, sess *store.Session) error {
 	if fi, err := os.Stat(sess.Workdir); err != nil || !fi.IsDir() {
 		return ErrWorkdirMissing
 	}
-	if l.transcriptPath(sess) == "" {
+	if b.Capabilities().StructuredTranscript && l.transcriptPath(sess) == "" {
 		return ErrNoTranscript
 	}
 	// Kill the live tmux session (if any) so the relaunch below re-creates it. Unlike

@@ -46,11 +46,12 @@ func newTierTrioStore(t *testing.T) *backendstore.Store {
 	}
 
 	// Differing quota headroom: claude 100% (no usage recorded → full headroom),
-	// antigravity 50% (500k of its 1M daily window). antigravity stays well under the
-	// 90% threshold, so it is eligible — it simply loses to claude on headroom. This
-	// gap is what makes claude the deterministic winner (equal headroom would tie and
-	// round-robin across the two backends).
+	// antigravity 50% on both scopes (non-gemini + gemini). Recording only one
+	// scope would leave the other at 100% under GetModelHeadroom and let an
+	// antigravity gemini face tie/beat claude. antigravity stays well under the
+	// 90% threshold, so it is eligible — it simply loses to claude on headroom.
 	require.NoError(t, s.RecordQuotaUsage("antigravity", 500000, "claude-sonnet-4-6", tierTrioNow))
+	require.NoError(t, s.RecordQuotaUsage("antigravity", 500000, "gemini-3.1-pro-high", tierTrioNow))
 	return s
 }
 

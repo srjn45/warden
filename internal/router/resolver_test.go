@@ -173,6 +173,9 @@ func TestResolver_HighestHeadroomSelection(t *testing.T) {
 	// Disable cursor and codex for this test
 	require.NoError(t, s.SetEnabled("cursor", false))
 	require.NoError(t, s.SetEnabled("codex", false))
+	// Pin antigravity to the non-gemini auto-assign face so scoped headroom
+	// on that face is what ranks (gemini faces would otherwise show 100%).
+	require.NoError(t, s.SetModelEnabled("antigravity", "gemini-3.7-flash-high", false))
 
 	now := time.Date(2026, 8, 26, 12, 0, 0, 0, time.UTC)
 	r := router.NewResolver(s).WithNow(func() time.Time { return now })
@@ -199,6 +202,7 @@ func TestResolver_QuotaThresholdDoesNotRejectCandidate(t *testing.T) {
 	// Disable cursor and codex
 	require.NoError(t, s.SetEnabled("cursor", false))
 	require.NoError(t, s.SetEnabled("codex", false))
+	require.NoError(t, s.SetModelEnabled("antigravity", "gemini-3.7-flash-high", false))
 
 	now := time.Date(2026, 8, 26, 12, 0, 0, 0, time.UTC)
 	r := router.NewResolver(s).WithNow(func() time.Time { return now })
@@ -377,4 +381,179 @@ func TestResolver_CursorAutoAssignFacesPerTier(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, "cursor-grok-4.6-xhigh", res.ModelID)
+}
+
+// TestResolver_ScopedHeadroom_CursorAPIExhaustedPicksAuto verifies D4: when
+// cursor/api is exhausted but cursor/auto still has headroom, the resolver
+// picks auto over a lower-headroom cross-backend candidate (claude).
+func TestResolver_ScopedHeadroom_CursorAPIExhaustedPicksAuto(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	require.NoError(t, s.SetEnabled("antigravity", false))
+	require.NoError(t, s.SetEnabled("codex", false))
+	// Narrow cursor tier-2 auto-assign to api + auto faces (drop included grok).
+	require.NoError(t, s.SetModelEnabled("cursor", "cursor-grok-4.5-high", false))
+	require.NoError(t, s.SetModelEnabled("cursor", "claude-sonnet-5-thinking-high", true))
+
+	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	r := router.NewResolver(s).WithNow(func() time.Time { return now })
+	ctx := context.Background()
+
+	// cursor/api exhausted; cursor/auto still has 55% headroom.
+	require.NoError(t, s.SetQuota(backendstore.BackendQuota{
+		BackendID:  "cursor",
+		Scope:      "api",
+		WindowType: backendstore.WindowMonthly,
+		QuotaLimit: 100,
+		UsedAmount: 100,
+		LastReset:  now,
+		UpdatedAt:  now,
+	}))
+	require.NoError(t, s.SetQuota(backendstore.BackendQuota{
+		BackendID:  "cursor",
+		Scope:      "auto",
+		WindowType: backendstore.WindowMonthly,
+		QuotaLimit: 100,
+		UsedAmount: 45,
+		LastReset:  now,
+		UpdatedAt:  now,
+	}))
+	// Claude has only 20% headroom — lower than cursor/auto's 55%.
+	require.NoError(t, s.SetQuota(backendstore.BackendQuota{
+		BackendID:      "claude",
+		Scope:          "session",
+		WindowType:     backendstore.Window5HourRolling,
+		WindowDuration: 5 * time.Hour,
+		QuotaLimit:     100,
+		Events:         []backendstore.UsageEvent{{Timestamp: now, Amount: 80}},
+		LastReset:      now,
+		UpdatedAt:      now,
+	}))
+
+	res, err := r.Resolve(ctx, router.ResolveOptions{Tier: backendstore.Tier2})
+	require.NoError(t, err)
+	require.Equal(t, "cursor", res.BackendID)
+	require.Equal(t, "auto", res.ModelID)
+	require.InDelta(t, 0.55, res.Headroom, 0.001)
+
+	// Backend-wide GetHeadroom would have been min(api,auto)=0 and wrongly
+	// preferred claude; confirm api-scope face is still evaluated but loses.
+	var apiEval, autoEval *router.CandidateEvaluation
+	for i := range res.Candidates {
+		c := &res.Candidates[i]
+		if c.BackendID != "cursor" {
+			continue
+		}
+		switch c.ModelID {
+		case "claude-sonnet-5-thinking-high":
+			apiEval = c
+		case "auto":
+			autoEval = c
+		}
+	}
+	require.NotNil(t, apiEval)
+	require.NotNil(t, autoEval)
+	require.True(t, apiEval.Eligible)
+	require.InDelta(t, 0.0, apiEval.Headroom, 0.001)
+	require.True(t, autoEval.Eligible)
+	require.InDelta(t, 0.55, autoEval.Headroom, 0.001)
+}
+
+// TestResolver_ScopedHeadroom_AntigravityGeminiVsNonGemini verifies that within
+// antigravity, a non-gemini candidate at 90% headroom beats a gemini candidate
+// at 10% headroom (independent scopes).
+func TestResolver_ScopedHeadroom_AntigravityGeminiVsNonGemini(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	require.NoError(t, s.SetEnabled("claude", false))
+	require.NoError(t, s.SetEnabled("cursor", false))
+	require.NoError(t, s.SetEnabled("codex", false))
+
+	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	r := router.NewResolver(s).WithNow(func() time.Time { return now })
+	ctx := context.Background()
+
+	// gemini scope nearly exhausted (10% headroom); non-gemini healthy (90%).
+	require.NoError(t, s.SetQuota(backendstore.BackendQuota{
+		BackendID:      "antigravity",
+		Scope:          "gemini",
+		WindowType:     backendstore.Window5HourRolling,
+		WindowDuration: 5 * time.Hour,
+		QuotaLimit:     100,
+		Events:         []backendstore.UsageEvent{{Timestamp: now, Amount: 90}},
+		LastReset:      now,
+		UpdatedAt:      now,
+	}))
+	require.NoError(t, s.SetQuota(backendstore.BackendQuota{
+		BackendID:      "antigravity",
+		Scope:          "non-gemini",
+		WindowType:     backendstore.Window5HourRolling,
+		WindowDuration: 5 * time.Hour,
+		QuotaLimit:     100,
+		Events:         []backendstore.UsageEvent{{Timestamp: now, Amount: 10}},
+		LastReset:      now,
+		UpdatedAt:      now,
+	}))
+
+	res, err := r.Resolve(ctx, router.ResolveOptions{Tier: backendstore.Tier2})
+	require.NoError(t, err)
+	require.Equal(t, "antigravity", res.BackendID)
+	require.Equal(t, "claude-sonnet-4-6", res.ModelID)
+	require.InDelta(t, 0.9, res.Headroom, 0.001)
+}
+
+// TestResolver_ScopedHeadroom_Tier2ExhaustedFallsBackToTier3 verifies that when
+// every tier-2 auto-assign candidate is rate-limited at its scope, AllowFallback
+// drops to tier-3 on a still-available scope.
+func TestResolver_ScopedHeadroom_Tier2ExhaustedFallsBackToTier3(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	// Isolate to antigravity. Disable the tier-2 gemini auto-assign face so the
+	// only tier-2 auto-assign candidate is non-gemini; limit that scope while
+	// leaving gemini free for the tier-3 fallback face.
+	require.NoError(t, s.SetEnabled("claude", false))
+	require.NoError(t, s.SetEnabled("cursor", false))
+	require.NoError(t, s.SetEnabled("codex", false))
+	require.NoError(t, s.SetModelEnabled("antigravity", "gemini-3.7-flash-high", false))
+
+	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	until := now.Add(30 * time.Minute)
+	r := router.NewResolver(s).WithNow(func() time.Time { return now })
+	ctx := context.Background()
+
+	require.NoError(t, s.SetQuota(backendstore.BackendQuota{
+		BackendID:      "antigravity",
+		Scope:          "non-gemini",
+		WindowType:     backendstore.Window5HourRolling,
+		WindowDuration: 5 * time.Hour,
+		QuotaLimit:     100,
+		Events:         []backendstore.UsageEvent{{Timestamp: now, Amount: 100}},
+		LimitedUntil:   until,
+		LastReset:      now,
+		UpdatedAt:      now,
+	}))
+	// gemini scope remains available for tier-3.
+	require.NoError(t, s.SetQuota(backendstore.BackendQuota{
+		BackendID:      "antigravity",
+		Scope:          "gemini",
+		WindowType:     backendstore.Window5HourRolling,
+		WindowDuration: 5 * time.Hour,
+		QuotaLimit:     100,
+		Events:         []backendstore.UsageEvent{{Timestamp: now, Amount: 20}},
+		LastReset:      now,
+		UpdatedAt:      now,
+	}))
+
+	_, err := r.Resolve(ctx, router.ResolveOptions{Tier: backendstore.Tier2, AllowFallback: false})
+	require.ErrorIs(t, err, router.ErrAllExhausted)
+
+	res, err := r.Resolve(ctx, router.ResolveOptions{Tier: backendstore.Tier2, AllowFallback: true})
+	require.NoError(t, err)
+	require.Equal(t, backendstore.Tier3, res.Tier)
+	require.Equal(t, "antigravity", res.BackendID)
+	require.Equal(t, "gemini-3.7-flash-medium", res.ModelID)
+	require.InDelta(t, 0.8, res.Headroom, 0.001)
 }

@@ -27,6 +27,8 @@ tasks:
          terminal listings do not trigger unbounded rapid spawns.
       Ensure `wd check` passes before opening a PR against autopilot/reported-bugfixes.
       End with `wd job done --summary 'fix(tui): add circuit breaker and backoff to terminal auto-spawn loop (#465)'`.
+    status: done
+    landed_pr: 467
 
   - id: Task2_FixIssue464_CursorRestore
     prompt: >-
@@ -47,6 +49,8 @@ tasks:
          backend with Resume: true and StructuredTranscript: false when worktree exists, even without a transcript file.
       Ensure `wd check` passes before opening a PR against autopilot/reported-bugfixes.
       End with `wd job done --summary 'fix(lifecycle): permit restore for backends without structured transcripts (#464)'`.
+    status: done
+    landed_pr: 468
 
   - id: Task3_FixIssue274_McpDirPinning
     prompt: >-
@@ -75,6 +79,8 @@ tasks:
          - Spoofed/unrelated dir outside the repository is rejected with an error instead of silently falling back to sess.Workdir.
       Ensure `wd check` passes before opening a PR against autopilot/reported-bugfixes.
       End with `wd job done --summary 'fix(daemon,mcp): honor explicit dir and validate worktree boundaries (#274)'`.
+    status: done
+    landed_pr: 469
 
   - id: Task4_VerifyAndE2E
     prompt: >-
@@ -85,6 +91,8 @@ tasks:
       Open PR against autopilot/reported-bugfixes.
       End with `wd job done --summary 'test(e2e): verify fixes for issues #465, #464, and #274'`.
     after: [Task1_FixIssue465_TerminalSpawnLoop, Task2_FixIssue464_CursorRestore, Task3_FixIssue274_McpDirPinning]
+    status: done
+    landed_pr: 471
 
 done_when:
   - "wd check passes on autopilot/reported-bugfixes."
@@ -92,3 +100,5 @@ done_when:
   - "Issue #464 fixed: restore_agent and SwitchRole succeed for cursor-backend agents without 422 ErrNoTranscript."
   - "Issue #274 fixed: MCP git tools (commit, push, sync, check, snapshot) honor explicit dir with worktree validation and reject invalid paths."
   - "All tests pass without flakes."
+status: complete
+completed_at: "2026-09-26T12:49:11Z"
