@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/srjn45/warden/internal/agentbackend"
 )
@@ -858,6 +859,35 @@ func (Codex) InjectContext(workdir, text string) error {
 // but savings omits the agent without a dollar pricing table (docs/agent-backends/codex.md).
 func (Codex) Pricing() (agentbackend.PricingTable, bool) {
 	return agentbackend.PricingTable{}, false
+}
+
+// --- Rate-limit detection ---------------------------------------------------
+
+// codexRLRe matches a rate-limit condition in Codex pane output. It requires
+// a quota/limit keyword AND a severity keyword together, or an explicit HTTP 429
+// literal — failing closed so ordinary agent prose about rate-limits doesn't match.
+// TODO(confirm-wording): verify against a live Codex rate-limit hit fixture.
+var codexRLRe = regexp.MustCompile(
+	`(?i)(usage limit|rate limit|quota)[\s\S]{0,60}?(exceeded|reached|hit)|429|Too Many Requests`,
+)
+
+const codexRLTailLines = 6
+
+// DetectRateLimit implements agentbackend.RateLimitDetector for Codex.
+func (Codex) DetectRateLimit(pane string) (bool, time.Time, bool) {
+	tail := limitLastLines(pane, codexRLTailLines)
+	if !codexRLRe.MatchString(tail) {
+		return false, time.Time{}, false
+	}
+	t, ok := parseRateLimitResetTime(tail)
+	return true, t, ok
+}
+
+// ParseRateLimitReset implements agentbackend.RateLimitResetParser for Codex.
+// Codex surfaces reset times in a similar format to Claude ("resets HH:MM"),
+// so the shared poller-style parser handles it.
+func (Codex) ParseRateLimitReset(pane string) (time.Time, bool) {
+	return parseRateLimitResetTime(pane)
 }
 
 // --- Capabilities -----------------------------------------------------------

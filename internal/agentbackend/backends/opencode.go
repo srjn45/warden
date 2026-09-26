@@ -412,6 +412,10 @@ func (OpenCode) Pricing() (agentbackend.PricingTable, bool) {
 	return agentbackend.PricingTable{}, false
 }
 
+// No RateLimitDetector: Tea TUI pane carries no parseable rate-limit signal.
+// Rate-limit detection for this backend relies on the usage-API polling fallback
+// in daemon/usage_sync.go (limitSessionsFromSnapshot).
+
 // --- Capabilities -----------------------------------------------------------
 
 // Capabilities reports OpenCode as a Tier-A backend that, unlike Aider, supports

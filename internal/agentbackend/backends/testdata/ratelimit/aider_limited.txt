@@ -1,0 +1,8 @@
+
+> /add main.go
+
+Aider v0.86.0
+Model: gpt-4o with diff edit format
+
+LiteLLM.exceptions.RateLimitError: openai.RateLimitError:
+Error code: 429 - {'error': {'message': 'Too Many Requests', 'type': 'rate_limit_error', 'code': '429'}}

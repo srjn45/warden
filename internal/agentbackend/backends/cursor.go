@@ -680,6 +680,34 @@ func parseCursorModels(out []byte) []string {
 	return models
 }
 
+// --- Rate-limit detection ---------------------------------------------------
+
+// cursorRLRe matches rate-limit phrasing in Cursor pane output, anchored to
+// trailing lines. Fails closed: requires a specific limit/quota phrase so
+// ordinary commentary about rate limits does not match.
+// TODO(confirm-wording): verify against a live Cursor rate-limit pane fixture.
+var cursorRLRe = regexp.MustCompile(
+	`(?i)(rate limit|usage limit|quota|limit exceeded)`,
+)
+
+const cursorRLTailLines = 6
+
+// DetectRateLimit implements agentbackend.RateLimitDetector for Cursor.
+func (Cursor) DetectRateLimit(pane string) (bool, time.Time, bool) {
+	tail := limitLastLines(pane, cursorRLTailLines)
+	if !cursorRLRe.MatchString(tail) {
+		return false, time.Time{}, false
+	}
+	t, ok := parseRateLimitResetTime(tail)
+	return true, t, ok
+}
+
+// ParseRateLimitReset implements agentbackend.RateLimitResetParser for Cursor.
+// Uses the generic clock-time parser; returns ok=false when no time is present.
+func (Cursor) ParseRateLimitReset(pane string) (time.Time, bool) {
+	return parseRateLimitResetTime(pane)
+}
+
 // --- Capabilities -----------------------------------------------------------
 
 // Capabilities reports Cursor as a stable **Tier-C** backend: resume works
