@@ -227,6 +227,20 @@ func emptyAgentList() sessionsMsg {
 // pending clears — simulating the daemon/listing race that caused the loop.
 func driveEmptyReconcile(t *testing.T, m controlPaneModel, f *fakeAPI) (controlPaneModel, bool) {
 	t.Helper()
+	return driveEmptyReconcileWith(t, m, f, terminalSpawnedMsg{err: fmt.Errorf("spawn failed")})
+}
+
+// driveEmptyReconcileSuccess is the #465 listing-race path: Spawn returns an id
+// successfully, but the subsequent session list still has zero live terminals
+// (stale/slow daemon). The success callback must not reset the attempt budget.
+func driveEmptyReconcileSuccess(t *testing.T, m controlPaneModel, f *fakeAPI, id string) (controlPaneModel, bool) {
+	t.Helper()
+	return driveEmptyReconcileWith(t, m, f, terminalSpawnedMsg{id: id, focus: false})
+}
+
+func driveEmptyReconcileWith(t *testing.T, m controlPaneModel, f *fakeAPI, done terminalSpawnedMsg) (controlPaneModel, bool) {
+	t.Helper()
+	attemptsBefore := m.terminalSpawnAttempts
 	nm, cmd := m.Update(emptyAgentList())
 	m = nm.(controlPaneModel)
 	if cmd == nil {
@@ -235,8 +249,14 @@ func driveEmptyReconcile(t *testing.T, m controlPaneModel, f *fakeAPI) (controlP
 	cmd() // invoke spawn against fakeAPI
 	require.NotNil(t, f.spawned, "reconcile returned a cmd that should spawn")
 	f.spawned = nil
-	nm, _ = m.Update(terminalSpawnedMsg{err: fmt.Errorf("spawn failed")})
-	return nm.(controlPaneModel), true
+	nm, _ = m.Update(done)
+	m = nm.(controlPaneModel)
+	require.False(t, m.terminalSpawnPending, "spawn callback clears the in-flight guard")
+	// Spawn callbacks (success or error) must never reset the attempt budget —
+	// only a confirmed live terminal in m.sessions may (#465).
+	require.Greater(t, m.terminalSpawnAttempts, attemptsBefore,
+		"firing a spawn must increment attempts; callback must not reset them")
+	return m, true
 }
 
 // #465: empty terminal listings must not trigger unbounded rapid auto-spawns.
@@ -297,6 +317,89 @@ func TestReconcileTerminalAutoSpawnBackoffAndCircuitBreaker(t *testing.T) {
 		require.False(t, spawned, "poll %d must not spawn while circuit is open", i)
 	}
 	require.True(t, m.terminalSpawnCircuitOpen)
+}
+
+// #465: successful Spawn callbacks followed by repeatedly empty/stale listings
+// must stay rate-limited — the production runaway was often "spawn OK" then a
+// list that still showed zero terminals, not only hard spawn errors.
+func TestReconcileTerminalAutoSpawnBoundsSuccessfulButEmptyListings(t *testing.T) {
+	base := time.Date(2026, 9, 26, 14, 0, 0, 0, time.UTC)
+	now := base
+	old := terminalSpawnNow
+	terminalSpawnNow = func() time.Time { return now }
+	t.Cleanup(func() { terminalSpawnNow = old })
+
+	f := &fakeAPI{}
+	m := newListPane(f, "%9", "%1")
+	totalSpawns := 0
+
+	// Attempt 1: spawn succeeds (returns an id) but the list stays empty.
+	var spawned bool
+	m, spawned = driveEmptyReconcileSuccess(t, m, f, "t-phantom-1")
+	require.True(t, spawned)
+	totalSpawns++
+	require.Equal(t, 1, m.terminalSpawnAttempts)
+	require.Equal(t, "t-phantom-1", m.openedTerminal)
+	require.False(t, m.terminalSpawnCircuitOpen)
+
+	// Immediate empty re-poll while still inside backoff: no extra spawn, budget intact.
+	m, spawned = driveEmptyReconcileSuccess(t, m, f, "t-phantom-should-not")
+	require.False(t, spawned, "success+empty must not re-spawn inside backoff")
+	require.Equal(t, 1, m.terminalSpawnAttempts, "success callback must not reset attempts")
+
+	// Drain the remaining attempt budget with success+empty cycles past backoff.
+	backoffs := []time.Duration{
+		terminalSpawnInitialBackoff,     // → attempt 2
+		2 * terminalSpawnInitialBackoff, // → attempt 3
+	}
+	elapsed := time.Duration(0)
+	for i, wait := range backoffs {
+		elapsed += wait
+		now = base.Add(elapsed)
+		id := fmt.Sprintf("t-phantom-%d", i+2)
+		m, spawned = driveEmptyReconcileSuccess(t, m, f, id)
+		require.True(t, spawned, "attempt %d after backoff", i+2)
+		totalSpawns++
+		require.Equal(t, i+2, m.terminalSpawnAttempts)
+	}
+	require.Equal(t, terminalSpawnMaxAttempts, m.terminalSpawnAttempts)
+	require.Equal(t, terminalSpawnMaxAttempts, totalSpawns)
+
+	// Past max attempts: circuit opens; further success-path empty polls stay quiet.
+	now = base.Add(time.Hour)
+	m, spawned = driveEmptyReconcileSuccess(t, m, f, "t-phantom-overflow")
+	require.False(t, spawned)
+	require.True(t, m.terminalSpawnCircuitOpen)
+	require.Contains(t, m.status, "auto-spawn suspended")
+
+	for i := 0; i < 50; i++ {
+		now = now.Add(time.Second)
+		before := m.terminalSpawnAttempts
+		m, spawned = driveEmptyReconcileSuccess(t, m, f, fmt.Sprintf("t-overflow-%d", i))
+		require.False(t, spawned, "rapid empty poll %d must not spawn", i)
+		require.Equal(t, before, m.terminalSpawnAttempts, "attempts stay frozen once tripped")
+		require.Equal(t, terminalSpawnMaxAttempts, m.terminalSpawnAttempts)
+	}
+	require.Equal(t, terminalSpawnMaxAttempts, totalSpawns, "total auto-spawns remain bounded")
+}
+
+// #465: a successful spawn callback alone must not clear the circuit / attempts
+// even when the operator already tripped the breaker (stale success race).
+func TestTerminalSpawnedSuccessDoesNotResetAttemptBudget(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9", "%1")
+	m.terminalSpawnAttempts = 2
+	m.terminalSpawnBackoff = 4 * time.Second
+	m.terminalLastSpawnAt = time.Date(2026, 9, 26, 14, 0, 0, 0, time.UTC)
+	m.terminalSpawnPending = true
+
+	nm, cmd := m.Update(terminalSpawnedMsg{id: "t-ok", focus: false})
+	m = nm.(controlPaneModel)
+	require.Equal(t, 2, m.terminalSpawnAttempts, "success callback must not reset attempts")
+	require.Equal(t, 4*time.Second, m.terminalSpawnBackoff)
+	require.False(t, m.terminalSpawnPending)
+	require.Equal(t, "t-ok", m.openedTerminal)
+	require.False(t, m.terminalSpawnCircuitOpen)
+	require.NotNil(t, cmd, "success still refreshes the list / opens the pane")
 }
 
 // #465: confirming a live terminal in m.sessions resets the attempt counter and

@@ -841,6 +841,11 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// re-attach when the nested tmux attach died (e.g. after a daemon restart).
 		return m, m.reconcileTerminalPaneCmd()
 	case terminalSpawnedMsg:
+		// Clear only the in-flight guard. Do NOT reset terminalSpawnAttempts /
+		// circuit-breaker state here (#465): a successful spawn callback can still
+		// be followed by empty/stale listings, and resetting the budget on the
+		// callback alone would re-enable unbounded auto-spawn. Attempts reset only
+		// when reconcile confirms a live terminal in m.sessions.
 		m.terminalSpawnPending = false
 		if msg.err != nil {
 			m.status = "terminal failed: " + msg.err.Error()
