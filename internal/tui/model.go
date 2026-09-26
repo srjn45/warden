@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"github.com/srjn45/warden/internal/approval"
+	"github.com/srjn45/warden/internal/backendstore"
+	"github.com/srjn45/warden/internal/backendusage"
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/pipeline"
@@ -53,6 +55,9 @@ type api interface {
 	SetBackendEnabled(ctx context.Context, id string, enabled bool) (client.Backend, error)
 	SetDefaultBackend(ctx context.Context, id string) (client.BackendsState, error)
 	SetThinkingMode(ctx context.Context, mode string) (client.BackendSettings, error)
+	ListModels(ctx context.Context, tier string) ([]backendstore.ModelEntry, error)
+	ListRoleTiers(ctx context.Context) ([]backendstore.RoleTierMapping, error)
+	Usage(ctx context.Context, refresh bool) (backendusage.Snapshot, error)
 }
 
 type mode int
@@ -70,7 +75,7 @@ const (
 	modeNewAgentDir           // dir-override sub-state of modeNewAgent
 	modeNewAgentName          // name-input sub-state of modeNewAgent
 	modeNewAgentRole          // role-select sub-state of modeNewAgent
-	modeNewAgentBackend       // backend-select sub-state of modeNewAgent
+	modeNewAgentTier          // tier-select + live candidate table (D8) sub-state of modeNewAgent
 	modeRename                // edit the selected agent's name (from the details view)
 	modeConfirmSpawn          // memory-pressure confirm before spawning
 	modeConfirmDeletePipeline // y/N confirm before deleting a stopped pipeline

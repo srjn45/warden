@@ -3,6 +3,7 @@ package backendstore
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"sort"
 	"time"
 
@@ -16,17 +17,23 @@ type QuotaWindowType string
 const (
 	// Window5HourRolling represents a 5-hour rolling usage window (standard for Claude).
 	Window5HourRolling QuotaWindowType = "5h_rolling"
-	// WindowDaily represents a daily reset window (standard for Antigravity).
+	// WindowDaily represents a daily reset window.
 	WindowDaily QuotaWindowType = "daily"
+	// WindowWeekly represents a weekly reset window (Antigravity weekly buckets).
+	WindowWeekly QuotaWindowType = "weekly"
 	// WindowMonthly represents a monthly reset window (standard for Cursor fast requests).
 	WindowMonthly QuotaWindowType = "monthly"
 	// WindowRateLimit represents a rate-limit / cooldown-driven quota window.
 	WindowRateLimit QuotaWindowType = "rate_limit"
+
+	// DefaultQuotaScope is the scope used when BackendQuota.Scope or
+	// ModelEntry.QuotaScope is blank (legacy / custom rows).
+	DefaultQuotaScope = "default"
 )
 
 // Valid reports whether the window type is a recognized QuotaWindowType.
 func (w QuotaWindowType) Valid() bool {
-	return w == Window5HourRolling || w == WindowDaily || w == WindowMonthly || w == WindowRateLimit
+	return w == Window5HourRolling || w == WindowDaily || w == WindowWeekly || w == WindowMonthly || w == WindowRateLimit
 }
 
 // UsageEvent represents a single recorded usage occurrence (e.g. prompt/turn tokens).
@@ -36,9 +43,10 @@ type UsageEvent struct {
 	Model     string    `json:"model,omitempty"`
 }
 
-// BackendQuota holds the quota configuration, usage window, and rate-limit tracking for a backend.
+// BackendQuota holds the quota configuration, usage window, and rate-limit tracking for a backend scope.
 type BackendQuota struct {
 	BackendID      string          `json:"backend_id"`
+	Scope          string          `json:"scope,omitempty"` // canonical scope; blank migrates to "default"
 	WindowType     QuotaWindowType `json:"window_type"`
 	WindowDuration time.Duration   `json:"window_duration"`
 	QuotaLimit     float64         `json:"quota_limit"` // total quota in tokens, requests, or turns
@@ -50,12 +58,48 @@ type BackendQuota struct {
 	UpdatedAt      time.Time       `json:"updated_at"`
 }
 
-// DefaultQuotas returns the standard default quota profiles for known backends.
+// quotaKey returns the ScrivaDB key for a (backend, scope) quota record.
+func quotaKey(backendID, scope string) string {
+	return backendID + ":" + normalizeQuotaScope(scope)
+}
+
+func normalizeQuotaScope(scope string) string {
+	if scope == "" {
+		return DefaultQuotaScope
+	}
+	return scope
+}
+
+// quotaStorageKey returns the ScrivaDB key for q. Single-window scopes use
+// backend:scope. A weekly window that shares a scope with a 5h window (Antigravity)
+// is stored under backend:scope:weekly so both coexist; GetModelHeadroom mins them.
+func quotaStorageKey(q BackendQuota) string {
+	base := quotaKey(q.BackendID, q.Scope)
+	if q.WindowType == WindowWeekly {
+		return base + ":" + string(WindowWeekly)
+	}
+	return base
+}
+
+// DefaultQuotas returns the standard per-scope default quota profiles for known backends
+// (docs/specs/2026-09-26-per-scope-quota-routing.md D7).
 func DefaultQuotas() []BackendQuota {
 	now := time.Now().UTC()
+	weekly := 7 * 24 * time.Hour
+	monthly := 30 * 24 * time.Hour
 	return []BackendQuota{
 		{
 			BackendID:      "claude",
+			Scope:          "session",
+			WindowType:     Window5HourRolling,
+			WindowDuration: 5 * time.Hour,
+			QuotaLimit:     500000,
+			LastReset:      now,
+			UpdatedAt:      now,
+		},
+		{
+			BackendID:      "codex",
+			Scope:          "codex",
 			WindowType:     Window5HourRolling,
 			WindowDuration: 5 * time.Hour,
 			QuotaLimit:     500000,
@@ -64,25 +108,64 @@ func DefaultQuotas() []BackendQuota {
 		},
 		{
 			BackendID:      "antigravity",
-			WindowType:     WindowDaily,
-			WindowDuration: 24 * time.Hour,
+			Scope:          "gemini",
+			WindowType:     Window5HourRolling,
+			WindowDuration: 5 * time.Hour,
+			QuotaLimit:     1000000,
+			LastReset:      now,
+			UpdatedAt:      now,
+		},
+		{
+			BackendID:      "antigravity",
+			Scope:          "gemini",
+			WindowType:     WindowWeekly,
+			WindowDuration: weekly,
+			QuotaLimit:     1000000,
+			LastReset:      now,
+			UpdatedAt:      now,
+		},
+		{
+			BackendID:      "antigravity",
+			Scope:          "non-gemini",
+			WindowType:     Window5HourRolling,
+			WindowDuration: 5 * time.Hour,
+			QuotaLimit:     1000000,
+			LastReset:      now,
+			UpdatedAt:      now,
+		},
+		{
+			BackendID:      "antigravity",
+			Scope:          "non-gemini",
+			WindowType:     WindowWeekly,
+			WindowDuration: weekly,
 			QuotaLimit:     1000000,
 			LastReset:      now,
 			UpdatedAt:      now,
 		},
 		{
 			BackendID:      "cursor",
+			Scope:          "api",
 			WindowType:     WindowMonthly,
-			WindowDuration: 30 * 24 * time.Hour,
+			WindowDuration: monthly,
 			QuotaLimit:     500,
 			LastReset:      now,
 			UpdatedAt:      now,
 		},
 		{
-			BackendID:      "codex",
-			WindowType:     Window5HourRolling,
-			WindowDuration: 5 * time.Hour,
-			QuotaLimit:     500000,
+			BackendID:      "cursor",
+			Scope:          "auto",
+			WindowType:     WindowMonthly,
+			WindowDuration: monthly,
+			QuotaLimit:     500,
+			LastReset:      now,
+			UpdatedAt:      now,
+		},
+		{
+			BackendID:      "cursor",
+			Scope:          "included",
+			WindowType:     WindowMonthly,
+			WindowDuration: monthly,
+			QuotaLimit:     500,
 			LastReset:      now,
 			UpdatedAt:      now,
 		},
@@ -134,6 +217,35 @@ func CalculateQuotaUsage(q *BackendQuota, now time.Time) {
 			q.Events = nil
 		}
 		q.NextReset = time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
+
+	case WindowWeekly:
+		if q.LastReset.IsZero() {
+			q.LastReset = now
+			q.UsedAmount = 0
+			q.Events = nil
+		} else {
+			y1, w1 := q.LastReset.ISOWeek()
+			y2, w2 := now.ISOWeek()
+			if y1 != y2 || w1 != w2 {
+				q.LastReset = now
+				q.UsedAmount = 0
+				q.Events = nil
+			}
+		}
+		// Next Monday 00:00 UTC.
+		weekday := int(now.Weekday())
+		if weekday == 0 {
+			weekday = 7
+		}
+		daysUntilMonday := 8 - weekday
+		if daysUntilMonday == 7 {
+			daysUntilMonday = 0
+		}
+		next := time.Date(now.Year(), now.Month(), now.Day()+daysUntilMonday, 0, 0, 0, 0, time.UTC)
+		if !next.After(now) {
+			next = next.AddDate(0, 0, 7)
+		}
+		q.NextReset = next
 
 	case WindowMonthly:
 		if q.LastReset.IsZero() {
@@ -188,31 +300,110 @@ func quotaFromRecord(d map[string]any) (BackendQuota, error) {
 	return out, nil
 }
 
-// GetQuota returns the quota tracking record for backendID, or ErrNotFound.
-func (s *Store) GetQuota(backendID string) (BackendQuota, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.getQuota(backendID)
-}
-
-func (s *Store) getQuota(backendID string) (BackendQuota, error) {
+// migrateQuotaScopeIfNeeded rewrites a legacy scope-less record (key = backendID)
+// to Scope="default" under key backendID:default. Caller holds s.mu.
+func (s *Store) migrateQuotaScopeIfNeeded(backendID string) error {
 	if backendID == "" {
-		return BackendQuota{}, ErrNotFound
+		return nil
 	}
 	r, err := s.quotasCol.GetByKey(backendID)
 	if errors.Is(err, engine.ErrKeyNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	q, err := quotaFromRecord(r.Data)
+	if err != nil {
+		return err
+	}
+	if q.Scope != "" {
+		// Already scoped but still under the legacy key — move to scoped key.
+		return s.rewriteQuotaKey(backendID, q)
+	}
+	q.Scope = DefaultQuotaScope
+	q.BackendID = backendID
+	if err := s.upsertQuota(q); err != nil {
+		return err
+	}
+	_ = s.quotasCol.DeleteByKey(backendID)
+	return nil
+}
+
+// rewriteQuotaKey moves q from legacyKey to its scoped storage key.
+func (s *Store) rewriteQuotaKey(legacyKey string, q BackendQuota) error {
+	if q.Scope == "" {
+		q.Scope = DefaultQuotaScope
+	}
+	if err := s.upsertQuota(q); err != nil {
+		return err
+	}
+	newKey := quotaStorageKey(q)
+	if newKey != legacyKey {
+		_ = s.quotasCol.DeleteByKey(legacyKey)
+	}
+	return nil
+}
+
+// GetQuota returns a quota tracking record for backendID. When scope is empty it
+// returns the first record for the backend (after migrating any legacy key).
+// When scope is set it returns the primary (non-weekly) window for that scope,
+// falling back to any matching window.
+func (s *Store) GetQuota(backendID string, scope ...string) (BackendQuota, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sc := ""
+	if len(scope) > 0 {
+		sc = scope[0]
+	}
+	return s.getQuota(backendID, sc)
+}
+
+func (s *Store) getQuota(backendID, scope string) (BackendQuota, error) {
+	if backendID == "" {
 		return BackendQuota{}, ErrNotFound
 	}
+	if err := s.migrateQuotaScopeIfNeeded(backendID); err != nil {
+		return BackendQuota{}, err
+	}
+
+	if scope != "" {
+		scope = normalizeQuotaScope(scope)
+		// Prefer the primary (non-weekly) storage key.
+		if r, err := s.quotasCol.GetByKey(quotaKey(backendID, scope)); err == nil {
+			return quotaFromRecord(r.Data)
+		} else if err != nil && !errors.Is(err, engine.ErrKeyNotFound) {
+			return BackendQuota{}, err
+		}
+		// Fall back to any window for this scope (e.g. weekly-only).
+		all, err := s.listQuotasFor(backendID, scope)
+		if err != nil {
+			return BackendQuota{}, err
+		}
+		if len(all) == 0 {
+			return BackendQuota{}, ErrNotFound
+		}
+		return all[0], nil
+	}
+
+	// No scope: any record for this backend.
+	all, err := s.listQuotasFor(backendID, "")
 	if err != nil {
 		return BackendQuota{}, err
 	}
-	return quotaFromRecord(r.Data)
+	if len(all) == 0 {
+		return BackendQuota{}, ErrNotFound
+	}
+	return all[0], nil
 }
 
-// SetQuota inserts or updates a quota record for a backend.
+// SetQuota inserts or updates a quota record. Blank Scope migrates to "default".
 func (s *Store) SetQuota(q BackendQuota) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.migrateQuotaScopeIfNeeded(q.BackendID); err != nil {
+		return err
+	}
 	return s.upsertQuota(q)
 }
 
@@ -220,13 +411,17 @@ func (s *Store) upsertQuota(q BackendQuota) error {
 	if q.BackendID == "" {
 		return errors.New("backend ID cannot be empty")
 	}
+	if q.Scope == "" {
+		q.Scope = DefaultQuotaScope
+	}
+	key := quotaStorageKey(q)
 	rec, err := toRecord(q)
 	if err != nil {
 		return err
 	}
-	_, err = s.quotasCol.GetByKey(q.BackendID)
+	_, err = s.quotasCol.GetByKey(key)
 	if errors.Is(err, engine.ErrKeyNotFound) {
-		if _, _, err := s.quotasCol.InsertWithKey(q.BackendID, rec); err != nil {
+		if _, _, err := s.quotasCol.InsertWithKey(key, rec); err != nil {
 			if errors.Is(err, engine.ErrDuplicateKey) {
 				return ErrExists
 			}
@@ -237,11 +432,11 @@ func (s *Store) upsertQuota(q BackendQuota) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.quotasCol.UpdateByKey(q.BackendID, rec)
+	_, err = s.quotasCol.UpdateByKey(key, rec)
 	return err
 }
 
-// ListQuotas returns all backend quota records sorted by BackendID.
+// ListQuotas returns all backend quota records sorted by BackendID, then Scope, then WindowType.
 func (s *Store) ListQuotas() ([]BackendQuota, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -262,12 +457,54 @@ func (s *Store) listQuotas() ([]BackendQuota, error) {
 		out = append(out, q)
 	}
 	sort.Slice(out, func(i, j int) bool {
-		return out[i].BackendID < out[j].BackendID
+		if out[i].BackendID != out[j].BackendID {
+			return out[i].BackendID < out[j].BackendID
+		}
+		if out[i].Scope != out[j].Scope {
+			return out[i].Scope < out[j].Scope
+		}
+		return out[i].WindowType < out[j].WindowType
 	})
 	return out, nil
 }
 
-// RecordQuotaUsage adds usage to a backend's quota tracking window.
+// listQuotasFor returns every quota record for backendID. Caller holds s.mu.
+func (s *Store) listQuotasFor(backendID, _ string) ([]BackendQuota, error) {
+	all, err := s.listQuotas()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]BackendQuota, 0, len(all))
+	for _, q := range all {
+		if q.BackendID != backendID {
+			continue
+		}
+		out = append(out, q)
+	}
+	return out, nil
+}
+
+// listQuotasForScope returns every window record for (backendID, scope). Caller holds s.mu.
+func (s *Store) listQuotasForScope(backendID, scope string) ([]BackendQuota, error) {
+	scope = normalizeQuotaScope(scope)
+	all, err := s.listQuotas()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]BackendQuota, 0, 2)
+	for _, q := range all {
+		if q.BackendID != backendID {
+			continue
+		}
+		if normalizeQuotaScope(q.Scope) != scope {
+			continue
+		}
+		out = append(out, q)
+	}
+	return out, nil
+}
+
+// RecordQuotaUsage adds usage to a backend's quota tracking window for the model's scope.
 func (s *Store) RecordQuotaUsage(backendID string, amount float64, model string, ts time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -286,12 +523,29 @@ func (s *Store) recordQuotaUsage(backendID string, amount float64, model string,
 	} else {
 		ts = ts.UTC()
 	}
+	if err := s.migrateQuotaScopeIfNeeded(backendID); err != nil {
+		return err
+	}
 
-	q, err := s.getQuota(backendID)
+	scope := DefaultQuotaScope
+	if model != "" {
+		if m, err := s.getModel(backendID, model); err == nil {
+			scope = normalizeQuotaScope(m.QuotaScope)
+		} else {
+			// Model unknown: prefer an existing non-default scope if the backend
+			// has exactly one scope, otherwise default.
+			if scopes := s.scopesForBackend(backendID); len(scopes) == 1 {
+				scope = scopes[0]
+			}
+		}
+	}
+
+	q, err := s.getQuota(backendID, scope)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			q = BackendQuota{
 				BackendID:      backendID,
+				Scope:          scope,
 				WindowType:     Window5HourRolling,
 				WindowDuration: 5 * time.Hour,
 				QuotaLimit:     500000,
@@ -299,8 +553,8 @@ func (s *Store) recordQuotaUsage(backendID string, amount float64, model string,
 				UpdatedAt:      ts,
 			}
 			if backendID == "antigravity" {
-				q.WindowType = WindowDaily
-				q.WindowDuration = 24 * time.Hour
+				q.WindowType = Window5HourRolling
+				q.WindowDuration = 5 * time.Hour
 				q.QuotaLimit = 1000000
 			} else if backendID == "cursor" {
 				q.WindowType = WindowMonthly
@@ -323,7 +577,7 @@ func (s *Store) recordQuotaUsage(backendID string, amount float64, model string,
 		if len(q.Events) > 2000 {
 			q.Events = q.Events[len(q.Events)-2000:]
 		}
-	case WindowDaily:
+	case WindowDaily, WindowWeekly:
 		CalculateQuotaUsage(&q, ts)
 		q.UsedAmount += amount
 		q.Events = append(q.Events, UsageEvent{
@@ -353,7 +607,27 @@ func (s *Store) recordQuotaUsage(backendID string, amount float64, model string,
 	return s.upsertQuota(q)
 }
 
-// GetHeadroom calculates the headroom, current usage, limit, and limited state for a backend at the specified time.
+func (s *Store) scopesForBackend(backendID string) []string {
+	all, err := s.listQuotas()
+	if err != nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, q := range all {
+		if q.BackendID != backendID {
+			continue
+		}
+		sc := normalizeQuotaScope(q.Scope)
+		if !seen[sc] {
+			seen[sc] = true
+			out = append(out, sc)
+		}
+	}
+	return out
+}
+
+// GetHeadroom calculates the min headroom across all scopes for a backend at now.
 func (s *Store) GetHeadroom(backendID string, now time.Time) (headroom float64, used float64, limit float64, limited bool, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -369,36 +643,101 @@ func (s *Store) getHeadroom(backendID string, now time.Time) (float64, float64, 
 	} else {
 		now = now.UTC()
 	}
-
-	b, err := s.get(backendID)
-	isLimited := false
-	if err == nil {
-		if b.LimitedUntil.After(now) {
-			isLimited = true
-		}
-	}
-
-	q, err := s.getQuota(backendID)
-	if err != nil {
-		if errors.Is(err, ErrNotFound) {
-			if isLimited {
-				return 0.0, 0.0, 0.0, true, nil
-			}
-			return 1.0, 0.0, 0.0, false, nil
-		}
+	if err := s.migrateQuotaScopeIfNeeded(backendID); err != nil {
 		return 0, 0, 0, false, err
 	}
 
-	if q.LimitedUntil.After(now) {
-		isLimited = true
+	backendLimited := false
+	if b, err := s.get(backendID); err == nil && b.LimitedUntil.After(now) {
+		backendLimited = true
 	}
 
-	CalculateQuotaUsage(&q, now)
-	headroom := CalculateHeadroom(q.UsedAmount, q.QuotaLimit, isLimited)
-	return headroom, q.UsedAmount, q.QuotaLimit, isLimited, nil
+	all, err := s.listQuotasFor(backendID, "")
+	if err != nil {
+		return 0, 0, 0, false, err
+	}
+	if len(all) == 0 {
+		if backendLimited {
+			return 0.0, 0.0, 0.0, true, nil
+		}
+		return 1.0, 0.0, 0.0, false, nil
+	}
+
+	return minHeadroomAcross(all, backendLimited, now)
 }
 
-// SetBackendLimited sets the LimitedUntil cooldown timestamp on both the backend row and its quota record.
+// GetModelHeadroom returns headroom for the model's QuotaScope (blank → "default").
+// When multiple window records share that scope, returns the minimum headroom.
+func (s *Store) GetModelHeadroom(backendID, modelID string, now time.Time) (headroom float64, used float64, limit float64, limited bool, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.getModelHeadroom(backendID, modelID, now)
+}
+
+func (s *Store) getModelHeadroom(backendID, modelID string, now time.Time) (float64, float64, float64, bool, error) {
+	if backendID == "" {
+		return 0, 0, 0, false, errors.New("backend ID cannot be empty")
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	} else {
+		now = now.UTC()
+	}
+	if err := s.migrateQuotaScopeIfNeeded(backendID); err != nil {
+		return 0, 0, 0, false, err
+	}
+
+	scope := DefaultQuotaScope
+	if modelID != "" {
+		if m, err := s.getModel(backendID, modelID); err == nil {
+			scope = normalizeQuotaScope(m.QuotaScope)
+		}
+	}
+
+	backendLimited := false
+	if b, err := s.get(backendID); err == nil && b.LimitedUntil.After(now) {
+		backendLimited = true
+	}
+
+	windows, err := s.listQuotasForScope(backendID, scope)
+	if err != nil {
+		return 0, 0, 0, false, err
+	}
+	if len(windows) == 0 {
+		if backendLimited {
+			return 0.0, 0.0, 0.0, true, nil
+		}
+		return 1.0, 0.0, 0.0, false, nil
+	}
+	return minHeadroomAcross(windows, backendLimited, now)
+}
+
+func minHeadroomAcross(quotas []BackendQuota, backendLimited bool, now time.Time) (float64, float64, float64, bool, error) {
+	minHR := math.Inf(1)
+	var usedAtMin, limitAtMin float64
+	anyLimited := backendLimited
+
+	for _, q := range quotas {
+		isLimited := backendLimited
+		if q.LimitedUntil.After(now) {
+			isLimited = true
+			anyLimited = true
+		}
+		CalculateQuotaUsage(&q, now)
+		hr := CalculateHeadroom(q.UsedAmount, q.QuotaLimit, isLimited)
+		if hr < minHR {
+			minHR = hr
+			usedAtMin = q.UsedAmount
+			limitAtMin = q.QuotaLimit
+		}
+	}
+	if math.IsInf(minHR, 1) {
+		minHR = 1.0
+	}
+	return minHR, usedAtMin, limitAtMin, anyLimited, nil
+}
+
+// SetBackendLimited sets the LimitedUntil cooldown timestamp on both the backend row and its quota records.
 func (s *Store) SetBackendLimited(backendID string, until time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -412,16 +751,23 @@ func (s *Store) setBackendLimited(backendID string, until time.Time) error {
 		_ = s.upsert(b)
 	}
 
-	q, err := s.getQuota(backendID)
-	if err == nil {
+	if err := s.migrateQuotaScopeIfNeeded(backendID); err != nil {
+		return err
+	}
+	all, err := s.listQuotasFor(backendID, "")
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	for _, q := range all {
 		q.LimitedUntil = until
-		q.UpdatedAt = time.Now().UTC()
+		q.UpdatedAt = now
 		_ = s.upsertQuota(q)
 	}
 	return nil
 }
 
-// ResetQuota resets a backend's quota usage, clears events, and clears any rate limits.
+// ResetQuota resets a backend's quota usage across all scopes, clears events, and clears any rate limits.
 func (s *Store) ResetQuota(backendID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -430,20 +776,22 @@ func (s *Store) ResetQuota(backendID string) error {
 
 func (s *Store) resetQuota(backendID string) error {
 	now := time.Now().UTC()
-	q, err := s.getQuota(backendID)
-	if err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return nil
-		}
+	if err := s.migrateQuotaScopeIfNeeded(backendID); err != nil {
 		return err
 	}
-	q.UsedAmount = 0
-	q.Events = nil
-	q.LastReset = now
-	q.LimitedUntil = time.Time{}
-	q.UpdatedAt = now
-	if err := s.upsertQuota(q); err != nil {
+	all, err := s.listQuotasFor(backendID, "")
+	if err != nil {
 		return err
+	}
+	for _, q := range all {
+		q.UsedAmount = 0
+		q.Events = nil
+		q.LastReset = now
+		q.LimitedUntil = time.Time{}
+		q.UpdatedAt = now
+		if err := s.upsertQuota(q); err != nil {
+			return err
+		}
 	}
 
 	b, err := s.get(backendID)
@@ -454,7 +802,8 @@ func (s *Store) resetQuota(backendID string) error {
 	return nil
 }
 
-// SetQuotaLimit updates the quota capacity, window type, and window duration for a backend.
+// SetQuotaLimit updates the quota capacity, window type, and window duration for a backend scope.
+// Blank scope targets "default".
 func (s *Store) SetQuotaLimit(backendID string, limit float64, windowType QuotaWindowType, duration time.Duration) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -465,12 +814,16 @@ func (s *Store) setQuotaLimit(backendID string, limit float64, windowType QuotaW
 	if backendID == "" {
 		return errors.New("backend ID cannot be empty")
 	}
+	if err := s.migrateQuotaScopeIfNeeded(backendID); err != nil {
+		return err
+	}
 	now := time.Now().UTC()
-	q, err := s.getQuota(backendID)
+	q, err := s.getQuota(backendID, DefaultQuotaScope)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			q = BackendQuota{
 				BackendID: backendID,
+				Scope:     DefaultQuotaScope,
 				LastReset: now,
 				UpdatedAt: now,
 			}

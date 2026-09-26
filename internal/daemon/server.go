@@ -154,6 +154,10 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	// hot-swap trigger can retire an agent before it hits a hard provider limit.
 	// A no-op when the registry is unconfigured (older wiring).
 	go s.runQuotaRecorder(runCtx)
+	// Live usage → scoped BackendQuota sync (per-scope quota routing D5/D6):
+	// startup probe + periodic refresh; projects FetchUsage Snapshot rows into
+	// backendstore. A no-op when usage or the registry is unconfigured.
+	go s.runUsageSync(runCtx)
 	if s.collab != nil && s.collabInterval > 0 {
 		go s.collab.Run(runCtx, s.collabInterval, s.collabGitReconcile)
 	}

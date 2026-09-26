@@ -1,5 +1,7 @@
 package backendstore
 
+import "strings"
+
 // DefaultModels returns the standard seed catalog of models grouped by backend and tier.
 func DefaultModels() []ModelEntry {
 	nonCursor := []ModelEntry{
@@ -11,6 +13,7 @@ func DefaultModels() []ModelEntry {
 			DisplayName: "Claude Opus",
 			Enabled:     true,
 			AutoAssign:  true,
+			QuotaScope:  "session",
 		},
 		{
 			BackendID:   "antigravity",
@@ -19,6 +22,7 @@ func DefaultModels() []ModelEntry {
 			DisplayName: "Claude Opus 4.6 (Thinking)",
 			Enabled:     true,
 			AutoAssign:  true,
+			QuotaScope:  "non-gemini",
 		},
 		{
 			BackendID:   "antigravity",
@@ -27,6 +31,7 @@ func DefaultModels() []ModelEntry {
 			DisplayName: "Gemini 3.1 Pro (High)",
 			Enabled:     true,
 			AutoAssign:  true,
+			QuotaScope:  "gemini",
 		},
 		{
 			BackendID:   "codex",
@@ -35,6 +40,7 @@ func DefaultModels() []ModelEntry {
 			DisplayName: "GPT-5.5",
 			Enabled:     true,
 			AutoAssign:  true,
+			QuotaScope:  "codex",
 		},
 
 		// Tier 2 models
@@ -45,6 +51,7 @@ func DefaultModels() []ModelEntry {
 			DisplayName: "Claude 3.7 Sonnet",
 			Enabled:     true,
 			AutoAssign:  true,
+			QuotaScope:  "session",
 		},
 		{
 			BackendID:   "antigravity",
@@ -53,6 +60,7 @@ func DefaultModels() []ModelEntry {
 			DisplayName: "Claude Sonnet 4.6 (Thinking)",
 			Enabled:     true,
 			AutoAssign:  true,
+			QuotaScope:  "non-gemini",
 		},
 		{
 			BackendID:   "antigravity",
@@ -61,6 +69,7 @@ func DefaultModels() []ModelEntry {
 			DisplayName: "Gemini 3.7 Flash (High)",
 			Enabled:     true,
 			AutoAssign:  true,
+			QuotaScope:  "gemini",
 		},
 		{
 			BackendID:   "antigravity",
@@ -68,6 +77,7 @@ func DefaultModels() []ModelEntry {
 			Tier:        Tier2,
 			DisplayName: "Gemini 3.6 Flash (High)",
 			Enabled:     true,
+			QuotaScope:  "gemini",
 		},
 		{
 			BackendID:   "antigravity",
@@ -75,6 +85,7 @@ func DefaultModels() []ModelEntry {
 			Tier:        Tier2,
 			DisplayName: "Gemini 3.1 Pro (Low)",
 			Enabled:     true,
+			QuotaScope:  "gemini",
 		},
 		{
 			BackendID:   "antigravity",
@@ -82,6 +93,7 @@ func DefaultModels() []ModelEntry {
 			Tier:        Tier2,
 			DisplayName: "GPT-OSS 120B (Medium)",
 			Enabled:     true,
+			QuotaScope:  "non-gemini",
 		},
 		{
 			BackendID:   "codex",
@@ -90,6 +102,7 @@ func DefaultModels() []ModelEntry {
 			DisplayName: "GPT-5.6 Terra",
 			Enabled:     true,
 			AutoAssign:  true,
+			QuotaScope:  "codex",
 		},
 		{
 			BackendID:   "codex",
@@ -97,6 +110,7 @@ func DefaultModels() []ModelEntry {
 			Tier:        Tier2,
 			DisplayName: "GPT-5.4",
 			Enabled:     true,
+			QuotaScope:  "codex",
 		},
 
 		// Tier 3 models
@@ -107,6 +121,7 @@ func DefaultModels() []ModelEntry {
 			DisplayName: "Claude 3.5 Haiku",
 			Enabled:     true,
 			AutoAssign:  true,
+			QuotaScope:  "session",
 		},
 		{
 			BackendID:   "antigravity",
@@ -115,6 +130,7 @@ func DefaultModels() []ModelEntry {
 			DisplayName: "Gemini 3.7 Flash (Medium)",
 			Enabled:     true,
 			AutoAssign:  true,
+			QuotaScope:  "gemini",
 		},
 		{
 			BackendID:   "antigravity",
@@ -122,6 +138,7 @@ func DefaultModels() []ModelEntry {
 			Tier:        Tier3,
 			DisplayName: "Gemini 3.7 Flash (Low)",
 			Enabled:     true,
+			QuotaScope:  "gemini",
 		},
 		{
 			BackendID:   "antigravity",
@@ -129,6 +146,7 @@ func DefaultModels() []ModelEntry {
 			Tier:        Tier3,
 			DisplayName: "Gemini 3.6 Flash (Medium)",
 			Enabled:     true,
+			QuotaScope:  "gemini",
 		},
 		{
 			BackendID:   "antigravity",
@@ -136,6 +154,7 @@ func DefaultModels() []ModelEntry {
 			Tier:        Tier3,
 			DisplayName: "Gemini 3.6 Flash (Low)",
 			Enabled:     true,
+			QuotaScope:  "gemini",
 		},
 		{
 			BackendID:   "antigravity",
@@ -143,6 +162,7 @@ func DefaultModels() []ModelEntry {
 			Tier:        Tier3,
 			DisplayName: "Gemini 3.5 Flash (High)",
 			Enabled:     true,
+			QuotaScope:  "gemini",
 		},
 		{
 			BackendID:   "antigravity",
@@ -150,6 +170,7 @@ func DefaultModels() []ModelEntry {
 			Tier:        Tier3,
 			DisplayName: "Gemini 3.5 Flash (Medium)",
 			Enabled:     true,
+			QuotaScope:  "gemini",
 		},
 		{
 			BackendID:   "antigravity",
@@ -157,6 +178,7 @@ func DefaultModels() []ModelEntry {
 			Tier:        Tier3,
 			DisplayName: "Gemini 3.5 Flash (Low)",
 			Enabled:     true,
+			QuotaScope:  "gemini",
 		},
 		{
 			BackendID:   "codex",
@@ -165,6 +187,7 @@ func DefaultModels() []ModelEntry {
 			DisplayName: "GPT-5.6 Luna",
 			Enabled:     true,
 			AutoAssign:  true,
+			QuotaScope:  "codex",
 		},
 		{
 			BackendID:   "codex",
@@ -172,6 +195,7 @@ func DefaultModels() []ModelEntry {
 			Tier:        Tier3,
 			DisplayName: "GPT-5.4 Mini",
 			Enabled:     true,
+			QuotaScope:  "codex",
 		},
 	}
 	return append(nonCursor, cursorModels()...)
@@ -404,7 +428,18 @@ func cursorModel(id, display string, tier ModelTier, autoAssign bool) ModelEntry
 		DisplayName: display,
 		Enabled:     true,
 		AutoAssign:  autoAssign,
+		QuotaScope:  cursorQuotaScope(id),
 	}
+}
+
+func cursorQuotaScope(modelID string) string {
+	if modelID == "auto" {
+		return "auto"
+	}
+	if strings.HasPrefix(modelID, "cursor-grok-") || strings.HasPrefix(modelID, "composer-") {
+		return "included"
+	}
+	return "api"
 }
 
 // DefaultRoleTiers returns the default mapping of agent ROLES to model tiers,

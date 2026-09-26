@@ -15,5 +15,7 @@ func (s *Server) GetUsage(ctx context.Context, req oapi.GetUsageRequestObject) (
 	if err != nil {
 		return nil, errStatus(http.StatusServiceUnavailable, "backend usage unavailable")
 	}
+	// Display path stays Snapshot; SyncToStore is the separate write into backendstore (D5).
+	s.syncUsageSnapshot(snapshot)
 	return oapi.GetUsage200JSONResponse(snapshot), nil
 }

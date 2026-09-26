@@ -370,6 +370,7 @@ func TestReopenSyncsMissingSeedModelsCleanly(t *testing.T) {
 	require.NoError(t, s.SetRoleTier("custom-role", Tier1))
 	require.NoError(t, s.SetQuota(BackendQuota{
 		BackendID:  "custom",
+		Scope:      "default",
 		QuotaLimit: 1000,
 		WindowType: WindowDaily,
 	}))
@@ -380,7 +381,9 @@ func TestReopenSyncsMissingSeedModelsCleanly(t *testing.T) {
 	require.NoError(t, s.modelsCol.DeleteByKey(missingModelKey1))
 	require.NoError(t, s.modelsCol.DeleteByKey(missingModelKey2))
 	require.NoError(t, s.rolesCol.DeleteByKey("orchestrator"))
-	require.NoError(t, s.quotasCol.DeleteByKey("cursor"))
+	require.NoError(t, s.quotasCol.DeleteByKey(quotaKey("cursor", "api")))
+	require.NoError(t, s.quotasCol.DeleteByKey(quotaKey("cursor", "auto")))
+	require.NoError(t, s.quotasCol.DeleteByKey(quotaKey("cursor", "included")))
 
 	// Verify they are deleted before reopening
 	_, err = s.GetModel("antigravity", "gemini-3.7-flash-high")
@@ -389,7 +392,7 @@ func TestReopenSyncsMissingSeedModelsCleanly(t *testing.T) {
 	require.ErrorIs(t, err, ErrModelNotFound)
 	_, err = s.GetRoleTier("orchestrator")
 	require.ErrorIs(t, err, ErrRoleNotFound)
-	_, err = s.GetQuota("cursor")
+	_, err = s.GetQuota("cursor", "api")
 	require.ErrorIs(t, err, ErrNotFound)
 
 	require.NoError(t, s.Close())
@@ -417,10 +420,11 @@ func TestReopenSyncsMissingSeedModelsCleanly(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, Tier1, rt)
 
-	q, err := s2.GetQuota("cursor")
+	q, err := s2.GetQuota("cursor", "api")
 	require.NoError(t, err)
 	require.Equal(t, WindowMonthly, q.WindowType)
 	require.Equal(t, 500.0, q.QuotaLimit)
+	require.Equal(t, "api", q.Scope)
 
 	// 7. Verify mutated default model and role tier were NOT overwritten
 	mutatedModel, err := s2.GetModel("claude", "opus")
@@ -442,11 +446,11 @@ func TestReopenSyncsMissingSeedModelsCleanly(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, Tier1, customRoleTier)
 
-	customQ, err := s2.GetQuota("custom")
+	customQ, err := s2.GetQuota("custom", "default")
 	require.NoError(t, err)
 	require.Equal(t, 1000.0, customQ.QuotaLimit)
 
-	// 9. Total counts: 236 defaults + 1 custom = 237 models; 6 defaults + 1 custom = 7 roles; 4 defaults + 1 custom = 5 quotas
+	// 9. Total counts: 236 defaults + 1 custom = 237 models; 6 defaults + 1 custom = 7 roles; 9 defaults + 1 custom = 10 quotas
 	models, err := s2.ListModels("")
 	require.NoError(t, err)
 	require.Len(t, models, 237)
@@ -457,7 +461,7 @@ func TestReopenSyncsMissingSeedModelsCleanly(t *testing.T) {
 
 	quotas, err := s2.ListQuotas()
 	require.NoError(t, err)
-	require.Len(t, quotas, 5)
+	require.Len(t, quotas, 10)
 }
 
 func TestCursorSeedCatalogFacesAndPrune(t *testing.T) {
@@ -483,6 +487,19 @@ func TestCursorSeedCatalogFacesAndPrune(t *testing.T) {
 	require.ElementsMatch(t, []string{"cursor-grok-4.6-high-fast", "claude-opus-5-thinking-high"}, aaByTier[Tier1])
 	require.ElementsMatch(t, []string{"cursor-grok-4.5-high", "auto", "claude-sonnet-5-thinking-high"}, aaByTier[Tier2])
 	require.ElementsMatch(t, []string{"composer-2.5-fast", "gemini-3.7-flash-high"}, aaByTier[Tier3])
+
+	auto, err := s.GetModel("cursor", "auto")
+	require.NoError(t, err)
+	require.Equal(t, "auto", auto.QuotaScope)
+	grok, err := s.GetModel("cursor", "cursor-grok-4.6-high-fast")
+	require.NoError(t, err)
+	require.Equal(t, "included", grok.QuotaScope)
+	api, err := s.GetModel("cursor", "claude-opus-5-thinking-high")
+	require.NoError(t, err)
+	require.Equal(t, "api", api.QuotaScope)
+	composer, err := s.GetModel("cursor", "composer-2.5-fast")
+	require.NoError(t, err)
+	require.Equal(t, "included", composer.QuotaScope)
 
 	_, err = s.GetModel("cursor", "claude-3-opus")
 	require.ErrorIs(t, err, ErrModelNotFound)
