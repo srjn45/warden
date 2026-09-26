@@ -147,6 +147,9 @@ func (c *BackendRecoveryCoordinator) advance(id string, generation uint64, fallb
 	snap, snapErr := c.usage.Snapshot(ctx, true)
 	if snapErr != nil {
 		snap = backendusage.Snapshot{}
+	} else if c.backends != nil {
+		// Project live limits into scoped BackendQuota (D5); display/rank path unchanged.
+		_ = backendusage.SyncToStore(snap, c.backends)
 	} // unknown remains trial-eligible
 	c.event(id, "backend_usage_refreshed", fmt.Sprintf("generation=%d status=%s", generation, errorClass(snapErr)))
 
