@@ -522,6 +522,7 @@ func newDaemonRunCmd() *cobra.Command {
 			// Fixture-capture aid: snapshot the raw pane on each real limit hit so a
 			// future parser gap can be fixed from ground-truth bytes (bounded, newest-N).
 			rateLimitSched.CaptureDir = filepath.Join(cfg.DataDir, "ratelimit-captures")
+			srv.SetRateLimitScheduler(rateLimitSched)
 			// Autopilot guardian escalations (§2.3) fan out through the same
 			// operator notifier seam (desktop + webhook).
 			srv.SetAutopilotNotifier(notifSwitch)
