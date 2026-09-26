@@ -1438,6 +1438,17 @@ func TestSpawnSetsMouseOnAgentSession(t *testing.T) {
 		"mouse on must be set after new-session")
 }
 
+func TestSpawnSetsDetachOnDestroyOffOnAgentSession(t *testing.T) {
+	fr := &FakeRunner{}
+	s, err := New(fr, &FakeConfig{}).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
+	require.NoError(t, err)
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "set-option", "-t", s.ID, "detach-on-destroy", "off"})
+	require.Greater(t,
+		fr.callIndex("tmux set-option -t "+s.ID+" detach-on-destroy off"),
+		fr.callIndex("tmux new-session -d -s "+s.ID+" -e WARDEN_SESSION_ID="+s.ID+" -e AGENTCTL_SESSION_ID="+s.ID+" -c /repo"),
+		"detach-on-destroy off must be set after new-session")
+}
+
 func TestSpawnPromptModeSetsMouseOn(t *testing.T) {
 	fr := &FakeRunner{}
 	l := New(fr, &FakeConfig{})

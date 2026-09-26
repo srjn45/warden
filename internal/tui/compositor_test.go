@@ -22,7 +22,7 @@ func TestBuildCockpitSequence(t *testing.T) {
 
 	o := cockpitOpts{session: "S", self: "/bin/warden", homeDir: "/home", launchCwd: "/work"}
 	require.NoError(t, buildCockpit(context.Background(), fr, o))
-	require.Len(t, fr.Calls, 29, "unexpected number of tmux calls")
+	require.Len(t, fr.Calls, 30, "unexpected number of tmux calls")
 
 	// Panes are created right-to-left: agent (fills window) → terminal (left) → control.
 	require.Equal(t, []string{"tmux", "new-session", "-d", "-s", "S", "-c", "/home", "-P", "-F", "#{pane_id}", agentPlaceholderCmd()}, fr.Calls[0].Argv)
@@ -32,40 +32,55 @@ func TestBuildCockpitSequence(t *testing.T) {
 	require.Equal(t, []string{"tmux", "set-option", "-p", "-t", "%1", "remain-on-exit", "on"}, fr.Calls[3].Argv)
 	require.Equal(t, []string{"tmux", "set-option", "-p", "-t", "%0", "remain-on-exit", "on"}, fr.Calls[4].Argv)
 	require.Equal(t, []string{"tmux", "set-option", "-t", "S", "mouse", "on"}, fr.Calls[5].Argv)
+	require.Equal(t, []string{"tmux", "set-option", "-t", "S", "detach-on-destroy", "off"}, fr.Calls[6].Argv)
 	// Permanent status-line reminder of the Shift-to-select trick (mouse drives tmux).
-	require.Equal(t, []string{"tmux", "set-option", "-t", "S", "status-right", "#[fg=yellow]shift+drag = select/copy#[default]  %H:%M "}, fr.Calls[6].Argv)
+	require.Equal(t, []string{"tmux", "set-option", "-t", "S", "status-right", "#[fg=yellow]shift+drag = select/copy#[default]  %H:%M "}, fr.Calls[7].Argv)
 	// Alt+Enter fallback newline key (for terminals that can't report Shift+Enter)…
-	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Enter", "send-keys", "C-j"}, fr.Calls[7].Argv)
+	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Enter", "send-keys", "C-j"}, fr.Calls[8].Argv)
 	// …plus extended-keys passthrough so Shift+Enter reaches the agent as a newline.
-	require.Equal(t, []string{"tmux", "set-option", "-s", "extended-keys", "on"}, fr.Calls[8].Argv)
-	require.Equal(t, []string{"tmux", "show-options", "-s", "-v", "terminal-features"}, fr.Calls[9].Argv)
-	require.Equal(t, []string{"tmux", "set-option", "-sa", "terminal-features", "*:extkeys"}, fr.Calls[10].Argv)
-	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Left", "select-pane", "-L"}, fr.Calls[11].Argv)
-	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Right", "select-pane", "-R"}, fr.Calls[12].Argv)
-	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Up", "select-pane", "-U"}, fr.Calls[13].Argv)
-	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Down", "select-pane", "-D"}, fr.Calls[14].Argv)
+	require.Equal(t, []string{"tmux", "set-option", "-s", "extended-keys", "on"}, fr.Calls[9].Argv)
+	require.Equal(t, []string{"tmux", "show-options", "-s", "-v", "terminal-features"}, fr.Calls[10].Argv)
+	require.Equal(t, []string{"tmux", "set-option", "-sa", "terminal-features", "*:extkeys"}, fr.Calls[11].Argv)
+	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Left", "select-pane", "-L"}, fr.Calls[12].Argv)
+	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Right", "select-pane", "-R"}, fr.Calls[13].Argv)
+	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Up", "select-pane", "-U"}, fr.Calls[14].Argv)
+	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-Down", "select-pane", "-D"}, fr.Calls[15].Argv)
 	// Global Alt rotation (§8): M-t/M-a/M-p each forward to the control pane, which
 	// owns the rotation state. M-t is the key freed by removing the old shell-toggle.
 	// The shifted variants (M-T/M-A/M-P) forward likewise for reverse rotation.
-	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-t", "send-keys", "-t", "%2", "M-t"}, fr.Calls[15].Argv)
-	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-a", "send-keys", "-t", "%2", "M-a"}, fr.Calls[16].Argv)
-	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-p", "send-keys", "-t", "%2", "M-p"}, fr.Calls[17].Argv)
-	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-T", "send-keys", "-t", "%2", "M-T"}, fr.Calls[18].Argv)
-	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-A", "send-keys", "-t", "%2", "M-A"}, fr.Calls[19].Argv)
-	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-P", "send-keys", "-t", "%2", "M-P"}, fr.Calls[20].Argv)
+	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-t", "send-keys", "-t", "%2", "M-t"}, fr.Calls[16].Argv)
+	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-a", "send-keys", "-t", "%2", "M-a"}, fr.Calls[17].Argv)
+	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-p", "send-keys", "-t", "%2", "M-p"}, fr.Calls[18].Argv)
+	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-T", "send-keys", "-t", "%2", "M-T"}, fr.Calls[19].Argv)
+	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-A", "send-keys", "-t", "%2", "M-A"}, fr.Calls[20].Argv)
+	require.Equal(t, []string{"tmux", "bind-key", "-n", "M-P", "send-keys", "-t", "%2", "M-P"}, fr.Calls[21].Argv)
 	// Config-free <prefix> t/a/p (+ shifted T/A/P) fallback: each forwards the matching
 	// M-<key> to the control pane, so rotation works on emulators that don't send Meta
 	// for Alt/Option (macOS Terminal.app / iTerm2 defaults). No -n → these are prefix
 	// bindings, overriding tmux's default t (clock) / p (previous-window) in-session.
-	require.Equal(t, []string{"tmux", "bind-key", "t", "send-keys", "-t", "%2", "M-t"}, fr.Calls[21].Argv)
-	require.Equal(t, []string{"tmux", "bind-key", "a", "send-keys", "-t", "%2", "M-a"}, fr.Calls[22].Argv)
-	require.Equal(t, []string{"tmux", "bind-key", "p", "send-keys", "-t", "%2", "M-p"}, fr.Calls[23].Argv)
-	require.Equal(t, []string{"tmux", "bind-key", "T", "send-keys", "-t", "%2", "M-T"}, fr.Calls[24].Argv)
-	require.Equal(t, []string{"tmux", "bind-key", "A", "send-keys", "-t", "%2", "M-A"}, fr.Calls[25].Argv)
-	require.Equal(t, []string{"tmux", "bind-key", "P", "send-keys", "-t", "%2", "M-P"}, fr.Calls[26].Argv)
-	require.Equal(t, []string{"tmux", "select-pane", "-t", "%2"}, fr.Calls[27].Argv)
+	require.Equal(t, []string{"tmux", "bind-key", "t", "send-keys", "-t", "%2", "M-t"}, fr.Calls[22].Argv)
+	require.Equal(t, []string{"tmux", "bind-key", "a", "send-keys", "-t", "%2", "M-a"}, fr.Calls[23].Argv)
+	require.Equal(t, []string{"tmux", "bind-key", "p", "send-keys", "-t", "%2", "M-p"}, fr.Calls[24].Argv)
+	require.Equal(t, []string{"tmux", "bind-key", "T", "send-keys", "-t", "%2", "M-T"}, fr.Calls[25].Argv)
+	require.Equal(t, []string{"tmux", "bind-key", "A", "send-keys", "-t", "%2", "M-A"}, fr.Calls[26].Argv)
+	require.Equal(t, []string{"tmux", "bind-key", "P", "send-keys", "-t", "%2", "M-P"}, fr.Calls[27].Argv)
+	require.Equal(t, []string{"tmux", "select-pane", "-t", "%2"}, fr.Calls[28].Argv)
 	// Return-to-dashboard binding for the full-screen attach path (`a`).
-	require.Equal(t, []string{"tmux", "bind-key", "Enter", "switch-client", "-l"}, fr.Calls[28].Argv)
+	require.Equal(t, []string{"tmux", "bind-key", "Enter", "switch-client", "-l"}, fr.Calls[29].Argv)
+}
+
+// #478: Cockpit must configure detach-on-destroy off so an attached client
+// bounces back to the cockpit session when an opened agent session is killed,
+// rather than disconnecting and closing the TUI.
+func TestBuildCockpitSetsDetachOnDestroyOff(t *testing.T) {
+	fr := &lifecycle.FakeRunner{Responses: map[string]lifecycle.FakeResp{}}
+	fr.Responses["tmux new-session -d -s S -c /home -P -F #{pane_id} "+agentPlaceholderCmd()] = lifecycle.FakeResp{Out: "%0\n"}
+	fr.Responses["tmux split-window -h -b -l 40% -t %0 -c /work -P -F #{pane_id} "+terminalPlaceholderCmd()] = lifecycle.FakeResp{Out: "%1\n"}
+	fr.Responses["tmux split-window -v -b -l 50% -t %1 -c /work -P -F #{pane_id} "+controlPaneCmd("/bin/warden", "%0", "%1")] = lifecycle.FakeResp{Out: "%2\n"}
+
+	o := cockpitOpts{session: "S", self: "/bin/warden", homeDir: "/home", launchCwd: "/work"}
+	require.NoError(t, buildCockpit(context.Background(), fr, o))
+	require.True(t, argvSeen(fr, "tmux", "set-option", "-t", "S", "detach-on-destroy", "off"))
 }
 
 // The M-t binding is now the terminal-rotation forwarder (send-keys to the control
