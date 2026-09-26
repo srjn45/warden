@@ -43,7 +43,14 @@ func newLsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			sessions = filterByTags(sessions, tags)
+			// warden ls lists AI agent sessions, excluding plain terminal sessions.
+			agents := make([]*store.Session, 0, len(sessions))
+			for _, s := range sessions {
+				if !s.IsTerminal() {
+					agents = append(agents, s)
+				}
+			}
+			sessions = filterByTags(agents, tags)
 			if jsonOut {
 				if sessions == nil {
 					sessions = []*store.Session{}

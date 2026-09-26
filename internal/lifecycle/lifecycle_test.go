@@ -816,6 +816,7 @@ func TestSpawnKindTerminal(t *testing.T) {
 	s, err := New(fr, &FakeConfig{}).Spawn(context.Background(), SpawnRequest{Cwd: "/work/project", Kind: store.KindTerminal})
 	require.NoError(t, err)
 	require.Equal(t, store.KindTerminal, s.Kind, "kind=terminal ⇒ Kind=terminal")
+	require.Equal(t, store.StatusWorking, s.Status, "terminal starts in working status")
 	require.True(t, s.IsTerminal())
 	require.Empty(t, s.Backend, "a terminal has no backend")
 	require.Equal(t, "/work/project", s.Workdir, "terminal launches in the caller cwd")

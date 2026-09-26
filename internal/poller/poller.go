@@ -810,11 +810,36 @@ func (p *Poller) tick(ctx context.Context) error {
 		// resolves to the default backend (Claude), which would otherwise drive all
 		// of those against a shell.
 		if s.IsTerminal() {
-			if p.deps.SessionAlive(ctx, s.TmuxSession) {
+			alive := p.deps.SessionAlive(ctx, s.TmuxSession)
+			if alive {
+				if s.Status == store.StatusSpawning {
+					if ok, err := p.deps.UpdateStatusIf(ctx, s.ID, s.Status, store.StatusWorking); err != nil {
+						slog.Warn("poller: terminal status update failed", "terminal", s.ID, "err", err)
+					} else if ok {
+						s.Status = store.StatusWorking
+						changed = true
+						if p.OnTransition != nil {
+							p.OnTransition(s, store.StatusSpawning, store.StatusWorking)
+						}
+					}
+				}
 				if captured, err := p.deps.CapturePane(ctx, s.TmuxSession); err == nil {
 					if excerpt := lastLines(captured, 20); excerpt != s.LastPaneExcerpt {
 						_ = p.deps.UpdatePane(ctx, s.ID, excerpt)
 						changed = true
+					}
+				}
+			} else {
+				if s.Status != store.StatusOrphaned {
+					if ok, err := p.deps.UpdateStatusIf(ctx, s.ID, s.Status, store.StatusOrphaned); err != nil {
+						slog.Warn("poller: terminal status update failed", "terminal", s.ID, "err", err)
+					} else if ok {
+						oldStatus := s.Status
+						s.Status = store.StatusOrphaned
+						changed = true
+						if p.OnTransition != nil {
+							p.OnTransition(s, oldStatus, store.StatusOrphaned)
+						}
 					}
 				}
 			}

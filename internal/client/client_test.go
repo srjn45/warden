@@ -53,6 +53,23 @@ func TestListTerminals(t *testing.T) {
 	require.True(t, out[0].IsTerminal())
 }
 
+func TestListAllIncludesTerminalsAndAgents(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/api/v1/sessions", r.URL.Path)
+		require.Empty(t, r.URL.Query().Get("kind"), "ListAll must not filter by kind")
+		require.Equal(t, "true", r.URL.Query().Get("all"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"sessions":[{"id":"A-1","status":"working"},{"id":"term-1","kind":"terminal"}]}`))
+	}))
+	defer ts.Close()
+
+	out, err := New(ts.URL).ListAll(t.Context())
+	require.NoError(t, err)
+	require.Len(t, out, 2)
+	require.False(t, out[0].IsTerminal())
+	require.True(t, out[1].IsTerminal())
+}
+
 func TestWatchDeliversSnapshots(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/api/v1/events/stream", r.URL.Path)

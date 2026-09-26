@@ -1488,6 +1488,7 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 	// ⇒ agent), so no existing record migrates.
 	if req.Kind == store.KindTerminal {
 		sess.Kind = store.KindTerminal
+		sess.Status = store.StatusWorking
 		// A terminal is always a plain free-form shell in cwd — never a typed,
 		// worktree-backed spawn. Force free-form so a stray type=… (or the
 		// back-compat backend=terminal alias paired with a type) can't route a

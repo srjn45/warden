@@ -244,6 +244,29 @@ func TestLsCmdJSON(t *testing.T) {
 	}
 }
 
+// TestLsCmdFiltersOutTerminals verifies that `ls -a` excludes terminal sessions.
+func TestLsCmdFiltersOutTerminals(t *testing.T) {
+	addr := stubDaemon(t, func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"sessions": []map[string]any{
+				{"id": "agent-1", "name": "alpha", "status": "working", "kind": ""},
+				{"id": "term-1", "name": "shell", "status": "working", "kind": "terminal"},
+			},
+		})
+	})
+	out, err := runCLI(t, addr, "ls", "-a", "--json")
+	if err != nil {
+		t.Fatalf("ls -a --json: %v", err)
+	}
+	var got []map[string]any
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("ls -a --json output not valid JSON: %v\n%s", err, out)
+	}
+	if len(got) != 1 || got[0]["id"] != "agent-1" {
+		t.Fatalf("expected only agent-1, got: %s", out)
+	}
+}
+
 // TestLsCmdTable renders the human table from a stub daemon's session list.
 func TestLsCmdTable(t *testing.T) {
 	addr := stubDaemon(t, func(w http.ResponseWriter, _ *http.Request) {

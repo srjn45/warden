@@ -172,13 +172,14 @@ func (c *Client) List(ctx context.Context) ([]*store.Session, error) {
 	return c.list(ctx, false, "agent")
 }
 
-// ListAll includes daemon-owned system sessions hidden from the ordinary fleet.
+// ListAll returns all sessions in the fleet (both agents and terminals, including
+// daemon-owned system sessions).
 func (c *Client) ListAll(ctx context.Context) ([]*store.Session, error) {
-	return c.list(ctx, true, "agent")
+	return c.list(ctx, true, "")
 }
 
 // ListTerminals returns only plain shell sessions. It keeps the agent-centric
-// List/ListAll APIs from ever leaking terminal records to their callers.
+// List API from leaking terminal records to its callers.
 func (c *Client) ListTerminals(ctx context.Context) ([]*store.Session, error) {
 	return c.list(ctx, false, "terminal")
 }
@@ -187,9 +188,16 @@ func (c *Client) list(ctx context.Context, all bool, kind string) ([]*store.Sess
 	var resp struct {
 		Sessions []*store.Session `json:"sessions"`
 	}
-	path := "/sessions?kind=" + kind
+	path := "/sessions"
+	var params []string
+	if kind != "" {
+		params = append(params, "kind="+kind)
+	}
 	if all {
-		path += "&all=true"
+		params = append(params, "all=true")
+	}
+	if len(params) > 0 {
+		path += "?" + strings.Join(params, "&")
 	}
 	if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
 		return nil, err

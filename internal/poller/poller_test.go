@@ -521,6 +521,32 @@ func TestTickFinalizesExitedTerminal(t *testing.T) {
 	require.Equal(t, store.StatusDone, d.finalized["T-1"], "an exited terminal is finalized like any pane")
 }
 
+func TestTickMarksAliveSpawningTerminalWorking(t *testing.T) {
+	d := &stubDeps{
+		sessions: []*store.Session{{
+			ID: "T-1", TmuxSession: "T-1", Status: store.StatusSpawning, Kind: store.KindTerminal,
+		}},
+		alive:   map[string]bool{"T-1": true},
+		updates: map[string]store.Status{},
+	}
+	p := New(d, 5*time.Minute)
+	require.NoError(t, p.tick(context.Background()))
+	require.Equal(t, store.StatusWorking, d.updates["T-1"], "alive spawning terminal transitions to working")
+}
+
+func TestTickMarksDeadTerminalOrphaned(t *testing.T) {
+	d := &stubDeps{
+		sessions: []*store.Session{{
+			ID: "T-1", TmuxSession: "T-1", Status: store.StatusWorking, Kind: store.KindTerminal,
+		}},
+		alive:   map[string]bool{"T-1": false},
+		updates: map[string]store.Status{},
+	}
+	p := New(d, 5*time.Minute)
+	require.NoError(t, p.tick(context.Background()))
+	require.Equal(t, store.StatusOrphaned, d.updates["T-1"], "dead terminal without exit file transitions to orphaned")
+}
+
 func TestTickFlagsStuckWorkingAsIdle(t *testing.T) {
 	d := &stubDeps{
 		sessions: []*store.Session{{
