@@ -1639,3 +1639,33 @@ func TestTryLimitMenu_NoopWhenAutoResumeOff(t *testing.T) {
 
 	require.Empty(t, d.sentSequence("A-1"), "auto_resume off must leave the menu for a human")
 }
+
+// rateLimitDetectorBackend is a fakeBackend that implements RateLimitDetector,
+// always returning limited=true regardless of pane content.
+type rateLimitDetectorBackend struct {
+	fakeBackend
+}
+
+func (rateLimitDetectorBackend) DetectRateLimit(pane string) (limited bool, resetAt time.Time, resetKnown bool) {
+	return true, time.Time{}, false
+}
+
+// TestClassify_BackendRateLimitDetector verifies that when the backend implements
+// RateLimitDetector and returns limited=true, classify returns StatusRateLimited
+// even when the pane contains no Claude-specific banner text.
+func TestClassify_BackendRateLimitDetector(t *testing.T) {
+	s := &store.Session{ID: "t", Status: store.StatusWorking}
+	// Pane has no Claude banner; the backend's detector fires instead.
+	got := classify(rateLimitDetectorBackend{}, s, "quota exceeded (custom backend)", true, 0, 0)
+	require.Equal(t, store.StatusRateLimited, got, "RateLimitDetector backend must drive StatusRateLimited")
+}
+
+// TestClassify_FallbackWhenNoRateLimitDetector verifies that a backend without
+// RateLimitDetector still gets StatusRateLimited via the fallback detectRateLimit
+// when the pane contains a Claude-style limit banner.
+func TestClassify_FallbackWhenNoRateLimitDetector(t *testing.T) {
+	s := &store.Session{ID: "t", Status: store.StatusWorking}
+	// fakeBackend does NOT implement RateLimitDetector; pane is a Claude banner.
+	got := classify(fakeBackend{}, s, sampleLimitBanner, true, 0, 0)
+	require.Equal(t, store.StatusRateLimited, got, "fallback detectRateLimit must fire for non-detector backend")
+}

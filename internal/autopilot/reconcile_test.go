@@ -9,7 +9,7 @@ import (
 )
 
 type migrationFake struct {
-	*guardianAgentFake
+	*fakeRuntime
 	reconciled []BootReconcileRun
 }
 
@@ -30,13 +30,13 @@ func TestReconcileRunsAtBootGrandfathersEmptyIntegrationBranch(t *testing.T) {
 	now := time.Now().UTC()
 	require.NoError(t, runStore.Create(RunRecord{
 		RunID: id, Name: "legacy", Repo: repo, PlanFile: plan,
-		State: StateRegistered, BrainID: "agent-deadbeef", GuardianID: "guardian-deadbeef",
+		State: StateRegistered, BrainID: "agent-deadbeef",
 		CreatedAt: now, UpdatedAt: now,
 	}))
 	require.NoError(t, runStore.Close())
 
 	c := NewController(ControllerConfig{DataDir: data, BaseDir: repo, IntegrationBranch: DefaultIntegrationBranch}, &fakeEnv{})
-	mf := &migrationFake{guardianAgentFake: &guardianAgentFake{fakeRuntime: newFakeRuntime()}}
+	mf := &migrationFake{fakeRuntime: newFakeRuntime()}
 	c.SetRuntime(mf)
 	t.Cleanup(func() { require.NoError(t, c.Close()) })
 
@@ -46,21 +46,6 @@ func TestReconcileRunsAtBootGrandfathersEmptyIntegrationBranch(t *testing.T) {
 	require.Equal(t, ManagerSlotID("legacy"), mf.reconciled[0].ManagerSlotID)
 }
 
-func TestSetRuntimeReconcileGuardiansUsesSlotIDs(t *testing.T) {
-	dir := t.TempDir()
-	plan := writePlan(t, dir, "plan.yaml", "ship")
-	rt := &migrationFake{guardianAgentFake: &guardianAgentFake{fakeRuntime: newFakeRuntime()}}
-	c := NewController(ControllerConfig{
-		Plans: []string{plan}, BaseDir: dir, Resolver: &fakeResolver{backendID: "a", tier: "free"},
-	}, &fakeEnv{})
-	c.SetRuntime(rt)
-	st, err := c.Enable(context.Background(), "")
-	require.NoError(t, err)
-	runID := st.Runs[0].RunID
-	c.SetRuntime(rt) // daemon re-attach after runs are live
-	require.Equal(t, map[string]string{runID: GuardianSlotID("plan")}, rt.guardianAgentFake.reconciled)
-}
-
 func TestReconcileRunsAtBootIdempotent(t *testing.T) {
 	repo := t.TempDir()
 	plan := writePlan(t, repo, "ship.yaml", "ship")
@@ -68,7 +53,7 @@ func TestReconcileRunsAtBootIdempotent(t *testing.T) {
 	env := &fakeEnv{repoOf: func(string) (string, error) { return repo, nil }}
 
 	c := NewController(ControllerConfig{DataDir: data, BaseDir: repo, Resolver: &fakeResolver{backendID: "a", tier: "free"}}, env)
-	mf := &migrationFake{guardianAgentFake: &guardianAgentFake{fakeRuntime: newFakeRuntime()}}
+	mf := &migrationFake{fakeRuntime: newFakeRuntime()}
 	c.SetRuntime(mf)
 	_, err := c.Register(context.Background(), RegisterRequest{Name: "ship", PlanFile: plan})
 	require.NoError(t, err)

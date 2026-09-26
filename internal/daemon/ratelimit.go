@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentbackend"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/poller"
 	"github.com/srjn45/warden/internal/store"
@@ -41,6 +42,11 @@ type RateLimitScheduler struct {
 	enabled            bool
 	resumePrompt       string // text to inject on resume; "" = bare keypress only
 
+	// BackendResolver, when set, resolves the backend for a session so
+	// limitClearsAt() can prefer the backend's RateLimitResetParser over the
+	// Claude-specific poller helpers. Set by the daemon after construction.
+	BackendResolver func(sess *store.Session) agentbackend.Backend
+
 	// CaptureDir, when non-empty, is where the fixture-capture aid snapshots the
 	// trailing pane text on every rate-limit detection (see captureBanner). Left
 	// empty in tests and any caller that doesn't want the capture. Set by the
@@ -61,8 +67,8 @@ type RateLimitScheduler struct {
 	// recovery coordinator. It returns true when that coordinator owns the session,
 	// including while it tries candidates or waits for capacity, so the legacy
 	// backend-only resume timer must not race it. Fires regardless of
-	// auto_resume (handover is an independent policy). A false return (handover off,
-	// or no eligible successor) falls through to the normal pause-and-resume path.
+	// auto_resume (recovery is an independent policy). A false return (no eligible
+	// successor) falls through to the normal pause-and-resume path.
 	// nil ⇒ no hard-limit swap (today's pause-and-wait). Set by the daemon after
 	// construction.
 	OnHardLimit func(sess *store.Session, until time.Time) bool
@@ -147,21 +153,41 @@ func (r *RateLimitScheduler) OnTransition(sess *store.Session, from, to store.St
 	r.scheduleResume(sess.ID, scheduleAt)
 }
 
-// limitClearsAt computes when a rate-limited session's limit is expected to clear:
-// the parsed reset time (plus the skew buffer) when the banner carries one, the
-// long spend fallback for a monthly cap, else the short retry fallback. This is
-// the single source of truth for both the resume schedule and the autopilot
-// guardian's tier limit feed.
+// limitClearsAt computes when a rate-limited session's limit is expected to clear.
+// It tries parse sources in order:
+//  1. Backend's RateLimitResetParser (when BackendResolver is set and the backend implements it).
+//  2. poller.ParseRestoreTime — Claude legacy clock-time parser.
+//  3. poller.SpendLimitBannerPresent — Claude spend-cap legacy (spendRetryInterval).
+//  4. retryInterval — final fallback.
+//
+// This is the single source of truth for both the resume schedule and the
+// autopilot guardian's tier limit feed.
 func (r *RateLimitScheduler) limitClearsAt(sess *store.Session) time.Time {
-	restoreTime, ok := poller.ParseRestoreTime(sess.LastPaneExcerpt)
-	switch {
-	case ok && restoreTime.After(time.Now()):
-		return restoreTime.Add(r.buffer)
-	case poller.SpendLimitBannerPresent(sess.LastPaneExcerpt):
-		return time.Now().Add(r.spendRetryInterval)
-	default:
-		return time.Now().Add(r.retryInterval)
+	now := time.Now()
+
+	// 1. Backend's own reset-time parser.
+	if r.BackendResolver != nil {
+		if b := r.BackendResolver(sess); b != nil {
+			if rp, ok := b.(agentbackend.RateLimitResetParser); ok {
+				if t, ok := rp.ParseRateLimitReset(sess.LastPaneExcerpt); ok && t.After(now) {
+					return t.Add(r.buffer)
+				}
+			}
+		}
 	}
+
+	// 2. Claude legacy clock-time parser.
+	if restoreTime, ok := poller.ParseRestoreTime(sess.LastPaneExcerpt); ok && restoreTime.After(now) {
+		return restoreTime.Add(r.buffer)
+	}
+
+	// 3. Claude spend-cap legacy.
+	if poller.SpendLimitBannerPresent(sess.LastPaneExcerpt) {
+		return now.Add(r.spendRetryInterval)
+	}
+
+	// 4. Final fallback.
+	return now.Add(r.retryInterval)
 }
 
 // scheduleResume creates a timer for the resume attempt.

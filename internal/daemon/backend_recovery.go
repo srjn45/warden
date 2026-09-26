@@ -82,10 +82,6 @@ func (c *BackendRecoveryCoordinator) OnHardLimit(sess *store.Session, fallbackAt
 	if c == nil || c.store == nil || c.backends == nil || c.usage == nil || c.life == nil || sess == nil {
 		return false
 	}
-	settings, err := c.backends.GetHandoverSettings()
-	if err == nil && !settings.Enabled {
-		return false
-	}
 	lock := c.sessionLock(sess.ID)
 	lock.Lock()
 	defer lock.Unlock()

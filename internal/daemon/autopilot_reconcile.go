@@ -11,8 +11,8 @@ import (
 )
 
 // ReconcileSessions migrates legacy autopilot sessions at daemon boot (WP12):
-// adopt live agent-<hex> managers into slot ids, retire legacy guardian-<hash>
-// sessions, and stamp worker back-ref fields from tags. Idempotent.
+// adopt live agent-<hex> managers into slot ids and stamp worker back-ref fields
+// from tags. Idempotent.
 func (rt autopilotRuntime) ReconcileSessions(ctx context.Context, runs []autopilot.BootReconcileRun) error {
 	if rt.s == nil || rt.s.store == nil {
 		return nil
@@ -24,7 +24,6 @@ func (rt autopilotRuntime) ReconcileSessions(ctx context.Context, runs []autopil
 	var errs []error
 	for _, spec := range runs {
 		errs = append(errs, rt.migrateLegacyManager(ctx, sessions, spec))
-		errs = append(errs, rt.retireLegacyGuardian(ctx, sessions, spec))
 		errs = append(errs, rt.reconcileWorkerBackRefs(ctx, sessions, spec))
 	}
 	rt.s.notify()
@@ -82,29 +81,11 @@ func (rt autopilotRuntime) stampManagerBackRefs(ctx context.Context, slotID, run
 	})
 }
 
-func (rt autopilotRuntime) retireLegacyGuardian(ctx context.Context, sessions []*store.Session, spec autopilot.BootReconcileRun) error {
-	var errs []error
-	for _, sess := range sessions {
-		if sess == nil || !containsTag(sess.Tags, guardianSystemTag) {
-			continue
-		}
-		runID := guardianRunIDFromTags(sess.Tags)
-		if runID != spec.RunID {
-			continue
-		}
-		if sess.ID == spec.GuardianSlotID {
-			continue
-		}
-		errs = append(errs, rt.TerminateGuardian(ctx, sess.ID))
-	}
-	return errors.Join(errs...)
-}
-
 func (rt autopilotRuntime) reconcileWorkerBackRefs(ctx context.Context, sessions []*store.Session, spec autopilot.BootReconcileRun) error {
 	runTag := "run:" + spec.RunID
 	var errs []error
 	for _, sess := range sessions {
-		if sess == nil || containsTag(sess.Tags, guardianSystemTag) {
+		if sess == nil {
 			continue
 		}
 		if !sessionOwnsRun(sess, spec.RunID, runTag) {
@@ -167,15 +148,6 @@ func findLegacyManagerID(sessions []*store.Session, runID string) string {
 		}
 		if sess.Role == autopilotBrainRole && (sess.HasTag(runTag) || autopilot.SessionRunID(sess) == runID) {
 			return sess.ID
-		}
-	}
-	return ""
-}
-
-func guardianRunIDFromTags(tags []string) string {
-	for _, tag := range tags {
-		if strings.HasPrefix(tag, guardianRunPrefix) {
-			return strings.TrimPrefix(tag, guardianRunPrefix)
 		}
 	}
 	return ""

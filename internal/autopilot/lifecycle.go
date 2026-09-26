@@ -52,9 +52,6 @@ func (c *Controller) restoreStoredRuns() {
 			if rec.BrainID == ManagerSlotID(rec.SlotScope) {
 				r.brain = &BrainHandle{AgentID: rec.BrainID}
 			}
-			if rec.GuardianID == GuardianSlotID(rec.SlotScope) {
-				r.guardianID = rec.GuardianID
-			}
 		}
 		// Boot reconciliation re-spawns only runs whose durable intent is live.
 		if plan, err := LoadPlan(rec.PlanFile); err == nil {
@@ -99,9 +96,6 @@ func (c *Controller) recordLocked(r *run) RunRecord {
 		Strategy: c.strategy, DeleteBranch: c.deleteBranch, SlotScope: r.slotScope, UpdatedAt: now}
 	if r.brain != nil && r.slotScope != "" {
 		rec.BrainID = ManagerSlotID(r.slotScope)
-	}
-	if r.guardianID != "" && r.slotScope != "" {
-		rec.GuardianID = GuardianSlotID(r.slotScope)
 	}
 	return rec
 }
@@ -545,7 +539,7 @@ func (c *Controller) UnregisterRun(_ context.Context, id string) (RunStatus, err
 func (c *Controller) runStatusLocked(r *run) RunStatus {
 	st := RunStatus{RunID: r.runID, Name: r.name, PlanFile: r.planFile, Repo: r.repo,
 		State: r.state, Gate: c.runGate(r), Tasks: TaskCounts{},
-		PlanTasks: append([]PlanTask(nil), r.plan.Tasks...), GuardianID: r.guardianID,
+		PlanTasks: append([]PlanTask(nil), r.plan.Tasks...), GuardianID: guardianSlotIDOrEmpty(r.slotScope),
 		SlotScope: r.slotScope, IntegrationBranch: r.integrationBranch, GateWarning: r.gateWarning,
 		ManagerSlotID: managerSlotIDOrEmpty(r.slotScope), GuardianSlotID: guardianSlotIDOrEmpty(r.slotScope),
 		LedgerTasks: c.ledgerTasksLocked(r.runID)}

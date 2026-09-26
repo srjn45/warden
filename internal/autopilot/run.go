@@ -149,17 +149,6 @@ type GuardianRuntime interface {
 	NotifyEscalation(runID, title, body string)
 }
 
-// GuardianAgentRuntime promotes the daemon guardian loop to an inspectable,
-// lightweight system session. It is optional so embedders and older Runtime
-// fakes retain the daemon-loop-only behavior.
-type GuardianAgentRuntime interface {
-	SpawnGuardian(ctx context.Context, runID, slotScope, repo string) (agentID string, err error)
-	TerminateGuardian(ctx context.Context, agentID string) error
-	// ReconcileGuardians removes guardian sessions not present in valid, keyed by
-	// run id. It runs once when the daemon runtime is attached at boot.
-	ReconcileGuardians(ctx context.Context, valid map[string]string) (missingRunIDs []string, err error)
-}
-
 // rotateBrain is the guardian's rotation hook (autopilot.md §7): hot-swap the
 // successor backend into the existing manager slot so the session id is
 // unchanged. A missing brain (cold start / failed prior spawn) still goes
@@ -239,20 +228,6 @@ func (c *Controller) spawnBrain(ctx context.Context, r *run, backend string) err
 		return fmt.Errorf("spawn brain: %w", err)
 	}
 	r.brain = &handle
-	wantGuardian := GuardianSlotID(r.slotScope)
-	if r.guardianID != "" && r.guardianID != wantGuardian {
-		r.guardianID = ""
-	}
-	if gr, ok := c.runtime.(GuardianAgentRuntime); ok && r.guardianID == "" {
-		id, gerr := gr.SpawnGuardian(ctx, r.runID, r.slotScope, r.repo)
-		if gerr != nil {
-			_ = c.runtime.TerminateBrain(ctx, handle.AgentID)
-			r.brain = nil
-			r.state = StateDegraded
-			return fmt.Errorf("spawn guardian: %w", gerr)
-		}
-		r.guardianID = id
-	}
 	r.brainSpawnedAt = c.now() // fresh spawn counts as a heartbeat until the brain acts
 	r.state = StateActive
 	return nil
@@ -269,10 +244,6 @@ func (c *Controller) teardownBrain(ctx context.Context, r *run) error {
 	if r.brain != nil && r.brain.AgentID != "" {
 		errs = append(errs, c.runtime.TerminateBrain(ctx, r.brain.AgentID))
 		r.brain = nil
-	}
-	if gr, ok := c.runtime.(GuardianAgentRuntime); ok && r.guardianID != "" {
-		errs = append(errs, gr.TerminateGuardian(ctx, r.guardianID))
-		r.guardianID = ""
 	}
 	return errors.Join(errs...)
 }

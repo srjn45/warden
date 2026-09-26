@@ -522,9 +522,14 @@ func newDaemonRunCmd() *cobra.Command {
 			restarter := daemon.NewRestarter(life, st, cfg.AutoRestart.Max, cfg.AutoRestartResetDuration())
 			srv.SetRestarter(restarter)
 			rateLimitSched := daemon.NewRateLimitScheduler(life, st, cfg.RateLimitRetryIntervalDuration(), cfg.RateLimitSpendRetryIntervalDuration(), cfg.RateLimitBufferDuration(), cfg.RateLimit.AutoResume, cfg.RateLimit.ResumePrompt)
+			rateLimitSched.BackendResolver = func(s *store.Session) agentbackend.Backend {
+				b, _ := agentbackend.Get(s.Backend)
+				return b
+			}
 			// Fixture-capture aid: snapshot the raw pane on each real limit hit so a
 			// future parser gap can be fixed from ground-truth bytes (bounded, newest-N).
 			rateLimitSched.CaptureDir = filepath.Join(cfg.DataDir, "ratelimit-captures")
+			srv.SetRateLimitScheduler(rateLimitSched)
 			// Autopilot guardian escalations (§2.3) fan out through the same
 			// operator notifier seam (desktop + webhook).
 			srv.SetAutopilotNotifier(notifSwitch)

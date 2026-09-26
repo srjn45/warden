@@ -30,17 +30,11 @@ type autopilotRuntime struct{ s *Server }
 // any surface (guardian liveness §2.3, overwatch fleet-tending §2.4, the digest
 // sources) is a build error, not a silent no-op.
 var (
-	_ autopilot.Runtime              = autopilotRuntime{}
-	_ autopilot.GuardianRuntime      = autopilotRuntime{}
-	_ autopilot.GuardianAgentRuntime = autopilotRuntime{}
-	_ autopilot.MigrationRuntime     = autopilotRuntime{}
-	_ autopilot.OverwatchRuntime     = autopilotRuntime{}
-	_ autopilot.DigestSources        = autopilotRuntime{}
-)
-
-const (
-	guardianSystemTag = "system:true"
-	guardianRunPrefix = "autopilot-run:"
+	_ autopilot.Runtime          = autopilotRuntime{}
+	_ autopilot.GuardianRuntime  = autopilotRuntime{}
+	_ autopilot.MigrationRuntime = autopilotRuntime{}
+	_ autopilot.OverwatchRuntime = autopilotRuntime{}
+	_ autopilot.DigestSources    = autopilotRuntime{}
 )
 
 // autopilotBrainRole is the built-in role the brain spawns under: it carries the
@@ -183,106 +177,6 @@ func (rt autopilotRuntime) TerminateBrain(ctx context.Context, agentID string) e
 	}
 	rt.s.notify()
 	return nil
-}
-
-// SpawnGuardian creates a cheap terminal-backed system session representing the
-// daemon's guardian loop. The loop itself remains daemon-owned; the session makes
-// its lifecycle inspectable without consuming an LLM backend. The guardian slot id
-// is deterministic (<scope>-guardian); an existing record is adopted on ErrExists.
-func (rt autopilotRuntime) SpawnGuardian(ctx context.Context, runID, slotScope, repo string) (string, error) {
-	if slotScope == "" {
-		return "", errors.New("spawn guardian: slot scope required")
-	}
-	id := autopilot.GuardianSlotID(slotScope)
-	tags := []string{guardianSystemTag, guardianRunPrefix + runID}
-	now := time.Now().UTC()
-	if _, err := rt.s.store.Get(ctx, id); err == nil {
-		if err := rt.s.store.Update(ctx, id, func(sess *store.Session) error {
-			sess.Status, sess.Tags, sess.Repo, sess.Workdir = store.StatusIdle, tags, repo, repo
-			return nil
-		}); err != nil {
-			return "", err
-		}
-		rt.s.notify()
-		return id, nil
-	} else if !errors.Is(err, store.ErrNotFound) {
-		return "", err
-	}
-	sess := &store.Session{
-		ChildAgents: []string{}, ChildPipelines: []string{}, ID: id, Name: id, Repo: repo, Workdir: repo,
-		Status: store.StatusIdle, Tags: tags, CreatedAt: now, UpdatedAt: now}
-	if err := rt.s.store.Insert(ctx, sess); err != nil {
-		if errors.Is(err, store.ErrExists) {
-			if err := rt.s.store.Update(ctx, id, func(sess *store.Session) error {
-				sess.Status, sess.Tags, sess.Repo, sess.Workdir = store.StatusIdle, tags, repo, repo
-				return nil
-			}); err != nil {
-				return "", err
-			}
-			rt.s.notify()
-			return id, nil
-		}
-		return "", err
-	}
-	rt.s.notify()
-	return id, nil
-}
-
-func (rt autopilotRuntime) TerminateGuardian(ctx context.Context, agentID string) error {
-	sess, err := rt.s.store.Get(ctx, agentID)
-	if errors.Is(err, store.ErrNotFound) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if err := rt.s.life.Terminate(ctx, sess.TmuxSession); err != nil {
-		return err
-	}
-	if err := rt.s.store.UpdateStatus(ctx, sess.ID, store.StatusDone); err != nil {
-		return err
-	}
-	rt.s.notify()
-	return nil
-}
-
-// ReconcileGuardians terminates leaked system guardians whose run disappeared,
-// became terminal, or now points at a different guardian id.
-func (rt autopilotRuntime) ReconcileGuardians(ctx context.Context, valid map[string]string) ([]string, error) {
-	sessions, err := rt.s.store.List(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var errs []error
-	seen := make(map[string]bool)
-	for _, sess := range sessions {
-		if !containsTag(sess.Tags, guardianSystemTag) {
-			continue
-		}
-		runID := ""
-		for _, tag := range sess.Tags {
-			if strings.HasPrefix(tag, guardianRunPrefix) {
-				runID = strings.TrimPrefix(tag, guardianRunPrefix)
-				break
-			}
-		}
-		if runID == "" {
-			continue // system visibility is not, by itself, guardian ownership
-		}
-		if valid[runID] != sess.ID || !guardianSessionLive(sess.Status) {
-			errs = append(errs, rt.TerminateGuardian(ctx, sess.ID))
-		} else {
-			seen[runID] = true
-		}
-	}
-	missing := make([]string, 0)
-	for runID := range valid {
-		if !seen[runID] {
-			missing = append(missing, runID)
-		}
-	}
-	sort.Strings(missing)
-	return missing, errors.Join(errs...)
 }
 
 func guardianSessionLive(status store.Status) bool {

@@ -412,7 +412,9 @@ membership and child edges across both paths.
 
 ## Backend recovery
 
-When an agent hits a confirmed provider hard limit, the **reactive backend recovery coordinator** automatically tries eligible subscription backends from the backend registry — no operator action needed. Watch for a non-null `backend_recovery` field on sessions from `list_agents` / `get_agent`.
+When an agent hits a confirmed provider hard limit, the **reactive backend recovery coordinator** automatically tries eligible subscription backends from the backend registry — no operator action needed (universal for all agents; not gated on handover settings). Watch for a non-null `backend_recovery` field on sessions from `list_agents` / `get_agent`.
+
+**Rate-limit detection** is per-backend: Claude, Codex, Cursor, Antigravity, and Aider use pane-based banners; OpenCode, Crush, and Goose rely on the daemon's usage-API poll (~60 s) because their Tea TUI panes carry no limit text. Once `status` becomes `rate_limited`, recovery and optional same-backend auto-resume follow the usual paths.
 
 **Recovery phases:**
 

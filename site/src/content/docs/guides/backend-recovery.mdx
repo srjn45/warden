@@ -73,7 +73,12 @@ No operator action is required unless every known backend is exhausted.
 
 ### Detection
 
-A confirmed `rate_limited` status transition (from the poller detecting a provider hard-limit banner) starts at most one recovery **generation** per agent. A duplicate transition while a generation is already running is a no-op — the coordinator owns the session exclusively.
+A confirmed `rate_limited` status transition starts at most one recovery **generation** per agent. The poller sets that status when:
+
+- The agent's backend implements **pane-based** rate-limit detection (Claude, Codex, Cursor, Antigravity, Aider) and the captured tmux pane shows a provider hard-limit banner, or
+- The backend is **pane-blind** (OpenCode, Crush, Goose — Tea TUIs with no parseable limit text) and the daemon's periodic usage snapshot reports `rate_limited` for that backend (~60 s poll lag via `limitSessionsFromSnapshot`).
+
+A duplicate transition while a generation is already running is a no-op — the coordinator owns the session exclusively. Reactive recovery runs for **every** agent session; it is not gated on handover settings (those still control context-fill handover only).
 
 ### Usage refresh
 

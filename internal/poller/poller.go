@@ -49,7 +49,13 @@ func classify(b agentbackend.Backend, s *store.Session, pane string, sessionAliv
 
 	// Rate limit is checked before the waiting/idle heuristics so a banner is not
 	// misread as waiting_for_input when its trailing prompt box is shown.
-	if isLimited, _, _ := detectRateLimit(pane); isLimited {
+	// Prefer the backend's own detector when it implements RateLimitDetector;
+	// fall back to the Claude-specific detectRateLimit for any other backend.
+	if rl, ok := b.(agentbackend.RateLimitDetector); ok {
+		if limited, _, _ := rl.DetectRateLimit(pane); limited {
+			return store.StatusRateLimited
+		}
+	} else if isLimited, _, _ := detectRateLimit(pane); isLimited {
 		return store.StatusRateLimited
 	}
 	// A visible prompt box ("❯ 1." / "Do you want", or a backend's own approval
