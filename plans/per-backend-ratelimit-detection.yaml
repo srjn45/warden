@@ -1,0 +1,401 @@
+version: 1
+goal: >-
+  Make rate-limit detection and cross-backend recovery work for all 8 agent
+  backends, not just Claude. Today detectRateLimit() in poller/detect.go matches
+  only Claude's banner text, so StatusRateLimited is never set for Codex, Cursor,
+  Aider, Antigravity, OpenCode, Crush, or Goose — the BackendRecoveryCoordinator
+  (which already handles cross-backend/model switching via usage API) never fires
+  for them. The fix has three layers: (1) add a RateLimitDetector optional Backend
+  interface so each backend owns its own pane-based detection, (2) add a
+  RateLimitResetParser optional interface so each backend owns its own reset-time
+  parsing (replacing Claude-only poller.ParseRestoreTime in limitClearsAt), and
+  (3) add a usage-API polling fallback for Tea TUI backends (OpenCode, Crush,
+  Goose) whose pane carries no text at all.
+constraints:
+  - "API is spec-first: edit openapi.yaml then make generate; never hand-edit api.gen.go."
+  - "Work in an isolated git worktree branched off main; one PR per phase."
+  - "Run wd check (make verify-fast) before every commit."
+  - "This feature applies to ALL agents, not just autopilot. BackendRecoveryCoordinator.OnHardLimit is currently gated on handover settings being enabled — that gate must be removed in Phase 4 so every session gets automatic backend switching when rate-limited."
+  - "The BackendRecoveryCoordinator already implements cross-backend switching, exhaustion waiting, and reset-time scheduling (waitLocked picks the earliest ResetsAt from FetchUsage across all candidates and schedules a retry at that time). Do not change that logic — only fix detection so it fires for all backends."
+  - "Backward compat: detect.go's detectRateLimit() stays as a package-level fallback used only when the backend does not implement RateLimitDetector. Do not delete it."
+  - "Per-backend banner text: where exact banner wording is unknown, add a TODO and implement a safe generic keyword match (limited/rate limit/quota) anchored to trailing pane lines — fail-closed, same stance as existing Claude detection."
+  - "Confirm with the maintainer before pushing any v* tag."
+tasks:
+  - id: Phase0_Spec
+    prompt: >-
+      Phase 0 (spec freeze — docs only): Write docs/specs/2026-09-26-per-backend-ratelimit-detection.md
+      capturing the locked design decisions below. No production code. Open a PR against
+      main titled 'docs(spec): per-backend rate-limit detection'. End with
+      `wd job done --summary '...'` once the PR is green.
+
+      **Problem.** `poller/detect.go detectRateLimit()` matches only Claude's banner text.
+      `classify()` calls it unconditionally. `RateLimitScheduler.limitClearsAt()` calls
+      `poller.ParseRestoreTime(sess.LastPaneExcerpt)` and `poller.SpendLimitBannerPresent()`
+      — both Claude-specific. For all non-Claude backends, StatusRateLimited is never set
+      (no banner match), so BackendRecoveryCoordinator.OnHardLimit never fires, and the
+      agent just sits orphaned or stuck indefinitely.
+
+      **Locked decisions:**
+
+      D1. New optional interface `RateLimitDetector` in `internal/agentbackend/backend.go`:
+          type RateLimitDetector interface {
+            // DetectRateLimit returns (limited, resetAt, resetKnown).
+            // limited=true means the pane shows a rate-limit condition.
+            // resetAt is when the limit clears (zero if resetKnown=false).
+            // resetKnown=false means the backend cannot parse a reset time from the pane
+            //   (the scheduler will fall back to its configured retryInterval).
+            DetectRateLimit(pane string) (limited bool, resetAt time.Time, resetKnown bool)
+          }
+          classify() in poller.go checks the backend for RateLimitDetector first.
+          If not implemented, falls back to the existing package-level detectRateLimit().
+          The fallback stays in detect.go; it is never deleted (backward compat, legacy backends).
+
+      D2. New optional interface `RateLimitResetParser` in `internal/agentbackend/backend.go`:
+          type RateLimitResetParser interface {
+            // ParseRateLimitReset extracts the reset time from a rate-limit pane excerpt.
+            // ok=false when the backend cannot parse one (scheduler keeps retryInterval fallback).
+            ParseRateLimitReset(pane string) (resetAt time.Time, ok bool)
+          }
+          RateLimitScheduler.limitClearsAt() is refactored to:
+            1. Try the session's backend's RateLimitResetParser if implemented.
+            2. Fall back to poller.ParseRestoreTime (Claude-specific legacy).
+            3. Fall back to poller.SpendLimitBannerPresent (Claude spend cap legacy).
+            4. Fall back to retryInterval.
+          To call the backend from limitClearsAt, the RateLimitScheduler gains a BackendResolver
+          func(sess) agentbackend.Backend field (same pattern as Poller.Backend).
+
+      D3. Per-backend RateLimitDetector implementations (Phase 2):
+          - Claude: wraps claudeLimitBannerRe + claudeSpendLimitRe (exact match to current logic).
+            Also implements RateLimitResetParser wrapping ParseRestoreTime + SpendLimitBannerPresent.
+          - Codex: keyword match on trailing lines — "usage limit" / "rate limit" / "quota" +
+            any of "exceeded"/"reached"/"hit". Also implements RateLimitResetParser for any
+            "resets HH:MM" or "try again at" patterns Codex surfaces (TODO: confirm exact wording).
+          - Cursor: keyword match — "rate limit"/"quota exceeded"/"Usage limit reached"
+            + optional time extraction. RateLimitResetParser: generic clock-time fallback.
+          - Antigravity: keyword match — "rate limited"/"quota"/"limit reached".
+            Can also check "agy"'s spinner disappearing with an error footer.
+            RateLimitResetParser: extract time if banner carries one, else zero.
+          - Aider: keyword match — "rate_limit_error"/"RateLimitError"/"429"/"quota exceeded"
+            (Aider surfaces the raw API error in the pane). RateLimitResetParser: zero (no time).
+          - OpenCode, Crush, Goose: return (false, zero, false) — pane is a Tea TUI, no text
+            markers. Covered by Phase 3's usage-API fallback.
+
+      D4. Usage-API polling fallback for pane-blind backends (Phase 3):
+          runUsageSync in daemon/usage_sync.go already calls backendusage.SyncToStore after
+          every Snapshot. After that sync, a new step checks if any backend reports
+          status="rate_limited" in the Snapshot. For each active non-rate-limited session
+          whose backend is in that limited set, transition the session to StatusRateLimited
+          (using store.UpdateStatusIf) and fire the RateLimitScheduler.OnTransition callback.
+          This gives Tea TUI backends a polling path (~60s lag) instead of instant pane detection.
+          The reset time comes from the UsageLimit.ResetsAt field in the Snapshot.
+          The new function is: func (s *Server) limitSessionsFromSnapshot(ctx, snap).
+
+      D5. No changes to BackendRecoveryCoordinator, RateLimitScheduler timers, or the
+          advance/waitLocked/verifyStable logic. Those are correct and backend-agnostic.
+          The only change to RateLimitScheduler is adding BackendResolver to limitClearsAt (D2).
+
+      D6. Conformance test: backends/conformance_test.go gains a RateLimitDetectorTest that
+          runs against all registered backends, verifying:
+          - A synthetic rate-limit pane (per backend's fixture) returns (true, ?, ?).
+          - A clean working pane returns (false, zero, false).
+          - A backend without RateLimitDetector is noted as "pane-blind" (not a failure;
+            that backend is expected to rely on the usage-API fallback from D4).
+    status: pending
+
+  - id: Phase1_Interface
+    prompt: >-
+      Phase 1 (interface + classify refactor): Add RateLimitDetector and RateLimitResetParser
+      to the Backend interface file, refactor classify() to use them, and wire BackendResolver
+      into RateLimitScheduler.limitClearsAt. Open a PR against main titled
+      'feat(agentbackend): per-backend rate-limit detector interface'. End with
+      `wd job done --summary '...'` once the PR is green.
+
+      Read docs/specs/2026-09-26-per-backend-ratelimit-detection.md before starting.
+
+      **Files to edit:**
+
+      1. internal/agentbackend/backend.go:
+         Add at the end of the file (before the last closing brace):
+           // RateLimitDetector is an optional Backend extension...
+           type RateLimitDetector interface {
+             DetectRateLimit(pane string) (limited bool, resetAt time.Time, resetKnown bool)
+           }
+           // RateLimitResetParser is an optional Backend extension...
+           type RateLimitResetParser interface {
+             ParseRateLimitReset(pane string) (resetAt time.Time, ok bool)
+           }
+
+      2. internal/poller/poller.go classify():
+         Replace the current:
+           if isLimited, _, _ := detectRateLimit(pane); isLimited {
+             return store.StatusRateLimited
+           }
+         With:
+           if rl, ok := b.(agentbackend.RateLimitDetector); ok {
+             if limited, _, _ := rl.DetectRateLimit(pane); limited {
+               return store.StatusRateLimited
+             }
+           } else if isLimited, _, _ := detectRateLimit(pane); isLimited {
+             return store.StatusRateLimited
+           }
+         Note: the resetAt return value from DetectRateLimit is intentionally ignored here —
+         limitClearsAt reads it from the backend at schedule time via RateLimitResetParser (D2).
+
+      3. internal/daemon/ratelimit.go RateLimitScheduler:
+         - Add field: BackendResolver func(*store.Session) agentbackend.Backend
+         - Refactor limitClearsAt(sess) to:
+             // 1. Try backend's own parser
+             if r.BackendResolver != nil {
+               if b, ok := r.BackendResolver(sess).(agentbackend.RateLimitResetParser); ok {
+                 if t, ok := b.ParseRateLimitReset(sess.LastPaneExcerpt); ok && t.After(time.Now()) {
+                   return t.Add(r.buffer)
+                 }
+               }
+             }
+             // 2. Legacy Claude fallbacks
+             if restoreTime, ok := poller.ParseRestoreTime(sess.LastPaneExcerpt); ok && restoreTime.After(time.Now()) {
+               return restoreTime.Add(r.buffer)
+             }
+             if poller.SpendLimitBannerPresent(sess.LastPaneExcerpt) {
+               return time.Now().Add(r.spendRetryInterval)
+             }
+             return time.Now().Add(r.retryInterval)
+         - Wire BackendResolver in daemon/api.go or wherever RateLimitScheduler is constructed:
+             scheduler.BackendResolver = poller.ResolveBackend  (or the same resolver used by the Poller)
+
+      4. Unit tests:
+         - poller/poller_test.go: add a test case where a fake backend implements
+           RateLimitDetector and returns limited=true → classify returns StatusRateLimited.
+         - poller/poller_test.go: add a test where backend does NOT implement RateLimitDetector
+           but pane matches claudeLimitBannerRe → fallback still fires.
+         - daemon/ratelimit_test.go: add a test where BackendResolver returns a backend
+           implementing RateLimitResetParser → limitClearsAt uses its result.
+
+      Do NOT implement DetectRateLimit on any real backend yet (that is Phase 2).
+      Run wd check before committing.
+    after: [Phase0_Spec]
+    status: pending
+
+  - id: Phase2_PerBackendBanners
+    prompt: >-
+      Phase 2 (per-backend banner detection): Implement RateLimitDetector and
+      RateLimitResetParser on each backend that can do pane-based detection.
+      Open a PR against main titled 'feat(backends): per-backend rate-limit detection'.
+      End with `wd job done --summary '...'` once the PR is green.
+
+      Read docs/specs/2026-09-26-per-backend-ratelimit-detection.md before starting.
+
+      **For each backend file, implement DetectRateLimit (and optionally ParseRateLimitReset)
+      following the fail-closed rule: only return limited=true when the pane conclusively
+      shows a rate-limit condition — a stray keyword in agent output must not match.**
+
+      1. internal/agentbackend/backends/claude.go:
+         Implement RateLimitDetector:
+           func (Claude) DetectRateLimit(pane string) (bool, time.Time, bool) {
+             // move claudeLimitBannerRe + claudeSpendLimitRe logic from detect.go here
+             // tail := lastLines(pane, limitBannerTailLines)  — import/copy lastLines helper
+             // same logic as the current detectRateLimit package function
+           }
+         Implement RateLimitResetParser:
+           func (Claude) ParseRateLimitReset(pane string) (time.Time, bool) {
+             if t, ok := poller.ParseRestoreTime(pane); ok { return t, true }
+             return time.Time{}, false
+           }
+         NOTE: do NOT delete detect.go's detectRateLimit — it stays as the fallback.
+
+      2. internal/agentbackend/backends/codex.go:
+         Implement RateLimitDetector:
+           Match trailing 6 lines for: "usage limit"/"rate limit"/"quota" +
+           "exceeded"/"reached"/"hit your" — case-insensitive.
+           Also check for HTTP 429 or "Too Many Requests" in pane output.
+           ParseRateLimitReset: reuse poller.ParseRestoreTime (Codex surfaces similar
+           "resets HH:MM" messages since it uses the same Claude API under the hood).
+           Add // TODO(confirm-wording) comment asking for a live fixture.
+
+      3. internal/agentbackend/backends/cursor.go:
+         Implement RateLimitDetector:
+           Match trailing 6 lines for: "Rate limit"/"usage limit"/"quota"/"limit exceeded"
+           — case-insensitive, anchored to trailing lines to avoid false positives.
+           ParseRateLimitReset: generic clock-time parse (poller.ParseRestoreTime fallback).
+           Add // TODO(confirm-wording) comment.
+
+      4. internal/agentbackend/backends/antigravity.go:
+         Implement RateLimitDetector:
+           Match trailing 6 lines for: "rate limited"/"rate limit"/"quota"/"limit reached"
+           — agy surfaces these as footer text when a model is exhausted.
+           ParseRateLimitReset: check for "resets at HH:MM" or "available at HH:MM" pattern.
+           Add // TODO(confirm-wording) comment.
+
+      5. internal/agentbackend/backends/aider.go:
+         Implement RateLimitDetector:
+           Match trailing 8 lines (Aider shows multi-line API errors) for:
+           "rate_limit_error"/"RateLimitError"/"429"/"quota exceeded"/"Too Many Requests"
+           — Aider surfaces the raw API error JSON or exception in the pane.
+           ParseRateLimitReset: zero (Aider does not surface reset times).
+
+      6. internal/agentbackend/backends/opencode.go,
+         internal/agentbackend/backends/crush.go,
+         internal/agentbackend/backends/goose.go:
+         Do NOT implement RateLimitDetector. These are Tea TUI backends — no text markers.
+         Add a comment: "// No RateLimitDetector: Tea TUI pane carries no parseable rate-limit
+         // signal. Rate-limit detection for this backend relies on the usage-API polling
+         // fallback in daemon/usage_sync.go (limitSessionsFromSnapshot)."
+
+      7. internal/agentbackend/backends/conformance_test.go:
+         Add RateLimitDetectorConformance test:
+           - For backends WITH RateLimitDetector: feed each backend's synthetic rate-limit
+             pane fixture → assert (true, ?, ?). Feed a clean working pane → assert (false, zero, false).
+           - For backends WITHOUT RateLimitDetector: assert interface not implemented (log as "pane-blind").
+         Add test fixtures in backends/testdata/ratelimit/<backend>_limited.txt.
+
+      Run wd check before committing.
+    after: [Phase1_Interface]
+    status: pending
+
+  - id: Phase3_UsageAPIFallback
+    prompt: >-
+      Phase 3 (usage-API polling fallback): Wire the usage Snapshot into session status so
+      pane-blind backends (OpenCode, Crush, Goose) get StatusRateLimited from the 60s usage
+      poll instead of never. Open a PR against main titled
+      'feat(daemon): usage-API rate-limit fallback for pane-blind backends'. End with
+      `wd job done --summary '...'` once the PR is green.
+
+      Read docs/specs/2026-09-26-per-backend-ratelimit-detection.md before starting.
+
+      **Context.** runUsageSync (daemon/usage_sync.go) already calls backendusage.SyncToStore
+      after every Snapshot. The Snapshot carries per-backend UsageResult with Status="rate_limited"
+      and UsageLimit.ResetsAt. We need one extra step: translate "this backend is rate_limited in
+      the snapshot" into StatusRateLimited on all active sessions running on that backend.
+
+      **Files to edit:**
+
+      1. internal/daemon/usage_sync.go:
+         After the SyncToStore call in usageSyncOnce, call:
+           s.limitSessionsFromSnapshot(ctx, snap)
+
+      2. internal/daemon/usage_sync.go (new method):
+         func (s *Server) limitSessionsFromSnapshot(ctx context.Context, snap backendusage.Snapshot) {
+           if s.rateLimitScheduler == nil || s.store == nil {
+             return
+           }
+           // Build set of currently-limited backends from the snapshot.
+           limited := map[string]time.Time{} // backendID → earliest resetAt across scopes
+           for _, br := range snap.Backends {
+             for _, ul := range br.Limits {
+               if ul.LimitState != nil && *ul.LimitState == "rate_limited" {
+                 resetAt := time.Time{}
+                 if ul.ResetsAt != nil { resetAt = *ul.ResetsAt }
+                 if cur, exists := limited[br.BackendID]; !exists || (!resetAt.IsZero() && resetAt.Before(cur)) {
+                   limited[br.BackendID] = resetAt
+                 }
+               }
+             }
+           }
+           if len(limited) == 0 { return }
+           sessions, err := s.store.List(ctx)
+           if err != nil { return }
+           for _, sess := range sessions {
+             resetAt, isLimited := limited[sess.Backend]
+             if !isLimited { continue }
+             // Only transition non-terminal, non-already-limited sessions.
+             switch sess.Status {
+             case store.StatusWorking, store.StatusIdle, store.StatusWaitingForInput:
+               // Check if backend implements RateLimitDetector — if it does, trust
+               // the pane-based path and do NOT double-trigger from usage poll.
+               if b, err := agentbackend.Get(sess.Backend); err == nil {
+                 if _, ok := b.(agentbackend.RateLimitDetector); ok {
+                   continue // pane-based detection handles this backend
+                 }
+               }
+               changed, _ := s.store.UpdateStatusIf(ctx, sess.ID, sess.Status, store.StatusRateLimited)
+               if changed {
+                 if !resetAt.IsZero() {
+                   _ = s.store.SetRateLimit(ctx, sess.ID, resetAt, 0)
+                 }
+                 updated, _ := s.store.Get(ctx, sess.ID)
+                 if updated != nil && s.rateLimitScheduler != nil {
+                   s.rateLimitScheduler.OnTransition(updated, sess.Status, store.StatusRateLimited)
+                 }
+               }
+             }
+           }
+         }
+
+      3. Tests: daemon/usage_sync_test.go (or new file usage_sync_ratelimit_test.go):
+         - Snapshot with opencode backend rate_limited → active opencode session transitions
+           to StatusRateLimited and OnTransition is called with correct resetAt.
+         - Snapshot with claude backend rate_limited → active claude session is NOT transitioned
+           (claude implements RateLimitDetector, pane-based path handles it).
+         - Already-rate-limited session → no double-transition.
+         - Snapshot with no rate_limited backends → no sessions touched.
+
+      Run wd check before committing.
+    after: [Phase2_PerBackendBanners]
+    status: pending
+
+  - id: Phase4_UniversalRecovery
+    prompt: >-
+      Phase 4 (universal recovery + wire + docs): Remove the handover-settings gate from
+      BackendRecoveryCoordinator so recovery fires for ALL agents, verify the full wiring,
+      add an integration test, and complete the CLAUDE.md DoD checklist.
+      Open a PR against main titled 'feat(daemon): universal per-backend rate-limit recovery'.
+      End with `wd job done --summary '...'` once the PR is green.
+
+      Read docs/specs/2026-09-26-per-backend-ratelimit-detection.md before starting.
+
+      **1. Remove the handover-settings gate.**
+      In internal/daemon/backend_recovery.go OnHardLimit():
+        DELETE the handover-settings check:
+          settings, err := c.backends.GetHandoverSettings()
+          if err == nil && !settings.Enabled { return false }
+        Recovery is now universal — every session that hits StatusRateLimited gets automatic
+        backend switching. The handover settings struct can remain for other uses (e.g. UI
+        display of handover config), but it must not block recovery.
+
+      **2. Wiring check.**
+      internal/daemon/api.go (or wherever RateLimitScheduler is constructed):
+        - Verify BackendResolver is set (introduced in Phase 1):
+            scheduler.BackendResolver = func(s *store.Session) agentbackend.Backend {
+              b, _ := agentbackend.Get(s.Backend); return b }
+        - Confirm s.rateLimitScheduler is accessible in limitSessionsFromSnapshot (Phase 3).
+          Wire in NewServer or via a setter if not already done.
+
+      **3. Integration test** (daemon/backend_recovery_test.go or new file):
+        Simulate the end-to-end path for a pane-detectable backend (e.g. codex):
+        a. Session backend="codex", status=working. Pane shows codex rate-limit banner.
+        b. classify() returns StatusRateLimited via codex's RateLimitDetector.
+        c. RateLimitScheduler.OnTransition fires, calls OnHardLimit.
+        d. BackendRecoveryCoordinator.advance() refreshes usage (mock: codex exhausted,
+           antigravity has 60% headroom).
+        e. Assert HotSwap called with antigravity backend + model.
+        f. Session stabilizes (OnTransition to working) → BackendRecovery cleared.
+        Also test exhaustion path:
+        g. All backends exhausted in mock snapshot → waitLocked fires.
+        h. Timer set to earliest ResetsAt across all candidates.
+        i. Timer fires → advance() called → HotSwap to just-restored backend.
+
+      **4. Docs — CLAUDE.md DoD checklist:**
+        - docs/FEATURES.md: add/update "Per-backend rate-limit detection and automatic
+          backend switching — works for all 8 backends; pane-based for Claude/Codex/Cursor/
+          Antigravity/Aider, usage-API polling for OpenCode/Crush/Goose; automatic HotSwap
+          to next available backend+model, waits for earliest reset when all are exhausted."
+        - root FEATURES.md: same.
+        - site/src/content/docs/guides/: update rate-limit / backend recovery guide.
+        - skills/warden/SKILL.md: update rate-limit behaviour description.
+        - No CLI flags changed; make gendocs not needed.
+
+      Run wd check before committing.
+    after: [Phase3_UsageAPIFallback]
+    status: pending
+
+done_when:
+  - "RateLimitDetector is implemented for Claude, Codex, Cursor, Antigravity, and Aider (pane-based)."
+  - "classify() uses backend's RateLimitDetector when present; falls back to legacy detectRateLimit()."
+  - "limitClearsAt() uses backend's RateLimitResetParser when present; falls back to legacy Claude parsers."
+  - "OpenCode, Crush, Goose sessions transition to StatusRateLimited via the 60s usage-API polling fallback."
+  - "Tea TUI backends (OpenCode/Crush/Goose) are skipped by pane-based path to avoid double-trigger."
+  - "BackendRecoveryCoordinator.OnHardLimit fires for ALL agents (handover-settings gate removed)."
+  - "When all candidates are exhausted, waitLocked schedules retry at earliest ResetsAt across all backends."
+  - "Conformance tests cover RateLimitDetector for all 8 backends (pane-based or noted as pane-blind)."
+  - "make verify-fast passes on main after each phase."
+status: pending

@@ -1,0 +1,247 @@
+version: 1
+goal: >-
+  Separate the monitoring layer into purpose-fit goroutines: extract TerminalWatcher
+  from the shared Poller so terminals run on their own cadence with dedicated logic,
+  add terminal auto-restore on orphan (closing the current gap), and introduce a
+  PipelineWatcher goroutine so pipelines have autonomous stuck-job recovery and
+  startup reconcile. The Autopilot Guardian is already complete and needs no changes.
+constraints:
+  - "API is spec-first: edit openapi.yaml then make generate; never hand-edit api.gen.go."
+  - "Work in an isolated git worktree branched off main; one PR per phase."
+  - "Run wd check (make verify-fast) before every commit."
+  - "No API or schema changes: Session.Kind, Session.AutoRestart, all existing routes are untouched."
+  - "Poller must skip terminals after the split; TerminalWatcher must skip non-terminals."
+  - "PipelineWatcher must never spawn jobs (that is Executor.Reconcile's job); it only detects and recovers stuck state."
+  - "Confirm with the maintainer before pushing any v* tag."
+tasks:
+  - id: Phase0_Spec
+    prompt: >-
+      Phase 0 (spec freeze — docs only): Write docs/specs/2026-09-26-monitoring-layer-separation.md
+      capturing the locked design decisions below. No production code. Open a PR against main
+      titled 'docs(spec): monitoring layer separation'. End with `wd job done --summary '...'`
+      once the PR is green.
+
+      **Problem.** Today `poller.tick()` handles both agents (~200 lines: classify, rate-limit,
+      context guard, summaries, auto-approve) and terminals (~15 lines: liveness + pane capture)
+      inside one loop with an `if s.IsTerminal() { … continue }` branch. This means:
+      (a) terminals poll at the same cadence as agents even though they only need liveness;
+      (b) terminal auto-restore does not work — `Restarter.onTransitionAt` fires only on
+      `store.StatusErrored`, but terminals die to `store.StatusOrphaned`;
+      (c) pipelines have zero autonomous monitoring — they stall silently when a job agent
+      goes `needs_attention` and nobody calls Reconcile.
+
+      **Locked decisions:**
+
+      D1. New `TerminalWatcher` struct in `internal/poller/terminal_watcher.go`.
+          Minimal `TerminalDeps` interface (subset of Poller.Deps): List, SessionAlive,
+          CapturePane, UpdateStatusIf, UpdatePane, ExitCode, ClearExit, Restore.
+          Callbacks: OnChange func(), OnTransition func(sess, from, to).
+          `Run(ctx, interval)` ticks at `terminal_poll_interval` (default 15s, config-settable).
+
+      D2. `Poller.tick()` gets a guard at the top: `if s.IsTerminal() { continue }`.
+          The existing `if s.IsTerminal() { … }` block is deleted entirely.
+          Done only AFTER TerminalWatcher is wired and tested (Phase 2 includes both).
+
+      D3. Terminal auto-restore: `Restarter.onTransitionAt` extended to handle
+          `to == StatusOrphaned && sess.IsTerminal() && sess.AutoRestart`.
+          Restore path is identical to agent restore (life.Restore), no new lifecycle method.
+          Existing behaviour for agents is unchanged (StatusErrored path untouched).
+
+      D4. New `PipelineWatcher` goroutine in `internal/daemon/pipeline_watcher.go`.
+          Launched from server.go only when `s.exec != nil`.
+          Tick interval: 60s (not configurable in Phase 4).
+          Responsibilities per tick:
+            - Startup reconcile: on first tick, call Executor.Reconcile for every
+              pipeline in `running` state (catches daemon restarts mid-flight).
+            - Stuck job watchdog: for each job in `needs_attention` state,
+              if elapsed >= `pipeline.stuck_retry_after` (default 10m) AND
+              job.AutoRetryCount == 0 → call Executor.Retry(pid, jobID); else notify operator.
+            - Stall detection: if a running pipeline has had no job-state change in
+              >= `pipeline.stall_after` (default 20m), call Reconcile as a safety net.
+            - Orphaned job cross-check: if job has agent_ref but session no longer
+              in store, mark job failed + Reconcile.
+          PipelineWatcher never spawns jobs (Reconcile does). It only detects and nudges.
+
+      D5. Config additions: `terminal_poll_interval` (Duration, default 15s),
+          `pipeline.stuck_retry_after` (Duration, default 10m),
+          `pipeline.stall_after` (Duration, default 20m),
+          `pipeline.auto_retry` (bool, default true).
+
+      D6. Job model: `pipeline.Job` gains `AutoRetryCount int` (JSON `auto_retry_count`)
+          so PipelineWatcher can distinguish first-time vs already-retried stuck jobs.
+    status: pending
+
+  - id: Phase1_TerminalWatcher
+    prompt: >-
+      Phase 1 (TerminalWatcher struct): Implement the new TerminalWatcher per spec D1.
+      Open a PR against main titled 'feat(poller): add TerminalWatcher goroutine'.
+      End with `wd job done --summary '...'` once the PR is green.
+
+      Read docs/specs/2026-09-26-monitoring-layer-separation.md before starting.
+
+      **Files to create/edit:**
+
+      1. internal/poller/terminal_watcher.go (NEW):
+         - `TerminalDeps` interface with exactly: List() ([]store.Session, error),
+           SessionAlive(id string) bool, CapturePane(id string) (string, error),
+           UpdateStatusIf(id string, from, to store.Status) error,
+           UpdatePane(id string, pane string) error,
+           ExitCode(id string) (int, bool, error), ClearExit(id string) error,
+           Restore(ctx, sess) error.
+         - `TerminalWatcher` struct: deps TerminalDeps, OnChange func(), OnTransition func(*store.Session, store.Status, store.Status).
+         - `NewTerminalWatcher(deps TerminalDeps) *TerminalWatcher`
+         - `Run(ctx context.Context, interval time.Duration)` — ticker loop calling tick.
+         - `tick(ctx context.Context)`:
+             for each session where IsTerminal():
+               check SessionAlive → if dead, UpdateStatusIf(working/idle → orphaned), fire OnTransition, OnChange
+               if alive, CapturePane → UpdatePane if changed, fire OnChange
+               check ExitCode → if set, note it (log for now; Phase 3 wires Restarter), ClearExit
+
+      2. internal/poller/terminal_watcher_test.go (NEW):
+         - Test: alive terminal → stays at current status, pane updated on change.
+         - Test: dead terminal → transitions to orphaned, OnTransition called with (sess, prev, orphaned).
+         - Test: already orphaned terminal → no double-transition.
+         Use a mock TerminalDeps (table-driven, no real tmux).
+
+      Do NOT change poller.go or server.go in this phase.
+    after: [Phase0_Spec]
+    status: pending
+
+  - id: Phase2_WireAndStrip
+    prompt: >-
+      Phase 2 (wire + strip): Wire TerminalWatcher into server.go and remove the terminal
+      branch from poller.tick. Open a PR against main titled 'feat(daemon): wire TerminalWatcher,
+      strip terminal path from Poller'. End with `wd job done --summary '...'` once the PR is green.
+
+      Read docs/specs/2026-09-26-monitoring-layer-separation.md before starting.
+
+      **Files to edit:**
+
+      1. internal/daemon/server.go:
+         - Add field `terminalWatcher *poller.TerminalWatcher`.
+         - In NewServer: construct TerminalWatcher with the same deps the Poller uses
+           (the Poller's deps object already satisfies TerminalDeps — verify the interface
+           is a subset, add any missing methods to the deps adapter if needed).
+           Wire `terminalWatcher.OnChange = h.publish` and
+           `terminalWatcher.OnTransition = s.restarter.onTransitionAt` (same callback as poller).
+         - In ListenAndServe: after the poller goroutine, add:
+             twDone := make(chan struct{})
+             if s.terminalWatcher != nil {
+               go func() { defer close(twDone); s.terminalWatcher.Run(runCtx, s.terminalPollInterval) }()
+             } else { close(twDone) }
+           Wait for twDone alongside pollerDone in the shutdown path.
+         - Add field `terminalPollInterval time.Duration`; set default 15s in NewServer.
+         - Add `SetTerminalPollInterval(d time.Duration)` setter (mirrors SetCollabInterval pattern).
+
+      2. internal/poller/poller.go tick():
+         - At the top of the session loop, add: `if s.IsTerminal() { continue }`.
+         - Delete the existing `if s.IsTerminal() { … continue }` block entirely
+           (~18 lines covering liveness + pane capture for terminals).
+         - Add a test to poller_test.go confirming the poller never calls classify()
+           or DetectState() on a terminal session.
+
+      3. Verify existing poller tests still pass after the strip.
+         Run wd check before committing.
+    after: [Phase1_TerminalWatcher]
+    status: pending
+
+  - id: Phase3_TerminalAutoRestore
+    prompt: >-
+      Phase 3 (terminal auto-restore): Extend Restarter so terminals with AutoRestart=true
+      are restored when they go orphaned. Open a PR against main titled
+      'feat(daemon): auto-restore orphaned terminals'. End with `wd job done --summary '...'`
+      once the PR is green.
+
+      Read docs/specs/2026-09-26-monitoring-layer-separation.md before starting.
+
+      **Context.** `internal/daemon/autorestart.go Restarter.onTransitionAt` currently fires only
+      when `to == store.StatusErrored && sess.AutoRestart && sess.PipelineID == ""`.
+      Terminals die to `StatusOrphaned`, not `StatusErrored`, so they never get restored.
+
+      **Files to edit:**
+
+      1. internal/daemon/autorestart.go:
+         - Change the guard from a single early return to:
+             isAgentError := to == store.StatusErrored && !sess.IsTerminal()
+             isTerminalOrphan := to == store.StatusOrphaned && sess.IsTerminal()
+             if (!isAgentError && !isTerminalOrphan) || !sess.AutoRestart || sess.PipelineID != "" {
+               return
+             }
+         - The restore call (`life.Restore(ctx, sess)`) is unchanged — it works for both.
+         - Add a comment explaining why terminals fire on orphaned (no errored transition path).
+
+      2. internal/daemon/autorestart_test.go:
+         - Test: terminal, AutoRestart=true, transition to orphaned → Restore called.
+         - Test: terminal, AutoRestart=false, transition to orphaned → Restore NOT called.
+         - Test: terminal, AutoRestart=true, transition to errored → Restore NOT called
+           (terminals error-path is not a restore trigger).
+         - Test: agent, AutoRestart=true, transition to orphaned → Restore NOT called
+           (agent orphan is not auto-restored — guardian handles that for autopilot sessions).
+         - Test: existing agent+errored behaviour is unaffected (regression guard).
+
+      Run wd check before committing.
+    after: [Phase2_WireAndStrip]
+    status: pending
+
+  - id: Phase4_PipelineWatcher
+    prompt: >-
+      Phase 4 (PipelineWatcher): Add a dedicated goroutine for pipeline health monitoring per
+      spec D4-D6. Open a PR against main titled 'feat(daemon): add PipelineWatcher goroutine'.
+      End with `wd job done --summary '...'` once the PR is green.
+
+      Read docs/specs/2026-09-26-monitoring-layer-separation.md before starting.
+
+      **Files to create/edit:**
+
+      1. internal/pipeline/job.go (or wherever pipeline.Job is defined):
+         - Add `AutoRetryCount int \`json:"auto_retry_count,omitempty"\`` to the Job struct.
+
+      2. internal/daemon/executor.go:
+         - Add `Retry(ctx context.Context, pipelineID, jobID string) error`:
+           marks the job back to JobPending, increments job.AutoRetryCount, calls Reconcile.
+           Returns error if the pipeline or job is not found or the job is not in JobFailed/JobNeedsAttention.
+
+      3. internal/daemon/pipeline_watcher.go (NEW):
+         - `PipelineWatcher` struct with deps: store Store, exec *Executor,
+           stuckRetryAfter time.Duration, stallAfter time.Duration, autoRetry bool.
+         - `NewPipelineWatcher(store, exec, stuckRetryAfter, stallAfter, autoRetry) *PipelineWatcher`
+         - `Run(ctx context.Context, interval time.Duration)` — ticker loop.
+         - `tick(ctx context.Context, firstTick bool)`:
+             if firstTick: for each pipeline in running state → exec.Reconcile (startup reconcile)
+             for each running pipeline:
+               check jobs in needs_attention: if elapsed >= stuckRetryAfter && autoRetry && AutoRetryCount==0 → Retry; else notify
+               stall check: if no job state change in >= stallAfter → Reconcile
+               orphan check: for each job with agent_ref, if session gone → mark failed + Reconcile
+
+      4. internal/daemon/server.go:
+         - Add field `pipelineWatcher *daemon.PipelineWatcher`.
+         - In NewServer (or a new `SetPipelineWatcher` setter): construct PipelineWatcher
+           when exec != nil, wiring the default 10m/20m/true defaults.
+         - In ListenAndServe: `if s.pipelineWatcher != nil { go s.pipelineWatcher.Run(runCtx, 60*time.Second) }`.
+         - Place the goroutine launch after the exec.SweepDoneJobSessions call.
+
+      5. internal/daemon/pipeline_watcher_test.go (NEW):
+         - Test: startup reconcile calls Reconcile for all running pipelines.
+         - Test: job stuck < stuckRetryAfter → no retry.
+         - Test: job stuck >= stuckRetryAfter, AutoRetryCount==0, autoRetry=true → Retry called.
+         - Test: job stuck >= stuckRetryAfter, AutoRetryCount==1 → Retry NOT called.
+         - Test: pipeline stalled (no state change >= stallAfter) → Reconcile called.
+         - Test: job agent_ref session missing from store → job marked failed + Reconcile.
+
+      Run wd check before committing.
+
+      After the PR is green, also walk the CLAUDE.md Definition-of-Done checklist:
+      update docs/FEATURES.md, root FEATURES.md, site/src/content/docs/ (relevant guide
+      and reference entries). No CLI flags changed so make gendocs is not needed.
+    after: [Phase3_TerminalAutoRestore]
+    status: pending
+
+done_when:
+  - "TerminalWatcher is a standalone goroutine with its own cadence (default 15s, configurable)."
+  - "Poller.tick() skips all terminal sessions; no IsTerminal branch remains in the agent loop."
+  - "Terminals with AutoRestart=true are restored when they transition to orphaned."
+  - "PipelineWatcher performs startup reconcile for running pipelines on daemon start."
+  - "Stuck jobs (needs_attention >= 10m) are auto-retried once then escalated to operator notification."
+  - "Running pipelines with no job-state change for >= 20m receive a safety-net Reconcile."
+  - "make verify-fast passes on main after each phase."
+status: complete
