@@ -448,3 +448,27 @@ type SystemPromptFiler interface {
 	// means the backend cannot file-back and the caller should use SystemPromptFlag.
 	SystemPromptFileFlag(path string) (fragment string, ok bool)
 }
+
+// RateLimitDetector is an optional Backend extension: a backend that can parse
+// a rate-limit condition from its own pane text implements this. classify()
+// prefers this over the package-level detectRateLimit() when present.
+type RateLimitDetector interface {
+	// DetectRateLimit inspects the captured pane text and reports whether the
+	// agent is currently rate-limited. When limited, resetAt is the expected
+	// clear time (zero when unknown); resetKnown is false when the pane carries
+	// no parseable reset time and the caller should apply a fallback interval.
+	//
+	// Implementations MUST fail closed: only return limited=true when the pane
+	// conclusively shows a rate-limit condition (anchored to trailing lines).
+	DetectRateLimit(pane string) (limited bool, resetAt time.Time, resetKnown bool)
+}
+
+// RateLimitResetParser is an optional Backend extension: extracts the reset time
+// from a rate-limit pane excerpt. RateLimitScheduler.limitClearsAt() prefers
+// this over the Claude-specific poller helpers when present.
+type RateLimitResetParser interface {
+	// ParseRateLimitReset extracts the reset time from the pane. ok is false
+	// when no parseable reset time is present and the scheduler should apply
+	// its configured fallback.
+	ParseRateLimitReset(pane string) (resetAt time.Time, ok bool)
+}
