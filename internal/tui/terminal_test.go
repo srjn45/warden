@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -213,4 +214,128 @@ func TestTerminalSpawnedMsgOpens(t *testing.T) {
 	m = nm.(controlPaneModel)
 	require.Equal(t, "t-new", m.openedTerminal)
 	require.NotNil(t, cmd, "a spawned terminal is opened + list refreshed")
+}
+
+// emptyAgentList is a sessionsMsg with only a non-terminal agent — the fixture
+// that previously triggered unbounded default-terminal auto-spawns (#465).
+func emptyAgentList() sessionsMsg {
+	return sessionsMsg{sessions: []*store.Session{{ID: "a1", Workdir: "/w"}}}
+}
+
+// driveEmptyReconcile runs one reconcile cycle: sessionsMsg (empty terminals)
+// then, if a spawn cmd was returned, completes it with a failed spawn so
+// pending clears — simulating the daemon/listing race that caused the loop.
+func driveEmptyReconcile(t *testing.T, m controlPaneModel, f *fakeAPI) (controlPaneModel, bool) {
+	t.Helper()
+	nm, cmd := m.Update(emptyAgentList())
+	m = nm.(controlPaneModel)
+	if cmd == nil {
+		return m, false
+	}
+	cmd() // invoke spawn against fakeAPI
+	require.NotNil(t, f.spawned, "reconcile returned a cmd that should spawn")
+	f.spawned = nil
+	nm, _ = m.Update(terminalSpawnedMsg{err: fmt.Errorf("spawn failed")})
+	return nm.(controlPaneModel), true
+}
+
+// #465: empty terminal listings must not trigger unbounded rapid auto-spawns.
+// After the first spawn, subsequent empty polls within the backoff window are
+// no-ops; after max attempts the circuit breaker trips and suspends auto-spawn.
+func TestReconcileTerminalAutoSpawnBackoffAndCircuitBreaker(t *testing.T) {
+	base := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	now := base
+	old := terminalSpawnNow
+	terminalSpawnNow = func() time.Time { return now }
+	t.Cleanup(func() { terminalSpawnNow = old })
+
+	f := &fakeAPI{}
+	m := newListPane(f, "%9", "%1")
+
+	// Attempt 1: immediate spawn on first empty listing.
+	var spawned bool
+	m, spawned = driveEmptyReconcile(t, m, f)
+	require.True(t, spawned, "first empty listing must auto-spawn")
+	require.Equal(t, 1, m.terminalSpawnAttempts)
+	require.Equal(t, terminalSpawnInitialBackoff, m.terminalSpawnBackoff)
+	require.False(t, m.terminalSpawnCircuitOpen)
+
+	// Immediate re-poll still inside the 2s backoff → no spawn.
+	m, spawned = driveEmptyReconcile(t, m, f)
+	require.False(t, spawned, "must not spawn again inside the backoff window")
+	require.Equal(t, 1, m.terminalSpawnAttempts)
+
+	// Advance past backoff → attempt 2.
+	now = base.Add(terminalSpawnInitialBackoff)
+	m, spawned = driveEmptyReconcile(t, m, f)
+	require.True(t, spawned, "second attempt after backoff")
+	require.Equal(t, 2, m.terminalSpawnAttempts)
+	require.Equal(t, 2*terminalSpawnInitialBackoff, m.terminalSpawnBackoff)
+
+	// Still inside the doubled backoff → no spawn.
+	m, spawned = driveEmptyReconcile(t, m, f)
+	require.False(t, spawned)
+
+	// Advance past 4s backoff → attempt 3.
+	now = base.Add(terminalSpawnInitialBackoff + 2*terminalSpawnInitialBackoff)
+	m, spawned = driveEmptyReconcile(t, m, f)
+	require.True(t, spawned, "third attempt after doubled backoff")
+	require.Equal(t, 3, m.terminalSpawnAttempts)
+	require.False(t, m.terminalSpawnCircuitOpen, "breaker trips on the next empty observe")
+
+	// Next empty listing after max attempts → circuit opens, no further spawn.
+	now = base.Add(time.Hour)
+	m, spawned = driveEmptyReconcile(t, m, f)
+	require.False(t, spawned, "circuit breaker must suspend auto-spawn")
+	require.True(t, m.terminalSpawnCircuitOpen)
+	require.Contains(t, m.status, "auto-spawn suspended")
+
+	// Further rapid polls stay suspended.
+	for i := 0; i < 20; i++ {
+		now = now.Add(time.Second)
+		m, spawned = driveEmptyReconcile(t, m, f)
+		require.False(t, spawned, "poll %d must not spawn while circuit is open", i)
+	}
+	require.True(t, m.terminalSpawnCircuitOpen)
+}
+
+// #465: confirming a live terminal in m.sessions resets the attempt counter and
+// closes the circuit so future deaths can auto-spawn again.
+func TestReconcileTerminalAutoSpawnResetsWhenLiveConfirmed(t *testing.T) {
+	f := &fakeAPI{}
+	m := newListPane(f, "%9", "%1")
+	m.defaultTerminalReady = true
+	m.terminalSpawnAttempts = terminalSpawnMaxAttempts
+	m.terminalSpawnCircuitOpen = true
+	m.terminalSpawnBackoff = terminalSpawnMaxBackoff
+	m.status = "terminal auto-spawn suspended — press t to create one manually"
+
+	nm, cmd := m.Update(sessionsMsg{sessions: []*store.Session{liveTerminal("t1", "/w", time.Now())}})
+	m = nm.(controlPaneModel)
+	require.Equal(t, 0, m.terminalSpawnAttempts)
+	require.False(t, m.terminalSpawnCircuitOpen)
+	require.Zero(t, m.terminalSpawnBackoff)
+	require.Nil(t, f.spawned)
+	_ = cmd // re-attach / adopt may return a cmd; not a spawn
+}
+
+// #465: a manual `t`→create clears the circuit breaker so the user can recover.
+func TestManualTerminalCreateClearsCircuitBreaker(t *testing.T) {
+	f := &fakeAPI{}
+	m := newListPane(f, "%9", "%1")
+	m.defaultTerminalReady = true
+	m.terminalSpawnCircuitOpen = true
+	m.terminalSpawnAttempts = terminalSpawnMaxAttempts
+	m.openedAgentDir = "/opened/dir"
+
+	m = lstep(m, key("t"))
+	require.Equal(t, modeTerminalChoice, m.mode)
+	nm, cmd := m.Update(key("c"))
+	m = nm.(controlPaneModel)
+	require.False(t, m.terminalSpawnCircuitOpen)
+	require.Equal(t, 0, m.terminalSpawnAttempts)
+	require.True(t, m.terminalSpawnPending)
+	require.NotNil(t, cmd)
+	cmd()
+	require.NotNil(t, f.spawned)
 }
