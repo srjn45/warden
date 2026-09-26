@@ -65,23 +65,6 @@ func TestSpawnBrainAdoptsLiveSlot(t *testing.T) {
 	require.Nil(t, fl.spawned, "live slot is adopted without spawning")
 }
 
-func TestSpawnGuardianCreatesAndAdoptsSlot(t *testing.T) {
-	repo := t.TempDir()
-	fs := &slotSpawnStore{fakeStore: newFakeStore()}
-	srv := &Server{store: fs}
-	rt := autopilotRuntime{s: srv}
-	ctx := context.Background()
-
-	id, err := rt.SpawnGuardian(ctx, "ap-abc", "voyage", repo)
-	require.NoError(t, err)
-	require.Equal(t, "voyage-guardian", id)
-
-	id2, err := rt.SpawnGuardian(ctx, "ap-abc", "voyage", repo)
-	require.NoError(t, err)
-	require.Equal(t, "voyage-guardian", id2)
-	require.Len(t, fs.data, 1)
-}
-
 func TestRotateBrainInvokesHotSwapNotRecovery(t *testing.T) {
 	st := newFakeStore()
 	life := &fakeLife{}

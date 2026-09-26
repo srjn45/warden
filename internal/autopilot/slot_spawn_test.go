@@ -18,7 +18,7 @@ func TestSlotSpawnFirstStartCreatesSlotIds(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = runStore.Close() })
 
-	rt := &guardianAgentFake{fakeRuntime: newFakeRuntime()}
+	rt := newFakeRuntime()
 	c := NewController(ControllerConfig{
 		DataDir:           data,
 		BaseDir:           repo,
@@ -46,7 +46,6 @@ func TestSlotSpawnFirstStartCreatesSlotIds(t *testing.T) {
 	rec, err := runStore.Get(r.RunID)
 	require.NoError(t, err)
 	require.Equal(t, managerID, rec.BrainID)
-	require.Equal(t, guardianID, rec.GuardianID)
 }
 
 // TestSlotSpawnSecondStartAdopts verifies a second controller boot adopts the
