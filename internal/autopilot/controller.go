@@ -123,10 +123,9 @@ type run struct {
 	integrationBranch string // per-run merge target, resolved once and persisted
 	gateWarning       string // operator-visible auto→local CI coverage warning
 
-	brain      *BrainHandle       // nil until the brain spawns; nil again after teardown
-	guardianID string             // daemon-owned system session representing the guardian loop
-	slotScope  string             // stable scope for <scope>-autopilot / <scope>-guardian slot ids
-	cancel     context.CancelFunc // stops the plan-watch goroutine (nil in inert mode)
+	brain     *BrainHandle       // nil until the brain spawns; nil again after teardown
+	slotScope string             // stable scope for <scope>-autopilot / <scope>-guardian slot ids
+	cancel    context.CancelFunc // stops the plan-watch goroutine (nil in inert mode)
 
 	// Guardian-owned state (autopilot.md §2.3, §7). All mutated only under c.mu, by
 	// the guardian tick or the (re)spawn helpers.
@@ -243,26 +242,6 @@ func (c *Controller) SetRuntime(rt Runtime) {
 	defer c.mu.Unlock()
 	c.runtime = rt
 	c.reconcileRunsAtBootLocked(context.Background())
-	if gr, ok := rt.(GuardianAgentRuntime); ok {
-		valid := make(map[string]string)
-		for _, r := range c.runs {
-			if r.state == StateStopped || r.state == StateComplete || r.slotScope == "" {
-				continue
-			}
-			valid[r.runID] = GuardianSlotID(r.slotScope)
-		}
-		missing, err := gr.ReconcileGuardians(context.Background(), valid)
-		if err != nil {
-			slog.Warn("autopilot: guardian boot reconciliation failed", "err", err)
-		} else {
-			for _, runID := range missing {
-				if r := c.runs[runID]; r != nil {
-					r.guardianID = ""
-					c.persistRunLocked(r)
-				}
-			}
-		}
-	}
 	// Durable run records, not the deprecated config plan list, are the V2
 	// restart authority. Recreate every run whose persisted intent is live even
 	// when it was registered directly and therefore is absent from c.plans.
@@ -889,7 +868,7 @@ func (c *Controller) statusLocked() Status {
 			Tasks:             counts,
 			Backoff:           r.backoffStatus(),
 			PlanTasks:         append([]PlanTask(nil), r.plan.Tasks...),
-			GuardianID:        r.guardianID,
+			GuardianID:        guardianSlotIDOrEmpty(r.slotScope),
 			SlotScope:         r.slotScope,
 			IntegrationBranch: r.integrationBranch,
 			GateWarning:       r.gateWarning,

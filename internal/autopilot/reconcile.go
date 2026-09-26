@@ -9,13 +9,11 @@ import (
 
 // BootReconcileRun describes one run's migration targets during daemon boot (WP12).
 type BootReconcileRun struct {
-	RunID            string
-	SlotScope        string
-	Repo             string
-	LegacyBrainID    string
-	LegacyGuardianID string
-	ManagerSlotID    string
-	GuardianSlotID   string
+	RunID         string
+	SlotScope     string
+	Repo          string
+	LegacyBrainID string
+	ManagerSlotID string
 }
 
 // MigrationRuntime is the optional boot-time session reconciler (WP12). The
@@ -28,14 +26,6 @@ type MigrationRuntime interface {
 func isLegacyBrainID(id string) bool {
 	id = strings.TrimSpace(id)
 	return strings.HasPrefix(id, "agent-") && id != ""
-}
-
-func isLegacyGuardianID(id, slotGuardianID string) bool {
-	id = strings.TrimSpace(id)
-	if id == "" || id == slotGuardianID {
-		return false
-	}
-	return strings.HasPrefix(id, "guardian-")
 }
 
 // reconcileRunsAtBootLocked normalizes in-memory run state and asks the runtime
@@ -53,15 +43,6 @@ func (c *Controller) reconcileRunsAtBootLocked(ctx context.Context) {
 		specs := c.bootReconcileSpecsLocked()
 		if err := mr.ReconcileSessions(ctx, specs); err != nil {
 			slog.Warn("autopilot: session boot reconciliation failed", "err", err)
-		}
-	}
-	for _, r := range c.runs {
-		if r.slotScope == "" {
-			continue
-		}
-		wantGuardian := GuardianSlotID(r.slotScope)
-		if r.guardianID != "" && r.guardianID != wantGuardian {
-			r.guardianID = ""
 		}
 	}
 }
@@ -82,7 +63,7 @@ func (c *Controller) grandfatherIntegrationBranchLocked(r *run) {
 		return
 	}
 	// Pre-WP9 durable records without a stored branch used the shared global target.
-	if rec.SlotScope == "" || isLegacyBrainID(rec.BrainID) || isLegacyGuardianID(rec.GuardianID, "") {
+	if rec.SlotScope == "" || isLegacyBrainID(rec.BrainID) {
 		r.integrationBranch = DefaultIntegrationBranch
 	}
 }
@@ -92,12 +73,8 @@ func (c *Controller) normalizeSlotIDsLocked(r *run) {
 		return
 	}
 	wantManager := ManagerSlotID(r.slotScope)
-	wantGuardian := GuardianSlotID(r.slotScope)
 	if r.brain != nil && r.brain.AgentID != "" && r.brain.AgentID != wantManager {
 		r.brain = nil
-	}
-	if r.guardianID != "" && r.guardianID != wantGuardian {
-		r.guardianID = ""
 	}
 }
 
@@ -108,16 +85,14 @@ func (c *Controller) bootReconcileSpecsLocked() []BootReconcileRun {
 			continue
 		}
 		spec := BootReconcileRun{
-			RunID:          r.runID,
-			SlotScope:      r.slotScope,
-			Repo:           r.repo,
-			ManagerSlotID:  ManagerSlotID(r.slotScope),
-			GuardianSlotID: GuardianSlotID(r.slotScope),
+			RunID:         r.runID,
+			SlotScope:     r.slotScope,
+			Repo:          r.repo,
+			ManagerSlotID: ManagerSlotID(r.slotScope),
 		}
 		if c.store != nil {
 			if rec, err := c.store.Get(r.runID); err == nil {
 				spec.LegacyBrainID = strings.TrimSpace(rec.BrainID)
-				spec.LegacyGuardianID = strings.TrimSpace(rec.GuardianID)
 			}
 		}
 		out = append(out, spec)

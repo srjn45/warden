@@ -110,7 +110,7 @@ func (f *fakeLife) Spawn(_ context.Context, req SpawnRequest) (*store.Session, e
 		typ = store.NormalizeType(req.Type)
 	}
 	f.spawned = &store.Session{
-		ID: id, Name: req.Name, Type: typ, Ticket: req.Ticket, Repo: req.Repo,
+		ID: id, TmuxSession: id, Name: req.Name, Type: typ, Ticket: req.Ticket, Repo: req.Repo,
 		Prompt: req.Prompt, Status: store.StatusSpawning, Role: req.Role, Workdir: req.Cwd,
 		PermissionMode: req.PermissionMode, Tags: req.Tags, Kind: store.SessionKind(req.Kind),
 		ProjectID: req.ProjectID, // mirror lifecycle: an explicit project_id is stamped at spawn

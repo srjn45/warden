@@ -66,7 +66,7 @@ func newAutopilotServer(t *testing.T, env autopilot.Env, plans []string) *httpte
 	return httptest.NewServer(srv.router())
 }
 
-func TestGuardianVisibilityAndRunStopCleanup(t *testing.T) {
+func TestManagerVisibilityAndRunStopCleanup(t *testing.T) {
 	dir := t.TempDir()
 	plan := filepath.Join(dir, "guardian.yaml")
 	require.NoError(t, os.WriteFile(plan, []byte("version: 1\ngoal: ship\n"), 0o644))
@@ -79,7 +79,6 @@ func TestGuardianVisibilityAndRunStopCleanup(t *testing.T) {
 	status, err := c.Enable(context.Background(), "")
 	require.NoError(t, err)
 	runID := status.Runs[0].RunID
-	guardianID := autopilot.GuardianSlotID("guardian")
 	managerID := autopilot.ManagerSlotID("guardian")
 
 	listed, err := srv.ListSessions(context.Background(), oapi.ListSessionsRequestObject{})
@@ -91,45 +90,12 @@ func TestGuardianVisibilityAndRunStopCleanup(t *testing.T) {
 	listed, err = srv.ListSessions(context.Background(), oapi.ListSessionsRequestObject{Params: oapi.ListSessionsParams{All: true}})
 	require.NoError(t, err)
 	all := listed.(oapi.ListSessions200JSONResponse)
-	require.Len(t, all.Sessions, 2)
-	guardian := all.Sessions[0]
-	if guardian.ID != guardianID {
-		guardian = all.Sessions[1]
-	}
-	require.Equal(t, guardianID, guardian.ID)
-	require.Contains(t, guardian.Tags, "system:true")
-	require.Contains(t, guardian.Tags, "autopilot-run:"+runID)
+	require.Len(t, all.Sessions, 1)
+	require.Equal(t, managerID, all.Sessions[0].ID)
 
 	_, err = c.StopRun(context.Background(), runID)
 	require.NoError(t, err)
-	guardianSession, err := st.Get(context.Background(), guardianID)
-	require.NoError(t, err)
-	require.Equal(t, store.StatusDone, guardianSession.Status)
-}
-
-func TestGuardianBootReconcileTerminatesOrphans(t *testing.T) {
-	st := newFakeStore()
-	for _, sess := range []*store.Session{
-		{ID: "guardian-live", Status: store.StatusWorking, Tags: []string{"system:true", "autopilot-run:ap-live"}},
-		{ID: "guardian-dead", Status: store.StatusDone, Tags: []string{"system:true", "autopilot-run:ap-dead"}},
-		{ID: "guardian-orphan", Status: store.StatusWorking, Tags: []string{"system:true", "autopilot-run:ap-gone"}},
-		{ID: "system-other", Status: store.StatusWorking, Tags: []string{"system:true"}},
-		{ID: "ordinary", Status: store.StatusWorking},
-	} {
-		require.NoError(t, st.Insert(context.Background(), sess))
-	}
-	rt := autopilotRuntime{s: &Server{store: st, life: &fakeLife{}, hub: newHub()}}
-	missing, err := rt.ReconcileGuardians(context.Background(), map[string]string{"ap-live": "guardian-live", "ap-dead": "guardian-dead", "ap-missing": "guardian-missing"})
-	require.NoError(t, err)
-	require.Equal(t, []string{"ap-dead", "ap-missing"}, missing)
-	live, _ := st.Get(context.Background(), "guardian-live")
-	orphan, _ := st.Get(context.Background(), "guardian-orphan")
-	ordinary, _ := st.Get(context.Background(), "ordinary")
-	other, _ := st.Get(context.Background(), "system-other")
-	require.Equal(t, store.StatusWorking, live.Status)
-	require.Equal(t, store.StatusDone, orphan.Status)
-	require.Equal(t, store.StatusWorking, ordinary.Status)
-	require.Equal(t, store.StatusWorking, other.Status, "non-guardian system session is not reconciled")
+	require.Equal(t, managerID, life.terminated)
 }
 
 func TestAutopilotEnableStatusDisable(t *testing.T) {
