@@ -33,6 +33,7 @@ type Store interface {
 	GetRoleTier(roleName string) (backendstore.ModelTier, error)
 	GetHandoverSettings() (backendstore.HandoverSettings, error)
 	GetHeadroom(backendID string, now time.Time) (headroom float64, used float64, limit float64, limited bool, err error)
+	GetModelHeadroom(backendID, modelID string, now time.Time) (headroom float64, used float64, limit float64, limited bool, err error)
 }
 
 // ResolveOptions configures the resolution request.

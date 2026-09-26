@@ -285,8 +285,8 @@ func TestResolver_HighSyntheticUsageRemainsEligible(t *testing.T) {
 	// Push all backends over 90% threshold
 	require.NoError(t, s.RecordQuotaUsage("claude", 480000, "opus", now))                          // 96%
 	require.NoError(t, s.RecordQuotaUsage("antigravity", 950000, "claude-opus-4-6-thinking", now)) // 95%
-	require.NoError(t, s.RecordQuotaUsage("cursor", 490, "claude-3-opus", now))                    // 98%
-	require.NoError(t, s.RecordQuotaUsage("codex", 490000, "o1", now))                             // 98%
+	require.NoError(t, s.RecordQuotaUsage("cursor", 490, "claude-opus-5-thinking-high", now))      // 98% api
+	require.NoError(t, s.RecordQuotaUsage("codex", 490000, "gpt-5.5", now))                        // 98%
 
 	res, err := r.Resolve(ctx, router.ResolveOptions{Tier: backendstore.Tier1})
 	require.NoError(t, err)

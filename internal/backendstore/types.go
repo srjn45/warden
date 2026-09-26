@@ -25,6 +25,9 @@ type ModelEntry struct {
 	Enabled     bool      `json:"enabled"`
 	AutoAssign  bool      `json:"auto_assign"`
 	IsCustom    bool      `json:"is_custom"`
+	// QuotaScope tags which BackendQuota.Scope this model consumes. Blank means
+	// "default" at read time (docs/specs/2026-09-26-per-scope-quota-routing.md D2/D7).
+	QuotaScope string `json:"quota_scope,omitempty"`
 }
 
 // RoleTierMapping maps an agent role to its default model tier.

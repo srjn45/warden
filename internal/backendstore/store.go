@@ -842,11 +842,20 @@ func (s *Store) seedDefaultsIfEmpty() error {
 				return err
 			}
 		} else if err == nil {
-			if _, ok := rec.Data["auto_assign"]; !ok {
-				// Backfill missing AutoAssign for existing records
-				model, err := modelFromRecord(rec.Data)
-				if err == nil {
+			model, merr := modelFromRecord(rec.Data)
+			if merr == nil {
+				changed := false
+				if _, ok := rec.Data["auto_assign"]; !ok {
+					// Backfill missing AutoAssign for existing records
 					model.AutoAssign = m.AutoAssign
+					changed = true
+				}
+				if model.QuotaScope == "" && m.QuotaScope != "" {
+					// Backfill QuotaScope from the canonical seed (D7).
+					model.QuotaScope = m.QuotaScope
+					changed = true
+				}
+				if changed {
 					s.upsertModel(model)
 				}
 			}
@@ -877,9 +886,10 @@ func (s *Store) seedDefaultsIfEmpty() error {
 		return err
 	}
 
-	// Seed any missing default quotas
+	// Seed any missing default quotas (keyed by backend:scope[:window])
 	for _, q := range DefaultQuotas() {
-		_, err := s.quotasCol.GetByKey(q.BackendID)
+		key := quotaStorageKey(q)
+		_, err := s.quotasCol.GetByKey(key)
 		if errors.Is(err, engine.ErrKeyNotFound) {
 			if err := s.upsertQuota(q); err != nil {
 				return err
