@@ -1,0 +1,202 @@
+version: 1
+goal: >-
+  Per-scope quota routing: make the resolver select backend+model pairs based on per-scope headroom rather than a single collapsed value per backend. Today GetHeadroom("cursor", now) collapses cursor/api (100% exhausted), cursor/auto (~55% remaining) and cursor/included (~52% remaining) into one blocked backend, wasting available capacity. The same problem applies to antigravity (gemini vs non-gemini scopes). The resolver already picks the max-headroom candidate correctly; the fix is to feed it per-scope headroom so it can distinguish models within a backend. Also replace the TUI backend picker (which the role+tier system overrides anyway) with a tier selector showing live per-candidate availability.
+constraints:
+  - "API is spec-first: edit openapi.yaml then make generate; never hand-edit api.gen.go."
+  - "Work in an isolated git worktree branched off main; one PR per phase."
+  - "Run wd check (make verify-fast) before every commit."
+  - "BackendQuota record key changes from backendID to backendID+scope; migrate existing records on first read (no data loss)."
+  - "GetHeadroom(backendID, now) stays in the Store interface — it returns min(headroom) across all scopes for that backend (backward compat)."
+  - "The FetchUsage -> backendusage.Service pipeline is read-only (display); the new QuotaSync path writes to backendstore separately."
+  - "TUI: remove the per-backend CLI picker; add a tier selector with live status. Spawn behaviour is unchanged — resolver handles selection."
+  - "Confirm with the maintainer before pushing any v* tag."
+tasks:
+  - id: Phase0_Spec
+    prompt: >-
+      Phase 0 (spec freeze — docs only): Write docs/specs/2026-09-26-per-scope-quota-routing.md capturing the locked design decisions below. No production code. Open a PR against main titled 'docs(spec): per-scope quota routing'. End with `wd job done --summary '...'` once the PR is green.
+
+      **Problem.** `backendstore.BackendQuota` has one record per backend. The resolver calls `GetHeadroom(backendID, now)` which returns one headroom value per backend, so all models sharing a backend get the same headroom. Cursor has three independent quota scopes (api, auto, included) with distinct model sets and independent limits. Antigravity has two (gemini, non-gemini). When cursor/api hits 100%, every cursor model is blocked even though cursor/auto still has ~55% remaining.
+
+      **Locked decisions:**
+
+      D1. BackendQuota gains `Scope string`. Store key becomes
+
+          `backendID + ":" + scope` (e.g. "cursor:auto", "antigravity:gemini").
+          Existing scope-less records migrate on first read: Scope set to "default",
+          key rewritten. GetHeadroom(backendID, now) stays and returns
+          min(headroom) across all scopes for that backend.
+
+      D2. ModelEntry gains `QuotaScope string`. Each seed model is tagged with its
+
+          quota scope. Blank QuotaScope means the model uses "default" scope.
+
+      D3. New `GetModelHeadroom(backendID, modelID string, now time.Time)` method
+
+          on the Store interface. Looks up the model's QuotaScope, loads that
+          BackendQuota record, returns its headroom. For backends with multiple
+          windows per scope (e.g. antigravity 5-hour + weekly), returns
+          min(headroom) across all windows for that scope.
+
+      D4. Resolver's EvaluateCandidates replaces GetHeadroom with
+
+          GetModelHeadroom. The limited flag reflects the model's scope limit,
+          not a backend-wide flag.
+
+      D5. QuotaSync path: after backendusage.Service.Snapshot fetches live usage,
+
+          write per-scope BackendQuota records into the backendstore (one record per
+          UsageLimit returned). The UsageLimit.Scope field already carries the right
+          string. Sync runs after every successful Snapshot and on daemon startup.
+
+      D6. Backend.LimitedUntil is set only when ALL scopes for a backend are
+
+          limited (backward compat). BackendQuota.LimitedUntil tracks per-scope
+          hard-limit recovery. The resolver checks scoped LimitedUntil first.
+
+      D7. Scope definitions (seed-level, canonical):
+
+          - claude:       "session"    (all models)
+          - codex:        "codex"      (all models)
+          - antigravity:  "gemini"     (gemini-* models)
+                          "non-gemini" (claude-*, gpt-oss-* models)
+          - cursor:       "api"        (claude-*, gpt-*, gemini-*, glm-*, kimi-*
+                                        non-cursor-grok/composer models)
+                          "auto"       (auto model only)
+                          "included"   (cursor-grok-*, composer-* models)
+
+      D8. TUI spawn flow: replace per-backend CLI dropdown with a tier selector
+
+          (auto / tier-1 / tier-2 / tier-3). Below it, a live candidate table shows
+          each auto-assign model at that tier, its headroom bar, used%, and status.
+          Top-ranked candidate highlighted. Spawn passes ResolveOptions.Tier;
+          resolver picks the actual backend+model.
+    status: done
+  - id: Phase1_StoreAndSeed
+    prompt: >-
+      Phase 1 (store + seed): Implement BackendQuota and ModelEntry changes per spec D1-D3 and D7. Open a PR against main.
+
+      1. internal/backendstore/types.go: Add `Scope string` to BackendQuota.
+
+         Add `QuotaScope string` to ModelEntry. Update JSON tags.
+
+      2. internal/backendstore/store.go:
+
+         - Change BackendQuota store key to quotaKey(backendID, scope string)
+           which returns backendID+":"+scope.
+         - Migration in UpsertQuota / GetQuota: if existing record has blank Scope,
+           rewrite with Scope="default" and new key.
+         - Add GetModelHeadroom(backendID, modelID string, now time.Time)
+           (headroom, used, limit float64, limited bool, err error):
+           looks up model's QuotaScope (blank→"default"), loads BackendQuota
+           for that scope, returns headroom. Returns min(headroom) when multiple
+           window records exist for the same scope.
+         - Keep GetHeadroom(backendID, now) returning min(headroom) across all scopes.
+         - Add GetModelHeadroom to the router.Store interface.
+
+      3. internal/backendstore/seed.go:
+
+         - Tag every ModelEntry with its QuotaScope per D7.
+         - Replace single-per-backend DefaultQuotas() records with per-scope records:
+           claude/session, codex/codex,
+           antigravity/gemini (5h rolling + weekly window),
+           antigravity/non-gemini (5h rolling + weekly window),
+           cursor/api (monthly), cursor/auto (monthly), cursor/included (monthly).
+
+      4. Unit tests: round-trip marshal of scoped BackendQuota; GetModelHeadroom
+
+         returns correct headroom per scope; migration of scope-less records;
+         GetHeadroom returns min across scopes.
+
+      End with `wd job done --summary '...'` once PR is green.
+    after: [Phase0_Spec]
+    status: done
+  - id: Phase2_Resolver
+    prompt: >-
+      Phase 2 (resolver): Wire GetModelHeadroom into EvaluateCandidates. Open a PR against main.
+
+      1. internal/router/resolver.go EvaluateCandidates: replace
+
+         `r.store.GetHeadroom(m.BackendID, now)` with
+         `r.store.GetModelHeadroom(m.BackendID, m.ModelID, now)`.
+         The limited flag and LimitedUntil check now use the scoped quota
+         record (spec D6). Keep b.LimitedUntil as a fallback only when no
+         scoped quota record exists.
+
+      2. internal/router/resolver_test.go: add test scenarios:
+
+         - cursor/api exhausted, cursor/auto available → resolver picks cursor/auto
+           over a lower-headroom cross-backend candidate.
+         - antigravity/gemini at 90%, antigravity/non-gemini at 10% →
+           non-gemini antigravity candidate wins within antigravity.
+         - All tier-2 candidates exhausted at their scopes → AllowFallback
+           correctly drops to tier-3.
+
+      End with `wd job done --summary '...'` once PR is green.
+    after: [Phase1_StoreAndSeed]
+    status: done
+  - id: Phase3_QuotaSync
+    prompt: >-
+      Phase 3 (quota sync): Wire live FetchUsage data into per-scope BackendQuota records. Open a PR against main.
+
+      1. internal/backendusage/service.go: add
+
+         SyncToStore(snap Snapshot, store QuotaWriter) that iterates
+         snap.Backends[*].Limits (the []UsageLimit from FetchUsage) and upserts
+         one BackendQuota record per UsageLimit:
+           BackendQuota{BackendID: backendID, Scope: limit.Scope,
+             UsedAmount: (usedPercent/100) * syntheticLimit,
+             LimitedUntil: set when LimitState=="rate_limited",
+             UpdatedAt: now}
+         QuotaWriter interface exposes UpsertQuota only.
+
+      2. After sync: if ALL scopes for a backend are limited, call
+
+         store.SetLimited(backendID, limitedUntil). Clear when any scope recovers.
+
+      3. internal/daemon/ (usage refresh call site): call SyncToStore after
+
+         every Snapshot, including startup probe and periodic refresh.
+
+      4. Tests: mock QuotaWriter; verify scoped records are written; verify
+
+         per-backend LimitedUntil is set only when all scopes are limited.
+
+      End with `wd job done --summary '...'` once PR is green.
+    after: [Phase2_Resolver]
+    status: done
+  - id: Phase4_TUITierPicker
+    prompt: >-
+      Phase 4 (TUI tier picker): Replace per-backend CLI dropdown with a tier selector showing live per-candidate availability. Open a PR against main.
+
+      1. internal/tui/: Find the backend picker in the spawn flow. Replace with a
+
+         tier selector: auto / tier-1 / tier-2 / tier-3. Wire to
+         ResolveOptions.Tier on spawn.
+
+      2. Live candidate table below the selector: query the resolver (or
+
+         GET /api/v1/backends with headroom) for the selected tier. Each row:
+           <tier>  <backend>/<model-display>  <headroom-bar>  <used%>  <status>
+         Limited candidates greyed out showing "limited until HH:MM".
+         Top-ranked (winning) candidate highlighted.
+
+      3. Remove any code in the TUI spawn path that passed a backend ID directly.
+
+      4. Walk the CLAUDE.md Definition-of-Done checklist: update README,
+
+         docs/FEATURES.md, root FEATURES.md, docs/USAGE.md,
+         site/src/content/docs/, skills/warden/SKILL.md. Run `make gendocs`
+         if CLI flags changed.
+
+      End with `wd job done --summary '...'` once PR is green.
+    after: [Phase3_QuotaSync]
+    status: done
+done_when:
+  - "GetModelHeadroom returns per-scope headroom for every auto-assign model."
+  - "EvaluateCandidates uses GetModelHeadroom; cursor/auto is eligible when cursor/api is exhausted."
+  - "Live usage sync writes scoped BackendQuota records after every Snapshot."
+  - "Backend.LimitedUntil is set only when all scopes for that backend are limited."
+  - "TUI spawn flow offers a tier selector; no per-backend CLI dropdown remains."
+  - "make verify-fast passes on main after each phase."
+status: complete
+completed_at: "2026-09-26T13:37:49Z"
