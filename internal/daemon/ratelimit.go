@@ -67,8 +67,8 @@ type RateLimitScheduler struct {
 	// recovery coordinator. It returns true when that coordinator owns the session,
 	// including while it tries candidates or waits for capacity, so the legacy
 	// backend-only resume timer must not race it. Fires regardless of
-	// auto_resume (handover is an independent policy). A false return (handover off,
-	// or no eligible successor) falls through to the normal pause-and-resume path.
+	// auto_resume (recovery is an independent policy). A false return (no eligible
+	// successor) falls through to the normal pause-and-resume path.
 	// nil ⇒ no hard-limit swap (today's pause-and-wait). Set by the daemon after
 	// construction.
 	OnHardLimit func(sess *store.Session, until time.Time) bool
