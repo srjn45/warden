@@ -213,6 +213,10 @@ type Server struct {
 	// usage queries provider-owned subscription limits without touching routing
 	// or the synthetic quota recorder. Its cache is process-local and sanitized.
 	usage *backendusage.Service
+	// rateLimitScheduler owns StatusRateLimited resume timers. Also used by the
+	// usage-API fallback (limitSessionsFromSnapshot) for pane-blind backends.
+	// nil ⇒ the fallback is a no-op (tests that don't exercise it leave it unset).
+	rateLimitScheduler *RateLimitScheduler
 	// recovery is the sole coordinator for confirmed provider hard limits.
 	recovery *BackendRecoveryCoordinator
 	// projects is the first-class project store (docs/specs/
@@ -304,6 +308,11 @@ func (s *Server) SetBackends(store *backendstore.Store) {
 
 // SetUsageService allows deterministic daemon tests to inject provider adapters.
 func (s *Server) SetUsageService(service *backendusage.Service) { s.usage = service }
+
+// SetRateLimitScheduler wires the rate-limit resume scheduler so the usage-API
+// polling fallback can fire OnTransition for pane-blind backends. Call before
+// Start. A nil scheduler leaves limitSessionsFromSnapshot a no-op.
+func (s *Server) SetRateLimitScheduler(r *RateLimitScheduler) { s.rateLimitScheduler = r }
 
 func (s *Server) SetBackendRecovery(c *BackendRecoveryCoordinator) { s.recovery = c }
 

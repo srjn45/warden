@@ -165,3 +165,66 @@ func loadPaneFixture(t *testing.T, backend, fixture string) string {
 	require.NoError(t, err)
 	return string(b)
 }
+
+// rateLimitFixtures maps a backend id to its synthetic limited-pane fixture
+// under testdata/ratelimit/<backend>_limited.txt. Only backends that implement
+// RateLimitDetector are listed here; pane-blind backends (opencode, crush, goose)
+// are intentionally absent — they are tested via the "pane-blind" log path below.
+var rateLimitFixtures = map[string]string{
+	"claude":      "claude_limited.txt",
+	"codex":       "codex_limited.txt",
+	"cursor":      "cursor_limited.txt",
+	"antigravity": "antigravity_limited.txt",
+	"aider":       "aider_limited.txt",
+}
+
+// cleanPane is a generic idle pane that should never trigger rate-limit detection
+// for any backend.
+const cleanPane = `Working on the task.
+> Reading file main.go
+Done. All tests pass.
+No errors.
+`
+
+// TestRateLimitDetectorConformance verifies every registered backend's
+// RateLimitDetector (when present):
+//   - limited pane fixture → (true, ?, ?)
+//   - clean pane           → (false, zero, false)
+//
+// Backends WITHOUT RateLimitDetector are logged as "pane-blind" — not a failure.
+func TestRateLimitDetectorConformance(t *testing.T) {
+	for _, id := range agentbackend.IDs() {
+		id := id
+		b, err := agentbackend.Get(id)
+		require.NoErrorf(t, err, "backend %q not resolvable from registry", id)
+		t.Run(b.ID(), func(t *testing.T) {
+			rl, ok := b.(agentbackend.RateLimitDetector)
+			if !ok {
+				t.Logf("backend %q: pane-blind (no RateLimitDetector) — covered by usage-API polling fallback", b.ID())
+				return
+			}
+
+			// --- clean pane must not trigger ---
+			limited, resetAt, resetKnown := rl.DetectRateLimit(cleanPane)
+			require.Falsef(t, limited,
+				"%s DetectRateLimit returned limited=true on clean pane (false positive — fail-closed violated)", b.ID())
+			require.True(t, resetAt.IsZero(), "%s: clean pane must return zero resetAt, got %v", b.ID(), resetAt)
+			require.False(t, resetKnown, "%s: clean pane must return resetKnown=false", b.ID())
+
+			// --- limited pane must trigger ---
+			fixtureName, hasFixture := rateLimitFixtures[b.ID()]
+			if !hasFixture {
+				t.Logf("backend %q implements RateLimitDetector but has no fixture in rateLimitFixtures — add one", b.ID())
+				return
+			}
+			fixturePath := filepath.Join("testdata", "ratelimit", fixtureName)
+			raw, err := os.ReadFile(fixturePath)
+			require.NoErrorf(t, err, "missing rate-limit fixture for %s at %s", b.ID(), fixturePath)
+
+			limited, _, _ = rl.DetectRateLimit(string(raw))
+			require.Truef(t, limited,
+				"%s DetectRateLimit returned limited=false on limited fixture %s — banner pattern may have drifted; update the fixture or the detector",
+				b.ID(), fixtureName)
+		})
+	}
+}

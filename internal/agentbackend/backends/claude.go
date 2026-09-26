@@ -382,6 +382,42 @@ func (Claude) Pricing() (agentbackend.PricingTable, bool) {
 	}, true
 }
 
+// --- Rate-limit detection ---------------------------------------------------
+
+// claudeRLBannerRe and claudeRLSpendRe reproduce the patterns from
+// poller/detect.go to avoid an import cycle (poller_test imports backends).
+var (
+	claudeRLBannerRe = regexp.MustCompile(
+		`(?i)(rate limit|usage limit|session limit|weekly limit|quota exceeded)[\s\S]{0,80}?resets\s`,
+	)
+	claudeRLSpendRe = regexp.MustCompile(
+		`(?i)(hit your monthly spend limit|adjust your monthly spend limit)`,
+	)
+)
+
+const claudeRLTailLines = 6
+
+// DetectRateLimit implements agentbackend.RateLimitDetector for Claude. It
+// checks the trailing pane lines for Claude's distinctive rate-limit banner
+// shapes (resettable and spend-cap), failing closed on ambiguous output.
+func (Claude) DetectRateLimit(pane string) (bool, time.Time, bool) {
+	tail := limitLastLines(pane, claudeRLTailLines)
+	switch {
+	case claudeRLBannerRe.MatchString(tail):
+		t, ok := parseRateLimitResetTime(tail)
+		return true, t, ok
+	case claudeRLSpendRe.MatchString(tail):
+		return true, time.Time{}, false
+	default:
+		return false, time.Time{}, false
+	}
+}
+
+// ParseRateLimitReset implements agentbackend.RateLimitResetParser for Claude.
+func (Claude) ParseRateLimitReset(pane string) (time.Time, bool) {
+	return parseRateLimitResetTime(pane)
+}
+
 // --- Capabilities -----------------------------------------------------------
 
 // claudePermissionModes is the canonical set of Claude permission modes. It

@@ -1051,6 +1051,49 @@ func agyWindow(id, scope, label string, families, models []string, used *float64
 	}
 }
 
+// --- Rate-limit detection ---------------------------------------------------
+
+// antigravityRLRe matches rate-limit phrasing in Antigravity (`agy`) pane output.
+// TODO(confirm-wording): verify against a live agy rate-limit pane fixture.
+var antigravityRLRe = regexp.MustCompile(
+	`(?i)(rate limited|rate limit|quota|limit reached)`,
+)
+
+// antigravityResetsAtRe matches "resets at HH:MM" / "available at HH:MM" in
+// agy's rate-limit output, used to extract a reset time.
+var antigravityResetsAtRe = regexp.MustCompile(
+	`(?i)(?:resets at|available at)\s+(\d{1,2}:\d{2})\s*(am|pm)?`,
+)
+
+const antigravityRLTailLines = 6
+
+// DetectRateLimit implements agentbackend.RateLimitDetector for Antigravity.
+func (Antigravity) DetectRateLimit(pane string) (bool, time.Time, bool) {
+	tail := limitLastLines(pane, antigravityRLTailLines)
+	if !antigravityRLRe.MatchString(tail) {
+		return false, time.Time{}, false
+	}
+	t, ok := (Antigravity{}).ParseRateLimitReset(tail)
+	return true, t, ok
+}
+
+// ParseRateLimitReset implements agentbackend.RateLimitResetParser for
+// Antigravity. It extracts "resets at HH:MM" / "available at HH:MM" if
+// present; falls back to the generic parser on other formats.
+func (Antigravity) ParseRateLimitReset(pane string) (time.Time, bool) {
+	if m := antigravityResetsAtRe.FindStringSubmatch(pane); len(m) == 3 {
+		if h, min, ok := rlParseClock(m[1], m[2]); ok {
+			now := time.Now()
+			result := time.Date(now.Year(), now.Month(), now.Day(), h, min, 0, 0, now.Location())
+			if result.Before(now) {
+				result = result.Add(24 * time.Hour)
+			}
+			return result, true
+		}
+	}
+	return parseRateLimitResetTime(pane)
+}
+
 // --- Capabilities -----------------------------------------------------------
 
 // Capabilities reports Antigravity as a Tier-A backend: the plaintext trajectory

@@ -1,0 +1,7 @@
+ cursor-agent
+ ─────────────────────────────────────────────────
+
+ Previous task completed successfully.
+
+ Your usage limit has been reached for this billing period.
+ Please upgrade your plan or wait for the limit to reset.
