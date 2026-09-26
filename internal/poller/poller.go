@@ -757,6 +757,9 @@ func (p *Poller) tick(ctx context.Context) error {
 	now := time.Now()
 	changed := false
 	for _, s := range sessions {
+		if s.IsTerminal() {
+			continue
+		}
 		if isTerminal(s.Status) {
 			// Reap any exit-file left by the clean-exit path (SessionEnd hook set
 			// done before the poller read the file); errored/orphaned already
@@ -796,51 +799,6 @@ func (p *Poller) tick(ctx context.Context) error {
 				}
 				if p.OnTransition != nil {
 					p.OnTransition(s, s.Status, next)
-				}
-			}
-			continue
-		}
-		// A terminal (Kind==terminal) is a plain shell, not an AI agent: it has no
-		// transcript to summarize, no approval or rate-limit menu to answer, and no
-		// meaningful working/idle/waiting classification. Keep only what applies to
-		// any tracked pane — exit finalization (handled above) and a live pane
-		// excerpt for display — and skip every AI-reasoning branch below
-		// (discover-session-id, classify, summarize, auto-approve, limit-menu,
-		// context-guard). This guard is load-bearing: a terminal's empty Backend
-		// resolves to the default backend (Claude), which would otherwise drive all
-		// of those against a shell.
-		if s.IsTerminal() {
-			alive := p.deps.SessionAlive(ctx, s.TmuxSession)
-			if alive {
-				if s.Status == store.StatusSpawning {
-					if ok, err := p.deps.UpdateStatusIf(ctx, s.ID, s.Status, store.StatusWorking); err != nil {
-						slog.Warn("poller: terminal status update failed", "terminal", s.ID, "err", err)
-					} else if ok {
-						s.Status = store.StatusWorking
-						changed = true
-						if p.OnTransition != nil {
-							p.OnTransition(s, store.StatusSpawning, store.StatusWorking)
-						}
-					}
-				}
-				if captured, err := p.deps.CapturePane(ctx, s.TmuxSession); err == nil {
-					if excerpt := lastLines(captured, 20); excerpt != s.LastPaneExcerpt {
-						_ = p.deps.UpdatePane(ctx, s.ID, excerpt)
-						changed = true
-					}
-				}
-			} else {
-				if s.Status != store.StatusOrphaned {
-					if ok, err := p.deps.UpdateStatusIf(ctx, s.ID, s.Status, store.StatusOrphaned); err != nil {
-						slog.Warn("poller: terminal status update failed", "terminal", s.ID, "err", err)
-					} else if ok {
-						oldStatus := s.Status
-						s.Status = store.StatusOrphaned
-						changed = true
-						if p.OnTransition != nil {
-							p.OnTransition(s, oldStatus, store.StatusOrphaned)
-						}
-					}
 				}
 			}
 			continue
