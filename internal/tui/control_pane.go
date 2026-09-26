@@ -2240,6 +2240,9 @@ func killCockpitArgs(killWindow bool) [][]string {
 	for _, k := range []string{"t", "a", "p", "T", "A", "P"} {
 		args = append(args, []string{"unbind-key", k})
 	}
+	// Ensure destroying the cockpit session detaches the client instead of
+	// switching to other surviving sessions (such as background terminals or agents).
+	args = append(args, []string{"set-option", "detach-on-destroy", "on"})
 	return append(args, []string{"kill-session"})
 }
 
