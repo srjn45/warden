@@ -8,7 +8,7 @@ constraints:
   - "Work in an isolated git worktree branched off origin/main or the plan integration branch; one worker per task."
   - "Keep the tree green — run `wd check` (or make verify-fast) before every commit/push."
   - "API is spec-first — if OpenAPI schema changes, edit internal/daemon/apidocs/openapi.yaml then `make generate`; never hand-edit generated code (api.gen.go)."
-  - "Open PRs against autopilot/bugfixes-reported-issues (never main)."
+  - "Open PRs against autopilot/reported-bugfixes (never main)."
   - "End each task with `wd job done --summary '...'` once the PR is up and gate is green."
 tasks:
   - id: Task1_FixIssue465_TerminalSpawnLoop
@@ -25,7 +25,7 @@ tasks:
       3) Reset the attempt counter once a live terminal is successfully confirmed in m.sessions.
       4) Add regression unit tests in internal/tui/control_pane_test.go (or terminal_test.go) verifying that empty
          terminal listings do not trigger unbounded rapid spawns.
-      Ensure `wd check` passes before opening a PR against autopilot/bugfixes-reported-issues.
+      Ensure `wd check` passes before opening a PR against autopilot/reported-bugfixes.
       End with `wd job done --summary 'fix(tui): add circuit breaker and backoff to terminal auto-spawn loop (#465)'`.
 
   - id: Task2_FixIssue464_CursorRestore
@@ -45,7 +45,7 @@ tasks:
          guard and allow resumeInTmux to proceed.
       3) Add unit tests in internal/lifecycle/lifecycle_test.go confirming that Restore and SwitchRole succeed for a
          backend with Resume: true and StructuredTranscript: false when worktree exists, even without a transcript file.
-      Ensure `wd check` passes before opening a PR against autopilot/bugfixes-reported-issues.
+      Ensure `wd check` passes before opening a PR against autopilot/reported-bugfixes.
       End with `wd job done --summary 'fix(lifecycle): permit restore for backends without structured transcripts (#464)'`.
 
   - id: Task3_FixIssue274_McpDirPinning
@@ -73,7 +73,7 @@ tasks:
       3) Add unit tests in internal/daemon/git_routes_test.go verifying:
          - Valid worktree dir for the session is honored and committed.
          - Spoofed/unrelated dir outside the repository is rejected with an error instead of silently falling back to sess.Workdir.
-      Ensure `wd check` passes before opening a PR against autopilot/bugfixes-reported-issues.
+      Ensure `wd check` passes before opening a PR against autopilot/reported-bugfixes.
       End with `wd job done --summary 'fix(daemon,mcp): honor explicit dir and validate worktree boundaries (#274)'`.
 
   - id: Task4_VerifyAndE2E
@@ -82,12 +82,12 @@ tasks:
       1) Verify `wd check` passes cleanly (build, fmt, lint, tests).
       2) Verify end-to-end scenarios for all three issues (#465, #464, #274).
       3) Ensure all documentation and test suites are consistent.
-      Open PR against autopilot/bugfixes-reported-issues.
+      Open PR against autopilot/reported-bugfixes.
       End with `wd job done --summary 'test(e2e): verify fixes for issues #465, #464, and #274'`.
     after: [Task1_FixIssue465_TerminalSpawnLoop, Task2_FixIssue464_CursorRestore, Task3_FixIssue274_McpDirPinning]
 
 done_when:
-  - "wd check passes on autopilot/bugfixes-reported-issues."
+  - "wd check passes on autopilot/reported-bugfixes."
   - "Issue #465 fixed: TUI terminal reconciler has backoff and circuit-breaker; no runaway spawn loop can occur."
   - "Issue #464 fixed: restore_agent and SwitchRole succeed for cursor-backend agents without 422 ErrNoTranscript."
   - "Issue #274 fixed: MCP git tools (commit, push, sync, check, snapshot) honor explicit dir with worktree validation and reject invalid paths."

@@ -10,7 +10,7 @@ import (
 const (
 	managerSlotSuffix  = "-autopilot"
 	guardianSlotSuffix = "-guardian"
-	maxSlotScopeLen    = 32 // store.ValidateName upper bound
+	maxSlotScopeLen    = 32 - len(managerSlotSuffix) // 22, so <scope>-autopilot fits store.ValidateName (32 chars)
 )
 
 var reservedPlanSuffixes = []string{managerSlotSuffix, guardianSlotSuffix}
