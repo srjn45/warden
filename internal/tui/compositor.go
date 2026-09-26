@@ -119,6 +119,11 @@ func buildCockpit(ctx context.Context, run lifecycle.Runner, o cockpitOpts) erro
 	if out, err := run.Run(ctx, "", "tmux", "set-option", "-t", o.session, "mouse", "on"); err != nil {
 		return fmt.Errorf("tmux set-option mouse: %w: %s", err, out)
 	}
+	// Switch back to the previous active session (the cockpit) if an attached
+	// agent session is destroyed, instead of disconnecting the client and closing the TUI (#478).
+	if out, err := run.Run(ctx, "", "tmux", "set-option", "-t", o.session, "detach-on-destroy", "off"); err != nil {
+		return fmt.Errorf("tmux set-option detach-on-destroy: %w: %s", err, out)
+	}
 	// With mouse on, a plain drag drives tmux (copy-mode / app), not native text
 	// selection — easy to forget. Keep a permanent reminder on the status line so
 	// the Shift-to-select trick stays discoverable. Scoped to this session so it

@@ -1795,6 +1795,10 @@ func (l *Lifecycle) newAgentSession(ctx context.Context, runDir, id, cwd string,
 	// mouse is a live session option: the wheel enters copy-mode, and the cockpit
 	// session can forward the wheel into this nested attach. Non-fatal.
 	_, _ = l.run.Run(ctx, "", "tmux", "set-option", "-t", id, "mouse", "on")
+	// detach-on-destroy off ensures that if an operator attaches to this agent
+	// and the agent terminates or is stopped, tmux falls back to the previous
+	// session (e.g. cockpit) instead of abruptly disconnecting the client (#478). Non-fatal.
+	_, _ = l.run.Run(ctx, "", "tmux", "set-option", "-t", id, "detach-on-destroy", "off")
 	return nil
 }
 
