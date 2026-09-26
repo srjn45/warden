@@ -6,6 +6,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/srjn45/warden/internal/approval"
+	"github.com/srjn45/warden/internal/backendstore"
+	"github.com/srjn45/warden/internal/backendusage"
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/pipeline"
@@ -91,6 +93,13 @@ type fakeAPI struct {
 	defaultErr   error
 	thinkingMode string // last mode passed to SetThinkingMode
 	thinkingErr  error
+
+	models       []backendstore.ModelEntry
+	modelsErr    error
+	roleTiers    []backendstore.RoleTierMapping
+	roleTiersErr error
+	usageSnap    backendusage.Snapshot
+	usageErr     error
 
 	// projects (Phase 4 tree nesting)
 	projects         []projectstore.Project
@@ -254,6 +263,27 @@ func (f *fakeAPI) SetDefaultBackend(_ context.Context, id string) (client.Backen
 func (f *fakeAPI) SetThinkingMode(_ context.Context, mode string) (client.BackendSettings, error) {
 	f.thinkingMode = mode
 	return client.BackendSettings{InternalThinkingMode: mode}, f.thinkingErr
+}
+func (f *fakeAPI) ListModels(_ context.Context, tier string) ([]backendstore.ModelEntry, error) {
+	if f.modelsErr != nil {
+		return nil, f.modelsErr
+	}
+	if tier == "" {
+		return f.models, nil
+	}
+	var out []backendstore.ModelEntry
+	for _, m := range f.models {
+		if string(m.Tier) == tier {
+			out = append(out, m)
+		}
+	}
+	return out, nil
+}
+func (f *fakeAPI) ListRoleTiers(context.Context) ([]backendstore.RoleTierMapping, error) {
+	return f.roleTiers, f.roleTiersErr
+}
+func (f *fakeAPI) Usage(_ context.Context, _ bool) (backendusage.Snapshot, error) {
+	return f.usageSnap, f.usageErr
 }
 
 func key(s string) tea.KeyMsg {

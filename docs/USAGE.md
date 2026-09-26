@@ -503,8 +503,10 @@ global default**. Default `tags` are **unioned** into whatever tags you passed
 overrides it.
 
 Roles are also selectable in the UIs — the TUI new-agent form has a `ctrl+r` role
-picker, and the web **+ New agent** modal a **Role** dropdown (both default to
-`general`) — and over MCP via `spawn_agent`'s `role` param.
+picker and a `ctrl+t` **tier picker** (`auto` / `tier-1`/`2`/`3` plus a live
+candidate table of AutoAssign models with headroom; the resolver picks
+backend+model), and the web **+ New agent** modal a **Role** dropdown (both
+default to `general` / `auto`) — and over MCP via `spawn_agent`'s `role` param.
 
 ### Switching a running agent's role
 

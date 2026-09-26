@@ -9,6 +9,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/srjn45/warden/internal/approval"
+	"github.com/srjn45/warden/internal/backendstore"
+	"github.com/srjn45/warden/internal/backendusage"
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/pipeline"
@@ -60,11 +62,11 @@ func listCmd(a api, includeSystem bool) tea.Cmd {
 	}
 }
 
-func spawnCmd(a api, prompt, name, cwd, role, backend, projectID string, force bool) tea.Cmd {
+func spawnCmd(a api, prompt, name, cwd, role, tier, projectID string, force bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := bgLong()
 		defer cancel()
-		s, err := a.Spawn(ctx, client.SpawnParams{Prompt: prompt, Name: name, Cwd: cwd, Role: role, Backend: backend, ProjectID: projectID, Force: force})
+		s, err := a.Spawn(ctx, client.SpawnParams{Prompt: prompt, Name: name, Cwd: cwd, Role: role, Tier: tier, ProjectID: projectID, Force: force})
 		if err != nil {
 			var cre *client.ErrConfirmationRequired
 			if errors.As(err, &cre) {
@@ -649,5 +651,48 @@ func setThinkingModeCmd(a api, mode string) tea.Cmd {
 		}
 		st, err := a.ListBackends(ctx)
 		return backendsMsg{state: st, err: err, action: true}
+	}
+}
+
+// spawnCandidatesMsg carries the live AutoAssign candidate table for the
+// new-agent tier picker (D8).
+type spawnCandidatesMsg struct {
+	candidates []spawnCandidate
+	err        string
+}
+
+// loadSpawnCandidatesCmd fetches models + usage + backends and builds the
+// ranked candidate table for the selected tier label ("auto" or tier-N).
+func loadSpawnCandidatesCmd(a api, tierLabel, roleName string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bg()
+		defer cancel()
+
+		var roleTiers []backendstore.RoleTierMapping
+		if tierLabel == "" || tierLabel == "auto" {
+			rt, err := a.ListRoleTiers(ctx)
+			if err != nil {
+				// Soft-fail: still list tier-2 candidates without role mapping.
+				roleTiers = nil
+			} else {
+				roleTiers = rt
+			}
+		}
+		eff := effectiveCandidateTier(tierLabel, roleName, roleTiers)
+
+		models, err := a.ListModels(ctx, eff)
+		if err != nil {
+			return spawnCandidatesMsg{err: "models: " + err.Error()}
+		}
+		snap, usageErr := a.Usage(ctx, false)
+		if usageErr != nil {
+			// Soft-fail: show candidates without live bars.
+			snap = backendusage.Snapshot{}
+		}
+		backends, beErr := a.ListBackends(ctx)
+		if beErr != nil {
+			backends = client.BackendsState{}
+		}
+		return spawnCandidatesMsg{candidates: buildSpawnCandidates(models, snap, backends, time.Now())}
 	}
 }

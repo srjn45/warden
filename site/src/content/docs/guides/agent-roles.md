@@ -61,7 +61,10 @@ The same choice is available in the UIs and over MCP:
 
 - **TUI** — the new-agent form has a `ctrl+r` **role picker** (↑/↓ or `j`/`k` to
   cycle, `enter` to choose); the footer shows the selected `role:` and it defaults
-  to `general`.
+  to `general`. The same form has a `ctrl+t` **tier picker** (`auto` / `tier-1` /
+  `tier-2` / `tier-3`) with a live AutoAssign candidate table (headroom bar,
+  used%, limited-until); spawn passes the selected tier to the resolver — it does
+  not pin a backend CLI from the TUI.
 - **Web** — the **+ New agent** modal has a **Role** dropdown (defaults `general`),
   with the selected role's description shown beside it.
 - **MCP** — `spawn_agent` takes a `role` param; `list_roles` returns the catalog

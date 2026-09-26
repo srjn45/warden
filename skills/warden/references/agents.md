@@ -200,7 +200,9 @@ Drive it:
 - **On a running agent** — `warden agent role set <id> <role>` / `set_role {ticket, role}`.
   This **relaunches** the agent so the new persona re-injects (its in-flight turn
   is discarded, unlike `set-permission-mode`); `general`/empty clears the persona.
-- **UIs** — TUI new-agent `ctrl+r` picker; web **+ New agent** Role dropdown.
+- **UIs** — TUI new-agent `ctrl+r` role picker and `ctrl+t` tier picker (live
+  AutoAssign candidate table; spawn passes `ResolveOptions.Tier`, not a backend
+  id); web **+ New agent** Role dropdown.
 
 Only the role **name** is persisted (`Session.Role`; empty ⇒ `general`); the
 persona re-resolves from the registry at every (re)launch, so nothing

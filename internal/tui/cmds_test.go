@@ -9,7 +9,7 @@ import (
 
 func TestSpawnCmdUsesGivenCwd(t *testing.T) {
 	f := &fakeAPI{}
-	msg := spawnCmd(f, "do the thing", "my-agent", "/work/api", "reviewer", "aider", "/work/api", false)()
+	msg := spawnCmd(f, "do the thing", "my-agent", "/work/api", "reviewer", "tier-1", "/work/api", false)()
 	done, ok := msg.(spawnDoneMsg)
 	require.True(t, ok)
 	require.NoError(t, done.err)
@@ -18,7 +18,8 @@ func TestSpawnCmdUsesGivenCwd(t *testing.T) {
 	require.Equal(t, "do the thing", f.spawned.Prompt)
 	require.Equal(t, "my-agent", f.spawned.Name)
 	require.Equal(t, "reviewer", f.spawned.Role)
-	require.Equal(t, "aider", f.spawned.Backend)
+	require.Equal(t, "tier-1", f.spawned.Tier)
+	require.Empty(t, f.spawned.Backend, "tier-first spawn must not pin a backend id")
 	require.Equal(t, "/work/api", f.spawned.ProjectID, "in-project spawn passes the resolved project id")
 }
 
