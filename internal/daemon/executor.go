@@ -567,6 +567,7 @@ func (e *Executor) Retry(ctx context.Context, pid, jobID string) error {
 		j.SetAgentID("")
 		j.Output = ""
 		j.Branch = ""
+		j.AutoRetryCount++
 		for i := range p.Jobs {
 			if p.Jobs[i].Status == pipeline.JobSkipped {
 				p.Jobs[i].Status = pipeline.JobPending
