@@ -32,8 +32,8 @@ func decideRestart(count int, lastRestartAt, now time.Time, max int, reset time.
 	return actionRestart, effective + 1
 }
 
-// Restarter auto-resumes an opted-in agent that reaches errored, bounded by a
-// per-agent retry cap that resets after sustained health.
+// Restarter auto-resumes an opted-in agent (on errored) or terminal (on orphaned),
+// bounded by a per-session retry cap that resets after sustained health.
 type Restarter struct {
 	life  Lifecycle
 	store store.Store
@@ -59,9 +59,13 @@ func (r *Restarter) OnTransition(sess *store.Session, _ store.Status, to store.S
 }
 
 // onTransitionAt is the testable core (now injected). It restarts a qualifying
-// errored agent or records a give-up.
+// errored agent or orphaned terminal, or records a give-up.
 func (r *Restarter) onTransitionAt(sess *store.Session, _ store.Status, to store.Status, now time.Time) {
-	if to != store.StatusErrored || !sess.AutoRestart || sess.PipelineID != "" {
+	// Agents trigger on errored; terminals trigger on orphaned because terminal
+	// sessions have no errored transition path — the pane simply disappears.
+	isAgentError := to == store.StatusErrored && !sess.IsTerminal()
+	isTerminalOrphan := to == store.StatusOrphaned && sess.IsTerminal()
+	if (!isAgentError && !isTerminalOrphan) || !sess.AutoRestart || sess.PipelineID != "" {
 		return
 	}
 	ctx := context.Background()
@@ -86,7 +90,7 @@ func (r *Restarter) onTransitionAt(sess *store.Session, _ store.Status, to store
 		r.appendEvent(ctx, sess.ID, fmt.Sprintf("auto-restart: restore failed: %v", err))
 		return
 	}
-	if _, err := r.store.UpdateStatusIf(ctx, sess.ID, store.StatusErrored, store.StatusSpawning); err != nil {
+	if _, err := r.store.UpdateStatusIf(ctx, sess.ID, to, store.StatusSpawning); err != nil {
 		slog.Warn("auto-restart: status update failed", "agent", sess.ID, "err", err)
 	}
 }
