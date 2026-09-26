@@ -156,3 +156,13 @@ func (d *pollerDeps) ProjectsDir() string { return d.lc.ProjectsDir }
 func (d *pollerDeps) SetSessionID(ctx context.Context, id, sessionID string) error {
 	return d.store.SetSessionID(ctx, id, sessionID)
 }
+
+// Restore recreates and resumes a terminal session from its stored record, using
+// the same lifecycle primitive the auto-restart path uses for agents.
+func (d *pollerDeps) Restore(ctx context.Context, sess *store.Session) error {
+	return d.lc.Restore(ctx, sess)
+}
+
+// Compile-time assertion: *pollerDeps must satisfy poller.TerminalDeps so that
+// NewPollerDeps callers can type-assert to poller.TerminalDeps for the watcher.
+var _ poller.TerminalDeps = (*pollerDeps)(nil)

@@ -32,7 +32,39 @@ func NewServer(st store.Store, life Lifecycle, p *poller.Poller, interval time.D
 		// branchTracker is opt-in (outward GitHub integration): constructed with a
 		// log-only notifier and a zero interval (disabled) until the daemon wires
 		// the real notifier + interval from config.
-		branchTracker: branchtrack.NewTracker(st, mbox, notify.New(false)),
+		branchTracker:        branchtrack.NewTracker(st, mbox, notify.New(false)),
+		terminalPollInterval: 15 * time.Second,
+	}
+}
+
+// SetRestarter wires the auto-restart coordinator. Must be called before
+// ListenAndServe; the terminalWatcher.OnTransition closure reads s.restarter
+// at call time.
+func (s *Server) SetRestarter(r *Restarter) { s.restarter = r }
+
+// SetTerminalPollInterval sets the cadence for the TerminalWatcher goroutine.
+// Non-positive values are ignored (the 15s default is kept).
+func (s *Server) SetTerminalPollInterval(d time.Duration) {
+	if d > 0 {
+		s.terminalPollInterval = d
+	}
+}
+
+// SetTerminalWatcher wires the terminal-session monitor. It sets OnChange to
+// the SSE hub (so TUI refreshes on every terminal state change) and OnTransition
+// to a nil-safe wrapper around the Restarter (wired via SetRestarter) so Phase 3
+// can extend onTransitionAt without touching this call site. Must be called
+// before ListenAndServe.
+func (s *Server) SetTerminalWatcher(tw *poller.TerminalWatcher) {
+	s.terminalWatcher = tw
+	if tw == nil {
+		return
+	}
+	tw.OnChange = s.hub.publish
+	tw.OnTransition = func(sess *store.Session, from, to store.Status) {
+		if s.restarter != nil {
+			s.restarter.onTransitionAt(sess, from, to, time.Now().UTC())
+		}
 	}
 }
 
@@ -129,6 +161,13 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 		close(pollerDone)
 	}
 
+	twDone := make(chan struct{})
+	if s.terminalWatcher != nil {
+		go func() { defer close(twDone); s.terminalWatcher.Run(runCtx, s.terminalPollInterval) }()
+	} else {
+		close(twDone)
+	}
+
 	// Reap tombstoned parents whose sub-tree has gone fully terminal (agent
 	// sub-tree grouping). Lazy reap fires on terminal transitions; this sweep is
 	// the safety net for transitions that bypass the poller (SessionEnd hook,
@@ -203,7 +242,8 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 		scancel()
 	}
 
-	cancel()     // stop the poller (also covers the bind-failure path)
+	cancel()     // stop the poller and terminalWatcher (covers the bind-failure path too)
 	<-pollerDone // wait for its summarizers to drain before returning
+	<-twDone     // wait for terminal watcher to finish its last tick
 	return retErr
 }

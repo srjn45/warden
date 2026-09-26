@@ -217,6 +217,12 @@ func newDaemonRunCmd() *cobra.Command {
 				return err
 			}
 			srv := daemon.NewServer(st, life, pl, 10*time.Second, cfg.ApprovalsEnabled, cstore, mbox, nil)
+			// Wire the TerminalWatcher using the same deps adapter the Poller uses.
+			// pollerDeps satisfies poller.TerminalDeps (the Restore method is present),
+			// so the type assertion always succeeds.
+			if tdeps, ok := pd.(poller.TerminalDeps); ok {
+				srv.SetTerminalWatcher(poller.NewTerminalWatcher(tdeps))
+			}
 			srv.SetAuth(authToken, readonlyToken)
 			srv.SetWriteTimeouts(cfg.HTTPTimeoutFastDuration(), cfg.HTTPTimeoutSlowDuration())
 			// Persist auto-approve policy changes (PUT /auto-approve/policy) back to
@@ -514,6 +520,7 @@ func newDaemonRunCmd() *cobra.Command {
 			}
 			notifyHook := daemon.NotifyOnTransition(notifSwitch)
 			restarter := daemon.NewRestarter(life, st, cfg.AutoRestart.Max, cfg.AutoRestartResetDuration())
+			srv.SetRestarter(restarter)
 			rateLimitSched := daemon.NewRateLimitScheduler(life, st, cfg.RateLimitRetryIntervalDuration(), cfg.RateLimitSpendRetryIntervalDuration(), cfg.RateLimitBufferDuration(), cfg.RateLimit.AutoResume, cfg.RateLimit.ResumePrompt)
 			// Fixture-capture aid: snapshot the raw pane on each real limit hit so a
 			// future parser gap can be fixed from ground-truth bytes (bounded, newest-N).
