@@ -86,6 +86,7 @@ func TestKillCockpitArgs(t *testing.T) {
 		{"unbind-key", "Enter"},
 		{"unbind-key", "t"}, {"unbind-key", "a"}, {"unbind-key", "p"},
 		{"unbind-key", "T"}, {"unbind-key", "A"}, {"unbind-key", "P"},
+		{"set-option", "detach-on-destroy", "on"},
 		{"kill-session"},
 	}, killCockpitArgs(false))
 	// Native cockpit lives in the user's session: kill only our window, and leave
