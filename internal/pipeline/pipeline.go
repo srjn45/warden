@@ -53,6 +53,8 @@ type Job struct {
 	Backend    string   `json:"backend,omitempty" yaml:"backend,omitempty"`
 	Model      string   `json:"model,omitempty" yaml:"model,omitempty"`
 
+	AutoRetryCount int `json:"auto_retry_count,omitempty"`
+
 	// AgentID identifies the agent executing this job. It replaces SessionID:
 	// agents are now first-class entities and are no longer merely terminal
 	// sessions.

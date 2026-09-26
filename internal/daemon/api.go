@@ -104,6 +104,9 @@ type Server struct {
 	mbox *mailbox.Store
 	// exec drives pipeline execution (nil if pipelines are unused).
 	exec *Executor
+	// pipelineWatcher monitors running pipelines for stalls, stuck jobs, and
+	// orphaned agents. Constructed in NewServer when exec != nil.
+	pipelineWatcher *PipelineWatcher
 	// terminalWatcher monitors terminal sessions at their own cadence.
 	// Constructed and wired via SetTerminalWatcher; nil disables the goroutine.
 	terminalWatcher      *poller.TerminalWatcher

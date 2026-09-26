@@ -24,7 +24,7 @@ func NewServer(st store.Store, life Lifecycle, p *poller.Poller, interval time.D
 	if p != nil {
 		p.OnChange = h.publish
 	}
-	return &Server{
+	s := &Server{
 		store: st, life: life, poller: p, pollInterval: interval,
 		hub: h, done: make(chan struct{}), approvals: approvals, cstore: cstore, mbox: mbox, exec: exec,
 		collab: collab.NewMonitor(st, mbox), collabInterval: 10 * time.Second,
@@ -35,6 +35,10 @@ func NewServer(st store.Store, life Lifecycle, p *poller.Poller, interval time.D
 		branchTracker:        branchtrack.NewTracker(st, mbox, notify.New(false)),
 		terminalPollInterval: 15 * time.Second,
 	}
+	if exec != nil {
+		s.pipelineWatcher = NewPipelineWatcher(exec.pstore, st, exec, 10*time.Minute, 20*time.Minute, true)
+	}
+	return s
 }
 
 // SetRestarter wires the auto-restart coordinator. Must be called before
@@ -168,6 +172,13 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 		close(twDone)
 	}
 
+	pwDone := make(chan struct{})
+	if s.pipelineWatcher != nil {
+		go func() { defer close(pwDone); s.pipelineWatcher.Run(runCtx, 60*time.Second) }()
+	} else {
+		close(pwDone)
+	}
+
 	// Reap tombstoned parents whose sub-tree has gone fully terminal (agent
 	// sub-tree grouping). Lazy reap fires on terminal transitions; this sweep is
 	// the safety net for transitions that bypass the poller (SessionEnd hook,
@@ -242,8 +253,9 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 		scancel()
 	}
 
-	cancel()     // stop the poller and terminalWatcher (covers the bind-failure path too)
+	cancel()     // stop the poller, terminalWatcher, and pipelineWatcher
 	<-pollerDone // wait for its summarizers to drain before returning
 	<-twDone     // wait for terminal watcher to finish its last tick
+	<-pwDone     // wait for pipeline watcher to finish its last tick
 	return retErr
 }
