@@ -216,8 +216,10 @@ and the rotate/handoff workflows.
 Autopilot is warden's goal-directed autonomous run mode. A **manager** agent
 (role `autopilot`) occupies a stable `<scope>-autopilot` slot and drives the run:
 it spawns **worker** agents (role `worker`, one per task, each owning implement →
-self-review → PR → gate → merge and reporting back) and, on demand, a **resolver**
-(role `brain`) to unblock a stuck worker or make an ad-hoc design call — gating
+self-review → PR → gate → merge and reporting back) and, on demand, calls
+**`brain_consult`** (shared short-lived resolver — same Consultor as pipeline
+stuck recovery; prefer this over `spawn_agent` with role `brain`) to unblock a
+stuck worker or make an ad-hoc design call — gating
 PRs and landing them into the run's **per-plan integration branch** (default
 `autopilot/<plan-name>`; legacy `autopilot/integration` runs are grandfathered),
 all without human intervention. Guardian heal-ladder rotation is an in-place
@@ -240,6 +242,7 @@ its own integration branch and plan-scoped tree (`<scope>-autopilot`,
 | `set_autopilot { enabled: false, repo? }` | Disable autopilot for one repo — the kill switch | `warden autopilot disable [--repo <root>]` |
 | `autopilot_status` | Enabled repos + each run's state, manager slot id, integration branch, task counts, tier, backoff | `warden autopilot status` |
 | `autopilot_complete` | **Manager-only.** Declare the caller's OWN run complete once `done_when` is verified — writes the in-place `status: complete` marker into the plan file, tears the manager down (workers keep running), retains the ledger. Idempotent | _(automatic; the manager calls it)_ |
+| `brain_consult` | **Manager-only.** Shared short-lived brain resolver for unblock/design decisions — prefer over `spawn_agent` with role=brain. Returns a closed action (`nudge_agent`/`wait`/`escalate`/`noop`); manager executes it. Same Consultor/audit/teardown as pipeline stuck recovery | _(automatic; the manager calls it)_ |
 | `land { ticket: "<agent-or-branch>" }` | Land a worker branch into the run's integration branch | `warden autopilot land <agent-or-branch>` |
 
 The switch is **per-repository**: enabling one repo does not touch others, and the

@@ -2634,6 +2634,44 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
 
+  /api/v1/autopilot/brain-consult:
+    post:
+      operationId: consultBrain
+      tags: [Autopilot]
+      summary: Consult a short-lived brain resolver (shared Consultor)
+      description: >
+        Autopilot-manager entry point for ad-hoc "unblock worker" / design
+        decisions (docs/specs/2026-09-27-brain-consult.md §D5). Spawns a
+        short-lived role=brain agent through the shared Consultor — same
+        prompt contract, reply parse, defer-teardown, and audit.ActionBrainConsult
+        trail as the PipelineWatcher path — then returns the closed action the
+        brain chose. Does NOT touch the long-lived manager slot, Guardian heal
+        ladder, or run ledger. The owning run is derived from the calling
+        manager's session identity. Prefer this over spawn_agent with role=brain
+        for unblock/design calls so teardown and audit stay shared.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BrainConsultRequest" }
+      responses:
+        "200":
+          description: The brain's closed action recommendation
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BrainConsultResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403":
+          description: Caller is not the owning autopilot manager, or brain consult is disabled
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "504":
+          description: Brain produced no parseable reply before the consult timeout
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
   /api/v1/schedules:
     get:
       operationId: listSchedules
@@ -4627,6 +4665,57 @@ components:
         status: { type: string, enum: [pending, active, done, failed] }
         landed_pr: { type: integer, minimum: 1 }
       required: [run_id, task_id, status]
+
+    BrainConsultRequest:
+      type: object
+      description: >
+        Body for POST /autopilot/brain-consult — situation package handed to the
+        shared Consultor (docs/specs/2026-09-27-brain-consult.md §D1/D3). The
+        manager fills intent/situation/goal/evidence; the daemon derives run_id
+        from the caller and writes the audit trail.
+      properties:
+        intent:
+          type: string
+          description: one-line summary, e.g. "unblock stuck worker"
+        situation:
+          type: string
+          description: free-form description of the current state
+        goal:
+          type: string
+          description: desired outcome
+        already_tried:
+          type: array
+          items: { type: string }
+          description: actions already attempted (matched against Action constants)
+        evidence:
+          type: string
+          description: log excerpts, error messages, agent output snippets
+        allowed:
+          type: array
+          items:
+            type: string
+            enum: [wait, nudge_agent, retry_job, mark_failed, skip_job, escalate, noop]
+          description: >
+            subset of closed actions the caller accepts; omit for the autopilot
+            default (nudge_agent, wait, escalate, noop)
+        task_id:
+          type: string
+          description: optional task id for the audit trail
+      required: [intent]
+
+    BrainConsultResult:
+      type: object
+      description: >
+        The closed action the short-lived brain recommended. The manager
+        executes it (nudge the worker, wait, escalate, …) — the daemon does
+        not mutate workers or the ledger on this path.
+      properties:
+        action:
+          type: string
+          enum: [wait, nudge_agent, retry_job, mark_failed, skip_job, escalate, noop]
+        reason: { type: string, description: one-line explanation from the brain }
+        brain_id: { type: string, description: agent id of the spawned (now torn-down) brain }
+      required: [action, reason, brain_id]
 
     AutopilotPlanTask:
       type: object
