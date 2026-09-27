@@ -176,6 +176,15 @@ type updateTaskStatusArgs struct {
 type landArgs struct {
 	AgentOrBranch string `json:"agent_or_branch" jsonschema:"the autopilot worker agent (id or name) or the branch to land into the integration branch"`
 }
+type brainConsultArgs struct {
+	Intent       string   `json:"intent" jsonschema:"one-line summary, e.g. unblock stuck worker"`
+	Situation    string   `json:"situation,omitempty" jsonschema:"free-form description of the current state"`
+	Goal         string   `json:"goal,omitempty" jsonschema:"desired outcome"`
+	AlreadyTried []string `json:"already_tried,omitempty" jsonschema:"actions already attempted"`
+	Evidence     string   `json:"evidence,omitempty" jsonschema:"log excerpts, error messages, agent output snippets"`
+	Allowed      []string `json:"allowed,omitempty" jsonschema:"optional subset of wait|nudge_agent|retry_job|mark_failed|skip_job|escalate|noop; default nudge_agent,wait,escalate,noop"`
+	TaskID       string   `json:"task_id,omitempty" jsonschema:"optional task id for the audit trail"`
+}
 type exportArgs struct {
 	All bool `json:"all,omitempty" jsonschema:"also include archived (closed) agent records"`
 }
@@ -533,6 +542,25 @@ func (s *Server) registerExtraTools() {
 			return textResult("error: " + err.Error()), nil, nil
 		}
 		return jsonResultAny(st)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "brain_consult",
+		Description: "Ask the shared short-lived brain resolver for a closed action recommendation (nudge_agent|wait|escalate|noop by default) — use this INSTEAD of spawn_agent with role=brain for unblock-worker / ad-hoc design decisions. The daemon spawns a role=brain agent, injects a structured situation package, waits for a single JSON reply, tears it down, and returns {action, reason, brain_id}. Shared audit + teardown with the pipeline stuck-recovery path. You (the manager) execute the returned action; the daemon does not mutate workers. Autopilot-manager only. Mirrors POST /api/v1/autopilot/brain-consult.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a brainConsultArgs) (*mcpsdk.CallToolResult, any, error) {
+		res, err := s.cl.ConsultBrain(ctx, client.BrainConsultRequest{
+			Intent:       a.Intent,
+			Situation:    a.Situation,
+			Goal:         a.Goal,
+			AlreadyTried: a.AlreadyTried,
+			Evidence:     a.Evidence,
+			Allowed:      a.Allowed,
+			TaskID:       a.TaskID,
+		})
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(res)
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{

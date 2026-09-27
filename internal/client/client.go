@@ -1535,6 +1535,36 @@ func (c *Client) CompleteAutopilot(ctx context.Context) (AutopilotStatus, error)
 	return st, nil
 }
 
+// BrainConsultRequest is the body for POST /autopilot/brain-consult.
+type BrainConsultRequest struct {
+	Intent       string   `json:"intent"`
+	Situation    string   `json:"situation,omitempty"`
+	Goal         string   `json:"goal,omitempty"`
+	AlreadyTried []string `json:"already_tried,omitempty"`
+	Evidence     string   `json:"evidence,omitempty"`
+	Allowed      []string `json:"allowed,omitempty"`
+	TaskID       string   `json:"task_id,omitempty"`
+}
+
+// BrainConsultResult is the closed action returned by POST /autopilot/brain-consult.
+type BrainConsultResult struct {
+	Action  string `json:"action"`
+	Reason  string `json:"reason"`
+	BrainID string `json:"brain_id"`
+}
+
+// ConsultBrain asks the shared Consultor for a closed action recommendation
+// (POST /autopilot/brain-consult). Autopilot-manager only; the daemon derives
+// the run from the caller. Uses longTimeout because the consult may wait up to
+// brain_consult.timeout (default 10m) for the short-lived brain's reply.
+func (c *Client) ConsultBrain(ctx context.Context, req BrainConsultRequest) (BrainConsultResult, error) {
+	var res BrainConsultResult
+	if err := c.doT(ctx, longTimeout, http.MethodPost, "/autopilot/brain-consult", req, &res); err != nil {
+		return BrainConsultResult{}, err
+	}
+	return res, nil
+}
+
 // AutopilotLandResult mirrors the daemon's POST /autopilot/land 200 body
 // (autopilot.md §6). AlreadyLanded is true on an idempotent re-issue.
 type AutopilotLandResult struct {

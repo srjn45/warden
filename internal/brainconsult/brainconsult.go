@@ -65,6 +65,11 @@ type Request struct {
 	JobID      string
 	RunID      string
 	TaskID     string
+
+	// Repo overrides Options.Repo when non-empty — the working directory the
+	// short-lived brain spawns in. Autopilot managers set this to their run's
+	// repo so multi-repo daemons consult in the right tree.
+	Repo string
 }
 
 // Result is what the brain decided.
@@ -234,9 +239,13 @@ func (c *consultor) Consult(ctx context.Context, req Request) (Result, error) {
 		}
 	}
 
+	repo := req.Repo
+	if repo == "" {
+		repo = c.opts.Repo
+	}
 	sess, err := c.spawner.Spawn(tctx, BrainSpawnArgs{
-		Cwd:     c.opts.Repo,
-		Repo:    c.opts.Repo,
+		Cwd:     repo,
+		Repo:    repo,
 		Prompt:  prompt,
 		Role:    c.opts.role(),
 		Backend: c.opts.Backend,
