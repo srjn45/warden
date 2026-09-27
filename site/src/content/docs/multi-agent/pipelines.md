@@ -108,3 +108,32 @@ warden pipeline retry <pipeline> <job>
 ```
 
 `edit-job` tweaks a job's prompt and/or handoff *before it starts* (pending jobs only). If a job's agent goes quiet without emitting (its session is flagged `idle` by stuck-detection), the job is marked **`needs_attention`** rather than silently stalling — the pipeline stays `running` and the job is shown flagged. Resolve it by `pipeline emit`-ing on the job's behalf (if the agent actually finished) or `pipeline retry`, which tears down the stale job session/worktree, resets the job, reopens any descendants that were skipped, and re-runs from there.
+
+### Automatic brain consult for stuck jobs
+
+If the job is still `needs_attention` after the watcher's one deterministic auto-retry (`AutoRetryCount ≥ 1`), the daemon may automatically run a **brain consult**: it spawns a short-lived `role=brain` agent, injects a structured prompt, and executes one action from a closed set:
+
+| Action | Effect |
+|---|---|
+| `wait` | No-op; re-evaluates next tick |
+| `nudge_agent` | Sends a brief wake-up message to the stuck job's agent |
+| `retry_job` | Tears down the stale session and re-runs the job |
+| `mark_failed` | Marks the job failed, unblocking descendants |
+| `skip_job` | Marks the job skipped, unblocking descendants |
+| `escalate` | Records an audit event and surfaces a human-readable warning |
+| `noop` | Brain could not determine a useful step |
+
+The brain agent is torn down immediately after it replies. Every consult writes a `brain_consult` audit event (visible in `warden inspect audit`). Brain consult fires at most once per stuck episode — a new episode starts if the job is retried and gets stuck again. You can still manually `retry` or `emit` at any time.
+
+**Configuration:**
+
+```yaml
+# ~/.warden/config.yaml
+brain_consult:
+  enabled: true        # global kill-switch; set false to disable all consults
+  timeout: 10m         # per-consult deadline
+  max_concurrent: 1    # max simultaneous brain agents across all pipelines
+
+pipeline:
+  brain_consult: true  # per-pipeline override; set false to silence one pipeline
+```
