@@ -83,8 +83,20 @@ type LocalLLMConfig struct {
 
 // PipelineConfig groups pipeline-execution settings.
 type PipelineConfig struct {
-	KeepDone bool `yaml:"keep_done"`
-	Hint     bool `yaml:"hint"`
+	KeepDone     bool `yaml:"keep_done"`
+	Hint         bool `yaml:"hint"`
+	BrainConsult bool `yaml:"brain_consult"` // per-pipeline brain-consult override; default true (D7)
+}
+
+// BrainConsultConfig is the brain_consult config block (D7).
+// It controls the shared need-based brain consult feature that lets stuck
+// pipeline jobs (and the autopilot manager) consult a short-lived brain agent.
+// Hot-reload: changes apply without a daemon restart (read at consult time via
+// the live config provider).
+type BrainConsultConfig struct {
+	Enabled       bool   `yaml:"enabled"`        // global kill-switch; default true
+	Timeout       string `yaml:"timeout"`        // per-consult deadline; Go duration string; default "10m"
+	MaxConcurrent int    `yaml:"max_concurrent"` // max simultaneous brain consult agents; default 1
 }
 
 // AutoRestartConfig groups the auto-restart supervisor settings.
@@ -294,23 +306,24 @@ type Config struct {
 	// running checks). These are backstops against a wedged handler, not pacing
 	// devices — keep them generous, especially in large monorepos where git
 	// operations are slow.
-	Rails       RailsConfig       `yaml:"rails"`
-	Tokens      TokensConfig      `yaml:"tokens"`
-	Notify      NotifyConfig      `yaml:"notify"`
-	Worktree    WorktreeConfig    `yaml:"worktree"`
-	LocalLLM    LocalLLMConfig    `yaml:"local_llm"`
-	Pipeline    PipelineConfig    `yaml:"pipeline"`
-	AutoRestart AutoRestartConfig `yaml:"auto_restart"`
-	Collab      CollabConfig      `yaml:"collab"`
-	Memory      MemoryConfig      `yaml:"memory"`
-	BranchTrack BranchTrackConfig `yaml:"branch_track"`
-	Relay       RelayConfig       `yaml:"relay"`
-	RateLimit   RateLimitConfig   `yaml:"rate_limit"`
-	HTTP        HTTPConfig        `yaml:"http"`
-	Log         LogConfig         `yaml:"log"`
-	Plugins     PluginsConfig     `yaml:"plugins"`
-	Autopilot   AutopilotConfig   `yaml:"autopilot"`
-	Backends    BackendsConfig    `yaml:"backends"`
+	Rails        RailsConfig        `yaml:"rails"`
+	Tokens       TokensConfig       `yaml:"tokens"`
+	Notify       NotifyConfig       `yaml:"notify"`
+	Worktree     WorktreeConfig     `yaml:"worktree"`
+	LocalLLM     LocalLLMConfig     `yaml:"local_llm"`
+	Pipeline     PipelineConfig     `yaml:"pipeline"`
+	AutoRestart  AutoRestartConfig  `yaml:"auto_restart"`
+	Collab       CollabConfig       `yaml:"collab"`
+	Memory       MemoryConfig       `yaml:"memory"`
+	BranchTrack  BranchTrackConfig  `yaml:"branch_track"`
+	Relay        RelayConfig        `yaml:"relay"`
+	RateLimit    RateLimitConfig    `yaml:"rate_limit"`
+	HTTP         HTTPConfig         `yaml:"http"`
+	Log          LogConfig          `yaml:"log"`
+	Plugins      PluginsConfig      `yaml:"plugins"`
+	Autopilot    AutopilotConfig    `yaml:"autopilot"`
+	Backends     BackendsConfig     `yaml:"backends"`
+	BrainConsult BrainConsultConfig `yaml:"brain_consult"`
 }
 
 // setting describes one config key for file generation/migration: its YAML key
@@ -349,7 +362,7 @@ var schema = []setting{
 	{"notify", "Notification settings (previously flat keys: notify, webhook_enabled, webhook_url). Sub-keys: enabled (was notify), webhook_enabled, webhook_url. Flat keys still load as deprecated aliases."},
 	{"worktree", "Worktree-retention and spawn-gate settings (previously flat keys: spawn_gate, spawn_gate_max_agents, worktree_keep_done, worktree_auto_prune). Sub-keys: spawn_gate, spawn_gate_max_agents, keep_done, auto_prune. Flat keys still load as deprecated aliases."},
 	{"local_llm", "Local-model, REPL, and LLM-offload settings (previously flat keys: local_llm, local_llm_url, local_llm_model, local_llm_timeout, local_llm_escalate, local_llm_tier, local_llm_classifier, repl). Sub-keys: enabled (was local_llm), url, model, timeout, escalate, tier, classifier, repl. Flat keys still load as deprecated aliases."},
-	{"pipeline", "Pipeline-execution settings (previously flat keys: pipeline_keep_done, pipeline_hint). Sub-keys: keep_done (keep a pipeline job's agent alive after it completes), hint (append the pipeline-decomposition hint to standalone agents). Flat keys still load as deprecated aliases. Values: true | false"},
+	{"pipeline", "Pipeline-execution settings (previously flat keys: pipeline_keep_done, pipeline_hint). Sub-keys: keep_done (keep a pipeline job's agent alive after it completes), hint (append the pipeline-decomposition hint to standalone agents), brain_consult (per-pipeline override for brain-consult; set false to silence brain consults for one pipeline; default true — see brain_consult block for the global switch). Flat keys still load as deprecated aliases. Values: true | false"},
 	{"auto_restart", "Auto-restart supervisor for errored opted-in agents (previously flat keys: auto_restart_max, auto_restart_reset). Sub-keys: max (integer >= 0, max restart attempts), reset (Go duration, e.g. 5m — sustained-health window that resets the counter). Flat keys still load as deprecated aliases."},
 	{"collab", "File-conflict collaboration settings (previously flat keys: collab_enabled, collab_interval, collab_hint). Sub-keys: enabled (warn agents editing the same file), interval (Go duration, e.g. 10s — watch reconcile + in-memory scan), git_reconcile_interval (Go duration, e.g. 2m — git diff backstop when fsnotify is active), hint (append the conflict-check hint to spawned agents). Flat keys still load as deprecated aliases."},
 	{"memory", "Project-memory (.warden/memory.md) settings (previously flat keys: memory_inject, memory_curate, memory_ground). Sub-keys: inject (project the repo's curated durable facts into every spawned agent via its system-prompt seam; off or an empty/absent file is byte-identical to no injection), curate (auto-propose UNVERIFIED entries from completion digests into the WORKING TREE only, gated by the committed diff — default OFF, opt-in), ground (answer project questions locally in `wd repl` on the local model, read-only, default ON — it REMOVES cloud round-trips). Flat keys still load as deprecated aliases. Values: true | false"},
@@ -361,6 +374,7 @@ var schema = []setting{
 	{"plugins", "Plugin system (#47) settings (previously flat keys: plugins, plugin_registry). OFF by default — plugins execute external code, so this is deliberately opt-in. A broken, slow, or missing plugin fails open (logged and skipped); it never blocks or crashes an agent. Sub-keys: enabled (was plugins; load the executables in registry, register their custom task types, and invoke their subscribed lifecycle hooks over JSON-over-stdio), registry (was plugin_registry; a list of entries, each with name, path (the plugin executable), events (subscribed lifecycle hooks: any of pre-spawn, post-spawn, pre-commit, post-commit, pre-check, post-check, pre-teardown), and task_types (custom agent task types, each {name, worktree})). Flat keys still load as deprecated aliases."},
 	{"backends", "Agent-backend registry / internal-thinking router settings (docs/specs/2026-08-06-backend-registry.md §10). Warden's own internal thinking (task classification, activity summaries, agent naming, digest narration, memory curation) is routed STRICTLY through free/local backends — it never makes a paid call. Sub-keys: limit_retry (Go duration, e.g. 15m — how long a free CLI backend is skipped by the router after it returns a rate-limit / spend signal, before it is retried)."},
 	{"autopilot", "Autopilot defaults for named, durably registered runs. Create plans with `warden autopilot init --name <name>` or register existing plans with `warden autopilot register <file>`. Sub-keys: enabled (legacy per-repo switch), plans (DEPRECATED compatibility list; migrated into plans/ and the run store on boot), brain (role, headless, max_parallel_workers; backend tiers live in the backend registry), merge (target_branch, strategy, gate, delete_branch), guardian (interval, heartbeat_timeout, backoff_min, backoff_max, rotate_at_context, notify_each_escalation)."},
+	{"brain_consult", "Shared need-based brain consult settings (docs/specs/2026-09-27-brain-consult.md §D7). When enabled, stuck pipeline jobs that have exhausted the one deterministic auto-retry can consult a short-lived role=brain agent once per stuck episode. Sub-keys: enabled (true | false — global kill-switch; default true; set false to disable globally), timeout (Go duration, e.g. 10m — per-consult deadline; generous default because consults are infrequent), max_concurrent (integer >= 1 — max simultaneous brain consult agents across all pipelines; default 1). Per-pipeline opt-out: pipeline.brain_consult (true | false)."},
 }
 
 // fileHeader is the comment written at the very top of a generated config file.
@@ -446,8 +460,9 @@ func defaults() Config {
 			Repl:       false,
 		},
 		Pipeline: PipelineConfig{
-			KeepDone: false,
-			Hint:     true,
+			KeepDone:     false,
+			Hint:         true,
+			BrainConsult: true,
 		},
 		AutoRestart: AutoRestartConfig{
 			Max:   3,
@@ -525,6 +540,11 @@ func defaults() Config {
 		},
 		Backends: BackendsConfig{
 			LimitRetry: "15m",
+		},
+		BrainConsult: BrainConsultConfig{
+			Enabled:       true,
+			Timeout:       "10m",
+			MaxConcurrent: 1,
 		},
 	}
 }
