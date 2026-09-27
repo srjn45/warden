@@ -103,6 +103,16 @@ Four bundled starters — `analyze-implement-review`, `parallel-tasks`,
 
 A job whose agent goes quiet without emitting is flagged `needs_attention` (the
 pipeline stays `running`) — resolve it with `emit` (if it actually finished) or
-`retry`. **Results are durable:** `show_pipeline` / `warden pipeline show` prints
+`retry`. If the job remains `needs_attention` after the watcher's one deterministic
+auto-retry, the daemon automatically runs a **brain consult**: a short-lived
+`role=brain` agent picks one action from the closed enum (`wait` / `nudge_agent` /
+`retry_job` / `mark_failed` / `skip_job` / `escalate` / `noop`) and the daemon
+executes it — the brain is torn down right after. Every consult writes a
+`brain_consult` audit event. This is the **same `Consultor`** the autopilot
+manager uses for ad-hoc decisions — no duplicate spawn/teardown logic. You can
+still `retry` or `emit` manually at any time. Disable globally with
+`brain_consult.enabled: false` or per-pipeline with `pipeline.brain_consult: false`.
+
+**Results are durable:** `show_pipeline` / `warden pipeline show` prints
 each job's branch and emitted output even after the agents are gone (also in
 shared-context keys `pipeline.<id>.<job>.output` and on the job branches).
