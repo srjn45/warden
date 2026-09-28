@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -51,72 +52,148 @@ func planDetailText(p *planstore.Plan, width int) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString(stHeader.Render("Plan: "+p.Name) + "\n\n")
+
+	// ── Header ────────────────────────────────────────────────────────────────
+	b.WriteString(stHeader.Render(p.Name) + "\n\n")
 
 	writeField := func(label, val string) {
 		b.WriteString(fmt.Sprintf("%-16s %s\n", stMuted.Render(label+":"), val))
 	}
 
-	writeField("ID", p.ID)
-	writeField("Project ID", p.ProjectID)
-	writeField("File Path", p.FilePath)
 	writeField("Status", string(p.Status))
-
 	mode := string(p.ExecutionMode)
 	if mode == "" {
 		mode = "manual"
 	}
-	writeField("Execution Mode", mode)
-
-	// Linked IDs
-	b.WriteString("\n" + stPaneTitle.Render("Execution Links") + "\n")
-	runID := p.AutopilotRunID
-	if runID == "" {
-		runID = "—"
+	writeField("Executed Using", mode)
+	writeField("Created At", p.CreatedAt.Format(time.RFC3339))
+	writeField("Updated At", p.UpdatedAt.Format(time.RFC3339))
+	if p.StartedAt != nil {
+		writeField("Started At", p.StartedAt.Format(time.RFC3339))
 	}
-	writeField("Autopilot Run", runID)
-
-	pipeID := p.PipelineID
-	if pipeID == "" {
-		pipeID = "—"
+	if p.CompletedAt != nil {
+		writeField("Completed At", p.CompletedAt.Format(time.RFC3339))
 	}
-	writeField("Pipeline", pipeID)
 
-	orchID := p.OrchestratorID
-	if orchID == "" {
-		orchID = "—"
+	// Execution links (shown only when set)
+	if p.AutopilotRunID != "" {
+		writeField("Autopilot Run", p.AutopilotRunID)
 	}
-	writeField("Orchestrator", orchID)
+	if p.PipelineID != "" {
+		writeField("Pipeline", p.PipelineID)
+	}
+	if p.OrchestratorID != "" {
+		writeField("Orchestrator", p.OrchestratorID)
+	}
 
-	// Task Progress
-	b.WriteString("\n" + stPaneTitle.Render("Task Progress") + "\n")
-	if len(p.TaskProgress) == 0 {
-		b.WriteString("  " + stMuted.Render("(no task progress recorded)") + "\n")
-	} else {
+	writeField("ID", p.ID)
+	writeField("File", p.FilePath)
+
+	// ── Tasks ─────────────────────────────────────────────────────────────────
+	b.WriteString("\n" + stPaneTitle.Render("Tasks") + "\n")
+
+	tasks, _ := planTasksFromPlan(p)
+	if len(tasks) > 0 {
+		for i, t := range tasks {
+			// status: prefer YAML field, fall back to DB TaskProgress map
+			status := t.Status
+			if status == "" {
+				if s, ok := p.TaskProgress[t.ID]; ok {
+					status = s
+				}
+			}
+			if status == "" {
+				status = "pending"
+			}
+
+			statusStyle := stMuted
+			switch status {
+			case "done", "completed":
+				statusStyle = stBusy // green
+			case "in_progress":
+				statusStyle = stRunning // cyan
+			case "skipped":
+				statusStyle = stIdle
+			}
+
+			b.WriteString(fmt.Sprintf("\n  %d. %s  %s\n",
+				i+1,
+				stHeader.Render(t.ID),
+				statusStyle.Render("["+status+"]"),
+			))
+
+			if t.LandedPR > 0 {
+				b.WriteString(fmt.Sprintf("     %s PR #%d\n", stMuted.Render("landed:"), t.LandedPR))
+			}
+
+			if len(t.After) > 0 {
+				b.WriteString(fmt.Sprintf("     %s %s\n", stMuted.Render("after:"), strings.Join(t.After, ", ")))
+			}
+
+			if t.Prompt != "" {
+				for _, line := range promptPreview(t.Prompt, 3) {
+					b.WriteString("     " + stMuted.Render(line) + "\n")
+				}
+			}
+		}
+	} else if len(p.TaskProgress) > 0 {
+		// YAML unavailable — fall back to DB task progress map
 		keys := make([]string, 0, len(p.TaskProgress))
 		for k := range p.TaskProgress {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
-		for _, k := range keys {
-			b.WriteString(fmt.Sprintf("  • %-16s %s\n", k, p.TaskProgress[k]))
+		for i, k := range keys {
+			status := p.TaskProgress[k]
+			statusStyle := stMuted
+			switch status {
+			case "done", "completed":
+				statusStyle = stBusy
+			case "in_progress":
+				statusStyle = stRunning
+			}
+			b.WriteString(fmt.Sprintf("\n  %d. %s  %s\n",
+				i+1,
+				stHeader.Render(k),
+				statusStyle.Render("["+status+"]"),
+			))
 		}
-	}
-
-	// Timestamps
-	b.WriteString("\n" + stPaneTitle.Render("Timestamps") + "\n")
-	writeField("Created At", p.CreatedAt.Format(time.RFC3339))
-	writeField("Updated At", p.UpdatedAt.Format(time.RFC3339))
-	if p.StartedAt != nil {
-		writeField("Started At", p.StartedAt.Format(time.RFC3339))
 	} else {
-		writeField("Started At", "—")
-	}
-	if p.CompletedAt != nil {
-		writeField("Completed At", p.CompletedAt.Format(time.RFC3339))
-	} else {
-		writeField("Completed At", "—")
+		b.WriteString("  " + stMuted.Render("(no tasks defined)") + "\n")
 	}
 
 	return b.String()
+}
+
+// planTasksFromPlan loads YAML tasks for a plan, resolving the file path
+// relative to the project root (the parent of the plans/ directory).
+func planTasksFromPlan(p *planstore.Plan) ([]planstore.PlanTaskDef, error) {
+	if p.FilePath == "" {
+		return nil, nil
+	}
+	// FilePath is relative to the project root; we need to find the project root.
+	// Walk up from the data directories — but we only have the file path here.
+	// Try common project root locations by resolving against cwd.
+	abs, err := filepath.Abs(p.FilePath)
+	if err != nil {
+		return nil, err
+	}
+	return planstore.ReadPlanTasks(abs)
+}
+
+// promptPreview returns up to maxLines non-empty lines from a (possibly
+// multi-line) YAML scalar, trimming leading/trailing blank lines.
+func promptPreview(prompt string, maxLines int) []string {
+	var out []string
+	for _, line := range strings.Split(prompt, "\n") {
+		line = strings.TrimRight(line, " \t")
+		if line == "" {
+			continue
+		}
+		out = append(out, line)
+		if len(out) >= maxLines {
+			break
+		}
+	}
+	return out
 }
