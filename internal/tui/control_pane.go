@@ -635,6 +635,26 @@ func (m *controlPaneModel) reconcileTerminalPaneCmd() tea.Cmd {
 	return nil
 }
 
+// reconcileAgentPaneCmd re-attaches the agent pane when it goes dead — most
+// commonly after a hot-swap kills and recreates the agent session (#503).
+// A no-op when there is no agent pane or no currently-opened agent.
+func (m *controlPaneModel) reconcileAgentPaneCmd() tea.Cmd {
+	if m.agentPane == "" || m.openedAgent == "" {
+		return nil
+	}
+	if !isTmuxPaneDead(m.agentPane) {
+		return nil
+	}
+	// Find the live session to get its current TmuxSession (may have changed after
+	// hot-swap recreated the session with the same agent ID).
+	for _, s := range m.sessions {
+		if s.ID == m.openedAgent && s.TmuxSession != "" {
+			return openInDetailCmd(m.agentPane, s.TmuxSession, false)
+		}
+	}
+	return nil
+}
+
 // autoSpawnTerminalCmd fires a default terminal spawn when none are live, subject
 // to in-flight guard, exponential backoff, and the #465 circuit breaker.
 func (m *controlPaneModel) autoSpawnTerminalCmd() tea.Cmd {
@@ -770,7 +790,16 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.status = "autopilot " + msg.action + ": " + msg.err.Error()
 		} else {
-			m.status = msg.action + "d " + msg.runID
+			pastTense := map[string]string{
+				"register": "registered", "unregister": "unregistered",
+				"start": "started", "stop": "stopped",
+				"rename": "renamed", "retarget": "retargeted",
+			}
+			verb := pastTense[msg.action]
+			if verb == "" {
+				verb = msg.action + "d"
+			}
+			m.status = verb + " " + msg.runID
 		}
 		return m, autopilotCmd(m.api)
 	case backendsMsg:
@@ -846,7 +875,9 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Keep the terminal pane healthy: ensure ≥1 live terminal (§5/§11) and
 		// re-attach when the nested tmux attach died (e.g. after a daemon restart).
-		return m, m.reconcileTerminalPaneCmd()
+		// Also re-attach the agent pane if it went dead (e.g. after a hot-swap killed
+		// and recreated the agent session — #503).
+		return m, tea.Batch(m.reconcileTerminalPaneCmd(), m.reconcileAgentPaneCmd())
 	case terminalSpawnedMsg:
 		// Clear only the in-flight guard. Do NOT reset terminalSpawnAttempts /
 		// circuit-breaker state here (#465): a successful spawn callback can still
