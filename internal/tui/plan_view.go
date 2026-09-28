@@ -24,9 +24,12 @@ func RunPlanDetailPane(a api, projectID, planID string) error {
 	if err != nil {
 		fmt.Println(stMuted.Render("could not load plan detail: " + err.Error()))
 	} else {
-		// The subprocess runs in the tmux pane whose cwd is the project root,
-		// so passing "" falls back to filepath.Abs which resolves correctly.
-		fmt.Println(planDetailText(p, 100, "", false))
+		// Resolve the project root so YAML tasks are read from the right path.
+		var projectRoot string
+		if projects, lerr := a.ListProjects(context.Background()); lerr == nil {
+			projectRoot = projectRootForID(projects, projectID)
+		}
+		fmt.Println(planDetailText(p, 100, projectRoot, false))
 	}
 	select {} // hold the pane open until tmux respawns it
 }
