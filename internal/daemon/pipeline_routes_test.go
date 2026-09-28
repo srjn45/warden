@@ -148,10 +148,12 @@ func TestPipelineStartSpawnsRoot(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("start status %d", resp.StatusCode)
 	}
-	got, _ := ps.Get("demo")
-	if got.Job("a").Status != pipeline.JobRunning {
-		t.Fatalf("root not spawned on start: %+v", got.Job("a"))
-	}
+	// The injected root-span-out job is processed first; the real job "a" is
+	// spawned on a follow-up async Reconcile, so poll until it becomes running.
+	require.Eventually(t, func() bool {
+		got, _ := ps.Get("demo")
+		return got != nil && got.Job("a") != nil && got.Job("a").Status == pipeline.JobRunning
+	}, 2*time.Second, 5*time.Millisecond, "root job should become running on start")
 }
 
 func TestPipelineEmitMarksDone(t *testing.T) {
@@ -159,6 +161,11 @@ func TestPipelineEmitMarksDone(t *testing.T) {
 	defer ts.Close()
 	http.Post(ts.URL+"/api/v1/pipelines", "application/json", strings.NewReader(yamlBody)) //nolint:errcheck
 	http.Post(ts.URL+"/api/v1/pipelines/demo/start", "application/json", nil)              //nolint:errcheck
+
+	require.Eventually(t, func() bool {
+		got, _ := ps.Get("demo")
+		return got != nil && got.Job("a") != nil && got.Job("a").Status == pipeline.JobRunning
+	}, 2*time.Second, 5*time.Millisecond, "root job should become running before emit")
 
 	resp, err := http.Post(ts.URL+"/api/v1/pipelines/demo/jobs/a/emit", "application/json", strings.NewReader(`{"text":"all done"}`))
 	require.NoError(t, err)
