@@ -57,7 +57,7 @@ func TestAntigravityAdapterUnauthenticatedWhenEmptyToken(t *testing.T) {
 	require.Empty(t, got.Usage)
 }
 
-func TestAntigravityAdapterFourWindowsFromSummary(t *testing.T) {
+func TestAntigravityAdapterTwoBucketsFromSummary(t *testing.T) {
 	summaryFixture := fixtureQuotaSummary(t)
 	now := time.Date(2026, 9, 5, 20, 0, 0, 0, time.UTC)
 
@@ -107,39 +107,83 @@ func TestAntigravityAdapterFourWindowsFromSummary(t *testing.T) {
 	require.Equal(t, "Free Tier", got.Account.Plan)
 	require.Equal(t, "consumer", got.Account.LoginMethod)
 
-	require.Len(t, got.Usage, 4)
+	require.Len(t, got.Usage, 2)
 
-	gemini5h := got.Usage[0]
-	require.Equal(t, "antigravity:gemini-5h", gemini5h.ID)
-	require.Equal(t, "gemini", gemini5h.Scope)
-	require.Equal(t, "Gemini 5-hour", gemini5h.Label)
-	require.Equal(t, []string{"gemini"}, gemini5h.ModelFamilies)
-	require.Equal(t, float64(100), *gemini5h.UsedPercent)
-	require.Equal(t, float64(0), *gemini5h.RemainingPercent)
-	require.Equal(t, antigravityFiveHourMinutes, *gemini5h.DurationMinutes)
-	require.Equal(t, "reached", *gemini5h.LimitState)
+	// Gemini: weekly (0.82) still has headroom, so the bucket reports its
+	// 5-hour session limit — which is exhausted (remainingFraction 0).
+	gemini := got.Usage[0]
+	require.Equal(t, "antigravity:gemini", gemini.ID)
+	require.Equal(t, "gemini", gemini.Scope)
+	require.Equal(t, "Gemini", gemini.Label)
+	require.Equal(t, []string{"gemini"}, gemini.ModelFamilies)
+	require.Equal(t, float64(100), *gemini.UsedPercent)
+	require.Equal(t, float64(0), *gemini.RemainingPercent)
+	require.Equal(t, antigravityFiveHourMinutes, *gemini.DurationMinutes)
+	require.Equal(t, "reached", *gemini.LimitState)
 	expected5h, _ := time.Parse(time.RFC3339, "2026-09-05T21:40:45Z")
-	require.Equal(t, expected5h.UTC(), *gemini5h.ResetsAt)
+	require.Equal(t, expected5h.UTC(), *gemini.ResetsAt)
 
-	geminiWeekly := got.Usage[1]
-	require.Equal(t, "antigravity:gemini-weekly", geminiWeekly.ID)
-	require.Equal(t, "gemini", geminiWeekly.Scope)
-	require.InDelta(t, 17.73, *geminiWeekly.UsedPercent, 0.01)
-	require.InDelta(t, 82.27, *geminiWeekly.RemainingPercent, 0.01)
-	require.Equal(t, antigravityWeeklyMinutes, *geminiWeekly.DurationMinutes)
-	expectedWeekly, _ := time.Parse(time.RFC3339, "2026-09-10T19:03:34Z")
-	require.Equal(t, expectedWeekly.UTC(), *geminiWeekly.ResetsAt)
+	// Non-Gemini: weekly (1.0) has headroom, reports the 5-hour session limit
+	// which is untouched (remainingFraction 1).
+	nonGemini := got.Usage[1]
+	require.Equal(t, "antigravity:non-gemini", nonGemini.ID)
+	require.Equal(t, "non-gemini", nonGemini.Scope)
+	require.Equal(t, "Non-Gemini", nonGemini.Label)
+	require.InDelta(t, 0.0, *nonGemini.UsedPercent, 0.01)
+	require.InDelta(t, 100.0, *nonGemini.RemainingPercent, 0.01)
+	require.Equal(t, antigravityFiveHourMinutes, *nonGemini.DurationMinutes)
+	require.Nil(t, nonGemini.LimitState)
+	expectedNG5h, _ := time.Parse(time.RFC3339, "2026-09-06T01:04:38Z")
+	require.Equal(t, expectedNG5h.UTC(), *nonGemini.ResetsAt)
+}
 
-	nonGemini5h := got.Usage[2]
-	require.Equal(t, "antigravity:non-gemini-5h", nonGemini5h.ID)
-	require.Equal(t, "non-gemini", nonGemini5h.Scope)
-	require.InDelta(t, 0.0, *nonGemini5h.UsedPercent, 0.01)
-	require.InDelta(t, 100.0, *nonGemini5h.RemainingPercent, 0.01)
+// TestAntigravityWeeklyExhaustionOverride asserts that once a pool's weekly
+// limit is exhausted (remainingFraction <= 0), its bucket flips to the weekly
+// limit fully consumed — 100% used, "reached", weekly duration and weekly reset
+// — regardless of the 5-hour session bucket still having headroom.
+func TestAntigravityWeeklyExhaustionOverride(t *testing.T) {
+	body := []byte(`{
+		"groups": [
+			{
+				"displayName": "Gemini Models",
+				"buckets": [
+					{"bucketId": "gemini-weekly", "window": "weekly", "resetTime": "2026-09-12T08:00:00Z", "remainingFraction": 0},
+					{"bucketId": "gemini-5h", "window": "5h", "resetTime": "2026-09-06T01:00:00Z", "remainingFraction": 0.5}
+				]
+			},
+			{
+				"displayName": "Claude and GPT models",
+				"buckets": [
+					{"bucketId": "3p-weekly", "window": "weekly", "resetTime": "2026-09-12T09:00:00Z", "remainingFraction": 0.9},
+					{"bucketId": "3p-5h", "window": "5h", "resetTime": "2026-09-06T02:00:00Z", "remainingFraction": 0.25}
+				]
+			}
+		]
+	}`)
 
-	nonGeminiWeekly := got.Usage[3]
-	require.Equal(t, "antigravity:non-gemini-weekly", nonGeminiWeekly.ID)
-	require.InDelta(t, 0.0, *nonGeminiWeekly.UsedPercent, 0.01)
-	require.InDelta(t, 100.0, *nonGeminiWeekly.RemainingPercent, 0.01)
+	limits, ok := parseAntigravityQuotaSummary(body)
+	require.True(t, ok)
+	require.Len(t, limits, 2)
+
+	// Gemini weekly exhausted → weekly override (5-hour headroom ignored).
+	gemini := limits[0]
+	require.Equal(t, "antigravity:gemini", gemini.ID)
+	require.Equal(t, float64(100), *gemini.UsedPercent)
+	require.Equal(t, float64(0), *gemini.RemainingPercent)
+	require.Equal(t, "reached", *gemini.LimitState)
+	require.Equal(t, antigravityWeeklyMinutes, *gemini.DurationMinutes)
+	expectedWeekly, _ := time.Parse(time.RFC3339, "2026-09-12T08:00:00Z")
+	require.Equal(t, expectedWeekly.UTC(), *gemini.ResetsAt)
+
+	// Non-Gemini weekly (0.9) has headroom → reports the 5-hour session limit.
+	nonGemini := limits[1]
+	require.Equal(t, "antigravity:non-gemini", nonGemini.ID)
+	require.InDelta(t, 75.0, *nonGemini.UsedPercent, 0.01)
+	require.InDelta(t, 25.0, *nonGemini.RemainingPercent, 0.01)
+	require.Nil(t, nonGemini.LimitState)
+	require.Equal(t, antigravityFiveHourMinutes, *nonGemini.DurationMinutes)
+	expectedNG5h, _ := time.Parse(time.RFC3339, "2026-09-06T02:00:00Z")
+	require.Equal(t, expectedNG5h.UTC(), *nonGemini.ResetsAt)
 }
 
 func TestAntigravityAdapterFallbackWhenRPCFails(t *testing.T) {
@@ -166,13 +210,9 @@ func TestAntigravityAdapterFallbackWhenRPCFails(t *testing.T) {
 
 	got := a.Fetch(context.Background(), antigravityBackend())
 	require.Equal(t, StatusOK, got.Status)
-	require.Len(t, got.Usage, 4)
-	require.Equal(t, "antigravity:gemini-5h", got.Usage[0].ID)
+	require.Len(t, got.Usage, 2)
+	require.Equal(t, "antigravity:gemini", got.Usage[0].ID)
 	require.Nil(t, got.Usage[0].UsedPercent)
-	require.Equal(t, "antigravity:gemini-weekly", got.Usage[1].ID)
+	require.Equal(t, "antigravity:non-gemini", got.Usage[1].ID)
 	require.Nil(t, got.Usage[1].UsedPercent)
-	require.Equal(t, "antigravity:non-gemini-5h", got.Usage[2].ID)
-	require.Nil(t, got.Usage[2].UsedPercent)
-	require.Equal(t, "antigravity:non-gemini-weekly", got.Usage[3].ID)
-	require.Nil(t, got.Usage[3].UsedPercent)
 }

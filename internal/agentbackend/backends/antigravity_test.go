@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/srjn45/warden/internal/agentbackend"
 	"github.com/stretchr/testify/require"
@@ -455,7 +456,7 @@ func TestAntigravityFetchUsageUnauthenticated(t *testing.T) {
 	require.Empty(t, got.Usage)
 }
 
-func TestAntigravityFetchUsageDualWindow(t *testing.T) {
+func TestAntigravityFetchUsageTwoBuckets(t *testing.T) {
 	raw, err := os.ReadFile("../../backendusage/testdata/antigravity-quota-summary.json")
 	require.NoError(t, err)
 
@@ -503,13 +504,63 @@ func TestAntigravityFetchUsageDualWindow(t *testing.T) {
 	require.Equal(t, "rate_limited", got.Status)
 	require.NotNil(t, got.Account)
 	require.Equal(t, "Free Tier", got.Account.Plan)
-	require.Len(t, got.Usage, 4)
-	require.Equal(t, "antigravity:gemini-5h", got.Usage[0].ID)
+	require.Len(t, got.Usage, 2)
+
+	// Gemini: weekly still has headroom, reports the (exhausted) 5-hour limit.
+	require.Equal(t, "antigravity:gemini", got.Usage[0].ID)
+	require.Equal(t, "gemini", got.Usage[0].Scope)
 	require.Equal(t, float64(100), *got.Usage[0].UsedPercent)
-	require.Equal(t, "antigravity:gemini-weekly", got.Usage[1].ID)
-	require.InDelta(t, 17.73, *got.Usage[1].UsedPercent, 0.01)
-	require.InDelta(t, 82.27, *got.Usage[1].RemainingPercent, 0.01)
-	require.Equal(t, "antigravity:non-gemini-5h", got.Usage[2].ID)
-	require.InDelta(t, 0.0, *got.Usage[2].UsedPercent, 0.01)
-	require.Equal(t, "antigravity:non-gemini-weekly", got.Usage[3].ID)
+	require.Equal(t, float64(0), *got.Usage[0].RemainingPercent)
+	require.Equal(t, agyFiveHourMinutes, *got.Usage[0].DurationMinutes)
+	require.Equal(t, "reached", *got.Usage[0].LimitState)
+	expected5h, _ := time.Parse(time.RFC3339, "2026-09-05T21:40:45Z")
+	require.Equal(t, expected5h.UTC(), *got.Usage[0].ResetsAt)
+
+	// Non-Gemini: weekly has headroom, reports the untouched 5-hour limit.
+	require.Equal(t, "antigravity:non-gemini", got.Usage[1].ID)
+	require.Equal(t, "non-gemini", got.Usage[1].Scope)
+	require.InDelta(t, 0.0, *got.Usage[1].UsedPercent, 0.01)
+	require.InDelta(t, 100.0, *got.Usage[1].RemainingPercent, 0.01)
+	require.Nil(t, got.Usage[1].LimitState)
+}
+
+// TestAgyParseQuotaSummaryWeeklyExhaustion asserts the weekly-exhaustion
+// override in the agentbackend adapter matches the backendusage adapter: once a
+// pool's weekly limit is drained (remainingFraction <= 0), its bucket reports
+// the weekly limit fully consumed even while the 5-hour bucket has headroom.
+func TestAgyParseQuotaSummaryWeeklyExhaustion(t *testing.T) {
+	body := []byte(`{
+		"groups": [
+			{
+				"displayName": "Gemini Models",
+				"buckets": [
+					{"bucketId": "gemini-weekly", "window": "weekly", "resetTime": "2026-09-12T08:00:00Z", "remainingFraction": 0},
+					{"bucketId": "gemini-5h", "window": "5h", "resetTime": "2026-09-06T01:00:00Z", "remainingFraction": 0.5}
+				]
+			},
+			{
+				"displayName": "Claude and GPT models",
+				"buckets": [
+					{"bucketId": "3p-weekly", "window": "weekly", "resetTime": "2026-09-12T09:00:00Z", "remainingFraction": 0.9},
+					{"bucketId": "3p-5h", "window": "5h", "resetTime": "2026-09-06T02:00:00Z", "remainingFraction": 0.25}
+				]
+			}
+		]
+	}`)
+
+	limits, ok := agyParseQuotaSummary(body)
+	require.True(t, ok)
+	require.Len(t, limits, 2)
+
+	require.Equal(t, "antigravity:gemini", limits[0].ID)
+	require.Equal(t, float64(100), *limits[0].UsedPercent)
+	require.Equal(t, "reached", *limits[0].LimitState)
+	require.Equal(t, agyWeeklyMinutes, *limits[0].DurationMinutes)
+	expectedWeekly, _ := time.Parse(time.RFC3339, "2026-09-12T08:00:00Z")
+	require.Equal(t, expectedWeekly.UTC(), *limits[0].ResetsAt)
+
+	require.Equal(t, "antigravity:non-gemini", limits[1].ID)
+	require.InDelta(t, 75.0, *limits[1].UsedPercent, 0.01)
+	require.Nil(t, limits[1].LimitState)
+	require.Equal(t, agyFiveHourMinutes, *limits[1].DurationMinutes)
 }

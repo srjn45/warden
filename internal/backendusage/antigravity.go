@@ -49,8 +49,10 @@ func antigravityOAuthCredentials() (string, string) {
 }
 
 // AntigravityAdapter queries Antigravity quota via retrieveUserQuotaSummary —
-// the same RPC the `agy /usage` TUI uses — emitting four never-flattened
-// windows: Gemini/non-Gemini × 5-hour/weekly.
+// the same RPC the `agy /usage` TUI uses — emitting two pool buckets:
+// `antigravity:gemini` and `antigravity:non-gemini`. Each bucket reports its
+// 5-hour session limit while the weekly limit still has headroom, and flips to
+// the (exhausted) weekly limit once the weekly bucket is drained.
 type AntigravityAdapter struct {
 	Now           func() time.Time
 	ReadFile      func(string) ([]byte, error)
@@ -262,6 +264,16 @@ type antigravityQuotaSummaryResponse struct {
 	} `json:"groups"`
 }
 
+// antigravityPoolStats accumulates a pool's (gemini / non-gemini) 5-hour and
+// weekly bucket stats from the quota summary before they are collapsed into a
+// single reported Limit by resolveAntigravityPoolLimit.
+type antigravityPoolStats struct {
+	fiveHourRemaining *float64
+	fiveHourReset     *time.Time
+	weeklyRemaining   *float64
+	weeklyReset       *time.Time
+}
+
 func parseAntigravityQuotaSummary(body []byte) ([]Limit, bool) {
 	var resp antigravityQuotaSummaryResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
@@ -271,10 +283,11 @@ func parseAntigravityQuotaSummary(body []byte) ([]Limit, bool) {
 		return nil, false
 	}
 
-	byID := map[string]Limit{}
+	byPool := map[string]*antigravityPoolStats{}
 	for _, group := range resp.Groups {
-		pool := antigravityPoolFromGroup(group.DisplayName)
+		groupPool := antigravityPoolFromGroup(group.DisplayName)
 		for _, bucket := range group.Buckets {
+			pool := groupPool
 			if pool == "" {
 				pool = antigravityPoolFromBucketID(bucket.BucketID)
 			}
@@ -282,28 +295,62 @@ func parseAntigravityQuotaSummary(body []byte) ([]Limit, bool) {
 			if pool == "" || window == "" {
 				continue
 			}
-			id, scope, label, families, duration := antigravityWindowMeta(pool, window)
-			used := antigravityUsedFromRemaining(bucket.RemainingFraction)
-			var reset *time.Time
-			if bucket.ResetTime != nil && *bucket.ResetTime != "" {
-				if t, err := time.Parse(time.RFC3339, *bucket.ResetTime); err == nil {
-					ut := t.UTC()
-					reset = &ut
-				}
+			s := byPool[pool]
+			if s == nil {
+				s = &antigravityPoolStats{}
+				byPool[pool] = s
 			}
-			byID[id] = antigravityWindow(id, scope, label, families, nil, used, reset, duration)
+			reset := antigravityParseReset(bucket.ResetTime)
+			switch window {
+			case "5h":
+				s.fiveHourRemaining = bucket.RemainingFraction
+				s.fiveHourReset = reset
+			case "weekly":
+				s.weeklyRemaining = bucket.RemainingFraction
+				s.weeklyReset = reset
+			}
 		}
 	}
 
 	out := antigravityEmptyLimits()
 	found := false
 	for i, lim := range out {
-		if got, ok := byID[lim.ID]; ok {
-			out[i] = got
+		if s, ok := byPool[lim.Scope]; ok {
+			out[i] = resolveAntigravityPoolLimit(lim.Scope, *s)
 			found = true
 		}
 	}
 	return out, found
+}
+
+// resolveAntigravityPoolLimit collapses a pool's 5-hour and weekly stats into
+// the single Limit warden reports for that bucket. While the weekly limit has
+// headroom, the bucket reports its 5-hour session limit (usage + reset). Once
+// the weekly limit is exhausted (remainingFraction <= 0) the bucket flips to
+// the weekly limit fully consumed: 100% used, 0% remaining, limitState
+// "reached", weekly duration, and the weekly reset time.
+func resolveAntigravityPoolLimit(pool string, s antigravityPoolStats) Limit {
+	id, scope, label, families := antigravityPoolMeta(pool)
+	if s.weeklyRemaining != nil && *s.weeklyRemaining <= 0 {
+		used := 100.0
+		return antigravityWindow(id, scope, label, families, nil, &used, s.weeklyReset, antigravityWeeklyMinutes)
+	}
+	used := antigravityUsedFromRemaining(s.fiveHourRemaining)
+	return antigravityWindow(id, scope, label, families, nil, used, s.fiveHourReset, antigravityFiveHourMinutes)
+}
+
+// antigravityParseReset parses an RFC3339 resetTime into a UTC *time.Time,
+// returning nil for a missing/empty/unparseable value.
+func antigravityParseReset(resetTime *string) *time.Time {
+	if resetTime == nil || *resetTime == "" {
+		return nil
+	}
+	t, err := time.Parse(time.RFC3339, *resetTime)
+	if err != nil {
+		return nil
+	}
+	ut := t.UTC()
+	return &ut
 }
 
 func antigravityPoolFromGroup(displayName string) string {
@@ -345,24 +392,13 @@ func antigravityWindowKind(window, bucketID string) string {
 	}
 }
 
-func antigravityWindowMeta(pool, window string) (id, scope, label string, families []string, duration int) {
-	scope = pool
+// antigravityPoolMeta returns the stable identity of a pool's reported bucket.
+func antigravityPoolMeta(pool string) (id, scope, label string, families []string) {
 	switch pool {
 	case "gemini":
-		families = []string{"gemini"}
-		switch window {
-		case "5h":
-			return "antigravity:gemini-5h", scope, "Gemini 5-hour", families, antigravityFiveHourMinutes
-		default:
-			return "antigravity:gemini-weekly", scope, "Gemini weekly", families, antigravityWeeklyMinutes
-		}
+		return "antigravity:gemini", "gemini", "Gemini", []string{"gemini"}
 	default:
-		switch window {
-		case "5h":
-			return "antigravity:non-gemini-5h", scope, "Non-Gemini 5-hour", nil, antigravityFiveHourMinutes
-		default:
-			return "antigravity:non-gemini-weekly", scope, "Non-Gemini weekly", nil, antigravityWeeklyMinutes
-		}
+		return "antigravity:non-gemini", "non-gemini", "Non-Gemini", nil
 	}
 }
 
@@ -381,12 +417,13 @@ func antigravityUsedFromRemaining(remaining *float64) *float64 {
 	return &u
 }
 
+// antigravityEmptyLimits returns the two pool buckets with no measurements yet.
+// The 5-hour session limit is the default reported window, so the placeholder
+// carries its duration until live stats replace it.
 func antigravityEmptyLimits() []Limit {
 	return []Limit{
-		antigravityWindow("antigravity:gemini-5h", "gemini", "Gemini 5-hour", []string{"gemini"}, nil, nil, nil, antigravityFiveHourMinutes),
-		antigravityWindow("antigravity:gemini-weekly", "gemini", "Gemini weekly", []string{"gemini"}, nil, nil, nil, antigravityWeeklyMinutes),
-		antigravityWindow("antigravity:non-gemini-5h", "non-gemini", "Non-Gemini 5-hour", nil, nil, nil, nil, antigravityFiveHourMinutes),
-		antigravityWindow("antigravity:non-gemini-weekly", "non-gemini", "Non-Gemini weekly", nil, nil, nil, nil, antigravityWeeklyMinutes),
+		antigravityWindow("antigravity:gemini", "gemini", "Gemini", []string{"gemini"}, nil, nil, nil, antigravityFiveHourMinutes),
+		antigravityWindow("antigravity:non-gemini", "non-gemini", "Non-Gemini", nil, nil, nil, nil, antigravityFiveHourMinutes),
 	}
 }
 

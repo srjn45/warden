@@ -101,10 +101,13 @@ protocol. Cursor supplies three never-flattened windows (`included`, `auto`, `ap
 from `POST https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage`
 using the local `cursor-agent` login token — the same RPC as the feature-flagged
 CLI `/usage` pager. There is no `cursor-agent usage` subcommand; warden does not
-scrape the TUI or invent percents from spend cents. Antigravity supplies four
-never-flattened windows (`gemini`/`non-gemini` × 5-hour/weekly) from
+scrape the TUI or invent percents from spend cents. Antigravity supplies two
+pool buckets (`antigravity:gemini` and `antigravity:non-gemini`) from
 `POST https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary`
 using the local `agy` OAuth credentials — the same RPC as the `agy /usage` TUI.
+Each bucket reports its 5-hour session limit while its weekly limit still has
+headroom, and flips to the exhausted weekly limit (100% used, `reached`, weekly
+duration and reset) once that pool's weekly bucket is drained.
 Claude supplies a single session
 (`five_hour`) window — `used_percent` and `resets_at` — from
 `GET https://api.anthropic.com/api/oauth/usage` (the endpoint the `claude`
@@ -141,16 +144,18 @@ Omitted percents stay JSON `null` — they are never defaulted to 0.
   "id": "antigravity",
   "status": "rate_limited",
   "usage": [
-    {"id": "antigravity:gemini-5h", "scope": "gemini", "label": "Gemini 5-hour", "model_families": ["gemini"], "models": null, "used_percent": 100, "duration_minutes": 300, "resets_at": "2026-09-05T21:40:45Z"},
-    {"id": "antigravity:gemini-weekly", "scope": "gemini", "label": "Gemini weekly", "model_families": ["gemini"], "models": null, "used_percent": 17.73, "duration_minutes": 10080, "resets_at": "2026-09-10T19:03:34Z"},
-    {"id": "antigravity:non-gemini-5h", "scope": "non-gemini", "label": "Non-Gemini 5-hour", "model_families": null, "models": null, "used_percent": 0, "duration_minutes": 300, "resets_at": "2026-09-06T01:04:38Z"},
-    {"id": "antigravity:non-gemini-weekly", "scope": "non-gemini", "label": "Non-Gemini weekly", "model_families": null, "models": null, "used_percent": 0, "duration_minutes": 10080, "resets_at": "2026-09-12T20:04:38Z"}
+    {"id": "antigravity:gemini", "scope": "gemini", "label": "Gemini", "model_families": ["gemini"], "models": null, "used_percent": 100, "duration_minutes": 300, "resets_at": "2026-09-05T21:40:45Z", "limit_state": "reached"},
+    {"id": "antigravity:non-gemini", "scope": "non-gemini", "label": "Non-Gemini", "model_families": null, "models": null, "used_percent": 0, "duration_minutes": 300, "resets_at": "2026-09-06T01:04:38Z"}
   ]
 }
 ```
 
-The Antigravity adapter maps `retrieveUserQuotaSummary` buckets into four windows
-(`gemini`/`non-gemini` × 5-hour/weekly) with exact reset times — matching `agy /usage`.
+The Antigravity adapter maps `retrieveUserQuotaSummary` buckets into two pool
+buckets (`antigravity:gemini` and `antigravity:non-gemini`). Each bucket reports
+its 5-hour session limit (usage % + reset) while its weekly limit still has
+headroom; once the pool's weekly limit is exhausted the bucket reports the weekly
+limit fully consumed (100% used, `reached`, `duration_minutes: 10080`, weekly
+reset) — matching how `agy /usage` gates the 5-hour window under the weekly cap.
 
 ## MCP tools
 

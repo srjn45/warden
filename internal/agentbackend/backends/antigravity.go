@@ -713,8 +713,10 @@ func agyOAuthCredentials() (string, string) {
 }
 
 // FetchUsage implements agentbackend.UsageLimiter. Antigravity tracks quotas via
-// retrieveUserQuotaSummary (same RPC as `agy /usage`), returning four windows:
-// Gemini/non-Gemini × 5-hour/weekly.
+// retrieveUserQuotaSummary (same RPC as `agy /usage`), returning two pool
+// buckets: `antigravity:gemini` and `antigravity:non-gemini`. Each bucket
+// reports its 5-hour session limit while the weekly limit still has headroom,
+// and flips to the exhausted weekly limit once the weekly bucket is drained.
 func (Antigravity) FetchUsage(ctx context.Context) (agentbackend.UsageResult, bool) {
 	now := time.Now()
 	tokenData, err := agyReadTokenFile()
@@ -893,6 +895,16 @@ type agyQuotaSummaryResponse struct {
 	} `json:"groups"`
 }
 
+// agyPoolStats accumulates a pool's (gemini / non-gemini) 5-hour and weekly
+// bucket stats from the quota summary before they are collapsed into a single
+// reported UsageLimit by resolveAgyPoolLimit.
+type agyPoolStats struct {
+	fiveHourRemaining *float64
+	fiveHourReset     *time.Time
+	weeklyRemaining   *float64
+	weeklyReset       *time.Time
+}
+
 func agyParseQuotaSummary(body []byte) ([]agentbackend.UsageLimit, bool) {
 	var resp agyQuotaSummaryResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
@@ -902,10 +914,11 @@ func agyParseQuotaSummary(body []byte) ([]agentbackend.UsageLimit, bool) {
 		return nil, false
 	}
 
-	byID := map[string]agentbackend.UsageLimit{}
+	byPool := map[string]*agyPoolStats{}
 	for _, group := range resp.Groups {
-		pool := agyPoolFromGroup(group.DisplayName)
+		groupPool := agyPoolFromGroup(group.DisplayName)
 		for _, bucket := range group.Buckets {
+			pool := groupPool
 			if pool == "" {
 				pool = agyPoolFromBucketID(bucket.BucketID)
 			}
@@ -913,28 +926,63 @@ func agyParseQuotaSummary(body []byte) ([]agentbackend.UsageLimit, bool) {
 			if pool == "" || window == "" {
 				continue
 			}
-			id, scope, label, families, duration := agyWindowMeta(pool, window)
-			used := agyUsedFromRemaining(bucket.RemainingFraction)
-			var reset *time.Time
-			if bucket.ResetTime != nil && *bucket.ResetTime != "" {
-				if t, err := time.Parse(time.RFC3339, *bucket.ResetTime); err == nil {
-					ut := t.UTC()
-					reset = &ut
-				}
+			s := byPool[pool]
+			if s == nil {
+				s = &agyPoolStats{}
+				byPool[pool] = s
 			}
-			byID[id] = agyWindow(id, scope, label, families, nil, used, reset, duration)
+			reset := agyParseReset(bucket.ResetTime)
+			switch window {
+			case "5h":
+				s.fiveHourRemaining = bucket.RemainingFraction
+				s.fiveHourReset = reset
+			case "weekly":
+				s.weeklyRemaining = bucket.RemainingFraction
+				s.weeklyReset = reset
+			}
 		}
 	}
 
 	out := agyEmptyLimits()
 	found := false
 	for i, lim := range out {
-		if got, ok := byID[lim.ID]; ok {
-			out[i] = got
+		if s, ok := byPool[lim.Scope]; ok {
+			out[i] = resolveAgyPoolLimit(lim.Scope, *s)
 			found = true
 		}
 	}
 	return out, found
+}
+
+// resolveAgyPoolLimit collapses a pool's 5-hour and weekly stats into the single
+// UsageLimit warden reports for that bucket. While the weekly limit has
+// headroom, the bucket reports its 5-hour session limit (usage + reset). Once
+// the weekly limit is exhausted (remainingFraction <= 0) the bucket flips to the
+// weekly limit fully consumed: 100% used, 0% remaining, limitState "reached",
+// weekly duration, and the weekly reset time. Kept identical in behavior to the
+// backendusage adapter's resolveAntigravityPoolLimit.
+func resolveAgyPoolLimit(pool string, s agyPoolStats) agentbackend.UsageLimit {
+	id, scope, label, families := agyPoolMeta(pool)
+	if s.weeklyRemaining != nil && *s.weeklyRemaining <= 0 {
+		used := 100.0
+		return agyWindow(id, scope, label, families, nil, &used, s.weeklyReset, agyWeeklyMinutes)
+	}
+	used := agyUsedFromRemaining(s.fiveHourRemaining)
+	return agyWindow(id, scope, label, families, nil, used, s.fiveHourReset, agyFiveHourMinutes)
+}
+
+// agyParseReset parses an RFC3339 resetTime into a UTC *time.Time, returning nil
+// for a missing/empty/unparseable value.
+func agyParseReset(resetTime *string) *time.Time {
+	if resetTime == nil || *resetTime == "" {
+		return nil
+	}
+	t, err := time.Parse(time.RFC3339, *resetTime)
+	if err != nil {
+		return nil
+	}
+	ut := t.UTC()
+	return &ut
 }
 
 func agyPoolFromGroup(displayName string) string {
@@ -976,24 +1024,14 @@ func agyWindowKind(window, bucketID string) string {
 	}
 }
 
-func agyWindowMeta(pool, window string) (id, scope, label string, families []string, duration int) {
-	scope = pool
+// agyPoolMeta returns the stable identity of a pool's reported bucket. Kept
+// identical in behavior to the backendusage adapter's antigravityPoolMeta.
+func agyPoolMeta(pool string) (id, scope, label string, families []string) {
 	switch pool {
 	case "gemini":
-		families = []string{"gemini"}
-		switch window {
-		case "5h":
-			return "antigravity:gemini-5h", scope, "Gemini 5-hour", families, agyFiveHourMinutes
-		default:
-			return "antigravity:gemini-weekly", scope, "Gemini weekly", families, agyWeeklyMinutes
-		}
+		return "antigravity:gemini", "gemini", "Gemini", []string{"gemini"}
 	default:
-		switch window {
-		case "5h":
-			return "antigravity:non-gemini-5h", scope, "Non-Gemini 5-hour", nil, agyFiveHourMinutes
-		default:
-			return "antigravity:non-gemini-weekly", scope, "Non-Gemini weekly", nil, agyWeeklyMinutes
-		}
+		return "antigravity:non-gemini", "non-gemini", "Non-Gemini", nil
 	}
 }
 
@@ -1012,12 +1050,13 @@ func agyUsedFromRemaining(remaining *float64) *float64 {
 	return &u
 }
 
+// agyEmptyLimits returns the two pool buckets with no measurements yet. The
+// 5-hour session limit is the default reported window, so the placeholder
+// carries its duration until live stats replace it.
 func agyEmptyLimits() []agentbackend.UsageLimit {
 	return []agentbackend.UsageLimit{
-		agyWindow("antigravity:gemini-5h", "gemini", "Gemini 5-hour", []string{"gemini"}, nil, nil, nil, agyFiveHourMinutes),
-		agyWindow("antigravity:gemini-weekly", "gemini", "Gemini weekly", []string{"gemini"}, nil, nil, nil, agyWeeklyMinutes),
-		agyWindow("antigravity:non-gemini-5h", "non-gemini", "Non-Gemini 5-hour", nil, nil, nil, nil, agyFiveHourMinutes),
-		agyWindow("antigravity:non-gemini-weekly", "non-gemini", "Non-Gemini weekly", nil, nil, nil, nil, agyWeeklyMinutes),
+		agyWindow("antigravity:gemini", "gemini", "Gemini", []string{"gemini"}, nil, nil, nil, agyFiveHourMinutes),
+		agyWindow("antigravity:non-gemini", "non-gemini", "Non-Gemini", nil, nil, nil, nil, agyFiveHourMinutes),
 	}
 }
 
