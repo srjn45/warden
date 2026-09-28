@@ -12,6 +12,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/srjn45/warden/internal/planstore"
+	"github.com/srjn45/warden/internal/projectstore"
 )
 
 // RunPlanDetailPane renders one plan's stored detail to stdout and blocks,
@@ -23,7 +24,9 @@ func RunPlanDetailPane(a api, projectID, planID string) error {
 	if err != nil {
 		fmt.Println(stMuted.Render("could not load plan detail: " + err.Error()))
 	} else {
-		fmt.Println(planDetailText(p, 100))
+		// The subprocess runs in the tmux pane whose cwd is the project root,
+		// so passing "" falls back to filepath.Abs which resolves correctly.
+		fmt.Println(planDetailText(p, 100, ""))
 	}
 	select {} // hold the pane open until tmux respawns it
 }
@@ -47,7 +50,9 @@ func openPlanDetailCmd(agentPane, projectID, planID string) tea.Cmd {
 }
 
 // planDetailText renders a plan's detail view for display.
-func planDetailText(p *planstore.Plan, width int) string {
+// projectRoot is the absolute path to the project's root directory, used to
+// resolve p.FilePath (which is relative to that root) for YAML task reading.
+func planDetailText(p *planstore.Plan, width int, projectRoot string) string {
 	if p == nil {
 		return ""
 	}
@@ -92,7 +97,7 @@ func planDetailText(p *planstore.Plan, width int) string {
 	// ── Tasks ─────────────────────────────────────────────────────────────────
 	b.WriteString("\n" + stPaneTitle.Render("Tasks") + "\n")
 
-	tasks, _ := planTasksFromPlan(p)
+	tasks, _ := planTasksFromPlan(p, projectRoot)
 	if len(tasks) > 0 {
 		for i, t := range tasks {
 			// status: prefer YAML field, fall back to DB TaskProgress map
@@ -165,20 +170,36 @@ func planDetailText(p *planstore.Plan, width int) string {
 	return b.String()
 }
 
-// planTasksFromPlan loads YAML tasks for a plan, resolving the file path
-// relative to the project root (the parent of the plans/ directory).
-func planTasksFromPlan(p *planstore.Plan) ([]planstore.PlanTaskDef, error) {
+// planTasksFromPlan loads YAML tasks for a plan.
+// projectRoot is the absolute path of the project root; p.FilePath is relative to it.
+func planTasksFromPlan(p *planstore.Plan, projectRoot string) ([]planstore.PlanTaskDef, error) {
 	if p.FilePath == "" {
 		return nil, nil
 	}
-	// FilePath is relative to the project root; we need to find the project root.
-	// Walk up from the data directories — but we only have the file path here.
-	// Try common project root locations by resolving against cwd.
-	abs, err := filepath.Abs(p.FilePath)
-	if err != nil {
-		return nil, err
+	var abs string
+	if filepath.IsAbs(p.FilePath) {
+		abs = p.FilePath
+	} else if projectRoot != "" {
+		abs = filepath.Join(projectRoot, p.FilePath)
+	} else {
+		var err error
+		abs, err = filepath.Abs(p.FilePath)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return planstore.ReadPlanTasks(abs)
+}
+
+// projectRootForID returns the absolute path of the project with the given ID,
+// or "" if not found.
+func projectRootForID(projects []projectstore.Project, projectID string) string {
+	for _, p := range projects {
+		if p.ID == projectID {
+			return p.Path
+		}
+	}
+	return ""
 }
 
 // promptPreview returns up to maxLines non-empty lines from a (possibly

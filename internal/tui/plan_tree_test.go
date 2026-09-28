@@ -92,19 +92,15 @@ func TestPlanTree_StructureAndGrouping(t *testing.T) {
 
 	items := buildProjectItems(projs, nil, sessions, nil, client.AutopilotStatus{}, plansMap, nil, nil, false)
 
-	// Items structure:
+	// All groups collapsed by default. Items structure:
 	// 0: Project Header
-	// 1: Plans Header
-	// 2: In Progress Group (cnt 1)
-	// 3: Plan "Active Work"
-	// 4: Pending Group (cnt 2)
-	// 5: Plan "Pending Feature A"
-	// 6: Plan "Pending Feature B"
-	// 7: Completed Group (cnt 1)
-	// 8: Plan "Done Feature"
-	// 9: Archived Group (cnt 1, collapsed by default)
-	// 10: Agent "agent-1" (BELOW Plans!)
-	require.Len(t, items, 11)
+	// 1: Plans Header (expanded)
+	// 2: In Progress Group (cnt 1, collapsed by default)
+	// 3: Pending Group (cnt 2, collapsed by default)
+	// 4: Completed Group (cnt 1, collapsed by default)
+	// 5: Archived Group (cnt 1, collapsed by default)
+	// 6: Agent "agent-1" (BELOW Plans!)
+	require.Len(t, items, 7)
 
 	// 0: Project header
 	require.NotNil(t, items[0].projHdr)
@@ -115,52 +111,45 @@ func TestPlanTree_StructureAndGrouping(t *testing.T) {
 	require.Equal(t, "proj-1", items[1].planProject)
 	require.False(t, items[1].collapsed, "plans header with plans is expanded by default")
 
-	// 2: In Progress group
+	// 2: In Progress group — collapsed by default
 	require.Equal(t, string(planstore.PlanStatusInProgress), items[2].planGroup)
 	require.Equal(t, 1, items[2].planGroupCnt)
-	require.False(t, items[2].collapsed)
+	require.True(t, items[2].collapsed, "In Progress group collapsed by default")
 
-	// 3: Active Work plan
-	require.NotNil(t, items[3].plan)
-	require.Equal(t, "Active Work", items[3].plan.Name)
+	// 3: Pending group — collapsed by default
+	require.Equal(t, string(planstore.PlanStatusPending), items[3].planGroup)
+	require.Equal(t, 2, items[3].planGroupCnt)
+	require.True(t, items[3].collapsed, "Pending group collapsed by default")
 
-	// 4: Pending group
-	require.Equal(t, string(planstore.PlanStatusPending), items[4].planGroup)
-	require.Equal(t, 2, items[4].planGroupCnt)
-	require.False(t, items[4].collapsed)
+	// 4: Completed group — collapsed by default
+	require.Equal(t, string(planstore.PlanStatusCompleted), items[4].planGroup)
+	require.Equal(t, 1, items[4].planGroupCnt)
+	require.True(t, items[4].collapsed, "Completed group collapsed by default")
 
-	// 5 & 6: Pending Feature A & B (sorted by Name)
-	require.NotNil(t, items[5].plan)
-	require.Equal(t, "Pending Feature A", items[5].plan.Name)
-	require.NotNil(t, items[6].plan)
-	require.Equal(t, "Pending Feature B", items[6].plan.Name)
+	// 5: Archived group — collapsed by default
+	require.Equal(t, string(planstore.PlanStatusArchived), items[5].planGroup)
+	require.Equal(t, 1, items[5].planGroupCnt)
+	require.True(t, items[5].collapsed, "Archived group collapsed by default")
 
-	// 7: Completed group
-	require.Equal(t, string(planstore.PlanStatusCompleted), items[7].planGroup)
-	require.Equal(t, 1, items[7].planGroupCnt)
-	require.False(t, items[7].collapsed)
+	// 6: Agent row (must appear AFTER/BELOW plans!)
+	require.NotNil(t, items[6].session)
+	require.Equal(t, "agent-1", items[6].session.ID)
 
-	// 8: Done Feature plan
-	require.NotNil(t, items[8].plan)
-	require.Equal(t, "Done Feature", items[8].plan.Name)
-
-	// 9: Archived group (collapsed by default, no plans under it)
-	require.Equal(t, string(planstore.PlanStatusArchived), items[9].planGroup)
-	require.Equal(t, 1, items[9].planGroupCnt)
-	require.True(t, items[9].collapsed, "Archived group is collapsed by default")
-
-	// 10: Agent row (must appear AFTER/BELOW plans!)
-	require.NotNil(t, items[10].session)
-	require.Equal(t, "agent-1", items[10].session.ID)
-
-	// Expand Archived group
-	collapsed := map[string]bool{"plans:proj-1:archived": false}
+	// Expand in_progress and archived groups explicitly
+	collapsed := map[string]bool{
+		"plans:proj-1:in_progress": false,
+		"plans:proj-1:archived":    false,
+	}
 	itemsExpanded := buildProjectItems(projs, nil, sessions, nil, client.AutopilotStatus{}, plansMap, nil, collapsed, false)
-	require.Len(t, itemsExpanded, 12)
-	require.NotNil(t, itemsExpanded[10].plan)
-	require.Equal(t, "Old Plan", itemsExpanded[10].plan.Name)
-	require.NotNil(t, itemsExpanded[11].session)
-	require.Equal(t, "agent-1", itemsExpanded[11].session.ID)
+	// 0=projHdr, 1=planHdr, 2=in_progress(exp), 3=Active Work, 4=pending(coll),
+	// 5=completed(coll), 6=archived(exp), 7=Old Plan, 8=agent-1
+	require.Len(t, itemsExpanded, 9)
+	require.NotNil(t, itemsExpanded[3].plan)
+	require.Equal(t, "Active Work", itemsExpanded[3].plan.Name)
+	require.NotNil(t, itemsExpanded[7].plan)
+	require.Equal(t, "Old Plan", itemsExpanded[7].plan.Name)
+	require.NotNil(t, itemsExpanded[8].session)
+	require.Equal(t, "agent-1", itemsExpanded[8].session.ID)
 }
 
 func TestPlanTree_BadgesAndRendering(t *testing.T) {
@@ -185,12 +174,9 @@ func TestPlanTree_BadgesAndRendering(t *testing.T) {
 	require.Contains(t, out, "Archived")
 	require.NotContains(t, out, "Archived  (1)")
 
-	// Plan items
-	require.Contains(t, out, "Active Work")
-	require.Contains(t, out, "Pending Feature A")
-	require.Contains(t, out, "Pending Feature B")
-	require.Contains(t, out, "Done Feature")
-	require.NotContains(t, out, "Old Plan", "archived plan should be hidden when group is collapsed")
+	// Plan items are not visible when groups are collapsed by default
+	require.NotContains(t, out, "Active Work", "plan items hidden when group is collapsed")
+	require.NotContains(t, out, "Old Plan", "archived plan hidden when group is collapsed")
 }
 
 func TestPlanTree_CollapsePlansHeader(t *testing.T) {
@@ -238,7 +224,7 @@ func TestPlanTree_PlanDetailText(t *testing.T) {
 	plans := samplePlans()
 	p := plans[0] // plan-ip
 
-	text := planDetailText(p, 80)
+	text := planDetailText(p, 80, "")
 	// Header is the plan name (no "Plan:" prefix)
 	require.Contains(t, text, "Active Work")
 	require.Contains(t, text, "ID:")
@@ -268,7 +254,7 @@ func TestPlanTree_PlanDetailText(t *testing.T) {
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
-	textEmpty := planDetailText(pEmpty, 80)
+	textEmpty := planDetailText(pEmpty, 80, "")
 	require.Contains(t, textEmpty, "Executed Using:")
 	require.Contains(t, textEmpty, "manual")
 }
@@ -286,6 +272,9 @@ func setupPlanTestModel(a *fakeAPI) controlPaneModel {
 	m.plans = map[string][]*planstore.Plan{
 		"proj-1": samplePlans(),
 	}
+	// Pre-expand in_progress so keybinding tests can reach a plan at cursor 3.
+	// All groups default to collapsed; tests that need a plan row must expand first.
+	m.collapsed["plans:proj-1:in_progress"] = false
 	return m
 }
 
@@ -481,15 +470,17 @@ func TestPlanKeybindings_ToggleHeaders(t *testing.T) {
 	m = lstep(m, key("enter"))
 	require.False(t, m.collapsed["plans:proj-1"])
 
-	// Enter on status group (cursor 2: in_progress) collapses it
+	// Enter on status group (cursor 2: in_progress) — group starts with a pre-set
+	// value from setupPlanTestModel (false = expanded), so toggling collapses it.
 	m.cursor = 2
 	require.Equal(t, "in_progress", itemAt(m.items(), m.cursor).planGroup)
 	m = lstep(m, key("enter"))
-	require.True(t, m.collapsed["plans:proj-1:in_progress"])
+	require.True(t, m.collapsed["plans:proj-1:in_progress"], "toggle collapses an expanded group")
 
-	// Left/h on plan row collapses owning status group
-	m.cursor = 4 // Pending Feature A (under pending group)
+	// Re-expand in_progress so the plan row at cursor 3 is visible
+	m.collapsed["plans:proj-1:in_progress"] = false
+	m.cursor = 3 // Active Work plan (under in_progress group)
 	require.NotNil(t, itemAt(m.items(), m.cursor).plan)
 	m = lstep(m, key("h"))
-	require.True(t, m.collapsed["plans:proj-1:pending"])
+	require.True(t, m.collapsed["plans:proj-1:in_progress"], "h/left on plan row collapses its group")
 }
