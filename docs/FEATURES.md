@@ -1443,6 +1443,117 @@ config file, and are edited via the surfaces above.
 
 ---
 
+## 37. Plans (tracked plan lifecycle)
+
+Plans are YAML files stored in `plans/{pending,in_progress,completed,archived}/` inside a project repository. The daemon scans those directories, tracks execution state (links to autopilot runs, pipelines, and task progress) in a ScrivaDB `plans` collection, and surfaces plans in every UI.
+
+### 37.1 Two-layer architecture
+
+| Layer | What lives here | Source of truth |
+|---|---|---|
+| **Plan definition** | `goal`, `tasks`, `constraints`, `done_when` | YAML file content in the repo |
+| **Plan status** | Which directory the YAML lives in | Git (directory placement) |
+| **Execution state** | Linked run/pipeline IDs, task progress, timestamps | ScrivaDB `plans` collection |
+
+Status is encoded in the directory — a state transition is a `git mv` committed to the repo, making the full lifecycle team-visible and audit-friendly.
+
+### 37.2 Directory layout
+
+```
+plans/
+  pending/          # authored, not started
+  in_progress/      # execution active (stays here until completed/archived)
+  completed/        # all tasks done, code merged
+  archived/         # de-prioritised; hidden from default TUI views
+```
+
+### 37.3 Lifecycle states
+
+```
+pending → in_progress → completed
+                      ↘ archived
+pending →                archived
+```
+
+Any status can transition to `archived`. `completed` and `archived` cannot move back to `in_progress` without an explicit reset.
+
+### 37.4 Scan and import
+
+`wd plan scan [--project <id>]` walks `plans/{pending,in_progress,completed,archived}/*.yaml` and upserts:
+- Derives plan name from the YAML `name:` field or filename stem
+- Computes a stable `plan-<8hex>` ID from `projectID + "\x00" + planName`
+- Creates a new record (status from directory) if absent; updates `FilePath` and `Status` only if present — never overwrites execution links or task progress
+- Files outside the four subdirectories are ignored; flat `plans/*.yaml` files are treated as `pending` and migrated with `--migrate-flat`
+
+The daemon auto-scans each registered project's `plans/` directory at startup (directory walk only — no YAML parsing beyond the `name:` field).
+
+### 37.5 Execution modes
+
+| Mode | What `wd plan run` does | Completion |
+|---|---|---|
+| `autopilot` | Calls `register_autopilot_run` with the plan `file_path`; stores `AutopilotRunID`; git-mv to `in_progress/` | Daemon watches for run `completed` → git-mv to `completed/` |
+| `pipeline` | Creates a pipeline (one job per YAML task); stores `PipelineID`; git-mv | Daemon watches for pipeline `done` → git-mv to `completed/` |
+| `orchestrator_worker` | Spawns orchestrator agent with plan as context; each worker requires human approval; stores `OrchestratorID`; git-mv | Manual: `wd plan status <id> completed` |
+| `manual` | git-mv to `in_progress/` only; no execution entity | Manual: `wd plan status <id> completed` |
+
+### 37.6 Brain-assisted progress assessment
+
+`wd plan assess <plan-id>` reconstructs task-level progress after a reinstall or DB wipe:
+1. Reads the plan YAML's task list
+2. Calls `Consultor.Consult` (same `internal/brainconsult` as pipeline stuck-recovery) with intent `plan_progress_assessment`, the task list, `git log --oneline origin/main -50`, and open PR titles as evidence
+3. Updates `task_progress` in the DB record with the brain's `update_task_progress` response
+
+Opt-in only. Also available as `wd plan scan --assess` (runs for all `in_progress` plans).
+
+### 37.7 Recovery ladder
+
+| Scenario | Recovery |
+|---|---|
+| Same machine, DB intact | Normal operation |
+| Same machine, DB wiped | `wd plan scan` re-seeds all plans with correct status from directory |
+| New machine / reinstall | `git pull` → daemon start auto-scans → plans visible with correct status |
+| In-progress task progress missing | `wd plan assess <plan-id>` reconstructs from git/PRs |
+| Full backup + restore | `wd snapshot restore` restores ScrivaDB including execution links |
+
+### 37.8 CLI surface
+
+| Command | Action |
+|---|---|
+| `wd plan list [--status <s>] [--json]` | List plans for a project (optionally filtered by status) |
+| `wd plan show <id> [--json]` | Full record: status, file path, execution mode, linked IDs, task progress, timestamps |
+| `wd plan import <file>` | Copy a YAML into `plans/pending/` and scan |
+| `wd plan scan [--migrate-flat] [--assess]` | Walk directories and upsert plan records |
+| `wd plan status <id> <new-status>` | git mv + commit + DB update |
+| `wd plan archive <id>` | Shorthand: status → `archived` |
+| `wd plan assess <id>` | Brain-based task progress reconstruction |
+| `wd plan run <id> --mode <mode>` | Start execution in the given mode |
+
+### 37.9 MCP tools
+
+| Tool | Action |
+|---|---|
+| `list_plans` | List plans for a project (optional `status` filter) |
+| `get_plan` | Get one plan by stable ID |
+| `create_plan` | Register a new plan record (YAML must already exist at `file_path`) |
+| `scan_plans` | Walk directories and upsert (`migrate_flat`, `assess` flags) |
+| `update_plan_status` | git mv + commit + DB update |
+| `archive_plan` | Shorthand: status → `archived` |
+| `assess_plan` | Brain-based task progress reconstruction |
+| `run_plan` | Start execution in a given mode |
+
+### 37.10 TUI
+
+Plans appear **above agents** in the project tree, grouped by status with count badges. `Archived` is collapsed by default. Selecting a plan opens a detail pane. Keybindings: `a` archive · `s` scan · `A` assess · `r` run (mode picker) · `enter` detail pane.
+
+### 37.11 Non-goals
+
+- Warden-hub plan sync (deferred; `synced_at`/`remote_id` fields reserved)
+- Editing or validating plan YAML content from the daemon
+- Creating a plan YAML from the CLI (use `warden autopilot init` or write it directly)
+- Per-task execution (plans run as a whole; task progress is informational)
+
+---
+
 ## 36. Projects & Project Groups
 
 warden tracks registered codebases as first-class daemon projects and organizes
