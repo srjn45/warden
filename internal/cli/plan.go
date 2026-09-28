@@ -285,7 +285,7 @@ func newPlanAssessCmd() *cobra.Command {
 					return err
 				}
 			}
-			if err := clientFor(cmd).PlanAssess(cmd.Context(), projectID, planID); err != nil {
+			if _, err := clientFor(cmd).PlanAssess(cmd.Context(), projectID, planID); err != nil {
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "assess triggered for plan %s\n", planID)

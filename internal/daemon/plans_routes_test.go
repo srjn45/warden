@@ -15,6 +15,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/srjn45/warden/internal/brainconsult"
 	"github.com/srjn45/warden/internal/planstore"
 )
 
@@ -404,8 +405,8 @@ func TestPlansScanMigrateFlat(t *testing.T) {
 	require.Equal(t, "plans/pending/flat-plan.yaml", got.FilePath)
 }
 
-// TestPlansAssessStub verifies POST /assess returns 501 for a known plan.
-func TestPlansAssessStub(t *testing.T) {
+// TestPlansAssessUnconfigured verifies POST /assess returns 503 when brain consultor is not configured.
+func TestPlansAssessUnconfigured(t *testing.T) {
 	ts, ps := planServer(t)
 	ctx := t.Context()
 
@@ -417,7 +418,7 @@ func TestPlansAssessStub(t *testing.T) {
 
 	resp := postJSON(t, planURL(ts.URL, "proj-1", "/"+id+"/assess"), nil)
 	defer resp.Body.Close()
-	require.Equal(t, http.StatusNotImplemented, resp.StatusCode)
+	require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
 }
 
 // TestPlansAssess404 verifies POST /assess returns 404 for unknown plan.
@@ -426,6 +427,118 @@ func TestPlansAssess404(t *testing.T) {
 	resp := postJSON(t, planURL(ts.URL, "proj-1", "/plan-deadbeef/assess"), nil)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
+}
+
+// TestPlansAssessSuccess verifies POST /assess calls consultor and updates task_progress.
+func TestPlansAssessSuccess(t *testing.T) {
+	root := t.TempDir()
+	gitInit(t, root)
+
+	// Write plan YAML with tasks
+	planYAML := `version: 1
+name: feature-assess
+goal: test assess
+tasks:
+  - id: t1
+    prompt: task 1
+  - id: t2
+    prompt: task 2
+`
+	absPath := filepath.Join(root, "plans/in_progress/feature-assess.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(absPath), 0o755))
+	require.NoError(t, os.WriteFile(absPath, []byte(planYAML), 0o644))
+
+	ps, err := planstore.New(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ps.Close() })
+
+	mc := &mockConsultor{
+		result: brainconsult.Result{
+			Action: brainconsult.ActionUpdateTaskProgress,
+			Reason: "tasks evaluated",
+			TaskProgress: map[string]string{
+				"t1": "done",
+				"t2": "in_progress",
+			},
+		},
+	}
+
+	srv := &Server{store: newFakeStore(), life: &fakeLife{}, plans: ps}
+	srv.SetBrainConsultor(mc, 1)
+	ts := httptest.NewServer(srv.router())
+	t.Cleanup(ts.Close)
+
+	id := planstore.PlanID(root, "feature-assess")
+	require.NoError(t, ps.Create(t.Context(), &planstore.Plan{
+		ID: id, ProjectID: root, Name: "feature-assess",
+		FilePath: "plans/in_progress/feature-assess.yaml", Status: planstore.PlanStatusInProgress,
+	}))
+
+	resp := postJSON(t, planURL(ts.URL, root, "/"+id+"/assess"), nil)
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(body))
+	resp.Body = io.NopCloser(bytes.NewReader(body))
+
+	var p planstore.Plan
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&p))
+	require.Equal(t, "done", p.TaskProgress["t1"])
+	require.Equal(t, "in_progress", p.TaskProgress["t2"])
+
+	// Verify DB was updated
+	dbPlan, err := ps.Get(t.Context(), id)
+	require.NoError(t, err)
+	require.Equal(t, "done", dbPlan.TaskProgress["t1"])
+	require.Equal(t, "in_progress", dbPlan.TaskProgress["t2"])
+	require.Equal(t, int32(1), mc.called.Load())
+	require.Equal(t, "plan_progress_assessment", mc.capturedReq.Intent)
+}
+
+// TestPlansAssessNoop verifies POST /assess handles noop from consultor without error.
+func TestPlansAssessNoop(t *testing.T) {
+	root := t.TempDir()
+	gitInit(t, root)
+
+	planYAML := `version: 1
+name: feature-noop
+goal: test assess noop
+tasks:
+  - id: t1
+    prompt: task 1
+`
+	absPath := filepath.Join(root, "plans/in_progress/feature-noop.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(absPath), 0o755))
+	require.NoError(t, os.WriteFile(absPath, []byte(planYAML), 0o644))
+
+	ps, err := planstore.New(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ps.Close() })
+
+	mc := &mockConsultor{
+		result: brainconsult.Result{
+			Action: brainconsult.ActionNoop,
+			Reason: "cannot determine progress",
+		},
+	}
+
+	srv := &Server{store: newFakeStore(), life: &fakeLife{}, plans: ps}
+	srv.SetBrainConsultor(mc, 1)
+	ts := httptest.NewServer(srv.router())
+	t.Cleanup(ts.Close)
+
+	id := planstore.PlanID(root, "feature-noop")
+	require.NoError(t, ps.Create(t.Context(), &planstore.Plan{
+		ID: id, ProjectID: root, Name: "feature-noop",
+		FilePath: "plans/in_progress/feature-noop.yaml", Status: planstore.PlanStatusInProgress,
+	}))
+
+	resp := postJSON(t, planURL(ts.URL, root, "/"+id+"/assess"), nil)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var p planstore.Plan
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&p))
+	require.Empty(t, p.TaskProgress)
 }
 
 // TestPlansRunStub verifies POST /run returns 501 for a known plan.
@@ -485,7 +598,7 @@ func gitCommit(t *testing.T, dir, msg string) {
 	require.NoError(t, err, string(out))
 }
 
-// TestPlansAssessBodyNilOK verifies POST /assess with nil body still works.
+// TestPlansAssessBodyNilOK verifies POST /assess with nil body still works (returns 503 when unconfigured).
 func TestPlansAssessBodyNilOK(t *testing.T) {
 	ts, ps := planServer(t)
 	ctx := t.Context()
@@ -503,5 +616,5 @@ func TestPlansAssessBodyNilOK(t *testing.T) {
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
-	require.Equal(t, http.StatusNotImplemented, resp.StatusCode, string(body))
+	require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode, string(body))
 }

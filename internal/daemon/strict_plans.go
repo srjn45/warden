@@ -230,19 +230,50 @@ func (s *Server) DeletePlan(ctx context.Context, req oapi.DeletePlanRequestObjec
 }
 
 // AssessPlan implements POST /api/v1/projects/{project_id}/plans/{plan_id}/assess.
-// Phase 4 stub — returns 501 Not Implemented.
+// Reads the plan YAML, calls the brain consultor, and updates task_progress.
 func (s *Server) AssessPlan(ctx context.Context, req oapi.AssessPlanRequestObject) (oapi.AssessPlanResponseObject, error) {
 	if s.plans == nil {
 		return nil, planNotConfigured()
 	}
-	// Verify the plan exists before returning 501 so clients get 404 on unknown ids.
-	if _, err := s.plans.Get(ctx, req.PlanId); err != nil {
+
+	p, err := s.plans.Get(ctx, req.PlanId)
+	if err != nil {
 		if errors.Is(err, planstore.ErrNotFound) {
 			return oapi.AssessPlan404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "plan not found"}}, nil
 		}
 		return nil, errStatus(http.StatusInternalServerError, "get plan: "+err.Error())
 	}
-	return oapi.AssessPlan501JSONResponse{Error: "assess not yet implemented (Phase 4)"}, nil
+
+	if s.brainConsultor == nil {
+		return nil, errStatus(http.StatusServiceUnavailable, "brain consultor not configured")
+	}
+
+	root := s.resolvePlanRoot(req.ProjectId)
+
+	progress, err := assessPlanProgress(ctx, p, root, s.brainConsultor)
+	if err != nil {
+		return nil, errStatus(http.StatusInternalServerError, "assess plan: "+err.Error())
+	}
+
+	if len(progress) > 0 {
+		if updateErr := s.plans.Update(ctx, req.PlanId, func(pl *planstore.Plan) error {
+			if pl.TaskProgress == nil {
+				pl.TaskProgress = make(map[string]string)
+			}
+			for k, v := range progress {
+				pl.TaskProgress[k] = v
+			}
+			return nil
+		}); updateErr != nil {
+			return nil, errStatus(http.StatusInternalServerError, "update task progress: "+updateErr.Error())
+		}
+	}
+
+	updated, err := s.plans.Get(ctx, req.PlanId)
+	if err != nil {
+		return nil, errStatus(http.StatusInternalServerError, "fetch updated plan: "+err.Error())
+	}
+	return oapi.AssessPlan200JSONResponse(*updated), nil
 }
 
 // RunPlan implements POST /api/v1/projects/{project_id}/plans/{plan_id}/run.

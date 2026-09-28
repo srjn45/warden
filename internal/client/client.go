@@ -2038,9 +2038,13 @@ func (c *Client) PlanDelete(ctx context.Context, projectID, planID string) error
 	return c.do(ctx, http.MethodDelete, "/projects/"+url.PathEscape(projectID)+"/plans/"+url.PathEscape(planID), nil, nil)
 }
 
-// PlanAssess triggers brain-assisted task progress assessment for a plan (Phase 4 stub).
-func (c *Client) PlanAssess(ctx context.Context, projectID, planID string) error {
-	return c.do(ctx, http.MethodPost, "/projects/"+url.PathEscape(projectID)+"/plans/"+url.PathEscape(planID)+"/assess", nil, nil)
+// PlanAssess triggers brain-assisted task progress assessment for a plan (D9).
+func (c *Client) PlanAssess(ctx context.Context, projectID, planID string) (*planstore.Plan, error) {
+	var p planstore.Plan
+	if err := c.do(ctx, http.MethodPost, "/projects/"+url.PathEscape(projectID)+"/plans/"+url.PathEscape(planID)+"/assess", nil, &p); err != nil {
+		return nil, err
+	}
+	return &p, nil
 }
 
 // PlanRunRequest is the body for PlanRun.
