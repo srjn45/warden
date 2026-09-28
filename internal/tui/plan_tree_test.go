@@ -239,25 +239,26 @@ func TestPlanTree_PlanDetailText(t *testing.T) {
 	p := plans[0] // plan-ip
 
 	text := planDetailText(p, 80)
-	require.Contains(t, text, "Plan: Active Work")
-	require.Contains(t, text, "ID:              plan-ip")
-	require.Contains(t, text, "Project ID:      proj-1")
-	require.Contains(t, text, "File Path:       plans/in_progress/active.yaml")
-	require.Contains(t, text, "Status:          in_progress")
-	require.Contains(t, text, "Execution Mode:  autopilot")
-	require.Contains(t, text, "Autopilot Run:   run-42")
-	require.Contains(t, text, "Pipeline:        —")
-	require.Contains(t, text, "Orchestrator:    —")
-	require.Contains(t, text, "task-1")
-	require.Contains(t, text, "done")
-	require.Contains(t, text, "task-2")
+	// Header is the plan name (no "Plan:" prefix)
+	require.Contains(t, text, "Active Work")
+	require.Contains(t, text, "ID:")
+	require.Contains(t, text, "plan-ip")
+	require.Contains(t, text, "File:")
+	require.Contains(t, text, "plans/in_progress/active.yaml")
+	require.Contains(t, text, "Status:")
 	require.Contains(t, text, "in_progress")
+	require.Contains(t, text, "Executed Using:")
+	require.Contains(t, text, "autopilot")
+	require.Contains(t, text, "Autopilot Run:")
+	require.Contains(t, text, "run-42")
+	// task-1 and task-2 come from DB TaskProgress (YAML file won't be found in test env)
+	require.Contains(t, text, "task-1")
+	require.Contains(t, text, "task-2")
 	require.Contains(t, text, "Created At:")
 	require.Contains(t, text, "Updated At:")
 	require.Contains(t, text, "Started At:")
-	require.Contains(t, text, "Completed At:    —")
 
-	// Plan with no task progress
+	// Plan with no task progress and no linked execution
 	pEmpty := &planstore.Plan{
 		ID:        "p-empty",
 		ProjectID: "proj-1",
@@ -268,8 +269,8 @@ func TestPlanTree_PlanDetailText(t *testing.T) {
 		UpdatedAt: time.Now(),
 	}
 	textEmpty := planDetailText(pEmpty, 80)
-	require.Contains(t, textEmpty, "(no task progress recorded)")
-	require.Contains(t, textEmpty, "Execution Mode:  manual")
+	require.Contains(t, textEmpty, "Executed Using:")
+	require.Contains(t, textEmpty, "manual")
 }
 
 func setupPlanTestModel(a *fakeAPI) controlPaneModel {

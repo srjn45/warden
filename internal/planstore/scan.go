@@ -7,7 +7,34 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
+
+// PlanTaskDef is a single task entry read from a plan YAML file.
+type PlanTaskDef struct {
+	ID       string   `yaml:"id"`
+	Prompt   string   `yaml:"prompt"`
+	After    []string `yaml:"after"`
+	Status   string   `yaml:"status"`
+	LandedPR int      `yaml:"landed_pr"`
+}
+
+// ReadPlanTasks parses the tasks: array from a plan YAML file.
+// Returns tasks in declaration order. Returns nil and an error on I/O or YAML failures.
+func ReadPlanTasks(absPath string) ([]PlanTaskDef, error) {
+	data, err := os.ReadFile(absPath)
+	if err != nil {
+		return nil, err
+	}
+	var doc struct {
+		Tasks []PlanTaskDef `yaml:"tasks"`
+	}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, err
+	}
+	return doc.Tasks, nil
+}
 
 // statusDirs is the ordered set of subdirectories under plans/ whose name
 // encodes plan status. Files in any other directory are ignored.
