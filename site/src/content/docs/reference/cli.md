@@ -28,6 +28,7 @@ Usage:
 Run work:
   agent                Create, inspect, communicate with, and manage agents
   pipeline             Define and run DAG pipelines of agent jobs
+  plan                 Manage plans tracked by the daemon
   autopilot            Turn autopilot mode on/off per repo and show its status
   schedule             Schedule recurring (--cron) or single-shot (--at) agents and pipelines
 
@@ -1107,6 +1108,206 @@ Usage:
 
 Flags:
   -h, --help   help for retry
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan
+
+```text
+Manage plans tracked by the daemon.
+
+Plans are YAML files stored in plans/{pending,in_progress,completed,archived}/
+inside a project repository. The daemon scans those files and tracks their
+execution state (links to autopilot runs, pipelines, and task progress).
+
+Status is encoded in the directory: moving a YAML file changes its status.
+`wd plan status` performs the git mv, commits, and updates the DB record.
+
+Usage:
+  warden plan [flags]
+
+Commands:
+  list                 List plans for a project
+  show                 Show detail for one plan
+  import               Copy a plan YAML into plans/pending/ and scan
+  scan                 Scan a project's plans/ directory and upsert plan records
+  status               Transition a plan's status (git mv + commit + DB update)
+  archive              Archive a plan (shorthand for `plan status <id> archived`)
+  assess               Brain-assisted task progress assessment (Phase 4 stub)
+  run                  Start execution of a plan in the given mode (Phase 5 stub)
+
+Flags:
+  -h, --help   help for plan
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan list
+
+```text
+List plans registered in the daemon for a project.
+
+Use --project to specify the project (defaults to the current directory).
+Filter by lifecycle stage with --status.
+
+Usage:
+  warden plan list [flags]
+
+Flags:
+  -h, --help             help for list
+      --json             output as JSON
+      --project string   project ID (default: current directory)
+      --status string    filter by status: pending|in_progress|completed|archived
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+
+Aliases:
+  ls
+```
+
+## warden plan show
+
+```text
+Show the full record for one plan: status, file path, execution mode, linked IDs, task progress, and timestamps.
+
+Usage:
+  warden plan show <plan-id> [flags]
+
+Flags:
+  -h, --help             help for show
+      --json             output as JSON
+      --project string   project ID (default: current directory)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan import
+
+```text
+Copy a plan YAML file into the project's plans/pending/ directory and
+trigger a scan so the daemon registers the imported plan.
+
+Usage:
+  warden plan import <file> [flags]
+
+Flags:
+  -h, --help             help for import
+      --project string   project ID (default: current directory)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan scan
+
+```text
+Walk plans/{pending,in_progress,completed,archived}/*.yaml and upsert plan
+records in the daemon. Status is inferred from the directory.
+
+--migrate-flat moves any flat plans/*.yaml files into plans/pending/ with git mv
+and creates a commit before scanning.
+
+Usage:
+  warden plan scan [flags]
+
+Flags:
+      --assess           run brain-assisted progress assessment for in_progress plans (Phase 4 stub)
+  -h, --help             help for scan
+      --migrate-flat     move flat plans/*.yaml files into plans/pending/ with git mv + commit
+      --project string   project ID (default: current directory)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan status
+
+```text
+Change a plan's lifecycle status. The daemon updates the DB record and
+performs a git mv of the YAML file to the correct plans/<status>/ subdirectory,
+then creates a commit.
+
+Valid statuses: pending | in_progress | completed | archived
+
+Usage:
+  warden plan status <plan-id> <new-status> [flags]
+
+Flags:
+  -h, --help             help for status
+      --project string   project ID (default: current directory)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan archive
+
+```text
+Move a plan to the archived state. Equivalent to `wd plan status <id> archived`.
+
+Usage:
+  warden plan archive <plan-id> [flags]
+
+Flags:
+  -h, --help             help for archive
+      --project string   project ID (default: current directory)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan assess
+
+```text
+Use a brain model to reconstruct task progress from git history and open PRs.
+Updates task_progress in the DB record.
+
+Note: this is a Phase 4 feature stub — the daemon returns 501 until Phase 4 ships.
+
+Usage:
+  warden plan assess <plan-id> [flags]
+
+Flags:
+  -h, --help             help for assess
+      --project string   project ID (default: current directory)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan run
+
+```text
+Start execution of a plan. The mode determines how the plan is executed:
+
+  autopilot           Fully autonomous run registered with the autopilot
+  pipeline            Each task becomes a pipeline job
+  orchestrator_worker Orchestrator + workers with human approval gates
+  manual              State tracking only; human drives all prompting
+
+Note: this is a Phase 5 feature stub — the daemon returns 501 until Phase 5 ships.
+
+Usage:
+  warden plan run <plan-id> --mode <mode> [flags]
+
+Flags:
+  -h, --help             help for run
+      --mode string      execution mode: autopilot|pipeline|orchestrator_worker|manual
+      --project string   project ID (default: current directory)
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -4383,6 +4584,7 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | `warden msg send` | `warden message send` |
 | `warden msg wait` | `warden message wait` |
 | `warden pipeline list-templates` | `warden pipeline template list` |
+| `warden plan ls` | `warden plan list` |
 | `warden plugin` | `warden project plugin` |
 | `warden plugin list` | `warden project plugin list` |
 | `warden preset` | `warden project preset` |

@@ -9,7 +9,7 @@ import (
 )
 
 var canonicalNamespaces = []string{
-	"agent", "pipeline", "autopilot", "schedule",
+	"agent", "pipeline", "plan", "autopilot", "schedule",
 	"project", "projects", "project-groups", "workspace", "git", "check",
 	"context", "message", "approval",
 	"inspect", "backend", "usage", "config",
