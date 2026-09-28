@@ -1,0 +1,58 @@
+version: 1
+goal: >-
+  Fix the Antigravity usage API in warden to report two distinct model buckets
+  (gemini and non-gemini). For each bucket, usage is reported per the 5-hour
+  session limit as long as the weekly limit is not exhausted. Once the weekly
+  limit is exhausted, the bucket reports 100% used (0% remaining) with the reset
+  time switching to the weekly limit reset time.
+constraints:
+  - "Work in an isolated git worktree branched off main; one PR."
+  - "Run wd check (make verify-fast) before every commit."
+  - "Keep internal/backendusage/antigravity.go and internal/agentbackend/backends/antigravity.go in sync."
+  - "Do not break existing per-scope quota routing (gemini and non-gemini scopes)."
+tasks:
+  - id: Step1_BackendUsageAdapter
+    prompt: >-
+      Update internal/backendusage/antigravity.go:
+        - Update parseAntigravityQuotaSummary to group buckets by pool (gemini, non-gemini).
+        - For each pool, track both 5-hour session and weekly bucket stats (remainingFraction and resetTime).
+        - If the weekly limit is exhausted (remainingFraction <= 0), emit 100% used, 0% remaining,
+          limitState 'reached', weekly duration, and the weekly reset time.
+        - As long as the weekly limit is not exhausted, emit usage and reset time based on the
+          5-hour session limit.
+        - Update antigravityEmptyLimits to emit 2 limits: 'antigravity:gemini' and 'antigravity:non-gemini'.
+    status: completed
+
+  - id: Step2_AgentBackendAdapter
+    prompt: >-
+      Update internal/agentbackend/backends/antigravity.go:
+        - Keep agyParseQuotaSummary, resolveAgyPoolLimit, and agyEmptyLimits identical in behavior
+          to the backendusage adapter.
+        - Emit 'antigravity:gemini' (Gemini models) and 'antigravity:non-gemini' (Non-Gemini models).
+    after: [Step1_BackendUsageAdapter]
+    status: completed
+
+  - id: Step3_UnitTests
+    prompt: >-
+      Update and add unit tests:
+        - internal/backendusage/antigravity_test.go: assert 2 bucket limits from quota summary fixture,
+          test weekly exhaustion override behavior, and test fallback on RPC failure.
+        - internal/agentbackend/backends/antigravity_test.go: assert 2 bucket limits from summary fixture.
+      Run go test ./internal/backendusage/... ./internal/agentbackend/... to verify.
+    after: [Step2_AgentBackendAdapter]
+    status: completed
+
+  - id: Step4_Verification
+    prompt: >-
+      Verify the full test suite and live output:
+        - Run go test ./... across all packages.
+        - Build warden binary and verify wd usage --refresh output.
+    after: [Step3_UnitTests]
+    status: completed
+
+done_when:
+  - "Antigravity usage reports 2 model bucket limits: antigravity:gemini and antigravity:non-gemini."
+  - "Session limit usage and reset time are displayed when weekly limit is not exhausted."
+  - "100% used (0% remaining) and weekly reset time are displayed when weekly limit is exhausted."
+  - "All unit tests in internal/backendusage and internal/agentbackend/backends pass."
+  - "Full repository test suite passes with code 0."
