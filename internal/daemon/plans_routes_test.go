@@ -16,6 +16,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/srjn45/warden/internal/brainconsult"
+	"github.com/srjn45/warden/internal/ctxstore"
+	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/planstore"
 )
 
@@ -541,22 +543,221 @@ tasks:
 	require.Empty(t, p.TaskProgress)
 }
 
-// TestPlansRunStub verifies POST /run returns 501 for a known plan.
-func TestPlansRunStub(t *testing.T) {
+// TestPlansRunAlreadyInProgress verifies POST /run returns 409 when the plan is already in_progress.
+func TestPlansRunAlreadyInProgress(t *testing.T) {
 	ts, ps := planServer(t)
 	ctx := t.Context()
 
-	id := planstore.PlanID("proj-1", "run-me")
+	id := planstore.PlanID("proj-1", "already-running")
 	require.NoError(t, ps.Create(ctx, &planstore.Plan{
-		ID: id, ProjectID: "proj-1", Name: "run-me",
-		FilePath: "plans/pending/run-me.yaml", Status: planstore.PlanStatusPending,
+		ID: id, ProjectID: "proj-1", Name: "already-running",
+		FilePath: "plans/in_progress/already-running.yaml", Status: planstore.PlanStatusInProgress,
 	}))
 
-	resp := postJSON(t, planURL(ts.URL, "proj-1", "/"+id+"/run"), map[string]any{
-		"mode": "autopilot",
-	})
+	resp := postJSON(t, planURL(ts.URL, "proj-1", "/"+id+"/run"), map[string]any{"mode": "manual"})
 	defer resp.Body.Close()
-	require.Equal(t, http.StatusNotImplemented, resp.StatusCode)
+	require.Equal(t, http.StatusConflict, resp.StatusCode)
+}
+
+// TestPlansRunAlreadyCompleted verifies POST /run returns 409 when the plan is already completed.
+func TestPlansRunAlreadyCompleted(t *testing.T) {
+	ts, ps := planServer(t)
+	ctx := t.Context()
+
+	id := planstore.PlanID("proj-1", "already-done")
+	require.NoError(t, ps.Create(ctx, &planstore.Plan{
+		ID: id, ProjectID: "proj-1", Name: "already-done",
+		FilePath: "plans/completed/already-done.yaml", Status: planstore.PlanStatusCompleted,
+	}))
+
+	resp := postJSON(t, planURL(ts.URL, "proj-1", "/"+id+"/run"), map[string]any{"mode": "manual"})
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusConflict, resp.StatusCode)
+}
+
+// planGitServer builds a route server backed by a real ScrivaDB plan store and
+// a git-initialised project root. The project_id equals root so the server's
+// fallback path (id == path) resolves to a real directory.
+func planGitServer(t *testing.T) (*httptest.Server, *planstore.Store, string) {
+	t.Helper()
+	root := t.TempDir()
+	gitInit(t, root)
+
+	ps, err := planstore.New(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ps.Close() })
+
+	srv := &Server{store: newFakeStore(), life: &fakeLife{}, plans: ps}
+	ts := httptest.NewServer(srv.router())
+	t.Cleanup(ts.Close)
+	return ts, ps, root
+}
+
+// planGitServerWithExec is like planGitServer but also wires an Executor so
+// pipeline mode can be tested.
+func planGitServerWithExec(t *testing.T) (*httptest.Server, *planstore.Store, string, *pipeline.Store) {
+	t.Helper()
+	root := t.TempDir()
+	gitInit(t, root)
+
+	ps, err := planstore.New(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ps.Close() })
+
+	pips, err := pipeline.NewStore(t.TempDir())
+	require.NoError(t, err)
+
+	cs, err := ctxstore.New(t.TempDir())
+	require.NoError(t, err)
+
+	fl := &fakeLife{}
+	exec := NewExecutor(pips, newFakeStore(), fl, cs, func() {})
+
+	srv := &Server{store: newFakeStore(), life: fl, plans: ps, exec: exec}
+	ts := httptest.NewServer(srv.router())
+	t.Cleanup(ts.Close)
+	return ts, ps, root, pips
+}
+
+// seedPlanYAML writes a minimal plan YAML with tasks into root/subpath and
+// git-adds and commits it so git mv works in tests.
+func seedPlanYAML(t *testing.T, root, subpath, name string) {
+	t.Helper()
+	abs := filepath.Join(root, subpath)
+	require.NoError(t, os.MkdirAll(filepath.Dir(abs), 0o755))
+	content := fmt.Sprintf("version: 1\nname: %s\ngoal: test\ntasks:\n  - id: t1\n    prompt: task 1\n", name)
+	require.NoError(t, os.WriteFile(abs, []byte(content), 0o644))
+	gitAdd(t, root, subpath)
+	gitCommit(t, root, "add plan "+name)
+}
+
+// TestPlansRunManual verifies POST /run with mode=manual git-mv's the YAML
+// into plans/in_progress/ and updates the DB record.
+func TestPlansRunManual(t *testing.T) {
+	ts, ps, root := planGitServer(t)
+	ctx := t.Context()
+
+	seedPlanYAML(t, root, "plans/pending/manual-plan.yaml", "manual-plan")
+
+	id := planstore.PlanID(root, "manual-plan")
+	require.NoError(t, ps.Create(ctx, &planstore.Plan{
+		ID: id, ProjectID: root, Name: "manual-plan",
+		FilePath: "plans/pending/manual-plan.yaml", Status: planstore.PlanStatusPending,
+	}))
+
+	resp := postJSON(t, planURL(ts.URL, root, "/"+id+"/run"), map[string]any{"mode": "manual"})
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(body))
+
+	var got planstore.Plan
+	require.NoError(t, json.NewDecoder(bytes.NewReader(body)).Decode(&got))
+	require.Equal(t, planstore.PlanStatusInProgress, got.Status)
+	require.Equal(t, "plans/in_progress/manual-plan.yaml", got.FilePath)
+	require.Equal(t, planstore.PlanModeManual, got.ExecutionMode)
+	require.NotNil(t, got.StartedAt)
+
+	// Verify the YAML was moved on disk.
+	_, err := os.Stat(filepath.Join(root, "plans", "in_progress", "manual-plan.yaml"))
+	require.NoError(t, err, "YAML must be in plans/in_progress/")
+	_, err = os.Stat(filepath.Join(root, "plans", "pending", "manual-plan.yaml"))
+	require.True(t, os.IsNotExist(err), "YAML must be removed from plans/pending/")
+}
+
+// TestPlansRunUnknownMode verifies POST /run with an unknown mode returns 400.
+func TestPlansRunUnknownMode(t *testing.T) {
+	ts, ps, root := planGitServer(t)
+	ctx := t.Context()
+
+	seedPlanYAML(t, root, "plans/pending/bad-mode.yaml", "bad-mode")
+
+	id := planstore.PlanID(root, "bad-mode")
+	require.NoError(t, ps.Create(ctx, &planstore.Plan{
+		ID: id, ProjectID: root, Name: "bad-mode",
+		FilePath: "plans/pending/bad-mode.yaml", Status: planstore.PlanStatusPending,
+	}))
+
+	resp := postJSON(t, planURL(ts.URL, root, "/"+id+"/run"), map[string]any{"mode": "invalid_mode"})
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+// TestPlansRunPipelineMode verifies POST /run with mode=pipeline creates a
+// pipeline with one job per task and sets the plan's PipelineID.
+func TestPlansRunPipelineMode(t *testing.T) {
+	ts, ps, root, pips := planGitServerWithExec(t)
+	ctx := t.Context()
+
+	seedPlanYAML(t, root, "plans/pending/pipeline-plan.yaml", "pipeline-plan")
+
+	id := planstore.PlanID(root, "pipeline-plan")
+	require.NoError(t, ps.Create(ctx, &planstore.Plan{
+		ID: id, ProjectID: root, Name: "pipeline-plan",
+		FilePath: "plans/pending/pipeline-plan.yaml", Status: planstore.PlanStatusPending,
+	}))
+
+	resp := postJSON(t, planURL(ts.URL, root, "/"+id+"/run"), map[string]any{"mode": "pipeline"})
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(body))
+
+	var got planstore.Plan
+	require.NoError(t, json.NewDecoder(bytes.NewReader(body)).Decode(&got))
+	require.Equal(t, planstore.PlanStatusInProgress, got.Status)
+	require.Equal(t, planstore.PlanModePipeline, got.ExecutionMode)
+	require.NotEmpty(t, got.PipelineID, "PipelineID must be set for pipeline mode")
+
+	// Verify the pipeline was created.
+	pl, err := pips.Get(got.PipelineID)
+	require.NoError(t, err, "pipeline must exist in store")
+	require.NotEmpty(t, pl.Jobs, "pipeline must have at least one job")
+}
+
+// TestPlansRunAutopilotUnconfigured verifies POST /run with mode=autopilot
+// returns 503 when the autopilot controller is not wired.
+func TestPlansRunAutopilotUnconfigured(t *testing.T) {
+	ts, ps, root := planGitServer(t)
+	ctx := t.Context()
+
+	seedPlanYAML(t, root, "plans/pending/ap-plan.yaml", "ap-plan")
+
+	id := planstore.PlanID(root, "ap-plan")
+	require.NoError(t, ps.Create(ctx, &planstore.Plan{
+		ID: id, ProjectID: root, Name: "ap-plan",
+		FilePath: "plans/pending/ap-plan.yaml", Status: planstore.PlanStatusPending,
+	}))
+
+	resp := postJSON(t, planURL(ts.URL, root, "/"+id+"/run"), map[string]any{"mode": "autopilot"})
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+}
+
+// TestPlansRunOrchestratorMode verifies POST /run with mode=orchestrator_worker
+// spawns an orchestrator agent and sets OrchestratorID.
+func TestPlansRunOrchestratorMode(t *testing.T) {
+	ts, ps, root := planGitServer(t)
+	ctx := t.Context()
+
+	// Override the server's lifecycle with a fakeLife that we can inspect.
+	// The planGitServer already uses fakeLife, so we just verify OrchestratorID is set.
+	seedPlanYAML(t, root, "plans/pending/orch-plan.yaml", "orch-plan")
+
+	id := planstore.PlanID(root, "orch-plan")
+	require.NoError(t, ps.Create(ctx, &planstore.Plan{
+		ID: id, ProjectID: root, Name: "orch-plan",
+		FilePath: "plans/pending/orch-plan.yaml", Status: planstore.PlanStatusPending,
+	}))
+
+	resp := postJSON(t, planURL(ts.URL, root, "/"+id+"/run"), map[string]any{"mode": "orchestrator_worker"})
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(body))
+
+	var got planstore.Plan
+	require.NoError(t, json.NewDecoder(bytes.NewReader(body)).Decode(&got))
+	require.Equal(t, planstore.PlanStatusInProgress, got.Status)
+	require.Equal(t, planstore.PlanModeOrchestratorWorker, got.ExecutionMode)
+	require.NotEmpty(t, got.OrchestratorID, "OrchestratorID must be set for orchestrator_worker mode")
 }
 
 // TestPlansRun404 verifies POST /run returns 404 for unknown plan.

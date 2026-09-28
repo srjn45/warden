@@ -166,6 +166,13 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 		go s.runStartupPlanScan(runCtx)
 	}
 
+	// Plan completion watcher: advances in_progress plans to completed/ when
+	// their autopilot run or pipeline finishes. A no-op when no plan store is
+	// wired.
+	if s.plans != nil {
+		go s.runPlanCompletionWatcher(runCtx, 60*time.Second)
+	}
+
 	pollerDone := make(chan struct{})
 	if s.poller != nil {
 		go func() { defer close(pollerDone); s.poller.Run(runCtx, s.pollInterval) }()
