@@ -303,7 +303,9 @@ func TestProjectGroupedItemsClosedProjectHidesAgentsToUngrouped(t *testing.T) {
 
 func TestProjectGroupedItemsEmptyOpenProjectShowsPlaceholder(t *testing.T) {
 	projs := []projectstore.Project{{ID: "/repos/empty", Name: "Empty", Path: "/repos/empty", Status: projectstore.StatusOpen}}
-	items := projectGroupedItems(projs, nil, nil, nil, nil, nil, nil)
+	// Empty projects collapse by default; explicitly expand so the placeholder is visible.
+	expanded := map[string]bool{projKey("/repos/empty"): false}
+	items := projectGroupedItems(projs, nil, nil, nil, nil, nil, expanded)
 	h := projHdrByID(items, "/repos/empty")
 	require.NotNil(t, h, "an open project shows even with no agents (IDE-style)")
 	require.Equal(t, 0, h.agentCount)

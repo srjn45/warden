@@ -26,7 +26,7 @@ func RunPlanDetailPane(a api, projectID, planID string) error {
 	} else {
 		// The subprocess runs in the tmux pane whose cwd is the project root,
 		// so passing "" falls back to filepath.Abs which resolves correctly.
-		fmt.Println(planDetailText(p, 100, ""))
+		fmt.Println(planDetailText(p, 100, "", false))
 	}
 	select {} // hold the pane open until tmux respawns it
 }
@@ -52,7 +52,7 @@ func openPlanDetailCmd(agentPane, projectID, planID string) tea.Cmd {
 // planDetailText renders a plan's detail view for display.
 // projectRoot is the absolute path to the project's root directory, used to
 // resolve p.FilePath (which is relative to that root) for YAML task reading.
-func planDetailText(p *planstore.Plan, width int, projectRoot string) string {
+func planDetailText(p *planstore.Plan, width int, projectRoot string, expanded bool) string {
 	if p == nil {
 		return ""
 	}
@@ -111,36 +111,45 @@ func planDetailText(p *planstore.Plan, width int, projectRoot string) string {
 				status = "pending"
 			}
 
+			var icon string
 			statusStyle := stMuted
 			switch status {
 			case "done", "completed":
+				icon = "✓"
 				statusStyle = stBusy // green
 			case "in_progress":
+				icon = "▶"
 				statusStyle = stRunning // cyan
 			case "skipped":
+				icon = "—"
 				statusStyle = stIdle
+			default:
+				icon = "·"
 			}
 
-			b.WriteString(fmt.Sprintf("\n  %d. %s  %s\n",
+			b.WriteString(fmt.Sprintf("\n  %s %d. %s\n",
+				statusStyle.Render(icon),
 				i+1,
 				stHeader.Render(t.ID),
-				statusStyle.Render("["+status+"]"),
 			))
 
-			if t.LandedPR > 0 {
-				b.WriteString(fmt.Sprintf("     %s PR #%d\n", stMuted.Render("landed:"), t.LandedPR))
-			}
+			if expanded {
+				if t.LandedPR > 0 {
+					b.WriteString(fmt.Sprintf("     %s PR #%d\n", stMuted.Render("landed:"), t.LandedPR))
+				}
 
-			if len(t.After) > 0 {
-				b.WriteString(fmt.Sprintf("     %s %s\n", stMuted.Render("after:"), strings.Join(t.After, ", ")))
-			}
+				if len(t.After) > 0 {
+					b.WriteString(fmt.Sprintf("     %s %s\n", stMuted.Render("after:"), strings.Join(t.After, ", ")))
+				}
 
-			if t.Prompt != "" {
-				for _, line := range promptPreview(t.Prompt, 3) {
-					b.WriteString("     " + stMuted.Render(line) + "\n")
+				if t.Prompt != "" {
+					for _, line := range promptPreview(t.Prompt, 3) {
+						b.WriteString("     " + stMuted.Render(line) + "\n")
+					}
 				}
 			}
 		}
+		b.WriteString("\n" + stMuted.Render("  [t] toggle task details") + "\n")
 	} else if len(p.TaskProgress) > 0 {
 		// YAML unavailable — fall back to DB task progress map
 		keys := make([]string, 0, len(p.TaskProgress))
@@ -150,17 +159,22 @@ func planDetailText(p *planstore.Plan, width int, projectRoot string) string {
 		sort.Strings(keys)
 		for i, k := range keys {
 			status := p.TaskProgress[k]
+			var icon string
 			statusStyle := stMuted
 			switch status {
 			case "done", "completed":
+				icon = "✓"
 				statusStyle = stBusy
 			case "in_progress":
+				icon = "▶"
 				statusStyle = stRunning
+			default:
+				icon = "·"
 			}
-			b.WriteString(fmt.Sprintf("\n  %d. %s  %s\n",
+			b.WriteString(fmt.Sprintf("\n  %s %d. %s\n",
+				statusStyle.Render(icon),
 				i+1,
 				stHeader.Render(k),
-				statusStyle.Render("["+status+"]"),
 			))
 		}
 	} else {
@@ -196,7 +210,10 @@ func planTasksFromPlan(p *planstore.Plan, projectRoot string) ([]planstore.PlanT
 func projectRootForID(projects []projectstore.Project, projectID string) string {
 	for _, p := range projects {
 		if p.ID == projectID {
-			return p.Path
+			if p.Path != "" {
+				return p.Path
+			}
+			return p.ID // for local projects, ID is the absolute path
 		}
 	}
 	return ""

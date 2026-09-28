@@ -92,51 +92,28 @@ func TestPlanTree_StructureAndGrouping(t *testing.T) {
 
 	items := buildProjectItems(projs, nil, sessions, nil, client.AutopilotStatus{}, plansMap, nil, nil, false)
 
-	// All groups collapsed by default. Items structure:
-	// 0: Project Header
-	// 1: Plans Header (expanded)
-	// 2: In Progress Group (cnt 1, collapsed by default)
-	// 3: Pending Group (cnt 2, collapsed by default)
-	// 4: Completed Group (cnt 1, collapsed by default)
-	// 5: Archived Group (cnt 1, collapsed by default)
-	// 6: Agent "agent-1" (BELOW Plans!)
-	require.Len(t, items, 7)
+	// Plans header always collapsed by default. Items structure:
+	// 0: Project Header (expanded — has children)
+	// 1: Plans Header (collapsed — always collapsed by default)
+	// 2: Agent "agent-1" (BELOW Plans!)
+	require.Len(t, items, 3)
 
 	// 0: Project header
 	require.NotNil(t, items[0].projHdr)
 	require.Equal(t, "My Project", items[0].projHdr.name)
 
-	// 1: Plans header (depth 1, above agents)
+	// 1: Plans header (depth 1, above agents) — always collapsed by default
 	require.True(t, items[1].planHeader)
 	require.Equal(t, "proj-1", items[1].planProject)
-	require.False(t, items[1].collapsed, "plans header with plans is expanded by default")
+	require.True(t, items[1].collapsed, "plans header is always collapsed by default")
 
-	// 2: In Progress group — collapsed by default
-	require.Equal(t, string(planstore.PlanStatusInProgress), items[2].planGroup)
-	require.Equal(t, 1, items[2].planGroupCnt)
-	require.True(t, items[2].collapsed, "In Progress group collapsed by default")
+	// 2: Agent row (must appear AFTER/BELOW plans!)
+	require.NotNil(t, items[2].session)
+	require.Equal(t, "agent-1", items[2].session.ID)
 
-	// 3: Pending group — collapsed by default
-	require.Equal(t, string(planstore.PlanStatusPending), items[3].planGroup)
-	require.Equal(t, 2, items[3].planGroupCnt)
-	require.True(t, items[3].collapsed, "Pending group collapsed by default")
-
-	// 4: Completed group — collapsed by default
-	require.Equal(t, string(planstore.PlanStatusCompleted), items[4].planGroup)
-	require.Equal(t, 1, items[4].planGroupCnt)
-	require.True(t, items[4].collapsed, "Completed group collapsed by default")
-
-	// 5: Archived group — collapsed by default
-	require.Equal(t, string(planstore.PlanStatusArchived), items[5].planGroup)
-	require.Equal(t, 1, items[5].planGroupCnt)
-	require.True(t, items[5].collapsed, "Archived group collapsed by default")
-
-	// 6: Agent row (must appear AFTER/BELOW plans!)
-	require.NotNil(t, items[6].session)
-	require.Equal(t, "agent-1", items[6].session.ID)
-
-	// Expand in_progress and archived groups explicitly
+	// Expand plans header and in_progress + archived groups explicitly
 	collapsed := map[string]bool{
+		"plans:proj-1":             false,
 		"plans:proj-1:in_progress": false,
 		"plans:proj-1:archived":    false,
 	}
@@ -159,7 +136,10 @@ func TestPlanTree_BadgesAndRendering(t *testing.T) {
 	plans := samplePlans()
 	plansMap := map[string][]*planstore.Plan{"proj-1": plans}
 
-	items := buildProjectItems(projs, nil, nil, nil, client.AutopilotStatus{}, plansMap, nil, nil, false)
+	// Project has no sessions → collapsed by default; plans header also collapsed by default.
+	// Explicitly open both so we can verify badges in the rendered output.
+	collapsedMap := map[string]bool{"project:proj-1": false, "plans:proj-1": false}
+	items := buildProjectItems(projs, nil, nil, nil, client.AutopilotStatus{}, plansMap, nil, collapsedMap, false)
 	out := renderList(items, 1, 100, 20)
 
 	// Plans header
@@ -213,18 +193,25 @@ func TestPlanTree_EmptyPlansCollapsedByDefault(t *testing.T) {
 	// Project with 0 plans
 	plansMap := map[string][]*planstore.Plan{"proj-1": {}}
 
+	// Project has no children → collapsed by default.
 	items := buildProjectItems(projs, nil, nil, nil, client.AutopilotStatus{}, plansMap, nil, nil, false)
-	require.Len(t, items, 3) // projHdr, planHeader, empty project placeholder
+	require.Len(t, items, 1)
 	require.NotNil(t, items[0].projHdr)
-	require.True(t, items[1].planHeader)
-	require.True(t, items[1].collapsed, "empty plans header is collapsed by default")
+	require.True(t, items[0].collapsed, "project with no children is collapsed by default")
+
+	// With project explicitly expanded, plans header is still collapsed by default.
+	expanded := map[string]bool{"project:proj-1": false}
+	items2 := buildProjectItems(projs, nil, nil, nil, client.AutopilotStatus{}, plansMap, nil, expanded, false)
+	require.Len(t, items2, 3) // projHdr, planHeader(collapsed), empty placeholder
+	require.True(t, items2[1].planHeader)
+	require.True(t, items2[1].collapsed, "plans header is always collapsed by default")
 }
 
 func TestPlanTree_PlanDetailText(t *testing.T) {
 	plans := samplePlans()
 	p := plans[0] // plan-ip
 
-	text := planDetailText(p, 80, "")
+	text := planDetailText(p, 80, "", false)
 	// Header is the plan name (no "Plan:" prefix)
 	require.Contains(t, text, "Active Work")
 	require.Contains(t, text, "ID:")
@@ -254,7 +241,7 @@ func TestPlanTree_PlanDetailText(t *testing.T) {
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
-	textEmpty := planDetailText(pEmpty, 80, "")
+	textEmpty := planDetailText(pEmpty, 80, "", false)
 	require.Contains(t, textEmpty, "Executed Using:")
 	require.Contains(t, textEmpty, "manual")
 }
@@ -272,8 +259,10 @@ func setupPlanTestModel(a *fakeAPI) controlPaneModel {
 	m.plans = map[string][]*planstore.Plan{
 		"proj-1": samplePlans(),
 	}
-	// Pre-expand in_progress so keybinding tests can reach a plan at cursor 3.
-	// All groups default to collapsed; tests that need a plan row must expand first.
+	// Pre-expand project and plans header so keybinding tests can navigate into plans.
+	// With new defaults, both are collapsed until explicitly opened.
+	m.collapsed["project:proj-1"] = false
+	m.collapsed["plans:proj-1"] = false
 	m.collapsed["plans:proj-1:in_progress"] = false
 	return m
 }

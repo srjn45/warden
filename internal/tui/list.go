@@ -503,6 +503,13 @@ func normalizeCollapseKeys(in map[string]bool) map[string]bool {
 	out := make(map[string]bool, len(in))
 	for k, v := range in {
 		if !v {
+			// Preserve explicit "expanded" overrides for composite keys so callers
+			// can force-expand a node whose default would be collapsed.
+			if strings.HasPrefix(k, "project:") || strings.HasPrefix(k, "session:") ||
+				strings.HasPrefix(k, "pipeline:") || strings.HasPrefix(k, "run:") ||
+				strings.HasPrefix(k, "plans:") {
+				out[k] = false
+			}
 			continue
 		}
 		switch {
