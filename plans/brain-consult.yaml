@@ -1,0 +1,186 @@
+version: 1
+goal: >-
+  Add a shared need-based brain consult path: when deterministic recovery is exhausted, warden spawns a short-lived role=brain agent (subscription aicli), gives it a structured situation package (what happened, what warden is trying to do, what it already tried, closed menu of next actions), and executes exactly one validated action the brain returns. Primary consumer is PipelineWatcher (keep DAGs moving autonomously after the existing one-shot Retry fails). Secondary consumer is autopilot's existing on-demand resolver (role=brain) — route it through the same consult helper so pipeline and autopilot share one contract, teardown, and audit trail. Does NOT change the long-lived autopilot manager (role=autopilot).
+constraints:
+  - "API is spec-first: edit openapi.yaml then make generate; never hand-edit api.gen.go."
+  - "Work in an isolated git worktree branched off main; one PR per phase."
+  - "Run wd check (make verify-fast) before every commit."
+  - "Happy-path pipelines stay reactive (emit → Reconcile; Poller OnTransition). Brain consult is exception-only."
+  - "Brain never runs free-form tools against the repo for recovery: it returns a closed action id; warden executes it."
+  - "Reuse role=brain (tier-2, auto_approve). Do not add a new role. Do not spawn a long-lived pipeline manager."
+  - "Autopilot manager (role=autopilot) stays long-lived; only the resolver path is unified."
+  - "Orphaned-agent AutoRestart (monitoring gap 1) is OUT OF SCOPE — separate plan if pursued."
+  - "Confirm with the maintainer before pushing any v* tag."
+tasks:
+  - id: Phase0_Spec
+    prompt: >-
+      Phase 0 (spec freeze — docs only): Write docs/specs/2026-09-27-brain-consult.md capturing the locked decisions below. No production code. Open a PR against main titled 'docs(spec): shared need-based brain consult'. End with `wd job done --summary '...'` once the PR is green.
+
+      **Problem.** Pipelines are expected to run unattended to completion. Deterministic recovery exists (emit/OnTransition reactive path; PipelineWatcher startup reconcile, one-shot Retry after stuck_retry_after, stall reconcile). When a job is still stuck or the pane shows an unusual state after that ladder, warden has no non-deterministic next step — it escalates or sits. Autopilot already has an on-demand role=brain resolver, but there is no shared consult contract (situation package, closed action enum, teardown, audit) that pipelines can reuse.
+
+      **Locked decisions:**
+
+      D1. New package `internal/brainconsult` (name may be `consult` under
+
+          `internal/daemon` if a subpackage is lighter — pick one in the spec
+          and stick to it). Public API sketch:
+            type Action string // closed enum
+            type Request struct {
+              Intent      string            // e.g. "pipeline_stuck" | "autopilot_unblock"
+              Situation   string            // human-readable scenario
+              Goal        string            // what warden is trying to do
+              AlreadyTried []string
+              Evidence    Evidence          // pane excerpt, statuses, ids
+              Allowed     []Action          // menu presented to the brain
+            }
+            type Result struct {
+              Action Action
+              Reason string
+              BrainID string
+            }
+            type Consultor interface {
+              Consult(ctx context.Context, req Request) (Result, error)
+            }
+          Consult spawns role=brain, injects the prompt, waits for a structured
+          reply (JSON or single-line `ACTION=<id>` — freeze one format),
+          tears the brain down, returns Result. Timeout + cancel required.
+
+      D2. Closed action enum (v1 — freeze in spec; extend later with care):
+
+            wait | nudge_agent | retry_job | mark_failed | skip_job |
+            escalate | noop
+          Pipeline consumer may only offer a subset (e.g. no skip_job unless
+          the job allows skip). Autopilot consumer may offer a different subset
+          (e.g. nudge_agent, escalate, noop, plus autopilot-specific actions
+          added in Phase 3 if needed — prefer reuse over growth).
+
+      D3. Prompt contract (exact template in the spec):
+
+            "Scenario: … / Goal: … / Already tried: … / Evidence: … /
+             Allowed next steps: […]. Reply with exactly one action id and a
+             one-line reason in the frozen reply format."
+
+      D4. PipelineWatcher integration point: AFTER the existing deterministic
+
+          one-shot Retry has been attempted (AutoRetryCount >= 1) and the job
+          is still needs_attention (or equivalent stuck), call Consult once
+          per stuck episode (dedupe key pid/jobID + generation). Execute the
+          returned action via Executor (Retry / mark failed / send nudge /
+          escalate notify). Cap concurrent brain consults (config, default 1).
+
+      D5. Autopilot: manager-spawned role=brain resolvers SHOULD go through
+
+          the same Consultor (or a thin wrapper) so teardown, audit, and reply
+          parsing are shared. Do not change manager liveness or Guardian.
+
+      D6. Audit: every consult writes an audit/event record
+
+          (intent, brain_id, action, reason, pipeline/job or run/task ids).
+
+      D7. Config (names freeze in spec): e.g.
+
+          brain_consult.enabled (bool, default true),
+          brain_consult.timeout (Duration, default 10m),
+          brain_consult.max_concurrent (int, default 1),
+          and a pipeline flag to enable consult after retry
+          (pipeline.brain_consult, default true) so operators can disable.
+
+      D8. Non-goals: long-lived pipeline manager; brain free-form repo edits;
+
+          orphaned-agent AutoRestart; changing emit/Reconcile happy path.
+    status: pending
+  - id: Phase1_ConsultCore
+    prompt: >-
+      Phase 1 (consult core): Implement the Consultor from the spec (D1–D3, D6–D7 skeleton). Open a PR against main titled 'feat(daemon): shared need-based brain consult core'. End with `wd job done --summary '...'` once the PR is green.
+
+      Read docs/specs/2026-09-27-brain-consult.md before starting.
+
+      **Deliverables:** 1. Consultor implementation: spawn role=brain via existing lifecycle/spawn
+
+         path (subscription resolver / tier from role defaults), inject prompt,
+         wait for structured reply, parse+validate against Allowed, teardown
+         brain (terminate/done keeping rails), return Result.
+      2. Unit tests: valid action; invalid action → error/escalate path;
+
+         timeout; teardown always runs (defer).
+      3. Config keys wired (hot-reload if the daemon pattern supports it;
+
+         otherwise read at construction — document which).
+      4. No PipelineWatcher wiring yet (Phase 2). No autopilot adoption yet
+
+         (Phase 3).
+
+      Run wd check before committing.
+    after: [Phase0_Spec]
+    status: pending
+  - id: Phase2_PipelineWire
+    prompt: >-
+      Phase 2 (PipelineWatcher wire): After deterministic one-shot Retry fails to clear stuckness, consult the brain and execute the closed action (spec D4). Open a PR against main titled 'feat(daemon): pipeline stuck recovery via brain consult'. End with `wd job done --summary '...'` once the PR is green.
+
+      Read docs/specs/2026-09-27-brain-consult.md before starting.
+
+      **Deliverables:** 1. PipelineWatcher: after AutoRetryCount >= 1 and job still
+
+         needs_attention past stuck_retry_after (or the post-retry stuck
+         condition defined in the spec), build Request (pane excerpt from the
+         job agent session, DAG snippet, AlreadyTried list) and call Consult.
+      2. Action executors: map wait/nudge_agent/retry_job/mark_failed/
+
+         skip_job/escalate/noop onto Executor / send / notify — no new merge
+         paths.
+      3. Dedupe + max_concurrent respected; audit events emitted. 4. Tests: mock Consultor — assert when consult fires and which Executor
+
+         methods run for each action; assert consult does NOT fire before the
+         deterministic Retry.
+
+      Run wd check before committing.
+    after: [Phase1_ConsultCore]
+    status: pending
+  - id: Phase3_AutopilotAdopt
+    prompt: >-
+      Phase 3 (autopilot resolver adopts Consultor): Route manager-spawned role=brain unblocks through the shared consult helper where practical (spec D5), without changing manager/Guardian lifetime. Open a PR against main titled 'feat(autopilot): route resolver brain through shared consult'. End with `wd job done --summary '...'` once the PR is green.
+
+      Read docs/specs/2026-09-27-brain-consult.md before starting.
+
+      **Deliverables:** 1. Prefer a small helper the manager (or daemon-side autopilot runtime)
+
+         can call instead of ad-hoc brain spawns for "unblock worker" cases.
+         If the manager today only spawns brain via MCP textually, document the
+         skill/prompt change and add a daemon-side consult entry point the
+         manager is instructed to use (e.g. MCP tool or ctx convention) —
+         freeze the choice in the PR description against the spec.
+      2. Shared audit + teardown behaviour matches Phase 1. 3. Tests covering the chosen entry point; no regression to manager slot
+
+         liveness / Guardian heal ladder.
+
+      Run wd check before committing.
+    after: [Phase2_PipelineWire]
+    status: pending
+  - id: Phase4_DocsDoD
+    prompt: >-
+      Phase 4 (docs + DoD): Complete the CLAUDE.md Definition-of-Done checklist for this feature. Open a PR against main titled 'docs: brain consult for pipelines and autopilot resolver'. End with `wd job done --summary '...'` once the PR is green.
+
+      **Update:** - docs/FEATURES.md + root FEATURES.md — brain consult + pipeline stuck
+
+        recovery via need-based role=brain
+      - docs/USAGE.md and/or site guide for pipelines — when consult fires,
+
+        closed actions, how to disable
+      - skills/warden/ — note pipeline consult + autopilot resolver sharing
+
+        the consult path; manager remains long-lived
+      - site/src/content/docs/ as needed (pipelines guide / concepts) - Config reference for the new keys - No CLI surface change expected; if an MCP tool was added in Phase 3,
+
+        run make gendocs and commit
+
+      Run wd check before committing.
+    after: [Phase3_AutopilotAdopt]
+    status: pending
+done_when:
+  - "A shared Consultor exists: spawn role=brain, structured reply, teardown, audit."
+  - "Action enum is closed and validated; invalid replies do not execute arbitrary work."
+  - "PipelineWatcher consults only after the deterministic one-shot Retry path."
+  - "Returned pipeline actions execute via existing Executor/send/notify rails."
+  - "Autopilot on-demand resolver uses the same consult contract (or documented thin wrapper)."
+  - "Autopilot manager remains long-lived; Guardian behaviour unchanged."
+  - "make verify-fast passes on main after each phase."
