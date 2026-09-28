@@ -35,6 +35,7 @@ import (
 	"github.com/srjn45/warden/internal/metrics"
 	"github.com/srjn45/warden/internal/notify"
 	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/poller"
 	"github.com/srjn45/warden/internal/projectstore"
@@ -327,6 +328,16 @@ func newDaemonRunCmd() *cobra.Command {
 			}
 			defer projectStore.Close()
 			srv.SetProjects(projectStore)
+
+			// Plan store (docs/specs/2026-09-28-plans-first-class.md Phase 1).
+			// Opened alongside the project store; the daemon auto-scans plans/ for
+			// every known project at startup when both stores are wired.
+			planStore, err := planstore.New(filepath.Join(cfg.DataDir, "plans"))
+			if err != nil {
+				return err
+			}
+			defer planStore.Close()
+			srv.SetPlanStore(planStore)
 			// Project Groups Phase 3 (peer awareness): wire the daemon-side peer-context
 			// provider into lifecycle so a grouped per-project orchestrator learns its
 			// Project Group and sibling orchestrators (recomputed from live store state)
