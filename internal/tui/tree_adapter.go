@@ -312,8 +312,8 @@ func (ctx *adaptCtx) adaptPlans(projectID string) []item {
 		if c, ok := ctx.collapsed[grpKey]; ok {
 			isCollapsed = c
 		} else {
-			// Archived is collapsed by default; others are expanded by default
-			isCollapsed = st == planstore.PlanStatusArchived
+			// All groups collapsed by default
+			isCollapsed = true
 		}
 
 		grpPlans := byStatus[st]

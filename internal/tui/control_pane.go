@@ -1908,7 +1908,7 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = modePlanDetail
 			m.targetPlanID = it.plan.ID
 			m.targetPlanProject = it.plan.ProjectID
-			m.vp.SetContent(planDetailText(it.plan, m.vp.Width))
+			m.vp.SetContent(planDetailText(it.plan, m.vp.Width, projectRootForID(m.projects, it.plan.ProjectID)))
 			m.vp.GotoTop()
 			return m, nil
 		}
