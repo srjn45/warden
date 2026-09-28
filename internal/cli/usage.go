@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -89,24 +90,14 @@ func printUsage(cmd *cobra.Command, s backendusage.Snapshot) error {
 		return err
 	}
 	w := tabwriter.NewWriter(out, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(w, "BACKEND\tPLAN\tSCOPE\tLIMIT\tMODELS\tUSED\tREMAINING\tRESETS\tSTATUS")
+	fmt.Fprintln(w, "AICLI\tBUCKET\tUSED\tREMAINING\tRESETS")
 	for _, b := range s.Backends {
-		plan := "-"
-		if b.Account != nil && b.Account.Plan != "" {
-			plan = b.Account.Plan
-		}
-		status := string(b.Status)
-		if b.Stale {
-			status += " (stale)"
-		} else if b.Cached {
-			status += " (cached)"
-		}
 		if len(b.Usage) == 0 {
-			fmt.Fprintf(w, "%s\t%s\t-\t-\t-\t-\t-\t-\t%s\n", b.ID, plan, status)
+			fmt.Fprintf(w, "%s\t-\t-\t-\t-\n", b.ID)
 			continue
 		}
 		for _, limit := range b.Usage {
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", b.ID, plan, limit.Scope, limitLabel(limit), usageModelCell(limit), percentCell(limit.UsedPercent), percentCell(limit.RemainingPercent), resetCell(limit.ResetsAt), status)
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", b.ID, bucketLabel(limit), percentCell(limit.UsedPercent), percentCell(limit.RemainingPercent), resetCell(limit.ResetsAt))
 		}
 	}
 	if err := w.Flush(); err != nil {
@@ -124,17 +115,33 @@ func percentCell(v *float64) string {
 	if v == nil {
 		return "-"
 	}
-	return strconv.FormatFloat(*v, 'f', -1, 64) + "%"
+	rounded := math.Round(*v*100) / 100
+	return strconv.FormatFloat(rounded, 'f', -1, 64) + "%"
 }
+
 func resetCell(v *time.Time) string {
 	if v == nil {
 		return "-"
 	}
 	return v.In(time.Local).Format("2006-01-02 15:04 MST")
 }
-func limitLabel(limit backendusage.Limit) string {
+
+func bucketLabel(limit backendusage.Limit) string {
+	switch strings.ToLower(strings.TrimSpace(limit.Label)) {
+	case "gemini models", "gemini":
+		return "Gemini"
+	case "non-gemini models", "non-gemini":
+		return "Non-Gemini"
+	case "session (5-hour)", "session":
+		return "Session"
+	case "codex primary", "primary":
+		return "Primary"
+	}
 	if limit.Label != "" {
 		return limit.Label
+	}
+	if limit.Scope != "" {
+		return limit.Scope
 	}
 	if limit.DurationMinutes != nil {
 		return durationCell(*limit.DurationMinutes)
@@ -142,14 +149,6 @@ func limitLabel(limit backendusage.Limit) string {
 	return limit.ID
 }
 
-func usageModelCell(limit backendusage.Limit) string {
-	selectors := append([]string(nil), limit.ModelFamilies...)
-	selectors = append(selectors, limit.Models...)
-	if len(selectors) == 0 {
-		return "-"
-	}
-	return strings.Join(selectors, ",")
-}
 func durationCell(minutes int) string {
 	if minutes%(7*24*60) == 0 {
 		return fmt.Sprintf("%dw", minutes/(7*24*60))
