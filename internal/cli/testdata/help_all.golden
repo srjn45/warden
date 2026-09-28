@@ -44,6 +44,15 @@ Complete command tree:
   warden pipeline emit                 Publish this job's handoff (run from inside a pipeline job)
   warden pipeline edit-job             Edit a pending job's prompt and/or handoff
   warden pipeline retry                Re-run a failed or needs-attention job (reopens skipped descendants)
+  warden plan                          Manage plans tracked by the daemon
+  warden plan list                     List plans for a project
+  warden plan show                     Show detail for one plan
+  warden plan import                   Copy a plan YAML into plans/pending/ and scan
+  warden plan scan                     Scan a project's plans/ directory and upsert plan records
+  warden plan status                   Transition a plan's status (git mv + commit + DB update)
+  warden plan archive                  Archive a plan (shorthand for `plan status <id> archived`)
+  warden plan assess                   Brain-assisted task progress assessment (Phase 4 stub)
+  warden plan run                      Start execution of a plan in the given mode (Phase 5 stub)
   warden autopilot                     Turn autopilot mode on/off per repo and show its status
   warden autopilot enable              Enable autopilot for this repo (runs the enable-time preflight)
   warden autopilot disable             Disable autopilot for this repo (kill switch — stops spawning/landing)
@@ -272,6 +281,7 @@ Compatibility aliases:
   warden msg send -> warden message send (compatibility)
   warden msg wait -> warden message wait (compatibility)
   warden pipeline list-templates -> warden pipeline template list (compatibility)
+  warden plan ls -> warden plan list (compatibility)
   warden plugin -> warden project plugin (compatibility)
   warden plugin list -> warden project plugin list (compatibility)
   warden preset -> warden project preset (compatibility)

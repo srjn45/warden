@@ -177,6 +177,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(tokenAlias)
 	root.AddCommand(newHookCmd())
 	root.AddCommand(newPipelineCmd())
+	root.AddCommand(newPlanCmd())
 	root.AddCommand(newAutopilotCmd())
 	landCmd := newLandCmd()
 	markCompatibilityCommand(landCmd, "warden autopilot land")

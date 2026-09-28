@@ -829,6 +829,7 @@ func NewServer(daemonBase string) *Server {
 	// and schedule verbs, delegation) live in tools_extra.go to keep this
 	// constructor readable.
 	s.registerExtraTools()
+	s.registerPlanTools()
 
 	return s
 }

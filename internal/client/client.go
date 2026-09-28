@@ -23,6 +23,7 @@ import (
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/metrics"
 	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/pressure"
 	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/savings"
@@ -1948,4 +1949,106 @@ func (c *Client) SetHandoverSettings(ctx context.Context, settings backendstore.
 		return backendstore.HandoverSettings{}, err
 	}
 	return out, nil
+}
+
+// --- Plans API ---
+
+// PlanListParams filters for PlanList.
+type PlanListParams struct {
+	Status string // optional: pending|in_progress|completed|archived
+}
+
+// PlanList returns plans for a project, optionally filtered by status.
+func (c *Client) PlanList(ctx context.Context, projectID string, p PlanListParams) ([]*planstore.Plan, error) {
+	path := "/projects/" + url.PathEscape(projectID) + "/plans"
+	if p.Status != "" {
+		path += "?status=" + url.QueryEscape(p.Status)
+	}
+	var resp struct {
+		Plans []*planstore.Plan `json:"plans"`
+	}
+	if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Plans, nil
+}
+
+// PlanGet returns one plan by its stable ID.
+func (c *Client) PlanGet(ctx context.Context, projectID, planID string) (*planstore.Plan, error) {
+	var p planstore.Plan
+	if err := c.do(ctx, http.MethodGet, "/projects/"+url.PathEscape(projectID)+"/plans/"+url.PathEscape(planID), nil, &p); err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+// PlanCreateRequest is the request body for PlanCreate.
+type PlanCreateRequest struct {
+	Name     string `json:"name"`
+	FilePath string `json:"file_path"`
+}
+
+// PlanCreate registers a new plan record.
+func (c *Client) PlanCreate(ctx context.Context, projectID string, req PlanCreateRequest) (*planstore.Plan, error) {
+	var p planstore.Plan
+	if err := c.do(ctx, http.MethodPost, "/projects/"+url.PathEscape(projectID)+"/plans", req, &p); err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+// PlanScanRequest is the request body for PlanScan.
+type PlanScanRequest struct {
+	MigrateFlat bool `json:"migrate_flat,omitempty"`
+	Assess      bool `json:"assess,omitempty"`
+}
+
+// PlanScanResult is the response from PlanScan.
+type PlanScanResult struct {
+	Upserted int `json:"upserted"`
+}
+
+// PlanScan walks a project's plans/ directory and upserts discovered plan records.
+func (c *Client) PlanScan(ctx context.Context, projectID string, req PlanScanRequest) (PlanScanResult, error) {
+	var out PlanScanResult
+	if err := c.do(ctx, http.MethodPost, "/projects/"+url.PathEscape(projectID)+"/plans/scan", req, &out); err != nil {
+		return PlanScanResult{}, err
+	}
+	return out, nil
+}
+
+// PlanUpdateRequest is the PATCH body for PlanUpdate.
+type PlanUpdateRequest struct {
+	Status        string            `json:"status,omitempty"`
+	ExecutionMode string            `json:"execution_mode,omitempty"`
+	TaskProgress  map[string]string `json:"task_progress,omitempty"`
+}
+
+// PlanUpdate partially updates a plan's mutable fields (status, execution_mode, task_progress).
+func (c *Client) PlanUpdate(ctx context.Context, projectID, planID string, req PlanUpdateRequest) (*planstore.Plan, error) {
+	var p planstore.Plan
+	if err := c.do(ctx, http.MethodPatch, "/projects/"+url.PathEscape(projectID)+"/plans/"+url.PathEscape(planID), req, &p); err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+// PlanDelete removes a plan DB record (does not touch the YAML file).
+func (c *Client) PlanDelete(ctx context.Context, projectID, planID string) error {
+	return c.do(ctx, http.MethodDelete, "/projects/"+url.PathEscape(projectID)+"/plans/"+url.PathEscape(planID), nil, nil)
+}
+
+// PlanAssess triggers brain-assisted task progress assessment for a plan (Phase 4 stub).
+func (c *Client) PlanAssess(ctx context.Context, projectID, planID string) error {
+	return c.do(ctx, http.MethodPost, "/projects/"+url.PathEscape(projectID)+"/plans/"+url.PathEscape(planID)+"/assess", nil, nil)
+}
+
+// PlanRunRequest is the body for PlanRun.
+type PlanRunRequest struct {
+	Mode string `json:"mode"`
+}
+
+// PlanRun starts execution of a plan in the given mode (Phase 5 stub).
+func (c *Client) PlanRun(ctx context.Context, projectID, planID string, req PlanRunRequest) error {
+	return c.do(ctx, http.MethodPost, "/projects/"+url.PathEscape(projectID)+"/plans/"+url.PathEscape(planID)+"/run", req, nil)
 }
