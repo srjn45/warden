@@ -27,6 +27,7 @@ import (
 	"github.com/srjn45/warden/internal/mailbox"
 	"github.com/srjn45/warden/internal/metrics"
 	"github.com/srjn45/warden/internal/notify"
+	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/poller"
 	"github.com/srjn45/warden/internal/pressure"
@@ -236,6 +237,11 @@ type Server struct {
 	// pipelines group under via ProjectID. nil ⇒ unconfigured (older wiring); the
 	// /api/v1/projects routes guard on it. Set by the daemon via SetProjects.
 	projects *projectstore.Store
+	// plans is the plan store (docs/specs/2026-09-28-plans-first-class.md Phase 1).
+	// nil ⇒ unconfigured. Set by the daemon via SetPlanStore. The daemon auto-scans
+	// each known project's plans/ directory at startup when both this and projects
+	// are set.
+	plans *planstore.Store
 	// autoApprovePersist persists a replaced auto-approve policy to the config
 	// file (set by the daemon to config.WriteAutoApprove). nil ⇒ the PUT
 	// /auto-approve/policy endpoint changes the live policy but does not persist.
@@ -338,6 +344,12 @@ func (s *Server) SetBackendRecovery(c *BackendRecoveryCoordinator) { s.recovery 
 // 2026-08-28-project-centric-ui.md Phase 1). A nil store leaves the project routes
 // unconfigured (they report it unavailable). Call before Start.
 func (s *Server) SetProjects(store *projectstore.Store) { s.projects = store }
+
+// SetPlanStore wires the plan store (docs/specs/2026-09-28-plans-first-class.md
+// Phase 1). A nil store leaves plan routes unconfigured. The daemon auto-scans
+// each known project at startup when this and SetProjects are both wired. Call
+// before Start.
+func (s *Server) SetPlanStore(store *planstore.Store) { s.plans = store }
 
 // SetAPIDocs toggles the public OpenAPI documentation surface (#43): Swagger UI
 // at /api/docs and the raw openapi.yaml. enabled=false makes those routes 404.
