@@ -73,42 +73,43 @@ type controlPaneModel struct {
 	// lastCompleteAt is the wall-clock of the last complete, authoritative fleet
 	// snapshot. It stamps the "showing last complete fleet from …" banner so the
 	// operator knows retained rows may be stale. Zero until the first success.
-	lastCompleteAt    time.Time
-	pendingSelect     string
-	pipelines         []*pipeline.Pipeline
-	projects          []projectstore.Project      // persisted projects for the §4 project-grouped navigator
-	projectGroups     []projectstore.ProjectGroup // groups for the per-project group label (Phase 1)
-	collapsed         map[string]bool             // pipeline id → jobs hidden in the list
-	seen              map[string]bool             // pipeline ids the default-collapse has been applied to
-	pressure          client.PressureStatus
-	pendingPrompt     string
-	pendingName       string // name typed in the new-agent form, held across the pressure confirm
-	pendingDir        string
-	pendingProjectID  string                       // project owning the pending spawn, held across the pressure confirm so a forced retry stamps the same project
-	pendingRole       string                       // role chosen in the new-agent form, held across the pressure confirm
-	pendingTier       string                       // model tier chosen in the new-agent form ("" = auto), held across pressure confirm
-	renameID          string                       // agent id being renamed (modeRename)
-	spawnVerdict      string                       // reason text for the confirm prompt; "" when not confirming
-	pendingDelete     string                       // pid awaiting delete confirmation; "" when not confirming
-	pendingCloseID    string                       // project id awaiting close confirmation (modeConfirmCloseProject); "" when not confirming
-	pendingCloseN     int                          // live-agent count shown in the close-project confirm prompt
-	ctxEntries        []client.ContextEntry        // inspector: shared-context snapshot
-	messages          []client.Message             // inspector: recent message traffic
-	vp                viewport.Model               // scroll viewport (modeInspector / modeDigest)
-	approvals         []approval.View              // pending tool-permission prompts
-	apprEnabled       bool                         // approvals config setting on
-	apprCursor        int                          // focused recognized approval (modeApprovals)
-	digest            *digest.Digest               // last fetched digest (modeDigest)
-	digestID          string                       // agent id the digest is for
-	detailSel         int                          // focused control row in modeDetails (0 auto-approve, 1 force-compact, 2 events)
-	autopilot         client.AutopilotStatus       // last fetched autopilot status
-	backendsState     client.BackendsState         // agent-backend registry snapshot (modeBackends)
-	backendCursor     int                          // focused row in the Backends page
-	plans             map[string][]*planstore.Plan // projectID → plans
-	openedPlan        string
-	targetPlanProject string
-	targetPlanID      string
-	planRunModeIdx    int
+	lastCompleteAt     time.Time
+	pendingSelect      string
+	pipelines          []*pipeline.Pipeline
+	projects           []projectstore.Project      // persisted projects for the §4 project-grouped navigator
+	projectGroups      []projectstore.ProjectGroup // groups for the per-project group label (Phase 1)
+	collapsed          map[string]bool             // pipeline id → jobs hidden in the list
+	seen               map[string]bool             // pipeline ids the default-collapse has been applied to
+	pressure           client.PressureStatus
+	pendingPrompt      string
+	pendingName        string // name typed in the new-agent form, held across the pressure confirm
+	pendingDir         string
+	pendingProjectID   string                       // project owning the pending spawn, held across the pressure confirm so a forced retry stamps the same project
+	pendingRole        string                       // role chosen in the new-agent form, held across the pressure confirm
+	pendingTier        string                       // model tier chosen in the new-agent form ("" = auto), held across pressure confirm
+	renameID           string                       // agent id being renamed (modeRename)
+	spawnVerdict       string                       // reason text for the confirm prompt; "" when not confirming
+	pendingDelete      string                       // pid awaiting delete confirmation; "" when not confirming
+	pendingCloseID     string                       // project id awaiting close confirmation (modeConfirmCloseProject); "" when not confirming
+	pendingCloseN      int                          // live-agent count shown in the close-project confirm prompt
+	ctxEntries         []client.ContextEntry        // inspector: shared-context snapshot
+	messages           []client.Message             // inspector: recent message traffic
+	vp                 viewport.Model               // scroll viewport (modeInspector / modeDigest)
+	approvals          []approval.View              // pending tool-permission prompts
+	apprEnabled        bool                         // approvals config setting on
+	apprCursor         int                          // focused recognized approval (modeApprovals)
+	digest             *digest.Digest               // last fetched digest (modeDigest)
+	digestID           string                       // agent id the digest is for
+	detailSel          int                          // focused control row in modeDetails (0 auto-approve, 1 force-compact, 2 events)
+	autopilot          client.AutopilotStatus       // last fetched autopilot status
+	backendsState      client.BackendsState         // agent-backend registry snapshot (modeBackends)
+	backendCursor      int                          // focused row in the Backends page
+	plans              map[string][]*planstore.Plan // projectID → plans
+	openedPlan         string
+	targetPlanProject  string
+	targetPlanID       string
+	planRunModeIdx     int
+	planDetailExpanded bool
 	// currentTab selects which domain the navigator shows (§3 Phase 3): the
 	// Projects tab lists everything except plain terminal sessions (pipelines +
 	// agents); the Terminals tab lists only terminal sessions. Tab (modeNormal)
@@ -1784,6 +1785,15 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "G":
 			m.vp.GotoBottom()
 			return m, nil
+		case "t":
+			m.planDetailExpanded = !m.planDetailExpanded
+			for _, p := range m.plans[m.targetPlanProject] {
+				if p != nil && p.ID == m.targetPlanID {
+					m.vp.SetContent(planDetailText(p, m.vp.Width, projectRootForID(m.projects, m.targetPlanProject), m.planDetailExpanded))
+					break
+				}
+			}
+			return m, nil
 		}
 		var cmd tea.Cmd
 		m.vp, cmd = m.vp.Update(msg)
@@ -1908,7 +1918,7 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = modePlanDetail
 			m.targetPlanID = it.plan.ID
 			m.targetPlanProject = it.plan.ProjectID
-			m.vp.SetContent(planDetailText(it.plan, m.vp.Width, projectRootForID(m.projects, it.plan.ProjectID)))
+			m.vp.SetContent(planDetailText(it.plan, m.vp.Width, projectRootForID(m.projects, it.plan.ProjectID), m.planDetailExpanded))
 			m.vp.GotoTop()
 			return m, nil
 		}

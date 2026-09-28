@@ -240,7 +240,10 @@ func (ctx *adaptCtx) adaptProject(n *tree.Node) []item {
 	children := ctx.visibleChildren(n.Children)
 	hdr.agentCount, hdr.liveAgents = countAgents(children, ctx.sessionsByID)
 
-	collapsed := ctx.collapsed[n.ID]
+	collapsed, ok := ctx.collapsed[n.ID]
+	if !ok {
+		collapsed = len(children) == 0
+	}
 	items := []item{{projHdr: hdr, dir: hdr.path, collapsed: collapsed}}
 	if collapsed {
 		return items
@@ -272,8 +275,7 @@ func (ctx *adaptCtx) adaptPlans(projectID string) []item {
 	if c, ok := ctx.collapsed[plansKey]; ok {
 		plansCollapsed = c
 	} else {
-		// When no plans exist in the project, collapse Plans header by default
-		plansCollapsed = len(plans) == 0
+		plansCollapsed = true
 	}
 
 	items := []item{{
