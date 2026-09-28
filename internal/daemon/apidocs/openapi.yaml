@@ -1425,11 +1425,14 @@ paths:
     post:
       operationId: assessPlan
       tags: [Plans]
-      summary: Brain-assisted plan progress assessment (Phase 4 stub)
+      summary: Brain-assisted plan progress assessment
       description: >
-        Triggers brain-assisted progress assessment for the plan (D9). Currently
-        a stub — returns 501 Not Implemented. Will be wired to brainconsult in
-        Phase 4.
+        Triggers brain-assisted progress assessment for the plan (D9).
+        Reads the plan YAML to extract task IDs and descriptions, then calls
+        the brain consultor with intent=plan_progress_assessment and evidence
+        from recent git log and open PRs. Updates task_progress in the DB and
+        returns the updated plan. Returns 503 when the plan store or brain
+        consultor is not configured.
       parameters:
         - name: project_id
           in: path
@@ -1440,11 +1443,11 @@ paths:
           required: true
           schema: { type: string }
       responses:
-        "501":
-          description: Not yet implemented
+        "200":
+          description: Plan with updated task_progress
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/Error" }
+              schema: { $ref: "#/components/schemas/Plan" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /api/v1/projects/{project_id}/plans/{plan_id}/run:

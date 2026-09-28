@@ -2246,7 +2246,7 @@ type ServerInterface interface {
 	// Update a plan record
 	// (PATCH /api/v1/projects/{project_id}/plans/{plan_id})
 	UpdatePlan(w http.ResponseWriter, r *http.Request, projectId string, planId string)
-	// Brain-assisted plan progress assessment (Phase 4 stub)
+	// Brain-assisted plan progress assessment
 	// (POST /api/v1/projects/{project_id}/plans/{plan_id}/assess)
 	AssessPlan(w http.ResponseWriter, r *http.Request, projectId string, planId string)
 	// Start plan execution (Phase 5 stub)
@@ -2846,7 +2846,7 @@ func (_ Unimplemented) UpdatePlan(w http.ResponseWriter, r *http.Request, projec
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Brain-assisted plan progress assessment (Phase 4 stub)
+// Brain-assisted plan progress assessment
 // (POST /api/v1/projects/{project_id}/plans/{plan_id}/assess)
 func (_ Unimplemented) AssessPlan(w http.ResponseWriter, r *http.Request, projectId string, planId string) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -10111,6 +10111,20 @@ type AssessPlanResponseObject interface {
 	VisitAssessPlanResponse(w http.ResponseWriter) error
 }
 
+type AssessPlan200JSONResponse Plan
+
+func (response AssessPlan200JSONResponse) VisitAssessPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type AssessPlan404JSONResponse struct{ NotFoundJSONResponse }
 
 func (response AssessPlan404JSONResponse) VisitAssessPlanResponse(w http.ResponseWriter) error {
@@ -10121,20 +10135,6 @@ func (response AssessPlan404JSONResponse) VisitAssessPlanResponse(w http.Respons
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type AssessPlan501JSONResponse Error
-
-func (response AssessPlan501JSONResponse) VisitAssessPlanResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(501)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -12115,7 +12115,7 @@ type StrictServerInterface interface {
 	// Update a plan record
 	// (PATCH /api/v1/projects/{project_id}/plans/{plan_id})
 	UpdatePlan(ctx context.Context, request UpdatePlanRequestObject) (UpdatePlanResponseObject, error)
-	// Brain-assisted plan progress assessment (Phase 4 stub)
+	// Brain-assisted plan progress assessment
 	// (POST /api/v1/projects/{project_id}/plans/{plan_id}/assess)
 	AssessPlan(ctx context.Context, request AssessPlanRequestObject) (AssessPlanResponseObject, error)
 	// Start plan execution (Phase 5 stub)

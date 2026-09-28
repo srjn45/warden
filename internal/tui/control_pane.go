@@ -21,6 +21,7 @@ import (
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/role"
 	"github.com/srjn45/warden/internal/store"
@@ -72,37 +73,42 @@ type controlPaneModel struct {
 	// lastCompleteAt is the wall-clock of the last complete, authoritative fleet
 	// snapshot. It stamps the "showing last complete fleet from …" banner so the
 	// operator knows retained rows may be stale. Zero until the first success.
-	lastCompleteAt   time.Time
-	pendingSelect    string
-	pipelines        []*pipeline.Pipeline
-	projects         []projectstore.Project      // persisted projects for the §4 project-grouped navigator
-	projectGroups    []projectstore.ProjectGroup // groups for the per-project group label (Phase 1)
-	collapsed        map[string]bool             // pipeline id → jobs hidden in the list
-	seen             map[string]bool             // pipeline ids the default-collapse has been applied to
-	pressure         client.PressureStatus
-	pendingPrompt    string
-	pendingName      string // name typed in the new-agent form, held across the pressure confirm
-	pendingDir       string
-	pendingProjectID string                 // project owning the pending spawn, held across the pressure confirm so a forced retry stamps the same project
-	pendingRole      string                 // role chosen in the new-agent form, held across the pressure confirm
-	pendingTier      string                 // model tier chosen in the new-agent form ("" = auto), held across pressure confirm
-	renameID         string                 // agent id being renamed (modeRename)
-	spawnVerdict     string                 // reason text for the confirm prompt; "" when not confirming
-	pendingDelete    string                 // pid awaiting delete confirmation; "" when not confirming
-	pendingCloseID   string                 // project id awaiting close confirmation (modeConfirmCloseProject); "" when not confirming
-	pendingCloseN    int                    // live-agent count shown in the close-project confirm prompt
-	ctxEntries       []client.ContextEntry  // inspector: shared-context snapshot
-	messages         []client.Message       // inspector: recent message traffic
-	vp               viewport.Model         // scroll viewport (modeInspector / modeDigest)
-	approvals        []approval.View        // pending tool-permission prompts
-	apprEnabled      bool                   // approvals config setting on
-	apprCursor       int                    // focused recognized approval (modeApprovals)
-	digest           *digest.Digest         // last fetched digest (modeDigest)
-	digestID         string                 // agent id the digest is for
-	detailSel        int                    // focused control row in modeDetails (0 auto-approve, 1 force-compact, 2 events)
-	autopilot        client.AutopilotStatus // last fetched autopilot status
-	backendsState    client.BackendsState   // agent-backend registry snapshot (modeBackends)
-	backendCursor    int                    // focused row in the Backends page
+	lastCompleteAt    time.Time
+	pendingSelect     string
+	pipelines         []*pipeline.Pipeline
+	projects          []projectstore.Project      // persisted projects for the §4 project-grouped navigator
+	projectGroups     []projectstore.ProjectGroup // groups for the per-project group label (Phase 1)
+	collapsed         map[string]bool             // pipeline id → jobs hidden in the list
+	seen              map[string]bool             // pipeline ids the default-collapse has been applied to
+	pressure          client.PressureStatus
+	pendingPrompt     string
+	pendingName       string // name typed in the new-agent form, held across the pressure confirm
+	pendingDir        string
+	pendingProjectID  string                       // project owning the pending spawn, held across the pressure confirm so a forced retry stamps the same project
+	pendingRole       string                       // role chosen in the new-agent form, held across the pressure confirm
+	pendingTier       string                       // model tier chosen in the new-agent form ("" = auto), held across pressure confirm
+	renameID          string                       // agent id being renamed (modeRename)
+	spawnVerdict      string                       // reason text for the confirm prompt; "" when not confirming
+	pendingDelete     string                       // pid awaiting delete confirmation; "" when not confirming
+	pendingCloseID    string                       // project id awaiting close confirmation (modeConfirmCloseProject); "" when not confirming
+	pendingCloseN     int                          // live-agent count shown in the close-project confirm prompt
+	ctxEntries        []client.ContextEntry        // inspector: shared-context snapshot
+	messages          []client.Message             // inspector: recent message traffic
+	vp                viewport.Model               // scroll viewport (modeInspector / modeDigest)
+	approvals         []approval.View              // pending tool-permission prompts
+	apprEnabled       bool                         // approvals config setting on
+	apprCursor        int                          // focused recognized approval (modeApprovals)
+	digest            *digest.Digest               // last fetched digest (modeDigest)
+	digestID          string                       // agent id the digest is for
+	detailSel         int                          // focused control row in modeDetails (0 auto-approve, 1 force-compact, 2 events)
+	autopilot         client.AutopilotStatus       // last fetched autopilot status
+	backendsState     client.BackendsState         // agent-backend registry snapshot (modeBackends)
+	backendCursor     int                          // focused row in the Backends page
+	plans             map[string][]*planstore.Plan // projectID → plans
+	openedPlan        string
+	targetPlanProject string
+	targetPlanID      string
+	planRunModeIdx    int
 	// currentTab selects which domain the navigator shows (§3 Phase 3): the
 	// Projects tab lists everything except plain terminal sessions (pipelines +
 	// agents); the Terminals tab lists only terminal sessions. Tab (modeNormal)
@@ -193,6 +199,7 @@ func newListPane(a api, agentPane, terminalPane string) controlPaneModel {
 		roles:      role.All(),
 		openedDirs: map[string]time.Time{}, collapsed: map[string]bool{}, seen: map[string]bool{},
 		termInfo: map[string]terminalLiveInfo{},
+		plans:    make(map[string][]*planstore.Plan),
 		vp:       viewport.New(0, 0),
 	}
 }
@@ -245,11 +252,14 @@ func (m controlPaneModel) items() []item {
 		if !termCollapsed {
 			out = append(out, terminalItems(terminals, m.termInfo)...)
 		}
+		markOpened(out, m.openedAgent, m.openedTerminal, m.openedPlan)
 		return out
 	}
 
 	// ── Projects tab: tree.Service.Build + view adapter (N6).
-	return buildProjectItems(m.projects, m.projectGroups, m.sessions, m.pipelines, m.autopilot, m.openedDirs, m.collapsed, m.showSystemAgents)
+	items := buildProjectItems(m.projects, m.projectGroups, m.sessions, m.pipelines, m.autopilot, m.plans, m.openedDirs, m.collapsed, m.showSystemAgents)
+	markOpened(items, m.openedAgent, m.openedTerminal, m.openedPlan)
+	return items
 }
 
 // groupLabels maps each member project id to the name of the group it belongs to
@@ -273,9 +283,11 @@ func groupLabels(groups []projectstore.ProjectGroup) map[string]string {
 // Terminals-section row). Because it keys off m.openedAgent/m.openedTerminal —
 // which both Enter-open and §8 Alt+a/p/t rotation set — the highlight tracks the
 // panes without any extra plumbing. Empty ids match nothing.
-func markOpened(items []item, openedAgent, openedTerminal string) {
+func markOpened(items []item, openedAgent, openedTerminal, openedPlan string) {
 	for i := range items {
 		switch {
+		case items[i].plan != nil:
+			items[i].opened = openedPlan != "" && items[i].plan.ID == openedPlan
 		case items[i].session != nil && items[i].session.IsTerminal():
 			items[i].opened = openedTerminal != "" && items[i].session.ID == openedTerminal
 		case items[i].session != nil:
@@ -734,7 +746,7 @@ func (m *controlPaneModel) applyDefaultCollapse() {
 }
 
 func (m controlPaneModel) Init() tea.Cmd {
-	return tea.Batch(listCmd(m.api, true), pipelinesCmd(m.api), projectsCmd(m.api), projectGroupsCmd(m.api), approvalsCmd(m.api), autopilotCmd(m.api), tick())
+	return tea.Batch(listCmd(m.api, true), pipelinesCmd(m.api), projectsCmd(m.api), projectGroupsCmd(m.api), approvalsCmd(m.api), autopilotCmd(m.api), plansCmd(m.api, m.projects), tick())
 }
 
 func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -754,7 +766,7 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready = true
 		return m, nil
 	case tickMsg:
-		cmds := []tea.Cmd{listCmd(m.api, true), pipelinesCmd(m.api), projectsCmd(m.api), projectGroupsCmd(m.api), approvalsCmd(m.api), pressureCmd(m.api), autopilotCmd(m.api), tick()}
+		cmds := []tea.Cmd{listCmd(m.api, true), pipelinesCmd(m.api), projectsCmd(m.api), projectGroupsCmd(m.api), approvalsCmd(m.api), pressureCmd(m.api), autopilotCmd(m.api), plansCmd(m.api, m.projects), tick()}
 		if m.mode == modeInspector {
 			cmds = append(cmds, contextCmd(m.api), messagesCmd(m.api))
 		}
@@ -917,8 +929,45 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			prev := m.selectedKey()
 			m.projects = msg.projects
 			m.repin(prev) // a project appearing/disappearing shifts indices
+			return m, plansCmd(m.api, msg.projects)
 		}
 		return m, nil
+	case plansMsg:
+		if msg.err == nil {
+			if m.plans == nil {
+				m.plans = make(map[string][]*planstore.Plan)
+			}
+			m.plans[msg.projectID] = msg.plans
+		}
+		return m, nil
+	case planArchivedMsg:
+		if msg.err != nil {
+			m.status = "archive plan failed: " + msg.err.Error()
+		} else {
+			m.status = "archived plan " + msg.planID
+		}
+		return m, plansCmd(m.api, m.projects)
+	case plansScannedMsg:
+		if msg.err != nil {
+			m.status = "scan plans failed: " + msg.err.Error()
+		} else {
+			m.status = fmt.Sprintf("scanned %d plans", msg.res.Upserted)
+		}
+		return m, plansCmd(m.api, m.projects)
+	case planAssessedMsg:
+		if msg.err != nil {
+			m.status = "assess plan failed: " + msg.err.Error()
+		} else {
+			m.status = "assessed plan " + msg.planID
+		}
+		return m, plansCmd(m.api, m.projects)
+	case planRunMsg:
+		if msg.err != nil {
+			m.status = "run plan failed: " + msg.err.Error()
+		} else {
+			m.status = "started plan " + msg.planID
+		}
+		return m, plansCmd(m.api, m.projects)
 	case projectGroupsMsg:
 		if msg.err == nil { // keep the last good list on a transient blip
 			m.projectGroups = msg.groups
@@ -1093,7 +1142,7 @@ func (m *controlPaneModel) repin(prevKey string) {
 // first agent/pipeline rather than a header. -1 when the list holds only headers.
 func firstEntityCursor(items []item) int {
 	for i, it := range items {
-		if it.section == "" && it.projHdr == nil {
+		if it.section == "" && it.projHdr == nil && !it.planHeader && it.planGroup == "" {
 			return i
 		}
 	}
@@ -1693,6 +1742,52 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case modeHelp:
 		m.mode = modeNormal
 		return m, nil
+	case modePlanRunMode:
+		switch msg.Type {
+		case tea.KeyEsc:
+			m.mode = modeNormal
+			return m, nil
+		case tea.KeyUp, tea.KeyLeft:
+			m.planRunModeIdx = (m.planRunModeIdx - 1 + len(planRunModes)) % len(planRunModes)
+			return m, nil
+		case tea.KeyDown, tea.KeyRight:
+			m.planRunModeIdx = (m.planRunModeIdx + 1) % len(planRunModes)
+			return m, nil
+		case tea.KeyEnter:
+			mode := planRunModes[m.planRunModeIdx]
+			m.mode = modeNormal
+			m.status = fmt.Sprintf("running plan %s in %s mode…", m.targetPlanID, mode)
+			return m, runPlanCmd(m.api, m.targetPlanProject, m.targetPlanID, mode)
+		}
+		switch msg.String() {
+		case "h":
+			m.planRunModeIdx = (m.planRunModeIdx - 1 + len(planRunModes)) % len(planRunModes)
+			return m, nil
+		case "l":
+			m.planRunModeIdx = (m.planRunModeIdx + 1) % len(planRunModes)
+			return m, nil
+		case "q", "ctrl+c":
+			return m, m.quitCmd()
+		}
+		return m, nil
+	case modePlanDetail:
+		switch msg.String() {
+		case "q", "ctrl+c":
+			m.mode = modeNormal
+			return m, nil
+		case "esc":
+			m.mode = modeNormal
+			return m, nil
+		case "g":
+			m.vp.GotoTop()
+			return m, nil
+		case "G":
+			m.vp.GotoBottom()
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.vp, cmd = m.vp.Update(msg)
+		return m, cmd
 	}
 	// normal mode
 	switch msg.String() {
@@ -1789,6 +1884,34 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		if it.planHeader {
+			key := "plans:" + it.planProject
+			m.collapsed[key] = !m.collapsed[key]
+			m.repin(key)
+			return m, nil
+		}
+		if it.planGroup != "" {
+			key := "plans:" + it.planProject + ":" + it.planGroup
+			collapsed, ok := m.collapsed[key]
+			if !ok {
+				collapsed = (it.planGroup == string(planstore.PlanStatusArchived))
+			}
+			m.collapsed[key] = !collapsed
+			m.repin(key)
+			return m, nil
+		}
+		if it.plan != nil {
+			m.openedPlan = it.plan.ID
+			if m.agentPane != "" {
+				return m, openPlanDetailCmd(m.agentPane, it.plan.ProjectID, it.plan.ID)
+			}
+			m.mode = modePlanDetail
+			m.targetPlanID = it.plan.ID
+			m.targetPlanProject = it.plan.ProjectID
+			m.vp.SetContent(planDetailText(it.plan, m.vp.Width))
+			m.vp.GotoTop()
+			return m, nil
+		}
 		// A terminal opens in the terminal pane (and grabs focus — terminals are
 		// interactive, §6). It never routes to the agent pane.
 		if it.session != nil && it.session.IsTerminal() {
@@ -1842,6 +1965,10 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.collapsed[secKey(it.section)] = false
 		case it.projHdr != nil, it.apRun != nil, it.pipeline != nil:
 			m.collapsed[itemKey(it)] = false
+		case it.planHeader:
+			m.collapsed["plans:"+it.planProject] = false
+		case it.planGroup != "":
+			m.collapsed["plans:"+it.planProject+":"+it.planGroup] = false
 		case it.apPlan:
 			m.collapsed[apPlanKey(it.apPlanRun)] = false
 		case it.apTask != nil && it.hasKids:
@@ -1861,6 +1988,18 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.repin(secKey(it.section))
 		case it.projHdr != nil:
 			key := itemKey(it)
+			m.collapsed[key] = true
+			m.repin(key)
+		case it.planHeader:
+			key := "plans:" + it.planProject
+			m.collapsed[key] = true
+			m.repin(key)
+		case it.planGroup != "":
+			key := "plans:" + it.planProject + ":" + it.planGroup
+			m.collapsed[key] = true
+			m.repin(key)
+		case it.plan != nil:
+			key := "plans:" + it.plan.ProjectID + ":" + string(it.plan.Status)
 			m.collapsed[key] = true
 			m.repin(key)
 		case it.apRun != nil:
@@ -1928,6 +2067,15 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeOpenProjectMenu
 		m.openProjectIdx = 0
 	case "s":
+		it := itemAt(m.items(), m.cursor)
+		if it.plan != nil || it.planHeader || it.planGroup != "" {
+			projectID := it.planProject
+			if it.plan != nil {
+				projectID = it.plan.ProjectID
+			}
+			m.status = "scanning plans in " + projectID + "…"
+			return m, scanPlansCmd(m.api, projectID)
+		}
 		if m.selected() != nil {
 			m.mode = modeSendMsg
 			m.ti.Reset()
@@ -1967,6 +2115,13 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "r":
 		it := itemAt(m.items(), m.cursor)
+		if it.plan != nil {
+			m.mode = modePlanRunMode
+			m.targetPlanID = it.plan.ID
+			m.targetPlanProject = it.plan.ProjectID
+			m.planRunModeIdx = 0
+			return m, nil
+		}
 		if it.apRun != nil {
 			action := "resume"
 			if it.apRun.State != "paused" {
@@ -1984,11 +2139,22 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, restoreCmd(m.api, it.session.ID)
 		}
 	case "a":
+		it := itemAt(m.items(), m.cursor)
+		if it.plan != nil {
+			m.status = "archiving plan " + it.plan.ID + "…"
+			return m, archivePlanCmd(m.api, it.plan.ProjectID, it.plan.ID)
+		}
 		if id := m.selectedID(); id != "" {
 			return m, switchClientCmd(id, m.killWindow)
 		}
 		if it := itemAt(m.items(), m.cursor); it.pjJob != nil && it.pjJob.AgentRef() != "" {
 			return m, switchClientCmd(it.pjJob.AgentRef(), m.killWindow)
+		}
+	case "A":
+		it := itemAt(m.items(), m.cursor)
+		if it.plan != nil {
+			m.status = "assessing plan " + it.plan.ID + " (brain)…"
+			return m, assessPlanCmd(m.api, it.plan.ProjectID, it.plan.ID)
 		}
 	case "d":
 		if s := m.selected(); s != nil {
@@ -2089,6 +2255,10 @@ func (m controlPaneModel) View() string {
 	if m.mode == modeHelp {
 		return header + "\n" + lipgloss.NewStyle().Width(m.w).Height(bodyH).Render(helpText())
 	}
+	if m.mode == modePlanDetail {
+		body := titleBox("Plan Detail — "+m.targetPlanID, m.vp.View(), m.w, bodyH)
+		return header + "\n" + body + "\n" + stMuted.Render("↑/↓ pgup/pgdn g/G scroll · esc/q back")
+	}
 	if m.mode == modeInspector {
 		body := titleBox("Context & Messages", m.vp.View(), m.w, bodyH)
 		return header + "\n" + body + "\n" + stMuted.Render("read-only · ↑/↓ pgup/pgdn g/G scroll · c/esc back · q quit")
@@ -2171,8 +2341,34 @@ func (m controlPaneModel) View() string {
 			filepath.Base(m.pendingCloseID), m.pendingCloseN))
 	case modeTerminalChoice:
 		footer = stPaneTitle.Render("Terminal in " + abbrevHome(m.termChoiceDir) + ":  (c)reate new  ·  (f)ocus existing  ·  esc cancel")
+	case modePlanRunMode:
+		footer = stPaneTitle.Render(fmt.Sprintf("Run plan %s (←/→ or h/l select · enter · esc):", m.targetPlanID)) + "\n" + m.planRunModeMenuView()
 	}
 	return fmt.Sprintf("%s\n%s\n%s", header, body, footer)
+}
+
+// planRunModes is the fixed list of execution modes for modePlanRunMode (`r`).
+var planRunModes = []string{
+	string(planstore.PlanModeAutopilot),
+	string(planstore.PlanModePipeline),
+	string(planstore.PlanModeOrchestratorWorker),
+	string(planstore.PlanModeManual),
+}
+
+// planRunModeMenuView renders the run mode picker with the selected mode marked.
+func (m controlPaneModel) planRunModeMenuView() string {
+	var b strings.Builder
+	for i, opt := range planRunModes {
+		if i == m.planRunModeIdx {
+			b.WriteString(stCursor.Render("› " + opt))
+		} else {
+			b.WriteString(stMuted.Render("  " + opt))
+		}
+		if i < len(planRunModes)-1 {
+			b.WriteString("  ")
+		}
+	}
+	return b.String()
 }
 
 // openProjectOptions is the fixed choice list for modeOpenProjectMenu (`o`).

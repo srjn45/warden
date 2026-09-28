@@ -137,12 +137,13 @@ func (s *Server) registerPlanTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "assess_plan",
-		Description: "Trigger brain-assisted task progress assessment for one plan. Uses git log and open PR metadata to reconstruct task_progress. Phase 4 stub — daemon returns 501 until Phase 4 ships.",
+		Description: "Trigger brain-assisted task progress assessment for one plan. Uses git log and open PR metadata to reconstruct task_progress.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a assessPlanArgs) (*mcpsdk.CallToolResult, any, error) {
-		if err := s.cl.PlanAssess(ctx, a.ProjectID, a.PlanID); err != nil {
+		p, err := s.cl.PlanAssess(ctx, a.ProjectID, a.PlanID)
+		if err != nil {
 			return textResult("error: " + err.Error()), nil, nil
 		}
-		return textResult("assess triggered for plan " + a.PlanID), nil, nil
+		return jsonResultAny(p)
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
