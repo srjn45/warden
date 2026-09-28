@@ -1,0 +1,176 @@
+version: 1
+goal: >-
+  Make plans and autopilot runs first-class members of the Project entity.
+  Projects gain authoritative Plans[] and Autopilots[] id-lists alongside the
+  existing Agents[], Pipelines[], and Terminals[]. Execution entities created
+  by running a plan (pipeline, autopilot run, orchestrator agent, manual agent)
+  carry a PlanID back-ref so the relation is navigable in both directions.
+  Plan and autopilot membership is maintained automatically at scan time,
+  create time, run time, and delete time — same best-effort, idempotent pattern
+  as the existing agent/pipeline/terminal membership.
+constraints:
+  - "API is spec-first: edit openapi.yaml then make generate; never hand-edit api.gen.go."
+  - "Work in an isolated git worktree branched off main; one PR per phase."
+  - "Run wd check (make verify-fast) before every commit."
+  - "Nil vs empty-slice distinction for Plans/Autopilots must be preserved in MarshalJSON (legacy nil = missing list, non-nil including [] is authoritative)."
+  - "All membership helpers are best-effort: a failure logs a warning but never fails the primary operation."
+  - "State sync (execution entities writing back to plan.TaskProgress) is out of scope — deferred to a follow-up plan."
+  - "Confirm with the maintainer before pushing any v* tag."
+tasks:
+  - id: Step1_ProjectStoreFields
+    prompt: >-
+      Add Plans []string and Autopilots []string to the Project struct in
+      internal/projectstore/types.go, following the exact same pattern as
+      Agents/Pipelines/Terminals: json:"plans,omitempty" /
+      json:"autopilots,omitempty", nil = legacy missing list, non-nil
+      (including []) is authoritative. Update MarshalJSON to include both new
+      lists via the same optional() nil-vs-empty serialization already used for
+      the three existing lists. No DB migration needed — nil reads as legacy/
+      empty on existing records.
+    status: pending
+
+  - id: Step2_MembershipHelpers
+    prompt: >-
+      Add AddPlanToProject / RemovePlanFromProject and
+      AddAutopilotToProject / RemoveAutopilotFromProject to
+      internal/projectstore/membership.go. Each is a one-liner using the
+      existing addMember/removeMember helpers pointing at &p.Plans and
+      &p.Autopilots respectively. Add corresponding tests in
+      membership_test.go following the exact structure of the
+      AddPipelineToProject test block (idempotent add, remove absent = no-op,
+      not-found project, blank id error).
+    after: [Step1_ProjectStoreFields]
+    status: pending
+
+  - id: Step3_PipelinePlanID
+    prompt: >-
+      Add PlanID string to the Pipeline struct in
+      internal/pipeline/pipeline.go. Use json:"plan_id,omitempty" yaml:"-"
+      (daemon-stamped at run-plan time, never spec-authored). Place it near
+      ScheduleID/ProjectID and add a comment following the same style: a
+      back-ref to the planstore plan this pipeline is executing, stamped by
+      the daemon at creation, empty for pipelines not created from a plan.
+    status: pending
+
+  - id: Step4_AutopilotRunPlanID
+    prompt: >-
+      Add PlanID string and ProjectID string to the RunRecord struct in
+      internal/autopilot/store.go (both json:",omitempty"). These are
+      stamped at Register time by the daemon when a plan is run in autopilot
+      mode; empty for autopilot runs not created from a plan.
+    status: pending
+
+  - id: Step5_SessionPlanID
+    prompt: >-
+      Add PlanID string to the Session struct in internal/store/types.go,
+      json:"plan_id,omitempty". Place it near PipelineID/JobID/ScheduleID
+      to keep back-refs grouped. Set for agents spawned by orchestrator_worker
+      or manual plan-run modes; empty for all other sessions.
+    status: pending
+
+  - id: Step6_AutopilotRegisterRequest
+    prompt: >-
+      Extend the RegisterRequest struct in internal/autopilot/controller.go
+      (or run.go, wherever it is defined) to include PlanID string and
+      ProjectID string. In the Register method, stamp both fields onto the
+      RunRecord before persisting. Existing callers that do not supply them
+      pass empty strings — no behavior change for non-plan autopilot runs.
+    after: [Step4_AutopilotRunPlanID]
+    status: pending
+
+  - id: Step7_RunPlanWiring
+    prompt: >-
+      Wire all back-refs and membership calls in the RunPlan handler in
+      internal/daemon/strict_plans.go (line ~285). For each mode:
+        autopilot: pass PlanID + ProjectID in RegisterRequest; after
+          successful register call s.addAutopilotMembership(runID,
+          req.ProjectId) and s.addPlanMembership(req.PlanId, req.ProjectId).
+        pipeline: set pl.PlanID = req.PlanId before pstore.Create; after
+          the existing addPipelineMembership call also call
+          s.addPlanMembership(req.PlanId, req.ProjectId).
+        orchestrator_worker: set sr.PlanID = req.PlanId on the SpawnRequest;
+          after spawn call s.addPlanMembership(req.PlanId, req.ProjectId).
+        manual: call s.addPlanMembership(req.PlanId, req.ProjectId) (no
+          execution entity, but the plan is now active under the project).
+    after: [Step3_PipelinePlanID, Step5_SessionPlanID, Step6_AutopilotRegisterRequest, Step8_DaemonMembershipHelpers]
+    status: pending
+
+  - id: Step8_DaemonMembershipHelpers
+    prompt: >-
+      Add plan and autopilot membership daemon-level helpers to
+      internal/daemon/project_membership.go following the addPipelineMembership
+      pattern exactly:
+        addPlanMembership(planID, projectID string): calls
+          s.projects.AddPlanToProject; best-effort with slog.Warn on failure.
+        removePlanMembership(planID, projectID string): calls
+          s.projects.RemovePlanFromProject; best-effort.
+        addAutopilotMembership(runID, projectID string): calls
+          s.projects.AddAutopilotToProject; best-effort.
+        removeAutopilotMembership(runID, projectID string): calls
+          s.projects.RemoveAutopilotFromProject; best-effort.
+    after: [Step2_MembershipHelpers]
+    status: pending
+
+  - id: Step9_ScanAndCRUDMembership
+    prompt: >-
+      Wire plan membership at scan, create, and delete time in
+      internal/daemon/strict_plans.go:
+        ScanPlans handler (line ~133): after planstore.ScanProject returns,
+          iterate the upserted plans and call s.addPlanMembership(p.ID,
+          req.ProjectId) for each.
+        CreatePlan handler: after successful s.plans.Create, call
+          s.addPlanMembership(p.ID, req.ProjectId).
+        DeletePlan handler: call s.removePlanMembership(req.PlanId,
+          req.ProjectId) after successful delete.
+    after: [Step8_DaemonMembershipHelpers]
+    status: pending
+
+  - id: Step10_OpenAPI
+    prompt: >-
+      Update internal/daemon/apidocs/openapi.yaml:
+        Project schema (line ~3766): add plans and autopilots arrays with the
+          same structure as agents/pipelines/terminals (type array, items
+          string, description noting authoritative membership + dangling ids
+          tolerated).
+        Pipeline schema: add plan_id string field (optional, omitempty).
+        AutopilotRunStatus schema: add plan_id and project_id string fields
+          (both optional).
+      Run make generate to regenerate internal/daemon/oapi/api.gen.go.
+      Commit the generated file alongside the spec change.
+    after: [Step1_ProjectStoreFields, Step3_PipelinePlanID, Step4_AutopilotRunPlanID]
+    status: pending
+
+  - id: Step11_Tests
+    prompt: >-
+      Extend tests:
+        internal/projectstore/membership_test.go: add test blocks for
+          AddPlanToProject (idempotent add, remove, not-found, blank-id) and
+          AddAutopilotToProject (same structure).
+        internal/daemon/plans_routes_test.go: extend TestRunPlan_Pipeline to
+          assert pl.PlanID == plan ID; extend TestRunPlan_Autopilot to assert
+          RunRecord.PlanID and RunRecord.ProjectID are set and that
+          Project.Autopilots contains the run ID; add a TestRunPlan_Manual
+          test that asserts Project.Plans contains the plan ID after the call.
+      Run wd check before committing.
+    after: [Step7_RunPlanWiring, Step9_ScanAndCRUDMembership, Step10_OpenAPI]
+    status: pending
+
+  - id: Step12_PRAndRelease
+    prompt: >-
+      Run make verify-fast (wd check). Fix any failures. Open a PR against
+      main titled "feat(project,plans): plans and autopilots as first-class
+      project members". After merge, tag a patch release following the
+      repo tagging style (confirm with the maintainer before pushing the tag).
+    after: [Step11_Tests]
+    status: pending
+
+done_when:
+  - "Project struct has Plans []string and Autopilots []string with nil/empty distinction preserved in MarshalJSON."
+  - "projectstore has AddPlanToProject/RemovePlanFromProject and AddAutopilotToProject/RemoveAutopilotFromProject helpers."
+  - "pipeline.Pipeline has PlanID string stamped at run-plan time."
+  - "autopilot.RunRecord has PlanID and ProjectID stamped when registered from a plan run."
+  - "store.Session has PlanID string for orchestrator_worker and manual plan-run agents."
+  - "RunPlan handler stamps PlanID on all execution entities and maintains Project.Plans and Project.Autopilots membership."
+  - "ScanPlans, CreatePlan, DeletePlan maintain Project.Plans membership."
+  - "openapi.yaml Project schema includes plans and autopilots arrays; Pipeline and AutopilotRunStatus include plan_id."
+  - "make verify-fast passes on main."
