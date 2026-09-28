@@ -1,4 +1,5 @@
 version: 1
+name: project-groups-orchestrator-collab
 goal: >-
   Implement the Project Groups & Orchestrator Collaboration architecture (Feature #5)  described in docs/specs/2026-08-30-project-groups-architecture.md.  This introduces peer-to-peer Project Orchestrators.
 constraints:
