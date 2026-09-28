@@ -2621,3 +2621,116 @@ warden inspect audit --json       # machine-readable
 - Guardian rotate (stage 3) requires more than one free-tier backend. With only
   `antigravity` in the free tier, the guardian falls back directly to backoff
   after a restart fails.
+
+---
+
+## 35. Plans (`wd plan`)
+
+Plans are YAML files in `plans/{pending,in_progress,completed,archived}/` that warden tracks as first-class entities. The daemon scans those directories on startup, upserts plan records into its ScrivaDB `plans` collection, and shows plans above agents in the TUI project tree.
+
+**Status is encoded by directory** — moving the file between directories is the state transition. `wd plan status` does the `git mv`, commits, and updates the DB record atomically.
+
+### Directory layout
+
+```
+plans/
+  pending/          # authored, not started
+  in_progress/      # execution active (stays here until completed/archived)
+  completed/        # all tasks done, code merged
+  archived/         # de-prioritised; hidden from default TUI views
+```
+
+### First scan
+
+After adding plan files to your repo (or after a fresh clone), seed the daemon's records:
+
+```sh
+wd plan scan
+```
+
+Running scan again is always safe — it only updates `FilePath` and `Status`; it never overwrites execution links or task progress.
+
+To migrate existing flat `plans/*.yaml` files (no subdirectory) in one step:
+
+```sh
+wd plan scan --migrate-flat
+```
+
+### Listing and inspecting
+
+```sh
+wd plan list                          # all plans for this project
+wd plan list --status in_progress     # filter by status
+wd plan list --json
+
+wd plan show <plan-id>                # full detail
+wd plan show <plan-id> --json
+```
+
+### Importing a plan
+
+```sh
+wd plan import path/to/feature-x.yaml
+```
+
+Copies the file into `plans/pending/` and triggers a scan.
+
+### Status transitions
+
+```sh
+wd plan status <plan-id> in_progress    # move to in_progress
+wd plan status <plan-id> completed      # mark done
+wd plan status <plan-id> archived       # de-prioritise
+wd plan archive <plan-id>               # shorthand for → archived
+```
+
+### `wd plan run` — execution modes
+
+```sh
+wd plan run <plan-id> --mode autopilot
+wd plan run <plan-id> --mode pipeline
+wd plan run <plan-id> --mode orchestrator_worker
+wd plan run <plan-id> --mode manual
+```
+
+| Mode | What happens |
+|---|---|
+| `autopilot` | Registers an autopilot run; the manager drives workers autonomously. Completion auto-advances the plan to `completed/`. |
+| `pipeline` | Creates a DAG pipeline (one job per YAML task). Completion auto-advances the plan to `completed/`. |
+| `orchestrator_worker` | Spawns an orchestrator agent; each worker needs a human approval gate. Mark complete manually with `wd plan status <id> completed`. |
+| `manual` | git-mv to `in_progress/` only — state tracking, no execution entity. |
+
+### Brain-assisted progress assessment
+
+After a reinstall or DB wipe, reconstruct task-level progress from git history and open PRs:
+
+```sh
+wd plan assess <plan-id>       # one plan
+wd plan scan --assess           # all in_progress plans
+```
+
+### Recovery after reinstall
+
+```sh
+# 1. Seed plan records from the directory layout (status is fully recoverable from git)
+wd plan scan
+
+# 2. For active plans whose task progress matters, reconstruct it
+wd plan assess <plan-id>
+
+# 3. Verify
+wd plan list
+```
+
+### Command reference
+
+| Command | What it does |
+|---|---|
+| `wd plan list [--status <s>] [--json]` | List plans (optionally filtered by status) |
+| `wd plan show <id> [--json]` | Show full detail for one plan |
+| `wd plan import <file>` | Copy a YAML into `plans/pending/` and scan |
+| `wd plan scan [--migrate-flat] [--assess]` | Walk directories and upsert records |
+| `wd plan status <id> <new-status>` | git mv + commit + DB update |
+| `wd plan archive <id>` | Shorthand for `status → archived` |
+| `wd plan assess <id>` | Brain-based task progress reconstruction |
+| `wd plan run <id> --mode <mode>` | Start execution in the given mode |

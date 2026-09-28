@@ -302,3 +302,51 @@ checklist enum, not ledger states.
   existing runs on `autopilot/integration` are grandfathered. Don't tell the user
   to restart the daemon after a config change unless it touches a restart-only
   key (`addr`, `data_dir`, timers, loop cadences, the guardian tick `interval`).
+
+## Plans
+
+Plans are YAML files in `plans/{pending,in_progress,completed,archived}/` that the daemon tracks as first-class entities — status inferred from directory placement, execution state (linked run IDs, task progress) in ScrivaDB. Every agent working in a warden-managed project should interact with plans through these MCP tools.
+
+### MCP tools
+
+| Tool | When to call it |
+|---|---|
+| `scan_plans` | **On project init** — after cloning a repo or starting work in a new project, call `scan_plans { project_id: "<cwd>" }` to seed plan records from the directory layout. Also call after a reinstall to restore status from git. |
+| `list_plans` | List plans for a project, optionally filtered by `status` (`pending`\|`in_progress`\|`completed`\|`archived`). |
+| `get_plan` | Fetch the full record for one plan by its stable `plan-<8hex>` ID: status, file path, execution mode, linked run/pipeline IDs, `task_progress`, timestamps. |
+| `create_plan` | Register a new plan record when the YAML file already exists at `file_path` relative to the project root. Use `scan_plans` for bulk import. |
+| `update_plan_status` | **On phase completion** — when completing a phase of work that corresponds to a plan, call `update_plan_status { plan_id: "<id>", status: "completed" }` (or `"in_progress"` when starting). The daemon performs the `git mv`, commits, and updates the DB atomically. |
+| `archive_plan` | Move a plan to `archived`. Shorthand for `update_plan_status` with `status: "archived"`. |
+| `assess_plan` | **After a reinstall recovery** — call `assess_plan { plan_id: "<id>" }` for each `in_progress` plan to reconstruct `task_progress` from `git log` and open PRs via the brain Consultor. Opt-in; never automatic. |
+| `run_plan` | Start execution of a plan in a given `mode` (`autopilot`\|`pipeline`\|`orchestrator_worker`\|`manual`). The daemon links the plan to the created execution entity and git-mvs it to `in_progress/`. |
+
+### Workflow guidance
+
+**Project init (new clone or after reinstall):**
+```
+scan_plans { project_id: "<absolute-path-to-repo>" }
+```
+This seeds all plan records. Status is fully recoverable from git — no hub sync needed.
+
+**Starting a phase:**
+```
+update_plan_status { project_id: "<id>", plan_id: "<plan-id>", status: "in_progress" }
+```
+
+**Completing a phase:**
+```
+update_plan_status { project_id: "<id>", plan_id: "<plan-id>", status: "completed" }
+```
+
+**After reinstall — reconstruct task progress:**
+```
+scan_plans { project_id: "<id>" }                  # reseed from git
+assess_plan { project_id: "<id>", plan_id: "<id>" } # brain reconstructs task progress
+```
+
+### Guardrails
+
+- **Use `update_plan_status` instead of raw `git mv`** — the daemon's status transition is atomic (git mv + commit + DB update in one call).
+- **`assess_plan` is opt-in** — never call it automatically on every scan; it spawns a brain Consultor and takes time.
+- **`run_plan` is a stub until Phase 5 ships** — the daemon returns 501 for modes other than `manual` until all execution modes are wired. Check the daemon version before calling.
+- **`project_id` for local projects is the absolute path** — e.g. `"/home/user/my-repo"`. Pass the `cwd` of the project, not a short name.
