@@ -1454,10 +1454,13 @@ paths:
     post:
       operationId: runPlan
       tags: [Plans]
-      summary: Start plan execution (Phase 5 stub)
+      summary: Start plan execution
       description: >
-        Starts execution of a plan in the chosen mode (D15). Currently a stub —
-        returns 501 Not Implemented. Will be wired to execution modes in Phase 5.
+        Starts execution of a plan in the chosen mode (D15). Modes: autopilot
+        (registers an autopilot run), pipeline (creates one job per task),
+        orchestrator_worker (spawns an orchestrator agent), manual (git-mv only).
+        The YAML file is git-mv'd to plans/in_progress/ and a commit is created.
+        Returns 409 if the plan is already in_progress or completed.
       parameters:
         - name: project_id
           in: path
@@ -1473,13 +1476,18 @@ paths:
           application/json:
             schema: { $ref: "#/components/schemas/RunPlanRequest" }
       responses:
-        "501":
-          description: Not yet implemented
+        "200":
+          description: Plan started — returns updated plan record
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Plan" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Plan already in_progress or completed
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
-        "400": { $ref: "#/components/responses/BadRequest" }
-        "404": { $ref: "#/components/responses/NotFound" }
 
   /api/v1/sessions/{id}/name:
     patch:

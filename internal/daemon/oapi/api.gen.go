@@ -2249,7 +2249,7 @@ type ServerInterface interface {
 	// Brain-assisted plan progress assessment
 	// (POST /api/v1/projects/{project_id}/plans/{plan_id}/assess)
 	AssessPlan(w http.ResponseWriter, r *http.Request, projectId string, planId string)
-	// Start plan execution (Phase 5 stub)
+	// Start plan execution
 	// (POST /api/v1/projects/{project_id}/plans/{plan_id}/run)
 	RunPlan(w http.ResponseWriter, r *http.Request, projectId string, planId string)
 	// Reclaim orphan worktrees
@@ -2852,7 +2852,7 @@ func (_ Unimplemented) AssessPlan(w http.ResponseWriter, r *http.Request, projec
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Start plan execution (Phase 5 stub)
+// Start plan execution
 // (POST /api/v1/projects/{project_id}/plans/{plan_id}/run)
 func (_ Unimplemented) RunPlan(w http.ResponseWriter, r *http.Request, projectId string, planId string) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -10149,6 +10149,20 @@ type RunPlanResponseObject interface {
 	VisitRunPlanResponse(w http.ResponseWriter) error
 }
 
+type RunPlan200JSONResponse Plan
+
+func (response RunPlan200JSONResponse) VisitRunPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type RunPlan400JSONResponse struct{ BadRequestJSONResponse }
 
 func (response RunPlan400JSONResponse) VisitRunPlanResponse(w http.ResponseWriter) error {
@@ -10177,16 +10191,16 @@ func (response RunPlan404JSONResponse) VisitRunPlanResponse(w http.ResponseWrite
 	return err
 }
 
-type RunPlan501JSONResponse Error
+type RunPlan409JSONResponse Error
 
-func (response RunPlan501JSONResponse) VisitRunPlanResponse(w http.ResponseWriter) error {
+func (response RunPlan409JSONResponse) VisitRunPlanResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(501)
+	w.WriteHeader(409)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -12118,7 +12132,7 @@ type StrictServerInterface interface {
 	// Brain-assisted plan progress assessment
 	// (POST /api/v1/projects/{project_id}/plans/{plan_id}/assess)
 	AssessPlan(ctx context.Context, request AssessPlanRequestObject) (AssessPlanResponseObject, error)
-	// Start plan execution (Phase 5 stub)
+	// Start plan execution
 	// (POST /api/v1/projects/{project_id}/plans/{plan_id}/run)
 	RunPlan(ctx context.Context, request RunPlanRequestObject) (RunPlanResponseObject, error)
 	// Reclaim orphan worktrees
