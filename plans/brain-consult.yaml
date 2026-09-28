@@ -88,7 +88,7 @@ tasks:
       D8. Non-goals: long-lived pipeline manager; brain free-form repo edits;
 
           orphaned-agent AutoRestart; changing emit/Reconcile happy path.
-    status: pending
+    status: done
   - id: Phase1_ConsultCore
     prompt: >-
       Phase 1 (consult core): Implement the Consultor from the spec (D1–D3, D6–D7 skeleton). Open a PR against main titled 'feat(daemon): shared need-based brain consult core'. End with `wd job done --summary '...'` once the PR is green.
@@ -112,7 +112,7 @@ tasks:
 
       Run wd check before committing.
     after: [Phase0_Spec]
-    status: pending
+    status: done
   - id: Phase2_PipelineWire
     prompt: >-
       Phase 2 (PipelineWatcher wire): After deterministic one-shot Retry fails to clear stuckness, consult the brain and execute the closed action (spec D4). Open a PR against main titled 'feat(daemon): pipeline stuck recovery via brain consult'. End with `wd job done --summary '...'` once the PR is green.
@@ -135,7 +135,7 @@ tasks:
 
       Run wd check before committing.
     after: [Phase1_ConsultCore]
-    status: pending
+    status: done
   - id: Phase3_AutopilotAdopt
     prompt: >-
       Phase 3 (autopilot resolver adopts Consultor): Route manager-spawned role=brain unblocks through the shared consult helper where practical (spec D5), without changing manager/Guardian lifetime. Open a PR against main titled 'feat(autopilot): route resolver brain through shared consult'. End with `wd job done --summary '...'` once the PR is green.
@@ -155,7 +155,7 @@ tasks:
 
       Run wd check before committing.
     after: [Phase2_PipelineWire]
-    status: pending
+    status: done
   - id: Phase4_DocsDoD
     prompt: >-
       Phase 4 (docs + DoD): Complete the CLAUDE.md Definition-of-Done checklist for this feature. Open a PR against main titled 'docs: brain consult for pipelines and autopilot resolver'. End with `wd job done --summary '...'` once the PR is green.
@@ -175,7 +175,7 @@ tasks:
 
       Run wd check before committing.
     after: [Phase3_AutopilotAdopt]
-    status: pending
+    status: done
 done_when:
   - "A shared Consultor exists: spawn role=brain, structured reply, teardown, audit."
   - "Action enum is closed and validated; invalid replies do not execute arbitrary work."
