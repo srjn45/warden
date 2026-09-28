@@ -478,6 +478,10 @@ func newDaemonRunCmd() *cobra.Command {
 			srv.SetRelayPolicy(relay.Policy{AllowWebTerminated: cfg.Relay.AllowWebTerminated})
 			srv.SetAudit(audit.NewWriter(filepath.Join(cfg.DataDir, "audit.jsonl")))
 			srv.SetAuditTrustedProxies(trustedProxies)
+			// Shared brain Consultor (docs/specs/2026-09-27-brain-consult.md): one
+			// instance for PipelineWatcher stuck recovery AND the autopilot
+			// manager's POST /autopilot/brain-consult entry point (Phase 3 / D5).
+			srv.ConfigureBrainConsult(cfg.BrainConsult)
 			mcol := metrics.NewCollector(runner, daemon.NewAgentLister(st), srv.PressureName)
 			mrec, err := metrics.NewRecorder(filepath.Join(cfg.DataDir, "metrics"))
 			if err != nil {

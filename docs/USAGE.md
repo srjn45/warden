@@ -2342,6 +2342,31 @@ Resolve it by `pipeline emit`-ing on the job's behalf (if the agent actually
 finished) or `pipeline retry`, which tears down the stale job session/worktree,
 resets the job, reopens any descendants that were skipped, and re-runs from there.
 
+If the job is still `needs_attention` after the watcher's one deterministic
+auto-retry (`AutoRetryCount ≥ 1`), the daemon may automatically run a
+**brain consult**: it spawns a short-lived `role=brain` agent, injects a
+structured prompt describing the situation, and executes the brain's chosen
+action from the closed set below — then tears the brain down. Every consult
+writes a `brain_consult` audit event.
+
+| Action | What the daemon does |
+|---|---|
+| `wait` | No-op this tick; re-evaluates on the next watcher cycle |
+| `nudge_agent` | Sends a short wake-up message to the stuck job's agent |
+| `retry_job` | Tears down the stale session and re-runs the job |
+| `mark_failed` | Marks the job failed directly, unblocking its descendants |
+| `skip_job` | Marks the job skipped, unblocking its descendants |
+| `escalate` | Records an audit event and surfaces a human-readable message — no structural change |
+| `noop` | Brain could not determine a useful step; no action taken |
+
+Brain consult fires at most once per stuck episode per job (a new episode starts
+when the job is retried). You can still manually `retry` or `emit` at any time —
+brain consult is a backstop, not a blocker.
+
+**To disable:**
+- Globally: set `brain_consult.enabled: false` in `~/.warden/config.yaml`
+- Per-pipeline: set `pipeline.brain_consult: false` in `~/.warden/config.yaml`
+
 ---
 
 ## 18. Autopilot — autonomous agent runs

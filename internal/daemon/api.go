@@ -16,6 +16,7 @@ import (
 	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/backendusage"
+	"github.com/srjn45/warden/internal/brainconsult"
 	"github.com/srjn45/warden/internal/branchtrack"
 	"github.com/srjn45/warden/internal/collab"
 	"github.com/srjn45/warden/internal/config"
@@ -243,6 +244,12 @@ type Server struct {
 	// the feature is unconfigured; GET /autopilot then reports disabled/empty and
 	// POST /autopilot returns 403. See strict_autopilot.go / internal/autopilot.
 	autopilot *autopilot.Controller
+	// brainConsultor is the shared need-based brain Consultor (spec
+	// 2026-09-27-brain-consult.md). nil ⇒ feature off (pipeline stuck recovery
+	// and POST /autopilot/brain-consult both no-op / 403). Wired by
+	// SetBrainConsultor; PipelineWatcher and the autopilot manager entry point
+	// share the same instance so teardown + audit stay identical.
+	brainConsultor brainconsult.Consultor
 	// landHostFn builds the LandHost the `land` handler drives (autopilot.md §6).
 	// nil ⇒ the real gh/git + check-rail host; tests inject a fake to exercise the
 	// handler's resolution, ledger write, and error mapping without a live GitHub.
@@ -372,7 +379,15 @@ func (s *Server) notify() {
 func (s *Server) Notify() { s.notify() }
 
 // SetExecutor wires the executor after construction (executor needs Server.Notify).
-func (s *Server) SetExecutor(e *Executor) { s.exec = e }
+// When the watcher was not created at NewServer (exec was nil then — the daemon
+// boot path), this also constructs the PipelineWatcher so stuck-job recovery and
+// brain consult can run.
+func (s *Server) SetExecutor(e *Executor) {
+	s.exec = e
+	if e != nil && s.pipelineWatcher == nil {
+		s.pipelineWatcher = NewPipelineWatcher(e.pstore, s.store, e, 10*time.Minute, 20*time.Minute, true)
+	}
+}
 
 // SetNarrator wires the digest narrator after construction (optional; nil ⇒ the
 // digest summary degrades to the agent's last transcript message).

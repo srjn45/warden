@@ -113,6 +113,7 @@ default; each in its own tmux session, most in a git worktree).
 | Delete a pipeline record | `pipeline delete` | `delete_pipeline` | ✓ | — | — | [pipelines](https://srjn45.github.io/warden/multi-agent/pipelines/) |
 | Validate a spec (no daemon) | `pipeline validate` | `validate_pipeline` | ✓ | — | — | [pipelines](https://srjn45.github.io/warden/multi-agent/pipelines/) |
 | List built-in templates | `pipeline list-templates` | `list_pipeline_templates` | ✓ | — | — | [pipelines](https://srjn45.github.io/warden/multi-agent/pipelines/) |
+| Stuck-job brain consult (automatic after auto-retry; closed action enum; shared `Consultor` with autopilot resolver) | — | automatic (daemon-internal) | — | — | — | [pipelines](https://srjn45.github.io/warden/multi-agent/pipelines/) |
 
 ## 5. Coordination (shared context, messages, conflicts)
 
@@ -307,6 +308,7 @@ and lands them into an integration branch, without waiting on a human.
 | Register/control independent runs | `autopilot register\|start\|pause\|resume\|stop` | run API | ✓ | AutopilotPanel | run nodes (`r`/`x`) | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
 | Land a worker branch into the integration branch (idempotent, guarded) | `land <agent-or-branch>` | `land` | ✓ | — | — | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
 | Mark the run complete (in-place `status: complete` plan marker; preflight skips it) | automatic (manager) | `autopilot_complete` | ✓ | — | — | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |
+| Ad-hoc brain consult from manager (shared `Consultor` with pipeline stuck recovery; short-lived `role=brain` spawn + teardown + audit; closed action enum) | automatic (manager) | `brain_consult` | ✓ | — | — | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |
 | Persisted per-repo enable set (repos come back up across daemon restart) | automatic (`<data_dir>/autopilot/enabled/`) | automatic | ✓ | — | — | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
 | Topology: manager (role `autopilot`) + worker (role `worker`) + on-demand resolver (role `brain`), tagged `autopilot`+`run:<id>` | automatic | automatic | ✓ | fleet list | TUI sub-tree | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |
 | Guardian heal loop (nudge→restart→rotate→backoff) | automatic | automatic | ✓ | AutopilotPanel | — | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |

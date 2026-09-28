@@ -122,6 +122,72 @@ func (e AutopilotTaskStatusRequestStatus) Valid() bool {
 	}
 }
 
+// Defines values for BrainConsultRequestAllowed.
+const (
+	BrainConsultRequestAllowedEscalate   BrainConsultRequestAllowed = "escalate"
+	BrainConsultRequestAllowedMarkFailed BrainConsultRequestAllowed = "mark_failed"
+	BrainConsultRequestAllowedNoop       BrainConsultRequestAllowed = "noop"
+	BrainConsultRequestAllowedNudgeAgent BrainConsultRequestAllowed = "nudge_agent"
+	BrainConsultRequestAllowedRetryJob   BrainConsultRequestAllowed = "retry_job"
+	BrainConsultRequestAllowedSkipJob    BrainConsultRequestAllowed = "skip_job"
+	BrainConsultRequestAllowedWait       BrainConsultRequestAllowed = "wait"
+)
+
+// Valid indicates whether the value is a known member of the BrainConsultRequestAllowed enum.
+func (e BrainConsultRequestAllowed) Valid() bool {
+	switch e {
+	case BrainConsultRequestAllowedEscalate:
+		return true
+	case BrainConsultRequestAllowedMarkFailed:
+		return true
+	case BrainConsultRequestAllowedNoop:
+		return true
+	case BrainConsultRequestAllowedNudgeAgent:
+		return true
+	case BrainConsultRequestAllowedRetryJob:
+		return true
+	case BrainConsultRequestAllowedSkipJob:
+		return true
+	case BrainConsultRequestAllowedWait:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for BrainConsultResultAction.
+const (
+	BrainConsultResultActionEscalate   BrainConsultResultAction = "escalate"
+	BrainConsultResultActionMarkFailed BrainConsultResultAction = "mark_failed"
+	BrainConsultResultActionNoop       BrainConsultResultAction = "noop"
+	BrainConsultResultActionNudgeAgent BrainConsultResultAction = "nudge_agent"
+	BrainConsultResultActionRetryJob   BrainConsultResultAction = "retry_job"
+	BrainConsultResultActionSkipJob    BrainConsultResultAction = "skip_job"
+	BrainConsultResultActionWait       BrainConsultResultAction = "wait"
+)
+
+// Valid indicates whether the value is a known member of the BrainConsultResultAction enum.
+func (e BrainConsultResultAction) Valid() bool {
+	switch e {
+	case BrainConsultResultActionEscalate:
+		return true
+	case BrainConsultResultActionMarkFailed:
+		return true
+	case BrainConsultResultActionNoop:
+		return true
+	case BrainConsultResultActionNudgeAgent:
+		return true
+	case BrainConsultResultActionRetryJob:
+		return true
+	case BrainConsultResultActionSkipJob:
+		return true
+	case BrainConsultResultActionWait:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CIStatusState.
 const (
 	CIStatusStateFailure CIStatusState = "failure"
@@ -623,6 +689,47 @@ type BackendsState struct {
 	// Settings Store-level backend policy (the singleton settings record).
 	Settings BackendSettings `json:"settings"`
 }
+
+// BrainConsultRequest Body for POST /autopilot/brain-consult — situation package handed to the shared Consultor (docs/specs/2026-09-27-brain-consult.md §D1/D3). The manager fills intent/situation/goal/evidence; the daemon derives run_id from the caller and writes the audit trail.
+type BrainConsultRequest struct {
+	// Allowed subset of closed actions the caller accepts; omit for the autopilot default (nudge_agent, wait, escalate, noop)
+	Allowed []BrainConsultRequestAllowed `json:"allowed,omitempty"`
+
+	// AlreadyTried actions already attempted (matched against Action constants)
+	AlreadyTried []string `json:"already_tried,omitempty"`
+
+	// Evidence log excerpts, error messages, agent output snippets
+	Evidence string `json:"evidence,omitempty"`
+
+	// Goal desired outcome
+	Goal string `json:"goal,omitempty"`
+
+	// Intent one-line summary, e.g. "unblock stuck worker"
+	Intent string `json:"intent"`
+
+	// Situation free-form description of the current state
+	Situation string `json:"situation,omitempty"`
+
+	// TaskId optional task id for the audit trail
+	TaskId string `json:"task_id,omitempty"`
+}
+
+// BrainConsultRequestAllowed defines model for BrainConsultRequest.Allowed.
+type BrainConsultRequestAllowed string
+
+// BrainConsultResult The closed action the short-lived brain recommended. The manager executes it (nudge the worker, wait, escalate, …) — the daemon does not mutate workers or the ledger on this path.
+type BrainConsultResult struct {
+	Action BrainConsultResultAction `json:"action"`
+
+	// BrainId agent id of the spawned (now torn-down) brain
+	BrainId string `json:"brain_id"`
+
+	// Reason one-line explanation from the brain
+	Reason string `json:"reason"`
+}
+
+// BrainConsultResultAction defines model for BrainConsultResult.Action.
+type BrainConsultResultAction string
 
 // BranchStatus defines model for BranchStatus.
 type BranchStatus = branchtrack.BranchStatus
@@ -1575,6 +1682,9 @@ type SetAutoApprovePolicyJSONRequestBody = AutoApprovePolicy
 // SetAutopilotJSONRequestBody defines body for SetAutopilot for application/json ContentType.
 type SetAutopilotJSONRequestBody = AutopilotToggleRequest
 
+// ConsultBrainJSONRequestBody defines body for ConsultBrain for application/json ContentType.
+type ConsultBrainJSONRequestBody = BrainConsultRequest
+
 // LandAutopilotJSONRequestBody defines body for LandAutopilot for application/json ContentType.
 type LandAutopilotJSONRequestBody = AutopilotLandRequest
 
@@ -1748,6 +1858,9 @@ type ServerInterface interface {
 	// Enable or disable autopilot
 	// (POST /api/v1/autopilot)
 	SetAutopilot(w http.ResponseWriter, r *http.Request)
+	// Consult a short-lived brain resolver (shared Consultor)
+	// (POST /api/v1/autopilot/brain-consult)
+	ConsultBrain(w http.ResponseWriter, r *http.Request)
 	// Mark the calling brain's run complete
 	// (POST /api/v1/autopilot/complete)
 	CompleteAutopilot(w http.ResponseWriter, r *http.Request)
@@ -2105,6 +2218,12 @@ func (_ Unimplemented) GetAutopilot(w http.ResponseWriter, r *http.Request) {
 // Enable or disable autopilot
 // (POST /api/v1/autopilot)
 func (_ Unimplemented) SetAutopilot(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Consult a short-lived brain resolver (shared Consultor)
+// (POST /api/v1/autopilot/brain-consult)
+func (_ Unimplemented) ConsultBrain(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2864,6 +2983,26 @@ func (siw *ServerInterfaceWrapper) SetAutopilot(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SetAutopilot(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ConsultBrain operation middleware
+func (siw *ServerInterfaceWrapper) ConsultBrain(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ConsultBrain(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6227,6 +6366,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/api/v1/autopilot", wrapper.SetAutopilot)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/autopilot/brain-consult", wrapper.ConsultBrain)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/autopilot/complete", wrapper.CompleteAutopilot)
 	})
 	r.Group(func(r chi.Router) {
@@ -6723,6 +6865,70 @@ func (response SetAutopilot409JSONResponse) VisitSetAutopilotResponse(w http.Res
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ConsultBrainRequestObject struct {
+	Body *ConsultBrainJSONRequestBody
+}
+
+type ConsultBrainResponseObject interface {
+	VisitConsultBrainResponse(w http.ResponseWriter) error
+}
+
+type ConsultBrain200JSONResponse BrainConsultResult
+
+func (response ConsultBrain200JSONResponse) VisitConsultBrainResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ConsultBrain400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ConsultBrain400JSONResponse) VisitConsultBrainResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ConsultBrain403JSONResponse Error
+
+func (response ConsultBrain403JSONResponse) VisitConsultBrainResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ConsultBrain504JSONResponse Error
+
+func (response ConsultBrain504JSONResponse) VisitConsultBrainResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(504)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -10768,6 +10974,9 @@ type StrictServerInterface interface {
 	// Enable or disable autopilot
 	// (POST /api/v1/autopilot)
 	SetAutopilot(ctx context.Context, request SetAutopilotRequestObject) (SetAutopilotResponseObject, error)
+	// Consult a short-lived brain resolver (shared Consultor)
+	// (POST /api/v1/autopilot/brain-consult)
+	ConsultBrain(ctx context.Context, request ConsultBrainRequestObject) (ConsultBrainResponseObject, error)
 	// Mark the calling brain's run complete
 	// (POST /api/v1/autopilot/complete)
 	CompleteAutopilot(ctx context.Context, request CompleteAutopilotRequestObject) (CompleteAutopilotResponseObject, error)
@@ -11275,6 +11484,37 @@ func (sh *strictHandler) SetAutopilot(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SetAutopilotResponseObject); ok {
 		if err := validResponse.VisitSetAutopilotResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ConsultBrain operation middleware
+func (sh *strictHandler) ConsultBrain(w http.ResponseWriter, r *http.Request) {
+	var request ConsultBrainRequestObject
+
+	var body ConsultBrainJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ConsultBrain(ctx, request.(ConsultBrainRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ConsultBrain")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ConsultBrainResponseObject); ok {
+		if err := validResponse.VisitConsultBrainResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
