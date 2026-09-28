@@ -27,24 +27,26 @@ import (
 type Action string
 
 const (
-	ActionWait       Action = "wait"
-	ActionNudgeAgent Action = "nudge_agent"
-	ActionRetryJob   Action = "retry_job"
-	ActionMarkFailed Action = "mark_failed"
-	ActionSkipJob    Action = "skip_job"
-	ActionEscalate   Action = "escalate"
-	ActionNoop       Action = "noop"
+	ActionWait               Action = "wait"
+	ActionNudgeAgent         Action = "nudge_agent"
+	ActionRetryJob           Action = "retry_job"
+	ActionMarkFailed         Action = "mark_failed"
+	ActionSkipJob            Action = "skip_job"
+	ActionEscalate           Action = "escalate"
+	ActionNoop               Action = "noop"
+	ActionUpdateTaskProgress Action = "update_task_progress"
 )
 
 // knownActions is the full closed enum for validation.
 var knownActions = map[Action]bool{
-	ActionWait:       true,
-	ActionNudgeAgent: true,
-	ActionRetryJob:   true,
-	ActionMarkFailed: true,
-	ActionSkipJob:    true,
-	ActionEscalate:   true,
-	ActionNoop:       true,
+	ActionWait:               true,
+	ActionNudgeAgent:         true,
+	ActionRetryJob:           true,
+	ActionMarkFailed:         true,
+	ActionSkipJob:            true,
+	ActionEscalate:           true,
+	ActionNoop:               true,
+	ActionUpdateTaskProgress: true,
 }
 
 // ErrNoBrainReply is returned when the brain did not produce a parseable reply
@@ -74,9 +76,10 @@ type Request struct {
 
 // Result is what the brain decided.
 type Result struct {
-	Action  Action // one of the D2 enum values
-	Reason  string // one-line explanation from the brain
-	BrainID string // agent id of the spawned brain (for tracing/audit)
+	Action       Action            // one of the D2 enum values
+	Reason       string            // one-line explanation from the brain
+	BrainID      string            // agent id of the spawned brain (for tracing/audit)
+	TaskProgress map[string]string // non-nil when Action == ActionUpdateTaskProgress: task id → status
 }
 
 // Consultor is the single interface for all brain consult call sites.
@@ -213,8 +216,9 @@ func buildPrompt(req Request) (string, error) {
 
 // brainReply is the frozen JSON reply format the brain produces.
 type brainReply struct {
-	Action string `json:"action"`
-	Reason string `json:"reason"`
+	Action       string            `json:"action"`
+	Reason       string            `json:"reason"`
+	TaskProgress map[string]string `json:"task_progress,omitempty"`
 }
 
 // Consult implements Consultor. It spawns a role=brain agent, injects the D3
@@ -354,7 +358,7 @@ func parseReply(output string, allowedSet map[Action]bool) (Result, bool) {
 			return Result{Action: ActionNoop, Reason: r.Reason}, true
 		}
 
-		return Result{Action: a, Reason: r.Reason}, true
+		return Result{Action: a, Reason: r.Reason, TaskProgress: r.TaskProgress}, true
 	}
 	return Result{}, false
 }

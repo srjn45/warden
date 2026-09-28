@@ -9,6 +9,7 @@ import (
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -58,6 +59,12 @@ type api interface {
 	ListModels(ctx context.Context, tier string) ([]backendstore.ModelEntry, error)
 	ListRoleTiers(ctx context.Context) ([]backendstore.RoleTierMapping, error)
 	Usage(ctx context.Context, refresh bool) (backendusage.Snapshot, error)
+	PlanList(ctx context.Context, projectID string, p client.PlanListParams) ([]*planstore.Plan, error)
+	PlanGet(ctx context.Context, projectID, planID string) (*planstore.Plan, error)
+	PlanScan(ctx context.Context, projectID string, req client.PlanScanRequest) (client.PlanScanResult, error)
+	PlanUpdate(ctx context.Context, projectID, planID string, req client.PlanUpdateRequest) (*planstore.Plan, error)
+	PlanAssess(ctx context.Context, projectID, planID string) (*planstore.Plan, error)
+	PlanRun(ctx context.Context, projectID, planID string, req client.PlanRunRequest) error
 }
 
 type mode int
@@ -87,4 +94,6 @@ const (
 	modeEvents                // the selected agent's event log (opened from modeDetails)
 	modeBackends              // agent-backend registry page (list, tier, default, enabled, thinking-mode)
 	modeTerminalChoice        // `t`: (c)reate a terminal in the opened agent's dir or (f)ocus an existing one
+	modePlanRunMode           // `r` on a plan: execution mode picker
+	modePlanDetail            // in-pane full plan detail view
 )

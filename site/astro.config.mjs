@@ -53,6 +53,7 @@ export default defineConfig({
           { label: 'Agent backends', slug: 'concepts/agent-backends' },
           { label: 'Project memory', slug: 'concepts/project-memory' },
           { label: 'Autopilot', slug: 'concepts/autopilot' },
+          { label: 'Plans', slug: 'concepts/plans' },
         ]},
         { label: 'Guides', items: [
           { label: 'Spawn & watch agents', slug: 'guides/spawn-and-watch' },
@@ -71,6 +72,7 @@ export default defineConfig({
           { label: 'Remote access', slug: 'guides/remote-access' },
           { label: 'Re-auth a backend from your phone', slug: 'guides/reauth-from-phone' },
           { label: 'Autopilot — autonomous runs', slug: 'guides/autopilot' },
+          { label: 'Using plans', slug: 'guides/using-plans' },
         ]},
         { label: 'Multi-agent', items: [
           { label: 'Pipelines (DAG)', slug: 'multi-agent/pipelines' },

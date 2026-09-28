@@ -281,3 +281,29 @@ func TestParseReplyMalformed(t *testing.T) {
 		}
 	}
 }
+
+// TestConsultUpdateTaskProgress verifies that ActionUpdateTaskProgress with task_progress is parsed.
+func TestConsultUpdateTaskProgress(t *testing.T) {
+	sp := &fakeSpawner{
+		outputFn: func(_ context.Context, _ string, _ int) (string, error) {
+			return `{"action": "update_task_progress", "reason": "checked git log", "task_progress": {"t1": "done", "t2": "in_progress"}}`, nil
+		},
+	}
+	c := New(sp, noopAuditWriter(), Options{Timeout: 5 * time.Second})
+	res, err := c.Consult(context.Background(), Request{
+		Intent:  "plan_progress_assessment",
+		Allowed: []Action{ActionUpdateTaskProgress},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Action != ActionUpdateTaskProgress {
+		t.Errorf("expected action update_task_progress, got %q", res.Action)
+	}
+	if res.Reason != "checked git log" {
+		t.Errorf("unexpected reason: %q", res.Reason)
+	}
+	if res.TaskProgress["t1"] != "done" || res.TaskProgress["t2"] != "in_progress" {
+		t.Errorf("unexpected task progress: %v", res.TaskProgress)
+	}
+}

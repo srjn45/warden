@@ -34,6 +34,7 @@ const PlanStatusComplete = "complete"
 // enable time rather than stalling a run days later.
 type Plan struct {
 	Version     int        `yaml:"version"`
+	Name        string     `yaml:"name,omitempty"`
 	Goal        string     `yaml:"goal"`
 	Constraints []string   `yaml:"constraints"`
 	Tasks       []PlanTask `yaml:"tasks"`

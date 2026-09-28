@@ -3,12 +3,14 @@ package tui
 import (
 	"encoding/json"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/srjn45/warden/internal/tree"
@@ -25,6 +27,7 @@ type treeViewOpts struct {
 	sessions       []*store.Session
 	pipelines      []*pipeline.Pipeline
 	runs           []client.AutopilotRunStatus
+	plans          map[string][]*planstore.Plan
 	skipTerminals  bool // Projects tab: terminals live on the Terminals tab
 }
 
@@ -36,6 +39,7 @@ func buildProjectItems(
 	sessions []*store.Session,
 	pipelines []*pipeline.Pipeline,
 	ap client.AutopilotStatus,
+	plans map[string][]*planstore.Plan,
 	opened map[string]time.Time,
 	collapsed map[string]bool,
 	showSystem bool,
@@ -56,6 +60,7 @@ func buildProjectItems(
 		sessions:       filtered,
 		pipelines:      pipelines,
 		runs:           ap.Runs,
+		plans:          plans,
 		skipTerminals:  true,
 	})
 }
@@ -158,6 +163,7 @@ type adaptCtx struct {
 	pipelinesByID  map[string]*pipeline.Pipeline
 	runsByID       map[string]*client.AutopilotRunStatus
 	jobsByKey      map[string]*pipeline.Job // "pipeID/jobID"
+	plans          map[string][]*planstore.Plan
 	skipTerminals  bool
 }
 
@@ -171,6 +177,7 @@ func newAdaptCtx(opts treeViewOpts) *adaptCtx {
 		pipelinesByID:  make(map[string]*pipeline.Pipeline, len(opts.pipelines)),
 		runsByID:       make(map[string]*client.AutopilotRunStatus, len(opts.runs)),
 		jobsByKey:      map[string]*pipeline.Job{},
+		plans:          opts.plans,
 		skipTerminals:  opts.skipTerminals,
 	}
 	if ctx.collapsed == nil {
@@ -238,6 +245,9 @@ func (ctx *adaptCtx) adaptProject(n *tree.Node) []item {
 	if collapsed {
 		return items
 	}
+	if !synthetic && hdr.isProject {
+		items = append(items, ctx.adaptPlans(rawID)...)
+	}
 	if len(children) == 0 {
 		items = append(items, item{dir: hdr.path, underProject: true})
 		return items
@@ -245,6 +255,92 @@ func (ctx *adaptCtx) adaptProject(n *tree.Node) []item {
 	for _, ch := range children {
 		items = append(items, ctx.adaptNode(ch, 0)...)
 	}
+	return items
+}
+
+func (ctx *adaptCtx) adaptPlans(projectID string) []item {
+	if ctx.plans == nil || projectID == "" || projectID == "__none__" {
+		return nil
+	}
+	plans := ctx.plans[projectID]
+	if len(plans) == 0 && ctx.openMeta[projectID].Path != "" {
+		plans = ctx.plans[ctx.openMeta[projectID].Path]
+	}
+
+	plansKey := "plans:" + projectID
+	var plansCollapsed bool
+	if c, ok := ctx.collapsed[plansKey]; ok {
+		plansCollapsed = c
+	} else {
+		// When no plans exist in the project, collapse Plans header by default
+		plansCollapsed = len(plans) == 0
+	}
+
+	items := []item{{
+		planHeader:   true,
+		planProject:  projectID,
+		collapsed:    plansCollapsed,
+		underProject: true,
+	}}
+	if plansCollapsed {
+		return items
+	}
+
+	// Partition plans by status
+	byStatus := map[planstore.PlanStatus][]*planstore.Plan{
+		planstore.PlanStatusInProgress: {},
+		planstore.PlanStatusPending:    {},
+		planstore.PlanStatusCompleted:  {},
+		planstore.PlanStatusArchived:   {},
+	}
+	for _, p := range plans {
+		if p != nil {
+			byStatus[p.Status] = append(byStatus[p.Status], p)
+		}
+	}
+
+	statusGroups := []planstore.PlanStatus{
+		planstore.PlanStatusInProgress,
+		planstore.PlanStatusPending,
+		planstore.PlanStatusCompleted,
+		planstore.PlanStatusArchived,
+	}
+
+	for _, st := range statusGroups {
+		grpKey := "plans:" + projectID + ":" + string(st)
+		var isCollapsed bool
+		if c, ok := ctx.collapsed[grpKey]; ok {
+			isCollapsed = c
+		} else {
+			// Archived is collapsed by default; others are expanded by default
+			isCollapsed = st == planstore.PlanStatusArchived
+		}
+
+		grpPlans := byStatus[st]
+		items = append(items, item{
+			planGroup:    string(st),
+			planProject:  projectID,
+			planGroupCnt: len(grpPlans),
+			collapsed:    isCollapsed,
+			underProject: true,
+		})
+
+		if !isCollapsed {
+			sorted := make([]*planstore.Plan, len(grpPlans))
+			copy(sorted, grpPlans)
+			sort.SliceStable(sorted, func(i, j int) bool {
+				return sorted[i].Name < sorted[j].Name
+			})
+			for _, p := range sorted {
+				items = append(items, item{
+					plan:         p,
+					planProject:  projectID,
+					underProject: true,
+				})
+			}
+		}
+	}
+
 	return items
 }
 

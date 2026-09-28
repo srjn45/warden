@@ -14,6 +14,7 @@ import (
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -244,6 +245,13 @@ type item struct {
 	tombstone   bool   // terminal parent: render header-only, no live badge/gauge
 	runningKids int    // live descendants under a tombstone (the "N running" badge)
 	fromParent  string // §4.1 root with ParentID but not nested: "↳ from <parent>" backlink
+
+	// plan rows (spec D14)
+	planHeader   bool            // "Plans" header row under a project
+	planProject  string          // project ID for the plans header or group
+	planGroup    string          // "in_progress" | "pending" | "completed" | "archived"
+	planGroupCnt int             // count for status group badge
+	plan         *planstore.Plan // individual plan row
 }
 
 // dirKey is the placeholder identity for an opened dir. The NUL separator can't
@@ -287,6 +295,15 @@ func itemKey(it item) string {
 	if it.pjJob != nil {
 		return "pipeline:" + it.pjPipe + "/job:" + it.pjJob.ID
 	}
+	if it.planHeader {
+		return "plans:" + it.planProject
+	}
+	if it.planGroup != "" {
+		return "plans:" + it.planProject + ":" + it.planGroup
+	}
+	if it.plan != nil {
+		return "plan:" + it.plan.ID
+	}
 	if it.session != nil {
 		return "session:" + it.session.ID
 	}
@@ -307,6 +324,7 @@ func projNodeID(id string) string {
 // a dir group.
 func (it item) noDirGroup() bool {
 	return it.section != "" || it.projHdr != nil || it.apRun != nil || it.apPlan || it.apTask != nil || it.apWorkers || it.apWorkerGroup != "" || it.underProject || it.apprView != nil || it.pipeline != nil || it.pjJob != nil ||
+		it.planHeader || it.planGroup != "" || it.plan != nil ||
 		(it.session != nil && it.session.IsTerminal())
 }
 
@@ -473,7 +491,7 @@ func projectGroupedItems(projects []projectstore.Project, groupByProject map[str
 	}
 	// Normalize legacy collapse keys (proj\x00, aprun\x00, bare ids) onto composite ids.
 	collapsed = normalizeCollapseKeys(collapsed)
-	return buildProjectItems(projects, groups, sessions, pipelines, client.AutopilotStatus{Runs: runs}, opened, collapsed, true)
+	return buildProjectItems(projects, groups, sessions, pipelines, client.AutopilotStatus{Runs: runs}, nil, opened, collapsed, true)
 }
 
 // normalizeCollapseKeys maps pre-N6 collapse identities onto composite node ids
@@ -776,6 +794,29 @@ func renderItemLine(it item, selected bool, width int) string {
 		line = renderSectionHeader(it)
 	case it.projHdr != nil:
 		line = renderProjectHeader(it)
+	case it.planHeader:
+		glyph := "▾"
+		if it.collapsed {
+			glyph = "▸"
+		}
+		line = "  " + glyph + " " + stPaneTitle.Render("Plans")
+	case it.planGroup != "":
+		glyph := "▾"
+		if it.collapsed {
+			glyph = "▸"
+		}
+		title := planGroupTitle(it.planGroup)
+		badge := ""
+		if it.planGroup != string(planstore.PlanStatusArchived) {
+			badge = fmt.Sprintf("  (%d)", it.planGroupCnt)
+		}
+		line = "    " + glyph + " " + stHeader.Render(title) + stMuted.Render(badge)
+	case it.plan != nil:
+		name := it.plan.Name
+		if it.opened && !selected {
+			name = stOpenedName.Render(name)
+		}
+		line = "      · " + name
 	case it.apRun != nil:
 		glyph := "▾"
 		if it.collapsed {
@@ -944,7 +985,7 @@ func renderItemLine(it item, selected bool, width int) string {
 		// The cursor wins the gutter when it sits on the opened row — you are
 		// looking right at it, so its own marker would be redundant.
 		cur = stCursor.Render("› ")
-		if it.session != nil || it.section != "" || it.projHdr != nil || it.apprView != nil || it.pipeline != nil || it.pjJob != nil {
+		if it.session != nil || it.section != "" || it.projHdr != nil || it.apprView != nil || it.pipeline != nil || it.pjJob != nil || it.planHeader || it.planGroup != "" || it.plan != nil {
 			line = stCursor.Render(line)
 		}
 	case it.opened:
@@ -1541,4 +1582,20 @@ func completeDir(listing client.DirListing, typed string) (completed string, can
 		return typed, candidates // already at the common prefix; just show candidates
 	}
 	return filepath.Join(listDir, lcp), candidates
+}
+
+// planGroupTitle maps a plan status to its display label for status group headers.
+func planGroupTitle(group string) string {
+	switch group {
+	case string(planstore.PlanStatusInProgress):
+		return "In Progress"
+	case string(planstore.PlanStatusPending):
+		return "Pending"
+	case string(planstore.PlanStatusCompleted):
+		return "Completed"
+	case string(planstore.PlanStatusArchived):
+		return "Archived"
+	default:
+		return group
+	}
 }

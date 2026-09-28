@@ -14,6 +14,7 @@ import (
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -694,5 +695,95 @@ func loadSpawnCandidatesCmd(a api, tierLabel, roleName string) tea.Cmd {
 			backends = client.BackendsState{}
 		}
 		return spawnCandidatesMsg{candidates: buildSpawnCandidates(models, snap, backends, time.Now())}
+	}
+}
+
+// plansMsg carries the loaded plans for one project.
+type plansMsg struct {
+	projectID string
+	plans     []*planstore.Plan
+	err       error
+}
+
+func fetchProjectPlansCmd(a api, projectID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bg()
+		defer cancel()
+		plans, err := a.PlanList(ctx, projectID, client.PlanListParams{})
+		return plansMsg{projectID: projectID, plans: plans, err: err}
+	}
+}
+
+func plansCmd(a api, projects []projectstore.Project) tea.Cmd {
+	var cmds []tea.Cmd
+	for _, p := range projects {
+		if projectstore.NormalizeStatus(p.Status) != projectstore.StatusClosed {
+			cmds = append(cmds, fetchProjectPlansCmd(a, p.ID))
+		}
+	}
+	return tea.Batch(cmds...)
+}
+
+type planArchivedMsg struct {
+	projectID string
+	planID    string
+	err       error
+}
+
+func archivePlanCmd(a api, projectID, planID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bg()
+		defer cancel()
+		_, err := a.PlanUpdate(ctx, projectID, planID, client.PlanUpdateRequest{
+			Status: string(planstore.PlanStatusArchived),
+		})
+		return planArchivedMsg{projectID: projectID, planID: planID, err: err}
+	}
+}
+
+type plansScannedMsg struct {
+	projectID string
+	res       client.PlanScanResult
+	err       error
+}
+
+func scanPlansCmd(a api, projectID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bg()
+		defer cancel()
+		res, err := a.PlanScan(ctx, projectID, client.PlanScanRequest{})
+		return plansScannedMsg{projectID: projectID, res: res, err: err}
+	}
+}
+
+type planAssessedMsg struct {
+	projectID string
+	planID    string
+	plan      *planstore.Plan
+	err       error
+}
+
+func assessPlanCmd(a api, projectID, planID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bgLong()
+		defer cancel()
+		p, err := a.PlanAssess(ctx, projectID, planID)
+		return planAssessedMsg{projectID: projectID, planID: planID, plan: p, err: err}
+	}
+}
+
+type planRunMsg struct {
+	projectID string
+	planID    string
+	mode      string
+	err       error
+}
+
+func runPlanCmd(a api, projectID, planID, mode string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bg()
+		defer cancel()
+		err := a.PlanRun(ctx, projectID, planID, client.PlanRunRequest{Mode: mode})
+		return planRunMsg{projectID: projectID, planID: planID, mode: mode, err: err}
 	}
 }

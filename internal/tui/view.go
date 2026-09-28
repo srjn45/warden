@@ -67,6 +67,13 @@ func helpText() string {
 		"  ?            toggle this help\n" +
 		"  q            quit\n" +
 		"\n" +
+		stPaneTitle.Render("Plans (when focused on a plan)") + "\n" +
+		"  enter        open plan detail pane\n" +
+		"  a            archive plan\n" +
+		"  s            scan plans from filesystem\n" +
+		"  A            assess plan progress with brain consult\n" +
+		"  r            run plan (select execution mode)\n" +
+		"\n" +
 		stPaneTitle.Render("Rotation (global — works from any pane, even while typing)") + "\n" +
 		"  alt+t        cycle the terminal pane through the live terminals (grabs focus)\n" +
 		"  alt+a        cycle the agent pane through all live agents (grabs focus)\n" +

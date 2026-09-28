@@ -2467,6 +2467,121 @@
     ]
   },
   {
+    "path": "plan",
+    "use": "plan",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "plan archive",
+    "use": "archive \u003cplan-id\u003e",
+    "runnable": true,
+    "local_flags": [
+      "project"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "plan assess",
+    "use": "assess \u003cplan-id\u003e",
+    "runnable": true,
+    "local_flags": [
+      "project"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "plan import",
+    "use": "import \u003cfile\u003e",
+    "runnable": true,
+    "local_flags": [
+      "project"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "plan list",
+    "use": "list",
+    "aliases": [
+      "ls"
+    ],
+    "runnable": true,
+    "local_flags": [
+      "json",
+      "project",
+      "status"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "plan run",
+    "use": "run \u003cplan-id\u003e --mode \u003cmode\u003e",
+    "runnable": true,
+    "local_flags": [
+      "mode",
+      "project"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "plan scan",
+    "use": "scan",
+    "runnable": true,
+    "local_flags": [
+      "assess",
+      "migrate-flat",
+      "project"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "plan show",
+    "use": "show \u003cplan-id\u003e",
+    "runnable": true,
+    "local_flags": [
+      "json",
+      "project"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "plan status",
+    "use": "status \u003cplan-id\u003e \u003cnew-status\u003e",
+    "runnable": true,
+    "local_flags": [
+      "project"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
     "path": "plugin",
     "use": "plugin",
     "hidden": true,

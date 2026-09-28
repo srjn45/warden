@@ -318,7 +318,26 @@ and lands them into an integration branch, without waiting on a human.
 | Approval routing to manager mailbox | automatic | automatic | ✓ | — | — | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |
 | Run ledger (task state, landings, audit) | `audit log` | `audit_log` | ✓ | — | — | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |
 
-## 16. Backend registry (detected CLIs, tiers, thinking-mode)
+## 16. Plans (tracked plan lifecycle)
+
+Plan YAML files in `plans/{pending,in_progress,completed,archived}/` are tracked daemon entities. Status is encoded by **directory placement** — a state transition is a `git mv` committed to the repo, making the lifecycle team-visible and git-recoverable without hub sync. Execution state (linked run/pipeline IDs, task progress) lives in ScrivaDB. Plans appear above agents in the TUI project tree.
+
+| Feature | CLI | MCP | Skill | Web | TUI | Docs |
+|---|---|---|---|---|---|---|
+| List plans (optional status filter) | `plan list` (alias `ls`) | `list_plans` | ✓ | — | plan tree | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
+| Show full plan detail | `plan show` | `get_plan` | ✓ | — | detail pane | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
+| Register a new plan record | — | `create_plan` | ✓ | — | — | [concepts/plans](https://srjn45.github.io/warden/concepts/plans/) |
+| Import a YAML into `plans/pending/` + scan | `plan import` | — | ✓ | — | — | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
+| Scan directories + upsert records (`--migrate-flat`, `--assess`) | `plan scan` | `scan_plans` | ✓ | — | `s` | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
+| Transition status (git mv + commit + DB update) | `plan status` | `update_plan_status` | ✓ | — | — | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
+| Archive a plan (shorthand for status → archived) | `plan archive` | `archive_plan` | ✓ | — | `a` | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
+| Brain-assisted task progress assessment | `plan assess` | `assess_plan` | ✓ | — | `A` | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
+| Run a plan in a given mode (`autopilot\|pipeline\|orchestrator_worker\|manual`) | `plan run --mode` | `run_plan` | ✓ | — | `r` (mode picker) | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
+| Auto-completion: `autopilot`/`pipeline` modes → git-mv to `completed/` | automatic | automatic | ✓ | — | — | [concepts/plans](https://srjn45.github.io/warden/concepts/plans/) |
+| Daemon auto-scan on startup (directory walk per registered project) | automatic | automatic | ✓ | — | — | [concepts/plans](https://srjn45.github.io/warden/concepts/plans/) |
+| TUI project tree: plans above agents, grouped by status, detail pane | — | — | — | — | plan tree | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
+
+## 17. Backend registry (detected CLIs, tiers, thinking-mode)
 
 warden detects the coding-agent CLIs installed on this machine (`claude`, `codex`,
 `aider`, …) plus a reserved **`local`** row for the free/local model, and persists
@@ -351,7 +370,7 @@ backends warden's own internal thinking may call (**never** a paid one).
 > on the first boot after upgrade, then removed from config (edit tiers via the backends surfaces
 > above). See §34 of [`docs/FEATURES.md`](docs/FEATURES.md).
 
-## 17. Admin / host (CLI-only by design)
+## 18. Admin / host (CLI-only by design)
 
 These operate on the host, the daemon process, the local shell, or the bearer
 secret — they are **intentionally not exposed over MCP or web**, because doing so

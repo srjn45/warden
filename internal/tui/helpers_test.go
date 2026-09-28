@@ -11,6 +11,7 @@ import (
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -108,6 +109,21 @@ type fakeAPI struct {
 	projectGroupsErr error
 	closedProjectID  string // id of the last CloseProject
 	closeProjectErr  error
+
+	// plans
+	plans          map[string][]*planstore.Plan
+	planListErr    error
+	planGetErr     error
+	planScanRes    client.PlanScanResult
+	planScanErr    error
+	planUpdateReq  *client.PlanUpdateRequest
+	planUpdateErr  error
+	planAssessPlan *planstore.Plan
+	planAssessErr  error
+	planRunProject string
+	planRunID      string
+	planRunMode    string
+	planRunErr     error
 }
 
 func (f *fakeAPI) List(context.Context) ([]*store.Session, error) { return f.sessions, f.listErr }
@@ -284,6 +300,76 @@ func (f *fakeAPI) ListRoleTiers(context.Context) ([]backendstore.RoleTierMapping
 }
 func (f *fakeAPI) Usage(_ context.Context, _ bool) (backendusage.Snapshot, error) {
 	return f.usageSnap, f.usageErr
+}
+
+func (f *fakeAPI) PlanList(_ context.Context, projectID string, _ client.PlanListParams) ([]*planstore.Plan, error) {
+	if f.planListErr != nil {
+		return nil, f.planListErr
+	}
+	if f.plans != nil {
+		return f.plans[projectID], nil
+	}
+	return nil, nil
+}
+
+func (f *fakeAPI) PlanGet(_ context.Context, projectID, planID string) (*planstore.Plan, error) {
+	if f.planGetErr != nil {
+		return nil, f.planGetErr
+	}
+	if f.plans != nil {
+		for _, p := range f.plans[projectID] {
+			if p.ID == planID {
+				return p, nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("plan %s not found", planID)
+}
+
+func (f *fakeAPI) PlanScan(_ context.Context, _ string, _ client.PlanScanRequest) (client.PlanScanResult, error) {
+	return f.planScanRes, f.planScanErr
+}
+
+func (f *fakeAPI) PlanUpdate(_ context.Context, projectID, planID string, req client.PlanUpdateRequest) (*planstore.Plan, error) {
+	f.planUpdateReq = &req
+	if f.planUpdateErr != nil {
+		return nil, f.planUpdateErr
+	}
+	if f.plans != nil {
+		for _, p := range f.plans[projectID] {
+			if p.ID == planID {
+				if req.Status != "" {
+					p.Status = planstore.PlanStatus(req.Status)
+				}
+				return p, nil
+			}
+		}
+	}
+	return nil, nil
+}
+
+func (f *fakeAPI) PlanAssess(_ context.Context, projectID, planID string) (*planstore.Plan, error) {
+	if f.planAssessErr != nil {
+		return nil, f.planAssessErr
+	}
+	if f.planAssessPlan != nil {
+		return f.planAssessPlan, nil
+	}
+	if f.plans != nil {
+		for _, p := range f.plans[projectID] {
+			if p.ID == planID {
+				return p, nil
+			}
+		}
+	}
+	return nil, nil
+}
+
+func (f *fakeAPI) PlanRun(_ context.Context, projectID, planID string, req client.PlanRunRequest) error {
+	f.planRunProject = projectID
+	f.planRunID = planID
+	f.planRunMode = req.Mode
+	return f.planRunErr
 }
 
 func key(s string) tea.KeyMsg {
