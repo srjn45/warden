@@ -1,16 +1,6 @@
 version: 1
 goal: >-
-  Make plans a first-class tracked entity in the warden daemon. Plan status is
-  encoded by directory placement (plans/pending/, plans/in_progress/,
-  plans/completed/, plans/archived/) so state is fully git-tracked, team-visible,
-  and recoverable without hub sync. Execution state (linked run/pipeline IDs,
-  task progress, timestamps) is stored in a new ScrivaDB 'plans' collection.
-  Plans appear in the project tree above agents, grouped by status.
-  'wd plan status' performs a git mv + commit + DB update atomically.
-  'wd plan assess' uses internal/brainconsult to reconstruct in-progress task
-  progress from git history and open PRs after a reinstall.
-  Four execution modes: autopilot, pipeline, orchestrator_worker, manual.
-
+  Make plans a first-class tracked entity in the warden daemon. Plan status is encoded by directory placement (plans/pending/, plans/in_progress/, plans/completed/, plans/archived/) so state is fully git-tracked, team-visible, and recoverable without hub sync. Execution state (linked run/pipeline IDs, task progress, timestamps) is stored in a new ScrivaDB 'plans' collection. Plans appear in the project tree above agents, grouped by status. 'wd plan status' performs a git mv + commit + DB update atomically. 'wd plan assess' uses internal/brainconsult to reconstruct in-progress task progress from git history and open PRs after a reinstall. Four execution modes: autopilot, pipeline, orchestrator_worker, manual.
 constraints:
   - "API is spec-first: edit openapi.yaml then make generate; never hand-edit api.gen.go."
   - "Work in an isolated git worktree branched off main; one PR per phase."
@@ -23,38 +13,67 @@ constraints:
   - "assess uses internal/brainconsult — never spawns a free-form long-lived agent."
   - "Hub sync (synced_at / remote_id fields) is OOS — reserve the fields, do not implement."
   - "Confirm with the maintainer before pushing any v* tag."
-
 tasks:
   - id: Phase0_Spec
     prompt: >-
       Phase 0 (spec freeze — docs only): Commit the spec and plan YAML files to the repo.
 
       Files to commit (already authored in scratchpad):
+
+
+
+
+
+
+
+
+
+
+
+
         - docs/specs/2026-09-28-plans-first-class.md
         - plans/plans-first-class.yaml
 
       Migrate existing flat plans/ YAML files into plans/pending/:
+
+
+
+
+
+
+
+
+
+
+
+
         Move any *.yaml files currently at plans/*.yaml (not already in a subdir)
         into plans/pending/. The brain-consult.yaml, default.yaml, etc. that are
         done should go to plans/completed/. Check their status fields to decide.
         Create the four subdirectories if they don't exist (pending, in_progress,
         completed, archived); add a .gitkeep to empty ones.
 
-      Open a PR against main titled 'docs(spec): plans as first-class citizens'.
-      End with `wd job done --summary '...'` once the PR is green.
+      Open a PR against main titled 'docs(spec): plans as first-class citizens'. End with `wd job done --summary '...'` once the PR is green.
     status: pending
-
   - id: Phase1_PlanStore
     prompt: >-
-      Phase 1 (plan store + scan): Implement the plans ScrivaDB collection, data model,
-      scan/import, and stable identity. Open a PR against main titled
-      'feat(daemon): plan store and scan'. End with `wd job done --summary '...'`
-      once the PR is green.
+      Phase 1 (plan store + scan): Implement the plans ScrivaDB collection, data model, scan/import, and stable identity. Open a PR against main titled 'feat(daemon): plan store and scan'. End with `wd job done --summary '...'` once the PR is green.
 
       Read docs/specs/2026-09-28-plans-first-class.md before starting.
 
-      **Deliverables:**
-      1. New package `internal/planstore` (mirror of agentstore/terminalstore):
+      **Deliverables:** 1. New package `internal/planstore` (mirror of agentstore/terminalstore):
+
+
+
+
+
+
+
+
+
+
+
+
          - Plan model (D6 in spec): ID, ProjectID, Name, FilePath, Status,
            ExecutionMode, AutopilotRunID, PipelineID, OrchestratorID,
            TaskProgress, timestamps, synced_at/remote_id seam.
@@ -62,32 +81,76 @@ tasks:
          - ListByProject and ListByProjectAndStatus helpers.
          - Stable ID: plan-<hex8 of sha256(projectID + "\x00" + planName)>.
       2. Scan logic: ScanProject(projectID, rootDir string) walks
+
+
+
+
+
+
+
+
+
+
+
+
          rootDir/plans/{pending,in_progress,completed,archived}/*.yaml.
          Infers status from directory name. Derives plan name from YAML name: field
          (or filename stem). Upserts: create with inferred status if absent; update
          only FilePath + Status if present; never touch execution links or task_progress.
          Also handles flat rootDir/plans/*.yaml files → treat as pending.
       3. Auto-scan on daemon start for each known project (directory walk only;
+
+
+
+
+
+
+
+
+
+
+
+
          no full YAML parse — just read name: field).
       4. Unit tests: CRUD; scan idempotency (second scan preserves status + links);
+
+
+
+
+
+
+
+
+
+
+
+
          git-mv scenario (file moves from pending/ to in_progress/ → DB record
          updated, not duplicated); flat file detected as pending.
 
       Run wd check before committing.
     after: [Phase0_Spec]
-    status: pending
-
+    status: done
+    landed_pr: 509
   - id: Phase2_API
     prompt: >-
-      Phase 2 (API + codegen): Add plan REST endpoints to openapi.yaml, run make
-      generate, implement handlers. Open a PR against main titled
-      'feat(daemon): plans REST API'. End with `wd job done --summary '...'`
-      once the PR is green.
+      Phase 2 (API + codegen): Add plan REST endpoints to openapi.yaml, run make generate, implement handlers. Open a PR against main titled 'feat(daemon): plans REST API'. End with `wd job done --summary '...'` once the PR is green.
 
       Read docs/specs/2026-09-28-plans-first-class.md before starting.
 
-      **Deliverables:**
-      1. openapi.yaml additions (D11 in spec):
+      **Deliverables:** 1. openapi.yaml additions (D11 in spec):
+
+
+
+
+
+
+
+
+
+
+
+
            GET    /api/v1/projects/{project_id}/plans
            POST   /api/v1/projects/{project_id}/plans
            GET    /api/v1/projects/{project_id}/plans/{plan_id}
@@ -100,8 +163,19 @@ tasks:
          status field (simpler; clients group client-side).
          Scan body: {migrate_flat?: bool, assess?: bool}.
          Run body: {mode: string}.
-      2. Run make generate; commit generated files.
-      3. Handler implementations wired to planstore:
+      2. Run make generate; commit generated files. 3. Handler implementations wired to planstore:
+
+
+
+
+
+
+
+
+
+
+
+
          - GET list: ?status= filter supported.
          - POST create: {name, file_path} → pending record.
          - GET show: single plan.
@@ -113,22 +187,43 @@ tasks:
          - POST assess: stub (returns 501 Not Implemented) — implemented in Phase 4.
          - POST run: stub (returns 501 Not Implemented) — implemented in Phase 5.
       4. Integration tests against real ScrivaDB: list, create, patch status,
+
+
+
+
+
+
+
+
+
+
+
+
          delete, scan idempotency, migrate_flat.
 
       Run wd check before committing.
     after: [Phase1_PlanStore]
-    status: pending
-
+    status: done
+    landed_pr: 510
   - id: Phase3_CLIAndMCP
     prompt: >-
-      Phase 3 (CLI + MCP): Add `wd plan` subcommands and MCP tools. Open a PR
-      against main titled 'feat(cli,mcp): wd plan commands and MCP tools'.
-      End with `wd job done --summary '...'` once the PR is green.
+      Phase 3 (CLI + MCP): Add `wd plan` subcommands and MCP tools. Open a PR against main titled 'feat(cli,mcp): wd plan commands and MCP tools'. End with `wd job done --summary '...'` once the PR is green.
 
       Read docs/specs/2026-09-28-plans-first-class.md before starting.
 
-      **Deliverables:**
-      1. CLI subcommand `wd plan` with children (D12 in spec):
+      **Deliverables:** 1. CLI subcommand `wd plan` with children (D12 in spec):
+
+
+
+
+
+
+
+
+
+
+
+
            list    [--project <id>] [--status <s>]
            show    <plan-id>
            import  <file>          # copies into plans/pending/, runs scan
@@ -140,8 +235,19 @@ tasks:
          All commands call daemon REST API; follow existing CLI patterns.
          'wd plan status' after calling PATCH also performs a git mv of the
          YAML file to the correct subdirectory and commits via mcp__warden__commit.
-      2. Run make gendocs; commit updated site/src/content/docs/reference/cli.md.
-      3. MCP tools in internal/mcp/ (D13 in spec):
+      2. Run make gendocs; commit updated site/src/content/docs/reference/cli.md. 3. MCP tools in internal/mcp/ (D13 in spec):
+
+
+
+
+
+
+
+
+
+
+
+
            mcp__warden__list_plans
            mcp__warden__get_plan
            mcp__warden__create_plan
@@ -155,32 +261,87 @@ tasks:
 
       Run wd check before committing.
     after: [Phase2_API]
-    status: pending
-
+    status: done
+    landed_pr: 511
   - id: Phase4_TUIAndAssess
     prompt: >-
-      Phase 4 (TUI + brain assess): Render the Plans section in the project tree
-      and implement brain-based task progress assessment. Open a PR against main
-      titled 'feat(tui,daemon): plans tree and brain assess'. End with
-      `wd job done --summary '...'` once the PR is green.
+      Phase 4 (TUI + brain assess): Render the Plans section in the project tree and implement brain-based task progress assessment. Open a PR against main titled 'feat(tui,daemon): plans tree and brain assess'. End with `wd job done --summary '...'` once the PR is green.
 
       Read docs/specs/2026-09-28-plans-first-class.md before starting.
 
-      **TUI deliverables:**
-      1. Project tree: Plans header above Agents with expandable status groups
+      **TUI deliverables:** 1. Project tree: Plans header above Agents with expandable status groups
+
+
+
+
+
+
+
+
+
+
+
+
          (In Progress / Pending / Completed / Archived). Archived collapsed by
          default, no badge. Others show count badges.
       2. Plan detail pane: name, file path, status, execution mode, linked IDs
+
+
+
+
+
+
+
+
+
+
+
+
          (autopilot run / pipeline / orchestrator), task progress, timestamps.
       3. Keybindings: `a` archive, `s` scan, `A` assess (brain), `r` run (mode picker),
+
+
+
+
+
+
+
+
+
+
+
+
          `enter` detail pane.
       4. Plans loaded via GET /api/v1/projects/{id}/plans. If the existing SSE
+
+
+
+
+
+
+
+
+
+
+
+
          event stream can emit plan-changed events cheaply, add them; otherwise
          fall back to polling on the same interval as agents.
       5. Tests: render snapshot with plans; empty plans/ renders correctly.
 
-      **Brain assess deliverables (D9 in spec):**
-      1. Implement POST /api/v1/projects/{id}/plans/{plan_id}/assess handler
+      **Brain assess deliverables (D9 in spec):** 1. Implement POST /api/v1/projects/{id}/plans/{plan_id}/assess handler
+
+
+
+
+
+
+
+
+
+
+
+
          (previously stubbed 501):
          - Reads plan YAML to extract task IDs and descriptions.
          - Calls internal/brainconsult Consultor with intent="plan_progress_assessment",
@@ -189,26 +350,57 @@ tasks:
          - Brain returns a JSON map of task_id → status string.
          - Handler updates task_progress in DB; never changes plan Status itself.
       2. Wire `wd plan assess` CLI command and `mcp__warden__assess_plan` MCP tool
+
+
+
+
+
+
+
+
+
+
+
+
          through to the real handler (remove 501 stubs).
       3. Tests: mock Consultor — assert evidence contains git log and PR list;
+
+
+
+
+
+
+
+
+
+
+
+
          assert task_progress updated; assert plan Status unchanged.
 
-      Do not change keybindings for agents or terminals.
-      Run wd check before committing.
+      Do not change keybindings for agents or terminals. Run wd check before committing.
     after: [Phase3_CLIAndMCP]
-    status: pending
-
+    status: done
+    landed_pr: 512
   - id: Phase5_ExecutionModes
     prompt: >-
-      Phase 5 (execution mode wiring): Implement `wd plan run --mode <mode>` and
-      completion detection. Open a PR against main titled
-      'feat(daemon,cli): wd plan run execution modes'. End with
-      `wd job done --summary '...'` once the PR is green.
+      Phase 5 (execution mode wiring): Implement `wd plan run --mode <mode>` and completion detection. Open a PR against main titled 'feat(daemon,cli): wd plan run execution modes'. End with `wd job done --summary '...'` once the PR is green.
 
       Read docs/specs/2026-09-28-plans-first-class.md before starting.
 
-      **Deliverables:**
-      1. Implement POST /api/v1/projects/{id}/plans/{plan_id}/run handler
+      **Deliverables:** 1. Implement POST /api/v1/projects/{id}/plans/{plan_id}/run handler
+
+
+
+
+
+
+
+
+
+
+
+
          (previously stubbed 501) for all four modes (D15 in spec):
          - autopilot: register_autopilot_run with plan file_path; store AutopilotRunID;
            git-mv to plans/in_progress/; set status in_progress.
@@ -218,44 +410,134 @@ tasks:
          - manual: git-mv to in_progress/ only; no execution entity.
          In all modes: git mv + mcp__warden__commit is called to record the transition.
       2. Completion detection (daemon watchers):
+
+
+
+
+
+
+
+
+
+
+
+
          - autopilot: watch for run completed event → git-mv to plans/completed/ + commit + mark completed.
          - pipeline: watch for pipeline done event → git-mv + commit + mark completed.
          - orchestrator_worker / manual: no auto-detection.
-      3. Guard: refuse run if plan is already in_progress or completed (409).
-      4. Wire `wd plan run` CLI and `mcp__warden__run_plan` MCP through to real
+      3. Guard: refuse run if plan is already in_progress or completed (409). 4. Wire `wd plan run` CLI and `mcp__warden__run_plan` MCP through to real
+
+
+
+
+
+
+
+
+
+
+
+
          handler (remove 501 stubs).
       5. Tests: each mode → correct entity created + status/file moved; 409 on
+
+
+
+
+
+
+
+
+
+
+
+
          double-run; completion event → plan marked completed + file moved.
 
       Run wd check before committing.
     after: [Phase4_TUIAndAssess]
-    status: pending
-
+    status: done
+    landed_pr: 513
   - id: Phase6_DocsDoD
     prompt: >-
-      Phase 6 (docs + DoD): Complete the CLAUDE.md Definition-of-Done checklist.
-      Open a PR against main titled 'docs: plans as first-class citizens'.
-      End with `wd job done --summary '...'` once the PR is green.
+      Phase 6 (docs + DoD): Complete the CLAUDE.md Definition-of-Done checklist. Open a PR against main titled 'docs: plans as first-class citizens'. End with `wd job done --summary '...'` once the PR is green.
 
-      **Update:**
-      - root README.md — plans section: directory layout, wd plan scan/status/run,
+      **Update:** - root README.md — plans section: directory layout, wd plan scan/status/run,
+
+
+
+
+
+
+
+
+
+
+
+
         execution modes, recovery ladder.
-      - docs/FEATURES.md + root FEATURES.md — add plans row.
-      - docs/USAGE.md — wd plan commands, execution modes, brain assess, recovery.
-      - site/src/content/docs/guides/ — new page: using plans (scan, run modes,
+      - docs/FEATURES.md + root FEATURES.md — add plans row. - docs/USAGE.md — wd plan commands, execution modes, brain assess, recovery. - site/src/content/docs/guides/ — new page: using plans (scan, run modes,
+
+
+
+
+
+
+
+
+
+
+
+
         assess after reinstall).
       - site/src/content/docs/concepts/ — plans concept page (two-layer arch,
+
+
+
+
+
+
+
+
+
+
+
+
         directory layout, state machine, execution modes, brain assess, hub sync future).
       - site/src/content/docs/reference/cli.md — already generated by make gendocs;
+
+
+
+
+
+
+
+
+
+
+
+
         verify wd plan section is present and complete.
       - skills/warden/ — note plan MCP tools; agents should call scan_plans on
+
+
+
+
+
+
+
+
+
+
+
+
         project init, update_plan_status when completing a phase, and assess_plan
         after a reinstall recovery.
 
       Run wd check before committing.
     after: [Phase5_ExecutionModes]
-    status: pending
-
+    status: done
+    landed_pr: 514
 done_when:
   - "plans/{pending,in_progress,completed,archived}/ directory layout is the canonical state encoding."
   - "wd plan scan infers status from directory placement; idempotent; never overwrites execution links."
@@ -270,3 +552,5 @@ done_when:
   - "wd plan assess uses internal/brainconsult to reconstruct task_progress from git log and open PRs."
   - "make verify-fast passes on main after each phase."
   - "Docs updated: README, FEATURES.md, USAGE.md, site guides/concepts, skills."
+status: complete
+completed_at: "2026-09-28T19:26:12Z"
