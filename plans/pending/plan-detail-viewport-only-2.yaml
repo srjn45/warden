@@ -1,0 +1,96 @@
+version: 1
+name: plan-detail-viewport-only
+goal: >-
+  Replace the tmux-subprocess plan detail path with a pure BubbleTea viewport. On Enter a plan now opens an interactive detail screen inside the cockpit's control pane: task checklist with status icons, t to toggle task prompt details, up/down scrolling, and long-text wrapping — exactly the same regardless of whether an agent pane is present.
+constraints:
+  - Run `make verify-fast` before every commit/push.
+  - API is spec-first — edit openapi.yaml then `make generate`; never hand-edit generated code.
+  - root_guard is active on the main worktree; use a linked worktree for edits.
+tasks:
+  - id: remove-subprocess-path
+    prompt: >-
+      Remove all subprocess-path code for plan detail from the codebase:
+
+      1. In `internal/tui/plan_view.go`: delete `RunPlanDetailPane`,
+
+
+
+
+         `respawnPlanDetailArgs`, and `openPlanDetailCmd` (and the unused
+         `os`, `os/exec` imports if no longer needed).
+
+      2. In `internal/tui/control_pane.go`:
+
+
+
+
+         - Remove the `if m.agentPane != ""` branch inside the plan-open
+           block (lines ~1922-1923) so the code always falls through to
+           `m.vp.SetContent(...)` and `m.vp.GotoTop()`.
+         - Remove the `if m.agentPane != ""` branch inside the modePlanDetail
+           `t` handler (lines ~1790-1791) — viewport is always used now.
+
+      3. In `internal/cli/tui.go`:
+
+
+
+
+         - Remove the `"plandetail"` case from the pane switch.
+         - Remove `expandedPane bool` variable and `--expanded` flag.
+         - Update the error message for unknown `--pane` values to drop
+           `plandetail`.
+         - Update the hidden-flags loop to remove `"expanded"`.
+
+      4. Update `internal/cli/testdata/current_command_inventory.json` and
+
+
+
+
+         `legacy_command_inventory.json` to remove `"expanded"` from the
+         `tui` command's `local_flags` list (run
+         `UPDATE_COMMAND_INVENTORY=1 go test ./internal/cli -run TestCurrentCommandInventory`).
+
+      Run `make verify-fast` and fix any failures before committing.
+    status: done
+    landed_pr: 538
+  - id: viewport-ux-polish
+    prompt: >-
+      With the subprocess path gone, polish the BubbleTea plan detail screen:
+
+      1. Ensure up/down arrow keys scroll the viewport. In `modePlanDetail`
+
+
+
+
+         the existing `m.vp, cmd = m.vp.Update(msg)` catch-all already
+         handles this — verify in tests and add one if missing.
+
+      2. Ensure long task prompt lines wrap at the viewport width rather than
+
+
+
+
+         truncating. `planDetailText` currently uses a fixed width of 100;
+         change the `RunPlanDetailPane` removal ripple so `planDetailText`
+         always receives `m.vp.Width` (already the case in control_pane.go).
+         Verify `promptPreview` wraps correctly or replace it with a
+         word-wrap helper if needed.
+
+      3. Add a `[↑↓] scroll` hint alongside the existing
+
+
+
+
+         `[t] toggle task details` hint at the bottom of the task list.
+
+      Run `go test ./internal/tui/...` to confirm no regressions.
+    after: [remove-subprocess-path]
+    status: done
+    landed_pr: 538
+done_when:
+  - "`make verify-fast` passes."
+  - "Opening a plan on Enter always shows the BubbleTea viewport detail screen."
+  - "t toggles task prompt details; up/down arrows scroll; long text wraps."
+  - "No reference to `RunPlanDetailPane`, `openPlanDetailCmd`, or `--pane=plandetail` remains."
+status: complete
+completed_at: "2026-09-29T09:38:38Z"
