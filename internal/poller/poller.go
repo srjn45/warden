@@ -153,6 +153,15 @@ type Poller struct {
 	// per tick). The daemon wires this to fire user notifications.
 	OnTransition func(sess *store.Session, from, to store.Status)
 
+	// OnRateLimitObservation, if set, fires immediately after a successful
+	// StatusRateLimited transition from the pane-classification path, carrying an
+	// immutable observation with the fresh pane excerpt captured this tick. It fires
+	// BEFORE OnTransition so the scheduler receives fresh bytes before any other hook.
+	// The daemon wires it to RateLimitScheduler.OnRateLimitObservation so the
+	// scheduler's capture and reset parsing consume the fresh excerpt rather than the
+	// pre-capture LastPaneExcerpt stored in the session snapshot. nil ⇒ no-op.
+	OnRateLimitObservation func(obs RateLimitObservation)
+
 	// OnAnomaly, if set, is called once per raised health anomaly (OOM-suspected
 	// crash, infinite loop, pre-crash context). It is the notification seam — the
 	// poller already records a durable event for every anomaly, so this is purely
@@ -861,6 +870,13 @@ func (p *Poller) tick(ctx context.Context) error {
 					slog.Warn("poller: status update failed", "agent", s.ID, "err", err)
 				} else if ok {
 					changed = true
+					// For rate-limit transitions from the pane path, fire the
+					// observation FIRST (fresh excerpt available here) so the
+					// scheduler's capture and reset parsing use the fresh pane
+					// rather than the stale LastPaneExcerpt on the session snapshot.
+					if next == store.StatusRateLimited && captureOK && p.OnRateLimitObservation != nil {
+						p.OnRateLimitObservation(NewRateLimitObservation(s.ID, lastLines(pane, 20)))
+					}
 					if p.OnTransition != nil {
 						p.OnTransition(s, s.Status, next)
 					}
