@@ -53,6 +53,7 @@ type RunStatus struct {
 	GateWarning       string              `json:"gate_warning,omitempty"`
 	Workers           map[string][]string `json:"workers,omitempty"` // task_id -> worker session ids
 	LedgerTasks       []LedgerTask        `json:"ledger_tasks,omitempty"`
+	PreflightWarnings []string            `json:"preflight_warnings,omitempty"`
 }
 
 // BrainStatus describes the run's brain agent (autopilot.md §5). Nil in S1.

@@ -1295,6 +1295,13 @@ in the wire status; the scalar `enabled` now means "any repo is on"). `warden
 autopilot disable` is per-repo — disabling one repo leaves other enabled repos
 running.
 
+On restart, live runs are re-preflighted with a **structural vs content** split:
+content-only plan issues (invalid task status, etc.) are normalized to `pending`
+and the run proceeds, with coercions listed on status as `preflight_warnings`;
+structural failures (missing/unreadable plan) leave the run `degraded` with a
+watcher that auto-recovers when the file is fixed. Enable/start/resume stay
+strict — leniency is boot- and watcher-only.
+
 ### 34.11 Run completion marker
 
 When the manager has verified the plan's `done_when` criteria, it declares the
