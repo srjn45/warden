@@ -323,7 +323,7 @@ func (e *Executor) Reconcile(ctx context.Context, pid string) error {
 			permissionMode = "acceptEdits"
 		}
 		req := lifecycle.JobSpawnRequest{
-			PipelineID: p.ID, JobID: job.ID, Repo: p.Repo,
+			PipelineID: p.ID, PlanID: p.PlanID, JobID: job.ID, Repo: p.Repo,
 			Prompt: pipeline.ComposePrompt(p, job), Worktree: worktree,
 			BaseBranch: base, Type: store.NormalizeType(job.Type), PermissionMode: permissionMode,
 			Role: job.Role, Tier: job.Tier, Backend: job.Backend, Model: job.Model,

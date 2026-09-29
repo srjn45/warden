@@ -61,6 +61,7 @@ type SpawnRequest struct {
 	Tags            []string `json:"tags"`                 // optional free-form labels for grouping/filtering (#30)
 	ParentID        string   `json:"parent_id"`            // id of the agent that spawned this one; empty = root (operator/CLI spawn)
 	ProjectID       string   `json:"project_id,omitempty"` // id of the project this session joins; empty = resolve by path-match to an open project
+	PlanID          string   `json:"plan_id,omitempty"`    // id of the plan that spawned this session; empty for ordinary spawns
 	AutopilotRunID  string   `json:"autopilot_run_id,omitempty"`
 	AutopilotSlot   string   `json:"autopilot_slot,omitempty"`
 	AutopilotTaskID string   `json:"autopilot_task_id,omitempty"`

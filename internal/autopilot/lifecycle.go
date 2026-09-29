@@ -14,9 +14,11 @@ import (
 var ErrRunConflict = errors.New("autopilot run lifecycle conflict")
 
 type RegisterRequest struct {
-	Name     string `json:"name"`
-	Repo     string `json:"repo"`
-	PlanFile string `json:"plan_file"`
+	Name      string `json:"name"`
+	Repo      string `json:"repo"`
+	PlanFile  string `json:"plan_file"`
+	PlanID    string `json:"plan_id,omitempty"`
+	ProjectID string `json:"project_id,omitempty"`
 }
 
 func defaultRunName(planFile string) string {
@@ -42,7 +44,7 @@ func (c *Controller) restoreStoredRuns() {
 				_ = c.store.Delete(legacyID)
 			}
 		}
-		r := &run{runID: rec.RunID, name: rec.Name, repo: rec.Repo, planFile: rec.PlanFile,
+		r := &run{runID: rec.RunID, name: rec.Name, planID: rec.PlanID, projectID: rec.ProjectID, repo: rec.Repo, planFile: rec.PlanFile,
 			absPlanFile: rec.PlanFile, state: rec.State, resolvedGate: rec.Gate,
 			slotScope: rec.SlotScope, integrationBranch: rec.IntegrationBranch,
 			tried: map[string]bool{}}
@@ -96,6 +98,7 @@ func (c *Controller) rebuildClaimsLocked() {
 func (c *Controller) recordLocked(r *run) RunRecord {
 	now := c.now().UTC()
 	rec := RunRecord{RunID: r.runID, Name: r.name, Repo: r.repo, PlanFile: r.absPlanFile,
+		PlanID: r.planID, ProjectID: r.projectID,
 		State: r.state, IntegrationBranch: r.integrationBranch, Gate: c.runGate(r),
 		Strategy: c.strategy, DeleteBranch: c.deleteBranch, SlotScope: r.slotScope, UpdatedAt: now}
 	if r.brain != nil && r.slotScope != "" {
@@ -196,7 +199,7 @@ func (c *Controller) Register(ctx context.Context, req RegisterRequest) (RunStat
 		return RunStatus{}, err
 	}
 	c.warnSameBranchLocked(repo, branch, id, nil)
-	r := &run{runID: id, name: name, repo: repo, planFile: abs, absPlanFile: abs,
+	r := &run{runID: id, name: name, planID: req.PlanID, projectID: req.ProjectID, repo: repo, planFile: abs, absPlanFile: abs,
 		state: StateRegistered, plan: plan, resolvedGate: c.gate, slotScope: scope,
 		integrationBranch: branch, tried: map[string]bool{}}
 	if info, err := os.Stat(abs); err == nil {
@@ -545,7 +548,7 @@ func (c *Controller) UnregisterRun(_ context.Context, id string) (RunStatus, err
 }
 
 func (c *Controller) runStatusLocked(r *run) RunStatus {
-	st := RunStatus{RunID: r.runID, Name: r.name, PlanFile: r.planFile, Repo: r.repo,
+	st := RunStatus{RunID: r.runID, Name: r.name, PlanFile: r.planFile, Repo: r.repo, PlanID: r.planID, ProjectID: r.projectID,
 		State: r.state, Gate: c.runGate(r), Tasks: TaskCounts{},
 		PlanTasks: append([]PlanTask(nil), r.plan.Tasks...), GuardianID: guardianSlotIDOrEmpty(r.slotScope),
 		SlotScope: r.slotScope, IntegrationBranch: r.integrationBranch, GateWarning: r.gateWarning,

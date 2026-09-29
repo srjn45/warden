@@ -212,6 +212,12 @@ func (s *Store) upsert(p Project) error {
 			if p.Terminals == nil {
 				p.Terminals = prev.Terminals
 			}
+			if p.Plans == nil {
+				p.Plans = prev.Plans
+			}
+			if p.Autopilots == nil {
+				p.Autopilots = prev.Autopilots
+			}
 		}
 		// Preserve the original CreatedAt across updates.
 		if prev, perr := projectFromRecord(existing.Data); perr == nil && !prev.CreatedAt.IsZero() {
@@ -243,7 +249,8 @@ func (s *Store) OpenProject(id, name, path string) (Project, error) {
 	p, err := s.get(id)
 	if errors.Is(err, ErrNotFound) {
 		p = Project{ID: id, Name: name, Path: path,
-			Agents: []string{}, Pipelines: []string{}, Terminals: []string{}}
+			Agents: []string{}, Pipelines: []string{}, Terminals: []string{},
+			Plans: []string{}, Autopilots: []string{}}
 	} else if err != nil {
 		return Project{}, err
 	} else {

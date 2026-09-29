@@ -37,6 +37,8 @@ type RunStatus struct {
 	Name              string              `json:"name"`
 	PlanFile          string              `json:"plan_file"`
 	Repo              string              `json:"repo"`
+	PlanID            string              `json:"plan_id,omitempty"`
+	ProjectID         string              `json:"project_id,omitempty"`
 	State             RunState            `json:"state"`
 	Gate              string              `json:"gate"`
 	Brain             *BrainStatus        `json:"brain"`

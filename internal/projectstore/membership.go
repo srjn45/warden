@@ -86,6 +86,34 @@ func (s *Store) RemovePipelineFromProject(projectID, pipelineID string) (Project
 	return s.removeMember(projectID, pipelineID, func(p *Project) *[]string { return &p.Pipelines })
 }
 
+// AddPlanToProject appends planID to Project.Plans (RMW, de-duplicated so a
+// repeat add is a no-op). Returns ErrInvalidID for a blank id, ErrNotFound if
+// the project is absent, else the updated project.
+func (s *Store) AddPlanToProject(projectID, planID string) (Project, error) {
+	return s.addMember(projectID, planID, func(p *Project) *[]string { return &p.Plans })
+}
+
+// RemovePlanFromProject drops planID from Project.Plans (RMW). Removing an
+// absent member is a no-op. Returns ErrNotFound if the project is absent, else
+// the updated project.
+func (s *Store) RemovePlanFromProject(projectID, planID string) (Project, error) {
+	return s.removeMember(projectID, planID, func(p *Project) *[]string { return &p.Plans })
+}
+
+// AddAutopilotToProject appends runID to Project.Autopilots (RMW, de-duplicated
+// so a repeat add is a no-op). Returns ErrInvalidID for a blank id, ErrNotFound
+// if the project is absent, else the updated project.
+func (s *Store) AddAutopilotToProject(projectID, runID string) (Project, error) {
+	return s.addMember(projectID, runID, func(p *Project) *[]string { return &p.Autopilots })
+}
+
+// RemoveAutopilotFromProject drops runID from Project.Autopilots (RMW). Removing
+// an absent member is a no-op. Returns ErrNotFound if the project is absent, else
+// the updated project.
+func (s *Store) RemoveAutopilotFromProject(projectID, runID string) (Project, error) {
+	return s.removeMember(projectID, runID, func(p *Project) *[]string { return &p.Autopilots })
+}
+
 // AddTerminalToProject appends terminalID to Project.Terminals (RMW,
 // de-duplicated so a repeat add is a no-op). Returns ErrInvalidID for a blank id,
 // ErrNotFound if the project is absent, else the updated project.

@@ -50,11 +50,14 @@ any other command will work.
 
 ### Project membership and agent hierarchy
 
-Warden has four separate entities: **Project, Agent, Terminal, and Pipeline**.
-A project's `agents[]`, `pipelines[]`, and `terminals[]` are complete,
-authoritative membership id lists, including nested agents and pipeline job
-agents. Clients render these stored lists instead of inferring membership from
-paths or scanning `project_id` back-references.
+Warden has six first-class members under a **Project**: agents, terminals,
+pipelines, plans, and autopilot runs (plus the project itself). A project's
+`agents[]`, `pipelines[]`, `terminals[]`, `plans[]`, and `autopilots[]` are
+complete, authoritative membership id lists, including nested agents and
+pipeline job agents. Clients render these stored lists instead of inferring
+membership from paths or scanning back-references. Execution entities created
+by running a plan carry a `plan_id` back-ref (pipeline, autopilot run, or
+orchestrator/manual session) so the relation is navigable in both directions.
 
 Agents store `parent_id`, `child_agents[]`, and `child_pipelines[]`. A pipeline
 stores `parent_agent_id` (empty for an operator-created pipeline) as the reverse
@@ -1272,8 +1275,10 @@ Flags:
 - `--reconcile-membership` — one-shot offline repair: stamp a `project_id` onto
   any pre-back-ref session/pipeline by path-matching the open projects, then
   rebuild every project's authoritative `agents[]`/`pipelines[]`/`terminals[]`
-  lists from those back-refs. Idempotent; the daemon also runs this
-  automatically at boot. Daemon must be stopped.
+  lists from those back-refs (`plans[]`/`autopilots[]` are maintained at
+  scan/create/run/delete time and are not rebuilt by this offline pass).
+  Idempotent; the daemon also runs this automatically at boot. Daemon must be
+  stopped.
 
 ### `warden setup [--yes]`
 Verifies the install with the **same checks as `doctor`**, then installs whatever

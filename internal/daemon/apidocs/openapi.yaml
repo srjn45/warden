@@ -3481,6 +3481,12 @@ components:
             GET /sessions/{id}, and the SSE event stream, so a client can tag a
             running session as schedule-origin and keep it out of the plain agents
             list by filtering this one field.
+        plan_id:
+          type: string
+          description: >
+            back-ref to the plan that spawned this session (orchestrator_worker or
+            manual plan-run modes, and pipeline jobs stamped from a plan-owned
+            pipeline). Absent (omitempty) on ordinary operator/CLI/API spawns.
         schedule_name:
           type: string
           description: >
@@ -3775,6 +3781,14 @@ components:
           type: array
           items: { type: string }
           description: "complete, ordered, de-duplicated id list of member terminals (leaf members; dangling ids tolerated)"
+        plans:
+          type: array
+          items: { type: string }
+          description: "complete, ordered, de-duplicated id list of member plans (authoritative membership; dangling ids tolerated)"
+        autopilots:
+          type: array
+          items: { type: string }
+          description: "complete, ordered, de-duplicated id list of member autopilot runs (authoritative membership; dangling ids tolerated)"
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
 
@@ -4398,6 +4412,9 @@ components:
         name: { type: string }
         repo: { type: string }
         status: { type: string }
+        plan_id:
+          type: string
+          description: "back-ref to the plan this pipeline is executing; absent for pipelines not created from a plan"
         project_id:
           type: string
           description: >-
@@ -4879,6 +4896,8 @@ components:
         name: { type: string }
         plan_file: { type: string }
         repo: { type: string }
+        plan_id: { type: string, description: "back-ref to the plan that created this autopilot run; absent for ordinary runs" }
+        project_id: { type: string, description: "back-ref to the project that owns the source plan; absent for ordinary runs" }
         state: { type: string, enum: [registered, starting, active, paused, stopped, degraded, healing, complete] }
         gate: { type: string }
         slot_scope: { type: string, description: "stable scope token for manager/guardian slot ids" }

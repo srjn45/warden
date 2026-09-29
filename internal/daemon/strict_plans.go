@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -97,6 +98,7 @@ func (s *Server) CreatePlan(ctx context.Context, req oapi.CreatePlanRequestObjec
 		}
 		return nil, errStatus(http.StatusInternalServerError, "create plan: "+err.Error())
 	}
+	s.addPlanMembership(p.ID, req.ProjectId)
 	got, err := s.plans.Get(ctx, id)
 	if err != nil {
 		return nil, errStatus(http.StatusInternalServerError, "fetch created plan: "+err.Error())
@@ -133,6 +135,14 @@ func (s *Server) ScanPlans(ctx context.Context, req oapi.ScanPlansRequestObject)
 	n, err := planstore.ScanProject(ctx, s.plans, req.ProjectId, root)
 	if err != nil {
 		return nil, errStatus(http.StatusInternalServerError, "scan plans: "+err.Error())
+	}
+	// Best-effort: membership must never fail the scan itself.
+	if plans, listErr := s.plans.ListByProject(ctx, req.ProjectId); listErr != nil {
+		slog.Warn("daemon: plan membership: list after scan failed", "project", req.ProjectId, "err", listErr)
+	} else {
+		for _, p := range plans {
+			s.addPlanMembership(p.ID, req.ProjectId)
+		}
 	}
 
 	_ = assess // Phase 4 stub — assessment not yet implemented
@@ -228,6 +238,7 @@ func (s *Server) DeletePlan(ctx context.Context, req oapi.DeletePlanRequestObjec
 		}
 		return nil, errStatus(http.StatusInternalServerError, "delete plan: "+err.Error())
 	}
+	s.removePlanMembership(req.PlanId, req.ProjectId)
 	return oapi.DeletePlan200JSONResponse{OKJSONResponse: oapi.OKJSONResponse{Status: "deleted"}}, nil
 }
 
@@ -329,14 +340,18 @@ func (s *Server) RunPlan(ctx context.Context, req oapi.RunPlanRequestObject) (oa
 		}
 		absPath := filepath.Join(root, newFilePath)
 		rs, regErr := s.autopilot.Register(ctx, autopilot.RegisterRequest{
-			Name:     p.Name,
-			Repo:     root,
-			PlanFile: absPath,
+			Name:      p.Name,
+			Repo:      root,
+			PlanFile:  absPath,
+			PlanID:    req.PlanId,
+			ProjectID: req.ProjectId,
 		})
 		if regErr != nil {
 			return nil, errStatus(http.StatusInternalServerError, "register autopilot run: "+regErr.Error())
 		}
 		autopilotRunID = rs.RunID
+		s.addAutopilotMembership(autopilotRunID, req.ProjectId)
+		s.addPlanMembership(req.PlanId, req.ProjectId)
 
 	case planstore.PlanModePipeline:
 		if s.exec == nil {
@@ -346,6 +361,7 @@ func (s *Server) RunPlan(ctx context.Context, req oapi.RunPlanRequestObject) (oa
 		if buildErr != nil {
 			return nil, errStatus(http.StatusInternalServerError, "build pipeline: "+buildErr.Error())
 		}
+		pl.PlanID = req.PlanId
 		if err := s.exec.pstore.Create(pl); err != nil {
 			if errors.Is(err, pipeline.ErrExists) {
 				return oapi.RunPlan409JSONResponse{Error: "pipeline for this plan already exists"}, nil
@@ -353,6 +369,7 @@ func (s *Server) RunPlan(ctx context.Context, req oapi.RunPlanRequestObject) (oa
 			return nil, errStatus(http.StatusInternalServerError, "create pipeline: "+err.Error())
 		}
 		s.addPipelineMembership(pl)
+		s.addPlanMembership(req.PlanId, req.ProjectId)
 		// Start the pipeline immediately.
 		_ = s.exec.pstore.Update(pl.ID, func(up *pipeline.Pipeline) { up.Status = pipeline.StatusRunning })
 		_ = s.exec.Reconcile(context.Background(), pl.ID)
@@ -375,6 +392,7 @@ func (s *Server) RunPlan(ctx context.Context, req oapi.RunPlanRequestObject) (oa
 			Repo:      root,
 			Role:      "orchestrator",
 			ProjectID: req.ProjectId,
+			PlanID:    req.PlanId,
 			Prompt:    prompt,
 		}
 		sess, spawnErr := s.life.Spawn(ctx, sr)
@@ -382,9 +400,11 @@ func (s *Server) RunPlan(ctx context.Context, req oapi.RunPlanRequestObject) (oa
 			return nil, errStatus(http.StatusInternalServerError, "spawn orchestrator: "+spawnErr.Error())
 		}
 		orchestratorID = sess.ID
+		s.addPlanMembership(req.PlanId, req.ProjectId)
 
 	case planstore.PlanModeManual:
 		// No execution entity — git-mv is the only action.
+		s.addPlanMembership(req.PlanId, req.ProjectId)
 
 	default:
 		return oapi.RunPlan400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{
