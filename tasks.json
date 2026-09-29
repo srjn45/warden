@@ -1,0 +1,47 @@
+[
+  {
+    "id": "fresh-transition-evidence",
+    "state": "landed",
+    "worker_id": "development-db3688bc",
+    "branch": "development-db3688bc",
+    "pr": "547",
+    "note": "LANDED into integration at sha 8c29e7b. Worker torn down + record deleted + worktree pruned. Payload: poller.RateLimitObservation in internal/poller/observation.go.",
+    "updated_at": "2026-09-29T13:47:00Z"
+  },
+  {
+    "id": "provider-specific-detectors",
+    "state": "landed",
+    "worker_id": "development-4206b803",
+    "branch": "wave2-provider-detectors",
+    "pr": "548",
+    "note": "LANDED into integration at sha 7bdea9a. Worker torn down.",
+    "updated_at": "2026-09-29T13:47:00Z"
+  },
+  {
+    "id": "recovery-cooldown-policy",
+    "state": "landed",
+    "worker_id": "development-d4c2f4cc",
+    "branch": "wave2-recovery-cooldown",
+    "pr": "549",
+    "note": "LANDED into integration. Worker torn down.",
+    "updated_at": "2026-09-29T13:47:00Z"
+  },
+  {
+    "id": "cockpit-hotswap-resilience",
+    "state": "landed",
+    "worker_id": "development-bc91e427",
+    "branch": "development-bc91e427",
+    "pr": "545",
+    "note": "LANDED into integration at sha 21192da. Worker record deleted, worktree removed.",
+    "updated_at": "2026-09-29T13:45:00Z"
+  },
+  {
+    "id": "end-to-end-regression-and-operator-guidance",
+    "state": "in_progress",
+    "worker_id": "end-to-end-regression-and-operator-guidance",
+    "branch": "wave3-e2e-regression",
+    "pr": "",
+    "note": "wave3 spawned 16:06Z. Instructed to sync, code, commit, push, report done.",
+    "updated_at": "2026-09-29T13:47:00Z"
+  }
+]

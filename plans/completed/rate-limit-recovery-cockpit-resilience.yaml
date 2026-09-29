@@ -1,0 +1,25 @@
+version: 1
+name: rate-limit-recovery-cockpit-resilience
+goal: 'Make pane-based rate-limit recovery evidence-driven and loop-safe, while keeping the local tmux cockpit renderable through hot swaps and resize transitions. Tracks GitHub issue #543.'
+constraints:
+    - Do not infer a provider hard limit from generic conversation prose. Require provider-specific pane evidence or an explicit provider availability result.
+    - Keep wd usage as a provider-level availability view; do not present it as definitive per-agent pane evidence.
+    - Do not expose raw terminal conversation content in ordinary API, audit, or TUI diagnostics.
+    - Preserve existing agent lifecycle and CLI behavior outside confirmed rate-limit recovery paths.
+    - Use generated API/spec workflow for any externally visible contract changes.
+tasks:
+    - id: fresh-transition-evidence
+      prompt: Trace the polling, session-store, scheduler, and audit flow for a pane-triggered rate limit. Define a small immutable observation payload containing the fresh excerpt or bounded evidence fingerprint, observed timestamp, session identity, and classifier result. Change the transition handoff so scheduler capture and reset parsing consume that observation rather than a pre-capture session snapshot. Preserve raw excerpts only in the existing protected diagnostic capture path; ordinary events must contain safe structured metadata. Add focused tests that fail if the old pane excerpt is used after a new capture.
+    - id: provider-specific-detectors
+      prompt: Replace broad Antigravity limit matching with provider-specific banner recognition and state-aware classification. Build fixtures from known provider output and add negative fixtures for ordinary prompts, agent messages, and transcripts containing words such as quota, rate limit, or limit reached. Review Claude and other detector boundaries for the same failure mode without changing their confirmed-banner behavior. Ensure classifier tests cover working, idle, unknown, and stale-pane transitions.
+    - id: recovery-cooldown-policy
+      prompt: Redesign backend recovery candidate eligibility so a confirmed hard limit creates durable per-backend and model or pool cooldown evidence through the parsed reset time, or through a conservative fallback. Keep this evidence after the short recovery-stable window and make selection skip ineligible candidates without cycling back to them. Define cleanup and restart behavior, serialize any needed daemon state safely, and add tests for repeated transitions, fallback reset time, restart, and all-candidates-limited behavior.
+    - id: cockpit-hotswap-resilience
+      prompt: Audit the local tmux cockpit handoff and Bubble Tea resize path used after agent hot swap. Clamp all layout dimensions before passing them to text areas, inputs, viewports, and panes. Add a targeted reattach or recovery path for a dead or transiently malformed local cockpit pane that preserves the selected agent and avoids repeated respawns. Record safe diagnostic geometry and recovery reasons in the local audit trail without terminal content. Add unit tests for zero and narrow dimensions plus command-level tests for reattach decisions.
+    - id: end-to-end-regression-and-operator-guidance
+      prompt: 'Create a deterministic integration or harness scenario that feeds confirmed rate-limit banners, stale unrelated panes, and resize events through polling and recovery. Verify one eligible switchover at most, correct reset or fallback cooldown, safe audit metadata, and a usable cockpit model. Run the relevant package tests and wd check. Document operator-facing diagnostics that distinguish provider usage status, pane-confirmed hard limits, cooldowns, and manual intervention; update issue #543 with the verification evidence.'
+done_when:
+    - Confirmed rate-limit transitions use the exact fresh pane observation and timestamp, with regression coverage for the former stale-snapshot path.
+    - A recently limited backend/model cannot be reselected until its parsed reset or a conservative fallback cooldown expires, even after recovery stabilizes.
+    - A hot-swap and transient narrow resize cannot leave the local cockpit in an invalid or unreadable layout state.
+    - Targeted tests and wd check pass, and the issue has a reproducible verification note.
