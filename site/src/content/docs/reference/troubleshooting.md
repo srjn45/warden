@@ -55,6 +55,17 @@ warden setup --yes      # non-interactive: install all missing deps
 | Agent spawned in the wrong place | Prompt-mode agents launch in your current directory — `cd` to the right place first, or pass `--dir <path>`. |
 | Every spawn asks for `--force` ("memory pressure") | The spawn gate blocks **only** at **critical** OS pressure or when live agents hit `worktree.spawn_gate_max_agents`. **Warn**-level pressure is advisory and no longer blocks. Still gated? Either you're at genuine critical pressure (terminate/rotate an agent to relieve it, or `--force`) or you've hit the agent cap (raise `worktree.spawn_gate_max_agents`, or set it to `0` to disable the count trigger). Restart the daemon after changing config. |
 
+## Rate-limit recovery vs `wd usage`
+
+| Symptom | Likely cause / fix |
+|---|---|
+| Agent hot-swaps backends while `wd usage` still shows headroom | Pane-confirmed (or usage-API) hard limit is authoritative for that agent; `wd usage` is provider-level only. Inspect `warden status <id> --json` → `backend_recovery` and `backend_recovery_*` events. |
+| Same limited backend/model gets reselected in a loop | Should be blocked by durable per-pool cooldown through the parsed reset / fallback. If it still loops, grab status JSON + a capture under `~/.warden/ratelimit-captures/` and open an issue — do not treat `wd usage` alone as proof. |
+| Want to stop automatic switching | `warden switch <id> --backend …`, stop, or delete supersedes recovery (`backend_recovery_superseded`). |
+| Cockpit goes blank / narrow column after a hot-swap | Transient layout/geometry glitch. Quit and reopen the TUI; the local reattach path should preserve the selected agent. Terminal panes do not drive recovery. |
+
+See [Backend hard-limit recovery → Operator diagnostics](/warden/guides/backend-recovery/#operator-diagnostics-usage-vs-pane-vs-cooldown-vs-manual).
+
 ## Cockpit-specific
 
 The cockpit **requires tmux ≥ 3.1** — it composites real tmux panes; if tmux isn't installed it exits with an error. Running `warden tui` from **inside an existing tmux session** is fine: warden detects `$TMUX` and lays the cockpit out as a **native tmux window** in your current session instead of nesting (force with `--tmux-native`; force the classic own-session cockpit with `env -u TMUX warden tui`).
