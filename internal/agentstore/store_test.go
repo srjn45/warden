@@ -2,6 +2,7 @@ package agentstore
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/srjn45/warden/internal/store"
@@ -41,7 +42,7 @@ func TestSpawnCreatesAndInitializesAgent(t *testing.T) {
 	got, err := s.Get(context.Background(), a.ID)
 	require.NoError(t, err)
 	require.Equal(t, "tmux-agent-spawn", got.TmuxSession)
-	require.Equal(t, "ai-session-1", got.ClaudeSessionID)
+	require.Equal(t, "ai-session-1", got.AICLISessionID)
 }
 
 func TestCreateCanonicalizesStatusAliases(t *testing.T) {
@@ -139,4 +140,97 @@ func TestMigrationMarkerPreventsDuplicateImport(t *testing.T) {
 	s, err = New(dir)
 	require.NoError(t, err)
 	require.NoError(t, s.Close())
+}
+
+// TestLegacyClaudeSessionIDDecode verifies that old persisted records that carry
+// the deprecated "claude_session_id" field are decoded into the canonical
+// AICLISessionID field on the Agent struct.
+func TestLegacyClaudeSessionIDDecode(t *testing.T) {
+	// Craft a raw JSON payload using only the old field names (as if written by
+	// a pre-rename daemon) and verify it round-trips to the canonical fields.
+	raw := `{
+		"id":               "agent-legacy",
+		"backend":          "claude",
+		"claude_session_id":"old-uuid-1234",
+		"status":           "working"
+	}`
+	var a Agent
+	require.NoError(t, json.Unmarshal([]byte(raw), &a))
+	require.Equal(t, "claude", a.AiCli, "legacy 'backend' should populate AiCli")
+	require.Equal(t, "old-uuid-1234", a.AICLISessionID, "legacy 'claude_session_id' should populate AICLISessionID")
+
+	// When canonical names are also present, canonical wins.
+	rawBoth := `{
+		"id":                  "agent-both",
+		"ai_cli":              "aider",
+		"backend":             "claude",
+		"ai_cli_session_id":   "new-id",
+		"claude_session_id":   "old-id",
+		"status":              "working"
+	}`
+	var b Agent
+	require.NoError(t, json.Unmarshal([]byte(rawBoth), &b))
+	require.Equal(t, "aider", b.AiCli, "canonical ai_cli must win over backend alias")
+	require.Equal(t, "new-id", b.AICLISessionID, "canonical ai_cli_session_id must win over claude_session_id alias")
+}
+
+// TestMarshalEmitsLegacyAliases verifies that serializing an Agent with the
+// canonical fields also emits the deprecated alias keys during the alias window.
+func TestMarshalEmitsLegacyAliases(t *testing.T) {
+	a := Agent{
+		ID:             "agent-emit",
+		AiCli:          "aider",
+		AICLISessionID: "session-xyz",
+	}
+	b, err := json.Marshal(a)
+	require.NoError(t, err)
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(b, &out))
+	require.Equal(t, "aider", out["ai_cli"], "canonical ai_cli must be present")
+	require.Equal(t, "aider", out["backend"], "legacy backend must be present during alias window")
+	require.Equal(t, "session-xyz", out["ai_cli_session_id"], "canonical ai_cli_session_id must be present")
+	require.Equal(t, "session-xyz", out["claude_session_id"], "legacy claude_session_id must be present during alias window")
+}
+
+// TestMigrationPreservesAgentStatus verifies that active sessions whose Status
+// is non-zero (e.g. done) are imported with their status intact.
+func TestMigrationPreservesAgentStatus(t *testing.T) {
+	dir := t.TempDir()
+	legacy, err := store.NewFileStore(dir)
+	require.NoError(t, err)
+	ctx := context.Background()
+	// An agent that finished but has not been archived yet.
+	require.NoError(t, legacy.Insert(ctx, &store.Session{ID: "agent-done", Status: store.StatusDone}))
+	require.NoError(t, legacy.Close(ctx))
+
+	agents, err := New(dir)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, agents.Close()) })
+	got, err := agents.Get(ctx, "agent-done")
+	require.NoError(t, err)
+	require.Equal(t, store.StatusDone, got.Status, "migration must preserve Status from legacy record")
+}
+
+// TestMigrationSkipsTerminalByKindField verifies that legacy records whose raw
+// "kind" field is "terminal" are excluded even when the full decode succeeds.
+func TestMigrationSkipsTerminalByKindField(t *testing.T) {
+	dir := t.TempDir()
+	legacy, err := store.NewFileStore(dir)
+	require.NoError(t, err)
+	ctx := context.Background()
+	require.NoError(t, legacy.Insert(ctx, &store.Session{ID: "term-1", Kind: store.KindTerminal, Status: store.StatusIdle}))
+	require.NoError(t, legacy.Insert(ctx, &store.Session{ID: "agent-1", Status: store.StatusWorking}))
+	require.NoError(t, legacy.Close(ctx))
+
+	agents, err := New(dir)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, agents.Close()) })
+	list, err := agents.List(ctx)
+	require.NoError(t, err)
+	ids := make([]string, 0, len(list))
+	for _, a := range list {
+		ids = append(ids, a.ID)
+	}
+	require.NotContains(t, ids, "term-1", "terminal session must not appear in agent store")
+	require.Contains(t, ids, "agent-1", "agent session must be migrated")
 }
