@@ -1669,3 +1669,65 @@ func TestClassify_FallbackWhenNoRateLimitDetector(t *testing.T) {
 	got := classify(fakeBackend{}, s, sampleLimitBanner, true, 0, 0)
 	require.Equal(t, store.StatusRateLimited, got, "fallback detectRateLimit must fire for non-detector backend")
 }
+
+// TestClassify_Antigravity_WorkingVetoesRateLimit confirms that the classify
+// function returns StatusWorking — not StatusRateLimited — when the Antigravity
+// backend reports StateWorking, even if the pane happens to contain limit-adjacent
+// words. StateWorking always wins because a streaming agent cannot simultaneously
+// show a rate-limit banner.
+func TestClassify_Antigravity_WorkingVetoesRateLimit(t *testing.T) {
+	s := &store.Session{ID: "agy-1", Status: store.StatusWorking}
+	// Pane content contains "quota" in agent output while the agent is live.
+	pane := "Explaining quota management...\nesc to cancel\nGemini 3.5 Flash (Low)"
+	got := classify(backends.Antigravity{}, s, pane, true, 0, 5*time.Minute)
+	require.Equal(t, store.StatusWorking, got,
+		"StateWorking must veto rate-limit detection for Antigravity")
+}
+
+// TestClassify_Antigravity_IdleNotLimited confirms that an Antigravity idle pane
+// (? for shortcuts footer, normal content) is NOT classified as rate-limited.
+func TestClassify_Antigravity_IdleNotLimited(t *testing.T) {
+	s := &store.Session{ID: "agy-2", Status: store.StatusWorking}
+	// A normal idle pane with no banner.
+	pane := "Here is the summary of your work.\n? for shortcuts\nGemini 3.5 Flash (Low)"
+	got := classify(backends.Antigravity{}, s, pane, true, 0, 5*time.Minute)
+	require.Equal(t, store.StatusIdle, got,
+		"Antigravity idle pane must classify as Idle, not RateLimited")
+}
+
+// TestClassify_Antigravity_UnknownStatePreservesExisting confirms that an
+// Antigravity pane that yields StateUnknown (no recognizable footer) does not
+// accidentally classify as rate-limited — it preserves the stored status.
+func TestClassify_Antigravity_UnknownStatePreservesExisting(t *testing.T) {
+	s := &store.Session{ID: "agy-3", Status: store.StatusWorking}
+	// Pane with no agy-specific markers and no rate-limit banner.
+	pane := "some unrecognized output with no footer"
+	got := classify(backends.Antigravity{}, s, pane, true, 1*time.Second, 5*time.Minute)
+	require.Equal(t, store.StatusWorking, got,
+		"StateUnknown with no banner must preserve stored StatusWorking")
+}
+
+// TestClassify_Antigravity_StalePaneDoesNotReclassify confirms that a stale
+// Antigravity pane (no recent update, stuck after threshold) is downgraded from
+// Working to Idle — but only because of staleness, not a false rate-limit match.
+func TestClassify_Antigravity_StalePaneDoesNotReclassify(t *testing.T) {
+	s := &store.Session{ID: "agy-4", Status: store.StatusWorking}
+	pane := "some unrecognized output with no footer"
+	// sinceUpdate > stuckAfter → downgrade to Idle via the stuck-agent path.
+	got := classify(backends.Antigravity{}, s, pane, true, 10*time.Minute, 5*time.Minute)
+	require.Equal(t, store.StatusIdle, got,
+		"stale Antigravity pane must downgrade to Idle via staleness, not rate-limit")
+}
+
+// TestClassify_Antigravity_BannerDetected confirms the full round-trip through
+// classify: an Antigravity pane showing the banner structure (limit phrase +
+// reset time in the tail) is classified as StatusRateLimited.
+func TestClassify_Antigravity_BannerDetected(t *testing.T) {
+	s := &store.Session{ID: "agy-5", Status: store.StatusWorking}
+	// A pane whose tail contains the banner shape: limit phrase + reset time.
+	banner := "⚠ Free-tier session quota reached.\n  Available at 15:30 · gemini.google.com"
+	pane := "previous work output\nprevious work output\n" + banner
+	got := classify(backends.Antigravity{}, s, pane, true, 0, 5*time.Minute)
+	require.Equal(t, store.StatusRateLimited, got,
+		"Antigravity banner in tail must classify as RateLimited")
+}
