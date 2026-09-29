@@ -105,6 +105,9 @@ func (c *BackendRecoveryCoordinator) OnHardLimit(sess *store.Session, fallbackAt
 				s.BackendRecovery.UpdatedAt = now
 				return nil
 			})
+			// Persist durable cooldown evidence for this recovery candidate so the
+			// next advance() skips it even across rounds and daemon restarts.
+			c.recordCooldown(attempt.Candidate.BackendID, attempt.Candidate.ModelID, fallbackAt)
 			c.event(current.ID, "backend_recovery_attempt_failed", fmt.Sprintf("generation=%d candidate=%s/%s outcome=immediate_hard_limit", generation, attempt.Candidate.BackendID, attempt.Candidate.ModelID))
 			go c.advance(current.ID, generation, fallbackAt)
 			return true
@@ -125,6 +128,9 @@ func (c *BackendRecoveryCoordinator) OnHardLimit(sess *store.Session, fallbackAt
 	if err != nil {
 		return false
 	}
+	// Persist durable cooldown evidence for the session's current backend/model.
+	// This survives round increments, new recovery generations, and daemon restarts.
+	c.recordCooldown(original.BackendID, original.ModelID, fallbackAt)
 	_ = c.store.SetRateLimit(context.Background(), current.ID, fallbackAt, 0)
 	c.event(current.ID, "backend_recovery_started", fmt.Sprintf("generation=%d limited=%s/%s", generation, original.BackendID, original.ModelID))
 	go c.advance(current.ID, generation, fallbackAt)
@@ -173,13 +179,17 @@ func (c *BackendRecoveryCoordinator) advance(id string, generation uint64, fallb
 			}
 		}
 	}
+	now := c.now().UTC()
 	var selected *recovery.Candidate
 	var resets []store.RecoveryReset
 	for i := range ranked {
 		for _, reset := range ranked[i].Resets {
 			resets = append(resets, store.RecoveryReset{BackendID: ranked[i].BackendID, LimitID: reset.LimitID, Scope: reset.Scope, ResetsAt: reset.ResetsAt})
 		}
-		if selected == nil && !attempted[candidateKey(ranked[i].BackendID, ranked[i].ModelID)] && (ranked[i].Headroom == nil || *ranked[i].Headroom > 0) {
+		if selected == nil &&
+			!attempted[candidateKey(ranked[i].BackendID, ranked[i].ModelID)] &&
+			!c.isCoolingDown(ranked[i].BackendID, ranked[i].ModelID, now) &&
+			(ranked[i].Headroom == nil || *ranked[i].Headroom > 0) {
 			selected = &ranked[i]
 		}
 	}
@@ -188,7 +198,6 @@ func (c *BackendRecoveryCoordinator) advance(id string, generation uint64, fallb
 		return
 	}
 	target := store.BackendCandidate{BackendID: selected.BackendID, ModelID: selected.ModelID}
-	now := c.now().UTC()
 	_ = c.store.Update(ctx, id, func(s *store.Session) error {
 		if s.BackendRecovery == nil || s.BackendRecovery.Generation != generation {
 			return nil
@@ -435,6 +444,30 @@ func (c *BackendRecoveryCoordinator) event(id, typ, detail string) {
 	if c.notifyFn != nil {
 		c.notifyFn()
 	}
+}
+
+// recordCooldown stamps durable confirmed-hard-limit cooldown evidence for
+// (backendID, modelID) into the backendstore. The cooldown expires at `until`
+// (the parsed reset time from the session's terminal, or the scheduler fallback
+// when no reset is parseable). It persists across round increments, new recovery
+// generations, and daemon restarts.
+func (c *BackendRecoveryCoordinator) recordCooldown(backendID, modelID string, until time.Time) {
+	if c.backends == nil || backendID == "" || modelID == "" {
+		return
+	}
+	_ = c.backends.SetRLCooldown(backendID, modelID, until)
+}
+
+// isCoolingDown reports whether (backendID, modelID) has an active
+// confirmed-hard-limit cooldown in the backendstore at `now`. A candidate that
+// is cooling down is loop-safe to skip without being added to the in-session
+// `attempted` map: the backendstore check is durable across rounds and restarts,
+// so the candidate is only reconsidered once its reset time has passed.
+func (c *BackendRecoveryCoordinator) isCoolingDown(backendID, modelID string, now time.Time) bool {
+	if c.backends == nil {
+		return false
+	}
+	return c.backends.IsRLCoolingDown(backendID, modelID, now)
 }
 
 func candidateKey(backend, model string) string { return backend + "\x00" + model }
