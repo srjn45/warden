@@ -19,7 +19,7 @@ import (
 // so the cockpit's agent pane can show a plan's detail view instead of a blank attach.
 // tmux replaces this process via respawn-pane when the user selects another item;
 // scrolling uses copy-mode.
-func RunPlanDetailPane(a api, projectID, planID string) error {
+func RunPlanDetailPane(a api, projectID, planID string, expanded bool) error {
 	p, err := a.PlanGet(context.Background(), projectID, planID)
 	if err != nil {
 		fmt.Println(stMuted.Render("could not load plan detail: " + err.Error()))
@@ -29,26 +29,29 @@ func RunPlanDetailPane(a api, projectID, planID string) error {
 		if projects, lerr := a.ListProjects(context.Background()); lerr == nil {
 			projectRoot = projectRootForID(projects, projectID)
 		}
-		fmt.Println(planDetailText(p, 100, projectRoot, false))
+		fmt.Println(planDetailText(p, 100, projectRoot, expanded))
 	}
 	select {} // hold the pane open until tmux respawns it
 }
 
 // respawnPlanDetailArgs builds the tmux command that replaces the agent pane with
 // a render of one plan's stored detail.
-func respawnPlanDetailArgs(agentPane, self, projectID, planID string) []string {
-	return []string{"respawn-pane", "-k", "-t", agentPane,
-		self + " tui --pane=plandetail --pipeline=" + projectID + " --job=" + planID}
+func respawnPlanDetailArgs(agentPane, self, projectID, planID string, expanded bool) []string {
+	launch := self + " tui --pane=plandetail --pipeline=" + projectID + " --job=" + planID
+	if expanded {
+		launch += " --expanded"
+	}
+	return []string{"respawn-pane", "-k", "-t", agentPane, launch}
 }
 
 // openPlanDetailCmd renders a plan's stored detail into the agent pane.
-func openPlanDetailCmd(agentPane, projectID, planID string) tea.Cmd {
+func openPlanDetailCmd(agentPane, projectID, planID string, expanded bool) tea.Cmd {
 	return func() tea.Msg {
 		self, err := os.Executable()
 		if err != nil {
 			return attachDoneMsg{err: err}
 		}
-		return attachDoneMsg{err: exec.Command("tmux", respawnPlanDetailArgs(agentPane, self, projectID, planID)...).Run()}
+		return attachDoneMsg{err: exec.Command("tmux", respawnPlanDetailArgs(agentPane, self, projectID, planID, expanded)...).Run()}
 	}
 }
 

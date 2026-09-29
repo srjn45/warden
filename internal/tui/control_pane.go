@@ -1787,6 +1787,9 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "t":
 			m.planDetailExpanded = !m.planDetailExpanded
+			if m.agentPane != "" {
+				return m, openPlanDetailCmd(m.agentPane, m.targetPlanProject, m.targetPlanID, m.planDetailExpanded)
+			}
 			for _, p := range m.plans[m.targetPlanProject] {
 				if p != nil && p.ID == m.targetPlanID {
 					m.vp.SetContent(planDetailText(p, m.vp.Width, projectRootForID(m.projects, m.targetPlanProject), m.planDetailExpanded))
@@ -1912,12 +1915,13 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if it.plan != nil {
 			m.openedPlan = it.plan.ID
-			if m.agentPane != "" {
-				return m, openPlanDetailCmd(m.agentPane, it.plan.ProjectID, it.plan.ID)
-			}
-			m.mode = modePlanDetail
+			m.planDetailExpanded = false
 			m.targetPlanID = it.plan.ID
 			m.targetPlanProject = it.plan.ProjectID
+			m.mode = modePlanDetail
+			if m.agentPane != "" {
+				return m, openPlanDetailCmd(m.agentPane, it.plan.ProjectID, it.plan.ID, false)
+			}
 			m.vp.SetContent(planDetailText(it.plan, m.vp.Width, projectRootForID(m.projects, it.plan.ProjectID), m.planDetailExpanded))
 			m.vp.GotoTop()
 			return m, nil

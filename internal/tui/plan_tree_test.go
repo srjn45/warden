@@ -118,11 +118,11 @@ func TestPlanTree_StructureAndGrouping(t *testing.T) {
 		"plans:proj-1:archived":    false,
 	}
 	itemsExpanded := buildProjectItems(projs, nil, sessions, nil, client.AutopilotStatus{}, plansMap, nil, collapsed, false)
-	// 0=projHdr, 1=planHdr, 2=in_progress(exp), 3=Active Work, 4=pending(coll),
+	// 0=projHdr, 1=planHdr, 2=pending(coll), 3=in_progress(exp), 4=Active Work,
 	// 5=completed(coll), 6=archived(exp), 7=Old Plan, 8=agent-1
 	require.Len(t, itemsExpanded, 9)
-	require.NotNil(t, itemsExpanded[3].plan)
-	require.Equal(t, "Active Work", itemsExpanded[3].plan.Name)
+	require.NotNil(t, itemsExpanded[4].plan)
+	require.Equal(t, "Active Work", itemsExpanded[4].plan.Name)
 	require.NotNil(t, itemsExpanded[7].plan)
 	require.Equal(t, "Old Plan", itemsExpanded[7].plan.Name)
 	require.NotNil(t, itemsExpanded[8].session)
@@ -271,8 +271,8 @@ func TestPlanKeybindings_Archive(t *testing.T) {
 	a := &fakeAPI{}
 	m := setupPlanTestModel(a)
 
-	// Move cursor to active plan (index 3: projHdr, planHdr, in_progress group, active plan)
-	m.cursor = 3
+	// Move cursor to active plan (index 4: projHdr, planHdr, pending(coll), in_progress group, active plan)
+	m.cursor = 4
 	it := itemAt(m.items(), m.cursor)
 	require.NotNil(t, it.plan)
 	require.Equal(t, "plan-ip", it.plan.ID)
@@ -325,8 +325,8 @@ func TestPlanKeybindings_Scan(t *testing.T) {
 	require.Equal(t, "scanning plans in proj-1…", m.status)
 	require.NotNil(t, cmdGroup)
 
-	// Test 's' on plan row (cursor 3)
-	m.cursor = 3
+	// Test 's' on plan row (cursor 4)
+	m.cursor = 4
 	require.NotNil(t, itemAt(m.items(), m.cursor).plan)
 	nm, cmdPlan := m.Update(key("s"))
 	m = nm.(controlPaneModel)
@@ -344,7 +344,7 @@ func TestPlanKeybindings_Assess(t *testing.T) {
 	}
 	m := setupPlanTestModel(a)
 
-	m.cursor = 3
+	m.cursor = 4
 	require.NotNil(t, itemAt(m.items(), m.cursor).plan)
 
 	// Press 'A' to assess
@@ -367,7 +367,7 @@ func TestPlanKeybindings_RunModePicker(t *testing.T) {
 	a := &fakeAPI{}
 	m := setupPlanTestModel(a)
 
-	m.cursor = 3
+	m.cursor = 4
 	require.NotNil(t, itemAt(m.items(), m.cursor).plan)
 
 	// Press 'r' to open mode picker
@@ -416,7 +416,7 @@ func TestPlanKeybindings_EnterDetail(t *testing.T) {
 	// Case 1: Cockpit with agentPane ("%9")
 	m := setupPlanTestModel(a)
 	m.agentPane = "%9"
-	m.cursor = 3
+	m.cursor = 4
 	require.NotNil(t, itemAt(m.items(), m.cursor).plan)
 
 	nm, cmd := m.Update(key("enter"))
@@ -427,7 +427,7 @@ func TestPlanKeybindings_EnterDetail(t *testing.T) {
 	// Case 2: Cockpit without agentPane (in-pane detail)
 	mNoAgent := setupPlanTestModel(a)
 	mNoAgent.agentPane = ""
-	mNoAgent.cursor = 3
+	mNoAgent.cursor = 4
 
 	nmNoAgent, _ := mNoAgent.Update(key("enter"))
 	mNoAgent = nmNoAgent.(controlPaneModel)
@@ -459,16 +459,16 @@ func TestPlanKeybindings_ToggleHeaders(t *testing.T) {
 	m = lstep(m, key("enter"))
 	require.False(t, m.collapsed["plans:proj-1"])
 
-	// Enter on status group (cursor 2: in_progress) — group starts with a pre-set
+	// Enter on status group (cursor 3: in_progress) — group starts with a pre-set
 	// value from setupPlanTestModel (false = expanded), so toggling collapses it.
-	m.cursor = 2
+	m.cursor = 3
 	require.Equal(t, "in_progress", itemAt(m.items(), m.cursor).planGroup)
 	m = lstep(m, key("enter"))
 	require.True(t, m.collapsed["plans:proj-1:in_progress"], "toggle collapses an expanded group")
 
-	// Re-expand in_progress so the plan row at cursor 3 is visible
+	// Re-expand in_progress so the plan row at cursor 4 is visible
 	m.collapsed["plans:proj-1:in_progress"] = false
-	m.cursor = 3 // Active Work plan (under in_progress group)
+	m.cursor = 4 // Active Work plan (under in_progress group)
 	require.NotNil(t, itemAt(m.items(), m.cursor).plan)
 	m = lstep(m, key("h"))
 	require.True(t, m.collapsed["plans:proj-1:in_progress"], "h/left on plan row collapses its group")
