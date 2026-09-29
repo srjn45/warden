@@ -58,6 +58,44 @@ func TestAddRemovePipelineToProject(t *testing.T) {
 	require.Empty(t, p.Pipelines)
 }
 
+func TestAddRemovePlanToProject(t *testing.T) {
+	s := newTestStore(t)
+	id := seedProject(t, s, "p1")
+
+	p, err := s.AddPlanToProject(id, "plan1")
+	require.NoError(t, err)
+	require.Equal(t, []string{"plan1"}, p.Plans)
+	p, err = s.AddPlanToProject(id, "plan1")
+	require.NoError(t, err)
+	require.Equal(t, []string{"plan1"}, p.Plans)
+
+	p, err = s.RemovePlanFromProject(id, "plan1")
+	require.NoError(t, err)
+	require.Empty(t, p.Plans)
+	p, err = s.RemovePlanFromProject(id, "missing")
+	require.NoError(t, err)
+	require.Empty(t, p.Plans)
+}
+
+func TestAddRemoveAutopilotToProject(t *testing.T) {
+	s := newTestStore(t)
+	id := seedProject(t, s, "p1")
+
+	p, err := s.AddAutopilotToProject(id, "run1")
+	require.NoError(t, err)
+	require.Equal(t, []string{"run1"}, p.Autopilots)
+	p, err = s.AddAutopilotToProject(id, "run1")
+	require.NoError(t, err)
+	require.Equal(t, []string{"run1"}, p.Autopilots)
+
+	p, err = s.RemoveAutopilotFromProject(id, "run1")
+	require.NoError(t, err)
+	require.Empty(t, p.Autopilots)
+	p, err = s.RemoveAutopilotFromProject(id, "missing")
+	require.NoError(t, err)
+	require.Empty(t, p.Autopilots)
+}
+
 func TestAddRemoveTerminalToProject(t *testing.T) {
 	s := newTestStore(t)
 	id := seedProject(t, s, "p1")
@@ -110,6 +148,10 @@ func TestMembershipErrors(t *testing.T) {
 		{"remove-pipeline", func() (Project, error) { return s.RemovePipelineFromProject("nope", "p") }},
 		{"add-terminal", func() (Project, error) { return s.AddTerminalToProject("nope", "t") }},
 		{"remove-terminal", func() (Project, error) { return s.RemoveTerminalFromProject("nope", "t") }},
+		{"add-plan", func() (Project, error) { return s.AddPlanToProject("nope", "plan") }},
+		{"remove-plan", func() (Project, error) { return s.RemovePlanFromProject("nope", "plan") }},
+		{"add-autopilot", func() (Project, error) { return s.AddAutopilotToProject("nope", "run") }},
+		{"remove-autopilot", func() (Project, error) { return s.RemoveAutopilotFromProject("nope", "run") }},
 	} {
 		_, err := tc.fn()
 		require.ErrorIsf(t, err, ErrNotFound, "%s should report ErrNotFound", tc.name)
@@ -122,6 +164,10 @@ func TestMembershipErrors(t *testing.T) {
 	_, err = s.AddPipelineToProject(id, "")
 	require.ErrorIs(t, err, ErrInvalidID)
 	_, err = s.AddTerminalToProject(id, "")
+	require.ErrorIs(t, err, ErrInvalidID)
+	_, err = s.AddPlanToProject(id, "")
+	require.ErrorIs(t, err, ErrInvalidID)
+	_, err = s.AddAutopilotToProject(id, "")
 	require.ErrorIs(t, err, ErrInvalidID)
 }
 
@@ -147,6 +193,8 @@ func TestMembershipOmitEmptyRoundTrip(t *testing.T) {
 	require.Nil(t, got.Agents)
 	require.Nil(t, got.Pipelines)
 	require.Nil(t, got.Terminals)
+	require.Nil(t, got.Plans)
+	require.Nil(t, got.Autopilots)
 
 	p, err := s.AddAgentToProject(id, "a1")
 	require.NoError(t, err)

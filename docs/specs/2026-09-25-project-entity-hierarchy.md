@@ -70,7 +70,7 @@ it is *not* folded into Agent and *not* re-expressed as a special agent.
 | # | Decision | Choice |
 |---|---|---|
 | D1 | **Entity set** | Project, Agent, Terminal, Pipeline. Pipeline stays a **separate** entity (not an agent, not folded into Agent). |
-| D2 | **Project membership** | `Project.agents[]`, `Project.pipelines[]`, `Project.terminals[]` are **complete id lists** — the authoritative membership stored *on the project*, not re-derived by scanning back-refs. |
+| D2 | **Project membership** | `Project.agents[]`, `Project.pipelines[]`, `Project.terminals[]`, `Project.plans[]`, `Project.autopilots[]` are **complete id lists** — the authoritative membership stored *on the project*, not re-derived by scanning back-refs. |
 | D3 | **Agent hierarchy** | `Agent.parent_id` (existing) plus a forward `Agent.child_agents[]`. Both directions are stored and kept consistent. |
 | D4 | **Agent → pipelines** | `Agent.child_pipelines[]` lists the pipelines an agent owns; the reverse edge is `Pipeline.parent_agent_id`. |
 | D5 | **Job agents are not children** | A pipeline's own **job agents are NOT `child_agents`** of the pipeline's owning agent. They belong to the pipeline (`Pipeline.jobs` / `Session.pipeline_id`), not to the agent's `child_agents[]`. Only user-facing spawned sub-agents populate `child_agents[]`. |
@@ -115,10 +115,10 @@ are marked *(exists)*; new fields are marked **(new)**.
 }
 ```
 
-- `agents[]`, `pipelines[]`, `terminals[]` are the **authoritative** membership
-  (D2). The per-session `ProjectID` / per-pipeline `ProjectID` back-refs remain
-  the reverse edge; the two are kept consistent, with the project's lists as the
-  membership of record.
+- `agents[]`, `pipelines[]`, `terminals[]`, `plans[]`, `autopilots[]` are the
+  **authoritative** membership (D2). The per-session `ProjectID` / per-pipeline
+  `ProjectID` (and plan/autopilot) back-refs remain the reverse edge; the two are
+  kept consistent, with the project's lists as the membership of record.
 - The lists are ordered and de-duplicated. Ids in a list need not still resolve
   to a live record (a member may be `orphaned` or hibernated) — dangling
   membership is tolerated, matching the existing group/back-ref tolerance.

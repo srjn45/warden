@@ -17,8 +17,9 @@ operations that are meaningless or unsafe over MCP/web).
 
 ## 1. Agent lifecycle
 
-Projects store complete `agents[]`, `pipelines[]`, and `terminals[]` membership
-lists. Agents store `parent_id`, `child_agents[]`, and `child_pipelines[]`;
+Projects store complete `agents[]`, `pipelines[]`, `terminals[]`, `plans[]`, and
+`autopilots[]` membership lists. Plan-run execution entities carry a `plan_id`
+back-ref. Agents store `parent_id`, `child_agents[]`, and `child_pipelines[]`;
 pipelines store `parent_agent_id`. Job agents belong to pipeline jobs, never
 the owning agent’s `child_agents[]`. New projects open empty; reopening restores
 hibernated members without auto-spawning an orchestrator. Agent UX states are

@@ -372,11 +372,12 @@ Worth knowing:
 
 ## Stored hierarchy and presented status
 
-Warden has four separate entities: **Project, Agent, Terminal, and Pipeline**.
-A project's `agents[]`, `pipelines[]`, and `terminals[]` are complete,
-authoritative membership id lists, including nested agents and pipeline job
-agents. Clients render these stored lists instead of inferring membership from
-paths or scanning `project_id` back-references.
+Warden projects own authoritative membership lists for agents, terminals,
+pipelines, plans, and autopilot runs. A project's `agents[]`, `pipelines[]`,
+`terminals[]`, `plans[]`, and `autopilots[]` are complete id lists, including
+nested agents and pipeline job agents. Clients render these stored lists instead
+of inferring membership from paths or scanning back-references. Plan-run
+execution entities carry a `plan_id` back-ref.
 
 Agents store `parent_id`, `child_agents[]`, and `child_pipelines[]`. A pipeline
 stores `parent_agent_id` (empty for an operator-created pipeline) as the reverse
