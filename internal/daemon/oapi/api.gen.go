@@ -1125,15 +1125,12 @@ type PipelineJobRunIf string
 
 // Plan A YAML-backed plan and its DB-backed execution state. The definition fields are stored in the plan file; task_progress and execution links are stored separately so they can change without rewriting completed work.
 type Plan struct {
-	AutopilotRunId string `json:"autopilot_run_id,omitempty"`
-
-	// Branches branches associated with plan execution and checked before completion
-	Branches      []string          `json:"branches,omitempty"`
-	CompletedAt   time.Time         `json:"completed_at,omitempty"`
-	Constraints   []string          `json:"constraints"`
-	CreatedAt     time.Time         `json:"created_at"`
-	DoneWhen      []string          `json:"done_when"`
-	ExecutionMode PlanExecutionMode `json:"execution_mode,omitempty"`
+	AutopilotRunId string            `json:"autopilot_run_id,omitempty"`
+	CompletedAt    time.Time         `json:"completed_at,omitempty"`
+	Constraints    []string          `json:"constraints"`
+	CreatedAt      time.Time         `json:"created_at"`
+	DoneWhen       []string          `json:"done_when"`
+	ExecutionMode  PlanExecutionMode `json:"execution_mode,omitempty"`
 
 	// FilePath path relative to the project root
 	FilePath string `json:"file_path"`
@@ -1144,6 +1141,9 @@ type Plan struct {
 	Name           string `json:"name"`
 	OrchestratorId string `json:"orchestrator_id,omitempty"`
 	PipelineId     string `json:"pipeline_id,omitempty"`
+
+	// PlanBranches branches associated with plan execution and checked before completion
+	PlanBranches []string `json:"plan_branches,omitempty"`
 
 	// ProjectId owning project id
 	ProjectId string     `json:"project_id"`

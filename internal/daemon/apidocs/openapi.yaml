@@ -1266,7 +1266,7 @@ paths:
 
   /api/v1/plans:
     get:
-      operationId: listPlans
+      operationId: ListPlans
       tags: [Plans]
       summary: List plans for a project
       parameters:
@@ -1289,7 +1289,7 @@ paths:
                 items: { $ref: "#/components/schemas/Plan" }
         "400": { $ref: "#/components/responses/BadRequest" }
     post:
-      operationId: createPlan
+      operationId: CreatePlan
       tags: [Plans]
       summary: Create a plan
       description: Creates the pending plan YAML file and its execution record.
@@ -1309,7 +1309,7 @@ paths:
 
   /api/v1/plans/{plan_id}:
     get:
-      operationId: getPlan
+      operationId: GetPlan
       tags: [Plans]
       summary: Get a plan
       parameters: [{ $ref: "#/components/parameters/PlanId" }]
@@ -1321,7 +1321,7 @@ paths:
               schema: { $ref: "#/components/schemas/Plan" }
         "404": { $ref: "#/components/responses/NotFound" }
     patch:
-      operationId: updatePlan
+      operationId: UpdatePlan
       tags: [Plans]
       summary: Update a pending plan
       description: >
@@ -1349,7 +1349,7 @@ paths:
 
   /api/v1/plans/{plan_id}/run:
     post:
-      operationId: runPlan
+      operationId: RunPlan
       tags: [Plans]
       summary: Start plan execution
       description: Transitions a pending plan to in_progress and starts the selected execution mode.
@@ -1375,7 +1375,7 @@ paths:
 
   /api/v1/plans/{plan_id}/tasks/{task_id}/status:
     post:
-      operationId: updateTaskStatus
+      operationId: UpdateTaskStatus
       tags: [Plans]
       summary: Update task progress
       description: Updates only the plan's DB-backed task_progress map; the plan YAML is unchanged.
@@ -1398,7 +1398,7 @@ paths:
 
   /api/v1/plans/{plan_id}/complete:
     post:
-      operationId: completePlan
+      operationId: CompletePlan
       tags: [Plans]
       summary: Complete a plan
       description: >
@@ -1425,7 +1425,7 @@ paths:
 
   /api/v1/plans/{plan_id}/archive:
     post:
-      operationId: archivePlan
+      operationId: ArchivePlan
       tags: [Plans]
       summary: Archive a plan
       description: Moves the plan file to plans/archived/ from any status.
@@ -3883,7 +3883,7 @@ components:
         autopilot_run_id: { type: string }
         pipeline_id: { type: string }
         orchestrator_id: { type: string }
-        branches:
+        plan_branches:
           type: array
           items: { type: string }
           description: "branches associated with plan execution and checked before completion"
