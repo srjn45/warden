@@ -166,6 +166,98 @@ func TestLoadPlan(t *testing.T) {
 	require.Contains(t, err.Error(), "plan file not found")
 }
 
+func TestValidateStructuralVsContent(t *testing.T) {
+	t.Run("structural: empty goal", func(t *testing.T) {
+		p := Plan{Version: 1}
+		require.Error(t, p.validateStructural())
+		require.Contains(t, p.validateStructural().Error(), "goal is required")
+	})
+	t.Run("structural: bad version", func(t *testing.T) {
+		p := Plan{Version: 99, Goal: "g"}
+		require.Error(t, p.validateStructural())
+		require.Contains(t, p.validateStructural().Error(), "unsupported version")
+	})
+	t.Run("structural: duplicate task ids", func(t *testing.T) {
+		p := Plan{Version: 1, Goal: "g", Tasks: []PlanTask{{ID: "a"}, {ID: "a"}}}
+		require.Error(t, p.validateStructural())
+		require.Contains(t, p.validateStructural().Error(), "duplicate task id")
+	})
+	t.Run("structural: bad dep edge", func(t *testing.T) {
+		p := Plan{Version: 1, Goal: "g", Tasks: []PlanTask{{ID: "a", After: []string{"ghost"}}}}
+		require.Error(t, p.validateStructural())
+		require.Contains(t, p.validateStructural().Error(), "unknown id")
+	})
+	t.Run("structural: valid plan passes", func(t *testing.T) {
+		p := Plan{Version: 1, Goal: "g", Tasks: []PlanTask{{ID: "a"}, {ID: "b", After: []string{"a"}}}}
+		require.NoError(t, p.validateStructural())
+	})
+
+	t.Run("content: invalid status string", func(t *testing.T) {
+		p := Plan{Version: 1, Goal: "g", Tasks: []PlanTask{{ID: "a", Status: "completed"}}}
+		require.NoError(t, p.validateStructural()) // structure is fine
+		fails := p.validateContent()
+		require.NotEmpty(t, fails)
+		require.Contains(t, fails[0], "invalid status")
+	})
+	t.Run("content: done without landed_pr", func(t *testing.T) {
+		p := Plan{Version: 1, Goal: "g", Tasks: []PlanTask{{ID: "a", Status: "done", LandedPR: 0}}}
+		require.NoError(t, p.validateStructural())
+		fails := p.validateContent()
+		require.NotEmpty(t, fails)
+		require.Contains(t, fails[0], "requires landed_pr")
+	})
+	t.Run("content: valid plan has no content failures", func(t *testing.T) {
+		p := Plan{Version: 1, Goal: "g", Tasks: []PlanTask{{ID: "a", Status: "pending"}}}
+		require.NoError(t, p.validateStructural())
+		require.Empty(t, p.validateContent())
+	})
+}
+
+func TestLoadPlanLenient(t *testing.T) {
+	t.Run("normalizes invalid status to pending", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "plan.yaml")
+		require.NoError(t, os.WriteFile(path, []byte("version: 1\ngoal: g\ntasks:\n  - id: a\n    prompt: x\n    status: completed\n"), 0o644))
+		plan, warnings, err := loadPlanLenient(path)
+		require.NoError(t, err)
+		require.Equal(t, TaskStatusPending, plan.Tasks[0].Status)
+		require.NotEmpty(t, warnings)
+		require.Contains(t, warnings[0], "task a")
+		require.Contains(t, warnings[0], "normalized to pending")
+	})
+	t.Run("normalizes done without landed_pr to pending", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "plan.yaml")
+		require.NoError(t, os.WriteFile(path, []byte("version: 1\ngoal: g\ntasks:\n  - id: a\n    prompt: x\n    status: done\n"), 0o644))
+		plan, warnings, err := loadPlanLenient(path)
+		require.NoError(t, err)
+		require.Equal(t, TaskStatusPending, plan.Tasks[0].Status)
+		require.Equal(t, 0, plan.Tasks[0].LandedPR)
+		require.NotEmpty(t, warnings)
+	})
+	t.Run("structural error: missing file", func(t *testing.T) {
+		_, _, err := loadPlanLenient("/nonexistent/path/plan.yaml")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "plan file not found")
+	})
+	t.Run("structural error: bad YAML", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "plan.yaml")
+		require.NoError(t, os.WriteFile(path, []byte("version: 1\ngoal: g\nbogus_field: 1\n"), 0o644))
+		_, _, err := loadPlanLenient(path)
+		require.Error(t, err)
+	})
+	t.Run("valid plan returns no warnings", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "plan.yaml")
+		require.NoError(t, os.WriteFile(path, []byte("version: 1\ngoal: g\n"), 0o644))
+		plan, warnings, err := loadPlanLenient(path)
+		require.NoError(t, err)
+		require.Empty(t, warnings)
+		require.Equal(t, "g", plan.Goal)
+	})
+}
+
 // TestMarkPlanCompleteInPlace verifies the in-place completion marker: the
 // rewritten file still strict-decodes, carries the marker, and — critically —
 // preserves an owner's pre-existing comment and the other keys.

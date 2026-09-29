@@ -317,19 +317,21 @@ func (c *Controller) watchPlan(ctx context.Context, r *run, interval time.Durati
 			if r.state == StateDegraded && r.brain == nil && c.runtime != nil {
 				if err := c.preflightRegisteredRunLocked(ctx, r); err != nil {
 					var pfe *PreflightError
+					recovered := false
 					if errors.As(err, &pfe) && pfe.hasContentOnly() {
 						plan, warnings, lerr := loadPlanLenient(r.absPlanFile)
 						if lerr == nil {
 							r.plan = plan
 							r.preflightWarnings = warnings
-							// fall through to spawn below
+							recovered = true
 						}
 					}
-					if r.brain == nil && r.state == StateDegraded {
+					if !recovered {
 						// Structural failure or lenient load failed — still degraded.
 						c.mu.Unlock()
 						continue
 					}
+					// Content-only + lenient load succeeded — fall through to spawn.
 				} else {
 					r.preflightWarnings = nil // clean preflight — clear any prior warnings
 				}
