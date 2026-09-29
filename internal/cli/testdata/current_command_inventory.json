@@ -2479,12 +2479,13 @@
     "use": "archive \u003cplan-id\u003e",
     "runnable": true,
     "local_flags": [
-      "project"
+      "json"
     ],
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
   },
   {
     "path": "plan assess",
@@ -2497,6 +2498,51 @@
       "addr",
       "config"
     ]
+  },
+  {
+    "path": "plan complete",
+    "use": "complete \u003cplan-id\u003e",
+    "runnable": true,
+    "local_flags": [
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "plan create",
+    "use": "create --name \u003cname\u003e --goal \u003ctext\u003e",
+    "runnable": true,
+    "local_flags": [
+      "constraint",
+      "done-when",
+      "goal",
+      "json",
+      "name",
+      "project",
+      "task"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "plan done",
+    "use": "done \u003cplan-id\u003e \u003ctask-id\u003e",
+    "runnable": true,
+    "local_flags": [
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
   },
   {
     "path": "plan import",
@@ -2530,16 +2576,17 @@
   },
   {
     "path": "plan run",
-    "use": "run \u003cplan-id\u003e --mode \u003cmode\u003e",
+    "use": "run \u003cplan-id\u003e",
     "runnable": true,
     "local_flags": [
-      "mode",
-      "project"
+      "json",
+      "mode"
     ],
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
   },
   {
     "path": "plan scan",
@@ -2560,8 +2607,7 @@
     "use": "show \u003cplan-id\u003e",
     "runnable": true,
     "local_flags": [
-      "json",
-      "project"
+      "json"
     ],
     "inherited_flags": [
       "addr",

@@ -57,6 +57,17 @@ wd plan show <plan-id> --json
 
 The plan ID is the stable `plan-<8hex>` identifier printed by `wd plan list`.
 
+## Creating a plan
+
+`wd plan create` writes `plans/pending/<slug>.yaml` and inserts the daemon record:
+
+```sh
+wd plan create --name feature-x --goal "ship it" --task t1:do the work
+wd plan create --name feature-x --goal "ship it" --task t1:do the work --task t2:review
+```
+
+`--name` and `--goal` are required. Repeat `--task id:prompt` for each task, or omit `--task` and enter tasks interactively when stdin is a TTY (or pipe the same `id` / `prompt` / blank-id format). Optional `--constraint` and `--done-when` may be repeated.
+
 ## Importing a plan
 
 To bring in a plan YAML from outside the project:
@@ -75,7 +86,9 @@ This copies the file into `plans/pending/` and triggers a scan automatically.
 wd plan status <plan-id> in_progress    # start a plan (manual mode)
 wd plan status <plan-id> completed      # mark done
 wd plan status <plan-id> archived       # de-prioritise
-wd plan archive <plan-id>               # shorthand for → archived
+wd plan archive <plan-id>               # any status → archived
+wd plan done <plan-id> <task-id>        # mark one task done
+wd plan complete <plan-id>              # in_progress → completed
 ```
 
 Valid statuses: `pending` · `in_progress` · `completed` · `archived`
@@ -91,7 +104,7 @@ Any status can transition to `archived`. `completed` and `archived` cannot move 
 ```sh
 wd plan run <plan-id> --mode autopilot            # fully autonomous
 wd plan run <plan-id> --mode pipeline             # task-per-pipeline-job
-wd plan run <plan-id> --mode orchestrator_worker  # human-gated workers
+wd plan run <plan-id> --mode orchestrator         # human-gated workers
 wd plan run <plan-id> --mode manual               # state tracking only
 ```
 
@@ -101,7 +114,7 @@ wd plan run <plan-id> --mode manual               # state tracking only
 |---|---|
 | `autopilot` | Registers an autopilot run against the plan; the manager drives workers autonomously and moves the plan to `completed/` when done. |
 | `pipeline` | Creates a DAG pipeline where each YAML task becomes a job; moves to `completed/` when the pipeline finishes. |
-| `orchestrator_worker` | Spawns an orchestrator agent with the plan as context; each worker requires a human approval gate. Completion is manual (`wd plan status <id> completed`). |
+| `orchestrator_worker` | Spawns an orchestrator agent with the plan as context; each worker requires a human approval gate. Completion is `wd plan complete <id>` (`orchestrator` is accepted as a CLI alias). |
 | `manual` | git-mv to `in_progress/` only — state tracking with no execution entity. You drive all prompting. |
 
 Completion detection is automatic for `autopilot` and `pipeline` modes: the daemon watches for the run/pipeline completion event and performs the git-mv to `plans/completed/` plus the DB update without operator intervention.
@@ -143,11 +156,14 @@ wd plan scan --assess
 | Command | What it does |
 |---|---|
 | `wd plan list [--status <s>] [--json]` | List plans (optionally filtered by status) |
+| `wd plan create --name <n> --goal <g> [--task id:prompt]` | Create a pending plan (writes YAML + DB record) |
 | `wd plan show <id> [--json]` | Show full detail for one plan |
 | `wd plan import <file>` | Copy a YAML into `plans/pending/` and scan |
 | `wd plan scan [--migrate-flat] [--assess]` | Walk `plans/` directories and upsert records |
-| `wd plan status <id> <new-status>` | git mv + commit + DB update |
-| `wd plan archive <id>` | Shorthand for `status → archived` |
+| `wd plan status <id> <new-status>` | Legacy project-scoped git mv + commit + DB update |
+| `wd plan done <id> <task-id>` | Mark one task done |
+| `wd plan complete <id>` | Complete a plan (`in_progress` → `completed`) |
+| `wd plan archive <id>` | Any status → `archived` |
 | `wd plan assess <id>` | Brain-assisted task progress reconstruction |
 | `wd plan run <id> --mode <mode>` | Start execution in the given mode |
 

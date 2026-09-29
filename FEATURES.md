@@ -326,14 +326,14 @@ Plan YAML files in `plans/{pending,in_progress,completed,archived}/` are tracked
 |---|---|---|---|---|---|---|
 | List plans (optional status filter) | `plan list` (alias `ls`) | `list_plans` | ✓ | — | plan tree | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
 | Show full plan detail | `plan show` | `get_plan` | ✓ | — | detail pane | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
-| Create a plan (writes YAML + DB record) | — | `create_plan` | ✓ | — | — | [concepts/plans](https://srjn45.github.io/warden/concepts/plans/) |
+| Create a plan (writes YAML + DB record) | `plan create` | `create_plan` | ✓ | — | — | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
 | Update a pending plan's definition | — | `update_plan` | ✓ | — | — | [concepts/plans](https://srjn45.github.io/warden/concepts/plans/) |
 | Import a YAML into `plans/pending/` + scan | `plan import` | — | ✓ | — | — | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
 | Scan directories + upsert records (`--migrate-flat`, `--assess`) | `plan scan` | `scan_plans` | ✓ | — | `s` | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
 | Transition status (git mv + commit + DB update) | `plan status` | `update_plan_status` | ✓ | — | — | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
-| Update one task's progress (`pending\|in_progress\|done\|skipped`) | — | `update_task_status` | ✓ | — | — | [concepts/plans](https://srjn45.github.io/warden/concepts/plans/) |
+| Mark a task done (shorthand for `update_task_status` → done) | `plan done` | `update_task_status` | ✓ | — | — | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
 | Archive a plan (any status → archived) | `plan archive` | `archive_plan` | ✓ | — | `a` | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
-| Complete a plan (guards: all tasks done/skipped, branches merged) | — | `complete_plan` | ✓ | — | — | [concepts/plans](https://srjn45.github.io/warden/concepts/plans/) |
+| Complete a plan (guards: all tasks done/skipped, branches merged) | `plan complete` | `complete_plan` | ✓ | — | — | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
 | Brain-assisted task progress assessment | `plan assess` | `assess_plan` | ✓ | — | `A` | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
 | Run a plan in a given mode (`autopilot\|pipeline\|orchestrator_worker\|manual`) | `plan run --mode` | `run_plan` | ✓ | — | `r` (mode picker) | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
 | Auto-completion: `autopilot`/`pipeline` modes → git-mv to `completed/` | automatic | automatic | ✓ | — | — | [concepts/plans](https://srjn45.github.io/warden/concepts/plans/) |

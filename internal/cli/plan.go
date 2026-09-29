@@ -1,16 +1,18 @@
 package cli
 
 import (
+	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/srjn45/warden/internal/client"
-	"github.com/srjn45/warden/internal/planstore"
 )
 
 func newPlanCmd() *cobra.Command {
@@ -19,22 +21,25 @@ func newPlanCmd() *cobra.Command {
 		Short: "Manage plans tracked by the daemon",
 		Long: "Manage plans tracked by the daemon.\n\n" +
 			"Plans are YAML files stored in plans/{pending,in_progress,completed,archived}/\n" +
-			"inside a project repository. The daemon scans those files and tracks their\n" +
-			"execution state (links to autopilot runs, pipelines, and task progress).\n\n" +
-			"Status is encoded in the directory: moving a YAML file changes its status.\n" +
-			"`wd plan status` performs the git mv, commits, and updates the DB record.",
+			"inside a project repository. The daemon tracks their definition (goal, tasks)\n" +
+			"and execution state (links to autopilot runs, pipelines, and task progress).\n\n" +
+			"Create with `wd plan create`, start with `wd plan run`, mark tasks done with\n" +
+			"`wd plan done`, then `wd plan complete` (or `wd plan archive`).",
 	}
 	SetCommandHelpMetadata(cmd, "run", 25, "warden plan", "", NodeNamespace)
 
 	children := []*cobra.Command{
 		newPlanListCmd(),
+		newPlanCreateCmd(),
 		newPlanShowCmd(),
+		newPlanRunCmd(),
+		newPlanDoneCmd(),
+		newPlanCompleteCmd(),
+		newPlanArchiveCmd(),
 		newPlanImportCmd(),
 		newPlanScanCmd(),
 		newPlanStatusCmd(),
-		newPlanArchiveCmd(),
 		newPlanAssessCmd(),
-		newPlanRunCmd(),
 	}
 	for i, child := range children {
 		SetCommandHelpMetadata(child, "run", (i+1)*10, "warden plan "+child.Name(), "", nodeKind(child))
@@ -53,23 +58,16 @@ func newPlanListCmd() *cobra.Command {
 		Aliases: []string{"ls"},
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			projectID, _ := cmd.Flags().GetString("project")
-			if projectID == "" {
-				var err error
-				projectID, err = resolveProjectID(cmd)
-				if err != nil {
-					return err
-				}
+			projectID, err := planProjectFlag(cmd)
+			if err != nil {
+				return err
 			}
 			status, _ := cmd.Flags().GetString("status")
-			plans, err := clientFor(cmd).PlanList(cmd.Context(), projectID, client.PlanListParams{Status: status})
+			plans, err := clientFor(cmd).PlansList(cmd.Context(), projectID, status)
 			if err != nil {
 				return err
 			}
 			if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
-				if plans == nil {
-					plans = []*planstore.Plan{}
-				}
 				return printJSON(cmd.OutOrStdout(), plans)
 			}
 			if len(plans) == 0 {
@@ -85,22 +83,69 @@ func newPlanListCmd() *cobra.Command {
 	return cmd
 }
 
+func newPlanCreateCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "create --name <name> --goal <text>",
+		Short: "Create a plan (writes YAML + DB record)",
+		Long: "Create a new pending plan: writes plans/pending/<slug>.yaml and inserts the\n" +
+			"daemon record. --name and --goal are required. Supply tasks with repeatable\n" +
+			"--task id:prompt flags, or (when stdin is a TTY) enter them interactively.\n\n" +
+			"Optional --constraint and --done-when may be repeated.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			projectID, err := planProjectFlag(cmd)
+			if err != nil {
+				return err
+			}
+			name, _ := cmd.Flags().GetString("name")
+			goal, _ := cmd.Flags().GetString("goal")
+			taskFlags, _ := cmd.Flags().GetStringArray("task")
+			constraints, _ := cmd.Flags().GetStringArray("constraint")
+			doneWhen, _ := cmd.Flags().GetStringArray("done-when")
+
+			tasks, err := resolvePlanCreateTasks(cmd, taskFlags)
+			if err != nil {
+				return err
+			}
+
+			p, err := clientFor(cmd).PlansCreate(cmd.Context(), client.PlansCreateRequest{
+				ProjectID:   projectID,
+				Name:        name,
+				Goal:        goal,
+				Tasks:       tasks,
+				Constraints: constraints,
+				DoneWhen:    doneWhen,
+			})
+			if err != nil {
+				return err
+			}
+			if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+				return printJSON(cmd.OutOrStdout(), p)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "created plan %s (%s) → %s\n", p.ID, p.Name, p.FilePath)
+			return nil
+		},
+	}
+	cmd.Flags().String("project", "", "project ID (default: current directory)")
+	cmd.Flags().String("name", "", "plan name (used for the YAML filename slug)")
+	cmd.Flags().String("goal", "", "what the plan is trying to achieve")
+	cmd.Flags().StringArray("task", nil, "task as id:prompt (repeatable; skip interactive prompt)")
+	cmd.Flags().StringArray("constraint", nil, "constraint the workers must follow (repeatable)")
+	cmd.Flags().StringArray("done-when", nil, "completion criterion (repeatable)")
+	cmd.Flags().Bool("json", false, "output as JSON")
+	_ = cmd.MarkFlagRequired("name")
+	_ = cmd.MarkFlagRequired("goal")
+	return cmd
+}
+
 func newPlanShowCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "show <plan-id>",
 		Short: "Show detail for one plan",
-		Long:  "Show the full record for one plan: status, file path, execution mode, linked IDs, task progress, and timestamps.",
+		Long:  "Show the full record for one plan: goal, tasks, status, file path, execution mode, linked IDs, task progress, and timestamps.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			projectID, _ := cmd.Flags().GetString("project")
-			if projectID == "" {
-				var err error
-				projectID, err = resolveProjectID(cmd)
-				if err != nil {
-					return err
-				}
-			}
-			p, err := clientFor(cmd).PlanGet(cmd.Context(), projectID, args[0])
+			p, err := clientFor(cmd).PlansGet(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
@@ -111,7 +156,6 @@ func newPlanShowCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().String("project", "", "project ID (default: current directory)")
 	cmd.Flags().Bool("json", false, "output as JSON")
 	return cmd
 }
@@ -124,13 +168,9 @@ func newPlanImportCmd() *cobra.Command {
 			"trigger a scan so the daemon registers the imported plan.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			projectID, _ := cmd.Flags().GetString("project")
-			if projectID == "" {
-				var err error
-				projectID, err = resolveProjectID(cmd)
-				if err != nil {
-					return err
-				}
+			projectID, err := planProjectFlag(cmd)
+			if err != nil {
+				return err
 			}
 			src := args[0]
 			data, err := os.ReadFile(src)
@@ -138,7 +178,6 @@ func newPlanImportCmd() *cobra.Command {
 				return fmt.Errorf("read %s: %w", src, err)
 			}
 
-			// Determine the project root to write into.
 			root, err := resolveProjectRoot(cmd, projectID)
 			if err != nil {
 				return err
@@ -154,7 +193,6 @@ func newPlanImportCmd() *cobra.Command {
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "imported %s → %s\n", src, dst)
 
-			// Trigger a scan so the daemon picks it up.
 			res, err := clientFor(cmd).PlanScan(cmd.Context(), projectID, client.PlanScanRequest{})
 			if err != nil {
 				return fmt.Errorf("scan after import: %w", err)
@@ -177,13 +215,9 @@ func newPlanScanCmd() *cobra.Command {
 			"and creates a commit before scanning.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			projectID, _ := cmd.Flags().GetString("project")
-			if projectID == "" {
-				var err error
-				projectID, err = resolveProjectID(cmd)
-				if err != nil {
-					return err
-				}
+			projectID, err := planProjectFlag(cmd)
+			if err != nil {
+				return err
 			}
 			migrateFlat, _ := cmd.Flags().GetBool("migrate-flat")
 			assess, _ := cmd.Flags().GetBool("assess")
@@ -200,7 +234,7 @@ func newPlanScanCmd() *cobra.Command {
 	}
 	cmd.Flags().String("project", "", "project ID (default: current directory)")
 	cmd.Flags().Bool("migrate-flat", false, "move flat plans/*.yaml files into plans/pending/ with git mv + commit")
-	cmd.Flags().Bool("assess", false, "run brain-assisted progress assessment for in_progress plans (Phase 4 stub)")
+	cmd.Flags().Bool("assess", false, "run brain-assisted progress assessment for in_progress plans")
 	return cmd
 }
 
@@ -208,20 +242,16 @@ func newPlanStatusCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "status <plan-id> <new-status>",
 		Short: "Transition a plan's status (git mv + commit + DB update)",
-		Long: "Change a plan's lifecycle status. The daemon updates the DB record and\n" +
-			"performs a git mv of the YAML file to the correct plans/<status>/ subdirectory,\n" +
-			"then creates a commit.\n\n" +
+		Long: "Change a plan's lifecycle status via the project-scoped API. Prefer\n" +
+			"`wd plan run` / `wd plan complete` / `wd plan archive` for the PlanService\n" +
+			"state machine.\n\n" +
 			"Valid statuses: pending | in_progress | completed | archived",
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			planID, newStatus := args[0], args[1]
-			projectID, _ := cmd.Flags().GetString("project")
-			if projectID == "" {
-				var err error
-				projectID, err = resolveProjectID(cmd)
-				if err != nil {
-					return err
-				}
+			projectID, err := planProjectFlag(cmd)
+			if err != nil {
+				return err
 			}
 			p, err := clientFor(cmd).PlanUpdate(cmd.Context(), projectID, planID, client.PlanUpdateRequest{
 				Status: newStatus,
@@ -240,50 +270,37 @@ func newPlanStatusCmd() *cobra.Command {
 func newPlanArchiveCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "archive <plan-id>",
-		Short: "Archive a plan (shorthand for `plan status <id> archived`)",
-		Long:  "Move a plan to the archived state. Equivalent to `wd plan status <id> archived`.",
+		Short: "Archive a plan (any status → archived)",
+		Long:  "Move a plan to the archived state. Allowed from any status. Moves the YAML to plans/archived/.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			planID := args[0]
-			projectID, _ := cmd.Flags().GetString("project")
-			if projectID == "" {
-				var err error
-				projectID, err = resolveProjectID(cmd)
-				if err != nil {
-					return err
-				}
-			}
-			p, err := clientFor(cmd).PlanUpdate(cmd.Context(), projectID, planID, client.PlanUpdateRequest{
-				Status: string(planstore.PlanStatusArchived),
-			})
+			p, err := clientFor(cmd).PlansArchive(cmd.Context(), args[0])
 			if err != nil {
 				return err
+			}
+			if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+				return printJSON(cmd.OutOrStdout(), p)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "plan %s archived (file: %s)\n", p.ID, p.FilePath)
 			return nil
 		},
 	}
-	cmd.Flags().String("project", "", "project ID (default: current directory)")
+	cmd.Flags().Bool("json", false, "output as JSON")
 	return cmd
 }
 
 func newPlanAssessCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "assess <plan-id>",
-		Short: "Brain-assisted task progress assessment (Phase 4 stub)",
+		Short: "Brain-assisted task progress assessment",
 		Long: "Use a brain model to reconstruct task progress from git history and open PRs.\n" +
-			"Updates task_progress in the DB record.\n\n" +
-			"Note: this is a Phase 4 feature stub — the daemon returns 501 until Phase 4 ships.",
+			"Updates task_progress in the DB record. Opt-in — never run automatically.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			planID := args[0]
-			projectID, _ := cmd.Flags().GetString("project")
-			if projectID == "" {
-				var err error
-				projectID, err = resolveProjectID(cmd)
-				if err != nil {
-					return err
-				}
+			projectID, err := planProjectFlag(cmd)
+			if err != nil {
+				return err
 			}
 			if _, err := clientFor(cmd).PlanAssess(cmd.Context(), projectID, planID); err != nil {
 				return err
@@ -298,39 +315,94 @@ func newPlanAssessCmd() *cobra.Command {
 
 func newPlanRunCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "run <plan-id> --mode <mode>",
-		Short: "Start execution of a plan in the given mode (Phase 5 stub)",
-		Long: "Start execution of a plan. The mode determines how the plan is executed:\n\n" +
+		Use:   "run <plan-id>",
+		Short: "Start execution of a plan in the given mode",
+		Long: "Start execution of a plan (pending → in_progress). The mode determines how\n" +
+			"the plan is executed:\n\n" +
 			"  autopilot           Fully autonomous run registered with the autopilot\n" +
 			"  pipeline            Each task becomes a pipeline job\n" +
-			"  orchestrator_worker Orchestrator + workers with human approval gates\n" +
+			"  orchestrator        Orchestrator + workers with human approval gates\n" +
 			"  manual              State tracking only; human drives all prompting\n\n" +
-			"Note: this is a Phase 5 feature stub — the daemon returns 501 until Phase 5 ships.",
+			"`orchestrator` is accepted as an alias for `orchestrator_worker`.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			planID := args[0]
 			mode, _ := cmd.Flags().GetString("mode")
-			if mode == "" {
-				return fmt.Errorf("--mode is required (autopilot|pipeline|orchestrator_worker|manual)")
-			}
-			projectID, _ := cmd.Flags().GetString("project")
-			if projectID == "" {
-				var err error
-				projectID, err = resolveProjectID(cmd)
-				if err != nil {
-					return err
-				}
-			}
-			if err := clientFor(cmd).PlanRun(cmd.Context(), projectID, planID, client.PlanRunRequest{Mode: mode}); err != nil {
+			mode, err := normalizePlanRunMode(mode)
+			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "plan %s run started (mode: %s)\n", planID, mode)
+			p, err := clientFor(cmd).PlansRun(cmd.Context(), planID, mode)
+			if err != nil {
+				return err
+			}
+			if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+				return printJSON(cmd.OutOrStdout(), p)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "plan %s run started (mode: %s)\n", p.ID, mode)
 			return nil
 		},
 	}
-	cmd.Flags().String("project", "", "project ID (default: current directory)")
-	cmd.Flags().String("mode", "", "execution mode: autopilot|pipeline|orchestrator_worker|manual")
+	cmd.Flags().String("mode", "", "execution mode: autopilot|pipeline|orchestrator|manual")
+	cmd.Flags().Bool("json", false, "output as JSON")
 	return cmd
+}
+
+func newPlanDoneCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "done <plan-id> <task-id>",
+		Short: "Mark a plan task done",
+		Long: "Shorthand for updating one task's status to done. Updates TaskProgress in\n" +
+			"the daemon only (the YAML is unchanged).",
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			planID, taskID := args[0], args[1]
+			p, err := clientFor(cmd).PlansUpdateTaskStatus(cmd.Context(), planID, taskID, "done")
+			if err != nil {
+				return err
+			}
+			if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+				return printJSON(cmd.OutOrStdout(), p)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "plan %s task %s → done\n", p.ID, taskID)
+			return nil
+		},
+	}
+	cmd.Flags().Bool("json", false, "output as JSON")
+	return cmd
+}
+
+func newPlanCompleteCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "complete <plan-id>",
+		Short: "Complete a plan (in_progress → completed)",
+		Long: "Complete a plan: in_progress → completed. Blocked if any task is not\n" +
+			"done/skipped or any associated branch is still unmerged. On success moves\n" +
+			"the YAML to plans/completed/ and cleans up worktrees.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			p, err := clientFor(cmd).PlansComplete(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+				return printJSON(cmd.OutOrStdout(), p)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "plan %s completed (file: %s)\n", p.ID, p.FilePath)
+			return nil
+		},
+	}
+	cmd.Flags().Bool("json", false, "output as JSON")
+	return cmd
+}
+
+// planProjectFlag returns --project, defaulting to the current directory.
+func planProjectFlag(cmd *cobra.Command) (string, error) {
+	projectID, _ := cmd.Flags().GetString("project")
+	if projectID != "" {
+		return projectID, nil
+	}
+	return resolveProjectID(cmd)
 }
 
 // resolveProjectID returns the project ID from the current directory (cwd).
@@ -347,11 +419,9 @@ func resolveProjectID(_ *cobra.Command) (string, error) {
 // project whose ID is a path, that path is the root. Otherwise it asks the
 // daemon for the project record's path.
 func resolveProjectRoot(cmd *cobra.Command, projectID string) (string, error) {
-	// If the project ID is an absolute path (the local-project convention), use it.
 	if filepath.IsAbs(projectID) {
 		return projectID, nil
 	}
-	// Ask the daemon for the project record.
 	projects, err := clientFor(cmd).ListProjects(cmd.Context())
 	if err != nil {
 		return "", fmt.Errorf("list projects: %w", err)
@@ -364,11 +434,101 @@ func resolveProjectRoot(cmd *cobra.Command, projectID string) (string, error) {
 	return "", fmt.Errorf("project %q not found or has no local path", projectID)
 }
 
-func printPlanTable(w io.Writer, plans []*planstore.Plan) error {
+func resolvePlanCreateTasks(cmd *cobra.Command, taskFlags []string) ([]client.PlanTaskSpec, error) {
+	if len(taskFlags) > 0 {
+		tasks := make([]client.PlanTaskSpec, 0, len(taskFlags))
+		for _, raw := range taskFlags {
+			t, err := parsePlanTaskFlag(raw)
+			if err != nil {
+				return nil, err
+			}
+			tasks = append(tasks, t)
+		}
+		return tasks, nil
+	}
+	if readerIsTTY(cmd.InOrStdin()) {
+		return promptPlanTasks(cmd.InOrStdin(), cmd.OutOrStdout())
+	}
+	// Piped stdin uses the same id/prompt/blank-id format as the TTY prompt.
+	tasks, err := promptPlanTasks(cmd.InOrStdin(), io.Discard)
+	if err != nil {
+		if errors.Is(err, errNoPlanTasks) {
+			return nil, fmt.Errorf("provide --task id:prompt (repeatable) or run interactively on a TTY")
+		}
+		return nil, err
+	}
+	return tasks, nil
+}
+
+func readerIsTTY(r io.Reader) bool {
+	f, ok := r.(*os.File)
+	if !ok {
+		return false
+	}
+	return isTTY(f)
+}
+
+func parsePlanTaskFlag(s string) (client.PlanTaskSpec, error) {
+	id, prompt, ok := strings.Cut(s, ":")
+	id = strings.TrimSpace(id)
+	prompt = strings.TrimSpace(prompt)
+	if !ok || id == "" || prompt == "" {
+		return client.PlanTaskSpec{}, fmt.Errorf("invalid --task %q (want id:prompt)", s)
+	}
+	return client.PlanTaskSpec{ID: id, Prompt: prompt}, nil
+}
+
+var errNoPlanTasks = errors.New("at least one task is required")
+
+func promptPlanTasks(in io.Reader, out io.Writer) ([]client.PlanTaskSpec, error) {
+	fmt.Fprintln(out, "Enter tasks (blank id to finish):")
+	rd := bufio.NewReader(in)
+	var tasks []client.PlanTaskSpec
+	for {
+		fmt.Fprint(out, "Task ID: ")
+		id, err := rd.ReadString('\n')
+		id = strings.TrimSpace(id)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return nil, err
+		}
+		if id == "" {
+			break
+		}
+		fmt.Fprint(out, "Prompt: ")
+		prompt, err := rd.ReadString('\n')
+		prompt = strings.TrimSpace(prompt)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return nil, err
+		}
+		if prompt == "" {
+			return nil, fmt.Errorf("task %s: prompt is required", id)
+		}
+		tasks = append(tasks, client.PlanTaskSpec{ID: id, Prompt: prompt})
+	}
+	if len(tasks) == 0 {
+		return nil, errNoPlanTasks
+	}
+	return tasks, nil
+}
+
+func normalizePlanRunMode(mode string) (string, error) {
+	switch mode {
+	case "autopilot", "pipeline", "orchestrator_worker", "manual":
+		return mode, nil
+	case "orchestrator":
+		return "orchestrator_worker", nil
+	case "":
+		return "", fmt.Errorf("--mode is required (autopilot|pipeline|orchestrator|manual)")
+	default:
+		return "", fmt.Errorf("unknown --mode %q (autopilot|pipeline|orchestrator|manual)", mode)
+	}
+}
+
+func printPlanTable(w io.Writer, plans []client.PlanView) error {
 	tw := tabwriter.NewWriter(w, 0, 2, 2, ' ', 0)
 	fmt.Fprintln(tw, "ID\tNAME\tSTATUS\tMODE\tUPDATED")
 	for _, p := range plans {
-		mode := string(p.ExecutionMode)
+		mode := p.ExecutionMode
 		if mode == "" {
 			mode = "-"
 		}
@@ -378,12 +538,15 @@ func printPlanTable(w io.Writer, plans []*planstore.Plan) error {
 	return tw.Flush()
 }
 
-func printPlanDetail(w io.Writer, p *planstore.Plan) {
+func printPlanDetail(w io.Writer, p *client.PlanView) {
 	fmt.Fprintf(w, "id:             %s\n", p.ID)
 	fmt.Fprintf(w, "name:           %s\n", p.Name)
 	fmt.Fprintf(w, "project:        %s\n", p.ProjectID)
 	fmt.Fprintf(w, "file:           %s\n", p.FilePath)
 	fmt.Fprintf(w, "status:         %s\n", p.Status)
+	if p.Goal != "" {
+		fmt.Fprintf(w, "goal:           %s\n", p.Goal)
+	}
 	if p.ExecutionMode != "" {
 		fmt.Fprintf(w, "mode:           %s\n", p.ExecutionMode)
 	}
@@ -396,18 +559,43 @@ func printPlanDetail(w io.Writer, p *planstore.Plan) {
 	if p.OrchestratorID != "" {
 		fmt.Fprintf(w, "orchestrator:   %s\n", p.OrchestratorID)
 	}
+	if len(p.Constraints) > 0 {
+		fmt.Fprintln(w, "constraints:")
+		for _, c := range p.Constraints {
+			fmt.Fprintf(w, "  - %s\n", c)
+		}
+	}
+	if len(p.DoneWhen) > 0 {
+		fmt.Fprintln(w, "done_when:")
+		for _, d := range p.DoneWhen {
+			fmt.Fprintf(w, "  - %s\n", d)
+		}
+	}
+	if len(p.Tasks) > 0 {
+		fmt.Fprintln(w, "tasks:")
+		for _, t := range p.Tasks {
+			line := fmt.Sprintf("  %s: %s", t.ID, t.Prompt)
+			if len(t.After) > 0 {
+				line += " (after " + strings.Join(t.After, ", ") + ")"
+			}
+			fmt.Fprintln(w, line)
+		}
+	}
 	if len(p.TaskProgress) > 0 {
 		fmt.Fprintln(w, "task_progress:")
 		for k, v := range p.TaskProgress {
 			fmt.Fprintf(w, "  %s: %s\n", k, v)
 		}
 	}
+	if len(p.PlanBranches) > 0 {
+		fmt.Fprintf(w, "branches:       %s\n", strings.Join(p.PlanBranches, ", "))
+	}
 	fmt.Fprintf(w, "created:        %s\n", p.CreatedAt.Format(time.RFC3339))
 	fmt.Fprintf(w, "updated:        %s\n", p.UpdatedAt.Format(time.RFC3339))
-	if p.StartedAt != nil {
+	if !p.StartedAt.IsZero() {
 		fmt.Fprintf(w, "started:        %s\n", p.StartedAt.Format(time.RFC3339))
 	}
-	if p.CompletedAt != nil {
+	if !p.CompletedAt.IsZero() {
 		fmt.Fprintf(w, "completed:      %s\n", p.CompletedAt.Format(time.RFC3339))
 	}
 }
