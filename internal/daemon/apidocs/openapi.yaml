@@ -1264,6 +1264,177 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  # Legacy project-scoped plan routes remain supported while clients migrate to
+  # the flat Plan CRUD API below.
+  /api/v1/projects/{project_id}/plans:
+    get:
+      operationId: ListProjectPlans
+      tags: [Plans]
+      summary: List legacy project plans
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: status
+          in: query
+          schema: { $ref: "#/components/schemas/PlanStatus" }
+      responses:
+        "200":
+          description: The legacy project plan list
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegacyPlanListResponse" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      operationId: CreateProjectPlan
+      tags: [Plans]
+      summary: Create a legacy project plan record
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LegacyCreatePlanRequest" }
+      responses:
+        "200":
+          description: The created plan record
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegacyPlan" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/projects/{project_id}/plans/scan:
+    post:
+      operationId: ScanProjectPlans
+      tags: [Plans]
+      summary: Scan a project's plans directory
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LegacyScanPlansRequest" }
+      responses:
+        "200":
+          description: Scan result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegacyScanPlansResponse" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/projects/{project_id}/plans/{plan_id}:
+    get:
+      operationId: GetProjectPlan
+      tags: [Plans]
+      summary: Get a legacy project plan
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema: { type: string }
+        - { $ref: "#/components/parameters/PlanId" }
+      responses:
+        "200":
+          description: The plan record
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegacyPlan" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      operationId: UpdateProjectPlan
+      tags: [Plans]
+      summary: Update legacy plan execution fields
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema: { type: string }
+        - { $ref: "#/components/parameters/PlanId" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LegacyUpdatePlanRequest" }
+      responses:
+        "200":
+          description: The updated plan record
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegacyPlan" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      operationId: DeleteProjectPlan
+      tags: [Plans]
+      summary: Delete a legacy plan record
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema: { type: string }
+        - { $ref: "#/components/parameters/PlanId" }
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/projects/{project_id}/plans/{plan_id}/assess:
+    post:
+      operationId: AssessProjectPlan
+      tags: [Plans]
+      summary: Assess legacy plan progress
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema: { type: string }
+        - { $ref: "#/components/parameters/PlanId" }
+      responses:
+        "200":
+          description: The assessed plan record
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegacyPlan" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/projects/{project_id}/plans/{plan_id}/run:
+    post:
+      operationId: RunProjectPlan
+      tags: [Plans]
+      summary: Start legacy plan execution
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema: { type: string }
+        - { $ref: "#/components/parameters/PlanId" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LegacyRunPlanRequest" }
+      responses:
+        "200":
+          description: The in-progress plan record
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegacyPlan" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Plan cannot transition to in_progress
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
   /api/v1/plans:
     get:
       operationId: ListPlans
@@ -3958,6 +4129,82 @@ components:
         unmerged_branches:
           type: array
           items: { type: string }
+
+    LegacyPlan:
+      x-go-type: planstore.Plan
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/planstore
+        name: planstore
+      type: object
+      description: Backward-compatible project-scoped plan record.
+      required: [id, project_id, name, file_path, status, created_at, updated_at]
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        name: { type: string }
+        file_path: { type: string }
+        status: { $ref: "#/components/schemas/PlanStatus" }
+        execution_mode:
+          type: string
+          enum: [autopilot, pipeline, orchestrator_worker, manual]
+        autopilot_run_id: { type: string }
+        pipeline_id: { type: string }
+        orchestrator_id: { type: string }
+        task_progress:
+          type: object
+          additionalProperties: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        started_at: { type: string, format: date-time, nullable: true }
+        completed_at: { type: string, format: date-time, nullable: true }
+        synced_at: { type: string, format: date-time, nullable: true }
+        remote_id: { type: string }
+
+    LegacyPlanListResponse:
+      type: object
+      required: [plans]
+      properties:
+        plans:
+          type: array
+          items: { $ref: "#/components/schemas/LegacyPlan" }
+
+    LegacyCreatePlanRequest:
+      type: object
+      required: [name, file_path]
+      properties:
+        name: { type: string }
+        file_path: { type: string }
+
+    LegacyUpdatePlanRequest:
+      type: object
+      properties:
+        status: { $ref: "#/components/schemas/PlanStatus" }
+        execution_mode:
+          type: string
+          enum: [autopilot, pipeline, orchestrator_worker, manual]
+        task_progress:
+          type: object
+          additionalProperties: { type: string }
+
+    LegacyScanPlansRequest:
+      type: object
+      properties:
+        migrate_flat: { type: boolean }
+        assess: { type: boolean }
+
+    LegacyScanPlansResponse:
+      type: object
+      required: [upserted]
+      properties:
+        upserted: { type: integer }
+
+    LegacyRunPlanRequest:
+      type: object
+      required: [mode]
+      properties:
+        mode:
+          type: string
+          enum: [autopilot, pipeline, orchestrator_worker, manual]
 
     BackendsState:
       type: object
