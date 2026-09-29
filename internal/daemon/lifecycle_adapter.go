@@ -133,6 +133,10 @@ func (a *lifecycleAdapter) Restore(ctx context.Context, sess *store.Session) err
 	return a.lc.Restore(ctx, sess)
 }
 
+func (a *lifecycleAdapter) RestoreTerminal(ctx context.Context, id, workdir string) error {
+	return a.lc.RestoreTerminal(ctx, id, workdir)
+}
+
 func (a *lifecycleAdapter) SwitchRole(ctx context.Context, sess *store.Session) error {
 	return a.lc.SwitchRole(ctx, sess)
 }

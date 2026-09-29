@@ -38,6 +38,7 @@ import (
 	"github.com/srjn45/warden/internal/snapshot"
 	"github.com/srjn45/warden/internal/spend"
 	"github.com/srjn45/warden/internal/store"
+	"github.com/srjn45/warden/internal/terminalstore"
 )
 
 // SpawnRequest is the body for POST /spawn.
@@ -243,6 +244,9 @@ type Server struct {
 	// each known project's plans/ directory at startup when both this and projects
 	// are set.
 	plans *planstore.Store
+	// terminals is the first-class terminal pane store (plan-execution entity
+	// redesign). nil ⇒ legacy Kind=terminal Session path. Set via SetTerminals.
+	terminals *terminalstore.Store
 	// autoApprovePersist persists a replaced auto-approve policy to the config
 	// file (set by the daemon to config.WriteAutoApprove). nil ⇒ the PUT
 	// /auto-approve/policy endpoint changes the live policy but does not persist.
@@ -456,6 +460,8 @@ type Lifecycle interface {
 	Teardown(ctx context.Context, sess *store.Session) error
 	// Restore recreates and resumes a lost session from its stored doc.
 	Restore(ctx context.Context, sess *store.Session) error
+	// RestoreTerminal recreates a lost terminal pane (fresh shell, no AI resume).
+	RestoreTerminal(ctx context.Context, id, workdir string) error
 	// SwitchRole re-injects the persona for sess.Role and relaunches the agent so
 	// the new role takes effect (a plain resume re-injects nothing).
 	SwitchRole(ctx context.Context, sess *store.Session) error

@@ -91,6 +91,28 @@ func (s *Server) ListSessions(ctx context.Context, req oapi.ListSessionsRequestO
 		}
 		return nil, err
 	}
+	termIDs := map[string]struct{}{}
+	if s.terminals != nil {
+		terms, terr := s.listTerminalSessions(ctx)
+		if terr != nil {
+			return nil, terr
+		}
+		for _, t := range terms {
+			termIDs[t.ID] = struct{}{}
+		}
+		// Prefer terminalstore as the source of truth; drop legacy Session
+		// Kind=terminal rows that were already imported.
+		filtered := sessions[:0]
+		for _, ss := range sessions {
+			if ss.IsTerminal() {
+				if _, ok := termIDs[ss.ID]; ok {
+					continue
+				}
+			}
+			filtered = append(filtered, ss)
+		}
+		sessions = append(filtered, terms...)
+	}
 	out := make([]oapi.Session, 0, len(sessions))
 	for _, ss := range sessions {
 		if !req.Params.All && ss.HasTag("system:true") {
@@ -120,11 +142,12 @@ func kindMatches(filter oapi.ListSessionsParamsKind, isTerminal bool) bool {
 
 // GetSession implements GET /api/v1/sessions/{id}.
 func (s *Server) GetSession(ctx context.Context, req oapi.GetSessionRequestObject) (oapi.GetSessionResponseObject, error) {
-	sess, err := s.store.GetByNameOrID(ctx, req.Id)
-	if errors.Is(err, store.ErrNotFound) {
-		return oapi.GetSession404JSONResponse{Error: "session not found"}, nil
-	}
+	sess, err := s.resolveSession(ctx, req.Id)
 	if err != nil {
+		var ae apiError
+		if errors.As(err, &ae) && ae.code == http.StatusNotFound {
+			return oapi.GetSession404JSONResponse{Error: "session not found"}, nil
+		}
 		return nil, err
 	}
 	return oapi.GetSession200JSONResponse(*sess), nil

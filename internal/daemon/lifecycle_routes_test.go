@@ -176,6 +176,10 @@ func (f *fakeLife) Restore(_ context.Context, sess *store.Session) error {
 	f.restored = sess.ID
 	return f.restoreErr
 }
+func (f *fakeLife) RestoreTerminal(_ context.Context, id, _ string) error {
+	f.restored = id
+	return f.restoreErr
+}
 func (f *fakeLife) SwitchRole(_ context.Context, sess *store.Session) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

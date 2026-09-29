@@ -18,6 +18,7 @@ import (
 	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/role"
 	"github.com/srjn45/warden/internal/store"
+	"github.com/srjn45/warden/internal/terminalstore"
 )
 
 // spawnRequestFromOAPI maps the generated spawn body onto the daemon's
@@ -110,6 +111,22 @@ func (s *Server) SpawnAgent(ctx context.Context, req oapi.SpawnAgentRequestObjec
 	// the same write. Membership on the project's agents[]/terminals[] list is added
 	// after a successful insert (spec D2/§3.1, §5).
 	s.stampProjectMembership(sess)
+	if sess.IsTerminal() && s.terminals != nil {
+		// Terminals persist in terminalstore — not the agent session store.
+		if err := s.persistTerminal(ctx, sess); err != nil {
+			tctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if terr := s.life.Teardown(tctx, sess); terr != nil {
+				slog.Warn("spawn rollback failed", "terminal", sess.ID, "err", terr)
+			}
+			return nil, err
+		}
+		s.addProjectMembership(sess)
+		s.notify()
+		s.recordAuditCtx(ctx, audit.ActionSpawn, sess.ID, spawnAuditDetail(sess, sr))
+		s.plugins.Dispatch(ctx, plugin.EventPostSpawn, plugin.MetaFromSession(sess), nil)
+		return oapi.SpawnAgent201JSONResponse(*sess), nil
+	}
 	if err := s.store.Insert(ctx, sess); err != nil {
 		// Roll back the tmux session (and any worktree) so a failed insert doesn't
 		// leak an untracked agent.
@@ -231,16 +248,25 @@ func (s *Server) AdoptSession(ctx context.Context, req oapi.AdoptSessionRequestO
 // stop/terminate/remove-worktree 404'd on a name that `ls` displayed. Returns a
 // 404 errStatus on ErrNotFound. Callers MUST use the returned sess.ID for any
 // subsequent store write, since the passed ref may be a name, not the id the
-// store keys on.
+// store keys on. Terminals resolve from terminalstore when wired.
 func (s *Server) resolveSession(ctx context.Context, ref string) (*store.Session, error) {
 	sess, err := s.store.GetByNameOrID(ctx, ref)
-	if errors.Is(err, store.ErrNotFound) {
-		return nil, errStatus(http.StatusNotFound, "session not found")
+	if err == nil {
+		return sess, nil
 	}
-	if err != nil {
+	if !errors.Is(err, store.ErrNotFound) {
 		return nil, err
 	}
-	return sess, nil
+	if s.terminals != nil {
+		t, terr := s.lookupTerminal(ctx, ref)
+		if terr == nil {
+			return sessionFromTerminal(t), nil
+		}
+		if !errors.Is(terr, terminalstore.ErrNotFound) {
+			return nil, terr
+		}
+	}
+	return nil, errStatus(http.StatusNotFound, "session not found")
 }
 
 // TerminateSession implements POST /api/v1/sessions/{id}/terminate.
@@ -257,6 +283,18 @@ func (s *Server) TerminateSession(ctx context.Context, req oapi.TerminateSession
 	}
 	if err := s.life.Terminate(ctx, sess.TmuxSession); err != nil {
 		return nil, err
+	}
+	if sess.IsTerminal() && s.terminals != nil {
+		// Terminals have no retained done state — drop the durable record.
+		if err := s.terminals.Terminate(ctx, sess.ID); err != nil && !errors.Is(err, terminalstore.ErrNotFound) {
+			return nil, err
+		}
+		// Best-effort: drop a legacy Session row if one still exists.
+		_ = s.store.Delete(ctx, sess.ID)
+		s.removeProjectMembership(sess)
+		s.notify()
+		s.recordAuditCtx(ctx, audit.ActionTerminate, sess.ID, nil)
+		return oapi.TerminateSession200JSONResponse{OKJSONResponse: oapi.OKJSONResponse{Status: "terminated"}}, nil
 	}
 	if err := s.store.UpdateStatus(ctx, sess.ID, store.StatusDone); err != nil {
 		return nil, err
@@ -305,6 +343,17 @@ func (s *Server) DeleteSession(ctx context.Context, req oapi.DeleteSessionReques
 		s.recovery.Supersede(ctx, sess.ID, "manual_delete")
 	}
 	id := sess.ID // req.Id may be a name; key all store writes on the resolved id
+	if sess.IsTerminal() && s.terminals != nil {
+		_ = s.life.Terminate(ctx, sess.TmuxSession)
+		if err := s.terminals.Terminate(ctx, id); err != nil && !errors.Is(err, terminalstore.ErrNotFound) {
+			return nil, err
+		}
+		_ = s.store.Delete(ctx, id) // legacy Session row, if any
+		s.removeProjectMembership(sess)
+		s.notify()
+		s.recordAuditCtx(ctx, audit.ActionDelete, id, map[string]string{"hard": strconv.FormatBool(hard), "kind": "terminal"})
+		return oapi.DeleteSession200JSONResponse{Status: "deleted"}, nil
+	}
 	// A parent that still has live children is tombstoned rather than removed:
 	// tear down its tmux so no live pane remains, but keep the record active and
 	// terminal so the children stay anchored under it in the sub-tree view

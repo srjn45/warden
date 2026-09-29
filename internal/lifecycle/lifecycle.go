@@ -28,6 +28,7 @@ import (
 	"github.com/srjn45/warden/internal/role"
 	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/store"
+	"github.com/srjn45/warden/internal/tmuxproc"
 )
 
 // claudeCallTimeout bounds every headless `claude -p` invocation (classify /
@@ -593,6 +594,10 @@ func shellQuoteArg(s string) string {
 
 type Lifecycle struct {
 	run Runner
+	// proc is the shared tmux/process host used by Agent and Terminal pane ops.
+	// Constructed from run in New; tests that swap run after New also get a
+	// matching Host via Proc() which rebuilds from the live Runner.
+	proc tmuxproc.Host
 	// cfg is the live config provider, swappable via SetConfig so a config
 	// hot-reload re-applies rails toggles, model_default, the default permission
 	// mode, and the hint gates without a daemon restart. Read through config();
@@ -725,9 +730,18 @@ type ConfigProvider interface {
 }
 
 func New(r Runner, cfg ConfigProvider) *Lifecycle {
-	l := &Lifecycle{run: r, backend: agentbackend.Default(), goos: runtime.GOOS, readPSI: readPSIFile}
+	l := &Lifecycle{run: r, proc: tmuxproc.New(r), backend: agentbackend.Default(), goos: runtime.GOOS, readPSI: readPSIFile}
 	l.cfg.Store(&cfg)
 	return l
+}
+
+// Proc returns the shared tmux/process Host. Agent and Terminal lifecycle both
+// drive panes through this seam without sharing a persisted model.
+func (l *Lifecycle) Proc() tmuxproc.Host {
+	if l.proc == nil {
+		l.proc = tmuxproc.New(l.run)
+	}
+	return l.proc
 }
 
 // config returns the live config provider. Never nil after New; swapped
@@ -1778,29 +1792,30 @@ const agentHistoryLimit = 50000
 // newAgentSession creates the detached tmux session for an agent in cwd and
 // applies scroll-friendly options. Only new-session failing aborts the spawn;
 // option-setting failures are non-fatal so a tmux quirk never blocks a launch.
+// Agents and terminals share this path via tmuxproc.Host.
 func (l *Lifecycle) newAgentSession(ctx context.Context, runDir, id, cwd string, env ...string) error {
-	l.ensureScrollback(ctx)        // before new-session: the new pane inherits the limit
-	EnsureExtendedKeys(ctx, l.run) // so Claude sees Shift+Enter as newline, not submit
-	// -e sets WARDEN_SESSION_ID (+ legacy AGENTCTL_SESSION_ID, + any extra
-	// pipeline env) in the session environment so the agent's shell tools know
-	// which agent they are. Both variants are set for back-compat.
-	args := []string{"new-session", "-d", "-s", id,
-		"-e", "WARDEN_SESSION_ID=" + id,
-		"-e", "AGENTCTL_SESSION_ID=" + id}
-	for _, kv := range env {
-		args = append(args, "-e", kv)
+	_ = runDir // retained for call-site compatibility; Host always targets the default server
+	return l.Proc().NewSession(ctx, id, cwd, env...)
+}
+
+// RestoreTerminal recreates a lost terminal pane in its original workdir and
+// relaunches ${SHELL:-bash}. Unlike Restore (AI resume-only), a terminal has no
+// conversation to pin — this is a fresh shell in the same identity/tmux name.
+func (l *Lifecycle) RestoreTerminal(ctx context.Context, id, workdir string) error {
+	if l.Proc().HasSession(ctx, id) {
+		return ErrAlreadyRunning
 	}
-	args = append(args, "-c", cwd)
-	if out, err := l.run.Run(ctx, runDir, "tmux", args...); err != nil {
-		return fmt.Errorf("tmux new-session: %w: %s", err, out)
+	if fi, err := os.Stat(workdir); err != nil || !fi.IsDir() {
+		return ErrWorkdirMissing
 	}
-	// mouse is a live session option: the wheel enters copy-mode, and the cockpit
-	// session can forward the wheel into this nested attach. Non-fatal.
-	_, _ = l.run.Run(ctx, "", "tmux", "set-option", "-t", id, "mouse", "on")
-	// detach-on-destroy off ensures that if an operator attaches to this agent
-	// and the agent terminates or is stopped, tmux falls back to the previous
-	// session (e.g. cockpit) instead of abruptly disconnecting the client (#478). Non-fatal.
-	_, _ = l.run.Run(ctx, "", "tmux", "set-option", "-t", id, "detach-on-destroy", "off")
+	if err := l.Proc().NewSession(ctx, id, workdir); err != nil {
+		return err
+	}
+	launch := agentbackend.TerminalBackend().LaunchCmd(agentbackend.LaunchOpts{Name: id}) + l.exitSuffix(id)
+	if err := l.Proc().SendKeys(ctx, id, launch, "Enter"); err != nil {
+		_ = l.Proc().KillSession(ctx, id)
+		return err
+	}
 	return nil
 }
 
@@ -1808,6 +1823,9 @@ func (l *Lifecycle) newAgentSession(ctx context.Context, runDir, id, cwd string,
 // when it is currently lower (only-raise: a user-configured larger value is left
 // untouched). Must run before new-session. All failures are ignored — deep
 // scrollback is a nicety, not a precondition for spawning.
+//
+// Deprecated path: Host.NewSession already raises scrollback; this remains for
+// any direct callers (cockpit) that still invoke EnsureExtendedKeys alone.
 func (l *Lifecycle) ensureScrollback(ctx context.Context) {
 	if out, err := l.run.Run(ctx, "", "tmux", "show-options", "-g", "-v", "history-limit"); err == nil {
 		if cur, perr := strconv.Atoi(strings.TrimSpace(out)); perr == nil && cur >= agentHistoryLimit {
@@ -1818,33 +1836,10 @@ func (l *Lifecycle) ensureScrollback(ctx context.Context) {
 }
 
 // EnsureExtendedKeys configures tmux so the user can insert a newline (rather
-// than submit) while typing into Claude. It installs two layers, both
-// best-effort — a keyboard-protocol quirk must never block a spawn or cockpit
-// launch:
-//
-//  1. Extended-keys passthrough (a server option). On terminals that speak the
-//     CSI-u / modifyOtherKeys protocol, this lets Claude receive Shift+Enter as a
-//     distinct key it treats as a newline, instead of the bare CR that tmux would
-//     otherwise collapse it into (which Claude treats as submit). terminal-features
-//     is appended only when extkeys is absent so repeated spawns don't accumulate
-//     duplicate entries.
-//
-//  2. An Alt+Enter fallback (a root-table key binding). Many Linux terminals —
-//     notably VTE/GNOME (Ptyxis, GNOME Terminal) — never report the Shift modifier
-//     on Enter at all: they emit a bare CR for Shift+Enter, so layer 1 cannot
-//     recover it. Alt+Enter, however, arrives distinctly (ESC+CR, which tmux reads
-//     as M-Enter) even on those terminals, so we bind it to send a literal LF (C-j)
-//     into the active pane — which Claude inserts as a newline. The binding is in
-//     the root table so it works in the cockpit and in attached agent sessions
-//     alike (same tmux server).
+// than submit) while typing into Claude. Delegates to tmuxproc so Agent and
+// Terminal share one implementation.
 func EnsureExtendedKeys(ctx context.Context, run Runner) {
-	// Terminal-independent newline key for terminals that can't report Shift+Enter.
-	_, _ = run.Run(ctx, "", "tmux", "bind-key", "-n", "M-Enter", "send-keys", "C-j")
-	_, _ = run.Run(ctx, "", "tmux", "set-option", "-s", "extended-keys", "on")
-	if out, err := run.Run(ctx, "", "tmux", "show-options", "-s", "-v", "terminal-features"); err == nil && strings.Contains(out, "extkeys") {
-		return // outer terminal already advertised; don't append a duplicate
-	}
-	_, _ = run.Run(ctx, "", "tmux", "set-option", "-sa", "terminal-features", "*:extkeys")
+	tmuxproc.EnsureExtendedKeys(ctx, run)
 }
 
 // resumeInTmux creates a detached tmux session named id in cwd and resumes the
@@ -2108,10 +2103,7 @@ func (l *Lifecycle) guard(ctx context.Context, t CleanupTarget) error {
 // inside it). It is idempotent: killing an already-gone session is not an error.
 // It touches no git and leaves the record and any worktree intact.
 func (l *Lifecycle) Terminate(ctx context.Context, tmuxSession string) error {
-	// tmux kill-session errors if the session is already gone; that is the
-	// desired end state, so the error is ignored.
-	_, _ = l.run.Run(ctx, "", "tmux", "kill-session", "-t", tmuxSession)
-	return nil
+	return l.Proc().KillSession(ctx, tmuxSession)
 }
 
 // RemoveWorktree removes the session's git worktree and branch. It is always an

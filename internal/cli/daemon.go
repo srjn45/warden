@@ -46,6 +46,8 @@ import (
 	"github.com/srjn45/warden/internal/snapshot"
 	"github.com/srjn45/warden/internal/spend"
 	"github.com/srjn45/warden/internal/store"
+	"github.com/srjn45/warden/internal/terminalstore"
+	"github.com/srjn45/warden/internal/tmuxproc"
 )
 
 // requireTokenForNonLoopback rejects a non-loopback bind that has no bearer
@@ -136,6 +138,12 @@ func newDaemonRunCmd() *cobra.Command {
 			}
 			defer st.Close(context.Background())
 
+			termStore, err := terminalstore.New(cfg.DataDir)
+			if err != nil {
+				return err
+			}
+			defer termStore.Close()
+
 			cstore, err := ctxstore.New(filepath.Join(cfg.DataDir, "context"))
 			if err != nil {
 				return err
@@ -218,12 +226,12 @@ func newDaemonRunCmd() *cobra.Command {
 				return err
 			}
 			srv := daemon.NewServer(st, life, pl, 10*time.Second, cfg.ApprovalsEnabled, cstore, mbox, nil)
-			// Wire the TerminalWatcher using the same deps adapter the Poller uses.
-			// pollerDeps satisfies poller.TerminalDeps (the Restore method is present),
-			// so the type assertion always succeeds.
-			if tdeps, ok := pd.(poller.TerminalDeps); ok {
-				srv.SetTerminalWatcher(poller.NewTerminalWatcher(tdeps))
-			}
+			srv.SetTerminals(termStore)
+			// TerminalWatcher polls terminalstore (not the agent session store) via
+			// the shared tmuxproc.Host for liveness/capture.
+			srv.SetTerminalWatcher(poller.NewTerminalWatcher(
+				daemon.NewTerminalPollerDeps(termStore, tmuxproc.New(runner), lc),
+			))
 			srv.SetAuth(authToken, readonlyToken)
 			srv.SetWriteTimeouts(cfg.HTTPTimeoutFastDuration(), cfg.HTTPTimeoutSlowDuration())
 			// Persist auto-approve policy changes (PUT /auto-approve/policy) back to
