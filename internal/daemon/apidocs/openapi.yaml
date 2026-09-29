@@ -1264,16 +1264,13 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  # Legacy project-scoped plan routes remain supported while clients migrate to
+  # the flat Plan CRUD API below.
   /api/v1/projects/{project_id}/plans:
     get:
-      operationId: listPlans
+      operationId: ListProjectPlans
       tags: [Plans]
-      summary: List plans for a project
-      description: >
-        Returns every plan in the given project
-        (docs/specs/2026-09-28-plans-first-class.md D11). Optionally filtered by
-        status using the ?status= query parameter. Plans are returned as a flat
-        list sorted by updated_at descending; clients group by status client-side.
+      summary: List legacy project plans
       parameters:
         - name: project_id
           in: path
@@ -1281,26 +1278,18 @@ paths:
           schema: { type: string }
         - name: status
           in: query
-          required: false
-          schema:
-            type: string
-            enum: [pending, in_progress, completed, archived]
-          description: Filter by plan status; omit to return all plans.
+          schema: { $ref: "#/components/schemas/PlanStatus" }
       responses:
         "200":
-          description: The plan list
+          description: The legacy project plan list
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/ListPlansResponse" }
+              schema: { $ref: "#/components/schemas/LegacyPlanListResponse" }
         "404": { $ref: "#/components/responses/NotFound" }
     post:
-      operationId: createPlan
+      operationId: CreateProjectPlan
       tags: [Plans]
-      summary: Create a plan record
-      description: >
-        Creates a new plan record with status pending. The plan YAML file must
-        already exist in the repository; the daemon does not create the file.
-        Returns the created plan.
+      summary: Create a legacy project plan record
       parameters:
         - name: project_id
           in: path
@@ -1310,29 +1299,21 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/CreatePlanRequest" }
+            schema: { $ref: "#/components/schemas/LegacyCreatePlanRequest" }
       responses:
         "200":
-          description: The created plan
+          description: The created plan record
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/Plan" }
+              schema: { $ref: "#/components/schemas/LegacyPlan" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /api/v1/projects/{project_id}/plans/scan:
     post:
-      operationId: scanPlans
+      operationId: ScanProjectPlans
       tags: [Plans]
-      summary: Scan project plans directory
-      description: >
-        Walks <project_root>/plans/{pending,in_progress,completed,archived}/*.yaml
-        and upserts each discovered plan into the DB. Status is inferred from the
-        subdirectory. Flat plans/*.yaml files are treated as pending. When
-        migrate_flat is true, flat files are moved into plans/pending/ with git mv
-        and committed. When assess is true, brain-assisted progress assessment is
-        run for all in_progress plans (Phase 4 stub — returns 501 if requested).
-        Idempotent: a second scan on an unchanged tree produces no net change.
+      summary: Scan a project's plans directory
       parameters:
         - name: project_id
           in: path
@@ -1341,53 +1322,183 @@ paths:
       requestBody:
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/ScanPlansRequest" }
+            schema: { $ref: "#/components/schemas/LegacyScanPlansRequest" }
       responses:
         "200":
           description: Scan result
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/ScanPlansResponse" }
+              schema: { $ref: "#/components/schemas/LegacyScanPlansResponse" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /api/v1/projects/{project_id}/plans/{plan_id}:
     get:
-      operationId: getPlan
+      operationId: GetProjectPlan
       tags: [Plans]
-      summary: Get a single plan
-      description: Returns the plan record with the given id. 404 if unknown.
+      summary: Get a legacy project plan
       parameters:
         - name: project_id
           in: path
           required: true
           schema: { type: string }
-        - name: plan_id
+        - { $ref: "#/components/parameters/PlanId" }
+      responses:
+        "200":
+          description: The plan record
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegacyPlan" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      operationId: UpdateProjectPlan
+      tags: [Plans]
+      summary: Update legacy plan execution fields
+      parameters:
+        - name: project_id
           in: path
           required: true
           schema: { type: string }
+        - { $ref: "#/components/parameters/PlanId" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LegacyUpdatePlanRequest" }
       responses:
         "200":
-          description: The plan
+          description: The updated plan record
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegacyPlan" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      operationId: DeleteProjectPlan
+      tags: [Plans]
+      summary: Delete a legacy plan record
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema: { type: string }
+        - { $ref: "#/components/parameters/PlanId" }
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/projects/{project_id}/plans/{plan_id}/assess:
+    post:
+      operationId: AssessProjectPlan
+      tags: [Plans]
+      summary: Assess legacy plan progress
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema: { type: string }
+        - { $ref: "#/components/parameters/PlanId" }
+      responses:
+        "200":
+          description: The assessed plan record
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegacyPlan" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/projects/{project_id}/plans/{plan_id}/run:
+    post:
+      operationId: RunProjectPlan
+      tags: [Plans]
+      summary: Start legacy plan execution
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema: { type: string }
+        - { $ref: "#/components/parameters/PlanId" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LegacyRunPlanRequest" }
+      responses:
+        "200":
+          description: The in-progress plan record
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegacyPlan" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Plan cannot transition to in_progress
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v1/plans:
+    get:
+      operationId: ListPlans
+      tags: [Plans]
+      summary: List plans for a project
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema: { type: string }
+        - name: status
+          in: query
+          required: false
+          schema: { $ref: "#/components/schemas/PlanStatus" }
+          description: Filter by plan status; omit to return all plans.
+      responses:
+        "200":
+          description: Plans matching the requested project and optional status filter
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Plan" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+    post:
+      operationId: CreatePlan
+      tags: [Plans]
+      summary: Create a plan
+      description: Creates the pending plan YAML file and its execution record.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreatePlanRequest" }
+      responses:
+        "201":
+          description: The created pending plan
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Plan" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/plans/{plan_id}:
+    get:
+      operationId: GetPlan
+      tags: [Plans]
+      summary: Get a plan
+      parameters: [{ $ref: "#/components/parameters/PlanId" }]
+      responses:
+        "200":
+          description: The plan, including its DB-backed task progress
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Plan" }
         "404": { $ref: "#/components/responses/NotFound" }
     patch:
-      operationId: updatePlan
+      operationId: UpdatePlan
       tags: [Plans]
-      summary: Update a plan record
+      summary: Update a pending plan
       description: >
-        Partial update. Settable fields: status, execution_mode, task_progress.
-        Hub-sync fields (synced_at, remote_id) are never writable via this route.
-      parameters:
-        - name: project_id
-          in: path
-          required: true
-          schema: { type: string }
-        - name: plan_id
-          in: path
-          required: true
-          schema: { type: string }
+        Rewrites the plan YAML and execution record. Only pending plans are
+        mutable; a plan that has started or finished returns 409.
+      parameters: [{ $ref: "#/components/parameters/PlanId" }]
       requestBody:
         required: true
         content:
@@ -1401,75 +1512,19 @@ paths:
               schema: { $ref: "#/components/schemas/Plan" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
-    delete:
-      operationId: deletePlan
-      tags: [Plans]
-      summary: Delete a plan DB record
-      description: >
-        Permanently removes the plan record from the DB. The plan YAML file in
-        the repository is never touched. Returns 404 if the id is unknown.
-      parameters:
-        - name: project_id
-          in: path
-          required: true
-          schema: { type: string }
-        - name: plan_id
-          in: path
-          required: true
-          schema: { type: string }
-      responses:
-        "200": { $ref: "#/components/responses/OK" }
-        "404": { $ref: "#/components/responses/NotFound" }
-
-  /api/v1/projects/{project_id}/plans/{plan_id}/assess:
-    post:
-      operationId: assessPlan
-      tags: [Plans]
-      summary: Brain-assisted plan progress assessment
-      description: >
-        Triggers brain-assisted progress assessment for the plan (D9).
-        Reads the plan YAML to extract task IDs and descriptions, then calls
-        the brain consultor with intent=plan_progress_assessment and evidence
-        from recent git log and open PRs. Updates task_progress in the DB and
-        returns the updated plan. Returns 503 when the plan store or brain
-        consultor is not configured.
-      parameters:
-        - name: project_id
-          in: path
-          required: true
-          schema: { type: string }
-        - name: plan_id
-          in: path
-          required: true
-          schema: { type: string }
-      responses:
-        "200":
-          description: Plan with updated task_progress
+        "409":
+          description: Plan is not pending
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/Plan" }
-        "404": { $ref: "#/components/responses/NotFound" }
+              schema: { $ref: "#/components/schemas/Error" }
 
-  /api/v1/projects/{project_id}/plans/{plan_id}/run:
+  /api/v1/plans/{plan_id}/run:
     post:
-      operationId: runPlan
+      operationId: RunPlan
       tags: [Plans]
       summary: Start plan execution
-      description: >
-        Starts execution of a plan in the chosen mode (D15). Modes: autopilot
-        (registers an autopilot run), pipeline (creates one job per task),
-        orchestrator_worker (spawns an orchestrator agent), manual (git-mv only).
-        The YAML file is git-mv'd to plans/in_progress/ and a commit is created.
-        Returns 409 if the plan is already in_progress or completed.
-      parameters:
-        - name: project_id
-          in: path
-          required: true
-          schema: { type: string }
-        - name: plan_id
-          in: path
-          required: true
-          schema: { type: string }
+      description: Transitions a pending plan to in_progress and starts the selected execution mode.
+      parameters: [{ $ref: "#/components/parameters/PlanId" }]
       requestBody:
         required: true
         content:
@@ -1477,17 +1532,82 @@ paths:
             schema: { $ref: "#/components/schemas/RunPlanRequest" }
       responses:
         "200":
-          description: Plan started — returns updated plan record
+          description: The in-progress plan
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Plan" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
-          description: Plan already in_progress or completed
+          description: Plan cannot transition to in_progress
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v1/plans/{plan_id}/tasks/{task_id}/status:
+    post:
+      operationId: UpdateTaskStatus
+      tags: [Plans]
+      summary: Update task progress
+      description: Updates only the plan's DB-backed task_progress map; the plan YAML is unchanged.
+      parameters:
+        - { $ref: "#/components/parameters/PlanId" }
+        - { $ref: "#/components/parameters/TaskId" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateTaskStatusRequest" }
+      responses:
+        "200":
+          description: The plan with updated task progress
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Plan" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/plans/{plan_id}/complete:
+    post:
+      operationId: CompletePlan
+      tags: [Plans]
+      summary: Complete a plan
+      description: >
+        Transitions an in-progress plan to completed. Every task must be done or
+        skipped and every associated branch must be merged before completion.
+      parameters: [{ $ref: "#/components/parameters/PlanId" }]
+      responses:
+        "200":
+          description: The completed plan
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Plan" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Plan cannot transition to completed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422":
+          description: Tasks are incomplete or associated branches remain unmerged
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlanCompletionError" }
+
+  /api/v1/plans/{plan_id}/archive:
+    post:
+      operationId: ArchivePlan
+      tags: [Plans]
+      summary: Archive a plan
+      description: Moves the plan file to plans/archived/ from any status.
+      parameters: [{ $ref: "#/components/parameters/PlanId" }]
+      responses:
+        "200":
+          description: The archived plan
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Plan" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /api/v1/sessions/{id}/name:
     patch:
@@ -3056,6 +3176,16 @@ components:
       in: path
       required: true
       schema: { type: string }
+    PlanId:
+      name: plan_id
+      in: path
+      required: true
+      schema: { type: string }
+    TaskId:
+      name: task_id
+      in: path
+      required: true
+      schema: { type: string }
     JobId:
       name: job
       in: path
@@ -3874,26 +4004,146 @@ components:
             Project id to add or remove (filesystem path or remote URL). Need not
             resolve to a registered project. Blank/missing is rejected with 400.
 
+    PlanStatus:
+      type: string
+      enum: [pending, in_progress, completed, archived]
+
+    TaskStatus:
+      type: string
+      enum: [pending, in_progress, done, skipped]
+
+    PlanTask:
+      type: object
+      required: [id, prompt]
+      properties:
+        id: { type: string, description: "stable task id within its plan" }
+        prompt: { type: string, description: "work instruction for this task" }
+        after:
+          type: array
+          items: { type: string }
+          description: "task ids that must complete before this task starts"
+
     Plan:
+      type: object
+      description: >
+        A YAML-backed plan and its DB-backed execution state. The definition
+        fields are stored in the plan file; task_progress and execution links are
+        stored separately so they can change without rewriting completed work.
+      required:
+        [id, project_id, name, goal, tasks, constraints, done_when, file_path,
+         status, task_progress, created_at, updated_at]
+      properties:
+        id: { type: string, description: "stable plan id (plan-<8hex>)" }
+        project_id: { type: string, description: "owning project id" }
+        name: { type: string }
+        goal: { type: string }
+        tasks:
+          type: array
+          items: { $ref: "#/components/schemas/PlanTask" }
+        constraints:
+          type: array
+          items: { type: string }
+        done_when:
+          type: array
+          items: { type: string }
+        file_path: { type: string, description: "path relative to the project root" }
+        status: { $ref: "#/components/schemas/PlanStatus" }
+        execution_mode:
+          type: string
+          enum: [autopilot, pipeline, orchestrator_worker, manual]
+        autopilot_run_id: { type: string }
+        pipeline_id: { type: string }
+        orchestrator_id: { type: string }
+        plan_branches:
+          type: array
+          items: { type: string }
+          description: "branches associated with plan execution and checked before completion"
+        task_progress:
+          type: object
+          additionalProperties: { $ref: "#/components/schemas/TaskStatus" }
+          description: "task id to its current execution status"
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        started_at: { type: string, format: date-time, nullable: true }
+        completed_at: { type: string, format: date-time, nullable: true }
+
+    CreatePlanRequest:
+      type: object
+      required: [project_id, name, goal, tasks, constraints, done_when]
+      properties:
+        project_id: { type: string }
+        name: { type: string }
+        goal: { type: string }
+        tasks:
+          type: array
+          minItems: 1
+          items: { $ref: "#/components/schemas/PlanTask" }
+        constraints:
+          type: array
+          items: { type: string }
+        done_when:
+          type: array
+          items: { type: string }
+
+    UpdatePlanRequest:
+      type: object
+      description: >
+        Partial replacement of editable plan definition fields. This request is
+        accepted only while the plan is pending.
+      properties:
+        name: { type: string }
+        goal: { type: string }
+        tasks:
+          type: array
+          minItems: 1
+          items: { $ref: "#/components/schemas/PlanTask" }
+        constraints:
+          type: array
+          items: { type: string }
+        done_when:
+          type: array
+          items: { type: string }
+
+    RunPlanRequest:
+      type: object
+      required: [execution_mode]
+      properties:
+        execution_mode:
+          type: string
+          enum: [autopilot, pipeline, orchestrator_worker, manual]
+
+    UpdateTaskStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status: { $ref: "#/components/schemas/TaskStatus" }
+
+    PlanCompletionError:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+        incomplete_tasks:
+          type: array
+          items: { type: string }
+        unmerged_branches:
+          type: array
+          items: { type: string }
+
+    LegacyPlan:
       x-go-type: planstore.Plan
       x-go-type-import:
         path: github.com/srjn45/warden/internal/planstore
         name: planstore
       type: object
-      description: >
-        A tracked plan entity (docs/specs/2026-09-28-plans-first-class.md D6).
-        Plan status is inferred from the YAML file's directory placement; execution
-        state (execution mode, linked run/pipeline IDs, task progress) is stored in
-        the DB only.
+      description: Backward-compatible project-scoped plan record.
       required: [id, project_id, name, file_path, status, created_at, updated_at]
       properties:
-        id: { type: string, description: "stable plan id (plan-<8hex>)" }
+        id: { type: string }
         project_id: { type: string }
-        name: { type: string, description: "from YAML name: field or filename stem" }
-        file_path: { type: string, description: "current path relative to project root" }
-        status:
-          type: string
-          enum: [pending, in_progress, completed, archived]
+        name: { type: string }
+        file_path: { type: string }
+        status: { $ref: "#/components/schemas/PlanStatus" }
         execution_mode:
           type: string
           enum: [autopilot, pipeline, orchestrator_worker, manual]
@@ -3903,73 +4153,58 @@ components:
         task_progress:
           type: object
           additionalProperties: { type: string }
-          description: "task id → pending|in_progress|done|skipped"
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         started_at: { type: string, format: date-time, nullable: true }
         completed_at: { type: string, format: date-time, nullable: true }
-        synced_at: { type: string, format: date-time, nullable: true, description: "reserved for future hub sync" }
-        remote_id: { type: string, description: "reserved for future hub sync" }
+        synced_at: { type: string, format: date-time, nullable: true }
+        remote_id: { type: string }
 
-    ListPlansResponse:
+    LegacyPlanListResponse:
       type: object
       required: [plans]
       properties:
         plans:
           type: array
-          items: { $ref: "#/components/schemas/Plan" }
-          description: "flat list of plans, sorted by updated_at descending; clients group by status"
+          items: { $ref: "#/components/schemas/LegacyPlan" }
 
-    CreatePlanRequest:
+    LegacyCreatePlanRequest:
       type: object
       required: [name, file_path]
       properties:
-        name: { type: string, description: "plan name (must match the YAML name: field or filename stem)" }
-        file_path: { type: string, description: "path to the plan YAML file, relative to the project root" }
+        name: { type: string }
+        file_path: { type: string }
 
-    UpdatePlanRequest:
+    LegacyUpdatePlanRequest:
       type: object
-      description: >
-        Partial update. Only status, execution_mode, and task_progress may be set;
-        hub-sync fields (synced_at, remote_id) are never writable via this route.
       properties:
-        status:
-          type: string
-          enum: [pending, in_progress, completed, archived]
+        status: { $ref: "#/components/schemas/PlanStatus" }
         execution_mode:
           type: string
           enum: [autopilot, pipeline, orchestrator_worker, manual]
         task_progress:
           type: object
           additionalProperties: { type: string }
-          description: "task id → pending|in_progress|done|skipped"
 
-    ScanPlansRequest:
+    LegacyScanPlansRequest:
       type: object
       properties:
-        migrate_flat:
-          type: boolean
-          description: "move flat plans/*.yaml files into plans/pending/ with git mv + commit"
-        assess:
-          type: boolean
-          description: "run brain-assisted progress assessment for all in_progress plans (Phase 4 stub)"
+        migrate_flat: { type: boolean }
+        assess: { type: boolean }
 
-    ScanPlansResponse:
+    LegacyScanPlansResponse:
       type: object
       required: [upserted]
       properties:
-        upserted:
-          type: integer
-          description: "number of plan records created or updated by the scan"
+        upserted: { type: integer }
 
-    RunPlanRequest:
+    LegacyRunPlanRequest:
       type: object
       required: [mode]
       properties:
         mode:
           type: string
           enum: [autopilot, pipeline, orchestrator_worker, manual]
-          description: "execution mode for this plan run"
 
     BackendsState:
       type: object
