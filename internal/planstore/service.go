@@ -71,6 +71,67 @@ func (e *BranchesUnmergedError) Error() string {
 
 func (e *BranchesUnmergedError) Unwrap() error { return ErrBranchesUnmerged }
 
+// UnmetRequirementsError is returned by PlanService.Transition when a plan
+// cannot move to completed. It carries a structured snapshot of every unmet
+// gate so callers can surface exactly what is missing without parsing text.
+//
+// It satisfies errors.Is / errors.As for the legacy ErrTasksIncomplete and
+// ErrBranchesUnmerged sentinels via a multi-error Unwrap chain, so existing
+// call sites do not need to be updated.
+type UnmetRequirementsError struct {
+	Requirements CompletionRequirements
+}
+
+func (e *UnmetRequirementsError) Error() string {
+	var parts []string
+	if !e.Requirements.AllTasksDone {
+		if len(e.Requirements.PendingTaskIDs) > 0 {
+			parts = append(parts, "incomplete tasks: "+strings.Join(e.Requirements.PendingTaskIDs, ", "))
+		} else {
+			parts = append(parts, "incomplete tasks")
+		}
+	}
+	if !e.Requirements.NoOpenPRs {
+		if len(e.Requirements.OpenPRBranches) > 0 {
+			parts = append(parts, "unmerged branches: "+strings.Join(e.Requirements.OpenPRBranches, ", "))
+		} else {
+			parts = append(parts, "unmerged branches")
+		}
+	}
+	if !e.Requirements.NoLiveAgents {
+		if len(e.Requirements.LiveExecutorIDs) > 0 {
+			parts = append(parts, "live executors: "+strings.Join(e.Requirements.LiveExecutorIDs, ", "))
+		} else {
+			parts = append(parts, "live executors")
+		}
+	}
+	if !e.Requirements.ResourcesClean {
+		if len(e.Requirements.UncleanBranches) > 0 {
+			parts = append(parts, "unclean worktrees: "+strings.Join(e.Requirements.UncleanBranches, ", "))
+		} else {
+			parts = append(parts, "unclean worktrees")
+		}
+	}
+	if len(parts) == 0 {
+		return "completion requirements not satisfied"
+	}
+	return "unmet requirements: " + strings.Join(parts, "; ")
+}
+
+// Unwrap returns the specific legacy errors (ErrTasksIncomplete,
+// ErrBranchesUnmerged) so that errors.Is / errors.As traversals continue to
+// work after the transition to the unified UnmetRequirementsError.
+func (e *UnmetRequirementsError) Unwrap() []error {
+	var errs []error
+	if !e.Requirements.AllTasksDone {
+		errs = append(errs, &TasksIncompleteError{TaskIDs: e.Requirements.PendingTaskIDs})
+	}
+	if !e.Requirements.NoOpenPRs {
+		errs = append(errs, &BranchesUnmergedError{Branches: e.Requirements.OpenPRBranches})
+	}
+	return errs
+}
+
 // InvalidTransitionError names a forbidden from→to status change.
 type InvalidTransitionError struct {
 	From PlanStatus
@@ -405,10 +466,7 @@ func (s *PlanService) Transition(ctx context.Context, planID string, to PlanStat
 		return nil, &InvalidTransitionError{From: p.Status, To: to}
 	}
 	if p.Status == PlanStatusInProgress && to == PlanStatusCompleted {
-		if err := s.checkTasksDone(p); err != nil {
-			return nil, err
-		}
-		if err := s.checkBranchesMerged(ctx, p); err != nil {
+		if err := s.evaluateCompletion(ctx, p); err != nil {
 			return nil, err
 		}
 	}
@@ -475,63 +533,72 @@ func (s *PlanService) UpdateTaskStatus(ctx context.Context, planID, taskID, stat
 	return s.store.Get(ctx, planID)
 }
 
-// checkTasksDone loads tasks from YAML and verifies every task ID is done or skipped.
-func (s *PlanService) checkTasksDone(plan *Plan) error {
-	root, err := s.root(plan.ProjectID)
+// evaluateCompletion checks all machine-verifiable completion gates for a plan
+// transitioning from in_progress → completed. It derives task and PR evidence
+// from TaskProgress and typed PlanExecutionEvents; it never evaluates done_when
+// text (spec Rule 5). Returns an UnmetRequirementsError carrying a structured
+// list of every unmet gate, or nil when all gates are satisfied.
+func (s *PlanService) evaluateCompletion(ctx context.Context, p *Plan) error {
+	root, err := s.root(p.ProjectID)
 	if err != nil {
 		return err
 	}
-	tasks, err := planTasksFromPlan(plan, root)
-	if err != nil {
-		return err
-	}
-	var incomplete []string
-	for _, t := range tasks {
-		id := strings.TrimSpace(t.ID)
-		if id == "" {
-			continue
-		}
-		st := ""
-		if plan.TaskProgress != nil {
-			st = strings.ToLower(strings.TrimSpace(plan.TaskProgress[id]))
-		}
-		if st != "done" && st != "skipped" {
-			incomplete = append(incomplete, id)
-		}
-	}
-	if len(incomplete) > 0 {
-		return &TasksIncompleteError{TaskIDs: incomplete}
-	}
-	return nil
-}
 
-// checkBranchesMerged reports plan.Branches that still have an open GitHub PR.
-func (s *PlanService) checkBranchesMerged(ctx context.Context, plan *Plan) error {
-	if len(plan.Branches) == 0 {
+	// Load YAML task IDs.
+	tasks, err := planTasksFromPlan(p, root)
+	if err != nil {
+		return err
+	}
+	taskIDs := make([]string, 0, len(tasks))
+	for _, t := range tasks {
+		if id := strings.TrimSpace(t.ID); id != "" {
+			taskIDs = append(taskIDs, id)
+		}
+	}
+
+	// Resolve open PR branches (live I/O — kept outside the pure eval function).
+	openPRBranches, err := s.resolveOpenPRBranches(ctx, p, root)
+	if err != nil {
+		return err
+	}
+
+	// Load execution events for the active execution (if any).
+	var events []*PlanExecutionEvent
+	if p.ActiveExecution != nil && p.ActiveExecution.ID != "" {
+		events, err = s.store.ListEvents(ctx, p.ID, p.ActiveExecution.ID)
+		if err != nil {
+			return fmt.Errorf("planstore: list events for completion check: %w", err)
+		}
+	}
+
+	reqs := EvalCompletionFromEvents(p, taskIDs, openPRBranches, events)
+	if reqs.Satisfied {
 		return nil
 	}
-	root, err := s.root(plan.ProjectID)
-	if err != nil {
-		return err
+	return &UnmetRequirementsError{Requirements: reqs}
+}
+
+// resolveOpenPRBranches returns the subset of plan.Branches that still carry
+// an open GitHub PR. Returns nil when there are no branches to check.
+func (s *PlanService) resolveOpenPRBranches(ctx context.Context, p *Plan, root string) ([]string, error) {
+	if len(p.Branches) == 0 {
+		return nil, nil
 	}
 	var unmerged []string
-	for _, branch := range plan.Branches {
+	for _, branch := range p.Branches {
 		branch = strings.TrimSpace(branch)
 		if branch == "" {
 			continue
 		}
 		out, err := s.run(ctx, root, "gh", "pr", "list", "--head", branch, "--state", "open", "--json", "number")
 		if err != nil {
-			return fmt.Errorf("gh pr list --head %s: %w (%s)", branch, err, strings.TrimSpace(out))
+			return nil, fmt.Errorf("gh pr list --head %s: %w (%s)", branch, err, strings.TrimSpace(out))
 		}
 		if hasOpenPR(out) {
 			unmerged = append(unmerged, branch)
 		}
 	}
-	if len(unmerged) > 0 {
-		return &BranchesUnmergedError{Branches: unmerged}
-	}
-	return nil
+	return unmerged, nil
 }
 
 // CleanupWorktrees removes worktrees, local branches, and remote branches for
