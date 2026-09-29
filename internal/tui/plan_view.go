@@ -7,9 +7,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/projectstore"
 )
+
+// promptIndent is the leading whitespace before each expanded task-prompt line.
+const promptIndent = "     "
 
 // planDetailText renders a plan's detail view for display.
 // projectRoot is the absolute path to the project's root directory, used to
@@ -105,13 +109,14 @@ func planDetailText(p *planstore.Plan, width int, projectRoot string, expanded b
 				}
 
 				if t.Prompt != "" {
-					for _, line := range promptPreview(t.Prompt, 3) {
-						b.WriteString("     " + stMuted.Render(line) + "\n")
+					wrapW := width - lipgloss.Width(promptIndent)
+					for _, line := range promptPreview(t.Prompt, 3, wrapW) {
+						b.WriteString(promptIndent + stMuted.Render(line) + "\n")
 					}
 				}
 			}
 		}
-		b.WriteString("\n" + stMuted.Render("  [t] toggle task details") + "\n")
+		b.WriteString("\n" + stMuted.Render("  [↑↓] scroll · [t] toggle task details") + "\n")
 	} else if len(p.TaskProgress) > 0 {
 		// YAML unavailable — fall back to DB task progress map
 		keys := make([]string, 0, len(p.TaskProgress))
@@ -181,19 +186,30 @@ func projectRootForID(projects []projectstore.Project, projectID string) string 
 	return ""
 }
 
-// promptPreview returns up to maxLines non-empty lines from a (possibly
-// multi-line) YAML scalar, trimming leading/trailing blank lines.
-func promptPreview(prompt string, maxLines int) []string {
+// promptPreview returns up to maxLines non-empty display lines from a
+// (possibly multi-line) YAML scalar, trimming blank lines and word-wrapping
+// each source line at width cells. width <= 0 disables wrapping.
+func promptPreview(prompt string, maxLines, width int) []string {
 	var out []string
 	for _, line := range strings.Split(prompt, "\n") {
 		line = strings.TrimRight(line, " \t")
 		if line == "" {
 			continue
 		}
-		out = append(out, line)
-		if len(out) >= maxLines {
-			break
+		for _, wrapped := range wrapPromptLine(line, width) {
+			out = append(out, wrapped)
+			if len(out) >= maxLines {
+				return out
+			}
 		}
 	}
 	return out
+}
+
+// wrapPromptLine word-wraps s to at most width cells. width <= 0 returns s as-is.
+func wrapPromptLine(s string, width int) []string {
+	if width <= 0 || lipgloss.Width(s) <= width {
+		return []string{s}
+	}
+	return strings.Split(lipgloss.NewStyle().Width(width).Render(s), "\n")
 }
