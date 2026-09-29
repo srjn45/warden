@@ -1092,24 +1092,46 @@ func agyWindow(id, scope, label string, families, models []string, used *float64
 
 // --- Rate-limit detection ---------------------------------------------------
 
-// antigravityRLRe matches rate-limit phrasing in Antigravity (`agy`) pane output.
-// TODO(confirm-wording): verify against a live agy rate-limit pane fixture.
-var antigravityRLRe = regexp.MustCompile(
-	`(?i)(rate limited|rate limit|quota|limit reached)`,
+// antigravityRLBannerRe matches Antigravity (agy) rate-limit banners in the
+// trailing pane tail. The banner must carry both a limit phrase (quota /
+// session-exhaustion phrasing specific to agy's Google-backed quota system)
+// AND a reset/availability time clause ("resets at HH:MM" or "available at
+// HH:MM") so that ordinary agent prose merely mentioning "rate limit", "quota",
+// or "limit reached" — in code, discussion, tool output, or transcript review —
+// does NOT trigger detection. The [\s\S]{0,150}? bridge tolerates multi-line
+// banner layout while staying within the trailing window.
+//
+// Both orderings are covered: the time clause may follow or precede the limit
+// phrase in the banner.
+//
+// TODO(confirm-wording): verify against a live agy rate-limit pane fixture and
+// tighten or expand the phrase list as needed; keep sampleAgyRateLimitBanner
+// (test fixture) in sync with any change here.
+var antigravityRLBannerRe = regexp.MustCompile(
+	`(?i)(?:` +
+		`(?:rate\s+limit(?:ed)?|quota(?:\s+exceeded)?|usage\s+limit|session\s+(?:limit|quota)|limit\s+reached|resource\s+exhausted)[\s\S]{0,150}?(?:resets\s+at|available\s+at)\s+\d{1,2}:\d{2}` +
+		`|` +
+		`(?:resets\s+at|available\s+at)\s+\d{1,2}:\d{2}[\s\S]{0,150}?(?:rate\s+limit(?:ed)?|quota(?:\s+exceeded)?|usage\s+limit|session\s+(?:limit|quota)|limit\s+reached|resource\s+exhausted)` +
+		`)`,
 )
 
 // antigravityResetsAtRe matches "resets at HH:MM" / "available at HH:MM" in
 // agy's rate-limit output, used to extract a reset time.
 var antigravityResetsAtRe = regexp.MustCompile(
-	`(?i)(?:resets at|available at)\s+(\d{1,2}:\d{2})\s*(am|pm)?`,
+	`(?i)(?:resets\s+at|available\s+at)\s+(\d{1,2}:\d{2})\s*(am|pm)?`,
 )
 
 const antigravityRLTailLines = 6
 
 // DetectRateLimit implements agentbackend.RateLimitDetector for Antigravity.
+// It anchors on the trailing pane lines (antigravityRLTailLines) so neither a
+// stale banner that scrolled away nor a live agent writing about quota policies
+// triggers a false positive. The banner must exhibit both a provider-specific
+// limit phrase and a reset time clause — the combined structure is what
+// distinguishes a real agy error banner from ordinary conversation text.
 func (Antigravity) DetectRateLimit(pane string) (bool, time.Time, bool) {
 	tail := limitLastLines(pane, antigravityRLTailLines)
-	if !antigravityRLRe.MatchString(tail) {
+	if !antigravityRLBannerRe.MatchString(tail) {
 		return false, time.Time{}, false
 	}
 	t, ok := (Antigravity{}).ParseRateLimitReset(tail)

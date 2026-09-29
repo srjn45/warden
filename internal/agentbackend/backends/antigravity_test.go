@@ -564,3 +564,142 @@ func TestAgyParseQuotaSummaryWeeklyExhaustion(t *testing.T) {
 	require.Nil(t, limits[1].LimitState)
 	require.Equal(t, agyFiveHourMinutes, *limits[1].DurationMinutes)
 }
+
+// --- Rate-limit detection (provider-specific banner) ------------------------
+
+// sampleAgyRateLimitBanner is a plausible agy TUI rate-limit banner: it carries
+// both a session-quota limit phrase and an "available at HH:MM" time clause.
+// Keep in sync with antigravityRLBannerRe.
+//
+// TODO(confirm-wording): replace with the VERBATIM banner string captured from
+// a live agy rate-limit hit. Until then the trailing-window anchor keeps
+// behavior fail-closed.
+const sampleAgyRateLimitBanner = "⚠ Free-tier session quota reached.\n  Available at 15:30 · gemini.google.com/settings"
+
+// TestAntigravityDetectRateLimit_FixtureBanner reads the captured rate-limit
+// fixture (rate-limit.txt) and confirms the detector fires — banner in tail,
+// reset time parsed, isLimited=true.
+func TestAntigravityDetectRateLimit_FixtureBanner(t *testing.T) {
+	pane := agyFixture(t, "rate-limit.txt")
+	limited, restore, ok := Antigravity{}.DetectRateLimit(pane)
+	require.True(t, limited, "rate-limit fixture must be detected")
+	require.True(t, ok, "reset time must parse from the banner")
+	require.False(t, restore.IsZero(), "parsed restore time must be non-zero")
+	require.True(t, restore.After(time.Now().Add(-25*time.Hour)),
+		"restore time must be within the next 24 h window")
+}
+
+// TestAntigravityDetectRateLimit_InlineBanner covers the sampleAgyRateLimitBanner
+// constant used in sibling tests, so a future wording change breaks here first.
+func TestAntigravityDetectRateLimit_InlineBanner(t *testing.T) {
+	limited, _, ok := Antigravity{}.DetectRateLimit("noise\n" + sampleAgyRateLimitBanner)
+	require.True(t, limited)
+	require.True(t, ok)
+}
+
+// TestAntigravityDetectRateLimit_BannerScrolledAway ensures the detector does
+// NOT fire when the banner has scrolled above the trailing window — stale pane
+// content must not produce a false rate-limit classification.
+func TestAntigravityDetectRateLimit_BannerScrolledAway(t *testing.T) {
+	// Banner in the past; 20 lines of normal work push it out of the 6-line tail.
+	pane := sampleAgyRateLimitBanner + strings.Repeat("\nnormal work line", 20)
+	limited, _, _ := Antigravity{}.DetectRateLimit(pane)
+	require.False(t, limited, "banner outside the trailing window must not match")
+}
+
+// TestAntigravityDetectRateLimit_NegativeAgentProse verifies that ordinary
+// agent prose mentioning quota, rate limit, or limit reached does NOT trigger
+// detection — only the structured banner (limit phrase + reset time) matches.
+func TestAntigravityDetectRateLimit_NegativeAgentProse(t *testing.T) {
+	cases := []struct {
+		name string
+		pane string
+	}{
+		{
+			name: "agent discusses rate limiting in code",
+			pane: "func handleRateLimit() {\n  // check quota before calling API\n  if limit reached { return err }\n}\n❯ esc to interrupt",
+		},
+		{
+			name: "agent mentions quota in explanation",
+			pane: "The API enforces a quota of 100 requests per minute. If you exceed the rate limit, the server returns 429.\n? for shortcuts",
+		},
+		{
+			name: "plain mention of limit reached without time",
+			pane: "Error: limit reached. Please try again later.\n? for shortcuts",
+		},
+		{
+			name: "agent discusses resource exhausted in documentation",
+			pane: "Resource exhausted errors occur when you exceed the quota for a Google Cloud API.\n? for shortcuts",
+		},
+		{
+			name: "conversation transcript containing quota discussion",
+			pane: "User: what happens when quota exceeded?\nAssistant: The API returns a 429 rate limited response.\n? for shortcuts",
+		},
+		{
+			name: "bare available at time with no limit phrase",
+			pane: "Meeting available at 09:00 in conference room B.\n? for shortcuts",
+		},
+		{
+			name: "bare resets at time with no limit phrase",
+			pane: "Cache resets at 00:00 every night.\n? for shortcuts",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			limited, _, _ := Antigravity{}.DetectRateLimit(tc.pane)
+			require.False(t, limited, "ordinary prose must not trigger rate-limit detection")
+		})
+	}
+}
+
+// TestAntigravityDetectRateLimit_WorkingPaneIsNeverLimited verifies that a pane
+// with the "esc to cancel" working marker is not classified as rate-limited even
+// if it incidentally contains limit-adjacent words, since a streaming agent
+// cannot simultaneously be at a rate-limit banner.
+func TestAntigravityDetectRateLimit_WorkingPaneIsNeverLimited(t *testing.T) {
+	pane := agyFixture(t, "state-working.txt")
+	limited, _, _ := Antigravity{}.DetectRateLimit(pane)
+	require.False(t, limited, "a live working pane must not match the rate-limit banner")
+}
+
+// TestAntigravityDetectRateLimit_IdlePaneIsNeverLimited verifies that the idle
+// pane (? for shortcuts footer, normal agent output) does not trigger detection.
+func TestAntigravityDetectRateLimit_IdlePaneIsNeverLimited(t *testing.T) {
+	pane := agyFixture(t, "state-idle.txt")
+	limited, _, _ := Antigravity{}.DetectRateLimit(pane)
+	require.False(t, limited, "a normal idle pane must not match the rate-limit banner")
+}
+
+// TestAntigravityParseRateLimitReset_ResetsAt covers both "resets at HH:MM"
+// and "available at HH:MM" formats, and confirms the generic fallback also
+// works for non-agy-specific time formats that agy might use.
+func TestAntigravityParseRateLimitReset_ResetsAt(t *testing.T) {
+	loc := time.Local
+	tests := []struct {
+		name     string
+		pane     string
+		wantHour int
+		wantMin  int
+	}{
+		{"resets at 24h", "quota reached. resets at 15:30", 15, 30},
+		{"available at 24h", "session limit. available at 09:00", 9, 0},
+		{"available at 12h am", "usage limit reached. available at 9:30am", 9, 30},
+		{"available at 12h pm", "quota exhausted. available at 3:45pm", 15, 45},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := Antigravity{}.ParseRateLimitReset(tt.pane)
+			require.True(t, ok, "reset time must parse")
+			require.Equal(t, tt.wantHour, got.In(loc).Hour())
+			require.Equal(t, tt.wantMin, got.In(loc).Minute())
+			require.True(t, got.After(time.Now().Add(-25*time.Hour)))
+		})
+	}
+}
+
+// TestAntigravityParseRateLimitReset_NoTime verifies that a pane with no clock
+// time returns ok=false — the scheduler then applies the fallback retry interval.
+func TestAntigravityParseRateLimitReset_NoTime(t *testing.T) {
+	_, ok := Antigravity{}.ParseRateLimitReset("quota exceeded, try again later")
+	require.False(t, ok, "pane with no clock time must return ok=false")
+}
