@@ -5,6 +5,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -121,6 +122,7 @@ func ScanProject(ctx context.Context, s *Store, projectID, rootDir string) (int,
 		if err != nil && err != ErrNotFound {
 			return upserted, err
 		}
+		discovered := discoverPlanBranches(ctx, rootDir, name, id)
 		if existing == nil {
 			// Create new record.
 			p := &Plan{
@@ -129,16 +131,24 @@ func ScanProject(ctx context.Context, s *Store, projectID, rootDir string) (int,
 				Name:      name,
 				FilePath:  c.filePath,
 				Status:    c.status,
+				Branches:  discovered,
 			}
 			if createErr := s.Create(ctx, p); createErr != nil && createErr != ErrExists {
 				return upserted, createErr
 			}
 			upserted++
-		} else if existing.FilePath != c.filePath || existing.Status != c.status {
-			// Update FilePath and Status only — never touch execution links or TaskProgress.
+		} else {
+			merged := mergeBranches(existing.Branches, discovered)
+			needUpdate := existing.FilePath != c.filePath || existing.Status != c.status || !equalStrings(existing.Branches, merged)
+			if !needUpdate {
+				continue
+			}
+			// Update FilePath and Status; merge discovered branches.
+			// Never touch execution links or TaskProgress.
 			if updateErr := s.Update(ctx, id, func(p *Plan) error {
 				p.FilePath = c.filePath
 				p.Status = c.status
+				p.Branches = merged
 				return nil
 			}); updateErr != nil {
 				return upserted, updateErr
@@ -194,4 +204,87 @@ func stemName(filename string) string {
 func isYAML(name string) bool {
 	ext := strings.ToLower(filepath.Ext(name))
 	return ext == ".yaml" || ext == ".yml"
+}
+
+// discoverPlanBranches lists local git branches that appear to belong to a plan.
+// Best-effort: a missing git repo or git failure yields a nil list.
+func discoverPlanBranches(ctx context.Context, root, planName, planID string) []string {
+	out, err := exec.CommandContext(ctx, "git", "-C", root, "for-each-ref", "--format=%(refname:short)", "refs/heads/").Output()
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, line := range strings.Split(string(out), "\n") {
+		if b := strings.TrimSpace(line); b != "" {
+			names = append(names, b)
+		}
+	}
+	return matchPlanBranches(planName, planID, names)
+}
+
+// matchPlanBranches returns local branch names that look associated with a plan.
+// Integration branches (autopilot/*) and trunk (main/master) are excluded.
+func matchPlanBranches(planName, planID string, branches []string) []string {
+	slug := strings.ToLower(planSlug(planName))
+	id := strings.ToLower(strings.TrimSpace(planID))
+	if slug == "" && id == "" {
+		return nil
+	}
+	var matches []string
+	for _, b := range branches {
+		b = strings.TrimSpace(b)
+		if b == "" {
+			continue
+		}
+		lb := strings.ToLower(b)
+		if lb == "main" || lb == "master" || strings.HasPrefix(lb, "autopilot/") {
+			continue
+		}
+		if (slug != "" && (lb == slug || strings.Contains(lb, slug))) ||
+			(id != "" && strings.Contains(lb, id)) {
+			matches = append(matches, b)
+		}
+	}
+	return matches
+}
+
+func mergeBranches(existing, discovered []string) []string {
+	if len(existing) == 0 && len(discovered) == 0 {
+		return existing
+	}
+	seen := make(map[string]struct{}, len(existing)+len(discovered))
+	out := make([]string, 0, len(existing)+len(discovered))
+	for _, b := range existing {
+		if b == "" {
+			continue
+		}
+		if _, ok := seen[b]; ok {
+			continue
+		}
+		seen[b] = struct{}{}
+		out = append(out, b)
+	}
+	for _, b := range discovered {
+		if b == "" {
+			continue
+		}
+		if _, ok := seen[b]; ok {
+			continue
+		}
+		seen[b] = struct{}{}
+		out = append(out, b)
+	}
+	return out
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
