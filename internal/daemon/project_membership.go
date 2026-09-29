@@ -166,3 +166,49 @@ func (s *Server) removePipelineMembership(p *pipeline.Pipeline) {
 		slog.Warn("daemon: pipeline membership: remove failed", "pipeline", p.ID, "project", p.ProjectID, "err", err)
 	}
 }
+
+// addPlanMembership appends a plan to its project's authoritative plans[] list.
+// Best-effort: a failure is logged and never fails the primary plan operation.
+func (s *Server) addPlanMembership(planID, projectID string) {
+	if s.projects == nil || planID == "" || projectID == "" {
+		return
+	}
+	if _, err := s.projects.AddPlanToProject(projectID, planID); err != nil {
+		slog.Warn("daemon: plan membership: add failed", "plan", planID, "project", projectID, "err", err)
+	}
+}
+
+// removePlanMembership drops a plan from its project's authoritative plans[]
+// list. Best-effort: a failure is logged and never fails the primary operation.
+func (s *Server) removePlanMembership(planID, projectID string) {
+	if s.projects == nil || planID == "" || projectID == "" {
+		return
+	}
+	if _, err := s.projects.RemovePlanFromProject(projectID, planID); err != nil {
+		slog.Warn("daemon: plan membership: remove failed", "plan", planID, "project", projectID, "err", err)
+	}
+}
+
+// addAutopilotMembership appends an autopilot run to its project's authoritative
+// autopilots[] list. Best-effort: a failure is logged and never fails the
+// primary run operation.
+func (s *Server) addAutopilotMembership(runID, projectID string) {
+	if s.projects == nil || runID == "" || projectID == "" {
+		return
+	}
+	if _, err := s.projects.AddAutopilotToProject(projectID, runID); err != nil {
+		slog.Warn("daemon: autopilot membership: add failed", "run", runID, "project", projectID, "err", err)
+	}
+}
+
+// removeAutopilotMembership drops an autopilot run from its project's
+// authoritative autopilots[] list. Best-effort: a failure is logged and never
+// fails the primary operation.
+func (s *Server) removeAutopilotMembership(runID, projectID string) {
+	if s.projects == nil || runID == "" || projectID == "" {
+		return
+	}
+	if _, err := s.projects.RemoveAutopilotFromProject(projectID, runID); err != nil {
+		slog.Warn("daemon: autopilot membership: remove failed", "run", runID, "project", projectID, "err", err)
+	}
+}

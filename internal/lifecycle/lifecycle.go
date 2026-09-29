@@ -774,6 +774,7 @@ type SpawnRequest struct {
 	Task            string            // task name (task registry) for tier routing via task.TierFor; empty = none
 	ParentID        string            // id of the agent that spawned this one; empty = root (operator/CLI spawn)
 	ProjectID       string            // id of the first-class project this session joins; empty = the daemon resolves it by path-match (lifecycle is store-free, so it only stamps what it is handed)
+	PlanID          string            // id of the plan that spawned this session; empty for ordinary spawns
 	AutopilotRunID  string            // owning ap- run id (autopilot back-ref)
 	AutopilotSlot   string            // autopilot | guardian | worker
 	AutopilotTaskID string            // plan task id (workers only)
@@ -1505,6 +1506,7 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 	// empty value is left empty for the daemon to resolve by path-match post-spawn
 	// (lifecycle has no projects store), so an explicit id always wins over the match.
 	sess.ProjectID = req.ProjectID
+	sess.PlanID = req.PlanID
 	sess.AutopilotRunID = req.AutopilotRunID
 	sess.AutopilotSlot = req.AutopilotSlot
 	sess.AutopilotTaskID = req.AutopilotTaskID
@@ -2299,6 +2301,7 @@ func (l *Lifecycle) Output(ctx context.Context, tmuxSession string, lines int) (
 // resolves Worktree/BaseBranch before calling.
 type JobSpawnRequest struct {
 	PipelineID     string
+	PlanID         string
 	JobID          string
 	Repo           string
 	Prompt         string // already composed (upstream context + footer)
@@ -2517,7 +2520,7 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*store.S
 		ID: id, TmuxSession: id, Type: req.Type, Repo: req.Repo,
 		Prompt: req.Prompt, Subject: firstWords(req.Prompt, 10),
 		Status: store.StatusSpawning, PermissionMode: req.PermissionMode,
-		PipelineID: req.PipelineID, JobID: req.JobID,
+		PipelineID: req.PipelineID, PlanID: req.PlanID, JobID: req.JobID,
 		ScheduleID: req.ScheduleID, ScheduleName: req.ScheduleName,
 		Role: req.Role, Backend: req.Backend, Model: req.Model,
 		Tags: store.NormalizeTags(req.Tags),

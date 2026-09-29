@@ -114,6 +114,7 @@ func (f *fakeLife) Spawn(_ context.Context, req SpawnRequest) (*store.Session, e
 		Prompt: req.Prompt, Status: store.StatusSpawning, Role: req.Role, Workdir: req.Cwd,
 		PermissionMode: req.PermissionMode, Tags: req.Tags, Kind: store.SessionKind(req.Kind),
 		ProjectID: req.ProjectID, // mirror lifecycle: an explicit project_id is stamped at spawn
+		PlanID:    req.PlanID,
 	}
 	return f.spawned, nil
 }
@@ -233,7 +234,7 @@ func (f *fakeLife) SpawnJob(_ context.Context, req lifecycle.JobSpawnRequest) (*
 	}
 	return &store.Session{
 		ID: id, TmuxSession: id, Type: req.Type, Repo: req.Repo,
-		Status: store.StatusSpawning, PipelineID: req.PipelineID, JobID: req.JobID,
+		Status: store.StatusSpawning, PipelineID: req.PipelineID, PlanID: req.PlanID, JobID: req.JobID,
 		ScheduleID: req.ScheduleID, ScheduleName: req.ScheduleName,
 		Branch: branch, Worktree: wt, Workdir: workdir, Tags: req.Tags,
 		Role: req.Role, Backend: req.Backend, Model: req.Model,

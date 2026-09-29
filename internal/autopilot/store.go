@@ -22,10 +22,14 @@ var (
 // RunRecord is the durable lifecycle authority for an autopilot run. Runtime
 // fields on Plan remain mirrors used for recovery and owner-facing writeback.
 type RunRecord struct {
-	RunID             string    `json:"run_id"`
-	Name              string    `json:"name"`
-	Repo              string    `json:"repo"`
-	PlanFile          string    `json:"plan_file"`
+	RunID    string `json:"run_id"`
+	Name     string `json:"name"`
+	Repo     string `json:"repo"`
+	PlanFile string `json:"plan_file"`
+	// PlanID and ProjectID are stamped at Register time by the daemon when this
+	// run is created from a plan; they are empty for other autopilot runs.
+	PlanID            string    `json:"plan_id,omitempty"`
+	ProjectID         string    `json:"project_id,omitempty"`
 	State             RunState  `json:"state"`
 	IntegrationBranch string    `json:"integration_branch,omitempty"`
 	Gate              string    `json:"gate,omitempty"`

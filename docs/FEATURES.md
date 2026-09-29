@@ -11,11 +11,14 @@ the "what exists" reference — for *how to use it* day to day see
 
 ## 1. Core architecture
 
-Warden has four separate entities: **Project, Agent, Terminal, and Pipeline**.
-A project's `agents[]`, `pipelines[]`, and `terminals[]` are complete,
-authoritative membership id lists, including nested agents and pipeline job
-agents. Clients render these stored lists instead of inferring membership from
-paths or scanning `project_id` back-references.
+Warden has six first-class members under a **Project**: agents, terminals,
+pipelines, plans, and autopilot runs (plus the project itself). A project's
+`agents[]`, `pipelines[]`, `terminals[]`, `plans[]`, and `autopilots[]` are
+complete, authoritative membership id lists, including nested agents and
+pipeline job agents. Clients render these stored lists instead of inferring
+membership from paths or scanning back-references. Execution entities created
+by running a plan carry a `plan_id` back-ref (pipeline, autopilot run, or
+orchestrator/manual session) so the relation is navigable in both directions.
 
 Agents store `parent_id`, `child_agents[]`, and `child_pipelines[]`. A pipeline
 stores `parent_agent_id` (empty for an operator-created pipeline) as the reverse

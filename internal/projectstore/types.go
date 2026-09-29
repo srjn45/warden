@@ -67,9 +67,16 @@ type Project struct {
 	// Terminals is the complete, ordered, de-duplicated id list of member terminals
 	// — plain shell panes (spec D2/§3.1, §3.3). Terminals are leaf members: they
 	// appear only here and never in any agent's child lists. Same semantics as Agents.
-	Terminals []string  `json:"terminals,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Terminals []string `json:"terminals,omitempty"`
+	// Plans is the complete, ordered, de-duplicated id list of member plans. Same
+	// authoritative-membership and dangling-id semantics as Agents.
+	Plans []string `json:"plans,omitempty"`
+	// Autopilots is the complete, ordered, de-duplicated id list of member
+	// autopilot runs. Same authoritative-membership and dangling-id semantics as
+	// Agents.
+	Autopilots []string  `json:"autopilots,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // ProjectGroup is a named collection of projects (Project Groups feature, Phase 1),
@@ -104,12 +111,16 @@ func (v Project) MarshalJSON() ([]byte, error) {
 	}
 	return json.Marshal(struct {
 		plain
-		Agents    *[]string `json:"agents,omitempty"`
-		Pipelines *[]string `json:"pipelines,omitempty"`
-		Terminals *[]string `json:"terminals,omitempty"`
+		Agents     *[]string `json:"agents,omitempty"`
+		Pipelines  *[]string `json:"pipelines,omitempty"`
+		Terminals  *[]string `json:"terminals,omitempty"`
+		Plans      *[]string `json:"plans,omitempty"`
+		Autopilots *[]string `json:"autopilots,omitempty"`
 	}{plain: plain(v),
-		Agents:    optional(v.Agents),
-		Pipelines: optional(v.Pipelines),
-		Terminals: optional(v.Terminals),
+		Agents:     optional(v.Agents),
+		Pipelines:  optional(v.Pipelines),
+		Terminals:  optional(v.Terminals),
+		Plans:      optional(v.Plans),
+		Autopilots: optional(v.Autopilots),
 	})
 }

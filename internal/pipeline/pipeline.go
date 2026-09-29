@@ -128,6 +128,9 @@ type Pipeline struct {
 	// agent-mode fire tagging.
 	ScheduleID   string `json:"schedule_id,omitempty" yaml:"-"`
 	ScheduleName string `json:"schedule_name,omitempty" yaml:"-"`
+	// PlanID back-refs the planstore plan this pipeline is executing. It is
+	// daemon-stamped at creation time; empty for pipelines not created from a plan.
+	PlanID string `json:"plan_id,omitempty" yaml:"-"`
 	// ProjectID back-refs the first-class project (projectstore) this pipeline
 	// belongs to; empty = ungrouped. It may be spec-authored (yaml:"project_id"),
 	// but the daemon has the final say at creation: an explicit request-body

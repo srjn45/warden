@@ -334,5 +334,6 @@ Warden tracks daemon-registered checkout roots and remote repositories as first-
 - Membership repair (CLI-only): `warden doctor --reconcile-membership` stamps missing
   `project_id` onto legacy sessions/pipelines by path-matching open projects and
   backfills missing membership. Existing authoritative `agents[]`/`pipelines[]`/
-  `terminals[]` lists, including dangling ids, are preserved
-  (daemon must be stopped). The daemon also runs this reconcile at boot.
+  `terminals[]`/`plans[]`/`autopilots[]` lists, including dangling ids, are
+  preserved (daemon must be stopped). The daemon also runs this reconcile at
+  boot (`plans[]`/`autopilots[]` are normally maintained at scan/create/run/delete).
