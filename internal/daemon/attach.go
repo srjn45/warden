@@ -13,7 +13,6 @@ import (
 	"github.com/creack/pty"
 	"github.com/go-chi/chi/v5"
 	"github.com/srjn45/warden/internal/lifecycle"
-	"github.com/srjn45/warden/internal/store"
 	"github.com/srjn45/warden/internal/tui"
 )
 
@@ -74,12 +73,13 @@ func parseResize(data []byte) (cols, rows uint16, ok bool) {
 // client only — the agent's tmux session keeps running.
 func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	sess, err := s.store.Get(r.Context(), id)
-	if errors.Is(err, store.ErrNotFound) {
-		writeErr(w, http.StatusNotFound, "session not found")
-		return
-	}
+	sess, err := s.resolveSession(r.Context(), id)
 	if err != nil {
+		var ae apiError
+		if errors.As(err, &ae) && ae.code == http.StatusNotFound {
+			writeErr(w, http.StatusNotFound, "session not found")
+			return
+		}
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}

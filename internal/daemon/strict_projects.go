@@ -347,6 +347,8 @@ func (s *Server) hibernateProjectAgents(ctx context.Context, p projectstore.Proj
 		}
 		s.reconcileJobOnTerminal(sess, store.StatusDone)
 	}
+	// Terminals hibernate through terminalstore (pane killed, record kept as orphaned).
+	s.hibernateProjectTerminals(ctx, p.ID)
 	s.notify()
 }
 
@@ -383,6 +385,7 @@ func (s *Server) restoreHibernatedAgents(ctx context.Context, p projectstore.Pro
 		}
 		restored = true
 	}
+	s.restoreHibernatedTerminals(ctx, p.ID)
 	if restored {
 		s.notify()
 	}
