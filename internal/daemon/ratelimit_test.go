@@ -12,6 +12,7 @@ import (
 
 	"github.com/srjn45/warden/internal/agentbackend"
 	"github.com/srjn45/warden/internal/lifecycle"
+	"github.com/srjn45/warden/internal/poller"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
@@ -146,7 +147,7 @@ func TestRateLimitScheduler_CaptureBanner_WritesExcerpt(t *testing.T) {
 	sched.CaptureDir = dir
 
 	excerpt := "Weekly limit reached · resets Thursday at 9am (Europe/Madrid)"
-	sched.captureBanner(&store.Session{ID: "cap-1", LastPaneExcerpt: excerpt})
+	sched.captureBannerExcerpt("cap-1", excerpt)
 
 	entries, err := os.ReadDir(dir)
 	require.NoError(t, err)
@@ -161,12 +162,12 @@ func TestRateLimitScheduler_CaptureBanner_NoopWithoutDirOrText(t *testing.T) {
 	sched := NewRateLimitScheduler(&fakeRateLimitLife{}, &rateLimitStore{}, 30*time.Minute, 6*time.Hour, time.Minute, true, "")
 
 	// No CaptureDir configured: a no-op, no panic.
-	sched.captureBanner(&store.Session{ID: "cap-1", LastPaneExcerpt: "banner"})
+	sched.captureBannerExcerpt("cap-1", "banner")
 
 	// CaptureDir set but blank excerpt: nothing is written.
 	dir := t.TempDir()
 	sched.CaptureDir = dir
-	sched.captureBanner(&store.Session{ID: "cap-1", LastPaneExcerpt: "   \n  "})
+	sched.captureBannerExcerpt("cap-1", "   \n  ")
 	entries, err := os.ReadDir(dir)
 	require.NoError(t, err)
 	require.Empty(t, entries, "a blank excerpt writes no capture")
@@ -178,10 +179,10 @@ func TestRateLimitScheduler_CaptureBanner_PrunesToNewestN(t *testing.T) {
 	sched.CaptureDir = dir
 
 	for i := 0; i < maxRateLimitCaptures+5; i++ {
-		sched.captureBanner(&store.Session{
-			ID:              "cap-" + strconv.Itoa(1000+i), // distinct ids → distinct filenames
-			LastPaneExcerpt: "banner " + strconv.Itoa(i),
-		})
+		sched.captureBannerExcerpt(
+			"cap-"+strconv.Itoa(1000+i), // distinct ids → distinct filenames
+			"banner "+strconv.Itoa(i),
+		)
 	}
 	entries, err := os.ReadDir(dir)
 	require.NoError(t, err)
@@ -670,7 +671,7 @@ func TestLimitClearsAt_BackendResolver(t *testing.T) {
 	sched.BackendResolver = func(s *store.Session) agentbackend.Backend { return b }
 
 	sess := &store.Session{ID: "s1", LastPaneExcerpt: "some non-Claude pane text"}
-	got := sched.limitClearsAt(sess)
+	got := sched.limitClearsAtExcerpt(sess, sess.LastPaneExcerpt)
 
 	// Should be wantReset + buffer (1 minute).
 	want := wantReset.Add(sched.buffer)
@@ -693,9 +694,130 @@ func TestLimitClearsAt_BackendResolverFallsThrough(t *testing.T) {
 
 	// Pane has a Claude banner with parseable time; legacy path should handle it.
 	sess := &store.Session{ID: "s2", LastPaneExcerpt: sampleLimitBanner}
-	got := sched.limitClearsAt(sess)
+	got := sched.limitClearsAtExcerpt(sess, sess.LastPaneExcerpt)
 
 	// The result must be after now (retryInterval or parsed time) — at minimum
 	// it should be in the future (retryInterval is 30 minutes).
 	require.True(t, got.After(time.Now()), "limitClearsAt fallback should return a future time")
+}
+
+// ---------------------------------------------------------------------------
+// Regression tests: OnRateLimitObservation must use the fresh excerpt, NOT the
+// stale sess.LastPaneExcerpt that was current before the poller's UpdatePane call.
+// Each test is designed to FAIL if the old pre-capture session snapshot is used.
+// ---------------------------------------------------------------------------
+
+// TestOnRateLimitObservation_UsesFreshExcerptForSchedule verifies that when
+// OnRateLimitObservation fires with a spend-cap banner in the observation, the
+// scheduler picks the long spendRetryInterval — not the fallback retryInterval
+// that would result from the stale (non-banner) LastPaneExcerpt.
+//
+// This test FAILS on the old code path (limitClearsAt consuming sess.LastPaneExcerpt)
+// because the stale excerpt contains no spend-cap banner → 30m fallback.
+func TestOnRateLimitObservation_UsesFreshExcerptForSchedule(t *testing.T) {
+	life := &fakeRateLimitLife{}
+	st := &rateLimitStore{sessions: make(map[string]*store.Session)}
+
+	// retryInterval=30m, spendRetryInterval=6h; the stale excerpt must trigger 30m,
+	// the fresh excerpt must trigger 6h.
+	sched := NewRateLimitScheduler(life, st, 30*time.Minute, 6*time.Hour, time.Minute, true, "")
+
+	sess := &store.Session{
+		ID:              "obs-sched-1",
+		Status:          store.StatusRateLimited,
+		LastPaneExcerpt: "stale: no banner here", // fallback → 30m if used
+	}
+	st.sessions["obs-sched-1"] = sess
+
+	// Fresh observation carries the spend-cap banner → must schedule on 6h.
+	obs := poller.NewRateLimitObservation("obs-sched-1", sampleSpendBanner)
+
+	before := time.Now()
+	sched.OnRateLimitObservation(obs)
+
+	require.NotNil(t, sess.RateLimitRestoreAt, "SetRateLimit must be called")
+	delay := sess.RateLimitRestoreAt.Sub(before)
+	require.Greater(t, delay, time.Hour,
+		"fresh excerpt (spend-cap banner) must schedule on spendRetryInterval (~6h), "+
+			"not the 30m fallback from the stale LastPaneExcerpt")
+}
+
+// TestOnRateLimitObservation_UsesFreshExcerptForCapture verifies that when
+// OnRateLimitObservation fires, the diagnostic capture writes the fresh excerpt
+// from the observation — not the stale LastPaneExcerpt on the session.
+//
+// This test FAILS on the old code path (captureBanner consuming sess.LastPaneExcerpt).
+func TestOnRateLimitObservation_UsesFreshExcerptForCapture(t *testing.T) {
+	dir := t.TempDir()
+	st := &rateLimitStore{sessions: make(map[string]*store.Session)}
+	sched := NewRateLimitScheduler(&fakeRateLimitLife{}, st, 30*time.Minute, 6*time.Hour, time.Minute, true, "")
+	sched.CaptureDir = dir
+
+	sess := &store.Session{
+		ID:              "obs-cap-1",
+		Status:          store.StatusRateLimited,
+		LastPaneExcerpt: "STALE_CONTENT", // must NOT appear in capture
+	}
+	st.sessions["obs-cap-1"] = sess
+
+	freshExcerpt := "FRESH_BANNER_CONTENT"
+	obs := poller.NewRateLimitObservation("obs-cap-1", freshExcerpt)
+	sched.OnRateLimitObservation(obs)
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "one capture file must be written")
+	body, err := os.ReadFile(filepath.Join(dir, entries[0].Name()))
+	require.NoError(t, err)
+	require.Equal(t, freshExcerpt, string(body),
+		"capture must write the fresh excerpt from the observation, not sess.LastPaneExcerpt")
+}
+
+// TestOnRateLimitObservation_HardLimitSwapPreemptsResume verifies that
+// OnRateLimitObservation respects the OnHardLimit gate: a successful swap
+// (returns true) must not arm a resume timer.
+func TestOnRateLimitObservation_HardLimitSwapPreemptsResume(t *testing.T) {
+	st := &rateLimitStore{sessions: make(map[string]*store.Session)}
+	sched := NewRateLimitScheduler(&fakeRateLimitLife{}, st, 30*time.Minute, 6*time.Hour, time.Minute, true, "")
+
+	var swapCalls int
+	sched.OnHardLimit = func(sess *store.Session, until time.Time) bool {
+		swapCalls++
+		require.False(t, until.IsZero(), "hard-limit receives the computed clear time")
+		return true
+	}
+
+	sess := &store.Session{ID: "obs-swap-1", Status: store.StatusRateLimited, LastPaneExcerpt: "stale"}
+	st.sessions["obs-swap-1"] = sess
+
+	obs := poller.NewRateLimitObservation("obs-swap-1", sampleLimitBanner)
+	sched.OnRateLimitObservation(obs)
+
+	require.Equal(t, 1, swapCalls, "OnHardLimit must fire via OnRateLimitObservation")
+	require.Equal(t, 0, st.setRateLimitCalls, "a successful swap must not schedule a resume")
+	sched.mu.Lock()
+	defer sched.mu.Unlock()
+	_, exists := sched.timers["obs-swap-1"]
+	require.False(t, exists, "a successful swap must not arm a resume timer")
+}
+
+// TestOnRateLimitObservation_CapturesEvenWhenAutoResumeOff verifies that the
+// diagnostic capture runs regardless of auto_resume when called via the
+// observation path.
+func TestOnRateLimitObservation_CapturesEvenWhenAutoResumeOff(t *testing.T) {
+	dir := t.TempDir()
+	st := &rateLimitStore{sessions: make(map[string]*store.Session)}
+	sched := NewRateLimitScheduler(&fakeRateLimitLife{}, st, 30*time.Minute, 6*time.Hour, time.Minute, false, "")
+	sched.CaptureDir = dir
+
+	sess := &store.Session{ID: "obs-cap-off-1", Status: store.StatusRateLimited, LastPaneExcerpt: "stale"}
+	st.sessions["obs-cap-off-1"] = sess
+
+	obs := poller.NewRateLimitObservation("obs-cap-off-1", sampleLimitBanner)
+	sched.OnRateLimitObservation(obs)
+
+	require.Equal(t, 0, st.setRateLimitCalls, "auto_resume off must not schedule a resume")
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "the capture aid runs regardless of auto_resume")
 }

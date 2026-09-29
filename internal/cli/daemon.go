@@ -556,11 +556,15 @@ func newDaemonRunCmd() *cobra.Command {
 			if err := recoveryCoordinator.Reconstruct(context.Background()); err != nil {
 				slog.Warn("backend recovery reconstruction failed", "err", err)
 			}
+			// Rate-limit transitions from the poller are handled via
+			// OnRateLimitObservation (wired below) so the scheduler receives the fresh
+			// pane excerpt captured this tick. rateLimitSched.OnTransition is kept as
+			// the fallback for pane-blind backends (usage_sync.go fires it directly).
+			pl.OnRateLimitObservation = rateLimitSched.OnRateLimitObservation
 			pl.OnTransition = func(sess *store.Session, from, to store.Status) {
 				notifyHook(sess, from, to)
 				exec.OnTransition(sess, from, to)
 				restarter.OnTransition(sess, from, to)
-				rateLimitSched.OnTransition(sess, from, to)
 				recoveryCoordinator.OnTransition(sess, from, to)
 			}
 			pl.OnContextAlert = func(sess *store.Session, state ctxtokens.State, tokens int) {
