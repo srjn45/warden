@@ -22,24 +22,9 @@ import (
 	"github.com/srjn45/warden/internal/store"
 )
 
-// Agent is the AI-agent projection of the former Session entity. Keeping the
-// same underlying shape preserves the wire contract and every field used by the
-// poller, recovery, autopilot, pipeline jobs, and hierarchy, while giving the
-// agent collection a first-class Go entity to depend on.
-type Agent store.Session
-
-// MarshalJSON retains Session's legacy-vs-authoritative hierarchy semantics.
-func (a Agent) MarshalJSON() ([]byte, error) { return store.Session(a).MarshalJSON() }
-
-func (a *Agent) IsTerminal() bool { return a.Kind == store.KindTerminal }
-
-// HasTag retains Session's normalized tag lookup for callers moving to Agent.
-func (a *Agent) HasTag(tag string) bool { return (*store.Session)(a).HasTag(tag) }
-
 var (
 	ErrNotFound = errors.New("agent not found")
 	ErrExists   = errors.New("agent already exists")
-	ErrNotAgent = errors.New("terminal sessions cannot be stored as agents")
 	// ErrNotOrphaned prevents recovery from reviving an agent that was not
 	// explicitly marked orphaned. Recovery is deliberately narrower than a
 	// generic status update: it is the safe repair path after daemon loss.
@@ -100,6 +85,14 @@ func New(dir string) (*Store, error) {
 	return s, nil
 }
 
+// isTerminalRecord probes a raw DB record for kind=terminal without decoding
+// the full Agent shape. Terminal records are excluded from the agent collection;
+// they belong in terminalstore.
+func isTerminalRecord(data map[string]any) bool {
+	kind, _ := data["kind"].(string)
+	return kind == string(store.KindTerminal)
+}
+
 func (s *Store) importActiveSessions(legacyDB string) error {
 	if _, err := os.Stat(legacyDB); errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -120,8 +113,12 @@ func (s *Store) importActiveSessions(legacyDB string) error {
 		return err
 	}
 	for _, row := range rows {
+		// Terminals belong in terminalstore; skip them here.
+		if isTerminalRecord(row.Data) {
+			continue
+		}
 		a, err := fromRecord(row.Data)
-		if err != nil || a.IsTerminal() {
+		if err != nil {
 			continue
 		}
 		rec, err := toRecord(a)
@@ -175,9 +172,6 @@ func (s *Store) Insert(ctx context.Context, a *Agent) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if a.IsTerminal() {
-		return ErrNotAgent
-	}
 	if err := store.SafeID(a.ID); err != nil {
 		return err
 	}
@@ -216,14 +210,13 @@ func (s *Store) Insert(ctx context.Context, a *Agent) error {
 // use Spawn so no half-initialized record is exposed on success.
 func (s *Store) Create(ctx context.Context, a *Agent) error { return s.Insert(ctx, a) }
 
-// Init records the runtime identity discovered when an agent starts. Tmux and
-// the AI CLI use different identifiers, both of which must survive restarts:
-// TmuxSession addresses the pane, while ClaudeSessionID pins the CLI resume
-// conversation (the field name is retained for wire compatibility).
+// Init records the runtime identity discovered when an agent starts. TmuxSession
+// addresses the pane; AICLISessionID pins the AI CLI resume conversation so the
+// transcript and backend resume off the exact session, not directory-scoping.
 func (s *Store) Init(ctx context.Context, id, tmuxSession, aiCLISessionID string) error {
 	return s.Update(ctx, id, func(a *Agent) error {
 		a.TmuxSession = tmuxSession
-		a.ClaudeSessionID = aiCLISessionID
+		a.AICLISessionID = aiCLISessionID
 		return nil
 	})
 }
