@@ -88,6 +88,29 @@ type Plan struct {
 	// Hub sync seam — reserved for future warden-hub sync; never set by this package.
 	SyncedAt *time.Time `json:"synced_at,omitempty"`
 	RemoteID string     `json:"remote_id,omitempty"`
+
+	// Execution model — flattened here for now; later tasks promote
+	// ActiveExecution to a first-class ScrivaDB record.
+
+	// ActiveExecution is the single currently-running execution of this plan.
+	// At most one is active at a time; nil when the plan is not running.
+	// New field: absent in old records → decodes as nil (backward-compatible).
+	ActiveExecution *PlanExecution `json:"active_execution,omitempty"`
+
+	// ExecutionHistory is the append-only list of all past executions.
+	// New field: absent in old records → decodes as nil (backward-compatible).
+	ExecutionHistory []PlanExecution `json:"execution_history,omitempty"`
+
+	// TaskOutcomes records terminal evidence for each task: agent assignment,
+	// verified checks, PRs opened, and final status. Lives on the Plan (not on
+	// the worker Agent) so it survives Agent teardown.
+	// New field: absent in old records → decodes as nil (backward-compatible).
+	TaskOutcomes map[string]TaskOutcome `json:"task_outcomes,omitempty"`
+
+	// BranchSummaries records each git branch opened during execution with its
+	// linked task, agent, and PR evidence.
+	// New field: absent in old records → decodes as nil (backward-compatible).
+	BranchSummaries []BranchSummary `json:"branch_summaries,omitempty"`
 }
 
 var (
