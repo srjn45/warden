@@ -413,7 +413,7 @@ func TestPlanKeybindings_RunModePicker(t *testing.T) {
 func TestPlanKeybindings_EnterDetail(t *testing.T) {
 	a := &fakeAPI{}
 
-	// Case 1: Cockpit with agentPane ("%9")
+	// Case 1: Cockpit with agentPane still uses the in-control-pane viewport.
 	m := setupPlanTestModel(a)
 	m.agentPane = "%9"
 	m.cursor = 4
@@ -422,9 +422,17 @@ func TestPlanKeybindings_EnterDetail(t *testing.T) {
 	nm, cmd := m.Update(key("enter"))
 	m = nm.(controlPaneModel)
 	require.Equal(t, "plan-ip", m.openedPlan)
-	require.NotNil(t, cmd)
+	require.Nil(t, cmd)
+	require.Equal(t, modePlanDetail, m.mode)
+	require.Equal(t, "plan-ip", m.targetPlanID)
+	require.Contains(t, m.vp.View(), "Active Work")
 
-	// Case 2: Cockpit without agentPane (in-pane detail)
+	nm, toggleCmd := m.Update(key("t"))
+	m = nm.(controlPaneModel)
+	require.Nil(t, toggleCmd)
+	require.True(t, m.planDetailExpanded)
+
+	// Case 2: Cockpit without agentPane also uses the in-pane detail.
 	mNoAgent := setupPlanTestModel(a)
 	mNoAgent.agentPane = ""
 	mNoAgent.cursor = 4
