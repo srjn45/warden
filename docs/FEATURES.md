@@ -1506,8 +1506,8 @@ The daemon auto-scans each registered project's `plans/` directory at startup (d
 |---|---|---|
 | `autopilot` | Calls `register_autopilot_run` with the plan `file_path`; stores `AutopilotRunID`; git-mv to `in_progress/` | Daemon watches for run `completed` → git-mv to `completed/` |
 | `pipeline` | Creates a pipeline (one job per YAML task); stores `PipelineID`; git-mv | Daemon watches for pipeline `done` → git-mv to `completed/` |
-| `orchestrator_worker` | Spawns orchestrator agent with plan as context; each worker requires human approval; stores `OrchestratorID`; git-mv | Manual: `wd plan status <id> completed` |
-| `manual` | git-mv to `in_progress/` only; no execution entity | Manual: `wd plan status <id> completed` |
+| `orchestrator_worker` | Spawns orchestrator agent with plan as context; each worker requires human approval; stores `OrchestratorID`; git-mv | `wd plan complete <id>` |
+| `manual` | git-mv to `in_progress/` only; no execution entity | `wd plan complete <id>` |
 
 ### 37.6 Brain-assisted progress assessment
 
@@ -1533,13 +1533,16 @@ Opt-in only. Also available as `wd plan scan --assess` (runs for all `in_progres
 | Command | Action |
 |---|---|
 | `wd plan list [--status <s>] [--json]` | List plans for a project (optionally filtered by status) |
-| `wd plan show <id> [--json]` | Full record: status, file path, execution mode, linked IDs, task progress, timestamps |
+| `wd plan create --name <n> --goal <g> [--task id:prompt]` | Write `plans/pending/<slug>.yaml` + DB record (TTY prompts for tasks) |
+| `wd plan show <id> [--json]` | Full record: goal, tasks, status, file path, execution mode, linked IDs, timestamps |
 | `wd plan import <file>` | Copy a YAML into `plans/pending/` and scan |
 | `wd plan scan [--migrate-flat] [--assess]` | Walk directories and upsert plan records |
-| `wd plan status <id> <new-status>` | git mv + commit + DB update |
-| `wd plan archive <id>` | Shorthand: status → `archived` |
+| `wd plan status <id> <new-status>` | Legacy project-scoped git mv + commit + DB update |
+| `wd plan done <id> <task-id>` | Shorthand: update-task-status → `done` |
+| `wd plan complete <id>` | `in_progress` → `completed` (blocked by incomplete tasks / unmerged branches) |
+| `wd plan archive <id>` | Any status → `archived` |
 | `wd plan assess <id>` | Brain-based task progress reconstruction |
-| `wd plan run <id> --mode <mode>` | Start execution in the given mode |
+| `wd plan run <id> --mode <mode>` | Start execution (`autopilot`\|`pipeline`\|`orchestrator`\|`manual`) |
 
 ### 37.9 MCP tools
 
@@ -1564,8 +1567,7 @@ Plans appear **above agents** in the project tree, grouped by status with count 
 ### 37.11 Non-goals
 
 - Warden-hub plan sync (deferred; `synced_at`/`remote_id` fields reserved)
-- Creating a plan YAML from the CLI (use `create_plan` / the REST API, `warden autopilot init`, or write the file directly)
-- Per-task execution (plans run as a whole; `update_task_status` records progress only)
+- Per-task execution (plans run as a whole; `update_task_status` / `wd plan done` records progress only)
 
 ---
 

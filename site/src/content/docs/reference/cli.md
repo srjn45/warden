@@ -1120,24 +1120,27 @@ Inherited flags:
 Manage plans tracked by the daemon.
 
 Plans are YAML files stored in plans/{pending,in_progress,completed,archived}/
-inside a project repository. The daemon scans those files and tracks their
-execution state (links to autopilot runs, pipelines, and task progress).
+inside a project repository. The daemon tracks their definition (goal, tasks)
+and execution state (links to autopilot runs, pipelines, and task progress).
 
-Status is encoded in the directory: moving a YAML file changes its status.
-`wd plan status` performs the git mv, commits, and updates the DB record.
+Create with `wd plan create`, start with `wd plan run`, mark tasks done with
+`wd plan done`, then `wd plan complete` (or `wd plan archive`).
 
 Usage:
   warden plan [flags]
 
 Commands:
   list                 List plans for a project
+  create               Create a plan (writes YAML + DB record)
   show                 Show detail for one plan
+  run                  Start execution of a plan in the given mode
+  done                 Mark a plan task done
+  complete             Complete a plan (in_progress → completed)
+  archive              Archive a plan (any status → archived)
   import               Copy a plan YAML into plans/pending/ and scan
   scan                 Scan a project's plans/ directory and upsert plan records
   status               Transition a plan's status (git mv + commit + DB update)
-  archive              Archive a plan (shorthand for `plan status <id> archived`)
-  assess               Brain-assisted task progress assessment (Phase 4 stub)
-  run                  Start execution of a plan in the given mode (Phase 5 stub)
+  assess               Brain-assisted task progress assessment
 
 Flags:
   -h, --help   help for plan
@@ -1172,18 +1175,124 @@ Aliases:
   ls
 ```
 
+## warden plan create
+
+```text
+Create a new pending plan: writes plans/pending/<slug>.yaml and inserts the
+daemon record. --name and --goal are required. Supply tasks with repeatable
+--task id:prompt flags, or (when stdin is a TTY) enter them interactively.
+
+Optional --constraint and --done-when may be repeated.
+
+Usage:
+  warden plan create --name <name> --goal <text> [flags]
+
+Flags:
+      --constraint stringArray   constraint the workers must follow (repeatable)
+      --done-when stringArray    completion criterion (repeatable)
+      --goal string              what the plan is trying to achieve
+  -h, --help                     help for create
+      --json                     output as JSON
+      --name string              plan name (used for the YAML filename slug)
+      --project string           project ID (default: current directory)
+      --task stringArray         task as id:prompt (repeatable; skip interactive prompt)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
 ## warden plan show
 
 ```text
-Show the full record for one plan: status, file path, execution mode, linked IDs, task progress, and timestamps.
+Show the full record for one plan: goal, tasks, status, file path, execution mode, linked IDs, task progress, and timestamps.
 
 Usage:
   warden plan show <plan-id> [flags]
 
 Flags:
-  -h, --help             help for show
-      --json             output as JSON
-      --project string   project ID (default: current directory)
+  -h, --help   help for show
+      --json   output as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan run
+
+```text
+Start execution of a plan (pending → in_progress). The mode determines how
+the plan is executed:
+
+  autopilot           Fully autonomous run registered with the autopilot
+  pipeline            Each task becomes a pipeline job
+  orchestrator        Orchestrator + workers with human approval gates
+  manual              State tracking only; human drives all prompting
+
+`orchestrator` is accepted as an alias for `orchestrator_worker`.
+
+Usage:
+  warden plan run <plan-id> [flags]
+
+Flags:
+  -h, --help          help for run
+      --json          output as JSON
+      --mode string   execution mode: autopilot|pipeline|orchestrator|manual
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan done
+
+```text
+Shorthand for updating one task's status to done. Updates TaskProgress in
+the daemon only (the YAML is unchanged).
+
+Usage:
+  warden plan done <plan-id> <task-id> [flags]
+
+Flags:
+  -h, --help   help for done
+      --json   output as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan complete
+
+```text
+Complete a plan: in_progress → completed. Blocked if any task is not
+done/skipped or any associated branch is still unmerged. On success moves
+the YAML to plans/completed/ and cleans up worktrees.
+
+Usage:
+  warden plan complete <plan-id> [flags]
+
+Flags:
+  -h, --help   help for complete
+      --json   output as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan archive
+
+```text
+Move a plan to the archived state. Allowed from any status. Moves the YAML to plans/archived/.
+
+Usage:
+  warden plan archive <plan-id> [flags]
+
+Flags:
+  -h, --help   help for archive
+      --json   output as JSON
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -1221,7 +1330,7 @@ Usage:
   warden plan scan [flags]
 
 Flags:
-      --assess           run brain-assisted progress assessment for in_progress plans (Phase 4 stub)
+      --assess           run brain-assisted progress assessment for in_progress plans
   -h, --help             help for scan
       --migrate-flat     move flat plans/*.yaml files into plans/pending/ with git mv + commit
       --project string   project ID (default: current directory)
@@ -1234,9 +1343,9 @@ Inherited flags:
 ## warden plan status
 
 ```text
-Change a plan's lifecycle status. The daemon updates the DB record and
-performs a git mv of the YAML file to the correct plans/<status>/ subdirectory,
-then creates a commit.
+Change a plan's lifecycle status via the project-scoped API. Prefer
+`wd plan run` / `wd plan complete` / `wd plan archive` for the PlanService
+state machine.
 
 Valid statuses: pending | in_progress | completed | archived
 
@@ -1252,61 +1361,17 @@ Inherited flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden plan archive
-
-```text
-Move a plan to the archived state. Equivalent to `wd plan status <id> archived`.
-
-Usage:
-  warden plan archive <plan-id> [flags]
-
-Flags:
-  -h, --help             help for archive
-      --project string   project ID (default: current directory)
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
 ## warden plan assess
 
 ```text
 Use a brain model to reconstruct task progress from git history and open PRs.
-Updates task_progress in the DB record.
-
-Note: this is a Phase 4 feature stub — the daemon returns 501 until Phase 4 ships.
+Updates task_progress in the DB record. Opt-in — never run automatically.
 
 Usage:
   warden plan assess <plan-id> [flags]
 
 Flags:
   -h, --help             help for assess
-      --project string   project ID (default: current directory)
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden plan run
-
-```text
-Start execution of a plan. The mode determines how the plan is executed:
-
-  autopilot           Fully autonomous run registered with the autopilot
-  pipeline            Each task becomes a pipeline job
-  orchestrator_worker Orchestrator + workers with human approval gates
-  manual              State tracking only; human drives all prompting
-
-Note: this is a Phase 5 feature stub — the daemon returns 501 until Phase 5 ships.
-
-Usage:
-  warden plan run <plan-id> --mode <mode> [flags]
-
-Flags:
-  -h, --help             help for run
-      --mode string      execution mode: autopilot|pipeline|orchestrator_worker|manual
       --project string   project ID (default: current directory)
 
 Inherited flags:

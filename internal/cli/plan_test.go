@@ -5,15 +5,16 @@ import (
 	"testing"
 )
 
-const planListJSON = `{"plans":[
+const planListJSON = `[
 	{"id":"plan-ab12cd34","project_id":"proj1","name":"feature-x","file_path":"plans/pending/feature-x.yaml",
-	 "status":"pending","created_at":"2026-09-28T00:00:00Z","updated_at":"2026-09-28T00:00:00Z"},
+	 "goal":"ship it","status":"pending","created_at":"2026-09-28T00:00:00Z","updated_at":"2026-09-28T00:00:00Z"},
 	{"id":"plan-ef56ab78","project_id":"proj1","name":"brain-consult","file_path":"plans/in_progress/brain-consult.yaml",
 	 "status":"in_progress","execution_mode":"autopilot","created_at":"2026-09-28T00:00:00Z","updated_at":"2026-09-28T01:00:00Z"}
-]}`
+]`
 
 const planSingleJSON = `{"id":"plan-ab12cd34","project_id":"proj1","name":"feature-x",
-	"file_path":"plans/pending/feature-x.yaml","status":"pending",
+	"goal":"ship it","file_path":"plans/pending/feature-x.yaml","status":"pending",
+	"tasks":[{"id":"t1","prompt":"do the work"}],
 	"created_at":"2026-09-28T00:00:00Z","updated_at":"2026-09-28T00:00:00Z"}`
 
 const scanResultJSON = `{"upserted":3}`
@@ -25,7 +26,7 @@ const planProjectID = "proj1"
 
 func TestPlanListCmd(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"GET /api/v1/projects/proj1/plans": planListJSON,
+		"GET /api/v1/plans": planListJSON,
 	}, nil, nil))
 	out, err := runCLI(t, addr, "plan", "list", "--project", planProjectID)
 	if err != nil {
@@ -40,15 +41,12 @@ func TestPlanListCmd(t *testing.T) {
 
 func TestPlanListCmdStatusFilter(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"GET /api/v1/projects/proj1/plans": planListJSON,
+		"GET /api/v1/plans": planListJSON,
 	}, nil, nil))
-	// With --status, the client appends ?status=pending to the URL.
-	// The stub matches only on Path (no query), so it still returns the full list.
 	out, err := runCLI(t, addr, "plan", "list", "--project", planProjectID, "--status", "pending")
 	if err != nil {
 		t.Fatalf("plan list --status: %v", err)
 	}
-	// Both plans are returned by the stub; command succeeds.
 	if !strings.Contains(out, "feature-x") {
 		t.Fatalf("plan list --status output: %q", out)
 	}
@@ -56,7 +54,7 @@ func TestPlanListCmdStatusFilter(t *testing.T) {
 
 func TestPlanListCmdJSON(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"GET /api/v1/projects/proj1/plans": planListJSON,
+		"GET /api/v1/plans": planListJSON,
 	}, nil, nil))
 	out, err := runCLI(t, addr, "plan", "list", "--project", planProjectID, "--json")
 	if err != nil {
@@ -69,16 +67,82 @@ func TestPlanListCmdJSON(t *testing.T) {
 
 func TestPlanShowCmd(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"GET /api/v1/projects/proj1/plans/plan-ab12cd34": planSingleJSON,
+		"GET /api/v1/plans/plan-ab12cd34": planSingleJSON,
 	}, nil, nil))
-	out, err := runCLI(t, addr, "plan", "show", "plan-ab12cd34", "--project", planProjectID)
+	out, err := runCLI(t, addr, "plan", "show", "plan-ab12cd34")
 	if err != nil {
 		t.Fatalf("plan show: %v", err)
 	}
-	for _, want := range []string{"plan-ab12cd34", "feature-x", "pending", "plans/pending/feature-x.yaml"} {
+	for _, want := range []string{"plan-ab12cd34", "feature-x", "pending", "plans/pending/feature-x.yaml", "ship it", "t1"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("plan show missing %q: %q", want, out)
 		}
+	}
+}
+
+func TestPlanCreateCmd(t *testing.T) {
+	body := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"POST /api/v1/plans": planSingleJSON,
+	}, nil, body))
+	out, err := runCLI(t, addr, "plan", "create",
+		"--project", planProjectID,
+		"--name", "feature-x",
+		"--goal", "ship it",
+		"--task", "t1:do the work",
+	)
+	if err != nil {
+		t.Fatalf("plan create: %v", err)
+	}
+	if !strings.Contains(out, "created plan plan-ab12cd34") {
+		t.Fatalf("plan create output: %q", out)
+	}
+	posted := body["/api/v1/plans"]
+	for _, want := range []string{`"name":"feature-x"`, `"goal":"ship it"`, `"id":"t1"`, `"prompt":"do the work"`, `"project_id":"proj1"`} {
+		if !strings.Contains(posted, want) {
+			t.Fatalf("create body missing %q: %q", want, posted)
+		}
+	}
+}
+
+func TestPlanCreateCmdInteractive(t *testing.T) {
+	body := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"POST /api/v1/plans": planSingleJSON,
+	}, nil, body))
+	out, err := runCLIStdin(t, addr, "t1\ndo the work\n\n",
+		"plan", "create",
+		"--project", planProjectID,
+		"--name", "feature-x",
+		"--goal", "ship it",
+	)
+	if err != nil {
+		t.Fatalf("plan create interactive: %v\n%s", err, out)
+	}
+	if !strings.Contains(body["/api/v1/plans"], `"id":"t1"`) {
+		t.Fatalf("interactive task not forwarded: %q", body["/api/v1/plans"])
+	}
+}
+
+func TestPlanCreateCmdRequiresTaskWhenNonTTY(t *testing.T) {
+	_, err := runCLIStdin(t, "", "",
+		"plan", "create",
+		"--project", planProjectID,
+		"--name", "feature-x",
+		"--goal", "ship it",
+	)
+	if err == nil {
+		t.Fatal("expected error when no --task and stdin is not a tty")
+	}
+	if !strings.Contains(err.Error(), "--task") {
+		t.Fatalf("expected --task mention: %v", err)
+	}
+}
+
+func TestPlanCreateCmdRequiresName(t *testing.T) {
+	_, err := runCLI(t, "", "plan", "create", "--goal", "ship it", "--task", "t1:work")
+	if err == nil {
+		t.Fatal("expected error when --name is missing")
 	}
 }
 
@@ -130,22 +194,22 @@ func TestPlanStatusCmd(t *testing.T) {
 }
 
 func TestPlanArchiveCmd(t *testing.T) {
-	body := map[string]string{}
+	seen := map[string]string{}
 	archivedJSON := `{"id":"plan-ab12cd34","project_id":"proj1","name":"feature-x",
 		"file_path":"plans/archived/feature-x.yaml","status":"archived",
 		"created_at":"2026-09-28T00:00:00Z","updated_at":"2026-09-28T03:00:00Z"}`
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"PATCH /api/v1/projects/proj1/plans/plan-ab12cd34": archivedJSON,
-	}, nil, body))
-	out, err := runCLI(t, addr, "plan", "archive", "plan-ab12cd34", "--project", planProjectID)
+		"POST /api/v1/plans/plan-ab12cd34/archive": archivedJSON,
+	}, seen, nil))
+	out, err := runCLI(t, addr, "plan", "archive", "plan-ab12cd34")
 	if err != nil {
 		t.Fatalf("plan archive: %v", err)
 	}
 	if !strings.Contains(out, "archived") {
 		t.Fatalf("plan archive output: %q", out)
 	}
-	if !strings.Contains(body["/api/v1/projects/proj1/plans/plan-ab12cd34"], `"status":"archived"`) {
-		t.Fatalf("archived status not forwarded: %q", body["/api/v1/projects/proj1/plans/plan-ab12cd34"])
+	if seen["/api/v1/plans/plan-ab12cd34/archive"] != "POST" {
+		t.Fatalf("archive not POSTed: %q", seen)
 	}
 }
 
@@ -155,8 +219,6 @@ func TestPlanAssessCmd(t *testing.T) {
 		"POST /api/v1/projects/proj1/plans/plan-ab12cd34/assess": `{}`,
 	}, seen, nil))
 	_, err := runCLI(t, addr, "plan", "assess", "plan-ab12cd34", "--project", planProjectID)
-	// A 501 stub response is returned by the daemon; the CLI treats non-4xx as success.
-	// In the test stub we return {} (200), so no error.
 	if err != nil {
 		t.Fatalf("plan assess: %v", err)
 	}
@@ -166,7 +228,7 @@ func TestPlanAssessCmd(t *testing.T) {
 }
 
 func TestPlanRunCmdRequiresMode(t *testing.T) {
-	_, err := runCLI(t, "", "plan", "run", "plan-ab12cd34", "--project", planProjectID)
+	_, err := runCLI(t, "", "plan", "run", "plan-ab12cd34")
 	if err == nil {
 		t.Fatal("expected error when --mode is missing")
 	}
@@ -179,25 +241,108 @@ func TestPlanRunCmd(t *testing.T) {
 	seen := map[string]string{}
 	body := map[string]string{}
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"POST /api/v1/projects/proj1/plans/plan-ab12cd34/run": `{}`,
+		"POST /api/v1/plans/plan-ab12cd34/run": planSingleJSON,
 	}, seen, body))
-	_, err := runCLI(t, addr, "plan", "run", "plan-ab12cd34", "--mode", "autopilot", "--project", planProjectID)
-	// 501 stub returns {} (200 in test), so no error.
+	out, err := runCLI(t, addr, "plan", "run", "plan-ab12cd34", "--mode", "autopilot")
 	if err != nil {
 		t.Fatalf("plan run: %v", err)
 	}
-	if seen["/api/v1/projects/proj1/plans/plan-ab12cd34/run"] != "POST" {
+	if seen["/api/v1/plans/plan-ab12cd34/run"] != "POST" {
 		t.Fatalf("run not POSTed: %q", seen)
 	}
-	if !strings.Contains(body["/api/v1/projects/proj1/plans/plan-ab12cd34/run"], `"mode":"autopilot"`) {
-		t.Fatalf("mode not forwarded: %q", body["/api/v1/projects/proj1/plans/plan-ab12cd34/run"])
+	if !strings.Contains(body["/api/v1/plans/plan-ab12cd34/run"], `"execution_mode":"autopilot"`) {
+		t.Fatalf("mode not forwarded: %q", body["/api/v1/plans/plan-ab12cd34/run"])
+	}
+	if !strings.Contains(out, "run started") {
+		t.Fatalf("plan run output: %q", out)
+	}
+}
+
+func TestPlanRunCmdOrchestratorAlias(t *testing.T) {
+	body := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"POST /api/v1/plans/plan-ab12cd34/run": planSingleJSON,
+	}, nil, body))
+	_, err := runCLI(t, addr, "plan", "run", "plan-ab12cd34", "--mode", "orchestrator")
+	if err != nil {
+		t.Fatalf("plan run --mode orchestrator: %v", err)
+	}
+	if !strings.Contains(body["/api/v1/plans/plan-ab12cd34/run"], `"execution_mode":"orchestrator_worker"`) {
+		t.Fatalf("orchestrator not mapped: %q", body["/api/v1/plans/plan-ab12cd34/run"])
+	}
+}
+
+func TestPlanDoneCmd(t *testing.T) {
+	seen := map[string]string{}
+	body := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"POST /api/v1/plans/plan-ab12cd34/tasks/t1/status": planSingleJSON,
+	}, seen, body))
+	out, err := runCLI(t, addr, "plan", "done", "plan-ab12cd34", "t1")
+	if err != nil {
+		t.Fatalf("plan done: %v", err)
+	}
+	if seen["/api/v1/plans/plan-ab12cd34/tasks/t1/status"] != "POST" {
+		t.Fatalf("done not POSTed: %q", seen)
+	}
+	if !strings.Contains(body["/api/v1/plans/plan-ab12cd34/tasks/t1/status"], `"status":"done"`) {
+		t.Fatalf("status not forwarded: %q", body["/api/v1/plans/plan-ab12cd34/tasks/t1/status"])
+	}
+	if !strings.Contains(out, "t1") || !strings.Contains(out, "done") {
+		t.Fatalf("plan done output: %q", out)
+	}
+}
+
+func TestPlanCompleteCmd(t *testing.T) {
+	seen := map[string]string{}
+	completedJSON := `{"id":"plan-ab12cd34","project_id":"proj1","name":"feature-x",
+		"file_path":"plans/completed/feature-x.yaml","status":"completed",
+		"created_at":"2026-09-28T00:00:00Z","updated_at":"2026-09-28T04:00:00Z"}`
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"POST /api/v1/plans/plan-ab12cd34/complete": completedJSON,
+	}, seen, nil))
+	out, err := runCLI(t, addr, "plan", "complete", "plan-ab12cd34")
+	if err != nil {
+		t.Fatalf("plan complete: %v", err)
+	}
+	if seen["/api/v1/plans/plan-ab12cd34/complete"] != "POST" {
+		t.Fatalf("complete not POSTed: %q", seen)
+	}
+	if !strings.Contains(out, "completed") {
+		t.Fatalf("plan complete output: %q", out)
 	}
 }
 
 func TestPlanStatusCmdArgCount(t *testing.T) {
-	// Missing new-status argument.
 	_, err := runCLI(t, "", "plan", "status", "plan-ab12cd34")
 	if err == nil {
 		t.Fatal("expected error when new-status is missing")
+	}
+}
+
+func TestNormalizePlanRunMode(t *testing.T) {
+	got, err := normalizePlanRunMode("orchestrator")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "orchestrator_worker" {
+		t.Fatalf("got %q", got)
+	}
+	if _, err := normalizePlanRunMode("bogus"); err == nil {
+		t.Fatal("expected error for unknown mode")
+	}
+}
+
+func TestParsePlanTaskFlag(t *testing.T) {
+	t.Parallel()
+	got, err := parsePlanTaskFlag("t1:do the work:with a colon")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "t1" || got.Prompt != "do the work:with a colon" {
+		t.Fatalf("got %+v", got)
+	}
+	if _, err := parsePlanTaskFlag("no-colon"); err == nil {
+		t.Fatal("expected error")
 	}
 }
