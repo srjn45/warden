@@ -203,6 +203,13 @@ func (s *Server) ScanProjectPlans(ctx context.Context, req oapi.ScanProjectPlans
 	if err != nil {
 		return nil, errStatus(http.StatusInternalServerError, "scan plans: "+err.Error())
 	}
+	if plans, listErr := s.plans.ListByProject(ctx, req.ProjectId); listErr != nil {
+		slog.Warn("daemon: plan membership: list after scan failed", "project", req.ProjectId, "err", listErr)
+	} else {
+		for _, p := range plans {
+			s.addPlanMembership(p.ID, req.ProjectId)
+		}
+	}
 	return oapi.ScanProjectPlans200JSONResponse{Upserted: n}, nil
 }
 
@@ -369,50 +376,6 @@ func (s *Server) CreatePlan(ctx context.Context, req oapi.CreatePlanRequestObjec
 	}
 	s.addPlanMembership(created.ID, projectID)
 	return oapi.CreatePlan201JSONResponse(s.planToOAPI(created)), nil
-}
-
-// ScanPlans implements POST /api/v1/projects/{project_id}/plans/scan.
-// Walks the project's plans/ directory and upserts discovered plans.
-// When migrate_flat is true, flat plans/*.yaml files are moved into
-// plans/pending/ with git mv and committed.
-func (s *Server) ScanPlans(ctx context.Context, req oapi.ScanPlansRequestObject) (oapi.ScanPlansResponseObject, error) {
-	if s.plans == nil {
-		return nil, planNotConfigured()
-	}
-
-	root := s.resolvePlanRoot(req.ProjectId)
-	if root == "" {
-		return oapi.ScanPlans404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "project not found"}}, nil
-	}
-
-	var migrateFlat, assess bool
-	if req.Body != nil {
-		migrateFlat = req.Body.MigrateFlat
-		assess = req.Body.Assess
-	}
-
-	if migrateFlat {
-		if err := migrateFlatPlans(ctx, root); err != nil {
-			return nil, errStatus(http.StatusInternalServerError, "migrate flat plans: "+err.Error())
-		}
-	}
-
-	n, err := planstore.ScanProject(ctx, s.plans, req.ProjectId, root)
-	if err != nil {
-		return nil, errStatus(http.StatusInternalServerError, "scan plans: "+err.Error())
-	}
-	// Best-effort: membership must never fail the scan itself.
-	if plans, listErr := s.plans.ListByProject(ctx, req.ProjectId); listErr != nil {
-		slog.Warn("daemon: plan membership: list after scan failed", "project", req.ProjectId, "err", listErr)
-	} else {
-		for _, p := range plans {
-			s.addPlanMembership(p.ID, req.ProjectId)
-		}
-	}
-
-	_ = assess // Phase 4 stub — assessment not yet implemented
-
-	return oapi.ScanPlans200JSONResponse{Upserted: n}, nil
 }
 
 // GetPlan implements GET /api/v1/plans/{plan_id}.
