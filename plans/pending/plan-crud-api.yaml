@@ -1,0 +1,189 @@
+version: 1
+name: plan-crud-api
+goal: >-
+  Introduce a full Plan CRUD REST API, MCP tools, and CLI commands so plans
+  can be created, read, updated, executed, and completed programmatically —
+  with YAML file writing, ScrivaDB sync, structured JSON validation, state
+  machine enforcement, and branch/worktree cleanup on completion.
+constraints:
+  - API is spec-first: edit internal/daemon/apidocs/openapi.yaml then `make generate`; never hand-edit api.gen.go.
+  - Run `make verify-fast` before every commit/push.
+  - Keep the tree green — fix any test failures introduced by your changes before opening a PR.
+  - Streaming/WebSocket routes must be added to oapi/config.yaml exclude list if needed.
+tasks:
+  - id: openapi-spec
+    prompt: >-
+      Add all Plan CRUD endpoints to `internal/daemon/apidocs/openapi.yaml`.
+      Follow the existing style (see /api/v1/pipelines for reference).
+
+      Endpoints to add:
+
+        GET    /api/v1/plans
+          Query params: project_id (required), status (optional filter)
+          Response: array of Plan objects
+
+        POST   /api/v1/plans
+          Body: CreatePlanRequest { project_id, name, goal, tasks[], constraints[], done_when[] }
+          tasks item: { id, prompt, after[]? }
+          Response: Plan object
+
+        GET    /api/v1/plans/{plan_id}
+          Response: Plan object (includes task_progress map)
+
+        PATCH  /api/v1/plans/{plan_id}
+          Body: UpdatePlanRequest { name?, goal?, tasks[]?, constraints[]?, done_when[]? }
+          Only allowed when plan status == pending; return 409 otherwise.
+
+        POST   /api/v1/plans/{plan_id}/run
+          Body: RunPlanRequest { execution_mode: "autopilot"|"pipeline"|"orchestrator_worker"|"manual" }
+          Transitions pending → in_progress; starts execution.
+
+        POST   /api/v1/plans/{plan_id}/tasks/{task_id}/status
+          Body: UpdateTaskStatusRequest { status: "pending"|"in_progress"|"done"|"skipped" }
+          Updates TaskProgress in DB only (YAML unchanged).
+
+        POST   /api/v1/plans/{plan_id}/complete
+          No body. Guards: all tasks must be done/skipped, all associated branches must be merged.
+          Transitions in_progress → completed; moves file to plans/completed/; cleans up worktrees/branches.
+
+        POST   /api/v1/plans/{plan_id}/archive
+          No body. Allowed from any status.
+          Transitions → archived; moves file to plans/archived/.
+
+      After editing, run `make generate` to regenerate api.gen.go.
+
+  - id: planstore-service
+    prompt: >-
+      Implement a service layer in `internal/planstore/` that backs all CRUD
+      operations. This is the single place where business logic lives — API
+      handlers and MCP tools both call into it.
+
+      Create `internal/planstore/service.go` with a `PlanService` struct that
+      wraps the existing store and exposes:
+
+        Create(ctx, projectID string, req CreateRequest) (*Plan, error)
+          - Validate required fields (name non-empty, at least one task, each
+            task has id+prompt, after refs exist within the task list).
+          - Derive filename: strings.ToLower(strings.ReplaceAll(name, " ", "-")) + ".yaml"
+          - Write to <projectRoot>/plans/pending/<slug>.yaml (atomic:
+            write temp file → DB Insert → os.Rename).
+          - On DB insert failure: remove temp file and return error.
+
+        Update(ctx, planID string, req UpdateRequest) (*Plan, error)
+          - Reject if plan.Status != pending (return ErrNotPending).
+          - Validate same rules as Create for the fields being updated.
+          - Overwrite YAML file; update DB name/updated_at.
+
+        Transition(ctx, planID string, to PlanStatus, opts TransitionOptions) (*Plan, error)
+          - Enforce the allowed state machine:
+              pending      → in_progress, archived
+              in_progress  → pending, completed, archived
+              completed    → archived
+              archived     → (none)
+          - For in_progress → completed: call checkTasksDone and checkBranchesMerged first.
+          - Move file between plans/ subdirectories atomically (os.Rename).
+          - Update DB status, completed_at/started_at as appropriate.
+
+        checkTasksDone(plan *Plan) error
+          - Load tasks from YAML via planTasksFromPlan.
+          - Verify every task ID appears in plan.TaskProgress with status "done" or "skipped".
+          - Return list of incomplete task IDs if any.
+
+        checkBranchesMerged(ctx, plan *Plan) error
+          - Look for local git branches matching the plan (store branch list in a new
+            PlanBranches []string field on the Plan DB record, populated by run/scan).
+          - For each branch: check via `gh pr list --head <branch> --state open` whether
+            an open PR exists. Return error listing unmerged branches if any.
+
+        CleanupWorktrees(ctx, plan *Plan) error
+          - Called after a successful complete transition.
+          - For each branch in plan.Branches: git worktree remove (if exists), git branch -d,
+            git push origin --delete.
+
+        UpdateTaskStatus(ctx, planID, taskID, status string) (*Plan, error)
+          - Merge taskID→status into plan.TaskProgress and save DB record.
+
+      Add a `PlanBranches []string` field to the Plan struct (ScrivaDB
+      serialized as JSON) and update planstore migrations/schema accordingly.
+    after: [openapi-spec]
+
+  - id: rest-handlers
+    prompt: >-
+      Wire the generated oapi handler stubs to PlanService in the daemon.
+
+      In `internal/daemon/` (find the file that registers handlers for
+      existing resources like pipelines):
+
+        - ListPlans        → planService.List(ctx, projectID, statusFilter)
+        - CreatePlan       → planService.Create(...)
+        - GetPlan          → planService.Get(ctx, planID)
+        - UpdatePlan       → planService.Update(...)
+        - RunPlan          → planService.Transition(..., PlanStatusInProgress, RunOpts{mode})
+                             + trigger execution (autopilot/pipeline/orchestrator/manual)
+        - UpdateTaskStatus → planService.UpdateTaskStatus(...)
+        - CompletePlan     → planService.Transition(..., PlanStatusCompleted, ...)
+                             + planService.CleanupWorktrees(...)
+        - ArchivePlan      → planService.Transition(..., PlanStatusArchived, ...)
+
+      Map service errors to HTTP status codes:
+        ErrNotPending        → 409 Conflict
+        ErrTasksIncomplete   → 422 Unprocessable Entity (body lists incomplete tasks)
+        ErrBranchesUnmerged  → 422 Unprocessable Entity (body lists unmerged branches)
+        ErrInvalidTransition → 409 Conflict
+        not found            → 404
+        validation errors    → 400 with field-level details
+
+      Add integration tests covering at least: create→get, create→update (pending
+      only), create→run→task-status→complete (happy path), complete blocked by
+      incomplete tasks (sad path).
+    after: [planstore-service]
+
+  - id: mcp-tools
+    prompt: >-
+      Expose the plan service as MCP tools in `internal/mcp/` (follow the
+      pattern in tools_extra.go or the nearest plan-related tool file).
+
+      Add tools:
+        list_plans          params: project_id, status?
+        create_plan         params: project_id, name, goal, tasks[], constraints[]?, done_when[]?
+        get_plan            params: plan_id
+        update_plan         params: plan_id, name?, goal?, tasks[]?, constraints[]?, done_when[]?
+        run_plan            params: plan_id, execution_mode
+        update_task_status  params: plan_id, task_id, status
+        complete_plan       params: plan_id
+        archive_plan        params: plan_id
+
+      Each tool should return the updated Plan object on success, or a
+      structured error with a human-readable message on failure
+      (incomplete tasks / unmerged branches listed explicitly).
+
+      Register all new tools in the MCP server's tool list and add them to
+      the features catalog (docs/FEATURES.md + FEATURES.md matrix row).
+    after: [rest-handlers]
+
+  - id: cli-commands
+    prompt: >-
+      Add a `plan` subcommand group to the warden CLI in `internal/cli/`.
+      Follow the pattern of other subcommand groups (e.g. `context`, `schedule`).
+
+      Commands:
+        wd plan list   [--project <id>] [--status <status>]
+        wd plan create --project <id> --name <name> --goal <text> (interactive prompt for tasks if stdin is a tty)
+        wd plan show   <plan-id>
+        wd plan run    <plan-id> [--mode autopilot|pipeline|orchestrator|manual]
+        wd plan done   <plan-id> <task-id>   (shorthand for update-task-status → done)
+        wd plan complete <plan-id>
+        wd plan archive  <plan-id>
+
+      All commands call the daemon API (use the existing client pattern).
+      After adding commands, run `make gendocs` to regenerate the CLI reference
+      page and commit the result (CI will fail if stale).
+    after: [mcp-tools]
+
+done_when:
+  - "`make verify-fast` passes."
+  - "All eight REST endpoints are reachable and return correct status codes."
+  - "MCP tools list_plans/create_plan/run_plan/complete_plan are callable from an agent."
+  - "complete_plan returns 422 when tasks are incomplete or branches are unmerged."
+  - "Completed plan moves file to plans/completed/ and cleans up associated worktrees/branches."
+  - "`wd plan list` and `wd plan run` work from the CLI."

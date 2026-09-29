@@ -1,14 +1,6 @@
 version: 1
 goal: >-
-  Make autopilot boot recovery resilient to transient plan content errors
-  (invalid task statuses, unverified done claims) while preserving strict
-  validation on user-facing paths. Concretely: a daemon restart must never
-  permanently strand an active run because the brain wrote an invalid task
-  status directly to the plan file. Implements option C + D from the issue
-  #524 analysis: (C) split preflight failures into structural vs content, with
-  content-only failures allowing boot recovery to proceed; (D) start watchPlan
-  for degraded runs and guard spawnBrain against an empty plan.
-
+  Make autopilot boot recovery resilient to transient plan content errors (invalid task statuses, unverified done claims) while preserving strict validation on user-facing paths. Concretely: a daemon restart must never permanently strand an active run because the brain wrote an invalid task status directly to the plan file. Implements option C + D from the issue #524 analysis: (C) split preflight failures into structural vs content, with content-only failures allowing boot recovery to proceed; (D) start watchPlan for degraded runs and guard spawnBrain against an empty plan.
 constraints:
   - "API is spec-first: edit openapi.yaml then make generate; never hand-edit api.gen.go."
   - "Work in an isolated git worktree branched off main; one PR per phase."
@@ -18,34 +10,24 @@ constraints:
   - "Boot recovery leniency applies only in SetRuntime() and the watchPlan degraded-recovery path."
   - "loadPlanLenient normalizes invalid task statuses to pending (conservative). Annotate tasks that were coerced in r.preflightWarnings so the operator sees exactly what was normalized."
   - "Confirm with the maintainer before pushing any v* tag."
-
 tasks:
   - id: Step1_TypedFailureFoundation
     prompt: >-
-      In internal/autopilot/controller.go (or a new file
-      internal/autopilot/preflight_kind.go), add the unexported
-      `preflightFailureKind` type and the two constants
-      `preflightKindStructural` and `preflightKindContent`. Add an unexported
-      `preflightFailure` struct { msg string; kind preflightFailureKind }.
+      In internal/autopilot/controller.go (or a new file internal/autopilot/preflight_kind.go), add the unexported `preflightFailureKind` type and the two constants `preflightKindStructural` and `preflightKindContent`. Add an unexported `preflightFailure` struct { msg string; kind preflightFailureKind }.
 
-      Extend `PreflightError` in controller.go with an unexported `kinds
-      []preflightFailureKind` field (parallel to `Failures []string`).
-      Keep the existing `Failures []string` field and `Error()` method
-      unchanged — the wire format must not change. Add two unexported helpers:
+      Extend `PreflightError` in controller.go with an unexported `kinds []preflightFailureKind` field (parallel to `Failures []string`). Keep the existing `Failures []string` field and `Error()` method unchanged — the wire format must not change. Add two unexported helpers:
+
         hasStructural() bool  — true if any failure has kind structural
         hasContentOnly() bool — true if len(failures) > 0 && !hasStructural()
 
-      Add a package-internal constructor `newPreflightError(failures
-      []preflightFailure) *PreflightError` that builds both `Failures` and
-      `kinds` from the typed slice.
+      Add a package-internal constructor `newPreflightError(failures []preflightFailure) *PreflightError` that builds both `Failures` and `kinds` from the typed slice.
 
-      No behavior change yet; all existing callers can continue using
-      &PreflightError{Failures: ...} for now.
+      No behavior change yet; all existing callers can continue using &PreflightError{Failures: ...} for now.
     status: pending
-
   - id: Step2_SplitValidate
     prompt: >-
       In internal/autopilot/plan.go, split validate() into two methods:
+
 
         validateStructural() error — checks version (unsupported version is
           structural), non-empty goal, unique task IDs, and dependency edges
@@ -57,11 +39,10 @@ tasks:
           Returns a slice of failure strings, not an error, so callers can
           accumulate content failures alongside other content checks.
 
-      Update validate() to call validateStructural() then validateContent()
-      and return the first error encountered (same behavior as today —
-      validate() remains the strict path for DecodePlan).
+      Update validate() to call validateStructural() then validateContent() and return the first error encountered (same behavior as today — validate() remains the strict path for DecodePlan).
 
       Add loadPlanLenient(path string) (Plan, []string) that:
+
         1. Reads the file (file-not-found / unreadable → returns (Plan{}, nil) and a structural error — wait, return (Plan{}, error) to signal structural failure).
         2. YAML-decodes into Plan.
         3. Calls validateStructural() — on failure returns (Plan{}, error).
@@ -72,15 +53,13 @@ tasks:
            Also normalizes landed_pr to 0 for tasks coerced away from done.
         5. Returns (normalizedPlan, warnings, nil).
 
-      Update tests in plan_test.go to cover validateStructural vs
-      validateContent split and loadPlanLenient normalization behavior.
+      Update tests in plan_test.go to cover validateStructural vs validateContent split and loadPlanLenient normalization behavior.
     after: [Step1_TypedFailureFoundation]
     status: pending
-
   - id: Step3_ClassifyPreflightPlan
     prompt: >-
-      In internal/autopilot/preflight.go, change preflightPlan to accumulate
-      typed []preflightFailure instead of []string. Classify each failure site:
+      In internal/autopilot/preflight.go, change preflightPlan to accumulate typed []preflightFailure instead of []string. Classify each failure site:
+
 
         Structural:
           - LoadPlan returns error (file not found, unreadable, YAML decode
@@ -97,21 +76,15 @@ tasks:
           - gate-mode warning (auto downgraded to local): keep as a warning
             field on resolved, not a failure at all
 
-      Update the function signature to return (resolved, []preflightFailure)
-      and thread the change through preflightRegisteredRunLocked (use
-      newPreflightError) and preflightPlan's callers in Enable() —  Enable
-      should convert []preflightFailure → []string for its existing
-      &PreflightError{Failures: dedupe(fails)} construction so the
-      user-facing path is unchanged.
+      Update the function signature to return (resolved, []preflightFailure) and thread the change through preflightRegisteredRunLocked (use newPreflightError) and preflightPlan's callers in Enable() —  Enable should convert []preflightFailure → []string for its existing &PreflightError{Failures: dedupe(fails)} construction so the user-facing path is unchanged.
 
       Run wd check after this step.
     after: [Step2_SplitValidate]
     status: pending
-
   - id: Step4_BootRecoveryInSetRuntime
     prompt: >-
-      In internal/autopilot/controller.go SetRuntime(), update the boot
-      recovery loop (lines ~255-277) to use the classified error:
+      In internal/autopilot/controller.go SetRuntime(), update the boot recovery loop (lines ~255-277) to use the classified error:
+
 
         if err := c.preflightRegisteredRunLocked(ctx, r); err != nil {
             var pfe *PreflightError
@@ -139,53 +112,35 @@ tasks:
         }
         // (existing spawn + watchPlan code follows — no change needed there)
 
-      Also update the r.plan population in restoreStoredRuns() in lifecycle.go:
-      replace the existing
+      Also update the r.plan population in restoreStoredRuns() in lifecycle.go: replace the existing
+
         if plan, err := LoadPlan(rec.PlanFile); err == nil { r.plan = plan }
-      with the same two-stage approach: try LoadPlan first; on content-only
-      error fall back to loadPlanLenient and store the warnings into r.preflightWarnings.
-      On structural error leave r.plan as Plan{} (the boot loop handles it).
+      with the same two-stage approach: try LoadPlan first; on content-only error fall back to loadPlanLenient and store the warnings into r.preflightWarnings. On structural error leave r.plan as Plan{} (the boot loop handles it).
 
       Run wd check after this step.
     after: [Step3_ClassifyPreflightPlan]
     status: pending
-
   - id: Step5_WarningsInStatus
     prompt: >-
-      Add `preflightWarnings []string` field to the `run` struct in
-      controller.go (unexported, populated during boot recovery and cleared
-      on a successful full preflight).
+      Add `preflightWarnings []string` field to the `run` struct in controller.go (unexported, populated during boot recovery and cleared on a successful full preflight).
 
-      Add `PreflightWarnings []string` to `RunStatus` in
-      internal/autopilot/status.go with json:"preflight_warnings,omitempty".
+      Add `PreflightWarnings []string` to `RunStatus` in internal/autopilot/status.go with json:"preflight_warnings,omitempty".
 
-      Update statusLocked() in controller.go and runStatusLocked() in
-      lifecycle.go to populate RunStatus.PreflightWarnings from
-      r.preflightWarnings.
+      Update statusLocked() in controller.go and runStatusLocked() in lifecycle.go to populate RunStatus.PreflightWarnings from r.preflightWarnings.
 
-      Update internal/daemon/apidocs/openapi.yaml: in the AutopilotRunStatus
-      schema add field preflight_warnings (type array, items string,
-      description "Non-blocking content warnings from boot recovery preflight;
-      empty when the plan loaded cleanly. The run is active despite these
-      warnings — fix the plan file to clear them.").
+      Update internal/daemon/apidocs/openapi.yaml: in the AutopilotRunStatus schema add field preflight_warnings (type array, items string, description "Non-blocking content warnings from boot recovery preflight; empty when the plan loaded cleanly. The run is active despite these warnings — fix the plan file to clear them.").
 
-      Run make generate to regenerate internal/daemon/oapi/api.gen.go.
-      Commit the generated file alongside the spec change.
+      Run make generate to regenerate internal/daemon/oapi/api.gen.go. Commit the generated file alongside the spec change.
     after: [Step4_BootRecoveryInSetRuntime]
     status: pending
-
   - id: Step6_WatchPlanDegradedRecovery
     prompt: >-
       Two changes to the watchPlan / SetRuntime boot path:
 
-      (A) In SetRuntime() boot loop, after processing a run that ends up in
-      StateDegraded (structural failure), still start watchPlan for it — so
-      when the operator restores or fixes the plan file the run can
-      auto-recover. Guard: only start if r.cancel == nil (don't double-start).
+      (A) In SetRuntime() boot loop, after processing a run that ends up in StateDegraded (structural failure), still start watchPlan for it — so when the operator restores or fixes the plan file the run can auto-recover. Guard: only start if r.cancel == nil (don't double-start).
 
-      (B) In watchPlan (internal/autopilot/run.go), add a degraded-recovery
-      check at the start of each tick, before the existing
-      reloadPlanIfChanged call:
+      (B) In watchPlan (internal/autopilot/run.go), add a degraded-recovery check at the start of each tick, before the existing reloadPlanIfChanged call:
+
 
         if r.state == StateDegraded && r.brain == nil && c.runtime != nil {
             if err := c.preflightRegisteredRunLocked(ctx, r); err != nil {
@@ -222,12 +177,10 @@ tasks:
       Run wd check after this step.
     after: [Step5_WarningsInStatus]
     status: pending
-
   - id: Step7_SpawnBrainEmptyPlanGuard
     prompt: >-
-      In internal/autopilot/run.go spawnBrain (and rotateBrain's spawnBrain
-      call path), add a guard: if strings.TrimSpace(r.plan.Goal) == "" before
-      composing the digest, attempt loadPlanLenient(r.absPlanFile):
+      In internal/autopilot/run.go spawnBrain (and rotateBrain's spawnBrain call path), add a guard: if strings.TrimSpace(r.plan.Goal) == "" before composing the digest, attempt loadPlanLenient(r.absPlanFile):
+
 
         if strings.TrimSpace(r.plan.Goal) == "" {
             plan, warnings, lerr := loadPlanLenient(r.absPlanFile)
@@ -239,22 +192,17 @@ tasks:
             r.preflightWarnings = warnings
         }
 
-      This closes the guardian's "blind spawn" hole: if the guardian fires on a
-      degraded run before watchPlan or boot recovery has populated r.plan, it
-      now reloads from disk instead of composing a digest with an empty goal.
-      On a genuinely missing file, loadPlanLenient returns a structural error
-      and the guardian enters its normal backoff instead of spawning a
-      brain with no goal.
+      This closes the guardian's "blind spawn" hole: if the guardian fires on a degraded run before watchPlan or boot recovery has populated r.plan, it now reloads from disk instead of composing a digest with an empty goal. On a genuinely missing file, loadPlanLenient returns a structural error and the guardian enters its normal backoff instead of spawning a brain with no goal.
 
       Run wd check after this step.
     after: [Step6_WatchPlanDegradedRecovery]
     status: pending
-
   - id: Step8_Tests
     prompt: >-
       Add / update tests covering the new paths:
 
       In internal/autopilot/plan_test.go:
+
         - validateStructural passes on valid plan; fails on empty goal, bad
           version, duplicate IDs, bad deps.
         - validateContent returns failures for invalid status, done without
@@ -263,8 +211,8 @@ tasks:
           done-without-pr→pending) with non-nil warnings; returns structural
           error for missing file or bad YAML.
 
-      In internal/autopilot/controller_test.go (or a new
-      boot_recovery_test.go):
+      In internal/autopilot/controller_test.go (or a new boot_recovery_test.go):
+
         - SetRuntime with a plan whose task has status "completed": run
           proceeds to StateActive (or StateStarting), r.plan.Tasks[0].Status
           == pending, r.preflightWarnings is non-empty.
@@ -280,36 +228,21 @@ tasks:
       Run wd check before committing.
     after: [Step7_SpawnBrainEmptyPlanGuard]
     status: pending
-
   - id: Step9_DocsAndRelease
     prompt: >-
       Update documentation:
 
-      docs/specs/autopilot.md: in the boot-recovery section (§2 or wherever
-      SetRuntime / restoreStoredRuns are described), document the
-      structural-vs-content split and the new recovery behavior. Add a note
-      that preflight_warnings in wd autopilot status signals a lenient boot
-      and describes what the owner should fix.
+      docs/specs/autopilot.md: in the boot-recovery section (§2 or wherever SetRuntime / restoreStoredRuns are described), document the structural-vs-content split and the new recovery behavior. Add a note that preflight_warnings in wd autopilot status signals a lenient boot and describes what the owner should fix.
 
-      site/src/content/docs/: update the autopilot guide or reference page
-      (whichever covers daemon restarts / run states) to describe the degraded
-      → auto-recover path and the preflight_warnings field.
+      site/src/content/docs/: update the autopilot guide or reference page (whichever covers daemon restarts / run states) to describe the degraded → auto-recover path and the preflight_warnings field.
 
-      skills/warden/: update the skill if it describes autopilot behavior or
-      boot recovery.
+      skills/warden/: update the skill if it describes autopilot behavior or boot recovery.
 
-      README.md / docs/FEATURES.md: no new user-facing feature to document
-      here (this is a resilience fix), but check if any existing entry for
-      autopilot restart behavior needs updating.
+      README.md / docs/FEATURES.md: no new user-facing feature to document here (this is a resilience fix), but check if any existing entry for autopilot restart behavior needs updating.
 
-      Run make verify-fast (wd check). Fix any failures. Open a PR against
-      main titled "fix(autopilot): resilient boot recovery — content-only
-      preflight failures no longer strand active runs". After merge, tag a
-      patch release following the repo tagging style (confirm with the
-      maintainer before pushing the tag).
+      Run make verify-fast (wd check). Fix any failures. Open a PR against main titled "fix(autopilot): resilient boot recovery — content-only preflight failures no longer strand active runs". After merge, tag a patch release following the repo tagging style (confirm with the maintainer before pushing the tag).
     after: [Step8_Tests]
     status: pending
-
 done_when:
   - "preflightFailureKind (structural/content) is defined; PreflightError carries kinds alongside Failures; hasStructural() and hasContentOnly() helpers exist. Failures []string wire format is unchanged."
   - "validate() is split into validateStructural() + validateContent(); loadPlanLenient() normalizes invalid task statuses to pending and returns per-task warnings."
@@ -321,3 +254,5 @@ done_when:
   - "spawnBrain reloads plan leniently when r.plan.Goal is empty; returns error (no blind spawn) if even lenient load fails."
   - "Tests cover all new paths: content-only boot recovery, structural block, watchPlan recovery, spawnBrain guard."
   - "make verify-fast passes on main; patch release tagged."
+status: complete
+completed_at: "2026-09-29T01:02:08Z"
