@@ -1,22 +1,19 @@
 version: 1
 name: plan-crud-api
 goal: >-
-  Introduce a full Plan CRUD REST API, MCP tools, and CLI commands so plans
-  can be created, read, updated, executed, and completed programmatically —
-  with YAML file writing, ScrivaDB sync, structured JSON validation, state
-  machine enforcement, and branch/worktree cleanup on completion.
+  Introduce a full Plan CRUD REST API, MCP tools, and CLI commands so plans can be created, read, updated, executed, and completed programmatically — with YAML file writing, ScrivaDB sync, structured JSON validation, state machine enforcement, and branch/worktree cleanup on completion.
 constraints:
-  - API is spec-first: edit internal/daemon/apidocs/openapi.yaml then `make generate`; never hand-edit api.gen.go.
+  - "API is spec-first: edit internal/daemon/apidocs/openapi.yaml then `make generate`; never hand-edit api.gen.go."
   - Run `make verify-fast` before every commit/push.
   - Keep the tree green — fix any test failures introduced by your changes before opening a PR.
   - Streaming/WebSocket routes must be added to oapi/config.yaml exclude list if needed.
 tasks:
   - id: openapi-spec
     prompt: >-
-      Add all Plan CRUD endpoints to `internal/daemon/apidocs/openapi.yaml`.
-      Follow the existing style (see /api/v1/pipelines for reference).
+      Add all Plan CRUD endpoints to `internal/daemon/apidocs/openapi.yaml`. Follow the existing style (see /api/v1/pipelines for reference).
 
       Endpoints to add:
+
 
         GET    /api/v1/plans
           Query params: project_id (required), status (optional filter)
@@ -51,15 +48,12 @@ tasks:
           Transitions → archived; moves file to plans/archived/.
 
       After editing, run `make generate` to regenerate api.gen.go.
-
   - id: planstore-service
     prompt: >-
-      Implement a service layer in `internal/planstore/` that backs all CRUD
-      operations. This is the single place where business logic lives — API
-      handlers and MCP tools both call into it.
+      Implement a service layer in `internal/planstore/` that backs all CRUD operations. This is the single place where business logic lives — API handlers and MCP tools both call into it.
 
-      Create `internal/planstore/service.go` with a `PlanService` struct that
-      wraps the existing store and exposes:
+      Create `internal/planstore/service.go` with a `PlanService` struct that wraps the existing store and exposes:
+
 
         Create(ctx, projectID string, req CreateRequest) (*Plan, error)
           - Validate required fields (name non-empty, at least one task, each
@@ -103,16 +97,14 @@ tasks:
         UpdateTaskStatus(ctx, planID, taskID, status string) (*Plan, error)
           - Merge taskID→status into plan.TaskProgress and save DB record.
 
-      Add a `PlanBranches []string` field to the Plan struct (ScrivaDB
-      serialized as JSON) and update planstore migrations/schema accordingly.
+      Add a `PlanBranches []string` field to the Plan struct (ScrivaDB serialized as JSON) and update planstore migrations/schema accordingly.
     after: [openapi-spec]
-
   - id: rest-handlers
     prompt: >-
       Wire the generated oapi handler stubs to PlanService in the daemon.
 
-      In `internal/daemon/` (find the file that registers handlers for
-      existing resources like pipelines):
+      In `internal/daemon/` (find the file that registers handlers for existing resources like pipelines):
+
 
         - ListPlans        → planService.List(ctx, projectID, statusFilter)
         - CreatePlan       → planService.Create(...)
@@ -126,6 +118,7 @@ tasks:
         - ArchivePlan      → planService.Transition(..., PlanStatusArchived, ...)
 
       Map service errors to HTTP status codes:
+
         ErrNotPending        → 409 Conflict
         ErrTasksIncomplete   → 422 Unprocessable Entity (body lists incomplete tasks)
         ErrBranchesUnmerged  → 422 Unprocessable Entity (body lists unmerged branches)
@@ -133,17 +126,14 @@ tasks:
         not found            → 404
         validation errors    → 400 with field-level details
 
-      Add integration tests covering at least: create→get, create→update (pending
-      only), create→run→task-status→complete (happy path), complete blocked by
-      incomplete tasks (sad path).
+      Add integration tests covering at least: create→get, create→update (pending only), create→run→task-status→complete (happy path), complete blocked by incomplete tasks (sad path).
     after: [planstore-service]
-
   - id: mcp-tools
     prompt: >-
-      Expose the plan service as MCP tools in `internal/mcp/` (follow the
-      pattern in tools_extra.go or the nearest plan-related tool file).
+      Expose the plan service as MCP tools in `internal/mcp/` (follow the pattern in tools_extra.go or the nearest plan-related tool file).
 
       Add tools:
+
         list_plans          params: project_id, status?
         create_plan         params: project_id, name, goal, tasks[], constraints[]?, done_when[]?
         get_plan            params: plan_id
@@ -153,20 +143,16 @@ tasks:
         complete_plan       params: plan_id
         archive_plan        params: plan_id
 
-      Each tool should return the updated Plan object on success, or a
-      structured error with a human-readable message on failure
-      (incomplete tasks / unmerged branches listed explicitly).
+      Each tool should return the updated Plan object on success, or a structured error with a human-readable message on failure (incomplete tasks / unmerged branches listed explicitly).
 
-      Register all new tools in the MCP server's tool list and add them to
-      the features catalog (docs/FEATURES.md + FEATURES.md matrix row).
+      Register all new tools in the MCP server's tool list and add them to the features catalog (docs/FEATURES.md + FEATURES.md matrix row).
     after: [rest-handlers]
-
   - id: cli-commands
     prompt: >-
-      Add a `plan` subcommand group to the warden CLI in `internal/cli/`.
-      Follow the pattern of other subcommand groups (e.g. `context`, `schedule`).
+      Add a `plan` subcommand group to the warden CLI in `internal/cli/`. Follow the pattern of other subcommand groups (e.g. `context`, `schedule`).
 
       Commands:
+
         wd plan list   [--project <id>] [--status <status>]
         wd plan create --project <id> --name <name> --goal <text> (interactive prompt for tasks if stdin is a tty)
         wd plan show   <plan-id>
@@ -175,11 +161,8 @@ tasks:
         wd plan complete <plan-id>
         wd plan archive  <plan-id>
 
-      All commands call the daemon API (use the existing client pattern).
-      After adding commands, run `make gendocs` to regenerate the CLI reference
-      page and commit the result (CI will fail if stale).
+      All commands call the daemon API (use the existing client pattern). After adding commands, run `make gendocs` to regenerate the CLI reference page and commit the result (CI will fail if stale).
     after: [mcp-tools]
-
 done_when:
   - "`make verify-fast` passes."
   - "All eight REST endpoints are reachable and return correct status codes."
@@ -187,3 +170,5 @@ done_when:
   - "complete_plan returns 422 when tasks are incomplete or branches are unmerged."
   - "Completed plan moves file to plans/completed/ and cleans up associated worktrees/branches."
   - "`wd plan list` and `wd plan run` work from the CLI."
+status: complete
+completed_at: "2026-09-29T10:29:53Z"

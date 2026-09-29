@@ -1,0 +1,344 @@
+version: 1
+name: plan-execution-entity-redesign
+goal: >-
+  Make Plan the durable, auditable unit of executable work. Split terminals
+  from agents in ScrivaDB, make Agents and Pipelines optionally plan-bound,
+  replace registered autopilot runs with disposable plan-bound Autopilot
+  executors, and rename the external coding-runtime concept from Backend to
+  AI CLI without breaking existing users during the compatibility window.
+
+constraints:
+  - "This plan depends on the Plan CRUD API being merged and green on the implementation branch; do not duplicate or overwrite its work."
+  - "API is spec-first: edit internal/daemon/apidocs/openapi.yaml before make generate; never hand-edit generated oapi code."
+  - "A Project owns ordered child references (IDs) in ScrivaDB; API and TUI projections resolve them to typed child collections. Do not embed duplicate entity bodies in Project."
+  - "Plan YAML remains the source of task definitions and its directory remains the source of lifecycle status; ScrivaDB owns execution state, task evidence, and audit summaries."
+  - "PlanID is optional for Agent and Pipeline. Autopilot requires a valid PlanID and must not support planless creation."
+  - "The daemon, not an LLM, is authoritative for plan execution facts. Agents may submit attributed notes but may not directly author execution summaries or mark unverified tasks complete."
+  - "Use a staged compatibility migration: ai_cli is canonical, while backend inputs and persisted fields remain accepted deprecated aliases for one release."
+  - "Migrations must be idempotent, restart-safe, and preserve IDs, tmux attachment, archives, history, project membership, and existing worktrees."
+  - "Run wd check for the targeted check after each task and make verify-fast before every commit/push."
+  - "Use wd commit, wd push, and wd sync in managed worktrees; do not use raw git lifecycle mutations."
+
+tasks:
+  - id: baseline-contract
+    prompt: >-
+      Establish the implementation contract before changing runtime code.
+
+      1. Verify that the Plan CRUD API work is present on the chosen base branch
+         and that its plan routes, client, MCP tools, and CLI are green. If it
+         is not merged, stop and report the exact missing commit/PR rather than
+         recreating it.
+      2. Add a concise design record under docs/specs/ that locks these terms:
+         Project, Plan, PlanExecution, ExecutionSummary, PlanExecutionEvent,
+         Agent, Terminal, Pipeline, Job, and Autopilot.
+      3. State the non-negotiable ownership rules: Plan is durable; Agent,
+         Pipeline, and Autopilot are disposable executors; Terminal is never an
+         Agent; Project stores child IDs; free-text done_when is not automated
+         proof; ai_cli is canonical with backend compatibility.
+      4. Add an entity relationship diagram and a migration compatibility table
+         to the spec. Do not alter production behavior in this task.
+
+      Acceptance: the design explicitly covers plan-bound and planless Agent /
+      Pipeline creation, and reviewers can implement later tasks without making
+      new naming or ownership decisions.
+
+  - id: plan-execution-types
+    prompt: >-
+      Extend internal/planstore with the durable execution model described in
+      the design record.
+
+      Add typed PlanExecution, ExecutionSummary, PullRequestSummary,
+      BranchSummary, TaskOutcome, and CompletionRequirements values. Plan must
+      expose one active execution (mode, executor ID, started time, operational
+      state) plus an append-only execution history. Keep the existing four Plan
+      lifecycle states exactly: pending, in_progress, completed, archived.
+
+      Add typed task evidence sufficient to record assignment, verified checks,
+      PRs, and terminal task outcome without putting this state on worker
+      Agents. Preserve decoding of existing Plan records whose new fields are
+      absent. Add serialization and migration tests.
+    after: [baseline-contract]
+
+  - id: plan-event-ledger
+    prompt: >-
+      Add a daemon-owned, append-only PlanExecutionEvent store keyed by PlanID
+      and execution ID. Keep it as a child collection of Plan rather than an
+      executor-owned record so deleting an executor cannot delete audit facts.
+
+      Define a closed event vocabulary: execution_started, executor_created,
+      agent_spawned, agent_finished, task_assigned, task_evidence_verified,
+      check_completed, commit_created, branch_pushed, pr_opened, pr_merged,
+      branch_landed, worktree_removed, execution_paused, execution_failed,
+      execution_stopped, and completion_verified.
+
+      Implement idempotent append, ordered listing, and a deterministic reducer
+      that derives an ExecutionSummary only from typed events. Agent prose must
+      be stored separately as an attributed note and never overwrite factual
+      fields. Add reducer tests for duplicate delivery, out-of-order reads, and
+      an executor that is deleted after emitting events.
+    after: [plan-execution-types]
+
+  - id: plan-completion-policy
+    prompt: >-
+      Add machine-verifiable completion requirements to the Plan service. Keep
+      done_when as human-readable intent, but use CompletionRequirements for
+      automatic completion.
+
+      Support requirements for all declared tasks terminal, required named
+      checks passing, required PRs merged, no live executor agents, and required
+      disposable resource cleanup. Implement validation that returns structured
+      unmet requirements rather than a generic failure.
+
+      Add tests showing that a plan remains in_progress when evidence is absent,
+      and that a verified plan can transition to completed without trusting an
+      agent's textual report.
+    after: [plan-event-ledger]
+
+  - id: terminal-record-model
+    prompt: >-
+      Finish the separate Terminal ScrivaDB entity. Expand
+      internal/terminalstore.Terminal so it owns ID, ProjectID, Name,
+      TmuxSession, Workdir, Shell, PID, Status, ExitCode, CreatedAt, and
+      UpdatedAt. Terminal must have its own lifecycle status enum or a shared
+      process-status type that does not import AI-agent concerns.
+
+      Retain the current one-time import only as a legacy migration input; it
+      must create full Terminal records with stable IDs. Add idempotence,
+      restart, and terminal name-collision tests. Do not remove legacy Session
+      records in this task.
+    after: [baseline-contract]
+
+  - id: terminal-lifecycle-ownership
+    prompt: >-
+      Route terminal spawn, attach, status polling, terminate, project close,
+      restore/recovery, and cockpit discovery through terminalstore rather than
+      the agent/session store. Extract shared tmux/process operations into a
+      small internal interface so Agent and Terminal use common mechanics
+      without sharing a persisted model.
+
+      A terminal remains a direct Project child and never participates in
+      transcript export, cost, approvals, AI context measurement, agent
+      hierarchy, or backend/AI-CLI recovery. Add integration tests for a
+      terminal surviving daemon restart and project hibernation.
+    after: [terminal-record-model]
+
+  - id: agent-canonical-model
+    prompt: >-
+      Make Agent the canonical persisted AI-worker model. Replace the public
+      Session model/store vocabulary with Agent/agentstore, while preserving a
+      narrowly scoped legacy read adapter only where needed to migrate existing
+      data.
+
+      Remove Kind and IsTerminal from the canonical Agent model. Preserve all
+      AI-agent operational fields: tmux session, process status, backend
+      conversation resume ID, repo/worktree/branch/PR, prompt/subject, role,
+      hierarchy, permissions, context, rate-limit recovery, schedules, and
+      archive metadata. Rename ClaudeSessionID to a backend-neutral
+      AICLISessionID in the canonical model, with legacy decoding support.
+
+      Add a restart-safe migration that copies only non-terminal legacy records
+      into the Agent store, preserves IDs and archive status, and does not
+      duplicate already migrated records.
+    after: [terminal-lifecycle-ownership]
+
+  - id: agent-lifecycle-cutover
+    prompt: >-
+      Move daemon lifecycle, recovery, approvals, digests, resource metrics,
+      collaboration, archive/history, snapshots, and project hibernation to
+      Agent as their persisted entity. Update internal interfaces and test
+      fixtures from Session terminology to Agent terminology.
+
+      Keep a compatibility adapter at external boundaries only until the
+      deprecation window ends. Verify that an existing archived AI agent can be
+      listed, restored, attached, and torn down after upgrade, while a Terminal
+      follows the independent terminal path.
+    after: [agent-canonical-model]
+
+  - id: project-typed-membership
+    prompt: >-
+      Update projectstore so Project has authoritative ordered ID lists for
+      PlanIDs, AutopilotIDs, PipelineIDs, AgentIDs, and TerminalIDs. API/TUI
+      responses may resolve these into typed arrays, but the ScrivaDB Project
+      record must retain ID references only.
+
+      Add atomic membership helpers for add/remove/reparent operations, tolerate
+      dangling historical IDs during migration, and preserve existing ordered
+      Agents/Pipelines/Terminals membership. Backfill PlanIDs by scanning the
+      project plan store; do not infer an Autopilot membership for completed or
+      deleted executors. Add membership ordering and recovery tests.
+    after: [agent-lifecycle-cutover]
+
+  - id: plan-links-on-agent-pipeline
+    prompt: >-
+      Add optional PlanID to Agent and Pipeline. Add the corresponding
+      project/plan validation at creation time: a non-empty PlanID must name a
+      plan in the same Project, but an empty PlanID is always valid.
+
+      Update API responses, MCP results, CLI detail output, and tree inputs to
+      expose the link. Add tests for independent analysis Agents, independent
+      arbitrary Pipelines, a plan-bound worker Agent, and a plan-bound Pipeline.
+      Do not change execution behavior yet.
+    after: [project-typed-membership]
+
+  - id: plan-pipeline-adapter
+    prompt: >-
+      Implement the Plan-to-Pipeline adapter for POST plan run mode=pipeline.
+      It creates a Pipeline named P:<plan-name>, sets PlanID, and converts every
+      YAML task into one Job with the same stable task ID and after dependencies.
+
+      Store the task-to-job mapping on Plan execution evidence, not in a second
+      mutable task ledger. Pipeline job lifecycle events must append
+      PlanExecutionEvents and update Plan task evidence through the Plan service.
+      Independent pipeline creation remains unchanged. Add end-to-end tests for
+      a two-job dependency chain and a planless pipeline.
+    after: [plan-links-on-agent-pipeline, plan-event-ledger]
+
+  - id: plan-agent-adapters
+    prompt: >-
+      Implement direct Plan execution for orchestrator and manual modes.
+
+      Orchestrator mode creates one Agent named O:<plan-name>, role=orchestrator,
+      and PlanID. Workers it spawns are normal role=worker Agents with ParentID
+      set to the orchestrator; task assignment and evidence remain on Plan.
+
+      Manual mode creates one Agent named M:<plan-name>, role=general, and
+      PlanID. Neither mode creates an Autopilot record. Emit the same
+      PlanExecutionEvents for lifecycle, checks, commits, and PRs. Add tests
+      proving independent general/orchestrator Agents still work without PlanID.
+    after: [plan-links-on-agent-pipeline, plan-event-ledger]
+
+  - id: autopilot-entity-model
+    prompt: >-
+      Replace durable registered RunRecord semantics with a live Autopilot
+      entity. An Autopilot has ID, ProjectID, required PlanID, display name
+      AP:<plan-name>, ManagerAgentID, optional BrainAgentID, operational
+      diagnostics, and timestamps. It has no independent task lifecycle or
+      durable completion history.
+
+      Define a migration for legacy registered autopilot runs: retain their
+      historical facts as Plan execution summaries/events when a Plan can be
+      resolved; otherwise archive them as legacy audit data without creating a
+      live Autopilot. Do not silently delete unmatched history.
+    after: [project-typed-membership, plan-execution-types]
+
+  - id: autopilot-plan-controller
+    prompt: >-
+      Rework the autopilot controller so Plan run mode=autopilot creates the
+      live Autopilot and its manager Agent (role=autopilot, PlanID set), rather
+      than registering a plan file. The controller reads task definitions and
+      progress from Plan, appends typed PlanExecutionEvents, and uses Plan as
+      the source of task state.
+
+      Worker Agents are ordinary child agents of the manager through ParentID.
+      A Brain Agent is role=brain, tied to the Autopilot and Plan, spawned only
+      when consultation is needed, and marked headless so it is not a normal
+      tree node. Remove the data need for AutopilotRunID, AutopilotSlot, and
+      AutopilotTaskID on Agent.
+
+      Add controller tests for required PlanID, manager/worker parentage,
+      on-demand headless brain creation, and task recovery after daemon restart.
+    after: [autopilot-entity-model, plan-event-ledger, plan-links-on-agent-pipeline]
+
+  - id: autopilot-api-cli-retirement
+    prompt: >-
+      Make plan run/control endpoints the only public lifecycle surface for
+      plan execution. Retire autopilot register, unregister, retarget, and
+      plan-file-based start endpoints from the canonical OpenAPI, MCP tools,
+      CLI, docs, and generated client.
+
+      Keep deprecated endpoint/CLI aliases for one release only, translating
+      them to PlanID where safe and returning a precise migration error where a
+      Plan cannot be resolved. Autopilot enablement may remain a capability
+      configuration switch, but it must not register work. Regenerate the API
+      client and add compatibility tests.
+    after: [autopilot-plan-controller]
+
+  - id: deterministic-artifact-capture
+    prompt: >-
+      Instrument daemon-owned lifecycle paths to append PlanExecutionEvents for
+      plan-bound Agents, Pipeline Jobs, and Autopilot operations. Cover spawn,
+      completion, checks, commits, pushes, PR creation/merge, landing, branch
+      deletion, and worktree removal.
+
+      Route agent handoffs into attributed notes only. Add a final reconciliation
+      pass that queries Git and GitHub for every referenced branch/PR before
+      completion, repairing missing observed events where facts can be proved.
+      Ensure no agent API can directly append authoritative evidence or mutate
+      ExecutionSummary.
+    after: [plan-pipeline-adapter, plan-agent-adapters, autopilot-plan-controller]
+
+  - id: plan-finalize-and-cleanup
+    prompt: >-
+      Implement one daemon-owned Plan finalization workflow. It validates
+      CompletionRequirements, runs reconciliation, reduces the immutable
+      execution summary, moves the YAML to plans/completed/, and updates the
+      Plan record before executor cleanup begins.
+
+      Then delete the live Autopilot/Pipeline/plan-bound root Agent and their
+      disposable workers, worktrees, and branches according to ownership rules.
+      Preserve PR references, execution events, summaries, and global audit
+      entries. If cleanup partially fails, keep Plan in_progress with explicit
+      cleanup evidence and make retry safe; never lose a completed summary.
+
+      Test success, unmet requirements, GitHub reconciliation, failed cleanup,
+      retry, and executor deletion after summary persistence.
+    after: [plan-completion-policy, deterministic-artifact-capture]
+
+  - id: tree-and-detail-projections
+    prompt: >-
+      Update the project tree and detail APIs so each entity renders exactly
+      once. Project sections are Plans, Autopilots, Pipelines, Agents, and
+      Terminals. Plan detail renders lifecycle, active execution, task evidence,
+      and historical summaries.
+
+      Render AP:<plan-name> as Autopilot → manager Agent → worker children.
+      Hide the headless brain by default. Render O:<plan-name> as an Agent with
+      worker children, P:<plan-name> as Pipeline → DAG Jobs, and M:<plan-name>
+      as a normal general Agent. Do not render Plan task groups inside
+      Autopilot. Add exactly-once nesting and keyboard/detail regression tests.
+    after: [project-typed-membership, autopilot-plan-controller, plan-finalize-and-cleanup]
+
+  - id: ai-cli-terminology-migration
+    prompt: >-
+      Rename the external coding-runtime concept from Backend to AI CLI across
+      canonical Go types, store packages, REST schemas, MCP descriptions, CLI
+      flags, configuration, docs, TUI labels, and tests.
+
+      Canonical names are AICLI, ai_cli, --ai-cli, ai_cli_default, and
+      ai_cli_session_id. Preserve backend, --backend, backend_default, and
+      claude_session_id as explicitly documented deprecated aliases for one
+      release, with canonical values winning if both are provided. Do not rename
+      unrelated uses of the word backend such as HTTP/storage internals.
+
+      Add migration tests covering old config, old API JSON, old persisted Agent
+      records, and mixed old/new inputs. Update generated API clients after the
+      OpenAPI change.
+    after: [agent-lifecycle-cutover, autopilot-api-cli-retirement]
+
+  - id: upgrade-and-acceptance
+    prompt: >-
+      Add upgrade-level acceptance coverage starting from representative legacy
+      data: agent Session records, kind=terminal records, project memberships,
+      archived agents, registered autopilot runs, existing Plan YAML files, and
+      old backend configuration.
+
+      Verify migration is idempotent across two daemon starts; terminals and
+      agents remain attachable; independent Agents/Pipelines still spawn;
+      every plan mode creates the required prefix; Autopilot rejects no-PlanID
+      creation; and a completed plan retains a deterministic summary after all
+      executor entities are removed.
+
+      Update docs/specs, FEATURES.md, CLI reference output, migration notes, and
+      release notes. Run make verify-fast and the focused persistence,
+      lifecycle, plan, autopilot, pipeline, tree, MCP, CLI, and API suites.
+    after: [tree-and-detail-projections, ai-cli-terminology-migration]
+
+done_when:
+  - "Project exposes typed Plans, Autopilots, Pipelines, Agents, and Terminals through one authoritative ID-based membership model."
+  - "Terminal is an independent ScrivaDB entity and Agent has no Kind field."
+  - "Agents and Pipelines can be created with or without PlanID; Autopilot can only be created from an in-progress Plan."
+  - "Plan is the sole durable owner of execution state, task evidence, execution events, and immutable summaries."
+  - "Completion facts are daemon-verified from typed events plus Git/GitHub reconciliation, never an unverified agent claim."
+  - "Completed plan executors and disposable resources are cleaned up without losing Plan audit history."
+  - "AI CLI terminology is canonical and all documented backend compatibility aliases pass migration coverage."
+  - "make verify-fast passes, generated API code is current, and upgrade acceptance tests pass."
