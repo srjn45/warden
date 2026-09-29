@@ -179,6 +179,7 @@ func (s *Server) CreateProjectPlan(ctx context.Context, req oapi.CreateProjectPl
 		}
 		return nil, errStatus(http.StatusInternalServerError, "create plan: "+err.Error())
 	}
+	s.addPlanMembership(p.ID, req.ProjectId)
 	got, err := s.plans.Get(ctx, p.ID)
 	if err != nil {
 		return nil, errStatus(http.StatusInternalServerError, "fetch created plan: "+err.Error())
