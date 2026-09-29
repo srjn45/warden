@@ -109,9 +109,12 @@ func LoadPlan(path string) (Plan, error) {
 	return p, nil
 }
 
-// validate enforces the v1 semantic rules. An absent version defaults to 1 (the
-// only version), so a plan omitting it still loads; any other value is rejected.
-func (p *Plan) validate() error {
+// validateStructural enforces the v1 structural rules: version, non-empty goal,
+// unique non-empty task IDs, and dependency edges referencing known IDs. It also
+// normalizes task statuses: empty → pending, any non-empty → lowercase. These
+// structural invariants must hold before content rules can be checked. An absent
+// version defaults to 1 (the only supported version).
+func (p *Plan) validateStructural() error {
 	if p.Version == 0 {
 		p.Version = planSchemaVersion
 	}
@@ -131,26 +134,14 @@ func (p *Plan) validate() error {
 			return fmt.Errorf("plan: duplicate task id %q", id)
 		}
 		ids[id] = true
+		// Normalize: empty → pending; any value → lowercase for uniform comparison.
 		status := strings.ToLower(strings.TrimSpace(t.Status))
 		if status == "" {
-			p.Tasks[i].Status = TaskStatusPending
 			status = TaskStatusPending
 		}
-		switch status {
-		case TaskStatusPending, TaskStatusActive, TaskStatusDone, TaskStatusFailed:
-			p.Tasks[i].Status = status
-		default:
-			return fmt.Errorf("plan: task %q has invalid status %q", id, t.Status)
-		}
-		if status == TaskStatusDone && t.LandedPR <= 0 {
-			return fmt.Errorf("plan: task %q status done requires landed_pr", id)
-		}
-		if status != TaskStatusDone && t.LandedPR != 0 {
-			return fmt.Errorf("plan: task %q landed_pr is only valid with status done", id)
-		}
+		p.Tasks[i].Status = status
 	}
-	// Edges are checked in a second pass so forward references (a task depending
-	// on one declared later in the list) are legal.
+	// Edges are checked in a second pass so forward references are legal.
 	var unknown []string
 	for _, t := range p.Tasks {
 		for _, dep := range t.After {
@@ -164,6 +155,129 @@ func (p *Plan) validate() error {
 		return fmt.Errorf("plan: task dependency references unknown id(s): %s", strings.Join(unknown, ", "))
 	}
 	return nil
+}
+
+// validateContent checks per-task content rules on a structurally-valid plan
+// (call validateStructural first so statuses are normalized to lowercase).
+// Returns all failures as strings so the caller can accumulate them with other
+// content checks. Does NOT stop at the first failure.
+func (p *Plan) validateContent() []string {
+	var fails []string
+	for _, t := range p.Tasks {
+		switch t.Status {
+		case TaskStatusPending, TaskStatusActive, TaskStatusDone, TaskStatusFailed:
+		default:
+			fails = append(fails, fmt.Sprintf("plan: task %q has invalid status %q", t.ID, t.Status))
+			continue // skip landed_pr checks for unrecognized status
+		}
+		if t.Status == TaskStatusDone && t.LandedPR <= 0 {
+			fails = append(fails, fmt.Sprintf("plan: task %q status done requires landed_pr", t.ID))
+		}
+		if t.Status != TaskStatusDone && t.LandedPR != 0 {
+			fails = append(fails, fmt.Sprintf("plan: task %q landed_pr is only valid with status done", t.ID))
+		}
+	}
+	return fails
+}
+
+// validate enforces the full v1 semantic rules (structural + content). This is
+// the strict path used by DecodePlan — it returns the first error encountered,
+// preserving existing behavior. The boot-recovery lenient path uses
+// validateStructural + loadPlanLenient instead.
+func (p *Plan) validate() error {
+	if err := p.validateStructural(); err != nil {
+		return err
+	}
+	if fails := p.validateContent(); len(fails) > 0 {
+		return fmt.Errorf("%s", fails[0])
+	}
+	return nil
+}
+
+// loadPlanClassified reads and decodes the plan at path, returning typed
+// preflight failures: structural (file error, YAML error, structural
+// validation) or content (task status values, done/landed_pr rules). A
+// non-empty structural failure means the plan is unrunnable; content failures
+// can be worked around by the boot-recovery lenient path. Used by preflightPlan
+// to classify failures without re-reading the file in two passes.
+func loadPlanClassified(path string) (Plan, []preflightFailure) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		msg := fmt.Sprintf("plan: read %s: %v", path, err)
+		if os.IsNotExist(err) {
+			msg = fmt.Sprintf("plan file not found: %s", path)
+		}
+		return Plan{}, []preflightFailure{{msg: msg, kind: preflightKindStructural}}
+	}
+	var p Plan
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if decErr := dec.Decode(&p); decErr != nil {
+		return Plan{}, []preflightFailure{{
+			msg:  fmt.Sprintf("plan %s: decode: %v", path, decErr),
+			kind: preflightKindStructural,
+		}}
+	}
+	if structErr := p.validateStructural(); structErr != nil {
+		return Plan{}, []preflightFailure{{
+			msg:  fmt.Sprintf("plan %s: %v", path, structErr),
+			kind: preflightKindStructural,
+		}}
+	}
+	var fails []preflightFailure
+	for _, msg := range p.validateContent() {
+		fails = append(fails, preflightFailure{msg: msg, kind: preflightKindContent})
+	}
+	return p, fails
+}
+
+// loadPlanLenient reads and structurally-validates the plan at path, then
+// normalizes any content issues conservatively (invalid task status → pending,
+// done-without-landed_pr → pending, non-done-with-landed_pr → landed_pr
+// cleared) instead of returning an error for them. Returns the normalized plan
+// and a human-readable warning string per normalized task so the operator can
+// see exactly what was coerced.
+//
+// A missing file, unreadable file, bad YAML, or structural validation failure
+// returns a non-nil error (the caller must treat the plan as unrunnable).
+func loadPlanLenient(path string) (Plan, []string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return Plan{}, nil, fmt.Errorf("plan file not found: %s", path)
+		}
+		return Plan{}, nil, fmt.Errorf("plan: read %s: %w", path, err)
+	}
+	var p Plan
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&p); err != nil {
+		return Plan{}, nil, fmt.Errorf("plan %s: decode: %w", path, err)
+	}
+	if err := p.validateStructural(); err != nil {
+		return Plan{}, nil, fmt.Errorf("plan %s: %w", path, err)
+	}
+	// Normalize content issues conservatively; record each coercion as a warning.
+	var warnings []string
+	for i := range p.Tasks {
+		t := &p.Tasks[i]
+		switch t.Status {
+		case TaskStatusPending, TaskStatusActive, TaskStatusDone, TaskStatusFailed:
+		default:
+			warnings = append(warnings, fmt.Sprintf("task %s: status %q normalized to pending", t.ID, t.Status))
+			t.Status = TaskStatusPending
+			t.LandedPR = 0
+			continue
+		}
+		if t.Status == TaskStatusDone && t.LandedPR <= 0 {
+			warnings = append(warnings, fmt.Sprintf("task %s: status done without landed_pr normalized to pending", t.ID))
+			t.Status = TaskStatusPending
+		} else if t.Status != TaskStatusDone && t.LandedPR != 0 {
+			warnings = append(warnings, fmt.Sprintf("task %s: status %s with landed_pr — landed_pr cleared", t.ID, t.Status))
+			t.LandedPR = 0
+		}
+	}
+	return p, warnings, nil
 }
 
 // writeTaskStatusAtomic updates one task node while preserving the owner's YAML

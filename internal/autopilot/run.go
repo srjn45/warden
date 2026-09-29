@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -199,6 +201,19 @@ func (c *Controller) spawnBrain(ctx context.Context, r *run, backend string) err
 		r.state = StateActive
 		return nil
 	}
+	// Guard: if r.plan has no goal (e.g. degraded run before boot recovery
+	// populated it), attempt a lenient reload from disk before composing the
+	// digest — so the guardian's blind-spawn hole is closed for runs whose plan
+	// was not in memory yet.
+	if strings.TrimSpace(r.plan.Goal) == "" {
+		plan, warnings, lerr := loadPlanLenient(r.absPlanFile)
+		if lerr != nil {
+			r.state = StateDegraded
+			return fmt.Errorf("spawn brain: plan not loadable: %w", lerr)
+		}
+		r.plan = plan
+		r.preflightWarnings = warnings
+	}
 	prompt, err := ComposeDigest(ctx, DigestInput{
 		RunID:             r.runID,
 		Repo:              r.repo,
@@ -281,6 +296,11 @@ func (r *run) reloadPlanIfChanged() (changed bool, notify error) {
 // the daemon's job here is the §3 guarantee for an INVALID edit: keep last-good +
 // notify the owner. Generous cadence (frictionless-safeguards philosophy) — plan
 // edits are rare and human-paced.
+//
+// For degraded runs watchPlan also attempts a recovery tick: when the plan can
+// now pass preflight (or at least load leniently), the run is promoted to
+// StateStarting and a new brain is spawned — so an operator fixing a broken plan
+// file auto-recovers without a daemon restart.
 func (c *Controller) watchPlan(ctx context.Context, r *run, interval time.Duration) {
 	if interval <= 0 {
 		interval = planWatchInterval
@@ -293,6 +313,37 @@ func (c *Controller) watchPlan(ctx context.Context, r *run, interval time.Durati
 			return
 		case <-t.C:
 			c.mu.Lock()
+			// Degraded-recovery check: attempt to re-preflight and spawn.
+			if r.state == StateDegraded && r.brain == nil && c.runtime != nil {
+				if err := c.preflightRegisteredRunLocked(ctx, r); err != nil {
+					var pfe *PreflightError
+					if errors.As(err, &pfe) && pfe.hasContentOnly() {
+						plan, warnings, lerr := loadPlanLenient(r.absPlanFile)
+						if lerr == nil {
+							r.plan = plan
+							r.preflightWarnings = warnings
+							// fall through to spawn below
+						}
+					}
+					if r.brain == nil && r.state == StateDegraded {
+						// Structural failure or lenient load failed — still degraded.
+						c.mu.Unlock()
+						continue
+					}
+				} else {
+					r.preflightWarnings = nil // clean preflight — clear any prior warnings
+				}
+				r.state = StateStarting
+				sel := c.selectBrain(nil)
+				r.tier = sel.Tier
+				if spawnErr := c.spawnBrain(ctx, r, sel.Backend); spawnErr != nil {
+					slog.Warn("autopilot: watchPlan recovery spawn failed",
+						"run", r.runID, "err", spawnErr)
+				}
+				c.persistRunLocked(r)
+				c.mu.Unlock()
+				continue
+			}
 			_, notify := r.reloadPlanIfChanged()
 			c.mu.Unlock()
 			if notify != nil && c.runtime != nil {

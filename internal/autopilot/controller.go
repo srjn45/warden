@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -123,9 +124,10 @@ type run struct {
 	integrationBranch string // per-run merge target, resolved once and persisted
 	gateWarning       string // operator-visible auto→local CI coverage warning
 
-	brain     *BrainHandle       // nil until the brain spawns; nil again after teardown
-	slotScope string             // stable scope for <scope>-autopilot / <scope>-guardian slot ids
-	cancel    context.CancelFunc // stops the plan-watch goroutine (nil in inert mode)
+	brain             *BrainHandle       // nil until the brain spawns; nil again after teardown
+	slotScope         string             // stable scope for <scope>-autopilot / <scope>-guardian slot ids
+	cancel            context.CancelFunc // stops the plan-watch goroutine (nil in inert mode)
+	preflightWarnings []string           // content warnings from boot-recovery lenient load; cleared on clean preflight
 
 	// Guardian-owned state (autopilot.md §2.3, §7). All mutated only under c.mu, by
 	// the guardian tick or the (re)spawn helpers.
@@ -257,10 +259,41 @@ func (c *Controller) SetRuntime(rt Runtime) {
 			continue
 		}
 		if err := c.preflightRegisteredRunLocked(context.Background(), r); err != nil {
-			r.state = StateDegraded
-			c.persistRunLocked(r)
-			slog.Warn("autopilot: stored run recovery skipped", "run", r.runID, "err", err)
-			continue
+			var pfe *PreflightError
+			if !errors.As(err, &pfe) || pfe.hasStructural() {
+				// Structural failure: plan is unrunnable — stay degraded.
+				// Start watchPlan anyway so when the operator fixes the file the
+				// degraded-recovery tick can promote the run automatically.
+				r.state = StateDegraded
+				c.persistRunLocked(r)
+				slog.Warn("autopilot: stored run recovery skipped", "run", r.runID, "err", err)
+				if r.cancel == nil {
+					wctx, cancel := context.WithCancel(context.Background())
+					r.cancel = cancel
+					go c.watchPlan(wctx, r, planWatchInterval)
+				}
+				continue
+			}
+			// Content-only failure: normalize the plan leniently and proceed.
+			plan, warnings, lerr := loadPlanLenient(r.absPlanFile)
+			if lerr != nil {
+				r.state = StateDegraded
+				c.persistRunLocked(r)
+				slog.Warn("autopilot: stored run recovery skipped (lenient load failed)",
+					"run", r.runID, "err", lerr)
+				if r.cancel == nil {
+					wctx, cancel := context.WithCancel(context.Background())
+					r.cancel = cancel
+					go c.watchPlan(wctx, r, planWatchInterval)
+				}
+				continue
+			}
+			r.plan = plan
+			r.preflightWarnings = warnings
+			slog.Warn("autopilot: boot recovery proceeding with content warnings",
+				"run", r.runID, "warnings", warnings)
+		} else {
+			r.preflightWarnings = nil // clean preflight — clear any prior warnings
 		}
 		r.state = StateStarting
 		sel := c.selectBrain(nil)
@@ -289,8 +322,11 @@ func RunID(repo, planPath string) string {
 
 // PreflightError is the typed 409 result of a failed Enable: the full list of
 // actionable failures (autopilot.md §5, §5.1), not just the first.
+// kinds is the internal classification parallel to Failures; the wire format
+// (Failures []string) is unchanged. See preflight_kind.go for the helpers.
 type PreflightError struct {
 	Failures []string
+	kinds    []preflightFailureKind
 }
 
 func (e *PreflightError) Error() string {
@@ -330,12 +366,19 @@ func (c *Controller) Enable(ctx context.Context, repo string) (Status, error) {
 
 	pendingBranches := map[string]string{}
 	for _, file := range c.plans {
-		r, planFails := c.preflightPlan(ctx, file, pendingBranches)
+		r, typedFails := c.preflightPlan(ctx, file, pendingBranches)
 		if r.repo != "" && r.integrationBranch != "" {
 			pendingBranches[r.repo+"\x00"+r.integrationBranch] = r.runID
 		}
-		if len(planFails) == 0 && !r.skipComplete {
-			planFails = append(planFails, c.validatePersistedDoneClaims(r.runID, r.plan)...)
+		if len(typedFails) == 0 && !r.skipComplete {
+			for _, msg := range c.validatePersistedDoneClaims(r.runID, r.plan) {
+				typedFails = append(typedFails, preflightFailure{msg: msg, kind: preflightKindContent})
+			}
+		}
+		// Convert typed failures to message strings for the user-facing strict path.
+		planFails := make([]string, len(typedFails))
+		for i, f := range typedFails {
+			planFails[i] = f.msg
 		}
 		switch {
 		case r.repo == "":
@@ -875,6 +918,7 @@ func (c *Controller) statusLocked() Status {
 			ManagerSlotID:     managerSlotIDOrEmpty(r.slotScope),
 			GuardianSlotID:    guardianSlotIDOrEmpty(r.slotScope),
 			LedgerTasks:       c.ledgerTasksLocked(r.runID),
+			PreflightWarnings: append([]string(nil), r.preflightWarnings...),
 		})
 	}
 	sort.Slice(st.Runs, func(i, j int) bool { return st.Runs[i].RunID < st.Runs[j].RunID })
