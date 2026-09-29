@@ -36,7 +36,217 @@ func (s *Server) resolvePlanRoot(projectID string) string {
 	return projectID
 }
 
-// ListPlans implements GET /api/v1/projects/{project_id}/plans.
+func planToOAPI(p *planstore.Plan) oapi.Plan {
+	if p == nil {
+		return oapi.Plan{}
+	}
+	taskProgress := make(map[string]oapi.TaskStatus, len(p.TaskProgress))
+	for id, status := range p.TaskProgress {
+		taskProgress[id] = oapi.TaskStatus(status)
+	}
+	var startedAt, completedAt time.Time
+	if p.StartedAt != nil {
+		startedAt = *p.StartedAt
+	}
+	if p.CompletedAt != nil {
+		completedAt = *p.CompletedAt
+	}
+	return oapi.Plan{
+		AutopilotRunId: p.AutopilotRunID,
+		CompletedAt:    completedAt,
+		CreatedAt:      p.CreatedAt,
+		ExecutionMode:  oapi.PlanExecutionMode(p.ExecutionMode),
+		FilePath:       p.FilePath,
+		Id:             p.ID,
+		Name:           p.Name,
+		OrchestratorId: p.OrchestratorID,
+		PipelineId:     p.PipelineID,
+		ProjectId:      p.ProjectID,
+		StartedAt:      startedAt,
+		Status:         oapi.PlanStatus(p.Status),
+		TaskProgress:   taskProgress,
+		UpdatedAt:      p.UpdatedAt,
+	}
+}
+
+// ListProjectPlans preserves the original project-scoped plan-list API.
+func (s *Server) ListProjectPlans(ctx context.Context, req oapi.ListProjectPlansRequestObject) (oapi.ListProjectPlansResponseObject, error) {
+	if s.plans == nil {
+		return nil, planNotConfigured()
+	}
+	var (
+		plans []*planstore.Plan
+		err   error
+	)
+	if req.Params.Status != "" {
+		plans, err = s.plans.ListByProjectAndStatus(ctx, req.ProjectId, planstore.PlanStatus(req.Params.Status))
+	} else {
+		plans, err = s.plans.ListByProject(ctx, req.ProjectId)
+	}
+	if err != nil {
+		return nil, errStatus(http.StatusInternalServerError, "list plans: "+err.Error())
+	}
+	out := make([]planstore.Plan, 0, len(plans))
+	for _, p := range plans {
+		out = append(out, *p)
+	}
+	return oapi.ListProjectPlans200JSONResponse{Plans: out}, nil
+}
+
+// CreateProjectPlan preserves the original project-scoped record API.
+func (s *Server) CreateProjectPlan(ctx context.Context, req oapi.CreateProjectPlanRequestObject) (oapi.CreateProjectPlanResponseObject, error) {
+	if s.plans == nil {
+		return nil, planNotConfigured()
+	}
+	if req.Body == nil {
+		return oapi.CreateProjectPlan400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{Error: "body is required"}}, nil
+	}
+	name, filePath := strings.TrimSpace(req.Body.Name), strings.TrimSpace(req.Body.FilePath)
+	if name == "" || filePath == "" {
+		return oapi.CreateProjectPlan400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{Error: "name and file_path are required"}}, nil
+	}
+	p := &planstore.Plan{ID: planstore.PlanID(req.ProjectId, name), ProjectID: req.ProjectId, Name: name, FilePath: filePath, Status: planstore.PlanStatusPending}
+	if err := s.plans.Create(ctx, p); err != nil {
+		if errors.Is(err, planstore.ErrExists) {
+			return oapi.CreateProjectPlan400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{Error: "plan already exists: " + p.ID}}, nil
+		}
+		return nil, errStatus(http.StatusInternalServerError, "create plan: "+err.Error())
+	}
+	got, err := s.plans.Get(ctx, p.ID)
+	if err != nil {
+		return nil, errStatus(http.StatusInternalServerError, "fetch created plan: "+err.Error())
+	}
+	return oapi.CreateProjectPlan200JSONResponse(*got), nil
+}
+
+func (s *Server) ScanProjectPlans(ctx context.Context, req oapi.ScanProjectPlansRequestObject) (oapi.ScanProjectPlansResponseObject, error) {
+	if s.plans == nil {
+		return nil, planNotConfigured()
+	}
+	root := s.resolvePlanRoot(req.ProjectId)
+	if root == "" {
+		return oapi.ScanProjectPlans404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "project not found"}}, nil
+	}
+	if req.Body != nil && req.Body.MigrateFlat {
+		if err := migrateFlatPlans(ctx, root); err != nil {
+			return nil, errStatus(http.StatusInternalServerError, "migrate flat plans: "+err.Error())
+		}
+	}
+	n, err := planstore.ScanProject(ctx, s.plans, req.ProjectId, root)
+	if err != nil {
+		return nil, errStatus(http.StatusInternalServerError, "scan plans: "+err.Error())
+	}
+	return oapi.ScanProjectPlans200JSONResponse{Upserted: n}, nil
+}
+
+func (s *Server) GetProjectPlan(ctx context.Context, req oapi.GetProjectPlanRequestObject) (oapi.GetProjectPlanResponseObject, error) {
+	if s.plans == nil {
+		return nil, planNotConfigured()
+	}
+	p, err := s.plans.Get(ctx, req.PlanId)
+	if errors.Is(err, planstore.ErrNotFound) {
+		return oapi.GetProjectPlan404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "plan not found"}}, nil
+	}
+	if err != nil {
+		return nil, errStatus(http.StatusInternalServerError, "get plan: "+err.Error())
+	}
+	return oapi.GetProjectPlan200JSONResponse(*p), nil
+}
+
+func (s *Server) UpdateProjectPlan(ctx context.Context, req oapi.UpdateProjectPlanRequestObject) (oapi.UpdateProjectPlanResponseObject, error) {
+	if s.plans == nil {
+		return nil, planNotConfigured()
+	}
+	if req.Body == nil {
+		return oapi.UpdateProjectPlan400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{Error: "body is required"}}, nil
+	}
+	p, err := s.legacyUpdatePlanStatus(ctx, req.PlanId, planstore.PlanStatus(req.Body.Status), planstore.PlanExecutionMode(req.Body.ExecutionMode), req.Body.TaskProgress)
+	if errors.Is(err, planstore.ErrNotFound) {
+		return oapi.UpdateProjectPlan404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "plan not found"}}, nil
+	}
+	if err != nil {
+		return oapi.UpdateProjectPlan400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{Error: err.Error()}}, nil
+	}
+	return oapi.UpdateProjectPlan200JSONResponse(*p), nil
+}
+
+func (s *Server) DeleteProjectPlan(ctx context.Context, req oapi.DeleteProjectPlanRequestObject) (oapi.DeleteProjectPlanResponseObject, error) {
+	if s.plans == nil {
+		return nil, planNotConfigured()
+	}
+	if err := s.plans.Delete(ctx, req.PlanId); errors.Is(err, planstore.ErrNotFound) {
+		return oapi.DeleteProjectPlan404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "plan not found"}}, nil
+	} else if err != nil {
+		return nil, errStatus(http.StatusInternalServerError, "delete plan: "+err.Error())
+	}
+	return oapi.DeleteProjectPlan200JSONResponse{OKJSONResponse: oapi.OKJSONResponse{Status: "deleted"}}, nil
+}
+
+func (s *Server) AssessProjectPlan(ctx context.Context, req oapi.AssessProjectPlanRequestObject) (oapi.AssessProjectPlanResponseObject, error) {
+	if s.plans == nil {
+		return nil, planNotConfigured()
+	}
+	p, err := s.plans.Get(ctx, req.PlanId)
+	if errors.Is(err, planstore.ErrNotFound) {
+		return oapi.AssessProjectPlan404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "plan not found"}}, nil
+	}
+	if err != nil {
+		return nil, errStatus(http.StatusInternalServerError, "get plan: "+err.Error())
+	}
+	if s.brainConsultor == nil {
+		return nil, errStatus(http.StatusServiceUnavailable, "brain consultor not configured")
+	}
+	progress, err := assessPlanProgress(ctx, p, s.resolvePlanRoot(req.ProjectId), s.brainConsultor)
+	if err != nil {
+		return nil, errStatus(http.StatusInternalServerError, "assess plan: "+err.Error())
+	}
+	if len(progress) > 0 {
+		if err := s.plans.Update(ctx, req.PlanId, func(p *planstore.Plan) error {
+			if p.TaskProgress == nil {
+				p.TaskProgress = map[string]string{}
+			}
+			for id, status := range progress {
+				p.TaskProgress[id] = status
+			}
+			return nil
+		}); err != nil {
+			return nil, errStatus(http.StatusInternalServerError, "update task progress: "+err.Error())
+		}
+		p, err = s.plans.Get(ctx, req.PlanId)
+		if err != nil {
+			return nil, errStatus(http.StatusInternalServerError, "fetch updated plan: "+err.Error())
+		}
+	}
+	return oapi.AssessProjectPlan200JSONResponse(*p), nil
+}
+
+func (s *Server) RunProjectPlan(ctx context.Context, req oapi.RunProjectPlanRequestObject) (oapi.RunProjectPlanResponseObject, error) {
+	if req.Body == nil {
+		return oapi.RunProjectPlan400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{Error: "body is required"}}, nil
+	}
+	response, err := s.RunPlan(ctx, oapi.RunPlanRequestObject{PlanId: req.PlanId, Body: &oapi.RunPlanRequest{ExecutionMode: oapi.RunPlanRequestExecutionMode(req.Body.Mode)}})
+	if err != nil {
+		return nil, err
+	}
+	switch response.(type) {
+	case oapi.RunPlan200JSONResponse:
+		p, err := s.plans.Get(ctx, req.PlanId)
+		if err != nil {
+			return nil, errStatus(http.StatusInternalServerError, "fetch started plan: "+err.Error())
+		}
+		return oapi.RunProjectPlan200JSONResponse(*p), nil
+	case oapi.RunPlan400JSONResponse:
+		return oapi.RunProjectPlan400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{Error: "invalid run request"}}, nil
+	case oapi.RunPlan404JSONResponse:
+		return oapi.RunProjectPlan404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "plan not found"}}, nil
+	case oapi.RunPlan409JSONResponse:
+		return oapi.RunProjectPlan409JSONResponse{Error: "plan cannot transition to in_progress"}, nil
+	default:
+		return nil, errStatus(http.StatusInternalServerError, "unexpected run plan response")
+	}
+}
+
+// ListPlans implements GET /api/v1/plans.
 // Returns a flat list of plans for the project, optionally filtered by status.
 func (s *Server) ListPlans(ctx context.Context, req oapi.ListPlansRequestObject) (oapi.ListPlansResponseObject, error) {
 	if s.plans == nil {
@@ -48,9 +258,9 @@ func (s *Server) ListPlans(ctx context.Context, req oapi.ListPlansRequestObject)
 
 	if req.Params.Status != "" {
 		status := planstore.PlanStatus(req.Params.Status)
-		plans, err = s.plans.ListByProjectAndStatus(ctx, req.ProjectId, status)
+		plans, err = s.plans.ListByProjectAndStatus(ctx, req.Params.ProjectId, status)
 	} else {
-		plans, err = s.plans.ListByProject(ctx, req.ProjectId)
+		plans, err = s.plans.ListByProject(ctx, req.Params.ProjectId)
 	}
 	if err != nil {
 		return nil, errStatus(http.StatusInternalServerError, "list plans: "+err.Error())
@@ -59,14 +269,14 @@ func (s *Server) ListPlans(ctx context.Context, req oapi.ListPlansRequestObject)
 		plans = []*planstore.Plan{}
 	}
 
-	out := make([]planstore.Plan, 0, len(plans))
+	out := make([]oapi.Plan, 0, len(plans))
 	for _, p := range plans {
-		out = append(out, *p)
+		out = append(out, planToOAPI(p))
 	}
-	return oapi.ListPlans200JSONResponse{Plans: out}, nil
+	return oapi.ListPlans200JSONResponse(out), nil
 }
 
-// CreatePlan implements POST /api/v1/projects/{project_id}/plans.
+// CreatePlan implements POST /api/v1/plans.
 // Creates a new plan record with status pending.
 func (s *Server) CreatePlan(ctx context.Context, req oapi.CreatePlanRequestObject) (oapi.CreatePlanResponseObject, error) {
 	if s.plans == nil {
@@ -79,15 +289,16 @@ func (s *Server) CreatePlan(ctx context.Context, req oapi.CreatePlanRequestObjec
 	if name == "" {
 		return oapi.CreatePlan400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{Error: "name is required"}}, nil
 	}
-	filePath := strings.TrimSpace(req.Body.FilePath)
-	if filePath == "" {
-		return oapi.CreatePlan400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{Error: "file_path is required"}}, nil
+	projectID := strings.TrimSpace(req.Body.ProjectId)
+	if projectID == "" {
+		return oapi.CreatePlan400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{Error: "project_id is required"}}, nil
 	}
+	filePath := filepath.Join("plans", string(planstore.PlanStatusPending), strings.ToLower(strings.ReplaceAll(name, " ", "-"))+".yaml")
 
-	id := planstore.PlanID(req.ProjectId, name)
+	id := planstore.PlanID(projectID, name)
 	p := &planstore.Plan{
 		ID:        id,
-		ProjectID: req.ProjectId,
+		ProjectID: projectID,
 		Name:      name,
 		FilePath:  filePath,
 		Status:    planstore.PlanStatusPending,
@@ -103,7 +314,7 @@ func (s *Server) CreatePlan(ctx context.Context, req oapi.CreatePlanRequestObjec
 	if err != nil {
 		return nil, errStatus(http.StatusInternalServerError, "fetch created plan: "+err.Error())
 	}
-	return oapi.CreatePlan200JSONResponse(*got), nil
+	return oapi.CreatePlan201JSONResponse(planToOAPI(got)), nil
 }
 
 // ScanPlans implements POST /api/v1/projects/{project_id}/plans/scan.
@@ -150,7 +361,7 @@ func (s *Server) ScanPlans(ctx context.Context, req oapi.ScanPlansRequestObject)
 	return oapi.ScanPlans200JSONResponse{Upserted: n}, nil
 }
 
-// GetPlan implements GET /api/v1/projects/{project_id}/plans/{plan_id}.
+// GetPlan implements GET /api/v1/plans/{plan_id}.
 func (s *Server) GetPlan(ctx context.Context, req oapi.GetPlanRequestObject) (oapi.GetPlanResponseObject, error) {
 	if s.plans == nil {
 		return nil, planNotConfigured()
@@ -162,12 +373,12 @@ func (s *Server) GetPlan(ctx context.Context, req oapi.GetPlanRequestObject) (oa
 		}
 		return nil, errStatus(http.StatusInternalServerError, "get plan: "+err.Error())
 	}
-	return oapi.GetPlan200JSONResponse(*p), nil
+	return oapi.GetPlan200JSONResponse(planToOAPI(p)), nil
 }
 
-// UpdatePlan implements PATCH /api/v1/projects/{project_id}/plans/{plan_id}.
-// Allows updating status, execution_mode, and task_progress only.
-// Hub-sync fields (synced_at, remote_id) are never writable.
+// UpdatePlan implements PATCH /api/v1/plans/{plan_id}.
+// This transitional handler updates DB-backed fields that exist before the
+// planstore service layer lands; full YAML updates are implemented downstream.
 func (s *Server) UpdatePlan(ctx context.Context, req oapi.UpdatePlanRequestObject) (oapi.UpdatePlanResponseObject, error) {
 	if s.plans == nil {
 		return nil, planNotConfigured()
@@ -178,22 +389,130 @@ func (s *Server) UpdatePlan(ctx context.Context, req oapi.UpdatePlanRequestObjec
 
 	var updateErr error
 	err := s.plans.Update(ctx, req.PlanId, func(p *planstore.Plan) error {
-		if req.Body.Status != "" {
-			st := planstore.PlanStatus(req.Body.Status)
-			if !st.Valid() {
-				updateErr = fmt.Errorf("invalid status: %s", st)
-				return updateErr
+		if strings.TrimSpace(req.Body.Name) != "" {
+			p.Name = strings.TrimSpace(req.Body.Name)
+		}
+		_ = req.Body.Goal
+		_ = req.Body.Tasks
+		_ = req.Body.Constraints
+		_ = req.Body.DoneWhen
+		if p.Status != planstore.PlanStatusPending {
+			updateErr = fmt.Errorf("plan is not pending")
+			return updateErr
+		}
+		return nil
+	})
+	if updateErr != nil {
+		return oapi.UpdatePlan409JSONResponse{Error: updateErr.Error()}, nil
+	}
+	if err != nil {
+		if errors.Is(err, planstore.ErrNotFound) {
+			return oapi.UpdatePlan404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "plan not found"}}, nil
+		}
+		return nil, errStatus(http.StatusInternalServerError, "update plan: "+err.Error())
+	}
+
+	p, err := s.plans.Get(ctx, req.PlanId)
+	if err != nil {
+		return nil, errStatus(http.StatusInternalServerError, "fetch updated plan: "+err.Error())
+	}
+	return oapi.UpdatePlan200JSONResponse(planToOAPI(p)), nil
+}
+
+// UpdateTaskStatus implements POST /api/v1/plans/{plan_id}/tasks/{task_id}/status.
+func (s *Server) UpdateTaskStatus(ctx context.Context, req oapi.UpdateTaskStatusRequestObject) (oapi.UpdateTaskStatusResponseObject, error) {
+	if s.plans == nil {
+		return nil, planNotConfigured()
+	}
+	if req.Body == nil {
+		return oapi.UpdateTaskStatus400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{Error: "body is required"}}, nil
+	}
+	status := string(req.Body.Status)
+	switch status {
+	case "pending", "in_progress", "done", "skipped":
+	default:
+		return oapi.UpdateTaskStatus400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{Error: "invalid task status: " + status}}, nil
+	}
+	if err := s.plans.Update(ctx, req.PlanId, func(p *planstore.Plan) error {
+		if p.TaskProgress == nil {
+			p.TaskProgress = map[string]string{}
+		}
+		p.TaskProgress[req.TaskId] = status
+		return nil
+	}); err != nil {
+		if errors.Is(err, planstore.ErrNotFound) {
+			return oapi.UpdateTaskStatus404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "plan not found"}}, nil
+		}
+		return nil, errStatus(http.StatusInternalServerError, "update task status: "+err.Error())
+	}
+	p, err := s.plans.Get(ctx, req.PlanId)
+	if err != nil {
+		return nil, errStatus(http.StatusInternalServerError, "fetch updated plan: "+err.Error())
+	}
+	return oapi.UpdateTaskStatus200JSONResponse(planToOAPI(p)), nil
+}
+
+// ArchivePlan implements POST /api/v1/plans/{plan_id}/archive.
+func (s *Server) ArchivePlan(ctx context.Context, req oapi.ArchivePlanRequestObject) (oapi.ArchivePlanResponseObject, error) {
+	if s.plans == nil {
+		return nil, planNotConfigured()
+	}
+	if err := s.plans.Update(ctx, req.PlanId, func(p *planstore.Plan) error {
+		p.Status = planstore.PlanStatusArchived
+		return nil
+	}); err != nil {
+		if errors.Is(err, planstore.ErrNotFound) {
+			return oapi.ArchivePlan404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "plan not found"}}, nil
+		}
+		return nil, errStatus(http.StatusInternalServerError, "archive plan: "+err.Error())
+	}
+	p, err := s.plans.Get(ctx, req.PlanId)
+	if err != nil {
+		return nil, errStatus(http.StatusInternalServerError, "fetch archived plan: "+err.Error())
+	}
+	return oapi.ArchivePlan200JSONResponse(planToOAPI(p)), nil
+}
+
+// CompletePlan implements POST /api/v1/plans/{plan_id}/complete.
+func (s *Server) CompletePlan(ctx context.Context, req oapi.CompletePlanRequestObject) (oapi.CompletePlanResponseObject, error) {
+	if s.plans == nil {
+		return nil, planNotConfigured()
+	}
+	now := time.Now().UTC()
+	var updateErr error
+	if err := s.plans.Update(ctx, req.PlanId, func(p *planstore.Plan) error {
+		if p.Status != planstore.PlanStatusInProgress {
+			updateErr = fmt.Errorf("plan is not in_progress")
+			return updateErr
+		}
+		p.Status = planstore.PlanStatusCompleted
+		p.CompletedAt = &now
+		return nil
+	}); err != nil {
+		if errors.Is(err, planstore.ErrNotFound) {
+			return oapi.CompletePlan404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "plan not found"}}, nil
+		}
+		return nil, errStatus(http.StatusInternalServerError, "complete plan: "+err.Error())
+	}
+	if updateErr != nil {
+		return oapi.CompletePlan409JSONResponse{Error: updateErr.Error()}, nil
+	}
+	p, err := s.plans.Get(ctx, req.PlanId)
+	if err != nil {
+		return nil, errStatus(http.StatusInternalServerError, "fetch completed plan: "+err.Error())
+	}
+	return oapi.CompletePlan200JSONResponse(planToOAPI(p)), nil
+}
+
+// legacyUpdatePlanStatus preserves the pre-CRUD route tests until the new
+// service layer takes ownership of plan transitions.
+func (s *Server) legacyUpdatePlanStatus(ctx context.Context, planID string, status planstore.PlanStatus, mode planstore.PlanExecutionMode, progress map[string]string) (*planstore.Plan, error) {
+	if err := s.plans.Update(ctx, planID, func(p *planstore.Plan) error {
+		if status != "" {
+			if !status.Valid() {
+				return fmt.Errorf("invalid status: %s", status)
 			}
-			p.Status = st
-		}
-		if req.Body.ExecutionMode != "" {
-			p.ExecutionMode = planstore.PlanExecutionMode(req.Body.ExecutionMode)
-		}
-		if req.Body.TaskProgress != nil {
-			p.TaskProgress = req.Body.TaskProgress
-		}
-		// StartedAt / CompletedAt bookkeeping on status transitions.
-		if req.Body.Status != "" {
+			p.Status = status
 			switch p.Status {
 			case planstore.PlanStatusInProgress:
 				if p.StartedAt == nil {
@@ -207,86 +526,17 @@ func (s *Server) UpdatePlan(ctx context.Context, req oapi.UpdatePlanRequestObjec
 				}
 			}
 		}
+		if mode != "" {
+			p.ExecutionMode = mode
+		}
+		if progress != nil {
+			p.TaskProgress = progress
+		}
 		return nil
-	})
-	if updateErr != nil {
-		return oapi.UpdatePlan400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{Error: updateErr.Error()}}, nil
+	}); err != nil {
+		return nil, err
 	}
-	if err != nil {
-		if errors.Is(err, planstore.ErrNotFound) {
-			return oapi.UpdatePlan404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "plan not found"}}, nil
-		}
-		return nil, errStatus(http.StatusInternalServerError, "update plan: "+err.Error())
-	}
-
-	p, err := s.plans.Get(ctx, req.PlanId)
-	if err != nil {
-		return nil, errStatus(http.StatusInternalServerError, "fetch updated plan: "+err.Error())
-	}
-	return oapi.UpdatePlan200JSONResponse(*p), nil
-}
-
-// DeletePlan implements DELETE /api/v1/projects/{project_id}/plans/{plan_id}.
-// Removes the DB record only — never touches the YAML file.
-func (s *Server) DeletePlan(ctx context.Context, req oapi.DeletePlanRequestObject) (oapi.DeletePlanResponseObject, error) {
-	if s.plans == nil {
-		return nil, planNotConfigured()
-	}
-	if err := s.plans.Delete(ctx, req.PlanId); err != nil {
-		if errors.Is(err, planstore.ErrNotFound) {
-			return oapi.DeletePlan404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "plan not found"}}, nil
-		}
-		return nil, errStatus(http.StatusInternalServerError, "delete plan: "+err.Error())
-	}
-	s.removePlanMembership(req.PlanId, req.ProjectId)
-	return oapi.DeletePlan200JSONResponse{OKJSONResponse: oapi.OKJSONResponse{Status: "deleted"}}, nil
-}
-
-// AssessPlan implements POST /api/v1/projects/{project_id}/plans/{plan_id}/assess.
-// Reads the plan YAML, calls the brain consultor, and updates task_progress.
-func (s *Server) AssessPlan(ctx context.Context, req oapi.AssessPlanRequestObject) (oapi.AssessPlanResponseObject, error) {
-	if s.plans == nil {
-		return nil, planNotConfigured()
-	}
-
-	p, err := s.plans.Get(ctx, req.PlanId)
-	if err != nil {
-		if errors.Is(err, planstore.ErrNotFound) {
-			return oapi.AssessPlan404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "plan not found"}}, nil
-		}
-		return nil, errStatus(http.StatusInternalServerError, "get plan: "+err.Error())
-	}
-
-	if s.brainConsultor == nil {
-		return nil, errStatus(http.StatusServiceUnavailable, "brain consultor not configured")
-	}
-
-	root := s.resolvePlanRoot(req.ProjectId)
-
-	progress, err := assessPlanProgress(ctx, p, root, s.brainConsultor)
-	if err != nil {
-		return nil, errStatus(http.StatusInternalServerError, "assess plan: "+err.Error())
-	}
-
-	if len(progress) > 0 {
-		if updateErr := s.plans.Update(ctx, req.PlanId, func(pl *planstore.Plan) error {
-			if pl.TaskProgress == nil {
-				pl.TaskProgress = make(map[string]string)
-			}
-			for k, v := range progress {
-				pl.TaskProgress[k] = v
-			}
-			return nil
-		}); updateErr != nil {
-			return nil, errStatus(http.StatusInternalServerError, "update task progress: "+updateErr.Error())
-		}
-	}
-
-	updated, err := s.plans.Get(ctx, req.PlanId)
-	if err != nil {
-		return nil, errStatus(http.StatusInternalServerError, "fetch updated plan: "+err.Error())
-	}
-	return oapi.AssessPlan200JSONResponse(*updated), nil
+	return s.plans.Get(ctx, planID)
 }
 
 // RunPlan implements POST /api/v1/projects/{project_id}/plans/{plan_id}/run.
@@ -314,8 +564,8 @@ func (s *Server) RunPlan(ctx context.Context, req oapi.RunPlanRequestObject) (oa
 		return oapi.RunPlan409JSONResponse{Error: fmt.Sprintf("plan is already %s", p.Status)}, nil
 	}
 
-	mode := planstore.PlanExecutionMode(req.Body.Mode)
-	root := s.resolvePlanRoot(req.ProjectId)
+	mode := planstore.PlanExecutionMode(req.Body.ExecutionMode)
+	root := s.resolvePlanRoot(p.ProjectID)
 	if root == "" {
 		return oapi.RunPlan404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "project not found"}}, nil
 	}
@@ -391,7 +641,7 @@ func (s *Server) RunPlan(ctx context.Context, req oapi.RunPlanRequestObject) (oa
 		sr := SpawnRequest{
 			Repo:      root,
 			Role:      "orchestrator",
-			ProjectID: req.ProjectId,
+			ProjectID: p.ProjectID,
 			PlanID:    req.PlanId,
 			Prompt:    prompt,
 		}
@@ -440,7 +690,7 @@ func (s *Server) RunPlan(ctx context.Context, req oapi.RunPlanRequestObject) (oa
 	if err != nil {
 		return nil, errStatus(http.StatusInternalServerError, "fetch updated plan: "+err.Error())
 	}
-	return oapi.RunPlan200JSONResponse(*updated), nil
+	return oapi.RunPlan200JSONResponse(planToOAPI(updated)), nil
 }
 
 // buildPlanPipeline constructs a pipeline.Pipeline with one job per plan task.
