@@ -1,0 +1,13 @@
+      ▄▀▀▄        Antigravity CLI 1.0.16
+     ▀▀▀▀▀▀       user@example.com (Free Tier)
+    ▀▀▀▀▀▀▀▀      Gemini 3.5 Flash (Low)
+   ▄▀▀    ▀▀▄     /home/agent/work
+  ▄▀▀      ▀▀▄
+
+────────────────────────────────────────────────────────────
+> continue the task
+⚠ Free-tier session quota reached.
+  Your usage limit for Gemini models has been exhausted.
+  Available at 15:30 · gemini.google.com/settings for details.
+────────────────────────────────────────────────────────────
+? for shortcuts                                                  Gemini 3.5 Flash (Low)

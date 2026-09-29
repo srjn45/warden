@@ -123,8 +123,10 @@ func TestBackendRecoveryAllExhaustedRetriesOriginalPool(t *testing.T) {
 		return s != nil && s.BackendRecovery != nil && s.BackendRecovery.Phase == recoveryWaiting && s.BackendRecovery.NextRetryAt != nil
 	}, time.Second, 5*time.Millisecond)
 
-	// A refreshed unknown measurement is eligible for trial. The new round keeps
-	// the prior audit history but permits the exact original pool again.
+	// A refreshed unknown measurement is eligible for trial once the RL cooldown
+	// expires. Advance the coordinator's clock past the reset time so isCoolingDown
+	// returns false for codex; the new round permits the exact original pool again.
+	c.now = func() time.Time { return reset.Add(time.Second) }
 	c.usage = backendusage.NewService(c.backends,
 		recoveryAdapter{id: "codex", result: backendusage.Result{Status: backendusage.StatusOK}},
 		recoveryAdapter{id: "claude", result: backendusage.Result{Status: backendusage.StatusOK, Usage: []backendusage.Limit{{ID: "weekly", Scope: "weekly", Label: "Weekly", UsedPercent: used(100)}}}},

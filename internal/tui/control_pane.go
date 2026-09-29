@@ -39,6 +39,31 @@ const (
 // terminalSpawnNow is the clock used by the auto-spawn backoff (overridable in tests).
 var terminalSpawnNow = time.Now
 
+// Agent-pane reattach backoff: prevents flood-reattach when the pane is
+// repeatedly dead (e.g. during a hot-swap or a transient daemon restart storm).
+const (
+	agentPaneReattachInitialBackoff = 500 * time.Millisecond
+	agentPaneReattachMaxBackoff     = 10 * time.Second
+	agentPaneReattachMaxAttempts    = 8
+)
+
+// agentPaneNow is the clock used for the agent-pane reattach backoff (overridable in tests).
+var agentPaneNow = time.Now
+
+// minPaneDim is the smallest dimension (width or height) any Bubble Tea component
+// is allowed to receive. Zero or negative values crash lipgloss rendering.
+const minPaneDim = 1
+
+// clampDim returns d when d >= minPaneDim, otherwise minPaneDim. Used in the
+// WindowSizeMsg handler to guard against transient zero/negative dimensions that
+// arrive during a hot-swap resize storm.
+func clampDim(d int) int {
+	if d < minPaneDim {
+		return minPaneDim
+	}
+	return d
+}
+
 // controlPaneModel is the top-left cockpit pane: the agents list plus the
 // new/send/terminate/attach actions. It owns selection: on Enter it opens the
 // selected agent in the agent pane via respawn-pane.
@@ -169,6 +194,18 @@ type controlPaneModel struct {
 	// the cockpit is a window inside the user's own session — killing the session
 	// there would take the user's entire tmux session down with it.
 	killWindow bool
+	// agentPaneReattachAttempts counts consecutive dead-pane detections that each
+	// triggered a reattach attempt. Reset when the pane is observed alive again.
+	agentPaneReattachAttempts int
+	// agentPaneReattachLastAt is when the last reattach was attempted.
+	agentPaneReattachLastAt time.Time
+	// agentPaneReattachBackoff is the minimum wait before the next reattach attempt.
+	// Starts at agentPaneReattachInitialBackoff and doubles up to agentPaneReattachMaxBackoff.
+	agentPaneReattachBackoff time.Duration
+	// agentPaneReattachCircuitOpen suspends reattach after agentPaneReattachMaxAttempts
+	// consecutive failures without the pane recovering. Cleared when the pane
+	// is observed alive again.
+	agentPaneReattachCircuitOpen bool
 }
 
 // quitCmd is what `q`/`ctrl+c` runs: tear the whole cockpit down (killCockpitCmd
@@ -651,20 +688,74 @@ func (m *controlPaneModel) reconcileTerminalPaneCmd() tea.Cmd {
 // reconcileAgentPaneCmd re-attaches the agent pane when it goes dead — most
 // commonly after a hot-swap kills and recreates the agent session (#503).
 // A no-op when there is no agent pane or no currently-opened agent.
+//
+// Reattach attempts are rate-limited with exponential backoff and a circuit
+// breaker to prevent flood-reattach during a hot-swap or transient daemon
+// restart storm. Only safe diagnostic geometry (no terminal content) is logged.
 func (m *controlPaneModel) reconcileAgentPaneCmd() tea.Cmd {
 	if m.agentPane == "" || m.openedAgent == "" {
 		return nil
 	}
 	if !isTmuxPaneDead(m.agentPane) {
+		// Pane is alive — reset the backoff so the next dead-pane event starts fresh.
+		if m.agentPaneReattachAttempts > 0 {
+			m.agentPaneReattachAttempts = 0
+			m.agentPaneReattachBackoff = 0
+			m.agentPaneReattachCircuitOpen = false
+		}
 		return nil
+	}
+	// Circuit breaker: suspend reattach after too many consecutive failures.
+	if m.agentPaneReattachCircuitOpen {
+		return nil
+	}
+	if m.agentPaneReattachAttempts >= agentPaneReattachMaxAttempts {
+		m.agentPaneReattachCircuitOpen = true
+		m.status = "agent pane recovery suspended — press Enter to re-open an agent"
+		slog.Warn("cockpit: agent-pane reattach circuit breaker tripped",
+			"agent", m.openedAgent,
+			"attempts", m.agentPaneReattachAttempts,
+			"w", m.w, "h", m.h)
+		return nil
+	}
+	// Backoff: skip the attempt if not enough time has elapsed since the last one.
+	if m.agentPaneReattachAttempts > 0 {
+		wait := m.agentPaneReattachBackoff
+		if wait <= 0 {
+			wait = agentPaneReattachInitialBackoff
+		}
+		if agentPaneNow().Sub(m.agentPaneReattachLastAt) < wait {
+			return nil
+		}
+	}
+	// Advance backoff for next attempt.
+	m.agentPaneReattachAttempts++
+	m.agentPaneReattachLastAt = agentPaneNow()
+	if m.agentPaneReattachBackoff <= 0 {
+		m.agentPaneReattachBackoff = agentPaneReattachInitialBackoff
+	} else {
+		next := m.agentPaneReattachBackoff * 2
+		if next > agentPaneReattachMaxBackoff {
+			next = agentPaneReattachMaxBackoff
+		}
+		m.agentPaneReattachBackoff = next
 	}
 	// Find the live session to get its current TmuxSession (may have changed after
 	// hot-swap recreated the session with the same agent ID).
 	for _, s := range m.sessions {
 		if s.ID == m.openedAgent && s.TmuxSession != "" {
+			slog.Info("cockpit: reattaching agent pane after hot-swap",
+				"agent", m.openedAgent,
+				"attempt", m.agentPaneReattachAttempts,
+				"w", m.w, "h", m.h)
 			return openInDetailCmd(m.agentPane, s.TmuxSession, false)
 		}
 	}
+	// Agent not in the live list yet (daemon still converging after hot-swap).
+	slog.Debug("cockpit: agent pane dead but agent not yet live; deferring reattach",
+		"agent", m.openedAgent,
+		"attempt", m.agentPaneReattachAttempts,
+		"w", m.w, "h", m.h)
 	return nil
 }
 
@@ -753,10 +844,20 @@ func (m controlPaneModel) Init() tea.Cmd {
 func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.w, m.h = msg.Width, msg.Height
-		m.ta.SetWidth(m.w - 2)
+		// Clamp before storing: a transient zero/negative size (hot-swap resize
+		// storm, tmux race during cockpit handoff) would push negative values into
+		// Bubble Tea components and corrupt the layout.
+		raw := msg
+		m.w = clampDim(raw.Width)
+		m.h = clampDim(raw.Height)
+		if raw.Width < minPaneDim || raw.Height < minPaneDim {
+			slog.Warn("cockpit: clamped transient narrow resize",
+				"raw_w", raw.Width, "raw_h", raw.Height,
+				"clamped_w", m.w, "clamped_h", m.h)
+		}
+		m.ta.SetWidth(max(1, m.w-2))
 		m.ta.SetHeight(4)
-		m.ti.Width = m.w - 20
+		m.ti.Width = max(1, m.w-20)
 		// Size the inspector viewport to the titleBox interior (width w-4 leaves
 		// the same right margin inspectorBody used; height bodyH-2 matches the box).
 		m.vp.Width = max(1, m.w-4)

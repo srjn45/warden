@@ -2105,6 +2105,10 @@ keeps working even if the current provider is fully exhausted.
 
 **Manual actions win.** A `warden switch`, stop, or delete always supersedes automatic recovery; stale timers and late callbacks cannot undo it.
 
+**Durable cooldown.** A confirmed hard limit stamps the exact `(backend, model)` pool as ineligible until the parsed pane reset time (or a conservative fallback). That evidence survives the short stabilization window and daemon restarts, so recovery cannot immediately reselect the same limited pool.
+
+**`wd usage` vs pane evidence.** `warden usage` is a provider-level availability view. It is **not** definitive per-agent pane evidence — a confirmed provider banner on the agent's pane (or the usage-API fallback for pane-blind backends) can still start recovery while aggregate usage bars show remaining headroom. See the [backend recovery guide](https://srjn45.github.io/warden/guides/backend-recovery/#operator-diagnostics-usage-vs-pane-vs-cooldown-vs-manual) for the four-signal triage table.
+
 **What is preserved.** Session ID, pipeline job, Autopilot run/task, worktree, branch, role, parentage, and all tags survive recovery unchanged.
 
 **Status strings shown in TUI / API:**

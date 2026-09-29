@@ -464,7 +464,7 @@ type RateLimitDetector interface {
 }
 
 // RateLimitResetParser is an optional Backend extension: extracts the reset time
-// from a rate-limit pane excerpt. RateLimitScheduler.limitClearsAt() prefers
+// from a rate-limit pane excerpt. RateLimitScheduler.limitClearsAtExcerpt() prefers
 // this over the Claude-specific poller helpers when present.
 type RateLimitResetParser interface {
 	// ParseRateLimitReset extracts the reset time from the pane. ok is false

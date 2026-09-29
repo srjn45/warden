@@ -43,12 +43,12 @@ type RateLimitScheduler struct {
 	resumePrompt       string // text to inject on resume; "" = bare keypress only
 
 	// BackendResolver, when set, resolves the backend for a session so
-	// limitClearsAt() can prefer the backend's RateLimitResetParser over the
+	// limitClearsAtExcerpt() can prefer the backend's RateLimitResetParser over the
 	// Claude-specific poller helpers. Set by the daemon after construction.
 	BackendResolver func(sess *store.Session) agentbackend.Backend
 
 	// CaptureDir, when non-empty, is where the fixture-capture aid snapshots the
-	// trailing pane text on every rate-limit detection (see captureBanner). Left
+	// trailing pane text on every rate-limit detection (see captureBannerExcerpt). Left
 	// empty in tests and any caller that doesn't want the capture. Set by the
 	// daemon after construction.
 	CaptureDir string
@@ -115,21 +115,53 @@ func (r *RateLimitScheduler) clearTimer(sessionID string) {
 	delete(r.timers, sessionID)
 }
 
-// OnTransition is wired as a callback on the poller's status-transition hook.
+// OnRateLimitObservation is the primary handler for poller-driven rate-limit
+// transitions. It receives the immutable observation built by the poller with the
+// fresh pane excerpt captured at detection time, so captureBannerExcerpt and
+// limitClearsAtExcerpt consume fresh bytes rather than the stale LastPaneExcerpt
+// snapshot on the session.
+//
+// This method is wired as poller.OnRateLimitObservation in the daemon startup
+// (internal/cli/daemon.go). For pane-blind backends (e.g. usage-API-driven
+// transitions), OnTransition is still called directly and falls back to the stored
+// LastPaneExcerpt.
+func (r *RateLimitScheduler) OnRateLimitObservation(obs poller.RateLimitObservation) {
+	if obs.ClassifierResult != store.StatusRateLimited {
+		return
+	}
+	ctx := context.Background()
+	sess, err := r.store.Get(ctx, obs.SessionID)
+	if err != nil {
+		return // session gone
+	}
+	r.handleRateLimit(sess, obs.FreshExcerpt)
+}
+
+// OnTransition is the fallback handler for rate-limit transitions that originate
+// outside the poller's pane-classification path (e.g. usage-API-driven transitions
+// for pane-blind backends, fired from internal/daemon/usage_sync.go). For those
+// paths no fresh pane is available, so sess.LastPaneExcerpt is used as the best
+// available excerpt. Poller-driven transitions use OnRateLimitObservation instead.
 func (r *RateLimitScheduler) OnTransition(sess *store.Session, from, to store.Status) {
 	if to != store.StatusRateLimited {
 		return
 	}
+	r.handleRateLimit(sess, sess.LastPaneExcerpt)
+}
 
-	// Snapshot the pane on every real limit hit, regardless of auto_resume, so the
+// handleRateLimit runs the rate-limit detection response using the provided
+// excerpt for both the diagnostic capture and the reset-time parse. It is called
+// from OnRateLimitObservation (fresh excerpt) and OnTransition (fallback excerpt).
+func (r *RateLimitScheduler) handleRateLimit(sess *store.Session, excerpt string) {
+	// Snapshot the excerpt on every real limit hit, regardless of auto_resume, so the
 	// next live limit yields exact bytes to close any parser gap. Cheap and
 	// bounded; a capture failure must never block the resume path.
-	r.captureBanner(sess)
+	r.captureBannerExcerpt(sess.ID, excerpt)
 
 	// The instant the limit is expected to clear — the same parse + fallback logic
 	// the resume schedule uses. Computed regardless of auto_resume so the autopilot
 	// guardian's cost-tier limit tracking stays accurate even when resume is off.
-	scheduleAt := r.limitClearsAt(sess)
+	scheduleAt := r.limitClearsAtExcerpt(sess, excerpt)
 	if r.OnLimit != nil {
 		r.OnLimit(sess, scheduleAt)
 	}
@@ -153,8 +185,10 @@ func (r *RateLimitScheduler) OnTransition(sess *store.Session, from, to store.St
 	r.scheduleResume(sess.ID, scheduleAt)
 }
 
-// limitClearsAt computes when a rate-limited session's limit is expected to clear.
-// It tries parse sources in order:
+// limitClearsAtExcerpt computes when a rate-limited session's limit is expected to
+// clear. excerpt is the pane text used for parsing — callers must pass the fresh
+// excerpt from the observation (OnRateLimitObservation) or the stored excerpt
+// (OnTransition fallback). It tries parse sources in order:
 //  1. Backend's RateLimitResetParser (when BackendResolver is set and the backend implements it).
 //  2. poller.ParseRestoreTime — Claude legacy clock-time parser.
 //  3. poller.SpendLimitBannerPresent — Claude spend-cap legacy (spendRetryInterval).
@@ -162,14 +196,14 @@ func (r *RateLimitScheduler) OnTransition(sess *store.Session, from, to store.St
 //
 // This is the single source of truth for both the resume schedule and the
 // autopilot guardian's tier limit feed.
-func (r *RateLimitScheduler) limitClearsAt(sess *store.Session) time.Time {
+func (r *RateLimitScheduler) limitClearsAtExcerpt(sess *store.Session, excerpt string) time.Time {
 	now := time.Now()
 
 	// 1. Backend's own reset-time parser.
 	if r.BackendResolver != nil {
 		if b := r.BackendResolver(sess); b != nil {
 			if rp, ok := b.(agentbackend.RateLimitResetParser); ok {
-				if t, ok := rp.ParseRateLimitReset(sess.LastPaneExcerpt); ok && t.After(now) {
+				if t, ok := rp.ParseRateLimitReset(excerpt); ok && t.After(now) {
 					return t.Add(r.buffer)
 				}
 			}
@@ -177,12 +211,12 @@ func (r *RateLimitScheduler) limitClearsAt(sess *store.Session) time.Time {
 	}
 
 	// 2. Claude legacy clock-time parser.
-	if restoreTime, ok := poller.ParseRestoreTime(sess.LastPaneExcerpt); ok && restoreTime.After(now) {
+	if restoreTime, ok := poller.ParseRestoreTime(excerpt); ok && restoreTime.After(now) {
 		return restoreTime.Add(r.buffer)
 	}
 
 	// 3. Claude spend-cap legacy.
-	if poller.SpendLimitBannerPresent(sess.LastPaneExcerpt) {
+	if poller.SpendLimitBannerPresent(excerpt) {
 		return now.Add(r.spendRetryInterval)
 	}
 
@@ -355,16 +389,18 @@ func (r *RateLimitScheduler) attemptResume(sessionID string) {
 	}
 }
 
-// captureBanner snapshots the agent's trailing pane text (the banner and/or
-// menu that tripped rate-limit detection) to CaptureDir as a fixture-capture
-// aid, then prunes the directory to the newest maxRateLimitCaptures files. It is
-// a permanent, cheap diagnostic: the next real limit hit leaves the exact bytes
-// on disk so a parser gap (e.g. an unhandled weekly-banner format) can be fixed
-// from ground truth instead of guessed. Best-effort — any error is logged and
-// swallowed so it never interferes with the resume path. A no-op when CaptureDir
-// is empty or the pane excerpt is blank.
-func (r *RateLimitScheduler) captureBanner(sess *store.Session) {
-	if r.CaptureDir == "" || strings.TrimSpace(sess.LastPaneExcerpt) == "" {
+// captureBannerExcerpt snapshots the provided excerpt to CaptureDir as a
+// fixture-capture aid, then prunes the directory to the newest maxRateLimitCaptures
+// files. It is a permanent, cheap diagnostic: the next real limit hit leaves the
+// exact bytes on disk so a parser gap (e.g. an unhandled weekly-banner format) can
+// be fixed from ground truth instead of guessed. Best-effort — any error is logged
+// and swallowed so it never interferes with the resume path. A no-op when CaptureDir
+// is empty or the excerpt is blank.
+//
+// excerpt must be the fresh pane text from the observation (or the stored excerpt
+// for the pane-blind fallback) — NOT sess.LastPaneExcerpt from a stale snapshot.
+func (r *RateLimitScheduler) captureBannerExcerpt(sessionID, excerpt string) {
+	if r.CaptureDir == "" || strings.TrimSpace(excerpt) == "" {
 		return
 	}
 	if err := os.MkdirAll(r.CaptureDir, 0o700); err != nil {
@@ -373,8 +409,8 @@ func (r *RateLimitScheduler) captureBanner(sess *store.Session) {
 	}
 	// Timestamped, id-tagged name so captures sort chronologically and never
 	// collide; the raw excerpt is the file body for verbatim fixture extraction.
-	name := time.Now().UTC().Format("20060102T150405.000Z") + "-" + sess.ID + ".txt"
-	if err := os.WriteFile(filepath.Join(r.CaptureDir, name), []byte(sess.LastPaneExcerpt), 0o600); err != nil {
+	name := time.Now().UTC().Format("20060102T150405.000Z") + "-" + sessionID + ".txt"
+	if err := os.WriteFile(filepath.Join(r.CaptureDir, name), []byte(excerpt), 0o600); err != nil {
 		slog.Warn("rate-limit capture: write failed", "dir", r.CaptureDir, "err", err)
 		return
 	}
