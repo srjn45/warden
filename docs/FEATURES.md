@@ -1545,14 +1545,17 @@ Opt-in only. Also available as `wd plan scan --assess` (runs for all `in_progres
 
 | Tool | Action |
 |---|---|
-| `list_plans` | List plans for a project (optional `status` filter) |
-| `get_plan` | Get one plan by stable ID |
-| `create_plan` | Register a new plan record (YAML must already exist at `file_path`) |
+| `list_plans` | List plans for a project (`project_id`, optional `status` filter) |
+| `get_plan` | Get one plan by stable `plan_id` (includes goal, tasks, task_progress) |
+| `create_plan` | Create a plan: writes `plans/pending/<slug>.yaml` + DB record (`project_id`, `name`, `goal`, `tasks[]`, optional `constraints[]`/`done_when[]`) |
+| `update_plan` | Patch a **pending** plan's definition (`name`/`goal`/`tasks`/`constraints`/`done_when`); 409 if not pending |
 | `scan_plans` | Walk directories and upsert (`migrate_flat`, `assess` flags) |
-| `update_plan_status` | git mv + commit + DB update |
-| `archive_plan` | Shorthand: status → `archived` |
+| `update_plan_status` | Legacy project-scoped status change (prefer `run_plan` / `complete_plan` / `archive_plan`) |
+| `update_task_status` | Plan form: `{plan_id, task_id, status}` updates TaskProgress (`pending\|in_progress\|done\|skipped`). Autopilot-brain form still accepts `{run_id, task_id, status, landed_pr?}` |
+| `archive_plan` | Any status → `archived` (moves YAML to `plans/archived/`) |
+| `complete_plan` | `in_progress` → `completed`. Structured error lists incomplete tasks and/or unmerged branches |
 | `assess_plan` | Brain-based task progress reconstruction |
-| `run_plan` | Start execution in a given mode |
+| `run_plan` | Start execution (`plan_id`, `execution_mode`); pending → `in_progress` |
 
 ### 37.10 TUI
 
@@ -1561,9 +1564,8 @@ Plans appear **above agents** in the project tree, grouped by status with count 
 ### 37.11 Non-goals
 
 - Warden-hub plan sync (deferred; `synced_at`/`remote_id` fields reserved)
-- Editing or validating plan YAML content from the daemon
-- Creating a plan YAML from the CLI (use `warden autopilot init` or write it directly)
-- Per-task execution (plans run as a whole; task progress is informational)
+- Creating a plan YAML from the CLI (use `create_plan` / the REST API, `warden autopilot init`, or write the file directly)
+- Per-task execution (plans run as a whole; `update_task_status` records progress only)
 
 ---
 

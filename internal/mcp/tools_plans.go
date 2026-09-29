@@ -2,13 +2,20 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/srjn45/warden/internal/client"
-	"github.com/srjn45/warden/internal/planstore"
 )
 
 // --- argument structs for plan tools ---
+
+type planTaskArg struct {
+	ID     string   `json:"id" jsonschema:"stable task id within the plan"`
+	Prompt string   `json:"prompt" jsonschema:"work instruction for this task"`
+	After  []string `json:"after,omitempty" jsonschema:"task ids that must complete before this task starts"`
+}
 
 type listPlansArgs struct {
 	ProjectID string `json:"project_id" jsonschema:"the daemon project id (use the project's absolute path for local projects)"`
@@ -16,20 +23,31 @@ type listPlansArgs struct {
 }
 
 type getPlanArgs struct {
-	ProjectID string `json:"project_id" jsonschema:"the daemon project id"`
-	PlanID    string `json:"plan_id" jsonschema:"the stable plan id (plan-<8hex>)"`
+	PlanID string `json:"plan_id" jsonschema:"the stable plan id (plan-<8hex>)"`
 }
 
 type createPlanArgs struct {
-	ProjectID string `json:"project_id" jsonschema:"the daemon project id"`
-	Name      string `json:"name" jsonschema:"plan name (must match the YAML name: field or filename stem)"`
-	FilePath  string `json:"file_path" jsonschema:"path to the plan YAML file, relative to the project root"`
+	ProjectID   string        `json:"project_id" jsonschema:"the daemon project id"`
+	Name        string        `json:"name" jsonschema:"plan name (used for the YAML filename slug)"`
+	Goal        string        `json:"goal" jsonschema:"what the plan is trying to achieve"`
+	Tasks       []planTaskArg `json:"tasks" jsonschema:"at least one task; each needs id and prompt"`
+	Constraints []string      `json:"constraints,omitempty" jsonschema:"optional constraints the workers must follow"`
+	DoneWhen    []string      `json:"done_when,omitempty" jsonschema:"optional completion criteria"`
+}
+
+type updatePlanArgs struct {
+	PlanID      string        `json:"plan_id" jsonschema:"the stable plan id (plan-<8hex>)"`
+	Name        string        `json:"name,omitempty" jsonschema:"new plan name (pending plans only)"`
+	Goal        string        `json:"goal,omitempty" jsonschema:"new goal (pending plans only)"`
+	Tasks       []planTaskArg `json:"tasks,omitempty" jsonschema:"replacement task list (pending plans only)"`
+	Constraints []string      `json:"constraints,omitempty" jsonschema:"replacement constraints (pending plans only)"`
+	DoneWhen    []string      `json:"done_when,omitempty" jsonschema:"replacement completion criteria (pending plans only)"`
 }
 
 type scanPlansArgs struct {
 	ProjectID   string `json:"project_id" jsonschema:"the daemon project id"`
 	MigrateFlat bool   `json:"migrate_flat,omitempty" jsonschema:"move flat plans/*.yaml files into plans/pending/ with git mv + commit"`
-	Assess      bool   `json:"assess,omitempty" jsonschema:"run brain-assisted progress assessment for all in_progress plans (Phase 4 stub)"`
+	Assess      bool   `json:"assess,omitempty" jsonschema:"run brain-assisted progress assessment for all in_progress plans"`
 }
 
 type updatePlanStatusArgs struct {
@@ -39,8 +57,7 @@ type updatePlanStatusArgs struct {
 }
 
 type archivePlanArgs struct {
-	ProjectID string `json:"project_id" jsonschema:"the daemon project id"`
-	PlanID    string `json:"plan_id" jsonschema:"the stable plan id (plan-<8hex>) to archive"`
+	PlanID string `json:"plan_id" jsonschema:"the stable plan id (plan-<8hex>) to archive"`
 }
 
 type assessPlanArgs struct {
@@ -49,48 +66,115 @@ type assessPlanArgs struct {
 }
 
 type runPlanArgs struct {
-	ProjectID string `json:"project_id" jsonschema:"the daemon project id"`
-	PlanID    string `json:"plan_id" jsonschema:"the stable plan id (plan-<8hex>) to run"`
-	Mode      string `json:"mode" jsonschema:"execution mode: autopilot|pipeline|orchestrator_worker|manual"`
+	PlanID        string `json:"plan_id" jsonschema:"the stable plan id (plan-<8hex>) to run"`
+	ExecutionMode string `json:"execution_mode" jsonschema:"execution mode: autopilot|pipeline|orchestrator_worker|manual"`
+}
+
+type completePlanArgs struct {
+	PlanID string `json:"plan_id" jsonschema:"the stable plan id (plan-<8hex>) to complete"`
+}
+
+// planTaskStatusArgs backs update_task_status. plan_id is the Plan CRUD form;
+// run_id is the pre-existing autopilot-brain form (replaced here so both share one tool name).
+type planTaskStatusArgs struct {
+	PlanID   string `json:"plan_id,omitempty" jsonschema:"plan id for PlanService task-progress updates (pending|in_progress|done|skipped)"`
+	RunID    string `json:"run_id,omitempty" jsonschema:"autopilot run id (brain-only form; mutually exclusive with plan_id)"`
+	TaskID   string `json:"task_id" jsonschema:"the task id to update"`
+	Status   string `json:"status" jsonschema:"plan form: pending|in_progress|done|skipped; autopilot form: pending|active|done|failed"`
+	LandedPR int    `json:"landed_pr,omitempty" jsonschema:"autopilot form: required for done; must already be recorded by land"`
+}
+
+func toClientTasks(in []planTaskArg) []client.PlanTaskSpec {
+	out := make([]client.PlanTaskSpec, 0, len(in))
+	for _, t := range in {
+		out = append(out, client.PlanTaskSpec{ID: t.ID, Prompt: t.Prompt, After: t.After})
+	}
+	return out
+}
+
+// planToolErr returns a structured error payload (human-readable message plus
+// any incomplete-task / unmerged-branch lists from a 422 body).
+func planToolErr(err error) (*mcpsdk.CallToolResult, any, error) {
+	payload := map[string]any{"error": err.Error()}
+	var se *client.StatusError
+	if errors.As(err, &se) {
+		payload["status"] = se.Code
+		var body struct {
+			Error            string   `json:"error"`
+			IncompleteTasks  []string `json:"incomplete_tasks,omitempty"`
+			UnmergedBranches []string `json:"unmerged_branches,omitempty"`
+		}
+		if json.Unmarshal(se.Body, &body) == nil && body.Error != "" {
+			payload["error"] = body.Error
+			if len(body.IncompleteTasks) > 0 {
+				payload["incomplete_tasks"] = body.IncompleteTasks
+			}
+			if len(body.UnmergedBranches) > 0 {
+				payload["unmerged_branches"] = body.UnmergedBranches
+			}
+		}
+	}
+	return jsonResultAny(payload)
 }
 
 // registerPlanTools registers the plan-management MCP tools.
 func (s *Server) registerPlanTools() {
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "list_plans",
-		Description: "List plans for a daemon project, optionally filtered by status (pending|in_progress|completed|archived). Returns a flat list sorted by updated_at descending.",
+		Description: "List plans for a daemon project, optionally filtered by status (pending|in_progress|completed|archived). Returns Plan objects sorted by the daemon (typically updated_at descending).",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a listPlansArgs) (*mcpsdk.CallToolResult, any, error) {
-		plans, err := s.cl.PlanList(ctx, a.ProjectID, client.PlanListParams{Status: a.Status})
+		plans, err := s.cl.PlansList(ctx, a.ProjectID, a.Status)
 		if err != nil {
-			return textResult("error: " + err.Error()), nil, nil
-		}
-		if plans == nil {
-			plans = []*planstore.Plan{}
+			return planToolErr(err)
 		}
 		return jsonResultAny(plans)
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "get_plan",
-		Description: "Get one plan by its stable ID (plan-<8hex>). Returns the full record including status, file path, execution mode, linked IDs, task progress, and timestamps.",
+		Description: "Get one plan by its stable ID (plan-<8hex>). Returns the full record including goal, tasks, constraints, done_when, status, file path, execution mode, linked IDs, task progress, and timestamps.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a getPlanArgs) (*mcpsdk.CallToolResult, any, error) {
-		p, err := s.cl.PlanGet(ctx, a.ProjectID, a.PlanID)
+		p, err := s.cl.PlansGet(ctx, a.PlanID)
 		if err != nil {
-			return textResult("error: " + err.Error()), nil, nil
+			return planToolErr(err)
 		}
 		return jsonResultAny(p)
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "create_plan",
-		Description: "Register a new plan record in the daemon DB. The YAML file must already exist at file_path relative to the project root. Use scan_plans to bulk-import from the directory.",
+		Description: "Create a new plan: writes plans/pending/<slug>.yaml and inserts the DB record. Requires project_id, name, goal, and at least one task (id + prompt). Returns the created Plan.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a createPlanArgs) (*mcpsdk.CallToolResult, any, error) {
-		p, err := s.cl.PlanCreate(ctx, a.ProjectID, client.PlanCreateRequest{
-			Name:     a.Name,
-			FilePath: a.FilePath,
+		p, err := s.cl.PlansCreate(ctx, client.PlansCreateRequest{
+			ProjectID:   a.ProjectID,
+			Name:        a.Name,
+			Goal:        a.Goal,
+			Tasks:       toClientTasks(a.Tasks),
+			Constraints: a.Constraints,
+			DoneWhen:    a.DoneWhen,
 		})
 		if err != nil {
-			return textResult("error: " + err.Error()), nil, nil
+			return planToolErr(err)
+		}
+		return jsonResultAny(p)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "update_plan",
+		Description: "Update a pending plan's definition (name, goal, tasks, constraints, done_when). Rejected with a structured error if the plan is not pending. Returns the updated Plan.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a updatePlanArgs) (*mcpsdk.CallToolResult, any, error) {
+		req := client.PlansUpdateRequest{
+			Name:        a.Name,
+			Goal:        a.Goal,
+			Constraints: a.Constraints,
+			DoneWhen:    a.DoneWhen,
+		}
+		if a.Tasks != nil {
+			req.Tasks = toClientTasks(a.Tasks)
+		}
+		p, err := s.cl.PlansUpdate(ctx, a.PlanID, req)
+		if err != nil {
+			return planToolErr(err)
 		}
 		return jsonResultAny(p)
 	})
@@ -104,33 +188,31 @@ func (s *Server) registerPlanTools() {
 			Assess:      a.Assess,
 		})
 		if err != nil {
-			return textResult("error: " + err.Error()), nil, nil
+			return planToolErr(err)
 		}
 		return jsonResultAny(res)
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "update_plan_status",
-		Description: "Change a plan's lifecycle status. The daemon updates the DB record and performs a git mv of the YAML file to the correct plans/<status>/ subdirectory, then commits. Valid statuses: pending|in_progress|completed|archived.",
+		Description: "Change a plan's lifecycle status via the project-scoped API. Prefer run_plan / complete_plan / archive_plan for the PlanService state machine. Valid statuses: pending|in_progress|completed|archived.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a updatePlanStatusArgs) (*mcpsdk.CallToolResult, any, error) {
 		p, err := s.cl.PlanUpdate(ctx, a.ProjectID, a.PlanID, client.PlanUpdateRequest{
 			Status: a.Status,
 		})
 		if err != nil {
-			return textResult("error: " + err.Error()), nil, nil
+			return planToolErr(err)
 		}
 		return jsonResultAny(p)
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "archive_plan",
-		Description: "Move a plan to the archived state. Equivalent to update_plan_status with status=archived. The YAML file is git-mv'd to plans/archived/ and a commit is created.",
+		Description: "Archive a plan (any status → archived). Moves the YAML to plans/archived/ and returns the updated Plan.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a archivePlanArgs) (*mcpsdk.CallToolResult, any, error) {
-		p, err := s.cl.PlanUpdate(ctx, a.ProjectID, a.PlanID, client.PlanUpdateRequest{
-			Status: string(planstore.PlanStatusArchived),
-		})
+		p, err := s.cl.PlansArchive(ctx, a.PlanID)
 		if err != nil {
-			return textResult("error: " + err.Error()), nil, nil
+			return planToolErr(err)
 		}
 		return jsonResultAny(p)
 	})
@@ -141,18 +223,51 @@ func (s *Server) registerPlanTools() {
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a assessPlanArgs) (*mcpsdk.CallToolResult, any, error) {
 		p, err := s.cl.PlanAssess(ctx, a.ProjectID, a.PlanID)
 		if err != nil {
-			return textResult("error: " + err.Error()), nil, nil
+			return planToolErr(err)
 		}
 		return jsonResultAny(p)
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "run_plan",
-		Description: "Start execution of a plan in the given mode. Modes: autopilot (autonomous), pipeline (task-per-job), orchestrator_worker (human-gated), manual (tracking only). Phase 5 stub — daemon returns 501 until Phase 5 ships.",
+		Description: "Start execution of a plan: pending → in_progress. execution_mode is autopilot|pipeline|orchestrator_worker|manual. Returns the updated Plan (with linked run/pipeline/orchestrator id when started).",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a runPlanArgs) (*mcpsdk.CallToolResult, any, error) {
-		if err := s.cl.PlanRun(ctx, a.ProjectID, a.PlanID, client.PlanRunRequest{Mode: a.Mode}); err != nil {
-			return textResult("error: " + err.Error()), nil, nil
+		p, err := s.cl.PlansRun(ctx, a.PlanID, a.ExecutionMode)
+		if err != nil {
+			return planToolErr(err)
 		}
-		return textResult("plan " + a.PlanID + " run started (mode: " + a.Mode + ")"), nil, nil
+		return jsonResultAny(p)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "complete_plan",
+		Description: "Complete a plan (in_progress → completed). Blocked with a structured error listing incomplete tasks and/or unmerged branches. On success moves the YAML to plans/completed/, cleans up worktrees, and returns the Plan.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a completePlanArgs) (*mcpsdk.CallToolResult, any, error) {
+		p, err := s.cl.PlansComplete(ctx, a.PlanID)
+		if err != nil {
+			return planToolErr(err)
+		}
+		return jsonResultAny(p)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "update_task_status",
+		Description: "Update one task's status. Plan form: {plan_id, task_id, status} where status is pending|in_progress|done|skipped — updates TaskProgress only. Autopilot-brain form: {run_id, task_id, status, landed_pr?} where status is pending|active|done|failed.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a planTaskStatusArgs) (*mcpsdk.CallToolResult, any, error) {
+		if a.PlanID != "" {
+			p, err := s.cl.PlansUpdateTaskStatus(ctx, a.PlanID, a.TaskID, a.Status)
+			if err != nil {
+				return planToolErr(err)
+			}
+			return jsonResultAny(p)
+		}
+		if a.RunID != "" {
+			task, err := s.cl.UpdateAutopilotTaskStatus(ctx, a.RunID, a.TaskID, a.Status, a.LandedPR)
+			if err != nil {
+				return planToolErr(err)
+			}
+			return jsonResultAny(task)
+		}
+		return jsonResultAny(map[string]any{"error": "plan_id or run_id is required"})
 	})
 }
