@@ -54,8 +54,12 @@ func (c *Controller) restoreStoredRuns() {
 			}
 		}
 		// Boot reconciliation re-spawns only runs whose durable intent is live.
+		// Try strict load first; fall back to lenient on content-only failures.
 		if plan, err := LoadPlan(rec.PlanFile); err == nil {
 			r.plan = plan
+		} else if plan, warnings, lerr := loadPlanLenient(rec.PlanFile); lerr == nil {
+			r.plan = plan
+			r.preflightWarnings = warnings
 		}
 		c.runs[rec.RunID] = r
 	}
@@ -352,21 +356,25 @@ func (c *Controller) RetargetIntegrationBranch(_ context.Context, id string, req
 }
 
 // preflightRegisteredRunLocked applies the same safety checks as legacy Enable
-// to one durable V2 record before a start or resume. Caller holds c.mu.
+// to one durable V2 record before a start or resume. Returns a *PreflightError
+// carrying typed classification (structural vs content) so the boot-recovery
+// path in SetRuntime can distinguish permanent failures from transient ones.
+// Caller holds c.mu.
 func (c *Controller) preflightRegisteredRunLocked(ctx context.Context, r *run) error {
 	resolved, failures := c.preflightPlan(ctx, r.absPlanFile, nil)
 	if len(failures) == 0 && !resolved.skipComplete {
-		failures = append(failures, c.validatePersistedDoneClaims(resolved.runID, resolved.plan)...)
+		for _, msg := range c.validatePersistedDoneClaims(resolved.runID, resolved.plan) {
+			failures = append(failures, preflightFailure{msg: msg, kind: preflightKindContent})
+		}
 	}
 	if resolved.skipComplete {
-		failures = append(failures, "plan is already marked complete")
+		failures = append(failures, preflightFailure{msg: "plan is already marked complete", kind: preflightKindStructural})
 	}
 	if resolved.repo != "" && (!samePath(resolved.repo, r.repo) || resolved.runID != r.runID) {
-		failures = append(failures, "registered plan identity no longer matches its repository")
+		failures = append(failures, preflightFailure{msg: "registered plan identity no longer matches its repository", kind: preflightKindStructural})
 	}
 	if len(failures) > 0 {
-		sort.Strings(failures)
-		return &PreflightError{Failures: dedupe(failures)}
+		return newPreflightError(failures)
 	}
 	r.plan = resolved.plan
 	r.planFile = resolved.file
@@ -542,7 +550,8 @@ func (c *Controller) runStatusLocked(r *run) RunStatus {
 		PlanTasks: append([]PlanTask(nil), r.plan.Tasks...), GuardianID: guardianSlotIDOrEmpty(r.slotScope),
 		SlotScope: r.slotScope, IntegrationBranch: r.integrationBranch, GateWarning: r.gateWarning,
 		ManagerSlotID: managerSlotIDOrEmpty(r.slotScope), GuardianSlotID: guardianSlotIDOrEmpty(r.slotScope),
-		LedgerTasks: c.ledgerTasksLocked(r.runID)}
+		LedgerTasks:       c.ledgerTasksLocked(r.runID),
+		PreflightWarnings: append([]string(nil), r.preflightWarnings...)}
 	return st
 }
 

@@ -4892,6 +4892,13 @@ components:
             type: array
             items: { type: string }
           description: "task_id -> worker session ids (tree grouping metadata)"
+        preflight_warnings:
+          type: array
+          items: { type: string }
+          description: >
+            Non-blocking content warnings from boot recovery preflight; empty
+            when the plan loaded cleanly. The run is active despite these
+            warnings — fix the plan file to clear them.
       required: [run_id, name, plan_file, repo, state]
 
     AutopilotStatus:

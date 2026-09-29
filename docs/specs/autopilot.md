@@ -80,6 +80,32 @@ active ──all tasks landed──▶ complete (brain torn down, ledger retaine
   ticker: the guardian heals manager *liveness* (§2.3), and the overwatch nudges
   a live-but-quiet manager to tend idle/waiting *workers* (§2.4).
 
+### 2.1.1 Boot recovery — structural vs content preflight
+
+On daemon restart, `SetRuntime` re-preflights every live persisted run. Failures
+are classified:
+
+| Kind | Examples | Boot behavior |
+|---|---|---|
+| **Structural** | missing/unreadable plan, bad YAML, empty goal, duplicate task ids, bad dep edges, integration-branch create failure | Stay `degraded`; start `watchPlan` so an operator fix can auto-recover |
+| **Content** | invalid task status string, `done` without `landed_pr`, unverified done claims, transient `gh` auth | Proceed: `loadPlanLenient` normalizes invalid statuses → `pending`, records warnings, spawns the brain |
+
+User-facing paths (`Enable`, `StartRun`, `ResumeRun`) stay **strict** — content
+failures still block those. Leniency applies only to boot recovery and the
+`watchPlan` degraded-recovery tick.
+
+`RunStatus.preflight_warnings` (JSON `preflight_warnings`) lists the coercions
+from a lenient boot. Non-empty means the run is **active despite** plan-file
+content issues — fix the plan to clear them. A clean subsequent preflight
+(successful `watchPlan` tick or restart with a valid file) clears the field.
+
+`watchPlan` also recovers degraded runs mid-flight: each tick re-preflights; on
+content-only failure it lenient-loads and promotes to `starting` + spawn; on
+structural failure it waits until the operator restores a loadable file.
+`spawnBrain` refuses a blind spawn when `r.plan.Goal` is empty — it reloads
+leniently from disk first, and returns an error (stays `degraded`) if even that
+fails.
+
 ### 2.2 Task (ledger-tracked, brain-written)
 
 ```
@@ -262,6 +288,10 @@ with an actionable list instead of stalling unattended later:
   local-check fallback announced in the response.
 
 Preflight failures are the **only** human interaction autopilot ever requests.
+Internally each failure is tagged structural or content (§2.1.1); the HTTP wire
+format remains `Failures []string` (classification is package-private). Enable
+stays strict for both kinds; only boot/`watchPlan` recovery treats content-only
+failures as non-blocking.
 
 ## 6. `land` contract (new MCP tool + `wd land`)
 

@@ -240,15 +240,21 @@ its own integration branch and plan-scoped tree (`<scope>-autopilot`,
 |---|---|---|
 | `set_autopilot { enabled: true, repo? }` | Enable autopilot **for one repo** (runs preflight); `repo` defaults to the daemon's working directory | `warden autopilot enable [--repo <root>]` |
 | `set_autopilot { enabled: false, repo? }` | Disable autopilot for one repo — the kill switch | `warden autopilot disable [--repo <root>]` |
-| `autopilot_status` | Enabled repos + each run's state, manager slot id, integration branch, task counts, tier, backoff | `warden autopilot status` |
+| `autopilot_status` | Enabled repos + each run's state, manager slot id, integration branch, task counts, tier, backoff, optional `preflight_warnings` | `warden autopilot status` |
 | `autopilot_complete` | **Manager-only.** Declare the caller's OWN run complete once `done_when` is verified — writes the in-place `status: complete` marker into the plan file, tears the manager down (workers keep running), retains the ledger. Idempotent | _(automatic; the manager calls it)_ |
 | `brain_consult` | **Manager-only.** Shared short-lived brain resolver for unblock/design decisions — prefer over `spawn_agent` with role=brain. Returns a closed action (`nudge_agent`/`wait`/`escalate`/`noop`); manager executes it. Same Consultor/audit/teardown as pipeline stuck recovery | _(automatic; the manager calls it)_ |
 | `land { ticket: "<agent-or-branch>" }` | Land a worker branch into the run's integration branch | `warden autopilot land <agent-or-branch>` |
 
-The switch is **per-repository**: enabling one repo does not touch others, and the
-enabled set is persisted so repos come back up across a daemon restart. Do not
+The enabled set is persisted so repos come back up across a daemon restart. Do not
 call `autopilot_complete` yourself when driving the fleet — it is the autopilot
 manager's own completion signal.
+
+**Boot recovery.** A daemon restart re-preflights live runs. Content-only plan
+issues (invalid task status, etc.) are normalized and the run stays active —
+`autopilot_status` may show `preflight_warnings` listing what was coerced; tell
+the operator to fix the plan file. Structural failures (missing plan file, bad
+YAML) leave the run `degraded` until the file is restored; the watcher then
+auto-recovers. Do not tell the user to re-enable for those cases.
 
 **CLI-only** (local file authoring): `warden autopilot init [--name <name>]` —
 scaffold `plans/<name>.yaml` and register it with the daemon.

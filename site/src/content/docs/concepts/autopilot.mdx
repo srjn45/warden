@@ -453,6 +453,18 @@ While a run is `active`, two daemon-internal supervisors share the guardian's
 ticker: the **guardian** heals manager liveness, and the **overwatch** nudges a
 live-but-quiet manager to tend idle/waiting workers.
 
+### Boot recovery after a daemon restart
+
+On restart, live runs are re-preflighted. **Structural** plan failures (missing
+file, bad YAML, empty goal, broken dependency graph) leave the run `degraded`
+but keep a plan watcher running — restore or fix the file and the next tick
+promotes the run and respawns the manager. **Content-only** failures (invalid
+task status, `done` without `landed_pr`) do **not** strand the run: the daemon
+normalizes those statuses to `pending`, spawns the manager, and surfaces the
+coercions on `warden autopilot status` as `preflight_warnings`. Fix the plan
+file to clear the warnings. Enable / start / resume stay strict — only boot and
+the degraded watcher apply this leniency.
+
 ### Completion marker
 
 When the manager has verified the plan's `done_when` criteria it declares the run
