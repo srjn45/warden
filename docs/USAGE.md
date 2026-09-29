@@ -2668,6 +2668,7 @@ wd plan list                          # all plans for this project
 wd plan list --status in_progress     # filter by status
 wd plan list --json
 
+wd plan create --name feature-x --goal "ship it" --task t1:do the work
 wd plan show <plan-id>                # full detail
 wd plan show <plan-id> --json
 ```
@@ -2686,7 +2687,9 @@ Copies the file into `plans/pending/` and triggers a scan.
 wd plan status <plan-id> in_progress    # move to in_progress
 wd plan status <plan-id> completed      # mark done
 wd plan status <plan-id> archived       # de-prioritise
-wd plan archive <plan-id>               # shorthand for → archived
+wd plan archive <plan-id>               # any status → archived
+wd plan done <plan-id> <task-id>        # mark one task done
+wd plan complete <plan-id>              # in_progress → completed
 ```
 
 ### `wd plan run` — execution modes
@@ -2694,7 +2697,7 @@ wd plan archive <plan-id>               # shorthand for → archived
 ```sh
 wd plan run <plan-id> --mode autopilot
 wd plan run <plan-id> --mode pipeline
-wd plan run <plan-id> --mode orchestrator_worker
+wd plan run <plan-id> --mode orchestrator
 wd plan run <plan-id> --mode manual
 ```
 
@@ -2702,7 +2705,7 @@ wd plan run <plan-id> --mode manual
 |---|---|
 | `autopilot` | Registers an autopilot run; the manager drives workers autonomously. Completion auto-advances the plan to `completed/`. |
 | `pipeline` | Creates a DAG pipeline (one job per YAML task). Completion auto-advances the plan to `completed/`. |
-| `orchestrator_worker` | Spawns an orchestrator agent; each worker needs a human approval gate. Mark complete manually with `wd plan status <id> completed`. |
+| `orchestrator_worker` | Spawns an orchestrator agent; each worker needs a human approval gate. Mark complete with `wd plan complete <id>` (`orchestrator` is a CLI alias). |
 | `manual` | git-mv to `in_progress/` only — state tracking, no execution entity. |
 
 ### Brain-assisted progress assessment
@@ -2732,10 +2735,13 @@ wd plan list
 | Command | What it does |
 |---|---|
 | `wd plan list [--status <s>] [--json]` | List plans (optionally filtered by status) |
+| `wd plan create --name <n> --goal <g> [--task id:prompt]` | Create a pending plan (writes YAML + DB record) |
 | `wd plan show <id> [--json]` | Show full detail for one plan |
 | `wd plan import <file>` | Copy a YAML into `plans/pending/` and scan |
 | `wd plan scan [--migrate-flat] [--assess]` | Walk directories and upsert records |
-| `wd plan status <id> <new-status>` | git mv + commit + DB update |
-| `wd plan archive <id>` | Shorthand for `status → archived` |
+| `wd plan status <id> <new-status>` | Legacy project-scoped git mv + commit + DB update |
+| `wd plan done <id> <task-id>` | Mark one task done |
+| `wd plan complete <id>` | Complete a plan (`in_progress` → `completed`) |
+| `wd plan archive <id>` | Any status → `archived` |
 | `wd plan assess <id>` | Brain-based task progress reconstruction |
 | `wd plan run <id> --mode <mode>` | Start execution in the given mode |

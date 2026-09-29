@@ -136,23 +136,28 @@ After a reinstall, plan **status** is perfectly recovered from git (the director
 The following are intentionally out of scope:
 
 - **Warden-hub plan sync** — the `synced_at`/`remote_id` fields are reserved but not yet implemented
-- **Editing or validating plan YAML content** from the daemon — authoring stays in the editor
-- **Creating a plan YAML from the CLI** — use `warden autopilot init` to scaffold one or write it directly
-- **Per-task execution** — plans run as a whole; `task_progress` is informational only
+- **Editing or validating plan YAML content** from the daemon — authoring stays in the editor (or `wd plan create`)
+- **Per-task execution** — plans run as a whole; `task_progress` is informational only (`wd plan done` / `update_task_status`)
 
 ## API surface
 
-Plans are managed via the plans REST API under each project:
+Plans are managed via the Plan CRUD REST API:
 
 ```
-GET    /api/v1/projects/{project_id}/plans
-POST   /api/v1/projects/{project_id}/plans
-GET    /api/v1/projects/{project_id}/plans/{plan_id}
-PATCH  /api/v1/projects/{project_id}/plans/{plan_id}
-DELETE /api/v1/projects/{project_id}/plans/{plan_id}
+GET    /api/v1/plans?project_id=&status=
+POST   /api/v1/plans
+GET    /api/v1/plans/{plan_id}
+PATCH  /api/v1/plans/{plan_id}
+POST   /api/v1/plans/{plan_id}/run
+POST   /api/v1/plans/{plan_id}/tasks/{task_id}/status
+POST   /api/v1/plans/{plan_id}/complete
+POST   /api/v1/plans/{plan_id}/archive
+```
+
+A legacy project-scoped surface remains for scan/assess/status:
+
+```
 POST   /api/v1/projects/{project_id}/plans/scan
 POST   /api/v1/projects/{project_id}/plans/{plan_id}/assess
-POST   /api/v1/projects/{project_id}/plans/{plan_id}/run
+PATCH  /api/v1/projects/{project_id}/plans/{plan_id}
 ```
-
-`DELETE` removes the DB record only — it never touches the YAML file on disk.

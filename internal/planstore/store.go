@@ -73,6 +73,13 @@ type Plan struct {
 	// Per-task progress: task id → "pending"|"in_progress"|"done"|"skipped".
 	TaskProgress map[string]string `json:"task_progress,omitempty"`
 
+	// Branches is the list of git branches associated with this plan's
+	// execution. Populated by scan (heuristic match on plan name/id) and by
+	// run. Checked before completion and used to clean up worktrees.
+	// Serialized as plan_branches to match the OpenAPI contract. ScrivaDB
+	// stores plans as JSON documents, so adding this field needs no migration.
+	Branches []string `json:"plan_branches,omitempty"`
+
 	CreatedAt   time.Time  `json:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at"`
 	StartedAt   *time.Time `json:"started_at,omitempty"`

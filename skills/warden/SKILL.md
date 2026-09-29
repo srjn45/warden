@@ -320,11 +320,14 @@ Plans are YAML files in `plans/{pending,in_progress,completed,archived}/` that t
 | `scan_plans` | **On project init** — after cloning a repo or starting work in a new project, call `scan_plans { project_id: "<cwd>" }` to seed plan records from the directory layout. Also call after a reinstall to restore status from git. |
 | `list_plans` | List plans for a project, optionally filtered by `status` (`pending`\|`in_progress`\|`completed`\|`archived`). |
 | `get_plan` | Fetch the full record for one plan by its stable `plan-<8hex>` ID: status, file path, execution mode, linked run/pipeline IDs, `task_progress`, timestamps. |
-| `create_plan` | Register a new plan record when the YAML file already exists at `file_path` relative to the project root. Use `scan_plans` for bulk import. |
-| `update_plan_status` | **On phase completion** — when completing a phase of work that corresponds to a plan, call `update_plan_status { plan_id: "<id>", status: "completed" }` (or `"in_progress"` when starting). The daemon performs the `git mv`, commits, and updates the DB atomically. |
-| `archive_plan` | Move a plan to `archived`. Shorthand for `update_plan_status` with `status: "archived"`. |
+| `create_plan` | Create a new plan: writes `plans/pending/<slug>.yaml` and inserts the DB record. Requires `project_id`, `name`, `goal`, and at least one task (`id` + `prompt`). |
+| `update_plan` | Patch a **pending** plan's definition (`name`/`goal`/`tasks`/`constraints`/`done_when`). Rejected if the plan is not pending. |
+| `update_plan_status` | **Legacy.** Prefer `run_plan` / `complete_plan` / `archive_plan` for the PlanService state machine. |
+| `archive_plan` | Move a plan to `archived` (any status). Moves the YAML to `plans/archived/`. |
 | `assess_plan` | **After a reinstall recovery** — call `assess_plan { plan_id: "<id>" }` for each `in_progress` plan to reconstruct `task_progress` from `git log` and open PRs via the brain Consultor. Opt-in; never automatic. |
-| `run_plan` | Start execution of a plan in a given `mode` (`autopilot`\|`pipeline`\|`orchestrator_worker`\|`manual`). The daemon links the plan to the created execution entity and git-mvs it to `in_progress/`. |
+| `run_plan` | Start execution of a plan (`execution_mode`: `autopilot`\|`pipeline`\|`orchestrator_worker`\|`manual`). Pending → `in_progress`. |
+| `complete_plan` | Complete a plan (`in_progress` → `completed`). Blocked with a structured error listing incomplete tasks and/or unmerged branches. |
+| `update_task_status` | Plan form: `{plan_id, task_id, status}` where status is `pending`\|`in_progress`\|`done`\|`skipped`. CLI shorthand: `wd plan done <plan-id> <task-id>`. |
 
 ### Workflow guidance
 
@@ -336,12 +339,17 @@ This seeds all plan records. Status is fully recoverable from git — no hub syn
 
 **Starting a phase:**
 ```
-update_plan_status { project_id: "<id>", plan_id: "<plan-id>", status: "in_progress" }
+run_plan { plan_id: "<plan-id>", execution_mode: "autopilot" }
+```
+
+**Marking a task done:**
+```
+update_task_status { plan_id: "<plan-id>", task_id: "<task-id>", status: "done" }
 ```
 
 **Completing a phase:**
 ```
-update_plan_status { project_id: "<id>", plan_id: "<plan-id>", status: "completed" }
+complete_plan { plan_id: "<plan-id>" }
 ```
 
 **After reinstall — reconstruct task progress:**
@@ -352,7 +360,6 @@ assess_plan { project_id: "<id>", plan_id: "<id>" } # brain reconstructs task pr
 
 ### Guardrails
 
-- **Use `update_plan_status` instead of raw `git mv`** — the daemon's status transition is atomic (git mv + commit + DB update in one call).
+- **Use `run_plan` / `complete_plan` / `archive_plan` instead of raw `git mv`** — the daemon's status transition is atomic (file move + DB update in one call).
 - **`assess_plan` is opt-in** — never call it automatically on every scan; it spawns a brain Consultor and takes time.
-- **`run_plan` is a stub until Phase 5 ships** — the daemon returns 501 for modes other than `manual` until all execution modes are wired. Check the daemon version before calling.
 - **`project_id` for local projects is the absolute path** — e.g. `"/home/user/my-repo"`. Pass the `cwd` of the project, not a short name.
