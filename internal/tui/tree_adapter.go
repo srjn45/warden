@@ -302,8 +302,8 @@ func (ctx *adaptCtx) adaptPlans(projectID string) []item {
 	}
 
 	statusGroups := []planstore.PlanStatus{
-		planstore.PlanStatusInProgress,
 		planstore.PlanStatusPending,
+		planstore.PlanStatusInProgress,
 		planstore.PlanStatusCompleted,
 		planstore.PlanStatusArchived,
 	}
