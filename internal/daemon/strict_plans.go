@@ -254,6 +254,7 @@ func (s *Server) DeleteProjectPlan(ctx context.Context, req oapi.DeleteProjectPl
 	} else if err != nil {
 		return nil, errStatus(http.StatusInternalServerError, "delete plan: "+err.Error())
 	}
+	s.removePlanMembership(req.PlanId, req.ProjectId)
 	return oapi.DeleteProjectPlan200JSONResponse{OKJSONResponse: oapi.OKJSONResponse{Status: "deleted"}}, nil
 }
 
