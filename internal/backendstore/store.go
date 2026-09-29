@@ -107,13 +107,14 @@ type Settings struct {
 // guards the read-then-write critical sections. Read-only methods take it too for
 // a behaviour-identical mutex model.
 type Store struct {
-	mu          sync.Mutex
-	db          *scriva.DB
-	col         *engine.Collection
-	modelsCol   *engine.Collection
-	rolesCol    *engine.Collection
-	handoverCol *engine.Collection
-	quotasCol   *engine.Collection
+	mu             sync.Mutex
+	db             *scriva.DB
+	col            *engine.Collection
+	modelsCol      *engine.Collection
+	rolesCol       *engine.Collection
+	handoverCol    *engine.Collection
+	quotasCol      *engine.Collection
+	rlCooldownsCol *engine.Collection
 }
 
 // NewStore opens (creating if needed) the ScrivaDB-backed backend registry at
@@ -152,13 +153,19 @@ func NewStore(dir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	rlCooldownsCol, err := db.Collection("rl_cooldowns")
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
 	s := &Store{
-		db:          db,
-		col:         col,
-		modelsCol:   modelsCol,
-		rolesCol:    rolesCol,
-		handoverCol: handoverCol,
-		quotasCol:   quotasCol,
+		db:             db,
+		col:            col,
+		modelsCol:      modelsCol,
+		rolesCol:       rolesCol,
+		handoverCol:    handoverCol,
+		quotasCol:      quotasCol,
+		rlCooldownsCol: rlCooldownsCol,
 	}
 	if err := s.seedDefaultsIfEmpty(); err != nil {
 		db.Close()
