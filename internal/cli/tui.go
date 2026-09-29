@@ -13,7 +13,7 @@ import (
 
 func newTUICmd() *cobra.Command {
 	var pane, agentPane, terminalPane, pipelineID, jobID, agentID string
-	var tmuxNative, killWindow, rebuildWebCockpit bool
+	var tmuxNative, killWindow, rebuildWebCockpit, expandedPane bool
 	cmd := &cobra.Command{
 		Use:   "tui",
 		Short: "Live terminal cockpit for agents",
@@ -31,7 +31,7 @@ func newTUICmd() *cobra.Command {
 			case "agentdetail":
 				return tui.RunAgentDetailPane(a, agentID)
 			case "plandetail":
-				return tui.RunPlanDetailPane(a, pipelineID, jobID)
+				return tui.RunPlanDetailPane(a, pipelineID, jobID, expandedPane)
 			case "":
 				return runCockpit(a, cockpitTmuxNative(cmd, tmuxNative))
 			default:
@@ -46,9 +46,10 @@ func newTUICmd() *cobra.Command {
 	cmd.Flags().StringVar(&pipelineID, "pipeline", "", "internal: pipeline id for --pane=jobdetail")
 	cmd.Flags().StringVar(&jobID, "job", "", "internal: job id for --pane=jobdetail")
 	cmd.Flags().StringVar(&agentID, "agent", "", "internal: agent id for --pane=agentdetail")
+	cmd.Flags().BoolVar(&expandedPane, "expanded", false, "internal: show expanded task details in plandetail pane")
 	cmd.Flags().BoolVar(&killWindow, "kill-window", false, "internal: `q` kills only the cockpit window, not the session (tmux-native control pane)")
 	cmd.Flags().BoolVar(&rebuildWebCockpit, "rebuild-web-cockpit", false, "kill and rebuild the daemon-owned web cockpit tmux session (the browser /tui view), then exit — an escape hatch for a wedged web cockpit")
-	for _, f := range []string{"pane", "agent-pane", "terminal-pane", "pipeline", "job", "agent", "kill-window"} {
+	for _, f := range []string{"pane", "agent-pane", "terminal-pane", "pipeline", "job", "agent", "kill-window", "expanded"} {
 		_ = cmd.Flags().MarkHidden(f)
 	}
 	return cmd

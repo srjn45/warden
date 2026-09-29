@@ -3626,6 +3626,7 @@
     "local_flags": [
       "agent",
       "agent-pane",
+      "expanded",
       "job",
       "kill-window",
       "pane",
