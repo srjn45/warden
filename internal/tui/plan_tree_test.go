@@ -1,10 +1,15 @@
 package tui
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/projectstore"
@@ -413,7 +418,7 @@ func TestPlanKeybindings_RunModePicker(t *testing.T) {
 func TestPlanKeybindings_EnterDetail(t *testing.T) {
 	a := &fakeAPI{}
 
-	// Case 1: Cockpit with agentPane ("%9")
+	// Case 1: Cockpit with agentPane still uses the in-control-pane viewport.
 	m := setupPlanTestModel(a)
 	m.agentPane = "%9"
 	m.cursor = 4
@@ -422,9 +427,17 @@ func TestPlanKeybindings_EnterDetail(t *testing.T) {
 	nm, cmd := m.Update(key("enter"))
 	m = nm.(controlPaneModel)
 	require.Equal(t, "plan-ip", m.openedPlan)
-	require.NotNil(t, cmd)
+	require.Nil(t, cmd)
+	require.Equal(t, modePlanDetail, m.mode)
+	require.Equal(t, "plan-ip", m.targetPlanID)
+	require.Contains(t, m.vp.View(), "Active Work")
 
-	// Case 2: Cockpit without agentPane (in-pane detail)
+	nm, toggleCmd := m.Update(key("t"))
+	m = nm.(controlPaneModel)
+	require.Nil(t, toggleCmd)
+	require.True(t, m.planDetailExpanded)
+
+	// Case 2: Cockpit without agentPane also uses the in-pane detail.
 	mNoAgent := setupPlanTestModel(a)
 	mNoAgent.agentPane = ""
 	mNoAgent.cursor = 4
@@ -472,4 +485,78 @@ func TestPlanKeybindings_ToggleHeaders(t *testing.T) {
 	require.NotNil(t, itemAt(m.items(), m.cursor).plan)
 	m = lstep(m, key("h"))
 	require.True(t, m.collapsed["plans:proj-1:in_progress"], "h/left on plan row collapses its group")
+}
+
+func TestPlanDetail_ArrowKeysScrollViewport(t *testing.T) {
+	a := &fakeAPI{}
+	m := setupPlanTestModel(a)
+	m.cursor = 4
+	m = lstep(m, key("enter"))
+	require.Equal(t, modePlanDetail, m.mode)
+
+	// Tall content so ↑/↓ can move the viewport (modePlanDetail forwards to m.vp.Update).
+	var lines []string
+	for i := 0; i < 80; i++ {
+		lines = append(lines, fmt.Sprintf("line-%02d", i))
+	}
+	m.vp.Height = 10
+	m.vp.SetContent(strings.Join(lines, "\n"))
+	require.Equal(t, 0, m.vp.YOffset)
+
+	m = lstep(m, key("down"))
+	require.Greater(t, m.vp.YOffset, 0, "↓ should scroll the plan detail viewport")
+	scrolled := m.vp.YOffset
+
+	m = lstep(m, key("up"))
+	require.Less(t, m.vp.YOffset, scrolled, "↑ should scroll the plan detail viewport up")
+}
+
+func TestPromptPreview_WrapsAtWidth(t *testing.T) {
+	long := strings.Repeat("word ", 30)
+	lines := promptPreview(long, 20, 20)
+	require.Greater(t, len(lines), 1, "long prompt should wrap into multiple display lines")
+	for _, line := range lines {
+		require.LessOrEqual(t, lipgloss.Width(line), 20, "wrapped line exceeds width: %q", line)
+	}
+
+	// maxLines caps display lines after wrapping.
+	capped := promptPreview(long, 2, 20)
+	require.Len(t, capped, 2)
+
+	// width <= 0 disables wrapping.
+	nowrap := promptPreview(long, 1, 0)
+	require.Len(t, nowrap, 1)
+	require.Equal(t, strings.TrimRight(long, " \t"), nowrap[0])
+}
+
+func TestPlanDetailText_ScrollHintAndPromptWrap(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "plan.yaml")
+	longPrompt := strings.Repeat("abcdefghij ", 20) // ~220 chars, one YAML line
+	yaml := fmt.Sprintf("name: wrap-test\ntasks:\n  - id: t1\n    prompt: %q\n", longPrompt)
+	require.NoError(t, os.WriteFile(path, []byte(yaml), 0o644))
+
+	p := &planstore.Plan{
+		ID:        "p-wrap",
+		ProjectID: "proj-1",
+		Name:      "Wrap Plan",
+		FilePath:  path,
+		Status:    planstore.PlanStatusPending,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	const width = 40
+	text := planDetailText(p, width, "", true)
+	require.Contains(t, text, "[↑↓] scroll")
+	require.Contains(t, text, "[t] toggle task details")
+
+	wrapW := width - lipgloss.Width(promptIndent)
+	preview := promptPreview(longPrompt, 3, wrapW)
+	require.Greater(t, len(preview), 1)
+	for _, line := range preview {
+		require.LessOrEqual(t, lipgloss.Width(line), wrapW)
+	}
+	// Expanded detail should include the first wrapped fragment.
+	require.Contains(t, text, preview[0])
 }
