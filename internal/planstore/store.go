@@ -130,11 +130,16 @@ func PlanID(projectID, planName string) string {
 	return fmt.Sprintf("plan-%x", h.Sum(nil)[:4])
 }
 
-// Store owns the ScrivaDB "plans" collection at <data>/plans-db.
+// Store owns the ScrivaDB "plans", "plan-events", and "plan-notes" collections
+// at <data>/plans-db. Events and notes are child collections of Plan — they
+// survive executor teardown because they are not stored per-executor.
 type Store struct {
-	mu  sync.Mutex
-	db  *scriva.DB
-	col *engine.Collection
+	mu         sync.Mutex
+	db         *scriva.DB
+	col        *engine.Collection // "plans"
+	events     *engine.Collection // "plan-events"  (append-only audit log)
+	notes      *engine.Collection // "plan-notes"   (attributed agent prose)
+	seqCounter int64              // monotonic event sequence, guarded by mu
 }
 
 // New opens (creating if needed) the ScrivaDB-backed plan store at dir.
@@ -155,7 +160,45 @@ func New(dir string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	return &Store{db: db, col: col}, nil
+	evts, err := db.Collection("plan-events")
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	nts, err := db.Collection("plan-notes")
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	seq, err := initSeqCounter(evts)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return &Store{db: db, col: col, events: evts, notes: nts, seqCounter: seq}, nil
+}
+
+// initSeqCounter scans existing events to find the current high-water seq so
+// that new events continue from where the previous store instance left off.
+func initSeqCounter(col *engine.Collection) (int64, error) {
+	rows, err := col.Scan(query.MatchAll)
+	if err != nil {
+		return 0, err
+	}
+	var max int64
+	for _, row := range rows {
+		b, err := json.Marshal(row.Data)
+		if err != nil {
+			continue
+		}
+		var ev struct {
+			Seq int64 `json:"seq"`
+		}
+		if err := json.Unmarshal(b, &ev); err == nil && ev.Seq > max {
+			max = ev.Seq
+		}
+	}
+	return max, nil
 }
 
 func encodeRecord(p *Plan) (map[string]any, error) {
