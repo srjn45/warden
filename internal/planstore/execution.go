@@ -3,6 +3,7 @@ package planstore
 import (
 	"crypto/rand"
 	"fmt"
+	"sort"
 	"time"
 )
 
@@ -83,17 +84,37 @@ type TaskOutcome struct {
 	Note           string               `json:"note,omitempty"`
 }
 
-// CompletionRequirements captures the two daemon-enforced gates (spec Rule 5)
-// that must pass before a plan may transition in_progress → completed.
-// CheckCompletionRequirements populates this from a Plan snapshot; it performs
-// no I/O and does not evaluate done_when text (which is human-readable guidance
-// only).
+// CompletionRequirements captures the machine-verifiable gates that must pass
+// before a plan may transition in_progress → completed. The struct is populated
+// by CheckCompletionRequirements (two rule-5 gates only) or by
+// EvalCompletionFromEvents (all five gates from typed event evidence).
+// Neither function evaluates done_when text — that field is human-readable
+// guidance for the operator, never a machine-executable gate (spec Rule 5).
 type CompletionRequirements struct {
-	AllTasksDone   bool     `json:"all_tasks_done"`
-	NoOpenPRs      bool     `json:"no_open_prs"`
-	Satisfied      bool     `json:"satisfied"`
-	PendingTaskIDs []string `json:"pending_task_ids,omitempty"`
-	OpenPRBranches []string `json:"open_pr_branches,omitempty"`
+	// Tier 1: rule-5 daemon gates (always evaluated).
+	AllTasksDone bool `json:"all_tasks_done"`
+	NoOpenPRs    bool `json:"no_open_prs"`
+
+	// Tier 2: event-derived evidence gates.
+	// ChecksPassing is true when all required named checks have a check_completed
+	// event. Trivially true when no required_checks are declared in the plan YAML.
+	ChecksPassing bool `json:"checks_passing"`
+	// NoLiveAgents is true when the execution is either not started or has reached
+	// a terminal state (completion_verified / execution_failed / execution_stopped).
+	NoLiveAgents bool `json:"no_live_agents"`
+	// ResourcesClean is true when every branch that received a branch_pushed event
+	// also has a corresponding worktree_removed event.
+	ResourcesClean bool `json:"resources_clean"`
+
+	// Aggregate: true only when all five gates are satisfied.
+	Satisfied bool `json:"satisfied"`
+
+	// Unmet-requirement details — a structured list of exactly what is missing.
+	PendingTaskIDs  []string `json:"pending_task_ids,omitempty"`  // task IDs not yet terminal
+	OpenPRBranches  []string `json:"open_pr_branches,omitempty"`  // branches with open PRs
+	MissingChecks   []string `json:"missing_checks,omitempty"`    // required checks without evidence
+	LiveExecutorIDs []string `json:"live_executor_ids,omitempty"` // executor / agent IDs still running
+	UncleanBranches []string `json:"unclean_branches,omitempty"`  // branches whose worktrees remain
 }
 
 // NewPlanExecutionID returns a fresh pe-<8hex> execution identifier.
@@ -105,13 +126,13 @@ func NewPlanExecutionID() string {
 	return fmt.Sprintf("pe-%x", b)
 }
 
-// CheckCompletionRequirements returns the gate state for p given the complete
-// set of task IDs declared in the plan YAML (taskIDs) and the branches that
-// still carry an open PR (openPRBranches). Callers resolve open-PR state before
-// calling; this function is pure (no I/O).
+// CheckCompletionRequirements returns the rule-5 gate state (tasks done, no
+// open PRs) for p. It does not evaluate the event-derived gates; those default
+// to trivially satisfied (true). Callers that need full five-gate evaluation
+// should use EvalCompletionFromEvents instead.
 //
-// Rule 5: done_when text is never evaluated here — it is human-readable
-// guidance for the operator, not a machine-executable gate.
+// Rule 5: done_when text is never evaluated — it is human-readable guidance
+// for the operator, not a machine-executable gate.
 func CheckCompletionRequirements(p *Plan, taskIDs []string, openPRBranches []string) CompletionRequirements {
 	var pending []string
 	for _, id := range taskIDs {
@@ -131,8 +152,119 @@ func CheckCompletionRequirements(p *Plan, taskIDs []string, openPRBranches []str
 	return CompletionRequirements{
 		AllTasksDone:   allDone,
 		NoOpenPRs:      noPRs,
+		ChecksPassing:  true, // not evaluated by this function
+		NoLiveAgents:   true, // not evaluated by this function
+		ResourcesClean: true, // not evaluated by this function
 		Satisfied:      allDone && noPRs,
 		PendingTaskIDs: pending,
 		OpenPRBranches: openPRBranches,
+	}
+}
+
+// EvalCompletionFromEvents returns the full five-gate CompletionRequirements for
+// plan p, deriving evidence from typed PlanExecutionEvents via the event log.
+//
+// A task is terminal when Plan.TaskProgress records it as "done"/"skipped" OR
+// when a task_evidence_verified event exists for its ID. The OR logic lets
+// manual plans (no events) continue to use TaskProgress, while automated
+// executions can prove completion without agent prose.
+//
+// The openPRBranches argument must be pre-resolved by the caller (typically via
+// a live gh pr list query). This function is otherwise pure (no I/O).
+//
+// Rule 5 guarantee: done_when text is never evaluated here.
+func EvalCompletionFromEvents(
+	plan *Plan,
+	taskIDs []string,
+	openPRBranches []string,
+	events []*PlanExecutionEvent,
+) CompletionRequirements {
+	// Build evidence maps from the event log.
+	evidencedTaskIDs := map[string]bool{}
+	executionStarted := false
+	executionTerminal := false
+	pushedBranches := map[string]bool{}
+	removedBranches := map[string]bool{}
+
+	for _, ev := range events {
+		p := ev.Payload
+		switch ev.Kind {
+		case EventKindTaskEvidenceVerified:
+			if p != nil && p.TaskID != "" {
+				evidencedTaskIDs[p.TaskID] = true
+			}
+		case EventKindExecutionStarted:
+			executionStarted = true
+		case EventKindCompletionVerified, EventKindExecutionFailed, EventKindExecutionStopped:
+			executionTerminal = true
+		case EventKindBranchPushed:
+			if p != nil && p.Branch != "" {
+				pushedBranches[p.Branch] = true
+			}
+		case EventKindWorktreeRemoved:
+			if p != nil && p.Branch != "" {
+				removedBranches[p.Branch] = true
+			}
+		}
+	}
+
+	// 1. AllTasksDone: terminal if TaskProgress says done/skipped OR event-evidenced.
+	var pendingTasks []string
+	for _, id := range taskIDs {
+		if id == "" {
+			continue
+		}
+		done := false
+		if plan.TaskProgress != nil {
+			st := plan.TaskProgress[id]
+			if st == "done" || st == "skipped" {
+				done = true
+			}
+		}
+		if !done && evidencedTaskIDs[id] {
+			done = true
+		}
+		if !done {
+			pendingTasks = append(pendingTasks, id)
+		}
+	}
+	sort.Strings(pendingTasks)
+
+	// 2. ChecksPassing: trivially satisfied until required_checks YAML field exists.
+	checksPassing := true
+
+	// 3. NoLiveAgents: satisfied when no execution was started, or the execution
+	// reached a terminal state (completion_verified, execution_failed, execution_stopped).
+	noLiveAgents := !executionStarted || executionTerminal
+	var liveExecutorIDs []string
+	if !noLiveAgents && plan.ActiveExecution != nil && plan.ActiveExecution.ExecutorID != "" {
+		liveExecutorIDs = []string{plan.ActiveExecution.ExecutorID}
+	}
+
+	// 4. ResourcesClean: every branch that was pushed must have a worktree removed.
+	var uncleanBranches []string
+	for branch := range pushedBranches {
+		if !removedBranches[branch] {
+			uncleanBranches = append(uncleanBranches, branch)
+		}
+	}
+	sort.Strings(uncleanBranches)
+	resourcesClean := len(uncleanBranches) == 0
+
+	allDone := len(pendingTasks) == 0
+	noPRs := len(openPRBranches) == 0
+	satisfied := allDone && noPRs && checksPassing && noLiveAgents && resourcesClean
+
+	return CompletionRequirements{
+		AllTasksDone:    allDone,
+		NoOpenPRs:       noPRs,
+		ChecksPassing:   checksPassing,
+		NoLiveAgents:    noLiveAgents,
+		ResourcesClean:  resourcesClean,
+		Satisfied:       satisfied,
+		PendingTaskIDs:  pendingTasks,
+		OpenPRBranches:  openPRBranches,
+		LiveExecutorIDs: liveExecutorIDs,
+		UncleanBranches: uncleanBranches,
 	}
 }
