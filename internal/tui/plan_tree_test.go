@@ -413,7 +413,7 @@ func TestPlanKeybindings_RunModePicker(t *testing.T) {
 func TestPlanKeybindings_EnterDetail(t *testing.T) {
 	a := &fakeAPI{}
 
-	// Case 1: Cockpit with agentPane ("%9")
+	// Case 1: Cockpit with agentPane — now always uses the viewport (no subprocess).
 	m := setupPlanTestModel(a)
 	m.agentPane = "%9"
 	m.cursor = 4
@@ -422,7 +422,9 @@ func TestPlanKeybindings_EnterDetail(t *testing.T) {
 	nm, cmd := m.Update(key("enter"))
 	m = nm.(controlPaneModel)
 	require.Equal(t, "plan-ip", m.openedPlan)
-	require.NotNil(t, cmd)
+	require.Equal(t, modePlanDetail, m.mode)
+	require.Contains(t, m.vp.View(), "Active Work")
+	require.Nil(t, cmd) // no subprocess spawned
 
 	// Case 2: Cockpit without agentPane (in-pane detail)
 	mNoAgent := setupPlanTestModel(a)
@@ -443,6 +445,30 @@ func TestPlanKeybindings_EnterDetail(t *testing.T) {
 	mNoAgent.mode = modePlanDetail
 	mNoAgent = lstep(mNoAgent, key("q"))
 	require.Equal(t, modeNormal, mNoAgent.mode)
+
+	// Scroll hint is present
+	require.Contains(t, m.vp.View(), "[↑↓] scroll")
+}
+
+func TestPlanDetail_ScrollAndToggle(t *testing.T) {
+	a := &fakeAPI{}
+	m := setupPlanTestModel(a)
+	m.cursor = 4
+	m = lstep(m, key("enter"))
+	require.Equal(t, modePlanDetail, m.mode)
+
+	// Up/down arrows route through the viewport (no crash, mode stays planDetail).
+	m = lstep(m, key("down"))
+	require.Equal(t, modePlanDetail, m.mode)
+	m = lstep(m, key("up"))
+	require.Equal(t, modePlanDetail, m.mode)
+
+	// 't' toggles expanded and updates the viewport content.
+	require.False(t, m.planDetailExpanded)
+	m = lstep(m, key("t"))
+	require.True(t, m.planDetailExpanded)
+	m = lstep(m, key("t"))
+	require.False(t, m.planDetailExpanded)
 }
 
 func TestPlanKeybindings_ToggleHeaders(t *testing.T) {

@@ -1,59 +1,15 @@
 package tui
 
 import (
-	"context"
 	"fmt"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/projectstore"
 )
-
-// RunPlanDetailPane renders one plan's stored detail to stdout and blocks,
-// so the cockpit's agent pane can show a plan's detail view instead of a blank attach.
-// tmux replaces this process via respawn-pane when the user selects another item;
-// scrolling uses copy-mode.
-func RunPlanDetailPane(a api, projectID, planID string, expanded bool) error {
-	p, err := a.PlanGet(context.Background(), projectID, planID)
-	if err != nil {
-		fmt.Println(stMuted.Render("could not load plan detail: " + err.Error()))
-	} else {
-		// Resolve the project root so YAML tasks are read from the right path.
-		var projectRoot string
-		if projects, lerr := a.ListProjects(context.Background()); lerr == nil {
-			projectRoot = projectRootForID(projects, projectID)
-		}
-		fmt.Println(planDetailText(p, 100, projectRoot, expanded))
-	}
-	select {} // hold the pane open until tmux respawns it
-}
-
-// respawnPlanDetailArgs builds the tmux command that replaces the agent pane with
-// a render of one plan's stored detail.
-func respawnPlanDetailArgs(agentPane, self, projectID, planID string, expanded bool) []string {
-	launch := self + " tui --pane=plandetail --pipeline=" + projectID + " --job=" + planID
-	if expanded {
-		launch += " --expanded"
-	}
-	return []string{"respawn-pane", "-k", "-t", agentPane, launch}
-}
-
-// openPlanDetailCmd renders a plan's stored detail into the agent pane.
-func openPlanDetailCmd(agentPane, projectID, planID string, expanded bool) tea.Cmd {
-	return func() tea.Msg {
-		self, err := os.Executable()
-		if err != nil {
-			return attachDoneMsg{err: err}
-		}
-		return attachDoneMsg{err: exec.Command("tmux", respawnPlanDetailArgs(agentPane, self, projectID, planID, expanded)...).Run()}
-	}
-}
 
 // planDetailText renders a plan's detail view for display.
 // projectRoot is the absolute path to the project's root directory, used to
@@ -149,13 +105,17 @@ func planDetailText(p *planstore.Plan, width int, projectRoot string, expanded b
 				}
 
 				if t.Prompt != "" {
-					for _, line := range promptPreview(t.Prompt, 3) {
+					wrapWidth := width - 5
+					if wrapWidth < 20 {
+						wrapWidth = 20
+					}
+					for _, line := range wrapText(t.Prompt, wrapWidth) {
 						b.WriteString("     " + stMuted.Render(line) + "\n")
 					}
 				}
 			}
 		}
-		b.WriteString("\n" + stMuted.Render("  [t] toggle task details") + "\n")
+		b.WriteString("\n" + stMuted.Render("  [t] toggle task details  [↑↓] scroll") + "\n")
 	} else if len(p.TaskProgress) > 0 {
 		// YAML unavailable — fall back to DB task progress map
 		keys := make([]string, 0, len(p.TaskProgress))
@@ -183,6 +143,7 @@ func planDetailText(p *planstore.Plan, width int, projectRoot string, expanded b
 				stHeader.Render(k),
 			))
 		}
+		b.WriteString("\n" + stMuted.Render("  [t] toggle task details  [↑↓] scroll") + "\n")
 	} else {
 		b.WriteString("  " + stMuted.Render("(no tasks defined)") + "\n")
 	}
@@ -225,19 +186,31 @@ func projectRootForID(projects []projectstore.Project, projectID string) string 
 	return ""
 }
 
-// promptPreview returns up to maxLines non-empty lines from a (possibly
-// multi-line) YAML scalar, trimming leading/trailing blank lines.
-func promptPreview(prompt string, maxLines int) []string {
-	var out []string
-	for _, line := range strings.Split(prompt, "\n") {
-		line = strings.TrimRight(line, " \t")
-		if line == "" {
+// wrapText word-wraps text at the given width, skipping blank lines.
+func wrapText(text string, width int) []string {
+	if width <= 0 {
+		width = 80
+	}
+	var result []string
+	for _, para := range strings.Split(text, "\n") {
+		para = strings.TrimRight(para, " \t")
+		if para == "" {
 			continue
 		}
-		out = append(out, line)
-		if len(out) >= maxLines {
-			break
+		words := strings.Fields(para)
+		if len(words) == 0 {
+			continue
 		}
+		line := words[0]
+		for _, w := range words[1:] {
+			if len(line)+1+len(w) <= width {
+				line += " " + w
+			} else {
+				result = append(result, line)
+				line = w
+			}
+		}
+		result = append(result, line)
 	}
-	return out
+	return result
 }
