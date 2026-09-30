@@ -119,7 +119,7 @@ func enabledGuardianController(t *testing.T, fake *guardianFake, clock *fakeCloc
 	}, &fakeEnv{})
 	c.setClock(clock.now)
 	c.SetRuntime(fake)
-	st, err := c.Enable(context.Background(), "")
+	st, err := c.ReconcileConfiguredPlans(context.Background(), "")
 	require.NoError(t, err)
 	require.Len(t, st.Runs, 1)
 	return c, st.Runs[0].RunID

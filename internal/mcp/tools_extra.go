@@ -445,7 +445,7 @@ func (s *Server) registerExtraTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "set_autopilot",
-		Description: "Flip the per-repo autopilot switch. `repo` scopes the toggle to one repository (optional; defaults to the daemon's working directory). enabled=true runs the enable-time preflight (plan file valid, gh authenticated, integration branch present, at most one active run per repo) for that repo and returns the resulting status, or the FULL list of preflight failures to fix. enabled=false is the kill switch for that repo (stops spawning/landing; in-flight workers keep running). Mirrors `warden autopilot on|off`.",
+		Description: "Flip the per-repo autopilot capability switch. `repo` scopes the toggle (optional; defaults to the daemon working directory). enabled=true records the repo as allowed to run Autopilot executors — it does NOT register plan files or start work. Start with run_plan {execution_mode: autopilot}. enabled=false is the kill switch. Mirrors `warden autopilot enable|disable`.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a setAutopilotArgs) (*mcpsdk.CallToolResult, any, error) {
 		st, err := s.cl.SetAutopilot(ctx, a.Enabled, a.Repo)
 		if err != nil {
@@ -460,7 +460,7 @@ func (s *Server) registerExtraTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "autopilot_status",
-		Description: "Read the autopilot status: the master switch plus one entry per active run (run id, plan file, repo, state, resolved gate, brain, workers, task rollup, backoff). Read-only. Mirrors `warden autopilot status`.",
+		Description: "Read the autopilot capability switch plus one entry per live Autopilot executor (run id, plan id, plan file, repo, state, gate, manager, workers, task rollup, backoff). Read-only. Mirrors `warden autopilot status`. Prefer list_plans / get_plan for plan lifecycle.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ listArgs) (*mcpsdk.CallToolResult, any, error) {
 		st, err := s.cl.GetAutopilot(ctx)
 		if err != nil {
@@ -469,21 +469,21 @@ func (s *Server) registerExtraTools() {
 		return jsonResultAny(st)
 	})
 
-	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{Name: "list_autopilot_runs", Description: "List every durable autopilot run, including registered, paused, stopped, and complete records."}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ listArgs) (*mcpsdk.CallToolResult, any, error) {
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{Name: "list_autopilot_runs", Description: "List live Autopilot executors (and any legacy registered runs). Prefer list_plans for plan lifecycle."}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ listArgs) (*mcpsdk.CallToolResult, any, error) {
 		runs, err := s.cl.ListAutopilotRuns(ctx)
 		if err != nil {
 			return textResult("error: " + err.Error()), nil, nil
 		}
 		return jsonResultAny(runs)
 	})
-	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{Name: "register_autopilot_run", Description: "Register a named autopilot plan without starting it."}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a registerAutopilotRunArgs) (*mcpsdk.CallToolResult, any, error) {
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{Name: "register_autopilot_run", Description: "DEPRECATED for one release. Plan-file registration is retired. Returns a migration error naming PlanID when the plan_file can be resolved; otherwise a precise scan/create/import hint. Prefer run_plan."}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a registerAutopilotRunArgs) (*mcpsdk.CallToolResult, any, error) {
 		r, err := s.cl.RegisterAutopilotRun(ctx, a.Name, a.Repo, a.PlanFile)
 		if err != nil {
 			return textResult("error: " + err.Error()), nil, nil
 		}
 		return jsonResultAny(r)
 	})
-	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{Name: "control_autopilot_run", Description: "Start, pause, resume, or stop one autopilot run by stable run id."}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a controlAutopilotRunArgs) (*mcpsdk.CallToolResult, any, error) {
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{Name: "control_autopilot_run", Description: "DEPRECATED for one release. Translates to run_plan / control_plan when a PlanID can be resolved from the run; otherwise returns a precise migration error. Prefer control_plan (pause|resume|stop) or run_plan (start)."}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a controlAutopilotRunArgs) (*mcpsdk.CallToolResult, any, error) {
 		r, err := s.cl.ControlAutopilotRun(ctx, a.RunID, a.Action)
 		if err != nil {
 			return textResult("error: " + err.Error()), nil, nil
@@ -497,7 +497,7 @@ func (s *Server) registerExtraTools() {
 		}
 		return jsonResultAny(r)
 	})
-	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{Name: "retarget_autopilot_run", Description: "Retarget a run's stored integration branch explicitly or derive it from the current display name. Open PRs on the old branch are not migrated."}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a retargetAutopilotRunArgs) (*mcpsdk.CallToolResult, any, error) {
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{Name: "retarget_autopilot_run", Description: "DEPRECATED for one release. Retarget has no safe PlanID translation — always returns a precise migration error. Prefer stopping and re-running via run_plan if a new integration branch is required."}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a retargetAutopilotRunArgs) (*mcpsdk.CallToolResult, any, error) {
 		r, err := s.cl.RetargetAutopilotRun(ctx, a.RunID, a.IntegrationBranch, a.Derive)
 		if err != nil {
 			return textResult("error: " + err.Error()), nil, nil

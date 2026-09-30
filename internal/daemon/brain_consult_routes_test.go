@@ -37,7 +37,7 @@ func enableAutopilotWithBrain(t *testing.T, srv *Server, plan string) (runID, br
 		Gate:              "auto",
 		Resolver:          autopilotTestResolver{},
 	}, &apFakeEnv{repo: filepath.Dir(plan)}))
-	st, err := srv.autopilot.Enable(context.Background(), "")
+	st, err := srv.autopilot.ReconcileConfiguredPlans(context.Background(), "")
 	require.NoError(t, err)
 	require.Len(t, st.Runs, 1)
 	require.NotNil(t, st.Runs[0].Brain)

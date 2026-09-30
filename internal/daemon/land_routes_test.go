@@ -55,18 +55,18 @@ func newLandServer(t *testing.T, host *stubLandHost) (*httptest.Server, *Server,
 	require.NoError(t, err)
 	srv := &Server{store: newFakeStore(), life: &fakeLife{}, cstore: cs, hub: newHub(), done: make(chan struct{})}
 	srv.landHostFn = func(string) autopilot.LandHost { return *host }
-	srv.SetAutopilotController(autopilot.NewController(autopilot.ControllerConfig{
+	c := autopilot.NewController(autopilot.ControllerConfig{
 		Plans:             []string{plan},
 		IntegrationBranch: autopilot.DefaultIntegrationBranch,
 		Gate:              "ci",
 		Strategy:          "squash",
 		DeleteBranch:      true,
 		Resolver:          autopilotTestResolver{},
-	}, &apFakeEnv{repo: dir}))
+	}, &apFakeEnv{repo: dir})
+	srv.SetAutopilotController(c)
 
-	var st autopilot.Status
-	code := apPostJSON(t, httptest.NewServer(srv.router()).URL+"/api/v1/autopilot", `{"enabled":true}`, &st)
-	require.Equal(t, http.StatusOK, code)
+	st, err := c.ReconcileConfiguredPlans(context.Background(), dir)
+	require.NoError(t, err)
 	require.Len(t, st.Runs, 1)
 	runID := st.Runs[0].RunID
 
@@ -236,18 +236,18 @@ func TestLandRouteSuccessMarksTaskDone(t *testing.T) {
 	require.NoError(t, err)
 	srv := &Server{store: newFakeStore(), life: &fakeLife{}, cstore: cs, hub: newHub(), done: make(chan struct{})}
 	srv.landHostFn = func(string) autopilot.LandHost { return *host }
-	srv.SetAutopilotController(autopilot.NewController(autopilot.ControllerConfig{
+	c := autopilot.NewController(autopilot.ControllerConfig{
 		Plans:             []string{plan},
 		IntegrationBranch: autopilot.DefaultIntegrationBranch,
 		Gate:              "ci",
 		Strategy:          "squash",
 		DeleteBranch:      true,
 		Resolver:          autopilotTestResolver{},
-	}, &apFakeEnv{repo: dir}))
+	}, &apFakeEnv{repo: dir})
+	srv.SetAutopilotController(c)
 
-	var st autopilot.Status
-	code := apPostJSON(t, httptest.NewServer(srv.router()).URL+"/api/v1/autopilot", `{"enabled":true}`, &st)
-	require.Equal(t, http.StatusOK, code)
+	st, err := c.ReconcileConfiguredPlans(context.Background(), dir)
+	require.NoError(t, err)
 	require.Len(t, st.Runs, 1)
 	runID := st.Runs[0].RunID
 
