@@ -62,6 +62,17 @@ func TestDeprecatedRegisterReturnsMigrationWithPlanID(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// Last-export path metadata only — replica is inert for PlanService, but the
+	// deprecated register endpoint still resolves plan_file → plan_id.
+	rel := filepath.Join("plans", "pending", "ship.yaml")
+	abs := filepath.Join(root, rel)
+	require.NoError(t, os.MkdirAll(filepath.Dir(abs), 0o755))
+	require.NoError(t, os.WriteFile(abs, []byte("version: 1\nname: ship\ngoal: go\ntasks:\n  - id: t1\n    prompt: do\n"), 0o644))
+	require.NoError(t, ps.Update(context.Background(), p.ID, func(pl *planstore.Plan) error {
+		pl.FilePath = rel
+		return nil
+	}))
+
 	c := autopilot.NewController(autopilot.ControllerConfig{
 		BaseDir:           root,
 		IntegrationBranch: "autopilot/integration",
@@ -72,10 +83,9 @@ func TestDeprecatedRegisterReturnsMigrationWithPlanID(t *testing.T) {
 	ts := httptest.NewServer(srv.router())
 	t.Cleanup(ts.Close)
 
-	planFile := filepath.Join(root, p.FilePath)
 	var body oapi.Error
 	code := apPostJSON(t, ts.URL+"/api/v1/autopilot/runs",
-		`{"plan_file":"`+planFile+`","name":"ship","repo":"`+root+`"}`, &body)
+		`{"plan_file":"`+abs+`","name":"ship","repo":"`+root+`"}`, &body)
 	require.Equal(t, http.StatusGone, code)
 	require.Contains(t, body.Error, p.ID)
 	require.Contains(t, body.Error, "/run")

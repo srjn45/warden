@@ -12,8 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/srjn45/warden/internal/daemon/oapi"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/planstore"
@@ -70,28 +68,42 @@ func (s *Server) planToOAPI(p *planstore.Plan) oapi.Plan {
 	for id, status := range p.TaskProgress {
 		taskProgress[id] = oapi.TaskStatus(status)
 	}
-	var startedAt, completedAt time.Time
+	var startedAt, completedAt, archivedAt time.Time
 	if p.StartedAt != nil {
 		startedAt = *p.StartedAt
 	}
 	if p.CompletedAt != nil {
 		completedAt = *p.CompletedAt
 	}
+	if p.ArchivedAt != nil {
+		archivedAt = *p.ArchivedAt
+	}
+	tasks := make([]oapi.PlanTask, 0, len(p.Tasks))
+	for _, t := range p.Tasks {
+		tasks = append(tasks, oapi.PlanTask{Id: t.ID, Prompt: t.Prompt, After: t.After})
+	}
 	out := oapi.Plan{
 		AutopilotRunId:   p.AutopilotRunID,
+		ArchivedAt:       archivedAt,
 		CompletedAt:      completedAt,
+		Constraints:      append([]string(nil), p.Constraints...),
+		ContentHash:      p.ContentHash,
 		CreatedAt:        p.CreatedAt,
+		DoneWhen:         append([]string(nil), p.DoneWhen...),
 		ExecutionMode:    oapi.PlanExecutionMode(p.ExecutionMode),
 		FilePath:         p.FilePath,
+		Goal:             p.Goal,
 		Id:               p.ID,
 		Name:             p.Name,
 		OrchestratorId:   p.OrchestratorID,
 		PipelineId:       p.PipelineID,
 		PlanBranches:     p.Branches,
 		ProjectId:        p.ProjectID,
+		Revision:         p.Revision,
 		StartedAt:        startedAt,
 		Status:           oapi.PlanStatus(p.Status),
 		TaskProgress:     taskProgress,
+		Tasks:            tasks,
 		UpdatedAt:        p.UpdatedAt,
 		ExecutionHistory: p.ExecutionHistory,
 		TaskOutcomes:     p.TaskOutcomes,
@@ -103,45 +115,7 @@ func (s *Server) planToOAPI(p *planstore.Plan) oapi.Plan {
 	if p.ExecutionSummary != nil {
 		out.ExecutionSummary = *p.ExecutionSummary
 	}
-	s.hydratePlanDef(p, &out)
 	return out
-}
-
-// hydratePlanDef fills YAML-backed definition fields (goal, tasks, constraints,
-// done_when) onto an API Plan. Missing files are ignored — the DB record is
-// still a valid response.
-func (s *Server) hydratePlanDef(p *planstore.Plan, out *oapi.Plan) {
-	if p == nil || p.FilePath == "" {
-		return
-	}
-	root := s.resolvePlanRoot(p.ProjectID)
-	if root == "" {
-		return
-	}
-	data, err := os.ReadFile(filepath.Join(root, p.FilePath))
-	if err != nil {
-		return
-	}
-	var doc struct {
-		Goal        string   `yaml:"goal"`
-		Constraints []string `yaml:"constraints"`
-		DoneWhen    []string `yaml:"done_when"`
-		Tasks       []struct {
-			ID     string   `yaml:"id"`
-			Prompt string   `yaml:"prompt"`
-			After  []string `yaml:"after"`
-		} `yaml:"tasks"`
-	}
-	if yaml.Unmarshal(data, &doc) != nil {
-		return
-	}
-	out.Goal = doc.Goal
-	out.Constraints = doc.Constraints
-	out.DoneWhen = doc.DoneWhen
-	out.Tasks = make([]oapi.PlanTask, 0, len(doc.Tasks))
-	for _, t := range doc.Tasks {
-		out.Tasks = append(out.Tasks, oapi.PlanTask{Id: t.ID, Prompt: t.Prompt, After: t.After})
-	}
 }
 
 // ListProjectPlans preserves the original project-scoped plan-list API.
@@ -422,6 +396,15 @@ func (s *Server) UpdatePlan(ctx context.Context, req oapi.UpdatePlanRequestObjec
 		if errors.Is(err, planstore.ErrNotPending) {
 			return oapi.UpdatePlan409JSONResponse{Error: err.Error()}, nil
 		}
+		var conflict *planstore.RevisionConflictError
+		if errors.As(err, &conflict) {
+			return oapi.UpdatePlan409JSONResponse{
+				Error:    conflict.Error(),
+				PlanId:   conflict.PlanID,
+				Expected: conflict.Expected,
+				Actual:   conflict.Actual,
+			}, nil
+		}
 		if msg := planValidationMessage(err); msg != "" {
 			return oapi.UpdatePlan400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{Error: msg}}, nil
 		}
@@ -453,6 +436,10 @@ func updateRequestFromBody(body *oapi.UpdatePlanRequest) planstore.UpdateRequest
 	if body.DoneWhen != nil {
 		d := body.DoneWhen
 		upd.DoneWhen = &d
+	}
+	if body.ExpectedRevision != 0 {
+		rev := body.ExpectedRevision
+		upd.ExpectedRevision = &rev
 	}
 	return upd
 }
@@ -560,7 +547,7 @@ func (s *Server) RunPlan(ctx context.Context, req oapi.RunPlanRequestObject) (oa
 		}}, nil
 	}
 
-	// Refuse a known-unconfigured backend before moving the YAML.
+	// Refuse a known-unconfigured backend before moving to in_progress.
 	switch mode {
 	case planstore.PlanModeAutopilot:
 		if s.autopilot == nil {
@@ -605,7 +592,7 @@ func (s *Server) RunPlan(ctx context.Context, req oapi.RunPlanRequestObject) (oa
 }
 
 // startPlanExecution creates the execution entity for mode and records its id
-// on the plan. The YAML has already been moved to plans/in_progress/.
+// on the plan. The plan Status is already in_progress.
 func (s *Server) startPlanExecution(ctx context.Context, p *planstore.Plan, mode planstore.PlanExecutionMode) error {
 	root := s.resolvePlanRoot(p.ProjectID)
 	if root == "" {

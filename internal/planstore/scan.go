@@ -12,6 +12,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Scan helpers below are a legacy migration boundary: they walk repository
+// plans/**/*.yaml to upsert ScrivaDB records. They must not be invoked as
+// authority for normal PlanService create/read/list/update/transition paths
+// (docs/specs/2026-09-30-scrivadb-canonical-plans.md §6.1 / §6.5).
+
 // PlanTaskDef is a single task entry read from a plan YAML file.
 type PlanTaskDef struct {
 	ID       string   `yaml:"id"`

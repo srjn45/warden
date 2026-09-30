@@ -14,14 +14,16 @@ type PlanTaskSpec struct {
 	After  []string `json:"after,omitempty"`
 }
 
-// PlanView is the Plan CRUD API object (YAML definition + DB execution state).
+// PlanView is the Plan CRUD API object (canonical ScrivaDB definition + execution state).
 type PlanView struct {
 	ID             string            `json:"id"`
 	ProjectID      string            `json:"project_id"`
 	Name           string            `json:"name"`
 	Goal           string            `json:"goal"`
-	FilePath       string            `json:"file_path"`
+	FilePath       string            `json:"file_path,omitempty"`
 	Status         string            `json:"status"`
+	Revision       int64             `json:"revision"`
+	ContentHash    string            `json:"content_hash,omitempty"`
 	ExecutionMode  string            `json:"execution_mode,omitempty"`
 	Constraints    []string          `json:"constraints"`
 	DoneWhen       []string          `json:"done_when"`
@@ -35,6 +37,7 @@ type PlanView struct {
 	UpdatedAt      time.Time         `json:"updated_at"`
 	StartedAt      time.Time         `json:"started_at,omitempty"`
 	CompletedAt    time.Time         `json:"completed_at,omitempty"`
+	ArchivedAt     time.Time         `json:"archived_at,omitempty"`
 }
 
 // PlansCreateRequest is the POST /plans body.
@@ -49,11 +52,12 @@ type PlansCreateRequest struct {
 
 // PlansUpdateRequest is the PATCH /plans/{id} body. Empty/omitted fields are left unchanged.
 type PlansUpdateRequest struct {
-	Name        string         `json:"name,omitempty"`
-	Goal        string         `json:"goal,omitempty"`
-	Tasks       []PlanTaskSpec `json:"tasks,omitempty"`
-	Constraints []string       `json:"constraints,omitempty"`
-	DoneWhen    []string       `json:"done_when,omitempty"`
+	Name             string         `json:"name,omitempty"`
+	Goal             string         `json:"goal,omitempty"`
+	Tasks            []PlanTaskSpec `json:"tasks,omitempty"`
+	Constraints      []string       `json:"constraints,omitempty"`
+	DoneWhen         []string       `json:"done_when,omitempty"`
+	ExpectedRevision int64          `json:"expected_revision,omitempty"`
 }
 
 // PlansList returns plans for a project from GET /api/v1/plans.
@@ -82,7 +86,7 @@ func (c *Client) PlansGet(ctx context.Context, planID string) (*PlanView, error)
 	return &p, nil
 }
 
-// PlansCreate writes a new plan YAML and DB record via POST /api/v1/plans.
+// PlansCreate inserts a canonical ScrivaDB Plan via POST /api/v1/plans.
 func (c *Client) PlansCreate(ctx context.Context, req PlansCreateRequest) (*PlanView, error) {
 	var p PlanView
 	if err := c.do(ctx, http.MethodPost, "/plans", req, &p); err != nil {

@@ -1124,9 +1124,9 @@ Inherited flags:
 ```text
 Manage plans tracked by the daemon.
 
-Plans are YAML files stored in plans/{pending,in_progress,completed,archived}/
-inside a project repository. The daemon tracks their definition (goal, tasks)
-and execution state (links to autopilot runs, pipelines, and task progress).
+Plans are canonical ScrivaDB records (goal, tasks, lifecycle, revision).
+Repository YAML under plans/ is an optional inert export — not required
+for create/run/complete/archive.
 
 Create with `wd plan create`, start with `wd plan run`, control with
 `wd plan pause|resume|stop`, mark tasks done with `wd plan done`, then
@@ -1202,7 +1202,7 @@ Flags:
       --goal string              what the plan is trying to achieve
   -h, --help                     help for create
       --json                     output as JSON
-      --name string              plan name (used for the YAML filename slug)
+      --name string              plan name
       --project string           project ID (default: current directory)
       --task stringArray         task as id:prompt (repeatable; skip interactive prompt)
 
@@ -1353,7 +1353,7 @@ Inherited flags:
 ## warden plan archive
 
 ```text
-Move a plan to the archived state. Allowed from any status. Moves the YAML to plans/archived/.
+Move a plan to the archived state. Allowed from pending, in_progress, or completed.
 
 Usage:
   warden plan archive <plan-id> [flags]

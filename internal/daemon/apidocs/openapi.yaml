@@ -1500,8 +1500,9 @@ paths:
       tags: [Plans]
       summary: Update a pending plan
       description: >
-        Rewrites the plan YAML and execution record. Only pending plans are
-        mutable; a plan that has started or finished returns 409.
+        Updates the canonical plan definition in ScrivaDB. Only pending plans are
+        mutable; a plan that has started or finished returns 409. A stale
+        expected_revision returns 409 with structured conflict fields.
       parameters: [{ $ref: "#/components/parameters/PlanId" }]
       requestBody:
         required: true
@@ -1517,10 +1518,10 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
-          description: Plan is not pending
+          description: Plan is not pending, or revision conflict
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/Error" }
+              schema: { $ref: "#/components/schemas/PlanMutationConflict" }
 
   /api/v1/plans/{plan_id}/run:
     post:
@@ -4140,12 +4141,12 @@ components:
     Plan:
       type: object
       description: >
-        A YAML-backed plan and its DB-backed execution state. The definition
-        fields are stored in the plan file; task_progress and execution links are
-        stored separately so they can change without rewriting completed work.
+        Canonical ScrivaDB Plan: definition, lifecycle, revision, and execution
+        state. Repository YAML under plans/ is an optional inert export, not
+        authority for these fields.
       required:
-        [id, project_id, name, goal, tasks, constraints, done_when, file_path,
-         status, task_progress, created_at, updated_at]
+        [id, project_id, name, goal, tasks, constraints, done_when,
+         status, task_progress, revision, created_at, updated_at]
       properties:
         id: { type: string, description: "stable plan id (plan-<8hex>)" }
         project_id: { type: string, description: "owning project id" }
@@ -4160,8 +4161,17 @@ components:
         done_when:
           type: array
           items: { type: string }
-        file_path: { type: string, description: "path relative to the project root" }
+        file_path:
+          type: string
+          description: "legacy / last-export path relative to the project root; empty when never exported"
         status: { $ref: "#/components/schemas/PlanStatus" }
+        revision:
+          type: integer
+          format: int64
+          description: "optimistic-concurrency revision; increments on definition or lifecycle mutations"
+        content_hash:
+          type: string
+          description: "sha256:… digest of canonical definition fields at this revision"
         execution_mode:
           type: string
           enum: [autopilot, pipeline, orchestrator_worker, manual]
@@ -4180,6 +4190,7 @@ components:
         updated_at: { type: string, format: date-time }
         started_at: { type: string, format: date-time, nullable: true }
         completed_at: { type: string, format: date-time, nullable: true }
+        archived_at: { type: string, format: date-time, nullable: true }
         active_execution:
           $ref: "#/components/schemas/PlanExecution"
           description: "currently-running execution attempt; omitted when idle"
@@ -4296,7 +4307,8 @@ components:
       type: object
       description: >
         Partial replacement of editable plan definition fields. This request is
-        accepted only while the plan is pending.
+        accepted only while the plan is pending. When expected_revision is set,
+        a mismatch returns 409 with structured conflict fields.
       properties:
         name: { type: string }
         goal: { type: string }
@@ -4310,6 +4322,10 @@ components:
         done_when:
           type: array
           items: { type: string }
+        expected_revision:
+          type: integer
+          format: int64
+          description: "optimistic concurrency token; omit to use the revision observed at request start"
 
     RunPlanRequest:
       type: object
@@ -4336,6 +4352,24 @@ components:
         unmerged_branches:
           type: array
           items: { type: string }
+
+    PlanMutationConflict:
+      type: object
+      description: >
+        409 body for plan definition/lifecycle mutations that cannot proceed —
+        not-pending edits or optimistic revision conflicts.
+      required: [error]
+      properties:
+        error: { type: string }
+        plan_id: { type: string }
+        expected:
+          type: integer
+          format: int64
+          description: "revision the client expected (revision conflicts only)"
+        actual:
+          type: integer
+          format: int64
+          description: "current canonical revision (revision conflicts only)"
 
     LegacyPlan:
       x-go-type: planstore.Plan

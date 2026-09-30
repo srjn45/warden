@@ -725,7 +725,7 @@ func TestPlansRunManual(t *testing.T) {
 	var got planstore.Plan
 	require.NoError(t, json.NewDecoder(bytes.NewReader(body)).Decode(&got))
 	require.Equal(t, planstore.PlanStatusInProgress, got.Status)
-	require.Equal(t, "plans/in_progress/manual-plan.yaml", got.FilePath)
+	require.Equal(t, "plans/pending/manual-plan.yaml", got.FilePath, "FilePath is last-export metadata; run must not relocate YAML")
 	require.Equal(t, planstore.PlanModeManual, got.ExecutionMode)
 	require.Empty(t, got.AutopilotRunID, "manual must not create Autopilot")
 	require.Empty(t, got.OrchestratorID, "manual uses ActiveExecution, not OrchestratorID")
@@ -760,10 +760,10 @@ func TestPlansRunManual(t *testing.T) {
 	require.Contains(t, project.Plans, id)
 	require.Contains(t, project.Agents, life.spawned.ID)
 
-	_, err = os.Stat(filepath.Join(root, "plans", "in_progress", "manual-plan.yaml"))
-	require.NoError(t, err, "YAML must be in plans/in_progress/")
 	_, err = os.Stat(filepath.Join(root, "plans", "pending", "manual-plan.yaml"))
-	require.True(t, os.IsNotExist(err), "YAML must be removed from plans/pending/")
+	require.NoError(t, err, "seeded replica must remain in place (run does not move YAML)")
+	_, err = os.Stat(filepath.Join(root, "plans", "in_progress", "manual-plan.yaml"))
+	require.True(t, os.IsNotExist(err), "run must not create plans/in_progress/ replica")
 }
 
 // TestPlansRunManualUnconfigured verifies POST /run with mode=manual returns
