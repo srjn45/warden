@@ -493,50 +493,7 @@ func (s *Server) ArchivePlan(ctx context.Context, req oapi.ArchivePlanRequestObj
 	return oapi.ArchivePlan200JSONResponse(s.planToOAPI(p)), nil
 }
 
-// CompletePlan implements POST /api/v1/plans/{plan_id}/complete.
-func (s *Server) CompletePlan(ctx context.Context, req oapi.CompletePlanRequestObject) (oapi.CompletePlanResponseObject, error) {
-	svc := s.planSvc()
-	if svc == nil {
-		return nil, planNotConfigured()
-	}
-	// Final Git/GitHub reconciliation repairs missing observed events before
-	// CompletionRequirements are evaluated. Daemon-owned — never agent-authored.
-	s.reconcilePlanEvidenceBeforeComplete(ctx, req.PlanId)
-	// Operator-driven complete for orchestrator/manual modes: seal the active
-	// PlanExecution with completion_verified so NoLiveAgents does not block after
-	// we recorded execution_started at run time.
-	if err := s.sealPlanAgentExecution(ctx, req.PlanId); err != nil {
-		return nil, errStatus(http.StatusInternalServerError, "seal plan execution: "+err.Error())
-	}
-	p, err := svc.Transition(ctx, req.PlanId, planstore.PlanStatusCompleted, planstore.TransitionOptions{})
-	if err != nil {
-		if errors.Is(err, planstore.ErrNotFound) {
-			return oapi.CompletePlan404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "plan not found"}}, nil
-		}
-		if errors.Is(err, planstore.ErrInvalidTransition) {
-			return oapi.CompletePlan409JSONResponse{Error: err.Error()}, nil
-		}
-		var unmet *planstore.UnmetRequirementsError
-		if errors.As(err, &unmet) {
-			return oapi.CompletePlan422JSONResponse{
-				Error:            unmet.Error(),
-				IncompleteTasks:  unmet.Requirements.PendingTaskIDs,
-				UnmergedBranches: unmet.Requirements.OpenPRBranches,
-			}, nil
-		}
-		var incomplete *planstore.TasksIncompleteError
-		if errors.As(err, &incomplete) {
-			return oapi.CompletePlan422JSONResponse{Error: incomplete.Error(), IncompleteTasks: incomplete.TaskIDs}, nil
-		}
-		var unmerged *planstore.BranchesUnmergedError
-		if errors.As(err, &unmerged) {
-			return oapi.CompletePlan422JSONResponse{Error: unmerged.Error(), UnmergedBranches: unmerged.Branches}, nil
-		}
-		return nil, errStatus(http.StatusInternalServerError, "complete plan: "+err.Error())
-	}
-	_ = svc.CleanupWorktrees(ctx, p)
-	return oapi.CompletePlan200JSONResponse(s.planToOAPI(p)), nil
-}
+// CompletePlan is implemented in plan_finalize.go via FinalizePlan.
 
 // legacyUpdatePlanStatus preserves the pre-CRUD route tests until the new
 // service layer takes ownership of plan transitions.

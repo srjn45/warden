@@ -41,8 +41,8 @@ type PlanExecution struct {
 }
 
 // ExecutionSummary is a compact read-only report produced when a PlanExecution
-// completes or is archived. Generated on demand from a completed Plan; not
-// stored as its own DB record.
+// is finalized. Persist once on Plan.ExecutionSummary before executor cleanup;
+// never overwrite once set (spec: never lose a completed summary).
 type ExecutionSummary struct {
 	PlanID        string            `json:"plan_id"`
 	PlanName      string            `json:"plan_name"`
@@ -54,6 +54,26 @@ type ExecutionSummary struct {
 	TasksTotal    int               `json:"tasks_total"`
 	TasksDone     int               `json:"tasks_done"`
 	OutcomeNote   string            `json:"outcome_note,omitempty"`
+}
+
+// CleanupEvidence records a partial disposable-executor teardown during
+// Finalize. While present (and Failed), the Plan stays in_progress so cleanup
+// can be retried. PR refs, events, summaries, and global audit are never
+// cleared by cleanup.
+type CleanupEvidence struct {
+	AttemptedAt    time.Time `json:"attempted_at"`
+	Errors         []string  `json:"errors,omitempty"`
+	DeletedIDs     []string  `json:"deleted_ids,omitempty"`
+	PendingIDs     []string  `json:"pending_ids,omitempty"`
+	WorktreeErrors []string  `json:"worktree_errors,omitempty"`
+}
+
+// Failed reports whether cleanup left work unfinished.
+func (e *CleanupEvidence) Failed() bool {
+	if e == nil {
+		return false
+	}
+	return len(e.Errors) > 0 || len(e.PendingIDs) > 0 || len(e.WorktreeErrors) > 0
 }
 
 // PullRequestSummary records the GitHub PR evidence for a task branch.
