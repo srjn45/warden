@@ -54,10 +54,14 @@ type FinalizeResult struct {
 //
 //  1. Reconcile Git/GitHub observed evidence
 //  2. Seal ActiveExecution with completion_verified (idempotent)
-//  3. Validate CompletionRequirements (structured unmet error on failure)
+//  3. Validate CompletionRequirements except ResourcesClean (that gate is owned
+//     by the cleanup step below — requiring it first was a chicken-and-egg that
+//     permanently stranded completed Autopilot executors in the UI)
 //  4. Reduce and persist the immutable ExecutionSummary (never overwrite)
-//  5. Run cleanup (disposable executors) — on failure keep in_progress + evidence
-//  6. Stamp Status=completed, archive ActiveExecution (no replica file moves)
+//  5. Run cleanup (disposable executors + worktrees) — on failure keep
+//     in_progress + evidence
+//  6. Re-reconcile so worktree_removed events catch up with cleanup
+//  7. Stamp Status=completed, archive ActiveExecution (no replica file moves)
 //
 // Retry-safe: a second call with an existing summary + cleanup evidence skips
 // re-validation and retries cleanup, then commits.
@@ -95,7 +99,8 @@ func (s *PlanService) Finalize(ctx context.Context, planID string, cleanup Execu
 		if err != nil {
 			return nil, err
 		}
-		if err := s.evaluateCompletion(ctx, p); err != nil {
+		// ResourcesClean is produced by cleanup below; do not demand it first.
+		if err := s.evaluateCompletionGates(ctx, p, false); err != nil {
 			return nil, err
 		}
 		if _, err := s.persistExecutionSummary(ctx, planID); err != nil {
@@ -126,6 +131,14 @@ func (s *PlanService) Finalize(ctx context.Context, planID string, cleanup Execu
 			pl.CleanupEvidence = nil
 			return nil
 		})
+	}
+
+	// Best-effort: emit worktree_removed for branches cleanup just deleted so
+	// the audit log matches ResourcesClean. Failures here must not block commit
+	// — cleanup already reported success.
+	if post, rerr := s.ReconcileObservedEvidence(ctx, planID); rerr == nil {
+		reconcile.Repaired += post.Repaired
+		reconcile.Errors = append(reconcile.Errors, post.Errors...)
 	}
 
 	completed, err := s.commitFinalize(ctx, planID)

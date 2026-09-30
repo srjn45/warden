@@ -133,6 +133,56 @@ func TestFinalize_GitHubReconciliation(t *testing.T) {
 	require.True(t, kinds[EventKindWorktreeRemoved])
 }
 
+// TestFinalize_ProceedsDespiteUncleanResources ensures Finalize does not
+// chicken-and-egg on ResourcesClean: cleanup owns worktree/branch teardown, so
+// a pushed branch without worktree_removed must not block entering cleanup.
+func TestFinalize_ProceedsDespiteUncleanResources(t *testing.T) {
+	svc, store, root, fake := newTestService(t)
+	ctx := context.Background()
+
+	p, execID := seedInProgressPlan(t, svc, store, root, "Unclean Resources")
+	require.NoError(t, store.Update(ctx, p.ID, func(pl *Plan) error {
+		pl.Branches = []string{"feat/leftover"}
+		pl.ActiveExecution.PlanBranches = []string{"feat/leftover"}
+		return nil
+	}))
+	now := time.Now().UTC()
+	require.NoError(t, store.AppendEvent(ctx, &PlanExecutionEvent{
+		DedupKey: p.ID + ":" + execID + ":branch_pushed:feat/leftover",
+		PlanID:   p.ID, ExecutionID: execID, Kind: EventKindBranchPushed, OccurredAt: now,
+		Payload: &EventPayload{Branch: "feat/leftover"},
+	}))
+
+	fake.responses["gh pr list --head feat/leftover --state open"] = fakeResp{out: "[]"}
+	fake.responses["gh pr list --head feat/leftover --state all"] = fakeResp{out: "[]"}
+	// Local branch still present → reconcile cannot emit worktree_removed yet.
+	fake.responses["git worktree list --porcelain"] = fakeResp{out: "worktree " + root + "\nbranch refs/heads/main\n"}
+	fake.responses["git show-ref --verify --quiet refs/heads/feat/leftover"] = fakeResp{out: ""}
+
+	cleanupCalled := false
+	res, err := svc.Finalize(ctx, p.ID, func(context.Context, *Plan) CleanupEvidence {
+		cleanupCalled = true
+		// Simulate cleanup deleting the local branch so post-cleanup reconcile
+		// can stamp worktree_removed.
+		fake.responses["git show-ref --verify --quiet refs/heads/feat/leftover"] = fakeResp{err: os.ErrNotExist}
+		return CleanupEvidence{DeletedIDs: []string{"agent-root"}}
+	})
+	require.NoError(t, err)
+	require.True(t, cleanupCalled, "cleanup must run despite unclean ResourcesClean")
+	require.Equal(t, PlanStatusCompleted, res.Plan.Status)
+
+	events, err := store.ListEvents(ctx, p.ID, execID)
+	require.NoError(t, err)
+	var sawRemoved bool
+	for _, ev := range events {
+		if ev.Kind == EventKindWorktreeRemoved {
+			sawRemoved = true
+			break
+		}
+	}
+	require.True(t, sawRemoved, "post-cleanup reconcile must record worktree_removed")
+}
+
 func TestFinalize_FailedCleanupKeepsInProgress(t *testing.T) {
 	svc, store, root, fake := newTestService(t)
 	ctx := context.Background()
