@@ -149,10 +149,15 @@ POST   /api/v1/plans
 GET    /api/v1/plans/{plan_id}
 PATCH  /api/v1/plans/{plan_id}
 POST   /api/v1/plans/{plan_id}/run
+POST   /api/v1/plans/{plan_id}/control
 POST   /api/v1/plans/{plan_id}/tasks/{task_id}/status
 POST   /api/v1/plans/{plan_id}/complete
 POST   /api/v1/plans/{plan_id}/archive
 ```
+
+Plan lifecycle control (`pause` / `resume` / `stop`) goes through `/control`.
+Deprecated `/api/v1/autopilot/runs` register/unregister/retarget aliases remain for
+one release; prefer PlanID-based run/control.
 
 A legacy project-scoped surface remains for scan/assess/status:
 

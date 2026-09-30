@@ -1401,8 +1401,9 @@ type AutopilotLedgerTask struct {
 	State string `json:"state"`
 }
 
-// RegisterAutopilotRun adds a named plan to the durable registry without
-// starting it.
+// RegisterAutopilotRun is a deprecated one-release alias for POST /autopilot/runs.
+// Prefer PlansCreate/PlansImport + PlansRun. The daemon returns 410 Gone with a
+// migration hint (PlanID when resolvable).
 func (c *Client) RegisterAutopilotRun(ctx context.Context, name, repo, planFile string) (AutopilotRunStatus, error) {
 	var out AutopilotRunStatus
 	err := c.doT(ctx, longTimeout, http.MethodPost, "/autopilot/runs", map[string]string{"name": name, "repo": repo, "plan_file": planFile}, &out)
@@ -1415,6 +1416,8 @@ func (c *Client) ListAutopilotRuns(ctx context.Context) ([]AutopilotRunStatus, e
 	return out, err
 }
 
+// ControlAutopilotRun is a deprecated one-release alias for POST /autopilot/runs/{id}/{action}.
+// Prefer PlansControl. When PlanID is known the daemon translates; otherwise 410 Gone.
 func (c *Client) ControlAutopilotRun(ctx context.Context, runID, action string) (AutopilotRunStatus, error) {
 	var out AutopilotRunStatus
 	err := c.doT(ctx, longTimeout, http.MethodPost, "/autopilot/runs/"+url.PathEscape(runID)+"/"+url.PathEscape(action), nil, &out)
@@ -1427,6 +1430,7 @@ func (c *Client) RenameAutopilotRun(ctx context.Context, runID, name string) (Au
 	return out, err
 }
 
+// RetargetAutopilotRun is deprecated; returns 410 Gone with a migration error.
 func (c *Client) RetargetAutopilotRun(ctx context.Context, runID, integrationBranch string, derive bool) (AutopilotRunStatus, error) {
 	body := map[string]any{}
 	if derive {

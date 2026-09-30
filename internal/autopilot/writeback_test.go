@@ -18,7 +18,7 @@ func TestUpdateTaskStatusValidationConcurrencyAndRestart(t *testing.T) {
 	rt := newFakeRuntime()
 	c := NewController(ControllerConfig{Plans: []string{path}, BaseDir: dir}, &fakeEnv{})
 	c.SetRuntime(rt)
-	st, err := c.Enable(context.Background(), dir)
+	st, err := c.ReconcileConfiguredPlans(context.Background(), dir)
 	require.NoError(t, err)
 	runID := st.Runs[0].RunID
 
@@ -42,7 +42,7 @@ func TestUpdateTaskStatusValidationConcurrencyAndRestart(t *testing.T) {
 	// A fresh controller reconstructs progress solely from the plan task ledger.
 	restarted := NewController(ControllerConfig{Plans: []string{path}, BaseDir: dir}, &fakeEnv{})
 	restarted.SetRuntime(rt)
-	_, err = restarted.Enable(context.Background(), dir)
+	_, err = restarted.ReconcileConfiguredPlans(context.Background(), dir)
 	require.NoError(t, err)
 	restarted.mu.Lock()
 	got := restarted.runs[runID].plan.Tasks

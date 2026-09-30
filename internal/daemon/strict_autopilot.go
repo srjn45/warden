@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -27,10 +26,9 @@ func (s *Server) GetAutopilot(_ context.Context, _ oapi.GetAutopilotRequestObjec
 	return oapi.GetAutopilot200JSONResponse(s.autopilot.Status()), nil
 }
 
-// SetAutopilot implements POST /api/v1/autopilot: flip the master switch. Enabling
-// runs the enable-time preflight and returns 409 with the full failure list on
-// any failure (autopilot.md §5.1), changing no state. Disabling is the kill
-// switch.
+// SetAutopilot implements POST /api/v1/autopilot: flip the per-repo capability
+// switch. Enabling records the repo as allowed to run Autopilot executors — it
+// does not register plan files or start work. Disabling is the kill switch.
 func (s *Server) SetAutopilot(ctx context.Context, req oapi.SetAutopilotRequestObject) (oapi.SetAutopilotResponseObject, error) {
 	if s.autopilot == nil {
 		return nil, errStatus(http.StatusForbidden, autopilotDisabledMsg)
@@ -43,13 +41,6 @@ func (s *Server) SetAutopilot(ctx context.Context, req oapi.SetAutopilotRequestO
 	// directory, resolved by the Controller for backward compatibility).
 	if b.Enabled {
 		st, err := s.autopilot.Enable(ctx, b.Repo)
-		var pfe *autopilot.PreflightError
-		if errors.As(err, &pfe) {
-			return oapi.SetAutopilot409JSONResponse{
-				Error:    "autopilot enable-time preflight failed",
-				Failures: pfe.Failures,
-			}, nil
-		}
 		if err != nil {
 			return nil, err
 		}

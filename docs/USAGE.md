@@ -2432,18 +2432,23 @@ survives rotation and daemon restarts.
 ### Quickstart
 
 ```sh
-# 1. Scaffold and register a named plan
+# 1. Scaffold a plan file and enable the capability
 cd /path/to/your-repo
 warden autopilot init --name notifications
+warden autopilot enable
 
 # 2. Edit plans/notifications.yaml — set your goal, add constraints
-#    Commit it to the repo so the manager can read it from its worktree
+#    Import/create the Plan in the daemon, then start execution:
+warden plan create --name notifications --goal "…"   # or plan import / plan scan
+warden plan run <plan-id> --mode autopilot
 
-# 3. Start this run
-warden autopilot run start notifications
+# 3. Control
+warden plan pause <plan-id>
+warden plan resume <plan-id>
+warden plan stop <plan-id>
 
 # 4. Watch
-warden autopilot status      # run state, manager id, task counts
+warden autopilot status      # enabled repos + run state, manager id, task counts
 warden ls                    # manager + workers in the fleet list
 warden agent tail <manager-id>       # live manager output
 
@@ -2453,18 +2458,19 @@ warden autopilot disable
 
 ### `warden autopilot init`
 
-Creates `plans/<name>.yaml` in the current git repository (if absent) and
-registers it in the daemon's durable run store. It does not overwrite existing
-files. Follow up with `warden autopilot run start <name>`.
+Creates `plans/<name>.yaml` in the current git repository (if absent). It does
+not overwrite existing files. Follow up with Plan CRUD (`warden plan create` /
+`import` / `scan`) and `warden plan run <id> --mode autopilot`.
 
-Existing files can be registered with
-`warden autopilot register plans/<name>.yaml --name <name>`. Independent named
-runs in the same repository can then be started, paused, resumed, and stopped.
+> **Deprecated (one release):** `warden autopilot register` and plan-file-based
+> `autopilot run start` translate to a PlanID where safe or return a precise
+> migration error. Prefer `plan run|pause|resume|stop`.
 
 ### The switch is per-repo
 
 Autopilot is enabled **per repository**, not globally. `warden autopilot enable` run
-inside a repo enables **only that repo** — other repos are unaffected — and
+inside a repo enables **only that repo** as a capability switch — it does **not**
+register or start plan work. Other repos are unaffected.
 `warden autopilot disable` disables just that repo (other enabled repos keep
 running). Add `--repo <root>` to `on`/`off` to target a different repository
 (default: the current git repository). The enabled set is **persisted** under

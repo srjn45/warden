@@ -1,16 +1,12 @@
-Start, pause, resume, stop, and unregister individual registered runs.
-Distinct from repository enablement (`autopilot enable` / `autopilot disable`).
+List live Autopilot executors. Lifecycle control (start/pause/resume/stop)
+moved to `warden plan run` / `warden plan pause|resume|stop`. Repository
+enablement remains `autopilot enable` / `autopilot disable`.
 
 Usage:
   warden autopilot run [flags]
 
 Commands:
   list                 List all registered autopilot runs
-  start                start one autopilot run
-  pause                pause one autopilot run
-  resume               resume one autopilot run
-  stop                 stop one autopilot run
-  unregister           unregister one autopilot run
 
 Flags:
   -h, --help   help for run

@@ -301,11 +301,11 @@ and lands them into an integration branch, without waiting on a human.
 
 | Feature | CLI | MCP | Skill | Web | TUI | Docs |
 |---|---|---|---|---|---|---|
-| Enable autopilot **per-repo** (preflight + manager spawn) | `autopilot on [--repo <root>]` | `set_autopilot` (`enabled: true`, `repo?`) | ✓ | AttentionBar button | `ctrl+a` header badge | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
+| Enable autopilot capability **per-repo** (switch only; does not start work) | `autopilot on [--repo <root>]` | `set_autopilot` (`enabled: true`, `repo?`) | ✓ | AttentionBar button | `ctrl+a` header badge | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
 | Disable autopilot **per-repo** — kill switch (stops spawns/landings, terminates manager) | `autopilot off [--repo <root>]` | `set_autopilot` (`enabled: false`, `repo?`) | ✓ | AttentionBar button | `ctrl+a` header badge | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
 | Status (enabled repos, run state, manager id, task counts, tier, backoff) | `autopilot status` | `autopilot_status` | ✓ | AutopilotPanel | TUI header badge | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
 | Scaffold + register a named plan | `autopilot init [--name <name>]` | **CLI-only** (local file authoring) | ✓ | — | — | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
-| Register/control independent runs | `autopilot register\|start\|pause\|resume\|stop` | run API | ✓ | AutopilotPanel | run nodes (`r`/`x`) | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
+| Start / control plan execution | `plan run\|pause\|resume\|stop` | `run_plan` / `control_plan` | ✓ | AutopilotPanel | run nodes (`r`/`x`) | [plans](https://srjn45.github.io/warden/concepts/plans/) |
 | Land a worker branch into the integration branch (idempotent, guarded) | `land <agent-or-branch>` | `land` | ✓ | — | — | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
 | Mark the run complete (in-place `status: complete` plan marker; preflight skips it) | automatic (manager) | `autopilot_complete` | ✓ | — | — | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |
 | Ad-hoc brain consult from manager (shared `Consultor` with pipeline stuck recovery; short-lived `role=brain` spawn + teardown + audit; closed action enum) | automatic (manager) | `brain_consult` | ✓ | — | — | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |

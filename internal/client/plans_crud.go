@@ -110,6 +110,16 @@ func (c *Client) PlansRun(ctx context.Context, planID, executionMode string) (*P
 	return &p, nil
 }
 
+// PlansControl pauses, resumes, or stops an in-progress plan's active executor.
+func (c *Client) PlansControl(ctx context.Context, planID, action string) (*PlanView, error) {
+	var p PlanView
+	path := "/plans/" + url.PathEscape(planID) + "/" + url.PathEscape(action)
+	if err := c.do(ctx, http.MethodPost, path, nil, &p); err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
 // PlansUpdateTaskStatus merges taskID→status into TaskProgress.
 func (c *Client) PlansUpdateTaskStatus(ctx context.Context, planID, taskID, status string) (*PlanView, error) {
 	var p PlanView

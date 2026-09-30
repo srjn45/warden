@@ -156,7 +156,7 @@ func TestEnableAllowsTwoPlansInSameRepo(t *testing.T) {
 	p1 := writePlan(t, dir, "a.yaml", "a")
 	p2 := writePlan(t, dir, "b.yaml", "b")
 	c := NewController(ControllerConfig{Plans: []string{p1, p2}, BaseDir: dir}, &fakeEnv{})
-	st, err := c.Enable(context.Background(), dir)
+	st, err := c.ReconcileConfiguredPlans(context.Background(), dir)
 	require.NoError(t, err)
 	require.Len(t, st.Runs, 2)
 }

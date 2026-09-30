@@ -751,17 +751,11 @@ type AutopilotPlanTask struct {
 // AutopilotPlanTaskStatus defines model for AutopilotPlanTask.Status.
 type AutopilotPlanTaskStatus string
 
-// AutopilotPreflightFailure 409 body when enable-time preflight fails — the full list of actionable failures so the owner fixes everything in one pass (autopilot.md §5.1).
-type AutopilotPreflightFailure struct {
-	Error    string   `json:"error"`
-	Failures []string `json:"failures"`
-}
-
-// AutopilotRegisterRequest defines model for AutopilotRegisterRequest.
+// AutopilotRegisterRequest DEPRECATED body for POST /autopilot/runs. Prefer creating/importing a Plan and calling POST /plans/{plan_id}/run.
 type AutopilotRegisterRequest struct {
-	Name     string `json:"name"`
+	Name     string `json:"name,omitempty"`
 	PlanFile string `json:"plan_file"`
-	Repo     string `json:"repo"`
+	Repo     string `json:"repo,omitempty"`
 }
 
 // AutopilotRenameRequest defines model for AutopilotRenameRequest.
@@ -796,9 +790,9 @@ type AutopilotTaskStatusRequest struct {
 // AutopilotTaskStatusRequestStatus defines model for AutopilotTaskStatusRequest.Status.
 type AutopilotTaskStatusRequestStatus string
 
-// AutopilotToggleRequest Body for POST /autopilot — the per-repo switch. `repo` scopes the toggle to one repository; omitted, it defaults to the daemon's working directory.
+// AutopilotToggleRequest Body for POST /autopilot — the per-repo capability switch. `repo` scopes the toggle to one repository; omitted, it defaults to the daemon's working directory. Enabling does not register or start work.
 type AutopilotToggleRequest struct {
-	// Enabled true enables autopilot for the repo (runs preflight)
+	// Enabled true enables the capability for the repo (no registration); false is the kill switch
 	Enabled bool `json:"enabled"`
 
 	// Repo repo root to toggle (optional; defaults to the daemon's working directory)
@@ -2185,7 +2179,7 @@ type ServerInterface interface {
 	// Autopilot status
 	// (GET /api/v1/autopilot)
 	GetAutopilot(w http.ResponseWriter, r *http.Request)
-	// Enable or disable autopilot
+	// Enable or disable autopilot capability
 	// (POST /api/v1/autopilot)
 	SetAutopilot(w http.ResponseWriter, r *http.Request)
 	// Consult a short-lived brain resolver (shared Consultor)
@@ -2197,19 +2191,19 @@ type ServerInterface interface {
 	// Land a worker branch into the integration branch
 	// (POST /api/v1/autopilot/land)
 	LandAutopilot(w http.ResponseWriter, r *http.Request)
-	// List registered autopilot runs
+	// List live Autopilot executors
 	// (GET /api/v1/autopilot/runs)
 	ListAutopilotRuns(w http.ResponseWriter, r *http.Request)
-	// Register a named plan
+	// [deprecated] Register a named plan
 	// (POST /api/v1/autopilot/runs)
 	RegisterAutopilotRun(w http.ResponseWriter, r *http.Request)
 	// Rename a run's display name and slot scope
 	// (POST /api/v1/autopilot/runs/{run_id}/rename)
 	RenameAutopilotRun(w http.ResponseWriter, r *http.Request, runId string)
-	// Retarget a run's integration branch
+	// [deprecated] Retarget a run's integration branch
 	// (POST /api/v1/autopilot/runs/{run_id}/retarget)
 	RetargetAutopilotRun(w http.ResponseWriter, r *http.Request, runId string)
-	// Start, pause, resume, stop, or unregister one run
+	// [deprecated] Start, pause, resume, stop, or unregister one run
 	// (POST /api/v1/autopilot/runs/{run_id}/{action})
 	ControlAutopilotRun(w http.ResponseWriter, r *http.Request, runId string, action string)
 	// Atomically update one plan task's durable status
@@ -2365,6 +2359,9 @@ type ServerInterface interface {
 	// Update task progress
 	// (POST /api/v1/plans/{plan_id}/tasks/{task_id}/status)
 	UpdateTaskStatus(w http.ResponseWriter, r *http.Request, planId PlanId, taskId TaskId)
+	// Pause, resume, or stop plan execution
+	// (POST /api/v1/plans/{plan_id}/{action})
+	ControlPlan(w http.ResponseWriter, r *http.Request, planId PlanId, action string)
 	// Memory-pressure + spawn-gate status
 	// (GET /api/v1/pressure)
 	GetPressure(w http.ResponseWriter, r *http.Request)
@@ -2593,7 +2590,7 @@ func (_ Unimplemented) GetAutopilot(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Enable or disable autopilot
+// Enable or disable autopilot capability
 // (POST /api/v1/autopilot)
 func (_ Unimplemented) SetAutopilot(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -2617,13 +2614,13 @@ func (_ Unimplemented) LandAutopilot(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// List registered autopilot runs
+// List live Autopilot executors
 // (GET /api/v1/autopilot/runs)
 func (_ Unimplemented) ListAutopilotRuns(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Register a named plan
+// [deprecated] Register a named plan
 // (POST /api/v1/autopilot/runs)
 func (_ Unimplemented) RegisterAutopilotRun(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -2635,13 +2632,13 @@ func (_ Unimplemented) RenameAutopilotRun(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Retarget a run's integration branch
+// [deprecated] Retarget a run's integration branch
 // (POST /api/v1/autopilot/runs/{run_id}/retarget)
 func (_ Unimplemented) RetargetAutopilotRun(w http.ResponseWriter, r *http.Request, runId string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Start, pause, resume, stop, or unregister one run
+// [deprecated] Start, pause, resume, stop, or unregister one run
 // (POST /api/v1/autopilot/runs/{run_id}/{action})
 func (_ Unimplemented) ControlAutopilotRun(w http.ResponseWriter, r *http.Request, runId string, action string) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -2950,6 +2947,12 @@ func (_ Unimplemented) RunPlan(w http.ResponseWriter, r *http.Request, planId Pl
 // Update task progress
 // (POST /api/v1/plans/{plan_id}/tasks/{task_id}/status)
 func (_ Unimplemented) UpdateTaskStatus(w http.ResponseWriter, r *http.Request, planId PlanId, taskId TaskId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Pause, resume, or stop plan execution
+// (POST /api/v1/plans/{plan_id}/{action})
+func (_ Unimplemented) ControlPlan(w http.ResponseWriter, r *http.Request, planId PlanId, action string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -5221,6 +5224,47 @@ func (siw *ServerInterfaceWrapper) UpdateTaskStatus(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateTaskStatus(w, r, planId, taskId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ControlPlan operation middleware
+func (siw *ServerInterfaceWrapper) ControlPlan(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "plan_id" -------------
+	var planId PlanId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "plan_id", chi.URLParam(r, "plan_id"), &planId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "plan_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "action" -------------
+	var action string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "action", chi.URLParam(r, "action"), &action, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "action", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ControlPlan(w, r, planId, action)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7607,6 +7651,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/api/v1/plans/{plan_id}/tasks/{task_id}/status", wrapper.UpdateTaskStatus)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/plans/{plan_id}/{action}", wrapper.ControlPlan)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/pressure", wrapper.GetPressure)
 	})
 	r.Group(func(r chi.Router) {
@@ -7967,20 +8014,6 @@ func (response SetAutopilot400JSONResponse) VisitSetAutopilotResponse(w http.Res
 	return err
 }
 
-type SetAutopilot409JSONResponse AutopilotPreflightFailure
-
-func (response SetAutopilot409JSONResponse) VisitSetAutopilotResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(409)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
 type ConsultBrainRequestObject struct {
 	Body *ConsultBrainJSONRequestBody
 }
@@ -8173,20 +8206,6 @@ type RegisterAutopilotRunResponseObject interface {
 	VisitRegisterAutopilotRunResponse(w http.ResponseWriter) error
 }
 
-type RegisterAutopilotRun201JSONResponse AutopilotRun
-
-func (response RegisterAutopilotRun201JSONResponse) VisitRegisterAutopilotRunResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(201)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
 type RegisterAutopilotRun400JSONResponse struct{ BadRequestJSONResponse }
 
 func (response RegisterAutopilotRun400JSONResponse) VisitRegisterAutopilotRunResponse(w http.ResponseWriter) error {
@@ -8215,16 +8234,16 @@ func (response RegisterAutopilotRun403JSONResponse) VisitRegisterAutopilotRunRes
 	return err
 }
 
-type RegisterAutopilotRun409JSONResponse Error
+type RegisterAutopilotRun410JSONResponse Error
 
-func (response RegisterAutopilotRun409JSONResponse) VisitRegisterAutopilotRunResponse(w http.ResponseWriter) error {
+func (response RegisterAutopilotRun410JSONResponse) VisitRegisterAutopilotRunResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(409)
+	w.WriteHeader(410)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -8317,20 +8336,6 @@ type RetargetAutopilotRunResponseObject interface {
 	VisitRetargetAutopilotRunResponse(w http.ResponseWriter) error
 }
 
-type RetargetAutopilotRun200JSONResponse AutopilotRun
-
-func (response RetargetAutopilotRun200JSONResponse) VisitRetargetAutopilotRunResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
 type RetargetAutopilotRun400JSONResponse struct{ BadRequestJSONResponse }
 
 func (response RetargetAutopilotRun400JSONResponse) VisitRetargetAutopilotRunResponse(w http.ResponseWriter) error {
@@ -8373,16 +8378,16 @@ func (response RetargetAutopilotRun404JSONResponse) VisitRetargetAutopilotRunRes
 	return err
 }
 
-type RetargetAutopilotRun409JSONResponse Error
+type RetargetAutopilotRun410JSONResponse Error
 
-func (response RetargetAutopilotRun409JSONResponse) VisitRetargetAutopilotRunResponse(w http.ResponseWriter) error {
+func (response RetargetAutopilotRun410JSONResponse) VisitRetargetAutopilotRunResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(409)
+	w.WriteHeader(410)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -8462,6 +8467,20 @@ func (response ControlAutopilotRun409JSONResponse) VisitControlAutopilotRunRespo
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ControlAutopilotRun410JSONResponse Error
+
+func (response ControlAutopilotRun410JSONResponse) VisitControlAutopilotRunResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(410)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -10285,6 +10304,71 @@ func (response UpdateTaskStatus404JSONResponse) VisitUpdateTaskStatusResponse(w 
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ControlPlanRequestObject struct {
+	PlanId PlanId `json:"plan_id"`
+	Action string `json:"action"`
+}
+
+type ControlPlanResponseObject interface {
+	VisitControlPlanResponse(w http.ResponseWriter) error
+}
+
+type ControlPlan200JSONResponse Plan
+
+func (response ControlPlan200JSONResponse) VisitControlPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ControlPlan400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ControlPlan400JSONResponse) VisitControlPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ControlPlan404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ControlPlan404JSONResponse) VisitControlPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ControlPlan409JSONResponse Error
+
+func (response ControlPlan409JSONResponse) VisitControlPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -12841,7 +12925,7 @@ type StrictServerInterface interface {
 	// Autopilot status
 	// (GET /api/v1/autopilot)
 	GetAutopilot(ctx context.Context, request GetAutopilotRequestObject) (GetAutopilotResponseObject, error)
-	// Enable or disable autopilot
+	// Enable or disable autopilot capability
 	// (POST /api/v1/autopilot)
 	SetAutopilot(ctx context.Context, request SetAutopilotRequestObject) (SetAutopilotResponseObject, error)
 	// Consult a short-lived brain resolver (shared Consultor)
@@ -12853,19 +12937,19 @@ type StrictServerInterface interface {
 	// Land a worker branch into the integration branch
 	// (POST /api/v1/autopilot/land)
 	LandAutopilot(ctx context.Context, request LandAutopilotRequestObject) (LandAutopilotResponseObject, error)
-	// List registered autopilot runs
+	// List live Autopilot executors
 	// (GET /api/v1/autopilot/runs)
 	ListAutopilotRuns(ctx context.Context, request ListAutopilotRunsRequestObject) (ListAutopilotRunsResponseObject, error)
-	// Register a named plan
+	// [deprecated] Register a named plan
 	// (POST /api/v1/autopilot/runs)
 	RegisterAutopilotRun(ctx context.Context, request RegisterAutopilotRunRequestObject) (RegisterAutopilotRunResponseObject, error)
 	// Rename a run's display name and slot scope
 	// (POST /api/v1/autopilot/runs/{run_id}/rename)
 	RenameAutopilotRun(ctx context.Context, request RenameAutopilotRunRequestObject) (RenameAutopilotRunResponseObject, error)
-	// Retarget a run's integration branch
+	// [deprecated] Retarget a run's integration branch
 	// (POST /api/v1/autopilot/runs/{run_id}/retarget)
 	RetargetAutopilotRun(ctx context.Context, request RetargetAutopilotRunRequestObject) (RetargetAutopilotRunResponseObject, error)
-	// Start, pause, resume, stop, or unregister one run
+	// [deprecated] Start, pause, resume, stop, or unregister one run
 	// (POST /api/v1/autopilot/runs/{run_id}/{action})
 	ControlAutopilotRun(ctx context.Context, request ControlAutopilotRunRequestObject) (ControlAutopilotRunResponseObject, error)
 	// Atomically update one plan task's durable status
@@ -13021,6 +13105,9 @@ type StrictServerInterface interface {
 	// Update task progress
 	// (POST /api/v1/plans/{plan_id}/tasks/{task_id}/status)
 	UpdateTaskStatus(ctx context.Context, request UpdateTaskStatusRequestObject) (UpdateTaskStatusResponseObject, error)
+	// Pause, resume, or stop plan execution
+	// (POST /api/v1/plans/{plan_id}/{action})
+	ControlPlan(ctx context.Context, request ControlPlanRequestObject) (ControlPlanResponseObject, error)
 	// Memory-pressure + spawn-gate status
 	// (GET /api/v1/pressure)
 	GetPressure(ctx context.Context, request GetPressureRequestObject) (GetPressureResponseObject, error)
@@ -15096,6 +15183,33 @@ func (sh *strictHandler) UpdateTaskStatus(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateTaskStatusResponseObject); ok {
 		if err := validResponse.VisitUpdateTaskStatusResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ControlPlan operation middleware
+func (sh *strictHandler) ControlPlan(w http.ResponseWriter, r *http.Request, planId PlanId, action string) {
+	var request ControlPlanRequestObject
+
+	request.PlanId = planId
+	request.Action = action
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ControlPlan(ctx, request.(ControlPlanRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ControlPlan")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ControlPlanResponseObject); ok {
+		if err := validResponse.VisitControlPlanResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

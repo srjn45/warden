@@ -77,7 +77,7 @@ func TestCharacterization_RotateBrainHotSwapsInPlace(t *testing.T) {
 		Resolver: cyclicResolver("a", "free"),
 	}, &fakeEnv{})
 	c.SetRuntime(fake)
-	st, err := c.Enable(context.Background(), "")
+	st, err := c.ReconcileConfiguredPlans(context.Background(), "")
 	require.NoError(t, err)
 	require.Len(t, st.Runs, 1)
 	runID := st.Runs[0].RunID

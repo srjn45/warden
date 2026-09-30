@@ -92,7 +92,7 @@ func TestEnableRejectsDuplicateRunNamesInRepo(t *testing.T) {
 	c := NewController(ControllerConfig{Plans: []string{p1, p2}, BaseDir: repo, DataDir: t.TempDir()}, &fakeEnv{})
 	t.Cleanup(func() { require.NoError(t, c.Close()) })
 
-	_, err := c.Enable(context.Background(), repo)
+	_, err := c.ReconcileConfiguredPlans(context.Background(), repo)
 	require.Error(t, err)
 	var pfe *PreflightError
 	require.ErrorAs(t, err, &pfe)

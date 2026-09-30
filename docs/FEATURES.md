@@ -1084,22 +1084,28 @@ wipes the half-built `snapshots-db/` and re-imports from the intact legacy JSON.
 > `main`. See the [Autopilot guide](https://srjn45.github.io/warden/guides/autopilot/).
 
 Autopilot is warden's **goal-directed, long-running autonomous mode**. You
-describe a goal in a plan file, enable autopilot, and warden runs it — spawning a
-**manager** agent that breaks the goal into tasks, delegates each task to a
-**worker** agent in an isolated worktree, gates the worker's PR through CI, and
-lands it into an integration branch. The manager heals itself when stuck (guardian
-loop) and escalates to progressively cheaper backends when rate-limited (cost-tier
-ladder).
+describe a goal in a plan file, enable the autopilot capability for the repo, and
+start the plan with `wd plan run --mode autopilot`. Warden creates a live
+**Autopilot** executor and a **manager** agent that breaks the goal into tasks,
+delegates each task to a **worker** agent in an isolated worktree, gates the
+worker's PR through CI, and lands it into an integration branch. The manager heals
+itself when stuck (guardian loop) and escalates to progressively cheaper backends
+when rate-limited (cost-tier ladder).
 
 ### 34.1 Plan file
 
 Authored by the operator as a named file under `plans/` (for example,
-`plans/release.yaml`). `warden autopilot init --name release` scaffolds and
-registers it; `warden autopilot register <file>` registers an existing plan. Contains a
+`plans/release.yaml`). `warden autopilot init --name release` scaffolds config and
+a plan YAML; prefer `wd plan create` / `wd plan import` / `wd plan scan` for the
+Plan CRUD surface, then `wd plan run <id> --mode autopilot`. Contains a
 `goal`, optional `constraints` (injected into every manager and worker spawn), and
 an optional coarse `tasks` list. The manager decomposes the goal into tasks if the
 list is empty. The file is owner-editable mid-flight; the manager re-reads it on
 each planning cycle.
+
+> **Retired:** `warden autopilot register` / plan-file-based start are deprecated
+> one-release aliases. They translate to a PlanID where safe or return a precise
+> migration error. Canonical lifecycle is `wd plan run|pause|resume|stop`.
 
 ### 34.2 Agent topology — manager, worker, resolver
 
@@ -1286,7 +1292,9 @@ continues from the ledger.
 The autopilot switch is **per-repository**, not one global flag. `warden autopilot
 on` run inside a repo enables **only that repo** — other repos are unaffected.
 `warden autopilot enable --repo <root>` (MCP: `set_autopilot { repo }`) targets a
-different repository. The plan/manager/merge **template** stays global in the
+different repository. Enablement is a **capability switch only** — it does not
+register or start plan work. Start execution with `wd plan run <id> --mode autopilot`
+(MCP: `run_plan`). The plan/manager/merge **template** stays global in the
 `autopilot` config block; per-repo state is just the on/off bit and its run.
 
 The enabled set is **persisted** as marker files under
@@ -1543,6 +1551,7 @@ Opt-in only. Also available as `wd plan scan --assess` (runs for all `in_progres
 | `wd plan archive <id>` | Any status → `archived` |
 | `wd plan assess <id>` | Brain-based task progress reconstruction |
 | `wd plan run <id> --mode <mode>` | Start execution (`autopilot`\|`pipeline`\|`orchestrator`\|`manual`) |
+| `wd plan pause\|resume\|stop <id>` | Control the active executor for an in-progress plan |
 
 ### 37.9 MCP tools
 
@@ -1559,6 +1568,7 @@ Opt-in only. Also available as `wd plan scan --assess` (runs for all `in_progres
 | `complete_plan` | `in_progress` → `completed`. Structured error lists incomplete tasks and/or unmerged branches |
 | `assess_plan` | Brain-based task progress reconstruction |
 | `run_plan` | Start execution (`plan_id`, `execution_mode`); pending → `in_progress` |
+| `control_plan` | Pause, resume, or stop an in-progress plan's active executor |
 
 ### 37.10 TUI
 

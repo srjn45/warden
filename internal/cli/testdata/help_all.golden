@@ -49,6 +49,9 @@ Complete command tree:
   warden plan create                   Create a plan (writes YAML + DB record)
   warden plan show                     Show detail for one plan
   warden plan run                      Start execution of a plan in the given mode
+  warden plan pause                    pause an in-progress plan's active executor
+  warden plan resume                   resume an in-progress plan's active executor
+  warden plan stop                     stop an in-progress plan's active executor
   warden plan done                     Mark a plan task done
   warden plan complete                 Complete a plan (in_progress → completed)
   warden plan archive                  Archive a plan (any status → archived)
@@ -56,20 +59,14 @@ Complete command tree:
   warden plan scan                     Scan a project's plans/ directory and upsert plan records
   warden plan status                   Transition a plan's status (git mv + commit + DB update)
   warden plan assess                   Brain-assisted task progress assessment
-  warden autopilot                     Turn autopilot mode on/off per repo and show its status
-  warden autopilot enable              Enable autopilot for this repo (runs the enable-time preflight)
+  warden autopilot                     Turn autopilot capability on/off per repo and show its status
+  warden autopilot enable              Enable autopilot capability for this repo (does not start work)
   warden autopilot disable             Disable autopilot for this repo (kill switch — stops spawning/landing)
   warden autopilot status              Show autopilot status (which repos are enabled, and each run)
   warden autopilot init                Scaffold autopilot adoption in the current repo
-  warden autopilot register            Register a named autopilot plan
   warden autopilot land                Land an autopilot worker branch into the integration branch
-  warden autopilot run                 Manage registered autopilot runs
+  warden autopilot run                 Inspect live Autopilot executors
   warden autopilot run list            List all registered autopilot runs
-  warden autopilot run start           start one autopilot run
-  warden autopilot run pause           pause one autopilot run
-  warden autopilot run resume          resume one autopilot run
-  warden autopilot run stop            stop one autopilot run
-  warden autopilot run unregister      unregister one autopilot run
   warden schedule                      Schedule recurring (--cron) or single-shot (--at) agents and pipelines
   warden schedule create               Create a schedule that fires an agent or a pipeline
   warden schedule list                 List schedules
@@ -219,11 +216,12 @@ Compatibility aliases:
   warden autopilot list -> warden autopilot run list (compatibility)
   warden autopilot off -> warden autopilot disable (compatibility)
   warden autopilot on -> warden autopilot enable (compatibility)
-  warden autopilot pause -> warden autopilot run pause (compatibility)
-  warden autopilot resume -> warden autopilot run resume (compatibility)
-  warden autopilot start -> warden autopilot run start (compatibility)
-  warden autopilot stop -> warden autopilot run stop (compatibility)
-  warden autopilot unregister -> warden autopilot run unregister (compatibility)
+  warden autopilot pause -> warden plan pause (compatibility)
+  warden autopilot register -> warden plan run (compatibility)
+  warden autopilot resume -> warden plan resume (compatibility)
+  warden autopilot start -> warden plan run (compatibility)
+  warden autopilot stop -> warden plan stop (compatibility)
+  warden autopilot unregister -> warden plan stop (compatibility)
   warden backend ls -> warden backend list (compatibility)
   warden backend model ls -> warden backend model list (compatibility)
   warden backends -> warden backend (compatibility)

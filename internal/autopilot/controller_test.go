@@ -105,7 +105,7 @@ func TestEnableHappyPath(t *testing.T) {
 		BaseDir:           dir,
 	}, env)
 
-	st, err := c.Enable(context.Background(), "")
+	st, err := c.ReconcileConfiguredPlans(context.Background(), "")
 	require.NoError(t, err)
 	require.True(t, st.Enabled)
 	require.Len(t, st.Runs, 1)
@@ -123,7 +123,7 @@ func TestEnableHappyPath(t *testing.T) {
 	require.Contains(t, env.created[0], "autopilot/plan|main")
 
 	// idempotent: re-enable yields the same run id and does not re-create the branch
-	st2, err := c.Enable(context.Background(), "")
+	st2, err := c.ReconcileConfiguredPlans(context.Background(), "")
 	require.NoError(t, err)
 	require.Equal(t, st.Runs[0].RunID, st2.Runs[0].RunID)
 	require.Len(t, env.created, 1, "branch not re-created when it already exists")
@@ -141,7 +141,7 @@ func TestEnableGateResolvesToCIWhenWorkflowsCoverPRs(t *testing.T) {
 		BaseDir:           dir,
 	}, env)
 
-	st, err := c.Enable(context.Background(), "")
+	st, err := c.ReconcileConfiguredPlans(context.Background(), "")
 	require.NoError(t, err)
 	require.Equal(t, "ci", st.Runs[0].Gate)
 	require.Empty(t, st.Runs[0].GateWarning, "covered branch must not warn")
@@ -162,7 +162,7 @@ func TestEnableExplicitGateModesPassThrough(t *testing.T) {
 		// coversPRs=true would flip `auto` to ci, but explicit modes ignore it.
 		env := &fakeEnv{coversPRs: true}
 		c := NewController(ControllerConfig{Plans: []string{plan}, Gate: mode, BaseDir: dir}, env)
-		st, err := c.Enable(context.Background(), "")
+		st, err := c.ReconcileConfiguredPlans(context.Background(), "")
 		require.NoError(t, err)
 		require.Equal(t, mode, st.Runs[0].Gate)
 	}
@@ -180,7 +180,7 @@ func TestEnableBranchAlreadyExists(t *testing.T) {
 	env := &fakeEnv{exists: map[string]bool{dir + "\x00autopilot/plan": true}}
 	c := NewController(ControllerConfig{Plans: []string{plan}, BaseDir: dir}, env)
 
-	_, err := c.Enable(context.Background(), "")
+	_, err := c.ReconcileConfiguredPlans(context.Background(), "")
 	require.NoError(t, err)
 	require.Empty(t, env.created, "existing integration branch is not re-created")
 }
@@ -254,7 +254,7 @@ func TestEnablePreflightFailures(t *testing.T) {
 			dir := t.TempDir()
 			cfg, env := tt.setup(t, dir)
 			c := NewController(cfg, env)
-			_, err := c.Enable(context.Background(), "")
+			_, err := c.ReconcileConfiguredPlans(context.Background(), "")
 			require.Error(t, err)
 			var pfe *PreflightError
 			require.True(t, errors.As(err, &pfe), "want a *PreflightError, got %T", err)
@@ -275,7 +275,7 @@ func TestPreflightReportsAllFailuresAtOnce(t *testing.T) {
 	env := &fakeEnv{ghErr: errors.New("gh is not authenticated")}
 	c := NewController(ControllerConfig{Plans: []string{plan}, IntegrationBranch: "main", BaseDir: dir}, env)
 
-	_, err := c.Enable(context.Background(), "")
+	_, err := c.ReconcileConfiguredPlans(context.Background(), "")
 	var pfe *PreflightError
 	require.True(t, errors.As(err, &pfe))
 	require.GreaterOrEqual(t, len(pfe.Failures), 2, "all failures reported at once, not just the first")
@@ -288,7 +288,7 @@ func TestDisableKillSwitch(t *testing.T) {
 	plan := writePlan(t, dir, "plan.yaml", "g")
 	c := NewController(ControllerConfig{Plans: []string{plan}, BaseDir: dir}, &fakeEnv{})
 
-	_, err := c.Enable(context.Background(), "")
+	_, err := c.ReconcileConfiguredPlans(context.Background(), "")
 	require.NoError(t, err)
 	require.True(t, c.Status().Enabled)
 
@@ -313,7 +313,7 @@ func TestEnableIsPerRepo(t *testing.T) {
 	}, &fakeEnv{})
 
 	// Enable only repo A.
-	st, err := c.Enable(context.Background(), dirA)
+	st, err := c.ReconcileConfiguredPlans(context.Background(), dirA)
 	require.NoError(t, err)
 	require.True(t, st.Enabled)
 	require.Equal(t, []string{dirA}, st.EnabledRepos)
@@ -321,7 +321,7 @@ func TestEnableIsPerRepo(t *testing.T) {
 	require.Equal(t, dirA, st.Runs[0].Repo)
 
 	// Enabling repo B adds its run without disturbing A's.
-	st, err = c.Enable(context.Background(), dirB)
+	st, err = c.ReconcileConfiguredPlans(context.Background(), dirB)
 	require.NoError(t, err)
 	require.ElementsMatch(t, []string{dirA, dirB}, st.EnabledRepos)
 	require.Len(t, st.Runs, 2)
@@ -350,7 +350,7 @@ func TestReconfigureSwapsTemplateInPlace(t *testing.T) {
 	plan := writePlan(t, dir, "plan.yaml", "ship it")
 	c := NewController(ControllerConfig{Plans: []string{plan}, Gate: "ci", BaseDir: dir}, &fakeEnv{})
 
-	st, err := c.Enable(context.Background(), dir)
+	st, err := c.ReconcileConfiguredPlans(context.Background(), dir)
 	require.NoError(t, err)
 	require.Equal(t, "ci", st.Runs[0].Gate)
 	runID := st.Runs[0].RunID
@@ -373,9 +373,9 @@ func TestReconfigureRemovedPlanStopsRun(t *testing.T) {
 	planB := writePlan(t, dirB, "plan.yaml", "b")
 	c := NewController(ControllerConfig{Plans: []string{planA, planB}, BaseDir: dirA}, &fakeEnv{})
 
-	_, err := c.Enable(context.Background(), dirA)
+	_, err := c.ReconcileConfiguredPlans(context.Background(), dirA)
 	require.NoError(t, err)
-	_, err = c.Enable(context.Background(), dirB)
+	_, err = c.ReconcileConfiguredPlans(context.Background(), dirB)
 	require.NoError(t, err)
 	require.Len(t, c.Status().Runs, 2)
 
@@ -404,7 +404,7 @@ func TestEnableNoPlanForRepo(t *testing.T) {
 	planA := writePlan(t, dirA, "plan.yaml", "a")
 	c := NewController(ControllerConfig{Plans: []string{planA}, BaseDir: dirA}, &fakeEnv{})
 
-	_, err := c.Enable(context.Background(), dirB)
+	_, err := c.ReconcileConfiguredPlans(context.Background(), dirB)
 	var pfe *PreflightError
 	require.ErrorAs(t, err, &pfe)
 	require.Contains(t, pfe.Error(), "no autopilot plan resolves to "+dirB)
@@ -422,7 +422,7 @@ func TestBootReEnablePersistsAcrossRestart(t *testing.T) {
 	cfg := ControllerConfig{Plans: []string{plan}, BaseDir: dir, DataDir: dataDir}
 
 	c1 := NewController(cfg, &fakeEnv{})
-	_, err := c1.Enable(context.Background(), dir)
+	_, err := c1.ReconcileConfiguredPlans(context.Background(), dir)
 	require.NoError(t, err)
 
 	// Simulate a daemon restart: a brand-new controller over the same data dir.
@@ -432,7 +432,7 @@ func TestBootReEnablePersistsAcrossRestart(t *testing.T) {
 
 	// Boot re-enable brings the run back up.
 	for _, repo := range c2.PersistedEnabled() {
-		_, err := c2.Enable(context.Background(), repo)
+		_, err := c2.ReconcileConfiguredPlans(context.Background(), repo)
 		require.NoError(t, err)
 	}
 	st := c2.Status()
@@ -455,7 +455,7 @@ func TestCompleteRunMarksPlanAndSkipsOnReenable(t *testing.T) {
 	plan := writePlan(t, dir, "plan.yaml", "ship it")
 	c := NewController(ControllerConfig{Plans: []string{plan}, BaseDir: dir}, &fakeEnv{})
 
-	st, err := c.Enable(context.Background(), "")
+	st, err := c.ReconcileConfiguredPlans(context.Background(), "")
 	require.NoError(t, err)
 	require.Len(t, st.Runs, 1)
 	runID := st.Runs[0].RunID
@@ -479,7 +479,7 @@ func TestCompleteRunMarksPlanAndSkipsOnReenable(t *testing.T) {
 	require.NoError(t, err)
 
 	// Re-enabling skips execution while retaining the terminal durable record.
-	st3, err := c.Enable(context.Background(), "")
+	st3, err := c.ReconcileConfiguredPlans(context.Background(), "")
 	require.NoError(t, err)
 	require.True(t, st3.Enabled)
 	require.Len(t, st3.Runs, 1)
@@ -499,7 +499,7 @@ func TestPreflightSkipsCompletedPlan(t *testing.T) {
 	c := NewController(ControllerConfig{Plans: []string{done}, BaseDir: dir}, &fakeEnv{})
 
 	// A lone completed plan: enable succeeds, registers no run, and is not a failure.
-	st, err := c.Enable(context.Background(), "")
+	st, err := c.ReconcileConfiguredPlans(context.Background(), "")
 	require.NoError(t, err)
 	require.True(t, st.Enabled)
 	require.Empty(t, st.Runs)
@@ -514,7 +514,7 @@ func TestCompletedPlanDoesNotClaimRepoForActiveSibling(t *testing.T) {
 	active := writePlan(t, dir, "active.yaml", "ship the next thing")
 	c := NewController(ControllerConfig{Plans: []string{done, active}, BaseDir: dir}, &fakeEnv{})
 
-	st, err := c.Enable(context.Background(), "")
+	st, err := c.ReconcileConfiguredPlans(context.Background(), "")
 	require.NoError(t, err)
 	require.Len(t, st.Runs, 1)
 	require.Equal(t, active, st.Runs[0].PlanFile)
@@ -528,6 +528,16 @@ func TestStatusUnconfiguredDefaults(t *testing.T) {
 	require.Empty(t, st.Runs)
 
 	// enabling with no plans is a preflight failure, not a panic
-	_, err := c.Enable(context.Background(), "")
+	_, err := c.ReconcileConfiguredPlans(context.Background(), "")
 	require.Error(t, err)
+}
+
+func TestEnableIsCapabilitySwitchOnly(t *testing.T) {
+	dir := t.TempDir()
+	plan := writePlan(t, dir, "ship.yaml", "ship")
+	c := NewController(ControllerConfig{Plans: []string{plan}, BaseDir: dir, IntegrationBranch: "autopilot/integration"}, &fakeEnv{})
+	st, err := c.Enable(context.Background(), dir)
+	require.NoError(t, err)
+	require.True(t, st.Enabled)
+	require.Empty(t, st.Runs, "Enable must not register configured plan files")
 }

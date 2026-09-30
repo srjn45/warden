@@ -29,7 +29,7 @@ Run work:
   agent                Create, inspect, communicate with, and manage agents
   pipeline             Define and run DAG pipelines of agent jobs
   plan                 Manage plans tracked by the daemon
-  autopilot            Turn autopilot mode on/off per repo and show its status
+  autopilot            Turn autopilot capability on/off per repo and show its status
   schedule             Schedule recurring (--cron) or single-shot (--at) agents and pipelines
 
 Work with a project:
@@ -1126,8 +1126,9 @@ Plans are YAML files stored in plans/{pending,in_progress,completed,archived}/
 inside a project repository. The daemon tracks their definition (goal, tasks)
 and execution state (links to autopilot runs, pipelines, and task progress).
 
-Create with `wd plan create`, start with `wd plan run`, mark tasks done with
-`wd plan done`, then `wd plan complete` (or `wd plan archive`).
+Create with `wd plan create`, start with `wd plan run`, control with
+`wd plan pause|resume|stop`, mark tasks done with `wd plan done`, then
+`wd plan complete` (or `wd plan archive`).
 
 Usage:
   warden plan [flags]
@@ -1137,6 +1138,9 @@ Commands:
   create               Create a plan (writes YAML + DB record)
   show                 Show detail for one plan
   run                  Start execution of a plan in the given mode
+  pause                pause an in-progress plan's active executor
+  resume               resume an in-progress plan's active executor
+  stop                 stop an in-progress plan's active executor
   done                 Mark a plan task done
   complete             Complete a plan (in_progress → completed)
   archive              Archive a plan (any status → archived)
@@ -1225,15 +1229,17 @@ Inherited flags:
 ## warden plan run
 
 ```text
-Start execution of a plan (pending → in_progress). The mode determines how
-the plan is executed:
+Start execution of a plan (pending → in_progress). This is the only supported
+public start path for plan execution (including autopilot). The mode determines
+how the plan is executed:
 
-  autopilot           Fully autonomous run registered with the autopilot
+  autopilot           Creates a live Autopilot executor + manager
   pipeline            Each task becomes a pipeline job
   orchestrator        Orchestrator + workers with human approval gates
-  manual              State tracking only; human drives all prompting
+  manual              Plan-bound general agent; human drives prompting
 
 `orchestrator` is accepted as an alias for `orchestrator_worker`.
+Control a running plan with `wd plan pause|resume|stop`.
 
 Usage:
   warden plan run <plan-id> [flags]
@@ -1242,6 +1248,63 @@ Flags:
   -h, --help          help for run
       --json          output as JSON
       --mode string   execution mode: autopilot|pipeline|orchestrator|manual
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan pause
+
+```text
+Control the active executor for an in-progress plan (autopilot, pipeline, or
+plan-bound agent). Together with `wd plan run`, this is the public lifecycle
+surface for plan execution.
+
+Usage:
+  warden plan pause <plan-id> [flags]
+
+Flags:
+  -h, --help   help for pause
+      --json   output as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan resume
+
+```text
+Control the active executor for an in-progress plan (autopilot, pipeline, or
+plan-bound agent). Together with `wd plan run`, this is the public lifecycle
+surface for plan execution.
+
+Usage:
+  warden plan resume <plan-id> [flags]
+
+Flags:
+  -h, --help   help for resume
+      --json   output as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan stop
+
+```text
+Control the active executor for an in-progress plan (autopilot, pipeline, or
+plan-bound agent). Together with `wd plan run`, this is the public lifecycle
+surface for plan execution.
+
+Usage:
+  warden plan stop <plan-id> [flags]
+
+Flags:
+  -h, --help   help for stop
+      --json   output as JSON
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -1385,29 +1448,23 @@ Inherited flags:
 ## warden autopilot
 
 ```text
-Autopilot runs a long-lived headless brain agent per plan that decomposes a
-goal, spawns workers, and lands green work into an integration branch
-unattended. The switch is PER-REPO: `warden autopilot enable` run inside a repo
-enables only that repo (others are unaffected), and the enabled set is persisted
-so repos come back up across a daemon restart. The plan/manager/merge template
-stays global in the `autopilot` config block. Enabling runs a preflight (plan
-file valid, gh authenticated, integration branch present, at most one active run
-per repo) and fails fast with the full list of problems so you fix everything in
-one pass. `disable` is the kill switch. Registered runs are managed separately
-under `autopilot run`. Configure the feature under the `autopilot` block in the
-config file (or scaffold it with `warden autopilot init`).
+Autopilot is the unattended Plan execution mode. `warden autopilot enable`
+flips a PER-REPO capability switch (it does not register plan files or start
+work). Start and control execution with `warden plan run` / `warden plan
+pause|resume|stop`. `disable` is the kill switch. Configure the feature under
+the `autopilot` block in the config file (or scaffold it with `warden
+autopilot init`).
 
 Usage:
   warden autopilot [flags]
 
 Commands:
-  enable               Enable autopilot for this repo (runs the enable-time preflight)
+  enable               Enable autopilot capability for this repo (does not start work)
   disable              Disable autopilot for this repo (kill switch — stops spawning/landing)
   status               Show autopilot status (which repos are enabled, and each run)
   init                 Scaffold autopilot adoption in the current repo
-  register             Register a named autopilot plan
   land                 Land an autopilot worker branch into the integration branch
-  run                  Manage registered autopilot runs
+  run                  Inspect live Autopilot executors
 
 Flags:
   -h, --help   help for autopilot
@@ -1420,10 +1477,11 @@ Inherited flags:
 ## warden autopilot enable
 
 ```text
-Enables autopilot for the current git repository only (other repos are
-unaffected). Runs the enable-time preflight and, on success, persists the repo
-as enabled so it comes back up across a daemon restart. Use --repo to target a
-different repository.
+Enables the autopilot capability for the current git repository only (other
+repos are unaffected). This persists the repo as allowed to run Autopilot
+executors — it does not register plan files or start work. Start a plan with
+`warden plan run <plan-id> --mode autopilot`. Use --repo to target a different
+repository.
 
 Usage:
   warden autopilot enable [flags]
@@ -1493,24 +1551,6 @@ Inherited flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden autopilot register
-
-```text
-Register a named autopilot plan
-
-Usage:
-  warden autopilot register <plan-file> [flags]
-
-Flags:
-  -h, --help          help for register
-      --name string   unique run name within the repository
-      --repo string   repository root (inferred from plan when omitted)
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
 ## warden autopilot land
 
 ```text
@@ -1537,19 +1577,15 @@ Inherited flags:
 ## warden autopilot run
 
 ```text
-Start, pause, resume, stop, and unregister individual registered runs.
-Distinct from repository enablement (`autopilot enable` / `autopilot disable`).
+List live Autopilot executors. Lifecycle control (start/pause/resume/stop)
+moved to `warden plan run` / `warden plan pause|resume|stop`. Repository
+enablement remains `autopilot enable` / `autopilot disable`.
 
 Usage:
   warden autopilot run [flags]
 
 Commands:
   list                 List all registered autopilot runs
-  start                start one autopilot run
-  pause                pause one autopilot run
-  resume               resume one autopilot run
-  stop                 stop one autopilot run
-  unregister           unregister one autopilot run
 
 Flags:
   -h, --help   help for run
@@ -1569,86 +1605,6 @@ Usage:
 
 Flags:
   -h, --help   help for list
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden autopilot run start
-
-```text
-start one autopilot run
-
-Usage:
-  warden autopilot run start <run-id-or-name> [flags]
-
-Flags:
-  -h, --help   help for start
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden autopilot run pause
-
-```text
-pause one autopilot run
-
-Usage:
-  warden autopilot run pause <run-id-or-name> [flags]
-
-Flags:
-  -h, --help   help for pause
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden autopilot run resume
-
-```text
-resume one autopilot run
-
-Usage:
-  warden autopilot run resume <run-id-or-name> [flags]
-
-Flags:
-  -h, --help   help for resume
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden autopilot run stop
-
-```text
-stop one autopilot run
-
-Usage:
-  warden autopilot run stop <run-id-or-name> [flags]
-
-Flags:
-  -h, --help   help for stop
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden autopilot run unregister
-
-```text
-unregister one autopilot run
-
-Usage:
-  warden autopilot run unregister <run-id-or-name> [flags]
-
-Flags:
-  -h, --help   help for unregister
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -4588,11 +4544,12 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | `warden autopilot list` | `warden autopilot run list` |
 | `warden autopilot off` | `warden autopilot disable` |
 | `warden autopilot on` | `warden autopilot enable` |
-| `warden autopilot pause` | `warden autopilot run pause` |
-| `warden autopilot resume` | `warden autopilot run resume` |
-| `warden autopilot start` | `warden autopilot run start` |
-| `warden autopilot stop` | `warden autopilot run stop` |
-| `warden autopilot unregister` | `warden autopilot run unregister` |
+| `warden autopilot pause` | `warden plan pause` |
+| `warden autopilot register` | `warden plan run` |
+| `warden autopilot resume` | `warden plan resume` |
+| `warden autopilot start` | `warden plan run` |
+| `warden autopilot stop` | `warden plan stop` |
+| `warden autopilot unregister` | `warden plan stop` |
 | `warden backend ls` | `warden backend list` |
 | `warden backend model ls` | `warden backend model list` |
 | `warden backends` | `warden backend` |

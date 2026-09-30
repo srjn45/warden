@@ -6,7 +6,9 @@ description: Adoption walkthrough — init, cost-tier config, enable/disable, la
 import { Aside } from '@astrojs/starlight/components';
 
 <Aside type="caution" title="Unattended operation is inherently risky">
-When autopilot is enabled, a **manager** agent drives a fleet of worker agents
+When the autopilot **capability** is enabled, start a plan with
+`warden plan run --mode autopilot`. A **manager** agent then drives a fleet of
+worker agents.
 **without waiting for human input**. Workers write code, open PRs, and merge
 branches into the integration branch — autonomously. You should understand the
 mitigations before enabling:
@@ -24,8 +26,9 @@ mitigations before enabling:
 </Aside>
 
 Autopilot lets warden run a **goal-directed, long-lived agent loop** over your
-codebase. You describe what you want in a plan file, enable autopilot, and warden
-takes care of the rest: spawning a **manager** agent that breaks the goal into
+codebase. You describe what you want in a plan, enable the autopilot capability,
+and start with `warden plan run --mode autopilot`. Warden takes care of the rest:
+spawning a **manager** agent that breaks the goal into
 tasks, delegates each task to worker agents in isolated worktrees, gates their
 branches through CI, and lands them into an integration branch — healing itself
 when stuck, and escalating to cheaper backends when rate-limited.
@@ -175,35 +178,39 @@ daemon warns if they linger). Manage tiers with `warden backend tier` from then 
 
 ---
 
-## Step 4 — start the run
+## Step 4 — enable capability, then start the plan
+
+Enablement is a **capability switch** — it does not register or start work:
 
 ```sh
-warden autopilot run start notifications
+warden autopilot enable          # per-repo switch only
 ```
 
-Or use the legacy enable flow for a single plan:
+Start execution through the Plan surface (canonical):
 
 ```sh
-warden autopilot enable
+warden plan run <plan-id> --mode autopilot
+# or by name after import/create:
+warden plan run notifications --mode autopilot
 ```
 
-This enables **only the current repository** (other repos are unaffected) and
-runs a **preflight check** before enabling. Add `--repo <root>` to target a
-different repository. The preflight surfaces every problem that would stall an
-unattended run — now, while you're present — and prints actionable errors if
-anything is missing:
+Control an in-progress plan:
 
-```
-✗ plan file not found: plans/notifications.yaml
-✗ integration branch does not exist: autopilot/notifications
-✗ no authenticated backend available
-hint: run `warden autopilot init --name notifications` to scaffold a plan file and config block
+```sh
+warden plan pause <plan-id>
+warden plan resume <plan-id>
+warden plan stop <plan-id>
 ```
 
-Fix any reported issues and re-run `warden autopilot enable`. When the preflight
-passes, the manager is spawned and the run enters `active` state, and the repo is
-**persisted as enabled** — so it comes back up automatically if the daemon
-restarts. Enable more repos the same way; each is tracked independently.
+> **Deprecated (one release):** `warden autopilot register`, `unregister`,
+> `retarget`, and plan-file-based `autopilot run start` translate to a PlanID
+> where safe or return a precise migration error. Prefer `plan run|pause|resume|stop`.
+
+`warden autopilot enable` enables **only the current repository** (other repos
+are unaffected). Add `--repo <root>` to target a different repository. When the
+capability is on, the repo is **persisted as enabled** — so it comes back up
+automatically if the daemon restarts. Starting a plan still requires
+`warden plan run --mode autopilot` (preflight runs at plan-start time).
 
 ---
 
@@ -313,8 +320,9 @@ doing, or abort a run that is heading in the wrong direction.
 | Command | What it does |
 |---|---|
 | `warden autopilot init [--name <name>]` | Scaffold `plans/<name>.yaml` + config block |
-| `warden autopilot run start <name>` | Start a named run |
-| `warden autopilot enable [--repo <root>]` | Enable autopilot for this repo (runs preflight first) |
+| `warden plan run <id> --mode autopilot` | Start plan execution (canonical lifecycle) |
+| `warden plan pause\|resume\|stop <id>` | Control an in-progress plan's executor |
+| `warden autopilot enable [--repo <root>]` | Enable the autopilot **capability** for this repo (switch only; does not start work) |
 | `warden autopilot disable [--repo <root>]` | Disable autopilot for this repo — the kill switch |
 | `warden autopilot status` | Show enabled repos + each run's state, manager slot id, integration branch, task summary |
 | `warden autopilot land <agent-or-branch>` | Land a worker branch into the integration branch |
@@ -323,7 +331,9 @@ doing, or abort a run that is heading in the wrong direction.
 
 | Tool | What it does |
 |---|---|
-| `set_autopilot { enabled: true\|false, repo? }` | Enable or disable autopilot for a repo (the kill switch); `repo` defaults to the daemon's working directory |
+| `set_autopilot { enabled: true\|false, repo? }` | Capability switch / kill switch; does **not** register or start plan work |
+| `run_plan { plan_id, execution_mode }` | Start plan execution |
+| `control_plan { plan_id, action }` | Pause, resume, or stop an in-progress plan |
 | `autopilot_status` | Return enabled repos + each run's state, manager id, task counts |
 | `autopilot_complete` | Manager-only: declare the caller's run complete once `done_when` is met (writes the in-place `status: complete` marker, tears down the manager) |
 | `land { ticket: "<agent-or-branch>" }` | Land a worker branch |
