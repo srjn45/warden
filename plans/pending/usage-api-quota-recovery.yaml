@@ -1,0 +1,236 @@
+version: 1
+name: usage-api-quota-recovery
+goal: >-
+  Make provider usage APIs the authoritative capacity signal for rate-limit
+  recovery. Bind every running AI agent to its exact provider/account/model
+  quota domain, continuously or manually reconcile exhausted buckets to their
+  affected agents, and invoke the existing per-agent backend recovery
+  coordinator to hot-swap safely. Preserve pane detection as a low-latency
+  supplemental signal and provide a single operator command to run the same
+  reconciliation flow on demand.
+
+constraints:
+  - >-
+    Build on the merged rate-limit-recovery-cockpit-resilience work; do not
+    replace its fresh-pane evidence, provider-specific detector, cooldown, or
+    cockpit protections. This plan closes the remaining missed-detection path.
+  - >-
+    Provider usage responses are authoritative only when successful and fresh.
+    A timeout, authentication failure, unsupported provider, stale snapshot, or
+    unknown bucket must never be interpreted as exhausted capacity.
+  - >-
+    An agent is bound to a provider/account-or-profile/model capacity domain by
+    daemon-owned backend routing at spawn or hot-swap time. Agents may not
+    submit an arbitrary quota bucket claim.
+  - >-
+    Treat provider-defined capacity scopes generically. Do not hard-code
+    "remaining hours" or assume one model maps to one quota; an agent can be
+    blocked by any mandatory bucket in its selected route.
+  - >-
+    The canonical terminology is AI CLI / ai_cli, while backend fields and
+    flags remain compatibility aliases until the existing deprecation window
+    ends. Do not break older persisted agent records that lack a quota binding.
+  - >-
+    Reconciliation must use the existing backend recovery coordinator, durable
+    per-candidate cooldowns, role/model-tier policy, and handoff rails. Never
+    implement a second ad-hoc hot-swap path.
+  - >-
+    A bulk bucket event must be concurrency-limited and must not stampede all
+    affected agents onto the same candidate pool. Candidate selection always
+    uses a fresh capacity snapshot.
+  - >-
+    Pane-based hard-limit/menu detection remains enabled as a fast fallback for
+    providers with no usable API and for API lag. Fuse signals idempotently so
+    one incident creates at most one recovery generation per agent.
+  - >-
+    API changes are spec-first: update internal/daemon/apidocs/openapi.yaml
+    before generation. Never hand-edit generated OpenAPI code.
+  - >-
+    Run focused wd check targets after each task and make verify-fast before
+    every commit/push. Use Warden-managed Git and PR lifecycle commands.
+
+done_when:
+  - >-
+    Every newly spawned or hot-swapped AI agent has a daemon-resolved, persisted
+    quota binding sufficient to associate it with provider capacity snapshots.
+  - >-
+    A fresh successful usage snapshot that reports a mandatory bucket exhausted
+    deterministically starts recovery for every eligible live agent bound to it,
+    without relying on pane wording.
+  - >-
+    Failed, stale, partial, unsupported, or ambiguous usage results create no
+    forced hot-swap; they are visible as unknown/stale health instead.
+  - >-
+    Repeated snapshots and simultaneous pane/API observations are idempotent;
+    they do not create duplicate recovery generations or swap loops.
+  - >-
+    `wd usage recover` invokes the same reconciliation safely on demand, with
+    dry-run and AI-CLI/project filters.
+  - >-
+    Operators can inspect snapshots, bucket-to-agent impact, recovery attempts,
+    and outcomes in API/MCP/CLI/TUI/audit data.
+  - >-
+    make verify-fast and focused provider, binding, reconciliation, recovery,
+    API, MCP, CLI, TUI, migration, and concurrency suites pass.
+
+tasks:
+  - id: usage-recovery-contract
+    prompt: >-
+      Phase 1 — design freeze, documentation only. Inspect the current
+      backendusage adapters, backendstore quotas, Agent/Session persistence,
+      poller menu/banner detector, rate-limit scheduler, backend recovery
+      coordinator, current usage CLI/API/MCP/TUI surfaces, and the completed
+      resilience work. Write docs/specs/2026-09-29-usage-api-quota-recovery.md.
+      Freeze: canonical terms (UsageSnapshot, CapacityDomain, QuotaBinding,
+      CapacityBucket, mandatory bucket, freshness, exhaustion, reconciliation,
+      recovery generation); a data-flow diagram; the evidence-precedence table;
+      a provider capability table; bulk-recovery concurrency semantics; and
+      exact user-visible states. Specify that a successful fresh provider API
+      result is authoritative, while a pane menu is immediate supplemental
+      evidence. Define stale/partial/unknown rules, multi-account/profile
+      behavior, and the no-network-by-default behavior when polling is off.
+      Include exact CLI/API/MCP/TUI proposals, audit event vocabulary, migration
+      table for legacy backend-only records, and a concrete regression scenario:
+      Claude menu selects "wait for reset" then renders "Requesting rate limit
+      reset for weekly limit" without a parseable `resets` banner. Do not change
+      production behavior in this phase.
+
+  - id: capacity-domain-model
+    prompt: >-
+      Phase 2 — daemon-owned capacity-domain model. Add typed generic capacity
+      domain and quota-binding values to the canonical persisted Agent model,
+      compatible with legacy Session decoding during the AI-CLI migration.
+      A binding must identify provider/ai_cli, non-secret credential account or
+      profile fingerprint, selected model/route, and an ordered set of provider
+      bucket keys required for that route. Do not persist raw credentials or
+      API tokens. Add a backend-registry resolver that derives the binding at
+      spawn, restore, and hot-swap; centralize provider-specific mapping there.
+      Existing agents with no binding stay operable and are marked unbound/legacy
+      rather than guessed. Add serialization, migration, account-isolation,
+      model-route, and no-secret-leak tests.
+    after: [usage-recovery-contract]
+
+  - id: usage-snapshot-store
+    prompt: >-
+      Phase 3 — durable usage snapshots and freshness semantics. Extend the
+      provider usage service/store so every polling/manual fetch records a
+      typed, timestamped snapshot per capacity domain with source result,
+      freshness, bucket measurements, reset times when known, and a normalized
+      bucket state of available/exhausted/unknown. Preserve provider-native
+      details only where safe for diagnostics. A snapshot may mark a domain
+      exhausted only after a successful authoritative response; partial or
+      failed responses must retain prior known data without changing it to zero.
+      Define retention/pruning and restart behavior. Add adapter contract tests
+      for Claude-style rolling and weekly windows, a model-specific provider,
+      multiple profiles, unsupported APIs, missing reset times, stale snapshots,
+      and conflicting bucket readings.
+    after: [usage-recovery-contract]
+
+  - id: usage-polling-loop
+    prompt: >-
+      Phase 4 — configurable usage reconciliation polling. Add a daemon-owned
+      loop that fetches supported provider capacity snapshots on an opt-in or
+      default-enabled configuration with explicit names such as
+      rate_limit.recovery.usage_reconciliation.enabled, interval, stale_after,
+      and max_parallel_swaps. Select values consistent with existing config
+      conventions and freeze them in the spec. It must start/recover cleanly
+      with the daemon, avoid overlapping polls, back off on provider failures,
+      respect provider/account scope, and make no provider calls when disabled.
+      It must publish snapshot changes but not yet perform swaps. Add fake-clock
+      tests for cadence, disabled mode, overlap prevention, restart, backoff,
+      stale marking, and provider isolation.
+    after: [usage-snapshot-store]
+
+  - id: bucket-impact-reconciliation
+    prompt: >-
+      Phase 5 — deterministic bucket-to-agent impact reconciliation. Given a
+      fresh exhausted capacity bucket, locate all live agents whose daemon-owned
+      QuotaBinding requires that exact domain/bucket. Reconcile only eligible
+      statuses and ignore done, archived, terminals, unbound legacy agents,
+      agents already recovering, and agents manually superseded. Make repeated
+      identical snapshots idempotent using snapshot revision/domain/bucket and
+      recovery generation fences. Produce a structured impact result containing
+      exhausted buckets, affected agents, skipped agents with reason, and stale
+      or unknown inputs. Add tests for two accounts using the same AI CLI,
+      shared versus model-specific buckets, multiple mandatory buckets,
+      repeated observations, simultaneous API/pane triggers, and a daemon
+      restart halfway through reconciliation.
+    after: [capacity-domain-model, usage-polling-loop]
+
+  - id: coordinated-bulk-recovery
+    prompt: >-
+      Phase 6 — wire reconciliation into the existing backend recovery
+      coordinator. For each affected agent, invoke the coordinator's confirmed
+      hard-limit entry point rather than issuing a direct swap. Before selecting
+      each candidate, use a fresh capacity snapshot; exclude the exhausted
+      domain/bucket, candidates under durable cooldown, disabled models, and
+      candidates incompatible with the agent role/tier. Introduce a bounded
+      queue/max parallelism so a shared bucket loss cannot stampede every agent
+      onto a limited alternative. Preserve per-agent handoff, recovery phases,
+      stabilization windows, reset scheduling, and manual override behavior.
+      Add integration tests for several affected agents, limited alternative
+      capacity, all candidates exhausted, candidate launch failure, immediate
+      candidate hard limit, and cancellation by manual switch/stop.
+    after: [bucket-impact-reconciliation]
+
+  - id: pane-signal-fusion
+    prompt: >-
+      Phase 7 — fuse pane evidence correctly. Preserve provider-specific,
+      fail-closed banner detection, but make a recognized Claude
+      "wait-for-limit-reset" menu generate a confirmed limit observation for
+      recovery immediately after safe selection; do not rely solely on a later
+      `resets` banner being rendered. Retain a delayed recapture as validation
+      and diagnostics, never as the only trigger. Route menu, banner, and usage
+      API signals through one idempotent evidence/reconciliation seam so the
+      same incident cannot create duplicate recovery generations. Add the exact
+      weekly-reset post-menu fixture from the design record plus false-positive,
+      stale-pane, menu-selection-failure, usage-first, and simultaneous-signal
+      regression coverage.
+    after: [bucket-impact-reconciliation]
+
+  - id: operator-recover-command
+    prompt: >-
+      Phase 8 — operator-triggered one-shot reconciliation. Add canonical API,
+      MCP, and CLI support for `wd usage recover`. The command must fetch fresh
+      supported usage snapshots, calculate bucket impact, and invoke precisely
+      the same reconciliation/coordinator flow as the background loop. Provide
+      `--dry-run`, `--ai-cli <id>`, `--project <path>`, and an explicit bounded
+      concurrency override only if consistent with the frozen API. Default
+      invocation is an explicit operator action and may execute recovery; its
+      output must clearly list snapshots, affected/skipped agents, candidates,
+      and started/waiting outcomes. It must not mutate unrelated agents or use
+      cached/stale data as a forced-limit signal. Update OpenAPI first, generate
+      clients, and add CLI/API/MCP parity and error tests.
+    after: [coordinated-bulk-recovery]
+
+  - id: recovery-observability
+    prompt: >-
+      Phase 9 — observability and cockpit visibility. Add durable agent events
+      and append-only audit records for usage_snapshot_received,
+      usage_snapshot_failed, quota_bucket_exhausted, quota_impact_calculated,
+      recovery_started, candidate_attempted, candidate_result,
+      waiting_for_capacity, and recovery_stabilized/superseded. Records must
+      contain safe domain/bucket identifiers, timestamps, agent/run IDs, and
+      reasons but never tokens or raw credentials. Extend API/MCP/CLI detail and
+      TUI recovery views to show freshness, affected capacity domain, trigger
+      source (usage/menu/banner/manual), candidate history, and retry/reset
+      timing. Ensure the audit log—not only systemd journal—answers why a swap
+      did or did not occur. Add privacy/redaction, ordering, and cockpit layout
+      regression tests.
+    after: [coordinated-bulk-recovery, pane-signal-fusion]
+
+  - id: migration-docs-acceptance
+    prompt: >-
+      Phase 10 — compatibility, operations, and end-to-end acceptance. Verify
+      older agents that only have backend/model fields keep working, acquire a
+      binding on their next safe lifecycle transition, and are never mass-swapped
+      based on a guessed account/bucket. Update configuration reference, CLI
+      docs, MCP descriptions, FEATURES.md, site docs, operator runbooks, and
+      release notes. Include playbooks for enabling/disabling polling, running
+      `wd usage recover --dry-run`, handling unknown providers, interpreting
+      waiting-for-capacity, and manually overriding recovery. Build an end-to-
+      end fixture reproducing this incident: two Claude agents hit a weekly
+      limit, select the wait menu, emit no parseable banner, usage API reports
+      their shared bucket exhausted, and both are safely recovered without user
+      intervention. Run focused suites and make verify-fast.
+    after: [operator-recover-command, recovery-observability]

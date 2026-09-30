@@ -1,0 +1,275 @@
+version: 1
+name: scrivadb-canonical-plans-repo-sync
+goal: >-
+  Make ScrivaDB the sole canonical store for Plan definitions, task DAGs,
+  lifecycle, revisions, execution state, and audit history. Repository YAML is
+  an optional, deterministic, non-executable replica that users may publish by
+  opening a sync PR. Warden must discover and execute plans only from the
+  canonical Plan record, while preserving a deliberate migration path for
+  existing repository-backed plans and a provider boundary for future Warden
+  Hub team synchronization.
+
+constraints:
+  - >-
+    This supersedes the repository-YAML authority assumption in
+    plan-execution-entity-redesign. Do not implement a YAML-source plan
+    lifecycle or make directory placement an execution input.
+  - >-
+    ScrivaDB is the sole authority for plan content, task dependencies,
+    lifecycle (pending, in_progress, completed, archived), revisions,
+    execution evidence, and summaries. A replica is never read by the TUI,
+    CLI, API, scheduler, pipeline, or autopilot to determine canonical state.
+  - >-
+    Existing Plan IDs, execution links, task evidence, audit records, and
+    lifecycle timestamps must survive migration. Migration must be idempotent,
+    restart-safe, observable, and recoverable.
+  - >-
+    API work is spec-first: update internal/daemon/apidocs/openapi.yaml before
+    running generation. Never hand-edit generated OpenAPI code.
+  - >-
+    The canonical API, MCP tools, CLI, and TUI must use the same Plan service;
+    no surface may write plan records or sync metadata directly.
+  - >-
+    Repository sync is opt-in and may only write a dedicated Warden branch.
+    It must never stage, commit, rebase, overwrite, or include unrelated user
+    changes from the caller's working branch.
+  - >-
+    YAML remains the v1 repository export format because it is reviewable and
+    comment-friendly. JSON is not an implementation target in this plan; keep
+    the renderer abstraction capable of adding a JSON export later without a
+    canonical-schema change.
+  - >-
+    Plan sync to Warden Hub is out of scope. Define a local provider boundary
+    and sync envelope only; do not add network calls, accounts, tenancy, or
+    remote replication in this plan.
+  - >-
+    Use wd check for focused checks and make verify-fast before every commit or
+    push. Use Warden-managed commit, push, and PR lifecycle commands.
+
+done_when:
+  - >-
+    A Plan can be created, revised, listed, viewed, executed, completed,
+    archived, and recovered with no plans/ directory present in the repository.
+  - >-
+    Every canonical Plan carries a stable ID, monotonic revision, lifecycle
+    timestamps, task DAG, execution/audit data, and repository-sync metadata.
+  - >-
+    The TUI, API, CLI, MCP, pipeline, and autopilot use only ScrivaDB-backed
+    Plan records; modifying or deleting an exported YAML replica has no effect
+    on their behavior.
+  - >-
+    plan sync_to_repo creates a deterministic YAML replica on a dedicated
+    branch and opens a PR only when the requested canonical revision has not
+    already been exported to the same repository/ref/path.
+  - >-
+    Existing repository YAML plans can be explicitly imported once into
+    ScrivaDB without duplicate Plans, lost task dependencies, or altered
+    lifecycle/audit history.
+  - >-
+    Backup/export and restore tests prove a plan can be moved to a fresh local
+    Warden data directory without relying on Git.
+  - >-
+    make verify-fast and focused migration, Plan service, execution, sync,
+    TUI, CLI, MCP, and API suites pass.
+
+tasks:
+  - id: canonical-contract
+    prompt: >-
+      Phase 1 — design freeze, documentation only. Before changing runtime
+      code, inspect the current Plan CRUD, scanner, planstore, execution,
+      autopilot, pipeline, CLI, MCP, and TUI paths. Write a design record under
+      docs/specs/ that freezes these decisions: (1) ScrivaDB Plan is canonical;
+      (2) repository files are exports only; (3) lifecycle is a Plan field,
+      never inferred from an export path; (4) execution reads canonical tasks;
+      (5) replica edits are inert unless a future explicit import command is
+      invoked; and (6) Hub is a future sync provider, not a Git replacement.
+      Include an entity/flow diagram for create → revise → execute → sync PR →
+      restore, a failure matrix, exact terminology, a legacy migration table,
+      and an explicit list of behavior that must stop reading plans/*.yaml.
+      Define the v1 YAML export envelope: schema version, plan_id, revision,
+      canonical content hash, exported_at, lifecycle snapshot, and immutable
+      execution-summary reference. State why YAML is retained and JSON deferred.
+      Cross-reference plan-execution-entity-redesign and identify the exact
+      assumptions its workers must not implement. Do not alter production code.
+
+  - id: canonical-plan-schema
+    prompt: >-
+      Phase 2 — canonical Plan schema and optimistic revision control. Based on
+      the frozen design, evolve internal/planstore so the stored Plan record
+      contains its complete definition: stable ID, ProjectID, name, goal,
+      constraints, done_when, task IDs/prompts/after DAG, lifecycle, created,
+      updated, started, completed, archived timestamps, revision, canonical
+      content hash, and existing execution/audit fields. Add typed repository
+      export metadata separately from execution history. Define an expected
+      revision/precondition mechanism for edits so concurrent UI/CLI/API users
+      receive a structured conflict instead of silently overwriting a plan.
+      Preserve decoding of existing records with absent new fields. Add store
+      round-trip, hash determinism, revision-conflict, and absent-field
+      migration tests. Do not yet remove the legacy YAML writer/scanner.
+    after: [canonical-contract]
+
+  - id: db-only-plan-service
+    prompt: >-
+      Phase 3 — make the Plan service DB-native. Refactor create, read, list,
+      update, task mutation, lifecycle transition, archive, completion, and
+      plan-detail operations to use only canonical ScrivaDB records. Replace
+      filesystem mutation, directory scans, and git operations in the normal
+      Plan service path with transactional store operations. Make lifecycle
+      validation and revision increments atomic with the canonical update.
+      Update REST handlers, generated-client inputs, MCP handlers, and CLI
+      plumbing to use that service and expose revision/conflict information.
+      Keep legacy YAML code isolated behind an explicitly named migration/export
+      boundary, not as an implicit fallback. Add tests that exercise all normal
+      Plan operations in a project with no plans directory and prove an edited
+      YAML file cannot change a canonical Plan.
+    after: [canonical-plan-schema]
+
+  - id: execution-db-cutover
+    prompt: >-
+      Phase 4 — cut execution consumers over to canonical plans. Update the
+      plan runner, autopilot controller, pipeline Plan adapter, orchestrator,
+      manual execution, task progress, completion validation, and recovery
+      paths to fetch Plan definition/DAG/lifecycle from planstore only. Ensure
+      every execution event and executor link is associated with the stable
+      canonical Plan ID and revision that started it; revisions made after an
+      execution starts must follow a documented policy (reject structural edits
+      while in_progress, or snapshot the execution definition — select and
+      implement the design-record choice). Remove all execution-time plan-file
+      reads, watcher dependence, and directory-status checks. Add restart and
+      no-export integration tests for autopilot, pipeline, orchestrator, and
+      manual modes. Reconcile this work with plan-execution-entity-redesign;
+      do not duplicate its durable event model, and update its implementation
+      contract if its baseline artifact still states YAML authority.
+    after: [db-only-plan-service]
+
+  - id: legacy-plan-import
+    prompt: >-
+      Phase 5 — explicit legacy YAML import and one-time cutover. Implement an
+      operator-invoked migration/import service that discovers the existing
+      plans/{pending,in_progress,completed,archived} layout only when requested,
+      parses supported v1 YAML, creates or reconciles canonical Plans by stable
+      identity, preserves task after dependencies and lifecycle timestamps, and
+      records a migration audit event. Define deterministic duplicate handling:
+      repeated import must be a no-op when content/hash matches and must return
+      a structured conflict when an existing canonical record differs. Never
+      scan automatically at daemon startup or during normal list/execution.
+      Leave source files untouched by default; provide an explicit report mode
+      with imported/skipped/conflicted records. Add fixtures covering all four
+      statuses, missing IDs, malformed YAML, task DAGs, in-progress execution
+      links, and two consecutive daemon starts.
+    after: [db-only-plan-service]
+
+  - id: yaml-export-renderer
+    prompt: >-
+      Phase 6 — deterministic optional repository export. Implement a renderer
+      that converts one canonical Plan revision to the established readable YAML
+      format plus the frozen export envelope. The output path convention is
+      plans/{lifecycle}/<slug>.yaml, but it is descriptive only and must never
+      feed canonical lifecycle. Stable ordering, normalized timestamps, and
+      canonical hash coverage must make repeat exports byte-for-byte identical
+      for the same revision. Do not export volatile runtime diagnostics or
+      secrets. Store per-repository export records keyed by PlanID, repository
+      identity, target ref, output path, exported revision/hash, PR URL, commit
+      SHA, and outcome. Add renderer golden tests for every lifecycle state,
+      task DAG, execution summary, special YAML characters, and deterministic
+      re-rendering. Keep the renderer interface format-neutral so JSON can be
+      added later without changing Plan storage.
+    after: [canonical-plan-schema]
+
+  - id: repo-sync-pr-workflow
+    prompt: >-
+      Phase 7 — plan sync_to_repo command and safe PR workflow. Add a canonical
+      API operation, MCP tool, and CLI command named plan sync_to_repo that
+      accepts PlanID and explicit repository/export options. It must load the
+      Plan only from ScrivaDB, render its requested revision, create or reuse a
+      dedicated branch such as warden/plan-sync/<plan-id>/<revision>, commit
+      only the export artifact, push it, and open or update a PR against the
+      requested base. Never touch the operator's checked-out branch, include
+      unrelated changes, force-push, auto-merge, or overwrite a conflicting
+      non-Warden file. If the same revision/hash was already exported for that
+      repo/ref/path, return the prior sync result without new GitHub activity.
+      Specify clear outcomes for dirty worktrees, unavailable GitHub auth,
+      existing open PR, branch divergence, deleted remote branch, and a path
+      collision. Use Warden's Git/PR lifecycle rails. Add fake Git/GitHub tests
+      and one isolated end-to-end repository fixture.
+    after: [yaml-export-renderer]
+
+  - id: plan-discovery-projections
+    prompt: >-
+      Phase 8 — DB-native planning context and projections. Update project
+      detail/tree APIs, TUI, CLI list/detail, MCP list/get, and planning-agent
+      context builders to discover Plans from ScrivaDB only. Provide useful
+      views for pending and in_progress Plans, including owner/executor,
+      revision, task summary, linked PRs/branches, last update, and export
+      status; completed Plans remain available for historical capability and
+      decision lookup. Add a structured related-plan/overlap query based first
+      on project, title, goal, tags/metadata if available, and linked code
+      artifacts; do not pretend that a heuristic is authoritative. Ensure a
+      project with no repository export shows identical Plan information, and
+      a stale/deleted/exported YAML replica does not appear as a second plan.
+      Include UI keyboard/detail regressions and API/CLI/MCP parity tests.
+    after: [db-only-plan-service, yaml-export-renderer]
+
+  - id: backup-portability
+    prompt: >-
+      Phase 9 — canonical backup, export bundle, and restore. Define and
+      implement a versioned Plan bundle for local backup/machine transfer that
+      includes canonical definition, revision history required for audit,
+      execution events/summaries, and integrity hashes, but excludes credentials
+      and disposable worktrees. Add explicit CLI/API operations to export and
+      restore a bundle with dry-run validation, stable-ID conflict policy, and
+      idempotent retry. Restore must not consult Git or a repository replica.
+      Add tests creating a plan with execution evidence, exporting it, restoring
+      into a fresh ScrivaDB data directory, then listing/viewing/executing it
+      normally. Document data-location, backup cadence, and recovery operator
+      guidance.
+    after: [execution-db-cutover]
+
+  - id: hub-sync-boundary
+    prompt: >-
+      Phase 10 — future Warden Hub readiness, with no remote service. Add a
+      small PlanSyncProvider interface and versioned sync envelope around the
+      canonical Plan revision model. It must support local/no-op operation now
+      and define the data a future Hub implementation needs: organization/team
+      scope, project identity, plan ID, revision/hash, visibility/owner,
+      lifecycle, linked code artifacts, change origin, and conflict token.
+      Keep authorization, account management, remote transport, background
+      replication, and Hub UI out of scope. Ensure repo export is a separate
+      provider from Hub synchronization. Write a protocol/design document that
+      explains eventual team discovery: users see pending/in-progress plans in
+      their scoped projects before creating duplicative work, while origin/main
+      remains the authority for shipped code. Add local fake-provider contract
+      tests and prove the default installation makes no network calls.
+    after: [canonical-plan-schema, plan-discovery-projections]
+
+  - id: compatibility-retirement
+    prompt: >-
+      Phase 11 — compatibility, deprecation, and operational retirement. Keep
+      existing scan/import and file-oriented plan commands as explicitly
+      deprecated migration aids for one release where feasible; their help and
+      responses must state that they cannot affect canonical execution after
+      import. Remove or reject implicit startup scans and direct YAML
+      authority. Update OpenAPI, generated client, CLI help/reference output,
+      MCP descriptions, docs/FEATURES.md, site documentation, migration notes,
+      and release notes. Provide exact operator playbooks for: fresh DB-native
+      use, importing a legacy repository, optionally publishing a replica PR,
+      recovering from a backup, and resolving an export conflict. Run generation
+      after specification changes and add compatibility tests for old plan
+      files and old callers.
+    after: [legacy-plan-import, repo-sync-pr-workflow, hub-sync-boundary]
+
+  - id: end-to-end-acceptance
+    prompt: >-
+      Phase 12 — upgrade and acceptance gate. Build representative test data
+      with legacy YAML plans in every lifecycle state, existing canonical
+      Plans/execution events, unexported Plans, stale replicas, duplicate
+      imports, and a project with unrelated dirty files. Validate: import is
+      idempotent; normal Plan CRUD and execution require no plans directory;
+      DB revision conflicts are structured; replicas never influence listing or
+      execution; sync_to_repo produces exactly one isolated PR per changed
+      revision; repeated sync is a no-op; failed sync preserves canonical data;
+      restore works on a clean data directory; and no Hub transport is invoked.
+      Run focused store/service/daemon/API/MCP/CLI/TUI/sync suites plus make
+      verify-fast. Finish documentation and record any explicitly deferred JSON
+      export or Hub work as follow-up issues, not hidden non-goals.
+    after: [compatibility-retirement, backup-portability]
