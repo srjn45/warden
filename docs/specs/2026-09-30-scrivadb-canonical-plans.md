@@ -493,7 +493,7 @@ envelope fields (`schema_version`, `plan_id`, `revision`, `content_hash`,
 | MCP | `internal/mcp/tools_plans.go` |
 | TUI | `internal/tui/plan_view.go`, `tree_adapter.go` |
 | Client | `internal/client/plans_crud.go` |
-| Hub seam | `Plan.SyncedAt` / `RemoteID`; `docs/specs/2026-08-23-warden-hub.md` |
+| Hub seam | `Plan.SyncedAt` / `RemoteID`; `internal/plansync`; `docs/specs/2026-09-30-plan-hub-sync-boundary.md`; `docs/specs/2026-08-23-warden-hub.md` |
 | Prior specs | `2026-09-28-plans-first-class.md`, `2026-09-29-plan-execution-entity-redesign.md` |
 | Product docs (still YAML-authority until Phase 11) | `docs/FEATURES.md` §37–§38; site `concepts/plans.md`, `guides/using-plans.md` |
 
