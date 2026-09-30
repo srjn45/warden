@@ -131,6 +131,22 @@ After a reinstall, plan **status** is perfectly recovered from git (the director
 | In-progress task progress lost | `wd plan assess <plan-id>` reconstructs from git/PRs |
 | Full backup + restore | `wd snapshot restore` restores ScrivaDB including execution links |
 
+## Finalization and ExecutionSummary
+
+Completing a plan (`wd plan complete`) is daemon-owned: reconcile observed Git /
+GitHub evidence, seal the active execution, reduce an immutable
+`ExecutionSummary` from typed `PlanExecutionEvent`s, then tear down disposable
+executors. The summary and event ledger stay on the Plan — deleting the Agent,
+Pipeline, or Autopilot does not erase audit history.
+
+## Upgrade note
+
+Upgrading from pre-redesign data preserves agents, terminals, archives, project
+membership, Plan YAML, and registered autopilot runs (migrated to live
+`Autopilot` with required `PlanID` when resolvable). Config `backend_default`
+still populates `ai_cli_default` for one release. See FEATURES §38 and the
+plan-execution-entity redesign spec for the full migration table.
+
 ## Non-goals
 
 The following are intentionally out of scope:

@@ -680,3 +680,34 @@ A reviewer of any downstream task should verify:
   any entity is created, transferred, or deleted.
 - [ ] The Mermaid diagram in §3 matches the actual field shapes after the
   implementing change.
+
+### 8.1 Upgrade acceptance (legacy corpus)
+
+`TestUpgradeAcceptanceFromLegacyCorpus` is the integration gate for a
+pre-redesign data directory. Reviewers should confirm it still covers:
+
+- [ ] Legacy agent + terminal Session import, archived agent history, and attach
+  by name after upgrade.
+- [ ] Project membership reconcile backfills `Plans` only when the field is
+  truly `nil` (not when OpenProject wrote an empty slice).
+- [ ] Legacy registered autopilot runs migrate to live `Autopilot` with
+  `AP:<name>` and required `PlanID`; second boot is a no-op.
+- [ ] Planless Agent / Pipeline spawn still works; Autopilot create without
+  `PlanID` fails.
+- [ ] All four plan run modes produce `M:` / `O:` / `P:` / `AP:` prefixes.
+- [ ] Finalize persists `ExecutionSummary` before executor deletion; summary
+  survives and re-reduces deterministically from events.
+- [ ] Deprecated `backend_default` config still populates `ai_cli_default`.
+
+### 8.2 Release notes (operator-facing)
+
+When cutting the release that lands this redesign, call out:
+
+1. **Plan run is the lifecycle surface** — prefer `wd plan run|pause|resume|stop`;
+   retired autopilot register/start aliases remain for one release only.
+2. **Autopilot requires a Plan** — planless Autopilot creation is rejected.
+3. **Terminals are not Agents** — shell terminals live in `terminalstore`.
+4. **`ai_cli` is canonical** — `--backend` / `backend` / `backend_default` are
+   deprecated aliases for one release.
+5. **Completed plans keep audit history** — deleting executors does not delete
+   `ExecutionSummary` or plan execution events.

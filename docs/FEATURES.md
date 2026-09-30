@@ -1575,7 +1575,16 @@ Opt-in only. Also available as `wd plan scan --assess` (runs for all `in_progres
 
 Plans appear under the **Plans** project-tree section (above Autopilots / Pipelines / Agents / Terminals), grouped by status with count badges. `Archived` is collapsed by default. Selecting a plan opens a detail pane showing lifecycle, active execution, task evidence, and historical summaries. Keybindings: `a` archive · `s` scan · `A` assess · `r` run (mode picker) · `enter` detail pane.
 
-### 37.11 Non-goals
+### 37.11 Finalization and ExecutionSummary
+
+`wd plan complete` / finalize reconciles Git/GitHub evidence, seals the active
+execution with a `completion_verified` event, reduces an immutable
+`ExecutionSummary` from typed events, **then** tears down disposable executors
+(Agent / Pipeline / Autopilot). The summary and append-only event ledger stay on
+the Plan after cleanup — executor deletion cannot erase audit facts. See
+[§38](#38-plan-execution-entity-upgrade-migration) for the upgrade acceptance gate.
+
+### 37.12 Non-goals
 
 - Warden-hub plan sync (deferred; `synced_at`/`remote_id` fields reserved)
 - Per-task execution (plans run as a whole; `update_task_status` / `wd plan done` records progress only)
@@ -1626,3 +1635,35 @@ gain peer awareness of each other.
 | **REST** | `/api/v1/projects`, `/api/v1/projects/open`, `/api/v1/projects/local`, `/api/v1/projects/remote`, `/api/v1/projects/new`, `/api/v1/projects/{id}/close`, `/api/v1/project-groups`, `/api/v1/project-groups/{id}`, `/api/v1/project-groups/{id}/members` |
 | **TUI** | Cockpit tree groups member repos under group headers; `o` key opens projects (local, remote, new) |
 | **MCP** | Deferred (`—`) |
+
+---
+
+## 38. Plan-execution entity upgrade migration
+
+The plan-execution-entity redesign lands as an **idempotent daemon-boot migration**.
+A second start must not re-create Autopilots or rewrite membership lists. Coverage
+lives in `TestUpgradeAcceptanceFromLegacyCorpus` (`internal/daemon`).
+
+### 38.1 What upgrades preserve
+
+| Legacy input | After upgrade |
+|---|---|
+| Agent `Session` rows (incl. archived) | `agentstore` Agent records; tmux attach + `ai_cli_session_id` resume IDs intact |
+| `kind=terminal` Session rows | Independent `terminalstore` Terminal records (not Agents) |
+| Project `agents[]` / `terminals[]` | Preserved; dangling member ids kept |
+| Project `plans` field absent (`nil`) | Backfilled from the plan store on first reconcile. An explicit empty `[]` is **authoritative** and is not rebuilt |
+| Registered autopilot `RunRecord`s | Live `Autopilot` (`AP:<name>`, required `PlanID`) when resolvable; otherwise archived under `autopilot/legacy-runs-db` |
+| Plan YAML under `plans/` | Unchanged; ScrivaDB Plan owns execution events + immutable `ExecutionSummary` |
+| Config `backend_default` | Populates `ai_cli_default` for one release (canonical wins when both are set) |
+
+### 38.2 Behavioral gates after upgrade
+
+- Independent Agents and Pipelines still spawn **without** a `PlanID`.
+- Every plan run mode stamps its display prefix: `M:` / `O:` / `P:` / `AP:`.
+- Creating an Autopilot without a `PlanID` is rejected (`ErrPlanRequired`).
+- Completing a plan persists a deterministic `ExecutionSummary` **before** executor
+  cleanup; deleting the disposable Agent / Pipeline / Autopilot does not erase
+  Plan audit history.
+
+See [`docs/specs/2026-09-29-plan-execution-entity-redesign.md`](specs/2026-09-29-plan-execution-entity-redesign.md)
+for ownership rules and the `ai_cli` alias table.
