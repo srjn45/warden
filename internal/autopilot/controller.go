@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/srjn45/warden/internal/autopilotstore"
 	"github.com/srjn45/warden/internal/router"
 )
 
@@ -49,6 +50,12 @@ type ControllerConfig struct {
 	// RunStore overrides the durable run registry (primarily for tests). When nil
 	// and DataDir is set, NewController opens <data>/autopilot/runs-db.
 	RunStore *RunStore
+	// LiveStore is the live Autopilot entity store (plan-execution redesign).
+	// When nil and DataDir is set, NewController opens <data>/autopilots-db via
+	// autopilotstore. When provided explicitly (tests), it is used as-is.
+	LiveStore *autopilotstore.Store
+	// PlanSource supplies Plan task progress (Plan is the source of task state).
+	PlanSource PlanTaskSource
 	// Resolver is the unified router resolver for selecting backends.
 	Resolver Resolver
 	// Guardian configures the heartbeat guardian's heal ladder + backoff (config
@@ -100,6 +107,8 @@ type Controller struct {
 	enableStore EnableStore
 	store       *RunStore
 	storeErr    error // configured persistence unavailable: lifecycle writes must fail closed
+	live        *autopilotstore.Store
+	planSource  PlanTaskSource
 
 	mu      sync.Mutex
 	runtime Runtime         // nil ⇒ inert (S1): no brain spawns
@@ -185,6 +194,8 @@ func NewController(cfg ControllerConfig, env Env) *Controller {
 		tierstate:         newTierState(now),
 		enableStore:       newEnableStore(cfg.DataDir),
 		store:             cfg.RunStore,
+		live:              cfg.LiveStore,
+		planSource:        cfg.PlanSource,
 		runs:              map[string]*run{},
 		claims:            newClaimRegistry(),
 	}
@@ -906,6 +917,8 @@ func (c *Controller) statusLocked() Status {
 			Name:              r.name,
 			PlanFile:          r.planFile,
 			Repo:              r.repo,
+			PlanID:            r.planID,
+			ProjectID:         r.projectID,
 			State:             r.state,
 			Gate:              c.runGate(r), // the mode resolved at preflight (§6.1)
 			Brain:             brain,

@@ -67,12 +67,14 @@ func (rt autopilotRuntime) SpawnBrain(ctx context.Context, spec autopilot.BrainS
 		return autopilot.BrainHandle{}, err
 	}
 	req := SpawnRequest{
-		Ticket:  slotID,
-		Cwd:     spec.Repo,
-		Prompt:  spec.Prompt,
-		Role:    autopilotBrainRole,
-		Backend: spec.Backend,
-		Tags:    spec.Tags,
+		Ticket:    slotID,
+		Cwd:       spec.Repo,
+		Prompt:    spec.Prompt,
+		Role:      autopilotBrainRole,
+		Backend:   spec.Backend,
+		Tags:      spec.Tags,
+		PlanID:    spec.PlanID,
+		ProjectID: spec.ProjectID,
 	}
 	if code, msg := rt.s.validateSpawnRequest(ctx, req); code != 0 {
 		return autopilot.BrainHandle{}, errors.New(msg)
@@ -465,3 +467,34 @@ func flattenDetail(d map[string]string) string {
 	}
 	return strings.Join(parts, ",")
 }
+
+// SpawnConsultBrain launches an on-demand role=brain Agent (headless / system:true)
+// for consultation. Distinct from SpawnBrain which creates the role=autopilot manager.
+func (rt autopilotRuntime) SpawnConsultBrain(ctx context.Context, spec autopilot.ConsultBrainRuntimeSpec) (autopilot.BrainHandle, error) {
+	req := SpawnRequest{
+		Cwd:     spec.Repo,
+		Repo:    spec.Repo,
+		Prompt:  spec.Prompt,
+		Role:    "brain",
+		Backend: spec.Backend,
+		Tags:    spec.Tags,
+		PlanID:  spec.PlanID,
+	}
+	if code, msg := rt.s.validateSpawnRequest(ctx, req); code != 0 {
+		return autopilot.BrainHandle{}, errors.New(msg)
+	}
+	sess, err := rt.s.life.Spawn(ctx, req)
+	if err != nil {
+		return autopilot.BrainHandle{}, err
+	}
+	if err := rt.s.store.Insert(ctx, sess); err != nil {
+		tctx, cancel := context.WithTimeout(context.Background(), brainTeardownTimeout)
+		defer cancel()
+		_ = rt.s.life.Teardown(tctx, sess)
+		return autopilot.BrainHandle{}, err
+	}
+	rt.s.notify()
+	return autopilot.BrainHandle{AgentID: sess.ID, Backend: sess.AiCli}, nil
+}
+
+var _ autopilot.ConsultBrainRuntime = autopilotRuntime{}

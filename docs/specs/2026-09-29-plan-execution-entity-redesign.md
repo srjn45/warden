@@ -263,12 +263,18 @@ task lifecycle or durable completion history. Those facts live on the Plan
 (`PlanExecution` / `PlanExecutionEvent` / `ExecutionSummary`).
 
 An Autopilot run consists of:
-- A **manager** Agent (`ManagerAgentID`, role `autopilot`, in-place hot-swap
-  on rotation)
-- An optional on-demand **brain** Agent (`BrainAgentID`, role `brain`, headless)
+- A **manager** Agent (`ManagerAgentID`, role `autopilot`, `PlanID` set; in-place
+  hot-swap on rotation). Created by `Controller.StartFromPlan` when
+  `run_plan {execution_mode: "autopilot"}` runs — not by plan-file registration.
+- An optional on-demand **brain** Agent (`BrainAgentID`, role `brain`, headless
+  with `system:true` so it is not a normal tree node)
 - Zero or more **worker** Agents (role `worker`, each assigned to one plan task;
-  parented via `ParentID` to the manager)
-- Operational diagnostics (state, integration branch, gate) — not a task ledger
+  parented via `ParentID` to the manager). `AutopilotRunID` / `AutopilotSlot` /
+  `AutopilotTaskID` are no longer required on Agent — `PlanID` + `ParentID` +
+  Role + ownership tags are the authority.
+- Operational diagnostics (state, integration branch, gate) — not a task ledger.
+  Task definitions and progress come from the Plan (`TaskProgress` /
+  `ActiveExecution` / `PlanExecutionEvent`).
 
 Display name is always `AP:<plan-name>`. `PlanID` is **required**; planless
 creation is rejected.

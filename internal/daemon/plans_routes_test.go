@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/srjn45/warden/internal/autopilot"
+	"github.com/srjn45/warden/internal/autopilotstore"
 	"github.com/srjn45/warden/internal/brainconsult"
 	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/pipeline"
@@ -848,8 +849,9 @@ func TestPlansRunPipelineMode(t *testing.T) {
 	require.Contains(t, project.Plans, id)
 }
 
-// TestPlansRunAutopilotMode verifies plan-owned autopilot runs retain both
-// back-refs and join the project's authoritative membership lists.
+// TestPlansRunAutopilotMode verifies plan-owned autopilot runs create a live
+// Autopilot entity (required PlanID), join project membership, and record
+// ActiveExecution + PlanExecutionEvents — not plan-file registration alone.
 func TestPlansRunAutopilotMode(t *testing.T) {
 	root := t.TempDir()
 	gitInit(t, root)
@@ -862,9 +864,15 @@ func TestPlansRunAutopilotMode(t *testing.T) {
 	t.Cleanup(func() { _ = projects.Close() })
 	_, err = projects.OpenProject(root, "test", root)
 	require.NoError(t, err)
-	runs, err := autopilot.NewRunStore(t.TempDir())
+	data := t.TempDir()
+	runs, err := autopilot.NewRunStore(data)
 	require.NoError(t, err)
-	controller := autopilot.NewController(autopilot.ControllerConfig{BaseDir: root, RunStore: runs}, autopilot.NewExecEnv())
+	live, err := autopilotstore.New(data)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = live.Close() })
+	controller := autopilot.NewController(autopilot.ControllerConfig{
+		BaseDir: root, RunStore: runs, LiveStore: live, PlanSource: plans, Gate: "local",
+	}, autopilot.NewExecEnv())
 	t.Cleanup(func() { require.NoError(t, controller.Close()) })
 
 	srv := &Server{store: newFakeStore(), life: &fakeLife{}, plans: plans, projects: projects, autopilot: controller}
@@ -886,10 +894,25 @@ func TestPlansRunAutopilotMode(t *testing.T) {
 	var got planstore.Plan
 	require.NoError(t, json.NewDecoder(bytes.NewReader(body)).Decode(&got))
 	require.NotEmpty(t, got.AutopilotRunID)
-	record, err := runs.Get(got.AutopilotRunID)
+
+	ap, err := live.Get(t.Context(), got.AutopilotRunID)
 	require.NoError(t, err)
-	require.Equal(t, id, record.PlanID)
-	require.Equal(t, root, record.ProjectID)
+	require.Equal(t, id, ap.PlanID)
+	require.Equal(t, "AP:ap-plan", ap.Name)
+
+	updated, err := plans.Get(t.Context(), id)
+	require.NoError(t, err)
+	require.NotNil(t, updated.ActiveExecution)
+	require.Equal(t, got.AutopilotRunID, updated.ActiveExecution.ExecutorID)
+	events, err := plans.ListEvents(t.Context(), id, updated.ActiveExecution.ID)
+	require.NoError(t, err)
+	kinds := map[planstore.EventKind]bool{}
+	for _, ev := range events {
+		kinds[ev.Kind] = true
+	}
+	require.True(t, kinds[planstore.EventKindExecutionStarted])
+	require.True(t, kinds[planstore.EventKindExecutorCreated])
+
 	project, err := projects.Get(root)
 	require.NoError(t, err)
 	require.Contains(t, project.Autopilots, got.AutopilotRunID)

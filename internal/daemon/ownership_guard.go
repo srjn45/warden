@@ -9,7 +9,6 @@ import (
 	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/auth"
 	"github.com/srjn45/warden/internal/autopilot"
-	"github.com/srjn45/warden/internal/store"
 )
 
 // autopilotOwnershipTag is the tag every autopilot-owned agent (brain + workers)
@@ -108,9 +107,10 @@ func isAutopilotWorkerSpawnRole(role string) bool {
 	return autopilot.WorkerSpawnRole(role)
 }
 
-// stampAutopilotSpawnBackRefs sets explicit run back-ref fields on worker spawns
-// from an autopilot-owned caller and clears parent_id — autopilot workers are
-// grouped by back-ref, not a live parent chain (plan-scoped hierarchy WP6).
+// stampAutopilotSpawnBackRefs parents worker spawns under the calling manager
+// via ParentID and inherits PlanID. AutopilotRunID / AutopilotSlot /
+// AutopilotTaskID are no longer stamped — PlanID + ParentID + Role + ownership
+// tags are the authority (plan-execution-entity-redesign autopilot-plan-controller).
 func (s *Server) stampAutopilotSpawnBackRefs(ctx context.Context, sr *SpawnRequest) {
 	if sr == nil {
 		return
@@ -122,17 +122,12 @@ func (s *Server) stampAutopilotSpawnBackRefs(ctx context.Context, sr *SpawnReque
 	if !isAutopilotWorkerSpawnRole(sr.Role) {
 		return
 	}
-	runID := strings.TrimPrefix(callerRunTag(caller), runTagPrefix)
-	if runID == "" {
-		runID = autopilot.SessionRunID(caller)
+	if strings.TrimSpace(sr.ParentID) == "" {
+		sr.ParentID = caller.ID
 	}
-	if runID == "" {
-		return
+	if strings.TrimSpace(sr.PlanID) == "" {
+		sr.PlanID = caller.PlanID
 	}
-	sr.ParentID = ""
-	sr.AutopilotRunID = runID
-	sr.AutopilotSlot = store.AutopilotSlotWorker
-	sr.AutopilotTaskID = strings.TrimSpace(sr.Task)
 }
 
 // annotateAutopilotWorkerPrompt appends the resolved integration branch to a
