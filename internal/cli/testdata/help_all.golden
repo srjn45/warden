@@ -18,7 +18,7 @@ Complete command tree:
   warden agent tail                    Print the recent output of an agent's claude session
   warden agent handoff                 Hand off work: delegate to a new/existing agent (--to), or retire self into a successor (--retire)
   warden agent rotate                  Retire this agent and hand its work to a fresh successor in the same workspace (alias for `handoff --retire`)
-  warden agent switch                  Hot-swap an agent session to a different backend, model, or tier mid-task
+  warden agent switch                  Hot-swap an agent session to a different AI CLI, model, or tier mid-task
   warden agent permission-mode         Manage an agent's permission mode
   warden agent permission-mode set     Set the permission mode for an agent
   warden agent role                    Inspect warden's built-in agent roles and tier mappings

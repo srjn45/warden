@@ -306,9 +306,10 @@
   },
   {
     "path": "agent start",
-    "use": "start --role \u003cROLE\u003e [TICKET|\"\u003cprompt\u003e\"] [--type \u003cTYPE\u003e] [--dir \u003cPATH\u003e] [--backend \u003cID\u003e]",
+    "use": "start --role \u003cROLE\u003e [TICKET|\"\u003cprompt\u003e\"] [--type \u003cTYPE\u003e] [--dir \u003cPATH\u003e] [--ai-cli \u003cID\u003e]",
     "runnable": true,
     "local_flags": [
+      "ai-cli",
       "auto-restart",
       "backend",
       "branch",
@@ -377,6 +378,7 @@
     "use": "switch [agent-id]",
     "runnable": true,
     "local_flags": [
+      "ai-cli",
       "backend",
       "json",
       "model",
@@ -3478,9 +3480,10 @@
   },
   {
     "path": "start",
-    "use": "start --role \u003cROLE\u003e [TICKET|\"\u003cprompt\u003e\"] [--type \u003cTYPE\u003e] [--dir \u003cPATH\u003e] [--backend \u003cID\u003e]",
+    "use": "start --role \u003cROLE\u003e [TICKET|\"\u003cprompt\u003e\"] [--type \u003cTYPE\u003e] [--dir \u003cPATH\u003e] [--ai-cli \u003cID\u003e]",
     "runnable": true,
     "local_flags": [
+      "ai-cli",
       "auto-restart",
       "backend",
       "branch",
@@ -3568,6 +3571,7 @@
     "hidden": true,
     "runnable": true,
     "local_flags": [
+      "ai-cli",
       "backend",
       "json",
       "model",

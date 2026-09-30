@@ -289,7 +289,12 @@ type Config struct {
 	// the peer address. Accepts bare IPs and CIDRs (IPv4/IPv6).
 	TrustedProxies []string `yaml:"trusted_proxies"`
 
-	ModelDefault     string `yaml:"model_default"`
+	ModelDefault string `yaml:"model_default"`
+	// AiCliDefault is the default AI CLI id for new agents when a spawn does not
+	// pin one (canonical config key: ai_cli_default). Empty falls through to the
+	// backend-registry default, then claude. Deprecated alias backend_default is
+	// accepted on load (canonical wins when both are set).
+	AiCliDefault     string `yaml:"ai_cli_default"`
 	Snapshots        bool   `yaml:"snapshots"`
 	Tutorial         bool   `yaml:"tutorial"`
 	Insights         bool   `yaml:"insights"`
@@ -350,6 +355,7 @@ var schema = []setting{
 	{"allow_nonloopback", "DEPRECATED and inert: this no longer bypasses authentication. A bearer token (WARDEN_TOKEN) is now mandatory for any non-loopback bind. Setting it true only logs a deprecation warning. Values: true | false"},
 	{"trusted_proxies", "Reverse proxies / tunnels that front the daemon (e.g. a Cloudflare Tunnel forwarding over loopback). Audit-actor-only: when the immediate peer is one of these, the audit log resolves the real client from X-Forwarded-For instead of recording the proxy address. NOT used for the auth-failure throttle. Values: list of IPs and/or CIDRs (IPv4/IPv6); empty disables it"},
 	{"model_default", "Default model for new agents. Values: a claude model id or alias (sonnet, opus, haiku, fable)"},
+	{"ai_cli_default", "Default AI CLI for new agents when a spawn does not pin one (claude, aider, opencode, codex, crush, goose, cursor, antigravity). Empty falls through to the backend-registry default, then claude. Deprecated alias: backend_default (accepted for one release; ai_cli_default wins when both are set)."},
 	{"snapshots", "Enable the snapshot/checkpoint system (wd snapshot create/list/restore): capture an agent's worktree state (non-destructive git stash + transcript) and restore it later. Values: true | false"},
 	{"tutorial", "Print a one-line first-run hint pointing at `wd tutorial` until the walkthrough is completed (it writes a tutorial-complete marker in data_dir). The hint is non-blocking and only shown on an interactive TTY; this gate disables it. Values: true | false"},
 	{"insights", "Enable the AI-powered insights engine (wd insights + MCP insights): mine agent history for duration outliers, co-edited files, error rates, busy periods, and sequential-but-disjoint sessions that could run in parallel. Deterministic by default; narrated by the local model when local_llm is on. Values: true | false"},
@@ -630,6 +636,7 @@ func LoadStrict(path string) (Config, error) {
 	if len(doc.Content) > 0 && doc.Content[0].Kind == yaml.MappingNode {
 		migrateFlatToNamespaced(doc.Content[0])
 		migrateAutoApprove(doc.Content[0])
+		migrateAiCliDefault(doc.Content[0])
 		warnDeprecatedAutopilotBackends(doc.Content[0])
 	}
 	// Decode the (possibly migrated) node tree onto c — absent keys keep their
@@ -794,6 +801,7 @@ func Reconcile(path string) error {
 	// Migrate a legacy flat auto_approve (scalar bool, plus the Stage-A
 	// auto_approve_allow_sticky key) into the nested policy block.
 	changed = migrateAutoApprove(mapping) || changed
+	changed = migrateAiCliDefault(mapping) || changed
 
 	present := map[string]bool{}
 	for i := 0; i+1 < len(mapping.Content); i += 2 {
@@ -1002,6 +1010,35 @@ func migrateGroup(mapping *yaml.Node, blockKey string, aliases []keyAlias) bool 
 		// which is what we want to remove.
 		removeKey(mapping, f.alias.flat)
 	}
+	return true
+}
+
+// ---------------------------------------------------------------------------
+// ai_cli_default / backend_default alias (plan-execution entity redesign §4)
+// ---------------------------------------------------------------------------
+
+// migrateAiCliDefault rewrites the deprecated root key backend_default into the
+// canonical ai_cli_default. When both are present the canonical value wins and
+// the deprecated key is dropped. Returns true when the mapping was mutated.
+func migrateAiCliDefault(mapping *yaml.Node) bool {
+	legacy := findValue(mapping, "backend_default")
+	if legacy == nil {
+		return false
+	}
+	slog.Warn("config: deprecated key backend_default — use ai_cli_default; accepted for one release (canonical wins when both are set)",
+		"key", "backend_default")
+	canonical := findValue(mapping, "ai_cli_default")
+	if canonical == nil {
+		// Rename in place: keep the legacy value under the canonical key.
+		for i := 0; i+1 < len(mapping.Content); i += 2 {
+			if mapping.Content[i].Value == "backend_default" {
+				mapping.Content[i].Value = "ai_cli_default"
+				return true
+			}
+		}
+	}
+	// Both present: keep ai_cli_default, drop backend_default.
+	removeKey(mapping, "backend_default")
 	return true
 }
 
@@ -1435,6 +1472,11 @@ func (c Config) GetDefaultPermissionMode() string { return c.DefaultPermissionMo
 
 // GetModelDefault returns the configured default model id/alias for new agents.
 func (c Config) GetModelDefault() string { return c.ModelDefault }
+
+// GetAiCliDefault returns the configured default AI CLI id for new agents when
+// a spawn does not pin one. Empty means fall through to the backend-registry
+// default (then claude).
+func (c Config) GetAiCliDefault() string { return c.AiCliDefault }
 
 // GetPipelineHint reports whether the pipeline-decomposition hint is appended
 // to standalone agents.

@@ -231,45 +231,58 @@ type BackendRecovery struct {
 }
 
 type Session struct {
-	ID              string      `json:"id"`
-	Name            string      `json:"name,omitempty"` // optional human-friendly alias (max 32 chars, alphanumeric + hyphens/underscores)
-	Type            Type        `json:"type"`
-	Ticket          string      `json:"ticket"` // optional
-	TmuxSession     string      `json:"tmux_session"`
-	Backend         string      `json:"backend,omitempty"` // agent backend id (claude, aider, …); empty ⇒ "claude" (back-compat, no store migration)
-	Kind            SessionKind `json:"kind,omitempty"`    // "" ⇒ agent (back-compat); "terminal" ⇒ plain shell, excluded from AI-centric surfaces
-	ClaudeSessionID string      `json:"claude_session_id"` // pinned backend session id (claude --session-id; UUID); deterministic transcript + --resume
-	Repo            string      `json:"repo"`
-	Worktree        string      `json:"worktree"`                   // optional (empty = no worktree)
-	Branch          string      `json:"branch"`                     // optional
-	WorktreeCreated bool        `json:"worktree_created,omitempty"` // warden ran `git worktree add` (vs adopted a pre-existing one)
-	BranchCreated   bool        `json:"branch_created,omitempty"`   // warden/gh created Branch (vs checked out a user branch)
-	PR              string      `json:"pr"`                         // optional (pr-review)
-	Prompt          string      `json:"prompt"`                     // initial prompt (prompt-spawned agents)
-	Workdir         string      `json:"workdir"`                    // absolute cwd of the tmux session
-	Subject         string      `json:"subject"`                    // one-line auto summary of what it's doing
-	Tags            []string    `json:"tags,omitempty"`             // optional free-form labels for grouping/filtering (#30); nil/empty for untagged sessions
-	Status          Status      `json:"status"`
-	PID             int         `json:"pid"`
-	ExitCode        *int        `json:"exit_code,omitempty"` // process exit status when recovered: nil=unknown (orphaned/pre-feature), 0=clean, non-zero=crash
-	CreatedAt       time.Time   `json:"created_at"`
-	UpdatedAt       time.Time   `json:"updated_at"`
-	Events          []Event     `json:"events"`
-	LastPaneExcerpt string      `json:"last_pane_excerpt"`
-	AutoRestart     bool        `json:"auto_restart,omitempty"`    // opt-in: auto-resume this agent when it errors (capped)
-	RestartCount    int         `json:"restart_count,omitempty"`   // consecutive auto-restart attempts since last sustained-healthy run
-	LastRestartAt   *time.Time  `json:"last_restart_at,omitempty"` // when the most recent auto-restart fired
-	PermissionMode  string      `json:"permission_mode,omitempty"` // explicit mode override; empty = use global default
-	Role            string      `json:"role,omitempty"`            // built-in role (persona + default flags); empty = "general" (no persona)
-	Task            string      `json:"task,omitempty"`            // assigned task dimension from the registry
-	AutoApprove     bool        `json:"auto_approve,omitempty"`    // opt-in: auto-approve yes/no prompts (always option 1)
-	ForceCompact    *bool       `json:"force_compact,omitempty"`   // per-agent force-compact override; nil = inherit global token_force_compact
-	PipelineID      string      `json:"pipeline_id,omitempty"`     // set for pipeline jobs (back-ref)
-	JobID           string      `json:"job_id,omitempty"`          // set for pipeline jobs (back-ref)
-	PlanID          string      `json:"plan_id,omitempty"`         // set for agents spawned by a plan run (back-ref)
-	ScheduleID      string      `json:"schedule_id,omitempty"`     // set for schedule-fired runs (back-ref to the schedule that spawned this); agent-mode and pipeline-mode job sessions alike
-	ScheduleName    string      `json:"schedule_name,omitempty"`   // operator-facing name of that schedule (== ScheduleID today, carried for display)
-	ParentID        string      `json:"parent_id,omitempty"`       // id of the agent that spawned this one; empty = root (operator/CLI spawn)
+	ID          string `json:"id"`
+	Name        string `json:"name,omitempty"` // optional human-friendly alias (max 32 chars, alphanumeric + hyphens/underscores)
+	Type        Type   `json:"type"`
+	Ticket      string `json:"ticket"` // optional
+	TmuxSession string `json:"tmux_session"`
+	// AiCli is the AI CLI that drives this agent (claude, aider, …). Empty ⇒
+	// "claude" (back-compat, no store migration). Canonical JSON: "ai_cli".
+	AiCli string `json:"ai_cli,omitempty"`
+	// Backend is the deprecated wire alias for AiCli. Kept as a real field so
+	// oapi-codegen named response types (which do not inherit Session.MarshalJSON)
+	// still dual-emit "backend" during the alias window. Prefer AiCli in Go code;
+	// keep both fields equal at API boundaries (ToSession syncs them).
+	Backend string `json:"backend,omitempty"`
+	// Kind: "" ⇒ agent (back-compat); "terminal" ⇒ plain shell, excluded from AI-centric surfaces.
+	Kind SessionKind `json:"kind,omitempty"`
+	// AICLISessionID is the pinned AI CLI resume conversation id (UUID/token).
+	// Canonical JSON: "ai_cli_session_id".
+	AICLISessionID string `json:"ai_cli_session_id"`
+	// ClaudeSessionID is the deprecated wire alias for AICLISessionID (same
+	// dual-emit rationale as Backend above). Prefer AICLISessionID in Go code.
+	ClaudeSessionID string     `json:"claude_session_id"`
+	Repo            string     `json:"repo"`
+	Worktree        string     `json:"worktree"`                   // optional (empty = no worktree)
+	Branch          string     `json:"branch"`                     // optional
+	WorktreeCreated bool       `json:"worktree_created,omitempty"` // warden ran `git worktree add` (vs adopted a pre-existing one)
+	BranchCreated   bool       `json:"branch_created,omitempty"`   // warden/gh created Branch (vs checked out a user branch)
+	PR              string     `json:"pr"`                         // optional (pr-review)
+	Prompt          string     `json:"prompt"`                     // initial prompt (prompt-spawned agents)
+	Workdir         string     `json:"workdir"`                    // absolute cwd of the tmux session
+	Subject         string     `json:"subject"`                    // one-line auto summary of what it's doing
+	Tags            []string   `json:"tags,omitempty"`             // optional free-form labels for grouping/filtering (#30); nil/empty for untagged sessions
+	Status          Status     `json:"status"`
+	PID             int        `json:"pid"`
+	ExitCode        *int       `json:"exit_code,omitempty"` // process exit status when recovered: nil=unknown (orphaned/pre-feature), 0=clean, non-zero=crash
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	Events          []Event    `json:"events"`
+	LastPaneExcerpt string     `json:"last_pane_excerpt"`
+	AutoRestart     bool       `json:"auto_restart,omitempty"`    // opt-in: auto-resume this agent when it errors (capped)
+	RestartCount    int        `json:"restart_count,omitempty"`   // consecutive auto-restart attempts since last sustained-healthy run
+	LastRestartAt   *time.Time `json:"last_restart_at,omitempty"` // when the most recent auto-restart fired
+	PermissionMode  string     `json:"permission_mode,omitempty"` // explicit mode override; empty = use global default
+	Role            string     `json:"role,omitempty"`            // built-in role (persona + default flags); empty = "general" (no persona)
+	Task            string     `json:"task,omitempty"`            // assigned task dimension from the registry
+	AutoApprove     bool       `json:"auto_approve,omitempty"`    // opt-in: auto-approve yes/no prompts (always option 1)
+	ForceCompact    *bool      `json:"force_compact,omitempty"`   // per-agent force-compact override; nil = inherit global token_force_compact
+	PipelineID      string     `json:"pipeline_id,omitempty"`     // set for pipeline jobs (back-ref)
+	JobID           string     `json:"job_id,omitempty"`          // set for pipeline jobs (back-ref)
+	PlanID          string     `json:"plan_id,omitempty"`         // set for agents spawned by a plan run (back-ref)
+	ScheduleID      string     `json:"schedule_id,omitempty"`     // set for schedule-fired runs (back-ref to the schedule that spawned this); agent-mode and pipeline-mode job sessions alike
+	ScheduleName    string     `json:"schedule_name,omitempty"`   // operator-facing name of that schedule (== ScheduleID today, carried for display)
+	ParentID        string     `json:"parent_id,omitempty"`       // id of the agent that spawned this one; empty = root (operator/CLI spawn)
 	// ChildAgents is the forward edge of ParentID (project entity hierarchy spec
 	// D3): the ids of the user-facing sub-agents this agent spawned. It is
 	// maintained on both ends in the same operation (spec §6.1) — a spawn with a
@@ -338,7 +351,9 @@ const (
 )
 
 // MarshalJSON preserves explicit empty authoritative lists while omitting nil
-// legacy lists. Default unmarshaling retains the same distinction.
+// legacy lists, and keeps the deprecated AI-CLI selector / session-id mirrors
+// synced so dual-key responses work even when callers only set the canonical
+// fields (spec §4).
 func (v Session) MarshalJSON() ([]byte, error) {
 	type plain Session
 	optional := func(ids []string) *[]string {
@@ -347,12 +362,50 @@ func (v Session) MarshalJSON() ([]byte, error) {
 		}
 		return &ids
 	}
+	// Sync deprecated mirrors from canonical fields when the caller only set
+	// the canonical side (API envelope types that skip this method still get
+	// dual-emit via ToSession, which sets both).
+	if v.Backend == "" {
+		v.Backend = v.AiCli
+	}
+	if v.ClaudeSessionID == "" {
+		v.ClaudeSessionID = v.AICLISessionID
+	}
+	if v.AiCli == "" && v.Backend != "" {
+		v.AiCli = v.Backend
+	}
+	if v.AICLISessionID == "" && v.ClaudeSessionID != "" {
+		v.AICLISessionID = v.ClaudeSessionID
+	}
 	return json.Marshal(struct {
 		plain
 		ChildAgents    *[]string `json:"child_agents,omitempty"`
 		ChildPipelines *[]string `json:"child_pipelines,omitempty"`
-	}{plain: plain(v),
+	}{
+		plain:          plain(v),
 		ChildAgents:    optional(v.ChildAgents),
 		ChildPipelines: optional(v.ChildPipelines),
 	})
+}
+
+// UnmarshalJSON reads both the canonical field names (ai_cli,
+// ai_cli_session_id) and their deprecated aliases (backend,
+// claude_session_id). When both canonical and alias are present the canonical
+// value wins (spec §4, canonical-wins rule). Mirrors are then synced.
+func (v *Session) UnmarshalJSON(data []byte) error {
+	type plain Session
+	var aux plain
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	*v = Session(aux)
+	if v.AiCli == "" && v.Backend != "" {
+		v.AiCli = v.Backend
+	}
+	if v.AICLISessionID == "" && v.ClaudeSessionID != "" {
+		v.AICLISessionID = v.ClaudeSessionID
+	}
+	v.Backend = v.AiCli
+	v.ClaudeSessionID = v.AICLISessionID
+	return nil
 }

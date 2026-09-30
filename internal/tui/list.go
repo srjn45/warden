@@ -1204,7 +1204,7 @@ func detailBody(s *store.Session, sel, width int) string {
 		b.WriteString(field("subject", s.Subject))
 	}
 	b.WriteString(stMuted.Render("type      ") + typeOr(s) + "   " + stMuted.Render("age ") + age(s.UpdatedAt) + "\n")
-	b.WriteString(field("backend", backendOr(s)))
+	b.WriteString(field("ai_cli", backendOr(s)))
 	if s.Model != "" {
 		b.WriteString(field("model", s.Model))
 	}
@@ -1326,8 +1326,8 @@ func detailBody(s *store.Session, sel, width int) string {
 	if s.ExitCode != nil {
 		b.WriteString(sub("exit", fmt.Sprintf("%d", *s.ExitCode)) + "\n")
 	}
-	if s.ClaudeSessionID != "" {
-		b.WriteString(sub("session", trunc(s.ClaudeSessionID, 20)) + "\n")
+	if s.AICLISessionID != "" {
+		b.WriteString(sub("session", trunc(s.AICLISessionID, 20)) + "\n")
 	}
 	if s.Prompt != "" {
 		b.WriteString(sub("prompt", "\""+trunc(s.Prompt, max(0, width-14))+"\"") + "\n")
@@ -1442,15 +1442,15 @@ func typeOr(s *store.Session) string {
 	return string(s.Type)
 }
 
-// backendOr returns the agent's AI backend id (claude, aider, …), defaulting to
-// "claude" when empty. Backend is json `omitempty`, so agents spawned before
-// backends were recorded carry no value — treat the registry default as claude
+// backendOr returns the agent's AI CLI id (claude, aider, …), defaulting to
+// "claude" when empty. AiCli is json `omitempty`, so agents spawned before
+// AI CLIs were recorded carry no value — treat the registry default as claude
 // everywhere rather than rendering a blank.
 func backendOr(s *store.Session) string {
-	if s.Backend == "" {
+	if s.AiCli == "" {
 		return "claude"
 	}
-	return s.Backend
+	return s.AiCli
 }
 
 func max(a, b int) int {

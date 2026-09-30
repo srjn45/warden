@@ -21,7 +21,7 @@ func TestArchivedAgentLifecycleAfterUpgrade(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, legacy.Insert(ctx, &store.Session{
 		ID: "old-agent", Name: "archived-worker", Status: store.StatusOrphaned,
-		ClaudeSessionID: "resume-123", TmuxSession: "old-agent", Workdir: t.TempDir(),
+		AICLISessionID: "resume-123", TmuxSession: "old-agent", Workdir: t.TempDir(),
 	}))
 	require.NoError(t, legacy.Archive(ctx, "old-agent"))
 	require.NoError(t, legacy.Insert(ctx, &store.Session{

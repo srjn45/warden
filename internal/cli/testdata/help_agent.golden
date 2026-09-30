@@ -27,7 +27,7 @@ Commands:
   tail                 Print the recent output of an agent's claude session
   handoff              Hand off work: delegate to a new/existing agent (--to), or retire self into a successor (--retire)
   rotate               Retire this agent and hand its work to a fresh successor in the same workspace (alias for `handoff --retire`)
-  switch               Hot-swap an agent session to a different backend, model, or tier mid-task
+  switch               Hot-swap an agent session to a different AI CLI, model, or tier mid-task
   permission-mode      Manage an agent's permission mode
   role                 Inspect warden's built-in agent roles and tier mappings
   compact              Manage an agent's force-compact override

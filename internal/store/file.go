@@ -487,7 +487,7 @@ func (fs *FileStore) Insert(ctx context.Context, s *Session) error {
 		return err
 	}
 
-	if err := safeSessionRef(s.ClaudeSessionID); err != nil {
+	if err := safeSessionRef(s.AICLISessionID); err != nil {
 		return err
 	}
 
@@ -731,7 +731,7 @@ func (fs *FileStore) SetSessionID(ctx context.Context, id, sessionID string) err
 	if err := safeSessionRef(sessionID); err != nil {
 		return err
 	}
-	return fs.mutate(id, func(s *Session) { s.ClaudeSessionID = sessionID })
+	return fs.mutate(id, func(s *Session) { s.AICLISessionID = sessionID })
 }
 
 func (fs *FileStore) SetRestart(ctx context.Context, id string, count int, at time.Time) error {

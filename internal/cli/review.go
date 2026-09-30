@@ -22,7 +22,7 @@ var reviewBackend = func(cmd *cobra.Command, session, override string) (agentbac
 	id := override
 	if id == "" && session != "" {
 		if s, err := clientFor(cmd).Get(context.Background(), session); err == nil && s != nil {
-			id = s.Backend
+			id = s.AiCli
 		}
 	}
 	return agentbackend.Get(id)

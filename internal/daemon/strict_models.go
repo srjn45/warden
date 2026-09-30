@@ -124,7 +124,11 @@ func (s *Server) SwitchSession(ctx context.Context, req oapi.SwitchSessionReques
 
 	var swapReq lifecycle.SwapRequest
 	if req.Body != nil {
-		swapReq.Backend = strings.TrimSpace(req.Body.Backend)
+		aiCli := strings.TrimSpace(req.Body.AiCli)
+		if aiCli == "" {
+			aiCli = strings.TrimSpace(req.Body.Backend)
+		}
+		swapReq.Backend = aiCli
 		swapReq.Model = strings.TrimSpace(req.Body.Model)
 		if strings.TrimSpace(req.Body.Tier) != "" {
 			tier := backendstore.ModelTier(strings.TrimSpace(req.Body.Tier))

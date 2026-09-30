@@ -1459,9 +1459,12 @@ type SnapshotCreateRequest struct {
 
 // SpawnRequest defines model for SpawnRequest.
 type SpawnRequest struct {
-	AutoRestart bool `json:"auto_restart,omitempty"`
+	// AiCli AI CLI id (claude, aider, …); empty = daemon default. Canonical name; preferred over the deprecated `backend` alias. When both `ai_cli` and `backend` are provided, `ai_cli` wins.
+	AiCli       string `json:"ai_cli,omitempty"`
+	AutoRestart bool   `json:"auto_restart,omitempty"`
 
-	// Backend agent backend id (claude, aider, …); empty = claude (the default)
+	// Backend Deprecated alias for `ai_cli`. Accepted for one release; when both `ai_cli` and `backend` are provided, `ai_cli` wins.
+	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
 	Backend string `json:"backend,omitempty"`
 	Branch  string `json:"branch,omitempty"`
 	Cwd     string `json:"cwd,omitempty"`
@@ -1469,11 +1472,11 @@ type SpawnRequest struct {
 	// Force bypass the memory-pressure spawn gate
 	Force bool `json:"force,omitempty"`
 
-	// ForkFrom id of an existing agent whose recorded session this spawn should FORK (codex fork): the new agent branches the source agent's conversation into a divergent session. Requires a backend implementing SessionForker and a source agent whose backend session id is already pinned. Empty = a normal (non-fork) spawn.
+	// ForkFrom id of an existing agent whose recorded session this spawn should FORK (codex fork): the new agent branches the source agent's conversation into a divergent session. Requires an AI CLI implementing SessionForker and a source agent whose AI CLI session id is already pinned. Empty = a normal (non-fork) spawn.
 	ForkFrom string `json:"fork_from,omitempty"`
 	InRepo   bool   `json:"in_repo,omitempty"`
 
-	// Kind session kind. Empty or "agent" (the default) creates an AI agent with the chosen backend. "terminal" creates a plain interactive shell (${SHELL:-bash}) in `cwd` — NOT an AI agent: `backend`, `model`, `role`, and `prompt` are ignored, and it is excluded from every AI-centric surface (spend, state, approvals, digests). A terminal is created here, not via a backend id — the `terminal` backend was removed (advertised by the `terminal-sessions` capability, see GET /api/v1/capabilities).
+	// Kind session kind. Empty or "agent" (the default) creates an AI agent with the chosen AI CLI. "terminal" creates a plain interactive shell (${SHELL:-bash}) in `cwd` — NOT an AI agent: `ai_cli`/`backend`, `model`, `role`, and `prompt` are ignored, and it is excluded from every AI-centric surface (spend, state, approvals, digests). A terminal is created here, not via an AI CLI id — the `terminal` backend was removed (advertised by the `terminal-sessions` capability, see GET /api/v1/capabilities).
 	Kind  SpawnRequestKind `json:"kind,omitempty"`
 	Model string           `json:"model,omitempty"`
 	Name  string           `json:"name,omitempty"`
@@ -1501,7 +1504,7 @@ type SpawnRequest struct {
 	Task   string `json:"task,omitempty"`
 	Ticket string `json:"ticket,omitempty"`
 
-	// Tier explicit model tier (tier-1|tier-2|tier-3) for the quota-balanced resolver that picks the backend+model at spawn. Empty derives the tier from task, then role. A pinned backend/model still wins over the resolver.
+	// Tier explicit model tier (tier-1|tier-2|tier-3) for the quota-balanced resolver that picks the AI CLI+model at spawn. Empty derives the tier from task, then role. A pinned ai_cli/model still wins over the resolver.
 	Tier string `json:"tier,omitempty"`
 
 	// Type task type (typed mode); empty = free-form
@@ -1509,7 +1512,7 @@ type SpawnRequest struct {
 	Worktree bool   `json:"worktree,omitempty"`
 }
 
-// SpawnRequestKind session kind. Empty or "agent" (the default) creates an AI agent with the chosen backend. "terminal" creates a plain interactive shell (${SHELL:-bash}) in `cwd` — NOT an AI agent: `backend`, `model`, `role`, and `prompt` are ignored, and it is excluded from every AI-centric surface (spend, state, approvals, digests). A terminal is created here, not via a backend id — the `terminal` backend was removed (advertised by the `terminal-sessions` capability, see GET /api/v1/capabilities).
+// SpawnRequestKind session kind. Empty or "agent" (the default) creates an AI agent with the chosen AI CLI. "terminal" creates a plain interactive shell (${SHELL:-bash}) in `cwd` — NOT an AI agent: `ai_cli`/`backend`, `model`, `role`, and `prompt` are ignored, and it is excluded from every AI-centric surface (spend, state, approvals, digests). A terminal is created here, not via an AI CLI id — the `terminal` backend was removed (advertised by the `terminal-sessions` capability, see GET /api/v1/capabilities).
 type SpawnRequestKind string
 
 // SpendBucket One cost rollup row — an agent, repo, or day — with priced spend.
@@ -1947,7 +1950,11 @@ type SetRoleJSONBody struct {
 
 // SwitchSessionJSONBody defines parameters for SwitchSession.
 type SwitchSessionJSONBody struct {
-	// Backend explicit successor backend id (e.g. antigravity)
+	// AiCli explicit successor AI CLI id (e.g. antigravity). Canonical; preferred over deprecated `backend`.
+	AiCli string `json:"ai_cli,omitempty"`
+
+	// Backend Deprecated alias for `ai_cli`. When both are provided, `ai_cli` wins.
+	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
 	Backend string `json:"backend,omitempty"`
 
 	// Model explicit successor model id

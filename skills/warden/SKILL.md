@@ -28,7 +28,7 @@ description: >-
 # warden — drive your agent fleet, the warden way
 
 warden (CLI `warden`, aliased `wd`) runs a local daemon that manages per-task
-coding agents (Claude Code by default, plus other backends via `--backend`; each in
+coding agents (Claude Code by default, plus other AI CLIs via `--ai-cli`; each in
 its own tmux session, most in a git worktree) and the work around them. You drive it through the **warden MCP tools** (when registered)
 or the **`warden` CLI** (always available).
 
@@ -51,7 +51,7 @@ The everyday verbs, so the common path needs no reference-file round-trip:
 |---|---|
 | list / triage | `warden ls` (`--json`, `--watch`) |
 | one agent's status / output | `warden status <id>` · `warden agent tail <id>` |
-| spawn from a prompt | `warden start "<prompt>"` (`--name`, `--model`, `--backend`) |
+| spawn from a prompt | `warden start "<prompt>"` (`--name`, `--model`, `--ai-cli`) |
 | message an agent | `warden send <id> "<text>"` |
 | stop (full teardown, confirm first) | `warden agent stop <id>` |
 | finish, keep worktree | `warden agent done <id>` (`--create-pr`) |

@@ -79,14 +79,14 @@ func TestFileBadID(t *testing.T) {
 }
 
 func TestFileInsertRejectsUnsafeSessionRef(t *testing.T) {
-	// Defense-in-depth behind the backend's shell-quoting: a ClaudeSessionID that
+	// Defense-in-depth behind the backend's shell-quoting: a AICLISessionID that
 	// carries shell metacharacters (as an attacker-crafted import/adopt record
 	// would) is rejected at the store boundary so it can never reach a launch line.
 	ctx := context.Background()
 	st := newFileStore(t)
 	bad := sample()
 	bad.ID, bad.TmuxSession, bad.Ticket = "agent-evil", "agent-evil", ""
-	bad.ClaudeSessionID = "x; touch /tmp/pwned #"
+	bad.AICLISessionID = "x; touch /tmp/pwned #"
 	require.ErrorIs(t, st.Insert(ctx, bad), ErrBadSessionRef)
 }
 
@@ -102,7 +102,7 @@ func TestFileInsertAllowsRealSessionRefs(t *testing.T) {
 		st := newFileStore(t)
 		s := sample()
 		s.ID, s.TmuxSession, s.Ticket = "agent-ok", "agent-ok", ""
-		s.ClaudeSessionID = ref
+		s.AICLISessionID = ref
 		require.NoError(t, st.Insert(ctx, s), "ref %q must be accepted", ref)
 	}
 }
