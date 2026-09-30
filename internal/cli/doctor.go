@@ -16,6 +16,7 @@ import (
 	"github.com/srjn45/warden/internal/daemon"
 	"github.com/srjn45/warden/internal/llm"
 	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -198,8 +199,9 @@ func newDoctorCmd() *cobra.Command {
 // offline backfill/repair of the project↔member edges
 // (docs/specs/2026-09-25-project-entity-hierarchy.md D2/§6). It stamps a project_id
 // onto any pre-back-ref session/pipeline by path-matching the open projects, then
-// rebuilds every project's authoritative agents[]/pipelines[]/terminals[] lists
-// from those back-refs. It must run with the daemon stopped: each on-disk store
+// rebuilds every project's authoritative agents[]/pipelines[]/plans[] lists
+// from those back-refs (Plans from the plan store). Autopilots[] is never inferred.
+// It must run with the daemon stopped: each on-disk store
 // takes an exclusive writer lock, so opening the session store while the daemon is
 // up fails fast (ErrStoreOwned) rather than racing writes. Idempotent — safe to
 // re-run; a fully-consistent store reports no changes. The daemon runs the same
@@ -217,13 +219,19 @@ func runMembershipReconcile(cmd *cobra.Command, dataDir string) error {
 	}
 	defer pstore.Close()
 
+	plans, err := planstore.New(filepath.Join(dataDir, "plans"))
+	if err != nil {
+		return fmt.Errorf("open plan store: %w", err)
+	}
+	defer plans.Close()
+
 	projects, err := projectstore.NewStore(filepath.Join(dataDir, "projects"))
 	if err != nil {
 		return fmt.Errorf("open project store: %w", err)
 	}
 	defer projects.Close()
 
-	rep, err := daemon.ReconcileProjectMembership(cmd.Context(), sstore, pstore, projects)
+	rep, err := daemon.ReconcileProjectMembership(cmd.Context(), sstore, pstore, plans, projects)
 	if err != nil {
 		return fmt.Errorf("reconcile project membership: %w", err)
 	}

@@ -8,6 +8,7 @@ import (
 
 	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/projectstore"
 )
 
@@ -16,6 +17,12 @@ import (
 // from reverse edges and open-project path matches. Existing order and dangling
 // IDs survive every sweep. Conflicting forward claims choose the lowest project
 // ID for the reverse edge, without destructively rewriting either container.
+//
+// Plans[] is backfilled by scanning the plan store (plan ProjectID back-refs).
+// Autopilots[] is never inferred here — completed or deleted executors must not
+// be resurrected into membership; live Autopilot membership is stamped at
+// run-create time only.
+//
 // Runs at startup or via doctor while the daemon is down (no writer contention).
 
 // MembershipReconcileReport summarizes one backfill/reconcile sweep.
@@ -40,10 +47,10 @@ func (r MembershipReconcileReport) Changed() bool {
 // best-effort per row — a single session/pipeline/project store failure is logged
 // and skipped (legacy backfill is deferred if reverse repair fails), but a
 // failure to list projects or
-// sessions/pipelines up front is returned, since the sweep cannot proceed without
-// them. A nil projects store (unconfigured) or nil pipeline store (pipelines
-// unused) is tolerated: the corresponding pass is skipped.
-func ReconcileProjectMembership(ctx context.Context, sstore *agentstore.Store, pstore *pipeline.Store, projects *projectstore.Store) (MembershipReconcileReport, error) {
+// sessions/pipelines/plans up front is returned, since the sweep cannot proceed without
+// them. A nil projects store (unconfigured) or nil pipeline/plan store (unused) is
+// tolerated: the corresponding pass is skipped.
+func ReconcileProjectMembership(ctx context.Context, sstore *agentstore.Store, pstore *pipeline.Store, plans *planstore.Store, projects *projectstore.Store) (MembershipReconcileReport, error) {
 	var rep MembershipReconcileReport
 	if projects == nil {
 		return rep, nil
@@ -70,6 +77,13 @@ func ReconcileProjectMembership(ctx context.Context, sstore *agentstore.Store, p
 		pipelines, err = pstore.List()
 		if err != nil {
 			return rep, fmt.Errorf("list pipelines: %w", err)
+		}
+	}
+	var planRows []*planstore.Plan
+	if plans != nil {
+		planRows, err = plans.List(ctx)
+		if err != nil {
+			return rep, fmt.Errorf("list plans: %w", err)
 		}
 	}
 	sort.Slice(projs, func(i, j int) bool { return projs[i].ID < projs[j].ID })
@@ -167,6 +181,12 @@ func ReconcileProjectMembership(ctx context.Context, sstore *agentstore.Store, p
 			proj.Pipelines = pipelinesForProject(proj.ID, pipelines)
 			changed = true
 		}
+		if plans != nil && proj.Plans == nil {
+			// Preserve first-seen order from the plan store scan after de-dupe.
+			// Do NOT invent Autopilots[] — completed/deleted executors stay out.
+			proj.Plans = plansForProject(proj.ID, planRows)
+			changed = true
+		}
 		if !changed {
 			continue
 		}
@@ -223,6 +243,19 @@ func pipelinesForProject(projectID string, pipelines []*pipeline.Pipeline) []str
 	return sortedDedupe(out)
 }
 
+// plansForProject returns the de-duplicated id list of plans whose ProjectID
+// equals projectID, preserving first-seen order from the plan-store listing.
+func plansForProject(projectID string, plans []*planstore.Plan) []string {
+	var out []string
+	for _, p := range plans {
+		if p == nil || p.ProjectID != projectID || p.ID == "" {
+			continue
+		}
+		out = append(out, p.ID)
+	}
+	return firstSeenDedupe(out)
+}
+
 // sortedDedupe gives newly backfilled lists a deterministic order and an explicit
 // empty value so migration completes even when no members exist.
 func sortedDedupe(ids []string) []string {
@@ -235,6 +268,27 @@ func sortedDedupe(ids []string) []string {
 		if id != out[len(out)-1] {
 			out = append(out, id)
 		}
+	}
+	return out
+}
+
+// firstSeenDedupe collapses blanks and duplicates while preserving encounter
+// order — used for Plans[] so the plan-store listing order survives backfill.
+func firstSeenDedupe(ids []string) []string {
+	if len(ids) == 0 {
+		return []string{}
+	}
+	seen := make(map[string]struct{}, len(ids))
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
 	}
 	return out
 }
