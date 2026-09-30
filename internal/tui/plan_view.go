@@ -16,11 +16,13 @@ const promptIndent = "     "
 
 // planDetailText renders a plan's detail view for display.
 // Sections: lifecycle, active execution, task evidence, historical summaries.
-// projectRoot is unused for task enumeration (canonical Tasks live on the Plan).
+// projectRoot is retained for call-site compatibility but unused — tasks come
+// from the canonical ScrivaDB Plan (ActiveExecution snapshot when present).
 func planDetailText(p *planstore.Plan, width int, projectRoot string, expanded bool) string {
 	if p == nil {
 		return ""
 	}
+	_ = projectRoot
 	var b strings.Builder
 
 	// ── Header / lifecycle ────────────────────────────────────────────────────
@@ -32,11 +34,20 @@ func planDetailText(p *planstore.Plan, width int, projectRoot string, expanded b
 
 	b.WriteString(stPaneTitle.Render("Lifecycle") + "\n")
 	writeField("Status", string(p.Status))
+	writeField("Revision", fmt.Sprintf("%d", p.Revision))
 	mode := string(p.ExecutionMode)
 	if mode == "" {
 		mode = "manual"
 	}
 	writeField("Executed Using", mode)
+	if exec := planstore.ExecutorID(p); exec != "" {
+		writeField("Executor", exec)
+	}
+	ts := planstore.ComputeTaskSummary(p)
+	if ts.Total > 0 {
+		writeField("Tasks", fmt.Sprintf("%s done (%d in progress, %d pending)", ts.String(), ts.InProgress, ts.Pending))
+	}
+	writeField("Export", string(planstore.ComputeExportStatus(p)))
 	writeField("Created At", p.CreatedAt.Format(time.RFC3339))
 	writeField("Updated At", p.UpdatedAt.Format(time.RFC3339))
 	if p.StartedAt != nil {
@@ -55,7 +66,11 @@ func planDetailText(p *planstore.Plan, width int, projectRoot string, expanded b
 		writeField("Orchestrator", p.OrchestratorID)
 	}
 	writeField("ID", p.ID)
-	writeField("File", p.FilePath)
+	if p.RepoExport != nil && p.RepoExport.FilePath != "" {
+		writeField("Last Export", p.RepoExport.FilePath)
+	} else if p.FilePath != "" {
+		writeField("Last Export", p.FilePath)
+	}
 
 	// ── Active execution ──────────────────────────────────────────────────────
 	b.WriteString("\n" + stPaneTitle.Render("Active Execution") + "\n")
@@ -77,10 +92,29 @@ func planDetailText(p *planstore.Plan, width int, projectRoot string, expanded b
 		b.WriteString("  " + stMuted.Render("(no active execution)") + "\n")
 	}
 
+	// ── Linked PRs / branches ─────────────────────────────────────────────────
+	if len(p.Branches) > 0 || len(p.BranchSummaries) > 0 {
+		b.WriteString("\n" + stPaneTitle.Render("Branches / PRs") + "\n")
+		if len(p.Branches) > 0 {
+			writeField("Branches", strings.Join(p.Branches, ", "))
+		}
+		for _, bs := range p.BranchSummaries {
+			line := bs.Name
+			if bs.PR != nil {
+				if bs.PR.Number > 0 {
+					line += fmt.Sprintf(" → #%d (%s)", bs.PR.Number, bs.PR.State)
+				} else if bs.PR.URL != "" {
+					line += " → " + bs.PR.URL
+				}
+			}
+			b.WriteString("  " + line + "\n")
+		}
+	}
+
 	// ── Task evidence ─────────────────────────────────────────────────────────
 	b.WriteString("\n" + stPaneTitle.Render("Task Evidence") + "\n")
 
-	tasks, _ := planTasksFromPlan(p, projectRoot)
+	tasks := planTasksFromPlan(p)
 	if len(tasks) > 0 {
 		for i, t := range tasks {
 			status := t.Status
@@ -234,18 +268,18 @@ func planDetailText(p *planstore.Plan, width int, projectRoot string, expanded b
 	return b.String()
 }
 
-// planTasksFromPlan returns canonical Plan tasks from ScrivaDB. Repository
-// YAML is never consulted (docs/specs/2026-09-30-scrivadb-canonical-plans.md).
-func planTasksFromPlan(p *planstore.Plan, _ string) ([]planstore.PlanTaskDef, error) {
+// planTasksFromPlan returns canonical Plan tasks from ScrivaDB. Prefer the
+// active execution snapshot when present; never consult repository YAML.
+func planTasksFromPlan(p *planstore.Plan) []planstore.PlanTaskDef {
 	if p == nil {
-		return nil, nil
+		return nil
 	}
 	src := p.Tasks
 	if p.ActiveExecution != nil && p.ActiveExecution.Snapshot != nil && len(p.ActiveExecution.Snapshot.Tasks) > 0 {
 		src = p.ActiveExecution.Snapshot.Tasks
 	}
 	if len(src) == 0 {
-		return nil, nil
+		return nil
 	}
 	out := make([]planstore.PlanTaskDef, 0, len(src))
 	for _, t := range src {
@@ -255,7 +289,7 @@ func planTasksFromPlan(p *planstore.Plan, _ string) ([]planstore.PlanTaskDef, er
 			After:  append([]string(nil), t.After...),
 		})
 	}
-	return out, nil
+	return out
 }
 
 // projectRootForID returns the absolute path of the project with the given ID,

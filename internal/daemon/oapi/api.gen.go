@@ -348,6 +348,27 @@ func (e PlanExecutionMode) Valid() bool {
 	}
 }
 
+// Defines values for PlanExportStatus.
+const (
+	Current PlanExportStatus = "current"
+	None    PlanExportStatus = "none"
+	Stale   PlanExportStatus = "stale"
+)
+
+// Valid indicates whether the value is a known member of the PlanExportStatus enum.
+func (e PlanExportStatus) Valid() bool {
+	switch e {
+	case Current:
+		return true
+	case None:
+		return true
+	case Stale:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PlanStatus.
 const (
 	PlanStatusArchived   PlanStatus = "archived"
@@ -1319,6 +1340,12 @@ type Plan struct {
 	// ExecutionSummary Immutable reduced report for a completed PlanExecution.
 	ExecutionSummary ExecutionSummary `json:"execution_summary,omitempty"`
 
+	// ExecutorId best-known live or linked executor id (active execution preferred, else autopilot_run_id / pipeline_id / orchestrator_id)
+	ExecutorId string `json:"executor_id,omitempty"`
+
+	// ExportStatus computed freshness of the last repository export relative to the canonical revision (none|current|stale). Never reads filesystem YAML.
+	ExportStatus PlanExportStatus `json:"export_status,omitempty"`
+
 	// FilePath legacy / last-export path relative to the project root; empty when never exported
 	FilePath string `json:"file_path,omitempty"`
 	Goal     string `json:"goal"`
@@ -1335,6 +1362,9 @@ type Plan struct {
 	// ProjectId owning project id
 	ProjectId string `json:"project_id"`
 
+	// RepoExport Typed last-export metadata for an optional repository YAML replica. Separate from execution history; replicas are inert.
+	RepoExport RepoExportMeta `json:"repo_export,omitempty"`
+
 	// Revision optimistic-concurrency revision; increments on definition or lifecycle mutations
 	Revision  int64      `json:"revision"`
 	StartedAt time.Time  `json:"started_at,omitempty"`
@@ -1345,12 +1375,18 @@ type Plan struct {
 
 	// TaskProgress task id to its current execution status
 	TaskProgress map[string]TaskStatus `json:"task_progress"`
-	Tasks        []PlanTask            `json:"tasks"`
-	UpdatedAt    time.Time             `json:"updated_at"`
+
+	// TaskSummary Computed task progress rollup for plan list/detail projections.
+	TaskSummary PlanTaskSummary `json:"task_summary,omitempty"`
+	Tasks       []PlanTask      `json:"tasks"`
+	UpdatedAt   time.Time       `json:"updated_at"`
 }
 
 // PlanExecutionMode defines model for Plan.ExecutionMode.
 type PlanExecutionMode string
+
+// PlanExportStatus computed freshness of the last repository export relative to the canonical revision (none|current|stale). Never reads filesystem YAML.
+type PlanExportStatus string
 
 // PlanCompletionError defines model for PlanCompletionError.
 type PlanCompletionError struct {
@@ -1414,6 +1450,15 @@ type PlanTask struct {
 	Prompt string `json:"prompt"`
 }
 
+// PlanTaskSummary Computed task progress rollup for plan list/detail projections.
+type PlanTaskSummary struct {
+	Done       int `json:"done,omitempty"`
+	InProgress int `json:"in_progress,omitempty"`
+	Pending    int `json:"pending,omitempty"`
+	Skipped    int `json:"skipped,omitempty"`
+	Total      int `json:"total,omitempty"`
+}
+
 // PressureStatus defines model for PressureStatus.
 type PressureStatus struct {
 	AgentCount  int    `json:"agent_count"`
@@ -1451,6 +1496,9 @@ type PruneRequest struct {
 // PruneResult defines model for PruneResult.
 type PruneResult = lifecycle.PruneResult
 
+// PullRequestSummary GitHub PR evidence linked to a plan task or branch.
+type PullRequestSummary = planstore.PullRequestSummary
+
 // PushResult defines model for PushResult.
 type PushResult = lifecycle.PushResult
 
@@ -1481,11 +1529,33 @@ type RecoveryAttempt = store.RecoveryAttempt
 // RecoveryReset Known reset window for a limited backend/model pool, as reported by the provider via the backend-usage service. resets_at is null when the provider supplied no reset time; never coerce null to zero or any synthetic value — render as "unknown".
 type RecoveryReset = store.RecoveryReset
 
+// RelatedPlanHit defines model for RelatedPlanHit.
+type RelatedPlanHit struct {
+	Name    string   `json:"name"`
+	PlanId  string   `json:"plan_id"`
+	Reasons []string `json:"reasons"`
+	Score   int      `json:"score"`
+	Status  string   `json:"status"`
+}
+
+// RelatedPlansResult Heuristic related-plan / overlap query result. Surfaces must preserve heuristic=true and the disclaimer — hits are not authoritative.
+type RelatedPlansResult struct {
+	AnchorId   string `json:"anchor_id"`
+	Disclaimer string `json:"disclaimer"`
+
+	// Heuristic Always true; overlap scoring is heuristic only.
+	Heuristic bool             `json:"heuristic"`
+	Hits      []RelatedPlanHit `json:"hits"`
+}
+
 // RemoveWorktreeRequest defines model for RemoveWorktreeRequest.
 type RemoveWorktreeRequest struct {
 	DeleteAdoptedBranch bool `json:"delete_adopted_branch,omitempty"`
 	Force               bool `json:"force,omitempty"`
 }
+
+// RepoExportMeta Typed last-export metadata for an optional repository YAML replica. Separate from execution history; replicas are inert.
+type RepoExportMeta = planstore.RepoExportMeta
 
 // RestoreResult defines model for RestoreResult.
 type RestoreResult = snapshot.RestoreResult
@@ -1969,6 +2039,12 @@ type ListPlansParams struct {
 
 	// Status Filter by plan status; omit to return all plans.
 	Status PlanStatus `form:"status,omitempty" json:"status,omitempty"`
+}
+
+// ListRelatedPlansParams defines parameters for ListRelatedPlans.
+type ListRelatedPlansParams struct {
+	// Limit Maximum number of hits to return (default 10).
+	Limit int `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ListProjectPlansParams defines parameters for ListProjectPlans.
@@ -2534,6 +2610,9 @@ type ServerInterface interface {
 	// Complete a plan
 	// (POST /api/v1/plans/{plan_id}/complete)
 	CompletePlan(w http.ResponseWriter, r *http.Request, planId PlanId)
+	// Heuristic related-plan / overlap query
+	// (GET /api/v1/plans/{plan_id}/related)
+	ListRelatedPlans(w http.ResponseWriter, r *http.Request, planId PlanId, params ListRelatedPlansParams)
 	// Start plan execution
 	// (POST /api/v1/plans/{plan_id}/run)
 	RunPlan(w http.ResponseWriter, r *http.Request, planId PlanId)
@@ -3122,6 +3201,12 @@ func (_ Unimplemented) ArchivePlan(w http.ResponseWriter, r *http.Request, planI
 // Complete a plan
 // (POST /api/v1/plans/{plan_id}/complete)
 func (_ Unimplemented) CompletePlan(w http.ResponseWriter, r *http.Request, planId PlanId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Heuristic related-plan / overlap query
+// (GET /api/v1/plans/{plan_id}/related)
+func (_ Unimplemented) ListRelatedPlans(w http.ResponseWriter, r *http.Request, planId PlanId, params ListRelatedPlansParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -5350,6 +5435,54 @@ func (siw *ServerInterfaceWrapper) CompletePlan(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CompletePlan(w, r, planId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListRelatedPlans operation middleware
+func (siw *ServerInterfaceWrapper) ListRelatedPlans(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "plan_id" -------------
+	var planId PlanId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "plan_id", chi.URLParam(r, "plan_id"), &planId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "plan_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListRelatedPlansParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListRelatedPlans(w, r, planId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7908,6 +8041,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/api/v1/plans/{plan_id}/complete", wrapper.CompletePlan)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/plans/{plan_id}/related", wrapper.ListRelatedPlans)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/plans/{plan_id}/run", wrapper.RunPlan)
 	})
 	r.Group(func(r chi.Router) {
@@ -10456,6 +10592,43 @@ func (response CompletePlan422JSONResponse) VisitCompletePlanResponse(w http.Res
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListRelatedPlansRequestObject struct {
+	PlanId PlanId `json:"plan_id"`
+	Params ListRelatedPlansParams
+}
+
+type ListRelatedPlansResponseObject interface {
+	VisitListRelatedPlansResponse(w http.ResponseWriter) error
+}
+
+type ListRelatedPlans200JSONResponse RelatedPlansResult
+
+func (response ListRelatedPlans200JSONResponse) VisitListRelatedPlansResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListRelatedPlans404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListRelatedPlans404JSONResponse) VisitListRelatedPlansResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -13484,6 +13657,9 @@ type StrictServerInterface interface {
 	// Complete a plan
 	// (POST /api/v1/plans/{plan_id}/complete)
 	CompletePlan(ctx context.Context, request CompletePlanRequestObject) (CompletePlanResponseObject, error)
+	// Heuristic related-plan / overlap query
+	// (GET /api/v1/plans/{plan_id}/related)
+	ListRelatedPlans(ctx context.Context, request ListRelatedPlansRequestObject) (ListRelatedPlansResponseObject, error)
 	// Start plan execution
 	// (POST /api/v1/plans/{plan_id}/run)
 	RunPlan(ctx context.Context, request RunPlanRequestObject) (RunPlanResponseObject, error)
@@ -15507,6 +15683,33 @@ func (sh *strictHandler) CompletePlan(w http.ResponseWriter, r *http.Request, pl
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CompletePlanResponseObject); ok {
 		if err := validResponse.VisitCompletePlanResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListRelatedPlans operation middleware
+func (sh *strictHandler) ListRelatedPlans(w http.ResponseWriter, r *http.Request, planId PlanId, params ListRelatedPlansParams) {
+	var request ListRelatedPlansRequestObject
+
+	request.PlanId = planId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListRelatedPlans(ctx, request.(ListRelatedPlansRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListRelatedPlans")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListRelatedPlansResponseObject); ok {
+		if err := validResponse.VisitListRelatedPlansResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

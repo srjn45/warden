@@ -115,6 +115,21 @@ func (s *Server) planToOAPI(p *planstore.Plan) oapi.Plan {
 	if p.ExecutionSummary != nil {
 		out.ExecutionSummary = *p.ExecutionSummary
 	}
+	if p.RepoExport != nil {
+		out.RepoExport = *p.RepoExport
+	}
+	ts := planstore.ComputeTaskSummary(p)
+	out.TaskSummary = oapi.PlanTaskSummary{
+		Total:      ts.Total,
+		Done:       ts.Done,
+		InProgress: ts.InProgress,
+		Pending:    ts.Pending,
+		Skipped:    ts.Skipped,
+	}
+	out.ExportStatus = oapi.PlanExportStatus(planstore.ComputeExportStatus(p))
+	if exec := planstore.ExecutorID(p); exec != "" {
+		out.ExecutorId = exec
+	}
 	return out
 }
 
@@ -448,6 +463,47 @@ func (s *Server) GetPlan(ctx context.Context, req oapi.GetPlanRequestObject) (oa
 	return oapi.GetPlan200JSONResponse(s.planToOAPI(p)), nil
 }
 
+// ListRelatedPlans implements GET /api/v1/plans/{plan_id}/related.
+// Discovery is ScrivaDB-only; YAML replicas never appear as additional plans.
+func (s *Server) ListRelatedPlans(ctx context.Context, req oapi.ListRelatedPlansRequestObject) (oapi.ListRelatedPlansResponseObject, error) {
+	svc := s.planSvc()
+	if svc == nil {
+		return nil, planNotConfigured()
+	}
+	anchor, err := svc.Get(ctx, req.PlanId)
+	if err != nil {
+		if errors.Is(err, planstore.ErrNotFound) {
+			return oapi.ListRelatedPlans404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "plan not found"}}, nil
+		}
+		return nil, errStatus(http.StatusInternalServerError, "get plan: "+err.Error())
+	}
+	candidates, err := svc.List(ctx, anchor.ProjectID, "")
+	if err != nil {
+		return nil, errStatus(http.StatusInternalServerError, "list plans: "+err.Error())
+	}
+	limit := 10
+	if req.Params.Limit != 0 {
+		limit = req.Params.Limit
+	}
+	res := planstore.FindRelatedPlans(anchor, candidates, limit)
+	hits := make([]oapi.RelatedPlanHit, 0, len(res.Hits))
+	for _, h := range res.Hits {
+		hits = append(hits, oapi.RelatedPlanHit{
+			PlanId:  h.PlanID,
+			Name:    h.Name,
+			Status:  h.Status,
+			Score:   h.Score,
+			Reasons: append([]string(nil), h.Reasons...),
+		})
+	}
+	return oapi.ListRelatedPlans200JSONResponse{
+		Heuristic:  res.Heuristic,
+		Disclaimer: res.Disclaimer,
+		AnchorId:   res.AnchorID,
+		Hits:       hits,
+	}, nil
+}
+
 // UpdatePlan implements PATCH /api/v1/plans/{plan_id}.
 func (s *Server) UpdatePlan(ctx context.Context, req oapi.UpdatePlanRequestObject) (oapi.UpdatePlanResponseObject, error) {
 	svc := s.planSvc()
@@ -683,7 +739,7 @@ func (s *Server) startPlanExecution(ctx context.Context, p *planstore.Plan, mode
 
 	case planstore.PlanModeOrchestratorWorker:
 		sess, spawnErr := s.spawnPlanBoundAgent(ctx, p, root, "orchestrator",
-			orchestratorDisplayName(p.Name), orchestratorPlanPrompt(p, root))
+			orchestratorDisplayName(p.Name), s.planningAgentPrompt(ctx, p, root, "orchestrator"))
 		if spawnErr != nil {
 			return spawnErr
 		}
@@ -695,7 +751,7 @@ func (s *Server) startPlanExecution(ctx context.Context, p *planstore.Plan, mode
 			return errStatus(http.StatusServiceUnavailable, "lifecycle not configured")
 		}
 		sess, spawnErr := s.spawnPlanBoundAgent(ctx, p, root, "general",
-			manualDisplayName(p.Name), manualPlanPrompt(p, root))
+			manualDisplayName(p.Name), s.planningAgentPrompt(ctx, p, root, "manual"))
 		if spawnErr != nil {
 			return spawnErr
 		}

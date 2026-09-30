@@ -1558,6 +1558,33 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/PlanMutationConflict" }
 
+  /api/v1/plans/{plan_id}/related:
+    get:
+      operationId: ListRelatedPlans
+      tags: [Plans]
+      summary: Heuristic related-plan / overlap query
+      description: >
+        Returns structured overlap candidates for a plan based on same project,
+        title/name tokens, goal tokens, and linked branches/PRs. Hits are
+        heuristic discovery aids only — not authoritative identity, conflict,
+        or duplicate detection. Completed plans remain eligible for historical
+        capability lookup. Discovery is ScrivaDB-only; repository YAML replicas
+        never appear as additional plans.
+      parameters:
+        - { $ref: "#/components/parameters/PlanId" }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 50, default: 10 }
+          description: Maximum number of hits to return (default 10).
+      responses:
+        "200":
+          description: Heuristic related-plan hits
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RelatedPlansResult" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /api/v1/plans/{plan_id}/run:
     post:
       operationId: RunPlan
@@ -4285,6 +4312,24 @@ components:
         execution_summary:
           $ref: "#/components/schemas/ExecutionSummary"
           description: "immutable reduced report persisted on finalize"
+        repo_export:
+          $ref: "#/components/schemas/RepoExportMeta"
+          description: "last repository replica export metadata; omitted when never exported"
+        task_summary:
+          $ref: "#/components/schemas/PlanTaskSummary"
+          description: "computed task progress rollup for list/detail projections"
+        export_status:
+          type: string
+          enum: [none, current, stale]
+          description: >
+            computed freshness of the last repository export relative to the
+            canonical revision (none|current|stale). Never reads filesystem YAML.
+        executor_id:
+          type: string
+          description: >
+            best-known live or linked executor id (active execution preferred,
+            else autopilot_run_id / pipeline_id / orchestrator_id)
+
 
     PlanExecution:
       x-go-type: planstore.PlanExecution
@@ -4324,9 +4369,13 @@ components:
         status: { type: string }
         assigned_agent: { type: string }
         branch: { type: string }
+        pull_requests:
+          type: array
+          items: { $ref: "#/components/schemas/PullRequestSummary" }
         verified_checks:
           type: array
           items: { type: string }
+        completed_at: { type: string, format: date-time }
         note: { type: string }
 
     BranchSummary:
@@ -4340,6 +4389,7 @@ components:
         name: { type: string }
         task_id: { type: string }
         agent_id: { type: string }
+        pr: { $ref: "#/components/schemas/PullRequestSummary" }
 
     ExecutionSummary:
       x-go-type: planstore.ExecutionSummary
@@ -4361,6 +4411,83 @@ components:
         tasks_total: { type: integer }
         tasks_done: { type: integer }
         outcome_note: { type: string }
+
+
+    RepoExportMeta:
+      x-go-type: planstore.RepoExportMeta
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/planstore
+        name: planstore
+      type: object
+      description: >
+        Typed last-export metadata for an optional repository YAML replica.
+        Separate from execution history; replicas are inert.
+      properties:
+        schema_version: { type: integer }
+        revision: { type: integer, format: int64 }
+        content_hash: { type: string }
+        exported_at: { type: string, format: date-time, nullable: true }
+        lifecycle: { $ref: "#/components/schemas/PlanStatus" }
+        file_path: { type: string }
+        execution_summary_ref:
+          type: object
+          properties:
+            plan_id: { type: string }
+            execution_id: { type: string }
+            content_hash: { type: string }
+
+    PlanTaskSummary:
+      type: object
+      description: Computed task progress rollup for plan list/detail projections.
+      properties:
+        total: { type: integer }
+        done: { type: integer }
+        in_progress: { type: integer }
+        pending: { type: integer }
+        skipped: { type: integer }
+
+    PullRequestSummary:
+      x-go-type: planstore.PullRequestSummary
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/planstore
+        name: planstore
+      type: object
+      description: GitHub PR evidence linked to a plan task or branch.
+      properties:
+        url: { type: string }
+        branch: { type: string }
+        number: { type: integer }
+        state: { type: string }
+        title: { type: string }
+        merged_at: { type: string, format: date-time, nullable: true }
+
+    RelatedPlanHit:
+      type: object
+      required: [plan_id, name, status, score, reasons]
+      properties:
+        plan_id: { type: string }
+        name: { type: string }
+        status: { type: string }
+        score: { type: integer }
+        reasons:
+          type: array
+          items: { type: string }
+
+    RelatedPlansResult:
+      type: object
+      required: [heuristic, disclaimer, anchor_id, hits]
+      description: >
+        Heuristic related-plan / overlap query result. Surfaces must preserve
+        heuristic=true and the disclaimer — hits are not authoritative.
+      properties:
+        heuristic:
+          type: boolean
+          description: Always true; overlap scoring is heuristic only.
+        disclaimer: { type: string }
+        anchor_id: { type: string }
+        hits:
+          type: array
+          items: { $ref: "#/components/schemas/RelatedPlanHit" }
 
     CreatePlanRequest:
       type: object
@@ -5194,6 +5321,23 @@ components:
         synthetic: { type: boolean, description: "true for the \"No project\" bucket" }
         degraded: { type: boolean, description: "subtree degraded in place" }
         closed: { type: boolean, description: "true for a node under a closed/hibernated project" }
+        revision:
+          type: integer
+          format: int64
+          description: "plan nodes: canonical optimistic-concurrency revision"
+        executor_id:
+          type: string
+          description: "plan nodes: live or linked executor id"
+        task_summary:
+          type: string
+          description: "plan nodes: compact done/total task rollup (e.g. 2/5)"
+        export_status:
+          type: string
+          description: "plan nodes: none|current|stale relative to last repository export"
+        updated_at:
+          type: string
+          format: date-time
+          description: "plan nodes: last canonical update timestamp"
 
     GitDirRequest:
       type: object
