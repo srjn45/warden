@@ -325,6 +325,10 @@ execution evidence). Repository `plans/**/*.yaml` is an optional inert export
 via `sync_to_repo` — never required for create/run/complete, and **not** scanned
 at daemon startup. See [plans migration](https://srjn45.github.io/warden/guides/plans-migration/)
 and [`docs/MIGRATION-plans-scrivadb.md`](docs/MIGRATION-plans-scrivadb.md).
+Phase 12 acceptance:
+[`docs/specs/2026-09-30-scrivadb-canonical-plans-acceptance.md`](docs/specs/2026-09-30-scrivadb-canonical-plans-acceptance.md).
+Deferred follow-ups (not hidden non-goals): JSON export [#585](https://github.com/srjn45/warden/issues/585),
+Hub transport [#586](https://github.com/srjn45/warden/issues/586).
 
 | Feature | CLI | MCP | Skill | Web | TUI | Docs |
 |---|---|---|---|---|---|---|

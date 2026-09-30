@@ -522,11 +522,15 @@ Frozen enough to proceed; details belong to implementing tasks:
 
 ## 14. Verification checklist (for reviewers of later PRs)
 
-- [ ] No new code treats directory placement as lifecycle authority
-- [ ] No execution path calls `LoadPlan`/`ReadPlanTasks` on a repo export
-- [ ] Replica edit tests prove inertness
-- [ ] Startup does not scan `plans/` for authority
-- [ ] `sync_to_repo` never required for create/run
-- [ ] Restore works without Git
-- [ ] This spec is cited when changing Plan authority comments in `planstore`
-- [ ] `plan-execution-entity-redesign` workers did not reintroduce YAML SoT
+Phase 12 acceptance evidence:
+[`2026-09-30-scrivadb-canonical-plans-acceptance.md`](./2026-09-30-scrivadb-canonical-plans-acceptance.md)
+(`TestScrivaDBCanonicalPlans_Phase12Acceptance`).
+
+- [x] No new code treats directory placement as lifecycle authority
+- [x] No execution path calls `LoadPlan`/`ReadPlanTasks` on a repo export
+- [x] Replica edit tests prove inertness
+- [x] Startup does not scan `plans/` for authority
+- [x] `sync_to_repo` never required for create/run
+- [x] Restore works without Git
+- [x] This spec is cited when changing Plan authority comments in `planstore`
+- [x] `plan-execution-entity-redesign` workers did not reintroduce YAML SoT

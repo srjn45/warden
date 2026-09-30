@@ -1587,12 +1587,24 @@ with a `completion_verified` event, reduces an immutable `ExecutionSummary`,
 **then** tears down disposable executors. See
 [§38](#38-plan-execution-entity-upgrade-migration).
 
-### 37.11 Non-goals
+### 37.11 Non-goals / deferred follow-ups
+
+These are **explicit** deferrals (design freeze §10 / D6), not silent omissions.
+Phase 12 acceptance records them as follow-up issues — see
+[`docs/specs/2026-09-30-scrivadb-canonical-plans-acceptance.md`](specs/2026-09-30-scrivadb-canonical-plans-acceptance.md).
 
 - Warden-hub plan sync (deferred; `synced_at`/`remote_id` reserved; local
-  `PlanSyncProvider` boundary only)
-- JSON export format (deferred; YAML remains v1 replica format)
+  `PlanSyncProvider` boundary only — default install makes no network calls;
+  [#586](https://github.com/srjn45/warden/issues/586))
+- JSON export format (deferred; YAML remains v1 replica format;
+  [#585](https://github.com/srjn45/warden/issues/585))
 - Per-task execution (plans run as a whole; `update_task_status` records progress only)
+
+### 37.12 Phase 12 acceptance
+
+Upgrade and acceptance gate (representative legacy + canonical corpus) lives in
+`TestScrivaDBCanonicalPlans_Phase12Acceptance` and the acceptance report above.
+Design-freeze §14 checklist items are checked there.
 
 
 ---
