@@ -38,6 +38,18 @@ Exact steps: site guide `guides/plans-migration`.
 
 - [ ] Stop treating directory placement as lifecycle authority
 - [ ] Run `import-legacy` once per legacy project (not on every daemon start)
+- [ ] Prefer `wd plan create` / `run` / `complete` / `archive` for new work
+- [ ] Use `wd plan backup export|restore` for machine transfer (not `git pull` + scan)
+- [ ] Treat `sync_to_repo` as optional review replicas only
+
+## Acceptance
+
+Phase 12 upgrade gate (GREEN):
+[`docs/specs/2026-09-30-scrivadb-canonical-plans-acceptance.md`](specs/2026-09-30-scrivadb-canonical-plans-acceptance.md).
+
+Explicitly deferred (follow-up issues, not hidden non-goals): JSON export format
+([#585](https://github.com/srjn45/warden/issues/585)); Hub network transport
+([#586](https://github.com/srjn45/warden/issues/586)).
 - [ ] Replace scripts that call `plan scan` with `import-legacy` or DB-native CRUD
 - [ ] Prefer backup restore over `git pull` + scan for recovery
 - [ ] Expect scan/import/status removal in a subsequent release

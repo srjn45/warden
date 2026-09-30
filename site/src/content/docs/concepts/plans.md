@@ -60,3 +60,12 @@ When a plan is run with `wd plan run <id> --mode <mode>`, warden starts from the
 ## Recovery
 
 Prefer `wd plan backup export` / `wd plan backup restore` — Plans are operable without Git. See [Plan backup and restore](/warden/guides/plan-backup-restore/) and the [migration playbooks](/warden/guides/plans-migration/).
+
+## Deferred follow-ups
+
+Explicitly out of scope for the ScrivaDB cutover (not hidden non-goals):
+
+- **JSON export format** — YAML remains the v1 repository replica format ([#585](https://github.com/srjn45/warden/issues/585))
+- **Hub network transport** — local `PlanSyncProvider` boundary only; default installs make no Hub network calls (`synced_at` / `remote_id` reserved) ([#586](https://github.com/srjn45/warden/issues/586))
+
+Phase 12 acceptance evidence lives in the repo at `docs/specs/2026-09-30-scrivadb-canonical-plans-acceptance.md`.

@@ -136,3 +136,7 @@ Full cadence and conflict policy: [Plan backup and restore](/warden/guides/plan-
 <Aside type="tip">
 Import conflicts (legacy YAML vs existing canonical hash) are separate: `import-legacy` reports `conflicted` and never clobbers. Fix the canonical record deliberately, or use backup restore with an explicit `--on-conflict` policy.
 </Aside>
+
+## Deferred (follow-up issues)
+
+JSON export format ([#585](https://github.com/srjn45/warden/issues/585)) and Hub network transport ([#586](https://github.com/srjn45/warden/issues/586)) remain deferred by design — see [Plans concepts](/warden/concepts/plans/) and the Phase 12 acceptance report in-repo (`docs/specs/2026-09-30-scrivadb-canonical-plans-acceptance.md`).

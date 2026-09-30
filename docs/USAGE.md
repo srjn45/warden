@@ -2647,7 +2647,10 @@ Plans are **canonical ScrivaDB records**. Repository YAML under
 not required for create/run/complete, and **not** scanned at daemon startup.
 
 See `docs/MIGRATION-plans-scrivadb.md` and the site guide `guides/plans-migration`
-for operator playbooks.
+for operator playbooks. Phase 12 acceptance evidence:
+`docs/specs/2026-09-30-scrivadb-canonical-plans-acceptance.md`
+(deferred JSON export [#585](https://github.com/srjn45/warden/issues/585); Hub
+transport [#586](https://github.com/srjn45/warden/issues/586)).
 
 ### Fresh DB-native use
 
