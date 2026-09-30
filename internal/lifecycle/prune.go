@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/srjn45/warden/internal/store"
+	"github.com/srjn45/warden/internal/agentstore"
 )
 
 // WorktreeInfo is one parsed entry from `git worktree list --porcelain`.
@@ -87,10 +87,10 @@ func mainWorktreeBranch(repo string, entries []WorktreeInfo) string {
 	return ""
 }
 
-// ownerOf resolves the owning session id + lifecycle ("live"/"archived") for an
+// ownerOf resolves the owning agent id + lifecycle ("live"/"archived") for an
 // absolute worktree path, scanning active records first then archived ones.
 // Returns ("", "", nil) for an orphan.
-func ownerOf(absPath string, active, archived []*store.Session) (id, lifecycle string, sess *store.Session) {
+func ownerOf(absPath string, active, archived []*agentstore.Agent) (id, lifecycle string, agent *agentstore.Agent) {
 	for _, s := range active {
 		if s.Worktree != "" && filepath.Join(s.Repo, s.Worktree) == absPath {
 			return s.ID, "live", s
@@ -145,7 +145,7 @@ type WorktreeListing struct {
 	Branch    string `json:"branch"` // "" when detached
 	Detached  bool   `json:"detached"`
 	Locked    bool   `json:"locked"`
-	Owner     string `json:"owner"`     // owning session id; "" => orphan
+	Owner     string `json:"owner"`     // owning agent id; "" => orphan
 	Lifecycle string `json:"lifecycle"` // "live" / "archived" / "" (orphan)
 	State     string `json:"state"`     // guard state: clean/dirty/unpushed
 }
@@ -153,7 +153,7 @@ type WorktreeListing struct {
 // ListWorktrees is the read-only join behind `warden worktree ls`: every git
 // worktree under repo/.worktrees, labelled by its owning active/archived record
 // (or orphan) and annotated with its guard state. prune is this plus an action.
-func (l *Lifecycle) ListWorktrees(ctx context.Context, repo string, active, archived []*store.Session) ([]WorktreeListing, error) {
+func (l *Lifecycle) ListWorktrees(ctx context.Context, repo string, active, archived []*agentstore.Agent) ([]WorktreeListing, error) {
 	entries, err := l.gitWorktrees(ctx, repo)
 	if err != nil {
 		return nil, err
@@ -191,8 +191,8 @@ type PruneOpts struct {
 	DryRun          bool
 	Force           bool
 	IncludeArchived bool
-	Active          []*store.Session // active records — always keep their worktree
-	Archived        []*store.Session // archived records — keep by default; eligible with IncludeArchived
+	Active          []*agentstore.Agent // active records — always keep their worktree
+	Archived        []*agentstore.Agent // archived records — keep by default; eligible with IncludeArchived
 }
 
 // PruneResult is the per-worktree outcome reported by PruneWorktrees.

@@ -12,6 +12,7 @@ import (
 
 	"github.com/srjn45/warden/internal/agentbackend"
 	"github.com/srjn45/warden/internal/agentbackend/backends"
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
@@ -78,11 +79,11 @@ func TestDiscoverSessionIDPinsOnce(t *testing.T) {
 	d := &stubDeps{projectsDir: "/projects"}
 	db := &discoverBackend{caps: agentbackend.Caps{SessionIDControl: false}, id: "codex-uuid-1", ok: true}
 	p := New(d, 5*time.Minute)
-	p.Backend = func(*store.Session) agentbackend.Backend { return db }
+	p.Backend = func(*agentstore.Agent) agentbackend.Backend { return db }
 
-	s := &store.Session{ID: "A-1", Workdir: "/work/a", Backend: "codex"}
+	s := &agentstore.Agent{ID: "A-1", Workdir: "/work/a", AiCli: "codex"}
 	p.discoverSessionID(context.Background(), s)
-	require.Equal(t, "codex-uuid-1", s.ClaudeSessionID, "snapshot updated for this tick's reads")
+	require.Equal(t, "codex-uuid-1", s.AICLISessionID, "snapshot updated for this tick's reads")
 	require.Equal(t, "codex-uuid-1", d.sessionIDs["A-1"], "persisted to the store")
 	require.Equal(t, 1, d.setIDN)
 	require.Equal(t, 1, db.calls)
@@ -99,13 +100,13 @@ func TestDiscoverSessionIDSkipsPinningBackend(t *testing.T) {
 	d := &stubDeps{projectsDir: "/projects"}
 	db := &discoverBackend{caps: agentbackend.Caps{SessionIDControl: true}, id: "unused", ok: true}
 	p := New(d, 5*time.Minute)
-	p.Backend = func(*store.Session) agentbackend.Backend { return db }
+	p.Backend = func(*agentstore.Agent) agentbackend.Backend { return db }
 
-	s := &store.Session{ID: "C-1", Workdir: "/work/c"}
+	s := &agentstore.Agent{ID: "C-1", Workdir: "/work/c"}
 	p.discoverSessionID(context.Background(), s)
 	require.Equal(t, 0, db.calls, "pinning backend never discovers")
 	require.Equal(t, 0, d.setIDN)
-	require.Empty(t, s.ClaudeSessionID)
+	require.Empty(t, s.AICLISessionID)
 }
 
 // TestDiscoverSessionIDSkipsNonDiscoverer proves a non-pinning backend that does
@@ -113,12 +114,12 @@ func TestDiscoverSessionIDSkipsPinningBackend(t *testing.T) {
 func TestDiscoverSessionIDSkipsNonDiscoverer(t *testing.T) {
 	d := &stubDeps{projectsDir: "/projects"}
 	p := New(d, 5*time.Minute)
-	p.Backend = func(*store.Session) agentbackend.Backend { return fakeBackend{} } // caps zero ⇒ non-pinning, no discoverer
+	p.Backend = func(*agentstore.Agent) agentbackend.Backend { return fakeBackend{} } // caps zero ⇒ non-pinning, no discoverer
 
-	s := &store.Session{ID: "N-1", Workdir: "/work/n"}
+	s := &agentstore.Agent{ID: "N-1", Workdir: "/work/n"}
 	p.discoverSessionID(context.Background(), s)
 	require.Equal(t, 0, d.setIDN)
-	require.Empty(t, s.ClaudeSessionID)
+	require.Empty(t, s.AICLISessionID)
 }
 
 // TestDiscoverSessionIDRetriesUntilWritten proves an ok=false discovery (transcript
@@ -127,17 +128,17 @@ func TestDiscoverSessionIDRetriesUntilWritten(t *testing.T) {
 	d := &stubDeps{projectsDir: "/projects"}
 	db := &discoverBackend{caps: agentbackend.Caps{SessionIDControl: false}, ok: false}
 	p := New(d, 5*time.Minute)
-	p.Backend = func(*store.Session) agentbackend.Backend { return db }
+	p.Backend = func(*agentstore.Agent) agentbackend.Backend { return db }
 
-	s := &store.Session{ID: "R-1", Workdir: "/work/r"}
+	s := &agentstore.Agent{ID: "R-1", Workdir: "/work/r"}
 	p.discoverSessionID(context.Background(), s)
 	require.Equal(t, 0, d.setIDN, "nothing to pin yet")
-	require.Empty(t, s.ClaudeSessionID)
+	require.Empty(t, s.AICLISessionID)
 
 	// The agent has now written its transcript ⇒ the next pass pins it.
 	db.ok, db.id = true, "codex-uuid-late"
 	p.discoverSessionID(context.Background(), s)
-	require.Equal(t, "codex-uuid-late", s.ClaudeSessionID)
+	require.Equal(t, "codex-uuid-late", s.AICLISessionID)
 	require.Equal(t, 1, d.setIDN)
 }
 
@@ -147,7 +148,7 @@ func TestClassifyRoutesThroughBackend(t *testing.T) {
 	pane := "totally neutral pane with no claude markers"
 
 	// Backend reports working → working, despite no "esc to interrupt".
-	s := &store.Session{Status: store.StatusIdle}
+	s := &agentstore.Agent{Status: store.StatusIdle}
 	got := classify(fakeBackend{state: agentbackend.StateWorking}, s, pane, true, 0, 5*time.Minute)
 	require.Equal(t, store.StatusWorking, got)
 
@@ -156,7 +157,7 @@ func TestClassifyRoutesThroughBackend(t *testing.T) {
 	require.Equal(t, store.StatusWaitingForInput, got)
 
 	// Backend positively reports idle → idle (Claude never does this).
-	working := &store.Session{Status: store.StatusWorking}
+	working := &agentstore.Agent{Status: store.StatusWorking}
 	got = classify(fakeBackend{state: agentbackend.StateIdle}, working, pane, true, 0, 5*time.Minute)
 	require.Equal(t, store.StatusIdle, got)
 }
@@ -172,19 +173,19 @@ func allowAllPolicy() approval.Policy {
 }
 
 func TestHeuristicWorkingWhenInterruptVisible(t *testing.T) {
-	s := &store.Session{Status: store.StatusIdle}
+	s := &agentstore.Agent{Status: store.StatusIdle}
 	got := classify(backends.Claude{}, s, "Thinking… (esc to interrupt)", true, 0, 5*time.Minute)
 	require.Equal(t, store.StatusWorking, got)
 }
 
 func TestHeuristicOrphanedWhenSessionGone(t *testing.T) {
-	s := &store.Session{Status: store.StatusWorking}
+	s := &agentstore.Agent{Status: store.StatusWorking}
 	got := classify(backends.Claude{}, s, "", false, 0, 5*time.Minute) // sessionAlive=false
 	require.Equal(t, store.StatusOrphaned, got)
 }
 
 func TestHeuristicConfirmsWaitingAfterThreshold(t *testing.T) {
-	s := &store.Session{
+	s := &agentstore.Agent{
 		Status:    store.StatusWaitingForInput,
 		UpdatedAt: time.Now().Add(-10 * time.Minute),
 		Events:    []store.Event{{Type: "Notification", TS: time.Now().Add(-10 * time.Minute)}},
@@ -194,7 +195,7 @@ func TestHeuristicConfirmsWaitingAfterThreshold(t *testing.T) {
 }
 
 func TestHeuristicKeepsHookStatusWhenNothingConclusive(t *testing.T) {
-	s := &store.Session{Status: store.StatusIdle}
+	s := &agentstore.Agent{Status: store.StatusIdle}
 	got := classify(backends.Claude{}, s, "some neutral pane text", true, 0, 5*time.Minute)
 	require.Equal(t, store.StatusIdle, got) // unchanged
 }
@@ -203,41 +204,41 @@ func TestHeuristicKeepsHookStatusWhenNothingConclusive(t *testing.T) {
 
 func TestHeuristicStuckWorkingBecomesIdle(t *testing.T) {
 	// Claims "working" but no pane churn and no "esc to interrupt" for >= stuckAfter.
-	s := &store.Session{Status: store.StatusWorking}
+	s := &agentstore.Agent{Status: store.StatusWorking}
 	got := classify(backends.Claude{}, s, "no activity here", true, 10*time.Minute, 5*time.Minute)
 	require.Equal(t, store.StatusIdle, got)
 }
 
 func TestHeuristicWorkingNotYetStuck(t *testing.T) {
 	// Below the threshold → still working.
-	s := &store.Session{Status: store.StatusWorking}
+	s := &agentstore.Agent{Status: store.StatusWorking}
 	got := classify(backends.Claude{}, s, "no activity here", true, 1*time.Minute, 5*time.Minute)
 	require.Equal(t, store.StatusWorking, got)
 }
 
 func TestHeuristicStuckIgnoredWhenInterruptVisible(t *testing.T) {
 	// "esc to interrupt" means genuinely churning — never stuck.
-	s := &store.Session{Status: store.StatusWorking}
+	s := &agentstore.Agent{Status: store.StatusWorking}
 	got := classify(backends.Claude{}, s, "Thinking… (esc to interrupt)", true, 30*time.Minute, 5*time.Minute)
 	require.Equal(t, store.StatusWorking, got)
 }
 
 func TestHeuristicStuckOnlyDowngradesWorking(t *testing.T) {
 	// A long-idle waiting_for_input session is genuinely waiting, not "stuck".
-	s := &store.Session{Status: store.StatusWaitingForInput}
+	s := &agentstore.Agent{Status: store.StatusWaitingForInput}
 	got := classify(backends.Claude{}, s, "neutral", true, 30*time.Minute, 5*time.Minute)
 	require.Equal(t, store.StatusWaitingForInput, got)
 }
 
 func TestHeuristicStuckDisabledWhenThresholdZero(t *testing.T) {
-	s := &store.Session{Status: store.StatusWorking}
+	s := &agentstore.Agent{Status: store.StatusWorking}
 	got := classify(backends.Claude{}, s, "neutral", true, 99*time.Hour, 0)
 	require.Equal(t, store.StatusWorking, got)
 }
 
 // stubDeps fakes everything the poller touches.
 type stubDeps struct {
-	sessions     []*store.Session
+	sessions     []*agentstore.Agent
 	alive        map[string]bool
 	panes        map[string]string
 	updates      map[string]store.Status // records successful status swaps
@@ -251,7 +252,7 @@ type stubDeps struct {
 	captureErr   error // when set, CapturePane fails for every session
 	// summarizeFn, when set, overrides the canned result — lets a test inspect
 	// the context or block, e.g. to exercise the per-call timeout.
-	summarizeFn func(context.Context, *store.Session) (string, error)
+	summarizeFn func(context.Context, *agentstore.Agent) (string, error)
 
 	exitCodes   map[string]int          // id -> recorded exit code (presence = in map)
 	finalized   map[string]store.Status // records FinalizeExit successful swaps
@@ -306,7 +307,7 @@ func (d *stubDeps) sendCount() int {
 	return d.sendKeysN
 }
 
-func (d *stubDeps) List(_ context.Context) ([]*store.Session, error) { return d.sessions, nil }
+func (d *stubDeps) List(_ context.Context) ([]*agentstore.Agent, error) { return d.sessions, nil }
 func (d *stubDeps) UpdateStatusIf(_ context.Context, id string, expected, next store.Status) (bool, error) {
 	if d.lastExpected == nil {
 		d.lastExpected = map[string]store.Status{}
@@ -331,7 +332,7 @@ func (d *stubDeps) UpdateSubject(_ context.Context, id, subject string) error {
 	d.subjects[id] = subject
 	return nil
 }
-func (d *stubDeps) Summarize(ctx context.Context, s *store.Session) (string, error) {
+func (d *stubDeps) Summarize(ctx context.Context, s *agentstore.Agent) (string, error) {
 	d.summarizeN++
 	if d.summarizeFn != nil {
 		return d.summarizeFn(ctx, s)
@@ -350,7 +351,7 @@ func TestRunSummaryAppliesPerCallTimeout(t *testing.T) {
 	deadlineSeen := make(chan bool, 1)
 	d := &stubDeps{
 		updates: map[string]store.Status{},
-		summarizeFn: func(ctx context.Context, s *store.Session) (string, error) {
+		summarizeFn: func(ctx context.Context, s *agentstore.Agent) (string, error) {
 			_, ok := ctx.Deadline()
 			deadlineSeen <- ok
 			<-ctx.Done() // hang until the per-call timeout fires
@@ -365,7 +366,7 @@ func TestRunSummaryAppliesPerCallTimeout(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		p.runSummary(context.Background(), &store.Session{ID: "A-1"})
+		p.runSummary(context.Background(), &agentstore.Agent{ID: "A-1"})
 		close(done)
 	}()
 
@@ -424,14 +425,14 @@ func (d *stubDeps) recordedEvents(id string) []store.Event {
 	defer d.sendMu.Unlock()
 	return append([]store.Event(nil), d.events[id]...)
 }
-func (d *stubDeps) ContextTokens(_ context.Context, _ *store.Session) (int, bool) { return 0, false }
-func (d *stubDeps) TranscriptUsage(_ context.Context, _ *store.Session) (int, int, bool) {
+func (d *stubDeps) ContextTokens(_ context.Context, _ *agentstore.Agent) (int, bool) { return 0, false }
+func (d *stubDeps) TranscriptUsage(_ context.Context, _ *agentstore.Agent) (int, int, bool) {
 	return 0, 0, false
 }
 func (d *stubDeps) UpdateContext(_ context.Context, _ string, _ int, _ string) error { return nil }
-func (d *stubDeps) Compact(_ context.Context, _ *store.Session) error                { return nil }
-func (d *stubDeps) Interrupt(_ context.Context, _ *store.Session) error              { return nil }
-func (d *stubDeps) Resume(_ context.Context, _ *store.Session, _ string) error       { return nil }
+func (d *stubDeps) Compact(_ context.Context, _ *agentstore.Agent) error             { return nil }
+func (d *stubDeps) Interrupt(_ context.Context, _ *agentstore.Agent) error           { return nil }
+func (d *stubDeps) Resume(_ context.Context, _ *agentstore.Agent, _ string) error    { return nil }
 func (d *stubDeps) StampCompact(_ context.Context, _ string) error                   { return nil }
 func (d *stubDeps) SessionAlive(_ context.Context, name string) bool                 { return d.alive[name] }
 func (d *stubDeps) CapturePane(_ context.Context, name string) (string, error) {
@@ -452,7 +453,7 @@ func (d *stubDeps) SetSessionID(_ context.Context, id, sessionID string) error {
 
 func TestTickMarksOrphaned(t *testing.T) {
 	d := &stubDeps{
-		sessions: []*store.Session{{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking}},
+		sessions: []*agentstore.Agent{{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking}},
 		alive:    map[string]bool{"A-1": false},
 		panes:    map[string]string{},
 		updates:  map[string]store.Status{},
@@ -464,7 +465,7 @@ func TestTickMarksOrphaned(t *testing.T) {
 
 func TestTickSkipsTerminalStatuses(t *testing.T) {
 	d := &stubDeps{
-		sessions: []*store.Session{{ID: "A-1", TmuxSession: "A-1", Status: store.StatusDone}},
+		sessions: []*agentstore.Agent{{ID: "A-1", TmuxSession: "A-1", Status: store.StatusDone}},
 		alive:    map[string]bool{"A-1": false},
 		updates:  map[string]store.Status{},
 	}
@@ -474,56 +475,9 @@ func TestTickSkipsTerminalStatuses(t *testing.T) {
 	require.False(t, changed, "done sessions must not be re-classified")
 }
 
-// countDetectBackend wraps fakeBackend and counts DetectState calls so tests can
-// assert classify was never reached for terminal sessions.
-type countDetectBackend struct {
-	fakeBackend
-	detectN *int
-}
-
-func (b countDetectBackend) DetectState(pane string) agentbackend.State {
-	*b.detectN++
-	return b.fakeBackend.DetectState(pane)
-}
-
-// TestTickTerminalGuardSkipsAllProcessing confirms the is-terminal guard at the
-// top of the session loop fires before classify/DetectState, before pane capture,
-// before exit-code finalization, and before any status update. All terminal-session
-// processing is now delegated to TerminalWatcher; the poller must be a no-op for
-// every terminal-kind session regardless of liveness, exit state, or status.
-func TestTickTerminalGuardSkipsAllProcessing(t *testing.T) {
-	detectCalls := 0
-	d := &stubDeps{
-		sessions: []*store.Session{
-			// dead terminal — old code would have marked orphaned
-			{ID: "T-dead", TmuxSession: "T-dead", Kind: store.KindTerminal, Status: store.StatusWorking},
-			// terminal with an exit file — old code would have called FinalizeExit
-			{ID: "T-exit", TmuxSession: "T-exit", Kind: store.KindTerminal, Status: store.StatusWorking},
-			// alive spawning terminal — old code would have transitioned to working
-			{ID: "T-spawn", TmuxSession: "T-spawn", Kind: store.KindTerminal, Status: store.StatusSpawning},
-		},
-		alive:       map[string]bool{"T-exit": true, "T-spawn": true},
-		panes:       map[string]string{"T-exit": "shell pane", "T-spawn": "shell pane"},
-		exitCodes:   map[string]int{"T-exit": 0},
-		updates:     map[string]store.Status{},
-		finalized:   map[string]store.Status{},
-		cleared:     map[string]bool{},
-		paneUpdates: map[string]string{},
-	}
-	p := New(d, 5*time.Minute)
-	p.Backend = func(s *store.Session) agentbackend.Backend {
-		return countDetectBackend{detectN: &detectCalls}
-	}
-	require.NoError(t, p.tick(context.Background()))
-	require.Zero(t, detectCalls, "classify/DetectState must not be called for terminal sessions")
-	require.Empty(t, d.updates, "poller must not update any terminal session's status")
-	require.Empty(t, d.finalized, "poller must not finalize any terminal session's exit code")
-	require.Empty(t, d.paneUpdates, "poller must not capture pane output for terminal sessions")
-}
-
 func TestTickFlagsStuckWorkingAsIdle(t *testing.T) {
 	d := &stubDeps{
-		sessions: []*store.Session{{
+		sessions: []*agentstore.Agent{{
 			ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking,
 			UpdatedAt:       time.Now().Add(-10 * time.Minute),
 			LastPaneExcerpt: "quiet pane",
@@ -541,7 +495,7 @@ func TestTickSkipsClassifyWhenCaptureFails(t *testing.T) {
 	// Alive session but pane capture errors transiently: the poller must not
 	// record an empty excerpt nor downgrade a stale "working" session to idle.
 	d := &stubDeps{
-		sessions: []*store.Session{{
+		sessions: []*agentstore.Agent{{
 			ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking,
 			UpdatedAt:       time.Now().Add(-10 * time.Minute), // would be "stuck" if classified
 			LastPaneExcerpt: "prior pane",
@@ -564,7 +518,7 @@ func TestTickStillMarksOrphanedWhenSessionDead(t *testing.T) {
 	// captureErr is irrelevant when the session is dead — capture isn't attempted
 	// and orphan detection (pane-independent) must still fire.
 	d := &stubDeps{
-		sessions:   []*store.Session{{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking}},
+		sessions:   []*agentstore.Agent{{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking}},
 		alive:      map[string]bool{"A-1": false},
 		panes:      map[string]string{},
 		updates:    map[string]store.Status{},
@@ -580,7 +534,7 @@ func TestTickSkipsStatusWriteWhenHookRaced(t *testing.T) {
 	// changed the status since the snapshot — the CAS misses and the poller must
 	// neither record a change nor fire OnChange.
 	d := &stubDeps{
-		sessions: []*store.Session{{
+		sessions: []*agentstore.Agent{{
 			ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking,
 			UpdatedAt: time.Now().Add(-10 * time.Minute), LastPaneExcerpt: "quiet",
 		}},
@@ -601,7 +555,7 @@ func TestTickSkipsStatusWriteWhenHookRaced(t *testing.T) {
 
 func TestTickPrunesDepartedSessionsFromSummaryState(t *testing.T) {
 	d := &stubDeps{
-		sessions: []*store.Session{{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking, LastPaneExcerpt: "old"}},
+		sessions: []*agentstore.Agent{{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking, LastPaneExcerpt: "old"}},
 		alive:    map[string]bool{"A-1": true},
 		panes:    map[string]string{"A-1": "changed"},
 		updates:  map[string]store.Status{},
@@ -625,7 +579,7 @@ func TestTickPrunesDepartedSessionsFromSummaryState(t *testing.T) {
 
 func TestTickFreshWorkingStaysWorking(t *testing.T) {
 	d := &stubDeps{
-		sessions: []*store.Session{{
+		sessions: []*agentstore.Agent{{
 			ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking,
 			UpdatedAt:       time.Now().Add(-30 * time.Second),
 			LastPaneExcerpt: "quiet pane",
@@ -642,7 +596,7 @@ func TestTickFreshWorkingStaysWorking(t *testing.T) {
 
 func TestTickUpdatesPaneOnlyWhenChanged(t *testing.T) {
 	d := &stubDeps{
-		sessions: []*store.Session{
+		sessions: []*agentstore.Agent{
 			{ID: "same", TmuxSession: "same", Status: store.StatusWorking, LastPaneExcerpt: "hello", UpdatedAt: time.Now()},
 			{ID: "diff", TmuxSession: "diff", Status: store.StatusWorking, LastPaneExcerpt: "old", UpdatedAt: time.Now()},
 		},
@@ -660,7 +614,7 @@ func TestTickUpdatesPaneOnlyWhenChanged(t *testing.T) {
 
 func TestTickCallsOnChangeWhenStatusChanges(t *testing.T) {
 	d := &stubDeps{
-		sessions: []*store.Session{{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking}},
+		sessions: []*agentstore.Agent{{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking}},
 		alive:    map[string]bool{"A-1": false}, // → orphaned (a change)
 		updates:  map[string]store.Status{},
 	}
@@ -673,7 +627,7 @@ func TestTickCallsOnChangeWhenStatusChanges(t *testing.T) {
 
 func TestTickNoOnChangeWhenNothingChanges(t *testing.T) {
 	d := &stubDeps{
-		sessions: []*store.Session{{
+		sessions: []*agentstore.Agent{{
 			ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking,
 			UpdatedAt: time.Now(), LastPaneExcerpt: "x",
 		}},
@@ -690,7 +644,7 @@ func TestTickNoOnChangeWhenNothingChanges(t *testing.T) {
 
 func TestTickRefreshesSubjectWhenPaneChangedAndDue(t *testing.T) {
 	d := &stubDeps{
-		sessions: []*store.Session{{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking, LastPaneExcerpt: "old"}},
+		sessions: []*agentstore.Agent{{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking, LastPaneExcerpt: "old"}},
 		alive:    map[string]bool{"A-1": true},
 		panes:    map[string]string{"A-1": "new pane text"}, // changed
 		updates:  map[string]store.Status{},
@@ -706,7 +660,7 @@ func TestTickRefreshesSubjectWhenPaneChangedAndDue(t *testing.T) {
 
 func TestTickSkipsSummaryWhenPaneUnchanged(t *testing.T) {
 	d := &stubDeps{
-		sessions: []*store.Session{{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking, LastPaneExcerpt: "same"}},
+		sessions: []*agentstore.Agent{{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking, LastPaneExcerpt: "same"}},
 		alive:    map[string]bool{"A-1": true},
 		panes:    map[string]string{"A-1": "same"}, // unchanged
 		updates:  map[string]store.Status{},
@@ -721,7 +675,7 @@ func TestTickSkipsSummaryWhenPaneUnchanged(t *testing.T) {
 
 func TestTickFiresOnTransition(t *testing.T) {
 	d := &stubDeps{
-		sessions: []*store.Session{{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking}},
+		sessions: []*agentstore.Agent{{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking}},
 		alive:    map[string]bool{"A-1": false}, // dead → orphaned
 		panes:    map[string]string{},
 		updates:  map[string]store.Status{},
@@ -730,7 +684,7 @@ func TestTickFiresOnTransition(t *testing.T) {
 	var gotFrom, gotTo store.Status
 	var gotID string
 	n := 0
-	p.OnTransition = func(s *store.Session, from, to store.Status) {
+	p.OnTransition = func(s *agentstore.Agent, from, to store.Status) {
 		gotID, gotFrom, gotTo, n = s.ID, from, to, n+1
 	}
 	require.NoError(t, p.tick(context.Background()))
@@ -742,14 +696,14 @@ func TestTickFiresOnTransition(t *testing.T) {
 
 func TestTickNoTransitionForTerminalStatus(t *testing.T) {
 	d := &stubDeps{
-		sessions: []*store.Session{{ID: "A-1", TmuxSession: "A-1", Status: store.StatusDone}},
+		sessions: []*agentstore.Agent{{ID: "A-1", TmuxSession: "A-1", Status: store.StatusDone}},
 		alive:    map[string]bool{"A-1": false},
 		panes:    map[string]string{},
 		updates:  map[string]store.Status{},
 	}
 	p := New(d, 5*time.Minute)
 	fired := false
-	p.OnTransition = func(*store.Session, store.Status, store.Status) { fired = true }
+	p.OnTransition = func(*agentstore.Agent, store.Status, store.Status) { fired = true }
 	require.NoError(t, p.tick(context.Background()))
 	require.False(t, fired, "terminal status is skipped → no transition")
 }
@@ -759,14 +713,14 @@ func TestTickNoTransitionForTerminalStatus(t *testing.T) {
 // tmux session is still live — the poller should reclassify it normally.
 func TestTickErroredAgentReclassifiesWhenAlive(t *testing.T) {
 	d := &stubDeps{
-		sessions: []*store.Session{{ID: "A", TmuxSession: "A", Status: store.StatusErrored}},
+		sessions: []*agentstore.Agent{{ID: "A", TmuxSession: "A", Status: store.StatusErrored}},
 		alive:    map[string]bool{"A": true},
 		panes:    map[string]string{"A": "esc to interrupt"},
 		updates:  map[string]store.Status{},
 	}
 	p := New(d, 5*time.Minute)
 	var gotTo store.Status
-	p.OnTransition = func(_ *store.Session, _, to store.Status) { gotTo = to }
+	p.OnTransition = func(_ *agentstore.Agent, _, to store.Status) { gotTo = to }
 	require.NoError(t, p.tick(context.Background()))
 	require.Equal(t, store.StatusWorking, gotTo, "errored+alive should reclassify to working")
 }
@@ -777,14 +731,14 @@ func TestTickErroredAgentReclassifiesWhenAlive(t *testing.T) {
 // again, rather than being stuck orphaned forever.
 func TestTickOrphanedAgentReclassifiesWhenAlive(t *testing.T) {
 	d := &stubDeps{
-		sessions: []*store.Session{{ID: "A", TmuxSession: "A", Status: store.StatusOrphaned}},
+		sessions: []*agentstore.Agent{{ID: "A", TmuxSession: "A", Status: store.StatusOrphaned}},
 		alive:    map[string]bool{"A": true},
 		panes:    map[string]string{"A": "esc to interrupt"},
 		updates:  map[string]store.Status{},
 	}
 	p := New(d, 5*time.Minute)
 	var gotTo store.Status
-	p.OnTransition = func(_ *store.Session, _, to store.Status) { gotTo = to }
+	p.OnTransition = func(_ *agentstore.Agent, _, to store.Status) { gotTo = to }
 	require.NoError(t, p.tick(context.Background()))
 	require.Equal(t, store.StatusWorking, gotTo, "orphaned+alive should reclassify to working")
 }
@@ -793,14 +747,14 @@ func TestTickOrphanedAgentReclassifiesWhenAlive(t *testing.T) {
 // orphaned agent stays terminal (no reclassification, no busywork).
 func TestTickOrphanedAgentSkippedWhenDead(t *testing.T) {
 	d := &stubDeps{
-		sessions: []*store.Session{{ID: "A", TmuxSession: "A", Status: store.StatusOrphaned}},
+		sessions: []*agentstore.Agent{{ID: "A", TmuxSession: "A", Status: store.StatusOrphaned}},
 		alive:    map[string]bool{"A": false},
 		panes:    map[string]string{},
 		updates:  map[string]store.Status{},
 	}
 	p := New(d, 5*time.Minute)
 	fired := false
-	p.OnTransition = func(*store.Session, store.Status, store.Status) { fired = true }
+	p.OnTransition = func(*agentstore.Agent, store.Status, store.Status) { fired = true }
 	require.NoError(t, p.tick(context.Background()))
 	require.False(t, fired, "orphaned+dead session should be skipped with no transition")
 }
@@ -809,14 +763,14 @@ func TestTickOrphanedAgentSkippedWhenDead(t *testing.T) {
 // tmux session is gone is still treated as terminal (no reclassification).
 func TestTickErroredAgentSkippedWhenDead(t *testing.T) {
 	d := &stubDeps{
-		sessions: []*store.Session{{ID: "A", TmuxSession: "A", Status: store.StatusErrored}},
+		sessions: []*agentstore.Agent{{ID: "A", TmuxSession: "A", Status: store.StatusErrored}},
 		alive:    map[string]bool{"A": false},
 		panes:    map[string]string{},
 		updates:  map[string]store.Status{},
 	}
 	p := New(d, 5*time.Minute)
 	fired := false
-	p.OnTransition = func(*store.Session, store.Status, store.Status) { fired = true }
+	p.OnTransition = func(*agentstore.Agent, store.Status, store.Status) { fired = true }
 	require.NoError(t, p.tick(context.Background()))
 	require.False(t, fired, "errored+dead session should be skipped with no transition")
 }
@@ -833,7 +787,7 @@ func TestTickFinalizesFromExitFile(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			d := &stubDeps{
-				sessions:  []*store.Session{{ID: "A", Status: store.StatusWorking}},
+				sessions:  []*agentstore.Agent{{ID: "A", Status: store.StatusWorking}},
 				alive:     map[string]bool{"A": true},
 				panes:     map[string]string{},
 				updates:   map[string]store.Status{},
@@ -842,7 +796,7 @@ func TestTickFinalizesFromExitFile(t *testing.T) {
 			p := New(d, 5*time.Minute)
 			var gotFrom, gotTo store.Status
 			fired := false
-			p.OnTransition = func(_ *store.Session, from, to store.Status) {
+			p.OnTransition = func(_ *agentstore.Agent, from, to store.Status) {
 				fired = true
 				gotFrom, gotTo = from, to
 			}
@@ -860,7 +814,7 @@ func TestTickFinalizesFromExitFile(t *testing.T) {
 func TestTickOrphanedOnlyWhenNoExitFile(t *testing.T) {
 	// Window gone, no exit-file -> orphaned via the existing classify path.
 	d := &stubDeps{
-		sessions:  []*store.Session{{ID: "A", Status: store.StatusWorking}},
+		sessions:  []*agentstore.Agent{{ID: "A", Status: store.StatusWorking}},
 		alive:     map[string]bool{"A": false},
 		panes:     map[string]string{},
 		updates:   map[string]store.Status{},
@@ -874,7 +828,7 @@ func TestTickOrphanedOnlyWhenNoExitFile(t *testing.T) {
 
 func TestTickExitFileCASLosesToHook(t *testing.T) {
 	d := &stubDeps{
-		sessions:  []*store.Session{{ID: "A", Status: store.StatusWorking}},
+		sessions:  []*agentstore.Agent{{ID: "A", Status: store.StatusWorking}},
 		alive:     map[string]bool{"A": true},
 		panes:     map[string]string{},
 		updates:   map[string]store.Status{},
@@ -889,7 +843,7 @@ func TestTickExitFileCASLosesToHook(t *testing.T) {
 
 func TestTickExitFileErrorLeavesFile(t *testing.T) {
 	d := &stubDeps{
-		sessions:    []*store.Session{{ID: "A", Status: store.StatusWorking}},
+		sessions:    []*agentstore.Agent{{ID: "A", Status: store.StatusWorking}},
 		alive:       map[string]bool{"A": true},
 		panes:       map[string]string{},
 		updates:     map[string]store.Status{},
@@ -907,7 +861,7 @@ func TestTickClearsExitFileForTerminalSession(t *testing.T) {
 	// exits/<id>=0. The poller must reap that leftover file even though it
 	// skips the terminal session for classification.
 	d := &stubDeps{
-		sessions:  []*store.Session{{ID: "A", Status: store.StatusDone}},
+		sessions:  []*agentstore.Agent{{ID: "A", Status: store.StatusDone}},
 		alive:     map[string]bool{},
 		panes:     map[string]string{},
 		updates:   map[string]store.Status{},
@@ -921,7 +875,7 @@ func TestTickClearsExitFileForTerminalSession(t *testing.T) {
 
 func TestTickThrottlesSummary(t *testing.T) {
 	d := &stubDeps{
-		sessions: []*store.Session{{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking, LastPaneExcerpt: "old"}},
+		sessions: []*agentstore.Agent{{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking, LastPaneExcerpt: "old"}},
 		alive:    map[string]bool{"A-1": true},
 		panes:    map[string]string{"A-1": "changed"},
 		updates:  map[string]store.Status{},
@@ -938,7 +892,7 @@ func TestTickThrottlesSummary(t *testing.T) {
 }
 
 func TestClassify_RateLimited(t *testing.T) {
-	sess := &store.Session{
+	sess := &agentstore.Agent{
 		ID:     "test",
 		Status: store.StatusWorking,
 	}
@@ -954,7 +908,7 @@ func TestClassify_RateLimited(t *testing.T) {
 
 func TestClassify_RateLimitPriority(t *testing.T) {
 	// A real limit banner should take priority over prompt detection.
-	sess := &store.Session{
+	sess := &agentstore.Agent{
 		ID:     "test",
 		Status: store.StatusWorking,
 	}
@@ -970,7 +924,7 @@ func TestClassify_RateLimitPriority(t *testing.T) {
 }
 
 func TestClassify_WorkingVetoesStrayLimitKeyword(t *testing.T) {
-	s := &store.Session{ID: "t", Status: store.StatusWorking}
+	s := &agentstore.Agent{ID: "t", Status: store.StatusWorking}
 	// Both a limit-ish line and the active-streaming marker present.
 	pane := "discussing rate limit handling...\nesc to interrupt"
 	got := classify(backends.Claude{}, s, pane, true, 0, 0)
@@ -978,13 +932,13 @@ func TestClassify_WorkingVetoesStrayLimitKeyword(t *testing.T) {
 }
 
 func TestClassify_RealLimitWhenNotStreaming(t *testing.T) {
-	s := &store.Session{ID: "t", Status: store.StatusWorking}
+	s := &agentstore.Agent{ID: "t", Status: store.StatusWorking}
 	got := classify(backends.Claude{}, s, sampleLimitBanner, true, 0, 0)
 	require.Equal(t, store.StatusRateLimited, got)
 }
 
 func TestClassify_NoRateLimit(t *testing.T) {
-	sess := &store.Session{
+	sess := &agentstore.Agent{
 		ID:     "test",
 		Status: store.StatusWorking,
 	}
@@ -1008,7 +962,7 @@ func TestPollerApprovalEventChannelInitialized(t *testing.T) {
 
 func TestPublishApprovalEventNonBlocking(t *testing.T) {
 	p := New(&stubDeps{}, 30*time.Second)
-	sess := &store.Session{ID: "agent-123", Status: store.StatusWaitingForInput}
+	sess := &agentstore.Agent{ID: "agent-123", Status: store.StatusWaitingForInput}
 	pane := "some pane content"
 
 	// Publish should succeed
@@ -1017,7 +971,7 @@ func TestPublishApprovalEventNonBlocking(t *testing.T) {
 	// Verify event was queued
 	select {
 	case event := <-p.ApprovalEvents:
-		require.Equal(t, "agent-123", event.Session.ID)
+		require.Equal(t, "agent-123", event.Agent.ID)
 		require.Equal(t, pane, event.Pane)
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("expected event to be published")
@@ -1026,11 +980,11 @@ func TestPublishApprovalEventNonBlocking(t *testing.T) {
 
 func TestPublishApprovalEventDropsWhenFull(t *testing.T) {
 	p := New(&stubDeps{}, 30*time.Second)
-	sess := &store.Session{ID: "agent-123", Status: store.StatusWaitingForInput}
+	sess := &agentstore.Agent{ID: "agent-123", Status: store.StatusWaitingForInput}
 
 	// Fill the channel to capacity
 	for i := 0; i < 100; i++ {
-		p.ApprovalEvents <- ApprovalEvent{Session: sess, Pane: "fill"}
+		p.ApprovalEvents <- ApprovalEvent{Agent: sess, Pane: "fill"}
 	}
 
 	// Capture log output to verify drop message
@@ -1073,9 +1027,9 @@ func TestApprovalWorkerConsumesEvents(t *testing.T) {
 	}()
 
 	// Publish an event
-	sess := &store.Session{ID: "agent-123", Status: store.StatusWaitingForInput, TmuxSession: "tmux-123"}
+	sess := &agentstore.Agent{ID: "agent-123", Status: store.StatusWaitingForInput, TmuxSession: "tmux-123"}
 	pane := "Do you want to proceed?\n ❯ 1. Yes\n   2. No"
-	p.ApprovalEvents <- ApprovalEvent{Session: sess, Pane: pane}
+	p.ApprovalEvents <- ApprovalEvent{Agent: sess, Pane: pane}
 
 	// Give worker time to process
 	time.Sleep(50 * time.Millisecond)
@@ -1128,7 +1082,7 @@ func TestApprovalWorkerStopsOnContextCancel(t *testing.T) {
 func TestPublishEventOnStatusTransitionToWaitingForInput(t *testing.T) {
 	pane := "Do you want to proceed?\n ❯ 1. Yes\n   2. No"
 	d := &stubDeps{
-		sessions: []*store.Session{
+		sessions: []*agentstore.Agent{
 			{ID: "agent-123", Status: store.StatusWorking, TmuxSession: "tmux-123", UpdatedAt: time.Now(), LastPaneExcerpt: "old"},
 		},
 		alive:   map[string]bool{"tmux-123": true},
@@ -1147,7 +1101,7 @@ func TestPublishEventOnStatusTransitionToWaitingForInput(t *testing.T) {
 	// Verify event was published
 	select {
 	case event := <-p.ApprovalEvents:
-		require.Equal(t, "agent-123", event.Session.ID)
+		require.Equal(t, "agent-123", event.Agent.ID)
 		require.Contains(t, event.Pane, "Do you want to proceed")
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("expected approval event to be published on status transition")
@@ -1159,7 +1113,7 @@ func TestPublishEventOnPaneChangeWhileWaiting(t *testing.T) {
 	secondPrompt := "Another prompt?\n ❯ 1. Yes\n   2. No"
 
 	d := &stubDeps{
-		sessions: []*store.Session{
+		sessions: []*agentstore.Agent{
 			{
 				ID:              "agent-123",
 				Status:          store.StatusWaitingForInput,
@@ -1197,7 +1151,7 @@ func TestPublishEventOnPaneChangeWhileWaiting(t *testing.T) {
 	// Verify event was published
 	select {
 	case event := <-p.ApprovalEvents:
-		require.Equal(t, "agent-123", event.Session.ID)
+		require.Equal(t, "agent-123", event.Agent.ID)
 		require.Contains(t, event.Pane, "Another prompt")
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("expected approval event on pane change while waiting_for_input")
@@ -1206,7 +1160,7 @@ func TestPublishEventOnPaneChangeWhileWaiting(t *testing.T) {
 
 func TestNoEventOnPaneChangeWhenNotWaiting(t *testing.T) {
 	d := &stubDeps{
-		sessions: []*store.Session{
+		sessions: []*agentstore.Agent{
 			{
 				ID:              "agent-123",
 				Status:          store.StatusWorking, // NOT waiting
@@ -1310,7 +1264,7 @@ func TestTryAutoApproveAffirmativeSelection(t *testing.T) {
 			d := &stubDeps{}
 			p := New(d, 30*time.Second)
 			p.AutoApprovePolicy = tc.policy
-			s := &store.Session{ID: "agent-1", TmuxSession: "tmux-1", AutoApprove: tc.perSession}
+			s := &agentstore.Agent{ID: "agent-1", TmuxSession: "tmux-1", AutoApprove: tc.perSession}
 
 			p.tryAutoApprove(context.Background(), s, tc.pane)
 
@@ -1353,7 +1307,7 @@ func TestTryAutoApprovePerAgent(t *testing.T) {
 			d := &stubDeps{}
 			p := New(d, 30*time.Second)
 			p.AutoApprovePolicy = policy
-			s := &store.Session{ID: "id-" + tc.agentName, Name: tc.agentName, TmuxSession: "tmux-1"}
+			s := &agentstore.Agent{ID: "id-" + tc.agentName, Name: tc.agentName, TmuxSession: "tmux-1"}
 
 			p.tryAutoApprove(context.Background(), s, tc.pane)
 
@@ -1369,14 +1323,14 @@ func TestTryAutoApproveRoutesThroughBackend(t *testing.T) {
 	d := &stubDeps{}
 	p := New(d, 30*time.Second)
 	p.AutoApprovePolicy = allowAllPolicy()
-	p.Backend = func(*store.Session) agentbackend.Backend {
+	p.Backend = func(*agentstore.Agent) agentbackend.Backend {
 		return fakeBackend{approval: &agentbackend.Approval{
 			Question:       "proceed?",
 			Options:        []string{"Yes", "No"},
 			AffirmativeIdx: 1,
 		}}
 	}
-	s := &store.Session{ID: "agent-1", TmuxSession: "tmux-1"}
+	s := &agentstore.Agent{ID: "agent-1", TmuxSession: "tmux-1"}
 
 	// A pane with none of Claude's numbered-box chrome — approval.Parse returns
 	// false for it, so a positive send proves the fake backend was consulted.
@@ -1392,7 +1346,7 @@ func TestSetAutoApprovePolicy(t *testing.T) {
 	const plainYesNo = "Do you want to proceed?\n ❯ 1. Yes\n   2. No"
 	d := &stubDeps{}
 	p := New(d, 30*time.Second)
-	s := &store.Session{ID: "agent-1", TmuxSession: "tmux-1"}
+	s := &agentstore.Agent{ID: "agent-1", TmuxSession: "tmux-1"}
 
 	// Initially disabled: nothing approved.
 	p.tryAutoApprove(context.Background(), s, plainYesNo)
@@ -1417,7 +1371,7 @@ func TestAutoApprovalEndToEnd(t *testing.T) {
 	secondPrompt := "Second prompt\nDo you want to continue?\n ❯ 1. Yes\n   2. No"
 
 	d := &stubDeps{
-		sessions: []*store.Session{
+		sessions: []*agentstore.Agent{
 			{
 				ID:          "agent-123",
 				Status:      store.StatusWorking,
@@ -1450,9 +1404,9 @@ func TestAutoApprovalEndToEnd(t *testing.T) {
 				return
 			case event := <-p.ApprovalEvents:
 				// Record which prompt triggered the event
-				eventsConsumed <- event.Session.ID
+				eventsConsumed <- event.Agent.ID
 				// Simulate auto-approval processing
-				p.tryAutoApprove(ctx, event.Session, event.Pane)
+				p.tryAutoApprove(ctx, event.Agent, event.Pane)
 			}
 		}
 	}()
@@ -1536,7 +1490,7 @@ func TestTryAutoApproveCircuitBreaker(t *testing.T) {
 	pol := allowAllPolicy()
 	pol.MaxRepeats = 3
 	p.AutoApprovePolicy = pol
-	s := &store.Session{ID: "agent-1", TmuxSession: "tmux-1"}
+	s := &agentstore.Agent{ID: "agent-1", TmuxSession: "tmux-1"}
 
 	ctx := context.Background()
 	for i := 0; i < 10; i++ {
@@ -1561,7 +1515,7 @@ func TestTryAutoApproveBreakerDefault(t *testing.T) {
 	d := &stubDeps{}
 	p := New(d, 30*time.Second)
 	p.AutoApprovePolicy = allowAllPolicy() // MaxRepeats unset
-	s := &store.Session{ID: "agent-1", TmuxSession: "tmux-1"}
+	s := &agentstore.Agent{ID: "agent-1", TmuxSession: "tmux-1"}
 
 	for i := 0; i < approval.DefaultMaxRepeats+20; i++ {
 		p.tryAutoApprove(context.Background(), s, prompt)
@@ -1573,11 +1527,11 @@ func TestTryAutoApproveBreakerDefault(t *testing.T) {
 // menuSession builds a single-session stubDeps plus a Poller with auto-resume on
 // and the menu-verify delay zeroed, for tryLimitMenu tests. verifyPane is what
 // CapturePane returns on the phase-2 re-check.
-func menuSession(t *testing.T, verifyPane string) (*stubDeps, *Poller, *store.Session) {
+func menuSession(t *testing.T, verifyPane string) (*stubDeps, *Poller, *agentstore.Agent) {
 	t.Helper()
-	s := &store.Session{ID: "A-1", TmuxSession: "A-1", Status: store.StatusRateLimited}
+	s := &agentstore.Agent{ID: "A-1", TmuxSession: "A-1", Status: store.StatusRateLimited}
 	d := &stubDeps{
-		sessions: []*store.Session{s},
+		sessions: []*agentstore.Agent{s},
 		alive:    map[string]bool{"A-1": true},
 		panes:    map[string]string{"A-1": verifyPane},
 		updates:  map[string]store.Status{},
@@ -1654,7 +1608,7 @@ func (rateLimitDetectorBackend) DetectRateLimit(pane string) (limited bool, rese
 // RateLimitDetector and returns limited=true, classify returns StatusRateLimited
 // even when the pane contains no Claude-specific banner text.
 func TestClassify_BackendRateLimitDetector(t *testing.T) {
-	s := &store.Session{ID: "t", Status: store.StatusWorking}
+	s := &agentstore.Agent{ID: "t", Status: store.StatusWorking}
 	// Pane has no Claude banner; the backend's detector fires instead.
 	got := classify(rateLimitDetectorBackend{}, s, "quota exceeded (custom backend)", true, 0, 0)
 	require.Equal(t, store.StatusRateLimited, got, "RateLimitDetector backend must drive StatusRateLimited")
@@ -1664,7 +1618,7 @@ func TestClassify_BackendRateLimitDetector(t *testing.T) {
 // RateLimitDetector still gets StatusRateLimited via the fallback detectRateLimit
 // when the pane contains a Claude-style limit banner.
 func TestClassify_FallbackWhenNoRateLimitDetector(t *testing.T) {
-	s := &store.Session{ID: "t", Status: store.StatusWorking}
+	s := &agentstore.Agent{ID: "t", Status: store.StatusWorking}
 	// fakeBackend does NOT implement RateLimitDetector; pane is a Claude banner.
 	got := classify(fakeBackend{}, s, sampleLimitBanner, true, 0, 0)
 	require.Equal(t, store.StatusRateLimited, got, "fallback detectRateLimit must fire for non-detector backend")
@@ -1676,7 +1630,7 @@ func TestClassify_FallbackWhenNoRateLimitDetector(t *testing.T) {
 // words. StateWorking always wins because a streaming agent cannot simultaneously
 // show a rate-limit banner.
 func TestClassify_Antigravity_WorkingVetoesRateLimit(t *testing.T) {
-	s := &store.Session{ID: "agy-1", Status: store.StatusWorking}
+	s := &agentstore.Agent{ID: "agy-1", Status: store.StatusWorking}
 	// Pane content contains "quota" in agent output while the agent is live.
 	pane := "Explaining quota management...\nesc to cancel\nGemini 3.5 Flash (Low)"
 	got := classify(backends.Antigravity{}, s, pane, true, 0, 5*time.Minute)
@@ -1687,7 +1641,7 @@ func TestClassify_Antigravity_WorkingVetoesRateLimit(t *testing.T) {
 // TestClassify_Antigravity_IdleNotLimited confirms that an Antigravity idle pane
 // (? for shortcuts footer, normal content) is NOT classified as rate-limited.
 func TestClassify_Antigravity_IdleNotLimited(t *testing.T) {
-	s := &store.Session{ID: "agy-2", Status: store.StatusWorking}
+	s := &agentstore.Agent{ID: "agy-2", Status: store.StatusWorking}
 	// A normal idle pane with no banner.
 	pane := "Here is the summary of your work.\n? for shortcuts\nGemini 3.5 Flash (Low)"
 	got := classify(backends.Antigravity{}, s, pane, true, 0, 5*time.Minute)
@@ -1699,7 +1653,7 @@ func TestClassify_Antigravity_IdleNotLimited(t *testing.T) {
 // Antigravity pane that yields StateUnknown (no recognizable footer) does not
 // accidentally classify as rate-limited — it preserves the stored status.
 func TestClassify_Antigravity_UnknownStatePreservesExisting(t *testing.T) {
-	s := &store.Session{ID: "agy-3", Status: store.StatusWorking}
+	s := &agentstore.Agent{ID: "agy-3", Status: store.StatusWorking}
 	// Pane with no agy-specific markers and no rate-limit banner.
 	pane := "some unrecognized output with no footer"
 	got := classify(backends.Antigravity{}, s, pane, true, 1*time.Second, 5*time.Minute)
@@ -1711,7 +1665,7 @@ func TestClassify_Antigravity_UnknownStatePreservesExisting(t *testing.T) {
 // Antigravity pane (no recent update, stuck after threshold) is downgraded from
 // Working to Idle — but only because of staleness, not a false rate-limit match.
 func TestClassify_Antigravity_StalePaneDoesNotReclassify(t *testing.T) {
-	s := &store.Session{ID: "agy-4", Status: store.StatusWorking}
+	s := &agentstore.Agent{ID: "agy-4", Status: store.StatusWorking}
 	pane := "some unrecognized output with no footer"
 	// sinceUpdate > stuckAfter → downgrade to Idle via the stuck-agent path.
 	got := classify(backends.Antigravity{}, s, pane, true, 10*time.Minute, 5*time.Minute)
@@ -1723,7 +1677,7 @@ func TestClassify_Antigravity_StalePaneDoesNotReclassify(t *testing.T) {
 // classify: an Antigravity pane showing the banner structure (limit phrase +
 // reset time in the tail) is classified as StatusRateLimited.
 func TestClassify_Antigravity_BannerDetected(t *testing.T) {
-	s := &store.Session{ID: "agy-5", Status: store.StatusWorking}
+	s := &agentstore.Agent{ID: "agy-5", Status: store.StatusWorking}
 	// A pane whose tail contains the banner shape: limit phrase + reset time.
 	banner := "⚠ Free-tier session quota reached.\n  Available at 15:30 · gemini.google.com"
 	pane := "previous work output\nprevious work output\n" + banner

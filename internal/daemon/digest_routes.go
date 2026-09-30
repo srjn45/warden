@@ -6,12 +6,12 @@ import (
 	"strings"
 
 	"github.com/srjn45/warden/internal/agentbackend"
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/digest"
-	"github.com/srjn45/warden/internal/store"
 )
 
 // BuildDigest is the exported entry point for wiring buildDigest into the executor.
-func (s *Server) BuildDigest(ctx context.Context, sess *store.Session) digest.Digest {
+func (s *Server) BuildDigest(ctx context.Context, sess *agentstore.Agent) digest.Digest {
 	return s.buildDigest(ctx, sess)
 }
 
@@ -25,10 +25,10 @@ func (s *Server) BuildDigest(ctx context.Context, sess *store.Session) digest.Di
 // degrades to a pane-scrape summary; a structured non-Claude backend (e.g. Aider's
 // markdown) is parsed via its own ParseTranscript and bridged into the neutral
 // digest Facts. Claude keeps its existing JSONL path verbatim.
-func (s *Server) buildDigest(ctx context.Context, sess *store.Session) digest.Digest {
+func (s *Server) buildDigest(ctx context.Context, sess *agentstore.Agent) digest.Digest {
 	d := digest.Digest{Status: string(sess.Status)}
 
-	b, err := agentbackend.Get(sess.Backend)
+	b, err := agentbackend.Get(sess.AiCli)
 	if err != nil {
 		b = agentbackend.Default()
 	}
@@ -108,7 +108,7 @@ func factsFromTurns(turns []agentbackend.Turn) digest.Facts {
 // paneScrapeSummary is the Tier-B digest fallback: it reads the agent's tmux pane
 // and returns its last meaningful line as a low-fidelity summary, since there is
 // no structured transcript to parse.
-func (s *Server) paneScrapeSummary(ctx context.Context, sess *store.Session) string {
+func (s *Server) paneScrapeSummary(ctx context.Context, sess *agentstore.Agent) string {
 	pane, err := s.life.Output(ctx, sess.TmuxSession, 40)
 	if err != nil || strings.TrimSpace(pane) == "" {
 		return "no transcript available"

@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/daemon/oapi"
 	"github.com/srjn45/warden/internal/lifecycle"
-	"github.com/srjn45/warden/internal/store"
 )
 
 // ListModels implements GET /api/v1/models: list models in the catalog and their assigned tiers.
@@ -112,7 +112,7 @@ func (s *Server) SetRoleTier(_ context.Context, req oapi.SetRoleTierRequestObjec
 // SwitchSession implements POST /api/v1/sessions/{id}/switch: hot-swap an agent mid-task.
 func (s *Server) SwitchSession(ctx context.Context, req oapi.SwitchSessionRequestObject) (oapi.SwitchSessionResponseObject, error) {
 	sess, err := s.store.GetByNameOrID(ctx, req.Id)
-	if errors.Is(err, store.ErrNotFound) {
+	if errors.Is(err, agentstore.ErrNotFound) {
 		return nil, errStatus(http.StatusNotFound, "session not found")
 	}
 	if err != nil {

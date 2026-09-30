@@ -7,18 +7,18 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/daemon/oapi"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/pressure"
 	"github.com/srjn45/warden/internal/savings"
-	"github.com/srjn45/warden/internal/store"
 )
 
 // pinnedGitTarget is pinnedWorkdir for strict handlers: it returns the
 // authoritative working dir + resolved session, or an apiError carrying the HTTP
 // status the hand-written handlers used to write directly.
-func (s *Server) pinnedGitTarget(ctx context.Context, session, dir string) (string, *store.Session, error) {
+func (s *Server) pinnedGitTarget(ctx context.Context, session, dir string) (string, *agentstore.Agent, error) {
 	resolved, sess, status, msg := s.pinnedWorkdir(ctx, session, dir)
 	if status != 0 {
 		return "", nil, errStatus(status, msg)
@@ -36,7 +36,10 @@ func (s *Server) GitCommit(ctx context.Context, req oapi.GitCommitRequestObject)
 	if err != nil {
 		return nil, err
 	}
-	meta := plugin.MetaFromSession(sess)
+	var meta plugin.SessionMeta
+	if sess != nil {
+		meta = plugin.MetaFromSession(sess.ToSession())
+	}
 	meta.Workdir = dir
 	s.plugins.Dispatch(ctx, plugin.EventPreCommit, meta, map[string]string{"message": b.Message})
 	res, err := s.life.Commit(ctx, dir, b.Message)
@@ -106,7 +109,10 @@ func (s *Server) RunCheck(ctx context.Context, req oapi.RunCheckRequestObject) (
 	if err != nil {
 		return nil, err
 	}
-	meta := plugin.MetaFromSession(sess)
+	var meta plugin.SessionMeta
+	if sess != nil {
+		meta = plugin.MetaFromSession(sess.ToSession())
+	}
 	meta.Workdir = dir
 	s.plugins.Dispatch(ctx, plugin.EventPreCheck, meta, map[string]string{"name": b.Name})
 	res, err := s.life.Check(ctx, dir, b.Name)

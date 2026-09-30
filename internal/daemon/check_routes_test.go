@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
@@ -14,7 +15,7 @@ import (
 
 func TestCheckPinsToSessionWorkdir(t *testing.T) {
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", Workdir: "/repo/.worktrees/A-1", Status: store.StatusWorking})
+	_ = fs.Insert(context.Background(), &agentstore.Agent{ID: "A-1", Workdir: "/repo/.worktrees/A-1", Status: store.StatusWorking})
 	fl := &fakeLife{checkResult: lifecycle.CheckResult{Passed: true, Checks: []lifecycle.CheckOutcome{{Name: "test", Passed: true}}}}
 	ts := lifeServer(t, fs, fl)
 	defer ts.Close()

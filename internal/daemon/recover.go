@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -71,10 +72,16 @@ func (s *Server) restoreRecoveredEdges(ctx context.Context, results []RecoverRes
 	}
 }
 
+type recoverStore interface {
+	ListClosed(ctx context.Context) ([]*agentstore.Agent, error)
+	Get(ctx context.Context, id string) (*agentstore.Agent, error)
+	Insert(ctx context.Context, agent *agentstore.Agent) error
+}
+
 // recoverCandidates is Recover's testable core: the store and liveness check
 // are passed in directly rather than read off *Server, so tests can exercise
 // it with a fake store and a controllable alive func with no real poller.
-func recoverCandidates(ctx context.Context, st store.Store, alive func(ctx context.Context, tmuxSession string) bool, apply bool) ([]RecoverResult, error) {
+func recoverCandidates(ctx context.Context, st recoverStore, alive func(ctx context.Context, tmuxSession string) bool, apply bool) ([]RecoverResult, error) {
 	closed, err := st.ListClosed(ctx)
 	if err != nil {
 		return nil, err

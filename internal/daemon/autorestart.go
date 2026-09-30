@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -32,19 +33,19 @@ func decideRestart(count int, lastRestartAt, now time.Time, max int, reset time.
 	return actionRestart, effective + 1
 }
 
-// Restarter auto-resumes an opted-in agent (on errored) or terminal (on orphaned),
-// bounded by a per-session retry cap that resets after sustained health.
+// Restarter auto-resumes an opted-in agent (on errored),
+// bounded by a per-agent retry cap that resets after sustained health.
 type Restarter struct {
 	life  Lifecycle
-	store store.Store
+	store agentstore.AgentStore
 	max   int
 	reset time.Duration
 }
 
 // NewRestarter builds a Restarter. The cap (max) and reset window are supplied
 // by the caller from config (auto_restart_max / auto_restart_reset); the feature
-// itself is opt-in per agent (Session.AutoRestart).
-func NewRestarter(life Lifecycle, st store.Store, max int, reset time.Duration) *Restarter {
+// itself is opt-in per agent (Agent.AutoRestart).
+func NewRestarter(life Lifecycle, st agentstore.AgentStore, max int, reset time.Duration) *Restarter {
 	return &Restarter{
 		life:  life,
 		store: st,
@@ -54,18 +55,14 @@ func NewRestarter(life Lifecycle, st store.Store, max int, reset time.Duration) 
 }
 
 // OnTransition is wired as a callback on the poller's status-transition hook.
-func (r *Restarter) OnTransition(sess *store.Session, _ store.Status, to store.Status) {
+func (r *Restarter) OnTransition(sess *agentstore.Agent, _ store.Status, to store.Status) {
 	r.onTransitionAt(sess, store.Status(""), to, time.Now().UTC())
 }
 
 // onTransitionAt is the testable core (now injected). It restarts a qualifying
-// errored agent or orphaned terminal, or records a give-up.
-func (r *Restarter) onTransitionAt(sess *store.Session, _ store.Status, to store.Status, now time.Time) {
-	// Agents trigger on errored; terminals trigger on orphaned because terminal
-	// sessions have no errored transition path — the pane simply disappears.
-	isAgentError := to == store.StatusErrored && !sess.IsTerminal()
-	isTerminalOrphan := to == store.StatusOrphaned && sess.IsTerminal()
-	if (!isAgentError && !isTerminalOrphan) || !sess.AutoRestart || sess.PipelineID != "" {
+// errored agent, or records a give-up.
+func (r *Restarter) onTransitionAt(sess *agentstore.Agent, _ store.Status, to store.Status, now time.Time) {
+	if to != store.StatusErrored || !sess.AutoRestart || sess.PipelineID != "" {
 		return
 	}
 	ctx := context.Background()
@@ -78,9 +75,11 @@ func (r *Restarter) onTransitionAt(sess *store.Session, _ store.Status, to store
 		r.appendEvent(ctx, sess.ID, fmt.Sprintf("auto-restart: giving up after %d attempts", r.max))
 		return
 	}
-	if err := r.store.SetRestart(ctx, sess.ID, next, now); err != nil {
-		slog.Warn("auto-restart: set restart failed", "agent", sess.ID, "err", err)
-		return
+	if r.store != nil {
+		if err := r.store.SetRestart(ctx, sess.ID, next, now); err != nil {
+			slog.Warn("auto-restart: set restart failed", "agent", sess.ID, "err", err)
+			return
+		}
 	}
 	r.appendEvent(ctx, sess.ID, fmt.Sprintf("auto-restart: attempt %d/%d", next, r.max))
 	// errored = claude died, shell alive: kill the surviving session so Restore's
@@ -90,12 +89,17 @@ func (r *Restarter) onTransitionAt(sess *store.Session, _ store.Status, to store
 		r.appendEvent(ctx, sess.ID, fmt.Sprintf("auto-restart: restore failed: %v", err))
 		return
 	}
-	if _, err := r.store.UpdateStatusIf(ctx, sess.ID, to, store.StatusSpawning); err != nil {
-		slog.Warn("auto-restart: status update failed", "agent", sess.ID, "err", err)
+	if r.store != nil {
+		if _, err := r.store.UpdateStatusIf(ctx, sess.ID, to, store.StatusSpawning); err != nil {
+			slog.Warn("auto-restart: status update failed", "agent", sess.ID, "err", err)
+		}
 	}
 }
 
 func (r *Restarter) appendEvent(ctx context.Context, id, detail string) {
+	if r.store == nil {
+		return
+	}
 	if err := r.store.AppendEvent(ctx, id, store.Event{Type: "auto-restart", Detail: detail}); err != nil {
 		slog.Warn("auto-restart: append event failed", "agent", id, "err", err)
 	}

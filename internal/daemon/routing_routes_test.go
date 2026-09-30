@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/srjn45/warden/internal/agentstore"
 	"net/http"
 	"testing"
 	"time"
@@ -235,9 +236,9 @@ func TestHandleSwitchSessionRoute(t *testing.T) {
 	defer srv.Close()
 
 	// Seed an active session
-	sess := &store.Session{
+	sess := &agentstore.Agent{
 		ID:          "agent-switch-test",
-		Backend:     "claude",
+		AiCli:       "claude",
 		Model:       "sonnet",
 		TmuxSession: "agent-switch-test",
 		Status:      store.StatusWorking,

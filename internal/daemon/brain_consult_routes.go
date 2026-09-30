@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/brainconsult"
 	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/daemon/oapi"
-	"github.com/srjn45/warden/internal/store"
 )
 
 // defaultAutopilotAllowed is the closed-action subset offered to the autopilot
@@ -141,7 +141,7 @@ func mapAllowed(in []oapi.BrainConsultRequestAllowed) []brainconsult.Action {
 // lifecycle/audit surface. Role follows the frozen Phase 1 default
 // (autopilotBrainRole / "autopilot") so consult spawns share the same Lifecycle
 // Role surface as SpawnBrain without touching the manager slot (empty Ticket).
-func newBrainConsultor(life Lifecycle, st store.Store, aw *audit.Writer, cfg config.BrainConsultConfig) brainconsult.Consultor {
+func newBrainConsultor(life Lifecycle, st agentstore.AgentStore, aw *audit.Writer, cfg config.BrainConsultConfig) brainconsult.Consultor {
 	timeout := 10 * time.Minute
 	if d, err := time.ParseDuration(cfg.Timeout); err == nil && d > 0 {
 		timeout = d

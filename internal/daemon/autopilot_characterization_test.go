@@ -8,20 +8,21 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
 
 func TestAutopilotManagerDeleteWithLiveWorkersNoTombstone(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["agent-8bed0ec5"] = &store.Session{
+	fs.data["agent-8bed0ec5"] = &agentstore.Agent{
 		ID:          "agent-8bed0ec5",
 		TmuxSession: "agent-8bed0ec5",
 		Role:        "autopilot",
 		Status:      store.StatusWorking,
 		Tags:        []string{"autopilot", "run:ap-deadbeef1234"},
 	}
-	fs.data["worker-task-a"] = &store.Session{
+	fs.data["worker-task-a"] = &agentstore.Agent{
 		ID:             "worker-task-a",
 		Status:         store.StatusWorking,
 		AutopilotRunID: "ap-deadbeef1234",
@@ -42,11 +43,11 @@ func TestAutopilotManagerDeleteWithLiveWorkersNoTombstone(t *testing.T) {
 
 func TestReapAutopilotManagerWhenLastWorkerFinishes(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["agent-old-brain"] = &store.Session{
+	fs.data["agent-old-brain"] = &agentstore.Agent{
 		ID: "agent-old-brain", Role: "autopilot", Status: store.StatusDone,
 		Tags: []string{"autopilot", "run:ap-deadbeef1234"},
 	}
-	fs.data["worker-task-a"] = &store.Session{
+	fs.data["worker-task-a"] = &agentstore.Agent{
 		ID: "worker-task-a", Status: store.StatusWorking,
 		AutopilotRunID: "ap-deadbeef1234", AutopilotSlot: store.AutopilotSlotWorker,
 		Tags: []string{"autopilot", "run:ap-deadbeef1234"},

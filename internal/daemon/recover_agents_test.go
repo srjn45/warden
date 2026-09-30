@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"github.com/srjn45/warden/internal/agentstore"
 	"testing"
 
 	"github.com/srjn45/warden/internal/projectstore"
@@ -14,7 +15,7 @@ import (
 // store under its original id with its metadata intact.
 func TestRecoverCandidatesDryRunThenApply(t *testing.T) {
 	fs := newFakeStore()
-	fs.closed["orch"] = &store.Session{
+	fs.closed["orch"] = &agentstore.Agent{
 		ID: "orch", TmuxSession: "orch", Workdir: "/repo", Name: "orchestrator",
 		Subject: "doing things", ParentID: "", Status: store.StatusOrphaned,
 	}
@@ -41,7 +42,7 @@ func TestRecoverCandidatesDryRunThenApply(t *testing.T) {
 // it was archived correctly and recover must not resurrect it.
 func TestRecoverCandidatesSkipsGenuinelyDead(t *testing.T) {
 	fs := newFakeStore()
-	fs.closed["gone"] = &store.Session{ID: "gone", TmuxSession: "gone", Status: store.StatusOrphaned}
+	fs.closed["gone"] = &agentstore.Agent{ID: "gone", TmuxSession: "gone", Status: store.StatusOrphaned}
 	alive := func(context.Context, string) bool { return false }
 
 	results, err := recoverCandidates(context.Background(), fs, alive, true)
@@ -54,8 +55,8 @@ func TestRecoverCandidatesSkipsGenuinelyDead(t *testing.T) {
 // candidate material — only orphaned archives may be revived.
 func TestRecoverCandidatesSkipsNonOrphaned(t *testing.T) {
 	fs := newFakeStore()
-	fs.closed["done"] = &store.Session{ID: "done", TmuxSession: "done", Status: store.StatusDone}
-	fs.closed["idle"] = &store.Session{ID: "idle", TmuxSession: "idle", Status: store.StatusIdle}
+	fs.closed["done"] = &agentstore.Agent{ID: "done", TmuxSession: "done", Status: store.StatusDone}
+	fs.closed["idle"] = &agentstore.Agent{ID: "idle", TmuxSession: "idle", Status: store.StatusIdle}
 	alive := func(context.Context, string) bool { return true }
 
 	results, err := recoverCandidates(context.Background(), fs, alive, true)
@@ -69,7 +70,7 @@ func TestRecoverCandidatesSkipsNonOrphaned(t *testing.T) {
 // recover must never guess at liveness.
 func TestRecoverCandidatesNoCheckerYieldsNone(t *testing.T) {
 	fs := newFakeStore()
-	fs.closed["orch"] = &store.Session{ID: "orch", TmuxSession: "orch", Status: store.StatusOrphaned}
+	fs.closed["orch"] = &agentstore.Agent{ID: "orch", TmuxSession: "orch", Status: store.StatusOrphaned}
 
 	results, err := recoverCandidates(context.Background(), fs, nil, false)
 	require.NoError(t, err)
@@ -80,8 +81,8 @@ func TestRecoverCandidatesNoCheckerYieldsNone(t *testing.T) {
 // is not re-offered as a candidate.
 func TestRecoverCandidatesSkipsAlreadyActive(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["orch"] = &store.Session{ID: "orch", TmuxSession: "orch", Status: store.StatusWorking}
-	fs.closed["orch"] = &store.Session{ID: "orch", TmuxSession: "orch", Status: store.StatusOrphaned}
+	fs.data["orch"] = &agentstore.Agent{ID: "orch", TmuxSession: "orch", Status: store.StatusWorking}
+	fs.closed["orch"] = &agentstore.Agent{ID: "orch", TmuxSession: "orch", Status: store.StatusOrphaned}
 	alive := func(context.Context, string) bool { return true }
 
 	results, err := recoverCandidates(context.Background(), fs, alive, false)
@@ -93,8 +94,8 @@ func TestRecoverCandidatesSkipsAlreadyActive(t *testing.T) {
 // without aborting the rest of the batch.
 func TestRecoverCandidatesReportsInsertError(t *testing.T) {
 	fs := newFakeStore()
-	fs.closed["orch"] = &store.Session{ID: "orch", TmuxSession: "orch", Status: store.StatusOrphaned}
-	fs.insertErr = store.ErrExists
+	fs.closed["orch"] = &agentstore.Agent{ID: "orch", TmuxSession: "orch", Status: store.StatusOrphaned}
+	fs.insertErr = agentstore.ErrExists
 	alive := func(context.Context, string) bool { return true }
 
 	results, err := recoverCandidates(context.Background(), fs, alive, true)
@@ -118,14 +119,14 @@ func TestRecoverApplyRestoresMembershipAndChildEdge(t *testing.T) {
 	proj, err := ps.OpenProject("/projects/alpha", "alpha", "/projects/alpha")
 	require.NoError(t, err)
 
-	parent := &store.Session{ID: "agent-parent", Status: store.StatusWorking, ProjectID: proj.ID}
+	parent := &agentstore.Agent{ID: "agent-parent", Status: store.StatusWorking, ProjectID: proj.ID}
 	require.NoError(t, fs.Insert(ctx, parent))
 	// Simulate a prior spawn that stamped both ends, then Archive that dropped
 	// the forward edges while the orphaned record retained its back-refs.
 	_, err = ps.AddAgentToProject(proj.ID, "agent-parent")
 	require.NoError(t, err)
 
-	archived := &store.Session{
+	archived := &agentstore.Agent{
 		ID: "agent-child", TmuxSession: "agent-child", Status: store.StatusOrphaned,
 		ParentID: parent.ID, ProjectID: proj.ID, Name: "child",
 	}

@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"github.com/srjn45/warden/internal/agentstore"
 	"strings"
 	"sync"
 	"testing"
@@ -12,7 +13,7 @@ import (
 )
 
 func TestContextAlertMessage(t *testing.T) {
-	s := &store.Session{ID: "agent-x", Subject: "refactor auth"}
+	s := &agentstore.Agent{ID: "agent-x", Subject: "refactor auth"}
 	title, body := ContextAlertMessage(s, ctxtokens.StateWarning, 210000)
 	if title == "" || body == "" {
 		t.Fatal("empty message")
@@ -27,7 +28,7 @@ func TestContextAlertMessage(t *testing.T) {
 }
 
 func TestNotifyMessageActionable(t *testing.T) {
-	s := &store.Session{ID: "agent-x", Subject: "review auth"}
+	s := &agentstore.Agent{ID: "agent-x", Subject: "review auth"}
 	cases := []struct {
 		to         store.Status
 		wantTitle  string
@@ -47,7 +48,7 @@ func TestNotifyMessageActionable(t *testing.T) {
 }
 
 func TestNotifyMessageNonActionable(t *testing.T) {
-	s := &store.Session{ID: "agent-x"}
+	s := &agentstore.Agent{ID: "agent-x"}
 	for _, st := range []store.Status{store.StatusWorking, store.StatusSpawning, store.StatusDone} {
 		_, _, ok := notifyMessage(s, st)
 		require.False(t, ok, st)
@@ -55,7 +56,7 @@ func TestNotifyMessageNonActionable(t *testing.T) {
 }
 
 func TestNotifyMessageSubjectFallsBackToID(t *testing.T) {
-	_, body, ok := notifyMessage(&store.Session{ID: "agent-x"}, store.StatusWaitingForInput)
+	_, body, ok := notifyMessage(&agentstore.Agent{ID: "agent-x"}, store.StatusWaitingForInput)
 	require.True(t, ok)
 	require.Contains(t, body, "agent-x")
 }
@@ -71,7 +72,7 @@ func (f *fakeNotifier) count() int                { f.mu.Lock(); defer f.mu.Unlo
 func TestNotifyOnTransitionFiresForActionableOnly(t *testing.T) {
 	fn := &fakeNotifier{}
 	hook := NotifyOnTransition(fn)
-	hook(&store.Session{ID: "a"}, store.StatusWorking, store.StatusWaitingForInput) // actionable → fires
-	hook(&store.Session{ID: "a"}, store.StatusWaitingForInput, store.StatusWorking) // not actionable
+	hook(&agentstore.Agent{ID: "a"}, store.StatusWorking, store.StatusWaitingForInput) // actionable → fires
+	hook(&agentstore.Agent{ID: "a"}, store.StatusWaitingForInput, store.StatusWorking) // not actionable
 	require.Eventually(t, func() bool { return fn.count() == 1 }, time.Second, 5*time.Millisecond)
 }

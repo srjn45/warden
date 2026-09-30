@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -18,9 +19,9 @@ func TestEvalHotSwapSignalsOncePerCriticalEpisode(t *testing.T) {
 	p.HandoverEnabled = true
 	var signals int
 	var gotTokens int
-	p.OnHotSwap = func(_ *store.Session, tokens int) { signals++; gotTokens = tokens }
+	p.OnHotSwap = func(_ *agentstore.Agent, tokens int) { signals++; gotTokens = tokens }
 
-	s := &store.Session{ID: "a1", Status: store.StatusWorking}
+	s := &agentstore.Agent{ID: "a1", Status: store.StatusWorking}
 
 	// First critical tick: signal.
 	p.checkContext(context.Background(), s, time.Now())
@@ -55,9 +56,9 @@ func TestEvalHotSwapInertWhenDisabled(t *testing.T) {
 	p.TokenWarn, p.TokenCrit, p.TokenGuard = 200000, 400000, true
 	// HandoverEnabled left false.
 	var signals int
-	p.OnHotSwap = func(*store.Session, int) { signals++ }
+	p.OnHotSwap = func(*agentstore.Agent, int) { signals++ }
 
-	s := &store.Session{ID: "a1", Status: store.StatusWorking}
+	s := &agentstore.Agent{ID: "a1", Status: store.StatusWorking}
 	p.checkContext(context.Background(), s, time.Now())
 	if signals != 0 {
 		t.Fatalf("disabled handover fired the signal: signals=%d", signals)
@@ -71,9 +72,9 @@ func TestEvalHotSwapNoSignalBelowCritical(t *testing.T) {
 	p.TokenWarn, p.TokenCrit, p.TokenGuard = 200000, 400000, true
 	p.HandoverEnabled = true
 	var signals int
-	p.OnHotSwap = func(*store.Session, int) { signals++ }
+	p.OnHotSwap = func(*agentstore.Agent, int) { signals++ }
 
-	s := &store.Session{ID: "a1", Status: store.StatusWorking}
+	s := &agentstore.Agent{ID: "a1", Status: store.StatusWorking}
 	p.checkContext(context.Background(), s, time.Now())
 	if signals != 0 {
 		t.Fatalf("warning band fired the signal: signals=%d", signals)

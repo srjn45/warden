@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/brainconsult"
 	"github.com/srjn45/warden/internal/pipeline"
-	"github.com/srjn45/warden/internal/store"
 )
 
 // pwPipelineStore is the pipeline-store subset PipelineWatcher needs.
@@ -21,7 +21,7 @@ type pwPipelineStore interface {
 // pwSessionStore is the session-store subset PipelineWatcher needs for orphan
 // cross-checks.
 type pwSessionStore interface {
-	Get(ctx context.Context, id string) (*store.Session, error)
+	Get(ctx context.Context, id string) (*agentstore.Agent, error)
 }
 
 // PipelineWatcher monitors running pipelines at a fixed cadence and nudges the

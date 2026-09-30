@@ -18,8 +18,8 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/audit"
-	"github.com/srjn45/warden/internal/store"
 )
 
 // Action is the closed set of actions a brain may recommend.
@@ -95,11 +95,11 @@ type Consultor interface {
 // SpawnRequest, keeping brainconsult import-cycle free.
 type Spawner interface {
 	// Spawn launches a headless brain agent and returns the session record.
-	Spawn(ctx context.Context, args BrainSpawnArgs) (*store.Session, error)
+	Spawn(ctx context.Context, args BrainSpawnArgs) (*agentstore.Agent, error)
 	// Output returns the last n lines of the agent's pane output.
 	Output(ctx context.Context, tmuxSession string, lines int) (string, error)
 	// Teardown force-kills the agent's tmux session without touching the store.
-	Teardown(ctx context.Context, sess *store.Session) error
+	Teardown(ctx context.Context, sess *agentstore.Agent) error
 }
 
 // BrainSpawnArgs is the minimal set of fields Consultor needs to spawn a brain.

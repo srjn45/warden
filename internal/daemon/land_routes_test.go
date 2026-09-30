@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/store"
@@ -77,7 +78,7 @@ func newLandServer(t *testing.T, host *stubLandHost) (*httptest.Server, *Server,
 // addWorker inserts an autopilot-owned worker session on branch for runID.
 func addWorker(t *testing.T, srv *Server, runID, id, branch string) {
 	t.Helper()
-	require.NoError(t, srv.store.Insert(context.Background(), &store.Session{
+	require.NoError(t, srv.store.Insert(context.Background(), &agentstore.Agent{
 		ID:       id,
 		Branch:   branch,
 		Worktree: t.TempDir(),
@@ -253,7 +254,7 @@ func TestLandRouteSuccessMarksTaskDone(t *testing.T) {
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
 
-	require.NoError(t, srv.store.Insert(context.Background(), &store.Session{
+	require.NoError(t, srv.store.Insert(context.Background(), &agentstore.Agent{
 		ID:              "W-task-1",
 		Branch:          "autopilot/t1-branch",
 		Worktree:        t.TempDir(),

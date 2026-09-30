@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/srjn45/warden/internal/agentbackend"
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/ctxtokens"
 	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/store"
@@ -74,7 +75,7 @@ func decideContext(prev, cur ctxtokens.State, status store.Status, sinceCompact,
 // classifies them, persists the gauge, and applies decideContext: it fires the
 // alert hook and/or sends /compact. It is called only for live, non-terminal
 // sessions. A read with ok=false (no model turn yet) is a no-op.
-func (p *Poller) checkContext(ctx context.Context, s *store.Session, now time.Time) {
+func (p *Poller) checkContext(ctx context.Context, s *agentstore.Agent, now time.Time) {
 	tokens, ok := p.deps.ContextTokens(ctx, s)
 	if !ok {
 		return
@@ -83,7 +84,7 @@ func (p *Poller) checkContext(ctx context.Context, s *store.Session, now time.Ti
 	// reload may swap them concurrently via SetContextGuard).
 	g := p.ctxGuard()
 	// Antigravity uses a large context window and does not require manual compaction.
-	if s.Backend == "antigravity" {
+	if s.AiCli == "antigravity" {
 		g.AutoCompact = false
 		g.ForceCompact = false
 	}
@@ -164,7 +165,7 @@ func (p *Poller) checkContext(ctx context.Context, s *store.Session, now time.Ti
 // swap — it hands the session to OnHotSwap, which the daemon backs with the full
 // lifecycle.DecideHotSwap policy (fill %, provider-quota headroom, cooldown) and the
 // actual lifecycle.HotSwap. Tick goroutine only.
-func (p *Poller) evalHotSwap(s *store.Session, cur ctxtokens.State, tokens int) {
+func (p *Poller) evalHotSwap(s *agentstore.Agent, cur ctxtokens.State, tokens int) {
 	if cur != ctxtokens.StateCritical {
 		delete(p.hotSwapFlagged, s.ID) // episode over — re-arm for the next one
 		return
@@ -185,7 +186,7 @@ func (p *Poller) evalHotSwap(s *store.Session, cur ctxtokens.State, tokens int) 
 // generated; the output the transcript bills by the landing tick is the
 // generation cost. Overwrites any prior marker — the most recent send is the one
 // to credit. Shared by the idle auto-compact path and the force-compact machine.
-func (p *Poller) sendCompact(ctx context.Context, s *store.Session, tokens, outUsage int, usageOK bool, now time.Time) bool {
+func (p *Poller) sendCompact(ctx context.Context, s *agentstore.Agent, tokens, outUsage int, usageOK bool, now time.Time) bool {
 	if err := p.deps.Compact(ctx, s); err != nil {
 		p.compactFailure(ctx, s, fmt.Sprintf("failed to submit /compact: %v", err))
 		return false
@@ -219,10 +220,10 @@ func (p *Poller) sendCompact(ctx context.Context, s *store.Session, tokens, outU
 //
 // The compact itself is gated by the cooldown so a failed/slow landing can't
 // storm /compact. Tick goroutine only.
-func (p *Poller) stepForceCompact(ctx context.Context, s *store.Session, cur ctxtokens.State, tokens, outUsage int, usageOK bool, sinceCompact time.Duration, now time.Time) bool {
+func (p *Poller) stepForceCompact(ctx context.Context, s *agentstore.Agent, cur ctxtokens.State, tokens, outUsage int, usageOK bool, sinceCompact time.Duration, now time.Time) bool {
 	g := p.ctxGuard()
 	// Antigravity uses a large context window and does not require manual compaction.
-	if s.Backend == "antigravity" {
+	if s.AiCli == "antigravity" {
 		g.AutoCompact = false
 		g.ForceCompact = false
 	} // hot-reloadable: force-compact default + resume prompt
@@ -304,7 +305,7 @@ func (p *Poller) stepForceCompact(ctx context.Context, s *store.Session, cur ctx
 // inputReady applies a positive backend acknowledgement when one is available.
 // Backends without that seam retain the historical status-based behavior, which
 // keeps Claude and the other adapters byte-for-byte unchanged.
-func (p *Poller) inputReady(ctx context.Context, s *store.Session) bool {
+func (p *Poller) inputReady(ctx context.Context, s *agentstore.Agent) bool {
 	b := p.backendFor(s)
 	r, ok := b.(agentbackend.InputReadiness)
 	if !ok {
@@ -314,7 +315,7 @@ func (p *Poller) inputReady(ctx context.Context, s *store.Session) bool {
 	return err == nil && r.InputReady(pane)
 }
 
-func (p *Poller) compactFailure(ctx context.Context, s *store.Session, detail string) {
+func (p *Poller) compactFailure(ctx context.Context, s *agentstore.Agent, detail string) {
 	p.raiseAnomaly(ctx, s, Anomaly{Kind: anomalyCompactFailed, Detail: detail})
 }
 
@@ -330,7 +331,7 @@ func (p *Poller) compactFailure(ctx context.Context, s *store.Session, detail st
 // upward, which could only understate a real saving. A marker older than
 // compactLandWindow is abandoned (the compaction never visibly landed) so it can't
 // later be credited to an unrelated drop. Tick goroutine only.
-func (p *Poller) reconcileCompact(ctx context.Context, s *store.Session, tokens, curOut int, curOutOK bool, now time.Time) {
+func (p *Poller) reconcileCompact(ctx context.Context, s *agentstore.Agent, tokens, curOut int, curOutOK bool, now time.Time) {
 	pc, ok := p.pendingCompact[s.ID]
 	if !ok {
 		return

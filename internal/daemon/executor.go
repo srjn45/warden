@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/curate"
 	"github.com/srjn45/warden/internal/digest"
@@ -63,20 +64,20 @@ type Executor struct {
 	// executor lock is simpler than per-pipeline locks and plenty fast.
 	mu     sync.Mutex
 	pstore *pipeline.Store
-	sstore store.Store
+	sstore agentstore.AgentStore
 	life   Lifecycle
 	cstore *ctxstore.Store
 	notify func() // signals SSE subscribers that state changed (may be nil)
 
 	projects *projectstore.Store // nil ⇒ job agents stay project-less (membership no-op)
 
-	digestFn func(context.Context, *store.Session) digest.Digest // nil ⇒ skip snapshot
-	curator  Curator                                             // nil ⇒ memory auto-curation disabled
-	keepDone bool                                                // pipeline_keep_done config setting — keep done agents alive
-	snapWG   sync.WaitGroup                                      // tracks in-flight digest snapshots (test sync)
+	digestFn func(context.Context, *agentstore.Agent) digest.Digest // nil ⇒ skip snapshot
+	curator  Curator                                                // nil ⇒ memory auto-curation disabled
+	keepDone bool                                                   // pipeline_keep_done config setting — keep done agents alive
+	snapWG   sync.WaitGroup                                         // tracks in-flight digest snapshots (test sync)
 }
 
-func NewExecutor(ps *pipeline.Store, ss store.Store, life Lifecycle, cs *ctxstore.Store, notify func()) *Executor {
+func NewExecutor(ps *pipeline.Store, ss agentstore.AgentStore, life Lifecycle, cs *ctxstore.Store, notify func()) *Executor {
 	return &Executor{pstore: ps, sstore: ss, life: life, cstore: cs, notify: notify}
 }
 
@@ -89,7 +90,7 @@ func (e *Executor) SetProjects(ps *projectstore.Store) { e.projects = ps }
 
 // SetDigestFn wires the digest builder used to snapshot a job's completion digest
 // (bound to Server.buildDigest in production). nil ⇒ no snapshot.
-func (e *Executor) SetDigestFn(fn func(context.Context, *store.Session) digest.Digest) {
+func (e *Executor) SetDigestFn(fn func(context.Context, *agentstore.Agent) digest.Digest) {
 	e.digestFn = fn
 }
 
@@ -106,7 +107,7 @@ func (e *Executor) SetCurator(c Curator) { e.curator = c }
 // Server.addProjectMembership. Best-effort and a silent no-op when the job is
 // project-less or no projects store is wired. Job agents are NEVER added to any
 // agent.child_agents[] (D5) — that exclusion is enforced by childOfParent.
-func (e *Executor) addJobProjectMembership(sess *store.Session) {
+func (e *Executor) addJobProjectMembership(sess *agentstore.Agent) {
 	if e.projects == nil || sess == nil || sess.ProjectID == "" {
 		return
 	}
@@ -118,7 +119,7 @@ func (e *Executor) addJobProjectMembership(sess *store.Session) {
 // removeJobProjectMembership drops a reaped/deleted job agent from its project's
 // Project.agents[] list, the delete-side mirror of addJobProjectMembership.
 // Best-effort; a silent no-op when project-less or unconfigured.
-func (e *Executor) removeJobProjectMembership(sess *store.Session) {
+func (e *Executor) removeJobProjectMembership(sess *agentstore.Agent) {
 	if e.projects == nil || sess == nil || sess.ProjectID == "" {
 		return
 	}
@@ -162,7 +163,7 @@ func (e *Executor) Reconcile(ctx context.Context, pid string) error {
 	// Spawn ready jobs (outside the store lock; capture results to persist after).
 	type spawned struct {
 		jobID, sessionID string
-		sess             *store.Session
+		sess             *agentstore.Agent
 	}
 	var ok []spawned
 	for _, jobID := range d.Spawn {
@@ -491,7 +492,7 @@ func (e *Executor) Resume(ctx context.Context, pid string) error {
 // (done) hook — the poller skips terminal sessions, so done would otherwise never
 // be reconciled. Job *completion* is still inferred only via `emit`; a done
 // transition with the job still running means it exited without emitting.
-func (e *Executor) OnTransition(sess *store.Session, _ store.Status, to store.Status) {
+func (e *Executor) OnTransition(sess *agentstore.Agent, _ store.Status, to store.Status) {
 	if sess.PipelineID == "" {
 		return
 	}
@@ -603,7 +604,7 @@ func (e *Executor) Emit(ctx context.Context, pid, jobID, text string) error {
 	if job.Status != pipeline.JobRunning && job.Status != pipeline.JobNeedsAttention {
 		return fmt.Errorf("%w (status %s)", ErrJobNotRunning, job.Status)
 	}
-	var sess *store.Session
+	var sess *agentstore.Agent
 	if agentID := job.AgentRef(); agentID != "" {
 		sess, _ = e.sstore.Get(ctx, agentID)
 	}
@@ -658,7 +659,7 @@ func (e *Executor) Emit(ctx context.Context, pid, jobID, text string) error {
 		}
 		if e.digestFn != nil {
 			e.snapWG.Add(1)
-			go func(s *store.Session) {
+			go func(s *agentstore.Agent) {
 				defer e.snapWG.Done()
 				dctx, cancel := context.WithTimeout(context.Background(), digestSnapshotTimeout)
 				defer cancel()
@@ -690,7 +691,7 @@ func (e *Executor) Emit(ctx context.Context, pid, jobID, text string) error {
 // curate.Signal the curation pass reads — the agent id and any produced branch become
 // the entry provenance, the files/summary the extraction evidence. It carries no
 // digest/curate coupling beyond this one adapter.
-func signalFromDigest(s *store.Session, d digest.Digest) curate.Signal {
+func signalFromDigest(s *agentstore.Agent, d digest.Digest) curate.Signal {
 	files := make([]string, 0, len(d.Files))
 	for _, f := range d.Files {
 		files = append(files, f.Path)

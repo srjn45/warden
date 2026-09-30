@@ -9,13 +9,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/store"
 )
 
 // spawnAuditDetail captures the who/what context worth keeping for a spawn:
 // the agent's name, repo, and task type (omitting any that are empty).
-func spawnAuditDetail(sess *store.Session, req SpawnRequest) map[string]string {
+func spawnAuditDetail(sess *agentstore.Agent, req SpawnRequest) map[string]string {
 	d := map[string]string{}
 	if sess.Name != "" {
 		d["name"] = sess.Name
@@ -119,7 +120,7 @@ func (s *Server) classifyAndUpdate(id, prompt string) {
 	if err != nil {
 		t = store.TypeOther // never block: fall back to "other"
 	}
-	if err := s.store.Update(ctx, id, func(sess *store.Session) error {
+	if err := s.store.Update(ctx, id, func(sess *agentstore.Agent) error {
 		sess.Type = t
 		return nil
 	}); err != nil {
@@ -145,7 +146,7 @@ func (s *Server) nameAndUpdate(id, prompt string) {
 	if name == "" {
 		return // could not find a free variant; leave the agent unnamed
 	}
-	if err := s.store.Update(ctx, id, func(sess *store.Session) error {
+	if err := s.store.Update(ctx, id, func(sess *agentstore.Agent) error {
 		sess.Name = name
 		return nil
 	}); err != nil {
@@ -209,7 +210,7 @@ func liveStatus(s store.Status) bool {
 // refusal or any other error is logged and swallowed — the archive already
 // succeeded and must not be undone. BranchCreated provenance still gates branch
 // deletion (no deleteAdoptedBranch override here).
-func (s *Server) removeDoneWorktreeBestEffort(sess *store.Session) {
+func (s *Server) removeDoneWorktreeBestEffort(sess *agentstore.Agent) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := s.life.RemoveWorktree(ctx, sess, false, false); err != nil {

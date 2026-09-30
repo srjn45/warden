@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/lifecycle"
-	"github.com/srjn45/warden/internal/store"
 )
 
 // worktreeSweepInterval is the slow cadence for the unattended orphan sweep
@@ -80,10 +80,10 @@ func (s *Server) sweepWorktreesOnce(ctx context.Context) {
 // sweep reconciles; archived repos are included so a record-less orphan in a repo
 // with only archived sessions is still reached (archived owners stay protected by
 // IncludeArchived=false).
-func worktreeRepos(active, archived []*store.Session) []string {
+func worktreeRepos(active, archived []*agentstore.Agent) []string {
 	seen := map[string]bool{}
 	var out []string
-	add := func(sessions []*store.Session) {
+	add := func(sessions []*agentstore.Agent) {
 		for _, sess := range sessions {
 			if sess.Repo == "" || sess.Worktree == "" || seen[sess.Repo] {
 				continue

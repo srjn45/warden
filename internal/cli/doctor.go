@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/daemon"
 	"github.com/srjn45/warden/internal/llm"
@@ -205,11 +205,11 @@ func newDoctorCmd() *cobra.Command {
 // re-run; a fully-consistent store reports no changes. The daemon runs the same
 // reconcile automatically at boot.
 func runMembershipReconcile(cmd *cobra.Command, dataDir string) error {
-	sstore, err := store.NewFileStore(dataDir)
+	sstore, err := agentstore.New(dataDir)
 	if err != nil {
-		return fmt.Errorf("open session store (stop the daemon first, then retry): %w", err)
+		return fmt.Errorf("open agent store (stop the daemon first, then retry): %w", err)
 	}
-	defer func() { _ = sstore.Close(context.Background()) }()
+	defer sstore.Close()
 
 	pstore, err := pipeline.NewStore(filepath.Join(dataDir, "pipelines"))
 	if err != nil {

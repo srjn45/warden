@@ -103,7 +103,7 @@ func newSwitchCmd() *cobra.Command {
 			fromDesc := formatBackendDesc(res.FromBackend, res.FromModel)
 			toDesc := formatBackendDesc(res.ToBackend, res.ToModel)
 			fmt.Fprintf(out, "switched agent %s: %s → %s\nhandoff written to %s\n",
-				res.Session.ID, fromDesc, toDesc, res.HandoffPath)
+				res.Agent.ID, fromDesc, toDesc, res.HandoffPath)
 			return nil
 		},
 	}

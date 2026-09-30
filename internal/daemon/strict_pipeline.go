@@ -55,8 +55,12 @@ func (s *Server) CreatePipeline(ctx context.Context, req oapi.CreatePipelineRequ
 	// override naming a terminal is rejected (operator-owned) and must NOT fall
 	// back to the actor identity.
 	if bodyParentAgentID != "" {
-		if owner, gerr := s.store.Get(ctx, bodyParentAgentID); gerr == nil && owner.IsTerminal() {
-			p.ParentAgentID = "" // rejected terminal override
+		if s.terminals != nil {
+			if _, terr := s.terminals.Get(ctx, bodyParentAgentID); terr == nil {
+				p.ParentAgentID = "" // rejected terminal override
+			} else {
+				p.ParentAgentID = bodyParentAgentID
+			}
 		} else {
 			p.ParentAgentID = bodyParentAgentID
 		}

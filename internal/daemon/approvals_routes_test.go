@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
@@ -22,7 +23,7 @@ func TestPostApproveHappyPath(t *testing.T) {
 	pane := "│ Do you want to proceed?\n│ ❯ 1. Yes\n│   2. No\n"
 	fp := approval.Fingerprint([]string{"Yes", "No"})
 	fs := newFakeStore()
-	fs.data["a1"] = &store.Session{ID: "a1", TmuxSession: "a1", Status: store.StatusWaitingForInput}
+	fs.data["a1"] = &agentstore.Agent{ID: "a1", TmuxSession: "a1", Status: store.StatusWaitingForInput}
 	fl := &fakeLife{output: pane}
 	ts := approvalsServer(t, fs, fl, true)
 	defer ts.Close()
@@ -36,7 +37,7 @@ func TestPostApproveHappyPath(t *testing.T) {
 
 func TestPostApproveStaleFingerprint(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["a1"] = &store.Session{ID: "a1", TmuxSession: "a1", Status: store.StatusWaitingForInput}
+	fs.data["a1"] = &agentstore.Agent{ID: "a1", TmuxSession: "a1", Status: store.StatusWaitingForInput}
 	fl := &fakeLife{output: "│ Do you want to proceed?\n│ ❯ 1. Yes\n│   2. No\n"}
 	ts := approvalsServer(t, fs, fl, true)
 	defer ts.Close()
@@ -50,7 +51,7 @@ func TestPostApproveStaleFingerprint(t *testing.T) {
 
 func TestPostApproveDisabled(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["a1"] = &store.Session{ID: "a1", TmuxSession: "a1"}
+	fs.data["a1"] = &agentstore.Agent{ID: "a1", TmuxSession: "a1"}
 	ts := approvalsServer(t, fs, &fakeLife{}, false)
 	defer ts.Close()
 	body, _ := json.Marshal(ApproveRequest{Option: 1, Fingerprint: "x"})
@@ -63,7 +64,7 @@ func TestPostApproveOutOfRange(t *testing.T) {
 	pane := "│ Do you want to proceed?\n│ ❯ 1. Yes\n│   2. No\n"
 	fp := approval.Fingerprint([]string{"Yes", "No"})
 	fs := newFakeStore()
-	fs.data["a1"] = &store.Session{ID: "a1", TmuxSession: "a1", Status: store.StatusWaitingForInput}
+	fs.data["a1"] = &agentstore.Agent{ID: "a1", TmuxSession: "a1", Status: store.StatusWaitingForInput}
 	ts := approvalsServer(t, fs, &fakeLife{output: pane}, true)
 	defer ts.Close()
 	body, _ := json.Marshal(ApproveRequest{Option: 9, Fingerprint: fp})
@@ -85,7 +86,7 @@ func TestGetApprovalsDisabled(t *testing.T) {
 
 func TestPostApproveUnrecognizedPrompt(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["a1"] = &store.Session{ID: "a1", TmuxSession: "a1", Status: store.StatusWaitingForInput}
+	fs.data["a1"] = &agentstore.Agent{ID: "a1", TmuxSession: "a1", Status: store.StatusWaitingForInput}
 	// pane has no recognizable numbered prompt → Parse returns ok=false
 	fl := &fakeLife{output: "Just some working output, no prompt here.\n"}
 	ts := approvalsServer(t, fs, fl, true)
@@ -99,11 +100,11 @@ func TestPostApproveUnrecognizedPrompt(t *testing.T) {
 
 func TestGetApprovalsListsWaiting(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["a1"] = &store.Session{
+	fs.data["a1"] = &agentstore.Agent{
 		ID: "a1", TmuxSession: "a1", Status: store.StatusWaitingForInput,
 		LastPaneExcerpt: "│ Do you want to proceed?\n│ ❯ 1. Yes\n│   2. No\n",
 	}
-	fs.data["a2"] = &store.Session{ID: "a2", Status: store.StatusWorking}
+	fs.data["a2"] = &agentstore.Agent{ID: "a2", Status: store.StatusWorking}
 	ts := approvalsServer(t, fs, &fakeLife{}, true)
 	defer ts.Close()
 	resp, err := http.Get(ts.URL + "/api/v1/approvals")

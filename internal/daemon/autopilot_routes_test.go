@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/auth"
 	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/backendstore"
@@ -269,7 +270,7 @@ func TestCompleteAutopilotHandler(t *testing.T) {
 	require.Equal(t, autopilot.StateActive, srv.autopilot.Status().Runs[0].State)
 
 	// A stale brain with the right role/tag cannot complete the run.
-	brain := &store.Session{ID: "brain-caller", Role: autopilotBrainRole, Tags: []string{"autopilot", "run:" + runID}}
+	brain := &agentstore.Agent{ID: "brain-caller", Role: autopilotBrainRole, Tags: []string{"autopilot", "run:" + runID}}
 	require.NoError(t, srv.store.Insert(context.Background(), brain))
 	resp, err = srv.CompleteAutopilot(ctxWithActor("brain-caller"), oapi.CompleteAutopilotRequestObject{})
 	require.NoError(t, err)
@@ -316,7 +317,7 @@ func TestUpdateTaskStatusRejectsStaleBrain(t *testing.T) {
 	require.NotNil(t, st.Runs[0].Brain)
 	runID, activeBrainID := st.Runs[0].RunID, st.Runs[0].Brain.AgentID
 
-	stale := &store.Session{ID: "stale-brain", Role: autopilotBrainRole, Tags: []string{"autopilot", "run:" + runID}}
+	stale := &agentstore.Agent{ID: "stale-brain", Role: autopilotBrainRole, Tags: []string{"autopilot", "run:" + runID}}
 	require.NoError(t, srv.store.Insert(context.Background(), stale))
 	req := oapi.UpdateAutopilotTaskStatusRequestObject{Body: &oapi.AutopilotTaskStatusRequest{
 		RunId: runID, TaskId: "build", Status: oapi.AutopilotTaskStatusRequestStatusActive,
@@ -336,7 +337,7 @@ func TestUpdateTaskStatusRejectsStaleBrain(t *testing.T) {
 func TestAutopilotSessionBackRefsRoundTripREST(t *testing.T) {
 	st := newFakeStore()
 	now := time.Now().UTC().Truncate(time.Second)
-	sess := &store.Session{
+	sess := &agentstore.Agent{
 		ID: "default-autopilot", Type: store.TypeDevelopment, Status: store.StatusWorking,
 		AutopilotRunID: "ap-abc123def456", AutopilotSlot: store.AutopilotSlotManager,
 		CreatedAt: now, UpdatedAt: now,

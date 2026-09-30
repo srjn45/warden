@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/lifecycle"
 	wardenmcp "github.com/srjn45/warden/internal/mcp"
 	"github.com/srjn45/warden/internal/store"
@@ -34,7 +35,7 @@ func TestMCPCommitExplicitLinkedWorktreeE2E(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(wt, "linked.txt"), []byte("commit me\n"), 0o644))
 	originalStatus := git(repo, "status", "--porcelain")
 	fs := newFakeStore()
-	require.NoError(t, fs.Insert(context.Background(), &store.Session{ID: "e2e-agent", Repo: repo, Workdir: repo, Status: store.StatusWorking}))
+	require.NoError(t, fs.Insert(context.Background(), &agentstore.Agent{ID: "e2e-agent", Repo: repo, Workdir: repo, Status: store.StatusWorking}))
 	lc := lifecycle.New(lifecycle.ExecRunner{}, &lifecycle.FakeConfig{})
 	srv := &Server{store: fs, life: NewLifecycleAdapter(lc, fs)}
 	daemon := httptest.NewServer(srv.router())

@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"github.com/srjn45/warden/internal/agentstore"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -213,7 +214,7 @@ func TestScheduleTickTagsPipelineJobSessions(t *testing.T) {
 
 	// The injected root-span-out job spawns the first real job on a follow-up
 	// async Reconcile, so poll until the job session surfaces.
-	var sessions []*store.Session
+	var sessions []*agentstore.Agent
 	require.Eventually(t, func() bool {
 		got, lerr := srv.store.List(context.Background())
 		if lerr != nil || len(got) == 0 {

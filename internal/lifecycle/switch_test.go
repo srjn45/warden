@@ -9,9 +9,9 @@ import (
 	"testing"
 
 	_ "github.com/srjn45/warden/internal/agentbackend/backends" // register claude + codex
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/router"
-	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
 
@@ -37,7 +37,7 @@ func (s stubResolver) Resolve(_ context.Context, _ router.ResolveOptions) (*rout
 // os.Stat guard requires it to exist), a ProjectsDir for the retiring backend's
 // transcript, and prompt/exit dirs. It returns the lifecycle, the fake runner, the
 // session, and the worktree path.
-func newSwapLC(t *testing.T) (*Lifecycle, *FakeRunner, *store.Session) {
+func newSwapLC(t *testing.T) (*Lifecycle, *FakeRunner, *agentstore.Agent) {
 	t.Helper()
 	repo := t.TempDir()
 	projects := t.TempDir()
@@ -47,23 +47,23 @@ func newSwapLC(t *testing.T) (*Lifecycle, *FakeRunner, *store.Session) {
 	lc.ProjectsDir = projects
 	lc.PromptsDir = filepath.Join(t.TempDir(), "prompts")
 
-	sess := &store.Session{
-		ID:              "agent-swap1",
-		TmuxSession:     "agent-swap1",
-		Backend:         "claude",
-		Model:           "opus",
-		ClaudeSessionID: "11111111-2222-3333-4444-555555555555",
-		Repo:            repo,
-		Workdir:         repo,
-		Branch:          "feat/x",
-		Worktree:        ".worktrees/x",
+	sess := &agentstore.Agent{
+		ID:             "agent-swap1",
+		TmuxSession:    "agent-swap1",
+		AiCli:          "claude",
+		Model:          "opus",
+		AICLISessionID: "11111111-2222-3333-4444-555555555555",
+		Repo:           repo,
+		Workdir:        repo,
+		Branch:         "feat/x",
+		Worktree:       ".worktrees/x",
 	}
 	return lc, fr, sess
 }
 
 // writeClaudeTranscript drops a minimal JSONL transcript where the claude adapter
 // resolves it for sess, so HotSwap's extractor has real turns to distil.
-func writeClaudeTranscript(t *testing.T, lc *Lifecycle, sess *store.Session) {
+func writeClaudeTranscript(t *testing.T, lc *Lifecycle, sess *agentstore.Agent) {
 	t.Helper()
 	dir := filepath.Join(lc.ProjectsDir, nonAlnumRe.ReplaceAllString(sess.Workdir, "-"))
 	require.NoError(t, os.MkdirAll(dir, 0o755))
@@ -72,7 +72,7 @@ func writeClaudeTranscript(t *testing.T, lc *Lifecycle, sess *store.Session) {
 		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I will use a streaming parser."},{"type":"tool_use","name":"Write","input":{"file_path":"export/csv.go"}}]}}`,
 		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Next step: wire up the --format flag."}]}}`,
 	}
-	path := filepath.Join(dir, sess.ClaudeSessionID+".jsonl")
+	path := filepath.Join(dir, sess.AICLISessionID+".jsonl")
 	require.NoError(t, os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644))
 }
 
@@ -123,7 +123,7 @@ func TestHotSwapExplicitBackend(t *testing.T) {
 	require.Contains(t, launch, lc.PromptsDir, "continuation prompt is file-backed into the launch line")
 
 	// Session mutated to the new driver.
-	require.Equal(t, "codex", sess.Backend)
+	require.Equal(t, "codex", sess.AiCli)
 	require.Equal(t, "gpt-5-codex", sess.Model)
 	require.Equal(t, "codex", res.ToBackend)
 	require.Equal(t, "claude", res.FromBackend)
@@ -171,7 +171,7 @@ func TestHotSwapTierResolvesViaRouter(t *testing.T) {
 	require.True(t, res.ResolverUsed)
 	require.Equal(t, "codex", res.ToBackend)
 	require.Equal(t, "o1", res.ToModel)
-	require.Equal(t, "codex", sess.Backend)
+	require.Equal(t, "codex", sess.AiCli)
 	require.Equal(t, SwapReasonQuota, res.Reason)
 }
 
@@ -183,7 +183,7 @@ func TestHotSwapTierWithoutResolver(t *testing.T) {
 
 	_, err := lc.HotSwap(context.Background(), sess, SwapRequest{Tier: backendstore.Tier1})
 	require.ErrorIs(t, err, ErrNoResolver)
-	require.Equal(t, "claude", sess.Backend, "session untouched on resolve failure")
+	require.Equal(t, "claude", sess.AiCli, "session untouched on resolve failure")
 	// The retiring CLI must NOT have been killed (resolution runs first).
 	require.NotContains(t, fr.calledArgs(), []string{"tmux", "kill-session", "-t", "agent-swap1"})
 }
@@ -215,20 +215,20 @@ func TestHotSwapAbsentTranscriptStillSwaps(t *testing.T) {
 	body, err := os.ReadFile(res.HandoffPath)
 	require.NoError(t, err)
 	require.Contains(t, string(body), "_No explicit goal was recorded", "empty handoff renders placeholders")
-	require.Equal(t, "codex", sess.Backend)
+	require.Equal(t, "codex", sess.AiCli)
 }
 
 // TestHotSwapFreshSessionIDForPinningSuccessor: swapping TO claude (a pinning
 // backend) mints a fresh session id (a new conversation, not a resume).
 func TestHotSwapFreshSessionIDForPinningSuccessor(t *testing.T) {
 	lc, _, sess := newSwapLC(t)
-	sess.Backend = "codex" // retiring backend
-	old := sess.ClaudeSessionID
+	sess.AiCli = "codex" // retiring backend
+	old := sess.AICLISessionID
 	res, err := lc.HotSwap(context.Background(), sess, SwapRequest{Backend: "claude", Model: "opus"})
 	require.NoError(t, err)
 	require.Equal(t, "claude", res.ToBackend)
-	require.NotEmpty(t, sess.ClaudeSessionID)
-	require.NotEqual(t, old, sess.ClaudeSessionID, "a pinning successor gets a fresh minted session id")
+	require.NotEmpty(t, sess.AICLISessionID)
+	require.NotEqual(t, old, sess.AICLISessionID, "a pinning successor gets a fresh minted session id")
 }
 
 // requireNewSessionInWorkdir asserts a `tmux new-session … -s <id> … -c <workdir>`

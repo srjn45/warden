@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/backendusage"
 	"github.com/srjn45/warden/internal/store"
@@ -31,7 +32,7 @@ func recoveryFixtureWithDir(t *testing.T, dir string, limits map[string][]backen
 		adapters = append(adapters, recoveryAdapter{id: id, result: backendusage.Result{Status: backendusage.StatusOK, Usage: limits[id]}})
 	}
 	st := newFakeStore()
-	require.NoError(t, st.Insert(context.Background(), &store.Session{ID: "agent-1", Backend: "codex", Model: "codex-model", Role: "general", Status: store.StatusRateLimited}))
+	require.NoError(t, st.Insert(context.Background(), &agentstore.Agent{ID: "agent-1", AiCli: "codex", Model: "codex-model", Role: "general", Status: store.StatusRateLimited}))
 	life := &recoveryLife{failures: make(map[string]error), st: st}
 	c := NewBackendRecoveryCoordinator(st, bs, backendusage.NewService(bs, adapters...), life)
 	c.stabilizationWindow = 5 * time.Millisecond
@@ -50,7 +51,7 @@ func TestCooldownRepeatedTransitions(t *testing.T) {
 	fallbackAt := time.Now().Add(time.Hour).UTC()
 
 	// First hard limit on the original backend (codex).
-	require.True(t, c.OnHardLimit(&store.Session{ID: "agent-1"}, fallbackAt))
+	require.True(t, c.OnHardLimit(&agentstore.Agent{ID: "agent-1"}, fallbackAt))
 
 	// Cooldown for codex must be persisted immediately (before advance() runs).
 	require.True(t, c.backends.IsRLCoolingDown("codex", "codex-model", time.Now()), "codex must have a durable cooldown after the first hard limit")
@@ -58,7 +59,7 @@ func TestCooldownRepeatedTransitions(t *testing.T) {
 	// Wait for recovery to reach stabilizing on claude.
 	require.Eventually(t, func() bool {
 		s := st.snapSession("agent-1")
-		return s != nil && s.BackendRecovery != nil && s.BackendRecovery.Phase == recoveryStabilizing && s.Backend == "claude"
+		return s != nil && s.BackendRecovery != nil && s.BackendRecovery.Phase == recoveryStabilizing && s.AiCli == "claude"
 	}, time.Second, 5*time.Millisecond)
 
 	// Simulate claude hitting a hard limit immediately in the stabilizing phase.
@@ -86,7 +87,7 @@ func TestCooldownRepeatedTransitions(t *testing.T) {
 	// BackendRecovery).
 	require.Eventually(t, func() bool {
 		s := st.snapSession("agent-1")
-		return s != nil && s.BackendRecovery != nil && s.BackendRecovery.Phase == recoveryStabilizing && s.Backend == "antigravity"
+		return s != nil && s.BackendRecovery != nil && s.BackendRecovery.Phase == recoveryStabilizing && s.AiCli == "antigravity"
 	}, time.Second, 5*time.Millisecond)
 	require.NoError(t, st.UpdateStatus(context.Background(), "agent-1", store.StatusWorking))
 	current = st.snapSession("agent-1")
@@ -106,7 +107,7 @@ func TestCooldownFallbackResetTime(t *testing.T) {
 	c, _, _ := recoveryFixtureWithDir(t, dir, nil)
 
 	fallback := time.Now().Add(45 * time.Minute).UTC()
-	require.True(t, c.OnHardLimit(&store.Session{ID: "agent-1"}, fallback))
+	require.True(t, c.OnHardLimit(&agentstore.Agent{ID: "agent-1"}, fallback))
 
 	// The cooldown expiry must be at or after the fallback time (buffer may extend it).
 	require.True(t, c.backends.IsRLCoolingDown("codex", "codex-model", time.Now()), "codex must be in cooldown")
@@ -141,10 +142,10 @@ func TestCooldownRestartPersistence(t *testing.T) {
 		require.NoError(t, bs.UpsertModel(backendstore.ModelEntry{BackendID: "codex", ModelID: "codex-model", Tier: backendstore.Tier2, Enabled: true, AutoAssign: true}))
 
 		st := newFakeStore()
-		require.NoError(t, st.Insert(context.Background(), &store.Session{ID: "agent-1", Backend: "codex", Model: "codex-model", Status: store.StatusRateLimited}))
+		require.NoError(t, st.Insert(context.Background(), &agentstore.Agent{ID: "agent-1", AiCli: "codex", Model: "codex-model", Status: store.StatusRateLimited}))
 		life := &recoveryLife{failures: make(map[string]error)}
 		c1 := NewBackendRecoveryCoordinator(st, bs, backendusage.NewService(bs), life)
-		require.True(t, c1.OnHardLimit(&store.Session{ID: "agent-1"}, fallbackAt))
+		require.True(t, c1.OnHardLimit(&agentstore.Agent{ID: "agent-1"}, fallbackAt))
 		require.True(t, bs.IsRLCoolingDown("codex", "codex-model", time.Now()), "cooldown must be persisted before close")
 		// Close bs to flush all in-memory state to disk before reopening.
 		require.NoError(t, bs.Close())
@@ -183,7 +184,7 @@ func TestCooldownAllCandidatesLimited(t *testing.T) {
 	require.NoError(t, c.backends.SetRLCooldown("claude", "claude-model", reset))
 	require.NoError(t, c.backends.SetRLCooldown("antigravity", "antigravity-model", reset))
 
-	require.True(t, c.OnHardLimit(&store.Session{ID: "agent-1"}, reset))
+	require.True(t, c.OnHardLimit(&agentstore.Agent{ID: "agent-1"}, reset))
 
 	// All candidates are cooled down; the coordinator must reach recoveryWaiting.
 	require.Eventually(t, func() bool {

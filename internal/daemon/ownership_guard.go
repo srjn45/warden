@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/auth"
 	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/store"
@@ -25,7 +26,7 @@ const runTagPrefix = "run:"
 // agent shell). It returns nil when the header is absent or names no known
 // session — a human terminal, the web UI, or a stale id — in which case the
 // ownership guard is a no-op and normal behavior applies.
-func (s *Server) callerSession(ctx context.Context) *store.Session {
+func (s *Server) callerSession(ctx context.Context) *agentstore.Agent {
 	id := strings.TrimSpace(requestFromContext(ctx).Header.Get(auth.ActorHeader))
 	if id == "" {
 		return nil
@@ -46,7 +47,7 @@ func (s *Server) callerSession(ctx context.Context) *store.Session {
 // foreign run's worker, or the human's own work, regardless of what the persona
 // decides. A non-autopilot caller (a human, the web UI, an ordinary agent) is
 // unaffected: the guard returns nil and the handler proceeds as before.
-func (s *Server) guardOwnership(ctx context.Context, target *store.Session) error {
+func (s *Server) guardOwnership(ctx context.Context, target *agentstore.Agent) error {
 	caller := s.callerSession(ctx)
 	if caller == nil || caller.Role != autopilotBrainRole {
 		return nil // not a brain — normal behavior, guard is a no-op
@@ -68,7 +69,7 @@ func (s *Server) guardOwnership(ctx context.Context, target *store.Session) erro
 // callerRunTag returns the brain's `run:<run_id>` ownership tag, or "" when it
 // carries none — in which case it owns nothing and guardOwnership denies every
 // foreign target (the safe default).
-func callerRunTag(caller *store.Session) string {
+func callerRunTag(caller *agentstore.Agent) string {
 	for _, t := range caller.Tags {
 		if strings.HasPrefix(t, runTagPrefix) {
 			return t

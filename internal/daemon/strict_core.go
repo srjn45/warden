@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/srjn45/warden/internal/agentbackend"
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/daemon/oapi"
@@ -91,30 +92,19 @@ func (s *Server) ListSessions(ctx context.Context, req oapi.ListSessionsRequestO
 		}
 		return nil, err
 	}
-	termIDs := map[string]struct{}{}
+	allSessions := make([]*store.Session, 0, len(sessions))
+	for _, ss := range sessions {
+		allSessions = append(allSessions, ss.ToSession())
+	}
 	if s.terminals != nil {
 		terms, terr := s.listTerminalSessions(ctx)
 		if terr != nil {
 			return nil, terr
 		}
-		for _, t := range terms {
-			termIDs[t.ID] = struct{}{}
-		}
-		// Prefer terminalstore as the source of truth; drop legacy Session
-		// Kind=terminal rows that were already imported.
-		filtered := sessions[:0]
-		for _, ss := range sessions {
-			if ss.IsTerminal() {
-				if _, ok := termIDs[ss.ID]; ok {
-					continue
-				}
-			}
-			filtered = append(filtered, ss)
-		}
-		sessions = append(filtered, terms...)
+		allSessions = append(allSessions, terms...)
 	}
-	out := make([]oapi.Session, 0, len(sessions))
-	for _, ss := range sessions {
+	out := make([]oapi.Session, 0, len(allSessions))
+	for _, ss := range allSessions {
 		if !req.Params.All && ss.HasTag("system:true") {
 			continue
 		}
@@ -142,7 +132,7 @@ func kindMatches(filter oapi.ListSessionsParamsKind, isTerminal bool) bool {
 
 // GetSession implements GET /api/v1/sessions/{id}.
 func (s *Server) GetSession(ctx context.Context, req oapi.GetSessionRequestObject) (oapi.GetSessionResponseObject, error) {
-	sess, err := s.resolveSession(ctx, req.Id)
+	sess, err := s.resolveSessionDTO(ctx, req.Id)
 	if err != nil {
 		var ae apiError
 		if errors.As(err, &ae) && ae.code == http.StatusNotFound {
@@ -165,7 +155,7 @@ func (s *Server) IngestEvent(ctx context.Context, req oapi.IngestEventRequestObj
 	// Append the event and apply any status transition in one atomic write so a
 	// crash can't log the event without the status change (or vice versa).
 	if err := s.store.AppendEventStatus(ctx, b.Session, ev, to); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
+		if errors.Is(err, agentstore.ErrNotFound) {
 			return oapi.IngestEvent204Response{}, nil
 		}
 		return nil, err
@@ -295,12 +285,11 @@ func (s *Server) ListApprovals(ctx context.Context, _ oapi.ListApprovalsRequestO
 	views := []oapi.ApprovalView{}
 	for _, sess := range sessions {
 		// Terminals never surface approvals (a shell has no yes/no prompt warden
-		// answers); guard by kind so they can't leak into the queue even if some
-		// path parks one at waiting_for_input.
-		if sess.Status != store.StatusWaitingForInput || sess.IsTerminal() {
+		// answers); guard by status so only waiting_for_input AI agents are checked.
+		if sess.Status != store.StatusWaitingForInput {
 			continue
 		}
-		views = append(views, approvalView(backendFor(sess.Backend), sess.ID, sess.LastPaneExcerpt))
+		views = append(views, approvalView(backendFor(sess.AiCli), sess.ID, sess.LastPaneExcerpt))
 	}
 	return oapi.ListApprovals200JSONResponse{Enabled: true, Approvals: views}, nil
 }
@@ -314,7 +303,7 @@ func (s *Server) ApproveSession(ctx context.Context, req oapi.ApproveSessionRequ
 		return nil, errStatus(http.StatusForbidden, "approvals disabled")
 	}
 	sess, err := s.store.Get(ctx, req.Id)
-	if errors.Is(err, store.ErrNotFound) {
+	if errors.Is(err, agentstore.ErrNotFound) {
 		return oapi.ApproveSession404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "session not found"}}, nil
 	}
 	if err != nil {
@@ -328,7 +317,7 @@ func (s *Server) ApproveSession(ctx context.Context, req oapi.ApproveSessionRequ
 	if err != nil {
 		return nil, err
 	}
-	a, ok := backendFor(sess.Backend).ParseApproval(pane)
+	a, ok := backendFor(sess.AiCli).ParseApproval(pane)
 	if !ok || a == nil || approval.Fingerprint(a.Options) != b.Fingerprint {
 		return nil, errStatus(http.StatusConflict, "prompt changed; reopen")
 	}

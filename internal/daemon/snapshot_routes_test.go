@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/srjn45/warden/internal/agentstore"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -28,7 +29,7 @@ func snapServer(t *testing.T, fs *fakeStore, fr *lifecycle.FakeRunner, enabled b
 
 func TestSnapshotCreatePinsToSessionWorktreeAndTmux(t *testing.T) {
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{
+	_ = fs.Insert(context.Background(), &agentstore.Agent{
 		ID: "A-1", Workdir: "/repo/.worktrees/A-1", TmuxSession: "A-1", Status: store.StatusWorking,
 	})
 	fr := &lifecycle.FakeRunner{Responses: map[string]lifecycle.FakeResp{
@@ -87,7 +88,7 @@ func TestSnapshotListFiltersBySession(t *testing.T) {
 		"git rev-parse HEAD":               {Out: "h\n"},
 		"git stash create warden snapshot": {Out: "s\n"},
 	}}
-	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", Workdir: "/wt", Status: store.StatusWorking})
+	_ = fs.Insert(context.Background(), &agentstore.Agent{ID: "A-1", Workdir: "/wt", Status: store.StatusWorking})
 	ts := snapServer(t, fs, fr, true)
 	defer ts.Close()
 

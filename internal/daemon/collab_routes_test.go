@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/collab"
 	"github.com/srjn45/warden/internal/mailbox"
 	"github.com/srjn45/warden/internal/store"
@@ -40,7 +41,7 @@ func getConflicts(t *testing.T, srv *Server) (int, conflictsResponse) {
 func TestCollabConflictsEmptyIsNonNullArray(t *testing.T) {
 	srv, fs := newCollabServer(t)
 	// A worktree-less session is never scanned, so git is never invoked.
-	fs.Insert(context.Background(), &store.Session{ID: "a", Status: store.StatusWorking})
+	fs.Insert(context.Background(), &agentstore.Agent{ID: "a", Status: store.StatusWorking})
 
 	code, cr := getConflicts(t, srv)
 	if code != http.StatusOK {

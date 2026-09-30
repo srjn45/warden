@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/srjn45/warden/internal/agentstore"
 	"net/http"
 	"strings"
 	"testing"
@@ -16,7 +17,7 @@ import (
 
 func TestCreatePRPushesThenOpensAndRecords(t *testing.T) {
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{
+	_ = fs.Insert(context.Background(), &agentstore.Agent{
 		ID: "A-1", Workdir: "/repo/.worktrees/A-1", Subject: "Add the widget", Status: store.StatusWorking,
 	})
 	fl := &fakeLife{
@@ -48,7 +49,7 @@ func TestCreatePRPushesThenOpensAndRecords(t *testing.T) {
 
 func TestCreatePRHonoursBase(t *testing.T) {
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", Workdir: "/wt", Status: store.StatusWorking})
+	_ = fs.Insert(context.Background(), &agentstore.Agent{ID: "A-1", Workdir: "/wt", Status: store.StatusWorking})
 	fl := &fakeLife{prResult: lifecycle.PRResult{Created: true, URL: "u"}}
 	ts := lifeServer(t, fs, fl)
 	defer ts.Close()
@@ -72,7 +73,7 @@ func TestCreatePRUnknownSessionIs404(t *testing.T) {
 
 func TestCreatePRNoWorkdirIsConflict(t *testing.T) {
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", Status: store.StatusWorking})
+	_ = fs.Insert(context.Background(), &agentstore.Agent{ID: "A-1", Status: store.StatusWorking})
 	ts := lifeServer(t, fs, &fakeLife{})
 	defer ts.Close()
 	resp, err := http.Post(ts.URL+"/api/v1/sessions/A-1/create-pr", "application/json", strings.NewReader(`{}`))
@@ -83,7 +84,7 @@ func TestCreatePRNoWorkdirIsConflict(t *testing.T) {
 
 func TestCreatePRPushFailureIsConflictAndSkipsPR(t *testing.T) {
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", Workdir: "/wt", Status: store.StatusWorking})
+	_ = fs.Insert(context.Background(), &agentstore.Agent{ID: "A-1", Workdir: "/wt", Status: store.StatusWorking})
 	fl := &fakeLife{gitPushErr: errors.New("refusing to push protected branch \"main\"")}
 	ts := lifeServer(t, fs, fl)
 	defer ts.Close()

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/branchtrack"
 	"github.com/srjn45/warden/internal/collab"
 	"github.com/srjn45/warden/internal/ctxstore"
@@ -17,10 +18,9 @@ import (
 	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/snapshot"
 	"github.com/srjn45/warden/internal/spend"
-	"github.com/srjn45/warden/internal/store"
 )
 
-func NewServer(st store.Store, life Lifecycle, p *poller.Poller, interval time.Duration, approvals bool, cstore *ctxstore.Store, mbox *mailbox.Store, exec *Executor) *Server {
+func NewServer(st agentstore.AgentStore, life Lifecycle, p *poller.Poller, interval time.Duration, approvals bool, cstore *ctxstore.Store, mbox *mailbox.Store, exec *Executor) *Server {
 	h := newHub()
 	if p != nil {
 		p.OnChange = h.publish
@@ -56,9 +56,7 @@ func (s *Server) SetTerminalPollInterval(d time.Duration) {
 }
 
 // SetTerminalWatcher wires the terminal-session monitor. It sets OnChange to
-// the SSE hub (so TUI refreshes on every terminal state change) and OnTransition
-// to a nil-safe wrapper around the Restarter (wired via SetRestarter) so Phase 3
-// can extend onTransitionAt without touching this call site. Must be called
+// the SSE hub (so TUI refreshes on every terminal state change). Must be called
 // before ListenAndServe.
 func (s *Server) SetTerminalWatcher(tw *poller.TerminalWatcher) {
 	s.terminalWatcher = tw
@@ -66,11 +64,6 @@ func (s *Server) SetTerminalWatcher(tw *poller.TerminalWatcher) {
 		return
 	}
 	tw.OnChange = s.hub.publish
-	tw.OnTransition = func(sess *store.Session, from, to store.Status) {
-		if s.restarter != nil {
-			s.restarter.onTransitionAt(sess, from, to, time.Now().UTC())
-		}
-	}
 }
 
 // SetCollabInterval sets the file-conflict watch-reconcile interval. A

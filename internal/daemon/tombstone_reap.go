@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -38,7 +39,10 @@ import (
 // a confirmed teardown — orphaned is not a reliable signal on its own that the
 // session is gone. A nil alive func is treated as "can't confirm, assume
 // alive" (the conservative default: never archive a live agent's record).
-func reapTombstones(ctx context.Context, st store.Store, startID string, alive func(ctx context.Context, tmuxSession string) bool) {
+func reapTombstones(ctx context.Context, st agentstore.AgentStore, startID string, alive func(ctx context.Context, tmuxSession string) bool) {
+	if st == nil {
+		return
+	}
 	seen := make(map[string]bool)
 	climbed := false
 	for id := startID; id != "" && !seen[id]; {
@@ -95,36 +99,36 @@ func reapTombstones(ctx context.Context, st store.Store, startID string, alive f
 // reapAutopilotManagers archives terminal autopilot manager records for runID
 // once no live workers remain for that run. Workers are linked by back-ref, not
 // parent_id, so manager deletes no longer tombstone (WP6).
-func reapAutopilotManagers(ctx context.Context, st store.Store, runID string, alive func(ctx context.Context, tmuxSession string) bool) {
-	if runID == "" {
+func reapAutopilotManagers(ctx context.Context, st agentstore.AgentStore, runID string, alive func(ctx context.Context, tmuxSession string) bool) {
+	if st == nil || runID == "" {
 		return
 	}
 	all, err := st.List(ctx)
 	if err != nil {
 		return
 	}
-	for _, s := range all {
-		if autopilot.IsWorkerRecord(s) && liveStatus(s.Status) {
+	for _, a := range all {
+		if autopilot.IsWorkerRecord(a) && liveStatus(a.Status) {
 			return // a live worker still anchors the run
 		}
 	}
-	for _, s := range all {
-		if autopilot.SessionRunID(s) != runID || !autopilot.IsManagerRecord(s) {
+	for _, a := range all {
+		if autopilot.SessionRunID(a) != runID || !autopilot.IsManagerRecord(a) {
 			continue
 		}
-		if liveStatus(s.Status) {
+		if liveStatus(a.Status) {
 			continue
 		}
-		if s.Status == store.StatusOrphaned {
+		if a.Status == store.StatusOrphaned {
 			stillAlive := true
 			if alive != nil {
-				stillAlive = alive(ctx, s.TmuxSession)
+				stillAlive = alive(ctx, a.TmuxSession)
 			}
 			if stillAlive {
 				continue
 			}
 		}
-		_ = st.Archive(ctx, s.ID)
+		_ = st.Archive(ctx, a.ID)
 	}
 }
 
@@ -133,6 +137,9 @@ func reapAutopilotManagers(ctx context.Context, st store.Store, runID string, al
 // whose last child ended via a path the lazy hook missed (e.g. the SessionEnd
 // hook or an operator terminate). Best-effort.
 func (s *Server) reapAllTombstones(ctx context.Context) {
+	if s.store == nil {
+		return
+	}
 	all, err := s.store.List(ctx)
 	if err != nil {
 		return
@@ -162,6 +169,8 @@ func (s *Server) runTombstoneReapSweep(ctx context.Context, interval time.Durati
 	for {
 		select {
 		case <-ctx.Done():
+			return
+		case <-s.done:
 			return
 		case <-t.C:
 			s.reapAllTombstones(ctx)

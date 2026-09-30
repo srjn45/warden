@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"github.com/srjn45/warden/internal/agentstore"
 	"testing"
 	"time"
 
@@ -45,7 +46,7 @@ func TestTerminalLifecycleThroughTerminalstore(t *testing.T) {
 	termID := created.ID
 
 	_, err = fs.Get(ctx, termID)
-	require.ErrorIs(t, err, store.ErrNotFound, "terminal must not be inserted into the agent session store")
+	require.ErrorIs(t, err, agentstore.ErrNotFound, "terminal must not be inserted into the agent session store")
 
 	got, err := ts.Get(ctx, termID)
 	require.NoError(t, err)

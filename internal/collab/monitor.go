@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/mailbox"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -40,7 +41,7 @@ const (
 
 // Lister is the slice of the session store the monitor needs.
 type Lister interface {
-	List(ctx context.Context) ([]*store.Session, error)
+	List(ctx context.Context) ([]*agentstore.Agent, error)
 }
 
 // AgentInfo identifies an agent editing a file.
@@ -372,7 +373,7 @@ func copyConflicts(in []Conflict) []Conflict {
 	return out
 }
 
-func tracked(s *store.Session) bool {
+func tracked(s *agentstore.Agent) bool {
 	if s.Worktree == "" {
 		return false
 	}

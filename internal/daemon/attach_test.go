@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/srjn45/warden/internal/store"
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/stretchr/testify/require"
 )
 
@@ -57,7 +57,7 @@ func TestAttachUnknownSessionIs404(t *testing.T) {
 
 func TestAttachFoundSessionDoesNotFastReject(t *testing.T) {
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1"})
+	_ = fs.Insert(context.Background(), &agentstore.Agent{ID: "A-1", TmuxSession: "A-1"})
 	ts := lifeServer(t, fs, &fakeLife{})
 	defer ts.Close()
 	resp, err := http.Get(ts.URL + "/api/v1/sessions/A-1/attach")

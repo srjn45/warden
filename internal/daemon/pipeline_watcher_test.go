@@ -2,12 +2,12 @@ package daemon
 
 import (
 	"context"
+	"github.com/srjn45/warden/internal/agentstore"
 	"testing"
 	"time"
 
 	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/pipeline"
-	"github.com/srjn45/warden/internal/store"
 )
 
 // newWatcherFixture builds a PipelineWatcher backed by real in-memory stores.
@@ -41,7 +41,7 @@ func runningPipeline(id, jobID string, jobStatus pipeline.JobStatus) *pipeline.P
 // seedSession inserts a minimal session so the orphan cross-check treats the
 // job's agent as present.
 func seedSession(ss *fakeStore, agentID, pid, jobID string) {
-	_ = ss.Insert(context.Background(), &store.Session{
+	_ = ss.Insert(context.Background(), &agentstore.Agent{
 		ID:         agentID,
 		PipelineID: pid,
 		JobID:      jobID,

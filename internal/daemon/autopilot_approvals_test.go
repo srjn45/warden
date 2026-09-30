@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/mailbox"
-	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
 
@@ -24,7 +24,7 @@ func TestAutopilotApprovalsForward(t *testing.T) {
 	defer mb.Close()
 
 	ap := autopilotApprovals{s: &Server{mbox: mb}}
-	worker := &store.Session{ID: "worker-1", Name: "fixer"}
+	worker := &agentstore.Agent{ID: "worker-1", Name: "fixer"}
 	ap.Forward(context.Background(), "brain-1", worker, "policy could not answer: Bash(x)")
 
 	brainMsgs, err := mb.Messages("brain-1")

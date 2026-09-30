@@ -3,8 +3,10 @@ package daemon
 import (
 	"context"
 	"errors"
+	"github.com/srjn45/warden/internal/daemon/oapi"
+	"github.com/srjn45/warden/internal/projectstore"
 	"log/slog"
-	"os"
+	"net/http"
 	"time"
 
 	"github.com/srjn45/warden/internal/store"
@@ -58,32 +60,6 @@ func terminalStatusFromSession(st store.Status) terminalstore.Status {
 	default:
 		return terminalstore.StatusRunning
 	}
-}
-
-// persistTerminal writes a freshly spawned terminal into terminalstore. Shell is
-// best-effort from $SHELL so the record carries process identity beyond tmux.
-func (s *Server) persistTerminal(ctx context.Context, sess *store.Session) error {
-	if s.terminals == nil || sess == nil {
-		return nil
-	}
-	now := time.Now().UTC()
-	shell := os.Getenv("SHELL")
-	t := &terminalstore.Terminal{
-		ID:          sess.ID,
-		ProjectID:   sess.ProjectID,
-		Name:        sess.Name,
-		TmuxSession: sess.TmuxSession,
-		Workdir:     sess.Workdir,
-		Shell:       shell,
-		PID:         sess.PID,
-		Status:      terminalstore.StatusRunning,
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	}
-	if !sess.CreatedAt.IsZero() {
-		t.CreatedAt = sess.CreatedAt
-	}
-	return s.terminals.Spawn(ctx, t, sess.TmuxSession)
 }
 
 // lookupTerminal resolves an id-or-name against terminalstore. Name match is
@@ -197,4 +173,66 @@ func (s *Server) restoreHibernatedTerminals(ctx context.Context, projectID strin
 	if restored {
 		s.notify()
 	}
+}
+
+// resolveSessionDTO is the compatibility boundary for the shared session HTTP API.
+// Internal agent operations use resolveSession and cannot resolve a terminal.
+func (s *Server) resolveSessionDTO(ctx context.Context, ref string) (*store.Session, error) {
+	if t, err := s.lookupTerminal(ctx, ref); err == nil {
+		return sessionFromTerminal(t), nil
+	} else if !errors.Is(err, terminalstore.ErrNotFound) {
+		return nil, err
+	}
+	a, err := s.resolveSession(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	return a.ToSession(), nil
+}
+
+func (s *Server) spawnTerminal(ctx context.Context, req SpawnRequest) (oapi.SpawnAgentResponseObject, error) {
+	if s.terminals == nil {
+		return nil, errStatus(http.StatusServiceUnavailable, "terminal store unavailable")
+	}
+	req.Type = ""
+	if code, msg := s.validateSpawnRequest(ctx, req); code != 0 {
+		return nil, errStatus(code, msg)
+	}
+	t, err := s.life.SpawnTerminal(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if t.ProjectID == "" && s.projects != nil {
+		if projects, err := s.projects.List(); err == nil {
+			for _, p := range projects {
+				if projectstore.NormalizeStatus(p.Status) == projectstore.StatusOpen && (t.Workdir == p.ID || t.Workdir == p.Path) {
+					t.ProjectID = p.ID
+					break
+				}
+			}
+		}
+	}
+	if err := s.terminals.Spawn(ctx, t, t.TmuxSession); err != nil {
+		_ = s.life.Terminate(ctx, t.TmuxSession)
+		return nil, err
+	}
+	if s.projects != nil && t.ProjectID != "" {
+		_, _ = s.projects.AddTerminalToProject(t.ProjectID, t.ID)
+	}
+	s.notify()
+	return oapi.SpawnAgent201JSONResponse(*sessionFromTerminal(t)), nil
+}
+
+func (s *Server) stopTerminal(ctx context.Context, t *terminalstore.Terminal) error {
+	if err := s.life.Terminate(ctx, t.TmuxSession); err != nil {
+		return err
+	}
+	if err := s.terminals.Terminate(ctx, t.ID); err != nil {
+		return err
+	}
+	if s.projects != nil && t.ProjectID != "" {
+		_, _ = s.projects.RemoveTerminalFromProject(t.ProjectID, t.ID)
+	}
+	s.notify()
+	return nil
 }

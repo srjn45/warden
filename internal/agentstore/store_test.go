@@ -3,7 +3,10 @@ package agentstore
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
@@ -233,4 +236,176 @@ func TestMigrationSkipsTerminalByKindField(t *testing.T) {
 	}
 	require.NotContains(t, ids, "term-1", "terminal session must not appear in agent store")
 	require.Contains(t, ids, "agent-1", "agent session must be migrated")
+}
+
+func TestArchiveAndListClosed(t *testing.T) {
+	s, err := New(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+	ctx := context.Background()
+
+	a := &Agent{ID: "agent-arch", Name: "archiver", Status: store.StatusWorking}
+	require.NoError(t, s.Insert(ctx, a))
+
+	// GetByNameOrID finds active agent by name or ID
+	byName, err := s.GetByNameOrID(ctx, "archiver")
+	require.NoError(t, err)
+	require.Equal(t, a.ID, byName.ID)
+
+	byID, err := s.GetByNameOrID(ctx, a.ID)
+	require.NoError(t, err)
+	require.Equal(t, a.ID, byID.ID)
+
+	// Archive moves to closed collection
+	require.NoError(t, s.Archive(ctx, a.ID))
+	_, err = s.Get(ctx, a.ID)
+	require.ErrorIs(t, err, ErrNotFound)
+
+	closed, err := s.ListClosed(ctx)
+	require.NoError(t, err)
+	require.Len(t, closed, 1)
+	require.Equal(t, a.ID, closed[0].ID)
+	require.Equal(t, a.Status, closed[0].Status)
+	require.Equal(t, a.UpdatedAt, closed[0].UpdatedAt)
+
+	closedDegraded, skipped, err := s.ListClosedDegraded(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 0, skipped)
+	require.Len(t, closedDegraded, 1)
+}
+
+func TestUpdateStatusIfAndFinalizeExit(t *testing.T) {
+	s, err := New(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+	ctx := context.Background()
+
+	a := &Agent{ID: "agent-cas", Status: store.StatusWorking}
+	require.NoError(t, s.Insert(ctx, a))
+
+	// Mismatched expected status returns false
+	swapped, err := s.UpdateStatusIf(ctx, a.ID, store.StatusIdle, store.StatusDone)
+	require.NoError(t, err)
+	require.False(t, swapped)
+
+	// Matched expected status swaps
+	swapped, err = s.UpdateStatusIf(ctx, a.ID, store.StatusWorking, store.StatusIdle)
+	require.NoError(t, err)
+	require.True(t, swapped)
+
+	got, err := s.Get(ctx, a.ID)
+	require.NoError(t, err)
+	require.Equal(t, store.StatusIdle, got.Status)
+
+	// FinalizeExit
+	swapped, err = s.FinalizeExit(ctx, a.ID, store.StatusIdle, store.StatusDone, 1)
+	require.NoError(t, err)
+	require.True(t, swapped)
+
+	got, err = s.Get(ctx, a.ID)
+	require.NoError(t, err)
+	require.Equal(t, store.StatusDone, got.Status)
+	require.NotNil(t, got.ExitCode)
+	require.Equal(t, 1, *got.ExitCode)
+	require.Len(t, got.Events, 1)
+}
+
+func TestSessionConverters(t *testing.T) {
+	a := &Agent{
+		ID:             "agent-conv",
+		Name:           "conv",
+		Type:           store.TypeAnalysis,
+		AiCli:          "claude",
+		AICLISessionID: "aicli-123",
+		Status:         store.StatusWorking,
+		Tags:           []string{"tag1"},
+	}
+	sess := a.ToSession()
+	require.Equal(t, a.ID, sess.ID)
+	require.Equal(t, a.AiCli, sess.Backend)
+	require.Equal(t, a.AICLISessionID, sess.ClaudeSessionID)
+
+	back := FromSession(sess)
+	require.Equal(t, a.ID, back.ID)
+	require.Equal(t, a.AiCli, back.AiCli)
+	require.Equal(t, a.AICLISessionID, back.AICLISessionID)
+}
+
+func TestArchiveUpgradeAfterActiveMigration(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	legacy, err := store.NewFileStore(dir)
+	require.NoError(t, err)
+	for _, a := range []*store.Session{
+		{ID: "archived", Status: store.StatusOrphaned, ClaudeSessionID: "resume-id", ProjectID: "project", Workdir: "/work", TmuxSession: "archived"},
+		{ID: "shell", Kind: store.KindTerminal, Status: store.StatusOrphaned},
+	} {
+		require.NoError(t, legacy.Insert(ctx, a))
+		require.NoError(t, legacy.Archive(ctx, a.ID))
+	}
+	require.NoError(t, legacy.Close(ctx))
+	// Model an installation which already completed the active-only migration.
+	require.NoError(t, os.WriteFile(filepath.Join(dir, importedMarker), []byte("done"), 0600))
+	s, err := New(dir)
+	require.NoError(t, err)
+	require.NoError(t, s.Insert(ctx, &Agent{ID: "new-live", Subject: "must survive archive import"}))
+	closed, err := s.ListClosed(ctx)
+	require.NoError(t, err)
+	require.Len(t, closed, 1)
+	require.Equal(t, "archived", closed[0].ID)
+	require.Equal(t, store.StatusOrphaned, closed[0].Status)
+	require.Equal(t, "resume-id", closed[0].AICLISessionID)
+	require.Equal(t, "project", closed[0].ProjectID)
+	// Restore, change, and archive again: latest state must replace the old copy.
+	require.NoError(t, s.Insert(ctx, closed[0]))
+	require.NoError(t, s.Update(ctx, "archived", func(a *Agent) error { a.Subject = "latest"; return nil }))
+	require.NoError(t, s.Archive(ctx, "archived"))
+	require.NoError(t, s.Close())
+	// Simulate an interrupted archive import (marker absent after data was copied).
+	require.NoError(t, os.Remove(filepath.Join(dir, closedImportedMarker)))
+	for i := 0; i < 2; i++ {
+		s, err = New(dir)
+		require.NoError(t, err)
+		live, err := s.Get(ctx, "new-live")
+		require.NoError(t, err)
+		require.Equal(t, "must survive archive import", live.Subject)
+		closed, err = s.ListClosed(ctx)
+		require.NoError(t, err)
+		require.Len(t, closed, 1)
+		require.Equal(t, "latest", closed[0].Subject)
+		require.NoError(t, s.Close())
+	}
+}
+
+func TestLifecycleMutationsPreserveLegacySemantics(t *testing.T) {
+	ctx := context.Background()
+	s, err := New(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
+	changed, err := s.UpdateStatusIf(ctx, "missing", store.StatusWorking, store.StatusDone)
+	require.NoError(t, err)
+	require.False(t, changed)
+	changed, err = s.FinalizeExit(ctx, "missing", store.StatusWorking, store.StatusDone, 1)
+	require.NoError(t, err)
+	require.False(t, changed)
+	a := &Agent{ID: "worker", Status: store.StatusWorking}
+	require.NoError(t, s.Insert(ctx, a))
+	require.NoError(t, s.SetRateLimit(ctx, a.ID, time.Now().Add(time.Hour), 1))
+	first, err := s.Get(ctx, a.ID)
+	require.NoError(t, err)
+	require.NoError(t, s.SetRateLimit(ctx, a.ID, time.Now().Add(2*time.Hour), 2))
+	second, err := s.Get(ctx, a.ID)
+	require.NoError(t, err)
+	require.Equal(t, first.RateLimitedAt, second.RateLimitedAt)
+	require.Len(t, second.Events, 2)
+	require.NoError(t, s.ClearRateLimit(ctx, a.ID))
+	require.NoError(t, s.UpdateContext(ctx, a.ID, 90000, "warning"))
+	require.NoError(t, s.UpdateContext(ctx, a.ID, 91000, "warning"))
+	got, err := s.Get(ctx, a.ID)
+	require.NoError(t, err)
+	require.Nil(t, got.RateLimitedAt)
+	require.Len(t, got.Events, 4)
+	require.Equal(t, "rate-limit-resumed", got.Events[2].Type)
+	require.Equal(t, "context none→warning (90k)", got.Events[3].Detail)
+	require.ErrorIs(t, s.SetSessionID(ctx, a.ID, "bad;ref"), store.ErrBadSessionRef)
 }
