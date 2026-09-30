@@ -1137,7 +1137,7 @@ Usage:
 
 Commands:
   list                 List plans for a project
-  create               Create a plan (writes YAML + DB record)
+  create               Create a canonical plan in ScrivaDB
   show                 Show detail for one plan
   run                  Start execution of a plan in the given mode
   pause                pause an in-progress plan's active executor
@@ -1148,6 +1148,7 @@ Commands:
   archive              Archive a plan (any status → archived)
   sync_to_repo         Export a plan revision to a dedicated branch and open a PR
   import               Copy a plan YAML into plans/pending/ and scan
+  import-legacy        Import legacy plans/**/*.yaml into ScrivaDB (operator cutover)
   scan                 Scan a project's plans/ directory and upsert plan records
   status               Transition a plan's status (git mv + commit + DB update)
   assess               Brain-assisted task progress assessment
@@ -1188,8 +1189,8 @@ Aliases:
 ## warden plan create
 
 ```text
-Create a new pending plan: writes plans/pending/<slug>.yaml and inserts the
-daemon record. --name and --goal are required. Supply tasks with repeatable
+Create a new pending plan in the daemon's ScrivaDB store (no repository
+YAML write). --name and --goal are required. Supply tasks with repeatable
 --task id:prompt flags, or (when stdin is a TTY) enter them interactively.
 
 Optional --constraint and --done-when may be repeated.
@@ -1215,7 +1216,7 @@ Inherited flags:
 ## warden plan show
 
 ```text
-Show the full record for one plan: goal, tasks, status, file path, execution mode, linked IDs, task progress, and timestamps.
+Show the full canonical record for one plan: goal, tasks, status, revision, content hash, execution mode, linked IDs, task progress, and timestamps.
 
 Usage:
   warden plan show <plan-id> [flags]
@@ -1400,12 +1401,43 @@ Inherited flags:
 Copy a plan YAML file into the project's plans/pending/ directory and
 trigger a scan so the daemon registers the imported plan.
 
+Prefer `wd plan import-legacy` for one-time cutover of an existing
+plans/{pending,in_progress,completed,archived} tree into ScrivaDB.
+
 Usage:
   warden plan import <file> [flags]
 
 Flags:
   -h, --help             help for import
       --project string   project ID (default: current directory)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan import-legacy
+
+```text
+Discover plans/{pending,in_progress,completed,archived}/*.yaml (and flat
+plans/*.yaml) and create or reconcile canonical ScrivaDB Plans by stable
+identity. Source files are left untouched.
+
+Repeated import with a matching content hash is a no-op (skipped). An
+existing canonical definition with a different hash is reported as
+conflicted without mutation.
+
+--report classifies without writing. Never runs automatically at daemon
+startup.
+
+Usage:
+  warden plan import-legacy [flags]
+
+Flags:
+  -h, --help             help for import-legacy
+      --json             output as JSON
+      --project string   project ID (default: current directory)
+      --report           classify without mutating ScrivaDB
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)

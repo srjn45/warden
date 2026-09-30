@@ -12,7 +12,6 @@ import (
 	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/mailbox"
 	"github.com/srjn45/warden/internal/notify"
-	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/poller"
 	"github.com/srjn45/warden/internal/savings"
@@ -152,12 +151,10 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 		}
 	}
 
-	// One-time plan scan: walk plans/ in every known project and upsert plan
-	// records. Runs as a background goroutine so it never delays HTTP startup.
-	// Only active when both the plan store and the project store are wired.
-	if s.plans != nil && s.projects != nil {
-		go s.runStartupPlanScan(runCtx)
-	}
+	// Startup plan directory scan is retired: ScrivaDB is canonical authority
+	// (docs/specs/2026-09-30-scrivadb-canonical-plans.md D5). Operators import
+	// legacy YAML explicitly via ImportLegacyPlans / `wd plan import-legacy`.
+	// Previously: go s.runStartupPlanScan(runCtx)
 
 	// Plan completion watcher: advances in_progress plans to completed/ when
 	// their autopilot run or pipeline finishes. A no-op when no plan store is
@@ -268,31 +265,10 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	return retErr
 }
 
-// runStartupPlanScan walks plans/ for every known project and upserts plan
-// records. It is fire-and-forget: errors are logged and never surfaced to the
-// caller. Runs exactly once at daemon start.
+// runStartupPlanScan is retained as a no-op stub for tests that still reference
+// the symbol. Implicit startup scans were retired in Phase 5 (legacy-plan-import);
+// operators must call ImportLegacyPlans explicitly.
 func (s *Server) runStartupPlanScan(ctx context.Context) {
-	projects, err := s.projects.List()
-	if err != nil {
-		slog.Warn("planstore: startup scan could not list projects", "err", err)
-		return
-	}
-	total := 0
-	for _, proj := range projects {
-		if proj.Path == "" {
-			continue
-		}
-		n, scanErr := planstore.ScanProject(ctx, s.plans, proj.ID, proj.Path)
-		if scanErr != nil {
-			slog.Warn("planstore: startup scan failed for project", "project", proj.ID, "err", scanErr)
-			continue
-		}
-		if n > 0 {
-			slog.Info("planstore: startup scan upserted plans", "project", proj.ID, "count", n)
-		}
-		total += n
-	}
-	if total > 0 {
-		slog.Info("planstore: startup scan complete", "total_upserted", total)
-	}
+	_ = ctx
+	slog.Info("planstore: startup scan disabled; use explicit legacy import")
 }

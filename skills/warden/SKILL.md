@@ -316,19 +316,23 @@ checklist enum, not ledger states.
 
 ## Plans
 
-Plans are YAML files in `plans/{pending,in_progress,completed,archived}/` that the daemon tracks as first-class entities — status inferred from directory placement, execution state (linked run IDs, task progress) in ScrivaDB. Every agent working in a warden-managed project should interact with plans through these MCP tools.
+Plans are canonical ScrivaDB records (goal, tasks, lifecycle, revision, content
+hash). Repository YAML under `plans/{pending,in_progress,completed,archived}/`
+is an optional inert export — not required for create/run/complete/archive, and
+never scanned automatically at daemon startup.
 
 ### MCP tools
 
 | Tool | When to call it |
 |---|---|
-| `scan_plans` | **On project init** — after cloning a repo or starting work in a new project, call `scan_plans { project_id: "<cwd>" }` to seed plan records from the directory layout. Also call after a reinstall to restore status from git. |
+| `import_legacy_plans` | **One-time cutover** — after cloning a legacy repo that still has `plans/**/*.yaml`, call `import_legacy_plans { project_id: "<cwd>" }` (or `report_only: true` first) to create/reconcile canonical ScrivaDB Plans. Matching content hash is a no-op; differing definitions are conflicted. Source files untouched. |
+| `scan_plans` | **Deprecated migration aid.** Prefer `import_legacy_plans`. Walks `plans/**/*.yaml` and upserts name/status/path only. |
 | `list_plans` | List plans for a project, optionally filtered by `status` (`pending`\|`in_progress`\|`completed`\|`archived`). |
-| `get_plan` | Fetch the full record for one plan by its stable `plan-<8hex>` ID: status, file path, execution mode, linked run/pipeline IDs, `task_progress`, timestamps. |
-| `create_plan` | Create a new plan: writes `plans/pending/<slug>.yaml` and inserts the DB record. Requires `project_id`, `name`, `goal`, and at least one task (`id` + `prompt`). |
-| `update_plan` | Patch a **pending** plan's definition (`name`/`goal`/`tasks`/`constraints`/`done_when`). Rejected if the plan is not pending. |
+| `get_plan` | Fetch the full record for one plan by its stable `plan-<8hex>` ID: status, definition, revision, execution mode, linked run/pipeline IDs, `task_progress`, timestamps. |
+| `create_plan` | Create a new canonical plan in ScrivaDB (no `plans/` directory required). Requires `project_id`, `name`, `goal`, and at least one task (`id` + `prompt`). |
+| `update_plan` | Patch a **pending** plan's definition (`name`/`goal`/`tasks`/`constraints`/`done_when`). Rejected if the plan is not pending. Supports `expected_revision` for optimistic concurrency. |
 | `update_plan_status` | **Legacy.** Prefer `run_plan` / `complete_plan` / `archive_plan` for the PlanService state machine. |
-| `archive_plan` | Move a plan to `archived` (any status). Moves the YAML to `plans/archived/`. |
+| `archive_plan` | Move a plan to `archived` (any status). |
 | `assess_plan` | **After a reinstall recovery** — call `assess_plan { plan_id: "<id>" }` for each `in_progress` plan to reconstruct `task_progress` from `git log` and open PRs via the brain Consultor. Opt-in; never automatic. |
 | `run_plan` | Start execution of a plan (`execution_mode`: `autopilot`\|`pipeline`\|`orchestrator_worker`\|`manual`). Pending → `in_progress`. |
 | `complete_plan` | Complete a plan (`in_progress` → `completed`). Blocked with a structured error listing incomplete tasks and/or unmerged branches. |
@@ -336,11 +340,11 @@ Plans are YAML files in `plans/{pending,in_progress,completed,archived}/` that t
 
 ### Workflow guidance
 
-**Project init (new clone or after reinstall):**
+**Legacy repo cutover (one-time):**
 ```
-scan_plans { project_id: "<absolute-path-to-repo>" }
+import_legacy_plans { project_id: "<absolute-path-to-repo>", report_only: true }
+import_legacy_plans { project_id: "<absolute-path-to-repo>" }
 ```
-This seeds all plan records. Status is fully recoverable from git — no hub sync needed.
 
 **Starting a phase:**
 ```
@@ -359,12 +363,13 @@ complete_plan { plan_id: "<plan-id>" }
 
 **After reinstall — reconstruct task progress:**
 ```
-scan_plans { project_id: "<id>" }                  # reseed from git
+import_legacy_plans { project_id: "<id>" }         # one-time YAML → ScrivaDB if needed
 assess_plan { project_id: "<id>", plan_id: "<id>" } # brain reconstructs task progress
 ```
 
 ### Guardrails
 
-- **Use `run_plan` / `complete_plan` / `archive_plan` instead of raw `git mv`** — the daemon's status transition is atomic (file move + DB update in one call).
-- **`assess_plan` is opt-in** — never call it automatically on every scan; it spawns a brain Consultor and takes time.
+- **Prefer ScrivaDB over YAML** — create/run/complete via MCP; do not treat `plans/**/*.yaml` as authority. Use `import_legacy_plans` only for explicit cutover.
+- **Use `run_plan` / `complete_plan` / `archive_plan` instead of raw `git mv`** — lifecycle is a ScrivaDB field update.
+- **`assess_plan` is opt-in** — never call it automatically on every import; it spawns a brain Consultor and takes time.
 - **`project_id` for local projects is the absolute path** — e.g. `"/home/user/my-repo"`. Pass the `cwd` of the project, not a short name.

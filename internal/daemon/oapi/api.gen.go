@@ -231,6 +231,30 @@ func (e GuardVerdictDecision) Valid() bool {
 	}
 }
 
+// Defines values for ImportLegacyRecordOutcome.
+const (
+	ImportLegacyRecordOutcomeConflicted ImportLegacyRecordOutcome = "conflicted"
+	ImportLegacyRecordOutcomeError      ImportLegacyRecordOutcome = "error"
+	ImportLegacyRecordOutcomeImported   ImportLegacyRecordOutcome = "imported"
+	ImportLegacyRecordOutcomeSkipped    ImportLegacyRecordOutcome = "skipped"
+)
+
+// Valid indicates whether the value is a known member of the ImportLegacyRecordOutcome enum.
+func (e ImportLegacyRecordOutcome) Valid() bool {
+	switch e {
+	case ImportLegacyRecordOutcomeConflicted:
+		return true
+	case ImportLegacyRecordOutcomeError:
+		return true
+	case ImportLegacyRecordOutcomeImported:
+		return true
+	case ImportLegacyRecordOutcomeSkipped:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for LegacyRunPlanRequestMode.
 const (
 	LegacyRunPlanRequestModeAutopilot          LegacyRunPlanRequestMode = "autopilot"
@@ -1105,6 +1129,40 @@ type GuardVerdictDecision string
 
 // HandoverSettings Configuration for mid-session context handover. context_fill_threshold is the only active trigger; threshold_percent and rolling_quota_threshold are deprecated and have no effect — confirmed hard-limit recovery (via the backend recovery coordinator) now owns all provider-quota switching. These deprecated fields are retained for one compatibility window and will be removed in a future release.
 type HandoverSettings = backendstore.HandoverSettings
+
+// ImportLegacyPlansRequest defines model for ImportLegacyPlansRequest.
+type ImportLegacyPlansRequest struct {
+	// ReportOnly When true, discover and classify candidates without mutating ScrivaDB or writing migration audit events.
+	ReportOnly bool `json:"report_only,omitempty"`
+}
+
+// ImportLegacyPlansResponse defines model for ImportLegacyPlansResponse.
+type ImportLegacyPlansResponse struct {
+	Conflicted []ImportLegacyRecord `json:"conflicted"`
+	Errors     []ImportLegacyRecord `json:"errors"`
+	Imported   []ImportLegacyRecord `json:"imported"`
+	ProjectId  string               `json:"project_id"`
+	ReportOnly bool                 `json:"report_only"`
+	RootDir    string               `json:"root_dir"`
+	Skipped    []ImportLegacyRecord `json:"skipped"`
+}
+
+// ImportLegacyRecord defines model for ImportLegacyRecord.
+type ImportLegacyRecord struct {
+	ContentHash      string                    `json:"content_hash,omitempty"`
+	ExistingHash     string                    `json:"existing_hash,omitempty"`
+	ExistingRevision int64                     `json:"existing_revision,omitempty"`
+	FilePath         string                    `json:"file_path"`
+	Name             string                    `json:"name,omitempty"`
+	Outcome          ImportLegacyRecordOutcome `json:"outcome"`
+	PlanId           string                    `json:"plan_id,omitempty"`
+	Reason           string                    `json:"reason,omitempty"`
+	Reconciled       bool                      `json:"reconciled,omitempty"`
+	Status           PlanStatus                `json:"status,omitempty"`
+}
+
+// ImportLegacyRecordOutcome defines model for ImportLegacyRecord.Outcome.
+type ImportLegacyRecordOutcome string
 
 // ImportResult defines model for ImportResult.
 type ImportResult = store.ImportResult
@@ -2216,6 +2274,9 @@ type OpenRemoteProjectJSONRequestBody = OpenRemoteProjectRequest
 // CreateProjectPlanJSONRequestBody defines body for CreateProjectPlan for application/json ContentType.
 type CreateProjectPlanJSONRequestBody = LegacyCreatePlanRequest
 
+// ImportLegacyPlansJSONRequestBody defines body for ImportLegacyPlans for application/json ContentType.
+type ImportLegacyPlansJSONRequestBody = ImportLegacyPlansRequest
+
 // ScanProjectPlansJSONRequestBody defines body for ScanProjectPlans for application/json ContentType.
 type ScanProjectPlansJSONRequestBody = LegacyScanPlansRequest
 
@@ -2533,6 +2594,9 @@ type ServerInterface interface {
 	// Create a legacy project plan record
 	// (POST /api/v1/projects/{project_id}/plans)
 	CreateProjectPlan(w http.ResponseWriter, r *http.Request, projectId string)
+	// Explicitly import legacy plans/*.yaml into ScrivaDB
+	// (POST /api/v1/projects/{project_id}/plans/import-legacy)
+	ImportLegacyPlans(w http.ResponseWriter, r *http.Request, projectId string)
 	// Scan a project's plans directory
 	// (POST /api/v1/projects/{project_id}/plans/scan)
 	ScanProjectPlans(w http.ResponseWriter, r *http.Request, projectId string)
@@ -3178,6 +3242,12 @@ func (_ Unimplemented) ListProjectPlans(w http.ResponseWriter, r *http.Request, 
 // Create a legacy project plan record
 // (POST /api/v1/projects/{project_id}/plans)
 func (_ Unimplemented) CreateProjectPlan(w http.ResponseWriter, r *http.Request, projectId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Explicitly import legacy plans/*.yaml into ScrivaDB
+// (POST /api/v1/projects/{project_id}/plans/import-legacy)
+func (_ Unimplemented) ImportLegacyPlans(w http.ResponseWriter, r *http.Request, projectId string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -5867,6 +5937,38 @@ func (siw *ServerInterfaceWrapper) CreateProjectPlan(w http.ResponseWriter, r *h
 	handler.ServeHTTP(w, r)
 }
 
+// ImportLegacyPlans operation middleware
+func (siw *ServerInterfaceWrapper) ImportLegacyPlans(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project_id" -------------
+	var projectId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project_id", chi.URLParam(r, "project_id"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ImportLegacyPlans(w, r, projectId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ScanProjectPlans operation middleware
 func (siw *ServerInterfaceWrapper) ScanProjectPlans(w http.ResponseWriter, r *http.Request) {
 
@@ -7864,6 +7966,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/projects/{project_id}/plans", wrapper.CreateProjectPlan)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/projects/{project_id}/plans/import-legacy", wrapper.ImportLegacyPlans)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/projects/{project_id}/plans/scan", wrapper.ScanProjectPlans)
@@ -11194,6 +11299,43 @@ func (response CreateProjectPlan404JSONResponse) VisitCreateProjectPlanResponse(
 	return err
 }
 
+type ImportLegacyPlansRequestObject struct {
+	ProjectId string `json:"project_id"`
+	Body      *ImportLegacyPlansJSONRequestBody
+}
+
+type ImportLegacyPlansResponseObject interface {
+	VisitImportLegacyPlansResponse(w http.ResponseWriter) error
+}
+
+type ImportLegacyPlans200JSONResponse ImportLegacyPlansResponse
+
+func (response ImportLegacyPlans200JSONResponse) VisitImportLegacyPlansResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ImportLegacyPlans404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ImportLegacyPlans404JSONResponse) VisitImportLegacyPlansResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ScanProjectPlansRequestObject struct {
 	ProjectId string `json:"project_id"`
 	Body      *ScanProjectPlansJSONRequestBody
@@ -13402,6 +13544,9 @@ type StrictServerInterface interface {
 	// Create a legacy project plan record
 	// (POST /api/v1/projects/{project_id}/plans)
 	CreateProjectPlan(ctx context.Context, request CreateProjectPlanRequestObject) (CreateProjectPlanResponseObject, error)
+	// Explicitly import legacy plans/*.yaml into ScrivaDB
+	// (POST /api/v1/projects/{project_id}/plans/import-legacy)
+	ImportLegacyPlans(ctx context.Context, request ImportLegacyPlansRequestObject) (ImportLegacyPlansResponseObject, error)
 	// Scan a project's plans directory
 	// (POST /api/v1/projects/{project_id}/plans/scan)
 	ScanProjectPlans(ctx context.Context, request ScanProjectPlansRequestObject) (ScanProjectPlansResponseObject, error)
@@ -15953,6 +16098,42 @@ func (sh *strictHandler) CreateProjectPlan(w http.ResponseWriter, r *http.Reques
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CreateProjectPlanResponseObject); ok {
 		if err := validResponse.VisitCreateProjectPlanResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ImportLegacyPlans operation middleware
+func (sh *strictHandler) ImportLegacyPlans(w http.ResponseWriter, r *http.Request, projectId string) {
+	var request ImportLegacyPlansRequestObject
+
+	request.ProjectId = projectId
+
+	var body ImportLegacyPlansJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if !errors.Is(err, io.EOF) {
+			sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+			return
+		}
+	} else {
+		request.Body = &body
+	}
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ImportLegacyPlans(ctx, request.(ImportLegacyPlansRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ImportLegacyPlans")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ImportLegacyPlansResponseObject); ok {
+		if err := validResponse.VisitImportLegacyPlansResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
