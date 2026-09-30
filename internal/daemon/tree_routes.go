@@ -84,7 +84,7 @@ func (s *Server) GetTree(ctx context.Context, req oapi.GetTreeRequestObject) (oa
 		if !req.Params.All && ss.HasTag("system:true") {
 			continue
 		}
-		visible = append(visible, ss)
+		visible = append(visible, ss.ToSession())
 	}
 
 	t := treeService.Build(s.treeInputsFor(visible), req.Params.ProjectId)

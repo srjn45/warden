@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"github.com/srjn45/warden/internal/agentstore"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -25,7 +26,7 @@ func getSearch(t *testing.T, srv *Server, query string) (int, sessionsResponse) 
 }
 
 func TestSearchSessionsFields(t *testing.T) {
-	sessions := []*store.Session{
+	sessions := []*agentstore.Agent{
 		{ID: "a", Subject: "fix the auth bug"},
 		{ID: "b", Prompt: "refactor the payment flow"},
 		{ID: "c", Name: "authster", Type: store.TypePRReview},
@@ -62,7 +63,7 @@ func TestSearchSessionsFields(t *testing.T) {
 }
 
 func TestSearchSessionsMatchesTags(t *testing.T) {
-	sessions := []*store.Session{
+	sessions := []*agentstore.Agent{
 		{ID: "a", Subject: "fix login", Tags: []string{"backend", "urgent"}},
 		{ID: "b", Subject: "tweak css", Tags: []string{"frontend"}},
 		{ID: "c", Subject: "no tags here"},
@@ -89,8 +90,8 @@ func TestSearchSessionsMatchesTags(t *testing.T) {
 func TestHandleSearch(t *testing.T) {
 	fs := newFakeStore()
 	ctx := context.Background()
-	fs.Insert(ctx, &store.Session{ID: "active-auth", Subject: "auth work", Status: store.StatusWorking})
-	fs.Insert(ctx, &store.Session{ID: "other", Subject: "deploy", Status: store.StatusWorking})
+	fs.Insert(ctx, &agentstore.Agent{ID: "active-auth", Subject: "auth work", Status: store.StatusWorking})
+	fs.Insert(ctx, &agentstore.Agent{ID: "other", Subject: "deploy", Status: store.StatusWorking})
 	srv := &Server{store: fs}
 
 	code, sr := getSearch(t, srv, "?q=auth")
@@ -105,7 +106,7 @@ func TestHandleSearch(t *testing.T) {
 func TestHandleSearchIncludesClosed(t *testing.T) {
 	fs := newFakeStore()
 	ctx := context.Background()
-	fs.Insert(ctx, &store.Session{ID: "arch-auth", Subject: "auth login fix"})
+	fs.Insert(ctx, &agentstore.Agent{ID: "arch-auth", Subject: "auth login fix"})
 	fs.Archive(ctx, "arch-auth")
 	srv := &Server{store: fs}
 

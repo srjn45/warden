@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/daemon/oapi"
 	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/store"
@@ -275,7 +276,7 @@ func (s *Server) CloseProject(ctx context.Context, req oapi.CloseProjectRequestO
 // project root so a worktree checkout maps to its repo, not a pseudo-project. It
 // is how agents that predate the ProjectID back-ref are still matched to a project
 // by their on-disk location.
-func projectSourceDir(sess *store.Session) string {
+func projectSourceDir(sess *agentstore.Agent) string {
 	dir := sess.Repo
 	if dir == "" {
 		dir = sess.Workdir
@@ -303,7 +304,7 @@ func normalizeProjectDir(dir string) string {
 // sessionInProject reports whether an agent belongs to project p, either by an
 // explicit ProjectID back-ref or by its on-disk location matching the project's
 // canonical id/path (bridging agents spawned before the back-ref was populated).
-func sessionInProject(sess *store.Session, p projectstore.Project) bool {
+func sessionInProject(sess *agentstore.Agent, p projectstore.Project) bool {
 	if sess.ProjectID != "" {
 		return sess.ProjectID == p.ID
 	}
@@ -329,14 +330,14 @@ func (s *Server) hibernateProjectAgents(ctx context.Context, p projectstore.Proj
 		return
 	}
 	for _, sess := range all {
-		if sess.IsTerminal() || !sessionInProject(sess, p) || !liveStatus(sess.Status) {
+		if !sessionInProject(sess, p) || !liveStatus(sess.Status) {
 			continue
 		}
 		if err := s.life.Terminate(ctx, sess.TmuxSession); err != nil {
 			slog.Warn("daemon: hibernate: terminate failed", "agent", sess.ID, "err", err)
 			continue
 		}
-		if err := s.store.Update(ctx, sess.ID, func(u *store.Session) error {
+		if err := s.store.Update(ctx, sess.ID, func(u *agentstore.Agent) error {
 			u.Status = store.StatusDone
 			u.Hibernated = true
 			u.ProjectID = p.ID
@@ -375,7 +376,7 @@ func (s *Server) restoreHibernatedAgents(ctx context.Context, p projectstore.Pro
 			slog.Warn("daemon: restore: restore failed", "agent", sess.ID, "err", err)
 			continue
 		}
-		if err := s.store.Update(ctx, sess.ID, func(u *store.Session) error {
+		if err := s.store.Update(ctx, sess.ID, func(u *agentstore.Agent) error {
 			u.Status = store.StatusSpawning
 			u.Hibernated = false
 			return nil

@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"github.com/srjn45/warden/internal/agentstore"
 	"testing"
 
 	"github.com/srjn45/warden/internal/daemon/oapi"
@@ -36,7 +37,7 @@ func findRoot(tr tree.Tree, id string) *tree.Node {
 // Cache-Control: no-store.
 func TestGetTreeSyntheticBucket(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["A-1"] = &store.Session{ID: "A-1", Name: "orch", Status: store.StatusWorking}
+	fs.data["A-1"] = &agentstore.Agent{ID: "A-1", Name: "orch", Status: store.StatusWorking}
 	srv := &Server{store: fs}
 
 	resp := getTree(t, srv, oapi.GetTreeParams{})
@@ -62,7 +63,7 @@ func TestGetTreeEmptyFleet(t *testing.T) {
 // roots — not 404 (locked decision; spec §9 Q-T2).
 func TestGetTreeUnknownProjectEmpty(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["A-1"] = &store.Session{ID: "A-1", Status: store.StatusWorking}
+	fs.data["A-1"] = &agentstore.Agent{ID: "A-1", Status: store.StatusWorking}
 	srv := &Server{store: fs}
 
 	resp := getTree(t, srv, oapi.GetTreeParams{ProjectId: "/nope/does-not-exist"})
@@ -74,8 +75,8 @@ func TestGetTreeUnknownProjectEmpty(t *testing.T) {
 // that subtree (and never the synthetic bucket).
 func TestGetTreeProjectScope(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["A-1"] = &store.Session{ID: "A-1", Status: store.StatusWorking, Repo: "/work/repo"}
-	fs.data["B-2"] = &store.Session{ID: "B-2", Status: store.StatusIdle} // synthetic bucket
+	fs.data["A-1"] = &agentstore.Agent{ID: "A-1", Status: store.StatusWorking, Repo: "/work/repo"}
+	fs.data["B-2"] = &agentstore.Agent{ID: "B-2", Status: store.StatusIdle} // synthetic bucket
 	srv := &Server{store: fs}
 
 	resp := getTree(t, srv, oapi.GetTreeParams{ProjectId: "/work/repo"})
@@ -88,8 +89,8 @@ func TestGetTreeProjectScope(t *testing.T) {
 // mirroring GET /sessions.
 func TestGetTreeAllFilter(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["A-1"] = &store.Session{ID: "A-1", Status: store.StatusWorking}
-	fs.data["sys"] = &store.Session{ID: "sys", Status: store.StatusIdle, Tags: []string{"system:true"}}
+	fs.data["A-1"] = &agentstore.Agent{ID: "A-1", Status: store.StatusWorking}
+	fs.data["sys"] = &agentstore.Agent{ID: "sys", Status: store.StatusIdle, Tags: []string{"system:true"}}
 	srv := &Server{store: fs}
 
 	def := getTree(t, srv, oapi.GetTreeParams{})
@@ -107,7 +108,7 @@ func TestGetTreeAllFilter(t *testing.T) {
 // tree built from a partial fleet (same complete-or-error contract as /sessions).
 func TestGetTreeDegradedIs503(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["A-1"] = &store.Session{ID: "A-1", Status: store.StatusWorking}
+	fs.data["A-1"] = &agentstore.Agent{ID: "A-1", Status: store.StatusWorking}
 	fs.listErr = degradedErr()
 	srv := &Server{store: fs}
 

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/backendusage"
 	"github.com/srjn45/warden/internal/lifecycle"
@@ -23,10 +24,10 @@ const (
 )
 
 // BackendRecoveryCoordinator is the sole owner of automatic hard-limit
-// switching. State is persisted on the session; the maps below contain only
+// switching. State is persisted on the agent; the maps below contain only
 // process-local serialization and reconstructable timers.
 type BackendRecoveryCoordinator struct {
-	store    store.Store
+	store    agentstore.AgentStore
 	backends *backendstore.Store
 	usage    *backendusage.Service
 	life     backendRecoveryLife
@@ -42,12 +43,12 @@ type BackendRecoveryCoordinator struct {
 }
 
 type backendRecoveryLife interface {
-	Restore(context.Context, *store.Session) error
+	Restore(context.Context, *agentstore.Agent) error
 	SendKeys(context.Context, string, string) error
-	HotSwap(context.Context, *store.Session, lifecycle.SwapRequest) (*lifecycle.SwapResult, error)
+	HotSwap(context.Context, *agentstore.Agent, lifecycle.SwapRequest) (*lifecycle.SwapResult, error)
 }
 
-func NewBackendRecoveryCoordinator(st store.Store, backends *backendstore.Store, usage *backendusage.Service, life backendRecoveryLife) *BackendRecoveryCoordinator {
+func NewBackendRecoveryCoordinator(st agentstore.AgentStore, backends *backendstore.Store, usage *backendusage.Service, life backendRecoveryLife) *BackendRecoveryCoordinator {
 	return &BackendRecoveryCoordinator{store: st, backends: backends, usage: usage, life: life, now: time.Now, locks: make(map[string]*sync.Mutex), timers: make(map[string]*time.Timer), stabilizationWindow: 10 * time.Second}
 }
 
@@ -78,7 +79,7 @@ func (c *BackendRecoveryCoordinator) sessionLock(id string) *sync.Mutex {
 // OnHardLimit claims or advances one recovery generation. Returning true tells
 // RateLimitScheduler that this coordinator owns switching/waiting and its legacy
 // resume timer must not also run.
-func (c *BackendRecoveryCoordinator) OnHardLimit(sess *store.Session, fallbackAt time.Time) bool {
+func (c *BackendRecoveryCoordinator) OnHardLimit(sess *agentstore.Agent, fallbackAt time.Time) bool {
 	if c == nil || c.store == nil || c.backends == nil || c.usage == nil || c.life == nil || sess == nil {
 		return false
 	}
@@ -95,7 +96,7 @@ func (c *BackendRecoveryCoordinator) OnHardLimit(sess *store.Session, fallbackAt
 		generation = current.BackendRecovery.Generation
 		if current.BackendRecovery.Phase == recoveryStabilizing && current.BackendRecovery.Current != nil {
 			attempt := store.RecoveryAttempt{Candidate: *current.BackendRecovery.Current, Round: current.BackendRecovery.Round, StartedAt: now, Outcome: "immediate_hard_limit"}
-			_ = c.store.Update(context.Background(), current.ID, func(s *store.Session) error {
+			_ = c.store.Update(context.Background(), current.ID, func(s *agentstore.Agent) error {
 				if s.BackendRecovery == nil || s.BackendRecovery.Generation != generation {
 					return nil
 				}
@@ -116,8 +117,8 @@ func (c *BackendRecoveryCoordinator) OnHardLimit(sess *store.Session, fallbackAt
 		// switching, or waiting: it is already owned.
 		return true
 	}
-	original := store.BackendCandidate{BackendID: current.Backend, ModelID: current.Model}
-	err = c.store.Update(context.Background(), current.ID, func(s *store.Session) error {
+	original := store.BackendCandidate{BackendID: current.AiCli, ModelID: current.Model}
+	err = c.store.Update(context.Background(), current.ID, func(s *agentstore.Agent) error {
 		s.BackendRecoveryGeneration = generation
 		s.BackendRecovery = &store.BackendRecovery{
 			Generation: generation, Phase: recoveryRefreshing, Original: original,
@@ -198,7 +199,7 @@ func (c *BackendRecoveryCoordinator) advance(id string, generation uint64, fallb
 		return
 	}
 	target := store.BackendCandidate{BackendID: selected.BackendID, ModelID: selected.ModelID}
-	_ = c.store.Update(ctx, id, func(s *store.Session) error {
+	_ = c.store.Update(ctx, id, func(s *agentstore.Agent) error {
 		if s.BackendRecovery == nil || s.BackendRecovery.Generation != generation {
 			return nil
 		}
@@ -222,7 +223,7 @@ func (c *BackendRecoveryCoordinator) advance(id string, generation uint64, fallb
 	}
 	if err != nil {
 		attempt := store.RecoveryAttempt{Candidate: target, Round: sess.BackendRecovery.Round, StartedAt: now, Outcome: "launch_failed"}
-		_ = c.store.Update(ctx, id, func(s *store.Session) error {
+		_ = c.store.Update(ctx, id, func(s *agentstore.Agent) error {
 			if s.BackendRecovery == nil || s.BackendRecovery.Generation != generation {
 				return nil
 			}
@@ -235,7 +236,7 @@ func (c *BackendRecoveryCoordinator) advance(id string, generation uint64, fallb
 		go c.advance(id, generation, fallbackAt)
 		return
 	}
-	_ = c.store.Update(ctx, id, func(s *store.Session) error {
+	_ = c.store.Update(ctx, id, func(s *agentstore.Agent) error {
 		if s.BackendRecovery == nil || s.BackendRecovery.Generation != generation {
 			return nil
 		}
@@ -248,7 +249,7 @@ func (c *BackendRecoveryCoordinator) advance(id string, generation uint64, fallb
 	c.event(id, "backend_recovery_stabilizing", fmt.Sprintf("generation=%d candidate=%s/%s", generation, target.BackendID, target.ModelID))
 }
 
-func (c *BackendRecoveryCoordinator) policyCandidates(sess *store.Session) []recovery.Candidate {
+func (c *BackendRecoveryCoordinator) policyCandidates(sess *agentstore.Agent) []recovery.Candidate {
 	tier := backendstore.Tier2
 	if sess.Role != "" {
 		if t, err := c.backends.GetRoleTier(sess.Role); err == nil && t.Valid() {
@@ -285,7 +286,7 @@ func (c *BackendRecoveryCoordinator) policyCandidates(sess *store.Session) []rec
 	return out
 }
 
-func (c *BackendRecoveryCoordinator) waitLocked(sess *store.Session, generation uint64, resets []store.RecoveryReset, fallbackAt time.Time) {
+func (c *BackendRecoveryCoordinator) waitLocked(sess *agentstore.Agent, generation uint64, resets []store.RecoveryReset, fallbackAt time.Time) {
 	now := c.now().UTC()
 	next := fallbackAt
 	for _, r := range resets {
@@ -296,7 +297,7 @@ func (c *BackendRecoveryCoordinator) waitLocked(sess *store.Session, generation 
 	if !next.After(now) {
 		next = now.Add(30 * time.Minute)
 	}
-	_ = c.store.Update(context.Background(), sess.ID, func(s *store.Session) error {
+	_ = c.store.Update(context.Background(), sess.ID, func(s *agentstore.Agent) error {
 		if s.BackendRecovery == nil || s.BackendRecovery.Generation != generation {
 			return nil
 		}
@@ -330,7 +331,7 @@ func (c *BackendRecoveryCoordinator) retry(id string, generation uint64) {
 	if err != nil || sess.BackendRecovery == nil || sess.BackendRecovery.Generation != generation || sess.BackendRecovery.Phase != recoveryWaiting {
 		return
 	}
-	_ = c.store.Update(ctx, id, func(s *store.Session) error {
+	_ = c.store.Update(ctx, id, func(s *agentstore.Agent) error {
 		s.BackendRecovery.Round++
 		s.BackendRecovery.Phase = recoveryRefreshing
 		s.BackendRecovery.NextRetryAt = nil
@@ -341,7 +342,7 @@ func (c *BackendRecoveryCoordinator) retry(id string, generation uint64) {
 
 // OnTransition starts a bounded stabilization observation after a later live
 // poll. Process launch or one live observation alone never clears recovery.
-func (c *BackendRecoveryCoordinator) OnTransition(sess *store.Session, _, to store.Status) {
+func (c *BackendRecoveryCoordinator) OnTransition(sess *agentstore.Agent, _, to store.Status) {
 	if c == nil || sess == nil || (to != store.StatusWorking && to != store.StatusIdle && to != store.StatusWaitingForInput) {
 		return
 	}
@@ -354,11 +355,11 @@ func (c *BackendRecoveryCoordinator) OnTransition(sess *store.Session, _, to sto
 	}
 	generation := current.BackendRecovery.Generation
 	target := current.BackendRecovery.Current
-	if target == nil || current.Backend != target.BackendID || current.Model != target.ModelID {
+	if target == nil || current.AiCli != target.BackendID || current.Model != target.ModelID {
 		return
 	}
 	now := c.now().UTC()
-	_ = c.store.Update(context.Background(), sess.ID, func(s *store.Session) error {
+	_ = c.store.Update(context.Background(), sess.ID, func(s *agentstore.Agent) error {
 		if s.BackendRecovery != nil && s.BackendRecovery.Generation == generation {
 			s.BackendRecovery.StableSince = &now
 		}
@@ -386,10 +387,10 @@ func (c *BackendRecoveryCoordinator) verifyStable(id string, generation uint64, 
 	defer lock.Unlock()
 	ctx := context.Background()
 	sess, err := c.store.Get(ctx, id)
-	if err != nil || sess.BackendRecovery == nil || sess.BackendRecovery.Generation != generation || sess.BackendRecovery.Phase != recoveryStabilizing || sess.BackendRecovery.StableSince == nil || sess.Backend != target.BackendID || sess.Model != target.ModelID || (sess.Status != store.StatusWorking && sess.Status != store.StatusIdle && sess.Status != store.StatusWaitingForInput) {
+	if err != nil || sess.BackendRecovery == nil || sess.BackendRecovery.Generation != generation || sess.BackendRecovery.Phase != recoveryStabilizing || sess.BackendRecovery.StableSince == nil || sess.AiCli != target.BackendID || sess.Model != target.ModelID || (sess.Status != store.StatusWorking && sess.Status != store.StatusIdle && sess.Status != store.StatusWaitingForInput) {
 		return
 	}
-	_ = c.store.Update(ctx, id, func(s *store.Session) error {
+	_ = c.store.Update(ctx, id, func(s *agentstore.Agent) error {
 		if s.BackendRecovery != nil && s.BackendRecovery.Generation == generation {
 			s.BackendRecovery = nil
 		}
@@ -412,7 +413,7 @@ func (c *BackendRecoveryCoordinator) Supersede(ctx context.Context, id, action s
 		return
 	}
 	generation := sess.BackendRecovery.Generation
-	_ = c.store.Update(ctx, id, func(s *store.Session) error { s.BackendRecovery = nil; return nil })
+	_ = c.store.Update(ctx, id, func(s *agentstore.Agent) error { s.BackendRecovery = nil; return nil })
 	c.mu.Lock()
 	if timer := c.timers[id]; timer != nil {
 		timer.Stop()
@@ -423,6 +424,9 @@ func (c *BackendRecoveryCoordinator) Supersede(ctx context.Context, id, action s
 }
 
 func (c *BackendRecoveryCoordinator) Reconstruct(ctx context.Context) error {
+	if c.store == nil {
+		return nil
+	}
 	sessions, err := c.store.List(ctx)
 	if err != nil {
 		return err
@@ -437,6 +441,9 @@ func (c *BackendRecoveryCoordinator) Reconstruct(ctx context.Context) error {
 }
 
 func (c *BackendRecoveryCoordinator) event(id, typ, detail string) {
+	if c.store == nil {
+		return
+	}
 	_ = c.store.AppendEvent(context.Background(), id, store.Event{TS: c.now().UTC(), Type: typ, Detail: detail})
 	// Wake SSE subscribers on every phase-transition event. The spec (§8) says
 	// "SSE/store notifications fire on phase changes, not every stabilization poll",

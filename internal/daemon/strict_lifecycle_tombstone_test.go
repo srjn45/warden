@@ -3,6 +3,7 @@ package daemon
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/srjn45/warden/internal/agentstore"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -34,8 +35,8 @@ func deleteSession(t *testing.T, ts *httptest.Server, id string, hard bool) (int
 // tmux down, so the children stay anchored under it in the sub-tree view.
 func TestDeleteTombstonesParentWithLiveChild(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["parent"] = &store.Session{ID: "parent", TmuxSession: "parent", Status: store.StatusIdle}
-	fs.data["child"] = &store.Session{ID: "child", ParentID: "parent", Status: store.StatusWorking}
+	fs.data["parent"] = &agentstore.Agent{ID: "parent", TmuxSession: "parent", Status: store.StatusIdle}
+	fs.data["child"] = &agentstore.Agent{ID: "child", ParentID: "parent", Status: store.StatusWorking}
 	fl := &fakeLife{}
 	ts := lifeServer(t, fs, fl)
 	defer ts.Close()
@@ -55,8 +56,8 @@ func TestDeleteTombstonesParentWithLiveChild(t *testing.T) {
 // force-kill terminal status.
 func TestHardDeleteTombstonesParentAsOrphaned(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["parent"] = &store.Session{ID: "parent", TmuxSession: "parent", Status: store.StatusWorking}
-	fs.data["child"] = &store.Session{ID: "child", ParentID: "parent", Status: store.StatusWorking}
+	fs.data["parent"] = &agentstore.Agent{ID: "parent", TmuxSession: "parent", Status: store.StatusWorking}
+	fs.data["child"] = &agentstore.Agent{ID: "child", ParentID: "parent", Status: store.StatusWorking}
 	fl := &fakeLife{}
 	ts := lifeServer(t, fs, fl)
 	defer ts.Close()
@@ -71,7 +72,7 @@ func TestHardDeleteTombstonesParentAsOrphaned(t *testing.T) {
 func TestDeleteChildlessParentUnchanged(t *testing.T) {
 	t.Run("soft archives", func(t *testing.T) {
 		fs := newFakeStore()
-		fs.data["solo"] = &store.Session{ID: "solo", TmuxSession: "solo", Status: store.StatusDone}
+		fs.data["solo"] = &agentstore.Agent{ID: "solo", TmuxSession: "solo", Status: store.StatusDone}
 		ts := lifeServer(t, fs, &fakeLife{})
 		defer ts.Close()
 
@@ -83,7 +84,7 @@ func TestDeleteChildlessParentUnchanged(t *testing.T) {
 	})
 	t.Run("hard removes", func(t *testing.T) {
 		fs := newFakeStore()
-		fs.data["solo"] = &store.Session{ID: "solo", TmuxSession: "solo", Status: store.StatusDone}
+		fs.data["solo"] = &agentstore.Agent{ID: "solo", TmuxSession: "solo", Status: store.StatusDone}
 		ts := lifeServer(t, fs, &fakeLife{})
 		defer ts.Close()
 
@@ -99,8 +100,8 @@ func TestDeleteChildlessParentUnchanged(t *testing.T) {
 // deletes normally (no tombstone).
 func TestDeleteParentWithOnlyTerminalChild(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["parent"] = &store.Session{ID: "parent", TmuxSession: "parent", Status: store.StatusIdle}
-	fs.data["child"] = &store.Session{ID: "child", ParentID: "parent", Status: store.StatusDone}
+	fs.data["parent"] = &agentstore.Agent{ID: "parent", TmuxSession: "parent", Status: store.StatusIdle}
+	fs.data["child"] = &agentstore.Agent{ID: "child", ParentID: "parent", Status: store.StatusDone}
 	ts := lifeServer(t, fs, &fakeLife{})
 	defer ts.Close()
 

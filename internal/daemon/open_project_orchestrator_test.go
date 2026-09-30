@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"github.com/srjn45/warden/internal/agentstore"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -55,7 +56,7 @@ func TestSendMessageWakesIdleOrchestrator(t *testing.T) {
 	require.NoError(t, err)
 	fs := newFakeStore()
 	srv := &Server{store: fs, life: &fakeLife{}, mbox: mb, hub: newHub(), done: make(chan struct{})}
-	fs.Insert(context.Background(), &store.Session{
+	fs.Insert(context.Background(), &agentstore.Agent{
 		ID: "orch-1", Name: "orch-demo", TmuxSession: "orch-1", Status: store.StatusIdle,
 	})
 	ts := httptest.NewServer(srv.router())

@@ -1,6 +1,7 @@
 package agentstore
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"time"
@@ -149,4 +150,164 @@ func (a *Agent) HasTag(tag string) bool {
 		}
 	}
 	return false
+}
+
+// ToSession converts the canonical Agent entity into the legacy Session DTO
+// used at external boundaries (REST API, OpenAPI responses, CLI compatibility).
+func (a *Agent) ToSession() *store.Session {
+	if a == nil {
+		return nil
+	}
+	return &store.Session{
+		ID:                        a.ID,
+		Name:                      a.Name,
+		Type:                      a.Type,
+		Ticket:                    a.Ticket,
+		TmuxSession:               a.TmuxSession,
+		Backend:                   a.AiCli,
+		ClaudeSessionID:           a.AICLISessionID,
+		Repo:                      a.Repo,
+		Worktree:                  a.Worktree,
+		Branch:                    a.Branch,
+		WorktreeCreated:           a.WorktreeCreated,
+		BranchCreated:             a.BranchCreated,
+		PR:                        a.PR,
+		Prompt:                    a.Prompt,
+		Workdir:                   a.Workdir,
+		Subject:                   a.Subject,
+		Tags:                      append([]string{}, a.Tags...),
+		Status:                    a.Status,
+		PID:                       a.PID,
+		ExitCode:                  a.ExitCode,
+		CreatedAt:                 a.CreatedAt,
+		UpdatedAt:                 a.UpdatedAt,
+		Events:                    append([]store.Event{}, a.Events...),
+		LastPaneExcerpt:           a.LastPaneExcerpt,
+		AutoRestart:               a.AutoRestart,
+		RestartCount:              a.RestartCount,
+		LastRestartAt:             a.LastRestartAt,
+		PermissionMode:            a.PermissionMode,
+		Role:                      a.Role,
+		Task:                      a.Task,
+		AutoApprove:               a.AutoApprove,
+		ForceCompact:              a.ForceCompact,
+		PipelineID:                a.PipelineID,
+		JobID:                     a.JobID,
+		PlanID:                    a.PlanID,
+		ScheduleID:                a.ScheduleID,
+		ScheduleName:              a.ScheduleName,
+		ParentID:                  a.ParentID,
+		ChildAgents:               a.ChildAgents,
+		ChildPipelines:            a.ChildPipelines,
+		AutopilotRunID:            a.AutopilotRunID,
+		AutopilotSlot:             a.AutopilotSlot,
+		AutopilotTaskID:           a.AutopilotTaskID,
+		Model:                     a.Model,
+		ProjectID:                 a.ProjectID,
+		Hibernated:                a.Hibernated,
+		ContextTokens:             a.ContextTokens,
+		ContextState:              a.ContextState,
+		ContextCheckedAt:          a.ContextCheckedAt,
+		LastCompactAt:             a.LastCompactAt,
+		RateLimitedAt:             a.RateLimitedAt,
+		RateLimitRestoreAt:        a.RateLimitRestoreAt,
+		RateLimitRetryCount:       a.RateLimitRetryCount,
+		BackendRecoveryGeneration: a.BackendRecoveryGeneration,
+		BackendRecovery:           a.BackendRecovery,
+	}
+}
+
+// FromSession converts a legacy Session DTO into a canonical Agent entity.
+func FromSession(s *store.Session) *Agent {
+	if s == nil {
+		return nil
+	}
+	return &Agent{
+		ID:                        s.ID,
+		Name:                      s.Name,
+		Type:                      s.Type,
+		Ticket:                    s.Ticket,
+		TmuxSession:               s.TmuxSession,
+		AiCli:                     s.Backend,
+		AICLISessionID:            s.ClaudeSessionID,
+		Repo:                      s.Repo,
+		Worktree:                  s.Worktree,
+		Branch:                    s.Branch,
+		WorktreeCreated:           s.WorktreeCreated,
+		BranchCreated:             s.BranchCreated,
+		PR:                        s.PR,
+		Prompt:                    s.Prompt,
+		Workdir:                   s.Workdir,
+		Subject:                   s.Subject,
+		Tags:                      append([]string{}, s.Tags...),
+		Status:                    s.Status,
+		PID:                       s.PID,
+		ExitCode:                  s.ExitCode,
+		CreatedAt:                 s.CreatedAt,
+		UpdatedAt:                 s.UpdatedAt,
+		Events:                    append([]store.Event{}, s.Events...),
+		LastPaneExcerpt:           s.LastPaneExcerpt,
+		AutoRestart:               s.AutoRestart,
+		RestartCount:              s.RestartCount,
+		LastRestartAt:             s.LastRestartAt,
+		PermissionMode:            s.PermissionMode,
+		Role:                      s.Role,
+		Task:                      s.Task,
+		AutoApprove:               s.AutoApprove,
+		ForceCompact:              s.ForceCompact,
+		PipelineID:                s.PipelineID,
+		JobID:                     s.JobID,
+		PlanID:                    s.PlanID,
+		ScheduleID:                s.ScheduleID,
+		ScheduleName:              s.ScheduleName,
+		ParentID:                  s.ParentID,
+		ChildAgents:               s.ChildAgents,
+		ChildPipelines:            s.ChildPipelines,
+		AutopilotRunID:            s.AutopilotRunID,
+		AutopilotSlot:             s.AutopilotSlot,
+		AutopilotTaskID:           s.AutopilotTaskID,
+		Model:                     s.Model,
+		ProjectID:                 s.ProjectID,
+		Hibernated:                s.Hibernated,
+		ContextTokens:             s.ContextTokens,
+		ContextState:              s.ContextState,
+		ContextCheckedAt:          s.ContextCheckedAt,
+		LastCompactAt:             s.LastCompactAt,
+		RateLimitedAt:             s.RateLimitedAt,
+		RateLimitRestoreAt:        s.RateLimitRestoreAt,
+		RateLimitRetryCount:       s.RateLimitRetryCount,
+		BackendRecoveryGeneration: s.BackendRecoveryGeneration,
+		BackendRecovery:           s.BackendRecovery,
+	}
+}
+
+// AgentStore defines the persistence interface for AI agents.
+type AgentStore interface {
+	Insert(ctx context.Context, a *Agent) error
+	Get(ctx context.Context, id string) (*Agent, error)
+	GetByNameOrID(ctx context.Context, nameOrID string) (*Agent, error)
+	List(ctx context.Context) ([]*Agent, error)
+	ListClosed(ctx context.Context) ([]*Agent, error)
+	ListClosedDegraded(ctx context.Context) ([]*Agent, int, error)
+	Update(ctx context.Context, id string, fn func(*Agent) error) error
+	UpdateStatus(ctx context.Context, id string, status store.Status) error
+	UpdateStatusIf(ctx context.Context, id string, expected, next store.Status) (bool, error)
+	FinalizeExit(ctx context.Context, id string, expected, next store.Status, code int) (bool, error)
+	AppendEvent(ctx context.Context, id string, ev store.Event) error
+	AppendEventStatus(ctx context.Context, id string, ev store.Event, status store.Status) error
+	SetRestart(ctx context.Context, id string, count int, at time.Time) error
+	UpdateContext(ctx context.Context, id string, tokens int, state string) error
+	StampCompact(ctx context.Context, id string) error
+	UpdateAutoApprove(ctx context.Context, id string, enabled bool) error
+	SetForceCompact(ctx context.Context, id string, v *bool) error
+	UpdatePermissionMode(ctx context.Context, id string, mode string) error
+	UpdateRole(ctx context.Context, id string, role string) error
+	ClearWorktree(ctx context.Context, id string) error
+	SetRateLimit(ctx context.Context, id string, restoreAt time.Time, retryCount int) error
+	ClearRateLimit(ctx context.Context, id string) error
+	SetSessionID(ctx context.Context, id, sessionID string) error
+	Ping(ctx context.Context) error
+	Archive(ctx context.Context, id string) error
+	Delete(ctx context.Context, id string) error
+	Close() error
 }

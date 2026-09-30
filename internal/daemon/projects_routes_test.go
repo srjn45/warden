@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/srjn45/warden/internal/agentstore"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -134,11 +135,11 @@ func TestCloseProjectHibernatesLiveAgents(t *testing.T) {
 	_, err = ps.OpenProject("beta", "Beta", "/repos/beta")
 	require.NoError(t, err)
 	// A live agent located in the project (no explicit ProjectID — matched by path).
-	require.NoError(t, fs.Insert(context.Background(), &store.Session{
+	require.NoError(t, fs.Insert(context.Background(), &agentstore.Agent{
 		ID: "ag1", TmuxSession: "ag1", Repo: "/repos/beta", Status: store.StatusWorking,
 	}))
 	// An unrelated live agent in another repo must be left untouched.
-	require.NoError(t, fs.Insert(context.Background(), &store.Session{
+	require.NoError(t, fs.Insert(context.Background(), &agentstore.Agent{
 		ID: "other", TmuxSession: "other", Repo: "/repos/gamma", Status: store.StatusWorking,
 	}))
 

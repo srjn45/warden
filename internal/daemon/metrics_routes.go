@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/metrics"
-	"github.com/srjn45/warden/internal/store"
 )
 
 const (
@@ -89,11 +89,10 @@ func (s *Server) recordOnce(ctx context.Context) {
 	}
 }
 
-// storeAgentLister adapts the session store to metrics.Lister, returning only
+// storeAgentLister adapts the agent store to metrics.Lister, returning only
 // live AI agents: those in a live status (liveStatus excludes the done/errored/
-// orphaned *statuses*) and of agent *kind* — terminals are plain shells with no
-// context or cost to attribute, so they are excluded from fleet metrics.
-type storeAgentLister struct{ st store.Store }
+// orphaned *statuses*).
+type storeAgentLister struct{ st agentstore.AgentStore }
 
 func (l storeAgentLister) LiveAgents(ctx context.Context) ([]metrics.Agent, error) {
 	sessions, err := l.st.List(ctx)
@@ -102,7 +101,7 @@ func (l storeAgentLister) LiveAgents(ctx context.Context) ([]metrics.Agent, erro
 	}
 	var out []metrics.Agent
 	for _, sess := range sessions {
-		if !liveStatus(sess.Status) || sess.IsTerminal() {
+		if !liveStatus(sess.Status) {
 			continue
 		}
 		out = append(out, metrics.Agent{
@@ -118,4 +117,4 @@ func (l storeAgentLister) LiveAgents(ctx context.Context) ([]metrics.Agent, erro
 }
 
 // NewAgentLister adapts a store into a metrics.Lister of live agents.
-func NewAgentLister(st store.Store) metrics.Lister { return storeAgentLister{st: st} }
+func NewAgentLister(st agentstore.AgentStore) metrics.Lister { return storeAgentLister{st: st} }

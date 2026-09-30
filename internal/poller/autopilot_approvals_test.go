@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/approval"
-	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
 
@@ -25,9 +25,9 @@ type fakeForward struct {
 	reason   string
 }
 
-func (f *fakeAutopilot) BrainFor(_ *store.Session) (string, bool) { return f.brainID, f.own }
+func (f *fakeAutopilot) BrainFor(_ *agentstore.Agent) (string, bool) { return f.brainID, f.own }
 
-func (f *fakeAutopilot) Forward(_ context.Context, brainID string, worker *store.Session, reason string) {
+func (f *fakeAutopilot) Forward(_ context.Context, brainID string, worker *agentstore.Agent, reason string) {
 	f.forwards = append(f.forwards, fakeForward{brainID: brainID, workerID: worker.ID, reason: reason})
 }
 
@@ -50,7 +50,7 @@ func TestForwardUnanswerablePromptToBrain(t *testing.T) {
 	p.AutoApprovePolicy = denyAllPolicy()
 	fa := &fakeAutopilot{brainID: "brain-1", own: true}
 	p.Autopilot = fa
-	s := &store.Session{ID: "worker-1", TmuxSession: "tmux-1"}
+	s := &agentstore.Agent{ID: "worker-1", TmuxSession: "tmux-1"}
 
 	ctx := context.Background()
 	for i := 0; i < 5; i++ {
@@ -74,7 +74,7 @@ func TestForwardResetsOnNewPrompt(t *testing.T) {
 	p.AutoApprovePolicy = denyAllPolicy()
 	fa := &fakeAutopilot{brainID: "brain-1", own: true}
 	p.Autopilot = fa
-	s := &store.Session{ID: "worker-1", TmuxSession: "tmux-1"}
+	s := &agentstore.Agent{ID: "worker-1", TmuxSession: "tmux-1"}
 
 	ctx := context.Background()
 	p.tryAutoApprove(ctx, s, promptA)
@@ -95,7 +95,7 @@ func TestBreakerTripRoutesToBrain(t *testing.T) {
 	p.AutoApprovePolicy = pol
 	fa := &fakeAutopilot{brainID: "brain-1", own: true}
 	p.Autopilot = fa
-	s := &store.Session{ID: "worker-1", TmuxSession: "tmux-1"}
+	s := &agentstore.Agent{ID: "worker-1", TmuxSession: "tmux-1"}
 
 	ctx := context.Background()
 	for i := 0; i < 10; i++ {
@@ -120,7 +120,7 @@ func TestBreakerTripEscalatesHumanWhenNotOwned(t *testing.T) {
 	p.AutoApprovePolicy = pol
 	fa := &fakeAutopilot{own: false} // not an autopilot-owned worker
 	p.Autopilot = fa
-	s := &store.Session{ID: "agent-1", TmuxSession: "tmux-1"}
+	s := &agentstore.Agent{ID: "agent-1", TmuxSession: "tmux-1"}
 
 	ctx := context.Background()
 	for i := 0; i < 10; i++ {

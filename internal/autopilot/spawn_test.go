@@ -3,6 +3,7 @@ package autopilot
 import (
 	"testing"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
@@ -14,15 +15,15 @@ func TestWorkerSpawnRole(t *testing.T) {
 }
 
 func TestSessionRunIDBackRefAndLegacyTag(t *testing.T) {
-	require.Equal(t, "ap-abc", SessionRunID(&store.Session{AutopilotRunID: "ap-abc"}))
-	require.Equal(t, "ap-legacy", SessionRunID(&store.Session{Tags: []string{"run:ap-legacy"}}))
+	require.Equal(t, "ap-abc", SessionRunID(&agentstore.Agent{AutopilotRunID: "ap-abc"}))
+	require.Equal(t, "ap-legacy", SessionRunID(&agentstore.Agent{Tags: []string{"run:ap-legacy"}}))
 }
 
 func TestIsManagerAndWorkerRecord(t *testing.T) {
-	require.True(t, IsManagerRecord(&store.Session{
+	require.True(t, IsManagerRecord(&agentstore.Agent{
 		AutopilotSlot: store.AutopilotSlotManager, AutopilotRunID: "ap-x",
 	}))
-	require.True(t, IsWorkerRecord(&store.Session{
+	require.True(t, IsWorkerRecord(&agentstore.Agent{
 		AutopilotSlot: store.AutopilotSlotWorker, AutopilotRunID: "ap-x", Tags: []string{"autopilot"},
 	}))
 }

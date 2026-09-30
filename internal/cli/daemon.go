@@ -14,6 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/srjn45/warden/internal/agentbackend"
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/auth"
@@ -132,11 +133,11 @@ func newDaemonRunCmd() *cobra.Command {
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 
-			st, err := store.NewFileStore(cfg.DataDir)
+			st, err := agentstore.New(cfg.DataDir)
 			if err != nil {
 				return err
 			}
-			defer st.Close(context.Background())
+			defer st.Close()
 
 			termStore, err := terminalstore.New(cfg.DataDir)
 			if err != nil {
@@ -359,7 +360,7 @@ func newDaemonRunCmd() *cobra.Command {
 					"remove these fields from your configuration; context_fill_threshold remains active and controls context-window handover only",
 					"keys", "threshold_percent, rolling_quota_threshold")
 			}
-			pl.OnHotSwap = func(sess *store.Session, tokens int) {
+			pl.OnHotSwap = func(sess *agentstore.Agent, tokens int) {
 				settings, err := backendStore.GetHandoverSettings()
 				if err != nil {
 					settings = backendstore.DefaultHandoverSettings()
@@ -387,10 +388,10 @@ func newDaemonRunCmd() *cobra.Command {
 					slog.Error("hot-swap failed", "agent", sess.ID, "err", swapErr)
 					return
 				}
-				_ = st.Update(context.Background(), sess.ID, func(s *store.Session) error {
-					s.Backend = sess.Backend
+				_ = st.Update(context.Background(), sess.ID, func(s *agentstore.Agent) error {
+					s.AiCli = sess.AiCli
 					s.Model = sess.Model
-					s.ClaudeSessionID = sess.ClaudeSessionID
+					s.AICLISessionID = sess.AICLISessionID
 					s.UpdatedAt = sess.UpdatedAt
 					return nil
 				})
@@ -545,8 +546,8 @@ func newDaemonRunCmd() *cobra.Command {
 			restarter := daemon.NewRestarter(life, st, cfg.AutoRestart.Max, cfg.AutoRestartResetDuration())
 			srv.SetRestarter(restarter)
 			rateLimitSched := daemon.NewRateLimitScheduler(life, st, cfg.RateLimitRetryIntervalDuration(), cfg.RateLimitSpendRetryIntervalDuration(), cfg.RateLimitBufferDuration(), cfg.RateLimit.AutoResume, cfg.RateLimit.ResumePrompt)
-			rateLimitSched.BackendResolver = func(s *store.Session) agentbackend.Backend {
-				b, _ := agentbackend.Get(s.Backend)
+			rateLimitSched.BackendResolver = func(s *agentstore.Agent) agentbackend.Backend {
+				b, _ := agentbackend.Get(s.AiCli)
 				return b
 			}
 			// Fixture-capture aid: snapshot the raw pane on each real limit hit so a
@@ -569,13 +570,13 @@ func newDaemonRunCmd() *cobra.Command {
 			// pane excerpt captured this tick. rateLimitSched.OnTransition is kept as
 			// the fallback for pane-blind backends (usage_sync.go fires it directly).
 			pl.OnRateLimitObservation = rateLimitSched.OnRateLimitObservation
-			pl.OnTransition = func(sess *store.Session, from, to store.Status) {
+			pl.OnTransition = func(sess *agentstore.Agent, from, to store.Status) {
 				notifyHook(sess, from, to)
 				exec.OnTransition(sess, from, to)
 				restarter.OnTransition(sess, from, to)
 				recoveryCoordinator.OnTransition(sess, from, to)
 			}
-			pl.OnContextAlert = func(sess *store.Session, state ctxtokens.State, tokens int) {
+			pl.OnContextAlert = func(sess *agentstore.Agent, state ctxtokens.State, tokens int) {
 				title, body := daemon.ContextAlertMessage(sess, state, tokens)
 				go notifSwitch.Notify(title, body)
 			}

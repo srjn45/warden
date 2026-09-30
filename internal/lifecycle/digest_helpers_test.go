@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/srjn45/warden/internal/store"
+	"github.com/srjn45/warden/internal/agentstore"
 )
 
 func TestGitBranchAndNumstat(t *testing.T) {
@@ -32,7 +32,7 @@ func TestGitBranchErrorEmpty(t *testing.T) {
 func TestTranscriptPathExportedWrapper(t *testing.T) {
 	// No ProjectsDir set -> lookup disabled -> "".
 	l := New(&FakeRunner{}, &FakeConfig{})
-	if p := l.TranscriptPath(&store.Session{ClaudeSessionID: "abc"}); p != "" {
+	if p := l.TranscriptPath(&agentstore.Agent{AICLISessionID: "abc"}); p != "" {
 		t.Errorf("TranscriptPath with no ProjectsDir = %q, want empty", p)
 	}
 }

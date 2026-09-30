@@ -4,14 +4,15 @@ import (
 	"context"
 	"testing"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/mailbox"
 	"github.com/srjn45/warden/internal/store"
 )
 
 // fakeLister returns a fixed session set.
-type fakeLister struct{ sessions []*store.Session }
+type fakeLister struct{ sessions []*agentstore.Agent }
 
-func (f fakeLister) List(context.Context) ([]*store.Session, error) { return f.sessions, nil }
+func (f fakeLister) List(context.Context) ([]*agentstore.Agent, error) { return f.sessions, nil }
 
 // recordingNotifier captures desktop notifications.
 type recordingNotifier struct{ calls []string }
@@ -26,7 +27,7 @@ type branchState struct {
 
 // newTestTracker wires a tracker over fixed sessions and per-branch CI/git maps
 // keyed by branch.
-func newTestTracker(t *testing.T, sessions []*store.Session, ci map[string]CIStatus, git map[string]branchState) (*Tracker, *recordingNotifier) {
+func newTestTracker(t *testing.T, sessions []*agentstore.Agent, ci map[string]CIStatus, git map[string]branchState) (*Tracker, *recordingNotifier) {
 	t.Helper()
 	mbox, err := mailbox.New(t.TempDir())
 	if err != nil {
@@ -50,7 +51,7 @@ func newTestTracker(t *testing.T, sessions []*store.Session, ci map[string]CISta
 
 func TestStatusesFiltersAndDedupsByBranch(t *testing.T) {
 	calls := 0
-	sessions := []*store.Session{
+	sessions := []*agentstore.Agent{
 		{ID: "a", Name: "alpha", Worktree: "/wt/a", Branch: "feat-a", Status: store.StatusWorking},
 		{ID: "b", Worktree: "/wt/b", Branch: "feat-a", Status: store.StatusWaitingForInput}, // shares branch
 		{ID: "c", Worktree: "/wt/c", Branch: "", Status: store.StatusWorking},               // no branch → skipped
@@ -76,7 +77,7 @@ func TestStatusesFiltersAndDedupsByBranch(t *testing.T) {
 }
 
 func TestCIFailureAlertsInboxAndNotifier(t *testing.T) {
-	sessions := []*store.Session{{ID: "a", Name: "alpha", Worktree: "/wt/a", Branch: "feat-a", Status: store.StatusWorking}}
+	sessions := []*agentstore.Agent{{ID: "a", Name: "alpha", Worktree: "/wt/a", Branch: "feat-a", Status: store.StatusWorking}}
 	ci := map[string]CIStatus{"feat-a": {State: ciFailure, Workflow: "build", URL: "http://ci/1"}}
 	tr, n := newTestTracker(t, sessions, ci, nil)
 
@@ -98,7 +99,7 @@ func TestCIFailureAlertsInboxAndNotifier(t *testing.T) {
 }
 
 func TestCISuccessIsSilent(t *testing.T) {
-	sessions := []*store.Session{{ID: "a", Worktree: "/wt/a", Branch: "feat-a", Status: store.StatusWorking}}
+	sessions := []*agentstore.Agent{{ID: "a", Worktree: "/wt/a", Branch: "feat-a", Status: store.StatusWorking}}
 	ci := map[string]CIStatus{"feat-a": {State: ciSuccess, Workflow: "build"}}
 	tr, n := newTestTracker(t, sessions, ci, nil)
 
@@ -114,7 +115,7 @@ func TestCISuccessIsSilent(t *testing.T) {
 }
 
 func TestDedupSuppressesReAlertWithinWindow(t *testing.T) {
-	sessions := []*store.Session{{ID: "a", Worktree: "/wt/a", Branch: "feat-a", Status: store.StatusWorking}}
+	sessions := []*agentstore.Agent{{ID: "a", Worktree: "/wt/a", Branch: "feat-a", Status: store.StatusWorking}}
 	ci := map[string]CIStatus{"feat-a": {State: ciFailure, Workflow: "build"}}
 	tr, n := newTestTracker(t, sessions, ci, nil)
 
@@ -131,7 +132,7 @@ func TestDedupSuppressesReAlertWithinWindow(t *testing.T) {
 }
 
 func TestStateChangeReAlerts(t *testing.T) {
-	sessions := []*store.Session{{ID: "a", Worktree: "/wt/a", Branch: "feat-a", Status: store.StatusWorking}}
+	sessions := []*agentstore.Agent{{ID: "a", Worktree: "/wt/a", Branch: "feat-a", Status: store.StatusWorking}}
 	state := CIStatus{State: ciPending, Workflow: "build"}
 	tr, n := newTestTracker(t, sessions, nil, nil)
 	tr.ci = func(_ context.Context, _, _ string) CIStatus { return state }
@@ -150,7 +151,7 @@ func TestStateChangeReAlerts(t *testing.T) {
 }
 
 func TestMergedAndBehindAlerts(t *testing.T) {
-	sessions := []*store.Session{
+	sessions := []*agentstore.Agent{
 		{ID: "a", Worktree: "/wt/a", Branch: "merged-br", Status: store.StatusWorking},
 		{ID: "b", Worktree: "/wt/b", Branch: "behind-br", Status: store.StatusWorking},
 		{ID: "c", Worktree: "/wt/c", Branch: "fresh-br", Status: store.StatusWorking},
@@ -176,7 +177,7 @@ func TestMergedAndBehindAlerts(t *testing.T) {
 }
 
 func TestBehindAtThresholdIsSilent(t *testing.T) {
-	sessions := []*store.Session{{ID: "a", Worktree: "/wt/a", Branch: "feat-a", Status: store.StatusWorking}}
+	sessions := []*agentstore.Agent{{ID: "a", Worktree: "/wt/a", Branch: "feat-a", Status: store.StatusWorking}}
 	git := map[string]branchState{"feat-a": {behind: behindThreshold}} // not strictly greater
 	tr, _ := newTestTracker(t, sessions, nil, git)
 
@@ -209,7 +210,7 @@ func TestParseCIRun(t *testing.T) {
 // TestGhAbsentNoOp ensures the real subprocess path degrades to "none"/zeros
 // and never panics when gh/git can't run against a bogus worktree.
 func TestGhAbsentNoOp(t *testing.T) {
-	sessions := []*store.Session{{ID: "a", Worktree: "/nonexistent/wt", Branch: "feat-a", Status: store.StatusWorking}}
+	sessions := []*agentstore.Agent{{ID: "a", Worktree: "/nonexistent/wt", Branch: "feat-a", Status: store.StatusWorking}}
 	mbox, err := mailbox.New(t.TempDir())
 	if err != nil {
 		t.Fatalf("mailbox.New: %v", err)

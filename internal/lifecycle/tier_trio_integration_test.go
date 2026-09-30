@@ -76,7 +76,7 @@ func TestTierTrioEndToEnd(t *testing.T) {
 		// orchestrator → tier-1 (its seeded role default). claude wins tier-1 on
 		// headroom (1.0) over antigravity (0.5), and claude's only tier-1 model is
 		// claude-opus.
-		require.Equal(t, "claude", s.Backend)
+		require.Equal(t, "claude", s.AiCli)
 		require.Equal(t, "opus", s.Model)
 	})
 
@@ -88,7 +88,7 @@ func TestTierTrioEndToEnd(t *testing.T) {
 			Role: "orchestrator", Task: "development", Cwd: t.TempDir(),
 		})
 		require.NoError(t, err)
-		require.Equal(t, "claude", s.Backend)
+		require.Equal(t, "claude", s.AiCli)
 		require.Equal(t, "sonnet", s.Model) // claude's tier-2 model
 	})
 
@@ -100,7 +100,7 @@ func TestTierTrioEndToEnd(t *testing.T) {
 			Role: "orchestrator", Task: "development", Tier: "tier-3", Cwd: t.TempDir(),
 		})
 		require.NoError(t, err)
-		require.Equal(t, "claude", s.Backend)
+		require.Equal(t, "claude", s.AiCli)
 		require.Equal(t, "haiku", s.Model) // claude's tier-3 model
 	})
 
@@ -112,7 +112,7 @@ func TestTierTrioEndToEnd(t *testing.T) {
 			Role: "orchestrator", Backend: "antigravity", Model: "claude-sonnet-4-6", Cwd: t.TempDir(),
 		})
 		require.NoError(t, err)
-		require.Equal(t, "antigravity", s.Backend)
+		require.Equal(t, "antigravity", s.AiCli)
 		require.Equal(t, "claude-sonnet-4-6", s.Model)
 	})
 
@@ -124,7 +124,7 @@ func TestTierTrioEndToEnd(t *testing.T) {
 		// A first spawn never hard-fails on resolution: with no resolver it degrades
 		// to the request values — the config default backend (empty ⇒ claude) and no
 		// model pin.
-		require.Equal(t, "", s.Backend)
+		require.Equal(t, "", s.AiCli)
 		require.Equal(t, "", s.Model)
 	})
 }

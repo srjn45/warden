@@ -73,7 +73,7 @@ func parseResize(data []byte) (cols, rows uint16, ok bool) {
 // client only — the agent's tmux session keeps running.
 func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	sess, err := s.resolveSession(r.Context(), id)
+	sess, err := s.resolveSessionDTO(r.Context(), id)
 	if err != nil {
 		var ae apiError
 		if errors.As(err, &ae) && ae.code == http.StatusNotFound {

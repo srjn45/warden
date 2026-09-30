@@ -9,18 +9,22 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/auth"
 	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/store"
+	"github.com/srjn45/warden/internal/terminalstore"
 	"github.com/stretchr/testify/require"
 )
 
 // childPipelines fetches an agent's ChildPipelines[] forward-edge list from the store.
-func childPipelines(t *testing.T, st store.Store, id string) []string {
+func childPipelines(t *testing.T, st agentstore.AgentStore, id string) []string {
 	t.Helper()
 	a, err := st.Get(context.Background(), id)
-	require.NoError(t, err)
+	if err != nil {
+		return nil
+	}
 	return a.ChildPipelines
 }
 
@@ -30,12 +34,12 @@ func childPipelines(t *testing.T, st store.Store, id string) []string {
 // and asserts the two ends agree: Pipeline.ParentAgentID <-> agent.ChildPipelines[].
 func TestPipelineParentEdgeInvariant(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.NewFileStore(t.TempDir())
+	st, err := agentstore.New(t.TempDir())
 	require.NoError(t, err)
-	t.Cleanup(func() { st.Close(ctx) })
+	t.Cleanup(func() { _ = st.Close() })
 	s := &Server{store: st}
 
-	owner := &store.Session{ID: "agent-owner", Status: store.StatusWorking}
+	owner := &agentstore.Agent{ID: "agent-owner", Status: store.StatusWorking}
 	require.NoError(t, st.Insert(ctx, owner))
 
 	// --- create: add edge (both ends) ---
@@ -65,12 +69,12 @@ func TestPipelineParentEdgeInvariant(t *testing.T) {
 // the helpers never panic on nil.
 func TestPipelineParentEdgeExclusions(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.NewFileStore(t.TempDir())
+	st, err := agentstore.New(t.TempDir())
 	require.NoError(t, err)
-	t.Cleanup(func() { st.Close(ctx) })
+	t.Cleanup(func() { _ = st.Close() })
 	s := &Server{store: st}
 
-	owner := &store.Session{ID: "agent-owner", Status: store.StatusWorking}
+	owner := &agentstore.Agent{ID: "agent-owner", Status: store.StatusWorking}
 	require.NoError(t, st.Insert(ctx, owner))
 
 	require.NotPanics(t, func() {
@@ -86,9 +90,9 @@ func TestPipelineParentEdgeExclusions(t *testing.T) {
 // (§6.3): the add/remove are logged no-ops, never fatal.
 func TestPipelineParentEdgeDanglingOwner(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.NewFileStore(t.TempDir())
+	st, err := agentstore.New(t.TempDir())
 	require.NoError(t, err)
-	t.Cleanup(func() { st.Close(ctx) })
+	t.Cleanup(func() { _ = st.Close() })
 	s := &Server{store: st}
 
 	p := &pipeline.Pipeline{ID: "pipe-ghost", ParentAgentID: "ghost-agent"}
@@ -101,14 +105,15 @@ func TestPipelineParentEdgeDanglingOwner(t *testing.T) {
 // newPipeServerWithStore builds a server wired with the pipeline executor and a
 // fake session store, returning the store so tests can inspect the owning agent's
 // ChildPipelines[] forward edge after create/delete.
-func newPipeServerWithStore(t *testing.T) (*httptest.Server, *fakeStore) {
+func newPipeServerWithStore(t *testing.T) (*httptest.Server, *fakeStore, *terminalstore.Store) {
 	t.Helper()
 	ps, _ := pipeline.NewStore(t.TempDir())
 	cs, _ := ctxstore.New(t.TempDir())
 	ss := newFakeStore()
+	ts, _ := terminalstore.New(t.TempDir())
 	exec := NewExecutor(ps, ss, &fakeLife{}, cs, func() {})
-	srv := &Server{store: ss, life: &fakeLife{}, exec: exec, hub: newHub(), done: make(chan struct{})}
-	return httptest.NewServer(srv.router()), ss
+	srv := &Server{store: ss, terminals: ts, life: &fakeLife{}, exec: exec, hub: newHub(), done: make(chan struct{})}
+	return httptest.NewServer(srv.router()), ss, ts
 }
 
 // postPipeline POSTs a create request with an optional actor header and returns
@@ -144,16 +149,16 @@ func mustJSON(t *testing.T, v any) string {
 // the pipeline, and mirrored on the owning agent's ChildPipelines[] — with delete
 // dropping it. Operator and terminal callers own no pipeline.
 func TestPipelineCreateStampsParentAgent(t *testing.T) {
-	ts, ss := newPipeServerWithStore(t)
+	ts, ss, terms := newPipeServerWithStore(t)
 	defer ts.Close()
 	ctx := context.Background()
 
-	owner := &store.Session{ID: "agent-owner", Status: store.StatusWorking}
+	owner := &agentstore.Agent{ID: "agent-owner", Status: store.StatusWorking}
 	require.NoError(t, ss.Insert(ctx, owner))
-	other := &store.Session{ID: "agent-other", Status: store.StatusWorking}
+	other := &agentstore.Agent{ID: "agent-other", Status: store.StatusWorking}
 	require.NoError(t, ss.Insert(ctx, other))
-	term := &store.Session{ID: "term-1", Kind: store.KindTerminal, Status: store.StatusWorking}
-	require.NoError(t, ss.Insert(ctx, term))
+	term := &terminalstore.Terminal{ID: "term-1", Status: terminalstore.StatusRunning}
+	require.NoError(t, terms.Insert(ctx, term))
 
 	spec := func(name string) string {
 		return "name: " + name + "\nrepo: /r\njobs:\n  - id: a\n    prompt: go\n    worktree: none\n"
@@ -199,13 +204,15 @@ func TestPipelineCreateStampsParentAgent(t *testing.T) {
 // ChildPipelines[] on that terminal.
 func TestPipelineParentEdgeRejectsTerminalParent(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.NewFileStore(t.TempDir())
+	st, err := agentstore.New(t.TempDir())
 	require.NoError(t, err)
-	t.Cleanup(func() { st.Close(ctx) })
-	s := &Server{store: st}
+	t.Cleanup(func() { _ = st.Close() })
+	tstore, err := terminalstore.New(t.TempDir())
+	require.NoError(t, err)
+	s := &Server{store: st, terminals: tstore}
 
-	term := &store.Session{ID: "term-owner", Kind: store.KindTerminal, Status: store.StatusWorking}
-	require.NoError(t, st.Insert(ctx, term))
+	term := &terminalstore.Terminal{ID: "term-owner", Status: terminalstore.StatusRunning}
+	require.NoError(t, tstore.Insert(ctx, term))
 
 	p := &pipeline.Pipeline{ID: "pipe-term", ParentAgentID: "term-owner"}
 	s.addPipelineParentEdge(ctx, p)

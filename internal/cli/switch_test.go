@@ -12,10 +12,10 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/handoff"
 	"github.com/srjn45/warden/internal/lifecycle"
-	"github.com/srjn45/warden/internal/store"
 )
 
 func TestSwitchExplicitBackend(t *testing.T) {
@@ -28,7 +28,7 @@ func TestSwitchExplicitBackend(t *testing.T) {
 		recordedID = id
 		recordedParams = params
 		return &lifecycle.SwapResult{
-			Session:      &store.Session{ID: id},
+			Agent:        &agentstore.Agent{ID: id},
 			FromBackend:  "claude",
 			FromModel:    "opus",
 			ToBackend:    params.Backend,
@@ -58,7 +58,7 @@ func TestSwitchByTier(t *testing.T) {
 	runHotSwap = func(ctx context.Context, cmd *cobra.Command, id string, params client.SwitchSessionParams) (*lifecycle.SwapResult, error) {
 		recordedParams = params
 		return &lifecycle.SwapResult{
-			Session:      &store.Session{ID: id},
+			Agent:        &agentstore.Agent{ID: id},
 			FromBackend:  "claude",
 			FromModel:    "opus",
 			ToBackend:    "antigravity",
@@ -84,7 +84,7 @@ func TestSwitchJSON(t *testing.T) {
 	origHotSwap := runHotSwap
 	runHotSwap = func(ctx context.Context, cmd *cobra.Command, id string, params client.SwitchSessionParams) (*lifecycle.SwapResult, error) {
 		return &lifecycle.SwapResult{
-			Session:      &store.Session{ID: id},
+			Agent:        &agentstore.Agent{ID: id},
 			FromBackend:  "claude",
 			ToBackend:    "codex",
 			HandoffPath:  "/tmp/handoff-agent-3.md",
@@ -112,7 +112,7 @@ func TestSwitchFromSessionEnv(t *testing.T) {
 		invoked = true
 		require.Equal(t, "self-agent", id)
 		return &lifecycle.SwapResult{
-			Session:     &store.Session{ID: id},
+			Agent:       &agentstore.Agent{ID: id},
 			FromBackend: "claude",
 			ToBackend:   "antigravity",
 			HandoffPath: "/tmp/handoff-self.md",
@@ -156,7 +156,7 @@ func TestSwitchCallsDaemonEndpoint(t *testing.T) {
 		gotMethod = r.Method
 		_ = json.NewDecoder(r.Body).Decode(&gotBody)
 		res := lifecycle.SwapResult{
-			Session:     &store.Session{ID: "agent-9"},
+			Agent:       &agentstore.Agent{ID: "agent-9"},
 			FromBackend: "claude",
 			FromModel:   "opus",
 			ToBackend:   "codex",

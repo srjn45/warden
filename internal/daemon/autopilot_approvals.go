@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/mailbox"
-	"github.com/srjn45/warden/internal/store"
 )
 
 // humanRecipient is the mailbox recipient id for the operator's own inbox. The
@@ -31,7 +31,7 @@ type autopilotApprovals struct{ s *Server }
 // the poller can forward s's unanswerable prompt there. ok=false when s is not an
 // autopilot-owned worker, carries no run tag, its run has no live brain, or s IS
 // the brain (a brain never forwards its own prompt to itself).
-func (a autopilotApprovals) BrainFor(s *store.Session) (string, bool) {
+func (a autopilotApprovals) BrainFor(s *agentstore.Agent) (string, bool) {
 	if a.s == nil || a.s.autopilot == nil || s == nil || !s.HasTag(autopilotOwnershipTag) {
 		return "", false
 	}
@@ -50,7 +50,7 @@ func (a autopilotApprovals) BrainFor(s *store.Session) (string, bool) {
 // mirrors a non-blocking copy to the human inbox (visibility + audit). Both are
 // best-effort: a mailbox error is logged, never propagated — the worker's
 // progress must not hinge on the notification landing.
-func (a autopilotApprovals) Forward(ctx context.Context, brainID string, worker *store.Session, reason string) {
+func (a autopilotApprovals) Forward(ctx context.Context, brainID string, worker *agentstore.Agent, reason string) {
 	if a.s == nil || a.s.mbox == nil || worker == nil {
 		return
 	}

@@ -3,13 +3,13 @@ package daemon
 import (
 	"strings"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/digest"
-	"github.com/srjn45/warden/internal/store"
 )
 
 // prTitle picks a human PR title for an agent: its live one-line subject, else
 // the digest's parsed task (the first user prompt, truncated), else the branch.
-func prTitle(sess *store.Session, d digest.Digest) string {
+func prTitle(sess *agentstore.Agent, d digest.Digest) string {
 	for _, c := range []string{sess.Subject, d.Task} {
 		if t := truncateTitle(strings.TrimSpace(c)); t != "" {
 			return t

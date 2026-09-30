@@ -1,14 +1,14 @@
 // Package agentstore persists AI agents independently from terminal sessions.
 //
-// The legacy session store remains the home for terminal panes and archived
-// session history. On its first open this store copies every non-terminal live
-// session from the legacy active collection into its own ScrivaDB collection.
+// Legacy active and archived AI records are imported once; terminals belong
+// exclusively to terminalstore.
 package agentstore
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -23,8 +23,10 @@ import (
 )
 
 var (
-	ErrNotFound = errors.New("agent not found")
-	ErrExists   = errors.New("agent already exists")
+	ErrNotFound    = errors.New("agent not found")
+	ErrExists      = errors.New("agent already exists")
+	ErrNameExists  = store.ErrNameExists
+	ErrInvalidName = store.ErrInvalidName
 	// ErrNotOrphaned prevents recovery from reviving an agent that was not
 	// explicitly marked orphaned. Recovery is deliberately narrower than a
 	// generic status update: it is the safe repair path after daemon loss.
@@ -32,17 +34,21 @@ var (
 )
 
 const importedMarker = ".agents-from-sessions-imported"
+const closedImportedMarker = ".archived-agents-from-sessions-imported"
 
-// Store owns the ScrivaDB "agents" collection at <data>/agents-db.
+// Store owns the ScrivaDB "agents" and "closed" collections at <data>/agents-db.
 type Store struct {
-	mu  sync.Mutex
-	db  *scriva.DB
-	col *engine.Collection
+	mu     sync.Mutex
+	db     *scriva.DB
+	col    *engine.Collection
+	closed *engine.Collection
 }
 
-// New opens the agent collection and, once, imports the legacy active records
-// whose Kind is not terminal. The marker is written last, making a failed import
-// retryable without duplicating data (the destination is rebuilt first).
+var _ AgentStore = (*Store)(nil)
+
+// New opens the agent collection and, once, imports the legacy active and closed
+// records whose Kind is not terminal. The marker is written last, making a failed
+// import retryable without duplicating data (the destination is rebuilt first).
 func New(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
@@ -71,9 +77,14 @@ func New(dir string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	s := &Store{db: db, col: col}
+	closed, err := db.Collection("closed")
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	s := &Store{db: db, col: col, closed: closed}
 	if !imported {
-		if err := s.importActiveSessions(filepath.Join(dir, "sessions-db")); err != nil {
+		if err := s.importSessions(filepath.Join(dir, "sessions-db"), "active", s.col); err != nil {
 			_ = db.Close()
 			return nil, err
 		}
@@ -81,6 +92,22 @@ func New(dir string) (*Store, error) {
 			_ = db.Close()
 			return nil, err
 		}
+	}
+	// Archive import has its own marker: the earlier Agent store imported only
+	// active records. Never rebuild or overwrite live agents during this upgrade.
+	closedMarker := filepath.Join(dir, closedImportedMarker)
+	if _, err := os.Stat(closedMarker); errors.Is(err, os.ErrNotExist) {
+		if err := s.importSessions(filepath.Join(dir, "sessions-db"), "closed", s.closed); err != nil {
+			_ = db.Close()
+			return nil, err
+		}
+		if err := os.WriteFile(closedMarker, []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o600); err != nil {
+			_ = db.Close()
+			return nil, err
+		}
+	} else if err != nil {
+		_ = db.Close()
+		return nil, err
 	}
 	return s, nil
 }
@@ -93,7 +120,7 @@ func isTerminalRecord(data map[string]any) bool {
 	return kind == string(store.KindTerminal)
 }
 
-func (s *Store) importActiveSessions(legacyDB string) error {
+func (s *Store) importSessions(legacyDB, collection string, destination *engine.Collection) error {
 	if _, err := os.Stat(legacyDB); errors.Is(err, os.ErrNotExist) {
 		return nil
 	} else if err != nil {
@@ -104,28 +131,27 @@ func (s *Store) importActiveSessions(legacyDB string) error {
 		return err
 	}
 	defer db.Close()
-	active, err := db.Collection("active")
+	source, err := db.Collection(collection)
 	if err != nil {
 		return err
 	}
-	rows, err := active.Scan(query.MatchAll)
+	rows, err := source.Scan(query.MatchAll)
 	if err != nil {
 		return err
 	}
 	for _, row := range rows {
-		// Terminals belong in terminalstore; skip them here.
 		if isTerminalRecord(row.Data) {
 			continue
 		}
 		a, err := fromRecord(row.Data)
 		if err != nil {
-			continue
+			return err
 		}
 		rec, err := toRecord(a)
 		if err != nil {
 			return err
 		}
-		if _, _, err = s.col.InsertWithKey(a.ID, rec); err != nil && !errors.Is(err, engine.ErrDuplicateKey) {
+		if _, _, err := destination.InsertWithKey(a.ID, rec); err != nil && !errors.Is(err, engine.ErrDuplicateKey) {
 			return err
 		}
 	}
@@ -175,6 +201,9 @@ func (s *Store) Insert(ctx context.Context, a *Agent) error {
 	if err := store.SafeID(a.ID); err != nil {
 		return err
 	}
+	if err := store.SafeSessionRef(a.AICLISessionID); err != nil {
+		return err
+	}
 	if err := store.ValidateName(a.Name); err != nil {
 		return err
 	}
@@ -184,6 +213,20 @@ func (s *Store) Insert(ctx context.Context, a *Agent) error {
 		return err
 	} else if ok {
 		return ErrExists
+	}
+	if a.Name != "" {
+		rows, err := s.col.Scan(query.MatchAll)
+		if err != nil {
+			return err
+		}
+		{
+			for _, row := range rows {
+				other, err := fromRecord(row.Data)
+				if err == nil && other.Name == a.Name && other.ID != a.ID {
+					return ErrNameExists
+				}
+			}
+		}
 	}
 	now := time.Now().UTC()
 	if a.CreatedAt.IsZero() {
@@ -321,6 +364,320 @@ func (s *Store) Update(ctx context.Context, id string, fn func(*Agent) error) er
 	return err
 }
 
+// GetByNameOrID looks up an agent by name first (exact case-sensitive match
+// among active agents), falling back to ID lookup if no name matches.
+// Returns ErrNotFound if neither name nor ID match any active agent.
+func (s *Store) GetByNameOrID(ctx context.Context, nameOrID string) (*Agent, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if nameOrID == "" {
+		return nil, ErrNotFound
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rows, err := s.col.Scan(query.MatchAll)
+	if err == nil {
+		for _, row := range rows {
+			a, err := fromRecord(row.Data)
+			if err == nil && a.Name == nameOrID {
+				return a, nil
+			}
+		}
+	}
+	return s.get(nameOrID)
+}
+
+// ListClosed returns all archived (closed) agents, newest updated first.
+func (s *Store) ListClosed(ctx context.Context) ([]*Agent, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rows, err := s.closed.Scan(query.MatchAll)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*Agent, 0, len(rows))
+	for _, row := range rows {
+		a, err := fromRecord(row.Data)
+		if err != nil {
+			continue
+		}
+		out = append(out, a)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
+	return out, nil
+}
+
+// ListClosedDegraded returns all archived agents, reporting how many records were skipped due to decode errors.
+func (s *Store) ListClosedDegraded(ctx context.Context) ([]*Agent, int, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, 0, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rows, err := s.closed.Scan(query.MatchAll)
+	if err != nil {
+		return nil, 0, err
+	}
+	out := make([]*Agent, 0, len(rows))
+	skipped := 0
+	for _, row := range rows {
+		a, err := fromRecord(row.Data)
+		if err != nil {
+			skipped++
+			continue
+		}
+		out = append(out, a)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
+	return out, skipped, nil
+}
+
+// Archive moves the agent doc from active to closed collection.
+func (s *Store) Archive(ctx context.Context, id string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := store.SafeID(id); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, err := s.get(id)
+	if err != nil {
+		return err
+	}
+	rec, err := toRecord(a)
+	if err != nil {
+		return err
+	}
+	if _, err := s.closed.Upsert(id, rec); err != nil {
+		return err
+	}
+	return s.col.DeleteByKey(id)
+}
+
+// UpdateStatus updates the status of an agent.
+func (s *Store) UpdateStatus(ctx context.Context, id string, status store.Status) error {
+	return s.Update(ctx, id, func(a *Agent) error {
+		a.Status = status
+		return nil
+	})
+}
+
+// UpdateStatusIf is a compare-and-swap on agent status.
+func (s *Store) UpdateStatusIf(ctx context.Context, id string, expected, next store.Status) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if err := store.SafeID(id); err != nil {
+		return false, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, err := s.get(id)
+	if errors.Is(err, ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if a.Status.Canonical() != expected.Canonical() {
+		return false, nil
+	}
+	a.Status = next.Canonical()
+	a.UpdatedAt = time.Now().UTC()
+	rec, err := toRecord(a)
+	if err != nil {
+		return false, err
+	}
+	_, err = s.col.UpdateByKey(id, rec)
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// FinalizeExit transitions the agent to next status and records exit code atomically.
+func (s *Store) FinalizeExit(ctx context.Context, id string, expected, next store.Status, code int) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if err := store.SafeID(id); err != nil {
+		return false, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, err := s.get(id)
+	if errors.Is(err, ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if a.Status.Canonical() != expected.Canonical() {
+		return false, nil
+	}
+	now := time.Now().UTC()
+	a.Status = next.Canonical()
+	a.ExitCode = &code
+	a.UpdatedAt = now
+	if code != 0 {
+		a.Events = append(a.Events, store.Event{
+			TS:     now,
+			Type:   "exit",
+			Detail: exitDetail(code),
+		})
+	}
+	rec, err := toRecord(a)
+	if err != nil {
+		return false, err
+	}
+	_, err = s.col.UpdateByKey(id, rec)
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (s *Store) AppendEvent(ctx context.Context, id string, ev store.Event) error {
+	return s.Update(ctx, id, func(a *Agent) error {
+		a.Events = append(a.Events, ev)
+		return nil
+	})
+}
+
+func (s *Store) AppendEventStatus(ctx context.Context, id string, ev store.Event, status store.Status) error {
+	return s.Update(ctx, id, func(a *Agent) error {
+		a.Events = append(a.Events, ev)
+		if status != "" {
+			a.Status = status
+		}
+		return nil
+	})
+}
+
+func (s *Store) SetRestart(ctx context.Context, id string, count int, at time.Time) error {
+	return s.Update(ctx, id, func(a *Agent) error {
+		a.RestartCount = count
+		a.LastRestartAt = &at
+		return nil
+	})
+}
+
+func (s *Store) UpdateContext(ctx context.Context, id string, tokens int, state string) error {
+	return s.Update(ctx, id, func(a *Agent) error {
+		oldState := a.ContextState
+		a.ContextTokens = tokens
+		a.ContextState = state
+		a.ContextCheckedAt = time.Now().UTC()
+		if state != "" && state != oldState {
+			a.Events = append(a.Events, store.Event{
+				TS:     a.ContextCheckedAt,
+				Type:   "context",
+				Detail: fmt.Sprintf("context %s→%s (%dk)", orNone(oldState), state, tokens/1000),
+			})
+		}
+		return nil
+	})
+}
+
+func (s *Store) StampCompact(ctx context.Context, id string) error {
+	return s.Update(ctx, id, func(a *Agent) error {
+		now := time.Now().UTC()
+		a.LastCompactAt = &now
+		return nil
+	})
+}
+
+func (s *Store) UpdateAutoApprove(ctx context.Context, id string, enabled bool) error {
+	return s.Update(ctx, id, func(a *Agent) error {
+		a.AutoApprove = enabled
+		return nil
+	})
+}
+
+func (s *Store) SetForceCompact(ctx context.Context, id string, v *bool) error {
+	return s.Update(ctx, id, func(a *Agent) error {
+		a.ForceCompact = v
+		return nil
+	})
+}
+
+func (s *Store) UpdatePermissionMode(ctx context.Context, id string, mode string) error {
+	return s.Update(ctx, id, func(a *Agent) error {
+		a.PermissionMode = mode
+		return nil
+	})
+}
+
+func (s *Store) UpdateRole(ctx context.Context, id string, role string) error {
+	return s.Update(ctx, id, func(a *Agent) error {
+		a.Role = role
+		return nil
+	})
+}
+
+func (s *Store) ClearWorktree(ctx context.Context, id string) error {
+	return s.Update(ctx, id, func(a *Agent) error {
+		a.Worktree = ""
+		a.Branch = ""
+		return nil
+	})
+}
+
+func (s *Store) SetRateLimit(ctx context.Context, id string, restoreAt time.Time, retryCount int) error {
+	return s.Update(ctx, id, func(a *Agent) error {
+		now := time.Now().UTC()
+		if a.RateLimitedAt == nil {
+			a.RateLimitedAt = &now
+		}
+		a.RateLimitRestoreAt = &restoreAt
+		a.RateLimitRetryCount = retryCount
+		a.Events = append(a.Events, store.Event{TS: now, Type: "rate-limit", Detail: fmt.Sprintf("scheduled resume at %s (retry %d)", restoreAt.Format(time.RFC3339), retryCount)})
+		return nil
+	})
+}
+
+func (s *Store) ClearRateLimit(ctx context.Context, id string) error {
+	return s.Update(ctx, id, func(a *Agent) error {
+		a.RateLimitedAt = nil
+		a.RateLimitRestoreAt = nil
+		a.RateLimitRetryCount = 0
+		a.Events = append(a.Events, store.Event{TS: time.Now().UTC(), Type: "rate-limit-resumed", Detail: "successfully resumed after rate limit"})
+		return nil
+	})
+}
+
+func (s *Store) SetSessionID(ctx context.Context, id, sessionID string) error {
+	if err := store.SafeSessionRef(sessionID); err != nil {
+		return err
+	}
+	return s.Update(ctx, id, func(a *Agent) error {
+		a.AICLISessionID = sessionID
+		return nil
+	})
+}
+
+func (s *Store) SetAICLISessionID(ctx context.Context, id, sessionID string) error {
+	return s.SetSessionID(ctx, id, sessionID)
+}
+
+func (s *Store) Ping(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil || s.col == nil {
+		return errors.New("agent store closed")
+	}
+	return nil
+}
+
 // Delete permanently removes an agent. A missing id returns ErrNotFound.
 func (s *Store) Delete(ctx context.Context, id string) error {
 	if err := ctx.Err(); err != nil {
@@ -339,3 +696,34 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 }
 
 func (s *Store) Close() error { return s.db.Close() }
+
+func exitDetail(code int) string {
+	if sig := signalName(code - 128); code > 128 && code <= 128+64 && sig != "" {
+		return fmt.Sprintf("session exited: code %d (%s)", code, sig)
+	}
+	return fmt.Sprintf("session exited: code %d", code)
+}
+
+// signalName maps the common termination signals to their names; "" for others.
+func signalName(sig int) string {
+	switch sig {
+	case 2:
+		return "SIGINT"
+	case 6:
+		return "SIGABRT"
+	case 9:
+		return "SIGKILL"
+	case 11:
+		return "SIGSEGV"
+	case 15:
+		return "SIGTERM"
+	}
+	return ""
+}
+
+func orNone(s string) string {
+	if s == "" {
+		return "none"
+	}
+	return s
+}

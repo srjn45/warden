@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"github.com/srjn45/warden/internal/agentstore"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -19,7 +20,7 @@ type fakeQuotaLife struct {
 	paths map[string]string
 }
 
-func (f *fakeQuotaLife) TranscriptPath(sess *store.Session) string { return f.paths[sess.ID] }
+func (f *fakeQuotaLife) TranscriptPath(sess *agentstore.Agent) string { return f.paths[sess.ID] }
 
 // writeTranscript writes a Claude-style transcript JSONL with the given
 // per-turn (input, output) usage pairs and returns its path.
@@ -43,9 +44,9 @@ func TestQuotaRecorder_RecordsDeltaAfterBaseline(t *testing.T) {
 
 	// A live claude agent with a transcript totalling 150 billed tokens.
 	tpath := writeTranscript(t, dir, "claude.jsonl", [][2]int{{100, 50}})
-	sess := &store.Session{ID: "a1", Status: store.StatusWorking, Backend: "claude", Model: "opus"}
+	sess := &agentstore.Agent{ID: "a1", Status: store.StatusWorking, AiCli: "claude", Model: "opus"}
 
-	st := &rateLimitStore{sessions: map[string]*store.Session{"a1": sess}}
+	st := &rateLimitStore{sessions: map[string]*agentstore.Agent{"a1": sess}}
 	life := &fakeQuotaLife{paths: map[string]string{"a1": tpath}}
 	srv := &Server{store: st, life: life, backends: bs}
 
@@ -77,12 +78,12 @@ func TestQuotaRecorder_SkipsTerminalAndUnknownBackend(t *testing.T) {
 
 	tpath := writeTranscript(t, dir, "t.jsonl", [][2]int{{100, 100}})
 	// A terminal session and a backend-less session: neither accrues quota.
-	term := &store.Session{ID: "term", Status: store.StatusWorking, Kind: store.KindTerminal, Backend: "claude"}
-	noBackend := &store.Session{ID: "nb", Status: store.StatusWorking}
+	terms := terminalFixture(t)
+	noBackend := &agentstore.Agent{ID: "nb", Status: store.StatusWorking}
 
-	st := &rateLimitStore{sessions: map[string]*store.Session{"term": term, "nb": noBackend}}
+	st := &rateLimitStore{sessions: map[string]*agentstore.Agent{"nb": noBackend}}
 	life := &fakeQuotaLife{paths: map[string]string{"term": tpath, "nb": tpath}}
-	srv := &Server{store: st, life: life, backends: bs}
+	srv := &Server{store: st, life: life, backends: bs, terminals: terms}
 
 	last := make(map[string]int)
 	srv.recordQuotaOnce(context.Background(), last)
@@ -105,8 +106,8 @@ func TestQuotaRecorder_PrunesDeadSessions(t *testing.T) {
 	defer bs.Close()
 
 	tpath := writeTranscript(t, dir, "a.jsonl", [][2]int{{10, 10}})
-	sess := &store.Session{ID: "a1", Status: store.StatusWorking, Backend: "claude"}
-	st := &rateLimitStore{sessions: map[string]*store.Session{"a1": sess}}
+	sess := &agentstore.Agent{ID: "a1", Status: store.StatusWorking, AiCli: "claude"}
+	st := &rateLimitStore{sessions: map[string]*agentstore.Agent{"a1": sess}}
 	life := &fakeQuotaLife{paths: map[string]string{"a1": tpath}}
 	srv := &Server{store: st, life: life, backends: bs}
 

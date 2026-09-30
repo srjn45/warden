@@ -8,6 +8,7 @@ import (
 
 	"github.com/srjn45/warden/internal/agentbackend"
 	_ "github.com/srjn45/warden/internal/agentbackend/backends" // register claude + aider
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
@@ -17,8 +18,8 @@ import (
 // with a clear "start fresh" message rather than building a wrong resume command.
 func TestRestoreRefusesNonResumableBackend(t *testing.T) {
 	lc := New(&FakeRunner{}, &FakeConfig{})
-	err := lc.Restore(context.Background(), &store.Session{
-		ID: "a1", TmuxSession: "a1", Backend: "aider", ClaudeSessionID: "irrelevant", Workdir: t.TempDir(),
+	err := lc.Restore(context.Background(), &agentstore.Agent{
+		ID: "a1", TmuxSession: "a1", AiCli: "aider", AICLISessionID: "irrelevant", Workdir: t.TempDir(),
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "does not support")
@@ -108,7 +109,7 @@ func TestSpawnAiderLaunchString(t *testing.T) {
 		Backend: "aider", Model: "ollama_chat/qwen2.5-coder:3b", Prompt: "implement add",
 	})
 	require.NoError(t, err)
-	require.Equal(t, "aider", s.Backend)
+	require.Equal(t, "aider", s.AiCli)
 
 	want := "aider --no-show-model-warnings --model 'ollama_chat/qwen2.5-coder:3b' --yes-always"
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, want, "Enter"})
@@ -137,14 +138,14 @@ func TestSpawnSessionIDMintGatedByCapability(t *testing.T) {
 		Type: store.TypeDevelopment, Ticket: "CDX-1", Repo: "/repo", Backend: "codex",
 	})
 	require.NoError(t, err)
-	require.Empty(t, codex.ClaudeSessionID, "non-pinning backend leaves the session id empty")
+	require.Empty(t, codex.AICLISessionID, "non-pinning backend leaves the session id empty")
 
 	// Pinning backend (Claude default) ⇒ a UUID minted at spawn (unchanged).
 	claude, err := newLC().Spawn(context.Background(), SpawnRequest{
 		Type: store.TypeDevelopment, Ticket: "CLD-1", Repo: "/repo",
 	})
 	require.NoError(t, err)
-	require.NotEmpty(t, claude.ClaudeSessionID, "pinning backend mints a session id at spawn (regression-lock)")
+	require.NotEmpty(t, claude.AICLISessionID, "pinning backend mints a session id at spawn (regression-lock)")
 }
 
 // TestLaunchModelPassthroughForNonClaude verifies model resolution is

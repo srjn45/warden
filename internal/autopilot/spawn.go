@@ -3,6 +3,7 @@ package autopilot
 import (
 	"strings"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -19,7 +20,7 @@ func WorkerSpawnRole(role string) bool {
 
 // SessionRunID returns the owning ap- run id from explicit back-ref fields or
 // legacy run: / autopilot-run: tags.
-func SessionRunID(s *store.Session) string {
+func SessionRunID(s *agentstore.Agent) string {
 	if s == nil {
 		return ""
 	}
@@ -39,7 +40,7 @@ func SessionRunID(s *store.Session) string {
 
 // IsManagerRecord reports whether s is an autopilot manager session (slot
 // back-ref or legacy role=autopilot with run ownership tags).
-func IsManagerRecord(s *store.Session) bool {
+func IsManagerRecord(s *agentstore.Agent) bool {
 	if s == nil {
 		return false
 	}
@@ -50,7 +51,7 @@ func IsManagerRecord(s *store.Session) bool {
 }
 
 // IsWorkerRecord reports whether s is an autopilot worker/implementer session.
-func IsWorkerRecord(s *store.Session) bool {
+func IsWorkerRecord(s *agentstore.Agent) bool {
 	if s == nil {
 		return false
 	}

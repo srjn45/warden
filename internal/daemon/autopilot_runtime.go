@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/srjn45/warden/internal/agentbackend"
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/autopilot"
@@ -62,7 +63,7 @@ func (rt autopilotRuntime) SpawnBrain(ctx context.Context, spec autopilot.BrainS
 		if err := rt.clearDeadSlotSession(ctx, existing); err != nil {
 			return autopilot.BrainHandle{}, err
 		}
-	} else if !errors.Is(err, store.ErrNotFound) {
+	} else if !errors.Is(err, agentstore.ErrNotFound) {
 		return autopilot.BrainHandle{}, err
 	}
 	req := SpawnRequest{
@@ -83,7 +84,7 @@ func (rt autopilotRuntime) SpawnBrain(ctx context.Context, spec autopilot.BrainS
 	if err := rt.s.store.Insert(ctx, sess); err != nil {
 		tctx, cancel := context.WithTimeout(context.Background(), brainTeardownTimeout)
 		defer cancel()
-		if errors.Is(err, store.ErrExists) {
+		if errors.Is(err, agentstore.ErrExists) {
 			_ = rt.s.life.Teardown(tctx, sess)
 			existing, gerr := rt.s.store.Get(ctx, slotID)
 			if gerr != nil {
@@ -101,7 +102,7 @@ func (rt autopilotRuntime) SpawnBrain(ctx context.Context, spec autopilot.BrainS
 		return autopilot.BrainHandle{}, err
 	}
 	rt.s.notify()
-	return autopilot.BrainHandle{AgentID: sess.ID, Backend: sess.Backend}, nil
+	return autopilot.BrainHandle{AgentID: sess.ID, Backend: sess.AiCli}, nil
 }
 
 // RotateBrain hot-swaps a successor backend into the existing manager session
@@ -119,7 +120,7 @@ func (rt autopilotRuntime) RotateBrain(ctx context.Context, spec autopilot.Rotat
 	}
 	backend := spec.Backend
 	if backend == "" {
-		backend = sess.Backend
+		backend = sess.AiCli
 	}
 	if backend == "" {
 		backend = agentbackend.DefaultID
@@ -144,18 +145,18 @@ func (rt autopilotRuntime) RotateBrain(ctx context.Context, spec autopilot.Rotat
 		if res.ToModel != "" {
 			toModel = res.ToModel
 		}
-		if res.Session != nil {
-			sess = res.Session
+		if res.Agent != nil {
+			sess = res.Agent
 		}
 	}
 	// Persist even when the lifecycle implementation already wrote (adapter): a
 	// second Update is idempotent and covers fake/raw Lifecycle doubles used in tests.
-	if err := rt.s.store.Update(ctx, sess.ID, func(s *store.Session) error {
-		s.Backend = toBackend
+	if err := rt.s.store.Update(ctx, sess.ID, func(s *agentstore.Agent) error {
+		s.AiCli = toBackend
 		s.Model = toModel
-		if res != nil && res.Session != nil {
-			s.ClaudeSessionID = res.Session.ClaudeSessionID
-			s.UpdatedAt = res.Session.UpdatedAt
+		if res != nil && res.Agent != nil {
+			s.AICLISessionID = res.Agent.AICLISessionID
+			s.UpdatedAt = res.Agent.UpdatedAt
 		}
 		return nil
 	}); err != nil {
@@ -189,18 +190,18 @@ func guardianSessionLive(status store.Status) bool {
 }
 
 // adoptSlotSession returns a handle when sess is a live manager slot session.
-func (rt autopilotRuntime) adoptSlotSession(ctx context.Context, sess *store.Session) (autopilot.BrainHandle, bool) {
+func (rt autopilotRuntime) adoptSlotSession(ctx context.Context, sess *agentstore.Agent) (autopilot.BrainHandle, bool) {
 	if sess == nil || !guardianSessionLive(sess.Status) {
 		return autopilot.BrainHandle{}, false
 	}
 	if rt.s.poller != nil && sess.TmuxSession != "" && !rt.s.poller.SessionAlive(ctx, sess.TmuxSession) {
 		return autopilot.BrainHandle{}, false
 	}
-	return autopilot.BrainHandle{AgentID: sess.ID, Backend: sess.Backend}, true
+	return autopilot.BrainHandle{AgentID: sess.ID, Backend: sess.AiCli}, true
 }
 
 func (rt autopilotRuntime) refreshBrainSession(ctx context.Context, id string, spec autopilot.BrainSpec) {
-	if err := rt.s.store.Update(ctx, id, func(sess *store.Session) error {
+	if err := rt.s.store.Update(ctx, id, func(sess *agentstore.Agent) error {
 		sess.Tags = spec.Tags
 		sess.Repo = spec.Repo
 		sess.Workdir = spec.Repo
@@ -212,7 +213,7 @@ func (rt autopilotRuntime) refreshBrainSession(ctx context.Context, id string, s
 	rt.s.notify()
 }
 
-func (rt autopilotRuntime) clearDeadSlotSession(ctx context.Context, sess *store.Session) error {
+func (rt autopilotRuntime) clearDeadSlotSession(ctx context.Context, sess *agentstore.Agent) error {
 	if sess == nil {
 		return nil
 	}

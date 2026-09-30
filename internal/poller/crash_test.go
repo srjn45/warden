@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
@@ -27,7 +28,7 @@ func TestCrashAnomaly_OrdinaryCrashHasNoExtraSignal(t *testing.T) {
 
 func TestTickRaisesOOMAnomalyOnSIGKILLExit(t *testing.T) {
 	d := &stubDeps{
-		sessions:  []*store.Session{{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking}},
+		sessions:  []*agentstore.Agent{{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking}},
 		alive:     map[string]bool{"A-1": false},
 		panes:     map[string]string{},
 		updates:   map[string]store.Status{},
@@ -35,7 +36,7 @@ func TestTickRaisesOOMAnomalyOnSIGKILLExit(t *testing.T) {
 	}
 	var gotAnomaly *Anomaly
 	p := New(d, 5*time.Minute)
-	p.OnAnomaly = func(_ *store.Session, a Anomaly) { gotAnomaly = &a }
+	p.OnAnomaly = func(_ *agentstore.Agent, a Anomaly) { gotAnomaly = &a }
 	require.NoError(t, p.tick(context.Background()))
 
 	require.Equal(t, store.StatusErrored, d.finalized["A-1"], "SIGKILL exit code finalizes as errored")
@@ -50,7 +51,7 @@ func TestTickRaisesOOMAnomalyOnSIGKILLExit(t *testing.T) {
 func TestTickNoAnomalyOnCleanOrOrdinaryExit(t *testing.T) {
 	for _, code := range []int{0, 1} {
 		d := &stubDeps{
-			sessions:  []*store.Session{{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking}},
+			sessions:  []*agentstore.Agent{{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking}},
 			alive:     map[string]bool{"A-1": false},
 			panes:     map[string]string{},
 			updates:   map[string]store.Status{},

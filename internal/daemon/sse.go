@@ -47,21 +47,16 @@ func (s *Server) handleEventsStream(w http.ResponseWriter, r *http.Request) {
 			}
 			return true // keep the stream open; retry on the next signal
 		}
-		if sessions == nil {
-			sessions = []*store.Session{}
-		}
-		if !all {
-			visible := make([]*store.Session, 0, len(sessions))
-			for _, sess := range sessions {
-				if !sess.HasTag("system:true") {
-					visible = append(visible, sess)
-				}
+		visible := make([]*store.Session, 0, len(sessions))
+		for _, sess := range sessions {
+			if !all && sess.HasTag("system:true") {
+				continue
 			}
-			sessions = visible
+			visible = append(visible, sess.ToSession())
 		}
 		// Gather the tree inputs once; the autopilot status it computed feeds both
 		// frames (spec §10 — one Status() call, no double computation).
-		in := s.treeInputsFor(sessions)
+		in := s.treeInputsFor(visible)
 
 		// Sessions frame (unnamed). Autopilot rides the fleet stream so cockpit run
 		// trees update on the same notification as their brain/worker/guardian
@@ -70,7 +65,7 @@ func (s *Server) handleEventsStream(w http.ResponseWriter, r *http.Request) {
 		frame := struct {
 			Sessions  []*store.Session `json:"sessions"`
 			Autopilot any              `json:"autopilot,omitempty"`
-		}{Sessions: sessions}
+		}{Sessions: visible}
 		if s.autopilot != nil {
 			frame.Autopilot = in.Autopilot
 		}

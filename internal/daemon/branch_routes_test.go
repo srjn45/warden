@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/branchtrack"
 	"github.com/srjn45/warden/internal/mailbox"
 	"github.com/srjn45/warden/internal/notify"
@@ -42,7 +43,7 @@ func getBranches(t *testing.T, srv *Server) (int, branchesResponse) {
 func TestBranchStatusesEmptyIsNonNullArray(t *testing.T) {
 	srv, fs := newBranchServer(t)
 	// A branchless/worktree-less session is never scanned, so gh/git is never invoked.
-	fs.Insert(context.Background(), &store.Session{ID: "a", Status: store.StatusWorking})
+	fs.Insert(context.Background(), &agentstore.Agent{ID: "a", Status: store.StatusWorking})
 
 	code, br := getBranches(t, srv)
 	if code != http.StatusOK {

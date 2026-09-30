@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	_ "github.com/srjn45/warden/internal/agentbackend/backends" // register codex for fork resolution
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
@@ -45,7 +46,7 @@ func TestAdapterTypedSpawnNormalizes(t *testing.T) {
 // pre-existing worktree) behind the adapter, with a fakeStore holding one pinned
 // source codex agent. It returns the adapter and runner so a fork test can inspect
 // the git/tmux argv the resolved fork produced.
-func newForkAdapter(t *testing.T, src *store.Session) (Lifecycle, *lifecycle.FakeRunner) {
+func newForkAdapter(t *testing.T, src *agentstore.Agent) (Lifecycle, *lifecycle.FakeRunner) {
 	t.Helper()
 	fr := &lifecycle.FakeRunner{Responses: map[string]lifecycle.FakeResp{
 		"git worktree list --porcelain": {Out: "worktree /repo\nHEAD abc\nbranch refs/heads/main\n"},
@@ -64,9 +65,9 @@ func newForkAdapter(t *testing.T, src *store.Session) (Lifecycle, *lifecycle.Fak
 // (pinned session id → the launch line; branch → the worktree base; repo → where the
 // sibling worktree lives), keeping lifecycle store-free.
 func TestAdapterForkResolvesSource(t *testing.T) {
-	src := &store.Session{
-		ID: "src-agent", Backend: "codex", Repo: "/repo",
-		Branch: "src-branch", ClaudeSessionID: "11111111-2222-3333-4444-555555555555",
+	src := &agentstore.Agent{
+		ID: "src-agent", AiCli: "codex", Repo: "/repo",
+		Branch: "src-branch", AICLISessionID: "11111111-2222-3333-4444-555555555555",
 	}
 	a, fr := newForkAdapter(t, src)
 
@@ -98,9 +99,9 @@ func TestAdapterForkResolvesSource(t *testing.T) {
 // that branches it and the wrappers needn't restate --backend (the request below
 // carries none).
 func TestAdapterForkThreadsWorkdirAndBackend(t *testing.T) {
-	src := &store.Session{
-		ID: "src-agent", Backend: "codex", Repo: "/repo", Workdir: "/repo/.worktrees/src-agent",
-		Branch: "src-branch", ClaudeSessionID: "11111111-2222-3333-4444-555555555555",
+	src := &agentstore.Agent{
+		ID: "src-agent", AiCli: "codex", Repo: "/repo", Workdir: "/repo/.worktrees/src-agent",
+		Branch: "src-branch", AICLISessionID: "11111111-2222-3333-4444-555555555555",
 	}
 	a, fr := newForkAdapter(t, src)
 	fr.Responses["git stash create warden fork dirty-carry"] = lifecycle.FakeResp{Out: "stashsha\n"}
@@ -133,7 +134,7 @@ func TestAdapterForkThreadsWorkdirAndBackend(t *testing.T) {
 // TestAdapterForkSourceNotPinned proves the §5 guard: a source whose backend session
 // id is not yet discovered → ErrForkSourceNotPinned, before any spawn side effects.
 func TestAdapterForkSourceNotPinned(t *testing.T) {
-	src := &store.Session{ID: "src-agent", Backend: "codex", Repo: "/repo", Branch: "src-branch"} // ClaudeSessionID ""
+	src := &agentstore.Agent{ID: "src-agent", AiCli: "codex", Repo: "/repo", Branch: "src-branch"} // AICLISessionID ""
 	a, _ := newForkAdapter(t, src)
 
 	_, err := a.Spawn(context.Background(), SpawnRequest{
@@ -150,13 +151,13 @@ func TestAdapterForkSourceMissing(t *testing.T) {
 		Type: "development", Ticket: "fork-1", Backend: "codex", ForkFrom: "ghost",
 	})
 	require.Error(t, err)
-	require.True(t, errors.Is(err, store.ErrNotFound) || strings.Contains(err.Error(), "not found"))
+	require.True(t, errors.Is(err, agentstore.ErrNotFound) || strings.Contains(err.Error(), "not found"))
 }
 
 // TestAdapterForkSourceNoBranch rejects a fork whose source has no branch to base the
 // sibling worktree on (§7 requires basing off the source branch HEAD).
 func TestAdapterForkSourceNoBranch(t *testing.T) {
-	src := &store.Session{ID: "src-agent", Backend: "codex", Repo: "/repo", ClaudeSessionID: "uuid"} // no Branch
+	src := &agentstore.Agent{ID: "src-agent", AiCli: "codex", Repo: "/repo", AICLISessionID: "uuid"} // no Branch
 	a, _ := newForkAdapter(t, src)
 	_, err := a.Spawn(context.Background(), SpawnRequest{
 		Type: "development", Ticket: "fork-1", Backend: "codex", ForkFrom: "src-agent",
@@ -167,10 +168,10 @@ func TestAdapterForkSourceNoBranch(t *testing.T) {
 
 func TestAdapterHotSwap(t *testing.T) {
 	workdir := t.TempDir()
-	sess := &store.Session{
+	sess := &agentstore.Agent{
 		ID:          "swap-agent",
 		TmuxSession: "swap-agent",
-		Backend:     "claude",
+		AiCli:       "claude",
 		Model:       "opus",
 		Repo:        workdir,
 		Workdir:     workdir,
@@ -196,18 +197,18 @@ func TestAdapterHotSwap(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "codex", res.ToBackend)
 	require.Equal(t, "gpt-5-codex", res.ToModel)
-	require.Equal(t, "codex", sess.Backend)
+	require.Equal(t, "codex", sess.AiCli)
 
 	// Verify store was updated
 	stored, err := st.Get(context.Background(), "swap-agent")
 	require.NoError(t, err)
-	require.Equal(t, "codex", stored.Backend)
+	require.Equal(t, "codex", stored.AiCli)
 	require.Equal(t, "gpt-5-codex", stored.Model)
 }
 
 func TestAdapterHotSwapReportsPersistenceFailure(t *testing.T) {
 	workdir := t.TempDir()
-	sess := &store.Session{ID: "swap-agent", TmuxSession: "swap-agent", Backend: "claude", Repo: workdir, Workdir: workdir}
+	sess := &agentstore.Agent{ID: "swap-agent", TmuxSession: "swap-agent", AiCli: "claude", Repo: workdir, Workdir: workdir}
 	st := newFakeStore()
 	require.NoError(t, st.Insert(context.Background(), sess))
 	st.updateErr = errors.New("disk full")

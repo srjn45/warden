@@ -46,7 +46,7 @@ func (s *Server) liveAgentCount(ctx context.Context) int {
 	}
 	n := 0
 	for _, sess := range sessions {
-		if liveStatus(sess.Status) && !sess.IsTerminal() {
+		if liveStatus(sess.Status) {
 			n++
 		}
 	}

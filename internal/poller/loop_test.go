@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
@@ -57,9 +58,9 @@ func TestLooksLikeLoop(t *testing.T) {
 // TestTickRaisesLoopAnomalyOnChurn drives the poller through a churning pane and
 // asserts a single loop anomaly is raised, not one per tick.
 func TestTickRaisesLoopAnomalyOnChurn(t *testing.T) {
-	sess := &store.Session{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking}
+	sess := &agentstore.Agent{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking}
 	d := &stubDeps{
-		sessions:    []*store.Session{sess},
+		sessions:    []*agentstore.Agent{sess},
 		alive:       map[string]bool{"A-1": true},
 		panes:       map[string]string{},
 		updates:     map[string]store.Status{},
@@ -67,7 +68,7 @@ func TestTickRaisesLoopAnomalyOnChurn(t *testing.T) {
 	}
 	p := New(d, 0) // stuckAfter=0 so the quiet-stuck path can't interfere
 	var anomalies int
-	p.OnAnomaly = func(_ *store.Session, a Anomaly) {
+	p.OnAnomaly = func(_ *agentstore.Agent, a Anomaly) {
 		if a.Kind == anomalyLoop {
 			anomalies++
 		}
@@ -95,16 +96,16 @@ func TestTickRaisesLoopAnomalyOnChurn(t *testing.T) {
 // TestTickNoLoopAnomalyOnProgress confirms a pane that keeps advancing through
 // distinct output never trips the loop detector.
 func TestTickNoLoopAnomalyOnProgress(t *testing.T) {
-	sess := &store.Session{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking}
+	sess := &agentstore.Agent{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking}
 	d := &stubDeps{
-		sessions:    []*store.Session{sess},
+		sessions:    []*agentstore.Agent{sess},
 		alive:       map[string]bool{"A-1": true},
 		panes:       map[string]string{},
 		updates:     map[string]store.Status{},
 		paneUpdates: map[string]string{},
 	}
 	p := New(d, 0)
-	p.OnAnomaly = func(_ *store.Session, _ Anomaly) { t.Fatal("progressing pane must not raise an anomaly") }
+	p.OnAnomaly = func(_ *agentstore.Agent, _ Anomaly) { t.Fatal("progressing pane must not raise an anomaly") }
 
 	for i := 0; i < 12; i++ {
 		d.panes["A-1"] = "step " + strconv.Itoa(i)

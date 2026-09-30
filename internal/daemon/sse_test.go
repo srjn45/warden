@@ -3,6 +3,7 @@ package daemon
 import (
 	"bufio"
 	"context"
+	"github.com/srjn45/warden/internal/agentstore"
 	"io"
 	"net/http"
 	"strings"
@@ -68,7 +69,7 @@ func readEventFor(t *testing.T, r *bufio.Reader, want string) string {
 
 func TestSSEInitialSnapshotThenPush(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["A-1"] = &store.Session{ID: "A-1", Status: store.StatusWorking}
+	fs.data["A-1"] = &agentstore.Agent{ID: "A-1", Status: store.StatusWorking}
 	srv := sseServer(t, fs)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -82,7 +83,7 @@ func TestSSEInitialSnapshotThenPush(t *testing.T) {
 	require.Contains(t, first, `"A-1"`)
 
 	// A new session + publish → second snapshot.
-	fs.data["B-2"] = &store.Session{ID: "B-2", Status: store.StatusIdle}
+	fs.data["B-2"] = &agentstore.Agent{ID: "B-2", Status: store.StatusIdle}
 	srv.hub.publish()
 	second := readEvent(t, r)
 	require.Contains(t, second, `"B-2"`)
@@ -94,7 +95,7 @@ func TestSSEInitialSnapshotThenPush(t *testing.T) {
 // resumes normally.
 func TestSSERetainsLastKnownGoodOnDegraded(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["A-1"] = &store.Session{ID: "A-1", Status: store.StatusWorking}
+	fs.data["A-1"] = &agentstore.Agent{ID: "A-1", Status: store.StatusWorking}
 	srv := sseServer(t, fs)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -109,14 +110,14 @@ func TestSSERetainsLastKnownGoodOnDegraded(t *testing.T) {
 	// The store goes degraded and (hypothetically) gains B-2, which must NOT leak.
 	fs.mu.Lock()
 	fs.listErr = degradedErr()
-	fs.data["B-2"] = &store.Session{ID: "B-2", Status: store.StatusIdle}
+	fs.data["B-2"] = &agentstore.Agent{ID: "B-2", Status: store.StatusIdle}
 	fs.mu.Unlock()
 	srv.hub.publish() // degraded → send() must emit nothing
 
 	// The store recovers; the next publish is the first the consumer should see.
 	fs.mu.Lock()
 	fs.listErr = nil
-	fs.data["C-3"] = &store.Session{ID: "C-3", Status: store.StatusIdle}
+	fs.data["C-3"] = &agentstore.Agent{ID: "C-3", Status: store.StatusIdle}
 	fs.mu.Unlock()
 	srv.hub.publish()
 
@@ -129,7 +130,7 @@ func TestSSERetainsLastKnownGoodOnDegraded(t *testing.T) {
 
 func TestSSEReleasedOnServerShutdown(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["A-1"] = &store.Session{ID: "A-1", Status: store.StatusWorking}
+	fs.data["A-1"] = &agentstore.Agent{ID: "A-1", Status: store.StatusWorking}
 	srv := &Server{store: fs, hub: newHub(), done: make(chan struct{})}
 
 	// A request whose context is never cancelled — the handler can only exit via

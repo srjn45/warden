@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -29,7 +30,7 @@ import (
 // An unknown session falls back to the supplied dir (a human may pass a stale
 // id). status==0 means success; otherwise (status, msg) is the HTTP error the
 // caller should write.
-func (s *Server) pinnedWorkdir(ctx context.Context, session, dir string) (resolved string, sess *store.Session, status int, msg string) {
+func (s *Server) pinnedWorkdir(ctx context.Context, session, dir string) (resolved string, sess *agentstore.Agent, status int, msg string) {
 	resolved = dir
 	if session != "" {
 		got, err := s.store.Get(ctx, session)
@@ -46,7 +47,7 @@ func (s *Server) pinnedWorkdir(ctx context.Context, session, dir string) (resolv
 					resolved = dir
 				}
 			}
-		case errors.Is(err, store.ErrNotFound):
+		case errors.Is(err, agentstore.ErrNotFound):
 			// Unknown session: fall back to the provided dir.
 		default:
 			return "", nil, http.StatusInternalServerError, err.Error()
@@ -80,7 +81,7 @@ func errHTTPStatus(err error) int {
 // as the session (sess.Repo when set, otherwise sess.Workdir). Linked worktrees
 // of the same repo are allowed; unrelated paths, bare repos, and .git dirs are
 // rejected.
-func ensureDirInSessionRepo(ctx context.Context, sess *store.Session, dir string) error {
+func ensureDirInSessionRepo(ctx context.Context, sess *agentstore.Agent, dir string) error {
 	info, err := os.Stat(dir)
 	if err != nil {
 		return fmt.Errorf("requested dir %q is not a usable directory: %w", dir, err)

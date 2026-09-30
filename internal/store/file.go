@@ -918,3 +918,6 @@ func (fs *FileStore) Close(ctx context.Context) error {
 	}
 	return err
 }
+
+// SafeSessionRef validates a backend conversation resume handle.
+func SafeSessionRef(ref string) error { return safeSessionRef(ref) }

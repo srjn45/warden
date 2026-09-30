@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/projectstore"
@@ -36,7 +37,7 @@ func TestHierarchyFieldsAreExposedOnReadSurfaces(t *testing.T) {
 	project.Terminals = []string{"terminal-1"}
 	require.NoError(t, projects.Upsert(project))
 
-	fs.data["agent-child"] = &store.Session{
+	fs.data["agent-child"] = &agentstore.Agent{
 		ID: "agent-child", Status: store.StatusWorking, ProjectID: project.ID,
 		ParentID: "agent-parent", ChildAgents: []string{"agent-grandchild"},
 		ChildPipelines: []string{"pipeline-child"},

@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/branchtrack"
 	"github.com/srjn45/warden/internal/daemon/oapi"
 	"github.com/srjn45/warden/internal/lifecycle"
-	"github.com/srjn45/warden/internal/store"
 )
 
 // autopilotOwnTag mirrors the tag the autopilot Controller stamps on the brain and
@@ -171,7 +171,7 @@ func (s *Server) resolveLandTarget(ctx context.Context, ref string) landTarget {
 }
 
 // sessionLandTarget builds a landTarget from a resolved session.
-func sessionLandTarget(sess *store.Session, branch string) landTarget {
+func sessionLandTarget(sess *agentstore.Agent, branch string) landTarget {
 	owned, runID := ownershipFromTags(sess.Tags)
 	taskID := strings.TrimSpace(sess.AutopilotTaskID)
 	if taskID == "" {

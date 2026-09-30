@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -27,7 +28,7 @@ func getHistory(t *testing.T, srv *Server, query string) (int, sessionsResponse)
 
 func TestFilterClosed(t *testing.T) {
 	base := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
-	sessions := []*store.Session{
+	sessions := []*agentstore.Agent{
 		{ID: "new", Type: store.TypeDevelopment, UpdatedAt: base.Add(48 * time.Hour)},
 		{ID: "mid", Type: store.TypeAnalysis, UpdatedAt: base.Add(24 * time.Hour)},
 		{ID: "old", Type: store.TypeDevelopment, UpdatedAt: base},
@@ -62,9 +63,9 @@ func TestHandleHistoryArchivedOnly(t *testing.T) {
 	fs := newFakeStore()
 	ctx := context.Background()
 	// Active session must NOT appear in history.
-	fs.Insert(ctx, &store.Session{ID: "active", Status: store.StatusWorking})
+	fs.Insert(ctx, &agentstore.Agent{ID: "active", Status: store.StatusWorking})
 	// Archived sessions appear.
-	fs.Insert(ctx, &store.Session{ID: "arch1", Type: store.TypeDevelopment, UpdatedAt: time.Now()})
+	fs.Insert(ctx, &agentstore.Agent{ID: "arch1", Type: store.TypeDevelopment, UpdatedAt: time.Now()})
 	fs.Archive(ctx, "arch1")
 	srv := &Server{store: fs}
 
@@ -80,9 +81,9 @@ func TestHandleHistoryArchivedOnly(t *testing.T) {
 func TestHandleHistoryTypeFilter(t *testing.T) {
 	fs := newFakeStore()
 	ctx := context.Background()
-	fs.Insert(ctx, &store.Session{ID: "dev", Type: store.TypeDevelopment, UpdatedAt: time.Now()})
+	fs.Insert(ctx, &agentstore.Agent{ID: "dev", Type: store.TypeDevelopment, UpdatedAt: time.Now()})
 	fs.Archive(ctx, "dev")
-	fs.Insert(ctx, &store.Session{ID: "ana", Type: store.TypeAnalysis, UpdatedAt: time.Now()})
+	fs.Insert(ctx, &agentstore.Agent{ID: "ana", Type: store.TypeAnalysis, UpdatedAt: time.Now()})
 	fs.Archive(ctx, "ana")
 	srv := &Server{store: fs}
 

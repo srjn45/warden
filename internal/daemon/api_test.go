@@ -10,15 +10,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
 
-// fakeStore is an in-memory store.Store for handler tests.
+// fakeStore is an in-memory agentstore.AgentStore for handler tests.
 type fakeStore struct {
 	mu            sync.Mutex
-	data          map[string]*store.Session
-	closed        map[string]*store.Session
+	data          map[string]*agentstore.Agent
+	closed        map[string]*agentstore.Agent
 	insertErr     error // when set, Insert fails with it (no doc stored)
 	archiveErr    error // when set, Archive fails with it (doc left in place)
 	listErr       error // when set, List fails with it (degraded-scan simulation)
@@ -26,32 +27,34 @@ type fakeStore struct {
 	closedSkipped int
 }
 
+var _ agentstore.AgentStore = (*fakeStore)(nil)
+
 func newFakeStore() *fakeStore {
-	return &fakeStore{data: map[string]*store.Session{}, closed: map[string]*store.Session{}}
+	return &fakeStore{data: map[string]*agentstore.Agent{}, closed: map[string]*agentstore.Agent{}}
 }
 
-func (f *fakeStore) Insert(_ context.Context, s *store.Session) error {
+func (f *fakeStore) Insert(_ context.Context, s *agentstore.Agent) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.insertErr != nil {
 		return f.insertErr
 	}
 	if _, ok := f.data[s.ID]; ok {
-		return store.ErrExists
+		return agentstore.ErrExists
 	}
 	f.data[s.ID] = s
 	return nil
 }
-func (f *fakeStore) Get(_ context.Context, id string) (*store.Session, error) {
+func (f *fakeStore) Get(_ context.Context, id string) (*agentstore.Agent, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	s, ok := f.data[id]
 	if !ok {
-		return nil, store.ErrNotFound
+		return nil, agentstore.ErrNotFound
 	}
 	return s, nil
 }
-func (f *fakeStore) GetByNameOrID(_ context.Context, nameOrID string) (*store.Session, error) {
+func (f *fakeStore) GetByNameOrID(_ context.Context, nameOrID string) (*agentstore.Agent, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	// First check for name match
@@ -63,24 +66,24 @@ func (f *fakeStore) GetByNameOrID(_ context.Context, nameOrID string) (*store.Se
 	// Fall back to ID lookup
 	s, ok := f.data[nameOrID]
 	if !ok {
-		return nil, store.ErrNotFound
+		return nil, agentstore.ErrNotFound
 	}
 	return s, nil
 }
-func (f *fakeStore) List(_ context.Context) ([]*store.Session, error) {
+func (f *fakeStore) List(_ context.Context) ([]*agentstore.Agent, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.listErr != nil {
 		return nil, f.listErr
 	}
-	out := make([]*store.Session, 0, len(f.data))
+	out := make([]*agentstore.Agent, 0, len(f.data))
 	for _, s := range f.data {
 		out = append(out, s)
 	}
 	return out, nil
 }
 
-func (f *fakeStore) ListClosedDegraded(ctx context.Context) ([]*store.Session, int, error) {
+func (f *fakeStore) ListClosedDegraded(ctx context.Context) ([]*agentstore.Agent, int, error) {
 	closed, err := f.ListClosed(ctx)
 	return closed, f.closedSkipped, err
 }
@@ -89,7 +92,7 @@ func (f *fakeStore) UpdateStatus(_ context.Context, id string, st store.Status) 
 	defer f.mu.Unlock()
 	s, ok := f.data[id]
 	if !ok {
-		return store.ErrNotFound
+		return agentstore.ErrNotFound
 	}
 	s.Status = st
 	return nil
@@ -117,7 +120,7 @@ func (f *fakeStore) FinalizeExit(_ context.Context, id string, expected, next st
 	s.ExitCode = &c
 	return true, nil
 }
-func (f *fakeStore) Update(_ context.Context, id string, fn func(*store.Session) error) error {
+func (f *fakeStore) Update(_ context.Context, id string, fn func(*agentstore.Agent) error) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.updateErr != nil {
@@ -125,7 +128,7 @@ func (f *fakeStore) Update(_ context.Context, id string, fn func(*store.Session)
 	}
 	s, ok := f.data[id]
 	if !ok {
-		return store.ErrNotFound
+		return agentstore.ErrNotFound
 	}
 	if err := fn(s); err != nil {
 		return err
@@ -137,7 +140,7 @@ func (f *fakeStore) AppendEvent(_ context.Context, id string, ev store.Event) er
 	defer f.mu.Unlock()
 	s, ok := f.data[id]
 	if !ok {
-		return store.ErrNotFound
+		return agentstore.ErrNotFound
 	}
 	s.Events = append(s.Events, ev)
 	return nil
@@ -147,7 +150,7 @@ func (f *fakeStore) AppendEventStatus(_ context.Context, id string, ev store.Eve
 	defer f.mu.Unlock()
 	s, ok := f.data[id]
 	if !ok {
-		return store.ErrNotFound
+		return agentstore.ErrNotFound
 	}
 	s.Events = append(s.Events, ev)
 	if status != "" {
@@ -175,7 +178,7 @@ func (f *fakeStore) ClearWorktree(_ context.Context, id string) error {
 	defer f.mu.Unlock()
 	s, ok := f.data[id]
 	if !ok {
-		return store.ErrNotFound
+		return agentstore.ErrNotFound
 	}
 	s.Worktree = ""
 	s.Branch = ""
@@ -186,7 +189,7 @@ func (f *fakeStore) SetRateLimit(_ context.Context, id string, restoreAt time.Ti
 	defer f.mu.Unlock()
 	s, ok := f.data[id]
 	if !ok {
-		return store.ErrNotFound
+		return agentstore.ErrNotFound
 	}
 	now := time.Now().UTC()
 	if s.RateLimitedAt == nil {
@@ -201,7 +204,7 @@ func (f *fakeStore) ClearRateLimit(_ context.Context, id string) error {
 	defer f.mu.Unlock()
 	s, ok := f.data[id]
 	if !ok {
-		return store.ErrNotFound
+		return agentstore.ErrNotFound
 	}
 	s.RateLimitedAt = nil
 	s.RateLimitRestoreAt = nil
@@ -221,10 +224,10 @@ func (f *fakeStore) Archive(_ context.Context, id string) error {
 	return nil
 }
 
-func (f *fakeStore) ListClosed(_ context.Context) ([]*store.Session, error) {
+func (f *fakeStore) ListClosed(_ context.Context) ([]*agentstore.Agent, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	out := make([]*store.Session, 0, len(f.closed))
+	out := make([]*agentstore.Agent, 0, len(f.closed))
 	for _, s := range f.closed {
 		out = append(out, s)
 	}
@@ -237,7 +240,7 @@ func (f *fakeStore) Delete(_ context.Context, id string) error {
 	return nil
 }
 func (f *fakeStore) Ping(_ context.Context) error                                { return nil }
-func (f *fakeStore) Close(_ context.Context) error                               { return nil }
+func (f *fakeStore) Close() error                                                { return nil }
 func (f *fakeStore) UpdateAutoApprove(_ context.Context, _ string, _ bool) error { return nil }
 func (f *fakeStore) SetForceCompact(_ context.Context, _ string, _ *bool) error  { return nil }
 func (f *fakeStore) UpdatePermissionMode(_ context.Context, id string, mode string) error {
@@ -245,7 +248,7 @@ func (f *fakeStore) UpdatePermissionMode(_ context.Context, id string, mode stri
 	defer f.mu.Unlock()
 	s, ok := f.data[id]
 	if !ok {
-		return store.ErrNotFound
+		return agentstore.ErrNotFound
 	}
 	s.PermissionMode = mode
 	return nil
@@ -255,7 +258,7 @@ func (f *fakeStore) UpdateRole(_ context.Context, id string, role string) error 
 	defer f.mu.Unlock()
 	s, ok := f.data[id]
 	if !ok {
-		return store.ErrNotFound
+		return agentstore.ErrNotFound
 	}
 	s.Role = role
 	return nil
@@ -264,7 +267,7 @@ func (f *fakeStore) UpdateRole(_ context.Context, id string, role string) error 
 // snapSession returns a point-in-time copy of the session, taken under the
 // store lock. Use this instead of Get in require.Eventually closures and any
 // reads that race with concurrent coordinator goroutines.
-func (f *fakeStore) snapSession(id string) *store.Session {
+func (f *fakeStore) snapSession(id string) *agentstore.Agent {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	s, ok := f.data[id]
@@ -301,7 +304,7 @@ func TestHealthz(t *testing.T) {
 
 func TestGetSessions(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["A-1"] = &store.Session{ID: "A-1", Status: store.StatusWorking}
+	fs.data["A-1"] = &agentstore.Agent{ID: "A-1", Status: store.StatusWorking}
 	ts := testServer(t, fs)
 	defer ts.Close()
 
@@ -324,7 +327,7 @@ func TestGetSessionNotFound(t *testing.T) {
 
 func TestPostEventUpdatesStatusAndAppends(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["A-1"] = &store.Session{ID: "A-1", Status: store.StatusSpawning}
+	fs.data["A-1"] = &agentstore.Agent{ID: "A-1", Status: store.StatusSpawning}
 	ts := testServer(t, fs)
 	defer ts.Close()
 
@@ -340,7 +343,7 @@ func TestPostEventUpdatesStatusAndAppends(t *testing.T) {
 
 func TestPostEventSessionEndMarksDone(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["A-1"] = &store.Session{ID: "A-1", Status: store.StatusWorking}
+	fs.data["A-1"] = &agentstore.Agent{ID: "A-1", Status: store.StatusWorking}
 	ts := testServer(t, fs)
 	defer ts.Close()
 

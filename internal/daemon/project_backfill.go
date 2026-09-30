@@ -6,9 +6,9 @@ import (
 	"log/slog"
 	"sort"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/projectstore"
-	"github.com/srjn45/warden/internal/store"
 )
 
 // Project membership reconciliation (spec D2/§6) treats non-nil forward lists
@@ -43,7 +43,7 @@ func (r MembershipReconcileReport) Changed() bool {
 // sessions/pipelines up front is returned, since the sweep cannot proceed without
 // them. A nil projects store (unconfigured) or nil pipeline store (pipelines
 // unused) is tolerated: the corresponding pass is skipped.
-func ReconcileProjectMembership(ctx context.Context, sstore store.Store, pstore *pipeline.Store, projects *projectstore.Store) (MembershipReconcileReport, error) {
+func ReconcileProjectMembership(ctx context.Context, sstore *agentstore.Store, pstore *pipeline.Store, projects *projectstore.Store) (MembershipReconcileReport, error) {
 	var rep MembershipReconcileReport
 	if projects == nil {
 		return rep, nil
@@ -58,7 +58,7 @@ func ReconcileProjectMembership(ctx context.Context, sstore store.Store, pstore 
 
 	// Read all sources before writing. An unavailable store must not turn an
 	// unknown legacy list into an authoritative empty list.
-	var sessions []*store.Session
+	var sessions []*agentstore.Agent
 	if sstore != nil {
 		sessions, err = sstore.List(ctx)
 		if err != nil {
@@ -73,7 +73,7 @@ func ReconcileProjectMembership(ctx context.Context, sstore store.Store, pstore 
 		}
 	}
 	sort.Slice(projs, func(i, j int) bool { return projs[i].ID < projs[j].ID })
-	agentOwners, terminalOwners, pipeOwners := map[string]string{}, map[string]string{}, map[string]string{}
+	agentOwners, pipeOwners := map[string]string{}, map[string]string{}
 	byID := make(map[string]projectstore.Project, len(projs))
 	claim := func(owners map[string]string, ids []string, pid string) {
 		for _, id := range ids {
@@ -85,7 +85,6 @@ func ReconcileProjectMembership(ctx context.Context, sstore store.Store, pstore 
 	for _, proj := range projs {
 		byID[proj.ID] = proj
 		claim(agentOwners, proj.Agents, proj.ID)
-		claim(terminalOwners, proj.Terminals, proj.ID)
 		claim(pipeOwners, proj.Pipelines, proj.ID)
 	}
 	repairFailed := false
@@ -95,10 +94,6 @@ func ReconcileProjectMembership(ctx context.Context, sstore store.Store, pstore 
 		}
 		owners := agentOwners
 		list := func(p projectstore.Project) []string { return p.Agents }
-		if sess.IsTerminal() {
-			owners = terminalOwners
-			list = func(p projectstore.Project) []string { return p.Terminals }
-		}
 		pid := sess.ProjectID
 		if owner, ok := owners[sess.ID]; ok {
 			pid = owner
@@ -117,7 +112,7 @@ func ReconcileProjectMembership(ctx context.Context, sstore store.Store, pstore 
 		if pid == sess.ProjectID {
 			continue
 		}
-		if err := sstore.Update(ctx, sess.ID, func(s *store.Session) error { s.ProjectID = pid; return nil }); err != nil {
+		if err := sstore.Update(ctx, sess.ID, func(s *agentstore.Agent) error { s.ProjectID = pid; return nil }); err != nil {
 			repairFailed = true
 			slog.Warn("daemon: membership reconcile: repair session failed", "agent", sess.ID, "err", err)
 			continue
@@ -162,13 +157,9 @@ func ReconcileProjectMembership(ctx context.Context, sstore store.Store, pstore 
 	for _, proj := range projs {
 		changed := false
 		if sstore != nil {
-			agents, terminals := membersForProject(proj.ID, sessions)
+			agents := membersForProject(proj.ID, sessions)
 			if proj.Agents == nil {
 				proj.Agents = agents
-				changed = true
-			}
-			if proj.Terminals == nil {
-				proj.Terminals = terminals
 				changed = true
 			}
 		}
@@ -206,23 +197,17 @@ func matchOpenProjectForDir(dir string, projs []projectstore.Project) string {
 	return ""
 }
 
-// membersForProject partitions the sessions whose ProjectID equals projectID into
-// the project's agent and terminal id lists (each sorted + de-duplicated). Job
-// agents are ordinary sessions here — they are members of their project like any
-// other; the spec's D5 exclusion is about an agent's child_agents[], not the
-// project's flat agents[] membership.
-func membersForProject(projectID string, sessions []*store.Session) (agents, terminals []string) {
+// membersForProject partitions the agents whose ProjectID equals projectID into
+// the project's agent id list (sorted + de-duplicated).
+func membersForProject(projectID string, sessions []*agentstore.Agent) []string {
+	var agents []string
 	for _, sess := range sessions {
 		if sess == nil || sess.ProjectID != projectID {
 			continue
 		}
-		if sess.IsTerminal() {
-			terminals = append(terminals, sess.ID)
-		} else {
-			agents = append(agents, sess.ID)
-		}
+		agents = append(agents, sess.ID)
 	}
-	return sortedDedupe(agents), sortedDedupe(terminals)
+	return sortedDedupe(agents)
 }
 
 // pipelinesForProject returns the sorted, de-duplicated id list of pipelines whose

@@ -2,10 +2,13 @@ package daemon
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	_ "github.com/srjn45/warden/internal/agentbackend/backends"
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/backendusage"
@@ -13,8 +16,6 @@ import (
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
-	"os"
-	"path/filepath"
 )
 
 type slotSpawnStore struct {
@@ -46,9 +47,9 @@ func TestSpawnBrainAdoptsLiveSlot(t *testing.T) {
 	repo := t.TempDir()
 	fs := &slotSpawnStore{fakeStore: newFakeStore()}
 	now := time.Now().UTC()
-	fs.data["voyage-autopilot"] = &store.Session{
+	fs.data["voyage-autopilot"] = &agentstore.Agent{
 		ID: "voyage-autopilot", TmuxSession: "voyage-autopilot",
-		Status: store.StatusWorking, Backend: "claude", UpdatedAt: now, CreatedAt: now,
+		Status: store.StatusWorking, AiCli: "claude", UpdatedAt: now, CreatedAt: now,
 	}
 	fl := &fakeLife{}
 	srv := &Server{store: fs, life: fl}
@@ -69,8 +70,8 @@ func TestRotateBrainInvokesHotSwapNotRecovery(t *testing.T) {
 	st := newFakeStore()
 	life := &fakeLife{}
 	workdir := t.TempDir()
-	sess := &store.Session{
-		ID: "agent-mgr-1", TmuxSession: "agent-mgr-1", Backend: "claude", Model: "opus",
+	sess := &agentstore.Agent{
+		ID: "agent-mgr-1", TmuxSession: "agent-mgr-1", AiCli: "claude", Model: "opus",
 		Role: "autopilot", Repo: workdir, Workdir: workdir, Status: store.StatusWorking,
 		Tags: []string{"autopilot", "run:ap-rotate"},
 	}
@@ -99,37 +100,37 @@ func TestRotateBrainInvokesHotSwapNotRecovery(t *testing.T) {
 
 	got, err := st.Get(context.Background(), sess.ID)
 	require.NoError(t, err)
-	require.Equal(t, "codex", got.Backend)
+	require.Equal(t, "codex", got.AiCli)
 	require.Nil(t, got.BackendRecovery, "guardian rotation must not start a recovery generation")
 }
 
 func TestRotateBrainWithLiveWorkersPreservesTreeAndLand(t *testing.T) {
 	dataDir := t.TempDir()
 	workdir := t.TempDir()
-	st, err := store.NewFileStore(dataDir)
+	st, err := agentstore.New(dataDir)
 	require.NoError(t, err)
-	t.Cleanup(func() { st.Close(context.Background()) })
+	t.Cleanup(func() { _ = st.Close() })
 
 	runID := "ap-liveworkers"
 	mgrID := "agent-mgr-1"
 	now := time.Now().UTC()
-	mgr := &store.Session{
-		ID: mgrID, Name: mgrID, TmuxSession: mgrID, Backend: "claude", Model: "opus",
+	mgr := &agentstore.Agent{
+		ID: mgrID, Name: mgrID, TmuxSession: mgrID, AiCli: "claude", Model: "opus",
 		Role: "autopilot", Repo: workdir, Workdir: workdir, Branch: "autopilot/manager",
 		Worktree: workdir, Status: store.StatusWorking, CreatedAt: now, UpdatedAt: now,
 		Tags: []string{"autopilot", "run:" + runID},
 	}
 	require.NoError(t, st.Insert(context.Background(), mgr))
 
-	workers := []*store.Session{
+	workers := []*agentstore.Agent{
 		{
-			ID: "agent-w1", TmuxSession: "agent-w1", ParentID: mgrID, Backend: "claude",
+			ID: "agent-w1", TmuxSession: "agent-w1", ParentID: mgrID, AiCli: "claude",
 			Role: "worker", Repo: workdir, Workdir: workdir, Branch: "autopilot/task-a",
 			Worktree: t.TempDir(), Status: store.StatusWorking, CreatedAt: now, UpdatedAt: now,
 			Tags: []string{"autopilot", "run:" + runID},
 		},
 		{
-			ID: "agent-w2", TmuxSession: "agent-w2", ParentID: mgrID, Backend: "claude",
+			ID: "agent-w2", TmuxSession: "agent-w2", ParentID: mgrID, AiCli: "claude",
 			Role: "worker", Repo: workdir, Workdir: workdir, Branch: "autopilot/task-b",
 			Worktree: t.TempDir(), Status: store.StatusWorking, CreatedAt: now, UpdatedAt: now,
 			Tags: []string{"autopilot", "run:" + runID},
@@ -167,7 +168,7 @@ func TestRotateBrainWithLiveWorkersPreservesTreeAndLand(t *testing.T) {
 	gotMgr, err := st.Get(context.Background(), mgrID)
 	require.NoError(t, err)
 	require.Equal(t, mgrID, gotMgr.ID)
-	require.Equal(t, "codex", gotMgr.Backend)
+	require.Equal(t, "codex", gotMgr.AiCli)
 	require.Nil(t, gotMgr.BackendRecovery)
 
 	wantHandoff := handoff.Path(workdir, mgrID)

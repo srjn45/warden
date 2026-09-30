@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"github.com/srjn45/warden/internal/agentstore"
 	"testing"
 	"time"
 
@@ -16,18 +17,18 @@ func strPtr(s string) *string { return &s }
 func TestLimitSessionsFromSnapshot_OpenCodeTransitions(t *testing.T) {
 	ctx := context.Background()
 	resetAt := time.Now().UTC().Add(2 * time.Hour).Truncate(time.Second)
-	sess := &store.Session{
-		ID:      "oc-1",
-		Backend: "opencode",
-		Status:  store.StatusWorking,
+	sess := &agentstore.Agent{
+		ID:     "oc-1",
+		AiCli:  "opencode",
+		Status: store.StatusWorking,
 	}
-	st := &rateLimitStore{sessions: map[string]*store.Session{"oc-1": sess}}
+	st := &rateLimitStore{sessions: map[string]*agentstore.Agent{"oc-1": sess}}
 	life := &fakeRateLimitLife{}
 	// auto_resume off so OnTransition does not overwrite SetRateLimit with limitClearsAt.
 	sched := NewRateLimitScheduler(life, st, 30*time.Minute, 6*time.Hour, time.Minute, false, "")
 	var onLimitCalls int
 	var gotUntil time.Time
-	sched.OnLimit = func(_ *store.Session, until time.Time) {
+	sched.OnLimit = func(_ *agentstore.Agent, until time.Time) {
 		onLimitCalls++
 		gotUntil = until
 	}
@@ -62,15 +63,15 @@ func TestLimitSessionsFromSnapshot_OpenCodeTransitions(t *testing.T) {
 func TestLimitSessionsFromSnapshot_ClaudeSkipped(t *testing.T) {
 	ctx := context.Background()
 	resetAt := time.Now().UTC().Add(time.Hour)
-	sess := &store.Session{
-		ID:      "claude-1",
-		Backend: "claude",
-		Status:  store.StatusWorking,
+	sess := &agentstore.Agent{
+		ID:     "claude-1",
+		AiCli:  "claude",
+		Status: store.StatusWorking,
 	}
-	st := &rateLimitStore{sessions: map[string]*store.Session{"claude-1": sess}}
+	st := &rateLimitStore{sessions: map[string]*agentstore.Agent{"claude-1": sess}}
 	sched := NewRateLimitScheduler(&fakeRateLimitLife{}, st, 30*time.Minute, 6*time.Hour, time.Minute, false, "")
 	onLimitCalls := 0
-	sched.OnLimit = func(*store.Session, time.Time) { onLimitCalls++ }
+	sched.OnLimit = func(*agentstore.Agent, time.Time) { onLimitCalls++ }
 
 	srv := &Server{store: st}
 	srv.SetRateLimitScheduler(sched)
@@ -99,15 +100,15 @@ func TestLimitSessionsFromSnapshot_ClaudeSkipped(t *testing.T) {
 
 func TestLimitSessionsFromSnapshot_AlreadyRateLimited(t *testing.T) {
 	ctx := context.Background()
-	sess := &store.Session{
-		ID:      "oc-2",
-		Backend: "opencode",
-		Status:  store.StatusRateLimited,
+	sess := &agentstore.Agent{
+		ID:     "oc-2",
+		AiCli:  "opencode",
+		Status: store.StatusRateLimited,
 	}
-	st := &rateLimitStore{sessions: map[string]*store.Session{"oc-2": sess}}
+	st := &rateLimitStore{sessions: map[string]*agentstore.Agent{"oc-2": sess}}
 	sched := NewRateLimitScheduler(&fakeRateLimitLife{}, st, 30*time.Minute, 6*time.Hour, time.Minute, false, "")
 	onLimitCalls := 0
-	sched.OnLimit = func(*store.Session, time.Time) { onLimitCalls++ }
+	sched.OnLimit = func(*agentstore.Agent, time.Time) { onLimitCalls++ }
 
 	srv := &Server{store: st}
 	srv.SetRateLimitScheduler(sched)
@@ -132,15 +133,15 @@ func TestLimitSessionsFromSnapshot_AlreadyRateLimited(t *testing.T) {
 
 func TestLimitSessionsFromSnapshot_NoLimitedBackends(t *testing.T) {
 	ctx := context.Background()
-	sess := &store.Session{
-		ID:      "oc-3",
-		Backend: "opencode",
-		Status:  store.StatusWorking,
+	sess := &agentstore.Agent{
+		ID:     "oc-3",
+		AiCli:  "opencode",
+		Status: store.StatusWorking,
 	}
-	st := &rateLimitStore{sessions: map[string]*store.Session{"oc-3": sess}}
+	st := &rateLimitStore{sessions: map[string]*agentstore.Agent{"oc-3": sess}}
 	sched := NewRateLimitScheduler(&fakeRateLimitLife{}, st, 30*time.Minute, 6*time.Hour, time.Minute, false, "")
 	onLimitCalls := 0
-	sched.OnLimit = func(*store.Session, time.Time) { onLimitCalls++ }
+	sched.OnLimit = func(*agentstore.Agent, time.Time) { onLimitCalls++ }
 
 	srv := &Server{store: st}
 	srv.SetRateLimitScheduler(sched)

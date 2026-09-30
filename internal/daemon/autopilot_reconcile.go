@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -30,7 +31,7 @@ func (rt autopilotRuntime) ReconcileSessions(ctx context.Context, runs []autopil
 	return errors.Join(errs...)
 }
 
-func (rt autopilotRuntime) migrateLegacyManager(ctx context.Context, sessions []*store.Session, spec autopilot.BootReconcileRun) error {
+func (rt autopilotRuntime) migrateLegacyManager(ctx context.Context, sessions []*agentstore.Agent, spec autopilot.BootReconcileRun) error {
 	slotID := spec.ManagerSlotID
 	legacyID := spec.LegacyBrainID
 	if legacyID == "" || legacyID == slotID {
@@ -40,7 +41,7 @@ func (rt autopilotRuntime) migrateLegacyManager(ctx context.Context, sessions []
 		return rt.stampManagerBackRefs(ctx, slotID, spec.RunID)
 	}
 	legacy, err := rt.s.store.Get(ctx, legacyID)
-	if errors.Is(err, store.ErrNotFound) {
+	if errors.Is(err, agentstore.ErrNotFound) {
 		return nil
 	}
 	if err != nil {
@@ -61,7 +62,7 @@ func (rt autopilotRuntime) migrateLegacyManager(ctx context.Context, sessions []
 
 func (rt autopilotRuntime) stampManagerBackRefs(ctx context.Context, slotID, runID string) error {
 	sess, err := rt.s.store.Get(ctx, slotID)
-	if errors.Is(err, store.ErrNotFound) {
+	if errors.Is(err, agentstore.ErrNotFound) {
 		return nil
 	}
 	if err != nil {
@@ -70,7 +71,7 @@ func (rt autopilotRuntime) stampManagerBackRefs(ctx context.Context, slotID, run
 	if sess.AutopilotRunID == runID && sess.AutopilotSlot == store.AutopilotSlotManager {
 		return nil
 	}
-	return rt.s.store.Update(ctx, slotID, func(s *store.Session) error {
+	return rt.s.store.Update(ctx, slotID, func(s *agentstore.Agent) error {
 		if s.AutopilotRunID == "" {
 			s.AutopilotRunID = runID
 		}
@@ -81,7 +82,7 @@ func (rt autopilotRuntime) stampManagerBackRefs(ctx context.Context, slotID, run
 	})
 }
 
-func (rt autopilotRuntime) reconcileWorkerBackRefs(ctx context.Context, sessions []*store.Session, spec autopilot.BootReconcileRun) error {
+func (rt autopilotRuntime) reconcileWorkerBackRefs(ctx context.Context, sessions []*agentstore.Agent, spec autopilot.BootReconcileRun) error {
 	runTag := "run:" + spec.RunID
 	var errs []error
 	for _, sess := range sessions {
@@ -100,7 +101,7 @@ func (rt autopilotRuntime) reconcileWorkerBackRefs(ctx context.Context, sessions
 		parentDead := false
 		if pid := strings.TrimSpace(sess.ParentID); pid != "" {
 			parent, err := rt.s.store.Get(ctx, pid)
-			if errors.Is(err, store.ErrNotFound) || !guardianSessionLive(parent.Status) {
+			if errors.Is(err, agentstore.ErrNotFound) || !guardianSessionLive(parent.Status) {
 				parentDead = true
 			}
 		}
@@ -111,7 +112,7 @@ func (rt autopilotRuntime) reconcileWorkerBackRefs(ctx context.Context, sessions
 			continue
 		}
 		id := sess.ID
-		errs = append(errs, rt.s.store.Update(ctx, id, func(s *store.Session) error {
+		errs = append(errs, rt.s.store.Update(ctx, id, func(s *agentstore.Agent) error {
 			if s.AutopilotRunID == "" {
 				s.AutopilotRunID = spec.RunID
 			}
@@ -130,14 +131,14 @@ func (rt autopilotRuntime) reconcileWorkerBackRefs(ctx context.Context, sessions
 	return errors.Join(errs...)
 }
 
-func sessionOwnsRun(sess *store.Session, runID, runTag string) bool {
+func sessionOwnsRun(sess *agentstore.Agent, runID, runTag string) bool {
 	if autopilot.SessionRunID(sess) == runID {
 		return true
 	}
 	return sess.HasTag(runTag) || sess.HasTag("autopilot-run:"+runID)
 }
 
-func findLegacyManagerID(sessions []*store.Session, runID string) string {
+func findLegacyManagerID(sessions []*agentstore.Agent, runID string) string {
 	runTag := "run:" + runID
 	for _, sess := range sessions {
 		if sess == nil || sess.ID == "" {
@@ -153,7 +154,7 @@ func findLegacyManagerID(sessions []*store.Session, runID string) string {
 	return ""
 }
 
-func (rt autopilotRuntime) sessionAlive(ctx context.Context, sess *store.Session) bool {
+func (rt autopilotRuntime) sessionAlive(ctx context.Context, sess *agentstore.Agent) bool {
 	if sess == nil || !guardianSessionLive(sess.Status) {
 		return false
 	}
@@ -163,7 +164,7 @@ func (rt autopilotRuntime) sessionAlive(ctx context.Context, sess *store.Session
 	return true
 }
 
-func (rt autopilotRuntime) rekeyAutopilotSession(ctx context.Context, old *store.Session, newID, runID, slot string) error {
+func (rt autopilotRuntime) rekeyAutopilotSession(ctx context.Context, old *agentstore.Agent, newID, runID, slot string) error {
 	if old == nil || newID == "" || old.ID == newID {
 		return nil
 	}
@@ -183,7 +184,7 @@ func (rt autopilotRuntime) rekeyAutopilotSession(ctx context.Context, old *store
 		return err
 	}
 	if err := rt.s.store.Insert(ctx, &newSess); err != nil {
-		if errors.Is(err, store.ErrExists) {
+		if errors.Is(err, agentstore.ErrExists) {
 			return nil
 		}
 		return err

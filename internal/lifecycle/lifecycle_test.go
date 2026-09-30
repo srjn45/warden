@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/srjn45/warden/internal/agentbackend"
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
@@ -128,8 +129,8 @@ func TestSpawnDevelopmentCreatesWorktreeTmuxAndDoc(t *testing.T) {
 	// Detached tmux session in the worktree.
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", "PROJ-350", "-e", "WARDEN_SESSION_ID=PROJ-350", "-e", "AGENTCTL_SESSION_ID=PROJ-350", "-c", "/repo/.worktrees/PROJ-350"})
 	// Launch claude UNATTENDED, with a pinned session id and display name.
-	require.NotEmpty(t, s.ClaudeSessionID)
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "PROJ-350", claudeLaunch(s.ClaudeSessionID, "PROJ-350", "", "auto") + pipelineHint() + collabHint() + gitConventionsHint(), "Enter"})
+	require.NotEmpty(t, s.AICLISessionID)
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "PROJ-350", claudeLaunch(s.AICLISessionID, "PROJ-350", "", "auto") + pipelineHint() + collabHint() + gitConventionsHint(), "Enter"})
 }
 
 // TestSpawnLaunchStringByteIdentical is the Phase-0 exit gate: the claude command
@@ -150,7 +151,7 @@ func TestSpawnLaunchStringByteIdentical(t *testing.T) {
 	// What warden types post-hardening:
 	// claude --model <default> --permission-mode <default> --session-id '<uuid>' --name <id>
 	prefix := "claude --model 'claude-sonnet-4-6' --permission-mode 'auto' --session-id '" +
-		s.ClaudeSessionID + "' --name 'PROJ-350'"
+		s.AICLISessionID + "' --name 'PROJ-350'"
 	want := prefix + pipelineHint() + collabHint() + gitConventionsHint()
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "PROJ-350", want, "Enter"})
 }
@@ -174,7 +175,7 @@ func TestSpawnTypedSeedsPromptArg(t *testing.T) {
 	promptFile := "/state/prompts/" + s.ID
 	require.Contains(t, fr.calledArgs(), []string{"sh", "-c", `umask 077; printf '%s' "$1" > "$2"`, "sh", prompt, promptFile})
 	// …and passed to claude as the positional "$(cat …)" argument on launch.
-	launch := claudeLaunch(s.ClaudeSessionID, s.ID, "", "auto") + pipelineHint() + collabHint() + gitConventionsHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
+	launch := claudeLaunch(s.AICLISessionID, s.ID, "", "auto") + pipelineHint() + collabHint() + gitConventionsHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})
 }
 
@@ -202,7 +203,7 @@ func TestSpawnFileBacksSystemPromptHints(t *testing.T) {
 		[]string{"sh", "-c", `umask 077; printf '%s' "$1" > "$2"`, "sh", wantText, hintFile})
 
 	// The launch line carries ONE file-backed flag, not the inline guidance text.
-	launch := claudeLaunch(s.ClaudeSessionID, s.ID, "", "auto") +
+	launch := claudeLaunch(s.AICLISessionID, s.ID, "", "auto") +
 		` --append-system-prompt "$(cat ` + shellQuoteArg(hintFile) + `)"`
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})
 
@@ -359,8 +360,8 @@ func TestSpawnInRepoOptOutRunsInRepoWithAutoID(t *testing.T) {
 		require.NotEqual(t, "git", argv[0], "in-repo agent must not call git")
 	}
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", s.ID, "-e", "WARDEN_SESSION_ID=" + s.ID, "-e", "AGENTCTL_SESSION_ID=" + s.ID, "-c", "/repo"})
-	require.NotEmpty(t, s.ClaudeSessionID)
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, claudeLaunch(s.ClaudeSessionID, s.ID, "", "auto") + pipelineHint() + collabHint() + gitConventionsHint(), "Enter"})
+	require.NotEmpty(t, s.AICLISessionID)
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, claudeLaunch(s.AICLISessionID, s.ID, "", "auto") + pipelineHint() + collabHint() + gitConventionsHint(), "Enter"})
 }
 
 func TestSpawnWriteTypeIsolatesByDefault(t *testing.T) {
@@ -679,7 +680,7 @@ func TestClassifyRouterFiresSavingsHook(t *testing.T) {
 }
 
 func TestSummarizeUsesInternalRouter(t *testing.T) {
-	sess := &store.Session{ID: "a1", Prompt: "refactor the auth package"}
+	sess := &agentstore.Agent{ID: "a1", Prompt: "refactor the auth package"}
 	fc := &fakeCompleter{out: "Refactoring the auth package.\n"}
 	lc := New(&FakeRunner{}, &FakeConfig{})
 	lc.Internal = fc
@@ -691,7 +692,7 @@ func TestSummarizeUsesInternalRouter(t *testing.T) {
 }
 
 func TestSummarizeDegradesWhenRouterExhausted(t *testing.T) {
-	sess := &store.Session{ID: "a1", Prompt: "refactor the auth package"}
+	sess := &agentstore.Agent{ID: "a1", Prompt: "refactor the auth package"}
 	fr := &FakeRunner{}
 	lc := New(fr, &FakeConfig{})
 	lc.Internal = &fakeCompleter{err: errStub("no candidate")}
@@ -806,56 +807,6 @@ func TestSpawnInRepoRecordsRepoWorkdir(t *testing.T) {
 	require.Equal(t, "/repo", s.Workdir, "in-repo agent runs in repo")
 }
 
-// A spawn with the `terminal` backend is classified Kind=terminal so every
-// AI-centric surface excludes it and the cockpit renders it under Terminals
-// (stage 4 bridge; stage 6 replaces this with an explicit kind field).
-// The explicit kind=terminal create path (stage 6): no backend, Kind=terminal,
-// launches in the caller cwd.
-func TestSpawnKindTerminal(t *testing.T) {
-	fr := &FakeRunner{}
-	s, err := New(fr, &FakeConfig{}).Spawn(context.Background(), SpawnRequest{Cwd: "/work/project", Kind: store.KindTerminal})
-	require.NoError(t, err)
-	require.Equal(t, store.KindTerminal, s.Kind, "kind=terminal ⇒ Kind=terminal")
-	require.Equal(t, store.StatusWorking, s.Status, "terminal starts in working status")
-	require.True(t, s.IsTerminal())
-	require.Empty(t, s.Backend, "a terminal has no backend")
-	require.Equal(t, "/work/project", s.Workdir, "terminal launches in the caller cwd")
-}
-
-// Back-compat: a request still naming the removed `terminal` backend (older client
-// / the stage-4 TUI alias) is normalized to kind=terminal with the backend cleared.
-func TestSpawnTerminalBackendAliasSetsKindTerminal(t *testing.T) {
-	fr := &FakeRunner{}
-	s, err := New(fr, &FakeConfig{}).Spawn(context.Background(), SpawnRequest{Cwd: "/work/project", Backend: "terminal"})
-	require.NoError(t, err)
-	require.Equal(t, store.KindTerminal, s.Kind, "backend=terminal alias ⇒ Kind=terminal")
-	require.True(t, s.IsTerminal())
-	require.Empty(t, s.Backend, "the terminal alias clears the backend (it is not a backend)")
-}
-
-// kind=terminal is always a free-form shell: a stray Type must not route it onto
-// the typed/worktree path (where its launch would resolve to an AI backend).
-func TestSpawnKindTerminalForcesFreeForm(t *testing.T) {
-	fr := &FakeRunner{}
-	s, err := New(fr, &FakeConfig{}).Spawn(context.Background(), SpawnRequest{Cwd: "/work/project", Kind: store.KindTerminal, Type: "development"})
-	require.NoError(t, err)
-	require.True(t, s.IsTerminal())
-	require.Empty(t, string(s.Type), "a terminal is free-form — Type is cleared")
-	require.Empty(t, s.Worktree, "a terminal never gets a managed worktree")
-}
-
-// A normal (non-terminal) spawn keeps Kind empty — empty ⇒ agent, so no existing
-// session record needs migrating.
-func TestSpawnAgentLeavesKindEmpty(t *testing.T) {
-	fr := &FakeRunner{}
-	l := New(fr, &FakeConfig{})
-	l.PromptsDir = "/state/prompts"
-	s, err := l.Spawn(context.Background(), SpawnRequest{Prompt: "do x", Cwd: "/work/p"})
-	require.NoError(t, err)
-	require.Equal(t, store.SessionKind(""), s.Kind, "agents keep Kind empty (no migration)")
-	require.False(t, s.IsTerminal())
-}
-
 func TestSpawnPromptModeNoWorktree(t *testing.T) {
 	fr := &FakeRunner{}
 	prompt := "research how SSE reconnection works"
@@ -899,7 +850,7 @@ func TestSpawnPromptModeLaunchesFromCwd(t *testing.T) {
 	promptFile := "/state/prompts/" + s.ID
 	require.Contains(t, fr.calledArgs(), []string{"mkdir", "-m", "700", "-p", "/state/prompts"})
 	require.Contains(t, fr.calledArgs(), []string{"sh", "-c", `umask 077; printf '%s' "$1" > "$2"`, "sh", prompt, promptFile})
-	launch := claudeLaunch(s.ClaudeSessionID, s.ID, "", "auto") + pipelineHint() + collabHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
+	launch := claudeLaunch(s.AICLISessionID, s.ID, "", "auto") + pipelineHint() + collabHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})
 }
 
@@ -947,7 +898,7 @@ func TestSpawnPromptModeMultilinePromptIsFileBacked(t *testing.T) {
 
 	// The launch line is a single physical line; the multi-line prompt is read
 	// back via $(cat …) so no embedded newline is ever typed into the pane.
-	launch := claudeLaunch(s.ClaudeSessionID, s.ID, "", "auto") + pipelineHint() + collabHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
+	launch := claudeLaunch(s.AICLISessionID, s.ID, "", "auto") + pipelineHint() + collabHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})
 	require.NotContains(t, launch, "\n", "the typed launch command must never contain a raw newline")
 }
@@ -964,7 +915,7 @@ func TestSummarizeUsesTranscriptThenClaudeP(t *testing.T) {
 	lc := New(fr, &FakeConfig{})
 	lc.ProjectsDir = root
 	// The claude -p call is keyed by the transcript-derived text.
-	sess := &store.Session{ID: "agent-zz99", TmuxSession: "agent-zz99", Workdir: workdir}
+	sess := &agentstore.Agent{ID: "agent-zz99", TmuxSession: "agent-zz99", Workdir: workdir}
 	// Stub claude -p for whatever arg is built from the transcript text:
 	fr.Responses["claude -p "+summaryArg(`{"role":"user","text":"look into the auth bug"}`+"\n")] = FakeResp{Out: "looking into the auth bug\n"}
 
@@ -981,7 +932,7 @@ func TestSummarizeFallsBackToPane(t *testing.T) {
 	}}
 	lc := New(fr, &FakeConfig{})
 	lc.ProjectsDir = root
-	sess := &store.Session{ID: "agent-aa11", TmuxSession: "agent-aa11", Workdir: "/Users/me/warden-agents/agent-aa11"}
+	sess := &agentstore.Agent{ID: "agent-aa11", TmuxSession: "agent-aa11", Workdir: "/Users/me/warden-agents/agent-aa11"}
 	got, err := lc.Summarize(context.Background(), sess)
 	require.NoError(t, err)
 	require.Equal(t, "building a REST handler", got)
@@ -996,7 +947,7 @@ func TestSummarizeUsesLocalLLMWhenSet(t *testing.T) {
 	lc := New(fr, &FakeConfig{})
 	lc.ProjectsDir = root
 	lc.LLM = fc
-	sess := &store.Session{ID: "agent-bb22", TmuxSession: "agent-bb22", Workdir: "/Users/me/warden-agents/agent-bb22"}
+	sess := &agentstore.Agent{ID: "agent-bb22", TmuxSession: "agent-bb22", Workdir: "/Users/me/warden-agents/agent-bb22"}
 
 	got, err := lc.Summarize(context.Background(), sess)
 	require.NoError(t, err)
@@ -1016,7 +967,7 @@ func TestSummarizeFallsBackToClaudeWhenLocalErrors(t *testing.T) {
 	lc := New(fr, &FakeConfig{})
 	lc.ProjectsDir = root
 	lc.LLM = fc
-	sess := &store.Session{ID: "agent-cc33", TmuxSession: "agent-cc33", Workdir: "/Users/me/warden-agents/agent-cc33"}
+	sess := &agentstore.Agent{ID: "agent-cc33", TmuxSession: "agent-cc33", Workdir: "/Users/me/warden-agents/agent-cc33"}
 
 	got, err := lc.Summarize(context.Background(), sess)
 	require.NoError(t, err)
@@ -1036,7 +987,7 @@ func TestSummarizeFallsBackToClaudeWhenLocalEmpty(t *testing.T) {
 	lc := New(fr, &FakeConfig{})
 	lc.ProjectsDir = root
 	lc.LLM = fc
-	sess := &store.Session{ID: "agent-dd44", TmuxSession: "agent-dd44", Workdir: "/Users/me/warden-agents/agent-dd44"}
+	sess := &agentstore.Agent{ID: "agent-dd44", TmuxSession: "agent-dd44", Workdir: "/Users/me/warden-agents/agent-dd44"}
 
 	got, err := lc.Summarize(context.Background(), sess)
 	require.NoError(t, err)
@@ -1060,7 +1011,7 @@ func TestTranscriptPathBySessionIDBeatsNewest(t *testing.T) {
 
 	lc := New(&FakeRunner{}, &FakeConfig{})
 	lc.ProjectsDir = root
-	sess := &store.Session{ID: "agent-zz99", Workdir: workdir, ClaudeSessionID: sid}
+	sess := &agentstore.Agent{ID: "agent-zz99", Workdir: workdir, AICLISessionID: sid}
 	require.Equal(t, want, lc.transcriptPath(sess), "pinned id beats newest-mtime decoy")
 }
 
@@ -1076,7 +1027,7 @@ func TestTranscriptPathGlobFallback(t *testing.T) {
 
 	lc := New(&FakeRunner{}, &FakeConfig{})
 	lc.ProjectsDir = root
-	sess := &store.Session{ID: "agent-x", Workdir: "/mismatch/dir", ClaudeSessionID: sid}
+	sess := &agentstore.Agent{ID: "agent-x", Workdir: "/mismatch/dir", AICLISessionID: sid}
 	require.Equal(t, want, lc.transcriptPath(sess), "unique glob finds it despite dir mismatch")
 }
 
@@ -1093,7 +1044,7 @@ func TestTranscriptPathLegacyFallsBackToNewest(t *testing.T) {
 
 	lc := New(&FakeRunner{}, &FakeConfig{})
 	lc.ProjectsDir = root
-	sess := &store.Session{ID: "agent-leg", Workdir: workdir} // no ClaudeSessionID
+	sess := &agentstore.Agent{ID: "agent-leg", Workdir: workdir} // no AICLISessionID
 	require.Equal(t, newf, lc.transcriptPath(sess), "empty id -> newest .jsonl (legacy)")
 }
 
@@ -1110,7 +1061,7 @@ func TestRestoreRecreatesAndResumes(t *testing.T) {
 	}}
 	lc := New(fr, &FakeConfig{})
 	lc.ProjectsDir = root
-	sess := &store.Session{ID: "agent-r1", TmuxSession: "agent-r1", Workdir: workdir, ClaudeSessionID: sid}
+	sess := &agentstore.Agent{ID: "agent-r1", TmuxSession: "agent-r1", Workdir: workdir, AICLISessionID: sid}
 
 	require.NoError(t, lc.Restore(context.Background(), sess))
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", "agent-r1", "-e", "WARDEN_SESSION_ID=agent-r1", "-e", "AGENTCTL_SESSION_ID=agent-r1", "-c", workdir})
@@ -1125,21 +1076,21 @@ func TestRestorePreconditionErrors(t *testing.T) {
 
 	// no pinned session id (checked before any tmux call)
 	require.ErrorIs(t, New(&FakeRunner{}, &FakeConfig{}).Restore(context.Background(),
-		&store.Session{ID: "a", TmuxSession: "a", Workdir: t.TempDir()}), ErrNoSessionID)
+		&agentstore.Agent{ID: "a", TmuxSession: "a", Workdir: t.TempDir()}), ErrNoSessionID)
 
 	// already running: has-session succeeds (FakeRunner default = success = alive)
 	require.ErrorIs(t, New(&FakeRunner{}, &FakeConfig{}).Restore(context.Background(),
-		&store.Session{ID: "a", TmuxSession: "a", Workdir: t.TempDir(), ClaudeSessionID: sid}), ErrAlreadyRunning)
+		&agentstore.Agent{ID: "a", TmuxSession: "a", Workdir: t.TempDir(), AICLISessionID: sid}), ErrAlreadyRunning)
 
 	// workdir gone
 	require.ErrorIs(t, New(dead(), &FakeConfig{}).Restore(context.Background(),
-		&store.Session{ID: "a", TmuxSession: "a", Workdir: "/no/such/dir", ClaudeSessionID: sid}), ErrWorkdirMissing)
+		&agentstore.Agent{ID: "a", TmuxSession: "a", Workdir: "/no/such/dir", AICLISessionID: sid}), ErrWorkdirMissing)
 
 	// no transcript: dead, workdir exists, empty ProjectsDir
 	lc := New(dead(), &FakeConfig{})
 	lc.ProjectsDir = t.TempDir()
 	require.ErrorIs(t, lc.Restore(context.Background(),
-		&store.Session{ID: "a", TmuxSession: "a", Workdir: t.TempDir(), ClaudeSessionID: sid}), ErrNoTranscript)
+		&agentstore.Agent{ID: "a", TmuxSession: "a", Workdir: t.TempDir(), AICLISessionID: sid}), ErrNoTranscript)
 }
 
 // Cursor resumes its workspace-scoped chat with --continue but stores history in
@@ -1151,8 +1102,8 @@ func TestRestoreAllowsResumeWithoutStructuredTranscript(t *testing.T) {
 	}}
 	lc := New(fr, &FakeConfig{})
 	lc.ProjectsDir = t.TempDir()
-	sess := &store.Session{
-		ID: "agent-cursor", TmuxSession: "agent-cursor", Backend: "cursor", Workdir: t.TempDir(),
+	sess := &agentstore.Agent{
+		ID: "agent-cursor", TmuxSession: "agent-cursor", AiCli: "cursor", Workdir: t.TempDir(),
 	}
 
 	require.Empty(t, lc.transcriptPath(sess), "Cursor has no structured transcript path")
@@ -1166,8 +1117,8 @@ func TestSwitchRoleAllowsResumeWithoutStructuredTranscript(t *testing.T) {
 	fr := &FakeRunner{}
 	lc := New(fr, &FakeConfig{})
 	lc.ProjectsDir = t.TempDir()
-	sess := &store.Session{
-		ID: "agent-cursor", TmuxSession: "agent-cursor", Backend: "cursor", Workdir: t.TempDir(), Role: "worker",
+	sess := &agentstore.Agent{
+		ID: "agent-cursor", TmuxSession: "agent-cursor", AiCli: "cursor", Workdir: t.TempDir(), Role: "worker",
 	}
 
 	require.Empty(t, lc.transcriptPath(sess), "Cursor has no structured transcript path")
@@ -1194,9 +1145,9 @@ func TestRestoreAcceptsInternalRelaunchSourceStates(t *testing.T) {
 			}}
 			lc := New(fr, &FakeConfig{})
 			lc.ProjectsDir = root
-			sess := &store.Session{
+			sess := &agentstore.Agent{
 				ID: "agent-rl", TmuxSession: "agent-rl", Workdir: workdir,
-				ClaudeSessionID: sid, Status: st,
+				AICLISessionID: sid, Status: st,
 			}
 			if st == store.StatusDone {
 				sess.Hibernated = true
@@ -1343,14 +1294,14 @@ func TestAdoptResumeMode(t *testing.T) {
 	fr := &FakeRunner{}
 	lc := New(fr, &FakeConfig{})
 	sess, err := lc.Adopt(context.Background(), AdoptRequest{
-		ID: "agent-a1", Cwd: workdir, ClaudeSessionID: sid, TmuxSession: "",
+		ID: "agent-a1", Cwd: workdir, AICLISessionID: sid, TmuxSession: "",
 	})
 	require.NoError(t, err)
 	require.Equal(t, []string{}, sess.ChildAgents)
 	require.Equal(t, []string{}, sess.ChildPipelines)
 	require.Equal(t, "agent-a1", sess.ID)
 	require.Equal(t, "agent-a1", sess.TmuxSession)
-	require.Equal(t, sid, sess.ClaudeSessionID)
+	require.Equal(t, sid, sess.AICLISessionID)
 	require.Equal(t, store.TypeOther, sess.Type)
 	require.Equal(t, store.StatusSpawning, sess.Status)
 	require.Equal(t, workdir, sess.Workdir)
@@ -1360,7 +1311,7 @@ func TestAdoptResumeMode(t *testing.T) {
 
 func TestAdoptResumeGeneratesID(t *testing.T) {
 	sess, err := New(&FakeRunner{}, &FakeConfig{}).Adopt(context.Background(), AdoptRequest{
-		ID: "", Cwd: t.TempDir(), ClaudeSessionID: "x", TmuxSession: "",
+		ID: "", Cwd: t.TempDir(), AICLISessionID: "x", TmuxSession: "",
 	})
 	require.NoError(t, err)
 	require.True(t, strings.HasPrefix(sess.ID, "agent-"), "generated id, got %q", sess.ID)
@@ -1369,14 +1320,14 @@ func TestAdoptResumeGeneratesID(t *testing.T) {
 
 func TestAdoptResumeNoClaudeID(t *testing.T) {
 	_, err := New(&FakeRunner{}, &FakeConfig{}).Adopt(context.Background(), AdoptRequest{
-		ID: "agent-a1", Cwd: t.TempDir(), ClaudeSessionID: "", TmuxSession: "",
+		ID: "agent-a1", Cwd: t.TempDir(), AICLISessionID: "", TmuxSession: "",
 	})
 	require.ErrorIs(t, err, ErrNoSessionID)
 }
 
 func TestAdoptResumeWorkdirMissing(t *testing.T) {
 	_, err := New(&FakeRunner{}, &FakeConfig{}).Adopt(context.Background(), AdoptRequest{
-		ID: "agent-a1", Cwd: "/no/such/dir", ClaudeSessionID: "x", TmuxSession: "",
+		ID: "agent-a1", Cwd: "/no/such/dir", AICLISessionID: "x", TmuxSession: "",
 	})
 	require.ErrorIs(t, err, ErrWorkdirMissing)
 }
@@ -1385,7 +1336,7 @@ func TestAdoptLiveKeepsName(t *testing.T) {
 	// FakeRunner default = success → has-session succeeds → tmux session alive.
 	fr := &FakeRunner{}
 	sess, err := New(fr, &FakeConfig{}).Adopt(context.Background(), AdoptRequest{
-		ID: "work", Cwd: t.TempDir(), ClaudeSessionID: "x", TmuxSession: "work",
+		ID: "work", Cwd: t.TempDir(), AICLISessionID: "x", TmuxSession: "work",
 	})
 	require.NoError(t, err)
 	require.Equal(t, "work", sess.ID)
@@ -1401,7 +1352,7 @@ func TestAdoptLiveKeepsName(t *testing.T) {
 func TestAdoptLiveRenamesWhenIDDiffers(t *testing.T) {
 	fr := &FakeRunner{}
 	sess, err := New(fr, &FakeConfig{}).Adopt(context.Background(), AdoptRequest{
-		ID: "agent-b2", Cwd: t.TempDir(), ClaudeSessionID: "x", TmuxSession: "0",
+		ID: "agent-b2", Cwd: t.TempDir(), AICLISessionID: "x", TmuxSession: "0",
 	})
 	require.NoError(t, err)
 	require.Equal(t, "agent-b2", sess.ID)
@@ -1414,7 +1365,7 @@ func TestAdoptLiveTmuxGone(t *testing.T) {
 		"tmux has-session -t ghost": {Err: errStub("no session")},
 	}}
 	_, err := New(fr, &FakeConfig{}).Adopt(context.Background(), AdoptRequest{
-		ID: "ghost", Cwd: t.TempDir(), ClaudeSessionID: "x", TmuxSession: "ghost",
+		ID: "ghost", Cwd: t.TempDir(), AICLISessionID: "x", TmuxSession: "ghost",
 	})
 	require.ErrorIs(t, err, ErrTmuxGone)
 }
@@ -1701,11 +1652,11 @@ func TestSpawnJobWithRoleAndBackendAndModel(t *testing.T) {
 	s, err := lc.SpawnJob(context.Background(), JobSpawnRequest{
 		PipelineID: "p", JobID: "impl", Repo: "/repo",
 		Prompt: "implement it", Worktree: true, Type: store.TypeDevelopment,
-		Role: "worker", Backend: "claude", Model: "opus",
+		Role: "worker", AiCli: "claude", Model: "opus",
 	})
 	require.NoError(t, err)
 	require.Equal(t, "worker", s.Role)
-	require.Equal(t, "claude", s.Backend)
+	require.Equal(t, "claude", s.AiCli)
 	require.Equal(t, "opus", s.Model)
 }
 
@@ -1717,7 +1668,7 @@ func TestSpawnInjectsPipelineHint(t *testing.T) {
 	require.NoError(t, err)
 
 	promptFile := "/state/prompts/" + s.ID
-	want := claudeLaunch(s.ClaudeSessionID, s.ID, "", "auto") + pipelineHint() + collabHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
+	want := claudeLaunch(s.AICLISessionID, s.ID, "", "auto") + pipelineHint() + collabHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, want, "Enter"})
 	require.Contains(t, want, "--append-system-prompt")
 }
@@ -1813,7 +1764,7 @@ func TestSpawnInteractiveNoPromptLaunchesBareClaude(t *testing.T) {
 	}
 
 	// The launch carries session-id, name, and the hints, but NO cat fragment.
-	expectedLaunch := claudeLaunch(s.ClaudeSessionID, s.ID, "", "auto") + pipelineHint() + collabHint()
+	expectedLaunch := claudeLaunch(s.AICLISessionID, s.ID, "", "auto") + pipelineHint() + collabHint()
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, expectedLaunch, "Enter"})
 
 	// Subject reads cleanly in the agent list instead of being blank.
@@ -1860,7 +1811,7 @@ func TestSpawnAppendsExitSuffix(t *testing.T) {
 	require.NoError(t, err)
 
 	promptFile := "/state/prompts/" + s.ID
-	launch := claudeLaunch(s.ClaudeSessionID, s.ID, "", "auto") + pipelineHint() + collabHint() +
+	launch := claudeLaunch(s.AICLISessionID, s.ID, "", "auto") + pipelineHint() + collabHint() +
 		` "$(cat ` + shellQuoteArg(promptFile) + `)"` +
 		" ; printf '%s' \"$?\" > " + shellQuoteArg(filepath.Join(l.ExitsDir, s.ID))
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})

@@ -1,12 +1,12 @@
 package daemon
 
 import (
+	"github.com/srjn45/warden/internal/agentstore"
 	"testing"
 	"time"
 
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/savings"
-	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
 
@@ -25,7 +25,7 @@ func TestRecordCheckSavings(t *testing.T) {
 	res := lifecycle.CheckResult{Checks: []lifecycle.CheckOutcome{
 		{Name: "lint", Passed: false, Output: "lint failed: 1 error", RawBytes: 4000},
 	}}
-	s.recordCheckSavings(&store.Session{ID: "A-1"}, res)
+	s.recordCheckSavings(&agentstore.Agent{ID: "A-1"}, res)
 
 	sum, err := s.savings.Summary(time.Time{})
 	require.NoError(t, err)
@@ -50,7 +50,7 @@ func TestRecordGitSavings(t *testing.T) {
 	s := newSavingsServer(t)
 	// 800 bytes of git status/commit/rev-parse output the agent never read.
 	res := lifecycle.CommitResult{Committed: true, SHA: "abc1234", Branch: "feat/x", RawBytes: 800}
-	s.recordGitSavings(&store.Session{ID: "A-1"}, res.RawBytes, res.RawSample, res)
+	s.recordGitSavings(&agentstore.Agent{ID: "A-1"}, res.RawBytes, res.RawSample, res)
 
 	sum, err := s.savings.Summary(time.Time{})
 	require.NoError(t, err)
@@ -78,7 +78,7 @@ func TestRecordCheckSavingsCapturesSampleWhenOn(t *testing.T) {
 	res := lifecycle.CheckResult{Checks: []lifecycle.CheckOutcome{
 		{Name: "lint", Passed: false, Output: "lint failed: 1 error", RawBytes: 4000, RawSample: "raw lint output line\nmore raw output"},
 	}}
-	s.recordCheckSavings(&store.Session{ID: "A-1"}, res)
+	s.recordCheckSavings(&agentstore.Agent{ID: "A-1"}, res)
 
 	evs, err := st.Events(time.Time{})
 	require.NoError(t, err)
@@ -95,7 +95,7 @@ func TestRecordCheckSavingsNoSampleWhenOff(t *testing.T) {
 	res := lifecycle.CheckResult{Checks: []lifecycle.CheckOutcome{
 		{Name: "lint", Passed: false, Output: "lint failed", RawBytes: 4000, RawSample: "raw output that must not be stored"},
 	}}
-	s.recordCheckSavings(&store.Session{ID: "A-1"}, res)
+	s.recordCheckSavings(&agentstore.Agent{ID: "A-1"}, res)
 
 	evs, err := s.savings.Events(time.Time{})
 	require.NoError(t, err)
@@ -110,7 +110,7 @@ func TestRecordGitSavingsCapturesSampleWhenOn(t *testing.T) {
 	st.SetSampling(true)
 	s := &Server{savingsOn: true, savings: st, savingsSamples: true}
 	res := lifecycle.CommitResult{Committed: true, SHA: "abc1234", Branch: "feat/x", RawBytes: 800, RawSample: "M  internal/x.go\n?? new.go"}
-	s.recordGitSavings(&store.Session{ID: "A-1"}, res.RawBytes, res.RawSample, res)
+	s.recordGitSavings(&agentstore.Agent{ID: "A-1"}, res.RawBytes, res.RawSample, res)
 
 	evs, err := st.Events(time.Time{})
 	require.NoError(t, err)

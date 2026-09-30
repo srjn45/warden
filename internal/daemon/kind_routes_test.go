@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/store"
+	"github.com/srjn45/warden/internal/terminalstore"
 	"github.com/stretchr/testify/require"
 )
 
@@ -33,9 +36,12 @@ func listSessionsKind(t *testing.T, url string) []string {
 // returns everything (agents + terminals).
 func TestListSessionsKindFilter(t *testing.T) {
 	fs := newFakeStore()
-	require.NoError(t, fs.Insert(context.Background(), &store.Session{ID: "a1", Status: store.StatusWorking}))
-	require.NoError(t, fs.Insert(context.Background(), &store.Session{ID: "t1", Kind: store.KindTerminal, Status: store.StatusWorking}))
-	ts := testServer(t, fs)
+	require.NoError(t, fs.Insert(context.Background(), &agentstore.Agent{ID: "a1", Status: store.StatusWorking}))
+	tstore, err := terminalstore.New(t.TempDir())
+	require.NoError(t, err)
+	require.NoError(t, tstore.Insert(context.Background(), &terminalstore.Terminal{ID: "t1", Status: terminalstore.StatusRunning}))
+	srv := &Server{store: fs, terminals: tstore}
+	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
 
 	require.ElementsMatch(t, []string{"a1", "t1"}, listSessionsKind(t, ts.URL+"/api/v1/sessions"),

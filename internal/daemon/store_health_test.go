@@ -3,6 +3,7 @@ package daemon
 import (
 	"encoding/json"
 	"errors"
+	"github.com/srjn45/warden/internal/agentstore"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -27,7 +28,7 @@ func degradedErr() error {
 // (or empty) fleet the TUI would treat as authoritative.
 func TestListSessionsDegradedReturns503(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["A-1"] = &store.Session{ID: "A-1", Status: store.StatusWorking}
+	fs.data["A-1"] = &agentstore.Agent{ID: "A-1", Status: store.StatusWorking}
 	fs.listErr = degradedErr()
 	ts := testServer(t, fs)
 	defer ts.Close()
@@ -89,7 +90,7 @@ func storeHealth(t *testing.T, url string) struct {
 // TestStoreHealthHealthy verifies a clean store reports healthy with no failures.
 func TestStoreHealthHealthy(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["A-1"] = &store.Session{ID: "A-1", Status: store.StatusWorking}
+	fs.data["A-1"] = &agentstore.Agent{ID: "A-1", Status: store.StatusWorking}
 	ts := testServer(t, fs)
 	defer ts.Close()
 
@@ -150,7 +151,7 @@ func TestStoreHealthCapabilityAdvertised(t *testing.T) {
 
 func TestHistorySurfacesArchiveDegradation(t *testing.T) {
 	fs := newFakeStore()
-	fs.closed["closed-1"] = &store.Session{ID: "closed-1"}
+	fs.closed["closed-1"] = &agentstore.Agent{ID: "closed-1"}
 	fs.closedSkipped = 2
 	ts := testServer(t, fs)
 	defer ts.Close()
@@ -160,9 +161,9 @@ func TestHistorySurfacesArchiveDegradation(t *testing.T) {
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	var body struct {
-		Sessions       []store.Session `json:"sessions"`
-		Degraded       bool            `json:"degraded"`
-		SkippedRecords int             `json:"skipped_records"`
+		Sessions       []agentstore.Agent `json:"sessions"`
+		Degraded       bool               `json:"degraded"`
+		SkippedRecords int                `json:"skipped_records"`
 	}
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
 	require.True(t, body.Degraded)

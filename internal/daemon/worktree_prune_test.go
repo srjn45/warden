@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"github.com/srjn45/warden/internal/agentstore"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -24,7 +25,7 @@ func retentionServer(t *testing.T, fs *fakeStore, fl *fakeLife, keepDone, autoPr
 // guarded (force=false) RemoveWorktree.
 func TestKeepDoneFalse_RemovesCleanWorktreeOnArchive(t *testing.T) {
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{
+	_ = fs.Insert(context.Background(), &agentstore.Agent{
 		ID: "A-1", TmuxSession: "A-1", Repo: "/repo",
 		Worktree: "/repo/.worktrees/A-1", Branch: "A-1", BranchCreated: true,
 		Status: store.StatusDone,
@@ -39,7 +40,7 @@ func TestKeepDoneFalse_RemovesCleanWorktreeOnArchive(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	_, err = fs.Get(context.Background(), "A-1")
-	require.ErrorIs(t, err, store.ErrNotFound, "record archived out of the active store")
+	require.ErrorIs(t, err, agentstore.ErrNotFound, "record archived out of the active store")
 	require.Equal(t, "A-1", fl.removedWT, "clean worktree removed on archive")
 	require.False(t, fl.removeWTForce, "removal must stay guarded (force=false)")
 }
@@ -48,7 +49,7 @@ func TestKeepDoneFalse_RemovesCleanWorktreeOnArchive(t *testing.T) {
 // archive still succeeds — the removal must never block teardown.
 func TestKeepDoneFalse_KeepsDirtyWorktreeButArchiveSucceeds(t *testing.T) {
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{
+	_ = fs.Insert(context.Background(), &agentstore.Agent{
 		ID: "A-1", TmuxSession: "A-1", Repo: "/repo",
 		Worktree: "/repo/.worktrees/A-1", Branch: "A-1", BranchCreated: true,
 		Status: store.StatusDone,
@@ -63,13 +64,13 @@ func TestKeepDoneFalse_KeepsDirtyWorktreeButArchiveSucceeds(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode, "archive succeeds despite the guard refusal")
 
 	_, err = fs.Get(context.Background(), "A-1")
-	require.ErrorIs(t, err, store.ErrNotFound, "record still archived")
+	require.ErrorIs(t, err, agentstore.ErrNotFound, "record still archived")
 }
 
 // Default (worktree_keep_done=true): archiving leaves the worktree untouched.
 func TestKeepDoneTrue_LeavesWorktreeOnArchive(t *testing.T) {
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{
+	_ = fs.Insert(context.Background(), &agentstore.Agent{
 		ID: "A-1", TmuxSession: "A-1", Repo: "/repo",
 		Worktree: "/repo/.worktrees/A-1", Status: store.StatusDone,
 	})
@@ -88,7 +89,7 @@ func TestKeepDoneTrue_LeavesWorktreeOnArchive(t *testing.T) {
 // orphan for `warden prune` to reclaim instead.
 func TestKeepDoneFalse_HardDeleteSkipsRemoval(t *testing.T) {
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{
+	_ = fs.Insert(context.Background(), &agentstore.Agent{
 		ID: "A-1", TmuxSession: "A-1", Repo: "/repo",
 		Worktree: "/repo/.worktrees/A-1", Status: store.StatusDone,
 	})
@@ -109,11 +110,11 @@ func TestKeepDoneFalse_HardDeleteSkipsRemoval(t *testing.T) {
 // owners are recognized and kept (not misclassified as orphans).
 func TestAutoPruneSweep_NeverIncludesArchived(t *testing.T) {
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{
+	_ = fs.Insert(context.Background(), &agentstore.Agent{
 		ID: "live-1", Repo: "/repo", Worktree: "/repo/.worktrees/live-1", Status: store.StatusWorking,
 	})
 	// An archived session owning a worktree in the same repo.
-	_ = fs.Insert(context.Background(), &store.Session{
+	_ = fs.Insert(context.Background(), &agentstore.Agent{
 		ID: "done-1", Repo: "/repo", Worktree: "/repo/.worktrees/done-1", Status: store.StatusDone,
 	})
 	_ = fs.Archive(context.Background(), "done-1")
@@ -135,13 +136,13 @@ func TestAutoPruneSweep_NeverIncludesArchived(t *testing.T) {
 // worktreeRepos collects the distinct repos of worktree-owning sessions across
 // active + archived, skipping records with no repo or no worktree.
 func TestWorktreeRepos_DistinctOwningRepos(t *testing.T) {
-	active := []*store.Session{
+	active := []*agentstore.Agent{
 		{ID: "a", Repo: "/r1", Worktree: "/r1/.worktrees/a"},
 		{ID: "b", Repo: "/r1", Worktree: "/r1/.worktrees/b"}, // dup repo
 		{ID: "c", Repo: "/r2", Worktree: ""},                 // no worktree → skip
 		{ID: "d", Repo: "", Worktree: "/x"},                  // no repo → skip
 	}
-	archived := []*store.Session{
+	archived := []*agentstore.Agent{
 		{ID: "e", Repo: "/r3", Worktree: "/r3/.worktrees/e"},
 		{ID: "f", Repo: "/r1", Worktree: "/r1/.worktrees/f"}, // dup with active
 	}

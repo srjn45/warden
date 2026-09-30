@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/backendusage"
 	"github.com/srjn45/warden/internal/lifecycle"
@@ -32,9 +33,11 @@ type recoveryLife struct {
 	failures map[string]error
 }
 
-func (f *recoveryLife) Restore(context.Context, *store.Session) error  { return nil }
-func (f *recoveryLife) SendKeys(context.Context, string, string) error { return nil }
-func (f *recoveryLife) HotSwap(_ context.Context, sess *store.Session, req lifecycle.SwapRequest) (*lifecycle.SwapResult, error) {
+var _ backendRecoveryLife = (*recoveryLife)(nil)
+
+func (f *recoveryLife) Restore(context.Context, *agentstore.Agent) error { return nil }
+func (f *recoveryLife) SendKeys(context.Context, string, string) error   { return nil }
+func (f *recoveryLife) HotSwap(_ context.Context, sess *agentstore.Agent, req lifecycle.SwapRequest) (*lifecycle.SwapResult, error) {
 	f.mu.Lock()
 	target := store.BackendCandidate{BackendID: req.Backend, ModelID: req.Model}
 	f.swaps = append(f.swaps, target)
@@ -45,15 +48,15 @@ func (f *recoveryLife) HotSwap(_ context.Context, sess *store.Session, req lifec
 	}
 	// Write Backend/Model through the store lock so snapSession sees a consistent view.
 	if f.st != nil {
-		_ = f.st.Update(context.Background(), sess.ID, func(s *store.Session) error {
-			s.Backend = req.Backend
+		_ = f.st.Update(context.Background(), sess.ID, func(s *agentstore.Agent) error {
+			s.AiCli = req.Backend
 			s.Model = req.Model
 			return nil
 		})
 	} else {
-		sess.Backend, sess.Model = req.Backend, req.Model
+		sess.AiCli, sess.Model = req.Backend, req.Model
 	}
-	return &lifecycle.SwapResult{Session: sess, ToBackend: req.Backend, ToModel: req.Model}, nil
+	return &lifecycle.SwapResult{Agent: sess, ToBackend: req.Backend, ToModel: req.Model}, nil
 }
 
 func recoveryFixture(t *testing.T, limits map[string][]backendusage.Limit) (*BackendRecoveryCoordinator, *fakeStore, *recoveryLife) {
@@ -74,7 +77,7 @@ func recoveryFixture(t *testing.T, limits map[string][]backendusage.Limit) (*Bac
 		adapters = append(adapters, recoveryAdapter{id: id, result: backendusage.Result{Status: backendusage.StatusOK, Usage: limits[id]}})
 	}
 	st := newFakeStore()
-	require.NoError(t, st.Insert(context.Background(), &store.Session{ID: "agent-1", Backend: "codex", Model: "codex-model", Role: "general", Status: store.StatusRateLimited, PipelineID: "pipe-1", JobID: "build", Worktree: "/tmp/worktree", Tags: []string{"owned"}}))
+	require.NoError(t, st.Insert(context.Background(), &agentstore.Agent{ID: "agent-1", AiCli: "codex", Model: "codex-model", Role: "general", Status: store.StatusRateLimited, PipelineID: "pipe-1", JobID: "build", Worktree: "/tmp/worktree", Tags: []string{"owned"}}))
 	life := &recoveryLife{failures: make(map[string]error), st: st}
 	c := NewBackendRecoveryCoordinator(st, bs, backendusage.NewService(bs, adapters...), life)
 	c.stabilizationWindow = 5 * time.Millisecond
@@ -89,10 +92,10 @@ func TestBackendRecoverySequentialFallbackAndStabilization(t *testing.T) {
 		"claude": {{ID: "weekly", Scope: "weekly", Label: "Weekly", UsedPercent: used(20)}},
 	})
 	life.failures[candidateKey("claude", "claude-model")] = errors.New("launch failed")
-	require.True(t, c.OnHardLimit(&store.Session{ID: "agent-1"}, time.Now().Add(time.Hour)))
+	require.True(t, c.OnHardLimit(&agentstore.Agent{ID: "agent-1"}, time.Now().Add(time.Hour)))
 	require.Eventually(t, func() bool {
 		s := st.snapSession("agent-1")
-		return s != nil && s.BackendRecovery != nil && s.BackendRecovery.Phase == recoveryStabilizing && s.Backend == "antigravity"
+		return s != nil && s.BackendRecovery != nil && s.BackendRecovery.Phase == recoveryStabilizing && s.AiCli == "antigravity"
 	}, time.Second, 5*time.Millisecond)
 
 	s := st.snapSession("agent-1")
@@ -117,7 +120,7 @@ func TestBackendRecoveryAllExhaustedRetriesOriginalPool(t *testing.T) {
 		"claude":      {{ID: "weekly", Scope: "weekly", Label: "Weekly", UsedPercent: used(100), ResetsAt: &reset}},
 		"antigravity": {{ID: "other", Scope: "other", Label: "Other", UsedPercent: used(100), ResetsAt: &reset}},
 	})
-	require.True(t, c.OnHardLimit(&store.Session{ID: "agent-1"}, reset))
+	require.True(t, c.OnHardLimit(&agentstore.Agent{ID: "agent-1"}, reset))
 	require.Eventually(t, func() bool {
 		s := st.snapSession("agent-1")
 		return s != nil && s.BackendRecovery != nil && s.BackendRecovery.Phase == recoveryWaiting && s.BackendRecovery.NextRetryAt != nil
@@ -142,8 +145,8 @@ func TestBackendRecoveryAllExhaustedRetriesOriginalPool(t *testing.T) {
 func TestBackendRecoveryManualOverrideAndRestartTimer(t *testing.T) {
 	c, st, _ := recoveryFixture(t, nil)
 	next := time.Now().Add(time.Hour).UTC()
-	require.NoError(t, st.Update(context.Background(), "agent-1", func(s *store.Session) error {
-		s.BackendRecovery = &store.BackendRecovery{Generation: 7, Phase: recoveryWaiting, Original: store.BackendCandidate{BackendID: s.Backend, ModelID: s.Model}, NextRetryAt: &next}
+	require.NoError(t, st.Update(context.Background(), "agent-1", func(s *agentstore.Agent) error {
+		s.BackendRecovery = &store.BackendRecovery{Generation: 7, Phase: recoveryWaiting, Original: store.BackendCandidate{BackendID: s.AiCli, ModelID: s.Model}, NextRetryAt: &next}
 		return nil
 	}))
 	require.NoError(t, c.Reconstruct(context.Background()))
@@ -178,7 +181,7 @@ func TestBackendRecoveryNotifyOnPhaseChange(t *testing.T) {
 		}
 	})
 
-	require.True(t, c.OnHardLimit(&store.Session{ID: "agent-1"}, time.Now().Add(time.Hour)))
+	require.True(t, c.OnHardLimit(&agentstore.Agent{ID: "agent-1"}, time.Now().Add(time.Hour)))
 	// Wait until stabilizing phase (refreshing → selecting → switching → stabilizing).
 	require.Eventually(t, func() bool {
 		s := st.snapSession("agent-1")
@@ -204,7 +207,7 @@ func TestBackendRecoveryNullableResetRoundTrip(t *testing.T) {
 		"claude":      {{ID: "weekly", Scope: "weekly", Label: "Weekly", UsedPercent: used(100)}},
 		"antigravity": {{ID: "other", Scope: "other", Label: "Other", UsedPercent: used(100)}},
 	})
-	require.True(t, c.OnHardLimit(&store.Session{ID: "agent-1"}, time.Now().Add(time.Hour)))
+	require.True(t, c.OnHardLimit(&agentstore.Agent{ID: "agent-1"}, time.Now().Add(time.Hour)))
 	require.Eventually(t, func() bool {
 		s := st.snapSession("agent-1")
 		return s != nil && s.BackendRecovery != nil && s.BackendRecovery.Phase == recoveryWaiting
@@ -261,7 +264,7 @@ func TestBackendRecoveryDeprecatedThresholdFieldsHaveNoEffect(t *testing.T) {
 	require.Nil(t, s.BackendRecovery, "recovery must not start without a confirmed hard limit")
 
 	// A hard limit DOES start recovery, regardless of threshold values.
-	require.True(t, c.OnHardLimit(&store.Session{ID: "agent-1"}, time.Now().Add(time.Hour)))
+	require.True(t, c.OnHardLimit(&agentstore.Agent{ID: "agent-1"}, time.Now().Add(time.Hour)))
 	require.Eventually(t, func() bool {
 		snap := st.snapSession("agent-1")
 		return snap != nil && snap.BackendRecovery != nil
@@ -272,7 +275,7 @@ func TestBackendRecoverySessionDTOFields(t *testing.T) {
 	c, st, _ := recoveryFixture(t, map[string][]backendusage.Limit{
 		"claude": {{ID: "weekly", Scope: "weekly", Label: "Weekly", UsedPercent: used(20)}},
 	})
-	require.True(t, c.OnHardLimit(&store.Session{ID: "agent-1"}, time.Now().Add(time.Hour)))
+	require.True(t, c.OnHardLimit(&agentstore.Agent{ID: "agent-1"}, time.Now().Add(time.Hour)))
 	require.Eventually(t, func() bool {
 		s := st.snapSession("agent-1")
 		return s != nil && s.BackendRecovery != nil && s.BackendRecovery.Phase == recoveryStabilizing
@@ -303,7 +306,7 @@ func TestBackendRecoverySessionDTOFields(t *testing.T) {
 // limited (backend, model) before launching the advance goroutine.
 func TestBackendRecoveryDetectionExactPoolRecorded(t *testing.T) {
 	c, st, _ := recoveryFixture(t, nil) // all unknown → eligible
-	require.True(t, c.OnHardLimit(&store.Session{ID: "agent-1"}, time.Now().Add(time.Hour)))
+	require.True(t, c.OnHardLimit(&agentstore.Agent{ID: "agent-1"}, time.Now().Add(time.Hour)))
 
 	s := st.snapSession("agent-1")
 	require.NotNil(t, s.BackendRecovery, "BackendRecovery must be set synchronously on OnHardLimit")
@@ -322,14 +325,14 @@ func TestBackendRecoveryRepeatedHardLimitNoDuplicate(t *testing.T) {
 		"antigravity": {{ID: "w", Scope: "weekly", Label: "Weekly", UsedPercent: used(100), ResetsAt: &reset}},
 	})
 
-	require.True(t, c.OnHardLimit(&store.Session{ID: "agent-1"}, reset))
+	require.True(t, c.OnHardLimit(&agentstore.Agent{ID: "agent-1"}, reset))
 	require.Eventually(t, func() bool {
 		s := st.snapSession("agent-1")
 		return s != nil && s.BackendRecovery != nil && s.BackendRecovery.Phase == recoveryWaiting
 	}, time.Second, 5*time.Millisecond)
 
 	// Duplicate transition while waiting: must return true (owned) without incrementing.
-	require.True(t, c.OnHardLimit(&store.Session{ID: "agent-1"}, reset))
+	require.True(t, c.OnHardLimit(&agentstore.Agent{ID: "agent-1"}, reset))
 	s := st.snapSession("agent-1")
 	require.Equal(t, uint64(1), s.BackendRecovery.Generation, "duplicate must not start a new generation")
 	life.mu.Lock()
@@ -366,8 +369,8 @@ func TestBackendRecoveryEligibilityRulesRespected(t *testing.T) {
 	require.NoError(t, bs.UpsertModel(backendstore.ModelEntry{BackendID: "ok-b", ModelID: "ok-m", Tier: backendstore.Tier2, Enabled: true, AutoAssign: true}))
 
 	st := newFakeStore()
-	require.NoError(t, st.Insert(context.Background(), &store.Session{
-		ID: "agent-1", Backend: "disabled-b", Model: "m", Status: store.StatusRateLimited,
+	require.NoError(t, st.Insert(context.Background(), &agentstore.Agent{
+		ID: "agent-1", AiCli: "disabled-b", Model: "m", Status: store.StatusRateLimited,
 	}))
 	life := &recoveryLife{failures: make(map[string]error), st: st}
 	c := NewBackendRecoveryCoordinator(st, bs, backendusage.NewService(bs,
@@ -375,7 +378,7 @@ func TestBackendRecoveryEligibilityRulesRespected(t *testing.T) {
 	), life)
 	c.stabilizationWindow = 5 * time.Millisecond
 
-	require.True(t, c.OnHardLimit(&store.Session{ID: "agent-1"}, time.Now().Add(time.Hour)))
+	require.True(t, c.OnHardLimit(&agentstore.Agent{ID: "agent-1"}, time.Now().Add(time.Hour)))
 	require.Eventually(t, func() bool {
 		s := st.snapSession("agent-1")
 		return s != nil && s.BackendRecovery != nil && (s.BackendRecovery.Phase == recoveryStabilizing || s.BackendRecovery.Phase == recoveryWaiting)
@@ -401,7 +404,7 @@ func TestBackendRecoveryTierRolePreservedInRanking(t *testing.T) {
 		BackendID: "claude", ModelID: "claude-t1", Tier: backendstore.Tier1, Enabled: true, AutoAssign: true,
 	}))
 
-	require.True(t, c.OnHardLimit(&store.Session{ID: "agent-1"}, time.Now().Add(time.Hour)))
+	require.True(t, c.OnHardLimit(&agentstore.Agent{ID: "agent-1"}, time.Now().Add(time.Hour)))
 	require.Eventually(t, func() bool {
 		s := st.snapSession("agent-1")
 		return s != nil && s.BackendRecovery != nil && s.BackendRecovery.Phase == recoveryStabilizing
@@ -430,7 +433,7 @@ func TestBackendRecoveryTwoModelsOnSameBackendDistinct(t *testing.T) {
 		BackendID: "codex", ModelID: "codex-model-2", Tier: backendstore.Tier2, Enabled: true, AutoAssign: true,
 	}))
 
-	require.True(t, c.OnHardLimit(&store.Session{ID: "agent-1"}, time.Now().Add(time.Hour)))
+	require.True(t, c.OnHardLimit(&agentstore.Agent{ID: "agent-1"}, time.Now().Add(time.Hour)))
 	require.Eventually(t, func() bool {
 		s := st.snapSession("agent-1")
 		return s != nil && s.BackendRecovery != nil && s.BackendRecovery.Phase == recoveryStabilizing
@@ -459,7 +462,7 @@ func TestBackendRecoveryImmediateHardLimitDuringStabilizing(t *testing.T) {
 		"antigravity": {{ID: "other", Scope: "other", Label: "Other", UsedPercent: used(40)}},
 	})
 
-	require.True(t, c.OnHardLimit(&store.Session{ID: "agent-1"}, time.Now().Add(time.Hour)))
+	require.True(t, c.OnHardLimit(&agentstore.Agent{ID: "agent-1"}, time.Now().Add(time.Hour)))
 	require.Eventually(t, func() bool {
 		s := st.snapSession("agent-1")
 		return s != nil && s.BackendRecovery != nil && s.BackendRecovery.Phase == recoveryStabilizing &&
@@ -500,7 +503,7 @@ func TestBackendRecoveryLiveWindowClearsExactlyOnce(t *testing.T) {
 		"claude": {{ID: "w", Scope: "weekly", Label: "Weekly", UsedPercent: used(20)}},
 	})
 
-	require.True(t, c.OnHardLimit(&store.Session{ID: "agent-1"}, time.Now().Add(time.Hour)))
+	require.True(t, c.OnHardLimit(&agentstore.Agent{ID: "agent-1"}, time.Now().Add(time.Hour)))
 	require.Eventually(t, func() bool {
 		s := st.snapSession("agent-1")
 		return s != nil && s.BackendRecovery != nil && s.BackendRecovery.Phase == recoveryStabilizing
@@ -538,7 +541,7 @@ func TestBackendRecoveryReconstructWhileStabilizingIsHarmless(t *testing.T) {
 
 	now := time.Now().UTC()
 	cur := store.BackendCandidate{BackendID: "claude", ModelID: "claude-model"}
-	require.NoError(t, st.Update(context.Background(), "agent-1", func(s *store.Session) error {
+	require.NoError(t, st.Update(context.Background(), "agent-1", func(s *agentstore.Agent) error {
 		s.BackendRecovery = &store.BackendRecovery{
 			Generation: 3, Phase: recoveryStabilizing,
 			Original:  store.BackendCandidate{BackendID: "codex", ModelID: "codex-model"},
@@ -570,7 +573,7 @@ func TestBackendRecoveryStopWinsDuringWait(t *testing.T) {
 		"antigravity": {{ID: "o", Scope: "other", Label: "Other", UsedPercent: used(100), ResetsAt: &reset}},
 	})
 
-	require.True(t, c.OnHardLimit(&store.Session{ID: "agent-1"}, reset))
+	require.True(t, c.OnHardLimit(&agentstore.Agent{ID: "agent-1"}, reset))
 	require.Eventually(t, func() bool {
 		s := st.snapSession("agent-1")
 		return s != nil && s.BackendRecovery != nil && s.BackendRecovery.Phase == recoveryWaiting
@@ -596,7 +599,7 @@ func TestBackendRecoveryStaleTimerAfterSupersede(t *testing.T) {
 	c, st, _ := recoveryFixture(t, nil)
 
 	next := time.Now().Add(time.Hour).UTC()
-	require.NoError(t, st.Update(context.Background(), "agent-1", func(s *store.Session) error {
+	require.NoError(t, st.Update(context.Background(), "agent-1", func(s *agentstore.Agent) error {
 		s.BackendRecovery = &store.BackendRecovery{
 			Generation: 9, Phase: recoveryWaiting,
 			Original:    store.BackendCandidate{BackendID: "codex", ModelID: "codex-model"},
@@ -628,7 +631,7 @@ func TestBackendRecoveryAutopilotWorkerFieldsPreserved(t *testing.T) {
 		"antigravity": {{ID: "o", Scope: "other", Label: "Other", UsedPercent: used(100), ResetsAt: &reset}},
 	})
 
-	require.NoError(t, st.Update(context.Background(), "agent-1", func(s *store.Session) error {
+	require.NoError(t, st.Update(context.Background(), "agent-1", func(s *agentstore.Agent) error {
 		s.AutopilotRunID = "run-42"
 		s.AutopilotSlot = store.AutopilotSlotWorker
 		s.AutopilotTaskID = "task-99"
@@ -636,7 +639,7 @@ func TestBackendRecoveryAutopilotWorkerFieldsPreserved(t *testing.T) {
 		return nil
 	}))
 
-	require.True(t, c.OnHardLimit(&store.Session{ID: "agent-1"}, reset))
+	require.True(t, c.OnHardLimit(&agentstore.Agent{ID: "agent-1"}, reset))
 	require.Eventually(t, func() bool {
 		s := st.snapSession("agent-1")
 		return s != nil && s.BackendRecovery != nil && s.BackendRecovery.Phase == recoveryWaiting
@@ -657,7 +660,7 @@ func TestBackendRecoveryEventsArePrivate(t *testing.T) {
 		"claude": {{ID: "w", Scope: "weekly", Label: "Weekly", UsedPercent: used(30)}},
 	})
 
-	require.True(t, c.OnHardLimit(&store.Session{ID: "agent-1"}, time.Now().Add(time.Hour)))
+	require.True(t, c.OnHardLimit(&agentstore.Agent{ID: "agent-1"}, time.Now().Add(time.Hour)))
 	require.Eventually(t, func() bool {
 		s := st.snapSession("agent-1")
 		return s != nil && s.BackendRecovery != nil && s.BackendRecovery.Phase == recoveryStabilizing
