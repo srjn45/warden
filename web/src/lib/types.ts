@@ -37,8 +37,11 @@ export interface Session {
   id: string;
   name?: string;
   type: string;
-  // backend is the AI agent that drives this session (claude, aider, …). It is
-  // json `omitempty`, so pre-#52 Claude agents omit it — treat empty as 'claude'.
+  // ai_cli is the AI CLI that drives this session (claude, aider, …). Canonical
+  // name; preferred over the deprecated `backend` alias. Both are dual-emitted
+  // during the alias window. json omitempty — treat empty as 'claude'.
+  ai_cli?: string;
+  // backend is the deprecated alias for ai_cli. Accepted for one release.
   backend?: string;
   // kind discriminates a plain terminal session from an AI agent. json
   // `omitempty` on the daemon (store.Session), so agents omit it entirely —

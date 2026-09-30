@@ -119,7 +119,7 @@ type Store interface {
 	// — all in one atomic write. The poller uses it to finalize an agent from its
 	// exit-file without clobbering a status a SessionEnd hook already set.
 	FinalizeExit(ctx context.Context, id string, expected, next Status, code int) (bool, error)
-	// SetSessionID pins the backend session id (ClaudeSessionID) for a session.
+	// SetSessionID pins the AI CLI session id (AICLISessionID) for a session.
 	// Used by the poller's discover-then-pin path: a non-pinning backend mints its
 	// own id at launch, which warden discovers post-launch and persists here so the
 	// transcript path + resume key off the exact id instead of dir-scoping.

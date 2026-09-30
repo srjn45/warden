@@ -578,9 +578,13 @@ paths:
             schema:
               type: object
               properties:
+                ai_cli:
+                  type: string
+                  description: "explicit successor AI CLI id (e.g. antigravity). Canonical; preferred over deprecated `backend`."
                 backend:
                   type: string
-                  description: "explicit successor backend id (e.g. antigravity)"
+                  deprecated: true
+                  description: "Deprecated alias for `ai_cli`. When both are provided, `ai_cli` wins."
                 model:
                   type: string
                   description: "explicit successor model id"
@@ -3620,7 +3624,31 @@ components:
         type: { $ref: "#/components/schemas/TaskType" }
         ticket: { type: string }
         tmux_session: { type: string }
-        claude_session_id: { type: string }
+        ai_cli:
+          type: string
+          description: >
+            AI CLI that drives this agent (claude, aider, …). Empty means the
+            daemon default (typically claude). Canonical name; preferred over
+            the deprecated `backend` alias.
+        backend:
+          type: string
+          deprecated: true
+          description: >
+            Deprecated alias for `ai_cli`. Accepted on input for one release;
+            responses dual-emit both keys during the alias window. When both
+            `ai_cli` and `backend` are present, `ai_cli` wins.
+        ai_cli_session_id:
+          type: string
+          description: >
+            Pinned AI CLI resume conversation id (UUID/token). Canonical name;
+            preferred over the deprecated `claude_session_id` alias.
+        claude_session_id:
+          type: string
+          deprecated: true
+          description: >
+            Deprecated alias for `ai_cli_session_id`. Accepted on input for one
+            release; responses dual-emit both keys during the alias window.
+            When both are present, `ai_cli_session_id` wins.
         repo: { type: string }
         worktree: { type: string }
         branch: { type: string }
@@ -3786,17 +3814,28 @@ components:
         auto_restart: { type: boolean }
         force: { type: boolean, description: "bypass the memory-pressure spawn gate" }
         model: { type: string }
-        backend: { type: string, description: "agent backend id (claude, aider, …); empty = claude (the default)" }
+        ai_cli:
+          type: string
+          description: >
+            AI CLI id (claude, aider, …); empty = daemon default. Canonical name;
+            preferred over the deprecated `backend` alias. When both `ai_cli`
+            and `backend` are provided, `ai_cli` wins.
+        backend:
+          type: string
+          deprecated: true
+          description: >
+            Deprecated alias for `ai_cli`. Accepted for one release; when both
+            `ai_cli` and `backend` are provided, `ai_cli` wins.
         kind:
           type: string
           enum: [agent, terminal]
           description: >
             session kind. Empty or "agent" (the default) creates an AI agent with
-            the chosen backend. "terminal" creates a plain interactive shell
-            (${SHELL:-bash}) in `cwd` — NOT an AI agent: `backend`, `model`,
+            the chosen AI CLI. "terminal" creates a plain interactive shell
+            (${SHELL:-bash}) in `cwd` — NOT an AI agent: `ai_cli`/`backend`, `model`,
             `role`, and `prompt` are ignored, and it is excluded from every
             AI-centric surface (spend, state, approvals, digests). A terminal is
-            created here, not via a backend id — the `terminal` backend was
+            created here, not via an AI CLI id — the `terminal` backend was
             removed (advertised by the `terminal-sessions` capability, see
             GET /api/v1/capabilities).
         tags: { type: array, items: { type: string } }
@@ -3811,15 +3850,15 @@ components:
             otherwise the request is rejected with 400. Does not change execution
             behavior — adapters that drive plan-bound runs set this later.
         role: { type: string, description: "built-in agent role name (general|orchestrator|implementer|auto-merger|reviewer); empty = general (no persona). The role's persona is injected as a system-prompt addendum and its default flags fill any request fields left unset." }
-        tier: { type: string, description: "explicit model tier (tier-1|tier-2|tier-3) for the quota-balanced resolver that picks the backend+model at spawn. Empty derives the tier from task, then role. A pinned backend/model still wins over the resolver." }
+        tier: { type: string, description: "explicit model tier (tier-1|tier-2|tier-3) for the quota-balanced resolver that picks the AI CLI+model at spawn. Empty derives the tier from task, then role. A pinned ai_cli/model still wins over the resolver." }
         task: { type: string, description: "task name (task registry) used to derive the model tier via the task→tier map when tier is empty. Empty = none." }
         fork_from:
           type: string
           description: >
             id of an existing agent whose recorded session this spawn should FORK
             (codex fork): the new agent branches the source agent's conversation
-            into a divergent session. Requires a backend implementing SessionForker
-            and a source agent whose backend session id is already pinned. Empty =
+            into a divergent session. Requires an AI CLI implementing SessionForker
+            and a source agent whose AI CLI session id is already pinned. Empty =
             a normal (non-fork) spawn.
 
     RoleInfo:
@@ -4922,7 +4961,11 @@ components:
         omitempty.
       properties:
         kind: { type: string, description: "session kind: agent | terminal (session-backed nodes)" }
-        backend: { type: string, description: "agent nodes: backend id, for an icon before session detail arrives" }
+        ai_cli: { type: string, description: "agent nodes: AI CLI id, for an icon before session detail arrives" }
+        backend:
+          type: string
+          deprecated: true
+          description: "Deprecated alias for `ai_cli`. Dual-emitted during the alias window."
         depends_on:
           type: array
           items: { type: string }

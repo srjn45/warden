@@ -260,7 +260,8 @@ type setRoleTierArgs struct {
 }
 type switchAgentArgs struct {
 	Ticket  string `json:"ticket" jsonschema:"the agent's ticket / session id to switch"`
-	Backend string `json:"backend,omitempty" jsonschema:"explicit successor backend id (claude, antigravity, codex, …)"`
+	AiCli   string `json:"ai_cli,omitempty" jsonschema:"explicit successor AI CLI id (claude, antigravity, codex, …). Canonical; preferred over deprecated backend"`
+	Backend string `json:"backend,omitempty" jsonschema:"deprecated alias for ai_cli; accepted for one release. When both are set, ai_cli wins"`
 	Model   string `json:"model,omitempty" jsonschema:"explicit successor model id"`
 	Tier    string `json:"tier,omitempty" jsonschema:"resolve successor via quota-balanced router at this tier (tier-1 | tier-2 | tier-3)"`
 	Role    string `json:"role,omitempty" jsonschema:"role to resolve tier from when tier is not given"`
@@ -756,10 +757,15 @@ func (s *Server) registerExtraTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "switch_agent",
-		Description: "Hot-swap an agent session to a different backend, model, or tier mid-task: retire active CLI and launch successor backend in SAME worktree with extracted context handoff.",
+		Description: "Hot-swap an agent session to a different AI CLI, model, or tier mid-task: retire active CLI and launch successor AI CLI in SAME worktree with extracted context handoff. Prefer ai_cli; deprecated backend alias is accepted (ai_cli wins if both are set).",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a switchAgentArgs) (*mcpsdk.CallToolResult, any, error) {
+		aiCli := strings.TrimSpace(a.AiCli)
+		if aiCli == "" {
+			aiCli = strings.TrimSpace(a.Backend)
+		}
 		res, err := s.cl.SwitchSession(ctx, a.Ticket, client.SwitchSessionParams{
-			Backend: a.Backend,
+			AiCli:   aiCli,
+			Backend: aiCli,
 			Model:   a.Model,
 			Tier:    a.Tier,
 			Role:    a.Role,

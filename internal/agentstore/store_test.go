@@ -322,8 +322,8 @@ func TestSessionConverters(t *testing.T) {
 	}
 	sess := a.ToSession()
 	require.Equal(t, a.ID, sess.ID)
-	require.Equal(t, a.AiCli, sess.Backend)
-	require.Equal(t, a.AICLISessionID, sess.ClaudeSessionID)
+	require.Equal(t, a.AiCli, sess.AiCli)
+	require.Equal(t, a.AICLISessionID, sess.AICLISessionID)
 
 	back := FromSession(sess)
 	require.Equal(t, a.ID, back.ID)
@@ -337,7 +337,7 @@ func TestArchiveUpgradeAfterActiveMigration(t *testing.T) {
 	legacy, err := store.NewFileStore(dir)
 	require.NoError(t, err)
 	for _, a := range []*store.Session{
-		{ID: "archived", Status: store.StatusOrphaned, ClaudeSessionID: "resume-id", ProjectID: "project", Workdir: "/work", TmuxSession: "archived"},
+		{ID: "archived", Status: store.StatusOrphaned, AICLISessionID: "resume-id", ProjectID: "project", Workdir: "/work", TmuxSession: "archived"},
 		{ID: "shell", Kind: store.KindTerminal, Status: store.StatusOrphaned},
 	} {
 		require.NoError(t, legacy.Insert(ctx, a))

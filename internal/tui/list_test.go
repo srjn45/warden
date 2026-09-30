@@ -68,7 +68,7 @@ func TestRenderListRowShowsFullUntrimmedID(t *testing.T) {
 
 func TestRenderListRowShowsBackend(t *testing.T) {
 	sessions := []*store.Session{
-		{ID: "agent-aider", Status: store.StatusWorking, Backend: "aider", UpdatedAt: time.Now()},
+		{ID: "agent-aider", Status: store.StatusWorking, AiCli: "aider", UpdatedAt: time.Now()},
 	}
 	out := renderList(buildItems(sessions, nil, nil), 0, 120, 10)
 	require.Contains(t, out, "aider", "row should show the agent backend")
@@ -86,7 +86,7 @@ func TestRenderListRowEmptyBackendDefaultsToClaude(t *testing.T) {
 
 func TestBackendOrDefaultsToClaude(t *testing.T) {
 	require.Equal(t, "claude", backendOr(&store.Session{}), "empty backend → claude")
-	require.Equal(t, "aider", backendOr(&store.Session{Backend: "aider"}), "explicit backend preserved")
+	require.Equal(t, "aider", backendOr(&store.Session{AiCli: "aider"}), "explicit backend preserved")
 }
 
 func TestRenderListRowDoesNotClipAtNarrowWidth(t *testing.T) {

@@ -35,20 +35,20 @@ func TestSessionKindJSONOmitEmpty(t *testing.T) {
 
 func TestSessionJSONRoundTrip(t *testing.T) {
 	s := Session{
-		ID:              "PROJ-350",
-		Type:            TypeDevelopment,
-		Ticket:          "PROJ-350",
-		TmuxSession:     "PROJ-350",
-		ClaudeSessionID: "11111111-1111-4111-8111-111111111111",
-		Repo:            "/repo",
-		Worktree:        ".worktrees/PROJ-350",
-		Branch:          "PROJ-350",
-		Prompt:          "do a security review of the auth module",
-		Workdir:         "/Users/me/warden-agents/agent-a1b2",
-		Subject:         "review auth module for security",
-		Status:          StatusSpawning,
-		PID:             123,
-		Events:          []Event{{Type: "SessionStart"}},
+		ID:             "PROJ-350",
+		Type:           TypeDevelopment,
+		Ticket:         "PROJ-350",
+		TmuxSession:    "PROJ-350",
+		AICLISessionID: "11111111-1111-4111-8111-111111111111",
+		Repo:           "/repo",
+		Worktree:       ".worktrees/PROJ-350",
+		Branch:         "PROJ-350",
+		Prompt:         "do a security review of the auth module",
+		Workdir:        "/Users/me/warden-agents/agent-a1b2",
+		Subject:        "review auth module for security",
+		Status:         StatusSpawning,
+		PID:            123,
+		Events:         []Event{{Type: "SessionStart"}},
 	}
 	raw, err := json.Marshal(s)
 	require.NoError(t, err)
@@ -63,7 +63,40 @@ func TestSessionJSONRoundTrip(t *testing.T) {
 	require.Equal(t, "do a security review of the auth module", got.Prompt)
 	require.Equal(t, "/Users/me/warden-agents/agent-a1b2", got.Workdir)
 	require.Equal(t, "review auth module for security", got.Subject)
-	require.Equal(t, "11111111-1111-4111-8111-111111111111", got.ClaudeSessionID)
+	require.Equal(t, "11111111-1111-4111-8111-111111111111", got.AICLISessionID)
+}
+
+// TestSessionAiCliAliasWindow covers the Backend→AI CLI terminology migration
+// (docs/specs/2026-09-29-plan-execution-entity-redesign.md §4): legacy JSON
+// fields decode, dual keys emit, and canonical wins when both are present.
+func TestSessionAiCliAliasWindow(t *testing.T) {
+	// Legacy-only decode.
+	var legacy Session
+	require.NoError(t, json.Unmarshal([]byte(`{"id":"a","backend":"codex","claude_session_id":"old-uuid"}`), &legacy))
+	require.Equal(t, "codex", legacy.AiCli)
+	require.Equal(t, "old-uuid", legacy.AICLISessionID)
+
+	// Canonical wins over alias when both present.
+	var mixed Session
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"id":"b",
+		"ai_cli":"aider",
+		"backend":"claude",
+		"ai_cli_session_id":"new-id",
+		"claude_session_id":"old-id"
+	}`), &mixed))
+	require.Equal(t, "aider", mixed.AiCli)
+	require.Equal(t, "new-id", mixed.AICLISessionID)
+
+	// Dual-emit on encode during the alias window.
+	raw, err := json.Marshal(Session{ID: "c", AiCli: "cursor", AICLISessionID: "sess-1"})
+	require.NoError(t, err)
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(raw, &out))
+	require.Equal(t, "cursor", out["ai_cli"])
+	require.Equal(t, "cursor", out["backend"])
+	require.Equal(t, "sess-1", out["ai_cli_session_id"])
+	require.Equal(t, "sess-1", out["claude_session_id"])
 }
 
 // TestSessionChildPipelinesJSON pins the child_pipelines[] forward edge (spec

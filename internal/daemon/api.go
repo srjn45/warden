@@ -58,8 +58,9 @@ type SpawnRequest struct {
 	AutoRestart     bool     `json:"auto_restart"`         // opt-in: auto-resume on error (capped)
 	Force           bool     `json:"force"`                // bypass the memory-pressure spawn gate
 	Model           string   `json:"model"`                // claude model (opus/sonnet/haiku or full ID); empty = default
-	Backend         string   `json:"backend"`              // agent backend id (claude, aider, …); empty = claude (back-compat)
-	Kind            string   `json:"kind"`                 // "" / "agent" ⇒ AI agent; "terminal" ⇒ plain ${SHELL:-bash} pane (backend/model/role/prompt ignored)
+	AiCli           string   `json:"ai_cli"`               // canonical AI CLI id (claude, aider, …); empty = daemon default
+	Backend         string   `json:"backend"`              // deprecated alias for ai_cli; accepted for one release
+	Kind            string   `json:"kind"`                 // "" / "agent" ⇒ AI agent; "terminal" ⇒ plain ${SHELL:-bash} pane (ai_cli/model/role/prompt ignored)
 	Tags            []string `json:"tags"`                 // optional free-form labels for grouping/filtering (#30)
 	ParentID        string   `json:"parent_id"`            // id of the agent that spawned this one; empty = root (operator/CLI spawn)
 	ProjectID       string   `json:"project_id,omitempty"` // id of the project this session joins; empty = resolve by path-match to an open project

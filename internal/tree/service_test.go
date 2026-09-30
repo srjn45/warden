@@ -117,7 +117,7 @@ func TestGolden_RFC18PopulatedTree(t *testing.T) {
 				Name:      "orch-warden",
 				ProjectID: "/home/u/dev/warden",
 				Repo:      "/home/u/dev/warden",
-				Backend:   "claude",
+				AiCli:     "claude",
 				Status:    store.StatusWaitingForInput,
 				Kind:      store.KindAgent,
 				CreatedAt: now.Add(5 * time.Minute),
@@ -129,7 +129,7 @@ func TestGolden_RFC18PopulatedTree(t *testing.T) {
 				ParentID:  "agent-7",
 				ProjectID: "/home/u/dev/warden",
 				Repo:      "/home/u/dev/warden",
-				Backend:   "claude",
+				AiCli:     "claude",
 				Status:    store.StatusWorking,
 				Kind:      store.KindAgent,
 				CreatedAt: now.Add(6 * time.Minute),
@@ -289,6 +289,7 @@ func TestGolden_RFC18PopulatedTree(t *testing.T) {
               "session_id": "agent-7",
               "detail": {
                 "kind": "agent",
+                "ai_cli": "claude",
                 "backend": "claude"
               },
               "children": [
@@ -300,6 +301,7 @@ func TestGolden_RFC18PopulatedTree(t *testing.T) {
                   "session_id": "agent-8",
                   "detail": {
                     "kind": "agent",
+                    "ai_cli": "claude",
                     "backend": "claude"
                   }
                 }
@@ -597,7 +599,7 @@ func TestGolden_NestedAgent_AcrossWorktree(t *testing.T) {
 				Name:        "orchestrator",
 				ProjectID:   "/home/u/dev/warden",
 				Repo:        "/home/u/dev/warden",
-				Backend:     "claude",
+				AiCli:       "claude",
 				Status:      store.StatusWaitingForInput,
 				Kind:        store.KindAgent,
 				CreatedAt:   now.Add(1 * time.Minute),
@@ -610,7 +612,7 @@ func TestGolden_NestedAgent_AcrossWorktree(t *testing.T) {
 				ParentID:  "orch",
 				ProjectID: "/home/u/dev/warden",
 				Repo:      "/home/u/dev/warden/.worktrees/feature-x",
-				Backend:   "claude",
+				AiCli:     "claude",
 				Status:    store.StatusWorking,
 				Kind:      store.KindAgent,
 				CreatedAt: now.Add(2 * time.Minute),
@@ -678,7 +680,7 @@ func TestGolden_NestedPipeline_UnderOwningAgent(t *testing.T) {
 				Name:           "orchestrator",
 				ProjectID:      "/home/u/dev/warden",
 				Repo:           "/home/u/dev/warden",
-				Backend:        "claude",
+				AiCli:          "claude",
 				Status:         store.StatusWorking,
 				Kind:           store.KindAgent,
 				CreatedAt:      now.Add(1 * time.Minute),
@@ -939,7 +941,7 @@ func TestGolden_AuthoritativeMembership_NestedPipelineJob_TerminalSeparation(t *
 				// Contradictory ProjectID/path → Agents[] on alpha wins.
 				ProjectID:      projB,
 				Repo:           projB,
-				Backend:        "claude",
+				AiCli:          "claude",
 				Status:         store.StatusWorking,
 				Kind:           store.KindAgent,
 				CreatedAt:      now.Add(1 * time.Minute),
@@ -952,7 +954,7 @@ func TestGolden_AuthoritativeMembership_NestedPipelineJob_TerminalSeparation(t *
 				ParentID:  "orch",
 				ProjectID: projB,
 				Repo:      projB,
-				Backend:   "claude",
+				AiCli:     "claude",
 				Status:    store.StatusIdle,
 				Kind:      store.KindAgent,
 				CreatedAt: now.Add(2 * time.Minute),

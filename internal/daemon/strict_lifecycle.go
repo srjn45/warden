@@ -25,7 +25,12 @@ import (
 
 // spawnRequestFromOAPI maps the generated spawn body onto the daemon's
 // SpawnRequest DTO, which the Lifecycle interface is defined in terms of.
+// ai_cli is canonical; backend is a deprecated alias (canonical wins).
 func spawnRequestFromOAPI(b oapi.SpawnRequest) SpawnRequest {
+	aiCli := strings.TrimSpace(b.AiCli)
+	if aiCli == "" {
+		aiCli = strings.TrimSpace(b.Backend)
+	}
 	return SpawnRequest{
 		Type:           b.Type,
 		Ticket:         b.Ticket,
@@ -41,7 +46,8 @@ func spawnRequestFromOAPI(b oapi.SpawnRequest) SpawnRequest {
 		AutoRestart:    b.AutoRestart,
 		Force:          b.Force,
 		Model:          b.Model,
-		Backend:        b.Backend,
+		Backend:        aiCli, // deprecated alias field kept for lifecycle adapters
+		AiCli:          aiCli,
 		Kind:           string(b.Kind),
 		Tags:           b.Tags,
 		ParentID:       b.ParentId,
@@ -61,15 +67,23 @@ func (s *Server) SpawnAgent(ctx context.Context, req oapi.SpawnAgentRequestObjec
 		return nil, errStatus(http.StatusBadRequest, "bad json")
 	}
 	sr := spawnRequestFromOAPI(*req.Body)
-	if sr.Kind == string(store.KindTerminal) || sr.Backend == "terminal" {
+	if sr.Kind == string(store.KindTerminal) || sr.Backend == "terminal" || sr.AiCli == "terminal" {
 		return s.spawnTerminal(ctx, sr)
 	}
-	// Backend registry default override (docs/specs/2026-08-06-backend-registry.md
-	// §7): a user spawn that names no backend uses the operator-chosen default from
+	// AI CLI registry default override (docs/specs/2026-08-06-backend-registry.md
+	// §7): a user spawn that names no AI CLI uses the operator-chosen default from
 	// the store, overriding the compile-time claude default. Resolved HERE at the
 	// daemon layer — the pure agentbackend registry never does store lookups.
-	if strings.TrimSpace(sr.Backend) == "" {
-		sr.Backend = s.defaultBackend()
+	// Config ai_cli_default (canonical) / backend_default (deprecated) wins over
+	// the registry default when set.
+	if strings.TrimSpace(sr.AiCli) == "" && strings.TrimSpace(sr.Backend) == "" {
+		if def := s.resolveDefaultAiCli(); def != "" {
+			sr.AiCli, sr.Backend = def, def
+		}
+	} else if strings.TrimSpace(sr.AiCli) != "" {
+		sr.Backend = sr.AiCli
+	} else {
+		sr.AiCli = sr.Backend
 	}
 	// An autopilot-owned caller's spawns join its run mechanically (tag
 	// inheritance) — the fleet fence must not depend on the manager's persona
@@ -801,6 +815,17 @@ func (s *Server) defaultBackend() string {
 		return ""
 	}
 	return b.ID
+}
+
+// resolveDefaultAiCli returns the AI CLI id to apply when a spawn names none.
+// Priority: config ai_cli_default (canonical) / backend_default (deprecated
+// alias, already resolved into AiCliDefault by config load) → registry default
+// → "" (compile-time claude).
+func (s *Server) resolveDefaultAiCli() string {
+	if def := strings.TrimSpace(s.appliedConfig.GetAiCliDefault()); def != "" {
+		return def
+	}
+	return s.defaultBackend()
 }
 
 // backendsState reads the full registry (rows + settings) from the store. Callers

@@ -15,7 +15,7 @@
 binary (`warden`, aliased `wd`) that spawns, monitors, and tears down coding-agent
 sessions — each in its own isolated git worktree — while tracking exactly what every agent
 costs and how many tokens its lifecycle features keep out of context. It drives multiple
-agent backends (Claude Code by default — see [Agent backends](#agent-backends---backend)),
+AI CLIs (Claude Code by default — see [AI CLIs](#ai-clis---ai-cli)),
 backed by a local daemon and a file-based JSON store: **no database, no SaaS, no telemetry.**
 
 <p align="center">
@@ -104,7 +104,7 @@ Capability highlights from recent releases (full notes on the [releases page](ht
 - **Backend registry** — warden detects the coding-agent CLIs installed on this machine (`claude`, `codex`, `aider`, …) plus a reserved `local` row for the free/local model, and persists each with a billing **tier** (`free`/`subscription`/`pay_per_use`/`unclassified`), an **enabled** flag, and at most one **default**. The store is the **single source of truth** — autopilot's cost-tier ladder and the internal free/local **thinking router** (warden's own task classification, agent naming, digest narration, and memory curation, routed *strictly* through free/local backends — never a paid call) both read from it. Manage it with `warden backend list|rescan|tier|default|enable|disable|thinking-mode`, the web **🧩 backends** panel, the TUI Backends page (`b`), or MCP (`list_backends`, `rescan_backends`, `set_backend_tier`, `set_default_backend`, `set_thinking_mode`). It supersedes the deprecated `autopilot.brain.backends` / `allow_pay_per_use` config (imported once, then ignored). See [Backend registry guide](https://srjn45.github.io/warden/guides/backend-registry/).
 - **Live config hot-reload** — edit `~/.warden/config.yaml` and warden **applies it with no daemon restart**: the autopilot template, `auto_approve` policy, token/context guard (`tokens.*`), `rails.*`, `model_default`, `default_permission_mode`, hint gates, and `notify.*`/webhook all re-apply on the next tick or spawn. A bad edit **keeps the last-good config** and alerts you rather than falling back to defaults; keys that genuinely need a restart (`addr`, `data_dir`, timers, loop cadences) are logged as changed-but-pending. See [Configuration](docs/FEATURES.md#12-configuration-yaml-config-file).
 - **Agent roles (`--role`)** — attach a named, persistent **persona** to an agent at spawn (`warden start … --role worker`) or switch it on a running agent (`warden agent role set <id> worker`, which relaunches to re-inject). Six built-in roles — `general` (default, no persona), `orchestrator`, `planner`, `worker`, `autopilot`, `brain` — each carrying a persona, default spawn flags, and a default model tier (the legacy names `implementer`/`auto-merger`/`reviewer` still work, mapped to `worker`). `warden agent role list` shows the catalog; the TUI new-agent form has a `ctrl+r` role picker and the web **+ New agent** modal a Role dropdown. See [Agent roles](#warden-agent-role-list--warden-agent-role-set).
-- **Tiered model routing (`--task` / `--tier`)** — warden picks each spawn's backend+model by **quota headroom** within a **model tier**, so a fleet spreads across providers instead of hammering one. The tier is resolved with the precedence `explicit --tier > task tier > role default tier > tier-2`: a **task** (`--task architecture`, the *what*, from the task registry) or **role** (`--role planner`, the *who*) derives the tier, or pin it with `--tier tier-1`. Headroom is **per quota scope** (e.g. Cursor `api`/`auto`/`included`), so exhausting one scope no longer blocks sibling models on the same backend. The TUI new-agent form is **tier-first** (`ctrl+t`: `auto` / `tier-1`/`2`/`3` plus a live candidate table); spawn passes the tier to the resolver rather than pinning a backend CLI. A pinned `--backend`/`--model` bypasses the resolver, and a first spawn degrades to defaults if routing is unavailable — it never hard-fails. `--tier` is also a pipeline-job field (`tier:`). See [Tiered model routing](docs/specs/tiered-model-routing.plan.md), [`docs/specs/agent-roles.md`](docs/specs/agent-roles.md), and [per-scope quota routing](docs/specs/2026-09-26-per-scope-quota-routing.md).
+- **Tiered model routing (`--task` / `--tier`)** — warden picks each spawn's backend+model by **quota headroom** within a **model tier**, so a fleet spreads across providers instead of hammering one. The tier is resolved with the precedence `explicit --tier > task tier > role default tier > tier-2`: a **task** (`--task architecture`, the *what*, from the task registry) or **role** (`--role planner`, the *who*) derives the tier, or pin it with `--tier tier-1`. Headroom is **per quota scope** (e.g. Cursor `api`/`auto`/`included`), so exhausting one scope no longer blocks sibling models on the same backend. The TUI new-agent form is **tier-first** (`ctrl+t`: `auto` / `tier-1`/`2`/`3` plus a live candidate table); spawn passes the tier to the resolver rather than pinning a backend CLI. A pinned `--ai-cli`/`--model` bypasses the resolver, and a first spawn degrades to defaults if routing is unavailable — it never hard-fails. `--tier` is also a pipeline-job field (`tier:`). See [Tiered model routing](docs/specs/tiered-model-routing.plan.md), [`docs/specs/agent-roles.md`](docs/specs/agent-roles.md), and [per-scope quota routing](docs/specs/2026-09-26-per-scope-quota-routing.md).
 - **Reactive backend hard-limit recovery** — when an agent hits a confirmed provider hard limit (session, weekly, or monthly cap), the daemon automatically **tries the next eligible backend/model** from the backend registry without operator intervention. Usage windows are refreshed from `internal/backendusage`, candidates are ranked by known headroom (minimum across overlapping pools), and each attempt must **stabilize** (10 s of live non-limited status) before recovery clears — a process launch alone is never counted as success. Per-pool limits (`(backend, model)` pairs) are tracked exactly so independent Gemini/non-Gemini or Codex pools are kept separate. When all candidates are exhausted, the agent persists `waiting_for_capacity` with known reset times and retries automatically on the earliest reset. Manual switch/stop/delete always supersedes automatic recovery. The deprecated `threshold_percent` and `rolling_quota_threshold` fields are decoded but ignored — reactive recovery replaced proactive quota prediction. Recovery state is visible on every agent status API, MCP `get_agent`, and SSE stream. See [Backend hard-limit recovery guide](https://srjn45.github.io/warden/guides/backend-recovery/).
 - **Resilience & ergonomics round-up** — `warden agent recover` re-registers archived `orphaned` agents with live panes (tombstone-reaper safety net); the web `/tui` cockpit **self-heals** (validated and auto-rebuilt if wedged; `warden tui --rebuild-web-cockpit` forces it); `warden tui` inside an existing tmux session lays out as a **native tmux window** instead of erroring (`--tmux-native`); `wd push --force-with-lease` for safe force-pushes; rate-limit auto-resume now also answers Claude's **wait-menu and monthly spend cap** (`rate_limit.spend_retry_interval`); and all daemon stores (sessions, pipelines, schedules, snapshots, context, mailbox) run on an embedded ScrivaDB — still no database server.
 - **Factory reset (`warden factory-reset`)** — drain all live agents/pipelines/autopilot/schedules, then wipe on-disk stores with `--scope runtime|data|full`. `--backup` archives the data dir first; `--keep-config` and `--keep-backends` preserve configuration and the backend registry across the wipe. Requires `--yes`. CLI-only by design (destructive; the daemon must be stopped for the data phase). See [`reference/cli#warden-factory-reset`](https://srjn45.github.io/warden/reference/cli/#warden-factory-reset).
@@ -134,8 +134,8 @@ Capability highlights from recent releases (full notes on the [releases page](ht
 - **tmux** — every agent session runs in a detached tmux window
 - **git** — worktree creation and guarded cleanup
 - **Claude Code** (`claude` on PATH) — the default agent runtime launched in each session
-- **Aider** (`aider` on PATH, optional) — only needed to spawn agents with `--backend aider`; bring-your-own-model (works with local Ollama models, $0)
-- **OpenCode** (`opencode` on PATH, optional) — only needed to spawn agents with `--backend opencode`; bring-your-own-model (works with local Ollama models, $0). Install: `npm install -g opencode-ai` (https://opencode.ai)
+- **Aider** (`aider` on PATH, optional) — only needed to spawn agents with `--ai-cli aider`; bring-your-own-model (works with local Ollama models, $0)
+- **OpenCode** (`opencode` on PATH, optional) — only needed to spawn agents with `--ai-cli opencode`; bring-your-own-model (works with local Ollama models, $0). Install: `npm install -g opencode-ai` (https://opencode.ai)
 - **`gh`** (GitHub CLI) — required for `pr-review` sessions to check out the PR branch, and for `warden agent done --create-pr`
 - **Ollama** (optional) — only needed if you enable the local-LLM features (`local_llm`) or the `warden backend repl` REPL; warden falls back to Claude when it's off or unreachable
 
@@ -455,10 +455,10 @@ warden ls  # Shows MODEL column
 
 ---
 
-## Agent backends (`--backend`)
+## AI CLIs (`--ai-cli`)
 
 Warden drives **Claude Code** by default, but the agent layer is pluggable: pick
-the backend per agent at spawn time with `--backend` (CLI) or the `backend` param
+the AI CLI per agent at spawn time with `--ai-cli` (CLI; deprecated alias `--backend`) or the `ai_cli` param
 (`spawn_agent` MCP tool).
 
 > **Supported agents — status:** warden is fully tested only with **Claude Code**.
@@ -478,7 +478,7 @@ the backend per agent at spawn time with `--backend` (CLI) or the `backend` para
 | Cursor CLI | ✅ Stable |
 | Antigravity CLI | ✅ Stable |
 
-| Backend | `--backend` | Tier | Notes |
+| AI CLI | `--ai-cli` | Tier | Notes |
 |---|---|---|---|
 | **Claude Code** (default) | `claude` | A | Full fidelity — digests, savings, priced spend, resume, all permission modes |
 | **Aider** | `aider` | A | 🧪 Experimental. Bring-your-own-model (pass `--model`, e.g. `ollama_chat/qwen2.5-coder:3b`); structured markdown transcript ⇒ real digests; **no** resume, **no** priced spend (tokens only), runs an autonomous `--message` task that exits when done |
@@ -492,20 +492,20 @@ the backend per agent at spawn time with `--backend` (CLI) or the `backend` para
 ```bash
 # Drive Aider against a local Ollama model (free, offline)
 export OLLAMA_API_BASE=http://127.0.0.1:11434
-warden start "implement the add function" --backend aider --model ollama_chat/qwen2.5-coder:3b --dir .
+warden start "implement the add function" --ai-cli aider --model ollama_chat/qwen2.5-coder:3b --dir .
 
 # Drive OpenCode against a local Ollama model (free, offline)
-warden start "implement the add function" --backend opencode --model ollama/qwen2.5-coder:3b --dir .
+warden start "implement the add function" --ai-cli opencode --model ollama/qwen2.5-coder:3b --dir .
 
 # Drive Codex against a local Ollama model (configure provider in ~/.codex/config.toml first)
-warden start "implement the add function" --backend codex --dir .
+warden start "implement the add function" --ai-cli codex --dir .
 
 # Drive Crush against a local Ollama model (configure provider in ~/.config/crush/crush.json first)
-warden start "implement the add function" --backend crush --dir .
+warden start "implement the add function" --ai-cli crush --dir .
 
 # Drive Goose against a local Ollama model
 GOOSE_PROVIDER=ollama GOOSE_MODEL=qwen2.5-coder:3b \
-warden start "implement the add function" --backend goose --dir .
+warden start "implement the add function" --ai-cli goose --dir .
 ```
 
 > **Terminals are not a backend.** A plain interactive shell beside the fleet is a
@@ -581,6 +581,7 @@ Warden reads all settings from a single YAML file (default `~/.warden/config.yam
 | `addr` | `127.0.0.1:8765` | Daemon listen address. Non-loopback **requires** `WARDEN_TOKEN` (bearer-token auth — see [Remote access](#remote-access)); the daemon refuses a non-loopback bind without a token |
 | `data_dir` | `~/.warden` | Directory for warden state: the embedded ScrivaDB session store (`sessions-db/`, with a one-time-imported read-only JSON backup in `sessions/`+`closed/`), per-agent prompt files (`prompts/`), inbox, pipelines, and metrics |
 | `claude_projects_dir` | `~/.claude/projects` | Root of Claude Code transcript directories; the poller reads agent transcripts here to generate subjects and the context gauge |
+| `ai_cli_default` | _(empty)_ | Default AI CLI when a spawn does not pin one (falls through to the backend-registry default, then claude). Deprecated alias: `backend_default`. |
 | `model_default` | `claude-sonnet-4-6` | Default model for new agents (a model id or alias: `sonnet`/`opus`/`haiku`/`fable`) |
 | `default_permission_mode` | `auto` | Default permission mode for new agents (`auto`/`default`/`acceptEdits`/`bypassPermissions`/`dontAsk`/`plan`) |
 | `notify.enabled` | `false` | Desktop notifications when an agent needs attention |
@@ -1134,7 +1135,7 @@ warden backend model                  # the backend's LIVE model menu (one id pe
 - **`warden git review`** — the agent-native counterpart to `warden check` (configured test/lint) and a `pr-review` agent (a whole reviewer session): it runs the backend's own one-shot reviewer against the worktree. **Codex** implements it (`codex review`); backends without a native reviewer (e.g. Claude) exit non-zero pointing you at `warden check` / `pr-review`. `--json` runs the structured form (`codex exec review`) and normalizes the backend's native output into one neutral findings shape; review quality rides the backend's configured model.
 - **`warden backend model`** — the live runtime model menu (vs warden's static `opus`/`sonnet`/`haiku`/`fable` aliases). **Antigravity** (`agy models`) and **Cursor** (`cursor-agent --list-models`) implement it; the ids feed `--model` verbatim. Listing is a metadata read, so it spends no quota. Backends with a static model set (Claude) degrade non-zero ("pass `--model` with a known id").
 
-Both take `--backend <id>` to target a specific backend (default: the current agent's). See [Agent backends](#agent-backends---backend).
+Both take `--backend <id>` to target a specific backend (default: the current agent's). See [AI CLIs](#ai-clis---ai-cli).
 
 ### `warden project memory` — project memory projected into every spawn
 
@@ -1415,7 +1416,7 @@ persists a value but a persona additionally needs a fresh launch.
 
 warden resolves each spawn's **backend + model** by **quota headroom within a
 model tier**, so a fleet spreads across providers instead of exhausting one. Two
-optional, orthogonal inputs feed it (a spawn's third axis, alongside `--backend`
+optional, orthogonal inputs feed it (a spawn's third axis, alongside `--ai-cli`
 and `--role`):
 
 - **`--task <name>`** — *what the agent is doing*, from the built-in **task
@@ -1428,7 +1429,7 @@ and `--role`):
 The target tier is resolved with the precedence **`explicit --tier` > task tier >
 role default tier > tier-2**; within the tier the router scores every model by
 headroom (`1 − used/limit`), skips rate-limited or ineligible backends, and picks
-the highest-headroom candidate (round-robin among ties). A pinned `--backend` or
+the highest-headroom candidate (round-robin among ties). A pinned `--ai-cli` or
 `--model` **bypasses** the router, and a first spawn **degrades** to the request
 defaults if no resolver is wired — routing never hard-fails a spawn.
 
@@ -1437,7 +1438,7 @@ warden start "design the sync protocol" --role planner        # role → tier-1
 warden start PROJ-9 --type development --task development      # task → tier-2
 warden start "cut the v9 release" --task release              # task → tier-3
 warden start "urgent hotfix" --tier tier-1                    # pin the tier
-warden start "run it on codex" --backend codex --model o1     # pins bypass routing
+warden start "run it on codex" --ai-cli codex --model o1     # pins bypass routing
 ```
 
 > **`--task` ≠ `--type`.** `--type` decides worktree/branch policy (see

@@ -286,7 +286,7 @@ func newStatusCmd() *cobra.Command {
 				permMode = "default"
 			}
 			fmt.Fprintf(out, "id:              %s\nname:            %s\ntype:            %s\nmodel:           %s\nticket:          %s\nstatus:          %s\nrepo:            %s\nworkdir:         %s\nworktree:        %s\nbranch:          %s\npr:              %s\npermission_mode: %s\nsubject:         %s\nclaude:          %s\nupdated:         %s\n",
-				s.ID, name, typeOrPending(s.Type), modelOrDefault(s.Model), s.Ticket, statusCell(s.Status, color, s.ExitCode), s.Repo, s.Workdir, s.Worktree, s.Branch, s.PR, permMode, s.Subject, s.ClaudeSessionID, s.UpdatedAt.Format(time.RFC3339))
+				s.ID, name, typeOrPending(s.Type), modelOrDefault(s.Model), s.Ticket, statusCell(s.Status, color, s.ExitCode), s.Repo, s.Workdir, s.Worktree, s.Branch, s.PR, permMode, s.Subject, s.AICLISessionID, s.UpdatedAt.Format(time.RFC3339))
 			if s.ProjectID != "" {
 				fmt.Fprintf(out, "project:         %s\n", s.ProjectID)
 			}

@@ -54,7 +54,7 @@ type Node struct {
 // Detail carries light, type-specific fields for client rendering (spec §3).
 type Detail struct {
 	Kind      string   `json:"kind,omitempty"`
-	Backend   string   `json:"backend,omitempty"`
+	AiCli     string   `json:"ai_cli,omitempty"` // canonical (legacy: "backend")
 	DependsOn []string `json:"depends_on,omitempty"`
 	Repo      string   `json:"repo,omitempty"`
 	Path      string   `json:"path,omitempty"`
@@ -67,20 +67,40 @@ type Detail struct {
 	Closed    bool     `json:"closed,omitempty"`
 }
 
-// MarshalJSON ensures DependsOn serializes as [] when empty non-nil (spec §18).
+// MarshalJSON dual-emits the deprecated "backend" alias alongside canonical
+// "ai_cli" during the alias window, and ensures DependsOn serializes as [] when
+// empty non-nil (spec §18).
 func (d Detail) MarshalJSON() ([]byte, error) {
-	type Alias Detail
+	type plain Detail
 	if d.DependsOn != nil && len(d.DependsOn) == 0 {
-		type DetailWithEmptyDependsOn struct {
-			Alias
+		return json.Marshal(struct {
+			plain
+			Backend   string   `json:"backend,omitempty"`
 			DependsOn []string `json:"depends_on"`
-		}
-		return json.Marshal(DetailWithEmptyDependsOn{
-			Alias:     Alias(d),
-			DependsOn: []string{},
-		})
+		}{plain: plain(d), Backend: d.AiCli, DependsOn: []string{}})
 	}
-	return json.Marshal(Alias(d))
+	return json.Marshal(struct {
+		plain
+		Backend string `json:"backend,omitempty"`
+	}{plain: plain(d), Backend: d.AiCli})
+}
+
+// UnmarshalJSON accepts both ai_cli and the deprecated backend alias
+// (canonical wins when both are present).
+func (d *Detail) UnmarshalJSON(data []byte) error {
+	type plain Detail
+	var aux struct {
+		plain
+		Backend string `json:"backend"`
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	*d = Detail(aux.plain)
+	if d.AiCli == "" && aux.Backend != "" {
+		d.AiCli = aux.Backend
+	}
+	return nil
 }
 
 // Tree represents the top-level response envelope (spec §3).

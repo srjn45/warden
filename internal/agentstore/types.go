@@ -164,8 +164,10 @@ func (a *Agent) ToSession() *store.Session {
 		Type:                      a.Type,
 		Ticket:                    a.Ticket,
 		TmuxSession:               a.TmuxSession,
-		Backend:                   a.AiCli,
-		ClaudeSessionID:           a.AICLISessionID,
+		AiCli:                     a.AiCli,
+		Backend:                   a.AiCli, // deprecated wire mirror for dual-emit
+		AICLISessionID:            a.AICLISessionID,
+		ClaudeSessionID:           a.AICLISessionID, // deprecated wire mirror for dual-emit
 		Repo:                      a.Repo,
 		Worktree:                  a.Worktree,
 		Branch:                    a.Branch,
@@ -228,8 +230,8 @@ func FromSession(s *store.Session) *Agent {
 		Type:                      s.Type,
 		Ticket:                    s.Ticket,
 		TmuxSession:               s.TmuxSession,
-		AiCli:                     s.Backend,
-		AICLISessionID:            s.ClaudeSessionID,
+		AiCli:                     firstNonEmpty(s.AiCli, s.Backend),
+		AICLISessionID:            firstNonEmpty(s.AICLISessionID, s.ClaudeSessionID),
 		Repo:                      s.Repo,
 		Worktree:                  s.Worktree,
 		Branch:                    s.Branch,
@@ -279,6 +281,15 @@ func FromSession(s *store.Session) *Agent {
 		BackendRecoveryGeneration: s.BackendRecoveryGeneration,
 		BackendRecovery:           s.BackendRecovery,
 	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // AgentStore defines the persistence interface for AI agents.

@@ -406,8 +406,9 @@ type SpawnParams struct {
 	AutoRestart    bool
 	Force          bool
 	Model          string
-	Backend        string
-	Kind           string // "" / "agent" ⇒ AI agent; "terminal" ⇒ plain ${SHELL:-bash} pane (backend/model/role/prompt ignored)
+	AiCli          string // canonical AI CLI id; preferred over Backend
+	Backend        string // deprecated alias for AiCli
+	Kind           string // "" / "agent" ⇒ AI agent; "terminal" ⇒ plain ${SHELL:-bash} pane (ai_cli/model/role/prompt ignored)
 	Tags           []string
 	ParentID       string
 	ProjectID      string // id of the project this session joins; empty = daemon resolves it by path-match to an open project
@@ -420,12 +421,16 @@ type SpawnParams struct {
 
 func (c *Client) Spawn(ctx context.Context, p SpawnParams) (*store.Session, error) {
 	var s store.Session
+	aiCli := strings.TrimSpace(p.AiCli)
+	if aiCli == "" {
+		aiCli = strings.TrimSpace(p.Backend)
+	}
 	body := map[string]any{
 		"type": p.Type, "ticket": p.Ticket, "name": p.Name, "repo": p.Repo,
 		"branch": p.Branch, "pr": p.PR, "worktree": p.Worktree, "in_repo": p.InRepo,
 		"prompt": p.Prompt, "cwd": p.Cwd, "permission_mode": p.PermissionMode,
 		"auto_restart": p.AutoRestart, "force": p.Force,
-		"model": p.Model, "backend": p.Backend, "kind": p.Kind, "tags": p.Tags, "parent_id": p.ParentID,
+		"model": p.Model, "ai_cli": aiCli, "backend": aiCli, "kind": p.Kind, "tags": p.Tags, "parent_id": p.ParentID,
 		"project_id": p.ProjectID, "plan_id": p.PlanID,
 		"fork_from": p.ForkFrom, "role": p.Role, "tier": p.Tier, "task": p.Task,
 	}
@@ -1944,7 +1949,8 @@ func (c *Client) SetRoleTier(ctx context.Context, role, tier string) (backendsto
 
 // SwitchSessionParams holds the parameters for switching an agent session mid-task.
 type SwitchSessionParams struct {
-	Backend string `json:"backend,omitempty"`
+	AiCli   string `json:"ai_cli,omitempty"`  // canonical; preferred over Backend
+	Backend string `json:"backend,omitempty"` // deprecated alias for AiCli
 	Model   string `json:"model,omitempty"`
 	Tier    string `json:"tier,omitempty"`
 	Role    string `json:"role,omitempty"`
@@ -1954,6 +1960,12 @@ type SwitchSessionParams struct {
 
 // SwitchSession hot-swaps an agent session mid-task.
 func (c *Client) SwitchSession(ctx context.Context, id string, params SwitchSessionParams) (lifecycle.SwapResult, error) {
+	aiCli := strings.TrimSpace(params.AiCli)
+	if aiCli == "" {
+		aiCli = strings.TrimSpace(params.Backend)
+	}
+	params.AiCli = aiCli
+	params.Backend = aiCli // dual-emit during alias window
 	var out lifecycle.SwapResult
 	path := fmt.Sprintf("/sessions/%s/switch", url.PathEscape(id))
 	if err := c.do(ctx, http.MethodPost, path, params, &out); err != nil {

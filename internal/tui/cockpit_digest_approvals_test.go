@@ -148,31 +148,31 @@ func TestApprovalsCmdFetchesEnabledAndViews(t *testing.T) {
 func TestDetailBodyRendersAllSections(t *testing.T) {
 	fc := true
 	s := &store.Session{
-		ID:              "agent-9f3c",
-		Type:            store.TypeDevelopment,
-		Subject:         "Refactor lifecycle reaper retry path",
-		Status:          store.StatusWaitingForInput,
-		PermissionMode:  "acceptEdits",
-		Model:           "opus",
-		Role:            "worker",
-		Tags:            []string{"backend", "urgent"},
-		AutoApprove:     true,
-		ForceCompact:    &fc,
-		ContextTokens:   88000,
-		ContextState:    store.ContextWarning,
-		Repo:            "/Users/me/workspace/warden",
-		Branch:          "fix/reaper-retry",
-		Worktree:        "/Users/me/workspace/warden/.wt/reaper",
-		Ticket:          "WARD-42",
-		PR:              "#318",
-		PipelineID:      "ctx-guard",
-		JobID:           "implement",
-		ParentID:        "agent-root",
-		PID:             48213,
-		TmuxSession:     "warden-9f3c",
-		ClaudeSessionID: "7a1c2d3e-1111-2222-3333-444455556666",
-		Prompt:          "Fix the reaper so completed-job records get reaped.",
-		Events:          []store.Event{{Type: "spawned"}, {Type: "compacted"}},
+		ID:             "agent-9f3c",
+		Type:           store.TypeDevelopment,
+		Subject:        "Refactor lifecycle reaper retry path",
+		Status:         store.StatusWaitingForInput,
+		PermissionMode: "acceptEdits",
+		Model:          "opus",
+		Role:           "worker",
+		Tags:           []string{"backend", "urgent"},
+		AutoApprove:    true,
+		ForceCompact:   &fc,
+		ContextTokens:  88000,
+		ContextState:   store.ContextWarning,
+		Repo:           "/Users/me/workspace/warden",
+		Branch:         "fix/reaper-retry",
+		Worktree:       "/Users/me/workspace/warden/.wt/reaper",
+		Ticket:         "WARD-42",
+		PR:             "#318",
+		PipelineID:     "ctx-guard",
+		JobID:          "implement",
+		ParentID:       "agent-root",
+		PID:            48213,
+		TmuxSession:    "warden-9f3c",
+		AICLISessionID: "7a1c2d3e-1111-2222-3333-444455556666",
+		Prompt:         "Fix the reaper so completed-job records get reaped.",
+		Events:         []store.Event{{Type: "spawned"}, {Type: "compacted"}},
 	}
 	out := detailBody(s, 0, 80)
 	for _, want := range []string{
@@ -216,16 +216,16 @@ func TestDetailBodyHandlesNil(t *testing.T) {
 }
 
 func TestDetailBodyShowsBackend(t *testing.T) {
-	s := &store.Session{ID: "agent-1", Status: store.StatusWorking, Backend: "aider"}
-	if out := detailBody(s, 0, 80); !strings.Contains(out, "backend") || !strings.Contains(out, "aider") {
-		t.Errorf("detailBody() should show the backend line with 'aider':\n%s", out)
+	s := &store.Session{ID: "agent-1", Status: store.StatusWorking, AiCli: "aider"}
+	if out := detailBody(s, 0, 80); !strings.Contains(out, "ai_cli") || !strings.Contains(out, "aider") {
+		t.Errorf("detailBody() should show the ai_cli line with 'aider':\n%s", out)
 	}
 }
 
 func TestDetailBodyEmptyBackendDefaultsToClaude(t *testing.T) {
 	s := &store.Session{ID: "agent-1", Status: store.StatusWorking}
-	if out := detailBody(s, 0, 80); !strings.Contains(out, "backend") || !strings.Contains(out, "claude") {
-		t.Errorf("detailBody() should default an empty backend to claude:\n%s", out)
+	if out := detailBody(s, 0, 80); !strings.Contains(out, "ai_cli") || !strings.Contains(out, "claude") {
+		t.Errorf("detailBody() should default an empty ai_cli to claude:\n%s", out)
 	}
 }
 
@@ -427,7 +427,7 @@ func TestDetailArrowsWalkControlsThenScroll(t *testing.T) {
 	// is scrollable below the controls.
 	s := &store.Session{
 		ID: "agent-1", Status: store.StatusWorking, Subject: "doing a thing",
-		Backend: "claude", Model: "opus", Role: "worker",
+		AiCli: "claude", Model: "opus", Role: "worker",
 		Tags: []string{"alpha", "beta"}, Workdir: "/home/x/dev/warden",
 		Worktree: "/home/x/wt", Branch: "feat/x", Prompt: "a prompt",
 		PR: "123", Ticket: "T-1",

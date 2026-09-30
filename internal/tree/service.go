@@ -997,7 +997,7 @@ func buildAgentSubtree(
 		Label:     label,
 		Status:    sessionStatus(s.Status, s.ExitCode),
 		SessionID: s.ID,
-		Detail:    &Detail{Kind: "agent", Backend: backendOr(s), PlanID: s.PlanID},
+		Detail:    &Detail{Kind: "agent", AiCli: backendOr(s), PlanID: s.PlanID},
 	}
 
 	for _, kid := range childrenByParent[s.ID] {

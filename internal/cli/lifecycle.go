@@ -45,7 +45,7 @@ func parseTags(flag string) []string {
 
 func newStartCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "start --role <ROLE> [TICKET|\"<prompt>\"] [--type <TYPE>] [--dir <PATH>] [--backend <ID>]",
+		Use:   "start --role <ROLE> [TICKET|\"<prompt>\"] [--type <TYPE>] [--dir <PATH>] [--ai-cli <ID>]",
 		Short: "Spawn an agent — `start --role <ROLE> \"<prompt>\"` (auto-typed), `start --role <ROLE> --dir <path>` (interactive: open Claude & wait), or `start --role <ROLE> TICKET --type <TYPE>` (managed worktree)",
 		Long: `Spawn an agent. --role is required (see 'warden role list'); there is no
 implicit fallback role.
@@ -54,18 +54,19 @@ Free-form:   warden start --role <ROLE> "<prompt>" [--dir <path>]   (autonomous)
 Interactive: warden start --role <ROLE> --dir <path>                (opens the agent and waits)
 Managed:     warden start --role <ROLE> TICKET --type <TYPE>        (isolated worktree)
 
-The spawn's backend+model is resolved (top wins): an explicit --backend/--model
+The spawn's AI CLI+model is resolved (top wins): an explicit --ai-cli/--model
 pin > --tier (or --task, which derives a tier) routed through the quota-balanced
 resolver > the resolver routed by --role alone > warden's configured defaults.
-So --role on its own is always enough to spawn — --tier/--backend/--model are
+So --role on its own is always enough to spawn — --tier/--ai-cli/--model are
 optional refinements, not additional requirements.
 
-Backends (--backend): warden drives Claude Code by default. Accepted values:
-  claude (default, stable), aider, opencode, codex, crush, goose, cursor, antigravity.
+AI CLIs (--ai-cli; deprecated alias --backend): warden drives Claude Code by default.
+Accepted values: claude (default, stable), aider, opencode, codex, crush, goose, cursor, antigravity.
 Only claude is fully tested; codex and antigravity are beta, the rest experimental / WIP.
+When both --ai-cli and --backend are set, --ai-cli wins.
 Terminal (--kind terminal): not an AI agent — opens a plain interactive shell ($SHELL)
 in --dir, managed with the same worktree/git/tmux lifecycle as any agent. It is a
-session kind, not a backend, so --backend/--model/--role/prompt are ignored.
+session kind, not an AI CLI, so --ai-cli/--backend/--model/--role/prompt are ignored.
 Aider: BYO model (pass --model), no resume, runs a one-shot --message task.
 OpenCode: BYO model (pass --model), structured transcript, DOES resume.
 Codex: BYO provider (via ~/.codex/config.toml), DOES resume (dir-scoped).
@@ -148,12 +149,12 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 				autoRestart := boolFlagOr(cmd, "auto-restart", pre.AutoRestart)
 				force, _ := cmd.Flags().GetBool("force")
 				model := stringFlagOr(cmd, "model", pre.Model)
-				backend, _ := cmd.Flags().GetString("backend")
+				aiCli := resolveAiCliFlag(cmd)
 				kind, _ := cmd.Flags().GetString("kind")
 				tagsFlag, _ := cmd.Flags().GetString("tags")
 				projectID, _ := cmd.Flags().GetString("project")
 				planID, _ := cmd.Flags().GetString("plan")
-				s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{Name: name, Prompt: prompt, Cwd: dir, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model, Backend: backend, Kind: kind, Tags: parseTags(tagsFlag), Role: roleName, Tier: tier, Task: taskName, ProjectID: projectID, PlanID: planID, ParentID: os.Getenv("WARDEN_SESSION_ID")})
+				s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{Name: name, Prompt: prompt, Cwd: dir, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model, AiCli: aiCli, Backend: aiCli, Kind: kind, Tags: parseTags(tagsFlag), Role: roleName, Tier: tier, Task: taskName, ProjectID: projectID, PlanID: planID, ParentID: os.Getenv("WARDEN_SESSION_ID")})
 				if err != nil {
 					var cre *client.ErrConfirmationRequired
 					if errors.As(err, &cre) {
@@ -205,12 +206,12 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 			}
 			force, _ := cmd.Flags().GetBool("force")
 			model := stringFlagOr(cmd, "model", pre.Model)
-			backend, _ := cmd.Flags().GetString("backend")
+			aiCli := resolveAiCliFlag(cmd)
 			tagsFlag, _ := cmd.Flags().GetString("tags")
 			projectID, _ := cmd.Flags().GetString("project")
 			planID, _ := cmd.Flags().GetString("plan")
 			s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{
-				Name: name, Type: typ, Ticket: ticket, Repo: repo, Branch: branch, PR: pr, Worktree: worktree, InRepo: inRepo, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model, Backend: backend, Tags: parseTags(tagsFlag), ForkFrom: forkFrom, Role: roleName, Tier: tier, Task: taskName, ProjectID: projectID, PlanID: planID, ParentID: os.Getenv("WARDEN_SESSION_ID"),
+				Name: name, Type: typ, Ticket: ticket, Repo: repo, Branch: branch, PR: pr, Worktree: worktree, InRepo: inRepo, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model, AiCli: aiCli, Backend: aiCli, Tags: parseTags(tagsFlag), ForkFrom: forkFrom, Role: roleName, Tier: tier, Task: taskName, ProjectID: projectID, PlanID: planID, ParentID: os.Getenv("WARDEN_SESSION_ID"),
 			})
 			if err != nil {
 				var cre *client.ErrConfirmationRequired
@@ -242,8 +243,10 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 	cmd.Flags().Bool("auto-restart", false, "auto-resume this agent if it crashes (errored), capped at a few attempts")
 	cmd.Flags().Bool("force", false, "spawn even when the memory-pressure gate warns")
 	cmd.Flags().String("model", "", "claude model: opus, sonnet, haiku, fable, or full model ID (default: the model_default config setting, i.e. sonnet)")
-	cmd.Flags().String("backend", "", "agent backend: claude (default, stable) | aider | opencode | codex | crush | goose | cursor | antigravity — only claude is fully tested; codex/antigravity are beta, the rest experimental. See `warden start --help` for per-backend notes")
-	cmd.Flags().String("kind", "", "session kind: empty/agent (default) spawns an AI agent; terminal opens a plain interactive shell ($SHELL) in --dir (not an AI agent — --backend/--model/--role/prompt ignored)")
+	cmd.Flags().String("ai-cli", "", "AI CLI: claude (default, stable) | aider | opencode | codex | crush | goose | cursor | antigravity — only claude is fully tested; codex/antigravity are beta, the rest experimental. See `warden start --help` for per-AI-CLI notes")
+	cmd.Flags().String("backend", "", "deprecated alias for --ai-cli (accepted for one release; --ai-cli wins if both are set)")
+	_ = cmd.Flags().MarkDeprecated("backend", "use --ai-cli")
+	cmd.Flags().String("kind", "", "session kind: empty/agent (default) spawns an AI agent; terminal opens a plain interactive shell ($SHELL) in --dir (not an AI agent — --ai-cli/--backend/--model/--role/prompt ignored)")
 	cmd.Flags().String("preset", "", "load saved spawn defaults from a named preset (see `warden preset`); explicit flags override")
 	cmd.Flags().String("prompt-template", "", "fill a saved prompt template (see `warden prompt-template`) as the spawn prompt; a positional prompt still wins")
 	cmd.Flags().StringArray("set", nil, "supply a prompt-template variable as VAR=value (repeatable, e.g. --set FILE=foo.go --set X=y)")
@@ -251,7 +254,7 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 	cmd.Flags().String("project", "", "id of the daemon project this agent joins (its canonical path or remote URL, from `warden projects list`); stamps membership explicitly instead of leaving the daemon to path-match the launch dir. Empty = path-match")
 	cmd.Flags().String("plan", "", "optional planstore plan id in the same project (plan-<8hex>); empty = planless agent. A non-empty value must name an existing plan belonging to the resolved project")
 	cmd.Flags().String("role", "", "REQUIRED — built-in agent role: general | orchestrator | planner | worker (legacy aliases implementer/auto-merger/reviewer resolve to worker). Injects the role's persona as a system-prompt addendum and applies its default flags. See `warden role list`")
-	cmd.Flags().String("tier", "", "model tier for the quota-balanced resolver that picks the backend+model: tier-1|tier-2|tier-3. Empty derives the tier from --task, then --role (--role is required, so this always has a role to derive from). An explicit --backend/--model still wins over the resolver")
+	cmd.Flags().String("tier", "", "model tier for the quota-balanced resolver that picks the AI CLI+model: tier-1|tier-2|tier-3. Empty derives the tier from --task, then --role (--role is required, so this always has a role to derive from). An explicit --ai-cli/--model still wins over the resolver")
 	cmd.Flags().String("task", "", "task name (task registry) used to derive the model tier when --tier is empty. Empty = none")
 	cmd.Flags().String("fork-from", "", "fork an existing agent's recorded session into this new managed agent (codex `codex fork`): branches the source's conversation in a fresh sibling worktree off its branch, carrying its uncommitted tracked changes; the source keeps running. Defaults --type to development; the fork inherits the source's repo+backend. See `warden fork` for the shorthand")
 	return cmd
@@ -705,4 +708,15 @@ func newAdoptCmd() *cobra.Command {
 	cmd.Flags().String("session-id", "", "claude session uuid to adopt (default: newest for the directory)")
 	cmd.Flags().String("dir", "", "directory whose claude session to adopt (default: current directory)")
 	return cmd
+}
+
+// resolveAiCliFlag returns the AI CLI id from --ai-cli (canonical) or the
+// deprecated --backend alias. When both are set, --ai-cli wins.
+func resolveAiCliFlag(cmd *cobra.Command) string {
+	ai, _ := cmd.Flags().GetString("ai-cli")
+	if strings.TrimSpace(ai) != "" {
+		return strings.TrimSpace(ai)
+	}
+	backend, _ := cmd.Flags().GetString("backend")
+	return strings.TrimSpace(backend)
 }

@@ -113,10 +113,14 @@ func (f *fakeLife) Spawn(_ context.Context, req SpawnRequest) (*agentstore.Agent
 	if !freeMode {
 		typ = store.NormalizeType(req.Type)
 	}
+	aiCli := req.AiCli
+	if aiCli == "" {
+		aiCli = req.Backend
+	}
 	f.spawned = &agentstore.Agent{
 		ID: id, TmuxSession: id, Name: req.Name, Type: typ, Ticket: req.Ticket, Repo: req.Repo,
 		Prompt: req.Prompt, Status: store.StatusSpawning, Role: req.Role, Workdir: req.Cwd,
-		PermissionMode: req.PermissionMode, Tags: req.Tags,
+		PermissionMode: req.PermissionMode, Tags: req.Tags, AiCli: aiCli,
 		ProjectID: req.ProjectID, // mirror lifecycle: an explicit project_id is stamped at spawn
 		PlanID:    req.PlanID,
 	}
