@@ -2,8 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -566,18 +564,14 @@ func TestPromptPreview_WrapsAtWidth(t *testing.T) {
 }
 
 func TestPlanDetailText_ScrollHintAndPromptWrap(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "plan.yaml")
-	longPrompt := strings.Repeat("abcdefghij ", 20) // ~220 chars, one YAML line
-	yaml := fmt.Sprintf("name: wrap-test\ntasks:\n  - id: t1\n    prompt: %q\n", longPrompt)
-	require.NoError(t, os.WriteFile(path, []byte(yaml), 0o644))
+	longPrompt := strings.Repeat("abcdefghij ", 20) // ~220 chars
 
 	p := &planstore.Plan{
 		ID:        "p-wrap",
 		ProjectID: "proj-1",
 		Name:      "Wrap Plan",
-		FilePath:  path,
 		Status:    planstore.PlanStatusPending,
+		Tasks:     []planstore.PlanTask{{ID: "t1", Prompt: longPrompt}},
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}

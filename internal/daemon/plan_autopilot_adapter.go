@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -13,9 +12,9 @@ import (
 )
 
 // startPlanAutopilotExecution creates the live Autopilot + manager Agent for
-// Plan run mode=autopilot, records ActiveExecution, and appends typed
-// PlanExecutionEvents. Plan is the source of task state; the Autopilot is a
-// disposable executor (no plan-file-only registration).
+// Plan run mode=autopilot, records ActiveExecution (with snapshot-at-start),
+// and appends typed PlanExecutionEvents. Plan definition comes from ScrivaDB
+// only — no repository YAML is read.
 func (s *Server) startPlanAutopilotExecution(ctx context.Context, p *planstore.Plan, root string) (string, error) {
 	if s.autopilot == nil {
 		return "", errStatus(http.StatusServiceUnavailable, "autopilot not configured")
@@ -24,13 +23,15 @@ func (s *Server) startPlanAutopilotExecution(ctx context.Context, p *planstore.P
 		return "", errStatus(http.StatusBadRequest, "autopilot requires a plan_id")
 	}
 
-	planFile := filepath.Join(root, p.FilePath)
+	snap := planstore.SnapshotFromPlan(p)
 	res, err := s.autopilot.StartFromPlan(ctx, autopilot.PlanStartRequest{
-		PlanID:    p.ID,
-		ProjectID: p.ProjectID,
-		Name:      p.Name,
-		Repo:      root,
-		PlanFile:  planFile,
+		PlanID:     p.ID,
+		ProjectID:  p.ProjectID,
+		Name:       p.Name,
+		Repo:       root,
+		Definition: snap,
+		// PlanFile is optional last-export metadata only; never an execution input.
+		PlanFile: strings.TrimSpace(p.FilePath),
 	})
 	if err != nil {
 		if err == autopilot.ErrPlanIDRequired {
@@ -42,23 +43,26 @@ func (s *Server) startPlanAutopilotExecution(ctx context.Context, p *planstore.P
 	s.addAutopilotMembership(res.AutopilotID, p.ProjectID)
 	s.addPlanMembership(p.ID, p.ProjectID)
 
-	if err := s.beginPlanAutopilotExecution(ctx, p, res.AutopilotID, res.ManagerAgentID, root); err != nil {
+	if err := s.beginPlanAutopilotExecution(ctx, p, snap, res.AutopilotID, res.ManagerAgentID); err != nil {
 		return res.AutopilotID, err
 	}
 	return res.AutopilotID, nil
 }
 
-// beginPlanAutopilotExecution stamps ActiveExecution and appends
-// execution_started / executor_created / agent_spawned events.
-func (s *Server) beginPlanAutopilotExecution(ctx context.Context, p *planstore.Plan, autopilotID, managerID, root string) error {
+// beginPlanAutopilotExecution stamps ActiveExecution (with snapshot) and
+// appends execution_started / executor_created / agent_spawned events.
+func (s *Server) beginPlanAutopilotExecution(ctx context.Context, p *planstore.Plan, snap *planstore.ExecutionSnapshot, autopilotID, managerID string) error {
 	if s.plans == nil || p == nil {
 		return nil
+	}
+	if snap == nil {
+		snap = planstore.SnapshotFromPlan(p)
 	}
 	execID := planstore.NewPlanExecutionID()
 	now := time.Now().UTC()
 	tasksTotal := 0
-	if ap, err := autopilot.LoadPlan(filepath.Join(root, p.FilePath)); err == nil {
-		tasksTotal = len(ap.Tasks)
+	if snap != nil {
+		tasksTotal = len(snap.Tasks)
 	}
 	pe := planstore.PlanExecution{
 		ID:             execID,
@@ -67,6 +71,7 @@ func (s *Server) beginPlanAutopilotExecution(ctx context.Context, p *planstore.P
 		ExecutorID:     autopilotID,
 		StartedAt:      now,
 		TerminalStatus: planstore.ExecutionStatusRunning,
+		Snapshot:       snap,
 	}
 	if err := s.plans.Update(ctx, p.ID, func(pl *planstore.Plan) error {
 		pl.ActiveExecution = &pe

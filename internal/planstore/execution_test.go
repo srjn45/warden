@@ -51,6 +51,53 @@ func TestPlanExecution_roundtrip(t *testing.T) {
 	require.Equal(t, pe.PlanBranches, got.PlanBranches)
 }
 
+// TestExecutionSnapshot_roundtrip verifies snapshot-at-start fields survive JSON.
+func TestExecutionSnapshot_roundtrip(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	pe := PlanExecution{
+		ID:             "pe-snap001",
+		PlanID:         "plan-snap001",
+		ExecutionMode:  PlanModePipeline,
+		ExecutorID:     "plan-snap001",
+		StartedAt:      now,
+		TerminalStatus: ExecutionStatusRunning,
+		Snapshot: &ExecutionSnapshot{
+			Revision:    3,
+			ContentHash: "sha256:abc",
+			Name:        "ship",
+			Goal:        "go",
+			Tasks:       []PlanTask{{ID: "t1", Prompt: "do", After: []string{}}},
+		},
+	}
+	b, err := json.Marshal(&pe)
+	require.NoError(t, err)
+	var got PlanExecution
+	require.NoError(t, json.Unmarshal(b, &got))
+	require.NotNil(t, got.Snapshot)
+	require.Equal(t, int64(3), got.Snapshot.Revision)
+	require.Equal(t, "sha256:abc", got.Snapshot.ContentHash)
+	require.Equal(t, "ship", got.Snapshot.Name)
+	require.Len(t, got.Snapshot.Tasks, 1)
+	require.Equal(t, []string{"t1"}, got.Snapshot.TaskIDs())
+}
+
+func TestSnapshotFromPlan_copiesDefinition(t *testing.T) {
+	p := &Plan{
+		ID: "plan-x", Name: "n", Goal: "g", Revision: 2,
+		Constraints: []string{"c"}, DoneWhen: []string{"d"},
+		Tasks: []PlanTask{{ID: "a", Prompt: "pa"}, {ID: "b", Prompt: "pb", After: []string{"a"}}},
+	}
+	RefreshContentHash(p)
+	snap := SnapshotFromPlan(p)
+	require.NotNil(t, snap)
+	require.Equal(t, int64(2), snap.Revision)
+	require.Equal(t, p.ContentHash, snap.ContentHash)
+	require.Equal(t, "g", snap.Goal)
+	require.Len(t, snap.Tasks, 2)
+	snap.Tasks[0].Prompt = "mutated"
+	require.Equal(t, "pa", p.Tasks[0].Prompt, "snapshot must deep-copy tasks")
+}
+
 // TestExecutionSummary_roundtrip verifies JSON encode/decode for ExecutionSummary.
 func TestExecutionSummary_roundtrip(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Millisecond)

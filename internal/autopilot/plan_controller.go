@@ -22,7 +22,60 @@ type PlanStartRequest struct {
 	ProjectID string
 	Name      string // plan name (display becomes AP:<name>)
 	Repo      string // absolute repo root
-	PlanFile  string // absolute plan YAML path (diagnostics + slot identity)
+	// PlanFile is optional last-export / legacy path metadata only. Execution
+	// definition comes from Definition or PlanTaskSource — never from reading
+	// this path as authority (docs/specs/2026-09-30-scrivadb-canonical-plans.md).
+	PlanFile string
+	// Definition is the immutable execution snapshot of the canonical Plan at
+	// run start. Preferred over PlanFile / planSource hydration.
+	Definition *planstore.ExecutionSnapshot
+}
+
+// PlanBoundRunID returns the stable Autopilot run id for a Plan-bound executor:
+// hash(repo + "\x00" + "plan:" + planID). Independent of any repository YAML path.
+func PlanBoundRunID(repo, planID string) string {
+	return RunID(repo, "plan:"+strings.TrimSpace(planID))
+}
+
+// planFromDefinition converts a ScrivaDB execution snapshot into the in-memory
+// autopilot.Plan shape used by digests and task lists.
+func planFromDefinition(def *planstore.ExecutionSnapshot) Plan {
+	if def == nil {
+		return Plan{}
+	}
+	out := Plan{
+		Version:     planSchemaVersion,
+		Name:        def.Name,
+		Goal:        def.Goal,
+		Constraints: append([]string(nil), def.Constraints...),
+		DoneWhen:    append([]string(nil), def.DoneWhen...),
+	}
+	for _, t := range def.Tasks {
+		out.Tasks = append(out.Tasks, PlanTask{
+			ID:     t.ID,
+			Prompt: t.Prompt,
+			After:  append([]string(nil), t.After...),
+			Status: TaskStatusPending,
+		})
+	}
+	return out
+}
+
+// resolvePlanDefinition picks the in-memory Plan for a StartFromPlan call:
+// Definition → planSource → empty (never requires a YAML file).
+func (c *Controller) resolvePlanDefinition(ctx context.Context, req PlanStartRequest) Plan {
+	if req.Definition != nil {
+		return planFromDefinition(req.Definition)
+	}
+	if c.planSource != nil && strings.TrimSpace(req.PlanID) != "" {
+		if sp, err := c.planSource.Get(ctx, req.PlanID); err == nil && sp != nil {
+			if sp.ActiveExecution != nil && sp.ActiveExecution.Snapshot != nil {
+				return planFromDefinition(sp.ActiveExecution.Snapshot)
+			}
+			return planFromDefinition(planstore.SnapshotFromPlan(sp))
+		}
+	}
+	return Plan{}
 }
 
 // PlanStartResult is the outcome of StartFromPlan.
@@ -64,7 +117,8 @@ func (c *Controller) SetPlanSource(src PlanTaskSource) {
 // StartFromPlan creates a live Autopilot + manager Agent for Plan run
 // mode=autopilot. Unlike Register, it does not register a plan-file-only
 // RunRecord for later StartRun — the Plan is the durable unit of work and the
-// Autopilot is the disposable executor.
+// Autopilot is the disposable executor. Definition/DAG come from req.Definition
+// or PlanTaskSource; PlanFile is optional diagnostics metadata only.
 func (c *Controller) StartFromPlan(ctx context.Context, req PlanStartRequest) (PlanStartResult, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -78,32 +132,39 @@ func (c *Controller) StartFromPlan(ctx context.Context, req PlanStartRequest) (P
 		return PlanStartResult{}, c.storeErr
 	}
 
-	absPlan := filepath.Clean(strings.TrimSpace(req.PlanFile))
-	if absPlan == "" {
-		return PlanStartResult{}, errors.New("autopilot: plan file path required")
-	}
-	if !filepath.IsAbs(absPlan) {
-		var err error
-		absPlan, err = filepath.Abs(absPlan)
-		if err != nil {
-			return PlanStartResult{}, err
-		}
-	}
 	repo := strings.TrimSpace(req.Repo)
 	if repo == "" {
 		return PlanStartResult{}, errors.New("autopilot: repo required")
 	}
 	repo = filepath.Clean(repo)
 
+	// Optional export-path metadata; empty when the Plan has never been exported.
+	absPlan := strings.TrimSpace(req.PlanFile)
+	if absPlan != "" {
+		absPlan = filepath.Clean(absPlan)
+		if !filepath.IsAbs(absPlan) {
+			candidate := filepath.Join(repo, absPlan)
+			if _, err := os.Stat(candidate); err == nil {
+				absPlan = candidate
+			} else if abs, err := filepath.Abs(absPlan); err == nil {
+				absPlan = abs
+			}
+		}
+	}
+
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		name = defaultRunName(absPlan)
+		if absPlan != "" {
+			name = defaultRunName(absPlan)
+		} else {
+			name = req.PlanID
+		}
 	}
 	if err := validatePlanNameReservedSuffixes(name); err != nil {
 		return PlanStartResult{}, err
 	}
 
-	runID := RunID(repo, absPlan)
+	runID := PlanBoundRunID(repo, req.PlanID)
 	if existing, ok := c.runs[runID]; ok {
 		switch existing.state {
 		case StateActive, StateStarting, StateHealing, StateDegraded, StatePaused:
@@ -138,11 +199,7 @@ func (c *Controller) StartFromPlan(ctx context.Context, req PlanStartRequest) (P
 		return PlanStartResult{}, err
 	}
 
-	plan, err := LoadPlan(absPlan)
-	if err != nil {
-		// Content-only failures: proceed with empty plan defs; Plan store owns progress.
-		plan, _, _ = loadPlanLenient(absPlan)
-	}
+	plan := c.resolvePlanDefinition(ctx, req)
 
 	ap := &autopilotstore.Autopilot{
 		ID:        runID,
@@ -156,7 +213,7 @@ func (c *Controller) StartFromPlan(ctx context.Context, req PlanStartRequest) (P
 			Strategy:          c.strategy,
 			SlotScope:         scope,
 			Repo:              repo,
-			PlanFile:          absPlan,
+			PlanFile:          absPlan, // last-export metadata only; may be empty
 		},
 	}
 	if err := c.live.Create(ctx, ap); err != nil {
@@ -190,8 +247,10 @@ func (c *Controller) StartFromPlan(ctx context.Context, req PlanStartRequest) (P
 		integrationBranch: branch,
 		tried:             map[string]bool{},
 	}
-	if info, err := os.Stat(absPlan); err == nil {
-		r.planModTime = info.ModTime()
+	if absPlan != "" {
+		if info, err := os.Stat(absPlan); err == nil {
+			r.planModTime = info.ModTime()
+		}
 	}
 	c.runs[runID] = r
 	if err := c.claims.claim(runID, scope); err != nil {
@@ -226,7 +285,9 @@ func (c *Controller) StartFromPlan(ctx context.Context, req PlanStartRequest) (P
 		a.Diagnostics.LastError = ""
 		return nil
 	})
-	if c.runtime != nil && r.cancel == nil {
+	// Plan-file mtime watcher is only for legacy file-registered runs.
+	// DB-canonical Plan-bound executors do not re-authorize the DAG from disk.
+	if c.runtime != nil && r.cancel == nil && r.absPlanFile != "" && r.planID == "" {
 		wctx, cancel := context.WithCancel(context.Background())
 		r.cancel = cancel
 		go c.watchPlan(wctx, r, planWatchInterval)
@@ -259,18 +320,21 @@ func (c *Controller) adoptLiveLocked(ctx context.Context, a *autopilotstore.Auto
 			return PlanStartResult{}, err
 		}
 	}
-	plan, _ := LoadPlan(absPlan)
-	if plan.Goal == "" {
-		plan, _, _ = loadPlanLenient(absPlan)
+	plan := c.resolvePlanDefinition(ctx, req)
+	if plan.Goal == "" && len(plan.Tasks) == 0 && a.PlanID != "" && c.planSource != nil {
+		if sp, err := c.planSource.Get(ctx, a.PlanID); err == nil && sp != nil {
+			plan = planFromDefinition(planstore.SnapshotFromPlan(sp))
+		}
 	}
+	diagPlanFile := firstNonEmpty(a.Diagnostics.PlanFile, absPlan)
 	r := &run{
 		runID:             runID,
 		name:              name,
 		planID:            a.PlanID,
 		projectID:         firstNonEmpty(a.ProjectID, req.ProjectID),
 		repo:              firstNonEmpty(a.Diagnostics.Repo, repo),
-		planFile:          firstNonEmpty(a.Diagnostics.PlanFile, absPlan),
-		absPlanFile:       firstNonEmpty(a.Diagnostics.PlanFile, absPlan),
+		planFile:          diagPlanFile,
+		absPlanFile:       diagPlanFile,
 		state:             RunState(firstNonEmpty(a.Diagnostics.State, string(StateActive))),
 		plan:              plan,
 		resolvedGate:      firstNonEmpty(a.Diagnostics.Gate, c.gate),
@@ -413,10 +477,20 @@ func (c *Controller) hydratePlanTasksLocked(ctx context.Context, r *run) {
 	if err != nil || p == nil {
 		return
 	}
-	// Progress lives on Plan; definitions stay on the YAML-backed r.plan.
-	// Touching TaskProgress here keeps recovery tests verifying Plan as source.
-	if len(p.TaskProgress) == 0 && p.ActiveExecution != nil {
-		_ = p.ActiveExecution.TaskProgress
+	// Prefer the immutable execution snapshot; fall back to live definition.
+	var def *planstore.ExecutionSnapshot
+	if p.ActiveExecution != nil && p.ActiveExecution.Snapshot != nil {
+		def = p.ActiveExecution.Snapshot
+	} else {
+		def = planstore.SnapshotFromPlan(p)
+	}
+	if def == nil {
+		return
+	}
+	// Always refresh the in-memory definition from ScrivaDB for plan-bound runs
+	// so restart recovery does not depend on a repository YAML path.
+	if len(r.plan.Tasks) == 0 || strings.TrimSpace(r.plan.Goal) == "" {
+		r.plan = planFromDefinition(def)
 	}
 }
 

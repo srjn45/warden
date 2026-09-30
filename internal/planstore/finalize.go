@@ -235,7 +235,11 @@ func (s *PlanService) persistExecutionSummary(ctx context.Context, planID string
 		}
 	}
 	if summary.TasksTotal == 0 {
-		summary.TasksTotal = len(p.Tasks)
+		if p.ActiveExecution != nil && p.ActiveExecution.Snapshot != nil {
+			summary.TasksTotal = len(p.ActiveExecution.Snapshot.Tasks)
+		} else {
+			summary.TasksTotal = len(p.Tasks)
+		}
 	}
 	if summary.TasksDone == 0 && p.TaskProgress != nil {
 		for _, st := range p.TaskProgress {
