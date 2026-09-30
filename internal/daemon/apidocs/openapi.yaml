@@ -2355,6 +2355,15 @@ paths:
               properties:
                 spec: { type: string, description: "pipeline YAML" }
                 project_id: { type: string, description: "id of the first-class project (projectstore) this pipeline joins. Overrides a project_id set in the YAML spec; when both are empty the daemon resolves it by matching the pipeline repo to an OPEN project (no match leaves the pipeline project-less). On create the pipeline is stamped with the resolved id and appended to the project's authoritative pipelines[] membership list." }
+                plan_id:
+                  type: string
+                  description: >
+                    optional back-ref to a planstore plan in the same project. Empty
+                    is always valid (planless pipeline). A non-empty value must name
+                    an existing plan whose ProjectID matches the resolved project
+                    for this pipeline; otherwise the request is rejected with 400.
+                    Does not change execution behavior — the plan-to-pipeline adapter
+                    sets this when run_plan mode=pipeline creates the pipeline.
                 parent_agent_id: { type: string, description: "id of the agent that owns this pipeline (project entity hierarchy D6). Overrides the identity of the agent behind the request; when both are empty the pipeline is operator-created and has no owning agent. On create the pipeline is stamped with the resolved id and appended to the owning agent's child_pipelines[] forward edge." }
       responses:
         "201":
@@ -3749,6 +3758,14 @@ components:
         tags: { type: array, items: { type: string } }
         parent_id: { type: string, description: "id of the agent that spawned this one; empty = root" }
         project_id: { type: string, description: "id of the first-class project (projectstore) this agent/terminal joins. Empty = resolve by matching the launch path (cwd/repo) to an OPEN project; no match leaves the session project-less. On spawn the session is stamped with the resolved id and appended to the project's authoritative agents[]/terminals[] membership list." }
+        plan_id:
+          type: string
+          description: >
+            optional back-ref to a planstore plan in the same project. Empty is
+            always valid (planless agent). A non-empty value must name an existing
+            plan whose ProjectID matches the resolved project for this spawn;
+            otherwise the request is rejected with 400. Does not change execution
+            behavior — adapters that drive plan-bound runs set this later.
         role: { type: string, description: "built-in agent role name (general|orchestrator|implementer|auto-merger|reviewer); empty = general (no persona). The role's persona is injected as a system-prompt addendum and its default flags fill any request fields left unset." }
         tier: { type: string, description: "explicit model tier (tier-1|tier-2|tier-3) for the quota-balanced resolver that picks the backend+model at spawn. Empty derives the tier from task, then role. A pinned backend/model still wins over the resolver." }
         task: { type: string, description: "task name (task registry) used to derive the model tier via the task→tier map when tier is empty. Empty = none." }
@@ -4777,6 +4794,11 @@ components:
         path: { type: string, description: "project nodes: local checkout path" }
         slot: { type: string, description: "autopilot lane: autopilot | guardian | worker" }
         gate: { type: string, description: "autopilot_run nodes: gate mode" }
+        plan_id:
+          type: string
+          description: >
+            agent/pipeline nodes: optional back-ref to the planstore plan this
+            executor is linked to. Omitted when the node is planless.
         synthetic: { type: boolean, description: "true for the \"No project\" bucket" }
         degraded: { type: boolean, description: "subtree degraded in place" }
         closed: { type: boolean, description: "true for a node under a closed/hibernated project" }

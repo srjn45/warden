@@ -287,6 +287,12 @@ func newStatusCmd() *cobra.Command {
 			}
 			fmt.Fprintf(out, "id:              %s\nname:            %s\ntype:            %s\nmodel:           %s\nticket:          %s\nstatus:          %s\nrepo:            %s\nworkdir:         %s\nworktree:        %s\nbranch:          %s\npr:              %s\npermission_mode: %s\nsubject:         %s\nclaude:          %s\nupdated:         %s\n",
 				s.ID, name, typeOrPending(s.Type), modelOrDefault(s.Model), s.Ticket, statusCell(s.Status, color, s.ExitCode), s.Repo, s.Workdir, s.Worktree, s.Branch, s.PR, permMode, s.Subject, s.ClaudeSessionID, s.UpdatedAt.Format(time.RFC3339))
+			if s.ProjectID != "" {
+				fmt.Fprintf(out, "project:         %s\n", s.ProjectID)
+			}
+			if s.PlanID != "" {
+				fmt.Fprintf(out, "plan:            %s\n", s.PlanID)
+			}
 
 			// Show rate limit info if present
 			if rateLimitInfo := formatRateLimitInfo(s); rateLimitInfo != "" {

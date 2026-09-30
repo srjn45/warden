@@ -520,7 +520,7 @@ func buildAutopilotRunNode(r *autopilot.RunStatus, sessions []*store.Session) *N
 			Label:     mLabel,
 			Status:    sessionStatus(managerSess.Status, managerSess.ExitCode),
 			SessionID: managerSess.ID,
-			Detail:    &Detail{Kind: "agent", Slot: "autopilot"},
+			Detail:    &Detail{Kind: "agent", Slot: "autopilot", PlanID: managerSess.PlanID},
 		})
 	}
 
@@ -536,7 +536,7 @@ func buildAutopilotRunNode(r *autopilot.RunStatus, sessions []*store.Session) *N
 			Label:     gLabel,
 			Status:    sessionStatus(guardianSess.Status, guardianSess.ExitCode),
 			SessionID: guardianSess.ID,
-			Detail:    &Detail{Kind: "agent", Slot: "guardian"},
+			Detail:    &Detail{Kind: "agent", Slot: "guardian", PlanID: guardianSess.PlanID},
 		})
 	}
 
@@ -563,7 +563,7 @@ func buildAutopilotRunNode(r *autopilot.RunStatus, sessions []*store.Session) *N
 				Label:     wLabel,
 				Status:    sessionStatus(w.Status, w.ExitCode),
 				SessionID: w.ID,
-				Detail:    &Detail{Kind: "agent", Slot: "worker"},
+				Detail:    &Detail{Kind: "agent", Slot: "worker", PlanID: w.PlanID},
 			})
 		}
 
@@ -592,7 +592,7 @@ func buildAutopilotRunNode(r *autopilot.RunStatus, sessions []*store.Session) *N
 			Label:     wLabel,
 			Status:    sessionStatus(w.Status, w.ExitCode),
 			SessionID: w.ID,
-			Detail:    &Detail{Kind: "agent", Slot: "worker"},
+			Detail:    &Detail{Kind: "agent", Slot: "worker", PlanID: w.PlanID},
 		})
 	}
 
@@ -644,7 +644,7 @@ func buildPipelineNode(p *pipeline.Pipeline, jobSessions map[string]*store.Sessi
 		ID:       "pipeline:" + p.ID,
 		Label:    p.Name,
 		Status:   pipelineStatus(p.Status),
-		Detail:   &Detail{Repo: p.Repo},
+		Detail:   &Detail{Repo: p.Repo, PlanID: p.PlanID},
 		Children: jobNodes,
 	}
 }
@@ -733,7 +733,7 @@ func buildAgentSubtree(
 		Label:     label,
 		Status:    sessionStatus(s.Status, s.ExitCode),
 		SessionID: s.ID,
-		Detail:    &Detail{Kind: "agent", Backend: backendOr(s)},
+		Detail:    &Detail{Kind: "agent", Backend: backendOr(s), PlanID: s.PlanID},
 	}
 
 	// Child agents first — already ordered by child_agents[] (list order).

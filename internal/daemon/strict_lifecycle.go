@@ -45,6 +45,7 @@ func spawnRequestFromOAPI(b oapi.SpawnRequest) SpawnRequest {
 		Tags:           b.Tags,
 		ParentID:       b.ParentId,
 		ProjectID:      b.ProjectId,
+		PlanID:         b.PlanId,
 		ForkFrom:       b.ForkFrom,
 		Role:           b.Role,
 		Tier:           b.Tier,
@@ -115,6 +116,17 @@ func (s *Server) SpawnAgent(ctx context.Context, req oapi.SpawnAgentRequestObjec
 	// the same write. Membership on the project's agents[]/terminals[] list is added
 	// after a successful insert (spec D2/§3.1, §5).
 	s.stampProjectMembership(sess)
+	// Optional PlanID back-ref: empty is always valid; a non-empty value must name a
+	// plan in the same project (plan-links-on-agent-pipeline). Validate after project
+	// resolution so path-matched ProjectIDs are included.
+	if code, msg := s.validatePlanLink(ctx, sess.PlanID, sess.ProjectID); code != 0 {
+		tctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if terr := s.life.Teardown(tctx, sess); terr != nil {
+			slog.Warn("spawn plan-link rollback failed", "agent", sess.ID, "err", terr)
+		}
+		return nil, errStatus(code, msg)
+	}
 
 	if err := s.store.Insert(ctx, sess); err != nil {
 		// Roll back the tmux session (and any worktree) so a failed insert doesn't

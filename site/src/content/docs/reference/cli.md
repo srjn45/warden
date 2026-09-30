@@ -188,6 +188,7 @@ Flags:
       --model string                             claude model: opus, sonnet, haiku, fable, or full model ID (default: the model_default config setting, i.e. sonnet)
       --name string                              optional human-friendly name (max 32 chars, alphanumeric + hyphens/underscores)
       --permission-mode string                   permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan (default: from config or 'auto')
+      --plan string                              optional planstore plan id in the same project (plan-<8hex>); empty = planless agent. A non-empty value must name an existing plan belonging to the resolved project
       --pr string                                PR number/url (pr-review)
       --preset warden preset                     load saved spawn defaults from a named preset (see warden preset); explicit flags override
       --project warden projects list             id of the daemon project this agent joins (its canonical path or remote URL, from warden projects list); stamps membership explicitly instead of leaving the daemon to path-match the launch dir. Empty = path-match
@@ -906,6 +907,8 @@ Flags:
   -f, --file string                       path to the pipeline YAML spec
   -h, --help                              help for create
       --name string                       pipeline name — fills {{NAME}} (default: the template name)
+      --plan string                       optional planstore plan id in the same project; empty = planless pipeline
+      --project string                    optional project id this pipeline joins; overrides YAML project_id
       --repo string                       repo path — fills {{REPO}} (default: the current directory)
       --set stringArray                   fill a template placeholder, KEY=VALUE (repeatable)
       --template pipeline template list   built-in template to render (see pipeline template list)
@@ -4412,6 +4415,7 @@ Flags:
       --model string                             claude model: opus, sonnet, haiku, fable, or full model ID (default: the model_default config setting, i.e. sonnet)
       --name string                              optional human-friendly name (max 32 chars, alphanumeric + hyphens/underscores)
       --permission-mode string                   permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan (default: from config or 'auto')
+      --plan string                              optional planstore plan id in the same project (plan-<8hex>); empty = planless agent. A non-empty value must name an existing plan belonging to the resolved project
       --pr string                                PR number/url (pr-review)
       --preset warden preset                     load saved spawn defaults from a named preset (see warden preset); explicit flags override
       --project warden projects list             id of the daemon project this agent joins (its canonical path or remote URL, from warden projects list); stamps membership explicitly instead of leaving the daemon to path-match the launch dir. Empty = path-match

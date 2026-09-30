@@ -1466,7 +1466,10 @@ type SpawnRequest struct {
 	// ParentId id of the agent that spawned this one; empty = root
 	ParentId       string `json:"parent_id,omitempty"`
 	PermissionMode string `json:"permission_mode,omitempty"`
-	Pr             string `json:"pr,omitempty"`
+
+	// PlanId optional back-ref to a planstore plan in the same project. Empty is always valid (planless agent). A non-empty value must name an existing plan whose ProjectID matches the resolved project for this spawn; otherwise the request is rejected with 400. Does not change execution behavior — adapters that drive plan-bound runs set this later.
+	PlanId string `json:"plan_id,omitempty"`
+	Pr     string `json:"pr,omitempty"`
 
 	// ProjectId id of the first-class project (projectstore) this agent/terminal joins. Empty = resolve by matching the launch path (cwd/repo) to an OPEN project; no match leaves the session project-less. On spawn the session is stamped with the resolved id and appended to the project's authoritative agents[]/terminals[] membership list.
 	ProjectId string `json:"project_id,omitempty"`
@@ -1773,6 +1776,9 @@ type SetModelTierJSONBody struct {
 type CreatePipelineJSONBody struct {
 	// ParentAgentId id of the agent that owns this pipeline (project entity hierarchy D6). Overrides the identity of the agent behind the request; when both are empty the pipeline is operator-created and has no owning agent. On create the pipeline is stamped with the resolved id and appended to the owning agent's child_pipelines[] forward edge.
 	ParentAgentId string `json:"parent_agent_id,omitempty"`
+
+	// PlanId optional back-ref to a planstore plan in the same project. Empty is always valid (planless pipeline). A non-empty value must name an existing plan whose ProjectID matches the resolved project for this pipeline; otherwise the request is rejected with 400. Does not change execution behavior — the plan-to-pipeline adapter sets this when run_plan mode=pipeline creates the pipeline.
+	PlanId string `json:"plan_id,omitempty"`
 
 	// ProjectId id of the first-class project (projectstore) this pipeline joins. Overrides a project_id set in the YAML spec; when both are empty the daemon resolves it by matching the pipeline repo to an OPEN project (no match leaves the pipeline project-less). On create the pipeline is stamped with the resolved id and appended to the project's authoritative pipelines[] membership list.
 	ProjectId string `json:"project_id,omitempty"`

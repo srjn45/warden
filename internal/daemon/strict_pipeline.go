@@ -28,10 +28,12 @@ func (s *Server) CreatePipeline(ctx context.Context, req oapi.CreatePipelineRequ
 	spec := ""
 	bodyProjectID := ""
 	bodyParentAgentID := ""
+	bodyPlanID := ""
 	if req.Body != nil {
 		spec = req.Body.Spec
 		bodyProjectID = req.Body.ProjectId
 		bodyParentAgentID = req.Body.ParentAgentId
+		bodyPlanID = req.Body.PlanId
 	}
 	p, err := pipeline.ParseSpec([]byte(spec))
 	if err != nil {
@@ -46,6 +48,14 @@ func (s *Server) CreatePipeline(ctx context.Context, req oapi.CreatePipelineRequ
 	}
 	if p.ProjectID == "" {
 		p.ProjectID = s.resolvePipelineProjectID(p)
+	}
+	// Optional PlanID back-ref (plan-links-on-agent-pipeline). Empty is always
+	// valid; a non-empty value must name a plan in the same project.
+	if bodyPlanID != "" {
+		p.PlanID = bodyPlanID
+	}
+	if code, msg := s.validatePlanLink(ctx, p.PlanID, p.ProjectID); code != 0 {
+		return nil, errStatus(code, msg)
 	}
 	// Stamp the owning agent (spec D6/§3.4). Precedence: an explicit request-body
 	// parent_agent_id wins over the actor identity; when both are empty the pipeline
