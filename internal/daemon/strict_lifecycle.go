@@ -302,6 +302,7 @@ func (s *Server) TerminateSession(ctx context.Context, req oapi.TerminateSession
 	// Terminate sets the session done directly (no poller swap), so reconcile the
 	// owning pipeline job here too — otherwise it stays stuck running.
 	s.reconcileJobOnTerminal(sess, store.StatusDone)
+	s.recordPlanBoundAgentFinished(sess, "terminated")
 	s.recordAuditCtx(ctx, audit.ActionTerminate, sess.ID, nil)
 	return oapi.TerminateSession200JSONResponse{OKJSONResponse: oapi.OKJSONResponse{Status: "terminated"}}, nil
 }
@@ -371,6 +372,7 @@ func (s *Server) DeleteSession(ctx context.Context, req oapi.DeleteSessionReques
 		}
 		s.notify()
 		s.reconcileJobOnTerminal(sess, term)
+		s.recordPlanBoundAgentFinished(sess, "tombstoned")
 		s.recordAuditCtx(ctx, audit.ActionDelete, id, map[string]string{
 			"tombstoned":    "true",
 			"hard":          strconv.FormatBool(hard),
@@ -391,6 +393,7 @@ func (s *Server) DeleteSession(ctx context.Context, req oapi.DeleteSessionReques
 	if derr != nil && !errors.Is(derr, agentstore.ErrNotFound) {
 		return nil, derr
 	}
+	s.recordPlanBoundAgentFinished(sess, "deleted")
 	// Only a hard delete drops the agent's inbox; an archive keeps it. Best-effort.
 	if hard && s.mbox != nil {
 		_ = s.mbox.DeleteInbox(id)
@@ -441,6 +444,7 @@ func (s *Server) RemoveWorktree(ctx context.Context, req oapi.RemoveWorktreeRequ
 	if err := s.store.ClearWorktree(ctx, sess.ID); err != nil && !errors.Is(err, agentstore.ErrNotFound) {
 		return nil, err
 	}
+	s.recordPlanBoundWorktreeRemoved(sess)
 	s.notify()
 	return oapi.RemoveWorktree200JSONResponse{OKJSONResponse: oapi.OKJSONResponse{Status: "worktree removed"}}, nil
 }

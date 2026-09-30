@@ -82,6 +82,7 @@ func (s *Server) GitPush(ctx context.Context, req oapi.GitPushRequestObject) (oa
 			AgentID: sess.ID,
 			Branch:  res.Branch,
 		}, res.Branch)
+		s.trackPlanBranch(sess, res.Branch)
 	}
 	s.recordGitSavings(sess, res.RawBytes, res.RawSample, res)
 	return oapi.GitPush200JSONResponse(res), nil

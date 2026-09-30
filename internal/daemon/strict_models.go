@@ -147,6 +147,10 @@ func (s *Server) SwitchSession(ctx context.Context, req oapi.SwitchSessionReques
 		}
 		return nil, errStatus(http.StatusInternalServerError, "hot-swap failed: "+err.Error())
 	}
+	// Handoff prose is attributed-note only — never a PlanExecutionEvent / summary.
+	if res != nil {
+		s.recordPlanBoundHandoffNote(sess, res.Handoff, res.HandoffPath)
+	}
 	s.notify()
 	return oapi.SwitchSession200JSONResponse(*res), nil
 }

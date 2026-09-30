@@ -217,5 +217,6 @@ func (s *Server) removeDoneWorktreeBestEffort(sess *agentstore.Agent) {
 		slog.Warn("worktree_keep_done=false: kept worktree on archive", "agent", sess.ID, "err", err)
 		return
 	}
+	s.recordPlanBoundWorktreeRemoved(sess)
 	slog.Info("worktree_keep_done=false: removed worktree on archive", "agent", sess.ID)
 }

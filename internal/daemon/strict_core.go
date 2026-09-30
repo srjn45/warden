@@ -162,10 +162,12 @@ func (s *Server) IngestEvent(ctx context.Context, req oapi.IngestEventRequestObj
 	}
 	s.notify()
 	// The SessionEnd hook moves a session to a terminal status (done) — reconcile
-	// the owning pipeline job (see reconcileJobOnTerminal).
+	// the owning pipeline job (see reconcileJobOnTerminal) and append plan-bound
+	// agent_finished evidence when applicable.
 	if to == store.StatusDone {
 		if sess, gerr := s.store.Get(ctx, b.Session); gerr == nil {
 			s.reconcileJobOnTerminal(sess, to)
+			s.recordPlanBoundAgentFinished(sess, "session_end")
 		}
 	}
 	return oapi.IngestEvent200JSONResponse{OKJSONResponse: oapi.OKJSONResponse{Status: "ok"}}, nil
