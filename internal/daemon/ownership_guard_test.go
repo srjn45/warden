@@ -230,11 +230,12 @@ func TestInstallDefaultAutoApprovePolicy(t *testing.T) {
 	})
 }
 
-func TestStampAutopilotSpawnBackRefsClearsParentID(t *testing.T) {
+func TestStampAutopilotSpawnBackRefsParentsWorker(t *testing.T) {
 	fs := newFakeStore()
 	manager := &agentstore.Agent{
 		ID:     "agent-brain",
 		Role:   autopilotBrainRole,
+		PlanID: "plan-abc",
 		Tags:   []string{"autopilot", "run:ap-deadbeef1234"},
 		Status: store.StatusWorking,
 	}
@@ -242,13 +243,14 @@ func TestStampAutopilotSpawnBackRefsClearsParentID(t *testing.T) {
 
 	srv := &Server{store: fs}
 	ctx := ctxWithActor("agent-brain")
-	sr := &SpawnRequest{Role: "worker", Task: "build-feature", ParentID: "agent-brain"}
+	sr := &SpawnRequest{Role: "worker", Task: "build-feature"}
 	srv.stampAutopilotSpawnBackRefs(ctx, sr)
 
-	require.Empty(t, sr.ParentID)
-	require.Equal(t, "ap-deadbeef1234", sr.AutopilotRunID)
-	require.Equal(t, store.AutopilotSlotWorker, sr.AutopilotSlot)
-	require.Equal(t, "build-feature", sr.AutopilotTaskID)
+	require.Equal(t, "agent-brain", sr.ParentID)
+	require.Equal(t, "plan-abc", sr.PlanID)
+	require.Empty(t, sr.AutopilotRunID)
+	require.Empty(t, sr.AutopilotSlot)
+	require.Empty(t, sr.AutopilotTaskID)
 }
 
 func TestStampAutopilotSpawnBackRefsLeavesNonWorkerAlone(t *testing.T) {

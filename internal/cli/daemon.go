@@ -648,11 +648,10 @@ func newDaemonRunCmd() *cobra.Command {
 					"projects_rebuilt", rep.ProjectsRebuilt)
 			}
 
-			// Live Autopilot entity migration (plan-execution-entity-redesign
-			// autopilot-entity-model): fold durable registered RunRecords into Plan
-			// execution history (or a legacy archive when no Plan resolves). Live
-			// operational runs also get an autopilotstore row. Source RunRecords are
-			// retained until the controller cutover. Best-effort — never blocks boot.
+			// Live Autopilot entity store (plan-execution-entity-redesign): migrate
+			// legacy RunRecords, then wire the store into the controller so Plan
+			// run mode=autopilot creates live Autopilot + manager (not plan-file
+			// registration alone). Best-effort — never blocks boot.
 			apLive, aperr := autopilotstore.New(cfg.DataDir)
 			if aperr != nil {
 				slog.Warn("daemon: autopilotstore open failed", "err", aperr)
@@ -665,6 +664,13 @@ func newDaemonRunCmd() *cobra.Command {
 						"live_created", apRep.LiveCreated,
 						"history_attached", apRep.HistoryAttached,
 						"archived_unmatched", apRep.ArchivedUnmatched)
+				}
+				apCtrl.SetLiveStore(apLive)
+				if planStore != nil {
+					apCtrl.SetPlanSource(planStore)
+				}
+				if rerr := apCtrl.RecoverLiveAutopilots(ctx); rerr != nil {
+					slog.Warn("daemon: live Autopilot recovery failed", "err", rerr)
 				}
 			}
 

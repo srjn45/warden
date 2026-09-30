@@ -112,7 +112,7 @@ wd plan run <plan-id> --mode manual               # state tracking only
 
 | Mode | What happens |
 |---|---|
-| `autopilot` | Registers an autopilot run against the plan; the manager drives workers autonomously and moves the plan to `completed/` when done. |
+| `autopilot` | Creates a live `Autopilot` (`AP:<plan-name>`) and manager Agent (`role=autopilot`, `PlanID`); workers are children via `ParentID`; Plan owns task state and execution events. |
 | `pipeline` | Creates a DAG pipeline where each YAML task becomes a job; moves to `completed/` when the pipeline finishes. |
 | `orchestrator_worker` | Spawns an orchestrator agent with the plan as context; each worker requires a human approval gate. Completion is `wd plan complete <id>` (`orchestrator` is accepted as a CLI alias). |
 | `manual` | git-mv to `in_progress/` only — state tracking with no execution entity. You drive all prompting. |

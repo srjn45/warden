@@ -641,19 +641,13 @@ func (s *Server) startPlanExecution(ctx context.Context, p *planstore.Plan, mode
 		if s.autopilot == nil {
 			return errStatus(http.StatusServiceUnavailable, "autopilot not configured")
 		}
-		rs, regErr := s.autopilot.Register(ctx, autopilot.RegisterRequest{
-			Name:      p.Name,
-			Repo:      root,
-			PlanFile:  filepath.Join(root, p.FilePath),
-			PlanID:    p.ID,
-			ProjectID: p.ProjectID,
-		})
-		if regErr != nil {
-			return errStatus(http.StatusInternalServerError, "register autopilot run: "+regErr.Error())
+		id, startErr := s.startPlanAutopilotExecution(ctx, p, root)
+		if startErr != nil {
+			return startErr
 		}
-		autopilotRunID = rs.RunID
-		s.addAutopilotMembership(autopilotRunID, p.ProjectID)
-		s.addPlanMembership(p.ID, p.ProjectID)
+		autopilotRunID = id
+		// Membership + ActiveExecution + events are handled inside startPlanAutopilotExecution.
+		return nil
 
 	case planstore.PlanModePipeline:
 		if s.exec == nil {

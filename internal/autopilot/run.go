@@ -54,11 +54,14 @@ func (l BackendLadder) firstFree() string {
 	return ""
 }
 
-// BrainSpec is the request to launch a run's brain through the daemon's existing
-// agent lifecycle. The Controller composes it; the daemon runtime adapter maps it
-// onto a spawn request (role autopilot, headless, prompt = recovery digest).
+// BrainSpec is the request to launch a run's manager Agent through the daemon's
+// existing agent lifecycle. The Controller composes it; the daemon runtime
+// adapter maps it onto a spawn request (role=autopilot, PlanID set, prompt =
+// recovery digest). The on-demand Consultor brain is separate (role=brain).
 type BrainSpec struct {
-	RunID     string   // owning run
+	RunID     string   // owning Autopilot / run id
+	PlanID    string   // required Plan back-ref on the manager Agent
+	ProjectID string   // owning project
 	Repo      string   // repo root (agent cwd)
 	PlanFile  string   // absolute plan-file path
 	SlotScope string   // stable scope for Ticket = <scope>-autopilot
@@ -67,6 +70,8 @@ type BrainSpec struct {
 	Tags      []string // [autopilot, run:<run_id>]
 	Headless  bool     // run non-interactively (unattended)
 }
+
+// SpawnConsultBrain is optional on Runtime; see ConsultBrainRuntime.
 
 // BrainHandle identifies a spawned brain.
 type BrainHandle struct {
@@ -230,6 +235,8 @@ func (c *Controller) spawnBrain(ctx context.Context, r *run, backend string) err
 	c.persistIntegrationBranch(r)
 	handle, err := c.runtime.SpawnBrain(ctx, BrainSpec{
 		RunID:     r.runID,
+		PlanID:    r.planID,
+		ProjectID: r.projectID,
 		Repo:      r.repo,
 		PlanFile:  r.absPlanFile,
 		SlotScope: r.slotScope,
