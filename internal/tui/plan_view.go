@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -17,12 +16,13 @@ const promptIndent = "     "
 
 // planDetailText renders a plan's detail view for display.
 // Sections: lifecycle, active execution, task evidence, historical summaries.
-// projectRoot is the absolute path to the project's root directory, used to
-// resolve p.FilePath (which is relative to that root) for YAML task reading.
+// projectRoot is retained for call-site compatibility but unused — tasks come
+// from the canonical ScrivaDB Plan (ActiveExecution snapshot when present).
 func planDetailText(p *planstore.Plan, width int, projectRoot string, expanded bool) string {
 	if p == nil {
 		return ""
 	}
+	_ = projectRoot
 	var b strings.Builder
 
 	// ── Header / lifecycle ────────────────────────────────────────────────────
@@ -34,11 +34,20 @@ func planDetailText(p *planstore.Plan, width int, projectRoot string, expanded b
 
 	b.WriteString(stPaneTitle.Render("Lifecycle") + "\n")
 	writeField("Status", string(p.Status))
+	writeField("Revision", fmt.Sprintf("%d", p.Revision))
 	mode := string(p.ExecutionMode)
 	if mode == "" {
 		mode = "manual"
 	}
 	writeField("Executed Using", mode)
+	if exec := planstore.ExecutorID(p); exec != "" {
+		writeField("Executor", exec)
+	}
+	ts := planstore.ComputeTaskSummary(p)
+	if ts.Total > 0 {
+		writeField("Tasks", fmt.Sprintf("%s done (%d in progress, %d pending)", ts.String(), ts.InProgress, ts.Pending))
+	}
+	writeField("Export", string(planstore.ComputeExportStatus(p)))
 	writeField("Created At", p.CreatedAt.Format(time.RFC3339))
 	writeField("Updated At", p.UpdatedAt.Format(time.RFC3339))
 	if p.StartedAt != nil {
@@ -57,7 +66,11 @@ func planDetailText(p *planstore.Plan, width int, projectRoot string, expanded b
 		writeField("Orchestrator", p.OrchestratorID)
 	}
 	writeField("ID", p.ID)
-	writeField("File", p.FilePath)
+	if p.RepoExport != nil && p.RepoExport.FilePath != "" {
+		writeField("Last Export", p.RepoExport.FilePath)
+	} else if p.FilePath != "" {
+		writeField("Last Export", p.FilePath)
+	}
 
 	// ── Active execution ──────────────────────────────────────────────────────
 	b.WriteString("\n" + stPaneTitle.Render("Active Execution") + "\n")
@@ -79,10 +92,29 @@ func planDetailText(p *planstore.Plan, width int, projectRoot string, expanded b
 		b.WriteString("  " + stMuted.Render("(no active execution)") + "\n")
 	}
 
+	// ── Linked PRs / branches ─────────────────────────────────────────────────
+	if len(p.Branches) > 0 || len(p.BranchSummaries) > 0 {
+		b.WriteString("\n" + stPaneTitle.Render("Branches / PRs") + "\n")
+		if len(p.Branches) > 0 {
+			writeField("Branches", strings.Join(p.Branches, ", "))
+		}
+		for _, bs := range p.BranchSummaries {
+			line := bs.Name
+			if bs.PR != nil {
+				if bs.PR.Number > 0 {
+					line += fmt.Sprintf(" → #%d (%s)", bs.PR.Number, bs.PR.State)
+				} else if bs.PR.URL != "" {
+					line += " → " + bs.PR.URL
+				}
+			}
+			b.WriteString("  " + line + "\n")
+		}
+	}
+
 	// ── Task evidence ─────────────────────────────────────────────────────────
 	b.WriteString("\n" + stPaneTitle.Render("Task Evidence") + "\n")
 
-	tasks, _ := planTasksFromPlan(p, projectRoot)
+	tasks := planTasksFromPlan(p)
 	if len(tasks) > 0 {
 		for i, t := range tasks {
 			status := t.Status
@@ -236,25 +268,28 @@ func planDetailText(p *planstore.Plan, width int, projectRoot string, expanded b
 	return b.String()
 }
 
-// planTasksFromPlan loads YAML tasks for a plan.
-// projectRoot is the absolute path of the project root; p.FilePath is relative to it.
-func planTasksFromPlan(p *planstore.Plan, projectRoot string) ([]planstore.PlanTaskDef, error) {
-	if p.FilePath == "" {
-		return nil, nil
+// planTasksFromPlan returns canonical Plan tasks from ScrivaDB. Prefer the
+// active execution snapshot when present; never consult repository YAML.
+func planTasksFromPlan(p *planstore.Plan) []planstore.PlanTaskDef {
+	if p == nil {
+		return nil
 	}
-	var abs string
-	if filepath.IsAbs(p.FilePath) {
-		abs = p.FilePath
-	} else if projectRoot != "" {
-		abs = filepath.Join(projectRoot, p.FilePath)
-	} else {
-		var err error
-		abs, err = filepath.Abs(p.FilePath)
-		if err != nil {
-			return nil, err
-		}
+	src := p.Tasks
+	if p.ActiveExecution != nil && p.ActiveExecution.Snapshot != nil && len(p.ActiveExecution.Snapshot.Tasks) > 0 {
+		src = p.ActiveExecution.Snapshot.Tasks
 	}
-	return planstore.ReadPlanTasks(abs)
+	if len(src) == 0 {
+		return nil
+	}
+	out := make([]planstore.PlanTaskDef, 0, len(src))
+	for _, t := range src {
+		out = append(out, planstore.PlanTaskDef{
+			ID:     t.ID,
+			Prompt: t.Prompt,
+			After:  append([]string(nil), t.After...),
+		})
+	}
+	return out
 }
 
 // projectRootForID returns the absolute path of the project with the given ID,

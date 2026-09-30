@@ -36,7 +36,13 @@ func (c *Controller) restoreStoredRuns() {
 	}
 	for _, rec := range records {
 		legacyID := rec.RunID
-		rec.RunID = RunID(rec.Repo, rec.PlanFile)
+		if strings.TrimSpace(rec.PlanID) != "" {
+			// Plan-bound executors use PlanID-stable identity; never re-key from
+			// (possibly empty) export PlanFile paths.
+			rec.RunID = PlanBoundRunID(rec.Repo, rec.PlanID)
+		} else {
+			rec.RunID = RunID(rec.Repo, rec.PlanFile)
+		}
 		// Transparently re-key records written before canonical path identity was
 		// enforced. Creating first makes an interrupted migration retry-safe.
 		if rec.RunID != legacyID {
@@ -56,12 +62,15 @@ func (c *Controller) restoreStoredRuns() {
 			}
 		}
 		// Boot reconciliation re-spawns only runs whose durable intent is live.
-		// Try strict load first; fall back to lenient on content-only failures.
-		if plan, err := LoadPlan(rec.PlanFile); err == nil {
-			r.plan = plan
-		} else if plan, warnings, lerr := loadPlanLenient(rec.PlanFile); lerr == nil {
-			r.plan = plan
-			r.preflightWarnings = warnings
+		// Plan-bound runs hydrate definition from PlanTaskSource (RecoverLiveAutopilots);
+		// legacy file-registered runs still load from PlanFile.
+		if rec.PlanID == "" {
+			if plan, err := LoadPlan(rec.PlanFile); err == nil {
+				r.plan = plan
+			} else if plan, warnings, lerr := loadPlanLenient(rec.PlanFile); lerr == nil {
+				r.plan = plan
+				r.preflightWarnings = warnings
+			}
 		}
 		c.runs[rec.RunID] = r
 	}
@@ -373,7 +382,13 @@ func (c *Controller) preflightRegisteredRunLocked(ctx context.Context, r *run) e
 	if resolved.skipComplete {
 		failures = append(failures, preflightFailure{msg: "plan is already marked complete", kind: preflightKindStructural})
 	}
-	if resolved.repo != "" && (!samePath(resolved.repo, r.repo) || resolved.runID != r.runID) {
+	// Plan-bound runs (canonical ScrivaDB PlanID) use PlanBoundRunID, while legacy
+	// Register still uses the file-path RunID even when PlanID is attached.
+	// Comparing against preflight's file-derived runID would false-fail resume
+	// after the DB cutover. When planID is set, repo path match is enough.
+	if resolved.repo != "" && !samePath(resolved.repo, r.repo) {
+		failures = append(failures, preflightFailure{msg: "registered plan identity no longer matches its repository", kind: preflightKindStructural})
+	} else if resolved.repo != "" && strings.TrimSpace(r.planID) == "" && resolved.runID != r.runID {
 		failures = append(failures, preflightFailure{msg: "registered plan identity no longer matches its repository", kind: preflightKindStructural})
 	}
 	if len(failures) > 0 {

@@ -64,7 +64,10 @@ func ComposeDigest(ctx context.Context, in DigestInput) (string, error) {
 
 	fmt.Fprintf(&b, "# Autopilot run digest — %s\n\n", in.RunID)
 	fmt.Fprintf(&b, "Repo: %s\n", in.Repo)
-	fmt.Fprintf(&b, "Plan file: %s (re-read it when it changes)\n", in.PlanFile)
+	if strings.TrimSpace(in.PlanFile) != "" {
+		fmt.Fprintf(&b, "Plan file (export replica, inert): %s\n", in.PlanFile)
+	}
+	fmt.Fprintf(&b, "Plan definition is canonical in ScrivaDB; do not treat repository YAML as authority.\n")
 	if branch := strings.TrimSpace(in.IntegrationBranch); branch != "" {
 		fmt.Fprintf(&b, "Integration branch: %s\n", branch)
 		fmt.Fprintf(&b, "Workers MUST open PRs based on this branch (never main). Include this in every worker spawn prompt:\n")

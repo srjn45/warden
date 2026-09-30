@@ -2046,14 +2046,58 @@ type PlanScanRequest struct {
 
 // PlanScanResult is the response from PlanScan.
 type PlanScanResult struct {
-	Upserted int `json:"upserted"`
+	Upserted         int    `json:"upserted"`
+	SkippedCanonical int    `json:"skipped_canonical,omitempty"`
+	Notice           string `json:"notice,omitempty"`
 }
 
-// PlanScan walks a project's plans/ directory and upserts discovered plan records.
+// PlanScan is a deprecated migration aid: walks a project's plans/ directory and
+// upserts stub plan records. After ImportLegacy / DB-native create it cannot
+// affect canonical definition, lifecycle, or execution.
 func (c *Client) PlanScan(ctx context.Context, projectID string, req PlanScanRequest) (PlanScanResult, error) {
 	var out PlanScanResult
 	if err := c.do(ctx, http.MethodPost, "/projects/"+url.PathEscape(projectID)+"/plans/scan", req, &out); err != nil {
 		return PlanScanResult{}, err
+	}
+	return out, nil
+}
+
+// ImportLegacyPlansRequest is the body for ImportLegacyPlans.
+type ImportLegacyPlansRequest struct {
+	ReportOnly bool `json:"report_only,omitempty"`
+}
+
+// ImportLegacyRecord is one row of an ImportLegacyPlansResult.
+type ImportLegacyRecord struct {
+	FilePath         string `json:"file_path"`
+	PlanID           string `json:"plan_id,omitempty"`
+	Name             string `json:"name,omitempty"`
+	Status           string `json:"status,omitempty"`
+	Outcome          string `json:"outcome"`
+	ContentHash      string `json:"content_hash,omitempty"`
+	ExistingHash     string `json:"existing_hash,omitempty"`
+	ExistingRevision int64  `json:"existing_revision,omitempty"`
+	Reason           string `json:"reason,omitempty"`
+	Reconciled       bool   `json:"reconciled,omitempty"`
+}
+
+// ImportLegacyPlansResult is the response from ImportLegacyPlans.
+type ImportLegacyPlansResult struct {
+	ProjectID  string               `json:"project_id"`
+	RootDir    string               `json:"root_dir"`
+	ReportOnly bool                 `json:"report_only"`
+	Imported   []ImportLegacyRecord `json:"imported"`
+	Skipped    []ImportLegacyRecord `json:"skipped"`
+	Conflicted []ImportLegacyRecord `json:"conflicted"`
+	Errors     []ImportLegacyRecord `json:"errors"`
+}
+
+// ImportLegacyPlans explicitly imports legacy plans/**/*.yaml into ScrivaDB.
+// Source files are never modified. ReportOnly classifies without writing.
+func (c *Client) ImportLegacyPlans(ctx context.Context, projectID string, req ImportLegacyPlansRequest) (ImportLegacyPlansResult, error) {
+	var out ImportLegacyPlansResult
+	if err := c.do(ctx, http.MethodPost, "/projects/"+url.PathEscape(projectID)+"/plans/import-legacy", req, &out); err != nil {
+		return ImportLegacyPlansResult{}, err
 	}
 	return out, nil
 }

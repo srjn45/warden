@@ -65,6 +65,13 @@ type Detail struct {
 	Synthetic bool     `json:"synthetic,omitempty"`
 	Degraded  bool     `json:"degraded,omitempty"`
 	Closed    bool     `json:"closed,omitempty"`
+
+	// Plan-node projection fields (ScrivaDB-only; never derived from YAML replicas).
+	Revision     int64  `json:"revision,omitempty"`
+	ExecutorID   string `json:"executor_id,omitempty"`
+	TaskSummary  string `json:"task_summary,omitempty"`  // compact "done/total"
+	ExportStatus string `json:"export_status,omitempty"` // none|current|stale
+	UpdatedAt    string `json:"updated_at,omitempty"`    // RFC3339
 }
 
 // MarshalJSON dual-emits the deprecated "backend" alias alongside canonical

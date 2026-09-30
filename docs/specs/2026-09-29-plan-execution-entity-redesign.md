@@ -9,6 +9,14 @@
 `autopilot-entity-model`, `ai-cli-terminology-migration`, etc.) can implement
 against a single agreed contract without making new naming or ownership decisions.
 
+> **Authority supersession (2026-09-30):** YAML-as-definition-authority and
+> directory-as-lifecycle assumptions in this document are **superseded** by
+> [`2026-09-30-scrivadb-canonical-plans.md`](./2026-09-30-scrivadb-canonical-plans.md).
+> Entity vocabulary, executor durability rules, `done_when` semantics, and the
+> `ai_cli` migration remain in force. Downstream workers must **not** implement
+> repository YAML or `plans/` directory placement as canonical Plan inputs — see
+> §9 of the ScrivaDB canonical-plans freeze.
+
 ---
 
 ## 0. Why this spec exists
@@ -65,26 +73,28 @@ in `Session.Worktree`. Worktrees are never registered as separate Projects.
 
 ### Plan
 
-A **durable** work definition. Authored as a YAML file under
-`plans/{pending,in_progress,completed,archived}/` in the project repository.
-Persisted in `internal/planstore` as `planstore.Plan`.
+A **durable** work definition. Canonical authority lives in ScrivaDB
+(`planstore.Plan`). Repository YAML under
+`plans/{pending,in_progress,completed,archived}/` is an **optional inert
+export** (see [`2026-09-30-scrivadb-canonical-plans.md`](./2026-09-30-scrivadb-canonical-plans.md));
+it is never an execution or lifecycle input.
 
-**Durable means:** a Plan record and its YAML file survive all executor
-teardowns. Completing, failing, or deleting an executor (Agent, Pipeline,
-Autopilot) does not delete the Plan. Explicit plan archiving (`archive_plan`)
-is the operator's choice.
+**Durable means:** a Plan record survives all executor teardowns. Completing,
+failing, or deleting an executor (Agent, Pipeline, Autopilot) does not delete
+the Plan. Explicit plan archiving (`archive_plan`) is the operator's choice.
+Replica YAML may or may not exist and does not affect durability.
 
-YAML-backed definition fields (carried by the file, not the DB record):
+Canonical definition fields (on the ScrivaDB Plan record):
 
 | Field | Type | Semantics |
 |---|---|---|
-| `name` | string | Human-readable plan name; also drives the file slug |
+| `name` | string | Human-readable plan name; also drives export slug |
 | `goal` | string | What the plan is trying to achieve |
 | `tasks[]` | `{id, prompt, after?}` | Ordered work units; `after` declares dependencies |
 | `constraints[]` | string list | Hard rules every executor must follow |
 | `done_when[]` | string list | **Free-text only** (see ownership rule 5) |
 
-DB-only execution state (carried on the `planstore.Plan` record):
+DB execution state (also on the `planstore.Plan` record):
 
 | Field | Semantics |
 |---|---|
@@ -95,6 +105,8 @@ DB-only execution state (carried on the `planstore.Plan` record):
 | `orchestrator_id` | Back-ref when mode is `orchestrator_worker` |
 | `task_progress` | Map task ID → `pending/in_progress/done/skipped` |
 | `plan_branches[]` | Git branches associated with this plan's execution |
+| `revision` / `content_hash` | Optimistic concurrency + definition digest |
+| `active_execution.snapshot` | Immutable definition captured at `run_plan` (snapshot-at-start) |
 
 ---
 
@@ -124,6 +136,7 @@ bikeshedding the vocabulary.
 | `terminal_status` | enum | no | `running` / `completed` / `failed` / `cancelled` |
 | `task_progress` | map | yes | Task ID → `pending/in_progress/done/skipped` |
 | `plan_branches[]` | string list | no | Git branches opened by this execution |
+| `snapshot` | object | yes (new runs) | Immutable definition+revision+content_hash at start |
 
 A Plan may accumulate multiple PlanExecutions over its lifetime (e.g., a failed
 run followed by a successful one). The Plan's own `status` reflects the latest
@@ -142,12 +155,12 @@ Canonical fields:
 | Field | Semantics |
 |---|---|
 | `plan_id` | The source Plan |
-| `plan_name` | Human-readable name (from YAML) |
-| `goal` | Plan goal (from YAML) |
+| `plan_name` | Human-readable name (from canonical Plan / execution snapshot) |
+| `goal` | Plan goal (from canonical Plan / execution snapshot) |
 | `execution_mode` | How the plan was run |
 | `executor_id` | Linked executor (autopilot run / pipeline / orchestrator) |
 | `started_at` / `completed_at` | Execution window |
-| `tasks_total` | Total task count (from YAML) |
+| `tasks_total` | Total task count (from canonical Plan / execution snapshot) |
 | `tasks_done` | Count in `done` / `skipped` state |
 | `outcome_note` | Free-text (set by the executor or the operator) |
 
@@ -303,7 +316,7 @@ produce a live `Autopilot` row.
 
 ### Rule 1 — Plan is durable
 
-A Plan record and its YAML file survive all executor teardowns. Completing,
+A Plan record survives all executor teardowns (optional YAML replicas are inert). Completing,
 failing, cancelling, or deleting an Agent, Pipeline, or Autopilot run does not
 delete the Plan. The Plan transitions to `completed` when all tasks are
 `done`/`skipped` and all branches are merged — the executor teardown is a
@@ -355,7 +368,7 @@ record is tolerated (dangling ref) and is not eagerly pruned.
 
 ### Rule 5 — free-text `done_when` is NOT automated proof
 
-The `done_when` field in a plan YAML is a list of **human-readable** completion
+The `done_when` field on a Plan is a list of **human-readable** completion
 criteria intended for the operator or the agent executing the plan to verify
 manually or by LLM judgment.
 
@@ -363,7 +376,7 @@ The daemon does **not** parse, evaluate, or programmatically gate transitions on
 `done_when` text. The only daemon-enforced completion gates for
 `in_progress → completed` are:
 
-1. All task IDs in the YAML have a `done` or `skipped` entry in `TaskProgress`.
+1. All task IDs in the canonical Plan (or execution snapshot) have a `done` or `skipped` entry in `TaskProgress`.
 2. No plan branch still has an open GitHub PR.
 
 An implementation that gates on `done_when` text automatically (e.g., by
@@ -589,12 +602,12 @@ spawn_agent {
 **Pipeline (plan-bound):**
 Created by `run_plan {execution_mode: "pipeline"}` via `startPlanExecution`.
 - Sets `Pipeline.PlanID = plan_id`
-- Each task in the plan YAML becomes a `Pipeline.Job`
+- Each task in the canonical Plan (execution snapshot) becomes a `Pipeline.Job`
 
 **Autopilot (plan-bound — the only supported form):**
 Created by `run_plan {execution_mode: "autopilot"}` via `startPlanExecution`.
 - `Autopilot.PlanID = plan_id` (REQUIRED; fails if absent)
-- The plan file path is stored in `Autopilot.Diagnostics.PlanFile`
+- PlanID + revision/snapshot identify the definition; `Diagnostics.PlanFile` is last-export metadata only (may be empty)
 - The integration branch defaults to `autopilot/<plan-name>`
 
 ### Planless creation
@@ -639,6 +652,7 @@ branch and are not retroactively broken.
 | `2026-08-28-project-centric-ui.md` | This spec refines the Project membership model (§1, Rule 4). Phase P1–P3 of that spec are not revisited. |
 | `2026-08-06-backend-registry.md` | The backend registry feature uses `backend_id` as the registry key. The `ai_cli` rename (§4) maps `Session.Backend` → `Session.AiCli` at the session level; the registry's own `BackendID` field is independent and not renamed by this spec. |
 | `2026-09-01-reactive-backend-limit-recovery.md` | Backend recovery uses `Session.BackendRecovery`. The field name is not affected by the `ai_cli` rename — it describes the recovery state, not the backend selector. |
+| `2026-09-30-scrivadb-canonical-plans.md` | **Supersedes** this spec's YAML-authority / directory-lifecycle baseline for Plan definition and status. Entity ownership rules here remain locked; see that freeze §9 for the exact assumptions workers must not implement. |
 
 ---
 

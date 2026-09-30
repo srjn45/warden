@@ -1097,7 +1097,8 @@ when rate-limited (cost-tier ladder).
 
 Authored by the operator as a named file under `plans/` (for example,
 `plans/release.yaml`). `warden autopilot init --name release` scaffolds config and
-a plan YAML; prefer `wd plan create` / `wd plan import` / `wd plan scan` for the
+a plan YAML; prefer `wd plan create` / `wd plan import-legacy` for the
+tracked Plan surface (scan/import file commands are deprecated migration aids).
 Plan CRUD surface, then `wd plan run <id> --mode autopilot`. Contains a
 `goal`, optional `constraints` (injected into every manager and worker spawn), and
 an optional coarse `tasks` list. The manager decomposes the goal into tasks if the
@@ -1467,29 +1468,28 @@ config file, and are edited via the surfaces above.
 
 ## 37. Plans (tracked plan lifecycle)
 
-Plans are YAML files stored in `plans/{pending,in_progress,completed,archived}/` inside a project repository. The daemon scans those directories, tracks execution state (links to autopilot runs, pipelines, and task progress) in a ScrivaDB `plans` collection, and surfaces plans in every UI.
+Plans are **canonical ScrivaDB records** (goal, tasks, lifecycle, revision,
+execution evidence). Repository YAML under `plans/` is an **optional inert
+export** for review — never required for create/run/complete/archive, and never
+scanned at daemon startup.
 
-### 37.1 Two-layer architecture
+Authority is frozen in
+[`docs/specs/2026-09-30-scrivadb-canonical-plans.md`](specs/2026-09-30-scrivadb-canonical-plans.md).
+Operator playbooks:
+[`docs/MIGRATION-plans-scrivadb.md`](MIGRATION-plans-scrivadb.md) and site
+`guides/plans-migration`.
 
-| Layer | What lives here | Source of truth |
-|---|---|---|
-| **Plan definition** | `goal`, `tasks`, `constraints`, `done_when` | YAML file content in the repo |
-| **Plan status** | Which directory the YAML lives in | Git (directory placement) |
-| **Execution state** | Linked run/pipeline IDs, task progress, timestamps | ScrivaDB `plans` collection |
+### 37.1 Canonical architecture
 
-Status is encoded in the directory — a state transition is a `git mv` committed to the repo, making the full lifecycle team-visible and audit-friendly.
+| Concern | Authority |
+|---|---|
+| **Definition** | ScrivaDB Plan fields (`goal`, `tasks`, `constraints`, `done_when`) |
+| **Lifecycle** | ScrivaDB `Status` field |
+| **Revision / hash** | ScrivaDB `revision` + `content_hash` |
+| **Execution evidence** | ScrivaDB events / summaries / task progress |
+| **Repository YAML** | Optional replica via `sync_to_repo` — inert unless explicit `import-legacy` |
 
-### 37.2 Directory layout
-
-```
-plans/
-  pending/          # authored, not started
-  in_progress/      # execution active (stays here until completed/archived)
-  completed/        # all tasks done, code merged
-  archived/         # de-prioritised; hidden from default TUI views
-```
-
-### 37.3 Lifecycle states
+### 37.2 Lifecycle states
 
 ```
 pending → in_progress → completed
@@ -1497,97 +1497,115 @@ pending → in_progress → completed
 pending →                archived
 ```
 
-Any status can transition to `archived`. `completed` and `archived` cannot move back to `in_progress` without an explicit reset.
+Any status can transition to `archived`. `completed` and `archived` cannot move
+back to `in_progress` without an explicit reset.
 
-### 37.4 Scan and import
+### 37.3 Legacy import and deprecated scan
 
-`wd plan scan [--project <id>]` walks `plans/{pending,in_progress,completed,archived}/*.yaml` and upserts:
-- Derives plan name from the YAML `name:` field or filename stem
-- Computes a stable `plan-<8hex>` ID from `projectID + "\x00" + planName`
-- Creates a new record (status from directory) if absent; updates `FilePath` and `Status` only if present — never overwrites execution links or task progress
-- Files outside the four subdirectories are ignored; flat `plans/*.yaml` files are treated as `pending` and migrated with `--migrate-flat`
+`wd plan import-legacy [--project <id>] [--report]` is the operator-invoked
+one-time cutover:
+- Discovers `plans/{pending,in_progress,completed,archived}/*.yaml` (and flat
+  `plans/*.yaml` as pending) only when requested
+- Parses supported v1 YAML into canonical definition fields with status from
+  directory or export envelope
+- Creates or reconciles by stable `plan-<8hex>` identity; matching content hash
+  → skipped (no-op; cannot affect already-canonical execution); differing
+  non-empty definition → conflicted (no mutation)
+- Leaves source files untouched; `--report` classifies without writing
+- Records a `legacy_imported` migration audit event per successful import
 
-The daemon auto-scans each registered project's `plans/` directory at startup (directory walk only — no YAML parsing beyond the `name:` field).
+**Deprecated for one release** (help + responses state they cannot affect
+canonical execution after import):
+- `wd plan scan` / `scan_plans` / `POST …/plans/scan` — upserts stubs only;
+  does **not** reseed `Status` for Plans with a non-empty definition; response
+  includes `notice` + `skipped_canonical`
+- `wd plan import <file>` — copies into `plans/pending/` + scan
+- `wd plan status` / `update_plan_status` — prefer `run` / `complete` / `archive`
 
-### 37.5 Execution modes
+### 37.4 Execution modes
 
 | Mode | What `wd plan run` does | Completion |
 |---|---|---|
-| `autopilot` | Creates live `Autopilot` (`AP:<plan-name>`) + manager Agent (`role=autopilot`, `PlanID`); appends `PlanExecutionEvent`s; stores `AutopilotRunID` / `ActiveExecution`; git-mv to `in_progress/` | Daemon watches for run `completed` → git-mv to `completed/` |
-| `pipeline` | Creates a pipeline named `P:<plan-name>` (one job per YAML task, same IDs + deps); stores `PipelineID` + task→job evidence; git-mv | Daemon watches for pipeline `done` → git-mv to `completed/` |
-| `orchestrator_worker` | Spawns `O:<plan-name>` (`role=orchestrator`, `PlanID`); workers are `role=worker` with `ParentID`; stores `OrchestratorID`; git-mv | `wd plan complete <id>` |
-| `manual` | Spawns `M:<plan-name>` (`role=general`, `PlanID`); no Autopilot; git-mv | `wd plan complete <id>` |
+| `autopilot` | Creates live `Autopilot` + manager Agent (`PlanID`); appends events; stores `AutopilotRunID` / `ActiveExecution` | Daemon watches run `completed` |
+| `pipeline` | Creates pipeline `P:<plan-name>` from canonical task DAG | Daemon watches pipeline `done` |
+| `orchestrator_worker` | Spawns `O:<plan-name>` (`role=orchestrator`, `PlanID`) | `wd plan complete <id>` |
+| `manual` | Spawns `M:<plan-name>` (`role=general`, `PlanID`) | `wd plan complete <id>` |
 
-### 37.6 Brain-assisted progress assessment
+### 37.5 Brain-assisted progress assessment
 
-`wd plan assess <plan-id>` reconstructs task-level progress after a reinstall or DB wipe:
-1. Reads the plan YAML's task list
-2. Calls `Consultor.Consult` (same `internal/brainconsult` as pipeline stuck-recovery) with intent `plan_progress_assessment`, the task list, `git log --oneline origin/main -50`, and open PR titles as evidence
-3. Updates `task_progress` in the DB record with the brain's `update_task_progress` response
+`wd plan assess <plan-id>` reconstructs task-level progress (opt-in) from git /
+PR evidence into ScrivaDB `task_progress`. Prefer Plan backup restore for
+canonical recovery.
 
-Opt-in only. Also available as `wd plan scan --assess` (runs for all `in_progress` plans).
-
-### 37.7 Recovery ladder
+### 37.6 Recovery ladder
 
 | Scenario | Recovery |
 |---|---|
 | Same machine, DB intact | Normal operation |
-| Same machine, DB wiped | `wd plan scan` re-seeds all plans with correct status from directory |
-| New machine / reinstall | `git pull` → daemon start auto-scans → plans visible with correct status |
-| In-progress task progress missing | `wd plan assess <plan-id>` reconstructs from git/PRs |
-| Full backup + restore | `wd snapshot restore` restores ScrivaDB including execution links |
+| Same machine, DB wiped | `wd plan backup restore <bundle>` (canonical) |
+| New machine / reinstall | Transfer Plan backup bundle → restore; Git optional for code only |
+| Missing task-level progress | Restored events/summaries; or `wd plan assess` as aid |
+| Full DB backup + restore | Copy `<data_dir>/plans-db/` or `wd plan backup export --all` |
 
-### 37.8 CLI surface
+### 37.7 CLI surface
 
 | Command | Action |
 |---|---|
-| `wd plan list [--status <s>] [--json]` | List plans for a project (optionally filtered by status) |
-| `wd plan create --name <n> --goal <g> [--task id:prompt]` | Write `plans/pending/<slug>.yaml` + DB record (TTY prompts for tasks) |
-| `wd plan show <id> [--json]` | Full record: goal, tasks, status, file path, execution mode, linked IDs, timestamps |
-| `wd plan import <file>` | Copy a YAML into `plans/pending/` and scan |
-| `wd plan scan [--migrate-flat] [--assess]` | Walk directories and upsert plan records |
-| `wd plan status <id> <new-status>` | Legacy project-scoped git mv + commit + DB update |
-| `wd plan done <id> <task-id>` | Shorthand: update-task-status → `done` |
-| `wd plan complete <id>` | `in_progress` → `completed` (blocked by incomplete tasks / unmerged branches) |
-| `wd plan archive <id>` | Any status → `archived` |
+| `wd plan list [--status <s>] [--json]` | List ScrivaDB plans |
+| `wd plan create --name <n> --goal <g> [--task id:prompt]` | Create pending Plan in ScrivaDB (no YAML write) |
+| `wd plan show <id> [--json]` | Canonical detail (never reads repo YAML) |
+| `wd plan sync_to_repo <id> --base <ref>` | Optional inert replica PR |
+| `wd plan backup export\|restore …` | Portable ScrivaDB bundle |
+| `wd plan import-legacy [--report]` | Explicit legacy YAML cutover |
+| `wd plan scan` / `import` / `status` | **Deprecated** migration aids |
+| `wd plan done` / `complete` / `archive` / `run` / `pause\|resume\|stop` | Lifecycle + execution |
 | `wd plan assess <id>` | Brain-based task progress reconstruction |
-| `wd plan run <id> --mode <mode>` | Start execution (`autopilot`\|`pipeline`\|`orchestrator`\|`manual`) |
-| `wd plan pause\|resume\|stop <id>` | Control the active executor for an in-progress plan |
 
-### 37.9 MCP tools
+### 37.8 MCP tools
 
 | Tool | Action |
 |---|---|
-| `list_plans` | List plans for a project (`project_id`, optional `status` filter) |
-| `get_plan` | Get one plan by stable `plan_id` (includes goal, tasks, task_progress) |
-| `create_plan` | Create a plan: writes `plans/pending/<slug>.yaml` + DB record (`project_id`, `name`, `goal`, `tasks[]`, optional `constraints[]`/`done_when[]`) |
-| `update_plan` | Patch a **pending** plan's definition (`name`/`goal`/`tasks`/`constraints`/`done_when`); 409 if not pending |
-| `scan_plans` | Walk directories and upsert (`migrate_flat`, `assess` flags) |
-| `update_plan_status` | Legacy project-scoped status change (prefer `run_plan` / `complete_plan` / `archive_plan`) |
-| `update_task_status` | Plan form: `{plan_id, task_id, status}` updates TaskProgress (`pending\|in_progress\|done\|skipped`). Autopilot-brain form still accepts `{run_id, task_id, status, landed_pr?}` |
-| `archive_plan` | Any status → `archived` (moves YAML to `plans/archived/`) |
-| `complete_plan` | `in_progress` → `completed`. Structured error lists incomplete tasks and/or unmerged branches |
-| `assess_plan` | Brain-based task progress reconstruction |
-| `run_plan` | Start execution (`plan_id`, `execution_mode`); pending → `in_progress` |
-| `control_plan` | Pause, resume, or stop an in-progress plan's active executor |
+| `list_plans` / `get_plan` / `create_plan` / `update_plan` | DB-native CRUD / detail |
+| `import_legacy_plans` | Explicit YAML → ScrivaDB cutover |
+| `scan_plans` | **Deprecated** migration aid (notice + skipped_canonical) |
+| `update_plan_status` | **Deprecated**; prefer `run_plan` / `complete_plan` / `archive_plan` |
+| `update_task_status` / `archive_plan` / `complete_plan` / `assess_plan` | Lifecycle helpers |
+| `sync_plan_to_repo` | Optional replica PR |
+| `export_plan_backup` / `restore_plan_backup` | Portable bundle |
+| `run_plan` / `control_plan` | Start / pause / resume / stop |
 
-### 37.10 TUI
+### 37.9 TUI
 
-Plans appear under the **Plans** project-tree section (above Autopilots / Pipelines / Agents / Terminals), grouped by status with count badges. `Archived` is collapsed by default. Selecting a plan opens a detail pane showing lifecycle, active execution, task evidence, and historical summaries. Keybindings: `a` archive · `s` scan · `A` assess · `r` run (mode picker) · `enter` detail pane.
+Plans appear under the **Plans** project-tree section, grouped by status.
+Detail is ScrivaDB-backed. Keybindings: `a` archive · `A` assess · `r` run ·
+`enter` detail (`s` scan remains as a deprecated migration aid).
 
-### 37.11 Finalization and ExecutionSummary
+### 37.10 Finalization and ExecutionSummary
 
-`wd plan complete` / finalize reconciles Git/GitHub evidence, seals the active
-execution with a `completion_verified` event, reduces an immutable
-`ExecutionSummary` from typed events, **then** tears down disposable executors
-(Agent / Pipeline / Autopilot). The summary and append-only event ledger stay on
-the Plan after cleanup — executor deletion cannot erase audit facts. See
-[§38](#38-plan-execution-entity-upgrade-migration) for the upgrade acceptance gate.
+`wd plan complete` / finalize reconciles evidence, seals the active execution
+with a `completion_verified` event, reduces an immutable `ExecutionSummary`,
+**then** tears down disposable executors. See
+[§38](#38-plan-execution-entity-upgrade-migration).
 
-### 37.12 Non-goals
+### 37.11 Non-goals / deferred follow-ups
 
-- Warden-hub plan sync (deferred; `synced_at`/`remote_id` fields reserved)
-- Per-task execution (plans run as a whole; `update_task_status` / `wd plan done` records progress only)
+These are **explicit** deferrals (design freeze §10 / D6), not silent omissions.
+Phase 12 acceptance records them as follow-up issues — see
+[`docs/specs/2026-09-30-scrivadb-canonical-plans-acceptance.md`](specs/2026-09-30-scrivadb-canonical-plans-acceptance.md).
+
+- Warden-hub plan sync (deferred; `synced_at`/`remote_id` reserved; local
+  `PlanSyncProvider` boundary only — default install makes no network calls;
+  [#586](https://github.com/srjn45/warden/issues/586))
+- JSON export format (deferred; YAML remains v1 replica format;
+  [#585](https://github.com/srjn45/warden/issues/585))
+- Per-task execution (plans run as a whole; `update_task_status` records progress only)
+
+### 37.12 Phase 12 acceptance
+
+Upgrade and acceptance gate (representative legacy + canonical corpus) lives in
+`TestScrivaDBCanonicalPlans_Phase12Acceptance` and the acceptance report above.
+Design-freeze §14 checklist items are checked there.
+
 
 ---
 
@@ -1666,4 +1684,6 @@ lives in `TestUpgradeAcceptanceFromLegacyCorpus` (`internal/daemon`).
   Plan audit history.
 
 See [`docs/specs/2026-09-29-plan-execution-entity-redesign.md`](specs/2026-09-29-plan-execution-entity-redesign.md)
-for ownership rules and the `ai_cli` alias table.
+for ownership rules and the `ai_cli` alias table. Plan definition/lifecycle
+authority cutover is frozen in
+[`docs/specs/2026-09-30-scrivadb-canonical-plans.md`](specs/2026-09-30-scrivadb-canonical-plans.md).

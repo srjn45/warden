@@ -12,8 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/srjn45/warden/internal/daemon/oapi"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/planstore"
@@ -70,28 +68,42 @@ func (s *Server) planToOAPI(p *planstore.Plan) oapi.Plan {
 	for id, status := range p.TaskProgress {
 		taskProgress[id] = oapi.TaskStatus(status)
 	}
-	var startedAt, completedAt time.Time
+	var startedAt, completedAt, archivedAt time.Time
 	if p.StartedAt != nil {
 		startedAt = *p.StartedAt
 	}
 	if p.CompletedAt != nil {
 		completedAt = *p.CompletedAt
 	}
+	if p.ArchivedAt != nil {
+		archivedAt = *p.ArchivedAt
+	}
+	tasks := make([]oapi.PlanTask, 0, len(p.Tasks))
+	for _, t := range p.Tasks {
+		tasks = append(tasks, oapi.PlanTask{Id: t.ID, Prompt: t.Prompt, After: t.After})
+	}
 	out := oapi.Plan{
 		AutopilotRunId:   p.AutopilotRunID,
+		ArchivedAt:       archivedAt,
 		CompletedAt:      completedAt,
+		Constraints:      append([]string(nil), p.Constraints...),
+		ContentHash:      p.ContentHash,
 		CreatedAt:        p.CreatedAt,
+		DoneWhen:         append([]string(nil), p.DoneWhen...),
 		ExecutionMode:    oapi.PlanExecutionMode(p.ExecutionMode),
 		FilePath:         p.FilePath,
+		Goal:             p.Goal,
 		Id:               p.ID,
 		Name:             p.Name,
 		OrchestratorId:   p.OrchestratorID,
 		PipelineId:       p.PipelineID,
 		PlanBranches:     p.Branches,
 		ProjectId:        p.ProjectID,
+		Revision:         p.Revision,
 		StartedAt:        startedAt,
 		Status:           oapi.PlanStatus(p.Status),
 		TaskProgress:     taskProgress,
+		Tasks:            tasks,
 		UpdatedAt:        p.UpdatedAt,
 		ExecutionHistory: p.ExecutionHistory,
 		TaskOutcomes:     p.TaskOutcomes,
@@ -103,45 +115,22 @@ func (s *Server) planToOAPI(p *planstore.Plan) oapi.Plan {
 	if p.ExecutionSummary != nil {
 		out.ExecutionSummary = *p.ExecutionSummary
 	}
-	s.hydratePlanDef(p, &out)
+	if p.RepoExport != nil {
+		out.RepoExport = *p.RepoExport
+	}
+	ts := planstore.ComputeTaskSummary(p)
+	out.TaskSummary = oapi.PlanTaskSummary{
+		Total:      ts.Total,
+		Done:       ts.Done,
+		InProgress: ts.InProgress,
+		Pending:    ts.Pending,
+		Skipped:    ts.Skipped,
+	}
+	out.ExportStatus = oapi.PlanExportStatus(planstore.ComputeExportStatus(p))
+	if exec := planstore.ExecutorID(p); exec != "" {
+		out.ExecutorId = exec
+	}
 	return out
-}
-
-// hydratePlanDef fills YAML-backed definition fields (goal, tasks, constraints,
-// done_when) onto an API Plan. Missing files are ignored — the DB record is
-// still a valid response.
-func (s *Server) hydratePlanDef(p *planstore.Plan, out *oapi.Plan) {
-	if p == nil || p.FilePath == "" {
-		return
-	}
-	root := s.resolvePlanRoot(p.ProjectID)
-	if root == "" {
-		return
-	}
-	data, err := os.ReadFile(filepath.Join(root, p.FilePath))
-	if err != nil {
-		return
-	}
-	var doc struct {
-		Goal        string   `yaml:"goal"`
-		Constraints []string `yaml:"constraints"`
-		DoneWhen    []string `yaml:"done_when"`
-		Tasks       []struct {
-			ID     string   `yaml:"id"`
-			Prompt string   `yaml:"prompt"`
-			After  []string `yaml:"after"`
-		} `yaml:"tasks"`
-	}
-	if yaml.Unmarshal(data, &doc) != nil {
-		return
-	}
-	out.Goal = doc.Goal
-	out.Constraints = doc.Constraints
-	out.DoneWhen = doc.DoneWhen
-	out.Tasks = make([]oapi.PlanTask, 0, len(doc.Tasks))
-	for _, t := range doc.Tasks {
-		out.Tasks = append(out.Tasks, oapi.PlanTask{Id: t.ID, Prompt: t.Prompt, After: t.After})
-	}
 }
 
 // ListProjectPlans preserves the original project-scoped plan-list API.
@@ -208,7 +197,7 @@ func (s *Server) ScanProjectPlans(ctx context.Context, req oapi.ScanProjectPlans
 			return nil, errStatus(http.StatusInternalServerError, "migrate flat plans: "+err.Error())
 		}
 	}
-	n, err := planstore.ScanProject(ctx, s.plans, req.ProjectId, root)
+	scanRes, err := planstore.ScanProject(ctx, s.plans, req.ProjectId, root)
 	if err != nil {
 		return nil, errStatus(http.StatusInternalServerError, "scan plans: "+err.Error())
 	}
@@ -219,7 +208,81 @@ func (s *Server) ScanProjectPlans(ctx context.Context, req oapi.ScanProjectPlans
 			s.addPlanMembership(p.ID, req.ProjectId)
 		}
 	}
-	return oapi.ScanProjectPlans200JSONResponse{Upserted: n}, nil
+	return oapi.ScanProjectPlans200JSONResponse{
+		Upserted:         scanRes.Upserted,
+		SkippedCanonical: scanRes.SkippedCanonical,
+		Notice:           scanRes.Notice,
+	}, nil
+}
+
+func (s *Server) ImportLegacyPlans(ctx context.Context, req oapi.ImportLegacyPlansRequestObject) (oapi.ImportLegacyPlansResponseObject, error) {
+	svc := s.planSvc()
+	if svc == nil {
+		return nil, planNotConfigured()
+	}
+	root := s.resolvePlanRoot(req.ProjectId)
+	if root == "" {
+		return oapi.ImportLegacyPlans404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "project not found"}}, nil
+	}
+	opts := planstore.ImportOptions{}
+	if req.Body != nil {
+		opts.ReportOnly = req.Body.ReportOnly
+	}
+	report, err := svc.ImportLegacy(ctx, req.ProjectId, opts)
+	if err != nil {
+		if msg := planValidationMessage(err); msg != "" {
+			return nil, errStatus(http.StatusBadRequest, msg)
+		}
+		return nil, errStatus(http.StatusInternalServerError, "import legacy plans: "+err.Error())
+	}
+	for _, rec := range report.Imported {
+		if rec.PlanID != "" {
+			s.addPlanMembership(rec.PlanID, req.ProjectId)
+		}
+	}
+	return oapi.ImportLegacyPlans200JSONResponse(importReportToOAPI(report)), nil
+}
+
+func importReportToOAPI(r *planstore.ImportReport) oapi.ImportLegacyPlansResponse {
+	if r == nil {
+		return oapi.ImportLegacyPlansResponse{
+			Imported:   []oapi.ImportLegacyRecord{},
+			Skipped:    []oapi.ImportLegacyRecord{},
+			Conflicted: []oapi.ImportLegacyRecord{},
+			Errors:     []oapi.ImportLegacyRecord{},
+		}
+	}
+	return oapi.ImportLegacyPlansResponse{
+		ProjectId:  r.ProjectID,
+		RootDir:    r.RootDir,
+		ReportOnly: r.ReportOnly,
+		Imported:   importRecordsToOAPI(r.Imported),
+		Skipped:    importRecordsToOAPI(r.Skipped),
+		Conflicted: importRecordsToOAPI(r.Conflicted),
+		Errors:     importRecordsToOAPI(r.Errors),
+	}
+}
+
+func importRecordsToOAPI(in []planstore.ImportRecord) []oapi.ImportLegacyRecord {
+	out := make([]oapi.ImportLegacyRecord, 0, len(in))
+	for _, r := range in {
+		rec := oapi.ImportLegacyRecord{
+			FilePath:         r.FilePath,
+			PlanId:           r.PlanID,
+			Name:             r.Name,
+			Outcome:          oapi.ImportLegacyRecordOutcome(r.Outcome),
+			ContentHash:      r.ContentHash,
+			ExistingHash:     r.ExistingHash,
+			ExistingRevision: r.ExistingRev,
+			Reason:           r.Reason,
+			Reconciled:       r.Reconciled,
+		}
+		if r.Status.Valid() {
+			rec.Status = oapi.PlanStatus(r.Status)
+		}
+		out = append(out, rec)
+	}
+	return out
 }
 
 func (s *Server) GetProjectPlan(ctx context.Context, req oapi.GetProjectPlanRequestObject) (oapi.GetProjectPlanResponseObject, error) {
@@ -404,6 +467,47 @@ func (s *Server) GetPlan(ctx context.Context, req oapi.GetPlanRequestObject) (oa
 	return oapi.GetPlan200JSONResponse(s.planToOAPI(p)), nil
 }
 
+// ListRelatedPlans implements GET /api/v1/plans/{plan_id}/related.
+// Discovery is ScrivaDB-only; YAML replicas never appear as additional plans.
+func (s *Server) ListRelatedPlans(ctx context.Context, req oapi.ListRelatedPlansRequestObject) (oapi.ListRelatedPlansResponseObject, error) {
+	svc := s.planSvc()
+	if svc == nil {
+		return nil, planNotConfigured()
+	}
+	anchor, err := svc.Get(ctx, req.PlanId)
+	if err != nil {
+		if errors.Is(err, planstore.ErrNotFound) {
+			return oapi.ListRelatedPlans404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "plan not found"}}, nil
+		}
+		return nil, errStatus(http.StatusInternalServerError, "get plan: "+err.Error())
+	}
+	candidates, err := svc.List(ctx, anchor.ProjectID, "")
+	if err != nil {
+		return nil, errStatus(http.StatusInternalServerError, "list plans: "+err.Error())
+	}
+	limit := 10
+	if req.Params.Limit != 0 {
+		limit = req.Params.Limit
+	}
+	res := planstore.FindRelatedPlans(anchor, candidates, limit)
+	hits := make([]oapi.RelatedPlanHit, 0, len(res.Hits))
+	for _, h := range res.Hits {
+		hits = append(hits, oapi.RelatedPlanHit{
+			PlanId:  h.PlanID,
+			Name:    h.Name,
+			Status:  h.Status,
+			Score:   h.Score,
+			Reasons: append([]string(nil), h.Reasons...),
+		})
+	}
+	return oapi.ListRelatedPlans200JSONResponse{
+		Heuristic:  res.Heuristic,
+		Disclaimer: res.Disclaimer,
+		AnchorId:   res.AnchorID,
+		Hits:       hits,
+	}, nil
+}
+
 // UpdatePlan implements PATCH /api/v1/plans/{plan_id}.
 func (s *Server) UpdatePlan(ctx context.Context, req oapi.UpdatePlanRequestObject) (oapi.UpdatePlanResponseObject, error) {
 	svc := s.planSvc()
@@ -421,6 +525,15 @@ func (s *Server) UpdatePlan(ctx context.Context, req oapi.UpdatePlanRequestObjec
 		}
 		if errors.Is(err, planstore.ErrNotPending) {
 			return oapi.UpdatePlan409JSONResponse{Error: err.Error()}, nil
+		}
+		var conflict *planstore.RevisionConflictError
+		if errors.As(err, &conflict) {
+			return oapi.UpdatePlan409JSONResponse{
+				Error:    conflict.Error(),
+				PlanId:   conflict.PlanID,
+				Expected: conflict.Expected,
+				Actual:   conflict.Actual,
+			}, nil
 		}
 		if msg := planValidationMessage(err); msg != "" {
 			return oapi.UpdatePlan400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{Error: msg}}, nil
@@ -453,6 +566,10 @@ func updateRequestFromBody(body *oapi.UpdatePlanRequest) planstore.UpdateRequest
 	if body.DoneWhen != nil {
 		d := body.DoneWhen
 		upd.DoneWhen = &d
+	}
+	if body.ExpectedRevision != 0 {
+		rev := body.ExpectedRevision
+		upd.ExpectedRevision = &rev
 	}
 	return upd
 }
@@ -560,7 +677,7 @@ func (s *Server) RunPlan(ctx context.Context, req oapi.RunPlanRequestObject) (oa
 		}}, nil
 	}
 
-	// Refuse a known-unconfigured backend before moving the YAML.
+	// Refuse a known-unconfigured backend before moving to in_progress.
 	switch mode {
 	case planstore.PlanModeAutopilot:
 		if s.autopilot == nil {
@@ -605,7 +722,7 @@ func (s *Server) RunPlan(ctx context.Context, req oapi.RunPlanRequestObject) (oa
 }
 
 // startPlanExecution creates the execution entity for mode and records its id
-// on the plan. The YAML has already been moved to plans/in_progress/.
+// on the plan. The plan Status is already in_progress.
 func (s *Server) startPlanExecution(ctx context.Context, p *planstore.Plan, mode planstore.PlanExecutionMode) error {
 	root := s.resolvePlanRoot(p.ProjectID)
 	if root == "" {
@@ -626,7 +743,7 @@ func (s *Server) startPlanExecution(ctx context.Context, p *planstore.Plan, mode
 
 	case planstore.PlanModeOrchestratorWorker:
 		sess, spawnErr := s.spawnPlanBoundAgent(ctx, p, root, "orchestrator",
-			orchestratorDisplayName(p.Name), orchestratorPlanPrompt(p, root))
+			orchestratorDisplayName(p.Name), s.planningAgentPrompt(ctx, p, root, "orchestrator"))
 		if spawnErr != nil {
 			return spawnErr
 		}
@@ -638,7 +755,7 @@ func (s *Server) startPlanExecution(ctx context.Context, p *planstore.Plan, mode
 			return errStatus(http.StatusServiceUnavailable, "lifecycle not configured")
 		}
 		sess, spawnErr := s.spawnPlanBoundAgent(ctx, p, root, "general",
-			manualDisplayName(p.Name), manualPlanPrompt(p, root))
+			manualDisplayName(p.Name), s.planningAgentPrompt(ctx, p, root, "manual"))
 		if spawnErr != nil {
 			return spawnErr
 		}

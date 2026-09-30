@@ -320,25 +320,35 @@ and lands them into an integration branch, without waiting on a human.
 
 ## 16. Plans (tracked plan lifecycle)
 
-Plan YAML files in `plans/{pending,in_progress,completed,archived}/` are tracked daemon entities. Status is encoded by **directory placement** — a state transition is a `git mv` committed to the repo, making the lifecycle team-visible and git-recoverable without hub sync. Execution state (linked run/pipeline IDs, task progress) lives in ScrivaDB. Plans appear above agents in the TUI project tree.
+Plans are **canonical ScrivaDB records** (goal, tasks, lifecycle, revision,
+execution evidence). Repository `plans/**/*.yaml` is an optional inert export
+via `sync_to_repo` — never required for create/run/complete, and **not** scanned
+at daemon startup. See [plans migration](https://srjn45.github.io/warden/guides/plans-migration/)
+and [`docs/MIGRATION-plans-scrivadb.md`](docs/MIGRATION-plans-scrivadb.md).
+Phase 12 acceptance:
+[`docs/specs/2026-09-30-scrivadb-canonical-plans-acceptance.md`](docs/specs/2026-09-30-scrivadb-canonical-plans-acceptance.md).
+Deferred follow-ups (not hidden non-goals): JSON export [#585](https://github.com/srjn45/warden/issues/585),
+Hub transport [#586](https://github.com/srjn45/warden/issues/586).
 
 | Feature | CLI | MCP | Skill | Web | TUI | Docs |
 |---|---|---|---|---|---|---|
 | List plans (optional status filter) | `plan list` (alias `ls`) | `list_plans` | ✓ | — | plan tree | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
-| Show full plan detail | `plan show` | `get_plan` | ✓ | — | detail pane | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
-| Create a plan (writes YAML + DB record) | `plan create` | `create_plan` | ✓ | — | — | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
+| Show full plan detail (ScrivaDB; no YAML read) | `plan show` | `get_plan` | ✓ | — | detail pane | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
+| Create a Plan in ScrivaDB (no YAML write) | `plan create` | `create_plan` | ✓ | — | — | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
 | Update a pending plan's definition | — | `update_plan` | ✓ | — | — | [concepts/plans](https://srjn45.github.io/warden/concepts/plans/) |
-| Import a YAML into `plans/pending/` + scan | `plan import` | — | ✓ | — | — | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
-| Scan directories + upsert records (`--migrate-flat`, `--assess`) | `plan scan` | `scan_plans` | ✓ | — | `s` | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
-| Transition status (git mv + commit + DB update) | `plan status` | `update_plan_status` | ✓ | — | — | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
-| Mark a task done (shorthand for `update_task_status` → done) | `plan done` | `update_task_status` | ✓ | — | — | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
+| Explicit legacy YAML → ScrivaDB cutover | `plan import-legacy` | `import_legacy_plans` | ✓ | — | — | [plans-migration](https://srjn45.github.io/warden/guides/plans-migration/) |
+| **Deprecated** scan stubs (`--migrate-flat`, `--assess`) | `plan scan` | `scan_plans` | ✓ | — | `s` | [plans-migration](https://srjn45.github.io/warden/guides/plans-migration/) |
+| **Deprecated** copy YAML into `plans/pending/` + scan | `plan import` | — | ✓ | — | — | [plans-migration](https://srjn45.github.io/warden/guides/plans-migration/) |
+| **Deprecated** status field patch (prefer run/complete/archive) | `plan status` | `update_plan_status` | ✓ | — | — | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
+| Mark a task done | `plan done` | `update_task_status` | ✓ | — | — | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
 | Archive a plan (any status → archived) | `plan archive` | `archive_plan` | ✓ | — | `a` | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
-| Complete a plan (guards: all tasks done/skipped, branches merged) | `plan complete` | `complete_plan` | ✓ | — | — | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
+| Complete a plan | `plan complete` | `complete_plan` | ✓ | — | — | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
+| Optional inert replica PR | `plan sync_to_repo` | `sync_plan_to_repo` | ✓ | — | — | [plans-migration](https://srjn45.github.io/warden/guides/plans-migration/) |
+| Portable Plan backup bundle | `plan backup export\|restore` | `export_plan_backup` / `restore_plan_backup` | ✓ | — | — | [plan-backup-restore](https://srjn45.github.io/warden/guides/plan-backup-restore/) |
 | Brain-assisted task progress assessment | `plan assess` | `assess_plan` | ✓ | — | `A` | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
-| Run a plan in a given mode (`autopilot\|pipeline\|orchestrator_worker\|manual`) | `plan run --mode` | `run_plan` | ✓ | — | `r` (mode picker) | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
-| Auto-completion: `autopilot`/`pipeline` modes → git-mv to `completed/` | automatic | automatic | ✓ | — | — | [concepts/plans](https://srjn45.github.io/warden/concepts/plans/) |
-| Daemon auto-scan on startup (directory walk per registered project) | automatic | automatic | ✓ | — | — | [concepts/plans](https://srjn45.github.io/warden/concepts/plans/) |
-| TUI project tree: plans above agents, grouped by status, detail pane | — | — | — | — | plan tree | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
+| Run a plan (`autopilot\|pipeline\|orchestrator_worker\|manual`) | `plan run --mode` | `run_plan` | ✓ | — | `r` | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
+| Auto-completion for autopilot/pipeline modes | automatic | automatic | ✓ | — | — | [concepts/plans](https://srjn45.github.io/warden/concepts/plans/) |
+| TUI project tree: plans above agents, grouped by status | — | — | — | — | plan tree | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
 
 ## 17. Backend registry (detected CLIs, tiers, thinking-mode)
 

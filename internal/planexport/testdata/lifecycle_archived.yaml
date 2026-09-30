@@ -1,0 +1,27 @@
+# warden-plan-export: replica only — not authoritative
+schema_version: 1
+plan_id: plan-deadbeef
+revision: 3
+content_hash: sha256:3ee107aa5247b53a93cf4a0690d67d63003588b11d71f041f76822566aaa1fdb
+exported_at: "2026-09-30T12:00:00Z"
+lifecycle: archived
+execution_summary_ref: null
+version: 1
+name: example-plan
+goal: ship a deterministic replica
+constraints:
+  - no secrets in export
+  - byte-identical re-render
+tasks:
+  - id: design
+    prompt: freeze the envelope
+  - id: render
+    prompt: render YAML
+    after:
+      - design
+  - id: verify
+    prompt: check goldens
+    after:
+      - render
+done_when:
+  - goldens green

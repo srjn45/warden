@@ -27,6 +27,7 @@ import (
 	mailbox "github.com/srjn45/warden/internal/mailbox"
 	metrics "github.com/srjn45/warden/internal/metrics"
 	pipeline "github.com/srjn45/warden/internal/pipeline"
+	planbackup "github.com/srjn45/warden/internal/planbackup"
 	planstore "github.com/srjn45/warden/internal/planstore"
 	pressure "github.com/srjn45/warden/internal/pressure"
 	projectstore "github.com/srjn45/warden/internal/projectstore"
@@ -231,6 +232,30 @@ func (e GuardVerdictDecision) Valid() bool {
 	}
 }
 
+// Defines values for ImportLegacyRecordOutcome.
+const (
+	ImportLegacyRecordOutcomeConflicted ImportLegacyRecordOutcome = "conflicted"
+	ImportLegacyRecordOutcomeError      ImportLegacyRecordOutcome = "error"
+	ImportLegacyRecordOutcomeImported   ImportLegacyRecordOutcome = "imported"
+	ImportLegacyRecordOutcomeSkipped    ImportLegacyRecordOutcome = "skipped"
+)
+
+// Valid indicates whether the value is a known member of the ImportLegacyRecordOutcome enum.
+func (e ImportLegacyRecordOutcome) Valid() bool {
+	switch e {
+	case ImportLegacyRecordOutcomeConflicted:
+		return true
+	case ImportLegacyRecordOutcomeError:
+		return true
+	case ImportLegacyRecordOutcomeImported:
+		return true
+	case ImportLegacyRecordOutcomeSkipped:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for LegacyRunPlanRequestMode.
 const (
 	LegacyRunPlanRequestModeAutopilot          LegacyRunPlanRequestMode = "autopilot"
@@ -324,6 +349,27 @@ func (e PlanExecutionMode) Valid() bool {
 	}
 }
 
+// Defines values for PlanExportStatus.
+const (
+	Current PlanExportStatus = "current"
+	None    PlanExportStatus = "none"
+	Stale   PlanExportStatus = "stale"
+)
+
+// Valid indicates whether the value is a known member of the PlanExportStatus enum.
+func (e PlanExportStatus) Valid() bool {
+	switch e {
+	case Current:
+		return true
+	case None:
+		return true
+	case Stale:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PlanStatus.
 const (
 	PlanStatusArchived   PlanStatus = "archived"
@@ -342,6 +388,51 @@ func (e PlanStatus) Valid() bool {
 	case PlanStatusInProgress:
 		return true
 	case PlanStatusPending:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PlanSyncToRepoResultOutcome.
+const (
+	PlanSyncToRepoResultOutcomeConflict PlanSyncToRepoResultOutcome = "conflict"
+	PlanSyncToRepoResultOutcomeFailed   PlanSyncToRepoResultOutcome = "failed"
+	PlanSyncToRepoResultOutcomeSkipped  PlanSyncToRepoResultOutcome = "skipped"
+	PlanSyncToRepoResultOutcomeSuccess  PlanSyncToRepoResultOutcome = "success"
+)
+
+// Valid indicates whether the value is a known member of the PlanSyncToRepoResultOutcome enum.
+func (e PlanSyncToRepoResultOutcome) Valid() bool {
+	switch e {
+	case PlanSyncToRepoResultOutcomeConflict:
+		return true
+	case PlanSyncToRepoResultOutcomeFailed:
+		return true
+	case PlanSyncToRepoResultOutcomeSkipped:
+		return true
+	case PlanSyncToRepoResultOutcomeSuccess:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RestorePlanBackupRequestOnConflict.
+const (
+	Fail      RestorePlanBackupRequestOnConflict = "fail"
+	Overwrite RestorePlanBackupRequestOnConflict = "overwrite"
+	Skip      RestorePlanBackupRequestOnConflict = "skip"
+)
+
+// Valid indicates whether the value is a known member of the RestorePlanBackupRequestOnConflict enum.
+func (e RestorePlanBackupRequestOnConflict) Valid() bool {
+	switch e {
+	case Fail:
+		return true
+	case Overwrite:
+		return true
+	case Skip:
 		return true
 	default:
 		return false
@@ -1014,6 +1105,13 @@ type ExecutionSummary = planstore.ExecutionSummary
 // Export defines model for Export.
 type Export = store.Export
 
+// ExportPlanBackupRequest Select Plans for a portable backup bundle. Provide plan_ids and/or all=true (optionally filtered by project_id).
+type ExportPlanBackupRequest struct {
+	All       bool     `json:"all,omitempty"`
+	PlanIds   []string `json:"plan_ids,omitempty"`
+	ProjectId string   `json:"project_id,omitempty"`
+}
+
 // FileChange defines model for FileChange.
 type FileChange struct {
 	Added   int    `json:"added,omitempty"`
@@ -1082,6 +1180,40 @@ type GuardVerdictDecision string
 // HandoverSettings Configuration for mid-session context handover. context_fill_threshold is the only active trigger; threshold_percent and rolling_quota_threshold are deprecated and have no effect — confirmed hard-limit recovery (via the backend recovery coordinator) now owns all provider-quota switching. These deprecated fields are retained for one compatibility window and will be removed in a future release.
 type HandoverSettings = backendstore.HandoverSettings
 
+// ImportLegacyPlansRequest defines model for ImportLegacyPlansRequest.
+type ImportLegacyPlansRequest struct {
+	// ReportOnly When true, discover and classify candidates without mutating ScrivaDB or writing migration audit events.
+	ReportOnly bool `json:"report_only,omitempty"`
+}
+
+// ImportLegacyPlansResponse defines model for ImportLegacyPlansResponse.
+type ImportLegacyPlansResponse struct {
+	Conflicted []ImportLegacyRecord `json:"conflicted"`
+	Errors     []ImportLegacyRecord `json:"errors"`
+	Imported   []ImportLegacyRecord `json:"imported"`
+	ProjectId  string               `json:"project_id"`
+	ReportOnly bool                 `json:"report_only"`
+	RootDir    string               `json:"root_dir"`
+	Skipped    []ImportLegacyRecord `json:"skipped"`
+}
+
+// ImportLegacyRecord defines model for ImportLegacyRecord.
+type ImportLegacyRecord struct {
+	ContentHash      string                    `json:"content_hash,omitempty"`
+	ExistingHash     string                    `json:"existing_hash,omitempty"`
+	ExistingRevision int64                     `json:"existing_revision,omitempty"`
+	FilePath         string                    `json:"file_path"`
+	Name             string                    `json:"name,omitempty"`
+	Outcome          ImportLegacyRecordOutcome `json:"outcome"`
+	PlanId           string                    `json:"plan_id,omitempty"`
+	Reason           string                    `json:"reason,omitempty"`
+	Reconciled       bool                      `json:"reconciled,omitempty"`
+	Status           PlanStatus                `json:"status,omitempty"`
+}
+
+// ImportLegacyRecordOutcome defines model for ImportLegacyRecord.Outcome.
+type ImportLegacyRecordOutcome string
+
 // ImportResult defines model for ImportResult.
 type ImportResult = store.ImportResult
 
@@ -1114,12 +1246,21 @@ type LegacyRunPlanRequestMode string
 
 // LegacyScanPlansRequest defines model for LegacyScanPlansRequest.
 type LegacyScanPlansRequest struct {
-	Assess      bool `json:"assess,omitempty"`
+	Assess bool `json:"assess,omitempty"`
+
+	// MigrateFlat Deprecated. Moves flat plans/*.yaml into plans/pending/ with git mv before scanning. Prefer import-legacy for cutover.
 	MigrateFlat bool `json:"migrate_flat,omitempty"`
 }
 
 // LegacyScanPlansResponse defines model for LegacyScanPlansResponse.
 type LegacyScanPlansResponse struct {
+	// Notice Always present deprecation notice stating that scan cannot affect canonical execution after import.
+	Notice string `json:"notice"`
+
+	// SkippedCanonical Existing Plans with a non-empty canonical definition that were not status-reseeded from directory placement.
+	SkippedCanonical int `json:"skipped_canonical,omitempty"`
+
+	// Upserted Stub records created or updated (empty definition only).
 	Upserted int `json:"upserted"`
 }
 
@@ -1215,16 +1356,20 @@ type PipelineJob struct {
 // PipelineJobRunIf defines model for PipelineJob.RunIf.
 type PipelineJobRunIf string
 
-// Plan A YAML-backed plan and its DB-backed execution state. The definition fields are stored in the plan file; task_progress and execution links are stored separately so they can change without rewriting completed work.
+// Plan Canonical ScrivaDB Plan: definition, lifecycle, revision, and execution state. Repository YAML under plans/ is an optional inert export, not authority for these fields.
 type Plan struct {
 	// ActiveExecution A single execution attempt of a Plan.
 	ActiveExecution PlanExecution   `json:"active_execution,omitempty"`
+	ArchivedAt      time.Time       `json:"archived_at,omitempty"`
 	AutopilotRunId  string          `json:"autopilot_run_id,omitempty"`
 	BranchSummaries []BranchSummary `json:"branch_summaries,omitempty"`
 	CompletedAt     time.Time       `json:"completed_at,omitempty"`
 	Constraints     []string        `json:"constraints"`
-	CreatedAt       time.Time       `json:"created_at"`
-	DoneWhen        []string        `json:"done_when"`
+
+	// ContentHash sha256:… digest of canonical definition fields at this revision
+	ContentHash string    `json:"content_hash,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	DoneWhen    []string  `json:"done_when"`
 
 	// ExecutionHistory past execution attempts (historical summaries of runs)
 	ExecutionHistory []PlanExecution   `json:"execution_history,omitempty"`
@@ -1233,8 +1378,14 @@ type Plan struct {
 	// ExecutionSummary Immutable reduced report for a completed PlanExecution.
 	ExecutionSummary ExecutionSummary `json:"execution_summary,omitempty"`
 
-	// FilePath path relative to the project root
-	FilePath string `json:"file_path"`
+	// ExecutorId best-known live or linked executor id (active execution preferred, else autopilot_run_id / pipeline_id / orchestrator_id)
+	ExecutorId string `json:"executor_id,omitempty"`
+
+	// ExportStatus computed freshness of the last repository export relative to the canonical revision (none|current|stale). Never reads filesystem YAML.
+	ExportStatus PlanExportStatus `json:"export_status,omitempty"`
+
+	// FilePath legacy / last-export path relative to the project root; empty when never exported
+	FilePath string `json:"file_path,omitempty"`
 	Goal     string `json:"goal"`
 
 	// Id stable plan id (plan-<8hex>)
@@ -1247,7 +1398,13 @@ type Plan struct {
 	PlanBranches []string `json:"plan_branches,omitempty"`
 
 	// ProjectId owning project id
-	ProjectId string     `json:"project_id"`
+	ProjectId string `json:"project_id"`
+
+	// RepoExport Typed last-export metadata for an optional repository YAML replica. Separate from execution history; replicas are inert.
+	RepoExport RepoExportMeta `json:"repo_export,omitempty"`
+
+	// Revision optimistic-concurrency revision; increments on definition or lifecycle mutations
+	Revision  int64      `json:"revision"`
 	StartedAt time.Time  `json:"started_at,omitempty"`
 	Status    PlanStatus `json:"status"`
 
@@ -1256,12 +1413,24 @@ type Plan struct {
 
 	// TaskProgress task id to its current execution status
 	TaskProgress map[string]TaskStatus `json:"task_progress"`
-	Tasks        []PlanTask            `json:"tasks"`
-	UpdatedAt    time.Time             `json:"updated_at"`
+
+	// TaskSummary Computed task progress rollup for plan list/detail projections.
+	TaskSummary PlanTaskSummary `json:"task_summary,omitempty"`
+	Tasks       []PlanTask      `json:"tasks"`
+	UpdatedAt   time.Time       `json:"updated_at"`
 }
 
 // PlanExecutionMode defines model for Plan.ExecutionMode.
 type PlanExecutionMode string
+
+// PlanExportStatus computed freshness of the last repository export relative to the canonical revision (none|current|stale). Never reads filesystem YAML.
+type PlanExportStatus string
+
+// PlanBackupBundle Versioned Plan backup bundle for local backup / machine transfer.
+type PlanBackupBundle = planbackup.Bundle
+
+// PlanBackupRestoreResult defines model for PlanBackupRestoreResult.
+type PlanBackupRestoreResult = planbackup.RestoreResult
 
 // PlanCompletionError defines model for PlanCompletionError.
 type PlanCompletionError struct {
@@ -1273,8 +1442,45 @@ type PlanCompletionError struct {
 // PlanExecution A single execution attempt of a Plan.
 type PlanExecution = planstore.PlanExecution
 
+// PlanMutationConflict 409 body for plan definition/lifecycle mutations that cannot proceed — not-pending edits or optimistic revision conflicts.
+type PlanMutationConflict struct {
+	// Actual current canonical revision (revision conflicts only)
+	Actual int64  `json:"actual,omitempty"`
+	Error  string `json:"error"`
+
+	// Expected revision the client expected (revision conflicts only)
+	Expected int64  `json:"expected,omitempty"`
+	PlanId   string `json:"plan_id,omitempty"`
+}
+
 // PlanStatus defines model for PlanStatus.
 type PlanStatus string
+
+// PlanSyncToRepoResult Outcome of one plan sync_to_repo attempt.
+type PlanSyncToRepoResult struct {
+	Branch       string                      `json:"branch,omitempty"`
+	CommitSha    string                      `json:"commit_sha,omitempty"`
+	ContentHash  string                      `json:"content_hash"`
+	ErrorMessage string                      `json:"error_message,omitempty"`
+	Outcome      PlanSyncToRepoResultOutcome `json:"outcome"`
+	OutputPath   string                      `json:"output_path"`
+	PlanId       string                      `json:"plan_id"`
+	PrCreated    bool                        `json:"pr_created,omitempty"`
+	PrUrl        string                      `json:"pr_url,omitempty"`
+
+	// Reason Structured reason such as idempotent_reuse, github_auth_unavailable, existing_open_pr, branch_divergence, deleted_remote_branch_recreated, path_collision, or operator_dirty_worktree_ignored
+	Reason     string `json:"reason,omitempty"`
+	RecordId   string `json:"record_id,omitempty"`
+	Repository string `json:"repository"`
+
+	// Reused true when the prior successful export was returned with no new GitHub activity
+	Reused    bool   `json:"reused"`
+	Revision  int64  `json:"revision"`
+	TargetRef string `json:"target_ref"`
+}
+
+// PlanSyncToRepoResultOutcome defines model for PlanSyncToRepoResult.Outcome.
+type PlanSyncToRepoResultOutcome string
 
 // PlanTask defines model for PlanTask.
 type PlanTask struct {
@@ -1286,6 +1492,15 @@ type PlanTask struct {
 
 	// Prompt work instruction for this task
 	Prompt string `json:"prompt"`
+}
+
+// PlanTaskSummary Computed task progress rollup for plan list/detail projections.
+type PlanTaskSummary struct {
+	Done       int `json:"done,omitempty"`
+	InProgress int `json:"in_progress,omitempty"`
+	Pending    int `json:"pending,omitempty"`
+	Skipped    int `json:"skipped,omitempty"`
+	Total      int `json:"total,omitempty"`
 }
 
 // PressureStatus defines model for PressureStatus.
@@ -1325,6 +1540,9 @@ type PruneRequest struct {
 // PruneResult defines model for PruneResult.
 type PruneResult = lifecycle.PruneResult
 
+// PullRequestSummary GitHub PR evidence linked to a plan task or branch.
+type PullRequestSummary = planstore.PullRequestSummary
+
 // PushResult defines model for PushResult.
 type PushResult = lifecycle.PushResult
 
@@ -1355,11 +1573,46 @@ type RecoveryAttempt = store.RecoveryAttempt
 // RecoveryReset Known reset window for a limited backend/model pool, as reported by the provider via the backend-usage service. resets_at is null when the provider supplied no reset time; never coerce null to zero or any synthetic value — render as "unknown".
 type RecoveryReset = store.RecoveryReset
 
+// RelatedPlanHit defines model for RelatedPlanHit.
+type RelatedPlanHit struct {
+	Name    string   `json:"name"`
+	PlanId  string   `json:"plan_id"`
+	Reasons []string `json:"reasons"`
+	Score   int      `json:"score"`
+	Status  string   `json:"status"`
+}
+
+// RelatedPlansResult Heuristic related-plan / overlap query result. Surfaces must preserve heuristic=true and the disclaimer — hits are not authoritative.
+type RelatedPlansResult struct {
+	AnchorId   string `json:"anchor_id"`
+	Disclaimer string `json:"disclaimer"`
+
+	// Heuristic Always true; overlap scoring is heuristic only.
+	Heuristic bool             `json:"heuristic"`
+	Hits      []RelatedPlanHit `json:"hits"`
+}
+
 // RemoveWorktreeRequest defines model for RemoveWorktreeRequest.
 type RemoveWorktreeRequest struct {
 	DeleteAdoptedBranch bool `json:"delete_adopted_branch,omitempty"`
 	Force               bool `json:"force,omitempty"`
 }
+
+// RepoExportMeta Typed last-export metadata for an optional repository YAML replica. Separate from execution history; replicas are inert.
+type RepoExportMeta = planstore.RepoExportMeta
+
+// RestorePlanBackupRequest defines model for RestorePlanBackupRequest.
+type RestorePlanBackupRequest struct {
+	// Bundle Versioned Plan backup bundle for local backup / machine transfer.
+	Bundle PlanBackupBundle `json:"bundle"`
+	DryRun bool             `json:"dry_run,omitempty"`
+
+	// OnConflict Stable-ID conflict policy (default skip)
+	OnConflict RestorePlanBackupRequestOnConflict `json:"on_conflict,omitempty"`
+}
+
+// RestorePlanBackupRequestOnConflict Stable-ID conflict policy (default skip)
+type RestorePlanBackupRequestOnConflict string
 
 // RestoreResult defines model for RestoreResult.
 type RestoreResult = snapshot.RestoreResult
@@ -1563,6 +1816,21 @@ type StoreScanFailureClass string
 // SwapResult Outcome of a completed hot-swap.
 type SwapResult = lifecycle.SwapResult
 
+// SyncPlanToRepoRequest Explicit repository/export options for plan sync_to_repo. repository_path defaults to the plan's project root when omitted. target_ref is the PR base.
+type SyncPlanToRepoRequest struct {
+	// OutputPath Optional override for the replica path; default plans/{lifecycle}/<slug>.yaml
+	OutputPath string `json:"output_path,omitempty"`
+
+	// Repository Stable repository identity for export records (defaults to origin URL)
+	Repository string `json:"repository,omitempty"`
+
+	// RepositoryPath Absolute local git repository path (defaults to the plan's project root)
+	RepositoryPath string `json:"repository_path,omitempty"`
+
+	// TargetRef PR base branch / target ref (e.g. main or an integration branch)
+	TargetRef string `json:"target_ref"`
+}
+
 // SyncResult defines model for SyncResult.
 type SyncResult = lifecycle.SyncResult
 
@@ -1584,13 +1852,16 @@ type TreeNode = tree.Node
 // TreeNodeDetail Small, type-specific light fields a client needs to render a node without a second lookup. Never embeds a full session. Every field is omitempty.
 type TreeNodeDetail = tree.Detail
 
-// UpdatePlanRequest Partial replacement of editable plan definition fields. This request is accepted only while the plan is pending.
+// UpdatePlanRequest Partial replacement of editable plan definition fields. This request is accepted only while the plan is pending. When expected_revision is set, a mismatch returns 409 with structured conflict fields.
 type UpdatePlanRequest struct {
-	Constraints []string   `json:"constraints,omitempty"`
-	DoneWhen    []string   `json:"done_when,omitempty"`
-	Goal        string     `json:"goal,omitempty"`
-	Name        string     `json:"name,omitempty"`
-	Tasks       []PlanTask `json:"tasks,omitempty"`
+	Constraints []string `json:"constraints,omitempty"`
+	DoneWhen    []string `json:"done_when,omitempty"`
+
+	// ExpectedRevision optimistic concurrency token; omit to use the revision observed at request start
+	ExpectedRevision int64      `json:"expected_revision,omitempty"`
+	Goal             string     `json:"goal,omitempty"`
+	Name             string     `json:"name,omitempty"`
+	Tasks            []PlanTask `json:"tasks,omitempty"`
 }
 
 // UpdateProjectGroupRequest defines model for UpdateProjectGroupRequest.
@@ -1825,6 +2096,12 @@ type ListPlansParams struct {
 
 	// Status Filter by plan status; omit to return all plans.
 	Status PlanStatus `form:"status,omitempty" json:"status,omitempty"`
+}
+
+// ListRelatedPlansParams defines parameters for ListRelatedPlans.
+type ListRelatedPlansParams struct {
+	// Limit Maximum number of hits to return (default 10).
+	Limit int `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ListProjectPlansParams defines parameters for ListProjectPlans.
@@ -2091,11 +2368,20 @@ type EmitPipelineJobJSONRequestBody EmitPipelineJobJSONBody
 // CreatePlanJSONRequestBody defines body for CreatePlan for application/json ContentType.
 type CreatePlanJSONRequestBody = CreatePlanRequest
 
+// ExportPlanBackupJSONRequestBody defines body for ExportPlanBackup for application/json ContentType.
+type ExportPlanBackupJSONRequestBody = ExportPlanBackupRequest
+
+// RestorePlanBackupJSONRequestBody defines body for RestorePlanBackup for application/json ContentType.
+type RestorePlanBackupJSONRequestBody = RestorePlanBackupRequest
+
 // UpdatePlanJSONRequestBody defines body for UpdatePlan for application/json ContentType.
 type UpdatePlanJSONRequestBody = UpdatePlanRequest
 
 // RunPlanJSONRequestBody defines body for RunPlan for application/json ContentType.
 type RunPlanJSONRequestBody = RunPlanRequest
+
+// SyncPlanToRepoJSONRequestBody defines body for SyncPlanToRepo for application/json ContentType.
+type SyncPlanToRepoJSONRequestBody = SyncPlanToRepoRequest
 
 // UpdateTaskStatusJSONRequestBody defines body for UpdateTaskStatus for application/json ContentType.
 type UpdateTaskStatusJSONRequestBody = UpdateTaskStatusRequest
@@ -2126,6 +2412,9 @@ type OpenRemoteProjectJSONRequestBody = OpenRemoteProjectRequest
 
 // CreateProjectPlanJSONRequestBody defines body for CreateProjectPlan for application/json ContentType.
 type CreateProjectPlanJSONRequestBody = LegacyCreatePlanRequest
+
+// ImportLegacyPlansJSONRequestBody defines body for ImportLegacyPlans for application/json ContentType.
+type ImportLegacyPlansJSONRequestBody = ImportLegacyPlansRequest
 
 // ScanProjectPlansJSONRequestBody defines body for ScanProjectPlans for application/json ContentType.
 type ScanProjectPlansJSONRequestBody = LegacyScanPlansRequest
@@ -2372,6 +2661,12 @@ type ServerInterface interface {
 	// Create a plan
 	// (POST /api/v1/plans)
 	CreatePlan(w http.ResponseWriter, r *http.Request)
+	// Export Plans into a portable backup bundle
+	// (POST /api/v1/plans/export_backup)
+	ExportPlanBackup(w http.ResponseWriter, r *http.Request)
+	// Restore Plans from a portable backup bundle
+	// (POST /api/v1/plans/restore_backup)
+	RestorePlanBackup(w http.ResponseWriter, r *http.Request)
 	// Get a plan
 	// (GET /api/v1/plans/{plan_id})
 	GetPlan(w http.ResponseWriter, r *http.Request, planId PlanId)
@@ -2384,9 +2679,15 @@ type ServerInterface interface {
 	// Complete a plan
 	// (POST /api/v1/plans/{plan_id}/complete)
 	CompletePlan(w http.ResponseWriter, r *http.Request, planId PlanId)
+	// Heuristic related-plan / overlap query
+	// (GET /api/v1/plans/{plan_id}/related)
+	ListRelatedPlans(w http.ResponseWriter, r *http.Request, planId PlanId, params ListRelatedPlansParams)
 	// Start plan execution
 	// (POST /api/v1/plans/{plan_id}/run)
 	RunPlan(w http.ResponseWriter, r *http.Request, planId PlanId)
+	// Export a plan revision to a dedicated branch and open a PR
+	// (POST /api/v1/plans/{plan_id}/sync_to_repo)
+	SyncPlanToRepo(w http.ResponseWriter, r *http.Request, planId PlanId)
 	// Update task progress
 	// (POST /api/v1/plans/{plan_id}/tasks/{task_id}/status)
 	UpdateTaskStatus(w http.ResponseWriter, r *http.Request, planId PlanId, taskId TaskId)
@@ -2441,7 +2742,10 @@ type ServerInterface interface {
 	// Create a legacy project plan record
 	// (POST /api/v1/projects/{project_id}/plans)
 	CreateProjectPlan(w http.ResponseWriter, r *http.Request, projectId string)
-	// Scan a project's plans directory
+	// Explicitly import legacy plans/*.yaml into ScrivaDB
+	// (POST /api/v1/projects/{project_id}/plans/import-legacy)
+	ImportLegacyPlans(w http.ResponseWriter, r *http.Request, projectId string)
+	// [deprecated] Scan a project's plans directory
 	// (POST /api/v1/projects/{project_id}/plans/scan)
 	ScanProjectPlans(w http.ResponseWriter, r *http.Request, projectId string)
 	// Delete a legacy plan record
@@ -2450,7 +2754,7 @@ type ServerInterface interface {
 	// Get a legacy project plan
 	// (GET /api/v1/projects/{project_id}/plans/{plan_id})
 	GetProjectPlan(w http.ResponseWriter, r *http.Request, projectId string, planId PlanId)
-	// Update legacy plan execution fields
+	// [deprecated] Update legacy plan execution fields
 	// (PATCH /api/v1/projects/{project_id}/plans/{plan_id})
 	UpdateProjectPlan(w http.ResponseWriter, r *http.Request, projectId string, planId PlanId)
 	// Assess legacy plan progress
@@ -2945,6 +3249,18 @@ func (_ Unimplemented) CreatePlan(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Export Plans into a portable backup bundle
+// (POST /api/v1/plans/export_backup)
+func (_ Unimplemented) ExportPlanBackup(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Restore Plans from a portable backup bundle
+// (POST /api/v1/plans/restore_backup)
+func (_ Unimplemented) RestorePlanBackup(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Get a plan
 // (GET /api/v1/plans/{plan_id})
 func (_ Unimplemented) GetPlan(w http.ResponseWriter, r *http.Request, planId PlanId) {
@@ -2969,9 +3285,21 @@ func (_ Unimplemented) CompletePlan(w http.ResponseWriter, r *http.Request, plan
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Heuristic related-plan / overlap query
+// (GET /api/v1/plans/{plan_id}/related)
+func (_ Unimplemented) ListRelatedPlans(w http.ResponseWriter, r *http.Request, planId PlanId, params ListRelatedPlansParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Start plan execution
 // (POST /api/v1/plans/{plan_id}/run)
 func (_ Unimplemented) RunPlan(w http.ResponseWriter, r *http.Request, planId PlanId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Export a plan revision to a dedicated branch and open a PR
+// (POST /api/v1/plans/{plan_id}/sync_to_repo)
+func (_ Unimplemented) SyncPlanToRepo(w http.ResponseWriter, r *http.Request, planId PlanId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -3083,7 +3411,13 @@ func (_ Unimplemented) CreateProjectPlan(w http.ResponseWriter, r *http.Request,
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Scan a project's plans directory
+// Explicitly import legacy plans/*.yaml into ScrivaDB
+// (POST /api/v1/projects/{project_id}/plans/import-legacy)
+func (_ Unimplemented) ImportLegacyPlans(w http.ResponseWriter, r *http.Request, projectId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// [deprecated] Scan a project's plans directory
 // (POST /api/v1/projects/{project_id}/plans/scan)
 func (_ Unimplemented) ScanProjectPlans(w http.ResponseWriter, r *http.Request, projectId string) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -3101,7 +3435,7 @@ func (_ Unimplemented) GetProjectPlan(w http.ResponseWriter, r *http.Request, pr
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Update legacy plan execution fields
+// [deprecated] Update legacy plan execution fields
 // (PATCH /api/v1/projects/{project_id}/plans/{plan_id})
 func (_ Unimplemented) UpdateProjectPlan(w http.ResponseWriter, r *http.Request, projectId string, planId PlanId) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -5063,6 +5397,46 @@ func (siw *ServerInterfaceWrapper) CreatePlan(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
+// ExportPlanBackup operation middleware
+func (siw *ServerInterfaceWrapper) ExportPlanBackup(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ExportPlanBackup(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RestorePlanBackup operation middleware
+func (siw *ServerInterfaceWrapper) RestorePlanBackup(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RestorePlanBackup(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetPlan operation middleware
 func (siw *ServerInterfaceWrapper) GetPlan(w http.ResponseWriter, r *http.Request) {
 
@@ -5191,6 +5565,54 @@ func (siw *ServerInterfaceWrapper) CompletePlan(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
+// ListRelatedPlans operation middleware
+func (siw *ServerInterfaceWrapper) ListRelatedPlans(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "plan_id" -------------
+	var planId PlanId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "plan_id", chi.URLParam(r, "plan_id"), &planId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "plan_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListRelatedPlansParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListRelatedPlans(w, r, planId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // RunPlan operation middleware
 func (siw *ServerInterfaceWrapper) RunPlan(w http.ResponseWriter, r *http.Request) {
 
@@ -5214,6 +5636,38 @@ func (siw *ServerInterfaceWrapper) RunPlan(w http.ResponseWriter, r *http.Reques
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RunPlan(w, r, planId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SyncPlanToRepo operation middleware
+func (siw *ServerInterfaceWrapper) SyncPlanToRepo(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "plan_id" -------------
+	var planId PlanId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "plan_id", chi.URLParam(r, "plan_id"), &planId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "plan_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SyncPlanToRepo(w, r, planId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -5728,6 +6182,38 @@ func (siw *ServerInterfaceWrapper) CreateProjectPlan(w http.ResponseWriter, r *h
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateProjectPlan(w, r, projectId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ImportLegacyPlans operation middleware
+func (siw *ServerInterfaceWrapper) ImportLegacyPlans(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project_id" -------------
+	var projectId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project_id", chi.URLParam(r, "project_id"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ImportLegacyPlans(w, r, projectId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7664,6 +8150,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/api/v1/plans", wrapper.CreatePlan)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/plans/export_backup", wrapper.ExportPlanBackup)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/plans/restore_backup", wrapper.RestorePlanBackup)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/plans/{plan_id}", wrapper.GetPlan)
 	})
 	r.Group(func(r chi.Router) {
@@ -7676,7 +8168,13 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/api/v1/plans/{plan_id}/complete", wrapper.CompletePlan)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/plans/{plan_id}/related", wrapper.ListRelatedPlans)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/plans/{plan_id}/run", wrapper.RunPlan)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/plans/{plan_id}/sync_to_repo", wrapper.SyncPlanToRepo)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/plans/{plan_id}/tasks/{task_id}/status", wrapper.UpdateTaskStatus)
@@ -7731,6 +8229,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/projects/{project_id}/plans", wrapper.CreateProjectPlan)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/projects/{project_id}/plans/import-legacy", wrapper.ImportLegacyPlans)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/projects/{project_id}/plans/scan", wrapper.ScanProjectPlans)
@@ -10021,6 +10522,134 @@ func (response CreatePlan404JSONResponse) VisitCreatePlanResponse(w http.Respons
 	return err
 }
 
+type ExportPlanBackupRequestObject struct {
+	Body *ExportPlanBackupJSONRequestBody
+}
+
+type ExportPlanBackupResponseObject interface {
+	VisitExportPlanBackupResponse(w http.ResponseWriter) error
+}
+
+type ExportPlanBackup200JSONResponse PlanBackupBundle
+
+func (response ExportPlanBackup200JSONResponse) VisitExportPlanBackupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ExportPlanBackup400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ExportPlanBackup400JSONResponse) VisitExportPlanBackupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ExportPlanBackup404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ExportPlanBackup404JSONResponse) VisitExportPlanBackupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ExportPlanBackup503JSONResponse Error
+
+func (response ExportPlanBackup503JSONResponse) VisitExportPlanBackupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestorePlanBackupRequestObject struct {
+	Body *RestorePlanBackupJSONRequestBody
+}
+
+type RestorePlanBackupResponseObject interface {
+	VisitRestorePlanBackupResponse(w http.ResponseWriter) error
+}
+
+type RestorePlanBackup200JSONResponse PlanBackupRestoreResult
+
+func (response RestorePlanBackup200JSONResponse) VisitRestorePlanBackupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestorePlanBackup400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response RestorePlanBackup400JSONResponse) VisitRestorePlanBackupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestorePlanBackup409JSONResponse PlanBackupRestoreResult
+
+func (response RestorePlanBackup409JSONResponse) VisitRestorePlanBackupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestorePlanBackup503JSONResponse Error
+
+func (response RestorePlanBackup503JSONResponse) VisitRestorePlanBackupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetPlanRequestObject struct {
 	PlanId PlanId `json:"plan_id"`
 }
@@ -10108,7 +10737,7 @@ func (response UpdatePlan404JSONResponse) VisitUpdatePlanResponse(w http.Respons
 	return err
 }
 
-type UpdatePlan409JSONResponse Error
+type UpdatePlan409JSONResponse PlanMutationConflict
 
 func (response UpdatePlan409JSONResponse) VisitUpdatePlanResponse(w http.ResponseWriter) error {
 
@@ -10222,6 +10851,43 @@ func (response CompletePlan422JSONResponse) VisitCompletePlanResponse(w http.Res
 	return err
 }
 
+type ListRelatedPlansRequestObject struct {
+	PlanId PlanId `json:"plan_id"`
+	Params ListRelatedPlansParams
+}
+
+type ListRelatedPlansResponseObject interface {
+	VisitListRelatedPlansResponse(w http.ResponseWriter) error
+}
+
+type ListRelatedPlans200JSONResponse RelatedPlansResult
+
+func (response ListRelatedPlans200JSONResponse) VisitListRelatedPlansResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListRelatedPlans404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListRelatedPlans404JSONResponse) VisitListRelatedPlansResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type RunPlanRequestObject struct {
 	PlanId PlanId `json:"plan_id"`
 	Body   *RunPlanJSONRequestBody
@@ -10283,6 +10949,85 @@ func (response RunPlan409JSONResponse) VisitRunPlanResponse(w http.ResponseWrite
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SyncPlanToRepoRequestObject struct {
+	PlanId PlanId `json:"plan_id"`
+	Body   *SyncPlanToRepoJSONRequestBody
+}
+
+type SyncPlanToRepoResponseObject interface {
+	VisitSyncPlanToRepoResponse(w http.ResponseWriter) error
+}
+
+type SyncPlanToRepo200JSONResponse PlanSyncToRepoResult
+
+func (response SyncPlanToRepo200JSONResponse) VisitSyncPlanToRepoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SyncPlanToRepo400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response SyncPlanToRepo400JSONResponse) VisitSyncPlanToRepoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SyncPlanToRepo404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response SyncPlanToRepo404JSONResponse) VisitSyncPlanToRepoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SyncPlanToRepo409JSONResponse PlanSyncToRepoResult
+
+func (response SyncPlanToRepo409JSONResponse) VisitSyncPlanToRepoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SyncPlanToRepo503JSONResponse Error
+
+func (response SyncPlanToRepo503JSONResponse) VisitSyncPlanToRepoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -10971,6 +11716,43 @@ func (response CreateProjectPlan400JSONResponse) VisitCreateProjectPlanResponse(
 type CreateProjectPlan404JSONResponse struct{ NotFoundJSONResponse }
 
 func (response CreateProjectPlan404JSONResponse) VisitCreateProjectPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ImportLegacyPlansRequestObject struct {
+	ProjectId string `json:"project_id"`
+	Body      *ImportLegacyPlansJSONRequestBody
+}
+
+type ImportLegacyPlansResponseObject interface {
+	VisitImportLegacyPlansResponse(w http.ResponseWriter) error
+}
+
+type ImportLegacyPlans200JSONResponse ImportLegacyPlansResponse
+
+func (response ImportLegacyPlans200JSONResponse) VisitImportLegacyPlansResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ImportLegacyPlans404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ImportLegacyPlans404JSONResponse) VisitImportLegacyPlansResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -13118,6 +13900,12 @@ type StrictServerInterface interface {
 	// Create a plan
 	// (POST /api/v1/plans)
 	CreatePlan(ctx context.Context, request CreatePlanRequestObject) (CreatePlanResponseObject, error)
+	// Export Plans into a portable backup bundle
+	// (POST /api/v1/plans/export_backup)
+	ExportPlanBackup(ctx context.Context, request ExportPlanBackupRequestObject) (ExportPlanBackupResponseObject, error)
+	// Restore Plans from a portable backup bundle
+	// (POST /api/v1/plans/restore_backup)
+	RestorePlanBackup(ctx context.Context, request RestorePlanBackupRequestObject) (RestorePlanBackupResponseObject, error)
 	// Get a plan
 	// (GET /api/v1/plans/{plan_id})
 	GetPlan(ctx context.Context, request GetPlanRequestObject) (GetPlanResponseObject, error)
@@ -13130,9 +13918,15 @@ type StrictServerInterface interface {
 	// Complete a plan
 	// (POST /api/v1/plans/{plan_id}/complete)
 	CompletePlan(ctx context.Context, request CompletePlanRequestObject) (CompletePlanResponseObject, error)
+	// Heuristic related-plan / overlap query
+	// (GET /api/v1/plans/{plan_id}/related)
+	ListRelatedPlans(ctx context.Context, request ListRelatedPlansRequestObject) (ListRelatedPlansResponseObject, error)
 	// Start plan execution
 	// (POST /api/v1/plans/{plan_id}/run)
 	RunPlan(ctx context.Context, request RunPlanRequestObject) (RunPlanResponseObject, error)
+	// Export a plan revision to a dedicated branch and open a PR
+	// (POST /api/v1/plans/{plan_id}/sync_to_repo)
+	SyncPlanToRepo(ctx context.Context, request SyncPlanToRepoRequestObject) (SyncPlanToRepoResponseObject, error)
 	// Update task progress
 	// (POST /api/v1/plans/{plan_id}/tasks/{task_id}/status)
 	UpdateTaskStatus(ctx context.Context, request UpdateTaskStatusRequestObject) (UpdateTaskStatusResponseObject, error)
@@ -13187,7 +13981,10 @@ type StrictServerInterface interface {
 	// Create a legacy project plan record
 	// (POST /api/v1/projects/{project_id}/plans)
 	CreateProjectPlan(ctx context.Context, request CreateProjectPlanRequestObject) (CreateProjectPlanResponseObject, error)
-	// Scan a project's plans directory
+	// Explicitly import legacy plans/*.yaml into ScrivaDB
+	// (POST /api/v1/projects/{project_id}/plans/import-legacy)
+	ImportLegacyPlans(ctx context.Context, request ImportLegacyPlansRequestObject) (ImportLegacyPlansResponseObject, error)
+	// [deprecated] Scan a project's plans directory
 	// (POST /api/v1/projects/{project_id}/plans/scan)
 	ScanProjectPlans(ctx context.Context, request ScanProjectPlansRequestObject) (ScanProjectPlansResponseObject, error)
 	// Delete a legacy plan record
@@ -13196,7 +13993,7 @@ type StrictServerInterface interface {
 	// Get a legacy project plan
 	// (GET /api/v1/projects/{project_id}/plans/{plan_id})
 	GetProjectPlan(ctx context.Context, request GetProjectPlanRequestObject) (GetProjectPlanResponseObject, error)
-	// Update legacy plan execution fields
+	// [deprecated] Update legacy plan execution fields
 	// (PATCH /api/v1/projects/{project_id}/plans/{plan_id})
 	UpdateProjectPlan(ctx context.Context, request UpdateProjectPlanRequestObject) (UpdateProjectPlanResponseObject, error)
 	// Assess legacy plan progress
@@ -15043,6 +15840,68 @@ func (sh *strictHandler) CreatePlan(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ExportPlanBackup operation middleware
+func (sh *strictHandler) ExportPlanBackup(w http.ResponseWriter, r *http.Request) {
+	var request ExportPlanBackupRequestObject
+
+	var body ExportPlanBackupJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ExportPlanBackup(ctx, request.(ExportPlanBackupRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ExportPlanBackup")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ExportPlanBackupResponseObject); ok {
+		if err := validResponse.VisitExportPlanBackupResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RestorePlanBackup operation middleware
+func (sh *strictHandler) RestorePlanBackup(w http.ResponseWriter, r *http.Request) {
+	var request RestorePlanBackupRequestObject
+
+	var body RestorePlanBackupJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RestorePlanBackup(ctx, request.(RestorePlanBackupRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RestorePlanBackup")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RestorePlanBackupResponseObject); ok {
+		if err := validResponse.VisitRestorePlanBackupResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetPlan operation middleware
 func (sh *strictHandler) GetPlan(w http.ResponseWriter, r *http.Request, planId PlanId) {
 	var request GetPlanRequestObject
@@ -15154,6 +16013,33 @@ func (sh *strictHandler) CompletePlan(w http.ResponseWriter, r *http.Request, pl
 	}
 }
 
+// ListRelatedPlans operation middleware
+func (sh *strictHandler) ListRelatedPlans(w http.ResponseWriter, r *http.Request, planId PlanId, params ListRelatedPlansParams) {
+	var request ListRelatedPlansRequestObject
+
+	request.PlanId = planId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListRelatedPlans(ctx, request.(ListRelatedPlansRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListRelatedPlans")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListRelatedPlansResponseObject); ok {
+		if err := validResponse.VisitListRelatedPlansResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // RunPlan operation middleware
 func (sh *strictHandler) RunPlan(w http.ResponseWriter, r *http.Request, planId PlanId) {
 	var request RunPlanRequestObject
@@ -15180,6 +16066,39 @@ func (sh *strictHandler) RunPlan(w http.ResponseWriter, r *http.Request, planId 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RunPlanResponseObject); ok {
 		if err := validResponse.VisitRunPlanResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SyncPlanToRepo operation middleware
+func (sh *strictHandler) SyncPlanToRepo(w http.ResponseWriter, r *http.Request, planId PlanId) {
+	var request SyncPlanToRepoRequestObject
+
+	request.PlanId = planId
+
+	var body SyncPlanToRepoJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SyncPlanToRepo(ctx, request.(SyncPlanToRepoRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SyncPlanToRepo")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SyncPlanToRepoResponseObject); ok {
+		if err := validResponse.VisitSyncPlanToRepoResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -15705,6 +16624,42 @@ func (sh *strictHandler) CreateProjectPlan(w http.ResponseWriter, r *http.Reques
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CreateProjectPlanResponseObject); ok {
 		if err := validResponse.VisitCreateProjectPlanResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ImportLegacyPlans operation middleware
+func (sh *strictHandler) ImportLegacyPlans(w http.ResponseWriter, r *http.Request, projectId string) {
+	var request ImportLegacyPlansRequestObject
+
+	request.ProjectId = projectId
+
+	var body ImportLegacyPlansJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if !errors.Is(err, io.EOF) {
+			sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+			return
+		}
+	} else {
+		request.Body = &body
+	}
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ImportLegacyPlans(ctx, request.(ImportLegacyPlansRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ImportLegacyPlans")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ImportLegacyPlansResponseObject); ok {
+		if err := validResponse.VisitImportLegacyPlansResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -1,0 +1,31 @@
+# warden-plan-export: replica only — not authoritative
+schema_version: 1
+plan_id: plan-deadbeef
+revision: 3
+content_hash: sha256:5a00a5d00fc1ce61b7b3052ad7d6ede320031165368437a922494735adf9ed93
+exported_at: "2026-09-30T12:00:00Z"
+lifecycle: pending
+execution_summary_ref: null
+version: 1
+name: special-chars
+goal: |-
+  Handle: colons, "quotes", and
+  newlines — plus unicode café ☕
+constraints:
+  - 'raw: "quoted" & ampersand'
+  - |-
+    line1
+    line2	tab
+  - '* leading asterisk'
+tasks:
+  - id: quote-task
+    prompt: 'Use `code`, $HOME, and a: mapping lookalike'
+  - id: block-task
+    prompt: |
+      Multi-line prompt:
+      - item one
+      - item two: value
+    after:
+      - quote-task
+done_when:
+  - 'done when: it''s "finished"'

@@ -1,188 +1,114 @@
 ---
 title: Using plans
-description: How to scan, run, and recover plans — the four execution modes, brain-assisted progress assessment, and cross-machine reinstall recovery.
+description: Create, run, and complete ScrivaDB-canonical Plans — DB-native workflow, optional replica export, and deprecated migration aids.
 ---
 
 import { Aside, Steps } from '@astrojs/starlight/components';
 
-Plans are YAML files stored in your repo under `plans/{pending,in_progress,completed,archived}/`. The daemon scans those directories, tracks each plan's execution state (links to autopilot runs, pipelines, and task progress), and shows plans in the TUI project tree above agents. The **directory the file sits in is the plan's status** — moving the file is a state transition.
+Plans are **canonical ScrivaDB records**. You do not need a `plans/` directory to create, list, run, or complete them. Repository YAML is an optional inert export for review.
 
-## Directory layout
+Operator playbooks (legacy import, replica PR, backup restore, export conflicts): [Plans migration](/warden/guides/plans-migration/).
 
-```
-plans/
-  pending/
-    feature-x.yaml
-    feature-y.yaml
-  in_progress/
-    brain-consult.yaml
-  completed/
-    old-feature.yaml
-  archived/
-    stale-plan.yaml
-```
-
-Status is encoded by directory, so the full plan state is always readable from `git log` and visible to every team member who clones the repo — no warden daemon required to see which plans are active.
-
-## First scan
-
-After adding plan files to your repo (or cloning one that already has them), tell the daemon to scan:
-
-```sh
-wd plan scan
-```
-
-The daemon walks all four subdirectories, derives each plan's stable ID from its name, and upserts records into its ScrivaDB `plans` collection. Status is inferred from the directory. Running scan again is safe — it only updates `FilePath` and `Status`; it never overwrites execution links or task progress.
-
-### Migrating flat plans
-
-If your repo has existing `plans/*.yaml` files (flat, not in subdirectories), migrate them in one step:
-
-```sh
-wd plan scan --migrate-flat
-```
-
-This `git mv`s every flat file into `plans/pending/`, commits, and then scans.
-
-## Listing and inspecting plans
-
-```sh
-wd plan list                          # all plans for this project
-wd plan list --status in_progress     # filter by status
-wd plan list --json                   # machine-readable
-
-wd plan show <plan-id>                # full detail: file, status, mode, links, timestamps
-wd plan show <plan-id> --json
-```
-
-The plan ID is the stable `plan-<8hex>` identifier printed by `wd plan list`.
-
-## Creating a plan
-
-`wd plan create` writes `plans/pending/<slug>.yaml` and inserts the daemon record:
+## Fresh DB-native use
 
 ```sh
 wd plan create --name feature-x --goal "ship it" --task t1:do the work
-wd plan create --name feature-x --goal "ship it" --task t1:do the work --task t2:review
+wd plan list
+wd plan show <plan-id>
+wd plan run <plan-id> --mode autopilot   # or pipeline | orchestrator | manual
+wd plan done <plan-id> t1                # mark a task done
+wd plan complete <plan-id>               # when the mode requires it
+wd plan archive <plan-id>
 ```
 
-`--name` and `--goal` are required. Repeat `--task id:prompt` for each task, or omit `--task` and enter tasks interactively when stdin is a TTY (or pipe the same `id` / `prompt` / blank-id format). Optional `--constraint` and `--done-when` may be repeated.
+`--name` and `--goal` are required. Repeat `--task id:prompt`, or enter tasks interactively when stdin is a TTY. Optional `--constraint` and `--done-when` may be repeated.
 
-## Importing a plan
-
-To bring in a plan YAML from outside the project:
+No `plans/` write is required. To publish a reviewable replica later:
 
 ```sh
-wd plan import path/to/feature-x.yaml
+wd plan sync_to_repo <plan-id> --base main
 ```
 
-This copies the file into `plans/pending/` and triggers a scan automatically.
-
-## Transitioning status
-
-`wd plan status` performs the `git mv`, creates a commit, and updates the DB record atomically:
+## Listing and inspecting
 
 ```sh
-wd plan status <plan-id> in_progress    # start a plan (manual mode)
-wd plan status <plan-id> completed      # mark done
-wd plan status <plan-id> archived       # de-prioritise
-wd plan archive <plan-id>               # any status → archived
-wd plan done <plan-id> <task-id>        # mark one task done
-wd plan complete <plan-id>              # in_progress → completed
+wd plan list                          # all plans for this project
+wd plan list --status in_progress
+wd plan list --json
+wd plan show <plan-id>
+wd plan show <plan-id> --json
 ```
 
-Valid statuses: `pending` · `in_progress` · `completed` · `archived`
-
-<Aside>
-Any status can transition to `archived`. `completed` and `archived` cannot move back to `in_progress` without an explicit reset — this is intentional to prevent accidental re-runs.
-</Aside>
+Detail comes from ScrivaDB (goal, tasks, revision, export status, execution). Repository YAML is never read for this view.
 
 ## Running a plan
 
-`wd plan run` links a plan to an execution entity, moves it to `in_progress`, and starts work according to the chosen **execution mode**:
-
 ```sh
-wd plan run <plan-id> --mode autopilot            # fully autonomous
-wd plan run <plan-id> --mode pipeline             # task-per-pipeline-job
-wd plan run <plan-id> --mode orchestrator         # human-gated workers
-wd plan run <plan-id> --mode manual               # single general agent
+wd plan run <plan-id> --mode autopilot
+wd plan run <plan-id> --mode pipeline
+wd plan run <plan-id> --mode orchestrator
+wd plan run <plan-id> --mode manual
+wd plan pause|resume|stop <plan-id>
 ```
-
-### Execution modes
 
 | Mode | What happens |
 |---|---|
-| `autopilot` | Creates a live `Autopilot` (`AP:<plan-name>`) and manager Agent (`role=autopilot`, `PlanID`); workers are children via `ParentID`; Plan owns task state and execution events. |
-| `pipeline` | Creates a DAG pipeline named `P:<plan-name>` where each YAML task becomes a job (same stable IDs + `after` deps); job lifecycle updates Plan execution evidence. Moves to `completed/` when the pipeline finishes. |
-| `orchestrator_worker` | Spawns one agent named `O:<plan-name>` (`role=orchestrator`, `PlanID` set). Workers it spawns are `role=worker` with `ParentID` pointing at the orchestrator; task evidence stays on the Plan. No Autopilot is created. Completion is `wd plan complete <id>` (`orchestrator` is accepted as a CLI alias). |
-| `manual` | Spawns one agent named `M:<plan-name>` (`role=general`, `PlanID` set) for you to drive. No Autopilot is created. Completion is `wd plan complete <id>`. |
+| `autopilot` | Live `Autopilot` + manager Agent; Plan owns task state and events |
+| `pipeline` | DAG pipeline `P:<plan-name>` from the canonical task DAG |
+| `orchestrator_worker` | Agent `O:<plan-name>`; complete with `wd plan complete` |
+| `manual` | Agent `M:<plan-name>`; complete with `wd plan complete` |
 
-Completion detection is automatic for `autopilot` and `pipeline` modes: the daemon watches for the run/pipeline completion event and performs the git-mv to `plans/completed/` plus the DB update without operator intervention.
+Completion is automatic for `autopilot` and `pipeline` when the executor finishes.
 
 ## Brain-assisted progress assessment
 
-After a reinstall or DB wipe, `wd plan assess` uses a brain model to reconstruct task-level progress from git history and open PR metadata:
+After restoring a backup without task-level progress (or as a migration aid):
 
 ```sh
 wd plan assess <plan-id>
 ```
 
-This reads the plan YAML's task list, feeds recent `git log`, open PR titles, and any existing `task_progress` into the Consultor, and writes the brain's assessment back to `task_progress` in the DB record. It is **opt-in** — never run automatically, since spawning a brain on every daemon start would be expensive.
+Opt-in only — never runs on daemon start.
 
-To assess all `in_progress` plans in one pass:
+## Deprecated migration aids (one release)
+
+These remain callable so old scripts keep working. Their help and responses state that they **cannot affect canonical execution after import**. Prefer the DB-native commands above.
+
+| Command | Status |
+|---|---|
+| `wd plan scan [--migrate-flat] [--assess]` | Deprecated — upserts stubs only; does not reseed Status for Plans with a definition |
+| `wd plan import <file>` | Deprecated — copies into `plans/pending/` + scan |
+| `wd plan status <id> <status>` | Deprecated — prefer `run` / `complete` / `archive` |
+| `wd plan import-legacy [--report]` | Supported cutover — explicit one-shot YAML → ScrivaDB |
+
+Daemon startup does **not** scan `plans/`.
+
+## Recovery
+
+Prefer Plan backup bundles (definition + audit; no Git required):
 
 ```sh
-wd plan scan --assess
+wd plan backup export --all -o plans-backup.json
+wd plan backup restore plans-backup.json --dry-run
+wd plan backup restore plans-backup.json
 ```
 
-## Cross-machine recovery
-
-| Scenario | Recovery |
-|---|---|
-| Same machine, DB intact | Normal operation |
-| Same machine, DB wiped | `wd plan scan` re-seeds all plans with correct status from the directory layout |
-| New machine / reinstall | `git pull` → daemon start auto-scans → plans appear with correct status |
-| Missing task-level progress | `wd plan assess <plan-id>` reconstructs from git/PRs |
-| Full DB backup + restore | `wd snapshot restore` restores ScrivaDB including execution links |
-
-<Steps>
-1. **After a reinstall:** run `wd plan scan` — this seeds all plans from the directory layout in your repo. Status (pending/in_progress/completed/archived) is fully recovered from git.
-2. **For in-progress plans:** run `wd plan assess <plan-id>` for each active plan whose task progress matters. The brain reads recent commits and PR titles to reconstruct which tasks are done.
-3. **Verify:** `wd plan list` should now show all plans with correct statuses.
-</Steps>
+See [Plan backup and restore](/warden/guides/plan-backup-restore/).
 
 ## Command reference
 
 | Command | What it does |
 |---|---|
-| `wd plan list [--status <s>] [--json]` | List plans (optionally filtered by status) |
-| `wd plan create --name <n> --goal <g> [--task id:prompt]` | Create a pending plan (writes YAML + DB record) |
-| `wd plan show <id> [--json]` | Show full detail for one plan |
-| `wd plan import <file>` | Copy a YAML into `plans/pending/` and scan |
-| `wd plan scan [--migrate-flat] [--assess]` | Walk `plans/` directories and upsert records |
-| `wd plan status <id> <new-status>` | Legacy project-scoped git mv + commit + DB update |
-| `wd plan done <id> <task-id>` | Mark one task done |
-| `wd plan complete <id>` | Complete a plan (`in_progress` → `completed`) |
-| `wd plan archive <id>` | Any status → `archived` |
-| `wd plan assess <id>` | Brain-assisted task progress reconstruction |
-| `wd plan run <id> --mode <mode>` | Start execution in the given mode |
+| `wd plan list [--status <s>] [--json]` | List ScrivaDB plans |
+| `wd plan create --name <n> --goal <g> [--task id:prompt]` | Create pending Plan in ScrivaDB |
+| `wd plan show <id> [--json]` | Show canonical detail |
+| `wd plan sync_to_repo <id> --base <ref>` | Optional inert replica PR |
+| `wd plan backup export\|restore …` | Portable ScrivaDB bundle |
+| `wd plan import-legacy [--report]` | Explicit legacy YAML cutover |
+| `wd plan scan …` / `import` / `status` | Deprecated migration aids |
+| `wd plan done` / `complete` / `archive` / `run` / `pause\|resume\|stop` | Lifecycle + execution |
+| `wd plan assess <id>` | Brain-assisted task progress |
 
 ## TUI
 
-In the cockpit TUI (`wd tui`), plans appear **above agents** in the project tree, grouped by status:
-
-```
-▼ my-project
-  ▼ Plans
-    ▶ In Progress  (1)
-      · brain-consult
-    ▶ Pending      (2)
-      · feature-x
-      · feature-y
-    ▶ Completed    (3)
-    ▶ Archived     (hidden by default — expand with key)
-  ▼ Agents
-    · agent-1
-```
-
-Keybindings in plan context: `a` archive · `s` scan · `A` assess (brain) · `r` run (mode picker) · `enter` open detail pane.
+In the cockpit (`wd tui`), plans appear above agents in the project tree, grouped by status. Detail is ScrivaDB-backed. Keybindings: `a` archive · `A` assess · `r` run · `enter` detail. (`s` scan remains as a deprecated migration aid.)

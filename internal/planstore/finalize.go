@@ -57,7 +57,7 @@ type FinalizeResult struct {
 //  3. Validate CompletionRequirements (structured unmet error on failure)
 //  4. Reduce and persist the immutable ExecutionSummary (never overwrite)
 //  5. Run cleanup (disposable executors) — on failure keep in_progress + evidence
-//  6. Move YAML to plans/completed/, archive ActiveExecution, mark completed
+//  6. Stamp Status=completed, archive ActiveExecution (no replica file moves)
 //
 // Retry-safe: a second call with an existing summary + cleanup evidence skips
 // re-validation and retries cleanup, then commits.
@@ -235,11 +235,10 @@ func (s *PlanService) persistExecutionSummary(ctx context.Context, planID string
 		}
 	}
 	if summary.TasksTotal == 0 {
-		root, rerr := s.root(p.ProjectID)
-		if rerr == nil {
-			if tasks, terr := planTasksFromPlan(p, root); terr == nil {
-				summary.TasksTotal = len(tasks)
-			}
+		if p.ActiveExecution != nil && p.ActiveExecution.Snapshot != nil {
+			summary.TasksTotal = len(p.ActiveExecution.Snapshot.Tasks)
+		} else {
+			summary.TasksTotal = len(p.Tasks)
 		}
 	}
 	if summary.TasksDone == 0 && p.TaskProgress != nil {
@@ -264,10 +263,9 @@ func (s *PlanService) persistExecutionSummary(ctx context.Context, planID string
 	return cp, nil
 }
 
-// commitFinalize moves the YAML to plans/completed/, archives ActiveExecution
-// into ExecutionHistory, clears disposable executor link fields, and stamps
-// completed. Preserves ExecutionSummary, BranchSummaries, TaskOutcomes, and
-// events (events live in a separate collection).
+// commitFinalize archives ActiveExecution into ExecutionHistory, clears
+// disposable executor link fields, and stamps completed via UpdateIf.
+// Repository replicas are not moved (canonical Status is authority).
 func (s *PlanService) commitFinalize(ctx context.Context, planID string) (*Plan, error) {
 	p, err := s.store.Get(ctx, planID)
 	if err != nil {
@@ -283,18 +281,17 @@ func (s *PlanService) commitFinalize(ctx context.Context, planID string) (*Plan,
 		return nil, errors.New("planstore: cannot commit finalize without execution summary")
 	}
 
-	root, err := s.root(p.ProjectID)
-	if err != nil {
-		return nil, err
-	}
-	newRel, err := movePlanFile(p, root, PlanStatusCompleted)
-	if err != nil {
-		return nil, err
-	}
-
 	now := s.clock()
-	if err := s.store.Update(ctx, planID, func(pl *Plan) error {
-		pl.FilePath = newRel
+	if err := s.store.UpdateIf(ctx, planID, p.Revision, func(pl *Plan) error {
+		if pl.Status == PlanStatusCompleted {
+			return nil
+		}
+		if pl.Status != PlanStatusInProgress {
+			return &InvalidTransitionError{From: pl.Status, To: PlanStatusCompleted}
+		}
+		if pl.ExecutionSummary == nil {
+			return errors.New("planstore: cannot commit finalize without execution summary")
+		}
 		pl.Status = PlanStatusCompleted
 		if pl.CompletedAt == nil {
 			ts := now
@@ -319,7 +316,6 @@ func (s *PlanService) commitFinalize(ctx context.Context, planID string) (*Plan,
 		pl.OrchestratorID = ""
 		return nil
 	}); err != nil {
-		_, _ = movePlanFile(&Plan{FilePath: newRel, Name: p.Name}, root, PlanStatusInProgress)
 		return nil, err
 	}
 	return s.store.Get(ctx, planID)

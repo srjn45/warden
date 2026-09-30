@@ -1,10 +1,15 @@
 // Package planstore persists plan records as first-class entities in the daemon.
 //
-// Plans are YAML files the user authors in their repository under plans/. The
-// daemon scans those files at startup and on demand, deriving plan status from
-// the subdirectory (pending/in_progress/completed/archived). This store holds
-// the execution state — execution mode, linked run/pipeline IDs, task progress,
-// and timestamps — that the YAML file intentionally does not carry.
+// Authority (docs/specs/2026-09-30-scrivadb-canonical-plans.md): the ScrivaDB
+// Plan record is the sole canonical Plan. It carries the complete definition
+// (name, goal, constraints, done_when, task DAG), lifecycle Status + timestamps,
+// monotonic Revision + ContentHash, execution/audit fields, and optional
+// RepoExport metadata. Repository YAML under plans/ is an optional inert
+// replica export — not discovery or execution authority.
+//
+// Legacy YAML scan/write paths remain in this package for migration until later
+// phases retire them; they must not be treated as the source of truth for new
+// work.
 package planstore
 
 import (
@@ -24,7 +29,9 @@ import (
 	"github.com/srjn45/scriva/query"
 )
 
-// PlanStatus encodes which directory the plan YAML lives in.
+// PlanStatus is the Plan lifecycle field. After the ScrivaDB-canonical cutover
+// it is never inferred from an export path; directory names in replica exports
+// are descriptive conventions only.
 type PlanStatus string
 
 const (
@@ -53,14 +60,26 @@ const (
 	PlanModeManual             PlanExecutionMode = "manual"
 )
 
-// Plan is a tracked execution record for one plan YAML file in the repository.
-// The canonical definition (goal, tasks, constraints, done_when) lives in the
-// YAML; this record owns execution state only.
+// Plan is the canonical ScrivaDB Plan record: definition, lifecycle, revision,
+// content hash, optional repo-export metadata, and execution/audit state.
+//
+// New fields added after the YAML-authority era decode as zero/nil when absent
+// from older stored documents (backward-compatible).
 type Plan struct {
-	ID        string `json:"id"` // plan-<8hex>, stable across git-mv
+	ID        string `json:"id"` // plan-<8hex>, stable across renames/imports
 	ProjectID string `json:"project_id"`
-	Name      string `json:"name"`      // from YAML name: field or filename stem
-	FilePath  string `json:"file_path"` // current path relative to project root
+	Name      string `json:"name"`
+
+	// FilePath is legacy / last-known relative path metadata. After cutover it
+	// may mirror RepoExport.FilePath but is never an execution input. Kept for
+	// decode compatibility with pre-canonical records.
+	FilePath string `json:"file_path,omitempty"`
+
+	// Canonical definition fields (authority lives here, not in repo YAML).
+	Goal        string     `json:"goal,omitempty"`
+	Constraints []string   `json:"constraints,omitempty"`
+	DoneWhen    []string   `json:"done_when,omitempty"`
+	Tasks       []PlanTask `json:"tasks,omitempty"`
 
 	Status        PlanStatus        `json:"status"`
 	ExecutionMode PlanExecutionMode `json:"execution_mode,omitempty"`
@@ -84,8 +103,23 @@ type Plan struct {
 	UpdatedAt   time.Time  `json:"updated_at"`
 	StartedAt   *time.Time `json:"started_at,omitempty"`
 	CompletedAt *time.Time `json:"completed_at,omitempty"`
+	ArchivedAt  *time.Time `json:"archived_at,omitempty"`
 
-	// Hub sync seam — reserved for future warden-hub sync; never set by this package.
+	// Revision is the optimistic-concurrency token. Starts at 1 on Create.
+	// Bumps on UpdateIf when definition hash or Status changes (see
+	// contentHashPolicy in canonical.go). Absent in old records → 0.
+	Revision int64 `json:"revision,omitempty"`
+
+	// ContentHash is sha256:… over canonical definition fields only.
+	// Absent in old records → "" until refreshed.
+	ContentHash string `json:"content_hash,omitempty"`
+
+	// RepoExport is typed last-export metadata, separate from ExecutionHistory.
+	// Absent / nil when never exported.
+	RepoExport *RepoExportMeta `json:"repo_export,omitempty"`
+
+	// Hub sync seam — reserved for future warden-hub sync via internal/plansync;
+	// never set by this package. See docs/specs/2026-09-30-plan-hub-sync-boundary.md.
 	SyncedAt *time.Time `json:"synced_at,omitempty"`
 	RemoteID string     `json:"remote_id,omitempty"`
 
@@ -129,7 +163,8 @@ var (
 )
 
 // PlanID derives the stable plan ID from a project ID and plan name.
-// Moving the YAML between status directories does not change this ID.
+// Renames of replica export paths do not change this ID; imports preserve it
+// so execution links survive.
 //
 //	ID = "plan-" + hex(sha256(projectID + "\x00" + planName))[:8]
 func PlanID(projectID, planName string) string {
@@ -247,7 +282,8 @@ func (s *Store) get(id string) (*Plan, error) {
 }
 
 // Create inserts a new plan. Returns ErrExists if a record with the same ID
-// already exists.
+// already exists. When Revision is 0 it is initialized to 1; ContentHash is
+// always refreshed from the definition fields.
 func (s *Store) Create(ctx context.Context, p *Plan) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -259,6 +295,10 @@ func (s *Store) Create(ctx context.Context, p *Plan) error {
 		p.CreatedAt = now
 	}
 	p.UpdatedAt = now
+	if p.Revision == 0 {
+		p.Revision = 1
+	}
+	RefreshContentHash(p)
 	rec, err := encodeRecord(p)
 	if err != nil {
 		return err
@@ -334,6 +374,8 @@ func (s *Store) ListByProjectAndStatus(ctx context.Context, projectID string, st
 }
 
 // Update atomically applies fn to a plan and stamps UpdatedAt.
+// It does not enforce optimistic concurrency and does not bump Revision —
+// use UpdateIf for concurrent editors that must not silently overwrite.
 func (s *Store) Update(ctx context.Context, id string, fn func(*Plan) error) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -356,6 +398,44 @@ func (s *Store) Update(ctx context.Context, id string, fn func(*Plan) error) err
 	return err
 }
 
+// UpdateIf applies fn only when the stored Plan.Revision equals expected.
+// On mismatch it returns a *RevisionConflictError (errors.Is → ErrRevisionConflict)
+// and leaves the record unchanged.
+//
+// After fn succeeds, if the definition content hash or Status changed relative
+// to the pre-update snapshot, Revision is incremented and ContentHash is
+// refreshed. Execution-only mutations do not bump Revision.
+func (s *Store) UpdateIf(ctx context.Context, id string, expected int64, fn func(*Plan) error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, err := s.get(id)
+	if err != nil {
+		return err
+	}
+	if p.Revision != expected {
+		return &RevisionConflictError{PlanID: id, Expected: expected, Actual: p.Revision}
+	}
+	beforeHash := ComputeContentHash(p)
+	beforeStatus := p.Status
+	if err := fn(p); err != nil {
+		return err
+	}
+	if definitionOrStatusChanged(beforeHash, beforeStatus, p) {
+		p.Revision++
+		RefreshContentHash(p)
+	}
+	p.UpdatedAt = time.Now().UTC()
+	rec, err := encodeRecord(p)
+	if err != nil {
+		return err
+	}
+	_, err = s.col.UpdateByKey(id, rec)
+	return err
+}
+
 // Delete permanently removes a plan record. A missing id returns ErrNotFound.
 // The YAML file in the repository is never touched.
 func (s *Store) Delete(ctx context.Context, id string) error {
@@ -367,6 +447,44 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 	err := s.col.DeleteByKey(id)
 	if errors.Is(err, engine.ErrKeyNotFound) {
 		return ErrNotFound
+	}
+	return err
+}
+
+// RestorePlan inserts a Plan exactly as provided for backup restore. Unlike
+// Create it does not rewrite timestamps or Revision; ContentHash is verified
+// against the canonical definition (and filled when empty). Returns ErrExists
+// when the stable ID is already present.
+//
+// Restore must not consult Git or repository replicas — callers pass the
+// canonical record from a Plan backup bundle only.
+func (s *Store) RestorePlan(ctx context.Context, p *Plan) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if p == nil || p.ID == "" {
+		return fmt.Errorf("planstore: restore requires plan id")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	want := ComputeContentHash(p)
+	if p.ContentHash == "" {
+		p.ContentHash = want
+	} else if p.ContentHash != want {
+		return fmt.Errorf("planstore: restore content hash mismatch for %s: bundle %s != computed %s",
+			p.ID, p.ContentHash, want)
+	}
+	if p.Revision == 0 {
+		p.Revision = 1
+	}
+	rec, err := encodeRecord(p)
+	if err != nil {
+		return err
+	}
+	_, _, err = s.col.InsertWithKey(p.ID, rec)
+	if errors.Is(err, engine.ErrDuplicateKey) {
+		return ErrExists
 	}
 	return err
 }

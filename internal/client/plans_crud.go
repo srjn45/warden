@@ -2,9 +2,12 @@ package client
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"time"
+
+	"github.com/srjn45/warden/internal/planbackup"
 )
 
 // PlanTaskSpec is one task in a create/update request or a hydrated Plan.
@@ -14,27 +17,70 @@ type PlanTaskSpec struct {
 	After  []string `json:"after,omitempty"`
 }
 
-// PlanView is the Plan CRUD API object (YAML definition + DB execution state).
+// PlanTaskSummary is a computed task-progress rollup on Plan list/detail.
+type PlanTaskSummary struct {
+	Total      int `json:"total"`
+	Done       int `json:"done"`
+	InProgress int `json:"in_progress"`
+	Pending    int `json:"pending"`
+	Skipped    int `json:"skipped"`
+}
+
+// PlanRepoExport is last-export metadata for an optional repository replica.
+type PlanRepoExport struct {
+	SchemaVersion int        `json:"schema_version,omitempty"`
+	Revision      int64      `json:"revision,omitempty"`
+	ContentHash   string     `json:"content_hash,omitempty"`
+	ExportedAt    *time.Time `json:"exported_at,omitempty"`
+	Lifecycle     string     `json:"lifecycle,omitempty"`
+	FilePath      string     `json:"file_path,omitempty"`
+}
+
+// RelatedPlanHit is one heuristic overlap candidate.
+type RelatedPlanHit struct {
+	PlanID  string   `json:"plan_id"`
+	Name    string   `json:"name"`
+	Status  string   `json:"status"`
+	Score   int      `json:"score"`
+	Reasons []string `json:"reasons"`
+}
+
+// RelatedPlansResult is the GET /plans/{id}/related response.
+type RelatedPlansResult struct {
+	Heuristic  bool             `json:"heuristic"`
+	Disclaimer string           `json:"disclaimer"`
+	AnchorID   string           `json:"anchor_id"`
+	Hits       []RelatedPlanHit `json:"hits"`
+}
+
+// PlanView is the Plan CRUD API object (canonical ScrivaDB definition + execution state).
 type PlanView struct {
 	ID             string            `json:"id"`
 	ProjectID      string            `json:"project_id"`
 	Name           string            `json:"name"`
 	Goal           string            `json:"goal"`
-	FilePath       string            `json:"file_path"`
+	FilePath       string            `json:"file_path,omitempty"`
 	Status         string            `json:"status"`
+	Revision       int64             `json:"revision"`
+	ContentHash    string            `json:"content_hash,omitempty"`
 	ExecutionMode  string            `json:"execution_mode,omitempty"`
+	ExecutorID     string            `json:"executor_id,omitempty"`
+	ExportStatus   string            `json:"export_status,omitempty"`
 	Constraints    []string          `json:"constraints"`
 	DoneWhen       []string          `json:"done_when"`
 	Tasks          []PlanTaskSpec    `json:"tasks"`
 	TaskProgress   map[string]string `json:"task_progress"`
+	TaskSummary    *PlanTaskSummary  `json:"task_summary,omitempty"`
 	PlanBranches   []string          `json:"plan_branches,omitempty"`
 	AutopilotRunID string            `json:"autopilot_run_id,omitempty"`
 	PipelineID     string            `json:"pipeline_id,omitempty"`
 	OrchestratorID string            `json:"orchestrator_id,omitempty"`
+	RepoExport     *PlanRepoExport   `json:"repo_export,omitempty"`
 	CreatedAt      time.Time         `json:"created_at"`
 	UpdatedAt      time.Time         `json:"updated_at"`
 	StartedAt      time.Time         `json:"started_at,omitempty"`
 	CompletedAt    time.Time         `json:"completed_at,omitempty"`
+	ArchivedAt     time.Time         `json:"archived_at,omitempty"`
 }
 
 // PlansCreateRequest is the POST /plans body.
@@ -49,11 +95,12 @@ type PlansCreateRequest struct {
 
 // PlansUpdateRequest is the PATCH /plans/{id} body. Empty/omitted fields are left unchanged.
 type PlansUpdateRequest struct {
-	Name        string         `json:"name,omitempty"`
-	Goal        string         `json:"goal,omitempty"`
-	Tasks       []PlanTaskSpec `json:"tasks,omitempty"`
-	Constraints []string       `json:"constraints,omitempty"`
-	DoneWhen    []string       `json:"done_when,omitempty"`
+	Name             string         `json:"name,omitempty"`
+	Goal             string         `json:"goal,omitempty"`
+	Tasks            []PlanTaskSpec `json:"tasks,omitempty"`
+	Constraints      []string       `json:"constraints,omitempty"`
+	DoneWhen         []string       `json:"done_when,omitempty"`
+	ExpectedRevision int64          `json:"expected_revision,omitempty"`
 }
 
 // PlansList returns plans for a project from GET /api/v1/plans.
@@ -82,7 +129,25 @@ func (c *Client) PlansGet(ctx context.Context, planID string) (*PlanView, error)
 	return &p, nil
 }
 
-// PlansCreate writes a new plan YAML and DB record via POST /api/v1/plans.
+// PlansRelated returns heuristic overlap candidates for a plan.
+func (c *Client) PlansRelated(ctx context.Context, planID string, limit int) (*RelatedPlansResult, error) {
+	path := "/plans/" + url.PathEscape(planID) + "/related"
+	if limit > 0 {
+		q := url.Values{}
+		q.Set("limit", fmt.Sprintf("%d", limit))
+		path += "?" + q.Encode()
+	}
+	var out RelatedPlansResult
+	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	if out.Hits == nil {
+		out.Hits = []RelatedPlanHit{}
+	}
+	return &out, nil
+}
+
+// PlansCreate inserts a canonical ScrivaDB Plan via POST /api/v1/plans.
 func (c *Client) PlansCreate(ctx context.Context, req PlansCreateRequest) (*PlanView, error) {
 	var p PlanView
 	if err := c.do(ctx, http.MethodPost, "/plans", req, &p); err != nil {
@@ -146,4 +211,73 @@ func (c *Client) PlansArchive(ctx context.Context, planID string) (*PlanView, er
 		return nil, err
 	}
 	return &p, nil
+}
+
+// PlansSyncToRepoRequest is the POST /plans/{id}/sync_to_repo body.
+type PlansSyncToRepoRequest struct {
+	TargetRef      string `json:"target_ref"`
+	RepositoryPath string `json:"repository_path,omitempty"`
+	OutputPath     string `json:"output_path,omitempty"`
+	Repository     string `json:"repository,omitempty"`
+}
+
+// PlanSyncToRepoResult is the sync_to_repo response.
+type PlanSyncToRepoResult struct {
+	PlanID       string `json:"plan_id"`
+	Revision     int64  `json:"revision"`
+	ContentHash  string `json:"content_hash"`
+	Repository   string `json:"repository"`
+	TargetRef    string `json:"target_ref"`
+	OutputPath   string `json:"output_path"`
+	Branch       string `json:"branch,omitempty"`
+	CommitSHA    string `json:"commit_sha,omitempty"`
+	PRURL        string `json:"pr_url,omitempty"`
+	PRCreated    bool   `json:"pr_created,omitempty"`
+	Outcome      string `json:"outcome"`
+	Reason       string `json:"reason,omitempty"`
+	ErrorMessage string `json:"error_message,omitempty"`
+	Reused       bool   `json:"reused"`
+	RecordID     string `json:"record_id,omitempty"`
+}
+
+// PlansSyncToRepo exports a canonical Plan revision onto a dedicated branch and
+// opens or reuses a PR. See docs/specs/2026-09-30-scrivadb-canonical-plans.md.
+func (c *Client) PlansSyncToRepo(ctx context.Context, planID string, req PlansSyncToRepoRequest) (*PlanSyncToRepoResult, error) {
+	var out PlanSyncToRepoResult
+	if err := c.do(ctx, http.MethodPost, "/plans/"+url.PathEscape(planID)+"/sync_to_repo", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// PlansExportBackupRequest is the POST /plans/export_backup body.
+type PlansExportBackupRequest struct {
+	PlanIDs   []string `json:"plan_ids,omitempty"`
+	ProjectID string   `json:"project_id,omitempty"`
+	All       bool     `json:"all,omitempty"`
+}
+
+// PlansRestoreBackupRequest is the POST /plans/restore_backup body.
+type PlansRestoreBackupRequest struct {
+	Bundle     planbackup.Bundle         `json:"bundle"`
+	DryRun     bool                      `json:"dry_run,omitempty"`
+	OnConflict planbackup.ConflictPolicy `json:"on_conflict,omitempty"`
+}
+
+// PlansExportBackup builds a portable Plan backup bundle from ScrivaDB.
+func (c *Client) PlansExportBackup(ctx context.Context, req PlansExportBackupRequest) (*planbackup.Bundle, error) {
+	var out planbackup.Bundle
+	if err := c.do(ctx, http.MethodPost, "/plans/export_backup", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// PlansRestoreBackup restores Plans from a portable backup bundle.
+func (c *Client) PlansRestoreBackup(ctx context.Context, req PlansRestoreBackupRequest) (*planbackup.RestoreResult, error) {
+	var out planbackup.RestoreResult
+	if err := c.do(ctx, http.MethodPost, "/plans/restore_backup", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }

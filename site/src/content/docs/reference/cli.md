@@ -1124,9 +1124,9 @@ Inherited flags:
 ```text
 Manage plans tracked by the daemon.
 
-Plans are YAML files stored in plans/{pending,in_progress,completed,archived}/
-inside a project repository. The daemon tracks their definition (goal, tasks)
-and execution state (links to autopilot runs, pipelines, and task progress).
+Plans are canonical ScrivaDB records (goal, tasks, lifecycle, revision).
+Repository YAML under plans/ is an optional inert export — not required
+for create/run/complete/archive.
 
 Create with `wd plan create`, start with `wd plan run`, control with
 `wd plan pause|resume|stop`, mark tasks done with `wd plan done`, then
@@ -1137,8 +1137,9 @@ Usage:
 
 Commands:
   list                 List plans for a project
-  create               Create a plan (writes YAML + DB record)
+  create               Create a canonical plan in ScrivaDB
   show                 Show detail for one plan
+  related              List heuristic related / overlapping plans
   run                  Start execution of a plan in the given mode
   pause                pause an in-progress plan's active executor
   resume               resume an in-progress plan's active executor
@@ -1146,9 +1147,12 @@ Commands:
   done                 Mark a plan task done
   complete             Complete a plan (in_progress → completed)
   archive              Archive a plan (any status → archived)
-  import               Copy a plan YAML into plans/pending/ and scan
-  scan                 Scan a project's plans/ directory and upsert plan records
-  status               Transition a plan's status (git mv + commit + DB update)
+  sync_to_repo         Export a plan revision to a dedicated branch and open a PR
+  backup               Export or restore a portable Plan backup bundle
+  import               [deprecated] Copy a plan YAML into plans/pending/ and scan
+  import-legacy        Import legacy plans/**/*.yaml into ScrivaDB (operator cutover)
+  scan                 [deprecated] Scan plans/ and upsert stub plan records
+  status               [deprecated] Transition a plan's status (DB field only)
   assess               Brain-assisted task progress assessment
 
 Flags:
@@ -1187,8 +1191,8 @@ Aliases:
 ## warden plan create
 
 ```text
-Create a new pending plan: writes plans/pending/<slug>.yaml and inserts the
-daemon record. --name and --goal are required. Supply tasks with repeatable
+Create a new pending plan in the daemon's ScrivaDB store (no repository
+YAML write). --name and --goal are required. Supply tasks with repeatable
 --task id:prompt flags, or (when stdin is a TTY) enter them interactively.
 
 Optional --constraint and --done-when may be repeated.
@@ -1202,7 +1206,7 @@ Flags:
       --goal string              what the plan is trying to achieve
   -h, --help                     help for create
       --json                     output as JSON
-      --name string              plan name (used for the YAML filename slug)
+      --name string              plan name
       --project string           project ID (default: current directory)
       --task stringArray         task as id:prompt (repeatable; skip interactive prompt)
 
@@ -1214,7 +1218,9 @@ Inherited flags:
 ## warden plan show
 
 ```text
-Show the full record for one plan: goal, tasks, status, file path, execution mode, linked IDs, task progress, and timestamps.
+Show the full canonical ScrivaDB record for one plan: goal, tasks, status,
+revision, executor, task summary, export status, linked branches, and timestamps.
+Repository YAML is never read for this view.
 
 Usage:
   warden plan show <plan-id> [flags]
@@ -1222,6 +1228,28 @@ Usage:
 Flags:
   -h, --help   help for show
       --json   output as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan related
+
+```text
+List related plans for a canonical ScrivaDB plan using heuristic overlap
+on project, title, goal, and linked branches/PRs.
+
+Hits are discovery aids only — not authoritative identity or duplicate detection.
+Repository YAML replicas never appear as additional plans.
+
+Usage:
+  warden plan related <plan-id> [flags]
+
+Flags:
+  -h, --help        help for related
+      --json        output as JSON
+      --limit int   maximum hits to return (default 10)
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -1353,7 +1381,7 @@ Inherited flags:
 ## warden plan archive
 
 ```text
-Move a plan to the archived state. Allowed from any status. Moves the YAML to plans/archived/.
+Move a plan to the archived state. Allowed from pending, in_progress, or completed.
 
 Usage:
   warden plan archive <plan-id> [flags]
@@ -1367,11 +1395,113 @@ Inherited flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
+## warden plan sync_to_repo
+
+```text
+Render the canonical ScrivaDB Plan as an inert YAML replica on a dedicated
+`warden/plan-sync/<plan-id>/<revision>` branch and open (or reuse) a PR against
+--base. Uses an isolated git worktree — never stages the operator's checked-out
+branch, force-pushes, auto-merges, or overwrites a conflicting non-Warden file.
+Repeating the same revision/hash for the same repo/ref/path returns the prior
+result with no new GitHub activity.
+
+Usage:
+  warden plan sync_to_repo <plan-id> [flags]
+
+Flags:
+      --base string         PR base branch / target ref (required)
+  -h, --help                help for sync_to_repo
+      --json                output as JSON
+      --path string         replica output path override (default: plans/{lifecycle}/<slug>.yaml)
+      --repo string         local git repository path (default: plan project root)
+      --repository string   stable repository identity for export records (default: origin URL)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan backup
+
+```text
+Local backup / machine-transfer for canonical ScrivaDB Plans.
+
+Bundles include definition, revision, execution evidence, events/notes,
+and integrity hashes. They exclude credentials and disposable worktrees.
+Restore never consults Git or repository replicas under plans/.
+
+Usage:
+  warden plan backup [flags]
+
+Commands:
+  export               Write a Plan backup bundle to a file or stdout
+  restore              Restore Plans from a backup bundle into ScrivaDB
+
+Flags:
+  -h, --help   help for backup
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan backup export
+
+```text
+Export one or more Plans from ScrivaDB into a versioned backup bundle.
+Pass plan IDs as args, or --all (optionally scoped with --project).
+
+  wd plan backup export plan-ab12cd34 -o plan.bundle.json
+  wd plan backup export --all --project /path/to/repo -o all-plans.json
+
+Usage:
+  warden plan backup export [plan-id ...] [flags]
+
+Flags:
+      --all              export every plan (optionally scoped by --project)
+  -h, --help             help for export
+  -o, --output string    output file (default: stdout)
+      --project string   when used with --all, limit export to this project id
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan backup restore
+
+```text
+Validate and restore a Plan backup bundle. Does not read Git or plans/
+replicas. Re-running the same bundle is idempotent when identity +
+content hash + revision match.
+
+  wd plan backup restore plan.bundle.json --dry-run
+  wd plan backup restore plan.bundle.json --on-conflict skip
+
+Usage:
+  warden plan backup restore <bundle-file> [flags]
+
+Flags:
+      --dry-run              validate integrity and conflicts without writing
+  -h, --help                 help for restore
+      --json                 output as JSON
+      --on-conflict string   stable-id policy: skip|fail|overwrite (default "skip")
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
 ## warden plan import
 
 ```text
-Copy a plan YAML file into the project's plans/pending/ directory and
-trigger a scan so the daemon registers the imported plan.
+Deprecated one-release migration aid. Copy a plan YAML file into the
+project's plans/pending/ directory and trigger a scan.
+
+This cannot affect canonical ScrivaDB Plan definition or execution after
+import — prefer `wd plan import-legacy` for one-time cutover of an existing
+plans/{pending,in_progress,completed,archived} tree, or `wd plan create` for
+new DB-native plans.
 
 Usage:
   warden plan import <file> [flags]
@@ -1385,11 +1515,44 @@ Inherited flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
+## warden plan import-legacy
+
+```text
+Discover plans/{pending,in_progress,completed,archived}/*.yaml (and flat
+plans/*.yaml) and create or reconcile canonical ScrivaDB Plans by stable
+identity. Source files are left untouched.
+
+Repeated import with a matching content hash is a no-op (skipped). An
+existing canonical definition with a different hash is reported as
+conflicted without mutation.
+
+--report classifies without writing. Never runs automatically at daemon
+startup.
+
+Usage:
+  warden plan import-legacy [flags]
+
+Flags:
+  -h, --help             help for import-legacy
+      --json             output as JSON
+      --project string   project ID (default: current directory)
+      --report           classify without mutating ScrivaDB
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
 ## warden plan scan
 
 ```text
-Walk plans/{pending,in_progress,completed,archived}/*.yaml and upsert plan
-records in the daemon. Status is inferred from the directory.
+Deprecated one-release migration aid. Walk plans/{pending,in_progress,
+completed,archived}/*.yaml and upsert stub plan records (name/status/path).
+
+After ImportLegacy or DB-native create, scan cannot affect canonical Plan
+definition, lifecycle, or execution — Status is not reseeded from directory
+placement for records with a non-empty definition. Prefer
+`wd plan import-legacy` for cutover.
 
 --migrate-flat moves any flat plans/*.yaml files into plans/pending/ with git mv
 and creates a commit before scanning.
@@ -1400,6 +1563,7 @@ Usage:
 Flags:
       --assess           run brain-assisted progress assessment for in_progress plans
   -h, --help             help for scan
+      --json             output as JSON
       --migrate-flat     move flat plans/*.yaml files into plans/pending/ with git mv + commit
       --project string   project ID (default: current directory)
 
@@ -1411,9 +1575,11 @@ Inherited flags:
 ## warden plan status
 
 ```text
-Change a plan's lifecycle status via the project-scoped API. Prefer
-`wd plan run` / `wd plan complete` / `wd plan archive` for the PlanService
-state machine.
+Deprecated migration aid. Change a plan's lifecycle status via the
+project-scoped API (ScrivaDB Status field only — no repository YAML move).
+
+Prefer `wd plan run` / `wd plan complete` / `wd plan archive` for the
+PlanService state machine.
 
 Valid statuses: pending | in_progress | completed | archived
 

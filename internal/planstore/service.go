@@ -5,13 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
-
-	"gopkg.in/yaml.v3"
 )
 
 var (
@@ -165,17 +162,23 @@ type CreateRequest struct {
 
 // UpdateRequest is a partial replacement of editable plan definition fields.
 // Nil pointer fields are left unchanged.
+//
+// ExpectedRevision, when non-nil, is the optimistic-concurrency token passed to
+// UpdateIf. When nil, the service uses the revision observed at the start of
+// Update (still subject to conflict if another writer races).
 type UpdateRequest struct {
-	Name        *string
-	Goal        *string
-	Tasks       *[]TaskSpec
-	Constraints *[]string
-	DoneWhen    *[]string
+	Name             *string
+	Goal             *string
+	Tasks            *[]TaskSpec
+	Constraints      *[]string
+	DoneWhen         *[]string
+	ExpectedRevision *int64
 }
 
 // TransitionOptions carries optional side data for a status change.
 type TransitionOptions struct {
-	ExecutionMode PlanExecutionMode
+	ExecutionMode    PlanExecutionMode
+	ExpectedRevision *int64
 }
 
 // CommandRunner executes an external command in an optional working directory.
@@ -201,7 +204,9 @@ func (execRunner) Run(ctx context.Context, dir, name string, args ...string) (st
 	return string(out), nil
 }
 
-// PlanService wraps Store with YAML writing, validation, and status transitions.
+// PlanService wraps Store with validation and lifecycle transitions over
+// canonical ScrivaDB Plan records. Normal create/update/transition/finalize
+// paths never write or move repository YAML (see legacy_yaml.go).
 type PlanService struct {
 	store       *Store
 	projectRoot func(projectID string) string
@@ -292,8 +297,8 @@ func (s *PlanService) List(ctx context.Context, projectID string, status PlanSta
 	return s.store.ListByProjectAndStatus(ctx, projectID, status)
 }
 
-// Create validates req, writes the YAML atomically, and inserts the DB record.
-// Order: temp file → DB insert → os.Rename. On insert failure the temp file is removed.
+// Create validates req and inserts a canonical ScrivaDB Plan (revision=1).
+// No repository files are written; a plans/ directory is not required.
 func (s *PlanService) Create(ctx context.Context, projectID string, req CreateRequest) (*Plan, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -305,82 +310,31 @@ func (s *PlanService) Create(ctx context.Context, projectID string, req CreateRe
 	if err := validateTasks(req.Tasks); err != nil {
 		return nil, err
 	}
-	root, err := s.root(projectID)
-	if err != nil {
-		return nil, err
-	}
 
-	filename := planFilename(name)
-	relPath := filepath.Join("plans", string(PlanStatusPending), filename)
-	pendingDir := filepath.Join(root, "plans", string(PlanStatusPending))
-	if err := os.MkdirAll(pendingDir, 0o755); err != nil {
-		return nil, fmt.Errorf("create plans/pending: %w", err)
-	}
-	finalAbs := filepath.Join(root, relPath)
-	if _, err := os.Stat(finalAbs); err == nil {
-		return nil, &ValidationError{Field: "name", Msg: "plan file already exists: " + relPath}
-	}
-
-	body, err := marshalPlanYAML(planDocument{
-		Version:     1,
-		Name:        name,
-		Goal:        req.Goal,
-		Constraints: req.Constraints,
-		Tasks:       toDocTasks(req.Tasks),
-		DoneWhen:    req.DoneWhen,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	tmp, err := os.CreateTemp(pendingDir, filename+".*.tmp")
-	if err != nil {
-		return nil, fmt.Errorf("create temp plan file: %w", err)
-	}
-	tmpPath := tmp.Name()
-	placed := false
-	defer func() {
-		if !placed {
-			_ = os.Remove(tmpPath)
-		}
-	}()
-	if _, err := tmp.Write(body); err != nil {
-		_ = tmp.Close()
-		return nil, fmt.Errorf("write temp plan file: %w", err)
-	}
-	if err := tmp.Chmod(0o644); err != nil {
-		_ = tmp.Close()
-		return nil, fmt.Errorf("chmod temp plan file: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return nil, fmt.Errorf("close temp plan file: %w", err)
-	}
-
-	progress := make(map[string]string, len(req.Tasks))
-	for _, t := range req.Tasks {
-		progress[strings.TrimSpace(t.ID)] = "pending"
+	tasks := taskSpecsToPlanTasks(req.Tasks)
+	progress := make(map[string]string, len(tasks))
+	for _, t := range tasks {
+		progress[t.ID] = "pending"
 	}
 	p := &Plan{
 		ID:           PlanID(projectID, name),
 		ProjectID:    projectID,
 		Name:         name,
-		FilePath:     relPath,
+		Goal:         req.Goal,
+		Constraints:  append([]string(nil), req.Constraints...),
+		DoneWhen:     append([]string(nil), req.DoneWhen...),
+		Tasks:        tasks,
 		Status:       PlanStatusPending,
 		TaskProgress: progress,
 	}
 	if err := s.store.Create(ctx, p); err != nil {
 		return nil, err
 	}
-	if err := os.Rename(tmpPath, finalAbs); err != nil {
-		_ = s.store.Delete(ctx, p.ID)
-		return nil, fmt.Errorf("place plan file: %w", err)
-	}
-	placed = true
 	return s.store.Get(ctx, p.ID)
 }
 
-// Update rejects non-pending plans, validates fields being updated, overwrites
-// the YAML file, and stamps the DB name/updated_at.
+// Update rejects non-pending plans, validates fields being updated, and applies
+// the definition change atomically via UpdateIf (revision bump + content hash).
 func (s *PlanService) Update(ctx context.Context, planID string, req UpdateRequest) (*Plan, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -391,10 +345,6 @@ func (s *PlanService) Update(ctx context.Context, planID string, req UpdateReque
 	}
 	if p.Status != PlanStatusPending {
 		return nil, ErrNotPending
-	}
-	root, err := s.root(p.ProjectID)
-	if err != nil {
-		return nil, err
 	}
 
 	if req.Name != nil {
@@ -408,39 +358,39 @@ func (s *PlanService) Update(ctx context.Context, planID string, req UpdateReque
 		}
 	}
 
-	doc, err := loadPlanDocument(filepath.Join(root, p.FilePath))
-	if err != nil {
-		doc = planDocument{Version: 1, Name: p.Name}
-	}
-	if req.Name != nil {
-		doc.Name = strings.TrimSpace(*req.Name)
-	}
-	if req.Goal != nil {
-		doc.Goal = *req.Goal
-	}
-	if req.Tasks != nil {
-		doc.Tasks = toDocTasks(*req.Tasks)
-	}
-	if req.Constraints != nil {
-		doc.Constraints = *req.Constraints
-	}
-	if req.DoneWhen != nil {
-		doc.DoneWhen = *req.DoneWhen
-	}
-	if doc.Version == 0 {
-		doc.Version = 1
+	expected := p.Revision
+	if req.ExpectedRevision != nil {
+		expected = *req.ExpectedRevision
 	}
 
-	abs := filepath.Join(root, p.FilePath)
-	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-		return nil, fmt.Errorf("create plan directory: %w", err)
-	}
-	if err := writePlanYAMLAtomic(abs, doc); err != nil {
-		return nil, err
-	}
-
-	if err := s.store.Update(ctx, planID, func(pl *Plan) error {
-		pl.Name = doc.Name
+	if err := s.store.UpdateIf(ctx, planID, expected, func(pl *Plan) error {
+		if pl.Status != PlanStatusPending {
+			return ErrNotPending
+		}
+		if req.Name != nil {
+			pl.Name = strings.TrimSpace(*req.Name)
+		}
+		if req.Goal != nil {
+			pl.Goal = *req.Goal
+		}
+		if req.Constraints != nil {
+			pl.Constraints = append([]string(nil), (*req.Constraints)...)
+		}
+		if req.DoneWhen != nil {
+			pl.DoneWhen = append([]string(nil), (*req.DoneWhen)...)
+		}
+		if req.Tasks != nil {
+			pl.Tasks = taskSpecsToPlanTasks(*req.Tasks)
+			progress := make(map[string]string, len(pl.Tasks))
+			for _, t := range pl.Tasks {
+				if prev, ok := pl.TaskProgress[t.ID]; ok {
+					progress[t.ID] = prev
+				} else {
+					progress[t.ID] = "pending"
+				}
+			}
+			pl.TaskProgress = progress
+		}
 		return nil
 	}); err != nil {
 		return nil, err
@@ -449,8 +399,8 @@ func (s *PlanService) Update(ctx context.Context, planID string, req UpdateReque
 }
 
 // Transition enforces the plan status state machine, optionally gating
-// in_progress → completed on tasks and merged branches, then moves the YAML
-// file and updates the DB record.
+// in_progress → completed on tasks and merged branches, then updates Status
+// (and timestamps) atomically via UpdateIf. No repository files are moved.
 func (s *PlanService) Transition(ctx context.Context, planID string, to PlanStatus, opts TransitionOptions) (*Plan, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -471,18 +421,15 @@ func (s *PlanService) Transition(ctx context.Context, planID string, to PlanStat
 		}
 	}
 
-	root, err := s.root(p.ProjectID)
-	if err != nil {
-		return nil, err
+	expected := p.Revision
+	if opts.ExpectedRevision != nil {
+		expected = *opts.ExpectedRevision
 	}
-	newRel, err := movePlanFile(p, root, to)
-	if err != nil {
-		return nil, err
-	}
-
 	now := s.clock()
-	if err := s.store.Update(ctx, planID, func(pl *Plan) error {
-		pl.FilePath = newRel
+	if err := s.store.UpdateIf(ctx, planID, expected, func(pl *Plan) error {
+		if !canTransition(pl.Status, to) {
+			return &InvalidTransitionError{From: pl.Status, To: to}
+		}
 		pl.Status = to
 		if to == PlanStatusInProgress {
 			if opts.ExecutionMode != "" {
@@ -497,10 +444,12 @@ func (s *PlanService) Transition(ctx context.Context, planID string, to PlanStat
 			ts := now
 			pl.CompletedAt = &ts
 		}
+		if to == PlanStatusArchived && pl.ArchivedAt == nil {
+			ts := now
+			pl.ArchivedAt = &ts
+		}
 		return nil
 	}); err != nil {
-		// Best-effort rollback of the file move so DB and disk stay aligned.
-		_, _ = movePlanFile(&Plan{FilePath: newRel, Name: p.Name}, root, p.Status)
 		return nil, err
 	}
 	return s.store.Get(ctx, planID)
@@ -535,36 +484,30 @@ func (s *PlanService) UpdateTaskStatus(ctx context.Context, planID, taskID, stat
 
 // evaluateCompletion checks all machine-verifiable completion gates for a plan
 // transitioning from in_progress → completed. It derives task and PR evidence
-// from TaskProgress and typed PlanExecutionEvents; it never evaluates done_when
-// text (spec Rule 5). Returns an UnmetRequirementsError carrying a structured
-// list of every unmet gate, or nil when all gates are satisfied.
+// from canonical Plan.Tasks, TaskProgress, and typed PlanExecutionEvents; it
+// never evaluates done_when text (spec Rule 5) and never reads repository YAML.
+// Returns an UnmetRequirementsError carrying a structured list of every unmet
+// gate, or nil when all gates are satisfied.
 func (s *PlanService) evaluateCompletion(ctx context.Context, p *Plan) error {
-	root, err := s.root(p.ProjectID)
-	if err != nil {
-		return err
-	}
-
-	// Load YAML task IDs.
-	tasks, err := planTasksFromPlan(p, root)
-	if err != nil {
-		return err
-	}
-	taskIDs := make([]string, 0, len(tasks))
-	for _, t := range tasks {
-		if id := strings.TrimSpace(t.ID); id != "" {
-			taskIDs = append(taskIDs, id)
-		}
-	}
+	taskIDs := canonicalTaskIDs(p)
 
 	// Resolve open PR branches (live I/O — kept outside the pure eval function).
-	openPRBranches, err := s.resolveOpenPRBranches(ctx, p, root)
-	if err != nil {
-		return err
+	var openPRBranches []string
+	if len(p.Branches) > 0 {
+		root, err := s.root(p.ProjectID)
+		if err != nil {
+			return err
+		}
+		openPRBranches, err = s.resolveOpenPRBranches(ctx, p, root)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Load execution events for the active execution (if any).
 	var events []*PlanExecutionEvent
 	if p.ActiveExecution != nil && p.ActiveExecution.ID != "" {
+		var err error
 		events, err = s.store.ListEvents(ctx, p.ID, p.ActiveExecution.ID)
 		if err != nil {
 			return fmt.Errorf("planstore: list events for completion check: %w", err)
@@ -654,26 +597,6 @@ func canTransition(from, to PlanStatus) bool {
 	}
 }
 
-func movePlanFile(p *Plan, root string, to PlanStatus) (string, error) {
-	filename := filepath.Base(p.FilePath)
-	if filename == "." || filename == string(filepath.Separator) || filename == "" {
-		filename = planFilename(p.Name)
-	}
-	newRel := filepath.Join("plans", string(to), filename)
-	if p.FilePath == newRel {
-		return newRel, nil
-	}
-	src := filepath.Join(root, p.FilePath)
-	dst := filepath.Join(root, newRel)
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return "", fmt.Errorf("create %s: %w", filepath.Dir(dst), err)
-	}
-	if err := os.Rename(src, dst); err != nil {
-		return "", fmt.Errorf("move plan file to %s: %w", newRel, err)
-	}
-	return newRel, nil
-}
-
 func validateTasks(tasks []TaskSpec) error {
 	if len(tasks) == 0 {
 		return &ValidationError{Field: "tasks", Msg: "at least one task is required"}
@@ -708,6 +631,42 @@ func validateTasks(tasks []TaskSpec) error {
 	return nil
 }
 
+func taskSpecsToPlanTasks(tasks []TaskSpec) []PlanTask {
+	out := make([]PlanTask, 0, len(tasks))
+	for _, t := range tasks {
+		out = append(out, PlanTask{
+			ID:     strings.TrimSpace(t.ID),
+			Prompt: t.Prompt,
+			After:  append([]string(nil), t.After...),
+		})
+	}
+	return out
+}
+
+// canonicalTaskIDs returns the task IDs that gate completion for p. When an
+// ActiveExecution carries a snapshot-at-start, those IDs are authoritative
+// (frozen design §7); otherwise the live Plan.Tasks definition is used.
+func canonicalTaskIDs(p *Plan) []string {
+	if p == nil {
+		return nil
+	}
+	if p.ActiveExecution != nil && p.ActiveExecution.Snapshot != nil {
+		if ids := p.ActiveExecution.Snapshot.TaskIDs(); len(ids) > 0 {
+			return ids
+		}
+	}
+	if len(p.Tasks) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(p.Tasks))
+	for _, t := range p.Tasks {
+		if id := strings.TrimSpace(t.ID); id != "" {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
 func planSlug(name string) string {
 	slug := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(name), " ", "-"))
 	slug = filepath.Base(slug)
@@ -716,103 +675,6 @@ func planSlug(name string) string {
 
 func planFilename(name string) string {
 	return planSlug(name) + ".yaml"
-}
-
-// planTasksFromPlan loads YAML tasks for a plan. projectRoot is the absolute
-// path of the project root; p.FilePath is relative to it.
-func planTasksFromPlan(p *Plan, projectRoot string) ([]PlanTaskDef, error) {
-	if p == nil || p.FilePath == "" {
-		return nil, nil
-	}
-	var abs string
-	if filepath.IsAbs(p.FilePath) {
-		abs = p.FilePath
-	} else if projectRoot != "" {
-		abs = filepath.Join(projectRoot, p.FilePath)
-	} else {
-		var err error
-		abs, err = filepath.Abs(p.FilePath)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return ReadPlanTasks(abs)
-}
-
-type planDocument struct {
-	Version     int           `yaml:"version"`
-	Name        string        `yaml:"name"`
-	Goal        string        `yaml:"goal"`
-	Constraints []string      `yaml:"constraints,omitempty"`
-	Tasks       []planDocTask `yaml:"tasks"`
-	DoneWhen    []string      `yaml:"done_when,omitempty"`
-}
-
-type planDocTask struct {
-	ID     string   `yaml:"id"`
-	Prompt string   `yaml:"prompt"`
-	After  []string `yaml:"after,omitempty"`
-}
-
-func toDocTasks(tasks []TaskSpec) []planDocTask {
-	out := make([]planDocTask, 0, len(tasks))
-	for _, t := range tasks {
-		out = append(out, planDocTask{
-			ID:     strings.TrimSpace(t.ID),
-			Prompt: t.Prompt,
-			After:  t.After,
-		})
-	}
-	return out
-}
-
-func marshalPlanYAML(doc planDocument) ([]byte, error) {
-	b, err := yaml.Marshal(doc)
-	if err != nil {
-		return nil, fmt.Errorf("encode plan yaml: %w", err)
-	}
-	return b, nil
-}
-
-func loadPlanDocument(abs string) (planDocument, error) {
-	data, err := os.ReadFile(abs)
-	if err != nil {
-		return planDocument{}, err
-	}
-	var doc planDocument
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return planDocument{}, err
-	}
-	return doc, nil
-}
-
-func writePlanYAMLAtomic(abs string, doc planDocument) error {
-	body, err := marshalPlanYAML(doc)
-	if err != nil {
-		return err
-	}
-	dir := filepath.Dir(abs)
-	tmp, err := os.CreateTemp(dir, filepath.Base(abs)+".*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temp plan file: %w", err)
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath) //nolint:errcheck // best-effort cleanup if rename does not happen
-	if _, err := tmp.Write(body); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("write temp plan file: %w", err)
-	}
-	if err := tmp.Chmod(0o644); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("chmod temp plan file: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close temp plan file: %w", err)
-	}
-	if err := os.Rename(tmpPath, abs); err != nil {
-		return fmt.Errorf("overwrite plan file: %w", err)
-	}
-	return nil
 }
 
 func hasOpenPR(output string) bool {

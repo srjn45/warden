@@ -73,6 +73,8 @@ export default defineConfig({
           { label: 'Re-auth a backend from your phone', slug: 'guides/reauth-from-phone' },
           { label: 'Autopilot — autonomous runs', slug: 'guides/autopilot' },
           { label: 'Using plans', slug: 'guides/using-plans' },
+          { label: 'Plans migration', slug: 'guides/plans-migration' },
+          { label: 'Plan backup and restore', slug: 'guides/plan-backup-restore' },
         ]},
         { label: 'Multi-agent', items: [
           { label: 'Pipelines (DAG)', slug: 'multi-agent/pipelines' },

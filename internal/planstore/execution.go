@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -16,6 +17,65 @@ const (
 	ExecutionStatusFailed    ExecutionStatus = "failed"
 	ExecutionStatusCancelled ExecutionStatus = "cancelled"
 )
+
+// ExecutionSnapshot is the immutable copy of a Plan's canonical definition
+// captured when a PlanExecution starts (design freeze §7 snapshot-at-start).
+// Task spawning, progress gates, and completion enumeration for that execution
+// MUST use this snapshot — not live Plan definition fields and not repository
+// YAML. Structural edits while status=in_progress are rejected by PlanService.Update
+// (pending-only); they never mutate an in-flight snapshot.
+type ExecutionSnapshot struct {
+	Revision    int64      `json:"revision"`
+	ContentHash string     `json:"content_hash,omitempty"`
+	Name        string     `json:"name"`
+	Goal        string     `json:"goal"`
+	Constraints []string   `json:"constraints,omitempty"`
+	DoneWhen    []string   `json:"done_when,omitempty"`
+	Tasks       []PlanTask `json:"tasks,omitempty"`
+}
+
+// SnapshotFromPlan builds an ExecutionSnapshot from the Plan's current canonical
+// definition. Callers attach it to PlanExecution at run start.
+func SnapshotFromPlan(p *Plan) *ExecutionSnapshot {
+	if p == nil {
+		return nil
+	}
+	hash := p.ContentHash
+	if hash == "" {
+		hash = ComputeContentHash(p)
+	}
+	tasks := make([]PlanTask, 0, len(p.Tasks))
+	for _, t := range p.Tasks {
+		tasks = append(tasks, PlanTask{
+			ID:     t.ID,
+			Prompt: t.Prompt,
+			After:  append([]string(nil), t.After...),
+		})
+	}
+	return &ExecutionSnapshot{
+		Revision:    p.Revision,
+		ContentHash: hash,
+		Name:        p.Name,
+		Goal:        p.Goal,
+		Constraints: append([]string(nil), p.Constraints...),
+		DoneWhen:    append([]string(nil), p.DoneWhen...),
+		Tasks:       tasks,
+	}
+}
+
+// TaskIDs returns the ordered task IDs from the snapshot.
+func (s *ExecutionSnapshot) TaskIDs() []string {
+	if s == nil || len(s.Tasks) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(s.Tasks))
+	for _, t := range s.Tasks {
+		if id := strings.TrimSpace(t.ID); id != "" {
+			out = append(out, id)
+		}
+	}
+	return out
+}
 
 // PlanExecution is a single attempt to execute a Plan. Currently the fields are
 // flattened onto the Plan record; this type names the concept so later tasks can
@@ -33,10 +93,14 @@ type PlanExecution struct {
 	TerminalStatus ExecutionStatus   `json:"terminal_status,omitempty"`
 	TaskProgress   map[string]string `json:"task_progress,omitempty"`
 	PlanBranches   []string          `json:"plan_branches,omitempty"`
+	// Snapshot is the immutable definition+revision captured at execution start
+	// (docs/specs/2026-09-30-scrivadb-canonical-plans.md §7). Nil on pre-cutover
+	// executions that started before snapshot-at-start shipped.
+	Snapshot *ExecutionSnapshot `json:"snapshot,omitempty"`
 	// TaskJobMap records the plan-task → pipeline-job mapping for pipeline-mode
 	// executions. The adapter stores this on Plan execution evidence (not a
 	// second mutable task ledger) so the mapping survives pipeline teardown.
-	// Convention: job IDs equal the stable YAML task IDs (identity mapping).
+	// Convention: job IDs equal the stable canonical task IDs (identity mapping).
 	TaskJobMap map[string]string `json:"task_job_map,omitempty"`
 }
 

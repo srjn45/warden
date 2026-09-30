@@ -199,3 +199,32 @@ func TestExactlyOnce_OrchestratorWithWorkersUnderAgents(t *testing.T) {
 	require.Equal(t, "session:w1", agents.Children[0].Children[0].ID)
 	require.Empty(t, sectionOf(t, tr.Roots[0], SectionAutopilots).Children)
 }
+
+func TestPlanNodeProjectionFields(t *testing.T) {
+	now := time.Date(2026, 9, 30, 15, 0, 0, 0, time.UTC)
+	in := Inputs{
+		Projects: []projectstore.Project{{
+			ID: "/p", Name: "p", Path: "/p", Status: projectstore.StatusOpen,
+			Plans: []string{"plan-1"},
+		}},
+		Plans: []*planstore.Plan{{
+			ID: "plan-1", ProjectID: "/p", Name: "feat", Status: planstore.PlanStatusInProgress,
+			Revision: 4, ExecutionMode: planstore.PlanModeAutopilot, AutopilotRunID: "ap-1",
+			Tasks:        []planstore.PlanTask{{ID: "t1", Prompt: "a"}, {ID: "t2", Prompt: "b"}},
+			TaskProgress: map[string]string{"t1": "done", "t2": "pending"},
+			RepoExport:   &planstore.RepoExportMeta{Revision: 3, ContentHash: "sha256:old"},
+			ContentHash:  "sha256:new", UpdatedAt: now,
+		}},
+	}
+	tr := NewService().Build(in, "")
+	plans := sectionOf(t, tr.Roots[0], SectionPlans)
+	require.Len(t, plans.Children, 1)
+	n := plans.Children[0]
+	require.NotNil(t, n.Detail)
+	require.Equal(t, int64(4), n.Detail.Revision)
+	require.Equal(t, "ap-1", n.Detail.ExecutorID)
+	require.Equal(t, "1/2", n.Detail.TaskSummary)
+	require.Equal(t, "stale", n.Detail.ExportStatus)
+	require.Equal(t, now.UTC().Format(time.RFC3339), n.Detail.UpdatedAt)
+	require.Empty(t, n.Children, "Plan nodes must not nest executors")
+}

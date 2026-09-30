@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -357,10 +358,14 @@ func TestPlansScan(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out struct {
-		Upserted int `json:"upserted"`
+		Upserted         int    `json:"upserted"`
+		SkippedCanonical int    `json:"skipped_canonical"`
+		Notice           string `json:"notice"`
 	}
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
 	require.Equal(t, 2, out.Upserted)
+	require.Contains(t, out.Notice, "deprecated")
+	require.Contains(t, out.Notice, "cannot affect canonical")
 
 	plans, err := ps.ListByProject(t.Context(), root)
 	require.NoError(t, err)
@@ -677,7 +682,8 @@ func planGitServerWithExec(t *testing.T) (*httptest.Server, *planstore.Store, *p
 }
 
 // seedPlanYAML writes a minimal plan YAML with tasks into root/subpath and
-// git-adds and commits it so git mv works in tests.
+// git-adds and commits it so git mv works in tests. Prefer seedCanonicalPlan
+// for execution paths — YAML is an inert replica after cutover.
 func seedPlanYAML(t *testing.T, root, subpath, name string) {
 	t.Helper()
 	abs := filepath.Join(root, subpath)
@@ -686,6 +692,32 @@ func seedPlanYAML(t *testing.T, root, subpath, name string) {
 	require.NoError(t, os.WriteFile(abs, []byte(content), 0o644))
 	gitAdd(t, root, subpath)
 	gitCommit(t, root, "add plan "+name)
+}
+
+// seedCanonicalPlan creates a ScrivaDB Plan with definition fields and no
+// repository export. Used by execution cutover tests.
+func seedCanonicalPlan(t *testing.T, plans *planstore.Store, projectID, name string, tasks []planstore.PlanTask) *planstore.Plan {
+	t.Helper()
+	if len(tasks) == 0 {
+		tasks = []planstore.PlanTask{{ID: "t1", Prompt: "task 1"}}
+	}
+	progress := make(map[string]string, len(tasks))
+	for _, task := range tasks {
+		progress[task.ID] = "pending"
+	}
+	p := &planstore.Plan{
+		ID:           planstore.PlanID(projectID, name),
+		ProjectID:    projectID,
+		Name:         name,
+		Goal:         "test",
+		Tasks:        tasks,
+		Status:       planstore.PlanStatusPending,
+		TaskProgress: progress,
+	}
+	require.NoError(t, plans.Create(context.Background(), p))
+	got, err := plans.Get(context.Background(), p.ID)
+	require.NoError(t, err)
+	return got
 }
 
 // TestPlansRunManual verifies POST /run with mode=manual spawns an M:<name>
@@ -713,8 +745,10 @@ func TestPlansRunManual(t *testing.T) {
 
 	id := planstore.PlanID(root, "manual-plan")
 	require.NoError(t, plans.Create(t.Context(), &planstore.Plan{
-		ID: id, ProjectID: root, Name: "manual-plan",
+		ID: id, ProjectID: root, Name: "manual-plan", Goal: "test",
+		Tasks:    []planstore.PlanTask{{ID: "t1", Prompt: "task 1"}},
 		FilePath: "plans/pending/manual-plan.yaml", Status: planstore.PlanStatusPending,
+		TaskProgress: map[string]string{"t1": "pending"},
 	}))
 
 	resp := postJSON(t, planURL(ts.URL, root, "/"+id+"/run"), map[string]any{"mode": "manual"})
@@ -725,7 +759,7 @@ func TestPlansRunManual(t *testing.T) {
 	var got planstore.Plan
 	require.NoError(t, json.NewDecoder(bytes.NewReader(body)).Decode(&got))
 	require.Equal(t, planstore.PlanStatusInProgress, got.Status)
-	require.Equal(t, "plans/in_progress/manual-plan.yaml", got.FilePath)
+	require.Equal(t, "plans/pending/manual-plan.yaml", got.FilePath, "FilePath is last-export metadata; run must not relocate YAML")
 	require.Equal(t, planstore.PlanModeManual, got.ExecutionMode)
 	require.Empty(t, got.AutopilotRunID, "manual must not create Autopilot")
 	require.Empty(t, got.OrchestratorID, "manual uses ActiveExecution, not OrchestratorID")
@@ -760,10 +794,10 @@ func TestPlansRunManual(t *testing.T) {
 	require.Contains(t, project.Plans, id)
 	require.Contains(t, project.Agents, life.spawned.ID)
 
-	_, err = os.Stat(filepath.Join(root, "plans", "in_progress", "manual-plan.yaml"))
-	require.NoError(t, err, "YAML must be in plans/in_progress/")
 	_, err = os.Stat(filepath.Join(root, "plans", "pending", "manual-plan.yaml"))
-	require.True(t, os.IsNotExist(err), "YAML must be removed from plans/pending/")
+	require.NoError(t, err, "seeded replica must remain in place (run does not move YAML)")
+	_, err = os.Stat(filepath.Join(root, "plans", "in_progress", "manual-plan.yaml"))
+	require.True(t, os.IsNotExist(err), "run must not create plans/in_progress/ replica")
 }
 
 // TestPlansRunManualUnconfigured verifies POST /run with mode=manual returns
@@ -788,8 +822,10 @@ func TestPlansRunManualUnconfigured(t *testing.T) {
 
 	id := planstore.PlanID(root, "manual-plan")
 	require.NoError(t, plans.Create(t.Context(), &planstore.Plan{
-		ID: id, ProjectID: root, Name: "manual-plan",
+		ID: id, ProjectID: root, Name: "manual-plan", Goal: "test",
+		Tasks:    []planstore.PlanTask{{ID: "t1", Prompt: "task 1"}},
 		FilePath: "plans/pending/manual-plan.yaml", Status: planstore.PlanStatusPending,
+		TaskProgress: map[string]string{"t1": "pending"},
 	}))
 
 	resp := postJSON(t, planURL(ts.URL, root, "/"+id+"/run"), map[string]any{"mode": "manual"})
@@ -806,8 +842,10 @@ func TestPlansRunUnknownMode(t *testing.T) {
 
 	id := planstore.PlanID(root, "bad-mode")
 	require.NoError(t, ps.Create(ctx, &planstore.Plan{
-		ID: id, ProjectID: root, Name: "bad-mode",
+		ID: id, ProjectID: root, Name: "bad-mode", Goal: "test",
+		Tasks:    []planstore.PlanTask{{ID: "t1", Prompt: "task 1"}},
 		FilePath: "plans/pending/bad-mode.yaml", Status: planstore.PlanStatusPending,
+		TaskProgress: map[string]string{"t1": "pending"},
 	}))
 
 	resp := postJSON(t, planURL(ts.URL, root, "/"+id+"/run"), map[string]any{"mode": "invalid_mode"})
@@ -825,8 +863,10 @@ func TestPlansRunPipelineMode(t *testing.T) {
 
 	id := planstore.PlanID(root, "pipeline-plan")
 	require.NoError(t, ps.Create(ctx, &planstore.Plan{
-		ID: id, ProjectID: root, Name: "pipeline-plan",
+		ID: id, ProjectID: root, Name: "pipeline-plan", Goal: "test",
+		Tasks:    []planstore.PlanTask{{ID: "t1", Prompt: "task 1"}},
 		FilePath: "plans/pending/pipeline-plan.yaml", Status: planstore.PlanStatusPending,
+		TaskProgress: map[string]string{"t1": "pending"},
 	}))
 
 	resp := postJSON(t, planURL(ts.URL, root, "/"+id+"/run"), map[string]any{"mode": "pipeline"})
@@ -883,8 +923,10 @@ func TestPlansRunAutopilotMode(t *testing.T) {
 	seedPlanYAML(t, root, "plans/pending/ap-plan.yaml", "ap-plan")
 	id := planstore.PlanID(root, "ap-plan")
 	require.NoError(t, plans.Create(t.Context(), &planstore.Plan{
-		ID: id, ProjectID: root, Name: "ap-plan",
+		ID: id, ProjectID: root, Name: "ap-plan", Goal: "test",
+		Tasks:    []planstore.PlanTask{{ID: "t1", Prompt: "task 1"}},
 		FilePath: "plans/pending/ap-plan.yaml", Status: planstore.PlanStatusPending,
+		TaskProgress: map[string]string{"t1": "pending"},
 	}))
 
 	resp := postJSON(t, planURL(ts.URL, root, "/"+id+"/run"), map[string]any{"mode": "autopilot"})
@@ -930,8 +972,10 @@ func TestPlansRunAutopilotUnconfigured(t *testing.T) {
 
 	id := planstore.PlanID(root, "ap-plan")
 	require.NoError(t, ps.Create(ctx, &planstore.Plan{
-		ID: id, ProjectID: root, Name: "ap-plan",
+		ID: id, ProjectID: root, Name: "ap-plan", Goal: "test",
+		Tasks:    []planstore.PlanTask{{ID: "t1", Prompt: "task 1"}},
 		FilePath: "plans/pending/ap-plan.yaml", Status: planstore.PlanStatusPending,
+		TaskProgress: map[string]string{"t1": "pending"},
 	}))
 
 	resp := postJSON(t, planURL(ts.URL, root, "/"+id+"/run"), map[string]any{"mode": "autopilot"})
@@ -964,8 +1008,10 @@ func TestPlansRunOrchestratorMode(t *testing.T) {
 
 	id := planstore.PlanID(root, "orch-plan")
 	require.NoError(t, plans.Create(t.Context(), &planstore.Plan{
-		ID: id, ProjectID: root, Name: "orch-plan",
+		ID: id, ProjectID: root, Name: "orch-plan", Goal: "test",
+		Tasks:    []planstore.PlanTask{{ID: "t1", Prompt: "task 1"}},
 		FilePath: "plans/pending/orch-plan.yaml", Status: planstore.PlanStatusPending,
+		TaskProgress: map[string]string{"t1": "pending"},
 	}))
 
 	resp := postJSON(t, planURL(ts.URL, root, "/"+id+"/run"), map[string]any{"mode": "orchestrator_worker"})
