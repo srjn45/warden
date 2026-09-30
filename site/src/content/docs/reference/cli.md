@@ -1146,6 +1146,7 @@ Commands:
   done                 Mark a plan task done
   complete             Complete a plan (in_progress → completed)
   archive              Archive a plan (any status → archived)
+  sync_to_repo         Export a plan revision to a dedicated branch and open a PR
   import               Copy a plan YAML into plans/pending/ and scan
   scan                 Scan a project's plans/ directory and upsert plan records
   status               Transition a plan's status (git mv + commit + DB update)
@@ -1361,6 +1362,32 @@ Usage:
 Flags:
   -h, --help   help for archive
       --json   output as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan sync_to_repo
+
+```text
+Render the canonical ScrivaDB Plan as an inert YAML replica on a dedicated
+`warden/plan-sync/<plan-id>/<revision>` branch and open (or reuse) a PR against
+--base. Uses an isolated git worktree — never stages the operator's checked-out
+branch, force-pushes, auto-merges, or overwrites a conflicting non-Warden file.
+Repeating the same revision/hash for the same repo/ref/path returns the prior
+result with no new GitHub activity.
+
+Usage:
+  warden plan sync_to_repo <plan-id> [flags]
+
+Flags:
+      --base string         PR base branch / target ref (required)
+  -h, --help                help for sync_to_repo
+      --json                output as JSON
+      --path string         replica output path override (default: plans/{lifecycle}/<slug>.yaml)
+      --repo string         local git repository path (default: plan project root)
+      --repository string   stable repository identity for export records (default: origin URL)
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)

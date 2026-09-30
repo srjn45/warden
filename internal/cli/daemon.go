@@ -37,6 +37,7 @@ import (
 	"github.com/srjn45/warden/internal/metrics"
 	"github.com/srjn45/warden/internal/notify"
 	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/planexport"
 	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/poller"
@@ -348,6 +349,12 @@ func newDaemonRunCmd() *cobra.Command {
 			}
 			defer planStore.Close()
 			srv.SetPlanStore(planStore)
+			planExportStore, err := planexport.NewStore(filepath.Join(cfg.DataDir, "plans"))
+			if err != nil {
+				return err
+			}
+			defer planExportStore.Close()
+			srv.SetPlanExportStore(planExportStore)
 			// Project Groups Phase 3 (peer awareness): wire the daemon-side peer-context
 			// provider into lifecycle so a grouped per-project orchestrator learns its
 			// Project Group and sibling orchestrators (recomputed from live store state)

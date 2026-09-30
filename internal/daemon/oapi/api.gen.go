@@ -348,6 +348,30 @@ func (e PlanStatus) Valid() bool {
 	}
 }
 
+// Defines values for PlanSyncToRepoResultOutcome.
+const (
+	PlanSyncToRepoResultOutcomeConflict PlanSyncToRepoResultOutcome = "conflict"
+	PlanSyncToRepoResultOutcomeFailed   PlanSyncToRepoResultOutcome = "failed"
+	PlanSyncToRepoResultOutcomeSkipped  PlanSyncToRepoResultOutcome = "skipped"
+	PlanSyncToRepoResultOutcomeSuccess  PlanSyncToRepoResultOutcome = "success"
+)
+
+// Valid indicates whether the value is a known member of the PlanSyncToRepoResultOutcome enum.
+func (e PlanSyncToRepoResultOutcome) Valid() bool {
+	switch e {
+	case PlanSyncToRepoResultOutcomeConflict:
+		return true
+	case PlanSyncToRepoResultOutcomeFailed:
+		return true
+	case PlanSyncToRepoResultOutcomeSkipped:
+		return true
+	case PlanSyncToRepoResultOutcomeSuccess:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RunPlanRequestExecutionMode.
 const (
 	RunPlanRequestExecutionModeAutopilot          RunPlanRequestExecutionMode = "autopilot"
@@ -1276,6 +1300,32 @@ type PlanExecution = planstore.PlanExecution
 // PlanStatus defines model for PlanStatus.
 type PlanStatus string
 
+// PlanSyncToRepoResult Outcome of one plan sync_to_repo attempt.
+type PlanSyncToRepoResult struct {
+	Branch       string                      `json:"branch,omitempty"`
+	CommitSha    string                      `json:"commit_sha,omitempty"`
+	ContentHash  string                      `json:"content_hash"`
+	ErrorMessage string                      `json:"error_message,omitempty"`
+	Outcome      PlanSyncToRepoResultOutcome `json:"outcome"`
+	OutputPath   string                      `json:"output_path"`
+	PlanId       string                      `json:"plan_id"`
+	PrCreated    bool                        `json:"pr_created,omitempty"`
+	PrUrl        string                      `json:"pr_url,omitempty"`
+
+	// Reason Structured reason such as idempotent_reuse, github_auth_unavailable, existing_open_pr, branch_divergence, deleted_remote_branch_recreated, path_collision, or operator_dirty_worktree_ignored
+	Reason     string `json:"reason,omitempty"`
+	RecordId   string `json:"record_id,omitempty"`
+	Repository string `json:"repository"`
+
+	// Reused true when the prior successful export was returned with no new GitHub activity
+	Reused    bool   `json:"reused"`
+	Revision  int64  `json:"revision"`
+	TargetRef string `json:"target_ref"`
+}
+
+// PlanSyncToRepoResultOutcome defines model for PlanSyncToRepoResult.Outcome.
+type PlanSyncToRepoResultOutcome string
+
 // PlanTask defines model for PlanTask.
 type PlanTask struct {
 	// After task ids that must complete before this task starts
@@ -1562,6 +1612,21 @@ type StoreScanFailureClass string
 
 // SwapResult Outcome of a completed hot-swap.
 type SwapResult = lifecycle.SwapResult
+
+// SyncPlanToRepoRequest Explicit repository/export options for plan sync_to_repo. repository_path defaults to the plan's project root when omitted. target_ref is the PR base.
+type SyncPlanToRepoRequest struct {
+	// OutputPath Optional override for the replica path; default plans/{lifecycle}/<slug>.yaml
+	OutputPath string `json:"output_path,omitempty"`
+
+	// Repository Stable repository identity for export records (defaults to origin URL)
+	Repository string `json:"repository,omitempty"`
+
+	// RepositoryPath Absolute local git repository path (defaults to the plan's project root)
+	RepositoryPath string `json:"repository_path,omitempty"`
+
+	// TargetRef PR base branch / target ref (e.g. main or an integration branch)
+	TargetRef string `json:"target_ref"`
+}
 
 // SyncResult defines model for SyncResult.
 type SyncResult = lifecycle.SyncResult
@@ -2097,6 +2162,9 @@ type UpdatePlanJSONRequestBody = UpdatePlanRequest
 // RunPlanJSONRequestBody defines body for RunPlan for application/json ContentType.
 type RunPlanJSONRequestBody = RunPlanRequest
 
+// SyncPlanToRepoJSONRequestBody defines body for SyncPlanToRepo for application/json ContentType.
+type SyncPlanToRepoJSONRequestBody = SyncPlanToRepoRequest
+
 // UpdateTaskStatusJSONRequestBody defines body for UpdateTaskStatus for application/json ContentType.
 type UpdateTaskStatusJSONRequestBody = UpdateTaskStatusRequest
 
@@ -2387,6 +2455,9 @@ type ServerInterface interface {
 	// Start plan execution
 	// (POST /api/v1/plans/{plan_id}/run)
 	RunPlan(w http.ResponseWriter, r *http.Request, planId PlanId)
+	// Export a plan revision to a dedicated branch and open a PR
+	// (POST /api/v1/plans/{plan_id}/sync_to_repo)
+	SyncPlanToRepo(w http.ResponseWriter, r *http.Request, planId PlanId)
 	// Update task progress
 	// (POST /api/v1/plans/{plan_id}/tasks/{task_id}/status)
 	UpdateTaskStatus(w http.ResponseWriter, r *http.Request, planId PlanId, taskId TaskId)
@@ -2972,6 +3043,12 @@ func (_ Unimplemented) CompletePlan(w http.ResponseWriter, r *http.Request, plan
 // Start plan execution
 // (POST /api/v1/plans/{plan_id}/run)
 func (_ Unimplemented) RunPlan(w http.ResponseWriter, r *http.Request, planId PlanId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Export a plan revision to a dedicated branch and open a PR
+// (POST /api/v1/plans/{plan_id}/sync_to_repo)
+func (_ Unimplemented) SyncPlanToRepo(w http.ResponseWriter, r *http.Request, planId PlanId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -5214,6 +5291,38 @@ func (siw *ServerInterfaceWrapper) RunPlan(w http.ResponseWriter, r *http.Reques
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RunPlan(w, r, planId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SyncPlanToRepo operation middleware
+func (siw *ServerInterfaceWrapper) SyncPlanToRepo(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "plan_id" -------------
+	var planId PlanId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "plan_id", chi.URLParam(r, "plan_id"), &planId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "plan_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SyncPlanToRepo(w, r, planId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7677,6 +7786,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/plans/{plan_id}/run", wrapper.RunPlan)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/plans/{plan_id}/sync_to_repo", wrapper.SyncPlanToRepo)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/plans/{plan_id}/tasks/{task_id}/status", wrapper.UpdateTaskStatus)
@@ -10283,6 +10395,85 @@ func (response RunPlan409JSONResponse) VisitRunPlanResponse(w http.ResponseWrite
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SyncPlanToRepoRequestObject struct {
+	PlanId PlanId `json:"plan_id"`
+	Body   *SyncPlanToRepoJSONRequestBody
+}
+
+type SyncPlanToRepoResponseObject interface {
+	VisitSyncPlanToRepoResponse(w http.ResponseWriter) error
+}
+
+type SyncPlanToRepo200JSONResponse PlanSyncToRepoResult
+
+func (response SyncPlanToRepo200JSONResponse) VisitSyncPlanToRepoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SyncPlanToRepo400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response SyncPlanToRepo400JSONResponse) VisitSyncPlanToRepoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SyncPlanToRepo404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response SyncPlanToRepo404JSONResponse) VisitSyncPlanToRepoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SyncPlanToRepo409JSONResponse PlanSyncToRepoResult
+
+func (response SyncPlanToRepo409JSONResponse) VisitSyncPlanToRepoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SyncPlanToRepo503JSONResponse Error
+
+func (response SyncPlanToRepo503JSONResponse) VisitSyncPlanToRepoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -13133,6 +13324,9 @@ type StrictServerInterface interface {
 	// Start plan execution
 	// (POST /api/v1/plans/{plan_id}/run)
 	RunPlan(ctx context.Context, request RunPlanRequestObject) (RunPlanResponseObject, error)
+	// Export a plan revision to a dedicated branch and open a PR
+	// (POST /api/v1/plans/{plan_id}/sync_to_repo)
+	SyncPlanToRepo(ctx context.Context, request SyncPlanToRepoRequestObject) (SyncPlanToRepoResponseObject, error)
 	// Update task progress
 	// (POST /api/v1/plans/{plan_id}/tasks/{task_id}/status)
 	UpdateTaskStatus(ctx context.Context, request UpdateTaskStatusRequestObject) (UpdateTaskStatusResponseObject, error)
@@ -15180,6 +15374,39 @@ func (sh *strictHandler) RunPlan(w http.ResponseWriter, r *http.Request, planId 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RunPlanResponseObject); ok {
 		if err := validResponse.VisitRunPlanResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SyncPlanToRepo operation middleware
+func (sh *strictHandler) SyncPlanToRepo(w http.ResponseWriter, r *http.Request, planId PlanId) {
+	var request SyncPlanToRepoRequestObject
+
+	request.PlanId = planId
+
+	var body SyncPlanToRepoJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SyncPlanToRepo(ctx, request.(SyncPlanToRepoRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SyncPlanToRepo")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SyncPlanToRepoResponseObject); ok {
+		if err := validResponse.VisitSyncPlanToRepoResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

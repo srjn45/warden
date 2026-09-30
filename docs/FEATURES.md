@@ -1572,6 +1572,7 @@ Opt-in only. Also available as `wd plan scan --assess` (runs for all `in_progres
 | `update_task_status` | Plan form: `{plan_id, task_id, status}` updates TaskProgress (`pending\|in_progress\|done\|skipped`). Autopilot-brain form still accepts `{run_id, task_id, status, landed_pr?}` |
 | `archive_plan` | Any status → `archived` (moves YAML to `plans/archived/`) |
 | `complete_plan` | `in_progress` → `completed`. Structured error lists incomplete tasks and/or unmerged branches |
+| `sync_plan_to_repo` | Export a ScrivaDB Plan revision onto `warden/plan-sync/<plan-id>/<revision>` and open/reuse a PR (idempotent; never touches the operator checkout) |
 | `assess_plan` | Brain-based task progress reconstruction |
 | `run_plan` | Start execution (`plan_id`, `execution_mode`); pending → `in_progress` |
 | `control_plan` | Pause, resume, or stop an in-progress plan's active executor |

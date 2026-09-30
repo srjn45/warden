@@ -55,6 +55,7 @@ Complete command tree:
   warden plan done                     Mark a plan task done
   warden plan complete                 Complete a plan (in_progress → completed)
   warden plan archive                  Archive a plan (any status → archived)
+  warden plan sync_to_repo             Export a plan revision to a dedicated branch and open a PR
   warden plan import                   Copy a plan YAML into plans/pending/ and scan
   warden plan scan                     Scan a project's plans/ directory and upsert plan records
   warden plan status                   Transition a plan's status (git mv + commit + DB update)

@@ -46,6 +46,11 @@ func TestPlansCRUDClientRoundTrip(t *testing.T) {
 			_, _ = w.Write([]byte(planJSON))
 		case r.URL.Path == "/api/v1/plans/plan-ab12cd34/archive":
 			_, _ = w.Write([]byte(planJSON))
+		case r.URL.Path == "/api/v1/plans/plan-ab12cd34/sync_to_repo":
+			_, _ = w.Write([]byte(`{"plan_id":"plan-ab12cd34","revision":1,"content_hash":"sha256:x",
+				"repository":"github.com/example/repo","target_ref":"main",
+				"output_path":"plans/pending/feature-x.yaml","branch":"warden/plan-sync/plan-ab12cd34/1",
+				"commit_sha":"abc","pr_url":"https://example.test/pull/1","outcome":"success","reused":false}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -100,6 +105,12 @@ func TestPlansCRUDClientRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, arch)
 	require.Equal(t, "/api/v1/plans/plan-ab12cd34/archive", last.path)
+
+	syncRes, err := c.PlansSyncToRepo(ctx, "plan-ab12cd34", PlansSyncToRepoRequest{TargetRef: "main"})
+	require.NoError(t, err)
+	require.Equal(t, "success", syncRes.Outcome)
+	require.Equal(t, "/api/v1/plans/plan-ab12cd34/sync_to_repo", last.path)
+	require.Contains(t, last.body, `"target_ref":"main"`)
 }
 
 func TestPlansCompleteSurfacesStructuredError(t *testing.T) {

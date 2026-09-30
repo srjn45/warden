@@ -40,6 +40,7 @@ func newPlanCmd() *cobra.Command {
 		newPlanDoneCmd(),
 		newPlanCompleteCmd(),
 		newPlanArchiveCmd(),
+		newPlanSyncToRepoCmd(),
 		newPlanImportCmd(),
 		newPlanScanCmd(),
 		newPlanStatusCmd(),
@@ -289,6 +290,58 @@ func newPlanArchiveCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().Bool("json", false, "output as JSON")
+	return cmd
+}
+
+func newPlanSyncToRepoCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "sync_to_repo <plan-id>",
+		Short: "Export a plan revision to a dedicated branch and open a PR",
+		Long: "Render the canonical ScrivaDB Plan as an inert YAML replica on a dedicated\n" +
+			"`warden/plan-sync/<plan-id>/<revision>` branch and open (or reuse) a PR against\n" +
+			"--base. Uses an isolated git worktree — never stages the operator's checked-out\n" +
+			"branch, force-pushes, auto-merges, or overwrites a conflicting non-Warden file.\n" +
+			"Repeating the same revision/hash for the same repo/ref/path returns the prior\n" +
+			"result with no new GitHub activity.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			base, _ := cmd.Flags().GetString("base")
+			if strings.TrimSpace(base) == "" {
+				return fmt.Errorf("--base is required (PR target ref)")
+			}
+			repoPath, _ := cmd.Flags().GetString("repo")
+			outputPath, _ := cmd.Flags().GetString("path")
+			repository, _ := cmd.Flags().GetString("repository")
+			res, err := clientFor(cmd).PlansSyncToRepo(cmd.Context(), args[0], client.PlansSyncToRepoRequest{
+				TargetRef:      base,
+				RepositoryPath: repoPath,
+				OutputPath:     outputPath,
+				Repository:     repository,
+			})
+			if err != nil {
+				return err
+			}
+			if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+				return printJSON(cmd.OutOrStdout(), res)
+			}
+			switch res.Outcome {
+			case "skipped":
+				fmt.Fprintf(cmd.OutOrStdout(), "plan %s sync skipped (already exported rev %d): %s\n",
+					res.PlanID, res.Revision, res.PRURL)
+			case "success":
+				fmt.Fprintf(cmd.OutOrStdout(), "plan %s synced to %s (rev %d)\n  branch: %s\n  commit: %s\n  pr: %s\n",
+					res.PlanID, res.OutputPath, res.Revision, res.Branch, res.CommitSHA, res.PRURL)
+			default:
+				fmt.Fprintf(cmd.OutOrStdout(), "plan %s sync %s: %s\n", res.PlanID, res.Outcome, res.ErrorMessage)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().String("base", "", "PR base branch / target ref (required)")
+	cmd.Flags().String("repo", "", "local git repository path (default: plan project root)")
+	cmd.Flags().String("path", "", "replica output path override (default: plans/{lifecycle}/<slug>.yaml)")
+	cmd.Flags().String("repository", "", "stable repository identity for export records (default: origin URL)")
 	cmd.Flags().Bool("json", false, "output as JSON")
 	return cmd
 }
