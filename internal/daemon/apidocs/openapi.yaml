@@ -1649,6 +1649,46 @@ paths:
               schema: { $ref: "#/components/schemas/Plan" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /api/v1/plans/{plan_id}/sync_to_repo:
+    post:
+      operationId: SyncPlanToRepo
+      tags: [Plans]
+      summary: Export a plan revision to a dedicated branch and open a PR
+      description: >
+        Loads the Plan only from ScrivaDB, renders the requested revision as an
+        inert YAML replica, commits it on a dedicated
+        `warden/plan-sync/<plan-id>/<revision>` branch via an isolated git
+        worktree, pushes without force, and opens or updates a PR against the
+        requested base. Never mutates the operator's checked-out branch, stages
+        unrelated changes, force-pushes, auto-merges, or overwrites a conflicting
+        non-Warden file. When the same revision/content hash was already exported
+        for the same repository/ref/path, returns the prior sync result with
+        outcome=skipped and no new GitHub activity.
+      parameters: [{ $ref: "#/components/parameters/PlanId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SyncPlanToRepoRequest" }
+      responses:
+        "200":
+          description: Sync result (including idempotent reuse)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlanSyncToRepoResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Path collision or branch divergence
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlanSyncToRepoResult" }
+        "503":
+          description: Plan store / export store not configured, or GitHub auth unavailable
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
   /api/v1/sessions/{id}/name:
     patch:
       operationId: setName
@@ -4340,6 +4380,56 @@ components:
       required: [status]
       properties:
         status: { $ref: "#/components/schemas/TaskStatus" }
+
+    SyncPlanToRepoRequest:
+      type: object
+      description: >
+        Explicit repository/export options for plan sync_to_repo. repository_path
+        defaults to the plan's project root when omitted. target_ref is the PR base.
+      required: [target_ref]
+      properties:
+        target_ref:
+          type: string
+          description: "PR base branch / target ref (e.g. main or an integration branch)"
+        repository_path:
+          type: string
+          description: "Absolute local git repository path (defaults to the plan's project root)"
+        output_path:
+          type: string
+          description: "Optional override for the replica path; default plans/{lifecycle}/<slug>.yaml"
+        repository:
+          type: string
+          description: "Stable repository identity for export records (defaults to origin URL)"
+
+    PlanSyncToRepoResult:
+      type: object
+      description: Outcome of one plan sync_to_repo attempt.
+      required: [plan_id, revision, content_hash, repository, target_ref, output_path, outcome, reused]
+      properties:
+        plan_id: { type: string }
+        revision: { type: integer, format: int64 }
+        content_hash: { type: string }
+        repository: { type: string }
+        target_ref: { type: string }
+        output_path: { type: string }
+        branch: { type: string }
+        commit_sha: { type: string }
+        pr_url: { type: string }
+        pr_created: { type: boolean }
+        outcome:
+          type: string
+          enum: [success, conflict, failed, skipped]
+        reason:
+          type: string
+          description: >
+            Structured reason such as idempotent_reuse, github_auth_unavailable,
+            existing_open_pr, branch_divergence, deleted_remote_branch_recreated,
+            path_collision, or operator_dirty_worktree_ignored
+        error_message: { type: string }
+        reused:
+          type: boolean
+          description: "true when the prior successful export was returned with no new GitHub activity"
+        record_id: { type: string }
 
     PlanCompletionError:
       type: object

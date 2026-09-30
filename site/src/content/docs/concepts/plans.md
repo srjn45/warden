@@ -169,7 +169,13 @@ POST   /api/v1/plans/{plan_id}/control
 POST   /api/v1/plans/{plan_id}/tasks/{task_id}/status
 POST   /api/v1/plans/{plan_id}/complete
 POST   /api/v1/plans/{plan_id}/archive
+POST   /api/v1/plans/{plan_id}/sync_to_repo
 ```
+
+`sync_to_repo` renders a ScrivaDB Plan revision as an inert YAML replica on a
+dedicated `warden/plan-sync/<plan-id>/<revision>` branch and opens or reuses a
+PR (`wd plan sync_to_repo <id> --base <ref>` / MCP `sync_plan_to_repo`). It
+never mutates the operator checkout.
 
 Plan lifecycle control (`pause` / `resume` / `stop`) goes through `/control`.
 Deprecated `/api/v1/autopilot/runs` register/unregister/retarget aliases remain for

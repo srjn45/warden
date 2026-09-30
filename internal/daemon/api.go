@@ -28,6 +28,7 @@ import (
 	"github.com/srjn45/warden/internal/mailbox"
 	"github.com/srjn45/warden/internal/metrics"
 	"github.com/srjn45/warden/internal/notify"
+	"github.com/srjn45/warden/internal/planexport"
 	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/poller"
@@ -246,6 +247,11 @@ type Server struct {
 	// each known project's plans/ directory at startup when both this and projects
 	// are set.
 	plans *planstore.Store
+	// planExports records per-repository plan sync_to_repo outcomes (Phase 7).
+	// nil ⇒ SyncPlanToRepo returns 503. Set via SetPlanExportStore.
+	planExports planexport.RecordStore
+	// planSyncGit is an optional test seam for sync_to_repo Git/GitHub ops.
+	planSyncGit planexport.GitHost
 	// terminals is the first-class terminal pane store (plan-execution entity
 	// redesign). nil ⇒ legacy Kind=terminal Session path. Set via SetTerminals.
 	terminals *terminalstore.Store

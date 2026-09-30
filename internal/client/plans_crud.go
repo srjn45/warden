@@ -151,3 +151,40 @@ func (c *Client) PlansArchive(ctx context.Context, planID string) (*PlanView, er
 	}
 	return &p, nil
 }
+
+// PlansSyncToRepoRequest is the POST /plans/{id}/sync_to_repo body.
+type PlansSyncToRepoRequest struct {
+	TargetRef      string `json:"target_ref"`
+	RepositoryPath string `json:"repository_path,omitempty"`
+	OutputPath     string `json:"output_path,omitempty"`
+	Repository     string `json:"repository,omitempty"`
+}
+
+// PlanSyncToRepoResult is the sync_to_repo response.
+type PlanSyncToRepoResult struct {
+	PlanID       string `json:"plan_id"`
+	Revision     int64  `json:"revision"`
+	ContentHash  string `json:"content_hash"`
+	Repository   string `json:"repository"`
+	TargetRef    string `json:"target_ref"`
+	OutputPath   string `json:"output_path"`
+	Branch       string `json:"branch,omitempty"`
+	CommitSHA    string `json:"commit_sha,omitempty"`
+	PRURL        string `json:"pr_url,omitempty"`
+	PRCreated    bool   `json:"pr_created,omitempty"`
+	Outcome      string `json:"outcome"`
+	Reason       string `json:"reason,omitempty"`
+	ErrorMessage string `json:"error_message,omitempty"`
+	Reused       bool   `json:"reused"`
+	RecordID     string `json:"record_id,omitempty"`
+}
+
+// PlansSyncToRepo exports a canonical Plan revision onto a dedicated branch and
+// opens or reuses a PR. See docs/specs/2026-09-30-scrivadb-canonical-plans.md.
+func (c *Client) PlansSyncToRepo(ctx context.Context, planID string, req PlansSyncToRepoRequest) (*PlanSyncToRepoResult, error) {
+	var out PlanSyncToRepoResult
+	if err := c.do(ctx, http.MethodPost, "/plans/"+url.PathEscape(planID)+"/sync_to_repo", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}

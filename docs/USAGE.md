@@ -2703,6 +2703,19 @@ wd plan done <plan-id> <task-id>        # mark one task done
 wd plan complete <plan-id>              # in_progress → completed
 ```
 
+### Optional repository export (`sync_to_repo`)
+
+Publish an inert YAML replica of a canonical ScrivaDB Plan onto a dedicated
+`warden/plan-sync/<plan-id>/<revision>` branch and open (or reuse) a PR. Never
+touches the operator checkout, force-pushes, or overwrites a conflicting
+non-Warden file. Repeating the same revision/hash for the same repo/ref/path is
+a no-op that returns the prior PR.
+
+```sh
+wd plan sync_to_repo <plan-id> --base <integration-or-main>
+wd plan sync_to_repo <plan-id> --base main --path plans/pending/my-plan.yaml
+```
+
 ### `wd plan run` — execution modes
 
 ```sh
@@ -2754,5 +2767,6 @@ wd plan list
 | `wd plan done <id> <task-id>` | Mark one task done |
 | `wd plan complete <id>` | Complete a plan (`in_progress` → `completed`) |
 | `wd plan archive <id>` | Any status → `archived` |
+| `wd plan sync_to_repo <id> --base <ref>` | Export canonical Plan revision to a dedicated branch + PR |
 | `wd plan assess <id>` | Brain-based task progress reconstruction |
 | `wd plan run <id> --mode <mode>` | Start execution in the given mode |

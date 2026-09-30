@@ -80,6 +80,14 @@ type completePlanArgs struct {
 	PlanID string `json:"plan_id" jsonschema:"the stable plan id (plan-<8hex>) to complete"`
 }
 
+type syncPlanToRepoArgs struct {
+	PlanID         string `json:"plan_id" jsonschema:"the stable plan id (plan-<8hex>) to export"`
+	TargetRef      string `json:"target_ref" jsonschema:"PR base branch / target ref (required)"`
+	RepositoryPath string `json:"repository_path,omitempty" jsonschema:"absolute local git repository path (defaults to the plan project root)"`
+	OutputPath     string `json:"output_path,omitempty" jsonschema:"optional replica path override (default plans/{lifecycle}/<slug>.yaml)"`
+	Repository     string `json:"repository,omitempty" jsonschema:"stable repository identity for export records (defaults to origin URL)"`
+}
+
 // planTaskStatusArgs backs update_task_status. plan_id is the Plan CRUD form;
 // run_id is the pre-existing autopilot-brain form (replaced here so both share one tool name).
 type planTaskStatusArgs struct {
@@ -276,6 +284,26 @@ func (s *Server) registerPlanTools() {
 			return planToolErr(err)
 		}
 		return jsonResultAny(p)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name: "sync_plan_to_repo",
+		Description: "Export a canonical ScrivaDB Plan revision as an inert YAML replica onto a dedicated " +
+			"warden/plan-sync/<plan-id>/<revision> branch and open or reuse a PR against target_ref. " +
+			"Uses an isolated git worktree — never touches the operator checkout, force-pushes, " +
+			"auto-merges, or overwrites a conflicting non-Warden file. Idempotent for the same " +
+			"revision/hash/repo/ref/path (returns prior result, no new GitHub activity).",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a syncPlanToRepoArgs) (*mcpsdk.CallToolResult, any, error) {
+		res, err := s.cl.PlansSyncToRepo(ctx, a.PlanID, client.PlansSyncToRepoRequest{
+			TargetRef:      a.TargetRef,
+			RepositoryPath: a.RepositoryPath,
+			OutputPath:     a.OutputPath,
+			Repository:     a.Repository,
+		})
+		if err != nil {
+			return planToolErr(err)
+		}
+		return jsonResultAny(res)
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{

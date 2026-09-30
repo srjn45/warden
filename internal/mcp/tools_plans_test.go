@@ -37,7 +37,7 @@ func TestPlanToolsRegistered(t *testing.T) {
 	want := []string{
 		"list_plans", "get_plan", "create_plan", "update_plan",
 		"scan_plans", "update_plan_status", "archive_plan", "assess_plan",
-		"run_plan", "control_plan", "complete_plan", "update_task_status",
+		"run_plan", "control_plan", "complete_plan", "sync_plan_to_repo", "update_task_status",
 	}
 	for _, name := range want {
 		require.Truef(t, got[name], "tool %q should be registered", name)
