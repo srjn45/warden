@@ -6,12 +6,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 
-	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/planstore"
 )
@@ -49,13 +47,14 @@ func pipelineDisplayName(planName string) string {
 
 // buildPlanPipeline constructs a plan-bound pipeline: Name=P:<plan-name>,
 // ID=plan ID (SafeID-clean for branch/agent derivation), PlanID set, one Job
-// per YAML task with the same stable task ID and after→depends_on edges.
+// per canonical Plan task with the same stable task ID and after→depends_on
+// edges. Tasks are read from ScrivaDB only (snapshot source at run start).
 func buildPlanPipeline(p *planstore.Plan, root string) (*pipeline.Pipeline, map[string]string, error) {
 	taskJob := map[string]string{}
 	var jobs []pipeline.Job
-	planPath := filepath.Join(root, p.FilePath)
-	if ap, err := autopilot.LoadPlan(planPath); err == nil && len(ap.Tasks) > 0 {
-		for _, t := range ap.Tasks {
+	snap := planDefinitionForExecution(p)
+	if snap != nil {
+		for _, t := range snap.Tasks {
 			id := strings.TrimSpace(t.ID)
 			if id == "" {
 				continue
@@ -120,6 +119,7 @@ func (s *Server) beginPlanPipelineExecution(ctx context.Context, p *planstore.Pl
 		TerminalStatus: planstore.ExecutionStatusRunning,
 		TaskProgress:   progress,
 		TaskJobMap:     taskJob,
+		Snapshot:       planstore.SnapshotFromPlan(p),
 	}
 	if err := s.plans.Update(ctx, p.ID, func(up *planstore.Plan) error {
 		up.ActiveExecution = &pe

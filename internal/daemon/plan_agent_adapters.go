@@ -6,14 +6,11 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/srjn45/warden/internal/agentstore"
-	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/planstore"
 )
 
@@ -60,17 +57,14 @@ func manualDisplayName(planName string) string {
 	return planManualNamePrefix + sanitizePlanSlug(name)
 }
 
-// planTasksTotal returns the number of tasks declared in the plan YAML, or 0
-// when the file cannot be loaded.
-func planTasksTotal(p *planstore.Plan, root string) int {
-	if p == nil || root == "" || p.FilePath == "" {
+// planTasksTotal returns the number of tasks on the canonical Plan (or its
+// execution snapshot), never from repository YAML.
+func planTasksTotal(p *planstore.Plan, _ string) int {
+	snap := planDefinitionForExecution(p)
+	if snap == nil {
 		return 0
 	}
-	ap, err := autopilot.LoadPlan(filepath.Join(root, p.FilePath))
-	if err != nil {
-		return 0
-	}
-	return len(ap.Tasks)
+	return len(snap.Tasks)
 }
 
 // spawnPlanBoundAgent launches a free-form plan-bound agent (orchestrator or
@@ -131,6 +125,7 @@ func (s *Server) beginPlanAgentExecution(ctx context.Context, p *planstore.Plan,
 		ExecutorID:     executorID,
 		StartedAt:      now,
 		TerminalStatus: planstore.ExecutionStatusRunning,
+		Snapshot:       planstore.SnapshotFromPlan(p),
 	}
 
 	if err := s.plans.Update(ctx, p.ID, func(pl *planstore.Plan) error {
@@ -246,32 +241,42 @@ func (s *Server) recordPlanBoundAgentEvent(sess *agentstore.Agent, kind planstor
 	}
 }
 
-// orchestratorPlanPrompt builds the opening prompt for an O:<plan> agent.
-func orchestratorPlanPrompt(p *planstore.Plan, root string) string {
-	content := ""
-	if raw, err := os.ReadFile(filepath.Join(root, p.FilePath)); err == nil {
-		content = string(raw)
+// orchestratorPlanPrompt builds the opening prompt for an O:<plan> agent from
+// the canonical ScrivaDB Plan definition (never repository YAML).
+func orchestratorPlanPrompt(p *planstore.Plan, _ string) string {
+	snap := planDefinitionForExecution(p)
+	body := formatCanonicalPlanBody(snap)
+	rev := int64(0)
+	hash := ""
+	if snap != nil {
+		rev = snap.Revision
+		hash = snap.ContentHash
 	}
 	return fmt.Sprintf("You are an orchestrator executing the following plan.\n\n"+
-		"Plan file: %s\n\n%s\n\n"+
+		"Plan ID: %s (revision %d, %s)\n\n%s\n\n"+
 		"Execute the plan tasks in order. Each worker you spawn must present its output "+
 		"for human approval before you proceed to the next task. "+
 		"Workers are role=worker with you as ParentID; task assignment and evidence "+
 		"remain on the Plan (do not create an Autopilot run).",
-		p.FilePath, content)
+		p.ID, rev, hash, body)
 }
 
-// manualPlanPrompt builds the opening prompt for an M:<plan> agent.
-func manualPlanPrompt(p *planstore.Plan, root string) string {
-	content := ""
-	if raw, err := os.ReadFile(filepath.Join(root, p.FilePath)); err == nil {
-		content = string(raw)
+// manualPlanPrompt builds the opening prompt for an M:<plan> agent from the
+// canonical ScrivaDB Plan definition (never repository YAML).
+func manualPlanPrompt(p *planstore.Plan, _ string) string {
+	snap := planDefinitionForExecution(p)
+	body := formatCanonicalPlanBody(snap)
+	rev := int64(0)
+	hash := ""
+	if snap != nil {
+		rev = snap.Revision
+		hash = snap.ContentHash
 	}
 	return fmt.Sprintf("You are driving this plan manually (execution mode=manual).\n\n"+
-		"Plan file: %s\n\n%s\n\n"+
+		"Plan ID: %s (revision %d, %s)\n\n%s\n\n"+
 		"Work the tasks yourself or spawn helpers as needed. Mark task progress on the "+
 		"Plan; do not create an Autopilot run. Completion is via `wd plan complete`.",
-		p.FilePath, content)
+		p.ID, rev, hash, body)
 }
 
 // sealPlanAgentExecution appends completion_verified for orchestrator/manual

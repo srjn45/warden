@@ -276,6 +276,10 @@ func (c *Controller) teardownBrain(ctx context.Context, r *run) error {
 // error is returned so the caller notifies the owner. Returns changed=true only
 // when a new, valid plan was adopted.
 func (r *run) reloadPlanIfChanged() (changed bool, notify error) {
+	// Plan-bound DB-canonical runs never re-authorize the DAG from a repository file.
+	if r.planID != "" || strings.TrimSpace(r.absPlanFile) == "" {
+		return false, nil
+	}
 	info, err := os.Stat(r.absPlanFile)
 	if err != nil {
 		// The file vanished or is unreadable — keep the last-good plan and surface

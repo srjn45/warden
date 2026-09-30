@@ -782,11 +782,15 @@ func (c *Controller) CompleteRun(ctx context.Context, runID string) (Status, err
 	if r.state == StateComplete {
 		return c.statusLocked(), nil // already complete — idempotent no-op
 	}
-	if err := markPlanCompleteInPlace(r.absPlanFile, c.now().UTC().Format(time.RFC3339)); err != nil {
-		return c.statusLocked(), fmt.Errorf("autopilot: mark run %s complete: %w", runID, err)
+	// DB-canonical Plan-bound runs do not write completion into repository YAML;
+	// PlanService / plan complete owns lifecycle. Skip file marker when there is
+	// no export path or the run is Plan-bound.
+	if r.absPlanFile != "" && r.planID == "" {
+		if err := markPlanCompleteInPlace(r.absPlanFile, c.now().UTC().Format(time.RFC3339)); err != nil {
+			return c.statusLocked(), fmt.Errorf("autopilot: mark run %s complete: %w", runID, err)
+		}
 	}
-	// Reflect the marker in the in-memory plan so any later read of this run agrees
-	// with the file (a re-enable would re-skip it regardless).
+	// Reflect the marker in the in-memory plan so any later read of this run agrees.
 	r.plan.Status = PlanStatusComplete
 	// Graceful teardown: stop the plan watcher and terminate the brain; the ledger
 	// (ctx store) is untouched. The run stays registered as StateComplete so status
@@ -847,13 +851,16 @@ func (c *Controller) UpdateTaskStatus(runID, taskID, status string, landedPR int
 	} else if landedPR != 0 {
 		return PlanTask{}, fmt.Errorf("autopilot: landed_pr is only valid with status done")
 	}
-	if err := writeTaskStatusAtomic(r.absPlanFile, taskID, status, landedPR); err != nil {
-		return PlanTask{}, err
+	// Plan-bound / DB-canonical runs skip YAML write-back; progress lives on Plan.
+	if r.absPlanFile != "" && r.planID == "" {
+		if err := writeTaskStatusAtomic(r.absPlanFile, taskID, status, landedPR); err != nil {
+			return PlanTask{}, err
+		}
+		if info, err := os.Stat(r.absPlanFile); err == nil {
+			r.planModTime = info.ModTime()
+		}
 	}
 	r.plan.Tasks[idx].Status, r.plan.Tasks[idx].LandedPR = status, landedPR
-	if info, err := os.Stat(r.absPlanFile); err == nil {
-		r.planModTime = info.ModTime()
-	}
 	return r.plan.Tasks[idx], nil
 }
 

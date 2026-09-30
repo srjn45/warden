@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -17,8 +16,7 @@ const promptIndent = "     "
 
 // planDetailText renders a plan's detail view for display.
 // Sections: lifecycle, active execution, task evidence, historical summaries.
-// projectRoot is the absolute path to the project's root directory, used to
-// resolve p.FilePath (which is relative to that root) for YAML task reading.
+// projectRoot is unused for task enumeration (canonical Tasks live on the Plan).
 func planDetailText(p *planstore.Plan, width int, projectRoot string, expanded bool) string {
 	if p == nil {
 		return ""
@@ -236,25 +234,28 @@ func planDetailText(p *planstore.Plan, width int, projectRoot string, expanded b
 	return b.String()
 }
 
-// planTasksFromPlan loads YAML tasks for a plan.
-// projectRoot is the absolute path of the project root; p.FilePath is relative to it.
-func planTasksFromPlan(p *planstore.Plan, projectRoot string) ([]planstore.PlanTaskDef, error) {
-	if p.FilePath == "" {
+// planTasksFromPlan returns canonical Plan tasks from ScrivaDB. Repository
+// YAML is never consulted (docs/specs/2026-09-30-scrivadb-canonical-plans.md).
+func planTasksFromPlan(p *planstore.Plan, _ string) ([]planstore.PlanTaskDef, error) {
+	if p == nil {
 		return nil, nil
 	}
-	var abs string
-	if filepath.IsAbs(p.FilePath) {
-		abs = p.FilePath
-	} else if projectRoot != "" {
-		abs = filepath.Join(projectRoot, p.FilePath)
-	} else {
-		var err error
-		abs, err = filepath.Abs(p.FilePath)
-		if err != nil {
-			return nil, err
-		}
+	src := p.Tasks
+	if p.ActiveExecution != nil && p.ActiveExecution.Snapshot != nil && len(p.ActiveExecution.Snapshot.Tasks) > 0 {
+		src = p.ActiveExecution.Snapshot.Tasks
 	}
-	return planstore.ReadPlanTasks(abs)
+	if len(src) == 0 {
+		return nil, nil
+	}
+	out := make([]planstore.PlanTaskDef, 0, len(src))
+	for _, t := range src {
+		out = append(out, planstore.PlanTaskDef{
+			ID:     t.ID,
+			Prompt: t.Prompt,
+			After:  append([]string(nil), t.After...),
+		})
+	}
+	return out, nil
 }
 
 // projectRootForID returns the absolute path of the project with the given ID,

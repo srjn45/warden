@@ -88,7 +88,11 @@ func TestPlanPipelineAdapter_TwoJobDependencyChain(t *testing.T) {
 	seedTwoJobPlanYAML(t, root, "plans/pending/chain-plan.yaml", "chain-plan")
 	id := planstore.PlanID(root, "chain-plan")
 	require.NoError(t, plans.Create(ctx, &planstore.Plan{
-		ID: id, ProjectID: root, Name: "chain-plan",
+		ID: id, ProjectID: root, Name: "chain-plan", Goal: "two-job chain",
+		Tasks: []planstore.PlanTask{
+			{ID: "t1", Prompt: "first task"},
+			{ID: "t2", Prompt: "second task", After: []string{"t1"}},
+		},
 		FilePath: "plans/pending/chain-plan.yaml", Status: planstore.PlanStatusPending,
 		TaskProgress: map[string]string{"t1": "pending", "t2": "pending"},
 	}))
@@ -232,8 +236,10 @@ func TestPlansRunPipelineMode_NamedAndMapped(t *testing.T) {
 	seedPlanYAML(t, root, "plans/pending/pipeline-plan.yaml", "pipeline-plan")
 	id := planstore.PlanID(root, "pipeline-plan")
 	require.NoError(t, plans.Create(ctx, &planstore.Plan{
-		ID: id, ProjectID: root, Name: "pipeline-plan",
+		ID: id, ProjectID: root, Name: "pipeline-plan", Goal: "test",
+		Tasks:    []planstore.PlanTask{{ID: "t1", Prompt: "task 1"}},
 		FilePath: "plans/pending/pipeline-plan.yaml", Status: planstore.PlanStatusPending,
+		TaskProgress: map[string]string{"t1": "pending"},
 	}))
 
 	resp := postJSON(t, planURL(ts.URL, root, "/"+id+"/run"), map[string]any{"mode": "pipeline"})

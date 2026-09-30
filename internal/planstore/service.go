@@ -643,8 +643,19 @@ func taskSpecsToPlanTasks(tasks []TaskSpec) []PlanTask {
 	return out
 }
 
+// canonicalTaskIDs returns the task IDs that gate completion for p. When an
+// ActiveExecution carries a snapshot-at-start, those IDs are authoritative
+// (frozen design §7); otherwise the live Plan.Tasks definition is used.
 func canonicalTaskIDs(p *Plan) []string {
-	if p == nil || len(p.Tasks) == 0 {
+	if p == nil {
+		return nil
+	}
+	if p.ActiveExecution != nil && p.ActiveExecution.Snapshot != nil {
+		if ids := p.ActiveExecution.Snapshot.TaskIDs(); len(ids) > 0 {
+			return ids
+		}
+	}
+	if len(p.Tasks) == 0 {
 		return nil
 	}
 	out := make([]string, 0, len(p.Tasks))
