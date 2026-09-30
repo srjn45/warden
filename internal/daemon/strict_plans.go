@@ -14,7 +14,6 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/daemon/oapi"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/planstore"
@@ -644,33 +643,17 @@ func (s *Server) startPlanExecution(ctx context.Context, p *planstore.Plan, mode
 		return errStatus(http.StatusNotFound, "project not found")
 	}
 
-	var (
-		autopilotRunID string
-		pipelineID     string
-		orchestratorID string
-	)
-
 	switch mode {
 	case planstore.PlanModeAutopilot:
 		if s.autopilot == nil {
 			return errStatus(http.StatusServiceUnavailable, "autopilot not configured")
 		}
-		id, startErr := s.startPlanAutopilotExecution(ctx, p, root)
-		if startErr != nil {
-			return startErr
-		}
-		autopilotRunID = id
-		// Membership + ActiveExecution + events are handled inside startPlanAutopilotExecution.
-		return nil
+		_, startErr := s.startPlanAutopilotExecution(ctx, p, root)
+		return startErr
 
 	case planstore.PlanModePipeline:
-		id, pipeErr := s.startPlanPipeline(ctx, p, root)
-		if pipeErr != nil {
-			return pipeErr
-		}
-		pipelineID = id
-		// ActiveExecution + PipelineID already stamped by beginPlanPipelineExecution.
-		return nil
+		_, pipeErr := s.startPlanPipeline(ctx, p, root)
+		return pipeErr
 
 	case planstore.PlanModeOrchestratorWorker:
 		sess, spawnErr := s.spawnPlanBoundAgent(ctx, p, root, "orchestrator",
@@ -678,12 +661,8 @@ func (s *Server) startPlanExecution(ctx context.Context, p *planstore.Plan, mode
 		if spawnErr != nil {
 			return spawnErr
 		}
-		orchestratorID = sess.ID
 		s.addPlanMembership(p.ID, p.ProjectID)
-		if err := s.beginPlanAgentExecution(ctx, p, mode, sess.ID, sess.ID, root); err != nil {
-			return err
-		}
-		return nil
+		return s.beginPlanAgentExecution(ctx, p, mode, sess.ID, sess.ID, root)
 
 	case planstore.PlanModeManual:
 		if s.life == nil {
@@ -695,33 +674,11 @@ func (s *Server) startPlanExecution(ctx context.Context, p *planstore.Plan, mode
 			return spawnErr
 		}
 		s.addPlanMembership(p.ID, p.ProjectID)
-		if err := s.beginPlanAgentExecution(ctx, p, mode, sess.ID, sess.ID, root); err != nil {
-			return err
-		}
-		return nil
+		return s.beginPlanAgentExecution(ctx, p, mode, sess.ID, sess.ID, root)
 
 	default:
 		return errStatus(http.StatusBadRequest, "unknown execution mode: "+string(mode))
 	}
-
-	if autopilotRunID == "" && pipelineID == "" && orchestratorID == "" {
-		return nil
-	}
-	if err := s.plans.Update(ctx, p.ID, func(pl *planstore.Plan) error {
-		if autopilotRunID != "" {
-			pl.AutopilotRunID = autopilotRunID
-		}
-		if pipelineID != "" {
-			pl.PipelineID = pipelineID
-		}
-		if orchestratorID != "" {
-			pl.OrchestratorID = orchestratorID
-		}
-		return nil
-	}); err != nil {
-		return errStatus(http.StatusInternalServerError, "record execution link: "+err.Error())
-	}
-	return nil
 }
 
 // gitMvPlanStatus moves a plan YAML from its current path to the subdirectory
