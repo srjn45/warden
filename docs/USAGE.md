@@ -2709,8 +2709,8 @@ wd plan run <plan-id> --mode manual
 |---|---|
 | `autopilot` | Registers an autopilot run; the manager drives workers autonomously. Completion auto-advances the plan to `completed/`. |
 | `pipeline` | Creates a DAG pipeline (one job per YAML task). Completion auto-advances the plan to `completed/`. |
-| `orchestrator_worker` | Spawns an orchestrator agent; each worker needs a human approval gate. Mark complete with `wd plan complete <id>` (`orchestrator` is a CLI alias). |
-| `manual` | git-mv to `in_progress/` only — state tracking, no execution entity. |
+| `orchestrator_worker` | Spawns `O:<plan-name>` (`role=orchestrator`, `PlanID`); workers are `role=worker` with `ParentID` set. Mark complete with `wd plan complete <id>` (`orchestrator` is a CLI alias). |
+| `manual` | Spawns `M:<plan-name>` (`role=general`, `PlanID`); no Autopilot. Mark complete with `wd plan complete <id>`. |
 
 ### Brain-assisted progress assessment
 

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -558,11 +559,19 @@ func TestFileInsertInvalidNameFormat(t *testing.T) {
 		{string(make([]byte, 33)), ErrInvalidName}, // 33 chars too long
 		{"valid-name_123", nil},
 		{"UPPERCASE", nil},
+		{"O:my-plan", nil},
+		{"M:manual-plan", nil},
+		{"P:pipeline-plan", nil},
+		{"AP:autopilot-plan", nil},
+		{"O:plan-execution-entity-redesign", nil},
+		{"X:bad-prefix", ErrInvalidName},
+		{"O:", ErrInvalidName},
+		{"O:has space", ErrInvalidName},
 	}
 
-	for _, tc := range cases {
+	for i, tc := range cases {
 		s := sample()
-		s.ID = "agent-" + tc.name
+		s.ID = fmt.Sprintf("agent-namecase-%d", i)
 		s.TmuxSession = s.ID
 		s.Ticket = ""
 		s.Name = tc.name

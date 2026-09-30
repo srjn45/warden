@@ -105,7 +105,7 @@ Any status can transition to `archived`. `completed` and `archived` cannot move 
 wd plan run <plan-id> --mode autopilot            # fully autonomous
 wd plan run <plan-id> --mode pipeline             # task-per-pipeline-job
 wd plan run <plan-id> --mode orchestrator         # human-gated workers
-wd plan run <plan-id> --mode manual               # state tracking only
+wd plan run <plan-id> --mode manual               # single general agent
 ```
 
 ### Execution modes
@@ -114,8 +114,8 @@ wd plan run <plan-id> --mode manual               # state tracking only
 |---|---|
 | `autopilot` | Registers an autopilot run against the plan; the manager drives workers autonomously and moves the plan to `completed/` when done. |
 | `pipeline` | Creates a DAG pipeline where each YAML task becomes a job; moves to `completed/` when the pipeline finishes. |
-| `orchestrator_worker` | Spawns an orchestrator agent with the plan as context; each worker requires a human approval gate. Completion is `wd plan complete <id>` (`orchestrator` is accepted as a CLI alias). |
-| `manual` | git-mv to `in_progress/` only — state tracking with no execution entity. You drive all prompting. |
+| `orchestrator_worker` | Spawns one agent named `O:<plan-name>` (`role=orchestrator`, `PlanID` set). Workers it spawns are `role=worker` with `ParentID` pointing at the orchestrator; task evidence stays on the Plan. No Autopilot is created. Completion is `wd plan complete <id>` (`orchestrator` is accepted as a CLI alias). |
+| `manual` | Spawns one agent named `M:<plan-name>` (`role=general`, `PlanID` set) for you to drive. No Autopilot is created. Completion is `wd plan complete <id>`. |
 
 Completion detection is automatic for `autopilot` and `pipeline` modes: the daemon watches for the run/pipeline completion event and performs the git-mv to `plans/completed/` plus the DB update without operator intervention.
 

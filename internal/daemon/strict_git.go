@@ -10,6 +10,7 @@ import (
 	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/daemon/oapi"
 	"github.com/srjn45/warden/internal/digest"
+	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/pressure"
 	"github.com/srjn45/warden/internal/savings"
@@ -48,6 +49,11 @@ func (s *Server) GitCommit(ctx context.Context, req oapi.GitCommitRequestObject)
 	}
 	if res.Committed && sess != nil {
 		s.recordGitEvent(sess.ID, "commit", res.SHA+" on "+res.Branch)
+		s.recordPlanBoundAgentEvent(sess, planstore.EventKindCommitCreated, &planstore.EventPayload{
+			AgentID:   sess.ID,
+			Branch:    res.Branch,
+			CommitSHA: res.SHA,
+		}, res.SHA)
 	}
 	s.plugins.Dispatch(ctx, plugin.EventPostCommit, meta, map[string]string{
 		"sha": res.SHA, "branch": res.Branch, "committed": strconv.FormatBool(res.Committed),
@@ -72,6 +78,10 @@ func (s *Server) GitPush(ctx context.Context, req oapi.GitPushRequestObject) (oa
 	}
 	if sess != nil {
 		s.recordGitEvent(sess.ID, "push", res.Branch+" -> "+res.Remote)
+		s.recordPlanBoundAgentEvent(sess, planstore.EventKindBranchPushed, &planstore.EventPayload{
+			AgentID: sess.ID,
+			Branch:  res.Branch,
+		}, res.Branch)
 	}
 	s.recordGitSavings(sess, res.RawBytes, res.RawSample, res)
 	return oapi.GitPush200JSONResponse(res), nil
@@ -128,6 +138,14 @@ func (s *Server) RunCheck(ctx context.Context, req oapi.RunCheckRequestObject) (
 			detail = "failed"
 		}
 		s.recordGitEvent(sess.ID, "check", detail)
+		checkName := b.Name
+		if checkName == "" {
+			checkName = "all"
+		}
+		s.recordPlanBoundAgentEvent(sess, planstore.EventKindCheckCompleted, &planstore.EventPayload{
+			AgentID:   sess.ID,
+			CheckName: checkName,
+		}, checkName+":"+detail)
 	}
 	s.recordCheckSavings(sess, res)
 	return oapi.RunCheck200JSONResponse(res), nil
@@ -157,6 +175,11 @@ func (s *Server) CreatePR(ctx context.Context, req oapi.CreatePRRequestObject) (
 		return nil, errStatus(http.StatusConflict, err.Error())
 	}
 	s.recordGitEvent(sess.ID, "pr", res.URL)
+	s.recordPlanBoundAgentEvent(sess, planstore.EventKindPROpened, &planstore.EventPayload{
+		AgentID: sess.ID,
+		PRURL:   res.URL,
+		Branch:  res.Branch,
+	}, res.URL)
 	return oapi.CreatePR200JSONResponse(res), nil
 }
 
