@@ -49,6 +49,12 @@ func seedFinalizeReadyPlan(t *testing.T, plans *planstore.Store, root, name, age
 		PlanID:   id, ExecutionID: execID, Kind: planstore.EventKindExecutionStarted, OccurredAt: now,
 		Payload: &planstore.EventPayload{PlanName: name, ExecutionMode: string(planstore.PlanModeManual), TasksTotal: 2, ExecutorID: agentID},
 	}))
+	// ReduceEvents reads ExecutorID from executor_created (not execution_started).
+	require.NoError(t, plans.AppendEvent(ctx, &planstore.PlanExecutionEvent{
+		DedupKey: id + ":" + execID + ":executor_created",
+		PlanID:   id, ExecutionID: execID, Kind: planstore.EventKindExecutorCreated, OccurredAt: now,
+		Payload: &planstore.EventPayload{ExecutorID: agentID, ExecutionMode: string(planstore.PlanModeManual), AgentID: agentID},
+	}))
 	return p
 }
 
