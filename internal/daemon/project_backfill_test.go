@@ -2,11 +2,13 @@ package daemon
 
 import (
 	"context"
-	"github.com/srjn45/warden/internal/agentstore"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/stretchr/testify/require"
 )
@@ -61,7 +63,7 @@ func TestReconcileProjectMembershipFixtureDB(t *testing.T) {
 
 	// First run: stamps the two project-less rows that path-match alpha, and rebuilds
 	// alpha's lists. beta and the unknown-dir rows are left project-less and unlisted.
-	rep, err := ReconcileProjectMembership(ctx, sstore, pstore, projects)
+	rep, err := ReconcileProjectMembership(ctx, sstore, pstore, nil, projects)
 	require.NoError(t, err)
 	require.Equal(t, 1, rep.SessionsStamped, "only agent-a1 path-matches an open project")
 	require.Equal(t, 1, rep.PipelinesStamped, "only pipe-1 path-matches an open project")
@@ -99,7 +101,7 @@ func TestReconcileProjectMembershipFixtureDB(t *testing.T) {
 	require.Equal(t, []string{"agent-g1"}, gotGamma.Agents)
 
 	// Second run over the now-reconciled store is a no-op (idempotent).
-	rep2, err := ReconcileProjectMembership(ctx, sstore, pstore, projects)
+	rep2, err := ReconcileProjectMembership(ctx, sstore, pstore, nil, projects)
 	require.NoError(t, err)
 	require.Equal(t, MembershipReconcileReport{}, rep2, "reconcile must be idempotent")
 	require.False(t, rep2.Changed())
@@ -117,7 +119,7 @@ func TestReconcileProjectMembershipNilStores(t *testing.T) {
 	ctx := context.Background()
 
 	// Nil projects store: no-op, no error.
-	rep, err := ReconcileProjectMembership(ctx, nil, nil, nil)
+	rep, err := ReconcileProjectMembership(ctx, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.False(t, rep.Changed())
 
@@ -128,7 +130,7 @@ func TestReconcileProjectMembershipNilStores(t *testing.T) {
 	_, err = projects.OpenProject("/projects/solo", "solo", "/projects/solo")
 	require.NoError(t, err)
 
-	rep, err = ReconcileProjectMembership(ctx, nil, nil, projects)
+	rep, err = ReconcileProjectMembership(ctx, nil, nil, nil, projects)
 	require.NoError(t, err)
 	require.False(t, rep.Changed())
 }
@@ -181,7 +183,7 @@ func TestReconcilePreservesForwardAuthority(t *testing.T) {
 	} {
 		require.NoError(t, ps.Create(p))
 	}
-	rep, err := ReconcileProjectMembership(ctx, ss, ps, projects)
+	rep, err := ReconcileProjectMembership(ctx, ss, ps, nil, projects)
 	require.NoError(t, err)
 	require.True(t, rep.Changed())
 	require.Equal(t, 1, rep.ProjectsRebuilt)
@@ -213,7 +215,7 @@ func TestReconcilePreservesForwardAuthority(t *testing.T) {
 		require.NoError(t, err)
 		require.Empty(t, p.ProjectID)
 	}
-	rep, err = ReconcileProjectMembership(ctx, ss, ps, projects)
+	rep, err = ReconcileProjectMembership(ctx, ss, ps, nil, projects)
 	require.NoError(t, err)
 	require.Equal(t, MembershipReconcileReport{}, rep)
 }
@@ -223,7 +225,7 @@ func TestReconcileUnavailableStoresRetainLegacyLists(t *testing.T) {
 	require.NoError(t, err)
 	defer projects.Close()
 	require.NoError(t, projects.Upsert(projectstore.Project{ID: "legacy"}))
-	rep, err := ReconcileProjectMembership(context.Background(), nil, nil, projects)
+	rep, err := ReconcileProjectMembership(context.Background(), nil, nil, nil, projects)
 	require.NoError(t, err)
 	require.False(t, rep.Changed())
 	p, err := projects.Get("legacy")
@@ -231,6 +233,71 @@ func TestReconcileUnavailableStoresRetainLegacyLists(t *testing.T) {
 	require.Nil(t, p.Agents)
 	require.Nil(t, p.Pipelines)
 	require.Nil(t, p.Terminals)
+	require.Nil(t, p.Plans)
+	require.Nil(t, p.Autopilots)
+}
+
+func TestReconcileBackfillsPlansPreservesOrderAndSkipsAutopilots(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+
+	projects, err := projectstore.NewStore(filepath.Join(dataDir, "projects"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = projects.Close() })
+
+	plans, err := planstore.New(filepath.Join(dataDir, "plans"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = plans.Close() })
+
+	alpha := projectstore.Project{
+		ID: "alpha", Name: "alpha", Path: "/alpha",
+		// Existing ordered Agents/Terminals must survive; Plans is the legacy nil list.
+		Agents: []string{"z-agent", "a-agent", "ghost-agent"}, Terminals: []string{"term-old"},
+		Autopilots: []string{"live-run"}, // already authoritative — must not be rewritten
+	}
+	require.NoError(t, projects.Upsert(alpha))
+	beta := projectstore.Project{ID: "beta", Name: "beta"} // Plans nil → backfill empty
+	require.NoError(t, projects.Upsert(beta))
+
+	// Insert oldest→newest so List (newest-first by UpdatedAt) yields a stable order.
+	require.NoError(t, plans.Create(ctx, &planstore.Plan{
+		ID: "plan-older", ProjectID: "alpha", Name: "older",
+		FilePath: "plans/pending/older.yaml", Status: planstore.PlanStatusPending,
+	}))
+	time.Sleep(5 * time.Millisecond)
+	require.NoError(t, plans.Create(ctx, &planstore.Plan{
+		ID: "plan-newer", ProjectID: "alpha", Name: "newer",
+		FilePath: "plans/completed/newer.yaml", Status: planstore.PlanStatusCompleted,
+	}))
+	time.Sleep(5 * time.Millisecond)
+	require.NoError(t, plans.Create(ctx, &planstore.Plan{
+		ID: "plan-other", ProjectID: "beta", Name: "other",
+		FilePath: "plans/pending/other.yaml", Status: planstore.PlanStatusPending,
+	}))
+
+	rep, err := ReconcileProjectMembership(ctx, nil, nil, plans, projects)
+	require.NoError(t, err)
+	require.Equal(t, 2, rep.ProjectsRebuilt)
+	require.True(t, rep.Changed())
+
+	gotAlpha, err := projects.Get("alpha")
+	require.NoError(t, err)
+	// Agents/Terminals/Autopilots preserved exactly (including dangling + live-run).
+	require.Equal(t, []string{"z-agent", "a-agent", "ghost-agent"}, gotAlpha.Agents)
+	require.Equal(t, []string{"term-old"}, gotAlpha.Terminals)
+	require.Equal(t, []string{"live-run"}, gotAlpha.Autopilots)
+	// Plans backfilled newest-first from plan store (List order), including completed.
+	require.Equal(t, []string{"plan-newer", "plan-older"}, gotAlpha.Plans)
+
+	gotBeta, err := projects.Get("beta")
+	require.NoError(t, err)
+	require.Equal(t, []string{"plan-other"}, gotBeta.Plans)
+	require.Nil(t, gotBeta.Autopilots, "Autopilots must not be inferred for completed/deleted executors")
+
+	// Idempotent second pass.
+	rep2, err := ReconcileProjectMembership(ctx, nil, nil, plans, projects)
+	require.NoError(t, err)
+	require.Equal(t, MembershipReconcileReport{}, rep2)
 }
 
 func TestChildLastRemovalRetainsAuthorityInDB(t *testing.T) {

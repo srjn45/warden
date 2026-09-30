@@ -633,10 +633,12 @@ func newDaemonRunCmd() *cobra.Command {
 
 			// Project membership backfill/repair (docs/specs/2026-09-25-project-entity-hierarchy.md
 			// D2/§6): stamp any pre-back-ref session/pipeline onto its open project and
-			// rebuild every project's authoritative agents[]/pipelines[]/terminals[] lists
-			// from those back-refs. Idempotent one-shot; best-effort, so a failure logs and
-			// never blocks boot. Runs in-process here so there is no writer contention.
-			if rep, rerr := daemon.ReconcileProjectMembership(ctx, st, pstore, projectStore); rerr != nil {
+			// rebuild every project's authoritative agents[]/pipelines[]/plans[] lists
+			// from those back-refs (Plans from the plan store). Autopilots[] is never
+			// inferred — only stamped at live run-create. Idempotent one-shot; best-effort,
+			// so a failure logs and never blocks boot. Runs in-process here so there is
+			// no writer contention.
+			if rep, rerr := daemon.ReconcileProjectMembership(ctx, st, pstore, planStore, projectStore); rerr != nil {
 				slog.Warn("daemon: project membership reconcile failed", "err", rerr)
 			} else if rep.Changed() {
 				slog.Info("daemon: project membership reconciled",
