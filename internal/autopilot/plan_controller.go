@@ -291,6 +291,18 @@ func (c *Controller) adoptLiveLocked(ctx context.Context, a *autopilotstore.Auto
 	}, nil
 }
 
+// LiveAutopilots returns the live Autopilot entities from the live store.
+// Used by the project-tree projection. Nil/empty when the live store is unset.
+func (c *Controller) LiveAutopilots(ctx context.Context) ([]*autopilotstore.Autopilot, error) {
+	c.mu.Lock()
+	live := c.live
+	c.mu.Unlock()
+	if live == nil {
+		return nil, nil
+	}
+	return live.List(ctx)
+}
+
 // RecoverLiveAutopilots rehydrates in-memory runs from the live Autopilot store
 // and Plan task progress. Called after SetRuntime so managers can be re-adopted
 // across a daemon restart without re-Registering plan files.

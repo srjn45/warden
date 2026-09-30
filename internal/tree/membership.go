@@ -82,6 +82,8 @@ const (
 	membershipAgents membershipKind = iota
 	membershipPipelines
 	membershipTerminals
+	membershipPlans
+	membershipAutopilots
 )
 
 // membershipList returns the project's stored id list for kind. A nil return
@@ -95,6 +97,10 @@ func membershipList(p projectstore.Project, kind membershipKind) []string {
 		return p.Pipelines
 	case membershipTerminals:
 		return p.Terminals
+	case membershipPlans:
+		return p.Plans
+	case membershipAutopilots:
+		return p.Autopilots
 	}
 	return nil
 }

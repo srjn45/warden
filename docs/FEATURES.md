@@ -1572,7 +1572,7 @@ Opt-in only. Also available as `wd plan scan --assess` (runs for all `in_progres
 
 ### 37.10 TUI
 
-Plans appear **above agents** in the project tree, grouped by status with count badges. `Archived` is collapsed by default. Selecting a plan opens a detail pane. Keybindings: `a` archive · `s` scan · `A` assess · `r` run (mode picker) · `enter` detail pane.
+Plans appear under the **Plans** project-tree section (above Autopilots / Pipelines / Agents / Terminals), grouped by status with count badges. `Archived` is collapsed by default. Selecting a plan opens a detail pane showing lifecycle, active execution, task evidence, and historical summaries. Keybindings: `a` archive · `s` scan · `A` assess · `r` run (mode picker) · `enter` detail pane.
 
 ### 37.11 Non-goals
 

@@ -45,10 +45,15 @@ func buildProjectItems(
 	showSystem bool,
 ) []item {
 	filtered := filterTreeSessions(sessions, showSystem)
+	var allPlans []*planstore.Plan
+	for _, ps := range plans {
+		allPlans = append(allPlans, ps...)
+	}
 	tr := tree.NewService().Build(tree.Inputs{
 		Sessions:  filtered,
 		Projects:  projects,
 		Pipelines: pipelines,
+		Plans:     allPlans,
 		Autopilot: autopilotFromClient(ap),
 		Groups:    groups,
 	}, "")
@@ -65,15 +70,20 @@ func buildProjectItems(
 	})
 }
 
-// filterTreeSessions drops system-tagged agents the operator has hidden, but
-// keeps autopilot-owned sessions (guardians are tagged system:true and must
-// still appear under their run).
+// filterTreeSessions drops system-tagged agents the operator has hidden.
+// Headless brain agents (role=brain + system:true) are always hidden unless
+// showSystem — they must not appear as free-floating agents or under Autopilot.
+// Legacy autopilot-owned system sessions (pre-drop-guardian) still nest under
+// their run when showSystem is false only if they are not headless brains.
 func filterTreeSessions(sessions []*store.Session, showSystem bool) []*store.Session {
 	if showSystem {
 		return sessions
 	}
 	out := make([]*store.Session, 0, len(sessions))
 	for _, s := range sessions {
+		if s.Role == "brain" && s.HasTag("system:true") {
+			continue
+		}
 		if s.HasTag("system:true") && !isAutopilotOwned(s) {
 			continue
 		}
@@ -248,11 +258,24 @@ func (ctx *adaptCtx) adaptProject(n *tree.Node) []item {
 	if collapsed {
 		return items
 	}
-	if !synthetic && hdr.isProject {
+	// Plans now arrive as a tree section (Plans → Autopilots → …). Prefer the
+	// service projection; fall back to the legacy TUI-only adaptPlans when the
+	// tree has no section children yet (older snapshots / empty projects with
+	// only TUI-fetched plans).
+	hasSections := false
+	for _, ch := range children {
+		if ch != nil && ch.Type == tree.NodeTypeSection {
+			hasSections = true
+			break
+		}
+	}
+	if !hasSections && !synthetic && hdr.isProject {
 		items = append(items, ctx.adaptPlans(rawID)...)
 	}
 	if len(children) == 0 {
-		items = append(items, item{dir: hdr.path, underProject: true})
+		if !hasSections {
+			items = append(items, item{dir: hdr.path, underProject: true})
+		}
 		return items
 	}
 	for _, ch := range children {
@@ -262,14 +285,6 @@ func (ctx *adaptCtx) adaptProject(n *tree.Node) []item {
 }
 
 func (ctx *adaptCtx) adaptPlans(projectID string) []item {
-	if ctx.plans == nil || projectID == "" || projectID == "__none__" {
-		return nil
-	}
-	plans := ctx.plans[projectID]
-	if len(plans) == 0 && ctx.openMeta[projectID].Path != "" {
-		plans = ctx.plans[ctx.openMeta[projectID].Path]
-	}
-
 	plansKey := "plans:" + projectID
 	var plansCollapsed bool
 	if c, ok := ctx.collapsed[plansKey]; ok {
@@ -286,6 +301,17 @@ func (ctx *adaptCtx) adaptPlans(projectID string) []item {
 	}}
 	if plansCollapsed {
 		return items
+	}
+	return append(items, ctx.adaptPlansBody(projectID)...)
+}
+
+func (ctx *adaptCtx) adaptPlansBody(projectID string) []item {
+	if ctx.plans == nil || projectID == "" || projectID == "__none__" {
+		return nil
+	}
+	plans := ctx.plans[projectID]
+	if len(plans) == 0 && ctx.openMeta[projectID].Path != "" {
+		plans = ctx.plans[ctx.openMeta[projectID].Path]
 	}
 
 	// Partition plans by status
@@ -308,13 +334,13 @@ func (ctx *adaptCtx) adaptPlans(projectID string) []item {
 		planstore.PlanStatusArchived,
 	}
 
+	var items []item
 	for _, st := range statusGroups {
 		grpKey := "plans:" + projectID + ":" + string(st)
 		var isCollapsed bool
 		if c, ok := ctx.collapsed[grpKey]; ok {
 			isCollapsed = c
 		} else {
-			// All groups collapsed by default
 			isCollapsed = true
 		}
 
@@ -386,6 +412,10 @@ func (ctx *adaptCtx) adaptNode(n *tree.Node, depth int) []item {
 		return nil
 	}
 	switch n.Type {
+	case tree.NodeTypeSection:
+		return ctx.adaptSection(n)
+	case tree.NodeTypePlan:
+		return ctx.adaptPlanNode(n)
 	case tree.NodeTypeAutopilotRun:
 		return ctx.adaptRun(n)
 	case tree.NodeTypePipeline:
@@ -410,6 +440,104 @@ func (ctx *adaptCtx) adaptNode(n *tree.Node, depth int) []item {
 		}
 		return items
 	}
+}
+
+func (ctx *adaptCtx) adaptSection(n *tree.Node) []item {
+	kind := ""
+	if n.Detail != nil {
+		kind = n.Detail.Section
+	}
+	collapsed, ok := ctx.collapsed[n.ID]
+	if !ok {
+		// Only Plans starts collapsed (historical UX). Autopilots / Pipelines /
+		// Agents / Terminals stay open so live work is visible by default.
+		collapsed = kind == string(tree.SectionPlans)
+	}
+	// Reuse planHeader row for Plans section so existing keybindings keep working.
+	if kind == string(tree.SectionPlans) {
+		projectID := sectionProjectID(n.ID)
+		plansKey := "plans:" + projectID
+		var plansCollapsed bool
+		if c, ok := ctx.collapsed[plansKey]; ok {
+			plansCollapsed = c
+		} else if c, ok := ctx.collapsed[n.ID]; ok {
+			plansCollapsed = c
+		} else {
+			plansCollapsed = true
+		}
+		items := []item{{
+			planHeader:   true,
+			planProject:  projectID,
+			collapsed:    plansCollapsed,
+			underProject: true,
+		}}
+		if plansCollapsed {
+			return items
+		}
+		// Status-group the fetched plans map (TUI UX). Tree plan nodes remain
+		// available to API clients without the TUI grouping layer.
+		return append(items, ctx.adaptPlansBody(projectID)...)
+	}
+
+	items := []item{{
+		treeSecID:    n.ID,
+		treeSecLabel: n.Label,
+		collapsed:    collapsed,
+		underProject: true,
+		hasKids:      len(n.Children) > 0,
+	}}
+	if collapsed {
+		return items
+	}
+	for _, ch := range n.Children {
+		items = append(items, ctx.adaptNode(ch, 0)...)
+	}
+	return items
+}
+
+func sectionProjectID(sectionNodeID string) string {
+	// section:<projectKey>:plans
+	rest := strings.TrimPrefix(sectionNodeID, "section:")
+	if i := strings.LastIndex(rest, ":"); i >= 0 {
+		return rest[:i]
+	}
+	return rest
+}
+
+func (ctx *adaptCtx) adaptPlanNode(n *tree.Node) []item {
+	planID := strings.TrimPrefix(n.ID, "plan:")
+	projectID := ""
+	if n.Detail != nil {
+		// Prefer the plan's own project from the fetched map.
+	}
+	var p *planstore.Plan
+	for proj, plans := range ctx.plans {
+		for _, cand := range plans {
+			if cand != nil && cand.ID == planID {
+				p = cand
+				projectID = proj
+				break
+			}
+		}
+		if p != nil {
+			break
+		}
+	}
+	if p == nil {
+		p = &planstore.Plan{
+			ID:     planID,
+			Name:   n.Label,
+			Status: planstore.PlanStatus(n.Status),
+		}
+		if n.Detail != nil && n.Detail.Kind != "" {
+			p.ExecutionMode = planstore.PlanExecutionMode(n.Detail.Kind)
+		}
+	}
+	return []item{{
+		plan:         p,
+		planProject:  projectID,
+		underProject: true,
+	}}
 }
 
 func (ctx *adaptCtx) adaptRun(n *tree.Node) []item {
@@ -565,13 +693,23 @@ func (ctx *adaptCtx) adaptSlotSession(n *tree.Node, depth int) []item {
 	if n.Detail != nil {
 		slot = n.Detail.Slot
 	}
-	return []item{{
+	collapsed := ctx.collapsed[n.ID]
+	hasKids := len(n.Children) > 0
+	items := []item{{
 		session:      s,
 		dir:          sourceDir(s),
 		depth:        depth,
 		underProject: true,
 		apSlot:       slot,
+		hasKids:      hasKids,
+		collapsed:    collapsed,
 	}}
+	if hasKids && !collapsed {
+		for _, ch := range n.Children {
+			items = append(items, ctx.adaptNode(ch, depth+1)...)
+		}
+	}
+	return items
 }
 
 func (ctx *adaptCtx) adaptTerminal(n *tree.Node) []item {

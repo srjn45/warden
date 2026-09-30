@@ -873,6 +873,9 @@ type BrainConsultResultAction string
 // BranchStatus defines model for BranchStatus.
 type BranchStatus = branchtrack.BranchStatus
 
+// BranchSummary Git branch evidence linked to a plan task/agent/PR.
+type BranchSummary = planstore.BranchSummary
+
 // CIStatus defines model for CIStatus.
 type CIStatus struct {
 	State    CIStatusState `json:"state,omitempty"`
@@ -1004,6 +1007,9 @@ type EventRequest struct {
 	Session string `json:"session,omitempty"`
 	Type    string `json:"type,omitempty"`
 }
+
+// ExecutionSummary Immutable reduced report for a completed PlanExecution.
+type ExecutionSummary = planstore.ExecutionSummary
 
 // Export defines model for Export.
 type Export = store.Export
@@ -1211,12 +1217,21 @@ type PipelineJobRunIf string
 
 // Plan A YAML-backed plan and its DB-backed execution state. The definition fields are stored in the plan file; task_progress and execution links are stored separately so they can change without rewriting completed work.
 type Plan struct {
-	AutopilotRunId string            `json:"autopilot_run_id,omitempty"`
-	CompletedAt    time.Time         `json:"completed_at,omitempty"`
-	Constraints    []string          `json:"constraints"`
-	CreatedAt      time.Time         `json:"created_at"`
-	DoneWhen       []string          `json:"done_when"`
-	ExecutionMode  PlanExecutionMode `json:"execution_mode,omitempty"`
+	// ActiveExecution A single execution attempt of a Plan.
+	ActiveExecution PlanExecution   `json:"active_execution,omitempty"`
+	AutopilotRunId  string          `json:"autopilot_run_id,omitempty"`
+	BranchSummaries []BranchSummary `json:"branch_summaries,omitempty"`
+	CompletedAt     time.Time       `json:"completed_at,omitempty"`
+	Constraints     []string        `json:"constraints"`
+	CreatedAt       time.Time       `json:"created_at"`
+	DoneWhen        []string        `json:"done_when"`
+
+	// ExecutionHistory past execution attempts (historical summaries of runs)
+	ExecutionHistory []PlanExecution   `json:"execution_history,omitempty"`
+	ExecutionMode    PlanExecutionMode `json:"execution_mode,omitempty"`
+
+	// ExecutionSummary Immutable reduced report for a completed PlanExecution.
+	ExecutionSummary ExecutionSummary `json:"execution_summary,omitempty"`
 
 	// FilePath path relative to the project root
 	FilePath string `json:"file_path"`
@@ -1236,6 +1251,9 @@ type Plan struct {
 	StartedAt time.Time  `json:"started_at,omitempty"`
 	Status    PlanStatus `json:"status"`
 
+	// TaskOutcomes durable per-task evidence (assignment, PRs, verified checks)
+	TaskOutcomes map[string]TaskOutcome `json:"task_outcomes,omitempty"`
+
 	// TaskProgress task id to its current execution status
 	TaskProgress map[string]TaskStatus `json:"task_progress"`
 	Tasks        []PlanTask            `json:"tasks"`
@@ -1251,6 +1269,9 @@ type PlanCompletionError struct {
 	IncompleteTasks  []string `json:"incomplete_tasks,omitempty"`
 	UnmergedBranches []string `json:"unmerged_branches,omitempty"`
 }
+
+// PlanExecution A single execution attempt of a Plan.
+type PlanExecution = planstore.PlanExecution
 
 // PlanStatus defines model for PlanStatus.
 type PlanStatus string
@@ -1541,6 +1562,9 @@ type SwapResult = lifecycle.SwapResult
 
 // SyncResult defines model for SyncResult.
 type SyncResult = lifecycle.SyncResult
+
+// TaskOutcome Durable evidence for one task's terminal result.
+type TaskOutcome = planstore.TaskOutcome
 
 // TaskStatus defines model for TaskStatus.
 type TaskStatus string
