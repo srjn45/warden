@@ -9,6 +9,14 @@
 `autopilot-entity-model`, `ai-cli-terminology-migration`, etc.) can implement
 against a single agreed contract without making new naming or ownership decisions.
 
+> **Authority supersession (2026-09-30):** YAML-as-definition-authority and
+> directory-as-lifecycle assumptions in this document are **superseded** by
+> [`2026-09-30-scrivadb-canonical-plans.md`](./2026-09-30-scrivadb-canonical-plans.md).
+> Entity vocabulary, executor durability rules, `done_when` semantics, and the
+> `ai_cli` migration remain in force. Downstream workers must **not** implement
+> repository YAML or `plans/` directory placement as canonical Plan inputs — see
+> §9 of the ScrivaDB canonical-plans freeze.
+
 ---
 
 ## 0. Why this spec exists
@@ -639,6 +647,7 @@ branch and are not retroactively broken.
 | `2026-08-28-project-centric-ui.md` | This spec refines the Project membership model (§1, Rule 4). Phase P1–P3 of that spec are not revisited. |
 | `2026-08-06-backend-registry.md` | The backend registry feature uses `backend_id` as the registry key. The `ai_cli` rename (§4) maps `Session.Backend` → `Session.AiCli` at the session level; the registry's own `BackendID` field is independent and not renamed by this spec. |
 | `2026-09-01-reactive-backend-limit-recovery.md` | Backend recovery uses `Session.BackendRecovery`. The field name is not affected by the `ai_cli` rename — it describes the recovery state, not the backend selector. |
+| `2026-09-30-scrivadb-canonical-plans.md` | **Supersedes** this spec's YAML-authority / directory-lifecycle baseline for Plan definition and status. Entity ownership rules here remain locked; see that freeze §9 for the exact assumptions workers must not implement. |
 
 ---
 

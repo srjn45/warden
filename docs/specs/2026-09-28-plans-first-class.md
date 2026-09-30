@@ -1,8 +1,15 @@
 # Plans as First-Class Citizens
 
 **Date:** 2026-09-28  
-**Status:** Approved design; implementation plan  
+**Status:** Approved design; implementation plan — **authority model superseded**  
 **Scope:** Documentation of the design only — no production code changes are approved by this document.
+
+> **Supersession (2026-09-30):** Decisions D1–D3 (YAML definition authority +
+> directory-encoded lifecycle) are superseded by
+> [`2026-09-30-scrivadb-canonical-plans.md`](./2026-09-30-scrivadb-canonical-plans.md)
+> (ScrivaDB-canonical Plans; repository YAML as optional inert export). Retain
+> this document as historical context for the legacy `plans/` layout and import
+> corpus.
 
 ---
 
