@@ -205,6 +205,79 @@ func (s *Store) ListEvents(ctx context.Context, planID, executionID string) ([]*
 	return out, nil
 }
 
+// ListAllEvents returns every PlanExecutionEvent for planID across all
+// executions, ordered by ascending Seq (OccurredAt tiebreaker). Used by Plan
+// backup export so audit history survives machine transfer.
+func (s *Store) ListAllEvents(ctx context.Context, planID string) ([]*PlanExecutionEvent, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	rows, err := s.events.Scan(query.MatchAll)
+	if err != nil {
+		return nil, err
+	}
+	var out []*PlanExecutionEvent
+	for _, row := range rows {
+		ev, err := decodeEvent(row.Data)
+		if err != nil {
+			return nil, fmt.Errorf("planstore: decode event: %w", err)
+		}
+		if ev.PlanID == planID {
+			out = append(out, ev)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Seq != out[j].Seq {
+			return out[i].Seq < out[j].Seq
+		}
+		return out[i].OccurredAt.Before(out[j].OccurredAt)
+	})
+	return out, nil
+}
+
+// RestoreEvent inserts an event from a backup bundle, preserving ID / DedupKey /
+// Seq / OccurredAt. Idempotent: a duplicate key is a no-op. Advances the store
+// sequence counter past the restored Seq so later AppendEvent calls stay monotonic.
+func (s *Store) RestoreEvent(ctx context.Context, ev *PlanExecutionEvent) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if ev == nil || ev.PlanID == "" || ev.ExecutionID == "" || ev.Kind == "" {
+		return errors.New("planstore: restore event missing required fields")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	key := ev.DedupKey
+	if key == "" {
+		key = ev.ID
+	}
+	if key == "" {
+		return errors.New("planstore: restore event missing id")
+	}
+	if ev.ID == "" {
+		ev.ID = key
+	}
+	if ev.OccurredAt.IsZero() {
+		ev.OccurredAt = time.Now().UTC()
+	}
+	if ev.Seq > s.seqCounter {
+		s.seqCounter = ev.Seq
+	}
+	rec, err := encodeEvent(ev)
+	if err != nil {
+		return err
+	}
+	_, _, err = s.events.InsertWithKey(key, rec)
+	if errors.Is(err, engine.ErrDuplicateKey) {
+		return nil
+	}
+	return err
+}
+
 // AppendNote stores an attributed agent prose note for the given execution.
 // If note.ID is empty, a fresh ID is generated and set on the note.
 // AppendNote is NOT idempotent — each call creates a new note record.
@@ -266,6 +339,64 @@ func (s *Store) ListNotes(ctx context.Context, planID, executionID string) ([]*E
 		return out[i].CreatedAt.Before(out[j].CreatedAt)
 	})
 	return out, nil
+}
+
+// ListAllNotes returns every ExecutionNote for planID across all executions,
+// ordered by ascending CreatedAt. Used by Plan backup export.
+func (s *Store) ListAllNotes(ctx context.Context, planID string) ([]*ExecutionNote, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	rows, err := s.notes.Scan(query.MatchAll)
+	if err != nil {
+		return nil, err
+	}
+	var out []*ExecutionNote
+	for _, row := range rows {
+		n, err := decodeNote(row.Data)
+		if err != nil {
+			return nil, fmt.Errorf("planstore: decode note: %w", err)
+		}
+		if n.PlanID == planID {
+			out = append(out, n)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].CreatedAt.Before(out[j].CreatedAt)
+	})
+	return out, nil
+}
+
+// RestoreNote inserts a note from a backup bundle by stable ID. Idempotent:
+// duplicate key is a no-op (safe retry).
+func (s *Store) RestoreNote(ctx context.Context, note *ExecutionNote) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if note == nil || note.PlanID == "" || note.ExecutionID == "" {
+		return errors.New("planstore: restore note missing required fields")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if note.ID == "" {
+		return errors.New("planstore: restore note missing id")
+	}
+	if note.CreatedAt.IsZero() {
+		note.CreatedAt = time.Now().UTC()
+	}
+	rec, err := encodeNote(note)
+	if err != nil {
+		return err
+	}
+	_, _, err = s.notes.InsertWithKey(note.ID, rec)
+	if errors.Is(err, engine.ErrDuplicateKey) {
+		return nil
+	}
+	return err
 }
 
 // encodeEvent marshals ev through JSON into a map[string]any for ScrivaDB storage.

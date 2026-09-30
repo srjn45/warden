@@ -7,6 +7,7 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/srjn45/warden/internal/client"
+	"github.com/srjn45/warden/internal/planbackup"
 )
 
 // --- argument structs for plan tools ---
@@ -96,6 +97,18 @@ type syncPlanToRepoArgs struct {
 	RepositoryPath string `json:"repository_path,omitempty" jsonschema:"absolute local git repository path (defaults to the plan project root)"`
 	OutputPath     string `json:"output_path,omitempty" jsonschema:"optional replica path override (default plans/{lifecycle}/<slug>.yaml)"`
 	Repository     string `json:"repository,omitempty" jsonschema:"stable repository identity for export records (defaults to origin URL)"`
+}
+
+type exportPlanBackupArgs struct {
+	PlanIDs   []string `json:"plan_ids,omitempty" jsonschema:"stable plan ids to export"`
+	ProjectID string   `json:"project_id,omitempty" jsonschema:"when all=true, optionally limit to this project"`
+	All       bool     `json:"all,omitempty" jsonschema:"export every plan (optionally scoped by project_id)"`
+}
+
+type restorePlanBackupArgs struct {
+	Bundle     planbackup.Bundle         `json:"bundle" jsonschema:"sealed Plan backup bundle from export_plan_backup"`
+	DryRun     bool                      `json:"dry_run,omitempty" jsonschema:"validate without writing"`
+	OnConflict planbackup.ConflictPolicy `json:"on_conflict,omitempty" jsonschema:"skip|fail|overwrite (default skip)"`
 }
 
 // planTaskStatusArgs backs update_task_status. plan_id is the Plan CRUD form;
@@ -340,6 +353,41 @@ func (s *Server) registerPlanTools() {
 			RepositoryPath: a.RepositoryPath,
 			OutputPath:     a.OutputPath,
 			Repository:     a.Repository,
+		})
+		if err != nil {
+			return planToolErr(err)
+		}
+		return jsonResultAny(res)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name: "export_plan_backup",
+		Description: "Export canonical ScrivaDB Plans into a versioned portable backup bundle " +
+			"(definition, revision, execution evidence, events/notes, integrity hashes). " +
+			"Excludes credentials and disposable worktrees. Never reads Git or plans/ replicas. " +
+			"Provide plan_ids and/or all=true (optionally scoped by project_id).",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a exportPlanBackupArgs) (*mcpsdk.CallToolResult, any, error) {
+		res, err := s.cl.PlansExportBackup(ctx, client.PlansExportBackupRequest{
+			PlanIDs:   a.PlanIDs,
+			ProjectID: a.ProjectID,
+			All:       a.All,
+		})
+		if err != nil {
+			return planToolErr(err)
+		}
+		return jsonResultAny(res)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name: "restore_plan_backup",
+		Description: "Restore Plans from a portable backup bundle into ScrivaDB. Validates integrity " +
+			"hashes; supports dry_run and on_conflict=skip|fail|overwrite. Idempotent when " +
+			"stable id + content hash + revision match. Does not consult Git or plans/ replicas.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a restorePlanBackupArgs) (*mcpsdk.CallToolResult, any, error) {
+		res, err := s.cl.PlansRestoreBackup(ctx, client.PlansRestoreBackupRequest{
+			Bundle:     a.Bundle,
+			DryRun:     a.DryRun,
+			OnConflict: a.OnConflict,
 		})
 		if err != nil {
 			return planToolErr(err)

@@ -140,16 +140,20 @@ wd plan scan --assess
 | Scenario | Recovery |
 |---|---|
 | Same machine, DB intact | Normal operation |
-| Same machine, DB wiped | `wd plan scan` re-seeds all plans with correct status from the directory layout |
-| New machine / reinstall | `git pull` → daemon start auto-scans → plans appear with correct status |
-| Missing task-level progress | `wd plan assess <plan-id>` reconstructs from git/PRs |
-| Full DB backup + restore | `wd snapshot restore` restores ScrivaDB including execution links |
+| Same machine, DB wiped | Prefer `wd plan backup restore <bundle>` (canonical). Legacy migration: `wd plan scan` from directory layout. |
+| New machine / reinstall | Transfer a Plan backup bundle → `wd plan backup restore`; `git pull` is for code only — not required to list/view/run Plans. |
+| Missing task-level progress | Restored events/summaries from the bundle; or `wd plan assess` as a migration aid |
+| Full DB backup + restore | Copy `<data_dir>/plans-db/` or `wd plan backup export --all` |
+
+Canonical recovery (ScrivaDB is SoT — see design freeze):
 
 <Steps>
-1. **After a reinstall:** run `wd plan scan` — this seeds all plans from the directory layout in your repo. Status (pending/in_progress/completed/archived) is fully recovered from git.
-2. **For in-progress plans:** run `wd plan assess <plan-id>` for each active plan whose task progress matters. The brain reads recent commits and PR titles to reconstruct which tasks are done.
-3. **Verify:** `wd plan list` should now show all plans with correct statuses.
+1. **On the source:** `wd plan backup export --all -o plans-backup.json`
+2. **On the destination:** `wd plan backup restore plans-backup.json --dry-run`, then without `--dry-run`
+3. **Verify:** `wd plan list` / `wd plan show` / `wd plan run` — no Git required
 </Steps>
+
+Operator guide: [Plan backup and restore](/warden/guides/plan-backup-restore/).
 
 ## Command reference
 
@@ -158,6 +162,7 @@ wd plan scan --assess
 | `wd plan list [--status <s>] [--json]` | List plans (optionally filtered by status) |
 | `wd plan create --name <n> --goal <g> [--task id:prompt]` | Create a pending plan (writes YAML + DB record) |
 | `wd plan show <id> [--json]` | Show full detail for one plan |
+| `wd plan backup export …` / `wd plan backup restore …` | Portable ScrivaDB Plan bundle (backup / machine transfer) |
 | `wd plan import <file>` | Copy a YAML into `plans/pending/` and scan |
 | `wd plan scan [--migrate-flat] [--assess]` | Walk `plans/` directories and upsert records |
 | `wd plan status <id> <new-status>` | Legacy project-scoped git mv + commit + DB update |

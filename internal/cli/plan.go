@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/srjn45/warden/internal/client"
+	"github.com/srjn45/warden/internal/planbackup"
 )
 
 func newPlanCmd() *cobra.Command {
@@ -42,6 +44,7 @@ func newPlanCmd() *cobra.Command {
 		newPlanCompleteCmd(),
 		newPlanArchiveCmd(),
 		newPlanSyncToRepoCmd(),
+		newPlanBackupCmd(),
 		newPlanImportCmd(),
 		newPlanImportLegacyCmd(),
 		newPlanScanCmd(),
@@ -398,6 +401,117 @@ func newPlanSyncToRepoCmd() *cobra.Command {
 	cmd.Flags().String("repo", "", "local git repository path (default: plan project root)")
 	cmd.Flags().String("path", "", "replica output path override (default: plans/{lifecycle}/<slug>.yaml)")
 	cmd.Flags().String("repository", "", "stable repository identity for export records (default: origin URL)")
+	cmd.Flags().Bool("json", false, "output as JSON")
+	return cmd
+}
+
+func newPlanBackupCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "backup",
+		Short: "Export or restore a portable Plan backup bundle",
+		Long: "Local backup / machine-transfer for canonical ScrivaDB Plans.\n\n" +
+			"Bundles include definition, revision, execution evidence, events/notes,\n" +
+			"and integrity hashes. They exclude credentials and disposable worktrees.\n" +
+			"Restore never consults Git or repository replicas under plans/.",
+	}
+	cmd.AddCommand(newPlanBackupExportCmd(), newPlanBackupRestoreCmd())
+	return cmd
+}
+
+func newPlanBackupExportCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "export [plan-id ...]",
+		Short: "Write a Plan backup bundle to a file or stdout",
+		Long: "Export one or more Plans from ScrivaDB into a versioned backup bundle.\n" +
+			"Pass plan IDs as args, or --all (optionally scoped with --project).\n\n" +
+			"  wd plan backup export plan-ab12cd34 -o plan.bundle.json\n" +
+			"  wd plan backup export --all --project /path/to/repo -o all-plans.json",
+		Args: cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			all, _ := cmd.Flags().GetBool("all")
+			project, _ := cmd.Flags().GetString("project")
+			outPath, _ := cmd.Flags().GetString("output")
+			if !all && len(args) == 0 {
+				return fmt.Errorf("specify plan id(s) or --all")
+			}
+			bundle, err := clientFor(cmd).PlansExportBackup(cmd.Context(), client.PlansExportBackupRequest{
+				PlanIDs:   append([]string(nil), args...),
+				ProjectID: project,
+				All:       all,
+			})
+			if err != nil {
+				return err
+			}
+			raw, err := json.MarshalIndent(bundle, "", "  ")
+			if err != nil {
+				return err
+			}
+			raw = append(raw, '\n')
+			if outPath == "" || outPath == "-" {
+				_, err = cmd.OutOrStdout().Write(raw)
+				return err
+			}
+			if err := os.WriteFile(outPath, raw, 0o600); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.ErrOrStderr(), "exported %d plan(s) → %s (bundle_hash=%s)\n",
+				len(bundle.Entries), outPath, bundle.BundleHash)
+			return nil
+		},
+	}
+	cmd.Flags().Bool("all", false, "export every plan (optionally scoped by --project)")
+	cmd.Flags().String("project", "", "when used with --all, limit export to this project id")
+	cmd.Flags().StringP("output", "o", "", "output file (default: stdout)")
+	return cmd
+}
+
+func newPlanBackupRestoreCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "restore <bundle-file>",
+		Short: "Restore Plans from a backup bundle into ScrivaDB",
+		Long: "Validate and restore a Plan backup bundle. Does not read Git or plans/\n" +
+			"replicas. Re-running the same bundle is idempotent when identity +\n" +
+			"content hash + revision match.\n\n" +
+			"  wd plan backup restore plan.bundle.json --dry-run\n" +
+			"  wd plan backup restore plan.bundle.json --on-conflict skip",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dryRun, _ := cmd.Flags().GetBool("dry-run")
+			onConflict, _ := cmd.Flags().GetString("on-conflict")
+			raw, err := os.ReadFile(args[0])
+			if err != nil {
+				return err
+			}
+			var bundle planbackup.Bundle
+			if err := json.Unmarshal(raw, &bundle); err != nil {
+				return fmt.Errorf("parse bundle: %w", err)
+			}
+			res, err := clientFor(cmd).PlansRestoreBackup(cmd.Context(), client.PlansRestoreBackupRequest{
+				Bundle:     bundle,
+				DryRun:     dryRun,
+				OnConflict: planbackup.ConflictPolicy(onConflict),
+			})
+			if err != nil {
+				return err
+			}
+			if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+				return printJSON(cmd.OutOrStdout(), res)
+			}
+			for _, e := range res.Entries {
+				line := fmt.Sprintf("%s\t%s", e.PlanID, e.Outcome)
+				if e.Reason != "" {
+					line += "\t" + e.Reason
+				}
+				fmt.Fprintln(cmd.OutOrStdout(), line)
+			}
+			if res.DryRun {
+				fmt.Fprintln(cmd.OutOrStdout(), "(dry-run — no changes written)")
+			}
+			return nil
+		},
+	}
+	cmd.Flags().Bool("dry-run", false, "validate integrity and conflicts without writing")
+	cmd.Flags().String("on-conflict", "skip", "stable-id policy: skip|fail|overwrite")
 	cmd.Flags().Bool("json", false, "output as JSON")
 	return cmd
 }

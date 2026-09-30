@@ -382,7 +382,13 @@ func (c *Controller) preflightRegisteredRunLocked(ctx context.Context, r *run) e
 	if resolved.skipComplete {
 		failures = append(failures, preflightFailure{msg: "plan is already marked complete", kind: preflightKindStructural})
 	}
-	if resolved.repo != "" && (!samePath(resolved.repo, r.repo) || resolved.runID != r.runID) {
+	// Plan-bound runs (canonical ScrivaDB PlanID) use PlanBoundRunID, while legacy
+	// Register still uses the file-path RunID even when PlanID is attached.
+	// Comparing against preflight's file-derived runID would false-fail resume
+	// after the DB cutover. When planID is set, repo path match is enough.
+	if resolved.repo != "" && !samePath(resolved.repo, r.repo) {
+		failures = append(failures, preflightFailure{msg: "registered plan identity no longer matches its repository", kind: preflightKindStructural})
+	} else if resolved.repo != "" && strings.TrimSpace(r.planID) == "" && resolved.runID != r.runID {
 		failures = append(failures, preflightFailure{msg: "registered plan identity no longer matches its repository", kind: preflightKindStructural})
 	}
 	if len(failures) > 0 {

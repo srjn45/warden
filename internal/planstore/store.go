@@ -450,4 +450,42 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 	return err
 }
 
+// RestorePlan inserts a Plan exactly as provided for backup restore. Unlike
+// Create it does not rewrite timestamps or Revision; ContentHash is verified
+// against the canonical definition (and filled when empty). Returns ErrExists
+// when the stable ID is already present.
+//
+// Restore must not consult Git or repository replicas — callers pass the
+// canonical record from a Plan backup bundle only.
+func (s *Store) RestorePlan(ctx context.Context, p *Plan) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if p == nil || p.ID == "" {
+		return fmt.Errorf("planstore: restore requires plan id")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	want := ComputeContentHash(p)
+	if p.ContentHash == "" {
+		p.ContentHash = want
+	} else if p.ContentHash != want {
+		return fmt.Errorf("planstore: restore content hash mismatch for %s: bundle %s != computed %s",
+			p.ID, p.ContentHash, want)
+	}
+	if p.Revision == 0 {
+		p.Revision = 1
+	}
+	rec, err := encodeRecord(p)
+	if err != nil {
+		return err
+	}
+	_, _, err = s.col.InsertWithKey(p.ID, rec)
+	if errors.Is(err, engine.ErrDuplicateKey) {
+		return ErrExists
+	}
+	return err
+}
+
 func (s *Store) Close() error { return s.db.Close() }
