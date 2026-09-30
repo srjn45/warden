@@ -2716,6 +2716,23 @@ wd plan sync_to_repo <plan-id> --base <integration-or-main>
 wd plan sync_to_repo <plan-id> --base main --path plans/pending/my-plan.yaml
 ```
 
+### Plan backup / restore (portable ScrivaDB bundle)
+
+Canonical Plans live under `<data_dir>/plans-db/`. For local backup or machine
+transfer, export a versioned bundle (definition + revision + execution
+evidence + integrity hashes; no credentials or worktrees). Restore does **not**
+consult Git or `plans/` replicas.
+
+```sh
+wd plan backup export <plan-id> -o plan.bundle.json
+wd plan backup export --all -o all-plans.json
+wd plan backup restore plan.bundle.json --dry-run
+wd plan backup restore plan.bundle.json --on-conflict skip   # skip|fail|overwrite
+```
+
+See site guide `guides/plan-backup-restore` for data-location, cadence, and
+recovery playbook.
+
 ### `wd plan run` — execution modes
 
 ```sh

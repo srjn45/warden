@@ -515,7 +515,7 @@ Frozen enough to proceed; details belong to implementing tasks:
 1. **Exact envelope key nesting** (top-level vs `warden_export:` block) — Phase 6.
 2. **Which fields participate in `content_hash`** vs revision bumps — Phase 2.
 3. **Whether `FilePath` is removed, nullable, or repurposed as last-export path** — Phase 2/3.
-4. **Backup bundle file format** (archive layout) — Phase 9.
+4. **Backup bundle file format** (archive layout) — **Phase 9 locked:** versioned JSON envelope (`schema_version: 1`) with sealed entries (plan + events + notes + integrity hashes); CLI `wd plan backup export|restore`; API `POST /plans/export_backup` + `/plans/restore_backup`. Not a tar of `plans-db/`.
 5. **Hub envelope authorization claims** — Phase 10 (no network in this plan).
 
 ---

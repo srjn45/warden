@@ -27,6 +27,7 @@ import (
 	mailbox "github.com/srjn45/warden/internal/mailbox"
 	metrics "github.com/srjn45/warden/internal/metrics"
 	pipeline "github.com/srjn45/warden/internal/pipeline"
+	planbackup "github.com/srjn45/warden/internal/planbackup"
 	planstore "github.com/srjn45/warden/internal/planstore"
 	pressure "github.com/srjn45/warden/internal/pressure"
 	projectstore "github.com/srjn45/warden/internal/projectstore"
@@ -411,6 +412,27 @@ func (e PlanSyncToRepoResultOutcome) Valid() bool {
 	case PlanSyncToRepoResultOutcomeSkipped:
 		return true
 	case PlanSyncToRepoResultOutcomeSuccess:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RestorePlanBackupRequestOnConflict.
+const (
+	Fail      RestorePlanBackupRequestOnConflict = "fail"
+	Overwrite RestorePlanBackupRequestOnConflict = "overwrite"
+	Skip      RestorePlanBackupRequestOnConflict = "skip"
+)
+
+// Valid indicates whether the value is a known member of the RestorePlanBackupRequestOnConflict enum.
+func (e RestorePlanBackupRequestOnConflict) Valid() bool {
+	switch e {
+	case Fail:
+		return true
+	case Overwrite:
+		return true
+	case Skip:
 		return true
 	default:
 		return false
@@ -1083,6 +1105,13 @@ type ExecutionSummary = planstore.ExecutionSummary
 // Export defines model for Export.
 type Export = store.Export
 
+// ExportPlanBackupRequest Select Plans for a portable backup bundle. Provide plan_ids and/or all=true (optionally filtered by project_id).
+type ExportPlanBackupRequest struct {
+	All       bool     `json:"all,omitempty"`
+	PlanIds   []string `json:"plan_ids,omitempty"`
+	ProjectId string   `json:"project_id,omitempty"`
+}
+
 // FileChange defines model for FileChange.
 type FileChange struct {
 	Added   int    `json:"added,omitempty"`
@@ -1388,6 +1417,12 @@ type PlanExecutionMode string
 // PlanExportStatus computed freshness of the last repository export relative to the canonical revision (none|current|stale). Never reads filesystem YAML.
 type PlanExportStatus string
 
+// PlanBackupBundle Versioned Plan backup bundle for local backup / machine transfer.
+type PlanBackupBundle = planbackup.Bundle
+
+// PlanBackupRestoreResult defines model for PlanBackupRestoreResult.
+type PlanBackupRestoreResult = planbackup.RestoreResult
+
 // PlanCompletionError defines model for PlanCompletionError.
 type PlanCompletionError struct {
 	Error            string   `json:"error"`
@@ -1556,6 +1591,19 @@ type RemoveWorktreeRequest struct {
 
 // RepoExportMeta Typed last-export metadata for an optional repository YAML replica. Separate from execution history; replicas are inert.
 type RepoExportMeta = planstore.RepoExportMeta
+
+// RestorePlanBackupRequest defines model for RestorePlanBackupRequest.
+type RestorePlanBackupRequest struct {
+	// Bundle Versioned Plan backup bundle for local backup / machine transfer.
+	Bundle PlanBackupBundle `json:"bundle"`
+	DryRun bool             `json:"dry_run,omitempty"`
+
+	// OnConflict Stable-ID conflict policy (default skip)
+	OnConflict RestorePlanBackupRequestOnConflict `json:"on_conflict,omitempty"`
+}
+
+// RestorePlanBackupRequestOnConflict Stable-ID conflict policy (default skip)
+type RestorePlanBackupRequestOnConflict string
 
 // RestoreResult defines model for RestoreResult.
 type RestoreResult = snapshot.RestoreResult
@@ -2311,6 +2359,12 @@ type EmitPipelineJobJSONRequestBody EmitPipelineJobJSONBody
 // CreatePlanJSONRequestBody defines body for CreatePlan for application/json ContentType.
 type CreatePlanJSONRequestBody = CreatePlanRequest
 
+// ExportPlanBackupJSONRequestBody defines body for ExportPlanBackup for application/json ContentType.
+type ExportPlanBackupJSONRequestBody = ExportPlanBackupRequest
+
+// RestorePlanBackupJSONRequestBody defines body for RestorePlanBackup for application/json ContentType.
+type RestorePlanBackupJSONRequestBody = RestorePlanBackupRequest
+
 // UpdatePlanJSONRequestBody defines body for UpdatePlan for application/json ContentType.
 type UpdatePlanJSONRequestBody = UpdatePlanRequest
 
@@ -2598,6 +2652,12 @@ type ServerInterface interface {
 	// Create a plan
 	// (POST /api/v1/plans)
 	CreatePlan(w http.ResponseWriter, r *http.Request)
+	// Export Plans into a portable backup bundle
+	// (POST /api/v1/plans/export_backup)
+	ExportPlanBackup(w http.ResponseWriter, r *http.Request)
+	// Restore Plans from a portable backup bundle
+	// (POST /api/v1/plans/restore_backup)
+	RestorePlanBackup(w http.ResponseWriter, r *http.Request)
 	// Get a plan
 	// (GET /api/v1/plans/{plan_id})
 	GetPlan(w http.ResponseWriter, r *http.Request, planId PlanId)
@@ -3177,6 +3237,18 @@ func (_ Unimplemented) ListPlans(w http.ResponseWriter, r *http.Request, params 
 // Create a plan
 // (POST /api/v1/plans)
 func (_ Unimplemented) CreatePlan(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Export Plans into a portable backup bundle
+// (POST /api/v1/plans/export_backup)
+func (_ Unimplemented) ExportPlanBackup(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Restore Plans from a portable backup bundle
+// (POST /api/v1/plans/restore_backup)
+func (_ Unimplemented) RestorePlanBackup(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -5307,6 +5379,46 @@ func (siw *ServerInterfaceWrapper) CreatePlan(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreatePlan(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ExportPlanBackup operation middleware
+func (siw *ServerInterfaceWrapper) ExportPlanBackup(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ExportPlanBackup(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RestorePlanBackup operation middleware
+func (siw *ServerInterfaceWrapper) RestorePlanBackup(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RestorePlanBackup(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -8029,6 +8141,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/api/v1/plans", wrapper.CreatePlan)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/plans/export_backup", wrapper.ExportPlanBackup)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/plans/restore_backup", wrapper.RestorePlanBackup)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/plans/{plan_id}", wrapper.GetPlan)
 	})
 	r.Group(func(r chi.Router) {
@@ -10391,6 +10509,134 @@ func (response CreatePlan404JSONResponse) VisitCreatePlanResponse(w http.Respons
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ExportPlanBackupRequestObject struct {
+	Body *ExportPlanBackupJSONRequestBody
+}
+
+type ExportPlanBackupResponseObject interface {
+	VisitExportPlanBackupResponse(w http.ResponseWriter) error
+}
+
+type ExportPlanBackup200JSONResponse PlanBackupBundle
+
+func (response ExportPlanBackup200JSONResponse) VisitExportPlanBackupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ExportPlanBackup400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ExportPlanBackup400JSONResponse) VisitExportPlanBackupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ExportPlanBackup404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ExportPlanBackup404JSONResponse) VisitExportPlanBackupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ExportPlanBackup503JSONResponse Error
+
+func (response ExportPlanBackup503JSONResponse) VisitExportPlanBackupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestorePlanBackupRequestObject struct {
+	Body *RestorePlanBackupJSONRequestBody
+}
+
+type RestorePlanBackupResponseObject interface {
+	VisitRestorePlanBackupResponse(w http.ResponseWriter) error
+}
+
+type RestorePlanBackup200JSONResponse PlanBackupRestoreResult
+
+func (response RestorePlanBackup200JSONResponse) VisitRestorePlanBackupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestorePlanBackup400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response RestorePlanBackup400JSONResponse) VisitRestorePlanBackupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestorePlanBackup409JSONResponse PlanBackupRestoreResult
+
+func (response RestorePlanBackup409JSONResponse) VisitRestorePlanBackupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestorePlanBackup503JSONResponse Error
+
+func (response RestorePlanBackup503JSONResponse) VisitRestorePlanBackupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -13645,6 +13891,12 @@ type StrictServerInterface interface {
 	// Create a plan
 	// (POST /api/v1/plans)
 	CreatePlan(ctx context.Context, request CreatePlanRequestObject) (CreatePlanResponseObject, error)
+	// Export Plans into a portable backup bundle
+	// (POST /api/v1/plans/export_backup)
+	ExportPlanBackup(ctx context.Context, request ExportPlanBackupRequestObject) (ExportPlanBackupResponseObject, error)
+	// Restore Plans from a portable backup bundle
+	// (POST /api/v1/plans/restore_backup)
+	RestorePlanBackup(ctx context.Context, request RestorePlanBackupRequestObject) (RestorePlanBackupResponseObject, error)
 	// Get a plan
 	// (GET /api/v1/plans/{plan_id})
 	GetPlan(ctx context.Context, request GetPlanRequestObject) (GetPlanResponseObject, error)
@@ -15572,6 +15824,68 @@ func (sh *strictHandler) CreatePlan(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CreatePlanResponseObject); ok {
 		if err := validResponse.VisitCreatePlanResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ExportPlanBackup operation middleware
+func (sh *strictHandler) ExportPlanBackup(w http.ResponseWriter, r *http.Request) {
+	var request ExportPlanBackupRequestObject
+
+	var body ExportPlanBackupJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ExportPlanBackup(ctx, request.(ExportPlanBackupRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ExportPlanBackup")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ExportPlanBackupResponseObject); ok {
+		if err := validResponse.VisitExportPlanBackupResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RestorePlanBackup operation middleware
+func (sh *strictHandler) RestorePlanBackup(w http.ResponseWriter, r *http.Request) {
+	var request RestorePlanBackupRequestObject
+
+	var body RestorePlanBackupJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RestorePlanBackup(ctx, request.(RestorePlanBackupRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RestorePlanBackup")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RestorePlanBackupResponseObject); ok {
+		if err := validResponse.VisitRestorePlanBackupResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

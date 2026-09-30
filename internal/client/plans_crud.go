@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/url"
 	"time"
+
+	"github.com/srjn45/warden/internal/planbackup"
 )
 
 // PlanTaskSpec is one task in a create/update request or a hydrated Plan.
@@ -243,6 +245,38 @@ type PlanSyncToRepoResult struct {
 func (c *Client) PlansSyncToRepo(ctx context.Context, planID string, req PlansSyncToRepoRequest) (*PlanSyncToRepoResult, error) {
 	var out PlanSyncToRepoResult
 	if err := c.do(ctx, http.MethodPost, "/plans/"+url.PathEscape(planID)+"/sync_to_repo", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// PlansExportBackupRequest is the POST /plans/export_backup body.
+type PlansExportBackupRequest struct {
+	PlanIDs   []string `json:"plan_ids,omitempty"`
+	ProjectID string   `json:"project_id,omitempty"`
+	All       bool     `json:"all,omitempty"`
+}
+
+// PlansRestoreBackupRequest is the POST /plans/restore_backup body.
+type PlansRestoreBackupRequest struct {
+	Bundle     planbackup.Bundle         `json:"bundle"`
+	DryRun     bool                      `json:"dry_run,omitempty"`
+	OnConflict planbackup.ConflictPolicy `json:"on_conflict,omitempty"`
+}
+
+// PlansExportBackup builds a portable Plan backup bundle from ScrivaDB.
+func (c *Client) PlansExportBackup(ctx context.Context, req PlansExportBackupRequest) (*planbackup.Bundle, error) {
+	var out planbackup.Bundle
+	if err := c.do(ctx, http.MethodPost, "/plans/export_backup", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// PlansRestoreBackup restores Plans from a portable backup bundle.
+func (c *Client) PlansRestoreBackup(ctx context.Context, req PlansRestoreBackupRequest) (*planbackup.RestoreResult, error) {
+	var out planbackup.RestoreResult
+	if err := c.do(ctx, http.MethodPost, "/plans/restore_backup", req, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

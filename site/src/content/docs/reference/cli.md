@@ -1148,6 +1148,7 @@ Commands:
   complete             Complete a plan (in_progress → completed)
   archive              Archive a plan (any status → archived)
   sync_to_repo         Export a plan revision to a dedicated branch and open a PR
+  backup               Export or restore a portable Plan backup bundle
   import               Copy a plan YAML into plans/pending/ and scan
   import-legacy        Import legacy plans/**/*.yaml into ScrivaDB (operator cutover)
   scan                 Scan a project's plans/ directory and upsert plan records
@@ -1414,6 +1415,77 @@ Flags:
       --path string         replica output path override (default: plans/{lifecycle}/<slug>.yaml)
       --repo string         local git repository path (default: plan project root)
       --repository string   stable repository identity for export records (default: origin URL)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan backup
+
+```text
+Local backup / machine-transfer for canonical ScrivaDB Plans.
+
+Bundles include definition, revision, execution evidence, events/notes,
+and integrity hashes. They exclude credentials and disposable worktrees.
+Restore never consults Git or repository replicas under plans/.
+
+Usage:
+  warden plan backup [flags]
+
+Commands:
+  export               Write a Plan backup bundle to a file or stdout
+  restore              Restore Plans from a backup bundle into ScrivaDB
+
+Flags:
+  -h, --help   help for backup
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan backup export
+
+```text
+Export one or more Plans from ScrivaDB into a versioned backup bundle.
+Pass plan IDs as args, or --all (optionally scoped with --project).
+
+  wd plan backup export plan-ab12cd34 -o plan.bundle.json
+  wd plan backup export --all --project /path/to/repo -o all-plans.json
+
+Usage:
+  warden plan backup export [plan-id ...] [flags]
+
+Flags:
+      --all              export every plan (optionally scoped by --project)
+  -h, --help             help for export
+  -o, --output string    output file (default: stdout)
+      --project string   when used with --all, limit export to this project id
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan backup restore
+
+```text
+Validate and restore a Plan backup bundle. Does not read Git or plans/
+replicas. Re-running the same bundle is idempotent when identity +
+content hash + revision match.
+
+  wd plan backup restore plan.bundle.json --dry-run
+  wd plan backup restore plan.bundle.json --on-conflict skip
+
+Usage:
+  warden plan backup restore <bundle-file> [flags]
+
+Flags:
+      --dry-run              validate integrity and conflicts without writing
+  -h, --help                 help for restore
+      --json                 output as JSON
+      --on-conflict string   stable-id policy: skip|fail|overwrite (default "skip")
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)

@@ -1517,6 +1517,69 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /api/v1/plans/export_backup:
+    post:
+      operationId: ExportPlanBackup
+      tags: [Plans]
+      summary: Export Plans into a portable backup bundle
+      description: >
+        Builds a versioned Plan backup bundle from ScrivaDB only (canonical
+        definition, revision, execution history/summaries, events, notes, and
+        integrity hashes). Excludes credentials and disposable worktrees.
+        Never reads Git or repository replicas under plans/. Provide plan_ids
+        and/or all=true (optionally scoped by project_id).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ExportPlanBackupRequest" }
+      responses:
+        "200":
+          description: Sealed Plan backup bundle
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlanBackupBundle" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503":
+          description: Plan store not configured
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v1/plans/restore_backup:
+    post:
+      operationId: RestorePlanBackup
+      tags: [Plans]
+      summary: Restore Plans from a portable backup bundle
+      description: >
+        Validates integrity hashes then restores Plans into ScrivaDB. Does not
+        consult Git or repository replicas. Supports dry_run validation,
+        stable-ID conflict policy (skip|fail|overwrite), and idempotent retry
+        when identity + content hash + revision match.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RestorePlanBackupRequest" }
+      responses:
+        "200":
+          description: Per-entry restore result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlanBackupRestoreResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409":
+          description: Stable-ID conflict under on_conflict=fail
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlanBackupRestoreResult" }
+        "503":
+          description: Plan store not configured
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
   /api/v1/plans/{plan_id}:
     get:
       operationId: GetPlan
@@ -4594,6 +4657,68 @@ components:
           type: boolean
           description: "true when the prior successful export was returned with no new GitHub activity"
         record_id: { type: string }
+
+    ExportPlanBackupRequest:
+      type: object
+      description: >
+        Select Plans for a portable backup bundle. Provide plan_ids and/or
+        all=true (optionally filtered by project_id).
+      properties:
+        plan_ids:
+          type: array
+          items: { type: string }
+        project_id: { type: string }
+        all: { type: boolean }
+
+    RestorePlanBackupRequest:
+      type: object
+      required: [bundle]
+      properties:
+        bundle: { $ref: "#/components/schemas/PlanBackupBundle" }
+        dry_run: { type: boolean }
+        on_conflict:
+          type: string
+          enum: [skip, fail, overwrite]
+          description: Stable-ID conflict policy (default skip)
+
+    PlanBackupBundle:
+      x-go-type: planbackup.Bundle
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/planbackup
+        name: planbackup
+      type: object
+      description: Versioned Plan backup bundle for local backup / machine transfer.
+      required: [schema_version, exported_at, entries]
+      properties:
+        schema_version: { type: integer }
+        exported_at: { type: string, format: date-time }
+        bundle_hash: { type: string }
+        entries:
+          type: array
+          items: { type: object }
+
+    PlanBackupRestoreResult:
+      x-go-type: planbackup.RestoreResult
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/planbackup
+        name: planbackup
+      type: object
+      required: [dry_run, entries]
+      properties:
+        dry_run: { type: boolean }
+        entries:
+          type: array
+          items:
+            type: object
+            required: [plan_id, outcome]
+            properties:
+              plan_id: { type: string }
+              outcome:
+                type: string
+                enum: [restored, skipped, conflicted, overwritten, validated]
+              content_hash: { type: string }
+              revision: { type: integer, format: int64 }
+              reason: { type: string }
 
     PlanCompletionError:
       type: object

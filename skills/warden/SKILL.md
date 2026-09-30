@@ -338,6 +338,8 @@ never scanned automatically at daemon startup.
 | `run_plan` | Start execution of a plan (`execution_mode`: `autopilot`\|`pipeline`\|`orchestrator_worker`\|`manual`). Pending → `in_progress`. |
 | `complete_plan` | Complete a plan (`in_progress` → `completed`). Blocked with a structured error listing incomplete tasks and/or unmerged branches. |
 | `update_task_status` | Plan form: `{plan_id, task_id, status}` where status is `pending`\|`in_progress`\|`done`\|`skipped`. CLI shorthand: `wd plan done <plan-id> <task-id>`. |
+| `export_plan_backup` | Export Plans into a portable ScrivaDB backup bundle (`plan_ids` and/or `all`). Excludes credentials/worktrees; never reads Git. |
+| `restore_plan_backup` | Restore a bundle (`dry_run`, `on_conflict=skip\|fail\|overwrite`). Idempotent when id+hash+revision match. CLI: `wd plan backup export\|restore`. |
 
 ### Workflow guidance
 
@@ -346,6 +348,7 @@ never scanned automatically at daemon startup.
 import_legacy_plans { project_id: "<absolute-path-to-repo>", report_only: true }
 import_legacy_plans { project_id: "<absolute-path-to-repo>" }
 ```
+Prefer Plan backup restore for canonical recovery (execution evidence survives). `scan_plans` remains a migration aid for legacy YAML authority.
 
 **Starting a phase:**
 ```
