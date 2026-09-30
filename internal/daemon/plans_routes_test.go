@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/srjn45/warden/internal/autopilot"
+	"github.com/srjn45/warden/internal/autopilotstore"
 	"github.com/srjn45/warden/internal/brainconsult"
 	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/pipeline"
@@ -669,6 +670,7 @@ func planGitServerWithExec(t *testing.T) (*httptest.Server, *planstore.Store, *p
 	exec := NewExecutor(pips, newFakeStore(), fl, cs, func() {})
 
 	srv := &Server{store: newFakeStore(), life: fl, plans: ps, exec: exec, projects: projects}
+	exec.SetPlanPipelineHook(srv)
 	ts := httptest.NewServer(srv.router())
 	t.Cleanup(ts.Close)
 	return ts, ps, projects, root, pips
@@ -686,16 +688,31 @@ func seedPlanYAML(t *testing.T, root, subpath, name string) {
 	gitCommit(t, root, "add plan "+name)
 }
 
-// TestPlansRunManual verifies POST /run with mode=manual git-mv's the YAML
-// into plans/in_progress/ and updates the DB record.
+// TestPlansRunManual verifies POST /run with mode=manual spawns an M:<name>
+// general agent (PlanID set), records ActiveExecution + PlanExecutionEvents,
+// and never creates an Autopilot.
 func TestPlansRunManual(t *testing.T) {
-	ts, ps, projects, root := planGitServer(t)
-	ctx := t.Context()
+	root := t.TempDir()
+	gitInit(t, root)
+
+	plans, err := planstore.New(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = plans.Close() })
+	projects, err := projectstore.NewStore(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = projects.Close() })
+	_, err = projects.OpenProject(root, "test", root)
+	require.NoError(t, err)
+	life := &fakeLife{}
+	fs := newFakeStore()
+	srv := &Server{store: fs, life: life, plans: plans, projects: projects}
+	ts := httptest.NewServer(srv.router())
+	t.Cleanup(ts.Close)
 
 	seedPlanYAML(t, root, "plans/pending/manual-plan.yaml", "manual-plan")
 
 	id := planstore.PlanID(root, "manual-plan")
-	require.NoError(t, ps.Create(ctx, &planstore.Plan{
+	require.NoError(t, plans.Create(t.Context(), &planstore.Plan{
 		ID: id, ProjectID: root, Name: "manual-plan",
 		FilePath: "plans/pending/manual-plan.yaml", Status: planstore.PlanStatusPending,
 	}))
@@ -710,16 +727,74 @@ func TestPlansRunManual(t *testing.T) {
 	require.Equal(t, planstore.PlanStatusInProgress, got.Status)
 	require.Equal(t, "plans/in_progress/manual-plan.yaml", got.FilePath)
 	require.Equal(t, planstore.PlanModeManual, got.ExecutionMode)
-	require.NotNil(t, got.StartedAt)
+	require.Empty(t, got.AutopilotRunID, "manual must not create Autopilot")
+	require.Empty(t, got.OrchestratorID, "manual uses ActiveExecution, not OrchestratorID")
+
+	require.NotNil(t, life.spawned)
+	require.Equal(t, "M:manual-plan", life.spawned.Name)
+	require.Equal(t, "general", life.spawned.Role)
+	require.Equal(t, id, life.spawned.PlanID)
+
+	stored, err := fs.Get(t.Context(), life.spawned.ID)
+	require.NoError(t, err)
+	require.Equal(t, id, stored.PlanID)
+
+	updated, err := plans.Get(t.Context(), id)
+	require.NoError(t, err)
+	require.NotNil(t, updated.ActiveExecution)
+	require.Equal(t, life.spawned.ID, updated.ActiveExecution.ExecutorID)
+	require.Equal(t, planstore.PlanModeManual, updated.ActiveExecution.ExecutionMode)
+
+	events, err := plans.ListEvents(t.Context(), id, updated.ActiveExecution.ID)
+	require.NoError(t, err)
+	kinds := map[planstore.EventKind]bool{}
+	for _, ev := range events {
+		kinds[ev.Kind] = true
+	}
+	require.True(t, kinds[planstore.EventKindExecutionStarted])
+	require.True(t, kinds[planstore.EventKindExecutorCreated])
+	require.True(t, kinds[planstore.EventKindAgentSpawned])
+
 	project, err := projects.Get(root)
 	require.NoError(t, err)
 	require.Contains(t, project.Plans, id)
+	require.Contains(t, project.Agents, life.spawned.ID)
 
-	// Verify the YAML was moved on disk.
 	_, err = os.Stat(filepath.Join(root, "plans", "in_progress", "manual-plan.yaml"))
 	require.NoError(t, err, "YAML must be in plans/in_progress/")
 	_, err = os.Stat(filepath.Join(root, "plans", "pending", "manual-plan.yaml"))
 	require.True(t, os.IsNotExist(err), "YAML must be removed from plans/pending/")
+}
+
+// TestPlansRunManualUnconfigured verifies POST /run with mode=manual returns
+// 503 when lifecycle is not wired.
+func TestPlansRunManualUnconfigured(t *testing.T) {
+	root := t.TempDir()
+	gitInit(t, root)
+	plans, err := planstore.New(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = plans.Close() })
+	projects, err := projectstore.NewStore(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = projects.Close() })
+	_, err = projects.OpenProject(root, "test", root)
+	require.NoError(t, err)
+
+	srv := &Server{store: newFakeStore(), plans: plans, projects: projects} // no life
+	ts := httptest.NewServer(srv.router())
+	t.Cleanup(ts.Close)
+
+	seedPlanYAML(t, root, "plans/pending/manual-plan.yaml", "manual-plan")
+
+	id := planstore.PlanID(root, "manual-plan")
+	require.NoError(t, plans.Create(t.Context(), &planstore.Plan{
+		ID: id, ProjectID: root, Name: "manual-plan",
+		FilePath: "plans/pending/manual-plan.yaml", Status: planstore.PlanStatusPending,
+	}))
+
+	resp := postJSON(t, planURL(ts.URL, root, "/"+id+"/run"), map[string]any{"mode": "manual"})
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
 }
 
 // TestPlansRunUnknownMode verifies POST /run with an unknown mode returns 400.
@@ -775,8 +850,9 @@ func TestPlansRunPipelineMode(t *testing.T) {
 	require.Contains(t, project.Plans, id)
 }
 
-// TestPlansRunAutopilotMode verifies plan-owned autopilot runs retain both
-// back-refs and join the project's authoritative membership lists.
+// TestPlansRunAutopilotMode verifies plan-owned autopilot runs create a live
+// Autopilot entity (required PlanID), join project membership, and record
+// ActiveExecution + PlanExecutionEvents — not plan-file registration alone.
 func TestPlansRunAutopilotMode(t *testing.T) {
 	root := t.TempDir()
 	gitInit(t, root)
@@ -789,9 +865,15 @@ func TestPlansRunAutopilotMode(t *testing.T) {
 	t.Cleanup(func() { _ = projects.Close() })
 	_, err = projects.OpenProject(root, "test", root)
 	require.NoError(t, err)
-	runs, err := autopilot.NewRunStore(t.TempDir())
+	data := t.TempDir()
+	runs, err := autopilot.NewRunStore(data)
 	require.NoError(t, err)
-	controller := autopilot.NewController(autopilot.ControllerConfig{BaseDir: root, RunStore: runs}, autopilot.NewExecEnv())
+	live, err := autopilotstore.New(data)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = live.Close() })
+	controller := autopilot.NewController(autopilot.ControllerConfig{
+		BaseDir: root, RunStore: runs, LiveStore: live, PlanSource: plans, Gate: "local",
+	}, autopilot.NewExecEnv())
 	t.Cleanup(func() { require.NoError(t, controller.Close()) })
 
 	srv := &Server{store: newFakeStore(), life: &fakeLife{}, plans: plans, projects: projects, autopilot: controller}
@@ -813,10 +895,25 @@ func TestPlansRunAutopilotMode(t *testing.T) {
 	var got planstore.Plan
 	require.NoError(t, json.NewDecoder(bytes.NewReader(body)).Decode(&got))
 	require.NotEmpty(t, got.AutopilotRunID)
-	record, err := runs.Get(got.AutopilotRunID)
+
+	ap, err := live.Get(t.Context(), got.AutopilotRunID)
 	require.NoError(t, err)
-	require.Equal(t, id, record.PlanID)
-	require.Equal(t, root, record.ProjectID)
+	require.Equal(t, id, ap.PlanID)
+	require.Equal(t, "AP:ap-plan", ap.Name)
+
+	updated, err := plans.Get(t.Context(), id)
+	require.NoError(t, err)
+	require.NotNil(t, updated.ActiveExecution)
+	require.Equal(t, got.AutopilotRunID, updated.ActiveExecution.ExecutorID)
+	events, err := plans.ListEvents(t.Context(), id, updated.ActiveExecution.ID)
+	require.NoError(t, err)
+	kinds := map[planstore.EventKind]bool{}
+	for _, ev := range events {
+		kinds[ev.Kind] = true
+	}
+	require.True(t, kinds[planstore.EventKindExecutionStarted])
+	require.True(t, kinds[planstore.EventKindExecutorCreated])
+
 	project, err := projects.Get(root)
 	require.NoError(t, err)
 	require.Contains(t, project.Autopilots, got.AutopilotRunID)
@@ -843,7 +940,8 @@ func TestPlansRunAutopilotUnconfigured(t *testing.T) {
 }
 
 // TestPlansRunOrchestratorMode verifies POST /run with mode=orchestrator_worker
-// spawns an orchestrator agent, stamps PlanID on the session, and joins Project.Plans.
+// spawns an O:<name> orchestrator agent, stamps PlanID, records ActiveExecution
+// + PlanExecutionEvents, and never creates an Autopilot.
 func TestPlansRunOrchestratorMode(t *testing.T) {
 	root := t.TempDir()
 	gitInit(t, root)
@@ -857,7 +955,8 @@ func TestPlansRunOrchestratorMode(t *testing.T) {
 	_, err = projects.OpenProject(root, "test", root)
 	require.NoError(t, err)
 	life := &fakeLife{}
-	srv := &Server{store: newFakeStore(), life: life, plans: plans, projects: projects}
+	fs := newFakeStore()
+	srv := &Server{store: fs, life: life, plans: plans, projects: projects}
 	ts := httptest.NewServer(srv.router())
 	t.Cleanup(ts.Close)
 
@@ -879,11 +978,37 @@ func TestPlansRunOrchestratorMode(t *testing.T) {
 	require.Equal(t, planstore.PlanStatusInProgress, got.Status)
 	require.Equal(t, planstore.PlanModeOrchestratorWorker, got.ExecutionMode)
 	require.NotEmpty(t, got.OrchestratorID, "OrchestratorID must be set for orchestrator_worker mode")
+	require.Empty(t, got.AutopilotRunID, "orchestrator must not create Autopilot")
 	require.NotNil(t, life.spawned)
+	require.Equal(t, "O:orch-plan", life.spawned.Name)
+	require.Equal(t, "orchestrator", life.spawned.Role)
 	require.Equal(t, id, life.spawned.PlanID)
+	require.Equal(t, life.spawned.ID, got.OrchestratorID)
+
+	stored, err := fs.Get(t.Context(), life.spawned.ID)
+	require.NoError(t, err)
+	require.Equal(t, id, stored.PlanID)
+
+	updated, err := plans.Get(t.Context(), id)
+	require.NoError(t, err)
+	require.NotNil(t, updated.ActiveExecution)
+	require.Equal(t, life.spawned.ID, updated.ActiveExecution.ExecutorID)
+	require.Equal(t, planstore.PlanModeOrchestratorWorker, updated.ActiveExecution.ExecutionMode)
+
+	events, err := plans.ListEvents(t.Context(), id, updated.ActiveExecution.ID)
+	require.NoError(t, err)
+	kinds := map[planstore.EventKind]bool{}
+	for _, ev := range events {
+		kinds[ev.Kind] = true
+	}
+	require.True(t, kinds[planstore.EventKindExecutionStarted])
+	require.True(t, kinds[planstore.EventKindExecutorCreated])
+	require.True(t, kinds[planstore.EventKindAgentSpawned])
+
 	project, err := projects.Get(root)
 	require.NoError(t, err)
 	require.Contains(t, project.Plans, id)
+	require.Contains(t, project.Agents, life.spawned.ID)
 }
 
 // TestPlansRun404 verifies POST /run returns 404 for unknown plan.

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	_ "github.com/srjn45/warden/internal/agentbackend/backends"
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/router"
@@ -15,22 +16,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func setupTestDaemonHotSwap(t *testing.T) (*backendstore.Store, *store.FileStore, *lifecycle.Lifecycle, *lifecycle.FakeRunner, *store.Session) {
+func setupTestDaemonHotSwap(t *testing.T) (*backendstore.Store, *agentstore.Store, *lifecycle.Lifecycle, *lifecycle.FakeRunner, *agentstore.Agent) {
 	t.Helper()
 	dataDir := t.TempDir()
 	bs, err := backendstore.NewStore(filepath.Join(dataDir, "backends"))
 	require.NoError(t, err)
 	t.Cleanup(func() { bs.Close() })
 
-	st, err := store.NewFileStore(dataDir)
+	st, err := agentstore.New(dataDir)
 	require.NoError(t, err)
-	t.Cleanup(func() { st.Close(context.Background()) })
+	t.Cleanup(func() { _ = st.Close() })
 
 	workdir := t.TempDir()
-	sess := &store.Session{
+	sess := &agentstore.Agent{
 		ID:          "agent-hs-1",
 		TmuxSession: "agent-hs-1",
-		Backend:     "claude",
+		AiCli:       "claude",
 		Model:       "opus",
 		Role:        "implementation",
 		Repo:        workdir,
@@ -84,7 +85,7 @@ func TestDaemonPollerHotSwapWiring(t *testing.T) {
 	// Build the OnHotSwap handler as wired in daemon
 	var swapCompleted bool
 	critTokensLimit := 200000
-	onHotSwap := func(s *store.Session, tokens int) {
+	onHotSwap := func(s *agentstore.Agent, tokens int) {
 		settings, err := bs.GetHandoverSettings()
 		if err != nil {
 			settings = backendstore.DefaultHandoverSettings()
@@ -98,7 +99,7 @@ func TestDaemonPollerHotSwapWiring(t *testing.T) {
 			ContextLimit:  critTokensLimit,
 			ContextKnown:  tokens > 0 && critTokensLimit > 0,
 		}
-		if _, used, limit, _, qerr := bs.GetHeadroom(s.Backend, time.Now()); qerr == nil && limit > 0 {
+		if _, used, limit, _, qerr := bs.GetHeadroom(s.AiCli, time.Now()); qerr == nil && limit > 0 {
 			in.QuotaUsed = used
 			in.QuotaLimit = limit
 			in.QuotaKnown = true
@@ -115,10 +116,10 @@ func TestDaemonPollerHotSwapWiring(t *testing.T) {
 		if swapErr != nil {
 			t.Fatalf("hot-swap failed: %v", swapErr)
 		}
-		_ = st.Update(context.Background(), s.ID, func(sess *store.Session) error {
-			sess.Backend = s.Backend
+		_ = st.Update(context.Background(), s.ID, func(sess *agentstore.Agent) error {
+			sess.AiCli = s.AiCli
 			sess.Model = s.Model
-			sess.ClaudeSessionID = s.ClaudeSessionID
+			sess.AICLISessionID = s.AICLISessionID
 			sess.UpdatedAt = s.UpdatedAt
 			return nil
 		})
@@ -134,7 +135,7 @@ func TestDaemonPollerHotSwapWiring(t *testing.T) {
 	// Verify session was updated in store
 	updated, err := st.Get(context.Background(), sess.ID)
 	require.NoError(t, err)
-	require.NotEmpty(t, updated.Backend)
+	require.NotEmpty(t, updated.AiCli)
 }
 
 func TestDaemonPollerHotSwapDisabled(t *testing.T) {
@@ -147,7 +148,7 @@ func TestDaemonPollerHotSwapDisabled(t *testing.T) {
 
 	var swapCompleted bool
 	critTokensLimit := 200000
-	onHotSwap := func(s *store.Session, tokens int) {
+	onHotSwap := func(s *agentstore.Agent, tokens int) {
 		settings, err := bs.GetHandoverSettings()
 		if err != nil {
 			settings = backendstore.DefaultHandoverSettings()
@@ -185,7 +186,7 @@ func TestDaemonPollerHotSwapBelowThreshold(t *testing.T) {
 
 	var swapCompleted bool
 	critTokensLimit := 200000
-	onHotSwap := func(s *store.Session, tokens int) {
+	onHotSwap := func(s *agentstore.Agent, tokens int) {
 		settings, err := bs.GetHandoverSettings()
 		if err != nil {
 			settings = backendstore.DefaultHandoverSettings()

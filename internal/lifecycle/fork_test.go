@@ -37,7 +37,7 @@ func TestSpawnForkCodexWorktreeBaseAndLaunch(t *testing.T) {
 		ForkSourceBranch:    "src-branch",
 	})
 	require.NoError(t, err)
-	require.Equal(t, "codex", s.Backend)
+	require.Equal(t, "codex", s.AiCli)
 
 	// Worktree is a sibling off the SOURCE branch: the start point is appended.
 	require.Contains(t, fr.calledArgs(),

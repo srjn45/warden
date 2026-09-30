@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/srjn45/warden/internal/autopilotstore"
 	"github.com/srjn45/warden/internal/router"
 )
 
@@ -49,6 +50,12 @@ type ControllerConfig struct {
 	// RunStore overrides the durable run registry (primarily for tests). When nil
 	// and DataDir is set, NewController opens <data>/autopilot/runs-db.
 	RunStore *RunStore
+	// LiveStore is the live Autopilot entity store (plan-execution redesign).
+	// When nil and DataDir is set, NewController opens <data>/autopilots-db via
+	// autopilotstore. When provided explicitly (tests), it is used as-is.
+	LiveStore *autopilotstore.Store
+	// PlanSource supplies Plan task progress (Plan is the source of task state).
+	PlanSource PlanTaskSource
 	// Resolver is the unified router resolver for selecting backends.
 	Resolver Resolver
 	// Guardian configures the heartbeat guardian's heal ladder + backoff (config
@@ -100,6 +107,8 @@ type Controller struct {
 	enableStore EnableStore
 	store       *RunStore
 	storeErr    error // configured persistence unavailable: lifecycle writes must fail closed
+	live        *autopilotstore.Store
+	planSource  PlanTaskSource
 
 	mu      sync.Mutex
 	runtime Runtime         // nil ⇒ inert (S1): no brain spawns
@@ -185,6 +194,8 @@ func NewController(cfg ControllerConfig, env Env) *Controller {
 		tierstate:         newTierState(now),
 		enableStore:       newEnableStore(cfg.DataDir),
 		store:             cfg.RunStore,
+		live:              cfg.LiveStore,
+		planSource:        cfg.PlanSource,
 		runs:              map[string]*run{},
 		claims:            newClaimRegistry(),
 	}
@@ -338,16 +349,37 @@ func (e *PreflightError) Error() string {
 	return "autopilot preflight failed: " + strings.Join(e.Failures, "; ")
 }
 
-// Enable switches autopilot on for ONE repository (autopilot's on/off bit is
-// per-repo; the plan/brain/merge template stays global in config). It resolves
-// repo to a git root (empty ⇒ the controller BaseDir, for backward compat), runs
-// the enable-time preflight (§5.1) over only the plans that resolve to that repo,
-// and — only if ALL of that repo's checks pass — persists the repo as enabled and
-// registers/reconciles ONLY its runs. Runs belonging to OTHER enabled repos are
-// left untouched. On any failure it changes no state and returns a *PreflightError
-// carrying every failure. Enable is atomic and idempotent per repo: re-enabling an
-// already-enabled repo with the same config is a no-op yielding the same run ids.
+// Enable switches autopilot on for ONE repository. It is a capability
+// configuration switch only: it persists the repo as enabled so Autopilot
+// executors may run there, and does NOT register plan files, reconcile
+// autopilot.plans[], or start work. Start execution via StartFromPlan /
+// POST /plans/{plan_id}/run. Disabling remains the kill switch.
 func (c *Controller) Enable(ctx context.Context, repo string) (Status, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.storeErr != nil {
+		return c.statusLocked(), c.storeErr
+	}
+
+	target := c.resolveRepo(ctx, repo)
+	if err := c.enableStore.Enable(target); err != nil {
+		return c.statusLocked(), fmt.Errorf("persist autopilot enable for %s: %w", target, err)
+	}
+	// Frictionless day-one (§10): when the owner has configured no auto-approve
+	// rules, enabling the capability installs a generous default so workers don't
+	// stall on recognized non-destructive prompts once a plan run starts.
+	if c.runtime != nil {
+		c.runtime.InstallDefaultAutoApprovePolicy()
+	}
+	return c.statusLocked(), nil
+}
+
+// ReconcileConfiguredPlans is the legacy plan-file registration path: preflight
+// every autopilot.plans[] entry for repo, persist the capability switch, and
+// register/start matching runs. Production lifecycle starts via StartFromPlan /
+// POST /plans/{id}/run; Enable is switch-only. Kept for unit tests and any
+// transitional callers that still drive the config plan list.
+func (c *Controller) ReconcileConfiguredPlans(ctx context.Context, repo string) (Status, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.storeErr != nil {
@@ -645,10 +677,9 @@ func (c *Controller) Disable(ctx context.Context, repo string) Status {
 //	(a) replaces the template fields (plans, integration branch, gate, strategy,
 //	    delete-branch, backend ladder, pay-per-use, guardian heal params), applying
 //	    the same defaults NewController does;
-//	(b) re-runs the per-repo Enable reconcile over every persisted-enabled repo, so
-//	    an added plan spawns, a repo's changed template re-applies, and a preflight
-//	    that now fails is logged (the repo stays enabled — a later good edit or
-//	    `warden autopilot on` recovers it), exactly like the daemon's boot re-enable;
+//	(b) re-asserts the capability switch for every persisted-enabled repo (Enable
+//	    no longer registers or starts work — live executors recover via SetRuntime
+//	    / StartFromPlan);
 //	(c) tears down any run whose plan-file entry was REMOVED from config, so deleting
 //	    an autopilot.plans[] entry stops its run. Removal is decided by config
 //	    presence, not preflight, so a transient preflight failure never kills a run
@@ -697,22 +728,22 @@ func (c *Controller) Reconfigure(ctx context.Context, cfg ControllerConfig) {
 	enabled := c.enableStore.List()
 	c.mu.Unlock()
 
-	// (b) Re-run the per-repo reconcile under the NEW template. Enable takes c.mu
-	// itself, so this runs outside the lock. Best-effort per repo (mirrors boot).
+	// (b) Reconcile configured plan-file runs under the NEW template for every
+	// persisted-enabled repo. Public Enable is switch-only; this path keeps
+	// autopilot.plans[] hot-reload behavior for legacy config-driven runs.
 	for _, repo := range enabled {
-		if _, err := c.Enable(ctx, repo); err != nil {
-			slog.Warn("autopilot: reconfigure re-enable skipped", "repo", repo, "err", err)
+		if _, err := c.ReconcileConfiguredPlans(ctx, repo); err != nil {
+			slog.Warn("autopilot: reconfigure reconcile skipped", "repo", repo, "err", err)
 		}
 	}
 
-	// (c) Tear down runs whose plan entry was removed from config. A repo whose
-	// plans all vanished fails Enable's matched-count check above (its run is left
-	// intact there), so this deterministic, config-presence-based sweep is what
-	// actually stops it — without ever killing a run whose plan is still listed.
+	// (c) Tear down runs whose plan entry was removed from config. Removal is
+	// decided by config presence so deleting an autopilot.plans[] entry stops
+	// its legacy run without affecting Plan-bound StartFromPlan executors.
 	c.mu.Lock()
 	for id, r := range c.runs {
 		if _, legacyManaged := oldPlanSet[r.planFile]; !legacyManaged {
-			continue // durable register-created runs are independent of global config
+			continue // durable register-created / plan-bound runs are independent of global config
 		}
 		if _, still := planSet[r.planFile]; still {
 			continue
@@ -868,6 +899,17 @@ func (c *Controller) Status() Status {
 	return c.statusLocked()
 }
 
+// LookupRun returns one run's status by id, or ErrRunNotFound.
+func (c *Controller) LookupRun(runID string) (RunStatus, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	r, ok := c.runs[runID]
+	if !ok {
+		return RunStatus{}, ErrRunNotFound
+	}
+	return c.runStatusLocked(r), nil
+}
+
 // statusLocked builds the status snapshot; the caller must hold c.mu. Enabled is
 // now "any repo enabled" and EnabledRepos names exactly which ones — the switch is
 // per-repo, not a single global flag.
@@ -906,6 +948,8 @@ func (c *Controller) statusLocked() Status {
 			Name:              r.name,
 			PlanFile:          r.planFile,
 			Repo:              r.repo,
+			PlanID:            r.planID,
+			ProjectID:         r.projectID,
 			State:             r.state,
 			Gate:              c.runGate(r), // the mode resolved at preflight (§6.1)
 			Brain:             brain,

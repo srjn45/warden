@@ -7,6 +7,7 @@ package pipeline
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/srjn45/warden/internal/backendstore"
@@ -14,6 +15,26 @@ import (
 	"github.com/srjn45/warden/internal/role"
 	"github.com/srjn45/warden/internal/store"
 )
+
+// planPipelineNamePattern matches the P:<plan-slug> display name used by the
+// plan-to-pipeline adapter. Pipeline IDs stay SafeID-clean (no colon) so git
+// branch / agent id derivation (pid-job) remains valid; only the Name may use P:.
+var planPipelineNamePattern = regexp.MustCompile(`^P:[a-zA-Z0-9_-]{1,64}$`)
+
+// ValidName reports whether name is a usable pipeline name: a SafeID, or a
+// plan-bound P:<slug> display name. Empty is invalid.
+func ValidName(name string) error {
+	if name == "" {
+		return fmt.Errorf("pipeline name is required")
+	}
+	if store.SafeID(name) == nil {
+		return nil
+	}
+	if planPipelineNamePattern.MatchString(name) {
+		return nil
+	}
+	return fmt.Errorf("invalid pipeline name %q: must have no '/', '\\', ':', or '..' (or be P:<plan-slug>)", name)
+}
 
 type Status string
 
@@ -200,8 +221,8 @@ func ParseWorktree(s string) (mode, fromJob string) {
 // Validate checks the DAG is well-formed: safe unique ids, non-empty prompts,
 // known dependency + from-ref targets, valid worktree modes, and no cycles.
 func Validate(p *Pipeline) error {
-	if err := store.SafeID(p.Name); err != nil {
-		return fmt.Errorf("invalid pipeline name %q: must have no '/', '\\', ':', or '..'", p.Name)
+	if err := ValidName(p.Name); err != nil {
+		return err
 	}
 	if p.Repo == "" {
 		return fmt.Errorf("pipeline repo is required")

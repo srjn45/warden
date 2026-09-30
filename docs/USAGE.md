@@ -368,11 +368,11 @@ When you `warden agent restore <id>` an orphaned agent, it resumes with the **or
 
 ---
 
-## 5.2. Agent backends (`--backend`)
+## 5.2. AI CLIs (`--ai-cli`)
 
 Warden drives **Claude Code** by default, but the agent layer is an **adapter
 layer**: each console coding agent is normalized behind a `Backend` interface, and
-you pick one per agent at spawn time.
+you pick one per agent at spawn time with `--ai-cli` (deprecated alias `--backend` still accepted for one release; `--ai-cli` wins if both are set).
 
 > **Important:** warden is fully tested only with **Claude Code**. **Codex CLI** and
 > **Antigravity CLI** are **β beta** — live-verified state, approval, and transcript
@@ -391,7 +391,7 @@ you pick one per agent at spawn time.
 | Cursor CLI | 🧪 Experimental (WIP) |
 | Antigravity CLI | β Beta |
 
-| Backend | `--backend` | Tier | What works / degrades |
+| AI CLI | `--ai-cli` | Tier | What works / degrades |
 |---|---|---|---|
 | **Claude Code** (default) | `claude` | A | Everything — digests, savings, priced spend, resume, all permission modes |
 | **Aider** | `aider` | A | 🧪 Experimental. Bring-your-own-model (pass `--model`); structured markdown transcript ⇒ real digests. **No** resume (rotate/handoff re-spawn fresh), **no** priced spend (`wd usage spend` shows tokens, `wd usage savings` omits it), no assignable session id, system-prompt hints skipped. Runs an autonomous `--message` task that exits when done. |
@@ -409,21 +409,21 @@ warden start "review the auth module"
 # Aider against a local Ollama model (free, offline, $0)
 export OLLAMA_API_BASE=http://127.0.0.1:11434
 warden start "implement the add function" \
-  --backend aider --model ollama_chat/qwen2.5-coder:3b --dir .
+  --ai-cli aider --model ollama_chat/qwen2.5-coder:3b --dir .
 
 # OpenCode against a local Ollama model (free, offline, $0)
 warden start "implement the add function" \
-  --backend opencode --model ollama/qwen2.5-coder:3b --dir .
+  --ai-cli opencode --model ollama/qwen2.5-coder:3b --dir .
 
 # Codex — configure provider in ~/.codex/config.toml first
-warden start "implement the add function" --backend codex --dir .
+warden start "implement the add function" --ai-cli codex --dir .
 
 # Crush — configure provider in ~/.config/crush/crush.json first
-warden start "implement the add function" --backend crush --dir .
+warden start "implement the add function" --ai-cli crush --dir .
 
 # Goose against a local Ollama model ($0)
 GOOSE_PROVIDER=ollama GOOSE_MODEL=qwen2.5-coder:3b \
-warden start "implement the add function" --backend goose --dir .
+warden start "implement the add function" --ai-cli goose --dir .
 ```
 
 > **Terminals are a session kind, not a backend.** A plain interactive `$SHELL`
@@ -541,7 +541,7 @@ nothing, leaving a plain/`general` spawn byte-identical to before roles existed.
 
 ## 5.4. Backend registry (`warden backend`)
 
-`--backend` (§5.2) picks a backend for *one* spawn. The **backend registry** is the
+`--ai-cli` (§5.2) picks an AI CLI for *one* spawn. The **backend registry** is the
 durable, machine-wide picture behind it: warden detects the coding-agent CLIs
 installed on this machine (`claude`, `codex`, `aider`, …) plus a reserved **`local`**
 row for the free/local model, and persists each in an embedded store
@@ -605,7 +605,7 @@ Over **MCP**: `list_backends`, `rescan_backends`, `set_backend_tier`,
 
 warden picks each spawn's **backend + model** by **quota headroom within a model
 tier**, so a fleet of agents spreads across your providers instead of hammering
-one until it rate-limits. This is a spawn's third axis, alongside `--backend`
+one until it rate-limits. This is a spawn's third axis, alongside `--ai-cli`
 (§5.2) and `--role` (§5.3). Two optional inputs steer it:
 
 - **`--task <name>`** — *what the agent is doing*, from the built-in **task
@@ -625,7 +625,7 @@ model by headroom (`1 − used/limit`), drops rate-limited or ineligible backend
 (usage ≥ threshold, default 90%), and picks the highest-headroom candidate
 (round-robin among ties).
 
-A pinned `--backend` or `--model` **bypasses** the resolver entirely — you chose
+A pinned `--ai-cli` or `--model` **bypasses** the resolver entirely — you chose
 it. And a first spawn always succeeds: if no resolver is wired, or it returns no
 eligible candidate, the spawn **degrades** to the request's backend+model rather
 than failing.
@@ -635,7 +635,7 @@ warden start "design the sync protocol" --role planner     # role → tier-1
 warden start PROJ-9 --type development --task development   # task → tier-2
 warden start "cut the v9 release" --task release           # task → tier-3
 warden start "urgent hotfix" --tier tier-1                  # pin the tier directly
-warden start "run it on codex" --backend codex --model o1  # explicit pins bypass routing
+warden start "run it on codex" --ai-cli codex --model o1  # explicit pins bypass routing
 ```
 
 > **`--task` is not `--type`.** `--type` (§5) controls worktree/branch policy;
@@ -680,7 +680,7 @@ Spawn an agent. Prompt mode if no `--type`; managed-worktree mode otherwise.
 | `--model` | Model to use: short alias (`opus`/`sonnet`/`haiku`/`fable`) or full model ID. Default: the `model_default` config setting, or `claude-sonnet-4-6`. |
 | `--role` | Built-in agent role (*who the agent is*): `general` (default, no persona) / `orchestrator` / `planner` / `worker` / `autopilot` / `brain` (legacy `implementer`/`auto-merger`/`reviewer` map to `worker`). Injects the role's persona and fills its default flags for any left unset (see §5.3). |
 | `--task` | Unit of work (*what the agent is doing*) from the task registry, used to derive the model **tier** for routing when `--tier` is empty (see §5.5). Distinct from `--type`, which controls worktree policy. |
-| `--tier` | Pin the model tier for the quota-balanced resolver: `tier-1` / `tier-2` / `tier-3`. Empty derives it from `--task`, then `--role`, else tier-2. A pinned `--backend`/`--model` still wins (see §5.5). |
+| `--tier` | Pin the model tier for the quota-balanced resolver: `tier-1` / `tier-2` / `tier-3`. Empty derives it from `--task`, then `--role`, else tier-2. A pinned `--ai-cli`/`--model` still wins (see §5.5). |
 
 ### `warden agent role list` / `warden agent role set <id> <role>`
 List the built-in role catalog (name + description), or switch a running agent's
@@ -845,7 +845,7 @@ exits non-zero pointing you at `warden check` or a `pr-review` agent.
 warden git review                       # review my uncommitted changes, stream findings
 warden git review --base main           # review this branch against main
 warden git review --json                # neutral machine-readable findings
-warden git review --backend codex --json
+warden git review --ai-cli codex --json
 ```
 
 ### `warden backend model [--backend <id>] [--json]` (live backend model menu)
@@ -1951,6 +1951,7 @@ restart list; everything else takes effect on save.
 | `trusted_proxies` | _(none)_ | Reverse proxies / tunnels fronting the daemon (list of IPs/CIDRs). When the immediate peer is one of these, the **audit log** resolves the real client from `X-Forwarded-For` instead of recording the proxy address. Audit-actor only — the auth-failure throttle still keys on the peer IP. An invalid entry fails startup |
 | `data_dir` | `~/.warden` | Directory for warden state: embedded ScrivaDB stores for sessions (`sessions-db/`), schedules (`schedules-db/`), pipelines (`pipelines-db/`), and snapshot metadata (`snapshots-db/` — transcripts stay as flat files under `snapshots/`), each with a one-time-imported read-only backup left in place (`sessions/`+`closed/`, `schedules.json`, `pipelines/`, `snapshots/*.json`), plus per-agent prompt files (`prompts/`), inbox, and metrics |
 | `claude_projects_dir` | `~/.claude/projects` | Where the poller reads transcripts to generate subjects and the context gauge |
+| `ai_cli_default` | _(empty)_ | Default AI CLI when a spawn does not pin one (falls through to the backend-registry default, then claude). Deprecated alias: `backend_default`. |
 | `model_default` | `claude-sonnet-4-6` | Default model for new agents (a model id or alias: `sonnet`/`opus`/`haiku`/`fable`) |
 | `default_permission_mode` | `auto` | Default permission mode for new agents (`auto`/`default`/`acceptEdits`/`bypassPermissions`/`dontAsk`/`plan`) |
 | `notify.enabled` | `false` | macOS/libnotify desktop notifications when an agent needs attention |
@@ -2432,18 +2433,23 @@ survives rotation and daemon restarts.
 ### Quickstart
 
 ```sh
-# 1. Scaffold and register a named plan
+# 1. Scaffold a plan file and enable the capability
 cd /path/to/your-repo
 warden autopilot init --name notifications
+warden autopilot enable
 
 # 2. Edit plans/notifications.yaml — set your goal, add constraints
-#    Commit it to the repo so the manager can read it from its worktree
+#    Import/create the Plan in the daemon, then start execution:
+warden plan create --name notifications --goal "…"   # or plan import / plan scan
+warden plan run <plan-id> --mode autopilot
 
-# 3. Start this run
-warden autopilot run start notifications
+# 3. Control
+warden plan pause <plan-id>
+warden plan resume <plan-id>
+warden plan stop <plan-id>
 
 # 4. Watch
-warden autopilot status      # run state, manager id, task counts
+warden autopilot status      # enabled repos + run state, manager id, task counts
 warden ls                    # manager + workers in the fleet list
 warden agent tail <manager-id>       # live manager output
 
@@ -2453,18 +2459,19 @@ warden autopilot disable
 
 ### `warden autopilot init`
 
-Creates `plans/<name>.yaml` in the current git repository (if absent) and
-registers it in the daemon's durable run store. It does not overwrite existing
-files. Follow up with `warden autopilot run start <name>`.
+Creates `plans/<name>.yaml` in the current git repository (if absent). It does
+not overwrite existing files. Follow up with Plan CRUD (`warden plan create` /
+`import` / `scan`) and `warden plan run <id> --mode autopilot`.
 
-Existing files can be registered with
-`warden autopilot register plans/<name>.yaml --name <name>`. Independent named
-runs in the same repository can then be started, paused, resumed, and stopped.
+> **Deprecated (one release):** `warden autopilot register` and plan-file-based
+> `autopilot run start` translate to a PlanID where safe or return a precise
+> migration error. Prefer `plan run|pause|resume|stop`.
 
 ### The switch is per-repo
 
 Autopilot is enabled **per repository**, not globally. `warden autopilot enable` run
-inside a repo enables **only that repo** — other repos are unaffected — and
+inside a repo enables **only that repo** as a capability switch — it does **not**
+register or start plan work. Other repos are unaffected.
 `warden autopilot disable` disables just that repo (other enabled repos keep
 running). Add `--repo <root>` to `on`/`off` to target a different repository
 (default: the current git repository). The enabled set is **persisted** under
@@ -2708,9 +2715,9 @@ wd plan run <plan-id> --mode manual
 | Mode | What happens |
 |---|---|
 | `autopilot` | Registers an autopilot run; the manager drives workers autonomously. Completion auto-advances the plan to `completed/`. |
-| `pipeline` | Creates a DAG pipeline (one job per YAML task). Completion auto-advances the plan to `completed/`. |
-| `orchestrator_worker` | Spawns an orchestrator agent; each worker needs a human approval gate. Mark complete with `wd plan complete <id>` (`orchestrator` is a CLI alias). |
-| `manual` | git-mv to `in_progress/` only — state tracking, no execution entity. |
+| `pipeline` | Creates a DAG pipeline named `P:<plan-name>` (one job per YAML task, same stable task IDs + `after` deps). Job lifecycle appends PlanExecutionEvents and updates Plan task evidence. Completion auto-advances the plan to `completed/`. |
+| `orchestrator_worker` | Spawns `O:<plan-name>` (`role=orchestrator`, `PlanID`); workers are `role=worker` with `ParentID` set. Mark complete with `wd plan complete <id>` (`orchestrator` is a CLI alias). |
+| `manual` | Spawns `M:<plan-name>` (`role=general`, `PlanID`); no Autopilot. Mark complete with `wd plan complete <id>`. |
 
 ### Brain-assisted progress assessment
 

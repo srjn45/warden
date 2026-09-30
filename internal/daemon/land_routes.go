@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/branchtrack"
 	"github.com/srjn45/warden/internal/daemon/oapi"
 	"github.com/srjn45/warden/internal/lifecycle"
-	"github.com/srjn45/warden/internal/store"
 )
 
 // autopilotOwnTag mirrors the tag the autopilot Controller stamps on the brain and
@@ -118,6 +118,11 @@ func (s *Server) LandAutopilot(ctx context.Context, req oapi.LandAutopilotReques
 				})
 			}
 		}
+		// Daemon-owned plan evidence: PR merge + land (+ optional branch cleanup).
+		if tgt.sess != nil && strings.TrimSpace(tgt.sess.PlanID) != "" {
+			s.recordPlanBoundLandEvents(tgt.sess, res.Branch, res.PR, firstNonEmptyStr(res.SHA, res.HeadSHA), params.DeleteBranch)
+			s.trackPlanBranch(tgt.sess, res.Branch)
+		}
 	}
 
 	return oapi.LandAutopilot200JSONResponse{
@@ -144,6 +149,9 @@ type landTarget struct {
 	worktree string
 	runID    string
 	taskID   string
+	planID   string
+	agentID  string
+	sess     *agentstore.Agent
 	owned    bool
 }
 
@@ -171,13 +179,22 @@ func (s *Server) resolveLandTarget(ctx context.Context, ref string) landTarget {
 }
 
 // sessionLandTarget builds a landTarget from a resolved session.
-func sessionLandTarget(sess *store.Session, branch string) landTarget {
+func sessionLandTarget(sess *agentstore.Agent, branch string) landTarget {
 	owned, runID := ownershipFromTags(sess.Tags)
 	taskID := strings.TrimSpace(sess.AutopilotTaskID)
 	if taskID == "" {
 		taskID = strings.TrimSpace(sess.Task)
 	}
-	return landTarget{branch: branch, worktree: sess.Worktree, runID: runID, taskID: taskID, owned: owned}
+	return landTarget{
+		branch:   branch,
+		worktree: sess.Worktree,
+		runID:    runID,
+		taskID:   taskID,
+		planID:   strings.TrimSpace(sess.PlanID),
+		agentID:  sess.ID,
+		sess:     sess,
+		owned:    owned,
+	}
 }
 
 // isAutopilotOwned reports whether tags carry the autopilot ownership tag.

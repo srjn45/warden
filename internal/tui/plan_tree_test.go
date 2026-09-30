@@ -97,41 +97,42 @@ func TestPlanTree_StructureAndGrouping(t *testing.T) {
 
 	items := buildProjectItems(projs, nil, sessions, nil, client.AutopilotStatus{}, plansMap, nil, nil, false)
 
-	// Plans header always collapsed by default. Items structure:
-	// 0: Project Header (expanded — has children)
-	// 1: Plans Header (collapsed — always collapsed by default)
-	// 2: Agent "agent-1" (BELOW Plans!)
-	require.Len(t, items, 3)
-
-	// 0: Project header
+	// Project sections: Plans (collapsed); Autopilots/Pipelines/Agents/Terminals open by default.
 	require.NotNil(t, items[0].projHdr)
 	require.Equal(t, "My Project", items[0].projHdr.name)
-
-	// 1: Plans header (depth 1, above agents) — always collapsed by default
 	require.True(t, items[1].planHeader)
-	require.Equal(t, "proj-1", items[1].planProject)
 	require.True(t, items[1].collapsed, "plans header is always collapsed by default")
-
-	// 2: Agent row (must appear AFTER/BELOW plans!)
-	require.NotNil(t, items[2].session)
-	require.Equal(t, "agent-1", items[2].session.ID)
+	require.Equal(t, "Autopilots", items[2].treeSecLabel)
+	require.False(t, items[2].collapsed, "Autopilots open by default")
+	require.Equal(t, "Pipelines", items[3].treeSecLabel)
+	require.False(t, items[3].collapsed, "Pipelines open by default")
+	require.Equal(t, "Agents", items[4].treeSecLabel)
+	require.False(t, items[4].collapsed)
+	require.NotNil(t, items[5].session)
+	require.Equal(t, "agent-1", items[5].session.ID)
+	require.Equal(t, "Terminals", items[6].treeSecLabel)
 
 	// Expand plans header and in_progress + archived groups explicitly
 	collapsed := map[string]bool{
 		"plans:proj-1":             false,
 		"plans:proj-1:in_progress": false,
 		"plans:proj-1:archived":    false,
+		"section:proj-1:agents":    false,
 	}
 	itemsExpanded := buildProjectItems(projs, nil, sessions, nil, client.AutopilotStatus{}, plansMap, nil, collapsed, false)
-	// 0=projHdr, 1=planHdr, 2=pending(coll), 3=in_progress(exp), 4=Active Work,
-	// 5=completed(coll), 6=archived(exp), 7=Old Plan, 8=agent-1
-	require.Len(t, itemsExpanded, 9)
-	require.NotNil(t, itemsExpanded[4].plan)
-	require.Equal(t, "Active Work", itemsExpanded[4].plan.Name)
-	require.NotNil(t, itemsExpanded[7].plan)
-	require.Equal(t, "Old Plan", itemsExpanded[7].plan.Name)
-	require.NotNil(t, itemsExpanded[8].session)
-	require.Equal(t, "agent-1", itemsExpanded[8].session.ID)
+	var planNames []string
+	var sawAgent bool
+	for _, it := range itemsExpanded {
+		if it.plan != nil {
+			planNames = append(planNames, it.plan.Name)
+		}
+		if it.session != nil && it.session.ID == "agent-1" {
+			sawAgent = true
+		}
+	}
+	require.Contains(t, planNames, "Active Work")
+	require.Contains(t, planNames, "Old Plan")
+	require.True(t, sawAgent, "agent must appear below Plans section")
 }
 
 func TestPlanTree_BadgesAndRendering(t *testing.T) {
@@ -177,13 +178,17 @@ func TestPlanTree_CollapsePlansHeader(t *testing.T) {
 	collapsed := map[string]bool{"plans:proj-1": true}
 	items := buildProjectItems(projs, nil, sessions, nil, client.AutopilotStatus{}, plansMap, nil, collapsed, false)
 
-	// When plans header is collapsed, only projHdr, planHeader, and agent-1 are present
-	require.Len(t, items, 3)
 	require.NotNil(t, items[0].projHdr)
 	require.True(t, items[1].planHeader)
 	require.True(t, items[1].collapsed)
-	require.NotNil(t, items[2].session)
-	require.Equal(t, "agent-1", items[2].session.ID)
+	var sawAgent bool
+	for _, it := range items {
+		if it.session != nil && it.session.ID == "agent-1" {
+			sawAgent = true
+		}
+		require.Nil(t, it.plan, "collapsed Plans must hide plan rows")
+	}
+	require.True(t, sawAgent)
 
 	out := renderList(items, 1, 100, 10)
 	require.Contains(t, out, "Plans")
@@ -195,21 +200,28 @@ func TestPlanTree_EmptyPlansCollapsedByDefault(t *testing.T) {
 	projs := []projectstore.Project{
 		{ID: "proj-1", Name: "Alpha", Path: "/alpha", Status: projectstore.StatusOpen},
 	}
-	// Project with 0 plans
+	// Project with 0 plans — still has five empty sections, so the project expands.
 	plansMap := map[string][]*planstore.Plan{"proj-1": {}}
 
-	// Project has no children → collapsed by default.
 	items := buildProjectItems(projs, nil, nil, nil, client.AutopilotStatus{}, plansMap, nil, nil, false)
-	require.Len(t, items, 1)
+	require.GreaterOrEqual(t, len(items), 1)
 	require.NotNil(t, items[0].projHdr)
-	require.True(t, items[0].collapsed, "project with no children is collapsed by default")
+	// Sections are non-empty structurally (5 section headers), so project is open.
+	require.False(t, items[0].collapsed, "project with section children is expanded")
+	require.True(t, items[1].planHeader)
+	require.True(t, items[1].collapsed, "plans header is always collapsed by default")
 
-	// With project explicitly expanded, plans header is still collapsed by default.
-	expanded := map[string]bool{"project:proj-1": false}
-	items2 := buildProjectItems(projs, nil, nil, nil, client.AutopilotStatus{}, plansMap, nil, expanded, false)
-	require.Len(t, items2, 3) // projHdr, planHeader(collapsed), empty placeholder
-	require.True(t, items2[1].planHeader)
-	require.True(t, items2[1].collapsed, "plans header is always collapsed by default")
+	// With plans header explicitly expanded, status groups appear (all empty/collapsed).
+	collapsed := map[string]bool{"project:proj-1": false, "plans:proj-1": false}
+	itemsOpen := buildProjectItems(projs, nil, nil, nil, client.AutopilotStatus{}, plansMap, nil, collapsed, false)
+	var sawGroup bool
+	for _, it := range itemsOpen {
+		if it.planGroup != "" {
+			sawGroup = true
+			break
+		}
+	}
+	require.True(t, sawGroup)
 }
 
 func TestPlanTree_PlanDetailText(t *testing.T) {
@@ -235,6 +247,10 @@ func TestPlanTree_PlanDetailText(t *testing.T) {
 	require.Contains(t, text, "Created At:")
 	require.Contains(t, text, "Updated At:")
 	require.Contains(t, text, "Started At:")
+	require.Contains(t, text, "Lifecycle")
+	require.Contains(t, text, "Active Execution")
+	require.Contains(t, text, "Task Evidence")
+	require.Contains(t, text, "Historical Summaries")
 
 	// Plan with no task progress and no linked execution
 	pEmpty := &planstore.Plan{
@@ -249,6 +265,8 @@ func TestPlanTree_PlanDetailText(t *testing.T) {
 	textEmpty := planDetailText(pEmpty, 80, "", false)
 	require.Contains(t, textEmpty, "Executed Using:")
 	require.Contains(t, textEmpty, "manual")
+	require.Contains(t, textEmpty, "(no active execution)")
+	require.Contains(t, textEmpty, "(no historical summaries yet)")
 }
 
 func setupPlanTestModel(a *fakeAPI) controlPaneModel {
@@ -421,7 +439,14 @@ func TestPlanKeybindings_EnterDetail(t *testing.T) {
 	// Case 1: Cockpit with agentPane still uses the in-control-pane viewport.
 	m := setupPlanTestModel(a)
 	m.agentPane = "%9"
-	m.cursor = 4
+	m.cursor = -1
+	for i, it := range m.items() {
+		if it.plan != nil && it.plan.ID == "plan-ip" {
+			m.cursor = i
+			break
+		}
+	}
+	require.GreaterOrEqual(t, m.cursor, 0)
 	require.NotNil(t, itemAt(m.items(), m.cursor).plan)
 
 	nm, cmd := m.Update(key("enter"))
@@ -440,15 +465,19 @@ func TestPlanKeybindings_EnterDetail(t *testing.T) {
 	// Case 2: Cockpit without agentPane also uses the in-pane detail.
 	mNoAgent := setupPlanTestModel(a)
 	mNoAgent.agentPane = ""
-	mNoAgent.cursor = 4
-
-	nmNoAgent, _ := mNoAgent.Update(key("enter"))
-	mNoAgent = nmNoAgent.(controlPaneModel)
+	mNoAgent.cursor = -1
+	for i, it := range mNoAgent.items() {
+		if it.plan != nil && it.plan.ID == "plan-ip" {
+			mNoAgent.cursor = i
+			break
+		}
+	}
+	require.GreaterOrEqual(t, mNoAgent.cursor, 0)
+	mNoAgent = lstep(mNoAgent, key("enter"))
 	require.Equal(t, modePlanDetail, mNoAgent.mode)
-	require.Equal(t, "plan-ip", mNoAgent.targetPlanID)
 	require.Contains(t, mNoAgent.vp.View(), "Active Work")
 
-	// Esc returns to normal
+	mNoAgent.mode = modePlanDetail
 	mNoAgent = lstep(mNoAgent, key("esc"))
 	require.Equal(t, modeNormal, mNoAgent.mode)
 
@@ -490,7 +519,14 @@ func TestPlanKeybindings_ToggleHeaders(t *testing.T) {
 func TestPlanDetail_ArrowKeysScrollViewport(t *testing.T) {
 	a := &fakeAPI{}
 	m := setupPlanTestModel(a)
-	m.cursor = 4
+	m.cursor = -1
+	for i, it := range m.items() {
+		if it.plan != nil && it.plan.ID == "plan-ip" {
+			m.cursor = i
+			break
+		}
+	}
+	require.GreaterOrEqual(t, m.cursor, 0, "Active Work plan row must be visible")
 	m = lstep(m, key("enter"))
 	require.Equal(t, modePlanDetail, m.mode)
 

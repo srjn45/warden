@@ -578,9 +578,13 @@ paths:
             schema:
               type: object
               properties:
+                ai_cli:
+                  type: string
+                  description: "explicit successor AI CLI id (e.g. antigravity). Canonical; preferred over deprecated `backend`."
                 backend:
                   type: string
-                  description: "explicit successor backend id (e.g. antigravity)"
+                  deprecated: true
+                  description: "Deprecated alias for `ai_cli`. When both are provided, `ai_cli` wins."
                 model:
                   type: string
                   description: "explicit successor model id"
@@ -1523,7 +1527,11 @@ paths:
       operationId: RunPlan
       tags: [Plans]
       summary: Start plan execution
-      description: Transitions a pending plan to in_progress and starts the selected execution mode.
+      description: >
+        Transitions a pending plan to in_progress and starts the selected execution
+        mode. This is the only supported public start path for plan execution
+        (including mode=autopilot). Do not register plan files or call the
+        deprecated autopilot run-control start alias.
       parameters: [{ $ref: "#/components/parameters/PlanId" }]
       requestBody:
         required: true
@@ -1540,6 +1548,37 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
           description: Plan cannot transition to in_progress
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v1/plans/{plan_id}/{action}:
+    parameters:
+      - { $ref: "#/components/parameters/PlanId" }
+      - in: path
+        name: action
+        required: true
+        schema: { type: string, enum: [pause, resume, stop] }
+    post:
+      operationId: ControlPlan
+      tags: [Plans]
+      summary: Pause, resume, or stop plan execution
+      description: >
+        Controls the active executor for an in-progress plan (autopilot, pipeline,
+        or plan-bound agent). Together with POST /plans/{plan_id}/run, this is the
+        only public lifecycle surface for plan execution. Deprecated autopilot
+        register/unregister/retarget and plan-file-based start aliases translate
+        here (or to run) when a PlanID can be resolved.
+      responses:
+        "200":
+          description: The plan after the control action
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Plan" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Illegal lifecycle transition or no active executor
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -2355,6 +2394,15 @@ paths:
               properties:
                 spec: { type: string, description: "pipeline YAML" }
                 project_id: { type: string, description: "id of the first-class project (projectstore) this pipeline joins. Overrides a project_id set in the YAML spec; when both are empty the daemon resolves it by matching the pipeline repo to an OPEN project (no match leaves the pipeline project-less). On create the pipeline is stamped with the resolved id and appended to the project's authoritative pipelines[] membership list." }
+                plan_id:
+                  type: string
+                  description: >
+                    optional back-ref to a planstore plan in the same project. Empty
+                    is always valid (planless pipeline). A non-empty value must name
+                    an existing plan whose ProjectID matches the resolved project
+                    for this pipeline; otherwise the request is rejected with 400.
+                    Does not change execution behavior — the plan-to-pipeline adapter
+                    sets this when run_plan mode=pipeline creates the pipeline.
                 parent_agent_id: { type: string, description: "id of the agent that owns this pipeline (project entity hierarchy D6). Overrides the identity of the agent behind the request; when both are empty the pipeline is operator-created and has no owning agent. On create the pipeline is stamped with the resolved id and appended to the owning agent's child_pipelines[] forward edge." }
       responses:
         "201":
@@ -2698,10 +2746,11 @@ paths:
       tags: [Autopilot]
       summary: Autopilot status
       description: >
-        Returns the current autopilot status: the master switch plus one entry per
-        active run (run id, plan file, repo, state, resolved gate, brain, workers,
-        task rollup, backoff). In the inert S1 core the brain is null and the
-        counters are zero.
+        Returns the current autopilot capability switch plus one entry per live
+        Autopilot executor (run id, plan id, plan file, repo, state, gate, manager,
+        workers, task rollup, backoff). Start and control plan execution via
+        POST /plans/{plan_id}/run and POST /plans/{plan_id}/{action} instead of
+        registering plan files.
       responses:
         "200":
           description: Autopilot status
@@ -2711,14 +2760,13 @@ paths:
     post:
       operationId: setAutopilot
       tags: [Autopilot]
-      summary: Enable or disable autopilot
+      summary: Enable or disable autopilot capability
       description: >
-        Flips the autopilot master switch. Enabling runs the enable-time preflight
-        (plan file exists + strict-decodes, gh authenticated, integration branch
-        present or auto-created, at most one active run per repo, integration
-        branch is not a protected name); on any failure it returns 409 with the
-        FULL list of actionable failures and changes no state. Disabling is the
-        kill switch — it stops spawning/landing immediately.
+        Flips the per-repo autopilot capability switch. Enabling records the repo
+        as allowed to run Autopilot executors — it does NOT register plan files or
+        start work. Start execution with POST /plans/{plan_id}/run
+        (execution_mode=autopilot). Disabling is the kill switch — it stops
+        spawning/landing immediately for that repo.
       requestBody:
         required: true
         content:
@@ -2731,20 +2779,19 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/AutopilotStatus" }
         "400": { $ref: "#/components/responses/BadRequest" }
-        "409":
-          description: Enable-time preflight failed (full failure list)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/AutopilotPreflightFailure" }
 
   /api/v1/autopilot/runs:
     get:
       operationId: listAutopilotRuns
       tags: [Autopilot]
-      summary: List registered autopilot runs
+      summary: List live Autopilot executors
+      description: >
+        Lists live Autopilot executors (and any legacy registered runs still in
+        the store). Prefer listing plans via GET /plans and inspecting each plan's
+        active execution.
       responses:
         "200":
-          description: Durable run registry, including stopped and complete runs
+          description: Autopilot executors, including stopped and complete records
           content:
             application/json:
               schema:
@@ -2753,26 +2800,28 @@ paths:
     post:
       operationId: registerAutopilotRun
       tags: [Autopilot]
-      summary: Register a named plan
+      deprecated: true
+      summary: "[deprecated] Register a named plan"
+      description: >
+        DEPRECATED for one release. Plan-file registration is retired. When the
+        plan_file resolves to a PlanID, returns 410 with a migration message naming
+        that PlanID and pointing at POST /plans/{plan_id}/run. When no Plan can be
+        resolved, returns 400 with a precise migration error (scan/import/create
+        the plan first).
       requestBody:
         required: true
         content:
           application/json:
             schema: { $ref: "#/components/schemas/AutopilotRegisterRequest" }
       responses:
-        "201":
-          description: Registered run
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/AutopilotRun" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "403":
           description: Autopilot is not configured
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
-        "409":
-          description: Run identity or name conflict
+        "410":
+          description: Retired — use plan run with the resolved PlanID
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -2790,10 +2839,16 @@ paths:
     post:
       operationId: controlAutopilotRun
       tags: [Autopilot]
-      summary: Start, pause, resume, stop, or unregister one run
+      deprecated: true
+      summary: "[deprecated] Start, pause, resume, stop, or unregister one run"
+      description: >
+        DEPRECATED for one release. Translates to plan run/control when a PlanID
+        can be resolved from the run (start → POST /plans/{id}/run; pause/resume/stop
+        → POST /plans/{id}/{action}; unregister → stop). Returns a precise
+        migration error when no PlanID can be resolved. Prefer the plan endpoints.
       responses:
         "200":
-          description: Updated run
+          description: Updated run (compat shape) or translated plan control result as AutopilotRun
           content:
             application/json:
               schema: { $ref: "#/components/schemas/AutopilotRun" }
@@ -2806,6 +2861,11 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
           description: Illegal lifecycle transition
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "410":
+          description: Retired start/unregister with resolved PlanID — use plan endpoints
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -2822,8 +2882,8 @@ paths:
       summary: Rename a run's display name and slot scope
       description: >
         Updates the display name and derived slot scope without changing the
-        path-derived run_id. The integration branch is unchanged; retarget it
-        explicitly with renameAutopilotRunRetarget when ready.
+        path-derived run_id. Integration branch ownership follows the Plan executor;
+        do not use the retired retarget alias.
       requestBody:
         required: true
         content:
@@ -2857,22 +2917,19 @@ paths:
     post:
       operationId: retargetAutopilotRun
       tags: [Autopilot]
-      summary: Retarget a run's integration branch
+      deprecated: true
+      summary: "[deprecated] Retarget a run's integration branch"
       description: >
-        Sets a new stored merge target explicitly or derives one from the run's
-        current display name. Open PRs on the previous branch are not migrated;
-        land rejects them with wrong_base until rebased or retargeted.
+        DEPRECATED for one release. Retarget has no safe PlanID translation —
+        integration branches are owned by Plan-bound Autopilot executors created
+        via POST /plans/{plan_id}/run. Always returns 410 with a precise migration
+        error (include PlanID when the run resolves to one).
       requestBody:
         required: true
         content:
           application/json:
             schema: { $ref: "#/components/schemas/AutopilotRetargetRequest" }
       responses:
-        "200":
-          description: Updated run
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/AutopilotRun" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "403":
           description: Autopilot is not configured
@@ -2880,8 +2937,8 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "404": { $ref: "#/components/responses/NotFound" }
-        "409":
-          description: Illegal retarget (active run or branch conflict)
+        "410":
+          description: Retired — no safe PlanID translation for retarget
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -3567,7 +3624,31 @@ components:
         type: { $ref: "#/components/schemas/TaskType" }
         ticket: { type: string }
         tmux_session: { type: string }
-        claude_session_id: { type: string }
+        ai_cli:
+          type: string
+          description: >
+            AI CLI that drives this agent (claude, aider, …). Empty means the
+            daemon default (typically claude). Canonical name; preferred over
+            the deprecated `backend` alias.
+        backend:
+          type: string
+          deprecated: true
+          description: >
+            Deprecated alias for `ai_cli`. Accepted on input for one release;
+            responses dual-emit both keys during the alias window. When both
+            `ai_cli` and `backend` are present, `ai_cli` wins.
+        ai_cli_session_id:
+          type: string
+          description: >
+            Pinned AI CLI resume conversation id (UUID/token). Canonical name;
+            preferred over the deprecated `claude_session_id` alias.
+        claude_session_id:
+          type: string
+          deprecated: true
+          description: >
+            Deprecated alias for `ai_cli_session_id`. Accepted on input for one
+            release; responses dual-emit both keys during the alias window.
+            When both are present, `ai_cli_session_id` wins.
         repo: { type: string }
         worktree: { type: string }
         branch: { type: string }
@@ -3733,32 +3814,51 @@ components:
         auto_restart: { type: boolean }
         force: { type: boolean, description: "bypass the memory-pressure spawn gate" }
         model: { type: string }
-        backend: { type: string, description: "agent backend id (claude, aider, …); empty = claude (the default)" }
+        ai_cli:
+          type: string
+          description: >
+            AI CLI id (claude, aider, …); empty = daemon default. Canonical name;
+            preferred over the deprecated `backend` alias. When both `ai_cli`
+            and `backend` are provided, `ai_cli` wins.
+        backend:
+          type: string
+          deprecated: true
+          description: >
+            Deprecated alias for `ai_cli`. Accepted for one release; when both
+            `ai_cli` and `backend` are provided, `ai_cli` wins.
         kind:
           type: string
           enum: [agent, terminal]
           description: >
             session kind. Empty or "agent" (the default) creates an AI agent with
-            the chosen backend. "terminal" creates a plain interactive shell
-            (${SHELL:-bash}) in `cwd` — NOT an AI agent: `backend`, `model`,
+            the chosen AI CLI. "terminal" creates a plain interactive shell
+            (${SHELL:-bash}) in `cwd` — NOT an AI agent: `ai_cli`/`backend`, `model`,
             `role`, and `prompt` are ignored, and it is excluded from every
             AI-centric surface (spend, state, approvals, digests). A terminal is
-            created here, not via a backend id — the `terminal` backend was
+            created here, not via an AI CLI id — the `terminal` backend was
             removed (advertised by the `terminal-sessions` capability, see
             GET /api/v1/capabilities).
         tags: { type: array, items: { type: string } }
         parent_id: { type: string, description: "id of the agent that spawned this one; empty = root" }
         project_id: { type: string, description: "id of the first-class project (projectstore) this agent/terminal joins. Empty = resolve by matching the launch path (cwd/repo) to an OPEN project; no match leaves the session project-less. On spawn the session is stamped with the resolved id and appended to the project's authoritative agents[]/terminals[] membership list." }
+        plan_id:
+          type: string
+          description: >
+            optional back-ref to a planstore plan in the same project. Empty is
+            always valid (planless agent). A non-empty value must name an existing
+            plan whose ProjectID matches the resolved project for this spawn;
+            otherwise the request is rejected with 400. Does not change execution
+            behavior — adapters that drive plan-bound runs set this later.
         role: { type: string, description: "built-in agent role name (general|orchestrator|implementer|auto-merger|reviewer); empty = general (no persona). The role's persona is injected as a system-prompt addendum and its default flags fill any request fields left unset." }
-        tier: { type: string, description: "explicit model tier (tier-1|tier-2|tier-3) for the quota-balanced resolver that picks the backend+model at spawn. Empty derives the tier from task, then role. A pinned backend/model still wins over the resolver." }
+        tier: { type: string, description: "explicit model tier (tier-1|tier-2|tier-3) for the quota-balanced resolver that picks the AI CLI+model at spawn. Empty derives the tier from task, then role. A pinned ai_cli/model still wins over the resolver." }
         task: { type: string, description: "task name (task registry) used to derive the model tier via the task→tier map when tier is empty. Empty = none." }
         fork_from:
           type: string
           description: >
             id of an existing agent whose recorded session this spawn should FORK
             (codex fork): the new agent branches the source agent's conversation
-            into a divergent session. Requires a backend implementing SessionForker
-            and a source agent whose backend session id is already pinned. Empty =
+            into a divergent session. Requires an AI CLI implementing SessionForker
+            and a source agent whose AI CLI session id is already pinned. Empty =
             a normal (non-fork) spawn.
 
     RoleInfo:
@@ -4080,6 +4180,99 @@ components:
         updated_at: { type: string, format: date-time }
         started_at: { type: string, format: date-time, nullable: true }
         completed_at: { type: string, format: date-time, nullable: true }
+        active_execution:
+          $ref: "#/components/schemas/PlanExecution"
+          description: "currently-running execution attempt; omitted when idle"
+        execution_history:
+          type: array
+          description: "past execution attempts (historical summaries of runs)"
+          items: { $ref: "#/components/schemas/PlanExecution" }
+        task_outcomes:
+          type: object
+          additionalProperties: { $ref: "#/components/schemas/TaskOutcome" }
+          description: "durable per-task evidence (assignment, PRs, verified checks)"
+        branch_summaries:
+          type: array
+          items: { $ref: "#/components/schemas/BranchSummary" }
+        execution_summary:
+          $ref: "#/components/schemas/ExecutionSummary"
+          description: "immutable reduced report persisted on finalize"
+
+    PlanExecution:
+      x-go-type: planstore.PlanExecution
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/planstore
+        name: planstore
+      type: object
+      description: A single execution attempt of a Plan.
+      properties:
+        id: { type: string }
+        plan_id: { type: string }
+        execution_mode:
+          type: string
+          enum: [autopilot, pipeline, orchestrator_worker, manual]
+        executor_id: { type: string }
+        started_at: { type: string, format: date-time }
+        completed_at: { type: string, format: date-time, nullable: true }
+        terminal_status:
+          type: string
+          enum: [running, completed, failed, cancelled]
+        task_progress:
+          type: object
+          additionalProperties: { type: string }
+        plan_branches:
+          type: array
+          items: { type: string }
+
+    TaskOutcome:
+      x-go-type: planstore.TaskOutcome
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/planstore
+        name: planstore
+      type: object
+      description: Durable evidence for one task's terminal result.
+      properties:
+        task_id: { type: string }
+        status: { type: string }
+        assigned_agent: { type: string }
+        branch: { type: string }
+        verified_checks:
+          type: array
+          items: { type: string }
+        note: { type: string }
+
+    BranchSummary:
+      x-go-type: planstore.BranchSummary
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/planstore
+        name: planstore
+      type: object
+      description: Git branch evidence linked to a plan task/agent/PR.
+      properties:
+        name: { type: string }
+        task_id: { type: string }
+        agent_id: { type: string }
+
+    ExecutionSummary:
+      x-go-type: planstore.ExecutionSummary
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/planstore
+        name: planstore
+      type: object
+      description: Immutable reduced report for a completed PlanExecution.
+      properties:
+        plan_id: { type: string }
+        plan_name: { type: string }
+        goal: { type: string }
+        execution_mode:
+          type: string
+          enum: [autopilot, pipeline, orchestrator_worker, manual]
+        executor_id: { type: string }
+        started_at: { type: string, format: date-time }
+        completed_at: { type: string, format: date-time, nullable: true }
+        tasks_total: { type: integer }
+        tasks_done: { type: integer }
+        outcome_note: { type: string }
 
     CreatePlanRequest:
       type: object
@@ -4725,9 +4918,9 @@ components:
         type:
           type: string
           description: >-
-            Node type: project | agent | terminal | pipeline | job |
+            Node type: project | section | plan | agent | terminal | pipeline | job |
             autopilot_run | manager | guardian | task | worker.
-          enum: [project, agent, terminal, pipeline, job, autopilot_run, manager, guardian, task, worker]
+          enum: [project, section, plan, agent, terminal, pipeline, job, autopilot_run, manager, guardian, task, worker]
         id:
           type: string
           description: >-
@@ -4768,7 +4961,11 @@ components:
         omitempty.
       properties:
         kind: { type: string, description: "session kind: agent | terminal (session-backed nodes)" }
-        backend: { type: string, description: "agent nodes: backend id, for an icon before session detail arrives" }
+        ai_cli: { type: string, description: "agent nodes: AI CLI id, for an icon before session detail arrives" }
+        backend:
+          type: string
+          deprecated: true
+          description: "Deprecated alias for `ai_cli`. Dual-emitted during the alias window."
         depends_on:
           type: array
           items: { type: string }
@@ -4777,6 +4974,14 @@ components:
         path: { type: string, description: "project nodes: local checkout path" }
         slot: { type: string, description: "autopilot lane: autopilot | guardian | worker" }
         gate: { type: string, description: "autopilot_run nodes: gate mode" }
+        plan_id:
+          type: string
+          description: >
+            agent/pipeline/plan/autopilot nodes: optional back-ref to the
+            planstore plan this node is linked to. Omitted when planless.
+        section:
+          type: string
+          description: "section nodes: plans | autopilots | pipelines | agents | terminals"
         synthetic: { type: boolean, description: "true for the \"No project\" bucket" }
         degraded: { type: boolean, description: "subtree degraded in place" }
         closed: { type: boolean, description: "true for a node under a closed/hibernated project" }
@@ -5086,20 +5291,25 @@ components:
     AutopilotToggleRequest:
       type: object
       description: >
-        Body for POST /autopilot — the per-repo switch. `repo` scopes the toggle to
-        one repository; omitted, it defaults to the daemon's working directory.
+        Body for POST /autopilot — the per-repo capability switch. `repo` scopes the
+        toggle to one repository; omitted, it defaults to the daemon's working
+        directory. Enabling does not register or start work.
       properties:
-        enabled: { type: boolean, description: true enables autopilot for the repo (runs preflight), false is the kill switch }
+        enabled: { type: boolean, description: "true enables the capability for the repo (no registration); false is the kill switch" }
         repo: { type: string, description: "repo root to toggle (optional; defaults to the daemon's working directory)" }
       required: [enabled]
 
     AutopilotRegisterRequest:
       type: object
+      deprecated: true
+      description: >
+        DEPRECATED body for POST /autopilot/runs. Prefer creating/importing a Plan
+        and calling POST /plans/{plan_id}/run.
       properties:
         name: { type: string }
         repo: { type: string }
         plan_file: { type: string }
-      required: [name, repo, plan_file]
+      required: [plan_file]
 
     AutopilotRenameRequest:
       type: object

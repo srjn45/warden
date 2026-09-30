@@ -18,6 +18,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// contentItems drops Plans/Autopilots/Pipelines/Agents/Terminals section
+// headers so Len/order asserts stay focused on project headers + entity rows.
+func contentItems(items []item) []item {
+	out := make([]item, 0, len(items))
+	for _, it := range items {
+		if it.planHeader || it.treeSecID != "" {
+			continue
+		}
+		out = append(out, it)
+	}
+	return out
+}
+
 func TestListWindow(t *testing.T) {
 	require.Equal(t, 0, listWindow(3, 0, 10), "n<=visible → 0")
 	require.Equal(t, 0, listWindow(10, 2, 5), "cursor within first window → 0")
@@ -55,7 +68,7 @@ func TestRenderListRowShowsFullUntrimmedID(t *testing.T) {
 
 func TestRenderListRowShowsBackend(t *testing.T) {
 	sessions := []*store.Session{
-		{ID: "agent-aider", Status: store.StatusWorking, Backend: "aider", UpdatedAt: time.Now()},
+		{ID: "agent-aider", Status: store.StatusWorking, AiCli: "aider", UpdatedAt: time.Now()},
 	}
 	out := renderList(buildItems(sessions, nil, nil), 0, 120, 10)
 	require.Contains(t, out, "aider", "row should show the agent backend")
@@ -73,7 +86,7 @@ func TestRenderListRowEmptyBackendDefaultsToClaude(t *testing.T) {
 
 func TestBackendOrDefaultsToClaude(t *testing.T) {
 	require.Equal(t, "claude", backendOr(&store.Session{}), "empty backend → claude")
-	require.Equal(t, "aider", backendOr(&store.Session{Backend: "aider"}), "explicit backend preserved")
+	require.Equal(t, "aider", backendOr(&store.Session{AiCli: "aider"}), "explicit backend preserved")
 }
 
 func TestRenderListRowDoesNotClipAtNarrowWidth(t *testing.T) {
@@ -175,7 +188,7 @@ func TestRenderListGroupsBySourceDir(t *testing.T) {
 	})
 	items := buildItems(sessions, nil, nil)
 	cur := itemIndexBySessionID(items, "a1")
-	out := renderList(items, cur, 120, 12)
+	out := renderList(items, cur, 120, 24)
 	require.Contains(t, out, "alpha [/work/alpha] (2)", "alpha group header: project name + path + count")
 	require.Contains(t, out, "beta [/work/beta] (1)", "beta group header: project name + path + count")
 	require.Contains(t, out, "a1")
@@ -204,15 +217,16 @@ func TestBuildItemsGroupsAgentsNoOpenedDirs(t *testing.T) {
 	require.Equal(t, []string{"a2", "a1", "b1"}, itemSessionIDs(body))
 }
 
-// nonHeaderItems returns rows that are not project group headers — useful when
-// asserting on agent/pipeline body shape after the tree adapter always emits
-// project headers above body rows.
+// nonHeaderItems returns rows that are not project or section headers — useful
+// when asserting on entity body shape after the tree adapter always emits
+// project headers and Plans/Autopilots/Pipelines/Agents/Terminals sections.
 func nonHeaderItems(items []item) []item {
 	out := make([]item, 0, len(items))
 	for _, it := range items {
-		if it.projHdr == nil {
-			out = append(out, it)
+		if it.projHdr != nil || it.planHeader || it.treeSecID != "" {
+			continue
 		}
+		out = append(out, it)
 	}
 	return out
 }
@@ -303,15 +317,17 @@ func TestProjectGroupedItemsClosedProjectHidesAgentsToUngrouped(t *testing.T) {
 
 func TestProjectGroupedItemsEmptyOpenProjectShowsPlaceholder(t *testing.T) {
 	projs := []projectstore.Project{{ID: "/repos/empty", Name: "Empty", Path: "/repos/empty", Status: projectstore.StatusOpen}}
-	// Empty projects collapse by default; explicitly expand so the placeholder is visible.
+	// Empty projects still expand to the five fixed sections.
 	expanded := map[string]bool{projKey("/repos/empty"): false}
 	items := projectGroupedItems(projs, nil, nil, nil, nil, nil, expanded)
 	h := projHdrByID(items, "/repos/empty")
 	require.NotNil(t, h, "an open project shows even with no agents (IDE-style)")
 	require.Equal(t, 0, h.agentCount)
-	// A spawn-hint placeholder follows the header.
-	out := renderList(items, 0, 120, 6)
-	require.Contains(t, out, "no agents")
+	out := renderList(items, 0, 120, 10)
+	require.Contains(t, out, "Plans")
+	require.Contains(t, out, "Autopilots")
+	require.Contains(t, out, "Agents")
+	require.NotContains(t, out, "no agents", "sections replace the old empty-project placeholder")
 }
 
 func TestProjectGroupedItemsCollapseHidesSubtree(t *testing.T) {
@@ -331,26 +347,22 @@ func TestProjectGroupedItemsAutopilotRunChecklistAndAgents(t *testing.T) {
 		{ID: "worker-1", Repo: "/repos/alpha", AutopilotRunID: "ap-1", AutopilotSlot: store.AutopilotSlotWorker, AutopilotTaskID: "ship", Tags: []string{"autopilot", "run:ap-1"}},
 		{ID: "guardian-1", Repo: "/repos/alpha", AutopilotRunID: "ap-1", AutopilotSlot: store.AutopilotSlotGuardian, Tags: []string{"system:true", "autopilot-run:ap-1"}},
 	}
-	items := projectGroupedItems(projs, nil, nil, sessions, nil, nil, nil, runs)
+	items := contentItems(projectGroupedItems(projs, nil, nil, sessions, nil, nil, nil, runs))
 	require.NotNil(t, items[1].apRun)
-	// Tree order under a run: manager → guardian → tasks (with workers nested).
-	require.Equal(t, "brain-1", items[2].session.ID)
-	require.Equal(t, store.AutopilotSlotManager, items[2].apSlot)
-	require.Equal(t, "guardian-1", items[3].session.ID)
-	require.Equal(t, store.AutopilotSlotGuardian, items[3].apSlot)
-	require.NotNil(t, items[4].apTask)
-	require.Equal(t, "ship", items[4].apTask.ID)
-	require.Equal(t, "worker-1", items[5].session.ID)
-	require.Equal(t, store.AutopilotSlotWorker, items[5].apSlot)
-	require.Equal(t, []string{"brain-1", "guardian-1", "worker-1"}, itemSessionIDs(items))
+	// Autopilot → manager → workers; guardian + Plan task groups omitted.
+	require.Equal(t, []string{"brain-1", "worker-1"}, itemSessionIDs(items))
+	require.Equal(t, store.AutopilotSlotManager, items[itemIndexBySessionID(items, "brain-1")].apSlot)
+	require.Equal(t, store.AutopilotSlotWorker, items[itemIndexBySessionID(items, "worker-1")].apSlot)
+	require.True(t, items[itemIndexBySessionID(items, "worker-1")].depth >= 1)
 	out := renderList(items, 1, 120, 14)
 	require.Contains(t, out, "release")
-	require.Contains(t, out, "Ship it")
+	require.NotContains(t, out, "Ship it", "Plan task groups stay off Autopilot tree")
+	require.NotContains(t, out, "guardian-1")
 }
 
 func TestProjectGroupedItemsCollapsedAutopilotRunHidesChildren(t *testing.T) {
 	runs := []client.AutopilotRunStatus{{RunID: "ap-1", Repo: "/repo", PlanTasks: []client.AutopilotPlanTask{{ID: "one"}}}}
-	items := projectGroupedItems(nil, nil, nil, nil, nil, nil, map[string]bool{apRunKey("ap-1"): true}, runs)
+	items := contentItems(projectGroupedItems(nil, nil, nil, nil, nil, nil, map[string]bool{apRunKey("ap-1"): true}, runs))
 	require.Len(t, items, 2) // loose project header + run header
 	require.NotNil(t, items[1].apRun)
 }
@@ -375,26 +387,23 @@ func TestCharacterization_RenderAutopilotRunTreeGolden(t *testing.T) {
 		{ID: "agent-worker1", Repo: "/repos/alpha", Status: store.StatusWorking, AutopilotRunID: "ap-deadbeef1234", AutopilotSlot: store.AutopilotSlotWorker, AutopilotTaskID: "ship", Tags: []string{"autopilot", "run:ap-deadbeef1234"}},
 		{ID: "guardian-deadbeef1234", Repo: "/repos/alpha", Status: store.StatusIdle, AutopilotRunID: "ap-deadbeef1234", AutopilotSlot: store.AutopilotSlotGuardian, Tags: []string{"system:true", "autopilot-run:ap-deadbeef1234"}},
 	}
-	items := projectGroupedItems(projs, nil, nil, sessions, nil, nil, nil, runs)
+	items := contentItems(projectGroupedItems(projs, nil, nil, sessions, nil, nil, nil, runs))
 
 	require.NotNil(t, items[1].apRun)
 	require.Equal(t, "release", items[1].apRun.Name)
-	require.Equal(t, []string{"agent-brain01", "guardian-deadbeef1234", "agent-worker1"}, itemSessionIDs(items))
+	// Autopilot → manager → workers; guardian + Plan task groups are not rendered.
+	require.Equal(t, []string{"agent-brain01", "agent-worker1"}, itemSessionIDs(items))
 	require.Equal(t, store.AutopilotSlotManager, items[itemIndexBySessionID(items, "agent-brain01")].apSlot)
-	require.Equal(t, store.AutopilotSlotGuardian, items[itemIndexBySessionID(items, "guardian-deadbeef1234")].apSlot)
 	require.Equal(t, store.AutopilotSlotWorker, items[itemIndexBySessionID(items, "agent-worker1")].apSlot)
-	require.True(t, items[itemIndexBySessionID(items, "agent-worker1")].depth >= 1, "workers nest under their task")
+	require.True(t, items[itemIndexBySessionID(items, "agent-worker1")].depth >= 1, "workers nest under manager")
 
 	out := renderList(items, 1, 120, 16)
 	require.Contains(t, out, "release")
 	require.Contains(t, out, "autopilot/release")
-	require.Contains(t, out, "Ship the release")
-	require.Contains(t, out, "docs")
-	require.Contains(t, out, "1/2 tasks")
-	require.Contains(t, out, "2 workers")
+	require.NotContains(t, out, "Ship the release", "Plan task groups stay off Autopilot tree")
 	require.Contains(t, out, "agent-brain01")
 	require.Contains(t, out, "agent-worker1")
-	require.Contains(t, out, "guardian-deadbeef1234")
+	require.NotContains(t, out, "guardian-deadbeef1234")
 }
 
 func TestCharacterization_RenderAutopilotRunCollapsedGolden(t *testing.T) {
@@ -402,7 +411,7 @@ func TestCharacterization_RenderAutopilotRunCollapsedGolden(t *testing.T) {
 		RunID: "ap-1", Name: "paused-run", Repo: "/repo", State: "paused",
 		PlanTasks: []client.AutopilotPlanTask{{ID: "one", Prompt: "Only task"}},
 	}}
-	items := projectGroupedItems(nil, nil, nil, nil, nil, nil, map[string]bool{apRunKey("ap-1"): true}, runs)
+	items := contentItems(projectGroupedItems(nil, nil, nil, nil, nil, nil, map[string]bool{apRunKey("ap-1"): true}, runs))
 	require.Len(t, items, 2)
 	require.NotNil(t, items[1].apRun)
 	require.Equal(t, "paused-run", items[1].apRun.Name)
@@ -419,7 +428,7 @@ func TestRenderAutopilotRunHeaderShowsIntegrationBranch(t *testing.T) {
 		IntegrationBranch: "autopilot/ship",
 		Tasks:             client.AutopilotTaskCounts{Landed: 0},
 	}}
-	items := projectGroupedItems(nil, nil, nil, nil, nil, nil, nil, runs)
+	items := contentItems(projectGroupedItems(nil, nil, nil, nil, nil, nil, nil, runs))
 	require.NotNil(t, items[1].apRun)
 	out := renderList(items, 1, 120, 6)
 	require.Contains(t, out, "ship")
@@ -436,26 +445,24 @@ func TestProjectGroupedItemsWorkersOrderedByLedgerState(t *testing.T) {
 		},
 	}}
 	sessions := []*store.Session{
+		{ID: "mgr", Repo: "/repo", AutopilotRunID: "ap-1", AutopilotSlot: store.AutopilotSlotManager},
 		{ID: "w-docs", Repo: "/repo", AutopilotRunID: "ap-1", AutopilotSlot: store.AutopilotSlotWorker, AutopilotTaskID: "docs"},
 		{ID: "w-ship", Repo: "/repo", AutopilotRunID: "ap-1", AutopilotSlot: store.AutopilotSlotWorker, AutopilotTaskID: "ship"},
 	}
-	items := projectGroupedItems(nil, nil, nil, sessions, nil, nil, nil, runs)
-	var tasks []string
+	items := contentItems(projectGroupedItems(nil, nil, nil, sessions, nil, nil, nil, runs))
 	var workers []string
 	for _, it := range items {
-		if it.apTask != nil {
-			tasks = append(tasks, it.apTask.ID)
-		}
 		if it.session != nil && it.apSlot == store.AutopilotSlotWorker {
 			workers = append(workers, it.session.ID)
 		}
+		require.Nil(t, it.apTask, "Plan task groups must not appear under Autopilot")
 	}
-	// Ledger order: pending docs before in_progress ship.
-	require.Equal(t, []string{"docs", "ship"}, tasks)
+	// Workers nest under the manager (stable ledger order preserved when possible).
 	require.Equal(t, []string{"w-docs", "w-ship"}, workers)
+	require.True(t, items[itemIndexBySessionID(items, "w-docs")].depth >= 1)
 	out := renderList(items, 1, 120, 14)
-	require.Contains(t, out, "docs")
-	require.Contains(t, out, "ship")
+	require.Contains(t, out, "w-docs")
+	require.Contains(t, out, "w-ship")
 }
 
 func TestProjectGroupedItemsPrefersBackRefOverTags(t *testing.T) {
@@ -465,7 +472,22 @@ func TestProjectGroupedItemsPrefersBackRefOverTags(t *testing.T) {
 		{ID: "plain", Repo: "/repo"},
 	}
 	items := projectGroupedItems(nil, nil, []*store.Session{sessions[1]}, sessions, nil, nil, nil, runs)
-	require.Equal(t, []string{"mgr", "plain"}, itemSessionIDs(items))
+	// Manager is claimed by Autopilot (exactly-once); Agents section keeps only plain.
+	var agentSecSessions []string
+	inAgents := false
+	for _, it := range items {
+		if it.treeSecLabel == "Agents" {
+			inAgents = true
+			continue
+		}
+		if it.treeSecID != "" || it.planHeader {
+			inAgents = false
+		}
+		if inAgents && it.session != nil {
+			agentSecSessions = append(agentSecSessions, it.session.ID)
+		}
+	}
+	require.Equal(t, []string{"plain"}, agentSecSessions, "manager claimed by Autopilot section")
 	require.Equal(t, store.AutopilotSlotManager, items[itemIndexBySessionID(items, "mgr")].apSlot)
 }
 
@@ -475,22 +497,18 @@ func TestCollapsedWorkersNodeHidesWorkerSessions(t *testing.T) {
 		PlanTasks: []client.AutopilotPlanTask{{ID: "ship", Prompt: "Ship it"}},
 	}}
 	sessions := []*store.Session{
+		{ID: "mgr", Repo: "/repo", AutopilotRunID: "ap-1", AutopilotSlot: store.AutopilotSlotManager},
 		{ID: "w1", Repo: "/repo", AutopilotRunID: "ap-1", AutopilotSlot: store.AutopilotSlotWorker, AutopilotTaskID: "ship"},
 	}
-	// Collapse the task node (composite id) — replaces the old synthetic workers header.
-	items := projectGroupedItems(nil, nil, nil, sessions, nil, nil, map[string]bool{"run:ap-1/task:ship": true}, runs)
+	// Workers nest under the manager; collapsing the manager hides them.
+	items := projectGroupedItems(nil, nil, nil, sessions, nil, nil, map[string]bool{"session:mgr": true}, runs)
+	require.Contains(t, itemSessionIDs(items), "mgr")
 	require.NotContains(t, itemSessionIDs(items), "w1")
-	var task item
-	for _, it := range items {
-		if it.apTask != nil && it.apTask.ID == "ship" {
-			task = it
-			break
-		}
-	}
-	require.NotNil(t, task.apTask)
-	require.True(t, task.collapsed)
+	mgr := items[itemIndexBySessionID(items, "mgr")]
+	require.True(t, mgr.collapsed)
+	require.True(t, mgr.hasKids)
 	out := renderList(items, 1, 120, 10)
-	require.Contains(t, out, "Ship it")
+	require.Contains(t, out, "mgr")
 	require.NotContains(t, out, "w1")
 }
 

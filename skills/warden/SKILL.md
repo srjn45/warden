@@ -28,7 +28,7 @@ description: >-
 # warden — drive your agent fleet, the warden way
 
 warden (CLI `warden`, aliased `wd`) runs a local daemon that manages per-task
-coding agents (Claude Code by default, plus other backends via `--backend`; each in
+coding agents (Claude Code by default, plus other AI CLIs via `--ai-cli`; each in
 its own tmux session, most in a git worktree) and the work around them. You drive it through the **warden MCP tools** (when registered)
 or the **`warden` CLI** (always available).
 
@@ -51,7 +51,7 @@ The everyday verbs, so the common path needs no reference-file round-trip:
 |---|---|
 | list / triage | `warden ls` (`--json`, `--watch`) |
 | one agent's status / output | `warden status <id>` · `warden agent tail <id>` |
-| spawn from a prompt | `warden start "<prompt>"` (`--name`, `--model`, `--backend`) |
+| spawn from a prompt | `warden start "<prompt>"` (`--name`, `--model`, `--ai-cli`) |
 | message an agent | `warden send <id> "<text>"` |
 | stop (full teardown, confirm first) | `warden agent stop <id>` |
 | finish, keep worktree | `warden agent done <id>` (`--create-pr`) |
@@ -238,8 +238,10 @@ its own integration branch and plan-scoped tree (`<scope>-autopilot`,
 
 | Tool | What it does | CLI equivalent |
 |---|---|---|
-| `set_autopilot { enabled: true, repo? }` | Enable autopilot **for one repo** (runs preflight); `repo` defaults to the daemon's working directory | `warden autopilot enable [--repo <root>]` |
+| `set_autopilot { enabled: true, repo? }` | Enable the autopilot **capability** for one repo (switch only; does not start work); `repo` defaults to the daemon's working directory | `warden autopilot enable [--repo <root>]` |
 | `set_autopilot { enabled: false, repo? }` | Disable autopilot for one repo — the kill switch | `warden autopilot disable [--repo <root>]` |
+| `run_plan { plan_id, execution_mode }` | Start plan execution (`autopilot` / `pipeline` / …) | `warden plan run <id> --mode <mode>` |
+| `control_plan { plan_id, action }` | Pause, resume, or stop an in-progress plan | `warden plan pause\|resume\|stop <id>` |
 | `autopilot_status` | Enabled repos + each run's state, manager slot id, integration branch, task counts, tier, backoff, optional `preflight_warnings` | `warden autopilot status` |
 | `autopilot_complete` | **Manager-only.** Declare the caller's OWN run complete once `done_when` is verified — writes the in-place `status: complete` marker into the plan file, tears the manager down (workers keep running), retains the ledger. Idempotent | _(automatic; the manager calls it)_ |
 | `brain_consult` | **Manager-only.** Shared short-lived brain resolver for unblock/design decisions — prefer over `spawn_agent` with role=brain. Returns a closed action (`nudge_agent`/`wait`/`escalate`/`noop`); manager executes it. Same Consultor/audit/teardown as pipeline stuck recovery | _(automatic; the manager calls it)_ |
@@ -257,7 +259,8 @@ YAML) leave the run `degraded` until the file is restored; the watcher then
 auto-recovers. Do not tell the user to re-enable for those cases.
 
 **CLI-only** (local file authoring): `warden autopilot init [--name <name>]` —
-scaffold `plans/<name>.yaml` and register it with the daemon.
+scaffold `plans/<name>.yaml`. Then create/import the Plan and start with
+`warden plan run <id> --mode autopilot` (do not use retired `autopilot register`).
 
 ### Key ledger context keys
 
@@ -282,8 +285,10 @@ checklist enum, not ledger states.
 
 ### Guardrails for autopilot operations
 
-- **Never enable autopilot without a plan file.** Run `warden autopilot init` first
-  to scaffold it; the preflight in `warden autopilot enable` will surface a missing file.
+- **Never start autopilot without a Plan.** Scaffold with `warden autopilot init`
+  or `warden plan create` / `import` / `scan`, enable the capability with
+  `set_autopilot { enabled: true }`, then `run_plan` / `warden plan run --mode autopilot`.
+  Enablement alone does not register or start work.
 - **Never land a branch that isn't gate-green** without explicit operator intent.
   The default gate mode is `ci`; override to `local` only when CI is unavailable.
 - **Ownership guard:** autopilot-owned agents (`run:<run_id>` tag) reject destructive

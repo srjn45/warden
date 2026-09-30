@@ -4,10 +4,12 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/projectstore"
-	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
 
@@ -18,9 +20,9 @@ func TestReconcileProjectMembershipFixtureDB(t *testing.T) {
 	ctx := context.Background()
 	dataDir := t.TempDir()
 
-	sstore, err := store.NewFileStore(dataDir)
+	sstore, err := agentstore.New(dataDir)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = sstore.Close(ctx) })
+	t.Cleanup(func() { _ = sstore.Close() })
 
 	pstore, err := pipeline.NewStore(filepath.Join(dataDir, "pipelines"))
 	require.NoError(t, err)
@@ -33,7 +35,7 @@ func TestReconcileProjectMembershipFixtureDB(t *testing.T) {
 	// Two projects: alpha is open (path-matchable), beta is closed (never matched).
 	alphaDir := filepath.Join(dataDir, "alpha")
 	betaDir := filepath.Join(dataDir, "beta")
-	alpha := projectstore.Project{ID: alphaDir, Name: "alpha", Path: alphaDir}
+	alpha := projectstore.Project{Terminals: []string{"term-t1"}, ID: alphaDir, Name: "alpha", Path: alphaDir}
 	require.NoError(t, projects.Upsert(alpha))
 	beta := projectstore.Project{ID: betaDir, Name: "beta", Path: betaDir}
 	require.NoError(t, projects.Upsert(beta))
@@ -48,12 +50,11 @@ func TestReconcileProjectMembershipFixtureDB(t *testing.T) {
 	require.NoError(t, err)
 
 	// Sessions.
-	insertSession(t, ctx, sstore, &store.Session{ID: "agent-a1", Repo: alphaDir})                               // stamp → alpha agent
-	insertSession(t, ctx, sstore, &store.Session{ID: "agent-a2", ProjectID: alpha.ID})                          // already member
-	insertSession(t, ctx, sstore, &store.Session{ID: "term-t1", Kind: store.KindTerminal, ProjectID: alpha.ID}) // terminal member
-	insertSession(t, ctx, sstore, &store.Session{ID: "agent-b1", Repo: betaDir})                                // beta closed → not stamped
-	insertSession(t, ctx, sstore, &store.Session{ID: "agent-x1", Repo: filepath.Join(dataDir, "unknown")})      // no project → not stamped
-	insertSession(t, ctx, sstore, &store.Session{ID: "agent-g1", ProjectID: gamma.ID})                          // hibernated member of a closed project
+	insertSession(t, ctx, sstore, &agentstore.Agent{ID: "agent-a1", Repo: alphaDir})                          // stamp → alpha agent
+	insertSession(t, ctx, sstore, &agentstore.Agent{ID: "agent-a2", ProjectID: alpha.ID})                     // already member
+	insertSession(t, ctx, sstore, &agentstore.Agent{ID: "agent-b1", Repo: betaDir})                           // beta closed → not stamped
+	insertSession(t, ctx, sstore, &agentstore.Agent{ID: "agent-x1", Repo: filepath.Join(dataDir, "unknown")}) // no project → not stamped
+	insertSession(t, ctx, sstore, &agentstore.Agent{ID: "agent-g1", ProjectID: gamma.ID})                     // hibernated member of a closed project
 
 	// Pipelines.
 	require.NoError(t, pstore.Create(&pipeline.Pipeline{ID: "pipe-1", Name: "pipe-1", Repo: alphaDir}))      // stamp → alpha
@@ -62,7 +63,7 @@ func TestReconcileProjectMembershipFixtureDB(t *testing.T) {
 
 	// First run: stamps the two project-less rows that path-match alpha, and rebuilds
 	// alpha's lists. beta and the unknown-dir rows are left project-less and unlisted.
-	rep, err := ReconcileProjectMembership(ctx, sstore, pstore, projects)
+	rep, err := ReconcileProjectMembership(ctx, sstore, pstore, nil, projects)
 	require.NoError(t, err)
 	require.Equal(t, 1, rep.SessionsStamped, "only agent-a1 path-matches an open project")
 	require.Equal(t, 1, rep.PipelinesStamped, "only pipe-1 path-matches an open project")
@@ -100,7 +101,7 @@ func TestReconcileProjectMembershipFixtureDB(t *testing.T) {
 	require.Equal(t, []string{"agent-g1"}, gotGamma.Agents)
 
 	// Second run over the now-reconciled store is a no-op (idempotent).
-	rep2, err := ReconcileProjectMembership(ctx, sstore, pstore, projects)
+	rep2, err := ReconcileProjectMembership(ctx, sstore, pstore, nil, projects)
 	require.NoError(t, err)
 	require.Equal(t, MembershipReconcileReport{}, rep2, "reconcile must be idempotent")
 	require.False(t, rep2.Changed())
@@ -118,7 +119,7 @@ func TestReconcileProjectMembershipNilStores(t *testing.T) {
 	ctx := context.Background()
 
 	// Nil projects store: no-op, no error.
-	rep, err := ReconcileProjectMembership(ctx, nil, nil, nil)
+	rep, err := ReconcileProjectMembership(ctx, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.False(t, rep.Changed())
 
@@ -129,17 +130,17 @@ func TestReconcileProjectMembershipNilStores(t *testing.T) {
 	_, err = projects.OpenProject("/projects/solo", "solo", "/projects/solo")
 	require.NoError(t, err)
 
-	rep, err = ReconcileProjectMembership(ctx, nil, nil, projects)
+	rep, err = ReconcileProjectMembership(ctx, nil, nil, nil, projects)
 	require.NoError(t, err)
 	require.False(t, rep.Changed())
 }
 
-func insertSession(t *testing.T, ctx context.Context, s store.Store, sess *store.Session) {
+func insertSession(t *testing.T, ctx context.Context, s agentstore.AgentStore, sess *agentstore.Agent) {
 	t.Helper()
 	require.NoError(t, s.Insert(ctx, sess))
 }
 
-func getSession(t *testing.T, ctx context.Context, s store.Store, id string) *store.Session {
+func getSession(t *testing.T, ctx context.Context, s agentstore.AgentStore, id string) *agentstore.Agent {
 	t.Helper()
 	got, err := s.Get(ctx, id)
 	require.NoError(t, err)
@@ -149,9 +150,9 @@ func getSession(t *testing.T, ctx context.Context, s store.Store, id string) *st
 func TestReconcilePreservesForwardAuthority(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	ss, err := store.NewFileStore(dir)
+	ss, err := agentstore.New(dir)
 	require.NoError(t, err)
-	defer ss.Close(ctx)
+	defer ss.Close()
 	ps, err := pipeline.NewStore(filepath.Join(dir, "pipelines"))
 	require.NoError(t, err)
 	defer ps.Close()
@@ -168,11 +169,9 @@ func TestReconcilePreservesForwardAuthority(t *testing.T) {
 	for _, p := range []projectstore.Project{a, b, empty, mixed} {
 		require.NoError(t, projects.Upsert(p))
 	}
-	for _, s := range []*store.Session{
+	for _, s := range []*agentstore.Agent{
 		{ID: "z", ProjectID: "b"}, {ID: "a1"}, {ID: "shared", ProjectID: "b"},
-		{ID: "t", Kind: store.KindTerminal, ProjectID: "b"},
 		{ID: "excluded", ProjectID: "empty", Repo: "/empty"}, {ID: "path-only", Repo: "/empty"},
-		{ID: "excluded-terminal", Kind: store.KindTerminal, ProjectID: "empty"},
 		{ID: "excluded-mixed", ProjectID: "mixed"},
 	} {
 		insertSession(t, ctx, ss, s)
@@ -184,7 +183,7 @@ func TestReconcilePreservesForwardAuthority(t *testing.T) {
 	} {
 		require.NoError(t, ps.Create(p))
 	}
-	rep, err := ReconcileProjectMembership(ctx, ss, ps, projects)
+	rep, err := ReconcileProjectMembership(ctx, ss, ps, nil, projects)
 	require.NoError(t, err)
 	require.True(t, rep.Changed())
 	require.Equal(t, 1, rep.ProjectsRebuilt)
@@ -200,10 +199,10 @@ func TestReconcilePreservesForwardAuthority(t *testing.T) {
 	require.Equal(t, []string{"mixed-p"}, got.Pipelines)
 	require.Equal(t, mixed.Agents, got.Agents)
 	require.Equal(t, mixed.Terminals, got.Terminals)
-	for _, id := range []string{"z", "a1", "shared", "t"} {
+	for _, id := range []string{"z", "a1", "shared"} {
 		require.Equal(t, "a", getSession(t, ctx, ss, id).ProjectID)
 	}
-	for _, id := range []string{"excluded", "path-only", "excluded-terminal", "excluded-mixed"} {
+	for _, id := range []string{"excluded", "path-only", "excluded-mixed"} {
 		require.Empty(t, getSession(t, ctx, ss, id).ProjectID)
 	}
 	for _, id := range []string{"z-p", "p", "shared-p"} {
@@ -216,7 +215,7 @@ func TestReconcilePreservesForwardAuthority(t *testing.T) {
 		require.NoError(t, err)
 		require.Empty(t, p.ProjectID)
 	}
-	rep, err = ReconcileProjectMembership(ctx, ss, ps, projects)
+	rep, err = ReconcileProjectMembership(ctx, ss, ps, nil, projects)
 	require.NoError(t, err)
 	require.Equal(t, MembershipReconcileReport{}, rep)
 }
@@ -226,7 +225,7 @@ func TestReconcileUnavailableStoresRetainLegacyLists(t *testing.T) {
 	require.NoError(t, err)
 	defer projects.Close()
 	require.NoError(t, projects.Upsert(projectstore.Project{ID: "legacy"}))
-	rep, err := ReconcileProjectMembership(context.Background(), nil, nil, projects)
+	rep, err := ReconcileProjectMembership(context.Background(), nil, nil, nil, projects)
 	require.NoError(t, err)
 	require.False(t, rep.Changed())
 	p, err := projects.Get("legacy")
@@ -234,16 +233,81 @@ func TestReconcileUnavailableStoresRetainLegacyLists(t *testing.T) {
 	require.Nil(t, p.Agents)
 	require.Nil(t, p.Pipelines)
 	require.Nil(t, p.Terminals)
+	require.Nil(t, p.Plans)
+	require.Nil(t, p.Autopilots)
+}
+
+func TestReconcileBackfillsPlansPreservesOrderAndSkipsAutopilots(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+
+	projects, err := projectstore.NewStore(filepath.Join(dataDir, "projects"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = projects.Close() })
+
+	plans, err := planstore.New(filepath.Join(dataDir, "plans"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = plans.Close() })
+
+	alpha := projectstore.Project{
+		ID: "alpha", Name: "alpha", Path: "/alpha",
+		// Existing ordered Agents/Terminals must survive; Plans is the legacy nil list.
+		Agents: []string{"z-agent", "a-agent", "ghost-agent"}, Terminals: []string{"term-old"},
+		Autopilots: []string{"live-run"}, // already authoritative — must not be rewritten
+	}
+	require.NoError(t, projects.Upsert(alpha))
+	beta := projectstore.Project{ID: "beta", Name: "beta"} // Plans nil → backfill empty
+	require.NoError(t, projects.Upsert(beta))
+
+	// Insert oldest→newest so List (newest-first by UpdatedAt) yields a stable order.
+	require.NoError(t, plans.Create(ctx, &planstore.Plan{
+		ID: "plan-older", ProjectID: "alpha", Name: "older",
+		FilePath: "plans/pending/older.yaml", Status: planstore.PlanStatusPending,
+	}))
+	time.Sleep(5 * time.Millisecond)
+	require.NoError(t, plans.Create(ctx, &planstore.Plan{
+		ID: "plan-newer", ProjectID: "alpha", Name: "newer",
+		FilePath: "plans/completed/newer.yaml", Status: planstore.PlanStatusCompleted,
+	}))
+	time.Sleep(5 * time.Millisecond)
+	require.NoError(t, plans.Create(ctx, &planstore.Plan{
+		ID: "plan-other", ProjectID: "beta", Name: "other",
+		FilePath: "plans/pending/other.yaml", Status: planstore.PlanStatusPending,
+	}))
+
+	rep, err := ReconcileProjectMembership(ctx, nil, nil, plans, projects)
+	require.NoError(t, err)
+	require.Equal(t, 2, rep.ProjectsRebuilt)
+	require.True(t, rep.Changed())
+
+	gotAlpha, err := projects.Get("alpha")
+	require.NoError(t, err)
+	// Agents/Terminals/Autopilots preserved exactly (including dangling + live-run).
+	require.Equal(t, []string{"z-agent", "a-agent", "ghost-agent"}, gotAlpha.Agents)
+	require.Equal(t, []string{"term-old"}, gotAlpha.Terminals)
+	require.Equal(t, []string{"live-run"}, gotAlpha.Autopilots)
+	// Plans backfilled newest-first from plan store (List order), including completed.
+	require.Equal(t, []string{"plan-newer", "plan-older"}, gotAlpha.Plans)
+
+	gotBeta, err := projects.Get("beta")
+	require.NoError(t, err)
+	require.Equal(t, []string{"plan-other"}, gotBeta.Plans)
+	require.Nil(t, gotBeta.Autopilots, "Autopilots must not be inferred for completed/deleted executors")
+
+	// Idempotent second pass.
+	rep2, err := ReconcileProjectMembership(ctx, nil, nil, plans, projects)
+	require.NoError(t, err)
+	require.Equal(t, MembershipReconcileReport{}, rep2)
 }
 
 func TestChildLastRemovalRetainsAuthorityInDB(t *testing.T) {
 	ctx := context.Background()
-	ss, err := store.NewFileStore(t.TempDir())
+	ss, err := agentstore.New(t.TempDir())
 	require.NoError(t, err)
-	defer ss.Close(ctx)
-	insertSession(t, ctx, ss, &store.Session{ID: "parent", ChildAgents: []string{"child"}, ChildPipelines: []string{"pipe"}})
+	defer ss.Close()
+	insertSession(t, ctx, ss, &agentstore.Agent{ID: "parent", ChildAgents: []string{"child"}, ChildPipelines: []string{"pipe"}})
 	s := &Server{store: ss}
-	s.removeChildEdge(ctx, &store.Session{ID: "child", ParentID: "parent"})
+	s.removeChildEdge(ctx, &agentstore.Agent{ID: "child", ParentID: "parent"})
 	s.removePipelineParentEdge(ctx, &pipeline.Pipeline{ID: "pipe", ParentAgentID: "parent"})
 	got := getSession(t, ctx, ss, "parent")
 	require.Equal(t, []string{}, got.ChildAgents)

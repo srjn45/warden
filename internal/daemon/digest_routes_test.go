@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/srjn45/warden/internal/agentbackend"
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/pipeline"
@@ -80,8 +81,8 @@ func digestEnv(t *testing.T, transcript string, narrator digest.Narrator) (*http
 	lc := lifecycle.New(lifecycle.HintingExecRunner{Inner: lifecycle.ExecRunner{}}, &lifecycle.FakeConfig{})
 	lc.ProjectsDir = projects
 	fs := newFakeStore()
-	fs.data["agent-d1"] = &store.Session{
-		ID: "agent-d1", Workdir: work, ClaudeSessionID: claudeID, Status: store.Status("working"),
+	fs.data["agent-d1"] = &agentstore.Agent{
+		ID: "agent-d1", Workdir: work, AICLISessionID: claudeID, Status: store.Status("working"),
 	}
 	srv := &Server{store: fs, life: NewLifecycleAdapter(lc, fs), narrator: narrator}
 	return httptest.NewServer(srv.router()), claudeID
@@ -180,7 +181,7 @@ func TestDigestAiderBackendTierA(t *testing.T) {
 	lc := lifecycle.New(lifecycle.HintingExecRunner{Inner: lifecycle.ExecRunner{}}, &lifecycle.FakeConfig{})
 	lc.ProjectsDir = t.TempDir()
 	fs := newFakeStore()
-	fs.data["agent-a1"] = &store.Session{ID: "agent-a1", Workdir: work, Backend: "aider", Status: store.Status("done")}
+	fs.data["agent-a1"] = &agentstore.Agent{ID: "agent-a1", Workdir: work, AiCli: "aider", Status: store.Status("done")}
 	srv := &Server{store: fs, life: NewLifecycleAdapter(lc, fs), narrator: nil}
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
@@ -222,7 +223,7 @@ func TestHandleDigestServesPipelineSnapshot(t *testing.T) {
 			Digest: &digest.Digest{Summary: "frozen snapshot", Turns: 7}}},
 	})
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{
+	_ = fs.Insert(context.Background(), &agentstore.Agent{
 		ID: "p-a", TmuxSession: "p-a", PipelineID: "p", JobID: "a", Status: store.StatusDone,
 	})
 	fl := &fakeLife{}

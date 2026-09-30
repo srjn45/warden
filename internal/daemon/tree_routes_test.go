@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"github.com/srjn45/warden/internal/agentstore"
 	"testing"
 
 	"github.com/srjn45/warden/internal/daemon/oapi"
@@ -31,12 +32,25 @@ func findRoot(tr tree.Tree, id string) *tree.Node {
 	return nil
 }
 
+// sectionOf returns the named section under a project root.
+func sectionOf(t *testing.T, project *tree.Node, kind tree.SectionKind) *tree.Node {
+	t.Helper()
+	require.NotNil(t, project)
+	for _, ch := range project.Children {
+		if ch != nil && ch.Type == tree.NodeTypeSection && ch.Detail != nil && ch.Detail.Section == string(kind) {
+			return ch
+		}
+	}
+	t.Fatalf("section %q not found under %s", kind, project.ID)
+	return nil
+}
+
 // TestGetTreeSyntheticBucket: a bare session with no project/location lands in
-// the synthetic "No project" bucket as an agent node, and the response carries
-// Cache-Control: no-store.
+// the synthetic "No project" bucket as an agent node under the Agents section,
+// and the response carries Cache-Control: no-store.
 func TestGetTreeSyntheticBucket(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["A-1"] = &store.Session{ID: "A-1", Name: "orch", Status: store.StatusWorking}
+	fs.data["A-1"] = &agentstore.Agent{ID: "A-1", Name: "orch", Status: store.StatusWorking}
 	srv := &Server{store: fs}
 
 	resp := getTree(t, srv, oapi.GetTreeParams{})
@@ -45,9 +59,11 @@ func TestGetTreeSyntheticBucket(t *testing.T) {
 	bucket := findRoot(resp.Body, "project:__none__")
 	require.NotNil(t, bucket, "expected synthetic bucket root")
 	require.True(t, bucket.Detail.Synthetic)
-	require.Len(t, bucket.Children, 1)
-	require.Equal(t, tree.NodeTypeAgent, bucket.Children[0].Type)
-	require.Equal(t, "A-1", bucket.Children[0].SessionID)
+	require.Len(t, bucket.Children, 5, "five project sections")
+	agents := sectionOf(t, bucket, tree.SectionAgents)
+	require.Len(t, agents.Children, 1)
+	require.Equal(t, tree.NodeTypeAgent, agents.Children[0].Type)
+	require.Equal(t, "A-1", agents.Children[0].SessionID)
 }
 
 // TestGetTreeEmptyFleet: an empty fleet returns roots as [] (never null).
@@ -62,7 +78,7 @@ func TestGetTreeEmptyFleet(t *testing.T) {
 // roots — not 404 (locked decision; spec §9 Q-T2).
 func TestGetTreeUnknownProjectEmpty(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["A-1"] = &store.Session{ID: "A-1", Status: store.StatusWorking}
+	fs.data["A-1"] = &agentstore.Agent{ID: "A-1", Status: store.StatusWorking}
 	srv := &Server{store: fs}
 
 	resp := getTree(t, srv, oapi.GetTreeParams{ProjectId: "/nope/does-not-exist"})
@@ -74,8 +90,8 @@ func TestGetTreeUnknownProjectEmpty(t *testing.T) {
 // that subtree (and never the synthetic bucket).
 func TestGetTreeProjectScope(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["A-1"] = &store.Session{ID: "A-1", Status: store.StatusWorking, Repo: "/work/repo"}
-	fs.data["B-2"] = &store.Session{ID: "B-2", Status: store.StatusIdle} // synthetic bucket
+	fs.data["A-1"] = &agentstore.Agent{ID: "A-1", Status: store.StatusWorking, Repo: "/work/repo"}
+	fs.data["B-2"] = &agentstore.Agent{ID: "B-2", Status: store.StatusIdle} // synthetic bucket
 	srv := &Server{store: fs}
 
 	resp := getTree(t, srv, oapi.GetTreeParams{ProjectId: "/work/repo"})
@@ -88,26 +104,29 @@ func TestGetTreeProjectScope(t *testing.T) {
 // mirroring GET /sessions.
 func TestGetTreeAllFilter(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["A-1"] = &store.Session{ID: "A-1", Status: store.StatusWorking}
-	fs.data["sys"] = &store.Session{ID: "sys", Status: store.StatusIdle, Tags: []string{"system:true"}}
+	fs.data["A-1"] = &agentstore.Agent{ID: "A-1", Status: store.StatusWorking}
+	fs.data["sys"] = &agentstore.Agent{ID: "sys", Status: store.StatusIdle, Tags: []string{"system:true"}}
 	srv := &Server{store: fs}
 
 	def := getTree(t, srv, oapi.GetTreeParams{})
 	bucket := findRoot(def.Body, "project:__none__")
 	require.NotNil(t, bucket)
-	require.Len(t, bucket.Children, 1, "system session must be hidden by default")
+	agents := sectionOf(t, bucket, tree.SectionAgents)
+	require.Len(t, agents.Children, 1, "system session must be hidden by default")
+	require.Equal(t, "A-1", agents.Children[0].SessionID)
 
 	all := getTree(t, srv, oapi.GetTreeParams{All: true})
 	bucketAll := findRoot(all.Body, "project:__none__")
 	require.NotNil(t, bucketAll)
-	require.Len(t, bucketAll.Children, 2, "?all=true must include the system session")
+	agentsAll := sectionOf(t, bucketAll, tree.SectionAgents)
+	require.Len(t, agentsAll.Children, 2, "?all=true must include the system session")
 }
 
 // TestGetTreeDegradedIs503: a degraded active session scan returns 503, never a
 // tree built from a partial fleet (same complete-or-error contract as /sessions).
 func TestGetTreeDegradedIs503(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["A-1"] = &store.Session{ID: "A-1", Status: store.StatusWorking}
+	fs.data["A-1"] = &agentstore.Agent{ID: "A-1", Status: store.StatusWorking}
 	fs.listErr = degradedErr()
 	srv := &Server{store: fs}
 

@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"github.com/srjn45/warden/internal/agentstore"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -43,7 +44,7 @@ func peerTestServer(t *testing.T) (*Server, *fakeStore, *projectstore.Store) {
 func TestPeerContextSkipsNonOrchestrator(t *testing.T) {
 	srv, _, _ := peerTestServer(t)
 	// A worker, even one pinned to a grouped project, gets no peer context.
-	got := srv.PeerContext(context.Background(), &store.Session{
+	got := srv.PeerContext(context.Background(), &agentstore.Agent{
 		ID: "w1", Role: "worker", ProjectID: "p1", Status: store.StatusWorking,
 	})
 	require.Equal(t, "", got)
@@ -52,17 +53,17 @@ func TestPeerContextSkipsNonOrchestrator(t *testing.T) {
 func TestPeerContextSkipsWithoutProjectOrGroup(t *testing.T) {
 	srv, _, ps := peerTestServer(t)
 	// An orchestrator with no project back-ref: nothing to resolve.
-	require.Equal(t, "", srv.PeerContext(context.Background(), &store.Session{
+	require.Equal(t, "", srv.PeerContext(context.Background(), &agentstore.Agent{
 		ID: "o1", Role: orchestratorRole, Status: store.StatusWorking,
 	}))
 	// An orchestrator whose project belongs to no group.
-	require.Equal(t, "", srv.PeerContext(context.Background(), &store.Session{
+	require.Equal(t, "", srv.PeerContext(context.Background(), &agentstore.Agent{
 		ID: "o2", Role: orchestratorRole, ProjectID: "lonely", Status: store.StatusWorking,
 	}))
 	// Even with an unrelated group present, a non-member project stays contextless.
 	_, err := ps.CreateGroup(projectstore.ProjectGroup{Name: "Other", ProjectIDs: []string{"pX"}})
 	require.NoError(t, err)
-	require.Equal(t, "", srv.PeerContext(context.Background(), &store.Session{
+	require.Equal(t, "", srv.PeerContext(context.Background(), &agentstore.Agent{
 		ID: "o2", Role: orchestratorRole, ProjectID: "lonely", Status: store.StatusWorking,
 	}))
 }
@@ -76,16 +77,16 @@ func TestPeerContextListsLivePeersExcludingSelfAndDead(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	self := &store.Session{ID: "self", Name: "orch-a", Role: orchestratorRole, ProjectID: "proj-a", Status: store.StatusWorking}
+	self := &agentstore.Agent{ID: "self", Name: "orch-a", Role: orchestratorRole, ProjectID: "proj-a", Status: store.StatusWorking}
 	fs.Insert(ctx, self)
 	// A live peer orch in a sibling project — included.
-	fs.Insert(ctx, &store.Session{ID: "pb", Name: "orch-b", Role: orchestratorRole, ProjectID: "proj-b", Status: store.StatusIdle})
+	fs.Insert(ctx, &agentstore.Agent{ID: "pb", Name: "orch-b", Role: orchestratorRole, ProjectID: "proj-b", Status: store.StatusIdle})
 	// A dead peer orch — excluded (not live).
-	fs.Insert(ctx, &store.Session{ID: "pc", Name: "orch-c", Role: orchestratorRole, ProjectID: "proj-c", Status: store.StatusDone})
+	fs.Insert(ctx, &agentstore.Agent{ID: "pc", Name: "orch-c", Role: orchestratorRole, ProjectID: "proj-c", Status: store.StatusDone})
 	// A live worker in a member project — excluded (not an orchestrator).
-	fs.Insert(ctx, &store.Session{ID: "w", Name: "worker-1", Role: "worker", ProjectID: "proj-b", Status: store.StatusWorking})
+	fs.Insert(ctx, &agentstore.Agent{ID: "w", Name: "worker-1", Role: "worker", ProjectID: "proj-b", Status: store.StatusWorking})
 	// A live orch OUTSIDE the group — excluded (not a member project).
-	fs.Insert(ctx, &store.Session{ID: "out", Name: "orch-z", Role: orchestratorRole, ProjectID: "proj-z", Status: store.StatusWorking})
+	fs.Insert(ctx, &agentstore.Agent{ID: "out", Name: "orch-z", Role: orchestratorRole, ProjectID: "proj-z", Status: store.StatusWorking})
 
 	got := srv.PeerContext(ctx, self)
 	require.Contains(t, got, `Project Group "Platform"`)
@@ -110,7 +111,7 @@ func TestPeerContextFirstGroupWinsOnOverlap(t *testing.T) {
 	_, err = ps.CreateGroup(projectstore.ProjectGroup{Name: "Alpha", ProjectIDs: []string{"proj-a"}})
 	require.NoError(t, err)
 
-	self := &store.Session{ID: "self", Name: "orch-a", Role: orchestratorRole, ProjectID: "proj-a", Status: store.StatusWorking}
+	self := &agentstore.Agent{ID: "self", Name: "orch-a", Role: orchestratorRole, ProjectID: "proj-a", Status: store.StatusWorking}
 	fs.Insert(ctx, self)
 	got := srv.PeerContext(ctx, self)
 	require.Contains(t, got, `Project Group "Alpha"`, "first group (name-sorted) wins on overlap")

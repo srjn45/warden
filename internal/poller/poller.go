@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/srjn45/warden/internal/agentbackend"
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/ctxtokens"
 	"github.com/srjn45/warden/internal/store"
@@ -29,7 +30,7 @@ import (
 // get real working/needs-input/idle detection instead of always degrading to a
 // staleness guess. The rate-limit banner remains Claude-shaped (detectRateLimit)
 // and simply never matches a non-Claude pane, degrading cleanly.
-func classify(b agentbackend.Backend, s *store.Session, pane string, sessionAlive bool, sinceUpdate, stuckAfter time.Duration) store.Status {
+func classify(b agentbackend.Backend, s *agentstore.Agent, pane string, sessionAlive bool, sinceUpdate, stuckAfter time.Duration) store.Status {
 	if !sessionAlive {
 		return store.StatusOrphaned
 	}
@@ -79,7 +80,7 @@ func classify(b agentbackend.Backend, s *store.Session, pane string, sessionAliv
 
 // Deps is the poller's view of the world (store reads/writes + tmux probes).
 type Deps interface {
-	List(ctx context.Context) ([]*store.Session, error)
+	List(ctx context.Context) ([]*agentstore.Agent, error)
 	// UpdateStatusIf swaps status from expected→next, reporting whether it took
 	// effect. The poller uses the CAS form so it never overwrites a status a hook
 	// changed between this tick's List and its write.
@@ -88,7 +89,7 @@ type Deps interface {
 	UpdateSubject(ctx context.Context, id, subject string) error
 	SessionAlive(ctx context.Context, tmuxName string) bool
 	CapturePane(ctx context.Context, tmuxName string) (string, error)
-	Summarize(ctx context.Context, s *store.Session) (string, error)
+	Summarize(ctx context.Context, s *agentstore.Agent) (string, error)
 	// ExitCode returns the exit status recorded for the agent's shell, if any.
 	ExitCode(ctx context.Context, id string) (code int, present bool)
 	// FinalizeExit transitions the session to its terminal status from the exit
@@ -98,23 +99,23 @@ type Deps interface {
 	ClearExit(ctx context.Context, id string)
 	// ContextTokens returns the agent's current context-window occupancy read
 	// from its transcript. ok=false when no model turn has been recorded yet.
-	ContextTokens(ctx context.Context, s *store.Session) (tokens int, ok bool)
+	ContextTokens(ctx context.Context, s *agentstore.Agent) (tokens int, ok bool)
 	// TranscriptUsage returns the agent's cumulative billed token usage
 	// (input+output summed over every assistant turn) read from its transcript.
 	// ok=false when no usage has been recorded yet or the transcript is
 	// unreadable. Used for the real-spend denominator and the net compact cost.
-	TranscriptUsage(ctx context.Context, s *store.Session) (inputTokens, outputTokens int, ok bool)
+	TranscriptUsage(ctx context.Context, s *agentstore.Agent) (inputTokens, outputTokens int, ok bool)
 	// UpdateContext persists the gauge (tokens + state band).
 	UpdateContext(ctx context.Context, id string, tokens int, state string) error
 	// Compact sends "/compact" to the agent (only called when it is idle/waiting).
-	Compact(ctx context.Context, s *store.Session) error
+	Compact(ctx context.Context, s *agentstore.Agent) error
 	// Interrupt sends an Escape keystroke to the agent's pane, cancelling the
 	// in-flight turn so a busy agent drops to idle and can be /compact-ed. Used
 	// only by the force-compact path (it discards the running turn's work).
-	Interrupt(ctx context.Context, s *store.Session) error
+	Interrupt(ctx context.Context, s *agentstore.Agent) error
 	// Resume sends a prompt to a force-compacted agent so it picks its work back
 	// up after the interrupt+compaction.
-	Resume(ctx context.Context, s *store.Session, prompt string) error
+	Resume(ctx context.Context, s *agentstore.Agent, prompt string) error
 	// StampCompact records that /compact was just sent (cooldown guard).
 	StampCompact(ctx context.Context, id string) error
 	// SendKeys sends a single key (e.g. numbered menu option) to the agent's tmux pane.
@@ -139,7 +140,7 @@ type Poller struct {
 	// detection (classify) and approval parsing (tryAutoApprove). Defaults in New
 	// to the agentbackend registry (with the Claude default for an empty/unknown
 	// id); tests may override it with a fake backend.
-	Backend        func(s *store.Session) agentbackend.Backend
+	Backend        func(s *agentstore.Agent) agentbackend.Backend
 	stuckAfter     time.Duration
 	SummarizeAfter time.Duration        // throttle for subject refresh (0 = every change)
 	lastSummary    map[string]time.Time // touched only by the tick goroutine
@@ -151,7 +152,7 @@ type Poller struct {
 	// OnTransition, if set, is called once per successful status swap with the
 	// session and its old/new status (edge-triggered — once per transition, not
 	// per tick). The daemon wires this to fire user notifications.
-	OnTransition func(sess *store.Session, from, to store.Status)
+	OnTransition func(sess *agentstore.Agent, from, to store.Status)
 
 	// OnRateLimitObservation, if set, fires immediately after a successful
 	// StatusRateLimited transition from the pane-classification path, carrying an
@@ -166,7 +167,7 @@ type Poller struct {
 	// crash, infinite loop, pre-crash context). It is the notification seam — the
 	// poller already records a durable event for every anomaly, so this is purely
 	// best-effort user-facing alerting. The daemon wires it to its notifier.
-	OnAnomaly func(sess *store.Session, a Anomaly)
+	OnAnomaly func(sess *agentstore.Agent, a Anomaly)
 
 	// Context-size guard config + hooks (set by the daemon after New). When
 	// TokenGuard is false the whole check is skipped. CompactCooldown bounds how
@@ -193,7 +194,7 @@ type Poller struct {
 	CompactCooldown     time.Duration
 	CheckEvery          time.Duration // throttle for the per-agent transcript read
 	// OnContextAlert, if set, fires once per upward threshold crossing.
-	OnContextAlert func(sess *store.Session, state ctxtokens.State, tokens int)
+	OnContextAlert func(sess *agentstore.Agent, state ctxtokens.State, tokens int)
 
 	// RateLimitAutoResume mirrors rate_limit.auto_resume (set by the daemon after
 	// New). When true the poller auto-selects the "Stop and wait for limit to
@@ -223,7 +224,7 @@ type Poller struct {
 	// cooldown) and performs the swap. nil OnHotSwap or a false HandoverEnabled makes
 	// the whole path inert (the default), so existing deployments are unaffected.
 	HandoverEnabled bool
-	OnHotSwap       func(s *store.Session, tokens int)
+	OnHotSwap       func(s *agentstore.Agent, tokens int)
 	hotSwapFlagged  map[string]bool // per-agent: hot-swap already signalled this critical episode (tick goroutine only)
 
 	// OnSpend, if set, records an agent's cumulative billed spend (input+output
@@ -232,7 +233,7 @@ type Poller struct {
 	// Called each context check with the session (for its model/repo) and the latest
 	// cumulative reading; the daemon wires it to the spend tracker (which only ever
 	// raises a session's figure). Best-effort and gate-aware on the receiving side.
-	OnSpend func(s *store.Session, inputTokens, outputTokens int)
+	OnSpend func(s *agentstore.Agent, inputTokens, outputTokens int)
 
 	lastCtxCheck map[string]time.Time // last context read per session (tick goroutine only)
 
@@ -302,8 +303,8 @@ type Poller struct {
 
 // ApprovalEvent represents a potential auto-approval opportunity.
 type ApprovalEvent struct {
-	Session *store.Session // snapshot at event time
-	Pane    string         // pane content that triggered the event
+	Agent *agentstore.Agent // snapshot at event time
+	Pane  string            // pane content that triggered the event
 }
 
 // AutopilotApprovals routes approval decisions for autopilot-owned workers to
@@ -315,12 +316,12 @@ type AutopilotApprovals interface {
 	// BrainFor returns the brain agent id owning worker session s while its run is
 	// active; ok=false when s is not an active autopilot-owned worker (or is the
 	// brain itself), in which case the normal human-escalation path applies.
-	BrainFor(s *store.Session) (brainID string, ok bool)
+	BrainFor(s *agentstore.Agent) (brainID string, ok bool)
 	// Forward delivers a prompt the auto-approve policy could not answer to the
 	// brain's mailbox and mirrors a non-blocking copy to the human inbox
 	// (visibility + audit). The poller de-dupes by prompt, so Forward is called at
 	// most once per distinct prompt per worker and need not throttle itself.
-	Forward(ctx context.Context, brainID string, worker *store.Session, reason string)
+	Forward(ctx context.Context, brainID string, worker *agentstore.Agent, reason string)
 }
 
 // compactPending is a /compact awaiting its reclaim: pre is the context-token
@@ -364,9 +365,10 @@ type fcState struct {
 // the Claude default for an empty or unrecognized backend id (back-compat). The
 // registry is populated at process start by the backends package's init, which
 // the daemon imports transitively through lifecycle.
-func resolveBackend(s *store.Session) agentbackend.Backend {
+func resolveBackend(s *agentstore.Agent) agentbackend.Backend {
 	if s != nil {
-		if b, err := agentbackend.Get(s.Backend); err == nil && b != nil {
+		backendName := s.AiCli
+		if b, err := agentbackend.Get(backendName); err == nil && b != nil {
 			return b
 		}
 	}
@@ -375,7 +377,7 @@ func resolveBackend(s *store.Session) agentbackend.Backend {
 
 // backendFor resolves the backend for a session through the configured resolver
 // (Backend field), defaulting to the registry when unset.
-func (p *Poller) backendFor(s *store.Session) agentbackend.Backend {
+func (p *Poller) backendFor(s *agentstore.Agent) agentbackend.Backend {
 	if p.Backend != nil {
 		return p.Backend(s)
 	}
@@ -391,8 +393,8 @@ func (p *Poller) backendFor(s *store.Session) agentbackend.Backend {
 // the optional interface are skipped (they keep dir-scoping). The discovered id is
 // also written back onto the in-memory snapshot so this tick's later transcript
 // reads use the exact id immediately.
-func (p *Poller) discoverSessionID(ctx context.Context, s *store.Session) {
-	if s.ClaudeSessionID != "" {
+func (p *Poller) discoverSessionID(ctx context.Context, s *agentstore.Agent) {
+	if s.AICLISessionID != "" {
 		return // already pinned (warden-minted or previously discovered)
 	}
 	b := p.backendFor(s)
@@ -411,7 +413,7 @@ func (p *Poller) discoverSessionID(ctx context.Context, s *store.Session) {
 		slog.Warn("poller: pin discovered session id failed", "agent", s.ID, "err", err)
 		return
 	}
-	s.ClaudeSessionID = id // reflect on the snapshot for this tick's transcript reads
+	s.AICLISessionID = id // reflect on the snapshot for this tick's transcript reads
 	slog.Info("poller: pinned discovered session id", "agent", s.ID, "session_id", id)
 }
 
@@ -533,7 +535,7 @@ func (p *Poller) SetContextGuard(guard bool, warn, crit int, warnAlert, autoComp
 // caller then suppresses the human-escalation path, since no autopilot worker
 // ever waits on a human. It is a no-op returning false for every ordinary agent
 // (Autopilot unset, or the worker isn't autopilot-owned).
-func (p *Poller) routeToBrain(ctx context.Context, s *store.Session, sig, reason string) bool {
+func (p *Poller) routeToBrain(ctx context.Context, s *agentstore.Agent, sig, reason string) bool {
 	if p.Autopilot == nil {
 		return false
 	}
@@ -577,7 +579,7 @@ func (p *Poller) routeToBrain(ctx context.Context, s *store.Session, sig, reason
 //
 // Idempotent and safe to call repeatedly on the same prompt: an unrecognized or
 // already-dismissed prompt is a logged no-op.
-func (p *Poller) tryAutoApprove(ctx context.Context, s *store.Session, pane string) {
+func (p *Poller) tryAutoApprove(ctx context.Context, s *agentstore.Agent, pane string) {
 	// Resolve the effective policy for this agent (per-agent override or default).
 	pol := p.autoApprovePolicy().For(s.Name, s.ID)
 
@@ -692,7 +694,7 @@ var menuVerifyDelay = 600 * time.Millisecond
 // option in case it wasn't the highlighted one. When the wait option is not the
 // highlighted one to begin with, a bare Enter would confirm the WRONG choice
 // (e.g. Upgrade), so that case skips straight to the number.
-func (p *Poller) tryLimitMenu(ctx context.Context, s *store.Session, pane string) {
+func (p *Poller) tryLimitMenu(ctx context.Context, s *agentstore.Agent, pane string) {
 	if !p.RateLimitAutoResume {
 		return
 	}
@@ -735,7 +737,7 @@ func (p *Poller) tryLimitMenu(ctx context.Context, s *store.Session, pane string
 // keystroke did not dismiss it. A capture error is treated as "not showing" so a
 // transient tmux hiccup never triggers a spurious fallback keystroke into a pane
 // whose real state we couldn't read.
-func (p *Poller) limitMenuStillShowing(ctx context.Context, s *store.Session) bool {
+func (p *Poller) limitMenuStillShowing(ctx context.Context, s *agentstore.Agent) bool {
 	if menuVerifyDelay > 0 {
 		select {
 		case <-time.After(menuVerifyDelay):
@@ -759,7 +761,8 @@ func (p *Poller) runApprovalWorker(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case event := <-p.ApprovalEvents:
-			p.tryAutoApprove(ctx, event.Session, event.Pane)
+			ag := event.Agent
+			p.tryAutoApprove(ctx, ag, event.Pane)
 		}
 	}
 }
@@ -772,9 +775,6 @@ func (p *Poller) tick(ctx context.Context) error {
 	now := time.Now()
 	changed := false
 	for _, s := range sessions {
-		if s.IsTerminal() {
-			continue
-		}
 		if isTerminal(s.Status) {
 			// Reap any exit-file left by the clean-exit path (SessionEnd hook set
 			// done before the poller read the file); errored/orphaned already
@@ -820,7 +820,7 @@ func (p *Poller) tick(ctx context.Context) error {
 		}
 		alive := p.deps.SessionAlive(ctx, s.TmuxSession)
 		// Discover-then-pin: a non-pinning backend mints its own session id at
-		// launch, so ClaudeSessionID starts empty (dir-scoped fallback). Once the
+		// launch, so AICLISessionID starts empty (dir-scoped fallback). Once the
 		// agent has written its transcript, discover the real id and persist it once
 		// — after which the transcript path + resume key off the exact id.
 		if alive {
@@ -905,7 +905,7 @@ func (p *Poller) tick(ctx context.Context) error {
 // pruneSummaryState drops lastSummary entries for sessions no longer in the
 // store (archived/deleted), so the throttle map can't grow without bound over a
 // long-running daemon. Called only from the tick goroutine, which owns the map.
-func (p *Poller) pruneSummaryState(sessions []*store.Session) {
+func (p *Poller) pruneSummaryState(sessions []*agentstore.Agent) {
 	if len(p.lastSummary) == 0 && len(p.lastCtxCheck) == 0 &&
 		len(p.pendingCompact) == 0 && len(p.paneHistory) == 0 &&
 		len(p.loopFlagged) == 0 && len(p.preCrashFlagged) == 0 &&
@@ -971,7 +971,7 @@ func (p *Poller) pruneSummaryState(sessions []*store.Session) {
 // running for it. It is called only from the tick goroutine, so lastSummary is
 // updated synchronously here (before the worker starts) to keep the throttle
 // honest even while the slow `claude -p` call is still in flight.
-func (p *Poller) dispatchSummary(ctx context.Context, s *store.Session, now time.Time) {
+func (p *Poller) dispatchSummary(ctx context.Context, s *agentstore.Agent, now time.Time) {
 	p.mu.Lock()
 	if _, busy := p.inflight[s.ID]; busy {
 		p.mu.Unlock()
@@ -987,7 +987,7 @@ func (p *Poller) dispatchSummary(ctx context.Context, s *store.Session, now time
 
 // runSummary produces and persists a fresh subject for s, then notifies SSE.
 // It runs off the tick loop so a slow model call never stalls status polling.
-func (p *Poller) runSummary(ctx context.Context, s *store.Session) {
+func (p *Poller) runSummary(ctx context.Context, s *agentstore.Agent) {
 	defer p.wg.Done()
 	defer func() {
 		p.mu.Lock()
@@ -1052,7 +1052,7 @@ func lastLines(s string, n int) string {
 // raiseAnomaly records a durable "anomaly" event for the agent and fires the
 // optional OnAnomaly notification hook. The event is the authoritative surface
 // (visible in `show`/TUI even with no notifier); OnAnomaly is best-effort alerting.
-func (p *Poller) raiseAnomaly(ctx context.Context, s *store.Session, a Anomaly) {
+func (p *Poller) raiseAnomaly(ctx context.Context, s *agentstore.Agent, a Anomaly) {
 	if err := p.deps.RecordEvent(ctx, s.ID, store.Event{Type: "anomaly", Detail: a.Detail}); err != nil {
 		slog.Warn("poller: record anomaly event failed", "agent", s.ID, "kind", a.Kind, "err", err)
 	}
@@ -1066,7 +1066,7 @@ func (p *Poller) raiseAnomaly(ctx context.Context, s *store.Session, a Anomaly) 
 // same few states (see looksLikeLoop). Called only from the tick goroutine, on
 // a real pane change, so the maps it touches need no locking. The flag clears
 // once the loop signature disappears, so a later genuine loop re-fires.
-func (p *Poller) trackLoop(ctx context.Context, s *store.Session, excerpt string) {
+func (p *Poller) trackLoop(ctx context.Context, s *agentstore.Agent, excerpt string) {
 	h := append(p.paneHistory[s.ID], excerpt)
 	if len(h) > loopWindow {
 		h = h[len(h)-loopWindow:]
@@ -1088,9 +1088,9 @@ func (p *Poller) trackLoop(ctx context.Context, s *store.Session, excerpt string
 
 // publishApprovalEvent sends an event to the approval worker.
 // Non-blocking: if the channel is full, the event is dropped (logged).
-func (p *Poller) publishApprovalEvent(s *store.Session, pane string) {
+func (p *Poller) publishApprovalEvent(s *agentstore.Agent, pane string) {
 	select {
-	case p.ApprovalEvents <- ApprovalEvent{Session: s, Pane: pane}:
+	case p.ApprovalEvents <- ApprovalEvent{Agent: s, Pane: pane}:
 		// Event queued successfully
 	default:
 		// Channel full - drop event and log

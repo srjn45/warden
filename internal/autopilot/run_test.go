@@ -127,7 +127,7 @@ func TestControllerSpawnsAndTearsDownBrain(t *testing.T) {
 	}, &fakeEnv{})
 	c.SetRuntime(rt)
 
-	st, err := c.Enable(context.Background(), "")
+	st, err := c.ReconcileConfiguredPlans(context.Background(), "")
 	require.NoError(t, err)
 	require.Len(t, st.Runs, 1)
 	require.Equal(t, StateActive, st.Runs[0].State)
@@ -153,7 +153,7 @@ func TestControllerSpawnsAndTearsDownBrain(t *testing.T) {
 	require.Equal(t, "antigravity", st.Runs[0].Brain.Backend)
 
 	// Idempotent re-enable does not kill/respawn the healthy brain.
-	_, err = c.Enable(context.Background(), "")
+	_, err = c.ReconcileConfiguredPlans(context.Background(), "")
 	require.NoError(t, err)
 	require.Len(t, rt.spawned, 1, "healthy brain not respawned on re-enable")
 	require.Empty(t, rt.killed)
@@ -181,7 +181,7 @@ func TestControllerInstallsDefaultPolicyOnEnable(t *testing.T) {
 	}, &fakeEnv{})
 	c.SetRuntime(rt)
 
-	_, err := c.Enable(context.Background(), "")
+	_, err := c.ReconcileConfiguredPlans(context.Background(), "")
 	require.NoError(t, err)
 	require.Equal(t, 1, rt.installs, "enabling autopilot installs the default auto-approve policy")
 
@@ -201,7 +201,7 @@ func TestActiveBrainForRun(t *testing.T) {
 	}, &fakeEnv{})
 	c.SetRuntime(rt)
 
-	st, err := c.Enable(context.Background(), "")
+	st, err := c.ReconcileConfiguredPlans(context.Background(), "")
 	require.NoError(t, err)
 	runID := st.Runs[0].RunID
 
@@ -227,7 +227,7 @@ func TestControllerBrainSpawnFailureDegrades(t *testing.T) {
 
 	// A spawn failure does not fail the whole switch — the run is degraded and the
 	// guardian (S5) heals it.
-	st, err := c.Enable(context.Background(), "")
+	st, err := c.ReconcileConfiguredPlans(context.Background(), "")
 	require.NoError(t, err)
 	require.Len(t, st.Runs, 1)
 	require.Equal(t, StateDegraded, st.Runs[0].State)

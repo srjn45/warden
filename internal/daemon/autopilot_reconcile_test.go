@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
@@ -14,7 +15,7 @@ func TestReconcileSessionsMigratesLegacyManagerToSlot(t *testing.T) {
 	runID := "ap-abc123def456"
 	legacyID := "agent-8bed0ec5"
 	slotID := "default-autopilot"
-	require.NoError(t, st.Insert(context.Background(), &store.Session{
+	require.NoError(t, st.Insert(context.Background(), &agentstore.Agent{
 		ID: legacyID, TmuxSession: legacyID, Role: autopilotBrainRole,
 		Status: store.StatusWorking, Tags: []string{"autopilot", "run:" + runID},
 	}))
@@ -38,7 +39,7 @@ func TestReconcileSessionsMigratesLegacyManagerToSlot(t *testing.T) {
 func TestReconcileSessionsStampsWorkerBackRefs(t *testing.T) {
 	st := newFakeStore()
 	runID := "ap-workers"
-	require.NoError(t, st.Insert(context.Background(), &store.Session{
+	require.NoError(t, st.Insert(context.Background(), &agentstore.Agent{
 		ID: "worker-a", Role: "worker", Status: store.StatusWorking,
 		ParentID: "agent-dead-manager", Task: "docs",
 		Tags: []string{"autopilot", "run:" + runID},
@@ -60,7 +61,7 @@ func TestReconcileSessionsIdempotent(t *testing.T) {
 	st := newFakeStore()
 	runID := "ap-idem"
 	slotID := "plan-autopilot"
-	require.NoError(t, st.Insert(context.Background(), &store.Session{
+	require.NoError(t, st.Insert(context.Background(), &agentstore.Agent{
 		ID: slotID, TmuxSession: slotID, Role: autopilotBrainRole, Status: store.StatusWorking,
 		AutopilotRunID: runID, AutopilotSlot: store.AutopilotSlotManager,
 		Tags: []string{"autopilot", "run:" + runID},

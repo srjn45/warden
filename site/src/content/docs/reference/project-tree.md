@@ -3,8 +3,8 @@ title: Project tree
 description: The shared project-tree hierarchy — GET /api/v1/tree, the SSE tree event, and the TUI consumer.
 ---
 
-The daemon computes one **project tree** for the whole fleet — projects, pipelines,
-autopilot runs, agents, and terminals — so every UI (TUI, web, remote clients)
+The daemon computes one **project tree** for the whole fleet — projects, plans,
+autopilots, pipelines, agents, and terminals — so every UI (TUI, web, remote clients)
 renders the same nesting. Clients should **prefer this tree** over joining
 `/sessions`, `/pipelines`, and `/autopilot` themselves.
 
@@ -12,7 +12,7 @@ renders the same nesting. Clients should **prefer this tree** over joining
 
 | Surface | How |
 |---|---|
-| **REST** | `GET /api/v1/tree` — optional `?project_id=` scope, `?all=true` to include `system:true` sessions |
+| **REST** | `GET /api/v1/tree` — optional `?project_id=` scope, `?all=true` to include `system:true` sessions (including headless brain) |
 | **SSE** | Named `tree` event on `/api/v1/events/stream` (same envelope as the GET) when structure changes |
 | **Capability** | `project-tree` in `GET /api/v1/capabilities` |
 | **TUI** | The Projects-tab navigator walks `tree.Service.Build` locally (same package the API uses) and applies collapse/cursor on **composite node ids** |
@@ -24,12 +24,19 @@ Interactive Swagger UI documents the full schema under
 
 - **Roots** are project nodes (registered projects, loose directories, and a synthetic
   **No project** bucket).
-- Children under a project, in order: **autopilot runs → pipelines → agent
-  sub-trees → terminals**.
-- Autopilot runs nest **manager → guardian → tasks → workers**.
-- Node ids are **composite and opaque** (`project:…`, `session:…`, `pipeline:…/job:…`,
-  `run:…/task:…`) — stable across snapshots; key view state (collapse/cursor) off
-  the id, never parse it.
+- Children under a project are five **sections**, in order: **Plans → Autopilots →
+  Pipelines → Agents → Terminals**.
+- Each entity renders **exactly once**: Autopilot managers and workers nest under
+  Autopilots (not Agents); pipeline job agents nest under Pipelines; Plan task
+  evidence lives on Plan detail, never as task groups inside Autopilot.
+- Autopilot runs render as **Autopilot → manager → workers**. Headless brain is
+  hidden unless `?all=true` / show-system.
+- Plan-bound executors keep their display prefixes: `AP:<plan>` under Autopilots,
+  `P:<plan>` as Pipeline → DAG jobs, `O:<plan>` / `M:<plan>` as Agents (with
+  workers for orchestrator).
+- Node ids are **composite and opaque** (`project:…`, `section:…:plans`,
+  `plan:…`, `session:…`, `pipeline:…/job:…`, `run:…`) — stable across snapshots;
+  key view state (collapse/cursor) off the id, never parse it.
 
 ## When to use it
 

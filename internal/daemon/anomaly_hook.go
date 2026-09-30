@@ -1,15 +1,15 @@
 package daemon
 
 import (
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/notify"
 	"github.com/srjn45/warden/internal/poller"
-	"github.com/srjn45/warden/internal/store"
 )
 
 // AnomalyMessage builds the notification for a poller-raised health anomaly
 // (OOM-suspected crash, infinite loop, pre-crash context). The poller already
 // records a durable event for every anomaly; this is the user-facing alert.
-func AnomalyMessage(sess *store.Session, a poller.Anomaly) (title, body string) {
+func AnomalyMessage(sess *agentstore.Agent, a poller.Anomaly) (title, body string) {
 	subj := sess.Subject
 	if subj == "" {
 		subj = sess.ID
@@ -31,8 +31,8 @@ func AnomalyMessage(sess *store.Session, a poller.Anomaly) (title, body string) 
 
 // NotifyOnAnomaly returns a poller OnAnomaly hook that fires the notifier
 // (best-effort, async) for each raised health anomaly.
-func NotifyOnAnomaly(n notify.Notifier) func(*store.Session, poller.Anomaly) {
-	return func(sess *store.Session, a poller.Anomaly) {
+func NotifyOnAnomaly(n notify.Notifier) func(*agentstore.Agent, poller.Anomaly) {
+	return func(sess *agentstore.Agent, a poller.Anomaly) {
 		title, body := AnomalyMessage(sess, a)
 		go n.Notify(title, body)
 	}

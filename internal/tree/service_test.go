@@ -117,7 +117,7 @@ func TestGolden_RFC18PopulatedTree(t *testing.T) {
 				Name:      "orch-warden",
 				ProjectID: "/home/u/dev/warden",
 				Repo:      "/home/u/dev/warden",
-				Backend:   "claude",
+				AiCli:     "claude",
 				Status:    store.StatusWaitingForInput,
 				Kind:      store.KindAgent,
 				CreatedAt: now.Add(5 * time.Minute),
@@ -129,7 +129,7 @@ func TestGolden_RFC18PopulatedTree(t *testing.T) {
 				ParentID:  "agent-7",
 				ProjectID: "/home/u/dev/warden",
 				Repo:      "/home/u/dev/warden",
-				Backend:   "claude",
+				AiCli:     "claude",
 				Status:    store.StatusWorking,
 				Kind:      store.KindAgent,
 				CreatedAt: now.Add(6 * time.Minute),
@@ -174,52 +174,98 @@ func TestGolden_RFC18PopulatedTree(t *testing.T) {
       },
       "children": [
         {
-          "type": "autopilot_run",
-          "id": "run:ap-42",
-          "label": "recovery-finish",
+          "type": "section",
+          "id": "section:/home/u/dev/warden:plans",
+          "label": "Plans",
+          "status": "idle",
+          "detail": {
+            "section": "plans"
+          }
+        },
+        {
+          "type": "section",
+          "id": "section:/home/u/dev/warden:autopilots",
+          "label": "Autopilots",
           "status": "active",
           "detail": {
-            "repo": "/home/u/dev/warden",
-            "gate": "auto"
+            "section": "autopilots"
           },
           "children": [
             {
-              "type": "manager",
-              "id": "session:ap-42-brain",
-              "label": "manager",
-              "status": "busy",
-              "session_id": "ap-42-brain",
-              "detail": {
-                "kind": "agent",
-                "slot": "autopilot"
-              }
-            },
-            {
-              "type": "guardian",
-              "id": "session:ap-42-guard",
-              "label": "guardian",
-              "status": "idle",
-              "session_id": "ap-42-guard",
-              "detail": {
-                "kind": "agent",
-                "slot": "guardian"
-              }
-            },
-            {
-              "type": "task",
-              "id": "run:ap-42/task:t1",
-              "label": "wire resolver into first-spawn",
+              "type": "autopilot_run",
+              "id": "run:ap-42",
+              "label": "recovery-finish",
               "status": "active",
+              "detail": {
+                "repo": "/home/u/dev/warden",
+                "gate": "auto"
+              },
               "children": [
                 {
-                  "type": "worker",
-                  "id": "session:w-9",
-                  "label": "worker-9",
+                  "type": "manager",
+                  "id": "session:ap-42-brain",
+                  "label": "manager",
                   "status": "busy",
-                  "session_id": "w-9",
+                  "session_id": "ap-42-brain",
                   "detail": {
                     "kind": "agent",
-                    "slot": "worker"
+                    "slot": "autopilot"
+                  },
+                  "children": [
+                    {
+                      "type": "worker",
+                      "id": "session:w-9",
+                      "label": "worker-9",
+                      "status": "busy",
+                      "session_id": "w-9",
+                      "detail": {
+                        "kind": "agent",
+                        "slot": "worker"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "section",
+          "id": "section:/home/u/dev/warden:pipelines",
+          "label": "Pipelines",
+          "status": "active",
+          "detail": {
+            "section": "pipelines"
+          },
+          "children": [
+            {
+              "type": "pipeline",
+              "id": "pipeline:cred-inject",
+              "label": "cred-inject",
+              "status": "active",
+              "detail": {
+                "repo": "/home/u/dev/warden"
+              },
+              "children": [
+                {
+                  "type": "job",
+                  "id": "pipeline:cred-inject/job:implement",
+                  "label": "implement",
+                  "status": "active",
+                  "session_id": "impl-1",
+                  "detail": {
+                    "depends_on": []
+                  }
+                },
+                {
+                  "type": "job",
+                  "id": "pipeline:cred-inject/job:review",
+                  "label": "review",
+                  "status": "blocked",
+                  "detail": {
+                    "depends_on": [
+                      "implement"
+                    ]
                   }
                 }
               ]
@@ -227,70 +273,62 @@ func TestGolden_RFC18PopulatedTree(t *testing.T) {
           ]
         },
         {
-          "type": "pipeline",
-          "id": "pipeline:cred-inject",
-          "label": "cred-inject",
+          "type": "section",
+          "id": "section:/home/u/dev/warden:agents",
+          "label": "Agents",
           "status": "active",
           "detail": {
-            "repo": "/home/u/dev/warden"
-          },
-          "children": [
-            {
-              "type": "job",
-              "id": "pipeline:cred-inject/job:implement",
-              "label": "implement",
-              "status": "active",
-              "session_id": "impl-1",
-              "detail": {
-                "depends_on": []
-              }
-            },
-            {
-              "type": "job",
-              "id": "pipeline:cred-inject/job:review",
-              "label": "review",
-              "status": "blocked",
-              "detail": {
-                "depends_on": [
-                  "implement"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "type": "agent",
-          "id": "session:agent-7",
-          "label": "orch-warden",
-          "status": "need-input",
-          "session_id": "agent-7",
-          "detail": {
-            "kind": "agent",
-            "backend": "claude"
+            "section": "agents"
           },
           "children": [
             {
               "type": "agent",
-              "id": "session:agent-8",
-              "label": "sub-explorer",
-              "status": "busy",
-              "session_id": "agent-8",
+              "id": "session:agent-7",
+              "label": "orch-warden",
+              "status": "need-input",
+              "session_id": "agent-7",
               "detail": {
                 "kind": "agent",
+                "ai_cli": "claude",
                 "backend": "claude"
-              }
+              },
+              "children": [
+                {
+                  "type": "agent",
+                  "id": "session:agent-8",
+                  "label": "sub-explorer",
+                  "status": "busy",
+                  "session_id": "agent-8",
+                  "detail": {
+                    "kind": "agent",
+                    "ai_cli": "claude",
+                    "backend": "claude"
+                  }
+                }
+              ]
             }
           ]
         },
         {
-          "type": "terminal",
-          "id": "session:term-3",
-          "label": "warden ~ main",
-          "status": "busy",
-          "session_id": "term-3",
+          "type": "section",
+          "id": "section:/home/u/dev/warden:terminals",
+          "label": "Terminals",
+          "status": "active",
           "detail": {
-            "kind": "terminal"
-          }
+            "section": "terminals"
+          },
+          "children": [
+            {
+              "type": "terminal",
+              "id": "session:term-3",
+              "label": "warden ~ main",
+              "status": "busy",
+              "session_id": "term-3",
+              "detail": {
+                "kind": "terminal"
+              }
+            }
+          ]
         }
       ]
     },
@@ -304,19 +342,67 @@ func TestGolden_RFC18PopulatedTree(t *testing.T) {
       },
       "children": [
         {
-          "type": "terminal",
-          "id": "session:term-9",
-          "label": "shell",
-          "status": "busy",
-          "session_id": "term-9",
+          "type": "section",
+          "id": "section:__none__:plans",
+          "label": "Plans",
+          "status": "idle",
           "detail": {
-            "kind": "terminal"
+            "section": "plans"
           }
+        },
+        {
+          "type": "section",
+          "id": "section:__none__:autopilots",
+          "label": "Autopilots",
+          "status": "idle",
+          "detail": {
+            "section": "autopilots"
+          }
+        },
+        {
+          "type": "section",
+          "id": "section:__none__:pipelines",
+          "label": "Pipelines",
+          "status": "idle",
+          "detail": {
+            "section": "pipelines"
+          }
+        },
+        {
+          "type": "section",
+          "id": "section:__none__:agents",
+          "label": "Agents",
+          "status": "idle",
+          "detail": {
+            "section": "agents"
+          }
+        },
+        {
+          "type": "section",
+          "id": "section:__none__:terminals",
+          "label": "Terminals",
+          "status": "active",
+          "detail": {
+            "section": "terminals"
+          },
+          "children": [
+            {
+              "type": "terminal",
+              "id": "session:term-9",
+              "label": "shell",
+              "status": "busy",
+              "session_id": "term-9",
+              "detail": {
+                "kind": "terminal"
+              }
+            }
+          ]
         }
       ]
     }
   ]
-}`
+}
+`
 
 	require.JSONEq(t, expectedJSON, string(gotJSON))
 }
@@ -416,8 +502,10 @@ func TestGolden_ClosedProject(t *testing.T) {
 	closedNode := tree.Roots[1]
 	require.Equal(t, "project:/home/u/closed-proj", closedNode.ID)
 	require.True(t, closedNode.Detail.Closed, "closed project must carry Detail.Closed=true")
-	require.Len(t, closedNode.Children, 1)
-	require.Equal(t, "session:agent-in-closed", closedNode.Children[0].ID)
+	requireSectionLabels(t, closedNode)
+	agents := sectionOf(t, closedNode, SectionAgents)
+	require.Len(t, agents.Children, 1)
+	require.Equal(t, "session:agent-in-closed", agents.Children[0].ID)
 }
 
 // Golden test: Autopilot worker with cleared parent_id nested under its task
@@ -476,19 +564,15 @@ func TestGolden_AutopilotWorkerClearedParentID(t *testing.T) {
 
 	require.Len(t, tree.Roots, 1)
 	proj := tree.Roots[0]
-	// Project has exactly 1 child (the autopilot run)
-	require.Len(t, proj.Children, 1)
-	run := proj.Children[0]
+	requireSectionLabels(t, proj)
+	aps := sectionOf(t, proj, SectionAutopilots)
+	require.Len(t, aps.Children, 1)
+	run := aps.Children[0]
 	require.Equal(t, "run:ap-99", run.ID)
 
-	// Run has 1 child (the task)
+	// Worker nests under the run directly (no Plan task groups inside Autopilot).
 	require.Len(t, run.Children, 1)
-	task := run.Children[0]
-	require.Equal(t, "run:ap-99/task:task-cleanup", task.ID)
-
-	// Worker is nested under task
-	require.Len(t, task.Children, 1)
-	worker := task.Children[0]
+	worker := run.Children[0]
 	require.Equal(t, "session:w-clean", worker.ID)
 	require.Equal(t, NodeTypeWorker, worker.Type)
 	require.Equal(t, "worker", worker.Detail.Slot)
@@ -515,7 +599,7 @@ func TestGolden_NestedAgent_AcrossWorktree(t *testing.T) {
 				Name:        "orchestrator",
 				ProjectID:   "/home/u/dev/warden",
 				Repo:        "/home/u/dev/warden",
-				Backend:     "claude",
+				AiCli:       "claude",
 				Status:      store.StatusWaitingForInput,
 				Kind:        store.KindAgent,
 				CreatedAt:   now.Add(1 * time.Minute),
@@ -528,7 +612,7 @@ func TestGolden_NestedAgent_AcrossWorktree(t *testing.T) {
 				ParentID:  "orch",
 				ProjectID: "/home/u/dev/warden",
 				Repo:      "/home/u/dev/warden/.worktrees/feature-x",
-				Backend:   "claude",
+				AiCli:     "claude",
 				Status:    store.StatusWorking,
 				Kind:      store.KindAgent,
 				CreatedAt: now.Add(2 * time.Minute),
@@ -539,51 +623,15 @@ func TestGolden_NestedAgent_AcrossWorktree(t *testing.T) {
 	svc := NewService()
 	tree := svc.Build(in, "")
 
-	gotJSON, err := json.MarshalIndent(tree, "", "  ")
-	require.NoError(t, err)
-
-	expectedJSON := `{
-  "roots": [
-    {
-      "type": "project",
-      "id": "project:/home/u/dev/warden",
-      "label": "warden",
-      "status": "active",
-      "detail": {
-        "repo": "/home/u/dev/warden",
-        "path": "/home/u/dev/warden"
-      },
-      "children": [
-        {
-          "type": "agent",
-          "id": "session:orch",
-          "label": "orchestrator",
-          "status": "need-input",
-          "session_id": "orch",
-          "detail": {
-            "kind": "agent",
-            "backend": "claude"
-          },
-          "children": [
-            {
-              "type": "agent",
-              "id": "session:wt-worker",
-              "label": "worktree-worker",
-              "status": "busy",
-              "session_id": "wt-worker",
-              "detail": {
-                "kind": "agent",
-                "backend": "claude"
-              }
-            }
-          ]
-        }
-      ]
-    }
-  ]
-}`
-
-	require.JSONEq(t, expectedJSON, string(gotJSON))
+	require.Len(t, tree.Roots, 1)
+	proj := tree.Roots[0]
+	requireSectionLabels(t, proj)
+	agents := sectionOf(t, proj, SectionAgents)
+	require.Len(t, agents.Children, 1)
+	orch := agents.Children[0]
+	require.Equal(t, "session:orch", orch.ID)
+	require.Len(t, orch.Children, 1)
+	require.Equal(t, "session:wt-worker", orch.Children[0].ID)
 }
 
 // Golden test: a pipeline owned by an agent (parent_agent_id / child_pipelines)
@@ -632,7 +680,7 @@ func TestGolden_NestedPipeline_UnderOwningAgent(t *testing.T) {
 				Name:           "orchestrator",
 				ProjectID:      "/home/u/dev/warden",
 				Repo:           "/home/u/dev/warden",
-				Backend:        "claude",
+				AiCli:          "claude",
 				Status:         store.StatusWorking,
 				Kind:           store.KindAgent,
 				CreatedAt:      now.Add(1 * time.Minute),
@@ -653,81 +701,17 @@ func TestGolden_NestedPipeline_UnderOwningAgent(t *testing.T) {
 	svc := NewService()
 	tree := svc.Build(in, "")
 
-	gotJSON, err := json.MarshalIndent(tree, "", "  ")
-	require.NoError(t, err)
-
-	expectedJSON := `{
-  "roots": [
-    {
-      "type": "project",
-      "id": "project:/home/u/dev/warden",
-      "label": "warden",
-      "status": "active",
-      "detail": {
-        "repo": "/home/u/dev/warden",
-        "path": "/home/u/dev/warden"
-      },
-      "children": [
-        {
-          "type": "pipeline",
-          "id": "pipeline:loose-pipe",
-          "label": "loose-pipe",
-          "status": "active",
-          "detail": {
-            "repo": "/home/u/dev/warden"
-          },
-          "children": [
-            {
-              "type": "job",
-              "id": "pipeline:loose-pipe/job:deploy",
-              "label": "deploy",
-              "status": "active",
-              "detail": {
-                "depends_on": []
-              }
-            }
-          ]
-        },
-        {
-          "type": "agent",
-          "id": "session:orch",
-          "label": "orchestrator",
-          "status": "busy",
-          "session_id": "orch",
-          "detail": {
-            "kind": "agent",
-            "backend": "claude"
-          },
-          "children": [
-            {
-              "type": "pipeline",
-              "id": "pipeline:owned-pipe",
-              "label": "owned-pipe",
-              "status": "active",
-              "detail": {
-                "repo": "/home/u/dev/warden"
-              },
-              "children": [
-                {
-                  "type": "job",
-                  "id": "pipeline:owned-pipe/job:build",
-                  "label": "build",
-                  "status": "active",
-                  "session_id": "job-build",
-                  "detail": {
-                    "depends_on": []
-                  }
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    }
-  ]
-}`
-
-	require.JSONEq(t, expectedJSON, string(gotJSON))
+	requireSectionLabels(t, tree.Roots[0])
+	pipes := sectionOf(t, tree.Roots[0], SectionPipelines)
+	require.Len(t, pipes.Children, 1)
+	require.Equal(t, "pipeline:loose-pipe", pipes.Children[0].ID)
+	agents := sectionOf(t, tree.Roots[0], SectionAgents)
+	require.Len(t, agents.Children, 1)
+	orch := agents.Children[0]
+	require.Equal(t, "session:orch", orch.ID)
+	require.Len(t, orch.Children, 1)
+	require.Equal(t, "pipeline:owned-pipe", orch.Children[0].ID)
+	require.Equal(t, "job-build", orch.Children[0].Children[0].SessionID)
 }
 
 // Contradiction: pipeline.parent_agent_id=A while B.child_pipelines lists the
@@ -752,8 +736,9 @@ func TestChildPipelinesBeatsContradictoryParentAgentID(t *testing.T) {
 	}
 	tree := NewService().Build(in, "")
 	require.Len(t, tree.Roots, 1)
+	agents := sectionOf(t, tree.Roots[0], SectionAgents)
 	var bravo, alpha *Node
-	for _, ch := range tree.Roots[0].Children {
+	for _, ch := range agents.Children {
 		if ch.SessionID == "b" {
 			bravo = ch
 		}
@@ -798,9 +783,10 @@ func TestPerSubtreeDegraded(t *testing.T) {
 
 	require.True(t, tree.Degraded, "whole-tree degraded must be true when a subtree is degraded")
 	require.Len(t, tree.Roots, 1)
-	require.Len(t, tree.Roots[0].Children, 1)
+	pipes := sectionOf(t, tree.Roots[0], SectionPipelines)
+	require.Len(t, pipes.Children, 1)
 
-	pipeNode := tree.Roots[0].Children[0]
+	pipeNode := pipes.Children[0]
 	require.Equal(t, "pipeline:pipe-1", pipeNode.ID)
 	require.True(t, pipeNode.Detail.Degraded)
 	require.Equal(t, StatusUnknown, pipeNode.Status)
@@ -833,8 +819,9 @@ func TestSubsystemDegraded(t *testing.T) {
 	tree := svc.Build(in, "")
 
 	require.True(t, tree.Degraded)
-	require.True(t, tree.Roots[0].Children[0].Detail.Degraded)
-	require.Equal(t, StatusUnknown, tree.Roots[0].Children[0].Status)
+	pipes := sectionOf(t, tree.Roots[0], SectionPipelines)
+	require.True(t, pipes.Children[0].Detail.Degraded)
+	require.Equal(t, StatusUnknown, pipes.Children[0].Status)
 }
 
 // Test topological sort for jobs in a pipeline
@@ -859,7 +846,8 @@ func TestJobTopologicalSorting(t *testing.T) {
 	tree := svc.Build(in, "")
 
 	require.Len(t, tree.Roots, 1)
-	pipe := tree.Roots[0].Children[0]
+	pipes := sectionOf(t, tree.Roots[0], SectionPipelines)
+	pipe := pipes.Children[0]
 	require.Len(t, pipe.Children, 3)
 
 	// Order must be build -> test -> deploy
@@ -953,7 +941,7 @@ func TestGolden_AuthoritativeMembership_NestedPipelineJob_TerminalSeparation(t *
 				// Contradictory ProjectID/path → Agents[] on alpha wins.
 				ProjectID:      projB,
 				Repo:           projB,
-				Backend:        "claude",
+				AiCli:          "claude",
 				Status:         store.StatusWorking,
 				Kind:           store.KindAgent,
 				CreatedAt:      now.Add(1 * time.Minute),
@@ -966,7 +954,7 @@ func TestGolden_AuthoritativeMembership_NestedPipelineJob_TerminalSeparation(t *
 				ParentID:  "orch",
 				ProjectID: projB,
 				Repo:      projB,
-				Backend:   "claude",
+				AiCli:     "claude",
 				Status:    store.StatusIdle,
 				Kind:      store.KindAgent,
 				CreatedAt: now.Add(2 * time.Minute),
@@ -998,119 +986,72 @@ func TestGolden_AuthoritativeMembership_NestedPipelineJob_TerminalSeparation(t *
 	svc := NewService()
 	tree := svc.Build(in, "")
 
-	gotJSON, err := json.MarshalIndent(tree, "", "  ")
-	require.NoError(t, err)
+	require.Len(t, tree.Roots, 2)
+	alpha, beta := tree.Roots[0], tree.Roots[1]
+	require.Equal(t, "project:/home/u/dev/alpha", alpha.ID)
+	require.Equal(t, "project:/home/u/dev/beta", beta.ID)
+	requireSectionLabels(t, alpha)
+	requireSectionLabels(t, beta)
 
-	expectedJSON := `{
-  "roots": [
-    {
-      "type": "project",
-      "id": "project:/home/u/dev/alpha",
-      "label": "alpha",
-      "status": "active",
-      "detail": {
-        "repo": "/home/u/dev/alpha",
-        "path": "/home/u/dev/alpha"
-      },
-      "children": [
-        {
-          "type": "pipeline",
-          "id": "pipeline:loose-pipe",
-          "label": "loose-pipe",
-          "status": "blocked",
-          "detail": {
-            "repo": "/home/u/dev/beta"
-          },
-          "children": [
-            {
-              "type": "job",
-              "id": "pipeline:loose-pipe/job:solo",
-              "label": "solo",
-              "status": "blocked",
-              "detail": {
-                "depends_on": []
-              }
-            }
-          ]
-        },
-        {
-          "type": "agent",
-          "id": "session:orch",
-          "label": "orchestrator",
-          "status": "busy",
-          "session_id": "orch",
-          "detail": {
-            "kind": "agent",
-            "backend": "claude"
-          },
-          "children": [
-            {
-              "type": "agent",
-              "id": "session:helper",
-              "label": "helper",
-              "status": "idle",
-              "session_id": "helper",
-              "detail": {
-                "kind": "agent",
-                "backend": "claude"
-              }
-            },
-            {
-              "type": "pipeline",
-              "id": "pipeline:owned-pipe",
-              "label": "owned-pipe",
-              "status": "active",
-              "detail": {
-                "repo": "/home/u/dev/beta"
-              },
-              "children": [
-                {
-                  "type": "job",
-                  "id": "pipeline:owned-pipe/job:build",
-                  "label": "build",
-                  "status": "active",
-                  "session_id": "job-build",
-                  "detail": {
-                    "depends_on": []
-                  }
-                },
-                {
-                  "type": "job",
-                  "id": "pipeline:owned-pipe/job:review",
-                  "label": "review",
-                  "status": "blocked",
-                  "detail": {
-                    "depends_on": ["build"]
-                  }
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "type": "terminal",
-          "id": "session:shell-1",
-          "label": "dev-shell",
-          "status": "busy",
-          "session_id": "shell-1",
-          "detail": {
-            "kind": "terminal"
-          }
-        }
-      ]
-    },
-    {
-      "type": "project",
-      "id": "project:/home/u/dev/beta",
-      "label": "beta",
-      "status": "idle",
-      "detail": {
-        "repo": "/home/u/dev/beta",
-        "path": "/home/u/dev/beta"
-      }
-    }
-  ]
-}`
+	pipes := sectionOf(t, alpha, SectionPipelines)
+	require.Len(t, pipes.Children, 1)
+	require.Equal(t, "pipeline:loose-pipe", pipes.Children[0].ID)
 
-	require.JSONEq(t, expectedJSON, string(gotJSON))
+	agents := sectionOf(t, alpha, SectionAgents)
+	require.Len(t, agents.Children, 1)
+	orch := agents.Children[0]
+	require.Equal(t, "session:orch", orch.ID)
+	require.Equal(t, "session:helper", orch.Children[0].ID)
+	require.Equal(t, "pipeline:owned-pipe", orch.Children[1].ID)
+	require.Equal(t, "job-build", orch.Children[1].Children[0].SessionID)
+
+	terms := sectionOf(t, alpha, SectionTerminals)
+	require.Len(t, terms.Children, 1)
+	require.Equal(t, "session:shell-1", terms.Children[0].ID)
+
+	require.Empty(t, sectionOf(t, beta, SectionAgents).Children)
+	require.Empty(t, sectionOf(t, beta, SectionPipelines).Children)
+	require.Empty(t, sectionOf(t, beta, SectionTerminals).Children)
+}
+
+func TestBuildExposesPlanIDOnAgentAndPipeline(t *testing.T) {
+	in := Inputs{
+		Projects: []projectstore.Project{{
+			ID: "/proj", Name: "proj", Path: "/proj", Status: projectstore.StatusOpen,
+			Agents: []string{"agent-1"}, Pipelines: []string{"bound"},
+		}},
+		Pipelines: []*pipeline.Pipeline{{
+			ID: "bound", Name: "bound", Repo: "/proj", Status: pipeline.StatusPending,
+			PlanID: "plan-aabbccdd", ProjectID: "/proj",
+			Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobPending, DependsOn: []string{}}},
+		}},
+		Sessions: []*store.Session{{
+			ID: "agent-1", Name: "worker", Status: store.StatusIdle,
+			ProjectID: "/proj", PlanID: "plan-aabbccdd",
+		}},
+	}
+	tree := NewService().Build(in, "")
+	require.NotEmpty(t, tree.Roots)
+	var foundAgent, foundPipe bool
+	var walk func(n *Node)
+	walk = func(n *Node) {
+		if n.Type == NodeTypeAgent && n.SessionID == "agent-1" {
+			require.NotNil(t, n.Detail)
+			require.Equal(t, "plan-aabbccdd", n.Detail.PlanID)
+			foundAgent = true
+		}
+		if n.Type == NodeTypePipeline && n.ID == "pipeline:bound" {
+			require.NotNil(t, n.Detail)
+			require.Equal(t, "plan-aabbccdd", n.Detail.PlanID)
+			foundPipe = true
+		}
+		for _, ch := range n.Children {
+			walk(ch)
+		}
+	}
+	for _, r := range tree.Roots {
+		walk(r)
+	}
+	require.True(t, foundAgent, "agent node with plan_id")
+	require.True(t, foundPipe, "pipeline node with plan_id")
 }

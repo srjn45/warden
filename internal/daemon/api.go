@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/autopilot"
@@ -38,6 +39,7 @@ import (
 	"github.com/srjn45/warden/internal/snapshot"
 	"github.com/srjn45/warden/internal/spend"
 	"github.com/srjn45/warden/internal/store"
+	"github.com/srjn45/warden/internal/terminalstore"
 )
 
 // SpawnRequest is the body for POST /spawn.
@@ -56,8 +58,9 @@ type SpawnRequest struct {
 	AutoRestart     bool     `json:"auto_restart"`         // opt-in: auto-resume on error (capped)
 	Force           bool     `json:"force"`                // bypass the memory-pressure spawn gate
 	Model           string   `json:"model"`                // claude model (opus/sonnet/haiku or full ID); empty = default
-	Backend         string   `json:"backend"`              // agent backend id (claude, aider, …); empty = claude (back-compat)
-	Kind            string   `json:"kind"`                 // "" / "agent" ⇒ AI agent; "terminal" ⇒ plain ${SHELL:-bash} pane (backend/model/role/prompt ignored)
+	AiCli           string   `json:"ai_cli"`               // canonical AI CLI id (claude, aider, …); empty = daemon default
+	Backend         string   `json:"backend"`              // deprecated alias for ai_cli; accepted for one release
+	Kind            string   `json:"kind"`                 // "" / "agent" ⇒ AI agent; "terminal" ⇒ plain ${SHELL:-bash} pane (ai_cli/model/role/prompt ignored)
 	Tags            []string `json:"tags"`                 // optional free-form labels for grouping/filtering (#30)
 	ParentID        string   `json:"parent_id"`            // id of the agent that spawned this one; empty = root (operator/CLI spawn)
 	ProjectID       string   `json:"project_id,omitempty"` // id of the project this session joins; empty = resolve by path-match to an open project
@@ -91,7 +94,7 @@ type sessionsResponse struct {
 
 // Server holds the daemon's dependencies. store is the single writer.
 type Server struct {
-	store        store.Store
+	store        agentstore.AgentStore
 	life         Lifecycle
 	poller       *poller.Poller
 	pollInterval time.Duration
@@ -243,6 +246,9 @@ type Server struct {
 	// each known project's plans/ directory at startup when both this and projects
 	// are set.
 	plans *planstore.Store
+	// terminals is the first-class terminal pane store (plan-execution entity
+	// redesign). nil ⇒ legacy Kind=terminal Session path. Set via SetTerminals.
+	terminals *terminalstore.Store
 	// autoApprovePersist persists a replaced auto-approve policy to the config
 	// file (set by the daemon to config.WriteAutoApprove). nil ⇒ the PUT
 	// /auto-approve/policy endpoint changes the live policy but does not persist.
@@ -265,6 +271,9 @@ type Server struct {
 	// out to (desktop/webhook). nil ⇒ escalations are logged only. Set by the daemon
 	// from config (SetAutopilotNotifier).
 	apNotifier notify.Notifier
+	// finalizeCleanupHook replaces disposable-executor cleanup during FinalizePlan
+	// (tests only). nil ⇒ production cleanupPlanExecutors.
+	finalizeCleanupHook planstore.ExecutorCleanupFunc
 
 	// Config hot-reload (feature 3). appliedConfig is the last config ApplyConfig
 	// installed (seeded at boot via SetBaselineConfig) — the "last-good" baseline
@@ -287,6 +296,10 @@ func (s *Server) SetAutopilotController(c *autopilot.Controller) {
 	s.autopilot = c
 	if c != nil {
 		c.SetRuntime(autopilotRuntime{s: s})
+		if s.plans != nil {
+			c.SetPlanSource(s.plans)
+		}
+		_ = c.RecoverLiveAutopilots(context.Background())
 	}
 	// Wire the approval-routing seam (autopilot.md §8): while a run is active, an
 	// autopilot-owned worker's unanswerable prompt (and tripped breaker) routes to
@@ -435,7 +448,8 @@ func (s *Server) SetBudget(enabled bool, dailyUSD, weeklyUSD float64) {
 // Phase 2 stays decoupled from the lifecycle package (built in Phase 4). The
 // Phase 4 adapter translates daemon.SpawnRequest → lifecycle.SpawnRequest.
 type Lifecycle interface {
-	Spawn(ctx context.Context, req SpawnRequest) (*store.Session, error)
+	Spawn(ctx context.Context, req SpawnRequest) (*agentstore.Agent, error)
+	SpawnTerminal(ctx context.Context, req SpawnRequest) (*terminalstore.Terminal, error)
 	Classify(ctx context.Context, prompt string) (store.Type, error)
 	// GenerateName derives a short human-friendly handle from a task prompt (local
 	// LLM when available, else a deterministic slug). "" means no usable name.
@@ -443,34 +457,36 @@ type Lifecycle interface {
 	// Terminate kills the agent's tmux session (keeps record + worktree).
 	Terminate(ctx context.Context, tmuxSession string) error
 	// RemoveWorktree removes the session's git worktree + branch (explicit).
-	RemoveWorktree(ctx context.Context, sess *store.Session, force, deleteAdoptedBranch bool) error
+	RemoveWorktree(ctx context.Context, sess *agentstore.Agent, force, deleteAdoptedBranch bool) error
 	// ListWorktrees is the read-only join behind `warden worktree ls`: git
 	// worktrees under repo/.worktrees labelled by their owning record + state.
-	ListWorktrees(ctx context.Context, repo string, active, archived []*store.Session) ([]lifecycle.WorktreeListing, error)
+	ListWorktrees(ctx context.Context, repo string, active, archived []*agentstore.Agent) ([]lifecycle.WorktreeListing, error)
 	// PruneWorktrees reconciles git's worktree list against the supplied records
 	// and reclaims orphans under the dirty/unpushed guard.
 	PruneWorktrees(ctx context.Context, repo string, opts lifecycle.PruneOpts) ([]lifecycle.PruneResult, error)
 	// Teardown force-removes a session's tmux session (and worktree/branch, if
 	// any) using the already-known doc, without consulting the store. It is used
 	// to roll back Spawn's side effects when persisting the doc fails.
-	Teardown(ctx context.Context, sess *store.Session) error
+	Teardown(ctx context.Context, sess *agentstore.Agent) error
 	// Restore recreates and resumes a lost session from its stored doc.
-	Restore(ctx context.Context, sess *store.Session) error
+	Restore(ctx context.Context, sess *agentstore.Agent) error
+	// RestoreTerminal recreates a lost terminal pane (fresh shell, no AI resume).
+	RestoreTerminal(ctx context.Context, id, workdir string) error
 	// SwitchRole re-injects the persona for sess.Role and relaunches the agent so
 	// the new role takes effect (a plain resume re-injects nothing).
-	SwitchRole(ctx context.Context, sess *store.Session) error
+	SwitchRole(ctx context.Context, sess *agentstore.Agent) error
 	// NewestClaudeSession returns the claude session id of the newest transcript
 	// for cwd (ErrNoTranscript when none).
 	NewestClaudeSession(ctx context.Context, cwd string) (string, error)
 	// Adopt registers a session warden did not spawn (resume or live) and
 	// returns the unpersisted record.
-	Adopt(ctx context.Context, req AdoptParams) (*store.Session, error)
+	Adopt(ctx context.Context, req AdoptParams) (*agentstore.Agent, error)
 	Input(ctx context.Context, tmuxSession, text string) error
 	Output(ctx context.Context, tmuxSession string, lines int) (string, error)
 	// SendKeys injects a raw keystroke (e.g. a menu digit) into the agent's pane.
 	SendKeys(ctx context.Context, tmuxSession, key string) error
 	// SpawnJob launches one pipeline-job agent (worktree strategy + pipeline env).
-	SpawnJob(ctx context.Context, req lifecycle.JobSpawnRequest) (*store.Session, error)
+	SpawnJob(ctx context.Context, req lifecycle.JobSpawnRequest) (*agentstore.Agent, error)
 	// CommitWorktree stages+commits any changes in dir; committed=false when clean.
 	// Used on job emit so a job's work lands on its branch before downstream forks.
 	CommitWorktree(ctx context.Context, dir, message string) (bool, error)
@@ -487,7 +503,7 @@ type Lifecycle interface {
 	// mcp__warden__check.
 	Check(ctx context.Context, dir, name string) (lifecycle.CheckResult, error)
 	// TranscriptPath resolves the agent's transcript file ("" when none).
-	TranscriptPath(sess *store.Session) string
+	TranscriptPath(sess *agentstore.Agent) string
 	// GitBranch / GitNumstat read git state in dir (best-effort, "" on error).
 	GitBranch(ctx context.Context, dir string) string
 	GitNumstat(ctx context.Context, dir string) string
@@ -497,7 +513,7 @@ type Lifecycle interface {
 	MemoryPressure(ctx context.Context) (pressure.Level, error)
 	// HotSwap retires the active agent process and launches a successor backend
 	// in the same worktree with extracted context.
-	HotSwap(ctx context.Context, sess *store.Session, req lifecycle.SwapRequest) (*lifecycle.SwapResult, error)
+	HotSwap(ctx context.Context, sess *agentstore.Agent, req lifecycle.SwapRequest) (*lifecycle.SwapResult, error)
 }
 
 // recoverMiddleware converts a panic in any handler into a 500 response instead
@@ -614,7 +630,7 @@ func statusForHook(t string) store.Status {
 // terminal sessions, so without this a job still "running" when its agent ends
 // would stay stuck forever. OnTransition's guard leaves an already-completed
 // (emit'd) job untouched; a still-running one is failed.
-func (s *Server) reconcileJobOnTerminal(sess *store.Session, to store.Status) {
+func (s *Server) reconcileJobOnTerminal(sess *agentstore.Agent, to store.Status) {
 	if s.exec != nil && sess != nil && sess.PipelineID != "" {
 		s.exec.OnTransition(sess, sess.Status, to)
 	}

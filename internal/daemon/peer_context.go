@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/projectstore"
-	"github.com/srjn45/warden/internal/store"
 )
 
 // orchestratorRole is the built-in role a per-project orchestrator runs under
@@ -35,7 +35,7 @@ const orchestratorRole = "orchestrator"
 //
 // Fail-open by contract (lifecycle treats the result as an additive hint): any store
 // error is logged and degrades to "", never blocking the spawn.
-func (s *Server) PeerContext(ctx context.Context, sess *store.Session) string {
+func (s *Server) PeerContext(ctx context.Context, sess *agentstore.Agent) string {
 	if s == nil || sess == nil || s.store == nil || s.projects == nil {
 		return ""
 	}
@@ -78,7 +78,7 @@ func (s *Server) groupForProject(projectID string) (projectstore.ProjectGroup, b
 // EXCLUDING self. A store read failure logs and yields no peers (fail-open). Names
 // fall back to the agent id when a session has no name; ordering is lexical so the
 // rendered addendum — and its tests — are deterministic.
-func (s *Server) livePeerOrchestrators(ctx context.Context, group projectstore.ProjectGroup, self *store.Session) []string {
+func (s *Server) livePeerOrchestrators(ctx context.Context, group projectstore.ProjectGroup, self *agentstore.Agent) []string {
 	all, err := s.store.List(ctx)
 	if err != nil {
 		slog.Warn("daemon: peer-context: list sessions failed", "agent", self.ID, "err", err)

@@ -23,8 +23,9 @@ func newPlanCmd() *cobra.Command {
 			"Plans are YAML files stored in plans/{pending,in_progress,completed,archived}/\n" +
 			"inside a project repository. The daemon tracks their definition (goal, tasks)\n" +
 			"and execution state (links to autopilot runs, pipelines, and task progress).\n\n" +
-			"Create with `wd plan create`, start with `wd plan run`, mark tasks done with\n" +
-			"`wd plan done`, then `wd plan complete` (or `wd plan archive`).",
+			"Create with `wd plan create`, start with `wd plan run`, control with\n" +
+			"`wd plan pause|resume|stop`, mark tasks done with `wd plan done`, then\n" +
+			"`wd plan complete` (or `wd plan archive`).",
 	}
 	SetCommandHelpMetadata(cmd, "run", 25, "warden plan", "", NodeNamespace)
 
@@ -33,6 +34,9 @@ func newPlanCmd() *cobra.Command {
 		newPlanCreateCmd(),
 		newPlanShowCmd(),
 		newPlanRunCmd(),
+		newPlanControlCmd("pause"),
+		newPlanControlCmd("resume"),
+		newPlanControlCmd("stop"),
 		newPlanDoneCmd(),
 		newPlanCompleteCmd(),
 		newPlanArchiveCmd(),
@@ -317,13 +321,15 @@ func newPlanRunCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "run <plan-id>",
 		Short: "Start execution of a plan in the given mode",
-		Long: "Start execution of a plan (pending → in_progress). The mode determines how\n" +
-			"the plan is executed:\n\n" +
-			"  autopilot           Fully autonomous run registered with the autopilot\n" +
+		Long: "Start execution of a plan (pending → in_progress). This is the only supported\n" +
+			"public start path for plan execution (including autopilot). The mode determines\n" +
+			"how the plan is executed:\n\n" +
+			"  autopilot           Creates a live Autopilot executor + manager\n" +
 			"  pipeline            Each task becomes a pipeline job\n" +
 			"  orchestrator        Orchestrator + workers with human approval gates\n" +
-			"  manual              State tracking only; human drives all prompting\n\n" +
-			"`orchestrator` is accepted as an alias for `orchestrator_worker`.",
+			"  manual              Plan-bound general agent; human drives prompting\n\n" +
+			"`orchestrator` is accepted as an alias for `orchestrator_worker`.\n" +
+			"Control a running plan with `wd plan pause|resume|stop`.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			planID := args[0]
@@ -344,6 +350,30 @@ func newPlanRunCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().String("mode", "", "execution mode: autopilot|pipeline|orchestrator|manual")
+	cmd.Flags().Bool("json", false, "output as JSON")
+	return cmd
+}
+
+func newPlanControlCmd(action string) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   action + " <plan-id>",
+		Short: action + " an in-progress plan's active executor",
+		Long: "Control the active executor for an in-progress plan (autopilot, pipeline, or\n" +
+			"plan-bound agent). Together with `wd plan run`, this is the public lifecycle\n" +
+			"surface for plan execution.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			p, err := clientFor(cmd).PlansControl(cmd.Context(), args[0], action)
+			if err != nil {
+				return err
+			}
+			if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+				return printJSON(cmd.OutOrStdout(), p)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "plan %s %s\n", p.ID, action)
+			return nil
+		},
+	}
 	cmd.Flags().Bool("json", false, "output as JSON")
 	return cmd
 }

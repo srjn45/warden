@@ -12,9 +12,9 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/lifecycle"
-	"github.com/srjn45/warden/internal/store"
 )
 
 func TestListModelsTool(t *testing.T) {
@@ -151,7 +151,7 @@ func TestSwitchAgentTool(t *testing.T) {
 		b, _ := io.ReadAll(r.Body)
 		body = string(b)
 		res := lifecycle.SwapResult{
-			Session:     &store.Session{ID: "agent-123"},
+			Agent:       &agentstore.Agent{ID: "agent-123"},
 			FromBackend: "claude",
 			ToBackend:   "antigravity",
 			ToModel:     "gemini-3.1-pro",

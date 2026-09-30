@@ -8,23 +8,23 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/srjn45/warden/internal/store"
+	"github.com/srjn45/warden/internal/agentstore"
 )
 
 func TestGuardDecision(t *testing.T) {
-	isolated := &store.Session{
+	isolated := &agentstore.Agent{
 		ID: "code-1", Repo: "/repo",
 		Worktree: ".worktrees/code-1", Workdir: "/repo/.worktrees/code-1",
 	}
-	inRepo := &store.Session{ID: "code-2", Repo: "/repo", Workdir: "/repo"} // no worktree
+	inRepo := &agentstore.Agent{ID: "code-2", Repo: "/repo", Workdir: "/repo"} // no worktree
 	// Workdir unset but Worktree (relative) present: the guard derives the
 	// boundary from Repo+Worktree, so isolation is still enforced — it does not
 	// depend on spawn having also populated Workdir.
-	noWorkdir := &store.Session{ID: "code-3", Repo: "/repo", Worktree: ".worktrees/code-3"}
+	noWorkdir := &agentstore.Agent{ID: "code-3", Repo: "/repo", Worktree: ".worktrees/code-3"}
 
 	cases := []struct {
 		name     string
-		sess     *store.Session
+		sess     *agentstore.Agent
 		tool     string
 		path     string
 		wantDeny bool
@@ -88,7 +88,7 @@ func postGuard(t *testing.T, s *Server, session, tool, path string) guardResult 
 
 func TestHandleGuardDeniesEscape(t *testing.T) {
 	fs := newFakeStore()
-	fs.Insert(context.Background(), &store.Session{
+	fs.Insert(context.Background(), &agentstore.Agent{
 		ID: "code-1", Repo: "/repo",
 		Worktree: ".worktrees/code-1", Workdir: "/repo/.worktrees/code-1",
 	})

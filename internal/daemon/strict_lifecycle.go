@@ -11,18 +11,26 @@ import (
 	"time"
 
 	"github.com/srjn45/warden/internal/agentbackend"
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/daemon/oapi"
 	"github.com/srjn45/warden/internal/lifecycle"
+	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/role"
 	"github.com/srjn45/warden/internal/store"
+	"github.com/srjn45/warden/internal/terminalstore"
 )
 
 // spawnRequestFromOAPI maps the generated spawn body onto the daemon's
 // SpawnRequest DTO, which the Lifecycle interface is defined in terms of.
+// ai_cli is canonical; backend is a deprecated alias (canonical wins).
 func spawnRequestFromOAPI(b oapi.SpawnRequest) SpawnRequest {
+	aiCli := strings.TrimSpace(b.AiCli)
+	if aiCli == "" {
+		aiCli = strings.TrimSpace(b.Backend)
+	}
 	return SpawnRequest{
 		Type:           b.Type,
 		Ticket:         b.Ticket,
@@ -38,11 +46,13 @@ func spawnRequestFromOAPI(b oapi.SpawnRequest) SpawnRequest {
 		AutoRestart:    b.AutoRestart,
 		Force:          b.Force,
 		Model:          b.Model,
-		Backend:        b.Backend,
+		Backend:        aiCli, // deprecated alias field kept for lifecycle adapters
+		AiCli:          aiCli,
 		Kind:           string(b.Kind),
 		Tags:           b.Tags,
 		ParentID:       b.ParentId,
 		ProjectID:      b.ProjectId,
+		PlanID:         b.PlanId,
 		ForkFrom:       b.ForkFrom,
 		Role:           b.Role,
 		Tier:           b.Tier,
@@ -57,18 +67,30 @@ func (s *Server) SpawnAgent(ctx context.Context, req oapi.SpawnAgentRequestObjec
 		return nil, errStatus(http.StatusBadRequest, "bad json")
 	}
 	sr := spawnRequestFromOAPI(*req.Body)
-	// Backend registry default override (docs/specs/2026-08-06-backend-registry.md
-	// §7): a user spawn that names no backend uses the operator-chosen default from
+	if sr.Kind == string(store.KindTerminal) || sr.Backend == "terminal" || sr.AiCli == "terminal" {
+		return s.spawnTerminal(ctx, sr)
+	}
+	// AI CLI registry default override (docs/specs/2026-08-06-backend-registry.md
+	// §7): a user spawn that names no AI CLI uses the operator-chosen default from
 	// the store, overriding the compile-time claude default. Resolved HERE at the
 	// daemon layer — the pure agentbackend registry never does store lookups.
-	if strings.TrimSpace(sr.Backend) == "" {
-		sr.Backend = s.defaultBackend()
+	// Config ai_cli_default (canonical) / backend_default (deprecated) wins over
+	// the registry default when set.
+	if strings.TrimSpace(sr.AiCli) == "" && strings.TrimSpace(sr.Backend) == "" {
+		if def := s.resolveDefaultAiCli(); def != "" {
+			sr.AiCli, sr.Backend = def, def
+		}
+	} else if strings.TrimSpace(sr.AiCli) != "" {
+		sr.Backend = sr.AiCli
+	} else {
+		sr.AiCli = sr.Backend
 	}
 	// An autopilot-owned caller's spawns join its run mechanically (tag
 	// inheritance) — the fleet fence must not depend on the manager's persona
 	// remembering to pass tags.
 	sr.Tags = s.inheritOwnershipTags(ctx, sr.Tags)
 	s.stampAutopilotSpawnBackRefs(ctx, &sr)
+	s.stampPlanSpawnBackRefs(ctx, &sr)
 	s.annotateAutopilotWorkerPrompt(ctx, &sr)
 	if code, msg := s.validateSpawnRequest(ctx, sr); code != 0 {
 		return nil, errStatus(code, msg)
@@ -110,6 +132,18 @@ func (s *Server) SpawnAgent(ctx context.Context, req oapi.SpawnAgentRequestObjec
 	// the same write. Membership on the project's agents[]/terminals[] list is added
 	// after a successful insert (spec D2/§3.1, §5).
 	s.stampProjectMembership(sess)
+	// Optional PlanID back-ref: empty is always valid; a non-empty value must name a
+	// plan in the same project (plan-links-on-agent-pipeline). Validate after project
+	// resolution so path-matched ProjectIDs are included.
+	if code, msg := s.validatePlanLink(ctx, sess.PlanID, sess.ProjectID); code != 0 {
+		tctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if terr := s.life.Teardown(tctx, sess); terr != nil {
+			slog.Warn("spawn plan-link rollback failed", "agent", sess.ID, "err", terr)
+		}
+		return nil, errStatus(code, msg)
+	}
+
 	if err := s.store.Insert(ctx, sess); err != nil {
 		// Roll back the tmux session (and any worktree) so a failed insert doesn't
 		// leak an untracked agent.
@@ -125,16 +159,21 @@ func (s *Server) SpawnAgent(ctx context.Context, req oapi.SpawnAgentRequestObjec
 	// parent_id is appended to its parent's ChildAgents[]. No-op for a root spawn, a
 	// job agent, or a terminal (childOfParent).
 	s.addChildEdge(ctx, sess)
+	// Plan-bound spawns (orchestrator workers, manual helpers) append agent_spawned
+	// evidence onto the Plan's ActiveExecution. Planless agents are a no-op.
+	s.recordPlanBoundAgentEvent(sess, planstore.EventKindAgentSpawned, &planstore.EventPayload{
+		AgentID: sess.ID,
+	}, sess.ID)
 	s.notify()
 	s.recordAuditCtx(ctx, audit.ActionSpawn, sess.ID, spawnAuditDetail(sess, sr))
 	// post-spawn hook (#47): advisory, fail-open.
-	s.plugins.Dispatch(ctx, plugin.EventPostSpawn, plugin.MetaFromSession(sess), nil)
+	s.plugins.Dispatch(ctx, plugin.EventPostSpawn, plugin.MetaFromSession(sess.ToSession()), nil)
 	// Snapshot the response before background enrichment starts. Some Store
 	// implementations (including lightweight adapters/tests) may retain the
 	// inserted pointer, so dereferencing sess after launching Update goroutines
 	// races with their Type/Name writes even though FileStore itself decodes a
 	// fresh value. The client should receive the synchronous spawn state anyway.
-	response := oapi.SpawnAgent201JSONResponse(*sess)
+	response := oapi.SpawnAgent201JSONResponse(*sess.ToSession())
 	// Background, best-effort enrichment (detached contexts): a missing
 	// type/name never blocks or fails the spawn.
 	if freeMode && sr.Prompt != "" {
@@ -176,14 +215,14 @@ func (s *Server) AdoptSession(ctx context.Context, req oapi.AdoptSessionRequestO
 			return nil, err
 		}
 		for _, ex := range sessions {
-			if ex.ClaudeSessionID == claudeID {
+			if ex.AICLISessionID == claudeID {
 				return nil, errStatus(http.StatusConflict, "claude session already adopted as "+ex.ID)
 			}
 		}
 	}
 	chosenID := ""
 	if !resume && store.SafeID(b.TmuxSession) == nil {
-		if _, err := s.store.Get(ctx, b.TmuxSession); errors.Is(err, store.ErrNotFound) {
+		if _, err := s.store.Get(ctx, b.TmuxSession); errors.Is(err, agentstore.ErrNotFound) {
 			chosenID = b.TmuxSession
 		}
 	}
@@ -208,7 +247,7 @@ func (s *Server) AdoptSession(ctx context.Context, req oapi.AdoptSessionRequestO
 				slog.Warn("adopt rollback failed", "agent", sess.ID, "err", terr)
 			}
 		}
-		if errors.Is(err, store.ErrExists) {
+		if errors.Is(err, agentstore.ErrExists) {
 			return nil, errStatus(http.StatusConflict, "already registered: "+sess.ID)
 		}
 		return nil, err
@@ -222,7 +261,7 @@ func (s *Server) AdoptSession(ctx context.Context, req oapi.AdoptSessionRequestO
 		warn = "registered without a claude session id (monitoring only; restore unavailable)"
 	}
 	s.notify()
-	return oapi.AdoptSession201JSONResponse{Session: *sess, Warning: warn}, nil
+	return oapi.AdoptSession201JSONResponse{Session: *sess.ToSession(), Warning: warn}, nil
 }
 
 // resolveSession looks up a session by the same name-or-id GetSession accepts, so
@@ -231,20 +270,31 @@ func (s *Server) AdoptSession(ctx context.Context, req oapi.AdoptSessionRequestO
 // stop/terminate/remove-worktree 404'd on a name that `ls` displayed. Returns a
 // 404 errStatus on ErrNotFound. Callers MUST use the returned sess.ID for any
 // subsequent store write, since the passed ref may be a name, not the id the
-// store keys on.
-func (s *Server) resolveSession(ctx context.Context, ref string) (*store.Session, error) {
+// store keys on. Terminals resolve from terminalstore when wired.
+func (s *Server) resolveSession(ctx context.Context, ref string) (*agentstore.Agent, error) {
 	sess, err := s.store.GetByNameOrID(ctx, ref)
-	if errors.Is(err, store.ErrNotFound) {
-		return nil, errStatus(http.StatusNotFound, "session not found")
+	if err == nil {
+		return sess, nil
 	}
-	if err != nil {
+	if !errors.Is(err, agentstore.ErrNotFound) {
 		return nil, err
 	}
-	return sess, nil
+
+	return nil, errStatus(http.StatusNotFound, "session not found")
 }
 
 // TerminateSession implements POST /api/v1/sessions/{id}/terminate.
 func (s *Server) TerminateSession(ctx context.Context, req oapi.TerminateSessionRequestObject) (oapi.TerminateSessionResponseObject, error) {
+	if t, err := s.lookupTerminal(ctx, req.Id); err == nil {
+		if err := s.stopTerminal(ctx, t); err != nil {
+			return nil, err
+		}
+		s.recordAuditCtx(ctx, audit.ActionTerminate, t.ID, map[string]string{"kind": "terminal"})
+		return oapi.TerminateSession200JSONResponse{OKJSONResponse: oapi.OKJSONResponse{Status: "terminated"}}, nil
+	} else if !errors.Is(err, terminalstore.ErrNotFound) {
+		return nil, err
+	}
+
 	sess, err := s.resolveSession(ctx, req.Id)
 	if err != nil {
 		return nil, err
@@ -258,6 +308,7 @@ func (s *Server) TerminateSession(ctx context.Context, req oapi.TerminateSession
 	if err := s.life.Terminate(ctx, sess.TmuxSession); err != nil {
 		return nil, err
 	}
+
 	if err := s.store.UpdateStatus(ctx, sess.ID, store.StatusDone); err != nil {
 		return nil, err
 	}
@@ -265,6 +316,7 @@ func (s *Server) TerminateSession(ctx context.Context, req oapi.TerminateSession
 	// Terminate sets the session done directly (no poller swap), so reconcile the
 	// owning pipeline job here too — otherwise it stays stuck running.
 	s.reconcileJobOnTerminal(sess, store.StatusDone)
+	s.recordPlanBoundAgentFinished(sess, "terminated")
 	s.recordAuditCtx(ctx, audit.ActionTerminate, sess.ID, nil)
 	return oapi.TerminateSession200JSONResponse{OKJSONResponse: oapi.OKJSONResponse{Status: "terminated"}}, nil
 }
@@ -274,12 +326,12 @@ func (s *Server) TerminateSession(ctx context.Context, req oapi.TerminateSession
 // grandchild implies its own parent is itself a live (or tombstoned) child, so
 // the chain stays rooted. A store error yields nil (treated as "no live
 // children" — delete falls through to its normal hard/archive path).
-func (s *Server) liveChildren(ctx context.Context, id string) []*store.Session {
+func (s *Server) liveChildren(ctx context.Context, id string) []*agentstore.Agent {
 	all, err := s.store.List(ctx)
 	if err != nil {
 		return nil
 	}
-	var kids []*store.Session
+	var kids []*agentstore.Agent
 	for _, c := range all {
 		if c.ParentID == id && liveStatus(c.Status) {
 			kids = append(kids, c)
@@ -294,6 +346,16 @@ func (s *Server) DeleteSession(ctx context.Context, req oapi.DeleteSessionReques
 	if req.Body != nil {
 		hard = req.Body.Hard
 	}
+	if t, err := s.lookupTerminal(ctx, req.Id); err == nil {
+		if err := s.stopTerminal(ctx, t); err != nil {
+			return nil, err
+		}
+		s.recordAuditCtx(ctx, audit.ActionDelete, t.ID, map[string]string{"kind": "terminal"})
+		return oapi.DeleteSession200JSONResponse{Status: "deleted"}, nil
+	} else if !errors.Is(err, terminalstore.ErrNotFound) {
+		return nil, err
+	}
+
 	sess, err := s.resolveSession(ctx, req.Id)
 	if err != nil {
 		return nil, err
@@ -305,6 +367,7 @@ func (s *Server) DeleteSession(ctx context.Context, req oapi.DeleteSessionReques
 		s.recovery.Supersede(ctx, sess.ID, "manual_delete")
 	}
 	id := sess.ID // req.Id may be a name; key all store writes on the resolved id
+
 	// A parent that still has live children is tombstoned rather than removed:
 	// tear down its tmux so no live pane remains, but keep the record active and
 	// terminal so the children stay anchored under it in the sub-tree view
@@ -318,11 +381,12 @@ func (s *Server) DeleteSession(ctx context.Context, req oapi.DeleteSessionReques
 		if hard {
 			term = store.StatusOrphaned // force-kill semantics
 		}
-		if err := s.store.UpdateStatus(ctx, id, term); err != nil && !errors.Is(err, store.ErrNotFound) {
+		if err := s.store.UpdateStatus(ctx, id, term); err != nil && !errors.Is(err, agentstore.ErrNotFound) {
 			return nil, err
 		}
 		s.notify()
 		s.reconcileJobOnTerminal(sess, term)
+		s.recordPlanBoundAgentFinished(sess, "tombstoned")
 		s.recordAuditCtx(ctx, audit.ActionDelete, id, map[string]string{
 			"tombstoned":    "true",
 			"hard":          strconv.FormatBool(hard),
@@ -340,9 +404,10 @@ func (s *Server) DeleteSession(ctx context.Context, req oapi.DeleteSessionReques
 	} else {
 		derr = s.store.Archive(ctx, id)
 	}
-	if derr != nil && !errors.Is(derr, store.ErrNotFound) {
+	if derr != nil && !errors.Is(derr, agentstore.ErrNotFound) {
 		return nil, derr
 	}
+	s.recordPlanBoundAgentFinished(sess, "deleted")
 	// Only a hard delete drops the agent's inbox; an archive keeps it. Best-effort.
 	if hard && s.mbox != nil {
 		_ = s.mbox.DeleteInbox(id)
@@ -390,9 +455,10 @@ func (s *Server) RemoveWorktree(ctx context.Context, req oapi.RemoveWorktreeRequ
 			return nil, err
 		}
 	}
-	if err := s.store.ClearWorktree(ctx, sess.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
+	if err := s.store.ClearWorktree(ctx, sess.ID); err != nil && !errors.Is(err, agentstore.ErrNotFound) {
 		return nil, err
 	}
+	s.recordPlanBoundWorktreeRemoved(sess)
 	s.notify()
 	return oapi.RemoveWorktree200JSONResponse{OKJSONResponse: oapi.OKJSONResponse{Status: "worktree removed"}}, nil
 }
@@ -402,7 +468,44 @@ func (s *Server) RemoveWorktree(ctx context.Context, req oapi.RemoveWorktreeRequ
 // hibernation reopen, auto-restart, rate-limit resume, and backend recovery
 // call lifecycle.Restore directly and are not gated here.
 func (s *Server) RestoreSession(ctx context.Context, req oapi.RestoreSessionRequestObject) (oapi.RestoreSessionResponseObject, error) {
-	sess, err := s.resolveSession(ctx, req.Id)
+	if t, err := s.lookupTerminal(ctx, req.Id); err == nil {
+		if t.Status != terminalstore.StatusOrphaned {
+			return nil, errStatus(http.StatusConflict, lifecycle.ErrNotOrphaned.Error())
+		}
+		if err := s.life.RestoreTerminal(ctx, t.ID, t.Workdir); err != nil {
+			return nil, err
+		}
+		if err := s.terminals.Update(ctx, t.ID, func(t *terminalstore.Terminal) error {
+			t.Status = terminalstore.StatusRunning
+			t.TmuxSession = t.ID
+			t.ExitCode = nil
+			return nil
+		}); err != nil {
+			return nil, err
+		}
+		s.notify()
+		return oapi.RestoreSession200JSONResponse{OKJSONResponse: oapi.OKJSONResponse{Status: "restoring"}}, nil
+	} else if !errors.Is(err, terminalstore.ErrNotFound) {
+		return nil, err
+	}
+
+	sess, err := s.store.GetByNameOrID(ctx, req.Id)
+	archived := false
+	if errors.Is(err, agentstore.ErrNotFound) {
+		closed, cerr := s.store.ListClosed(ctx)
+		if cerr != nil {
+			return nil, cerr
+		}
+		for _, candidate := range closed {
+			if candidate.ID == req.Id || candidate.Name == req.Id {
+				sess, archived, err = candidate, true, nil
+				break
+			}
+		}
+	}
+	if errors.Is(err, agentstore.ErrNotFound) {
+		return nil, errStatus(http.StatusNotFound, "session not found")
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -421,7 +524,15 @@ func (s *Server) RestoreSession(ctx context.Context, req oapi.RestoreSessionRequ
 			return nil, err
 		}
 	}
-	if err := s.store.UpdateStatus(ctx, sess.ID, store.StatusSpawning); err != nil {
+	if archived {
+		sess.Status = store.StatusSpawning
+		if err := s.store.Insert(ctx, sess); err != nil {
+			_ = s.life.Terminate(ctx, sess.TmuxSession)
+			return nil, err
+		}
+		s.addProjectMembership(sess)
+		s.addChildEdge(ctx, sess)
+	} else if err := s.store.UpdateStatus(ctx, sess.ID, store.StatusSpawning); err != nil {
 		return nil, err
 	}
 	s.notify()
@@ -430,7 +541,7 @@ func (s *Server) RestoreSession(ctx context.Context, req oapi.RestoreSessionRequ
 
 // SendInput implements POST /api/v1/sessions/{id}/input.
 func (s *Server) SendInput(ctx context.Context, req oapi.SendInputRequestObject) (oapi.SendInputResponseObject, error) {
-	sess, err := s.resolveSession(ctx, req.Id)
+	sess, err := s.resolveSessionDTO(ctx, req.Id)
 	if err != nil {
 		return nil, err
 	}
@@ -448,8 +559,8 @@ func (s *Server) SendInput(ctx context.Context, req oapi.SendInputRequestObject)
 // GetOutput implements GET /api/v1/sessions/{id}/output. A capture failure
 // degrades to an empty 200 (the agent is mid-spawn or just terminated).
 func (s *Server) GetOutput(ctx context.Context, req oapi.GetOutputRequestObject) (oapi.GetOutputResponseObject, error) {
-	sess, err := s.store.Get(ctx, req.Id)
-	if errors.Is(err, store.ErrNotFound) {
+	sess, err := s.resolveSessionDTO(ctx, req.Id)
+	if errors.Is(err, agentstore.ErrNotFound) {
 		return nil, errStatus(http.StatusNotFound, "session not found")
 	}
 	if err != nil {
@@ -553,7 +664,7 @@ func (s *Server) SetAutoApprove(ctx context.Context, req oapi.SetAutoApproveRequ
 		enabled = req.Body.Enabled
 	}
 	if err := s.store.UpdateAutoApprove(ctx, req.Id, enabled); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
+		if errors.Is(err, agentstore.ErrNotFound) {
 			return nil, errStatus(http.StatusNotFound, "session not found")
 		}
 		return nil, err
@@ -583,7 +694,7 @@ func (s *Server) SetForceCompact(ctx context.Context, req oapi.SetForceCompactRe
 		return nil, errStatus(http.StatusBadRequest, "state must be one of: on, off, inherit")
 	}
 	if err := s.store.SetForceCompact(ctx, req.Id, override); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
+		if errors.Is(err, agentstore.ErrNotFound) {
 			return nil, errStatus(http.StatusNotFound, "session not found")
 		}
 		return nil, err
@@ -603,7 +714,7 @@ func (s *Server) SetPermissionMode(ctx context.Context, req oapi.SetPermissionMo
 		return nil, errStatus(http.StatusBadRequest, "invalid permission mode")
 	}
 	if err := s.store.UpdatePermissionMode(ctx, req.Id, mode); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
+		if errors.Is(err, agentstore.ErrNotFound) {
 			return nil, errStatus(http.StatusNotFound, "session not found")
 		}
 		return nil, err
@@ -639,7 +750,7 @@ func (s *Server) SetRole(ctx context.Context, req oapi.SetRoleRequestObject) (oa
 		return nil, err
 	}
 	if err := s.store.UpdateRole(ctx, sess.ID, canonical); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
+		if errors.Is(err, agentstore.ErrNotFound) {
 			return nil, errStatus(http.StatusNotFound, "session not found")
 		}
 		return nil, err
@@ -704,6 +815,17 @@ func (s *Server) defaultBackend() string {
 		return ""
 	}
 	return b.ID
+}
+
+// resolveDefaultAiCli returns the AI CLI id to apply when a spawn names none.
+// Priority: config ai_cli_default (canonical) / backend_default (deprecated
+// alias, already resolved into AiCliDefault by config load) → registry default
+// → "" (compile-time claude).
+func (s *Server) resolveDefaultAiCli() string {
+	if def := strings.TrimSpace(s.appliedConfig.GetAiCliDefault()); def != "" {
+		return def
+	}
+	return s.defaultBackend()
 }
 
 // backendsState reads the full registry (rows + settings) from the store. Callers
@@ -877,7 +999,7 @@ func (s *Server) SetName(ctx context.Context, req oapi.SetNameRequestObject) (oa
 		return nil, errStatus(http.StatusBadRequest, err.Error())
 	}
 	if _, err := s.store.Get(ctx, req.Id); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
+		if errors.Is(err, agentstore.ErrNotFound) {
 			return nil, errStatus(http.StatusNotFound, "session not found")
 		}
 		return nil, err
@@ -893,11 +1015,11 @@ func (s *Server) SetName(ctx context.Context, req oapi.SetNameRequestObject) (oa
 			}
 		}
 	}
-	if err := s.store.Update(ctx, req.Id, func(sess *store.Session) error {
+	if err := s.store.Update(ctx, req.Id, func(sess *agentstore.Agent) error {
 		sess.Name = name
 		return nil
 	}); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
+		if errors.Is(err, agentstore.ErrNotFound) {
 			return nil, errStatus(http.StatusNotFound, "session not found")
 		}
 		return nil, err

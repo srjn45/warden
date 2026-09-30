@@ -1244,7 +1244,7 @@ func (m *controlPaneModel) repin(prevKey string) {
 // first agent/pipeline rather than a header. -1 when the list holds only headers.
 func firstEntityCursor(items []item) int {
 	for i, it := range items {
-		if it.section == "" && it.projHdr == nil && !it.planHeader && it.planGroup == "" {
+		if it.section == "" && it.projHdr == nil && !it.planHeader && it.planGroup == "" && it.treeSecID == "" {
 			return i
 		}
 	}
@@ -2001,6 +2001,12 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.repin(key)
 			return m, nil
 		}
+		if it.treeSecID != "" {
+			key := it.treeSecID
+			m.collapsed[key] = !m.collapsed[key]
+			m.repin(key)
+			return m, nil
+		}
 		if it.planGroup != "" {
 			key := "plans:" + it.planProject + ":" + it.planGroup
 			collapsed, ok := m.collapsed[key]
@@ -2076,6 +2082,8 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.collapsed[itemKey(it)] = false
 		case it.planHeader:
 			m.collapsed["plans:"+it.planProject] = false
+		case it.treeSecID != "":
+			m.collapsed[it.treeSecID] = false
 		case it.planGroup != "":
 			m.collapsed["plans:"+it.planProject+":"+it.planGroup] = false
 		case it.apPlan:
@@ -2101,6 +2109,10 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.repin(key)
 		case it.planHeader:
 			key := "plans:" + it.planProject
+			m.collapsed[key] = true
+			m.repin(key)
+		case it.treeSecID != "":
+			key := it.treeSecID
 			m.collapsed[key] = true
 			m.repin(key)
 		case it.planGroup != "":

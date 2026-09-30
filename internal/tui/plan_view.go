@@ -16,6 +16,7 @@ import (
 const promptIndent = "     "
 
 // planDetailText renders a plan's detail view for display.
+// Sections: lifecycle, active execution, task evidence, historical summaries.
 // projectRoot is the absolute path to the project's root directory, used to
 // resolve p.FilePath (which is relative to that root) for YAML task reading.
 func planDetailText(p *planstore.Plan, width int, projectRoot string, expanded bool) string {
@@ -24,13 +25,14 @@ func planDetailText(p *planstore.Plan, width int, projectRoot string, expanded b
 	}
 	var b strings.Builder
 
-	// ── Header ────────────────────────────────────────────────────────────────
+	// ── Header / lifecycle ────────────────────────────────────────────────────
 	b.WriteString(stHeader.Render(p.Name) + "\n\n")
 
 	writeField := func(label, val string) {
 		b.WriteString(fmt.Sprintf("%-16s %s\n", stMuted.Render(label+":"), val))
 	}
 
+	b.WriteString(stPaneTitle.Render("Lifecycle") + "\n")
 	writeField("Status", string(p.Status))
 	mode := string(p.ExecutionMode)
 	if mode == "" {
@@ -45,8 +47,6 @@ func planDetailText(p *planstore.Plan, width int, projectRoot string, expanded b
 	if p.CompletedAt != nil {
 		writeField("Completed At", p.CompletedAt.Format(time.RFC3339))
 	}
-
-	// Execution links (shown only when set)
 	if p.AutopilotRunID != "" {
 		writeField("Autopilot Run", p.AutopilotRunID)
 	}
@@ -56,17 +56,35 @@ func planDetailText(p *planstore.Plan, width int, projectRoot string, expanded b
 	if p.OrchestratorID != "" {
 		writeField("Orchestrator", p.OrchestratorID)
 	}
-
 	writeField("ID", p.ID)
 	writeField("File", p.FilePath)
 
-	// ── Tasks ─────────────────────────────────────────────────────────────────
-	b.WriteString("\n" + stPaneTitle.Render("Tasks") + "\n")
+	// ── Active execution ──────────────────────────────────────────────────────
+	b.WriteString("\n" + stPaneTitle.Render("Active Execution") + "\n")
+	if p.ActiveExecution != nil {
+		ae := p.ActiveExecution
+		writeField("Execution ID", ae.ID)
+		writeField("Mode", string(ae.ExecutionMode))
+		if ae.ExecutorID != "" {
+			writeField("Executor", ae.ExecutorID)
+		}
+		writeField("Started", ae.StartedAt.Format(time.RFC3339))
+		if ae.TerminalStatus != "" {
+			writeField("State", string(ae.TerminalStatus))
+		}
+		if ae.CompletedAt != nil {
+			writeField("Completed", ae.CompletedAt.Format(time.RFC3339))
+		}
+	} else {
+		b.WriteString("  " + stMuted.Render("(no active execution)") + "\n")
+	}
+
+	// ── Task evidence ─────────────────────────────────────────────────────────
+	b.WriteString("\n" + stPaneTitle.Render("Task Evidence") + "\n")
 
 	tasks, _ := planTasksFromPlan(p, projectRoot)
 	if len(tasks) > 0 {
 		for i, t := range tasks {
-			// status: prefer YAML field, fall back to DB TaskProgress map
 			status := t.Status
 			if status == "" {
 				if s, ok := p.TaskProgress[t.ID]; ok {
@@ -82,10 +100,10 @@ func planDetailText(p *planstore.Plan, width int, projectRoot string, expanded b
 			switch status {
 			case "done", "completed":
 				icon = "✓"
-				statusStyle = stBusy // green
+				statusStyle = stBusy
 			case "in_progress":
 				icon = "▶"
-				statusStyle = stRunning // cyan
+				statusStyle = stRunning
 			case "skipped":
 				icon = "—"
 				statusStyle = stIdle
@@ -99,15 +117,34 @@ func planDetailText(p *planstore.Plan, width int, projectRoot string, expanded b
 				stHeader.Render(t.ID),
 			))
 
+			if outcome, ok := p.TaskOutcomes[t.ID]; ok {
+				if outcome.AssignedAgent != "" {
+					b.WriteString(fmt.Sprintf("     %s %s\n", stMuted.Render("agent:"), outcome.AssignedAgent))
+				}
+				if outcome.Branch != "" {
+					b.WriteString(fmt.Sprintf("     %s %s\n", stMuted.Render("branch:"), outcome.Branch))
+				}
+				if len(outcome.PullRequests) > 0 {
+					for _, pr := range outcome.PullRequests {
+						label := pr.URL
+						if pr.Number > 0 {
+							label = fmt.Sprintf("#%d %s", pr.Number, pr.State)
+						}
+						b.WriteString(fmt.Sprintf("     %s %s\n", stMuted.Render("pr:"), label))
+					}
+				}
+				if len(outcome.VerifiedChecks) > 0 {
+					b.WriteString(fmt.Sprintf("     %s %s\n", stMuted.Render("checks:"), strings.Join(outcome.VerifiedChecks, ", ")))
+				}
+			}
+
 			if expanded {
 				if t.LandedPR > 0 {
 					b.WriteString(fmt.Sprintf("     %s PR #%d\n", stMuted.Render("landed:"), t.LandedPR))
 				}
-
 				if len(t.After) > 0 {
 					b.WriteString(fmt.Sprintf("     %s %s\n", stMuted.Render("after:"), strings.Join(t.After, ", ")))
 				}
-
 				if t.Prompt != "" {
 					wrapW := width - lipgloss.Width(promptIndent)
 					for _, line := range promptPreview(t.Prompt, 3, wrapW) {
@@ -117,15 +154,26 @@ func planDetailText(p *planstore.Plan, width int, projectRoot string, expanded b
 			}
 		}
 		b.WriteString("\n" + stMuted.Render("  [↑↓] scroll · [t] toggle task details") + "\n")
-	} else if len(p.TaskProgress) > 0 {
-		// YAML unavailable — fall back to DB task progress map
-		keys := make([]string, 0, len(p.TaskProgress))
+	} else if len(p.TaskProgress) > 0 || len(p.TaskOutcomes) > 0 {
+		keys := make([]string, 0, len(p.TaskProgress)+len(p.TaskOutcomes))
+		seen := map[string]bool{}
 		for k := range p.TaskProgress {
 			keys = append(keys, k)
+			seen[k] = true
+		}
+		for k := range p.TaskOutcomes {
+			if !seen[k] {
+				keys = append(keys, k)
+			}
 		}
 		sort.Strings(keys)
 		for i, k := range keys {
 			status := p.TaskProgress[k]
+			if status == "" {
+				if o, ok := p.TaskOutcomes[k]; ok {
+					status = o.Status
+				}
+			}
 			var icon string
 			statusStyle := stMuted
 			switch status {
@@ -146,6 +194,43 @@ func planDetailText(p *planstore.Plan, width int, projectRoot string, expanded b
 		}
 	} else {
 		b.WriteString("  " + stMuted.Render("(no tasks defined)") + "\n")
+	}
+
+	// ── Historical summaries ──────────────────────────────────────────────────
+	b.WriteString("\n" + stPaneTitle.Render("Historical Summaries") + "\n")
+	if p.ExecutionSummary != nil {
+		s := p.ExecutionSummary
+		writeField("Plan", s.PlanName)
+		writeField("Mode", string(s.ExecutionMode))
+		if s.ExecutorID != "" {
+			writeField("Executor", s.ExecutorID)
+		}
+		writeField("Tasks", fmt.Sprintf("%d/%d done", s.TasksDone, s.TasksTotal))
+		if !s.StartedAt.IsZero() {
+			writeField("Started", s.StartedAt.Format(time.RFC3339))
+		}
+		if s.CompletedAt != nil {
+			writeField("Completed", s.CompletedAt.Format(time.RFC3339))
+		}
+		if s.OutcomeNote != "" {
+			writeField("Note", s.OutcomeNote)
+		}
+	}
+	if len(p.ExecutionHistory) > 0 {
+		b.WriteString("\n" + stMuted.Render("Past executions:") + "\n")
+		for i, pe := range p.ExecutionHistory {
+			line := fmt.Sprintf("  %d. %s  %s", i+1, pe.ID, pe.ExecutionMode)
+			if pe.TerminalStatus != "" {
+				line += "  [" + string(pe.TerminalStatus) + "]"
+			}
+			if pe.ExecutorID != "" {
+				line += "  " + pe.ExecutorID
+			}
+			b.WriteString(line + "\n")
+		}
+	}
+	if p.ExecutionSummary == nil && len(p.ExecutionHistory) == 0 {
+		b.WriteString("  " + stMuted.Render("(no historical summaries yet)") + "\n")
 	}
 
 	return b.String()

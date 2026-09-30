@@ -35,15 +35,13 @@ func TestPipelineNamespaceCanonicalAndCompatibilityPaths(t *testing.T) {
 func TestAutopilotNamespaceCanonicalAndCompatibilityPaths(t *testing.T) {
 	root := newRootCmd()
 	pairs := map[string]string{
-		"autopilot enable":         "autopilot on",
-		"autopilot disable":        "autopilot off",
-		"autopilot run list":       "autopilot list",
-		"autopilot run start":      "autopilot start",
-		"autopilot run pause":      "autopilot pause",
-		"autopilot run resume":     "autopilot resume",
-		"autopilot run stop":       "autopilot stop",
-		"autopilot run unregister": "autopilot unregister",
-		"autopilot land":           "land",
+		"autopilot enable":   "autopilot on",
+		"autopilot disable":  "autopilot off",
+		"autopilot run list": "autopilot list",
+		"plan pause":         "autopilot pause",
+		"plan resume":        "autopilot resume",
+		"plan stop":          "autopilot stop",
+		"autopilot land":     "land",
 	}
 	for canonical, legacy := range pairs {
 		canonicalCmd := findExactCommand(t, root, canonical)
@@ -57,8 +55,23 @@ func TestAutopilotNamespaceCanonicalAndCompatibilityPaths(t *testing.T) {
 		if got, want := legacyCmd.Annotations[AnnotationCanonicalPath], "warden "+canonical; got != want {
 			t.Errorf("legacy %q canonical=%q, want %q", legacy, got, want)
 		}
-		if got, want := commandFlagSignature(canonicalCmd), commandFlagSignature(legacyCmd); !reflect.DeepEqual(got, want) {
-			t.Errorf("%s flags differ from %s", canonical, legacy)
+		if strings.HasPrefix(canonical, "autopilot ") {
+			if got, want := commandFlagSignature(canonicalCmd), commandFlagSignature(legacyCmd); !reflect.DeepEqual(got, want) {
+				t.Errorf("%s flags differ from %s", canonical, legacy)
+			}
+		}
+	}
+	for _, legacy := range []string{"autopilot register", "autopilot start", "autopilot unregister"} {
+		legacyCmd := findExactCommand(t, root, legacy)
+		if !legacyCmd.Hidden {
+			t.Errorf("legacy %q should be hidden", legacy)
+		}
+		if got := legacyCmd.Annotations[AnnotationAliasKind]; got != AliasCompatibility {
+			t.Errorf("legacy %q alias kind=%q, want %q", legacy, got, AliasCompatibility)
+		}
+		canon := legacyCmd.Annotations[AnnotationCanonicalPath]
+		if canon != "warden plan run" && canon != "warden plan stop" {
+			t.Errorf("legacy %q canonical=%q, want plan run or plan stop", legacy, canon)
 		}
 	}
 }
@@ -78,7 +91,6 @@ func TestAutopilotCanonicalAliasDispatchEquivalence(t *testing.T) {
 	}
 	for _, pair := range [][2][]string{
 		{{"autopilot", "disable", "--repo", repo}, {"autopilot", "off", "--repo", repo}},
-		{{"autopilot", "run", "stop", "ap-123"}, {"autopilot", "stop", "ap-123"}},
 		{{"pipeline", "template", "list"}, {"pipeline", "list-templates"}},
 	} {
 		t.Run(strings.Join(pair[0], "_"), func(t *testing.T) {
@@ -123,15 +135,16 @@ func TestAutopilotEnablementAndRunLifecycleCanonicalPaths(t *testing.T) {
 		t.Fatalf("repo disable output changed: %q", out)
 	}
 
-	out, err = runCLI(t, addr, "autopilot", "run", "stop", "ap-123")
+	// Deprecated flat alias still hits the retired control endpoint.
+	out, err = runCLI(t, addr, "autopilot", "stop", "ap-123")
 	if err != nil {
-		t.Fatalf("autopilot run stop: %v", err)
+		t.Fatalf("autopilot stop alias: %v", err)
 	}
 	if methods["/api/v1/autopilot/runs/ap-123/stop"] != http.MethodPost {
-		t.Fatalf("run stop dispatch changed: %q", methods["/api/v1/autopilot/runs/ap-123/stop"])
+		t.Fatalf("deprecated stop alias dispatch changed: %q", methods["/api/v1/autopilot/runs/ap-123/stop"])
 	}
 	if strings.TrimSpace(out) != "ap-123\tdemo\tstopped" {
-		t.Fatalf("run stop output changed: %q", out)
+		t.Fatalf("stop alias output changed: %q", out)
 	}
 }
 

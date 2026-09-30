@@ -15,11 +15,11 @@ import (
 var treeService = tree.NewService()
 
 // treeInputsFor assembles the non-session snapshots (projects, pipelines,
-// autopilot status) the pure tree.Service needs, around an already-resolved,
-// already-?all-filtered session list. The caller owns the session scan (it is
-// the backbone: a degraded scan must become a 503, never a partial tree), so
-// this helper never lists sessions itself and is reused by the HTTP handler and
-// the SSE stream alike.
+// plans, live Autopilots, legacy autopilot status) the pure tree.Service needs,
+// around an already-resolved, already-?all-filtered session list. The caller
+// owns the session scan (it is the backbone: a degraded scan must become a 503,
+// never a partial tree), so this helper never lists sessions itself and is
+// reused by the HTTP handler and the SSE stream alike.
 //
 // Subsystem failures are non-fatal (spec §12): a pipeline-store read error marks
 // the pipeline subtree degraded in place via Inputs.PipelinesDegraded rather than
@@ -32,9 +32,6 @@ func (s *Server) treeInputsFor(sessions []*store.Session) tree.Inputs {
 
 	if s.projects != nil {
 		if list, err := s.projects.List(); err != nil {
-			// A project-store read failure isn't fatal: the tree still builds from
-			// sessions (grouped by resolved dir). Log and continue with no registered
-			// projects rather than blanking the whole rail.
 			slog.Warn("tree: project store read failed; building without registered projects", "error", err)
 		} else {
 			in.Projects = list
@@ -43,8 +40,6 @@ func (s *Server) treeInputsFor(sessions []*store.Session) tree.Inputs {
 
 	if s.exec != nil {
 		if ps, err := s.exec.pstore.List(); err != nil {
-			// Mark the pipeline subtree degraded in place (spec §12) instead of
-			// failing the tree — sessions and autopilot are still trustworthy.
 			in.PipelinesDegraded = true
 			slog.Warn("tree: pipeline store read failed; marking pipeline subtree degraded", "error", err)
 		} else {
@@ -52,8 +47,22 @@ func (s *Server) treeInputsFor(sessions []*store.Session) tree.Inputs {
 		}
 	}
 
+	if s.plans != nil {
+		if plans, err := s.plans.List(context.Background()); err != nil {
+			slog.Warn("tree: plan store read failed; building without plans", "error", err)
+		} else {
+			in.Plans = plans
+		}
+	}
+
 	if s.autopilot != nil {
 		in.Autopilot = s.autopilot.Status()
+		if live, err := s.autopilot.LiveAutopilots(context.Background()); err != nil {
+			in.AutopilotDegraded = true
+			slog.Warn("tree: live Autopilot store read failed; marking autopilot subtree degraded", "error", err)
+		} else {
+			in.Autopilots = live
+		}
 	}
 
 	return in
@@ -69,6 +78,10 @@ func (s *Server) treeInputsFor(sessions []*store.Session) tree.Inputs {
 // the scoping). A read route — ScopeReadOnly suffices (enforced by the auth
 // middleware, which treats every non-attach GET as a read). The frame is a live
 // snapshot, so it is served Cache-Control: no-store.
+//
+// ?all=true includes system:true sessions (including headless brain under
+// Autopilot). Without it, system sessions are filtered before Build and
+// Inputs.ShowSystem stays false.
 func (s *Server) GetTree(ctx context.Context, req oapi.GetTreeRequestObject) (oapi.GetTreeResponseObject, error) {
 	sessions, err := s.store.List(ctx)
 	if err != nil {
@@ -84,10 +97,12 @@ func (s *Server) GetTree(ctx context.Context, req oapi.GetTreeRequestObject) (oa
 		if !req.Params.All && ss.HasTag("system:true") {
 			continue
 		}
-		visible = append(visible, ss)
+		visible = append(visible, ss.ToSession())
 	}
 
-	t := treeService.Build(s.treeInputsFor(visible), req.Params.ProjectId)
+	in := s.treeInputsFor(visible)
+	in.ShowSystem = req.Params.All
+	t := treeService.Build(in, req.Params.ProjectId)
 	return oapi.GetTree200JSONResponse{
 		Body:    *t,
 		Headers: oapi.GetTree200ResponseHeaders{CacheControl: "no-store"},

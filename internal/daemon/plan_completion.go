@@ -74,28 +74,13 @@ func (s *Server) maybeCompletePipelinePlan(ctx context.Context, p *planstore.Pla
 	}
 }
 
-// advancePlanToCompleted git-mv's the plan YAML to plans/completed/, commits,
-// and marks the plan completed in the DB.
+// advancePlanToCompleted runs the shared FinalizePlan workflow (summary →
+// cleanup → completed). Failures are logged; the watcher retries next tick.
 func (s *Server) advancePlanToCompleted(ctx context.Context, p *planstore.Plan) {
-	root := s.resolvePlanRoot(p.ProjectID)
-	if root == "" {
-		slog.Warn("plan completion watcher: cannot resolve project root", "plan", p.ID, "project", p.ProjectID)
+	if p == nil {
 		return
 	}
-	newPath, err := gitMvPlanStatus(ctx, root, p.FilePath, planstore.PlanStatusCompleted)
-	if err != nil {
-		slog.Warn("plan completion watcher: git mv to completed failed", "plan", p.ID, "err", err)
-		return
-	}
-	now := time.Now().UTC()
-	if updateErr := s.plans.Update(ctx, p.ID, func(pl *planstore.Plan) error {
-		pl.FilePath = newPath
-		pl.Status = planstore.PlanStatusCompleted
-		if pl.CompletedAt == nil {
-			pl.CompletedAt = &now
-		}
-		return nil
-	}); updateErr != nil {
-		slog.Warn("plan completion watcher: DB update failed", "plan", p.ID, "err", updateErr)
+	if _, err := s.FinalizePlan(ctx, p.ID); err != nil {
+		slog.Warn("plan completion watcher: finalize failed", "plan", p.ID, "err", err)
 	}
 }

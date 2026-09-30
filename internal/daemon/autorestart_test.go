@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -59,18 +60,18 @@ func (f *fakeRestartLife) Terminate(_ context.Context, tmux string) error {
 	f.terminated = append(f.terminated, tmux)
 	return nil
 }
-func (f *fakeRestartLife) Restore(_ context.Context, sess *store.Session) error {
+func (f *fakeRestartLife) Restore(_ context.Context, sess *agentstore.Agent) error {
 	if f.restoreErr != nil {
 		return f.restoreErr
 	}
 	f.restored = append(f.restored, sess.ID)
 	return nil
 }
-func (f *fakeRestartLife) SwitchRole(_ context.Context, _ *store.Session) error { return nil }
+func (f *fakeRestartLife) SwitchRole(_ context.Context, _ *agentstore.Agent) error { return nil }
 
 // restartStore records SetRestart/AppendEvent/UpdateStatus; minimal store fake.
 type restartStore struct {
-	store.Store
+	agentstore.AgentStore
 	count  int
 	at     time.Time
 	events []string
@@ -90,7 +91,7 @@ func (s *restartStore) UpdateStatusIf(_ context.Context, _ string, _, next store
 	return true, nil
 }
 
-func newTestRestarter(life Lifecycle, st store.Store) *Restarter {
+func newTestRestarter(life Lifecycle, st agentstore.AgentStore) *Restarter {
 	return &Restarter{life: life, store: st, max: 3, reset: 5 * time.Minute}
 }
 
@@ -98,9 +99,9 @@ func TestRestarterIgnoresNonQualifying(t *testing.T) {
 	life, st := &fakeRestartLife{}, &restartStore{}
 	r := newTestRestarter(life, st)
 	now := time.Now()
-	r.onTransitionAt(&store.Session{ID: "a", AutoRestart: true}, store.StatusWorking, store.StatusIdle, now)                      // not errored
-	r.onTransitionAt(&store.Session{ID: "b"}, store.StatusWorking, store.StatusErrored, now)                                      // flag off
-	r.onTransitionAt(&store.Session{ID: "c", AutoRestart: true, PipelineID: "p1"}, store.StatusWorking, store.StatusErrored, now) // pipeline job
+	r.onTransitionAt(&agentstore.Agent{ID: "a", AutoRestart: true}, store.StatusWorking, store.StatusIdle, now)                      // not errored
+	r.onTransitionAt(&agentstore.Agent{ID: "b"}, store.StatusWorking, store.StatusErrored, now)                                      // flag off
+	r.onTransitionAt(&agentstore.Agent{ID: "c", AutoRestart: true, PipelineID: "p1"}, store.StatusWorking, store.StatusErrored, now) // pipeline job
 	require.Empty(t, life.restored)
 	require.Empty(t, life.terminated)
 }
@@ -109,7 +110,7 @@ func TestRestarterRestartsQualifying(t *testing.T) {
 	life, st := &fakeRestartLife{}, &restartStore{}
 	r := newTestRestarter(life, st)
 	now := time.Now()
-	sess := &store.Session{ID: "x", TmuxSession: "x", AutoRestart: true, Status: store.StatusErrored, RestartCount: 0}
+	sess := &agentstore.Agent{ID: "x", TmuxSession: "x", AutoRestart: true, Status: store.StatusErrored, RestartCount: 0}
 	r.onTransitionAt(sess, store.StatusWorking, store.StatusErrored, now)
 	require.Equal(t, []string{"x"}, life.terminated)
 	require.Equal(t, []string{"x"}, life.restored)
@@ -124,7 +125,7 @@ func TestRestarterGivesUpAtCap(t *testing.T) {
 	life, st := &fakeRestartLife{}, &restartStore{}
 	r := newTestRestarter(life, st)
 	now := time.Now()
-	sess := &store.Session{ID: "x", TmuxSession: "x", AutoRestart: true, Status: store.StatusErrored,
+	sess := &agentstore.Agent{ID: "x", TmuxSession: "x", AutoRestart: true, Status: store.StatusErrored,
 		RestartCount: 3, LastRestartAt: tp(now.Add(-30 * time.Second))}
 	r.onTransitionAt(sess, store.StatusWorking, store.StatusErrored, now)
 	require.Empty(t, life.restored)
@@ -138,7 +139,7 @@ func TestRestarterRestoreFailureLeavesErrored(t *testing.T) {
 	st := &restartStore{}
 	r := newTestRestarter(life, st)
 	now := time.Now()
-	sess := &store.Session{ID: "x", TmuxSession: "x", AutoRestart: true, Status: store.StatusErrored}
+	sess := &agentstore.Agent{ID: "x", TmuxSession: "x", AutoRestart: true, Status: store.StatusErrored}
 	r.onTransitionAt(sess, store.StatusWorking, store.StatusErrored, now)
 	require.Equal(t, 1, st.count)                 // attempt counted
 	require.Equal(t, store.Status(""), st.status) // NOT spawning (restore failed)
@@ -151,7 +152,7 @@ func TestRestarterResetsAfterSustainedHealth(t *testing.T) {
 	r := newTestRestarter(life, st)
 	now := time.Now()
 	// At the cap, but the last restart was long ago (sustained healthy) -> reset to attempt 1.
-	sess := &store.Session{ID: "x", TmuxSession: "x", AutoRestart: true, Status: store.StatusErrored,
+	sess := &agentstore.Agent{ID: "x", TmuxSession: "x", AutoRestart: true, Status: store.StatusErrored,
 		RestartCount: 3, LastRestartAt: tp(now.Add(-6 * time.Minute))}
 	r.onTransitionAt(sess, store.StatusWorking, store.StatusErrored, now)
 	require.Equal(t, []string{"x"}, life.restored) // restarted, not gave up
@@ -159,44 +160,12 @@ func TestRestarterResetsAfterSustainedHealth(t *testing.T) {
 	require.Contains(t, st.events[0], "attempt 1/3")
 }
 
-// Terminal auto-restore tests.
-
-func TestRestarterRestoresOrphanedTerminal(t *testing.T) {
-	life, st := &fakeRestartLife{}, &restartStore{}
-	r := newTestRestarter(life, st)
-	now := time.Now()
-	sess := &store.Session{ID: "t1", TmuxSession: "t1", Kind: store.KindTerminal, AutoRestart: true}
-	r.onTransitionAt(sess, store.StatusWorking, store.StatusOrphaned, now)
-	require.Equal(t, []string{"t1"}, life.restored)
-	require.Equal(t, 1, st.count)
-	require.Equal(t, store.StatusSpawning, st.status)
-}
-
-func TestRestarterDoesNotRestoreOrphanedTerminalWithoutFlag(t *testing.T) {
-	life, st := &fakeRestartLife{}, &restartStore{}
-	r := newTestRestarter(life, st)
-	now := time.Now()
-	sess := &store.Session{ID: "t2", TmuxSession: "t2", Kind: store.KindTerminal, AutoRestart: false}
-	r.onTransitionAt(sess, store.StatusWorking, store.StatusOrphaned, now)
-	require.Empty(t, life.restored)
-}
-
-func TestRestarterDoesNotRestoreTerminalOnErrored(t *testing.T) {
-	// Terminals have no errored transition path; errored must not trigger restore.
-	life, st := &fakeRestartLife{}, &restartStore{}
-	r := newTestRestarter(life, st)
-	now := time.Now()
-	sess := &store.Session{ID: "t3", TmuxSession: "t3", Kind: store.KindTerminal, AutoRestart: true}
-	r.onTransitionAt(sess, store.StatusWorking, store.StatusErrored, now)
-	require.Empty(t, life.restored)
-}
-
 func TestRestarterDoesNotRestoreAgentOnOrphaned(t *testing.T) {
 	// Agent orphan is not an auto-restore trigger; only errored is.
 	life, st := &fakeRestartLife{}, &restartStore{}
 	r := newTestRestarter(life, st)
 	now := time.Now()
-	sess := &store.Session{ID: "a1", TmuxSession: "a1", Kind: store.KindAgent, AutoRestart: true}
+	sess := &agentstore.Agent{ID: "a1", TmuxSession: "a1", AutoRestart: true}
 	r.onTransitionAt(sess, store.StatusWorking, store.StatusOrphaned, now)
 	require.Empty(t, life.restored)
 }

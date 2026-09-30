@@ -109,7 +109,7 @@ func TestTwoPlansInOneRepoResolveDistinctBranches(t *testing.T) {
 	}, &fakeEnv{})
 	c.SetRuntime(newFakeRuntime())
 
-	st, err := c.Enable(context.Background(), dir)
+	st, err := c.ReconcileConfiguredPlans(context.Background(), dir)
 	require.NoError(t, err)
 	require.Len(t, st.Runs, 2)
 
@@ -228,7 +228,7 @@ func TestCustomGlobalCollisionWarns(t *testing.T) {
 		RunStore:          func() *RunStore { s, err := NewRunStore(t.TempDir()); require.NoError(t, err); return s }(),
 	}, &fakeEnv{})
 
-	st, err := c.Enable(context.Background(), dir)
+	st, err := c.ReconcileConfiguredPlans(context.Background(), dir)
 	require.NoError(t, err)
 	require.Len(t, st.Runs, 2)
 	lp1, _ := c.LandParams(st.Runs[0].RunID)

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
@@ -98,8 +99,9 @@ func TestImportRejectsRecordWithoutID(t *testing.T) {
 // different record is imported with the alias dropped.
 func TestImportAgainstFileStore(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.NewFileStore(t.TempDir())
+	st, err := agentstore.New(t.TempDir())
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = st.Close() })
 
 	env := &store.Export{
 		Version:  store.ExportVersion,

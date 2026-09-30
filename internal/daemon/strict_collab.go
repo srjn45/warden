@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/daemon/oapi"
 	"github.com/srjn45/warden/internal/mailbox"
@@ -152,7 +153,7 @@ func (s *Server) GetInbox(_ context.Context, req oapi.GetInboxRequestObject) (oa
 // SendMessage implements POST /api/v1/sessions/{id}/messages. The inbox is the
 // source of truth; the wake is best-effort.
 func (s *Server) SendMessage(ctx context.Context, req oapi.SendMessageRequestObject) (oapi.SendMessageResponseObject, error) {
-	if _, err := s.store.Get(ctx, req.Id); errors.Is(err, store.ErrNotFound) {
+	if _, err := s.store.Get(ctx, req.Id); errors.Is(err, agentstore.ErrNotFound) {
 		return nil, errStatus(http.StatusNotFound, "session not found")
 	} else if err != nil {
 		return nil, err
@@ -277,17 +278,16 @@ func (s *Server) ListHistory(ctx context.Context, req oapi.ListHistoryRequestObj
 		return nil, err
 	}
 	return oapi.ListHistory200JSONResponse{
-		Sessions: derefSessions(filterClosed(closed, req.Params.Since, typ, limit)),
+		Sessions: derefAgents(filterClosed(closed, req.Params.Since, typ, limit)),
 		Degraded: skipped > 0, SkippedRecords: skipped,
 	}, nil
 }
 
-func listClosedWithDegradation(ctx context.Context, st store.Store) ([]*store.Session, int, error) {
-	if reader, ok := st.(store.ArchiveDegradationReader); ok {
-		return reader.ListClosedDegraded(ctx)
+func listClosedWithDegradation(ctx context.Context, st agentstore.AgentStore) ([]*agentstore.Agent, int, error) {
+	if st == nil {
+		return nil, 0, nil
 	}
-	closed, err := st.ListClosed(ctx)
-	return closed, 0, err
+	return st.ListClosedDegraded(ctx)
 }
 
 // Search implements GET /api/v1/search: an in-memory full-text search across
@@ -308,7 +308,7 @@ func (s *Server) Search(ctx context.Context, req oapi.SearchRequestObject) (oapi
 		}
 		sessions = append(sessions, closed...)
 	}
-	return oapi.Search200JSONResponse{Sessions: derefSessions(searchSessions(sessions, query))}, nil
+	return oapi.Search200JSONResponse{Sessions: derefAgents(searchSessions(sessions, query))}, nil
 }
 
 // ImportSessions implements POST /api/v1/import: ingest an export envelope into

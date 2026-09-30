@@ -302,6 +302,24 @@ func TestStatusCmdRequiresArg(t *testing.T) {
 }
 
 // TestStatusCmd renders the detail view, including the rate-limit block.
+func TestStatusCmdShowsPlanAndProject(t *testing.T) {
+	addr := stubDaemon(t, func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(&store.Session{
+			ID: "worker-1", Name: "w", Status: store.StatusIdle,
+			ProjectID: "/proj", PlanID: "plan-aabbccdd",
+		})
+	})
+	out, err := runCLI(t, addr, "status", "worker-1")
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	for _, want := range []string{"project:", "/proj", "plan:", "plan-aabbccdd"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("status output missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestStatusCmd(t *testing.T) {
 	restore := time.Now().Add(20 * time.Minute)
 	addr := stubDaemon(t, func(w http.ResponseWriter, _ *http.Request) {

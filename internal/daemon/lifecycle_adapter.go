@@ -4,19 +4,21 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/pressure"
 	"github.com/srjn45/warden/internal/store"
+	"github.com/srjn45/warden/internal/terminalstore"
 )
 
 // lifecycleAdapter combines subprocess lifecycle ops with the store so the
 // daemon Lifecycle interface is satisfied by one object.
 type lifecycleAdapter struct {
 	lc    *lifecycle.Lifecycle
-	store store.Store
+	store agentstore.AgentStore
 }
 
-func NewLifecycleAdapter(lc *lifecycle.Lifecycle, st store.Store) Lifecycle {
+func NewLifecycleAdapter(lc *lifecycle.Lifecycle, st agentstore.AgentStore) Lifecycle {
 	return &lifecycleAdapter{lc: lc, store: st}
 }
 
@@ -24,7 +26,7 @@ func NewLifecycleAdapter(lc *lifecycle.Lifecycle, st store.Store) Lifecycle {
 // the type so unknown types collapse to "other" (no worktree). In free-form mode
 // (no Type — prompted or interactive) the Type is left empty so the doc stays
 // "classifying" and lifecycle.Spawn launches in the caller's cwd.
-func (a *lifecycleAdapter) Spawn(ctx context.Context, req SpawnRequest) (*store.Session, error) {
+func (a *lifecycleAdapter) Spawn(ctx context.Context, req SpawnRequest) (*agentstore.Agent, error) {
 	lr := lifecycle.SpawnRequest{
 		Ticket:         req.Ticket,
 		Name:           req.Name,
@@ -67,14 +69,14 @@ func (a *lifecycleAdapter) Spawn(ctx context.Context, req SpawnRequest) (*store.
 		if err != nil {
 			return nil, err
 		}
-		if src.ClaudeSessionID == "" {
+		if src.AICLISessionID == "" {
 			return nil, lifecycle.ErrForkSourceNotPinned
 		}
 		if src.Branch == "" {
 			return nil, fmt.Errorf("fork source %s has no branch to base the fork on", req.ForkFrom)
 		}
 		lr.ForkFrom = req.ForkFrom
-		lr.ForkSourceSessionID = src.ClaudeSessionID
+		lr.ForkSourceSessionID = src.AICLISessionID
 		lr.ForkSourceBranch = src.Branch
 		lr.ForkSourceWorkdir = src.Workdir // read-side of the PR-2 dirty-tree carry (§7)
 		lr.Repo = src.Repo                 // base + worktree live in the source agent's repo
@@ -82,7 +84,7 @@ func (a *lifecycleAdapter) Spawn(ctx context.Context, req SpawnRequest) (*store.
 		// session is the only one that can branch it (forking a codex session with the
 		// claude backend would hit the clean "cannot fork"). Pin it from the source so
 		// the wrappers don't have to restate --backend (and a mismatched one can't win).
-		lr.Backend = src.Backend
+		lr.Backend = src.AiCli
 	}
 	return a.lc.Spawn(ctx, lr)
 }
@@ -99,7 +101,7 @@ func (a *lifecycleAdapter) Terminate(ctx context.Context, tmuxSession string) er
 	return a.lc.Terminate(ctx, tmuxSession)
 }
 
-func (a *lifecycleAdapter) RemoveWorktree(ctx context.Context, sess *store.Session, force, deleteAdoptedBranch bool) error {
+func (a *lifecycleAdapter) RemoveWorktree(ctx context.Context, sess *agentstore.Agent, force, deleteAdoptedBranch bool) error {
 	return a.lc.RemoveWorktree(ctx, lifecycle.CleanupTarget{
 		ID: sess.ID, Repo: sess.Repo, Worktree: sess.Worktree,
 		Branch: sess.Branch, BranchCreated: sess.BranchCreated,
@@ -107,7 +109,7 @@ func (a *lifecycleAdapter) RemoveWorktree(ctx context.Context, sess *store.Sessi
 	}, force, deleteAdoptedBranch)
 }
 
-func (a *lifecycleAdapter) ListWorktrees(ctx context.Context, repo string, active, archived []*store.Session) ([]lifecycle.WorktreeListing, error) {
+func (a *lifecycleAdapter) ListWorktrees(ctx context.Context, repo string, active, archived []*agentstore.Agent) ([]lifecycle.WorktreeListing, error) {
 	return a.lc.ListWorktrees(ctx, repo, active, archived)
 }
 
@@ -117,7 +119,7 @@ func (a *lifecycleAdapter) PruneWorktrees(ctx context.Context, repo string, opts
 
 // Teardown force-cleans the resources Spawn created (spawn rollback): kill tmux,
 // then force-remove the worktree if there is one.
-func (a *lifecycleAdapter) Teardown(ctx context.Context, sess *store.Session) error {
+func (a *lifecycleAdapter) Teardown(ctx context.Context, sess *agentstore.Agent) error {
 	_ = a.lc.Terminate(ctx, sess.TmuxSession)
 	if sess.Worktree == "" {
 		return nil
@@ -129,11 +131,15 @@ func (a *lifecycleAdapter) Teardown(ctx context.Context, sess *store.Session) er
 	}, true, false)
 }
 
-func (a *lifecycleAdapter) Restore(ctx context.Context, sess *store.Session) error {
+func (a *lifecycleAdapter) Restore(ctx context.Context, sess *agentstore.Agent) error {
 	return a.lc.Restore(ctx, sess)
 }
 
-func (a *lifecycleAdapter) SwitchRole(ctx context.Context, sess *store.Session) error {
+func (a *lifecycleAdapter) RestoreTerminal(ctx context.Context, id, workdir string) error {
+	return a.lc.RestoreTerminal(ctx, id, workdir)
+}
+
+func (a *lifecycleAdapter) SwitchRole(ctx context.Context, sess *agentstore.Agent) error {
 	return a.lc.SwitchRole(ctx, sess)
 }
 
@@ -141,7 +147,7 @@ func (a *lifecycleAdapter) NewestClaudeSession(_ context.Context, cwd string) (s
 	return a.lc.NewestClaudeSession(cwd)
 }
 
-func (a *lifecycleAdapter) Adopt(ctx context.Context, req AdoptParams) (*store.Session, error) {
+func (a *lifecycleAdapter) Adopt(ctx context.Context, req AdoptParams) (*agentstore.Agent, error) {
 	return a.lc.Adopt(ctx, lifecycle.AdoptRequest{
 		ID:              req.ID,
 		Cwd:             req.Cwd,
@@ -162,11 +168,11 @@ func (a *lifecycleAdapter) SendKeys(ctx context.Context, tmuxSession, key string
 	return a.lc.SendKeys(ctx, tmuxSession, key)
 }
 
-func (a *lifecycleAdapter) SpawnJob(ctx context.Context, req lifecycle.JobSpawnRequest) (*store.Session, error) {
+func (a *lifecycleAdapter) SpawnJob(ctx context.Context, req lifecycle.JobSpawnRequest) (*agentstore.Agent, error) {
 	return a.lc.SpawnJob(ctx, req)
 }
 
-func (a *lifecycleAdapter) TranscriptPath(sess *store.Session) string {
+func (a *lifecycleAdapter) TranscriptPath(sess *agentstore.Agent) string {
 	return a.lc.TranscriptPath(sess)
 }
 
@@ -206,16 +212,16 @@ func (a *lifecycleAdapter) MemoryPressure(ctx context.Context) (pressure.Level, 
 	return a.lc.MemoryPressure(ctx)
 }
 
-func (a *lifecycleAdapter) HotSwap(ctx context.Context, sess *store.Session, req lifecycle.SwapRequest) (*lifecycle.SwapResult, error) {
+func (a *lifecycleAdapter) HotSwap(ctx context.Context, sess *agentstore.Agent, req lifecycle.SwapRequest) (*lifecycle.SwapResult, error) {
 	res, err := a.lc.HotSwap(ctx, sess, req)
 	if err != nil {
 		return nil, err
 	}
 	if a.store != nil && sess != nil {
-		if err := a.store.Update(ctx, sess.ID, func(s *store.Session) error {
-			s.Backend = sess.Backend
+		if err := a.store.Update(ctx, sess.ID, func(s *agentstore.Agent) error {
+			s.AiCli = sess.AiCli
 			s.Model = sess.Model
-			s.ClaudeSessionID = sess.ClaudeSessionID
+			s.AICLISessionID = sess.AICLISessionID
 			s.UpdatedAt = sess.UpdatedAt
 			return nil
 		}); err != nil {
@@ -223,4 +229,8 @@ func (a *lifecycleAdapter) HotSwap(ctx context.Context, sess *store.Session, req
 		}
 	}
 	return res, nil
+}
+
+func (a *lifecycleAdapter) SpawnTerminal(ctx context.Context, req SpawnRequest) (*terminalstore.Terminal, error) {
+	return a.lc.SpawnTerminal(ctx, lifecycle.SpawnRequest{Ticket: req.Ticket, Name: req.Name, Cwd: req.Cwd, ProjectID: req.ProjectID})
 }

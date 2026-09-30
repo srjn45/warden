@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/srjn45/warden/internal/agentbackend"
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/poller"
 	"github.com/srjn45/warden/internal/store"
@@ -34,7 +35,7 @@ const resumePaneLines = 20
 // RateLimitScheduler manages scheduled resume attempts for rate-limited agents.
 type RateLimitScheduler struct {
 	life  Lifecycle
-	store store.Store
+	store agentstore.AgentStore
 
 	retryInterval      time.Duration
 	spendRetryInterval time.Duration
@@ -42,10 +43,10 @@ type RateLimitScheduler struct {
 	enabled            bool
 	resumePrompt       string // text to inject on resume; "" = bare keypress only
 
-	// BackendResolver, when set, resolves the backend for a session so
+	// BackendResolver, when set, resolves the backend for an agent so
 	// limitClearsAtExcerpt() can prefer the backend's RateLimitResetParser over the
 	// Claude-specific poller helpers. Set by the daemon after construction.
-	BackendResolver func(sess *store.Session) agentbackend.Backend
+	BackendResolver func(sess *agentstore.Agent) agentbackend.Backend
 
 	// CaptureDir, when non-empty, is where the fixture-capture aid snapshots the
 	// trailing pane text on every rate-limit detection (see captureBannerExcerpt). Left
@@ -53,16 +54,16 @@ type RateLimitScheduler struct {
 	// daemon after construction.
 	CaptureDir string
 
-	// OnLimit, when set, is called on every rate-limit hit with the session and the
+	// OnLimit, when set, is called on every rate-limit hit with the agent and the
 	// instant its limit is expected to clear (the parsed reset time, else the
 	// configured retry/spend fallback). The autopilot guardian wires it to feed its
 	// per-backend cost-tier limit tracking (autopilot.md §7). Fires regardless of
 	// auto_resume so tier selection stays accurate even when resume is off. nil ⇒ no
 	// feed. Set by the daemon after construction.
-	OnLimit func(sess *store.Session, until time.Time)
+	OnLimit func(sess *agentstore.Agent, until time.Time)
 
 	// OnHardLimit, when set, is called on a hard rate-limit hit (transition INTO
-	// StatusRateLimited) BEFORE any resume is scheduled, with the session and the
+	// StatusRateLimited) BEFORE any resume is scheduled, with the agent and the
 	// instant its limit is expected to clear. The daemon wires it to the reactive
 	// recovery coordinator. It returns true when that coordinator owns the session,
 	// including while it tries candidates or waits for capacity, so the legacy
@@ -71,7 +72,7 @@ type RateLimitScheduler struct {
 	// successor) falls through to the normal pause-and-resume path.
 	// nil ⇒ no hard-limit swap (today's pause-and-wait). Set by the daemon after
 	// construction.
-	OnHardLimit func(sess *store.Session, until time.Time) bool
+	OnHardLimit func(sess *agentstore.Agent, until time.Time) bool
 
 	mu     sync.Mutex
 	timers map[string]*time.Timer
@@ -92,7 +93,7 @@ const maxRateLimitCaptures = 20
 // a monthly spend cap, which carries no reset time and will not clear for hours
 // or days. An empty resumePrompt means resume with a bare keypress and no
 // injected user turn.
-func NewRateLimitScheduler(life Lifecycle, st store.Store, retryInterval, spendRetryInterval, buffer time.Duration, autoResume bool, resumePrompt string) *RateLimitScheduler {
+func NewRateLimitScheduler(life Lifecycle, st agentstore.AgentStore, retryInterval, spendRetryInterval, buffer time.Duration, autoResume bool, resumePrompt string) *RateLimitScheduler {
 	return &RateLimitScheduler{
 		life:               life,
 		store:              st,
@@ -129,6 +130,9 @@ func (r *RateLimitScheduler) OnRateLimitObservation(obs poller.RateLimitObservat
 	if obs.ClassifierResult != store.StatusRateLimited {
 		return
 	}
+	if r.store == nil {
+		return
+	}
 	ctx := context.Background()
 	sess, err := r.store.Get(ctx, obs.SessionID)
 	if err != nil {
@@ -142,7 +146,7 @@ func (r *RateLimitScheduler) OnRateLimitObservation(obs poller.RateLimitObservat
 // for pane-blind backends, fired from internal/daemon/usage_sync.go). For those
 // paths no fresh pane is available, so sess.LastPaneExcerpt is used as the best
 // available excerpt. Poller-driven transitions use OnRateLimitObservation instead.
-func (r *RateLimitScheduler) OnTransition(sess *store.Session, from, to store.Status) {
+func (r *RateLimitScheduler) OnTransition(sess *agentstore.Agent, from, to store.Status) {
 	if to != store.StatusRateLimited {
 		return
 	}
@@ -152,7 +156,7 @@ func (r *RateLimitScheduler) OnTransition(sess *store.Session, from, to store.St
 // handleRateLimit runs the rate-limit detection response using the provided
 // excerpt for both the diagnostic capture and the reset-time parse. It is called
 // from OnRateLimitObservation (fresh excerpt) and OnTransition (fallback excerpt).
-func (r *RateLimitScheduler) handleRateLimit(sess *store.Session, excerpt string) {
+func (r *RateLimitScheduler) handleRateLimit(sess *agentstore.Agent, excerpt string) {
 	// Snapshot the excerpt on every real limit hit, regardless of auto_resume, so the
 	// next live limit yields exact bytes to close any parser gap. Cheap and
 	// bounded; a capture failure must never block the resume path.
@@ -179,7 +183,9 @@ func (r *RateLimitScheduler) handleRateLimit(sess *store.Session, excerpt string
 	ctx := context.Background()
 
 	// Persist the schedule
-	_ = r.store.SetRateLimit(ctx, sess.ID, scheduleAt, 0)
+	if r.store != nil {
+		_ = r.store.SetRateLimit(ctx, sess.ID, scheduleAt, 0)
+	}
 
 	// Schedule the resume attempt
 	r.scheduleResume(sess.ID, scheduleAt)
@@ -196,7 +202,7 @@ func (r *RateLimitScheduler) handleRateLimit(sess *store.Session, excerpt string
 //
 // This is the single source of truth for both the resume schedule and the
 // autopilot guardian's tier limit feed.
-func (r *RateLimitScheduler) limitClearsAtExcerpt(sess *store.Session, excerpt string) time.Time {
+func (r *RateLimitScheduler) limitClearsAtExcerpt(sess *agentstore.Agent, excerpt string) time.Time {
 	now := time.Now()
 
 	// 1. Backend's own reset-time parser.
@@ -249,6 +255,9 @@ func (r *RateLimitScheduler) scheduleResume(sessionID string, at time.Time) {
 func (r *RateLimitScheduler) attemptResume(sessionID string) {
 	ctx := context.Background()
 
+	if r.store == nil {
+		return
+	}
 	sess, err := r.store.Get(ctx, sessionID)
 	if err != nil {
 		// Session gone (deleted, archived)
@@ -442,6 +451,9 @@ func (r *RateLimitScheduler) pruneCaptures() {
 
 // ReconstructTimers rebuilds active timers from session state on daemon startup.
 func (r *RateLimitScheduler) ReconstructTimers(ctx context.Context) error {
+	if r.store == nil {
+		return nil
+	}
 	sessions, err := r.store.List(ctx)
 	if err != nil {
 		return err

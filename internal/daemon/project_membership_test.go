@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"github.com/srjn45/warden/internal/agentstore"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,7 +11,6 @@ import (
 
 	"github.com/srjn45/warden/internal/daemon/oapi"
 	"github.com/srjn45/warden/internal/projectstore"
-	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
 
@@ -30,7 +30,7 @@ func TestProjectMembershipHelpers(t *testing.T) {
 	s := &Server{projects: ps}
 
 	// 1. Explicit ProjectID wins over path match
-	sessExplicit := &store.Session{
+	sessExplicit := &agentstore.Agent{
 		ID:        "agent-explicit",
 		Repo:      "/projects/alpha",
 		ProjectID: "custom-id",
@@ -38,14 +38,14 @@ func TestProjectMembershipHelpers(t *testing.T) {
 	require.Equal(t, "custom-id", s.resolveProjectID(sessExplicit))
 
 	// 2. Path match resolves open project
-	sessPathMatch := &store.Session{
+	sessPathMatch := &agentstore.Agent{
 		ID:   "agent-path",
 		Repo: "/projects/alpha",
 	}
 	require.Equal(t, proj.ID, s.resolveProjectID(sessPathMatch))
 
 	// 3. Closed project does not match
-	sessClosed := &store.Session{
+	sessClosed := &agentstore.Agent{
 		ID:   "agent-closed",
 		Repo: "/projects/closed",
 	}
@@ -71,21 +71,8 @@ func TestProjectMembershipHelpers(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"agent-path"}, updated.Agents)
 
-	// 6. Add terminal membership
-	termSess := &store.Session{
-		ID:        "term-1",
-		Kind:      store.KindTerminal,
-		ProjectID: proj.ID,
-	}
-	s.addProjectMembership(termSess)
-	updated, err = ps.Get(proj.ID)
-	require.NoError(t, err)
-	require.Equal(t, []string{"agent-path"}, updated.Agents)
-	require.Equal(t, []string{"term-1"}, updated.Terminals)
-
 	// 7. Remove membership
 	s.removeProjectMembership(sessPathMatch)
-	s.removeProjectMembership(termSess)
 	updated, err = ps.Get(proj.ID)
 	require.NoError(t, err)
 	require.Empty(t, updated.Agents)

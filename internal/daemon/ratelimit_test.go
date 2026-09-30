@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"github.com/srjn45/warden/internal/agentstore"
 	"io"
 	"os"
 	"path/filepath"
@@ -35,12 +36,12 @@ type fakeRateLimitLife struct {
 	output        string // pane text returned by Output
 }
 
-func (f *fakeRateLimitLife) Restore(_ context.Context, sess *store.Session) error {
+func (f *fakeRateLimitLife) Restore(_ context.Context, sess *agentstore.Agent) error {
 	f.restoreCalls++
 	return f.restoreErr
 }
 
-func (f *fakeRateLimitLife) SwitchRole(_ context.Context, _ *store.Session) error { return nil }
+func (f *fakeRateLimitLife) SwitchRole(_ context.Context, _ *agentstore.Agent) error { return nil }
 
 func (f *fakeRateLimitLife) Input(_ context.Context, tmuxSession, text string) error {
 	f.inputCalls++
@@ -60,12 +61,12 @@ func (f *fakeRateLimitLife) Output(_ context.Context, tmuxSession string, lines 
 
 // rateLimitStore is a minimal store fake for RateLimitScheduler tests.
 type rateLimitStore struct {
-	store.Store
+	agentstore.AgentStore
 	setRateLimitCalls   int
 	clearRateLimitCalls int
 	updateStatusIfCalls int
 	appendEventCalls    int
-	sessions            map[string]*store.Session
+	sessions            map[string]*agentstore.Agent
 }
 
 func (s *rateLimitStore) SetRateLimit(_ context.Context, id string, restoreAt time.Time, retryCount int) error {
@@ -98,15 +99,15 @@ func (s *rateLimitStore) AppendEvent(_ context.Context, id string, ev store.Even
 	return nil
 }
 
-func (s *rateLimitStore) Get(_ context.Context, id string) (*store.Session, error) {
+func (s *rateLimitStore) Get(_ context.Context, id string) (*agentstore.Agent, error) {
 	if sess, ok := s.sessions[id]; ok {
 		return sess, nil
 	}
-	return nil, store.ErrNotFound
+	return nil, agentstore.ErrNotFound
 }
 
-func (s *rateLimitStore) List(_ context.Context) ([]*store.Session, error) {
-	var sessions []*store.Session
+func (s *rateLimitStore) List(_ context.Context) ([]*agentstore.Agent, error) {
+	var sessions []*agentstore.Agent
 	for _, sess := range s.sessions {
 		sessions = append(sessions, sess)
 	}
@@ -116,12 +117,12 @@ func (s *rateLimitStore) List(_ context.Context) ([]*store.Session, error) {
 func TestRateLimitScheduler_OnTransition(t *testing.T) {
 	life := &fakeRateLimitLife{}
 	st := &rateLimitStore{
-		sessions: make(map[string]*store.Session),
+		sessions: make(map[string]*agentstore.Agent),
 	}
 
 	sched := NewRateLimitScheduler(life, st, 30*time.Minute, 6*time.Hour, time.Minute, true, "")
 
-	sess := &store.Session{
+	sess := &agentstore.Agent{
 		ID:              "test-123",
 		Status:          store.StatusRateLimited,
 		LastPaneExcerpt: "Rate limit exceeded. Try again later.",
@@ -191,12 +192,12 @@ func TestRateLimitScheduler_CaptureBanner_PrunesToNewestN(t *testing.T) {
 
 func TestRateLimitScheduler_OnTransition_CapturesEvenWhenDisabled(t *testing.T) {
 	dir := t.TempDir()
-	st := &rateLimitStore{sessions: make(map[string]*store.Session)}
+	st := &rateLimitStore{sessions: make(map[string]*agentstore.Agent)}
 	// auto_resume OFF: no resume is scheduled, but the fixture capture still fires.
 	sched := NewRateLimitScheduler(&fakeRateLimitLife{}, st, 30*time.Minute, 6*time.Hour, time.Minute, false, "")
 	sched.CaptureDir = dir
 
-	sess := &store.Session{ID: "cap-x", Status: store.StatusRateLimited, LastPaneExcerpt: sampleLimitBanner}
+	sess := &agentstore.Agent{ID: "cap-x", Status: store.StatusRateLimited, LastPaneExcerpt: sampleLimitBanner}
 	st.sessions["cap-x"] = sess
 	sched.OnTransition(sess, store.StatusWorking, store.StatusRateLimited)
 
@@ -212,12 +213,12 @@ const sampleSpendBanner = "You've hit your monthly spend limit · raise it at cl
 
 func TestRateLimitScheduler_OnTransition_SpendCapUsesLongInterval(t *testing.T) {
 	life := &fakeRateLimitLife{}
-	st := &rateLimitStore{sessions: make(map[string]*store.Session)}
+	st := &rateLimitStore{sessions: make(map[string]*agentstore.Agent)}
 
 	// retryInterval 30m, spendRetryInterval 6h — a spend cap must pick 6h.
 	sched := NewRateLimitScheduler(life, st, 30*time.Minute, 6*time.Hour, time.Minute, true, "")
 
-	sess := &store.Session{
+	sess := &agentstore.Agent{
 		ID:              "spend-1",
 		Status:          store.StatusRateLimited,
 		LastPaneExcerpt: sampleSpendBanner,
@@ -237,19 +238,19 @@ func TestRateLimitScheduler_OnTransition_SpendCapUsesLongInterval(t *testing.T) 
 
 func TestRateLimitScheduler_OnTransition_HardLimitSwapSkipsResume(t *testing.T) {
 	life := &fakeRateLimitLife{}
-	st := &rateLimitStore{sessions: make(map[string]*store.Session)}
+	st := &rateLimitStore{sessions: make(map[string]*agentstore.Agent)}
 	// auto_resume ON, but a successful hard-limit hot-swap must pre-empt the resume:
 	// a different backend now drives the session, so no resume is scheduled.
 	sched := NewRateLimitScheduler(life, st, 30*time.Minute, 6*time.Hour, time.Minute, true, "")
 
 	var swapCalls int
-	sched.OnHardLimit = func(sess *store.Session, until time.Time) bool {
+	sched.OnHardLimit = func(sess *agentstore.Agent, until time.Time) bool {
 		swapCalls++
 		require.False(t, until.IsZero(), "handover receives the computed clear time")
 		return true // a swap happened
 	}
 
-	sess := &store.Session{ID: "swap-1", Status: store.StatusRateLimited, LastPaneExcerpt: sampleLimitBanner}
+	sess := &agentstore.Agent{ID: "swap-1", Status: store.StatusRateLimited, LastPaneExcerpt: sampleLimitBanner}
 	st.sessions["swap-1"] = sess
 	sched.OnTransition(sess, store.StatusWorking, store.StatusRateLimited)
 
@@ -263,17 +264,17 @@ func TestRateLimitScheduler_OnTransition_HardLimitSwapSkipsResume(t *testing.T) 
 
 func TestRateLimitScheduler_OnTransition_HardLimitNoSwapFallsThrough(t *testing.T) {
 	life := &fakeRateLimitLife{}
-	st := &rateLimitStore{sessions: make(map[string]*store.Session)}
+	st := &rateLimitStore{sessions: make(map[string]*agentstore.Agent)}
 	sched := NewRateLimitScheduler(life, st, 30*time.Minute, 6*time.Hour, time.Minute, true, "")
 
 	var swapCalls int
 	// Handover off / no eligible successor ⇒ returns false: normal resume applies.
-	sched.OnHardLimit = func(sess *store.Session, until time.Time) bool {
+	sched.OnHardLimit = func(sess *agentstore.Agent, until time.Time) bool {
 		swapCalls++
 		return false
 	}
 
-	sess := &store.Session{ID: "swap-2", Status: store.StatusRateLimited, LastPaneExcerpt: sampleLimitBanner}
+	sess := &agentstore.Agent{ID: "swap-2", Status: store.StatusRateLimited, LastPaneExcerpt: sampleLimitBanner}
 	st.sessions["swap-2"] = sess
 	sched.OnTransition(sess, store.StatusWorking, store.StatusRateLimited)
 
@@ -287,19 +288,19 @@ func TestRateLimitScheduler_OnTransition_HardLimitNoSwapFallsThrough(t *testing.
 
 func TestRateLimitScheduler_OnTransition_HardLimitFiresWhenAutoResumeOff(t *testing.T) {
 	life := &fakeRateLimitLife{}
-	st := &rateLimitStore{sessions: make(map[string]*store.Session)}
+	st := &rateLimitStore{sessions: make(map[string]*agentstore.Agent)}
 	// auto_resume OFF: handover is an independent policy, so the hard-limit swap
 	// must still be attempted (and its success still pre-empts the — disabled —
 	// resume path without scheduling anything).
 	sched := NewRateLimitScheduler(life, st, 30*time.Minute, 6*time.Hour, time.Minute, false, "")
 
 	var swapCalls int
-	sched.OnHardLimit = func(sess *store.Session, until time.Time) bool {
+	sched.OnHardLimit = func(sess *agentstore.Agent, until time.Time) bool {
 		swapCalls++
 		return true
 	}
 
-	sess := &store.Session{ID: "swap-3", Status: store.StatusRateLimited, LastPaneExcerpt: sampleLimitBanner}
+	sess := &agentstore.Agent{ID: "swap-3", Status: store.StatusRateLimited, LastPaneExcerpt: sampleLimitBanner}
 	st.sessions["swap-3"] = sess
 	sched.OnTransition(sess, store.StatusWorking, store.StatusRateLimited)
 
@@ -310,12 +311,12 @@ func TestRateLimitScheduler_OnTransition_HardLimitFiresWhenAutoResumeOff(t *test
 func TestRateLimitScheduler_OnTransition_IgnoresOtherStatuses(t *testing.T) {
 	life := &fakeRateLimitLife{}
 	st := &rateLimitStore{
-		sessions: make(map[string]*store.Session),
+		sessions: make(map[string]*agentstore.Agent),
 	}
 
 	sched := NewRateLimitScheduler(life, st, 30*time.Minute, 6*time.Hour, time.Minute, true, "")
 
-	sess := &store.Session{ID: "test-123"}
+	sess := &agentstore.Agent{ID: "test-123"}
 
 	// Transition to non-rate-limited status
 	sched.OnTransition(sess, store.StatusWorking, store.StatusIdle)
@@ -331,10 +332,10 @@ func TestRateLimitScheduler_OnTransition_IgnoresOtherStatuses(t *testing.T) {
 func TestRateLimitScheduler_AttemptResume_Success(t *testing.T) {
 	life := &fakeRateLimitLife{restoreErr: nil} // Success
 	st := &rateLimitStore{
-		sessions: make(map[string]*store.Session),
+		sessions: make(map[string]*agentstore.Agent),
 	}
 
-	st.sessions["test-123"] = &store.Session{
+	st.sessions["test-123"] = &agentstore.Agent{
 		ID:     "test-123",
 		Status: store.StatusRateLimited,
 	}
@@ -362,7 +363,7 @@ func TestRateLimitScheduler_AttemptResume_Success(t *testing.T) {
 func TestRateLimitScheduler_AttemptResume_SessionGone(t *testing.T) {
 	life := &fakeRateLimitLife{}
 	st := &rateLimitStore{
-		sessions: make(map[string]*store.Session),
+		sessions: make(map[string]*agentstore.Agent),
 	}
 
 	sched := NewRateLimitScheduler(life, st, 30*time.Minute, 6*time.Hour, time.Minute, true, "")
@@ -377,11 +378,11 @@ func TestRateLimitScheduler_AttemptResume_SessionGone(t *testing.T) {
 func TestRateLimitScheduler_AttemptResume_StatusChanged(t *testing.T) {
 	life := &fakeRateLimitLife{}
 	st := &rateLimitStore{
-		sessions: make(map[string]*store.Session),
+		sessions: make(map[string]*agentstore.Agent),
 	}
 
 	// Session is no longer rate_limited
-	st.sessions["test-123"] = &store.Session{
+	st.sessions["test-123"] = &agentstore.Agent{
 		ID:     "test-123",
 		Status: store.StatusWorking,
 	}
@@ -399,10 +400,10 @@ func TestRateLimitScheduler_AttemptResume_StillLimited(t *testing.T) {
 		restoreErr: errors.New("Rate limit. Try again later."),
 	}
 	st := &rateLimitStore{
-		sessions: make(map[string]*store.Session),
+		sessions: make(map[string]*agentstore.Agent),
 	}
 
-	st.sessions["test-123"] = &store.Session{
+	st.sessions["test-123"] = &agentstore.Agent{
 		ID:                  "test-123",
 		Status:              store.StatusRateLimited,
 		RateLimitRetryCount: 0,
@@ -432,8 +433,8 @@ func TestRateLimitScheduler_AttemptResume_DefaultUsesBareKeypressNotInput(t *tes
 		restoreErr: lifecycle.ErrAlreadyRunning,
 		output:     sampleLimitBanner,
 	}
-	st := &rateLimitStore{sessions: make(map[string]*store.Session)}
-	st.sessions["a"] = &store.Session{
+	st := &rateLimitStore{sessions: make(map[string]*agentstore.Agent)}
+	st.sessions["a"] = &agentstore.Agent{
 		ID:          "a",
 		Status:      store.StatusRateLimited,
 		TmuxSession: "a",
@@ -457,8 +458,8 @@ func TestRateLimitScheduler_AttemptResume_ConfiguredPromptUsesInput(t *testing.T
 		restoreErr: lifecycle.ErrAlreadyRunning,
 		output:     sampleLimitBanner,
 	}
-	st := &rateLimitStore{sessions: make(map[string]*store.Session)}
-	st.sessions["a"] = &store.Session{
+	st := &rateLimitStore{sessions: make(map[string]*agentstore.Agent)}
+	st.sessions["a"] = &agentstore.Agent{
 		ID:          "a",
 		Status:      store.StatusRateLimited,
 		TmuxSession: "a",
@@ -479,8 +480,8 @@ func TestRateLimitScheduler_AttemptResume_GateSkipsWhenBannerGone(t *testing.T) 
 		restoreErr: lifecycle.ErrAlreadyRunning,
 		output:     "normal work\nesc to interrupt",
 	}
-	st := &rateLimitStore{sessions: make(map[string]*store.Session)}
-	st.sessions["a"] = &store.Session{
+	st := &rateLimitStore{sessions: make(map[string]*agentstore.Agent)}
+	st.sessions["a"] = &agentstore.Agent{
 		ID:          "a",
 		Status:      store.StatusRateLimited,
 		TmuxSession: "a",
@@ -505,10 +506,10 @@ func TestRateLimitScheduler_AttemptResume_OtherError(t *testing.T) {
 		restoreErr: errors.New("network connection failed"),
 	}
 	st := &rateLimitStore{
-		sessions: make(map[string]*store.Session),
+		sessions: make(map[string]*agentstore.Agent),
 	}
 
-	st.sessions["test-123"] = &store.Session{
+	st.sessions["test-123"] = &agentstore.Agent{
 		ID:     "test-123",
 		Status: store.StatusRateLimited,
 	}
@@ -533,17 +534,17 @@ func TestRateLimitScheduler_AttemptResume_OtherError(t *testing.T) {
 func TestRateLimitScheduler_ReconstructTimers(t *testing.T) {
 	life := &fakeRateLimitLife{}
 	st := &rateLimitStore{
-		sessions: make(map[string]*store.Session),
+		sessions: make(map[string]*agentstore.Agent),
 	}
 
 	// Set up sessions: one rate-limited, one not
 	futureTime := time.Now().Add(1 * time.Hour)
-	st.sessions["limited-1"] = &store.Session{
+	st.sessions["limited-1"] = &agentstore.Agent{
 		ID:                 "limited-1",
 		Status:             store.StatusRateLimited,
 		RateLimitRestoreAt: &futureTime,
 	}
-	st.sessions["working-1"] = &store.Session{
+	st.sessions["working-1"] = &agentstore.Agent{
 		ID:     "working-1",
 		Status: store.StatusWorking,
 	}
@@ -567,12 +568,12 @@ func TestRateLimitScheduler_ReconstructTimers(t *testing.T) {
 func TestRateLimitScheduler_ReconstructTimers_PastTime(t *testing.T) {
 	life := &fakeRateLimitLife{restoreErr: nil}
 	st := &rateLimitStore{
-		sessions: make(map[string]*store.Session),
+		sessions: make(map[string]*agentstore.Agent),
 	}
 
 	// Restore time in the past
 	pastTime := time.Now().Add(-1 * time.Hour)
-	st.sessions["test-123"] = &store.Session{
+	st.sessions["test-123"] = &agentstore.Agent{
 		ID:                 "test-123",
 		Status:             store.StatusRateLimited,
 		RateLimitRestoreAt: &pastTime,
@@ -668,9 +669,9 @@ func TestLimitClearsAt_BackendResolver(t *testing.T) {
 	// Backend returns a reset time 2 hours from now.
 	wantReset := time.Now().Add(2 * time.Hour)
 	b := resetParserBackend{resetAt: wantReset, ok: true}
-	sched.BackendResolver = func(s *store.Session) agentbackend.Backend { return b }
+	sched.BackendResolver = func(s *agentstore.Agent) agentbackend.Backend { return b }
 
-	sess := &store.Session{ID: "s1", LastPaneExcerpt: "some non-Claude pane text"}
+	sess := &agentstore.Agent{ID: "s1", LastPaneExcerpt: "some non-Claude pane text"}
 	got := sched.limitClearsAtExcerpt(sess, sess.LastPaneExcerpt)
 
 	// Should be wantReset + buffer (1 minute).
@@ -690,10 +691,10 @@ func TestLimitClearsAt_BackendResolverFallsThrough(t *testing.T) {
 
 	// Backend has no ParseRateLimitReset (resetParserBackend with ok=false falls through).
 	b := resetParserBackend{ok: false}
-	sched.BackendResolver = func(s *store.Session) agentbackend.Backend { return b }
+	sched.BackendResolver = func(s *agentstore.Agent) agentbackend.Backend { return b }
 
 	// Pane has a Claude banner with parseable time; legacy path should handle it.
-	sess := &store.Session{ID: "s2", LastPaneExcerpt: sampleLimitBanner}
+	sess := &agentstore.Agent{ID: "s2", LastPaneExcerpt: sampleLimitBanner}
 	got := sched.limitClearsAtExcerpt(sess, sess.LastPaneExcerpt)
 
 	// The result must be after now (retryInterval or parsed time) — at minimum
@@ -716,13 +717,13 @@ func TestLimitClearsAt_BackendResolverFallsThrough(t *testing.T) {
 // because the stale excerpt contains no spend-cap banner → 30m fallback.
 func TestOnRateLimitObservation_UsesFreshExcerptForSchedule(t *testing.T) {
 	life := &fakeRateLimitLife{}
-	st := &rateLimitStore{sessions: make(map[string]*store.Session)}
+	st := &rateLimitStore{sessions: make(map[string]*agentstore.Agent)}
 
 	// retryInterval=30m, spendRetryInterval=6h; the stale excerpt must trigger 30m,
 	// the fresh excerpt must trigger 6h.
 	sched := NewRateLimitScheduler(life, st, 30*time.Minute, 6*time.Hour, time.Minute, true, "")
 
-	sess := &store.Session{
+	sess := &agentstore.Agent{
 		ID:              "obs-sched-1",
 		Status:          store.StatusRateLimited,
 		LastPaneExcerpt: "stale: no banner here", // fallback → 30m if used
@@ -749,11 +750,11 @@ func TestOnRateLimitObservation_UsesFreshExcerptForSchedule(t *testing.T) {
 // This test FAILS on the old code path (captureBanner consuming sess.LastPaneExcerpt).
 func TestOnRateLimitObservation_UsesFreshExcerptForCapture(t *testing.T) {
 	dir := t.TempDir()
-	st := &rateLimitStore{sessions: make(map[string]*store.Session)}
+	st := &rateLimitStore{sessions: make(map[string]*agentstore.Agent)}
 	sched := NewRateLimitScheduler(&fakeRateLimitLife{}, st, 30*time.Minute, 6*time.Hour, time.Minute, true, "")
 	sched.CaptureDir = dir
 
-	sess := &store.Session{
+	sess := &agentstore.Agent{
 		ID:              "obs-cap-1",
 		Status:          store.StatusRateLimited,
 		LastPaneExcerpt: "STALE_CONTENT", // must NOT appear in capture
@@ -777,17 +778,17 @@ func TestOnRateLimitObservation_UsesFreshExcerptForCapture(t *testing.T) {
 // OnRateLimitObservation respects the OnHardLimit gate: a successful swap
 // (returns true) must not arm a resume timer.
 func TestOnRateLimitObservation_HardLimitSwapPreemptsResume(t *testing.T) {
-	st := &rateLimitStore{sessions: make(map[string]*store.Session)}
+	st := &rateLimitStore{sessions: make(map[string]*agentstore.Agent)}
 	sched := NewRateLimitScheduler(&fakeRateLimitLife{}, st, 30*time.Minute, 6*time.Hour, time.Minute, true, "")
 
 	var swapCalls int
-	sched.OnHardLimit = func(sess *store.Session, until time.Time) bool {
+	sched.OnHardLimit = func(sess *agentstore.Agent, until time.Time) bool {
 		swapCalls++
 		require.False(t, until.IsZero(), "hard-limit receives the computed clear time")
 		return true
 	}
 
-	sess := &store.Session{ID: "obs-swap-1", Status: store.StatusRateLimited, LastPaneExcerpt: "stale"}
+	sess := &agentstore.Agent{ID: "obs-swap-1", Status: store.StatusRateLimited, LastPaneExcerpt: "stale"}
 	st.sessions["obs-swap-1"] = sess
 
 	obs := poller.NewRateLimitObservation("obs-swap-1", sampleLimitBanner)
@@ -806,11 +807,11 @@ func TestOnRateLimitObservation_HardLimitSwapPreemptsResume(t *testing.T) {
 // observation path.
 func TestOnRateLimitObservation_CapturesEvenWhenAutoResumeOff(t *testing.T) {
 	dir := t.TempDir()
-	st := &rateLimitStore{sessions: make(map[string]*store.Session)}
+	st := &rateLimitStore{sessions: make(map[string]*agentstore.Agent)}
 	sched := NewRateLimitScheduler(&fakeRateLimitLife{}, st, 30*time.Minute, 6*time.Hour, time.Minute, false, "")
 	sched.CaptureDir = dir
 
-	sess := &store.Session{ID: "obs-cap-off-1", Status: store.StatusRateLimited, LastPaneExcerpt: "stale"}
+	sess := &agentstore.Agent{ID: "obs-cap-off-1", Status: store.StatusRateLimited, LastPaneExcerpt: "stale"}
 	st.sessions["obs-cap-off-1"] = sess
 
 	obs := poller.NewRateLimitObservation("obs-cap-off-1", sampleLimitBanner)

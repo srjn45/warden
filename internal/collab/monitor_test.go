@@ -4,18 +4,19 @@ import (
 	"context"
 	"testing"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/mailbox"
 	"github.com/srjn45/warden/internal/store"
 )
 
 // fakeLister returns a fixed session set.
-type fakeLister struct{ sessions []*store.Session }
+type fakeLister struct{ sessions []*agentstore.Agent }
 
-func (f fakeLister) List(context.Context) ([]*store.Session, error) { return f.sessions, nil }
+func (f fakeLister) List(context.Context) ([]*agentstore.Agent, error) { return f.sessions, nil }
 
 // newTestMonitor wires a monitor over a fixed session set and a diff map keyed
 // by worktree path.
-func newTestMonitor(t *testing.T, sessions []*store.Session, diffs map[string][]string) *Monitor {
+func newTestMonitor(t *testing.T, sessions []*agentstore.Agent, diffs map[string][]string) *Monitor {
 	t.Helper()
 	mbox, err := mailbox.New(t.TempDir())
 	if err != nil {
@@ -27,7 +28,7 @@ func newTestMonitor(t *testing.T, sessions []*store.Session, diffs map[string][]
 }
 
 func TestConflictsFiltersAndDetects(t *testing.T) {
-	sessions := []*store.Session{
+	sessions := []*agentstore.Agent{
 		{ID: "a", Name: "alpha", Worktree: "/wt/a", Status: store.StatusWorking},
 		{ID: "b", Name: "beta", Worktree: "/wt/b", Status: store.StatusWaitingForInput}, // paused but still holds edits
 		{ID: "c", Worktree: "", Status: store.StatusWorking},                            // no worktree → skipped
@@ -57,7 +58,7 @@ func TestConflictsFiltersAndDetects(t *testing.T) {
 }
 
 func TestConflictsNoneWhenDistinctFiles(t *testing.T) {
-	sessions := []*store.Session{
+	sessions := []*agentstore.Agent{
 		{ID: "a", Worktree: "/wt/a", Status: store.StatusWorking},
 		{ID: "b", Worktree: "/wt/b", Status: store.StatusWorking},
 	}
@@ -74,7 +75,7 @@ func TestConflictsNoneWhenDistinctFiles(t *testing.T) {
 }
 
 func TestTickWarnsBothAgentsOnceWithinWindow(t *testing.T) {
-	sessions := []*store.Session{
+	sessions := []*agentstore.Agent{
 		{ID: "a", Name: "alpha", Worktree: "/wt/a", Status: store.StatusWorking},
 		{ID: "b", Name: "beta", Worktree: "/wt/b", Status: store.StatusWorking},
 	}
@@ -99,7 +100,7 @@ func TestTickWarnsBothAgentsOnceWithinWindow(t *testing.T) {
 }
 
 func TestTickReWarnsAfterDedupExpiry(t *testing.T) {
-	sessions := []*store.Session{
+	sessions := []*agentstore.Agent{
 		{ID: "a", Worktree: "/wt/a", Status: store.StatusWorking},
 		{ID: "b", Worktree: "/wt/b", Status: store.StatusWorking},
 	}

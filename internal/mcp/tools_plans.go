@@ -70,6 +70,11 @@ type runPlanArgs struct {
 	ExecutionMode string `json:"execution_mode" jsonschema:"execution mode: autopilot|pipeline|orchestrator_worker|manual"`
 }
 
+type controlPlanArgs struct {
+	PlanID string `json:"plan_id" jsonschema:"the stable plan id (plan-<8hex>) to control"`
+	Action string `json:"action" jsonschema:"pause|resume|stop"`
+}
+
 type completePlanArgs struct {
 	PlanID string `json:"plan_id" jsonschema:"the stable plan id (plan-<8hex>) to complete"`
 }
@@ -230,9 +235,20 @@ func (s *Server) registerPlanTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "run_plan",
-		Description: "Start execution of a plan: pending → in_progress. execution_mode is autopilot|pipeline|orchestrator_worker|manual. Returns the updated Plan (with linked run/pipeline/orchestrator id when started).",
+		Description: "Start execution of a plan: pending → in_progress. This is the only supported public start path (including autopilot). execution_mode is autopilot|pipeline|orchestrator_worker|manual. Returns the updated Plan (with linked executor id when started).",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a runPlanArgs) (*mcpsdk.CallToolResult, any, error) {
 		p, err := s.cl.PlansRun(ctx, a.PlanID, a.ExecutionMode)
+		if err != nil {
+			return planToolErr(err)
+		}
+		return jsonResultAny(p)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "control_plan",
+		Description: "Pause, resume, or stop an in-progress plan's active executor. Together with run_plan, this is the only public lifecycle surface for plan execution. action is pause|resume|stop.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a controlPlanArgs) (*mcpsdk.CallToolResult, any, error) {
+		p, err := s.cl.PlansControl(ctx, a.PlanID, a.Action)
 		if err != nil {
 			return planToolErr(err)
 		}

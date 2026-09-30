@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/srjn45/warden/internal/store"
+	"github.com/srjn45/warden/internal/agentstore"
 )
 
 // guardTools are the file-mutating Claude tools the isolation guard evaluates.
@@ -27,7 +27,7 @@ var guardTools = map[string]bool{
 //   - a non-absolute path can't be resolved server-side, so it fails open.
 //
 // It returns (deny, reason) where reason is the redirect message for Claude.
-func guardDecision(sess *store.Session, tool, path string) (bool, string) {
+func guardDecision(sess *agentstore.Agent, tool, path string) (bool, string) {
 	if !guardTools[tool] {
 		return false, ""
 	}

@@ -14,10 +14,12 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/srjn45/warden/internal/agentbackend"
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/auth"
 	"github.com/srjn45/warden/internal/autopilot"
+	"github.com/srjn45/warden/internal/autopilotstore"
 	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/backendusage"
 	"github.com/srjn45/warden/internal/config"
@@ -46,6 +48,8 @@ import (
 	"github.com/srjn45/warden/internal/snapshot"
 	"github.com/srjn45/warden/internal/spend"
 	"github.com/srjn45/warden/internal/store"
+	"github.com/srjn45/warden/internal/terminalstore"
+	"github.com/srjn45/warden/internal/tmuxproc"
 )
 
 // requireTokenForNonLoopback rejects a non-loopback bind that has no bearer
@@ -130,11 +134,17 @@ func newDaemonRunCmd() *cobra.Command {
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 
-			st, err := store.NewFileStore(cfg.DataDir)
+			st, err := agentstore.New(cfg.DataDir)
 			if err != nil {
 				return err
 			}
-			defer st.Close(context.Background())
+			defer st.Close()
+
+			termStore, err := terminalstore.New(cfg.DataDir)
+			if err != nil {
+				return err
+			}
+			defer termStore.Close()
 
 			cstore, err := ctxstore.New(filepath.Join(cfg.DataDir, "context"))
 			if err != nil {
@@ -218,12 +228,12 @@ func newDaemonRunCmd() *cobra.Command {
 				return err
 			}
 			srv := daemon.NewServer(st, life, pl, 10*time.Second, cfg.ApprovalsEnabled, cstore, mbox, nil)
-			// Wire the TerminalWatcher using the same deps adapter the Poller uses.
-			// pollerDeps satisfies poller.TerminalDeps (the Restore method is present),
-			// so the type assertion always succeeds.
-			if tdeps, ok := pd.(poller.TerminalDeps); ok {
-				srv.SetTerminalWatcher(poller.NewTerminalWatcher(tdeps))
-			}
+			srv.SetTerminals(termStore)
+			// TerminalWatcher polls terminalstore (not the agent session store) via
+			// the shared tmuxproc.Host for liveness/capture.
+			srv.SetTerminalWatcher(poller.NewTerminalWatcher(
+				daemon.NewTerminalPollerDeps(termStore, tmuxproc.New(runner), lc),
+			))
 			srv.SetAuth(authToken, readonlyToken)
 			srv.SetWriteTimeouts(cfg.HTTPTimeoutFastDuration(), cfg.HTTPTimeoutSlowDuration())
 			// Persist auto-approve policy changes (PUT /auto-approve/policy) back to
@@ -351,7 +361,7 @@ func newDaemonRunCmd() *cobra.Command {
 					"remove these fields from your configuration; context_fill_threshold remains active and controls context-window handover only",
 					"keys", "threshold_percent, rolling_quota_threshold")
 			}
-			pl.OnHotSwap = func(sess *store.Session, tokens int) {
+			pl.OnHotSwap = func(sess *agentstore.Agent, tokens int) {
 				settings, err := backendStore.GetHandoverSettings()
 				if err != nil {
 					settings = backendstore.DefaultHandoverSettings()
@@ -379,10 +389,10 @@ func newDaemonRunCmd() *cobra.Command {
 					slog.Error("hot-swap failed", "agent", sess.ID, "err", swapErr)
 					return
 				}
-				_ = st.Update(context.Background(), sess.ID, func(s *store.Session) error {
-					s.Backend = sess.Backend
+				_ = st.Update(context.Background(), sess.ID, func(s *agentstore.Agent) error {
+					s.AiCli = sess.AiCli
 					s.Model = sess.Model
-					s.ClaudeSessionID = sess.ClaudeSessionID
+					s.AICLISessionID = sess.AICLISessionID
 					s.UpdatedAt = sess.UpdatedAt
 					return nil
 				})
@@ -479,6 +489,7 @@ func newDaemonRunCmd() *cobra.Command {
 			exec := daemon.NewExecutor(pstore, st, life, cstore, srv.Notify)
 			srv.SetExecutor(exec)
 			exec.SetProjects(projectStore)
+			exec.SetPlanPipelineHook(srv)
 			// Digest narration is internal thinking too: route it through the same
 			// free/local walk. On an exhausted walk Complete errors and the narrator
 			// returns "" so the digest skips its summary line (never a paid call).
@@ -537,8 +548,8 @@ func newDaemonRunCmd() *cobra.Command {
 			restarter := daemon.NewRestarter(life, st, cfg.AutoRestart.Max, cfg.AutoRestartResetDuration())
 			srv.SetRestarter(restarter)
 			rateLimitSched := daemon.NewRateLimitScheduler(life, st, cfg.RateLimitRetryIntervalDuration(), cfg.RateLimitSpendRetryIntervalDuration(), cfg.RateLimitBufferDuration(), cfg.RateLimit.AutoResume, cfg.RateLimit.ResumePrompt)
-			rateLimitSched.BackendResolver = func(s *store.Session) agentbackend.Backend {
-				b, _ := agentbackend.Get(s.Backend)
+			rateLimitSched.BackendResolver = func(s *agentstore.Agent) agentbackend.Backend {
+				b, _ := agentbackend.Get(s.AiCli)
 				return b
 			}
 			// Fixture-capture aid: snapshot the raw pane on each real limit hit so a
@@ -561,13 +572,13 @@ func newDaemonRunCmd() *cobra.Command {
 			// pane excerpt captured this tick. rateLimitSched.OnTransition is kept as
 			// the fallback for pane-blind backends (usage_sync.go fires it directly).
 			pl.OnRateLimitObservation = rateLimitSched.OnRateLimitObservation
-			pl.OnTransition = func(sess *store.Session, from, to store.Status) {
+			pl.OnTransition = func(sess *agentstore.Agent, from, to store.Status) {
 				notifyHook(sess, from, to)
 				exec.OnTransition(sess, from, to)
 				restarter.OnTransition(sess, from, to)
 				recoveryCoordinator.OnTransition(sess, from, to)
 			}
-			pl.OnContextAlert = func(sess *store.Session, state ctxtokens.State, tokens int) {
+			pl.OnContextAlert = func(sess *agentstore.Agent, state ctxtokens.State, tokens int) {
 				title, body := daemon.ContextAlertMessage(sess, state, tokens)
 				go notifSwitch.Notify(title, body)
 			}
@@ -624,16 +635,44 @@ func newDaemonRunCmd() *cobra.Command {
 
 			// Project membership backfill/repair (docs/specs/2026-09-25-project-entity-hierarchy.md
 			// D2/§6): stamp any pre-back-ref session/pipeline onto its open project and
-			// rebuild every project's authoritative agents[]/pipelines[]/terminals[] lists
-			// from those back-refs. Idempotent one-shot; best-effort, so a failure logs and
-			// never blocks boot. Runs in-process here so there is no writer contention.
-			if rep, rerr := daemon.ReconcileProjectMembership(ctx, st, pstore, projectStore); rerr != nil {
+			// rebuild every project's authoritative agents[]/pipelines[]/plans[] lists
+			// from those back-refs (Plans from the plan store). Autopilots[] is never
+			// inferred — only stamped at live run-create. Idempotent one-shot; best-effort,
+			// so a failure logs and never blocks boot. Runs in-process here so there is
+			// no writer contention.
+			if rep, rerr := daemon.ReconcileProjectMembership(ctx, st, pstore, planStore, projectStore); rerr != nil {
 				slog.Warn("daemon: project membership reconcile failed", "err", rerr)
 			} else if rep.Changed() {
 				slog.Info("daemon: project membership reconciled",
 					"sessions_stamped", rep.SessionsStamped,
 					"pipelines_stamped", rep.PipelinesStamped,
 					"projects_rebuilt", rep.ProjectsRebuilt)
+			}
+
+			// Live Autopilot entity store (plan-execution-entity-redesign): migrate
+			// legacy RunRecords, then wire the store into the controller so Plan
+			// run mode=autopilot creates live Autopilot + manager (not plan-file
+			// registration alone). Best-effort — never blocks boot.
+			apLive, aperr := autopilotstore.New(cfg.DataDir)
+			if aperr != nil {
+				slog.Warn("daemon: autopilotstore open failed", "err", aperr)
+			} else {
+				defer apLive.Close()
+				if apRep, merr := autopilotstore.MigrateLegacyRuns(ctx, cfg.DataDir, apLive, planStore); merr != nil {
+					slog.Warn("daemon: autopilot legacy-run migration failed", "err", merr)
+				} else if apRep.Changed() {
+					slog.Info("daemon: autopilot legacy runs migrated",
+						"live_created", apRep.LiveCreated,
+						"history_attached", apRep.HistoryAttached,
+						"archived_unmatched", apRep.ArchivedUnmatched)
+				}
+				apCtrl.SetLiveStore(apLive)
+				if planStore != nil {
+					apCtrl.SetPlanSource(planStore)
+				}
+				if rerr := apCtrl.RecoverLiveAutopilots(ctx); rerr != nil {
+					slog.Warn("daemon: live Autopilot recovery failed", "err", rerr)
+				}
 			}
 
 			slog.Info("warden daemon listening", "addr", cfg.Addr)

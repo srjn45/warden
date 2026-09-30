@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/srjn45/warden/internal/store"
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/stretchr/testify/require"
 )
 
@@ -53,8 +53,8 @@ func wtEntry(id, branch string) string {
 	return "worktree /repo/.worktrees/" + id + "\nHEAD h" + id + "\n" + tail
 }
 
-func wtSess(id, branch string, branchCreated bool) *store.Session {
-	return &store.Session{ID: id, Repo: "/repo", Worktree: ".worktrees/" + id, Branch: branch, BranchCreated: branchCreated}
+func wtSess(id, branch string, branchCreated bool) *agentstore.Agent {
+	return &agentstore.Agent{ID: id, Repo: "/repo", Worktree: ".worktrees/" + id, Branch: branch, BranchCreated: branchCreated}
 }
 
 func pruneByPath(res []PruneResult) map[string]PruneResult {
@@ -71,8 +71,8 @@ func TestPruneClassifiesOwnership(t *testing.T) {
 	porcelain := mainEntry() + wtEntry("live-1", "live-1") + wtEntry("arch-1", "arch-1") + wtEntry("orph-1", "orph-1")
 	fr := &FakeRunner{Responses: map[string]FakeResp{"git worktree list --porcelain": {Out: porcelain}}}
 	res, err := New(fr, &FakeConfig{}).PruneWorktrees(context.Background(), "/repo", PruneOpts{
-		Active:   []*store.Session{wtSess("live-1", "live-1", true)},
-		Archived: []*store.Session{wtSess("arch-1", "arch-1", true)},
+		Active:   []*agentstore.Agent{wtSess("live-1", "live-1", true)},
+		Archived: []*agentstore.Agent{wtSess("arch-1", "arch-1", true)},
 	})
 	require.NoError(t, err)
 	by := pruneByPath(res)
@@ -128,7 +128,7 @@ func TestPruneIncludeArchivedReclaims(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{"git worktree list --porcelain": {Out: porcelain}}}
 	res, err := New(fr, &FakeConfig{}).PruneWorktrees(context.Background(), "/repo", PruneOpts{
 		IncludeArchived: true,
-		Archived:        []*store.Session{wtSess("arch-1", "feature/login", true)}, // warden-created branch
+		Archived:        []*agentstore.Agent{wtSess("arch-1", "feature/login", true)}, // warden-created branch
 	})
 	require.NoError(t, err)
 	require.Equal(t, PruneRemove, res[0].Action)
@@ -143,7 +143,7 @@ func TestPruneIncludeArchivedKeepsAdoptedBranch(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{"git worktree list --porcelain": {Out: porcelain}}}
 	res, err := New(fr, &FakeConfig{}).PruneWorktrees(context.Background(), "/repo", PruneOpts{
 		IncludeArchived: true,
-		Archived:        []*store.Session{wtSess("arch-1", "feature/login", false)},
+		Archived:        []*agentstore.Agent{wtSess("arch-1", "feature/login", false)},
 	})
 	require.NoError(t, err)
 	require.Equal(t, PruneRemove, res[0].Action)
@@ -220,7 +220,7 @@ func TestPruneDryRunMatchesRealRun(t *testing.T) {
 		return &FakeRunner{Responses: map[string]FakeResp{"git worktree list --porcelain": {Out: porcelain}}}
 	}
 	opts := func(dry bool) PruneOpts {
-		return PruneOpts{DryRun: dry, Force: true, Active: []*store.Session{wtSess("live-1", "live-1", true)}}
+		return PruneOpts{DryRun: dry, Force: true, Active: []*agentstore.Agent{wtSess("live-1", "live-1", true)}}
 	}
 
 	frDry := mk()
@@ -267,10 +267,10 @@ func TestPruneIntegrationRealGit(t *testing.T) {
 
 	// spawn-equivalent: a warden worktree on a new branch, with an owning record.
 	git(repo, "worktree", "add", ".worktrees/feat-1", "-b", "feat-1")
-	owner := &store.Session{ID: "feat-1", Repo: repo, Worktree: ".worktrees/feat-1", Branch: "feat-1", BranchCreated: true}
+	owner := &agentstore.Agent{ID: "feat-1", Repo: repo, Worktree: ".worktrees/feat-1", Branch: "feat-1", BranchCreated: true}
 
 	// Owned → kept.
-	res, err := lc.PruneWorktrees(ctx, repo, PruneOpts{Active: []*store.Session{owner}})
+	res, err := lc.PruneWorktrees(ctx, repo, PruneOpts{Active: []*agentstore.Agent{owner}})
 	require.NoError(t, err)
 	require.Len(t, res, 1)
 	require.Equal(t, PruneKeep, res[0].Action)

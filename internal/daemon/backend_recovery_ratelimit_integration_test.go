@@ -9,6 +9,7 @@ import (
 
 	"github.com/srjn45/warden/internal/agentbackend"
 	_ "github.com/srjn45/warden/internal/agentbackend/backends"
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/backendusage"
 	"github.com/srjn45/warden/internal/store"
@@ -25,7 +26,7 @@ func TestBackendRecoveryOnHardLimitWhenHandoverDisabled(t *testing.T) {
 	})
 	require.NoError(t, c.backends.SetHandoverSettings(backendstore.HandoverSettings{Enabled: false}))
 
-	require.True(t, c.OnHardLimit(&store.Session{ID: "agent-1"}, time.Now().Add(time.Hour)))
+	require.True(t, c.OnHardLimit(&agentstore.Agent{ID: "agent-1"}, time.Now().Add(time.Hour)))
 	require.Eventually(t, func() bool {
 		s := st.snapSession("agent-1")
 		return s != nil && s.BackendRecovery != nil && len(life.swaps) > 0
@@ -54,11 +55,11 @@ func TestRateLimitCodexPaneThroughSchedulerToRecovery(t *testing.T) {
 	life.failures = map[string]error{} // claude launch succeeds if picked first
 
 	sched := NewRateLimitScheduler(nil, st, 30*time.Minute, 6*time.Hour, time.Minute, true, "")
-	sched.BackendResolver = func(s *store.Session) agentbackend.Backend {
-		b, _ := agentbackend.Get(s.Backend)
+	sched.BackendResolver = func(s *agentstore.Agent) agentbackend.Backend {
+		b, _ := agentbackend.Get(s.AiCli)
 		return b
 	}
-	sched.OnHardLimit = func(sess *store.Session, until time.Time) bool {
+	sched.OnHardLimit = func(sess *agentstore.Agent, until time.Time) bool {
 		return c.OnHardLimit(sess, until)
 	}
 
@@ -72,7 +73,7 @@ func TestRateLimitCodexPaneThroughSchedulerToRecovery(t *testing.T) {
 		snap := st.snapSession("agent-1")
 		return snap != nil && snap.BackendRecovery != nil &&
 			snap.BackendRecovery.Phase == recoveryStabilizing &&
-			snap.Backend != "codex"
+			snap.AiCli != "codex"
 	}, time.Second, 5*time.Millisecond)
 	require.NotEmpty(t, life.swaps)
 }

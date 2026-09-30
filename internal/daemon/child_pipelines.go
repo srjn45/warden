@@ -5,8 +5,8 @@ import (
 	"errors"
 	"log/slog"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/pipeline"
-	"github.com/srjn45/warden/internal/store"
 )
 
 // Pipeline ownership-edge maintenance (docs/specs/2026-09-25-project-entity-hierarchy.md
@@ -33,7 +33,7 @@ import (
 // no agent's ChildPipelines[].
 func (s *Server) resolvePipelineParentAgentID(ctx context.Context) string {
 	caller := s.callerSession(ctx)
-	if caller == nil || caller.IsTerminal() {
+	if caller == nil {
 		return ""
 	}
 	return caller.ID
@@ -46,27 +46,25 @@ func (s *Server) resolvePipelineParentAgentID(ctx context.Context) string {
 // pipeline keeps its ParentAgentID back-ref regardless, and the two ends are
 // reconciled with this list as the source of truth. An operator-created pipeline
 // (empty ParentAgentID) is a silent no-op, and a missing owning agent is
-// tolerated (dangling back-ref, §6.3). A terminal owner is rejected on BOTH ends
-// (§6.4 — terminals are leaf members and never own pipelines): the forward edge
-// is not written and the pipeline's ParentAgentID back-ref is cleared, even when
-// it was set via an explicit request-body override. Call AFTER a successful
-// pstore.Create.
+// tolerated (dangling back-ref, §6.3). Call AFTER a successful pstore.Create.
 func (s *Server) addPipelineParentEdge(ctx context.Context, p *pipeline.Pipeline) {
 	if p == nil || p.ParentAgentID == "" {
 		return
 	}
-	if owner, err := s.store.Get(ctx, p.ParentAgentID); err == nil && owner.IsTerminal() {
-		s.clearTerminalPipelineOwner(p)
+	if s.terminals != nil {
+		if _, err := s.terminals.Get(ctx, p.ParentAgentID); err == nil {
+			s.clearTerminalPipelineOwner(p)
+			return
+		}
+	}
+	if s.store == nil {
 		return
 	}
-	if err := s.store.Update(ctx, p.ParentAgentID, func(a *store.Session) error {
-		if a.IsTerminal() {
-			return nil
-		}
+	if err := s.store.Update(ctx, p.ParentAgentID, func(a *agentstore.Agent) error {
 		a.ChildPipelines = appendUnique(a.ChildPipelines, p.ID)
 		return nil
 	}); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
+		if errors.Is(err, agentstore.ErrNotFound) {
 			return // owning agent gone (dangling back-ref tolerated, §6.3)
 		}
 		slog.Warn("daemon: pipeline parent edge: add failed", "pipeline", p.ID, "agent", p.ParentAgentID, "err", err)
@@ -93,14 +91,14 @@ func (s *Server) clearTerminalPipelineOwner(p *pipeline.Pipeline) {
 // operator-created pipeline (empty ParentAgentID). A missing owning agent is
 // tolerated (§6.3). Call when a pipeline is deleted.
 func (s *Server) removePipelineParentEdge(ctx context.Context, p *pipeline.Pipeline) {
-	if p == nil || p.ParentAgentID == "" {
+	if s.store == nil || p == nil || p.ParentAgentID == "" {
 		return
 	}
-	if err := s.store.Update(ctx, p.ParentAgentID, func(a *store.Session) error {
+	if err := s.store.Update(ctx, p.ParentAgentID, func(a *agentstore.Agent) error {
 		a.ChildPipelines = removeString(a.ChildPipelines, p.ID)
 		return nil
 	}); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
+		if errors.Is(err, agentstore.ErrNotFound) {
 			return
 		}
 		slog.Warn("daemon: pipeline parent edge: remove failed", "pipeline", p.ID, "agent", p.ParentAgentID, "err", err)

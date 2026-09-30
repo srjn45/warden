@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/mailbox"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -29,7 +30,7 @@ func newMsgServer(t *testing.T) (*Server, *fakeStore, *mailbox.Store) {
 
 func TestSendMessageStoresAndWakesParked(t *testing.T) {
 	srv, fs, _ := newMsgServer(t)
-	fs.Insert(context.Background(), &store.Session{ID: "agent-1", TmuxSession: "agent-1", Status: store.StatusIdle})
+	fs.Insert(context.Background(), &agentstore.Agent{ID: "agent-1", TmuxSession: "agent-1", Status: store.StatusIdle})
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
 
@@ -60,7 +61,7 @@ func TestSendMessageStoresAndWakesParked(t *testing.T) {
 
 func TestSendMessageWorkingRecipientNotWoken(t *testing.T) {
 	srv, fs, _ := newMsgServer(t)
-	fs.Insert(context.Background(), &store.Session{ID: "busy", TmuxSession: "busy", Status: store.StatusWorking})
+	fs.Insert(context.Background(), &agentstore.Agent{ID: "busy", TmuxSession: "busy", Status: store.StatusWorking})
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
 
@@ -83,7 +84,7 @@ func TestSendMessageWorkingRecipientNotWoken(t *testing.T) {
 
 func TestSendMessageReservedSenderForbidden(t *testing.T) {
 	srv, fs, mb := newMsgServer(t)
-	fs.Insert(context.Background(), &store.Session{ID: "agent-1", TmuxSession: "agent-1", Status: store.StatusIdle})
+	fs.Insert(context.Background(), &agentstore.Agent{ID: "agent-1", TmuxSession: "agent-1", Status: store.StatusIdle})
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
 
@@ -105,7 +106,7 @@ func TestSendMessageReservedSenderForbidden(t *testing.T) {
 
 func TestSendMessageEmptyFromDefaultsToHuman(t *testing.T) {
 	srv, fs, _ := newMsgServer(t)
-	fs.Insert(context.Background(), &store.Session{ID: "agent-1", TmuxSession: "agent-1", Status: store.StatusIdle})
+	fs.Insert(context.Background(), &agentstore.Agent{ID: "agent-1", TmuxSession: "agent-1", Status: store.StatusIdle})
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
 	resp, err := http.Post(ts.URL+"/api/v1/sessions/agent-1/messages", "application/json",
@@ -139,7 +140,7 @@ func TestSendMessageUnknownRecipient404(t *testing.T) {
 
 func TestSendMessageEmptyBody400(t *testing.T) {
 	srv, fs, _ := newMsgServer(t)
-	fs.Insert(context.Background(), &store.Session{ID: "agent-1", TmuxSession: "agent-1", Status: store.StatusIdle})
+	fs.Insert(context.Background(), &agentstore.Agent{ID: "agent-1", TmuxSession: "agent-1", Status: store.StatusIdle})
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
 	resp, err := http.Post(ts.URL+"/api/v1/sessions/agent-1/messages", "application/json", bytes.NewBufferString(`{"from":"x","body":""}`))
@@ -154,7 +155,7 @@ func TestSendMessageEmptyBody400(t *testing.T) {
 
 func TestInboxListsAndMarksRead(t *testing.T) {
 	srv, fs, mb := newMsgServer(t)
-	fs.Insert(context.Background(), &store.Session{ID: "agent-1", TmuxSession: "agent-1", Status: store.StatusIdle})
+	fs.Insert(context.Background(), &agentstore.Agent{ID: "agent-1", TmuxSession: "agent-1", Status: store.StatusIdle})
 	mb.Append(mailbox.Message{To: "agent-1", From: "x", Body: "one"})
 	mb.Append(mailbox.Message{To: "agent-1", From: "y", Body: "two"})
 	ts := httptest.NewServer(srv.router())

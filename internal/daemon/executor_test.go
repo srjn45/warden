@@ -7,6 +7,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/curate"
 	"github.com/srjn45/warden/internal/digest"
@@ -179,7 +180,7 @@ func TestRetryResetsFailedJobAndReopensDescendants(t *testing.T) {
 	e, ps, ss := newTestExecutor(t)
 	ps.Create(chain()) // a -> b
 	// Put the pipeline in a stalled state: a failed (with a stale session), b skipped.
-	ss.Insert(context.Background(), &store.Session{ID: "p-a", TmuxSession: "p-a", PipelineID: "p", JobID: "a", Status: store.StatusOrphaned})
+	ss.Insert(context.Background(), &agentstore.Agent{ID: "p-a", TmuxSession: "p-a", PipelineID: "p", JobID: "a", Status: store.StatusOrphaned})
 	ps.Update("p", func(p *pipeline.Pipeline) {
 		p.Job("a").Status = pipeline.JobFailed
 		p.Job("a").SessionID = "p-a"
@@ -331,7 +332,7 @@ func TestEmitReapsAgentAndSnapshotsDigest(t *testing.T) {
 	fl := &fakeLife{}
 	ss := newFakeStore()
 	e := NewExecutor(ps, ss, fl, nil, func() {})
-	e.digestFn = func(ctx context.Context, s *store.Session) digest.Digest {
+	e.digestFn = func(ctx context.Context, s *agentstore.Agent) digest.Digest {
 		// The background snapshot must run on a bounded context, not an untimed
 		// context.Background(), so a hung digest builder can't leak a goroutine.
 		if _, ok := ctx.Deadline(); !ok {
@@ -393,7 +394,7 @@ func TestEmitEnqueuesCuration(t *testing.T) {
 		Jobs: []pipeline.Job{{ID: "a", Prompt: "analyze", Worktree: "fresh", Status: pipeline.JobPending}},
 	})
 	e := NewExecutor(ps, newFakeStore(), &fakeLife{}, nil, func() {})
-	e.digestFn = func(_ context.Context, s *store.Session) digest.Digest {
+	e.digestFn = func(_ context.Context, s *agentstore.Agent) digest.Digest {
 		return digest.Digest{Task: "analyze auth", Summary: "mapped the login flow",
 			Files: []digest.FileChange{{Path: "internal/auth/login.go"}}}
 	}
@@ -437,7 +438,7 @@ func TestEmitNoCuratorIsNoop(t *testing.T) {
 		Jobs: []pipeline.Job{{ID: "a", Prompt: "x", Worktree: "fresh", Status: pipeline.JobPending}},
 	})
 	e := NewExecutor(ps, newFakeStore(), &fakeLife{}, nil, func() {})
-	e.digestFn = func(_ context.Context, s *store.Session) digest.Digest { return digest.Digest{} }
+	e.digestFn = func(_ context.Context, s *agentstore.Agent) digest.Digest { return digest.Digest{} }
 	_ = e.Reconcile(context.Background(), "p")
 	if err := e.Emit(context.Background(), "p", "a", "done"); err != nil {
 		t.Fatal(err)
@@ -458,7 +459,7 @@ func TestOnTransitionLeavesDoneJobUntouched(t *testing.T) {
 		Jobs: []pipeline.Job{{ID: "a", Prompt: "x", Status: pipeline.JobDone, SessionID: "p-a"}},
 	})
 	e := NewExecutor(ps, newFakeStore(), &fakeLife{}, nil, func() {})
-	sess := &store.Session{ID: "p-a", PipelineID: "p", JobID: "a", Status: store.StatusErrored}
+	sess := &agentstore.Agent{ID: "p-a", PipelineID: "p", JobID: "a", Status: store.StatusErrored}
 	// Simulate the poller observing the reaped session die — both terminal transitions.
 	e.OnTransition(sess, store.StatusWorking, store.StatusErrored)
 	e.OnTransition(sess, store.StatusWorking, store.StatusOrphaned)
@@ -481,7 +482,7 @@ func TestEmitKeepDoneSkipsReap(t *testing.T) {
 	fl := &fakeLife{}
 	e := NewExecutor(ps, newFakeStore(), fl, nil, func() {})
 	e.keepDone = true
-	e.digestFn = func(_ context.Context, s *store.Session) digest.Digest { return digest.Digest{Summary: "x"} }
+	e.digestFn = func(_ context.Context, s *agentstore.Agent) digest.Digest { return digest.Digest{Summary: "x"} }
 	_ = e.Reconcile(context.Background(), "p")
 	if err := e.Emit(context.Background(), "p", "a", "done"); err != nil {
 		t.Fatal(err)
@@ -511,7 +512,7 @@ func TestEmitDeletesSessionRecord(t *testing.T) {
 	fl := &fakeLife{}
 	ss := newFakeStore()
 	e := NewExecutor(ps, ss, fl, nil, func() {})
-	e.digestFn = func(_ context.Context, s *store.Session) digest.Digest {
+	e.digestFn = func(_ context.Context, s *agentstore.Agent) digest.Digest {
 		return digest.Digest{Summary: "snap for " + s.ID}
 	}
 	if err := e.Reconcile(context.Background(), "p"); err != nil { // spawns job a (session p-a)
@@ -582,10 +583,10 @@ func TestSweepDoneJobSessionsRemovesBacklog(t *testing.T) {
 	})
 	ss := newFakeStore()
 	// Backlog: a's session lingers as orphaned; b's is the live running agent.
-	_ = ss.Insert(context.Background(), &store.Session{ID: "p-a", TmuxSession: "p-a", PipelineID: "p", JobID: "a", Status: store.StatusOrphaned})
-	_ = ss.Insert(context.Background(), &store.Session{ID: "p-b", TmuxSession: "p-b", PipelineID: "p", JobID: "b", Status: store.StatusWorking})
+	_ = ss.Insert(context.Background(), &agentstore.Agent{ID: "p-a", TmuxSession: "p-a", PipelineID: "p", JobID: "a", Status: store.StatusOrphaned})
+	_ = ss.Insert(context.Background(), &agentstore.Agent{ID: "p-b", TmuxSession: "p-b", PipelineID: "p", JobID: "b", Status: store.StatusWorking})
 	// An unrelated, non-pipeline agent must be left strictly alone.
-	_ = ss.Insert(context.Background(), &store.Session{ID: "solo", TmuxSession: "solo", Status: store.StatusOrphaned})
+	_ = ss.Insert(context.Background(), &agentstore.Agent{ID: "solo", TmuxSession: "solo", Status: store.StatusOrphaned})
 
 	e := NewExecutor(ps, ss, &fakeLife{}, nil, func() {})
 	n, err := e.SweepDoneJobSessions(context.Background())
@@ -622,7 +623,7 @@ func TestSweepDoneJobSessionsKeepDoneNoop(t *testing.T) {
 		Jobs: []pipeline.Job{{ID: "a", Prompt: "x", Status: pipeline.JobDone, SessionID: "p-a"}},
 	})
 	ss := newFakeStore()
-	_ = ss.Insert(context.Background(), &store.Session{ID: "p-a", TmuxSession: "p-a", PipelineID: "p", JobID: "a", Status: store.StatusOrphaned})
+	_ = ss.Insert(context.Background(), &agentstore.Agent{ID: "p-a", TmuxSession: "p-a", PipelineID: "p", JobID: "a", Status: store.StatusOrphaned})
 	e := NewExecutor(ps, ss, &fakeLife{}, nil, func() {})
 	e.keepDone = true
 	n, err := e.SweepDoneJobSessions(context.Background())
@@ -870,7 +871,7 @@ func TestReconcileJobAgentProjectMembership(t *testing.T) {
 	e.SetProjects(projStore)
 
 	// Owning agent for D5 exclusion check — job agents must never appear here.
-	owner := &store.Session{ID: "agent-owner", Status: store.StatusWorking, ChildAgents: nil}
+	owner := &agentstore.Agent{ID: "agent-owner", Status: store.StatusWorking, ChildAgents: nil}
 	if err := ss.Insert(context.Background(), owner); err != nil {
 		t.Fatalf("insert owner: %v", err)
 	}

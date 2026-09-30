@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/savings"
-	"github.com/srjn45/warden/internal/store"
 )
 
 // errBadSince is the operator-facing message for an unparseable ?since value.
@@ -38,7 +38,7 @@ func parseSinceParam(q string) (time.Time, error) {
 // the feature being off, or a write error must never fail the check that ran, so
 // every error path only logs. sess may be nil (a human-run check); the agent id
 // is then empty, which the ledger records as an unattributed saving.
-func (s *Server) recordCheckSavings(sess *store.Session, res lifecycle.CheckResult) {
+func (s *Server) recordCheckSavings(sess *agentstore.Agent, res lifecycle.CheckResult) {
 	if !s.savingsOn || s.savings == nil {
 		return
 	}
@@ -85,11 +85,11 @@ func (s *Server) recordCheckSavings(sess *store.Session, res lifecycle.CheckResu
 // fail-open like the ledger record helpers — spend feeds the savings denominator,
 // the cost report, and the budget gate, so a nil tracker, the feature being off,
 // or a write error just logs.
-func (s *Server) RecordSpend(sess *store.Session, inputTokens, outputTokens int) {
+func (s *Server) RecordSpend(sess *agentstore.Agent, inputTokens, outputTokens int) {
 	if !s.savingsOn || s.spend == nil || sess == nil {
 		return
 	}
-	if err := s.spend.Record(sess.ID, sess.Backend, sess.Model, sess.Repo, inputTokens, outputTokens); err != nil {
+	if err := s.spend.Record(sess.ID, sess.AiCli, sess.Model, sess.Repo, inputTokens, outputTokens); err != nil {
 		slog.Warn("savings: failed to record spend", "agent", sess.ID, "err", err)
 	}
 }
@@ -124,7 +124,7 @@ func (s *Server) RecordLifecycleSaving(feature, agent string, rawTokens, keptTok
 // sends, so the json:"-" RawBytes field is correctly excluded. Fail-open like
 // recordCheckSavings: a nil store, the feature being off, or a write error only
 // logs. sess may be nil (a human-run git action), recorded unattributed.
-func (s *Server) recordGitSavings(sess *store.Session, rawBytes int, rawSample string, result any) {
+func (s *Server) recordGitSavings(sess *agentstore.Agent, rawBytes int, rawSample string, result any) {
 	if !s.savingsOn || s.savings == nil {
 		return
 	}

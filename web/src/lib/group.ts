@@ -32,6 +32,11 @@ export const GROUP_BY_LABELS: Record<GroupBy, string> = {
 // pre-#52 Claude agents) groups and renders under.
 export const DEFAULT_BACKEND = 'claude';
 
+/** Prefer canonical ai_cli; fall back to deprecated backend; default claude. */
+export function sessionAiCli(s: { ai_cli?: string; backend?: string } | null | undefined): string {
+  return s?.ai_cli || s?.backend || DEFAULT_BACKEND;
+}
+
 // UNKNOWN_DIR is the sentinel value used when neither repo nor workdir is set.
 export const UNKNOWN_DIR = '—';
 
@@ -52,7 +57,7 @@ export function sourceDir(s: Session): string {
 function keysFor(s: Session, by: GroupBy): string[] {
   switch (by) {
     case 'type': return [s.type || UNTYPED];
-    case 'backend': return [s.backend || DEFAULT_BACKEND];
+    case 'backend': return [sessionAiCli(s)];
     case 'status': return [presentedStatus(s.status, s.exit_code)];
     case 'tag': {
       const tags = (s.tags ?? []).filter((t) => t.trim() !== '');

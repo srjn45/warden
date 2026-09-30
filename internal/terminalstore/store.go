@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/srjn45/scriva"
 	"github.com/srjn45/scriva/engine"
@@ -21,13 +22,36 @@ import (
 	"github.com/srjn45/warden/internal/store"
 )
 
-// Terminal is the flat, first-class representation of a plain shell pane.
-// Agent-specific state such as prompts, hierarchy, and backend metadata does
-// not belong here.
+// Status is the process lifecycle of a terminal pane. It is distinct from
+// store.Status — terminals have no AI-agent concerns (backend, approval, rate
+// limit, context-window) and their lifecycle is simpler.
+type Status string
+
+const (
+	// StatusRunning means the tmux pane process is alive.
+	StatusRunning Status = "running"
+	// StatusExited means the pane process ended normally; ExitCode is set.
+	StatusExited Status = "exited"
+	// StatusOrphaned means the pane disappeared without an observed exit (e.g.
+	// after a daemon restart with no process record).
+	StatusOrphaned Status = "orphaned"
+)
+
+// Terminal is the first-class representation of a plain shell pane.
+// It owns its full process identity; AI-agent state (backend, role, context,
+// approvals, pipeline/plan back-refs) is never stored here.
 type Terminal struct {
-	ID          string `json:"id"`
-	ProjectID   string `json:"project_id,omitempty"`
-	TmuxSession string `json:"tmux_session"`
+	ID          string    `json:"id"`
+	ProjectID   string    `json:"project_id,omitempty"`
+	Name        string    `json:"name,omitempty"`
+	TmuxSession string    `json:"tmux_session"`
+	Workdir     string    `json:"workdir,omitempty"`
+	Shell       string    `json:"shell,omitempty"`
+	PID         int       `json:"pid,omitempty"`
+	Status      Status    `json:"status,omitempty"`
+	ExitCode    *int      `json:"exit_code,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 var (
@@ -90,6 +114,38 @@ func New(dir string) (*Store, error) {
 	return s, nil
 }
 
+// sessionToTerminal converts a legacy kind=terminal store.Session to a full
+// Terminal record. The ID is preserved so callers referencing the old session
+// ID still resolve to the same Terminal after migration.
+func sessionToTerminal(s *store.Session) *Terminal {
+	return &Terminal{
+		ID:          s.ID,
+		ProjectID:   s.ProjectID,
+		Name:        s.Name,
+		TmuxSession: s.TmuxSession,
+		Workdir:     s.Workdir,
+		PID:         s.PID,
+		Status:      mapSessionStatus(s.Status),
+		ExitCode:    s.ExitCode,
+		CreatedAt:   s.CreatedAt,
+		UpdatedAt:   s.UpdatedAt,
+	}
+}
+
+// mapSessionStatus translates a store.Status value to the terminal-specific
+// Status enum. Terminal panes never carry rate-limit or AI-context states, so
+// those collapse into StatusRunning (the pane process is still alive).
+func mapSessionStatus(s store.Status) Status {
+	switch s {
+	case store.StatusDone, store.StatusErrored:
+		return StatusExited
+	case store.StatusOrphaned:
+		return StatusOrphaned
+	default:
+		return StatusRunning
+	}
+}
+
 func (s *Store) importActiveSessions(legacyDB string) error {
 	if _, err := os.Stat(legacyDB); errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -114,7 +170,8 @@ func (s *Store) importActiveSessions(legacyDB string) error {
 		if err := decodeRecord(row.Data, &session); err != nil || !session.IsTerminal() {
 			continue
 		}
-		if err := s.insert(&Terminal{ID: session.ID, ProjectID: session.ProjectID, TmuxSession: session.TmuxSession}); err != nil && !errors.Is(err, ErrExists) {
+		t := sessionToTerminal(&session)
+		if err := s.insert(t); err != nil && !errors.Is(err, ErrExists) {
 			return err
 		}
 	}

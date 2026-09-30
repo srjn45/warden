@@ -68,10 +68,10 @@ When a plan is run with `wd plan run <id> --mode <mode>`, warden creates an exec
 
 | Mode | What warden creates | Completion detection |
 |---|---|---|
-| `autopilot` | Registers an autopilot run; manager drives workers | Daemon watches for run `completed` event → auto git-mv to `completed/` |
-| `pipeline` | Creates a pipeline (one job per YAML task) | Daemon watches for pipeline `done` event → auto git-mv to `completed/` |
-| `orchestrator_worker` | Spawns an orchestrator agent; each worker needs a human approval gate | Manual: `wd plan status <id> completed` |
-| `manual` | git-mv to `in_progress/` only; no execution entity | Manual: `wd plan status <id> completed` |
+| `autopilot` | Creates a live Autopilot + manager Agent (`PlanID` required); workers parented via `ParentID` | Daemon watches for run `completed` event → auto git-mv to `completed/` |
+| `pipeline` | Creates a pipeline named `P:<plan-name>` (one job per YAML task, same IDs + deps); job lifecycle updates Plan evidence | Daemon watches for pipeline `done` event → auto git-mv to `completed/` |
+| `orchestrator_worker` | Spawns `O:<plan-name>` (`role=orchestrator`, `PlanID`); workers are `role=worker` with `ParentID` set | Manual: `wd plan complete <id>` |
+| `manual` | Spawns `M:<plan-name>` (`role=general`, `PlanID`); no Autopilot | Manual: `wd plan complete <id>` |
 
 A plan with no execution mode is treated as `manual`.
 
@@ -131,6 +131,22 @@ After a reinstall, plan **status** is perfectly recovered from git (the director
 | In-progress task progress lost | `wd plan assess <plan-id>` reconstructs from git/PRs |
 | Full backup + restore | `wd snapshot restore` restores ScrivaDB including execution links |
 
+## Finalization and ExecutionSummary
+
+Completing a plan (`wd plan complete`) is daemon-owned: reconcile observed Git /
+GitHub evidence, seal the active execution, reduce an immutable
+`ExecutionSummary` from typed `PlanExecutionEvent`s, then tear down disposable
+executors. The summary and event ledger stay on the Plan — deleting the Agent,
+Pipeline, or Autopilot does not erase audit history.
+
+## Upgrade note
+
+Upgrading from pre-redesign data preserves agents, terminals, archives, project
+membership, Plan YAML, and registered autopilot runs (migrated to live
+`Autopilot` with required `PlanID` when resolvable). Config `backend_default`
+still populates `ai_cli_default` for one release. See FEATURES §38 and the
+plan-execution-entity redesign spec for the full migration table.
+
 ## Non-goals
 
 The following are intentionally out of scope:
@@ -149,10 +165,15 @@ POST   /api/v1/plans
 GET    /api/v1/plans/{plan_id}
 PATCH  /api/v1/plans/{plan_id}
 POST   /api/v1/plans/{plan_id}/run
+POST   /api/v1/plans/{plan_id}/control
 POST   /api/v1/plans/{plan_id}/tasks/{task_id}/status
 POST   /api/v1/plans/{plan_id}/complete
 POST   /api/v1/plans/{plan_id}/archive
 ```
+
+Plan lifecycle control (`pause` / `resume` / `stop`) goes through `/control`.
+Deprecated `/api/v1/autopilot/runs` register/unregister/retarget aliases remain for
+one release; prefer PlanID-based run/control.
 
 A legacy project-scoped surface remains for scan/assess/status:
 

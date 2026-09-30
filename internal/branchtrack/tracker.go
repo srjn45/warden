@@ -29,6 +29,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/mailbox"
 	"github.com/srjn45/warden/internal/notify"
 	"github.com/srjn45/warden/internal/store"
@@ -60,10 +61,10 @@ const (
 	ciNone    = "none"
 )
 
-// Lister is the slice of the session store the tracker needs. store.Store
+// Lister is the slice of the session store the tracker needs. agentstore.Store
 // satisfies it; tests supply a fake.
 type Lister interface {
-	List(ctx context.Context) ([]*store.Session, error)
+	List(ctx context.Context) ([]*agentstore.Agent, error)
 }
 
 // CIStatus is the latest CI run observed for a branch.
@@ -223,7 +224,7 @@ func (t *Tracker) Statuses(ctx context.Context) ([]BranchStatus, error) {
 // tracked reports whether a session should be scanned: it has a worktree and is
 // not in a terminal state (matches collab's filter). A paused agent still owns a
 // branch worth tracking.
-func tracked(s *store.Session) bool {
+func tracked(s *agentstore.Agent) bool {
 	if s.Worktree == "" {
 		return false
 	}

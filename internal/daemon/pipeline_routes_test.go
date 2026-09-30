@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/srjn45/warden/internal/agentstore"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -369,7 +370,7 @@ func TestPipelineDeleteReapsJobSessions(t *testing.T) {
 		p.Job("a").Status = pipeline.JobDone
 		p.Job("a").SessionID = "demo-a"
 	})
-	ss.Insert(context.Background(), &store.Session{ID: "demo-a", PipelineID: "demo", JobID: "a", Status: store.StatusDone})
+	ss.Insert(context.Background(), &agentstore.Agent{ID: "demo-a", PipelineID: "demo", JobID: "a", Status: store.StatusDone})
 
 	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/v1/pipelines/demo", nil)
 	resp, err := http.DefaultClient.Do(req)
@@ -381,7 +382,7 @@ func TestPipelineDeleteReapsJobSessions(t *testing.T) {
 	if fl.terminated != "demo-a" {
 		t.Fatalf("expected job session demo-a terminated, got %q", fl.terminated)
 	}
-	if _, gerr := ss.Get(context.Background(), "demo-a"); !errors.Is(gerr, store.ErrNotFound) {
+	if _, gerr := ss.Get(context.Background(), "demo-a"); !errors.Is(gerr, agentstore.ErrNotFound) {
 		t.Fatalf("expected job session demo-a reaped from store, got err=%v", gerr)
 	}
 }
@@ -436,7 +437,7 @@ func TestTerminateFailsRunningPipelineJob(t *testing.T) {
 
 	ps.Create(&pipeline.Pipeline{ID: "demo", Name: "demo", Repo: "/r", Status: pipeline.StatusRunning,
 		Jobs: []pipeline.Job{{ID: "only", Status: pipeline.JobRunning, SessionID: "demo-only"}}})
-	ss.Insert(context.Background(), &store.Session{ID: "demo-only", TmuxSession: "demo-only", PipelineID: "demo", JobID: "only", Status: store.StatusWorking})
+	ss.Insert(context.Background(), &agentstore.Agent{ID: "demo-only", TmuxSession: "demo-only", PipelineID: "demo", JobID: "only", Status: store.StatusWorking})
 
 	resp, err := http.Post(ts.URL+"/api/v1/sessions/demo-only/terminate", "application/json", nil)
 	require.NoError(t, err)
@@ -463,7 +464,7 @@ func TestSessionEndFailsRunningPipelineJob(t *testing.T) {
 
 	ps.Create(&pipeline.Pipeline{ID: "demo", Name: "demo", Repo: "/r", Status: pipeline.StatusRunning,
 		Jobs: []pipeline.Job{{ID: "only", Status: pipeline.JobRunning, SessionID: "demo-only"}}})
-	ss.Insert(context.Background(), &store.Session{ID: "demo-only", PipelineID: "demo", JobID: "only", Status: store.StatusWorking})
+	ss.Insert(context.Background(), &agentstore.Agent{ID: "demo-only", PipelineID: "demo", JobID: "only", Status: store.StatusWorking})
 
 	resp, err := http.Post(ts.URL+"/api/v1/events", "application/json",
 		strings.NewReader(`{"session":"demo-only","type":"SessionEnd"}`))

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/snapshot"
 	"github.com/srjn45/warden/internal/store"
@@ -21,7 +22,7 @@ import (
 
 func TestGitCommitPinsToSessionWorkdir(t *testing.T) {
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", Workdir: "/repo/.worktrees/A-1", Status: store.StatusWorking})
+	_ = fs.Insert(context.Background(), &agentstore.Agent{ID: "A-1", Workdir: "/repo/.worktrees/A-1", Status: store.StatusWorking})
 	fl := &fakeLife{gitCommitResult: lifecycle.CommitResult{Committed: true, SHA: "abc1234", Branch: "A-1"}}
 	ts := lifeServer(t, fs, fl)
 	defer ts.Close()
@@ -49,7 +50,7 @@ func TestGitCommitPinsToSessionWorkdir(t *testing.T) {
 func TestPinnedWorkdirHonorsLinkedWorktreeAcrossOps(t *testing.T) {
 	repo, wt := setupRepoWithWorktree(t)
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{
+	_ = fs.Insert(context.Background(), &agentstore.Agent{
 		ID: "A-1", Repo: repo, Workdir: repo, TmuxSession: "A-1", Status: store.StatusWorking,
 	})
 	fl := &fakeLife{
@@ -97,7 +98,7 @@ func TestPinnedWorkdirHonorsLinkedWorktreeAcrossOps(t *testing.T) {
 func TestPinnedWorkdirRejectsInvalidDirs(t *testing.T) {
 	repo, _ := setupRepoWithWorktree(t)
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{
+	_ = fs.Insert(context.Background(), &agentstore.Agent{
 		ID: "A-1", Repo: repo, Workdir: repo, Status: store.StatusWorking,
 	})
 	fl := &fakeLife{gitCommitResult: lifecycle.CommitResult{Committed: true, SHA: "should-not-run"}}
@@ -154,7 +155,7 @@ func TestPinnedWorkdirSymlinkAliasSameRepoHonored(t *testing.T) {
 	require.NoError(t, os.Symlink(wt, alias))
 
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{
+	_ = fs.Insert(context.Background(), &agentstore.Agent{
 		ID: "A-1", Repo: repo, Workdir: repo, Status: store.StatusWorking,
 	})
 	fl := &fakeLife{gitCommitResult: lifecycle.CommitResult{Committed: true, SHA: "symlink"}}
@@ -174,7 +175,7 @@ func TestPinnedWorkdirSymlinkToUnrelatedRepoRejected(t *testing.T) {
 	require.NoError(t, os.Symlink(other, alias))
 
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{
+	_ = fs.Insert(context.Background(), &agentstore.Agent{
 		ID: "A-1", Repo: repo, Workdir: repo, Status: store.StatusWorking,
 	})
 	fl := &fakeLife{gitCommitResult: lifecycle.CommitResult{Committed: true, SHA: "should-not-run"}}
@@ -197,7 +198,7 @@ func TestPinnedWorkdirSymlinkToSessionWorkdirPins(t *testing.T) {
 	require.NoError(t, os.Symlink(repo, alias))
 
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{
+	_ = fs.Insert(context.Background(), &agentstore.Agent{
 		ID: "A-1", Repo: repo, Workdir: repo, Status: store.StatusWorking,
 	})
 	fl := &fakeLife{gitCommitResult: lifecycle.CommitResult{Committed: true, SHA: "pin"}}
@@ -255,7 +256,7 @@ func TestGitCommitUnknownSessionFallsBackToDir(t *testing.T) {
 
 func TestGitPush(t *testing.T) {
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", Workdir: "/repo/.worktrees/A-1", Status: store.StatusWorking})
+	_ = fs.Insert(context.Background(), &agentstore.Agent{ID: "A-1", Workdir: "/repo/.worktrees/A-1", Status: store.StatusWorking})
 	fl := &fakeLife{gitPushResult: lifecycle.PushResult{Branch: "A-1", Remote: "origin", Pushed: true}}
 	ts := lifeServer(t, fs, fl)
 	defer ts.Close()

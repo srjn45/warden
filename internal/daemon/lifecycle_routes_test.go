@@ -13,18 +13,20 @@ import (
 	"time"
 
 	"github.com/srjn45/warden/internal/agentbackend"
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/mailbox"
 	"github.com/srjn45/warden/internal/pressure"
 	"github.com/srjn45/warden/internal/store"
+	"github.com/srjn45/warden/internal/terminalstore"
 	"github.com/stretchr/testify/require"
 )
 
 // fakeLife implements daemon.Lifecycle for route tests.
 type fakeLife struct {
 	mu               sync.Mutex
-	spawned          *store.Session
+	spawned          *agentstore.Agent
 	lastInput        string
 	output           string
 	outputErr        error
@@ -45,7 +47,7 @@ type fakeLife struct {
 	removeWTErr      error
 	newestClaude     string
 	newestErr        error
-	adoptResult      *store.Session
+	adoptResult      *agentstore.Agent
 	adoptErr         error
 	adoptParams      AdoptParams
 	lastKey          string
@@ -92,7 +94,9 @@ type fakeLife struct {
 	lastJobPrompt    string // captured req.Prompt of the most recent SpawnJob
 }
 
-func (f *fakeLife) Spawn(_ context.Context, req SpawnRequest) (*store.Session, error) {
+var _ Lifecycle = (*fakeLife)(nil)
+
+func (f *fakeLife) Spawn(_ context.Context, req SpawnRequest) (*agentstore.Agent, error) {
 	f.spawnedCwd = req.Cwd
 	freeMode := req.Type == ""
 	id := req.Ticket
@@ -109,10 +113,14 @@ func (f *fakeLife) Spawn(_ context.Context, req SpawnRequest) (*store.Session, e
 	if !freeMode {
 		typ = store.NormalizeType(req.Type)
 	}
-	f.spawned = &store.Session{
+	aiCli := req.AiCli
+	if aiCli == "" {
+		aiCli = req.Backend
+	}
+	f.spawned = &agentstore.Agent{
 		ID: id, TmuxSession: id, Name: req.Name, Type: typ, Ticket: req.Ticket, Repo: req.Repo,
 		Prompt: req.Prompt, Status: store.StatusSpawning, Role: req.Role, Workdir: req.Cwd,
-		PermissionMode: req.PermissionMode, Tags: req.Tags, Kind: store.SessionKind(req.Kind),
+		PermissionMode: req.PermissionMode, Tags: req.Tags, AiCli: aiCli,
 		ProjectID: req.ProjectID, // mirror lifecycle: an explicit project_id is stamped at spawn
 		PlanID:    req.PlanID,
 	}
@@ -145,14 +153,14 @@ func (f *fakeLife) Terminate(_ context.Context, tmux string) error {
 	f.terminated = tmux
 	return nil
 }
-func (f *fakeLife) RemoveWorktree(_ context.Context, sess *store.Session, force, deleteAdoptedBranch bool) error {
+func (f *fakeLife) RemoveWorktree(_ context.Context, sess *agentstore.Agent, force, deleteAdoptedBranch bool) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.removedWT = sess.ID
 	f.removeWTForce = force
 	return f.removeWTErr
 }
-func (f *fakeLife) ListWorktrees(_ context.Context, repo string, active, archived []*store.Session) ([]lifecycle.WorktreeListing, error) {
+func (f *fakeLife) ListWorktrees(_ context.Context, repo string, active, archived []*agentstore.Agent) ([]lifecycle.WorktreeListing, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.lwRepo = repo
@@ -166,17 +174,21 @@ func (f *fakeLife) PruneWorktrees(_ context.Context, repo string, opts lifecycle
 	f.pruneOpts = opts
 	return f.pruneResult, f.pruneErr
 }
-func (f *fakeLife) Teardown(_ context.Context, sess *store.Session) error {
+func (f *fakeLife) Teardown(_ context.Context, sess *agentstore.Agent) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.tornDown = sess.ID
 	return nil
 }
-func (f *fakeLife) Restore(_ context.Context, sess *store.Session) error {
+func (f *fakeLife) Restore(_ context.Context, sess *agentstore.Agent) error {
 	f.restored = sess.ID
 	return f.restoreErr
 }
-func (f *fakeLife) SwitchRole(_ context.Context, sess *store.Session) error {
+func (f *fakeLife) RestoreTerminal(_ context.Context, id, _ string) error {
+	f.restored = id
+	return f.restoreErr
+}
+func (f *fakeLife) SwitchRole(_ context.Context, sess *agentstore.Agent) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.switchedRole = sess.ID
@@ -189,7 +201,7 @@ func (f *fakeLife) NewestClaudeSession(_ context.Context, cwd string) (string, e
 	}
 	return f.newestClaude, nil
 }
-func (f *fakeLife) Adopt(_ context.Context, req AdoptParams) (*store.Session, error) {
+func (f *fakeLife) Adopt(_ context.Context, req AdoptParams) (*agentstore.Agent, error) {
 	f.adoptParams = req
 	if f.adoptErr != nil {
 		return nil, f.adoptErr
@@ -201,9 +213,9 @@ func (f *fakeLife) Adopt(_ context.Context, req AdoptParams) (*store.Session, er
 	if id == "" {
 		id = "agent-generated"
 	}
-	return &store.Session{
+	return &agentstore.Agent{
 		ID: id, TmuxSession: id, Type: store.TypeOther, Workdir: req.Cwd,
-		ClaudeSessionID: req.ClaudeSessionID, Status: store.StatusWorking,
+		AICLISessionID: req.ClaudeSessionID, Status: store.StatusWorking,
 	}, nil
 }
 func (f *fakeLife) Input(_ context.Context, s, text string) error { f.lastInput = text; return nil }
@@ -212,14 +224,14 @@ func (f *fakeLife) Output(_ context.Context, s string, n int) (string, error) {
 }
 func (f *fakeLife) SendKeys(_ context.Context, s, key string) error { f.lastKey = key; return nil }
 
-func (f *fakeLife) TranscriptPath(sess *store.Session) string         { return "" }
+func (f *fakeLife) TranscriptPath(sess *agentstore.Agent) string      { return "" }
 func (f *fakeLife) GitBranch(ctx context.Context, dir string) string  { return "" }
 func (f *fakeLife) GitNumstat(ctx context.Context, dir string) string { return "" }
 func (f *fakeLife) MemoryPressure(_ context.Context) (pressure.Level, error) {
 	return pressure.Normal, nil
 }
 
-func (f *fakeLife) SpawnJob(_ context.Context, req lifecycle.JobSpawnRequest) (*store.Session, error) {
+func (f *fakeLife) SpawnJob(_ context.Context, req lifecycle.JobSpawnRequest) (*agentstore.Agent, error) {
 	f.mu.Lock()
 	f.lastJobPrompt = req.Prompt
 	f.mu.Unlock()
@@ -232,12 +244,12 @@ func (f *fakeLife) SpawnJob(_ context.Context, req lifecycle.JobSpawnRequest) (*
 		wt = ".worktrees/" + id
 		workdir = req.Repo + "/" + wt
 	}
-	return &store.Session{
+	return &agentstore.Agent{
 		ID: id, TmuxSession: id, Type: req.Type, Repo: req.Repo,
 		Status: store.StatusSpawning, PipelineID: req.PipelineID, PlanID: req.PlanID, JobID: req.JobID,
 		ScheduleID: req.ScheduleID, ScheduleName: req.ScheduleName,
 		Branch: branch, Worktree: wt, Workdir: workdir, Tags: req.Tags,
-		Role: req.Role, Backend: req.Backend, Model: req.Model,
+		Role: req.Role, AiCli: req.Backend, Model: req.Model,
 	}, nil
 }
 
@@ -285,7 +297,7 @@ func (f *fakeLife) Check(_ context.Context, dir, name string) (lifecycle.CheckRe
 	return f.checkResult, f.checkErr
 }
 
-func (f *fakeLife) HotSwap(_ context.Context, sess *store.Session, req lifecycle.SwapRequest) (*lifecycle.SwapResult, error) {
+func (f *fakeLife) HotSwap(_ context.Context, sess *agentstore.Agent, req lifecycle.SwapRequest) (*lifecycle.SwapResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.hotSwapCalls++
@@ -296,17 +308,17 @@ func (f *fakeLife) HotSwap(_ context.Context, sess *store.Session, req lifecycle
 	if f.hotSwapResult != nil {
 		return f.hotSwapResult, nil
 	}
-	from := sess.Backend
+	from := sess.AiCli
 	if req.Backend != "" {
-		sess.Backend = req.Backend
+		sess.AiCli = req.Backend
 	}
 	if req.Model != "" {
 		sess.Model = req.Model
 	}
 	return &lifecycle.SwapResult{
-		Session:     sess,
+		Agent:       sess,
 		FromBackend: from,
-		ToBackend:   sess.Backend,
+		ToBackend:   sess.AiCli,
 		ToModel:     sess.Model,
 		Reason:      req.Reason,
 	}, nil
@@ -403,7 +415,7 @@ func patchJSON(t *testing.T, url, body string) *http.Response {
 
 func TestHandleSetName(t *testing.T) {
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking})
+	_ = fs.Insert(context.Background(), &agentstore.Agent{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking})
 	srv := lifeServer(t, fs, &fakeLife{})
 	resp := patchJSON(t, srv.URL+"/api/v1/sessions/A-1/name", `{"name":"order-api"}`)
 	defer resp.Body.Close()
@@ -414,7 +426,7 @@ func TestHandleSetName(t *testing.T) {
 
 func TestHandleSetNameRejectsInvalid(t *testing.T) {
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking})
+	_ = fs.Insert(context.Background(), &agentstore.Agent{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking})
 	srv := lifeServer(t, fs, &fakeLife{})
 	resp := patchJSON(t, srv.URL+"/api/v1/sessions/A-1/name", `{"name":"bad name!"}`)
 	defer resp.Body.Close()
@@ -423,8 +435,8 @@ func TestHandleSetNameRejectsInvalid(t *testing.T) {
 
 func TestHandleSetNameRejectsDuplicate(t *testing.T) {
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Name: "taken", Status: store.StatusWorking})
-	_ = fs.Insert(context.Background(), &store.Session{ID: "B-2", TmuxSession: "B-2", Status: store.StatusWorking})
+	_ = fs.Insert(context.Background(), &agentstore.Agent{ID: "A-1", TmuxSession: "A-1", Name: "taken", Status: store.StatusWorking})
+	_ = fs.Insert(context.Background(), &agentstore.Agent{ID: "B-2", TmuxSession: "B-2", Status: store.StatusWorking})
 	srv := lifeServer(t, fs, &fakeLife{})
 	resp := patchJSON(t, srv.URL+"/api/v1/sessions/B-2/name", `{"name":"taken"}`)
 	defer resp.Body.Close()
@@ -433,7 +445,7 @@ func TestHandleSetNameRejectsDuplicate(t *testing.T) {
 
 func TestHandleSetNameAllowsKeepingOwnName(t *testing.T) {
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Name: "mine", Status: store.StatusWorking})
+	_ = fs.Insert(context.Background(), &agentstore.Agent{ID: "A-1", TmuxSession: "A-1", Name: "mine", Status: store.StatusWorking})
 	srv := lifeServer(t, fs, &fakeLife{})
 	resp := patchJSON(t, srv.URL+"/api/v1/sessions/A-1/name", `{"name":"mine"}`)
 	defer resp.Body.Close()
@@ -442,7 +454,7 @@ func TestHandleSetNameAllowsKeepingOwnName(t *testing.T) {
 
 func TestHandleSetNameClearsWhenBlank(t *testing.T) {
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Name: "mine", Status: store.StatusWorking})
+	_ = fs.Insert(context.Background(), &agentstore.Agent{ID: "A-1", TmuxSession: "A-1", Name: "mine", Status: store.StatusWorking})
 	srv := lifeServer(t, fs, &fakeLife{})
 	resp := patchJSON(t, srv.URL+"/api/v1/sessions/A-1/name", `{"name":""}`)
 	defer resp.Body.Close()
@@ -460,7 +472,7 @@ func TestHandleSetNameUnknownSession(t *testing.T) {
 
 func TestHandleTerminate(t *testing.T) {
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking})
+	_ = fs.Insert(context.Background(), &agentstore.Agent{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking})
 	fl := &fakeLife{}
 	srv := lifeServer(t, fs, fl)
 	resp, err := http.Post(srv.URL+"/api/v1/sessions/A-1/terminate", "application/json", nil)
@@ -476,7 +488,7 @@ func TestHandleTerminateResolvesByName(t *testing.T) {
 	// `warden stop/terminate <name>` must resolve the same name `ls` shows, not
 	// only the agent id/ticket. Terminate an agent addressed by its name.
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Name: "cs-pba", Status: store.StatusWorking})
+	_ = fs.Insert(context.Background(), &agentstore.Agent{ID: "A-1", TmuxSession: "A-1", Name: "cs-pba", Status: store.StatusWorking})
 	fl := &fakeLife{}
 	srv := lifeServer(t, fs, fl)
 	resp, err := http.Post(srv.URL+"/api/v1/sessions/cs-pba/terminate", "application/json", nil)
@@ -491,7 +503,7 @@ func TestHandleTerminateResolvesByName(t *testing.T) {
 func TestHandleRemoveWorktreeResolvesByName(t *testing.T) {
 	// remove-worktree by name must resolve + clear the resolved record's worktree.
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Name: "cs-pba", Worktree: ".worktrees/A-1", Status: store.StatusDone})
+	_ = fs.Insert(context.Background(), &agentstore.Agent{ID: "A-1", TmuxSession: "A-1", Name: "cs-pba", Worktree: ".worktrees/A-1", Status: store.StatusDone})
 	srv := lifeServer(t, fs, &fakeLife{})
 	resp, err := http.Post(srv.URL+"/api/v1/sessions/cs-pba/remove-worktree", "application/json", strings.NewReader(`{}`))
 	require.NoError(t, err)
@@ -503,19 +515,19 @@ func TestHandleRemoveWorktreeResolvesByName(t *testing.T) {
 
 func TestHandleDeleteArchivesByDefault(t *testing.T) {
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Status: store.StatusDone})
+	_ = fs.Insert(context.Background(), &agentstore.Agent{ID: "A-1", TmuxSession: "A-1", Status: store.StatusDone})
 	srv := lifeServer(t, fs, &fakeLife{})
 	resp, err := http.Post(srv.URL+"/api/v1/sessions/A-1/delete", "application/json", strings.NewReader(`{}`))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	_, err = fs.Get(context.Background(), "A-1")
-	require.ErrorIs(t, err, store.ErrNotFound, "record removed from active store")
+	require.ErrorIs(t, err, agentstore.ErrNotFound, "record removed from active store")
 }
 
 func TestHandleDeleteHardClearsMailbox(t *testing.T) {
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Status: store.StatusDone})
+	_ = fs.Insert(context.Background(), &agentstore.Agent{ID: "A-1", TmuxSession: "A-1", Status: store.StatusDone})
 	mb, _ := mailbox.New(t.TempDir())
 	mb.Append(mailbox.Message{To: "A-1", From: "B-2", Body: "hi"})
 	srv := &Server{store: fs, life: &fakeLife{}, mbox: mb, hub: newHub(), done: make(chan struct{})}
@@ -534,7 +546,7 @@ func TestHandleDeleteHardClearsMailbox(t *testing.T) {
 
 func TestHandleDeleteSoftKeepsMailbox(t *testing.T) {
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Status: store.StatusDone})
+	_ = fs.Insert(context.Background(), &agentstore.Agent{ID: "A-1", TmuxSession: "A-1", Status: store.StatusDone})
 	mb, _ := mailbox.New(t.TempDir())
 	mb.Append(mailbox.Message{To: "A-1", From: "B-2", Body: "hi"})
 	srv := &Server{store: fs, life: &fakeLife{}, mbox: mb, hub: newHub(), done: make(chan struct{})}
@@ -554,7 +566,7 @@ func TestHandleDeleteSoftKeepsMailbox(t *testing.T) {
 
 func TestHandleRemoveWorktreeGuardConflict(t *testing.T) {
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Worktree: ".worktrees/A-1", Repo: "/repo", Status: store.StatusDone})
+	_ = fs.Insert(context.Background(), &agentstore.Agent{ID: "A-1", TmuxSession: "A-1", Worktree: ".worktrees/A-1", Repo: "/repo", Status: store.StatusDone})
 	fl := &fakeLife{removeWTErr: lifecycle.ErrWorktreeAgentAlive}
 	srv := lifeServer(t, fs, fl)
 	resp, err := http.Post(srv.URL+"/api/v1/sessions/A-1/remove-worktree", "application/json", strings.NewReader(`{}`))
@@ -565,7 +577,7 @@ func TestHandleRemoveWorktreeGuardConflict(t *testing.T) {
 
 func TestHandleRemoveWorktreeClearsRecord(t *testing.T) {
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Worktree: ".worktrees/A-1", Branch: "A-1", Repo: "/repo", Status: store.StatusDone})
+	_ = fs.Insert(context.Background(), &agentstore.Agent{ID: "A-1", TmuxSession: "A-1", Worktree: ".worktrees/A-1", Branch: "A-1", Repo: "/repo", Status: store.StatusDone})
 	fl := &fakeLife{}
 	srv := lifeServer(t, fs, fl)
 	resp, err := http.Post(srv.URL+"/api/v1/sessions/A-1/remove-worktree", "application/json", strings.NewReader(`{}`))
@@ -678,7 +690,7 @@ func TestPostSpawnNoTicketIsAllowed(t *testing.T) {
 func TestPostInput(t *testing.T) {
 	fl := &fakeLife{}
 	fs := newFakeStore()
-	fs.data["A-1"] = &store.Session{ID: "A-1", TmuxSession: "A-1"}
+	fs.data["A-1"] = &agentstore.Agent{ID: "A-1", TmuxSession: "A-1"}
 	ts := lifeServer(t, fs, fl)
 	defer ts.Close()
 	body, _ := json.Marshal(InputRequest{Text: "hello agent"})
@@ -691,7 +703,7 @@ func TestPostInput(t *testing.T) {
 func TestGetOutput(t *testing.T) {
 	fl := &fakeLife{output: "pane text"}
 	fs := newFakeStore()
-	fs.data["A-1"] = &store.Session{ID: "A-1", TmuxSession: "A-1"}
+	fs.data["A-1"] = &agentstore.Agent{ID: "A-1", TmuxSession: "A-1"}
 	ts := lifeServer(t, fs, fl)
 	defer ts.Close()
 	resp, err := http.Get(ts.URL + "/api/v1/sessions/A-1/output")
@@ -707,7 +719,7 @@ func TestGetOutput(t *testing.T) {
 func TestGetOutputUncapturablePaneReturnsEmpty200(t *testing.T) {
 	fl := &fakeLife{outputErr: errors.New("tmux capture-pane: exit status 1: can't find session")}
 	fs := newFakeStore()
-	fs.data["A-1"] = &store.Session{ID: "A-1", TmuxSession: "A-1"}
+	fs.data["A-1"] = &agentstore.Agent{ID: "A-1", TmuxSession: "A-1"}
 	ts := lifeServer(t, fs, fl)
 	defer ts.Close()
 	resp, err := http.Get(ts.URL + "/api/v1/sessions/A-1/output")
@@ -737,7 +749,7 @@ func TestGetOutputNotFound(t *testing.T) {
 
 func TestPostSpawnDuplicateConflict(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["A-1"] = &store.Session{ID: "A-1"}
+	fs.data["A-1"] = &agentstore.Agent{ID: "A-1"}
 	ts := lifeServer(t, fs, &fakeLife{})
 	defer ts.Close()
 	body, _ := json.Marshal(SpawnRequest{Type: "development", Ticket: "A-1", Repo: "/repo"})
@@ -870,7 +882,7 @@ func TestPostSpawnRejectsEmptyRequest(t *testing.T) {
 
 func TestHandleRestoreSucceeds(t *testing.T) {
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Status: store.StatusOrphaned})
+	_ = fs.Insert(context.Background(), &agentstore.Agent{ID: "A-1", TmuxSession: "A-1", Status: store.StatusOrphaned})
 	fl := &fakeLife{}
 	srv := lifeServer(t, fs, fl)
 
@@ -888,7 +900,7 @@ func TestHandleRestoreRejectsNonOrphaned(t *testing.T) {
 	for _, st := range []store.Status{store.StatusDone, store.StatusIdle, store.StatusWorking, store.StatusErrored} {
 		t.Run(string(st), func(t *testing.T) {
 			fs := newFakeStore()
-			_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Status: st})
+			_ = fs.Insert(context.Background(), &agentstore.Agent{ID: "A-1", TmuxSession: "A-1", Status: st})
 			fl := &fakeLife{}
 			srv := lifeServer(t, fs, fl)
 
@@ -903,7 +915,7 @@ func TestHandleRestoreRejectsNonOrphaned(t *testing.T) {
 
 func TestHandleRestoreMapsPreconditionErrors(t *testing.T) {
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Status: store.StatusOrphaned})
+	_ = fs.Insert(context.Background(), &agentstore.Agent{ID: "A-1", TmuxSession: "A-1", Status: store.StatusOrphaned})
 	fl := &fakeLife{restoreErr: lifecycle.ErrAlreadyRunning}
 	srv := lifeServer(t, fs, fl)
 
@@ -915,7 +927,7 @@ func TestHandleRestoreMapsPreconditionErrors(t *testing.T) {
 
 func TestHandleSetRolePersistsAndRelaunches(t *testing.T) {
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Status: store.StatusIdle})
+	_ = fs.Insert(context.Background(), &agentstore.Agent{ID: "A-1", TmuxSession: "A-1", Status: store.StatusIdle})
 	fl := &fakeLife{}
 	srv := lifeServer(t, fs, fl)
 
@@ -936,7 +948,7 @@ func TestHandleSetRolePersistsAndRelaunches(t *testing.T) {
 
 func TestHandleSetRoleGeneralStoresEmpty(t *testing.T) {
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1", Role: "worker", Status: store.StatusIdle})
+	_ = fs.Insert(context.Background(), &agentstore.Agent{ID: "A-1", TmuxSession: "A-1", Role: "worker", Status: store.StatusIdle})
 	srv := lifeServer(t, fs, &fakeLife{})
 
 	body := bytes.NewReader([]byte(`{"role":"general"}`))
@@ -953,7 +965,7 @@ func TestHandleSetRoleGeneralStoresEmpty(t *testing.T) {
 
 func TestHandleSetRoleRejectsUnknown(t *testing.T) {
 	fs := newFakeStore()
-	_ = fs.Insert(context.Background(), &store.Session{ID: "A-1", TmuxSession: "A-1"})
+	_ = fs.Insert(context.Background(), &agentstore.Agent{ID: "A-1", TmuxSession: "A-1"})
 	srv := lifeServer(t, fs, &fakeLife{})
 
 	body := bytes.NewReader([]byte(`{"role":"nonsense"}`))
@@ -1231,7 +1243,7 @@ func TestPostSpawnRejectsMissingCwd(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode, "a cwd that isn't an existing dir is rejected")
 }
 
-func adoptServer(fl *fakeLife, fs store.Store) *httptest.Server {
+func adoptServer(fl *fakeLife, fs agentstore.AgentStore) *httptest.Server {
 	srv := &Server{store: fs, life: fl, hub: newHub()}
 	return httptest.NewServer(srv.router())
 }
@@ -1283,8 +1295,8 @@ func TestAdoptDuplicateClaudeSession(t *testing.T) {
 	dir := t.TempDir()
 	fs := newFakeStore()
 	sid := "55555555-5555-4555-8555-555555555555"
-	require.NoError(t, fs.Insert(context.Background(), &store.Session{
-		ID: "existing", TmuxSession: "existing", ClaudeSessionID: sid, Status: store.StatusWorking,
+	require.NoError(t, fs.Insert(context.Background(), &agentstore.Agent{
+		ID: "existing", TmuxSession: "existing", AICLISessionID: sid, Status: store.StatusWorking,
 	}))
 	fl := &fakeLife{newestClaude: sid}
 	ts := adoptServer(fl, fs)
@@ -1313,8 +1325,8 @@ func TestAdoptLiveTmuxGone(t *testing.T) {
 func TestAdoptLiveInsertFailureDoesNotTeardown(t *testing.T) {
 	dir := t.TempDir()
 	fs := newFakeStore()
-	require.NoError(t, fs.Insert(context.Background(), &store.Session{ID: "work", TmuxSession: "work"}))
-	fl := &fakeLife{adoptResult: &store.Session{ID: "work", TmuxSession: "work", Status: store.StatusWorking}}
+	require.NoError(t, fs.Insert(context.Background(), &agentstore.Agent{ID: "work", TmuxSession: "work"}))
+	fl := &fakeLife{adoptResult: &agentstore.Agent{ID: "work", TmuxSession: "work", Status: store.StatusWorking}}
 	ts := adoptServer(fl, fs)
 	defer ts.Close()
 
@@ -1388,7 +1400,7 @@ func TestPostSpawnWithPermissionMode(t *testing.T) {
 }
 func TestPatchPermissionMode(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["abc123"] = &store.Session{ID: "abc123", PermissionMode: "auto"}
+	fs.data["abc123"] = &agentstore.Agent{ID: "abc123", PermissionMode: "auto"}
 	ts := lifeServer(t, fs, &fakeLife{})
 	defer ts.Close()
 
@@ -1406,7 +1418,7 @@ func TestPatchPermissionMode(t *testing.T) {
 
 func TestPatchPermissionModeInvalidMode(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["abc123"] = &store.Session{ID: "abc123", PermissionMode: "auto"}
+	fs.data["abc123"] = &agentstore.Agent{ID: "abc123", PermissionMode: "auto"}
 	ts := lifeServer(t, fs, &fakeLife{})
 	defer ts.Close()
 
@@ -1429,4 +1441,13 @@ func TestPatchPermissionModeNotFound(t *testing.T) {
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
+}
+
+func (f *fakeLife) SpawnTerminal(_ context.Context, req SpawnRequest) (*terminalstore.Terminal, error) {
+	f.spawnedCwd = req.Cwd
+	id := req.Ticket
+	if id == "" {
+		id = "terminal-test"
+	}
+	return &terminalstore.Terminal{ID: id, TmuxSession: id, Name: req.Name, Workdir: req.Cwd, ProjectID: req.ProjectID, Status: terminalstore.StatusRunning}, nil
 }

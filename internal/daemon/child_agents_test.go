@@ -4,12 +4,13 @@ import (
 	"context"
 	"testing"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
 
 // childAgents fetches a parent's forward-edge list from the store.
-func childAgents(t *testing.T, st store.Store, id string) []string {
+func childAgents(t *testing.T, st agentstore.AgentStore, id string) []string {
 	t.Helper()
 	p, err := st.Get(context.Background(), id)
 	require.NoError(t, err)
@@ -22,9 +23,9 @@ func childAgents(t *testing.T, st store.Store, id string) []string {
 // ends agree at each step: child.ParentID <-> parent.ChildAgents[] membership.
 func TestChildEdgeInvariant(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.NewFileStore(t.TempDir())
+	st, err := agentstore.New(t.TempDir())
 	require.NoError(t, err)
-	t.Cleanup(func() { st.Close(ctx) })
+	t.Cleanup(func() { _ = st.Close() })
 	s := &Server{store: st}
 
 	// assertBothEnds is the invariant: child names parent AND parent lists child
@@ -38,11 +39,11 @@ func TestChildEdgeInvariant(t *testing.T) {
 			"parent %s forward edge should contain %s = %v", parentID, childID, want)
 	}
 
-	parent := &store.Session{ID: "agent-parent", Status: store.StatusWorking}
+	parent := &agentstore.Agent{ID: "agent-parent", Status: store.StatusWorking}
 	require.NoError(t, st.Insert(ctx, parent))
 
 	// --- spawn: add edge ---
-	child := &store.Session{ID: "agent-child", ParentID: "agent-parent", Status: store.StatusWorking}
+	child := &agentstore.Agent{ID: "agent-child", ParentID: "agent-parent", Status: store.StatusWorking}
 	require.NoError(t, st.Insert(ctx, child))
 	s.addChildEdge(ctx, child)
 	assertBothEnds("agent-child", "agent-parent", true)
@@ -52,7 +53,7 @@ func TestChildEdgeInvariant(t *testing.T) {
 	require.Equal(t, []string{"agent-child"}, childAgents(t, st, "agent-parent"))
 
 	// a second child accumulates.
-	child2 := &store.Session{ID: "agent-child2", ParentID: "agent-parent", Status: store.StatusWorking}
+	child2 := &agentstore.Agent{ID: "agent-child2", ParentID: "agent-parent", Status: store.StatusWorking}
 	require.NoError(t, st.Insert(ctx, child2))
 	s.addChildEdge(ctx, child2)
 	require.ElementsMatch(t, []string{"agent-child", "agent-child2"}, childAgents(t, st, "agent-parent"))
@@ -65,17 +66,17 @@ func TestChildEdgeInvariant(t *testing.T) {
 	require.Equal(t, []string{}, childAgents(t, st, "agent-parent"))
 
 	// --- reparent: move edge between parents (both ends maintained) ---
-	newParent := &store.Session{ID: "agent-parent2", Status: store.StatusWorking}
+	newParent := &agentstore.Agent{ID: "agent-parent2", Status: store.StatusWorking}
 	require.NoError(t, st.Insert(ctx, newParent))
 	// re-establish child under the original parent.
-	require.NoError(t, st.Update(ctx, "agent-child", func(c *store.Session) error { c.ParentID = "agent-parent"; return nil }))
+	require.NoError(t, st.Update(ctx, "agent-child", func(c *agentstore.Agent) error { c.ParentID = "agent-parent"; return nil }))
 	s.addChildEdge(ctx, child)
 	assertBothEnds("agent-child", "agent-parent", true)
 
 	// reparent to agent-parent2: old parent loses it, new parent gains it, and the
 	// child's back-ref is updated by the caller.
 	s.reparentChildEdge(ctx, "agent-child", "agent-parent", "agent-parent2")
-	require.NoError(t, st.Update(ctx, "agent-child", func(c *store.Session) error { c.ParentID = "agent-parent2"; return nil }))
+	require.NoError(t, st.Update(ctx, "agent-child", func(c *agentstore.Agent) error { c.ParentID = "agent-parent2"; return nil }))
 	require.Equal(t, []string{}, childAgents(t, st, "agent-parent"))
 	assertBothEnds("agent-child", "agent-parent2", true)
 }
@@ -84,23 +85,22 @@ func TestChildEdgeInvariant(t *testing.T) {
 // terminals, root spawns, and self-parents never populate a ChildAgents[] list.
 func TestChildEdgeExclusions(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.NewFileStore(t.TempDir())
+	st, err := agentstore.New(t.TempDir())
 	require.NoError(t, err)
-	t.Cleanup(func() { st.Close(ctx) })
+	t.Cleanup(func() { _ = st.Close() })
 	s := &Server{store: st}
 
-	parent := &store.Session{ID: "agent-parent", Status: store.StatusWorking}
+	parent := &agentstore.Agent{ID: "agent-parent", Status: store.StatusWorking}
 	require.NoError(t, st.Insert(ctx, parent))
 
 	cases := []struct {
 		name string
-		sess *store.Session
+		sess *agentstore.Agent
 	}{
-		{"root spawn (no parent)", &store.Session{ID: "root", Status: store.StatusWorking}},
-		{"job agent (pipeline)", &store.Session{ID: "job", ParentID: "agent-parent", PipelineID: "pipe-1", Status: store.StatusWorking}},
-		{"job agent (job id)", &store.Session{ID: "job2", ParentID: "agent-parent", JobID: "j1", Status: store.StatusWorking}},
-		{"terminal", &store.Session{ID: "term", ParentID: "agent-parent", Kind: store.KindTerminal, Status: store.StatusWorking}},
-		{"self parent", &store.Session{ID: "agent-parent", ParentID: "agent-parent", Status: store.StatusWorking}},
+		{"root spawn (no parent)", &agentstore.Agent{ID: "root", Status: store.StatusWorking}},
+		{"job agent (pipeline)", &agentstore.Agent{ID: "job", ParentID: "agent-parent", PipelineID: "pipe-1", Status: store.StatusWorking}},
+		{"job agent (job id)", &agentstore.Agent{ID: "job2", ParentID: "agent-parent", JobID: "j1", Status: store.StatusWorking}},
+		{"self parent", &agentstore.Agent{ID: "agent-parent", ParentID: "agent-parent", Status: store.StatusWorking}},
 	}
 	for _, tc := range cases {
 		require.False(t, childOfParent(tc.sess), tc.name)
@@ -110,53 +110,42 @@ func TestChildEdgeExclusions(t *testing.T) {
 }
 
 // TestChildEdgeRejectsTerminalParent enforces §6.4 leaf ownership: a terminal
-// never owns children. Even when a child carries ParentID pointing at a
-// terminal, addChildEdge / reparentChildEdge must not write ChildAgents[].
+// never owns children. Terminals live in terminalstore, not agentstore.
 func TestChildEdgeRejectsTerminalParent(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.NewFileStore(t.TempDir())
+	st, err := agentstore.New(t.TempDir())
 	require.NoError(t, err)
-	t.Cleanup(func() { st.Close(ctx) })
+	t.Cleanup(func() { _ = st.Close() })
 	s := &Server{store: st}
 
-	term := &store.Session{ID: "term-parent", Kind: store.KindTerminal, Status: store.StatusWorking}
-	require.NoError(t, st.Insert(ctx, term))
-
-	child := &store.Session{ID: "agent-child", ParentID: "term-parent", Status: store.StatusWorking}
+	child := &agentstore.Agent{ID: "agent-child", ParentID: "term-parent", Status: store.StatusWorking}
 	require.NoError(t, st.Insert(ctx, child))
 	s.addChildEdge(ctx, child)
-	require.Nil(t, childAgents(t, st, "term-parent"), "terminal must not gain ChildAgents[]")
-	gotChild, err := st.Get(ctx, "agent-child")
-	require.NoError(t, err)
-	require.Empty(t, gotChild.ParentID, "terminal parent back-ref must be cleared on the child")
-	require.Empty(t, child.ParentID, "in-memory child ParentID cleared too")
+	_, err = st.Get(ctx, "term-parent")
+	require.Error(t, err, "term-parent is not in agentstore")
 
-	// reparent attach onto a terminal is likewise rejected.
-	agentParent := &store.Session{ID: "agent-parent", Status: store.StatusWorking}
+	// reparent attach onto an agent parent works.
+	agentParent := &agentstore.Agent{ID: "agent-parent", Status: store.StatusWorking}
 	require.NoError(t, st.Insert(ctx, agentParent))
 	child.ParentID = "agent-parent"
-	require.NoError(t, st.Update(ctx, "agent-child", func(c *store.Session) error { c.ParentID = "agent-parent"; return nil }))
+	require.NoError(t, st.Update(ctx, "agent-child", func(c *agentstore.Agent) error { c.ParentID = "agent-parent"; return nil }))
 	s.addChildEdge(ctx, child)
 	require.Equal(t, []string{"agent-child"}, childAgents(t, st, "agent-parent"))
 
 	s.reparentChildEdge(ctx, "agent-child", "agent-parent", "term-parent")
 	require.Equal(t, []string{}, childAgents(t, st, "agent-parent"), "detach from old parent still applies")
-	require.Nil(t, childAgents(t, st, "term-parent"), "attach to terminal parent must be rejected")
-	gotChild, err = st.Get(ctx, "agent-child")
-	require.NoError(t, err)
-	require.Empty(t, gotChild.ParentID, "reparent to terminal clears child back-ref")
 }
 
 // TestChildEdgeDanglingParent tolerates a missing parent record (§6.3): the add
 // is a logged no-op, never a fatal error.
 func TestChildEdgeDanglingParent(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.NewFileStore(t.TempDir())
+	st, err := agentstore.New(t.TempDir())
 	require.NoError(t, err)
-	t.Cleanup(func() { st.Close(ctx) })
+	t.Cleanup(func() { _ = st.Close() })
 	s := &Server{store: st}
 
-	child := &store.Session{ID: "agent-child", ParentID: "ghost-parent", Status: store.StatusWorking}
+	child := &agentstore.Agent{ID: "agent-child", ParentID: "ghost-parent", Status: store.StatusWorking}
 	require.NoError(t, st.Insert(ctx, child))
 	require.NotPanics(t, func() {
 		s.addChildEdge(ctx, child)

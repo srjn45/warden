@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"github.com/srjn45/warden/internal/agentstore"
 	"testing"
 
 	"github.com/srjn45/warden/internal/store"
@@ -11,8 +12,8 @@ import (
 // A tombstone whose last live child has gone terminal is archived.
 func TestReapTombstoneWhenLastChildEnds(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["parent"] = &store.Session{ID: "parent", Status: store.StatusDone} // tombstoned (terminal, tmux gone)
-	fs.data["child"] = &store.Session{ID: "child", ParentID: "parent", Status: store.StatusDone}
+	fs.data["parent"] = &agentstore.Agent{ID: "parent", Status: store.StatusDone} // tombstoned (terminal, tmux gone)
+	fs.data["child"] = &agentstore.Agent{ID: "child", ParentID: "parent", Status: store.StatusDone}
 
 	reapTombstones(context.Background(), fs, "parent", nil)
 
@@ -24,9 +25,9 @@ func TestReapTombstoneWhenLastChildEnds(t *testing.T) {
 // A tombstone that still has a live child is retained.
 func TestReapTombstoneRetainedWithLiveChild(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["parent"] = &store.Session{ID: "parent", Status: store.StatusOrphaned}
-	fs.data["dead"] = &store.Session{ID: "dead", ParentID: "parent", Status: store.StatusDone}
-	fs.data["alive"] = &store.Session{ID: "alive", ParentID: "parent", Status: store.StatusWorking}
+	fs.data["parent"] = &agentstore.Agent{ID: "parent", Status: store.StatusOrphaned}
+	fs.data["dead"] = &agentstore.Agent{ID: "dead", ParentID: "parent", Status: store.StatusDone}
+	fs.data["alive"] = &agentstore.Agent{ID: "alive", ParentID: "parent", Status: store.StatusWorking}
 
 	reapTombstones(context.Background(), fs, "parent", nil)
 
@@ -36,7 +37,7 @@ func TestReapTombstoneRetainedWithLiveChild(t *testing.T) {
 // A childless terminal agent is an ordinary "done" agent, never auto-reaped.
 func TestReapLeavesChildlessTerminalAgent(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["solo"] = &store.Session{ID: "solo", Status: store.StatusDone}
+	fs.data["solo"] = &agentstore.Agent{ID: "solo", Status: store.StatusDone}
 
 	reapTombstones(context.Background(), fs, "solo", nil)
 
@@ -46,8 +47,8 @@ func TestReapLeavesChildlessTerminalAgent(t *testing.T) {
 // A still-live parent anchors its sub-tree and is not reaped.
 func TestReapLeavesLiveParent(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["parent"] = &store.Session{ID: "parent", Status: store.StatusWorking}
-	fs.data["child"] = &store.Session{ID: "child", ParentID: "parent", Status: store.StatusDone}
+	fs.data["parent"] = &agentstore.Agent{ID: "parent", Status: store.StatusWorking}
+	fs.data["child"] = &agentstore.Agent{ID: "child", ParentID: "parent", Status: store.StatusDone}
 
 	reapTombstones(context.Background(), fs, "parent", nil)
 
@@ -58,9 +59,9 @@ func TestReapLeavesLiveParent(t *testing.T) {
 // child (a parent tombstone) leaves it with no live children.
 func TestReapClimbsChain(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["gp"] = &store.Session{ID: "gp", Status: store.StatusDone}
-	fs.data["p"] = &store.Session{ID: "p", ParentID: "gp", Status: store.StatusDone}
-	fs.data["c"] = &store.Session{ID: "c", ParentID: "p", Status: store.StatusDone}
+	fs.data["gp"] = &agentstore.Agent{ID: "gp", Status: store.StatusDone}
+	fs.data["p"] = &agentstore.Agent{ID: "p", ParentID: "gp", Status: store.StatusDone}
+	fs.data["c"] = &agentstore.Agent{ID: "c", ParentID: "p", Status: store.StatusDone}
 
 	// Start from the parent (as the lazy hook would, when child c ended).
 	reapTombstones(context.Background(), fs, "p", nil)
@@ -77,8 +78,8 @@ func TestReapClimbsChain(t *testing.T) {
 // session ever died.
 func TestReapTombstoneOrphanedButAliveRetained(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["parent"] = &store.Session{ID: "parent", TmuxSession: "parent", Status: store.StatusOrphaned}
-	fs.data["child"] = &store.Session{ID: "child", ParentID: "parent", Status: store.StatusDone}
+	fs.data["parent"] = &agentstore.Agent{ID: "parent", TmuxSession: "parent", Status: store.StatusOrphaned}
+	fs.data["child"] = &agentstore.Agent{ID: "child", ParentID: "parent", Status: store.StatusDone}
 	alive := func(context.Context, string) bool { return true }
 
 	reapTombstones(context.Background(), fs, "parent", alive)
@@ -90,8 +91,8 @@ func TestReapTombstoneOrphanedButAliveRetained(t *testing.T) {
 // reaped, same as done/errored.
 func TestReapTombstoneOrphanedAndDeadReaped(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["parent"] = &store.Session{ID: "parent", TmuxSession: "parent", Status: store.StatusOrphaned}
-	fs.data["child"] = &store.Session{ID: "child", ParentID: "parent", Status: store.StatusDone}
+	fs.data["parent"] = &agentstore.Agent{ID: "parent", TmuxSession: "parent", Status: store.StatusOrphaned}
+	fs.data["child"] = &agentstore.Agent{ID: "child", ParentID: "parent", Status: store.StatusDone}
 	alive := func(context.Context, string) bool { return false }
 
 	reapTombstones(context.Background(), fs, "parent", alive)
@@ -103,8 +104,8 @@ func TestReapTombstoneOrphanedAndDeadReaped(t *testing.T) {
 // orphaned parent is left in place rather than archived on an unconfirmed guess.
 func TestReapTombstoneOrphanedNoCheckerRetained(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["parent"] = &store.Session{ID: "parent", TmuxSession: "parent", Status: store.StatusOrphaned}
-	fs.data["child"] = &store.Session{ID: "child", ParentID: "parent", Status: store.StatusDone}
+	fs.data["parent"] = &agentstore.Agent{ID: "parent", TmuxSession: "parent", Status: store.StatusOrphaned}
+	fs.data["child"] = &agentstore.Agent{ID: "child", ParentID: "parent", Status: store.StatusDone}
 
 	reapTombstones(context.Background(), fs, "parent", nil)
 
@@ -114,8 +115,8 @@ func TestReapTombstoneOrphanedNoCheckerRetained(t *testing.T) {
 // The lazy hook on FinalizeExit reaps the parent when a child is finalized.
 func TestFinalizeExitReapsParent(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["parent"] = &store.Session{ID: "parent", Status: store.StatusDone}
-	fs.data["child"] = &store.Session{ID: "child", ParentID: "parent", Status: store.StatusWorking}
+	fs.data["parent"] = &agentstore.Agent{ID: "parent", Status: store.StatusDone}
+	fs.data["child"] = &agentstore.Agent{ID: "child", ParentID: "parent", Status: store.StatusWorking}
 	d := &pollerDeps{store: fs}
 
 	swapped, err := d.FinalizeExit(context.Background(), "child", store.StatusWorking, store.StatusDone, 0)
@@ -127,9 +128,9 @@ func TestFinalizeExitReapsParent(t *testing.T) {
 // The safety-net sweep reaps a reapable tombstone without a transition trigger.
 func TestReapAllTombstonesSweep(t *testing.T) {
 	fs := newFakeStore()
-	fs.data["parent"] = &store.Session{ID: "parent", Status: store.StatusDone}
-	fs.data["child"] = &store.Session{ID: "child", ParentID: "parent", Status: store.StatusDone}
-	fs.data["solo"] = &store.Session{ID: "solo", Status: store.StatusDone} // childless, must survive
+	fs.data["parent"] = &agentstore.Agent{ID: "parent", Status: store.StatusDone}
+	fs.data["child"] = &agentstore.Agent{ID: "child", ParentID: "parent", Status: store.StatusDone}
+	fs.data["solo"] = &agentstore.Agent{ID: "solo", Status: store.StatusDone} // childless, must survive
 	s := &Server{store: fs}
 
 	s.reapAllTombstones(context.Background())

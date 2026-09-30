@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/auth"
 	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/backendstore"
@@ -76,7 +77,7 @@ func TestManagerVisibilityAndRunStopCleanup(t *testing.T) {
 	c := autopilot.NewController(autopilot.ControllerConfig{Plans: []string{plan}, BaseDir: dir,
 		IntegrationBranch: "autopilot/integration", Resolver: autopilotTestResolver{}}, &apFakeEnv{repo: dir})
 	srv.SetAutopilotController(c)
-	status, err := c.Enable(context.Background(), "")
+	status, err := c.ReconcileConfiguredPlans(context.Background(), "")
 	require.NoError(t, err)
 	runID := status.Runs[0].RunID
 	managerID := autopilot.ManagerSlotID("guardian")
@@ -112,27 +113,28 @@ func TestAutopilotEnableStatusDisable(t *testing.T) {
 	require.False(t, st.Enabled)
 	require.Empty(t, st.Runs)
 
-	// Enable → active, one run, a headless brain spawned on the first free backend.
-	code := apPostJSON(t, ts.URL+"/api/v1/autopilot", `{"enabled":true}`, &st)
+	// Enable is a capability switch only — no plan-file registration or spawn.
+	code := apPostJSON(t, ts.URL+"/api/v1/autopilot", `{"enabled":true,"repo":"`+dir+`"}`, &st)
 	require.Equal(t, http.StatusOK, code)
 	require.True(t, st.Enabled)
-	require.Len(t, st.Runs, 1)
-	require.Equal(t, autopilot.StateActive, st.Runs[0].State)
-	require.Equal(t, "autopilot/plan", st.Runs[0].IntegrationBranch)
-	require.Contains(t, st.Runs[0].GateWarning, "gate auto downgraded to local")
-	require.NotNil(t, st.Runs[0].Brain)
-	require.NotEmpty(t, st.Runs[0].Brain.AgentID)
+	require.Empty(t, st.Runs)
 
-	raw, err := json.Marshal(st.Runs[0])
-	require.NoError(t, err)
-	require.Contains(t, string(raw), `"integration_branch":"autopilot/plan"`)
-
-	// Disable → kill switch.
-	code = apPostJSON(t, ts.URL+"/api/v1/autopilot", `{"enabled":false}`, &st)
+	// Disable → kill switch (still OK with no live runs).
+	code = apPostJSON(t, ts.URL+"/api/v1/autopilot", `{"enabled":false,"repo":"`+dir+`"}`, &st)
 	require.Equal(t, http.StatusOK, code)
 	require.False(t, st.Enabled)
-	require.Len(t, st.Runs, 1)
-	require.Equal(t, autopilot.StateStopped, st.Runs[0].State)
+}
+
+func TestAutopilotEnableSucceedsWithoutConfiguredPlans(t *testing.T) {
+	dir := t.TempDir() // plan file intentionally absent
+	ts := newAutopilotServer(t, &apFakeEnv{repo: dir}, []string{filepath.Join(dir, "missing.yaml")})
+	defer ts.Close()
+
+	var st autopilot.Status
+	code := apPostJSON(t, ts.URL+"/api/v1/autopilot", `{"enabled":true,"repo":"`+dir+`"}`, &st)
+	require.Equal(t, http.StatusOK, code)
+	require.True(t, st.Enabled)
+	require.Empty(t, st.Runs)
 }
 
 func TestSpawnAnnotatesWorkerPromptWithIntegrationBranch(t *testing.T) {
@@ -146,7 +148,7 @@ func TestSpawnAnnotatesWorkerPromptWithIntegrationBranch(t *testing.T) {
 		Resolver: autopilotTestResolver{},
 	}, &apFakeEnv{repo: dir})
 	srv.SetAutopilotController(c)
-	st, err := c.Enable(context.Background(), dir)
+	st, err := c.ReconcileConfiguredPlans(context.Background(), dir)
 	require.NoError(t, err)
 	require.Equal(t, "autopilot/ship", st.Runs[0].IntegrationBranch)
 	brainID := st.Runs[0].Brain.AgentID
@@ -168,25 +170,6 @@ func TestSpawnAnnotatesWorkerPromptWithIntegrationBranch(t *testing.T) {
 	require.Contains(t, life.spawned.Prompt, autopilot.WorkerSpawnBranchPrompt("autopilot/ship"))
 }
 
-func TestAutopilotEnable409ListsFailures(t *testing.T) {
-	dir := t.TempDir() // plan file intentionally absent
-	ts := newAutopilotServer(t, &apFakeEnv{repo: dir}, []string{filepath.Join(dir, "missing.yaml")})
-	defer ts.Close()
-
-	resp, err := http.Post(ts.URL+"/api/v1/autopilot", "application/json", strings.NewReader(`{"enabled":true}`))
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	require.Equal(t, http.StatusConflict, resp.StatusCode)
-
-	var body struct {
-		Error    string   `json:"error"`
-		Failures []string `json:"failures"`
-	}
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
-	require.NotEmpty(t, body.Failures)
-	require.Contains(t, strings.Join(body.Failures, " "), "plan file not found")
-}
-
 func TestAutopilotRunRegistryLifecycleRoutes(t *testing.T) {
 	dir := t.TempDir()
 	plan := filepath.Join(dir, "named.yaml")
@@ -194,33 +177,11 @@ func TestAutopilotRunRegistryLifecycleRoutes(t *testing.T) {
 	ts := newAutopilotServer(t, &apFakeEnv{repo: dir}, nil)
 	defer ts.Close()
 
-	var run autopilot.RunStatus
-	code := apPostJSON(t, ts.URL+"/api/v1/autopilot/runs", `{"name":"release","repo":"`+dir+`","plan_file":"`+plan+`"}`, &run)
-	require.Equal(t, http.StatusCreated, code)
-	require.Equal(t, "release", run.Name)
-	require.Equal(t, autopilot.StateRegistered, run.State)
-
-	for _, step := range []struct {
-		action string
-		state  autopilot.RunState
-	}{
-		{"start", autopilot.StateActive}, {"pause", autopilot.StatePaused},
-		{"resume", autopilot.StateActive}, {"stop", autopilot.StateStopped},
-	} {
-		code = apPostJSON(t, ts.URL+"/api/v1/autopilot/runs/"+run.RunID+"/"+step.action, `{}`, &run)
-		require.Equal(t, http.StatusOK, code, step.action)
-		require.Equal(t, step.state, run.State, step.action)
-	}
-
-	var runs []autopilot.RunStatus
-	apGetJSON(t, ts.URL+"/api/v1/autopilot/runs", &runs)
-	require.Len(t, runs, 1)
-	require.Equal(t, autopilot.StateStopped, runs[0].State)
-
-	code = apPostJSON(t, ts.URL+"/api/v1/autopilot/runs/"+run.RunID+"/unregister", `{}`, &run)
-	require.Equal(t, http.StatusOK, code)
-	apGetJSON(t, ts.URL+"/api/v1/autopilot/runs", &runs)
-	require.Empty(t, runs)
+	// Register is retired — without a resolvable PlanID it returns a precise migration error.
+	var errBody oapi.Error
+	code := apPostJSON(t, ts.URL+"/api/v1/autopilot/runs", `{"name":"release","repo":"`+dir+`","plan_file":"`+plan+`"}`, &errBody)
+	require.Equal(t, http.StatusBadRequest, code)
+	require.Contains(t, errBody.Error, "cannot resolve PlanID")
 }
 
 func TestAutopilotUnconfigured(t *testing.T) {
@@ -256,7 +217,7 @@ func TestCompleteAutopilotHandler(t *testing.T) {
 		Resolver:          autopilotTestResolver{},
 	}, &apFakeEnv{repo: dir}))
 
-	st, err := srv.autopilot.Enable(context.Background(), "")
+	st, err := srv.autopilot.ReconcileConfiguredPlans(context.Background(), "")
 	require.NoError(t, err)
 	require.Len(t, st.Runs, 1)
 	runID := st.Runs[0].RunID
@@ -269,7 +230,7 @@ func TestCompleteAutopilotHandler(t *testing.T) {
 	require.Equal(t, autopilot.StateActive, srv.autopilot.Status().Runs[0].State)
 
 	// A stale brain with the right role/tag cannot complete the run.
-	brain := &store.Session{ID: "brain-caller", Role: autopilotBrainRole, Tags: []string{"autopilot", "run:" + runID}}
+	brain := &agentstore.Agent{ID: "brain-caller", Role: autopilotBrainRole, Tags: []string{"autopilot", "run:" + runID}}
 	require.NoError(t, srv.store.Insert(context.Background(), brain))
 	resp, err = srv.CompleteAutopilot(ctxWithActor("brain-caller"), oapi.CompleteAutopilotRequestObject{})
 	require.NoError(t, err)
@@ -310,13 +271,13 @@ func TestUpdateTaskStatusRejectsStaleBrain(t *testing.T) {
 	srv.SetAutopilotController(autopilot.NewController(autopilot.ControllerConfig{
 		Plans: []string{plan}, IntegrationBranch: "autopilot/integration", Resolver: autopilotTestResolver{},
 	}, &apFakeEnv{repo: dir}))
-	st, err := srv.autopilot.Enable(context.Background(), "")
+	st, err := srv.autopilot.ReconcileConfiguredPlans(context.Background(), "")
 	require.NoError(t, err)
 	require.Len(t, st.Runs, 1)
 	require.NotNil(t, st.Runs[0].Brain)
 	runID, activeBrainID := st.Runs[0].RunID, st.Runs[0].Brain.AgentID
 
-	stale := &store.Session{ID: "stale-brain", Role: autopilotBrainRole, Tags: []string{"autopilot", "run:" + runID}}
+	stale := &agentstore.Agent{ID: "stale-brain", Role: autopilotBrainRole, Tags: []string{"autopilot", "run:" + runID}}
 	require.NoError(t, srv.store.Insert(context.Background(), stale))
 	req := oapi.UpdateAutopilotTaskStatusRequestObject{Body: &oapi.AutopilotTaskStatusRequest{
 		RunId: runID, TaskId: "build", Status: oapi.AutopilotTaskStatusRequestStatusActive,
@@ -336,7 +297,7 @@ func TestUpdateTaskStatusRejectsStaleBrain(t *testing.T) {
 func TestAutopilotSessionBackRefsRoundTripREST(t *testing.T) {
 	st := newFakeStore()
 	now := time.Now().UTC().Truncate(time.Second)
-	sess := &store.Session{
+	sess := &agentstore.Agent{
 		ID: "default-autopilot", Type: store.TypeDevelopment, Status: store.StatusWorking,
 		AutopilotRunID: "ap-abc123def456", AutopilotSlot: store.AutopilotSlotManager,
 		CreatedAt: now, UpdatedAt: now,
@@ -356,18 +317,23 @@ func TestAutopilotRunStatusSlotFieldsREST(t *testing.T) {
 	dir := t.TempDir()
 	plan := filepath.Join(dir, "plan.yaml")
 	require.NoError(t, os.WriteFile(plan, []byte("version: 1\ngoal: ship\n"), 0o644))
-	ts := newAutopilotServer(t, &apFakeEnv{repo: dir}, []string{plan})
-	defer ts.Close()
-
-	var run autopilot.RunStatus
-	code := apPostJSON(t, ts.URL+"/api/v1/autopilot/runs", `{"name":"default","repo":"`+dir+`","plan_file":"`+plan+`"}`, &run)
-	require.Equal(t, http.StatusCreated, code)
-	require.Equal(t, "default-autopilot", run.ManagerSlotID)
-	require.Equal(t, "default-guardian", run.GuardianSlotID)
-	require.Equal(t, "default", run.SlotScope)
+	c := autopilot.NewController(autopilot.ControllerConfig{
+		Plans: []string{plan}, BaseDir: dir, IntegrationBranch: autopilot.DefaultIntegrationBranch,
+		Resolver: autopilotTestResolver{},
+	}, &apFakeEnv{repo: dir})
+	srv := &Server{store: newFakeStore(), life: &fakeLife{}, hub: newHub(), done: make(chan struct{})}
+	srv.SetAutopilotController(c)
+	st, err := c.ReconcileConfiguredPlans(context.Background(), dir)
+	require.NoError(t, err)
+	require.Len(t, st.Runs, 1)
+	run := st.Runs[0]
+	require.Equal(t, "plan-autopilot", run.ManagerSlotID)
+	require.Equal(t, "plan-guardian", run.GuardianSlotID)
+	require.Equal(t, "plan", run.SlotScope)
 	require.NotEmpty(t, run.IntegrationBranch)
 
-	var st autopilot.Status
+	ts := httptest.NewServer(srv.router())
+	defer ts.Close()
 	apGetJSON(t, ts.URL+"/api/v1/autopilot", &st)
 	require.Len(t, st.Runs, 1)
 	require.Equal(t, run.ManagerSlotID, st.Runs[0].ManagerSlotID)

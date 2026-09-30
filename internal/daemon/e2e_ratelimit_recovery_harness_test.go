@@ -34,6 +34,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/backendusage"
 	"github.com/srjn45/warden/internal/poller"
 	"github.com/srjn45/warden/internal/store"
@@ -58,7 +59,7 @@ ok      github.com/example/repo/pkg     0.23s
 // because HotSwap goes through the coordinator's recoveryLife, not the scheduler.
 // auto_resume is false: hard-limit recovery is an independent policy and must
 // still claim the session when resume is disabled.
-func e2eSched(st store.Store) *RateLimitScheduler {
+func e2eSched(st agentstore.AgentStore) *RateLimitScheduler {
 	return NewRateLimitScheduler(nil, st, 30*time.Minute, 6*time.Hour, time.Minute, false, "")
 }
 
@@ -73,7 +74,7 @@ func TestE2EHarness_ConfirmedBannerToSwitchover(t *testing.T) {
 	})
 
 	sched := e2eSched(st)
-	sched.OnHardLimit = func(sess *store.Session, until time.Time) bool {
+	sched.OnHardLimit = func(sess *agentstore.Agent, until time.Time) bool {
 		return c.OnHardLimit(sess, until)
 	}
 
@@ -116,7 +117,7 @@ func TestE2EHarness_StaleUnrelatedPanesNoSwitchover(t *testing.T) {
 	})
 
 	sched := e2eSched(st)
-	sched.OnHardLimit = func(sess *store.Session, until time.Time) bool {
+	sched.OnHardLimit = func(sess *agentstore.Agent, until time.Time) bool {
 		return c.OnHardLimit(sess, until)
 	}
 
@@ -162,17 +163,16 @@ func TestE2EHarness_TerminalSessionIndependentOfRecovery(t *testing.T) {
 
 	sched := e2eSched(st)
 	onHardLimitCalled := 0
-	sched.OnHardLimit = func(sess *store.Session, until time.Time) bool {
+	sched.OnHardLimit = func(sess *agentstore.Agent, until time.Time) bool {
 		onHardLimitCalled++
 		return c.OnHardLimit(sess, until)
 	}
 
 	// Terminal session whose pane contains rate-limit-shaped text — simulates a
 	// cockpit pane that was resized and repainted alongside a rate-limited agent.
-	termSess := &store.Session{
+	termSess := &agentstore.Agent{
 		ID:              "term-1",
 		TmuxSession:     "warden-term-abc",
-		Kind:            store.KindTerminal,
 		Status:          store.StatusWorking,
 		LastPaneExcerpt: confirmBanner,
 	}
@@ -214,7 +214,7 @@ func TestE2EHarness_OneSwitchoverPerGeneration(t *testing.T) {
 	})
 
 	sched := e2eSched(st)
-	sched.OnHardLimit = func(sess *store.Session, until time.Time) bool {
+	sched.OnHardLimit = func(sess *agentstore.Agent, until time.Time) bool {
 		return c.OnHardLimit(sess, until)
 	}
 
@@ -267,7 +267,7 @@ func TestE2EHarness_FreshExcerptDrivesResetParse(t *testing.T) {
 	)
 
 	// Seed the session with a spend-cap banner as the stale stored excerpt.
-	require.NoError(t, st.Update(context.Background(), "agent-1", func(s *store.Session) error {
+	require.NoError(t, st.Update(context.Background(), "agent-1", func(s *agentstore.Agent) error {
 		s.LastPaneExcerpt = "You have hit your monthly spend limit. Adjust your monthly spend limit at claude.ai."
 		s.Status = store.StatusRateLimited
 		return nil
@@ -353,7 +353,7 @@ func TestE2EHarness_CooldownFromParsedReset(t *testing.T) {
 	})
 
 	sched := NewRateLimitScheduler(nil, st, 30*time.Minute, 6*time.Hour, 0, false, "")
-	sched.OnHardLimit = func(sess *store.Session, until time.Time) bool {
+	sched.OnHardLimit = func(sess *agentstore.Agent, until time.Time) bool {
 		return c.OnHardLimit(sess, until)
 	}
 
@@ -383,7 +383,7 @@ func TestE2EHarness_CooldownFallbackWhenNoParsedReset(t *testing.T) {
 	c, _, _ := recoveryFixture(t, nil)
 
 	fallback := time.Now().Add(45 * time.Minute)
-	require.True(t, c.OnHardLimit(&store.Session{ID: "agent-1"}, fallback))
+	require.True(t, c.OnHardLimit(&agentstore.Agent{ID: "agent-1"}, fallback))
 
 	// Cooldown is stamped synchronously inside OnHardLimit, before advance() runs.
 	require.True(t, c.backends.IsRLCoolingDown("codex", "codex-model", time.Now()),

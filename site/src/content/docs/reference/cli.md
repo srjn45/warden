@@ -29,7 +29,7 @@ Run work:
   agent                Create, inspect, communicate with, and manage agents
   pipeline             Define and run DAG pipelines of agent jobs
   plan                 Manage plans tracked by the daemon
-  autopilot            Turn autopilot mode on/off per repo and show its status
+  autopilot            Turn autopilot capability on/off per repo and show its status
   schedule             Schedule recurring (--cron) or single-shot (--at) agents and pipelines
 
 Work with a project:
@@ -108,7 +108,7 @@ Commands:
   tail                 Print the recent output of an agent's claude session
   handoff              Hand off work: delegate to a new/existing agent (--to), or retire self into a successor (--retire)
   rotate               Retire this agent and hand its work to a fresh successor in the same workspace (alias for `handoff --retire`)
-  switch               Hot-swap an agent session to a different backend, model, or tier mid-task
+  switch               Hot-swap an agent session to a different AI CLI, model, or tier mid-task
   permission-mode      Manage an agent's permission mode
   role                 Inspect warden's built-in agent roles and tier mappings
   compact              Manage an agent's force-compact override
@@ -151,18 +151,19 @@ Free-form:   warden agent start --role <ROLE> "<prompt>" [--dir <path>]   (auton
 Interactive: warden agent start --role <ROLE> --dir <path>                (opens the agent and waits)
 Managed:     warden agent start --role <ROLE> TICKET --type <TYPE>        (isolated worktree)
 
-The spawn's backend+model is resolved (top wins): an explicit --backend/--model
+The spawn's AI CLI+model is resolved (top wins): an explicit --ai-cli/--model
 pin > --tier (or --task, which derives a tier) routed through the quota-balanced
 resolver > the resolver routed by --role alone > warden's configured defaults.
-So --role on its own is always enough to spawn — --tier/--backend/--model are
+So --role on its own is always enough to spawn — --tier/--ai-cli/--model are
 optional refinements, not additional requirements.
 
-Backends (--backend): warden drives Claude Code by default. Accepted values:
-  claude (default, stable), aider, opencode, codex, crush, goose, cursor, antigravity.
+AI CLIs (--ai-cli; deprecated alias --backend): warden drives Claude Code by default.
+Accepted values: claude (default, stable), aider, opencode, codex, crush, goose, cursor, antigravity.
 Only claude is fully tested; codex and antigravity are beta, the rest experimental / WIP.
+When both --ai-cli and --backend are set, --ai-cli wins.
 Terminal (--kind terminal): not an AI agent — opens a plain interactive shell ($SHELL)
 in --dir, managed with the same worktree/git/tmux lifecycle as any agent. It is a
-session kind, not a backend, so --backend/--model/--role/prompt are ignored.
+session kind, not an AI CLI, so --ai-cli/--backend/--model/--role/prompt are ignored.
 Aider: BYO model (pass --model), no resume, runs a one-shot --message task.
 OpenCode: BYO model (pass --model), structured transcript, DOES resume.
 Codex: BYO provider (via ~/.codex/config.toml), DOES resume (dir-scoped).
@@ -173,21 +174,22 @@ Antigravity: Google-hosted agy; defaults gemini-3.5-flash; pass --model (agy mod
 All non-claude backends show tokens-only spend. Claude remains full-fidelity.
 
 Usage:
-  warden agent start --role <ROLE> [TICKET|"<prompt>"] [--type <TYPE>] [--dir <PATH>] [--backend <ID>] [flags]
+  warden agent start --role <ROLE> [TICKET|"<prompt>"] [--type <TYPE>] [--dir <PATH>] [--ai-cli <ID>] [flags]
 
 Flags:
+      --ai-cli warden start --help               AI CLI: claude (default, stable) | aider | opencode | codex | crush | goose | cursor | antigravity — only claude is fully tested; codex/antigravity are beta, the rest experimental. See warden start --help for per-AI-CLI notes
       --auto-restart                             auto-resume this agent if it crashes (errored), capped at a few attempts
-      --backend warden start --help              agent backend: claude (default, stable) | aider | opencode | codex | crush | goose | cursor | antigravity — only claude is fully tested; codex/antigravity are beta, the rest experimental. See warden start --help for per-backend notes
       --branch string                            new branch (development) or checkout target (pr-review)
       --dir string                               directory to launch the agent from (default: current directory)
       --force                                    spawn even when the memory-pressure gate warns
       --fork-from codex fork                     fork an existing agent's recorded session into this new managed agent (codex codex fork): branches the source's conversation in a fresh sibling worktree off its branch, carrying its uncommitted tracked changes; the source keeps running. Defaults --type to development; the fork inherits the source's repo+backend. See `warden fork` for the shorthand
   -h, --help                                     help for start
       --in-repo                                  write-agent opt-out: run in the shared repo instead of an isolated worktree (ignored for pr-review)
-      --kind string                              session kind: empty/agent (default) spawns an AI agent; terminal opens a plain interactive shell ($SHELL) in --dir (not an AI agent — --backend/--model/--role/prompt ignored)
+      --kind string                              session kind: empty/agent (default) spawns an AI agent; terminal opens a plain interactive shell ($SHELL) in --dir (not an AI agent — --ai-cli/--backend/--model/--role/prompt ignored)
       --model string                             claude model: opus, sonnet, haiku, fable, or full model ID (default: the model_default config setting, i.e. sonnet)
       --name string                              optional human-friendly name (max 32 chars, alphanumeric + hyphens/underscores)
       --permission-mode string                   permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan (default: from config or 'auto')
+      --plan string                              optional planstore plan id in the same project (plan-<8hex>); empty = planless agent. A non-empty value must name an existing plan belonging to the resolved project
       --pr string                                PR number/url (pr-review)
       --preset warden preset                     load saved spawn defaults from a named preset (see warden preset); explicit flags override
       --project warden projects list             id of the daemon project this agent joins (its canonical path or remote URL, from warden projects list); stamps membership explicitly instead of leaving the daemon to path-match the launch dir. Empty = path-match
@@ -198,7 +200,7 @@ Flags:
       --supervised                               alias for --permission-mode acceptEdits (kept for backwards compatibility)
       --tags warden ls --tag                     comma-separated labels for grouping/filtering (e.g. --tags backend,urgent); searchable and filterable via warden ls --tag
       --task string                              task name (task registry) used to derive the model tier when --tier is empty. Empty = none
-      --tier string                              model tier for the quota-balanced resolver that picks the backend+model: tier-1|tier-2|tier-3. Empty derives the tier from --task, then --role (--role is required, so this always has a role to derive from). An explicit --backend/--model still wins over the resolver
+      --tier string                              model tier for the quota-balanced resolver that picks the AI CLI+model: tier-1|tier-2|tier-3. Empty derives the tier from --task, then --role (--role is required, so this always has a role to derive from). An explicit --ai-cli/--model still wins over the resolver
       --type string                              task type: development|analysis|spike|pr-review|code|docs|website|debug-ci|tests|other
       --worktree                                 create a scratch worktree for analysis/spike
 
@@ -564,18 +566,19 @@ Inherited flags:
 ## warden agent switch
 
 ```text
-Mid-session hot-swap: retire the active CLI process and launch a successor backend
+Mid-session hot-swap: retire the active CLI process and launch a successor AI CLI
 in the SAME worktree, carrying forward structured context (Goal, Decisions Log,
 Modified Files Diff, Immediate Next Step) so the new agent continues without starting cold.
 
-The successor can be chosen by explicit --backend and/or --model, or by --tier
-(resolved via quota-balanced weighted headroom routing across eligible backends).
+The successor can be chosen by explicit --ai-cli and/or --model, or by --tier
+(resolved via quota-balanced weighted headroom routing across eligible AI CLIs).
+Deprecated alias --backend is accepted for one release; --ai-cli wins if both are set.
 
 The swap is performed by the warden daemon (the sole owner of the session store),
 so the daemon must be running.
 
 Examples:
-  warden agent switch --backend antigravity --model gemini-3.1-pro
+  warden agent switch --ai-cli antigravity --model gemini-3.1-pro
   warden agent switch --tier tier-1
   warden agent switch abc123 --tier tier-3 --prompt 'Focus on unit test coverage'
 
@@ -584,14 +587,14 @@ Usage:
   warden agent switch [agent-id] [flags]
 
 Flags:
-  -b, --backend string   explicit successor backend id (claude, antigravity, codex, …)
-  -h, --help             help for switch
-      --json             emit result as JSON
-  -m, --model string     explicit successor model id
-  -p, --prompt string    optional extra instruction appended to successor's continuation prompt
-      --reason string    reason recorded for hot-swap (manual|context_fill|quota) (default "manual")
-  -r, --role string      role to resolve tier from when --tier is not given
-  -t, --tier string      resolve successor via quota-balanced router at this tier (tier-1|tier-2|tier-3)
+      --ai-cli string   explicit successor AI CLI id (claude, antigravity, codex, …)
+  -h, --help            help for switch
+      --json            emit result as JSON
+  -m, --model string    explicit successor model id
+  -p, --prompt string   optional extra instruction appended to successor's continuation prompt
+      --reason string   reason recorded for hot-swap (manual|context_fill|quota) (default "manual")
+  -r, --role string     role to resolve tier from when --tier is not given
+  -t, --tier string     resolve successor via quota-balanced router at this tier (tier-1|tier-2|tier-3)
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -906,6 +909,8 @@ Flags:
   -f, --file string                       path to the pipeline YAML spec
   -h, --help                              help for create
       --name string                       pipeline name — fills {{NAME}} (default: the template name)
+      --plan string                       optional planstore plan id in the same project; empty = planless pipeline
+      --project string                    optional project id this pipeline joins; overrides YAML project_id
       --repo string                       repo path — fills {{REPO}} (default: the current directory)
       --set stringArray                   fill a template placeholder, KEY=VALUE (repeatable)
       --template pipeline template list   built-in template to render (see pipeline template list)
@@ -1123,8 +1128,9 @@ Plans are YAML files stored in plans/{pending,in_progress,completed,archived}/
 inside a project repository. The daemon tracks their definition (goal, tasks)
 and execution state (links to autopilot runs, pipelines, and task progress).
 
-Create with `wd plan create`, start with `wd plan run`, mark tasks done with
-`wd plan done`, then `wd plan complete` (or `wd plan archive`).
+Create with `wd plan create`, start with `wd plan run`, control with
+`wd plan pause|resume|stop`, mark tasks done with `wd plan done`, then
+`wd plan complete` (or `wd plan archive`).
 
 Usage:
   warden plan [flags]
@@ -1134,6 +1140,9 @@ Commands:
   create               Create a plan (writes YAML + DB record)
   show                 Show detail for one plan
   run                  Start execution of a plan in the given mode
+  pause                pause an in-progress plan's active executor
+  resume               resume an in-progress plan's active executor
+  stop                 stop an in-progress plan's active executor
   done                 Mark a plan task done
   complete             Complete a plan (in_progress → completed)
   archive              Archive a plan (any status → archived)
@@ -1222,15 +1231,17 @@ Inherited flags:
 ## warden plan run
 
 ```text
-Start execution of a plan (pending → in_progress). The mode determines how
-the plan is executed:
+Start execution of a plan (pending → in_progress). This is the only supported
+public start path for plan execution (including autopilot). The mode determines
+how the plan is executed:
 
-  autopilot           Fully autonomous run registered with the autopilot
+  autopilot           Creates a live Autopilot executor + manager
   pipeline            Each task becomes a pipeline job
   orchestrator        Orchestrator + workers with human approval gates
-  manual              State tracking only; human drives all prompting
+  manual              Plan-bound general agent; human drives prompting
 
 `orchestrator` is accepted as an alias for `orchestrator_worker`.
+Control a running plan with `wd plan pause|resume|stop`.
 
 Usage:
   warden plan run <plan-id> [flags]
@@ -1239,6 +1250,63 @@ Flags:
   -h, --help          help for run
       --json          output as JSON
       --mode string   execution mode: autopilot|pipeline|orchestrator|manual
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan pause
+
+```text
+Control the active executor for an in-progress plan (autopilot, pipeline, or
+plan-bound agent). Together with `wd plan run`, this is the public lifecycle
+surface for plan execution.
+
+Usage:
+  warden plan pause <plan-id> [flags]
+
+Flags:
+  -h, --help   help for pause
+      --json   output as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan resume
+
+```text
+Control the active executor for an in-progress plan (autopilot, pipeline, or
+plan-bound agent). Together with `wd plan run`, this is the public lifecycle
+surface for plan execution.
+
+Usage:
+  warden plan resume <plan-id> [flags]
+
+Flags:
+  -h, --help   help for resume
+      --json   output as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan stop
+
+```text
+Control the active executor for an in-progress plan (autopilot, pipeline, or
+plan-bound agent). Together with `wd plan run`, this is the public lifecycle
+surface for plan execution.
+
+Usage:
+  warden plan stop <plan-id> [flags]
+
+Flags:
+  -h, --help   help for stop
+      --json   output as JSON
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -1382,29 +1450,23 @@ Inherited flags:
 ## warden autopilot
 
 ```text
-Autopilot runs a long-lived headless brain agent per plan that decomposes a
-goal, spawns workers, and lands green work into an integration branch
-unattended. The switch is PER-REPO: `warden autopilot enable` run inside a repo
-enables only that repo (others are unaffected), and the enabled set is persisted
-so repos come back up across a daemon restart. The plan/manager/merge template
-stays global in the `autopilot` config block. Enabling runs a preflight (plan
-file valid, gh authenticated, integration branch present, at most one active run
-per repo) and fails fast with the full list of problems so you fix everything in
-one pass. `disable` is the kill switch. Registered runs are managed separately
-under `autopilot run`. Configure the feature under the `autopilot` block in the
-config file (or scaffold it with `warden autopilot init`).
+Autopilot is the unattended Plan execution mode. `warden autopilot enable`
+flips a PER-REPO capability switch (it does not register plan files or start
+work). Start and control execution with `warden plan run` / `warden plan
+pause|resume|stop`. `disable` is the kill switch. Configure the feature under
+the `autopilot` block in the config file (or scaffold it with `warden
+autopilot init`).
 
 Usage:
   warden autopilot [flags]
 
 Commands:
-  enable               Enable autopilot for this repo (runs the enable-time preflight)
+  enable               Enable autopilot capability for this repo (does not start work)
   disable              Disable autopilot for this repo (kill switch — stops spawning/landing)
   status               Show autopilot status (which repos are enabled, and each run)
   init                 Scaffold autopilot adoption in the current repo
-  register             Register a named autopilot plan
   land                 Land an autopilot worker branch into the integration branch
-  run                  Manage registered autopilot runs
+  run                  Inspect live Autopilot executors
 
 Flags:
   -h, --help   help for autopilot
@@ -1417,10 +1479,11 @@ Inherited flags:
 ## warden autopilot enable
 
 ```text
-Enables autopilot for the current git repository only (other repos are
-unaffected). Runs the enable-time preflight and, on success, persists the repo
-as enabled so it comes back up across a daemon restart. Use --repo to target a
-different repository.
+Enables the autopilot capability for the current git repository only (other
+repos are unaffected). This persists the repo as allowed to run Autopilot
+executors — it does not register plan files or start work. Start a plan with
+`warden plan run <plan-id> --mode autopilot`. Use --repo to target a different
+repository.
 
 Usage:
   warden autopilot enable [flags]
@@ -1490,24 +1553,6 @@ Inherited flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden autopilot register
-
-```text
-Register a named autopilot plan
-
-Usage:
-  warden autopilot register <plan-file> [flags]
-
-Flags:
-  -h, --help          help for register
-      --name string   unique run name within the repository
-      --repo string   repository root (inferred from plan when omitted)
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
 ## warden autopilot land
 
 ```text
@@ -1534,19 +1579,15 @@ Inherited flags:
 ## warden autopilot run
 
 ```text
-Start, pause, resume, stop, and unregister individual registered runs.
-Distinct from repository enablement (`autopilot enable` / `autopilot disable`).
+List live Autopilot executors. Lifecycle control (start/pause/resume/stop)
+moved to `warden plan run` / `warden plan pause|resume|stop`. Repository
+enablement remains `autopilot enable` / `autopilot disable`.
 
 Usage:
   warden autopilot run [flags]
 
 Commands:
   list                 List all registered autopilot runs
-  start                start one autopilot run
-  pause                pause one autopilot run
-  resume               resume one autopilot run
-  stop                 stop one autopilot run
-  unregister           unregister one autopilot run
 
 Flags:
   -h, --help   help for run
@@ -1566,86 +1607,6 @@ Usage:
 
 Flags:
   -h, --help   help for list
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden autopilot run start
-
-```text
-start one autopilot run
-
-Usage:
-  warden autopilot run start <run-id-or-name> [flags]
-
-Flags:
-  -h, --help   help for start
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden autopilot run pause
-
-```text
-pause one autopilot run
-
-Usage:
-  warden autopilot run pause <run-id-or-name> [flags]
-
-Flags:
-  -h, --help   help for pause
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden autopilot run resume
-
-```text
-resume one autopilot run
-
-Usage:
-  warden autopilot run resume <run-id-or-name> [flags]
-
-Flags:
-  -h, --help   help for resume
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden autopilot run stop
-
-```text
-stop one autopilot run
-
-Usage:
-  warden autopilot run stop <run-id-or-name> [flags]
-
-Flags:
-  -h, --help   help for stop
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden autopilot run unregister
-
-```text
-unregister one autopilot run
-
-Usage:
-  warden autopilot run unregister <run-id-or-name> [flags]
-
-Flags:
-  -h, --help   help for unregister
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -4375,18 +4336,19 @@ Free-form:   warden start --role <ROLE> "<prompt>" [--dir <path>]   (autonomous)
 Interactive: warden start --role <ROLE> --dir <path>                (opens the agent and waits)
 Managed:     warden start --role <ROLE> TICKET --type <TYPE>        (isolated worktree)
 
-The spawn's backend+model is resolved (top wins): an explicit --backend/--model
+The spawn's AI CLI+model is resolved (top wins): an explicit --ai-cli/--model
 pin > --tier (or --task, which derives a tier) routed through the quota-balanced
 resolver > the resolver routed by --role alone > warden's configured defaults.
-So --role on its own is always enough to spawn — --tier/--backend/--model are
+So --role on its own is always enough to spawn — --tier/--ai-cli/--model are
 optional refinements, not additional requirements.
 
-Backends (--backend): warden drives Claude Code by default. Accepted values:
-  claude (default, stable), aider, opencode, codex, crush, goose, cursor, antigravity.
+AI CLIs (--ai-cli; deprecated alias --backend): warden drives Claude Code by default.
+Accepted values: claude (default, stable), aider, opencode, codex, crush, goose, cursor, antigravity.
 Only claude is fully tested; codex and antigravity are beta, the rest experimental / WIP.
+When both --ai-cli and --backend are set, --ai-cli wins.
 Terminal (--kind terminal): not an AI agent — opens a plain interactive shell ($SHELL)
 in --dir, managed with the same worktree/git/tmux lifecycle as any agent. It is a
-session kind, not a backend, so --backend/--model/--role/prompt are ignored.
+session kind, not an AI CLI, so --ai-cli/--backend/--model/--role/prompt are ignored.
 Aider: BYO model (pass --model), no resume, runs a one-shot --message task.
 OpenCode: BYO model (pass --model), structured transcript, DOES resume.
 Codex: BYO provider (via ~/.codex/config.toml), DOES resume (dir-scoped).
@@ -4397,21 +4359,22 @@ Antigravity: Google-hosted agy; defaults gemini-3.5-flash; pass --model (agy mod
 All non-claude backends show tokens-only spend. Claude remains full-fidelity.
 
 Usage:
-  warden start --role <ROLE> [TICKET|"<prompt>"] [--type <TYPE>] [--dir <PATH>] [--backend <ID>] [flags]
+  warden start --role <ROLE> [TICKET|"<prompt>"] [--type <TYPE>] [--dir <PATH>] [--ai-cli <ID>] [flags]
 
 Flags:
+      --ai-cli warden start --help               AI CLI: claude (default, stable) | aider | opencode | codex | crush | goose | cursor | antigravity — only claude is fully tested; codex/antigravity are beta, the rest experimental. See warden start --help for per-AI-CLI notes
       --auto-restart                             auto-resume this agent if it crashes (errored), capped at a few attempts
-      --backend warden start --help              agent backend: claude (default, stable) | aider | opencode | codex | crush | goose | cursor | antigravity — only claude is fully tested; codex/antigravity are beta, the rest experimental. See warden start --help for per-backend notes
       --branch string                            new branch (development) or checkout target (pr-review)
       --dir string                               directory to launch the agent from (default: current directory)
       --force                                    spawn even when the memory-pressure gate warns
       --fork-from codex fork                     fork an existing agent's recorded session into this new managed agent (codex codex fork): branches the source's conversation in a fresh sibling worktree off its branch, carrying its uncommitted tracked changes; the source keeps running. Defaults --type to development; the fork inherits the source's repo+backend. See `warden fork` for the shorthand
   -h, --help                                     help for start
       --in-repo                                  write-agent opt-out: run in the shared repo instead of an isolated worktree (ignored for pr-review)
-      --kind string                              session kind: empty/agent (default) spawns an AI agent; terminal opens a plain interactive shell ($SHELL) in --dir (not an AI agent — --backend/--model/--role/prompt ignored)
+      --kind string                              session kind: empty/agent (default) spawns an AI agent; terminal opens a plain interactive shell ($SHELL) in --dir (not an AI agent — --ai-cli/--backend/--model/--role/prompt ignored)
       --model string                             claude model: opus, sonnet, haiku, fable, or full model ID (default: the model_default config setting, i.e. sonnet)
       --name string                              optional human-friendly name (max 32 chars, alphanumeric + hyphens/underscores)
       --permission-mode string                   permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan (default: from config or 'auto')
+      --plan string                              optional planstore plan id in the same project (plan-<8hex>); empty = planless agent. A non-empty value must name an existing plan belonging to the resolved project
       --pr string                                PR number/url (pr-review)
       --preset warden preset                     load saved spawn defaults from a named preset (see warden preset); explicit flags override
       --project warden projects list             id of the daemon project this agent joins (its canonical path or remote URL, from warden projects list); stamps membership explicitly instead of leaving the daemon to path-match the launch dir. Empty = path-match
@@ -4422,7 +4385,7 @@ Flags:
       --supervised                               alias for --permission-mode acceptEdits (kept for backwards compatibility)
       --tags warden ls --tag                     comma-separated labels for grouping/filtering (e.g. --tags backend,urgent); searchable and filterable via warden ls --tag
       --task string                              task name (task registry) used to derive the model tier when --tier is empty. Empty = none
-      --tier string                              model tier for the quota-balanced resolver that picks the backend+model: tier-1|tier-2|tier-3. Empty derives the tier from --task, then --role (--role is required, so this always has a role to derive from). An explicit --backend/--model still wins over the resolver
+      --tier string                              model tier for the quota-balanced resolver that picks the AI CLI+model: tier-1|tier-2|tier-3. Empty derives the tier from --task, then --role (--role is required, so this always has a role to derive from). An explicit --ai-cli/--model still wins over the resolver
       --type string                              task type: development|analysis|spike|pr-review|code|docs|website|debug-ci|tests|other
       --worktree                                 create a scratch worktree for analysis/spike
 
@@ -4584,11 +4547,12 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | `warden autopilot list` | `warden autopilot run list` |
 | `warden autopilot off` | `warden autopilot disable` |
 | `warden autopilot on` | `warden autopilot enable` |
-| `warden autopilot pause` | `warden autopilot run pause` |
-| `warden autopilot resume` | `warden autopilot run resume` |
-| `warden autopilot start` | `warden autopilot run start` |
-| `warden autopilot stop` | `warden autopilot run stop` |
-| `warden autopilot unregister` | `warden autopilot run unregister` |
+| `warden autopilot pause` | `warden plan pause` |
+| `warden autopilot register` | `warden plan run` |
+| `warden autopilot resume` | `warden plan resume` |
+| `warden autopilot start` | `warden plan run` |
+| `warden autopilot stop` | `warden plan stop` |
+| `warden autopilot unregister` | `warden plan stop` |
 | `warden backend ls` | `warden backend list` |
 | `warden backend model ls` | `warden backend model list` |
 | `warden backends` | `warden backend` |

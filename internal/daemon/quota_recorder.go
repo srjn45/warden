@@ -6,8 +6,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/spend"
-	"github.com/srjn45/warden/internal/store"
 )
 
 // quotaRecordInterval is how often the quota recorder samples live agents' token
@@ -61,6 +61,9 @@ func (s *Server) recordQuotaOnce(ctx context.Context, lastTotal map[string]int) 
 			slog.Error("daemon: quota recorder recovered panic", "panic", rec)
 		}
 	}()
+	if s.store == nil {
+		return
+	}
 	sessions, err := s.store.List(ctx)
 	if err != nil {
 		slog.Warn("daemon: quota recorder list failed", "err", err)
@@ -68,12 +71,12 @@ func (s *Server) recordQuotaOnce(ctx context.Context, lastTotal map[string]int) 
 	}
 	live := make(map[string]bool, len(sessions))
 	for _, sess := range sessions {
-		// Only live AI agents carry attributable token usage; terminals are plain
-		// shells and done/errored/orphaned sessions no longer accrue.
-		if !liveStatus(sess.Status) || sess.IsTerminal() {
+		// Only live AI agents carry attributable token usage;
+		// done/errored/orphaned sessions no longer accrue.
+		if !liveStatus(sess.Status) {
 			continue
 		}
-		if sess.Backend == "" {
+		if sess.AiCli == "" {
 			continue // unknown backend: nothing to attribute the usage to.
 		}
 		live[sess.ID] = true
@@ -95,11 +98,10 @@ func (s *Server) recordQuotaOnce(ctx context.Context, lastTotal map[string]int) 
 		// antigravity daily) consume it directly; a request-denominated backend
 		// (cursor's monthly request budget) would over-count — aligning per-backend
 		// quota units is a modeling follow-up tracked with the backend registry.
-		if err := s.backends.RecordQuotaUsage(sess.Backend, float64(delta), sess.Model, time.Now()); err != nil {
-			slog.Warn("daemon: quota record failed", "agent", sess.ID, "backend", sess.Backend, "err", err)
+		if err := s.backends.RecordQuotaUsage(sess.AiCli, float64(delta), sess.Model, time.Now()); err != nil {
+			slog.Warn("daemon: quota record failed", "agent", sess.ID, "backend", sess.AiCli, "err", err)
 		}
 	}
-	// Drop baselines for sessions that are gone so the map can't grow unbounded.
 	for id := range lastTotal {
 		if !live[id] {
 			delete(lastTotal, id)
@@ -107,12 +109,11 @@ func (s *Server) recordQuotaOnce(ctx context.Context, lastTotal map[string]int) 
 	}
 }
 
-// transcriptTotalTokens reads an agent's cumulative billed token usage
-// (input+output summed over every assistant turn) from its transcript JSONL,
-// mirroring the poller's TranscriptUsage read. ok=false when there is no
-// transcript path, the file can't be opened, or it carries no usage yet.
-func (s *Server) transcriptTotalTokens(sess *store.Session) (int, bool) {
-	if s.life == nil {
+// transcriptTotalTokens reads an agent's cumulative billed token total (input +
+// output) from its transcript. Returns (0, false) when unmeasurable (missing
+// file or no usage entries yet).
+func (s *Server) transcriptTotalTokens(sess *agentstore.Agent) (int, bool) {
+	if s.life == nil || sess == nil {
 		return 0, false
 	}
 	path := s.life.TranscriptPath(sess)
@@ -124,7 +125,8 @@ func (s *Server) transcriptTotalTokens(sess *store.Session) (int, bool) {
 		return 0, false
 	}
 	defer f.Close()
-	u, ok := spend.GetParser(sess.Backend).ParseUsage(f)
+
+	u, ok := spend.GetParser(sess.AiCli).ParseUsage(f)
 	if !ok {
 		return 0, false
 	}

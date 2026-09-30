@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/srjn45/warden/internal/agentstore"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -44,16 +45,16 @@ func requireForbidden(t *testing.T, err error) {
 func TestGuardOwnership(t *testing.T) {
 	fs := newFakeStore()
 	// The run's brain (role autopilot, owning run:ap-1).
-	brain := &store.Session{ID: "brain-1", Role: autopilotBrainRole, Tags: []string{"autopilot", "run:ap-1"}}
+	brain := &agentstore.Agent{ID: "brain-1", Role: autopilotBrainRole, Tags: []string{"autopilot", "run:ap-1"}}
 	// A worker of this run.
-	owned := &store.Session{ID: "worker-1", Tags: []string{"autopilot", "run:ap-1"}}
+	owned := &agentstore.Agent{ID: "worker-1", Tags: []string{"autopilot", "run:ap-1"}}
 	// A worker of a different run.
-	foreign := &store.Session{ID: "worker-2", Tags: []string{"autopilot", "run:ap-2"}}
+	foreign := &agentstore.Agent{ID: "worker-2", Tags: []string{"autopilot", "run:ap-2"}}
 	// A hand-launched agent with no autopilot tags.
-	manual := &store.Session{ID: "manual-1"}
+	manual := &agentstore.Agent{ID: "manual-1"}
 	// An ordinary (non-brain) agent making a call.
-	human := &store.Session{ID: "dev-1"}
-	for _, s := range []*store.Session{brain, owned, foreign, manual, human} {
+	human := &agentstore.Agent{ID: "dev-1"}
+	for _, s := range []*agentstore.Agent{brain, owned, foreign, manual, human} {
 		require.NoError(t, fs.Insert(context.Background(), s))
 	}
 	srv := &Server{store: fs}
@@ -85,8 +86,8 @@ func TestGuardOwnership(t *testing.T) {
 // carries no run tag is denied every foreign target (the safe default).
 func TestGuardOwnershipBrainWithoutRunTag(t *testing.T) {
 	fs := newFakeStore()
-	brain := &store.Session{ID: "brain-x", Role: autopilotBrainRole, Tags: []string{"autopilot"}}
-	target := &store.Session{ID: "worker-x", Tags: []string{"autopilot", "run:ap-1"}}
+	brain := &agentstore.Agent{ID: "brain-x", Role: autopilotBrainRole, Tags: []string{"autopilot"}}
+	target := &agentstore.Agent{ID: "worker-x", Tags: []string{"autopilot", "run:ap-1"}}
 	require.NoError(t, fs.Insert(context.Background(), brain))
 	require.NoError(t, fs.Insert(context.Background(), target))
 	srv := &Server{store: fs}
@@ -98,11 +99,11 @@ func TestGuardOwnershipBrainWithoutRunTag(t *testing.T) {
 // every other caller's tags pass through untouched.
 func TestInheritOwnershipTags(t *testing.T) {
 	fs := newFakeStore()
-	manager := &store.Session{ID: "mgr-1", Role: autopilotBrainRole, Tags: []string{"autopilot", "run:ap-1"}}
-	worker := &store.Session{ID: "wrk-1", Tags: []string{"autopilot", "run:ap-1"}}
-	untagged := &store.Session{ID: "plain-1"}
-	noRun := &store.Session{ID: "odd-1", Tags: []string{"autopilot"}}
-	for _, s := range []*store.Session{manager, worker, untagged, noRun} {
+	manager := &agentstore.Agent{ID: "mgr-1", Role: autopilotBrainRole, Tags: []string{"autopilot", "run:ap-1"}}
+	worker := &agentstore.Agent{ID: "wrk-1", Tags: []string{"autopilot", "run:ap-1"}}
+	untagged := &agentstore.Agent{ID: "plain-1"}
+	noRun := &agentstore.Agent{ID: "odd-1", Tags: []string{"autopilot"}}
+	for _, s := range []*agentstore.Agent{manager, worker, untagged, noRun} {
 		require.NoError(t, fs.Insert(context.Background(), s))
 	}
 	srv := &Server{store: fs}
@@ -136,7 +137,7 @@ func TestInheritOwnershipTags(t *testing.T) {
 // still gets its worker fenced into the run.
 func TestSpawnRouteInheritsAutopilotTags(t *testing.T) {
 	fs := newFakeStore()
-	mgr := &store.Session{ID: "mgr-1", Role: autopilotBrainRole, Tags: []string{"autopilot", "run:ap-9"}}
+	mgr := &agentstore.Agent{ID: "mgr-1", Role: autopilotBrainRole, Tags: []string{"autopilot", "run:ap-9"}}
 	require.NoError(t, fs.Insert(context.Background(), mgr))
 	s := &Server{store: fs, life: &fakeLife{}}
 	ts := httptest.NewServer(s.router())
@@ -151,7 +152,7 @@ func TestSpawnRouteInheritsAutopilotTags(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
-	var sess store.Session
+	var sess agentstore.Agent
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&sess))
 	require.ElementsMatch(t, []string{"autopilot", "run:ap-9"}, sess.Tags)
 }
@@ -168,7 +169,7 @@ func TestPipelineRouteInheritsAutopilotTags(t *testing.T) {
 	fs := newFakeStore()
 	exec := NewExecutor(ps, fs, &fakeLife{}, cs, func() {})
 	srv := &Server{store: fs, life: &fakeLife{}, exec: exec, hub: newHub(), done: make(chan struct{})}
-	mgr := &store.Session{ID: "mgr-1", Role: autopilotBrainRole, Tags: []string{"autopilot", "run:ap-9"}}
+	mgr := &agentstore.Agent{ID: "mgr-1", Role: autopilotBrainRole, Tags: []string{"autopilot", "run:ap-9"}}
 	require.NoError(t, fs.Insert(context.Background(), mgr))
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
@@ -191,7 +192,7 @@ func TestPipelineRouteInheritsAutopilotTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp2.StatusCode)
 	// The injected root-span-out job spawns the first real job ("a") on a
 	// follow-up async Reconcile, so poll until the job session appears.
-	var job *store.Session
+	var job *agentstore.Agent
 	require.Eventually(t, func() bool {
 		s, gerr := fs.Get(context.Background(), "demo-a")
 		if gerr != nil {
@@ -229,11 +230,12 @@ func TestInstallDefaultAutoApprovePolicy(t *testing.T) {
 	})
 }
 
-func TestStampAutopilotSpawnBackRefsClearsParentID(t *testing.T) {
+func TestStampAutopilotSpawnBackRefsParentsWorker(t *testing.T) {
 	fs := newFakeStore()
-	manager := &store.Session{
+	manager := &agentstore.Agent{
 		ID:     "agent-brain",
 		Role:   autopilotBrainRole,
+		PlanID: "plan-abc",
 		Tags:   []string{"autopilot", "run:ap-deadbeef1234"},
 		Status: store.StatusWorking,
 	}
@@ -241,18 +243,19 @@ func TestStampAutopilotSpawnBackRefsClearsParentID(t *testing.T) {
 
 	srv := &Server{store: fs}
 	ctx := ctxWithActor("agent-brain")
-	sr := &SpawnRequest{Role: "worker", Task: "build-feature", ParentID: "agent-brain"}
+	sr := &SpawnRequest{Role: "worker", Task: "build-feature"}
 	srv.stampAutopilotSpawnBackRefs(ctx, sr)
 
-	require.Empty(t, sr.ParentID)
-	require.Equal(t, "ap-deadbeef1234", sr.AutopilotRunID)
-	require.Equal(t, store.AutopilotSlotWorker, sr.AutopilotSlot)
-	require.Equal(t, "build-feature", sr.AutopilotTaskID)
+	require.Equal(t, "agent-brain", sr.ParentID)
+	require.Equal(t, "plan-abc", sr.PlanID)
+	require.Empty(t, sr.AutopilotRunID)
+	require.Empty(t, sr.AutopilotSlot)
+	require.Empty(t, sr.AutopilotTaskID)
 }
 
 func TestStampAutopilotSpawnBackRefsLeavesNonWorkerAlone(t *testing.T) {
 	fs := newFakeStore()
-	require.NoError(t, fs.Insert(context.Background(), &store.Session{
+	require.NoError(t, fs.Insert(context.Background(), &agentstore.Agent{
 		ID: "agent-brain", Role: autopilotBrainRole,
 		Tags: []string{"autopilot", "run:ap-deadbeef1234"}, Status: store.StatusWorking,
 	}))

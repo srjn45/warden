@@ -7,26 +7,26 @@ import (
 	"testing"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/audit"
-	"github.com/srjn45/warden/internal/store"
 )
 
 // fakeSpawner is a test double for Spawner.
 type fakeSpawner struct {
-	spawnFn    func(ctx context.Context, args BrainSpawnArgs) (*store.Session, error)
+	spawnFn    func(ctx context.Context, args BrainSpawnArgs) (*agentstore.Agent, error)
 	outputFn   func(ctx context.Context, tmuxSession string, lines int) (string, error)
-	teardownFn func(ctx context.Context, sess *store.Session) error
+	teardownFn func(ctx context.Context, sess *agentstore.Agent) error
 
 	spawnCalled    atomic.Int32
 	teardownCalled atomic.Int32
 }
 
-func (f *fakeSpawner) Spawn(ctx context.Context, args BrainSpawnArgs) (*store.Session, error) {
+func (f *fakeSpawner) Spawn(ctx context.Context, args BrainSpawnArgs) (*agentstore.Agent, error) {
 	f.spawnCalled.Add(1)
 	if f.spawnFn != nil {
 		return f.spawnFn(ctx, args)
 	}
-	return &store.Session{ID: "brain-test", TmuxSession: "warden-brain-test"}, nil
+	return &agentstore.Agent{ID: "brain-test", TmuxSession: "warden-brain-test"}, nil
 }
 
 func (f *fakeSpawner) Output(ctx context.Context, tmuxSession string, lines int) (string, error) {
@@ -36,7 +36,7 @@ func (f *fakeSpawner) Output(ctx context.Context, tmuxSession string, lines int)
 	return "", nil
 }
 
-func (f *fakeSpawner) Teardown(ctx context.Context, sess *store.Session) error {
+func (f *fakeSpawner) Teardown(ctx context.Context, sess *agentstore.Agent) error {
 	f.teardownCalled.Add(1)
 	if f.teardownFn != nil {
 		return f.teardownFn(ctx, sess)
@@ -141,7 +141,7 @@ func TestConsultTimeout(t *testing.T) {
 // consult fails (spawn error path).
 func TestConsultTeardownAlwaysRunsOnSpawnError(t *testing.T) {
 	sp := &fakeSpawner{
-		spawnFn: func(_ context.Context, _ BrainSpawnArgs) (*store.Session, error) {
+		spawnFn: func(_ context.Context, _ BrainSpawnArgs) (*agentstore.Agent, error) {
 			return nil, errors.New("no backends available")
 		},
 	}

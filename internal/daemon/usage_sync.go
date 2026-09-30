@@ -114,7 +114,7 @@ func (s *Server) limitSessionsFromSnapshot(ctx context.Context, snap backendusag
 		return
 	}
 	for _, sess := range sessions {
-		resetAt, isLimited := limited[sess.Backend]
+		resetAt, isLimited := limited[sess.AiCli]
 		if !isLimited {
 			continue
 		}
@@ -123,7 +123,7 @@ func (s *Server) limitSessionsFromSnapshot(ctx context.Context, snap backendusag
 		case store.StatusWorking, store.StatusIdle, store.StatusWaitingForInput:
 			// Check if backend implements RateLimitDetector — if it does, trust
 			// the pane-based path and do NOT double-trigger from usage poll.
-			if b, err := agentbackend.Get(sess.Backend); err == nil {
+			if b, err := agentbackend.Get(sess.AiCli); err == nil {
 				if _, ok := b.(agentbackend.RateLimitDetector); ok {
 					continue // pane-based detection handles this backend
 				}

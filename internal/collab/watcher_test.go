@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -152,7 +153,7 @@ func TestNoteCreateWatchesNewDirUnderRoot(t *testing.T) {
 }
 
 func TestWatchLoopDebouncesEventBurstIntoOneScan(t *testing.T) {
-	sessions := []*store.Session{
+	sessions := []*agentstore.Agent{
 		{ID: "a", Worktree: "/wt/a", Status: store.StatusWorking},
 		{ID: "b", Worktree: "/wt/b", Status: store.StatusWorking},
 	}
@@ -181,7 +182,7 @@ func TestWatchLoopDebouncesEventBurstIntoOneScan(t *testing.T) {
 
 func TestRealWatcherTriggersScanOnEdit(t *testing.T) {
 	wtA, wtB := t.TempDir(), t.TempDir()
-	sessions := []*store.Session{
+	sessions := []*agentstore.Agent{
 		{ID: "a", Worktree: wtA, Status: store.StatusWorking},
 		{ID: "b", Worktree: wtB, Status: store.StatusWorking},
 	}

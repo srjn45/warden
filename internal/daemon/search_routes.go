@@ -3,14 +3,14 @@ package daemon
 import (
 	"strings"
 
-	"github.com/srjn45/warden/internal/store"
+	"github.com/srjn45/warden/internal/agentstore"
 )
 
 // sessionHaystack concatenates the searchable text of a session — name, id,
 // ticket, type, subject, tags, prompt, branch, and the last pane excerpt —
 // lowercased for case-insensitive matching. These are the fields a human scans
 // to find an agent again.
-func sessionHaystack(s *store.Session) string {
+func sessionHaystack(s *agentstore.Agent) string {
 	var b strings.Builder
 	fields := []string{
 		s.Name, s.ID, s.Ticket, string(s.Type), s.Subject,
@@ -28,7 +28,7 @@ func sessionHaystack(s *store.Session) string {
 // whitespace into terms; every term must appear somewhere in the session's
 // haystack (AND semantics), so "review auth" finds an agent whose subject
 // mentions auth and whose type is pr-review. An all-blank query matches nothing.
-func sessionMatches(s *store.Session, terms []string) bool {
+func sessionMatches(s *agentstore.Agent, terms []string) bool {
 	if len(terms) == 0 {
 		return false
 	}
@@ -43,9 +43,9 @@ func sessionMatches(s *store.Session, terms []string) bool {
 
 // searchSessions returns every session whose text matches the query. Order is
 // preserved from the input (the daemon hands it newest-first). Pure.
-func searchSessions(sessions []*store.Session, query string) []*store.Session {
+func searchSessions(sessions []*agentstore.Agent, query string) []*agentstore.Agent {
 	terms := strings.Fields(strings.ToLower(query))
-	out := make([]*store.Session, 0)
+	out := make([]*agentstore.Agent, 0)
 	for _, s := range sessions {
 		if sessionMatches(s, terms) {
 			out = append(out, s)

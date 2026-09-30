@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -91,6 +92,17 @@ func derefSessions(in []*store.Session) []store.Session {
 	out := make([]store.Session, 0, len(in))
 	for _, ss := range in {
 		out = append(out, *ss)
+	}
+	return out
+}
+
+func derefAgents(in []*agentstore.Agent) []store.Session {
+	if in == nil {
+		return nil
+	}
+	out := make([]store.Session, 0, len(in))
+	for _, a := range in {
+		out = append(out, *a.ToSession())
 	}
 	return out
 }

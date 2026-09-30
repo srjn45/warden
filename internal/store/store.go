@@ -18,7 +18,7 @@ var ErrExists = errors.New("session already exists")
 var ErrNameExists = errors.New("agent name already exists")
 
 // ErrInvalidName is returned when a session name is invalid.
-var ErrInvalidName = errors.New("invalid agent name: must be 1-32 alphanumeric chars, hyphens, or underscores")
+var ErrInvalidName = errors.New("invalid agent name: must be 1-32 alphanumeric chars, hyphens, or underscores (or O:/M:/P:/AP:<plan-slug>)")
 
 // ErrStoreOwned is returned by NewFileStore when the data directory's writable
 // session store is already held by another live process (normally the daemon).
@@ -119,7 +119,7 @@ type Store interface {
 	// — all in one atomic write. The poller uses it to finalize an agent from its
 	// exit-file without clobbering a status a SessionEnd hook already set.
 	FinalizeExit(ctx context.Context, id string, expected, next Status, code int) (bool, error)
-	// SetSessionID pins the backend session id (ClaudeSessionID) for a session.
+	// SetSessionID pins the AI CLI session id (AICLISessionID) for a session.
 	// Used by the poller's discover-then-pin path: a non-pinning backend mints its
 	// own id at launch, which warden discovers post-launch and persists here so the
 	// transcript path + resume key off the exact id instead of dir-scoping.

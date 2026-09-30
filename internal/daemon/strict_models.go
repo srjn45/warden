@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/daemon/oapi"
 	"github.com/srjn45/warden/internal/lifecycle"
-	"github.com/srjn45/warden/internal/store"
 )
 
 // ListModels implements GET /api/v1/models: list models in the catalog and their assigned tiers.
@@ -112,7 +112,7 @@ func (s *Server) SetRoleTier(_ context.Context, req oapi.SetRoleTierRequestObjec
 // SwitchSession implements POST /api/v1/sessions/{id}/switch: hot-swap an agent mid-task.
 func (s *Server) SwitchSession(ctx context.Context, req oapi.SwitchSessionRequestObject) (oapi.SwitchSessionResponseObject, error) {
 	sess, err := s.store.GetByNameOrID(ctx, req.Id)
-	if errors.Is(err, store.ErrNotFound) {
+	if errors.Is(err, agentstore.ErrNotFound) {
 		return nil, errStatus(http.StatusNotFound, "session not found")
 	}
 	if err != nil {
@@ -124,7 +124,11 @@ func (s *Server) SwitchSession(ctx context.Context, req oapi.SwitchSessionReques
 
 	var swapReq lifecycle.SwapRequest
 	if req.Body != nil {
-		swapReq.Backend = strings.TrimSpace(req.Body.Backend)
+		aiCli := strings.TrimSpace(req.Body.AiCli)
+		if aiCli == "" {
+			aiCli = strings.TrimSpace(req.Body.Backend)
+		}
+		swapReq.Backend = aiCli
 		swapReq.Model = strings.TrimSpace(req.Body.Model)
 		if strings.TrimSpace(req.Body.Tier) != "" {
 			tier := backendstore.ModelTier(strings.TrimSpace(req.Body.Tier))
@@ -146,6 +150,10 @@ func (s *Server) SwitchSession(ctx context.Context, req oapi.SwitchSessionReques
 			return nil, errStatus(http.StatusBadRequest, err.Error())
 		}
 		return nil, errStatus(http.StatusInternalServerError, "hot-swap failed: "+err.Error())
+	}
+	// Handoff prose is attributed-note only — never a PlanExecutionEvent / summary.
+	if res != nil {
+		s.recordPlanBoundHandoffNote(sess, res.Handoff, res.HandoffPath)
 	}
 	s.notify()
 	return oapi.SwitchSession200JSONResponse(*res), nil

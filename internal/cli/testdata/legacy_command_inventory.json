@@ -1067,6 +1067,8 @@
     "local_flags": [
       "file",
       "name",
+      "plan",
+      "project",
       "repo",
       "set",
       "template"
@@ -1671,9 +1673,10 @@
   },
   {
     "path": "start",
-    "use": "start --role <ROLE> [TICKET|\"<prompt>\"] [--type <TYPE>] [--dir <PATH>] [--backend <ID>]",
+    "use": "start --role <ROLE> [TICKET|\"<prompt>\"] [--type <TYPE>] [--dir <PATH>] [--ai-cli <ID>]",
     "runnable": true,
     "local_flags": [
+      "ai-cli",
       "auto-restart",
       "backend",
       "branch",
@@ -1685,6 +1688,7 @@
       "model",
       "name",
       "permission-mode",
+      "plan",
       "pr",
       "preset",
       "project",
@@ -1757,6 +1761,7 @@
     "use": "switch [agent-id]",
     "runnable": true,
     "local_flags": [
+      "ai-cli",
       "backend",
       "json",
       "model",

@@ -6,9 +6,10 @@ import (
 	"log/slog"
 	"sort"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/projectstore"
-	"github.com/srjn45/warden/internal/store"
 )
 
 // Project membership reconciliation (spec D2/§6) treats non-nil forward lists
@@ -16,6 +17,12 @@ import (
 // from reverse edges and open-project path matches. Existing order and dangling
 // IDs survive every sweep. Conflicting forward claims choose the lowest project
 // ID for the reverse edge, without destructively rewriting either container.
+//
+// Plans[] is backfilled by scanning the plan store (plan ProjectID back-refs).
+// Autopilots[] is never inferred here — completed or deleted executors must not
+// be resurrected into membership; live Autopilot membership is stamped at
+// run-create time only.
+//
 // Runs at startup or via doctor while the daemon is down (no writer contention).
 
 // MembershipReconcileReport summarizes one backfill/reconcile sweep.
@@ -40,10 +47,10 @@ func (r MembershipReconcileReport) Changed() bool {
 // best-effort per row — a single session/pipeline/project store failure is logged
 // and skipped (legacy backfill is deferred if reverse repair fails), but a
 // failure to list projects or
-// sessions/pipelines up front is returned, since the sweep cannot proceed without
-// them. A nil projects store (unconfigured) or nil pipeline store (pipelines
-// unused) is tolerated: the corresponding pass is skipped.
-func ReconcileProjectMembership(ctx context.Context, sstore store.Store, pstore *pipeline.Store, projects *projectstore.Store) (MembershipReconcileReport, error) {
+// sessions/pipelines/plans up front is returned, since the sweep cannot proceed without
+// them. A nil projects store (unconfigured) or nil pipeline/plan store (unused) is
+// tolerated: the corresponding pass is skipped.
+func ReconcileProjectMembership(ctx context.Context, sstore *agentstore.Store, pstore *pipeline.Store, plans *planstore.Store, projects *projectstore.Store) (MembershipReconcileReport, error) {
 	var rep MembershipReconcileReport
 	if projects == nil {
 		return rep, nil
@@ -58,7 +65,7 @@ func ReconcileProjectMembership(ctx context.Context, sstore store.Store, pstore 
 
 	// Read all sources before writing. An unavailable store must not turn an
 	// unknown legacy list into an authoritative empty list.
-	var sessions []*store.Session
+	var sessions []*agentstore.Agent
 	if sstore != nil {
 		sessions, err = sstore.List(ctx)
 		if err != nil {
@@ -72,8 +79,15 @@ func ReconcileProjectMembership(ctx context.Context, sstore store.Store, pstore 
 			return rep, fmt.Errorf("list pipelines: %w", err)
 		}
 	}
+	var planRows []*planstore.Plan
+	if plans != nil {
+		planRows, err = plans.List(ctx)
+		if err != nil {
+			return rep, fmt.Errorf("list plans: %w", err)
+		}
+	}
 	sort.Slice(projs, func(i, j int) bool { return projs[i].ID < projs[j].ID })
-	agentOwners, terminalOwners, pipeOwners := map[string]string{}, map[string]string{}, map[string]string{}
+	agentOwners, pipeOwners := map[string]string{}, map[string]string{}
 	byID := make(map[string]projectstore.Project, len(projs))
 	claim := func(owners map[string]string, ids []string, pid string) {
 		for _, id := range ids {
@@ -85,7 +99,6 @@ func ReconcileProjectMembership(ctx context.Context, sstore store.Store, pstore 
 	for _, proj := range projs {
 		byID[proj.ID] = proj
 		claim(agentOwners, proj.Agents, proj.ID)
-		claim(terminalOwners, proj.Terminals, proj.ID)
 		claim(pipeOwners, proj.Pipelines, proj.ID)
 	}
 	repairFailed := false
@@ -95,10 +108,6 @@ func ReconcileProjectMembership(ctx context.Context, sstore store.Store, pstore 
 		}
 		owners := agentOwners
 		list := func(p projectstore.Project) []string { return p.Agents }
-		if sess.IsTerminal() {
-			owners = terminalOwners
-			list = func(p projectstore.Project) []string { return p.Terminals }
-		}
 		pid := sess.ProjectID
 		if owner, ok := owners[sess.ID]; ok {
 			pid = owner
@@ -117,7 +126,7 @@ func ReconcileProjectMembership(ctx context.Context, sstore store.Store, pstore 
 		if pid == sess.ProjectID {
 			continue
 		}
-		if err := sstore.Update(ctx, sess.ID, func(s *store.Session) error { s.ProjectID = pid; return nil }); err != nil {
+		if err := sstore.Update(ctx, sess.ID, func(s *agentstore.Agent) error { s.ProjectID = pid; return nil }); err != nil {
 			repairFailed = true
 			slog.Warn("daemon: membership reconcile: repair session failed", "agent", sess.ID, "err", err)
 			continue
@@ -162,18 +171,20 @@ func ReconcileProjectMembership(ctx context.Context, sstore store.Store, pstore 
 	for _, proj := range projs {
 		changed := false
 		if sstore != nil {
-			agents, terminals := membersForProject(proj.ID, sessions)
+			agents := membersForProject(proj.ID, sessions)
 			if proj.Agents == nil {
 				proj.Agents = agents
-				changed = true
-			}
-			if proj.Terminals == nil {
-				proj.Terminals = terminals
 				changed = true
 			}
 		}
 		if pstore != nil && proj.Pipelines == nil {
 			proj.Pipelines = pipelinesForProject(proj.ID, pipelines)
+			changed = true
+		}
+		if plans != nil && proj.Plans == nil {
+			// Preserve first-seen order from the plan store scan after de-dupe.
+			// Do NOT invent Autopilots[] — completed/deleted executors stay out.
+			proj.Plans = plansForProject(proj.ID, planRows)
 			changed = true
 		}
 		if !changed {
@@ -206,23 +217,17 @@ func matchOpenProjectForDir(dir string, projs []projectstore.Project) string {
 	return ""
 }
 
-// membersForProject partitions the sessions whose ProjectID equals projectID into
-// the project's agent and terminal id lists (each sorted + de-duplicated). Job
-// agents are ordinary sessions here — they are members of their project like any
-// other; the spec's D5 exclusion is about an agent's child_agents[], not the
-// project's flat agents[] membership.
-func membersForProject(projectID string, sessions []*store.Session) (agents, terminals []string) {
+// membersForProject partitions the agents whose ProjectID equals projectID into
+// the project's agent id list (sorted + de-duplicated).
+func membersForProject(projectID string, sessions []*agentstore.Agent) []string {
+	var agents []string
 	for _, sess := range sessions {
 		if sess == nil || sess.ProjectID != projectID {
 			continue
 		}
-		if sess.IsTerminal() {
-			terminals = append(terminals, sess.ID)
-		} else {
-			agents = append(agents, sess.ID)
-		}
+		agents = append(agents, sess.ID)
 	}
-	return sortedDedupe(agents), sortedDedupe(terminals)
+	return sortedDedupe(agents)
 }
 
 // pipelinesForProject returns the sorted, de-duplicated id list of pipelines whose
@@ -238,6 +243,19 @@ func pipelinesForProject(projectID string, pipelines []*pipeline.Pipeline) []str
 	return sortedDedupe(out)
 }
 
+// plansForProject returns the de-duplicated id list of plans whose ProjectID
+// equals projectID, preserving first-seen order from the plan-store listing.
+func plansForProject(projectID string, plans []*planstore.Plan) []string {
+	var out []string
+	for _, p := range plans {
+		if p == nil || p.ProjectID != projectID || p.ID == "" {
+			continue
+		}
+		out = append(out, p.ID)
+	}
+	return firstSeenDedupe(out)
+}
+
 // sortedDedupe gives newly backfilled lists a deterministic order and an explicit
 // empty value so migration completes even when no members exist.
 func sortedDedupe(ids []string) []string {
@@ -250,6 +268,27 @@ func sortedDedupe(ids []string) []string {
 		if id != out[len(out)-1] {
 			out = append(out, id)
 		}
+	}
+	return out
+}
+
+// firstSeenDedupe collapses blanks and duplicates while preserving encounter
+// order — used for Plans[] so the plan-store listing order survives backfill.
+func firstSeenDedupe(ids []string) []string {
+	if len(ids) == 0 {
+		return []string{}
+	}
+	seen := make(map[string]struct{}, len(ids))
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
 	}
 	return out
 }

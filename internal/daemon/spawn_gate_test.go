@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/srjn45/warden/internal/agentstore"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -30,7 +31,7 @@ func TestHandleSpawnGateWarns(t *testing.T) {
 	// One live agent so count(1) >= max(1) → elevated.
 	// Use "live1" as the seeded ID; fakeLife.Spawn returns "agent-test" for
 	// prompt-mode so there is no collision.
-	fs.Insert(context.Background(), &store.Session{ID: "live1", Status: store.StatusWorking})
+	fs.Insert(context.Background(), &agentstore.Agent{ID: "live1", Status: store.StatusWorking})
 
 	resp := postSpawn(t, s, SpawnRequest{Prompt: "do x", Cwd: t.TempDir()})
 	defer resp.Body.Close()
@@ -67,7 +68,7 @@ func TestHandleSpawnGateWarnProceeds(t *testing.T) {
 func TestHandleSpawnGateForceBypasses(t *testing.T) {
 	fs := newFakeStore()
 	s := &Server{store: fs, life: &fakeLife{}, spawnGate: true, spawnGateMax: 1, pressLevel: pressure.Critical}
-	fs.Insert(context.Background(), &store.Session{ID: "live1", Status: store.StatusWorking})
+	fs.Insert(context.Background(), &agentstore.Agent{ID: "live1", Status: store.StatusWorking})
 
 	resp := postSpawn(t, s, SpawnRequest{Prompt: "do x", Cwd: t.TempDir(), Force: true})
 	defer resp.Body.Close()
@@ -79,7 +80,7 @@ func TestHandleSpawnGateForceBypasses(t *testing.T) {
 func TestHandleSpawnGateDisabledProceeds(t *testing.T) {
 	fs := newFakeStore()
 	s := &Server{store: fs, life: &fakeLife{}, spawnGate: false, spawnGateMax: 1, pressLevel: pressure.Critical}
-	fs.Insert(context.Background(), &store.Session{ID: "live1", Status: store.StatusWorking})
+	fs.Insert(context.Background(), &agentstore.Agent{ID: "live1", Status: store.StatusWorking})
 
 	resp := postSpawn(t, s, SpawnRequest{Prompt: "do x", Cwd: t.TempDir()})
 	defer resp.Body.Close()

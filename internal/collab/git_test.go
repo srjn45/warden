@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
@@ -52,7 +53,7 @@ func TestNoteFileChangeRecordsRepoRelativePath(t *testing.T) {
 
 func TestConflictsUsesCacheWithoutCallingDiffAgain(t *testing.T) {
 	calls := 0
-	m := NewMonitor(fakeLister{sessions: []*store.Session{
+	m := NewMonitor(fakeLister{sessions: []*agentstore.Agent{
 		{ID: "a", Worktree: "/wt/a", Status: store.StatusWorking},
 		{ID: "b", Worktree: "/wt/b", Status: store.StatusWorking},
 	}}, nil)
@@ -71,7 +72,7 @@ func TestConflictsUsesCacheWithoutCallingDiffAgain(t *testing.T) {
 }
 
 func TestGitReconcileReplacesDirtyState(t *testing.T) {
-	m := NewMonitor(fakeLister{sessions: []*store.Session{
+	m := NewMonitor(fakeLister{sessions: []*agentstore.Agent{
 		{ID: "a", Worktree: "/wt/a", Status: store.StatusWorking},
 	}}, nil)
 	m.addDirty("/wt/a", "stale.go")

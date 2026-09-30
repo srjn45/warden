@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -78,14 +79,14 @@ func TestFileBadID(t *testing.T) {
 }
 
 func TestFileInsertRejectsUnsafeSessionRef(t *testing.T) {
-	// Defense-in-depth behind the backend's shell-quoting: a ClaudeSessionID that
+	// Defense-in-depth behind the backend's shell-quoting: a AICLISessionID that
 	// carries shell metacharacters (as an attacker-crafted import/adopt record
 	// would) is rejected at the store boundary so it can never reach a launch line.
 	ctx := context.Background()
 	st := newFileStore(t)
 	bad := sample()
 	bad.ID, bad.TmuxSession, bad.Ticket = "agent-evil", "agent-evil", ""
-	bad.ClaudeSessionID = "x; touch /tmp/pwned #"
+	bad.AICLISessionID = "x; touch /tmp/pwned #"
 	require.ErrorIs(t, st.Insert(ctx, bad), ErrBadSessionRef)
 }
 
@@ -101,7 +102,7 @@ func TestFileInsertAllowsRealSessionRefs(t *testing.T) {
 		st := newFileStore(t)
 		s := sample()
 		s.ID, s.TmuxSession, s.Ticket = "agent-ok", "agent-ok", ""
-		s.ClaudeSessionID = ref
+		s.AICLISessionID = ref
 		require.NoError(t, st.Insert(ctx, s), "ref %q must be accepted", ref)
 	}
 }
@@ -558,11 +559,19 @@ func TestFileInsertInvalidNameFormat(t *testing.T) {
 		{string(make([]byte, 33)), ErrInvalidName}, // 33 chars too long
 		{"valid-name_123", nil},
 		{"UPPERCASE", nil},
+		{"O:my-plan", nil},
+		{"M:manual-plan", nil},
+		{"P:pipeline-plan", nil},
+		{"AP:autopilot-plan", nil},
+		{"O:plan-execution-entity-redesign", nil},
+		{"X:bad-prefix", ErrInvalidName},
+		{"O:", ErrInvalidName},
+		{"O:has space", ErrInvalidName},
 	}
 
-	for _, tc := range cases {
+	for i, tc := range cases {
 		s := sample()
-		s.ID = "agent-" + tc.name
+		s.ID = fmt.Sprintf("agent-namecase-%d", i)
 		s.TmuxSession = s.ID
 		s.Ticket = ""
 		s.Name = tc.name

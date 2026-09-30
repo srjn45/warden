@@ -14,7 +14,6 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/daemon/oapi"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/planstore"
@@ -79,21 +78,30 @@ func (s *Server) planToOAPI(p *planstore.Plan) oapi.Plan {
 		completedAt = *p.CompletedAt
 	}
 	out := oapi.Plan{
-		AutopilotRunId: p.AutopilotRunID,
-		CompletedAt:    completedAt,
-		CreatedAt:      p.CreatedAt,
-		ExecutionMode:  oapi.PlanExecutionMode(p.ExecutionMode),
-		FilePath:       p.FilePath,
-		Id:             p.ID,
-		Name:           p.Name,
-		OrchestratorId: p.OrchestratorID,
-		PipelineId:     p.PipelineID,
-		PlanBranches:   p.Branches,
-		ProjectId:      p.ProjectID,
-		StartedAt:      startedAt,
-		Status:         oapi.PlanStatus(p.Status),
-		TaskProgress:   taskProgress,
-		UpdatedAt:      p.UpdatedAt,
+		AutopilotRunId:   p.AutopilotRunID,
+		CompletedAt:      completedAt,
+		CreatedAt:        p.CreatedAt,
+		ExecutionMode:    oapi.PlanExecutionMode(p.ExecutionMode),
+		FilePath:         p.FilePath,
+		Id:               p.ID,
+		Name:             p.Name,
+		OrchestratorId:   p.OrchestratorID,
+		PipelineId:       p.PipelineID,
+		PlanBranches:     p.Branches,
+		ProjectId:        p.ProjectID,
+		StartedAt:        startedAt,
+		Status:           oapi.PlanStatus(p.Status),
+		TaskProgress:     taskProgress,
+		UpdatedAt:        p.UpdatedAt,
+		ExecutionHistory: p.ExecutionHistory,
+		TaskOutcomes:     p.TaskOutcomes,
+		BranchSummaries:  p.BranchSummaries,
+	}
+	if p.ActiveExecution != nil {
+		out.ActiveExecution = *p.ActiveExecution
+	}
+	if p.ExecutionSummary != nil {
+		out.ExecutionSummary = *p.ExecutionSummary
 	}
 	s.hydratePlanDef(p, &out)
 	return out
@@ -494,33 +502,7 @@ func (s *Server) ArchivePlan(ctx context.Context, req oapi.ArchivePlanRequestObj
 	return oapi.ArchivePlan200JSONResponse(s.planToOAPI(p)), nil
 }
 
-// CompletePlan implements POST /api/v1/plans/{plan_id}/complete.
-func (s *Server) CompletePlan(ctx context.Context, req oapi.CompletePlanRequestObject) (oapi.CompletePlanResponseObject, error) {
-	svc := s.planSvc()
-	if svc == nil {
-		return nil, planNotConfigured()
-	}
-	p, err := svc.Transition(ctx, req.PlanId, planstore.PlanStatusCompleted, planstore.TransitionOptions{})
-	if err != nil {
-		if errors.Is(err, planstore.ErrNotFound) {
-			return oapi.CompletePlan404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "plan not found"}}, nil
-		}
-		if errors.Is(err, planstore.ErrInvalidTransition) {
-			return oapi.CompletePlan409JSONResponse{Error: err.Error()}, nil
-		}
-		var incomplete *planstore.TasksIncompleteError
-		if errors.As(err, &incomplete) {
-			return oapi.CompletePlan422JSONResponse{Error: incomplete.Error(), IncompleteTasks: incomplete.TaskIDs}, nil
-		}
-		var unmerged *planstore.BranchesUnmergedError
-		if errors.As(err, &unmerged) {
-			return oapi.CompletePlan422JSONResponse{Error: unmerged.Error(), UnmergedBranches: unmerged.Branches}, nil
-		}
-		return nil, errStatus(http.StatusInternalServerError, "complete plan: "+err.Error())
-	}
-	_ = svc.CleanupWorktrees(ctx, p)
-	return oapi.CompletePlan200JSONResponse(s.planToOAPI(p)), nil
-}
+// CompletePlan is implemented in plan_finalize.go via FinalizePlan.
 
 // legacyUpdatePlanStatus preserves the pre-CRUD route tests until the new
 // service layer takes ownership of plan transitions.
@@ -588,7 +570,7 @@ func (s *Server) RunPlan(ctx context.Context, req oapi.RunPlanRequestObject) (oa
 		if s.exec == nil {
 			return nil, errStatus(http.StatusServiceUnavailable, "pipeline executor not configured")
 		}
-	case planstore.PlanModeOrchestratorWorker:
+	case planstore.PlanModeOrchestratorWorker, planstore.PlanModeManual:
 		if s.life == nil {
 			return nil, errStatus(http.StatusServiceUnavailable, "lifecycle not configured")
 		}
@@ -630,142 +612,42 @@ func (s *Server) startPlanExecution(ctx context.Context, p *planstore.Plan, mode
 		return errStatus(http.StatusNotFound, "project not found")
 	}
 
-	var (
-		autopilotRunID string
-		pipelineID     string
-		orchestratorID string
-	)
-
 	switch mode {
 	case planstore.PlanModeAutopilot:
 		if s.autopilot == nil {
 			return errStatus(http.StatusServiceUnavailable, "autopilot not configured")
 		}
-		rs, regErr := s.autopilot.Register(ctx, autopilot.RegisterRequest{
-			Name:      p.Name,
-			Repo:      root,
-			PlanFile:  filepath.Join(root, p.FilePath),
-			PlanID:    p.ID,
-			ProjectID: p.ProjectID,
-		})
-		if regErr != nil {
-			return errStatus(http.StatusInternalServerError, "register autopilot run: "+regErr.Error())
-		}
-		autopilotRunID = rs.RunID
-		s.addAutopilotMembership(autopilotRunID, p.ProjectID)
-		s.addPlanMembership(p.ID, p.ProjectID)
+		_, startErr := s.startPlanAutopilotExecution(ctx, p, root)
+		return startErr
 
 	case planstore.PlanModePipeline:
-		if s.exec == nil {
-			return errStatus(http.StatusServiceUnavailable, "pipeline executor not configured")
-		}
-		pl, buildErr := buildPlanPipeline(p, root)
-		if buildErr != nil {
-			return errStatus(http.StatusInternalServerError, "build pipeline: "+buildErr.Error())
-		}
-		pl.PlanID = p.ID
-		if err := s.exec.pstore.Create(pl); err != nil {
-			if errors.Is(err, pipeline.ErrExists) {
-				return err
-			}
-			return errStatus(http.StatusInternalServerError, "create pipeline: "+err.Error())
-		}
-		s.addPipelineMembership(pl)
-		s.addPlanMembership(p.ID, p.ProjectID)
-		_ = s.exec.pstore.Update(pl.ID, func(up *pipeline.Pipeline) { up.Status = pipeline.StatusRunning })
-		_ = s.exec.Reconcile(context.Background(), pl.ID)
-		pipelineID = pl.ID
+		_, pipeErr := s.startPlanPipeline(ctx, p, root)
+		return pipeErr
 
 	case planstore.PlanModeOrchestratorWorker:
+		sess, spawnErr := s.spawnPlanBoundAgent(ctx, p, root, "orchestrator",
+			orchestratorDisplayName(p.Name), orchestratorPlanPrompt(p, root))
+		if spawnErr != nil {
+			return spawnErr
+		}
+		s.addPlanMembership(p.ID, p.ProjectID)
+		return s.beginPlanAgentExecution(ctx, p, mode, sess.ID, sess.ID, root)
+
+	case planstore.PlanModeManual:
 		if s.life == nil {
 			return errStatus(http.StatusServiceUnavailable, "lifecycle not configured")
 		}
-		planContent, readErr := os.ReadFile(filepath.Join(root, p.FilePath))
-		if readErr != nil {
-			return errStatus(http.StatusInternalServerError, "read plan file: "+readErr.Error())
-		}
-		prompt := fmt.Sprintf("You are an orchestrator executing the following plan.\n\n"+
-			"Plan file: %s\n\n%s\n\n"+
-			"Execute the plan tasks in order. Each worker you spawn must present its output "+
-			"for human approval before you proceed to the next task.",
-			p.FilePath, string(planContent))
-		sess, spawnErr := s.life.Spawn(ctx, SpawnRequest{
-			Repo:      root,
-			Role:      "orchestrator",
-			ProjectID: p.ProjectID,
-			PlanID:    p.ID,
-			Prompt:    prompt,
-		})
+		sess, spawnErr := s.spawnPlanBoundAgent(ctx, p, root, "general",
+			manualDisplayName(p.Name), manualPlanPrompt(p, root))
 		if spawnErr != nil {
-			return errStatus(http.StatusInternalServerError, "spawn orchestrator: "+spawnErr.Error())
+			return spawnErr
 		}
-		orchestratorID = sess.ID
 		s.addPlanMembership(p.ID, p.ProjectID)
-
-	case planstore.PlanModeManual:
-		s.addPlanMembership(p.ID, p.ProjectID)
+		return s.beginPlanAgentExecution(ctx, p, mode, sess.ID, sess.ID, root)
 
 	default:
 		return errStatus(http.StatusBadRequest, "unknown execution mode: "+string(mode))
 	}
-
-	if autopilotRunID == "" && pipelineID == "" && orchestratorID == "" {
-		return nil
-	}
-	if err := s.plans.Update(ctx, p.ID, func(pl *planstore.Plan) error {
-		if autopilotRunID != "" {
-			pl.AutopilotRunID = autopilotRunID
-		}
-		if pipelineID != "" {
-			pl.PipelineID = pipelineID
-		}
-		if orchestratorID != "" {
-			pl.OrchestratorID = orchestratorID
-		}
-		return nil
-	}); err != nil {
-		return errStatus(http.StatusInternalServerError, "record execution link: "+err.Error())
-	}
-	return nil
-}
-
-// buildPlanPipeline constructs a pipeline.Pipeline with one job per plan task.
-// The plan YAML is read from root/plan.FilePath. If the YAML cannot be read or
-// has no tasks, an empty single-job pipeline is returned.
-func buildPlanPipeline(p *planstore.Plan, root string) (*pipeline.Pipeline, error) {
-	var jobs []pipeline.Job
-	planPath := filepath.Join(root, p.FilePath)
-	if ap, err := autopilot.LoadPlan(planPath); err == nil && len(ap.Tasks) > 0 {
-		for _, t := range ap.Tasks {
-			jobs = append(jobs, pipeline.Job{
-				ID:        t.ID,
-				Prompt:    t.Prompt,
-				DependsOn: t.After,
-				Worktree:  "fresh",
-				Type:      "development",
-			})
-		}
-	} else {
-		// Fall back to a single job with the plan name as the prompt.
-		jobs = []pipeline.Job{{
-			ID:       "run",
-			Prompt:   "Execute the plan: " + p.Name,
-			Worktree: "fresh",
-			Type:     "development",
-		}}
-	}
-	pl := &pipeline.Pipeline{
-		ID:        p.ID,
-		Name:      p.Name,
-		Repo:      root,
-		ProjectID: p.ProjectID,
-		Status:    pipeline.StatusPending,
-		Jobs:      jobs,
-	}
-	if err := pipeline.Validate(pl); err != nil {
-		return nil, err
-	}
-	return pl, nil
 }
 
 // gitMvPlanStatus moves a plan YAML from its current path to the subdirectory

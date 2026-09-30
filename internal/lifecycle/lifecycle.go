@@ -22,12 +22,15 @@ import (
 
 	"github.com/srjn45/warden/internal/agentbackend"
 	_ "github.com/srjn45/warden/internal/agentbackend/backends" // register the Claude backend (and future adapters)
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/llm"
 	"github.com/srjn45/warden/internal/memory"
 	"github.com/srjn45/warden/internal/pressure"
 	"github.com/srjn45/warden/internal/role"
 	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/store"
+	"github.com/srjn45/warden/internal/terminalstore"
+	"github.com/srjn45/warden/internal/tmuxproc"
 )
 
 // claudeCallTimeout bounds every headless `claude -p` invocation (classify /
@@ -292,11 +295,11 @@ func (l *Lifecycle) memoryGuidance(ctx context.Context, dir string) string {
 // already ride, so a grouped orchestrator learns its Project Group and sibling
 // orchestrators at every fresh (re)launch while an ungrouped agent projects nothing.
 // Additive and fail-open, exactly like memory: any absent provider degrades to "".
-func (l *Lifecycle) peerGuidance(ctx context.Context, sess *store.Session) string {
-	if l.PeerContextFn == nil || sess == nil {
+func (l *Lifecycle) peerGuidance(ctx context.Context, agent *agentstore.Agent) string {
+	if l.PeerContextFn == nil || agent == nil {
 		return ""
 	}
-	return l.PeerContextFn(ctx, sess)
+	return l.PeerContextFn(ctx, agent)
 }
 
 // resolveRole applies the requested built-in role to req: it validates the role
@@ -388,10 +391,10 @@ func (l *Lifecycle) promptArg(b agentbackend.Backend, promptFile string) string 
 // by construction) degrades to a clean "cannot fork" error rather than launching a
 // bare agent. The source's pinned backend session id and branch are already resolved
 // by the daemon adapter (lifecycle is store-free); this only shapes the command.
-func (l *Lifecycle) buildLaunch(b agentbackend.Backend, req SpawnRequest, sess *store.Session, mode string) (string, error) {
+func (l *Lifecycle) buildLaunch(b agentbackend.Backend, req SpawnRequest, agent *agentstore.Agent, mode string) (string, error) {
 	if req.ForkFrom == "" {
 		return b.LaunchCmd(agentbackend.LaunchOpts{
-			SessionID: sess.ClaudeSessionID, Name: sess.ID, Model: l.launchModel(b, req.Model), Mode: mode,
+			SessionID: agent.AICLISessionID, Name: agent.ID, Model: l.launchModel(b, req.Model), Mode: mode,
 		}), nil
 	}
 	fk, ok := b.(agentbackend.SessionForker)
@@ -399,8 +402,8 @@ func (l *Lifecycle) buildLaunch(b agentbackend.Backend, req SpawnRequest, sess *
 		return "", fmt.Errorf("backend %s cannot fork a session", b.ID())
 	}
 	cmd, ok := fk.ForkCmd(agentbackend.ForkOpts{
-		SourceSessionID: req.ForkSourceSessionID, Name: sess.ID, Model: l.launchModel(b, req.Model), Mode: mode,
-		Workdir: sess.Workdir, // the fork's own worktree → codex -C, suppresses the working-dir picker
+		SourceSessionID: req.ForkSourceSessionID, Name: agent.ID, Model: l.launchModel(b, req.Model), Mode: mode,
+		Workdir: agent.Workdir, // the fork's own worktree → codex -C, suppresses the working-dir picker
 	})
 	if !ok {
 		return "", fmt.Errorf("backend %s cannot fork session %q", b.ID(), req.ForkSourceSessionID)
@@ -593,6 +596,10 @@ func shellQuoteArg(s string) string {
 
 type Lifecycle struct {
 	run Runner
+	// proc is the shared tmux/process host used by Agent and Terminal pane ops.
+	// Constructed from run in New; tests that swap run after New also get a
+	// matching Host via Proc() which rebuilds from the live Runner.
+	proc tmuxproc.Host
 	// cfg is the live config provider, swappable via SetConfig so a config
 	// hot-reload re-applies rails toggles, model_default, the default permission
 	// mode, and the hint gates without a daemon restart. Read through config();
@@ -635,7 +642,7 @@ type Lifecycle struct {
 	// any session with no peer context (not a grouped orchestrator) and MUST never
 	// block or fail a spawn — the result is an additive hint, exactly like the memory
 	// projection, recomputed from live state at every fresh (re)launch.
-	PeerContextFn func(ctx context.Context, sess *store.Session) string
+	PeerContextFn func(ctx context.Context, agent *agentstore.Agent) string
 	// ExitsDir is a shared dir (the daemon sets it, e.g. ~/.warden/exits) where
 	// each agent's shell records claude's exit status, keyed by agent id. Empty
 	// (tests) disables exit capture — agents then fall back to orphaned-only
@@ -725,9 +732,18 @@ type ConfigProvider interface {
 }
 
 func New(r Runner, cfg ConfigProvider) *Lifecycle {
-	l := &Lifecycle{run: r, backend: agentbackend.Default(), goos: runtime.GOOS, readPSI: readPSIFile}
+	l := &Lifecycle{run: r, proc: tmuxproc.New(r), backend: agentbackend.Default(), goos: runtime.GOOS, readPSI: readPSIFile}
 	l.cfg.Store(&cfg)
 	return l
+}
+
+// Proc returns the shared tmux/process Host. Agent and Terminal lifecycle both
+// drive panes through this seam without sharing a persisted model.
+func (l *Lifecycle) Proc() tmuxproc.Host {
+	if l.proc == nil {
+		l.proc = tmuxproc.New(l.run)
+	}
+	return l.proc
 }
 
 // config returns the live config provider. Never nil after New; swapped
@@ -766,7 +782,8 @@ type SpawnRequest struct {
 	AutoRestart     bool              // opt-in: auto-resume this agent when it errors (capped)
 	AutoApprove     bool              // opt-in: auto-approve yes/no prompts (also filled by a role default)
 	Model           string            // claude model (opus/sonnet/haiku or full ID); empty = default
-	Backend         string            // agent backend id (claude, aider, …); empty = claude (the default)
+	Backend         string            // agent backend id (claude, aider, …); empty = claude (deprecated alias)
+	AiCli           string            // canonical agent backend id (claude, aider, …); empty = claude
 	Kind            store.SessionKind // "" ⇒ agent (the default); "terminal" ⇒ a plain ${SHELL:-bash} pane, not an AI agent
 	Tags            []string          // optional free-form labels for grouping/filtering (#30)
 	Role            string            // built-in role (persona + default flags); empty = "general" (no persona)
@@ -1044,10 +1061,10 @@ func (l *Lifecycle) Classify(ctx context.Context, prompt string) (store.Type, er
 // move off warden's own Claude spend), and falls back to headless Claude on any
 // local error or an empty reply — an empty summary carries no signal, so unlike
 // Classify it is not trusted as a final answer.
-func (l *Lifecycle) Summarize(ctx context.Context, sess *store.Session) (string, error) {
-	text := l.recentActivity(ctx, sess)
+func (l *Lifecycle) Summarize(ctx context.Context, agent *agentstore.Agent) (string, error) {
+	text := l.recentActivity(ctx, agent)
 	if strings.TrimSpace(text) == "" {
-		text = sess.Prompt // last resort: the original prompt
+		text = agent.Prompt // last resort: the original prompt
 	}
 	if strings.TrimSpace(text) == "" {
 		return "", nil
@@ -1062,7 +1079,7 @@ func (l *Lifecycle) Summarize(ctx context.Context, sess *store.Session) (string,
 			return "", nil // degrade: skip narration
 		}
 		if s := parseSummary(out); s != "" {
-			l.recordOffload(sess.ID, arg)
+			l.recordOffload(agent.ID, arg)
 			return s, nil
 		}
 		return "", nil
@@ -1070,7 +1087,7 @@ func (l *Lifecycle) Summarize(ctx context.Context, sess *store.Session) (string,
 	if l.LLM != nil {
 		if out, err := l.LLM.Complete(ctx, arg); err == nil {
 			if s := parseSummary(out); s != "" {
-				l.recordOffload(sess.ID, arg) // summary served locally, not by warden's Claude
+				l.recordOffload(agent.ID, arg) // summary served locally, not by warden's Claude
 				return s, nil
 			}
 		} else {
@@ -1199,15 +1216,15 @@ func oversizedOutput(s string) bool {
 // dir first, then an unambiguous glob across all project dirs (the UUID is
 // globally unique, so this is robust to cwd path-encoding quirks). With no
 // pinned id (legacy sessions) it falls back to the newest .jsonl in the dir.
-func (l *Lifecycle) transcriptPath(sess *store.Session) string {
-	p, _ := l.backendFor(sess.Backend).TranscriptPath(l.ProjectsDir, sess.Workdir, sess.ClaudeSessionID)
+func (l *Lifecycle) transcriptPath(agent *agentstore.Agent) string {
+	p, _ := l.backendFor(agent.AiCli).TranscriptPath(l.ProjectsDir, agent.Workdir, agent.AICLISessionID)
 	return p
 }
 
 // TranscriptPath is the exported accessor the daemon uses to resolve an agent's
 // transcript file (see transcriptPath). Returns "" when unresolved/disabled.
-func (l *Lifecycle) TranscriptPath(sess *store.Session) string {
-	return l.transcriptPath(sess)
+func (l *Lifecycle) TranscriptPath(agent *agentstore.Agent) string {
+	return l.transcriptPath(agent)
 }
 
 // GitBranch returns the current branch name for dir, or "" on any error /
@@ -1306,13 +1323,13 @@ func (l *Lifecycle) RecordOffload(agent, prompt string) { l.recordOffload(agent,
 
 // recentActivity returns recent conversation text: the tail of the agent's
 // transcript file (by pinned session id or newest .jsonl), else the tmux pane.
-func (l *Lifecycle) recentActivity(ctx context.Context, sess *store.Session) string {
-	if p := l.transcriptPath(sess); p != "" {
+func (l *Lifecycle) recentActivity(ctx context.Context, agent *agentstore.Agent) string {
+	if p := l.transcriptPath(agent); p != "" {
 		if txt := readFileTail(p, 4000); txt != "" {
 			return txt
 		}
 	}
-	out, err := l.run.Run(ctx, "", "tmux", "capture-pane", "-p", "-t", sess.TmuxSession, "-S", "-40")
+	out, err := l.run.Run(ctx, "", "tmux", "capture-pane", "-p", "-t", agent.TmuxSession, "-S", "-40")
 	if err != nil {
 		return ""
 	}
@@ -1403,22 +1420,22 @@ func readFileTail(path string, maxBytes int64) string {
 const terminalBackendID = "terminal"
 
 // launchBackend resolves the backend adapter that drives a session's launch and
-// resume. A terminal is no longer a registered backend, so it resolves to the
-// internal terminal adapter regardless of its (empty) Backend field — keying on
-// Kind, not a backend id. Every other session resolves through the registry
-// (agentbackend.Get, empty ⇒ Claude).
-func (l *Lifecycle) launchBackend(sess *store.Session) agentbackend.Backend {
-	if sess.IsTerminal() {
-		return agentbackend.TerminalBackend()
-	}
-	return l.backendFor(sess.Backend)
+// resume. Every session resolves through the registry (agentbackend.Get, empty ⇒ Claude).
+func (l *Lifecycle) launchBackend(agent *agentstore.Agent) agentbackend.Backend {
+	return l.backendFor(agent.AiCli)
 }
 
 // Spawn creates an agent session. Prompt mode (Prompt set, no Type) runs a plain
 // claude in Workdir with NO git worktree, seeded with the prompt. Typed mode is
-// the existing per-type worktree flow. Spawn resolves the id + claude session id
+// the existing per-type worktree flow. Spawn resolves the id + aicli session id
 // shared by both, then dispatches to spawnFreeForm or spawnTyped.
-func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session, error) {
+func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*agentstore.Agent, error) {
+	if req.Kind == store.KindTerminal || req.Backend == terminalBackendID || req.AiCli == terminalBackendID {
+		return nil, fmt.Errorf("terminal requires SpawnTerminal")
+	}
+	if req.AiCli != "" {
+		req.Backend = req.AiCli
+	}
 	// Resolve the role FIRST: its defaults fill unset request fields, and a role
 	// default type (e.g. implementer ⇒ development) can flip a spawn from free-form
 	// to typed, so this must precede the freeMode decision below.
@@ -1429,19 +1446,9 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 	if !freeMode {
 		req.Type = store.NormalizeType(string(req.Type))
 	}
-	// Back-compat: `terminal` was a backend before stage 6. A request still naming
-	// it (an older client, or the stage-4 TUI create path) is now an explicit
-	// terminal create — normalize it to kind=terminal with no backend so it survives
-	// the removal cleanly and doesn't trip the unknown-backend check below.
-	if req.Backend == terminalBackendID {
-		req.Kind = store.KindTerminal
-		req.Backend = ""
-	}
 	// Reject an unknown backend up front (before any tmux/worktree side effects),
 	// so a typo fails cleanly rather than launching the wrong agent. An empty
-	// backend resolves to Claude (back-compat) inside agentbackend.Get. A terminal
-	// has no backend (Backend cleared above), so this validates against Claude and
-	// passes — the launch itself goes through the terminal adapter (launchBackend).
+	// backend resolves to Claude (back-compat) inside agentbackend.Get.
 	if _, err := agentbackend.Get(req.Backend); err != nil {
 		return nil, err
 	}
@@ -1455,12 +1462,9 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 	// default model, already folded into req.Model by resolveRole) wins; otherwise
 	// the router selects by tier/task/role. Degrades to req's values when no
 	// resolver is wired — a first spawn must never hard-fail on resolution.
-	// A terminal is a plain shell (no backend), so it is left untouched.
-	if req.Kind != store.KindTerminal {
-		req.Backend, req.Model = l.resolveSpawnTarget(ctx, req.Role, req.Task, req.Tier, req.Backend, req.Model)
-	}
+	req.Backend, req.Model = l.resolveSpawnTarget(ctx, req.Role, req.Task, req.Tier, req.Backend, req.Model)
 
-	sess := &store.Session{
+	agent := &agentstore.Agent{
 		ChildAgents: []string{}, ChildPipelines: []string{},
 		ID:             id,
 		Name:           req.Name,
@@ -1477,58 +1481,42 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 		AutoRestart:    req.AutoRestart,
 		AutoApprove:    req.AutoApprove,
 		Model:          req.Model,
-		Backend:        req.Backend,
+		AiCli:          req.Backend,
 		Role:           req.Role,
 		Task:           req.Task,
-	}
-	// A kind=terminal session is a plain shell, not an AI agent: tag it so every
-	// AI-centric surface (metrics, approvals, the poller, insights, …) excludes it
-	// and the cockpit renders it under Terminals. Its launch goes through the
-	// internal terminal adapter (launchBackend), never a registered backend; Backend
-	// was already cleared for the back-compat alias above. Agents keep Kind="" (empty
-	// ⇒ agent), so no existing record migrates.
-	if req.Kind == store.KindTerminal {
-		sess.Kind = store.KindTerminal
-		sess.Status = store.StatusWorking
-		// A terminal is always a plain free-form shell in cwd — never a typed,
-		// worktree-backed spawn. Force free-form so a stray type=… (or the
-		// back-compat backend=terminal alias paired with a type) can't route a
-		// terminal onto the managed-worktree path, where its launch would resolve to
-		// an AI backend instead of the shell adapter.
-		req.Type, sess.Type, freeMode = "", "", true
 	}
 	// Record provenance, but never let an agent be its own parent (a self-id would
 	// create a degenerate cycle in the sub-tree view).
 	if req.ParentID != id {
-		sess.ParentID = req.ParentID
+		agent.ParentID = req.ParentID
 	}
 	// Stamp the explicit owning-project back-ref when the request carried one. An
 	// empty value is left empty for the daemon to resolve by path-match post-spawn
 	// (lifecycle has no projects store), so an explicit id always wins over the match.
-	sess.ProjectID = req.ProjectID
-	sess.PlanID = req.PlanID
-	sess.AutopilotRunID = req.AutopilotRunID
-	sess.AutopilotSlot = req.AutopilotSlot
-	sess.AutopilotTaskID = req.AutopilotTaskID
+	agent.ProjectID = req.ProjectID
+	agent.PlanID = req.PlanID
+	agent.AutopilotRunID = req.AutopilotRunID
+	agent.AutopilotSlot = req.AutopilotSlot
+	agent.AutopilotTaskID = req.AutopilotTaskID
 	// Only pinning backends (Caps.SessionIDControl) take a warden-minted session
 	// id — for them the id is pinned at launch for a deterministic transcript path
 	// + --resume. A non-pinning backend (codex, cursor, antigravity, …) mints its
 	// own id and ignores the one we'd pass, so minting here would leave
-	// ClaudeSessionID holding a UUID that matches no on-disk transcript. Instead we
+	// AICLISessionID holding a UUID that matches no on-disk transcript. Instead we
 	// leave it empty (empty already = the dir-scoped transcript fallback, safe even
 	// before discovery lands) and let the poller discover-then-pin the agent's real
 	// id post-launch (design §5.2; agentbackend.SessionIDDiscoverer).
-	if l.launchBackend(sess).Capabilities().SessionIDControl {
-		sess.ClaudeSessionID, err = store.NewSessionID()
+	if l.launchBackend(agent).Capabilities().SessionIDControl {
+		agent.AICLISessionID, err = store.NewSessionID()
 		if err != nil {
 			return nil, err
 		}
 	}
 
 	if freeMode {
-		return l.spawnFreeForm(ctx, req, sess)
+		return l.spawnFreeForm(ctx, req, agent)
 	}
-	return l.spawnTyped(ctx, req, sess)
+	return l.spawnTyped(ctx, req, agent)
 }
 
 // spawnFreeForm launches a plain claude agent in the caller's cwd with NO git
@@ -1537,7 +1525,7 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*store.Session
 // Claude Code — we never create a fresh per-agent dir, which would trigger
 // Claude's per-directory trust/onboarding prompts on every spawn. cwd is
 // required: there is no directory to fall back to.
-func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, sess *store.Session) (*store.Session, error) {
+func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, agent *agentstore.Agent) (*agentstore.Agent, error) {
 	if req.Cwd == "" {
 		return nil, fmt.Errorf("free-form spawn requires a launch dir (cwd)")
 	}
@@ -1547,7 +1535,7 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, sess *s
 	if req.ForkFrom != "" {
 		return nil, fmt.Errorf("fork requires a typed (worktree-backed) spawn; free-form fork is not supported")
 	}
-	sess.Workdir = req.Cwd
+	agent.Workdir = req.Cwd
 
 	// launchPrompt is the trailing claude argument. Empty for an interactive
 	// agent (open claude and wait); for an autonomous agent it reads the prompt
@@ -1565,7 +1553,7 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, sess *s
 		if out, err := l.run.Run(ctx, "", "mkdir", "-m", "700", "-p", l.PromptsDir); err != nil {
 			return nil, fmt.Errorf("mkdir prompts dir: %w: %s", err, out)
 		}
-		promptFile = filepath.Join(l.PromptsDir, sess.ID)
+		promptFile = filepath.Join(l.PromptsDir, agent.ID)
 		// umask 077 so the prompt file is created 0600: task prompts can carry
 		// sensitive context, and the 0700 PromptsDir is the only other guard.
 		if out, err := l.run.Run(ctx, "", "sh", "-c", `umask 077; printf '%s' "$1" > "$2"`, "sh", req.Prompt, promptFile); err != nil {
@@ -1573,59 +1561,54 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, sess *s
 		}
 	}
 
-	if err := l.newAgentSession(ctx, "", sess.ID, req.Cwd); err != nil {
+	if err := l.newAgentSession(ctx, "", agent.ID, req.Cwd); err != nil {
 		return nil, err
 	}
 	mode := req.PermissionMode
 	if mode == "" {
 		mode = l.config().GetDefaultPermissionMode()
 	}
-	// launchBackend, not backendFor: a terminal session launches ${SHELL:-bash} via
-	// the internal terminal adapter (it has no registered backend), while every
-	// other session resolves through the registry. All the AI-specific steps below
-	// (context injection, system-prompt hints, prompt seeding) then degrade to
-	// no-ops for a terminal exactly as the old registered backend made them.
-	b := l.launchBackend(sess)
+	b := l.launchBackend(agent)
 	// For a backend with no system-prompt flag but an AGENTS.md rules file (Codex),
 	// deliver the same pipeline/collab addendum by writing it into the workdir before
 	// launch. A flag-based backend (Claude) skips this — its hints ride the launch
 	// line below instead. A write failure degrades (no hints) but does not fail spawn.
 	// The role persona is prepended ahead of the collab/pipeline hints so it reads
 	// first; it is always injected when non-empty (general = "" = nothing).
-	persona := personaGuidance(sess.Role)
-	mem := l.memoryGuidance(ctx, sess.Workdir)
-	peers := l.peerGuidance(ctx, sess)
-	if err := l.injectContext(b, sess.Workdir,
+	persona := personaGuidance(agent.Role)
+	mem := l.memoryGuidance(ctx, agent.Workdir)
+	peers := l.peerGuidance(ctx, agent)
+	if err := l.injectContext(b, agent.Workdir,
 		persona,
 		hintGuidance(l.config().GetPipelineHint(), pipelineHintGuidance),
 		hintGuidance(l.config().GetCollabHint(), collabHintGuidance),
 		mem,
 		peers,
 	); err != nil {
-		slog.Warn("spawn: context injection failed", "agent", sess.ID, "backend", b.ID(), "err", err)
+		slog.Warn("spawn: context injection failed", "agent", agent.ID, "backend", b.ID(), "err", err)
 	}
-	hints := l.systemPromptHints(ctx, b, sess.ID,
+	hints := l.systemPromptHints(ctx, b, agent.ID,
 		hintSpec{persona != "", persona},
 		hintSpec{l.config().GetPipelineHint(), pipelineHintGuidance},
 		hintSpec{l.config().GetCollabHint(), collabHintGuidance},
 		hintSpec{l.config().GetMemoryInject(), mem},
 		hintSpec{peers != "", peers})
 	launch := b.LaunchCmd(agentbackend.LaunchOpts{
-		SessionID: sess.ClaudeSessionID, Name: sess.ID, Model: l.launchModel(b, req.Model), Mode: mode,
-	}) + hints + l.promptArg(b, promptFile) + l.exitSuffix(sess.ID)
-	if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", sess.ID, launch, "Enter"); err != nil {
+		SessionID: agent.AICLISessionID, Name: agent.ID, Model: l.launchModel(b, req.Model), Mode: mode,
+	}) + hints + l.promptArg(b, promptFile) + l.exitSuffix(agent.ID)
+	if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", agent.ID, launch, "Enter"); err != nil {
 		// The session exists but launch failed — don't orphan it. No worktree here.
-		l.cleanupFailedSpawn(sess, true, false)
+		l.cleanupFailedSpawn(agent, true, false)
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
 	}
-	l.seedInteractivePrompt(b, sess.ID, req.Prompt)
-	return sess, nil
+	l.seedInteractivePrompt(b, agent.ID, req.Prompt)
+	return agent, nil
 }
 
 // spawnTyped runs the per-type managed flow: optionally create a git worktree,
 // start a tmux session in it, and auto-launch claude. On any post-resource
 // failure it rolls back via cleanupFailedSpawn (a worktree only when WE made it).
-func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, sess *store.Session) (*store.Session, error) {
+func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, agent *agentstore.Agent) (*agentstore.Agent, error) {
 	// A fork MUST run in its own worktree: discover-then-pin is dir-scoped, so a fork
 	// sharing the source's tree (or the bare repo) would mis-pin both ends (§5/§7). The
 	// fork worktree is also what the launch command is based off the SOURCE branch in
@@ -1636,19 +1619,19 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, sess *stor
 	workdir := req.Repo
 	worktreeCreated := false
 	if wantWorktree(req) {
-		rel := worktreeRel(sess.ID)
-		branch, created, branchCreated, err := l.ensureWorktree(ctx, req, sess.ID, rel)
+		rel := worktreeRel(agent.ID)
+		branch, created, branchCreated, err := l.ensureWorktree(ctx, req, agent.ID, rel)
 		if err != nil {
 			return nil, err
 		}
-		sess.Worktree = rel
-		sess.Branch = branch
-		sess.WorktreeCreated = created
-		sess.BranchCreated = branchCreated
+		agent.Worktree = rel
+		agent.Branch = branch
+		agent.WorktreeCreated = created
+		agent.BranchCreated = branchCreated
 		worktreeCreated = created
 		workdir = filepath.Join(req.Repo, rel)
 	}
-	sess.Workdir = workdir
+	agent.Workdir = workdir
 	// Dirty-tree carry (PR-2, §7): a fork ALSO seeds the source agent's UNCOMMITTED
 	// tracked changes into its fresh worktree, so it diverges from the source's EXACT
 	// live state rather than only the source branch's committed HEAD. No-op when the
@@ -1658,13 +1641,13 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, sess *stor
 	if req.ForkFrom != "" && req.ForkSourceWorkdir != "" {
 		if err := l.carryDirtyTree(ctx, req.ForkSourceWorkdir, workdir); err != nil {
 			// Worktree (but not yet tmux) exists here; undo only a worktree we made.
-			l.cleanupFailedSpawn(sess, false, worktreeCreated)
+			l.cleanupFailedSpawn(agent, false, worktreeCreated)
 			return nil, err
 		}
 	}
-	if err := l.newAgentSession(ctx, req.Repo, sess.ID, workdir); err != nil {
+	if err := l.newAgentSession(ctx, req.Repo, agent.ID, workdir); err != nil {
 		// new-session failed, so no tmux session exists; only undo a worktree we made.
-		l.cleanupFailedSpawn(sess, false, worktreeCreated)
+		l.cleanupFailedSpawn(agent, false, worktreeCreated)
 		return nil, err
 	}
 	// Seed the task prompt as claude's positional argument, file-backed via
@@ -1674,9 +1657,9 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, sess *stor
 	// the agent sits idle at an empty prompt.
 	promptFile := ""
 	if req.Prompt != "" {
-		pf, err := l.writePromptFile(ctx, sess.ID, req.Prompt)
+		pf, err := l.writePromptFile(ctx, agent.ID, req.Prompt)
 		if err != nil {
-			l.cleanupFailedSpawn(sess, true, worktreeCreated)
+			l.cleanupFailedSpawn(agent, true, worktreeCreated)
 			return nil, err
 		}
 		promptFile = pf
@@ -1685,7 +1668,7 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, sess *stor
 	if mode == "" {
 		mode = l.config().GetDefaultPermissionMode()
 	}
-	b := l.backendFor(sess.Backend)
+	b := l.backendFor(agent.AiCli)
 	// For a backend with no system-prompt flag but an AGENTS.md rules file (Codex),
 	// deliver the same pipeline/collab/git addendum by writing it into the worktree
 	// (created above) before launch. A flag-based backend (Claude) skips this — its
@@ -1693,10 +1676,10 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, sess *stor
 	// but does not fail spawn.
 	// The role persona is prepended ahead of the collab/pipeline/git hints so it
 	// reads first; it is always injected when non-empty (general = "" = nothing).
-	persona := personaGuidance(sess.Role)
-	mem := l.memoryGuidance(ctx, sess.Workdir)
-	peers := l.peerGuidance(ctx, sess)
-	if err := l.injectContext(b, sess.Workdir,
+	persona := personaGuidance(agent.Role)
+	mem := l.memoryGuidance(ctx, agent.Workdir)
+	peers := l.peerGuidance(ctx, agent)
+	if err := l.injectContext(b, agent.Workdir,
 		persona,
 		hintGuidance(l.config().GetPipelineHint(), pipelineHintGuidance),
 		hintGuidance(l.config().GetCollabHint(), collabHintGuidance),
@@ -1704,27 +1687,27 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, sess *stor
 		mem,
 		peers,
 	); err != nil {
-		slog.Warn("spawn: context injection failed", "agent", sess.ID, "backend", b.ID(), "err", err)
+		slog.Warn("spawn: context injection failed", "agent", agent.ID, "backend", b.ID(), "err", err)
 	}
-	base, err := l.buildLaunch(b, req, sess, mode)
+	base, err := l.buildLaunch(b, req, agent, mode)
 	if err != nil {
-		l.cleanupFailedSpawn(sess, true, worktreeCreated)
+		l.cleanupFailedSpawn(agent, true, worktreeCreated)
 		return nil, err
 	}
-	hints := l.systemPromptHints(ctx, b, sess.ID,
+	hints := l.systemPromptHints(ctx, b, agent.ID,
 		hintSpec{persona != "", persona},
 		hintSpec{l.config().GetPipelineHint(), pipelineHintGuidance},
 		hintSpec{l.config().GetCollabHint(), collabHintGuidance},
 		hintSpec{l.config().GetGitConventions(), gitConventionsGuidance},
 		hintSpec{l.config().GetMemoryInject(), mem},
 		hintSpec{peers != "", peers})
-	launch := base + hints + l.guardSettings(b, sess.ID) + l.promptArg(b, promptFile) + l.exitSuffix(sess.ID)
-	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", sess.ID, launch, "Enter"); err != nil {
-		l.cleanupFailedSpawn(sess, true, worktreeCreated)
+	launch := base + hints + l.guardSettings(b, agent.ID) + l.promptArg(b, promptFile) + l.exitSuffix(agent.ID)
+	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", agent.ID, launch, "Enter"); err != nil {
+		l.cleanupFailedSpawn(agent, true, worktreeCreated)
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
 	}
-	l.seedInteractivePrompt(b, sess.ID, req.Prompt)
-	return sess, nil
+	l.seedInteractivePrompt(b, agent.ID, req.Prompt)
+	return agent, nil
 }
 
 // cleanupFailedSpawn best-effort reverses the partial side effects of a spawn
@@ -1736,12 +1719,12 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, sess *stor
 // single shared cleanup used by spawnFreeForm, spawnTyped, and SpawnJob, in
 // every case preserving the spawn-before-reap ordering (cleanup runs only after
 // the failing step returns).
-func (l *Lifecycle) cleanupFailedSpawn(sess *store.Session, killTmux, worktreeCreated bool) {
+func (l *Lifecycle) cleanupFailedSpawn(agent *agentstore.Agent, killTmux, worktreeCreated bool) {
 	if killTmux {
-		l.killSession(sess.ID)
+		l.killSession(agent.ID)
 	}
 	if worktreeCreated {
-		l.rollbackWorktree(sess)
+		l.rollbackWorktree(agent)
 	}
 }
 
@@ -1759,13 +1742,13 @@ func (l *Lifecycle) killSession(id string) {
 // this spawn created when a later step fails. Only ever called for worktrees we
 // created — never for an adopted, pre-existing one (see ensureWorktree). A
 // failure is logged (not returned) so a leaked worktree is visible.
-func (l *Lifecycle) rollbackWorktree(sess *store.Session) {
+func (l *Lifecycle) rollbackWorktree(agent *agentstore.Agent) {
 	if err := l.RemoveWorktree(context.Background(), CleanupTarget{
-		ID: sess.ID, Repo: sess.Repo, Worktree: sess.Worktree,
-		Branch: sess.Branch, BranchCreated: sess.BranchCreated,
-		TmuxSession: sess.TmuxSession,
+		ID: agent.ID, Repo: agent.Repo, Worktree: agent.Worktree,
+		Branch: agent.Branch, BranchCreated: agent.BranchCreated,
+		TmuxSession: agent.TmuxSession,
 	}, true, false); err != nil {
-		slog.Warn("spawn cleanup: rollback worktree failed", "worktree", sess.Worktree, "err", err)
+		slog.Warn("spawn cleanup: rollback worktree failed", "worktree", agent.Worktree, "err", err)
 	}
 }
 
@@ -1778,29 +1761,30 @@ const agentHistoryLimit = 50000
 // newAgentSession creates the detached tmux session for an agent in cwd and
 // applies scroll-friendly options. Only new-session failing aborts the spawn;
 // option-setting failures are non-fatal so a tmux quirk never blocks a launch.
+// Agents and terminals share this path via tmuxproc.Host.
 func (l *Lifecycle) newAgentSession(ctx context.Context, runDir, id, cwd string, env ...string) error {
-	l.ensureScrollback(ctx)        // before new-session: the new pane inherits the limit
-	EnsureExtendedKeys(ctx, l.run) // so Claude sees Shift+Enter as newline, not submit
-	// -e sets WARDEN_SESSION_ID (+ legacy AGENTCTL_SESSION_ID, + any extra
-	// pipeline env) in the session environment so the agent's shell tools know
-	// which agent they are. Both variants are set for back-compat.
-	args := []string{"new-session", "-d", "-s", id,
-		"-e", "WARDEN_SESSION_ID=" + id,
-		"-e", "AGENTCTL_SESSION_ID=" + id}
-	for _, kv := range env {
-		args = append(args, "-e", kv)
+	_ = runDir // retained for call-site compatibility; Host always targets the default server
+	return l.Proc().NewSession(ctx, id, cwd, env...)
+}
+
+// RestoreTerminal recreates a lost terminal pane in its original workdir and
+// relaunches ${SHELL:-bash}. Unlike Restore (AI resume-only), a terminal has no
+// conversation to pin — this is a fresh shell in the same identity/tmux name.
+func (l *Lifecycle) RestoreTerminal(ctx context.Context, id, workdir string) error {
+	if l.Proc().HasSession(ctx, id) {
+		return ErrAlreadyRunning
 	}
-	args = append(args, "-c", cwd)
-	if out, err := l.run.Run(ctx, runDir, "tmux", args...); err != nil {
-		return fmt.Errorf("tmux new-session: %w: %s", err, out)
+	if fi, err := os.Stat(workdir); err != nil || !fi.IsDir() {
+		return ErrWorkdirMissing
 	}
-	// mouse is a live session option: the wheel enters copy-mode, and the cockpit
-	// session can forward the wheel into this nested attach. Non-fatal.
-	_, _ = l.run.Run(ctx, "", "tmux", "set-option", "-t", id, "mouse", "on")
-	// detach-on-destroy off ensures that if an operator attaches to this agent
-	// and the agent terminates or is stopped, tmux falls back to the previous
-	// session (e.g. cockpit) instead of abruptly disconnecting the client (#478). Non-fatal.
-	_, _ = l.run.Run(ctx, "", "tmux", "set-option", "-t", id, "detach-on-destroy", "off")
+	if err := l.Proc().NewSession(ctx, id, workdir); err != nil {
+		return err
+	}
+	launch := agentbackend.TerminalBackend().LaunchCmd(agentbackend.LaunchOpts{Name: id}) + l.exitSuffix(id)
+	if err := l.Proc().SendKeys(ctx, id, launch, "Enter"); err != nil {
+		_ = l.Proc().KillSession(ctx, id)
+		return err
+	}
 	return nil
 }
 
@@ -1808,6 +1792,9 @@ func (l *Lifecycle) newAgentSession(ctx context.Context, runDir, id, cwd string,
 // when it is currently lower (only-raise: a user-configured larger value is left
 // untouched). Must run before new-session. All failures are ignored — deep
 // scrollback is a nicety, not a precondition for spawning.
+//
+// Deprecated path: Host.NewSession already raises scrollback; this remains for
+// any direct callers (cockpit) that still invoke EnsureExtendedKeys alone.
 func (l *Lifecycle) ensureScrollback(ctx context.Context) {
 	if out, err := l.run.Run(ctx, "", "tmux", "show-options", "-g", "-v", "history-limit"); err == nil {
 		if cur, perr := strconv.Atoi(strings.TrimSpace(out)); perr == nil && cur >= agentHistoryLimit {
@@ -1818,33 +1805,10 @@ func (l *Lifecycle) ensureScrollback(ctx context.Context) {
 }
 
 // EnsureExtendedKeys configures tmux so the user can insert a newline (rather
-// than submit) while typing into Claude. It installs two layers, both
-// best-effort — a keyboard-protocol quirk must never block a spawn or cockpit
-// launch:
-//
-//  1. Extended-keys passthrough (a server option). On terminals that speak the
-//     CSI-u / modifyOtherKeys protocol, this lets Claude receive Shift+Enter as a
-//     distinct key it treats as a newline, instead of the bare CR that tmux would
-//     otherwise collapse it into (which Claude treats as submit). terminal-features
-//     is appended only when extkeys is absent so repeated spawns don't accumulate
-//     duplicate entries.
-//
-//  2. An Alt+Enter fallback (a root-table key binding). Many Linux terminals —
-//     notably VTE/GNOME (Ptyxis, GNOME Terminal) — never report the Shift modifier
-//     on Enter at all: they emit a bare CR for Shift+Enter, so layer 1 cannot
-//     recover it. Alt+Enter, however, arrives distinctly (ESC+CR, which tmux reads
-//     as M-Enter) even on those terminals, so we bind it to send a literal LF (C-j)
-//     into the active pane — which Claude inserts as a newline. The binding is in
-//     the root table so it works in the cockpit and in attached agent sessions
-//     alike (same tmux server).
+// than submit) while typing into Claude. Delegates to tmuxproc so Agent and
+// Terminal share one implementation.
 func EnsureExtendedKeys(ctx context.Context, run Runner) {
-	// Terminal-independent newline key for terminals that can't report Shift+Enter.
-	_, _ = run.Run(ctx, "", "tmux", "bind-key", "-n", "M-Enter", "send-keys", "C-j")
-	_, _ = run.Run(ctx, "", "tmux", "set-option", "-s", "extended-keys", "on")
-	if out, err := run.Run(ctx, "", "tmux", "show-options", "-s", "-v", "terminal-features"); err == nil && strings.Contains(out, "extkeys") {
-		return // outer terminal already advertised; don't append a duplicate
-	}
-	_, _ = run.Run(ctx, "", "tmux", "set-option", "-sa", "terminal-features", "*:extkeys")
+	tmuxproc.EnsureExtendedKeys(ctx, run)
 }
 
 // resumeInTmux creates a detached tmux session named id in cwd and resumes the
@@ -1893,8 +1857,8 @@ func (l *Lifecycle) resumeInTmuxWithHints(ctx context.Context, b agentbackend.Ba
 // resume, and backend-recovery relaunch. Spec D8 orphaned-only gating belongs
 // on the operator recovery paths (RestoreSession / archived Recover) — not
 // here — so internal relaunch of errored/rate_limited sessions keeps working.
-func (l *Lifecycle) Restore(ctx context.Context, sess *store.Session) error {
-	b := l.backendFor(sess.Backend)
+func (l *Lifecycle) Restore(ctx context.Context, agent *agentstore.Agent) error {
+	b := l.backendFor(agent.AiCli)
 	if !b.Capabilities().Resume {
 		// The agent's backend can't resume a prior session by id (e.g. Aider
 		// continues from repo history, not a pinned id). Restore is resume-only,
@@ -1903,29 +1867,29 @@ func (l *Lifecycle) Restore(ctx context.Context, sess *store.Session) error {
 	}
 	// A pinning backend (Claude) resumes by exact id, so a missing id is fatal. A
 	// non-pinning backend (codex) resumes dir-scoped (e.g. `codex resume --last`)
-	// and never needs the id, so an empty ClaudeSessionID is fine — the
+	// and never needs the id, so an empty AICLISessionID is fine — the
 	// transcript-exists check below still guards that there is a session to resume.
-	if b.Capabilities().SessionIDControl && sess.ClaudeSessionID == "" {
+	if b.Capabilities().SessionIDControl && agent.AICLISessionID == "" {
 		return ErrNoSessionID
 	}
 	// Refuse if the tmux session is still alive (avoid a double-launch).
-	if _, err := l.run.Run(ctx, "", "tmux", "has-session", "-t", sess.TmuxSession); err == nil {
+	if _, err := l.run.Run(ctx, "", "tmux", "has-session", "-t", agent.TmuxSession); err == nil {
 		return ErrAlreadyRunning
 	}
-	if fi, err := os.Stat(sess.Workdir); err != nil || !fi.IsDir() {
+	if fi, err := os.Stat(agent.Workdir); err != nil || !fi.IsDir() {
 		return ErrWorkdirMissing
 	}
-	if b.Capabilities().StructuredTranscript && l.transcriptPath(sess) == "" {
+	if b.Capabilities().StructuredTranscript && l.transcriptPath(agent) == "" {
 		return ErrNoTranscript
 	}
-	mode := sess.PermissionMode
+	mode := agent.PermissionMode
 	if mode == "" {
 		mode = l.config().GetDefaultPermissionMode()
 	}
-	return l.resumeInTmux(ctx, b, sess.ID, sess.Workdir, sess.ClaudeSessionID, sess.Model, mode)
+	return l.resumeInTmux(ctx, b, agent.ID, agent.Workdir, agent.AICLISessionID, agent.Model, mode)
 }
 
-// SwitchRole re-injects the persona for sess.Role (already persisted by the caller
+// SwitchRole re-injects the persona for agent.Role (already persisted by the caller
 // via store.UpdateRole) onto a resumable agent and relaunches it so the new persona
 // takes effect immediately. A plain resume re-injects nothing (see resumeInTmux), so
 // switching a role has to re-run the spawn-time injection: it rewrites the AGENTS.md
@@ -1937,32 +1901,32 @@ func (l *Lifecycle) Restore(ctx context.Context, sess *store.Session) error {
 // resume (Aider) or an agent with no pinned session / missing workdir is refused so
 // the role stays persisted (it applies on the next fresh launch) rather than
 // stranding the agent.
-func (l *Lifecycle) SwitchRole(ctx context.Context, sess *store.Session) error {
-	b := l.backendFor(sess.Backend)
+func (l *Lifecycle) SwitchRole(ctx context.Context, agent *agentstore.Agent) error {
+	b := l.backendFor(agent.AiCli)
 	if !b.Capabilities().Resume {
 		return fmt.Errorf("backend %s does not support resume — cannot re-inject a role on a running agent (the role is saved and applies on the next fresh launch)", b.ID())
 	}
-	if b.Capabilities().SessionIDControl && sess.ClaudeSessionID == "" {
+	if b.Capabilities().SessionIDControl && agent.AICLISessionID == "" {
 		return ErrNoSessionID
 	}
-	if fi, err := os.Stat(sess.Workdir); err != nil || !fi.IsDir() {
+	if fi, err := os.Stat(agent.Workdir); err != nil || !fi.IsDir() {
 		return ErrWorkdirMissing
 	}
-	if b.Capabilities().StructuredTranscript && l.transcriptPath(sess) == "" {
+	if b.Capabilities().StructuredTranscript && l.transcriptPath(agent) == "" {
 		return ErrNoTranscript
 	}
 	// Kill the live tmux session (if any) so the relaunch below re-creates it. Unlike
 	// Restore we do NOT refuse a running agent — switching a role deliberately
 	// relaunches it.
-	if _, err := l.run.Run(ctx, "", "tmux", "has-session", "-t", sess.TmuxSession); err == nil {
-		l.killSession(sess.TmuxSession)
+	if _, err := l.run.Run(ctx, "", "tmux", "has-session", "-t", agent.TmuxSession); err == nil {
+		l.killSession(agent.TmuxSession)
 	}
 	// Re-run the spawn-time injection with the freshly resolved persona prepended
 	// ahead of the config-gated hints (mirrors spawnTyped's injectContext call).
-	persona := personaGuidance(sess.Role)
-	mem := l.memoryGuidance(ctx, sess.Workdir)
-	peers := l.peerGuidance(ctx, sess)
-	if err := l.injectContext(b, sess.Workdir,
+	persona := personaGuidance(agent.Role)
+	mem := l.memoryGuidance(ctx, agent.Workdir)
+	peers := l.peerGuidance(ctx, agent)
+	if err := l.injectContext(b, agent.Workdir,
 		persona,
 		hintGuidance(l.config().GetPipelineHint(), pipelineHintGuidance),
 		hintGuidance(l.config().GetCollabHint(), collabHintGuidance),
@@ -1970,20 +1934,20 @@ func (l *Lifecycle) SwitchRole(ctx context.Context, sess *store.Session) error {
 		mem,
 		peers,
 	); err != nil {
-		slog.Warn("switch-role: context injection failed", "agent", sess.ID, "backend", b.ID(), "err", err)
+		slog.Warn("switch-role: context injection failed", "agent", agent.ID, "backend", b.ID(), "err", err)
 	}
-	mode := sess.PermissionMode
+	mode := agent.PermissionMode
 	if mode == "" {
 		mode = l.config().GetDefaultPermissionMode()
 	}
-	hints := l.systemPromptHints(ctx, b, sess.ID,
+	hints := l.systemPromptHints(ctx, b, agent.ID,
 		hintSpec{persona != "", persona},
 		hintSpec{l.config().GetPipelineHint(), pipelineHintGuidance},
 		hintSpec{l.config().GetCollabHint(), collabHintGuidance},
 		hintSpec{l.config().GetGitConventions(), gitConventionsGuidance},
 		hintSpec{l.config().GetMemoryInject(), mem},
 		hintSpec{peers != "", peers})
-	return l.resumeInTmuxWithHints(ctx, b, sess.ID, sess.Workdir, sess.ClaudeSessionID, sess.Model, mode, hints)
+	return l.resumeInTmuxWithHints(ctx, b, agent.ID, agent.Workdir, agent.AICLISessionID, agent.Model, mode, hints)
 }
 
 // AdoptRequest carries the resolved inputs for Adopt. TmuxSession == "" selects
@@ -1995,7 +1959,8 @@ func (l *Lifecycle) SwitchRole(ctx context.Context, sess *store.Session) error {
 type AdoptRequest struct {
 	ID              string
 	Cwd             string
-	ClaudeSessionID string
+	AICLISessionID  string
+	ClaudeSessionID string // Deprecated: use AICLISessionID
 	TmuxSession     string
 	Model           string // claude model (opus/sonnet/haiku or full ID); empty = default
 }
@@ -2006,7 +1971,7 @@ type AdoptRequest struct {
 // store. It never relaunches a live session.
 // Resume mode assumes id is fresh (caller-generated) and does not guard against
 // a pre-existing tmux session of that name.
-func (l *Lifecycle) Adopt(ctx context.Context, req AdoptRequest) (*store.Session, error) {
+func (l *Lifecycle) Adopt(ctx context.Context, req AdoptRequest) (*agentstore.Agent, error) {
 	id := req.ID
 	if id == "" {
 		sid, err := shortID()
@@ -2015,29 +1980,33 @@ func (l *Lifecycle) Adopt(ctx context.Context, req AdoptRequest) (*store.Session
 		}
 		id = "agent-" + sid
 	}
-	sess := &store.Session{
+	aicliSessionID := req.AICLISessionID
+	if aicliSessionID == "" {
+		aicliSessionID = req.ClaudeSessionID
+	}
+	agent := &agentstore.Agent{
 		ChildAgents: []string{}, ChildPipelines: []string{},
-		ID:              id,
-		TmuxSession:     id,
-		Type:            store.TypeOther,
-		Workdir:         req.Cwd,
-		ClaudeSessionID: req.ClaudeSessionID,
-		Model:           req.Model,
+		ID:             id,
+		TmuxSession:    id,
+		Type:           store.TypeOther,
+		Workdir:        req.Cwd,
+		AICLISessionID: aicliSessionID,
+		Model:          req.Model,
 	}
 	if req.TmuxSession == "" { // resume mode
-		if req.ClaudeSessionID == "" {
+		if aicliSessionID == "" {
 			return nil, ErrNoSessionID
 		}
 		if fi, err := os.Stat(req.Cwd); err != nil || !fi.IsDir() {
 			return nil, ErrWorkdirMissing
 		}
-		sess.Status = store.StatusSpawning
+		agent.Status = store.StatusSpawning
 		// Adopt registers a Claude session warden did not spawn, so resume always
 		// goes through the default (Claude) backend.
-		if err := l.resumeInTmux(ctx, l.backend, id, req.Cwd, req.ClaudeSessionID, req.Model, l.config().GetDefaultPermissionMode()); err != nil {
+		if err := l.resumeInTmux(ctx, l.backend, id, req.Cwd, aicliSessionID, req.Model, l.config().GetDefaultPermissionMode()); err != nil {
 			return nil, err
 		}
-		return sess, nil
+		return agent, nil
 	}
 	// live mode: register an existing tmux session, no relaunch.
 	if _, err := l.run.Run(ctx, "", "tmux", "has-session", "-t", req.TmuxSession); err != nil {
@@ -2048,8 +2017,8 @@ func (l *Lifecycle) Adopt(ctx context.Context, req AdoptRequest) (*store.Session
 			return nil, fmt.Errorf("tmux rename-session: %w: %s", err, out)
 		}
 	}
-	sess.Status = store.StatusWorking
-	return sess, nil
+	agent.Status = store.StatusWorking
+	return agent, nil
 }
 
 var (
@@ -2108,10 +2077,7 @@ func (l *Lifecycle) guard(ctx context.Context, t CleanupTarget) error {
 // inside it). It is idempotent: killing an already-gone session is not an error.
 // It touches no git and leaves the record and any worktree intact.
 func (l *Lifecycle) Terminate(ctx context.Context, tmuxSession string) error {
-	// tmux kill-session errors if the session is already gone; that is the
-	// desired end state, so the error is ignored.
-	_, _ = l.run.Run(ctx, "", "tmux", "kill-session", "-t", tmuxSession)
-	return nil
+	return l.Proc().KillSession(ctx, tmuxSession)
 }
 
 // RemoveWorktree removes the session's git worktree and branch. It is always an
@@ -2314,7 +2280,8 @@ type JobSpawnRequest struct {
 	Role           string   // built-in role (persona + default flags); empty = "general" (no persona)
 	Tier           string   // explicit model tier ("tier-1", "tier-2", "tier-3")
 	Task           string   // task name (task registry) for tier routing via task.TierFor; empty = none
-	Backend        string   // agent backend id (claude, aider, …); empty = default
+	Backend        string   // agent backend id (claude, aider, …); empty = default (deprecated alias)
+	AiCli          string   // canonical agent backend id (claude, aider, …); empty = default
 	Model          string   // claude model (opus/sonnet/haiku or full ID); empty = default
 	Tags           []string // labels stamped on the job's session (e.g. inherited autopilot ownership tags)
 	ScheduleID     string   // origin schedule (set when the pipeline was schedule-fired); empty otherwise
@@ -2486,7 +2453,10 @@ func (l *Lifecycle) writeHintsFile(ctx context.Context, id, text string) (string
 // SpawnJob launches one pipeline-job agent: optionally creating a git worktree
 // (off HEAD or off BaseBranch), starting a tmux session with the pipeline
 // identity env, and auto-typing the composed prompt into claude.
-func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*store.Session, error) {
+func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*agentstore.Agent, error) {
+	if req.AiCli != "" {
+		req.Backend = req.AiCli
+	}
 	id := req.PipelineID + "-" + req.JobID
 	if err := store.SafeID(id); err != nil {
 		return nil, fmt.Errorf("invalid job session id %q: %w", id, err)
@@ -2515,28 +2485,28 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*store.S
 	// Degrades to req's values when no resolver is wired — a job spawn must never
 	// hard-fail on resolution.
 	req.Backend, req.Model = l.resolveSpawnTarget(ctx, req.Role, req.Task, req.Tier, req.Backend, req.Model)
-	sess := &store.Session{
+	agent := &agentstore.Agent{
 		ChildAgents: []string{}, ChildPipelines: []string{},
 		ID: id, TmuxSession: id, Type: req.Type, Repo: req.Repo,
 		Prompt: req.Prompt, Subject: firstWords(req.Prompt, 10),
 		Status: store.StatusSpawning, PermissionMode: req.PermissionMode,
 		PipelineID: req.PipelineID, PlanID: req.PlanID, JobID: req.JobID,
 		ScheduleID: req.ScheduleID, ScheduleName: req.ScheduleName,
-		Role: req.Role, Backend: req.Backend, Model: req.Model,
+		Role: req.Role, AiCli: req.Backend, Model: req.Model,
 		Tags: store.NormalizeTags(req.Tags),
 	}
 	cid, err := store.NewSessionID()
 	if err != nil {
 		return nil, err
 	}
-	sess.ClaudeSessionID = cid
+	agent.AICLISessionID = cid
 
 	workdir := req.Repo
 	worktreeCreated := false
 	if req.Workdir != "" {
 		workdir = req.Workdir
-		sess.Worktree = strings.TrimPrefix(workdir, req.Repo+"/")
-		sess.Branch = req.Branch
+		agent.Worktree = strings.TrimPrefix(workdir, req.Repo+"/")
+		agent.Branch = req.Branch
 		// No need to create, it was pre-created
 	} else if req.Worktree {
 		if err := safeGitRef(req.BaseBranch); err != nil {
@@ -2550,43 +2520,43 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*store.S
 		if out, err := l.run.Run(ctx, req.Repo, "git", add...); err != nil {
 			return nil, wrapWorktreeError(fmt.Errorf("git worktree add: %w", err), out, rel)
 		}
-		sess.Worktree = rel
-		sess.Branch = id
-		sess.WorktreeCreated = true
-		sess.BranchCreated = true
+		agent.Worktree = rel
+		agent.Branch = id
+		agent.WorktreeCreated = true
+		agent.BranchCreated = true
 		worktreeCreated = true
 		workdir = filepath.Join(req.Repo, rel)
 	}
-	sess.Workdir = workdir
+	agent.Workdir = workdir
 
 	if err := l.newAgentSession(ctx, req.Repo, id, workdir,
 		"WARDEN_PIPELINE_ID="+req.PipelineID, "WARDEN_JOB_ID="+req.JobID,
 		"AGENTCTL_PIPELINE_ID="+req.PipelineID, "AGENTCTL_JOB_ID="+req.JobID); err != nil {
 		// new-session failed, so no tmux session exists; only undo a worktree we made.
-		l.cleanupFailedSpawn(sess, false, worktreeCreated)
+		l.cleanupFailedSpawn(agent, false, worktreeCreated)
 		return nil, err
 	}
 
 	promptFile, err := l.writePromptFile(ctx, id, req.Prompt)
 	if err != nil {
-		l.cleanupFailedSpawn(sess, true, worktreeCreated)
+		l.cleanupFailedSpawn(agent, true, worktreeCreated)
 		return nil, err
 	}
 	mode := req.PermissionMode
 	if mode == "" {
 		mode = l.config().GetDefaultPermissionMode()
 	}
-	b := l.backendFor(sess.Backend)
+	b := l.backendFor(agent.AiCli)
 	// For a backend with no system-prompt flag but an AGENTS.md rules file (Codex),
 	// deliver the same collab addendum by writing it into the workdir before launch.
 	// A flag-based backend (Claude) skips this — its hint rides the launch line below.
 	// A write failure degrades (no hints) but does not fail spawn.
 	// The role persona is prepended ahead of the collab hints so it reads first;
 	// it is always injected when non-empty (general = "" = nothing).
-	persona := personaGuidance(sess.Role)
-	mem := l.memoryGuidance(ctx, sess.Workdir)
-	peers := l.peerGuidance(ctx, sess)
-	if err := l.injectContext(b, sess.Workdir,
+	persona := personaGuidance(agent.Role)
+	mem := l.memoryGuidance(ctx, agent.Workdir)
+	peers := l.peerGuidance(ctx, agent)
+	if err := l.injectContext(b, agent.Workdir,
 		persona,
 		hintGuidance(l.config().GetCollabHint(), collabHintGuidance),
 		mem,
@@ -2600,12 +2570,29 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*store.S
 		hintSpec{l.config().GetMemoryInject(), mem},
 		hintSpec{peers != "", peers})
 	launch := b.LaunchCmd(agentbackend.LaunchOpts{
-		SessionID: sess.ClaudeSessionID, Name: id, Model: l.launchModel(b, req.Model), Mode: mode,
+		SessionID: agent.AICLISessionID, Name: id, Model: l.launchModel(b, req.Model), Mode: mode,
 	}) + hints + l.promptArg(b, promptFile) + l.exitSuffix(id)
 	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", id, launch, "Enter"); err != nil {
-		l.cleanupFailedSpawn(sess, true, worktreeCreated)
+		l.cleanupFailedSpawn(agent, true, worktreeCreated)
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
 	}
 	l.seedInteractivePrompt(b, id, req.Prompt)
-	return sess, nil
+	return agent, nil
+}
+
+// SpawnTerminal creates only a shell pane through the shared process host.
+func (l *Lifecycle) SpawnTerminal(ctx context.Context, req SpawnRequest) (*terminalstore.Terminal, error) {
+	req.Type = ""
+	id, err := resolveID(req)
+	if err != nil {
+		return nil, err
+	}
+	if err := store.ValidateName(req.Name); err != nil {
+		return nil, err
+	}
+	if err := l.RestoreTerminal(ctx, id, req.Cwd); err != nil {
+		return nil, err
+	}
+	now := l.nowUTC()
+	return &terminalstore.Terminal{ID: id, Name: req.Name, TmuxSession: id, ProjectID: req.ProjectID, Workdir: req.Cwd, Shell: os.Getenv("SHELL"), Status: terminalstore.StatusRunning, CreatedAt: now, UpdatedAt: now}, nil
 }

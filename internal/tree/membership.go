@@ -82,6 +82,8 @@ const (
 	membershipAgents membershipKind = iota
 	membershipPipelines
 	membershipTerminals
+	membershipPlans
+	membershipAutopilots
 )
 
 // membershipList returns the project's stored id list for kind. A nil return
@@ -95,6 +97,10 @@ func membershipList(p projectstore.Project, kind membershipKind) []string {
 		return p.Pipelines
 	case membershipTerminals:
 		return p.Terminals
+	case membershipPlans:
+		return p.Plans
+	case membershipAutopilots:
+		return p.Autopilots
 	}
 	return nil
 }
@@ -289,10 +295,10 @@ func isLive(s store.Status) bool {
 // (backend is omitempty, so pre-feature records carry no value). Mirrors the
 // TUI's backendOr.
 func backendOr(s *store.Session) string {
-	if s.Backend == "" {
+	if s.AiCli == "" {
 		return "claude"
 	}
-	return s.Backend
+	return s.AiCli
 }
 
 // terminalDisplayName derives a display name for a terminal session (spec §4).

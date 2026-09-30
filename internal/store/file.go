@@ -288,18 +288,25 @@ func safeID(id string) error {
 // Exported for callers that validate a candidate id before insert (e.g. adopt).
 func SafeID(id string) error { return safeID(id) }
 
-var namePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,32}$`)
+var (
+	namePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,32}$`)
+	// Plan-executor display names follow the AP:/O:/M:/P:<plan-name> convention
+	// (plan-execution-entity-redesign). Longer than plain names so a typical
+	// plan slug fits after the prefix.
+	planExecutorNamePattern = regexp.MustCompile(`^(?:O|M|P|AP):[a-zA-Z0-9_-]{1,64}$`)
+)
 
-// ValidateName checks that name matches the allowed format (alphanumeric + hyphens/underscores, 1-32 chars).
-// Empty names are valid (no-name agents).
+// ValidateName checks that name matches the allowed format (alphanumeric +
+// hyphens/underscores, 1-32 chars), or a plan-executor display name
+// (O:/M:/P:/AP:<slug>). Empty names are valid (no-name agents).
 func ValidateName(name string) error {
 	if name == "" {
 		return nil // empty is valid
 	}
-	if !namePattern.MatchString(name) {
-		return ErrInvalidName
+	if namePattern.MatchString(name) || planExecutorNamePattern.MatchString(name) {
+		return nil
 	}
-	return nil
+	return ErrInvalidName
 }
 
 // atomicWriteJSON marshals v and writes it to path via a temp file + rename, so
@@ -480,7 +487,7 @@ func (fs *FileStore) Insert(ctx context.Context, s *Session) error {
 		return err
 	}
 
-	if err := safeSessionRef(s.ClaudeSessionID); err != nil {
+	if err := safeSessionRef(s.AICLISessionID); err != nil {
 		return err
 	}
 
@@ -724,7 +731,7 @@ func (fs *FileStore) SetSessionID(ctx context.Context, id, sessionID string) err
 	if err := safeSessionRef(sessionID); err != nil {
 		return err
 	}
-	return fs.mutate(id, func(s *Session) { s.ClaudeSessionID = sessionID })
+	return fs.mutate(id, func(s *Session) { s.AICLISessionID = sessionID })
 }
 
 func (fs *FileStore) SetRestart(ctx context.Context, id string, count int, at time.Time) error {
@@ -918,3 +925,6 @@ func (fs *FileStore) Close(ctx context.Context) error {
 	}
 	return err
 }
+
+// SafeSessionRef validates a backend conversation resume handle.
+func SafeSessionRef(ref string) error { return safeSessionRef(ref) }

@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/brainconsult"
-	"github.com/srjn45/warden/internal/store"
 )
 
 // brainConsultSpawner adapts Server's Lifecycle + Store to brainconsult.Spawner.
@@ -14,7 +14,7 @@ import (
 // free of daemon types.
 type brainConsultSpawner struct {
 	life  Lifecycle
-	store store.Store
+	store agentstore.AgentStore
 }
 
 // Ensure the adapter satisfies the Spawner interface at compile time.
@@ -22,7 +22,7 @@ var _ brainconsult.Spawner = brainConsultSpawner{}
 
 // Spawn launches a headless brain agent and persists it. On insert failure the
 // tmux session is torn down so we never leak an untracked agent.
-func (a brainConsultSpawner) Spawn(ctx context.Context, args brainconsult.BrainSpawnArgs) (*store.Session, error) {
+func (a brainConsultSpawner) Spawn(ctx context.Context, args brainconsult.BrainSpawnArgs) (*agentstore.Agent, error) {
 	if a.life == nil {
 		return nil, fmt.Errorf("brain consult: lifecycle not configured")
 	}
@@ -60,7 +60,7 @@ func (a brainConsultSpawner) Output(ctx context.Context, tmuxSession string, lin
 
 // Teardown force-kills the agent's tmux session without touching the store
 // (Consultor's defer always runs this).
-func (a brainConsultSpawner) Teardown(ctx context.Context, sess *store.Session) error {
+func (a brainConsultSpawner) Teardown(ctx context.Context, sess *agentstore.Agent) error {
 	if a.life == nil {
 		return fmt.Errorf("brain consult: lifecycle not configured")
 	}

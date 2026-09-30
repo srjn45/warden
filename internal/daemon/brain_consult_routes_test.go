@@ -7,11 +7,11 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/brainconsult"
 	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/daemon/oapi"
-	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
 
@@ -37,7 +37,7 @@ func enableAutopilotWithBrain(t *testing.T, srv *Server, plan string) (runID, br
 		Gate:              "auto",
 		Resolver:          autopilotTestResolver{},
 	}, &apFakeEnv{repo: filepath.Dir(plan)}))
-	st, err := srv.autopilot.Enable(context.Background(), "")
+	st, err := srv.autopilot.ReconcileConfiguredPlans(context.Background(), "")
 	require.NoError(t, err)
 	require.Len(t, st.Runs, 1)
 	require.NotNil(t, st.Runs[0].Brain)
@@ -99,7 +99,7 @@ func TestConsultBrainHandlerRejectsNonManager(t *testing.T) {
 	require.True(t, forbidden, "anonymous caller gets 403")
 	require.Equal(t, int32(0), mc.called.Load())
 
-	stale := &store.Session{ID: "stale-mgr", Role: autopilotBrainRole, Tags: []string{"autopilot", "run:" + runID}}
+	stale := &agentstore.Agent{ID: "stale-mgr", Role: autopilotBrainRole, Tags: []string{"autopilot", "run:" + runID}}
 	require.NoError(t, srv.store.Insert(context.Background(), stale))
 	resp, err = srv.ConsultBrain(ctxWithActor("stale-mgr"), oapi.ConsultBrainRequestObject{
 		Body: &oapi.BrainConsultRequest{Intent: "x"},

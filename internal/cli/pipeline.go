@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/pipeline"
 )
 
@@ -16,6 +17,12 @@ import (
 func renderPipelineDetail(p *pipeline.Pipeline) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s [%s] repo=%s\n", p.ID, p.Status, p.Repo)
+	if p.ProjectID != "" {
+		fmt.Fprintf(&b, "project: %s\n", p.ProjectID)
+	}
+	if p.PlanID != "" {
+		fmt.Fprintf(&b, "plan: %s\n", p.PlanID)
+	}
 	for _, j := range p.Jobs {
 		deps := ""
 		if len(j.DependsOn) > 0 {
@@ -155,7 +162,11 @@ func newPipelineCreateCmd() *cobra.Command {
 				spec = rendered
 			}
 
-			p, err := clientFor(cmd).PipelineCreate(cmd.Context(), spec)
+			projectID, _ := cmd.Flags().GetString("project")
+			planID, _ := cmd.Flags().GetString("plan")
+			p, err := clientFor(cmd).PipelineCreateWith(cmd.Context(), client.PipelineCreateParams{
+				Spec: spec, ProjectID: projectID, PlanID: planID,
+			})
 			if err != nil {
 				return err
 			}
@@ -168,6 +179,8 @@ func newPipelineCreateCmd() *cobra.Command {
 	cmd.Flags().String("name", "", "pipeline name — fills {{NAME}} (default: the template name)")
 	cmd.Flags().String("repo", "", "repo path — fills {{REPO}} (default: the current directory)")
 	cmd.Flags().StringArray("set", nil, "fill a template placeholder, KEY=VALUE (repeatable)")
+	cmd.Flags().String("project", "", "optional project id this pipeline joins; overrides YAML project_id")
+	cmd.Flags().String("plan", "", "optional planstore plan id in the same project; empty = planless pipeline")
 	return cmd
 }
 

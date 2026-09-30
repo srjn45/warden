@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"github.com/srjn45/warden/internal/agentstore"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -63,7 +64,7 @@ func TestWaitTimesOut(t *testing.T) {
 
 func TestWaitWakesOnDeliveredMessage(t *testing.T) {
 	srv, fs, _ := newMsgServer(t)
-	fs.Insert(context.Background(), &store.Session{ID: "agent-1", TmuxSession: "agent-1", Status: store.StatusWorking})
+	fs.Insert(context.Background(), &agentstore.Agent{ID: "agent-1", TmuxSession: "agent-1", Status: store.StatusWorking})
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
 
@@ -103,7 +104,7 @@ func TestWaitWakesOnDeliveredMessage(t *testing.T) {
 // only the awaited sender's message wakes it and is returned.
 func TestWaitHonorsFromFilter(t *testing.T) {
 	srv, fs, mb := newMsgServer(t)
-	fs.Insert(context.Background(), &store.Session{ID: "orch", TmuxSession: "orch", Status: store.StatusWorking})
+	fs.Insert(context.Background(), &agentstore.Agent{ID: "orch", TmuxSession: "orch", Status: store.StatusWorking})
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
 
@@ -157,7 +158,7 @@ func TestWaitHonorsFromFilter(t *testing.T) {
 // found=false rather than blocking forever or returning the wrong message.
 func TestWaitFromFilterTimesOut(t *testing.T) {
 	srv, fs, _ := newMsgServer(t)
-	fs.Insert(context.Background(), &store.Session{ID: "orch", TmuxSession: "orch", Status: store.StatusWorking})
+	fs.Insert(context.Background(), &agentstore.Agent{ID: "orch", TmuxSession: "orch", Status: store.StatusWorking})
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
 

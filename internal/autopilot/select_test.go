@@ -127,7 +127,7 @@ func TestSelectWorkerBackendUsesResolver(t *testing.T) {
 	}, &fakeEnv{})
 	c.SetRuntime(rt)
 
-	st, err := c.Enable(context.Background(), "")
+	st, err := c.ReconcileConfiguredPlans(context.Background(), "")
 	require.NoError(t, err)
 	runID := st.Runs[0].RunID
 
@@ -150,7 +150,7 @@ func TestSelectWorkerBackendNoResolver(t *testing.T) {
 	}, &fakeEnv{})
 	c.SetRuntime(rt)
 
-	st, err := c.Enable(context.Background(), "")
+	st, err := c.ReconcileConfiguredPlans(context.Background(), "")
 	require.NoError(t, err)
 	runID := st.Runs[0].RunID
 

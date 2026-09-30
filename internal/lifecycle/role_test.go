@@ -129,7 +129,7 @@ func TestSpawnRolePersistsAndInjectsPersona(t *testing.T) {
 		[]string{"sh", "-c", `umask 077; printf '%s' "$1" > "$2"`, "sh", wantText, hintFile})
 
 	// The launch line references the file, not the inline persona text.
-	launch := claudeLaunch(s.ClaudeSessionID, s.ID, "", "auto") +
+	launch := claudeLaunch(s.AICLISessionID, s.ID, "", "auto") +
 		` --append-system-prompt "$(cat ` + shellQuoteArg(hintFile) + `)"`
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})
 	// The persona never rides the tmux launch line itself.
@@ -149,7 +149,7 @@ func TestSpawnGeneralRoleInjectsNoPersona(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "", s.Role)
 
-	want := claudeLaunch(s.ClaudeSessionID, s.ID, "", "auto") + pipelineHint() + collabHint() + gitConventionsHint()
+	want := claudeLaunch(s.AICLISessionID, s.ID, "", "auto") + pipelineHint() + collabHint() + gitConventionsHint()
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, want, "Enter"})
 	for _, a := range fr.calledArgs() {
 		if len(a) >= 2 && a[0] == "tmux" && a[1] == "send-keys" {

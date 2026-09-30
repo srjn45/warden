@@ -64,7 +64,7 @@ export default function AgentGrid({ tree, sessions, onSelect, onTerminalSelect, 
                 onClick={(e) => onToggleSelect?.(session.id, e.shiftKey)} />}
               <button className="grid-tile" onClick={() => onSelect(session.id)}>
                 <div className="tile-head">
-                  <BackendLogo backend={session.backend} />
+                  <BackendLogo backend={session.ai_cli || session.backend} />
                   <b>{session.id}</b> <BusyIdleBadge status={session.status} exitCode={session.exit_code} />
                   <ContextBadge tokens={session.context_tokens} state={session.context_state} />
                 </div>

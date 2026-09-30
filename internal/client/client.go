@@ -406,11 +406,13 @@ type SpawnParams struct {
 	AutoRestart    bool
 	Force          bool
 	Model          string
-	Backend        string
-	Kind           string // "" / "agent" ⇒ AI agent; "terminal" ⇒ plain ${SHELL:-bash} pane (backend/model/role/prompt ignored)
+	AiCli          string // canonical AI CLI id; preferred over Backend
+	Backend        string // deprecated alias for AiCli
+	Kind           string // "" / "agent" ⇒ AI agent; "terminal" ⇒ plain ${SHELL:-bash} pane (ai_cli/model/role/prompt ignored)
 	Tags           []string
 	ParentID       string
 	ProjectID      string // id of the project this session joins; empty = daemon resolves it by path-match to an open project
+	PlanID         string // optional back-ref to a planstore plan in the same project; empty = planless
 	ForkFrom       string // id of an existing agent whose recorded session to FORK (codex fork); empty = normal spawn
 	Role           string // built-in role name; empty = general (no persona). Persona injected + role defaults fill unset fields.
 	Tier           string // explicit model tier ("tier-1"/"tier-2"/"tier-3") for the quota-balanced resolver; empty = derive from task/role
@@ -419,14 +421,18 @@ type SpawnParams struct {
 
 func (c *Client) Spawn(ctx context.Context, p SpawnParams) (*store.Session, error) {
 	var s store.Session
+	aiCli := strings.TrimSpace(p.AiCli)
+	if aiCli == "" {
+		aiCli = strings.TrimSpace(p.Backend)
+	}
 	body := map[string]any{
 		"type": p.Type, "ticket": p.Ticket, "name": p.Name, "repo": p.Repo,
 		"branch": p.Branch, "pr": p.PR, "worktree": p.Worktree, "in_repo": p.InRepo,
 		"prompt": p.Prompt, "cwd": p.Cwd, "permission_mode": p.PermissionMode,
 		"auto_restart": p.AutoRestart, "force": p.Force,
-		"model": p.Model, "backend": p.Backend, "kind": p.Kind, "tags": p.Tags, "parent_id": p.ParentID,
-		"project_id": p.ProjectID,
-		"fork_from":  p.ForkFrom, "role": p.Role, "tier": p.Tier, "task": p.Task,
+		"model": p.Model, "ai_cli": aiCli, "backend": aiCli, "kind": p.Kind, "tags": p.Tags, "parent_id": p.ParentID,
+		"project_id": p.ProjectID, "plan_id": p.PlanID,
+		"fork_from": p.ForkFrom, "role": p.Role, "tier": p.Tier, "task": p.Task,
 	}
 	if err := c.doT(ctx, longTimeout, http.MethodPost, "/spawn", body, &s); err != nil {
 		var se *StatusError
@@ -1194,14 +1200,38 @@ func (c *Client) MsgWait(ctx context.Context, id, from string, timeoutSec int) (
 	return resp.Message, nil
 }
 
+// PipelineCreateParams is the body for POST /api/v1/pipelines.
+type PipelineCreateParams struct {
+	Spec          string
+	ProjectID     string
+	PlanID        string
+	ParentAgentID string
+}
+
 // PipelineCreate sends a YAML spec to the daemon, which parses, validates, and
-// stores it.
+// stores it. Optional ProjectID/PlanID/ParentAgentID are request-body stamps
+// (PlanID is validated against the resolved project when non-empty).
 func (c *Client) PipelineCreate(ctx context.Context, specYAML string) (*pipeline.Pipeline, error) {
-	var p pipeline.Pipeline
-	if err := c.do(ctx, http.MethodPost, "/pipelines", map[string]string{"spec": specYAML}, &p); err != nil {
+	return c.PipelineCreateWith(ctx, PipelineCreateParams{Spec: specYAML})
+}
+
+// PipelineCreateWith is PipelineCreate with optional project/plan/parent stamps.
+func (c *Client) PipelineCreateWith(ctx context.Context, p PipelineCreateParams) (*pipeline.Pipeline, error) {
+	var out pipeline.Pipeline
+	body := map[string]any{"spec": p.Spec}
+	if p.ProjectID != "" {
+		body["project_id"] = p.ProjectID
+	}
+	if p.PlanID != "" {
+		body["plan_id"] = p.PlanID
+	}
+	if p.ParentAgentID != "" {
+		body["parent_agent_id"] = p.ParentAgentID
+	}
+	if err := c.do(ctx, http.MethodPost, "/pipelines", body, &out); err != nil {
 		return nil, err
 	}
-	return &p, nil
+	return &out, nil
 }
 
 func (c *Client) PipelineList(ctx context.Context) ([]*pipeline.Pipeline, error) {
@@ -1376,8 +1406,9 @@ type AutopilotLedgerTask struct {
 	State string `json:"state"`
 }
 
-// RegisterAutopilotRun adds a named plan to the durable registry without
-// starting it.
+// RegisterAutopilotRun is a deprecated one-release alias for POST /autopilot/runs.
+// Prefer PlansCreate/PlansImport + PlansRun. The daemon returns 410 Gone with a
+// migration hint (PlanID when resolvable).
 func (c *Client) RegisterAutopilotRun(ctx context.Context, name, repo, planFile string) (AutopilotRunStatus, error) {
 	var out AutopilotRunStatus
 	err := c.doT(ctx, longTimeout, http.MethodPost, "/autopilot/runs", map[string]string{"name": name, "repo": repo, "plan_file": planFile}, &out)
@@ -1390,6 +1421,8 @@ func (c *Client) ListAutopilotRuns(ctx context.Context) ([]AutopilotRunStatus, e
 	return out, err
 }
 
+// ControlAutopilotRun is a deprecated one-release alias for POST /autopilot/runs/{id}/{action}.
+// Prefer PlansControl. When PlanID is known the daemon translates; otherwise 410 Gone.
 func (c *Client) ControlAutopilotRun(ctx context.Context, runID, action string) (AutopilotRunStatus, error) {
 	var out AutopilotRunStatus
 	err := c.doT(ctx, longTimeout, http.MethodPost, "/autopilot/runs/"+url.PathEscape(runID)+"/"+url.PathEscape(action), nil, &out)
@@ -1402,6 +1435,7 @@ func (c *Client) RenameAutopilotRun(ctx context.Context, runID, name string) (Au
 	return out, err
 }
 
+// RetargetAutopilotRun is deprecated; returns 410 Gone with a migration error.
 func (c *Client) RetargetAutopilotRun(ctx context.Context, runID, integrationBranch string, derive bool) (AutopilotRunStatus, error) {
 	body := map[string]any{}
 	if derive {
@@ -1915,7 +1949,8 @@ func (c *Client) SetRoleTier(ctx context.Context, role, tier string) (backendsto
 
 // SwitchSessionParams holds the parameters for switching an agent session mid-task.
 type SwitchSessionParams struct {
-	Backend string `json:"backend,omitempty"`
+	AiCli   string `json:"ai_cli,omitempty"`  // canonical; preferred over Backend
+	Backend string `json:"backend,omitempty"` // deprecated alias for AiCli
 	Model   string `json:"model,omitempty"`
 	Tier    string `json:"tier,omitempty"`
 	Role    string `json:"role,omitempty"`
@@ -1925,6 +1960,12 @@ type SwitchSessionParams struct {
 
 // SwitchSession hot-swaps an agent session mid-task.
 func (c *Client) SwitchSession(ctx context.Context, id string, params SwitchSessionParams) (lifecycle.SwapResult, error) {
+	aiCli := strings.TrimSpace(params.AiCli)
+	if aiCli == "" {
+		aiCli = strings.TrimSpace(params.Backend)
+	}
+	params.AiCli = aiCli
+	params.Backend = aiCli // dual-emit during alias window
 	var out lifecycle.SwapResult
 	path := fmt.Sprintf("/sessions/%s/switch", url.PathEscape(id))
 	if err := c.do(ctx, http.MethodPost, path, params, &out); err != nil {
