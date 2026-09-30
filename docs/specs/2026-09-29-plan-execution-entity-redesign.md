@@ -257,27 +257,39 @@ Agent is running its job; they are not `child_agents[]` of any parent Agent.
 
 ### Autopilot
 
-An autonomous plan-execution run. Persisted as `autopilot.RunRecord` in
-`internal/autopilot`. **Disposable executor.**
+A live, disposable plan-execution executor. Persisted as `autopilotstore.Autopilot`
+in `internal/autopilotstore`. **Disposable executor** — it has no independent
+task lifecycle or durable completion history. Those facts live on the Plan
+(`PlanExecution` / `PlanExecutionEvent` / `ExecutionSummary`).
 
 An Autopilot run consists of:
-- A **manager** session (stable slot ID, role `autopilot`, in-place hot-swap
+- A **manager** Agent (`ManagerAgentID`, role `autopilot`, in-place hot-swap
   on rotation)
-- Zero or more **worker** sessions (role `worker`, each assigned to one plan task)
-- An **integration branch** (derived from plan name, default
-  `autopilot/<plan-name>`)
-- A **task ledger** in the ctx store
-  (`autopilot.<run_id>.tasks` JSON array)
+- An optional on-demand **brain** Agent (`BrainAgentID`, role `brain`, headless)
+- Zero or more **worker** Agents (role `worker`, each assigned to one plan task;
+  parented via `ParentID` to the manager)
+- Operational diagnostics (state, integration branch, gate) — not a task ledger
 
-Key `RunRecord` fields:
+Display name is always `AP:<plan-name>`. `PlanID` is **required**; planless
+creation is rejected.
+
+Key `Autopilot` fields:
 
 | Field | Semantics |
 |---|---|
-| `run_id` | Stable `ap-<12hex>` run identifier |
-| `plan_id` | Back-ref to the Plan (REQUIRED for new runs) |
+| `id` | Stable `ap-<12hex>` identifier (same id family as legacy `run_id`) |
+| `plan_id` | Back-ref to the Plan (**REQUIRED**) |
 | `project_id` | Back-ref to the owning Project |
-| `brain_id` | Stable manager slot ID (format: `<plan-name>-autopilot`) |
-| `integration_branch` | Merge target for all workers' PRs |
+| `name` | `AP:<plan-name>` display name |
+| `manager_agent_id` | Manager Agent slot ID |
+| `brain_agent_id` | Optional on-demand brain Agent ID |
+| `diagnostics` | Operational state only (active/starting/healing/…, branch, gate) |
+
+**Legacy migration:** registered `autopilot.RunRecord` rows are folded into Plan
+execution events/history when a Plan can be resolved; otherwise they are
+archived under `autopilot/legacy-runs-db` and never silently deleted. Only
+operationally live states (`starting`/`active`/`healing`/`degraded`/`paused`)
+produce a live `Autopilot` row.
 
 ---
 
@@ -304,9 +316,9 @@ garbage-collected without affecting the Plan's durability.
   record is pruned.
 - A **Pipeline** may be cancelled and recreated for a re-run of the same Plan.
   The Pipeline's `plan_id` links it back; the Plan is not re-created.
-- An **Autopilot** run is torn down when `autopilot_complete` is called. A new
-  run of the same Plan (after re-enabling) creates a fresh `RunRecord` with a
-  new `run_id`; the Plan record continues to exist.
+- An **Autopilot** is torn down when plan finalization completes. A new
+  run of the same Plan creates a fresh `Autopilot` with a new `id`; the Plan
+  record and its execution history continue to exist.
 
 ### Rule 3 — Terminal is never an Agent
 
@@ -459,11 +471,13 @@ erDiagram
         string prompt
     }
     Autopilot {
-        string run_id PK "ap-12hex"
+        string id PK "ap-12hex"
         string plan_id FK "REQUIRED"
         string project_id FK
-        string brain_id
-        string integration_branch
+        string name "AP:plan-name"
+        string manager_agent_id FK
+        string brain_agent_id FK "optional on-demand"
+        string diagnostics "operational state only"
     }
 
     Project ||--o{ Plan : "plans[]"
@@ -489,8 +503,9 @@ erDiagram
     Job ||--o| Agent : "spawned agent carries pipeline_id+job_id"
     Pipeline }o--o| Agent : "parent_agent_id (owning agent)"
 
-    Autopilot ||--o| Agent : "manager slot (autopilot_slot=autopilot)"
-    Autopilot ||--o{ Agent : "workers (autopilot_slot=worker)"
+    Autopilot ||--o| Agent : "manager_agent_id"
+    Autopilot ||--o| Agent : "brain_agent_id (optional, headless)"
+    Autopilot ||--o{ Agent : "workers via ParentID"
 ```
 
 ---
@@ -573,7 +588,7 @@ Created by `run_plan {execution_mode: "pipeline"}` via `startPlanExecution`.
 **Autopilot (plan-bound — the only supported form):**
 Created by `run_plan {execution_mode: "autopilot"}` via `startPlanExecution`.
 - `Autopilot.PlanID = plan_id` (REQUIRED; fails if absent)
-- The plan file path is stored in `RunRecord.PlanFile`
+- The plan file path is stored in `Autopilot.Diagnostics.PlanFile`
 - The integration branch defaults to `autopilot/<plan-name>`
 
 ### Planless creation
@@ -604,7 +619,7 @@ corresponding `planstore.Plan` record) fails preflight with:
 autopilot preflight: no plan registered for this repo — run `warden autopilot init` first
 ```
 Grandfathered runs that predate the Plan CRUD API (those with empty `plan_id` on
-their `RunRecord`) continue to operate under the legacy `autopilot/integration`
+their Autopilot record) continue to operate under the legacy `autopilot/integration`
 branch and are not retroactively broken.
 
 ---
