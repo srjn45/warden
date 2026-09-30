@@ -19,6 +19,7 @@ import (
 	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/auth"
 	"github.com/srjn45/warden/internal/autopilot"
+	"github.com/srjn45/warden/internal/autopilotstore"
 	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/backendusage"
 	"github.com/srjn45/warden/internal/config"
@@ -645,6 +646,26 @@ func newDaemonRunCmd() *cobra.Command {
 					"sessions_stamped", rep.SessionsStamped,
 					"pipelines_stamped", rep.PipelinesStamped,
 					"projects_rebuilt", rep.ProjectsRebuilt)
+			}
+
+			// Live Autopilot entity migration (plan-execution-entity-redesign
+			// autopilot-entity-model): fold durable registered RunRecords into Plan
+			// execution history (or a legacy archive when no Plan resolves). Live
+			// operational runs also get an autopilotstore row. Source RunRecords are
+			// retained until the controller cutover. Best-effort — never blocks boot.
+			apLive, aperr := autopilotstore.New(cfg.DataDir)
+			if aperr != nil {
+				slog.Warn("daemon: autopilotstore open failed", "err", aperr)
+			} else {
+				defer apLive.Close()
+				if apRep, merr := autopilotstore.MigrateLegacyRuns(ctx, cfg.DataDir, apLive, planStore); merr != nil {
+					slog.Warn("daemon: autopilot legacy-run migration failed", "err", merr)
+				} else if apRep.Changed() {
+					slog.Info("daemon: autopilot legacy runs migrated",
+						"live_created", apRep.LiveCreated,
+						"history_attached", apRep.HistoryAttached,
+						"archived_unmatched", apRep.ArchivedUnmatched)
+				}
 			}
 
 			slog.Info("warden daemon listening", "addr", cfg.Addr)
