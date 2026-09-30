@@ -499,6 +499,9 @@ func (s *Server) CompletePlan(ctx context.Context, req oapi.CompletePlanRequestO
 	if svc == nil {
 		return nil, planNotConfigured()
 	}
+	// Final Git/GitHub reconciliation repairs missing observed events before
+	// CompletionRequirements are evaluated. Daemon-owned — never agent-authored.
+	s.reconcilePlanEvidenceBeforeComplete(ctx, req.PlanId)
 	// Operator-driven complete for orchestrator/manual modes: seal the active
 	// PlanExecution with completion_verified so NoLiveAgents does not block after
 	// we recorded execution_started at run time.

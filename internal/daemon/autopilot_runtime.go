@@ -139,6 +139,10 @@ func (rt autopilotRuntime) RotateBrain(ctx context.Context, spec autopilot.Rotat
 	if err != nil {
 		return autopilot.BrainHandle{}, fmt.Errorf("hot-swap brain: %w", err)
 	}
+	// Manager/brain handoff prose → attributed notes only (never factual events).
+	if res != nil {
+		rt.s.recordPlanBoundHandoffNote(sess, res.Handoff, res.HandoffPath)
+	}
 	toBackend, toModel := backend, sess.Model
 	if res != nil {
 		if res.ToBackend != "" {

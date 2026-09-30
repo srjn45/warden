@@ -118,6 +118,11 @@ func (s *Server) LandAutopilot(ctx context.Context, req oapi.LandAutopilotReques
 				})
 			}
 		}
+		// Daemon-owned plan evidence: PR merge + land (+ optional branch cleanup).
+		if tgt.sess != nil && strings.TrimSpace(tgt.sess.PlanID) != "" {
+			s.recordPlanBoundLandEvents(tgt.sess, res.Branch, res.PR, firstNonEmptyStr(res.SHA, res.HeadSHA), params.DeleteBranch)
+			s.trackPlanBranch(tgt.sess, res.Branch)
+		}
 	}
 
 	return oapi.LandAutopilot200JSONResponse{
@@ -144,6 +149,9 @@ type landTarget struct {
 	worktree string
 	runID    string
 	taskID   string
+	planID   string
+	agentID  string
+	sess     *agentstore.Agent
 	owned    bool
 }
 
@@ -177,7 +185,16 @@ func sessionLandTarget(sess *agentstore.Agent, branch string) landTarget {
 	if taskID == "" {
 		taskID = strings.TrimSpace(sess.Task)
 	}
-	return landTarget{branch: branch, worktree: sess.Worktree, runID: runID, taskID: taskID, owned: owned}
+	return landTarget{
+		branch:   branch,
+		worktree: sess.Worktree,
+		runID:    runID,
+		taskID:   taskID,
+		planID:   strings.TrimSpace(sess.PlanID),
+		agentID:  sess.ID,
+		sess:     sess,
+		owned:    owned,
+	}
 }
 
 // isAutopilotOwned reports whether tags carry the autopilot ownership tag.
