@@ -1215,16 +1215,20 @@ type PipelineJob struct {
 // PipelineJobRunIf defines model for PipelineJob.RunIf.
 type PipelineJobRunIf string
 
-// Plan A YAML-backed plan and its DB-backed execution state. The definition fields are stored in the plan file; task_progress and execution links are stored separately so they can change without rewriting completed work.
+// Plan Canonical ScrivaDB Plan: definition, lifecycle, revision, and execution state. Repository YAML under plans/ is an optional inert export, not authority for these fields.
 type Plan struct {
 	// ActiveExecution A single execution attempt of a Plan.
 	ActiveExecution PlanExecution   `json:"active_execution,omitempty"`
+	ArchivedAt      time.Time       `json:"archived_at,omitempty"`
 	AutopilotRunId  string          `json:"autopilot_run_id,omitempty"`
 	BranchSummaries []BranchSummary `json:"branch_summaries,omitempty"`
 	CompletedAt     time.Time       `json:"completed_at,omitempty"`
 	Constraints     []string        `json:"constraints"`
-	CreatedAt       time.Time       `json:"created_at"`
-	DoneWhen        []string        `json:"done_when"`
+
+	// ContentHash sha256:… digest of canonical definition fields at this revision
+	ContentHash string    `json:"content_hash,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	DoneWhen    []string  `json:"done_when"`
 
 	// ExecutionHistory past execution attempts (historical summaries of runs)
 	ExecutionHistory []PlanExecution   `json:"execution_history,omitempty"`
@@ -1233,8 +1237,8 @@ type Plan struct {
 	// ExecutionSummary Immutable reduced report for a completed PlanExecution.
 	ExecutionSummary ExecutionSummary `json:"execution_summary,omitempty"`
 
-	// FilePath path relative to the project root
-	FilePath string `json:"file_path"`
+	// FilePath legacy / last-export path relative to the project root; empty when never exported
+	FilePath string `json:"file_path,omitempty"`
 	Goal     string `json:"goal"`
 
 	// Id stable plan id (plan-<8hex>)
@@ -1247,7 +1251,10 @@ type Plan struct {
 	PlanBranches []string `json:"plan_branches,omitempty"`
 
 	// ProjectId owning project id
-	ProjectId string     `json:"project_id"`
+	ProjectId string `json:"project_id"`
+
+	// Revision optimistic-concurrency revision; increments on definition or lifecycle mutations
+	Revision  int64      `json:"revision"`
 	StartedAt time.Time  `json:"started_at,omitempty"`
 	Status    PlanStatus `json:"status"`
 
@@ -1272,6 +1279,17 @@ type PlanCompletionError struct {
 
 // PlanExecution A single execution attempt of a Plan.
 type PlanExecution = planstore.PlanExecution
+
+// PlanMutationConflict 409 body for plan definition/lifecycle mutations that cannot proceed — not-pending edits or optimistic revision conflicts.
+type PlanMutationConflict struct {
+	// Actual current canonical revision (revision conflicts only)
+	Actual int64  `json:"actual,omitempty"`
+	Error  string `json:"error"`
+
+	// Expected revision the client expected (revision conflicts only)
+	Expected int64  `json:"expected,omitempty"`
+	PlanId   string `json:"plan_id,omitempty"`
+}
 
 // PlanStatus defines model for PlanStatus.
 type PlanStatus string
@@ -1584,13 +1602,16 @@ type TreeNode = tree.Node
 // TreeNodeDetail Small, type-specific light fields a client needs to render a node without a second lookup. Never embeds a full session. Every field is omitempty.
 type TreeNodeDetail = tree.Detail
 
-// UpdatePlanRequest Partial replacement of editable plan definition fields. This request is accepted only while the plan is pending.
+// UpdatePlanRequest Partial replacement of editable plan definition fields. This request is accepted only while the plan is pending. When expected_revision is set, a mismatch returns 409 with structured conflict fields.
 type UpdatePlanRequest struct {
-	Constraints []string   `json:"constraints,omitempty"`
-	DoneWhen    []string   `json:"done_when,omitempty"`
-	Goal        string     `json:"goal,omitempty"`
-	Name        string     `json:"name,omitempty"`
-	Tasks       []PlanTask `json:"tasks,omitempty"`
+	Constraints []string `json:"constraints,omitempty"`
+	DoneWhen    []string `json:"done_when,omitempty"`
+
+	// ExpectedRevision optimistic concurrency token; omit to use the revision observed at request start
+	ExpectedRevision int64      `json:"expected_revision,omitempty"`
+	Goal             string     `json:"goal,omitempty"`
+	Name             string     `json:"name,omitempty"`
+	Tasks            []PlanTask `json:"tasks,omitempty"`
 }
 
 // UpdateProjectGroupRequest defines model for UpdateProjectGroupRequest.
@@ -10108,7 +10129,7 @@ func (response UpdatePlan404JSONResponse) VisitUpdatePlanResponse(w http.Respons
 	return err
 }
 
-type UpdatePlan409JSONResponse Error
+type UpdatePlan409JSONResponse PlanMutationConflict
 
 func (response UpdatePlan409JSONResponse) VisitUpdatePlanResponse(w http.ResponseWriter) error {
 

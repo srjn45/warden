@@ -18,7 +18,8 @@ import (
 )
 
 // crudPlanServer builds a route server for the /api/v1/plans CRUD surface.
-// project_id is a real temp directory so PlanService can write YAML.
+// project_id is a temp directory path (local-project convention); no plans/
+// directory is required for DB-native PlanService operations.
 func crudPlanServer(t *testing.T) (*httptest.Server, *planstore.Store, string) {
 	t.Helper()
 	root := t.TempDir()
@@ -74,8 +75,11 @@ func TestPlanCRUDCreateThenGet(t *testing.T) {
 	require.Len(t, created.Tasks, 1)
 	require.Equal(t, "t1", created.Tasks[0].Id)
 	require.Equal(t, oapi.TaskStatus("pending"), created.TaskProgress["t1"])
-	require.Equal(t, filepath.Join("plans", "pending", "feature-x.yaml"), created.FilePath)
-	require.FileExists(t, filepath.Join(root, created.FilePath))
+	require.Equal(t, "", created.FilePath)
+	require.Equal(t, int64(1), created.Revision)
+	require.NotEmpty(t, created.ContentHash)
+	_, err := os.Stat(filepath.Join(root, "plans"))
+	require.True(t, os.IsNotExist(err))
 
 	get, err := http.Get(ts.URL + "/api/v1/plans/" + created.Id)
 	require.NoError(t, err)
@@ -107,6 +111,20 @@ func TestPlanCRUDCreateThenUpdatePendingOnly(t *testing.T) {
 	updated := decodePlan(t, patch)
 	require.Equal(t, "updated goal", updated.Goal)
 	require.Len(t, updated.Tasks, 2)
+	require.Equal(t, int64(2), updated.Revision)
+	require.Equal(t, created.Revision, int64(1))
+
+	stale := planPatch(t, ts.URL+"/api/v1/plans/"+created.Id, map[string]any{
+		"goal":              "stale",
+		"expected_revision": 1,
+	})
+	defer stale.Body.Close()
+	require.Equal(t, http.StatusConflict, stale.StatusCode)
+	var conflict oapi.PlanMutationConflict
+	require.NoError(t, json.NewDecoder(stale.Body).Decode(&conflict))
+	require.Equal(t, created.Id, conflict.PlanId)
+	require.Equal(t, int64(1), conflict.Expected)
+	require.Equal(t, int64(2), conflict.Actual)
 
 	run := postJSON(t, ts.URL+"/api/v1/plans/"+created.Id+"/run", map[string]any{
 		"execution_mode": "manual",
@@ -136,9 +154,8 @@ func TestPlanCRUDRunTaskStatusCompleteHappyPath(t *testing.T) {
 	running := decodePlan(t, run)
 	require.Equal(t, oapi.PlanStatusInProgress, running.Status)
 	require.Equal(t, oapi.PlanExecutionModeManual, running.ExecutionMode)
-	require.Equal(t, filepath.Join("plans", "in_progress", "happy-path.yaml"), running.FilePath)
-	require.FileExists(t, filepath.Join(root, running.FilePath))
-	_, err := os.Stat(filepath.Join(root, "plans", "pending", "happy-path.yaml"))
+	require.Equal(t, "", running.FilePath)
+	_, err := os.Stat(filepath.Join(root, "plans"))
 	require.True(t, os.IsNotExist(err))
 
 	status := postJSON(t, ts.URL+"/api/v1/plans/"+created.Id+"/tasks/t1/status", map[string]any{
@@ -154,8 +171,7 @@ func TestPlanCRUDRunTaskStatusCompleteHappyPath(t *testing.T) {
 	require.Equal(t, http.StatusOK, complete.StatusCode)
 	done := decodePlan(t, complete)
 	require.Equal(t, oapi.PlanStatusCompleted, done.Status)
-	require.Equal(t, filepath.Join("plans", "completed", "happy-path.yaml"), done.FilePath)
-	require.FileExists(t, filepath.Join(root, done.FilePath))
+	require.Equal(t, "", done.FilePath)
 	require.False(t, done.CompletedAt.IsZero())
 }
 
@@ -206,7 +222,9 @@ func TestPlanCRUDListAndArchive(t *testing.T) {
 	require.Equal(t, http.StatusOK, arch.StatusCode)
 	archived := decodePlan(t, arch)
 	require.Equal(t, oapi.PlanStatusArchived, archived.Status)
-	require.FileExists(t, filepath.Join(root, "plans", "archived", "list-me.yaml"))
+	require.False(t, archived.ArchivedAt.IsZero())
+	_, err = os.Stat(filepath.Join(root, "plans"))
+	require.True(t, os.IsNotExist(err))
 }
 
 func TestPlanCRUDCreateValidation(t *testing.T) {

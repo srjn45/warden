@@ -14,7 +14,7 @@ import (
 )
 
 const samplePlanJSON = `{"id":"plan-ab12cd34","project_id":"/tmp/proj","name":"feature-x",
-	"goal":"ship the feature","file_path":"plans/pending/feature-x.yaml","status":"pending",
+	"goal":"ship the feature","status":"pending","revision":1,"content_hash":"sha256:abc",
 	"constraints":["stay in lane"],"done_when":["tests pass"],
 	"tasks":[{"id":"t1","prompt":"do the work"}],
 	"task_progress":{"t1":"pending"},

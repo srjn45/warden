@@ -20,9 +20,9 @@ func newPlanCmd() *cobra.Command {
 		Use:   "plan",
 		Short: "Manage plans tracked by the daemon",
 		Long: "Manage plans tracked by the daemon.\n\n" +
-			"Plans are YAML files stored in plans/{pending,in_progress,completed,archived}/\n" +
-			"inside a project repository. The daemon tracks their definition (goal, tasks)\n" +
-			"and execution state (links to autopilot runs, pipelines, and task progress).\n\n" +
+			"Plans are canonical ScrivaDB records (goal, tasks, lifecycle, revision).\n" +
+			"Repository YAML under plans/ is an optional inert export — not required\n" +
+			"for create/run/complete/archive.\n\n" +
 			"Create with `wd plan create`, start with `wd plan run`, control with\n" +
 			"`wd plan pause|resume|stop`, mark tasks done with `wd plan done`, then\n" +
 			"`wd plan complete` (or `wd plan archive`).",
@@ -90,9 +90,9 @@ func newPlanListCmd() *cobra.Command {
 func newPlanCreateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create --name <name> --goal <text>",
-		Short: "Create a plan (writes YAML + DB record)",
-		Long: "Create a new pending plan: writes plans/pending/<slug>.yaml and inserts the\n" +
-			"daemon record. --name and --goal are required. Supply tasks with repeatable\n" +
+		Short: "Create a canonical plan in ScrivaDB",
+		Long: "Create a new pending plan in the daemon's ScrivaDB store (no repository\n" +
+			"YAML write). --name and --goal are required. Supply tasks with repeatable\n" +
 			"--task id:prompt flags, or (when stdin is a TTY) enter them interactively.\n\n" +
 			"Optional --constraint and --done-when may be repeated.",
 		Args: cobra.NoArgs,
@@ -126,12 +126,12 @@ func newPlanCreateCmd() *cobra.Command {
 			if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
 				return printJSON(cmd.OutOrStdout(), p)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "created plan %s (%s) → %s\n", p.ID, p.Name, p.FilePath)
+			fmt.Fprintf(cmd.OutOrStdout(), "created plan %s (%s) rev=%d\n", p.ID, p.Name, p.Revision)
 			return nil
 		},
 	}
 	cmd.Flags().String("project", "", "project ID (default: current directory)")
-	cmd.Flags().String("name", "", "plan name (used for the YAML filename slug)")
+	cmd.Flags().String("name", "", "plan name")
 	cmd.Flags().String("goal", "", "what the plan is trying to achieve")
 	cmd.Flags().StringArray("task", nil, "task as id:prompt (repeatable; skip interactive prompt)")
 	cmd.Flags().StringArray("constraint", nil, "constraint the workers must follow (repeatable)")
@@ -146,7 +146,7 @@ func newPlanShowCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "show <plan-id>",
 		Short: "Show detail for one plan",
-		Long:  "Show the full record for one plan: goal, tasks, status, file path, execution mode, linked IDs, task progress, and timestamps.",
+		Long:  "Show the full canonical record for one plan: goal, tasks, status, revision, content hash, execution mode, linked IDs, task progress, and timestamps.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p, err := clientFor(cmd).PlansGet(cmd.Context(), args[0])
@@ -275,7 +275,7 @@ func newPlanArchiveCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "archive <plan-id>",
 		Short: "Archive a plan (any status → archived)",
-		Long:  "Move a plan to the archived state. Allowed from any status. Moves the YAML to plans/archived/.",
+		Long:  "Move a plan to the archived state. Allowed from pending, in_progress, or completed.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p, err := clientFor(cmd).PlansArchive(cmd.Context(), args[0])
@@ -285,7 +285,7 @@ func newPlanArchiveCmd() *cobra.Command {
 			if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
 				return printJSON(cmd.OutOrStdout(), p)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "plan %s archived (file: %s)\n", p.ID, p.FilePath)
+			fmt.Fprintf(cmd.OutOrStdout(), "plan %s archived (status=%s rev=%d)\n", p.ID, p.Status, p.Revision)
 			return nil
 		},
 	}
@@ -572,8 +572,14 @@ func printPlanDetail(w io.Writer, p *client.PlanView) {
 	fmt.Fprintf(w, "id:             %s\n", p.ID)
 	fmt.Fprintf(w, "name:           %s\n", p.Name)
 	fmt.Fprintf(w, "project:        %s\n", p.ProjectID)
-	fmt.Fprintf(w, "file:           %s\n", p.FilePath)
 	fmt.Fprintf(w, "status:         %s\n", p.Status)
+	fmt.Fprintf(w, "revision:       %d\n", p.Revision)
+	if p.ContentHash != "" {
+		fmt.Fprintf(w, "content_hash:   %s\n", p.ContentHash)
+	}
+	if p.FilePath != "" {
+		fmt.Fprintf(w, "file:           %s\n", p.FilePath)
+	}
 	if p.Goal != "" {
 		fmt.Fprintf(w, "goal:           %s\n", p.Goal)
 	}
@@ -627,5 +633,8 @@ func printPlanDetail(w io.Writer, p *client.PlanView) {
 	}
 	if !p.CompletedAt.IsZero() {
 		fmt.Fprintf(w, "completed:      %s\n", p.CompletedAt.Format(time.RFC3339))
+	}
+	if !p.ArchivedAt.IsZero() {
+		fmt.Fprintf(w, "archived:       %s\n", p.ArchivedAt.Format(time.RFC3339))
 	}
 }

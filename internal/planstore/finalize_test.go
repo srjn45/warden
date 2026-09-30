@@ -17,7 +17,7 @@ func seedInProgressPlan(t *testing.T, svc *PlanService, store *Store, root, name
 	require.NoError(t, err)
 	p, err = svc.Transition(ctx, p.ID, PlanStatusInProgress, TransitionOptions{ExecutionMode: PlanModeManual})
 	require.NoError(t, err)
-	require.FileExists(t, filepath.Join(root, p.FilePath))
+	require.Equal(t, "", p.FilePath)
 
 	execID := "pe-" + planSlug(name)
 	now := time.Now().UTC()
@@ -59,9 +59,9 @@ func TestFinalize_Success(t *testing.T) {
 	require.Nil(t, res.Plan.ActiveExecution)
 	require.Len(t, res.Plan.ExecutionHistory, 1)
 	require.Equal(t, execID, res.Plan.ExecutionHistory[0].ID)
-	require.Contains(t, res.Plan.FilePath, "plans/completed/")
-	_, err = os.Stat(filepath.Join(root, res.Plan.FilePath))
-	require.NoError(t, err)
+	require.Equal(t, "", res.Plan.FilePath)
+	_, err = os.Stat(filepath.Join(root, "plans"))
+	require.True(t, os.IsNotExist(err), "finalize must not create plans/")
 
 	events, err := store.ListEvents(ctx, p.ID, execID)
 	require.NoError(t, err)
@@ -157,7 +157,7 @@ func TestFinalize_FailedCleanupKeepsInProgress(t *testing.T) {
 	require.NotNil(t, got.ExecutionSummary, "summary must be preserved")
 	require.NotNil(t, got.CleanupEvidence)
 	require.True(t, got.CleanupEvidence.Failed())
-	require.Contains(t, got.FilePath, "plans/in_progress/")
+	require.Equal(t, "", got.FilePath)
 }
 
 func TestFinalize_RetryAfterCleanupFailure(t *testing.T) {

@@ -28,7 +28,7 @@ type getPlanArgs struct {
 
 type createPlanArgs struct {
 	ProjectID   string        `json:"project_id" jsonschema:"the daemon project id"`
-	Name        string        `json:"name" jsonschema:"plan name (used for the YAML filename slug)"`
+	Name        string        `json:"name" jsonschema:"plan name"`
 	Goal        string        `json:"goal" jsonschema:"what the plan is trying to achieve"`
 	Tasks       []planTaskArg `json:"tasks" jsonschema:"at least one task; each needs id and prompt"`
 	Constraints []string      `json:"constraints,omitempty" jsonschema:"optional constraints the workers must follow"`
@@ -36,12 +36,13 @@ type createPlanArgs struct {
 }
 
 type updatePlanArgs struct {
-	PlanID      string        `json:"plan_id" jsonschema:"the stable plan id (plan-<8hex>)"`
-	Name        string        `json:"name,omitempty" jsonschema:"new plan name (pending plans only)"`
-	Goal        string        `json:"goal,omitempty" jsonschema:"new goal (pending plans only)"`
-	Tasks       []planTaskArg `json:"tasks,omitempty" jsonschema:"replacement task list (pending plans only)"`
-	Constraints []string      `json:"constraints,omitempty" jsonschema:"replacement constraints (pending plans only)"`
-	DoneWhen    []string      `json:"done_when,omitempty" jsonschema:"replacement completion criteria (pending plans only)"`
+	PlanID           string        `json:"plan_id" jsonschema:"the stable plan id (plan-<8hex>)"`
+	Name             string        `json:"name,omitempty" jsonschema:"new plan name (pending plans only)"`
+	Goal             string        `json:"goal,omitempty" jsonschema:"new goal (pending plans only)"`
+	Tasks            []planTaskArg `json:"tasks,omitempty" jsonschema:"replacement task list (pending plans only)"`
+	Constraints      []string      `json:"constraints,omitempty" jsonschema:"replacement constraints (pending plans only)"`
+	DoneWhen         []string      `json:"done_when,omitempty" jsonschema:"replacement completion criteria (pending plans only)"`
+	ExpectedRevision int64         `json:"expected_revision,omitempty" jsonschema:"optimistic concurrency token; omit to use the revision observed at request start"`
 }
 
 type scanPlansArgs struct {
@@ -108,6 +109,9 @@ func planToolErr(err error) (*mcpsdk.CallToolResult, any, error) {
 			Error            string   `json:"error"`
 			IncompleteTasks  []string `json:"incomplete_tasks,omitempty"`
 			UnmergedBranches []string `json:"unmerged_branches,omitempty"`
+			PlanID           string   `json:"plan_id,omitempty"`
+			Expected         int64    `json:"expected,omitempty"`
+			Actual           int64    `json:"actual,omitempty"`
 		}
 		if json.Unmarshal(se.Body, &body) == nil && body.Error != "" {
 			payload["error"] = body.Error
@@ -116,6 +120,13 @@ func planToolErr(err error) (*mcpsdk.CallToolResult, any, error) {
 			}
 			if len(body.UnmergedBranches) > 0 {
 				payload["unmerged_branches"] = body.UnmergedBranches
+			}
+			if body.PlanID != "" {
+				payload["plan_id"] = body.PlanID
+			}
+			if body.Expected != 0 || body.Actual != 0 {
+				payload["expected"] = body.Expected
+				payload["actual"] = body.Actual
 			}
 		}
 	}
@@ -137,7 +148,7 @@ func (s *Server) registerPlanTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "get_plan",
-		Description: "Get one plan by its stable ID (plan-<8hex>). Returns the full record including goal, tasks, constraints, done_when, status, file path, execution mode, linked IDs, task progress, and timestamps.",
+		Description: "Get one plan by its stable ID (plan-<8hex>). Returns the full canonical record including goal, tasks, constraints, done_when, status, revision, content_hash, execution mode, linked IDs, task progress, and timestamps.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a getPlanArgs) (*mcpsdk.CallToolResult, any, error) {
 		p, err := s.cl.PlansGet(ctx, a.PlanID)
 		if err != nil {
@@ -148,7 +159,7 @@ func (s *Server) registerPlanTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "create_plan",
-		Description: "Create a new plan: writes plans/pending/<slug>.yaml and inserts the DB record. Requires project_id, name, goal, and at least one task (id + prompt). Returns the created Plan.",
+		Description: "Create a new canonical Plan in ScrivaDB (no repository YAML write). Requires project_id, name, goal, and at least one task (id + prompt). Returns the created Plan including revision and content_hash.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a createPlanArgs) (*mcpsdk.CallToolResult, any, error) {
 		p, err := s.cl.PlansCreate(ctx, client.PlansCreateRequest{
 			ProjectID:   a.ProjectID,
@@ -166,13 +177,14 @@ func (s *Server) registerPlanTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "update_plan",
-		Description: "Update a pending plan's definition (name, goal, tasks, constraints, done_when). Rejected with a structured error if the plan is not pending. Returns the updated Plan.",
+		Description: "Update a pending plan's canonical definition (name, goal, tasks, constraints, done_when). Pass expected_revision for optimistic concurrency; a stale revision returns a structured 409 conflict. Rejected if the plan is not pending. Returns the updated Plan.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a updatePlanArgs) (*mcpsdk.CallToolResult, any, error) {
 		req := client.PlansUpdateRequest{
-			Name:        a.Name,
-			Goal:        a.Goal,
-			Constraints: a.Constraints,
-			DoneWhen:    a.DoneWhen,
+			Name:             a.Name,
+			Goal:             a.Goal,
+			Constraints:      a.Constraints,
+			DoneWhen:         a.DoneWhen,
+			ExpectedRevision: a.ExpectedRevision,
 		}
 		if a.Tasks != nil {
 			req.Tasks = toClientTasks(a.Tasks)
