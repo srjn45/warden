@@ -489,6 +489,14 @@ func (s *PlanService) UpdateTaskStatus(ctx context.Context, planID, taskID, stat
 // Returns an UnmetRequirementsError carrying a structured list of every unmet
 // gate, or nil when all gates are satisfied.
 func (s *PlanService) evaluateCompletion(ctx context.Context, p *Plan) error {
+	return s.evaluateCompletionGates(ctx, p, true)
+}
+
+// evaluateCompletionGates is evaluateCompletion with an optional ResourcesClean
+// requirement. Finalize passes requireResourcesClean=false because disposable
+// worktree/branch teardown is the cleanup step's job — demanding ResourcesClean
+// before cleanup permanently stranded completed Autopilot runs.
+func (s *PlanService) evaluateCompletionGates(ctx context.Context, p *Plan, requireResourcesClean bool) error {
 	taskIDs := canonicalTaskIDs(p)
 
 	// Resolve open PR branches (live I/O — kept outside the pure eval function).
@@ -515,6 +523,11 @@ func (s *PlanService) evaluateCompletion(ctx context.Context, p *Plan) error {
 	}
 
 	reqs := EvalCompletionFromEvents(p, taskIDs, openPRBranches, events)
+	if !requireResourcesClean {
+		reqs.ResourcesClean = true
+		reqs.UncleanBranches = nil
+		reqs.Satisfied = reqs.AllTasksDone && reqs.NoOpenPRs && reqs.ChecksPassing && reqs.NoLiveAgents
+	}
 	if reqs.Satisfied {
 		return nil
 	}
