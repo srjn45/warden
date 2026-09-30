@@ -196,6 +196,76 @@ func (s *Server) ScanProjectPlans(ctx context.Context, req oapi.ScanProjectPlans
 	return oapi.ScanProjectPlans200JSONResponse{Upserted: n}, nil
 }
 
+func (s *Server) ImportLegacyPlans(ctx context.Context, req oapi.ImportLegacyPlansRequestObject) (oapi.ImportLegacyPlansResponseObject, error) {
+	svc := s.planSvc()
+	if svc == nil {
+		return nil, planNotConfigured()
+	}
+	root := s.resolvePlanRoot(req.ProjectId)
+	if root == "" {
+		return oapi.ImportLegacyPlans404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "project not found"}}, nil
+	}
+	opts := planstore.ImportOptions{}
+	if req.Body != nil {
+		opts.ReportOnly = req.Body.ReportOnly
+	}
+	report, err := svc.ImportLegacy(ctx, req.ProjectId, opts)
+	if err != nil {
+		if msg := planValidationMessage(err); msg != "" {
+			return nil, errStatus(http.StatusBadRequest, msg)
+		}
+		return nil, errStatus(http.StatusInternalServerError, "import legacy plans: "+err.Error())
+	}
+	for _, rec := range report.Imported {
+		if rec.PlanID != "" {
+			s.addPlanMembership(rec.PlanID, req.ProjectId)
+		}
+	}
+	return oapi.ImportLegacyPlans200JSONResponse(importReportToOAPI(report)), nil
+}
+
+func importReportToOAPI(r *planstore.ImportReport) oapi.ImportLegacyPlansResponse {
+	if r == nil {
+		return oapi.ImportLegacyPlansResponse{
+			Imported:   []oapi.ImportLegacyRecord{},
+			Skipped:    []oapi.ImportLegacyRecord{},
+			Conflicted: []oapi.ImportLegacyRecord{},
+			Errors:     []oapi.ImportLegacyRecord{},
+		}
+	}
+	return oapi.ImportLegacyPlansResponse{
+		ProjectId:  r.ProjectID,
+		RootDir:    r.RootDir,
+		ReportOnly: r.ReportOnly,
+		Imported:   importRecordsToOAPI(r.Imported),
+		Skipped:    importRecordsToOAPI(r.Skipped),
+		Conflicted: importRecordsToOAPI(r.Conflicted),
+		Errors:     importRecordsToOAPI(r.Errors),
+	}
+}
+
+func importRecordsToOAPI(in []planstore.ImportRecord) []oapi.ImportLegacyRecord {
+	out := make([]oapi.ImportLegacyRecord, 0, len(in))
+	for _, r := range in {
+		rec := oapi.ImportLegacyRecord{
+			FilePath:         r.FilePath,
+			PlanId:           r.PlanID,
+			Name:             r.Name,
+			Outcome:          oapi.ImportLegacyRecordOutcome(r.Outcome),
+			ContentHash:      r.ContentHash,
+			ExistingHash:     r.ExistingHash,
+			ExistingRevision: r.ExistingRev,
+			Reason:           r.Reason,
+			Reconciled:       r.Reconciled,
+		}
+		if r.Status.Valid() {
+			rec.Status = oapi.PlanStatus(r.Status)
+		}
+		out = append(out, rec)
+	}
+	return out
+}
+
 func (s *Server) GetProjectPlan(ctx context.Context, req oapi.GetProjectPlanRequestObject) (oapi.GetProjectPlanResponseObject, error) {
 	if s.plans == nil {
 		return nil, planNotConfigured()

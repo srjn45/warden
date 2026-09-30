@@ -1318,6 +1318,10 @@ paths:
       operationId: ScanProjectPlans
       tags: [Plans]
       summary: Scan a project's plans directory
+      description: >
+        Deprecated migration aid. Prefer ImportLegacyPlans for explicit
+        one-time cutover into ScrivaDB. Never invoked automatically at daemon
+        startup.
       parameters:
         - name: project_id
           in: path
@@ -1333,6 +1337,37 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/LegacyScanPlansResponse" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/projects/{project_id}/plans/import-legacy:
+    post:
+      operationId: ImportLegacyPlans
+      tags: [Plans]
+      summary: Explicitly import legacy plans/*.yaml into ScrivaDB
+      description: >
+        Operator-invoked one-time cutover. Discovers plans/{pending,in_progress,
+        completed,archived} (and flat plans/*.yaml) only when requested, parses
+        supported v1 YAML, creates or reconciles canonical Plans by stable
+        identity, and records a migration audit event. Repeated import with a
+        matching content hash is a no-op (skipped); an existing canonical
+        definition with a different hash is reported as conflicted without
+        mutation. Source files are never modified. report_only=true classifies
+        without writing.
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ImportLegacyPlansRequest" }
+      responses:
+        "200":
+          description: Import report with imported/skipped/conflicted/errors
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ImportLegacyPlansResponse" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /api/v1/projects/{project_id}/plans/{plan_id}:
@@ -4162,6 +4197,8 @@ components:
     PlanStatus:
       type: string
       enum: [pending, in_progress, completed, archived]
+      x-enum-varnames:
+        [PlanStatusPending, PlanStatusInProgress, PlanStatusCompleted, PlanStatusArchived]
 
     TaskStatus:
       type: string
@@ -4528,6 +4565,54 @@ components:
       required: [upserted]
       properties:
         upserted: { type: integer }
+
+    ImportLegacyPlansRequest:
+      type: object
+      properties:
+        report_only:
+          type: boolean
+          description: >
+            When true, discover and classify candidates without mutating
+            ScrivaDB or writing migration audit events.
+
+    ImportLegacyRecord:
+      type: object
+      required: [file_path, outcome]
+      properties:
+        file_path: { type: string }
+        plan_id: { type: string }
+        name: { type: string }
+        status: { $ref: "#/components/schemas/PlanStatus" }
+        outcome:
+          type: string
+          enum: [imported, skipped, conflicted, error]
+        content_hash: { type: string }
+        existing_hash: { type: string }
+        existing_revision:
+          type: integer
+          format: int64
+        reason: { type: string }
+        reconciled: { type: boolean }
+
+    ImportLegacyPlansResponse:
+      type: object
+      required: [project_id, root_dir, report_only, imported, skipped, conflicted, errors]
+      properties:
+        project_id: { type: string }
+        root_dir: { type: string }
+        report_only: { type: boolean }
+        imported:
+          type: array
+          items: { $ref: "#/components/schemas/ImportLegacyRecord" }
+        skipped:
+          type: array
+          items: { $ref: "#/components/schemas/ImportLegacyRecord" }
+        conflicted:
+          type: array
+          items: { $ref: "#/components/schemas/ImportLegacyRecord" }
+        errors:
+          type: array
+          items: { $ref: "#/components/schemas/ImportLegacyRecord" }
 
     LegacyRunPlanRequest:
       type: object

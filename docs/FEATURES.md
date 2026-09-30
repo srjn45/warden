@@ -1504,15 +1504,25 @@ pending →                archived
 
 Any status can transition to `archived`. `completed` and `archived` cannot move back to `in_progress` without an explicit reset.
 
-### 37.4 Scan and import
+### 37.4 Scan and legacy import
 
-`wd plan scan [--project <id>]` walks `plans/{pending,in_progress,completed,archived}/*.yaml` and upserts:
-- Derives plan name from the YAML `name:` field or filename stem
-- Computes a stable `plan-<8hex>` ID from `projectID + "\x00" + planName`
-- Creates a new record (status from directory) if absent; updates `FilePath` and `Status` only if present — never overwrites execution links or task progress
-- Files outside the four subdirectories are ignored; flat `plans/*.yaml` files are treated as `pending` and migrated with `--migrate-flat`
+Canonical Plans live in ScrivaDB. Repository YAML under `plans/` is an optional
+replica; it is **not** scanned at daemon startup.
 
-The daemon auto-scans each registered project's `plans/` directory at startup (directory walk only — no YAML parsing beyond the `name:` field).
+`wd plan import-legacy [--project <id>] [--report]` is the operator-invoked
+one-time cutover:
+- Discovers `plans/{pending,in_progress,completed,archived}/*.yaml` (and flat
+  `plans/*.yaml` as pending) only when requested
+- Parses supported v1 YAML into canonical definition fields (goal, tasks/`after`,
+  constraints, done_when) with status from directory or export envelope
+- Creates or reconciles by stable `plan-<8hex>` identity; matching content hash
+  → skipped (no-op); differing non-empty definition → conflicted (no mutation)
+- Leaves source files untouched; `--report` classifies without writing
+- Records a `legacy_imported` migration audit event per successful import
+
+`wd plan scan [--project <id>]` remains a deprecated migration aid that upserts
+name/status/FilePath only. Prefer `import-legacy` for cutover. Flat files can
+still be moved with `--migrate-flat`.
 
 ### 37.5 Execution modes
 

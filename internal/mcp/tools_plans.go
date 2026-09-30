@@ -51,6 +51,11 @@ type scanPlansArgs struct {
 	Assess      bool   `json:"assess,omitempty" jsonschema:"run brain-assisted progress assessment for all in_progress plans"`
 }
 
+type importLegacyPlansArgs struct {
+	ProjectID  string `json:"project_id" jsonschema:"the daemon project id"`
+	ReportOnly bool   `json:"report_only,omitempty" jsonschema:"when true, classify without mutating ScrivaDB"`
+}
+
 type updatePlanStatusArgs struct {
 	ProjectID string `json:"project_id" jsonschema:"the daemon project id"`
 	PlanID    string `json:"plan_id" jsonschema:"the stable plan id (plan-<8hex>)"`
@@ -206,11 +211,24 @@ func (s *Server) registerPlanTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "scan_plans",
-		Description: "Walk plans/{pending,in_progress,completed,archived}/*.yaml in the project root and upsert plan records. Status is inferred from directory. With migrate_flat=true, flat plans/*.yaml files are moved into plans/pending/ with git mv and committed first.",
+		Description: "Deprecated migration aid: walk plans/{pending,in_progress,completed,archived}/*.yaml and upsert plan records. Prefer import_legacy_plans for explicit ScrivaDB cutover. Never runs automatically at daemon startup.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a scanPlansArgs) (*mcpsdk.CallToolResult, any, error) {
 		res, err := s.cl.PlanScan(ctx, a.ProjectID, client.PlanScanRequest{
 			MigrateFlat: a.MigrateFlat,
 			Assess:      a.Assess,
+		})
+		if err != nil {
+			return planToolErr(err)
+		}
+		return jsonResultAny(res)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "import_legacy_plans",
+		Description: "Operator-invoked one-time cutover: discover plans/{pending,in_progress,completed,archived}/*.yaml, parse v1 YAML into canonical ScrivaDB Plans by stable identity, leave source files untouched. Matching content hash → skipped; differing hash → conflicted. report_only=true classifies without writing.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a importLegacyPlansArgs) (*mcpsdk.CallToolResult, any, error) {
+		res, err := s.cl.ImportLegacyPlans(ctx, a.ProjectID, client.ImportLegacyPlansRequest{
+			ReportOnly: a.ReportOnly,
 		})
 		if err != nil {
 			return planToolErr(err)

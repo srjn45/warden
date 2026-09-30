@@ -42,6 +42,7 @@ func newPlanCmd() *cobra.Command {
 		newPlanArchiveCmd(),
 		newPlanSyncToRepoCmd(),
 		newPlanImportCmd(),
+		newPlanImportLegacyCmd(),
 		newPlanScanCmd(),
 		newPlanStatusCmd(),
 		newPlanAssessCmd(),
@@ -170,7 +171,9 @@ func newPlanImportCmd() *cobra.Command {
 		Use:   "import <file>",
 		Short: "Copy a plan YAML into plans/pending/ and scan",
 		Long: "Copy a plan YAML file into the project's plans/pending/ directory and\n" +
-			"trigger a scan so the daemon registers the imported plan.",
+			"trigger a scan so the daemon registers the imported plan.\n\n" +
+			"Prefer `wd plan import-legacy` for one-time cutover of an existing\n" +
+			"plans/{pending,in_progress,completed,archived} tree into ScrivaDB.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			projectID, err := planProjectFlag(cmd)
@@ -207,6 +210,56 @@ func newPlanImportCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().String("project", "", "project ID (default: current directory)")
+	return cmd
+}
+
+func newPlanImportLegacyCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "import-legacy",
+		Short: "Import legacy plans/**/*.yaml into ScrivaDB (operator cutover)",
+		Long: "Discover plans/{pending,in_progress,completed,archived}/*.yaml (and flat\n" +
+			"plans/*.yaml) and create or reconcile canonical ScrivaDB Plans by stable\n" +
+			"identity. Source files are left untouched.\n\n" +
+			"Repeated import with a matching content hash is a no-op (skipped). An\n" +
+			"existing canonical definition with a different hash is reported as\n" +
+			"conflicted without mutation.\n\n" +
+			"--report classifies without writing. Never runs automatically at daemon\n" +
+			"startup.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			projectID, err := planProjectFlag(cmd)
+			if err != nil {
+				return err
+			}
+			reportOnly, _ := cmd.Flags().GetBool("report")
+			asJSON, _ := cmd.Flags().GetBool("json")
+			res, err := clientFor(cmd).ImportLegacyPlans(cmd.Context(), projectID, client.ImportLegacyPlansRequest{
+				ReportOnly: reportOnly,
+			})
+			if err != nil {
+				return err
+			}
+			if asJSON {
+				return printJSON(cmd.OutOrStdout(), res)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "legacy import: imported=%d skipped=%d conflicted=%d errors=%d",
+				len(res.Imported), len(res.Skipped), len(res.Conflicted), len(res.Errors))
+			if res.ReportOnly {
+				fmt.Fprint(cmd.OutOrStdout(), " (report only)")
+			}
+			fmt.Fprintln(cmd.OutOrStdout())
+			for _, r := range res.Conflicted {
+				fmt.Fprintf(cmd.OutOrStdout(), "  conflict: %s (%s): %s\n", r.PlanID, r.FilePath, r.Reason)
+			}
+			for _, r := range res.Errors {
+				fmt.Fprintf(cmd.OutOrStdout(), "  error: %s: %s\n", r.FilePath, r.Reason)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().String("project", "", "project ID (default: current directory)")
+	cmd.Flags().Bool("report", false, "classify without mutating ScrivaDB")
+	cmd.Flags().Bool("json", false, "output as JSON")
 	return cmd
 }
 
