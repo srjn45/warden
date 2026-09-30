@@ -270,6 +270,9 @@ type Server struct {
 	// out to (desktop/webhook). nil ⇒ escalations are logged only. Set by the daemon
 	// from config (SetAutopilotNotifier).
 	apNotifier notify.Notifier
+	// finalizeCleanupHook replaces disposable-executor cleanup during FinalizePlan
+	// (tests only). nil ⇒ production cleanupPlanExecutors.
+	finalizeCleanupHook planstore.ExecutorCleanupFunc
 
 	// Config hot-reload (feature 3). appliedConfig is the last config ApplyConfig
 	// installed (seeded at boot via SetBaselineConfig) — the "last-good" baseline

@@ -111,6 +111,16 @@ type Plan struct {
 	// linked task, agent, and PR evidence.
 	// New field: absent in old records → decodes as nil (backward-compatible).
 	BranchSummaries []BranchSummary `json:"branch_summaries,omitempty"`
+
+	// ExecutionSummary is the immutable reduced report persisted by Finalize
+	// before executor cleanup. Once set it is never overwritten (retry-safe).
+	// New field: absent in old records → decodes as nil (backward-compatible).
+	ExecutionSummary *ExecutionSummary `json:"execution_summary,omitempty"`
+
+	// CleanupEvidence records a partial executor teardown so Finalize can be
+	// retried without losing ExecutionSummary. Cleared on successful cleanup.
+	// New field: absent in old records → decodes as nil (backward-compatible).
+	CleanupEvidence *CleanupEvidence `json:"cleanup_evidence,omitempty"`
 }
 
 var (
