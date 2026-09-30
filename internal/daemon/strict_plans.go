@@ -500,6 +500,12 @@ func (s *Server) CompletePlan(ctx context.Context, req oapi.CompletePlanRequestO
 	if svc == nil {
 		return nil, planNotConfigured()
 	}
+	// Operator-driven complete for orchestrator/manual modes: seal the active
+	// PlanExecution with completion_verified so NoLiveAgents does not block after
+	// we recorded execution_started at run time.
+	if err := s.sealPlanAgentExecution(ctx, req.PlanId); err != nil {
+		return nil, errStatus(http.StatusInternalServerError, "seal plan execution: "+err.Error())
+	}
 	p, err := svc.Transition(ctx, req.PlanId, planstore.PlanStatusCompleted, planstore.TransitionOptions{})
 	if err != nil {
 		if errors.Is(err, planstore.ErrNotFound) {
@@ -507,6 +513,14 @@ func (s *Server) CompletePlan(ctx context.Context, req oapi.CompletePlanRequestO
 		}
 		if errors.Is(err, planstore.ErrInvalidTransition) {
 			return oapi.CompletePlan409JSONResponse{Error: err.Error()}, nil
+		}
+		var unmet *planstore.UnmetRequirementsError
+		if errors.As(err, &unmet) {
+			return oapi.CompletePlan422JSONResponse{
+				Error:            unmet.Error(),
+				IncompleteTasks:  unmet.Requirements.PendingTaskIDs,
+				UnmergedBranches: unmet.Requirements.OpenPRBranches,
+			}, nil
 		}
 		var incomplete *planstore.TasksIncompleteError
 		if errors.As(err, &incomplete) {
@@ -588,7 +602,7 @@ func (s *Server) RunPlan(ctx context.Context, req oapi.RunPlanRequestObject) (oa
 		if s.exec == nil {
 			return nil, errStatus(http.StatusServiceUnavailable, "pipeline executor not configured")
 		}
-	case planstore.PlanModeOrchestratorWorker:
+	case planstore.PlanModeOrchestratorWorker, planstore.PlanModeManual:
 		if s.life == nil {
 			return nil, errStatus(http.StatusServiceUnavailable, "lifecycle not configured")
 		}
@@ -677,33 +691,32 @@ func (s *Server) startPlanExecution(ctx context.Context, p *planstore.Plan, mode
 		pipelineID = pl.ID
 
 	case planstore.PlanModeOrchestratorWorker:
-		if s.life == nil {
-			return errStatus(http.StatusServiceUnavailable, "lifecycle not configured")
-		}
-		planContent, readErr := os.ReadFile(filepath.Join(root, p.FilePath))
-		if readErr != nil {
-			return errStatus(http.StatusInternalServerError, "read plan file: "+readErr.Error())
-		}
-		prompt := fmt.Sprintf("You are an orchestrator executing the following plan.\n\n"+
-			"Plan file: %s\n\n%s\n\n"+
-			"Execute the plan tasks in order. Each worker you spawn must present its output "+
-			"for human approval before you proceed to the next task.",
-			p.FilePath, string(planContent))
-		sess, spawnErr := s.life.Spawn(ctx, SpawnRequest{
-			Repo:      root,
-			Role:      "orchestrator",
-			ProjectID: p.ProjectID,
-			PlanID:    p.ID,
-			Prompt:    prompt,
-		})
+		sess, spawnErr := s.spawnPlanBoundAgent(ctx, p, root, "orchestrator",
+			orchestratorDisplayName(p.Name), orchestratorPlanPrompt(p, root))
 		if spawnErr != nil {
-			return errStatus(http.StatusInternalServerError, "spawn orchestrator: "+spawnErr.Error())
+			return spawnErr
 		}
 		orchestratorID = sess.ID
 		s.addPlanMembership(p.ID, p.ProjectID)
+		if err := s.beginPlanAgentExecution(ctx, p, mode, sess.ID, sess.ID, root); err != nil {
+			return err
+		}
+		return nil
 
 	case planstore.PlanModeManual:
+		if s.life == nil {
+			return errStatus(http.StatusServiceUnavailable, "lifecycle not configured")
+		}
+		sess, spawnErr := s.spawnPlanBoundAgent(ctx, p, root, "general",
+			manualDisplayName(p.Name), manualPlanPrompt(p, root))
+		if spawnErr != nil {
+			return spawnErr
+		}
 		s.addPlanMembership(p.ID, p.ProjectID)
+		if err := s.beginPlanAgentExecution(ctx, p, mode, sess.ID, sess.ID, root); err != nil {
+			return err
+		}
+		return nil
 
 	default:
 		return errStatus(http.StatusBadRequest, "unknown execution mode: "+string(mode))

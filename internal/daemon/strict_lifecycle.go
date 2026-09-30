@@ -16,6 +16,7 @@ import (
 	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/daemon/oapi"
 	"github.com/srjn45/warden/internal/lifecycle"
+	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/role"
 	"github.com/srjn45/warden/internal/store"
@@ -75,6 +76,7 @@ func (s *Server) SpawnAgent(ctx context.Context, req oapi.SpawnAgentRequestObjec
 	// remembering to pass tags.
 	sr.Tags = s.inheritOwnershipTags(ctx, sr.Tags)
 	s.stampAutopilotSpawnBackRefs(ctx, &sr)
+	s.stampPlanSpawnBackRefs(ctx, &sr)
 	s.annotateAutopilotWorkerPrompt(ctx, &sr)
 	if code, msg := s.validateSpawnRequest(ctx, sr); code != 0 {
 		return nil, errStatus(code, msg)
@@ -143,6 +145,11 @@ func (s *Server) SpawnAgent(ctx context.Context, req oapi.SpawnAgentRequestObjec
 	// parent_id is appended to its parent's ChildAgents[]. No-op for a root spawn, a
 	// job agent, or a terminal (childOfParent).
 	s.addChildEdge(ctx, sess)
+	// Plan-bound spawns (orchestrator workers, manual helpers) append agent_spawned
+	// evidence onto the Plan's ActiveExecution. Planless agents are a no-op.
+	s.recordPlanBoundAgentEvent(sess, planstore.EventKindAgentSpawned, &planstore.EventPayload{
+		AgentID: sess.ID,
+	}, sess.ID)
 	s.notify()
 	s.recordAuditCtx(ctx, audit.ActionSpawn, sess.ID, spawnAuditDetail(sess, sr))
 	// post-spawn hook (#47): advisory, fail-open.

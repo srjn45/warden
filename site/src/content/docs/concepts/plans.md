@@ -70,8 +70,8 @@ When a plan is run with `wd plan run <id> --mode <mode>`, warden creates an exec
 |---|---|---|
 | `autopilot` | Registers an autopilot run; manager drives workers | Daemon watches for run `completed` event → auto git-mv to `completed/` |
 | `pipeline` | Creates a pipeline (one job per YAML task) | Daemon watches for pipeline `done` event → auto git-mv to `completed/` |
-| `orchestrator_worker` | Spawns an orchestrator agent; each worker needs a human approval gate | Manual: `wd plan status <id> completed` |
-| `manual` | git-mv to `in_progress/` only; no execution entity | Manual: `wd plan status <id> completed` |
+| `orchestrator_worker` | Spawns `O:<plan-name>` (`role=orchestrator`, `PlanID`); workers are `role=worker` with `ParentID` set | Manual: `wd plan complete <id>` |
+| `manual` | Spawns `M:<plan-name>` (`role=general`, `PlanID`); no Autopilot | Manual: `wd plan complete <id>` |
 
 A plan with no execution mode is treated as `manual`.
 
