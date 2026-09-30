@@ -69,7 +69,7 @@ When a plan is run with `wd plan run <id> --mode <mode>`, warden creates an exec
 | Mode | What warden creates | Completion detection |
 |---|---|---|
 | `autopilot` | Creates a live Autopilot + manager Agent (`PlanID` required); workers parented via `ParentID` | Daemon watches for run `completed` event → auto git-mv to `completed/` |
-| `pipeline` | Creates a pipeline (one job per YAML task) | Daemon watches for pipeline `done` event → auto git-mv to `completed/` |
+| `pipeline` | Creates a pipeline named `P:<plan-name>` (one job per YAML task, same IDs + deps); job lifecycle updates Plan evidence | Daemon watches for pipeline `done` event → auto git-mv to `completed/` |
 | `orchestrator_worker` | Spawns `O:<plan-name>` (`role=orchestrator`, `PlanID`); workers are `role=worker` with `ParentID` set | Manual: `wd plan complete <id>` |
 | `manual` | Spawns `M:<plan-name>` (`role=general`, `PlanID`); no Autopilot | Manual: `wd plan complete <id>` |
 

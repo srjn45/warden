@@ -33,6 +33,11 @@ type PlanExecution struct {
 	TerminalStatus ExecutionStatus   `json:"terminal_status,omitempty"`
 	TaskProgress   map[string]string `json:"task_progress,omitempty"`
 	PlanBranches   []string          `json:"plan_branches,omitempty"`
+	// TaskJobMap records the plan-task → pipeline-job mapping for pipeline-mode
+	// executions. The adapter stores this on Plan execution evidence (not a
+	// second mutable task ledger) so the mapping survives pipeline teardown.
+	// Convention: job IDs equal the stable YAML task IDs (identity mapping).
+	TaskJobMap map[string]string `json:"task_job_map,omitempty"`
 }
 
 // ExecutionSummary is a compact read-only report produced when a PlanExecution

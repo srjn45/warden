@@ -2708,7 +2708,7 @@ wd plan run <plan-id> --mode manual
 | Mode | What happens |
 |---|---|
 | `autopilot` | Registers an autopilot run; the manager drives workers autonomously. Completion auto-advances the plan to `completed/`. |
-| `pipeline` | Creates a DAG pipeline (one job per YAML task). Completion auto-advances the plan to `completed/`. |
+| `pipeline` | Creates a DAG pipeline named `P:<plan-name>` (one job per YAML task, same stable task IDs + `after` deps). Job lifecycle appends PlanExecutionEvents and updates Plan task evidence. Completion auto-advances the plan to `completed/`. |
 | `orchestrator_worker` | Spawns `O:<plan-name>` (`role=orchestrator`, `PlanID`); workers are `role=worker` with `ParentID` set. Mark complete with `wd plan complete <id>` (`orchestrator` is a CLI alias). |
 | `manual` | Spawns `M:<plan-name>` (`role=general`, `PlanID`); no Autopilot. Mark complete with `wd plan complete <id>`. |
 
