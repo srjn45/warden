@@ -100,20 +100,21 @@ func TestPlanTree_StructureAndGrouping(t *testing.T) {
 
 	items := buildProjectItems(projs, nil, sessions, nil, client.AutopilotStatus{}, plansMap, nil, nil, false)
 
-	// Project sections: Plans (collapsed); Autopilots/Pipelines/Agents/Terminals open by default.
+	// Project sections: Plans (collapsed); empty Autopilots/Pipelines/Terminals omitted;
+	// Agents open by default when it has children.
 	require.NotNil(t, items[0].projHdr)
 	require.Equal(t, "My Project", items[0].projHdr.name)
 	require.True(t, items[1].planHeader)
 	require.True(t, items[1].collapsed, "plans header is always collapsed by default")
-	require.Equal(t, "Autopilots", items[2].treeSecLabel)
-	require.False(t, items[2].collapsed, "Autopilots open by default")
-	require.Equal(t, "Pipelines", items[3].treeSecLabel)
-	require.False(t, items[3].collapsed, "Pipelines open by default")
-	require.Equal(t, "Agents", items[4].treeSecLabel)
-	require.False(t, items[4].collapsed)
-	require.NotNil(t, items[5].session)
-	require.Equal(t, "agent-1", items[5].session.ID)
-	require.Equal(t, "Terminals", items[6].treeSecLabel)
+	require.Equal(t, "Agents", items[2].treeSecLabel)
+	require.False(t, items[2].collapsed)
+	require.NotNil(t, items[3].session)
+	require.Equal(t, "agent-1", items[3].session.ID)
+	for _, it := range items {
+		require.NotEqual(t, "Autopilots", it.treeSecLabel)
+		require.NotEqual(t, "Pipelines", it.treeSecLabel)
+		require.NotEqual(t, "Terminals", it.treeSecLabel)
+	}
 
 	// Expand plans header and in_progress + archived groups explicitly
 	collapsed := map[string]bool{
@@ -209,10 +210,17 @@ func TestPlanTree_EmptyPlansCollapsedByDefault(t *testing.T) {
 	items := buildProjectItems(projs, nil, nil, nil, client.AutopilotStatus{}, plansMap, nil, nil, false)
 	require.GreaterOrEqual(t, len(items), 1)
 	require.NotNil(t, items[0].projHdr)
-	// Sections are non-empty structurally (5 section headers), so project is open.
+	// Plans section is always present, so the project expands; other empty
+	// sections are omitted.
 	require.False(t, items[0].collapsed, "project with section children is expanded")
 	require.True(t, items[1].planHeader)
 	require.True(t, items[1].collapsed, "plans header is always collapsed by default")
+	for _, it := range items {
+		require.NotEqual(t, "Autopilots", it.treeSecLabel)
+		require.NotEqual(t, "Pipelines", it.treeSecLabel)
+		require.NotEqual(t, "Agents", it.treeSecLabel)
+		require.NotEqual(t, "Terminals", it.treeSecLabel)
+	}
 
 	// With plans header explicitly expanded, status groups appear (all empty/collapsed).
 	collapsed := map[string]bool{"project:proj-1": false, "plans:proj-1": false}

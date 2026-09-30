@@ -25,14 +25,45 @@ func sectionOf(t *testing.T, project *Node, kind SectionKind) *Node {
 	return nil
 }
 
-func requireSectionLabels(t *testing.T, project *Node) {
-	t.Helper()
-	require.Len(t, project.Children, 5)
-	want := []string{"Plans", "Autopilots", "Pipelines", "Agents", "Terminals"}
-	for i, label := range want {
-		require.Equal(t, NodeTypeSection, project.Children[i].Type)
-		require.Equal(t, label, project.Children[i].Label)
+func hasSection(project *Node, kind SectionKind) bool {
+	if project == nil {
+		return false
 	}
+	for _, ch := range project.Children {
+		if ch != nil && ch.Type == NodeTypeSection && ch.Detail != nil && ch.Detail.Section == string(kind) {
+			return true
+		}
+	}
+	return false
+}
+
+// requireCanonicalSectionOrder asserts Plans is always present and any other
+// sections appear in Plans → Autopilots → Pipelines → Agents → Terminals order.
+// Empty Autopilots/Pipelines/Agents/Terminals are omitted by design.
+func requireCanonicalSectionOrder(t *testing.T, project *Node) {
+	t.Helper()
+	require.NotNil(t, project)
+	require.NotEmpty(t, project.Children)
+	order := map[string]int{
+		string(SectionPlans): 0, string(SectionAutopilots): 1, string(SectionPipelines): 2,
+		string(SectionAgents): 3, string(SectionTerminals): 4,
+	}
+	prev := -1
+	sawPlans := false
+	for _, ch := range project.Children {
+		require.Equal(t, NodeTypeSection, ch.Type)
+		require.NotNil(t, ch.Detail)
+		idx, ok := order[ch.Detail.Section]
+		require.True(t, ok, "unexpected section %q", ch.Detail.Section)
+		require.Greater(t, idx, prev, "sections out of order at %q", ch.Label)
+		prev = idx
+		if ch.Detail.Section == string(SectionPlans) {
+			sawPlans = true
+		} else {
+			require.NotEmpty(t, ch.Children, "non-Plans section %q must not be empty", ch.Label)
+		}
+	}
+	require.True(t, sawPlans, "Plans section must always be present")
 }
 
 func TestProjectSections_CanonicalOrder(t *testing.T) {
@@ -45,7 +76,33 @@ func TestProjectSections_CanonicalOrder(t *testing.T) {
 	}
 	tr := NewService().Build(in, "")
 	require.Len(t, tr.Roots, 1)
-	requireSectionLabels(t, tr.Roots[0])
+	requireCanonicalSectionOrder(t, tr.Roots[0])
+	require.Len(t, tr.Roots[0].Children, 1, "empty project shows only Plans")
+	require.Equal(t, "Plans", tr.Roots[0].Children[0].Label)
+}
+
+func TestProjectSections_OmitEmptyAutopilotsPipelinesAgentsTerminals(t *testing.T) {
+	now := time.Now()
+	in := Inputs{
+		Projects: []projectstore.Project{{
+			ID: "/p", Name: "p", Path: "/p", Status: projectstore.StatusOpen,
+			Plans: []string{"plan-1"}, Agents: []string{"a1"},
+		}},
+		Plans: []*planstore.Plan{{
+			ID: "plan-1", ProjectID: "/p", Name: "feat", Status: planstore.PlanStatusInProgress,
+		}},
+		Sessions: []*store.Session{
+			{ID: "a1", Name: "solo", ProjectID: "/p", Status: store.StatusIdle, Kind: store.KindAgent, CreatedAt: now},
+		},
+	}
+	tr := NewService().Build(in, "")
+	proj := tr.Roots[0]
+	requireCanonicalSectionOrder(t, proj)
+	require.True(t, hasSection(proj, SectionPlans))
+	require.True(t, hasSection(proj, SectionAgents))
+	require.False(t, hasSection(proj, SectionAutopilots))
+	require.False(t, hasSection(proj, SectionPipelines))
+	require.False(t, hasSection(proj, SectionTerminals))
 }
 
 func TestExactlyOnce_LiveAutopilotManagerWorkersNotAlsoAgents(t *testing.T) {
@@ -78,7 +135,7 @@ func TestExactlyOnce_LiveAutopilotManagerWorkersNotAlsoAgents(t *testing.T) {
 	}
 	tr := NewService().Build(in, "")
 	proj := tr.Roots[0]
-	requireSectionLabels(t, proj)
+	requireCanonicalSectionOrder(t, proj)
 
 	plans := sectionOf(t, proj, SectionPlans)
 	require.Len(t, plans.Children, 1)
@@ -197,7 +254,7 @@ func TestExactlyOnce_OrchestratorWithWorkersUnderAgents(t *testing.T) {
 	require.Equal(t, "O:feat", agents.Children[0].Label)
 	require.Len(t, agents.Children[0].Children, 1)
 	require.Equal(t, "session:w1", agents.Children[0].Children[0].ID)
-	require.Empty(t, sectionOf(t, tr.Roots[0], SectionAutopilots).Children)
+	require.False(t, hasSection(tr.Roots[0], SectionAutopilots), "empty Autopilots section must be omitted")
 }
 
 func TestPlanNodeProjectionFields(t *testing.T) {

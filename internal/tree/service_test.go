@@ -352,33 +352,6 @@ func TestGolden_RFC18PopulatedTree(t *testing.T) {
         },
         {
           "type": "section",
-          "id": "section:__none__:autopilots",
-          "label": "Autopilots",
-          "status": "idle",
-          "detail": {
-            "section": "autopilots"
-          }
-        },
-        {
-          "type": "section",
-          "id": "section:__none__:pipelines",
-          "label": "Pipelines",
-          "status": "idle",
-          "detail": {
-            "section": "pipelines"
-          }
-        },
-        {
-          "type": "section",
-          "id": "section:__none__:agents",
-          "label": "Agents",
-          "status": "idle",
-          "detail": {
-            "section": "agents"
-          }
-        },
-        {
-          "type": "section",
           "id": "section:__none__:terminals",
           "label": "Terminals",
           "status": "active",
@@ -502,7 +475,7 @@ func TestGolden_ClosedProject(t *testing.T) {
 	closedNode := tree.Roots[1]
 	require.Equal(t, "project:/home/u/closed-proj", closedNode.ID)
 	require.True(t, closedNode.Detail.Closed, "closed project must carry Detail.Closed=true")
-	requireSectionLabels(t, closedNode)
+	requireCanonicalSectionOrder(t, closedNode)
 	agents := sectionOf(t, closedNode, SectionAgents)
 	require.Len(t, agents.Children, 1)
 	require.Equal(t, "session:agent-in-closed", agents.Children[0].ID)
@@ -564,7 +537,7 @@ func TestGolden_AutopilotWorkerClearedParentID(t *testing.T) {
 
 	require.Len(t, tree.Roots, 1)
 	proj := tree.Roots[0]
-	requireSectionLabels(t, proj)
+	requireCanonicalSectionOrder(t, proj)
 	aps := sectionOf(t, proj, SectionAutopilots)
 	require.Len(t, aps.Children, 1)
 	run := aps.Children[0]
@@ -625,7 +598,7 @@ func TestGolden_NestedAgent_AcrossWorktree(t *testing.T) {
 
 	require.Len(t, tree.Roots, 1)
 	proj := tree.Roots[0]
-	requireSectionLabels(t, proj)
+	requireCanonicalSectionOrder(t, proj)
 	agents := sectionOf(t, proj, SectionAgents)
 	require.Len(t, agents.Children, 1)
 	orch := agents.Children[0]
@@ -701,7 +674,7 @@ func TestGolden_NestedPipeline_UnderOwningAgent(t *testing.T) {
 	svc := NewService()
 	tree := svc.Build(in, "")
 
-	requireSectionLabels(t, tree.Roots[0])
+	requireCanonicalSectionOrder(t, tree.Roots[0])
 	pipes := sectionOf(t, tree.Roots[0], SectionPipelines)
 	require.Len(t, pipes.Children, 1)
 	require.Equal(t, "pipeline:loose-pipe", pipes.Children[0].ID)
@@ -990,8 +963,8 @@ func TestGolden_AuthoritativeMembership_NestedPipelineJob_TerminalSeparation(t *
 	alpha, beta := tree.Roots[0], tree.Roots[1]
 	require.Equal(t, "project:/home/u/dev/alpha", alpha.ID)
 	require.Equal(t, "project:/home/u/dev/beta", beta.ID)
-	requireSectionLabels(t, alpha)
-	requireSectionLabels(t, beta)
+	requireCanonicalSectionOrder(t, alpha)
+	requireCanonicalSectionOrder(t, beta)
 
 	pipes := sectionOf(t, alpha, SectionPipelines)
 	require.Len(t, pipes.Children, 1)
@@ -1009,9 +982,9 @@ func TestGolden_AuthoritativeMembership_NestedPipelineJob_TerminalSeparation(t *
 	require.Len(t, terms.Children, 1)
 	require.Equal(t, "session:shell-1", terms.Children[0].ID)
 
-	require.Empty(t, sectionOf(t, beta, SectionAgents).Children)
-	require.Empty(t, sectionOf(t, beta, SectionPipelines).Children)
-	require.Empty(t, sectionOf(t, beta, SectionTerminals).Children)
+	require.False(t, hasSection(beta, SectionAgents), "empty Agents omitted")
+	require.False(t, hasSection(beta, SectionPipelines), "empty Pipelines omitted")
+	require.False(t, hasSection(beta, SectionTerminals), "empty Terminals omitted")
 }
 
 func TestBuildExposesPlanIDOnAgentAndPipeline(t *testing.T) {

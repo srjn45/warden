@@ -30,12 +30,14 @@ func NewService() *Service {
 // to that single project's subtree; an unknown projectID yields an empty roots slice.
 // The synthetic "No project" bucket is only returned when projectID == "".
 //
-// Project children are always the five sections (Plans, Autopilots, Pipelines,
-// Agents, Terminals). Each entity renders exactly once: live Autopilot managers
-// and their worker children nest under Autopilots (not Agents); pipeline job
-// agents nest under Pipelines; Plan task groups are never rendered inside
-// Autopilot (task evidence lives on Plan detail). Headless brain agents are
-// omitted unless Inputs.ShowSystem is true.
+// Project children are the five sections in canonical order (Plans, Autopilots,
+// Pipelines, Agents, Terminals). Plans is always present (even when empty);
+// Autopilots / Pipelines / Agents / Terminals are omitted when they have no
+// children so the TUI does not show empty groupings. Each entity renders
+// exactly once: live Autopilot managers and their worker children nest under
+// Autopilots (not Agents); pipeline job agents nest under Pipelines; Plan task
+// groups are never rendered inside Autopilot (task evidence lives on Plan
+// detail). Headless brain agents are omitted unless Inputs.ShowSystem is true.
 func (s *Service) Build(in Inputs, projectID string) *Tree {
 	openByKey := map[string]string{}
 	closedByKey := map[string]string{}
@@ -554,8 +556,9 @@ func (s *Service) Build(in Inputs, projectID string) *Tree {
 	}
 }
 
-// buildGroupChildren constructs the five project sections in canonical order:
-// Plans → Autopilots → Pipelines → Agents → Terminals.
+// buildGroupChildren constructs project sections in canonical order:
+// Plans → Autopilots → Pipelines → Agents → Terminals. Plans is always emitted;
+// the other four are skipped when empty.
 func buildGroupChildren(
 	groupKey string,
 	plans []*planstore.Plan,
@@ -613,13 +616,22 @@ func buildGroupChildren(
 		termNodes = append(termNodes, buildTerminalNode(t))
 	}
 
-	return []*Node{
+	out := []*Node{
 		sectionNode(secID(SectionPlans), "Plans", SectionPlans, planNodes),
-		sectionNode(secID(SectionAutopilots), "Autopilots", SectionAutopilots, apNodes),
-		sectionNode(secID(SectionPipelines), "Pipelines", SectionPipelines, pipeNodes),
-		sectionNode(secID(SectionAgents), "Agents", SectionAgents, agentNodes),
-		sectionNode(secID(SectionTerminals), "Terminals", SectionTerminals, termNodes),
 	}
+	if len(apNodes) > 0 {
+		out = append(out, sectionNode(secID(SectionAutopilots), "Autopilots", SectionAutopilots, apNodes))
+	}
+	if len(pipeNodes) > 0 {
+		out = append(out, sectionNode(secID(SectionPipelines), "Pipelines", SectionPipelines, pipeNodes))
+	}
+	if len(agentNodes) > 0 {
+		out = append(out, sectionNode(secID(SectionAgents), "Agents", SectionAgents, agentNodes))
+	}
+	if len(termNodes) > 0 {
+		out = append(out, sectionNode(secID(SectionTerminals), "Terminals", SectionTerminals, termNodes))
+	}
+	return out
 }
 
 func sectionNode(id, label string, kind SectionKind, children []*Node) *Node {
