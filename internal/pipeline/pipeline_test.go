@@ -25,6 +25,28 @@ func TestValidateOK(t *testing.T) {
 	}
 }
 
+func TestValidNameAllowsPlanPipelineDisplay(t *testing.T) {
+	if err := ValidName("P:my-plan"); err != nil {
+		t.Fatalf("P:my-plan should be valid: %v", err)
+	}
+	if err := ValidName("ordinary"); err != nil {
+		t.Fatalf("ordinary should be valid: %v", err)
+	}
+	if err := ValidName("O:not-a-pipeline"); err == nil {
+		t.Fatal("O: prefix is for agents, not pipelines")
+	}
+	if err := ValidName("P:"); err == nil {
+		t.Fatal("empty slug should be rejected")
+	}
+	p := &Pipeline{
+		Name: "P:chain-plan", Repo: "/repo",
+		Jobs: []Job{{ID: "t1", Prompt: "go", Worktree: "none"}},
+	}
+	if err := Validate(p); err != nil {
+		t.Fatalf("plan-bound display name should validate: %v", err)
+	}
+}
+
 func TestValidateRejectsUnknownDep(t *testing.T) {
 	p := valid()
 	p.Jobs[1].DependsOn = []string{"ghost"}

@@ -75,6 +75,20 @@ type Executor struct {
 	curator  Curator                                                // nil ⇒ memory auto-curation disabled
 	keepDone bool                                                   // pipeline_keep_done config setting — keep done agents alive
 	snapWG   sync.WaitGroup                                         // tracks in-flight digest snapshots (test sync)
+
+	// planHook mirrors plan-bound pipeline job lifecycle onto PlanExecutionEvents
+	// and Plan task evidence. nil ⇒ no plan bridging (planless pipelines, tests).
+	planHook PlanPipelineHook
+}
+
+// PlanPipelineHook receives job/pipeline lifecycle notifications for plan-bound
+// pipelines (PlanID set). Independent planless pipelines never invoke it.
+type PlanPipelineHook interface {
+	OnJobAssigned(p *pipeline.Pipeline, jobID, agentID string)
+	OnJobCompleted(p *pipeline.Pipeline, jobID, agentID string)
+	OnJobFailed(p *pipeline.Pipeline, jobID, agentID string)
+	OnJobSkipped(p *pipeline.Pipeline, jobID string)
+	OnPipelineTerminal(p *pipeline.Pipeline)
 }
 
 func NewExecutor(ps *pipeline.Store, ss agentstore.AgentStore, life Lifecycle, cs *ctxstore.Store, notify func()) *Executor {
@@ -97,6 +111,47 @@ func (e *Executor) SetDigestFn(fn func(context.Context, *agentstore.Agent) diges
 // SetKeepDoneAgents, when true, leaves a completed job's agent alive (skips the
 // reap) so its tmux pane stays attachable for debugging.
 func (e *Executor) SetKeepDoneAgents(v bool) { e.keepDone = v }
+
+// SetPlanPipelineHook wires the Plan-to-Pipeline lifecycle bridge. nil disables.
+func (e *Executor) SetPlanPipelineHook(h PlanPipelineHook) { e.planHook = h }
+
+func (e *Executor) notifyPlanJobAssigned(p *pipeline.Pipeline, jobID, agentID string) {
+	if e.planHook == nil || p == nil || p.PlanID == "" {
+		return
+	}
+	e.planHook.OnJobAssigned(p, jobID, agentID)
+}
+
+func (e *Executor) notifyPlanJobCompleted(p *pipeline.Pipeline, jobID, agentID string) {
+	if e.planHook == nil || p == nil || p.PlanID == "" {
+		return
+	}
+	e.planHook.OnJobCompleted(p, jobID, agentID)
+}
+
+func (e *Executor) notifyPlanJobFailed(p *pipeline.Pipeline, jobID, agentID string) {
+	if e.planHook == nil || p == nil || p.PlanID == "" {
+		return
+	}
+	e.planHook.OnJobFailed(p, jobID, agentID)
+}
+
+func (e *Executor) notifyPlanJobSkipped(p *pipeline.Pipeline, jobID string) {
+	if e.planHook == nil || p == nil || p.PlanID == "" {
+		return
+	}
+	e.planHook.OnJobSkipped(p, jobID)
+}
+
+func (e *Executor) notifyPlanPipelineTerminal(p *pipeline.Pipeline) {
+	if e.planHook == nil || p == nil || p.PlanID == "" {
+		return
+	}
+	switch p.Status {
+	case pipeline.StatusDone, pipeline.StatusStalled, pipeline.StatusCanceled:
+		e.planHook.OnPipelineTerminal(p)
+	}
+}
 
 // SetCurator wires the memory auto-curation seam (#53 PR-2); nil (the default) leaves
 // curation off. Set once at construction, before concurrent use.
@@ -338,6 +393,7 @@ func (e *Executor) Reconcile(ctx context.Context, pid string) error {
 		if serr != nil {
 			// Spawn failure fails the job; descendants get skipped on next Plan.
 			e.markJob(pid, job.ID, func(j *pipeline.Job) { j.Status = pipeline.JobFailed })
+			e.notifyPlanJobFailed(p, job.ID, "")
 			continue
 		}
 		// Inherit the pipeline's project before Insert so the back-ref lands in
@@ -348,6 +404,7 @@ func (e *Executor) Reconcile(ctx context.Context, pid string) error {
 			_ = e.life.Teardown(tctx, sess)
 			cancel()
 			e.markJob(pid, job.ID, func(j *pipeline.Job) { j.Status = pipeline.JobFailed })
+			e.notifyPlanJobFailed(p, job.ID, "")
 			continue
 		}
 		// Append to Project.agents[] (best-effort). Job agents stay off every
@@ -372,6 +429,18 @@ func (e *Executor) Reconcile(ctx context.Context, pid string) error {
 		p.Status = pipeline.Plan(p).Status // recompute from the just-applied statuses
 	}); err != nil {
 		return err
+	}
+	// Bridge plan-bound job lifecycle onto PlanExecutionEvents / task evidence.
+	if p2, gerr := e.pstore.Get(pid); gerr == nil {
+		for _, s := range ok {
+			e.notifyPlanJobAssigned(p2, s.jobID, s.sessionID)
+		}
+		for _, id := range d.Skip {
+			if j := p2.Job(id); j != nil && j.Status == pipeline.JobSkipped {
+				e.notifyPlanJobSkipped(p2, id)
+			}
+		}
+		e.notifyPlanPipelineTerminal(p2)
 	}
 	if e.notify != nil {
 		e.notify()
@@ -503,11 +572,18 @@ func (e *Executor) OnTransition(sess *agentstore.Agent, _ store.Status, to store
 		// (emit completes a job synchronously before the agent exits), so it failed
 		// its contract → mark failed (descendants skip on reconcile). A job already
 		// completed via emit is JobDone here and the guard leaves it untouched.
+		failed := false
 		e.markJob(sess.PipelineID, sess.JobID, func(j *pipeline.Job) {
 			if j.Status == pipeline.JobRunning {
 				j.Status = pipeline.JobFailed
+				failed = true
 			}
 		})
+		if failed {
+			if p2, gerr := e.pstore.Get(sess.PipelineID); gerr == nil {
+				e.notifyPlanJobFailed(p2, sess.JobID, sess.ID)
+			}
+		}
 	case store.StatusIdle:
 		// The poller's stuck-detection (quiet ≥ stuckAfter) is the grace window:
 		// a running job whose agent went quiet without emitting is flagged for
@@ -640,6 +716,13 @@ func (e *Executor) Emit(ctx context.Context, pid, jobID, text string) error {
 		}
 	}); err != nil {
 		return err
+	}
+	agentID := ""
+	if sess != nil {
+		agentID = sess.ID
+	}
+	if p2, gerr := e.pstore.Get(pid); gerr == nil {
+		e.notifyPlanJobCompleted(p2, jobID, agentID)
 	}
 	// Reap the completed agent (free the slot + RAM) and snapshot its digest.
 	// Terminate ONLY — never Teardown — so the worktree + branch survive for

@@ -664,25 +664,13 @@ func (s *Server) startPlanExecution(ctx context.Context, p *planstore.Plan, mode
 		return nil
 
 	case planstore.PlanModePipeline:
-		if s.exec == nil {
-			return errStatus(http.StatusServiceUnavailable, "pipeline executor not configured")
+		id, pipeErr := s.startPlanPipeline(ctx, p, root)
+		if pipeErr != nil {
+			return pipeErr
 		}
-		pl, buildErr := buildPlanPipeline(p, root)
-		if buildErr != nil {
-			return errStatus(http.StatusInternalServerError, "build pipeline: "+buildErr.Error())
-		}
-		pl.PlanID = p.ID
-		if err := s.exec.pstore.Create(pl); err != nil {
-			if errors.Is(err, pipeline.ErrExists) {
-				return err
-			}
-			return errStatus(http.StatusInternalServerError, "create pipeline: "+err.Error())
-		}
-		s.addPipelineMembership(pl)
-		s.addPlanMembership(p.ID, p.ProjectID)
-		_ = s.exec.pstore.Update(pl.ID, func(up *pipeline.Pipeline) { up.Status = pipeline.StatusRunning })
-		_ = s.exec.Reconcile(context.Background(), pl.ID)
-		pipelineID = pl.ID
+		pipelineID = id
+		// ActiveExecution + PipelineID already stamped by beginPlanPipelineExecution.
+		return nil
 
 	case planstore.PlanModeOrchestratorWorker:
 		sess, spawnErr := s.spawnPlanBoundAgent(ctx, p, root, "orchestrator",
@@ -734,45 +722,6 @@ func (s *Server) startPlanExecution(ctx context.Context, p *planstore.Plan, mode
 		return errStatus(http.StatusInternalServerError, "record execution link: "+err.Error())
 	}
 	return nil
-}
-
-// buildPlanPipeline constructs a pipeline.Pipeline with one job per plan task.
-// The plan YAML is read from root/plan.FilePath. If the YAML cannot be read or
-// has no tasks, an empty single-job pipeline is returned.
-func buildPlanPipeline(p *planstore.Plan, root string) (*pipeline.Pipeline, error) {
-	var jobs []pipeline.Job
-	planPath := filepath.Join(root, p.FilePath)
-	if ap, err := autopilot.LoadPlan(planPath); err == nil && len(ap.Tasks) > 0 {
-		for _, t := range ap.Tasks {
-			jobs = append(jobs, pipeline.Job{
-				ID:        t.ID,
-				Prompt:    t.Prompt,
-				DependsOn: t.After,
-				Worktree:  "fresh",
-				Type:      "development",
-			})
-		}
-	} else {
-		// Fall back to a single job with the plan name as the prompt.
-		jobs = []pipeline.Job{{
-			ID:       "run",
-			Prompt:   "Execute the plan: " + p.Name,
-			Worktree: "fresh",
-			Type:     "development",
-		}}
-	}
-	pl := &pipeline.Pipeline{
-		ID:        p.ID,
-		Name:      p.Name,
-		Repo:      root,
-		ProjectID: p.ProjectID,
-		Status:    pipeline.StatusPending,
-		Jobs:      jobs,
-	}
-	if err := pipeline.Validate(pl); err != nil {
-		return nil, err
-	}
-	return pl, nil
 }
 
 // gitMvPlanStatus moves a plan YAML from its current path to the subdirectory

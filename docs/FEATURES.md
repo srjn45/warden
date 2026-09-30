@@ -1505,7 +1505,7 @@ The daemon auto-scans each registered project's `plans/` directory at startup (d
 | Mode | What `wd plan run` does | Completion |
 |---|---|---|
 | `autopilot` | Creates live `Autopilot` (`AP:<plan-name>`) + manager Agent (`role=autopilot`, `PlanID`); appends `PlanExecutionEvent`s; stores `AutopilotRunID` / `ActiveExecution`; git-mv to `in_progress/` | Daemon watches for run `completed` → git-mv to `completed/` |
-| `pipeline` | Creates a pipeline (one job per YAML task); stores `PipelineID`; git-mv | Daemon watches for pipeline `done` → git-mv to `completed/` |
+| `pipeline` | Creates a pipeline named `P:<plan-name>` (one job per YAML task, same IDs + deps); stores `PipelineID` + task→job evidence; git-mv | Daemon watches for pipeline `done` → git-mv to `completed/` |
 | `orchestrator_worker` | Spawns `O:<plan-name>` (`role=orchestrator`, `PlanID`); workers are `role=worker` with `ParentID`; stores `OrchestratorID`; git-mv | `wd plan complete <id>` |
 | `manual` | Spawns `M:<plan-name>` (`role=general`, `PlanID`); no Autopilot; git-mv | `wd plan complete <id>` |
 

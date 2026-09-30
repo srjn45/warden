@@ -670,6 +670,7 @@ func planGitServerWithExec(t *testing.T) (*httptest.Server, *planstore.Store, *p
 	exec := NewExecutor(pips, newFakeStore(), fl, cs, func() {})
 
 	srv := &Server{store: newFakeStore(), life: fl, plans: ps, exec: exec, projects: projects}
+	exec.SetPlanPipelineHook(srv)
 	ts := httptest.NewServer(srv.router())
 	t.Cleanup(ts.Close)
 	return ts, ps, projects, root, pips

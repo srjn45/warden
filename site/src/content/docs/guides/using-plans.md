@@ -113,7 +113,7 @@ wd plan run <plan-id> --mode manual               # single general agent
 | Mode | What happens |
 |---|---|
 | `autopilot` | Creates a live `Autopilot` (`AP:<plan-name>`) and manager Agent (`role=autopilot`, `PlanID`); workers are children via `ParentID`; Plan owns task state and execution events. |
-| `pipeline` | Creates a DAG pipeline where each YAML task becomes a job; moves to `completed/` when the pipeline finishes. |
+| `pipeline` | Creates a DAG pipeline named `P:<plan-name>` where each YAML task becomes a job (same stable IDs + `after` deps); job lifecycle updates Plan execution evidence. Moves to `completed/` when the pipeline finishes. |
 | `orchestrator_worker` | Spawns one agent named `O:<plan-name>` (`role=orchestrator`, `PlanID` set). Workers it spawns are `role=worker` with `ParentID` pointing at the orchestrator; task evidence stays on the Plan. No Autopilot is created. Completion is `wd plan complete <id>` (`orchestrator` is accepted as a CLI alias). |
 | `manual` | Spawns one agent named `M:<plan-name>` (`role=general`, `PlanID` set) for you to drive. No Autopilot is created. Completion is `wd plan complete <id>`. |
 
