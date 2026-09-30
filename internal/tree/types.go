@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 
 	"github.com/srjn45/warden/internal/autopilot"
+	"github.com/srjn45/warden/internal/autopilotstore"
 	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -14,15 +16,28 @@ type NodeType string
 
 const (
 	NodeTypeProject      NodeType = "project"
+	NodeTypeSection      NodeType = "section"
+	NodeTypePlan         NodeType = "plan"
 	NodeTypeAgent        NodeType = "agent"
 	NodeTypeTerminal     NodeType = "terminal"
 	NodeTypePipeline     NodeType = "pipeline"
 	NodeTypeJob          NodeType = "job"
 	NodeTypeAutopilotRun NodeType = "autopilot_run"
 	NodeTypeManager      NodeType = "manager"
-	NodeTypeGuardian     NodeType = "guardian"
-	NodeTypeTask         NodeType = "task"
+	NodeTypeGuardian     NodeType = "guardian" // legacy; new builds omit guardians
+	NodeTypeTask         NodeType = "task"     // legacy; plan tasks live on Plan detail, not Autopilot
 	NodeTypeWorker       NodeType = "worker"
+)
+
+// SectionKind identifies a project-level section header.
+type SectionKind string
+
+const (
+	SectionPlans      SectionKind = "plans"
+	SectionAutopilots SectionKind = "autopilots"
+	SectionPipelines  SectionKind = "pipelines"
+	SectionAgents     SectionKind = "agents"
+	SectionTerminals  SectionKind = "terminals"
 )
 
 // Node represents a single item in the project tree hierarchy (spec §3).
@@ -45,7 +60,8 @@ type Detail struct {
 	Path      string   `json:"path,omitempty"`
 	Slot      string   `json:"slot,omitempty"`
 	Gate      string   `json:"gate,omitempty"`
-	PlanID    string   `json:"plan_id,omitempty"` // agent/pipeline: optional plan back-ref
+	PlanID    string   `json:"plan_id,omitempty"` // agent/pipeline/plan/autopilot: plan back-ref
+	Section   string   `json:"section,omitempty"` // section nodes: plans|autopilots|pipelines|agents|terminals
 	Synthetic bool     `json:"synthetic,omitempty"`
 	Degraded  bool     `json:"degraded,omitempty"`
 	Closed    bool     `json:"closed,omitempty"`
@@ -79,9 +95,12 @@ type Inputs struct {
 	Sessions          []*store.Session            // full fleet
 	Projects          []projectstore.Project      // open + closed
 	Pipelines         []*pipeline.Pipeline        // all pipelines
-	Autopilot         autopilot.Status            // autopilot status carrying runs, tasks, workers
+	Plans             []*planstore.Plan           // durable plan records
+	Autopilots        []*autopilotstore.Autopilot // live Autopilot executors (preferred)
+	Autopilot         autopilot.Status            // legacy RunStatus fallback when Autopilots empty
 	Groups            []projectstore.ProjectGroup // optional project groups
 	DegradedSubtrees  []string                    // container IDs whose subsystem failed
 	PipelinesDegraded bool                        // pipeline store read failure
 	AutopilotDegraded bool                        // autopilot status read failure
+	ShowSystem        bool                        // include headless brain (system:true) under Autopilot
 }

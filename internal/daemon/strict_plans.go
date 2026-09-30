@@ -78,21 +78,30 @@ func (s *Server) planToOAPI(p *planstore.Plan) oapi.Plan {
 		completedAt = *p.CompletedAt
 	}
 	out := oapi.Plan{
-		AutopilotRunId: p.AutopilotRunID,
-		CompletedAt:    completedAt,
-		CreatedAt:      p.CreatedAt,
-		ExecutionMode:  oapi.PlanExecutionMode(p.ExecutionMode),
-		FilePath:       p.FilePath,
-		Id:             p.ID,
-		Name:           p.Name,
-		OrchestratorId: p.OrchestratorID,
-		PipelineId:     p.PipelineID,
-		PlanBranches:   p.Branches,
-		ProjectId:      p.ProjectID,
-		StartedAt:      startedAt,
-		Status:         oapi.PlanStatus(p.Status),
-		TaskProgress:   taskProgress,
-		UpdatedAt:      p.UpdatedAt,
+		AutopilotRunId:   p.AutopilotRunID,
+		CompletedAt:      completedAt,
+		CreatedAt:        p.CreatedAt,
+		ExecutionMode:    oapi.PlanExecutionMode(p.ExecutionMode),
+		FilePath:         p.FilePath,
+		Id:               p.ID,
+		Name:             p.Name,
+		OrchestratorId:   p.OrchestratorID,
+		PipelineId:       p.PipelineID,
+		PlanBranches:     p.Branches,
+		ProjectId:        p.ProjectID,
+		StartedAt:        startedAt,
+		Status:           oapi.PlanStatus(p.Status),
+		TaskProgress:     taskProgress,
+		UpdatedAt:        p.UpdatedAt,
+		ExecutionHistory: p.ExecutionHistory,
+		TaskOutcomes:     p.TaskOutcomes,
+		BranchSummaries:  p.BranchSummaries,
+	}
+	if p.ActiveExecution != nil {
+		out.ActiveExecution = *p.ActiveExecution
+	}
+	if p.ExecutionSummary != nil {
+		out.ExecutionSummary = *p.ExecutionSummary
 	}
 	s.hydratePlanDef(p, &out)
 	return out

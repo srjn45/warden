@@ -4141,6 +4141,99 @@ components:
         updated_at: { type: string, format: date-time }
         started_at: { type: string, format: date-time, nullable: true }
         completed_at: { type: string, format: date-time, nullable: true }
+        active_execution:
+          $ref: "#/components/schemas/PlanExecution"
+          description: "currently-running execution attempt; omitted when idle"
+        execution_history:
+          type: array
+          description: "past execution attempts (historical summaries of runs)"
+          items: { $ref: "#/components/schemas/PlanExecution" }
+        task_outcomes:
+          type: object
+          additionalProperties: { $ref: "#/components/schemas/TaskOutcome" }
+          description: "durable per-task evidence (assignment, PRs, verified checks)"
+        branch_summaries:
+          type: array
+          items: { $ref: "#/components/schemas/BranchSummary" }
+        execution_summary:
+          $ref: "#/components/schemas/ExecutionSummary"
+          description: "immutable reduced report persisted on finalize"
+
+    PlanExecution:
+      x-go-type: planstore.PlanExecution
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/planstore
+        name: planstore
+      type: object
+      description: A single execution attempt of a Plan.
+      properties:
+        id: { type: string }
+        plan_id: { type: string }
+        execution_mode:
+          type: string
+          enum: [autopilot, pipeline, orchestrator_worker, manual]
+        executor_id: { type: string }
+        started_at: { type: string, format: date-time }
+        completed_at: { type: string, format: date-time, nullable: true }
+        terminal_status:
+          type: string
+          enum: [running, completed, failed, cancelled]
+        task_progress:
+          type: object
+          additionalProperties: { type: string }
+        plan_branches:
+          type: array
+          items: { type: string }
+
+    TaskOutcome:
+      x-go-type: planstore.TaskOutcome
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/planstore
+        name: planstore
+      type: object
+      description: Durable evidence for one task's terminal result.
+      properties:
+        task_id: { type: string }
+        status: { type: string }
+        assigned_agent: { type: string }
+        branch: { type: string }
+        verified_checks:
+          type: array
+          items: { type: string }
+        note: { type: string }
+
+    BranchSummary:
+      x-go-type: planstore.BranchSummary
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/planstore
+        name: planstore
+      type: object
+      description: Git branch evidence linked to a plan task/agent/PR.
+      properties:
+        name: { type: string }
+        task_id: { type: string }
+        agent_id: { type: string }
+
+    ExecutionSummary:
+      x-go-type: planstore.ExecutionSummary
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/planstore
+        name: planstore
+      type: object
+      description: Immutable reduced report for a completed PlanExecution.
+      properties:
+        plan_id: { type: string }
+        plan_name: { type: string }
+        goal: { type: string }
+        execution_mode:
+          type: string
+          enum: [autopilot, pipeline, orchestrator_worker, manual]
+        executor_id: { type: string }
+        started_at: { type: string, format: date-time }
+        completed_at: { type: string, format: date-time, nullable: true }
+        tasks_total: { type: integer }
+        tasks_done: { type: integer }
+        outcome_note: { type: string }
 
     CreatePlanRequest:
       type: object
@@ -4786,9 +4879,9 @@ components:
         type:
           type: string
           description: >-
-            Node type: project | agent | terminal | pipeline | job |
+            Node type: project | section | plan | agent | terminal | pipeline | job |
             autopilot_run | manager | guardian | task | worker.
-          enum: [project, agent, terminal, pipeline, job, autopilot_run, manager, guardian, task, worker]
+          enum: [project, section, plan, agent, terminal, pipeline, job, autopilot_run, manager, guardian, task, worker]
         id:
           type: string
           description: >-
@@ -4841,8 +4934,11 @@ components:
         plan_id:
           type: string
           description: >
-            agent/pipeline nodes: optional back-ref to the planstore plan this
-            executor is linked to. Omitted when the node is planless.
+            agent/pipeline/plan/autopilot nodes: optional back-ref to the
+            planstore plan this node is linked to. Omitted when planless.
+        section:
+          type: string
+          description: "section nodes: plans | autopilots | pipelines | agents | terminals"
         synthetic: { type: boolean, description: "true for the \"No project\" bucket" }
         degraded: { type: boolean, description: "subtree degraded in place" }
         closed: { type: boolean, description: "true for a node under a closed/hibernated project" }

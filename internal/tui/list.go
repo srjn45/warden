@@ -252,6 +252,10 @@ type item struct {
 	planGroup    string          // "in_progress" | "pending" | "completed" | "archived"
 	planGroupCnt int             // count for status group badge
 	plan         *planstore.Plan // individual plan row
+
+	// project tree section rows (Plans/Autopilots/Pipelines/Agents/Terminals)
+	treeSecID    string // composite tree node id (section:<proj>:autopilots)
+	treeSecLabel string // display label
 }
 
 // dirKey is the placeholder identity for an opened dir. The NUL separator can't
@@ -298,6 +302,9 @@ func itemKey(it item) string {
 	if it.planHeader {
 		return "plans:" + it.planProject
 	}
+	if it.treeSecID != "" {
+		return it.treeSecID
+	}
 	if it.planGroup != "" {
 		return "plans:" + it.planProject + ":" + it.planGroup
 	}
@@ -324,7 +331,7 @@ func projNodeID(id string) string {
 // a dir group.
 func (it item) noDirGroup() bool {
 	return it.section != "" || it.projHdr != nil || it.apRun != nil || it.apPlan || it.apTask != nil || it.apWorkers || it.apWorkerGroup != "" || it.underProject || it.apprView != nil || it.pipeline != nil || it.pjJob != nil ||
-		it.planHeader || it.planGroup != "" || it.plan != nil ||
+		it.planHeader || it.planGroup != "" || it.plan != nil || it.treeSecID != "" ||
 		(it.session != nil && it.session.IsTerminal())
 }
 
@@ -807,6 +814,16 @@ func renderItemLine(it item, selected bool, width int) string {
 			glyph = "▸"
 		}
 		line = "  " + glyph + " " + stPaneTitle.Render("Plans")
+	case it.treeSecID != "":
+		glyph := "▾"
+		if it.collapsed {
+			glyph = "▸"
+		}
+		label := it.treeSecLabel
+		if label == "" {
+			label = "Section"
+		}
+		line = "  " + glyph + " " + stPaneTitle.Render(label)
 	case it.planGroup != "":
 		glyph := "▾"
 		if it.collapsed {
