@@ -60,10 +60,10 @@ Complete command tree:
   warden plan backup                   Export or restore a portable Plan backup bundle
   warden plan backup export            Write a Plan backup bundle to a file or stdout
   warden plan backup restore           Restore Plans from a backup bundle into ScrivaDB
-  warden plan import                   Copy a plan YAML into plans/pending/ and scan
+  warden plan import                   [deprecated] Copy a plan YAML into plans/pending/ and scan
   warden plan import-legacy            Import legacy plans/**/*.yaml into ScrivaDB (operator cutover)
-  warden plan scan                     Scan a project's plans/ directory and upsert plan records
-  warden plan status                   Transition a plan's status (git mv + commit + DB update)
+  warden plan scan                     [deprecated] Scan plans/ and upsert stub plan records
+  warden plan status                   [deprecated] Transition a plan's status (DB field only)
   warden plan assess                   Brain-assisted task progress assessment
   warden autopilot                     Turn autopilot capability on/off per repo and show its status
   warden autopilot enable              Enable autopilot capability for this repo (does not start work)

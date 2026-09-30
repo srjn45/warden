@@ -358,10 +358,14 @@ func TestPlansScan(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out struct {
-		Upserted int `json:"upserted"`
+		Upserted         int    `json:"upserted"`
+		SkippedCanonical int    `json:"skipped_canonical"`
+		Notice           string `json:"notice"`
 	}
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
 	require.Equal(t, 2, out.Upserted)
+	require.Contains(t, out.Notice, "deprecated")
+	require.Contains(t, out.Notice, "cannot affect canonical")
 
 	plans, err := ps.ListByProject(t.Context(), root)
 	require.NoError(t, err)

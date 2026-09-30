@@ -197,7 +197,7 @@ func (s *Server) ScanProjectPlans(ctx context.Context, req oapi.ScanProjectPlans
 			return nil, errStatus(http.StatusInternalServerError, "migrate flat plans: "+err.Error())
 		}
 	}
-	n, err := planstore.ScanProject(ctx, s.plans, req.ProjectId, root)
+	scanRes, err := planstore.ScanProject(ctx, s.plans, req.ProjectId, root)
 	if err != nil {
 		return nil, errStatus(http.StatusInternalServerError, "scan plans: "+err.Error())
 	}
@@ -208,7 +208,11 @@ func (s *Server) ScanProjectPlans(ctx context.Context, req oapi.ScanProjectPlans
 			s.addPlanMembership(p.ID, req.ProjectId)
 		}
 	}
-	return oapi.ScanProjectPlans200JSONResponse{Upserted: n}, nil
+	return oapi.ScanProjectPlans200JSONResponse{
+		Upserted:         scanRes.Upserted,
+		SkippedCanonical: scanRes.SkippedCanonical,
+		Notice:           scanRes.Notice,
+	}, nil
 }
 
 func (s *Server) ImportLegacyPlans(ctx context.Context, req oapi.ImportLegacyPlansRequestObject) (oapi.ImportLegacyPlansResponseObject, error) {

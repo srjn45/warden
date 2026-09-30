@@ -2046,10 +2046,14 @@ type PlanScanRequest struct {
 
 // PlanScanResult is the response from PlanScan.
 type PlanScanResult struct {
-	Upserted int `json:"upserted"`
+	Upserted         int    `json:"upserted"`
+	SkippedCanonical int    `json:"skipped_canonical,omitempty"`
+	Notice           string `json:"notice,omitempty"`
 }
 
-// PlanScan walks a project's plans/ directory and upserts discovered plan records.
+// PlanScan is a deprecated migration aid: walks a project's plans/ directory and
+// upserts stub plan records. After ImportLegacy / DB-native create it cannot
+// affect canonical definition, lifecycle, or execution.
 func (c *Client) PlanScan(ctx context.Context, projectID string, req PlanScanRequest) (PlanScanResult, error) {
 	var out PlanScanResult
 	if err := c.do(ctx, http.MethodPost, "/projects/"+url.PathEscape(projectID)+"/plans/scan", req, &out); err != nil {

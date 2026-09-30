@@ -175,13 +175,16 @@ func newPlanShowCmd() *cobra.Command {
 func newPlanImportCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "import <file>",
-		Short: "Copy a plan YAML into plans/pending/ and scan",
-		Long: "Copy a plan YAML file into the project's plans/pending/ directory and\n" +
-			"trigger a scan so the daemon registers the imported plan.\n\n" +
-			"Prefer `wd plan import-legacy` for one-time cutover of an existing\n" +
-			"plans/{pending,in_progress,completed,archived} tree into ScrivaDB.",
+		Short: "[deprecated] Copy a plan YAML into plans/pending/ and scan",
+		Long: "Deprecated one-release migration aid. Copy a plan YAML file into the\n" +
+			"project's plans/pending/ directory and trigger a scan.\n\n" +
+			"This cannot affect canonical ScrivaDB Plan definition or execution after\n" +
+			"import — prefer `wd plan import-legacy` for one-time cutover of an existing\n" +
+			"plans/{pending,in_progress,completed,archived} tree, or `wd plan create` for\n" +
+			"new DB-native plans.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			fmt.Fprintln(cmd.ErrOrStderr(), "warning: wd plan import is deprecated; prefer wd plan import-legacy or wd plan create — scan/import cannot affect canonical execution after import")
 			projectID, err := planProjectFlag(cmd)
 			if err != nil {
 				return err
@@ -211,7 +214,14 @@ func newPlanImportCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("scan after import: %w", err)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "scanned: %d plan(s) upserted\n", res.Upserted)
+			fmt.Fprintf(cmd.OutOrStdout(), "scanned: %d stub(s) upserted", res.Upserted)
+			if res.SkippedCanonical > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), ", %d canonical skipped", res.SkippedCanonical)
+			}
+			fmt.Fprintln(cmd.OutOrStdout())
+			if res.Notice != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), res.Notice)
+			}
 			return nil
 		},
 	}
@@ -272,13 +282,21 @@ func newPlanImportLegacyCmd() *cobra.Command {
 func newPlanScanCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "scan",
-		Short: "Scan a project's plans/ directory and upsert plan records",
-		Long: "Walk plans/{pending,in_progress,completed,archived}/*.yaml and upsert plan\n" +
-			"records in the daemon. Status is inferred from the directory.\n\n" +
+		Short: "[deprecated] Scan plans/ and upsert stub plan records",
+		Long: "Deprecated one-release migration aid. Walk plans/{pending,in_progress,\n" +
+			"completed,archived}/*.yaml and upsert stub plan records (name/status/path).\n\n" +
+			"After ImportLegacy or DB-native create, scan cannot affect canonical Plan\n" +
+			"definition, lifecycle, or execution — Status is not reseeded from directory\n" +
+			"placement for records with a non-empty definition. Prefer\n" +
+			"`wd plan import-legacy` for cutover.\n\n" +
 			"--migrate-flat moves any flat plans/*.yaml files into plans/pending/ with git mv\n" +
 			"and creates a commit before scanning.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			jsonOut, _ := cmd.Flags().GetBool("json")
+			if !jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "warning: wd plan scan is deprecated; prefer wd plan import-legacy — scan cannot affect canonical execution after import")
+			}
 			projectID, err := planProjectFlag(cmd)
 			if err != nil {
 				return err
@@ -292,26 +310,39 @@ func newPlanScanCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "scanned: %d plan(s) upserted\n", res.Upserted)
+			if jsonOut {
+				return printJSON(cmd.OutOrStdout(), res)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "scanned: %d stub(s) upserted", res.Upserted)
+			if res.SkippedCanonical > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), ", %d canonical skipped", res.SkippedCanonical)
+			}
+			fmt.Fprintln(cmd.OutOrStdout())
+			if res.Notice != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), res.Notice)
+			}
 			return nil
 		},
 	}
 	cmd.Flags().String("project", "", "project ID (default: current directory)")
 	cmd.Flags().Bool("migrate-flat", false, "move flat plans/*.yaml files into plans/pending/ with git mv + commit")
 	cmd.Flags().Bool("assess", false, "run brain-assisted progress assessment for in_progress plans")
+	cmd.Flags().Bool("json", false, "output as JSON")
 	return cmd
 }
 
 func newPlanStatusCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "status <plan-id> <new-status>",
-		Short: "Transition a plan's status (git mv + commit + DB update)",
-		Long: "Change a plan's lifecycle status via the project-scoped API. Prefer\n" +
-			"`wd plan run` / `wd plan complete` / `wd plan archive` for the PlanService\n" +
-			"state machine.\n\n" +
+		Short: "[deprecated] Transition a plan's status (DB field only)",
+		Long: "Deprecated migration aid. Change a plan's lifecycle status via the\n" +
+			"project-scoped API (ScrivaDB Status field only — no repository YAML move).\n\n" +
+			"Prefer `wd plan run` / `wd plan complete` / `wd plan archive` for the\n" +
+			"PlanService state machine.\n\n" +
 			"Valid statuses: pending | in_progress | completed | archived",
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			fmt.Fprintln(cmd.ErrOrStderr(), "warning: wd plan status is deprecated; prefer wd plan run|complete|archive")
 			planID, newStatus := args[0], args[1]
 			projectID, err := planProjectFlag(cmd)
 			if err != nil {

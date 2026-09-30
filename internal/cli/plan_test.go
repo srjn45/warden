@@ -23,7 +23,7 @@ const planSingleJSON = `{"id":"plan-ab12cd34","project_id":"proj1","name":"featu
 	"tasks":[{"id":"t1","prompt":"do the work"}],
 	"created_at":"2026-09-28T00:00:00Z","updated_at":"2026-09-28T00:00:00Z"}`
 
-const scanResultJSON = `{"upserted":3}`
+const scanResultJSON = `{"upserted":3,"skipped_canonical":0,"notice":"deprecated: plan scan is a one-release migration aid; it cannot affect canonical Plan definition, lifecycle, or execution after import. Prefer import-legacy. ScrivaDB remains sole authority."}`
 
 // planProjectID is the project ID used in plan CLI tests. Using a simple
 // non-slash string avoids %2F path-encoding differences between the client's
@@ -184,7 +184,7 @@ func TestPlanScanCmd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("plan scan: %v", err)
 	}
-	if !strings.Contains(out, "3 plan(s) upserted") {
+	if !strings.Contains(out, "3 stub(s) upserted") {
 		t.Fatalf("plan scan missing count: %q", out)
 	}
 }

@@ -127,7 +127,8 @@ func TestScanProject_basic(t *testing.T) {
 
 	n, err := ScanProject(ctx, s, "proj-1", root)
 	require.NoError(t, err)
-	require.Equal(t, 3, n)
+	require.Equal(t, 3, n.Upserted)
+	require.Equal(t, ScanDeprecationNotice, n.Notice)
 
 	list, err := s.ListByProject(ctx, "proj-1")
 	require.NoError(t, err)
@@ -151,7 +152,7 @@ func TestScanProject_idempotent(t *testing.T) {
 	// First scan: creates.
 	n, err := ScanProject(ctx, s, "proj-1", root)
 	require.NoError(t, err)
-	require.Equal(t, 1, n)
+	require.Equal(t, 1, n.Upserted)
 
 	// Set an execution link only (file stays in pending/).
 	id := PlanID("proj-1", "feature-x")
@@ -163,7 +164,7 @@ func TestScanProject_idempotent(t *testing.T) {
 	// Second scan: no filesystem changes → zero upserts.
 	n, err = ScanProject(ctx, s, "proj-1", root)
 	require.NoError(t, err)
-	require.Equal(t, 0, n)
+	require.Equal(t, 0, n.Upserted)
 
 	// Execution link must be preserved.
 	got, err := s.Get(ctx, id)
@@ -182,7 +183,7 @@ func TestScanProject_gitMv(t *testing.T) {
 	writePlanFile(t, root, "plans/pending/brain-consult.yaml", "brain-consult")
 	n, err := ScanProject(ctx, s, "proj-1", root)
 	require.NoError(t, err)
-	require.Equal(t, 1, n)
+	require.Equal(t, 1, n.Upserted)
 
 	id := PlanID("proj-1", "brain-consult")
 
@@ -196,10 +197,10 @@ func TestScanProject_gitMv(t *testing.T) {
 	require.NoError(t, os.Remove(filepath.Join(root, "plans/pending/brain-consult.yaml")))
 	writePlanFile(t, root, "plans/in_progress/brain-consult.yaml", "brain-consult")
 
-	// Second scan: should update FilePath + Status, preserve PipelineID.
+	// Second scan: stub record → update FilePath + Status, preserve PipelineID.
 	n, err = ScanProject(ctx, s, "proj-1", root)
 	require.NoError(t, err)
-	require.Equal(t, 1, n)
+	require.Equal(t, 1, n.Upserted)
 
 	got, err := s.Get(ctx, id)
 	require.NoError(t, err)
@@ -223,7 +224,7 @@ func TestScanProject_flatFile(t *testing.T) {
 
 	n, err := ScanProject(ctx, s, "proj-1", root)
 	require.NoError(t, err)
-	require.Equal(t, 1, n)
+	require.Equal(t, 1, n.Upserted)
 
 	id := PlanID("proj-1", "my-flat-plan")
 	got, err := s.Get(ctx, id)
@@ -242,7 +243,7 @@ func TestScanProject_noNameFieldFallsBackToStem(t *testing.T) {
 
 	n, err := ScanProject(ctx, s, "proj-1", root)
 	require.NoError(t, err)
-	require.Equal(t, 1, n)
+	require.Equal(t, 1, n.Upserted)
 
 	id := PlanID("proj-1", "stem-only")
 	got, err := s.Get(ctx, id)
@@ -257,5 +258,6 @@ func TestScanProject_noPlansDirIsNoop(t *testing.T) {
 
 	n, err := ScanProject(ctx, s, "proj-1", root)
 	require.NoError(t, err)
-	require.Equal(t, 0, n)
+	require.Equal(t, 0, n.Upserted)
+	require.Equal(t, ScanDeprecationNotice, n.Notice)
 }

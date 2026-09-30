@@ -247,7 +247,7 @@ func (s *Server) registerPlanTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "scan_plans",
-		Description: "Deprecated migration aid: walk plans/{pending,in_progress,completed,archived}/*.yaml and upsert plan records. Prefer import_legacy_plans for explicit ScrivaDB cutover. Never runs automatically at daemon startup.",
+		Description: "Deprecated one-release migration aid: walk plans/{pending,in_progress,completed,archived}/*.yaml and upsert stub plan records (name/status/path). Prefer import_legacy_plans for ScrivaDB cutover. Never runs at daemon startup. After import/DB-native create, cannot affect canonical definition, lifecycle, or execution — Status is not reseeded for Plans with a non-empty definition. Response includes notice + skipped_canonical.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a scanPlansArgs) (*mcpsdk.CallToolResult, any, error) {
 		res, err := s.cl.PlanScan(ctx, a.ProjectID, client.PlanScanRequest{
 			MigrateFlat: a.MigrateFlat,
@@ -261,7 +261,7 @@ func (s *Server) registerPlanTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "import_legacy_plans",
-		Description: "Operator-invoked one-time cutover: discover plans/{pending,in_progress,completed,archived}/*.yaml, parse v1 YAML into canonical ScrivaDB Plans by stable identity, leave source files untouched. Matching content hash → skipped; differing hash → conflicted. report_only=true classifies without writing.",
+		Description: "Operator-invoked one-time cutover: discover plans/{pending,in_progress,completed,archived}/*.yaml, parse v1 YAML into canonical ScrivaDB Plans by stable identity, leave source files untouched. Matching content hash → skipped (cannot affect already-canonical execution); differing hash → conflicted. report_only=true classifies without writing.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a importLegacyPlansArgs) (*mcpsdk.CallToolResult, any, error) {
 		res, err := s.cl.ImportLegacyPlans(ctx, a.ProjectID, client.ImportLegacyPlansRequest{
 			ReportOnly: a.ReportOnly,
@@ -274,7 +274,7 @@ func (s *Server) registerPlanTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "update_plan_status",
-		Description: "Change a plan's lifecycle status via the project-scoped API. Prefer run_plan / complete_plan / archive_plan for the PlanService state machine. Valid statuses: pending|in_progress|completed|archived.",
+		Description: "Deprecated migration aid: change a plan's ScrivaDB Status field via the project-scoped API (no YAML move). Prefer run_plan / complete_plan / archive_plan. Valid statuses: pending|in_progress|completed|archived.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a updatePlanStatusArgs) (*mcpsdk.CallToolResult, any, error) {
 		p, err := s.cl.PlanUpdate(ctx, a.ProjectID, a.PlanID, client.PlanUpdateRequest{
 			Status: a.Status,
