@@ -1139,6 +1139,7 @@ Commands:
   list                 List plans for a project
   create               Create a canonical plan in ScrivaDB
   show                 Show detail for one plan
+  related              List heuristic related / overlapping plans
   run                  Start execution of a plan in the given mode
   pause                pause an in-progress plan's active executor
   resume               resume an in-progress plan's active executor
@@ -1216,7 +1217,9 @@ Inherited flags:
 ## warden plan show
 
 ```text
-Show the full canonical record for one plan: goal, tasks, status, revision, content hash, execution mode, linked IDs, task progress, and timestamps.
+Show the full canonical ScrivaDB record for one plan: goal, tasks, status,
+revision, executor, task summary, export status, linked branches, and timestamps.
+Repository YAML is never read for this view.
 
 Usage:
   warden plan show <plan-id> [flags]
@@ -1224,6 +1227,28 @@ Usage:
 Flags:
   -h, --help   help for show
       --json   output as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan related
+
+```text
+List related plans for a canonical ScrivaDB plan using heuristic overlap
+on project, title, goal, and linked branches/PRs.
+
+Hits are discovery aids only — not authoritative identity or duplicate detection.
+Repository YAML replicas never appear as additional plans.
+
+Usage:
+  warden plan related <plan-id> [flags]
+
+Flags:
+  -h, --help        help for related
+      --json        output as JSON
+      --limit int   maximum hits to return (default 10)
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)

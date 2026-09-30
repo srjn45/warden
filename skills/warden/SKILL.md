@@ -327,8 +327,9 @@ never scanned automatically at daemon startup.
 |---|---|
 | `import_legacy_plans` | **One-time cutover** — after cloning a legacy repo that still has `plans/**/*.yaml`, call `import_legacy_plans { project_id: "<cwd>" }` (or `report_only: true` first) to create/reconcile canonical ScrivaDB Plans. Matching content hash is a no-op; differing definitions are conflicted. Source files untouched. |
 | `scan_plans` | **Deprecated migration aid.** Prefer `import_legacy_plans`. Walks `plans/**/*.yaml` and upserts name/status/path only. |
-| `list_plans` | List plans for a project, optionally filtered by `status` (`pending`\|`in_progress`\|`completed`\|`archived`). |
-| `get_plan` | Fetch the full record for one plan by its stable `plan-<8hex>` ID: status, definition, revision, execution mode, linked run/pipeline IDs, `task_progress`, timestamps. |
+| `list_plans` | List ScrivaDB-canonical plans for a project (optional `status`). Returns revision, executor_id, task_summary, export_status, timestamps. YAML replicas are never listed as extra plans. |
+| `get_plan` | Fetch one plan by stable `plan-<8hex>` ID: goal, tasks, revision, executor_id, task_summary, export_status, repo_export, linked IDs, `task_progress`, timestamps. Does not read repository YAML. |
+| `find_related_plans` | Heuristic overlap query (same project, title/goal tokens, linked branches/PRs). Always returns `heuristic=true` + disclaimer — not authoritative duplicate detection. |
 | `create_plan` | Create a new canonical plan in ScrivaDB (no `plans/` directory required). Requires `project_id`, `name`, `goal`, and at least one task (`id` + `prompt`). |
 | `update_plan` | Patch a **pending** plan's definition (`name`/`goal`/`tasks`/`constraints`/`done_when`). Rejected if the plan is not pending. Supports `expected_revision` for optimistic concurrency. |
 | `update_plan_status` | **Legacy.** Prefer `run_plan` / `complete_plan` / `archive_plan` for the PlanService state machine. |

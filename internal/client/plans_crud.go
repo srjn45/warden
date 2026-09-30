@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"time"
@@ -12,6 +13,42 @@ type PlanTaskSpec struct {
 	ID     string   `json:"id"`
 	Prompt string   `json:"prompt"`
 	After  []string `json:"after,omitempty"`
+}
+
+// PlanTaskSummary is a computed task-progress rollup on Plan list/detail.
+type PlanTaskSummary struct {
+	Total      int `json:"total"`
+	Done       int `json:"done"`
+	InProgress int `json:"in_progress"`
+	Pending    int `json:"pending"`
+	Skipped    int `json:"skipped"`
+}
+
+// PlanRepoExport is last-export metadata for an optional repository replica.
+type PlanRepoExport struct {
+	SchemaVersion int        `json:"schema_version,omitempty"`
+	Revision      int64      `json:"revision,omitempty"`
+	ContentHash   string     `json:"content_hash,omitempty"`
+	ExportedAt    *time.Time `json:"exported_at,omitempty"`
+	Lifecycle     string     `json:"lifecycle,omitempty"`
+	FilePath      string     `json:"file_path,omitempty"`
+}
+
+// RelatedPlanHit is one heuristic overlap candidate.
+type RelatedPlanHit struct {
+	PlanID  string   `json:"plan_id"`
+	Name    string   `json:"name"`
+	Status  string   `json:"status"`
+	Score   int      `json:"score"`
+	Reasons []string `json:"reasons"`
+}
+
+// RelatedPlansResult is the GET /plans/{id}/related response.
+type RelatedPlansResult struct {
+	Heuristic  bool             `json:"heuristic"`
+	Disclaimer string           `json:"disclaimer"`
+	AnchorID   string           `json:"anchor_id"`
+	Hits       []RelatedPlanHit `json:"hits"`
 }
 
 // PlanView is the Plan CRUD API object (canonical ScrivaDB definition + execution state).
@@ -25,14 +62,18 @@ type PlanView struct {
 	Revision       int64             `json:"revision"`
 	ContentHash    string            `json:"content_hash,omitempty"`
 	ExecutionMode  string            `json:"execution_mode,omitempty"`
+	ExecutorID     string            `json:"executor_id,omitempty"`
+	ExportStatus   string            `json:"export_status,omitempty"`
 	Constraints    []string          `json:"constraints"`
 	DoneWhen       []string          `json:"done_when"`
 	Tasks          []PlanTaskSpec    `json:"tasks"`
 	TaskProgress   map[string]string `json:"task_progress"`
+	TaskSummary    *PlanTaskSummary  `json:"task_summary,omitempty"`
 	PlanBranches   []string          `json:"plan_branches,omitempty"`
 	AutopilotRunID string            `json:"autopilot_run_id,omitempty"`
 	PipelineID     string            `json:"pipeline_id,omitempty"`
 	OrchestratorID string            `json:"orchestrator_id,omitempty"`
+	RepoExport     *PlanRepoExport   `json:"repo_export,omitempty"`
 	CreatedAt      time.Time         `json:"created_at"`
 	UpdatedAt      time.Time         `json:"updated_at"`
 	StartedAt      time.Time         `json:"started_at,omitempty"`
@@ -84,6 +125,24 @@ func (c *Client) PlansGet(ctx context.Context, planID string) (*PlanView, error)
 		return nil, err
 	}
 	return &p, nil
+}
+
+// PlansRelated returns heuristic overlap candidates for a plan.
+func (c *Client) PlansRelated(ctx context.Context, planID string, limit int) (*RelatedPlansResult, error) {
+	path := "/plans/" + url.PathEscape(planID) + "/related"
+	if limit > 0 {
+		q := url.Values{}
+		q.Set("limit", fmt.Sprintf("%d", limit))
+		path += "?" + q.Encode()
+	}
+	var out RelatedPlansResult
+	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	if out.Hits == nil {
+		out.Hits = []RelatedPlanHit{}
+	}
+	return &out, nil
 }
 
 // PlansCreate inserts a canonical ScrivaDB Plan via POST /api/v1/plans.

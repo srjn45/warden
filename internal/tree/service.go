@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/autopilotstore"
@@ -639,6 +640,20 @@ func buildPlanNode(p *planstore.Plan) *Node {
 	detail := &Detail{PlanID: p.ID}
 	if p.ExecutionMode != "" {
 		detail.Kind = string(p.ExecutionMode)
+	}
+	if p.Revision > 0 {
+		detail.Revision = p.Revision
+	}
+	if exec := planstore.ExecutorID(p); exec != "" {
+		detail.ExecutorID = exec
+	}
+	ts := planstore.ComputeTaskSummary(p)
+	if ts.Total > 0 {
+		detail.TaskSummary = ts.String()
+	}
+	detail.ExportStatus = string(planstore.ComputeExportStatus(p))
+	if !p.UpdatedAt.IsZero() {
+		detail.UpdatedAt = p.UpdatedAt.UTC().Format(time.RFC3339)
 	}
 	return &Node{
 		Type:   NodeTypePlan,

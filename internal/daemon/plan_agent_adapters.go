@@ -241,6 +241,29 @@ func (s *Server) recordPlanBoundAgentEvent(sess *agentstore.Agent, kind planstor
 	}
 }
 
+// planningAgentPrompt builds the opening prompt for orchestrator/manual plan
+// agents from ScrivaDB only, including a heuristic related-plan block when
+// siblings exist. Repository YAML is never read.
+func (s *Server) planningAgentPrompt(ctx context.Context, p *planstore.Plan, root, mode string) string {
+	_ = root
+	var base string
+	switch mode {
+	case "orchestrator":
+		base = orchestratorPlanPrompt(p, root)
+	default:
+		base = manualPlanPrompt(p, root)
+	}
+	if s.plans == nil || p == nil {
+		return base
+	}
+	candidates, err := s.plans.ListByProject(ctx, p.ProjectID)
+	if err != nil {
+		return base
+	}
+	related := planstore.FindRelatedPlans(p, candidates, 5)
+	return base + planstore.FormatRelatedPlansContext(related)
+}
+
 // orchestratorPlanPrompt builds the opening prompt for an O:<plan> agent from
 // the canonical ScrivaDB Plan definition (never repository YAML).
 func orchestratorPlanPrompt(p *planstore.Plan, _ string) string {

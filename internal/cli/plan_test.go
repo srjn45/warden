@@ -7,13 +7,19 @@ import (
 
 const planListJSON = `[
 	{"id":"plan-ab12cd34","project_id":"proj1","name":"feature-x","file_path":"plans/pending/feature-x.yaml",
-	 "goal":"ship it","status":"pending","created_at":"2026-09-28T00:00:00Z","updated_at":"2026-09-28T00:00:00Z"},
+	 "goal":"ship it","status":"pending","revision":1,"export_status":"none",
+	 "task_summary":{"total":1,"done":0,"in_progress":0,"pending":1,"skipped":0},
+	 "created_at":"2026-09-28T00:00:00Z","updated_at":"2026-09-28T00:00:00Z"},
 	{"id":"plan-ef56ab78","project_id":"proj1","name":"brain-consult","file_path":"plans/in_progress/brain-consult.yaml",
-	 "status":"in_progress","execution_mode":"autopilot","created_at":"2026-09-28T00:00:00Z","updated_at":"2026-09-28T01:00:00Z"}
+	 "status":"in_progress","execution_mode":"autopilot","executor_id":"ap-1","revision":2,"export_status":"stale",
+	 "task_summary":{"total":2,"done":1,"in_progress":1,"pending":0,"skipped":0},
+	 "created_at":"2026-09-28T00:00:00Z","updated_at":"2026-09-28T01:00:00Z"}
 ]`
 
 const planSingleJSON = `{"id":"plan-ab12cd34","project_id":"proj1","name":"feature-x",
-	"goal":"ship it","file_path":"plans/pending/feature-x.yaml","status":"pending",
+	"goal":"ship it","file_path":"plans/pending/feature-x.yaml","status":"pending","revision":1,
+	"export_status":"none","executor_id":"",
+	"task_summary":{"total":1,"done":0,"in_progress":0,"pending":1,"skipped":0},
 	"tasks":[{"id":"t1","prompt":"do the work"}],
 	"created_at":"2026-09-28T00:00:00Z","updated_at":"2026-09-28T00:00:00Z"}`
 
@@ -32,7 +38,7 @@ func TestPlanListCmd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("plan list: %v", err)
 	}
-	for _, want := range []string{"plan-ab12cd34", "feature-x", "pending", "plan-ef56ab78", "brain-consult", "in_progress"} {
+	for _, want := range []string{"plan-ab12cd34", "feature-x", "pending", "plan-ef56ab78", "brain-consult", "in_progress", "REV", "EXPORT", "TASKS"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("plan list missing %q: %q", want, out)
 		}
@@ -73,10 +79,34 @@ func TestPlanShowCmd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("plan show: %v", err)
 	}
-	for _, want := range []string{"plan-ab12cd34", "feature-x", "pending", "plans/pending/feature-x.yaml", "ship it", "t1"} {
+	for _, want := range []string{"plan-ab12cd34", "feature-x", "pending", "plans/pending/feature-x.yaml", "ship it", "t1", "export_status", "revision"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("plan show missing %q: %q", want, out)
 		}
+	}
+}
+
+func TestPlanRelatedCmd(t *testing.T) {
+	relatedJSON := `{"heuristic":true,"disclaimer":"Related-plan hits are heuristic","anchor_id":"plan-ab12cd34",
+		"hits":[{"plan_id":"plan-ef56ab78","name":"brain-consult","status":"in_progress","score":18,"reasons":["same_project","title_overlap:1"]}]}`
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"GET /api/v1/plans/plan-ab12cd34/related": relatedJSON,
+	}, nil, nil))
+	out, err := runCLI(t, addr, "plan", "related", "plan-ab12cd34")
+	if err != nil {
+		t.Fatalf("plan related: %v", err)
+	}
+	for _, want := range []string{"plan-ef56ab78", "brain-consult", "heuristic", "plan-ab12cd34"} {
+		if !strings.Contains(out, want) && want == "heuristic" {
+			// disclaimer text uses "heuristic" in the note line from the fixture
+			continue
+		}
+		if !strings.Contains(out, want) {
+			t.Fatalf("plan related missing %q: %q", want, out)
+		}
+	}
+	if !strings.Contains(out, "Related-plan hits are heuristic") {
+		t.Fatalf("plan related missing disclaimer: %q", out)
 	}
 }
 

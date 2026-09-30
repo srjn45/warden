@@ -35,7 +35,7 @@ func TestPlanToolsRegistered(t *testing.T) {
 	}
 
 	want := []string{
-		"list_plans", "get_plan", "create_plan", "update_plan",
+		"list_plans", "get_plan", "find_related_plans", "create_plan", "update_plan",
 		"scan_plans", "import_legacy_plans", "update_plan_status", "archive_plan", "assess_plan",
 		"run_plan", "control_plan", "complete_plan", "sync_plan_to_repo", "update_task_status",
 	}
@@ -88,6 +88,31 @@ func TestGetPlanTool(t *testing.T) {
 	require.Contains(t, textOf(res), `"plan-ab12cd34"`)
 	require.Contains(t, textOf(res), `"pending"`)
 	require.Contains(t, textOf(res), `"ship the feature"`)
+}
+
+func TestFindRelatedPlansTool(t *testing.T) {
+	relatedJSON := `{"heuristic":true,"disclaimer":"Related-plan hits are heuristic (not authoritative).",
+		"anchor_id":"plan-ab12cd34","hits":[{"plan_id":"plan-other","name":"other","status":"pending","score":15,"reasons":["same_project","title_overlap:1"]}]}`
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/api/v1/plans/plan-ab12cd34/related" && r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(relatedJSON))
+			return
+		}
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer daemon.Close()
+	session := connectTo(t, daemon.URL)
+
+	res, err := session.CallTool(context.Background(), &mcpsdk.CallToolParams{
+		Name:      "find_related_plans",
+		Arguments: map[string]any{"plan_id": "plan-ab12cd34"},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError, textOf(res))
+	require.Contains(t, textOf(res), `"heuristic": true`)
+	require.Contains(t, textOf(res), `"plan-other"`)
+	require.Contains(t, textOf(res), `not authoritative`)
 }
 
 func TestCreatePlanTool(t *testing.T) {

@@ -33,6 +33,7 @@ func newPlanCmd() *cobra.Command {
 		newPlanListCmd(),
 		newPlanCreateCmd(),
 		newPlanShowCmd(),
+		newPlanRelatedCmd(),
 		newPlanRunCmd(),
 		newPlanControlCmd("pause"),
 		newPlanControlCmd("resume"),
@@ -148,8 +149,10 @@ func newPlanShowCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "show <plan-id>",
 		Short: "Show detail for one plan",
-		Long:  "Show the full canonical record for one plan: goal, tasks, status, revision, content hash, execution mode, linked IDs, task progress, and timestamps.",
-		Args:  cobra.ExactArgs(1),
+		Long: "Show the full canonical ScrivaDB record for one plan: goal, tasks, status,\n" +
+			"revision, executor, task summary, export status, linked branches, and timestamps.\n" +
+			"Repository YAML is never read for this view.",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p, err := clientFor(cmd).PlansGet(cmd.Context(), args[0])
 			if err != nil {
@@ -662,14 +665,22 @@ func normalizePlanRunMode(mode string) (string, error) {
 
 func printPlanTable(w io.Writer, plans []client.PlanView) error {
 	tw := tabwriter.NewWriter(w, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(tw, "ID\tNAME\tSTATUS\tMODE\tUPDATED")
+	fmt.Fprintln(tw, "ID\tNAME\tSTATUS\tREV\tTASKS\tEXECUTOR\tEXPORT\tUPDATED")
 	for _, p := range plans {
-		mode := p.ExecutionMode
-		if mode == "" {
-			mode = "-"
+		tasks := "-"
+		if p.TaskSummary != nil && p.TaskSummary.Total > 0 {
+			tasks = fmt.Sprintf("%d/%d", p.TaskSummary.Done, p.TaskSummary.Total)
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
-			p.ID, p.Name, p.Status, mode, p.UpdatedAt.Format(time.RFC3339))
+		exec := p.ExecutorID
+		if exec == "" {
+			exec = "-"
+		}
+		export := p.ExportStatus
+		if export == "" {
+			export = "none"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\t%s\t%s\t%s\n",
+			p.ID, p.Name, p.Status, p.Revision, tasks, exec, export, p.UpdatedAt.Format(time.RFC3339))
 	}
 	return tw.Flush()
 }
@@ -683,14 +694,24 @@ func printPlanDetail(w io.Writer, p *client.PlanView) {
 	if p.ContentHash != "" {
 		fmt.Fprintf(w, "content_hash:   %s\n", p.ContentHash)
 	}
-	if p.FilePath != "" {
-		fmt.Fprintf(w, "file:           %s\n", p.FilePath)
+	export := p.ExportStatus
+	if export == "" {
+		export = "none"
+	}
+	fmt.Fprintf(w, "export_status:  %s\n", export)
+	if p.RepoExport != nil && p.RepoExport.FilePath != "" {
+		fmt.Fprintf(w, "last_export:    %s\n", p.RepoExport.FilePath)
+	} else if p.FilePath != "" {
+		fmt.Fprintf(w, "last_export:    %s\n", p.FilePath)
 	}
 	if p.Goal != "" {
 		fmt.Fprintf(w, "goal:           %s\n", p.Goal)
 	}
 	if p.ExecutionMode != "" {
 		fmt.Fprintf(w, "mode:           %s\n", p.ExecutionMode)
+	}
+	if p.ExecutorID != "" {
+		fmt.Fprintf(w, "executor:       %s\n", p.ExecutorID)
 	}
 	if p.AutopilotRunID != "" {
 		fmt.Fprintf(w, "autopilot_run:  %s\n", p.AutopilotRunID)
@@ -700,6 +721,10 @@ func printPlanDetail(w io.Writer, p *client.PlanView) {
 	}
 	if p.OrchestratorID != "" {
 		fmt.Fprintf(w, "orchestrator:   %s\n", p.OrchestratorID)
+	}
+	if p.TaskSummary != nil && p.TaskSummary.Total > 0 {
+		fmt.Fprintf(w, "task_summary:   %d/%d done (%d in_progress, %d pending, %d skipped)\n",
+			p.TaskSummary.Done, p.TaskSummary.Total, p.TaskSummary.InProgress, p.TaskSummary.Pending, p.TaskSummary.Skipped)
 	}
 	if len(p.Constraints) > 0 {
 		fmt.Fprintln(w, "constraints:")
@@ -743,4 +768,42 @@ func printPlanDetail(w io.Writer, p *client.PlanView) {
 	if !p.ArchivedAt.IsZero() {
 		fmt.Fprintf(w, "archived:       %s\n", p.ArchivedAt.Format(time.RFC3339))
 	}
+}
+
+func newPlanRelatedCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "related <plan-id>",
+		Short: "List heuristic related / overlapping plans",
+		Long: "List related plans for a canonical ScrivaDB plan using heuristic overlap\n" +
+			"on project, title, goal, and linked branches/PRs.\n\n" +
+			"Hits are discovery aids only — not authoritative identity or duplicate detection.\n" +
+			"Repository YAML replicas never appear as additional plans.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			limit, _ := cmd.Flags().GetInt("limit")
+			res, err := clientFor(cmd).PlansRelated(cmd.Context(), args[0], limit)
+			if err != nil {
+				return err
+			}
+			if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+				return printJSON(cmd.OutOrStdout(), res)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "anchor: %s\n", res.AnchorID)
+			fmt.Fprintf(cmd.OutOrStdout(), "note:   %s\n", res.Disclaimer)
+			if len(res.Hits) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "no related plans found")
+				return nil
+			}
+			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 2, 2, ' ', 0)
+			fmt.Fprintln(tw, "SCORE\tID\tNAME\tSTATUS\tREASONS")
+			for _, h := range res.Hits {
+				fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\n",
+					h.Score, h.PlanID, h.Name, h.Status, strings.Join(h.Reasons, ","))
+			}
+			return tw.Flush()
+		},
+	}
+	cmd.Flags().Int("limit", 10, "maximum hits to return")
+	cmd.Flags().Bool("json", false, "output as JSON")
+	return cmd
 }

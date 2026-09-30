@@ -26,6 +26,11 @@ type getPlanArgs struct {
 	PlanID string `json:"plan_id" jsonschema:"the stable plan id (plan-<8hex>)"`
 }
 
+type relatedPlansArgs struct {
+	PlanID string `json:"plan_id" jsonschema:"the stable plan id (plan-<8hex>) to find related plans for"`
+	Limit  int    `json:"limit,omitempty" jsonschema:"maximum hits to return (default 10)"`
+}
+
 type createPlanArgs struct {
 	ProjectID   string        `json:"project_id" jsonschema:"the daemon project id"`
 	Name        string        `json:"name" jsonschema:"plan name"`
@@ -149,8 +154,10 @@ func planToolErr(err error) (*mcpsdk.CallToolResult, any, error) {
 // registerPlanTools registers the plan-management MCP tools.
 func (s *Server) registerPlanTools() {
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
-		Name:        "list_plans",
-		Description: "List plans for a daemon project, optionally filtered by status (pending|in_progress|completed|archived). Returns Plan objects sorted by the daemon (typically updated_at descending).",
+		Name: "list_plans",
+		Description: "List ScrivaDB-canonical plans for a daemon project (optional status filter). " +
+			"Each plan includes revision, executor_id, task_summary, export_status, and timestamps. " +
+			"Repository YAML replicas are never listed as additional plans — discovery is DB-only.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a listPlansArgs) (*mcpsdk.CallToolResult, any, error) {
 		plans, err := s.cl.PlansList(ctx, a.ProjectID, a.Status)
 		if err != nil {
@@ -160,14 +167,30 @@ func (s *Server) registerPlanTools() {
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
-		Name:        "get_plan",
-		Description: "Get one plan by its stable ID (plan-<8hex>). Returns the full canonical record including goal, tasks, constraints, done_when, status, revision, content_hash, execution mode, linked IDs, task progress, and timestamps.",
+		Name: "get_plan",
+		Description: "Get one ScrivaDB-canonical plan by stable ID. Returns goal, tasks, constraints, " +
+			"done_when, status, revision, content_hash, executor_id, task_summary, export_status, " +
+			"repo_export metadata, linked IDs, task progress, and timestamps. Does not read repository YAML.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a getPlanArgs) (*mcpsdk.CallToolResult, any, error) {
 		p, err := s.cl.PlansGet(ctx, a.PlanID)
 		if err != nil {
 			return planToolErr(err)
 		}
 		return jsonResultAny(p)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name: "find_related_plans",
+		Description: "Heuristic related-plan / overlap query for a plan (same project, title/goal tokens, " +
+			"linked branches/PRs). Returns heuristic=true and a disclaimer — hits are discovery aids only, " +
+			"not authoritative identity or duplicate detection. Completed plans remain eligible for " +
+			"historical lookup. YAML replicas never appear as extra plans.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a relatedPlansArgs) (*mcpsdk.CallToolResult, any, error) {
+		res, err := s.cl.PlansRelated(ctx, a.PlanID, a.Limit)
+		if err != nil {
+			return planToolErr(err)
+		}
+		return jsonResultAny(res)
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{

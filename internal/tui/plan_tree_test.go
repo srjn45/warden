@@ -26,8 +26,13 @@ func samplePlans() []*planstore.Plan {
 			Name:           "Active Work",
 			FilePath:       "plans/in_progress/active.yaml",
 			Status:         planstore.PlanStatusInProgress,
+			Revision:       3,
 			ExecutionMode:  planstore.PlanModeAutopilot,
 			AutopilotRunID: "run-42",
+			Tasks: []planstore.PlanTask{
+				{ID: "task-1", Prompt: "first"},
+				{ID: "task-2", Prompt: "second"},
+			},
 			TaskProgress: map[string]string{
 				"task-1": "done",
 				"task-2": "in_progress",
@@ -231,15 +236,21 @@ func TestPlanTree_PlanDetailText(t *testing.T) {
 	require.Contains(t, text, "Active Work")
 	require.Contains(t, text, "ID:")
 	require.Contains(t, text, "plan-ip")
-	require.Contains(t, text, "File:")
+	require.Contains(t, text, "Revision:")
+	require.Contains(t, text, "Export:")
+	require.Contains(t, text, "Last Export:")
 	require.Contains(t, text, "plans/in_progress/active.yaml")
+	require.NotContains(t, text, "File:")
 	require.Contains(t, text, "Status:")
 	require.Contains(t, text, "in_progress")
 	require.Contains(t, text, "Executed Using:")
 	require.Contains(t, text, "autopilot")
-	require.Contains(t, text, "Autopilot Run:")
+	require.Contains(t, text, "Executor:")
 	require.Contains(t, text, "run-42")
-	// task-1 and task-2 come from DB TaskProgress (YAML file won't be found in test env)
+	require.Contains(t, text, "Autopilot Run:")
+	require.Contains(t, text, "Tasks:")
+	require.Contains(t, text, "1/2 done")
+	// task-1 and task-2 come from canonical Tasks (no YAML read)
 	require.Contains(t, text, "task-1")
 	require.Contains(t, text, "task-2")
 	require.Contains(t, text, "Created At:")
@@ -249,22 +260,43 @@ func TestPlanTree_PlanDetailText(t *testing.T) {
 	require.Contains(t, text, "Active Execution")
 	require.Contains(t, text, "Task Evidence")
 	require.Contains(t, text, "Historical Summaries")
+	require.Contains(t, text, "[↑↓] scroll")
 
-	// Plan with no task progress and no linked execution
+	// Plan with no tasks and no linked execution — empty FilePath still works.
 	pEmpty := &planstore.Plan{
 		ID:        "p-empty",
 		ProjectID: "proj-1",
 		Name:      "Empty Plan",
-		FilePath:  "plans/pending/empty.yaml",
 		Status:    planstore.PlanStatusPending,
+		Revision:  1,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
 	textEmpty := planDetailText(pEmpty, 80, "", false)
 	require.Contains(t, textEmpty, "Executed Using:")
 	require.Contains(t, textEmpty, "manual")
+	require.Contains(t, textEmpty, "Export:")
+	require.Contains(t, textEmpty, "none")
 	require.Contains(t, textEmpty, "(no active execution)")
+	require.Contains(t, textEmpty, "(no tasks defined)")
 	require.Contains(t, textEmpty, "(no historical summaries yet)")
+}
+
+func TestPlanDetailText_NoExportIdenticalToExportMetaAbsent(t *testing.T) {
+	now := time.Now()
+	p := &planstore.Plan{
+		ID: "plan-db-only", ProjectID: "proj-1", Name: "DB Only",
+		Status: planstore.PlanStatusPending, Revision: 2,
+		Goal: "works without plans/", Tasks: []planstore.PlanTask{{ID: "t1", Prompt: "go"}},
+		CreatedAt: now, UpdatedAt: now,
+	}
+	text := planDetailText(p, 80, "/nonexistent", true)
+	require.Contains(t, text, "t1")
+	require.Contains(t, text, "go")
+	require.Contains(t, text, "Export:")
+	require.Contains(t, text, "none")
+	require.NotContains(t, text, "Last Export:")
+	require.Contains(t, text, "[t] toggle task details")
 }
 
 func setupPlanTestModel(a *fakeAPI) controlPaneModel {
@@ -565,12 +597,12 @@ func TestPromptPreview_WrapsAtWidth(t *testing.T) {
 
 func TestPlanDetailText_ScrollHintAndPromptWrap(t *testing.T) {
 	longPrompt := strings.Repeat("abcdefghij ", 20) // ~220 chars
-
 	p := &planstore.Plan{
 		ID:        "p-wrap",
 		ProjectID: "proj-1",
 		Name:      "Wrap Plan",
 		Status:    planstore.PlanStatusPending,
+		Revision:  1,
 		Tasks:     []planstore.PlanTask{{ID: "t1", Prompt: longPrompt}},
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
