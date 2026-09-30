@@ -1317,11 +1317,15 @@ paths:
     post:
       operationId: ScanProjectPlans
       tags: [Plans]
-      summary: Scan a project's plans directory
+      deprecated: true
+      summary: "[deprecated] Scan a project's plans directory"
       description: >
-        Deprecated migration aid. Prefer ImportLegacyPlans for explicit
-        one-time cutover into ScrivaDB. Never invoked automatically at daemon
-        startup.
+        Deprecated one-release migration aid. Prefer ImportLegacyPlans for
+        explicit cutover into ScrivaDB. Never invoked automatically at daemon
+        startup. After a Plan has been imported (or created DB-natively), scan
+        cannot affect canonical definition, lifecycle, or execution — Status is
+        not reseeded from directory placement for records with a non-empty
+        definition.
       parameters:
         - name: project_id
           in: path
@@ -1333,7 +1337,7 @@ paths:
             schema: { $ref: "#/components/schemas/LegacyScanPlansRequest" }
       responses:
         "200":
-          description: Scan result
+          description: Scan result (includes deprecation notice)
           content:
             application/json:
               schema: { $ref: "#/components/schemas/LegacyScanPlansResponse" }
@@ -1349,10 +1353,11 @@ paths:
         completed,archived} (and flat plans/*.yaml) only when requested, parses
         supported v1 YAML, creates or reconciles canonical Plans by stable
         identity, and records a migration audit event. Repeated import with a
-        matching content hash is a no-op (skipped); an existing canonical
-        definition with a different hash is reported as conflicted without
-        mutation. Source files are never modified. report_only=true classifies
-        without writing.
+        matching content hash is a no-op (skipped) and cannot affect already-
+        canonical execution; an existing canonical definition with a different
+        hash is reported as conflicted without mutation. Source files are never
+        modified. report_only=true classifies without writing. Never runs at
+        daemon startup.
       parameters:
         - name: project_id
           in: path
@@ -1391,7 +1396,13 @@ paths:
     patch:
       operationId: UpdateProjectPlan
       tags: [Plans]
-      summary: Update legacy plan execution fields
+      deprecated: true
+      summary: "[deprecated] Update legacy plan execution fields"
+      description: >
+        Deprecated migration aid. Prefer run_plan / complete_plan / archive_plan
+        for the PlanService state machine. Updates ScrivaDB fields only — does
+        not move repository YAML and cannot redefine canonical task DAGs from
+        disk.
       parameters:
         - name: project_id
           in: path
@@ -4809,14 +4820,30 @@ components:
     LegacyScanPlansRequest:
       type: object
       properties:
-        migrate_flat: { type: boolean }
+        migrate_flat:
+          type: boolean
+          description: >
+            Deprecated. Moves flat plans/*.yaml into plans/pending/ with git mv
+            before scanning. Prefer import-legacy for cutover.
         assess: { type: boolean }
 
     LegacyScanPlansResponse:
       type: object
-      required: [upserted]
+      required: [upserted, notice]
       properties:
-        upserted: { type: integer }
+        upserted:
+          type: integer
+          description: Stub records created or updated (empty definition only).
+        skipped_canonical:
+          type: integer
+          description: >
+            Existing Plans with a non-empty canonical definition that were not
+            status-reseeded from directory placement.
+        notice:
+          type: string
+          description: >
+            Always present deprecation notice stating that scan cannot affect
+            canonical execution after import.
 
     ImportLegacyPlansRequest:
       type: object

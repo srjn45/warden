@@ -1246,12 +1246,21 @@ type LegacyRunPlanRequestMode string
 
 // LegacyScanPlansRequest defines model for LegacyScanPlansRequest.
 type LegacyScanPlansRequest struct {
-	Assess      bool `json:"assess,omitempty"`
+	Assess bool `json:"assess,omitempty"`
+
+	// MigrateFlat Deprecated. Moves flat plans/*.yaml into plans/pending/ with git mv before scanning. Prefer import-legacy for cutover.
 	MigrateFlat bool `json:"migrate_flat,omitempty"`
 }
 
 // LegacyScanPlansResponse defines model for LegacyScanPlansResponse.
 type LegacyScanPlansResponse struct {
+	// Notice Always present deprecation notice stating that scan cannot affect canonical execution after import.
+	Notice string `json:"notice"`
+
+	// SkippedCanonical Existing Plans with a non-empty canonical definition that were not status-reseeded from directory placement.
+	SkippedCanonical int `json:"skipped_canonical,omitempty"`
+
+	// Upserted Stub records created or updated (empty definition only).
 	Upserted int `json:"upserted"`
 }
 
@@ -2736,7 +2745,7 @@ type ServerInterface interface {
 	// Explicitly import legacy plans/*.yaml into ScrivaDB
 	// (POST /api/v1/projects/{project_id}/plans/import-legacy)
 	ImportLegacyPlans(w http.ResponseWriter, r *http.Request, projectId string)
-	// Scan a project's plans directory
+	// [deprecated] Scan a project's plans directory
 	// (POST /api/v1/projects/{project_id}/plans/scan)
 	ScanProjectPlans(w http.ResponseWriter, r *http.Request, projectId string)
 	// Delete a legacy plan record
@@ -2745,7 +2754,7 @@ type ServerInterface interface {
 	// Get a legacy project plan
 	// (GET /api/v1/projects/{project_id}/plans/{plan_id})
 	GetProjectPlan(w http.ResponseWriter, r *http.Request, projectId string, planId PlanId)
-	// Update legacy plan execution fields
+	// [deprecated] Update legacy plan execution fields
 	// (PATCH /api/v1/projects/{project_id}/plans/{plan_id})
 	UpdateProjectPlan(w http.ResponseWriter, r *http.Request, projectId string, planId PlanId)
 	// Assess legacy plan progress
@@ -3408,7 +3417,7 @@ func (_ Unimplemented) ImportLegacyPlans(w http.ResponseWriter, r *http.Request,
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Scan a project's plans directory
+// [deprecated] Scan a project's plans directory
 // (POST /api/v1/projects/{project_id}/plans/scan)
 func (_ Unimplemented) ScanProjectPlans(w http.ResponseWriter, r *http.Request, projectId string) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -3426,7 +3435,7 @@ func (_ Unimplemented) GetProjectPlan(w http.ResponseWriter, r *http.Request, pr
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Update legacy plan execution fields
+// [deprecated] Update legacy plan execution fields
 // (PATCH /api/v1/projects/{project_id}/plans/{plan_id})
 func (_ Unimplemented) UpdateProjectPlan(w http.ResponseWriter, r *http.Request, projectId string, planId PlanId) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -13975,7 +13984,7 @@ type StrictServerInterface interface {
 	// Explicitly import legacy plans/*.yaml into ScrivaDB
 	// (POST /api/v1/projects/{project_id}/plans/import-legacy)
 	ImportLegacyPlans(ctx context.Context, request ImportLegacyPlansRequestObject) (ImportLegacyPlansResponseObject, error)
-	// Scan a project's plans directory
+	// [deprecated] Scan a project's plans directory
 	// (POST /api/v1/projects/{project_id}/plans/scan)
 	ScanProjectPlans(ctx context.Context, request ScanProjectPlansRequestObject) (ScanProjectPlansResponseObject, error)
 	// Delete a legacy plan record
@@ -13984,7 +13993,7 @@ type StrictServerInterface interface {
 	// Get a legacy project plan
 	// (GET /api/v1/projects/{project_id}/plans/{plan_id})
 	GetProjectPlan(ctx context.Context, request GetProjectPlanRequestObject) (GetProjectPlanResponseObject, error)
-	// Update legacy plan execution fields
+	// [deprecated] Update legacy plan execution fields
 	// (PATCH /api/v1/projects/{project_id}/plans/{plan_id})
 	UpdateProjectPlan(ctx context.Context, request UpdateProjectPlanRequestObject) (UpdateProjectPlanResponseObject, error)
 	// Assess legacy plan progress

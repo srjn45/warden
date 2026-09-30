@@ -54,23 +54,37 @@ var statusDirs = []struct {
 	{"archived", PlanStatusArchived},
 }
 
-// ScanProject walks <rootDir>/plans/ for plan YAML files and upserts each
-// found plan into store. It returns the number of plans upserted (created or
-// updated) and any scan error.
+// ScanDeprecationNotice is returned on every scan response. Scan is a one-release
+// migration aid: after ImportLegacy (or any DB-native create/update) it must not
+// reseed Status or redefine execution from repository YAML.
+const ScanDeprecationNotice = "deprecated: plan scan is a one-release migration aid; it cannot affect canonical Plan definition, lifecycle, or execution after import. Prefer import-legacy. ScrivaDB remains sole authority."
+
+// ScanResult summarises one operator-invoked ScanProject run.
+type ScanResult struct {
+	Upserted         int    `json:"upserted"`
+	SkippedCanonical int    `json:"skipped_canonical"`
+	Notice           string `json:"notice"`
+}
+
+// ScanProject walks <rootDir>/plans/ for plan YAML files and upserts stub
+// plan records into store. It is a deprecated migration aid only (never run at
+// daemon startup).
 //
-// Status is inferred from the subdirectory name. Flat plans/*.yaml files are
-// treated as pending. For each plan:
-//   - If no record exists → create with the inferred status.
-//   - If a record exists → update FilePath and Status only; execution links
-//     (AutopilotRunID, PipelineID, OrchestratorID) and TaskProgress are never
-//     overwritten.
+// For each discovered file:
+//   - If no record exists → create a stub with inferred Status/FilePath (no
+//     definition fields — use ImportLegacy to load goal/tasks).
+//   - If a stub exists (empty definition) → update FilePath and Status only;
+//     execution links and TaskProgress are never overwritten.
+//   - If a canonical record exists (non-empty definition) → never reseed
+//     Status from directory placement. FilePath may be refreshed as last-export
+//     metadata and branches merged; SkippedCanonical is incremented.
 //
-// ScanProject is idempotent: a second call on an unchanged tree produces no
-// net change.
-func ScanProject(ctx context.Context, s *Store, projectID, rootDir string) (int, error) {
+// ScanProject is idempotent for an unchanged tree of stubs.
+func ScanProject(ctx context.Context, s *Store, projectID, rootDir string) (ScanResult, error) {
+	result := ScanResult{Notice: ScanDeprecationNotice}
 	plansDir := filepath.Join(rootDir, "plans")
 	if _, err := os.Stat(plansDir); os.IsNotExist(err) {
-		return 0, nil
+		return result, nil
 	}
 
 	type planCandidate struct {
@@ -87,7 +101,7 @@ func ScanProject(ctx context.Context, s *Store, projectID, rootDir string) (int,
 			if os.IsNotExist(err) {
 				continue
 			}
-			return 0, err
+			return result, err
 		}
 		for _, e := range entries {
 			if e.IsDir() || !isYAML(e.Name()) {
@@ -101,7 +115,7 @@ func ScanProject(ctx context.Context, s *Store, projectID, rootDir string) (int,
 	// Walk flat plans/*.yaml files (treated as pending).
 	flatEntries, err := os.ReadDir(plansDir)
 	if err != nil && !os.IsNotExist(err) {
-		return 0, err
+		return result, err
 	}
 	for _, e := range flatEntries {
 		if e.IsDir() || !isYAML(e.Name()) {
@@ -111,10 +125,9 @@ func ScanProject(ctx context.Context, s *Store, projectID, rootDir string) (int,
 		candidates = append(candidates, planCandidate{filePath: rel, status: PlanStatusPending})
 	}
 
-	upserted := 0
 	for _, c := range candidates {
 		if err := ctx.Err(); err != nil {
-			return upserted, err
+			return result, err
 		}
 		absPath := filepath.Join(rootDir, c.filePath)
 		name := readPlanName(absPath)
@@ -125,11 +138,11 @@ func ScanProject(ctx context.Context, s *Store, projectID, rootDir string) (int,
 		id := PlanID(projectID, name)
 		existing, err := s.Get(ctx, id)
 		if err != nil && err != ErrNotFound {
-			return upserted, err
+			return result, err
 		}
 		discovered := discoverPlanBranches(ctx, rootDir, name, id)
 		if existing == nil {
-			// Create new record.
+			// Create stub record only (no definition — ImportLegacy owns that).
 			p := &Plan{
 				ID:        id,
 				ProjectID: projectID,
@@ -139,29 +152,47 @@ func ScanProject(ctx context.Context, s *Store, projectID, rootDir string) (int,
 				Branches:  discovered,
 			}
 			if createErr := s.Create(ctx, p); createErr != nil && createErr != ErrExists {
-				return upserted, createErr
+				return result, createErr
 			}
-			upserted++
-		} else {
-			merged := mergeBranches(existing.Branches, discovered)
-			needUpdate := existing.FilePath != c.filePath || existing.Status != c.status || !equalStrings(existing.Branches, merged)
-			if !needUpdate {
+			result.Upserted++
+			continue
+		}
+
+		merged := mergeBranches(existing.Branches, discovered)
+
+		// Canonical Plans: refuse Status reseeding from directory placement.
+		if !isEmptyDefinition(existing) {
+			result.SkippedCanonical++
+			needMeta := existing.FilePath != c.filePath || !equalStrings(existing.Branches, merged)
+			if !needMeta {
 				continue
 			}
-			// Update FilePath and Status; merge discovered branches.
-			// Never touch execution links or TaskProgress.
 			if updateErr := s.Update(ctx, id, func(p *Plan) error {
 				p.FilePath = c.filePath
-				p.Status = c.status
 				p.Branches = merged
 				return nil
 			}); updateErr != nil {
-				return upserted, updateErr
+				return result, updateErr
 			}
-			upserted++
+			continue
 		}
+
+		needUpdate := existing.FilePath != c.filePath || existing.Status != c.status || !equalStrings(existing.Branches, merged)
+		if !needUpdate {
+			continue
+		}
+		// Stub-only: update FilePath and Status; never touch execution links.
+		if updateErr := s.Update(ctx, id, func(p *Plan) error {
+			p.FilePath = c.filePath
+			p.Status = c.status
+			p.Branches = merged
+			return nil
+		}); updateErr != nil {
+			return result, updateErr
+		}
+		result.Upserted++
 	}
-	return upserted, nil
+	return result, nil
 }
 
 // readPlanName reads just the `name:` field from a YAML file without a full

@@ -325,8 +325,8 @@ never scanned automatically at daemon startup.
 
 | Tool | When to call it |
 |---|---|
-| `import_legacy_plans` | **One-time cutover** — after cloning a legacy repo that still has `plans/**/*.yaml`, call `import_legacy_plans { project_id: "<cwd>" }` (or `report_only: true` first) to create/reconcile canonical ScrivaDB Plans. Matching content hash is a no-op; differing definitions are conflicted. Source files untouched. |
-| `scan_plans` | **Deprecated migration aid.** Prefer `import_legacy_plans`. Walks `plans/**/*.yaml` and upserts name/status/path only. |
+| `import_legacy_plans` | **One-time cutover** — after cloning a legacy repo that still has `plans/**/*.yaml`, call `import_legacy_plans { project_id: "<cwd>" }` (or `report_only: true` first) to create/reconcile canonical ScrivaDB Plans. Matching content hash is a no-op (cannot affect already-canonical execution); differing definitions are conflicted. Source files untouched. |
+| `scan_plans` | **Deprecated migration aid (one release).** Prefer `import_legacy_plans`. Upserts stubs only; does **not** reseed Status for Plans with a non-empty definition. Response includes `notice` + `skipped_canonical`. Never runs at daemon startup. |
 | `list_plans` | List ScrivaDB-canonical plans for a project (optional `status`). Returns revision, executor_id, task_summary, export_status, timestamps. YAML replicas are never listed as extra plans. |
 | `get_plan` | Fetch one plan by stable `plan-<8hex>` ID: goal, tasks, revision, executor_id, task_summary, export_status, repo_export, linked IDs, `task_progress`, timestamps. Does not read repository YAML. |
 | `find_related_plans` | Heuristic overlap query (same project, title/goal tokens, linked branches/PRs). Always returns `heuristic=true` + disclaimer — not authoritative duplicate detection. |
@@ -348,7 +348,7 @@ never scanned automatically at daemon startup.
 import_legacy_plans { project_id: "<absolute-path-to-repo>", report_only: true }
 import_legacy_plans { project_id: "<absolute-path-to-repo>" }
 ```
-Prefer Plan backup restore for canonical recovery (execution evidence survives). `scan_plans` remains a migration aid for legacy YAML authority.
+Prefer Plan backup restore for canonical recovery (execution evidence survives). `scan_plans` is a deprecated one-release migration aid and cannot affect canonical execution after import.
 
 **Starting a phase:**
 ```
