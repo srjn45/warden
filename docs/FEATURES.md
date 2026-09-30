@@ -1469,6 +1469,11 @@ config file, and are edited via the surfaces above.
 
 Plans are YAML files stored in `plans/{pending,in_progress,completed,archived}/` inside a project repository. The daemon scans those directories, tracks execution state (links to autopilot runs, pipelines, and task progress) in a ScrivaDB `plans` collection, and surfaces plans in every UI.
 
+> **Design freeze (upcoming cutover):** ScrivaDB becomes the sole canonical Plan
+> store; repository YAML becomes an optional inert export. See
+> [`docs/specs/2026-09-30-scrivadb-canonical-plans.md`](specs/2026-09-30-scrivadb-canonical-plans.md).
+> Until that cutover ships, the two-layer model below remains the live behavior.
+
 ### 37.1 Two-layer architecture
 
 | Layer | What lives here | Source of truth |
@@ -1666,4 +1671,6 @@ lives in `TestUpgradeAcceptanceFromLegacyCorpus` (`internal/daemon`).
   Plan audit history.
 
 See [`docs/specs/2026-09-29-plan-execution-entity-redesign.md`](specs/2026-09-29-plan-execution-entity-redesign.md)
-for ownership rules and the `ai_cli` alias table.
+for ownership rules and the `ai_cli` alias table. Plan definition/lifecycle
+authority cutover is frozen in
+[`docs/specs/2026-09-30-scrivadb-canonical-plans.md`](specs/2026-09-30-scrivadb-canonical-plans.md).
