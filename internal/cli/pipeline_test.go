@@ -176,6 +176,20 @@ func TestRenderPipelineDetailShowsBranchAndOutput(t *testing.T) {
 	}
 }
 
+func TestRenderPipelineDetailShowsPlanAndProject(t *testing.T) {
+	p := &pipeline.Pipeline{
+		ID: "bound", Status: pipeline.StatusPending, Repo: "/r",
+		ProjectID: "/proj", PlanID: "plan-aabbccdd",
+		Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobPending}},
+	}
+	out := renderPipelineDetail(p)
+	for _, want := range []string{"project: /proj", "plan: plan-aabbccdd"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("renderPipelineDetail missing %q in:\n%s", want, out)
+		}
+	}
+}
+
 func TestRenderPipelineDetailOmitsEmptyBranchAndOutput(t *testing.T) {
 	p := &pipeline.Pipeline{ID: "p", Status: pipeline.StatusRunning, Repo: "/r",
 		Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobRunning}}}

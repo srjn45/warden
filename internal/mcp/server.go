@@ -54,6 +54,8 @@ type spawnArgs struct {
 	Role           string   `json:"role" jsonschema:"REQUIRED — built-in agent role: general | orchestrator | planner | worker (legacy aliases implementer/auto-merger/reviewer resolve to worker). For downward delegation, spawn role=planner for a research/spec agent (permission_mode=plan) or role=worker for an implement→PR agent (type=development, auto_approve). Injects the role's persona as a system-prompt addendum and applies its default flags (type/model/permission_mode/auto_approve/tags) to any field left unset. See list_roles for the full catalog. On its own it is enough to spawn — backend+model are resolved from tier/task/role by the quota-balanced resolver when not pinned explicitly"`
 	Tier           string   `json:"tier,omitempty" jsonschema:"optional model tier for the quota-balanced resolver that picks the backend+model: tier-1|tier-2|tier-3. Empty derives the tier from task, then role. An explicit backend/model still wins over the resolver"`
 	Task           string   `json:"task,omitempty" jsonschema:"optional task name (task registry) used to derive the model tier when tier is empty"`
+	ProjectID      string   `json:"project_id,omitempty" jsonschema:"optional first-class project id this agent joins; empty = daemon path-matches the launch dir to an OPEN project"`
+	PlanID         string   `json:"plan_id,omitempty" jsonschema:"optional planstore plan id in the same project; empty = planless agent. A non-empty value must name an existing plan belonging to the resolved project"`
 }
 type adoptArgs struct {
 	Dir         string `json:"dir,omitempty"`
@@ -153,7 +155,9 @@ type whoIsEditingArgs struct {
 }
 
 type createPipelineArgs struct {
-	Spec string `json:"spec" jsonschema:"the pipeline definition as a YAML spec — top-level name, repo, and a jobs list (each job: id, prompt, optional depends_on, worktree none|fresh|from:<job>, type, run_if, supervised). Same schema as a 'warden pipeline create -f' file."`
+	Spec      string `json:"spec" jsonschema:"the pipeline definition as a YAML spec — top-level name, repo, and a jobs list (each job: id, prompt, optional depends_on, worktree none|fresh|from:<job>, type, run_if, supervised). Same schema as a 'warden pipeline create -f' file."`
+	ProjectID string `json:"project_id,omitempty" jsonschema:"optional first-class project id this pipeline joins; overrides YAML project_id; empty = daemon path-matches the pipeline repo to an OPEN project"`
+	PlanID    string `json:"plan_id,omitempty" jsonschema:"optional planstore plan id in the same project; empty = planless pipeline. A non-empty value must name an existing plan belonging to the resolved project"`
 }
 type pipelineIDArgs struct {
 	Pipeline string `json:"pipeline" jsonschema:"the pipeline id (equals its name)"`
@@ -324,6 +328,7 @@ func NewServer(daemonBase string) *Server {
 			Prompt: a.Prompt, Cwd: cwd, PermissionMode: a.PermissionMode, Force: a.Force,
 			Name: a.Name, Model: a.Model, Backend: a.Backend, Kind: a.Kind, Tags: a.Tags,
 			Role: roleName, Tier: a.Tier, Task: a.Task, ParentID: s.spawnParentID(ctx, roleName),
+			ProjectID: a.ProjectID, PlanID: a.PlanID,
 		})
 		if err != nil {
 			var cre *client.ErrConfirmationRequired
@@ -706,7 +711,9 @@ func NewServer(daemonBase string) *Server {
 		Name:        "create_pipeline",
 		Description: "Create a DAG pipeline of agent jobs from a YAML spec (the daemon parses, validates, and stores it). Use this to drive a multi-stage / dependent agent workflow (e.g. analyze→implement→review) instead of spawning and wiring agents by hand. The pipeline starts in `pending` — call start_pipeline to spawn its entry jobs. Returns the created pipeline {id, status, jobs}.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a createPipelineArgs) (*mcpsdk.CallToolResult, any, error) {
-		p, err := s.cl.PipelineCreate(ctx, a.Spec)
+		p, err := s.cl.PipelineCreateWith(ctx, client.PipelineCreateParams{
+			Spec: a.Spec, ProjectID: a.ProjectID, PlanID: a.PlanID,
+		})
 		if err != nil {
 			return textResult("error: " + err.Error()), nil, nil
 		}

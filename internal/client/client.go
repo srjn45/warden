@@ -411,6 +411,7 @@ type SpawnParams struct {
 	Tags           []string
 	ParentID       string
 	ProjectID      string // id of the project this session joins; empty = daemon resolves it by path-match to an open project
+	PlanID         string // optional back-ref to a planstore plan in the same project; empty = planless
 	ForkFrom       string // id of an existing agent whose recorded session to FORK (codex fork); empty = normal spawn
 	Role           string // built-in role name; empty = general (no persona). Persona injected + role defaults fill unset fields.
 	Tier           string // explicit model tier ("tier-1"/"tier-2"/"tier-3") for the quota-balanced resolver; empty = derive from task/role
@@ -425,8 +426,8 @@ func (c *Client) Spawn(ctx context.Context, p SpawnParams) (*store.Session, erro
 		"prompt": p.Prompt, "cwd": p.Cwd, "permission_mode": p.PermissionMode,
 		"auto_restart": p.AutoRestart, "force": p.Force,
 		"model": p.Model, "backend": p.Backend, "kind": p.Kind, "tags": p.Tags, "parent_id": p.ParentID,
-		"project_id": p.ProjectID,
-		"fork_from":  p.ForkFrom, "role": p.Role, "tier": p.Tier, "task": p.Task,
+		"project_id": p.ProjectID, "plan_id": p.PlanID,
+		"fork_from": p.ForkFrom, "role": p.Role, "tier": p.Tier, "task": p.Task,
 	}
 	if err := c.doT(ctx, longTimeout, http.MethodPost, "/spawn", body, &s); err != nil {
 		var se *StatusError
@@ -1194,14 +1195,38 @@ func (c *Client) MsgWait(ctx context.Context, id, from string, timeoutSec int) (
 	return resp.Message, nil
 }
 
+// PipelineCreateParams is the body for POST /api/v1/pipelines.
+type PipelineCreateParams struct {
+	Spec          string
+	ProjectID     string
+	PlanID        string
+	ParentAgentID string
+}
+
 // PipelineCreate sends a YAML spec to the daemon, which parses, validates, and
-// stores it.
+// stores it. Optional ProjectID/PlanID/ParentAgentID are request-body stamps
+// (PlanID is validated against the resolved project when non-empty).
 func (c *Client) PipelineCreate(ctx context.Context, specYAML string) (*pipeline.Pipeline, error) {
-	var p pipeline.Pipeline
-	if err := c.do(ctx, http.MethodPost, "/pipelines", map[string]string{"spec": specYAML}, &p); err != nil {
+	return c.PipelineCreateWith(ctx, PipelineCreateParams{Spec: specYAML})
+}
+
+// PipelineCreateWith is PipelineCreate with optional project/plan/parent stamps.
+func (c *Client) PipelineCreateWith(ctx context.Context, p PipelineCreateParams) (*pipeline.Pipeline, error) {
+	var out pipeline.Pipeline
+	body := map[string]any{"spec": p.Spec}
+	if p.ProjectID != "" {
+		body["project_id"] = p.ProjectID
+	}
+	if p.PlanID != "" {
+		body["plan_id"] = p.PlanID
+	}
+	if p.ParentAgentID != "" {
+		body["parent_agent_id"] = p.ParentAgentID
+	}
+	if err := c.do(ctx, http.MethodPost, "/pipelines", body, &out); err != nil {
 		return nil, err
 	}
-	return &p, nil
+	return &out, nil
 }
 
 func (c *Client) PipelineList(ctx context.Context) ([]*pipeline.Pipeline, error) {

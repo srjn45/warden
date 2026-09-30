@@ -1067,6 +1067,8 @@
     "local_flags": [
       "file",
       "name",
+      "plan",
+      "project",
       "repo",
       "set",
       "template"
@@ -1685,6 +1687,7 @@
       "model",
       "name",
       "permission-mode",
+      "plan",
       "pr",
       "preset",
       "project",

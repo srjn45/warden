@@ -1114,3 +1114,45 @@ func TestGolden_AuthoritativeMembership_NestedPipelineJob_TerminalSeparation(t *
 
 	require.JSONEq(t, expectedJSON, string(gotJSON))
 }
+
+func TestBuildExposesPlanIDOnAgentAndPipeline(t *testing.T) {
+	in := Inputs{
+		Projects: []projectstore.Project{{
+			ID: "/proj", Name: "proj", Path: "/proj", Status: projectstore.StatusOpen,
+			Agents: []string{"agent-1"}, Pipelines: []string{"bound"},
+		}},
+		Pipelines: []*pipeline.Pipeline{{
+			ID: "bound", Name: "bound", Repo: "/proj", Status: pipeline.StatusPending,
+			PlanID: "plan-aabbccdd", ProjectID: "/proj",
+			Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobPending, DependsOn: []string{}}},
+		}},
+		Sessions: []*store.Session{{
+			ID: "agent-1", Name: "worker", Status: store.StatusIdle,
+			ProjectID: "/proj", PlanID: "plan-aabbccdd",
+		}},
+	}
+	tree := NewService().Build(in, "")
+	require.NotEmpty(t, tree.Roots)
+	var foundAgent, foundPipe bool
+	var walk func(n *Node)
+	walk = func(n *Node) {
+		if n.Type == NodeTypeAgent && n.SessionID == "agent-1" {
+			require.NotNil(t, n.Detail)
+			require.Equal(t, "plan-aabbccdd", n.Detail.PlanID)
+			foundAgent = true
+		}
+		if n.Type == NodeTypePipeline && n.ID == "pipeline:bound" {
+			require.NotNil(t, n.Detail)
+			require.Equal(t, "plan-aabbccdd", n.Detail.PlanID)
+			foundPipe = true
+		}
+		for _, ch := range n.Children {
+			walk(ch)
+		}
+	}
+	for _, r := range tree.Roots {
+		walk(r)
+	}
+	require.True(t, foundAgent, "agent node with plan_id")
+	require.True(t, foundPipe, "pipeline node with plan_id")
+}

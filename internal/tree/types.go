@@ -45,6 +45,7 @@ type Detail struct {
 	Path      string   `json:"path,omitempty"`
 	Slot      string   `json:"slot,omitempty"`
 	Gate      string   `json:"gate,omitempty"`
+	PlanID    string   `json:"plan_id,omitempty"` // agent/pipeline: optional plan back-ref
 	Synthetic bool     `json:"synthetic,omitempty"`
 	Degraded  bool     `json:"degraded,omitempty"`
 	Closed    bool     `json:"closed,omitempty"`
