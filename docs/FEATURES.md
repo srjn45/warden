@@ -1558,15 +1558,9 @@ canonical recovery.
 | Command | Action |
 |---|---|
 | `wd plan list [--status <s>] [--json]` | List ScrivaDB plans |
-<<<<<<< HEAD
-| `wd plan create --name <n> --goal <g> [--task id:prompt]` | Create pending Plan in ScrivaDB (no YAML write) |
+| `wd plan create --name <n> --goal <g> [--task id:prompt\|id@deps:prompt]` | Create pending Plan in ScrivaDB (no YAML write); multi-task flat lists auto-chain |
 | `wd plan show <id> [--json]` | Canonical detail (never reads repo YAML/JSON replicas) |
 | `wd plan sync_to_repo <id> --base <ref> [--format yaml\|json]` | Optional inert replica PR (YAML default; JSON opt-in) |
-=======
-| `wd plan create --name <n> --goal <g> [--task id:prompt\|id@deps:prompt]` | Create pending Plan in ScrivaDB (no YAML write); multi-task flat lists auto-chain |
-| `wd plan show <id> [--json]` | Canonical detail (never reads repo YAML) |
-| `wd plan sync_to_repo <id> --base <ref>` | Optional inert replica PR |
->>>>>>> 6be0c50 (feat(plans): treat every plan as a task DAG across all execution modes)
 | `wd plan backup export\|restore …` | Portable ScrivaDB bundle |
 | `wd plan import-legacy [--report]` | Explicit legacy YAML cutover |
 | `wd plan scan` / `import` / `status` | **Deprecated** migration aids |
