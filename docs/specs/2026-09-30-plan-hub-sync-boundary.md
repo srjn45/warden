@@ -75,14 +75,38 @@ Pull(ctx, PullQuery) ([]Envelope, error)
 Discover(ctx, Scope, statuses) ([]Envelope, error)
 ```
 
-| Implementation | `Name` | `Enabled` | Behavior now |
+| Implementation | `Name` | `Enabled` | Behavior |
 |---|---|---|---|
 | `Local()` / `Default()` | `local` | `false` | Validate on Push; Pull/Discover empty; **no network** |
 | `FakeProvider` | `fake` | `true` | In-memory contract double; conflict on token mismatch |
-| future `Hub` | `hub` | `true` when configured | Reserved; not shipped |
+| `HubProvider` (`NewHub` / `New(provider=hub)`) | `hub` | `true` when base URL + token set | HTTP client against frozen paths below; stamps `Plan.SyncedAt` / `RemoteID` only via `StampPlan` / `SyncPushPlan` / `SyncPullPlan` after success |
 
 Authorization claims on the envelope are **data**, not enforcement. Hub authN/Z
-remains deferred (freeze §13 open question #5).
+beyond bearer transport remains deferred (freeze §13 open question #5).
+
+### 4.1 Phase A Hub HTTP contract (client shipped; Hub service = Phase B)
+
+Base URL + `Authorization: Bearer <token>`. JSON request/response bodies use the
+v1 `Envelope` schema.
+
+| Method | Path | Body → Response |
+|---|---|---|
+| `POST` | `/api/v1/plan-sync/push` | `Envelope` → `Envelope` (`remote_id` required; `synced_at` filled) or `409` conflict |
+| `POST` | `/api/v1/plan-sync/pull` | `{scope, plan_id?, statuses?}` → `{envelopes:[…]}` |
+| `POST` | `/api/v1/plan-sync/discover` | `{scope, statuses?}` → `{envelopes:[…]}` (empty statuses ⇒ pending\|in_progress) |
+
+Conflict body: `{"error":"conflict","plan_id":"…","expected":"…","actual":"…"}`.
+
+Daemon config (default offline):
+
+```yaml
+plan_sync:
+  provider: local   # local | hub
+  hub_url: ""       # required when provider=hub
+  token: ""         # or env WARDEN_PLAN_SYNC_TOKEN
+```
+
+`plansync.Default()` remains `Local()` — config is opt-in via `plansync.New`.
 
 ---
 
@@ -155,20 +179,21 @@ Contract tests:
 
 ---
 
-## 7. Explicit non-goals (this phase)
+## 7. Explicit non-goals (Phase A client)
 
-- Hub HTTP/WSS transport, device login, org billing
-- Account management / membership admin UI
-- Authorization enforcement beyond carrying visibility/owner fields
-- Background sync schedulers or daemon wiring that phones home
+- Hub **service** implementation (Phase B endpoints behind a real authZ stack)
+- Account management / membership admin UI / org billing
+- Authorization enforcement beyond carrying visibility/owner fields + bearer transport
+- Background sync schedulers or daemon auto-replication that phones home
 - Changing `plan sync_to_repo` behavior
-- Filling `Plan.SyncedAt` / `RemoteID` from production code paths
+- Filling `Plan.SyncedAt` / `RemoteID` from Local/Fake or repo export paths
 
 ---
 
 ## 8. Follow-ups
 
-1. Optional daemon config `plan_sync.provider: local|hub` (default `local`).
-2. Hub service endpoints for Push/Pull/Discover with real authZ.
-3. TUI/MCP badge: “N teammate plans in scope” from Discover.
+1. ~~Optional daemon config `plan_sync.provider: local|hub` (default `local`).~~ **Phase A (this client)**
+2. Hub service endpoints for Push/Pull/Discover with real authZ (**Phase B** — implement the paths in §4.1).
+3. TUI/MCP badge: “N teammate plans in scope” from Discover (**Phase C**).
 4. Envelope v2 if full definition bodies must sync for remote edit.
+5. Daemon wiring that constructs `plansync.New` from `plan_sync.*` and exposes operator sync verbs.

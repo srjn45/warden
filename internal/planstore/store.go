@@ -118,8 +118,9 @@ type Plan struct {
 	// Absent / nil when never exported.
 	RepoExport *RepoExportMeta `json:"repo_export,omitempty"`
 
-	// Hub sync seam — reserved for future warden-hub sync via internal/plansync;
-	// never set by this package. See docs/specs/2026-09-30-plan-hub-sync-boundary.md.
+	// Hub sync seam — set only by plansync.HubProvider after a successful
+	// Push/Pull (StampPlan / SyncPushPlan / SyncPullPlan). Never by Local,
+	// Fake, or planexport. See docs/specs/2026-09-30-plan-hub-sync-boundary.md.
 	SyncedAt *time.Time `json:"synced_at,omitempty"`
 	RemoteID string     `json:"remote_id,omitempty"`
 

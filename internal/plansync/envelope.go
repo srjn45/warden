@@ -63,7 +63,8 @@ func EnvelopeFromPlan(p *planstore.Plan, opts EnvelopeOptions) (Envelope, error)
 		Artifacts:     artifactsFromPlan(p),
 		Origin:        origin,
 		ConflictToken: ConflictToken(p.Revision, hash),
-		// SyncedAt / RemoteID intentionally left empty — only a Hub provider fills them.
+		// SyncedAt / RemoteID copied from Plan only if already stamped by a prior
+		// Hub round-trip; HubProvider overwrites them after a successful sync.
 		SyncedAt: p.SyncedAt,
 		RemoteID: p.RemoteID,
 	}
