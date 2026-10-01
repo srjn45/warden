@@ -39,6 +39,7 @@ import (
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/planexport"
 	"github.com/srjn45/warden/internal/planstore"
+	"github.com/srjn45/warden/internal/plansync"
 	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/poller"
 	"github.com/srjn45/warden/internal/projectstore"
@@ -355,6 +356,16 @@ func newDaemonRunCmd() *cobra.Command {
 			}
 			defer planExportStore.Close()
 			srv.SetPlanExportStore(planExportStore)
+			// The Hub envelope store is distinct from the local canonical plan
+			// store. It makes this daemon usable as a small Phase B Hub when its
+			// normal Bearer auth is configured; the default PlanSync client still
+			// remains Local() and makes no network calls.
+			hubPlanSync, err := plansync.NewFileHubStore(filepath.Join(cfg.DataDir, "plan-sync-hub"))
+			if err != nil {
+				return err
+			}
+			defer hubPlanSync.Close()
+			srv.SetHubPlanSyncStore(hubPlanSync)
 			// Project Groups Phase 3 (peer awareness): wire the daemon-side peer-context
 			// provider into lifecycle so a grouped per-project orchestrator learns its
 			// Project Group and sibling orchestrators (recomputed from live store state)

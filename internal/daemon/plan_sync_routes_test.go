@@ -13,6 +13,7 @@ import (
 
 	"github.com/srjn45/warden/internal/planexport"
 	"github.com/srjn45/warden/internal/planstore"
+	"github.com/srjn45/warden/internal/plansync"
 )
 
 func TestSyncPlanToRepoRoute_IdempotentWithFakeGit(t *testing.T) {
@@ -67,6 +68,48 @@ func TestSyncPlanToRepoRoute_IdempotentWithFakeGit(t *testing.T) {
 	require.Equal(t, "skipped", second["outcome"])
 	require.Equal(t, true, second["reused"])
 	require.Equal(t, 1, git.prCalls, "idempotent reuse must not open another PR")
+}
+
+func TestHubPlanSyncRoutes_RequireBearerAndServeHubProvider(t *testing.T) {
+	hubStore, err := plansync.NewFileHubStore(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, hubStore.Close()) })
+	srv := &Server{store: newFakeStore(), life: &fakeLife{}}
+	srv.SetHubPlanSyncStore(hubStore)
+	srv.SetAuth("hub-secret", "readonly")
+	ts := httptest.NewServer(srv.router())
+	t.Cleanup(ts.Close)
+
+	env := plansync.Envelope{
+		SchemaVersion: plansync.SchemaVersion,
+		Scope:         plansync.Scope{OrganizationID: "org", TeamID: "team", ProjectID: "project"},
+		ProjectID:     "project", PlanID: "hub-route", Revision: 1, ContentHash: "sha256:one",
+		Visibility: plansync.VisibilityTeam, Lifecycle: planstore.PlanStatusPending,
+		ConflictToken: plansync.ConflictToken(1, "sha256:one"),
+	}
+	noAuth := bytes.NewReader(mustPlanSyncJSON(t, env))
+	resp, err := http.Post(ts.URL+plansync.PathPush, "application/json", noAuth)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	require.NoError(t, resp.Body.Close())
+
+	hub, err := plansync.NewHub(plansync.HubOptions{BaseURL: ts.URL, Token: "hub-secret", HTTP: ts.Client()})
+	require.NoError(t, err)
+	require.NoError(t, hub.Push(context.Background(), env))
+	discovered, err := hub.Discover(context.Background(), env.Scope, nil)
+	require.NoError(t, err)
+	require.Len(t, discovered, 1)
+
+	readonly, err := plansync.NewHub(plansync.HubOptions{BaseURL: ts.URL, Token: "readonly", HTTP: ts.Client()})
+	require.NoError(t, err)
+	require.Error(t, readonly.Push(context.Background(), env), "read-only bearer token cannot push")
+}
+
+func mustPlanSyncJSON(t *testing.T, value any) []byte {
+	t.Helper()
+	raw, err := json.Marshal(value)
+	require.NoError(t, err)
+	return raw
 }
 
 func TestSyncPlanToRepoRoute_PathCollision409(t *testing.T) {

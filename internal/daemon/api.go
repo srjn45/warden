@@ -30,6 +30,7 @@ import (
 	"github.com/srjn45/warden/internal/notify"
 	"github.com/srjn45/warden/internal/planexport"
 	"github.com/srjn45/warden/internal/planstore"
+	"github.com/srjn45/warden/internal/plansync"
 	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/poller"
 	"github.com/srjn45/warden/internal/pressure"
@@ -252,6 +253,9 @@ type Server struct {
 	planExports planexport.RecordStore
 	// planSyncGit is an optional test seam for sync_to_repo Git/GitHub ops.
 	planSyncGit planexport.GitHost
+	// hubPlanSync stores Hub transport envelopes. Nil leaves the Phase B Hub
+	// endpoints unmounted, preserving the default daemon's offline behavior.
+	hubPlanSync plansync.HubStore
 	// terminals is the first-class terminal pane store (plan-execution entity
 	// redesign). nil ⇒ legacy Kind=terminal Session path. Set via SetTerminals.
 	terminals *terminalstore.Store
@@ -370,6 +374,10 @@ func (s *Server) SetProjects(store *projectstore.Store) { s.projects = store }
 // each known project at startup when this and SetProjects are both wired. Call
 // before Start.
 func (s *Server) SetPlanStore(store *planstore.Store) { s.plans = store }
+
+// SetHubPlanSyncStore enables the optional Phase B Hub plan-sync endpoints.
+// The store is independent from the daemon's local canonical plan store.
+func (s *Server) SetHubPlanSyncStore(store plansync.HubStore) { s.hubPlanSync = store }
 
 // SetAPIDocs toggles the public OpenAPI documentation surface (#43): Swagger UI
 // at /api/docs and the raw openapi.yaml. enabled=false makes those routes 404.
@@ -577,6 +585,12 @@ func (s *Server) router() http.Handler {
 		ar.Get("/api/v1/events/stream", s.handleEventsStream)
 		ar.Get("/api/v1/sessions/{id}/attach", s.handleAttach)
 		ar.Get("/api/v1/cockpit/attach", s.handleCockpitAttach)
+		if s.hubPlanSync != nil {
+			hubSync := plansync.HTTPService{Store: s.hubPlanSync}
+			ar.Post(plansync.PathPush, hubSync.Push)
+			ar.Post(plansync.PathPull, hubSync.Pull)
+			ar.Post(plansync.PathDiscover, hubSync.Discover)
+		}
 		strict := oapi.NewStrictHandlerWithOptions(s, nil, oapi.StrictHTTPServerOptions{
 			RequestErrorHandlerFunc:  strictRequestError,
 			ResponseErrorHandlerFunc: strictResponseError,
