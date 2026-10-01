@@ -1,4 +1,4 @@
-// Package plansync defines the PlanSyncProvider boundary for future Warden Hub
+// Package plansync defines the PlanSyncProvider boundary for Warden Hub
 // synchronization of canonical ScrivaDB Plan revisions.
 //
 // Design freeze: docs/specs/2026-09-30-scrivadb-canonical-plans.md D6.
@@ -9,9 +9,11 @@
 // across machines and teams; repo export publishes inert YAML via Git/PR.
 // Neither replaces origin/main as authority for shipped code.
 //
-// Default installation uses Local() — a no-op provider that never dials the
-// network. Authorization, account management, remote transport, background
-// replication, and Hub UI are out of scope for this phase.
+// Default() / New(provider=local) use Local() — a no-op that never dials the
+// network. Opt into HubProvider via plan_sync.provider=hub plus hub_url +
+// credentials (or plansync.New with ProviderHub). Plan.SyncedAt / RemoteID are
+// stamped only after a successful Hub Push/Pull (StampPlan / SyncPushPlan /
+// SyncPullPlan) — never by Local, Fake, or planexport.
 package plansync
 
 import (
@@ -29,8 +31,7 @@ const SchemaVersion = 1
 const (
 	ProviderLocal = "local"
 	ProviderFake  = "fake"
-	// ProviderHub is reserved for a future remote implementation; not shipped.
-	ProviderHub = "hub"
+	ProviderHub   = "hub"
 )
 
 // Visibility is the intended audience for a synced Plan revision. A future Hub
@@ -112,8 +113,8 @@ type Envelope struct {
 	// Local builders set it to ConflictToken(revision, content_hash).
 	ConflictToken string `json:"conflict_token"`
 
-	// SyncedAt / RemoteID mirror planstore.Plan hub seams; filled only by a
-	// future Hub provider after a successful remote round-trip.
+	// SyncedAt / RemoteID mirror planstore.Plan hub seams; filled only by
+	// HubProvider after a successful remote round-trip.
 	SyncedAt *time.Time `json:"synced_at,omitempty"`
 	RemoteID string     `json:"remote_id,omitempty"`
 }

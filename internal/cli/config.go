@@ -87,6 +87,9 @@ func printConfig(out io.Writer, cfg config.Config) {
 			{"workspace_path", cfg.WorkspacePath},
 			{"allow_nonloopback", fmt.Sprintf("%t", cfg.AllowNonLoopback)},
 			{"relay.allow_web_terminated", fmt.Sprintf("%t", cfg.Relay.AllowWebTerminated)},
+			{"plan_sync.provider", cfg.PlanSync.Provider},
+			{"plan_sync.hub_url", cfg.PlanSync.HubURL},
+			{"plan_sync.token", webhookURLDisplay(cfg.PlanSync.Token)},
 		}},
 		{"agents", [][2]string{
 			{"default_permission_mode", cfg.DefaultPermissionMode},

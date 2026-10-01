@@ -9,8 +9,8 @@ import (
 // LocalProvider is the default offline PlanSyncProvider. Every method is a
 // pure in-process no-op: no dialers, HTTP clients, goroutines, or background
 // replication. Push succeeds without persisting; Pull and Discover return empty
-// slices. This is what a fresh warden install uses until a Hub provider is
-// explicitly configured (not part of this phase).
+// slices. This is what a fresh warden install uses until plan_sync.provider=hub
+// is explicitly configured.
 type LocalProvider struct{}
 
 // Local returns the default offline provider.

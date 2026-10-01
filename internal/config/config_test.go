@@ -1045,3 +1045,18 @@ func TestAutopilotBundle(t *testing.T) {
 	require.True(t, b.AutoResume, "enabling autopilot OR-bundles auto_resume on")
 	require.True(t, b.AutoRestart, "enabling autopilot OR-bundles auto_restart on")
 }
+
+func TestPlanSyncConfigDefaultsAndLoad(t *testing.T) {
+	c := Load(tmpConfig(t, ""))
+	require.Equal(t, "local", c.PlanSync.Provider)
+	require.Empty(t, c.PlanSync.HubURL)
+	require.Empty(t, c.PlanSync.Token)
+
+	c = Load(tmpConfig(t, "plan_sync:\n  provider: HUB\n  hub_url: https://hub.example\n  token: secret\n"))
+	require.Equal(t, "hub", c.PlanSync.Provider)
+	require.Equal(t, "https://hub.example", c.PlanSync.HubURL)
+	require.Equal(t, "secret", c.PlanSync.Token)
+
+	c = Load(tmpConfig(t, "plan_sync:\n  provider: bogus\n"))
+	require.Equal(t, "local", c.PlanSync.Provider, "invalid provider falls back to local")
+}

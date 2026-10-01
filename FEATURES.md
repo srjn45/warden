@@ -328,8 +328,15 @@ execution SoT. See [plans migration](https://srjn45.github.io/warden/guides/plan
 and [`docs/MIGRATION-plans-scrivadb.md`](docs/MIGRATION-plans-scrivadb.md).
 Phase 12 acceptance:
 [`docs/specs/2026-09-30-scrivadb-canonical-plans-acceptance.md`](docs/specs/2026-09-30-scrivadb-canonical-plans-acceptance.md).
-Follow-ups: JSON export [#585](https://github.com/srjn45/warden/issues/585) **shipped** (opt-in),
-Hub transport [#586](https://github.com/srjn45/warden/issues/586) still deferred.
+JSON export [#585](https://github.com/srjn45/warden/issues/585) is **shipped**
+(opt-in). The Phase A Hub client [#586](https://github.com/srjn45/warden/issues/586)
+is also shipped but remains opt-in and offline by default: configure
+`plan_sync.provider: hub`, `plan_sync.hub_url`, and a token (prefer
+`WARDEN_PLAN_SYNC_TOKEN`, which overrides `plan_sync.token`). `warden config`
+shows the resolved provider/URL and token presence without printing the secret.
+Phase B is the Hub service with the frozen Push/Pull/Discover endpoints and real
+authorization; Phase C wires daemon operator verbs plus the TUI/MCP teammate-plan
+discovery badge.
 
 | Feature | CLI | MCP | Skill | Web | TUI | Docs |
 |---|---|---|---|---|---|---|
@@ -345,6 +352,7 @@ Hub transport [#586](https://github.com/srjn45/warden/issues/586) still deferred
 | Archive a plan (any status → archived) | `plan archive` | `archive_plan` | ✓ | — | `a` | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
 | Complete a plan | `plan complete` | `complete_plan` | ✓ | — | — | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
 | Optional inert replica PR (YAML default; JSON `--format json`) | `plan sync_to_repo` | `sync_plan_to_repo` | ✓ | — | — | [plans-migration](https://srjn45.github.io/warden/guides/plans-migration/) |
+| Opt-in Hub revision-sync client (Phase A) | config only; daemon verbs deferred | — | ✓ | — | Phase C badge deferred | [Plan Hub sync boundary](docs/specs/2026-09-30-plan-hub-sync-boundary.md) |
 | Portable Plan backup bundle | `plan backup export\|restore` | `export_plan_backup` / `restore_plan_backup` | ✓ | — | — | [plan-backup-restore](https://srjn45.github.io/warden/guides/plan-backup-restore/) |
 | Brain-assisted task progress assessment | `plan assess` | `assess_plan` | ✓ | — | `A` | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
 | Run a plan (`autopilot\|pipeline\|orchestrator_worker\|manual`) | `plan run --mode` | `run_plan` | ✓ | — | `r` | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |

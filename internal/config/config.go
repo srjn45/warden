@@ -138,6 +138,21 @@ type RelayConfig struct {
 	AllowWebTerminated bool `yaml:"allow_web_terminated"`
 }
 
+// PlanSyncConfig selects the Plan Hub sync provider (docs/specs/2026-09-30-plan-hub-sync-boundary.md).
+// Default provider is local (offline no-op). provider=hub dials hub_url with a
+// bearer token (token field, or WARDEN_PLAN_SYNC_TOKEN when set). Default()
+// installs remain Local() regardless of this block until the daemon wires New().
+type PlanSyncConfig struct {
+	// Provider is local | hub. Empty / unknown normalize to local.
+	Provider string `yaml:"provider"`
+	// HubURL is the warden-hub base URL for plan revision sync (required when provider=hub).
+	HubURL string `yaml:"hub_url"`
+	// Token is the bearer credential. Prefer WARDEN_PLAN_SYNC_TOKEN in the
+	// environment; that overrides this field when set. Shown as set/unset in
+	// `warden config`.
+	Token string `yaml:"token"`
+}
+
 // RecoveryConfig groups the reactive hard-limit recovery engine settings
 // (rate_limit.recovery sub-block; docs/specs/2026-09-01-reactive-backend-limit-recovery.md §7).
 // These settings control stabilization observation and retry timing.
@@ -322,6 +337,7 @@ type Config struct {
 	Memory       MemoryConfig       `yaml:"memory"`
 	BranchTrack  BranchTrackConfig  `yaml:"branch_track"`
 	Relay        RelayConfig        `yaml:"relay"`
+	PlanSync     PlanSyncConfig     `yaml:"plan_sync"`
 	RateLimit    RateLimitConfig    `yaml:"rate_limit"`
 	HTTP         HTTPConfig         `yaml:"http"`
 	Log          LogConfig          `yaml:"log"`
@@ -374,6 +390,7 @@ var schema = []setting{
 	{"memory", "Project-memory (.warden/memory.md) settings (previously flat keys: memory_inject, memory_curate, memory_ground). Sub-keys: inject (project the repo's curated durable facts into every spawned agent via its system-prompt seam; off or an empty/absent file is byte-identical to no injection), curate (auto-propose UNVERIFIED entries from completion digests into the WORKING TREE only, gated by the committed diff — default OFF, opt-in), ground (answer project questions locally in `wd repl` on the local model, read-only, default ON — it REMOVES cloud round-trips). Flat keys still load as deprecated aliases. Values: true | false"},
 	{"branch_track", "Branch/CI tracker settings (previously flat keys: branch_track_enabled, branch_track_interval). Sub-keys: enabled (monitor each agent's branch for CI failures and drift from main, delivering informational inbox/desktop alerts), interval (Go duration, e.g. 2m — scan interval). Flat keys still load as deprecated aliases."},
 	{"relay", "Hub-relay accept-side settings. The daemon dials the warden-hub relay and the hub opens per-client streams to it. Sub-keys: allow_web_terminated (allow KindWebTerminated streams — a hub-TLS-terminated browser stream the daemon cannot cryptographically verify, so it trusts the hub-asserted {grantee, scope} outright; a read-only grant still cannot attach). OFF by default: the daemon rejects such streams with relay close code 4004 until an operator opts in. KindNativeE2E streams, which carry an inner client cert the daemon verifies itself, are unaffected. Values: true | false"},
+	{"plan_sync", "Plan Hub sync provider (docs/specs/2026-09-30-plan-hub-sync-boundary.md). Sub-keys: provider (local | hub — default local; hub dials the configured Hub for Push/Pull/Discover of plan revision envelopes), hub_url (warden-hub base URL; required when provider=hub), token (bearer credential; prefer env WARDEN_PLAN_SYNC_TOKEN which overrides this when set — shown as set/unset in `warden config`). Default install stays provider=local with no network calls. SyncedAt/RemoteID are stamped only after a successful Hub Push/Pull."},
 	{"rate_limit", "Rate-limit auto-resume scheduler settings (previously flat keys: rate_limit_retry_interval, rate_limit_spend_retry_interval, rate_limit_buffer, rate_limit_auto_resume, rate_limit_resume_prompt). Sub-keys: retry_interval (Go duration, e.g. 30m — fallback wait before retrying a session/weekly limit whose reset time could not be parsed), spend_retry_interval (Go duration, e.g. 6h — longer fallback for a monthly spend cap, which carries no reset time), buffer (Go duration, e.g. 1m — extra wait on top of a parsed reset time), auto_resume (true | false — auto-pick the wait-for-reset menu choice and resume agents after any limit clears), resume_prompt (text to type when a limit clears so the agent picks its work back up; default \"continue\", set to empty for a bare keypress with no injected user turn), recovery (reactive hard-limit recovery engine settings — sub-keys: enabled (true | false — master switch for automatic backend switching on confirmed hard limits; default true), stabilization_window (Go duration, e.g. 10s — how long an agent must remain in a live non-rate-limited status before a candidate is declared stable and recovery cleared; default 10s)). Flat keys still load as deprecated aliases."},
 	{"http", "Daemon HTTP write budgets (previously flat keys: http_timeout_fast, http_timeout_slow). Backstops against a wedged handler, not pacing devices — keep them generous, especially in large monorepos where git operations are slow. Sub-keys: timeout_fast (Go duration, e.g. 30s — ordinary data/action routes: list, status, send, …), timeout_slow (Go duration, e.g. 10m — slow lifecycle routes: spawn's worktree checkout, commit/push and their hooks, checks, snapshots, pipeline ops). Flat keys still load as deprecated aliases."},
 	{"log", "Structured-logging settings (previously flat keys: log_level, log_format). Sub-keys: level (debug | info | warn | error — minimum severity the daemon logs), format (text (human-readable) | json (structured)). Flat keys still load as deprecated aliases."},
@@ -491,6 +508,9 @@ func defaults() Config {
 		},
 		Relay: RelayConfig{
 			AllowWebTerminated: false, // opt-in: trusts hub-asserted scope for un-verifiable browser streams
+		},
+		PlanSync: PlanSyncConfig{
+			Provider: "local",
 		},
 		RateLimit: RateLimitConfig{
 			RetryInterval:      "30m",
@@ -680,6 +700,7 @@ func validate(c *Config) {
 	}
 	c.Log.Level = validLogLevel(c.Log.Level, d.Log.Level)
 	c.Log.Format = validLogFormat(c.Log.Format, d.Log.Format)
+	c.PlanSync.Provider = validPlanSyncProvider(c.PlanSync.Provider, d.PlanSync.Provider)
 	c.AutoRestart.Reset = validDuration(c.AutoRestart.Reset, d.AutoRestart.Reset)
 	c.Collab.Interval = validDuration(c.Collab.Interval, d.Collab.Interval)
 	c.Collab.GitReconcileInterval = validDuration(c.Collab.GitReconcileInterval, d.Collab.GitReconcileInterval)
@@ -750,6 +771,18 @@ func validAutopilotGate(v, def string) string {
 		return def
 	}
 	slog.Warn("config: invalid autopilot.merge.gate, using default", "value", v, "default", def)
+	return def
+}
+
+// validPlanSyncProvider normalizes plan_sync.provider to local|hub.
+func validPlanSyncProvider(v, def string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "local", "hub":
+		return strings.ToLower(strings.TrimSpace(v))
+	case "":
+		return def
+	}
+	slog.Warn("config: invalid plan_sync.provider, using default", "value", v, "default", def)
 	return def
 }
 

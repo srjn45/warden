@@ -271,4 +271,5 @@ func TestRepoExportIsSeparateFromHubSync(t *testing.T) {
 	var _ PlanSyncProvider = Local()
 	var _ PlanSyncProvider = NewFake()
 	var _ PlanSyncProvider = Default()
+	var _ PlanSyncProvider = (*HubProvider)(nil)
 }
