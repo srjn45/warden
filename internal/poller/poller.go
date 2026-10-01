@@ -163,6 +163,31 @@ type Poller struct {
 	// pre-capture LastPaneExcerpt stored in the session snapshot. nil ⇒ no-op.
 	OnRateLimitObservation func(obs RateLimitObservation)
 
+	// OnLimitMenuSelected, if set, fires immediately after tryLimitMenu positively
+	// confirms that Claude's rate-limit "wait for limit to reset" menu selection
+	// cleared the menu (the keystroke(s) were sent AND a recapture verified the
+	// menu is gone — see recaptureMenuPane). It carries an immutable observation
+	// built from the freshly re-captured post-selection pane text, exactly like
+	// OnRateLimitObservation.
+	//
+	// This is the pane-signal-fusion seam (usage-api-quota-recovery Phase 7): a
+	// recognized menu selection is immediate, confirmed limit evidence for the
+	// current agent and must not wait for a LATER `resets` banner — the post-menu
+	// text can render with none (the weekly-reset regression fixture: Claude
+	// prints "Requesting rate limit reset for weekly limit" with no parseable
+	// reset clause, so claudeLimitBannerRe never matches it). The daemon wires
+	// this to the SAME handler as OnRateLimitObservation
+	// (RateLimitScheduler.OnRateLimitObservation) so menu and banner evidence
+	// converge on one idempotent path into the backend recovery coordinator: its
+	// per-agent recovery-generation fencing (BackendRecoveryCoordinator.
+	// OnHardLimit) makes a later banner for the SAME incident a safe no-op rather
+	// than a duplicate recovery generation. A failed recapture or a menu still
+	// showing even after the fallback keystroke never fires this — that stays
+	// diagnostic only (left to a later recapture or a human), never the trigger.
+	// nil ⇒ no-op: the menu is still answered, only the fused observation step is
+	// skipped.
+	OnLimitMenuSelected func(obs RateLimitObservation)
+
 	// OnAnomaly, if set, is called once per raised health anomaly (OOM-suspected
 	// crash, infinite loop, pre-crash context). It is the notification seam — the
 	// poller already records a durable event for every anomaly, so this is purely
@@ -682,10 +707,7 @@ var menuVerifyDelay = 600 * time.Millisecond
 // tryLimitMenu auto-selects the "Stop and wait for limit to reset" choice on
 // Claude's rate-limit menu (the safe option that parks the agent until the
 // limit clears, vs. "Upgrade your plan"). It is a no-op unless the pane is that
-// specific menu and rate_limit.auto_resume is on. Selecting the wait option
-// dismisses the menu so the limit banner surfaces on a later tick, at which
-// point the agent classifies as rate_limited and the daemon's scheduler drives
-// the resume-after-clear.
+// specific menu and rate_limit.auto_resume is on.
 //
 // The menu's footer reads "Enter to confirm" and the safe option is normally
 // pre-highlighted (❯), so the answer sequence is Enter-first: send Enter, then
@@ -694,6 +716,18 @@ var menuVerifyDelay = 600 * time.Millisecond
 // option in case it wasn't the highlighted one. When the wait option is not the
 // highlighted one to begin with, a bare Enter would confirm the WRONG choice
 // (e.g. Upgrade), so that case skips straight to the number.
+//
+// Evidence fusion (usage-api-quota-recovery Phase 7): a positively confirmed
+// selection — the recapture succeeds and the menu is gone — is immediate,
+// confirmed limit evidence for THIS agent. It fires OnLimitMenuSelected right
+// here rather than waiting for a limit banner to surface on a later tick, since
+// the post-menu text can carry no parseable `resets` clause at all (see the
+// weekly-reset regression fixture). Dismissing the menu also means the limit
+// banner may still surface on a later tick as before — that delayed recapture
+// remains in place as validation/diagnostics, just never the ONLY trigger.
+// Both paths converge on RateLimitScheduler.OnRateLimitObservation, which is
+// idempotent per recovery generation, so a later banner for the same incident
+// is a safe no-op rather than a duplicate recovery.
 func (p *Poller) tryLimitMenu(ctx context.Context, s *agentstore.Agent, pane string) {
 	if !p.RateLimitAutoResume {
 		return
@@ -717,14 +751,35 @@ func (p *Poller) tryLimitMenu(ctx context.Context, s *agentstore.Agent, pane str
 	slog.Info("rate-limit menu: auto-selected wait-for-reset", "agent", s.ID, "key", first, "option", numKey)
 
 	// Phase 2: verify the menu actually cleared; if it is still showing, send the
-	// explicit number + Enter as a fallback.
-	if p.limitMenuStillShowing(ctx, s) {
+	// explicit number + Enter as a fallback, then re-verify once more so the
+	// final confirmation reflects the pane AFTER the fallback, not before it.
+	excerpt, stillShowing, captureOK := p.recaptureMenuPane(ctx, s)
+	if captureOK && stillShowing {
 		slog.Info("rate-limit menu: still showing after first keystroke, sending number+Enter fallback", "agent", s.ID, "option", numKey)
 		if err := p.deps.SendKeys(ctx, s.TmuxSession, numKey); err != nil {
 			slog.Warn("rate-limit menu: fallback number send failed", "agent", s.ID, "err", err)
 		} else if err := p.deps.SendKeys(ctx, s.TmuxSession, "Enter"); err != nil {
 			slog.Warn("rate-limit menu: fallback Enter send failed", "agent", s.ID, "err", err)
 		}
+		excerpt, stillShowing, captureOK = p.recaptureMenuPane(ctx, s)
+	}
+
+	switch {
+	case !captureOK:
+		// A transient tmux hiccup — never fabricate a confirmed observation from
+		// a pane we could not actually read. A later tick's normal pane capture
+		// still catches a real banner (delayed recapture as diagnostics).
+		slog.Warn("rate-limit menu: recapture after selection failed — confirmation deferred", "agent", s.ID)
+	case stillShowing:
+		// Selection failed to confirm even after the fallback — diagnostic only,
+		// never the trigger. Left for a later recapture or a human.
+		slog.Warn("rate-limit menu: selection did not clear the menu even after the fallback", "agent", s.ID)
+	case p.OnLimitMenuSelected != nil:
+		fresh := excerpt
+		if strings.TrimSpace(fresh) == "" {
+			fresh = pane
+		}
+		p.OnLimitMenuSelected(NewRateLimitObservation(s.ID, lastLines(fresh, 20)))
 	}
 
 	if p.OnChange != nil {
@@ -732,25 +787,29 @@ func (p *Poller) tryLimitMenu(ctx context.Context, s *agentstore.Agent, pane str
 	}
 }
 
-// limitMenuStillShowing re-captures the pane after a short settle delay and
-// reports whether Claude's rate-limit menu is still displayed — i.e. the first
-// keystroke did not dismiss it. A capture error is treated as "not showing" so a
-// transient tmux hiccup never triggers a spurious fallback keystroke into a pane
-// whose real state we couldn't read.
-func (p *Poller) limitMenuStillShowing(ctx context.Context, s *agentstore.Agent) bool {
+// recaptureMenuPane re-captures the pane after a short settle delay
+// (menuVerifyDelay) and reports the fresh text, whether Claude's rate-limit menu
+// is still displayed (the keystroke(s) sent so far did not dismiss it), and
+// whether the capture itself succeeded.
+//
+// captureOK=false (a transient tmux capture error) is treated as "not confirmed
+// yet" everywhere it is used: it neither triggers the fallback keystroke
+// sequence (preserving the original behavior) nor allows a confirmed limit
+// observation to be fabricated from a pane whose real state could not be read.
+func (p *Poller) recaptureMenuPane(ctx context.Context, s *agentstore.Agent) (pane string, stillShowing, captureOK bool) {
 	if menuVerifyDelay > 0 {
 		select {
 		case <-time.After(menuVerifyDelay):
 		case <-ctx.Done():
-			return false
+			return "", false, false
 		}
 	}
-	pane, err := p.deps.CapturePane(ctx, s.TmuxSession)
+	captured, err := p.deps.CapturePane(ctx, s.TmuxSession)
 	if err != nil {
-		return false
+		return "", false, false
 	}
-	_, ok := LimitMenuOption(pane)
-	return ok
+	_, ok := LimitMenuOption(captured)
+	return captured, ok, true
 }
 
 // runApprovalWorker consumes approval events and attempts auto-approval.

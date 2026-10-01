@@ -2096,7 +2096,7 @@ keeps working even if the current provider is fully exhausted.
 
 **How it works:**
 
-1. **Detection** — `StatusRateLimited` transition claims one recovery generation per agent.
+1. **Detection** — `StatusRateLimited` transition claims one recovery generation per agent. A confirmed Claude rate-limit **menu** selection (the safe "wait for limit to reset" choice) fires this immediately, without waiting for a later banner — the post-menu pane can carry no parseable reset text at all. Menu, banner, and usage-API observations for the same agent all converge on the same handler, so whichever arrives first claims the generation and every later signal for that incident is a no-op.
 2. **Refresh** — backend-usage windows are read from the `internal/backendusage` service.
 3. **Rank** — eligible candidates `(backend, model)` are ranked by minimum known headroom across applicable usage pools. Unknown headroom (no data) ranks after known-positive headroom. Disabled, uninstalled, local-only, and pay-per-use backends are excluded.
 4. **Switch** — the coordinator calls the existing `HotSwap` lifecycle for a different backend/model, or the same-backend `Restore` path for the original pool.
@@ -2108,7 +2108,7 @@ keeps working even if the current provider is fully exhausted.
 
 **Durable cooldown.** A confirmed hard limit stamps the exact `(backend, model)` pool as ineligible until the parsed pane reset time (or a conservative fallback). That evidence survives the short stabilization window and daemon restarts, so recovery cannot immediately reselect the same limited pool.
 
-**`wd usage` vs pane evidence.** `warden usage` is a provider-level availability view. It is **not** definitive per-agent pane evidence — a confirmed provider banner on the agent's pane (or the usage-API fallback for pane-blind backends) can still start recovery while aggregate usage bars show remaining headroom. See the [backend recovery guide](https://srjn45.github.io/warden/guides/backend-recovery/#operator-diagnostics-usage-vs-pane-vs-cooldown-vs-manual) for the four-signal triage table.
+**`wd usage` vs pane evidence.** `warden usage` is a provider-level availability view. It is **not** definitive per-agent pane evidence — a confirmed provider banner on the agent's pane, a confirmed Claude limit-menu selection, or the usage-API fallback for pane-blind backends can still start recovery while aggregate usage bars show remaining headroom. See the [backend recovery guide](https://srjn45.github.io/warden/guides/backend-recovery/#operator-diagnostics-usage-vs-pane-vs-cooldown-vs-manual) for the four-signal triage table.
 
 **What is preserved.** Session ID, pipeline job, Autopilot run/task, worktree, branch, role, parentage, and all tags survive recovery unchanged.
 

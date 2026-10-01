@@ -73,10 +73,13 @@ No operator action is required unless every known backend is exhausted.
 
 ### Detection
 
-A confirmed `rate_limited` status transition starts at most one recovery **generation** per agent. Pane-driven detections hand the scheduler a fresh `RateLimitObservation` (excerpt + timestamp + opaque fingerprint) so reset parsing and diagnostic capture use detection-time bytes rather than a stale `LastPaneExcerpt` snapshot. The poller sets that status when:
+A confirmed `rate_limited` status transition starts at most one recovery **generation** per agent. Pane-driven detections hand the scheduler a fresh `RateLimitObservation` (excerpt + timestamp + opaque fingerprint) so reset parsing and diagnostic capture use detection-time bytes rather than a stale `LastPaneExcerpt` snapshot. The poller feeds that observation when:
 
 - The agent's backend implements **pane-based** rate-limit detection (Claude, Codex, Cursor, Antigravity, Aider) and the captured tmux pane shows a provider hard-limit banner, or
+- Claude's rate-limit **menu** ("Stop and wait for limit to reset" / "Upgrade your plan") is recognized and the safe wait option is confirmed selected — this fires recovery **immediately**, without waiting for a later banner, since the post-menu pane can render with no parseable reset clause at all (e.g. a weekly reset: `Requesting rate limit reset for weekly limit`). A later banner for the same incident is still captured for diagnostics but is a safe no-op for recovery, or
 - The backend is **pane-blind** (OpenCode, Crush, Goose — Tea TUIs with no parseable limit text) and the daemon's periodic usage snapshot reports `rate_limited` for that backend (~60 s poll lag via `limitSessionsFromSnapshot`).
+
+Menu, banner, and usage-API observations for the same agent all converge on the same handler, so whichever evidence arrives first claims the generation and every later signal for that incident is a no-op — never a duplicate recovery.
 
 A duplicate transition while a generation is already running is a no-op — the coordinator owns the session exclusively. Reactive recovery runs for **every** agent session; it is not gated on handover settings (those still control context-fill handover only).
 
@@ -204,13 +207,13 @@ Four signals look similar in the UI but answer different questions. Mixing them 
 | Signal | What it answers | Where to look | What it is **not** |
 |---|---|---|---|
 | **Provider usage** (`wd usage`) | Aggregate subscription / window headroom for a backend | `warden usage`, web 🧩 panel, backend registry | Proof that a specific agent pane did or did not emit a hard-limit banner |
-| **Pane-confirmed hard limit** | This agent's tmux pane (or usage-API fallback) just produced a provider-specific limit signal | Agent status `rate_limited`, `backend_recovery` non-null, events `backend_recovery_started` / `…_switch_started` | A re-read of `wd usage`; recovery uses a **fresh** pane observation (`RateLimitObservation`), not a stale `LastPaneExcerpt` |
+| **Pane-confirmed hard limit** | This agent's tmux pane just produced a provider-specific limit signal — a hard-limit banner, or (Claude) a confirmed "wait for limit to reset" menu selection — or the usage-API fallback reported `rate_limited` for a pane-blind backend | Agent status `rate_limited`, `backend_recovery` non-null, events `backend_recovery_started` / `…_switch_started` | A re-read of `wd usage`; recovery uses a **fresh** pane observation (`RateLimitObservation`), not a stale `LastPaneExcerpt`, and does not wait for a banner once the menu confirms |
 | **Durable cooldown** | A `(backend, model)` pool that just hard-limited stays ineligible until its parsed reset (or conservative fallback) expires — even after recovery stabilizes | Next recovery generation skips that pool; persists across daemon restart | Cleared by the short stabilization window; unrelated to `wd usage` bars flipping green |
 | **Manual intervention** | Operator overrode automation | `warden switch` / stop / delete → `backend_recovery_superseded`; recovery record cleared | An automatic retry — supersede cancels timers; stale callbacks are generation-guarded no-ops |
 
 **Practical triage**
 
-1. Agent flipping backends while `wd usage` looks healthy → check the agent's event log for `backend_recovery_*` and whether the pane showed a provider banner. Usage headroom does not veto a confirmed pane signal.
+1. Agent flipping backends while `wd usage` looks healthy → check the agent's event log for `backend_recovery_*` and whether the pane showed a provider banner or (Claude) a confirmed limit-menu selection. Usage headroom does not veto a confirmed pane signal.
 2. Same backend reselected seconds after a successful swap → expect durable cooldown on the previous pool; if it still cycles, capture `warden status <id> --json` and the protected ratelimit capture under `<data_dir>/ratelimit-captures/` (not ordinary audit text — raw banners stay off the event log).
 3. Recovery stuck or unwanted → `warden switch <id> --backend …` (or stop/delete) supersedes; attach only if you need to drive the pane by hand.
 4. Cockpit layout blank/narrow after a hot-swap → quit and reopen the TUI, or let the local reattach path recover; terminal-kind cockpit panes are orthogonal to agent recovery and never start a generation.
