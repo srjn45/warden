@@ -29,12 +29,17 @@ type cacheEntry struct {
 }
 
 type Service struct {
-	registry Registry
-	adapters map[string]Adapter
-	now      func() time.Time
-	mu       sync.Mutex
-	cache    map[string]cacheEntry
+	registry  Registry
+	adapters  map[string]Adapter
+	now       func() time.Time
+	mu        sync.Mutex
+	cache     map[string]cacheEntry
+	snapshots *SnapshotStore
 }
+
+// SetSnapshotStore enables durable, domain-keyed observation recording. It is
+// optional for compatibility with callers/tests that only need the display API.
+func (s *Service) SetSnapshotStore(store *SnapshotStore) { s.snapshots = store }
 
 func NewService(reg Registry, adapters ...Adapter) *Service {
 	s := &Service{registry: reg, now: time.Now, cache: make(map[string]cacheEntry), adapters: make(map[string]Adapter)}
@@ -115,6 +120,7 @@ func (s *Service) collect(ctx context.Context, b backendstore.Backend, refresh b
 		r.Error = &ProviderError{Code: "invalid_response", Message: "backend returned invalid usage-limit metadata"}
 	}
 	sort.SliceStable(r.Usage, func(i, j int) bool { return r.Usage[i].ID < r.Usage[j].ID })
+	s.recordSnapshot(b, r, now)
 	if r.Status == StatusOK || r.Status == StatusUnsupported {
 		s.put(b, r, now)
 		return project(b, r, false, false, nil)
@@ -125,6 +131,44 @@ func (s *Service) collect(ctx context.Context, b backendstore.Backend, refresh b
 		}
 	}
 	return project(b, r, false, false, nil)
+}
+
+func (s *Service) recordSnapshot(b backendstore.Backend, r Result, recordedAt time.Time) {
+	if s.snapshots == nil {
+		return
+	}
+	domain := CapacityDomain{Provider: b.ID}
+	if r.Account != nil {
+		domain.ProfileFingerprint = r.Account.ProfileFingerprint
+	}
+	observed := r.ObservedAt.UTC()
+	authoritative := r.Status == StatusOK || r.Status == StatusRateLimited
+	entry := UsageSnapshot{Domain: domain, ObservedAt: observed, RecordedAt: recordedAt.UTC(), SourceStatus: r.Status, Authoritative: authoritative, Freshness: FreshnessUnknown}
+	if authoritative {
+		entry.Freshness = FreshnessFresh
+	}
+	if r.Error != nil {
+		entry.ErrorCode = r.Error.Code
+	}
+	for _, lim := range r.Usage {
+		entry.Buckets = append(entry.Buckets, bucketFromLimit(lim, authoritative))
+	}
+	_, _ = s.snapshots.Record(entry) // usage display/fetch remains available if persistence is temporarily unavailable.
+}
+
+func bucketFromLimit(lim Limit, authoritative bool) CapacityBucket {
+	b := CapacityBucket{Key: lim.ID, Scope: lim.Scope, State: BucketUnknown, UsedPercent: clonePtr(lim.UsedPercent), RemainingPercent: clonePtr(lim.RemainingPercent), DurationMinutes: clonePtr(lim.DurationMinutes), ResetsAt: clonePtr(lim.ResetsAt)}
+	if !authoritative {
+		return b
+	}
+	if limitIsExhausted(lim) {
+		b.State = BucketExhausted
+		return b
+	}
+	if lim.UsedPercent != nil || lim.RemainingPercent != nil {
+		b.State = BucketAvailable
+	}
+	return b
 }
 
 func transient(s Status) bool {
