@@ -4,10 +4,13 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 )
 
 // Observation sources that feed the same impact seam. Phase 5 calculates
-// impact only; recovery swaps and pane fusion land in later phases.
+// impact; coordinated-bulk-recovery (Phase 6) consumes AffectedAgents to
+// invoke the existing backend recovery coordinator. Pane signal fusion lands
+// in a later phase.
 const (
 	SourceUsage  = "usage"
 	SourcePane   = "pane"
@@ -72,16 +75,23 @@ type BucketObservation struct {
 	Freshness          string
 	Authoritative      bool
 	Source             string
+	// ResetsAt is the provider-reported reset time for this bucket, when known.
+	// Phase 6 (coordinated-bulk-recovery) threads it through to AffectedAgent so
+	// the backend recovery coordinator's confirmed hard-limit entry point gets a
+	// real fallback scheduling instant instead of only a generic default when no
+	// pane excerpt is available.
+	ResetsAt *time.Time
 }
 
 // ExhaustedBucket is one fresh, authoritative exhaustion that drove impact.
 type ExhaustedBucket struct {
-	Provider           string `json:"provider"`
-	AccountFingerprint string `json:"account_fingerprint"`
-	Route              string `json:"route,omitempty"`
-	BucketKey          string `json:"bucket_key"`
-	SnapshotRevision   uint64 `json:"snapshot_revision"`
-	Source             string `json:"source,omitempty"`
+	Provider           string     `json:"provider"`
+	AccountFingerprint string     `json:"account_fingerprint"`
+	Route              string     `json:"route,omitempty"`
+	BucketKey          string     `json:"bucket_key"`
+	SnapshotRevision   uint64     `json:"snapshot_revision"`
+	Source             string     `json:"source,omitempty"`
+	ResetsAt           *time.Time `json:"resets_at,omitempty"`
 }
 
 // AffectedAgent is a live bound agent that requires an exhausted bucket.
@@ -94,6 +104,11 @@ type AffectedAgent struct {
 	SnapshotRevision   uint64 `json:"snapshot_revision"`
 	RecoveryGeneration uint64 `json:"recovery_generation"`
 	Source             string `json:"source,omitempty"`
+	// ResetsAt is the exhausted bucket's provider-reported reset time, when
+	// known. The coordinated-bulk-recovery wiring (internal/daemon) uses this as
+	// the fallback scheduling instant passed to the backend recovery
+	// coordinator's OnHardLimit when no later usage snapshot yields a sooner one.
+	ResetsAt *time.Time `json:"resets_at,omitempty"`
 }
 
 // SkippedAgent records why a live or known agent was not selected.
@@ -177,7 +192,9 @@ func (b *QuotaBinding) MatchesObservation(obs BucketObservation) bool {
 }
 
 // ReconcileImpact maps fresh exhausted bucket observations to eligible live
-// agents. It never starts recovery; callers in later phases consume AffectedAgents.
+// agents. It never starts recovery itself: internal/daemon's bulk-recovery
+// wiring consumes AffectedAgents and invokes the existing backend recovery
+// coordinator's confirmed hard-limit entry point per agent.
 func ReconcileImpact(agents []AgentView, observations []BucketObservation, fences FenceStore) (ImpactResult, error) {
 	out := ImpactResult{
 		ExhaustedBuckets: []ExhaustedBucket{},
@@ -229,6 +246,7 @@ func ReconcileImpact(agents []AgentView, observations []BucketObservation, fence
 				BucketKey:          obs.BucketKey,
 				SnapshotRevision:   obs.Revision,
 				Source:             obs.Source,
+				ResetsAt:           obs.ResetsAt,
 			})
 		}
 		detail := obs.BucketKey
@@ -279,6 +297,7 @@ func ReconcileImpact(agents []AgentView, observations []BucketObservation, fence
 				SnapshotRevision:   obs.Revision,
 				RecoveryGeneration: agent.RecoveryGeneration,
 				Source:             obs.Source,
+				ResetsAt:           obs.ResetsAt,
 			})
 		}
 	}

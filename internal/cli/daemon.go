@@ -604,7 +604,8 @@ func newDaemonRunCmd() *cobra.Command {
 			// operator notifier seam (desktop + webhook).
 			srv.SetAutopilotNotifier(notifSwitch)
 			recoveryCoordinator := daemon.NewBackendRecoveryCoordinator(st, backendStore, usageService, life).
-				WithStabilizationWindow(cfg.RecoveryStabilizationWindowDuration())
+				WithStabilizationWindow(cfg.RecoveryStabilizationWindowDuration()).
+				WithMaxParallelAdvance(cfg.UsageReconciliationMaxParallelSwaps())
 			recoveryCoordinator.SetNotify(srv.Notify)
 			srv.SetBackendRecovery(recoveryCoordinator)
 			rateLimitSched.OnHardLimit = recoveryCoordinator.OnHardLimit

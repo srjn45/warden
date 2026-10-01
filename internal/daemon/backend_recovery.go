@@ -40,6 +40,14 @@ type BackendRecoveryCoordinator struct {
 	locks               map[string]*sync.Mutex
 	timers              map[string]*time.Timer
 	stabilizationWindow time.Duration
+	// advanceSem bounds how many advance() passes (fresh capacity snapshot +
+	// candidate selection + launch) run concurrently across every agent the
+	// coordinator owns. nil (default) leaves advances unbounded, matching the
+	// coordinator's original single-agent reactive timing. Set via
+	// WithMaxParallelAdvance so a coordinated-bulk-recovery event affecting many
+	// bound agents at once (a shared capacity-bucket loss) cannot stampede every
+	// one of them onto the same limited alternative simultaneously.
+	advanceSem chan struct{}
 }
 
 type backendRecoveryLife interface {
@@ -63,6 +71,21 @@ func (c *BackendRecoveryCoordinator) SetNotify(fn func()) { c.notifyFn = fn }
 func (c *BackendRecoveryCoordinator) WithStabilizationWindow(d time.Duration) *BackendRecoveryCoordinator {
 	if d > 0 {
 		c.stabilizationWindow = d
+	}
+	return c
+}
+
+// WithMaxParallelAdvance bounds concurrent advance() passes (fresh capacity
+// snapshot, candidate selection, launch) across every agent this coordinator
+// owns. n <= 0 leaves advances unbounded (the default; today's single-agent
+// reactive timing). This exists for coordinated-bulk-recovery: a single shared
+// capacity-bucket loss can mark many bound agents affected at once, and without
+// a bound every one of them would race a fresh-snapshot candidate selection and
+// launch at the same instant, stampeding onto whatever alternative looks
+// available at that moment.
+func (c *BackendRecoveryCoordinator) WithMaxParallelAdvance(n int) *BackendRecoveryCoordinator {
+	if n > 0 {
+		c.advanceSem = make(chan struct{}, n)
 	}
 	return c
 }
@@ -110,7 +133,7 @@ func (c *BackendRecoveryCoordinator) OnHardLimit(sess *agentstore.Agent, fallbac
 			// next advance() skips it even across rounds and daemon restarts.
 			c.recordCooldown(attempt.Candidate.BackendID, attempt.Candidate.ModelID, fallbackAt)
 			c.event(current.ID, "backend_recovery_attempt_failed", fmt.Sprintf("generation=%d candidate=%s/%s outcome=immediate_hard_limit", generation, attempt.Candidate.BackendID, attempt.Candidate.ModelID))
-			go c.advance(current.ID, generation, fallbackAt)
+			c.dispatchAdvance(current.ID, generation, fallbackAt)
 			return true
 		}
 		// Duplicate transition while this generation is already refreshing,
@@ -134,8 +157,27 @@ func (c *BackendRecoveryCoordinator) OnHardLimit(sess *agentstore.Agent, fallbac
 	c.recordCooldown(original.BackendID, original.ModelID, fallbackAt)
 	_ = c.store.SetRateLimit(context.Background(), current.ID, fallbackAt, 0)
 	c.event(current.ID, "backend_recovery_started", fmt.Sprintf("generation=%d limited=%s/%s", generation, original.BackendID, original.ModelID))
-	go c.advance(current.ID, generation, fallbackAt)
+	c.dispatchAdvance(current.ID, generation, fallbackAt)
 	return true
+}
+
+// advanceGated runs one advance() pass, blocking first on advanceSem when it is
+// set (WithMaxParallelAdvance). Callers that are not already running on their
+// own goroutine (e.g. retry, which fires from a time.AfterFunc) can call this
+// directly; dispatchAdvance wraps it in `go` for callers that must not block.
+func (c *BackendRecoveryCoordinator) advanceGated(id string, generation uint64, fallbackAt time.Time) {
+	if c.advanceSem != nil {
+		c.advanceSem <- struct{}{}
+		defer func() { <-c.advanceSem }()
+	}
+	c.advance(id, generation, fallbackAt)
+}
+
+// dispatchAdvance starts advanceGated on a new goroutine. Every call site that
+// previously wrote `go c.advance(...)` now calls this instead, so semaphore
+// acquisition (when bounded) never blocks a caller holding sessionLock(id).
+func (c *BackendRecoveryCoordinator) dispatchAdvance(id string, generation uint64, fallbackAt time.Time) {
+	go c.advanceGated(id, generation, fallbackAt)
 }
 
 func (c *BackendRecoveryCoordinator) advance(id string, generation uint64, fallbackAt time.Time) {
@@ -233,7 +275,7 @@ func (c *BackendRecoveryCoordinator) advance(id string, generation uint64, fallb
 			return nil
 		})
 		c.event(id, "backend_recovery_attempt_failed", fmt.Sprintf("generation=%d candidate=%s/%s outcome=launch_failed", generation, target.BackendID, target.ModelID))
-		go c.advance(id, generation, fallbackAt)
+		c.dispatchAdvance(id, generation, fallbackAt)
 		return
 	}
 	_ = c.store.Update(ctx, id, func(s *agentstore.Agent) error {
@@ -337,7 +379,7 @@ func (c *BackendRecoveryCoordinator) retry(id string, generation uint64) {
 		s.BackendRecovery.NextRetryAt = nil
 		return nil
 	})
-	c.advance(id, generation, c.now().Add(30*time.Minute))
+	c.advanceGated(id, generation, c.now().Add(30*time.Minute))
 }
 
 // OnTransition starts a bounded stabilization observation after a later live
