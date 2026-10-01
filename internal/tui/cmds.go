@@ -15,6 +15,7 @@ import (
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/planstore"
+	"github.com/srjn45/warden/internal/plansync"
 	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -704,6 +705,11 @@ type plansMsg struct {
 	plans     []*planstore.Plan
 	err       error
 }
+type remotePlansMsg struct {
+	projectID string
+	plans     []plansync.Envelope
+	err       error
+}
 
 func fetchProjectPlansCmd(a api, projectID string) tea.Cmd {
 	return func() tea.Msg {
@@ -713,12 +719,24 @@ func fetchProjectPlansCmd(a api, projectID string) tea.Cmd {
 		return plansMsg{projectID: projectID, plans: plans, err: err}
 	}
 }
+func fetchRemotePlansCmd(a api, projectID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bg()
+		defer cancel()
+		out, err := a.PlansSyncDiscover(ctx, client.PlanSyncRequest{Scope: plansync.Scope{ProjectID: projectID}, Statuses: []planstore.PlanStatus{planstore.PlanStatusPending, planstore.PlanStatusInProgress}})
+		if err != nil {
+			return remotePlansMsg{projectID: projectID, err: err}
+		}
+		return remotePlansMsg{projectID: projectID, plans: out.Envelopes}
+	}
+}
 
 func plansCmd(a api, projects []projectstore.Project) tea.Cmd {
 	var cmds []tea.Cmd
 	for _, p := range projects {
 		if projectstore.NormalizeStatus(p.Status) != projectstore.StatusClosed {
 			cmds = append(cmds, fetchProjectPlansCmd(a, p.ID))
+			cmds = append(cmds, fetchRemotePlansCmd(a, p.ID))
 		}
 	}
 	return tea.Batch(cmds...)

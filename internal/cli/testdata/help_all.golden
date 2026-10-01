@@ -57,6 +57,10 @@ Complete command tree:
   warden plan complete                 Complete a plan (in_progress → completed)
   warden plan archive                  Archive a plan (any status → archived)
   warden plan sync_to_repo             Export a plan revision to a dedicated branch and open a PR
+  warden plan hub-sync                 Explicitly sync canonical plans with the configured Hub
+  warden plan hub-sync discover        
+  warden plan hub-sync pull            
+  warden plan hub-sync push            
   warden plan backup                   Export or restore a portable Plan backup bundle
   warden plan backup export            Write a Plan backup bundle to a file or stdout
   warden plan backup restore           Restore Plans from a backup bundle into ScrivaDB

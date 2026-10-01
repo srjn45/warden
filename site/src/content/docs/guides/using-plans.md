@@ -35,6 +35,25 @@ wd plan sync_to_repo <plan-id> --base main --format json   # opt-in JSON replica
 
 YAML is the default. JSON uses the same envelope and is never execution authority.
 
+## Optional Hub sync and remote discovery
+
+Hub sync is an opt-in transport for revision envelopes, not a replacement for
+Git, CI, or the canonical local ScrivaDB record. Configure `plan_sync.provider:
+hub`, `plan_sync.hub_url`, and a token (prefer `WARDEN_PLAN_SYNC_TOKEN`, which
+overrides `plan_sync.token`), then make an explicit operator request:
+
+```sh
+wd plan hub-sync push <plan-id> --scope <project-id>
+wd plan hub-sync pull --scope <project-id>
+wd plan hub-sync discover --scope <project-id>
+```
+
+`--status` is repeatable on Pull and Discover. With no status filter, Discover
+uses `pending` and `in_progress`. The matching MCP tools are `hub_sync_push`,
+`hub_sync_pull`, and `hub_sync_discover`. Local is the default provider: it
+makes no network calls, returns no remote entries, and never starts background
+replication.
+
 ## Listing and inspecting
 
 ```sh
@@ -109,6 +128,7 @@ See [Plan backup and restore](/warden/guides/plan-backup-restore/).
 | `wd plan create --name <n> --goal <g> [--task id:prompt]` | Create pending Plan in ScrivaDB |
 | `wd plan show <id> [--json]` | Show canonical detail |
 | `wd plan sync_to_repo <id> --base <ref> [--format yaml\|json]` | Optional inert replica PR (YAML default) |
+| `wd plan hub-sync push\|pull\|discover [<id>] --scope <project-id>` | Explicit opt-in Hub envelope sync |
 | `wd plan backup export\|restore …` | Portable ScrivaDB bundle |
 | `wd plan import-legacy [--report]` | Explicit legacy YAML cutover |
 | `wd plan scan …` / `import` / `status` | Deprecated migration aids |
@@ -117,4 +137,9 @@ See [Plan backup and restore](/warden/guides/plan-backup-restore/).
 
 ## TUI
 
-In the cockpit (`wd tui`), plans appear above agents in the project tree, grouped by status. Detail is ScrivaDB-backed. Keybindings: `a` archive · `A` assess · `r` run · `enter` detail. (`s` scan remains as a deprecated migration aid.)
+In the cockpit (`wd tui`), local plans appear above agents in the project tree,
+grouped by status. With a Hub provider configured, explicit Discover results
+also appear per project in a read-only **Remote Plans** section with a count
+badge; only pending and in-progress remote plans are shown. Detail for local
+plans is ScrivaDB-backed. Keybindings: `a` archive · `A` assess · `r` run ·
+`enter` detail. (`s` scan remains as a deprecated migration aid.)

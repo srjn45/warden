@@ -15,6 +15,7 @@ import (
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/planstore"
+	"github.com/srjn45/warden/internal/plansync"
 	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -247,11 +248,14 @@ type item struct {
 	fromParent  string // §4.1 root with ParentID but not nested: "↳ from <parent>" backlink
 
 	// plan rows (spec D14)
-	planHeader   bool            // "Plans" header row under a project
-	planProject  string          // project ID for the plans header or group
-	planGroup    string          // "in_progress" | "pending" | "completed" | "archived"
-	planGroupCnt int             // count for status group badge
-	plan         *planstore.Plan // individual plan row
+	planHeader    bool            // "Plans" header row under a project
+	planProject   string          // project ID for the plans header or group
+	planGroup     string          // "in_progress" | "pending" | "completed" | "archived"
+	planGroupCnt  int             // count for status group badge
+	plan          *planstore.Plan // individual plan row
+	remoteHeader  bool
+	remoteProject string
+	remotePlan    *plansync.Envelope
 
 	// project tree section rows (Plans/Autopilots/Pipelines/Agents/Terminals)
 	treeSecID    string // composite tree node id (section:<proj>:autopilots)
@@ -311,6 +315,12 @@ func itemKey(it item) string {
 	if it.plan != nil {
 		return "plan:" + it.plan.ID
 	}
+	if it.remoteHeader {
+		return "remote-plans:" + it.remoteProject
+	}
+	if it.remotePlan != nil {
+		return "remote-plan:" + it.remotePlan.RemoteID + ":" + it.remotePlan.PlanID
+	}
 	if it.session != nil {
 		return "session:" + it.session.ID
 	}
@@ -331,7 +341,7 @@ func projNodeID(id string) string {
 // a dir group.
 func (it item) noDirGroup() bool {
 	return it.section != "" || it.projHdr != nil || it.apRun != nil || it.apPlan || it.apTask != nil || it.apWorkers || it.apWorkerGroup != "" || it.underProject || it.apprView != nil || it.pipeline != nil || it.pjJob != nil ||
-		it.planHeader || it.planGroup != "" || it.plan != nil || it.treeSecID != "" ||
+		it.planHeader || it.planGroup != "" || it.plan != nil || it.remoteHeader || it.remotePlan != nil || it.treeSecID != "" ||
 		(it.session != nil && it.session.IsTerminal())
 }
 
@@ -841,6 +851,14 @@ func renderItemLine(it item, selected bool, width int) string {
 			name = stOpenedName.Render(name)
 		}
 		line = "      · " + name
+	case it.remoteHeader:
+		glyph := "▾"
+		if it.collapsed {
+			glyph = "▸"
+		}
+		line = "  " + glyph + " " + stPaneTitle.Render("Remote Plans") + stMuted.Render(fmt.Sprintf("  (%d)", it.planGroupCnt))
+	case it.remotePlan != nil:
+		line = "      · " + it.remotePlan.Name + stMuted.Render("  "+string(it.remotePlan.Lifecycle)+" · Hub")
 	case it.apRun != nil:
 		glyph := "▾"
 		if it.collapsed {

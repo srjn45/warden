@@ -2,6 +2,10 @@
 
 The cross-cutting capabilities that run the fleet rather than a single agent.
 
+## Hub plan discovery
+
+With `plan_sync.provider: hub`, `warden plan hub discover --project <id>` (and MCP `hub_sync_discover`) explicitly lists remote pending and in-progress plan envelopes for that project. The cockpit displays those results in a read-only **Remote Plans** section. The default `local` provider returns no remote entries and never dials a Hub.
+
 ## Token-savings ledger — `savings` / `wd usage savings`
 
 A real, **append-only ledger** of the tokens warden's lifecycle features have kept

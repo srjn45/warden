@@ -13,10 +13,9 @@ output-options:
   # existing value-typed DTOs and keeping handler code free of pointer juggling.
   prefer-skip-optional-pointer: true
   prefer-skip-optional-pointer-on-container-types: true
-  # These routes are non-JSON / streaming / public and are registered by hand on
-  # the chi mux (see daemon router): SSE, WebSocket attach, the liveness probe,
-  # and the two public docs routes. They stay documented in the spec but are
-  # excluded from the strict generated server.
+  # These routes are non-JSON / streaming / public, or deliberately use the
+  # hand-mounted PlanSync provider boundary (see daemon router). They stay
+  # documented in the spec but are excluded from the strict generated server.
   exclude-operation-ids:
     - streamEvents
     - attachSession
@@ -24,3 +23,6 @@ output-options:
     - healthz
     - getApiDocs
     - getOpenAPISpec
+    - PlanHubSync
+    - PlanHubPull
+    - PlanHubDiscover

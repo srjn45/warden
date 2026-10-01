@@ -70,7 +70,7 @@ Prefer `wd plan backup export` / `wd plan backup restore` — Plans are operable
 
 Explicitly out of scope for the ScrivaDB cutover (not hidden non-goals):
 
-- **Hub network transport** — local `PlanSyncProvider` boundary only; default installs make no Hub network calls (`synced_at` / `remote_id` reserved) ([#586](https://github.com/srjn45/warden/issues/586))
+- **Hub network transport** — opt in with `plan_sync.provider: hub`; explicit Push, Pull, and Discover calls transport canonical envelopes. The cockpit shows Hub Discover results as a read-only **Remote Plans** section, scoped to each project and limited to pending/in-progress work. Default local installs make no network calls and show no remote entries.
 
 **Closed follow-up:** JSON export format ([#585](https://github.com/srjn45/warden/issues/585)) — shipped as opt-in inert replicas; YAML remains the default. See Phase 12 acceptance § Follow-up #585.
 

@@ -1,7 +1,7 @@
 # Plan Hub Sync Boundary — Protocol & Team Discovery
 
 **Date:** 2026-09-30  
-**Status:** Protocol / design — Phase 10 of `scrivadb-canonical-plans-repo-sync`  
+**Status:** Shipped boundary — Phases A–C of `scrivadb-canonical-plans-repo-sync`
 **Package:** `internal/plansync`  
 **Design freeze:** [`2026-09-30-scrivadb-canonical-plans.md`](./2026-09-30-scrivadb-canonical-plans.md) **D6**  
 **Hub product (relay/accounts):** [`2026-08-23-warden-hub.md`](./2026-08-23-warden-hub.md) — orthogonal; this doc only covers **Plan revision sync**
@@ -11,10 +11,11 @@
 ## 1. Purpose
 
 Define a small, offline-safe **PlanSyncProvider** boundary and a **versioned sync
-envelope** so a future Warden Hub can transport canonical ScrivaDB Plan
-revisions across machines and teams — **without** shipping network transport,
-accounts, authorization enforcement, background replication, or Hub UI in this
-phase.
+envelope** for Warden Hub transport of canonical ScrivaDB Plan revisions across
+machines and teams. Phases A–C ship an authenticated Hub service, explicit
+operator Push/Pull/Discover actions, and a read-only cockpit discovery view;
+they do **not** ship background replication, remote plan editing, or any change
+to code-shipping authority.
 
 A default warden install keeps using **`plansync.Local()`** (no-op). Zero
 network calls. Hub remains a bolt-on.
@@ -26,7 +27,7 @@ network calls. Hub remains a bolt-on.
 | Concern | Package | Writes | Authority |
 |---|---|---|---|
 | **Repo export** | `internal/planexport` (`Syncer`, `sync_to_repo`) | Git branch + PR with inert YAML replica | Review artifact only; never execution SoT |
-| **Hub sync** | `internal/plansync` (`PlanSyncProvider`) | Future: Hub-stored revision envelopes | Team discovery of *plans*; not shipped code |
+| **Hub sync** | `internal/plansync` (`PlanSyncProvider`) | Hub-stored revision envelopes | Team discovery of *plans*; not shipped code |
 
 Frozen invariant (D6): **Hub does not replace `origin/main` as authority for
 shipped code.** Merged git history remains how code lands. Hub sync answers
@@ -84,7 +85,7 @@ Discover(ctx, Scope, statuses) ([]Envelope, error)
 Authorization claims on the envelope are **data**, not enforcement. Hub authN/Z
 beyond bearer transport remains deferred (freeze §13 open question #5).
 
-### 4.1 Phase A Hub HTTP contract (client shipped; Hub service = Phase B)
+### 4.1 Hub HTTP contract (Phases A–B shipped)
 
 Base URL + `Authorization: Bearer <token>`. JSON request/response bodies use the
 v1 `Envelope` schema.
@@ -119,7 +120,7 @@ should see **pending** and **in_progress** Plans in the projects they can access
 including Plans authored on another teammate’s daemon — with enough metadata to
 decide “join / wait / create something else.”
 
-### 5.2 Flow (future Hub; not implemented here)
+### 5.2 Flow (explicit operator actions; shipped)
 
 ```mermaid
 sequenceDiagram
@@ -129,8 +130,8 @@ sequenceDiagram
   participant Git as origin/main
 
   A->>A: ScrivaDB Plan rev N (canonical)
-  A->>H: Push(Envelope rev N)
-  B->>H: Discover(scope, pending|in_progress)
+  A->>H: Explicit Push(Envelope rev N)
+  B->>H: Explicit Discover(scope, pending|in_progress)
   H-->>B: envelopes (id, rev, owner, lifecycle, artifacts)
   B->>B: Show in TUI/API/MCP planning context
   Note over B: User avoids duplicate Plan create
@@ -179,12 +180,12 @@ Contract tests:
 
 ---
 
-## 7. Explicit non-goals (Phase A client)
+## 7. Explicit non-goals (Phases A–C)
 
-- Hub **service** implementation (Phase B endpoints behind a real authZ stack)
 - Account management / membership admin UI / org billing
-- Authorization enforcement beyond carrying visibility/owner fields + bearer transport
 - Background sync schedulers or daemon auto-replication that phones home
+- Remote plan-definition editing or silently writing discovered plans into another
+  daemon's ScrivaDB
 - Changing `plan sync_to_repo` behavior
 - Filling `Plan.SyncedAt` / `RemoteID` from Local/Fake or repo export paths
 
@@ -192,8 +193,8 @@ Contract tests:
 
 ## 8. Follow-ups
 
-1. ~~Optional daemon config `plan_sync.provider: local|hub` (default `local`).~~ **Phase A (this client)**
-2. Hub service endpoints for Push/Pull/Discover with real authZ (**Phase B** — implement the paths in §4.1).
-3. TUI/MCP badge: “N teammate plans in scope” from Discover (**Phase C**).
+1. ~~Optional daemon config `plan_sync.provider: local|hub` (default `local`).~~ **Phase A shipped.**
+2. ~~Hub service endpoints for Push/Pull/Discover with bearer authentication.~~ **Phase B shipped.**
+3. ~~Explicit daemon CLI/MCP actions and cockpit teammate-plan discovery.~~ **Phase C shipped:** `hub-sync` / `hub_sync_*`; read-only Remote Plans count badge.
 4. Envelope v2 if full definition bodies must sync for remote edit.
-5. Daemon wiring that constructs `plansync.New` from `plan_sync.*` and exposes operator sync verbs.
+5. ~~Daemon wiring that constructs `plansync.New` from `plan_sync.*` and exposes operator sync verbs.~~ **Phase C shipped.**

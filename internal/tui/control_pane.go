@@ -22,6 +22,7 @@ import (
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/planstore"
+	"github.com/srjn45/warden/internal/plansync"
 	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/role"
 	"github.com/srjn45/warden/internal/store"
@@ -109,27 +110,28 @@ type controlPaneModel struct {
 	pendingPrompt      string
 	pendingName        string // name typed in the new-agent form, held across the pressure confirm
 	pendingDir         string
-	pendingProjectID   string                       // project owning the pending spawn, held across the pressure confirm so a forced retry stamps the same project
-	pendingRole        string                       // role chosen in the new-agent form, held across the pressure confirm
-	pendingTier        string                       // model tier chosen in the new-agent form ("" = auto), held across pressure confirm
-	renameID           string                       // agent id being renamed (modeRename)
-	spawnVerdict       string                       // reason text for the confirm prompt; "" when not confirming
-	pendingDelete      string                       // pid awaiting delete confirmation; "" when not confirming
-	pendingCloseID     string                       // project id awaiting close confirmation (modeConfirmCloseProject); "" when not confirming
-	pendingCloseN      int                          // live-agent count shown in the close-project confirm prompt
-	ctxEntries         []client.ContextEntry        // inspector: shared-context snapshot
-	messages           []client.Message             // inspector: recent message traffic
-	vp                 viewport.Model               // scroll viewport (modeInspector / modeDigest)
-	approvals          []approval.View              // pending tool-permission prompts
-	apprEnabled        bool                         // approvals config setting on
-	apprCursor         int                          // focused recognized approval (modeApprovals)
-	digest             *digest.Digest               // last fetched digest (modeDigest)
-	digestID           string                       // agent id the digest is for
-	detailSel          int                          // focused control row in modeDetails (0 auto-approve, 1 force-compact, 2 events)
-	autopilot          client.AutopilotStatus       // last fetched autopilot status
-	backendsState      client.BackendsState         // agent-backend registry snapshot (modeBackends)
-	backendCursor      int                          // focused row in the Backends page
-	plans              map[string][]*planstore.Plan // projectID → plans
+	pendingProjectID   string                         // project owning the pending spawn, held across the pressure confirm so a forced retry stamps the same project
+	pendingRole        string                         // role chosen in the new-agent form, held across the pressure confirm
+	pendingTier        string                         // model tier chosen in the new-agent form ("" = auto), held across pressure confirm
+	renameID           string                         // agent id being renamed (modeRename)
+	spawnVerdict       string                         // reason text for the confirm prompt; "" when not confirming
+	pendingDelete      string                         // pid awaiting delete confirmation; "" when not confirming
+	pendingCloseID     string                         // project id awaiting close confirmation (modeConfirmCloseProject); "" when not confirming
+	pendingCloseN      int                            // live-agent count shown in the close-project confirm prompt
+	ctxEntries         []client.ContextEntry          // inspector: shared-context snapshot
+	messages           []client.Message               // inspector: recent message traffic
+	vp                 viewport.Model                 // scroll viewport (modeInspector / modeDigest)
+	approvals          []approval.View                // pending tool-permission prompts
+	apprEnabled        bool                           // approvals config setting on
+	apprCursor         int                            // focused recognized approval (modeApprovals)
+	digest             *digest.Digest                 // last fetched digest (modeDigest)
+	digestID           string                         // agent id the digest is for
+	detailSel          int                            // focused control row in modeDetails (0 auto-approve, 1 force-compact, 2 events)
+	autopilot          client.AutopilotStatus         // last fetched autopilot status
+	backendsState      client.BackendsState           // agent-backend registry snapshot (modeBackends)
+	backendCursor      int                            // focused row in the Backends page
+	plans              map[string][]*planstore.Plan   // projectID → plans
+	remotePlans        map[string][]plansync.Envelope // projectID → Hub Discover results
 	openedPlan         string
 	targetPlanProject  string
 	targetPlanID       string
@@ -295,7 +297,7 @@ func (m controlPaneModel) items() []item {
 	}
 
 	// ── Projects tab: tree.Service.Build + view adapter (N6).
-	items := buildProjectItems(m.projects, m.projectGroups, m.sessions, m.pipelines, m.autopilot, m.plans, m.openedDirs, m.collapsed, m.showSystemAgents)
+	items := buildProjectItems(m.projects, m.projectGroups, m.sessions, m.pipelines, m.autopilot, m.plans, m.openedDirs, m.collapsed, m.showSystemAgents, m.remotePlans)
 	markOpened(items, m.openedAgent, m.openedTerminal, m.openedPlan)
 	return items
 }
@@ -1040,6 +1042,14 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.plans = make(map[string][]*planstore.Plan)
 			}
 			m.plans[msg.projectID] = msg.plans
+		}
+		return m, nil
+	case remotePlansMsg:
+		if msg.err == nil {
+			if m.remotePlans == nil {
+				m.remotePlans = make(map[string][]plansync.Envelope)
+			}
+			m.remotePlans[msg.projectID] = msg.plans
 		}
 		return m, nil
 	case planArchivedMsg:
@@ -2001,6 +2011,12 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.repin(key)
 			return m, nil
 		}
+		if it.remoteHeader {
+			key := "remote-plans:" + it.remoteProject
+			m.collapsed[key] = !m.collapsed[key]
+			m.repin(key)
+			return m, nil
+		}
 		if it.treeSecID != "" {
 			key := it.treeSecID
 			m.collapsed[key] = !m.collapsed[key]
@@ -2082,6 +2098,8 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.collapsed[itemKey(it)] = false
 		case it.planHeader:
 			m.collapsed["plans:"+it.planProject] = false
+		case it.remoteHeader:
+			m.collapsed["remote-plans:"+it.remoteProject] = false
 		case it.treeSecID != "":
 			m.collapsed[it.treeSecID] = false
 		case it.planGroup != "":
@@ -2109,6 +2127,10 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.repin(key)
 		case it.planHeader:
 			key := "plans:" + it.planProject
+			m.collapsed[key] = true
+			m.repin(key)
+		case it.remoteHeader:
+			key := "remote-plans:" + it.remoteProject
 			m.collapsed[key] = true
 			m.repin(key)
 		case it.treeSecID != "":

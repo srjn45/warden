@@ -12,6 +12,7 @@ import (
 	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/mailbox"
 	"github.com/srjn45/warden/internal/notify"
+	"github.com/srjn45/warden/internal/plansync"
 	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/poller"
 	"github.com/srjn45/warden/internal/savings"
@@ -33,6 +34,7 @@ func NewServer(st agentstore.AgentStore, life Lifecycle, p *poller.Poller, inter
 		// log-only notifier and a zero interval (disabled) until the daemon wires
 		// the real notifier + interval from config.
 		branchTracker:        branchtrack.NewTracker(st, mbox, notify.New(false)),
+		planSync:             plansync.Default(),
 		terminalPollInterval: 15 * time.Second,
 	}
 	if exec != nil {

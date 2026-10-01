@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/planstore"
+	"github.com/srjn45/warden/internal/plansync"
 	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
@@ -85,6 +86,23 @@ func samplePlans() []*planstore.Plan {
 			CreatedAt:     now,
 			UpdatedAt:     now,
 		},
+	}
+}
+
+func TestPlanTree_RemotePlansAreHubOnlySection(t *testing.T) {
+	projs := []projectstore.Project{{ID: "proj-1", Name: "Project", Path: "/work/project", Status: projectstore.StatusOpen}}
+	remote := map[string][]plansync.Envelope{"proj-1": {{PlanID: "remote-1", RemoteID: "hub-1", Name: "Teammate work", Lifecycle: planstore.PlanStatusInProgress}}}
+	items := buildProjectItems(projs, nil, nil, nil, client.AutopilotStatus{}, nil, nil, map[string]bool{"project:proj-1": false}, false, remote)
+	var header, plan bool
+	for _, it := range items {
+		header = header || it.remoteHeader
+		plan = plan || it.remotePlan != nil
+	}
+	require.True(t, header)
+	require.True(t, plan)
+	items = buildProjectItems(projs, nil, nil, nil, client.AutopilotStatus{}, nil, nil, map[string]bool{"project:proj-1": false}, false)
+	for _, it := range items {
+		require.False(t, it.remoteHeader || it.remotePlan != nil)
 	}
 }
 

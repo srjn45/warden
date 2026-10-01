@@ -30,6 +30,7 @@ import (
 	"github.com/srjn45/warden/internal/notify"
 	"github.com/srjn45/warden/internal/planexport"
 	"github.com/srjn45/warden/internal/planstore"
+	"github.com/srjn45/warden/internal/plansync"
 	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/poller"
 	"github.com/srjn45/warden/internal/pressure"
@@ -252,6 +253,12 @@ type Server struct {
 	planExports planexport.RecordStore
 	// planSyncGit is an optional test seam for sync_to_repo Git/GitHub ops.
 	planSyncGit planexport.GitHost
+	// planSync is the operator-invoked client for a remote Hub. It defaults to
+	// Local(), so daemon startup never starts replication or dials a network.
+	planSync plansync.PlanSyncProvider
+	// hubPlanSync stores Hub transport envelopes. Nil leaves the Phase B Hub
+	// endpoints unmounted, preserving the default daemon's offline behavior.
+	hubPlanSync plansync.HubStore
 	// terminals is the first-class terminal pane store (plan-execution entity
 	// redesign). nil ⇒ legacy Kind=terminal Session path. Set via SetTerminals.
 	terminals *terminalstore.Store
@@ -370,6 +377,19 @@ func (s *Server) SetProjects(store *projectstore.Store) { s.projects = store }
 // each known project at startup when this and SetProjects are both wired. Call
 // before Start.
 func (s *Server) SetPlanStore(store *planstore.Store) { s.plans = store }
+
+// SetPlanSyncProvider wires the configured Hub client. Nil safely restores the
+// offline Local provider.
+func (s *Server) SetPlanSyncProvider(provider plansync.PlanSyncProvider) {
+	if provider == nil {
+		provider = plansync.Default()
+	}
+	s.planSync = provider
+}
+
+// SetHubPlanSyncStore enables the optional Phase B Hub plan-sync endpoints.
+// The store is independent from the daemon's local canonical plan store.
+func (s *Server) SetHubPlanSyncStore(store plansync.HubStore) { s.hubPlanSync = store }
 
 // SetAPIDocs toggles the public OpenAPI documentation surface (#43): Swagger UI
 // at /api/docs and the raw openapi.yaml. enabled=false makes those routes 404.
@@ -577,6 +597,17 @@ func (s *Server) router() http.Handler {
 		ar.Get("/api/v1/events/stream", s.handleEventsStream)
 		ar.Get("/api/v1/sessions/{id}/attach", s.handleAttach)
 		ar.Get("/api/v1/cockpit/attach", s.handleCockpitAttach)
+		// Explicit local operator verbs. These are deliberately distinct from the
+		// Hub service paths mounted below: callers act on their configured client.
+		ar.Post("/api/v1/plans/sync/push", s.handlePlanSyncPush)
+		ar.Post("/api/v1/plans/sync/pull", s.handlePlanSyncPull)
+		ar.Post("/api/v1/plans/sync/discover", s.handlePlanSyncDiscover)
+		if s.hubPlanSync != nil {
+			hubSync := plansync.HTTPService{Store: s.hubPlanSync}
+			ar.Post(plansync.PathPush, hubSync.Push)
+			ar.Post(plansync.PathPull, hubSync.Pull)
+			ar.Post(plansync.PathDiscover, hubSync.Discover)
+		}
 		strict := oapi.NewStrictHandlerWithOptions(s, nil, oapi.StrictHTTPServerOptions{
 			RequestErrorHandlerFunc:  strictRequestError,
 			ResponseErrorHandlerFunc: strictResponseError,
