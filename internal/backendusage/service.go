@@ -42,6 +42,21 @@ type Service struct {
 // optional for compatibility with callers/tests that only need the display API.
 func (s *Service) SetSnapshotStore(store *SnapshotStore) { s.snapshots = store }
 
+// LatestSnapshots returns the newest durable observation per capacity domain.
+// A nil snapshot store yields an empty slice.
+func (s *Service) LatestSnapshots(now time.Time, staleAfter time.Duration) ([]UsageSnapshot, error) {
+	if s == nil || s.snapshots == nil {
+		return nil, nil
+	}
+	if staleAfter <= 0 {
+		staleAfter = s.staleAfter
+	}
+	if staleAfter <= 0 {
+		staleAfter = StaleTTL
+	}
+	return s.snapshots.LatestAll(now, staleAfter)
+}
+
 // SetStaleAfter configures how long a successful provider observation may be
 // reused after a transient failure. Non-positive values retain the default.
 func (s *Service) SetStaleAfter(d time.Duration) {

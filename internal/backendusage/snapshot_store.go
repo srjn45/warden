@@ -110,14 +110,55 @@ func (s *SnapshotStore) Latest(domain CapacityDomain, now time.Time, staleAfter 
 	if !found {
 		return UsageSnapshot{}, false, nil
 	}
-	if !out.Authoritative || out.ObservedAt.IsZero() {
-		out.Freshness = FreshnessUnknown
-	} else if now.UTC().Sub(out.ObservedAt) > staleAfter {
-		out.Freshness = FreshnessStale
-	} else {
-		out.Freshness = FreshnessFresh
-	}
+	out.Freshness = freshnessAt(out, now, staleAfter)
 	return out, true, nil
+}
+
+// LatestAll returns the newest observation per capacity domain with freshness
+// evaluated at now. Used by bucket-impact reconciliation to scan exhausted
+// buckets without re-fetching providers.
+func (s *SnapshotStore) LatestAll(now time.Time, staleAfter time.Duration) ([]UsageSnapshot, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	all, err := s.readLocked()
+	if err != nil {
+		return nil, err
+	}
+	byDomain := map[string]UsageSnapshot{}
+	for _, v := range all {
+		key := v.Domain.Key()
+		if prev, ok := byDomain[key]; !ok || v.Revision > prev.Revision {
+			byDomain[key] = v
+		}
+	}
+	out := make([]UsageSnapshot, 0, len(byDomain))
+	for _, v := range byDomain {
+		v.Freshness = freshnessAt(v, now, staleAfter)
+		out = append(out, v)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Domain.Provider != out[j].Domain.Provider {
+			return out[i].Domain.Provider < out[j].Domain.Provider
+		}
+		if out[i].Domain.ProfileFingerprint != out[j].Domain.ProfileFingerprint {
+			return out[i].Domain.ProfileFingerprint < out[j].Domain.ProfileFingerprint
+		}
+		if out[i].Domain.Route != out[j].Domain.Route {
+			return out[i].Domain.Route < out[j].Domain.Route
+		}
+		return out[i].Revision < out[j].Revision
+	})
+	return out, nil
+}
+
+func freshnessAt(out UsageSnapshot, now time.Time, staleAfter time.Duration) Freshness {
+	if !out.Authoritative || out.ObservedAt.IsZero() {
+		return FreshnessUnknown
+	}
+	if now.UTC().Sub(out.ObservedAt) > staleAfter {
+		return FreshnessStale
+	}
+	return FreshnessFresh
 }
 
 func (s *SnapshotStore) readLocked() ([]UsageSnapshot, error) {

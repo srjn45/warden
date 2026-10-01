@@ -92,6 +92,26 @@ func TestSnapshotStoreConflictingReadingFailsClosedAndSurvivesRestart(t *testing
 	require.Equal(t, BucketExhausted, got.Buckets[0].State)
 }
 
+func TestSnapshotStoreLatestAllMarksFreshness(t *testing.T) {
+	store, err := NewSnapshotStore(t.TempDir())
+	require.NoError(t, err)
+	now := time.Now().UTC()
+	used := 100.0
+	_, err = store.Record(UsageSnapshot{Domain: CapacityDomain{Provider: "claude", ProfileFingerprint: "a"}, ObservedAt: now, RecordedAt: now, SourceStatus: StatusOK, Authoritative: true, Freshness: FreshnessFresh, Buckets: []CapacityBucket{{Key: "weekly", State: BucketExhausted, UsedPercent: &used}}})
+	require.NoError(t, err)
+	_, err = store.Record(UsageSnapshot{Domain: CapacityDomain{Provider: "claude", ProfileFingerprint: "b"}, ObservedAt: now.Add(-time.Hour), RecordedAt: now.Add(-time.Hour), SourceStatus: StatusOK, Authoritative: true, Freshness: FreshnessFresh, Buckets: []CapacityBucket{{Key: "weekly", State: BucketAvailable}}})
+	require.NoError(t, err)
+	all, err := store.LatestAll(now, 15*time.Minute)
+	require.NoError(t, err)
+	require.Len(t, all, 2)
+	byFP := map[string]UsageSnapshot{}
+	for _, s := range all {
+		byFP[s.Domain.ProfileFingerprint] = s
+	}
+	require.Equal(t, FreshnessFresh, byFP["a"].Freshness)
+	require.Equal(t, FreshnessStale, byFP["b"].Freshness)
+}
+
 func TestSnapshotStorePrunesExpiredHistoryButKeepsRecentObservations(t *testing.T) {
 	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
 	store, err := NewSnapshotStore(t.TempDir())

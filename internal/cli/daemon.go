@@ -339,6 +339,11 @@ func newDaemonRunCmd() *cobra.Command {
 				cfg.UsageReconciliationIntervalDuration(),
 				cfg.UsageReconciliationStaleAfterDuration(),
 			)
+			impactFences, err := capacity.NewDurableFenceStore(filepath.Join(cfg.DataDir, "quota-impact"))
+			if err != nil {
+				return err
+			}
+			srv.SetImpactFences(impactFences)
 			lc.Resolver = router.NewResolver(backendStore)
 			lc.CapacityResolver = capacity.NewResolver(backendStore, nil)
 
