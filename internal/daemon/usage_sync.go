@@ -95,6 +95,9 @@ func (s *Server) usageReconciliationOnce(ctx context.Context, _ time.Duration) b
 	if len(snap.Backends) > 0 && s.hub != nil {
 		s.hub.publish()
 	}
+	// Phase 5: calculate structured bucket→agent impact. Recovery swaps stay
+	// deferred until coordinated-bulk-recovery.
+	s.reconcileBucketImpactAfterPoll(ctx)
 	return failed
 }
 

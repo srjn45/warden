@@ -19,6 +19,7 @@ import (
 	"github.com/srjn45/warden/internal/backendusage"
 	"github.com/srjn45/warden/internal/brainconsult"
 	"github.com/srjn45/warden/internal/branchtrack"
+	"github.com/srjn45/warden/internal/capacity"
 	"github.com/srjn45/warden/internal/collab"
 	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/ctxstore"
@@ -222,6 +223,12 @@ type Server struct {
 	usageReconciliationInterval   time.Duration
 	usageReconciliationStaleAfter time.Duration
 	usageReconciliationMu         sync.Mutex
+	// impactFences makes bucket-impact reconciliation idempotent across repeated
+	// snapshots, concurrent pane/API evidence, and daemon restarts. lastBucketImpact
+	// is the newest structured result for later operator surfaces (Phase 8/9).
+	impactFences     capacity.FenceStore
+	impactMu         sync.Mutex
+	lastBucketImpact capacity.ImpactResult
 	// scheduler gates the native cron/at scheduler (#15) — its CRUD routes return
 	// 403 and its reconcile loop is a no-op when off. Default false (opt-in via the
 	// `scheduler_enabled` config setting). schedStore persists the schedules and
