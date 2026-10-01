@@ -334,6 +334,11 @@ func newDaemonRunCmd() *cobra.Command {
 			}
 			usageService.SetSnapshotStore(usageSnapshots)
 			srv.SetUsageService(usageService)
+			srv.SetUsageReconciliation(
+				cfg.RateLimit.Recovery.UsageReconciliation.Enabled,
+				cfg.UsageReconciliationIntervalDuration(),
+				cfg.UsageReconciliationStaleAfterDuration(),
+			)
 			lc.Resolver = router.NewResolver(backendStore)
 			lc.CapacityResolver = capacity.NewResolver(backendStore, nil)
 

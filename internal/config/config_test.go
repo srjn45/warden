@@ -387,6 +387,18 @@ func TestLoad_RateLimitRecovery_StabilizationWindowInvalid(t *testing.T) {
 		"invalid duration falls back to the 10s default")
 }
 
+func TestLoad_UsageReconciliationConfig(t *testing.T) {
+	c := Load(tmpConfig(t, "rate_limit:\n  recovery:\n    usage_reconciliation:\n      enabled: true\n      interval: 2m\n      stale_after: 20m\n"))
+	require.True(t, c.RateLimit.Recovery.UsageReconciliation.Enabled)
+	require.Equal(t, 2*time.Minute, c.UsageReconciliationIntervalDuration())
+	require.Equal(t, 20*time.Minute, c.UsageReconciliationStaleAfterDuration())
+
+	d := Load(tmpConfig(t, ""))
+	require.False(t, d.RateLimit.Recovery.UsageReconciliation.Enabled)
+	require.Equal(t, time.Minute, d.UsageReconciliationIntervalDuration())
+	require.Equal(t, 15*time.Minute, d.UsageReconciliationStaleAfterDuration())
+}
+
 func TestLoad_HTTP_Namespaced(t *testing.T) {
 	c := Load(tmpConfig(t, "http:\n  timeout_fast: 45s\n  timeout_slow: 15m\n"))
 	require.Equal(t, "45s", c.HTTP.TimeoutFast)

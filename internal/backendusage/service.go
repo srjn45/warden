@@ -29,17 +29,26 @@ type cacheEntry struct {
 }
 
 type Service struct {
-	registry  Registry
-	adapters  map[string]Adapter
-	now       func() time.Time
-	mu        sync.Mutex
-	cache     map[string]cacheEntry
-	snapshots *SnapshotStore
+	registry   Registry
+	adapters   map[string]Adapter
+	now        func() time.Time
+	mu         sync.Mutex
+	cache      map[string]cacheEntry
+	snapshots  *SnapshotStore
+	staleAfter time.Duration
 }
 
 // SetSnapshotStore enables durable, domain-keyed observation recording. It is
 // optional for compatibility with callers/tests that only need the display API.
 func (s *Service) SetSnapshotStore(store *SnapshotStore) { s.snapshots = store }
+
+// SetStaleAfter configures how long a successful provider observation may be
+// reused after a transient failure. Non-positive values retain the default.
+func (s *Service) SetStaleAfter(d time.Duration) {
+	if d > 0 {
+		s.staleAfter = d
+	}
+}
 
 func NewService(reg Registry, adapters ...Adapter) *Service {
 	s := &Service{registry: reg, now: time.Now, cache: make(map[string]cacheEntry), adapters: make(map[string]Adapter)}
@@ -126,7 +135,11 @@ func (s *Service) collect(ctx context.Context, b backendstore.Backend, refresh b
 		return project(b, r, false, false, nil)
 	}
 	if transient(r.Status) {
-		if ce, ok := s.cached(b); ok && now.Sub(ce.storedAt) <= StaleTTL {
+		staleAfter := s.staleAfter
+		if staleAfter <= 0 {
+			staleAfter = StaleTTL
+		}
+		if ce, ok := s.cached(b); ok && now.Sub(ce.storedAt) <= staleAfter {
 			return project(b, ce.result, true, true, r.Error)
 		}
 	}

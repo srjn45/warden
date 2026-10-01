@@ -81,6 +81,33 @@ func TestServiceFreshCacheRefreshAndRedaction(t *testing.T) {
 	require.Equal(t, 2, calls)
 }
 
+func TestServiceConfiguredStaleAfterMarksCachedFallbackStale(t *testing.T) {
+	now := time.Date(2026, 10, 1, 10, 0, 0, 0, time.UTC)
+	calls := 0
+	a := fakeAdapter{id: "codex", fetch: func(context.Context, backendstore.Backend) Result {
+		calls++
+		if calls == 1 {
+			return Result{Status: StatusOK, Usage: []Limit{}, ObservedAt: now}
+		}
+		return Result{Status: StatusUnavailable, Usage: []Limit{}, ObservedAt: now, Error: &ProviderError{Code: "offline"}}
+	}}
+	s := NewService(fakeRegistry{rows: []backendstore.Backend{{ID: "codex", Tier: backendstore.TierSubscription}}}, a)
+	s.now = func() time.Time { return now }
+	_, err := s.Snapshot(context.Background(), true)
+	require.NoError(t, err)
+	s.SetStaleAfter(time.Minute)
+	now = now.Add(30 * time.Second)
+	got, err := s.Snapshot(context.Background(), true)
+	require.NoError(t, err)
+	require.True(t, got.Backends[0].Stale, "fallback data is explicitly marked stale")
+	require.Equal(t, StatusOK, got.Backends[0].Status)
+	now = now.Add(2 * time.Minute)
+	got, err = s.Snapshot(context.Background(), true)
+	require.NoError(t, err)
+	require.False(t, got.Backends[0].Stale, "expired cached data must not be presented as current")
+	require.Equal(t, StatusUnavailable, got.Backends[0].Status)
+}
+
 func TestServiceCachedSnapshotDoesNotAliasPriorResult(t *testing.T) {
 	now := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
 	used, remaining, duration := 25.0, 75.0, 300
