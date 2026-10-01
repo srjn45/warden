@@ -4,7 +4,14 @@ import (
 	"encoding/json"
 	"strings"
 	"time"
+
+	"github.com/srjn45/warden/internal/capacity"
 )
+
+// CapacityDomain and QuotaBinding keep legacy Session DTO users source-compatible
+// while the persisted canonical entity is agentstore.Agent.
+type CapacityDomain = capacity.CapacityDomain
+type QuotaBinding = capacity.QuotaBinding
 
 // NormalizeTags cleans a set of tag labels (#30) into the canonical form stored
 // on a Session: each tag is trimmed, lowercased, blanks are dropped, and
@@ -301,11 +308,12 @@ type Session struct {
 	// not eagerly pruned when an owned pipeline is orphaned/hibernated. A
 	// pipeline's own job agents are NOT listed here (D5) — they are reached through
 	// the pipeline (ChildPipelines[] → Pipeline.jobs), never as child_agents[].
-	ChildPipelines  []string `json:"child_pipelines,omitempty"`
-	AutopilotRunID  string   `json:"autopilot_run_id,omitempty"`  // owning ap- run id (autopilot back-ref)
-	AutopilotSlot   string   `json:"autopilot_slot,omitempty"`    // autopilot | guardian | worker
-	AutopilotTaskID string   `json:"autopilot_task_id,omitempty"` // plan task id (workers only)
-	Model           string   `json:"model,omitempty"`             // claude model (opus/sonnet/haiku or full ID)
+	ChildPipelines  []string               `json:"child_pipelines,omitempty"`
+	AutopilotRunID  string                 `json:"autopilot_run_id,omitempty"`  // owning ap- run id (autopilot back-ref)
+	AutopilotSlot   string                 `json:"autopilot_slot,omitempty"`    // autopilot | guardian | worker
+	AutopilotTaskID string                 `json:"autopilot_task_id,omitempty"` // plan task id (workers only)
+	Model           string                 `json:"model,omitempty"`             // claude model (opus/sonnet/haiku or full ID)
+	QuotaBinding    *capacity.QuotaBinding `json:"quota_binding,omitempty"`
 	// ProjectID back-refs the first-class project (projectstore) this agent belongs
 	// to; empty = ungrouped. It is the PARENT project's canonical id: an agent
 	// running in a git worktree links to its repo's project here and keeps its own
@@ -341,6 +349,15 @@ type Session struct {
 // file-conflict awareness like any tracked tmux session. The zero value is an
 // agent, so records that predate the Kind field read as agents.
 func (s *Session) IsTerminal() bool { return s.Kind == KindTerminal }
+
+// CapacityBindingState exposes the same legacy-safe state at Session compatibility
+// boundaries. Missing bindings are never inferred during decoding.
+func (s *Session) CapacityBindingState() string {
+	if s == nil || s.QuotaBinding == nil {
+		return capacity.LegacyUnbound
+	}
+	return "bound"
+}
 
 // Context-fill states stored in Session.ContextState. They mirror
 // ctxtokens.State but are duplicated here to keep store free of that import.

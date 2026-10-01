@@ -132,7 +132,16 @@ func (a *lifecycleAdapter) Teardown(ctx context.Context, sess *agentstore.Agent)
 }
 
 func (a *lifecycleAdapter) Restore(ctx context.Context, sess *agentstore.Agent) error {
-	return a.lc.Restore(ctx, sess)
+	if err := a.lc.Restore(ctx, sess); err != nil {
+		return err
+	}
+	if a.store != nil && sess.QuotaBinding != nil {
+		return a.store.Update(ctx, sess.ID, func(s *agentstore.Agent) error {
+			s.QuotaBinding = sess.QuotaBinding
+			return nil
+		})
+	}
+	return nil
 }
 
 func (a *lifecycleAdapter) RestoreTerminal(ctx context.Context, id, workdir string) error {
@@ -222,6 +231,7 @@ func (a *lifecycleAdapter) HotSwap(ctx context.Context, sess *agentstore.Agent, 
 			s.AiCli = sess.AiCli
 			s.Model = sess.Model
 			s.AICLISessionID = sess.AICLISessionID
+			s.QuotaBinding = sess.QuotaBinding
 			s.UpdatedAt = sess.UpdatedAt
 			return nil
 		}); err != nil {
