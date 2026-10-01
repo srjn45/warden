@@ -65,6 +65,7 @@ type api interface {
 	PlanUpdate(ctx context.Context, projectID, planID string, req client.PlanUpdateRequest) (*planstore.Plan, error)
 	PlanAssess(ctx context.Context, projectID, planID string) (*planstore.Plan, error)
 	PlanRun(ctx context.Context, projectID, planID string, req client.PlanRunRequest) error
+	PlansSyncDiscover(ctx context.Context, req client.PlanSyncRequest) (*client.PlanSyncEnvelopes, error)
 }
 
 type mode int

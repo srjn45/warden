@@ -11,6 +11,7 @@ import (
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/planstore"
+	"github.com/srjn45/warden/internal/plansync"
 	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/srjn45/warden/internal/tree"
@@ -28,6 +29,7 @@ type treeViewOpts struct {
 	pipelines      []*pipeline.Pipeline
 	runs           []client.AutopilotRunStatus
 	plans          map[string][]*planstore.Plan
+	remotePlans    map[string][]plansync.Envelope
 	skipTerminals  bool // Projects tab: terminals live on the Terminals tab
 }
 
@@ -43,7 +45,12 @@ func buildProjectItems(
 	opened map[string]time.Time,
 	collapsed map[string]bool,
 	showSystem bool,
+	remotePlans ...map[string][]plansync.Envelope,
 ) []item {
+	remote := map[string][]plansync.Envelope(nil)
+	if len(remotePlans) > 0 {
+		remote = remotePlans[0]
+	}
 	filtered := filterTreeSessions(sessions, showSystem)
 	var allPlans []*planstore.Plan
 	for _, ps := range plans {
@@ -66,6 +73,7 @@ func buildProjectItems(
 		pipelines:      pipelines,
 		runs:           ap.Runs,
 		plans:          plans,
+		remotePlans:    remote,
 		skipTerminals:  true,
 	})
 }
@@ -174,6 +182,7 @@ type adaptCtx struct {
 	runsByID       map[string]*client.AutopilotRunStatus
 	jobsByKey      map[string]*pipeline.Job // "pipeID/jobID"
 	plans          map[string][]*planstore.Plan
+	remotePlans    map[string][]plansync.Envelope
 	skipTerminals  bool
 }
 
@@ -188,6 +197,7 @@ func newAdaptCtx(opts treeViewOpts) *adaptCtx {
 		runsByID:       make(map[string]*client.AutopilotRunStatus, len(opts.runs)),
 		jobsByKey:      map[string]*pipeline.Job{},
 		plans:          opts.plans,
+		remotePlans:    opts.remotePlans,
 		skipTerminals:  opts.skipTerminals,
 	}
 	if ctx.collapsed == nil {
@@ -271,6 +281,9 @@ func (ctx *adaptCtx) adaptProject(n *tree.Node) []item {
 	if !hasSections && !synthetic && hdr.isProject {
 		items = append(items, ctx.adaptPlans(rawID)...)
 	}
+	if !synthetic && hdr.isProject {
+		items = append(items, ctx.adaptRemotePlans(rawID)...)
+	}
 	if len(children) == 0 {
 		if !hasSections {
 			items = append(items, item{dir: hdr.path, underProject: true})
@@ -279,6 +292,28 @@ func (ctx *adaptCtx) adaptProject(n *tree.Node) []item {
 	}
 	for _, ch := range children {
 		items = append(items, ctx.adaptNode(ch, 0)...)
+	}
+	return items
+}
+
+func (ctx *adaptCtx) adaptRemotePlans(projectID string) []item {
+	plans := ctx.remotePlans[projectID]
+	if len(plans) == 0 {
+		return nil
+	}
+	key := "remote-plans:" + projectID
+	collapsed, ok := ctx.collapsed[key]
+	if !ok {
+		collapsed = false
+	}
+	items := []item{{remoteHeader: true, remoteProject: projectID, planGroupCnt: len(plans), collapsed: collapsed, underProject: true}}
+	if collapsed {
+		return items
+	}
+	sort.SliceStable(plans, func(i, j int) bool { return plans[i].Name < plans[j].Name })
+	for i := range plans {
+		p := plans[i]
+		items = append(items, item{remotePlan: &p, remoteProject: projectID, underProject: true})
 	}
 	return items
 }

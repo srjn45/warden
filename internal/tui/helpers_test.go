@@ -12,6 +12,7 @@ import (
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/planstore"
+	"github.com/srjn45/warden/internal/plansync"
 	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -112,6 +113,8 @@ type fakeAPI struct {
 
 	// plans
 	plans          map[string][]*planstore.Plan
+	remotePlans    map[string][]plansync.Envelope
+	remotePlansErr error
 	planListErr    error
 	planGetErr     error
 	planScanRes    client.PlanScanResult
@@ -370,6 +373,12 @@ func (f *fakeAPI) PlanRun(_ context.Context, projectID, planID string, req clien
 	f.planRunID = planID
 	f.planRunMode = req.Mode
 	return f.planRunErr
+}
+func (f *fakeAPI) PlansSyncDiscover(_ context.Context, req client.PlanSyncRequest) (*client.PlanSyncEnvelopes, error) {
+	if f.remotePlansErr != nil {
+		return nil, f.remotePlansErr
+	}
+	return &client.PlanSyncEnvelopes{Envelopes: f.remotePlans[req.Scope.ProjectID]}, nil
 }
 
 func key(s string) tea.KeyMsg {

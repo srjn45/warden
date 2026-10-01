@@ -1743,6 +1743,59 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /api/v1/plans/sync/push:
+    post:
+      operationId: PlanHubSync
+      tags: [Plans]
+      summary: Explicitly push a Plan Hub envelope
+      description: >
+        Operator-invoked Plan Hub transport.
+        It never enables background replication. With the default local provider,
+        discover returns an empty envelope list and makes no network calls.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                plan_id: { type: string }
+                scope: { type: object }
+                statuses: { type: array, items: { type: string, enum: [pending, in_progress, completed, archived] } }
+      responses:
+        "200":
+          description: A pushed Plan or discovered/pulled envelope list
+          content: { application/json: { schema: { type: object } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "502": { description: Hub request failed }
+
+  /api/v1/plans/sync/pull:
+    post:
+      operationId: PlanHubPull
+      tags: [Plans]
+      summary: Explicitly pull Plan Hub envelopes
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object } } }
+      responses:
+        "200": { description: Envelope list, content: { application/json: { schema: { type: object } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "502": { description: Hub request failed }
+
+  /api/v1/plans/sync/discover:
+    post:
+      operationId: PlanHubDiscover
+      tags: [Plans]
+      summary: Discover pending and in-progress remote Plans
+      description: Explicit, scoped team discovery; local/offline provider returns no envelopes.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object } } }
+      responses:
+        "200": { description: Envelope list, content: { application/json: { schema: { type: object } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "502": { description: Hub request failed }
+
   /api/v1/plans/{plan_id}/complete:
     post:
       operationId: CompletePlan
