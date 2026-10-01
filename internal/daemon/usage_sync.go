@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/srjn45/warden/internal/agentbackend"
+	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/backendusage"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -81,13 +82,25 @@ func (s *Server) usageReconciliationOnce(ctx context.Context, _ time.Duration) b
 	snap, err := s.usage.Snapshot(ctx, true)
 	if err != nil {
 		slog.Warn("daemon: usage reconciliation snapshot failed", "err", err)
+		s.recordRecoveryAudit(audit.ActionUsageSnapshotFailed, "usage", map[string]string{
+			"reason":        "snapshot_error",
+			"source_status": "error",
+		})
 		return true
 	}
 	failed := false
 	for _, result := range snap.Backends {
+		detail := map[string]string{
+			"provider":      result.ID,
+			"source_status": string(result.Status),
+		}
 		switch result.Status {
 		case backendusage.StatusUnavailable, backendusage.StatusTimeout, backendusage.StatusError:
 			failed = true
+			detail["reason"] = string(result.Status)
+			s.recordRecoveryAudit(audit.ActionUsageSnapshotFailed, result.ID, detail)
+		default:
+			s.recordRecoveryAudit(audit.ActionUsageSnapshotReceived, result.ID, detail)
 		}
 	}
 	// Snapshot persistence happens inside Service.collect. Publishing lets

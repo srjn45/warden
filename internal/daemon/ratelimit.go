@@ -74,6 +74,11 @@ type RateLimitScheduler struct {
 	// construction.
 	OnHardLimit func(sess *agentstore.Agent, until time.Time) bool
 
+	// PrepareHardLimit, when set, is called immediately before OnHardLimit with the
+	// Phase 9 trigger source (usage/menu/banner/manual) so the recovery coordinator
+	// can ArmEvidence without changing the OnHardLimit signature.
+	PrepareHardLimit func(sess *agentstore.Agent, source string)
+
 	mu     sync.Mutex
 	timers map[string]*time.Timer
 }
@@ -138,7 +143,7 @@ func (r *RateLimitScheduler) OnRateLimitObservation(obs poller.RateLimitObservat
 	if err != nil {
 		return // session gone
 	}
-	r.handleRateLimit(sess, obs.FreshExcerpt)
+	r.handleRateLimit(sess, obs.FreshExcerpt, obs.Source)
 }
 
 // OnTransition is the fallback handler for rate-limit transitions that originate
@@ -150,13 +155,14 @@ func (r *RateLimitScheduler) OnTransition(sess *agentstore.Agent, from, to store
 	if to != store.StatusRateLimited {
 		return
 	}
-	r.handleRateLimit(sess, sess.LastPaneExcerpt)
+	r.handleRateLimit(sess, sess.LastPaneExcerpt, "usage")
 }
 
 // handleRateLimit runs the rate-limit detection response using the provided
 // excerpt for both the diagnostic capture and the reset-time parse. It is called
 // from OnRateLimitObservation (fresh excerpt) and OnTransition (fallback excerpt).
-func (r *RateLimitScheduler) handleRateLimit(sess *agentstore.Agent, excerpt string) {
+// source is the Phase 9 trigger vocabulary (usage/menu/banner/manual).
+func (r *RateLimitScheduler) handleRateLimit(sess *agentstore.Agent, excerpt, source string) {
 	// Snapshot the excerpt on every real limit hit, regardless of auto_resume, so the
 	// next live limit yields exact bytes to close any parser gap. Cheap and
 	// bounded; a capture failure must never block the resume path.
@@ -172,8 +178,13 @@ func (r *RateLimitScheduler) handleRateLimit(sess *agentstore.Agent, excerpt str
 
 	// Reactive hard-limit recovery runs before the legacy auto-resume gate. When it
 	// claims the session it exclusively owns candidate trials and waiting.
-	if r.OnHardLimit != nil && r.OnHardLimit(sess, scheduleAt) {
-		return
+	if r.OnHardLimit != nil {
+		if r.PrepareHardLimit != nil {
+			r.PrepareHardLimit(sess, source)
+		}
+		if r.OnHardLimit(sess, scheduleAt) {
+			return
+		}
 	}
 
 	if !r.enabled {

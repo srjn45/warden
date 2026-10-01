@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/srjn45/warden/internal/agentstore"
+	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/backendusage"
 	"github.com/srjn45/warden/internal/lifecycle"
@@ -39,6 +41,8 @@ type BackendRecoveryCoordinator struct {
 	mu                  sync.Mutex
 	locks               map[string]*sync.Mutex
 	timers              map[string]*time.Timer
+	pendingEvidence     map[string]RecoveryEvidence
+	audit               *audit.Writer
 	stabilizationWindow time.Duration
 	// advanceSem bounds how many advance() passes (fresh capacity snapshot +
 	// candidate selection + launch) run concurrently across every agent the
@@ -57,13 +61,53 @@ type backendRecoveryLife interface {
 }
 
 func NewBackendRecoveryCoordinator(st agentstore.AgentStore, backends *backendstore.Store, usage *backendusage.Service, life backendRecoveryLife) *BackendRecoveryCoordinator {
-	return &BackendRecoveryCoordinator{store: st, backends: backends, usage: usage, life: life, now: time.Now, locks: make(map[string]*sync.Mutex), timers: make(map[string]*time.Timer), stabilizationWindow: 10 * time.Second}
+	return &BackendRecoveryCoordinator{
+		store: st, backends: backends, usage: usage, life: life, now: time.Now,
+		locks: make(map[string]*sync.Mutex), timers: make(map[string]*time.Timer),
+		pendingEvidence: make(map[string]RecoveryEvidence), stabilizationWindow: 10 * time.Second,
+	}
 }
 
 // SetNotify wires an SSE publish callback. It is called once per recovery
 // phase transition so remote clients (web, Android, MCP) see state changes
 // without polling. Call before the coordinator handles any hard-limit events.
 func (c *BackendRecoveryCoordinator) SetNotify(fn func()) { c.notifyFn = fn }
+
+// SetAudit wires the append-only audit writer used for Phase 9 recovery
+// observability. A nil writer leaves audit emission as a no-op.
+func (c *BackendRecoveryCoordinator) SetAudit(w *audit.Writer) {
+	if c != nil {
+		c.audit = w
+	}
+}
+
+// ArmEvidence stashes safe recovery context for the next OnHardLimit claim on
+// agentID. Usage/menu/banner/manual call sites arm evidence immediately before
+// invoking OnHardLimit so the generation record and audit trail carry trigger
+// source, capacity domain, and freshness without changing the OnHardLimit
+// function signature used by RateLimitScheduler.
+func (c *BackendRecoveryCoordinator) ArmEvidence(agentID string, ev RecoveryEvidence) {
+	if c == nil || agentID == "" {
+		return
+	}
+	if src := NormalizeSource(ev.Source); src != "" {
+		ev.Source = src
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.pendingEvidence == nil {
+		c.pendingEvidence = make(map[string]RecoveryEvidence)
+	}
+	c.pendingEvidence[agentID] = ev
+}
+
+func (c *BackendRecoveryCoordinator) takeEvidence(agentID string) RecoveryEvidence {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	ev := c.pendingEvidence[agentID]
+	delete(c.pendingEvidence, agentID)
+	return ev
+}
 
 // WithStabilizationWindow overrides the stabilization observation window (how
 // long an agent must stay in a live non-rate-limited status before the candidate
@@ -133,6 +177,11 @@ func (c *BackendRecoveryCoordinator) OnHardLimit(sess *agentstore.Agent, fallbac
 			// next advance() skips it even across rounds and daemon restarts.
 			c.recordCooldown(attempt.Candidate.BackendID, attempt.Candidate.ModelID, fallbackAt)
 			c.event(current.ID, "backend_recovery_attempt_failed", fmt.Sprintf("generation=%d candidate=%s/%s outcome=immediate_hard_limit", generation, attempt.Candidate.BackendID, attempt.Candidate.ModelID))
+			c.recordRecoveryObservability(current.ID, audit.ActionCandidateResult, evidenceFromRecovery(current.BackendRecovery), map[string]string{
+				"generation": strconv.FormatUint(generation, 10),
+				"candidate":  attempt.Candidate.BackendID + "/" + attempt.Candidate.ModelID,
+				"outcome":    "immediate_hard_limit",
+			})
 			c.dispatchAdvance(current.ID, generation, fallbackAt)
 			return true
 		}
@@ -141,12 +190,22 @@ func (c *BackendRecoveryCoordinator) OnHardLimit(sess *agentstore.Agent, fallbac
 		return true
 	}
 	original := store.BackendCandidate{BackendID: current.AiCli, ModelID: current.Model}
+	ev := c.takeEvidence(current.ID)
+	if ev.Source == "" {
+		// Pane-driven hard limits that predate explicit ArmEvidence default to banner.
+		ev.Source = "banner"
+	}
+	if ev.Reason == "" {
+		ev.Reason = fmt.Sprintf("hard_limit on %s/%s", original.BackendID, original.ModelID)
+	}
 	err = c.store.Update(context.Background(), current.ID, func(s *agentstore.Agent) error {
 		s.BackendRecoveryGeneration = generation
-		s.BackendRecovery = &store.BackendRecovery{
+		rec := &store.BackendRecovery{
 			Generation: generation, Phase: recoveryRefreshing, Original: original,
 			Attempts: []store.RecoveryAttempt{{Candidate: original, Round: 0, StartedAt: now, Outcome: "hard_limit"}}, UpdatedAt: now,
 		}
+		ev.applyTo(rec)
+		s.BackendRecovery = rec
 		return nil
 	})
 	if err != nil {
@@ -157,6 +216,10 @@ func (c *BackendRecoveryCoordinator) OnHardLimit(sess *agentstore.Agent, fallbac
 	c.recordCooldown(original.BackendID, original.ModelID, fallbackAt)
 	_ = c.store.SetRateLimit(context.Background(), current.ID, fallbackAt, 0)
 	c.event(current.ID, "backend_recovery_started", fmt.Sprintf("generation=%d limited=%s/%s", generation, original.BackendID, original.ModelID))
+	c.recordRecoveryObservability(current.ID, audit.ActionRecoveryStarted, ev, map[string]string{
+		"generation": strconv.FormatUint(generation, 10),
+		"candidate":  original.BackendID + "/" + original.ModelID,
+	})
 	c.dispatchAdvance(current.ID, generation, fallbackAt)
 	return true
 }
@@ -252,6 +315,10 @@ func (c *BackendRecoveryCoordinator) advance(id string, generation uint64, fallb
 		return nil
 	})
 	c.event(id, "backend_recovery_candidate_selected", fmt.Sprintf("generation=%d candidate=%s/%s", generation, target.BackendID, target.ModelID))
+	c.recordRecoveryObservability(id, audit.ActionCandidateAttempted, evidenceFromRecovery(sess.BackendRecovery), map[string]string{
+		"generation": strconv.FormatUint(generation, 10),
+		"candidate":  target.BackendID + "/" + target.ModelID,
+	})
 
 	// Only the exact original pool resumes in place. Every other model/backend
 	// uses the existing handoff lifecycle.
@@ -275,6 +342,11 @@ func (c *BackendRecoveryCoordinator) advance(id string, generation uint64, fallb
 			return nil
 		})
 		c.event(id, "backend_recovery_attempt_failed", fmt.Sprintf("generation=%d candidate=%s/%s outcome=launch_failed", generation, target.BackendID, target.ModelID))
+		c.recordRecoveryObservability(id, audit.ActionCandidateResult, evidenceFromRecovery(sess.BackendRecovery), map[string]string{
+			"generation": strconv.FormatUint(generation, 10),
+			"candidate":  target.BackendID + "/" + target.ModelID,
+			"outcome":    "launch_failed",
+		})
 		c.dispatchAdvance(id, generation, fallbackAt)
 		return
 	}
@@ -289,6 +361,11 @@ func (c *BackendRecoveryCoordinator) advance(id string, generation uint64, fallb
 	})
 	_, _ = c.store.UpdateStatusIf(ctx, id, store.StatusRateLimited, store.StatusSpawning)
 	c.event(id, "backend_recovery_stabilizing", fmt.Sprintf("generation=%d candidate=%s/%s", generation, target.BackendID, target.ModelID))
+	c.recordRecoveryObservability(id, audit.ActionCandidateResult, evidenceFromRecovery(sess.BackendRecovery), map[string]string{
+		"generation": strconv.FormatUint(generation, 10),
+		"candidate":  target.BackendID + "/" + target.ModelID,
+		"outcome":    "launch_ok",
+	})
 }
 
 func (c *BackendRecoveryCoordinator) policyCandidates(sess *agentstore.Agent) []recovery.Candidate {
@@ -351,6 +428,11 @@ func (c *BackendRecoveryCoordinator) waitLocked(sess *agentstore.Agent, generati
 	})
 	_ = c.store.SetRateLimit(context.Background(), sess.ID, next, int(sess.BackendRecovery.Round))
 	c.event(sess.ID, "backend_recovery_waiting_for_capacity", fmt.Sprintf("generation=%d next_retry=%s", generation, next.Format(time.RFC3339)))
+	c.recordRecoveryObservability(sess.ID, audit.ActionWaitingForCapacity, evidenceFromRecovery(sess.BackendRecovery), map[string]string{
+		"generation": strconv.FormatUint(generation, 10),
+		"next_retry": next.Format(time.RFC3339),
+		"reason":     "no_eligible_candidate",
+	})
 	c.schedule(sess.ID, generation, next)
 }
 
@@ -440,6 +522,11 @@ func (c *BackendRecoveryCoordinator) verifyStable(id string, generation uint64, 
 	})
 	_ = c.store.ClearRateLimit(ctx, id)
 	c.event(id, "backend_recovery_stabilized", fmt.Sprintf("generation=%d candidate=%s/%s", generation, target.BackendID, target.ModelID))
+	c.recordRecoveryObservability(id, audit.ActionRecoveryStabilized, evidenceFromRecovery(sess.BackendRecovery), map[string]string{
+		"generation": strconv.FormatUint(generation, 10),
+		"candidate":  target.BackendID + "/" + target.ModelID,
+		"outcome":    "stabilized",
+	})
 }
 
 // Supersede invalidates automatic work before a manual switch/stop/delete.
@@ -455,6 +542,7 @@ func (c *BackendRecoveryCoordinator) Supersede(ctx context.Context, id, action s
 		return
 	}
 	generation := sess.BackendRecovery.Generation
+	ev := evidenceFromRecovery(sess.BackendRecovery)
 	_ = c.store.Update(ctx, id, func(s *agentstore.Agent) error { s.BackendRecovery = nil; return nil })
 	c.mu.Lock()
 	if timer := c.timers[id]; timer != nil {
@@ -463,6 +551,11 @@ func (c *BackendRecoveryCoordinator) Supersede(ctx context.Context, id, action s
 	}
 	c.mu.Unlock()
 	c.event(id, "backend_recovery_superseded", fmt.Sprintf("generation=%d action=%s", generation, action))
+	c.recordRecoveryObservability(id, audit.ActionRecoverySuperseded, ev, map[string]string{
+		"generation": strconv.FormatUint(generation, 10),
+		"action":     action,
+		"reason":     "manual_override",
+	})
 }
 
 func (c *BackendRecoveryCoordinator) Reconstruct(ctx context.Context) error {

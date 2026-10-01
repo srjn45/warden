@@ -779,7 +779,7 @@ func (p *Poller) tryLimitMenu(ctx context.Context, s *agentstore.Agent, pane str
 		if strings.TrimSpace(fresh) == "" {
 			fresh = pane
 		}
-		p.OnLimitMenuSelected(NewRateLimitObservation(s.ID, lastLines(fresh, 20)))
+		p.OnLimitMenuSelected(NewMenuRateLimitObservation(s.ID, lastLines(fresh, 20)))
 	}
 
 	if p.OnChange != nil {

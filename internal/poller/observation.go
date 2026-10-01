@@ -45,10 +45,14 @@ type RateLimitObservation struct {
 	// Fingerprint is a bounded opaque hash derived from FreshExcerpt. Safe to
 	// surface in audit events, TUI diagnostics, and API responses.
 	Fingerprint string
+	// Source is the Phase 9 trigger vocabulary: "menu" or "banner" (pane paths).
+	// Empty defaults to banner at the recovery coordinator.
+	Source string
 }
 
 // NewRateLimitObservation constructs an observation from the session id and the
 // fresh pane excerpt captured at detection time. ObservedAt is set to time.Now().UTC().
+// Source defaults to "banner" (confirmed hard-limit wording).
 func NewRateLimitObservation(sessionID, freshExcerpt string) RateLimitObservation {
 	return RateLimitObservation{
 		SessionID:        sessionID,
@@ -56,7 +60,17 @@ func NewRateLimitObservation(sessionID, freshExcerpt string) RateLimitObservatio
 		FreshExcerpt:     freshExcerpt,
 		ClassifierResult: store.StatusRateLimited,
 		Fingerprint:      rateLimitFingerprint(freshExcerpt),
+		Source:           "banner",
 	}
+}
+
+// NewMenuRateLimitObservation is the menu-confirmation counterpart of
+// NewRateLimitObservation. Source is "menu" so recovery observability can
+// distinguish a Claude wait-for-reset menu selection from a later banner.
+func NewMenuRateLimitObservation(sessionID, freshExcerpt string) RateLimitObservation {
+	obs := NewRateLimitObservation(sessionID, freshExcerpt)
+	obs.Source = "menu"
+	return obs
 }
 
 // rateLimitFingerprint returns a short bounded identifier for an excerpt.

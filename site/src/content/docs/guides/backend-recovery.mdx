@@ -135,7 +135,7 @@ A manual `warden switch`, stop, or delete **supersedes** automatic recovery imme
 
 1. The recovery record is cleared
 2. The active timer is cancelled
-3. A `backend_recovery_superseded` event is emitted
+3. A `backend_recovery_superseded` event is emitted (plus Phase 9 `recovery_superseded` on the durable event stream and append-only audit trail)
 4. Stale timers and late callbacks are generation-guarded and become no-ops
 
 ## Recovery state in the UI
@@ -149,24 +149,33 @@ The agent's status shows the current phase wherever status is shown (TUI, web, C
 | `stabilizing` | `recovering: stabilizing <backend>/<model>` |
 | `waiting_for_capacity` | `waiting for capacity; retry <time>; attempted N` |
 
-The `backend_recovery` field on every session object is non-null while recovery is active. It contains `phase`, the current candidate, the full attempt list, known reset times per scope, and `next_retry_at`. Null means no recovery is active.
+The `backend_recovery` field on every session object is non-null while recovery is active. It contains `phase`, `trigger_source` (`usage`/`menu`/`banner`/`manual`), `capacity_domain`, `bucket_key`, `freshness`, `reason`, the current candidate, the full attempt history, known reset times per scope, and `next_retry_at`. Null means no recovery is active.
 
 SSE subscribers see a notification on every phase transition so the web UI and any connected client stay current without polling.
 
-## Event log
+## Event log and audit trail
 
-Recovery emits these events to the agent's event log (visible in `warden status <id>` / TUI `i` pane / `get_agent` MCP):
+Recovery emits legacy `backend_recovery_*` events for compatibility and the Phase 9 vocabulary below. Both land on the durable agent event log (`warden status <id>` / TUI detail / `get_agent`). The Phase 9 names are also written to the append-only audit trail (`~/.warden/audit.jsonl`, `warden inspect audit`) so operators can answer why a swap did or did not occur without relying on the systemd journal alone.
+
+Records carry safe domain/bucket identifiers, timestamps, agent IDs, trigger source, freshness, and reasons — **never** tokens, raw credentials, pane text, or transcripts.
 
 | Event | When |
 |---|---|
-| `backend_recovery_started` | First hard-limit detection |
+| `usage_snapshot_received` / `usage_snapshot_failed` | Provider capacity poll succeeded or failed |
+| `quota_bucket_exhausted` | A fresh mandatory bucket reported exhausted |
+| `quota_impact_calculated` | Bucket→agent impact reconciliation finished |
+| `recovery_started` | A recovery generation claimed the agent |
+| `candidate_attempted` / `candidate_result` | A replacement was tried and its outcome |
+| `waiting_for_capacity` | Exhaustion; retry scheduled |
+| `recovery_stabilized` / `recovery_superseded` | Generation completed or operator override |
+| `backend_recovery_started` | First hard-limit detection (legacy alias) |
 | `backend_usage_refreshed` | After each usage read (ok or unavailable) |
-| `backend_recovery_candidate_selected` | A candidate is chosen |
+| `backend_recovery_candidate_selected` | A candidate is chosen (legacy alias) |
 | `backend_recovery_switch_started` | HotSwap or Restore begins |
 | `backend_recovery_stabilizing` | Switch succeeded; stabilization window started |
 | `backend_recovery_attempt_failed` | Attempt outcome: `launch_failed` or `immediate_hard_limit` |
-| `backend_recovery_waiting_for_capacity` | Exhaustion; retry scheduled |
-| `backend_recovery_stabilized` | Recovery complete; candidate confirmed stable |
+| `backend_recovery_waiting_for_capacity` | Exhaustion; retry scheduled (legacy alias) |
+| `backend_recovery_stabilized` | Recovery complete; candidate confirmed stable (legacy alias)
 | `backend_recovery_superseded` | Manual action cancelled the recovery |
 
 Events never contain provider credentials, account identifiers, raw terminal banners, prompts, or transcripts. Usage percentages appear only on local authenticated surfaces; notifications say "capacity known/unknown" and the reset time.
