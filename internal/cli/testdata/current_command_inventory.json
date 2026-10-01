@@ -2701,6 +2701,7 @@
     "runnable": true,
     "local_flags": [
       "base",
+      "format",
       "json",
       "path",
       "repo",

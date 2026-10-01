@@ -47,9 +47,12 @@ Exact steps: site guide `guides/plans-migration`.
 Phase 12 upgrade gate (GREEN):
 [`docs/specs/2026-09-30-scrivadb-canonical-plans-acceptance.md`](specs/2026-09-30-scrivadb-canonical-plans-acceptance.md).
 
-Explicitly deferred (follow-up issues, not hidden non-goals): JSON export format
-([#585](https://github.com/srjn45/warden/issues/585)); Hub network transport
+Explicitly deferred (follow-up issues, not hidden non-goals): Hub network transport
 ([#586](https://github.com/srjn45/warden/issues/586)).
+
+JSON export format ([#585](https://github.com/srjn45/warden/issues/585)) is **shipped**
+as opt-in inert replicas (`--format json`); YAML remains the default. JSON under
+`plans/` is never scan/import-legacy authority.
 - [ ] Replace scripts that call `plan scan` with `import-legacy` or DB-native CRUD
 - [ ] Prefer backup restore over `git pull` + scan for recovery
 - [ ] Expect scan/import/status removal in a subsequent release

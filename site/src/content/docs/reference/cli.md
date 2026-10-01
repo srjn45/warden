@@ -1398,21 +1398,22 @@ Inherited flags:
 ## warden plan sync_to_repo
 
 ```text
-Render the canonical ScrivaDB Plan as an inert YAML replica on a dedicated
-`warden/plan-sync/<plan-id>/<revision>` branch and open (or reuse) a PR against
---base. Uses an isolated git worktree — never stages the operator's checked-out
-branch, force-pushes, auto-merges, or overwrites a conflicting non-Warden file.
-Repeating the same revision/hash for the same repo/ref/path returns the prior
-result with no new GitHub activity.
+Render the canonical ScrivaDB Plan as an inert replica (YAML by default;
+`--format json` for JSON) on a dedicated `warden/plan-sync/<plan-id>/<revision>`
+branch and open (or reuse) a PR against --base. Uses an isolated git worktree —
+never stages the operator's checked-out branch, force-pushes, auto-merges, or
+overwrites a conflicting non-Warden file. Repeating the same revision/hash for
+the same repo/ref/path returns the prior result with no new GitHub activity.
 
 Usage:
   warden plan sync_to_repo <plan-id> [flags]
 
 Flags:
       --base string         PR base branch / target ref (required)
+      --format string       replica format: yaml (default) or json (default "yaml")
   -h, --help                help for sync_to_repo
       --json                output as JSON
-      --path string         replica output path override (default: plans/{lifecycle}/<slug>.yaml)
+      --path string         replica output path override (default: plans/{lifecycle}/<slug>.{yaml|json})
       --repo string         local git repository path (default: plan project root)
       --repository string   stable repository identity for export records (default: origin URL)
 

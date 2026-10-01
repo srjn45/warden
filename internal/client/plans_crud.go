@@ -217,6 +217,7 @@ func (c *Client) PlansArchive(ctx context.Context, planID string) (*PlanView, er
 type PlansSyncToRepoRequest struct {
 	TargetRef      string `json:"target_ref"`
 	RepositoryPath string `json:"repository_path,omitempty"`
+	Format         string `json:"format,omitempty"` // yaml (default) or json
 	OutputPath     string `json:"output_path,omitempty"`
 	Repository     string `json:"repository,omitempty"`
 }

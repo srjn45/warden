@@ -6,23 +6,23 @@
 // only and must never feed canonical lifecycle. This package does not write
 // repository files — Phase 7 (sync_to_repo) owns Git/PR mutation.
 //
-// The Renderer interface is format-neutral so a JSON exporter can be added
-// later without changing planstore.Plan storage.
+// The Renderer interface is format-neutral: YAML (Default) and JSON exporters
+// share the same envelope without changing planstore.Plan storage.
 package planexport
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/srjn45/warden/internal/planstore"
 )
 
-// Format names a replica encoding. v1 ships YAML only; JSON is reserved.
+// Format names a replica encoding. Default() remains YAML; JSON is opt-in.
 type Format string
 
 const (
 	FormatYAML Format = "yaml"
-	// FormatJSON is reserved for a later exporter; not implemented in this plan.
 	FormatJSON Format = "json"
 )
 
@@ -51,7 +51,7 @@ type Envelope struct {
 type Result struct {
 	Format   Format
 	Bytes    []byte
-	Path     string // conventional plans/{lifecycle}/<slug>.yaml — descriptive only
+	Path     string // conventional plans/{lifecycle}/<slug>.{yaml|json} — descriptive only
 	Envelope Envelope
 }
 
@@ -65,6 +65,43 @@ type Renderer interface {
 // Default returns the v1 YAML renderer.
 func Default() Renderer {
 	return YAMLRenderer{}
+}
+
+// NormalizeFormat returns a canonical Format. Empty defaults to FormatYAML.
+func NormalizeFormat(format Format) Format {
+	switch Format(strings.ToLower(strings.TrimSpace(string(format)))) {
+	case "", FormatYAML:
+		return FormatYAML
+	case FormatJSON:
+		return FormatJSON
+	default:
+		return Format(strings.ToLower(strings.TrimSpace(string(format))))
+	}
+}
+
+// ParseFormat validates and normalizes a format string. Empty ⇒ FormatYAML.
+func ParseFormat(s string) (Format, error) {
+	f := NormalizeFormat(Format(s))
+	switch f {
+	case FormatYAML, FormatJSON:
+		return f, nil
+	default:
+		return "", fmt.Errorf("planexport: unsupported format %q (want yaml or json)", s)
+	}
+}
+
+// New returns a Renderer for format. Empty format defaults to YAML.
+func New(format Format) (Renderer, error) {
+	f, err := ParseFormat(string(format))
+	if err != nil {
+		return nil, err
+	}
+	switch f {
+	case FormatJSON:
+		return JSONRenderer{}, nil
+	default:
+		return YAMLRenderer{}, nil
+	}
 }
 
 // BuildEnvelope derives the frozen envelope from a Plan. ContentHash is

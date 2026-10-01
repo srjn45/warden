@@ -95,7 +95,8 @@ type syncPlanToRepoArgs struct {
 	PlanID         string `json:"plan_id" jsonschema:"the stable plan id (plan-<8hex>) to export"`
 	TargetRef      string `json:"target_ref" jsonschema:"PR base branch / target ref (required)"`
 	RepositoryPath string `json:"repository_path,omitempty" jsonschema:"absolute local git repository path (defaults to the plan project root)"`
-	OutputPath     string `json:"output_path,omitempty" jsonschema:"optional replica path override (default plans/{lifecycle}/<slug>.yaml)"`
+	Format         string `json:"format,omitempty" jsonschema:"replica format: yaml (default) or json"`
+	OutputPath     string `json:"output_path,omitempty" jsonschema:"optional replica path override (default plans/{lifecycle}/<slug>.{yaml|json})"`
 	Repository     string `json:"repository,omitempty" jsonschema:"stable repository identity for export records (defaults to origin URL)"`
 }
 
@@ -342,15 +343,17 @@ func (s *Server) registerPlanTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name: "sync_plan_to_repo",
-		Description: "Export a canonical ScrivaDB Plan revision as an inert YAML replica onto a dedicated " +
-			"warden/plan-sync/<plan-id>/<revision> branch and open or reuse a PR against target_ref. " +
-			"Uses an isolated git worktree — never touches the operator checkout, force-pushes, " +
-			"auto-merges, or overwrites a conflicting non-Warden file. Idempotent for the same " +
-			"revision/hash/repo/ref/path (returns prior result, no new GitHub activity).",
+		Description: "Export a canonical ScrivaDB Plan revision as an inert replica (YAML by default; " +
+			"set format=json for JSON) onto a dedicated warden/plan-sync/<plan-id>/<revision> branch " +
+			"and open or reuse a PR against target_ref. Uses an isolated git worktree — never touches " +
+			"the operator checkout, force-pushes, auto-merges, or overwrites a conflicting non-Warden " +
+			"file. Idempotent for the same revision/hash/repo/ref/path (returns prior result, no new " +
+			"GitHub activity).",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a syncPlanToRepoArgs) (*mcpsdk.CallToolResult, any, error) {
 		res, err := s.cl.PlansSyncToRepo(ctx, a.PlanID, client.PlansSyncToRepoRequest{
 			TargetRef:      a.TargetRef,
 			RepositoryPath: a.RepositoryPath,
+			Format:         a.Format,
 			OutputPath:     a.OutputPath,
 			Repository:     a.Repository,
 		})

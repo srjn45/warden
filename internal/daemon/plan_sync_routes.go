@@ -36,7 +36,7 @@ func (s *Server) planSyncer() *planexport.Syncer {
 		Exports:  s.planExports,
 		PlansMut: s.plans,
 		Git:      git,
-		Renderer: planexport.Default(),
+		// Renderer left nil so SyncOptions.Format selects via planexport.New.
 	}
 }
 
@@ -70,10 +70,19 @@ func (s *Server) SyncPlanToRepo(ctx context.Context, req oapi.SyncPlanToRepoRequ
 		return oapi.SyncPlanToRepo400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{Error: "repository_path could not be resolved"}}, nil
 	}
 
+	format := planexport.Format(strings.TrimSpace(string(req.Body.Format)))
+	if format == "" {
+		format = planexport.FormatYAML
+	}
+	if _, ferr := planexport.ParseFormat(string(format)); ferr != nil {
+		return oapi.SyncPlanToRepo400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{Error: ferr.Error()}}, nil
+	}
+
 	res, err := syncer.Sync(ctx, planexport.SyncOptions{
 		PlanID:     req.PlanId,
 		RepoPath:   repoPath,
 		TargetRef:  targetRef,
+		Format:     format,
 		OutputPath: strings.TrimSpace(req.Body.OutputPath),
 		Repository: strings.TrimSpace(req.Body.Repository),
 	})

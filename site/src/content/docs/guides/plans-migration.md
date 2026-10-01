@@ -5,7 +5,7 @@ description: Exact operator playbooks for DB-native Plans, legacy import, replic
 
 import { Aside, Steps } from '@astrojs/starlight/components';
 
-Canonical Plans live in ScrivaDB. Repository `plans/**/*.yaml` files are optional inert replicas. These playbooks are the supported operator paths after the ScrivaDB cutover ([design freeze](https://github.com/srjn45/warden/blob/main/docs/specs/2026-09-30-scrivadb-canonical-plans.md)).
+Canonical Plans live in ScrivaDB. Repository `plans/**/*.{yaml,yml,json}` files are optional inert replicas (YAML default on export; JSON opt-in). These playbooks are the supported operator paths after the ScrivaDB cutover ([design freeze](https://github.com/srjn45/warden/blob/main/docs/specs/2026-09-30-scrivadb-canonical-plans.md)).
 
 <Aside type="caution">
 `wd plan scan`, `wd plan import`, and `wd plan status` are **deprecated migration aids for one release**. After a Plan is imported (or created DB-natively), they cannot affect canonical definition, lifecycle, or execution. Prefer the commands in each playbook below.
@@ -73,7 +73,7 @@ Do **not** rely on daemon startup or `wd plan scan` to re-authorize Status from 
 
 ## 3. Optionally publishing a replica PR
 
-Publish an inert YAML projection for human review. Never required for create/run.
+Publish an inert YAML (default) or JSON (`--format json`) projection for human review. Never required for create/run. Replicas are never execution SoT; `import-legacy` / `scan` discover YAML only.
 
 <Steps>
 
@@ -82,11 +82,12 @@ Publish an inert YAML projection for human review. Never required for create/run
 
    ```bash
    wd plan sync_to_repo <plan-id> --base <integration-or-main>
-   # optional path override:
+   # optional path / format:
    wd plan sync_to_repo <plan-id> --base main --path plans/pending/feature-x.yaml
+   wd plan sync_to_repo <plan-id> --base main --format json
    ```
 
-3. Review the PR. Editing the exported YAML does **not** change listing or execution.
+3. Review the PR. Editing the exported replica does **not** change listing or execution.
 4. Repeating the same revision/hash for the same repo/ref/path returns the prior sync result (no duplicate PR spam).
 
 </Steps>
@@ -139,4 +140,6 @@ Import conflicts (legacy YAML vs existing canonical hash) are separate: `import-
 
 ## Deferred (follow-up issues)
 
-JSON export format ([#585](https://github.com/srjn45/warden/issues/585)) and Hub network transport ([#586](https://github.com/srjn45/warden/issues/586)) remain deferred by design — see [Plans concepts](/warden/concepts/plans/) and the Phase 12 acceptance report in-repo (`docs/specs/2026-09-30-scrivadb-canonical-plans-acceptance.md`).
+Hub network transport ([#586](https://github.com/srjn45/warden/issues/586)) remains deferred by design — see [Plans concepts](/warden/concepts/plans/) and the Phase 12 acceptance report in-repo (`docs/specs/2026-09-30-scrivadb-canonical-plans-acceptance.md`).
+
+JSON export format ([#585](https://github.com/srjn45/warden/issues/585)) is **shipped** as an opt-in inert replica (`--format json`); YAML remains the default. JSON files are never scan/import-legacy authority.

@@ -41,8 +41,11 @@ type SyncOptions struct {
 	RepoPath string
 	// TargetRef is the PR base branch (e.g. main or an integration branch). Required.
 	TargetRef string
-	// OutputPath overrides the conventional plans/{lifecycle}/<slug>.yaml path.
-	// Empty ⇒ renderer default.
+	// Format selects the replica encoding (yaml or json). Empty ⇒ yaml.
+	// Ignored when Syncer.Renderer is set (test seam).
+	Format Format
+	// OutputPath overrides the conventional plans/{lifecycle}/<slug>.{yaml|json}
+	// path. Empty ⇒ renderer default for Format.
 	OutputPath string
 	// Repository is the stable identity stored on the export record (remote URL
 	// preferred). Empty ⇒ derived from `git remote get-url origin` or RepoPath.
@@ -125,7 +128,15 @@ func (s *Syncer) Sync(ctx context.Context, opts SyncOptions) (*SyncResult, error
 
 	renderer := s.Renderer
 	if renderer == nil {
-		renderer = Default()
+		format := opts.Format
+		if format == "" {
+			format = FormatYAML
+		}
+		var rerr error
+		renderer, rerr = New(format)
+		if rerr != nil {
+			return nil, rerr
+		}
 	}
 	now := s.Now
 	if now == nil {
@@ -372,7 +383,7 @@ func syncPRBody(plan *planstore.Plan, outputPath, contentHash string) string {
 			"- Optional repository replica of canonical ScrivaDB plan `%s`\n"+
 			"- Revision `%d`, content hash `%s`\n"+
 			"- Path `%s` (descriptive lifecycle layout only — not authoritative)\n\n"+
-			"This PR is opened by `warden plan sync_to_repo`. The YAML is an inert "+
+			"This PR is opened by `warden plan sync_to_repo`. The file is an inert "+
 			"replica; execution continues to read ScrivaDB only.\n",
 		plan.ID, plan.Revision, contentHash, outputPath,
 	)
@@ -394,13 +405,19 @@ func validateGitRef(ref string) error {
 
 func isWardenExportForPlan(data []byte, planID string) bool {
 	text := string(data)
-	if !strings.Contains(text, "warden-plan-export:") {
-		return false
+	// YAML replica marker (comment header).
+	if strings.Contains(text, "warden-plan-export:") {
+		// Accept either "plan_id: <id>" or quoted forms.
+		return strings.Contains(text, "plan_id: "+planID) ||
+			strings.Contains(text, "plan_id: \""+planID+"\"") ||
+			strings.Contains(text, "plan_id: '"+planID+"'")
 	}
-	// Accept either "plan_id: <id>" or "plan_id: '<id>'" forms.
-	return strings.Contains(text, "plan_id: "+planID) ||
-		strings.Contains(text, "plan_id: \""+planID+"\"") ||
-		strings.Contains(text, "plan_id: '"+planID+"'")
+	// JSON replica marker (top-level field; JSON has no comment syntax).
+	if strings.Contains(text, `"warden_plan_export"`) {
+		return strings.Contains(text, `"plan_id": "`+planID+`"`) ||
+			strings.Contains(text, `"plan_id":"`+planID+`"`)
+	}
+	return false
 }
 
 func isNonFastForward(msg string) bool {

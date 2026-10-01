@@ -321,14 +321,15 @@ and lands them into an integration branch, without waiting on a human.
 ## 16. Plans (tracked plan lifecycle)
 
 Plans are **canonical ScrivaDB records** (goal, tasks, lifecycle, revision,
-execution evidence). Repository `plans/**/*.yaml` is an optional inert export
+execution evidence). Repository `plans/**/*.{yaml,yml,json}` is an optional inert export
 via `sync_to_repo` — never required for create/run/complete, and **not** scanned
-at daemon startup. See [plans migration](https://srjn45.github.io/warden/guides/plans-migration/)
+at daemon startup. YAML is the default; JSON is opt-in (`--format json`) and never
+execution SoT. See [plans migration](https://srjn45.github.io/warden/guides/plans-migration/)
 and [`docs/MIGRATION-plans-scrivadb.md`](docs/MIGRATION-plans-scrivadb.md).
 Phase 12 acceptance:
 [`docs/specs/2026-09-30-scrivadb-canonical-plans-acceptance.md`](docs/specs/2026-09-30-scrivadb-canonical-plans-acceptance.md).
-Deferred follow-ups (not hidden non-goals): JSON export [#585](https://github.com/srjn45/warden/issues/585),
-Hub transport [#586](https://github.com/srjn45/warden/issues/586).
+Follow-ups: JSON export [#585](https://github.com/srjn45/warden/issues/585) **shipped** (opt-in),
+Hub transport [#586](https://github.com/srjn45/warden/issues/586) still deferred.
 
 | Feature | CLI | MCP | Skill | Web | TUI | Docs |
 |---|---|---|---|---|---|---|
@@ -343,7 +344,7 @@ Hub transport [#586](https://github.com/srjn45/warden/issues/586).
 | Mark a task done | `plan done` | `update_task_status` | ✓ | — | — | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
 | Archive a plan (any status → archived) | `plan archive` | `archive_plan` | ✓ | — | `a` | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
 | Complete a plan | `plan complete` | `complete_plan` | ✓ | — | — | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
-| Optional inert replica PR | `plan sync_to_repo` | `sync_plan_to_repo` | ✓ | — | — | [plans-migration](https://srjn45.github.io/warden/guides/plans-migration/) |
+| Optional inert replica PR (YAML default; JSON `--format json`) | `plan sync_to_repo` | `sync_plan_to_repo` | ✓ | — | — | [plans-migration](https://srjn45.github.io/warden/guides/plans-migration/) |
 | Portable Plan backup bundle | `plan backup export\|restore` | `export_plan_backup` / `restore_plan_backup` | ✓ | — | — | [plan-backup-restore](https://srjn45.github.io/warden/guides/plan-backup-restore/) |
 | Brain-assisted task progress assessment | `plan assess` | `assess_plan` | ✓ | — | `A` | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
 | Run a plan (`autopilot\|pipeline\|orchestrator_worker\|manual`) | `plan run --mode` | `run_plan` | ✓ | — | `r` | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |

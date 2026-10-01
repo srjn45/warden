@@ -317,9 +317,10 @@ checklist enum, not ledger states.
 ## Plans
 
 Plans are canonical ScrivaDB records (goal, tasks, lifecycle, revision, content
-hash). Repository YAML under `plans/{pending,in_progress,completed,archived}/`
+hash). Repository YAML/JSON under `plans/{pending,in_progress,completed,archived}/`
 is an optional inert export — not required for create/run/complete/archive, and
-never scanned automatically at daemon startup.
+never scanned automatically at daemon startup. YAML is the default; JSON
+(`--format json` / `warden_plan_export` marker) is opt-in and never execution SoT.
 
 ### MCP tools
 
@@ -327,7 +328,7 @@ never scanned automatically at daemon startup.
 |---|---|
 | `import_legacy_plans` | **One-time cutover** — after cloning a legacy repo that still has `plans/**/*.yaml`, call `import_legacy_plans { project_id: "<cwd>" }` (or `report_only: true` first) to create/reconcile canonical ScrivaDB Plans. Matching content hash is a no-op (cannot affect already-canonical execution); differing definitions are conflicted. Source files untouched. |
 | `scan_plans` | **Deprecated migration aid (one release).** Prefer `import_legacy_plans`. Upserts stubs only; does **not** reseed Status for Plans with a non-empty definition. Response includes `notice` + `skipped_canonical`. Never runs at daemon startup. |
-| `list_plans` | List ScrivaDB-canonical plans for a project (optional `status`). Returns revision, executor_id, task_summary, export_status, timestamps. YAML replicas are never listed as extra plans. |
+| `list_plans` | List ScrivaDB-canonical plans for a project (optional `status`). Returns revision, executor_id, task_summary, export_status, timestamps. YAML/JSON replicas are never listed as extra plans. |
 | `get_plan` | Fetch one plan by stable `plan-<8hex>` ID: goal, tasks, revision, executor_id, task_summary, export_status, repo_export, linked IDs, `task_progress`, timestamps. Does not read repository YAML. |
 | `find_related_plans` | Heuristic overlap query (same project, title/goal tokens, linked branches/PRs). Always returns `heuristic=true` + disclaimer — not authoritative duplicate detection. |
 | `create_plan` | Create a new canonical plan in ScrivaDB (no `plans/` directory required). Requires `project_id`, `name`, `goal`, and at least one task (`id` + `prompt`). |
@@ -373,7 +374,7 @@ assess_plan { project_id: "<id>", plan_id: "<id>" } # brain reconstructs task pr
 
 ### Guardrails
 
-- **Prefer ScrivaDB over YAML** — create/run/complete via MCP; do not treat `plans/**/*.yaml` as authority. Use `import_legacy_plans` only for explicit cutover.
+- **Prefer ScrivaDB over YAML/JSON replicas** — create/run/complete via MCP; do not treat `plans/**/*.{yaml,yml,json}` as authority. JSON exports (`warden_plan_export` marker) are inert review artifacts only. Use `import_legacy_plans` only for explicit YAML cutover (JSON is never imported as legacy SoT).
 - **Use `run_plan` / `complete_plan` / `archive_plan` instead of raw `git mv`** — lifecycle is a ScrivaDB field update.
 - **`assess_plan` is opt-in** — never call it automatically on every import; it spawns a brain Consultor and takes time.
 - **`project_id` for local projects is the absolute path** — e.g. `"/home/user/my-repo"`. Pass the `cwd` of the project, not a short name.
