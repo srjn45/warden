@@ -37,19 +37,16 @@ func hasSection(project *Node, kind SectionKind) bool {
 	return false
 }
 
-// requireCanonicalSectionOrder asserts Plans is always present and any other
-// sections appear in Plans → Autopilots → Pipelines → Agents → Terminals order.
-// Empty Autopilots/Pipelines/Agents/Terminals are omitted by design.
+// requireCanonicalSectionOrder asserts present sections follow
+// Plans → Autopilots → Pipelines → Agents → Terminals and that none are empty.
 func requireCanonicalSectionOrder(t *testing.T, project *Node) {
 	t.Helper()
 	require.NotNil(t, project)
-	require.NotEmpty(t, project.Children)
 	order := map[string]int{
 		string(SectionPlans): 0, string(SectionAutopilots): 1, string(SectionPipelines): 2,
 		string(SectionAgents): 3, string(SectionTerminals): 4,
 	}
 	prev := -1
-	sawPlans := false
 	for _, ch := range project.Children {
 		require.Equal(t, NodeTypeSection, ch.Type)
 		require.NotNil(t, ch.Detail)
@@ -57,13 +54,8 @@ func requireCanonicalSectionOrder(t *testing.T, project *Node) {
 		require.True(t, ok, "unexpected section %q", ch.Detail.Section)
 		require.Greater(t, idx, prev, "sections out of order at %q", ch.Label)
 		prev = idx
-		if ch.Detail.Section == string(SectionPlans) {
-			sawPlans = true
-		} else {
-			require.NotEmpty(t, ch.Children, "non-Plans section %q must not be empty", ch.Label)
-		}
+		require.NotEmpty(t, ch.Children, "section %q must not be empty", ch.Label)
 	}
-	require.True(t, sawPlans, "Plans section must always be present")
 }
 
 func TestProjectSections_CanonicalOrder(t *testing.T) {
@@ -77,8 +69,7 @@ func TestProjectSections_CanonicalOrder(t *testing.T) {
 	tr := NewService().Build(in, "")
 	require.Len(t, tr.Roots, 1)
 	requireCanonicalSectionOrder(t, tr.Roots[0])
-	require.Len(t, tr.Roots[0].Children, 1, "empty project shows only Plans")
-	require.Equal(t, "Plans", tr.Roots[0].Children[0].Label)
+	require.Empty(t, tr.Roots[0].Children, "fully empty project has no section headers")
 }
 
 func TestProjectSections_OmitEmptyAutopilotsPipelinesAgentsTerminals(t *testing.T) {
@@ -103,6 +94,25 @@ func TestProjectSections_OmitEmptyAutopilotsPipelinesAgentsTerminals(t *testing.
 	require.False(t, hasSection(proj, SectionAutopilots))
 	require.False(t, hasSection(proj, SectionPipelines))
 	require.False(t, hasSection(proj, SectionTerminals))
+}
+
+func TestProjectSections_OmitEmptyPlans(t *testing.T) {
+	now := time.Now()
+	in := Inputs{
+		Projects: []projectstore.Project{{
+			ID: "/p", Name: "p", Path: "/p", Status: projectstore.StatusOpen,
+			Agents: []string{"a1"},
+		}},
+		Sessions: []*store.Session{
+			{ID: "a1", Name: "solo", ProjectID: "/p", Status: store.StatusIdle, Kind: store.KindAgent, CreatedAt: now},
+		},
+	}
+	tr := NewService().Build(in, "")
+	proj := tr.Roots[0]
+	requireCanonicalSectionOrder(t, proj)
+	require.False(t, hasSection(proj, SectionPlans))
+	require.True(t, hasSection(proj, SectionAgents))
+	require.Len(t, proj.Children, 1)
 }
 
 func TestExactlyOnce_LiveAutopilotManagerWorkersNotAlsoAgents(t *testing.T) {
