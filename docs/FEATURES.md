@@ -1487,7 +1487,7 @@ Operator playbooks:
 | **Lifecycle** | ScrivaDB `Status` field |
 | **Revision / hash** | ScrivaDB `revision` + `content_hash` |
 | **Execution evidence** | ScrivaDB events / summaries / task progress |
-| **Repository YAML** | Optional replica via `sync_to_repo` — inert unless explicit `import-legacy` |
+| **Repository YAML / JSON** | Optional replica via `sync_to_repo` (YAML default; JSON opt-in) — inert unless explicit `import-legacy` (YAML only) |
 
 ### 37.2 Lifecycle states
 
@@ -1553,8 +1553,8 @@ canonical recovery.
 |---|---|
 | `wd plan list [--status <s>] [--json]` | List ScrivaDB plans |
 | `wd plan create --name <n> --goal <g> [--task id:prompt]` | Create pending Plan in ScrivaDB (no YAML write) |
-| `wd plan show <id> [--json]` | Canonical detail (never reads repo YAML) |
-| `wd plan sync_to_repo <id> --base <ref>` | Optional inert replica PR |
+| `wd plan show <id> [--json]` | Canonical detail (never reads repo YAML/JSON replicas) |
+| `wd plan sync_to_repo <id> --base <ref> [--format yaml\|json]` | Optional inert replica PR (YAML default; JSON opt-in) |
 | `wd plan backup export\|restore …` | Portable ScrivaDB bundle |
 | `wd plan import-legacy [--report]` | Explicit legacy YAML cutover |
 | `wd plan scan` / `import` / `status` | **Deprecated** migration aids |
@@ -1596,9 +1596,21 @@ Phase 12 acceptance records them as follow-up issues — see
 - Warden-hub plan sync (deferred; `synced_at`/`remote_id` reserved; local
   `PlanSyncProvider` boundary only — default install makes no network calls;
   [#586](https://github.com/srjn45/warden/issues/586))
-- JSON export format (deferred; YAML remains v1 replica format;
-  [#585](https://github.com/srjn45/warden/issues/585))
 - Per-task execution (plans run as a whole; `update_task_status` records progress only)
+
+**Shipped follow-up (no longer deferred):**
+
+- **JSON export format** ([#585](https://github.com/srjn45/warden/issues/585)) —
+  optional inert JSON replicas via `planexport.JSONRenderer` / `sync_to_repo
+  --format json`. Same §8.1 envelope as YAML; top-level
+  `"warden_plan_export":"replica only — not authoritative"`. YAML remains the
+  default. JSON files under `plans/` are **never** scan/import-legacy
+  authority and never execution SoT (see
+  `TestScanProject_ignoresJSONReplicas`,
+  `TestImportLegacy_ignoresJSONReplicas`,
+  `TestPlanService_EditedJSONDoesNotMutateCanonical`). Acceptance notes:
+  [`docs/specs/2026-09-30-scrivadb-canonical-plans-acceptance.md`](specs/2026-09-30-scrivadb-canonical-plans-acceptance.md)
+  (§ Follow-up #585).
 
 ### 37.12 Phase 12 acceptance
 

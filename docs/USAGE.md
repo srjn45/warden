@@ -2642,15 +2642,17 @@ warden inspect audit --json       # machine-readable
 
 ## 35. Plans (`wd plan`)
 
-Plans are **canonical ScrivaDB records**. Repository YAML under
+Plans are **canonical ScrivaDB records**. Repository YAML/JSON under
 `plans/{pending,in_progress,completed,archived}/` is an optional inert export —
 not required for create/run/complete, and **not** scanned at daemon startup.
+YAML is the default replica format; JSON is opt-in (`sync_to_repo --format json`)
+and is never execution SoT (scan/import-legacy discover YAML only).
 
 See `docs/MIGRATION-plans-scrivadb.md` and the site guide `guides/plans-migration`
 for operator playbooks. Phase 12 acceptance evidence:
 `docs/specs/2026-09-30-scrivadb-canonical-plans-acceptance.md`
-(deferred JSON export [#585](https://github.com/srjn45/warden/issues/585); Hub
-transport [#586](https://github.com/srjn45/warden/issues/586)).
+(JSON export [#585](https://github.com/srjn45/warden/issues/585) closed as opt-in;
+Hub transport [#586](https://github.com/srjn45/warden/issues/586) still deferred).
 
 ### Fresh DB-native use
 
@@ -2706,15 +2708,18 @@ wd plan done <plan-id> <task-id>        # mark one task done
 
 ### Optional repository export (`sync_to_repo`)
 
-Publish an inert YAML replica of a canonical ScrivaDB Plan onto a dedicated
-`warden/plan-sync/<plan-id>/<revision>` branch and open (or reuse) a PR. Never
-touches the operator checkout, force-pushes, or overwrites a conflicting
-non-Warden file. Repeating the same revision/hash for the same repo/ref/path is
-a no-op that returns the prior PR.
+Publish an inert replica of a canonical ScrivaDB Plan onto a dedicated
+`warden/plan-sync/<plan-id>/<revision>` branch and open (or reuse) a PR. YAML is
+the default; pass `--format json` for an opt-in JSON replica (same §8.1 envelope;
+`"warden_plan_export":"replica only — not authoritative"`). Never touches the
+operator checkout, force-pushes, or overwrites a conflicting non-Warden file.
+Repeating the same revision/hash for the same repo/ref/path is a no-op that
+returns the prior PR.
 
 ```sh
 wd plan sync_to_repo <plan-id> --base <integration-or-main>
 wd plan sync_to_repo <plan-id> --base main --path plans/pending/my-plan.yaml
+wd plan sync_to_repo <plan-id> --base main --format json
 ```
 
 ### Plan backup / restore (portable ScrivaDB bundle)

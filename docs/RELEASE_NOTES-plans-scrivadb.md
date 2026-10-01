@@ -31,8 +31,12 @@ CLI help, MCP tool descriptions, `docs/FEATURES.md`, root feature catalog,
 ## Follow-ups (explicit — not hidden non-goals)
 
 - Remove deprecated scan/import/status surfaces in a subsequent release.
-- **JSON export format** — deferred (YAML remains v1 replica); tracked as
-  [#585](https://github.com/srjn45/warden/issues/585).
+- **JSON export format** — **shipped** as opt-in inert replicas (`planexport.JSONRenderer`,
+  `sync_to_repo --format json`); YAML remains the default. JSON files are never
+  scan/import-legacy or execution SoT. Tracked as
+  [#585](https://github.com/srjn45/warden/issues/585); acceptance notes in
+  [`docs/specs/2026-09-30-scrivadb-canonical-plans-acceptance.md`](specs/2026-09-30-scrivadb-canonical-plans-acceptance.md)
+  (§ Follow-up #585).
 - **Hub network transport** — deferred (local `PlanSyncProvider` boundary only;
   default install makes no network calls); tracked as
   [#586](https://github.com/srjn45/warden/issues/586).
