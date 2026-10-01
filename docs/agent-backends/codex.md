@@ -17,9 +17,9 @@ top of* Codex; it never strips Codex's features down to a lowest common denomina
 
 | warden method        | Codex invocation                                                            | Notes |
 |----------------------|------------------------------------------------------------------------------|-------|
-| `LaunchCmd` (TUI)    | `codex [-m <model>] [-s <sandbox>] [-a never]`                               | Interactive TUI; prompt seeded as a trailing positional arg. |
+| `LaunchCmd` (TUI)    | `codex [-m <model>] [-s <sandbox>] [-a never] [-c sandbox_workspace_write.network_access=true]` | Interactive TUI; prompt seeded as a trailing positional arg. Network from `ExecutionProfile` (not PermissionMode). |
 | `LaunchPromptArg`    | ` "$(cat <file>)"`                                                            | Codex takes the first task as a positional PROMPT (like Claude). |
-| `ResumeCmd`          | `codex resume --last`                                                         | Dir-scoped; Codex filters resume by cwd by default. |
+| `ResumeCmd`          | `codex resume --last [-s <sandbox>] [-a never] [-c sandbox_workspace_write.network_access=true]` | Dir-scoped; consumes Mode + Network like LaunchCmd so Restore/SwitchRole keep the execution contract. |
 | `HeadlessCmd`        | `codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox <prompt>` | One-shot for warden's classify/summarize offload. |
 | `TranscriptPath`     | reads `$CODEX_HOME/sessions/**/rollout-*.jsonl`                               | Resolved dir-scoped (match `session_meta.cwd`). |
 | `ParseTranscript`    | parses rollout JSONL `response_item` records                                 | message + function_call → neutral Turns. |
@@ -102,10 +102,24 @@ and `exec`, and after the process exits.
 | `Resume`               | ✅    | `codex resume --last` (dir-scoped) **plus exact-id resume** once warden discovers and pins the minted id (`DiscoverSessionID`, below). |
 | `ModelSelection`       | ✅    | `-m <model>`. |
 | `StructuredTranscript` | ✅    | rollout JSONL → neutral Turns (**Tier A**). |
-| `PermissionModes`      | ✅    | `read-only`, `workspace-write`, `danger-full-access` (Codex's native sandbox). |
+| `PermissionModes`      | ✅    | `read-only`, `workspace-write`, `danger-full-access` (Codex's native sandbox). Orthogonal to `ExecutionProfile.Network`. |
 | `SessionIDControl`     | ❌ (mitigated) | Codex mints its own UUID and exposes no flag to assign one *at launch* — so `SessionIDControl` stays `false`. But warden now **discovers** that minted id post-launch (`DiscoverSessionID`, the `agentbackend.SessionIDDiscoverer` seam) and pins it, so resume/transcript resolve by exact id, not just dir-scope. |
 | `SystemPromptInject`   | ❌    | no `--append-system-prompt` equivalent on the launch command — but the addendum still reaches Codex out-of-band via `InjectContext` (AGENTS.md). The Caps flag tracks the *launch flag* specifically, not whether the addendum is delivered. |
 | `Pricing`              | ❌    | OSS/BYO; rollout tokens feed measured spend, but no dollar pricing table is available. |
+
+### ExecutionProfile → Codex network
+
+`ExecutionProfile.Network` is orthogonal to `PermissionMode` / `-s`. Warden-managed
+launches pass `Network` on `LaunchOpts` / `ResumeOpts` / `ForkOpts`:
+
+| Network | Translation (in addition to Mode → `-s` / `-a`) |
+| --- | --- |
+| `loopback` (default for empty/legacy) | If sandbox is `workspace-write` **or omitted**, append `-c sandbox_workspace_write.network_access=true`. Never upgrades `-s` to `danger-full-access` just for network. |
+| `full` | Same `-c` enablement (Codex's boolean cannot OS-restrict to loopback-only). |
+| `none` | Omit the `-c` network_access override. |
+
+`danger-full-access` remains the mapping for unrestricted **PermissionMode** only —
+not the way to get loopback. `ResumeCmd` consumes Mode + Network like LaunchCmd.
 
 ---
 
@@ -231,8 +245,9 @@ Codex ships capabilities Claude Code doesn't, and warden's job is to keep them
 reachable, not flatten them away. Future enhancements should surface, not suppress:
 
 - **First-class sandboxing** — `read-only | workspace-write | danger-full-access`
-  with a separate approval policy (`untrusted | on-request | never`). Already mapped
-  into `PermissionModes`; richer per-agent posture could be exposed.
+  with a separate approval policy (`untrusted | on-request | never`). Mapped into
+  `PermissionModes`. Network/loopback for daemon reachability is a separate
+  `ExecutionProfile.Network` field (see above) — do not overload PermissionMode.
 - **`codex apply`** — apply the agent's last produced diff to the working tree as a
   `git apply`. A natural fit for warden's review-then-land flow.
 - **`codex review`** (`codex exec review`) — run a code review against the repo.

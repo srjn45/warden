@@ -27,10 +27,10 @@ strips Cursor's features down to a lowest common denominator.
 
 | warden method        | Cursor invocation                                  | Notes |
 |----------------------|----------------------------------------------------|-------|
-| `LaunchCmd` (TUI)    | `cursor-agent [--model <m>] [mode flag]`           | Interactive TUI; task prompt seeded after launch (see `PromptText`). |
+| `LaunchCmd` (TUI)    | `cursor-agent [--model <m>] [mode flag] [--sandbox enabled\|disabled]` | Interactive TUI; task prompt seeded after launch (see `PromptText`). Sandbox from `ExecutionProfile.Network`. |
 | `LaunchPromptArg`    | `""` (empty)                                       | The trailing positional only *populates* cursor-agent's composer — it does not auto-submit — so nothing goes on the launch line. |
 | `PromptText`/`ReadyMarker` | types the task + Enter once the composer is ready | `PromptSeeder` (like Aider/Goose): warden types the prompt into the interactive composer and submits it once the fresh-launch placeholder appears. |
-| `ResumeCmd`          | `cursor-agent --continue [--model <m>]`            | Dir/workspace-scoped; Cursor continues the latest session for the workspace. |
+| `ResumeCmd`          | `cursor-agent --continue [--model <m>] [mode] [--sandbox …]` | Dir/workspace-scoped; Mode + Network match LaunchCmd. |
 | `HeadlessCmd`        | `cursor-agent -p --force --trust <prompt>`         | One-shot for warden's classify/summarize offload. |
 | `TranscriptPath`     | — (degraded, returns false)                        | Interactive transcript is an unreadable SQLite `store.db` (see below). |
 | `ParseTranscript`    | parses `--output-format stream-json` NDLJSON       | Real + tested, but **not wired** today (no on-disk NDJSON for the TUI). |
@@ -56,8 +56,22 @@ force`:
 
 warden's Claude-flavored "just do it" aliases (`dangerously-skip-permissions`,
 `bypassPermissions`, `yes-always`, `auto`, `acceptEdits`, `dontAsk`, `yolo`) fold onto
-`-f`. Cursor also has `--sandbox enabled|disabled`, `--approve-mcps`, and `--trust`;
-these are not mapped into `PermissionModes` yet (see gaps).
+`-f`. `--approve-mcps` and `--trust` remain unmapped into PermissionModes.
+
+### ExecutionProfile → Cursor sandbox
+
+`ExecutionProfile.Network` is orthogonal to PermissionMode (`-f` is never a network
+substitute). The verified `cursor-agent` binary exposes `--sandbox enabled|disabled`
+but no per-invocation network-access flag (see `--help`); warden does **not** mutate
+`~/.cursor/cli-config.json`.
+
+| Network | Translation |
+| --- | --- |
+| `loopback` (default) | `--sandbox enabled` (keeps Cursor's sandbox without stripping loopback reachability) |
+| `full` | `--sandbox disabled` (host network) |
+| `none` | `--sandbox enabled` without enabling extra network |
+
+`ResumeCmd` applies the same Mode + Network flags as `LaunchCmd`.
 
 ---
 
@@ -297,8 +311,9 @@ reachable, not flatten them away. Future enhancements should surface, not suppre
 - **`--auto-review` (Smart Auto)** — a server-side classifier that auto-runs safe tool
   calls and prompts only for the risky ones; a finer-grained approval posture than
   warden's binary prompt/skip. Already mapped into `PermissionModes`.
-- **First-class sandboxing** — `--sandbox enabled|disabled` with network-access config;
-  could become a richer per-agent posture alongside the approval modes.
+- **First-class sandboxing** — `--sandbox enabled|disabled` is wired from
+  `ExecutionProfile.Network` on Launch/Resume (see above). Network-access config in
+  `~/.cursor/cli-config.json` is left alone (no per-invocation flag on the verified CLI).
 - **`create-chat` / `ls` / `resume`** — Cursor can mint an empty chat and return its id
   (`create-chat`), and list/resume sessions; a clean hook for *discover-then-pin* (mint
   the id up front, then pin it for exact-id transcript + resume).

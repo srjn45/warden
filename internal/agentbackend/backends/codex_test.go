@@ -76,6 +76,40 @@ func TestCodexResumeCmd(t *testing.T) {
 	require.Equal(t, "codex resume --last", cmd)
 }
 
+// TestCodexWorkspaceWriteLoopbackDoesNotRequireDangerFullAccess locks the incident
+// fix: workspace-write (or empty Mode) + Network=loopback enables
+// sandbox_workspace_write.network_access without upgrading -s to danger-full-access.
+func TestCodexWorkspaceWriteLoopbackDoesNotRequireDangerFullAccess(t *testing.T) {
+	launch := Codex{}.LaunchCmd(agentbackend.LaunchOpts{Mode: "workspace-write", Network: "loopback"})
+	require.Contains(t, launch, "-s workspace-write")
+	require.Contains(t, launch, "sandbox_workspace_write.network_access=true")
+	require.NotContains(t, launch, "danger-full-access")
+
+	emptyMode := Codex{}.LaunchCmd(agentbackend.LaunchOpts{Network: "loopback"})
+	require.Contains(t, emptyMode, "sandbox_workspace_write.network_access=true")
+	require.NotContains(t, emptyMode, "danger-full-access")
+	require.NotContains(t, emptyMode, "-s ")
+
+	fork, ok := Codex{}.ForkCmd(agentbackend.ForkOpts{
+		SourceSessionID: "id", Workdir: "/repo/.worktrees/f", Mode: "workspace-write", Network: "loopback",
+	})
+	require.True(t, ok)
+	require.Contains(t, fork, "-s workspace-write")
+	require.Contains(t, fork, "sandbox_workspace_write.network_access=true")
+	require.NotContains(t, fork, "danger-full-access")
+
+	resume, ok := Codex{}.ResumeCmd(agentbackend.ResumeOpts{Mode: "workspace-write", Network: "loopback"})
+	require.True(t, ok)
+	require.Contains(t, resume, "codex resume --last")
+	require.Contains(t, resume, "-s workspace-write")
+	require.Contains(t, resume, "sandbox_workspace_write.network_access=true")
+	require.NotContains(t, resume, "danger-full-access")
+
+	none := Codex{}.LaunchCmd(agentbackend.LaunchOpts{Mode: "workspace-write", Network: "none"})
+	require.Contains(t, none, "-s workspace-write")
+	require.NotContains(t, none, "network_access")
+}
+
 func TestCodexLaunchPromptArg(t *testing.T) {
 	got := Codex{}.LaunchPromptArg("/state/prompts/job-1")
 	require.Equal(t, ` "$(cat '/state/prompts/job-1')"`, got)

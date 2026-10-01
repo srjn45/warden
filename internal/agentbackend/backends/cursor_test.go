@@ -97,6 +97,33 @@ func TestCursorResumeCmd(t *testing.T) {
 	require.Equal(t, "cursor-agent --continue", cmd, "empty model omits --model")
 }
 
+// TestCursorLaunchEmitsSandboxNetworkFromProfile locks that Launch and Resume emit
+// --sandbox from ExecutionProfile.Network rather than Cursor's no-flag default.
+// The verified cursor-agent binary has no network-access launch flag (--help), so
+// loopback/none keep sandbox enabled without mutating ~/.cursor/cli-config.json.
+func TestCursorLaunchEmitsSandboxNetworkFromProfile(t *testing.T) {
+	loopback := Cursor{}.LaunchCmd(agentbackend.LaunchOpts{Model: "m", Network: "loopback"})
+	require.Contains(t, loopback, "--sandbox enabled")
+	require.NotContains(t, loopback, "--sandbox disabled")
+	require.NotContains(t, loopback, " -f", "must not use PermissionMode force as a network substitute")
+
+	full := Cursor{}.LaunchCmd(agentbackend.LaunchOpts{Network: "full"})
+	require.Contains(t, full, "--sandbox disabled")
+
+	none := Cursor{}.LaunchCmd(agentbackend.LaunchOpts{Network: "none"})
+	require.Contains(t, none, "--sandbox enabled")
+	require.NotContains(t, none, "--sandbox disabled")
+
+	resume, ok := Cursor{}.ResumeCmd(agentbackend.ResumeOpts{Model: "m", Network: "loopback"})
+	require.True(t, ok)
+	require.Contains(t, resume, "cursor-agent --continue")
+	require.Contains(t, resume, "--sandbox enabled")
+
+	resumeFull, ok := Cursor{}.ResumeCmd(agentbackend.ResumeOpts{Network: "full"})
+	require.True(t, ok)
+	require.Contains(t, resumeFull, "--sandbox disabled")
+}
+
 // TestCursorLaunchPromptArgEmpty pins that Cursor puts nothing on the launch line:
 // the trailing positional only populates cursor-agent's composer without submitting
 // it, so the prompt is typed in and submitted after launch via PromptSeeder instead.

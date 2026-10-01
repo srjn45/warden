@@ -88,32 +88,54 @@ func cursorModeFlag(mode string) string {
 // configured default applies (Cursor is hosted with its own model catalog —
 // composer-2.5-fast by default — and the Claude default alias never resolves here,
 // same call as Codex/OpenCode). The permission mode maps via cursorModeFlag.
-// SessionID and Name are ignored: Cursor mints its own UUID chatId
-// (SessionIDControl=false) and the TUI has no session-name flag. The pane is already
-// cd'd into the agent's worktree, so neither `--workspace` nor (critically) Cursor's
-// own `-w/--worktree` is passed — warden owns the worktree.
+// Network maps via cursorNetworkFlag (--sandbox enabled|disabled from the verified
+// CLI; no per-invocation network-access flag exists — do not mutate
+// ~/.cursor/cli-config.json). SessionID and Name are ignored: Cursor mints its own
+// UUID chatId (SessionIDControl=false) and the TUI has no session-name flag. The
+// pane is already cd'd into the agent's worktree, so neither `--workspace` nor
+// (critically) Cursor's own `-w/--worktree` is passed — warden owns the worktree.
 func (Cursor) LaunchCmd(o agentbackend.LaunchOpts) string {
 	cmd := "cursor-agent"
 	if o.Model != "" {
 		cmd += " --model " + shellQuoteArg(o.Model)
 	}
 	cmd += cursorModeFlag(o.Mode)
+	cmd += cursorNetworkFlag(o.Network)
 	return cmd
+}
+
+// cursorNetworkFlag translates ExecutionProfile.Network onto Cursor's documented
+// `--sandbox enabled|disabled`. The verified cursor-agent binary exposes no
+// launch flag for sandbox.networkAccess (see --help), so loopback and none both
+// keep sandbox enabled without guessing a flag that would strip loopback; full
+// disables the sandbox (host network). Empty Network emits nothing (adapter
+// unit tests / callers that have not filled a profile).
+func cursorNetworkFlag(network string) string {
+	switch network {
+	case "full":
+		return " --sandbox disabled"
+	case "loopback", "none":
+		return " --sandbox enabled"
+	default:
+		return ""
+	}
 }
 
 // ResumeCmd builds the interactive resume invocation, run in the agent's worktree.
 // warden cannot pin Cursor's UUID chatId (SessionIDControl=false) and that id is the
 // same shape as warden's own placeholder, so this adapter does not branch on the id:
 // it uses `cursor-agent --continue`, "continue the previous session", which Cursor
-// scopes to the current workspace (verified dir-scoped). For a per-worktree warden
-// agent that deterministically continues that agent's own session. ok is always true
-// (Caps.Resume=true). Exact-id resume (`--resume <chatId>`) lands with
-// discover-then-pin (#52).
+// scopes to the current workspace (verified dir-scoped). Mode and Network apply the
+// same flags as LaunchCmd so Restore / SwitchRole keep the execution contract. ok
+// is always true (Caps.Resume=true). Exact-id resume (`--resume <chatId>`) lands
+// with discover-then-pin (#52).
 func (Cursor) ResumeCmd(o agentbackend.ResumeOpts) (string, bool) {
 	cmd := "cursor-agent --continue"
 	if o.Model != "" {
 		cmd += " --model " + shellQuoteArg(o.Model)
 	}
+	cmd += cursorModeFlag(o.Mode)
+	cmd += cursorNetworkFlag(o.Network)
 	return cmd, true
 }
 

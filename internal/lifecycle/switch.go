@@ -347,7 +347,7 @@ func (l *Lifecycle) launchSuccessor(ctx context.Context, agent *agentstore.Agent
 	}
 
 	base := b.LaunchCmd(agentbackend.LaunchOpts{
-		SessionID: agent.AICLISessionID, Name: agent.ID, Model: l.launchModel(b, model), Mode: mode,
+		SessionID: agent.AICLISessionID, Name: agent.ID, Model: l.launchModel(b, model), Mode: mode, Network: launchNetwork(agent),
 	})
 	hints := l.systemPromptHints(ctx, b, agent.ID,
 		hintSpec{persona != "", persona},
@@ -420,6 +420,7 @@ func (l *Lifecycle) swapSystemContext(agent *agentstore.Agent, fromBackend, from
 	if agent.Repo != "" {
 		fmt.Fprintf(&b, "Repository: %s\n", agent.Repo)
 	}
+	fmt.Fprintf(&b, "Execution profile: network=%s\n", agent.ExecutionProfile.EffectiveNetwork())
 	return strings.TrimRight(b.String(), "\n")
 }
 

@@ -12,6 +12,7 @@ import (
 	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/router"
+	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
 
@@ -253,4 +254,64 @@ func requireNewSessionInWorkdir(t *testing.T, fr *FakeRunner, id, workdir string
 		}
 	}
 	t.Fatalf("no `tmux new-session -s %s … -c %s` recorded", id, workdir)
+}
+
+// TestLegacyRecordEmptyProfileHotSwapCursorToCodexEmitsLoopback is the incident:
+// empty PermissionMode, Cursor→Codex HotSwap must emit sandbox_workspace_write
+// network_access without requiring -s danger-full-access.
+func TestLegacyRecordEmptyProfileHotSwapCursorToCodexEmitsLoopback(t *testing.T) {
+	lc, fr, sess := newSwapLC(t)
+	// Use "default" (not "auto") so Codex omits -s and loopback is expressed via
+	// -c network_access — matching the empty-Mode incident shape.
+	lc.SetConfig(&FakeConfig{PermissionMode: "default"})
+	sess.AiCli = "cursor"
+	sess.Model = "composer"
+	sess.PermissionMode = ""
+	sess.ExecutionProfile = store.ExecutionProfile{} // legacy empty
+
+	_, err := lc.HotSwap(context.Background(), sess, SwapRequest{Backend: "codex", Model: "gpt-5-codex"})
+	require.NoError(t, err)
+
+	launch := swapLaunchLine(t, fr, sess.ID)
+	require.Contains(t, launch, "sandbox_workspace_write.network_access")
+	require.NotContains(t, launch, "danger-full-access")
+	require.Equal(t, store.NetworkLoopback, sess.ExecutionProfile.Network, "legacy empty must stamp loopback")
+	body, err := os.ReadFile(filepath.Join(sess.Workdir, ".warden", "handoff-agent-swap1.md"))
+	require.NoError(t, err)
+	require.Contains(t, string(body), "Execution profile: network=loopback")
+}
+
+// TestHotSwapPreservesPinnedNetworkNone: a pinned Network=none must not emit
+// loopback / network_access=true and must not stamp-upgrade the record.
+func TestHotSwapPreservesPinnedNetworkNone(t *testing.T) {
+	lc, fr, sess := newSwapLC(t)
+	sess.AiCli = "cursor"
+	sess.ExecutionProfile = store.ExecutionProfile{Network: store.NetworkNone}
+
+	_, err := lc.HotSwap(context.Background(), sess, SwapRequest{Backend: "codex"})
+	require.NoError(t, err)
+
+	launch := swapLaunchLine(t, fr, sess.ID)
+	require.NotContains(t, launch, "network_access=true")
+	require.Equal(t, store.NetworkNone, sess.ExecutionProfile.Network, "pinned none must not upgrade to loopback")
+}
+
+// TestHotSwapQuotaToCodexKeepsLoopback covers backend-recovery / guardian
+// inheritance of launchSuccessor: quota HotSwap to Codex still emits loopback.
+func TestHotSwapQuotaToCodexKeepsLoopback(t *testing.T) {
+	lc, fr, sess := newSwapLC(t)
+	lc.SetConfig(&FakeConfig{PermissionMode: "default"})
+	sess.AiCli = "claude"
+	sess.PermissionMode = "workspace-write"
+	sess.ExecutionProfile = store.ExecutionProfile{Network: store.NetworkLoopback}
+
+	_, err := lc.HotSwap(context.Background(), sess, SwapRequest{
+		Backend: "codex", Model: "gpt-5-codex", Reason: SwapReasonQuota,
+	})
+	require.NoError(t, err)
+
+	launch := swapLaunchLine(t, fr, sess.ID)
+	require.Contains(t, launch, "sandbox_workspace_write.network_access=true")
+	require.NotContains(t, launch, "danger-full-access")
+	require.Equal(t, store.NetworkLoopback, sess.ExecutionProfile.Network)
 }
