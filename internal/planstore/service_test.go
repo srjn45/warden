@@ -134,6 +134,45 @@ func TestPlanService_Create_validation(t *testing.T) {
 	})
 	require.ErrorAs(t, err, &ve)
 	require.Contains(t, ve.Error(), "after-ref")
+
+	_, err = svc.Create(ctx, "proj-1", CreateRequest{
+		Name: "cycle",
+		Tasks: []TaskSpec{
+			{ID: "a", Prompt: "p", After: []string{"b"}},
+			{ID: "b", Prompt: "p", After: []string{"a"}},
+		},
+	})
+	require.ErrorAs(t, err, &ve)
+	require.Contains(t, ve.Error(), "cycle")
+}
+
+func TestPlanService_Create_autoChainsFlatTasks(t *testing.T) {
+	svc, _, _, _ := newTestService(t)
+	ctx := context.Background()
+	p, err := svc.Create(ctx, "proj-1", CreateRequest{
+		Name:  "flat",
+		Goal:  "g",
+		Tasks: []TaskSpec{{ID: "a", Prompt: "1"}, {ID: "b", Prompt: "2"}, {ID: "c", Prompt: "3"}},
+	})
+	require.NoError(t, err)
+	require.Empty(t, p.Tasks[0].After)
+	require.Equal(t, []string{"a"}, p.Tasks[1].After)
+	require.Equal(t, []string{"b"}, p.Tasks[2].After)
+}
+
+func TestPlanService_UpdateTaskStatus_gatesOnDeps(t *testing.T) {
+	svc, _, _, _ := newTestService(t)
+	ctx := context.Background()
+	p, err := svc.Create(ctx, "proj-1", sampleCreate("gated"))
+	require.NoError(t, err)
+
+	_, err = svc.UpdateTaskStatus(ctx, p.ID, "t2", "in_progress")
+	require.ErrorIs(t, err, ErrTaskDepsUnmet)
+
+	_, err = svc.UpdateTaskStatus(ctx, p.ID, "t1", "done")
+	require.NoError(t, err)
+	_, err = svc.UpdateTaskStatus(ctx, p.ID, "t2", "in_progress")
+	require.NoError(t, err)
 }
 
 func TestPlanService_Create_duplicate(t *testing.T) {

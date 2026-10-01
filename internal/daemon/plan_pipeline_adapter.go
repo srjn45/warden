@@ -48,11 +48,17 @@ func pipelineDisplayName(planName string) string {
 // buildPlanPipeline constructs a plan-bound pipeline: Name=P:<plan-name>,
 // ID=plan ID (SafeID-clean for branch/agent derivation), PlanID set, one Job
 // per canonical Plan task with the same stable task ID and after→depends_on
-// edges. Tasks are read from ScrivaDB only (snapshot source at run start).
+// edges.
+//
+// Always snapshots the live Plan definition (SnapshotFromPlan). Do not use
+// planDefinitionForExecution here: that prefers ActiveExecution.Snapshot, which
+// on a re-run is still the sealed snapshot from the previous attempt and would
+// drop definition edits (including after→depends_on) made while pending.
+// beginPlanPipelineExecution stamps the new execution's snapshot separately.
 func buildPlanPipeline(p *planstore.Plan, root string) (*pipeline.Pipeline, map[string]string, error) {
 	taskJob := map[string]string{}
 	var jobs []pipeline.Job
-	snap := planDefinitionForExecution(p)
+	snap := planstore.SnapshotFromPlan(p)
 	if snap != nil {
 		for _, t := range snap.Tasks {
 			id := strings.TrimSpace(t.ID)

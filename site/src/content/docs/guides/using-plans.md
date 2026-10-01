@@ -12,16 +12,19 @@ Operator playbooks (legacy import, replica PR, backup restore, export conflicts)
 ## Fresh DB-native use
 
 ```sh
-wd plan create --name feature-x --goal "ship it" --task t1:do the work
+wd plan create --name feature-x --goal "ship it" \
+  --task 'analyze:scope the change' \
+  --task 'implement@analyze:write the code' \
+  --task 'review@implement:open the PR'
 wd plan list
 wd plan show <plan-id>
 wd plan run <plan-id> --mode autopilot   # or pipeline | orchestrator | manual
-wd plan done <plan-id> t1                # mark a task done
+wd plan done <plan-id> analyze           # only ready tasks can be marked done
 wd plan complete <plan-id>               # when the mode requires it
 wd plan archive <plan-id>
 ```
 
-`--name` and `--goal` are required. Repeat `--task id:prompt`, or enter tasks interactively when stdin is a TTY. Optional `--constraint` and `--done-when` may be repeated.
+`--name` and `--goal` are required. Tasks form a **DAG**: prefer `--task id@dep1,dep2:prompt`. If you pass two or more tasks with no `after` edges, warden **auto-chains them in flag order**. Cycles and unknown deps are rejected. Optional `--constraint` and `--done-when` may be repeated.
 
 No `plans/` write is required. To publish a reviewable replica later:
 

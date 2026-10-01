@@ -99,7 +99,10 @@ func newPlanCreateCmd() *cobra.Command {
 		Short: "Create a canonical plan in ScrivaDB",
 		Long: "Create a new pending plan in the daemon's ScrivaDB store (no repository\n" +
 			"YAML write). --name and --goal are required. Supply tasks with repeatable\n" +
-			"--task id:prompt flags, or (when stdin is a TTY) enter them interactively.\n\n" +
+			"--task flags, or (when stdin is a TTY) enter them interactively.\n\n" +
+			"Plans are task DAGs: edges are after-deps. Prefer\n" +
+			"--task id@dep1,dep2:prompt. If you pass two or more tasks with no after\n" +
+			"edges, warden chains them in flag order so every multi-task plan has a DAG.\n\n" +
 			"Optional --constraint and --done-when may be repeated.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -139,7 +142,7 @@ func newPlanCreateCmd() *cobra.Command {
 	cmd.Flags().String("project", "", "project ID (default: current directory)")
 	cmd.Flags().String("name", "", "plan name")
 	cmd.Flags().String("goal", "", "what the plan is trying to achieve")
-	cmd.Flags().StringArray("task", nil, "task as id:prompt (repeatable; skip interactive prompt)")
+	cmd.Flags().StringArray("task", nil, "task as id:prompt or id@dep1,dep2:prompt (repeatable; skip interactive prompt)")
 	cmd.Flags().StringArray("constraint", nil, "constraint the workers must follow (repeatable)")
 	cmd.Flags().StringArray("done-when", nil, "completion criterion (repeatable)")
 	cmd.Flags().Bool("json", false, "output as JSON")
@@ -756,13 +759,31 @@ func readerIsTTY(r io.Reader) bool {
 }
 
 func parsePlanTaskFlag(s string) (client.PlanTaskSpec, error) {
-	id, prompt, ok := strings.Cut(s, ":")
-	id = strings.TrimSpace(id)
+	idPart, prompt, ok := strings.Cut(s, ":")
+	idPart = strings.TrimSpace(idPart)
 	prompt = strings.TrimSpace(prompt)
-	if !ok || id == "" || prompt == "" {
-		return client.PlanTaskSpec{}, fmt.Errorf("invalid --task %q (want id:prompt)", s)
+	if !ok || idPart == "" || prompt == "" {
+		return client.PlanTaskSpec{}, fmt.Errorf("invalid --task %q (want id:prompt or id@dep1,dep2:prompt)", s)
 	}
-	return client.PlanTaskSpec{ID: id, Prompt: prompt}, nil
+	id, afterRaw, hasAfter := strings.Cut(idPart, "@")
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return client.PlanTaskSpec{}, fmt.Errorf("invalid --task %q (empty id)", s)
+	}
+	var after []string
+	if hasAfter {
+		for _, dep := range strings.Split(afterRaw, ",") {
+			dep = strings.TrimSpace(dep)
+			if dep == "" {
+				continue
+			}
+			after = append(after, dep)
+		}
+		if len(after) == 0 {
+			return client.PlanTaskSpec{}, fmt.Errorf("invalid --task %q (empty after list after @)", s)
+		}
+	}
+	return client.PlanTaskSpec{ID: id, Prompt: prompt, After: after}, nil
 }
 
 var errNoPlanTasks = errors.New("at least one task is required")
@@ -790,7 +811,22 @@ func promptPlanTasks(in io.Reader, out io.Writer) ([]client.PlanTaskSpec, error)
 		if prompt == "" {
 			return nil, fmt.Errorf("task %s: prompt is required", id)
 		}
-		tasks = append(tasks, client.PlanTaskSpec{ID: id, Prompt: prompt})
+		fmt.Fprint(out, "After (comma-separated task ids, blank for none): ")
+		afterLine, err := rd.ReadString('\n')
+		afterLine = strings.TrimSpace(afterLine)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return nil, err
+		}
+		var after []string
+		if afterLine != "" {
+			for _, dep := range strings.Split(afterLine, ",") {
+				dep = strings.TrimSpace(dep)
+				if dep != "" {
+					after = append(after, dep)
+				}
+			}
+		}
+		tasks = append(tasks, client.PlanTaskSpec{ID: id, Prompt: prompt, After: after})
 	}
 	if len(tasks) == 0 {
 		return nil, errNoPlanTasks

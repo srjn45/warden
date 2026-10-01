@@ -1193,7 +1193,11 @@ Aliases:
 ```text
 Create a new pending plan in the daemon's ScrivaDB store (no repository
 YAML write). --name and --goal are required. Supply tasks with repeatable
---task id:prompt flags, or (when stdin is a TTY) enter them interactively.
+--task flags, or (when stdin is a TTY) enter them interactively.
+
+Plans are task DAGs: edges are after-deps. Prefer
+--task id@dep1,dep2:prompt. If you pass two or more tasks with no after
+edges, warden chains them in flag order so every multi-task plan has a DAG.
 
 Optional --constraint and --done-when may be repeated.
 
@@ -1208,7 +1212,7 @@ Flags:
       --json                     output as JSON
       --name string              plan name
       --project string           project ID (default: current directory)
-      --task stringArray         task as id:prompt (repeatable; skip interactive prompt)
+      --task stringArray         task as id:prompt or id@dep1,dep2:prompt (repeatable; skip interactive prompt)
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)

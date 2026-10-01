@@ -22,6 +22,9 @@ var (
 	ErrBranchesUnmerged = errors.New("plan branches are unmerged")
 	// ErrInvalidTaskStatus is returned when UpdateTaskStatus is given an unknown status.
 	ErrInvalidTaskStatus = errors.New("invalid task status")
+	// ErrTaskDepsUnmet is returned when marking a task in_progress/done before its
+	// after dependencies are done or skipped.
+	ErrTaskDepsUnmet = errors.New("task dependencies are not satisfied")
 )
 
 // ValidationError is a field-level request validation failure.
@@ -307,6 +310,7 @@ func (s *PlanService) Create(ctx context.Context, projectID string, req CreateRe
 	if name == "" {
 		return nil, &ValidationError{Field: "name", Msg: "name is required"}
 	}
+	req.Tasks = ApplyDefaultTaskDAG(req.Tasks)
 	if err := validateTasks(req.Tasks); err != nil {
 		return nil, err
 	}
@@ -353,6 +357,8 @@ func (s *PlanService) Update(ctx context.Context, planID string, req UpdateReque
 		}
 	}
 	if req.Tasks != nil {
+		normalized := ApplyDefaultTaskDAG(*req.Tasks)
+		req.Tasks = &normalized
 		if err := validateTasks(*req.Tasks); err != nil {
 			return nil, err
 		}
@@ -456,6 +462,8 @@ func (s *PlanService) Transition(ctx context.Context, planID string, to PlanStat
 }
 
 // UpdateTaskStatus merges taskID→status into plan.TaskProgress.
+// Transitions to in_progress or done are rejected until every after dependency
+// is done or skipped (Plan task DAG gating for all execution modes).
 func (s *PlanService) UpdateTaskStatus(ctx context.Context, planID, taskID, status string) (*Plan, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -470,16 +478,48 @@ func (s *PlanService) UpdateTaskStatus(ctx context.Context, planID, taskID, stat
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrInvalidTaskStatus, status)
 	}
-	if err := s.store.Update(ctx, planID, func(p *Plan) error {
-		if p.TaskProgress == nil {
-			p.TaskProgress = map[string]string{}
+	p, err := s.store.Get(ctx, planID)
+	if err != nil {
+		return nil, err
+	}
+	tasks := executionTasks(p)
+	known := false
+	for _, t := range tasks {
+		if strings.TrimSpace(t.ID) == taskID {
+			known = true
+			break
 		}
-		p.TaskProgress[taskID] = status
+	}
+	if !known {
+		return nil, &ValidationError{Field: "task_id", Msg: fmt.Sprintf("unknown task %q", taskID)}
+	}
+	if status == "in_progress" || status == "done" {
+		if !TaskDepsSatisfied(tasks, p.TaskProgress, taskID) {
+			return nil, fmt.Errorf("%w: task %q waits on unmet after deps", ErrTaskDepsUnmet, taskID)
+		}
+	}
+	if err := s.store.Update(ctx, planID, func(up *Plan) error {
+		if up.TaskProgress == nil {
+			up.TaskProgress = map[string]string{}
+		}
+		up.TaskProgress[taskID] = status
 		return nil
 	}); err != nil {
 		return nil, err
 	}
 	return s.store.Get(ctx, planID)
+}
+
+// executionTasks returns the task DAG for gating: ActiveExecution snapshot when
+// present, otherwise the live Plan.Tasks definition.
+func executionTasks(p *Plan) []PlanTask {
+	if p == nil {
+		return nil
+	}
+	if p.ActiveExecution != nil && p.ActiveExecution.Snapshot != nil && len(p.ActiveExecution.Snapshot.Tasks) > 0 {
+		return p.ActiveExecution.Snapshot.Tasks
+	}
+	return p.Tasks
 }
 
 // evaluateCompletion checks all machine-verifiable completion gates for a plan
@@ -611,37 +651,7 @@ func canTransition(from, to PlanStatus) bool {
 }
 
 func validateTasks(tasks []TaskSpec) error {
-	if len(tasks) == 0 {
-		return &ValidationError{Field: "tasks", Msg: "at least one task is required"}
-	}
-	ids := make(map[string]struct{}, len(tasks))
-	for i, t := range tasks {
-		id := strings.TrimSpace(t.ID)
-		prompt := strings.TrimSpace(t.Prompt)
-		if id == "" {
-			return &ValidationError{Field: "tasks", Msg: fmt.Sprintf("task[%d] is missing id", i)}
-		}
-		if prompt == "" {
-			return &ValidationError{Field: "tasks", Msg: fmt.Sprintf("task %q is missing prompt", id)}
-		}
-		if _, dup := ids[id]; dup {
-			return &ValidationError{Field: "tasks", Msg: fmt.Sprintf("duplicate task id %q", id)}
-		}
-		ids[id] = struct{}{}
-	}
-	for _, t := range tasks {
-		id := strings.TrimSpace(t.ID)
-		for _, dep := range t.After {
-			dep = strings.TrimSpace(dep)
-			if dep == "" {
-				continue
-			}
-			if _, ok := ids[dep]; !ok {
-				return &ValidationError{Field: "tasks", Msg: fmt.Sprintf("task %q after-ref %q does not exist", id, dep)}
-			}
-		}
-	}
-	return nil
+	return ValidateTaskDAG(tasks)
 }
 
 func taskSpecsToPlanTasks(tasks []TaskSpec) []PlanTask {

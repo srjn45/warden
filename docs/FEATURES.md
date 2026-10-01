@@ -1524,10 +1524,16 @@ canonical execution after import):
 
 ### 37.4 Execution modes
 
+The Plan **task list is a DAG** (`after` edges). Multi-task creates/updates with
+no edges are **auto-chained in declaration order**. Cycles and unknown after-refs
+are rejected. Marking a task `in_progress`/`done` is gated until dependencies are
+`done`/`skipped` — so autopilot, pipeline, orchestrator, and manual all share the
+same ordering contract.
+
 | Mode | What `wd plan run` does | Completion |
 |---|---|---|
 | `autopilot` | Creates live `Autopilot` + manager Agent (`PlanID`); appends events; stores `AutopilotRunID` / `ActiveExecution` | Daemon watches run `completed` |
-| `pipeline` | Creates pipeline `P:<plan-name>` from canonical task DAG | Daemon watches pipeline `done` |
+| `pipeline` | Creates pipeline `P:<plan-name>` from canonical task DAG (`after`→`depends_on`) | Daemon watches pipeline `done` |
 | `orchestrator_worker` | Spawns `O:<plan-name>` (`role=orchestrator`, `PlanID`) | `wd plan complete <id>` |
 | `manual` | Spawns `M:<plan-name>` (`role=general`, `PlanID`) | `wd plan complete <id>` |
 
@@ -1552,9 +1558,15 @@ canonical recovery.
 | Command | Action |
 |---|---|
 | `wd plan list [--status <s>] [--json]` | List ScrivaDB plans |
+<<<<<<< HEAD
 | `wd plan create --name <n> --goal <g> [--task id:prompt]` | Create pending Plan in ScrivaDB (no YAML write) |
 | `wd plan show <id> [--json]` | Canonical detail (never reads repo YAML/JSON replicas) |
 | `wd plan sync_to_repo <id> --base <ref> [--format yaml\|json]` | Optional inert replica PR (YAML default; JSON opt-in) |
+=======
+| `wd plan create --name <n> --goal <g> [--task id:prompt\|id@deps:prompt]` | Create pending Plan in ScrivaDB (no YAML write); multi-task flat lists auto-chain |
+| `wd plan show <id> [--json]` | Canonical detail (never reads repo YAML) |
+| `wd plan sync_to_repo <id> --base <ref>` | Optional inert replica PR |
+>>>>>>> 6be0c50 (feat(plans): treat every plan as a task DAG across all execution modes)
 | `wd plan backup export\|restore …` | Portable ScrivaDB bundle |
 | `wd plan import-legacy [--report]` | Explicit legacy YAML cutover |
 | `wd plan scan` / `import` / `status` | **Deprecated** migration aids |

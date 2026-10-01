@@ -111,6 +111,7 @@ func writePlanTasks(b *strings.Builder, tasks []PlanTask) {
 		return
 	}
 	b.WriteString("## Plan tasks\n")
+	b.WriteString("Honor after: edges — only spawn/work a task when every dependency is done.\n")
 	for _, t := range tasks {
 		state := t.Status
 		if state == "" {

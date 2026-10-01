@@ -588,7 +588,9 @@ func (s *Server) UpdateTaskStatus(ctx context.Context, req oapi.UpdateTaskStatus
 		if errors.Is(err, planstore.ErrNotFound) {
 			return oapi.UpdateTaskStatus404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "plan not found"}}, nil
 		}
-		if errors.Is(err, planstore.ErrInvalidTaskStatus) || planValidationMessage(err) != "" {
+		if errors.Is(err, planstore.ErrInvalidTaskStatus) ||
+			errors.Is(err, planstore.ErrTaskDepsUnmet) ||
+			planValidationMessage(err) != "" {
 			msg := err.Error()
 			if v := planValidationMessage(err); v != "" {
 				msg = v

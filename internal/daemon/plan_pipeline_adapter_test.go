@@ -265,3 +265,37 @@ func TestPlansRunPipelineMode_NamedAndMapped(t *testing.T) {
 		require.Equal(t, j.ID, p.ActiveExecution.TaskJobMap[j.ID])
 	}
 }
+
+// TestBuildPlanPipeline_UsesLiveDefinitionNotStaleSnapshot ensures a re-run
+// after editing task after-deps while pending picks up the live DAG, even when
+// a sealed ActiveExecution from a prior attempt still holds an older snapshot.
+func TestBuildPlanPipeline_UsesLiveDefinitionNotStaleSnapshot(t *testing.T) {
+	p := &planstore.Plan{
+		ID:   "plan-deadbeef",
+		Name: "dag-plan",
+		Goal: "ordered",
+		Tasks: []planstore.PlanTask{
+			{ID: "t1", Prompt: "first"},
+			{ID: "t2", Prompt: "second", After: []string{"t1"}},
+		},
+		ActiveExecution: &planstore.PlanExecution{
+			ID:             "pe-old",
+			TerminalStatus: planstore.ExecutionStatusFailed,
+			Snapshot: &planstore.ExecutionSnapshot{
+				Name: "dag-plan",
+				Goal: "ordered",
+				// Stale: no after edges (as if created before deps were patched).
+				Tasks: []planstore.PlanTask{
+					{ID: "t1", Prompt: "first"},
+					{ID: "t2", Prompt: "second"},
+				},
+			},
+		},
+	}
+	pl, taskJob, err := buildPlanPipeline(p, "/tmp/repo")
+	require.NoError(t, err)
+	require.Equal(t, map[string]string{"t1": "t1", "t2": "t2"}, taskJob)
+	require.Len(t, pl.Jobs, 2)
+	require.Empty(t, pl.Jobs[0].DependsOn)
+	require.Equal(t, []string{"t1"}, pl.Jobs[1].DependsOn)
+}

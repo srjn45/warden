@@ -271,17 +271,26 @@ func orchestratorPlanPrompt(p *planstore.Plan, _ string) string {
 	body := formatCanonicalPlanBody(snap)
 	rev := int64(0)
 	hash := ""
+	var tasks []planstore.PlanTask
 	if snap != nil {
 		rev = snap.Revision
 		hash = snap.ContentHash
+		tasks = snap.Tasks
 	}
+	progress := map[string]string{}
+	if p != nil && p.TaskProgress != nil {
+		progress = p.TaskProgress
+	}
+	ready := planstore.ReadyTaskIDs(tasks, progress)
+	blocked := planstore.BlockedTaskIDs(tasks, progress)
 	return fmt.Sprintf("You are an orchestrator executing the following plan.\n\n"+
 		"Plan ID: %s (revision %d, %s)\n\n%s\n\n"+
-		"Execute the plan tasks in order. Each worker you spawn must present its output "+
-		"for human approval before you proceed to the next task. "+
-		"Workers are role=worker with you as ParentID; task assignment and evidence "+
-		"remain on the Plan (do not create an Autopilot run).",
-		p.ID, rev, hash, body)
+		"The tasks form a DAG (after: edges). Only start a task when every dependency "+
+		"listed in after: is done. Ready now: [%s]. Blocked: [%s]. "+
+		"Each worker you spawn must present its output for human approval before you "+
+		"proceed. Workers are role=worker with you as ParentID; task assignment and "+
+		"evidence remain on the Plan (do not create an Autopilot run).",
+		p.ID, rev, hash, body, strings.Join(ready, ", "), strings.Join(blocked, ", "))
 }
 
 // manualPlanPrompt builds the opening prompt for an M:<plan> agent from the
@@ -291,15 +300,25 @@ func manualPlanPrompt(p *planstore.Plan, _ string) string {
 	body := formatCanonicalPlanBody(snap)
 	rev := int64(0)
 	hash := ""
+	var tasks []planstore.PlanTask
 	if snap != nil {
 		rev = snap.Revision
 		hash = snap.ContentHash
+		tasks = snap.Tasks
 	}
+	progress := map[string]string{}
+	if p != nil && p.TaskProgress != nil {
+		progress = p.TaskProgress
+	}
+	ready := planstore.ReadyTaskIDs(tasks, progress)
+	blocked := planstore.BlockedTaskIDs(tasks, progress)
 	return fmt.Sprintf("You are driving this plan manually (execution mode=manual).\n\n"+
 		"Plan ID: %s (revision %d, %s)\n\n%s\n\n"+
-		"Work the tasks yourself or spawn helpers as needed. Mark task progress on the "+
-		"Plan; do not create an Autopilot run. Completion is via `wd plan complete`.",
-		p.ID, rev, hash, body)
+		"The tasks form a DAG (after: edges). Only work a task when every after "+
+		"dependency is done. Ready now: [%s]. Blocked: [%s]. "+
+		"Mark task progress on the Plan; do not create an Autopilot run. "+
+		"Completion is via `wd plan complete`.",
+		p.ID, rev, hash, body, strings.Join(ready, ", "), strings.Join(blocked, ", "))
 }
 
 // sealPlanAgentExecution appends completion_verified for orchestrator/manual
