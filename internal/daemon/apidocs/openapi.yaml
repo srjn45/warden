@@ -1792,9 +1792,9 @@ paths:
       summary: Export a plan revision to a dedicated branch and open a PR
       description: >
         Loads the Plan only from ScrivaDB, renders the requested revision as an
-        inert YAML replica, commits it on a dedicated
-        `warden/plan-sync/<plan-id>/<revision>` branch via an isolated git
-        worktree, pushes without force, and opens or updates a PR against the
+        inert replica (YAML by default; JSON when `format=json`), commits it on a
+        dedicated `warden/plan-sync/<plan-id>/<revision>` branch via an isolated
+        git worktree, pushes without force, and opens or updates a PR against the
         requested base. Never mutates the operator's checked-out branch, stages
         unrelated changes, force-pushes, auto-merges, or overwrites a conflicting
         non-Warden file. When the same revision/content hash was already exported
@@ -4624,6 +4624,8 @@ components:
       description: >
         Explicit repository/export options for plan sync_to_repo. repository_path
         defaults to the plan's project root when omitted. target_ref is the PR base.
+        format defaults to yaml; json selects the JSON replica renderer and
+        conventional `.json` path.
       required: [target_ref]
       properties:
         target_ref:
@@ -4632,9 +4634,14 @@ components:
         repository_path:
           type: string
           description: "Absolute local git repository path (defaults to the plan's project root)"
+        format:
+          type: string
+          enum: [yaml, json]
+          default: yaml
+          description: "Replica encoding (default yaml). json writes plans/{lifecycle}/<slug>.json"
         output_path:
           type: string
-          description: "Optional override for the replica path; default plans/{lifecycle}/<slug>.yaml"
+          description: "Optional override for the replica path; default plans/{lifecycle}/<slug>.{yaml|json}"
         repository:
           type: string
           description: "Stable repository identity for export records (defaults to origin URL)"

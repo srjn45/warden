@@ -107,6 +107,53 @@ func TestSyncPlanToRepoRoute_PathCollision409(t *testing.T) {
 	require.Equal(t, "path_collision", body["reason"])
 }
 
+func TestSyncPlanToRepoRoute_JSONFormat(t *testing.T) {
+	root := t.TempDir()
+	ps, err := planstore.New(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ps.Close() })
+	exports, err := planexport.NewStore(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = exports.Close() })
+
+	plan := &planstore.Plan{
+		ID:        planstore.PlanID(root, "json-sync"),
+		ProjectID: root,
+		Name:      "JSON Sync",
+		Goal:      "json replica",
+		Status:    planstore.PlanStatusPending,
+		Revision:  1,
+		Tasks:     []planstore.PlanTask{{ID: "t1", Prompt: "sync"}},
+	}
+	plan.ContentHash = planstore.ComputeContentHash(plan)
+	require.NoError(t, ps.Create(context.Background(), plan))
+
+	git := &routeFakeGit{
+		identity: "github.com/example/warden",
+		prURL:    "https://github.com/example/warden/pull/22",
+		sha:      "jsoncafebabe",
+		files:    map[string][]byte{},
+	}
+	srv := &Server{store: newFakeStore(), life: &fakeLife{}, plans: ps, planExports: exports, planSyncGit: git}
+	ts := httptest.NewServer(srv.router())
+	t.Cleanup(ts.Close)
+
+	resp, err := http.Post(ts.URL+"/api/v1/plans/"+plan.ID+"/sync_to_repo", "application/json",
+		bytes.NewReader([]byte(`{"target_ref":"main","format":"json"}`)))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var body map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	require.Equal(t, "success", body["outcome"])
+	wantPath := planexport.ExportPathFormat(plan.Status, plan.Name, planexport.FormatJSON)
+	require.Equal(t, wantPath, body["output_path"])
+	raw, ok := git.files[wantPath]
+	require.True(t, ok)
+	require.Contains(t, string(raw), `"warden_plan_export"`)
+	require.Contains(t, string(raw), `"plan_id": "`+plan.ID+`"`)
+}
+
 type routeFakeGit struct {
 	identity string
 	prURL    string

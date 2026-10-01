@@ -227,7 +227,6 @@ func newTestSyncer(t *testing.T, plan *planstore.Plan, git *fakeGitHost) (*Synce
 		Exports:  exports,
 		PlansMut: plans,
 		Git:      git,
-		Renderer: Default(),
 		Now:      func() time.Time { return time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC) },
 	}, exports
 }
@@ -382,6 +381,102 @@ func TestSync_OverwritesPriorWardenExport(t *testing.T) {
 	require.Equal(t, OutcomeSuccess, res.Outcome)
 	require.Equal(t, path, git.wrotePath)
 	require.True(t, git.pushed)
+}
+
+func TestSync_JSONFormatWritesJSONPath(t *testing.T) {
+	plan := testPlan(t)
+	git := newFakeGit()
+	syncer, _ := newTestSyncer(t, plan, git)
+
+	res, err := syncer.Sync(context.Background(), SyncOptions{
+		PlanID: plan.ID, RepoPath: "/repo", TargetRef: "main", Format: FormatJSON,
+	})
+	require.NoError(t, err)
+	require.Equal(t, OutcomeSuccess, res.Outcome)
+	wantPath := ExportPathFormat(plan.Status, plan.Name, FormatJSON)
+	require.Equal(t, wantPath, res.OutputPath)
+	require.Equal(t, wantPath, git.committedPath)
+	require.Contains(t, string(git.files[wantPath]), `"warden_plan_export"`)
+	require.Contains(t, string(git.files[wantPath]), `"plan_id": "`+plan.ID+`"`)
+}
+
+func TestSync_JSONPathCollisionWithNonWardenFile(t *testing.T) {
+	plan := testPlan(t)
+	git := newFakeGit()
+	path := ExportPathFormat(plan.Status, plan.Name, FormatJSON)
+	git.files[path] = []byte(`{"name":"foreign","goal":"not a warden export"}` + "\n")
+	syncer, _ := newTestSyncer(t, plan, git)
+
+	res, err := syncer.Sync(context.Background(), SyncOptions{
+		PlanID: plan.ID, RepoPath: "/repo", TargetRef: "main", Format: FormatJSON,
+	})
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrSyncConflict)
+	require.Equal(t, OutcomeConflict, res.Outcome)
+	require.Equal(t, ReasonPathCollision, res.Reason)
+	require.False(t, git.pushed)
+}
+
+func TestSync_OverwritesPriorJSONWardenExport(t *testing.T) {
+	plan := testPlan(t)
+	git := newFakeGit()
+	path := ExportPathFormat(plan.Status, plan.Name, FormatJSON)
+	git.files[path] = []byte("{\n  \"warden_plan_export\": \"replica only — not authoritative\",\n  \"plan_id\": \"plan-deadbeef\",\n  \"revision\": 2\n}\n")
+	syncer, _ := newTestSyncer(t, plan, git)
+
+	res, err := syncer.Sync(context.Background(), SyncOptions{
+		PlanID: plan.ID, RepoPath: "/repo", TargetRef: "main", Format: FormatJSON,
+	})
+	require.NoError(t, err)
+	require.Equal(t, OutcomeSuccess, res.Outcome)
+	require.Equal(t, path, git.wrotePath)
+	require.True(t, git.pushed)
+}
+
+func TestSync_UnsupportedFormat(t *testing.T) {
+	plan := testPlan(t)
+	git := newFakeGit()
+	syncer, _ := newTestSyncer(t, plan, git)
+
+	_, err := syncer.Sync(context.Background(), SyncOptions{
+		PlanID: plan.ID, RepoPath: "/repo", TargetRef: "main", Format: Format("toml"),
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unsupported format")
+	require.Equal(t, 0, git.worktreeCreates)
+}
+
+func TestNew_FormatFactory(t *testing.T) {
+	r, err := New("")
+	require.NoError(t, err)
+	require.Equal(t, FormatYAML, r.Format())
+
+	r, err = New(FormatYAML)
+	require.NoError(t, err)
+	require.Equal(t, FormatYAML, r.Format())
+
+	r, err = New(FormatJSON)
+	require.NoError(t, err)
+	require.Equal(t, FormatJSON, r.Format())
+
+	_, err = New(Format("xml"))
+	require.Error(t, err)
+}
+
+func TestIsWardenExportForPlan_JSONAndYAML(t *testing.T) {
+	require.True(t, isWardenExportForPlan(
+		[]byte("# warden-plan-export: replica only — not authoritative\nplan_id: plan-deadbeef\n"),
+		"plan-deadbeef",
+	))
+	require.True(t, isWardenExportForPlan(
+		[]byte("{\n  \"warden_plan_export\": \"replica only — not authoritative\",\n  \"plan_id\": \"plan-deadbeef\"\n}\n"),
+		"plan-deadbeef",
+	))
+	require.False(t, isWardenExportForPlan(
+		[]byte("{\n  \"warden_plan_export\": \"replica only — not authoritative\",\n  \"plan_id\": \"plan-other\"\n}\n"),
+		"plan-deadbeef",
+	))
+	require.False(t, isWardenExportForPlan([]byte(`{"name":"foreign"}`), "plan-deadbeef"))
 }
 
 func TestSyncBranchNaming(t *testing.T) {

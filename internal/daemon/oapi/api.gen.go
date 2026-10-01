@@ -535,6 +535,24 @@ func (e StoreScanFailureClass) Valid() bool {
 	}
 }
 
+// Defines values for SyncPlanToRepoRequestFormat.
+const (
+	Json SyncPlanToRepoRequestFormat = "json"
+	Yaml SyncPlanToRepoRequestFormat = "yaml"
+)
+
+// Valid indicates whether the value is a known member of the SyncPlanToRepoRequestFormat enum.
+func (e SyncPlanToRepoRequestFormat) Valid() bool {
+	switch e {
+	case Json:
+		return true
+	case Yaml:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TaskStatus.
 const (
 	TaskStatusDone       TaskStatus = "done"
@@ -1816,9 +1834,12 @@ type StoreScanFailureClass string
 // SwapResult Outcome of a completed hot-swap.
 type SwapResult = lifecycle.SwapResult
 
-// SyncPlanToRepoRequest Explicit repository/export options for plan sync_to_repo. repository_path defaults to the plan's project root when omitted. target_ref is the PR base.
+// SyncPlanToRepoRequest Explicit repository/export options for plan sync_to_repo. repository_path defaults to the plan's project root when omitted. target_ref is the PR base. format defaults to yaml; json selects the JSON replica renderer and conventional `.json` path.
 type SyncPlanToRepoRequest struct {
-	// OutputPath Optional override for the replica path; default plans/{lifecycle}/<slug>.yaml
+	// Format Replica encoding (default yaml). json writes plans/{lifecycle}/<slug>.json
+	Format SyncPlanToRepoRequestFormat `json:"format,omitempty"`
+
+	// OutputPath Optional override for the replica path; default plans/{lifecycle}/<slug>.{yaml|json}
 	OutputPath string `json:"output_path,omitempty"`
 
 	// Repository Stable repository identity for export records (defaults to origin URL)
@@ -1830,6 +1851,9 @@ type SyncPlanToRepoRequest struct {
 	// TargetRef PR base branch / target ref (e.g. main or an integration branch)
 	TargetRef string `json:"target_ref"`
 }
+
+// SyncPlanToRepoRequestFormat Replica encoding (default yaml). json writes plans/{lifecycle}/<slug>.json
+type SyncPlanToRepoRequestFormat string
 
 // SyncResult defines model for SyncResult.
 type SyncResult = lifecycle.SyncResult
