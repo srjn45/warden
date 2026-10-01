@@ -8,6 +8,8 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/planbackup"
+	"github.com/srjn45/warden/internal/planstore"
+	"github.com/srjn45/warden/internal/plansync"
 )
 
 // --- argument structs for plan tools ---
@@ -100,6 +102,12 @@ type syncPlanToRepoArgs struct {
 	Repository     string `json:"repository,omitempty" jsonschema:"stable repository identity for export records (defaults to origin URL)"`
 }
 
+type hubSyncArgs struct {
+	PlanID    string   `json:"plan_id,omitempty" jsonschema:"plan id; required for push, optional for pull"`
+	ProjectID string   `json:"project_id,omitempty" jsonschema:"Hub project scope"`
+	Statuses  []string `json:"statuses,omitempty" jsonschema:"optional lifecycle filters"`
+}
+
 type exportPlanBackupArgs struct {
 	PlanIDs   []string `json:"plan_ids,omitempty" jsonschema:"stable plan ids to export"`
 	ProjectID string   `json:"project_id,omitempty" jsonschema:"when all=true, optionally limit to this project"`
@@ -179,6 +187,37 @@ func (s *Server) registerPlanTools() {
 		}
 		return jsonResultAny(plans)
 	})
+
+	for _, verb := range []string{"push", "pull", "discover"} {
+		verb := verb
+		mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{Name: "hub_sync_" + verb, Description: "Explicitly " + verb + " Plan Hub envelopes using the daemon's configured plan_sync provider; never starts background replication."}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a hubSyncArgs) (*mcpsdk.CallToolResult, any, error) {
+			statuses := make([]planstore.PlanStatus, 0, len(a.Statuses))
+			for _, status := range a.Statuses {
+				statuses = append(statuses, planstore.PlanStatus(status))
+			}
+			req := client.PlanSyncRequest{PlanID: a.PlanID, Scope: plansync.Scope{ProjectID: a.ProjectID}, Statuses: statuses}
+			if verb == "push" {
+				p, err := s.cl.PlansSyncPush(ctx, req)
+				if err != nil {
+					return planToolErr(err)
+				}
+				return jsonResultAny(p)
+			}
+			var (
+				out *client.PlanSyncEnvelopes
+				err error
+			)
+			if verb == "pull" {
+				out, err = s.cl.PlansSyncPull(ctx, req)
+			} else {
+				out, err = s.cl.PlansSyncDiscover(ctx, req)
+			}
+			if err != nil {
+				return planToolErr(err)
+			}
+			return jsonResultAny(out)
+		})
+	}
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name: "get_plan",

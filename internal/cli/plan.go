@@ -15,6 +15,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/planbackup"
+	"github.com/srjn45/warden/internal/planstore"
+	"github.com/srjn45/warden/internal/plansync"
 )
 
 func newPlanCmd() *cobra.Command {
@@ -44,6 +46,7 @@ func newPlanCmd() *cobra.Command {
 		newPlanCompleteCmd(),
 		newPlanArchiveCmd(),
 		newPlanSyncToRepoCmd(),
+		newPlanHubSyncCmd(),
 		newPlanBackupCmd(),
 		newPlanImportCmd(),
 		newPlanImportLegacyCmd(),
@@ -56,6 +59,54 @@ func newPlanCmd() *cobra.Command {
 		cmd.AddCommand(child)
 	}
 	return cmd
+}
+
+func newPlanHubSyncCmd() *cobra.Command {
+	cmd := &cobra.Command{Use: "hub-sync", Short: "Explicitly sync canonical plans with the configured Hub"}
+	for _, verb := range []string{"push", "pull", "discover"} {
+		verb := verb
+		child := &cobra.Command{Use: verb + " [plan-id]", Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+			scope, _ := cmd.Flags().GetString("scope")
+			statuses, _ := cmd.Flags().GetStringArray("status")
+			req := client.PlanSyncRequest{Scope: plansync.Scope{ProjectID: scope}, Statuses: planSyncStatuses(statuses)}
+			if len(args) > 0 {
+				req.PlanID = args[0]
+			}
+			if verb == "push" {
+				if req.PlanID == "" {
+					return fmt.Errorf("plan-id is required")
+				}
+				p, err := clientFor(cmd).PlansSyncPush(cmd.Context(), req)
+				if err != nil {
+					return err
+				}
+				return printJSON(cmd.OutOrStdout(), p)
+			}
+			var out *client.PlanSyncEnvelopes
+			var err error
+			if verb == "pull" {
+				out, err = clientFor(cmd).PlansSyncPull(cmd.Context(), req)
+			} else {
+				out, err = clientFor(cmd).PlansSyncDiscover(cmd.Context(), req)
+			}
+			if err != nil {
+				return err
+			}
+			return printJSON(cmd.OutOrStdout(), out)
+		}}
+		child.Flags().String("scope", "", "Hub project scope (defaults to the plan project on push)")
+		child.Flags().StringArray("status", nil, "lifecycle status filter (repeatable)")
+		cmd.AddCommand(child)
+	}
+	return cmd
+}
+
+func planSyncStatuses(in []string) []planstore.PlanStatus {
+	out := make([]planstore.PlanStatus, 0, len(in))
+	for _, v := range in {
+		out = append(out, planstore.PlanStatus(v))
+	}
+	return out
 }
 
 func newPlanListCmd() *cobra.Command {

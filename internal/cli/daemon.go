@@ -356,6 +356,15 @@ func newDaemonRunCmd() *cobra.Command {
 			}
 			defer planExportStore.Close()
 			srv.SetPlanExportStore(planExportStore)
+			planSyncProvider, err := plansync.New(plansync.ClientConfig{
+				Provider: cfg.PlanSync.Provider,
+				BaseURL:  cfg.PlanSync.HubURL,
+				Token:    cfg.PlanSync.Token,
+			})
+			if err != nil {
+				return err
+			}
+			srv.SetPlanSyncProvider(planSyncProvider)
 			// The Hub envelope store is distinct from the local canonical plan
 			// store. It makes this daemon usable as a small Phase B Hub when its
 			// normal Bearer auth is configured; the default PlanSync client still

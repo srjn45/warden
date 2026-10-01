@@ -8,7 +8,42 @@ import (
 	"time"
 
 	"github.com/srjn45/warden/internal/planbackup"
+	"github.com/srjn45/warden/internal/planstore"
+	"github.com/srjn45/warden/internal/plansync"
 )
+
+type PlanSyncRequest struct {
+	PlanID     string                 `json:"plan_id,omitempty"`
+	Scope      plansync.Scope         `json:"scope"`
+	Statuses   []planstore.PlanStatus `json:"statuses,omitempty"`
+	Visibility plansync.Visibility    `json:"visibility,omitempty"`
+	OwnerID    string                 `json:"owner_id,omitempty"`
+}
+type PlanSyncEnvelopes struct {
+	Envelopes []plansync.Envelope `json:"envelopes"`
+}
+
+func (c *Client) PlansSyncPush(ctx context.Context, req PlanSyncRequest) (*PlanView, error) {
+	var out PlanView
+	if err := c.do(ctx, http.MethodPost, "/plans/sync/push", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+func (c *Client) PlansSyncPull(ctx context.Context, req PlanSyncRequest) (*PlanSyncEnvelopes, error) {
+	var out PlanSyncEnvelopes
+	if err := c.do(ctx, http.MethodPost, "/plans/sync/pull", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+func (c *Client) PlansSyncDiscover(ctx context.Context, req PlanSyncRequest) (*PlanSyncEnvelopes, error) {
+	var out PlanSyncEnvelopes
+	if err := c.do(ctx, http.MethodPost, "/plans/sync/discover", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
 
 // PlanTaskSpec is one task in a create/update request or a hydrated Plan.
 type PlanTaskSpec struct {
