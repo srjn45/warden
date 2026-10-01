@@ -69,7 +69,25 @@ The gate seeds one project with:
 
 | Item | Why deferred | Tracking |
 |---|---|---|
-| **JSON export format** | Freeze §10 — YAML remains v1 replica; JSON not an implementation target of this plan | [#585](https://github.com/srjn45/warden/issues/585) |
 | **Hub network transport** | Freeze D6 / Phase 10 — local `PlanSyncProvider` boundary only; zero network in default install | [#586](https://github.com/srjn45/warden/issues/586) |
+
+## Follow-up #585 — JSON export (closed)
+
+**Status:** SHIPPED (opt-in; YAML remains the default replica format).
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| JSON renderer with §8.1 envelope parity | **PASS** | `planexport.JSONRenderer` + `TestJSONRenderer_envelopeFieldParityWithYAML` + goldens under `internal/planexport/testdata/*.json` |
+| Replica marker (inert) | **PASS** | Top-level `"warden_plan_export":"replica only — not authoritative"` |
+| Conventional path | **PASS** | `ExportPathFormat(..., FormatJSON)` → `plans/{lifecycle}/<slug>.json`; `ExportPath` / `Default()` stay YAML |
+| JSON never scan authority | **PASS** | `TestScanProject_ignoresJSONReplicas`, `TestScanProject_JSONReplicaDoesNotReseedCanonical` |
+| JSON never import-legacy authority | **PASS** | `TestImportLegacy_ignoresJSONReplicas` |
+| Edited JSON never mutates canonical SoT | **PASS** | `TestPlanService_EditedJSONDoesNotMutateCanonical` |
+| Docs | **PASS** | FEATURES §37.11, site concepts/guides, USAGE, RELEASE_NOTES, MIGRATION |
+
+Format selection on `sync_to_repo` / CLI / MCP (`--format json`) is wired by the
+companion `json-sync-wire` job; authority tests above do not depend on that wiring.
+
+See FEATURES §37.11 and [#585](https://github.com/srjn45/warden/issues/585).
 
 See also `docs/RELEASE_NOTES-plans-scrivadb.md` and FEATURES §37.11.

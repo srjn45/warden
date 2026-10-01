@@ -5,7 +5,7 @@ description: Create, run, and complete ScrivaDB-canonical Plans — DB-native wo
 
 import { Aside, Steps } from '@astrojs/starlight/components';
 
-Plans are **canonical ScrivaDB records**. You do not need a `plans/` directory to create, list, run, or complete them. Repository YAML is an optional inert export for review.
+Plans are **canonical ScrivaDB records**. You do not need a `plans/` directory to create, list, run, or complete them. Repository YAML/JSON is an optional inert export for review.
 
 Operator playbooks (legacy import, replica PR, backup restore, export conflicts): [Plans migration](/warden/guides/plans-migration/).
 
@@ -27,7 +27,10 @@ No `plans/` write is required. To publish a reviewable replica later:
 
 ```sh
 wd plan sync_to_repo <plan-id> --base main
+wd plan sync_to_repo <plan-id> --base main --format json   # opt-in JSON replica
 ```
+
+YAML is the default. JSON uses the same envelope and is never execution authority.
 
 ## Listing and inspecting
 
@@ -39,7 +42,7 @@ wd plan show <plan-id>
 wd plan show <plan-id> --json
 ```
 
-Detail comes from ScrivaDB (goal, tasks, revision, export status, execution). Repository YAML is never read for this view.
+Detail comes from ScrivaDB (goal, tasks, revision, export status, execution). Repository YAML/JSON replicas are never read for this view.
 
 ## Running a plan
 
@@ -102,7 +105,7 @@ See [Plan backup and restore](/warden/guides/plan-backup-restore/).
 | `wd plan list [--status <s>] [--json]` | List ScrivaDB plans |
 | `wd plan create --name <n> --goal <g> [--task id:prompt]` | Create pending Plan in ScrivaDB |
 | `wd plan show <id> [--json]` | Show canonical detail |
-| `wd plan sync_to_repo <id> --base <ref>` | Optional inert replica PR |
+| `wd plan sync_to_repo <id> --base <ref> [--format yaml\|json]` | Optional inert replica PR (YAML default) |
 | `wd plan backup export\|restore …` | Portable ScrivaDB bundle |
 | `wd plan import-legacy [--report]` | Explicit legacy YAML cutover |
 | `wd plan scan …` / `import` / `status` | Deprecated migration aids |

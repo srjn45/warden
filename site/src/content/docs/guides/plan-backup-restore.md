@@ -5,7 +5,7 @@ description: Portable ScrivaDB Plan bundles for local backup and machine transfe
 
 import { Aside, Steps } from '@astrojs/starlight/components';
 
-Canonical Plans live in ScrivaDB under `<data_dir>/plans-db/` (default `data_dir` is `~/.warden`). Repository files under `plans/**/*.yaml` are optional inert replicas — they are **not** required to list, view, or run a Plan, and they are **not** a recovery path.
+Canonical Plans live in ScrivaDB under `<data_dir>/plans-db/` (default `data_dir` is `~/.warden`). Repository files under `plans/**/*.{yaml,yml,json}` are optional inert replicas — they are **not** required to list, view, or run a Plan, and they are **not** a recovery path.
 
 ## What a Plan backup bundle contains
 
@@ -40,7 +40,7 @@ API equivalents: `POST /api/v1/plans/export_backup` and `POST /api/v1/plans/rest
 | Path | Role |
 |---|---|
 | `<data_dir>/plans-db/` | Canonical Plan store (definitions, lifecycle, execution, events, notes) |
-| `plans/**/*.yaml` in a git repo | Optional inert export for review — not backup authority |
+| `plans/**/*.{yaml,yml,json}` in a git repo | Optional inert export for review — not backup authority |
 | `*.bundle.json` (operator-chosen) | Portable Plan backup produced by `wd plan backup export` |
 
 Configure `data_dir` in `~/.warden/config.yaml` (or the active config). Moving machines means copying the backup bundle (or the whole `plans-db/` directory for a full daemon-state move) — not relying on `git pull` + plan scan.

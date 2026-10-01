@@ -1,9 +1,9 @@
 ---
 title: Plans
-description: ScrivaDB-canonical Plans — definition, lifecycle, revision, optional inert YAML replicas, and execution modes.
+description: ScrivaDB-canonical Plans — definition, lifecycle, revision, optional inert YAML/JSON replicas, and execution modes.
 ---
 
-Plans are **first-class ScrivaDB records**: goal, task DAG, lifecycle status, revision, and execution evidence live in the daemon store. Repository files under `plans/**/*.yaml` are an **optional inert export** for review — they are never required to create, list, run, or complete a Plan, and editing them does not change canonical execution.
+Plans are **first-class ScrivaDB records**: goal, task DAG, lifecycle status, revision, and execution evidence live in the daemon store. Repository files under `plans/**/*.{yaml,yml,json}` are an **optional inert export** for review — they are never required to create, list, run, or complete a Plan, and editing them does not change canonical execution.
 
 Design freeze: [`docs/specs/2026-09-30-scrivadb-canonical-plans.md`](https://github.com/srjn45/warden/blob/main/docs/specs/2026-09-30-scrivadb-canonical-plans.md).
 
@@ -15,7 +15,7 @@ Design freeze: [`docs/specs/2026-09-30-scrivadb-canonical-plans.md`](https://git
 | **Lifecycle** (`pending` → `in_progress` → `completed` / `archived`) | ScrivaDB `Status` field |
 | **Revision / content hash** | ScrivaDB (`revision`, `content_hash`) |
 | **Execution evidence** | ScrivaDB events, summaries, task progress |
-| **Repository YAML** | Optional replica via `wd plan sync_to_repo` — inert unless an explicit `import-legacy` is invoked |
+| **Repository YAML / JSON** | Optional replica via `wd plan sync_to_repo` (YAML default; JSON opt-in) — inert; `import-legacy` accepts legacy YAML only |
 
 The daemon does **not** scan `plans/` on startup. Implicit directory-as-status and "YAML is the source of truth" are retired.
 
@@ -55,7 +55,7 @@ When a plan is run with `wd plan run <id> --mode <mode>`, warden starts from the
 
 ## Optional replica export
 
-`wd plan sync_to_repo` renders a revision onto a dedicated `warden/plan-sync/...` branch and opens/updates a PR. Editing that YAML does nothing to listing or execution until you deliberately run `wd plan import-legacy`.
+`wd plan sync_to_repo` renders a revision onto a dedicated `warden/plan-sync/...` branch and opens/updates a PR. YAML is the default; pass `--format json` for an opt-in JSON replica (same envelope fields; top-level `"warden_plan_export":"replica only — not authoritative"`; path `plans/{lifecycle}/<slug>.json`). Editing that replica does nothing to listing or execution. `import-legacy` / deprecated `scan` discover **YAML only** — JSON files are never loaded as execution authority ([#585](https://github.com/srjn45/warden/issues/585)).
 
 ## Recovery
 
@@ -65,7 +65,8 @@ Prefer `wd plan backup export` / `wd plan backup restore` — Plans are operable
 
 Explicitly out of scope for the ScrivaDB cutover (not hidden non-goals):
 
-- **JSON export format** — YAML remains the v1 repository replica format ([#585](https://github.com/srjn45/warden/issues/585))
 - **Hub network transport** — local `PlanSyncProvider` boundary only; default installs make no Hub network calls (`synced_at` / `remote_id` reserved) ([#586](https://github.com/srjn45/warden/issues/586))
+
+**Closed follow-up:** JSON export format ([#585](https://github.com/srjn45/warden/issues/585)) — shipped as opt-in inert replicas; YAML remains the default. See Phase 12 acceptance § Follow-up #585.
 
 Phase 12 acceptance evidence lives in the repo at `docs/specs/2026-09-30-scrivadb-canonical-plans-acceptance.md`.
