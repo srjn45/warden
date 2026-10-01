@@ -617,6 +617,13 @@ func newDaemonRunCmd() *cobra.Command {
 			// pane excerpt captured this tick. rateLimitSched.OnTransition is kept as
 			// the fallback for pane-blind backends (usage_sync.go fires it directly).
 			pl.OnRateLimitObservation = rateLimitSched.OnRateLimitObservation
+			// Pane signal fusion (usage-api-quota-recovery Phase 7): a confirmed
+			// Claude rate-limit menu selection is routed through the SAME handler as
+			// a confirmed banner, so menu and banner evidence converge on one
+			// idempotent path into the backend recovery coordinator rather than the
+			// menu path waiting for a later `resets` banner that may never render
+			// parseable text.
+			pl.OnLimitMenuSelected = rateLimitSched.OnRateLimitObservation
 			pl.OnTransition = func(sess *agentstore.Agent, from, to store.Status) {
 				notifyHook(sess, from, to)
 				exec.OnTransition(sess, from, to)
