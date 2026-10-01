@@ -858,6 +858,40 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
 
+  /api/v1/usage/recover:
+    post:
+      operationId: recoverUsage
+      tags: [Observability]
+      summary: Operator-triggered one-shot usage reconciliation
+      description: >
+        Explicit operator action that fetches fresh supported provider usage
+        snapshots, calculates bucket-to-agent impact, and (unless dry_run)
+        invokes precisely the same reconciliation / backend-recovery coordinator
+        flow as the background usage reconciliation loop
+        (docs/specs/2026-09-29-usage-api-quota-recovery.md). Always refreshes
+        provider data for the filtered scope — cached or stale snapshots are
+        never treated as forced exhaustion evidence. Optional ai_cli and project
+        filters limit which agents may be affected; unrelated agents are left
+        untouched. max_parallel_swaps temporarily overrides the coordinator's
+        bounded concurrency for this invocation when set.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UsageRecoverRequest" }
+      responses:
+        "200":
+          description: Fresh snapshots, impact, and started/waiting outcomes
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UsageRecoverResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "503":
+          description: Usage service or recovery coordinator unavailable
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
   /api/v1/backends/rescan:
     post:
       operationId: rescanBackends
@@ -4148,6 +4182,209 @@ components:
         backends:
           type: array
           items: { $ref: "#/components/schemas/UsageBackend" }
+
+    # --- Usage API quota recovery (plan-69eb481d) ---
+    # Durable capacity observation + impact schemas for operator recover and
+    # future observability surfaces. Distinct from the display UsageSnapshot
+    # (provider quota table) above.
+
+    CapacityDomain:
+      x-go-type: backendusage.CapacityDomain
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/backendusage
+        name: backendusage
+      type: object
+      required: [provider]
+      properties:
+        provider: { type: string, description: "AI CLI / provider id (e.g. claude, codex)." }
+        profile_fingerprint:
+          type: string
+          description: Opaque non-secret account/profile fingerprint; never a raw credential.
+        route: { type: string, description: "Model/route identity within the provider, when scoped." }
+
+    CapacityBucket:
+      x-go-type: backendusage.CapacityBucket
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/backendusage
+        name: backendusage
+      type: object
+      required: [key, state]
+      properties:
+        key: { type: string }
+        scope: { type: string }
+        state: { type: string, enum: [available, exhausted, unknown] }
+        used_percent: { type: number, format: double, nullable: true }
+        remaining_percent: { type: number, format: double, nullable: true }
+        duration_minutes: { type: integer, nullable: true }
+        resets_at: { type: string, format: date-time, nullable: true }
+
+    CapacityUsageSnapshot:
+      x-go-type: backendusage.UsageSnapshot
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/backendusage
+        name: backendusage
+      type: object
+      description: >
+        One durable provider capacity observation for a CapacityDomain. Only
+        authoritative + fresh snapshots may force exhaustion / recovery.
+      required: [revision, domain, observed_at, recorded_at, source_status, authoritative, freshness, buckets]
+      properties:
+        revision: { type: integer, format: int64 }
+        domain: { $ref: "#/components/schemas/CapacityDomain" }
+        observed_at: { type: string, format: date-time }
+        recorded_at: { type: string, format: date-time }
+        source_status:
+          type: string
+          enum: [ok, unsupported, unauthenticated, rate_limited, unavailable, timeout, error, not_installed]
+        authoritative: { type: boolean }
+        freshness: { type: string, enum: [fresh, stale, unknown] }
+        buckets:
+          type: array
+          items: { $ref: "#/components/schemas/CapacityBucket" }
+        error_code: { type: string }
+
+    QuotaExhaustedBucket:
+      type: object
+      required: [provider, account_fingerprint, bucket_key, snapshot_revision]
+      properties:
+        provider: { type: string }
+        account_fingerprint: { type: string }
+        route: { type: string }
+        bucket_key: { type: string }
+        snapshot_revision: { type: integer, format: int64 }
+        source: { type: string, description: "usage | menu | banner | manual" }
+        resets_at: { type: string, format: date-time, nullable: true }
+
+    QuotaAffectedAgent:
+      type: object
+      required: [agent_id, provider, account_fingerprint, bucket_key, snapshot_revision, recovery_generation]
+      properties:
+        agent_id: { type: string }
+        provider: { type: string }
+        account_fingerprint: { type: string }
+        route: { type: string }
+        bucket_key: { type: string }
+        snapshot_revision: { type: integer, format: int64 }
+        recovery_generation: { type: integer, format: int64 }
+        source: { type: string }
+        resets_at: { type: string, format: date-time, nullable: true }
+
+    QuotaSkippedAgent:
+      type: object
+      required: [agent_id, reason]
+      properties:
+        agent_id: { type: string }
+        reason:
+          type: string
+          description: >
+            done | archived | terminal | stopped | unbound_legacy | recovering |
+            superseded | already_reconciled | status_ineligible | filtered
+        detail: { type: string }
+
+    QuotaStaleOrUnknownInput:
+      type: object
+      required: [provider, reason]
+      properties:
+        provider: { type: string }
+        account_fingerprint: { type: string }
+        route: { type: string }
+        bucket_key: { type: string }
+        snapshot_revision: { type: integer, format: int64 }
+        freshness: { type: string }
+        state: { type: string }
+        reason: { type: string }
+        source: { type: string }
+
+    QuotaImpactResult:
+      x-go-type: capacity.ImpactResult
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/capacity
+        name: capacity
+      type: object
+      description: Structured bucket-to-agent impact from one reconciliation pass.
+      required: [exhausted_buckets, affected_agents, skipped_agents, stale_or_unknown]
+      properties:
+        exhausted_buckets:
+          type: array
+          items: { $ref: "#/components/schemas/QuotaExhaustedBucket" }
+        affected_agents:
+          type: array
+          items: { $ref: "#/components/schemas/QuotaAffectedAgent" }
+        skipped_agents:
+          type: array
+          items: { $ref: "#/components/schemas/QuotaSkippedAgent" }
+        stale_or_unknown:
+          type: array
+          items: { $ref: "#/components/schemas/QuotaStaleOrUnknownInput" }
+
+    UsageRecoverRequest:
+      type: object
+      properties:
+        dry_run:
+          type: boolean
+          description: >
+            When true, fetch fresh snapshots and calculate impact / candidate
+            decisions without claiming fences or invoking recovery.
+          default: false
+        ai_cli:
+          type: string
+          description: Optional AI CLI / provider filter (e.g. claude). Empty = all.
+        project:
+          type: string
+          description: >
+            Optional project path filter. Matches agents whose project_id or repo
+            equals the cleaned absolute path. Empty = all projects.
+        max_parallel_swaps:
+          type: integer
+          description: >
+            Temporary bounded-concurrency override for this invocation's
+            candidate-selection/launch passes. Omitted or zero keeps the daemon
+            config (rate_limit.recovery.usage_reconciliation.max_parallel_swaps).
+          minimum: 0
+
+    UsageRecoverAgentOutcome:
+      type: object
+      required: [agent_id, outcome]
+      properties:
+        agent_id: { type: string }
+        outcome:
+          type: string
+          enum: [started, waiting_for_capacity, would_start, would_wait, skipped]
+          description: >
+            started / waiting_for_capacity after an applying recover; would_start /
+            would_wait on dry-run; skipped when the agent was filtered out of
+            execution after impact (should be rare).
+        phase:
+          type: string
+          description: Backend recovery phase when known (refreshing_usage, switching, stabilizing, waiting_for_capacity).
+        bucket_key: { type: string }
+        selected: { $ref: "#/components/schemas/BackendCandidate" }
+        candidates:
+          type: array
+          description: Ranked candidate pools considered for this agent.
+          items: { $ref: "#/components/schemas/BackendCandidate" }
+        reason: { type: string }
+        recovery_generation: { type: integer, format: int64 }
+
+    UsageRecoverResponse:
+      type: object
+      required: [dry_run, provider_usage, snapshots, impact, outcomes]
+      properties:
+        dry_run: { type: boolean }
+        provider_usage:
+          $ref: "#/components/schemas/UsageSnapshot"
+          description: Fresh display snapshot from the mandatory provider refresh.
+        snapshots:
+          type: array
+          description: Durable capacity snapshots after the fresh fetch (post-freshness marking).
+          items: { $ref: "#/components/schemas/CapacityUsageSnapshot" }
+        impact: { $ref: "#/components/schemas/QuotaImpactResult" }
+        outcomes:
+          type: array
+          items: { $ref: "#/components/schemas/UsageRecoverAgentOutcome" }
+        max_parallel_swaps:
+          type: integer
+          description: Effective bounded concurrency used (or that would be used) for this invocation.
 
     UsageBackend:
       type: object

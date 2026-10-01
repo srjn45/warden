@@ -4011,6 +4011,7 @@ Commands:
   spend                Show measured Claude spend in dollars, per agent / repo / day
   savings              Show the token reductions warden's lifecycle features have earned
   insights             Mine agent history for patterns and parallelization suggestions
+  recover              Fetch fresh usage and reconcile exhausted buckets to affected agents
 
 Flags:
   -h, --help      help for usage
@@ -4076,6 +4077,40 @@ Flags:
       --limit int        cap the number of archived sessions mined (0 = daemon default)
       --session string   scope parallelization suggestions to one session (by id or name)
       --since string     only mine sessions since this window (24h, 7d, 2w) or date (2006-01-02 / RFC3339)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden usage recover
+
+```text
+Operator-triggered one-shot usage reconciliation.
+
+Fetches fresh supported provider usage snapshots (never treats cached/stale data
+as forced exhaustion), calculates bucket-to-agent impact, and — unless
+--dry-run — invokes the same backend recovery coordinator path as the
+background usage reconciliation loop.
+
+Default invocation is an explicit operator action and may start recovery for
+affected agents. Use --dry-run to print snapshots, impact, and candidate
+decisions without claiming fences or starting recovery.
+
+Optional --ai-cli and --project filters limit which agents may be affected;
+unrelated agents are left untouched. --max-parallel-swaps temporarily overrides
+the coordinator's bounded concurrency for this invocation only.
+
+Usage:
+  warden usage recover [flags]
+
+Flags:
+      --ai-cli string            limit reconciliation to agents on this AI CLI / provider
+      --dry-run                  fetch fresh snapshots and calculate impact without starting recovery
+  -h, --help                     help for recover
+      --json                     print the structured recover response as JSON
+      --max-parallel-swaps int   temporary bounded concurrency override for this invocation (0 = daemon default)
+      --project string           limit reconciliation to agents in this project path
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)

@@ -63,6 +63,44 @@ func (s *DurableFenceStore) Claim(rec FenceRecord) (bool, error) {
 	return true, nil
 }
 
+// AlreadyClaimed reports whether a prior fence covers rec without writing.
+// Used by dry-run operator recover so impact calculation stays non-mutating.
+func (s *DurableFenceStore) AlreadyClaimed(rec FenceRecord) (bool, error) {
+	if s == nil {
+		return false, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	all, err := s.readLocked()
+	if err != nil {
+		return false, err
+	}
+	for _, prev := range all {
+		if sameRevisionFence(prev, rec) || sameGenerationFence(prev, rec) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// ProbeFenceStore adapts a DurableFenceStore into a FenceStore that never
+// mutates: Claim returns whether a real Claim would succeed.
+type ProbeFenceStore struct {
+	Inner *DurableFenceStore
+}
+
+// Claim implements FenceStore without writing durable fences.
+func (p ProbeFenceStore) Claim(rec FenceRecord) (bool, error) {
+	if p.Inner == nil {
+		return true, nil
+	}
+	already, err := p.Inner.AlreadyClaimed(rec)
+	if err != nil {
+		return false, err
+	}
+	return !already, nil
+}
+
 func sameRevisionFence(a, b FenceRecord) bool {
 	return a.SnapshotRevision == b.SnapshotRevision &&
 		a.DomainKey == b.DomainKey &&

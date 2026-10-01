@@ -111,6 +111,12 @@ type pruneArgs struct {
 type recoverArgs struct {
 	Apply bool `json:"apply,omitempty" jsonschema:"false (default) only reports candidates; true re-inserts each one into the active store under its original id"`
 }
+type usageRecoverArgs struct {
+	DryRun           bool   `json:"dry_run,omitempty" jsonschema:"when true, fetch fresh snapshots and calculate impact without starting recovery"`
+	AiCli            string `json:"ai_cli,omitempty" jsonschema:"optional AI CLI / provider filter (e.g. claude); empty = all"`
+	Project          string `json:"project,omitempty" jsonschema:"optional project path filter; empty = all projects"`
+	MaxParallelSwaps int    `json:"max_parallel_swaps,omitempty" jsonschema:"temporary bounded concurrency override for this invocation; 0 = daemon default"`
+}
 type setAutoApproveArgs struct {
 	Ticket  string `json:"ticket" jsonschema:"the agent's ticket / session id"`
 	Enabled bool   `json:"enabled" jsonschema:"true to auto-answer this agent's recognized approval prompts, false to stop"`
@@ -845,6 +851,29 @@ func (s *Server) registerExtraTools() {
 		Description: "Revive archived agent records whose tmux session is confirmed still alive — the safety net for the tombstone reaper, which should only ever archive a genuinely dead session but could previously be fooled by a stale orphaned status racing a daemon restart. apply=false (default) only reports candidates; apply=true re-inserts each one into the active store under its original id, reconnecting any children automatically (parent_id is untouched by archiving). Mirrors `warden recover`.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a recoverArgs) (*mcpsdk.CallToolResult, any, error) {
 		res, err := s.cl.Recover(ctx, a.Apply)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(res)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name: "usage_recover",
+		Description: "Operator-triggered one-shot usage reconciliation (mirrors `warden usage recover`). " +
+			"Always fetches fresh supported provider usage snapshots, calculates bucket-to-agent impact, and — unless dry_run — " +
+			"invokes the same backend recovery coordinator flow as the background usage poller. " +
+			"Returns structured snapshots, impact (exhausted/affected/skipped/stale), and started/waiting (or would_*) outcomes with candidate decisions. " +
+			"Optional ai_cli and project filters limit which agents may be affected; cached/stale data is never treated as forced exhaustion.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a usageRecoverArgs) (*mcpsdk.CallToolResult, any, error) {
+		if a.MaxParallelSwaps < 0 {
+			return textResult("error: max_parallel_swaps must be >= 1 when set"), nil, nil
+		}
+		res, err := s.cl.UsageRecover(ctx, client.UsageRecoverParams{
+			DryRun:           a.DryRun,
+			AiCli:            a.AiCli,
+			Project:          a.Project,
+			MaxParallelSwaps: a.MaxParallelSwaps,
+		})
 		if err != nil {
 			return textResult("error: " + err.Error()), nil, nil
 		}

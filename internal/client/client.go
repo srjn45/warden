@@ -19,6 +19,7 @@ import (
 	"github.com/srjn45/warden/internal/auth"
 	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/backendusage"
+	"github.com/srjn45/warden/internal/capacity"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/metrics"
@@ -1831,6 +1832,54 @@ func (c *Client) Usage(ctx context.Context, refresh bool) (backendusage.Snapshot
 	}
 	if out.SchemaVersion != 1 {
 		return backendusage.Snapshot{}, fmt.Errorf("unsupported usage schema version %d", out.SchemaVersion)
+	}
+	return out, nil
+}
+
+// UsageRecoverParams are filters for POST /api/v1/usage/recover.
+type UsageRecoverParams struct {
+	DryRun           bool   `json:"dry_run,omitempty"`
+	AiCli            string `json:"ai_cli,omitempty"`
+	Project          string `json:"project,omitempty"`
+	MaxParallelSwaps int    `json:"max_parallel_swaps,omitempty"`
+}
+
+// UsageRecoverAgentOutcome is one agent row from an operator usage recover.
+type UsageRecoverAgentOutcome struct {
+	AgentID            string                   `json:"agent_id"`
+	Outcome            string                   `json:"outcome"`
+	Phase              string                   `json:"phase,omitempty"`
+	BucketKey          string                   `json:"bucket_key,omitempty"`
+	Selected           store.BackendCandidate   `json:"selected,omitempty"`
+	Candidates         []store.BackendCandidate `json:"candidates,omitempty"`
+	Reason             string                   `json:"reason,omitempty"`
+	RecoveryGeneration uint64                   `json:"recovery_generation,omitempty"`
+}
+
+// UsageRecoverResult is the structured response from POST /api/v1/usage/recover.
+type UsageRecoverResult struct {
+	DryRun           bool                         `json:"dry_run"`
+	ProviderUsage    backendusage.Snapshot        `json:"provider_usage"`
+	Snapshots        []backendusage.UsageSnapshot `json:"snapshots"`
+	Impact           capacity.ImpactResult        `json:"impact"`
+	Outcomes         []UsageRecoverAgentOutcome   `json:"outcomes"`
+	MaxParallelSwaps int                          `json:"max_parallel_swaps,omitempty"`
+}
+
+// UsageRecover runs operator-triggered one-shot usage reconciliation.
+// Default (DryRun=false) may start recovery for affected agents; dry-run only
+// fetches fresh snapshots and reports impact/candidates.
+func (c *Client) UsageRecover(ctx context.Context, params UsageRecoverParams) (UsageRecoverResult, error) {
+	var out UsageRecoverResult
+	// Provider refresh + candidate selection can take several seconds per backend.
+	if err := c.doT(ctx, 2*time.Minute, http.MethodPost, "/usage/recover", params, &out); err != nil {
+		return UsageRecoverResult{}, err
+	}
+	if out.Snapshots == nil {
+		out.Snapshots = []backendusage.UsageSnapshot{}
+	}
+	if out.Outcomes == nil {
+		out.Outcomes = []UsageRecoverAgentOutcome{}
 	}
 	return out, nil
 }

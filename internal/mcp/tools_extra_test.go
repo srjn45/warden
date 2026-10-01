@@ -46,6 +46,7 @@ func TestExtraToolsRegistered(t *testing.T) {
 		"set_auto_approve", "set_auto_approve_policy", "set_force_compact",
 		"set_permission_mode", "set_role", "list_roles", "prune_worktrees",
 		"recover_agents",
+		"usage_recover",
 		"export_sessions", "import_sessions", "rotate_agent", "handoff_agent",
 		"pause_pipeline", "resume_pipeline", "retry_pipeline_job",
 		"edit_pipeline_job", "emit_pipeline_output", "delete_pipeline",
@@ -80,6 +81,38 @@ func TestValidatePipelineTool(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Contains(t, textOf(bad), "invalid pipeline")
+}
+
+// TestUsageRecoverTool posts filters to /api/v1/usage/recover and returns structured JSON.
+func TestUsageRecoverTool(t *testing.T) {
+	var hit, body string
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hit = r.Method + " " + r.URL.Path
+		b, _ := io.ReadAll(r.Body)
+		body = string(b)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"dry_run":true,
+			"provider_usage":{"schema_version":1,"generated_at":"2026-10-01T00:00:00Z","backends":[]},
+			"snapshots":[],
+			"impact":{"exhausted_buckets":[],"affected_agents":[],"skipped_agents":[],"stale_or_unknown":[]},
+			"outcomes":[{"agent_id":"a1","outcome":"would_wait","reason":"no eligible replacement with known usable capacity"}]
+		}`))
+	}))
+	defer daemon.Close()
+	session := connectTo(t, daemon.URL)
+	res, err := session.CallTool(context.Background(), &mcpsdk.CallToolParams{
+		Name: "usage_recover",
+		Arguments: map[string]any{
+			"dry_run": true, "ai_cli": "claude", "project": "/tmp/p", "max_parallel_swaps": 2,
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError, textOf(res))
+	require.Equal(t, "POST /api/v1/usage/recover", hit)
+	require.Contains(t, body, `"dry_run":true`)
+	require.Contains(t, body, `"ai_cli":"claude"`)
+	require.Contains(t, textOf(res), `"outcome": "would_wait"`)
 }
 
 // TestListRolesTool returns the built-in role catalog without a daemon.
