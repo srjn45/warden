@@ -6,8 +6,8 @@
 // only and must never feed canonical lifecycle. This package does not write
 // repository files — Phase 7 (sync_to_repo) owns Git/PR mutation.
 //
-// The Renderer interface is format-neutral so a JSON exporter can be added
-// later without changing planstore.Plan storage.
+// The Renderer interface is format-neutral: YAML (Default) and JSON exporters
+// share the same envelope without changing planstore.Plan storage.
 package planexport
 
 import (
@@ -17,12 +17,11 @@ import (
 	"github.com/srjn45/warden/internal/planstore"
 )
 
-// Format names a replica encoding. v1 ships YAML only; JSON is reserved.
+// Format names a replica encoding. Default() remains YAML; JSON is opt-in.
 type Format string
 
 const (
 	FormatYAML Format = "yaml"
-	// FormatJSON is reserved for a later exporter; not implemented in this plan.
 	FormatJSON Format = "json"
 )
 
@@ -51,7 +50,7 @@ type Envelope struct {
 type Result struct {
 	Format   Format
 	Bytes    []byte
-	Path     string // conventional plans/{lifecycle}/<slug>.yaml — descriptive only
+	Path     string // conventional plans/{lifecycle}/<slug>.{yaml|json} — descriptive only
 	Envelope Envelope
 }
 
