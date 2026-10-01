@@ -36,6 +36,81 @@ func (s *Server) runUsageSync(ctx context.Context) {
 	}
 }
 
+// runUsageReconciliation owns opt-in capacity observation. It intentionally
+// does not call limitSessionsFromSnapshot or any recovery coordinator: later
+// phases consume the published durable observations to decide agent impact.
+func (s *Server) runUsageReconciliation(ctx context.Context) {
+	if !s.usageReconciliationEnabled || s.usage == nil {
+		return
+	}
+	interval := s.usageReconciliationInterval
+	if interval <= 0 {
+		interval = time.Minute
+	}
+	staleAfter := s.usageReconciliationStaleAfter
+	if staleAfter <= 0 {
+		staleAfter = 15 * time.Minute
+	}
+	delay := time.Duration(0) // startup observation also validates recovered state.
+	for {
+		if delay > 0 {
+			t := time.NewTimer(delay)
+			select {
+			case <-ctx.Done():
+				t.Stop()
+				return
+			case <-t.C:
+			}
+		}
+		failed := s.usageReconciliationOnce(ctx, staleAfter)
+		// A healthy provider is still included in every pass, preserving
+		// provider/account isolation even while another provider backs off.
+		delay = reconciliationNextDelay(interval, delay, failed)
+	}
+}
+
+// usageReconciliationOnce fetches and publishes one capacity observation.
+// TryLock makes duplicate startup/recovery goroutines harmless: an in-flight
+// provider request is never overlapped by another polling pass.
+// It returns true when at least one provider failed, so the caller backs off.
+func (s *Server) usageReconciliationOnce(ctx context.Context, _ time.Duration) bool {
+	if s.usage == nil || !s.usageReconciliationEnabled || !s.usageReconciliationMu.TryLock() {
+		return false
+	}
+	defer s.usageReconciliationMu.Unlock()
+	snap, err := s.usage.Snapshot(ctx, true)
+	if err != nil {
+		slog.Warn("daemon: usage reconciliation snapshot failed", "err", err)
+		return true
+	}
+	failed := false
+	for _, result := range snap.Backends {
+		switch result.Status {
+		case backendusage.StatusUnavailable, backendusage.StatusTimeout, backendusage.StatusError:
+			failed = true
+		}
+	}
+	// Snapshot persistence happens inside Service.collect. Publishing lets
+	// connected clients refresh usage without coupling a snapshot to recovery.
+	if len(snap.Backends) > 0 && s.hub != nil {
+		s.hub.publish()
+	}
+	return failed
+}
+
+func reconciliationNextDelay(interval, previous time.Duration, failed bool) time.Duration {
+	if !failed {
+		return interval
+	}
+	if previous < interval {
+		return interval
+	}
+	if previous >= 8*interval {
+		return 8 * interval
+	}
+	return previous * 2
+}
+
 // usageSyncOnce fetches a usage Snapshot and projects it into the backend store.
 // Panic-guarded so a provider-adapter bug cannot take down the daemon.
 func (s *Server) usageSyncOnce(ctx context.Context, refresh bool) {

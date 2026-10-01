@@ -165,6 +165,18 @@ type RecoveryConfig struct {
 	// non-rate-limited live status before a candidate is declared stable and
 	// recovery cleared. Go duration string; defaults to 10s.
 	StabilizationWindow string `yaml:"stabilization_window"`
+	// UsageReconciliation controls the daemon-owned, provider usage snapshot
+	// poller. It is deliberately separate from reactive recovery: polling only
+	// records/publishes capacity observations; it never changes agents.
+	UsageReconciliation UsageReconciliationConfig `yaml:"usage_reconciliation"`
+}
+
+// UsageReconciliationConfig controls periodic provider capacity observation.
+// A disabled poller makes no provider calls. Durations use Go duration syntax.
+type UsageReconciliationConfig struct {
+	Enabled    bool   `yaml:"enabled"`
+	Interval   string `yaml:"interval"`
+	StaleAfter string `yaml:"stale_after"`
 }
 
 // RateLimitConfig groups the rate-limit auto-resume scheduler settings.
@@ -391,7 +403,7 @@ var schema = []setting{
 	{"branch_track", "Branch/CI tracker settings (previously flat keys: branch_track_enabled, branch_track_interval). Sub-keys: enabled (monitor each agent's branch for CI failures and drift from main, delivering informational inbox/desktop alerts), interval (Go duration, e.g. 2m — scan interval). Flat keys still load as deprecated aliases."},
 	{"relay", "Hub-relay accept-side settings. The daemon dials the warden-hub relay and the hub opens per-client streams to it. Sub-keys: allow_web_terminated (allow KindWebTerminated streams — a hub-TLS-terminated browser stream the daemon cannot cryptographically verify, so it trusts the hub-asserted {grantee, scope} outright; a read-only grant still cannot attach). OFF by default: the daemon rejects such streams with relay close code 4004 until an operator opts in. KindNativeE2E streams, which carry an inner client cert the daemon verifies itself, are unaffected. Values: true | false"},
 	{"plan_sync", "Plan Hub sync provider (docs/specs/2026-09-30-plan-hub-sync-boundary.md). Sub-keys: provider (local | hub — default local; hub dials the configured Hub for Push/Pull/Discover of plan revision envelopes), hub_url (warden-hub base URL; required when provider=hub), token (bearer credential; prefer env WARDEN_PLAN_SYNC_TOKEN which overrides this when set — shown as set/unset in `warden config`). Default install stays provider=local with no network calls. SyncedAt/RemoteID are stamped only after a successful Hub Push/Pull."},
-	{"rate_limit", "Rate-limit auto-resume scheduler settings (previously flat keys: rate_limit_retry_interval, rate_limit_spend_retry_interval, rate_limit_buffer, rate_limit_auto_resume, rate_limit_resume_prompt). Sub-keys: retry_interval (Go duration, e.g. 30m — fallback wait before retrying a session/weekly limit whose reset time could not be parsed), spend_retry_interval (Go duration, e.g. 6h — longer fallback for a monthly spend cap, which carries no reset time), buffer (Go duration, e.g. 1m — extra wait on top of a parsed reset time), auto_resume (true | false — auto-pick the wait-for-reset menu choice and resume agents after any limit clears), resume_prompt (text to type when a limit clears so the agent picks its work back up; default \"continue\", set to empty for a bare keypress with no injected user turn), recovery (reactive hard-limit recovery engine settings — sub-keys: enabled (true | false — master switch for automatic backend switching on confirmed hard limits; default true), stabilization_window (Go duration, e.g. 10s — how long an agent must remain in a live non-rate-limited status before a candidate is declared stable and recovery cleared; default 10s)). Flat keys still load as deprecated aliases."},
+	{"rate_limit", "Rate-limit auto-resume scheduler settings (previously flat keys: rate_limit_retry_interval, rate_limit_spend_retry_interval, rate_limit_buffer, rate_limit_auto_resume, rate_limit_resume_prompt). Sub-keys: retry_interval (Go duration, e.g. 30m — fallback wait before retrying a session/weekly limit whose reset time could not be parsed), spend_retry_interval (Go duration, e.g. 6h — longer fallback for a monthly spend cap, which carries no reset time), buffer (Go duration, e.g. 1m — extra wait on top of a parsed reset time), auto_resume (true | false — auto-pick the wait-for-reset menu choice and resume agents after any limit clears), resume_prompt (text to type when a limit clears so the agent picks its work back up; default \"continue\", set to empty for a bare keypress with no injected user turn), recovery (reactive hard-limit recovery engine settings — sub-keys: enabled, stabilization_window, usage_reconciliation {enabled (default false), interval (default 60s), stale_after (default 15m)}. Reconciliation records and publishes provider capacity snapshots only; it does not swap agents). Flat keys still load as deprecated aliases."},
 	{"http", "Daemon HTTP write budgets (previously flat keys: http_timeout_fast, http_timeout_slow). Backstops against a wedged handler, not pacing devices — keep them generous, especially in large monorepos where git operations are slow. Sub-keys: timeout_fast (Go duration, e.g. 30s — ordinary data/action routes: list, status, send, …), timeout_slow (Go duration, e.g. 10m — slow lifecycle routes: spawn's worktree checkout, commit/push and their hooks, checks, snapshots, pipeline ops). Flat keys still load as deprecated aliases."},
 	{"log", "Structured-logging settings (previously flat keys: log_level, log_format). Sub-keys: level (debug | info | warn | error — minimum severity the daemon logs), format (text (human-readable) | json (structured)). Flat keys still load as deprecated aliases."},
 	{"plugins", "Plugin system (#47) settings (previously flat keys: plugins, plugin_registry). OFF by default — plugins execute external code, so this is deliberately opt-in. A broken, slow, or missing plugin fails open (logged and skipped); it never blocks or crashes an agent. Sub-keys: enabled (was plugins; load the executables in registry, register their custom task types, and invoke their subscribed lifecycle hooks over JSON-over-stdio), registry (was plugin_registry; a list of entries, each with name, path (the plugin executable), events (subscribed lifecycle hooks: any of pre-spawn, post-spawn, pre-commit, post-commit, pre-check, post-check, pre-teardown), and task_types (custom agent task types, each {name, worktree})). Flat keys still load as deprecated aliases."},
@@ -521,6 +533,11 @@ func defaults() Config {
 			Recovery: RecoveryConfig{
 				Enabled:             true,
 				StabilizationWindow: "10s",
+				UsageReconciliation: UsageReconciliationConfig{
+					Enabled:    false,
+					Interval:   "60s",
+					StaleAfter: "15m",
+				},
 			},
 		},
 		HTTP: HTTPConfig{
@@ -1697,6 +1714,18 @@ func (c Config) RateLimitBufferDuration() time.Duration {
 // declared stable. Defaults to 10s (same as the previous hardcoded value).
 func (c Config) RecoveryStabilizationWindowDuration() time.Duration {
 	return durOr(c.RateLimit.Recovery.StabilizationWindow, 10*time.Second)
+}
+
+// UsageReconciliationIntervalDuration returns the polling cadence. Invalid
+// values fall back to the conservative one-minute default.
+func (c Config) UsageReconciliationIntervalDuration() time.Duration {
+	return durOr(c.RateLimit.Recovery.UsageReconciliation.Interval, time.Minute)
+}
+
+// UsageReconciliationStaleAfterDuration returns when an authoritative provider
+// observation is considered stale.
+func (c Config) UsageReconciliationStaleAfterDuration() time.Duration {
+	return durOr(c.RateLimit.Recovery.UsageReconciliation.StaleAfter, 15*time.Minute)
 }
 
 func durOr(s string, def time.Duration) time.Duration {

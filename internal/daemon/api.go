@@ -216,6 +216,12 @@ type Server struct {
 	// Default false on a bare Server literal; the daemon sets it from the
 	// `api_docs` config setting (default on). See apidocs_routes.go.
 	apiDocs bool
+	// usageReconciliation owns opt-in provider capacity polling. Unlike the
+	// legacy usage display path it never drives agent recovery or swaps.
+	usageReconciliationEnabled    bool
+	usageReconciliationInterval   time.Duration
+	usageReconciliationStaleAfter time.Duration
+	usageReconciliationMu         sync.Mutex
 	// scheduler gates the native cron/at scheduler (#15) — its CRUD routes return
 	// 403 and its reconcile loop is a no-op when off. Default false (opt-in via the
 	// `scheduler_enabled` config setting). schedStore persists the schedules and
@@ -358,7 +364,27 @@ func (s *Server) SetBackends(store *backendstore.Store) {
 }
 
 // SetUsageService allows deterministic daemon tests to inject provider adapters.
-func (s *Server) SetUsageService(service *backendusage.Service) { s.usage = service }
+func (s *Server) SetUsageService(service *backendusage.Service) {
+	s.usage = service
+	if service != nil && s.usageReconciliationStaleAfter > 0 {
+		service.SetStaleAfter(s.usageReconciliationStaleAfter)
+	}
+}
+
+// SetUsageReconciliation configures the daemon-owned provider capacity polling
+// loop. It is opt-in; when disabled the loop performs no provider calls.
+func (s *Server) SetUsageReconciliation(enabled bool, interval, staleAfter time.Duration) {
+	s.usageReconciliationEnabled = enabled
+	if interval > 0 {
+		s.usageReconciliationInterval = interval
+	}
+	if staleAfter > 0 {
+		s.usageReconciliationStaleAfter = staleAfter
+		if s.usage != nil {
+			s.usage.SetStaleAfter(staleAfter)
+		}
+	}
+}
 
 // SetRateLimitScheduler wires the rate-limit resume scheduler so the usage-API
 // polling fallback can fire OnTransition for pane-blind backends. Call before
