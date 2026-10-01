@@ -30,10 +30,9 @@ func NewService() *Service {
 // to that single project's subtree; an unknown projectID yields an empty roots slice.
 // The synthetic "No project" bucket is only returned when projectID == "".
 //
-// Project children are the five sections in canonical order (Plans, Autopilots,
-// Pipelines, Agents, Terminals). Plans is always present (even when empty);
-// Autopilots / Pipelines / Agents / Terminals are omitted when they have no
-// children so the TUI does not show empty groupings. Each entity renders
+// Project children are sections in canonical order (Plans, Autopilots,
+// Pipelines, Agents, Terminals). Any section with no children is omitted so
+// empty groupings do not clutter the TUI or API tree. Each entity renders
 // exactly once: live Autopilot managers and their worker children nest under
 // Autopilots (not Agents); pipeline job agents nest under Pipelines; Plan task
 // groups are never rendered inside Autopilot (task evidence lives on Plan
@@ -557,8 +556,8 @@ func (s *Service) Build(in Inputs, projectID string) *Tree {
 }
 
 // buildGroupChildren constructs project sections in canonical order:
-// Plans → Autopilots → Pipelines → Agents → Terminals. Plans is always emitted;
-// the other four are skipped when empty.
+// Plans → Autopilots → Pipelines → Agents → Terminals. Empty sections are
+// omitted entirely.
 func buildGroupChildren(
 	groupKey string,
 	plans []*planstore.Plan,
@@ -616,8 +615,9 @@ func buildGroupChildren(
 		termNodes = append(termNodes, buildTerminalNode(t))
 	}
 
-	out := []*Node{
-		sectionNode(secID(SectionPlans), "Plans", SectionPlans, planNodes),
+	var out []*Node
+	if len(planNodes) > 0 {
+		out = append(out, sectionNode(secID(SectionPlans), "Plans", SectionPlans, planNodes))
 	}
 	if len(apNodes) > 0 {
 		out = append(out, sectionNode(secID(SectionAutopilots), "Autopilots", SectionAutopilots, apNodes))

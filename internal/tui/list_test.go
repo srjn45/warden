@@ -317,18 +317,19 @@ func TestProjectGroupedItemsClosedProjectHidesAgentsToUngrouped(t *testing.T) {
 
 func TestProjectGroupedItemsEmptyOpenProjectShowsPlaceholder(t *testing.T) {
 	projs := []projectstore.Project{{ID: "/repos/empty", Name: "Empty", Path: "/repos/empty", Status: projectstore.StatusOpen}}
-	// Empty projects still expand to Plans; other empty sections are omitted.
+	// Empty projects still show as a header; empty sections are omitted.
 	expanded := map[string]bool{projKey("/repos/empty"): false}
 	items := projectGroupedItems(projs, nil, nil, nil, nil, nil, expanded)
 	h := projHdrByID(items, "/repos/empty")
 	require.NotNil(t, h, "an open project shows even with no agents (IDE-style)")
 	require.Equal(t, 0, h.agentCount)
 	out := renderList(items, 0, 120, 10)
-	require.Contains(t, out, "Plans")
+	require.Contains(t, out, "Empty")
+	require.NotContains(t, out, "Plans")
 	require.NotContains(t, out, "Autopilots")
 	require.NotContains(t, out, "Agents")
 	require.NotContains(t, out, "Terminals")
-	require.NotContains(t, out, "no agents", "sections replace the old empty-project placeholder")
+	require.Contains(t, out, "no agents", "empty project still shows the spawn hint")
 }
 
 func TestProjectGroupedItemsCollapseHidesSubtree(t *testing.T) {

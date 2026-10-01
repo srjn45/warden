@@ -204,35 +204,42 @@ func TestPlanTree_EmptyPlansCollapsedByDefault(t *testing.T) {
 	projs := []projectstore.Project{
 		{ID: "proj-1", Name: "Alpha", Path: "/alpha", Status: projectstore.StatusOpen},
 	}
-	// Project with 0 plans — still has five empty sections, so the project expands.
+	// Project with 0 plans and no other entities — empty sections omitted.
 	plansMap := map[string][]*planstore.Plan{"proj-1": {}}
 
 	items := buildProjectItems(projs, nil, nil, nil, client.AutopilotStatus{}, plansMap, nil, nil, false)
 	require.GreaterOrEqual(t, len(items), 1)
 	require.NotNil(t, items[0].projHdr)
-	// Plans section is always present, so the project expands; other empty
-	// sections are omitted.
-	require.False(t, items[0].collapsed, "project with section children is expanded")
-	require.True(t, items[1].planHeader)
-	require.True(t, items[1].collapsed, "plans header is always collapsed by default")
 	for _, it := range items {
+		require.False(t, it.planHeader, "empty Plans section must be omitted")
+		require.Equal(t, "", it.planGroup, "empty plan status groups must be omitted")
 		require.NotEqual(t, "Autopilots", it.treeSecLabel)
 		require.NotEqual(t, "Pipelines", it.treeSecLabel)
 		require.NotEqual(t, "Agents", it.treeSecLabel)
 		require.NotEqual(t, "Terminals", it.treeSecLabel)
 	}
+}
 
-	// With plans header explicitly expanded, status groups appear (all empty/collapsed).
-	collapsed := map[string]bool{"project:proj-1": false, "plans:proj-1": false}
-	itemsOpen := buildProjectItems(projs, nil, nil, nil, client.AutopilotStatus{}, plansMap, nil, collapsed, false)
-	var sawGroup bool
-	for _, it := range itemsOpen {
+func TestPlanTree_OmitsEmptyStatusGroups(t *testing.T) {
+	projs := []projectstore.Project{
+		{ID: "proj-1", Name: "Alpha", Path: "/alpha", Status: projectstore.StatusOpen},
+	}
+	plansMap := map[string][]*planstore.Plan{
+		"proj-1": {{
+			ID: "only-ip", Name: "Active", ProjectID: "proj-1",
+			Status: planstore.PlanStatusInProgress, FilePath: "plans/in_progress/active.yaml",
+		}},
+	}
+	collapsed := map[string]bool{"project:proj-1": false, "plans:proj-1": false, "plans:proj-1:in_progress": false}
+	items := buildProjectItems(projs, nil, nil, nil, client.AutopilotStatus{}, plansMap, nil, collapsed, false)
+
+	var groups []string
+	for _, it := range items {
 		if it.planGroup != "" {
-			sawGroup = true
-			break
+			groups = append(groups, it.planGroup)
 		}
 	}
-	require.True(t, sawGroup)
+	require.Equal(t, []string{"in_progress"}, groups, "only non-empty status groups appear")
 }
 
 func TestPlanTree_PlanDetailText(t *testing.T) {

@@ -175,15 +175,6 @@ func TestGolden_RFC18PopulatedTree(t *testing.T) {
       "children": [
         {
           "type": "section",
-          "id": "section:/home/u/dev/warden:plans",
-          "label": "Plans",
-          "status": "idle",
-          "detail": {
-            "section": "plans"
-          }
-        },
-        {
-          "type": "section",
           "id": "section:/home/u/dev/warden:autopilots",
           "label": "Autopilots",
           "status": "active",
@@ -341,15 +332,6 @@ func TestGolden_RFC18PopulatedTree(t *testing.T) {
         "synthetic": true
       },
       "children": [
-        {
-          "type": "section",
-          "id": "section:__none__:plans",
-          "label": "Plans",
-          "status": "idle",
-          "detail": {
-            "section": "plans"
-          }
-        },
         {
           "type": "section",
           "id": "section:__none__:terminals",

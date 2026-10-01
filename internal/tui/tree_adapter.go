@@ -258,10 +258,9 @@ func (ctx *adaptCtx) adaptProject(n *tree.Node) []item {
 	if collapsed {
 		return items
 	}
-	// Plans now arrive as a tree section (Plans → Autopilots → …). Prefer the
-	// service projection; fall back to the legacy TUI-only adaptPlans when the
-	// tree has no section children yet (older snapshots / empty projects with
-	// only TUI-fetched plans).
+	// Plans normally arrive as a tree section. Fall back to the TUI plans map
+	// only when the tree has no sections yet but this project still has plans
+	// to show (older snapshots / plans loaded only via the TUI fetch path).
 	hasSections := false
 	for _, ch := range children {
 		if ch != nil && ch.Type == tree.NodeTypeSection {
@@ -285,6 +284,10 @@ func (ctx *adaptCtx) adaptProject(n *tree.Node) []item {
 }
 
 func (ctx *adaptCtx) adaptPlans(projectID string) []item {
+	plans := ctx.projectPlans(projectID)
+	if len(plans) == 0 {
+		return nil
+	}
 	plansKey := "plans:" + projectID
 	var plansCollapsed bool
 	if c, ok := ctx.collapsed[plansKey]; ok {
@@ -305,13 +308,21 @@ func (ctx *adaptCtx) adaptPlans(projectID string) []item {
 	return append(items, ctx.adaptPlansBody(projectID)...)
 }
 
-func (ctx *adaptCtx) adaptPlansBody(projectID string) []item {
+func (ctx *adaptCtx) projectPlans(projectID string) []*planstore.Plan {
 	if ctx.plans == nil || projectID == "" || projectID == "__none__" {
 		return nil
 	}
 	plans := ctx.plans[projectID]
 	if len(plans) == 0 && ctx.openMeta[projectID].Path != "" {
 		plans = ctx.plans[ctx.openMeta[projectID].Path]
+	}
+	return plans
+}
+
+func (ctx *adaptCtx) adaptPlansBody(projectID string) []item {
+	plans := ctx.projectPlans(projectID)
+	if len(plans) == 0 {
+		return nil
 	}
 
 	// Partition plans by status
@@ -345,6 +356,9 @@ func (ctx *adaptCtx) adaptPlansBody(projectID string) []item {
 		}
 
 		grpPlans := byStatus[st]
+		if len(grpPlans) == 0 {
+			continue // skip empty status groups
+		}
 		items = append(items, item{
 			planGroup:    string(st),
 			planProject:  projectID,

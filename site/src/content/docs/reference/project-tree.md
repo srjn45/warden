@@ -25,9 +25,9 @@ Interactive Swagger UI documents the full schema under
 - **Roots** are project nodes (registered projects, loose directories, and a synthetic
   **No project** bucket).
 - Children under a project are **sections** in order: **Plans → Autopilots →
-  Pipelines → Agents → Terminals**. **Plans** is always present (even when empty).
-  **Autopilots**, **Pipelines**, **Agents**, and **Terminals** are omitted when
-  they have no children, so empty groupings do not clutter the TUI or API tree.
+  Pipelines → Agents → Terminals**. Any section with no children is omitted so
+  empty groupings do not clutter the TUI or API tree. In the TUI, empty plan
+  status groups (Pending / In Progress / Completed / Archived) are omitted too.
 - Each entity renders **exactly once**: Autopilot managers and workers nest under
   Autopilots (not Agents); pipeline job agents nest under Pipelines; Plan task
   evidence lives on Plan detail, never as task groups inside Autopilot.
