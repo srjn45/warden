@@ -327,6 +327,11 @@ func newDaemonRunCmd() *cobra.Command {
 			}
 			srv.SetBackends(backendStore)
 			usageService := backendusage.NewService(backendStore)
+			usageSnapshots, err := backendusage.NewSnapshotStore(filepath.Join(cfg.DataDir, "usage-snapshots"))
+			if err != nil {
+				return err
+			}
+			usageService.SetSnapshotStore(usageSnapshots)
 			srv.SetUsageService(usageService)
 			lc.Resolver = router.NewResolver(backendStore)
 

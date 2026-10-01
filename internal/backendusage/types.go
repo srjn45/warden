@@ -23,7 +23,65 @@ const (
 type Account struct {
 	Plan        string `json:"plan,omitempty"`
 	LoginMethod string `json:"login_method,omitempty"`
-	Label       string `json:"-"`
+	// ProfileFingerprint is an opaque, non-secret stable account/profile key.
+	// Adapters must never put an email address, token, or raw provider account ID here.
+	ProfileFingerprint string `json:"profile_fingerprint,omitempty"`
+	Label              string `json:"-"`
+}
+
+// CapacityDomain identifies the non-secret provider capacity that a result
+// describes. It is deliberately additive while quota bindings are introduced:
+// an empty profile means the adapter could only identify the provider default.
+type CapacityDomain struct {
+	Provider           string `json:"provider"`
+	ProfileFingerprint string `json:"profile_fingerprint,omitempty"`
+	Route              string `json:"route,omitempty"`
+}
+
+func (d CapacityDomain) Key() string {
+	return d.Provider + "\x00" + d.ProfileFingerprint + "\x00" + d.Route
+}
+
+type BucketState string
+
+const (
+	BucketAvailable BucketState = "available"
+	BucketExhausted BucketState = "exhausted"
+	BucketUnknown   BucketState = "unknown"
+)
+
+// CapacityBucket is the durable, normalized form of a provider Limit.
+type CapacityBucket struct {
+	Key              string      `json:"key"`
+	Scope            string      `json:"scope,omitempty"`
+	State            BucketState `json:"state"`
+	UsedPercent      *float64    `json:"used_percent,omitempty"`
+	RemainingPercent *float64    `json:"remaining_percent,omitempty"`
+	DurationMinutes  *int        `json:"duration_minutes,omitempty"`
+	ResetsAt         *time.Time  `json:"resets_at,omitempty"`
+}
+
+type Freshness string
+
+const (
+	FreshnessFresh   Freshness = "fresh"
+	FreshnessStale   Freshness = "stale"
+	FreshnessUnknown Freshness = "unknown"
+)
+
+// UsageSnapshot is one durable observation. Native details are intentionally
+// limited to the normalized error code; response bodies and account labels are
+// never stored.
+type UsageSnapshot struct {
+	Revision      uint64           `json:"revision"`
+	Domain        CapacityDomain   `json:"domain"`
+	ObservedAt    time.Time        `json:"observed_at"`
+	RecordedAt    time.Time        `json:"recorded_at"`
+	SourceStatus  Status           `json:"source_status"`
+	Authoritative bool             `json:"authoritative"`
+	Freshness     Freshness        `json:"freshness"`
+	Buckets       []CapacityBucket `json:"buckets"`
+	ErrorCode     string           `json:"error_code,omitempty"`
 }
 
 // Limit is one distinct provider-owned allowance/reset window. ID is unique
