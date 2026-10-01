@@ -22,6 +22,7 @@ import (
 	"github.com/srjn45/warden/internal/autopilotstore"
 	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/backendusage"
+	"github.com/srjn45/warden/internal/capacity"
 	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/ctxtokens"
@@ -329,6 +330,7 @@ func newDaemonRunCmd() *cobra.Command {
 			usageService := backendusage.NewService(backendStore)
 			srv.SetUsageService(usageService)
 			lc.Resolver = router.NewResolver(backendStore)
+			lc.CapacityResolver = capacity.NewResolver(backendStore, nil)
 
 			// First-class project store (docs/specs/2026-08-28-project-centric-ui.md
 			// Phase 1): the parent entity agents and pipelines group under via

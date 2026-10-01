@@ -23,6 +23,7 @@ import (
 	"github.com/srjn45/warden/internal/agentbackend"
 	_ "github.com/srjn45/warden/internal/agentbackend/backends" // register the Claude backend (and future adapters)
 	"github.com/srjn45/warden/internal/agentstore"
+	"github.com/srjn45/warden/internal/capacity"
 	"github.com/srjn45/warden/internal/llm"
 	"github.com/srjn45/warden/internal/memory"
 	"github.com/srjn45/warden/internal/pressure"
@@ -684,7 +685,8 @@ type Lifecycle struct {
 	// before the tiered-routing wiring) disables tier-based resolution: a hot-swap
 	// must then pin an explicit backend/model, or it is refused with a clear error.
 	// See SuccessorResolver.
-	Resolver SuccessorResolver
+	Resolver         SuccessorResolver
+	CapacityResolver *capacity.Resolver
 	// goos and readPSI are the platform seams for MemoryPressure: runtime.GOOS
 	// and a /proc/pressure/memory read in production, injected by tests so both
 	// kernel sources are exercised on any host.
@@ -1463,6 +1465,14 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*agentstore.Ag
 	// the router selects by tier/task/role. Degrades to req's values when no
 	// resolver is wired — a first spawn must never hard-fail on resolution.
 	req.Backend, req.Model = l.resolveSpawnTarget(ctx, req.Role, req.Task, req.Tier, req.Backend, req.Model)
+	var binding *capacity.QuotaBinding
+	if l.CapacityResolver != nil {
+		var bindErr error
+		binding, bindErr = l.CapacityResolver.Resolve(ctx, req.Backend, req.Model)
+		if bindErr != nil {
+			return nil, fmt.Errorf("resolve capacity binding: %w", bindErr)
+		}
+	}
 
 	agent := &agentstore.Agent{
 		ChildAgents: []string{}, ChildPipelines: []string{},
@@ -1482,6 +1492,7 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*agentstore.Ag
 		AutoApprove:    req.AutoApprove,
 		Model:          req.Model,
 		AiCli:          req.Backend,
+		QuotaBinding:   binding,
 		Role:           req.Role,
 		Task:           req.Task,
 	}
@@ -1858,6 +1869,15 @@ func (l *Lifecycle) resumeInTmuxWithHints(ctx context.Context, b agentbackend.Ba
 // on the operator recovery paths (RestoreSession / archived Recover) — not
 // here — so internal relaunch of errored/rate_limited sessions keeps working.
 func (l *Lifecycle) Restore(ctx context.Context, agent *agentstore.Agent) error {
+	// A legacy record with no binding remains explicitly unbound: restore cannot
+	// safely reconstruct the account/profile that originally launched it.
+	if agent.QuotaBinding != nil && l.CapacityResolver != nil {
+		binding, err := l.CapacityResolver.Resolve(ctx, agent.AiCli, agent.Model)
+		if err != nil {
+			return fmt.Errorf("resolve capacity binding: %w", err)
+		}
+		agent.QuotaBinding = binding
+	}
 	b := l.backendFor(agent.AiCli)
 	if !b.Capabilities().Resume {
 		// The agent's backend can't resume a prior session by id (e.g. Aider
@@ -2485,6 +2505,14 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*agentst
 	// Degrades to req's values when no resolver is wired — a job spawn must never
 	// hard-fail on resolution.
 	req.Backend, req.Model = l.resolveSpawnTarget(ctx, req.Role, req.Task, req.Tier, req.Backend, req.Model)
+	var binding *capacity.QuotaBinding
+	if l.CapacityResolver != nil {
+		var bindErr error
+		binding, bindErr = l.CapacityResolver.Resolve(ctx, req.Backend, req.Model)
+		if bindErr != nil {
+			return nil, fmt.Errorf("resolve capacity binding: %w", bindErr)
+		}
+	}
 	agent := &agentstore.Agent{
 		ChildAgents: []string{}, ChildPipelines: []string{},
 		ID: id, TmuxSession: id, Type: req.Type, Repo: req.Repo,
@@ -2492,7 +2520,7 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*agentst
 		Status: store.StatusSpawning, PermissionMode: req.PermissionMode,
 		PipelineID: req.PipelineID, PlanID: req.PlanID, JobID: req.JobID,
 		ScheduleID: req.ScheduleID, ScheduleName: req.ScheduleName,
-		Role: req.Role, AiCli: req.Backend, Model: req.Model,
+		Role: req.Role, AiCli: req.Backend, Model: req.Model, QuotaBinding: binding,
 		Tags: store.NormalizeTags(req.Tags),
 	}
 	cid, err := store.NewSessionID()

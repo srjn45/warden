@@ -152,6 +152,13 @@ func (l *Lifecycle) HotSwap(ctx context.Context, agent *agentstore.Agent, req Sw
 	// Mutate the agent to reflect the new driver (caller persists).
 	agent.AiCli = toBackend.ID()
 	agent.Model = toModel
+	if l.CapacityResolver != nil {
+		binding, bindErr := l.CapacityResolver.Resolve(ctx, agent.AiCli, agent.Model)
+		if bindErr != nil {
+			return nil, fmt.Errorf("hot-swap: resolve capacity binding: %w", bindErr)
+		}
+		agent.QuotaBinding = binding
+	}
 	agent.UpdatedAt = l.nowUTC()
 
 	return &SwapResult{

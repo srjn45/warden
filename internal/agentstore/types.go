@@ -6,8 +6,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/srjn45/warden/internal/capacity"
 	"github.com/srjn45/warden/internal/store"
 )
+
+// CapacityDomain and QuotaBinding are re-exported from the canonical persisted
+// entity package so callers working with Agent need no provider implementation.
+type CapacityDomain = capacity.CapacityDomain
+type QuotaBinding = capacity.QuotaBinding
 
 // Agent is the canonical AI-worker entity. Kind (and IsTerminal) are
 // intentionally absent — terminal panes are a separate entity managed by
@@ -61,14 +67,15 @@ type Agent struct {
 	ParentID        string        `json:"parent_id,omitempty"`
 	// ChildAgents and ChildPipelines preserve nil-vs-empty-slice semantics:
 	// nil = legacy record (no authoritative list), []string{} = authoritative empty.
-	ChildAgents     []string `json:"child_agents,omitempty"`
-	ChildPipelines  []string `json:"child_pipelines,omitempty"`
-	AutopilotRunID  string   `json:"autopilot_run_id,omitempty"`
-	AutopilotSlot   string   `json:"autopilot_slot,omitempty"`
-	AutopilotTaskID string   `json:"autopilot_task_id,omitempty"`
-	Model           string   `json:"model,omitempty"`
-	ProjectID       string   `json:"project_id,omitempty"`
-	Hibernated      bool     `json:"hibernated,omitempty"`
+	ChildAgents     []string               `json:"child_agents,omitempty"`
+	ChildPipelines  []string               `json:"child_pipelines,omitempty"`
+	AutopilotRunID  string                 `json:"autopilot_run_id,omitempty"`
+	AutopilotSlot   string                 `json:"autopilot_slot,omitempty"`
+	AutopilotTaskID string                 `json:"autopilot_task_id,omitempty"`
+	Model           string                 `json:"model,omitempty"`
+	QuotaBinding    *capacity.QuotaBinding `json:"quota_binding,omitempty"`
+	ProjectID       string                 `json:"project_id,omitempty"`
+	Hibernated      bool                   `json:"hibernated,omitempty"`
 
 	ContextTokens    int        `json:"context_tokens,omitempty"`
 	ContextState     string     `json:"context_state,omitempty"`
@@ -205,6 +212,7 @@ func (a *Agent) ToSession() *store.Session {
 		AutopilotSlot:             a.AutopilotSlot,
 		AutopilotTaskID:           a.AutopilotTaskID,
 		Model:                     a.Model,
+		QuotaBinding:              a.QuotaBinding,
 		ProjectID:                 a.ProjectID,
 		Hibernated:                a.Hibernated,
 		ContextTokens:             a.ContextTokens,
@@ -269,6 +277,7 @@ func FromSession(s *store.Session) *Agent {
 		AutopilotSlot:             s.AutopilotSlot,
 		AutopilotTaskID:           s.AutopilotTaskID,
 		Model:                     s.Model,
+		QuotaBinding:              s.QuotaBinding,
 		ProjectID:                 s.ProjectID,
 		Hibernated:                s.Hibernated,
 		ContextTokens:             s.ContextTokens,
@@ -290,6 +299,16 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// CapacityBindingState labels records without a daemon-owned binding as legacy.
+// It intentionally derives from the persisted nil value so reading an old record
+// never writes a guessed account/profile or bucket claim back to storage.
+func (a *Agent) CapacityBindingState() string {
+	if a == nil || a.QuotaBinding == nil {
+		return capacity.LegacyUnbound
+	}
+	return "bound"
 }
 
 // AgentStore defines the persistence interface for AI agents.
