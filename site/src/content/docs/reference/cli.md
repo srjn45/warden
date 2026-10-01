@@ -1148,6 +1148,7 @@ Commands:
   complete             Complete a plan (in_progress → completed)
   archive              Archive a plan (any status → archived)
   sync_to_repo         Export a plan revision to a dedicated branch and open a PR
+  hub-sync             Explicitly sync canonical plans with the configured Hub
   backup               Export or restore a portable Plan backup bundle
   import               [deprecated] Copy a plan YAML into plans/pending/ and scan
   import-legacy        Import legacy plans/**/*.yaml into ScrivaDB (operator cutover)
@@ -1420,6 +1421,78 @@ Flags:
       --path string         replica output path override (default: plans/{lifecycle}/<slug>.{yaml|json})
       --repo string         local git repository path (default: plan project root)
       --repository string   stable repository identity for export records (default: origin URL)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan hub-sync
+
+```text
+Explicitly sync canonical plans with the configured Hub
+
+Usage:
+  warden plan hub-sync [flags]
+
+Commands:
+  discover             
+  pull                 
+  push                 
+
+Flags:
+  -h, --help   help for hub-sync
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan hub-sync discover
+
+```text
+
+Usage:
+  warden plan hub-sync discover [plan-id] [flags]
+
+Flags:
+  -h, --help                 help for discover
+      --scope string         Hub project scope (defaults to the plan project on push)
+      --status stringArray   lifecycle status filter (repeatable)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan hub-sync pull
+
+```text
+
+Usage:
+  warden plan hub-sync pull [plan-id] [flags]
+
+Flags:
+  -h, --help                 help for pull
+      --scope string         Hub project scope (defaults to the plan project on push)
+      --status stringArray   lifecycle status filter (repeatable)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan hub-sync push
+
+```text
+
+Usage:
+  warden plan hub-sync push [plan-id] [flags]
+
+Flags:
+  -h, --help                 help for push
+      --scope string         Hub project scope (defaults to the plan project on push)
+      --status stringArray   lifecycle status filter (repeatable)
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)

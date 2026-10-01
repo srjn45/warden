@@ -1599,14 +1599,19 @@ These are **explicit** deferrals (design freeze §10 / D6), not silent omissions
 Phase 12 acceptance records them as follow-up issues — see
 [`docs/specs/2026-09-30-scrivadb-canonical-plans-acceptance.md`](specs/2026-09-30-scrivadb-canonical-plans-acceptance.md).
 
-- **Phase A shipped:** opt-in Warden Hub plan-sync client (`plan_sync.provider:
-  hub`, `hub_url`, token or `WARDEN_PLAN_SYNC_TOKEN`; the environment token wins).
-  `plansync.Default()` stays local/offline and `warden config` reports the
-  resolved provider, URL, and whether a token is set without exposing it. The
-  frozen Phase B service contract is `POST /api/v1/plan-sync/{push,pull,discover}`
-  with a Bearer token, v1 JSON envelopes, and structured `409` conflicts; Phase B
-  must supply durable storage and real authorization. Phase C remains daemon
-  wiring/operator sync verbs and the TUI/MCP teammate-discovery badge.
+- **Phases A–C shipped (#586):** opt-in Warden Hub plan sync uses
+  `plan_sync.provider: hub`, `hub_url`, and a token or `WARDEN_PLAN_SYNC_TOKEN`
+  (the environment token wins). The authenticated Hub service provides scoped
+  Push/Pull/Discover envelope endpoints; operators invoke them explicitly with
+  `wd plan hub-sync push|pull|discover` or MCP `hub_sync_push` /
+  `hub_sync_pull` / `hub_sync_discover`. The cockpit renders scoped pending and
+  in-progress Discover results in a read-only **Remote Plans** section with a
+  count badge. `plansync.Default()` stays local/offline, `warden config` reports
+  the resolved provider, URL, and token presence without exposing a secret, and
+  the local provider returns no remote entries.
+- **D6 remains a hard boundary:** no background replication or startup network
+  calls; Hub does not replace `origin/main`, CI, or merged Git history as the
+  authority for shipped code.
 - Per-task execution (plans run as a whole; `update_task_status` records progress only)
 
 **Shipped follow-up (no longer deferred):**
