@@ -388,15 +388,22 @@ func TestLoad_RateLimitRecovery_StabilizationWindowInvalid(t *testing.T) {
 }
 
 func TestLoad_UsageReconciliationConfig(t *testing.T) {
-	c := Load(tmpConfig(t, "rate_limit:\n  recovery:\n    usage_reconciliation:\n      enabled: true\n      interval: 2m\n      stale_after: 20m\n"))
+	c := Load(tmpConfig(t, "rate_limit:\n  recovery:\n    usage_reconciliation:\n      enabled: true\n      interval: 2m\n      stale_after: 20m\n      max_parallel_swaps: 5\n"))
 	require.True(t, c.RateLimit.Recovery.UsageReconciliation.Enabled)
 	require.Equal(t, 2*time.Minute, c.UsageReconciliationIntervalDuration())
 	require.Equal(t, 20*time.Minute, c.UsageReconciliationStaleAfterDuration())
+	require.Equal(t, 5, c.UsageReconciliationMaxParallelSwaps())
 
 	d := Load(tmpConfig(t, ""))
 	require.False(t, d.RateLimit.Recovery.UsageReconciliation.Enabled)
 	require.Equal(t, time.Minute, d.UsageReconciliationIntervalDuration())
 	require.Equal(t, 15*time.Minute, d.UsageReconciliationStaleAfterDuration())
+	require.Equal(t, 3, d.UsageReconciliationMaxParallelSwaps(), "default max_parallel_swaps is 3 when unset")
+}
+
+func TestLoad_UsageReconciliationMaxParallelSwapsInvalidFallsBack(t *testing.T) {
+	c := Load(tmpConfig(t, "rate_limit:\n  recovery:\n    usage_reconciliation:\n      max_parallel_swaps: -1\n"))
+	require.Equal(t, 3, c.UsageReconciliationMaxParallelSwaps(), "non-positive max_parallel_swaps falls back to the default")
 }
 
 func TestLoad_HTTP_Namespaced(t *testing.T) {

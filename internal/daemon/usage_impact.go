@@ -26,8 +26,8 @@ func (s *Server) LastBucketImpact() capacity.ImpactResult {
 }
 
 // calculateBucketImpact maps the latest durable usage snapshots onto live agents.
-// Phase 5 intentionally stops at the structured impact result — Phase 6 wires
-// AffectedAgents into BackendRecoveryCoordinator.
+// It intentionally stops at the structured impact result; reconcileBucketImpactAfterPoll
+// is the sole caller that forwards AffectedAgents into startBulkRecovery.
 func (s *Server) calculateBucketImpact(ctx context.Context) (capacity.ImpactResult, error) {
 	empty := capacity.ImpactResult{
 		ExhaustedBuckets: []capacity.ExhaustedBucket{},
@@ -115,6 +115,7 @@ func observationsFromSnapshots(snaps []backendusage.UsageSnapshot, source string
 				Freshness:          string(snap.Freshness),
 				Authoritative:      snap.Authoritative,
 				Source:             source,
+				ResetsAt:           b.ResetsAt,
 			})
 		}
 		if len(snap.Buckets) == 0 && (!snap.Authoritative || snap.Freshness != backendusage.FreshnessFresh) {
@@ -142,9 +143,10 @@ func cloneImpact(in capacity.ImpactResult) capacity.ImpactResult {
 	}
 }
 
-// reconcileBucketImpactAfterPoll runs Phase 5 impact calculation after a usage
-// observation. Failures are logged; they must not break the polling loop or
-// start recovery swaps.
+// reconcileBucketImpactAfterPoll runs impact calculation after a usage
+// observation, then (coordinated-bulk-recovery) advances every AffectedAgent
+// through the existing backend recovery coordinator via startBulkRecovery.
+// Impact-calculation failures are logged; they must not break the polling loop.
 func (s *Server) reconcileBucketImpactAfterPoll(ctx context.Context) {
 	if s == nil || s.impactFences == nil {
 		return
@@ -163,4 +165,5 @@ func (s *Server) reconcileBucketImpactAfterPoll(ctx context.Context) {
 		"skipped_agents", len(result.SkippedAgents),
 		"stale_or_unknown", len(result.StaleOrUnknown),
 	)
+	s.startBulkRecovery(ctx, result.AffectedAgents)
 }
