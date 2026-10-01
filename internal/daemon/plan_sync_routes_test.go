@@ -70,7 +70,94 @@ func TestSyncPlanToRepoRoute_IdempotentWithFakeGit(t *testing.T) {
 	require.Equal(t, 1, git.prCalls, "idempotent reuse must not open another PR")
 }
 
-func TestHubPlanSyncRoutes_RequireBearerAndServeHubProvider(t *testing.T) {
+func TestHubPlanSyncRoutes_PushSuccessAndConflict(t *testing.T) {
+	ts := newHubPlanSyncRouteServer(t)
+	hub, err := plansync.NewHub(plansync.HubOptions{BaseURL: ts.URL, Token: "hub-secret", HTTP: ts.Client()})
+	require.NoError(t, err)
+
+	env := hubRouteEnvelope("push", planstore.PlanStatusPending, "org", "team", "project")
+	ack, err := hub.PushEnvelope(context.Background(), env)
+	require.NoError(t, err)
+	require.NotEmpty(t, ack.RemoteID)
+	require.NotNil(t, ack.SyncedAt)
+
+	conflicting := env
+	conflicting.Revision = 2
+	conflicting.ContentHash = "sha256:push-conflict"
+	conflicting.ConflictToken = plansync.ConflictToken(conflicting.Revision, conflicting.ContentHash)
+	_, err = hub.PushEnvelope(context.Background(), conflicting)
+	var conflict *plansync.ConflictError
+	require.ErrorAs(t, err, &conflict)
+	require.Equal(t, env.PlanID, conflict.PlanID)
+	require.Equal(t, env.ConflictToken, conflict.Expected)
+	require.Equal(t, conflicting.ConflictToken, conflict.Actual)
+}
+
+func TestHubPlanSyncRoutes_PullFilters(t *testing.T) {
+	ts := newHubPlanSyncRouteServer(t)
+	hub, err := plansync.NewHub(plansync.HubOptions{BaseURL: ts.URL, Token: "hub-secret", HTTP: ts.Client()})
+	require.NoError(t, err)
+
+	matching := hubRouteEnvelope("matching", planstore.PlanStatusInProgress, "org", "team", "project")
+	for _, env := range []plansync.Envelope{
+		matching,
+		hubRouteEnvelope("wrong-status", planstore.PlanStatusCompleted, "org", "team", "project"),
+		hubRouteEnvelope("wrong-team", planstore.PlanStatusInProgress, "org", "other-team", "project"),
+	} {
+		require.NoError(t, hub.Push(context.Background(), env))
+	}
+
+	got, err := hub.Pull(context.Background(), plansync.PullQuery{
+		Scope: matching.Scope, Statuses: []planstore.PlanStatus{planstore.PlanStatusInProgress},
+	})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, matching.PlanID, got[0].PlanID)
+
+	got, err = hub.Pull(context.Background(), plansync.PullQuery{Scope: matching.Scope, PlanID: "wrong-status"})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, "wrong-status", got[0].PlanID)
+}
+
+func TestHubPlanSyncRoutes_DiscoverFiltersAndAuthRejection(t *testing.T) {
+	ts := newHubPlanSyncRouteServer(t)
+	hub, err := plansync.NewHub(plansync.HubOptions{BaseURL: ts.URL, Token: "hub-secret", HTTP: ts.Client()})
+	require.NoError(t, err)
+
+	scope := plansync.Scope{OrganizationID: "org", TeamID: "team", ProjectID: "project"}
+	for _, env := range []plansync.Envelope{
+		hubRouteEnvelope("pending", planstore.PlanStatusPending, "org", "team", "project"),
+		hubRouteEnvelope("running", planstore.PlanStatusInProgress, "org", "team", "project"),
+		hubRouteEnvelope("completed", planstore.PlanStatusCompleted, "org", "team", "project"),
+		hubRouteEnvelope("other-project", planstore.PlanStatusPending, "org", "team", "other-project"),
+	} {
+		require.NoError(t, hub.Push(context.Background(), env))
+	}
+
+	got, err := hub.Discover(context.Background(), scope, nil)
+	require.NoError(t, err)
+	require.Len(t, got, 2, "empty discovery filter defaults to pending and in_progress")
+	require.ElementsMatch(t, []string{"pending", "running"}, []string{got[0].PlanID, got[1].PlanID})
+
+	got, err = hub.Discover(context.Background(), scope, []planstore.PlanStatus{planstore.PlanStatusCompleted})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, "completed", got[0].PlanID)
+
+	resp, err := http.Post(ts.URL+plansync.PathDiscover, "application/json", bytes.NewReader(mustPlanSyncJSON(t, map[string]any{"scope": scope})))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+
+	readonly, err := plansync.NewHub(plansync.HubOptions{BaseURL: ts.URL, Token: "readonly", HTTP: ts.Client()})
+	require.NoError(t, err)
+	_, err = readonly.Discover(context.Background(), scope, nil)
+	require.Error(t, err, "read-only bearer token cannot discover")
+}
+
+func newHubPlanSyncRouteServer(t *testing.T) *httptest.Server {
+	t.Helper()
 	hubStore, err := plansync.NewFileHubStore(t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, hubStore.Close()) })
@@ -79,30 +166,18 @@ func TestHubPlanSyncRoutes_RequireBearerAndServeHubProvider(t *testing.T) {
 	srv.SetAuth("hub-secret", "readonly")
 	ts := httptest.NewServer(srv.router())
 	t.Cleanup(ts.Close)
+	return ts
+}
 
-	env := plansync.Envelope{
+func hubRouteEnvelope(id string, status planstore.PlanStatus, org, team, project string) plansync.Envelope {
+	hash := "sha256:" + id
+	return plansync.Envelope{
 		SchemaVersion: plansync.SchemaVersion,
-		Scope:         plansync.Scope{OrganizationID: "org", TeamID: "team", ProjectID: "project"},
-		ProjectID:     "project", PlanID: "hub-route", Revision: 1, ContentHash: "sha256:one",
-		Visibility: plansync.VisibilityTeam, Lifecycle: planstore.PlanStatusPending,
-		ConflictToken: plansync.ConflictToken(1, "sha256:one"),
+		Scope:         plansync.Scope{OrganizationID: org, TeamID: team, ProjectID: project},
+		ProjectID:     project, PlanID: id, Revision: 1, ContentHash: hash,
+		Visibility: plansync.VisibilityTeam, Lifecycle: status,
+		ConflictToken: plansync.ConflictToken(1, hash),
 	}
-	noAuth := bytes.NewReader(mustPlanSyncJSON(t, env))
-	resp, err := http.Post(ts.URL+plansync.PathPush, "application/json", noAuth)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
-	require.NoError(t, resp.Body.Close())
-
-	hub, err := plansync.NewHub(plansync.HubOptions{BaseURL: ts.URL, Token: "hub-secret", HTTP: ts.Client()})
-	require.NoError(t, err)
-	require.NoError(t, hub.Push(context.Background(), env))
-	discovered, err := hub.Discover(context.Background(), env.Scope, nil)
-	require.NoError(t, err)
-	require.Len(t, discovered, 1)
-
-	readonly, err := plansync.NewHub(plansync.HubOptions{BaseURL: ts.URL, Token: "readonly", HTTP: ts.Client()})
-	require.NoError(t, err)
-	require.Error(t, readonly.Push(context.Background(), env), "read-only bearer token cannot push")
 }
 
 func mustPlanSyncJSON(t *testing.T, value any) []byte {

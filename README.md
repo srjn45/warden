@@ -108,6 +108,23 @@ Capability highlights from recent releases (full notes on the [releases page](ht
 - **Reactive backend hard-limit recovery** — when an agent hits a confirmed provider hard limit (session, weekly, or monthly cap), the daemon automatically **tries the next eligible backend/model** from the backend registry without operator intervention. Usage windows are refreshed from `internal/backendusage`, candidates are ranked by known headroom (minimum across overlapping pools), and each attempt must **stabilize** (10 s of live non-limited status) before recovery clears — a process launch alone is never counted as success. Per-pool limits (`(backend, model)` pairs) are tracked exactly so independent Gemini/non-Gemini or Codex pools are kept separate. When all candidates are exhausted, the agent persists `waiting_for_capacity` with known reset times and retries automatically on the earliest reset. Manual switch/stop/delete always supersedes automatic recovery. The deprecated `threshold_percent` and `rolling_quota_threshold` fields are decoded but ignored — reactive recovery replaced proactive quota prediction. Recovery state is visible on every agent status API, MCP `get_agent`, and SSE stream. See [Backend hard-limit recovery guide](https://srjn45.github.io/warden/guides/backend-recovery/).
 - **Resilience & ergonomics round-up** — `warden agent recover` re-registers archived `orphaned` agents with live panes (tombstone-reaper safety net); the web `/tui` cockpit **self-heals** (validated and auto-rebuilt if wedged; `warden tui --rebuild-web-cockpit` forces it); `warden tui` inside an existing tmux session lays out as a **native tmux window** instead of erroring (`--tmux-native`); `wd push --force-with-lease` for safe force-pushes; rate-limit auto-resume now also answers Claude's **wait-menu and monthly spend cap** (`rate_limit.spend_retry_interval`); and all daemon stores (sessions, pipelines, schedules, snapshots, context, mailbox) run on an embedded ScrivaDB — still no database server.
 - **Factory reset (`warden factory-reset`)** — drain all live agents/pipelines/autopilot/schedules, then wipe on-disk stores with `--scope runtime|data|full`. `--backup` archives the data dir first; `--keep-config` and `--keep-backends` preserve configuration and the backend registry across the wipe. Requires `--yes`. CLI-only by design (destructive; the daemon must be stopped for the data phase). See [`reference/cli#warden-factory-reset`](https://srjn45.github.io/warden/reference/cli/#warden-factory-reset).
+
+### Hub plan-sync local smoke test
+
+Run a local Hub with an explicit bearer token, then point a Hub-enabled client at it. The Hub envelope store is persisted under the daemon data directory, separately from canonical local plans and repository exports.
+
+```sh
+export WARDEN_TOKEN="$(warden token generate)"
+warden daemon --addr 127.0.0.1:8787
+
+# In another shell, configure the client that will push/pull plan envelopes.
+# plan_sync.provider: hub
+# plan_sync.hub_url: http://127.0.0.1:8787
+# plan_sync.token: $WARDEN_PLAN_SYNC_TOKEN
+export WARDEN_PLAN_SYNC_TOKEN="$WARDEN_TOKEN"
+```
+
+For a direct endpoint check, POST a valid v1 plan-sync envelope to `http://127.0.0.1:8787/api/v1/plan-sync/push` with `Authorization: Bearer $WARDEN_TOKEN`; use the matching `pull` or `discover` endpoint to read it back. Stop the daemon with `Ctrl-C` when finished. A default installation remains local/offline and makes no Hub network calls.
 - **Isolation guardrails (v5.0, breaking)** — write-type agents (`code`/`docs`/`website`/`debug-ci`/`tests`) now spawn into their own worktree by default (`--in-repo` opts out), backed by PreToolUse hooks that deny-redirect raw `git`/test commands to the first-class `warden commit`/`push`/`sync`/`check` tools. See [Lifecycle commands & boundary enforcement](#lifecycle-commands--boundary-enforcement).
 - **Interactive mode (`warden backend repl`)** — a terminal REPL with a real line editor (history, a live `/`-command menu, Tab completion, guided argument forms, colour) that drives the fleet via deterministic `/` commands (no model) or natural language (a local-LLM conductor that turns operator intent into confirmed warden tool calls without spending cloud-model tokens).
 - **Pipelines, end to end** — DAG pipelines are now drivable from the **MCP tools** (create/start/show/list/cancel), ship four built-in `--template` starters, and support `run_if` conditional steps.
