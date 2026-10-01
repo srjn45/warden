@@ -135,12 +135,36 @@ func TestPlanCreateCmd(t *testing.T) {
 	}
 }
 
+func TestPlanCreateCmdWithAfterDeps(t *testing.T) {
+	body := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"POST /api/v1/plans": planSingleJSON,
+	}, nil, body))
+	_, err := runCLI(t, addr, "plan", "create",
+		"--project", planProjectID,
+		"--name", "feature-x",
+		"--goal", "ship it",
+		"--task", "t1:first",
+		"--task", "t2@t1:second",
+	)
+	if err != nil {
+		t.Fatalf("plan create: %v", err)
+	}
+	posted := body["/api/v1/plans"]
+	for _, want := range []string{`"id":"t2"`, `"prompt":"second"`, `"after":["t1"]`} {
+		if !strings.Contains(posted, want) {
+			t.Fatalf("create body missing %q: %q", want, posted)
+		}
+	}
+}
+
 func TestPlanCreateCmdInteractive(t *testing.T) {
 	body := map[string]string{}
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
 		"POST /api/v1/plans": planSingleJSON,
 	}, nil, body))
-	out, err := runCLIStdin(t, addr, "t1\ndo the work\n\n",
+	// id, prompt, after (blank), blank id to finish
+	out, err := runCLIStdin(t, addr, "t1\ndo the work\n\n\n",
 		"plan", "create",
 		"--project", planProjectID,
 		"--name", "feature-x",
@@ -369,10 +393,20 @@ func TestParsePlanTaskFlag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.ID != "t1" || got.Prompt != "do the work:with a colon" {
+	if got.ID != "t1" || got.Prompt != "do the work:with a colon" || len(got.After) != 0 {
+		t.Fatalf("got %+v", got)
+	}
+	got, err = parsePlanTaskFlag("t2@t1,a:next")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "t2" || got.Prompt != "next" || len(got.After) != 2 || got.After[0] != "t1" || got.After[1] != "a" {
 		t.Fatalf("got %+v", got)
 	}
 	if _, err := parsePlanTaskFlag("no-colon"); err == nil {
 		t.Fatal("expected error")
+	}
+	if _, err := parsePlanTaskFlag("t@:x"); err == nil {
+		t.Fatal("expected empty-after error")
 	}
 }

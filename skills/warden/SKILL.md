@@ -316,11 +316,16 @@ checklist enum, not ledger states.
 
 ## Plans
 
-Plans are canonical ScrivaDB records (goal, tasks, lifecycle, revision, content
+Plans are canonical ScrivaDB records (goal, **task DAG**, lifecycle, revision, content
 hash). Repository YAML/JSON under `plans/{pending,in_progress,completed,archived}/`
 is an optional inert export — not required for create/run/complete/archive, and
 never scanned automatically at daemon startup. YAML is the default; JSON
 (`--format json` / `warden_plan_export` marker) is opt-in and never execution SoT.
+Every Plan's tasks form a DAG (`after` edges). Multi-task creates with no edges
+are auto-chained in declaration order; cycles are rejected. All execution modes
+(autopilot / pipeline / orchestrator / manual) honor that DAG —
+`update_task_status` to `in_progress`/`done` is gated until dependencies are
+satisfied.
 
 ### MCP tools
 
@@ -331,7 +336,7 @@ never scanned automatically at daemon startup. YAML is the default; JSON
 | `list_plans` | List ScrivaDB-canonical plans for a project (optional `status`). Returns revision, executor_id, task_summary, export_status, timestamps. YAML/JSON replicas are never listed as extra plans. |
 | `get_plan` | Fetch one plan by stable `plan-<8hex>` ID: goal, tasks, revision, executor_id, task_summary, export_status, repo_export, linked IDs, `task_progress`, timestamps. Does not read repository YAML. |
 | `find_related_plans` | Heuristic overlap query (same project, title/goal tokens, linked branches/PRs). Always returns `heuristic=true` + disclaimer — not authoritative duplicate detection. |
-| `create_plan` | Create a new canonical plan in ScrivaDB (no `plans/` directory required). Requires `project_id`, `name`, `goal`, and at least one task (`id` + `prompt`). |
+| `create_plan` | Create a new canonical plan in ScrivaDB (no `plans/` directory required). Requires `project_id`, `name`, `goal`, and at least one task (`id` + `prompt`; optional `after[]`). Multi-task plans without `after` are auto-chained in order. |
 | `update_plan` | Patch a **pending** plan's definition (`name`/`goal`/`tasks`/`constraints`/`done_when`). Rejected if the plan is not pending. Supports `expected_revision` for optimistic concurrency. |
 | `update_plan_status` | **Legacy.** Prefer `run_plan` / `complete_plan` / `archive_plan` for the PlanService state machine. |
 | `archive_plan` | Move a plan to `archived` (any status). |

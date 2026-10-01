@@ -1502,7 +1502,7 @@ type PlanSyncToRepoResultOutcome string
 
 // PlanTask defines model for PlanTask.
 type PlanTask struct {
-	// After task ids that must complete before this task starts
+	// After Task ids that must complete before this task starts. Plans are DAGs: multi-task creates with no after edges are auto-chained in declaration order. Cycles are rejected.
 	After []string `json:"after,omitempty"`
 
 	// Id stable task id within its plan

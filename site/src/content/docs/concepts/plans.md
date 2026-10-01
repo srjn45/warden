@@ -44,14 +44,19 @@ Identity is preserved across legacy import so execution links survive cutover.
 
 ## Execution modes
 
-When a plan is run with `wd plan run <id> --mode <mode>`, warden starts from the **ScrivaDB definition** (snapshot-at-start) and links an execution entity:
+When a plan is run with `wd plan run <id> --mode <mode>`, warden starts from the **ScrivaDB definition** (snapshot-at-start) and links an execution entity.
 
-| Mode | What warden creates | Completion |
+The **task list is always a DAG** (`after:` edges). Multi-task plans without explicit edges are auto-chained in declaration order on create/update. Every mode honors that DAG:
+
+| Mode | What warden creates | How the DAG is enforced |
 |---|---|---|
-| `autopilot` | Live Autopilot + manager Agent (`PlanID` required) | Daemon watches run `completed` |
-| `pipeline` | Pipeline `P:<plan-name>` (one job per task ID + deps) | Daemon watches pipeline `done` |
-| `orchestrator_worker` | Agent `O:<plan-name>` (`role=orchestrator`) | `wd plan complete <id>` |
-| `manual` | Agent `M:<plan-name>` (`role=general`) | `wd plan complete <id>` |
+| `autopilot` | Live Autopilot + manager Agent (`PlanID` required) | Brain digest lists `after:`; only ready tasks should be spawned |
+| `pipeline` | Pipeline `P:<plan-name>` (one job per task ID + `depends_on`) | Executor spawns only when dependencies are done |
+| `orchestrator_worker` | Agent `O:<plan-name>` (`role=orchestrator`) | Prompt lists ready vs blocked; `wd plan done` / task status gated on deps |
+| `manual` | Agent `M:<plan-name>` (`role=general`) | Same ready/blocked prompt + task-status gating |
+
+Completion for autopilot/pipeline is watched by the daemon; orchestrator/manual complete via `wd plan complete <id>`.
+
 
 ## Optional replica export
 
