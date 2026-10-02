@@ -52,6 +52,10 @@ type BackendRecoveryCoordinator struct {
 	// bound agents at once (a shared capacity-bucket loss) cannot stampede every
 	// one of them onto the same limited alternative simultaneously.
 	advanceSem chan struct{}
+	// temporaryAdvanceSem, when non-nil, is preferred by advanceGated so an
+	// operator `usage recover --max-parallel-swaps` override applies only for
+	// that one-shot invocation without permanently changing the daemon config.
+	temporaryAdvanceSem chan struct{}
 }
 
 type backendRecoveryLife interface {
@@ -132,6 +136,49 @@ func (c *BackendRecoveryCoordinator) WithMaxParallelAdvance(n int) *BackendRecov
 		c.advanceSem = make(chan struct{}, n)
 	}
 	return c
+}
+
+// MaxParallelAdvance returns the configured advance concurrency bound, or 0
+// when advances are unbounded.
+func (c *BackendRecoveryCoordinator) MaxParallelAdvance() int {
+	if c == nil || c.advanceSem == nil {
+		return 0
+	}
+	return cap(c.advanceSem)
+}
+
+// runWithMaxParallel temporarily overrides the advance semaphore for fn.
+// In-flight advances that already acquired a token keep their original
+// semaphore; new advances started during fn use the override when n > 0.
+func (c *BackendRecoveryCoordinator) runWithMaxParallel(n int, fn func()) {
+	if c == nil || fn == nil {
+		return
+	}
+	if n <= 0 {
+		fn()
+		return
+	}
+	sem := make(chan struct{}, n)
+	c.mu.Lock()
+	c.temporaryAdvanceSem = sem
+	c.mu.Unlock()
+	defer func() {
+		c.mu.Lock()
+		if c.temporaryAdvanceSem == sem {
+			c.temporaryAdvanceSem = nil
+		}
+		c.mu.Unlock()
+	}()
+	fn()
+}
+
+func (c *BackendRecoveryCoordinator) activeAdvanceSem() chan struct{} {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.temporaryAdvanceSem != nil {
+		return c.temporaryAdvanceSem
+	}
+	return c.advanceSem
 }
 
 func (c *BackendRecoveryCoordinator) sessionLock(id string) *sync.Mutex {
@@ -229,9 +276,9 @@ func (c *BackendRecoveryCoordinator) OnHardLimit(sess *agentstore.Agent, fallbac
 // own goroutine (e.g. retry, which fires from a time.AfterFunc) can call this
 // directly; dispatchAdvance wraps it in `go` for callers that must not block.
 func (c *BackendRecoveryCoordinator) advanceGated(id string, generation uint64, fallbackAt time.Time) {
-	if c.advanceSem != nil {
-		c.advanceSem <- struct{}{}
-		defer func() { <-c.advanceSem }()
+	if sem := c.activeAdvanceSem(); sem != nil {
+		sem <- struct{}{}
+		defer func() { <-sem }()
 	}
 	c.advance(id, generation, fallbackAt)
 }
@@ -241,6 +288,43 @@ func (c *BackendRecoveryCoordinator) advanceGated(id string, generation uint64, 
 // acquisition (when bounded) never blocks a caller holding sessionLock(id).
 func (c *BackendRecoveryCoordinator) dispatchAdvance(id string, generation uint64, fallbackAt time.Time) {
 	go c.advanceGated(id, generation, fallbackAt)
+}
+
+// PreviewCandidates ranks policy-eligible replacement pools for sess against a
+// fresh usage snapshot without mutating agent or recovery state. selected is
+// nil when every candidate is exhausted, cooling down, or is the agent's
+// current pool — matching the coordinator's waiting_for_capacity decision.
+func (c *BackendRecoveryCoordinator) PreviewCandidates(ctx context.Context, sess *agentstore.Agent) (selected *store.BackendCandidate, ranked []store.BackendCandidate) {
+	if c == nil || sess == nil || c.usage == nil || c.backends == nil {
+		return nil, nil
+	}
+	snap, err := c.usage.Snapshot(ctx, true)
+	if err != nil {
+		snap = backendusage.Snapshot{}
+	}
+	candidates := c.policyCandidates(sess)
+	rankedRec := recovery.Rank(candidates, snap)
+	now := c.now().UTC()
+	current := candidateKey(sess.AiCli, sess.Model)
+	out := make([]store.BackendCandidate, 0, len(rankedRec))
+	for i := range rankedRec {
+		cand := store.BackendCandidate{BackendID: rankedRec[i].BackendID, ModelID: rankedRec[i].ModelID}
+		out = append(out, cand)
+		if selected != nil {
+			continue
+		}
+		if candidateKey(cand.BackendID, cand.ModelID) == current {
+			continue
+		}
+		if c.isCoolingDown(cand.BackendID, cand.ModelID, now) {
+			continue
+		}
+		if rankedRec[i].Headroom != nil && *rankedRec[i].Headroom <= 0 {
+			continue
+		}
+		selected = &cand
+	}
+	return selected, out
 }
 
 func (c *BackendRecoveryCoordinator) advance(id string, generation uint64, fallbackAt time.Time) {

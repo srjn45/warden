@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/srjn45/warden/internal/backendusage"
+	"github.com/srjn45/warden/internal/client"
 )
 
 type partialResultError struct{}
@@ -28,7 +29,7 @@ func ExitCode(err error) int {
 }
 
 // newUsageNamespaceCmd is the canonical usage namespace. Its bare action remains
-// the provider quota snapshot; spend, savings, and insights are grouped beneath it.
+// the provider quota snapshot; spend, savings, insights, and recover are grouped beneath it.
 func newUsageNamespaceCmd() *cobra.Command {
 	cmd := newUsageProviderCmd()
 	SetCommandHelpMetadata(cmd, "observe", 50, "warden usage", "", NodeNamespace)
@@ -36,6 +37,7 @@ func newUsageNamespaceCmd() *cobra.Command {
 		canonicalUsageCommand(newSpendCmd(), "spend"),
 		canonicalUsageCommand(newSavingsCmd(), "savings"),
 		canonicalUsageCommand(newInsightsCmd(), "insights"),
+		newUsageRecoverCmd(),
 	}
 	for i, child := range children {
 		SetCommandHelpMetadata(child, "observe", (i+1)*10, "warden usage "+child.Name(), "", nodeKind(child))
@@ -183,4 +185,145 @@ func rewriteUsageHelpPaths(cmd *cobra.Command, legacyName, canonicalName string)
 	)
 	cmd.Long = replacer.Replace(cmd.Long)
 	cmd.Example = replacer.Replace(cmd.Example)
+}
+
+// newUsageRecoverCmd backs `wd usage recover`: operator-triggered one-shot
+// reconciliation using the same flow as the background usage poller.
+func newUsageRecoverCmd() *cobra.Command {
+	var (
+		dryRun, jsonOutput bool
+		aiCli, project     string
+		maxParallelSwaps   int
+	)
+	cmd := &cobra.Command{
+		Use:   "recover",
+		Short: "Fetch fresh usage and reconcile exhausted buckets to affected agents",
+		Long: strings.TrimSpace(`
+Operator-triggered one-shot usage reconciliation.
+
+Fetches fresh supported provider usage snapshots (never treats cached/stale data
+as forced exhaustion), calculates bucket-to-agent impact, and — unless
+--dry-run — invokes the same backend recovery coordinator path as the
+background usage reconciliation loop.
+
+Default invocation is an explicit operator action and may start recovery for
+affected agents. Use --dry-run to print snapshots, impact, and candidate
+decisions without claiming fences or starting recovery.
+
+Optional --ai-cli and --project filters limit which agents may be affected;
+unrelated agents are left untouched. --max-parallel-swaps temporarily overrides
+the coordinator's bounded concurrency for this invocation only.
+`),
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if maxParallelSwaps < 0 {
+				return errors.New("--max-parallel-swaps must be >= 1 when set")
+			}
+			result, err := clientFor(cmd).UsageRecover(cmd.Context(), client.UsageRecoverParams{
+				DryRun:           dryRun,
+				AiCli:            aiCli,
+				Project:          project,
+				MaxParallelSwaps: maxParallelSwaps,
+			})
+			if err != nil {
+				return err
+			}
+			if jsonOutput {
+				return printJSON(cmd.OutOrStdout(), result)
+			}
+			return printUsageRecover(cmd, result)
+		},
+	}
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "fetch fresh snapshots and calculate impact without starting recovery")
+	cmd.Flags().StringVar(&aiCli, "ai-cli", "", "limit reconciliation to agents on this AI CLI / provider")
+	cmd.Flags().StringVar(&project, "project", "", "limit reconciliation to agents in this project path")
+	cmd.Flags().IntVar(&maxParallelSwaps, "max-parallel-swaps", 0, "temporary bounded concurrency override for this invocation (0 = daemon default)")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "print the structured recover response as JSON")
+	return cmd
+}
+
+func printUsageRecover(cmd *cobra.Command, result client.UsageRecoverResult) error {
+	out := cmd.OutOrStdout()
+	mode := "apply"
+	if result.DryRun {
+		mode = "dry-run"
+	}
+	fmt.Fprintf(out, "usage recover (%s)\n", mode)
+	if result.MaxParallelSwaps > 0 {
+		fmt.Fprintf(out, "max_parallel_swaps: %d\n", result.MaxParallelSwaps)
+	}
+	fmt.Fprintln(out)
+
+	fmt.Fprintln(out, "SNAPSHOTS")
+	if len(result.Snapshots) == 0 {
+		fmt.Fprintln(out, "  (none)")
+	} else {
+		for _, snap := range result.Snapshots {
+			fmt.Fprintf(out, "  %s fingerprint=%s route=%s freshness=%s authoritative=%v revision=%d status=%s\n",
+				snap.Domain.Provider, snap.Domain.ProfileFingerprint, snap.Domain.Route,
+				snap.Freshness, snap.Authoritative, snap.Revision, snap.SourceStatus)
+			for _, b := range snap.Buckets {
+				reset := "-"
+				if b.ResetsAt != nil {
+					reset = b.ResetsAt.In(time.Local).Format(time.RFC3339)
+				}
+				fmt.Fprintf(out, "    bucket %s state=%s resets=%s\n", b.Key, b.State, reset)
+			}
+		}
+	}
+	fmt.Fprintln(out)
+
+	fmt.Fprintln(out, "IMPACT")
+	fmt.Fprintf(out, "  exhausted_buckets: %d\n", len(result.Impact.ExhaustedBuckets))
+	for _, b := range result.Impact.ExhaustedBuckets {
+		fmt.Fprintf(out, "    %s/%s bucket=%s revision=%d source=%s\n",
+			b.Provider, b.AccountFingerprint, b.BucketKey, b.SnapshotRevision, b.Source)
+	}
+	fmt.Fprintf(out, "  affected_agents: %d\n", len(result.Impact.AffectedAgents))
+	for _, a := range result.Impact.AffectedAgents {
+		fmt.Fprintf(out, "    %s bucket=%s\n", a.AgentID, a.BucketKey)
+	}
+	fmt.Fprintf(out, "  skipped_agents: %d\n", len(result.Impact.SkippedAgents))
+	for _, a := range result.Impact.SkippedAgents {
+		detail := a.Detail
+		if detail != "" {
+			detail = " (" + detail + ")"
+		}
+		fmt.Fprintf(out, "    %s reason=%s%s\n", a.AgentID, a.Reason, detail)
+	}
+	fmt.Fprintf(out, "  stale_or_unknown: %d\n", len(result.Impact.StaleOrUnknown))
+	for _, s := range result.Impact.StaleOrUnknown {
+		fmt.Fprintf(out, "    %s bucket=%s reason=%s freshness=%s\n", s.Provider, s.BucketKey, s.Reason, s.Freshness)
+	}
+	fmt.Fprintln(out)
+
+	fmt.Fprintln(out, "OUTCOMES")
+	if len(result.Outcomes) == 0 {
+		fmt.Fprintln(out, "  (none)")
+		return nil
+	}
+	for _, oc := range result.Outcomes {
+		fmt.Fprintf(out, "  %s outcome=%s", oc.AgentID, oc.Outcome)
+		if oc.Phase != "" {
+			fmt.Fprintf(out, " phase=%s", oc.Phase)
+		}
+		if oc.BucketKey != "" {
+			fmt.Fprintf(out, " bucket=%s", oc.BucketKey)
+		}
+		if oc.Selected.BackendID != "" {
+			fmt.Fprintf(out, " selected=%s/%s", oc.Selected.BackendID, oc.Selected.ModelID)
+		}
+		fmt.Fprintln(out)
+		if len(oc.Candidates) > 0 {
+			parts := make([]string, 0, len(oc.Candidates))
+			for _, c := range oc.Candidates {
+				parts = append(parts, c.BackendID+"/"+c.ModelID)
+			}
+			fmt.Fprintf(out, "    candidates: %s\n", strings.Join(parts, ", "))
+		}
+		if oc.Reason != "" {
+			fmt.Fprintf(out, "    reason: %s\n", oc.Reason)
+		}
+	}
+	return nil
 }

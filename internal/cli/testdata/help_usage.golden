@@ -7,6 +7,7 @@ Commands:
   spend                Show measured Claude spend in dollars, per agent / repo / day
   savings              Show the token reductions warden's lifecycle features have earned
   insights             Mine agent history for patterns and parallelization suggestions
+  recover              Fetch fresh usage and reconcile exhausted buckets to affected agents
 
 Flags:
   -h, --help      help for usage

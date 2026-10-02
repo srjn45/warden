@@ -20,6 +20,7 @@ import (
 	backendstore "github.com/srjn45/warden/internal/backendstore"
 	backendusage "github.com/srjn45/warden/internal/backendusage"
 	branchtrack "github.com/srjn45/warden/internal/branchtrack"
+	capacity "github.com/srjn45/warden/internal/capacity"
 	collab "github.com/srjn45/warden/internal/collab"
 	ctxstore "github.com/srjn45/warden/internal/ctxstore"
 	digest "github.com/srjn45/warden/internal/digest"
@@ -670,6 +671,33 @@ func (e UsageBackendTier) Valid() bool {
 	}
 }
 
+// Defines values for UsageRecoverAgentOutcomeOutcome.
+const (
+	Skipped            UsageRecoverAgentOutcomeOutcome = "skipped"
+	Started            UsageRecoverAgentOutcomeOutcome = "started"
+	WaitingForCapacity UsageRecoverAgentOutcomeOutcome = "waiting_for_capacity"
+	WouldStart         UsageRecoverAgentOutcomeOutcome = "would_start"
+	WouldWait          UsageRecoverAgentOutcomeOutcome = "would_wait"
+)
+
+// Valid indicates whether the value is a known member of the UsageRecoverAgentOutcomeOutcome enum.
+func (e UsageRecoverAgentOutcomeOutcome) Valid() bool {
+	switch e {
+	case Skipped:
+		return true
+	case Started:
+		return true
+	case WaitingForCapacity:
+		return true
+	case WouldStart:
+		return true
+	case WouldWait:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListSessionsParamsKind.
 const (
 	ListSessionsParamsKindAgent    ListSessionsParamsKind = "agent"
@@ -1000,6 +1028,15 @@ type CapabilitiesResponse struct {
 	// Capabilities Stable capability-flag strings. Known flags: "terminal-sessions" (session `kind` support — see GET /api/v1/capabilities), "store-health" (the GET /api/v1/store/health endpoint + complete-or-error active reads / 503 on degradation), "backend-recovery" (the session `backend_recovery` field is present and SSE fires on recovery phase changes — reactive hard-limit provider switching is active).
 	Capabilities []string `json:"capabilities"`
 }
+
+// CapacityBucket defines model for CapacityBucket.
+type CapacityBucket = backendusage.CapacityBucket
+
+// CapacityDomain defines model for CapacityDomain.
+type CapacityDomain = backendusage.CapacityDomain
+
+// CapacityUsageSnapshot One durable provider capacity observation for a CapacityDomain. Only authoritative + fresh snapshots may force exhaustion / recovery.
+type CapacityUsageSnapshot = backendusage.UsageSnapshot
 
 // CheckOutcome defines model for CheckOutcome.
 type CheckOutcome struct {
@@ -1564,6 +1601,57 @@ type PullRequestSummary = planstore.PullRequestSummary
 // PushResult defines model for PushResult.
 type PushResult = lifecycle.PushResult
 
+// QuotaAffectedAgent defines model for QuotaAffectedAgent.
+type QuotaAffectedAgent struct {
+	AccountFingerprint string    `json:"account_fingerprint"`
+	AgentId            string    `json:"agent_id"`
+	BucketKey          string    `json:"bucket_key"`
+	Provider           string    `json:"provider"`
+	RecoveryGeneration int64     `json:"recovery_generation"`
+	ResetsAt           time.Time `json:"resets_at,omitempty"`
+	Route              string    `json:"route,omitempty"`
+	SnapshotRevision   int64     `json:"snapshot_revision"`
+	Source             string    `json:"source,omitempty"`
+}
+
+// QuotaExhaustedBucket defines model for QuotaExhaustedBucket.
+type QuotaExhaustedBucket struct {
+	AccountFingerprint string    `json:"account_fingerprint"`
+	BucketKey          string    `json:"bucket_key"`
+	Provider           string    `json:"provider"`
+	ResetsAt           time.Time `json:"resets_at,omitempty"`
+	Route              string    `json:"route,omitempty"`
+	SnapshotRevision   int64     `json:"snapshot_revision"`
+
+	// Source usage | menu | banner | manual
+	Source string `json:"source,omitempty"`
+}
+
+// QuotaImpactResult Structured bucket-to-agent impact from one reconciliation pass.
+type QuotaImpactResult = capacity.ImpactResult
+
+// QuotaSkippedAgent defines model for QuotaSkippedAgent.
+type QuotaSkippedAgent struct {
+	AgentId string `json:"agent_id"`
+	Detail  string `json:"detail,omitempty"`
+
+	// Reason done | archived | terminal | stopped | unbound_legacy | recovering | superseded | already_reconciled | status_ineligible | filtered
+	Reason string `json:"reason"`
+}
+
+// QuotaStaleOrUnknownInput defines model for QuotaStaleOrUnknownInput.
+type QuotaStaleOrUnknownInput struct {
+	AccountFingerprint string `json:"account_fingerprint,omitempty"`
+	BucketKey          string `json:"bucket_key,omitempty"`
+	Freshness          string `json:"freshness,omitempty"`
+	Provider           string `json:"provider"`
+	Reason             string `json:"reason"`
+	Route              string `json:"route,omitempty"`
+	SnapshotRevision   int64  `json:"snapshot_revision,omitempty"`
+	Source             string `json:"source,omitempty"`
+	State              string `json:"state,omitempty"`
+}
+
 // RecoverRequest defines model for RecoverRequest.
 type RecoverRequest struct {
 	// Apply false (default) = report candidates only; true = perform the recovery
@@ -1939,6 +2027,60 @@ type UsageError struct {
 
 // UsageLimit One independently resetting provider limit. Unknown measurements, restore times, and model selectors are null; consumers must not infer them.
 type UsageLimit = backendusage.Limit
+
+// UsageRecoverAgentOutcome defines model for UsageRecoverAgentOutcome.
+type UsageRecoverAgentOutcome struct {
+	AgentId   string `json:"agent_id"`
+	BucketKey string `json:"bucket_key,omitempty"`
+
+	// Candidates Ranked candidate pools considered for this agent.
+	Candidates []BackendCandidate `json:"candidates,omitempty"`
+
+	// Outcome started / waiting_for_capacity after an applying recover; would_start / would_wait on dry-run; skipped when the agent was filtered out of execution after impact (should be rare).
+	Outcome UsageRecoverAgentOutcomeOutcome `json:"outcome"`
+
+	// Phase Backend recovery phase when known (refreshing_usage, switching, stabilizing, waiting_for_capacity).
+	Phase              string `json:"phase,omitempty"`
+	Reason             string `json:"reason,omitempty"`
+	RecoveryGeneration int64  `json:"recovery_generation,omitempty"`
+
+	// Selected Identifies one provider capacity pool by (backend_id, model_id). Model is part of the identity because providers may meter independent model pools separately — two models on the same backend can have unrelated limits.
+	Selected BackendCandidate `json:"selected,omitempty"`
+}
+
+// UsageRecoverAgentOutcomeOutcome started / waiting_for_capacity after an applying recover; would_start / would_wait on dry-run; skipped when the agent was filtered out of execution after impact (should be rare).
+type UsageRecoverAgentOutcomeOutcome string
+
+// UsageRecoverRequest defines model for UsageRecoverRequest.
+type UsageRecoverRequest struct {
+	// AiCli Optional AI CLI / provider filter (e.g. claude). Empty = all.
+	AiCli string `json:"ai_cli,omitempty"`
+
+	// DryRun When true, fetch fresh snapshots and calculate impact / candidate decisions without claiming fences or invoking recovery.
+	DryRun bool `json:"dry_run,omitempty"`
+
+	// MaxParallelSwaps Temporary bounded-concurrency override for this invocation's candidate-selection/launch passes. Omitted or zero keeps the daemon config (rate_limit.recovery.usage_reconciliation.max_parallel_swaps).
+	MaxParallelSwaps int `json:"max_parallel_swaps,omitempty"`
+
+	// Project Optional project path filter. Matches agents whose project_id or repo equals the cleaned absolute path. Empty = all projects.
+	Project string `json:"project,omitempty"`
+}
+
+// UsageRecoverResponse defines model for UsageRecoverResponse.
+type UsageRecoverResponse struct {
+	DryRun bool `json:"dry_run"`
+
+	// Impact Structured bucket-to-agent impact from one reconciliation pass.
+	Impact QuotaImpactResult `json:"impact"`
+
+	// MaxParallelSwaps Effective bounded concurrency used (or that would be used) for this invocation.
+	MaxParallelSwaps int                        `json:"max_parallel_swaps,omitempty"`
+	Outcomes         []UsageRecoverAgentOutcome `json:"outcomes"`
+	ProviderUsage    UsageSnapshot              `json:"provider_usage"`
+
+	// Snapshots Durable capacity snapshots after the fresh fetch (post-freshness marking).
+	Snapshots []CapacityUsageSnapshot `json:"snapshots"`
+}
 
 // UsageSnapshot defines model for UsageSnapshot.
 type UsageSnapshot = backendusage.Snapshot
@@ -2506,6 +2648,9 @@ type RestoreSnapshotJSONRequestBody RestoreSnapshotJSONBody
 // SpawnAgentJSONRequestBody defines body for SpawnAgent for application/json ContentType.
 type SpawnAgentJSONRequestBody = SpawnRequest
 
+// RecoverUsageJSONRequestBody defines body for RecoverUsage for application/json ContentType.
+type RecoverUsageJSONRequestBody = UsageRecoverRequest
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// Adopt an existing (un-spawned) session
@@ -2910,6 +3055,9 @@ type ServerInterface interface {
 	// Get subscription-backend provider usage
 	// (GET /api/v1/usage)
 	GetUsage(w http.ResponseWriter, r *http.Request, params GetUsageParams)
+	// Operator-triggered one-shot usage reconciliation
+	// (POST /api/v1/usage/recover)
+	RecoverUsage(w http.ResponseWriter, r *http.Request)
 	// List a repo's worktrees
 	// (GET /api/v1/worktrees)
 	ListWorktrees(w http.ResponseWriter, r *http.Request, params ListWorktreesParams)
@@ -3720,6 +3868,12 @@ func (_ Unimplemented) GetTree(w http.ResponseWriter, r *http.Request, params Ge
 // Get subscription-backend provider usage
 // (GET /api/v1/usage)
 func (_ Unimplemented) GetUsage(w http.ResponseWriter, r *http.Request, params GetUsageParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Operator-triggered one-shot usage reconciliation
+// (POST /api/v1/usage/recover)
+func (_ Unimplemented) RecoverUsage(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -7844,6 +7998,26 @@ func (siw *ServerInterfaceWrapper) GetUsage(w http.ResponseWriter, r *http.Reque
 	handler.ServeHTTP(w, r)
 }
 
+// RecoverUsage operation middleware
+func (siw *ServerInterfaceWrapper) RecoverUsage(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RecoverUsage(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListWorktrees operation middleware
 func (siw *ServerInterfaceWrapper) ListWorktrees(w http.ResponseWriter, r *http.Request) {
 
@@ -8397,6 +8571,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/usage", wrapper.GetUsage)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/usage/recover", wrapper.RecoverUsage)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/worktrees", wrapper.ListWorktrees)
@@ -13721,6 +13898,56 @@ func (response GetUsage503JSONResponse) VisitGetUsageResponse(w http.ResponseWri
 	return err
 }
 
+type RecoverUsageRequestObject struct {
+	Body *RecoverUsageJSONRequestBody
+}
+
+type RecoverUsageResponseObject interface {
+	VisitRecoverUsageResponse(w http.ResponseWriter) error
+}
+
+type RecoverUsage200JSONResponse UsageRecoverResponse
+
+func (response RecoverUsage200JSONResponse) VisitRecoverUsageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RecoverUsage400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response RecoverUsage400JSONResponse) VisitRecoverUsageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RecoverUsage503JSONResponse Error
+
+func (response RecoverUsage503JSONResponse) VisitRecoverUsageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListWorktreesRequestObject struct {
 	Params ListWorktreesParams
 }
@@ -14149,6 +14376,9 @@ type StrictServerInterface interface {
 	// Get subscription-backend provider usage
 	// (GET /api/v1/usage)
 	GetUsage(ctx context.Context, request GetUsageRequestObject) (GetUsageResponseObject, error)
+	// Operator-triggered one-shot usage reconciliation
+	// (POST /api/v1/usage/recover)
+	RecoverUsage(ctx context.Context, request RecoverUsageRequestObject) (RecoverUsageResponseObject, error)
 	// List a repo's worktrees
 	// (GET /api/v1/worktrees)
 	ListWorktrees(ctx context.Context, request ListWorktreesRequestObject) (ListWorktreesResponseObject, error)
@@ -18066,6 +18296,37 @@ func (sh *strictHandler) GetUsage(w http.ResponseWriter, r *http.Request, params
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetUsageResponseObject); ok {
 		if err := validResponse.VisitGetUsageResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RecoverUsage operation middleware
+func (sh *strictHandler) RecoverUsage(w http.ResponseWriter, r *http.Request) {
+	var request RecoverUsageRequestObject
+
+	var body RecoverUsageJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RecoverUsage(ctx, request.(RecoverUsageRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RecoverUsage")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RecoverUsageResponseObject); ok {
+		if err := validResponse.VisitRecoverUsageResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

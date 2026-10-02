@@ -3865,6 +3865,23 @@
     "json": true
   },
   {
+    "path": "usage recover",
+    "use": "recover",
+    "runnable": true,
+    "local_flags": [
+      "ai-cli",
+      "dry-run",
+      "json",
+      "max-parallel-swaps",
+      "project"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
     "path": "usage savings",
     "use": "savings",
     "runnable": true,

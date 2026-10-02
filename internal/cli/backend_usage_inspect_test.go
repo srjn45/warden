@@ -61,6 +61,71 @@ func TestUsageBareKeepsProviderQuotaDispatch(t *testing.T) {
 	}
 }
 
+func TestUsageRecoverCLIDryRunAndFilters(t *testing.T) {
+	method := map[string]string{}
+	body := map[string]string{}
+	payload := `{
+		"dry_run":true,
+		"provider_usage":{"schema_version":1,"generated_at":"2026-10-01T00:00:00Z","backends":[]},
+		"snapshots":[{"revision":1,"domain":{"provider":"codex","profile_fingerprint":"fp"},"observed_at":"2026-10-01T00:00:00Z","recorded_at":"2026-10-01T00:00:00Z","source_status":"ok","authoritative":true,"freshness":"fresh","buckets":[{"key":"weekly","state":"exhausted"}]}],
+		"impact":{"exhausted_buckets":[{"provider":"codex","account_fingerprint":"fp","bucket_key":"weekly","snapshot_revision":1}],"affected_agents":[{"agent_id":"agent-1","provider":"codex","account_fingerprint":"fp","bucket_key":"weekly","snapshot_revision":1,"recovery_generation":0}],"skipped_agents":[{"agent_id":"done-1","reason":"done"}],"stale_or_unknown":[]},
+		"outcomes":[{"agent_id":"agent-1","outcome":"would_start","phase":"switching","bucket_key":"weekly","selected":{"backend_id":"claude","model_id":"sonnet"},"candidates":[{"backend_id":"claude","model_id":"sonnet"}]}],
+		"max_parallel_swaps":3
+	}`
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"POST /api/v1/usage/recover": payload,
+	}, method, body))
+
+	out, err := runCLI(t, addr, "usage", "recover", "--dry-run", "--ai-cli", "codex", "--project", "/tmp/proj", "--max-parallel-swaps", "3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if method["/api/v1/usage/recover"] != http.MethodPost {
+		t.Fatalf("expected POST /usage/recover, got %v", method)
+	}
+	if !strings.Contains(body["/api/v1/usage/recover"], `"dry_run":true`) ||
+		!strings.Contains(body["/api/v1/usage/recover"], `"ai_cli":"codex"`) ||
+		!strings.Contains(body["/api/v1/usage/recover"], `"project":"/tmp/proj"`) ||
+		!strings.Contains(body["/api/v1/usage/recover"], `"max_parallel_swaps":3`) {
+		t.Fatalf("unexpected request body: %s", body["/api/v1/usage/recover"])
+	}
+	for _, want := range []string{
+		"usage recover (dry-run)",
+		"SNAPSHOTS",
+		"codex",
+		"IMPACT",
+		"exhausted_buckets: 1",
+		"affected_agents: 1",
+		"skipped_agents: 1",
+		"OUTCOMES",
+		"agent-1 outcome=would_start",
+		"selected=claude/sonnet",
+		"candidates: claude/sonnet",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q in output:\n%s", want, out)
+		}
+	}
+}
+
+func TestUsageRecoverCLIJSONAndError(t *testing.T) {
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"POST /api/v1/usage/recover": `{"dry_run":false,"provider_usage":{"schema_version":1,"generated_at":"2026-10-01T00:00:00Z","backends":[]},"snapshots":[],"impact":{"exhausted_buckets":[],"affected_agents":[],"skipped_agents":[],"stale_or_unknown":[]},"outcomes":[]}`,
+	}, nil, nil))
+	out, err := runCLI(t, addr, "usage", "recover", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"dry_run": false`) && !strings.Contains(out, `"dry_run":false`) {
+		t.Fatalf("json output missing dry_run: %s", out)
+	}
+
+	_, err = runCLI(t, addr, "usage", "recover", "--max-parallel-swaps", "-1")
+	if err == nil || !strings.Contains(err.Error(), "max-parallel-swaps") {
+		t.Fatalf("expected max-parallel-swaps validation error, got %v", err)
+	}
+}
+
 func TestCostDoesNotCaptureUsageBareDispatch(t *testing.T) {
 	method := map[string]string{}
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{

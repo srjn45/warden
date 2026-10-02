@@ -177,6 +177,7 @@ Complete command tree:
   warden usage spend                   Show measured Claude spend in dollars, per agent / repo / day
   warden usage savings                 Show the token reductions warden's lifecycle features have earned
   warden usage insights                Mine agent history for patterns and parallelization suggestions
+  warden usage recover                 Fetch fresh usage and reconcile exhausted buckets to affected agents
   warden config                        Show the resolved configuration (and its file path)
   warden config path                   Print the resolved config file path
   warden config init                   Create the config file (or migrate it, adding any missing keys and upgrading deprecated flat keys to namespaced blocks)

@@ -19,3 +19,15 @@ func (s *Server) GetUsage(ctx context.Context, req oapi.GetUsageRequestObject) (
 	s.syncUsageSnapshot(snapshot)
 	return oapi.GetUsage200JSONResponse(snapshot), nil
 }
+
+func (s *Server) RecoverUsage(ctx context.Context, req oapi.RecoverUsageRequestObject) (oapi.RecoverUsageResponseObject, error) {
+	body := oapi.UsageRecoverRequest{}
+	if req.Body != nil {
+		body = *req.Body
+	}
+	result, err := s.runUsageRecover(ctx, body)
+	if err != nil {
+		return nil, err
+	}
+	return oapi.RecoverUsage200JSONResponse(result), nil
+}
