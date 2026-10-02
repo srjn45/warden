@@ -57,6 +57,16 @@ func (s *Server) startBulkRecoveryForAgent(ctx context.Context, aa capacity.Affe
 	if aa.ResetsAt != nil && aa.ResetsAt.After(now) {
 		fallbackAt = *aa.ResetsAt
 	}
+	s.recovery.ArmEvidence(aa.AgentID, RecoveryEvidence{
+		Source:             aa.Source,
+		Provider:           aa.Provider,
+		AccountFingerprint: aa.AccountFingerprint,
+		Route:              aa.Route,
+		BucketKey:          aa.BucketKey,
+		Freshness:          capacity.ImpactFresh,
+		Reason:             "mandatory_bucket_exhausted",
+		SnapshotRevision:   aa.SnapshotRevision,
+	})
 	owned := s.recovery.OnHardLimit(sess, fallbackAt)
 	slog.Info("daemon: usage-driven bulk recovery advanced",
 		"agent_id", aa.AgentID,

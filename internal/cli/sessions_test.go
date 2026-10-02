@@ -221,6 +221,21 @@ func TestFormatRateLimitInfo(t *testing.T) {
 	if got := formatRateLimitInfo(s); !strings.Contains(got, "resuming...") {
 		t.Errorf("past restore should say resuming...:\n%s", got)
 	}
+
+	next := time.Now().Add(time.Hour)
+	cand := store.BackendCandidate{BackendID: "codex", ModelID: "gpt-5"}
+	s.BackendRecovery = &store.BackendRecovery{
+		Phase: "waiting_for_capacity", TriggerSource: "menu", CapacityDomain: "claude/fp/sonnet",
+		BucketKey: "weekly", Freshness: "fresh", Current: &cand, NextRetryAt: &next,
+		Attempts: []store.RecoveryAttempt{{Candidate: cand, Outcome: "launch_failed"}},
+		Reason:   "no_eligible_candidate",
+	}
+	got = formatRateLimitInfo(s)
+	for _, want := range []string{"recovery:", "waiting_for_capacity", "trigger:", "menu", "domain:", "bucket:", "weekly", "freshness:", "candidate:", "codex/gpt-5", "attempt:", "next retry:", "reason:"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("recovery detail missing %q:\n%s", want, got)
+		}
+	}
 }
 
 // TestLsCmdJSON drives `ls --json` against a stub daemon and asserts the

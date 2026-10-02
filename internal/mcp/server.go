@@ -271,7 +271,7 @@ func NewServer(daemonBase string) *Server {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "list_agents",
-		Description: "List all active Claude Code agents and their current status. Each session includes a `backend_recovery` field (null when idle) that describes automatic hard-limit recovery state: phase (refreshing_usage/switching/stabilizing/waiting_for_capacity), current candidate backend/model, attempt count, known reset times, and next retry time. Use get_agent for full recovery detail on one session.",
+		Description: "List all active Claude Code agents and their current status. Each session includes a `backend_recovery` field (null when idle) that describes automatic hard-limit recovery state: phase (refreshing_usage/switching/stabilizing/waiting_for_capacity), trigger_source (usage/menu/banner/manual), capacity_domain, bucket freshness, current candidate backend/model, candidate attempt history, known reset times, and next retry time. Use get_agent for full recovery detail on one session.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ listArgs) (*mcpsdk.CallToolResult, any, error) {
 		sessions, err := s.cl.List(ctx)
 		if err != nil {
@@ -286,10 +286,15 @@ func NewServer(daemonBase string) *Server {
 		Description: "Get full detail (status, events, worktree, backend recovery) for one agent. " +
 			"The `backend_recovery` field is non-null during automatic hard-limit recovery and contains: " +
 			"phase (refreshing_usage|switching|stabilizing|waiting_for_capacity), " +
+			"trigger_source (usage|menu|banner|manual), capacity_domain, bucket_key, freshness, reason, " +
 			"current candidate (backend_id/model_id, null between attempts), " +
-			"attempts list (outcome: hard_limit|immediate_hard_limit|launch_failed|stabilized|superseded), " +
+			"attempts list (candidate history; outcome: hard_limit|immediate_hard_limit|launch_failed|stabilized|superseded), " +
 			"resets (known provider reset windows; resets_at is null when unknown — never treat as zero), " +
 			"next_retry_at (null when not waiting). " +
+			"Durable agent events and the append-only audit trail use the Phase 9 vocabulary " +
+			"(usage_snapshot_received/failed, quota_bucket_exhausted, quota_impact_calculated, " +
+			"recovery_started, candidate_attempted/result, waiting_for_capacity, recovery_stabilized/superseded) " +
+			"with safe domain/bucket ids — never tokens or raw credentials. " +
 			"Status display: refreshing_usage → 'recovering: refreshing usage'; " +
 			"switching → 'recovering: trying <backend>/<model> (n/m)'; " +
 			"stabilizing → 'recovering: stabilizing <backend>/<model>'; " +

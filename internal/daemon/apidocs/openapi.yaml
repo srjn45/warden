@@ -3824,6 +3824,35 @@ components:
             Start of the stabilization observation window. Null until the first
             live non-rate-limited poll arrives after a candidate switch. For
             display only; cleared on recovery completion.
+        trigger_source:
+          type: string
+          enum: [usage, menu, banner, manual]
+          description: >
+            Why this recovery generation started. usage = fresh provider usage
+            API exhaustion; menu = confirmed Claude wait-for-reset menu;
+            banner = confirmed hard-limit pane wording; manual = operator
+            recover command. Safe for display; never carries pane text.
+        capacity_domain:
+          type: string
+          description: >
+            Safe capacity-domain display key (provider[/fingerprint[/route]]).
+            Opaque account fingerprints only — never raw credentials or emails.
+        bucket_key:
+          type: string
+          description: >
+            Opaque provider bucket key that drove recovery, when known.
+        freshness:
+          type: string
+          enum: [fresh, stale, unknown]
+          description: >
+            Usage-snapshot freshness at trigger time. Failed/stale/unknown
+            fetches never force exhaustion; this field explains why a swap did
+            or did not occur alongside the audit trail.
+        reason:
+          type: string
+          description: >
+            Short redacted operator-facing explanation (e.g. mandatory_bucket_exhausted,
+            no_eligible_candidate). Never pane text, tokens, or credentials.
         updated_at:
           type: string
           format: date-time

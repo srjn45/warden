@@ -542,7 +542,8 @@ func newDaemonRunCmd() *cobra.Command {
 			srv.SetBudget(cfg.Tokens.BudgetGate, cfg.Tokens.BudgetDailyUSD, cfg.Tokens.BudgetWeeklyUSD)
 			srv.SetWorktreeRetention(cfg.Worktree.KeepDone, cfg.Worktree.AutoPrune)
 			srv.SetRelayPolicy(relay.Policy{AllowWebTerminated: cfg.Relay.AllowWebTerminated})
-			srv.SetAudit(audit.NewWriter(filepath.Join(cfg.DataDir, "audit.jsonl")))
+			auditWriter := audit.NewWriter(filepath.Join(cfg.DataDir, "audit.jsonl"))
+			srv.SetAudit(auditWriter)
 			srv.SetAuditTrustedProxies(trustedProxies)
 			// Shared brain Consultor (docs/specs/2026-09-27-brain-consult.md): one
 			// instance for PipelineWatcher stuck recovery AND the autopilot
@@ -607,8 +608,24 @@ func newDaemonRunCmd() *cobra.Command {
 				WithStabilizationWindow(cfg.RecoveryStabilizationWindowDuration()).
 				WithMaxParallelAdvance(cfg.UsageReconciliationMaxParallelSwaps())
 			recoveryCoordinator.SetNotify(srv.Notify)
+			recoveryCoordinator.SetAudit(auditWriter)
 			srv.SetBackendRecovery(recoveryCoordinator)
 			rateLimitSched.OnHardLimit = recoveryCoordinator.OnHardLimit
+			rateLimitSched.PrepareHardLimit = func(sess *agentstore.Agent, source string) {
+				if sess == nil {
+					return
+				}
+				ev := daemon.RecoveryEvidence{Source: source, Reason: "pane_hard_limit"}
+				if sess.QuotaBinding != nil {
+					ev.Provider = sess.QuotaBinding.Domain.Provider
+					ev.AccountFingerprint = sess.QuotaBinding.Domain.AccountFingerprint
+					ev.Route = sess.QuotaBinding.Domain.Route
+					if len(sess.QuotaBinding.MandatoryBuckets) > 0 {
+						ev.BucketKey = sess.QuotaBinding.MandatoryBuckets[0]
+					}
+				}
+				recoveryCoordinator.ArmEvidence(sess.ID, ev)
+			}
 			if err := recoveryCoordinator.Reconstruct(context.Background()); err != nil {
 				slog.Warn("backend recovery reconstruction failed", "err", err)
 			}

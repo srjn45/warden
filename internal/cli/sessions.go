@@ -395,9 +395,9 @@ func typeOrPending(t store.Type) string {
 }
 
 // formatRateLimitInfo formats rate limit metadata for the status detail view.
-// Returns empty string if the session is not rate limited.
+// Returns empty string if the session is not rate limited and has no recovery.
 func formatRateLimitInfo(sess *store.Session) string {
-	if sess.Status != store.StatusRateLimited {
+	if sess.Status != store.StatusRateLimited && sess.BackendRecovery == nil {
 		return ""
 	}
 
@@ -422,6 +422,37 @@ func formatRateLimitInfo(sess *store.Session) string {
 	}
 
 	lines = append(lines, fmt.Sprintf("  retries:    %d", sess.RateLimitRetryCount))
+
+	if rec := sess.BackendRecovery; rec != nil {
+		lines = append(lines, fmt.Sprintf("  recovery:   %s", rec.Phase))
+		if rec.TriggerSource != "" {
+			lines = append(lines, fmt.Sprintf("  trigger:    %s", rec.TriggerSource))
+		}
+		if rec.CapacityDomain != "" {
+			lines = append(lines, fmt.Sprintf("  domain:     %s", rec.CapacityDomain))
+		}
+		if rec.BucketKey != "" {
+			lines = append(lines, fmt.Sprintf("  bucket:     %s", rec.BucketKey))
+		}
+		if rec.Freshness != "" {
+			lines = append(lines, fmt.Sprintf("  freshness:  %s", rec.Freshness))
+		}
+		if rec.Current != nil {
+			lines = append(lines, fmt.Sprintf("  candidate:  %s/%s", rec.Current.BackendID, rec.Current.ModelID))
+		}
+		for _, a := range rec.Attempts {
+			lines = append(lines, fmt.Sprintf("  attempt:    %s/%s (%s)", a.Candidate.BackendID, a.Candidate.ModelID, a.Outcome))
+		}
+		if rec.NextRetryAt != nil {
+			lines = append(lines, fmt.Sprintf("  next retry: %s", rec.NextRetryAt.Format("2006-01-02 15:04:05")))
+		}
+		if n := len(rec.Resets); n > 0 && rec.Resets[0].ResetsAt != nil {
+			lines = append(lines, fmt.Sprintf("  reset:      %s %s", rec.Resets[0].Scope, rec.Resets[0].ResetsAt.Format("2006-01-02 15:04:05")))
+		}
+		if rec.Reason != "" {
+			lines = append(lines, fmt.Sprintf("  reason:     %s", rec.Reason))
+		}
+	}
 
 	result := ""
 	for _, line := range lines {

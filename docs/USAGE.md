@@ -2623,11 +2623,17 @@ Over MCP: `land { ticket: "<agent-or-branch>" }`.
 ### Audit trail
 
 Every autopilot action — manager spawn, worker spawn, land, guardian heal — is
-written to the append-only audit trail:
+written to the append-only audit trail. Quota recovery also writes Phase 9
+events (`usage_snapshot_received`/`failed`, `quota_bucket_exhausted`,
+`quota_impact_calculated`, `recovery_started`, `candidate_attempted`/`result`,
+`waiting_for_capacity`, `recovery_stabilized`/`superseded`) with safe
+domain/bucket identifiers so the audit log — not only the systemd journal —
+answers why a swap did or did not occur:
 
 ```sh
 warden inspect audit              # show all audit events
 warden inspect audit --json       # machine-readable
+warden inspect audit --action recovery_started
 ```
 
 ### Known limitations

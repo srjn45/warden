@@ -1306,18 +1306,40 @@ func detailBody(s *store.Session, sel, width int) string {
 		}
 		if recovery := s.BackendRecovery; recovery != nil {
 			rl = append(rl, sub("recovery", recovery.Phase))
+			if recovery.TriggerSource != "" {
+				rl = append(rl, sub("trigger", recovery.TriggerSource))
+			}
+			if recovery.CapacityDomain != "" {
+				rl = append(rl, sub("domain", recovery.CapacityDomain))
+			}
+			if recovery.BucketKey != "" {
+				rl = append(rl, sub("bucket", recovery.BucketKey))
+			}
+			if recovery.Freshness != "" {
+				rl = append(rl, sub("freshness", recovery.Freshness))
+			}
 			if recovery.Current != nil {
 				rl = append(rl, sub("candidate", recovery.Current.BackendID+"/"+recovery.Current.ModelID))
 			}
 			if n := len(recovery.Attempts); n > 0 {
-				last := recovery.Attempts[n-1]
-				rl = append(rl, sub("last attempt", last.Candidate.BackendID+"/"+last.Candidate.ModelID+" ("+last.Outcome+")"))
+				// Candidate history: show the last few attempts so the cockpit
+				// answers why a swap did or did not stick.
+				start := 0
+				if n > 3 {
+					start = n - 3
+				}
+				for _, a := range recovery.Attempts[start:] {
+					rl = append(rl, sub("attempt", a.Candidate.BackendID+"/"+a.Candidate.ModelID+" ("+a.Outcome+")"))
+				}
 			}
 			if n := len(recovery.Resets); n > 0 && recovery.Resets[0].ResetsAt != nil {
 				rl = append(rl, sub("known reset", recovery.Resets[0].Scope+" "+fmtTime(*recovery.Resets[0].ResetsAt)))
 			}
 			if recovery.NextRetryAt != nil {
 				rl = append(rl, sub("next retry", fmtTime(*recovery.NextRetryAt)))
+			}
+			if recovery.Reason != "" {
+				rl = append(rl, sub("reason", recovery.Reason))
 			}
 		}
 		b.WriteString("\n" + stPaneTitle.Render("rate-limit") + "\n" + strings.Join(rl, "\n") + "\n")

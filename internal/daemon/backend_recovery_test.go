@@ -678,7 +678,8 @@ func TestBackendRecoveryEventsArePrivate(t *testing.T) {
 		}
 	}
 
-	// All emitted events must belong to the spec §8 defined type set.
+	// All emitted events must belong to the reactive-recovery §8 set or the
+	// usage-api-quota-recovery Phase 9 observability vocabulary.
 	allowedTypes := map[string]bool{
 		"backend_recovery_started":              true,
 		"backend_pool_limited":                  true,
@@ -693,6 +694,17 @@ func TestBackendRecoveryEventsArePrivate(t *testing.T) {
 		"backend_recovery_switched_backend":     true,
 		"backend_recovery_stabilized":           true,
 		"backend_recovery_superseded":           true,
+		// Phase 9 (docs/specs/2026-09-29-usage-api-quota-recovery.md).
+		"usage_snapshot_received": true,
+		"usage_snapshot_failed":   true,
+		"quota_bucket_exhausted":  true,
+		"quota_impact_calculated": true,
+		"recovery_started":        true,
+		"candidate_attempted":     true,
+		"candidate_result":        true,
+		"waiting_for_capacity":    true,
+		"recovery_stabilized":     true,
+		"recovery_superseded":     true,
 	}
 	for _, ev := range s.Events {
 		require.True(t, allowedTypes[ev.Type],

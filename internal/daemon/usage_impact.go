@@ -3,10 +3,12 @@ package daemon
 import (
 	"context"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/srjn45/warden/internal/agentstore"
+	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/backendusage"
 	"github.com/srjn45/warden/internal/capacity"
 )
@@ -91,10 +93,11 @@ func agentManuallySuperseded(a *agentstore.Agent) bool {
 	}
 	for i := len(a.Events) - 1; i >= 0; i-- {
 		switch a.Events[i].Type {
-		case "backend_recovery_superseded":
+		case "backend_recovery_superseded", audit.ActionRecoverySuperseded:
 			detail := a.Events[i].Detail
-			return strings.Contains(detail, "manual_switch") || strings.Contains(detail, "manual_stop")
-		case "backend_recovery_started", "backend_recovery_stabilized":
+			return strings.Contains(detail, "manual_switch") || strings.Contains(detail, "manual_stop") ||
+				strings.Contains(detail, "manual_override") || strings.Contains(detail, "action=manual")
+		case "backend_recovery_started", audit.ActionRecoveryStarted, "backend_recovery_stabilized", audit.ActionRecoveryStabilized:
 			return false
 		}
 	}
@@ -165,5 +168,21 @@ func (s *Server) reconcileBucketImpactAfterPoll(ctx context.Context) {
 		"skipped_agents", len(result.SkippedAgents),
 		"stale_or_unknown", len(result.StaleOrUnknown),
 	)
+	impactDetail := summarizeImpact(result)
+	if reasons := formatSkipReasons(result.SkippedAgents); reasons != "" {
+		impactDetail["skip_reasons"] = reasons
+	}
+	s.recordRecoveryAudit(audit.ActionQuotaImpactCalculated, "usage", impactDetail)
+	for _, b := range result.ExhaustedBuckets {
+		s.recordRecoveryAudit(audit.ActionQuotaBucketExhausted, audit.FormatDomain(b.Provider, b.AccountFingerprint, b.Route), map[string]string{
+			"provider":            b.Provider,
+			"account_fingerprint": audit.TruncateFingerprint(b.AccountFingerprint),
+			"route":               b.Route,
+			"bucket_key":          b.BucketKey,
+			"snapshot_revision":   strconv.FormatUint(b.SnapshotRevision, 10),
+			"trigger_source":      NormalizeSource(b.Source),
+			"freshness":           capacity.ImpactFresh,
+		})
+	}
 	s.startBulkRecovery(ctx, result.AffectedAgents)
 }

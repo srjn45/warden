@@ -258,6 +258,22 @@ type BackendRecovery struct {
 	NextRetryAt *time.Time        `json:"next_retry_at,omitempty"`
 	StableSince *time.Time        `json:"stable_since,omitempty"`
 	UpdatedAt   time.Time         `json:"updated_at"`
+
+	// Observability fields (usage-api-quota-recovery Phase 9). Optional and
+	// additive so older persisted recoveries decode cleanly. Never carry tokens
+	// or raw credentials — only safe domain/bucket identifiers.
+	//
+	// TriggerSource is one of: usage | menu | banner | manual.
+	TriggerSource string `json:"trigger_source,omitempty"`
+	// CapacityDomain is a safe display key (provider[/fingerprint[/route]]).
+	CapacityDomain string `json:"capacity_domain,omitempty"`
+	// BucketKey is the opaque provider bucket that drove recovery, when known.
+	BucketKey string `json:"bucket_key,omitempty"`
+	// Freshness is the usage-snapshot freshness at trigger time (fresh/stale/unknown).
+	Freshness string `json:"freshness,omitempty"`
+	// Reason is a short, redacted operator-facing explanation of why recovery
+	// started or is waiting (never pane text or credentials).
+	Reason string `json:"reason,omitempty"`
 }
 
 type Session struct {

@@ -249,12 +249,32 @@ func TestDetailBodyShowsBackendRecovery(t *testing.T) {
 	next := at.Add(time.Hour)
 	target := store.BackendCandidate{BackendID: "antigravity", ModelID: "gemini-3-pro"}
 	s := &store.Session{ID: "agent-1", Status: store.StatusRateLimited, RateLimitedAt: &at,
-		BackendRecovery: &store.BackendRecovery{Phase: "waiting_for_capacity", Current: &target, NextRetryAt: &next}}
+		BackendRecovery: &store.BackendRecovery{
+			Phase: "waiting_for_capacity", Current: &target, NextRetryAt: &next,
+			TriggerSource: "usage", CapacityDomain: "claude/sha256:abcd/sonnet",
+			BucketKey: "weekly", Freshness: "fresh", Reason: "no_eligible_candidate",
+			Attempts: []store.RecoveryAttempt{
+				{Candidate: store.BackendCandidate{BackendID: "claude", ModelID: "sonnet"}, Outcome: "hard_limit"},
+				{Candidate: target, Outcome: "launch_failed"},
+			},
+		}}
 	out := detailBody(s, 0, 80)
-	for _, want := range []string{"waiting_for_capacity", "antigravity/gemini-3-pro", "next retry"} {
+	for _, want := range []string{
+		"waiting_for_capacity", "antigravity/gemini-3-pro", "next retry",
+		"trigger", "usage", "domain", "claude/sha256:abcd/sonnet",
+		"bucket", "weekly", "freshness", "fresh",
+		"attempt", "claude/sonnet", "launch_failed", "reason", "no_eligible_candidate",
+	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("detailBody() missing recovery detail %q in:\n%s", want, out)
 		}
+	}
+	// Cockpit layout regression: rate-limit section stays a single titled block.
+	if !strings.Contains(out, "rate-limit") {
+		t.Errorf("detailBody() missing rate-limit section title in:\n%s", out)
+	}
+	if strings.Contains(out, "sk-") || strings.Contains(out, "Bearer") {
+		t.Errorf("detailBody() leaked credential-shaped text:\n%s", out)
 	}
 }
 
