@@ -187,9 +187,14 @@ rate_limit:
   recovery:
     enabled: true              # set false to fall back to same-backend auto-resume only
     stabilization_window: 10s  # Go duration; how long candidate must stay live before clearing
+    usage_reconciliation:      # opt-in provider usage polling (default off)
+      enabled: false           # true = periodic capacity snapshots + bulk reconcile
+      interval: 60s            # poll cadence when enabled
+      stale_after: 15m         # freshness window for authoritative exhaustion
+      max_parallel_swaps: 3    # bounded concurrency for bulk recovery fan-out
 ```
 
-The defaults are safe for most users. Lower `stabilization_window` to clear recovery faster in tests; raise it if false-positive stabilizations appear in a flaky environment.
+The defaults are safe for most users. Lower `stabilization_window` to clear recovery faster in tests; raise it if false-positive stabilizations appear in a flaky environment. Keep `usage_reconciliation.enabled` **false** unless you want the daemon to poll provider usage APIs in the background — `wd usage recover` still works when polling is off.
 
 ## Deprecated fields
 
@@ -208,6 +213,77 @@ get_agent {ticket: "<id>"}
 # list_agents includes backend_recovery on every session row
 list_agents {}
 ```
+
+## Operator playbooks
+
+### Enable or disable usage polling
+
+Background usage polling is **off by default**. Edit `~/.warden/config.yaml` and
+restart (or wait for hot-reload where applicable):
+
+```yaml
+rate_limit:
+  recovery:
+    usage_reconciliation:
+      enabled: true    # or false to stop all provider usage network calls
+      interval: 60s
+      stale_after: 15m
+      max_parallel_swaps: 3
+```
+
+When `enabled` is `false`, the daemon makes **no** provider usage network calls.
+Manual `wd usage recover` remains an explicit operator action and may still fetch
+fresh snapshots for its filtered scope.
+
+### Dry-run impact before recovering
+
+```bash
+warden usage recover --dry-run
+warden usage recover --dry-run --ai-cli claude --project /path/to/repo
+```
+
+Dry-run always fetches fresh supported snapshots, calculates bucket→agent impact,
+and prints exhausted buckets, affected/skipped agents (with reasons such as
+`unbound_legacy`), candidate decisions, and would-start / would-wait outcomes —
+without claiming fences or starting recovery. Drop `--dry-run` to apply.
+
+MCP: `usage_recover` with `dry_run: true`.
+
+### Unknown or unsupported providers
+
+Failed, unsupported, partial, or timed-out usage fetches are **diagnostic only**.
+They never zero out prior known capacity and never force exhaustion. Agents on
+providers without a usable adapter stay on pane/menu evidence (when available) or
+wait for an operator `wd usage recover` after credentials/adapters are fixed.
+Check `usage_snapshot_failed` in the agent event log / `warden inspect audit`.
+
+### Interpreting `waiting_for_capacity`
+
+Every eligible replacement currently has known-exhausted (or policy-required
+unknown) mandatory buckets. The session keeps its recovery generation, records
+attempt history, and arms a retry at the earliest known reset (or
+`rate_limit.retry_interval`). No operator action is required unless you want a
+different backend now — see override below. Treat this like `rate_limited` in
+fleet triage.
+
+### Manually overriding recovery
+
+```bash
+warden switch <id> --ai-cli codex --model gpt-5-codex   # or stop / delete
+```
+
+Manual switch/stop/delete **supersedes** automatic recovery immediately: the
+recovery record clears, timers cancel, and `recovery_superseded` /
+`backend_recovery_superseded` are recorded. Stale callbacks are generation-guarded
+no-ops.
+
+### Legacy agents without a quota binding
+
+Agents that predate QuotaBinding (backend/model only) show as `unbound_legacy`.
+They keep running, appear in `ls`/`status`, and are **skipped** by bulk usage
+reconciliation — warden never invents an account/bucket to mass-swap them. They
+acquire a binding on the next safe HotSwap (or a fresh spawn). Restore alone does
+not guess a binding.
 
 ## Operator diagnostics: usage vs pane vs cooldown vs manual
 

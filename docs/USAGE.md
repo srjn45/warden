@@ -2129,7 +2129,16 @@ rate_limit:
   recovery:
     enabled: true              # set false to disable; falls back to same-backend auto-resume only
     stabilization_window: 10s  # duration a candidate must stay live before recovery clears
+    usage_reconciliation:      # opt-in provider usage polling (default off)
+      enabled: false           # true = periodic capacity snapshots + bulk reconcile
+      interval: 60s
+      stale_after: 15m         # only fresh successful snapshots force exhaustion
+      max_parallel_swaps: 3    # bounded concurrency for bulk recovery
 ```
+
+**Operator command.** `warden usage recover [--dry-run] [--ai-cli <id>] [--project <path>] [--max-parallel-swaps <n>]` fetches fresh supported snapshots, calculates impact, and (unless `--dry-run`) starts the same recovery path as the background poller. When polling is disabled, the daemon makes no provider usage network calls — recover remains the explicit operator action. See the [backend recovery playbooks](https://srjn45.github.io/warden/guides/backend-recovery/#operator-playbooks).
+
+**Legacy agents.** Records with only backend/model (no `QuotaBinding`) stay operable as `unbound_legacy`: they are skipped by bulk reconciliation (never mass-swapped on a guessed account/bucket) and acquire a binding on the next HotSwap. Restore alone does not invent a binding.
 
 > **Deprecated fields:** `handover.threshold_percent` and `handover.rolling_quota_threshold` are decoded for one compatibility window but have **no effect** — confirmed hard-limit recovery replaced proactive quota prediction. Use `context_fill_threshold` (unchanged) to control context handoff.
 
