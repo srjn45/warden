@@ -1,7 +1,7 @@
 # Usage API Quota Recovery
 
 Date: 2026-09-29
-Status: Phase 1 contract freeze
+Status: Accepted (Phase 10) — see `2026-09-29-usage-api-quota-recovery-acceptance.md`
 Plan: `plan-69eb481d`
 
 ## Goal

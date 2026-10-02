@@ -66,6 +66,23 @@ axis: that's `wd inspect resources` / `get_metrics`, not `wd cost`.
 Reach for this when the user asks "how much am I spending", wants a per-agent/repo
 cost breakdown, or wants to cap spend before spawning more agents.
 
+## Usage recover — `usage_recover` / `wd usage recover`
+
+Operator one-shot that fetches **fresh** supported provider usage snapshots,
+calculates bucket→agent impact, and — unless `dry_run` / `--dry-run` — starts the
+same backend recovery coordinator path as the (opt-in) background usage poller.
+Never treats cached/stale data as forced exhaustion. Optional `ai_cli` / `project`
+filters leave unrelated agents untouched.
+
+- Preview: `wd usage recover --dry-run` or MCP `usage_recover {dry_run: true}`
+- Apply: drop `--dry-run` / set `dry_run: false`
+- Config: `rate_limit.recovery.usage_reconciliation.enabled` (default **false** —
+  when off, the daemon makes no provider usage network calls except this explicit
+  command)
+
+Unbound legacy agents (`backend`/`model` only) appear as skip reason
+`unbound_legacy` and are never mass-swapped on a guessed account/bucket.
+
 ## Insights — mine warden's own history
 
 ## Insights — mine warden's own history
@@ -152,7 +169,12 @@ Notable settings (see the generated file for the full set with defaults):
   `auto_restart.max`/`auto_restart.reset`, `rate_limit.auto_resume`
   (auto-picks "Stop and wait" on Claude's limit menu + auto-resumes after any
   session/weekly/monthly-spend limit clears; `rate_limit.retry_interval`,
-  `rate_limit.spend_retry_interval` default 6h, `rate_limit.buffer` tune timing).
+  `rate_limit.spend_retry_interval` default 6h, `rate_limit.buffer` tune timing;
+  `rate_limit.recovery.enabled` / `stabilization_window` for reactive backend
+  switching; `rate_limit.recovery.usage_reconciliation.enabled` default false —
+  opt-in provider usage polling + bulk reconcile; `interval` / `stale_after` /
+  `max_parallel_swaps`). Operator one-shot: `wd usage recover [--dry-run]` /
+  MCP `usage_recover`.
 - **Boundary guards:** `rails.isolation_guard`, `rails.root_guard`, `rails.git_redirect`,
   `rails.check_redirect`, `rails.git_conventions` (see git-and-checks.md).
 - **Local LLM / REPL:** `local_llm.enabled` (+ `local_llm.url`/`.model`/`.timeout`),

@@ -77,6 +77,12 @@ Common settings (run `warden config` for the complete, live list):
 | `plugins.registry` | _(empty)_ | List of registered plugins (name, path, events, task_types). Only used when `plugins.enabled` is on |
 | `allow_nonloopback` | `false` | **Deprecated / inert** — no longer bypasses auth. A token is mandatory for any non-loopback bind; setting this only logs a deprecation warning |
 | `log.level` / `log.format` | `info` / `text` | Daemon log verbosity and format (`text`/`json`) |
+| `rate_limit.recovery.enabled` | `true` | Reactive hard-limit recovery master switch (falls back to same-backend auto-resume when false) |
+| `rate_limit.recovery.stabilization_window` | `10s` | How long a replacement candidate must stay live and non-limited before recovery clears |
+| `rate_limit.recovery.usage_reconciliation.enabled` | `false` | Opt-in provider usage polling + bulk bucket reconciliation. When false, the daemon makes no provider usage network calls; `wd usage recover` still works |
+| `rate_limit.recovery.usage_reconciliation.interval` | `60s` | Poll cadence when usage reconciliation is enabled |
+| `rate_limit.recovery.usage_reconciliation.stale_after` | `15m` | Freshness window — only successful snapshots inside this window may force exhaustion |
+| `rate_limit.recovery.usage_reconciliation.max_parallel_swaps` | `3` | Bounded concurrency for bulk recovery candidate selection/launch |
 
 There are more (`auto_restart.*`, `rate_limit.*`, `worktree.keep_done` /
 `worktree.auto_prune`, …) — `warden config` is the authoritative, live list.

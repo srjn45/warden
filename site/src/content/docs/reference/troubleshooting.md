@@ -61,10 +61,13 @@ warden setup --yes      # non-interactive: install all missing deps
 |---|---|
 | Agent hot-swaps backends while `wd usage` still shows headroom | Pane-confirmed (or usage-API) hard limit is authoritative for that agent; `wd usage` is provider-level only. Inspect `warden status <id> --json` → `backend_recovery` and `backend_recovery_*` events. |
 | Same limited backend/model gets reselected in a loop | Should be blocked by durable per-pool cooldown through the parsed reset / fallback. If it still loops, grab status JSON + a capture under `~/.warden/ratelimit-captures/` and open an issue — do not treat `wd usage` alone as proof. |
-| Want to stop automatic switching | `warden switch <id> --backend …`, stop, or delete supersedes recovery (`backend_recovery_superseded`). |
+| Several agents share one exhausted weekly Claude bucket but only some swap | Bulk reconciliation only selects agents with a daemon-owned `QuotaBinding`. Unbound legacy peers (`unbound_legacy`) are skipped until their next HotSwap. Preview with `warden usage recover --dry-run`. |
+| Want a preview without swapping | `warden usage recover --dry-run` (optionally `--ai-cli` / `--project`). |
+| `waiting_for_capacity` and nothing moves | Every eligible candidate is exhausted/unknown; retry is armed. Override with `warden switch`, or wait for the earliest reset. |
+| Want to stop automatic switching | `warden switch <id> --backend …`, stop, or delete supersedes recovery (`backend_recovery_superseded` / `recovery_superseded`). |
 | Cockpit goes blank / narrow column after a hot-swap | Transient layout/geometry glitch. Quit and reopen the TUI; the local reattach path should preserve the selected agent. Terminal panes do not drive recovery. |
 
-See [Backend hard-limit recovery → Operator diagnostics](/warden/guides/backend-recovery/#operator-diagnostics-usage-vs-pane-vs-cooldown-vs-manual).
+See [Backend hard-limit recovery → Operator playbooks](/warden/guides/backend-recovery/#operator-playbooks) and [Operator diagnostics](/warden/guides/backend-recovery/#operator-diagnostics-usage-vs-pane-vs-cooldown-vs-manual).
 
 ## Cockpit-specific
 

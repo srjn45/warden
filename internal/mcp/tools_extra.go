@@ -863,7 +863,9 @@ func (s *Server) registerExtraTools() {
 			"Always fetches fresh supported provider usage snapshots, calculates bucket-to-agent impact, and — unless dry_run — " +
 			"invokes the same backend recovery coordinator flow as the background usage poller. " +
 			"Returns structured snapshots, impact (exhausted/affected/skipped/stale), and started/waiting (or would_*) outcomes with candidate decisions. " +
-			"Optional ai_cli and project filters limit which agents may be affected; cached/stale data is never treated as forced exhaustion.",
+			"Skipped agents include unbound_legacy (backend/model-only records — never mass-swapped on a guessed account/bucket). " +
+			"Optional ai_cli and project filters limit which agents may be affected; cached/stale data is never treated as forced exhaustion. " +
+			"When rate_limit.recovery.usage_reconciliation.enabled is false, this remains the explicit operator path that may fetch usage.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a usageRecoverArgs) (*mcpsdk.CallToolResult, any, error) {
 		if a.MaxParallelSwaps < 0 {
 			return textResult("error: max_parallel_swaps must be >= 1 when set"), nil, nil

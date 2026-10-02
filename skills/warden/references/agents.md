@@ -417,7 +417,7 @@ membership and child edges across both paths.
 
 When an agent hits a confirmed provider hard limit, the **reactive backend recovery coordinator** automatically tries eligible subscription backends from the backend registry — no operator action needed (universal for all agents; not gated on handover settings). Watch for a non-null `backend_recovery` field on sessions from `list_agents` / `get_agent`.
 
-**Rate-limit detection** is per-backend: Claude, Codex, Cursor, Antigravity, and Aider use pane-based banners; OpenCode, Crush, and Goose rely on the daemon's usage-API poll (~60 s) because their Tea TUI panes carry no limit text. Once `status` becomes `rate_limited`, recovery and optional same-backend auto-resume follow the usual paths.
+**Rate-limit detection** is per-backend: Claude, Codex, Cursor, Antigravity, and Aider use pane-based banners (Claude's wait-menu is confirmed evidence even without a later `resets` banner); OpenCode, Crush, and Goose rely on the daemon's usage-API poll (~60 s) because their Tea TUI panes carry no limit text. Once `status` becomes `rate_limited`, recovery and optional same-backend auto-resume follow the usual paths. Opt-in background usage reconciliation (`rate_limit.recovery.usage_reconciliation.enabled`, default false) plus operator `usage_recover` / `wd usage recover [--dry-run]` bulk-map exhausted mandatory buckets to every **bound** live agent. Agents without a `QuotaBinding` are `unbound_legacy` — operable, skipped by bulk reconcile, bind on next HotSwap.
 
 **Recovery phases:**
 
@@ -432,10 +432,13 @@ When an agent hits a confirmed provider hard limit, the **reactive backend recov
 - `backend_recovery.current` — `{backend_id, model_id}` of the candidate being tried
 - `backend_recovery.attempts` — ordered list of all tried candidates and their outcomes
 - `backend_recovery.next_retry_at` — when the coordinator will retry (while waiting)
+- `backend_recovery.trigger_source` — `usage` / `menu` / `banner` / `manual`
+- `backend_recovery.capacity_domain` / `bucket_key` / `freshness` — safe capacity context
 - `backend_recovery` null — no recovery active (normal operation or recovery complete)
 
 **When surfacing recovery to the user:**
 - Treat `waiting_for_capacity` like `rate_limited` — the agent needs capacity, not intervention.
+- Preview impact without swapping: `usage_recover {dry_run: true}` / `wd usage recover --dry-run`.
 - If the user wants to override: `switch_agent` / `stop_agent` automatically supersedes recovery; `send_to_agent` also works once the new backend is running.
 - You do NOT need to manually manage recovery timers; the daemon owns them.
 
