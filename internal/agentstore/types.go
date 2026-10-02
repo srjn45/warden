@@ -27,44 +27,45 @@ type QuotaBinding = capacity.QuotaBinding
 // present) and both are emitted on encode during the alias window so existing
 // readers that have not yet migrated still see a recognised field name.
 type Agent struct {
-	ID              string        `json:"id"`
-	Name            string        `json:"name,omitempty"`
-	Type            store.Type    `json:"type"`
-	Ticket          string        `json:"ticket"`
-	TmuxSession     string        `json:"tmux_session"`
-	AiCli           string        `json:"ai_cli,omitempty"`  // canonical (legacy: "backend")
-	AICLISessionID  string        `json:"ai_cli_session_id"` // canonical (legacy: "claude_session_id")
-	Repo            string        `json:"repo"`
-	Worktree        string        `json:"worktree"`
-	Branch          string        `json:"branch"`
-	WorktreeCreated bool          `json:"worktree_created,omitempty"`
-	BranchCreated   bool          `json:"branch_created,omitempty"`
-	PR              string        `json:"pr"`
-	Prompt          string        `json:"prompt"`
-	Workdir         string        `json:"workdir"`
-	Subject         string        `json:"subject"`
-	Tags            []string      `json:"tags,omitempty"`
-	Status          store.Status  `json:"status"`
-	PID             int           `json:"pid"`
-	ExitCode        *int          `json:"exit_code,omitempty"`
-	CreatedAt       time.Time     `json:"created_at"`
-	UpdatedAt       time.Time     `json:"updated_at"`
-	Events          []store.Event `json:"events"`
-	LastPaneExcerpt string        `json:"last_pane_excerpt"`
-	AutoRestart     bool          `json:"auto_restart,omitempty"`
-	RestartCount    int           `json:"restart_count,omitempty"`
-	LastRestartAt   *time.Time    `json:"last_restart_at,omitempty"`
-	PermissionMode  string        `json:"permission_mode,omitempty"`
-	Role            string        `json:"role,omitempty"`
-	Task            string        `json:"task,omitempty"`
-	AutoApprove     bool          `json:"auto_approve,omitempty"`
-	ForceCompact    *bool         `json:"force_compact,omitempty"`
-	PipelineID      string        `json:"pipeline_id,omitempty"`
-	JobID           string        `json:"job_id,omitempty"`
-	PlanID          string        `json:"plan_id,omitempty"`
-	ScheduleID      string        `json:"schedule_id,omitempty"`
-	ScheduleName    string        `json:"schedule_name,omitempty"`
-	ParentID        string        `json:"parent_id,omitempty"`
+	ID               string                 `json:"id"`
+	Name             string                 `json:"name,omitempty"`
+	Type             store.Type             `json:"type"`
+	Ticket           string                 `json:"ticket"`
+	TmuxSession      string                 `json:"tmux_session"`
+	AiCli            string                 `json:"ai_cli,omitempty"`  // canonical (legacy: "backend")
+	AICLISessionID   string                 `json:"ai_cli_session_id"` // canonical (legacy: "claude_session_id")
+	Repo             string                 `json:"repo"`
+	Worktree         string                 `json:"worktree"`
+	Branch           string                 `json:"branch"`
+	WorktreeCreated  bool                   `json:"worktree_created,omitempty"`
+	BranchCreated    bool                   `json:"branch_created,omitempty"`
+	PR               string                 `json:"pr"`
+	Prompt           string                 `json:"prompt"`
+	Workdir          string                 `json:"workdir"`
+	Subject          string                 `json:"subject"`
+	Tags             []string               `json:"tags,omitempty"`
+	Status           store.Status           `json:"status"`
+	PID              int                    `json:"pid"`
+	ExitCode         *int                   `json:"exit_code,omitempty"`
+	CreatedAt        time.Time              `json:"created_at"`
+	UpdatedAt        time.Time              `json:"updated_at"`
+	Events           []store.Event          `json:"events"`
+	LastPaneExcerpt  string                 `json:"last_pane_excerpt"`
+	AutoRestart      bool                   `json:"auto_restart,omitempty"`
+	RestartCount     int                    `json:"restart_count,omitempty"`
+	LastRestartAt    *time.Time             `json:"last_restart_at,omitempty"`
+	PermissionMode   string                 `json:"permission_mode,omitempty"`
+	ExecutionProfile store.ExecutionProfile `json:"execution_profile,omitempty"`
+	Role             string                 `json:"role,omitempty"`
+	Task             string                 `json:"task,omitempty"`
+	AutoApprove      bool                   `json:"auto_approve,omitempty"`
+	ForceCompact     *bool                  `json:"force_compact,omitempty"`
+	PipelineID       string                 `json:"pipeline_id,omitempty"`
+	JobID            string                 `json:"job_id,omitempty"`
+	PlanID           string                 `json:"plan_id,omitempty"`
+	ScheduleID       string                 `json:"schedule_id,omitempty"`
+	ScheduleName     string                 `json:"schedule_name,omitempty"`
+	ParentID         string                 `json:"parent_id,omitempty"`
 	// ChildAgents and ChildPipelines preserve nil-vs-empty-slice semantics:
 	// nil = legacy record (no authoritative list), []string{} = authoritative empty.
 	ChildAgents     []string               `json:"child_agents,omitempty"`
@@ -196,6 +197,7 @@ func (a *Agent) ToSession() *store.Session {
 		RestartCount:              a.RestartCount,
 		LastRestartAt:             a.LastRestartAt,
 		PermissionMode:            a.PermissionMode,
+		ExecutionProfile:          a.ExecutionProfile,
 		Role:                      a.Role,
 		Task:                      a.Task,
 		AutoApprove:               a.AutoApprove,
@@ -261,6 +263,7 @@ func FromSession(s *store.Session) *Agent {
 		RestartCount:              s.RestartCount,
 		LastRestartAt:             s.LastRestartAt,
 		PermissionMode:            s.PermissionMode,
+		ExecutionProfile:          s.ExecutionProfile,
 		Role:                      s.Role,
 		Task:                      s.Task,
 		AutoApprove:               s.AutoApprove,

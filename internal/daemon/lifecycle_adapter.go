@@ -135,9 +135,12 @@ func (a *lifecycleAdapter) Restore(ctx context.Context, sess *agentstore.Agent) 
 	if err := a.lc.Restore(ctx, sess); err != nil {
 		return err
 	}
-	if a.store != nil && sess.QuotaBinding != nil {
+	if a.store != nil && sess != nil {
 		return a.store.Update(ctx, sess.ID, func(s *agentstore.Agent) error {
-			s.QuotaBinding = sess.QuotaBinding
+			if sess.QuotaBinding != nil {
+				s.QuotaBinding = sess.QuotaBinding
+			}
+			s.ExecutionProfile = sess.ExecutionProfile
 			return nil
 		})
 	}
@@ -232,6 +235,7 @@ func (a *lifecycleAdapter) HotSwap(ctx context.Context, sess *agentstore.Agent, 
 			s.Model = sess.Model
 			s.AICLISessionID = sess.AICLISessionID
 			s.QuotaBinding = sess.QuotaBinding
+			s.ExecutionProfile = sess.ExecutionProfile
 			s.UpdatedAt = sess.UpdatedAt
 			return nil
 		}); err != nil {

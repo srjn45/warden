@@ -48,6 +48,7 @@ type LaunchOpts struct {
 	Name      string // display label for the session (warden uses the agent id)
 	Model     string // already-resolved model id (aliases expanded, default applied) — empty only if the backend has no model flag
 	Mode      string // permission/approval mode (one of Caps.PermissionModes)
+	Network   string // sandbox/network from ExecutionProfile.EffectiveNetwork (loopback|full|none); empty = adapter emits no network override
 }
 
 // ResumeOpts is the neutral input for resuming an existing session by id.
@@ -56,6 +57,7 @@ type ResumeOpts struct {
 	Name      string // display label re-applied on resume
 	Model     string // already-resolved model id
 	Mode      string // permission/approval mode
+	Network   string // sandbox/network from ExecutionProfile.EffectiveNetwork (loopback|full|none); empty = adapter emits no network override
 }
 
 // Turn is warden's neutral transcript record. Backends normalize their own
@@ -391,6 +393,7 @@ type ForkOpts struct {
 	Name            string // display label for the new session (warden agent id)
 	Model           string // already-resolved model id
 	Mode            string // permission/approval mode
+	Network         string // sandbox/network from ExecutionProfile.EffectiveNetwork (loopback|full|none); empty = adapter emits no network override
 	// Workdir is the fork's OWN worktree (a fresh sibling off the source's branch).
 	// A fork inherently runs in a different cwd than the source's recorded one
 	// (dir-scoped discover-then-pin needs each agent its own cwd), and codex, seeing

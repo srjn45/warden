@@ -384,6 +384,33 @@ func (l *Lifecycle) promptArg(b agentbackend.Backend, promptFile string) string 
 	return b.LaunchPromptArg(promptFile)
 }
 
+// stampSpawnExecutionProfile returns the profile stamped onto a newly spawned
+// agent: Network=loopback unless the request already pinned none or full.
+func stampSpawnExecutionProfile(pinned store.ExecutionProfile) store.ExecutionProfile {
+	switch pinned.Network {
+	case store.NetworkNone, store.NetworkFull:
+		return store.ExecutionProfile{Network: pinned.Network}
+	default:
+		return store.ExecutionProfile{Network: store.NetworkLoopback}
+	}
+}
+
+// launchNetwork is the only reader launch paths may use for the network
+// contract. Empty/legacy profiles are stamped to loopback on the in-memory
+// agent (so caller persist writes it); pinned none/full are preserved exactly.
+func launchNetwork(agent *agentstore.Agent) string {
+	if agent == nil {
+		return store.NetworkLoopback
+	}
+	switch agent.ExecutionProfile.Network {
+	case store.NetworkNone, store.NetworkFull:
+		// preserve pinned
+	default:
+		agent.ExecutionProfile.Network = store.NetworkLoopback
+	}
+	return agent.ExecutionProfile.EffectiveNetwork()
+}
+
 // buildLaunch returns the bare backend launch command for a spawn — the base the
 // spawn paths then concatenate hint/prompt/exit suffixes onto. For a normal spawn
 // (req.ForkFrom == "") it returns exactly b.LaunchCmd(...), so the assembled launch
@@ -393,9 +420,10 @@ func (l *Lifecycle) promptArg(b agentbackend.Backend, promptFile string) string 
 // bare agent. The source's pinned backend session id and branch are already resolved
 // by the daemon adapter (lifecycle is store-free); this only shapes the command.
 func (l *Lifecycle) buildLaunch(b agentbackend.Backend, req SpawnRequest, agent *agentstore.Agent, mode string) (string, error) {
+	network := launchNetwork(agent)
 	if req.ForkFrom == "" {
 		return b.LaunchCmd(agentbackend.LaunchOpts{
-			SessionID: agent.AICLISessionID, Name: agent.ID, Model: l.launchModel(b, req.Model), Mode: mode,
+			SessionID: agent.AICLISessionID, Name: agent.ID, Model: l.launchModel(b, req.Model), Mode: mode, Network: network,
 		}), nil
 	}
 	fk, ok := b.(agentbackend.SessionForker)
@@ -403,7 +431,7 @@ func (l *Lifecycle) buildLaunch(b agentbackend.Backend, req SpawnRequest, agent 
 		return "", fmt.Errorf("backend %s cannot fork a session", b.ID())
 	}
 	cmd, ok := fk.ForkCmd(agentbackend.ForkOpts{
-		SourceSessionID: req.ForkSourceSessionID, Name: agent.ID, Model: l.launchModel(b, req.Model), Mode: mode,
+		SourceSessionID: req.ForkSourceSessionID, Name: agent.ID, Model: l.launchModel(b, req.Model), Mode: mode, Network: network,
 		Workdir: agent.Workdir, // the fork's own worktree → codex -C, suppresses the working-dir picker
 	})
 	if !ok {
@@ -770,33 +798,34 @@ func (l *Lifecycle) backendFor(id string) agentbackend.Backend {
 
 // SpawnRequest is the type-aware input to Spawn (design §2 / §6).
 type SpawnRequest struct {
-	Type            store.Type
-	Ticket          string // optional; becomes the id when present
-	Name            string // optional; human-readable name for the agent
-	Repo            string
-	Branch          string            // optional; development branch / pr-review checkout target
-	PR              string            // optional; pr-review
-	Worktree        bool              // analysis/spike opt-in
-	InRepo          bool              // write-agent opt-out: share the repo instead of isolating in a worktree (ignored for pr-review)
-	Prompt          string            // free-form: the agent's initial prompt (no repo/worktree); empty = interactive
-	Cwd             string            // free-form: dir to launch claude from (the caller's "master shell"); required
-	PermissionMode  string            // explicit mode override; empty = use global default
-	AutoRestart     bool              // opt-in: auto-resume this agent when it errors (capped)
-	AutoApprove     bool              // opt-in: auto-approve yes/no prompts (also filled by a role default)
-	Model           string            // claude model (opus/sonnet/haiku or full ID); empty = default
-	Backend         string            // agent backend id (claude, aider, …); empty = claude (deprecated alias)
-	AiCli           string            // canonical agent backend id (claude, aider, …); empty = claude
-	Kind            store.SessionKind // "" ⇒ agent (the default); "terminal" ⇒ a plain ${SHELL:-bash} pane, not an AI agent
-	Tags            []string          // optional free-form labels for grouping/filtering (#30)
-	Role            string            // built-in role (persona + default flags); empty = "general" (no persona)
-	Tier            string            // explicit model tier ("tier-1"/"tier-2"/"tier-3") for the quota-balanced resolver; empty = derive from task/role
-	Task            string            // task name (task registry) for tier routing via task.TierFor; empty = none
-	ParentID        string            // id of the agent that spawned this one; empty = root (operator/CLI spawn)
-	ProjectID       string            // id of the first-class project this session joins; empty = the daemon resolves it by path-match (lifecycle is store-free, so it only stamps what it is handed)
-	PlanID          string            // id of the plan that spawned this session; empty for ordinary spawns
-	AutopilotRunID  string            // owning ap- run id (autopilot back-ref)
-	AutopilotSlot   string            // autopilot | guardian | worker
-	AutopilotTaskID string            // plan task id (workers only)
+	Type             store.Type
+	Ticket           string // optional; becomes the id when present
+	Name             string // optional; human-readable name for the agent
+	Repo             string
+	Branch           string                 // optional; development branch / pr-review checkout target
+	PR               string                 // optional; pr-review
+	Worktree         bool                   // analysis/spike opt-in
+	InRepo           bool                   // write-agent opt-out: share the repo instead of isolating in a worktree (ignored for pr-review)
+	Prompt           string                 // free-form: the agent's initial prompt (no repo/worktree); empty = interactive
+	Cwd              string                 // free-form: dir to launch claude from (the caller's "master shell"); required
+	PermissionMode   string                 // explicit mode override; empty = use global default
+	ExecutionProfile store.ExecutionProfile // optional pin (none|full); empty stamps loopback on Warden-managed spawn
+	AutoRestart      bool                   // opt-in: auto-resume this agent when it errors (capped)
+	AutoApprove      bool                   // opt-in: auto-approve yes/no prompts (also filled by a role default)
+	Model            string                 // claude model (opus/sonnet/haiku or full ID); empty = default
+	Backend          string                 // agent backend id (claude, aider, …); empty = claude (deprecated alias)
+	AiCli            string                 // canonical agent backend id (claude, aider, …); empty = claude
+	Kind             store.SessionKind      // "" ⇒ agent (the default); "terminal" ⇒ a plain ${SHELL:-bash} pane, not an AI agent
+	Tags             []string               // optional free-form labels for grouping/filtering (#30)
+	Role             string                 // built-in role (persona + default flags); empty = "general" (no persona)
+	Tier             string                 // explicit model tier ("tier-1"/"tier-2"/"tier-3") for the quota-balanced resolver; empty = derive from task/role
+	Task             string                 // task name (task registry) for tier routing via task.TierFor; empty = none
+	ParentID         string                 // id of the agent that spawned this one; empty = root (operator/CLI spawn)
+	ProjectID        string                 // id of the first-class project this session joins; empty = the daemon resolves it by path-match (lifecycle is store-free, so it only stamps what it is handed)
+	PlanID           string                 // id of the plan that spawned this session; empty for ordinary spawns
+	AutopilotRunID   string                 // owning ap- run id (autopilot back-ref)
+	AutopilotSlot    string                 // autopilot | guardian | worker
+	AutopilotTaskID  string                 // plan task id (workers only)
 
 	// Fork fields (codex fork superpower, #52). Set by the daemon adapter when a
 	// spawn carries fork_from: the adapter (which owns the store) resolves the
@@ -1476,25 +1505,26 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*agentstore.Ag
 
 	agent := &agentstore.Agent{
 		ChildAgents: []string{}, ChildPipelines: []string{},
-		ID:             id,
-		Name:           req.Name,
-		Type:           req.Type,
-		Ticket:         req.Ticket,
-		TmuxSession:    id,
-		Repo:           req.Repo,
-		PR:             req.PR,
-		Prompt:         req.Prompt,
-		Subject:        spawnSubject(req.Prompt),
-		Tags:           store.NormalizeTags(req.Tags),
-		Status:         store.StatusSpawning,
-		PermissionMode: req.PermissionMode,
-		AutoRestart:    req.AutoRestart,
-		AutoApprove:    req.AutoApprove,
-		Model:          req.Model,
-		AiCli:          req.Backend,
-		QuotaBinding:   binding,
-		Role:           req.Role,
-		Task:           req.Task,
+		ID:               id,
+		Name:             req.Name,
+		Type:             req.Type,
+		Ticket:           req.Ticket,
+		TmuxSession:      id,
+		Repo:             req.Repo,
+		PR:               req.PR,
+		Prompt:           req.Prompt,
+		Subject:          spawnSubject(req.Prompt),
+		Tags:             store.NormalizeTags(req.Tags),
+		Status:           store.StatusSpawning,
+		PermissionMode:   req.PermissionMode,
+		ExecutionProfile: stampSpawnExecutionProfile(req.ExecutionProfile),
+		AutoRestart:      req.AutoRestart,
+		AutoApprove:      req.AutoApprove,
+		Model:            req.Model,
+		AiCli:            req.Backend,
+		QuotaBinding:     binding,
+		Role:             req.Role,
+		Task:             req.Task,
 	}
 	// Record provenance, but never let an agent be its own parent (a self-id would
 	// create a degenerate cycle in the sub-tree view).
@@ -1605,7 +1635,7 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, agent *
 		hintSpec{l.config().GetMemoryInject(), mem},
 		hintSpec{peers != "", peers})
 	launch := b.LaunchCmd(agentbackend.LaunchOpts{
-		SessionID: agent.AICLISessionID, Name: agent.ID, Model: l.launchModel(b, req.Model), Mode: mode,
+		SessionID: agent.AICLISessionID, Name: agent.ID, Model: l.launchModel(b, req.Model), Mode: mode, Network: launchNetwork(agent),
 	}) + hints + l.promptArg(b, promptFile) + l.exitSuffix(agent.ID)
 	if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", agent.ID, launch, "Enter"); err != nil {
 		// The session exists but launch failed — don't orphan it. No worktree here.
@@ -1827,8 +1857,8 @@ func EnsureExtendedKeys(ctx context.Context, run Runner) {
 // Adopt. The ResumeCmd capability is checked BEFORE the tmux session is created
 // so a backend without resume (Caps.Resume=false, e.g. Aider) fails cleanly
 // instead of stranding an empty session (design §5: !Resume ⇒ start fresh).
-func (l *Lifecycle) resumeInTmux(ctx context.Context, b agentbackend.Backend, id, cwd, claudeID, model, mode string) error {
-	return l.resumeInTmuxWithHints(ctx, b, id, cwd, claudeID, model, mode, "")
+func (l *Lifecycle) resumeInTmux(ctx context.Context, b agentbackend.Backend, id, cwd, claudeID, model, mode, network string) error {
+	return l.resumeInTmuxWithHints(ctx, b, id, cwd, claudeID, model, mode, network, "")
 }
 
 // resumeInTmuxWithHints is resumeInTmux with an extra system-prompt hints fragment
@@ -1839,9 +1869,9 @@ func (l *Lifecycle) resumeInTmux(ctx context.Context, b agentbackend.Backend, id
 // empty fragment here — their persona rides the AGENTS.md rules file rewritten by
 // injectContext before this call — so hints is "" for them and the resume is
 // byte-identical to the plain path.
-func (l *Lifecycle) resumeInTmuxWithHints(ctx context.Context, b agentbackend.Backend, id, cwd, claudeID, model, mode, hints string) error {
+func (l *Lifecycle) resumeInTmuxWithHints(ctx context.Context, b agentbackend.Backend, id, cwd, claudeID, model, mode, network, hints string) error {
 	cmd, ok := b.ResumeCmd(agentbackend.ResumeOpts{
-		SessionID: claudeID, Name: id, Model: l.launchModel(b, model), Mode: mode,
+		SessionID: claudeID, Name: id, Model: l.launchModel(b, model), Mode: mode, Network: network,
 	})
 	if !ok {
 		return fmt.Errorf("backend %s does not support resume — start a fresh agent instead", b.ID())
@@ -1906,7 +1936,7 @@ func (l *Lifecycle) Restore(ctx context.Context, agent *agentstore.Agent) error 
 	if mode == "" {
 		mode = l.config().GetDefaultPermissionMode()
 	}
-	return l.resumeInTmux(ctx, b, agent.ID, agent.Workdir, agent.AICLISessionID, agent.Model, mode)
+	return l.resumeInTmux(ctx, b, agent.ID, agent.Workdir, agent.AICLISessionID, agent.Model, mode, launchNetwork(agent))
 }
 
 // SwitchRole re-injects the persona for agent.Role (already persisted by the caller
@@ -1967,7 +1997,7 @@ func (l *Lifecycle) SwitchRole(ctx context.Context, agent *agentstore.Agent) err
 		hintSpec{l.config().GetGitConventions(), gitConventionsGuidance},
 		hintSpec{l.config().GetMemoryInject(), mem},
 		hintSpec{peers != "", peers})
-	return l.resumeInTmuxWithHints(ctx, b, agent.ID, agent.Workdir, agent.AICLISessionID, agent.Model, mode, hints)
+	return l.resumeInTmuxWithHints(ctx, b, agent.ID, agent.Workdir, agent.AICLISessionID, agent.Model, mode, launchNetwork(agent), hints)
 }
 
 // AdoptRequest carries the resolved inputs for Adopt. TmuxSession == "" selects
@@ -2006,12 +2036,13 @@ func (l *Lifecycle) Adopt(ctx context.Context, req AdoptRequest) (*agentstore.Ag
 	}
 	agent := &agentstore.Agent{
 		ChildAgents: []string{}, ChildPipelines: []string{},
-		ID:             id,
-		TmuxSession:    id,
-		Type:           store.TypeOther,
-		Workdir:        req.Cwd,
-		AICLISessionID: aicliSessionID,
-		Model:          req.Model,
+		ID:               id,
+		TmuxSession:      id,
+		Type:             store.TypeOther,
+		Workdir:          req.Cwd,
+		AICLISessionID:   aicliSessionID,
+		Model:            req.Model,
+		ExecutionProfile: store.ExecutionProfile{Network: store.NetworkLoopback},
 	}
 	if req.TmuxSession == "" { // resume mode
 		if aicliSessionID == "" {
@@ -2023,7 +2054,7 @@ func (l *Lifecycle) Adopt(ctx context.Context, req AdoptRequest) (*agentstore.Ag
 		agent.Status = store.StatusSpawning
 		// Adopt registers a Claude session warden did not spawn, so resume always
 		// goes through the default (Claude) backend.
-		if err := l.resumeInTmux(ctx, l.backend, id, req.Cwd, aicliSessionID, req.Model, l.config().GetDefaultPermissionMode()); err != nil {
+		if err := l.resumeInTmux(ctx, l.backend, id, req.Cwd, aicliSessionID, req.Model, l.config().GetDefaultPermissionMode(), launchNetwork(agent)); err != nil {
 			return nil, err
 		}
 		return agent, nil
@@ -2286,26 +2317,27 @@ func (l *Lifecycle) Output(ctx context.Context, tmuxSession string, lines int) (
 // JobSpawnRequest spawns one pipeline job. The executor composes Prompt and
 // resolves Worktree/BaseBranch before calling.
 type JobSpawnRequest struct {
-	PipelineID     string
-	PlanID         string
-	JobID          string
-	Repo           string
-	Prompt         string // already composed (upstream context + footer)
-	Worktree       bool   // create a git worktree? false = run in repo root
-	BaseBranch     string // worktree base ref
-	Workdir        string
-	Branch         string
-	Type           store.Type
-	PermissionMode string   // explicit mode override; empty = use global default
-	Role           string   // built-in role (persona + default flags); empty = "general" (no persona)
-	Tier           string   // explicit model tier ("tier-1", "tier-2", "tier-3")
-	Task           string   // task name (task registry) for tier routing via task.TierFor; empty = none
-	Backend        string   // agent backend id (claude, aider, …); empty = default (deprecated alias)
-	AiCli          string   // canonical agent backend id (claude, aider, …); empty = default
-	Model          string   // claude model (opus/sonnet/haiku or full ID); empty = default
-	Tags           []string // labels stamped on the job's session (e.g. inherited autopilot ownership tags)
-	ScheduleID     string   // origin schedule (set when the pipeline was schedule-fired); empty otherwise
-	ScheduleName   string   // origin schedule's display name; empty otherwise
+	PipelineID       string
+	PlanID           string
+	JobID            string
+	Repo             string
+	Prompt           string // already composed (upstream context + footer)
+	Worktree         bool   // create a git worktree? false = run in repo root
+	BaseBranch       string // worktree base ref
+	Workdir          string
+	Branch           string
+	Type             store.Type
+	PermissionMode   string                 // explicit mode override; empty = use global default
+	ExecutionProfile store.ExecutionProfile // optional pin (none|full); empty stamps loopback on Warden-managed spawn
+	Role             string                 // built-in role (persona + default flags); empty = "general" (no persona)
+	Tier             string                 // explicit model tier ("tier-1", "tier-2", "tier-3")
+	Task             string                 // task name (task registry) for tier routing via task.TierFor; empty = none
+	Backend          string                 // agent backend id (claude, aider, …); empty = default (deprecated alias)
+	AiCli            string                 // canonical agent backend id (claude, aider, …); empty = default
+	Model            string                 // claude model (opus/sonnet/haiku or full ID); empty = default
+	Tags             []string               // labels stamped on the job's session (e.g. inherited autopilot ownership tags)
+	ScheduleID       string                 // origin schedule (set when the pipeline was schedule-fired); empty otherwise
+	ScheduleName     string                 // origin schedule's display name; empty otherwise
 }
 
 // exitSuffix ensures ExitsDir exists, clears any stale exit-file for id (from a
@@ -2518,7 +2550,8 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*agentst
 		ID: id, TmuxSession: id, Type: req.Type, Repo: req.Repo,
 		Prompt: req.Prompt, Subject: firstWords(req.Prompt, 10),
 		Status: store.StatusSpawning, PermissionMode: req.PermissionMode,
-		PipelineID: req.PipelineID, PlanID: req.PlanID, JobID: req.JobID,
+		ExecutionProfile: stampSpawnExecutionProfile(req.ExecutionProfile),
+		PipelineID:       req.PipelineID, PlanID: req.PlanID, JobID: req.JobID,
 		ScheduleID: req.ScheduleID, ScheduleName: req.ScheduleName,
 		Role: req.Role, AiCli: req.Backend, Model: req.Model, QuotaBinding: binding,
 		Tags: store.NormalizeTags(req.Tags),
@@ -2598,7 +2631,7 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*agentst
 		hintSpec{l.config().GetMemoryInject(), mem},
 		hintSpec{peers != "", peers})
 	launch := b.LaunchCmd(agentbackend.LaunchOpts{
-		SessionID: agent.AICLISessionID, Name: id, Model: l.launchModel(b, req.Model), Mode: mode,
+		SessionID: agent.AICLISessionID, Name: id, Model: l.launchModel(b, req.Model), Mode: mode, Network: launchNetwork(agent),
 	}) + hints + l.promptArg(b, promptFile) + l.exitSuffix(id)
 	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", id, launch, "Enter"); err != nil {
 		l.cleanupFailedSpawn(agent, true, worktreeCreated)

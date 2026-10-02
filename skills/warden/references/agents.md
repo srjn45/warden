@@ -258,7 +258,8 @@ and returns memory to the OS without losing the task. From **inside** the agent
 use `/warden agent handoff --retire` (or its `/warden agent rotate` alias) — it reads
 `$WARDEN_SESSION_ID`. An **orchestrator** can retire any agent remotely via MCP
 `handoff_agent {retire:true, ticket, prompt, resume_file?}` (or the `rotate_agent`
-alias) — same semantics (successor inherits the worktree + permission mode; old
+alias) — same semantics (successor inherits the worktree + permission mode +
+execution profile / network; old
 agent reaped after the successor spawns).
 
 Two phases, with a human review gate between them:

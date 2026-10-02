@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/srjn45/warden/internal/agentbackend"
+	_ "github.com/srjn45/warden/internal/agentbackend/backends" // register codex + cursor for profile tests
 	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/store"
@@ -177,6 +178,63 @@ func TestSpawnTypedSeedsPromptArg(t *testing.T) {
 	// …and passed to claude as the positional "$(cat …)" argument on launch.
 	launch := claudeLaunch(s.AICLISessionID, s.ID, "", "auto") + pipelineHint() + collabHint() + gitConventionsHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})
+}
+
+// TestSpawnTypedLaunchIncludesExecutionProfile: spawnTyped (and fork ForkCmd)
+// launch lines include the profile translation.
+func TestSpawnTypedLaunchIncludesExecutionProfile(t *testing.T) {
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"git worktree list --porcelain": {Out: noOtherWorktrees},
+	}}
+	lc := New(fr, &FakeConfig{})
+	lc.PromptsDir = "/state/prompts"
+	s, err := lc.Spawn(context.Background(), SpawnRequest{
+		Type: store.TypeDevelopment, Ticket: "EP-typed", Repo: "/repo",
+		Backend: "codex", Model: "gpt-5-codex", PermissionMode: "workspace-write",
+		Prompt: "implement execution profile",
+	})
+	require.NoError(t, err)
+	require.Equal(t, store.NetworkLoopback, s.ExecutionProfile.Network)
+
+	var launch string
+	for _, c := range fr.Calls {
+		if len(c.Argv) >= 5 && c.Argv[0] == "tmux" && c.Argv[1] == "send-keys" && c.Argv[3] == s.ID {
+			launch = c.Argv[4]
+			break
+		}
+	}
+	require.NotEmpty(t, launch)
+	require.Contains(t, launch, "codex")
+	require.Contains(t, launch, "-s workspace-write")
+	require.Contains(t, launch, "sandbox_workspace_write.network_access=true")
+	require.NotContains(t, launch, "danger-full-access")
+
+	// Fork path: buildLaunch → ForkCmd carries Network.
+	forkFR := &FakeRunner{Responses: map[string]FakeResp{
+		"git worktree list --porcelain": {Out: noOtherWorktrees},
+	}}
+	forkLC := New(forkFR, &FakeConfig{})
+	forkLC.PromptsDir = "/state/prompts"
+	forked, err := forkLC.Spawn(context.Background(), SpawnRequest{
+		Type: store.TypeDevelopment, Ticket: "EP-fork", Repo: "/repo",
+		Backend: "codex", Model: "gpt-5-codex", PermissionMode: "workspace-write",
+		Prompt:   "fork with profile",
+		ForkFrom: "source-agent", ForkSourceSessionID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+		ForkSourceBranch: "feat/src",
+	})
+	require.NoError(t, err)
+	require.Equal(t, store.NetworkLoopback, forked.ExecutionProfile.Network)
+	var forkLaunch string
+	for _, c := range forkFR.Calls {
+		if len(c.Argv) >= 5 && c.Argv[0] == "tmux" && c.Argv[1] == "send-keys" && c.Argv[3] == forked.ID {
+			forkLaunch = c.Argv[4]
+			break
+		}
+	}
+	require.NotEmpty(t, forkLaunch)
+	require.Contains(t, forkLaunch, "codex fork")
+	require.Contains(t, forkLaunch, "sandbox_workspace_write.network_access=true")
+	require.NotContains(t, forkLaunch, "danger-full-access")
 }
 
 // When a HintsDir is configured, the collab/git/pipeline addendum is written to a
@@ -1068,6 +1126,35 @@ func TestRestoreRecreatesAndResumes(t *testing.T) {
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "agent-r1", claudeResume(sid, "agent-r1", "", "auto"), "Enter"})
 }
 
+// TestRestoreLaunchIncludesExecutionProfile: Restore → ResumeCmd launch line
+// includes the profile translation (Cursor --sandbox from loopback stamp).
+func TestRestoreLaunchIncludesExecutionProfile(t *testing.T) {
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"tmux has-session -t agent-cursor-r": {Err: errStub("no session")},
+	}}
+	lc := New(fr, &FakeConfig{PermissionMode: "default"})
+	lc.ProjectsDir = t.TempDir()
+	sess := &agentstore.Agent{
+		ID: "agent-cursor-r", TmuxSession: "agent-cursor-r", AiCli: "cursor",
+		Workdir: t.TempDir(),
+		// empty profile → stamp loopback at restore
+	}
+
+	require.NoError(t, lc.Restore(context.Background(), sess))
+	require.Equal(t, store.NetworkLoopback, sess.ExecutionProfile.Network)
+
+	var launch string
+	for _, c := range fr.Calls {
+		if len(c.Argv) >= 5 && c.Argv[0] == "tmux" && c.Argv[1] == "send-keys" && c.Argv[3] == sess.ID {
+			launch = c.Argv[4]
+			break
+		}
+	}
+	require.NotEmpty(t, launch, "expected resume send-keys")
+	require.Contains(t, launch, "cursor-agent --continue")
+	require.Contains(t, launch, "--sandbox enabled")
+}
+
 func TestRestorePreconditionErrors(t *testing.T) {
 	sid := "66666666-6666-4666-8666-666666666666"
 	dead := func() *FakeRunner {
@@ -1108,7 +1195,7 @@ func TestRestoreAllowsResumeWithoutStructuredTranscript(t *testing.T) {
 
 	require.Empty(t, lc.transcriptPath(sess), "Cursor has no structured transcript path")
 	require.NoError(t, lc.Restore(context.Background(), sess))
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "agent-cursor", "cursor-agent --continue", "Enter"})
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "agent-cursor", "cursor-agent --continue -f --sandbox enabled", "Enter"})
 }
 
 // SwitchRole shares Restore's transcript precondition: Cursor's resumable
@@ -1124,7 +1211,7 @@ func TestSwitchRoleAllowsResumeWithoutStructuredTranscript(t *testing.T) {
 	require.Empty(t, lc.transcriptPath(sess), "Cursor has no structured transcript path")
 	require.NoError(t, lc.SwitchRole(context.Background(), sess))
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "kill-session", "-t", "agent-cursor"})
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "agent-cursor", "cursor-agent --continue", "Enter"})
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "agent-cursor", "cursor-agent --continue -f --sandbox enabled", "Enter"})
 }
 
 // Restore is the shared resume primitive: internal relaunch paths (auto-restart
@@ -1415,7 +1502,7 @@ func TestSpawnPromptModeSetsMouseOn(t *testing.T) {
 
 func TestResumeInTmuxSetsMouseOn(t *testing.T) {
 	fr := &FakeRunner{}
-	err := New(fr, &FakeConfig{}).resumeInTmux(context.Background(), agentbackend.Default(), "ag1", "/cwd", "claude-id", "", "auto")
+	err := New(fr, &FakeConfig{}).resumeInTmux(context.Background(), agentbackend.Default(), "ag1", "/cwd", "claude-id", "", "auto", store.NetworkLoopback)
 	require.NoError(t, err)
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "set-option", "-t", "ag1", "mouse", "on"})
 	require.Greater(t,
@@ -1500,7 +1587,7 @@ func TestResumeSucceedsWhenMouseSetFails(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"tmux set-option -t ag1 mouse on": {Err: errors.New("boom")},
 	}}
-	err := New(fr, &FakeConfig{}).resumeInTmux(context.Background(), agentbackend.Default(), "ag1", "/cwd", "cid", "", "auto")
+	err := New(fr, &FakeConfig{}).resumeInTmux(context.Background(), agentbackend.Default(), "ag1", "/cwd", "cid", "", "auto", store.NetworkLoopback)
 	require.NoError(t, err, "mouse-on failure must not fail the resume")
 }
 
@@ -1508,7 +1595,7 @@ func TestResumeFailsWhenNewSessionFails(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"tmux new-session -d -s ag1 -e WARDEN_SESSION_ID=ag1 -e AGENTCTL_SESSION_ID=ag1 -c /cwd": {Err: errors.New("boom")},
 	}}
-	err := New(fr, &FakeConfig{}).resumeInTmux(context.Background(), agentbackend.Default(), "ag1", "/cwd", "cid", "", "auto")
+	err := New(fr, &FakeConfig{}).resumeInTmux(context.Background(), agentbackend.Default(), "ag1", "/cwd", "cid", "", "auto", store.NetworkLoopback)
 	require.Error(t, err, "new-session failure stays fatal")
 }
 

@@ -83,9 +83,12 @@ func codexSandbox(mode string) (sandbox string, neverApprove bool) {
 // is shaped as Codex's `-m` and omitted when empty so the config-default provider
 // applies (BYO config; the Claude default alias never resolves here, same call as
 // Aider/OpenCode). The permission mode maps to `-s <sandbox>` (+ `-a never` for the
-// auto-approve modes). SessionID and Name are ignored: Codex mints its own UUID
-// session id (SessionIDControl=false) and the TUI has no session-name flag. The
-// pane is already cd'd into the agent's workdir, so no `-C/--cd` is appended.
+// auto-approve modes). Network (from ExecutionProfile) enables
+// sandbox_workspace_write.network_access for loopback/full without upgrading the
+// sandbox to danger-full-access. SessionID and Name are ignored: Codex mints its
+// own UUID session id (SessionIDControl=false) and the TUI has no session-name
+// flag. The pane is already cd'd into the agent's workdir, so no `-C/--cd` is
+// appended.
 func (Codex) LaunchCmd(o agentbackend.LaunchOpts) string {
 	cmd := "codex"
 	if o.Model != "" {
@@ -97,7 +100,26 @@ func (Codex) LaunchCmd(o agentbackend.LaunchOpts) string {
 			cmd += " -a never"
 		}
 	}
+	cmd += codexNetworkFlags(o.Mode, o.Network)
 	return cmd
+}
+
+// codexNetworkFlags translates ExecutionProfile.Network onto Codex's
+// sandbox_workspace_write.network_access override. Empty Network means the
+// caller did not fill a profile (adapter unit tests) — emit nothing. loopback
+// and full enable network on workspace-write / omitted sandbox; none omits the
+// override. danger-full-access already has host network, so no -c is needed.
+// Never upgrades -s to danger-full-access just to get loopback.
+func codexNetworkFlags(mode, network string) string {
+	switch network {
+	case "loopback", "full":
+		if sb, _ := codexSandbox(mode); sb == "danger-full-access" {
+			return ""
+		}
+		return " -c sandbox_workspace_write.network_access=true"
+	default:
+		return ""
+	}
 }
 
 // ResumeCmd builds the interactive resume invocation, run in the agent's workdir.
@@ -105,11 +127,20 @@ func (Codex) LaunchCmd(o agentbackend.LaunchOpts) string {
 // ResumeOpts is warden's own placeholder, not Codex's, so this uses
 // `codex resume --last` — "continue the most recent session", which Codex scopes to
 // the cwd by default (its `--all` flag exists precisely to disable that cwd
-// filtering). For a per-worktree warden agent that deterministically continues that
-// agent's own session. ok is always true (Caps.Resume=true). Exact-id resume
-// (`codex resume <uuid>`) lands with discover-then-pin (FUTURE_ENHANCEMENTS #52).
-func (Codex) ResumeCmd(agentbackend.ResumeOpts) (string, bool) {
-	return "codex resume --last", true
+// filtering). Mode and Network apply the same sandbox/network flags as LaunchCmd
+// so Restore / SwitchRole / Adopt resume keep the execution contract. ok is always
+// true (Caps.Resume=true). Exact-id resume (`codex resume <uuid>`) lands with
+// discover-then-pin (FUTURE_ENHANCEMENTS #52).
+func (Codex) ResumeCmd(o agentbackend.ResumeOpts) (string, bool) {
+	cmd := "codex resume --last"
+	if sb, never := codexSandbox(o.Mode); sb != "" {
+		cmd += " -s " + sb
+		if never {
+			cmd += " -a never"
+		}
+	}
+	cmd += codexNetworkFlags(o.Mode, o.Network)
+	return cmd, true
 }
 
 // ForkCmd implements agentbackend.SessionForker. It forks the EXPLICIT source
@@ -144,6 +175,7 @@ func (Codex) ForkCmd(o agentbackend.ForkOpts) (string, bool) {
 			cmd += " -a never"
 		}
 	}
+	cmd += codexNetworkFlags(o.Mode, o.Network)
 	return cmd, true
 }
 
