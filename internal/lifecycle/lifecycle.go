@@ -1504,7 +1504,7 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*agentstore.Ag
 	}
 
 	agent := &agentstore.Agent{
-		ChildAgents: []string{}, ChildPipelines: []string{},
+		ChildAgents: []string{}, ChildPipelines: []string{}, ChildAutopilots: []string{},
 		ID:               id,
 		Name:             req.Name,
 		Type:             req.Type,
@@ -2036,7 +2036,7 @@ func (l *Lifecycle) Adopt(ctx context.Context, req AdoptRequest) (*agentstore.Ag
 		aicliSessionID = req.ClaudeSessionID
 	}
 	agent := &agentstore.Agent{
-		ChildAgents: []string{}, ChildPipelines: []string{},
+		ChildAgents: []string{}, ChildPipelines: []string{}, ChildAutopilots: []string{},
 		ID:               id,
 		TmuxSession:      id,
 		Type:             store.TypeOther,
@@ -2547,7 +2547,7 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*agentst
 		}
 	}
 	agent := &agentstore.Agent{
-		ChildAgents: []string{}, ChildPipelines: []string{},
+		ChildAgents: []string{}, ChildPipelines: []string{}, ChildAutopilots: []string{},
 		ID: id, TmuxSession: id, Type: req.Type, Repo: req.Repo,
 		Prompt: req.Prompt, Subject: firstWords(req.Prompt, 10),
 		Status: store.StatusSpawning, PermissionMode: req.PermissionMode,

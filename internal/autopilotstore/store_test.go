@@ -49,6 +49,30 @@ func TestCreateRequiresPlanID(t *testing.T) {
 	require.Equal(t, "AP:x", got.Name)
 }
 
+// TestParentAgentIDPersistence pins Autopilot.parent_agent_id: omitted when empty
+// so pre-field records read cleanly, and round-trips through ScrivaDB when set.
+func TestParentAgentIDPersistence(t *testing.T) {
+	raw, err := json.Marshal(Autopilot{ID: "ap-root", ProjectID: "/r", PlanID: "plan-1", Name: "AP:x"})
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), "parent_agent_id")
+
+	s, err := New(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+	ctx := context.Background()
+
+	require.NoError(t, s.Create(ctx, &Autopilot{
+		ID: "ap-child", ProjectID: "/r", PlanID: "plan-2", Name: "AP:nested",
+		ParentAgentID: "agent-owner",
+	}))
+	got, err := s.Get(ctx, "ap-child")
+	require.NoError(t, err)
+	require.Equal(t, "agent-owner", got.ParentAgentID)
+
+	// Legacy migrate path leaves ParentAgentID empty (no parent on old runs).
+	require.Equal(t, "", (&Autopilot{ID: "ap-legacy"}).ParentAgentID)
+}
+
 func TestCRUDAndListFilters(t *testing.T) {
 	s, err := New(t.TempDir())
 	require.NoError(t, err)
@@ -154,6 +178,7 @@ func TestMigrateLiveRunToAutopilotAndPlanHistory(t *testing.T) {
 	require.Equal(t, plan.ID, got.PlanID)
 	require.Equal(t, "AP:entity-redesign", got.Name)
 	require.Equal(t, "entity-redesign-autopilot", got.ManagerAgentID)
+	require.Empty(t, got.ParentAgentID, "legacy runs have no parent agent")
 	require.Equal(t, "active", got.Diagnostics.State)
 	require.Equal(t, "autopilot/entity-redesign", got.Diagnostics.IntegrationBranch)
 

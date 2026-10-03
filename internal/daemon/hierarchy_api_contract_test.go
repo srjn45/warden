@@ -40,7 +40,8 @@ func TestHierarchyFieldsAreExposedOnReadSurfaces(t *testing.T) {
 	fs.data["agent-child"] = &agentstore.Agent{
 		ID: "agent-child", Status: store.StatusWorking, ProjectID: project.ID,
 		ParentID: "agent-parent", ChildAgents: []string{"agent-grandchild"},
-		ChildPipelines: []string{"pipeline-child"},
+		ChildPipelines:  []string{"pipeline-child"},
+		ChildAutopilots: []string{"ap-nested"},
 	}
 	require.NoError(t, ps.Create(&pipeline.Pipeline{
 		ID: "pipeline-child", Name: "pipeline-child", Repo: project.Path,
@@ -68,6 +69,7 @@ func TestHierarchyFieldsAreExposedOnReadSurfaces(t *testing.T) {
 	require.Equal(t, "agent-parent", session["parent_id"])
 	require.Equal(t, []any{"agent-grandchild"}, session["child_agents"])
 	require.Equal(t, []any{"pipeline-child"}, session["child_pipelines"])
+	require.Equal(t, []any{"ap-nested"}, session["child_autopilots"])
 	require.Equal(t, project.ID, session["project_id"])
 
 	pipelines := getObject("/api/v1/pipelines")
@@ -93,5 +95,6 @@ func TestHierarchyFieldsAreExposedOnReadSurfaces(t *testing.T) {
 	require.Equal(t, "agent-parent", frame.Sessions[0]["parent_id"])
 	require.Equal(t, []any{"agent-grandchild"}, frame.Sessions[0]["child_agents"])
 	require.Equal(t, []any{"pipeline-child"}, frame.Sessions[0]["child_pipelines"])
+	require.Equal(t, []any{"ap-nested"}, frame.Sessions[0]["child_autopilots"])
 	require.Equal(t, project.ID, frame.Sessions[0]["project_id"])
 }

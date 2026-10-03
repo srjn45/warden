@@ -89,7 +89,7 @@ func TestStartFromPlan_CreatesLiveAutopilotAndManager(t *testing.T) {
 	planID := "plan-aabbccdd"
 	res, err := c.StartFromPlan(context.Background(), PlanStartRequest{
 		PlanID: planID, ProjectID: "proj-1", Name: "ship",
-		Repo: repo, PlanFile: planPath,
+		Repo: repo, PlanFile: planPath, ParentAgentID: "agent-owner",
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, res.AutopilotID)
@@ -101,6 +101,7 @@ func TestStartFromPlan_CreatesLiveAutopilotAndManager(t *testing.T) {
 	require.Equal(t, planID, ap.PlanID)
 	require.Equal(t, "AP:ship", ap.Name)
 	require.Equal(t, res.ManagerAgentID, ap.ManagerAgentID)
+	require.Equal(t, "agent-owner", ap.ParentAgentID)
 	require.Len(t, rt.managers, 1)
 	require.Equal(t, planID, rt.managers[0].PlanID)
 	require.Contains(t, rt.managers[0].Tags, "autopilot")

@@ -348,7 +348,13 @@ type Session struct {
 	// not eagerly pruned when an owned pipeline is orphaned/hibernated. A
 	// pipeline's own job agents are NOT listed here (D5) — they are reached through
 	// the pipeline (ChildPipelines[] → Pipeline.jobs), never as child_agents[].
-	ChildPipelines  []string               `json:"child_pipelines,omitempty"`
+	ChildPipelines []string `json:"child_pipelines,omitempty"`
+	// ChildAutopilots is the forward edge of Autopilot.ParentAgentID: the ids of
+	// live Autopilot runs this agent parents. Maintained on both ends in the same
+	// operation when an Autopilot is created under an agent. Dangling ids are
+	// tolerated. Nil denotes a legacy missing list; non-nil, including [], is
+	// authoritative.
+	ChildAutopilots []string               `json:"child_autopilots,omitempty"`
 	AutopilotRunID  string                 `json:"autopilot_run_id,omitempty"`  // owning ap- run id (autopilot back-ref)
 	AutopilotSlot   string                 `json:"autopilot_slot,omitempty"`    // autopilot | guardian | worker
 	AutopilotTaskID string                 `json:"autopilot_task_id,omitempty"` // plan task id (workers only)
@@ -436,12 +442,14 @@ func (v Session) MarshalJSON() ([]byte, error) {
 	}
 	return json.Marshal(struct {
 		plain
-		ChildAgents    *[]string `json:"child_agents,omitempty"`
-		ChildPipelines *[]string `json:"child_pipelines,omitempty"`
+		ChildAgents     *[]string `json:"child_agents,omitempty"`
+		ChildPipelines  *[]string `json:"child_pipelines,omitempty"`
+		ChildAutopilots *[]string `json:"child_autopilots,omitempty"`
 	}{
-		plain:          plain(v),
-		ChildAgents:    optional(v.ChildAgents),
-		ChildPipelines: optional(v.ChildPipelines),
+		plain:           plain(v),
+		ChildAgents:     optional(v.ChildAgents),
+		ChildPipelines:  optional(v.ChildPipelines),
+		ChildAutopilots: optional(v.ChildAutopilots),
 	})
 }
 

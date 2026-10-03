@@ -122,6 +122,31 @@ func TestSessionChildPipelinesJSON(t *testing.T) {
 	require.Equal(t, []string{"pipe-1", "pipe-2"}, back.ChildPipelines)
 }
 
+// TestSessionChildAutopilotsJSON pins the child_autopilots[] forward edge: it
+// round-trips when set and is omitted entirely when nil so pre-field records
+// read cleanly. Explicit empty is authoritative and emitted as [].
+func TestSessionChildAutopilotsJSON(t *testing.T) {
+	raw, err := json.Marshal(Session{ID: "a"})
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), "child_autopilots")
+	var old Session
+	require.NoError(t, json.Unmarshal([]byte(`{"id":"a"}`), &old))
+	require.Nil(t, old.ChildAutopilots)
+
+	empty := Session{ID: "leaf", ChildAutopilots: []string{}}
+	raw, err = json.Marshal(empty)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), `"child_autopilots":[]`)
+
+	s := Session{ID: "owner", ChildAutopilots: []string{"ap-1", "ap-2"}}
+	raw, err = json.Marshal(s)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), `"child_autopilots":["ap-1","ap-2"]`)
+	var back Session
+	require.NoError(t, json.Unmarshal(raw, &back))
+	require.Equal(t, []string{"ap-1", "ap-2"}, back.ChildAutopilots)
+}
+
 func TestNormalizeTags(t *testing.T) {
 	// Trim, lowercase, drop blanks, dedup, preserve first-seen order.
 	got := NormalizeTags([]string{"  Backend ", "urgent", "backend", "", "  ", "URGENT"})
