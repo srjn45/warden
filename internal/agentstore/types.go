@@ -66,10 +66,15 @@ type Agent struct {
 	ScheduleID       string                 `json:"schedule_id,omitempty"`
 	ScheduleName     string                 `json:"schedule_name,omitempty"`
 	ParentID         string                 `json:"parent_id,omitempty"`
-	// ChildAgents and ChildPipelines preserve nil-vs-empty-slice semantics:
-	// nil = legacy record (no authoritative list), []string{} = authoritative empty.
-	ChildAgents     []string               `json:"child_agents,omitempty"`
-	ChildPipelines  []string               `json:"child_pipelines,omitempty"`
+	// ChildAgents, ChildPipelines, and ChildAutopilots preserve nil-vs-empty-slice
+	// semantics: nil = legacy record (no authoritative list), []string{} =
+	// authoritative empty.
+	ChildAgents    []string `json:"child_agents,omitempty"`
+	ChildPipelines []string `json:"child_pipelines,omitempty"`
+	// ChildAutopilots is the forward edge of Autopilot.ParentAgentID: the ids of
+	// live Autopilot runs this agent parents. Nil = legacy missing list; non-nil,
+	// including [], is authoritative.
+	ChildAutopilots []string               `json:"child_autopilots,omitempty"`
 	AutopilotRunID  string                 `json:"autopilot_run_id,omitempty"`
 	AutopilotSlot   string                 `json:"autopilot_slot,omitempty"`
 	AutopilotTaskID string                 `json:"autopilot_task_id,omitempty"`
@@ -93,8 +98,8 @@ type Agent struct {
 // MarshalJSON emits both the canonical (ai_cli, ai_cli_session_id) and the
 // deprecated (backend, claude_session_id) field names during the alias window
 // so readers that have not yet migrated still find a field they recognise.
-// ChildAgents and ChildPipelines are emitted as null-omitted vs explicit-empty
-// to preserve the authoritative-empty distinction.
+// ChildAgents, ChildPipelines, and ChildAutopilots are emitted as null-omitted
+// vs explicit-empty to preserve the authoritative-empty distinction.
 func (a Agent) MarshalJSON() ([]byte, error) {
 	type plain Agent
 	optional := func(ids []string) *[]string {
@@ -109,14 +114,16 @@ func (a Agent) MarshalJSON() ([]byte, error) {
 		Backend         string `json:"backend,omitempty"`
 		ClaudeSessionID string `json:"claude_session_id"`
 		// nil-vs-empty authoritative semantics for hierarchy lists
-		ChildAgents    *[]string `json:"child_agents,omitempty"`
-		ChildPipelines *[]string `json:"child_pipelines,omitempty"`
+		ChildAgents     *[]string `json:"child_agents,omitempty"`
+		ChildPipelines  *[]string `json:"child_pipelines,omitempty"`
+		ChildAutopilots *[]string `json:"child_autopilots,omitempty"`
 	}{
 		plain:           plain(a),
 		Backend:         a.AiCli,
 		ClaudeSessionID: a.AICLISessionID,
 		ChildAgents:     optional(a.ChildAgents),
 		ChildPipelines:  optional(a.ChildPipelines),
+		ChildAutopilots: optional(a.ChildAutopilots),
 	})
 }
 
@@ -210,6 +217,7 @@ func (a *Agent) ToSession() *store.Session {
 		ParentID:                  a.ParentID,
 		ChildAgents:               a.ChildAgents,
 		ChildPipelines:            a.ChildPipelines,
+		ChildAutopilots:           a.ChildAutopilots,
 		AutopilotRunID:            a.AutopilotRunID,
 		AutopilotSlot:             a.AutopilotSlot,
 		AutopilotTaskID:           a.AutopilotTaskID,
@@ -276,6 +284,7 @@ func FromSession(s *store.Session) *Agent {
 		ParentID:                  s.ParentID,
 		ChildAgents:               s.ChildAgents,
 		ChildPipelines:            s.ChildPipelines,
+		ChildAutopilots:           s.ChildAutopilots,
 		AutopilotRunID:            s.AutopilotRunID,
 		AutopilotSlot:             s.AutopilotSlot,
 		AutopilotTaskID:           s.AutopilotTaskID,

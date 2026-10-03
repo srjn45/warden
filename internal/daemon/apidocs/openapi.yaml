@@ -4052,6 +4052,15 @@ components:
             eagerly pruned). Absent/empty for an agent that owns no pipelines.
             Present the same way across GET /sessions, GET /sessions/{id}, and the
             SSE stream.
+        child_autopilots:
+          type: array
+          items: { type: string }
+          description: >
+            forward edge of `Autopilot.parent_agent_id`: the ids of live Autopilot
+            runs this agent parents. Maintained on both ends when an Autopilot is
+            created under an agent. Dangling ids are tolerated. Absent/empty for an
+            agent that parents no Autopilot runs. Present the same way across GET
+            /sessions, GET /sessions/{id}, and the SSE stream.
         project_id:
           type: string
           description: >

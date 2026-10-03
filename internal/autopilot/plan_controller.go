@@ -29,6 +29,9 @@ type PlanStartRequest struct {
 	// Definition is the immutable execution snapshot of the canonical Plan at
 	// run start. Preferred over PlanFile / planSource hydration.
 	Definition *planstore.ExecutionSnapshot
+	// ParentAgentID optionally parents this Autopilot under an agent (reverse of
+	// Agent.ChildAutopilots[]). Empty = project-root / operator-started run.
+	ParentAgentID string
 }
 
 // PlanBoundRunID returns the stable Autopilot run id for a Plan-bound executor:
@@ -202,10 +205,11 @@ func (c *Controller) StartFromPlan(ctx context.Context, req PlanStartRequest) (P
 	plan := c.resolvePlanDefinition(ctx, req)
 
 	ap := &autopilotstore.Autopilot{
-		ID:        runID,
-		ProjectID: req.ProjectID,
-		PlanID:    req.PlanID,
-		Name:      autopilotstore.DisplayName(name),
+		ID:            runID,
+		ProjectID:     req.ProjectID,
+		PlanID:        req.PlanID,
+		Name:          autopilotstore.DisplayName(name),
+		ParentAgentID: strings.TrimSpace(req.ParentAgentID),
 		Diagnostics: autopilotstore.Diagnostics{
 			State:             string(StateStarting),
 			IntegrationBranch: branch,

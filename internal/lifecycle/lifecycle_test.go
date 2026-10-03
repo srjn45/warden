@@ -119,6 +119,7 @@ func TestSpawnDevelopmentCreatesWorktreeTmuxAndDoc(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{}, s.ChildAgents)
 	require.Equal(t, []string{}, s.ChildPipelines)
+	require.Equal(t, []string{}, s.ChildAutopilots)
 	require.Equal(t, "PROJ-350", s.ID)
 	require.Equal(t, store.TypeDevelopment, s.Type)
 	require.Equal(t, store.StatusSpawning, s.Status)
@@ -1433,6 +1434,7 @@ func TestAdoptResumeMode(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{}, sess.ChildAgents)
 	require.Equal(t, []string{}, sess.ChildPipelines)
+	require.Equal(t, []string{}, sess.ChildAutopilots)
 	require.Equal(t, "agent-a1", sess.ID)
 	require.Equal(t, "agent-a1", sess.TmuxSession)
 	require.Equal(t, sid, sess.AICLISessionID)
@@ -1725,6 +1727,7 @@ func TestSpawnJobFreshWorktreeAndEnv(t *testing.T) {
 	}
 	require.Equal(t, []string{}, s.ChildAgents)
 	require.Equal(t, []string{}, s.ChildPipelines)
+	require.Equal(t, []string{}, s.ChildAutopilots)
 	if s.ID != "refactor-impl" || s.PipelineID != "refactor" || s.JobID != "impl" {
 		t.Fatalf("session ids wrong: %+v", s)
 	}
