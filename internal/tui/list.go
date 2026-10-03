@@ -240,9 +240,9 @@ type item struct {
 	// buildRows must NOT also emit a dir-group header for it (the projHdr replaces it).
 	underProject bool
 
-	// agent sub-tree rows (agent sub-tree grouping)
-	depth       int    // nesting level under the root agent (0 = root)
-	hasKids     bool   // has ≥1 child agent → collapsible header (▸/▾)
+	// agent / container sub-tree rows (unified project hierarchy)
+	depth       int    // nesting level under the project (0 = direct project child)
+	hasKids     bool   // has ≥1 child → collapsible header (▸/▾)
 	tombstone   bool   // terminal parent: render header-only, no live badge/gauge
 	runningKids int    // live descendants under a tombstone (the "N running" badge)
 	fromParent  string // §4.1 root with ParentID but not nested: "↳ from <parent>" backlink
@@ -787,18 +787,27 @@ func contextLabel(tokens int, state string) (string, lipgloss.Style) {
 // header. It matches the header's own leading indent in buildRows.
 const dirChildIndent = "    "
 
+// nestIndent is the leading whitespace for a project-tree body row at depth
+// (0 = direct child of the project header). Two spaces per nesting level on top
+// of the project-body base indent, so mixed Autopilot/Pipeline/Agent/Job rows
+// stay aligned at every depth.
+func nestIndent(depth int) string {
+	if depth < 0 {
+		depth = 0
+	}
+	return dirChildIndent + strings.Repeat("  ", depth)
+}
+
 // treePrefix renders the sub-tree indentation + collapse glyph for an agent row.
 // Every agent row starts with a base indent (dirChildIndent) so it sits one level
-// under its dir-group header — which itself sits one level under the section — so
-// the control tree reads section → project → agents. On top of the base it adds
-// two spaces per sub-tree depth level, then ▾/▸ for a node with children (expanded
-// vs collapsed), or two aligning spaces for a leaf so it lines up under siblings
-// that carry a glyph.
+// under its project header. On top of the base it adds two spaces per nesting
+// depth, then ▾/▸ for a node with children (expanded vs collapsed), or two
+// aligning spaces for a leaf so it lines up under siblings that carry a glyph.
 func treePrefix(it item) string {
 	if it.depth == 0 && !it.hasKids {
 		return dirChildIndent
 	}
-	p := dirChildIndent + strings.Repeat("  ", it.depth)
+	p := nestIndent(it.depth)
 	switch {
 	case it.hasKids && it.collapsed:
 		return p + "▸ "
@@ -807,6 +816,16 @@ func treePrefix(it item) string {
 	default:
 		return p + "  "
 	}
+}
+
+// collapsePrefix renders indentation + ▾/▸ for a collapsible container row
+// (Autopilot run, Pipeline, …) at an arbitrary nesting depth.
+func collapsePrefix(depth int, collapsed bool) string {
+	p := nestIndent(depth)
+	if collapsed {
+		return p + "▸ "
+	}
+	return p + "▾ "
 }
 
 // renderItemLine renders one body row: an agent's columns, or the placeholder
@@ -860,33 +879,21 @@ func renderItemLine(it item, selected bool, width int) string {
 	case it.remotePlan != nil:
 		line = "      · " + it.remotePlan.Name + stMuted.Render("  "+string(it.remotePlan.Lifecycle)+" · Hub")
 	case it.apRun != nil:
-		glyph := "▾"
-		if it.collapsed {
-			glyph = "▸"
-		}
 		r := it.apRun
-		line = "  " + glyph + " " + stPaneTitle.Render(r.Name) + "  " + stStatus.Render(r.State) + stMuted.Render(fmt.Sprintf("  %d/%d tasks · %d workers", r.Tasks.Landed, len(r.PlanTasks), r.WorkersInFlight))
+		line = collapsePrefix(it.depth, it.collapsed) + stPaneTitle.Render(r.Name) + "  " + stStatus.Render(r.State) + stMuted.Render(fmt.Sprintf("  %d/%d tasks · %d workers", r.Tasks.Landed, len(r.PlanTasks), r.WorkersInFlight))
 		if r.IntegrationBranch != "" {
 			line += stMuted.Render(" · " + r.IntegrationBranch)
 		}
 	case it.apPlan:
-		glyph := "▾"
-		if it.collapsed {
-			glyph = "▸"
-		}
-		line = "      " + glyph + " " + stPaneTitle.Render("plan")
+		line = collapsePrefix(it.depth, it.collapsed) + stPaneTitle.Render("plan")
 	case it.apWorkers:
-		glyph := "▾"
-		if it.collapsed {
-			glyph = "▸"
-		}
-		line = "      " + glyph + " " + stPaneTitle.Render("workers")
+		line = collapsePrefix(it.depth, it.collapsed) + stPaneTitle.Render("workers")
 	case it.apWorkerGroup != "":
 		label := it.apWorkerGroup
 		if it.apLedgerState != "" {
 			label = it.apLedgerState + "  " + it.apWorkerGroup
 		}
-		line = "        " + stMuted.Render(label)
+		line = nestIndent(it.depth) + "  " + stMuted.Render(label)
 	case it.apTask != nil:
 		t := it.apTask
 		glyph := "○"
@@ -899,7 +906,7 @@ func renderItemLine(it item, selected bool, width int) string {
 		case "failed":
 			glyph, sty = "✗", stError
 		}
-		line = "        " + sty.Render(glyph+" "+t.ID) + "  " + stMuted.Render(trunc(t.Prompt, 48))
+		line = nestIndent(it.depth) + "  " + sty.Render(glyph+" "+t.ID) + "  " + stMuted.Render(trunc(t.Prompt, 48))
 	case it.apprView != nil:
 		v := it.apprView
 		q := v.Question
@@ -922,12 +929,8 @@ func renderItemLine(it item, selected bool, width int) string {
 		}
 		line = "  " + gst.Render(glyph) + " " + name
 	case it.pipeline != nil:
-		exp := "▾" // expanded
-		if it.collapsed {
-			exp = "▸" // collapsed
-		}
 		label, st, glyph := pipelineDisplayStatus(it.pipeline)
-		line = "  " + exp + " " + stPaneTitle.Render(it.pipeline.ID) + "  " + st.Render(glyph+" "+label)
+		line = collapsePrefix(it.depth, it.collapsed) + stPaneTitle.Render(it.pipeline.ID) + "  " + st.Render(glyph+" "+label)
 	case it.pjJob != nil:
 		deps := ""
 		if len(it.pjJob.DependsOn) > 0 {
@@ -958,7 +961,8 @@ func renderItemLine(it item, selected bool, width int) string {
 		if branchInfo != "" {
 			branchInfo = stMuted.Render(" [" + trunc(branchInfo, 20) + "]")
 		}
-		line = fmt.Sprintf("    %s %s %s %s %s%s",
+		line = fmt.Sprintf("%s%s %s %s %s %s%s",
+			nestIndent(it.depth)+"  ",
 			st.Render(glyph), jobIDCol, st.Render(statusWord), agentCol, ctxCol, branchInfo) + deps
 	case it.session == nil:
 		line = dirChildIndent + stMuted.Render("(no agents — n to spawn here)")
@@ -1027,7 +1031,7 @@ func renderItemLine(it item, selected bool, width int) string {
 		// The cursor wins the gutter when it sits on the opened row — you are
 		// looking right at it, so its own marker would be redundant.
 		cur = stCursor.Render("› ")
-		if it.session != nil || it.section != "" || it.projHdr != nil || it.apprView != nil || it.pipeline != nil || it.pjJob != nil || it.planHeader || it.planGroup != "" || it.plan != nil {
+		if it.session != nil || it.section != "" || it.projHdr != nil || it.apprView != nil || it.apRun != nil || it.pipeline != nil || it.pjJob != nil || it.planHeader || it.planGroup != "" || it.plan != nil {
 			line = stCursor.Render(line)
 		}
 	case it.opened:

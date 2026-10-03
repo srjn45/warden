@@ -12,7 +12,7 @@ import (
 )
 
 func newTUICmd() *cobra.Command {
-	var pane, agentPane, terminalPane, pipelineID, jobID, agentID string
+	var pane, agentPane, terminalPane, pipelineID, jobID, agentID, runID string
 	var tmuxNative, killWindow, rebuildWebCockpit bool
 	cmd := &cobra.Command{
 		Use:   "tui",
@@ -30,23 +30,28 @@ func newTUICmd() *cobra.Command {
 				return tui.RunJobDetailPane(a, pipelineID, jobID)
 			case "agentdetail":
 				return tui.RunAgentDetailPane(a, agentID)
+			case "pipelinedetail":
+				return tui.RunPipelineDetailPane(a, pipelineID)
+			case "rundetail":
+				return tui.RunAutopilotDetailPane(a, runID)
 			case "":
 				return runCockpit(a, cockpitTmuxNative(cmd, tmuxNative))
 			default:
-				return fmt.Errorf("unknown --pane %q (want control, jobdetail, or agentdetail)", pane)
+				return fmt.Errorf("unknown --pane %q (want control, jobdetail, agentdetail, pipelinedetail, or rundetail)", pane)
 			}
 		},
 	}
 	cmd.Flags().BoolVar(&tmuxNative, "tmux-native", false, "lay the cockpit out as a native tmux window in the current session instead of a nested tmux (auto-enabled when launched inside tmux; requires $TMUX)")
-	cmd.Flags().StringVar(&pane, "pane", "", "internal: render a single cockpit pane (control, jobdetail, agentdetail)")
+	cmd.Flags().StringVar(&pane, "pane", "", "internal: render a single cockpit pane (control, jobdetail, agentdetail, pipelinedetail, rundetail)")
 	cmd.Flags().StringVar(&agentPane, "agent-pane", "", "internal: tmux id of the agent pane the control pane drives")
 	cmd.Flags().StringVar(&terminalPane, "terminal-pane", "", "internal: tmux id of the terminal pane the control pane drives")
-	cmd.Flags().StringVar(&pipelineID, "pipeline", "", "internal: pipeline id for --pane=jobdetail")
+	cmd.Flags().StringVar(&pipelineID, "pipeline", "", "internal: pipeline id for --pane=jobdetail|pipelinedetail")
 	cmd.Flags().StringVar(&jobID, "job", "", "internal: job id for --pane=jobdetail")
 	cmd.Flags().StringVar(&agentID, "agent", "", "internal: agent id for --pane=agentdetail")
+	cmd.Flags().StringVar(&runID, "run", "", "internal: autopilot run id for --pane=rundetail")
 	cmd.Flags().BoolVar(&killWindow, "kill-window", false, "internal: `q` kills only the cockpit window, not the session (tmux-native control pane)")
 	cmd.Flags().BoolVar(&rebuildWebCockpit, "rebuild-web-cockpit", false, "kill and rebuild the daemon-owned web cockpit tmux session (the browser /tui view), then exit — an escape hatch for a wedged web cockpit")
-	for _, f := range []string{"pane", "agent-pane", "terminal-pane", "pipeline", "job", "agent", "kill-window"} {
+	for _, f := range []string{"pane", "agent-pane", "terminal-pane", "pipeline", "job", "agent", "run", "kill-window"} {
 		_ = cmd.Flags().MarkHidden(f)
 	}
 	return cmd

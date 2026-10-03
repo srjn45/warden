@@ -466,22 +466,22 @@ func (ctx *adaptCtx) adaptNode(n *tree.Node, depth int) []item {
 	case tree.NodeTypePlan:
 		return ctx.adaptPlanNode(n)
 	case tree.NodeTypeAutopilotRun:
-		return ctx.adaptRun(n)
+		return ctx.adaptRun(n, depth)
 	case tree.NodeTypePipeline:
-		return ctx.adaptPipeline(n)
+		return ctx.adaptPipeline(n, depth)
 	case tree.NodeTypeAgent:
 		return ctx.adaptAgent(n, depth)
 	case tree.NodeTypeManager, tree.NodeTypeGuardian, tree.NodeTypeWorker:
 		return ctx.adaptSlotSession(n, depth)
 	case tree.NodeTypeTask:
-		return ctx.adaptTask(n)
+		return ctx.adaptTask(n, depth)
 	case tree.NodeTypeTerminal:
 		if ctx.skipTerminals {
 			return nil
 		}
 		return ctx.adaptTerminal(n)
 	case tree.NodeTypeJob:
-		return ctx.adaptJob(n)
+		return ctx.adaptJob(n, depth)
 	default:
 		var items []item
 		for _, ch := range n.Children {
@@ -589,7 +589,7 @@ func (ctx *adaptCtx) adaptPlanNode(n *tree.Node) []item {
 	}}
 }
 
-func (ctx *adaptCtx) adaptRun(n *tree.Node) []item {
+func (ctx *adaptCtx) adaptRun(n *tree.Node, depth int) []item {
 	runID := strings.TrimPrefix(n.ID, "run:")
 	r := ctx.runsByID[runID]
 	if r == nil {
@@ -601,17 +601,20 @@ func (ctx *adaptCtx) adaptRun(n *tree.Node) []item {
 		}
 	}
 	collapsed := ctx.collapsed[n.ID]
-	items := []item{{apRun: r, collapsed: collapsed, underProject: true}}
+	hasKids := len(n.Children) > 0
+	items := []item{{
+		apRun: r, depth: depth, hasKids: hasKids, collapsed: collapsed, underProject: true,
+	}}
 	if collapsed {
 		return items
 	}
 	for _, ch := range n.Children {
-		items = append(items, ctx.adaptNode(ch, 1)...)
+		items = append(items, ctx.adaptNode(ch, depth+1)...)
 	}
 	return items
 }
 
-func (ctx *adaptCtx) adaptTask(n *tree.Node) []item {
+func (ctx *adaptCtx) adaptTask(n *tree.Node, depth int) []item {
 	// run:<runID>/task:<taskID>
 	runID, taskID := splitRunTaskID(n.ID)
 	pt := &client.AutopilotPlanTask{ID: taskID, Prompt: n.Label, Status: n.Status}
@@ -633,6 +636,7 @@ func (ctx *adaptCtx) adaptTask(n *tree.Node) []item {
 	items := []item{{
 		apTask:       pt,
 		apTaskRun:    runID,
+		depth:        depth,
 		hasKids:      hasKids,
 		collapsed:    collapsed,
 		underProject: true,
@@ -643,7 +647,7 @@ func (ctx *adaptCtx) adaptTask(n *tree.Node) []item {
 		return items
 	}
 	for _, ch := range n.Children {
-		items = append(items, ctx.adaptNode(ch, 2)...)
+		items = append(items, ctx.adaptNode(ch, depth+1)...)
 	}
 	return items
 }
@@ -658,7 +662,7 @@ func splitRunTaskID(id string) (runID, taskID string) {
 	return parts[0], parts[1]
 }
 
-func (ctx *adaptCtx) adaptPipeline(n *tree.Node) []item {
+func (ctx *adaptCtx) adaptPipeline(n *tree.Node, depth int) []item {
 	pipeID := strings.TrimPrefix(n.ID, "pipeline:")
 	p := ctx.pipelinesByID[pipeID]
 	if p == nil {
@@ -668,17 +672,20 @@ func (ctx *adaptCtx) adaptPipeline(n *tree.Node) []item {
 		}
 	}
 	collapsed := ctx.collapsed[n.ID]
-	items := []item{{pipeline: p, collapsed: collapsed, underProject: true}}
+	hasKids := len(n.Children) > 0
+	items := []item{{
+		pipeline: p, depth: depth, hasKids: hasKids, collapsed: collapsed, underProject: true,
+	}}
 	if collapsed {
 		return items
 	}
 	for _, ch := range n.Children {
-		items = append(items, ctx.adaptNode(ch, 0)...)
+		items = append(items, ctx.adaptNode(ch, depth+1)...)
 	}
 	return items
 }
 
-func (ctx *adaptCtx) adaptJob(n *tree.Node) []item {
+func (ctx *adaptCtx) adaptJob(n *tree.Node, depth int) []item {
 	// pipeline:<pipeID>/job:<jobID>
 	pipeID, jobID := splitPipeJobID(n.ID)
 	j := ctx.jobsByKey[pipeID+"/"+jobID]
@@ -692,7 +699,7 @@ func (ctx *adaptCtx) adaptJob(n *tree.Node) []item {
 	if n.SessionID != "" {
 		sess = ctx.sessionsByID[n.SessionID]
 	}
-	return []item{{pjPipe: pipeID, pjJob: j, pjSess: sess, underProject: true}}
+	return []item{{pjPipe: pipeID, pjJob: j, pjSess: sess, depth: depth, underProject: true}}
 }
 
 func splitPipeJobID(id string) (pipeID, jobID string) {

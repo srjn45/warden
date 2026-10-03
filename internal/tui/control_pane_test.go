@@ -594,6 +594,45 @@ func TestCockpitDetailCmdPipelineHeaderShowsNothing(t *testing.T) {
 	require.Equal(t, "", at+jp+jid+ad)
 }
 
+func TestEnterOnPipelineOpensOverview(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9", "")
+	m.pipelines = []*pipeline.Pipeline{{ID: "demo", Status: pipeline.StatusRunning}}
+	m.projects = []projectstore.Project{{ID: "/repo", Name: "Repo", Path: "/repo", Status: projectstore.StatusOpen}}
+	m.cursor = cursorOn(m, func(it item) bool { return it.pipeline != nil && it.pipeline.ID == "demo" })
+	require.GreaterOrEqual(t, m.cursor, 0)
+	_, cmd := m.handleKey(key("enter"))
+	require.NotNil(t, cmd, "Enter on a pipeline container opens its overview in the agent pane")
+	require.False(t, m.collapsed["pipeline:demo"], "Enter must not toggle collapse (Left/Right owns fold)")
+}
+
+func TestEnterOnAutopilotOpensOverview(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9", "")
+	m.autopilot = client.AutopilotStatus{Runs: []client.AutopilotRunStatus{{
+		RunID: "ap-1", Name: "release", Repo: "/repo", State: "active",
+	}}}
+	m.cursor = cursorOn(m, func(it item) bool { return it.apRun != nil })
+	require.GreaterOrEqual(t, m.cursor, 0)
+	before := m.collapsed["run:ap-1"]
+	_, cmd := m.handleKey(key("enter"))
+	require.NotNil(t, cmd, "Enter on an Autopilot container opens its overview in the agent pane")
+	require.Equal(t, before, m.collapsed["run:ap-1"], "Enter must not toggle Autopilot collapse")
+}
+
+func TestLeftOnAutopilotStillCollapses(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9", "")
+	m.autopilot = client.AutopilotStatus{Runs: []client.AutopilotRunStatus{{
+		RunID: "ap-1", Name: "release", Repo: "/repo", State: "active",
+	}}}
+	m.sessions = []*store.Session{{
+		ID: "mgr", Repo: "/repo", AutopilotRunID: "ap-1", AutopilotSlot: store.AutopilotSlotManager,
+		Status: store.StatusWorking,
+	}}
+	m.cursor = cursorOn(m, func(it item) bool { return it.apRun != nil })
+	m2, _ := m.handleKey(key("left"))
+	mc := m2.(controlPaneModel)
+	require.True(t, mc.collapsed["run:ap-1"], "Left still folds an Autopilot container")
+}
+
 func TestRespawnJobDetailArgs(t *testing.T) {
 	require.Equal(t,
 		[]string{"respawn-pane", "-k", "-t", "%3",
@@ -606,6 +645,20 @@ func TestRespawnAgentDetailArgs(t *testing.T) {
 		[]string{"respawn-pane", "-k", "-t", "%3",
 			"/usr/bin/warden tui --pane=agentdetail --agent=ag-1"},
 		respawnAgentDetailArgs("%3", "/usr/bin/warden", "ag-1"))
+}
+
+func TestRespawnPipelineDetailArgs(t *testing.T) {
+	require.Equal(t,
+		[]string{"respawn-pane", "-k", "-t", "%3",
+			"/usr/bin/warden tui --pane=pipelinedetail --pipeline=pl"},
+		respawnPipelineDetailArgs("%3", "/usr/bin/warden", "pl"))
+}
+
+func TestRespawnAutopilotDetailArgs(t *testing.T) {
+	require.Equal(t,
+		[]string{"respawn-pane", "-k", "-t", "%3",
+			"/usr/bin/warden tui --pane=rundetail --run=ap-1"},
+		respawnAutopilotDetailArgs("%3", "/usr/bin/warden", "ap-1"))
 }
 
 // itemSessionIDs lists the session ids of the agent rows in order (skipping

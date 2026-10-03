@@ -1974,12 +1974,6 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// collapse/expand is on Left/Right. No-op for now.
 			return m, nil
 		}
-		if it.apRun != nil {
-			key := itemKey(it)
-			m.collapsed[key] = !m.collapsed[key]
-			m.repin(key)
-			return m, nil
-		}
 		if it.apPlan {
 			key := apPlanKey(it.apPlanRun)
 			m.collapsed[key] = !m.collapsed[key]
@@ -2042,6 +2036,13 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.vp.SetContent(planDetailText(it.plan, m.vp.Width, projectRootForID(m.projects, it.plan.ProjectID), m.planDetailExpanded))
 			m.vp.GotoTop()
 			return m, nil
+		}
+		// Container overviews open in the agent pane (collapse stays on Left/Right).
+		if it.apRun != nil && m.agentPane != "" {
+			return m, openAutopilotDetailCmd(m.agentPane, it.apRun.RunID)
+		}
+		if it.pipeline != nil && m.agentPane != "" {
+			return m, openPipelineDetailCmd(m.agentPane, it.pipeline.ID)
 		}
 		// A terminal opens in the terminal pane (and grabs focus — terminals are
 		// interactive, §6). It never routes to the agent pane.
@@ -2695,8 +2696,9 @@ func openInTerminalCmd(terminalPane, tmuxSession string, focus bool) tea.Cmd {
 // to attach to, so it returns the pipeline+job ids for a stored-detail render;
 // a live agent returns its tmux session to attach; a terminal agent (incl. a
 // tombstone parent) has no live tmux, so it returns the agent id for a stored-
-// detail render. Returns all empty for rows with nothing to open (headers,
-// placeholders, pending jobs).
+// detail render. Pipeline/Autopilot container overviews are handled separately
+// (openPipelineDetailCmd / openAutopilotDetailCmd). Returns all empty for rows
+// with nothing to open (headers, placeholders, pending jobs).
 func cockpitDetailCmd(it item) (attach, jobPipe, jobID, agentDetail string) {
 	if it.pjJob != nil {
 		if jobIsTerminal(it.pjJob.Status) {
@@ -2711,6 +2713,42 @@ func cockpitDetailCmd(it item) (attach, jobPipe, jobID, agentDetail string) {
 		return "", "", "", it.session.ID
 	}
 	return "", "", "", ""
+}
+
+// respawnPipelineDetailArgs builds the tmux command that replaces the agent pane
+// with a pipeline overview (self re-invoked as a hidden pane).
+func respawnPipelineDetailArgs(agentPane, self, pipeID string) []string {
+	return []string{"respawn-pane", "-k", "-t", agentPane,
+		self + " tui --pane=pipelinedetail --pipeline=" + pipeID}
+}
+
+// openPipelineDetailCmd renders a pipeline overview into the agent pane.
+func openPipelineDetailCmd(agentPane, pipeID string) tea.Cmd {
+	return func() tea.Msg {
+		self, err := os.Executable()
+		if err != nil {
+			return attachDoneMsg{err: err}
+		}
+		return attachDoneMsg{err: exec.Command("tmux", respawnPipelineDetailArgs(agentPane, self, pipeID)...).Run()}
+	}
+}
+
+// respawnAutopilotDetailArgs builds the tmux command that replaces the agent pane
+// with an autopilot-run overview (self re-invoked as a hidden pane).
+func respawnAutopilotDetailArgs(agentPane, self, runID string) []string {
+	return []string{"respawn-pane", "-k", "-t", agentPane,
+		self + " tui --pane=rundetail --run=" + runID}
+}
+
+// openAutopilotDetailCmd renders an autopilot-run overview into the agent pane.
+func openAutopilotDetailCmd(agentPane, runID string) tea.Cmd {
+	return func() tea.Msg {
+		self, err := os.Executable()
+		if err != nil {
+			return attachDoneMsg{err: err}
+		}
+		return attachDoneMsg{err: exec.Command("tmux", respawnAutopilotDetailArgs(agentPane, self, runID)...).Run()}
+	}
 }
 
 // respawnJobDetailArgs builds the tmux command that replaces the agent pane with
