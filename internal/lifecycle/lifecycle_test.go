@@ -380,12 +380,17 @@ func TestSpawnKillsSessionWhenSendKeysFails(t *testing.T) {
 	_ = s
 	require.Error(t, err)
 	killed := false
+	listClients := false
 	for _, argv := range fr.calledArgs() {
 		if len(argv) >= 2 && argv[0] == "tmux" && argv[1] == "kill-session" {
 			killed = true
 		}
+		if len(argv) >= 2 && argv[0] == "tmux" && argv[1] == "list-clients" {
+			listClients = true
+		}
 	}
 	require.True(t, killed, "send-keys failure must kill the orphaned tmux session")
+	require.True(t, listClients, "spawn cleanup must route through Host.KillSession")
 }
 
 func TestSpawnAdoptsExistingWorktree(t *testing.T) {
@@ -1247,6 +1252,7 @@ func TestRestoreAcceptsInternalRelaunchSourceStates(t *testing.T) {
 func TestTerminateKillsTmuxOnly(t *testing.T) {
 	fr := &FakeRunner{}
 	require.NoError(t, New(fr, &FakeConfig{}).Terminate(context.Background(), "A-1"))
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "list-clients", "-t", "A-1", "-F", "#{client_name} #{client_termname}"})
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "kill-session", "-t", "A-1"})
 	for _, a := range fr.calledArgs() {
 		require.NotEqual(t, "git", a[0], "terminate touches no git")

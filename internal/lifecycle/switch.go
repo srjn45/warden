@@ -140,7 +140,7 @@ func (l *Lifecycle) HotSwap(ctx context.Context, agent *agentstore.Agent, req Sw
 	}
 
 	// 4. Retire the active CLI (kill the tmux session if it is alive).
-	if _, err := l.run.Run(ctx, "", "tmux", "has-session", "-t", agent.TmuxSession); err == nil {
+	if l.Proc().HasSession(ctx, agent.TmuxSession) {
 		l.killSession(agent.TmuxSession)
 	}
 

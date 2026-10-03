@@ -112,7 +112,8 @@ func TestHotSwapExplicitBackend(t *testing.T) {
 	require.Contains(t, md, "Next step: wire up the --format flag.", "next step distilled")
 	require.Contains(t, md, "claude (opus) → codex (gpt-5-codex)", "swap direction in system context")
 
-	// Old CLI retired: kill-session on the retiring tmux session.
+	// Old CLI retired: kill-session on the retiring tmux session via Host.KillSession.
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "list-clients", "-t", "agent-swap1", "-F", "#{client_name} #{client_termname}"})
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "kill-session", "-t", "agent-swap1"})
 
 	// Successor launched in the SAME worktree: new-session with -c <workdir>.

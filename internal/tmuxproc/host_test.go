@@ -127,3 +127,16 @@ func TestHostKillSessionMissingSessionNoError(t *testing.T) {
 		{"tmux", "kill-session", "-t", "missing"},
 	}, fr.calls)
 }
+
+func TestHostKillSessionError(t *testing.T) {
+	fr := &fakeRunner{
+		errs: map[string]error{
+			"tmux kill-session -t pane": errors.New("kill failed"),
+		},
+	}
+	h := New(fr)
+
+	err := h.KillSession(context.Background(), "pane")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "kill failed")
+}
