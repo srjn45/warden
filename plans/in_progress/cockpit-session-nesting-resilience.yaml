@@ -1,0 +1,59 @@
+version: 1
+name: cockpit-session-nesting-resilience
+goal: >-
+  Prevent the tmux cockpit TUI from collapsing into a 1-character-wide column
+  and dot-filled screen when an agent is hot-swapped or closed by ensuring
+  nested pane clients exit upon session destruction, trigger remain-on-exit
+  dead-pane reconciliation, and safely switch full-screen operators back to
+  the dashboard.
+constraints:
+  - >-
+    Agent and terminal tmux sessions must configure detach-on-destroy on so
+    nested clients exit when their session terminates rather than recursively
+    switching to the cockpit session.
+  - >-
+    Preserve remain-on-exit semantics on cockpit detail and terminal panes so
+    split layout geometry is never collapsed.
+  - >-
+    Preserve full-screen zoom ('a') return ergonomics by safely switching
+    interactive outer clients back to the previous session before session
+    destruction.
+  - >-
+    Run make verify-fast and ensure all unit tests for tmuxproc, lifecycle,
+    and tui pass cleanly.
+done_when:
+  - >-
+    Terminating or hot-swapping an agent while opened in the cockpit's detail
+    pane cleanly marks the pane as dead without altering window or pane geometry.
+  - >-
+    The cockpit's dead-pane reconciliation detects dead panes and successfully
+    re-attaches to successor sessions after hot-swap.
+  - >-
+    Full-screen zoomed clients return to the dashboard upon agent session
+    termination without disconnecting.
+  - >-
+    make verify-fast passes with complete unit and regression test coverage.
+tasks:
+  - id: session-detach-on-destroy-contract
+    prompt: >-
+      Configure detach-on-destroy on for all agent and terminal sessions created
+      via tmuxproc.Host so nested tmux attach processes exit upon target session
+      destruction rather than inheriting server/session fallback switching.
+
+  - id: safe-outer-client-switch
+    prompt: >-
+      Update Host.KillSession to inspect connected clients and switch interactive
+      outer terminals ('a' / switch-client) back to the dashboard (-l) before
+      session destruction, while allowing nested pane clients (term=tmux*) to exit cleanly.
+
+  - id: lifecycle-killsession-unification
+    prompt: >-
+      Unify lifecycle session termination paths (killSession, Terminate, Stop,
+      Done, and spawn cleanup) to route through Host.KillSession rather than raw
+      tmux commands.
+
+  - id: regression-tests-and-verification
+    prompt: >-
+      Add regression test coverage in tmuxproc and lifecycle suites verifying
+      detach-on-destroy on, outer client switching vs nested client exiting,
+      and verify the fix across the entire test suite.
