@@ -628,10 +628,14 @@ func (s *PlanService) CleanupWorktrees(ctx context.Context, plan *Plan) error {
 			}
 		}
 		if out, err := s.run(ctx, root, "git", "branch", "-d", branch); err != nil {
-			errs = append(errs, fmt.Errorf("git branch -d %s: %w (%s)", branch, err, strings.TrimSpace(out)))
+			if !strings.Contains(out, "not found") {
+				errs = append(errs, fmt.Errorf("git branch -d %s: %w (%s)", branch, err, strings.TrimSpace(out)))
+			}
 		}
 		if out, err := s.run(ctx, root, "git", "push", "origin", "--delete", branch); err != nil {
-			errs = append(errs, fmt.Errorf("git push origin --delete %s: %w (%s)", branch, err, strings.TrimSpace(out)))
+			if !strings.Contains(out, "remote ref does not exist") && !strings.Contains(out, "not found") {
+				errs = append(errs, fmt.Errorf("git push origin --delete %s: %w (%s)", branch, err, strings.TrimSpace(out)))
+			}
 		}
 	}
 	return errors.Join(errs...)

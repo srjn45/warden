@@ -2159,14 +2159,18 @@ func (l *Lifecycle) RemoveWorktree(ctx context.Context, t CleanupTarget, force, 
 		removeArgs = []string{"-C", t.Repo, "worktree", "remove", "--force", t.Worktree}
 	}
 	if out, err := l.run.Run(ctx, "", "git", removeArgs...); err != nil {
-		return fmt.Errorf("git worktree remove: %w: %s", err, out)
+		if !force || (!strings.Contains(out, "not a working tree") && !strings.Contains(out, "does not exist") && !strings.Contains(out, "No such file")) {
+			return fmt.Errorf("git worktree remove: %w: %s", err, out)
+		}
 	}
 	// Delete the branch only when warden owns it (created it) — never an adopted,
 	// human-made branch, unless the caller explicitly opts in. force governs the
 	// dirty/unpushed guard + worktree removal, NOT branch provenance.
 	if t.Branch != "" && (t.BranchCreated || deleteAdoptedBranch) {
 		if out, err := l.run.Run(ctx, "", "git", "-C", t.Repo, "branch", "-D", t.Branch); err != nil {
-			return fmt.Errorf("git branch -D: %w: %s", err, out)
+			if !force || (!strings.Contains(out, "not found") && !strings.Contains(out, "does not exist")) {
+				return fmt.Errorf("git branch -D: %w: %s", err, out)
+			}
 		}
 	}
 	// Clear stale .git/worktrees admin metadata for anything removed here or
