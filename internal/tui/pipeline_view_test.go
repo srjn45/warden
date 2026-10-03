@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/stretchr/testify/require"
@@ -36,6 +37,19 @@ func TestRenderPipeline(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("renderPipeline missing %q in:\n%s", want, out)
 		}
+	}
+}
+
+func TestRenderAutopilotRunOverview(t *testing.T) {
+	out := renderAutopilotRun(&client.AutopilotRunStatus{
+		RunID: "ap-1", Name: "release", State: "active", Repo: "/repo",
+		IntegrationBranch: "autopilot/release",
+		Tasks:             client.AutopilotTaskCounts{Landed: 1},
+		PlanTasks:         []client.AutopilotPlanTask{{ID: "t1"}, {ID: "t2"}},
+		WorkersInFlight:   1,
+	}, 80, 0)
+	for _, want := range []string{"autopilot release", "active", "ap-1", "1/2 tasks", "autopilot/release", "/repo"} {
+		require.Contains(t, out, want)
 	}
 }
 

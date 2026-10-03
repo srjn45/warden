@@ -3813,6 +3813,7 @@
       "pane",
       "pipeline",
       "rebuild-web-cockpit",
+      "run",
       "terminal-pane",
       "tmux-native"
     ],

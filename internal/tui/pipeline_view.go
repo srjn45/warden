@@ -5,9 +5,81 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/store"
 )
+
+// RunPipelineDetailPane renders a pipeline overview to stdout and blocks, so the
+// cockpit's agent pane can show the DAG summary when Enter lands on a pipeline
+// container. tmux replaces this process via respawn-pane on the next selection.
+func RunPipelineDetailPane(a api, pid string) error {
+	if text, err := loadPipelineDetail(a, pid); err != nil {
+		fmt.Println(stMuted.Render("could not load pipeline overview: " + err.Error()))
+	} else {
+		fmt.Println(text)
+	}
+	select {} // hold the pane open until tmux respawns it
+}
+
+func loadPipelineDetail(a api, pid string) (string, error) {
+	p, err := a.PipelineGet(context.Background(), pid)
+	if err != nil {
+		return "", err
+	}
+	return renderPipeline(p, 100, 0), nil
+}
+
+// RunAutopilotDetailPane renders an autopilot-run overview to stdout and blocks,
+// so Enter on an Autopilot container opens the overview in the agent pane.
+func RunAutopilotDetailPane(a api, runID string) error {
+	if text, err := loadAutopilotDetail(a, runID); err != nil {
+		fmt.Println(stMuted.Render("could not load autopilot overview: " + err.Error()))
+	} else {
+		fmt.Println(text)
+	}
+	select {} // hold the pane open until tmux respawns it
+}
+
+func loadAutopilotDetail(a api, runID string) (string, error) {
+	st, err := a.GetAutopilot(context.Background())
+	if err != nil {
+		return "", err
+	}
+	for i := range st.Runs {
+		if st.Runs[i].RunID == runID {
+			return renderAutopilotRun(&st.Runs[i], 100, 0), nil
+		}
+	}
+	return "", fmt.Errorf("autopilot run %q not found", runID)
+}
+
+// renderAutopilotRun draws a compact Autopilot overview for the agent pane.
+func renderAutopilotRun(r *client.AutopilotRunStatus, width, height int) string {
+	if r == nil {
+		return padTo(stMuted.Render("no autopilot run"), height)
+	}
+	_ = width
+	var b strings.Builder
+	name := r.Name
+	if name == "" {
+		name = r.RunID
+	}
+	b.WriteString(stPaneTitle.Render("autopilot "+name) + "  " + stStatus.Render(r.State) + "\n")
+	b.WriteString(stMuted.Render(fmt.Sprintf("run %s · %d/%d tasks · %d workers",
+		r.RunID, r.Tasks.Landed, len(r.PlanTasks), r.WorkersInFlight)) + "\n")
+	if r.IntegrationBranch != "" {
+		b.WriteString(stMuted.Render("branch: "+r.IntegrationBranch) + "\n")
+	}
+	if r.Repo != "" {
+		b.WriteString(stMuted.Render("repo: "+r.Repo) + "\n")
+	}
+	if r.Gate != "" {
+		b.WriteString(stMuted.Render("gate: "+r.Gate) + "\n")
+	}
+	b.WriteString("\n" + stMuted.Render("r pause/resume · x stop · ←/→ fold · enter on manager/worker opens agent pane"))
+	return padTo(strings.TrimRight(b.String(), "\n"), height)
+}
 
 // RunJobDetailPane renders one terminal job's stored detail to stdout and then
 // blocks, so the cockpit's agent pane can show a finished job (whose agent tmux
