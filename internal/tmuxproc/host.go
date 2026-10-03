@@ -64,14 +64,61 @@ func (a Adapter) NewSession(ctx context.Context, name, cwd string, env ...string
 		return fmt.Errorf("tmux new-session: %w: %s", err, out)
 	}
 	_, _ = a.Run.Run(ctx, "", "tmux", "set-option", "-t", name, "mouse", "on")
-	_, _ = a.Run.Run(ctx, "", "tmux", "set-option", "-t", name, "detach-on-destroy", "off")
+	// detach-on-destroy on ensures that nested tmux clients attached to this
+	// session inside cockpit panes exit cleanly when the session is killed.
+	// If set to off, killing an agent causes the nested pane client to switch
+	// to the cockpit session, nesting the cockpit inside itself and collapsing
+	// the TUI into a 1-character-wide column (#478).
+	_, _ = a.Run.Run(ctx, "", "tmux", "set-option", "-t", name, "detach-on-destroy", "on")
 	return nil
 }
 
 // KillSession implements Host.
 func (a Adapter) KillSession(ctx context.Context, name string) error {
-	_, _ = a.Run.Run(ctx, "", "tmux", "kill-session", "-t", name)
+	if out, err := a.Run.Run(ctx, "", "tmux", "list-clients", "-t", name, "-F", "#{client_name} #{client_termname}"); err == nil {
+		for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			parts := strings.Fields(line)
+			if len(parts) == 0 {
+				continue
+			}
+			client := parts[0]
+			term := ""
+			if len(parts) > 1 {
+				term = parts[1]
+			}
+			// Nested pane clients (tmux* or screen*) are attached from inside another
+			// tmux session (e.g. the cockpit detail pane). We do not switch them;
+			// with detach-on-destroy on, they will simply exit when the target session
+			// terminates, triggering dead-pane reconciliation without disturbing window geometry.
+			// Interactive outer terminals ('a' / switch-client) must be switched back
+			// to their previous session (dashboard / -l) so the operator is returned
+			// cleanly rather than disconnected.
+			if strings.HasPrefix(term, "tmux") || strings.HasPrefix(term, "screen") {
+				continue
+			}
+			_, _ = a.Run.Run(ctx, "", "tmux", "switch-client", "-c", client, "-l")
+		}
+	}
+	out, err := a.Run.Run(ctx, "", "tmux", "kill-session", "-t", name)
+	if err != nil && !isMissingSession(out, err) {
+		return fmt.Errorf("tmux kill-session: %w: %s", err, out)
+	}
 	return nil
+}
+
+func isMissingSession(out string, err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(out + " " + err.Error())
+	return strings.Contains(msg, "can't find session") ||
+		strings.Contains(msg, "no session") ||
+		strings.Contains(msg, "no server") ||
+		strings.Contains(msg, "failed to connect")
 }
 
 // HasSession implements Host.
