@@ -2757,6 +2757,7 @@ func openAgentDetailCmd(agentPane, agentID string) tea.Cmd {
 // window instead of the whole session — set in the tmux-native cockpit, where the
 // cockpit lives inside the user's own tmux session.
 func RunControlPane(a api, agentPane, terminalPane string, killWindow bool) error {
+	defer setupTUILogging()()
 	m := newListPane(a, agentPane, terminalPane)
 	m.killWindow = killWindow
 	p := tea.NewProgram(m, tea.WithAltScreen())

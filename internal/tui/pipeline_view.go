@@ -14,6 +14,7 @@ import (
 // is gone) instead of a blank attach. tmux replaces this process via respawn-pane
 // when the user selects another item; scrolling is handled by tmux copy-mode.
 func RunJobDetailPane(a api, pid, jobID string) error {
+	defer setupTUILogging()()
 	if text, err := loadJobDetail(a, pid, jobID); err != nil {
 		fmt.Println(stMuted.Render("could not load job detail: " + err.Error()))
 	} else {
@@ -36,6 +37,7 @@ func loadJobDetail(a api, pid, jobID string) (string, error) {
 // (whose tmux is gone) instead of a blank attach. tmux replaces this process via
 // respawn-pane when the user selects another item; scrolling uses copy-mode.
 func RunAgentDetailPane(a api, agentID string) error {
+	defer setupTUILogging()()
 	if text, err := loadAgentDetail(a, agentID); err != nil {
 		fmt.Println(stMuted.Render("could not load agent detail: " + err.Error()))
 	} else {
