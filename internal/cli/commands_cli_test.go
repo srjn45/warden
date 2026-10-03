@@ -450,6 +450,65 @@ func TestHistoryCmd(t *testing.T) {
 	}
 }
 
+// TestHistoryCmdRoleFilterEndToEnd proves the canonical --role filter is sent
+// on the wire (plan-213eaa87 Type→Role deprecation acceptance).
+func TestHistoryCmdRoleFilterEndToEnd(t *testing.T) {
+	var gotQuery string
+	addr := stubDaemon(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/history":
+			gotQuery = r.URL.RawQuery
+			_, _ = w.Write([]byte(`{"sessions":[{"id":"A-1","role":"implementer","subject":"role-filtered"}]}`))
+		case "/api/v1/spend":
+			_, _ = w.Write([]byte(`{}`))
+		default:
+			_, _ = w.Write([]byte(`{}`))
+		}
+	})
+	out, err := runCLI(t, addr, "history", "--role", "implementer")
+	if err != nil {
+		t.Fatalf("history --role: %v", err)
+	}
+	if !strings.Contains(gotQuery, "role=implementer") {
+		t.Fatalf("expected role=implementer in query, got %q", gotQuery)
+	}
+	if strings.Contains(gotQuery, "type=") {
+		t.Fatalf("--role path must not send type=; got %q", gotQuery)
+	}
+	if !strings.Contains(out, "A-1") || !strings.Contains(out, "role-filtered") {
+		t.Fatalf("history --role output: %q", out)
+	}
+}
+
+// TestHistoryCmdTypeAliasStillForwardsQuery keeps the deprecated --type alias
+// wired during the one-release window (server maps type→role).
+func TestHistoryCmdTypeAliasStillForwardsQuery(t *testing.T) {
+	var gotQuery string
+	addr := stubDaemon(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/history":
+			gotQuery = r.URL.RawQuery
+			_, _ = w.Write([]byte(`{"sessions":[{"id":"A-2","subject":"type-alias"}]}`))
+		case "/api/v1/spend":
+			_, _ = w.Write([]byte(`{}`))
+		default:
+			_, _ = w.Write([]byte(`{}`))
+		}
+	})
+	out, err := runCLI(t, addr, "history", "--type", "development")
+	if err != nil {
+		t.Fatalf("history --type: %v", err)
+	}
+	if !strings.Contains(gotQuery, "type=development") {
+		t.Fatalf("expected type=development in query, got %q", gotQuery)
+	}
+	if !strings.Contains(out, "A-2") {
+		t.Fatalf("history --type output: %q", out)
+	}
+}
+
 func TestHistoryCmdEmpty(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
 		"GET /api/v1/history": `{"sessions":[]}`,

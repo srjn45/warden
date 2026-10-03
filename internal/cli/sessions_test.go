@@ -356,6 +356,27 @@ func TestStatusCmd(t *testing.T) {
 	}
 }
 
+// TestStatusCmdShowsRoleFromTypeOnlyRecord proves status detail prefers Role
+// (via DisplayRole) for a pre-migration Type-only agent and marks type deprecated.
+func TestStatusCmdShowsRoleFromTypeOnlyRecord(t *testing.T) {
+	addr := stubDaemon(t, func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(&store.Session{
+			ID: "legacy-1", Name: "old", Status: store.StatusIdle,
+			Type: store.TypeDevelopment,
+			// Role intentionally empty — DisplayRole must backfill implementer
+		})
+	})
+	out, err := runCLI(t, addr, "status", "legacy-1")
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	for _, want := range []string{"role:", "implementer", "type:", "development (deprecated)"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("status output missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestFilterByTags(t *testing.T) {
 	sessions := []*store.Session{
 		{ID: "a", Tags: []string{"backend", "urgent"}},
