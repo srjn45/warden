@@ -1,7 +1,7 @@
 Complete command tree:
   warden agent                         Create, inspect, communicate with, and manage agents
   warden agent list                    List all active agent sessions
-  warden agent start                   Spawn an agent — `start --role <ROLE> "<prompt>"` (auto-typed), `start --role <ROLE> --dir <path>` (interactive: open Claude & wait), or `start --role <ROLE> TICKET --type <TYPE>` (managed worktree)
+  warden agent start                   Spawn an agent — `start --role <ROLE> "<prompt>"` (free-form), `start --role <ROLE> --dir <path>` (interactive), or `start --role worker --repo <PATH>` (managed worktree)
   warden agent status                  Show full status for one session
   warden agent digest                  Summarize what an agent accomplished (files, branch, turns, narrative)
   warden agent fork                    Fork an agent's session into a new managed agent (branches the conversation; the source keeps running)
@@ -199,7 +199,7 @@ Complete command tree:
   warden doctor                        Run preflight checks (required binaries, daemon, data dir, configured local model)
   warden tui                           Live terminal cockpit for agents
   warden version                       Print warden version and build information
-  warden start                         Spawn an agent — `start --role <ROLE> "<prompt>"` (auto-typed), `start --role <ROLE> --dir <path>` (interactive: open Claude & wait), or `start --role <ROLE> TICKET --type <TYPE>` (managed worktree)
+  warden start                         Spawn an agent — `start --role <ROLE> "<prompt>"` (free-form), `start --role <ROLE> --dir <path>` (interactive), or `start --role worker --repo <PATH>` (managed worktree)
   warden ls                            List all active agent sessions
   warden status                        Show full status for one session
   warden send                          Type a message into an agent's claude session and press Enter

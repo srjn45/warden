@@ -1493,9 +1493,10 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*agentstore.Ag
 	if _, err := resolveRole(&req); err != nil {
 		return nil, err
 	}
-	// Managed when Type is set, or when a worktree-owning role (worker) has a
-	// Repo. Worker+Cwd-only stays free-form (master-shell quick spawn).
-	freeMode := req.Type == "" && !(RoleOwnsWorktree(req.Role) && req.Repo != "")
+	// Managed when Type is set, ForkFrom is set (repo resolved adapter-side), or
+	// a worktree-owning role (worker) has a Repo. Worker+Cwd-only stays free-form
+	// (master-shell quick spawn).
+	freeMode := req.Type == "" && req.ForkFrom == "" && !(RoleOwnsWorktree(req.Role) && req.Repo != "")
 	if !freeMode && req.Type != "" {
 		req.Type = store.NormalizeType(string(req.Type))
 	}

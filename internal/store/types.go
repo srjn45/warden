@@ -223,6 +223,27 @@ func RoleFromDeprecatedType(typ string) string {
 	}
 }
 
+// EffectiveRole returns the role a session should be classified under during the
+// Type→Role alias window: persisted Role if set, else the type→role mapping.
+// Returns "" when both are empty/unmapped (callers that need a display default
+// should fall back to "general").
+func EffectiveRole(role string, typ Type) string {
+	if r := strings.TrimSpace(role); r != "" {
+		return r
+	}
+	return RoleFromDeprecatedType(string(typ))
+}
+
+// DisplayRole is EffectiveRole with the built-in "general" default when neither
+// Role nor a mappable Type is present — for CLI/TUI columns that must never
+// render blank.
+func DisplayRole(role string, typ Type) string {
+	if r := EffectiveRole(role, typ); r != "" {
+		return r
+	}
+	return "general"
+}
+
 // DefaultWorktree reports whether spawning this type creates a git worktree by
 // default. Phase 0a isolates every write-agent — development, pr-review, code,
 // docs, website, debug-ci, tests — so parallel write-agents never collide in the

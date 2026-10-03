@@ -98,7 +98,7 @@ var _ Lifecycle = (*fakeLife)(nil)
 
 func (f *fakeLife) Spawn(_ context.Context, req SpawnRequest) (*agentstore.Agent, error) {
 	f.spawnedCwd = req.Cwd
-	freeMode := req.Type == "" && !(lifecycle.RoleOwnsWorktree(req.Role) && req.Repo != "")
+	freeMode := req.Type == "" && req.ForkFrom == "" && !(lifecycle.RoleOwnsWorktree(req.Role) && req.Repo != "")
 	id := req.Ticket
 	if id == "" {
 		if req.Kind == string(store.KindTerminal) {

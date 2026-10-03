@@ -47,7 +47,9 @@ Pass `--role` on `warden start`:
 # The role's persona is injected and its default flags fill anything you leave unset
 warden start "review PR 1234 for correctness" --role worker
 
-# Optional legacy --type still accepted; Role drives persona + worktree policy
+# Managed worktree via role+repo (no --type needed)
+warden start PROJ-9 --role worker --repo .
+# Optional legacy --type still accepted as a deprecated alias
 warden start PROJ-9 --role worker --type spike
 ```
 
@@ -96,15 +98,15 @@ the request defaults if routing is unavailable — it never hard-fails.
 
 ```sh
 warden start "design the sync protocol" --role planner     # role → tier-1
-warden start PROJ-9 --type development --task development   # task → tier-2
-warden start "cut the v9 release" --task release           # task → tier-3
-warden start "urgent hotfix" --tier tier-1                 # pin the tier directly
+warden start PROJ-9 --role worker --repo . --task development   # task → tier-2
+warden start "cut the v9 release" --role worker --task release  # task → tier-3
+warden start "urgent hotfix" --role worker --tier tier-1        # pin the tier directly
 ```
 
 :::caution[`--task` is not `--type`]
-`--type` decides worktree/branch policy
-([worktrees & task types](/warden/concepts/worktrees-task-types/)); `--task`
-decides the model tier. The two name-sets overlap but are independent flags.
+`--type` is a **deprecated** alias for legacy worktree/branch policy
+([worktrees & task types](/warden/concepts/worktrees-task-types/)); prefer
+`--role worker --repo` for managed spawns. `--task` decides the model tier.
 :::
 
 **Surfaces:** `--task` and `--tier` are on `warden start` and the REST spawn body;

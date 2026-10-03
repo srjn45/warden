@@ -16,8 +16,9 @@ func newScheduleCmd() *cobra.Command {
 		Short: "Schedule recurring (--cron) or single-shot (--at) agents and pipelines",
 		Long: "Create timer-driven triggers that the daemon fires on a schedule: a recurring\n" +
 			"cron spec (--cron \"0 9 * * *\") or a single-shot time (--at 2026-06-27T09:00).\n" +
-			"Each schedule fires either one agent spawn (the default — pass --type/--repo/\n" +
-			"--prompt) or a pipeline (--pipeline <spec.yaml>). The scheduler is opt-in: set\n" +
+			"Each schedule fires either one agent spawn (the default — pass --repo/\n" +
+			"--prompt; --type is a deprecated alias mapped to role at fire time) or a\n" +
+			"pipeline (--pipeline <spec.yaml>). The scheduler is opt-in: set\n" +
 			"scheduler_enabled: true in the config file and keep the daemon running.",
 	}
 	SetCommandHelpMetadata(cmd, "run", 40, "warden schedule", "", NodeNamespace)
@@ -44,12 +45,13 @@ func newScheduleShowCmd() *cobra.Command {
 
 func newScheduleCreateCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "create <name> (--cron <spec> | --at <time>) [--type <t> --repo <p> --prompt <s> | --pipeline <spec.yaml>]",
+		Use:   "create <name> (--cron <spec> | --at <time>) [--repo <p> --prompt <s> | --pipeline <spec.yaml>]",
 		Short: "Create a schedule that fires an agent or a pipeline",
 		Long: "Create a recurring (--cron) or single-shot (--at) schedule. By default a\n" +
-			"schedule fires one agent spawn — pass --type, --repo, --prompt (and optionally\n" +
-			"--agent name / --branch). Pass --pipeline <spec.yaml> instead to fire a pipeline\n" +
-			"(its name is timestamp-suffixed per fire so recurring runs don't collide).\n" +
+			"schedule fires one agent spawn — pass --repo, --prompt (and optionally\n" +
+			"--agent name / --branch; --type is a deprecated alias mapped to role at fire).\n" +
+			"Pass --pipeline <spec.yaml> instead to fire a pipeline (its name is\n" +
+			"timestamp-suffixed per fire so recurring runs don't collide).\n" +
 			"Provide exactly one of --cron/--at and exactly one fire mode.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -85,8 +87,9 @@ func newScheduleCreateCmd() *cobra.Command {
 	}
 	cmd.Flags().String("cron", "", "recurring cron spec, e.g. \"0 9 * * *\" (minute hour dom month dow)")
 	cmd.Flags().String("at", "", "single-shot time, RFC3339 or 2006-01-02T15:04 (local)")
-	cmd.Flags().String("type", "", "agent task type (e.g. pr-review, development); empty = free-form")
-	cmd.Flags().String("repo", "", "repo path (required for a typed agent)")
+	cmd.Flags().String("type", "", "deprecated: legacy agent task type (mapped to role at fire time); empty = free-form")
+	_ = cmd.Flags().MarkDeprecated("type", "schedules map type→role at fire; prefer an explicit role via spawn / pipeline job role")
+	cmd.Flags().String("repo", "", "repo path (required for a typed/legacy managed agent)")
 	cmd.Flags().String("prompt", "", "the agent's initial prompt")
 	cmd.Flags().String("agent", "", "optional name for the spawned agent")
 	cmd.Flags().String("branch", "", "optional development branch / pr-review checkout")

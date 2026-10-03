@@ -34,7 +34,7 @@ export default function AgentTab({ session, onClosed }: {
       <div className="agent-tab-head">
         <h2>{session.id} <BusyIdleBadge status={session.status} exitCode={session.exit_code} />{session.supervised && <span className="supervised-pill">supervised</span>}</h2>
         <code className="muted">
-          type: {session.type || 'classifying…'} · dir: {session.workdir || session.repo || '—'}
+          role: {session.role || session.type || 'general'} · dir: {session.workdir || session.repo || '—'}
         </code>
         <TerminateControls session={session} onDone={onClosed} />
       </div>

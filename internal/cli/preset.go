@@ -78,7 +78,8 @@ func newPresetSaveCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().String("type", "", "task type: development|analysis|spike|pr-review|code|docs|website|debug-ci|tests|other")
+	cmd.Flags().String("type", "", "deprecated: legacy task type stored on the preset (development|analysis|spike|pr-review|…). Prefer role-driven spawns")
+	_ = cmd.Flags().MarkDeprecated("type", "prefer --role on start; type is kept only as a deprecated spawn alias")
 	cmd.Flags().String("model", "", "claude model: opus, sonnet, haiku, fable, or full model ID")
 	cmd.Flags().Bool("supervised", false, "alias for --permission-mode acceptEdits")
 	cmd.Flags().String("permission-mode", "", "permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan")

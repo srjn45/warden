@@ -239,16 +239,21 @@ func (c *Client) Search(ctx context.Context, p SearchParams) ([]*store.Session, 
 // HistoryParams mirrors the daemon's GET /history query.
 type HistoryParams struct {
 	Since time.Time // zero = no lower bound
-	Type  string    // "" = any task type
+	Role  string    // "" = any role (canonical filter)
+	Type  string    // deprecated alias; mapped to role server-side when Role is empty
 	Limit int       // <=0 = no cap
 }
 
 // History browses the archived (closed/) store, newest-first, narrowed by the
-// optional since/type/limit filters.
+// optional since/role/type/limit filters. Role is canonical; Type is a
+// deprecated alias kept for one release.
 func (c *Client) History(ctx context.Context, p HistoryParams) ([]*store.Session, error) {
 	q := url.Values{}
 	if !p.Since.IsZero() {
 		q.Set("since", p.Since.UTC().Format(time.RFC3339))
+	}
+	if p.Role != "" {
+		q.Set("role", p.Role)
 	}
 	if p.Type != "" {
 		q.Set("type", p.Type)

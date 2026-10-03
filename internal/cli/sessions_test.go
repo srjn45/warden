@@ -52,13 +52,13 @@ func TestRenderSessions(t *testing.T) {
 		t.Fatalf("renderSessions returned error: %v", err)
 	}
 	out := buf.String()
-	for _, want := range []string{"NAME", "ID", "COST", "SUBJECT", "alpha", "A-1", "B-2", "do a thing", "$1.50"} {
+	for _, want := range []string{"NAME", "ID", "ROLE", "COST", "SUBJECT", "alpha", "A-1", "B-2", "do a thing", "$1.50", "implementer"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)
 		}
 	}
-	// The unnamed B-2 row falls back to "—" for name and "…" for a pending type.
-	if !strings.Contains(out, "—") || !strings.Contains(out, "…") {
+	// The unnamed B-2 row falls back to "—" for name and "general" for unset role.
+	if !strings.Contains(out, "—") || !strings.Contains(out, "general") {
 		t.Errorf("expected fallback glyphs for sparse row:\n%s", out)
 	}
 }

@@ -56,11 +56,15 @@ func composeHandoffMessage(resumePrompt, handoffContent, fromID string) string {
 }
 
 // buildDelegateParams clones nothing from the source: a delegate is a managed
-// spawn (Type set, Worktree/InRepo false) so a write-agent type lands in its own
+// spawn (Role worker + Repo, optional deprecated Type) so it lands in its own
 // isolated worktree by default — never sharing the source's working tree. force
 // passes through to spawn past the memory-pressure gate (mirrors `start --force`).
-func buildDelegateParams(repo, typ, name, branch, prompt string, force bool) client.SpawnParams {
+func buildDelegateParams(repo, roleName, typ, name, branch, prompt string, force bool) client.SpawnParams {
+	if roleName == "" {
+		roleName = "worker"
+	}
 	return client.SpawnParams{
+		Role:   roleName,
 		Type:   typ,
 		Repo:   repo,
 		Name:   name,
@@ -186,12 +190,13 @@ func newHandoffCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			roleName, _ := cmd.Flags().GetString("role")
 			typ, _ := cmd.Flags().GetString("type")
 			name, _ := cmd.Flags().GetString("name")
 			branch, _ := cmd.Flags().GetString("branch")
 			force, _ := cmd.Flags().GetBool("force")
 			prompt := composeDelegatePrompt(resumePrompt, content)
-			delegate, err := runHandoffNew(cmd.Context(), c, buildDelegateParams(repo, typ, name, branch, prompt, force))
+			delegate, err := runHandoffNew(cmd.Context(), c, buildDelegateParams(repo, roleName, typ, name, branch, prompt, force))
 			if err != nil {
 				return err
 			}
@@ -199,8 +204,9 @@ func newHandoffCmd() *cobra.Command {
 			if delegate.Name != "" {
 				nameLabel = fmt.Sprintf(" (%s)", delegate.Name)
 			}
+			roleLabel := store.DisplayRole(delegate.Role, delegate.Type)
 			fmt.Fprintf(out, "delegated to fresh agent %s%s [%s] — attach with `warden attach %s`\n",
-				delegate.ID, nameLabel, delegate.Type, delegate.ID)
+				delegate.ID, nameLabel, roleLabel, delegate.ID)
 			return nil
 		},
 	}
@@ -210,7 +216,9 @@ func newHandoffCmd() *cobra.Command {
 	cmd.Flags().Bool("confirm", false, "with --retire, actually spawn the successor and retire this agent (required)")
 	cmd.Flags().String("to", "", "deliver to this existing agent id instead of spawning a new one")
 	cmd.Flags().String("as", "", "act as this agent id for provenance (defaults to $WARDEN_SESSION_ID, else 'human')")
-	cmd.Flags().String("type", "development", "task type for a new delegate (ignored with --to)")
+	cmd.Flags().String("role", "worker", "built-in role for a new delegate (ignored with --to)")
+	cmd.Flags().String("type", "", "deprecated alias: legacy task type for a new delegate (ignored with --to). Prefer --role")
+	_ = cmd.Flags().MarkDeprecated("type", "use --role")
 	cmd.Flags().String("repo", "", "repo for a new delegate (default: source agent's repo, else cwd; ignored with --to)")
 	cmd.Flags().String("name", "", "optional human-friendly name for a new delegate (ignored with --to)")
 	cmd.Flags().String("branch", "", "optional branch for a new delegate (ignored with --to)")

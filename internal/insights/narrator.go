@@ -43,8 +43,8 @@ func DeterministicSummary(r Report) string {
 		plural(r.Sessions, "session"), r.ActiveSessions))
 
 	if len(r.Durations) > 0 {
-		slow := slowestType(r.Durations)
-		seg := fmt.Sprintf("Slowest type: %s (median %s)", slow.Type, humanDurSec(slow.MedianSec))
+		slow := slowestRole(r.Durations)
+		seg := fmt.Sprintf("Slowest role: %s (median %s)", slow.Role, humanDurSec(slow.MedianSec))
 		if len(slow.Outliers) > 0 {
 			seg += fmt.Sprintf(", %s", plural(len(slow.Outliers), "outlier"))
 		}
@@ -53,7 +53,7 @@ func DeterministicSummary(r Report) string {
 	if len(r.ErrorRates) > 0 && r.ErrorRates[0].Errored > 0 {
 		e := r.ErrorRates[0]
 		parts = append(parts, fmt.Sprintf("Highest error rate: %s %.0f%% (%d/%d).",
-			e.Type, e.Rate*100, e.Errored, e.Total))
+			e.Role, e.Rate*100, e.Errored, e.Total))
 	}
 	if len(r.BusiestPeriods) > 0 {
 		b := r.BusiestPeriods[0]
@@ -90,11 +90,11 @@ func NarratorPrompt(r Report) string {
 	fmt.Fprintf(&b, "Sessions analyzed: %d (%d active)\n", r.Sessions, r.ActiveSessions)
 	for _, d := range r.Durations {
 		fmt.Fprintf(&b, "Duration[%s]: median %s, p90 %s, max %s, %d outliers\n",
-			d.Type, humanDurSec(d.MedianSec), humanDurSec(d.P90Sec), humanDurSec(d.MaxSec), len(d.Outliers))
+			d.Role, humanDurSec(d.MedianSec), humanDurSec(d.P90Sec), humanDurSec(d.MaxSec), len(d.Outliers))
 	}
 	for _, e := range r.ErrorRates {
 		if e.Errored > 0 {
-			fmt.Fprintf(&b, "Errors[%s]: %d/%d (%.0f%%)\n", e.Type, e.Errored, e.Total, e.Rate*100)
+			fmt.Fprintf(&b, "Errors[%s]: %d/%d (%.0f%%)\n", e.Role, e.Errored, e.Total, e.Rate*100)
 		}
 	}
 	for _, p := range r.Parallelizable {
@@ -109,8 +109,8 @@ func NarratorPrompt(r Report) string {
 	return b.String()
 }
 
-// slowestType returns the duration entry with the largest median.
-func slowestType(ds []TypeDuration) TypeDuration {
+// slowestRole returns the duration entry with the largest median.
+func slowestRole(ds []RoleDuration) RoleDuration {
 	best := ds[0]
 	for _, d := range ds[1:] {
 		if d.MedianSec > best.MedianSec {

@@ -23,8 +23,8 @@ func sampleReport() Report {
 	return Report{
 		Sessions:       4,
 		ActiveSessions: 1,
-		Durations:      []TypeDuration{{Type: "development", Count: 3, MedianSec: 600, P90Sec: 1200, MaxSec: 3600, Outliers: []string{"d4"}}},
-		ErrorRates:     []TypeErrorRate{{Type: "tests", Total: 3, Errored: 1, Rate: 1.0 / 3.0}},
+		Durations:      []TypeDuration{{Role: "implementer", Type: "implementer", Count: 3, MedianSec: 600, P90Sec: 1200, MaxSec: 3600, Outliers: []string{"d4"}}},
+		ErrorRates:     []TypeErrorRate{{Role: "worker", Type: "worker", Total: 3, Errored: 1, Rate: 1.0 / 3.0}},
 		BusiestPeriods: []HourBucket{{Hour: 14, Count: 3}},
 		Parallelizable: []ParallelSuggestion{{A: "s1", B: "s2", Repo: "/r", SavedSec: 600, Reason: "s1 and s2 ran sequentially"}},
 		CoEdits:        []CoEditPair{{A: "a.go", B: "b.go", Count: 2}},
@@ -42,8 +42,8 @@ func TestDeterministicSummaryContent(t *testing.T) {
 	got := DeterministicSummary(sampleReport())
 	for _, want := range []string{
 		"Analyzed 4 sessions (1 active)",
-		"Slowest type: development (median 10m), 1 outlier",
-		"Highest error rate: tests 33%",
+		"Slowest role: implementer (median 10m), 1 outlier",
+		"Highest error rate: worker 33%",
 		"Busiest hour: 14:00 UTC",
 		"1 parallelization opportunity (≈10m wall-clock saveable)",
 		"Most co-edited: a.go + b.go (2 sessions)",

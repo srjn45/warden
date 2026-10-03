@@ -51,10 +51,11 @@ func newHistoryCmd() *cobra.Command {
 		Use:   "history",
 		Short: "Browse archived (closed) agents, newest first",
 		Long: "List the archived agent records the soft-delete path persists. " +
-			"Filter with --since (24h, 7d, 2w, or a date) and --type.",
+			"Filter with --since (24h, 7d, 2w, or a date) and --role.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			sinceStr, _ := cmd.Flags().GetString("since")
+			roleFilter, _ := cmd.Flags().GetString("role")
 			typ, _ := cmd.Flags().GetString("type")
 			limit, _ := cmd.Flags().GetInt("limit")
 			jsonOut, _ := cmd.Flags().GetBool("json")
@@ -64,7 +65,7 @@ func newHistoryCmd() *cobra.Command {
 				return err
 			}
 			sessions, err := clientFor(cmd).History(cmd.Context(), client.HistoryParams{
-				Since: since, Type: typ, Limit: limit,
+				Since: since, Role: roleFilter, Type: typ, Limit: limit,
 			})
 			if err != nil {
 				return err
@@ -83,7 +84,9 @@ func newHistoryCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().String("since", "", "only agents updated since this window (24h, 7d, 2w) or date (2006-01-02 / RFC3339)")
-	cmd.Flags().String("type", "", "filter by task type (development, pr-review, analysis, …)")
+	cmd.Flags().String("role", "", "filter by role (general, worker, orchestrator, …)")
+	cmd.Flags().String("type", "", "deprecated alias for --role: filter by legacy task type (mapped to role server-side)")
+	_ = cmd.Flags().MarkDeprecated("type", "use --role")
 	cmd.Flags().Int("limit", 0, "cap the number of results (0 = no cap)")
 	cmd.Flags().Bool("json", false, "output as JSON")
 	return cmd

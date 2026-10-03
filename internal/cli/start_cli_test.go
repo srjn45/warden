@@ -20,7 +20,7 @@ func TestStartFreeFormPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
-	if !strings.Contains(out, "spawned code-1 (scout) (classifying…)") {
+	if !strings.Contains(out, "spawned code-1 (scout) [general]") {
 		t.Fatalf("start output: %q", out)
 	}
 	if !strings.Contains(body["/api/v1/spawn"], `"prompt":"research SSE reconnection"`) {
@@ -57,22 +57,22 @@ func TestStartInteractiveNoPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
-	if !strings.Contains(out, "opened interactive agent code-2") {
+	if !strings.Contains(out, "opened interactive agent code-2") || !strings.Contains(out, "[general]") {
 		t.Fatalf("start interactive output: %q", out)
 	}
 }
 
-// TestStartTypedManaged covers the typed/managed-worktree branch.
+// TestStartTypedManaged covers the typed/managed-worktree branch (--type deprecated).
 func TestStartTypedManaged(t *testing.T) {
 	body := map[string]string{}
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"POST /api/v1/spawn": `{"id":"DEV-1","type":"development","status":"spawning"}`,
+		"POST /api/v1/spawn": `{"id":"DEV-1","role":"worker","type":"development","status":"spawning"}`,
 	}, nil, body))
 	out, err := runCLI(t, addr, "start", "DEV-1", "--type", "development", "--repo", t.TempDir(), "--tags", "backend, urgent", "--project", "/repos/alpha", "--role", "worker")
 	if err != nil {
 		t.Fatalf("start typed: %v", err)
 	}
-	if !strings.Contains(out, "spawned DEV-1 [development] (spawning)") {
+	if !strings.Contains(out, "spawned DEV-1 [worker] (spawning)") {
 		t.Fatalf("start typed output: %q", out)
 	}
 	var sent map[string]any
@@ -98,7 +98,7 @@ func TestStartPRReviewNeedsTarget(t *testing.T) {
 		called = true
 		_, _ = w.Write([]byte(`{}`))
 	})
-	if _, err := runCLI(t, addr, "start", "REV-1", "--type", "pr-review", "--repo", t.TempDir()); err == nil {
+	if _, err := runCLI(t, addr, "start", "REV-1", "--role", "worker", "--type", "pr-review", "--repo", t.TempDir()); err == nil {
 		t.Fatal("pr-review without --pr/--branch must error")
 	}
 	if called {

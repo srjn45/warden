@@ -75,11 +75,12 @@ func (s *Server) validateSpawnRequest(ctx context.Context, req SpawnRequest) (in
 			}
 		}
 	}
-	// Managed spawn: explicit Type OR a worktree-owning role (worker) that has
-	// a Repo. Role-driven workers no longer rely on a Type default to enter the
-	// managed path — see lifecycle.RoleOwnsWorktree. A worker spawned with only
-	// Cwd (no Repo) stays free-form, matching the master-shell quick-spawn path.
-	managed := req.Type != "" || (lifecycle.RoleOwnsWorktree(req.Role) && req.Repo != "")
+	// Managed spawn: explicit Type, a fork (repo resolved adapter-side from
+	// fork_from), OR a worktree-owning role (worker) that has a Repo.
+	// Role-driven workers no longer rely on a Type default to enter the managed
+	// path — see lifecycle.RoleOwnsWorktree. A worker spawned with only Cwd (no
+	// Repo) stays free-form, matching the master-shell quick-spawn path.
+	managed := req.Type != "" || req.ForkFrom != "" || (lifecycle.RoleOwnsWorktree(req.Role) && req.Repo != "")
 	freeMode := !managed
 	if !freeMode {
 		// A fork's repo is the SOURCE agent's repo, resolved by the lifecycle adapter

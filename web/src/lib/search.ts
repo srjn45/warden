@@ -1,12 +1,12 @@
 import type { Session } from './types';
 
 // sessionHaystack concatenates a session's searchable text — name, id, ticket,
-// type, subject, prompt, branch, tags, last pane excerpt — lowercased. Mirrors
-// the daemon's sessionHaystack so client-side and `warden search` agree on what
-// "matches".
+// role, type (deprecated), subject, prompt, branch, tags, last pane excerpt —
+// lowercased. Mirrors the daemon's sessionHaystack so client-side and
+// `warden search` agree on what "matches".
 export function sessionHaystack(s: Session): string {
   return [
-    s.name ?? '', s.id, s.ticket, s.type, s.subject,
+    s.name ?? '', s.id, s.ticket, s.role ?? '', s.type, s.subject,
     s.prompt, s.branch, s.last_pane_excerpt,
     ...(s.tags ?? []),
   ].join('\n').toLowerCase();

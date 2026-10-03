@@ -46,7 +46,8 @@ func TestComposeHandoffMessage(t *testing.T) {
 }
 
 func TestBuildDelegateParams(t *testing.T) {
-	p := buildDelegateParams("/repo", "development", "delegate-1", "feat-x", "do it", false)
+	p := buildDelegateParams("/repo", "worker", "development", "delegate-1", "feat-x", "do it", false)
+	require.Equal(t, "worker", p.Role)
 	require.Equal(t, "development", p.Type)
 	require.Equal(t, "/repo", p.Repo)
 	require.Equal(t, "delegate-1", p.Name)
@@ -59,7 +60,8 @@ func TestBuildDelegateParams(t *testing.T) {
 	require.Empty(t, p.Cwd, "a delegate must not inherit the source's cwd")
 	require.False(t, p.Force, "force defaults off — the gate is respected unless asked")
 
-	forced := buildDelegateParams("/repo", "development", "", "", "do it", true)
+	forced := buildDelegateParams("/repo", "", "", "", "", "do it", true)
+	require.Equal(t, "worker", forced.Role, "empty role defaults to worker")
 	require.True(t, forced.Force, "--force threads through to the spawn past the memory-pressure gate")
 }
 
@@ -109,7 +111,7 @@ func (f *fakeHandoffClient) MsgSend(ctx context.Context, to, from, body string) 
 
 func TestRunHandoffNewHappyPath(t *testing.T) {
 	f := &fakeHandoffClient{spawnResult: &store.Session{ID: "agent-new", Type: "development"}}
-	params := buildDelegateParams("/repo", "development", "", "", "prompt", false)
+	params := buildDelegateParams("/repo", "worker", "development", "", "", "prompt", false)
 	delegate, err := runHandoffNew(context.Background(), f, params)
 	require.NoError(t, err)
 	require.Equal(t, "agent-new", delegate.ID)

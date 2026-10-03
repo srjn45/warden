@@ -7,13 +7,13 @@ import (
 )
 
 // sessionHaystack concatenates the searchable text of a session — name, id,
-// ticket, type, subject, tags, prompt, branch, and the last pane excerpt —
-// lowercased for case-insensitive matching. These are the fields a human scans
-// to find an agent again.
+// ticket, role, type (deprecated), subject, tags, prompt, branch, and the last
+// pane excerpt — lowercased for case-insensitive matching. These are the fields
+// a human scans to find an agent again.
 func sessionHaystack(s *agentstore.Agent) string {
 	var b strings.Builder
 	fields := []string{
-		s.Name, s.ID, s.Ticket, string(s.Type), s.Subject,
+		s.Name, s.ID, s.Ticket, s.Role, string(s.Type), s.Subject,
 		s.Prompt, s.Branch, s.LastPaneExcerpt,
 	}
 	fields = append(fields, s.Tags...) // tags are searchable like any other label

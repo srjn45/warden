@@ -24,8 +24,5 @@ func resolveRoleCanonical(role, typ string) string {
 // effectiveSessionRole returns the role a session should be classified under
 // during the alias window: persisted Role if set, else a type→role mapping.
 func effectiveSessionRole(role string, typ store.Type) string {
-	if r := strings.TrimSpace(role); r != "" {
-		return r
-	}
-	return roleFromDeprecatedType(string(typ))
+	return store.EffectiveRole(role, typ)
 }
