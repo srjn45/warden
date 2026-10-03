@@ -341,9 +341,10 @@ view state doesn't jump):
 - **Jobs:** topological by `depends_on`, then declaration order (the pipeline's
   own job order). The DAG edges also ship in `Detail.DependsOn` so a client can
   draw the graph.
-- **Autopilot lanes:** manager, guardian, then tasks in **ledger order**
-  (`AutopilotRunStatus.LedgerTasks` already exists for exactly this), workers
-  within a task by creation time.
+- **Autopilot lanes:** Manager and Brain (when shown) are immediate children of
+  the Autopilot container; all workers belonging to the run nest under Manager
+  (creation-time order). Plan task groups are not rendered inside Autopilot.
+  Legacy guardian lanes are omitted.
 
 The exact comparators live in `internal/tree` and are covered by golden tests so
 two implementers (and the TUI) can never diverge.
