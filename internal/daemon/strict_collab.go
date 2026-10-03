@@ -263,11 +263,17 @@ func (s *Server) GetBranchStatus(ctx context.Context, _ oapi.GetBranchStatusRequ
 }
 
 // ListHistory implements GET /api/v1/history: the archived (closed) store with
-// optional since/type/limit filters.
+// optional since/role/type/limit filters. role is canonical; type is a
+// deprecated alias that maps onto role when role is empty.
 func (s *Server) ListHistory(ctx context.Context, req oapi.ListHistoryRequestObject) (oapi.ListHistoryResponseObject, error) {
+	role := strings.TrimSpace(req.Params.Role)
 	var typ store.Type
-	if req.Params.Type != "" {
-		typ = store.NormalizeType(req.Params.Type)
+	if role == "" && req.Params.Type != "" {
+		if mapped := roleFromDeprecatedType(req.Params.Type); mapped != "" {
+			role = mapped
+		} else {
+			typ = store.NormalizeType(req.Params.Type)
+		}
 	}
 	limit := 0
 	if req.Params.Limit > 0 {
@@ -278,7 +284,7 @@ func (s *Server) ListHistory(ctx context.Context, req oapi.ListHistoryRequestObj
 		return nil, err
 	}
 	return oapi.ListHistory200JSONResponse{
-		Sessions: derefAgents(filterClosed(closed, req.Params.Since, typ, limit)),
+		Sessions: derefAgents(filterClosed(closed, req.Params.Since, typ, role, limit)),
 		Degraded: skipped > 0, SkippedRecords: skipped,
 	}, nil
 }

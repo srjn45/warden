@@ -26,6 +26,8 @@ import (
 // spawnRequestFromOAPI maps the generated spawn body onto the daemon's
 // SpawnRequest DTO, which the Lifecycle interface is defined in terms of.
 // ai_cli is canonical; backend is a deprecated alias (canonical wins).
+// role is canonical; type is a deprecated alias that maps onto role when role
+// is empty (canonical wins when both are set).
 func spawnRequestFromOAPI(b oapi.SpawnRequest) SpawnRequest {
 	aiCli := strings.TrimSpace(b.AiCli)
 	if aiCli == "" {
@@ -54,7 +56,7 @@ func spawnRequestFromOAPI(b oapi.SpawnRequest) SpawnRequest {
 		ProjectID:      b.ProjectId,
 		PlanID:         b.PlanId,
 		ForkFrom:       b.ForkFrom,
-		Role:           b.Role,
+		Role:           resolveRoleCanonical(b.Role, b.Type),
 		Tier:           b.Tier,
 		Task:           b.Task,
 	}

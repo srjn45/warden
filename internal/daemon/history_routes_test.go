@@ -35,25 +35,31 @@ func TestFilterClosed(t *testing.T) {
 	}
 
 	// since filter excludes records updated before the bound.
-	got := filterClosed(sessions, base.Add(24*time.Hour), "", 0)
+	got := filterClosed(sessions, base.Add(24*time.Hour), "", "", 0)
 	if len(got) != 2 {
 		t.Fatalf("since filter: want 2, got %d", len(got))
 	}
 
-	// type filter keeps only the matching type.
-	got = filterClosed(sessions, time.Time{}, store.TypeDevelopment, 0)
+	// type filter keeps only the matching type (legacy path when type does not map).
+	got = filterClosed(sessions, time.Time{}, store.TypeDevelopment, "", 0)
 	if len(got) != 2 || got[0].ID != "new" || got[1].ID != "old" {
 		t.Fatalf("type filter: got %+v", got)
 	}
 
+	// role filter uses effective role (persisted Role or type→role mapping).
+	got = filterClosed(sessions, time.Time{}, "", "implementer", 0)
+	if len(got) != 2 || got[0].ID != "new" || got[1].ID != "old" {
+		t.Fatalf("role filter: got %+v", got)
+	}
+
 	// limit caps the result, preserving order.
-	got = filterClosed(sessions, time.Time{}, "", 1)
+	got = filterClosed(sessions, time.Time{}, "", "", 1)
 	if len(got) != 1 || got[0].ID != "new" {
 		t.Fatalf("limit: got %+v", got)
 	}
 
 	// combined since + type.
-	got = filterClosed(sessions, base.Add(time.Hour), store.TypeDevelopment, 0)
+	got = filterClosed(sessions, base.Add(time.Hour), store.TypeDevelopment, "", 0)
 	if len(got) != 1 || got[0].ID != "new" {
 		t.Fatalf("combined: got %+v", got)
 	}
