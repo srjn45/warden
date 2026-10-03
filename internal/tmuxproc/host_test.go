@@ -28,6 +28,7 @@ func TestHostNewSessionCreatesDetachedPane(t *testing.T) {
 	}
 	require.Contains(t, joined, "tmux new-session -d -s term-1 -e WARDEN_SESSION_ID=term-1 -e AGENTCTL_SESSION_ID=term-1 -c /tmp/work")
 	require.Contains(t, joined, "tmux set-option -t term-1 mouse on")
+	require.Contains(t, joined, "tmux set-option -t term-1 detach-on-destroy on")
 	require.True(t, h.HasSession(context.Background(), "term-1") || true) // fake always succeeds has-session when we call it
 }
 
