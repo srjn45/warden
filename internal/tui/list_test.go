@@ -474,22 +474,19 @@ func TestProjectGroupedItemsPrefersBackRefOverTags(t *testing.T) {
 		{ID: "plain", Repo: "/repo"},
 	}
 	items := projectGroupedItems(nil, nil, []*store.Session{sessions[1]}, sessions, nil, nil, nil, runs)
-	// Manager is claimed by Autopilot (exactly-once); Agents section keeps only plain.
-	var agentSecSessions []string
-	inAgents := false
+	// Manager is claimed by Autopilot (exactly-once); only plain remains as a
+	// free root agent (no Agents section bucket).
+	var rootAgentSessions []string
 	for _, it := range items {
-		if it.treeSecLabel == "Agents" {
-			inAgents = true
+		if it.session == nil || it.apSlot != "" || it.apRun != nil {
 			continue
 		}
-		if it.treeSecID != "" || it.planHeader {
-			inAgents = false
-		}
-		if inAgents && it.session != nil {
-			agentSecSessions = append(agentSecSessions, it.session.ID)
+		// Root free agents sit at project depth (not under an Autopilot run).
+		if it.depth <= 1 {
+			rootAgentSessions = append(rootAgentSessions, it.session.ID)
 		}
 	}
-	require.Equal(t, []string{"plain"}, agentSecSessions, "manager claimed by Autopilot section")
+	require.Equal(t, []string{"plain"}, rootAgentSessions, "manager claimed by Autopilot; plain is the only free agent")
 	require.Equal(t, store.AutopilotSlotManager, items[itemIndexBySessionID(items, "mgr")].apSlot)
 }
 

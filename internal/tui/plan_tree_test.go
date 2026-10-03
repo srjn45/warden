@@ -118,19 +118,18 @@ func TestPlanTree_StructureAndGrouping(t *testing.T) {
 
 	items := buildProjectItems(projs, nil, sessions, nil, client.AutopilotStatus{}, plansMap, nil, nil, false)
 
-	// Project sections: Plans (collapsed); empty Autopilots/Pipelines/Terminals omitted;
-	// Agents open by default when it has children.
+	// Project children: Plans (collapsed section); root Agents sit directly under
+	// the project (no Agents/Autopilots/Pipelines section buckets).
 	require.NotNil(t, items[0].projHdr)
 	require.Equal(t, "My Project", items[0].projHdr.name)
 	require.True(t, items[1].planHeader)
 	require.True(t, items[1].collapsed, "plans header is always collapsed by default")
-	require.Equal(t, "Agents", items[2].treeSecLabel)
-	require.False(t, items[2].collapsed)
-	require.NotNil(t, items[3].session)
-	require.Equal(t, "agent-1", items[3].session.ID)
+	require.NotNil(t, items[2].session)
+	require.Equal(t, "agent-1", items[2].session.ID)
 	for _, it := range items {
 		require.NotEqual(t, "Autopilots", it.treeSecLabel)
 		require.NotEqual(t, "Pipelines", it.treeSecLabel)
+		require.NotEqual(t, "Agents", it.treeSecLabel)
 		require.NotEqual(t, "Terminals", it.treeSecLabel)
 	}
 
@@ -139,7 +138,6 @@ func TestPlanTree_StructureAndGrouping(t *testing.T) {
 		"plans:proj-1":             false,
 		"plans:proj-1:in_progress": false,
 		"plans:proj-1:archived":    false,
-		"section:proj-1:agents":    false,
 	}
 	itemsExpanded := buildProjectItems(projs, nil, sessions, nil, client.AutopilotStatus{}, plansMap, nil, collapsed, false)
 	var planNames []string

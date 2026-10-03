@@ -498,8 +498,8 @@ func (ctx *adaptCtx) adaptSection(n *tree.Node) []item {
 	}
 	collapsed, ok := ctx.collapsed[n.ID]
 	if !ok {
-		// Only Plans starts collapsed (historical UX). Autopilots / Pipelines /
-		// Agents / Terminals stay open so live work is visible by default.
+		// Only Plans starts collapsed (historical UX). Terminals (the only
+		// remaining non-Plans section bucket) stay open by default.
 		collapsed = kind == string(tree.SectionPlans)
 	}
 	// Reuse planHeader row for Plans section so existing keybindings keep working.
