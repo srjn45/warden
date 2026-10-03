@@ -1388,21 +1388,27 @@ type Pipeline = pipeline.Pipeline
 // PipelineJob defines model for PipelineJob.
 type PipelineJob struct {
 	// AgentId id of the agent executing this job (project entity hierarchy D5). Supersedes session_id; both are written during the transition so older clients remain compatible.
-	AgentId   string           `json:"agent_id,omitempty"`
-	Branch    string           `json:"branch,omitempty"`
-	DependsOn []string         `json:"depends_on,omitempty"`
-	Digest    Digest           `json:"digest,omitempty"`
-	Handoff   string           `json:"handoff,omitempty"`
-	Id        string           `json:"id,omitempty"`
-	Output    string           `json:"output,omitempty"`
-	Prompt    string           `json:"prompt,omitempty"`
-	RunIf     PipelineJobRunIf `json:"run_if,omitempty"`
+	AgentId   string   `json:"agent_id,omitempty"`
+	Branch    string   `json:"branch,omitempty"`
+	DependsOn []string `json:"depends_on,omitempty"`
+	Digest    Digest   `json:"digest,omitempty"`
+	Handoff   string   `json:"handoff,omitempty"`
+	Id        string   `json:"id,omitempty"`
+	Output    string   `json:"output,omitempty"`
+	Prompt    string   `json:"prompt,omitempty"`
+
+	// Role Built-in agent role for the job's spawn (canonical). Preferred over the deprecated `type` field.
+	Role  string           `json:"role,omitempty"`
+	RunIf PipelineJobRunIf `json:"run_if,omitempty"`
 
 	// SessionId Deprecated: use agent_id. Kept for backward compatibility during the agent-id migration; mirrors agent_id on write.
 	SessionId  string `json:"session_id,omitempty"`
 	Status     string `json:"status,omitempty"`
 	Supervised bool   `json:"supervised,omitempty"`
-	Type       string `json:"type,omitempty"`
+
+	// Type Deprecated legacy task type for the job's spawn. Prefer `role`. Accepted for one release; when `role` is empty the daemon maps known type values onto a role. When both are provided, `role` wins. Special executor values `span-out` / `span-in` are not role aliases.
+	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
+	Type string `json:"type,omitempty"`
 
 	// Worktree none | fresh | from:<jobid>
 	Worktree string `json:"worktree,omitempty"`
@@ -1786,7 +1792,8 @@ type ScheduleCreateRequest struct {
 	// Spec pipeline YAML; non-empty selects pipeline mode
 	Spec string `json:"spec,omitempty"`
 
-	// Type agent task type (agent mode)
+	// Type Deprecated legacy agent task type (agent mode). Prefer spawning with an explicit role via POST /api/v1/spawn. Accepted for one release: at fire time the daemon maps known type values onto a role (development→implementer, pr-review→reviewer, analysis/spike→general).
+	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
 	Type string `json:"type,omitempty"`
 }
 
@@ -1852,10 +1859,10 @@ type SpawnRequest struct {
 	ProjectId string `json:"project_id,omitempty"`
 	Prompt    string `json:"prompt,omitempty"`
 
-	// Repo required in typed mode
+	// Repo required in typed mode (legacy type or role defaults that imply a worktree)
 	Repo string `json:"repo,omitempty"`
 
-	// Role built-in agent role name (general|orchestrator|implementer|auto-merger|reviewer); empty = general (no persona). The role's persona is injected as a system-prompt addendum and its default flags fill any request fields left unset.
+	// Role Built-in agent role name (canonical classification: general|orchestrator|planner|worker|autopilot|brain; legacy aliases implementer|auto-merger|reviewer still resolve). Empty = general (no persona). The role's persona is injected as a system-prompt addendum and its default flags fill any request fields left unset. Preferred over the deprecated `type` field — when both are provided, `role` wins.
 	Role string   `json:"role,omitempty"`
 	Tags []string `json:"tags,omitempty"`
 
@@ -1866,7 +1873,8 @@ type SpawnRequest struct {
 	// Tier explicit model tier (tier-1|tier-2|tier-3) for the quota-balanced resolver that picks the AI CLI+model at spawn. Empty derives the tier from task, then role. A pinned ai_cli/model still wins over the resolver.
 	Tier string `json:"tier,omitempty"`
 
-	// Type task type (typed mode); empty = free-form
+	// Type Deprecated legacy task type (typed mode). Prefer `role` (and optional `task` for tier routing). Accepted for one release: when `role` is empty, the daemon maps known type values onto a role (development→implementer, pr-review→reviewer, analysis/spike→general, …). When both `role` and `type` are provided, `role` wins. Empty = free-form (no typed worktree).
+	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
 	Type     string `json:"type,omitempty"`
 	Worktree bool   `json:"worktree,omitempty"`
 }
@@ -1952,7 +1960,7 @@ type TaskOutcome = planstore.TaskOutcome
 // TaskStatus defines model for TaskStatus.
 type TaskStatus string
 
-// TaskType Normalized task type
+// TaskType Deprecated legacy agent task type. Prefer Session/SpawnRequest `role` (with optional `task` for tier routing). Kept for one-release compatibility; new clients must not set this as classification.
 type TaskType string
 
 // Tree The top-level project-tree frame. Returned by GET /api/v1/tree and carried verbatim in the SSE `tree` event.
@@ -2190,7 +2198,10 @@ type ListHistoryParams struct {
 	// Since RFC3339 lower bound
 	Since time.Time `form:"since,omitempty" json:"since,omitempty"`
 
-	// Type Filter by normalized task type
+	// Role Filter by built-in agent role (canonical)
+	Role string `form:"role,omitempty" json:"role,omitempty"`
+
+	// Type Deprecated alias for filtering by legacy task type. Prefer `role`. Accepted for one release; when both `role` and `type` are provided, `role` wins.
 	Type  string `form:"type,omitempty" json:"type,omitempty"`
 	Limit int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
@@ -4831,6 +4842,19 @@ func (siw *ServerInterfaceWrapper) ListHistory(w http.ResponseWriter, r *http.Re
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "since"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "since", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "role" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "role", r.URL.Query(), &params.Role, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "role"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "role", Err: err})
 		}
 		return
 	}

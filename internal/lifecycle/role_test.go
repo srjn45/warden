@@ -11,18 +11,20 @@ import (
 )
 
 // resolveRole fills unset spawn fields from the role's defaults, with precedence
-// explicit request value > role default > global default.
+// explicit request value > role default > global default. Type is never filled
+// from the role (isolation is role-driven via RoleOwnsWorktree).
 func TestResolveRolePrecedence(t *testing.T) {
-	// worker: default type=development fills an unset type; the canonical role
-	// name is persisted.
+	// worker: permission_mode + auto_approve defaults apply; Type stays empty.
 	req := SpawnRequest{Role: "worker"}
 	r, err := resolveRole(&req)
 	require.NoError(t, err)
 	require.Equal(t, "worker", r.Name)
 	require.Equal(t, "worker", req.Role)
-	require.Equal(t, store.TypeDevelopment, req.Type)
+	require.Equal(t, store.Type(""), req.Type, "roles no longer default Type")
+	require.Equal(t, "auto", req.PermissionMode)
+	require.True(t, req.AutoApprove)
 
-	// An explicit type wins over the role default.
+	// An explicit type is preserved (legacy callers) but never overridden by role.
 	req = SpawnRequest{Role: "worker", Type: store.TypeSpike}
 	_, err = resolveRole(&req)
 	require.NoError(t, err)
@@ -48,7 +50,7 @@ func TestResolveRolePrecedence(t *testing.T) {
 
 	// auto_approve is OR-ed: an explicit true survives a role with no auto_approve
 	// default.
-	req = SpawnRequest{Role: "worker", AutoApprove: true}
+	req = SpawnRequest{Role: "orchestrator", AutoApprove: true}
 	_, err = resolveRole(&req)
 	require.NoError(t, err)
 	require.True(t, req.AutoApprove)
@@ -63,7 +65,19 @@ func TestResolveRoleTagsPreserved(t *testing.T) {
 	_, err := resolveRole(&req)
 	require.NoError(t, err)
 	require.Equal(t, []string{"frontend", "urgent"}, req.Tags)
-	require.Equal(t, store.TypeDevelopment, req.Type)
+	require.Equal(t, store.Type(""), req.Type)
+}
+
+func TestRoleOwnsWorktree(t *testing.T) {
+	require.True(t, RoleOwnsWorktree("worker"))
+	require.True(t, RoleOwnsWorktree("implementer"), "legacy alias resolves to worker")
+	require.True(t, RoleOwnsWorktree("reviewer"), "legacy alias resolves to worker")
+	require.False(t, RoleOwnsWorktree("planner"), "planner has no Type default — stays free-form without Type")
+	require.False(t, RoleOwnsWorktree("autopilot"), "autopilot managers spawn with Cwd only")
+	require.False(t, RoleOwnsWorktree("orchestrator"))
+	require.False(t, RoleOwnsWorktree("brain"))
+	require.False(t, RoleOwnsWorktree("general"))
+	require.False(t, RoleOwnsWorktree(""))
 }
 
 // unionTags is the exact tag-union step resolveRole applies when a role DOES ship
@@ -158,21 +172,20 @@ func TestSpawnGeneralRoleInjectsNoPersona(t *testing.T) {
 	}
 }
 
-// A role default type flips a would-be free-form spawn (no explicit type) into a
-// typed, worktree-backed one.
-func TestSpawnRoleDefaultTypeFlipsFreeForm(t *testing.T) {
+// A worktree-owning role (worker) enters the managed spawn path without a Type:
+// Role drives isolation; Type stays empty (non-authoritative).
+func TestSpawnRoleDrivesWorktreeWithoutType(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"git worktree list --porcelain": {Out: noOtherWorktrees},
 	}}
 	lc := New(fr, &FakeConfig{})
 	lc.PromptsDir = "/state/prompts"
-	// No Type given, but worker defaults type=development, so this becomes a
-	// managed worktree spawn rather than a free-form one.
 	s, err := lc.Spawn(context.Background(), SpawnRequest{
-		Repo: "/repo", Cwd: "/repo", Role: "worker", Prompt: "do the thing",
+		Repo: "/repo", Role: "worker", Prompt: "do the thing",
 	})
 	require.NoError(t, err)
-	require.Equal(t, store.TypeDevelopment, s.Type)
-	require.NotEmpty(t, s.Worktree, "role default type=development creates a worktree")
+	require.Equal(t, store.Type(""), s.Type, "role must not invent a Type")
+	require.NotEmpty(t, s.Worktree, "worker role creates a worktree without Type")
 	require.Equal(t, "worker", s.Role)
+	require.True(t, s.AutoApprove, "worker role default auto_approve applies")
 }

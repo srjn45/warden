@@ -12,13 +12,18 @@ import (
 // newest-first order ListClosed already guarantees. A positive limit caps the
 // result. Terminal-kind sessions are dropped — history is an AI-agent record and
 // a shell has no work to report. Pure: it never mutates the input slice.
-func filterClosed(sessions []*agentstore.Agent, since time.Time, typ store.Type, limit int) []*agentstore.Agent {
+func filterClosed(sessions []*agentstore.Agent, since time.Time, typ store.Type, role string, limit int) []*agentstore.Agent {
 	out := make([]*agentstore.Agent, 0, len(sessions))
 	for _, s := range sessions {
 		if !since.IsZero() && s.UpdatedAt.Before(since) {
 			continue
 		}
-		if typ != "" && s.Type != typ {
+		if role != "" {
+			if effectiveSessionRole(s.Role, s.Type) != role {
+				continue
+			}
+		} else if typ != "" && s.Type != typ {
+			// Legacy type-only filter when the type did not map onto a role.
 			continue
 		}
 		out = append(out, s)

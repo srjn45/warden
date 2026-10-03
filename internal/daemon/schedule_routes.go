@@ -44,6 +44,9 @@ func (s *Server) fireScheduleAgent(ctx context.Context, sc *schedule.Schedule) (
 		Repo:   sc.Repo,
 		Branch: sc.Branch,
 		Prompt: sc.Prompt,
+		// Schedule.Type is deprecated; map onto Role at fire time so agent-mode
+		// fires land on the canonical classification during the alias window.
+		Role: resolveRoleCanonical("", sc.Type),
 	}
 	if code, msg := s.validateSpawnRequest(ctx, req); code != 0 {
 		return "", errors.New(msg)

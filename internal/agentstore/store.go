@@ -179,6 +179,11 @@ func fromRecord(rec map[string]any) (*Agent, error) {
 	if err := json.Unmarshal(b, &a); err != nil {
 		return nil, err
 	}
+	// Lazy migration: legacy records carry Type but no Role. Backfill Role on
+	// read so callers see a consistent canonical field without a bulk DB rewrite.
+	if a.Role == "" && a.Type != "" {
+		a.Role = store.RoleFromDeprecatedType(string(a.Type))
+	}
 	return &a, nil
 }
 

@@ -382,7 +382,8 @@ func (e *Executor) Reconcile(ctx context.Context, pid string) error {
 			PipelineID: p.ID, PlanID: p.PlanID, JobID: job.ID, Repo: p.Repo,
 			Prompt: pipeline.ComposePrompt(p, job), Worktree: worktree,
 			BaseBranch: base, Type: store.NormalizeType(job.Type), PermissionMode: permissionMode,
-			Role: job.Role, Tier: job.Tier, Backend: job.Backend, Model: job.Model,
+			// role is canonical; deprecated job.Type maps onto role when role is empty.
+			Role: resolveRoleCanonical(job.Role, job.Type), Tier: job.Tier, Backend: job.Backend, Model: job.Model,
 			Tags: p.Tags, ScheduleID: p.ScheduleID, ScheduleName: p.ScheduleName,
 			Workdir: job.Workdir, Branch: job.Branch,
 		}

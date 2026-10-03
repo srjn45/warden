@@ -59,12 +59,11 @@ Built-in roles are embedded YAML, mirroring `internal/pipeline/templates`
 (`//go:embed roles/*.yaml`). Each role is one YAML file:
 
 ```yaml
-name: implementer
-description: Implements a task end-to-end on its own branch.
+name: worker
+description: Owns one task end-to-end on its own branch.
 persona: |
-  You are an implementer. ...
+  You are a worker. ...
 defaults:
-  type: development
   model: ""
   permission_mode: ""
   auto_approve: false
@@ -75,7 +74,6 @@ Go types:
 
 ```go
 type Defaults struct {
-    Type           string   `yaml:"type"`
     Model          string   `yaml:"model"`
     PermissionMode string   `yaml:"permission_mode"`
     AutoApprove    bool     `yaml:"auto_approve"`
@@ -113,7 +111,7 @@ which the router consults when nothing more specific pins the tier.
 | `general` | *(empty)* | none | tier-2 |
 | `orchestrator` | coordinates a fleet of warden agents; plans + delegates, does not write feature code itself unless trivial | `permission_mode=auto` | tier-1 |
 | `planner` | research/analysis/planning only — produces specs, RFCs, design docs; must not edit code | `permission_mode=plan` | tier-1 |
-| `worker` | owns one task end-to-end (implement, self-review, PR, drive green, merge) and reports status back to its coordinator | `type=development`, `permission_mode=auto`, `auto_approve=true` | tier-2 |
+| `worker` | owns one task end-to-end (implement, self-review, PR, drive green, merge) and reports status back to its coordinator | `permission_mode=auto`, `auto_approve=true` (worktree isolation is role-driven) | tier-2 |
 | `autopilot` | long-lived headless manager driving a whole autopilot run: decompose, spawn workers/brains, gate + land into the integration branch | `permission_mode=bypassPermissions`, `auto_approve=true`, `tags=[autopilot]` | tier-1 |
 | `brain` | on-demand decision resolver: unblocks a stuck agent or makes an ad-hoc design/arch call without human interaction | `permission_mode=auto`, `auto_approve=true` | tier-2 |
 
@@ -194,11 +192,11 @@ has a spawn field to fill, `AutoApprove bool`).
 
 ### Resolution (precedence)
 
-At the top of `Spawn`, before free-form vs typed is decided (the `type` default
-can flip a spawn from free-form to typed), the role is resolved:
+At the top of `Spawn`, before free-form vs managed is decided (worktree-owning
+roles enter the managed path without a Type), the role is resolved:
 
 1. Normalize the role name (empty ⇒ `general`); an unknown name is an error.
-2. For each of `type`, `model`, `permission_mode`, `auto_approve`: the role
+2. For each of `model`, `permission_mode`, `auto_approve`: the role
    default fills the request field **only when the caller left it unset**.
    Precedence is **explicit request value > role default > global default**.
    `auto_approve` is a bool with no tri-state, so the role default is OR-ed in

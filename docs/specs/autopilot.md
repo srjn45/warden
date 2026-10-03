@@ -394,7 +394,7 @@ roles complete the topology:
 - **`worker`** (`roles/worker.yaml`) — the manager spawns one per task by
   default; it owns the task end-to-end (implement → self-review → PR on the
   integration branch → drive green → merge) and reports status back to the
-  manager. Defaults: `type: development`, `permission_mode: auto`, auto-approve.
+  manager. Defaults: `permission_mode: auto`, auto-approve (worktree isolation is role-driven).
 - **`brain`** (`roles/brain.yaml`) — an on-demand decision resolver the manager
   spawns to unblock a stuck worker or make an ad-hoc design/architecture call
   without human interaction, then report the resolution back. Defaults:
