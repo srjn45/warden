@@ -103,8 +103,22 @@ func (a Adapter) KillSession(ctx context.Context, name string) error {
 			_, _ = a.Run.Run(ctx, "", "tmux", "switch-client", "-c", client, "-l")
 		}
 	}
-	_, _ = a.Run.Run(ctx, "", "tmux", "kill-session", "-t", name)
+	out, err := a.Run.Run(ctx, "", "tmux", "kill-session", "-t", name)
+	if err != nil && !isMissingSession(out, err) {
+		return fmt.Errorf("tmux kill-session: %w: %s", err, out)
+	}
 	return nil
+}
+
+func isMissingSession(out string, err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(out + " " + err.Error())
+	return strings.Contains(msg, "can't find session") ||
+		strings.Contains(msg, "no session") ||
+		strings.Contains(msg, "no server") ||
+		strings.Contains(msg, "failed to connect")
 }
 
 // HasSession implements Host.

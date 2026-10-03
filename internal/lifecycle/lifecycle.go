@@ -1769,13 +1769,14 @@ func (l *Lifecycle) cleanupFailedSpawn(agent *agentstore.Agent, killTmux, worktr
 	}
 }
 
-// killSession best-effort kills a tmux session created during a spawn that then
-// failed, so it does not orphan beyond the reach of the store. A detached
-// context is used so cleanup still runs when the spawn failed via ctx cancellation.
+// killSession best-effort kills a tmux session created during a spawn or swap
+// that then failed, routing through Proc().KillSession so outer clients are
+// safely returned to the dashboard and nested pane clients exit cleanly.
+// A detached context is used so cleanup still runs when the spawn failed via ctx cancellation.
 // A failure is logged (not returned) so a leaked session is visible.
 func (l *Lifecycle) killSession(id string) {
-	if out, err := l.run.Run(context.Background(), "", "tmux", "kill-session", "-t", id); err != nil {
-		slog.Warn("spawn cleanup: kill tmux session failed", "agent", id, "err", err, "out", strings.TrimSpace(out))
+	if err := l.Proc().KillSession(context.Background(), id); err != nil {
+		slog.Warn("spawn cleanup: kill tmux session failed", "agent", id, "err", err)
 	}
 }
 
@@ -1968,7 +1969,7 @@ func (l *Lifecycle) SwitchRole(ctx context.Context, agent *agentstore.Agent) err
 	// Kill the live tmux session (if any) so the relaunch below re-creates it. Unlike
 	// Restore we do NOT refuse a running agent — switching a role deliberately
 	// relaunches it.
-	if _, err := l.run.Run(ctx, "", "tmux", "has-session", "-t", agent.TmuxSession); err == nil {
+	if l.Proc().HasSession(ctx, agent.TmuxSession) {
 		l.killSession(agent.TmuxSession)
 	}
 	// Re-run the spawn-time injection with the freshly resolved persona prepended
