@@ -174,129 +174,96 @@ func TestGolden_RFC18PopulatedTree(t *testing.T) {
       },
       "children": [
         {
-          "type": "section",
-          "id": "section:/home/u/dev/warden:autopilots",
-          "label": "Autopilots",
+          "type": "autopilot_run",
+          "id": "run:ap-42",
+          "label": "recovery-finish",
           "status": "active",
           "detail": {
-            "section": "autopilots"
+            "repo": "/home/u/dev/warden",
+            "gate": "auto"
           },
           "children": [
             {
-              "type": "autopilot_run",
-              "id": "run:ap-42",
-              "label": "recovery-finish",
-              "status": "active",
+              "type": "manager",
+              "id": "session:ap-42-brain",
+              "label": "manager",
+              "status": "busy",
+              "session_id": "ap-42-brain",
               "detail": {
-                "repo": "/home/u/dev/warden",
-                "gate": "auto"
+                "kind": "agent",
+                "slot": "autopilot"
               },
               "children": [
                 {
-                  "type": "manager",
-                  "id": "session:ap-42-brain",
-                  "label": "manager",
+                  "type": "worker",
+                  "id": "session:w-9",
+                  "label": "worker-9",
                   "status": "busy",
-                  "session_id": "ap-42-brain",
+                  "session_id": "w-9",
                   "detail": {
                     "kind": "agent",
-                    "slot": "autopilot"
-                  },
-                  "children": [
-                    {
-                      "type": "worker",
-                      "id": "session:w-9",
-                      "label": "worker-9",
-                      "status": "busy",
-                      "session_id": "w-9",
-                      "detail": {
-                        "kind": "agent",
-                        "slot": "worker"
-                      }
-                    }
-                  ]
+                    "slot": "worker"
+                  }
                 }
               ]
             }
           ]
         },
         {
-          "type": "section",
-          "id": "section:/home/u/dev/warden:pipelines",
-          "label": "Pipelines",
+          "type": "pipeline",
+          "id": "pipeline:cred-inject",
+          "label": "cred-inject",
           "status": "active",
           "detail": {
-            "section": "pipelines"
+            "repo": "/home/u/dev/warden"
           },
           "children": [
             {
-              "type": "pipeline",
-              "id": "pipeline:cred-inject",
-              "label": "cred-inject",
+              "type": "job",
+              "id": "pipeline:cred-inject/job:implement",
+              "label": "implement",
               "status": "active",
+              "session_id": "impl-1",
               "detail": {
-                "repo": "/home/u/dev/warden"
-              },
-              "children": [
-                {
-                  "type": "job",
-                  "id": "pipeline:cred-inject/job:implement",
-                  "label": "implement",
-                  "status": "active",
-                  "session_id": "impl-1",
-                  "detail": {
-                    "depends_on": []
-                  }
-                },
-                {
-                  "type": "job",
-                  "id": "pipeline:cred-inject/job:review",
-                  "label": "review",
-                  "status": "blocked",
-                  "detail": {
-                    "depends_on": [
-                      "implement"
-                    ]
-                  }
-                }
-              ]
+                "depends_on": []
+              }
+            },
+            {
+              "type": "job",
+              "id": "pipeline:cred-inject/job:review",
+              "label": "review",
+              "status": "blocked",
+              "detail": {
+                "depends_on": [
+                  "implement"
+                ]
+              }
             }
           ]
         },
         {
-          "type": "section",
-          "id": "section:/home/u/dev/warden:agents",
-          "label": "Agents",
-          "status": "active",
+          "type": "agent",
+          "id": "session:agent-7",
+          "label": "orch-warden",
+          "status": "need-input",
+          "session_id": "agent-7",
           "detail": {
-            "section": "agents"
+            "kind": "agent",
+            "ai_cli": "claude",
+            "backend": "claude"
           },
           "children": [
             {
               "type": "agent",
-              "id": "session:agent-7",
-              "label": "orch-warden",
-              "status": "need-input",
-              "session_id": "agent-7",
+              "id": "session:agent-8",
+              "label": "sub-explorer",
+              "status": "busy",
+              "session_id": "agent-8",
               "detail": {
                 "kind": "agent",
                 "ai_cli": "claude",
                 "backend": "claude"
-              },
-              "children": [
-                {
-                  "type": "agent",
-                  "id": "session:agent-8",
-                  "label": "sub-explorer",
-                  "status": "busy",
-                  "session_id": "agent-8",
-                  "detail": {
-                    "kind": "agent",
-                    "ai_cli": "claude",
-                    "backend": "claude"
-                  }
-                }
-              ]
+              }
             }
           ]
         },
@@ -457,10 +424,10 @@ func TestGolden_ClosedProject(t *testing.T) {
 	closedNode := tree.Roots[1]
 	require.Equal(t, "project:/home/u/closed-proj", closedNode.ID)
 	require.True(t, closedNode.Detail.Closed, "closed project must carry Detail.Closed=true")
-	requireCanonicalSectionOrder(t, closedNode)
-	agents := sectionOf(t, closedNode, SectionAgents)
-	require.Len(t, agents.Children, 1)
-	require.Equal(t, "session:agent-in-closed", agents.Children[0].ID)
+	requireCanonicalProjectOrder(t, closedNode)
+	agents := projectEntities(closedNode, NodeTypeAgent)
+	require.Len(t, agents, 1)
+	require.Equal(t, "session:agent-in-closed", agents[0].ID)
 }
 
 // Golden test: Autopilot worker with cleared parent_id nested under its task
@@ -519,10 +486,10 @@ func TestGolden_AutopilotWorkerClearedParentID(t *testing.T) {
 
 	require.Len(t, tree.Roots, 1)
 	proj := tree.Roots[0]
-	requireCanonicalSectionOrder(t, proj)
-	aps := sectionOf(t, proj, SectionAutopilots)
-	require.Len(t, aps.Children, 1)
-	run := aps.Children[0]
+	requireCanonicalProjectOrder(t, proj)
+	aps := projectEntities(proj, NodeTypeAutopilotRun)
+	require.Len(t, aps, 1)
+	run := aps[0]
 	require.Equal(t, "run:ap-99", run.ID)
 
 	// Worker nests under the run directly (no Plan task groups inside Autopilot).
@@ -580,19 +547,20 @@ func TestGolden_NestedAgent_AcrossWorktree(t *testing.T) {
 
 	require.Len(t, tree.Roots, 1)
 	proj := tree.Roots[0]
-	requireCanonicalSectionOrder(t, proj)
-	agents := sectionOf(t, proj, SectionAgents)
-	require.Len(t, agents.Children, 1)
-	orch := agents.Children[0]
+	requireCanonicalProjectOrder(t, proj)
+	agents := projectEntities(proj, NodeTypeAgent)
+	require.Len(t, agents, 1)
+	orch := agents[0]
 	require.Equal(t, "session:orch", orch.ID)
 	require.Len(t, orch.Children, 1)
 	require.Equal(t, "session:wt-worker", orch.Children[0].ID)
 }
 
 // Golden test: a pipeline owned by an agent (parent_agent_id / child_pipelines)
-// nests UNDER that agent's node — after its child agents — rather than sitting at
-// project level. A second, operator-created pipeline (no owning-agent edge) stays
-// at project level, confirming the legacy path/project fallback still applies.
+// nests UNDER that agent's node — before its child agents, after child autopilots —
+// rather than sitting at project level. A second, operator-created pipeline (no
+// owning-agent edge) stays at project level, confirming the legacy path/project
+// fallback still applies.
 func TestGolden_NestedPipeline_UnderOwningAgent(t *testing.T) {
 	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
 	in := Inputs{
@@ -656,13 +624,13 @@ func TestGolden_NestedPipeline_UnderOwningAgent(t *testing.T) {
 	svc := NewService()
 	tree := svc.Build(in, "")
 
-	requireCanonicalSectionOrder(t, tree.Roots[0])
-	pipes := sectionOf(t, tree.Roots[0], SectionPipelines)
-	require.Len(t, pipes.Children, 1)
-	require.Equal(t, "pipeline:loose-pipe", pipes.Children[0].ID)
-	agents := sectionOf(t, tree.Roots[0], SectionAgents)
-	require.Len(t, agents.Children, 1)
-	orch := agents.Children[0]
+	requireCanonicalProjectOrder(t, tree.Roots[0])
+	pipes := projectEntities(tree.Roots[0], NodeTypePipeline)
+	require.Len(t, pipes, 1)
+	require.Equal(t, "pipeline:loose-pipe", pipes[0].ID)
+	agents := projectEntities(tree.Roots[0], NodeTypeAgent)
+	require.Len(t, agents, 1)
+	orch := agents[0]
 	require.Equal(t, "session:orch", orch.ID)
 	require.Len(t, orch.Children, 1)
 	require.Equal(t, "pipeline:owned-pipe", orch.Children[0].ID)
@@ -691,9 +659,9 @@ func TestChildPipelinesBeatsContradictoryParentAgentID(t *testing.T) {
 	}
 	tree := NewService().Build(in, "")
 	require.Len(t, tree.Roots, 1)
-	agents := sectionOf(t, tree.Roots[0], SectionAgents)
+	agents := projectEntities(tree.Roots[0], NodeTypeAgent)
 	var bravo, alpha *Node
-	for _, ch := range agents.Children {
+	for _, ch := range agents {
 		if ch.SessionID == "b" {
 			bravo = ch
 		}
@@ -738,10 +706,10 @@ func TestPerSubtreeDegraded(t *testing.T) {
 
 	require.True(t, tree.Degraded, "whole-tree degraded must be true when a subtree is degraded")
 	require.Len(t, tree.Roots, 1)
-	pipes := sectionOf(t, tree.Roots[0], SectionPipelines)
-	require.Len(t, pipes.Children, 1)
+	pipes := projectEntities(tree.Roots[0], NodeTypePipeline)
+	require.Len(t, pipes, 1)
 
-	pipeNode := pipes.Children[0]
+	pipeNode := pipes[0]
 	require.Equal(t, "pipeline:pipe-1", pipeNode.ID)
 	require.True(t, pipeNode.Detail.Degraded)
 	require.Equal(t, StatusUnknown, pipeNode.Status)
@@ -774,9 +742,9 @@ func TestSubsystemDegraded(t *testing.T) {
 	tree := svc.Build(in, "")
 
 	require.True(t, tree.Degraded)
-	pipes := sectionOf(t, tree.Roots[0], SectionPipelines)
-	require.True(t, pipes.Children[0].Detail.Degraded)
-	require.Equal(t, StatusUnknown, pipes.Children[0].Status)
+	pipes := projectEntities(tree.Roots[0], NodeTypePipeline)
+	require.True(t, pipes[0].Detail.Degraded)
+	require.Equal(t, StatusUnknown, pipes[0].Status)
 }
 
 // Test topological sort for jobs in a pipeline
@@ -801,8 +769,8 @@ func TestJobTopologicalSorting(t *testing.T) {
 	tree := svc.Build(in, "")
 
 	require.Len(t, tree.Roots, 1)
-	pipes := sectionOf(t, tree.Roots[0], SectionPipelines)
-	pipe := pipes.Children[0]
+	pipes := projectEntities(tree.Roots[0], NodeTypePipeline)
+	pipe := pipes[0]
 	require.Len(t, pipe.Children, 3)
 
 	// Order must be build -> test -> deploy
@@ -945,27 +913,28 @@ func TestGolden_AuthoritativeMembership_NestedPipelineJob_TerminalSeparation(t *
 	alpha, beta := tree.Roots[0], tree.Roots[1]
 	require.Equal(t, "project:/home/u/dev/alpha", alpha.ID)
 	require.Equal(t, "project:/home/u/dev/beta", beta.ID)
-	requireCanonicalSectionOrder(t, alpha)
-	requireCanonicalSectionOrder(t, beta)
+	requireCanonicalProjectOrder(t, alpha)
+	requireCanonicalProjectOrder(t, beta)
 
-	pipes := sectionOf(t, alpha, SectionPipelines)
-	require.Len(t, pipes.Children, 1)
-	require.Equal(t, "pipeline:loose-pipe", pipes.Children[0].ID)
+	pipes := projectEntities(alpha, NodeTypePipeline)
+	require.Len(t, pipes, 1)
+	require.Equal(t, "pipeline:loose-pipe", pipes[0].ID)
 
-	agents := sectionOf(t, alpha, SectionAgents)
-	require.Len(t, agents.Children, 1)
-	orch := agents.Children[0]
+	agents := projectEntities(alpha, NodeTypeAgent)
+	require.Len(t, agents, 1)
+	orch := agents[0]
 	require.Equal(t, "session:orch", orch.ID)
-	require.Equal(t, "session:helper", orch.Children[0].ID)
-	require.Equal(t, "pipeline:owned-pipe", orch.Children[1].ID)
-	require.Equal(t, "job-build", orch.Children[1].Children[0].SessionID)
+	// Nest order: child autopilots → child pipelines → child agents.
+	require.Equal(t, "pipeline:owned-pipe", orch.Children[0].ID)
+	require.Equal(t, "job-build", orch.Children[0].Children[0].SessionID)
+	require.Equal(t, "session:helper", orch.Children[1].ID)
 
 	terms := sectionOf(t, alpha, SectionTerminals)
 	require.Len(t, terms.Children, 1)
 	require.Equal(t, "session:shell-1", terms.Children[0].ID)
 
-	require.False(t, hasSection(beta, SectionAgents), "empty Agents omitted")
-	require.False(t, hasSection(beta, SectionPipelines), "empty Pipelines omitted")
+	require.Empty(t, projectEntities(beta, NodeTypeAgent), "empty Agents omitted")
+	require.Empty(t, projectEntities(beta, NodeTypePipeline), "empty Pipelines omitted")
 	require.False(t, hasSection(beta, SectionTerminals), "empty Terminals omitted")
 }
 

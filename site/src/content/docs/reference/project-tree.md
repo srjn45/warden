@@ -24,16 +24,20 @@ Interactive Swagger UI documents the full schema under
 
 - **Roots** are project nodes (registered projects, loose directories, and a synthetic
   **No project** bucket).
-- Children under a project are **sections** in order: **Plans → Autopilots →
-  Pipelines → Agents → Terminals**. Any section with no children is omitted so
-  empty groupings do not clutter the TUI or API tree. In the TUI, empty plan
-  status groups (Pending / In Progress / Completed / Archived) are omitted too.
+- Children under a project are projected in order: **Plans** (section) → root
+  **Autopilots** → root **Pipelines** → root **Agents** → **Terminals** (section).
+  There are no Autopilots/Pipelines/Agents section header buckets — those entities
+  sit directly under the project. Empty Plans/Terminals sections are omitted. In
+  the TUI, empty plan status groups (Pending / In Progress / Completed / Archived)
+  under Plans are omitted too.
 - Each entity renders **exactly once**: Autopilot managers and workers nest under
-  Autopilots (not Agents); pipeline job agents nest under Pipelines; Plan task
-  evidence lives on Plan detail, never as task groups inside Autopilot.
+  their Autopilot run (not as free Agents); pipeline job agents nest under
+  Pipelines; agents may nest child autopilots, then child pipelines, then child
+  agents. Plan task evidence lives on Plan detail, never as task groups inside
+  Autopilot.
 - Autopilot runs render as **Autopilot → manager → workers**. Headless brain is
   hidden unless `?all=true` / show-system.
-- Plan-bound executors keep their display prefixes: `AP:<plan>` under Autopilots,
+- Plan-bound executors keep their display prefixes: `AP:<plan>` as Autopilot runs,
   `P:<plan>` as Pipeline → DAG jobs, `O:<plan>` / `M:<plan>` as Agents (with
   workers for orchestrator).
 - Node ids are **composite and opaque** (`project:…`, `section:…:plans`,
