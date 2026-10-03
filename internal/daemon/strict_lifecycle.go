@@ -97,7 +97,7 @@ func (s *Server) SpawnAgent(ctx context.Context, req oapi.SpawnAgentRequestObjec
 	if code, msg := s.validateSpawnRequest(ctx, sr); code != 0 {
 		return nil, errStatus(code, msg)
 	}
-	freeMode := sr.Type == ""
+	freeMode := sr.Type == "" && !(lifecycle.RoleOwnsWorktree(sr.Role) && sr.Repo != "")
 	// pre-spawn hook (#47): advisory, fail-open.
 	s.plugins.Dispatch(ctx, plugin.EventPreSpawn, plugin.SessionMeta{Type: sr.Type, Repo: sr.Repo}, nil)
 	s.pressMu.RLock()

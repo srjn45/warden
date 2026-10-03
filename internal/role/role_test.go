@@ -90,21 +90,19 @@ func TestAllMatchesNames(t *testing.T) {
 
 func TestBuiltinDefaults(t *testing.T) {
 	// Spot-check the default flags the built-in roles ship (the values spawn
-	// resolution keys off).
+	// resolution keys off). Roles no longer carry a Type default — isolation is
+	// role-driven and tiering is Role+Task.
 	cases := map[string]Defaults{
 		"general":      {},
 		"orchestrator": {PermissionMode: "auto"},
 		"planner":      {PermissionMode: "plan"},
-		"worker":       {Type: "development", PermissionMode: "auto", AutoApprove: true},
+		"worker":       {PermissionMode: "auto", AutoApprove: true},
 		"brain":        {PermissionMode: "auto", AutoApprove: true},
 	}
 	for name, want := range cases {
 		r, ok := Get(name)
 		if !ok {
 			t.Fatalf("Get(%q): not found", name)
-		}
-		if r.Defaults.Type != want.Type {
-			t.Errorf("%s Defaults.Type = %q, want %q", name, r.Defaults.Type, want.Type)
 		}
 		if r.Defaults.PermissionMode != want.PermissionMode {
 			t.Errorf("%s Defaults.PermissionMode = %q, want %q", name, r.Defaults.PermissionMode, want.PermissionMode)
