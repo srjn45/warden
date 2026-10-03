@@ -64,7 +64,12 @@ func (a Adapter) NewSession(ctx context.Context, name, cwd string, env ...string
 		return fmt.Errorf("tmux new-session: %w: %s", err, out)
 	}
 	_, _ = a.Run.Run(ctx, "", "tmux", "set-option", "-t", name, "mouse", "on")
-	_, _ = a.Run.Run(ctx, "", "tmux", "set-option", "-t", name, "detach-on-destroy", "off")
+	// detach-on-destroy on ensures that nested tmux clients attached to this
+	// session inside cockpit panes exit cleanly when the session is killed.
+	// If set to off, killing an agent causes the nested pane client to switch
+	// to the cockpit session, nesting the cockpit inside itself and collapsing
+	// the TUI into a 1-character-wide column (#478).
+	_, _ = a.Run.Run(ctx, "", "tmux", "set-option", "-t", name, "detach-on-destroy", "on")
 	return nil
 }
 
