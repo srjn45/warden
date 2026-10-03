@@ -75,6 +75,34 @@ func (a Adapter) NewSession(ctx context.Context, name, cwd string, env ...string
 
 // KillSession implements Host.
 func (a Adapter) KillSession(ctx context.Context, name string) error {
+	if out, err := a.Run.Run(ctx, "", "tmux", "list-clients", "-t", name, "-F", "#{client_name} #{client_termname}"); err == nil {
+		for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			parts := strings.Fields(line)
+			if len(parts) == 0 {
+				continue
+			}
+			client := parts[0]
+			term := ""
+			if len(parts) > 1 {
+				term = parts[1]
+			}
+			// Nested pane clients (tmux* or screen*) are attached from inside another
+			// tmux session (e.g. the cockpit detail pane). We do not switch them;
+			// with detach-on-destroy on, they will simply exit when the target session
+			// terminates, triggering dead-pane reconciliation without disturbing window geometry.
+			// Interactive outer terminals ('a' / switch-client) must be switched back
+			// to their previous session (dashboard / -l) so the operator is returned
+			// cleanly rather than disconnected.
+			if strings.HasPrefix(term, "tmux") || strings.HasPrefix(term, "screen") {
+				continue
+			}
+			_, _ = a.Run.Run(ctx, "", "tmux", "switch-client", "-c", client, "-l")
+		}
+	}
 	_, _ = a.Run.Run(ctx, "", "tmux", "kill-session", "-t", name)
 	return nil
 }
