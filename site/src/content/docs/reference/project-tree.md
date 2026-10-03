@@ -35,8 +35,10 @@ Interactive Swagger UI documents the full schema under
   Pipelines; agents may nest child autopilots, then child pipelines, then child
   agents. Plan task evidence lives on Plan detail, never as task groups inside
   Autopilot.
-- Autopilot runs render as **Autopilot → manager → workers**. Headless brain is
-  hidden unless `?all=true` / show-system.
+- Autopilot runs render as **Autopilot → {Manager → workers, Brain?}**. Manager
+  and Brain are immediate siblings; every worker belonging to the run nests under
+  Manager (even when `parent_id` is cleared). Headless brain is hidden unless
+  `?all=true` / show-system.
 - Plan-bound executors keep their display prefixes: `AP:<plan>` as Autopilot runs,
   `P:<plan>` as Pipeline → DAG jobs, `O:<plan>` / `M:<plan>` as Agents (with
   workers for orchestrator).

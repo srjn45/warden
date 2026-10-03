@@ -33,12 +33,12 @@ func NewService() *Service {
 // Project children are projected in canonical order without rigid entity-type
 // section buckets: Plans (section), then root Autopilots, root Pipelines, root
 // Agents, then Terminals (section). Empty Plans/Terminals sections are omitted.
-// Each entity renders exactly once: live Autopilot managers and their workers
-// nest under their Autopilot run (not as free Agents); pipeline job agents nest
-// under Pipelines; agents may nest child autopilots, then child pipelines, then
-// child agents. Plan task groups are never rendered inside Autopilot (task
-// evidence lives on Plan detail). Headless brain agents are omitted unless
-// Inputs.ShowSystem is true.
+// Each entity renders exactly once: live Autopilot runs nest Manager (with all
+// run workers beneath it) and Brain as peer children — never as free Agents;
+// pipeline job agents nest under Pipelines; agents may nest child autopilots,
+// then child pipelines, then child agents. Plan task groups are never rendered
+// inside Autopilot (task evidence lives on Plan detail). Headless brain agents
+// are omitted unless Inputs.ShowSystem is true.
 func (s *Service) Build(in Inputs, projectID string) *Tree {
 	openByKey := map[string]string{}
 	closedByKey := map[string]string{}
@@ -739,8 +739,11 @@ func planNodeStatus(s planstore.PlanStatus) string {
 	}
 }
 
-// buildLiveAutopilotNode renders Autopilot → manager → workers. Plan task groups
-// are never nested here. Headless brain is omitted unless showSystem.
+// buildLiveAutopilotNode renders Autopilot → {Manager → workers, Brain?}.
+// Manager and Brain are immediate siblings under the Autopilot container; every
+// worker belonging to the run nests under Manager (ParentID may be cleared by
+// the ownership guard). Plan task groups are never nested here. Headless brain
+// is omitted unless showSystem.
 func buildLiveAutopilotNode(a *autopilotstore.Autopilot, sessions []*store.Session, showSystem bool) *Node {
 	byID := make(map[string]*store.Session, len(sessions))
 	for _, s := range sessions {
@@ -760,11 +763,56 @@ func buildLiveAutopilotNode(a *autopilotstore.Autopilot, sessions []*store.Sessi
 		}
 	}
 
-	var runChildren []*Node
-	claimed := map[string]bool{}
+	var brain *store.Session
+	if showSystem && a.BrainAgentID != "" {
+		if b := byID[a.BrainAgentID]; b != nil && (manager == nil || b.ID != manager.ID) {
+			brain = b
+		}
+	}
 
+	claimed := map[string]bool{}
 	if manager != nil {
 		claimed[manager.ID] = true
+	}
+	if brain != nil {
+		claimed[brain.ID] = true
+	}
+
+	// All remaining run sessions are workers of this Autopilot. Do not require
+	// ParentID/ChildAgents — ownership guard clears parent_id on workers.
+	var workers []*store.Session
+	for _, s := range sessions {
+		if claimed[s.ID] {
+			continue
+		}
+		if isHeadlessBrainSession(s) && !showSystem {
+			continue
+		}
+		if s.AutopilotSlot == store.AutopilotSlotGuardian {
+			continue
+		}
+		workers = append(workers, s)
+	}
+	sortAgents(workers)
+
+	workerNodes := make([]*Node, 0, len(workers))
+	for _, w := range workers {
+		wLabel := w.Name
+		if wLabel == "" {
+			wLabel = w.ID
+		}
+		workerNodes = append(workerNodes, &Node{
+			Type:      NodeTypeWorker,
+			ID:        "session:" + w.ID,
+			Label:     wLabel,
+			Status:    sessionStatus(w.Status, w.ExitCode),
+			SessionID: w.ID,
+			Detail:    &Detail{Kind: "agent", Slot: "worker", PlanID: firstNonEmpty(w.PlanID, a.PlanID)},
+		})
+	}
+
+	var runChildren []*Node
+	if manager != nil {
 		mLabel := manager.Name
 		if mLabel == "" {
 			mLabel = "manager"
@@ -776,82 +824,25 @@ func buildLiveAutopilotNode(a *autopilotstore.Autopilot, sessions []*store.Sessi
 			Status:    sessionStatus(manager.Status, manager.ExitCode),
 			SessionID: manager.ID,
 			Detail:    &Detail{Kind: "agent", Slot: "autopilot", PlanID: firstNonEmpty(manager.PlanID, a.PlanID)},
-		}
-		// Workers are direct children of the manager (ParentID / ChildAgents).
-		var workers []*store.Session
-		for _, s := range sessions {
-			if s.ID == manager.ID {
-				continue
-			}
-			if isHeadlessBrainSession(s) && !showSystem {
-				claimed[s.ID] = true
-				continue
-			}
-			if s.ParentID == manager.ID || containsID(manager.ChildAgents, s.ID) {
-				workers = append(workers, s)
-			}
-		}
-		sortAgents(workers)
-		for _, w := range workers {
-			claimed[w.ID] = true
-			wLabel := w.Name
-			if wLabel == "" {
-				wLabel = w.ID
-			}
-			managerNode.Children = append(managerNode.Children, &Node{
-				Type:      NodeTypeWorker,
-				ID:        "session:" + w.ID,
-				Label:     wLabel,
-				Status:    sessionStatus(w.Status, w.ExitCode),
-				SessionID: w.ID,
-				Detail:    &Detail{Kind: "agent", Slot: "worker", PlanID: firstNonEmpty(w.PlanID, a.PlanID)},
-			})
+			Children:  workerNodes,
 		}
 		runChildren = append(runChildren, managerNode)
+	} else {
+		runChildren = append(runChildren, workerNodes...)
 	}
 
-	if showSystem && a.BrainAgentID != "" {
-		if brain := byID[a.BrainAgentID]; brain != nil && !claimed[brain.ID] {
-			claimed[brain.ID] = true
-			bLabel := brain.Name
-			if bLabel == "" {
-				bLabel = "brain"
-			}
-			runChildren = append(runChildren, &Node{
-				Type:      NodeTypeWorker,
-				ID:        "session:" + brain.ID,
-				Label:     bLabel,
-				Status:    sessionStatus(brain.Status, brain.ExitCode),
-				SessionID: brain.ID,
-				Detail:    &Detail{Kind: "agent", Slot: "brain", PlanID: firstNonEmpty(brain.PlanID, a.PlanID)},
-			})
-		}
-	}
-
-	// Any remaining claimed sessions (loose workers without ParentID) sit under the run.
-	var loose []*store.Session
-	for _, s := range sessions {
-		if claimed[s.ID] {
-			continue
-		}
-		if isHeadlessBrainSession(s) && !showSystem {
-			continue
-		}
-		loose = append(loose, s)
-	}
-	sortAgents(loose)
-	for _, w := range loose {
-		wLabel := w.Name
-		if wLabel == "" {
-			wLabel = w.ID
+	if brain != nil {
+		bLabel := brain.Name
+		if bLabel == "" {
+			bLabel = "brain"
 		}
 		runChildren = append(runChildren, &Node{
 			Type:      NodeTypeWorker,
-			ID:        "session:" + w.ID,
-			Label:     wLabel,
-			Status:    sessionStatus(w.Status, w.ExitCode),
-			SessionID: w.ID,
-			Detail:    &Detail{Kind: "agent", Slot: "worker", PlanID: firstNonEmpty(w.PlanID, a.PlanID)},
+			ID:        "session:" + brain.ID,
+			Label:     bLabel,
+			Status:    sessionStatus(brain.Status, brain.ExitCode),
+			SessionID: brain.ID,
+			Detail:    &Detail{Kind: "agent", Slot: "brain", PlanID: firstNonEmpty(brain.PlanID, a.PlanID)},
 		})
 	}
 
@@ -1273,15 +1264,6 @@ func isHeadlessBrainSession(s *store.Session) bool {
 		return false
 	}
 	return s.Role == "brain" && s.HasTag("system:true")
-}
-
-func containsID(ids []string, id string) bool {
-	for _, x := range ids {
-		if x == id {
-			return true
-		}
-	}
-	return false
 }
 
 func firstNonEmpty(vals ...string) string {

@@ -232,13 +232,57 @@ func TestExactlyOnce_HideBrainUnlessShowSystem(t *testing.T) {
 	in.ShowSystem = true
 	shown := NewService().Build(in, "")
 	aps2 := projectEntities(shown.Roots[0], NodeTypeAutopilotRun)
-	require.GreaterOrEqual(t, len(aps2[0].Children), 2)
-	ids := map[string]bool{}
-	for _, ch := range aps2[0].Children {
-		ids[ch.SessionID] = true
+	require.Len(t, aps2[0].Children, 2, "Manager and Brain are peer children of Autopilot")
+	require.Equal(t, NodeTypeManager, aps2[0].Children[0].Type)
+	require.Equal(t, "session:mgr", aps2[0].Children[0].ID)
+	require.Equal(t, "session:brain-1", aps2[0].Children[1].ID)
+	require.Equal(t, "brain", aps2[0].Children[1].Detail.Slot)
+}
+
+// Workers with cleared parent_id (ownership guard) still nest under Manager —
+// Autopilot → Manager → workers, with Brain as a peer of Manager when shown.
+func TestAutopilot_AllWorkersUnderManager_ClearedParentID(t *testing.T) {
+	now := time.Date(2026, 10, 3, 18, 0, 0, 0, time.UTC)
+	in := Inputs{
+		Projects: []projectstore.Project{{
+			ID: "/p", Name: "p", Path: "/p", Status: projectstore.StatusOpen,
+			Autopilots: []string{"ap-1"},
+		}},
+		Autopilots: []*autopilotstore.Autopilot{{
+			ID: "ap-1", ProjectID: "/p", PlanID: "plan-1", Name: "AP:feat",
+			ManagerAgentID: "mgr", BrainAgentID: "brain-1",
+			Diagnostics: autopilotstore.Diagnostics{State: "active", Repo: "/p"},
+		}},
+		Sessions: []*store.Session{
+			{ID: "mgr", Name: "AP:feat", Role: "autopilot", PlanID: "plan-1", ProjectID: "/p",
+				Status: store.StatusWorking, Kind: store.KindAgent, CreatedAt: now},
+			// Cleared parent_id — must still nest under Manager, not the run.
+			{ID: "worker-1", Name: "w1", Role: "worker", ParentID: "", PlanID: "plan-1", ProjectID: "/p",
+				AutopilotRunID: "ap-1", AutopilotSlot: store.AutopilotSlotWorker,
+				Status: store.StatusWorking, Kind: store.KindAgent, CreatedAt: now.Add(time.Minute)},
+			{ID: "worker-2", Name: "w2", Role: "worker", ParentID: "", PlanID: "plan-1", ProjectID: "/p",
+				AutopilotRunID: "ap-1", AutopilotSlot: store.AutopilotSlotWorker,
+				Status: store.StatusIdle, Kind: store.KindAgent, CreatedAt: now.Add(2 * time.Minute)},
+			{ID: "brain-1", Name: "brain", Role: "brain", PlanID: "plan-1", ProjectID: "/p",
+				Tags: []string{"system:true", "run:ap-1"}, Status: store.StatusIdle, Kind: store.KindAgent, CreatedAt: now},
+		},
+		ShowSystem: true,
 	}
-	require.True(t, ids["mgr"])
-	require.True(t, ids["brain-1"])
+	tr := NewService().Build(in, "")
+	aps := projectEntities(tr.Roots[0], NodeTypeAutopilotRun)
+	require.Len(t, aps, 1)
+	run := aps[0]
+	require.Len(t, run.Children, 2, "Manager + Brain peers")
+	mgr := run.Children[0]
+	require.Equal(t, NodeTypeManager, mgr.Type)
+	require.Equal(t, "session:mgr", mgr.ID)
+	require.Len(t, mgr.Children, 2, "all run workers under Manager")
+	require.Equal(t, "session:worker-1", mgr.Children[0].ID)
+	require.Equal(t, "session:worker-2", mgr.Children[1].ID)
+	brain := run.Children[1]
+	require.Equal(t, "session:brain-1", brain.ID)
+	require.Equal(t, "brain", brain.Detail.Slot)
+	require.Empty(t, brain.Children, "Brain is a peer leaf, not a worker container")
 }
 
 func TestExactlyOnce_PipelineJobsNotAgents(t *testing.T) {
