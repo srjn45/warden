@@ -379,18 +379,18 @@ func TestSpawnKillsSessionWhenSendKeysFails(t *testing.T) {
 	s, err := New(fr, &FakeConfig{}).Spawn(context.Background(), SpawnRequest{Type: store.TypeDebugCI, Repo: "/repo"})
 	_ = s
 	require.Error(t, err)
-	killed := false
-	listClients := false
-	for _, argv := range fr.calledArgs() {
+	var killIdx, listIdx int = -1, -1
+	for i, argv := range fr.calledArgs() {
 		if len(argv) >= 2 && argv[0] == "tmux" && argv[1] == "kill-session" {
-			killed = true
+			killIdx = i
 		}
 		if len(argv) >= 2 && argv[0] == "tmux" && argv[1] == "list-clients" {
-			listClients = true
+			listIdx = i
 		}
 	}
-	require.True(t, killed, "send-keys failure must kill the orphaned tmux session")
-	require.True(t, listClients, "spawn cleanup must route through Host.KillSession")
+	require.NotEqual(t, -1, killIdx, "send-keys failure must kill the orphaned tmux session")
+	require.NotEqual(t, -1, listIdx, "spawn cleanup must route through Host.KillSession")
+	require.Less(t, listIdx, killIdx, "list-clients must precede kill-session so outer clients are safely switched before destruction")
 }
 
 func TestSpawnAdoptsExistingWorktree(t *testing.T) {
@@ -1215,7 +1215,13 @@ func TestSwitchRoleAllowsResumeWithoutStructuredTranscript(t *testing.T) {
 
 	require.Empty(t, lc.transcriptPath(sess), "Cursor has no structured transcript path")
 	require.NoError(t, lc.SwitchRole(context.Background(), sess))
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "list-clients", "-t", "agent-cursor", "-F", "#{client_name} #{client_termname}"})
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "kill-session", "-t", "agent-cursor"})
+	require.Less(t,
+		fr.callIndex("tmux list-clients -t agent-cursor -F #{client_name} #{client_termname}"),
+		fr.callIndex("tmux kill-session -t agent-cursor"),
+		"SwitchRole must list clients before killing session via Host.KillSession",
+	)
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "agent-cursor", "cursor-agent --continue -f --sandbox enabled", "Enter"})
 }
 
@@ -1254,9 +1260,44 @@ func TestTerminateKillsTmuxOnly(t *testing.T) {
 	require.NoError(t, New(fr, &FakeConfig{}).Terminate(context.Background(), "A-1"))
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "list-clients", "-t", "A-1", "-F", "#{client_name} #{client_termname}"})
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "kill-session", "-t", "A-1"})
+	require.Less(t,
+		fr.callIndex("tmux list-clients -t A-1 -F #{client_name} #{client_termname}"),
+		fr.callIndex("tmux kill-session -t A-1"),
+		"Terminate must list clients before killing session via Host.KillSession",
+	)
 	for _, a := range fr.calledArgs() {
 		require.NotEqual(t, "git", a[0], "terminate touches no git")
 	}
+}
+
+func TestRestoreTerminalSendKeysFailureCleansUpSession(t *testing.T) {
+	fr := &FakeRunner{
+		Responses: map[string]FakeResp{
+			"tmux has-session -t term-1": {Err: errStub("no session")},
+		},
+		FailIf: func(argv []string) error {
+			if len(argv) >= 2 && argv[0] == "tmux" && argv[1] == "send-keys" {
+				return errStub("send-keys fail")
+			}
+			return nil
+		},
+	}
+	lc := New(fr, &FakeConfig{})
+	workdir := t.TempDir()
+	err := lc.RestoreTerminal(context.Background(), "term-1", workdir)
+	require.Error(t, err)
+	var killIdx, listIdx int = -1, -1
+	for i, argv := range fr.calledArgs() {
+		if len(argv) >= 2 && argv[0] == "tmux" && argv[1] == "kill-session" {
+			killIdx = i
+		}
+		if len(argv) >= 2 && argv[0] == "tmux" && argv[1] == "list-clients" {
+			listIdx = i
+		}
+	}
+	require.NotEqual(t, -1, killIdx, "RestoreTerminal failure must kill session")
+	require.NotEqual(t, -1, listIdx, "RestoreTerminal failure must route through Host.KillSession")
+	require.Less(t, listIdx, killIdx, "list-clients must precede kill-session")
 }
 
 func TestRemoveWorktreeRefusesIfAlive(t *testing.T) {
