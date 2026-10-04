@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/srjn45/warden/internal/planbackup"
 	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/plansync"
+	"gopkg.in/yaml.v3"
 )
 
 type PlanSyncRequest struct {
@@ -138,6 +140,22 @@ type PlansUpdateRequest struct {
 	ExpectedRevision int64          `json:"expected_revision,omitempty"`
 }
 
+// PlansTaskAddRequest is the POST /plans/{id}/tasks body.
+type PlansTaskAddRequest struct {
+	ID               string   `json:"id"`
+	Prompt           string   `json:"prompt"`
+	After            []string `json:"after,omitempty"`
+	ExpectedRevision int64    `json:"expected_revision,omitempty"`
+}
+
+// PlansTaskUpdateRequest is the PATCH /plans/{id}/tasks/{task_id}/definition body.
+// Nil pointer fields are left unchanged by the daemon.
+type PlansTaskUpdateRequest struct {
+	Prompt           *string   `json:"prompt,omitempty"`
+	After            *[]string `json:"after,omitempty"`
+	ExpectedRevision int64     `json:"expected_revision,omitempty"`
+}
+
 // PlansList returns plans for a project from GET /api/v1/plans.
 func (c *Client) PlansList(ctx context.Context, projectID, status string) ([]PlanView, error) {
 	q := url.Values{}
@@ -228,6 +246,98 @@ func (c *Client) PlansUpdateTaskStatus(ctx context.Context, planID, taskID, stat
 		return nil, err
 	}
 	return &p, nil
+}
+
+// PlansTaskAdd appends a task to a pending plan via POST /api/v1/plans/{plan_id}/tasks.
+func (c *Client) PlansTaskAdd(ctx context.Context, planID string, req PlansTaskAddRequest) (*PlanView, error) {
+	var p PlanView
+	path := "/plans/" + url.PathEscape(planID) + "/tasks"
+	if err := c.do(ctx, http.MethodPost, path, req, &p); err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+// PlansTaskUpdate patches one task's definition via
+// PATCH /api/v1/plans/{plan_id}/tasks/{task_id}/definition.
+func (c *Client) PlansTaskUpdate(ctx context.Context, planID, taskID string, req PlansTaskUpdateRequest) (*PlanView, error) {
+	var p PlanView
+	path := "/plans/" + url.PathEscape(planID) + "/tasks/" + url.PathEscape(taskID) + "/definition"
+	if err := c.do(ctx, http.MethodPatch, path, req, &p); err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+// PlansTaskDelete removes a task via DELETE /api/v1/plans/{plan_id}/tasks/{task_id}.
+// When expectedRevision is non-zero it is sent as the expected_revision query param.
+func (c *Client) PlansTaskDelete(ctx context.Context, planID, taskID string, expectedRevision int64) (*PlanView, error) {
+	var p PlanView
+	path := "/plans/" + url.PathEscape(planID) + "/tasks/" + url.PathEscape(taskID)
+	if expectedRevision != 0 {
+		q := url.Values{}
+		q.Set("expected_revision", fmt.Sprintf("%d", expectedRevision))
+		path += "?" + q.Encode()
+	}
+	if err := c.do(ctx, http.MethodDelete, path, nil, &p); err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+// ParsePlanYAML parses a plan definition YAML document into a PlansUpdateRequest.
+// Lifecycle/status/execution fields are ignored. Missing tasks is allowed (partial
+// update); when tasks are present the DAG is validated before return.
+func ParsePlanYAML(data []byte) (PlansUpdateRequest, error) {
+	var doc struct {
+		Name        string   `yaml:"name"`
+		Goal        string   `yaml:"goal"`
+		Constraints []string `yaml:"constraints"`
+		DoneWhen    []string `yaml:"done_when"`
+		Tasks       []struct {
+			ID     string   `yaml:"id"`
+			Prompt string   `yaml:"prompt"`
+			After  []string `yaml:"after"`
+		} `yaml:"tasks"`
+	}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return PlansUpdateRequest{}, fmt.Errorf("parse plan yaml: %w", err)
+	}
+
+	out := PlansUpdateRequest{}
+	if name := strings.TrimSpace(doc.Name); name != "" {
+		out.Name = name
+	}
+	if goal := strings.TrimSpace(doc.Goal); goal != "" {
+		out.Goal = goal
+	}
+	if len(doc.Constraints) > 0 {
+		out.Constraints = append([]string(nil), doc.Constraints...)
+	}
+	if len(doc.DoneWhen) > 0 {
+		out.DoneWhen = append([]string(nil), doc.DoneWhen...)
+	}
+	if doc.Tasks != nil {
+		tasks := make([]PlanTaskSpec, 0, len(doc.Tasks))
+		for _, t := range doc.Tasks {
+			tasks = append(tasks, PlanTaskSpec{
+				ID:     strings.TrimSpace(t.ID),
+				Prompt: strings.TrimSpace(t.Prompt),
+				After:  append([]string(nil), t.After...),
+			})
+		}
+		if len(tasks) > 0 {
+			specs := make([]planstore.TaskSpec, len(tasks))
+			for i, t := range tasks {
+				specs[i] = planstore.TaskSpec{ID: t.ID, Prompt: t.Prompt, After: t.After}
+			}
+			if err := planstore.ValidateTaskDAG(specs); err != nil {
+				return PlansUpdateRequest{}, err
+			}
+		}
+		out.Tasks = tasks
+	}
+	return out, nil
 }
 
 // PlansComplete transitions in_progress → completed (422 if tasks/branches block).
