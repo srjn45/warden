@@ -19,8 +19,8 @@ type DecisionKind string
 const (
 	KindArbitrateApproval DecisionKind = "arbitrate_approval"
 	KindResolveAgentName  DecisionKind = "resolve_agent_name"
-	// Reserved: declared so the port is universal; no handlers yet.
 	KindDiagnoseFailure   DecisionKind = "diagnose_failure"
+	// Reserved: declared so the port is universal; no handlers yet.
 	KindSummarizeActivity DecisionKind = "summarize_activity"
 )
 
@@ -88,6 +88,9 @@ type Engine interface {
 	// ArbitrateApproval decides a pending approval/question prompt. It is
 	// built on Decide and fails open to DecisionEscalate.
 	ArbitrateApproval(ctx context.Context, in ArbiterInput) (ArbiterDecision, error)
+	// DiagnoseFailure classifies an agent crash. Built on Decide; fails open to
+	// a deterministic heuristic classifier.
+	DiagnoseFailure(ctx context.Context, in CrashInput) (CrashDiagnosis, error)
 }
 
 // ErrNoJSON is returned by SanitizeJSON when no JSON object can be found.

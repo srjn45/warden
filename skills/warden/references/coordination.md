@@ -113,3 +113,11 @@ overrides inherit the default when unset). A different prompt, or ~10 quiet
 minutes, resets the run. If you see the "auto-approve halted" anomaly on an
 agent, read its output — the underlying command is failing (e.g. expired
 credentials) and needs a human fix, not another approval.
+
+## Crash triage drafts — local-only until the user approves
+
+When an agent crashes, Fast-Brain triage may stage a sanitized GitHub-issue
+draft at `~/.warden/crashes/<id>.json` (secrets redacted, home paths
+normalized). Agents must treat these drafts as **local-only**: never submit
+one to GitHub, run `gh issue create`, or open an issue URL on the user's
+behalf — submission needs the user's explicit approval.
