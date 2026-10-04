@@ -1,63 +1,88 @@
-# Fast-Brain: Intelligent Auto-Approval & Question Arbiter
+# Fast-Brain: Unified Gateway Architecture & Intelligent Arbiter
 
 **Date:** 2026-10-04  
 **Status:** Approved design spec  
-**Scope:** Autonomous inline decision-making for tool permissions and multiple-choice questions across all supported agent backends (Claude, Codex, Cursor, Antigravity).
+**Scope:** Reusable Fast-Brain Gateway port (`internal/fastbrain`) for sub-second micro-decisions and deep reasoning across Warden, featuring the Intelligent Auto-Approval & Question Arbiter as the flagship capability.
 
 ---
 
-## 1. Context & Motivation
+## 1. Unified Brain Gateway Philosophy
 
-Warden's auto-approval engine (`internal/approval`) currently relies on deterministic regexes and keyword matching (`approval.Policy`). While effective for known scripts, this creates two major points of friction in autonomous workflows (Autopilot, DAG Pipelines, long-running background workers):
+Instead of siloed ad-hoc AI calls, all non-deterministic micro-decisions across Warden flow through a single **Brain Gateway Port** (`fastbrain.Engine`).
 
-1. **Rule Brittleness**: Legitimate, non-destructive commands (e.g. `Bash(pytest tests/)`, `FileEdit(config.go)`) that do not match an explicit regex stall in `waiting_for_input`.
-2. **Question Paralysis**: When agents hit an architectural fork and present multiple-choice questions:
-   ```text
-   Which approach would you like to take?
-   1. Maintain backward-compatible adapter
-   2. Refactor schema directly
-   ```
-   Warden sees `AffirmativeIdx == 0` (no "yes/allow" token) and stops. Unattended pipelines stall indefinitely until a human attaches to the tmux pane.
-
-The **Fast-Brain Arbiter** solves this by evaluating prompt safety and alignment against the active task goal and plan constraints, routing between **Fast-tier** models (sub-second tool permissions) and **Tier-1 Thinking** models (strategic forks).
+The engine provides:
+1. **Tiered Model Routing**: Dispatches to **Fast-tier** (sub-second Haiku/Flash) or **Thinking-tier** (deep reasoning Sonnet/GPT-4o).
+2. **Strict Timeouts & Fail-Open Resilience**: Hard context timeouts ($\le 1.5$s for Fast, $\le 10$s for Thinking) with zero-downtime deterministic fallbacks.
+3. **Universal JSON Sanitization**: Reliable stripping of markdown backticks, conversational prefixes, and trailing commas into clean JSON.
+4. **Centralized Observability**: Uniform structured logging, latency tracking, and token spend telemetry.
 
 ---
 
-## 2. Universal Prompt Categorization
-
-All four supported AI CLIs (Claude Code, Codex CLI, Cursor CLI, Antigravity CLI) already normalize their interactive prompts into `agentbackend.Approval`:
+## 2. Core Port Interface (`internal/fastbrain`)
 
 ```go
-type Approval struct {
-    Action            string   // e.g. "Bash(git status)", "$ curl ...", "echo ..."
-    Question          string   // e.g. "Do you want to proceed?", "Which approach...?"
-    Options           []string // 1-indexed list of choices on screen
-    SelectedIdx       int      // 1-based currently selected option
-    AffirmativeIdx    int      // 1-based index of "yes/run/allow"; 0 if none
-    AffirmativeSticky bool     // standing grant flag
+package fastbrain
+
+import (
+    "context"
+    "time"
+)
+
+// DecisionKind identifies which capability is requesting a decision.
+type DecisionKind string
+
+const (
+    KindArbitrateApproval  DecisionKind = "arbitrate_approval"
+    KindResolveAgentName   DecisionKind = "resolve_agent_name"
+    KindDiagnoseFailure    DecisionKind = "diagnose_failure"
+    KindSummarizeActivity  DecisionKind = "summarize_activity"
+    KindGenerateCommit     DecisionKind = "generate_commit"
+    KindRouteProfile       DecisionKind = "route_profile"
+)
+
+// Tier determines whether to route to a sub-second model or a reasoning model.
+type Tier string
+
+const (
+    TierFast     Tier = "fast"     // Sub-second (Haiku, Flash, 4o-mini)
+    TierThinking Tier = "thinking" // High-reasoning (Sonnet, o3-mini, extended thinking)
+)
+
+// Request defines the universal input envelope.
+type Request struct {
+    Kind         DecisionKind
+    Tier         Tier
+    Timeout      time.Duration // 0 defaults to tier default (1.5s for Fast, 10s for Thinking)
+    SystemPrompt string
+    UserContent  string
+    JSONSchema   bool          // whether response must be parsed as JSON
+}
+
+// Response is the structured envelope returned by all Brain decisions.
+type Response struct {
+    RawOutput       string
+    StructuredJSON  []byte
+    ModelUsed       string
+    Duration        time.Duration
+    FallbackApplied bool
+}
+
+// Engine is the central Brain Port implemented in internal/fastbrain.
+type Engine interface {
+    Decide(ctx context.Context, req Request) (Response, error)
+    
+    // Domain helper methods built on top of Decide:
+    ArbitrateApproval(ctx context.Context, in ArbiterInput) (ArbiterDecision, error)
+    ResolveAgentName(ctx context.Context, prompt string) (string, error)
 }
 ```
 
-Prompts are deterministically categorized into two distinct decision paths:
+---
 
-```
-                            Approval Prompt
-                                   │
-                    ┌──────────────┴──────────────┐
-                    ▼                             ▼
-       [ Tool Permission (y/n) ]       [ Strategic Question ]
-       • Action != ""                  • AffirmativeIdx == 0
-       • AffirmativeIdx > 0            • len(Options) >= 2
-                    │                             │
-                    ▼                             ▼
-            Fast Model (~400ms)         Tier-1 Thinking Model (~6s)
-          (Haiku / Flash / 4o-mini)       (Sonnet / Extended Thinking)
-                    │                             │
-          Is it safe & aligned?           Which option best satisfies
-          (Sub-second response)             the plan constraints?
-```
+## 3. Flagship Capability: Intelligent Auto-Approval & Question Arbiter
 
-### Deterministic Categorization Function
+### Universal Prompt Categorization
+All four supported AI CLIs (Claude Code, Codex CLI, Cursor CLI, Antigravity CLI) already normalize prompts into `agentbackend.Approval`:
 
 ```go
 type PromptCategory string
@@ -79,70 +104,34 @@ func ClassifyPrompt(a *agentbackend.Approval) PromptCategory {
 }
 ```
 
----
+### Routing & Decision Flow
+1. **Tool Permissions (`CategoryToolPermission`)**:
+   - `Engine.Decide` invoked with `TierFast` ($\le 1.5$s timeout).
+   - Prompt: Evaluates whether command (e.g. `Bash(go test ./...)`) is safe, non-destructive, and within the scope of the agent's task.
+   - Output: `{"approve": true|false, "confidence": 0.0-1.0, "reason": "..."}`.
+   - On `approve == true` and `confidence >= 0.8`: Dispatches `a.AffirmativeIdx`.
+   - On `approve == false` or low confidence: Returns `DecisionEscalate` (leaves for human in `waiting_for_input`).
 
-## 3. Two-Tier Decision Architecture
-
-### Tier 1: Fast-Tier Model (Tool Permissions)
-- **Target Models**: Claude 3.5 Haiku, Gemini 1.5 Flash, GPT-4o-mini.
-- **Latency Budget**: Hard timeout $\le 1.5$ seconds.
-- **Task**: Evaluates:
-  1. Does this command fit the scope of the agent's task?
-  2. Is it safe and non-destructive?
-- **Response Format**: Compact JSON:
-  ```json
-  {
-    "approve": true,
-    "confidence": 0.95,
-    "reason": "Running unit tests aligns with verification task"
-  }
-  ```
-
-### Tier 2: Thinking / High-Reasoning Model (Strategic Questions)
-- **Target Models**: Claude 3.5 Sonnet / Extended Thinking, GPT-4o, or Autopilot Brain.
-- **Latency Budget**: Timeout $\le 10$ seconds.
-- **Task**: Evaluates:
-  1. Plan goal, constraints, and current task prompt.
-  2. Analyzes trade-offs between `Option 1..N`.
-  3. Selects the option that best fulfills the user's architectural intent.
-- **Response Format**: Compact JSON:
-  ```json
-  {
-    "selected_option": 1,
-    "confidence": 0.92,
-    "reason": "Option 1 maintains backwards compatibility per plan constraint #2"
-  }
-  ```
+2. **Strategic Questions (`CategoryStrategicQuestion`)**:
+   - `Engine.Decide` invoked with `TierThinking` ($\le 10$s timeout).
+   - Prompt: Analyzes the agent's active plan goal, constraints, question, and numbered options `1..N`.
+   - Output: `{"selected_option": <int>, "confidence": 0.0-1.0, "reason": "..."}`.
+   - On valid option (1..len(options)) and `confidence >= 0.8`: Dispatches option number.
+   - On ambiguity or low confidence: Returns `DecisionEscalate` (leaves for human).
 
 ---
 
-## 4. Safety & Invariants
+## 4. Non-Overridable Safety Invariants
 
-1. **Destructive Guard Runs First**: `approval.IsDestructive(a)` (e.g. `rm -rf`, `drop table`, `git reset --hard`) is evaluated **before** Fast-Brain and is completely non-overridable. Destructive commands are blocked immediately.
-2. **Circuit Breaker**: `approveBreaker.Allow(...)` tracks identical prompt signatures. If the same action or question is answered repeatedly without unblocking the agent, the breaker trips and forces human escalation.
-3. **Fail-Open to Human**: If Fast-Brain encounters a timeout, network failure, malformed JSON, or low confidence ($< 0.8$), it gracefully returns `Escalate` (leaving the agent in `waiting_for_input` for the operator).
-4. **Audit Logging**: Every Fast-Brain decision (category, model used, latency, confidence, rationale) is written to daemon structured logs (`slog.Info`).
-
----
-
-## 5. Implementation Structure
-
-```text
-internal/fastbrain/
-├── runner.go           // Unified Runner interface + sub-second timeout wrappers
-├── classify.go         // PromptCategory classifier (ToolPermission vs StrategicQuestion)
-├── arbiter.go          // ArbitrateApproval: fast-tier tool evaluation & thinking question arbiter
-├── templates.go        // Compact zero-shot system prompts with JSON schema constraints
-├── arbiter_test.go     // Mock-based unit tests for all 4 backends & error cases
-```
+1. **Destructive Guard Runs First**: `approval.IsDestructive(a)` (`rm -rf`, `drop table`, `push --force`) runs **before** any AI model evaluation. Destructive actions are immediately blocked.
+2. **Circuit Breaker**: `approveBreaker.Allow(...)` halts identical recurring prompts to prevent looping.
+3. **Fail-Open to Human**: Any timeout, network error, malformed JSON, or low confidence ($< 0.8$) returns `DecisionEscalate`, gracefully leaving the prompt in `waiting_for_input` for the human.
 
 ---
 
-## 6. Poller Integration
+## 5. Future Capability Extensions (Reusing the Same Port)
 
-In `internal/poller/poller.go` (`tryAutoApprove`):
-1. Run deterministic checks: `IsDestructive`, `approveBreaker`, explicit `deny` rules.
-2. If unresolved by static allow rules, call `fastbrain.Arbitrate(...)`.
-3. If `Approve`: send `a.AffirmativeIdx`.
-4. If `SelectOption`: send `decision.SelectedOption`.
-5. If `Escalate`: log reason and leave as `waiting_for_input` (or forward to Autopilot Brain if in autopilot run).
+Because `Engine.Decide` is fully generic:
+- **Crash Triage & Bug Reporting**: Invokes `Decide` with `KindDiagnoseFailure` on internal panics; prompts user for bug report approval.
+- **TUI Live Activity Badge**: Invokes `Decide` with `KindSummarizeActivity` every 10–15s to produce a 3–5 word progress badge.
+- **Conventional Commits**: Invokes `Decide` with `KindGenerateCommit` to synthesize task prompts and git diffs upon task completion.
