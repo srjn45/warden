@@ -588,3 +588,125 @@ func TestResolver_ScopedHeadroom_Tier2ExhaustedFallsBackToTier3(t *testing.T) {
 	require.Equal(t, "gemini-3.7-flash-medium", res.ModelID)
 	require.InDelta(t, 0.8, res.Headroom, 0.001)
 }
+
+// setupResetPair restricts routing to claude and antigravity (non-gemini face)
+// at tier-2, and gives each a 5h rolling quota with the given used% and reset
+// offset from now (reset = oldest event + 5h).
+func setupResetPair(t *testing.T, now time.Time, claudeUsed float64, claudeReset *time.Duration, agUsed float64, agReset *time.Duration) *router.Resolver {
+	t.Helper()
+	s := setupTestStore(t)
+	t.Cleanup(func() { _ = s.Close() })
+	require.NoError(t, s.SetEnabled("cursor", false))
+	require.NoError(t, s.SetEnabled("codex", false))
+	require.NoError(t, s.SetModelEnabled("antigravity", "gemini-3.7-flash-high", false))
+
+	set := func(id, scope string, used float64, reset *time.Duration) {
+		q := backendstore.BackendQuota{
+			BackendID:      id,
+			Scope:          scope,
+			WindowType:     backendstore.Window5HourRolling,
+			WindowDuration: 5 * time.Hour,
+			QuotaLimit:     100,
+			LastReset:      now,
+			UpdatedAt:      now,
+		}
+		if reset != nil {
+			q.Events = []backendstore.UsageEvent{{Timestamp: now.Add(*reset - 5*time.Hour), Amount: used}}
+		}
+		require.NoError(t, s.SetQuota(q))
+	}
+	set("claude", "session", claudeUsed, claudeReset)
+	set("antigravity", "non-gemini", agUsed, agReset)
+	return router.NewResolver(s).WithNow(func() time.Time { return now })
+}
+
+func durPtr(d time.Duration) *time.Duration { return &d }
+
+func findCand(t *testing.T, res *router.Resolution, backend string) router.CandidateEvaluation {
+	t.Helper()
+	for _, c := range res.Candidates {
+		if c.BackendID == backend && c.Eligible {
+			return c
+		}
+	}
+	t.Fatalf("no eligible candidate for %s", backend)
+	return router.CandidateEvaluation{}
+}
+
+func TestResolver_PerishableImpendingResetBeatsHigherHeadroom(t *testing.T) {
+	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	// claude: 60% used (40% headroom), resets in 30m. antigravity: 20% used (80% headroom), resets in 12h-ish (> window, rolling caps at 5h).
+	r := setupResetPair(t, now, 60, durPtr(30*time.Minute), 20, durPtr(5*time.Hour))
+	res, err := r.Resolve(context.Background(), router.ResolveOptions{Tier: backendstore.Tier2})
+	require.NoError(t, err)
+	require.Equal(t, "claude", res.BackendID)
+	require.Contains(t, res.Reason, "perishable")
+	c := findCand(t, res, "claude")
+	require.NotNil(t, c.ResetsAt)
+	require.True(t, c.ResetsAt.Equal(now.Add(30*time.Minute)))
+}
+
+func TestResolver_PerishableSafetyFloor(t *testing.T) {
+	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	// claude resets in 20m but only 5% headroom: must not be Class A.
+	r := setupResetPair(t, now, 95, durPtr(20*time.Minute), 20, durPtr(5*time.Hour))
+	res, err := r.Resolve(context.Background(), router.ResolveOptions{Tier: backendstore.Tier2})
+	require.NoError(t, err)
+	require.Equal(t, "antigravity", res.BackendID)
+	require.NotContains(t, res.Reason, "perishable")
+}
+
+func TestResolver_ResetOutsideWindowIsClassB(t *testing.T) {
+	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	// claude resets in 2h (>1h), lower headroom; antigravity has higher headroom.
+	r := setupResetPair(t, now, 60, durPtr(2*time.Hour), 20, durPtr(5*time.Hour))
+	res, err := r.Resolve(context.Background(), router.ResolveOptions{Tier: backendstore.Tier2})
+	require.NoError(t, err)
+	require.Equal(t, "antigravity", res.BackendID)
+
+	// Already-past reset (e.g. stale record) is also Class B.
+	r = setupResetPair(t, now, 60, durPtr(-10*time.Minute), 20, durPtr(5*time.Hour))
+	res, err = r.Resolve(context.Background(), router.ResolveOptions{Tier: backendstore.Tier2})
+	require.NoError(t, err)
+	require.NotContains(t, res.Reason, "perishable")
+}
+
+func TestResolver_UnknownResetIsClassB(t *testing.T) {
+	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	r := setupResetPair(t, now, 60, durPtr(30*time.Minute), 20, nil)
+	res, err := r.Resolve(context.Background(), router.ResolveOptions{Tier: backendstore.Tier2})
+	require.NoError(t, err)
+	require.Equal(t, "claude", res.BackendID, "impending reset beats unknown reset despite lower headroom")
+}
+
+func TestResolver_PerishableEarlierResetFirst(t *testing.T) {
+	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	// Both Class A; antigravity resets sooner despite lower headroom.
+	r := setupResetPair(t, now, 20, durPtr(50*time.Minute), 60, durPtr(10*time.Minute))
+	res, err := r.Resolve(context.Background(), router.ResolveOptions{Tier: backendstore.Tier2})
+	require.NoError(t, err)
+	require.Equal(t, "antigravity", res.BackendID)
+}
+
+func TestResolver_PerishableRoundRobinTie(t *testing.T) {
+	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	// Identical reset time and headroom: round-robin alternates.
+	r := setupResetPair(t, now, 50, durPtr(30*time.Minute), 50, durPtr(30*time.Minute))
+	a, err := r.Resolve(context.Background(), router.ResolveOptions{Tier: backendstore.Tier2})
+	require.NoError(t, err)
+	b, err := r.Resolve(context.Background(), router.ResolveOptions{Tier: backendstore.Tier2})
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"claude", "antigravity"}, []string{a.BackendID, b.BackendID})
+}
+
+func TestResolver_ClassBRoundRobinTie(t *testing.T) {
+	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	// Neither impending (far resets), equal headroom.
+	r := setupResetPair(t, now, 50, durPtr(4*time.Hour), 50, durPtr(4*time.Hour))
+	a, err := r.Resolve(context.Background(), router.ResolveOptions{Tier: backendstore.Tier2})
+	require.NoError(t, err)
+	b, err := r.Resolve(context.Background(), router.ResolveOptions{Tier: backendstore.Tier2})
+	require.NoError(t, err)
+	require.NotContains(t, a.Reason, "perishable")
+	require.ElementsMatch(t, []string{"claude", "antigravity"}, []string{a.BackendID, b.BackendID})
+}
