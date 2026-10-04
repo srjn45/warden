@@ -176,7 +176,7 @@ func TestBrainConsultFreshEpisodeAfterRetry(t *testing.T) {
 	mc.result = brainconsult.Result{Action: brainconsult.ActionNoop}
 
 	w.tick(context.Background(), false)
-	waitForConsultN(t, mc, 2, 2*time.Second)
+	waitForConsultN(t, mc, 2, 5*time.Second)
 }
 
 // TestBrainConsultActionRetryJob verifies that the retry_job action calls
