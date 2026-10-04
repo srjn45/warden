@@ -971,11 +971,9 @@ func renderItemLine(it item, selected bool, width int) string {
 		// with the running-descendant count. No state badge, gauge, or worktree —
 		// there is no live pane to attach to.
 		s := it.session
-		nameStr := s.Name
-		if nameStr == "" {
-			nameStr = "—"
-		} else {
-			nameStr = trunc(nameStr, 15)
+		nameStr := ""
+		if s.Name != "" {
+			nameStr = trunc(s.Name, 15)
 		}
 		line = treePrefix(it) + stMuted.Render(fmt.Sprintf("%-16s %-14s (terminated · %d running)", nameStr, s.ID, it.runningKids))
 	default:
@@ -993,12 +991,12 @@ func renderItemLine(it item, selected bool, width int) string {
 		if branchInfo != "" {
 			branchInfo = stMuted.Render(" [" + trunc(branchInfo, 20) + "]")
 		}
-		// Display name as first column if present. Build the 16-wide field from the
-		// raw (unstyled) text first, then style the whole padded field — so any SGR
-		// wraps the column cleanly instead of embedding a reset mid-line. On the
-		// selected row the field stays unstyled so the whole-row cursor highlight
-		// (applied below) reaches through it; that is what keeps unnamed agents lit.
-		rawName := "—"
+		// Name is the first column (mandatory after spawn resolution). Build the
+		// 16-wide field from the raw (unstyled) text first, then style the whole
+		// padded field — so any SGR wraps the column cleanly instead of embedding
+		// a reset mid-line. On the selected row the field stays unstyled so the
+		// whole-row cursor highlight (applied below) reaches through it.
+		rawName := ""
 		if s.Name != "" {
 			rawName = trunc(s.Name, 15)
 		}
@@ -1010,8 +1008,6 @@ func renderItemLine(it item, selected bool, width int) string {
 			// The opened agent: a bold magenta badge on the name so it is
 			// unmistakable at a glance even when the cursor is elsewhere.
 			nameCol = stOpenedName.Render(nameCol)
-		case s.Name == "":
-			nameCol = stMuted.Render(nameCol)
 		}
 		line = treePrefix(it) + nameCol + " " + fmt.Sprintf("%-14s %-11s %-6s %-5s %s%s",
 			s.ID, st.Render(label),
@@ -1215,11 +1211,7 @@ func detailBody(s *store.Session, sel, width int) string {
 
 	// summary
 	b.WriteString("\n" + stPaneTitle.Render("summary") + "\n")
-	nameStr := s.Name
-	if nameStr == "" {
-		nameStr = "—"
-	}
-	b.WriteString(field("name", nameStr))
+	b.WriteString(field("name", s.Name))
 	if s.Subject != "" {
 		b.WriteString(field("subject", s.Subject))
 	}

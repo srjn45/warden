@@ -711,13 +711,10 @@ func TestBuildItemsTombstoneParentWithLiveChild(t *testing.T) {
 	require.NotContains(t, out, "done", "tombstone shows no live status badge")
 }
 
-// The cursor highlight must reach the whole selected row — including agents with
-// no name. A blank name used to be rendered as a styled "—", which embedded an
-// ANSI reset at the very start of the line and cut the cursor highlight off before
-// the agent id; a named agent (plain leading text) stayed highlighted. Force a
-// color profile so Render emits real SGR codes, then assert no reset appears
-// before the agent id on either row.
-func TestRenderItemLineSelectedHighlightsUnnamedAgent(t *testing.T) {
+// The cursor highlight must reach the whole selected row. Names are mandatory,
+// so the first column is plain padded text (no muted "—" placeholder that used
+// to embed an ANSI reset and cut the highlight off before the agent id).
+func TestRenderItemLineSelectedHighlightsNamedAgent(t *testing.T) {
 	prev := lipgloss.ColorProfile()
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	defer lipgloss.SetColorProfile(prev)
@@ -738,10 +735,42 @@ func TestRenderItemLineSelectedHighlightsUnnamedAgent(t *testing.T) {
 		return !strings.Contains(out[lastSet+len(cursorSGR):i], "\x1b[0m")
 	}
 
-	require.True(t, highlightedThroughID("u1", &store.Session{ID: "u1", Status: store.StatusWorking}),
-		"unnamed selected agent must stay highlighted through its id")
 	require.True(t, highlightedThroughID("n1", &store.Session{ID: "n1", Name: "named", Status: store.StatusWorking}),
-		"named selected agent stays highlighted (parity check)")
+		"named selected agent stays highlighted through its id")
+	require.True(t, highlightedThroughID("n2", &store.Session{ID: "n2", Name: "swift-falcon", Status: store.StatusWorking}),
+		"codename selected agent stays highlighted (parity check)")
+}
+
+// Names are mandatory: the agent name column must never fall back to a muted
+// em-dash placeholder, and a 16-char padded field must still render cleanly.
+func TestRenderItemLineNameColumnNoMutedDash(t *testing.T) {
+	now := time.Now()
+	out := renderItemLine(item{session: &store.Session{
+		ID: "a1", Name: "swift-falcon", Status: store.StatusWorking, UpdatedAt: now,
+	}}, false, 80)
+	plain := stripANSIForTest(out)
+	require.Contains(t, plain, "swift-falcon")
+	// Name is the first column after gutter+tree indent: extract the 16-wide field.
+	idx := strings.Index(plain, "swift-falcon")
+	require.GreaterOrEqual(t, idx, 0)
+	require.GreaterOrEqual(t, len(plain), idx+16)
+	nameCol := plain[idx : idx+16]
+	require.Equal(t, fmt.Sprintf("%-16s", "swift-falcon"), nameCol)
+	require.NotContains(t, nameCol, "—")
+
+	// Truncated long names still fit the 16-char column without a dash glyph.
+	long := renderItemLine(item{session: &store.Session{
+		ID: "a2", Name: "very-long-agent-name-here", Status: store.StatusWorking, UpdatedAt: now,
+	}}, false, 80)
+	longPlain := stripANSIForTest(long)
+	truncName := trunc("very-long-agent-name-here", 15) // "very-long-age…"
+	idx = strings.Index(longPlain, truncName)
+	require.GreaterOrEqual(t, idx, 0)
+	nameRunes := []rune(longPlain[idx:])
+	require.GreaterOrEqual(t, len(nameRunes), 16)
+	longNameCol := string(nameRunes[:16])
+	require.Equal(t, fmt.Sprintf("%-16s", truncName), longNameCol)
+	require.NotContains(t, longNameCol, "—")
 }
 
 // An orphan child (its parent id is not in the set) is promoted to a root rather

@@ -45,21 +45,31 @@ func TestRenderSessions(t *testing.T) {
 	var buf bytes.Buffer
 	sessions := []*store.Session{
 		{ID: "A-1", Name: "alpha", Type: store.Type("development"), Status: store.Status("working"), Subject: "do a thing"},
-		{ID: "B-2"}, // sparse session exercises the em-dash fallbacks
+		{ID: "B-2", Name: "swift-falcon"}, // named; cost/context still use em-dash fallbacks
 	}
 	cost := map[string]float64{"A-1": 1.5}
 	if err := renderSessions(&buf, sessions, cost, false); err != nil {
 		t.Fatalf("renderSessions returned error: %v", err)
 	}
 	out := buf.String()
-	for _, want := range []string{"NAME", "ID", "ROLE", "COST", "SUBJECT", "alpha", "A-1", "B-2", "do a thing", "$1.50", "implementer"} {
+	for _, want := range []string{"NAME", "ID", "ROLE", "COST", "SUBJECT", "alpha", "swift-falcon", "A-1", "B-2", "do a thing", "$1.50", "implementer", "general"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)
 		}
 	}
-	// The unnamed B-2 row falls back to "—" for name and "general" for unset role.
-	if !strings.Contains(out, "—") || !strings.Contains(out, "general") {
-		t.Errorf("expected fallback glyphs for sparse row:\n%s", out)
+	// Names are mandatory — the NAME column must never fall back to "—".
+	// (COST/CONTEXT/AGE may still use em dashes for missing values.)
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "NAME") || strings.TrimSpace(line) == "" {
+			continue
+		}
+		cols := strings.Fields(line)
+		if len(cols) == 0 {
+			continue
+		}
+		if cols[0] == "—" {
+			t.Errorf("NAME column must not be em-dash:\n%s", out)
+		}
 	}
 }
 

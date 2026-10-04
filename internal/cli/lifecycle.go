@@ -29,6 +29,21 @@ func promptFromArgs(args []string) string {
 	return ""
 }
 
+// formatSpawnOutcome renders the CLI spawn confirmation. Names are mandatory
+// after daemon resolution, so the assigned name always appears in parentheses:
+// `spawned agent <id> (<name>) [role]` (or `opened interactive agent …`).
+func formatSpawnOutcome(s *store.Session, interactive bool) string {
+	name := s.Name
+	if name == "" {
+		name = "unnamed"
+	}
+	role := store.DisplayRole(s.Role, s.Type)
+	if interactive {
+		return fmt.Sprintf("opened interactive agent %s (%s) [%s]", s.ID, name, role)
+	}
+	return fmt.Sprintf("spawned agent %s (%s) [%s]", s.ID, name, role)
+}
+
 // parseTags splits the comma-separated --tags flag into individual labels. Each
 // is trimmed and blanks are dropped; the daemon normalizes (lowercase + dedup)
 // before persisting, so `--tags "Backend, backend,"` yields one tag "backend".
@@ -176,14 +191,7 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 					}
 					return err
 				}
-				nameLabel := ""
-				if s.Name != "" {
-					nameLabel = fmt.Sprintf(" (%s)", s.Name)
-				}
-				outcome := fmt.Sprintf("spawned %s%s [%s]", s.ID, nameLabel, store.DisplayRole(s.Role, s.Type))
-				if prompt == "" {
-					outcome = fmt.Sprintf("opened interactive agent %s%s [%s]", s.ID, nameLabel, store.DisplayRole(s.Role, s.Type))
-				}
+				outcome := formatSpawnOutcome(s, prompt == "")
 				fmt.Fprintf(cmd.OutOrStdout(), "%s — attach with `warden attach %s`\n", outcome, s.ID)
 				return nil
 			}
@@ -234,15 +242,12 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 				}
 				return err
 			}
-			nameLabel := ""
-			if s.Name != "" {
-				nameLabel = fmt.Sprintf(" (%s)", s.Name)
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "spawned %s%s [%s] (%s) — attach with `warden attach %s`\n", s.ID, nameLabel, store.DisplayRole(s.Role, s.Type), s.Status, s.ID)
+			fmt.Fprintf(cmd.OutOrStdout(), "%s (%s) — attach with `warden attach %s`\n",
+				formatSpawnOutcome(s, false), s.Status, s.ID)
 			return nil
 		},
 	}
-	cmd.Flags().String("name", "", "optional human-friendly name (max 32 chars, alphanumeric + hyphens/underscores)")
+	cmd.Flags().String("name", "", "explicit agent name (omit to auto-resolve); max 32 chars, alphanumeric + hyphens/underscores")
 	cmd.Flags().String("type", "", "deprecated alias: legacy task type (development|analysis|spike|pr-review|…). Prefer --role worker --repo for managed worktrees")
 	_ = cmd.Flags().MarkDeprecated("type", "use --role (and --repo for managed worktrees)")
 	cmd.Flags().String("repo", "", "repo path for a managed (worktree) spawn; with --role worker this enters the managed path without --type. Empty = free-form unless --type/--fork-from force managed (then defaults to cwd)")

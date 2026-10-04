@@ -207,7 +207,8 @@ type renameDoneMsg struct {
 	err error
 }
 
-// renameCmd renames an agent (blank name clears it) via the daemon.
+// renameCmd renames an agent via the daemon. Names are mandatory; callers must
+// reject blank input before invoking this.
 func renameCmd(a api, id, name string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := bg()
