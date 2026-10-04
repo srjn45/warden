@@ -3862,6 +3862,8 @@ inspect and configure the tiered model catalog in warden.
 Subcommands:
   list      List models in the catalog and their assigned tiers
   tier      Set a model's tier classification (tier-1|tier-2|tier-3)
+  add       Register a custom model in the catalog at runtime
+  discover  Probe installed AI CLIs for live model menus
 
 When run without subcommands, `warden backend model` shows the live model menu of the
 current or specified backend.
@@ -3870,6 +3872,8 @@ Usage:
   warden backend model [flags]
 
 Commands:
+  add                  Register a custom model in the catalog
+  discover             Probe installed AI CLIs for live model menus
   list                 List models in the catalog and their assigned tiers
   tier                 Set a model's tier classification (tier-1|tier-2|tier-3)
 
@@ -3877,6 +3881,78 @@ Flags:
       --backend string   list models for this backend id (default: the current agent's backend)
   -h, --help             help for model
       --json             emit the menu as a JSON array instead of one id per line
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden backend model add
+
+```text
+Insert a new model into warden's catalog at runtime.
+
+The model is marked custom so seed pruning never removes it. Use this when a
+backend gains a model that is not in the built-in seed (or after
+`warden backend model discover` surfaces a live id you want to route).
+
+Tiers:
+  tier-1   Highest-capability models
+  tier-2   Standard implementation models
+  tier-3   Fast, low-cost models
+
+Examples:
+  warden backend model add cursor my-model --tier tier-2 --display "My Model" --auto-assign
+  warden backend model add opencode ollama/qwen2.5-coder:3b --tier tier-3 --quota-scope default
+
+Usage:
+  warden backend model add <aicli> <model> [flags]
+
+Flags:
+      --auto-assign          include the model in quota-balanced AutoAssign routing
+      --display string       human-readable display name (default: the model id)
+  -h, --help                 help for add
+      --quota-scope string   quota scope tag this model consumes (blank = default)
+      --tier string          model tier (tier-1|tier-2|tier-3) (required)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden backend model discover
+
+```text
+Discover model ids from installed AI CLI tools and optionally import them
+into the catalog.
+
+Sources (when the tool is installed / the file is readable):
+  cursor        cursor-agent --list-models
+  antigravity   agy models
+  opencode      opencode models
+  crush         crush models
+  codex         ~/.codex/config.toml (top-level model = "…")
+
+By default this only lists what was discovered. Pass --import --tier <tier> to
+register missing models as custom catalog entries (already-present ids are
+skipped).
+
+Examples:
+  warden backend model discover
+  warden backend model discover --backend cursor --json
+  warden backend model discover --import --tier tier-2 --auto-assign
+
+Usage:
+  warden backend model discover [flags]
+
+Flags:
+      --auto-assign          mark imported models AutoAssign (with --import)
+      --backend string       limit discovery to this backend id (cursor|antigravity|opencode|crush|codex)
+  -h, --help                 help for discover
+      --import               register discovered models missing from the catalog
+      --json                 emit discovered models as a JSON array
+      --quota-scope string   quota scope for imported models (with --import)
+      --tier string          tier to assign when --import is set (tier-1|tier-2|tier-3)
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -4890,6 +4966,8 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | `warden mcp` | `warden daemon mcp` |
 | `warden memory` | `warden project memory` |
 | `warden models` | `warden backend model` |
+| `warden models add` | `warden backend model add` |
+| `warden models discover` | `warden backend model discover` |
 | `warden models list` | `warden backend model list` |
 | `warden models ls` | `warden backend model list` |
 | `warden models tier` | `warden backend model tier` |
