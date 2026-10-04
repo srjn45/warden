@@ -2893,3 +2893,7 @@ wd plan list
 | `wd plan done` / `complete` / `archive` / `run` / `pause|resume|stop` | Lifecycle + execution |
 | `wd plan assess <id>` | Brain-assisted task progress |
 
+
+## Cleaning merged branches and stale worktrees
+
+`warden workspace clean` (alias `warden clean`) previews, then — after a `[y/N]` confirmation (`--yes` skips it) — removes stale worktrees and deletes merged local and `origin` branches, including squash merges. Flags: `--dry-run`, `--json`, `--local-only`, `--force` (dirty worktrees), `--repo`. Protected branches (`main`, `master`, `develop`, `release/*`, base, current) are never deleted. Not to be confused with `warden workspace prune`, which reclaims orphaned warden worktrees.

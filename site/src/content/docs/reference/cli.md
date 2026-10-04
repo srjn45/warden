@@ -2723,6 +2723,7 @@ Inherited flags:
 One umbrella over warden's workspace operations:
   • LIST worktrees — the warden-owned worktrees under .worktrees (`wd workspace list`)
   • PRUNE orphaned worktrees (`wd workspace prune`)
+  • CLEAN merged branches and stale worktrees (`wd workspace clean`)
   • SNAPSHOT an agent's worktree + transcript (`wd workspace snapshot`)
   • BRANCHES — per-agent CI and branch-vs-main status (`wd workspace branches`)
   • CONFLICTS — files edited by more than one agent (`wd workspace conflicts`)
@@ -2736,6 +2737,7 @@ Usage:
 Commands:
   list                 List warden worktrees under .worktrees, joined to active/archived records
   prune                Reclaim orphaned warden worktrees under .worktrees (always asks; --force overrides guards)
+  clean                Delete merged local/origin branches and prune stale worktrees (previews, then asks)
   snapshot             Checkpoint an agent's worktree + transcript, list checkpoints, and restore one
   branches             Per-agent CI + branch-vs-main status
   conflicts            List files currently being edited by more than one agent
@@ -2792,6 +2794,42 @@ Flags:
       --json               output as JSON
       --repo string        repo path (default: current directory)
       --yes                skip the confirmation prompt
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden workspace clean
+
+```text
+Find branches and worktrees whose work already landed on the base branch —
+including squash merges (detected via merged PRs from `gh`, `git cherry`, or a
+trial merge) — show a preview, and after confirmation remove the stale
+worktrees, delete the merged local branches, and delete the merged origin
+branches in one coordinated operation (in that order).
+
+main, master, develop, release/*, the base branch and the primary worktree's
+branch are never deleted. Dirty worktrees are kept unless --force. Detection
+runs `git fetch --prune origin` first (use --local-only to skip remote work).
+
+Different from `wd workspace prune`, which reclaims ORPHANED warden worktrees
+under .worktrees (agent record gone); clean targets MERGED branches and the
+stale worktrees checked out on them.
+
+Available as `wd workspace clean` and the top-level alias `wd clean`.
+
+Usage:
+  warden workspace clean [flags]
+
+Flags:
+      --dry-run       show what would be cleaned; change nothing
+      --force         also remove dirty worktrees (does not bypass protected branches)
+  -h, --help          help for clean
+      --json          output as JSON (report for --dry-run, result otherwise)
+      --local-only    skip remote (origin) branches and the fetch
+      --repo string   repo path (default: current directory)
+      --yes           skip the confirmation prompt
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -5182,6 +5220,7 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | `warden backends thinking-mode` | `warden backend thinking-mode` |
 | `warden backends tier` | `warden backend tier` |
 | `warden branches` | `warden workspace branches` |
+| `warden clean` | `warden workspace clean` |
 | `warden collab` | `warden workspace` |
 | `warden collab conflicts` | `warden workspace conflicts` |
 | `warden collab who-is-editing` | `warden workspace who-is-editing` |

@@ -18,6 +18,7 @@ func newWorkspaceCmd() *cobra.Command {
 			"One umbrella over warden's workspace operations:\n"+
 				"  • LIST worktrees — the warden-owned worktrees under .worktrees (`wd workspace list`)\n"+
 				"  • PRUNE orphaned worktrees (`wd workspace prune`)\n"+
+				"  • CLEAN merged branches and stale worktrees (`wd workspace clean`)\n"+
 				"  • SNAPSHOT an agent's worktree + transcript (`wd workspace snapshot`)\n"+
 				"  • BRANCHES — per-agent CI and branch-vs-main status (`wd workspace branches`)\n"+
 				"  • CONFLICTS — files edited by more than one agent (`wd workspace conflicts`)\n"+
@@ -33,6 +34,7 @@ func newWorkspaceCmd() *cobra.Command {
 	children := []*cobra.Command{
 		canonicalWorkspaceCommand(newWorktreeListCmd(), "list"),
 		canonicalWorkspaceCommand(newPruneCmd(), "prune"),
+		newCleanCmd(),
 		newWorkspaceSnapshotCmd(),
 		canonicalWorkspaceCommand(newBranchesCmd(), "branches"),
 		canonicalWorkspaceCommand(newCollabConflictsCmd(), "conflicts"),
