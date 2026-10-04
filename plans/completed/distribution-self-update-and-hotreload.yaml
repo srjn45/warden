@@ -19,6 +19,7 @@ done_when:
   - "A final integration Pull Request is opened against main with all checks green."
   - "All unit and integration tests pass."
 tasks:
+
   - id: Task1_StandaloneCurlInstaller
     prompt: >-
       Overhaul scripts/install.sh and scripts/common.sh for standalone curl-piped installation:
@@ -37,6 +38,8 @@ tasks:
       5) Ensure both local dev workflow (`./scripts/install.sh` / `make install`) and remote curl workflow work seamlessly.
       Ensure `wd check` passes before opening a PR against autopilot/distribution-self-update-and-hotreload.
       End with `wd job done --summary 'feat(distribution): standalone curl-piped install.sh with github release asset download'`.
+    status: done
+    landed_pr: 631
 
   - id: Task2_WardenUpdateCommand
     prompt: >-
@@ -60,6 +63,8 @@ tasks:
       3) Add unit tests for update checking, checksum validation, and rollback on error.
       Ensure `wd check` passes before opening a PR against autopilot/distribution-self-update-and-hotreload.
       End with `wd job done --summary 'feat(cli): first-class warden update command with atomic swap and service restart'`.
+    status: done
+    landed_pr: 632
 
   - id: Task3_TuiInPlaceHotReload
     prompt: >-
@@ -75,6 +80,8 @@ tasks:
       2) Add unit tests for version change detection and keybinding routing in internal/tui/.
       Ensure `wd check` passes before opening a PR against autopilot/distribution-self-update-and-hotreload.
       End with `wd job done --summary 'feat(tui): in-place hot-reload via syscall.Exec and in-cockpit update trigger'`.
+    status: done
+    landed_pr: 633
 
   - id: Task4_DeprecatePackageManagersAndCleanupCI
     prompt: >-
@@ -91,6 +98,8 @@ tasks:
          - Ensure prebuild copies scripts/install.sh to public/install.sh for automatic GitHub Pages hosting.
       Ensure `wd check` passes before opening a PR against autopilot/distribution-self-update-and-hotreload.
       End with `wd job done --summary 'chore(release): remove nfpm/aur packaging, wire automated install.sh assets, and simplify CI'`.
+    status: done
+    landed_pr: 634
 
   - id: Task5_DocumentationAndDeprecationNotices
     prompt: >-
@@ -106,6 +115,8 @@ tasks:
          - Update installation and upgrade guides.
       Ensure `wd check` passes before opening a PR against autopilot/distribution-self-update-and-hotreload.
       End with `wd job done --summary 'docs: update installation guides for curl installer, self-updater, and hot-reload'`.
+    status: done
+    landed_pr: 635
 
   - id: Task6_OpenFinalPR
     prompt: >-
@@ -118,3 +129,4 @@ tasks:
       4) Verify checks are green on the opened PR.
       Ensure all project checks pass.
       End with `wd job done --summary 'chore: open final integration PR against main'`.
+    status: done
