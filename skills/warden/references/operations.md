@@ -219,7 +219,7 @@ Tunnel rather than exposing it directly. Interactive OpenAPI docs at `/api/docs`
   · Agents · Terminals), a **terminal pane** (a live `kind=terminal` session; a
   default terminal opens in the launch dir at startup), and a live **agent pane**.
   `n` new, `t` create/focus a terminal in the opened agent's dir, `s` send, `a`
-  attach, `d` digest, `i` approvals, `c` context/message inspector, `x`
+  attach, `d` digest, `i` approvals, `c` context/message inspector, `l` TUI log viewer, `x`
   terminate/cancel, `?` help; `Alt+←/→/↑/↓` move pane focus. **Global Alt rotation**
   (any pane, even while typing): `M-t` cycles the terminal pane over terminals, `M-a`
   cycles the agent pane over agents, `M-p` cycles it over pipeline agents. Requires

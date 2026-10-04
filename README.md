@@ -706,13 +706,14 @@ The control pane polls the daemon about once a second. The daemon must be runnin
 | Key | Action |
 |---|---|
 | `↑` / `↓` or `j` / `k` | Move selection (the viewports are unaffected) |
-| `←` / `→` or `h` / `l` | Collapse / expand the section or the pipeline/agent sub-tree under the cursor |
+| `←` / `→` or `h` | Collapse / expand the section or the pipeline/agent sub-tree under the cursor |
 | `Enter` | Open the selected entity — an agent (or running pipeline job) attaches in the right agent pane; a terminal attaches in the bottom-left terminal pane; a finished agent or tombstone shows its stored detail instead of attaching |
 | `t` | New/focus a terminal in the opened agent's directory (`(c)reate` a fresh one or `(f)ocus` an existing one in that dir) |
 | `n` | New agent — opens a prompt textarea; `ctrl+s` to submit, `esc` to cancel |
 | `o` | Open a directory as a group (becomes the spawn target for `n`) |
 | `s` | Send a message to the selected agent — `enter` to send, `esc` to cancel |
 | `a` | Attach — full-screen the agent's (or running job's) tmux session; press **`Ctrl-b Enter`** to return to the dashboard |
+| `l` | Log viewer — scrollable tail of the TUI log (`~/.warden/tui.log` or `$WARDEN_TUI_LOG`); `g`/`G` top/bottom, `l`/`esc` to close; levels coloured (ERROR red, WARN yellow, INFO cyan) |
 | `d` | Completion digest for the selected agent — scrollable overlay; `d`/`esc` to close |
 | `i` | Answer pending approvals (also `enter` on the **⏳ Approvals** row) — `1`-`9` to answer, `tab` for next |
 | `c` | Shared-context + message-traffic inspector |

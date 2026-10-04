@@ -44,8 +44,9 @@ func helpText() string {
 	return stPaneTitle.Render("Keys") + "\n" +
 		"  ↑/↓ or j/k   move selection\n" +
 		"  tab          switch tab: Projects (pipelines + agents) ⇄ Terminals\n" +
-		"  ←/→ or h/l   fold / unfold: a project group, a pipeline, an agent sub-tree,\n" +
+		"  ←/→ or h     fold / unfold: a project group, a pipeline, an agent sub-tree,\n" +
 		"               or the Terminals section — whatever is under the cursor\n" +
+		"  l            logs: scrollable TUI log tail (g/G top/bottom, esc/l close)\n" +
 		"  enter        open the selected entity — agent/worker/job in the agent pane; pipeline\n" +
 		"               or autopilot container opens its overview; a terminal opens in the\n" +
 		"               terminal pane (grabs focus); section headers toggle fold (reserved on\n" +

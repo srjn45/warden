@@ -91,6 +91,7 @@ const (
 	modeConfirmCloseProject   // y/N confirm before hibernating a project with active agents (§4)
 	modeInspector             // read-only shared-context + message-traffic view
 	modeDigest                // scrollable completion digest for the selected agent
+	modeLogs                  // scrollable tail of the TUI log file (hotkey l)
 	modeApprovals             // answer pending tool-permission prompts
 	modeDetails               // scrollable full detail view for the selected agent
 	modeEvents                // the selected agent's event log (opened from modeDetails)

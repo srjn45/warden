@@ -61,3 +61,73 @@ func resolveTUILogWriter() (io.Writer, io.Closer) {
 	}
 	return f, f
 }
+
+// tuiLogPath resolves the file setupTUILogging writes to. ok is false when
+// logging is disabled (off/discard//dev/null) or no home dir is available.
+func tuiLogPath() (path string, ok bool) {
+	dest := strings.TrimSpace(os.Getenv("WARDEN_TUI_LOG"))
+	if strings.EqualFold(dest, "off") || strings.EqualFold(dest, "discard") || dest == "/dev/null" {
+		return "", false
+	}
+	if dest != "" {
+		return dest, true
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return "", false
+	}
+	return filepath.Join(home, ".warden", "tui.log"), true
+}
+
+const logTailMaxBytes = 256 * 1024
+
+// readLogTail returns the last bytes of the TUI log (whole lines) as a string,
+// or a human-readable empty-state message when nothing can be shown.
+func readLogTail() string {
+	path, ok := tuiLogPath()
+	if !ok {
+		return "Logging is disabled (WARDEN_TUI_LOG=off). Unset it to record TUI logs."
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return "No log file available at " + path + "."
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return "Cannot read log file " + path + "."
+	}
+	start := int64(0)
+	if st.Size() > logTailMaxBytes {
+		start = st.Size() - logTailMaxBytes
+	}
+	buf := make([]byte, st.Size()-start)
+	n, _ := f.ReadAt(buf, start)
+	s := string(buf[:n])
+	if start > 0 {
+		if i := strings.IndexByte(s, '\n'); i >= 0 {
+			s = s[i+1:]
+		}
+	}
+	s = strings.TrimRight(s, "\n")
+	if strings.TrimSpace(s) == "" {
+		return "Log is empty (" + path + ")."
+	}
+	return s
+}
+
+// colorizeLogs tints each line by slog level (ERROR red, WARN yellow, INFO cyan).
+func colorizeLogs(s string) string {
+	lines := strings.Split(s, "\n")
+	for i, l := range lines {
+		switch {
+		case strings.Contains(l, "level=ERROR") || strings.Contains(l, "ERROR"):
+			lines[i] = stError.Render(l)
+		case strings.Contains(l, "level=WARN") || strings.Contains(l, "WARN"):
+			lines[i] = stAttention.Render(l)
+		case strings.Contains(l, "level=INFO") || strings.Contains(l, "INFO"):
+			lines[i] = stRunning.Render(l)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
