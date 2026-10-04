@@ -128,6 +128,37 @@ func TestListPaneRenameEscCancels(t *testing.T) {
 	require.Empty(t, f.renamedID, "esc cancels the rename without calling SetName")
 }
 
+func TestListPaneRenameRejectsBlank(t *testing.T) {
+	f := &fakeAPI{}
+	m := newListPane(f, "%9", "")
+	m = lstep(m, sessionsMsg{sessions: []*store.Session{{ID: "a1", Name: "old", Workdir: "/w"}}})
+	m = lstep(m, key("i"))
+	m = lstep(m, key("r"))
+	require.Equal(t, modeRename, m.mode)
+	m.tn.SetValue("   ")
+	nm, cmd := m.Update(key("enter"))
+	m = nm.(controlPaneModel)
+	require.Equal(t, modeDetails, m.mode)
+	require.Nil(t, cmd, "blank rename must not call the daemon")
+	require.Empty(t, f.renamedID)
+	require.Contains(t, m.status, "name must not be empty")
+}
+
+func TestListPaneRenameRejectsInvalid(t *testing.T) {
+	f := &fakeAPI{}
+	m := newListPane(f, "%9", "")
+	m = lstep(m, sessionsMsg{sessions: []*store.Session{{ID: "a1", Name: "old", Workdir: "/w"}}})
+	m = lstep(m, key("i"))
+	m = lstep(m, key("r"))
+	m.tn.SetValue("NOT VALID!!")
+	nm, cmd := m.Update(key("enter"))
+	m = nm.(controlPaneModel)
+	require.Equal(t, modeDetails, m.mode)
+	require.Nil(t, cmd)
+	require.Empty(t, f.renamedID)
+	require.Contains(t, m.status, "rename failed:")
+}
+
 func TestListPaneDeletePipelineConfirmsThenDeletes(t *testing.T) {
 	f := &fakeAPI{}
 	m := newListPane(f, "%9", "")

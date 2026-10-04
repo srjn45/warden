@@ -1445,6 +1445,16 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if id == "" {
 				return m, nil
 			}
+			// Names are mandatory — blank no longer clears; reject locally so the
+			// operator sees a clear status without a round-trip.
+			if name == "" {
+				m.status = "rename failed: name must not be empty"
+				return m, nil
+			}
+			if err := store.ValidateName(name); err != nil {
+				m.status = "rename failed: " + err.Error()
+				return m, nil
+			}
 			m.status = "renaming " + id
 			return m, renameCmd(m.api, id, name)
 		}
@@ -2494,7 +2504,7 @@ func (m controlPaneModel) View() string {
 	}
 	if m.mode == modeRename {
 		body := titleBox("Details — "+m.selectedID(), m.vp.View(), m.w, bodyH)
-		input := stPaneTitle.Render("Rename "+m.renameID+" (enter save · blank clears · esc cancel):") + " " + m.tn.View()
+		input := stPaneTitle.Render("Rename "+m.renameID+" (enter save · esc cancel):") + " " + m.tn.View()
 		return header + "\n" + body + "\n" + input
 	}
 	if m.mode == modeApprovals {
