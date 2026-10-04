@@ -3,6 +3,7 @@ package digest
 import (
 	"context"
 	"errors"
+	"github.com/srjn45/warden/internal/fastbrain"
 	"strings"
 	"testing"
 )
@@ -111,5 +112,34 @@ func TestClaudeNarratorSummarizeError(t *testing.T) {
 	}}
 	if _, err := n.Summarize(context.Background(), Facts{}); err == nil {
 		t.Fatal("want error propagated so the daemon can degrade to LastMessage")
+	}
+}
+
+type fakeBrain struct {
+	fastbrain.Engine
+	resp fastbrain.Response
+	req  fastbrain.Request
+}
+
+func (f *fakeBrain) Decide(_ context.Context, r fastbrain.Request) (fastbrain.Response, error) {
+	f.req = r
+	return f.resp, nil
+}
+
+func TestClaudeNarratorFastBrain(t *testing.T) {
+	fb := &fakeBrain{resp: fastbrain.Response{Status: fastbrain.StatusOK,
+		Output: fastbrain.Output{Parsed: []byte(`{"summary":"Fixed the bug."}`)}}}
+	n := ClaudeNarrator{FastBrain: fb, Run: func(context.Context, string) (string, error) { t.Fatal("Run called"); return "", nil }}
+	got, err := n.Summarize(context.Background(), Facts{Task: "t"})
+	if err != nil || got != "Fixed the bug." || fb.req.Kind != fastbrain.KindSummarizeActivity || fb.req.Tier != fastbrain.TierFast {
+		t.Fatalf("got %q err %v req %+v", got, err, fb.req)
+	}
+}
+
+func TestClaudeNarratorFastBrainFailsOpen(t *testing.T) {
+	n := ClaudeNarrator{FastBrain: &fakeBrain{resp: fastbrain.Response{Status: fastbrain.StatusTimeout}},
+		Run: func(context.Context, string) (string, error) { t.Fatal("Run called"); return "", nil }}
+	if got, err := n.Summarize(context.Background(), Facts{}); got != "" || err != nil {
+		t.Fatalf("got %q err %v", got, err)
 	}
 }

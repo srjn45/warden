@@ -2,6 +2,7 @@ package curate
 
 import (
 	"context"
+	"github.com/srjn45/warden/internal/fastbrain"
 	"strings"
 	"testing"
 
@@ -88,5 +89,47 @@ func TestExtractionPromptIsExtractionNotDump(t *testing.T) {
 	}
 	if !strings.Contains(pr, "already known fact") {
 		t.Error("prompt does not feed current memory for de-dup")
+	}
+}
+
+type fakeBrain struct {
+	fastbrain.Engine
+	resp  fastbrain.Response
+	err   error
+	calls int
+	req   fastbrain.Request
+}
+
+func (f *fakeBrain) Decide(_ context.Context, r fastbrain.Request) (fastbrain.Response, error) {
+	f.calls++
+	f.req = r
+	return f.resp, f.err
+}
+
+func TestProposeFastBrain(t *testing.T) {
+	fb := &fakeBrain{resp: fastbrain.Response{Status: fastbrain.StatusOK,
+		Output: fastbrain.Output{Parsed: []byte(`{"entries":["tests live in x_test.go"," "]}`)}}}
+	ran := false
+	p := LLMProposer{FastBrain: fb, Run: func(context.Context, string) (string, error) { ran = true; return "- no", nil }}
+	got, err := p.Propose(context.Background(), ProposeInput{Signals: []Signal{{Agent: "a1"}}})
+	if err != nil || len(got) != 1 || got[0].Text != "tests live in x_test.go" || got[0].Trust != memory.TrustUnverified || got[0].Provenance != "agent a1" {
+		t.Fatalf("got %+v err %v", got, err)
+	}
+	if fb.req.Kind != fastbrain.KindCurateExtract || fb.req.Tier != fastbrain.TierThinking || ran {
+		t.Fatalf("req %+v ran=%v", fb.req, ran)
+	}
+}
+
+func TestProposeFastBrainFailsOpenWithoutCloud(t *testing.T) {
+	for _, fb := range []*fakeBrain{
+		{resp: fastbrain.Response{Status: fastbrain.StatusTimeout}},
+		{err: context.DeadlineExceeded},
+	} {
+		ran := false
+		p := LLMProposer{FastBrain: fb, Run: func(context.Context, string) (string, error) { ran = true; return "- x", nil }}
+		got, err := p.Propose(context.Background(), ProposeInput{})
+		if got != nil || err != nil || ran {
+			t.Fatalf("got %v err %v ran %v", got, err, ran)
+		}
 	}
 }
