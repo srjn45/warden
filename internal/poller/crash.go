@@ -1,5 +1,18 @@
 package poller
 
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"runtime"
+	"strings"
+	"time"
+
+	"github.com/srjn45/warden/internal/agentstore"
+	"github.com/srjn45/warden/internal/fastbrain"
+	"github.com/srjn45/warden/internal/store"
+)
+
 // Anomaly is a non-fatal health warning the poller raises about an agent —
 // distinct from a status transition (which classify already covers). The daemon
 // wires OnAnomaly to surface it to the user (notification). The poller itself
@@ -49,4 +62,67 @@ func crashAnomaly(code int) (a Anomaly, ok bool) {
 		}, true
 	}
 	return Anomaly{}, false
+}
+
+// crashTriageTimeout bounds one Fast-Brain crash diagnosis.
+const crashTriageTimeout = 60 * time.Second
+
+// signalFromExit names the fatal signal for a shell-style 128+N exit code.
+func signalFromExit(code int) string {
+	if code > 128 && code < 160 {
+		return fmt.Sprintf("signal %d", code-128)
+	}
+	return ""
+}
+
+// triageCrash diagnoses a freshly crashed agent once (the caller only invokes
+// it on the winning FinalizeExit CAS) via Fast-Brain. It runs off the tick
+// goroutine and is fail-soft: any error is logged and swallowed. A warden bug
+// is staged locally (never uploaded) and announced with a durable event so the
+// operator can run `warden bug-report <id>`.
+func (p *Poller) triageCrash(s *agentstore.Agent, code int) {
+	if p.FastBrain == nil || s == nil {
+		return
+	}
+	excerpt := s.LastPaneExcerpt
+	if captured, err := p.deps.CapturePane(context.Background(), s.TmuxSession); err == nil && strings.TrimSpace(captured) != "" {
+		excerpt = captured
+	}
+	excerpt = lastLines(excerpt, fastbrain.ExcerptLines)
+	dir := p.CrashDir
+	if dir == "" {
+		d, err := fastbrain.DefaultCrashDir()
+		if err != nil {
+			slog.Warn("poller: crash triage skipped", "agent", s.ID, "err", err)
+			return
+		}
+		dir = d
+	}
+	in := fastbrain.CrashInput{
+		AgentID: s.ID, ExitCode: code, Signal: signalFromExit(code), Command: s.AiCli,
+		Excerpt: excerpt, Version: p.Version, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, StageDir: dir,
+	}
+	p.triageWG.Add(1)
+	go func() {
+		defer p.triageWG.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Warn("poller: crash triage panicked", "agent", s.ID, "panic", r)
+			}
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), crashTriageTimeout)
+		defer cancel()
+		dg, err := fastbrain.DiagnoseFailure(ctx, p.FastBrain, in)
+		if err != nil {
+			slog.Warn("poller: crash triage failed", "agent", s.ID, "err", err)
+			return
+		}
+		switch {
+		case dg.IsWardenBug && dg.DraftPath != "":
+			detail := fmt.Sprintf("warden bug draft staged (%s); review with: warden bug-report %s", dg.Draft.ID, dg.Draft.ID)
+			_ = p.deps.RecordEvent(ctx, s.ID, store.Event{Type: "bug_draft_staged", Detail: detail})
+		case dg.SuggestSwitchBackend:
+			_ = p.deps.RecordEvent(ctx, s.ID, store.Event{Type: "crash_triage", Detail: "transient error — consider switching backend"})
+		}
+	}()
 }

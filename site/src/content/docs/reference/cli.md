@@ -55,6 +55,7 @@ Operate warden:
   daemon               Run the warden hub (HTTP API + poller; the single writer to the file store)
   completion           Generate shell completion scripts
   factory-reset        Reset warden to a fresh-install state (scoped wipe of daemon data)
+  bug-report           Review a staged crash draft and, only if you approve, file it as a GitHub issue
 
 Get started and interact:
   login                Authenticate this node with a warden-hub relay using the device flow
@@ -4775,6 +4776,33 @@ Flags:
       --scope string      reset scope: runtime, data, or full (default "data")
       --skip-drain        skip the live drain phase (daemon may be down; wipe still requires it stopped)
       --yes               confirm the destructive reset without prompting
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden bug-report
+
+```text
+Show the sanitized crash draft warden staged under ~/.warden/crashes/<id>.json
+(title, environment, sanitized stack) and ask whether to submit it to
+https://github.com/srjn45/warden/issues. The default answer is N: nothing is
+ever uploaded unless you type y.
+
+On approval, an authenticated gh CLI creates the issue and its URL is printed;
+otherwise a pre-filled new-issue link is printed for you to open. Declining
+leaves the draft staged.
+
+With no id, lists the staged drafts, newest first. Agents must never answer y
+on the operator's behalf — tell the user to run this command instead.
+
+Usage:
+  warden bug-report [id] [flags]
+
+Flags:
+  -h, --help   help for bug-report
+      --json   emit the outcome as JSON (never submits; prints the preview only)
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)

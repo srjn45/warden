@@ -83,6 +83,14 @@ agents**.
 | `?` | Toggle help overlay |
 | `q` | Quit and tear down the cockpit |
 
+## Bug reports
+
+When an agent crash is classified as a warden bug, a sanitized draft is staged
+locally and the footer shows `[⚠️ Bug Detected: Press B to Review]`. `B` opens a
+preview with **Submit** (`s`) and **Dismiss** (`d` / `esc`). Submit uses an
+authenticated `gh` or shows a pre-filled issue link; Dismiss uploads nothing.
+The same flow is available as `warden bug-report <id>` (default answer N).
+
 ## Agent info pane
 
 Pressing **`i`** on an agent opens the **agent info** pane — a scrollable, read-most

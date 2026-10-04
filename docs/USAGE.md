@@ -884,6 +884,18 @@ warden git review --json                # neutral machine-readable findings
 warden git review --ai-cli codex --json
 ```
 
+### `warden bug-report [id] [--json]` (user-approved crash reports)
+
+Shows the sanitized draft warden staged at `~/.warden/crashes/<id>.json` after a
+warden-bug crash (title, environment, sanitized stack), then prompts
+`Submit this bug report to https://github.com/srjn45/warden/issues? [y/N]`.
+Only `y` submits: with an authenticated `gh` it runs `gh issue create --repo
+srjn45/warden` and prints the issue URL; otherwise it prints a pre-filled
+`issues/new?title=…&body=…` link. Anything else leaves the draft staged. No id
+lists staged drafts, newest first. `--json` previews without prompting or
+submitting. In the cockpit, press `B` on the footer badge to review with
+Submit / Dismiss.
+
 ### `warden git release [--dry-run] [--yes] [--push] [--json]` (release tag advisor)
 
 Alias: `wd release` / `warden release`. Inspects the repo since its latest SemVer

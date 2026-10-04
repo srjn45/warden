@@ -192,7 +192,17 @@ builds a GitHub-issue draft (`crash(pkg): msg in Func`, `Warden vX.Y.Z
 (os/arch)`), staged locally at `~/.warden/crashes/<id>.json` (0600, dir 0700;
 `StageCrashDraft` / `LoadCrashDraft` / `ListCrashDrafts`). Drafts are
 **local-only**: nothing is sent to GitHub without explicit user approval
-(the `warden bug-report` flow lands separately).
+(see `warden bug-report`).
+
+**User-approved bug reporting:** `warden bug-report <id>` previews a staged
+draft (title, environment, sanitized stack) and asks
+`Submit this bug report to https://github.com/srjn45/warden/issues? [y/N]`
+(default N). On `y` an authenticated `gh` runs `gh issue create --repo
+srjn45/warden`, else a pre-filled `issues/new?title=…&body=…` link is printed.
+With no id it lists staged drafts. The poller triages each crash exactly once
+(fail-soft), stages `internal_bug` drafts and records a `bug_draft_staged`
+event; the cockpit footer shows `[⚠️ Bug Detected: Press B to Review]` and `B`
+opens a Submit / Dismiss modal (Dismiss never uploads; `b` is still backends).
 
 **Per-agent overrides** live under `agents:` keyed by agent name or id; each is its
 own `{enabled, allow_sticky, rules}` block that replaces the default for that agent

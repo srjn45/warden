@@ -120,4 +120,6 @@ When an agent crashes, Fast-Brain triage may stage a sanitized GitHub-issue
 draft at `~/.warden/crashes/<id>.json` (secrets redacted, home paths
 normalized). Agents must treat these drafts as **local-only**: never submit
 one to GitHub, run `gh issue create`, or open an issue URL on the user's
-behalf — submission needs the user's explicit approval.
+behalf — submission needs the user's explicit approval. When a
+`bug_draft_staged` event appears, tell the user to run `warden bug-report <id>`
+(or press `B` in the cockpit); never answer its `y/N` prompt yourself.
