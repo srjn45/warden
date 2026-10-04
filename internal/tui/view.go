@@ -44,8 +44,9 @@ func helpText() string {
 	return stPaneTitle.Render("Keys") + "\n" +
 		"  ↑/↓ or j/k   move selection\n" +
 		"  tab          switch tab: Projects (pipelines + agents) ⇄ Terminals\n" +
-		"  ←/→ or h/l   fold / unfold: a project group, a pipeline, an agent sub-tree,\n" +
+		"  ←/→ or h     fold / unfold: a project group, a pipeline, an agent sub-tree,\n" +
 		"               or the Terminals section — whatever is under the cursor\n" +
+		"  l            logs: scrollable TUI log tail (g/G top/bottom, esc/l close)\n" +
 		"  enter        open the selected entity — agent/worker/job in the agent pane; pipeline\n" +
 		"               or autopilot container opens its overview; a terminal opens in the\n" +
 		"               terminal pane (grabs focus); section headers toggle fold (reserved on\n" +
@@ -67,6 +68,7 @@ func helpText() string {
 		"  ctrl+a       toggle autopilot on/off (run `warden autopilot init` first if not configured)\n" +
 		"  u            apply a pending warden update (footer chip) then hot-reload the TUI in place\n" +
 		"  r            reload the TUI after an external upgrade (footer chip); otherwise restore/retry\n" +
+		"  B            review a staged warden-bug crash draft (Submit / Dismiss; footer badge)\n" +
 		"  ?            toggle this help\n" +
 		"  q            quit\n" +
 		"\n" +

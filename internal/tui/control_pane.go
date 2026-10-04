@@ -20,6 +20,7 @@ import (
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/digest"
+	"github.com/srjn45/warden/internal/fastbrain"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/plansync"
@@ -110,24 +111,28 @@ type controlPaneModel struct {
 	pendingPrompt      string
 	pendingName        string // name typed in the new-agent form, held across the pressure confirm
 	pendingDir         string
-	pendingProjectID   string                         // project owning the pending spawn, held across the pressure confirm so a forced retry stamps the same project
-	pendingRole        string                         // role chosen in the new-agent form, held across the pressure confirm
-	pendingTier        string                         // model tier chosen in the new-agent form ("" = auto), held across pressure confirm
-	renameID           string                         // agent id being renamed (modeRename)
-	spawnVerdict       string                         // reason text for the confirm prompt; "" when not confirming
-	pendingDelete      string                         // pid awaiting delete confirmation; "" when not confirming
-	pendingCloseID     string                         // project id awaiting close confirmation (modeConfirmCloseProject); "" when not confirming
-	pendingCloseN      int                            // live-agent count shown in the close-project confirm prompt
-	ctxEntries         []client.ContextEntry          // inspector: shared-context snapshot
-	messages           []client.Message               // inspector: recent message traffic
-	vp                 viewport.Model                 // scroll viewport (modeInspector / modeDigest)
-	approvals          []approval.View                // pending tool-permission prompts
-	apprEnabled        bool                           // approvals config setting on
-	apprCursor         int                            // focused recognized approval (modeApprovals)
-	digest             *digest.Digest                 // last fetched digest (modeDigest)
-	digestID           string                         // agent id the digest is for
-	detailSel          int                            // focused control row in modeDetails (0 auto-approve, 1 force-compact, 2 events)
-	autopilot          client.AutopilotStatus         // last fetched autopilot status
+	pendingProjectID   string                  // project owning the pending spawn, held across the pressure confirm so a forced retry stamps the same project
+	pendingRole        string                  // role chosen in the new-agent form, held across the pressure confirm
+	pendingTier        string                  // model tier chosen in the new-agent form ("" = auto), held across pressure confirm
+	renameID           string                  // agent id being renamed (modeRename)
+	spawnVerdict       string                  // reason text for the confirm prompt; "" when not confirming
+	pendingDelete      string                  // pid awaiting delete confirmation; "" when not confirming
+	pendingCloseID     string                  // project id awaiting close confirmation (modeConfirmCloseProject); "" when not confirming
+	pendingCloseN      int                     // live-agent count shown in the close-project confirm prompt
+	ctxEntries         []client.ContextEntry   // inspector: shared-context snapshot
+	messages           []client.Message        // inspector: recent message traffic
+	vp                 viewport.Model          // scroll viewport (modeInspector / modeDigest / modeLogs)
+	logTail            string                  // last-read TUI log tail (modeLogs)
+	approvals          []approval.View         // pending tool-permission prompts
+	apprEnabled        bool                    // approvals config setting on
+	apprCursor         int                     // focused recognized approval (modeApprovals)
+	digest             *digest.Digest          // last fetched digest (modeDigest)
+	digestID           string                  // agent id the digest is for
+	detailSel          int                     // focused control row in modeDetails (0 auto-approve, 1 force-compact, 2 events)
+	autopilot          client.AutopilotStatus  // last fetched autopilot status
+	bugDrafts          []*fastbrain.IssueDraft // staged crash drafts read from disk (badge + B modal)
+	bugDismissed       map[string]bool
+	lastBugScan        time.Time
 	backendsState      client.BackendsState           // agent-backend registry snapshot (modeBackends)
 	backendCursor      int                            // focused row in the Backends page
 	plans              map[string][]*planstore.Plan   // projectID → plans
@@ -833,6 +838,21 @@ func (m controlPaneModel) bodyH() int {
 	return 3
 }
 
+// refreshLogs re-reads the log tail into the viewport. toBottom snaps to the
+// newest line (on open); otherwise the scroll position is kept, following the
+// tail only if the user was already at the bottom.
+func (m *controlPaneModel) refreshLogs(toBottom bool) {
+	atBottom := m.vp.AtBottom()
+	off := m.vp.YOffset
+	m.logTail = readLogTail()
+	m.vp.SetContent(colorizeLogs(m.logTail))
+	if toBottom || atBottom {
+		m.vp.GotoBottom()
+	} else {
+		m.vp.SetYOffset(off)
+	}
+}
+
 // setInspectorContent re-renders the inspector body into the viewport, preserving
 // the current scroll offset (SetContent/SetYOffset clamp it), so refresh ticks and
 // resizes do not snap the view back to the top.
@@ -889,12 +909,18 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.mode == modeInspector {
 			m.setInspectorContent() // re-flow for the new width, keep scroll position
 		}
+		if m.mode == modeLogs {
+			m.refreshLogs(false)
+		}
 		m.ready = true
 		return m, nil
 	case tickMsg:
 		cmds := []tea.Cmd{listCmd(m.api, true), pipelinesCmd(m.api), projectsCmd(m.api), projectGroupsCmd(m.api), approvalsCmd(m.api), pressureCmd(m.api), autopilotCmd(m.api), plansCmd(m.api, m.projects), healthCmd(m.api), tick()}
 		if m.mode == modeInspector {
 			cmds = append(cmds, contextCmd(m.api), messagesCmd(m.api))
+		}
+		if m.mode == modeLogs {
+			m.refreshLogs(false)
 		}
 		if m.mode == modeBackends {
 			cmds = append(cmds, backendsCmd(m.api)) // keep the table + limited-until countdown fresh
@@ -920,6 +946,18 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.lastUpdateCheck = time.Now()
 		if msg.err == nil {
 			m.availableVersion = msg.available
+		}
+		return m, nil
+	case bugDraftsMsg:
+		m.bugDrafts = msg.drafts
+		return m, nil
+	case bugSubmitMsg:
+		m.status = bugSubmitStatus(msg)
+		if msg.err == nil {
+			if m.bugDismissed == nil {
+				m.bugDismissed = map[string]bool{}
+			}
+			m.bugDismissed[msg.id] = true
 		}
 		return m, nil
 	case updateApplyMsg:
@@ -1660,6 +1698,8 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case modeBugReview:
+		return m.handleBugReviewKey(msg)
 	case modeConfirmUpdate:
 		switch msg.String() {
 		case "esc", "n", "N":
@@ -1695,6 +1735,23 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "q", "ctrl+c":
 			return m, m.quitCmd()
 		case "esc", "d":
+			m.mode = modeNormal
+			return m, nil
+		case "g":
+			m.vp.GotoTop()
+			return m, nil
+		case "G":
+			m.vp.GotoBottom()
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.vp, cmd = m.vp.Update(msg)
+		return m, cmd
+	case modeLogs:
+		switch msg.String() {
+		case "q", "ctrl+c":
+			return m, m.quitCmd()
+		case "esc", "l":
 			m.mode = modeNormal
 			return m, nil
 		case "g":
@@ -2032,6 +2089,10 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.setInspectorContent()
 		m.vp.GotoTop() // a freshly opened inspector starts at the top
 		return m, tea.Batch(contextCmd(m.api), messagesCmd(m.api))
+	case "l":
+		m.mode = modeLogs
+		m.refreshLogs(true)
+		return m, nil
 	case "enter":
 		it := itemAt(m.items(), m.cursor)
 		if it.section != "" {
@@ -2163,7 +2224,7 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.cursor > 0 {
 			m.cursor--
 		}
-	case "right", "l":
+	case "right":
 		it := itemAt(m.items(), m.cursor)
 		switch {
 		case it.section != "":
@@ -2424,6 +2485,15 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else {
 			m.status = "no approvals pending"
 		}
+	case "B":
+		if m.pendingBugDraft() == nil {
+			m.status = "no staged bug report"
+			return m, nil
+		}
+		m.mode = modeBugReview
+		m.vp.SetContent(m.bugReviewBody())
+		m.vp.GotoTop()
+		return m, nil
 	case "b":
 		// Open the agent-backend registry page and kick off an immediate load (the
 		// tick keeps it fresh — including the limited-until countdown — while open).
@@ -2486,6 +2556,14 @@ func (m controlPaneModel) View() string {
 		body := titleBox("Context & Messages", m.vp.View(), m.w, bodyH)
 		return header + "\n" + body + "\n" + stMuted.Render("read-only · ↑/↓ pgup/pgdn g/G scroll · c/esc back · q quit")
 	}
+	if m.mode == modeBugReview {
+		body := titleBox("Bug report preview", m.vp.View(), m.w, bodyH)
+		return header + "\n" + body + "\n" + stAttention.Render("[S]ubmit to GitHub    [D]ismiss (esc)") + stMuted.Render("  ↑/↓ scroll")
+	}
+	if m.mode == modeLogs {
+		body := titleBox("Logs  (esc / l to close · G bottom · g top)", m.vp.View(), m.w, bodyH)
+		return header + "\n" + body + "\n" + stMuted.Render("↑/↓ pgup/pgdn g/G scroll · l/esc back · q quit")
+	}
 	if m.mode == modeDigest {
 		body := titleBox("Digest — "+m.digestID, m.vp.View(), m.w, bodyH)
 		return header + "\n" + body + "\n" + stMuted.Render("↑/↓ pgup/pgdn g/G scroll · d/esc back · q quit")
@@ -2526,6 +2604,9 @@ func (m controlPaneModel) View() string {
 	footer := stMuted.Render("enter open · tab switch · S system · n new · o open project · s send · a attach · x kill · ? help · q quit")
 	if chip := updateChipText(m.updateState()); chip != "" {
 		footer = stAttention.Render(chip)
+	}
+	if m.pendingBugDraft() != nil {
+		footer = stAttention.Render(bugBadgeText)
 	}
 	if m.status != "" {
 		footer = stStatus.Render(m.status)

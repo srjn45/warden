@@ -706,13 +706,14 @@ The control pane polls the daemon about once a second. The daemon must be runnin
 | Key | Action |
 |---|---|
 | `↑` / `↓` or `j` / `k` | Move selection (the viewports are unaffected) |
-| `←` / `→` or `h` / `l` | Collapse / expand the section or the pipeline/agent sub-tree under the cursor |
+| `←` / `→` or `h` | Collapse / expand the section or the pipeline/agent sub-tree under the cursor |
 | `Enter` | Open the selected entity — an agent (or running pipeline job) attaches in the right agent pane; a terminal attaches in the bottom-left terminal pane; a finished agent or tombstone shows its stored detail instead of attaching |
 | `t` | New/focus a terminal in the opened agent's directory (`(c)reate` a fresh one or `(f)ocus` an existing one in that dir) |
 | `n` | New agent — opens a prompt textarea; `ctrl+s` to submit, `esc` to cancel |
 | `o` | Open a directory as a group (becomes the spawn target for `n`) |
 | `s` | Send a message to the selected agent — `enter` to send, `esc` to cancel |
 | `a` | Attach — full-screen the agent's (or running job's) tmux session; press **`Ctrl-b Enter`** to return to the dashboard |
+| `l` | Log viewer — scrollable tail of the TUI log (`~/.warden/tui.log` or `$WARDEN_TUI_LOG`); `g`/`G` top/bottom, `l`/`esc` to close; levels coloured (ERROR red, WARN yellow, INFO cyan) |
 | `d` | Completion digest for the selected agent — scrollable overlay; `d`/`esc` to close |
 | `i` | Answer pending approvals (also `enter` on the **⏳ Approvals** row) — `1`-`9` to answer, `tab` for next |
 | `c` | Shared-context + message-traffic inspector |
@@ -1155,6 +1156,7 @@ warden backend model                  # the backend's LIVE model menu (one id pe
 ```
 
 - **`warden git review`** — the agent-native counterpart to `warden check` (configured test/lint) and a `pr-review` agent (a whole reviewer session): it runs the backend's own one-shot reviewer against the worktree. **Codex** implements it (`codex review`); backends without a native reviewer (e.g. Claude) exit non-zero pointing you at `warden check` / `pr-review`. `--json` runs the structured form (`codex exec review`) and normalizes the backend's native output into one neutral findings shape; review quality rides the backend's configured model.
+- **`warden bug-report [id]`** — review a sanitized crash draft staged under `~/.warden/crashes/` and file it as a GitHub issue **only if you answer `y`** (default N): authenticated `gh` creates the issue, otherwise a pre-filled link is printed. The cockpit shows `[⚠️ Bug Detected: Press B to Review]` with a Submit / Dismiss modal. Agents never auto-submit.
 - **`warden git release`** (alias `wd release`) — the release tag advisor: recommends the next SemVer bump + tag from the commits since the latest tag, prints a categorized changelog, and (on confirmation, default N) creates an annotated tag and pushes it. `--dry-run`, `--yes`, `--push`, `--json`.
 - **`warden backend model`** — the live runtime model menu for backends that expose one. **Antigravity** (`agy models`) and **Cursor** (`cursor-agent --list-models`) implement it; the ids feed `--model` verbatim. Listing is a metadata read, so it spends no quota. Claude has no live menu (pass `--model` with any id the Claude CLI accepts; warden does not rewrite it) and degrades non-zero.
 

@@ -1423,8 +1423,8 @@ func TestKeyCollapseExpandPipeline(t *testing.T) {
 	require.True(t, mc.collapsed["pipeline:demo"], "h collapses the pipeline under the cursor")
 	require.Equal(t, 0, countJobs(mc), "collapsed → no job rows visible")
 
-	// expand with l
-	updated, _ = mc.handleKey(key("l"))
+	// expand with right
+	updated, _ = mc.handleKey(key("right"))
 	me := updated.(controlPaneModel)
 	require.False(t, me.collapsed["pipeline:demo"], "l expands the pipeline under the cursor")
 	require.Equal(t, 2, countJobs(me), "expanded → both job rows visible")

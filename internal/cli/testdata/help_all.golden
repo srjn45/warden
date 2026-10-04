@@ -203,6 +203,7 @@ Complete command tree:
   warden completion fish               Generate fish completion script
   warden completion powershell         Generate PowerShell completion script
   warden factory-reset                 Reset warden to a fresh-install state (scoped wipe of daemon data)
+  warden bug-report                    Review a staged crash draft and, only if you approve, file it as a GitHub issue
   warden login                         Authenticate this node with a warden-hub relay using the device flow
   warden setup                         Install missing dependencies (tmux, git, claude; optional gh, ollama)
   warden tutorial                      Run the first-run guided walkthrough of warden's core loop

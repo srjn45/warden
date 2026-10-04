@@ -177,6 +177,33 @@ to the human / brain. The destructive deny-list and the circuit breaker always
 run *before* the model. The daemon builds the engine from the existing Claude
 `-p` runner (same runner for both tiers).
 
+**Fast-Brain crash triage (engine only):** `Engine.DiagnoseFailure` classifies
+a failed agent process (exit code, signal, command, last 40 lines of
+stderr/pane) via `Decide(KindDiagnoseFailure, TierFast)` into `internal_bug`
+(Go panic / nil pointer / invariant — a warden bug), `transient_error`
+(429 / network — suggests a backend switch), `environment_error` (missing
+`docker`/`make`/`npm`) or `task_failure` (the agent's own project). It fails
+open to a deterministic heuristic when the model is missing, slow or returns
+bad JSON. Every excerpt — in the model prompt and on any draft — is sanitized
+first: `sk-…`, `AIza…`, `ghp_…`/`github_pat_…` and Bearer/Authorization values
+are redacted, `/home/<user>/` becomes `~/`, and absolute prefixes are stripped
+from stack frames (`internal/planstore/store.go:142`). Only `internal_bug`
+builds a GitHub-issue draft (`crash(pkg): msg in Func`, `Warden vX.Y.Z
+(os/arch)`), staged locally at `~/.warden/crashes/<id>.json` (0600, dir 0700;
+`StageCrashDraft` / `LoadCrashDraft` / `ListCrashDrafts`). Drafts are
+**local-only**: nothing is sent to GitHub without explicit user approval
+(see `warden bug-report`).
+
+**User-approved bug reporting:** `warden bug-report <id>` previews a staged
+draft (title, environment, sanitized stack) and asks
+`Submit this bug report to https://github.com/srjn45/warden/issues? [y/N]`
+(default N). On `y` an authenticated `gh` runs `gh issue create --repo
+srjn45/warden`, else a pre-filled `issues/new?title=…&body=…` link is printed.
+With no id it lists staged drafts. The poller triages each crash exactly once
+(fail-soft), stages `internal_bug` drafts and records a `bug_draft_staged`
+event; the cockpit footer shows `[⚠️ Bug Detected: Press B to Review]` and `B`
+opens a Submit / Dismiss modal (Dismiss never uploads; `b` is still backends).
+
 **Per-agent overrides** live under `agents:` keyed by agent name or id; each is its
 own `{enabled, allow_sticky, rules}` block that replaces the default for that agent
 (and can enable auto-approve for just that agent).
@@ -327,7 +354,7 @@ panes: the **control** pane (a navigator tree, top-left), a **terminal** pane
 | **Terminals section + terminal pane** | Terminals are first-class `kind=terminal` sessions listed under the **Terminals** section and shown in the bottom-left **terminal** pane. A **default terminal** opens in the launch directory at startup, and the cockpit always keeps at least one. Names update live as the shell `cd`s (`<index>. <repo>:<rel>/ (<branch>)`). Press **`t`** to create/focus a terminal in the opened agent's directory (`(c)reate`/`(f)ocus`); `x` closes one. |
 | **Directory groups** | `o` opens a directory as a group (becomes the spawn target for `n`), with `/fs/dirs` tab-completion. |
 | **Agent info + editing** | `i` opens the **agent info** pane (every stored field) with three interactive controls — **toggle auto-approve**, **cycle force-compact** (inherit → on → off), and open the **event log** (`e`, newest first). `esc` walks back: events → info → tree. |
-| **In-cockpit actions** | `n` new agent, `t` new/focus terminal, `s` send, `a` attach (full-screen), `d` digest overlay, `i` agent info, `e` event log, `p` approvals, `c` context/message inspector, `x` terminate/cancel/close, `D` delete pipeline record, `?` help. |
+| **In-cockpit actions** | `n` new agent, `t` new/focus terminal, `s` send, `a` attach (full-screen), `d` digest overlay, `i` agent info, `e` event log, `p` approvals, `c` context/message inspector, `l` log viewer (tails the TUI log), `x` terminate/cancel/close, `D` delete pipeline record, `?` help. |
 | **Self-update & TUI hot-reload** | Footer chip `[u] Update to vX.Y.Z available` runs `warden update` then `syscall.Exec`s the cockpit in place; `[r] Warden upgraded…` reloads after an external binary upgrade. Active tmux agent sessions are not interrupted. CLI: `warden update` / `wd update` (`--check`, `--version`, `--force`). Official install is the curl-piped `scripts/install.sh` one-liner (OS packages deprecated). |
 | **Viewport rotation** | Global **Alt** bindings (work from any pane, even while typing): `Alt+t` cycles the terminal pane over terminals, `Alt+a` cycles the agent pane over all agents, `Alt+p` cycles the agent pane over pipeline agents. Add **Shift** (`Alt+Shift+t/a/p`) to rotate in reverse. Each rotation grabs focus on the pane it drives, so cycling agents drops you straight into the session (mirroring the terminal rotation). A config-free **`Ctrl-b` prefix fallback** (`Ctrl-b` then `t`/`a`/`p`, Shift for reverse) runs the same rotation for terminals that don't send Alt/Option as Meta — **macOS Terminal.app / iTerm2** by default. |
 | **Opened marker (◆)** | The agent (Agents section or Pipelines job row) shown in the agent pane and the terminal shown in the terminal pane are marked with a **◆** — and their name carries a bold magenta badge — in the control tree; it tracks both `Enter`-open and the Alt rotation, so what's docked stays visible after the cursor moves. |

@@ -884,6 +884,18 @@ warden git review --json                # neutral machine-readable findings
 warden git review --ai-cli codex --json
 ```
 
+### `warden bug-report [id] [--json]` (user-approved crash reports)
+
+Shows the sanitized draft warden staged at `~/.warden/crashes/<id>.json` after a
+warden-bug crash (title, environment, sanitized stack), then prompts
+`Submit this bug report to https://github.com/srjn45/warden/issues? [y/N]`.
+Only `y` submits: with an authenticated `gh` it runs `gh issue create --repo
+srjn45/warden` and prints the issue URL; otherwise it prints a pre-filled
+`issues/new?title=…&body=…` link. Anything else leaves the draft staged. No id
+lists staged drafts, newest first. `--json` previews without prompting or
+submitting. In the cockpit, press `B` on the footer badge to review with
+Submit / Dismiss.
+
 ### `warden git release [--dry-run] [--yes] [--push] [--json]` (release tag advisor)
 
 Alias: `wd release` / `warden release`. Inspects the repo since its latest SemVer
@@ -1419,13 +1431,14 @@ type).
 | Key | Action |
 |---|---|
 | `↑`/`↓` or `j`/`k` | Move selection (the viewports are unaffected) |
-| `←`/`→` or `h`/`l` | Collapse / expand the section or the pipeline/agent sub-tree under the cursor |
+| `←`/`→` or `h` | Collapse / expand the section or the pipeline/agent sub-tree under the cursor |
 | `Enter` | Open the selected entity — an agent (or running pipeline job) attaches in the right agent pane; a terminal attaches in the bottom-left terminal pane; a finished agent or tombstone shows its stored detail instead of attaching |
 | `n` | New agent — opens a prompt textarea; `ctrl+s` to submit, `esc` to cancel |
 | `t` | New/focus a terminal in the opened agent's directory (`~` if none open) — inline `(c)reate` a fresh one or `(f)ocus` an existing one in that dir |
 | `o` | Open a directory as a group (becomes the spawn target for `n`) |
 | `s` | Send a message to the selected agent — `enter` to send, `esc` to cancel |
 | `a` | Attach — hands the whole client to the agent's/terminal's (or running job's) tmux session. Press **`Ctrl-b Enter`** to return to the dashboard (a hint flashes on attach). |
+| `l` | Log viewer — scrollable tail of the TUI log (`~/.warden/tui.log` or `$WARDEN_TUI_LOG`); `g`/`G` top/bottom, `l`/`esc` to close; levels coloured (ERROR red, WARN yellow, INFO cyan) |
 | `d` | Completion digest for the selected agent — scrollable overlay (`d`/`esc` to close) |
 | `i` | Answer pending approvals (also `enter` on the **⏳ Approvals** row) — `1`-`9` to answer, `tab` for next |
 | `c` | Shared-context + message-traffic inspector |
@@ -1440,7 +1453,7 @@ type).
 
 Pipelines appear in the control pane under a **▸ Pipelines** section (one header row
 per pipeline, then an indented row per job with a status glyph). Collapse/expand a
-pipeline with `←`/`→` (or `h`/`l`). On a pipeline row, `x` cancels it and `D`
+pipeline with `←`/`→` (or `h`). On a pipeline row, `x` cancels it and `D`
 deletes a stopped pipeline's record; on a job row, `r` retries a
 failed/needs-attention job, and `enter`/`a` opens a running job's session.
 (Authoring pipelines is via `warden pipeline create -f` — see §7.5; editing job
@@ -1448,7 +1461,7 @@ prompts and building pipelines in the TUI are not yet available.)
 
 Agents spawned by another agent (via the `spawn_agent` MCP tool) **nest under
 their parent** as a collapsible sub-tree — a `▸ / ▾` header indented per depth,
-toggled with `h`/`l` (`←`/`→`), the same affordance pipelines use. On the
+toggled with `h` / `←` / `→`, the same affordance pipelines use. On the
 **Projects** tab the navigator is built from the shared project-tree service
 (same shape as `GET /api/v1/tree`): projects hold autopilot runs, pipelines, and
 agent forests; work with no project lands under **No project**. Deleting a
