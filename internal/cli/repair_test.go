@@ -17,7 +17,7 @@ func TestApplySessionRepairBackupAndIdempotence(t *testing.T) {
 	data := filepath.Join(t.TempDir(), "data")
 	fs, err := store.NewFileStore(data)
 	require.NoError(t, err)
-	require.NoError(t, fs.Insert(ctx, &store.Session{ID: "a1", Status: store.StatusWorking}))
+	require.NoError(t, fs.Insert(ctx, &store.Session{ID: "a1", Name: "n-a1", Status: store.StatusWorking}))
 	require.NoError(t, fs.Close(ctx))
 	report, err := store.DiagnoseSessions(ctx, data)
 	require.NoError(t, err)

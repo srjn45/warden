@@ -22,8 +22,8 @@ func sampleExport(t *testing.T) *store.Export {
 		Version:    store.ExportVersion,
 		ExportedAt: time.Now().UTC(),
 		Sessions: []*store.Session{
-			{ID: "A-1", Type: store.TypeDevelopment, Subject: "first", Worktree: "/wt/a-1", Branch: "A-1"},
-			{ID: "A-2", Type: store.TypeAnalysis, Subject: "second"},
+			{ID: "A-1", Name: "n-a1", Type: store.TypeDevelopment, Subject: "first", Worktree: "/wt/a-1", Branch: "A-1"},
+			{ID: "A-2", Name: "n-a2", Type: store.TypeAnalysis, Subject: "second"},
 		},
 	}
 	blob, err := json.Marshal(env)
@@ -73,7 +73,7 @@ func TestImportMergeOverwritesCollision(t *testing.T) {
 	// A second dump for the same id but with changed metadata, imported with merge.
 	updated := &store.Export{
 		Version:  store.ExportVersion,
-		Sessions: []*store.Session{{ID: "A-1", Type: store.TypeDevelopment, Subject: "rewritten"}},
+		Sessions: []*store.Session{{ID: "A-1", Name: "n-a1", Type: store.TypeDevelopment, Subject: "rewritten"}},
 	}
 	res, err := importSessions(context.Background(), st, updated, true)
 	require.NoError(t, err)
@@ -129,7 +129,8 @@ func TestImportAgainstFileStore(t *testing.T) {
 
 	got, err := st.Get(ctx, "B-2")
 	require.NoError(t, err)
-	require.Equal(t, "", got.Name, "colliding name should be dropped on import")
+	require.NotEmpty(t, got.Name, "colliding name should be replaced by a generated codename")
+	require.NotEqual(t, "alpha", got.Name)
 	require.Equal(t, "clash", got.Subject)
 }
 
@@ -155,14 +156,14 @@ func TestHandleImportHTTP(t *testing.T) {
 		return res
 	}
 
-	env := &store.Export{Version: store.ExportVersion, Sessions: []*store.Session{{ID: "X-1", Subject: "v1"}}}
+	env := &store.Export{Version: store.ExportVersion, Sessions: []*store.Session{{ID: "X-1", Name: "n-x1", Subject: "v1"}}}
 	require.ElementsMatch(t, []string{"X-1"}, post(env, false).Imported)
 
 	// Without merge the second POST skips the existing id.
 	require.ElementsMatch(t, []string{"X-1"}, post(env, false).Skipped)
 
 	// With ?merge=true it overwrites.
-	env2 := &store.Export{Version: store.ExportVersion, Sessions: []*store.Session{{ID: "X-1", Subject: "v2"}}}
+	env2 := &store.Export{Version: store.ExportVersion, Sessions: []*store.Session{{ID: "X-1", Name: "n-x1", Subject: "v2"}}}
 	require.ElementsMatch(t, []string{"X-1"}, post(env2, true).Merged)
 	got, err := fs.Get(context.Background(), "X-1")
 	require.NoError(t, err)

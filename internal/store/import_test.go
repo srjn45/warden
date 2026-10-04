@@ -18,7 +18,7 @@ func legacyCorpus() (active, closed []*Session) {
 	code := 137
 	restore := now.Add(time.Hour)
 	noName := &Session{
-		ID: "agent-noname", TmuxSession: "agent-noname", Type: TypeDevelopment,
+		ID: "agent-noname", Name: "n-agent-noname", TmuxSession: "agent-noname", Type: TypeDevelopment,
 		Repo: "/repo", Status: StatusWorking, CreatedAt: now, UpdatedAt: now,
 		Events: []Event{{TS: now, Type: "spawn", Detail: "started"}},
 	}
@@ -28,7 +28,7 @@ func legacyCorpus() (active, closed []*Session) {
 		CreatedAt: now, UpdatedAt: now.Add(time.Minute), Events: []Event{},
 	}
 	exited := &Session{
-		ID: "agent-exited", TmuxSession: "agent-exited", Type: TypeTests,
+		ID: "agent-exited", Name: "n-agent-exited", TmuxSession: "agent-exited", Type: TypeTests,
 		Repo: "/repo", Status: StatusRateLimited, ExitCode: &code,
 		RateLimitedAt: &now, RateLimitRestoreAt: &restore, RateLimitRetryCount: 2,
 		CreatedAt: now, UpdatedAt: now.Add(2 * time.Minute), Events: []Event{},
@@ -95,7 +95,7 @@ func TestImportProvenanceVerbatimWhenMarked(t *testing.T) {
 	// Adopted: has a worktree + branch==id (which backfill WOULD infer as created)
 	// but explicit flags say adopted. Verbatim import must keep them false.
 	adopted := &Session{
-		ID: "agent-adopted", TmuxSession: "agent-adopted", Repo: "/repo",
+		ID: "agent-adopted", Name: "n-agent-adopted", TmuxSession: "agent-adopted", Repo: "/repo",
 		Worktree: ".worktrees/agent-adopted", Branch: "agent-adopted", Status: StatusWorking,
 		WorktreeCreated: false, BranchCreated: false,
 	}
@@ -144,12 +144,12 @@ func TestImportIdempotent(t *testing.T) {
 
 	st, err := NewFileStore(dir)
 	require.NoError(t, err)
-	require.NoError(t, st.Insert(ctx, &Session{ID: "post-upgrade", Status: StatusWorking}))
+	require.NoError(t, st.Insert(ctx, &Session{ID: "post-upgrade", Name: "n-post-upgrade", Status: StatusWorking}))
 	require.NoError(t, st.Close(ctx))
 
 	// Drop another legacy file AFTER the import completed; the sentinel exists, so
 	// the next open must NOT re-import it.
-	writeLegacy(t, dir, "sessions", &Session{ID: "ignored-legacy", Status: StatusWorking})
+	writeLegacy(t, dir, "sessions", &Session{ID: "ignored-legacy", Name: "n-ignored-legacy", Status: StatusWorking})
 
 	st2, err := NewFileStore(dir)
 	require.NoError(t, err)
@@ -181,9 +181,9 @@ func TestImportRollback(t *testing.T) {
 	// key, failing the closed collection's atomic load.
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "closed"), 0o700))
 	require.NoError(t, atomicWriteJSON(filepath.Join(dir, "closed", "one.json"),
-		&Session{ID: "dup", Subject: "first", Status: StatusDone}))
+		&Session{ID: "dup", Name: "n-dup", Subject: "first", Status: StatusDone}))
 	require.NoError(t, atomicWriteJSON(filepath.Join(dir, "closed", "two.json"),
-		&Session{ID: "dup", Subject: "second", Status: StatusDone}))
+		&Session{ID: "dup", Name: "n-dup", Subject: "second", Status: StatusDone}))
 
 	_, err := NewFileStore(dir)
 	require.Error(t, err, "duplicate key in the closed batch must fail the import")

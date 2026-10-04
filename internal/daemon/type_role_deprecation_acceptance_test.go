@@ -28,15 +28,15 @@ func TestTypeRoleDeprecationAcceptance(t *testing.T) {
 	legacy, err := store.NewFileStore(dir)
 	require.NoError(t, err)
 	require.NoError(t, legacy.Insert(ctx, &store.Session{
-		ID: "legacy-dev", Status: store.StatusWorking, Type: store.TypeDevelopment,
+		ID: "legacy-dev", Name: "n-legacy-dev", Status: store.StatusWorking, Type: store.TypeDevelopment,
 		Subject: "pre-migration development work", UpdatedAt: now, CreatedAt: now,
 	}))
 	require.NoError(t, legacy.Insert(ctx, &store.Session{
-		ID: "legacy-review", Status: store.StatusWorking, Type: store.TypePRReview,
+		ID: "legacy-review", Name: "n-legacy-review", Status: store.StatusWorking, Type: store.TypePRReview,
 		Subject: "pre-migration review", UpdatedAt: now, CreatedAt: now,
 	}))
 	require.NoError(t, legacy.Insert(ctx, &store.Session{
-		ID: "legacy-explicit", Status: store.StatusWorking,
+		ID: "legacy-explicit", Name: "n-legacy-explicit", Status: store.StatusWorking,
 		Type: store.TypeDevelopment, Role: "orchestrator",
 		Subject: "role already set", UpdatedAt: now, CreatedAt: now,
 	}))
@@ -65,7 +65,7 @@ func TestTypeRoleDeprecationAcceptance(t *testing.T) {
 	require.Equal(t, "orchestrator", store.EffectiveRole("orchestrator", store.TypeDevelopment))
 
 	// Insights FromSession classifies Type-only records by Role.
-	rec := insights.FromSession(&store.Session{ID: "x", Type: store.TypeDevelopment, Status: store.StatusDone}, nil)
+	rec := insights.FromSession(&store.Session{ID: "x", Name: "n-x", Type: store.TypeDevelopment, Status: store.StatusDone}, nil)
 	require.Equal(t, "implementer", rec.Role)
 	require.Equal(t, "implementer", rec.Type, "Type JSON dual-emitted as Role mirror")
 
@@ -133,7 +133,7 @@ func TestTypeOnlyRecordRoundTripThroughRealStore(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, s.Insert(ctx, &agentstore.Agent{
-		ID: "type-only", Status: store.StatusWorking, Type: store.TypeSpike,
+		ID: "type-only", Name: "n-type-only", Status: store.StatusWorking, Type: store.TypeSpike,
 		// Role intentionally omitted
 	}))
 	got, err := s.Get(ctx, "type-only")

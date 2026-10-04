@@ -17,7 +17,7 @@ func TestHierarchyAuthorityJSONAndDB(t *testing.T) {
 		{"legacy", nil}, {"empty", []string{}}, {"ordered", []string{"z", "dangling", "a"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			sess := Session{ID: tc.name, ChildAgents: tc.ids, ChildPipelines: tc.ids, ChildAutopilots: tc.ids, Subject: "preserved"}
+			sess := Session{ID: tc.name, Name: "n-" + tc.name, ChildAgents: tc.ids, ChildPipelines: tc.ids, ChildAutopilots: tc.ids, Subject: "preserved"}
 			raw, err := json.Marshal(sess)
 			require.NoError(t, err)
 			if tc.ids == nil {

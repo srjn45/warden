@@ -454,15 +454,15 @@ func TestHandleSetNameAllowsKeepingOwnName(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode, "renaming to the same name must not collide with itself")
 }
 
-func TestHandleSetNameClearsWhenBlank(t *testing.T) {
+func TestHandleSetNameRejectsBlank(t *testing.T) {
 	fs := newFakeStore()
 	_ = fs.Insert(context.Background(), &agentstore.Agent{ID: "A-1", TmuxSession: "A-1", Name: "mine", Status: store.StatusWorking})
 	srv := lifeServer(t, fs, &fakeLife{})
 	resp := patchJSON(t, srv.URL+"/api/v1/sessions/A-1/name", `{"name":""}`)
 	defer resp.Body.Close()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, "names are mandatory; blank rename is rejected")
 	got, _ := fs.Get(context.Background(), "A-1")
-	require.Equal(t, "", got.Name)
+	require.Equal(t, "mine", got.Name)
 }
 
 func TestHandleSetNameUnknownSession(t *testing.T) {
