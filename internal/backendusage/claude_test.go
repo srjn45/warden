@@ -112,7 +112,7 @@ func TestClaudeAdapterSessionWindowFromFixture(t *testing.T) {
 	require.Nil(t, session.LimitState)
 }
 
-func TestClaudeAdapterFallbackWhenEndpointFails(t *testing.T) {
+func TestClaudeAdapterUnauthenticatedWhenEndpointRejects(t *testing.T) {
 	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -127,13 +127,55 @@ func TestClaudeAdapterFallbackWhenEndpointFails(t *testing.T) {
 	}
 
 	got := a.Fetch(context.Background(), claudeBackend())
-	require.Equal(t, StatusOK, got.Status)
+	require.Equal(t, StatusUnauthenticated, got.Status)
+	require.NotNil(t, got.Error)
+	require.Equal(t, "unauthenticated", got.Error.Code)
 	require.Equal(t, "Max", got.Account.Plan)
+	require.Empty(t, got.Usage)
+}
+
+func TestClaudeAdapterUnavailableWhenEndpointErrors(t *testing.T) {
+	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	a := ClaudeAdapter{
+		Now:       func() time.Time { return now },
+		Endpoint:  srv.URL,
+		CredsPath: func() string { return "/synthetic/creds" },
+		ReadFile:  claudeCredsReader("valid_token", "pro"),
+	}
+
+	got := a.Fetch(context.Background(), claudeBackend())
+	require.Equal(t, StatusUnavailable, got.Status)
+	require.NotNil(t, got.Error)
+	require.Equal(t, "api_error", got.Error.Code)
+	require.Equal(t, "Pro", got.Account.Plan)
+	// Session bucket still present so callers can show the row with a stale indicator.
 	require.Len(t, got.Usage, 1)
 	require.Equal(t, "claude:session", got.Usage[0].ID)
 	require.Nil(t, got.Usage[0].UsedPercent)
-	require.Nil(t, got.Usage[0].RemainingPercent)
-	require.Nil(t, got.Usage[0].ResetsAt)
+}
+
+func TestClaudeAdapterUnavailableWhenNetworkFails(t *testing.T) {
+	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	srv.Close() // immediately closed — any request will fail
+
+	a := ClaudeAdapter{
+		Now:       func() time.Time { return now },
+		Endpoint:  srv.URL,
+		CredsPath: func() string { return "/synthetic/creds" },
+		ReadFile:  claudeCredsReader("valid_token", "pro"),
+	}
+
+	got := a.Fetch(context.Background(), claudeBackend())
+	require.Equal(t, StatusUnavailable, got.Status)
+	require.NotNil(t, got.Error)
+	require.Equal(t, "fetch_failed", got.Error.Code)
+	require.Equal(t, "Pro", got.Account.Plan)
 }
 
 func TestClaudeAdapterRateLimited(t *testing.T) {

@@ -3,6 +3,7 @@ package backendusage
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
@@ -49,6 +50,41 @@ func (a ClaudeAdapter) Fetch(ctx context.Context, b backendstore.Backend) Result
 	}
 
 	account := &Account{Plan: claudePlanLabel(creds.SubscriptionType), LoginMethod: "claude.ai"}
+
+	body, status, err := a.fetchUsage(ctx, creds.AccessToken)
+	if err != nil {
+		// Network or context error — transient; the service layer can serve a stale result.
+		return Result{
+			BackendID:  b.ID,
+			Status:     StatusUnavailable,
+			Account:    account,
+			Usage:      claudeLimits(nil, nil),
+			ObservedAt: now,
+			Error:      &ProviderError{Code: "fetch_failed", Message: "unable to reach usage endpoint"},
+		}
+	}
+	if status == http.StatusUnauthorized || status == http.StatusForbidden {
+		return Result{
+			BackendID:  b.ID,
+			Status:     StatusUnauthenticated,
+			Account:    account,
+			Usage:      []Limit{},
+			ObservedAt: now,
+			Error:      &ProviderError{Code: "unauthenticated", Message: fmt.Sprintf("usage endpoint returned HTTP %d — re-login to claude.ai", status)},
+		}
+	}
+	if status >= 400 {
+		return Result{
+			BackendID:  b.ID,
+			Status:     StatusUnavailable,
+			Account:    account,
+			Usage:      claudeLimits(nil, nil),
+			ObservedAt: now,
+			Error:      &ProviderError{Code: "api_error", Message: fmt.Sprintf("usage endpoint returned HTTP %d", status)},
+		}
+	}
+
+	// 2xx response: parse, falling back to nil-percent if five_hour is absent.
 	res := Result{
 		BackendID:  b.ID,
 		Status:     StatusOK,
@@ -56,21 +92,15 @@ func (a ClaudeAdapter) Fetch(ctx context.Context, b backendstore.Backend) Result
 		Usage:      claudeLimits(nil, nil),
 		ObservedAt: now,
 	}
-
-	body, status, err := a.fetchUsage(ctx, creds.AccessToken)
-	if err != nil || status >= 400 || len(body) == 0 {
-		return res
-	}
-
-	used, reset, ok := parseClaudeUsage(body)
-	if !ok {
-		return res
-	}
-
-	res.Usage = claudeLimits(used, reset)
-	if used != nil && *used >= 100 {
-		res.Status = StatusRateLimited
-		res.Error = &ProviderError{Code: "rate_limited", Message: "provider reports that the session usage limit has been reached"}
+	if len(body) > 0 {
+		used, reset, ok := parseClaudeUsage(body)
+		if ok {
+			res.Usage = claudeLimits(used, reset)
+			if used != nil && *used >= 100 {
+				res.Status = StatusRateLimited
+				res.Error = &ProviderError{Code: "rate_limited", Message: "provider reports that the session usage limit has been reached"}
+			}
+		}
 	}
 	return res
 }
