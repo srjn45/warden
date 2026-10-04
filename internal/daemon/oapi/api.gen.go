@@ -788,6 +788,21 @@ func (e SetPermissionModeJSONBodyPermissionMode) Valid() bool {
 	}
 }
 
+// AddPlanTaskRequest Append a task to a pending plan's DAG. When expected_revision is set, a mismatch returns 409 with structured conflict fields.
+type AddPlanTaskRequest struct {
+	// After Task ids that must complete before this task starts
+	After []string `json:"after,omitempty"`
+
+	// ExpectedRevision optimistic concurrency token; omit to use the revision observed at request start
+	ExpectedRevision int64 `json:"expected_revision,omitempty"`
+
+	// Id stable task id within its plan
+	Id string `json:"id"`
+
+	// Prompt work instruction for this task
+	Prompt string `json:"prompt"`
+}
+
 // AddProjectGroupMemberRequest defines model for AddProjectGroupMemberRequest.
 type AddProjectGroupMemberRequest struct {
 	// ProjectId Project id to add or remove (filesystem path or remote URL). Need not resolve to a registered project. Blank/missing is rejected with 400.
@@ -1984,6 +1999,18 @@ type UpdatePlanRequest struct {
 	Tasks            []PlanTask `json:"tasks,omitempty"`
 }
 
+// UpdatePlanTaskDefinitionRequest Patch prompt and/or after edges for one task on a pending plan. Omitted fields are left unchanged. When expected_revision is set, a mismatch returns 409 with structured conflict fields.
+type UpdatePlanTaskDefinitionRequest struct {
+	// After replacement after edges; omit to leave unchanged; empty clears deps
+	After *[]string `json:"after,omitempty"`
+
+	// ExpectedRevision optimistic concurrency token; omit to use the revision observed at request start
+	ExpectedRevision int64 `json:"expected_revision,omitempty"`
+
+	// Prompt replacement prompt; omit to leave unchanged
+	Prompt *string `json:"prompt,omitempty"`
+}
+
 // UpdateProjectGroupRequest defines model for UpdateProjectGroupRequest.
 type UpdateProjectGroupRequest struct {
 	// Name group display name (required)
@@ -2281,6 +2308,12 @@ type ListRelatedPlansParams struct {
 	Limit int `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// DeletePlanTaskParams defines parameters for DeletePlanTask.
+type DeletePlanTaskParams struct {
+	// ExpectedRevision optimistic concurrency token; omit to use the revision observed at request start
+	ExpectedRevision int64 `form:"expected_revision,omitempty" json:"expected_revision,omitempty"`
+}
+
 // ListProjectPlansParams defines parameters for ListProjectPlans.
 type ListProjectPlansParams struct {
 	Status PlanStatus `form:"status,omitempty" json:"status,omitempty"`
@@ -2559,6 +2592,12 @@ type RunPlanJSONRequestBody = RunPlanRequest
 
 // SyncPlanToRepoJSONRequestBody defines body for SyncPlanToRepo for application/json ContentType.
 type SyncPlanToRepoJSONRequestBody = SyncPlanToRepoRequest
+
+// AddPlanTaskJSONRequestBody defines body for AddPlanTask for application/json ContentType.
+type AddPlanTaskJSONRequestBody = AddPlanTaskRequest
+
+// UpdatePlanTaskDefinitionJSONRequestBody defines body for UpdatePlanTaskDefinition for application/json ContentType.
+type UpdatePlanTaskDefinitionJSONRequestBody = UpdatePlanTaskDefinitionRequest
 
 // UpdateTaskStatusJSONRequestBody defines body for UpdateTaskStatus for application/json ContentType.
 type UpdateTaskStatusJSONRequestBody = UpdateTaskStatusRequest
@@ -2868,6 +2907,15 @@ type ServerInterface interface {
 	// Export a plan revision to a dedicated branch and open a PR
 	// (POST /api/v1/plans/{plan_id}/sync_to_repo)
 	SyncPlanToRepo(w http.ResponseWriter, r *http.Request, planId PlanId)
+	// Add a task to a pending plan
+	// (POST /api/v1/plans/{plan_id}/tasks)
+	AddPlanTask(w http.ResponseWriter, r *http.Request, planId PlanId)
+	// Remove a task from a pending plan
+	// (DELETE /api/v1/plans/{plan_id}/tasks/{task_id})
+	DeletePlanTask(w http.ResponseWriter, r *http.Request, planId PlanId, taskId TaskId, params DeletePlanTaskParams)
+	// Update a task definition on a pending plan
+	// (PATCH /api/v1/plans/{plan_id}/tasks/{task_id}/definition)
+	UpdatePlanTaskDefinition(w http.ResponseWriter, r *http.Request, planId PlanId, taskId TaskId)
 	// Update task progress
 	// (POST /api/v1/plans/{plan_id}/tasks/{task_id}/status)
 	UpdateTaskStatus(w http.ResponseWriter, r *http.Request, planId PlanId, taskId TaskId)
@@ -3483,6 +3531,24 @@ func (_ Unimplemented) RunPlan(w http.ResponseWriter, r *http.Request, planId Pl
 // Export a plan revision to a dedicated branch and open a PR
 // (POST /api/v1/plans/{plan_id}/sync_to_repo)
 func (_ Unimplemented) SyncPlanToRepo(w http.ResponseWriter, r *http.Request, planId PlanId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Add a task to a pending plan
+// (POST /api/v1/plans/{plan_id}/tasks)
+func (_ Unimplemented) AddPlanTask(w http.ResponseWriter, r *http.Request, planId PlanId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Remove a task from a pending plan
+// (DELETE /api/v1/plans/{plan_id}/tasks/{task_id})
+func (_ Unimplemented) DeletePlanTask(w http.ResponseWriter, r *http.Request, planId PlanId, taskId TaskId, params DeletePlanTaskParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Update a task definition on a pending plan
+// (PATCH /api/v1/plans/{plan_id}/tasks/{task_id}/definition)
+func (_ Unimplemented) UpdatePlanTaskDefinition(w http.ResponseWriter, r *http.Request, planId PlanId, taskId TaskId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -5870,6 +5936,136 @@ func (siw *ServerInterfaceWrapper) SyncPlanToRepo(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SyncPlanToRepo(w, r, planId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AddPlanTask operation middleware
+func (siw *ServerInterfaceWrapper) AddPlanTask(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "plan_id" -------------
+	var planId PlanId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "plan_id", chi.URLParam(r, "plan_id"), &planId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "plan_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AddPlanTask(w, r, planId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeletePlanTask operation middleware
+func (siw *ServerInterfaceWrapper) DeletePlanTask(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "plan_id" -------------
+	var planId PlanId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "plan_id", chi.URLParam(r, "plan_id"), &planId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "plan_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "task_id" -------------
+	var taskId TaskId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "task_id", chi.URLParam(r, "task_id"), &taskId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "task_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeletePlanTaskParams
+
+	// ------------- Optional query parameter "expected_revision" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "expected_revision", r.URL.Query(), &params.ExpectedRevision, runtime.BindQueryParameterOptions{Type: "integer", Format: "int64"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "expected_revision"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "expected_revision", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeletePlanTask(w, r, planId, taskId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdatePlanTaskDefinition operation middleware
+func (siw *ServerInterfaceWrapper) UpdatePlanTaskDefinition(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "plan_id" -------------
+	var planId PlanId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "plan_id", chi.URLParam(r, "plan_id"), &planId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "plan_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "task_id" -------------
+	var taskId TaskId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "task_id", chi.URLParam(r, "task_id"), &taskId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "task_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdatePlanTaskDefinition(w, r, planId, taskId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -8397,6 +8593,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/plans/{plan_id}/sync_to_repo", wrapper.SyncPlanToRepo)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/plans/{plan_id}/tasks", wrapper.AddPlanTask)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/api/v1/plans/{plan_id}/tasks/{task_id}", wrapper.DeletePlanTask)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/api/v1/plans/{plan_id}/tasks/{task_id}/definition", wrapper.UpdatePlanTaskDefinition)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/plans/{plan_id}/tasks/{task_id}/status", wrapper.UpdateTaskStatus)
@@ -11253,6 +11458,203 @@ func (response SyncPlanToRepo503JSONResponse) VisitSyncPlanToRepoResponse(w http
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddPlanTaskRequestObject struct {
+	PlanId PlanId `json:"plan_id"`
+	Body   *AddPlanTaskJSONRequestBody
+}
+
+type AddPlanTaskResponseObject interface {
+	VisitAddPlanTaskResponse(w http.ResponseWriter) error
+}
+
+type AddPlanTask200JSONResponse Plan
+
+func (response AddPlanTask200JSONResponse) VisitAddPlanTaskResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddPlanTask400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response AddPlanTask400JSONResponse) VisitAddPlanTaskResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddPlanTask404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response AddPlanTask404JSONResponse) VisitAddPlanTaskResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddPlanTask409JSONResponse PlanMutationConflict
+
+func (response AddPlanTask409JSONResponse) VisitAddPlanTaskResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeletePlanTaskRequestObject struct {
+	PlanId PlanId `json:"plan_id"`
+	TaskId TaskId `json:"task_id"`
+	Params DeletePlanTaskParams
+}
+
+type DeletePlanTaskResponseObject interface {
+	VisitDeletePlanTaskResponse(w http.ResponseWriter) error
+}
+
+type DeletePlanTask200JSONResponse Plan
+
+func (response DeletePlanTask200JSONResponse) VisitDeletePlanTaskResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeletePlanTask400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response DeletePlanTask400JSONResponse) VisitDeletePlanTaskResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeletePlanTask404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeletePlanTask404JSONResponse) VisitDeletePlanTaskResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeletePlanTask409JSONResponse PlanMutationConflict
+
+func (response DeletePlanTask409JSONResponse) VisitDeletePlanTaskResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdatePlanTaskDefinitionRequestObject struct {
+	PlanId PlanId `json:"plan_id"`
+	TaskId TaskId `json:"task_id"`
+	Body   *UpdatePlanTaskDefinitionJSONRequestBody
+}
+
+type UpdatePlanTaskDefinitionResponseObject interface {
+	VisitUpdatePlanTaskDefinitionResponse(w http.ResponseWriter) error
+}
+
+type UpdatePlanTaskDefinition200JSONResponse Plan
+
+func (response UpdatePlanTaskDefinition200JSONResponse) VisitUpdatePlanTaskDefinitionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdatePlanTaskDefinition400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response UpdatePlanTaskDefinition400JSONResponse) VisitUpdatePlanTaskDefinitionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdatePlanTaskDefinition404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UpdatePlanTaskDefinition404JSONResponse) VisitUpdatePlanTaskDefinitionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdatePlanTaskDefinition409JSONResponse PlanMutationConflict
+
+func (response UpdatePlanTaskDefinition409JSONResponse) VisitUpdatePlanTaskDefinitionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -14202,6 +14604,15 @@ type StrictServerInterface interface {
 	// Export a plan revision to a dedicated branch and open a PR
 	// (POST /api/v1/plans/{plan_id}/sync_to_repo)
 	SyncPlanToRepo(ctx context.Context, request SyncPlanToRepoRequestObject) (SyncPlanToRepoResponseObject, error)
+	// Add a task to a pending plan
+	// (POST /api/v1/plans/{plan_id}/tasks)
+	AddPlanTask(ctx context.Context, request AddPlanTaskRequestObject) (AddPlanTaskResponseObject, error)
+	// Remove a task from a pending plan
+	// (DELETE /api/v1/plans/{plan_id}/tasks/{task_id})
+	DeletePlanTask(ctx context.Context, request DeletePlanTaskRequestObject) (DeletePlanTaskResponseObject, error)
+	// Update a task definition on a pending plan
+	// (PATCH /api/v1/plans/{plan_id}/tasks/{task_id}/definition)
+	UpdatePlanTaskDefinition(ctx context.Context, request UpdatePlanTaskDefinitionRequestObject) (UpdatePlanTaskDefinitionResponseObject, error)
 	// Update task progress
 	// (POST /api/v1/plans/{plan_id}/tasks/{task_id}/status)
 	UpdateTaskStatus(ctx context.Context, request UpdateTaskStatusRequestObject) (UpdateTaskStatusResponseObject, error)
@@ -16377,6 +16788,101 @@ func (sh *strictHandler) SyncPlanToRepo(w http.ResponseWriter, r *http.Request, 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SyncPlanToRepoResponseObject); ok {
 		if err := validResponse.VisitSyncPlanToRepoResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AddPlanTask operation middleware
+func (sh *strictHandler) AddPlanTask(w http.ResponseWriter, r *http.Request, planId PlanId) {
+	var request AddPlanTaskRequestObject
+
+	request.PlanId = planId
+
+	var body AddPlanTaskJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AddPlanTask(ctx, request.(AddPlanTaskRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AddPlanTask")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AddPlanTaskResponseObject); ok {
+		if err := validResponse.VisitAddPlanTaskResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeletePlanTask operation middleware
+func (sh *strictHandler) DeletePlanTask(w http.ResponseWriter, r *http.Request, planId PlanId, taskId TaskId, params DeletePlanTaskParams) {
+	var request DeletePlanTaskRequestObject
+
+	request.PlanId = planId
+	request.TaskId = taskId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeletePlanTask(ctx, request.(DeletePlanTaskRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeletePlanTask")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeletePlanTaskResponseObject); ok {
+		if err := validResponse.VisitDeletePlanTaskResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdatePlanTaskDefinition operation middleware
+func (sh *strictHandler) UpdatePlanTaskDefinition(w http.ResponseWriter, r *http.Request, planId PlanId, taskId TaskId) {
+	var request UpdatePlanTaskDefinitionRequestObject
+
+	request.PlanId = planId
+	request.TaskId = taskId
+
+	var body UpdatePlanTaskDefinitionJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdatePlanTaskDefinition(ctx, request.(UpdatePlanTaskDefinitionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdatePlanTaskDefinition")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdatePlanTaskDefinitionResponseObject); ok {
+		if err := validResponse.VisitUpdatePlanTaskDefinitionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
