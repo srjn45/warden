@@ -180,3 +180,10 @@ func TestArbiterPromptsAndInvalidInput(t *testing.T) {
 	_, err = ArbitrateApproval(context.Background(), nil, ArbiterInput{Approval: strategic})
 	require.ErrorIs(t, err, ErrInvalidRequest)
 }
+
+func TestEngineArbitrateApprovalMethod(t *testing.T) {
+	var e Engine = NewEngine(&counted{out: `{"approve": true, "confidence": 0.9}`}, nil)
+	d, err := e.ArbitrateApproval(context.Background(), ArbiterInput{Approval: toolApprovals["claude"]})
+	require.NoError(t, err)
+	require.Equal(t, DecisionApprove, d.Action)
+}

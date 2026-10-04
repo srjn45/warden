@@ -48,10 +48,27 @@ func escalate(cat PromptCategory, tier Tier, resp Response, why string) ArbiterD
 	return ArbiterDecision{Action: DecisionEscalate, Confidence: resp.Confidence, Rationale: r, Category: cat, Tier: tier}
 }
 
-// ArbitrateApproval decides a pending prompt via Engine.Decide. Destructive
+// ArbitrateApproval is a thin wrapper over the Engine method: it decides a pending prompt via Engine.Decide. Destructive
 // prompts escalate before any model call; every failure mode fails open to
 // DecisionEscalate. An error is returned only for invalid input.
 func ArbitrateApproval(ctx context.Context, e Engine, in ArbiterInput) (ArbiterDecision, error) {
+	if e == nil {
+		return ArbiterDecision{}, fmt.Errorf("%w: nil engine", ErrInvalidRequest)
+	}
+	return arbitrate(ctx, e, in)
+}
+
+// ArbitrateApproval implements Engine.
+func (e *engine) ArbitrateApproval(ctx context.Context, in ArbiterInput) (ArbiterDecision, error) {
+	return arbitrate(ctx, e, in)
+}
+
+// decider is the single evaluation path the arbiter is built on.
+type decider interface {
+	Decide(ctx context.Context, req Request) (Response, error)
+}
+
+func arbitrate(ctx context.Context, e decider, in ArbiterInput) (ArbiterDecision, error) {
 	if e == nil {
 		return ArbiterDecision{}, fmt.Errorf("%w: nil engine", ErrInvalidRequest)
 	}
