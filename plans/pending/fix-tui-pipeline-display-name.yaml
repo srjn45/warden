@@ -1,0 +1,59 @@
+version: 1
+name: fix-tui-pipeline-display-name
+goal: >-
+  Fix issue #596 where plan-bound pipelines render raw ID instead of canonical P:<name> in the TUI
+  project tree, add regression tests, open PR, verify CI, merge PR, tag release v9.10.1, and close issue #596.
+constraints:
+  - "Work in an isolated branch/worktree off origin/main; one worker per task."
+  - "Keep the tree green — run `wd check` (or make verify-fast) before committing."
+  - "Follow semantic versioning: this backwards-compatible bug fix warrants a patch release (v9.10.1)."
+  - "Link and close GitHub issue #596 upon completion."
+done_when:
+  - "Pipeline rows in TUI render P:<name> when Name is non-empty, falling back to ID."
+  - "Regression unit tests in internal/tui/list_test.go pass."
+  - "Pull request is opened, passes CI, and is merged into main."
+  - "Release tag v9.10.1 is pushed to origin."
+  - "GitHub issue #596 is closed."
+tasks:
+  - id: Task1_FixPipelineDisplayNameAndTest
+    prompt: >-
+      Implement the fix for issue #596 and add regression tests:
+      1) In internal/tui/list.go around line 933:
+         - In `case it.pipeline != nil:` update rendering to prefer `it.pipeline.Name` when non-empty, falling back to `it.pipeline.ID`:
+           ```go
+           name := it.pipeline.ID
+           if it.pipeline.Name != "" {
+               name = it.pipeline.Name
+           }
+           line = collapsePrefix(it.depth, it.collapsed) + stPaneTitle.Render(name) + "  " + st.Render(glyph+" "+label)
+           ```
+      2) In internal/tui/list_test.go:
+         - Add unit test verifying that a pipeline item with ID "plan-81d55a07" and Name "P:hub-sync-phase-b-c" renders the Name rather than the ID.
+         - Verify that an unnamed pipeline (Name == "") still falls back to its ID.
+      3) Run `go test -v ./internal/tui/...` and `make verify-fast` to ensure all tests pass.
+      Commit changes on a dedicated branch `fix/596-pipeline-display-name`.
+
+  - id: Task2_OpenPRAndVerifyCI
+    after:
+      - Task1_FixPipelineDisplayNameAndTest
+    prompt: >-
+      Open Pull Request, monitor CI, and merge into main:
+      1) Push branch `fix/596-pipeline-display-name` to origin.
+      2) Open PR against `main` using `gh pr create`:
+         - Title: `fix(tui): render pipeline display name instead of raw ID (#596)`
+         - Body: Describe the root cause, fix, and include `Fixes #596`.
+      3) Monitor CI checks using `gh pr checks --watch` until all status checks pass green.
+      4) Merge the PR into `main` using `gh pr merge --squash --delete-branch`.
+
+  - id: Task3_TagReleaseAndCloseIssue
+    after:
+      - Task2_OpenPRAndVerifyCI
+    prompt: >-
+      Create release tag v9.10.1, verify release workflow, and confirm issue closure:
+      1) Checkout and pull latest `main` (`git checkout main && git pull origin main`).
+      2) Create annotated tag `v9.10.1`:
+         `git tag -a v9.10.1 -m "Release v9.10.1: fix plan-bound pipeline display name in TUI (#596)"`
+      3) Push tag to origin: `git push origin v9.10.1`.
+      4) Monitor GitHub Actions release workflow: `gh run list --workflow=release.yml -L 1`.
+      5) Verify GitHub issue #596 status and close it if not already closed by the PR merge:
+         `gh issue view 596` and `gh issue close 596 --comment "Fixed in #<pr-number> and released in v9.10.1"`.
