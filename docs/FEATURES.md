@@ -142,7 +142,7 @@ attaching. Controlled by the `approvals` config setting (on by default).
 ### Auto-Approve
 
 Automatically answer recognized tool-permission prompts. Off by default (opt-in
-safety). Two cooperating layers:
+safety). Two cooperating layers, plus an optional third (Fast-Brain, below):
 
 1. **Per-agent toggle** (`warden approval auto set <id> on|off`) — opt one agent into
    evaluation even when the global policy is disabled.
@@ -163,6 +163,17 @@ is a wildcard — an empty rule matches everything, so it is refused on the CLI)
 - `pattern` — case-insensitive glob/substring over `Tool(arg)` and the question.
 - `regex` — a **Go regular expression** over `Tool(arg)` and the question.
 - `paths` — globs against path tokens in the action argument.
+
+**Fast-Brain arbiter (third layer, opt-in):** with `use_fast_brain: true`
+(default `false`) and the daemon's `internal/fastbrain` engine wired, prompts
+the static rules cannot answer — plus strategic questions where
+`AffirmativeIdx == 0` — are sent to `Engine.ArbitrateApproval` (built on
+`Engine.Decide`). Tool permissions use the fast tier (≤1.5s); strategic
+questions use the thinking tier (≤10s). A decision is applied only at
+confidence ≥ 0.8; on timeout, error, reject, or low confidence it **fails open**
+to the human / brain. The destructive deny-list and the circuit breaker always
+run *before* the model. The daemon builds the engine from the existing Claude
+`-p` runner (same runner for both tiers).
 
 **Per-agent overrides** live under `agents:` keyed by agent name or id; each is its
 own `{enabled, allow_sticky, rules}` block that replaces the default for that agent

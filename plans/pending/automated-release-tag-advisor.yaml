@@ -1,0 +1,57 @@
+version: 1
+name: automated-release-tag-advisor
+goal: >-
+  Implement `warden git release` (with alias `warden release` / `wd release`) to automate
+  release tagging: inspect commits and PRs since the latest git tag, analyze SemVer bump
+  (major/minor/patch), recommend version and generate changelog, and provide interactive
+  1-click tag creation and origin push to trigger release CI.
+constraints:
+  - "Work in an isolated branch/worktree off origin/main; one worker per task."
+  - "Keep the tree green — run make verify-fast and go test ./... before committing."
+  - "Follow Semantic Versioning strictly (vMAJOR.MINOR.PATCH)."
+  - "Never create or push tags without user confirmation unless --yes is explicitly passed."
+done_when:
+  - "internal/release package inspects commits since latest tag and determines SemVer bump."
+  - "Conventional Commits and merged PRs are summarized into clean changelog categories."
+  - "CLI command `warden git release` (and shortcut `warden release`) displays recommendation and interactive prompt."
+  - "Annotated tag creation and optional push to origin are executed seamlessly."
+  - "Full unit test coverage for engine and CLI commands."
+tasks:
+  - id: Task1_ReleaseAdvisorEngine
+    prompt: >-
+      Implement the release advisor and SemVer analysis engine:
+      1) In internal/release/advisor.go:
+         - Discover latest reachable tag on current branch (fallback to initial commit if no tags).
+         - Parse commits between latestTag..HEAD: commit hash, author, subject, body.
+         - Parse Conventional Commit types: breaking changes (BREAKING CHANGE / type!), feat, fix, perf, refactor, docs, chore.
+         - Integrate with `gh pr list --state merged` when available to enrich commits with PR numbers and titles.
+         - Determine recommended SemVer bump:
+           - Major: if any breaking change is present.
+           - Minor: if any `feat` commit is present.
+           - Patch: if only fixes, performance improvements, or docs/chores are present.
+         - Calculate next candidate version (e.g. v9.10.1 -> v9.11.0 or v9.10.2).
+         - Generate formatted changelog markdown grouped by Features, Bug Fixes, and Maintenance.
+      2) In internal/release/advisor_test.go:
+         - Add unit tests with mock commit histories verifying Major, Minor, and Patch bump calculations and changelog generation.
+      Ensure `go test ./internal/release/...` passes.
+
+  - id: Task2_ReleaseCLICommand
+    after:
+      - Task1_ReleaseAdvisorEngine
+    prompt: >-
+      Implement the CLI command and interactive prompt:
+      1) In internal/cli/release.go:
+         - Register `warden git release` and top-level alias `warden release`.
+         - Flags: `--dry-run`, `--tag <version>`, `--push` (default true), `--yes` (non-interactive), `--json`.
+         - When executed:
+           - Print latest tag, commit count, categorized changes, and recommended SemVer version.
+           - If `--yes` or non-interactive: create recommended tag and push if `--push`.
+           - In interactive mode: prompt with selectable options:
+             1. Tag HEAD as recommended version and push to origin.
+             2. Tag HEAD as custom version.
+             3. Print changelog only (dry-run).
+             4. Cancel.
+           - On confirmation: run `git tag -a <version> -m "<changelog>"` and `git push origin <version>`.
+      2) In internal/cli/release_test.go:
+         - Add CLI command tests with `--dry-run` and `--json`.
+      3) Run `make verify-fast` and all tests. Open a PR against main.

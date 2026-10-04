@@ -155,7 +155,7 @@ Key capabilities and use cases:
    - Falls back immediately to memorable `adjective-noun` codenames (`swift-falcon`, `amber-badger`) on timeout, offline, or prompt-less spawns.
    - Remaining Fast-Brain work: fold naming into the shared `internal/fastbrain` micro-decision engine with unified schemas/telemetry.
 
-2. **Intelligent Auto-Approval & Question Arbiter (`ArbitrateApproval`)**:
+2. **Intelligent Auto-Approval & Question Arbiter (`ArbitrateApproval`)** — *shipped* (`internal/fastbrain`, opt-in via `auto_approve.use_fast_brain`; fast tier ≤1.5s for tool permissions, thinking tier ≤10s for strategic questions, confidence ≥ 0.8, fail-open to human/brain):
    - Acts as an inline safety judge for forwarded tool execution and permission prompts (`[y/n]`, bash commands, file edits).
    - Evaluates whether commands are safe and aligned with the plan/task goal, avoiding stalling unattended worker pipelines.
    - Resolves ambiguous multi-choice options asked by workers (`"Should I update struct A or create B?"`) according to the active plan's constraints.
