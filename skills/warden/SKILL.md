@@ -337,7 +337,7 @@ satisfied.
 | `get_plan` | Fetch one plan by stable `plan-<8hex>` ID: goal, tasks, revision, executor_id, task_summary, export_status, repo_export, linked IDs, `task_progress`, timestamps. Does not read repository YAML. |
 | `find_related_plans` | Heuristic overlap query (same project, title/goal tokens, linked branches/PRs). Always returns `heuristic=true` + disclaimer — not authoritative duplicate detection. |
 | `create_plan` | Create a new canonical plan in ScrivaDB (no `plans/` directory required). Requires `project_id`, `name`, `goal`, and at least one task (`id` + `prompt`; optional `after[]`). Multi-task plans without `after` are auto-chained in order. |
-| `update_plan` | Patch a **pending** plan's definition (`name`/`goal`/`tasks`/`constraints`/`done_when`). Rejected if the plan is not pending. Supports `expected_revision` for optimistic concurrency. |
+| `update_plan` | Patch a **pending** plan's definition (`name`/`goal`/`tasks`/`constraints`/`done_when`). Rejected if the plan is not pending (409). Supports `expected_revision` for optimistic concurrency. CLI: `wd plan update` / `wd plan edit` (interactive `$EDITOR`). Granular task DAG: `wd plan task add\|edit\|rm` (API `POST/PATCH/DELETE …/tasks`). |
 | `update_plan_status` | **Legacy.** Prefer `run_plan` / `complete_plan` / `archive_plan` for the PlanService state machine. |
 | `archive_plan` | Move a plan to `archived` (any status). |
 | `assess_plan` | **After a reinstall recovery** — call `assess_plan { plan_id: "<id>" }` for each `in_progress` plan to reconstruct `task_progress` from `git log` and open PRs via the brain Consultor. Opt-in; never automatic. |
@@ -380,6 +380,7 @@ assess_plan { project_id: "<id>", plan_id: "<id>" } # brain reconstructs task pr
 ### Guardrails
 
 - **Prefer ScrivaDB over YAML/JSON replicas** — create/run/complete via MCP; do not treat `plans/**/*.{yaml,yml,json}` as authority. JSON exports (`warden_plan_export` marker) are inert review artifacts only. Use `import_legacy_plans` only for explicit YAML cutover (JSON is never imported as legacy SoT).
+- **Mutate definitions only while pending** — `update_plan` / `wd plan update|edit|task` return 409 on non-pending plans. Do not invent workarounds (editing replicas, raw DB writes).
 - **Use `run_plan` / `complete_plan` / `archive_plan` instead of raw `git mv`** — lifecycle is a ScrivaDB field update.
 - **`assess_plan` is opt-in** — never call it automatically on every import; it spawns a brain Consultor and takes time.
 - **`project_id` for local projects is the absolute path** — e.g. `"/home/user/my-repo"`. Pass the `cwd` of the project, not a short name.
