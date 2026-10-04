@@ -76,6 +76,18 @@ auto_approve:
 
 With **no rules** configured, an enabled policy keeps the simple legacy behavior: it auto-answers every recognized, non-destructive prompt by pressing the least-privilege affirmative. Multi-select / text-entry / unrecognized prompts always fall back to manual. Both layers are also MCP tools: `set_auto_approve` (toggle) and `set_auto_approve_policy` (rules).
 
+### Fast-Brain arbiter (optional third layer)
+
+Set `use_fast_brain: true` (default `false`) to let a small, fast model answer the prompts your static rules can't — unmatched tool permissions and strategic questions the rules have no opinion on:
+
+```yaml
+auto_approve:
+  enabled: true
+  use_fast_brain: true
+```
+
+Tool permissions get a ≤1.5s fast-tier call; strategic questions get a ≤10s thinking-tier call. A decision is only applied at confidence ≥ 0.8; on timeout, error, reject, or low confidence it fails open and the prompt goes to you (or the brain agent). The destructive deny-list and the circuit breaker always run before the model, so it can never approve something they would block. The daemon reuses its existing Claude `-p` runner for both tiers.
+
 ## The circuit breaker
 
 Auto-approving a prompt should unblock the agent. When the **identical** prompt keeps re-appearing after being approved — the agent is re-running a failing command (expired credentials, a broken login) and re-asking forever — approving again just burns CPU and tokens. The breaker halts auto-approval after `max_repeats` consecutive identical approvals (default **10**), records an `approval_loop` anomaly on the agent, fires your notifier, and leaves the prompt unanswered so the agent surfaces as `waiting_for_input`.
