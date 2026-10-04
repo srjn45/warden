@@ -884,6 +884,21 @@ warden git review --json                # neutral machine-readable findings
 warden git review --ai-cli codex --json
 ```
 
+### `warden git release [--dry-run] [--yes] [--push] [--json]` (release tag advisor)
+
+Alias: `wd release` / `warden release`. Inspects the repo since its latest SemVer
+tag and prints the recommended bump, next `vMAJOR.MINOR.PATCH`, and a categorized
+changelog. Interactive by default: asks before creating an annotated tag (default
+N) and, with `--push`, before pushing it to `origin` (default N). `--yes` skips the
+tag prompt; `--yes --push` tags and pushes with no prompts; `--dry-run` never
+tags or pushes; `--json` emits the advice and actions taken. An existing tag is
+never overwritten, and a `none` bump short-circuits with nothing to release.
+
+```
+warden git release --dry-run
+warden git release --yes --push
+```
+
 ### `warden backend model [--backend <id>] [--json]` (live backend model menu)
 
 `warden backend model` lists the **live, currently-available model menu** the agent's

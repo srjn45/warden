@@ -41,3 +41,4 @@ send
 commit
 push
 sync
+release

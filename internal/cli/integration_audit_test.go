@@ -26,7 +26,7 @@ func TestRootHelpOffersExactlyTheApprovedSurface(t *testing.T) {
 	for _, name := range []string{"login", "setup", "tutorial", "doctor", "factory-reset", "tui", "update", "version"} {
 		want[name] = true
 	}
-	for _, name := range []string{"start", "ls", "status", "send", "commit", "push", "sync"} {
+	for _, name := range []string{"start", "ls", "status", "send", "commit", "push", "sync", "release"} {
 		want[name] = true
 	}
 	got := map[string]bool{}
@@ -146,7 +146,7 @@ func TestCompletionOffersCanonicalPathsAndHidesLegacyAliases(t *testing.T) {
 	t.Parallel()
 
 	root := complete(t, "")
-	for _, want := range append(append([]string{}, canonicalNamespaces...), "ls", "start", "status", "send", "commit", "push", "sync") {
+	for _, want := range append(append([]string{}, canonicalNamespaces...), "ls", "start", "status", "send", "commit", "push", "sync", "release") {
 		if !contains(root, want) {
 			t.Errorf("root completion missing %q", want)
 		}
@@ -161,7 +161,7 @@ func TestCompletionOffersCanonicalPathsAndHidesLegacyAliases(t *testing.T) {
 		want []string
 	}{
 		{"agent", []string{"start", "list", "stop", "role", "permission-mode", "compact"}},
-		{"git", []string{"commit", "push", "sync", "review"}},
+		{"git", []string{"commit", "push", "sync", "review", "release"}},
 		{"autopilot", []string{"enable", "disable", "run", "land"}},
 		{"approval", []string{"list", "answer", "auto"}},
 		{"schedule", []string{"create", "list", "show"}},
