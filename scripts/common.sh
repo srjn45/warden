@@ -5,6 +5,7 @@
 
 # --- config ---------------------------------------------------------------
 LABEL="com.srajanpathak.warden"
+GITHUB_REPO="${WARDEN_GITHUB_REPO:-srjn45/warden}"
 # Common-name of the self-signed code-signing cert created by codesign-setup.sh.
 # Signing the binary with a stable identity keeps macOS Full Disk Access grants
 # valid across rebuilds (see codesign-setup.sh for the full rationale).
@@ -39,8 +40,18 @@ LOG_ERR="/tmp/warden.daemon.err"
 UID_NUM="$(id -u)"
 
 # Resolve repo root from this file's location (scripts/ sits at the repo root).
-_COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$_COMMON_DIR/.." && pwd)"
+# Callers (install.sh curl|bash bootstrap) may pre-set WARDEN_STANDALONE=1 when
+# this file was fetched into a temp dir rather than living in a git checkout.
+# BASH_SOURCE is preferred; fall back to $0 for odd invoke styles under set -u.
+_COMMON_SRC="${BASH_SOURCE[0]:-}"
+[ -n "$_COMMON_SRC" ] || _COMMON_SRC="${0:-.}"
+_COMMON_DIR="$(cd "$(dirname "$_COMMON_SRC")" && pwd)"
+if [ -z "${REPO_ROOT:-}" ]; then
+  REPO_ROOT="$(cd "$_COMMON_DIR/.." && pwd)"
+fi
+WARDEN_STANDALONE="${WARDEN_STANDALONE:-0}"
+# Prefer the on-disk deploy/ template when present (dev checkout); render_plist
+# falls back to the embedded copy so curl|bash needs no deploy/ directory.
 TEMPLATE="$REPO_ROOT/deploy/$LABEL.plist.template"
 
 # Detect platform; SERVICE_CONFIG is the canonical service-config path for all
@@ -77,6 +88,21 @@ wire_git_hooks() {
   fi
 }
 
+# --- install mode (dev checkout vs standalone release download) ------------
+# Dev mode: git checkout with a Makefile (./scripts/install.sh / make install).
+# Standalone: curl|bash, missing checkout, or WARDEN_INSTALL_MODE=release.
+is_dev_install() {
+  case "${WARDEN_INSTALL_MODE:-}" in
+    dev|local) return 0 ;;
+    release|standalone) return 1 ;;
+  esac
+  [ "${WARDEN_STANDALONE:-0}" = "1" ] && return 1
+  [ -f "$REPO_ROOT/Makefile" ] || return 1
+  command -v git >/dev/null 2>&1 || return 1
+  git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 1
+  return 0
+}
+
 # --- build & binary -------------------------------------------------------
 build_release() {
   info "building release (make release)…"
@@ -102,20 +128,167 @@ deploy_binary() {
   BINARY_CHANGED=1
 }
 
+# Map uname OS/arch to goreleaser archive names (linux|darwin × amd64|arm64).
+detect_release_target() {
+  local os arch
+  os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+  arch="$(uname -m)"
+  case "$os" in
+    linux|darwin) ;;
+    *) die "unsupported OS '$os' — standalone install supports linux and darwin only" ;;
+  esac
+  case "$arch" in
+    x86_64|amd64) arch="amd64" ;;
+    aarch64|arm64) arch="arm64" ;;
+    *) die "unsupported architecture '$arch' — standalone install supports amd64 and arm64 only" ;;
+  esac
+  RELEASE_OS="$os"
+  RELEASE_ARCH="$arch"
+}
+
+# Resolve RELEASE_TAG (vX.Y.Z) and RELEASE_VERSION (X.Y.Z) from WARDEN_VERSION
+# or the GitHub Releases "latest" API. No jq required.
+resolve_release_version() {
+  local tag version
+  if [ -n "${WARDEN_VERSION:-}" ]; then
+    version="${WARDEN_VERSION#v}"
+    tag="v${version}"
+  else
+    command -v curl >/dev/null 2>&1 || die "curl is required to resolve the latest release"
+    tag="$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" \
+      | tr -d '\n' \
+      | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+    [ -n "$tag" ] || die "failed to resolve latest release tag from GitHub API"
+    version="${tag#v}"
+  fi
+  RELEASE_TAG="$tag"
+  RELEASE_VERSION="$version"
+}
+
+# Verify $1's SHA256 against an entry in checksums.txt ($2). Uses sha256sum
+# (Linux) or shasum -a 256 (macOS).
+verify_release_checksum() {
+  local file="$1" sums="$2" base expected actual
+  base="$(basename "$file")"
+  expected="$(awk -v f="$base" '$2 == f { print $1; exit }' "$sums")"
+  [ -n "$expected" ] || die "checksums.txt has no entry for $base"
+  if command -v sha256sum >/dev/null 2>&1; then
+    actual="$(sha256sum "$file" | awk '{ print $1 }')"
+  elif command -v shasum >/dev/null 2>&1; then
+    actual="$(shasum -a 256 "$file" | awk '{ print $1 }')"
+  else
+    die "need sha256sum or shasum to verify the release archive"
+  fi
+  [ "$expected" = "$actual" ] || die "SHA256 mismatch for $base (expected $expected, got $actual)"
+  info "checksum ok: $base"
+}
+
+# Download warden_${VERSION}_${OS}_${ARCH}.tar.gz + checksums.txt from GitHub
+# Releases, verify, and install the binary to ~/.local/bin/{warden,wd}.
+download_release_binary() {
+  command -v curl >/dev/null 2>&1 || die "curl is required for standalone install"
+  command -v tar >/dev/null 2>&1 || die "tar is required for standalone install"
+  detect_release_target
+  resolve_release_version
+
+  local staging archive url sums_url bin
+  staging="$(mktemp -d "${TMPDIR:-/tmp}/warden-release.XXXXXX")"
+  archive="warden_${RELEASE_VERSION}_${RELEASE_OS}_${RELEASE_ARCH}.tar.gz"
+  url="https://github.com/${GITHUB_REPO}/releases/download/${RELEASE_TAG}/${archive}"
+  sums_url="https://github.com/${GITHUB_REPO}/releases/download/${RELEASE_TAG}/checksums.txt"
+
+  info "downloading ${RELEASE_TAG} (${RELEASE_OS}/${RELEASE_ARCH})…"
+  curl -fsSL "$url" -o "$staging/$archive" || {
+    rm -rf "$staging"
+    die "failed to download $url"
+  }
+  curl -fsSL "$sums_url" -o "$staging/checksums.txt" || {
+    rm -rf "$staging"
+    die "failed to download $sums_url"
+  }
+  verify_release_checksum "$staging/$archive" "$staging/checksums.txt"
+
+  tar -xzf "$staging/$archive" -C "$staging" || {
+    rm -rf "$staging"
+    die "failed to extract $archive"
+  }
+  bin="$(find "$staging" -type f -name warden ! -path '*/.*' | head -n 1)"
+  [ -n "$bin" ] && [ -f "$bin" ] || {
+    rm -rf "$staging"
+    die "archive $archive did not contain a warden binary"
+  }
+
+  mkdir -p "$INSTALL_BIN_DIR"
+  local _tmp="$INSTALL_BIN.tmp.$$"
+  cp "$bin" "$_tmp" || { rm -rf "$staging"; die "failed to copy binary to $_tmp"; }
+  chmod +x "$_tmp"
+  mv -f "$_tmp" "$INSTALL_BIN" || { rm -f "$_tmp"; rm -rf "$staging"; die "failed to install binary to $INSTALL_BIN"; }
+  rm -rf "$staging"
+  info "installed binary -> $INSTALL_BIN (${RELEASE_TAG})"
+  ln -sfn warden "$INSTALL_ALIAS"
+  info "linked alias -> $INSTALL_ALIAS"
+  codesign_binary
+  BINARY_CHANGED=1
+}
+
+# Install the Claude skill. Dev checkouts symlink the repo copy; standalone
+# installs materialize SKILL.md + references under ~/.warden/skills/warden
+# (curl-only — no git required) and symlink that.
+install_claude_skill() {
+  mkdir -p "$HOME/.claude/skills"
+  if [ -d "$REPO_ROOT/skills/warden" ]; then
+    ln -sfn "$REPO_ROOT/skills/warden" "$HOME/.claude/skills/warden"
+    info "linked skill -> ~/.claude/skills/warden"
+    return 0
+  fi
+
+  local ref="${WARDEN_INSTALL_REF:-}"
+  if [ -z "$ref" ]; then
+    if [ -n "${WARDEN_VERSION:-}" ]; then
+      ref="v${WARDEN_VERSION#v}"
+    else
+      ref="main"
+    fi
+  fi
+  local dest="$HOME/.warden/skills/warden"
+  local base="https://raw.githubusercontent.com/${GITHUB_REPO}/${ref}/skills/warden"
+  local f
+  mkdir -p "$dest/references"
+  for f in SKILL.md \
+           references/agents.md \
+           references/coordination.md \
+           references/git-and-checks.md \
+           references/operations.md \
+           references/pipelines.md; do
+    curl -fsSL "$base/$f" -o "$dest/$f" || {
+      warn "could not download skill file $f — skill install skipped"
+      return 0
+    }
+  done
+  ln -sfn "$dest" "$HOME/.claude/skills/warden"
+  info "installed skill -> ~/.claude/skills/warden (from ${ref})"
+}
+
 # Sign the installed binary with the stable self-signed identity so granted TCC
 # permissions (Full Disk Access, "data from other apps", Desktop/Downloads, …)
 # survive rebuilds. macOS keys those grants to the binary's designated
 # requirement (identifier + cert leaf), which is identical across rebuilds — but
 # ONLY if every build is actually signed with this cert. A single unsigned build
 # falls back to an ad-hoc cdhash identity that matches no grant, so macOS drops
-# every toggle and re-prompts. Signing is therefore MANDATORY on macOS: if the
-# cert is missing or codesign fails, abort the install rather than silently
-# shipping an unsigned binary. Run scripts/codesign-setup.sh once to create the
-# cert. (codesign is absent off-macOS, where this is a clean no-op.)
+# every toggle and re-prompts.
+#
+# Dev installs: signing is MANDATORY — missing cert aborts (run codesign-setup.sh).
+# Standalone/curl installs: warn and skip when the cert is absent (end users do
+# not have the self-signed identity; release archives ship unsigned/ad-hoc).
+# (codesign is absent off-macOS, where this is a clean no-op.)
 codesign_binary() {
   command -v codesign >/dev/null 2>&1 || return 0
   if ! security find-certificate -c "$CODESIGN_IDENTITY" >/dev/null 2>&1; then
-    die "code-signing identity '$CODESIGN_IDENTITY' not found — run ./scripts/codesign-setup.sh once, then reinstall. (Shipping an unsigned binary would drop your macOS TCC grants and re-trigger permission prompts.)"
+    if is_dev_install; then
+      die "code-signing identity '$CODESIGN_IDENTITY' not found — run ./scripts/codesign-setup.sh once, then reinstall. (Shipping an unsigned binary would drop your macOS TCC grants and re-trigger permission prompts.)"
+    fi
+    warn "code-signing identity '$CODESIGN_IDENTITY' not found — leaving binary unsigned (run scripts/codesign-setup.sh later for stable FDA grants)"
+    return 0
   fi
   codesign --force --sign "$CODESIGN_IDENTITY" --identifier "$LABEL" "$INSTALL_BIN" \
     || die "codesign failed — refusing to install an unsigned binary that would drop macOS TCC grants. Ensure the login keychain is unlocked and '$CODESIGN_IDENTITY' has codesign access (scripts/codesign-setup.sh)."
@@ -179,7 +352,84 @@ auth_notice() {
   printf '        [ -r %s ] && export WARDEN_TOKEN="$(sed -n '"'"'s/^WARDEN_TOKEN=//p'"'"' %s)"\n' "$TOKEN_FILE" "$TOKEN_FILE"
 }
 
-# --- plist ----------------------------------------------------------------
+# --- plist / service templates --------------------------------------------
+# Embedded copies of deploy/*.template so curl|bash installs do not need the
+# git checkout's deploy/ directory. When the on-disk template exists (dev),
+# prefer it so deploy/ remains the editable source of truth.
+embedded_plist_template() {
+  cat <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.srajanpathak.warden</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__BINARY__</string>
+    <string>daemon</string>
+    <string>--addr</string>
+    <string>__ADDR__</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>__HOME__/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    __TOKENENV__
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/tmp/warden.daemon.log</string>
+  <key>StandardErrorPath</key><string>/tmp/warden.daemon.err</string>
+</dict>
+</plist>
+EOF
+}
+
+embedded_systemd_template() {
+  cat <<'EOF'
+[Unit]
+Description=warden agent daemon
+After=network.target
+
+[Service]
+Type=simple
+KillMode=process
+ExecStart=__BINARY__ daemon --addr __ADDR__
+Environment=PATH=__HOME__/.local/bin:/usr/local/bin:/usr/bin:/bin
+__ENVFILE__
+Restart=always
+RestartSec=2
+# Log to the systemd journal rather than files under /tmp. On many distros
+# (Fedora, Arch, …) /tmp is a tmpfs cleared on reboot / by systemd-tmpfiles, so
+# append:/tmp/... logs silently vanish. The journal survives reboots and is the
+# systemd-native sink — view with: journalctl --user -u warden -f
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
+EOF
+}
+
+# Emit the macOS LaunchAgent plist template to stdout (file or embedded).
+plist_template_source() {
+  if [ -n "${TEMPLATE:-}" ] && [ -f "$TEMPLATE" ]; then
+    cat "$TEMPLATE"
+  else
+    embedded_plist_template
+  fi
+}
+
+# Emit the Linux systemd user-unit template to stdout (file or embedded).
+systemd_template_source() {
+  if [ -n "${TEMPLATE:-}" ] && [ -f "$TEMPLATE" ]; then
+    cat "$TEMPLATE"
+  else
+    embedded_systemd_template
+  fi
+}
+
 # Sets PLIST_CHANGED=1 when the on-disk plist was created or its contents
 # changed, 0 when it already matched. restart_service uses this to decide
 # whether a full reload (to pick up plist changes) is needed.
@@ -188,7 +438,6 @@ PLIST_CHANGED=1
 # to 0 so restart_service can kickstart when only a restart (no redeploy) is asked.
 BINARY_CHANGED=0
 render_plist() {
-  [ -f "$TEMPLATE" ] || die "plist template not found: $TEMPLATE"
   mkdir -p "$(dirname "$PLIST")"
   local tmp="$PLIST.tmp.$$"
   # launchd has no EnvironmentFile equivalent, so the token is inlined into the
@@ -200,11 +449,11 @@ render_plist() {
   else
     token_sed="/__TOKENENV__/d"
   fi
-  sed -e "s|__BINARY__|$INSTALL_BIN|g" \
+  plist_template_source | sed -e "s|__BINARY__|$INSTALL_BIN|g" \
       -e "s|__ADDR__|$ADDR|g" \
       -e "s|__HOME__|$HOME|g" \
       -e "$token_sed" \
-      "$TEMPLATE" > "$tmp" || { rm -f "$tmp"; die "failed to render plist"; }
+      > "$tmp" || { rm -f "$tmp"; die "failed to render plist"; }
   if [ -f "$PLIST" ] && cmp -s "$tmp" "$PLIST"; then
     rm -f "$tmp"
     PLIST_CHANGED=0
@@ -337,7 +586,6 @@ if [ "$OS_PLATFORM" = "linux" ]; then
   TEMPLATE="$REPO_ROOT/deploy/warden.service.template"
 
   render_plist() {
-    [ -f "$TEMPLATE" ] || die "service template not found: $TEMPLATE"
     mkdir -p "$(dirname "$SERVICE_CONFIG")"
     local tmp="$SERVICE_CONFIG.tmp.$$"
     # Non-loopback installs load the bearer token from $TOKEN_FILE via
@@ -349,11 +597,11 @@ if [ "$OS_PLATFORM" = "linux" ]; then
     else
       envfile_sed="/__ENVFILE__/d"
     fi
-    sed -e "s|__BINARY__|$INSTALL_BIN|g" \
+    systemd_template_source | sed -e "s|__BINARY__|$INSTALL_BIN|g" \
         -e "s|__ADDR__|$ADDR|g" \
         -e "s|__HOME__|$HOME|g" \
         -e "$envfile_sed" \
-        "$TEMPLATE" > "$tmp" || { rm -f "$tmp"; die "failed to render service file"; }
+        > "$tmp" || { rm -f "$tmp"; die "failed to render service file"; }
     if [ -f "$SERVICE_CONFIG" ] && cmp -s "$tmp" "$SERVICE_CONFIG"; then
       rm -f "$tmp"
       PLIST_CHANGED=0
