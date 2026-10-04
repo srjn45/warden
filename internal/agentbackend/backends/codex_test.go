@@ -44,6 +44,16 @@ func TestCodexLaunchCmd(t *testing.T) {
 			want: "codex -m 'm' -s danger-full-access -a never",
 		},
 		{
+			name: "planner posture uses read-only sandbox",
+			opts: agentbackend.LaunchOpts{Model: "m", Mode: "read-only", Network: "full"},
+			want: "codex -m 'm' -s read-only -c sandbox_workspace_write.network_access=true",
+		},
+		{
+			name: "worker posture uses workspace-write sandbox",
+			opts: agentbackend.LaunchOpts{Model: "m", Mode: "workspace-write", Network: "full"},
+			want: "codex -m 'm' -s workspace-write -c sandbox_workspace_write.network_access=true",
+		},
+		{
 			name: "empty model omits -m (BYO config provider) but still enables network",
 			opts: agentbackend.LaunchOpts{Mode: "default"},
 			want: "codex -c sandbox_workspace_write.network_access=true",

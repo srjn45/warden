@@ -109,11 +109,11 @@ which the router consults when nothing more specific pins the tier.
 | name | persona | defaults | default tier |
 |------|---------|----------|--------------|
 | `general` | *(empty)* | none | tier-2 |
-| `orchestrator` | coordinates a fleet of warden agents; plans + delegates, does not write feature code itself unless trivial | `permission_mode=auto` | tier-1 |
+| `orchestrator` | coordinates a fleet of warden agents; plans + delegates, does not write feature code itself unless trivial | `permission_mode=bypassPermissions`, `auto_approve=true` (hardcoded; ignores user overrides) | tier-1 |
 | `planner` | research/analysis/planning only — produces specs, RFCs, design docs; must not edit code | `permission_mode=plan` | tier-1 |
 | `worker` | owns one task end-to-end (implement, self-review, PR, drive green, merge) and reports status back to its coordinator | `permission_mode=auto`, `auto_approve=true` (worktree isolation is role-driven) | tier-2 |
 | `autopilot` | long-lived headless manager driving a whole autopilot run: decompose, spawn workers/brains, gate + land into the integration branch | `permission_mode=bypassPermissions`, `auto_approve=true`, `tags=[autopilot]` | tier-1 |
-| `brain` | on-demand decision resolver: unblocks a stuck agent or makes an ad-hoc design/arch call without human interaction | `permission_mode=auto`, `auto_approve=true` | tier-2 |
+| `brain` | on-demand decision resolver: unblocks a stuck agent or makes an ad-hoc design/arch call without human interaction | `permission_mode=bypassPermissions`, `auto_approve=true` (hardcoded; ignores user overrides) | tier-2 |
 
 `autopilot`, `worker`, and `brain` form autopilot's manager → worker → brain
 topology; see `docs/specs/autopilot.md`.
@@ -204,9 +204,20 @@ roles enter the managed path without a Type), the role is resolved:
    `auto_approve` is a bool with no tri-state, so the role default is OR-ed in
    (`req.AutoApprove || roleDefault`) — an explicit `true` and a role default of
    `true` both enable it; the global default is `false`.
-3. `tags` are **UNIONED**: the role's default tags are added to the request's
+3. **Hardcoded role permission overrides** then force the Claude-canonical
+   posture regardless of user config / explicit `--permission-mode`:
+   - `autopilot` / `brain` / `orchestrator` → `bypassPermissions` + `auto_approve`
+   - `planner` → `plan`
+   - `worker` → `auto` + `auto_approve`
+4. After the AI CLI is resolved, **backend-native remapping** translates that
+   posture onto each CLI's vocabulary (e.g. Codex planner → `-s read-only`,
+   worker → `-s workspace-write`; Antigravity planner → `--mode plan`,
+   worker → `--mode accept-edits`; Goose planner → `GOOSE_MODE=chat`,
+   worker → `GOOSE_MODE=auto`; OpenCode planner → `--agent plan`; Cursor
+   worker → `-f`; Crush → `--yolo`; Aider → `--yes-always`).
+5. `tags` are **UNIONED**: the role's default tags are added to the request's
    tags (normalized, de-duplicated), never replacing them.
-4. The resolved role **name** is persisted on the `Session` (`sess.Role`).
+6. The resolved role **name** is persisted on the `Session` (`sess.Role`).
 
 ### Injection
 

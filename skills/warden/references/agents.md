@@ -180,11 +180,11 @@ catalog** — no user-defined roles. Browse it with `warden agent role list` / M
 | Role | Persona | Default flags | Default tier |
 |---|---|---|---|
 | `general` | *(none — plain agent)* | — | tier-2 |
-| `orchestrator` | coordinates a fleet of warden agents; plans + delegates, doesn't write feature code unless trivial | `permission_mode=auto` | tier-1 |
+| `orchestrator` | coordinates a fleet of warden agents; plans + delegates, doesn't write feature code unless trivial | `permission_mode=bypassPermissions`, `auto_approve=on` (hardcoded) | tier-1 |
 | `planner` | research/analysis/planning only — specs, RFCs, design docs; must not edit code | `permission_mode=plan` | tier-1 |
 | `worker` | owns one task end-to-end (implement, self-review, PR, drive green, merge) and reports status back to its coordinator | `permission_mode=auto`, `auto_approve=on` (worktree isolation is role-driven) | tier-2 |
 | `autopilot` | long-lived headless **manager** of a whole autopilot run — decomposes, spawns workers, calls `brain_consult` for unblock/design decisions, gates + lands into the integration branch | `permission_mode=bypassPermissions`, `auto_approve=on` | tier-1 |
-| `brain` | on-demand **decision resolver** — unblocks a stuck agent or makes an ad-hoc design/arch call, no human interaction (prefer manager `brain_consult` MCP over ad-hoc `spawn_agent` with this role) | `permission_mode=auto`, `auto_approve=on` | tier-2 |
+| `brain` | on-demand **decision resolver** — unblocks a stuck agent or makes an ad-hoc design/arch call, no human interaction (prefer manager `brain_consult` MCP over ad-hoc `spawn_agent` with this role) | `permission_mode=bypassPermissions`, `auto_approve=on` (hardcoded) | tier-2 |
 
 `autopilot`, `worker`, and `brain` form autopilot's manager → worker → brain
 topology. Managers should use the `brain_consult` MCP tool (shared Consultor)

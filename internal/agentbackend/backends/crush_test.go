@@ -25,7 +25,7 @@ func TestCrushLaunchCmd(t *testing.T) {
 			want: "crush", // no -m: the TUI takes no model flag (config-driven)
 		},
 		{
-			name: "yolo mode adds the flag",
+			name: "yolo mode adds the flag (worker posture)",
 			opts: agentbackend.LaunchOpts{Mode: "yolo"},
 			want: "crush --yolo",
 		},
@@ -33,6 +33,11 @@ func TestCrushLaunchCmd(t *testing.T) {
 			name: "claude 'auto' folds onto --yolo",
 			opts: agentbackend.LaunchOpts{Mode: "auto"},
 			want: "crush --yolo",
+		},
+		{
+			name: "plan mode stays interactive (no --yolo)",
+			opts: agentbackend.LaunchOpts{Mode: "plan"},
+			want: "crush",
 		},
 		{
 			name: "bypassPermissions folds onto --yolo",

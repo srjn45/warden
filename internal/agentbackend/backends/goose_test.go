@@ -25,9 +25,19 @@ func TestGooseLaunchCmd(t *testing.T) {
 			want: "goose session --name 'JIRA-1'",
 		},
 		{
-			name: "model is ignored (session has no --model; config/env-driven)",
+			name: "auto mode prepends GOOSE_MODE=auto",
 			opts: agentbackend.LaunchOpts{Name: "a1", Model: "llama3.2:3b", Mode: "auto"},
-			want: "goose session --name 'a1'",
+			want: "GOOSE_MODE=auto goose session --name 'a1'",
+		},
+		{
+			name: "chat/plan mode prepends GOOSE_MODE=chat (planner)",
+			opts: agentbackend.LaunchOpts{Name: "a1", Mode: "chat"},
+			want: "GOOSE_MODE=chat goose session --name 'a1'",
+		},
+		{
+			name: "plan alias maps to GOOSE_MODE=chat",
+			opts: agentbackend.LaunchOpts{Name: "a1", Mode: "plan"},
+			want: "GOOSE_MODE=chat goose session --name 'a1'",
 		},
 		{
 			name: "session id is ignored (Goose mints its own; warden pins --name)",
@@ -65,6 +75,10 @@ func TestGooseResumeCmd(t *testing.T) {
 	cmd, ok = Goose{}.ResumeCmd(agentbackend.ResumeOpts{})
 	require.True(t, ok)
 	require.Equal(t, "goose session -r", cmd)
+
+	cmd, ok = Goose{}.ResumeCmd(agentbackend.ResumeOpts{Name: "a1", Mode: "auto"})
+	require.True(t, ok)
+	require.Equal(t, "GOOSE_MODE=auto goose session -r --name 'a1'", cmd)
 }
 
 // TestGooseLaunchPromptArgEmpty pins that `goose session` takes no launch-line

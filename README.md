@@ -1387,11 +1387,11 @@ nothing more specific pins the tier:
 | Role | Persona | Default flags | Default tier |
 |---|---|---|---|
 | `general` | *(none — plain agent)* | — | tier-2 |
-| `orchestrator` | coordinates a fleet of warden agents; plans and delegates, doesn't write feature code itself unless trivial | `--permission-mode auto` | tier-1 |
+| `orchestrator` | coordinates a fleet of warden agents; plans and delegates, doesn't write feature code itself unless trivial | `--permission-mode bypassPermissions`, auto-approve on (hardcoded) | tier-1 |
 | `planner` | research/analysis/planning only — produces specs, RFCs, design docs; must not edit code | `--permission-mode plan` | tier-1 |
 | `worker` | owns one task end-to-end (implement, self-review, PR, drive green, merge) and reports status back to its coordinator | `--type development`, `--permission-mode auto`, auto-approve on | tier-2 |
 | `autopilot` | long-lived headless **manager** of a whole autopilot run — decomposes, spawns workers/brains, gates + lands into the integration branch | `--permission-mode bypassPermissions`, auto-approve on | tier-1 |
-| `brain` | on-demand **decision resolver** — unblocks a stuck agent or makes an ad-hoc design/arch call, no human interaction | `--permission-mode auto`, auto-approve on | tier-2 |
+| `brain` | on-demand **decision resolver** — unblocks a stuck agent or makes an ad-hoc design/arch call, no human interaction | `--permission-mode bypassPermissions`, auto-approve on (hardcoded) | tier-2 |
 
 `autopilot`, `worker`, and `brain` power autopilot's manager →
 worker → brain topology. **Legacy aliases:** `reviewer`, `implementer`, and

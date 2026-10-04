@@ -101,6 +101,9 @@ func (Cursor) LaunchCmd(o agentbackend.LaunchOpts) string {
 	}
 	cmd += cursorModeFlag(o.Mode)
 	cmd += cursorNetworkFlag(o.Network)
+	// Always trust the workspace and auto-approve MCP servers so a fresh
+	// warden worktree never blocks on Cursor's interactive trust/MCP modals.
+	cmd += " --trust --approve-mcps"
 	return cmd
 }
 
@@ -136,6 +139,7 @@ func (Cursor) ResumeCmd(o agentbackend.ResumeOpts) (string, bool) {
 	}
 	cmd += cursorModeFlag(o.Mode)
 	cmd += cursorNetworkFlag(o.Network)
+	cmd += " --trust --approve-mcps"
 	return cmd, true
 }
 
@@ -166,7 +170,7 @@ func (Cursor) ReadyMarker() string                     { return cursorIdlePlaceh
 // (warden's default backend is Claude, so this path is rarely exercised for Cursor;
 // it exists to honor Caps.Headless=true.)
 func (Cursor) HeadlessCmd(prompt string) ([]string, bool) {
-	return []string{"cursor-agent", "-p", "--force", "--trust", prompt}, true
+	return []string{"cursor-agent", "-p", "--force", "--trust", "--approve-mcps", prompt}, true
 }
 
 // --- Transcript -------------------------------------------------------------

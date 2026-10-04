@@ -63,9 +63,11 @@ func (Goose) InstallHint() string {
 //     applied here — Goose resolves its model from GOOSE_PROVIDER/GOOSE_MODEL
 //     (env or ~/.config/goose/config.yaml). `goose run` (headless) does take
 //     --model/--provider; the interactive launch does not.
-//   - Mode: `goose session` has no permission-mode flag either — Goose's approval
-//     mode is the GOOSE_MODE env/config (auto|approve|chat|smart_approve), so
-//     opts.Mode is not applied on the launch command.
+//   - Mode: `goose session` has no permission-mode flag — Goose's approval mode
+//     is the GOOSE_MODE env (auto|approve|chat|smart_approve). LaunchCmd /
+//     ResumeCmd prepend GOOSE_MODE=<mode> when opts.Mode maps onto that
+//     vocabulary (see gooseModeEnv), so planner (chat) and worker/autonomous
+//     (auto) postures take effect without mutating ~/.config/goose.
 //
 // opts.SessionID (warden's ClaudeSessionID placeholder) is ignored: Goose mints
 // its own id and warden keys off the --name instead.
@@ -74,7 +76,24 @@ func (Goose) LaunchCmd(o agentbackend.LaunchOpts) string {
 	if o.Name != "" {
 		cmd += " --name " + shellQuoteArg(o.Name)
 	}
-	return cmd
+	return gooseModeEnv(o.Mode) + cmd
+}
+
+// gooseModeEnv returns a `GOOSE_MODE=<mode> ` prefix for launch/resume when the
+// warden permission mode maps onto Goose's native approval vocabulary. Planner
+// (`plan`/`chat`) → chat; worker/autonomous bypass aliases → auto; Goose-native
+// modes pass through. Empty/default returns "" so Goose's own config applies.
+func gooseModeEnv(mode string) string {
+	switch mode {
+	case "chat", "plan":
+		return "GOOSE_MODE=chat "
+	case "auto", "approve", "smart_approve":
+		return "GOOSE_MODE=" + mode + " "
+	case "bypassPermissions", "dangerously-skip-permissions", "yes-always", "yolo", "force":
+		return "GOOSE_MODE=auto "
+	default:
+		return ""
+	}
 }
 
 // ResumeCmd builds the interactive resume invocation, run in the agent's workdir.
@@ -89,7 +108,7 @@ func (Goose) ResumeCmd(o agentbackend.ResumeOpts) (string, bool) {
 	if o.Name != "" {
 		cmd += " --name " + shellQuoteArg(o.Name)
 	}
-	return cmd, true
+	return gooseModeEnv(o.Mode) + cmd, true
 }
 
 // LaunchPromptArg reports no initial-prompt seeding for the interactive launch.
