@@ -17,11 +17,14 @@ func stubRelease(t *testing.T, adv release.Advice, existingTag string) *[]gitCal
 	var calls []gitCall
 	oa, og := releaseAnalyze, releaseGit
 	t.Cleanup(func() { releaseAnalyze, releaseGit = oa, og })
-	releaseAnalyze = func(context.Context, string) (release.Advice, error) { return adv, nil }
+	releaseAnalyze = func(context.Context, string, string, string) (release.Advice, error) { return adv, nil }
 	releaseGit = func(_ context.Context, _ string, args ...string) (string, error) {
 		calls = append(calls, gitCall(args))
 		if len(args) >= 3 && args[0] == "tag" && args[1] == "-l" {
 			return existingTag, nil
+		}
+		if len(args) >= 2 && args[0] == "rev-parse" {
+			return "mocksha123", nil
 		}
 		return "", nil
 	}
@@ -30,6 +33,8 @@ func stubRelease(t *testing.T, adv release.Advice, existingTag string) *[]gitCal
 
 func minorAdvice() release.Advice {
 	return release.Advice{
+		Target:    "origin/main",
+		TargetSHA: "mocksha123",
 		LatestTag: "v1.2.3", Current: release.Version{Major: 1, Minor: 2, Patch: 3},
 		Next: release.Version{Major: 1, Minor: 3}, Bump: release.BumpMinor,
 		Changelog: release.Changelog{Features: []string{"add thing"}},
@@ -39,7 +44,7 @@ func minorAdvice() release.Advice {
 func run(t *testing.T, stdin string, yes, push, dry, js bool) (string, error) {
 	t.Helper()
 	var out bytes.Buffer
-	err := runRelease(context.Background(), strings.NewReader(stdin), &out, ".", yes, push, dry, js)
+	err := runRelease(context.Background(), strings.NewReader(stdin), &out, ".", "", yes, push, dry, js, true)
 	return out.String(), err
 }
 
@@ -89,7 +94,7 @@ func TestReleaseYesTagsOnly(t *testing.T) {
 	for _, c := range *calls {
 		if c[0] == "tag" && c[1] == "-a" {
 			tagged = true
-			if c[2] != "v1.3.0" || !strings.Contains(c[4], "add thing") {
+			if c[2] != "v1.3.0" || !strings.Contains(c[len(c)-1], "add thing") {
 				t.Fatalf("bad tag call %v", c)
 			}
 		}
@@ -148,7 +153,7 @@ func TestReleaseBumpNone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "nothing to release") || len(*calls) != 0 {
+	if !strings.Contains(out, "nothing to release") || has(*calls, "tag") || has(*calls, "push") {
 		t.Fatalf("out=%s calls=%v", out, *calls)
 	}
 }
@@ -165,5 +170,56 @@ func TestReleaseJSON(t *testing.T) {
 	}
 	if got.Next != "v1.3.0" || !got.Tagged || !got.Pushed {
 		t.Fatalf("%+v", got)
+	}
+}
+
+func TestReleaseTargetResolution(t *testing.T) {
+	var capturedHead, capturedSHA string
+	oa, og := releaseAnalyze, releaseGit
+	t.Cleanup(func() { releaseAnalyze, releaseGit = oa, og })
+
+	releaseAnalyze = func(_ context.Context, _, head, sha string) (release.Advice, error) {
+		capturedHead, capturedSHA = head, sha
+		adv := minorAdvice()
+		adv.Target = head
+		adv.TargetSHA = sha
+		return adv, nil
+	}
+
+	var tagArgs []string
+	releaseGit = func(_ context.Context, _ string, args ...string) (string, error) {
+		if len(args) >= 1 && args[0] == "remote" {
+			return "origin\n", nil
+		}
+		if len(args) >= 2 && args[0] == "rev-parse" {
+			for _, a := range args {
+				if a == "refs/remotes/origin/main" {
+					return "originmainsha789", nil
+				}
+			}
+		}
+		if len(args) >= 3 && args[0] == "tag" && args[1] == "-l" {
+			return "", nil
+		}
+		if len(args) >= 2 && args[0] == "tag" && args[1] == "-a" {
+			tagArgs = args
+			return "", nil
+		}
+		return "", nil
+	}
+
+	var out bytes.Buffer
+	err := runRelease(context.Background(), strings.NewReader(""), &out, ".", "", true, false, false, false, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if capturedHead != "origin/main" || capturedSHA != "originmainsha789" {
+		t.Fatalf("unexpected target: head=%s, sha=%s", capturedHead, capturedSHA)
+	}
+
+	// Verify that git tag -a was called with the target SHA
+	if len(tagArgs) < 4 || tagArgs[2] != "v1.3.0" || tagArgs[3] != "originmainsha789" {
+		t.Fatalf("git tag was not called with target SHA: %v", tagArgs)
 	}
 }
