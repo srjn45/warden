@@ -35,6 +35,29 @@ wd plan sync_to_repo <plan-id> --base main --format json   # opt-in JSON replica
 
 YAML is the default. JSON uses the same envelope and is never execution authority.
 
+## Modifying a pending plan
+
+While a plan is **`pending`**, you can change its definition in ScrivaDB. Non-pending
+plans reject definition edits with **HTTP 409 Conflict**.
+
+```sh
+# Patch metadata (and/or apply a YAML file)
+wd plan update <plan-id> --goal "Updated goal" --constraint "Fast turnaround"
+wd plan update <plan-id> --file ./my-plan.yaml
+
+# Interactive editor ($EDITOR, else nano/vi) — validates DAG before save
+wd plan edit <plan-id>
+
+# Granular task-DAG mutations
+wd plan task add <plan-id> --id t2 --prompt "Second task" --after t1
+wd plan task edit <plan-id> --id t1 --prompt "Refined first task"
+wd plan task rm <plan-id> t2
+```
+
+`--file` is parsed with the same DAG rules as create (cycles and unknown deps
+rejected). Optimistic concurrency uses the plan's current revision on update/edit;
+task subcommands accept optional `--expected-revision`.
+
 ## Optional Hub sync and remote discovery
 
 Hub sync is an opt-in transport for revision envelopes, not a replacement for
@@ -126,6 +149,9 @@ See [Plan backup and restore](/warden/guides/plan-backup-restore/).
 |---|---|
 | `wd plan list [--status <s>] [--json]` | List ScrivaDB plans |
 | `wd plan create --name <n> --goal <g> [--task id:prompt]` | Create pending Plan in ScrivaDB |
+| `wd plan update <id> [--file] [--name] [--goal] [--constraint] [--done-when]` | Patch pending definition (409 if not pending) |
+| `wd plan edit <id>` | Edit pending definition in `$EDITOR` |
+| `wd plan task add\|edit\|rm …` | Granular task-DAG mutations on pending plans |
 | `wd plan show <id> [--json]` | Show canonical detail |
 | `wd plan sync_to_repo <id> --base <ref> [--format yaml\|json]` | Optional inert replica PR (YAML default) |
 | `wd plan hub-sync push\|pull\|discover [<id>] --scope <project-id>` | Explicit opt-in Hub envelope sync |

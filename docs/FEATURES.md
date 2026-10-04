@@ -1561,6 +1561,9 @@ canonical recovery.
 |---|---|
 | `wd plan list [--status <s>] [--json]` | List ScrivaDB plans |
 | `wd plan create --name <n> --goal <g> [--task id:prompt\|id@deps:prompt]` | Create pending Plan in ScrivaDB (no YAML write); multi-task flat lists auto-chain |
+| `wd plan update <id> [--file yaml] [--name] [--goal] [--constraint] [--done-when]` | Patch pending definition (409 if not pending); revision bump + content hash |
+| `wd plan edit <id>` | Interactive `$EDITOR` edit of pending definition (DAG-validated on save) |
+| `wd plan task add\|edit\|rm …` | Granular task-DAG mutations (cycle/dep checks; 409 if not pending) |
 | `wd plan show <id> [--json]` | Canonical detail (never reads repo YAML/JSON replicas) |
 | `wd plan sync_to_repo <id> --base <ref> [--format yaml\|json]` | Optional inert replica PR (YAML default; JSON opt-in) |
 | `wd plan backup export\|restore …` | Portable ScrivaDB bundle |

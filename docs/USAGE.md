@@ -2711,6 +2711,26 @@ wd plan complete <plan-id>
 wd plan archive <plan-id>
 ```
 
+### Modifying a pending plan
+
+Definition edits are allowed only while the plan is **`pending`**. Non-pending
+plans return **HTTP 409 Conflict**. Every successful mutation bumps `revision`
+and recomputes `content_hash`. See
+`docs/specs/2026-10-04-plan-modification-api.md`.
+
+```sh
+wd plan update <plan-id> --goal "Updated goal" --constraint "Fast turnaround"
+wd plan update <plan-id> --file ./my-plan.yaml   # flags overlay file fields
+wd plan edit <plan-id>                          # $EDITOR; validates DAG before save
+
+wd plan task add <plan-id> --id t2 --prompt "Second task" --after t1
+wd plan task edit <plan-id> --id t1 --prompt "Refined first task"
+wd plan task rm <plan-id> t2                    # blocked if dependents remain
+```
+
+Task mutations reject cycles and unknown `after` deps. Optional
+`--expected-revision` on task subcommands enables optimistic concurrency.
+
 ### Listing and inspecting
 
 ```sh
@@ -2821,6 +2841,9 @@ wd plan list
 |---|---|
 | `wd plan list [--status <s>] [--json]` | List ScrivaDB plans |
 | `wd plan create --name <n> --goal <g> [--task id:prompt]` | Create pending Plan in ScrivaDB |
+| `wd plan update <id> [--file] [--name] [--goal] [--constraint] [--done-when]` | Patch pending definition (409 if not pending) |
+| `wd plan edit <id>` | Edit pending definition in `$EDITOR` |
+| `wd plan task add\|edit\|rm …` | Granular task-DAG mutations on pending plans |
 | `wd plan show <id> [--json]` | Show canonical detail |
 | `wd plan import-legacy [--report]` | Explicit legacy YAML cutover |
 | `wd plan scan` / `import` / `status` | Deprecated migration aids |
