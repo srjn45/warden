@@ -46,9 +46,10 @@ func helpText() string {
 		"  tab          switch tab: Projects (pipelines + agents) ⇄ Terminals\n" +
 		"  ←/→ or h/l   fold / unfold: a project group, a pipeline, an agent sub-tree,\n" +
 		"               or the Terminals section — whatever is under the cursor\n" +
-		"  enter        open the selected entity — an agent in the agent pane, a terminal in\n" +
-		"               the terminal pane (grabs focus) — or toggle a section header's fold\n" +
-		"               (reserved on a project header for future project details)\n" +
+		"  enter        open the selected entity — agent/worker/job in the agent pane; pipeline\n" +
+		"               or autopilot container opens its overview; a terminal opens in the\n" +
+		"               terminal pane (grabs focus); section headers toggle fold (reserved on\n" +
+		"               a project header for future project details)\n" +
 		"  n            new agent (prompt · ctrl+n name · ctrl+r role · ctrl+t tier · ctrl+s submit)\n" +
 		"  t            open a terminal in the focused agent's dir: (c)reate new or (f)ocus existing\n" +
 		"  o            open a project: Local / Remote / New (↑/↓ or j/k · enter · esc)\n" +

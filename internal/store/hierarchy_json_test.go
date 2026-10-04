@@ -17,14 +17,16 @@ func TestHierarchyAuthorityJSONAndDB(t *testing.T) {
 		{"legacy", nil}, {"empty", []string{}}, {"ordered", []string{"z", "dangling", "a"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			sess := Session{ID: tc.name, ChildAgents: tc.ids, ChildPipelines: tc.ids, Subject: "preserved"}
+			sess := Session{ID: tc.name, ChildAgents: tc.ids, ChildPipelines: tc.ids, ChildAutopilots: tc.ids, Subject: "preserved"}
 			raw, err := json.Marshal(sess)
 			require.NoError(t, err)
 			if tc.ids == nil {
 				require.NotContains(t, string(raw), `"child_agents"`)
+				require.NotContains(t, string(raw), `"child_autopilots"`)
 			} else if len(tc.ids) == 0 {
 				require.Contains(t, string(raw), `"child_agents":[]`)
 				require.Contains(t, string(raw), `"child_pipelines":[]`)
+				require.Contains(t, string(raw), `"child_autopilots":[]`)
 			}
 			var decoded Session
 			require.NoError(t, json.Unmarshal(raw, &decoded))
@@ -42,6 +44,7 @@ func TestHierarchyAuthorityJSONAndDB(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, tc.ids, got.ChildAgents)
 			require.Equal(t, tc.ids, got.ChildPipelines)
+			require.Equal(t, tc.ids, got.ChildAutopilots)
 		})
 	}
 }

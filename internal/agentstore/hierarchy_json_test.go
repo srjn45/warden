@@ -15,9 +15,14 @@ func TestAgentHierarchyAuthorityDB(t *testing.T) {
 		ids  []string
 	}{{"legacy", nil}, {"empty", []string{}}, {"ordered", []string{"z", "missing", "a"}}} {
 		t.Run(tc.name, func(t *testing.T) {
-			a := Agent{ID: tc.name, ChildAgents: tc.ids, ChildPipelines: tc.ids}
+			a := Agent{ID: tc.name, ChildAgents: tc.ids, ChildPipelines: tc.ids, ChildAutopilots: tc.ids}
 			raw, err := json.Marshal(a)
 			require.NoError(t, err)
+			if tc.ids == nil {
+				require.NotContains(t, string(raw), `"child_autopilots"`)
+			} else if len(tc.ids) == 0 {
+				require.Contains(t, string(raw), `"child_autopilots":[]`)
+			}
 			var decoded Agent
 			require.NoError(t, json.Unmarshal(raw, &decoded))
 			require.Equal(t, a, decoded)
@@ -33,6 +38,7 @@ func TestAgentHierarchyAuthorityDB(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, tc.ids, got.ChildAgents)
 			require.Equal(t, tc.ids, got.ChildPipelines)
+			require.Equal(t, tc.ids, got.ChildAutopilots)
 		})
 	}
 }

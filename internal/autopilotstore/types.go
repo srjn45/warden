@@ -24,15 +24,18 @@ var (
 // AP:<plan-name> convention. ManagerAgentID is the role=autopilot manager slot;
 // BrainAgentID is the optional on-demand headless brain (role=brain).
 type Autopilot struct {
-	ID             string      `json:"id"` // ap-<12hex>, stable across restarts
-	ProjectID      string      `json:"project_id"`
-	PlanID         string      `json:"plan_id"` // REQUIRED
-	Name           string      `json:"name"`    // AP:<plan-name>
-	ManagerAgentID string      `json:"manager_agent_id,omitempty"`
-	BrainAgentID   string      `json:"brain_agent_id,omitempty"`
-	Diagnostics    Diagnostics `json:"diagnostics"`
-	CreatedAt      time.Time   `json:"created_at"`
-	UpdatedAt      time.Time   `json:"updated_at"`
+	ID             string `json:"id"` // ap-<12hex>, stable across restarts
+	ProjectID      string `json:"project_id"`
+	PlanID         string `json:"plan_id"` // REQUIRED
+	Name           string `json:"name"`    // AP:<plan-name>
+	ManagerAgentID string `json:"manager_agent_id,omitempty"`
+	BrainAgentID   string `json:"brain_agent_id,omitempty"`
+	// ParentAgentID back-refs the agent that parents this Autopilot run (empty =
+	// project-root / operator-started). Reverse edge of Agent.ChildAutopilots[].
+	ParentAgentID string      `json:"parent_agent_id,omitempty"`
+	Diagnostics   Diagnostics `json:"diagnostics"`
+	CreatedAt     time.Time   `json:"created_at"`
+	UpdatedAt     time.Time   `json:"updated_at"`
 }
 
 // Diagnostics carries operational (not task-lifecycle) state for a live

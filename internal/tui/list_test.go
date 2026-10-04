@@ -15,6 +15,7 @@ import (
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/store"
+	"github.com/srjn45/warden/internal/tree"
 	"github.com/stretchr/testify/require"
 )
 
@@ -474,22 +475,19 @@ func TestProjectGroupedItemsPrefersBackRefOverTags(t *testing.T) {
 		{ID: "plain", Repo: "/repo"},
 	}
 	items := projectGroupedItems(nil, nil, []*store.Session{sessions[1]}, sessions, nil, nil, nil, runs)
-	// Manager is claimed by Autopilot (exactly-once); Agents section keeps only plain.
-	var agentSecSessions []string
-	inAgents := false
+	// Manager is claimed by Autopilot (exactly-once); only plain remains as a
+	// free root agent (no Agents section bucket).
+	var rootAgentSessions []string
 	for _, it := range items {
-		if it.treeSecLabel == "Agents" {
-			inAgents = true
+		if it.session == nil || it.apSlot != "" || it.apRun != nil {
 			continue
 		}
-		if it.treeSecID != "" || it.planHeader {
-			inAgents = false
-		}
-		if inAgents && it.session != nil {
-			agentSecSessions = append(agentSecSessions, it.session.ID)
+		// Root free agents sit at project depth (not under an Autopilot run).
+		if it.depth <= 1 {
+			rootAgentSessions = append(rootAgentSessions, it.session.ID)
 		}
 	}
-	require.Equal(t, []string{"plain"}, agentSecSessions, "manager claimed by Autopilot section")
+	require.Equal(t, []string{"plain"}, rootAgentSessions, "manager claimed by Autopilot; plain is the only free agent")
 	require.Equal(t, store.AutopilotSlotManager, items[itemIndexBySessionID(items, "mgr")].apSlot)
 }
 
@@ -568,6 +566,131 @@ func TestBuildItemsDeepNestingDepths(t *testing.T) {
 	require.Len(t, items, 3)
 	require.Equal(t, []string{"a", "b", "c"}, []string{items[0].session.ID, items[1].session.ID, items[2].session.ID})
 	require.Equal(t, []int{0, 1, 2}, []int{items[0].depth, items[1].depth, items[2].depth})
+}
+
+// Mixed Autopilot/Pipeline/Agent nesting keeps a single depth counter so
+// indentation stays correct at every level (not hardcoded for a fixed shape).
+func TestAdaptTreeArbitraryDepthMixedContainers(t *testing.T) {
+	now := time.Now()
+	sessions := []*store.Session{
+		{ID: "orch", Name: "orch", Status: store.StatusWorking, CreatedAt: now},
+		{ID: "mgr", Name: "mgr", Status: store.StatusWorking, CreatedAt: now},
+		{ID: "w1", Name: "w1", Status: store.StatusWorking, CreatedAt: now},
+	}
+	pipes := []*pipeline.Pipeline{{
+		ID: "pipe-nested", Name: "pipe-nested", Status: pipeline.StatusRunning,
+		Jobs: []pipeline.Job{{ID: "j1", Status: pipeline.JobPending}},
+	}}
+	runs := []client.AutopilotRunStatus{{RunID: "ap-1", Name: "nested-ap", State: "active"}}
+	tr := &tree.Tree{Roots: []*tree.Node{{
+		Type: tree.NodeTypeProject, ID: "project:/p", Label: "P",
+		Children: []*tree.Node{{
+			Type: tree.NodeTypeAgent, ID: "session:orch", SessionID: "orch", Label: "orch",
+			Children: []*tree.Node{
+				{
+					Type: tree.NodeTypeAutopilotRun, ID: "run:ap-1", Label: "nested-ap",
+					Children: []*tree.Node{{
+						Type: tree.NodeTypeManager, ID: "session:mgr", SessionID: "mgr", Label: "mgr",
+						Detail:   &tree.Detail{Slot: store.AutopilotSlotManager},
+						Children: []*tree.Node{{Type: tree.NodeTypeWorker, ID: "session:w1", SessionID: "w1", Label: "w1", Detail: &tree.Detail{Slot: store.AutopilotSlotWorker}}},
+					}},
+				},
+				{
+					Type: tree.NodeTypePipeline, ID: "pipeline:pipe-nested", Label: "pipe-nested",
+					Children: []*tree.Node{{Type: tree.NodeTypeJob, ID: "pipeline:pipe-nested/job:j1", Label: "j1"}},
+				},
+			},
+		}},
+	}}}
+	items := adaptTree(tr, treeViewOpts{
+		sessions:  sessions,
+		pipelines: pipes,
+		runs:      runs,
+		collapsed: map[string]bool{"project:/p": false},
+	})
+	byKey := map[string]item{}
+	for _, it := range items {
+		byKey[itemKey(it)] = it
+	}
+	require.Equal(t, 0, byKey["session:orch"].depth)
+	require.Equal(t, 1, byKey["run:ap-1"].depth, "Autopilot nested under agent")
+	require.Equal(t, 2, byKey["session:mgr"].depth, "Manager under nested Autopilot")
+	require.Equal(t, 3, byKey["session:w1"].depth, "Worker under Manager at depth 3")
+	require.Equal(t, 1, byKey["pipeline:pipe-nested"].depth, "Pipeline nested under agent")
+	require.Equal(t, 2, byKey["pipeline:pipe-nested/job:j1"].depth, "Job under nested Pipeline")
+
+	out := renderList(items, 0, 120, 20)
+	require.Contains(t, out, "nested-ap")
+	require.Contains(t, out, "pipe-nested")
+	// Deeper rows must carry more leading whitespace than their parents.
+	orchLine := lineContaining(out, "orch")
+	apLine := lineContaining(out, "nested-ap")
+	mgrLine := lineContaining(out, "mgr")
+	require.Less(t, leadingSpaces(orchLine), leadingSpaces(apLine))
+	require.Less(t, leadingSpaces(apLine), leadingSpaces(mgrLine))
+}
+
+func TestProjectGroupedItemsNestedPipelineDepth(t *testing.T) {
+	projs := []projectstore.Project{{ID: "/p", Name: "P", Path: "/p", Status: projectstore.StatusOpen}}
+	sessions := []*store.Session{{
+		ID: "owner", ProjectID: "/p", Repo: "/p", Status: store.StatusWorking,
+		ChildPipelines: []string{"pipe-1"},
+	}}
+	pipes := []*pipeline.Pipeline{{
+		ID: "pipe-1", Name: "child-pipe", Repo: "/p", ParentAgentID: "owner",
+		Status: pipeline.StatusRunning,
+		Jobs:   []pipeline.Job{{ID: "j1", Status: pipeline.JobPending}},
+	}}
+	items := contentItems(projectGroupedItems(projs, nil, nil, sessions, pipes, nil, nil))
+	byKey := map[string]item{}
+	for _, it := range items {
+		byKey[itemKey(it)] = it
+	}
+	require.Equal(t, 0, byKey["session:owner"].depth)
+	require.Equal(t, 1, byKey["pipeline:pipe-1"].depth)
+	require.Equal(t, 2, byKey["pipeline:pipe-1/job:j1"].depth)
+}
+
+func lineContaining(rendered, needle string) string {
+	for _, line := range strings.Split(rendered, "\n") {
+		if strings.Contains(line, needle) {
+			return line
+		}
+	}
+	return ""
+}
+
+func leadingSpaces(s string) int {
+	// Strip ANSI so SGR prefixes do not hide leading whitespace.
+	var n int
+	for _, r := range []rune(stripANSIForTest(s)) {
+		if r == ' ' {
+			n++
+			continue
+		}
+		break
+	}
+	return n
+}
+
+func stripANSIForTest(s string) string {
+	var b strings.Builder
+	inESC := false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == 0x1b {
+			inESC = true
+			continue
+		}
+		if inESC {
+			if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
+				inESC = false
+			}
+			continue
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
 }
 
 // A terminal parent that still anchors a live child renders as a tombstone with

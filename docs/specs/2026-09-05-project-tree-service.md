@@ -329,18 +329,22 @@ view state doesn't jump):
 
 - **Roots (projects):** open projects first (alpha by label), then loose-dir
   groups (alpha), then the "No project" bucket **last**.
-- **Within a project:** `autopilot_run` nodes, then `pipeline` nodes, then agent
-  subtrees, then terminals. Rationale: orchestrators (which contain the most) at
-  top, ad-hoc terminals at the bottom — matches the TUI's current reading order.
+- **Within a project:** Plans section (when non-empty), then root `autopilot_run`
+  nodes, then root `pipeline` nodes, then root agent subtrees, then Terminals
+  section (when non-empty). Autopilots/Pipelines/Agents are **not** wrapped in
+  section header buckets. Under an agent, children nest as child autopilots →
+  child pipelines → child agents. Rationale: plans and orchestrators first,
+  ad-hoc terminals at the bottom — matches the TUI's reading order.
 - **Agents (siblings):** live before terminal-state (`liveStatus` first), then by
   creation time ascending, then by id. This keeps active work at the top and is
   stable as statuses change (creation time is the tiebreaker, not status).
 - **Jobs:** topological by `depends_on`, then declaration order (the pipeline's
   own job order). The DAG edges also ship in `Detail.DependsOn` so a client can
   draw the graph.
-- **Autopilot lanes:** manager, guardian, then tasks in **ledger order**
-  (`AutopilotRunStatus.LedgerTasks` already exists for exactly this), workers
-  within a task by creation time.
+- **Autopilot lanes:** Manager and Brain (when shown) are immediate children of
+  the Autopilot container; all workers belonging to the run nest under Manager
+  (creation-time order). Plan task groups are not rendered inside Autopilot.
+  Legacy guardian lanes are omitted.
 
 The exact comparators live in `internal/tree` and are covered by golden tests so
 two implementers (and the TUI) can never diverge.

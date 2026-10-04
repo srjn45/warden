@@ -29,14 +29,16 @@ const (
 	NodeTypeWorker       NodeType = "worker"
 )
 
-// SectionKind identifies a project-level section header.
+// SectionKind identifies a project-level section header. Only Plans and
+// Terminals are projected as section buckets; Autopilots/Pipelines/Agents
+// constants remain for Detail.Section compatibility with older clients/tests.
 type SectionKind string
 
 const (
 	SectionPlans      SectionKind = "plans"
-	SectionAutopilots SectionKind = "autopilots"
-	SectionPipelines  SectionKind = "pipelines"
-	SectionAgents     SectionKind = "agents"
+	SectionAutopilots SectionKind = "autopilots" // legacy; not projected as a section
+	SectionPipelines  SectionKind = "pipelines"  // legacy; not projected as a section
+	SectionAgents     SectionKind = "agents"     // legacy; not projected as a section
 	SectionTerminals  SectionKind = "terminals"
 )
 

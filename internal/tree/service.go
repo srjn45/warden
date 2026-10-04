@@ -30,13 +30,15 @@ func NewService() *Service {
 // to that single project's subtree; an unknown projectID yields an empty roots slice.
 // The synthetic "No project" bucket is only returned when projectID == "".
 //
-// Project children are sections in canonical order (Plans, Autopilots,
-// Pipelines, Agents, Terminals). Any section with no children is omitted so
-// empty groupings do not clutter the TUI or API tree. Each entity renders
-// exactly once: live Autopilot managers and their worker children nest under
-// Autopilots (not Agents); pipeline job agents nest under Pipelines; Plan task
-// groups are never rendered inside Autopilot (task evidence lives on Plan
-// detail). Headless brain agents are omitted unless Inputs.ShowSystem is true.
+// Project children are projected in canonical order without rigid entity-type
+// section buckets: Plans (section), then root Autopilots, root Pipelines, root
+// Agents, then Terminals (section). Empty Plans/Terminals sections are omitted.
+// Each entity renders exactly once: live Autopilot runs nest Manager (with all
+// run workers beneath it) and Brain as peer children — never as free Agents;
+// pipeline job agents nest under Pipelines; agents may nest child autopilots,
+// then child pipelines, then child agents. Plan task groups are never rendered
+// inside Autopilot (task evidence lives on Plan detail). Headless brain agents
+// are omitted unless Inputs.ShowSystem is true.
 func (s *Service) Build(in Inputs, projectID string) *Tree {
 	openByKey := map[string]string{}
 	closedByKey := map[string]string{}
@@ -263,21 +265,21 @@ func (s *Service) Build(in Inputs, projectID string) *Tree {
 
 	ownedPipelinesByAgent := map[string][]*pipeline.Pipeline{}
 	pipelinesByGroup := map[string][]*pipeline.Pipeline{}
-	seenOwned := map[string]bool{}
+	seenOwnedPipe := map[string]bool{}
 	for _, s := range agents {
 		for _, pid := range s.ChildPipelines {
-			if ownerOfPipeline[pid] != s.ID || seenOwned[pid] {
+			if ownerOfPipeline[pid] != s.ID || seenOwnedPipe[pid] {
 				continue
 			}
 			ownedPipelinesByAgent[s.ID] = append(ownedPipelinesByAgent[s.ID], pipelineByID[pid])
-			seenOwned[pid] = true
+			seenOwnedPipe[pid] = true
 		}
 	}
 	for _, p := range in.Pipelines {
 		if owner, ok := ownerOfPipeline[p.ID]; ok {
-			if !seenOwned[p.ID] {
+			if !seenOwnedPipe[p.ID] {
 				ownedPipelinesByAgent[owner] = append(ownedPipelinesByAgent[owner], p)
-				seenOwned[p.ID] = true
+				seenOwnedPipe[p.ID] = true
 			}
 			continue
 		}
@@ -300,9 +302,57 @@ func (s *Service) Build(in Inputs, projectID string) *Tree {
 		plansByGroup[key] = append(plansByGroup[key], p)
 	}
 
+	// Autopilot ownership mirrors pipelines: Agent.ChildAutopilots[] wins over
+	// Autopilot.ParentAgentID. Owned runs nest under the agent; unowned runs sit
+	// at project root (no Autopilots section bucket).
+	ownerOfAutopilot := map[string]string{}
+	forwardAPClaim := make(map[string]string)
+	for _, s := range agents {
+		for _, aid := range s.ChildAutopilots {
+			if aid == "" || liveByID[aid] == nil {
+				continue
+			}
+			if prev, ok := forwardAPClaim[aid]; ok && prev <= s.ID {
+				continue
+			}
+			forwardAPClaim[aid] = s.ID
+		}
+	}
+	claimedForwardAP := make(map[string]bool, len(forwardAPClaim))
+	for aid, agentID := range forwardAPClaim {
+		ownerOfAutopilot[aid] = agentID
+		claimedForwardAP[aid] = true
+	}
+	for _, a := range liveAutopilots {
+		if a == nil || claimedForwardAP[a.ID] {
+			continue
+		}
+		if a.ParentAgentID != "" && agentByID[a.ParentAgentID] != nil {
+			ownerOfAutopilot[a.ID] = a.ParentAgentID
+		}
+	}
+
+	ownedAutopilotsByAgent := map[string][]*autopilotstore.Autopilot{}
 	autopilotsByGroup := map[string][]*autopilotstore.Autopilot{}
+	seenOwnedAP := map[string]bool{}
+	for _, s := range agents {
+		for _, aid := range s.ChildAutopilots {
+			if ownerOfAutopilot[aid] != s.ID || seenOwnedAP[aid] {
+				continue
+			}
+			ownedAutopilotsByAgent[s.ID] = append(ownedAutopilotsByAgent[s.ID], liveByID[aid])
+			seenOwnedAP[aid] = true
+		}
+	}
 	for _, a := range liveAutopilots {
 		if a == nil {
+			continue
+		}
+		if owner, ok := ownerOfAutopilot[a.ID]; ok {
+			if !seenOwnedAP[a.ID] {
+				ownedAutopilotsByAgent[owner] = append(ownedAutopilotsByAgent[owner], a)
+				seenOwnedAP[a.ID] = true
+			}
 			continue
 		}
 		key := resolveMembershipKey(
@@ -415,6 +465,7 @@ func (s *Service) Build(in Inputs, projectID string) *Tree {
 			pipelineJobSessions,
 			agentRootsByGroup[key],
 			childrenByParent,
+			ownedAutopilotsByAgent,
 			ownedPipelinesByAgent,
 			terminalsByGroup[key],
 			in.ShowSystem,
@@ -555,9 +606,10 @@ func (s *Service) Build(in Inputs, projectID string) *Tree {
 	}
 }
 
-// buildGroupChildren constructs project sections in canonical order:
-// Plans → Autopilots → Pipelines → Agents → Terminals. Empty sections are
-// omitted entirely.
+// buildGroupChildren constructs project children in canonical order:
+// Plans (section) → root Autopilots → root Pipelines → root Agents →
+// Terminals (section). Autopilots/Pipelines/Agents are projected directly —
+// no section header buckets. Empty Plans/Terminals sections are omitted.
 func buildGroupChildren(
 	groupKey string,
 	plans []*planstore.Plan,
@@ -568,6 +620,7 @@ func buildGroupChildren(
 	pipelineJobSessions map[string]*store.Session,
 	agentRoots []*store.Session,
 	childrenByParent map[string][]*store.Session,
+	ownedAutopilotsByAgent map[string][]*autopilotstore.Autopilot,
 	ownedPipelinesByAgent map[string][]*pipeline.Pipeline,
 	terminals []*store.Session,
 	showSystem bool,
@@ -607,7 +660,10 @@ func buildGroupChildren(
 
 	var agentNodes []*Node
 	for _, s := range agentRoots {
-		agentNodes = append(agentNodes, buildAgentSubtree(s, childrenByParent, ownedPipelinesByAgent, pipelineJobSessions))
+		agentNodes = append(agentNodes, buildAgentSubtree(
+			s, childrenByParent, ownedAutopilotsByAgent, ownedPipelinesByAgent,
+			autopilotSessionsByRun, pipelineJobSessions, showSystem,
+		))
 	}
 
 	var termNodes []*Node
@@ -619,15 +675,9 @@ func buildGroupChildren(
 	if len(planNodes) > 0 {
 		out = append(out, sectionNode(secID(SectionPlans), "Plans", SectionPlans, planNodes))
 	}
-	if len(apNodes) > 0 {
-		out = append(out, sectionNode(secID(SectionAutopilots), "Autopilots", SectionAutopilots, apNodes))
-	}
-	if len(pipeNodes) > 0 {
-		out = append(out, sectionNode(secID(SectionPipelines), "Pipelines", SectionPipelines, pipeNodes))
-	}
-	if len(agentNodes) > 0 {
-		out = append(out, sectionNode(secID(SectionAgents), "Agents", SectionAgents, agentNodes))
-	}
+	out = append(out, apNodes...)
+	out = append(out, pipeNodes...)
+	out = append(out, agentNodes...)
 	if len(termNodes) > 0 {
 		out = append(out, sectionNode(secID(SectionTerminals), "Terminals", SectionTerminals, termNodes))
 	}
@@ -689,8 +739,11 @@ func planNodeStatus(s planstore.PlanStatus) string {
 	}
 }
 
-// buildLiveAutopilotNode renders Autopilot → manager → workers. Plan task groups
-// are never nested here. Headless brain is omitted unless showSystem.
+// buildLiveAutopilotNode renders Autopilot → {Manager → workers, Brain?}.
+// Manager and Brain are immediate siblings under the Autopilot container; every
+// worker belonging to the run nests under Manager (ParentID may be cleared by
+// the ownership guard). Plan task groups are never nested here. Headless brain
+// is omitted unless showSystem.
 func buildLiveAutopilotNode(a *autopilotstore.Autopilot, sessions []*store.Session, showSystem bool) *Node {
 	byID := make(map[string]*store.Session, len(sessions))
 	for _, s := range sessions {
@@ -710,11 +763,56 @@ func buildLiveAutopilotNode(a *autopilotstore.Autopilot, sessions []*store.Sessi
 		}
 	}
 
-	var runChildren []*Node
-	claimed := map[string]bool{}
+	var brain *store.Session
+	if showSystem && a.BrainAgentID != "" {
+		if b := byID[a.BrainAgentID]; b != nil && (manager == nil || b.ID != manager.ID) {
+			brain = b
+		}
+	}
 
+	claimed := map[string]bool{}
 	if manager != nil {
 		claimed[manager.ID] = true
+	}
+	if brain != nil {
+		claimed[brain.ID] = true
+	}
+
+	// All remaining run sessions are workers of this Autopilot. Do not require
+	// ParentID/ChildAgents — ownership guard clears parent_id on workers.
+	var workers []*store.Session
+	for _, s := range sessions {
+		if claimed[s.ID] {
+			continue
+		}
+		if isHeadlessBrainSession(s) && !showSystem {
+			continue
+		}
+		if s.AutopilotSlot == store.AutopilotSlotGuardian {
+			continue
+		}
+		workers = append(workers, s)
+	}
+	sortAgents(workers)
+
+	workerNodes := make([]*Node, 0, len(workers))
+	for _, w := range workers {
+		wLabel := w.Name
+		if wLabel == "" {
+			wLabel = w.ID
+		}
+		workerNodes = append(workerNodes, &Node{
+			Type:      NodeTypeWorker,
+			ID:        "session:" + w.ID,
+			Label:     wLabel,
+			Status:    sessionStatus(w.Status, w.ExitCode),
+			SessionID: w.ID,
+			Detail:    &Detail{Kind: "agent", Slot: "worker", PlanID: firstNonEmpty(w.PlanID, a.PlanID)},
+		})
+	}
+
+	var runChildren []*Node
+	if manager != nil {
 		mLabel := manager.Name
 		if mLabel == "" {
 			mLabel = "manager"
@@ -726,82 +824,25 @@ func buildLiveAutopilotNode(a *autopilotstore.Autopilot, sessions []*store.Sessi
 			Status:    sessionStatus(manager.Status, manager.ExitCode),
 			SessionID: manager.ID,
 			Detail:    &Detail{Kind: "agent", Slot: "autopilot", PlanID: firstNonEmpty(manager.PlanID, a.PlanID)},
-		}
-		// Workers are direct children of the manager (ParentID / ChildAgents).
-		var workers []*store.Session
-		for _, s := range sessions {
-			if s.ID == manager.ID {
-				continue
-			}
-			if isHeadlessBrainSession(s) && !showSystem {
-				claimed[s.ID] = true
-				continue
-			}
-			if s.ParentID == manager.ID || containsID(manager.ChildAgents, s.ID) {
-				workers = append(workers, s)
-			}
-		}
-		sortAgents(workers)
-		for _, w := range workers {
-			claimed[w.ID] = true
-			wLabel := w.Name
-			if wLabel == "" {
-				wLabel = w.ID
-			}
-			managerNode.Children = append(managerNode.Children, &Node{
-				Type:      NodeTypeWorker,
-				ID:        "session:" + w.ID,
-				Label:     wLabel,
-				Status:    sessionStatus(w.Status, w.ExitCode),
-				SessionID: w.ID,
-				Detail:    &Detail{Kind: "agent", Slot: "worker", PlanID: firstNonEmpty(w.PlanID, a.PlanID)},
-			})
+			Children:  workerNodes,
 		}
 		runChildren = append(runChildren, managerNode)
+	} else {
+		runChildren = append(runChildren, workerNodes...)
 	}
 
-	if showSystem && a.BrainAgentID != "" {
-		if brain := byID[a.BrainAgentID]; brain != nil && !claimed[brain.ID] {
-			claimed[brain.ID] = true
-			bLabel := brain.Name
-			if bLabel == "" {
-				bLabel = "brain"
-			}
-			runChildren = append(runChildren, &Node{
-				Type:      NodeTypeWorker,
-				ID:        "session:" + brain.ID,
-				Label:     bLabel,
-				Status:    sessionStatus(brain.Status, brain.ExitCode),
-				SessionID: brain.ID,
-				Detail:    &Detail{Kind: "agent", Slot: "brain", PlanID: firstNonEmpty(brain.PlanID, a.PlanID)},
-			})
-		}
-	}
-
-	// Any remaining claimed sessions (loose workers without ParentID) sit under the run.
-	var loose []*store.Session
-	for _, s := range sessions {
-		if claimed[s.ID] {
-			continue
-		}
-		if isHeadlessBrainSession(s) && !showSystem {
-			continue
-		}
-		loose = append(loose, s)
-	}
-	sortAgents(loose)
-	for _, w := range loose {
-		wLabel := w.Name
-		if wLabel == "" {
-			wLabel = w.ID
+	if brain != nil {
+		bLabel := brain.Name
+		if bLabel == "" {
+			bLabel = "brain"
 		}
 		runChildren = append(runChildren, &Node{
 			Type:      NodeTypeWorker,
-			ID:        "session:" + w.ID,
-			Label:     wLabel,
-			Status:    sessionStatus(w.Status, w.ExitCode),
-			SessionID: w.ID,
-			Detail:    &Detail{Kind: "agent", Slot: "worker", PlanID: firstNonEmpty(w.PlanID, a.PlanID)},
+			ID:        "session:" + brain.ID,
+			Label:     bLabel,
+			Status:    sessionStatus(brain.Status, brain.ExitCode),
+			SessionID: brain.ID,
+			Detail:    &Detail{Kind: "agent", Slot: "brain", PlanID: firstNonEmpty(brain.PlanID, a.PlanID)},
 		})
 	}
 
@@ -1011,8 +1052,11 @@ func sortJobs(jobs []pipeline.Job) []pipeline.Job {
 func buildAgentSubtree(
 	s *store.Session,
 	childrenByParent map[string][]*store.Session,
+	ownedAutopilotsByAgent map[string][]*autopilotstore.Autopilot,
 	ownedPipelinesByAgent map[string][]*pipeline.Pipeline,
+	autopilotSessionsByRun map[string][]*store.Session,
 	pipelineJobSessions map[string]*store.Session,
+	showSystem bool,
 ) *Node {
 	label := s.Name
 	if label == "" {
@@ -1027,11 +1071,20 @@ func buildAgentSubtree(
 		Detail:    &Detail{Kind: "agent", AiCli: backendOr(s), PlanID: s.PlanID},
 	}
 
-	for _, kid := range childrenByParent[s.ID] {
-		node.Children = append(node.Children, buildAgentSubtree(kid, childrenByParent, ownedPipelinesByAgent, pipelineJobSessions))
+	// Recursive nest order: child autopilots → child pipelines → child agents.
+	aps := ownedAutopilotsByAgent[s.ID]
+	sort.SliceStable(aps, func(i, j int) bool { return aps[i].ID < aps[j].ID })
+	for _, a := range aps {
+		node.Children = append(node.Children, buildLiveAutopilotNode(a, autopilotSessionsByRun[a.ID], showSystem))
 	}
 	for _, p := range ownedPipelinesByAgent[s.ID] {
 		node.Children = append(node.Children, buildPipelineNode(p, pipelineJobSessions))
+	}
+	for _, kid := range childrenByParent[s.ID] {
+		node.Children = append(node.Children, buildAgentSubtree(
+			kid, childrenByParent, ownedAutopilotsByAgent, ownedPipelinesByAgent,
+			autopilotSessionsByRun, pipelineJobSessions, showSystem,
+		))
 	}
 	return node
 }
@@ -1211,15 +1264,6 @@ func isHeadlessBrainSession(s *store.Session) bool {
 		return false
 	}
 	return s.Role == "brain" && s.HasTag("system:true")
-}
-
-func containsID(ids []string, id string) bool {
-	for _, x := range ids {
-		if x == id {
-			return true
-		}
-	}
-	return false
 }
 
 func firstNonEmpty(vals ...string) string {

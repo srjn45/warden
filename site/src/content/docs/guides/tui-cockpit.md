@@ -60,7 +60,7 @@ agents**.
 |---|---|
 | `↑` / `↓` or `j` / `k` | Move selection (agent pane is unaffected) |
 | `←` / `→` or `h` / `l` | Collapse / expand the project group, pipeline, agent sub-tree, or section under the cursor |
-| `Enter` | Open the selected agent (or running pipeline job) in the right agent pane — a finished agent or tombstone shows its stored detail instead of attaching; `Enter` on a terminal shows it in the terminal pane |
+| `Enter` | Open the selected entity in the right agent pane — agent/worker/manager/job attaches (or shows stored detail when finished); a pipeline or Autopilot container opens its overview; `Enter` on a terminal shows it in the terminal pane. Collapse/expand stays on `←`/`→` |
 | `n` | New agent — opens a prompt textarea; `ctrl+n` name · `ctrl+r` role · `ctrl+t` tier (live candidate table) · `ctrl+s` submit · `esc` cancel |
 | `t` | Open a terminal in the opened agent's directory (`~` if none open) — an inline choice to `(c)reate` a fresh terminal there or `(f)ocus` an existing one in that dir |
 | `M-t` / `M-a` / `M-p` | Global rotation (works from any pane, even while typing): **M-t** cycles the terminal pane over live terminals · **M-a** cycles the agent pane over live agents · **M-p** cycles the agent pane over pipeline agents. Each grabs focus on the pane it drives |

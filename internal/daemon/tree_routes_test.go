@@ -32,22 +32,9 @@ func findRoot(tr tree.Tree, id string) *tree.Node {
 	return nil
 }
 
-// sectionOf returns the named section under a project root.
-func sectionOf(t *testing.T, project *tree.Node, kind tree.SectionKind) *tree.Node {
-	t.Helper()
-	require.NotNil(t, project)
-	for _, ch := range project.Children {
-		if ch != nil && ch.Type == tree.NodeTypeSection && ch.Detail != nil && ch.Detail.Section == string(kind) {
-			return ch
-		}
-	}
-	t.Fatalf("section %q not found under %s", kind, project.ID)
-	return nil
-}
-
 // TestGetTreeSyntheticBucket: a bare session with no project/location lands in
-// the synthetic "No project" bucket as an agent node under the Agents section,
-// and the response carries Cache-Control: no-store.
+// the synthetic "No project" bucket as a direct agent node (no Agents section
+// bucket), and the response carries Cache-Control: no-store.
 func TestGetTreeSyntheticBucket(t *testing.T) {
 	fs := newFakeStore()
 	fs.data["A-1"] = &agentstore.Agent{ID: "A-1", Name: "orch", Status: store.StatusWorking}
@@ -59,12 +46,9 @@ func TestGetTreeSyntheticBucket(t *testing.T) {
 	bucket := findRoot(resp.Body, "project:__none__")
 	require.NotNil(t, bucket, "expected synthetic bucket root")
 	require.True(t, bucket.Detail.Synthetic)
-	require.Len(t, bucket.Children, 1, "Agents only; empty Plans/Autopilots/Pipelines/Terminals omitted")
-	require.Equal(t, "Agents", bucket.Children[0].Label)
-	agents := sectionOf(t, bucket, tree.SectionAgents)
-	require.Len(t, agents.Children, 1)
-	require.Equal(t, tree.NodeTypeAgent, agents.Children[0].Type)
-	require.Equal(t, "A-1", agents.Children[0].SessionID)
+	require.Len(t, bucket.Children, 1, "agent only; empty Plans/Terminals omitted; no entity section buckets")
+	require.Equal(t, tree.NodeTypeAgent, bucket.Children[0].Type)
+	require.Equal(t, "A-1", bucket.Children[0].SessionID)
 }
 
 // TestGetTreeEmptyFleet: an empty fleet returns roots as [] (never null).
@@ -112,15 +96,14 @@ func TestGetTreeAllFilter(t *testing.T) {
 	def := getTree(t, srv, oapi.GetTreeParams{})
 	bucket := findRoot(def.Body, "project:__none__")
 	require.NotNil(t, bucket)
-	agents := sectionOf(t, bucket, tree.SectionAgents)
-	require.Len(t, agents.Children, 1, "system session must be hidden by default")
-	require.Equal(t, "A-1", agents.Children[0].SessionID)
+	require.Len(t, bucket.Children, 1, "system session must be hidden by default")
+	require.Equal(t, tree.NodeTypeAgent, bucket.Children[0].Type)
+	require.Equal(t, "A-1", bucket.Children[0].SessionID)
 
 	all := getTree(t, srv, oapi.GetTreeParams{All: true})
 	bucketAll := findRoot(all.Body, "project:__none__")
 	require.NotNil(t, bucketAll)
-	agentsAll := sectionOf(t, bucketAll, tree.SectionAgents)
-	require.Len(t, agentsAll.Children, 2, "?all=true must include the system session")
+	require.Len(t, bucketAll.Children, 2, "?all=true must include the system session")
 }
 
 // TestGetTreeDegradedIs503: a degraded active session scan returns 503, never a

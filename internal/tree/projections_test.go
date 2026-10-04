@@ -37,25 +37,52 @@ func hasSection(project *Node, kind SectionKind) bool {
 	return false
 }
 
-// requireCanonicalSectionOrder asserts present sections follow
-// Plans → Autopilots → Pipelines → Agents → Terminals and that none are empty.
-func requireCanonicalSectionOrder(t *testing.T, project *Node) {
+// projectEntities returns direct (non-section) children of the given type.
+func projectEntities(project *Node, typ NodeType) []*Node {
+	if project == nil {
+		return nil
+	}
+	var out []*Node
+	for _, ch := range project.Children {
+		if ch != nil && ch.Type == typ {
+			out = append(out, ch)
+		}
+	}
+	return out
+}
+
+// requireCanonicalProjectOrder asserts project children follow
+// Plans (section) → Autopilot runs → Pipelines → Agents → Terminals (section)
+// with no Autopilots/Pipelines/Agents section buckets.
+func requireCanonicalProjectOrder(t *testing.T, project *Node) {
 	t.Helper()
 	require.NotNil(t, project)
-	order := map[string]int{
-		string(SectionPlans): 0, string(SectionAutopilots): 1, string(SectionPipelines): 2,
-		string(SectionAgents): 3, string(SectionTerminals): 4,
-	}
 	prev := -1
 	for _, ch := range project.Children {
-		require.Equal(t, NodeTypeSection, ch.Type)
-		require.NotNil(t, ch.Detail)
-		idx, ok := order[ch.Detail.Section]
-		require.True(t, ok, "unexpected section %q", ch.Detail.Section)
-		require.Greater(t, idx, prev, "sections out of order at %q", ch.Label)
-		prev = idx
-		require.NotEmpty(t, ch.Children, "section %q must not be empty", ch.Label)
+		require.NotNil(t, ch)
+		rank := -1
+		switch {
+		case ch.Type == NodeTypeSection && ch.Detail != nil && ch.Detail.Section == string(SectionPlans):
+			rank = 0
+			require.NotEmpty(t, ch.Children, "Plans section must not be empty")
+		case ch.Type == NodeTypeAutopilotRun:
+			rank = 1
+		case ch.Type == NodeTypePipeline:
+			rank = 2
+		case ch.Type == NodeTypeAgent:
+			rank = 3
+		case ch.Type == NodeTypeSection && ch.Detail != nil && ch.Detail.Section == string(SectionTerminals):
+			rank = 4
+			require.NotEmpty(t, ch.Children, "Terminals section must not be empty")
+		default:
+			t.Fatalf("unexpected project child type=%q id=%q section=%v", ch.Type, ch.ID, ch.Detail)
+		}
+		require.GreaterOrEqual(t, rank, prev, "project children out of order at %q", ch.ID)
+		prev = rank
 	}
+	require.False(t, hasSection(project, SectionAutopilots), "Autopilots section bucket must not exist")
+	require.False(t, hasSection(project, SectionPipelines), "Pipelines section bucket must not exist")
+	require.False(t, hasSection(project, SectionAgents), "Agents section bucket must not exist")
 }
 
 func TestProjectSections_CanonicalOrder(t *testing.T) {
@@ -68,11 +95,11 @@ func TestProjectSections_CanonicalOrder(t *testing.T) {
 	}
 	tr := NewService().Build(in, "")
 	require.Len(t, tr.Roots, 1)
-	requireCanonicalSectionOrder(t, tr.Roots[0])
-	require.Empty(t, tr.Roots[0].Children, "fully empty project has no section headers")
+	requireCanonicalProjectOrder(t, tr.Roots[0])
+	require.Empty(t, tr.Roots[0].Children, "fully empty project has no children")
 }
 
-func TestProjectSections_OmitEmptyAutopilotsPipelinesAgentsTerminals(t *testing.T) {
+func TestProjectSections_OmitEmptyPlansAndTerminals(t *testing.T) {
 	now := time.Now()
 	in := Inputs{
 		Projects: []projectstore.Project{{
@@ -88,12 +115,11 @@ func TestProjectSections_OmitEmptyAutopilotsPipelinesAgentsTerminals(t *testing.
 	}
 	tr := NewService().Build(in, "")
 	proj := tr.Roots[0]
-	requireCanonicalSectionOrder(t, proj)
+	requireCanonicalProjectOrder(t, proj)
 	require.True(t, hasSection(proj, SectionPlans))
-	require.True(t, hasSection(proj, SectionAgents))
-	require.False(t, hasSection(proj, SectionAutopilots))
-	require.False(t, hasSection(proj, SectionPipelines))
+	require.Len(t, projectEntities(proj, NodeTypeAgent), 1)
 	require.False(t, hasSection(proj, SectionTerminals))
+	require.Len(t, proj.Children, 2) // Plans section + agent
 }
 
 func TestProjectSections_OmitEmptyPlans(t *testing.T) {
@@ -109,9 +135,9 @@ func TestProjectSections_OmitEmptyPlans(t *testing.T) {
 	}
 	tr := NewService().Build(in, "")
 	proj := tr.Roots[0]
-	requireCanonicalSectionOrder(t, proj)
+	requireCanonicalProjectOrder(t, proj)
 	require.False(t, hasSection(proj, SectionPlans))
-	require.True(t, hasSection(proj, SectionAgents))
+	require.Len(t, projectEntities(proj, NodeTypeAgent), 1)
 	require.Len(t, proj.Children, 1)
 }
 
@@ -145,16 +171,16 @@ func TestExactlyOnce_LiveAutopilotManagerWorkersNotAlsoAgents(t *testing.T) {
 	}
 	tr := NewService().Build(in, "")
 	proj := tr.Roots[0]
-	requireCanonicalSectionOrder(t, proj)
+	requireCanonicalProjectOrder(t, proj)
 
 	plans := sectionOf(t, proj, SectionPlans)
 	require.Len(t, plans.Children, 1)
 	require.Equal(t, "plan:plan-1", plans.Children[0].ID)
 	require.Empty(t, plans.Children[0].Children, "Plan nodes must not nest executors")
 
-	aps := sectionOf(t, proj, SectionAutopilots)
-	require.Len(t, aps.Children, 1)
-	run := aps.Children[0]
+	aps := projectEntities(proj, NodeTypeAutopilotRun)
+	require.Len(t, aps, 1)
+	run := aps[0]
 	require.Equal(t, "AP:feat", run.Label)
 	require.Len(t, run.Children, 1, "manager only; no task groups, no brain")
 	mgr := run.Children[0]
@@ -172,11 +198,11 @@ func TestExactlyOnce_LiveAutopilotManagerWorkersNotAlsoAgents(t *testing.T) {
 			walk(n.Children)
 		}
 	}
-	walk(aps.Children)
+	walk(aps)
 
-	agents := sectionOf(t, proj, SectionAgents)
-	require.Len(t, agents.Children, 1, "manager+worker claimed by Autopilot; only O: remains")
-	require.Equal(t, "session:O:orch", agents.Children[0].ID)
+	agents := projectEntities(proj, NodeTypeAgent)
+	require.Len(t, agents, 1, "manager+worker claimed by Autopilot; only O: remains")
+	require.Equal(t, "session:O:orch", agents[0].ID)
 }
 
 func TestExactlyOnce_HideBrainUnlessShowSystem(t *testing.T) {
@@ -198,20 +224,65 @@ func TestExactlyOnce_HideBrainUnlessShowSystem(t *testing.T) {
 		},
 	}
 	hidden := NewService().Build(in, "")
-	aps := sectionOf(t, hidden.Roots[0], SectionAutopilots)
-	require.Len(t, aps.Children[0].Children, 1)
-	require.Equal(t, "session:mgr", aps.Children[0].Children[0].ID)
+	aps := projectEntities(hidden.Roots[0], NodeTypeAutopilotRun)
+	require.Len(t, aps, 1)
+	require.Len(t, aps[0].Children, 1)
+	require.Equal(t, "session:mgr", aps[0].Children[0].ID)
 
 	in.ShowSystem = true
 	shown := NewService().Build(in, "")
-	aps2 := sectionOf(t, shown.Roots[0], SectionAutopilots)
-	require.GreaterOrEqual(t, len(aps2.Children[0].Children), 2)
-	ids := map[string]bool{}
-	for _, ch := range aps2.Children[0].Children {
-		ids[ch.SessionID] = true
+	aps2 := projectEntities(shown.Roots[0], NodeTypeAutopilotRun)
+	require.Len(t, aps2[0].Children, 2, "Manager and Brain are peer children of Autopilot")
+	require.Equal(t, NodeTypeManager, aps2[0].Children[0].Type)
+	require.Equal(t, "session:mgr", aps2[0].Children[0].ID)
+	require.Equal(t, "session:brain-1", aps2[0].Children[1].ID)
+	require.Equal(t, "brain", aps2[0].Children[1].Detail.Slot)
+}
+
+// Workers with cleared parent_id (ownership guard) still nest under Manager —
+// Autopilot → Manager → workers, with Brain as a peer of Manager when shown.
+func TestAutopilot_AllWorkersUnderManager_ClearedParentID(t *testing.T) {
+	now := time.Date(2026, 10, 3, 18, 0, 0, 0, time.UTC)
+	in := Inputs{
+		Projects: []projectstore.Project{{
+			ID: "/p", Name: "p", Path: "/p", Status: projectstore.StatusOpen,
+			Autopilots: []string{"ap-1"},
+		}},
+		Autopilots: []*autopilotstore.Autopilot{{
+			ID: "ap-1", ProjectID: "/p", PlanID: "plan-1", Name: "AP:feat",
+			ManagerAgentID: "mgr", BrainAgentID: "brain-1",
+			Diagnostics: autopilotstore.Diagnostics{State: "active", Repo: "/p"},
+		}},
+		Sessions: []*store.Session{
+			{ID: "mgr", Name: "AP:feat", Role: "autopilot", PlanID: "plan-1", ProjectID: "/p",
+				Status: store.StatusWorking, Kind: store.KindAgent, CreatedAt: now},
+			// Cleared parent_id — must still nest under Manager, not the run.
+			{ID: "worker-1", Name: "w1", Role: "worker", ParentID: "", PlanID: "plan-1", ProjectID: "/p",
+				AutopilotRunID: "ap-1", AutopilotSlot: store.AutopilotSlotWorker,
+				Status: store.StatusWorking, Kind: store.KindAgent, CreatedAt: now.Add(time.Minute)},
+			{ID: "worker-2", Name: "w2", Role: "worker", ParentID: "", PlanID: "plan-1", ProjectID: "/p",
+				AutopilotRunID: "ap-1", AutopilotSlot: store.AutopilotSlotWorker,
+				Status: store.StatusIdle, Kind: store.KindAgent, CreatedAt: now.Add(2 * time.Minute)},
+			{ID: "brain-1", Name: "brain", Role: "brain", PlanID: "plan-1", ProjectID: "/p",
+				Tags: []string{"system:true", "run:ap-1"}, Status: store.StatusIdle, Kind: store.KindAgent, CreatedAt: now},
+		},
+		ShowSystem: true,
 	}
-	require.True(t, ids["mgr"])
-	require.True(t, ids["brain-1"])
+	tr := NewService().Build(in, "")
+	aps := projectEntities(tr.Roots[0], NodeTypeAutopilotRun)
+	require.Len(t, aps, 1)
+	run := aps[0]
+	require.Len(t, run.Children, 2, "Manager + Brain peers")
+	mgr := run.Children[0]
+	require.Equal(t, NodeTypeManager, mgr.Type)
+	require.Equal(t, "session:mgr", mgr.ID)
+	require.Len(t, mgr.Children, 2, "all run workers under Manager")
+	require.Equal(t, "session:worker-1", mgr.Children[0].ID)
+	require.Equal(t, "session:worker-2", mgr.Children[1].ID)
+	brain := run.Children[1]
+	require.Equal(t, "session:brain-1", brain.ID)
+	require.Equal(t, "brain", brain.Detail.Slot)
+	require.Empty(t, brain.Children, "Brain is a peer leaf, not a worker container")
 }
 
 func TestExactlyOnce_PipelineJobsNotAgents(t *testing.T) {
@@ -234,14 +305,14 @@ func TestExactlyOnce_PipelineJobsNotAgents(t *testing.T) {
 		},
 	}
 	tr := NewService().Build(in, "")
-	pipes := sectionOf(t, tr.Roots[0], SectionPipelines)
-	require.Len(t, pipes.Children, 1)
-	require.Equal(t, "P:feat", pipes.Children[0].Label)
-	require.Equal(t, "pipeline:plan-p/job:t1", pipes.Children[0].Children[0].ID)
+	pipes := projectEntities(tr.Roots[0], NodeTypePipeline)
+	require.Len(t, pipes, 1)
+	require.Equal(t, "P:feat", pipes[0].Label)
+	require.Equal(t, "pipeline:plan-p/job:t1", pipes[0].Children[0].ID)
 
-	agents := sectionOf(t, tr.Roots[0], SectionAgents)
-	require.Len(t, agents.Children, 1)
-	require.Equal(t, "session:M:solo", agents.Children[0].ID)
+	agents := projectEntities(tr.Roots[0], NodeTypeAgent)
+	require.Len(t, agents, 1)
+	require.Equal(t, "session:M:solo", agents[0].ID)
 }
 
 func TestExactlyOnce_OrchestratorWithWorkersUnderAgents(t *testing.T) {
@@ -259,12 +330,109 @@ func TestExactlyOnce_OrchestratorWithWorkersUnderAgents(t *testing.T) {
 		},
 	}
 	tr := NewService().Build(in, "")
-	agents := sectionOf(t, tr.Roots[0], SectionAgents)
-	require.Len(t, agents.Children, 1)
-	require.Equal(t, "O:feat", agents.Children[0].Label)
-	require.Len(t, agents.Children[0].Children, 1)
-	require.Equal(t, "session:w1", agents.Children[0].Children[0].ID)
-	require.False(t, hasSection(tr.Roots[0], SectionAutopilots), "empty Autopilots section must be omitted")
+	agents := projectEntities(tr.Roots[0], NodeTypeAgent)
+	require.Len(t, agents, 1)
+	require.Equal(t, "O:feat", agents[0].Label)
+	require.Len(t, agents[0].Children, 1)
+	require.Equal(t, "session:w1", agents[0].Children[0].ID)
+	require.Empty(t, projectEntities(tr.Roots[0], NodeTypeAutopilotRun), "no root autopilots")
+}
+
+func TestNestedAutopilot_UnderOwningAgent(t *testing.T) {
+	now := time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC)
+	in := Inputs{
+		Projects: []projectstore.Project{{
+			ID: "/p", Name: "p", Path: "/p", Status: projectstore.StatusOpen,
+			Agents: []string{"orch"}, Autopilots: []string{"ap-nested", "ap-root"},
+		}},
+		Autopilots: []*autopilotstore.Autopilot{
+			{
+				ID: "ap-nested", ProjectID: "/p", Name: "nested-run", ParentAgentID: "orch",
+				ManagerAgentID: "nested-mgr",
+				Diagnostics:    autopilotstore.Diagnostics{State: "active", Repo: "/p"},
+			},
+			{
+				ID: "ap-root", ProjectID: "/p", Name: "root-run",
+				ManagerAgentID: "root-mgr",
+				Diagnostics:    autopilotstore.Diagnostics{State: "active", Repo: "/p"},
+			},
+		},
+		Sessions: []*store.Session{
+			{
+				ID: "orch", Name: "orchestrator", ProjectID: "/p", Repo: "/p",
+				Status: store.StatusWorking, Kind: store.KindAgent, CreatedAt: now,
+				ChildAutopilots: []string{"ap-nested"},
+				ChildAgents:     []string{"kid"},
+			},
+			{
+				ID: "kid", Name: "child", ParentID: "orch", ProjectID: "/p", Repo: "/p",
+				Status: store.StatusIdle, Kind: store.KindAgent, CreatedAt: now.Add(time.Minute),
+			},
+			{
+				ID: "nested-mgr", Name: "nested-mgr", Role: "autopilot", ProjectID: "/p",
+				Status: store.StatusWorking, Kind: store.KindAgent, CreatedAt: now,
+			},
+			{
+				ID: "root-mgr", Name: "root-mgr", Role: "autopilot", ProjectID: "/p",
+				Status: store.StatusWorking, Kind: store.KindAgent, CreatedAt: now,
+			},
+		},
+	}
+	tr := NewService().Build(in, "")
+	proj := tr.Roots[0]
+	requireCanonicalProjectOrder(t, proj)
+
+	rootAPs := projectEntities(proj, NodeTypeAutopilotRun)
+	require.Len(t, rootAPs, 1)
+	require.Equal(t, "run:ap-root", rootAPs[0].ID)
+
+	agents := projectEntities(proj, NodeTypeAgent)
+	require.Len(t, agents, 1)
+	orch := agents[0]
+	require.Equal(t, "session:orch", orch.ID)
+	require.GreaterOrEqual(t, len(orch.Children), 2)
+	require.Equal(t, NodeTypeAutopilotRun, orch.Children[0].Type, "child autopilots before child agents")
+	require.Equal(t, "run:ap-nested", orch.Children[0].ID)
+	require.Equal(t, NodeTypeAgent, orch.Children[len(orch.Children)-1].Type)
+	require.Equal(t, "session:kid", orch.Children[len(orch.Children)-1].ID)
+}
+
+func TestChildAutopilotsBeatsContradictoryParentAgentID(t *testing.T) {
+	now := time.Date(2026, 10, 3, 16, 0, 0, 0, time.UTC)
+	in := Inputs{
+		Projects: []projectstore.Project{{
+			ID: "/repo", Name: "repo", Path: "/repo", Status: projectstore.StatusOpen,
+			Agents: []string{"a", "b"},
+		}},
+		Autopilots: []*autopilotstore.Autopilot{{
+			ID: "ap-1", ProjectID: "/repo", Name: "run", ParentAgentID: "a",
+			ManagerAgentID: "mgr",
+			Diagnostics:    autopilotstore.Diagnostics{State: "active", Repo: "/repo"},
+		}},
+		Sessions: []*store.Session{
+			{ID: "a", Name: "alpha", ProjectID: "/repo", Repo: "/repo", Status: store.StatusIdle, Kind: store.KindAgent, CreatedAt: now},
+			{ID: "b", Name: "bravo", ProjectID: "/repo", Repo: "/repo", Status: store.StatusIdle, Kind: store.KindAgent, CreatedAt: now.Add(time.Minute), ChildAutopilots: []string{"ap-1"}},
+			{ID: "mgr", Role: "autopilot", ProjectID: "/repo", Status: store.StatusWorking, Kind: store.KindAgent, CreatedAt: now},
+		},
+	}
+	tree := NewService().Build(in, "")
+	require.Len(t, tree.Roots, 1)
+	require.Empty(t, projectEntities(tree.Roots[0], NodeTypeAutopilotRun), "owned run must not sit at project root")
+	agents := projectEntities(tree.Roots[0], NodeTypeAgent)
+	var bravo, alpha *Node
+	for _, ch := range agents {
+		switch ch.SessionID {
+		case "b":
+			bravo = ch
+		case "a":
+			alpha = ch
+		}
+	}
+	require.NotNil(t, bravo)
+	require.NotNil(t, alpha)
+	require.Len(t, bravo.Children, 1)
+	require.Equal(t, "run:ap-1", bravo.Children[0].ID)
+	require.Empty(t, alpha.Children)
 }
 
 func TestPlanNodeProjectionFields(t *testing.T) {
