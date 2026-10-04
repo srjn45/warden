@@ -3115,15 +3115,23 @@ Inherited flags:
 ## warden git release
 
 ```text
-Inspect the current repo since its latest SemVer tag and recommend the next
-release: the bump (major/minor/patch), the next vMAJOR.MINOR.PATCH, and a
-categorized changelog built from conventional commits and merged PRs.
+Inspect commits since the latest SemVer tag and recommend the next release:
+the bump (major/minor/patch), the next vMAJOR.MINOR.PATCH, and a categorized
+changelog built from conventional commits and merged PRs.
 
-By default the command is interactive: it asks before creating an annotated tag
-(default N), then — only if --push was given — asks before pushing it to origin
-(default N). The tag message carries the rendered changelog. An existing tag is
-never overwritten.
+By default, the analysis targets origin/main (or origin/master) so releases are
+evaluated against canonical upstream commits rather than uncommitted local edits
+or active feature/agent worktrees. Pass --target to override.
 
+Unless --no-fetch is given, the command fetches the target ref from origin first.
+
+Interactive by default: asks before creating an annotated tag directly on the
+target commit (default N), then — only if --push was given — asks before pushing
+it to origin (default N). The tag message carries the rendered changelog. An
+existing tag is never overwritten.
+
+  --target <ref> set target ref to release (default: origin/main or origin/master)
+  --no-fetch     skip fetching the target ref from origin before analysis
   --dry-run      print the recommendation only; never tag or push
   --yes          skip the create-tag prompt and create the annotated tag
   --push         push the tag to origin after it exists (prompts unless --yes)
@@ -3137,11 +3145,13 @@ Usage:
   warden git release [flags]
 
 Flags:
-      --dry-run   print the recommendation only; never tag or push
-  -h, --help      help for release
-      --json      emit the advice and actions taken as JSON
-      --push      push the tag to origin after creating it (prompts unless --yes)
-      --yes       skip the create-tag prompt and create the annotated tag
+      --dry-run         print the recommendation only; never tag or push
+  -h, --help            help for release
+      --json            emit the advice and actions taken as JSON
+      --no-fetch        skip fetching target ref from origin before analysis
+      --push            push the tag to origin after creating it (prompts unless --yes)
+      --target string   target ref or branch to release (default: origin/main or origin/master)
+      --yes             skip the create-tag prompt and create the annotated tag
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -5141,15 +5151,23 @@ Inherited flags:
 ## warden release
 
 ```text
-Inspect the current repo since its latest SemVer tag and recommend the next
-release: the bump (major/minor/patch), the next vMAJOR.MINOR.PATCH, and a
-categorized changelog built from conventional commits and merged PRs.
+Inspect commits since the latest SemVer tag and recommend the next release:
+the bump (major/minor/patch), the next vMAJOR.MINOR.PATCH, and a categorized
+changelog built from conventional commits and merged PRs.
 
-By default the command is interactive: it asks before creating an annotated tag
-(default N), then — only if --push was given — asks before pushing it to origin
-(default N). The tag message carries the rendered changelog. An existing tag is
-never overwritten.
+By default, the analysis targets origin/main (or origin/master) so releases are
+evaluated against canonical upstream commits rather than uncommitted local edits
+or active feature/agent worktrees. Pass --target to override.
 
+Unless --no-fetch is given, the command fetches the target ref from origin first.
+
+Interactive by default: asks before creating an annotated tag directly on the
+target commit (default N), then — only if --push was given — asks before pushing
+it to origin (default N). The tag message carries the rendered changelog. An
+existing tag is never overwritten.
+
+  --target <ref> set target ref to release (default: origin/main or origin/master)
+  --no-fetch     skip fetching the target ref from origin before analysis
   --dry-run      print the recommendation only; never tag or push
   --yes          skip the create-tag prompt and create the annotated tag
   --push         push the tag to origin after it exists (prompts unless --yes)
@@ -5163,11 +5181,13 @@ Usage:
   warden release [flags]
 
 Flags:
-      --dry-run   print the recommendation only; never tag or push
-  -h, --help      help for release
-      --json      emit the advice and actions taken as JSON
-      --push      push the tag to origin after creating it (prompts unless --yes)
-      --yes       skip the create-tag prompt and create the annotated tag
+      --dry-run         print the recommendation only; never tag or push
+  -h, --help            help for release
+      --json            emit the advice and actions taken as JSON
+      --no-fetch        skip fetching target ref from origin before analysis
+      --push            push the tag to origin after creating it (prompts unless --yes)
+      --target string   target ref or branch to release (default: origin/main or origin/master)
+      --yes             skip the create-tag prompt and create the annotated tag
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
