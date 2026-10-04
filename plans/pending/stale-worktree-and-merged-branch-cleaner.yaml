@@ -1,0 +1,56 @@
+version: 1
+name: stale-worktree-and-merged-branch-cleaner
+goal: >-
+  Implement `warden workspace clean` (with alias `warden clean` / `wd clean`) to safely detect and
+  prune merged branches (both local and origin) and stale worktrees whose PRs or commits have merged
+  into the base branch (including GitHub squash merges), with strict protected branch guards and dry-run preview.
+constraints:
+  - "Work in an isolated branch/worktree off origin/main; one worker per task."
+  - "Keep the tree green — run make verify-fast and go test ./... before committing."
+  - "Protected branches (main, master, develop, release/*, and active checked-out branch) must never be deleted."
+  - "Dirty worktrees with uncommitted changes must never be deleted without explicit --force."
+done_when:
+  - "internal/workspace/cleaner.go safely detects merged local branches, origin branches, and stale worktrees."
+  - "Squash-merged branches are accurately detected via gh pr list --state merged and patch-id matching."
+  - "CLI command `warden workspace clean` (and alias `warden clean`) renders summary table and asks confirmation."
+  - "Prunes worktrees, deletes local branches, and deletes remote origin branches in one coordinated operation."
+  - "Full unit test coverage with mock git repositories."
+tasks:
+  - id: Task1_MergedDetectionEngine
+    prompt: >-
+      Implement the merged branch and stale worktree detector in internal/workspace/cleaner.go:
+      1) In internal/workspace/cleaner.go:
+         - Resolve default branch (main or master).
+         - Run `git fetch --prune origin`.
+         - Detect direct merged branches via `git branch --merged <base>`.
+         - Detect squash-merged branches:
+           - Query `gh pr list --state merged --json headRefName` when gh is available.
+           - Fall back to git cherry / patch-id inspection to verify commit tree equality with base.
+         - Detect remote branches on `origin` already merged into `base` (e.g. `origin/fix/...`, `origin/feat/...`).
+         - Scan worktrees under `.worktrees/` checking out any of the detected merged branches.
+         - Filter out protected branches: `main`, `master`, `develop`, `release/*`, and the currently active branch in the main worktree.
+         - Check each target worktree for uncommitted changes (`git status --porcelain`).
+      2) In internal/workspace/cleaner_test.go:
+         - Add unit tests using temporary git repositories verifying standard merge detection, squash-merge detection, and protected branch exclusion.
+      Ensure `go test ./internal/workspace/...` passes.
+
+  - id: Task2_CleanCLICommand
+    after:
+      - Task1_MergedDetectionEngine
+    prompt: >-
+      Implement the CLI command and interactive cleaner:
+      1) In internal/cli/workspace_clean.go:
+         - Register `warden workspace clean` and top-level alias `warden clean`.
+         - Flags: `--dry-run`, `--local-only` (skip remote branch deletion), `--force` (bypass dirty check), `--yes` (skip prompt), `--json`.
+         - Format and display discovered merged entities in clean tables:
+           - Merged Local Branches
+           - Merged Remote Branches
+           - Stale Worktrees
+         - Interactive prompt: `Reclaim N worktrees, delete X local branches, and delete Y remote branches? [y/N]`.
+         - On confirmation:
+           - Remove worktrees: `git worktree remove <path>`.
+           - Delete local branches: `git branch -d <branch>` (or `-D` if verified squash-merged).
+           - Delete remote branches: `git push origin --delete <branch>`.
+      2) In internal/cli/workspace_clean_test.go:
+         - Add CLI command tests with `--dry-run` and `--json`.
+      3) Run `make verify-fast` and all tests. Open a PR against main.
