@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/srjn45/warden/internal/fastbrain"
 	"github.com/srjn45/warden/internal/llm"
 )
 
@@ -26,6 +27,28 @@ func Narrate(ctx context.Context, c llm.Completer, r Report) string {
 		return floor
 	}
 	if s := cleanLine(out); s != "" {
+		return s
+	}
+	return floor
+}
+
+// NarrateWithBrain is the Fast-Brain-preferred narrator: Decide(KindSummarizeActivity,
+// TierFast) enriches the summary, and any non-OK decision, error, or empty reply
+// fails open to DeterministicSummary(r). A nil engine yields the floor.
+func NarrateWithBrain(ctx context.Context, eng fastbrain.Engine, r Report) string {
+	floor := DeterministicSummary(r)
+	if eng == nil {
+		return floor
+	}
+	resp, err := eng.Decide(ctx, fastbrain.Request{
+		Kind:   fastbrain.KindSummarizeActivity,
+		Tier:   fastbrain.TierFast,
+		Prompt: fastbrain.SummarizeActivityPrompt(narratorFacts(r)),
+	})
+	if err != nil || !resp.OK() {
+		return floor
+	}
+	if s := cleanLine(fastbrain.ParseSummary(resp)); s != "" {
 		return s
 	}
 	return floor
@@ -87,6 +110,12 @@ func NarratorPrompt(r Report) string {
 	b.WriteString("Summarize, in 2-4 sentences, what these warden agent-history insights tell the operator. ")
 	b.WriteString("Lead with the most actionable suggestion. Output ONLY the summary — start with the first word of it. ")
 	b.WriteString("Do NOT restate this request, do NOT add any preamble, label, or quotes.\n\n")
+	return b.String() + narratorFacts(r)
+}
+
+// narratorFacts renders the deterministic facts (no instruction).
+func narratorFacts(r Report) string {
+	var b strings.Builder
 	fmt.Fprintf(&b, "Sessions analyzed: %d (%d active)\n", r.Sessions, r.ActiveSessions)
 	for _, d := range r.Durations {
 		fmt.Fprintf(&b, "Duration[%s]: median %s, p90 %s, max %s, %d outliers\n",

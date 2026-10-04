@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/srjn45/warden/internal/fastbrain"
 	"github.com/srjn45/warden/internal/llm"
 	"github.com/srjn45/warden/internal/memory"
 )
@@ -21,6 +22,11 @@ const maxCandidates = 6
 // whole pass runs off the debounce timer, never on a request path, even the fallback
 // is off any critical path.
 type LLMProposer struct {
+	// FastBrain is the preferred path: when set, extraction runs through
+	// Decide(KindCurateExtract, TierThinking) and NOTHING else — a non-OK decision
+	// fails open to no proposals, never a paid `claude -p`. LLM/Run below are
+	// legacy fallbacks used only when FastBrain is nil.
+	FastBrain fastbrain.Engine
 	// Run is an optional headless one-shot fallback used only when LLM is nil or
 	// returns nothing. The daemon leaves it nil and sets LLM to the free/local
 	// internal-thinking router (backend registry §7), so an exhausted walk yields
@@ -38,6 +44,17 @@ type LLMProposer struct {
 // through the offload, and parses the reply's bullet lines into UNVERIFIED candidate
 // entries tagged with this batch's provenance and today's date.
 func (p LLMProposer) Propose(ctx context.Context, in ProposeInput) ([]memory.Entry, error) {
+	if p.FastBrain != nil {
+		resp, err := p.FastBrain.Decide(ctx, fastbrain.Request{
+			Kind:   fastbrain.KindCurateExtract,
+			Tier:   fastbrain.TierThinking,
+			Prompt: fastbrain.CurateExtractPrompt(extractionContext(in)),
+		})
+		if err != nil || !resp.OK() {
+			return nil, nil // fail open: skip this pass
+		}
+		return stampEntries(fastbrain.ParseCurateEntries(resp), provenance(in.Signals)), nil
+	}
 	prompt := ExtractionPrompt(in)
 	var raw string
 	if p.LLM != nil {
@@ -76,7 +93,15 @@ func ExtractionPrompt(in ProposeInput) string {
 	b.WriteString("DISCARD anything already stated in current memory. ")
 	b.WriteString("Output ONLY a markdown bullet list, one fact per '- ' line, each a short navigational statement; ")
 	b.WriteString("if there is nothing durable to add, output nothing.\n\n")
+	b.WriteString(extractionContext(in))
+	return b.String()
+}
 
+// extractionContext renders the current memory and the batch's completion signals —
+// the data half of the extraction prompt, shared with the Fast-Brain path (whose
+// template carries its own instructions).
+func extractionContext(in ProposeInput) string {
+	var b strings.Builder
 	if in.Current != nil && len(in.Current.Entries) > 0 {
 		b.WriteString("Current memory (do not repeat):\n")
 		for _, e := range in.Current.Entries {
@@ -105,13 +130,22 @@ func ExtractionPrompt(in ProposeInput) string {
 // provenance-tagged entries — the enforced proposal shape (§4.2). Non-bullet
 // preamble lines are ignored; the count is capped.
 func parseCandidates(raw, prov string) []memory.Entry {
-	var out []memory.Entry
+	var texts []string
 	for _, line := range strings.Split(raw, "\n") {
 		t := strings.TrimSpace(line)
 		if !strings.HasPrefix(t, "- ") && !strings.HasPrefix(t, "* ") {
 			continue
 		}
-		text := strings.TrimSpace(t[2:])
+		texts = append(texts, strings.TrimSpace(t[2:]))
+	}
+	return stampEntries(texts, prov)
+}
+
+// stampEntries turns fact strings into UNVERIFIED, provenance-tagged entries,
+// capped at maxCandidates.
+func stampEntries(texts []string, prov string) []memory.Entry {
+	var out []memory.Entry
+	for _, text := range texts {
 		// Defensively peel a leaked "[...]" metadata prefix so provenance/trust are
 		// set HERE, never taken from model output.
 		if strings.HasPrefix(text, "[") {

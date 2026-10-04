@@ -4,17 +4,39 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/srjn45/warden/internal/fastbrain"
 )
 
 // ClaudeNarrator is the real Narrator: it shells `claude -p` through the Run
 // func (wired to lifecycle's bounded claude -p plumbing). Run is the only seam,
 // so tests inject a canned function and stay offline.
+//
+// FastBrain is the preferred path: when set, the summary comes from
+// Decide(KindSummarizeActivity, TierFast) and a non-OK decision fails open to ""
+// (the caller keeps its deterministic summary) — Run is never invoked. Run is the
+// legacy fallback used only when FastBrain is nil.
 type ClaudeNarrator struct {
-	Run func(ctx context.Context, arg string) (string, error)
+	FastBrain fastbrain.Engine
+	Run       func(ctx context.Context, arg string) (string, error)
 }
 
 // Summarize asks the model for a 1–2 sentence "what this agent did" line.
 func (n ClaudeNarrator) Summarize(ctx context.Context, f Facts) (string, error) {
+	if n.FastBrain != nil {
+		resp, err := n.FastBrain.Decide(ctx, fastbrain.Request{
+			Kind:   fastbrain.KindSummarizeActivity,
+			Tier:   fastbrain.TierFast,
+			Prompt: fastbrain.SummarizeActivityPrompt(activityText(f)),
+		})
+		if err != nil || !resp.OK() {
+			return "", nil
+		}
+		return stripPreamble(cleanLine(fastbrain.ParseSummary(resp))), nil
+	}
+	if n.Run == nil {
+		return "", nil
+	}
 	out, err := n.Run(ctx, NarratorPrompt(f))
 	if err != nil {
 		return "", err
@@ -28,11 +50,18 @@ func (n ClaudeNarrator) Summarize(ctx context.Context, f Facts) (string, error) 
 // tends to narrate its meta-reasoning ("No skill applies.", "This is a
 // summarization task.") before the actual summary.
 func NarratorPrompt(f Facts) string {
+	return narratorInstruction + activityText(f)
+}
+
+const narratorInstruction = "" +
+	"Summarize, in 1-2 sentences, what a coding agent accomplished. " +
+	"Output ONLY the summary itself — start with the first word of the summary. " +
+	"Do NOT restate this request, do NOT mention skills or instructions, " +
+	"do NOT add any preamble, label, or quotes.\n\n"
+
+// activityText renders the deterministic facts (no instruction).
+func activityText(f Facts) string {
 	var b strings.Builder
-	b.WriteString("Summarize, in 1-2 sentences, what a coding agent accomplished. ")
-	b.WriteString("Output ONLY the summary itself — start with the first word of the summary. ")
-	b.WriteString("Do NOT restate this request, do NOT mention skills or instructions, ")
-	b.WriteString("do NOT add any preamble, label, or quotes.\n\n")
 	if f.Task != "" {
 		fmt.Fprintf(&b, "Task: %s\n", f.Task)
 	}
