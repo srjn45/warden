@@ -121,6 +121,7 @@ func newRootCmd() *cobra.Command {
 		{newPluginCmd(), "warden project plugin", markCompatibilityCommand},
 		{newWorktreeCmd(), "warden workspace", markCompatibilityCommand},
 		{newPruneCmd(), "warden workspace prune", markCompatibilityCommand},
+		{newCleanCmd(), "warden workspace clean", markCompatibilityCommand},
 		{newSnapshotCmd(), "warden workspace snapshot", markCompatibilityCommand},
 		{newBranchesCmd(), "warden workspace branches", markCompatibilityCommand},
 		{newCollabCmd(), "warden workspace", func(cmd *cobra.Command, _ string) { markWorkspaceCollabCompatibility(cmd) }},

@@ -308,6 +308,9 @@ Read verbs for catching up on the fleet, all MCP-first:
   `wd workspace list` / `wd workspace prune`, both under the `wd workspace` umbrella;
   `wd workspace list` and the top-level `wd workspace prune` remain as aliases) — list /
   reconcile a repo's worktrees.
+- `wd workspace clean` (alias `wd clean`; CLI-only) — delete merged local/origin branches and
+  prune the stale worktrees on them (incl. squash merges). Previews, asks; `--dry-run`, `--yes`,
+  `--json`, `--local-only`, `--force` (dirty worktrees). Not `prune` (that reclaims orphaned worktrees).
 - `digest {ticket}` (CLI `wd agent digest`) — a compact catch-up summary of one agent.
 
 ## Backend registry — detected CLIs, tiers, thinking-mode

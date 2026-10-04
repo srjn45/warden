@@ -1,6 +1,7 @@
 One umbrella over warden's workspace operations:
   • LIST worktrees — the warden-owned worktrees under .worktrees (`wd workspace list`)
   • PRUNE orphaned worktrees (`wd workspace prune`)
+  • CLEAN merged branches and stale worktrees (`wd workspace clean`)
   • SNAPSHOT an agent's worktree + transcript (`wd workspace snapshot`)
   • BRANCHES — per-agent CI and branch-vs-main status (`wd workspace branches`)
   • CONFLICTS — files edited by more than one agent (`wd workspace conflicts`)
@@ -14,6 +15,7 @@ Usage:
 Commands:
   list                 List warden worktrees under .worktrees, joined to active/archived records
   prune                Reclaim orphaned warden worktrees under .worktrees (always asks; --force overrides guards)
+  clean                Delete merged local/origin branches and prune stale worktrees (previews, then asks)
   snapshot             Checkpoint an agent's worktree + transcript, list checkpoints, and restore one
   branches             Per-agent CI + branch-vs-main status
   conflicts            List files currently being edited by more than one agent
