@@ -734,7 +734,7 @@ func TestListPaneExpandAgentHeaderShowsSubtree(t *testing.T) {
 	m = lstep(m, key("h"))
 	require.Equal(t, []string{"p1"}, itemSessionIDs(m.items()))
 
-	m = lstep(m, key("l")) // re-expand
+	m = lstep(m, key("right")) // re-expand
 	require.False(t, m.collapsed["session:p1"], "l on a collapsed agent header re-expands it")
 	require.Equal(t, []string{"p1", "c1"}, itemSessionIDs(m.items()), "expanded sub-tree shows the child again")
 }

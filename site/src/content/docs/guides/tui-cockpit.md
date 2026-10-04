@@ -44,11 +44,11 @@ agents**.
 | **Four fixed sections** | The control pane is a navigator tree of four fixed collapsible sections in order — **Approvals · Pipelines · Agents · Terminals**. Approvals is a persistent section (not an overlay). |
 | **Pipelines section** | Pipelines are the collapsible **Pipelines** section of the control tree; expand/collapse, open running jobs, retry failed jobs. |
 | **Terminals section** | First-class terminal sessions (`kind=terminal`) live under the **Terminals** section; a default terminal opens at startup. |
-| **Agent sub-trees** | Agents spawned by another agent nest under their parent as a collapsible sub-tree (`▸ / ▾`, indented per depth); `h`/`l` toggles. See [Agent sub-trees](#agent-sub-trees) below. |
+| **Agent sub-trees** | Agents spawned by another agent nest under their parent as a collapsible sub-tree (`▸ / ▾`, indented per depth); `h` / `←` / `→` toggles. See [Agent sub-trees](#agent-sub-trees) below. |
 | **Project groups** | On the **Projects** tab, agents, pipelines, and autopilot runs nest under their project — a collapsible group header (`▸ / ▾`) reading the project **name** and its `~`-abbreviated path plus an agent-count badge. When `plan_sync.provider: hub` is configured, explicit Discover results add a read-only **Remote Plans** section for that project, with a count badge and pending/in-progress envelopes only; the local provider shows none. The hierarchy comes from the shared project-tree service (same as [`GET /api/v1/tree`](/warden/reference/project-tree/)). Open projects always show (even empty, IDE-style); work in a directory that is not yet a registered project clusters under a loose dir group; anything with no location falls into a **No project** bucket. `←` / `→` collapse / expand the group under the cursor; `x` **closes** a project (see below); `Enter` is reserved for future project details. `o` opens a project (Local / Remote / New), which also becomes the spawn target for `n`. |
 | **Closing a project (hibernation)** | `x` on a project header **hibernates** it, IDE-style: the project is kept in the database but hidden from the active list, and its live agents are gracefully terminated — their process ends but their worktree and transcript are kept. Closing a project that has active agents asks for confirmation first (`y` / `N`). Reopening the project **restores** those agents right where they left off. |
 | **Agent info + editing** | `i` opens the **agent info** pane — every stored field for the selected agent, plus interactive controls to **toggle auto-approve**, **cycle force-compact** (inherit → on → off), and open the **event log** (`e`). See [Agent info pane](#agent-info-pane) below. |
-| **In-cockpit actions** | `n` new agent, `t` new/focus terminal, `s` send, `a` attach (full-screen), `d` digest overlay, `i` agent info, `e` event log, `p` approvals, `c` context/message inspector, `r` restore orphaned agent / retry job / reload TUI after external upgrade, `u` apply available update + hot-reload, `x` terminate/cancel, `D` delete pipeline record, `?` help. |
+| **In-cockpit actions** | `n` new agent, `t` new/focus terminal, `s` send, `a` attach (full-screen), `d` digest overlay, `i` agent info, `e` event log, `p` approvals, `c` context/message inspector, `l` log viewer, `r` restore orphaned agent / retry job / reload TUI after external upgrade, `u` apply available update + hot-reload, `x` terminate/cancel, `D` delete pipeline record, `?` help. |
 | **Self-update & hot-reload** | When a newer GitHub release is available, the footer shows `[u] Update to vX.Y.Z available (press 'u')`. Press **`u`** to confirm, run the same path as `warden update`, restart the daemon, and `syscall.Exec` the cockpit in place. After an external upgrade, the footer shows `[r] Warden upgraded to vX.Y.Z — press 'r' to reload TUI`. Active tmux agent sessions keep running. |
 | **Terminal pane** | Bottom-left pane shows a live terminal session (`kind=terminal`) — a `$SHELL` in a managed worktree for direct CLI access to `warden` commands and other terminal work. A default terminal opens in the launch directory at startup. |
 | **Pane focus** | Move focus with `Alt+←/→/↑/↓` (no tmux prefix). **Global Alt rotation** works from any pane, even while typing: **M-t** cycles the terminal pane over all live terminals, **M-a** cycles the agent pane over all live agents, **M-p** cycles the agent pane over pipeline agents (pipeline order). Add **Shift** (`M-T`/`M-A`/`M-P`) to rotate in reverse; each rotation grabs focus on the pane it drives. On terminals that don't send Alt/Option as Meta — **macOS Terminal.app and iTerm2 by default** — use the config-free `Ctrl-b` prefix fallback instead: press `Ctrl-b` then `t`/`a`/`p` (add Shift for reverse). See [macOS: the Option key](#macos-the-option-key). |
@@ -60,7 +60,7 @@ agents**.
 | Key | Action |
 |---|---|
 | `↑` / `↓` or `j` / `k` | Move selection (agent pane is unaffected) |
-| `←` / `→` or `h` / `l` | Collapse / expand the project group, pipeline, agent sub-tree, or section under the cursor |
+| `←` / `→` or `h` | Collapse / expand the project group, pipeline, agent sub-tree, or section under the cursor |
 | `Enter` | Open the selected entity in the right agent pane — agent/worker/manager/job attaches (or shows stored detail when finished); a pipeline or Autopilot container opens its overview; `Enter` on a terminal shows it in the terminal pane. Collapse/expand stays on `←`/`→` |
 | `n` | New agent — opens a prompt textarea; `ctrl+n` name · `ctrl+r` role · `ctrl+t` tier (live candidate table) · `ctrl+s` submit · `esc` cancel |
 | `t` | Open a terminal in the opened agent's directory (`~` if none open) — an inline choice to `(c)reate` a fresh terminal there or `(f)ocus` an existing one in that dir |
@@ -70,6 +70,7 @@ agents**.
 | `o` | Open a directory as a group (becomes the spawn target for `n`) |
 | `s` | Send a message to the selected agent — `enter` to send, `esc` to cancel |
 | `a` | Attach — full-screen the agent's (or running job's) tmux session; press **`Ctrl-b Enter`** to return to the dashboard |
+| `l` | Log viewer — scrollable tail of the TUI log (`~/.warden/tui.log` or `$WARDEN_TUI_LOG`); `g`/`G` top/bottom, `l`/`esc` to close; levels coloured (ERROR red, WARN yellow, INFO cyan) |
 | `d` | Completion digest for the selected agent — scrollable overlay; `d`/`esc` to close |
 | `i` | **Agent info** — a scrollable pane showing every stored field for the selected agent, plus three interactive controls: `↑`/`↓` walk the control cursor and then scroll the body once past the last control, **`space`** toggles **auto-approve** and cycles **force-compact** (inherit → on → off), and **`enter`** on the **events** row (or **`e`**) opens the event log. `pgup`/`pgdn`/`g`/`G` also scroll · `r` rename · `i`/`esc` back |
 | `e` | From agent info: open the selected agent's **event log** in the control pane (newest first); `e`/`esc` returns to agent info |
@@ -137,7 +138,7 @@ out read as one tree instead of a flat, indistinguishable list:
 
 - **Collapsible, arbitrary depth.** Any agent with children shows a `▸ / ▾`
   header — the same affordance pipelines use. Press `h` / `←` to collapse its
-  sub-tree, `l` / `→` to expand. Nesting follows the real spawn depth (A → B → C …).
+  sub-tree, `→` to expand. Nesting follows the real spawn depth (A → B → C …).
 - **Zero change to the flat case.** An agent with no parent and no children looks
   and behaves exactly as before.
 - **Tombstones — parents never orphan their children.** If you delete a parent

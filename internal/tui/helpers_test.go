@@ -394,6 +394,8 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyUp}
 	case "esc":
 		return tea.KeyMsg{Type: tea.KeyEsc}
+	case "right":
+		return tea.KeyMsg{Type: tea.KeyRight}
 	case "enter":
 		return tea.KeyMsg{Type: tea.KeyEnter}
 	case "\t":
