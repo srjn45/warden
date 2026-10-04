@@ -1,0 +1,55 @@
+version: 1
+name: perishable-quota-and-reset-priority-router
+goal: >-
+  Incorporate quota reset times into the model router (internal/router) and reactive recovery
+  ranker (internal/recovery) so candidates whose quota resets sooner with usable headroom
+  are prioritized ("perishable quota"), preventing wasted subscription capacity.
+constraints:
+  - "Work in an isolated branch/worktree off origin/main; one worker per task."
+  - "Keep the tree green — run make verify-fast and go test ./... before committing."
+  - "Preserve existing role -> task -> tier routing and model eligibility guardrails."
+  - "Enforce a safety floor (minimum 10% headroom) so nearly-depleted buckets are not picked."
+done_when:
+  - "internal/router/resolver.go tracks ResetsAt and prioritizes impending resets (within 1h with >=10% headroom)."
+  - "Candidates with farther-off or unknown resets continue to rank by maximum remaining headroom."
+  - "Safety floor prevents selecting candidates with <10% headroom during impending reset evaluation."
+  - "internal/recovery/rank.go adopts consistent reset-aware candidate ordering."
+  - "Comprehensive unit tests in internal/router and internal/recovery pass."
+  - "Documentation in docs/FEATURES.md and guides updated."
+tasks:
+  - id: Task1_RouterResetPriority
+    prompt: >-
+      Update candidate evaluation and resolution in internal/router/resolver.go:
+      1) Add `ResetsAt *time.Time` to `CandidateEvaluation`.
+      2) In `EvaluateCandidates`, record the `ResetsAt` from the bottleneck quota limit (the limit defining candidate Headroom).
+      3) In `Resolver.Resolve`, implement two-tier candidate sorting:
+         - Class A (Impending Resets): Candidates with `ResetsAt != nil`, `now < ResetsAt <= now + 1h`, and `Headroom >= 0.10`.
+           Sorted by `ResetsAt ASC, Headroom DESC`.
+         - Class B (Standard Candidates): All other eligible candidates (farther reset, unknown reset, or headroom < 0.10).
+           Sorted by `Headroom DESC`, with deterministic round-robin tie-breaker across tied candidates.
+         - Select winner from Class A if any eligible candidates qualify; otherwise from Class B.
+      4) Add unit tests in internal/router/resolver_test.go:
+         - Candidate resetting in 20m with 40% headroom preferred over candidate resetting in 4h with 85% headroom.
+         - Candidate resetting in 10m with only 5% headroom disqualified from Class A and falls back to Class B (safety floor).
+         - Unknown reset candidates sort properly in Class B.
+         - Tied Class A candidates order by earliest reset time first.
+      Ensure `go test ./internal/router/...` passes.
+
+  - id: Task2_RecoveryRankerIntegration
+    after:
+      - Task1_RouterResetPriority
+    prompt: >-
+      Align candidate ranking in internal/recovery/rank.go with the perishable quota strategy:
+      1) In `internal/recovery/rank.go`, extract or update candidate sorting so reactive rate-limit recovery
+         also favors impending resets with usable headroom when multiple candidates are available at the same priority.
+      2) Update unit tests in `internal/recovery/rank_test.go` to verify the reset-aware ordering behavior.
+      Ensure `go test ./internal/recovery/...` passes.
+
+  - id: Task3_DocsAndVerification
+    after:
+      - Task2_RecoveryRankerIntegration
+    prompt: >-
+      Document the perishable quota routing behavior and run full verification:
+      1) Update `docs/FEATURES.md` and relevant site guides explaining the quota reset prioritization, 1-hour urgency horizon, and 10% safety floor.
+      2) Run `make verify-fast` (gofmt, vet, vitest, Astro build, CLI binary checks).
+      3) Ensure all tests pass cleanly. Open PR against main.
