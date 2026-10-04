@@ -44,6 +44,7 @@ func resolveSwitchTarget(cmd *cobra.Command, args []string) (string, error) {
 }
 
 func newSwitchCmd() *cobra.Command {
+	var aicli string
 	var aiCli string
 	var backend string
 	var model string
@@ -59,13 +60,14 @@ func newSwitchCmd() *cobra.Command {
 		Long: "Mid-session hot-swap: retire the active CLI process and launch a successor AI CLI\n" +
 			"in the SAME worktree, carrying forward structured context (Goal, Decisions Log,\n" +
 			"Modified Files Diff, Immediate Next Step) so the new agent continues without starting cold.\n\n" +
-			"The successor can be chosen by explicit --ai-cli and/or --model, or by --tier\n" +
+			"The successor can be chosen by explicit --aicli and/or --model, or by --tier\n" +
 			"(resolved via quota-balanced weighted headroom routing across eligible AI CLIs).\n" +
-			"Deprecated alias --backend is accepted for one release; --ai-cli wins if both are set.\n\n" +
+			"Aliases --ai-cli and deprecated --backend are accepted; --aicli wins if multiple are set.\n" +
+			"--model requires --aicli (or an alias).\n\n" +
 			"The swap is performed by the warden daemon (the sole owner of the session store),\n" +
 			"so the daemon must be running.\n\n" +
 			"Examples:\n" +
-			"  warden switch --ai-cli antigravity --model gemini-3.1-pro\n" +
+			"  warden switch --aicli antigravity --model gemini-3.1-pro\n" +
 			"  warden switch --tier tier-1\n" +
 			"  warden switch abc123 --tier tier-3 --prompt 'Focus on unit test coverage'\n",
 		Args: cobra.MaximumNArgs(1),
@@ -81,9 +83,15 @@ func newSwitchCmd() *cobra.Command {
 				}
 			}
 
-			chosen := strings.TrimSpace(aiCli)
+			chosen := strings.TrimSpace(aicli)
+			if chosen == "" {
+				chosen = strings.TrimSpace(aiCli)
+			}
 			if chosen == "" {
 				chosen = strings.TrimSpace(backend)
+			}
+			if strings.TrimSpace(model) != "" && chosen == "" {
+				return fmt.Errorf("--model requires --aicli (aliases: --ai-cli, --backend)")
 			}
 			params := client.SwitchSessionParams{
 				AiCli:   chosen,
@@ -115,10 +123,11 @@ func newSwitchCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&aiCli, "ai-cli", "", "explicit successor AI CLI id (claude, antigravity, codex, …)")
-	cmd.Flags().StringVarP(&backend, "backend", "b", "", "deprecated alias for --ai-cli (accepted for one release; --ai-cli wins if both are set)")
-	_ = cmd.Flags().MarkDeprecated("backend", "use --ai-cli")
-	cmd.Flags().StringVarP(&model, "model", "m", "", "explicit successor model id")
+	cmd.Flags().StringVar(&aicli, "aicli", "", "explicit successor AI CLI id (claude, antigravity, codex, …)")
+	cmd.Flags().StringVar(&aiCli, "ai-cli", "", "alias for --aicli")
+	cmd.Flags().StringVarP(&backend, "backend", "b", "", "deprecated alias for --aicli (accepted for one release; --aicli wins if both are set)")
+	_ = cmd.Flags().MarkDeprecated("backend", "use --aicli")
+	cmd.Flags().StringVarP(&model, "model", "m", "", "explicit successor model id (requires --aicli)")
 	cmd.Flags().StringVarP(&tier, "tier", "t", "", "resolve successor via quota-balanced router at this tier (tier-1|tier-2|tier-3)")
 	cmd.Flags().StringVarP(&roleName, "role", "r", "", "role to resolve tier from when --tier is not given")
 	cmd.Flags().StringVarP(&prompt, "prompt", "p", "", "optional extra instruction appended to successor's continuation prompt")

@@ -278,6 +278,37 @@ func TestResolver_ExplicitPreferredBackendAndModel(t *testing.T) {
 	require.Equal(t, backendstore.Tier2, res.Tier)
 }
 
+// TestResolver_PreferredBackendWithoutModel picks the optimal model for a pinned
+// AI CLI within the requested (or role-mapped) tier — the spawn path used when
+// --aicli is set without --model.
+func TestResolver_PreferredBackendWithoutModel(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	r := router.NewResolver(s)
+	ctx := context.Background()
+
+	res, err := r.Resolve(ctx, router.ResolveOptions{
+		Tier:             backendstore.Tier1,
+		PreferredBackend: "claude",
+		AllowFallback:    true,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "claude", res.BackendID)
+	require.NotEmpty(t, res.ModelID, "PreferredBackend alone must still yield an explicit model")
+	require.Equal(t, backendstore.Tier1, res.Tier)
+
+	// Role-mapped tier with PreferredBackend (no explicit --tier).
+	res, err = r.Resolve(ctx, router.ResolveOptions{
+		Role:             "worker",
+		PreferredBackend: "codex",
+		AllowFallback:    true,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "codex", res.BackendID)
+	require.NotEmpty(t, res.ModelID)
+}
+
 func TestResolver_HighSyntheticUsageRemainsEligible(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()

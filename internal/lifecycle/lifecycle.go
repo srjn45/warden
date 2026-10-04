@@ -1511,12 +1511,15 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*agentstore.Ag
 		return nil, err
 	}
 
-	// Route the initial backend+model through the quota-balanced resolver exactly
-	// like a hot-swap picks its successor. A pinned backend/model (or a role's
-	// default model, already folded into req.Model by resolveRole) wins; otherwise
-	// the router selects by tier/task/role. Degrades to req's values when no
-	// resolver is wired — a first spawn must never hard-fail on resolution.
-	req.Backend, req.Model = l.resolveSpawnTarget(ctx, req.Role, req.Task, req.Tier, req.Backend, req.Model)
+	// Route the initial AI CLI+model through the deterministic Role→Tier→(AICLI,
+	// Model) matrix. Exact pins and PreferredBackend pins are honored; model
+	// without aicli is a hard validation error. Degrades to defaults when no
+	// resolver is wired — a first spawn must never hard-fail on resolution alone.
+	var resolveErr error
+	req.Backend, req.Model, resolveErr = l.resolveSpawnTarget(ctx, req.Role, req.Task, req.Tier, req.Backend, req.Model)
+	if resolveErr != nil {
+		return nil, resolveErr
+	}
 	var binding *capacity.QuotaBinding
 	if l.CapacityResolver != nil {
 		var bindErr error
@@ -2565,12 +2568,15 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*agentst
 			}
 		}
 	}
-	// Route the initial backend+model through the quota-balanced resolver, exactly
-	// like Spawn (and hot-swap). A pinned backend/model (or a role default model,
-	// applied just above) wins; otherwise the router picks by tier/task/role.
-	// Degrades to req's values when no resolver is wired — a job spawn must never
-	// hard-fail on resolution.
-	req.Backend, req.Model = l.resolveSpawnTarget(ctx, req.Role, req.Task, req.Tier, req.Backend, req.Model)
+	// Route the initial AI CLI+model through the same Role→Tier→(AICLI, Model)
+	// matrix as Spawn. Model without aicli is a hard validation error; resolver
+	// absence/errors degrade to defaults so a job spawn never hard-fails on
+	// resolution alone.
+	var resolveErr error
+	req.Backend, req.Model, resolveErr = l.resolveSpawnTarget(ctx, req.Role, req.Task, req.Tier, req.Backend, req.Model)
+	if resolveErr != nil {
+		return nil, resolveErr
+	}
 	var binding *capacity.QuotaBinding
 	if l.CapacityResolver != nil {
 		var bindErr error

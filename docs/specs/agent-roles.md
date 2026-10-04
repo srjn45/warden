@@ -167,17 +167,19 @@ that tier by **quota headroom** (`1 − used/limit`), filters out ineligible or
 rate-limited (≥ threshold, default 90%) backends, and picks the highest-headroom
 candidate (round-robin among ties). See the routing plan for the full algorithm.
 
-**Backend + model at first spawn** (`lifecycle.resolveSpawnTarget`) layers on top,
-mirroring how a hot-swap picks its successor but never hard-failing:
+**AI CLI + model at first spawn** (`lifecycle.resolveSpawnTarget`) layers on top
+with a deterministic Role → Tier → (AICLI, Model) matrix:
 
-1. a pinned `--backend` wins outright (keeps `--model`, or the backend default);
-2. a pinned or **role-default** `--model` (folded into the request before this runs)
-   on the default backend wins over the router;
-3. otherwise the quota-balanced router picks backend+model from
+1. **Exact pin** — both `--aicli` and `--model` set: validate the AI CLI and use
+   them directly (tier is ignored);
+2. **Invalid** — `--model` without `--aicli` is rejected (`ErrModelRequiresAiCli`);
+3. **AICLI pin without model** — resolve the optimal model for that AI CLI from
+   the requested tier (or role/task-mapped tier) via `PreferredBackend`;
+4. **Neither pinned** — the quota-balanced router picks `(aicli, model)` from
    `{Role, Task, Tier, AllowFallback}`;
-4. with **no resolver wired**, or on any resolver error / no-candidate, the spawn
-   **degrades** to the request's backend+model — a first spawn never fails because
-   routing is absent or empty.
+5. the resolved **model is never left empty** — with no resolver wired, or on any
+   resolver error / no-candidate, the spawn degrades to the config/default model
+   (a first spawn never fails because routing is absent or empty).
 
 **Surfaces.** `--tier` / `--task` are on `warden start` (CLI) and the daemon REST
 spawn body (`tier` / `task`). `tier:` (alongside `role:`) is also a **pipeline job**

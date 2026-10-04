@@ -153,3 +153,52 @@ func TestStartWithRolePassesRoleValidation(t *testing.T) {
 		require.NotContains(t, err.Error(), "unknown role")
 	}
 }
+
+func TestStartAicliFlagRegistered(t *testing.T) {
+	cmd := newStartCmd()
+	require.NotNil(t, cmd.Flags().Lookup("aicli"), "--aicli must be the canonical flag")
+	require.NotNil(t, cmd.Flags().Lookup("ai-cli"), "--ai-cli remains a backwards-compatible alias")
+	require.NotNil(t, cmd.Flags().Lookup("backend"), "--backend remains a deprecated alias")
+}
+
+func TestResolveAiCliFlagPrecedence(t *testing.T) {
+	cmd := newStartCmd()
+	require.NoError(t, cmd.Flags().Set("aicli", "codex"))
+	require.NoError(t, cmd.Flags().Set("ai-cli", "cursor"))
+	require.NoError(t, cmd.Flags().Set("backend", "aider"))
+	require.Equal(t, "codex", resolveAiCliFlag(cmd), "--aicli wins over aliases")
+
+	cmd = newStartCmd()
+	require.NoError(t, cmd.Flags().Set("ai-cli", "cursor"))
+	require.NoError(t, cmd.Flags().Set("backend", "aider"))
+	require.Equal(t, "cursor", resolveAiCliFlag(cmd), "--ai-cli wins over --backend")
+
+	cmd = newStartCmd()
+	require.NoError(t, cmd.Flags().Set("backend", "aider"))
+	require.Equal(t, "aider", resolveAiCliFlag(cmd), "--backend alone still works")
+}
+
+// TestStartModelRequiresAicli verifies --model without --aicli fails before any
+// daemon call, so a typo cannot silently spawn on the default AI CLI.
+func TestStartModelRequiresAicli(t *testing.T) {
+	cmd := newStartCmd()
+	cmd.SilenceUsage = true
+	cmd.SilenceErrors = true
+	cmd.SetArgs([]string{"do the thing", "--role", "worker", "--model", "opus"})
+	err := cmd.Execute()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "--model requires --aicli")
+}
+
+// TestStartModelWithAicliAliasPassesValidation confirms --ai-cli satisfies the
+// --model pairing check (it may still fail later on the daemon call).
+func TestStartModelWithAicliAliasPassesValidation(t *testing.T) {
+	cmd := newStartCmd()
+	cmd.SilenceUsage = true
+	cmd.SilenceErrors = true
+	cmd.SetArgs([]string{"do the thing", "--role", "worker", "--ai-cli", "claude", "--model", "opus", "--addr", "127.0.0.1:1"})
+	err := cmd.Execute()
+	if err != nil {
+		require.NotContains(t, err.Error(), "--model requires --aicli")
+	}
+}
