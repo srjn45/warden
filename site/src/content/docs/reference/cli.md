@@ -1133,9 +1133,10 @@ Plans are canonical ScrivaDB records (goal, tasks, lifecycle, revision).
 Repository YAML under plans/ is an optional inert export — not required
 for create/run/complete/archive.
 
-Create with `wd plan create`, start with `wd plan run`, control with
-`wd plan pause|resume|stop`, mark tasks done with `wd plan done`, then
-`wd plan complete` (or `wd plan archive`).
+Create with `wd plan create`, modify pending definitions with
+`wd plan update` / `wd plan edit` / `wd plan task`, start with `wd plan run`,
+control with `wd plan pause|resume|stop`, mark tasks done with `wd plan done`,
+then `wd plan complete` (or `wd plan archive`).
 
 Usage:
   warden plan [flags]
@@ -1143,6 +1144,9 @@ Usage:
 Commands:
   list                 List plans for a project
   create               Create a canonical plan in ScrivaDB
+  update               Update a pending plan definition
+  edit                 Edit a pending plan definition in $EDITOR
+  task                 Add, edit, or remove tasks on a pending plan
   show                 Show detail for one plan
   related              List heuristic related / overlapping plans
   run                  Start execution of a plan in the given mode
@@ -1219,6 +1223,150 @@ Flags:
       --name string              plan name
       --project string           project ID (default: current directory)
       --task stringArray         task as id:prompt or id@dep1,dep2:prompt (repeatable; skip interactive prompt)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan update
+
+```text
+Patch a pending plan's definition in ScrivaDB. Non-pending plans are rejected
+by the daemon with HTTP 409 Conflict.
+
+Provide at least one of --file, --name, --goal, --constraint, or --done-when.
+When --file is set, the YAML is parsed via ParsePlanYAML and any explicit
+flags overlay those fields. Optimistic concurrency uses the plan's current
+revision (fetched first).
+
+Usage:
+  warden plan update <plan-id> [flags]
+
+Flags:
+      --constraint stringArray   replace constraints (repeatable)
+      --done-when stringArray    replace done_when criteria (repeatable)
+      --file string              YAML definition file to apply
+      --goal string              new plan goal
+  -h, --help                     help for update
+      --json                     output as JSON
+      --name string              new plan name
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan edit
+
+```text
+Fetch a pending plan's definition, open it as YAML in $EDITOR (or $VISUAL,
+falling back to vi), then apply the saved document via PlansUpdate.
+
+Only name, goal, constraints, done_when, and tasks are written/applied.
+Lifecycle and execution fields are ignored. If the editor exits non-zero or
+the file is unchanged, no API call is made. Optimistic concurrency uses the
+revision observed at fetch time.
+
+Usage:
+  warden plan edit <plan-id> [flags]
+
+Flags:
+  -h, --help   help for edit
+      --json   output as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan task
+
+```text
+Granular task-DAG mutations for a pending plan. Non-pending plans are
+rejected with HTTP 409 Conflict. Subcommands:
+
+  add   Append a task (POST /plans/{id}/tasks)
+  edit   Patch one task's prompt/after deps
+  rm     Remove a task (blocked if dependents remain)
+
+Usage:
+  warden plan task [flags]
+
+Commands:
+  add                  Add a task to a pending plan
+  edit                 Edit a task definition on a pending plan
+  rm                   Remove a task from a pending plan
+
+Flags:
+  -h, --help   help for task
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan task add
+
+```text
+Append a task to a pending plan's DAG. --id and --prompt are required.
+Repeat --after for dependencies. Optional --expected-revision for optimistic
+concurrency (omit to skip the check).
+
+Usage:
+  warden plan task add <plan-id> [flags]
+
+Flags:
+      --after stringArray       dependency task id (repeatable)
+      --expected-revision int   optimistic concurrency token
+  -h, --help                    help for add
+      --id string               task id
+      --json                    output as JSON
+      --prompt string           task prompt
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan task edit
+
+```text
+Patch one task's prompt and/or after-deps on a pending plan. --id is
+required. Provide --prompt and/or --after; omitted fields are left unchanged.
+Optional --expected-revision for optimistic concurrency.
+
+Usage:
+  warden plan task edit <plan-id> [flags]
+
+Flags:
+      --after stringArray       replace after-deps (repeatable; pass once with empty to clear)
+      --expected-revision int   optimistic concurrency token
+  -h, --help                    help for edit
+      --id string               task id
+      --json                    output as JSON
+      --prompt string           new task prompt
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan task rm
+
+```text
+Remove a task from a pending plan. Pass the task id as a second argument
+or via --id. Removal is rejected if other tasks still depend on it.
+Optional --expected-revision for optimistic concurrency.
+
+Usage:
+  warden plan task rm <plan-id> [task-id] [flags]
+
+Flags:
+      --expected-revision int   optimistic concurrency token
+  -h, --help                    help for rm
+      --id string               task id (alternative to positional)
+      --json                    output as JSON
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)

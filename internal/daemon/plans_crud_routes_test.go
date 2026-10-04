@@ -279,3 +279,167 @@ func TestPlanCRUDUnconfigured(t *testing.T) {
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
 }
+
+func createTwoTaskPendingPlan(t *testing.T, ts *httptest.Server, root, name string) oapi.Plan {
+	t.Helper()
+	resp := postJSON(t, crudPlansURL(ts.URL, "", nil), map[string]any{
+		"project_id": root,
+		"name":       name,
+		"goal":       "mutate tasks",
+		"tasks": []map[string]any{
+			{"id": "t1", "prompt": "first"},
+			{"id": "t2", "prompt": "second", "after": []string{"t1"}},
+		},
+		"constraints": []string{},
+		"done_when":   []string{},
+	})
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	return decodePlan(t, resp)
+}
+
+func planDelete(t *testing.T, rawURL string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodDelete, rawURL, nil)
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	return resp
+}
+
+func TestPlanCRUDTaskAddUpdateDelete(t *testing.T) {
+	ts, _, root := crudPlanServer(t)
+	created := createTwoTaskPendingPlan(t, ts, root, "task-mutations")
+
+	add := postJSON(t, ts.URL+"/api/v1/plans/"+created.Id+"/tasks", map[string]any{
+		"id":     "t3",
+		"prompt": "third",
+		"after":  []string{"t2"},
+	})
+	defer add.Body.Close()
+	require.Equal(t, http.StatusOK, add.StatusCode)
+	afterAdd := decodePlan(t, add)
+	require.Len(t, afterAdd.Tasks, 3)
+	require.Equal(t, "t3", afterAdd.Tasks[2].Id)
+	require.Equal(t, oapi.TaskStatus("pending"), afterAdd.TaskProgress["t3"])
+	require.Equal(t, created.Revision+1, afterAdd.Revision)
+
+	prompt := "refined second"
+	patch := planPatch(t, ts.URL+"/api/v1/plans/"+created.Id+"/tasks/t2/definition", map[string]any{
+		"prompt":            prompt,
+		"after":             []string{"t1"},
+		"expected_revision": afterAdd.Revision,
+	})
+	defer patch.Body.Close()
+	require.Equal(t, http.StatusOK, patch.StatusCode)
+	afterPatch := decodePlan(t, patch)
+	require.Equal(t, prompt, afterPatch.Tasks[1].Prompt)
+	require.Equal(t, afterAdd.Revision+1, afterPatch.Revision)
+
+	del := planDelete(t, fmt.Sprintf("%s/api/v1/plans/%s/tasks/t3?expected_revision=%d",
+		ts.URL, created.Id, afterPatch.Revision))
+	defer del.Body.Close()
+	require.Equal(t, http.StatusOK, del.StatusCode)
+	afterDel := decodePlan(t, del)
+	require.Len(t, afterDel.Tasks, 2)
+	_, ok := afterDel.TaskProgress["t3"]
+	require.False(t, ok)
+	require.Equal(t, afterPatch.Revision+1, afterDel.Revision)
+}
+
+func TestPlanCRUDTaskAddValidationAndConflicts(t *testing.T) {
+	ts, _, root := crudPlanServer(t)
+	created := createTwoTaskPendingPlan(t, ts, root, "task-add-errors")
+
+	cycle := postJSON(t, ts.URL+"/api/v1/plans/"+created.Id+"/tasks", map[string]any{
+		"id":     "t0",
+		"prompt": "cycle seed",
+		"after":  []string{"t2"},
+	})
+	defer cycle.Body.Close()
+	require.Equal(t, http.StatusOK, cycle.StatusCode)
+	withT0 := decodePlan(t, cycle)
+
+	// Make t2 depend on t0 while t0 already depends on t2 → cycle.
+	bad := planPatch(t, ts.URL+"/api/v1/plans/"+created.Id+"/tasks/t2/definition", map[string]any{
+		"after": []string{"t0"},
+	})
+	defer bad.Body.Close()
+	require.Equal(t, http.StatusBadRequest, bad.StatusCode)
+
+	missing := postJSON(t, ts.URL+"/api/v1/plans/"+created.Id+"/tasks", map[string]any{
+		"id":     "t9",
+		"prompt": "missing dep",
+		"after":  []string{"nope"},
+	})
+	defer missing.Body.Close()
+	require.Equal(t, http.StatusBadRequest, missing.StatusCode)
+
+	stale := postJSON(t, ts.URL+"/api/v1/plans/"+created.Id+"/tasks", map[string]any{
+		"id":                "t4",
+		"prompt":            "stale",
+		"expected_revision": 1,
+	})
+	defer stale.Body.Close()
+	require.Equal(t, http.StatusConflict, stale.StatusCode)
+	var conflict oapi.PlanMutationConflict
+	require.NoError(t, json.NewDecoder(stale.Body).Decode(&conflict))
+	require.Equal(t, created.Id, conflict.PlanId)
+	require.Equal(t, int64(1), conflict.Expected)
+	require.Equal(t, withT0.Revision, conflict.Actual)
+
+	run := postJSON(t, ts.URL+"/api/v1/plans/"+created.Id+"/run", map[string]any{
+		"execution_mode": "manual",
+	})
+	defer run.Body.Close()
+	require.Equal(t, http.StatusOK, run.StatusCode)
+
+	blocked := postJSON(t, ts.URL+"/api/v1/plans/"+created.Id+"/tasks", map[string]any{
+		"id":     "extra",
+		"prompt": "should fail",
+	})
+	defer blocked.Body.Close()
+	require.Equal(t, http.StatusConflict, blocked.StatusCode)
+}
+
+func TestPlanCRUDTaskDeleteBlockedByDependent(t *testing.T) {
+	ts, _, root := crudPlanServer(t)
+	created := createTwoTaskPendingPlan(t, ts, root, "task-rm-blocked")
+
+	del := planDelete(t, ts.URL+"/api/v1/plans/"+created.Id+"/tasks/t1")
+	defer del.Body.Close()
+	require.Equal(t, http.StatusBadRequest, del.StatusCode)
+
+	var body struct {
+		Error string `json:"error"`
+	}
+	require.NoError(t, json.NewDecoder(del.Body).Decode(&body))
+	require.Contains(t, body.Error, "depends")
+}
+
+func TestPlanCRUDTaskUpdateNotPendingAndNotFound(t *testing.T) {
+	ts, _, root := crudPlanServer(t)
+	created := createTwoTaskPendingPlan(t, ts, root, "task-update-gate")
+
+	run := postJSON(t, ts.URL+"/api/v1/plans/"+created.Id+"/run", map[string]any{
+		"execution_mode": "manual",
+	})
+	defer run.Body.Close()
+	require.Equal(t, http.StatusOK, run.StatusCode)
+
+	blocked := planPatch(t, ts.URL+"/api/v1/plans/"+created.Id+"/tasks/t1/definition", map[string]any{
+		"prompt": "nope",
+	})
+	defer blocked.Body.Close()
+	require.Equal(t, http.StatusConflict, blocked.StatusCode)
+
+	missing := planPatch(t, ts.URL+"/api/v1/plans/plan-deadbeef/tasks/t1/definition", map[string]any{
+		"prompt": "nope",
+	})
+	defer missing.Body.Close()
+	require.Equal(t, http.StatusNotFound, missing.StatusCode)
+
+	delMissing := planDelete(t, ts.URL+"/api/v1/plans/plan-deadbeef/tasks/t1")
+	defer delMissing.Body.Close()
+	require.Equal(t, http.StatusNotFound, delMissing.StatusCode)
+}

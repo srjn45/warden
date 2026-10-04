@@ -574,6 +574,124 @@ func updateRequestFromBody(body *oapi.UpdatePlanRequest) planstore.UpdateRequest
 	return upd
 }
 
+// AddPlanTask implements POST /api/v1/plans/{plan_id}/tasks.
+func (s *Server) AddPlanTask(ctx context.Context, req oapi.AddPlanTaskRequestObject) (oapi.AddPlanTaskResponseObject, error) {
+	svc := s.planSvc()
+	if svc == nil {
+		return nil, planNotConfigured()
+	}
+	if req.Body == nil {
+		return oapi.AddPlanTask400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{Error: "body is required"}}, nil
+	}
+	var expectedRev *int64
+	if req.Body.ExpectedRevision != 0 {
+		rev := req.Body.ExpectedRevision
+		expectedRev = &rev
+	}
+	p, err := svc.AddTask(ctx, req.PlanId, planstore.TaskSpec{
+		ID:     req.Body.Id,
+		Prompt: req.Body.Prompt,
+		After:  append([]string(nil), req.Body.After...),
+	}, expectedRev)
+	if err != nil {
+		if errors.Is(err, planstore.ErrNotFound) {
+			return oapi.AddPlanTask404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "plan not found"}}, nil
+		}
+		if errors.Is(err, planstore.ErrNotPending) {
+			return oapi.AddPlanTask409JSONResponse{Error: err.Error()}, nil
+		}
+		var conflict *planstore.RevisionConflictError
+		if errors.As(err, &conflict) {
+			return oapi.AddPlanTask409JSONResponse{
+				Error:    conflict.Error(),
+				PlanId:   conflict.PlanID,
+				Expected: conflict.Expected,
+				Actual:   conflict.Actual,
+			}, nil
+		}
+		if msg := planValidationMessage(err); msg != "" {
+			return oapi.AddPlanTask400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{Error: msg}}, nil
+		}
+		return nil, errStatus(http.StatusInternalServerError, "add plan task: "+err.Error())
+	}
+	return oapi.AddPlanTask200JSONResponse(s.planToOAPI(p)), nil
+}
+
+// UpdatePlanTaskDefinition implements PATCH /api/v1/plans/{plan_id}/tasks/{task_id}/definition.
+func (s *Server) UpdatePlanTaskDefinition(ctx context.Context, req oapi.UpdatePlanTaskDefinitionRequestObject) (oapi.UpdatePlanTaskDefinitionResponseObject, error) {
+	svc := s.planSvc()
+	if svc == nil {
+		return nil, planNotConfigured()
+	}
+	if req.Body == nil {
+		return oapi.UpdatePlanTaskDefinition400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{Error: "body is required"}}, nil
+	}
+	var expectedRev *int64
+	if req.Body.ExpectedRevision != 0 {
+		rev := req.Body.ExpectedRevision
+		expectedRev = &rev
+	}
+	p, err := svc.UpdateTask(ctx, req.PlanId, req.TaskId, req.Body.Prompt, req.Body.After, expectedRev)
+	if err != nil {
+		if errors.Is(err, planstore.ErrNotFound) {
+			return oapi.UpdatePlanTaskDefinition404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "plan not found"}}, nil
+		}
+		if errors.Is(err, planstore.ErrNotPending) {
+			return oapi.UpdatePlanTaskDefinition409JSONResponse{Error: err.Error()}, nil
+		}
+		var conflict *planstore.RevisionConflictError
+		if errors.As(err, &conflict) {
+			return oapi.UpdatePlanTaskDefinition409JSONResponse{
+				Error:    conflict.Error(),
+				PlanId:   conflict.PlanID,
+				Expected: conflict.Expected,
+				Actual:   conflict.Actual,
+			}, nil
+		}
+		if msg := planValidationMessage(err); msg != "" {
+			return oapi.UpdatePlanTaskDefinition400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{Error: msg}}, nil
+		}
+		return nil, errStatus(http.StatusInternalServerError, "update plan task: "+err.Error())
+	}
+	return oapi.UpdatePlanTaskDefinition200JSONResponse(s.planToOAPI(p)), nil
+}
+
+// DeletePlanTask implements DELETE /api/v1/plans/{plan_id}/tasks/{task_id}.
+func (s *Server) DeletePlanTask(ctx context.Context, req oapi.DeletePlanTaskRequestObject) (oapi.DeletePlanTaskResponseObject, error) {
+	svc := s.planSvc()
+	if svc == nil {
+		return nil, planNotConfigured()
+	}
+	var expectedRev *int64
+	if req.Params.ExpectedRevision != 0 {
+		rev := req.Params.ExpectedRevision
+		expectedRev = &rev
+	}
+	p, err := svc.RemoveTask(ctx, req.PlanId, req.TaskId, expectedRev)
+	if err != nil {
+		if errors.Is(err, planstore.ErrNotFound) {
+			return oapi.DeletePlanTask404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "plan not found"}}, nil
+		}
+		if errors.Is(err, planstore.ErrNotPending) {
+			return oapi.DeletePlanTask409JSONResponse{Error: err.Error()}, nil
+		}
+		var conflict *planstore.RevisionConflictError
+		if errors.As(err, &conflict) {
+			return oapi.DeletePlanTask409JSONResponse{
+				Error:    conflict.Error(),
+				PlanId:   conflict.PlanID,
+				Expected: conflict.Expected,
+				Actual:   conflict.Actual,
+			}, nil
+		}
+		if msg := planValidationMessage(err); msg != "" {
+			return oapi.DeletePlanTask400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{Error: msg}}, nil
+		}
+		return nil, errStatus(http.StatusInternalServerError, "delete plan task: "+err.Error())
+	}
+	return oapi.DeletePlanTask200JSONResponse(s.planToOAPI(p)), nil
+}
+
 // UpdateTaskStatus implements POST /api/v1/plans/{plan_id}/tasks/{task_id}/status.
 func (s *Server) UpdateTaskStatus(ctx context.Context, req oapi.UpdateTaskStatusRequestObject) (oapi.UpdateTaskStatusResponseObject, error) {
 	svc := s.planSvc()

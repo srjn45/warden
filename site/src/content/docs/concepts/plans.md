@@ -27,12 +27,12 @@ pending → in_progress → completed
 pending →                archived
 ```
 
-- **`pending`** — authored, not started
-- **`in_progress`** — execution active (or was; stays until completed/archived)
-- **`completed`** — all tasks done, code merged
-- **`archived`** — de-prioritised or superseded
+- **`pending`** — authored, not started; **definition is mutable** (`wd plan update` / `edit` / `task`, or the matching API)
+- **`in_progress`** — execution active (or was; stays until completed/archived); definition is **immutable** (409 Conflict)
+- **`completed`** — all tasks done, code merged; definition immutable
+- **`archived`** — de-prioritised or superseded; definition immutable
 
-Drive transitions with `wd plan run` / `wd plan complete` / `wd plan archive` (or the matching MCP/API). Deprecated `wd plan scan` / `wd plan status` / `wd plan import` remain for one release as migration aids and **cannot affect canonical execution after import**.
+Drive transitions with `wd plan run` / `wd plan complete` / `wd plan archive` (or the matching MCP/API). Deprecated `wd plan scan` / `wd plan status` / `wd plan import` remain for one release as migration aids and **cannot affect canonical execution after import**. See [Plan Modification API](https://github.com/srjn45/warden/blob/main/docs/specs/2026-10-04-plan-modification-api.md) for mutation contracts (DAG validation, optimistic concurrency).
 
 ## Stable plan identity
 

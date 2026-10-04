@@ -1,8 +1,13 @@
 package cli
 
 import (
+	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 const planListJSON = `[
@@ -408,5 +413,280 @@ func TestParsePlanTaskFlag(t *testing.T) {
 	}
 	if _, err := parsePlanTaskFlag("t@:x"); err == nil {
 		t.Fatal("expected empty-after error")
+	}
+}
+
+const planUpdatedJSON = `{"id":"plan-ab12cd34","project_id":"proj1","name":"feature-y",
+	"goal":"ship faster","file_path":"plans/pending/feature-x.yaml","status":"pending","revision":2,
+	"content_hash":"abc123","export_status":"none",
+	"constraints":["be careful"],"done_when":["tests pass"],
+	"task_summary":{"total":1,"done":0,"in_progress":0,"pending":1,"skipped":0},
+	"tasks":[{"id":"t1","prompt":"do the work"}],
+	"created_at":"2026-09-28T00:00:00Z","updated_at":"2026-09-28T02:00:00Z"}`
+
+func TestPlanUpdateCmdFlags(t *testing.T) {
+	body := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"GET /api/v1/plans/plan-ab12cd34":   planSingleJSON,
+		"PATCH /api/v1/plans/plan-ab12cd34": planUpdatedJSON,
+	}, nil, body))
+	out, err := runCLI(t, addr, "plan", "update", "plan-ab12cd34",
+		"--name", "feature-y",
+		"--goal", "ship faster",
+		"--constraint", "be careful",
+		"--done-when", "tests pass",
+	)
+	if err != nil {
+		t.Fatalf("plan update: %v", err)
+	}
+	if !strings.Contains(out, "updated plan plan-ab12cd34") || !strings.Contains(out, "rev=2") {
+		t.Fatalf("plan update output: %q", out)
+	}
+	posted := body["/api/v1/plans/plan-ab12cd34"]
+	for _, want := range []string{
+		`"name":"feature-y"`,
+		`"goal":"ship faster"`,
+		`"constraints":["be careful"]`,
+		`"done_when":["tests pass"]`,
+		`"expected_revision":1`,
+	} {
+		if !strings.Contains(posted, want) {
+			t.Fatalf("update body missing %q: %q", want, posted)
+		}
+	}
+}
+
+func TestPlanUpdateCmdFileAndOverlay(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "plan.yaml")
+	yamlBody := "name: from-file\ngoal: file goal\nconstraints:\n  - c1\ndone_when:\n  - d1\ntasks:\n  - id: t1\n    prompt: from file\n"
+	if err := os.WriteFile(path, []byte(yamlBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	body := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"GET /api/v1/plans/plan-ab12cd34":   planSingleJSON,
+		"PATCH /api/v1/plans/plan-ab12cd34": planUpdatedJSON,
+	}, nil, body))
+	_, err := runCLI(t, addr, "plan", "update", "plan-ab12cd34",
+		"--file", path,
+		"--goal", "overlay goal",
+	)
+	if err != nil {
+		t.Fatalf("plan update --file: %v", err)
+	}
+	posted := body["/api/v1/plans/plan-ab12cd34"]
+	for _, want := range []string{
+		`"name":"from-file"`,
+		`"goal":"overlay goal"`,
+		`"id":"t1"`,
+		`"prompt":"from file"`,
+		`"expected_revision":1`,
+	} {
+		if !strings.Contains(posted, want) {
+			t.Fatalf("update --file body missing %q: %q", want, posted)
+		}
+	}
+}
+
+func TestPlanUpdateCmdRequiresChange(t *testing.T) {
+	_, err := runCLI(t, "", "plan", "update", "plan-ab12cd34")
+	if err == nil {
+		t.Fatal("expected error when no update flags are set")
+	}
+	if !strings.Contains(err.Error(), "--file") {
+		t.Fatalf("expected flag mention: %v", err)
+	}
+}
+
+func TestPlanUpdateCmdConflict(t *testing.T) {
+	addr := stubDaemon(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(planSingleJSON))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte(`{"error":"plan not pending"}`))
+	})
+	_, err := runCLI(t, addr, "plan", "update", "plan-ab12cd34", "--goal", "nope")
+	if err == nil {
+		t.Fatal("expected 409 conflict error")
+	}
+	if !strings.Contains(err.Error(), "409") && !strings.Contains(err.Error(), "conflict") {
+		t.Fatalf("expected conflict error, got %v", err)
+	}
+}
+
+func TestPlanEditCmd(t *testing.T) {
+	prev := openEditor
+	openEditor = func(_ *cobra.Command, path string) error {
+		edited := "name: edited-name\ngoal: edited goal\nconstraints:\n  - c1\ndone_when:\n  - d1\ntasks:\n  - id: t1\n    prompt: edited prompt\n"
+		return os.WriteFile(path, []byte(edited), 0o644)
+	}
+	t.Cleanup(func() { openEditor = prev })
+
+	body := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"GET /api/v1/plans/plan-ab12cd34":   planSingleJSON,
+		"PATCH /api/v1/plans/plan-ab12cd34": planUpdatedJSON,
+	}, nil, body))
+	out, err := runCLI(t, addr, "plan", "edit", "plan-ab12cd34")
+	if err != nil {
+		t.Fatalf("plan edit: %v", err)
+	}
+	if !strings.Contains(out, "updated plan plan-ab12cd34") {
+		t.Fatalf("plan edit output: %q", out)
+	}
+	posted := body["/api/v1/plans/plan-ab12cd34"]
+	for _, want := range []string{
+		`"name":"edited-name"`,
+		`"goal":"edited goal"`,
+		`"prompt":"edited prompt"`,
+		`"expected_revision":1`,
+	} {
+		if !strings.Contains(posted, want) {
+			t.Fatalf("edit body missing %q: %q", want, posted)
+		}
+	}
+}
+
+func TestPlanEditCmdUnchangedAborts(t *testing.T) {
+	prev := openEditor
+	openEditor = func(_ *cobra.Command, _ string) error { return nil } // leave file as-is
+	t.Cleanup(func() { openEditor = prev })
+
+	patched := false
+	addr := stubDaemon(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPatch {
+			patched = true
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(planSingleJSON))
+	})
+	out, err := runCLI(t, addr, "plan", "edit", "plan-ab12cd34")
+	if err != nil {
+		t.Fatalf("plan edit unchanged: %v", err)
+	}
+	if patched {
+		t.Fatal("expected no PATCH when editor leaves file unchanged")
+	}
+	if !strings.Contains(out, "no changes") {
+		t.Fatalf("expected abort message: %q", out)
+	}
+}
+
+func TestPlanTaskAddCmd(t *testing.T) {
+	body := map[string]string{}
+	seen := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"POST /api/v1/plans/plan-ab12cd34/tasks": planUpdatedJSON,
+	}, seen, body))
+	out, err := runCLI(t, addr, "plan", "task", "add", "plan-ab12cd34",
+		"--id", "t2",
+		"--prompt", "second task",
+		"--after", "t1",
+		"--expected-revision", "1",
+	)
+	if err != nil {
+		t.Fatalf("plan task add: %v", err)
+	}
+	if seen["/api/v1/plans/plan-ab12cd34/tasks"] != "POST" {
+		t.Fatalf("task add not POSTed: %q", seen)
+	}
+	posted := body["/api/v1/plans/plan-ab12cd34/tasks"]
+	for _, want := range []string{`"id":"t2"`, `"prompt":"second task"`, `"after":["t1"]`, `"expected_revision":1`} {
+		if !strings.Contains(posted, want) {
+			t.Fatalf("task add body missing %q: %q", want, posted)
+		}
+	}
+	if !strings.Contains(out, "t2") || !strings.Contains(out, "added") {
+		t.Fatalf("task add output: %q", out)
+	}
+}
+
+func TestPlanTaskEditCmd(t *testing.T) {
+	body := map[string]string{}
+	seen := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"PATCH /api/v1/plans/plan-ab12cd34/tasks/t1/definition": planUpdatedJSON,
+	}, seen, body))
+	out, err := runCLI(t, addr, "plan", "task", "edit", "plan-ab12cd34",
+		"--id", "t1",
+		"--prompt", "refined",
+		"--after", "t0",
+	)
+	if err != nil {
+		t.Fatalf("plan task edit: %v", err)
+	}
+	if seen["/api/v1/plans/plan-ab12cd34/tasks/t1/definition"] != "PATCH" {
+		t.Fatalf("task edit not PATCHed: %q", seen)
+	}
+	posted := body["/api/v1/plans/plan-ab12cd34/tasks/t1/definition"]
+	for _, want := range []string{`"prompt":"refined"`, `"after":["t0"]`} {
+		if !strings.Contains(posted, want) {
+			t.Fatalf("task edit body missing %q: %q", want, posted)
+		}
+	}
+	if !strings.Contains(out, "updated") {
+		t.Fatalf("task edit output: %q", out)
+	}
+}
+
+func TestPlanTaskRmCmd(t *testing.T) {
+	seen := map[string]string{}
+	var gotQuery string
+	addr := stubDaemon(t, func(w http.ResponseWriter, r *http.Request) {
+		seen[r.URL.Path] = r.Method
+		gotQuery = r.URL.RawQuery
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(planUpdatedJSON))
+	})
+	out, err := runCLI(t, addr, "plan", "task", "rm", "plan-ab12cd34", "t2",
+		"--expected-revision", "1",
+	)
+	if err != nil {
+		t.Fatalf("plan task rm: %v", err)
+	}
+	if seen["/api/v1/plans/plan-ab12cd34/tasks/t2"] != "DELETE" {
+		t.Fatalf("task rm not DELETEd: %q", seen)
+	}
+	if !strings.Contains(gotQuery, "expected_revision=1") {
+		t.Fatalf("expected_revision query missing: %q", gotQuery)
+	}
+	if !strings.Contains(out, "removed") {
+		t.Fatalf("task rm output: %q", out)
+	}
+}
+
+func TestPlanTaskRmCmdViaFlag(t *testing.T) {
+	seen := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"DELETE /api/v1/plans/plan-ab12cd34/tasks/t2": planUpdatedJSON,
+	}, seen, nil))
+	_, err := runCLI(t, addr, "plan", "task", "rm", "plan-ab12cd34", "--id", "t2")
+	if err != nil {
+		t.Fatalf("plan task rm --id: %v", err)
+	}
+	if seen["/api/v1/plans/plan-ab12cd34/tasks/t2"] != "DELETE" {
+		t.Fatalf("task rm --id not DELETEd: %q", seen)
+	}
+}
+
+func TestPlanTaskAddCmdConflict(t *testing.T) {
+	addr := stubDaemon(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte(`{"error":"revision conflict"}`))
+	})
+	_, err := runCLI(t, addr, "plan", "task", "add", "plan-ab12cd34",
+		"--id", "t2", "--prompt", "x",
+	)
+	if err == nil {
+		t.Fatal("expected 409 conflict error")
+	}
+	if !strings.Contains(err.Error(), "409") && !strings.Contains(err.Error(), "conflict") {
+		t.Fatalf("expected conflict error, got %v", err)
 	}
 }

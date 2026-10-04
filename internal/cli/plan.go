@@ -27,15 +27,19 @@ func newPlanCmd() *cobra.Command {
 			"Plans are canonical ScrivaDB records (goal, tasks, lifecycle, revision).\n" +
 			"Repository YAML under plans/ is an optional inert export — not required\n" +
 			"for create/run/complete/archive.\n\n" +
-			"Create with `wd plan create`, start with `wd plan run`, control with\n" +
-			"`wd plan pause|resume|stop`, mark tasks done with `wd plan done`, then\n" +
-			"`wd plan complete` (or `wd plan archive`).",
+			"Create with `wd plan create`, modify pending definitions with\n" +
+			"`wd plan update` / `wd plan edit` / `wd plan task`, start with `wd plan run`,\n" +
+			"control with `wd plan pause|resume|stop`, mark tasks done with `wd plan done`,\n" +
+			"then `wd plan complete` (or `wd plan archive`).",
 	}
 	SetCommandHelpMetadata(cmd, "run", 25, "warden plan", "", NodeNamespace)
 
 	children := []*cobra.Command{
 		newPlanListCmd(),
 		newPlanCreateCmd(),
+		newPlanUpdateCmd(),
+		newPlanEditCmd(),
+		newPlanTaskCmd(),
 		newPlanShowCmd(),
 		newPlanRelatedCmd(),
 		newPlanRunCmd(),
@@ -199,6 +203,222 @@ func newPlanCreateCmd() *cobra.Command {
 	cmd.Flags().Bool("json", false, "output as JSON")
 	_ = cmd.MarkFlagRequired("name")
 	_ = cmd.MarkFlagRequired("goal")
+	return cmd
+}
+
+func newPlanUpdateCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "update <plan-id>",
+		Short: "Update a pending plan definition",
+		Long: "Patch a pending plan's definition in ScrivaDB. Non-pending plans are rejected\n" +
+			"by the daemon with HTTP 409 Conflict.\n\n" +
+			"Provide at least one of --file, --name, --goal, --constraint, or --done-when.\n" +
+			"When --file is set, the YAML is parsed via ParsePlanYAML and any explicit\n" +
+			"flags overlay those fields. Optimistic concurrency uses the plan's current\n" +
+			"revision (fetched first).",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runPlanUpdate(cmd, args[0])
+		},
+	}
+	cmd.Flags().String("file", "", "YAML definition file to apply")
+	cmd.Flags().String("name", "", "new plan name")
+	cmd.Flags().String("goal", "", "new plan goal")
+	cmd.Flags().StringArray("constraint", nil, "replace constraints (repeatable)")
+	cmd.Flags().StringArray("done-when", nil, "replace done_when criteria (repeatable)")
+	cmd.Flags().Bool("json", false, "output as JSON")
+	return cmd
+}
+
+func runPlanUpdate(cmd *cobra.Command, planID string) error {
+	filePath, _ := cmd.Flags().GetString("file")
+	nameChanged := cmd.Flags().Changed("name")
+	goalChanged := cmd.Flags().Changed("goal")
+	constraintChanged := cmd.Flags().Changed("constraint")
+	doneWhenChanged := cmd.Flags().Changed("done-when")
+	if filePath == "" && !nameChanged && !goalChanged && !constraintChanged && !doneWhenChanged {
+		return fmt.Errorf("provide at least one of --file, --name, --goal, --constraint, or --done-when")
+	}
+
+	c := clientFor(cmd)
+	cur, err := c.PlansGet(cmd.Context(), planID)
+	if err != nil {
+		return err
+	}
+
+	var req client.PlansUpdateRequest
+	if filePath != "" {
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", filePath, err)
+		}
+		req, err = client.ParsePlanYAML(data)
+		if err != nil {
+			return err
+		}
+	}
+	if nameChanged {
+		req.Name, _ = cmd.Flags().GetString("name")
+	}
+	if goalChanged {
+		req.Goal, _ = cmd.Flags().GetString("goal")
+	}
+	if constraintChanged {
+		req.Constraints, _ = cmd.Flags().GetStringArray("constraint")
+	}
+	if doneWhenChanged {
+		req.DoneWhen, _ = cmd.Flags().GetStringArray("done-when")
+	}
+	req.ExpectedRevision = cur.Revision
+
+	p, err := c.PlansUpdate(cmd.Context(), planID, req)
+	if err != nil {
+		return err
+	}
+	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+		return printJSON(cmd.OutOrStdout(), p)
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "updated plan %s (%s) rev=%d\n", p.ID, p.Name, p.Revision)
+	return nil
+}
+
+func newPlanTaskCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "task",
+		Short: "Add, edit, or remove tasks on a pending plan",
+		Long: "Granular task-DAG mutations for a pending plan. Non-pending plans are\n" +
+			"rejected with HTTP 409 Conflict. Subcommands:\n\n" +
+			"  add   Append a task (POST /plans/{id}/tasks)\n" +
+			"  edit   Patch one task's prompt/after deps\n" +
+			"  rm     Remove a task (blocked if dependents remain)",
+	}
+	cmd.AddCommand(newPlanTaskAddCmd(), newPlanTaskEditCmd(), newPlanTaskRmCmd())
+	return cmd
+}
+
+func newPlanTaskAddCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "add <plan-id>",
+		Short: "Add a task to a pending plan",
+		Long: "Append a task to a pending plan's DAG. --id and --prompt are required.\n" +
+			"Repeat --after for dependencies. Optional --expected-revision for optimistic\n" +
+			"concurrency (omit to skip the check).",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, _ := cmd.Flags().GetString("id")
+			prompt, _ := cmd.Flags().GetString("prompt")
+			after, _ := cmd.Flags().GetStringArray("after")
+			expected, _ := cmd.Flags().GetInt64("expected-revision")
+			p, err := clientFor(cmd).PlansTaskAdd(cmd.Context(), args[0], client.PlansTaskAddRequest{
+				ID:               id,
+				Prompt:           prompt,
+				After:            after,
+				ExpectedRevision: expected,
+			})
+			if err != nil {
+				return err
+			}
+			if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+				return printJSON(cmd.OutOrStdout(), p)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "plan %s task %s added (rev=%d)\n", p.ID, id, p.Revision)
+			return nil
+		},
+	}
+	cmd.Flags().String("id", "", "task id")
+	cmd.Flags().String("prompt", "", "task prompt")
+	cmd.Flags().StringArray("after", nil, "dependency task id (repeatable)")
+	cmd.Flags().Int64("expected-revision", 0, "optimistic concurrency token")
+	cmd.Flags().Bool("json", false, "output as JSON")
+	_ = cmd.MarkFlagRequired("id")
+	_ = cmd.MarkFlagRequired("prompt")
+	return cmd
+}
+
+func newPlanTaskEditCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "edit <plan-id>",
+		Short: "Edit a task definition on a pending plan",
+		Long: "Patch one task's prompt and/or after-deps on a pending plan. --id is\n" +
+			"required. Provide --prompt and/or --after; omitted fields are left unchanged.\n" +
+			"Optional --expected-revision for optimistic concurrency.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			taskID, _ := cmd.Flags().GetString("id")
+			req := client.PlansTaskUpdateRequest{}
+			if cmd.Flags().Changed("prompt") {
+				prompt, _ := cmd.Flags().GetString("prompt")
+				req.Prompt = &prompt
+			}
+			if cmd.Flags().Changed("after") {
+				after, _ := cmd.Flags().GetStringArray("after")
+				req.After = &after
+			}
+			if req.Prompt == nil && req.After == nil {
+				return fmt.Errorf("provide --prompt and/or --after")
+			}
+			if cmd.Flags().Changed("expected-revision") {
+				expected, _ := cmd.Flags().GetInt64("expected-revision")
+				req.ExpectedRevision = expected
+			}
+			p, err := clientFor(cmd).PlansTaskUpdate(cmd.Context(), args[0], taskID, req)
+			if err != nil {
+				return err
+			}
+			if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+				return printJSON(cmd.OutOrStdout(), p)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "plan %s task %s updated (rev=%d)\n", p.ID, taskID, p.Revision)
+			return nil
+		},
+	}
+	cmd.Flags().String("id", "", "task id")
+	cmd.Flags().String("prompt", "", "new task prompt")
+	cmd.Flags().StringArray("after", nil, "replace after-deps (repeatable; pass once with empty to clear)")
+	cmd.Flags().Int64("expected-revision", 0, "optimistic concurrency token")
+	cmd.Flags().Bool("json", false, "output as JSON")
+	_ = cmd.MarkFlagRequired("id")
+	return cmd
+}
+
+func newPlanTaskRmCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "rm <plan-id> [task-id]",
+		Short: "Remove a task from a pending plan",
+		Long: "Remove a task from a pending plan. Pass the task id as a second argument\n" +
+			"or via --id. Removal is rejected if other tasks still depend on it.\n" +
+			"Optional --expected-revision for optimistic concurrency.",
+		Args: cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			planID := args[0]
+			taskID, _ := cmd.Flags().GetString("id")
+			if len(args) == 2 {
+				if taskID != "" && taskID != args[1] {
+					return fmt.Errorf("conflicting task id: flag %q vs arg %q", taskID, args[1])
+				}
+				taskID = args[1]
+			}
+			if taskID == "" {
+				return fmt.Errorf("task id required (positional or --id)")
+			}
+			var expected int64
+			if cmd.Flags().Changed("expected-revision") {
+				expected, _ = cmd.Flags().GetInt64("expected-revision")
+			}
+			p, err := clientFor(cmd).PlansTaskDelete(cmd.Context(), planID, taskID, expected)
+			if err != nil {
+				return err
+			}
+			if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+				return printJSON(cmd.OutOrStdout(), p)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "plan %s task %s removed (rev=%d)\n", p.ID, taskID, p.Revision)
+			return nil
+		},
+	}
+	cmd.Flags().String("id", "", "task id (alternative to positional)")
+	cmd.Flags().Int64("expected-revision", 0, "optimistic concurrency token")
+	cmd.Flags().Bool("json", false, "output as JSON")
 	return cmd
 }
 
