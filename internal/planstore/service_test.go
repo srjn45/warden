@@ -578,3 +578,236 @@ func TestPlanService_EditedYAMLDoesNotMutateCanonical(t *testing.T) {
 	require.Equal(t, "canonical update", got.Goal)
 	require.Equal(t, "t1", got.Tasks[0].ID)
 }
+
+func TestPlanService_AddTask_pending(t *testing.T) {
+	svc, _, _, _ := newTestService(t)
+	ctx := context.Background()
+
+	p, err := svc.Create(ctx, "proj-1", sampleCreate("Add Task"))
+	require.NoError(t, err)
+	require.Equal(t, int64(1), p.Revision)
+	oldHash := p.ContentHash
+
+	got, err := svc.AddTask(ctx, p.ID, TaskSpec{ID: "t3", Prompt: "third", After: []string{"t2"}}, nil)
+	require.NoError(t, err)
+	require.Len(t, got.Tasks, 3)
+	require.Equal(t, "t3", got.Tasks[2].ID)
+	require.Equal(t, []string{"t2"}, got.Tasks[2].After)
+	require.Equal(t, "pending", got.TaskProgress["t3"])
+	require.Equal(t, int64(2), got.Revision)
+	require.NotEqual(t, oldHash, got.ContentHash)
+	require.Equal(t, ComputeContentHash(got), got.ContentHash)
+}
+
+func TestPlanService_AddTask_validation(t *testing.T) {
+	svc, _, _, _ := newTestService(t)
+	ctx := context.Background()
+	p, err := svc.Create(ctx, "proj-1", sampleCreate("Add Bad"))
+	require.NoError(t, err)
+
+	var ve *ValidationError
+
+	_, err = svc.AddTask(ctx, p.ID, TaskSpec{ID: "", Prompt: "x"}, nil)
+	require.ErrorAs(t, err, &ve)
+	require.Equal(t, "task.id", ve.Field)
+
+	_, err = svc.AddTask(ctx, p.ID, TaskSpec{ID: "t3", Prompt: "  "}, nil)
+	require.ErrorAs(t, err, &ve)
+	require.Equal(t, "task.prompt", ve.Field)
+
+	_, err = svc.AddTask(ctx, p.ID, TaskSpec{ID: "t1", Prompt: "dup"}, nil)
+	require.ErrorAs(t, err, &ve)
+	require.Contains(t, ve.Error(), "duplicate")
+
+	_, err = svc.AddTask(ctx, p.ID, TaskSpec{ID: "t3", Prompt: "x", After: []string{"missing"}}, nil)
+	require.ErrorAs(t, err, &ve)
+	require.Contains(t, ve.Error(), "after-ref")
+
+	_, err = svc.AddTask(ctx, p.ID, TaskSpec{ID: "t0", Prompt: "cycle", After: []string{"t2"}}, nil)
+	require.NoError(t, err)
+	// t1 → t2 → t0 → t2 would require editing edges; create a cycle via UpdateTask instead.
+	got, err := svc.Get(ctx, p.ID)
+	require.NoError(t, err)
+	_, err = svc.UpdateTask(ctx, got.ID, "t2", nil, &[]string{"t0"}, nil)
+	require.ErrorAs(t, err, &ve)
+	require.Contains(t, ve.Error(), "cycle")
+
+	unchanged, err := svc.Get(ctx, p.ID)
+	require.NoError(t, err)
+	require.Equal(t, got.Revision, unchanged.Revision)
+	require.Equal(t, []string{"t1"}, unchanged.Tasks[1].After)
+}
+
+func TestPlanService_AddTask_notPending(t *testing.T) {
+	svc, _, _, _ := newTestService(t)
+	ctx := context.Background()
+
+	for _, status := range []PlanStatus{PlanStatusInProgress, PlanStatusCompleted, PlanStatusArchived} {
+		t.Run(string(status), func(t *testing.T) {
+			p, err := svc.Create(ctx, "proj-1", sampleCreate("Lock-"+string(status)))
+			require.NoError(t, err)
+			switch status {
+			case PlanStatusInProgress:
+				_, err = svc.Transition(ctx, p.ID, PlanStatusInProgress, TransitionOptions{})
+			case PlanStatusCompleted:
+				_, err = svc.Transition(ctx, p.ID, PlanStatusInProgress, TransitionOptions{})
+				require.NoError(t, err)
+				_, err = svc.UpdateTaskStatus(ctx, p.ID, "t1", "done")
+				require.NoError(t, err)
+				_, err = svc.UpdateTaskStatus(ctx, p.ID, "t2", "done")
+				require.NoError(t, err)
+				_, err = svc.Transition(ctx, p.ID, PlanStatusCompleted, TransitionOptions{})
+			case PlanStatusArchived:
+				_, err = svc.Transition(ctx, p.ID, PlanStatusArchived, TransitionOptions{})
+			}
+			require.NoError(t, err)
+
+			_, err = svc.AddTask(ctx, p.ID, TaskSpec{ID: "extra", Prompt: "nope"}, nil)
+			require.ErrorIs(t, err, ErrNotPending)
+		})
+	}
+}
+
+func TestPlanService_AddTask_revisionConflict(t *testing.T) {
+	svc, _, _, _ := newTestService(t)
+	ctx := context.Background()
+	p, err := svc.Create(ctx, "proj-1", sampleCreate("Add Race"))
+	require.NoError(t, err)
+
+	stale := int64(0)
+	_, err = svc.AddTask(ctx, p.ID, TaskSpec{ID: "t3", Prompt: "third"}, &stale)
+	require.ErrorIs(t, err, ErrRevisionConflict)
+	var conflict *RevisionConflictError
+	require.ErrorAs(t, err, &conflict)
+	require.Equal(t, p.ID, conflict.PlanID)
+	require.Equal(t, int64(0), conflict.Expected)
+	require.Equal(t, int64(1), conflict.Actual)
+
+	got, err := svc.Get(ctx, p.ID)
+	require.NoError(t, err)
+	require.Len(t, got.Tasks, 2)
+	require.Equal(t, int64(1), got.Revision)
+}
+
+func TestPlanService_UpdateTask_pending(t *testing.T) {
+	svc, _, _, _ := newTestService(t)
+	ctx := context.Background()
+	p, err := svc.Create(ctx, "proj-1", sampleCreate("Edit Task"))
+	require.NoError(t, err)
+	oldHash := p.ContentHash
+
+	prompt := "first revised"
+	got, err := svc.UpdateTask(ctx, p.ID, "t1", &prompt, nil, nil)
+	require.NoError(t, err)
+	require.Equal(t, "first revised", got.Tasks[0].Prompt)
+	require.Equal(t, []string{"t1"}, got.Tasks[1].After)
+	require.Equal(t, int64(2), got.Revision)
+	require.NotEqual(t, oldHash, got.ContentHash)
+
+	after := []string{}
+	got, err = svc.UpdateTask(ctx, got.ID, "t2", nil, &after, nil)
+	require.NoError(t, err)
+	require.Empty(t, got.Tasks[1].After)
+	require.Equal(t, int64(3), got.Revision)
+}
+
+func TestPlanService_UpdateTask_validationAndNotPending(t *testing.T) {
+	svc, _, _, _ := newTestService(t)
+	ctx := context.Background()
+	p, err := svc.Create(ctx, "proj-1", sampleCreate("Update Bad"))
+	require.NoError(t, err)
+
+	var ve *ValidationError
+	empty := "  "
+	_, err = svc.UpdateTask(ctx, p.ID, "t1", &empty, nil, nil)
+	require.ErrorAs(t, err, &ve)
+	require.Equal(t, "task.prompt", ve.Field)
+
+	_, err = svc.UpdateTask(ctx, p.ID, "missing", nil, &[]string{"t1"}, nil)
+	require.ErrorAs(t, err, &ve)
+	require.Contains(t, ve.Error(), "unknown task")
+
+	_, err = svc.UpdateTask(ctx, p.ID, "t2", nil, &[]string{"nope"}, nil)
+	require.ErrorAs(t, err, &ve)
+	require.Contains(t, ve.Error(), "after-ref")
+
+	_, err = svc.Transition(ctx, p.ID, PlanStatusInProgress, TransitionOptions{})
+	require.NoError(t, err)
+	prompt := "locked"
+	_, err = svc.UpdateTask(ctx, p.ID, "t1", &prompt, nil, nil)
+	require.ErrorIs(t, err, ErrNotPending)
+}
+
+func TestPlanService_UpdateTask_revisionConflict(t *testing.T) {
+	svc, _, _, _ := newTestService(t)
+	ctx := context.Background()
+	p, err := svc.Create(ctx, "proj-1", sampleCreate("Update Race"))
+	require.NoError(t, err)
+
+	stale := int64(99)
+	prompt := "stale"
+	_, err = svc.UpdateTask(ctx, p.ID, "t1", &prompt, nil, &stale)
+	require.ErrorIs(t, err, ErrRevisionConflict)
+
+	got, err := svc.Get(ctx, p.ID)
+	require.NoError(t, err)
+	require.Equal(t, "first", got.Tasks[0].Prompt)
+	require.Equal(t, int64(1), got.Revision)
+}
+
+func TestPlanService_RemoveTask_pending(t *testing.T) {
+	svc, _, _, _ := newTestService(t)
+	ctx := context.Background()
+	p, err := svc.Create(ctx, "proj-1", sampleCreate("Remove Task"))
+	require.NoError(t, err)
+	oldHash := p.ContentHash
+
+	// Leaf task can be removed.
+	got, err := svc.RemoveTask(ctx, p.ID, "t2", nil)
+	require.NoError(t, err)
+	require.Len(t, got.Tasks, 1)
+	require.Equal(t, "t1", got.Tasks[0].ID)
+	_, ok := got.TaskProgress["t2"]
+	require.False(t, ok)
+	require.Equal(t, "pending", got.TaskProgress["t1"])
+	require.Equal(t, int64(2), got.Revision)
+	require.NotEqual(t, oldHash, got.ContentHash)
+}
+
+func TestPlanService_RemoveTask_blockedByDependents(t *testing.T) {
+	svc, _, _, _ := newTestService(t)
+	ctx := context.Background()
+	p, err := svc.Create(ctx, "proj-1", sampleCreate("Remove Blocked"))
+	require.NoError(t, err)
+
+	_, err = svc.RemoveTask(ctx, p.ID, "t1", nil)
+	var ve *ValidationError
+	require.ErrorAs(t, err, &ve)
+	require.Contains(t, ve.Error(), "depends on it")
+
+	got, err := svc.Get(ctx, p.ID)
+	require.NoError(t, err)
+	require.Len(t, got.Tasks, 2)
+	require.Equal(t, int64(1), got.Revision)
+}
+
+func TestPlanService_RemoveTask_notPendingAndConflict(t *testing.T) {
+	svc, _, _, _ := newTestService(t)
+	ctx := context.Background()
+
+	p, err := svc.Create(ctx, "proj-1", sampleCreate("Remove Lock"))
+	require.NoError(t, err)
+	_, err = svc.Transition(ctx, p.ID, PlanStatusInProgress, TransitionOptions{})
+	require.NoError(t, err)
+	_, err = svc.RemoveTask(ctx, p.ID, "t2", nil)
+	require.ErrorIs(t, err, ErrNotPending)
+
+	p2, err := svc.Create(ctx, "proj-1", sampleCreate("Remove Race"))
+	require.NoError(t, err)
+	stale := int64(0)
+	_, err = svc.RemoveTask(ctx, p2.ID, "t2", &stale)
+	require.ErrorIs(t, err, ErrRevisionConflict)
+	got, err := svc.Get(ctx, p2.ID)
+	require.NoError(t, err)
+	require.Len(t, got.Tasks, 2)
+}
