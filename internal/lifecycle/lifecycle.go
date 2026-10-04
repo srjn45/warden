@@ -399,28 +399,28 @@ func (l *Lifecycle) promptArg(b agentbackend.Backend, promptFile string) string 
 }
 
 // stampSpawnExecutionProfile returns the profile stamped onto a newly spawned
-// agent: Network=loopback unless the request already pinned none or full.
+// agent: Network=full unless the request already pinned none, full, or loopback.
 func stampSpawnExecutionProfile(pinned store.ExecutionProfile) store.ExecutionProfile {
 	switch pinned.Network {
-	case store.NetworkNone, store.NetworkFull:
+	case store.NetworkNone, store.NetworkFull, store.NetworkLoopback:
 		return store.ExecutionProfile{Network: pinned.Network}
 	default:
-		return store.ExecutionProfile{Network: store.NetworkLoopback}
+		return store.ExecutionProfile{Network: store.NetworkFull}
 	}
 }
 
 // launchNetwork is the only reader launch paths may use for the network
-// contract. Empty/legacy profiles are stamped to loopback on the in-memory
-// agent (so caller persist writes it); pinned none/full are preserved exactly.
+// contract. Empty/legacy profiles are stamped to full on the in-memory
+// agent (so caller persist writes it); pinned none/full/loopback are preserved exactly.
 func launchNetwork(agent *agentstore.Agent) string {
 	if agent == nil {
-		return store.NetworkLoopback
+		return store.NetworkFull
 	}
 	switch agent.ExecutionProfile.Network {
-	case store.NetworkNone, store.NetworkFull:
+	case store.NetworkNone, store.NetworkFull, store.NetworkLoopback:
 		// preserve pinned
 	default:
-		agent.ExecutionProfile.Network = store.NetworkLoopback
+		agent.ExecutionProfile.Network = store.NetworkFull
 	}
 	return agent.ExecutionProfile.EffectiveNetwork()
 }
@@ -2066,7 +2066,7 @@ func (l *Lifecycle) Adopt(ctx context.Context, req AdoptRequest) (*agentstore.Ag
 		Workdir:          req.Cwd,
 		AICLISessionID:   aicliSessionID,
 		Model:            req.Model,
-		ExecutionProfile: store.ExecutionProfile{Network: store.NetworkLoopback},
+		ExecutionProfile: store.ExecutionProfile{Network: store.NetworkFull},
 	}
 	if req.TmuxSession == "" { // resume mode
 		if aicliSessionID == "" {

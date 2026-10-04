@@ -33,11 +33,11 @@ func TestExecutionProfileRoundTripsAcrossLegacySessionBoundary(t *testing.T) {
 	var legacy Agent
 	require.NoError(t, json.Unmarshal([]byte(`{"id":"legacy","ai_cli":"cursor"}`), &legacy))
 	require.Equal(t, store.ExecutionProfile{}, legacy.ExecutionProfile)
-	require.Equal(t, store.NetworkLoopback, legacy.ExecutionProfile.EffectiveNetwork())
+	require.Equal(t, store.NetworkFull, legacy.ExecutionProfile.EffectiveNetwork())
 
 	var legacySess store.Session
 	require.NoError(t, json.Unmarshal([]byte(`{"id":"legacy","backend":"claude"}`), &legacySess))
 	fromLegacy := FromSession(&legacySess)
 	require.Equal(t, store.ExecutionProfile{}, fromLegacy.ExecutionProfile)
-	require.Equal(t, store.NetworkLoopback, fromLegacy.ExecutionProfile.EffectiveNetwork())
+	require.Equal(t, store.NetworkFull, fromLegacy.ExecutionProfile.EffectiveNetwork())
 }

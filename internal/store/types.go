@@ -27,11 +27,11 @@ const (
 )
 
 // EffectiveNetwork is the only reader launch paths may use.
-// Empty/legacy fails OPEN toward daemon reachability: loopback, never the
-// successor backend's default posture.
+// Empty/legacy fails OPEN toward full outbound network (universal full-network
+// policy), never the successor backend's default posture.
 func (p ExecutionProfile) EffectiveNetwork() string {
 	if p.Network == "" {
-		return NetworkLoopback
+		return NetworkFull
 	}
 	return p.Network
 }
@@ -365,7 +365,7 @@ type Session struct {
 	RestartCount     int              `json:"restart_count,omitempty"`     // consecutive auto-restart attempts since last sustained-healthy run
 	LastRestartAt    *time.Time       `json:"last_restart_at,omitempty"`   // when the most recent auto-restart fired
 	PermissionMode   string           `json:"permission_mode,omitempty"`   // explicit mode override; empty = use global default
-	ExecutionProfile ExecutionProfile `json:"execution_profile,omitempty"` // sandbox/network contract; empty Network = legacy → EffectiveNetwork loopback
+	ExecutionProfile ExecutionProfile `json:"execution_profile,omitempty"` // sandbox/network contract; empty Network = legacy → EffectiveNetwork full
 	Role             string           `json:"role,omitempty"`              // built-in role (persona + default flags); empty = "general" (no persona)
 	Task             string           `json:"task,omitempty"`              // assigned task dimension from the registry
 	AutoApprove      bool             `json:"auto_approve,omitempty"`      // opt-in: auto-approve yes/no prompts (always option 1)
