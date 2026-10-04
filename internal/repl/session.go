@@ -40,8 +40,8 @@ Be concise. Never emit a tool call as plain text or JSON in your reply — use t
 
 // Session is one operator's running conversation with the orchestrator. It owns
 // the message history and ties the Chatter, registry, confirm gate, and tier
-// router together. Built against fakes in tests; against the real client + a
-// local Ollama in `wd repl`.
+// router together. Built against fakes in tests; against the Fast-Brain
+// chatter in `wd repl`.
 type Session struct {
 	chat llm.Chatter
 	daem Daemon
@@ -51,8 +51,7 @@ type Session struct {
 	msgs []llm.Message
 }
 
-// NewSession wires a session. router may be nil (then every request plans
-// locally); gate is the confirm seam (a *Gate in the REPL, a scripted fake in
+// NewSession wires a session. router is an optional compat shim (planning always goes through chat); gate is the confirm seam (a *Gate in the REPL, a scripted fake in
 // tests).
 func NewSession(chat llm.Chatter, d Daemon, reg *Registry, gate confirmer, router *Router) *Session {
 	// The supervision verbs (fleet_digest / clean_up / …) ride the same loop and
@@ -92,16 +91,6 @@ func (s *Session) EnableGrounding(g *Grounder) {
 func (s *Session) Handle(ctx context.Context, line string) string {
 	s.msgs = append(s.msgs, llm.Message{Role: llm.RoleUser, Content: line})
 
-	// Capability-tier routing, before the expensive planning turn.
-	if s.tier != nil {
-		switch r := s.tier.Route(ctx, line); r.Mode {
-		case Degrade:
-			return r.OperatorMessage
-		case Escalate:
-			return s.runPlan(ctx, r.Calls)
-		}
-	}
-
 	start := len(s.msgs)
 	done := map[string]bool{} // signatures of mutations already handled this loop
 	for turn := 0; turn < maxTurns; turn++ {
@@ -136,7 +125,7 @@ func (s *Session) Handle(ctx context.Context, line string) string {
 	return "couldn't complete that within the turn budget — try a smaller ask"
 }
 
-// runPlan executes an already-drafted plan (e.g. from a Claude escalation): the
+// runPlan executes an already-drafted plan (e.g. a slash-command macro): the
 // mutations still pass through the confirm gate. It reports each call's real
 // result — an honest "spawn_agent: error: …" beats a canned "done" when a
 // dispatch actually failed (the operator must see when nothing happened).
@@ -153,7 +142,7 @@ func (s *Session) runPlan(ctx context.Context, calls []ToolCall) string {
 }
 
 // toolResults renders every tool message appended since index start into the
-// operator-facing form: this is the human path (a `/`-command, an escalated
+// operator-facing form: this is the human path (a `/`-command, a macro
 // plan, or a broken-out duplicate loop), so it reshapes the model-facing JSON
 // into a readable table — a multi-line block stands on its own, a scalar keeps
 // the "tool: value" framing. Empty when nothing ran.

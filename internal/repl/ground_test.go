@@ -122,7 +122,7 @@ func TestGrounding_NoLocalModelDegrades(t *testing.T) {
 
 // TestGrounding_ModelErrorFallsBackLocally proves a local-model failure degrades
 // to the verbatim entries — never a cloud round-trip. The Grounder holds no
-// Escalator, so escalation is also structurally impossible.
+// paid backend, so escalation is also structurally impossible.
 func TestGrounding_ModelErrorFallsBackLocally(t *testing.T) {
 	store, _ := groundStore(t, sampleMemory)
 	comp := &recordingCompleter{err: errors.New("local model down")}
@@ -202,16 +202,9 @@ func TestEnableGrounding_NilIsNoOp(t *testing.T) {
 }
 
 // TestGroundingQueryRoutesLocal proves a grounding-style project question stays on
-// the LOCAL tier via the EXISTING tier-classify machinery — it classifies T0, so
-// even a model wired for escalation plans it locally (never a paid cloud plan).
+// the injected Chatter (Fast-Brain) — never an escalated cloud plan.
 func TestGroundingQueryRoutesLocal(t *testing.T) {
-	tier, err := heuristicClassifier{}.NeededTier(context.Background(), "where does the spawn gate live?")
-	require.NoError(t, err)
-	require.Equal(t, T0, tier, "a plain project question needs only the local tier")
-
-	// A T0 model with escalation ON still plans locally for a T0 request — no
-	// escalation, no cloud spend.
-	r := NewRouter(T0, true, heuristicClassifier{}, nil)
+	r := NewRouter()
 	route := r.Route(context.Background(), "where does the spawn gate live?")
 	require.Equal(t, PlanLocal, route.Mode, "grounding-style queries route to the local plan")
 }
