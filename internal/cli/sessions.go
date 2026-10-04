@@ -500,7 +500,7 @@ func modelCell(model string) string {
 		return "sonnet" // default
 	}
 
-	// Map of full IDs to short aliases (reverse of lifecycle.modelAliases)
+	// Optional display shortening for well-known full Claude IDs.
 	aliases := map[string]string{
 		"claude-opus-4-8":   "opus",
 		"claude-sonnet-4-6": "sonnet",

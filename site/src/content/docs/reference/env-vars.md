@@ -37,7 +37,7 @@ Common settings (run `warden config` for the complete, live list):
 | `trusted_proxies` | _(none)_ | Reverse proxies / tunnels fronting the daemon (IPs/CIDRs). When the peer is one of these, the audit log resolves the real client from `X-Forwarded-For`. Audit-actor only — the auth throttle still keys on the peer IP. See [Remote access](/warden/guides/remote-access/) |
 | `data_dir` | `~/.warden` | Directory for warden state: the embedded ScrivaDB session store (`sessions-db/`, with a one-time-imported read-only JSON backup in `sessions/`+`closed/`), prompt files, inbox, pipelines, snapshots, savings ledger, and metrics |
 | `claude_projects_dir` | `~/.claude/projects` | Where the poller reads transcripts to generate subjects and the context gauge |
-| `model_default` | `claude-sonnet-4-6` | Default model for new agents (a model id or alias: `sonnet`/`opus`/`haiku`/`fable`) |
+| `model_default` | `claude-sonnet-4-6` | Default model for new agents (passed through verbatim to the AI CLI) |
 | `default_permission_mode` | `auto` | Default permission mode for new agents (`auto`/`default`/`acceptEdits`/`bypassPermissions`/`dontAsk`/`plan`) |
 | `notify.enabled` | `false` | macOS/libnotify desktop notifications when an agent needs attention |
 | `notify.webhook_enabled` / `notify.webhook_url` | `false` / _(empty)_ | POST notifications to a webhook (a Slack incoming-webhook URL works out of the box) |

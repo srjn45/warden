@@ -1,43 +1,27 @@
 package lifecycle
 
-// modelAliases maps short model names to full model IDs.
-// Updated when new Claude models are released.
-var modelAliases = map[string]string{
-	"opus":   "claude-opus-4-8",
-	"sonnet": "claude-sonnet-4-6",
-	"haiku":  "claude-haiku-4-5",
-	"fable":  "claude-fable-5",
-}
-
 // DefaultModel is the model used when neither --model nor the model_default
-// config setting is provided. It tracks the "sonnet" alias so the implicit
-// default and an explicit `--model sonnet` never resolve to different models.
-var DefaultModel = modelAliases["sonnet"]
+// config setting is provided. Keep in sync with config's ModelDefault fallback.
+var DefaultModel = "claude-sonnet-4-6"
 
-// ResolveModel maps short alias to full model ID, or returns input unchanged
-// if it's already a full ID or unknown. Let claude CLI validate unknown models.
+// ResolveModel returns the model string verbatim for pass-through to
+// `claude --model '<model>'`. Empty input stays empty; the caller applies
+// DefaultModel / config fallback when needed. Let the claude CLI validate.
 func ResolveModel(input string) string {
-	if input == "" {
-		return ""
-	}
-	if full, ok := modelAliases[input]; ok {
-		return full
-	}
-	return input // assume it's already a full model ID
+	return input
 }
 
 // resolveDefaultModel returns the model to use when none is explicitly provided:
-// the configured default model (aliases expanded), or DefaultModel when the
-// config leaves it empty.
+// the configured default model as-is, or DefaultModel when the config leaves it empty.
 func (l *Lifecycle) resolveDefaultModel() string {
 	if m := l.config().GetModelDefault(); m != "" {
-		return ResolveModel(m) // support aliases in the configured default too
+		return ResolveModel(m)
 	}
 	return DefaultModel
 }
 
-// modelOrDefault returns the resolved model ID to use: the provided model
-// (with aliases expanded), or the configured default if model is empty.
+// modelOrDefault returns the model ID to use: the provided model as-is, or the
+// configured default if model is empty.
 func (l *Lifecycle) modelOrDefault(model string) string {
 	if model != "" {
 		return ResolveModel(model)

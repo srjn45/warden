@@ -16,11 +16,11 @@ func TestResolveModel(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{"opus alias", "opus", "claude-opus-4-8"},
-		{"sonnet alias", "sonnet", "claude-sonnet-4-6"},
-		{"haiku alias", "haiku", "claude-haiku-4-5"},
-		{"fable alias", "fable", "claude-fable-5"},
-		{"full model ID", "claude-custom-1", "claude-custom-1"},
+		{"short name preserved", "opus", "opus"},
+		{"sonnet preserved", "sonnet", "sonnet"},
+		{"haiku preserved", "haiku", "haiku"},
+		{"fable preserved", "fable", "fable"},
+		{"full model ID preserved", "claude-custom-1", "claude-custom-1"},
 		{"empty string", "", ""},
 	}
 
@@ -38,16 +38,16 @@ func TestModelOrDefault(t *testing.T) {
 	t.Run("explicit model overrides configured default", func(t *testing.T) {
 		l := lifecycleWithModel("haiku")
 		got := l.modelOrDefault("opus")
-		expected := "claude-opus-4-8"
+		expected := "opus"
 		if got != expected {
 			t.Errorf("modelOrDefault(%q) = %q, want %q", "opus", got, expected)
 		}
 	})
 
-	t.Run("configured default with alias", func(t *testing.T) {
+	t.Run("configured default preserved verbatim", func(t *testing.T) {
 		l := lifecycleWithModel("haiku")
 		got := l.modelOrDefault("")
-		expected := "claude-haiku-4-5"
+		expected := "haiku"
 		if got != expected {
 			t.Errorf("modelOrDefault(%q) = %q, want %q", "", got, expected)
 		}
@@ -65,7 +65,7 @@ func TestModelOrDefault(t *testing.T) {
 	t.Run("hardcoded fallback when config empty", func(t *testing.T) {
 		l := lifecycleWithModel("")
 		got := l.modelOrDefault("")
-		expected := "claude-sonnet-4-6"
+		expected := DefaultModel
 		if got != expected {
 			t.Errorf("modelOrDefault(%q) = %q, want %q", "", got, expected)
 		}
