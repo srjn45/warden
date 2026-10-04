@@ -774,6 +774,45 @@ func (c *Client) Pressure(ctx context.Context) (PressureStatus, error) {
 	return p, err
 }
 
+// HealthStatus mirrors GET /healthz (root path, outside /api/v1).
+type HealthStatus struct {
+	Status  string `json:"status"`
+	Version string `json:"version,omitempty"`
+}
+
+// Health probes GET /healthz and returns the daemon's advertised version when set.
+func (c *Client) Health(ctx context.Context) (HealthStatus, error) {
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, defaultTimeout)
+		defer cancel()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+"/healthz", nil)
+	if err != nil {
+		return HealthStatus{}, err
+	}
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		if isConnRefused(err) {
+			return HealthStatus{}, ErrDaemonDown
+		}
+		return HealthStatus{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		raw, _ := io.ReadAll(resp.Body)
+		return HealthStatus{}, &StatusError{Code: resp.StatusCode, Msg: resp.Status, Body: raw}
+	}
+	var out HealthStatus
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return HealthStatus{}, err
+	}
+	return out, nil
+}
+
 // DirEntry is one subdirectory in a DirListing.
 type DirEntry struct {
 	Name string `json:"name"`

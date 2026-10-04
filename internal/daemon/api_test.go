@@ -300,6 +300,24 @@ func TestHealthz(t *testing.T) {
 	resp, err := http.Get(ts.URL + "/healthz")
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var body map[string]string
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	require.Equal(t, "ok", body["status"])
+	require.Empty(t, body["version"])
+}
+
+func TestHealthzIncludesVersion(t *testing.T) {
+	fs := newFakeStore()
+	srv := &Server{store: fs, version: "9.9.0"}
+	ts := httptest.NewServer(srv.router())
+	t.Cleanup(ts.Close)
+	resp, err := http.Get(ts.URL + "/healthz")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var body map[string]string
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	require.Equal(t, "ok", body["status"])
+	require.Equal(t, "9.9.0", body["version"])
 }
 
 func TestGetSessions(t *testing.T) {

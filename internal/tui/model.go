@@ -18,6 +18,7 @@ import (
 type api interface {
 	List(ctx context.Context) ([]*store.Session, error)
 	ListAll(ctx context.Context) ([]*store.Session, error)
+	Health(ctx context.Context) (client.HealthStatus, error)
 	Output(ctx context.Context, id string, lines int) (string, error)
 	Spawn(ctx context.Context, p client.SpawnParams) (*store.Session, error)
 	Terminate(ctx context.Context, id string) error
@@ -97,4 +98,5 @@ const (
 	modeTerminalChoice        // `t`: (c)reate a terminal in the opened agent's dir or (f)ocus an existing one
 	modePlanRunMode           // `r` on a plan: execution mode picker
 	modePlanDetail            // in-pane full plan detail view
+	modeConfirmUpdate         // y/N confirm before applying warden update + hot-reload
 )

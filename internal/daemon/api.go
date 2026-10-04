@@ -217,6 +217,10 @@ type Server struct {
 	// Default false on a bare Server literal; the daemon sets it from the
 	// `api_docs` config setting (default on). See apidocs_routes.go.
 	apiDocs bool
+	// version is the daemon binary's build version (ldflags). Exposed on
+	// GET /healthz so the TUI can detect an external upgrade and prompt for
+	// in-place hot-reload. Empty ⇒ omitted from the health response.
+	version string
 	// usageReconciliation owns opt-in provider capacity polling. Unlike the
 	// legacy usage display path it never drives agent recovery or swaps.
 	usageReconciliationEnabled    bool
@@ -427,6 +431,9 @@ func (s *Server) SetHubPlanSyncStore(store plansync.HubStore) { s.hubPlanSync = 
 // SetAPIDocs toggles the public OpenAPI documentation surface (#43): Swagger UI
 // at /api/docs and the raw openapi.yaml. enabled=false makes those routes 404.
 func (s *Server) SetAPIDocs(enabled bool) { s.apiDocs = enabled }
+
+// SetVersion records the daemon binary version advertised on GET /healthz.
+func (s *Server) SetVersion(v string) { s.version = v }
 
 // SetAuth configures the bearer tokens required for remote access. An empty
 // primary token disables authentication (the local-only default). When set,
@@ -671,7 +678,11 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusServiceUnavailable, "store unavailable: "+err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	body := map[string]string{"status": "ok"}
+	if s.version != "" {
+		body["version"] = s.version
+	}
+	writeJSON(w, http.StatusOK, body)
 }
 
 // statusForHook maps a Claude hook event type to a status (design §6 table).

@@ -231,6 +231,7 @@ func newDaemonRunCmd() *cobra.Command {
 				return err
 			}
 			srv := daemon.NewServer(st, life, pl, 10*time.Second, cfg.ApprovalsEnabled, cstore, mbox, nil)
+			srv.SetVersion(version)
 			srv.SetTerminals(termStore)
 			// TerminalWatcher polls terminalstore (not the agent session store) via
 			// the shared tmuxproc.Host for liveness/capture.
