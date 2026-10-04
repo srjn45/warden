@@ -1,0 +1,64 @@
+version: 1
+name: intelligent-approval-and-question-arbiter
+goal: >-
+  Implement Fast-Brain intelligent auto-approval and question arbiter in internal/fastbrain,
+  enabling autonomous sub-second tool permissions and multi-choice question answering across all
+  supported agent backends (Claude, Codex, Cursor, Antigravity) with zero-downtime human fallback.
+constraints:
+  - "Work in an isolated branch/worktree off origin/main; one worker per task."
+  - "Keep the tree green — run make verify-fast and go test ./... before committing."
+  - "Non-overridable safety: IsDestructive checks and circuit breakers must always run before AI evaluation."
+  - "Strict timeouts: Fast tier <= 1.5s, Thinking tier <= 10s; graceful fail-open to human waiting_for_input."
+done_when:
+  - "internal/fastbrain classifies prompts into ToolPermission vs StrategicQuestion deterministically."
+  - "Fast-tier model evaluates tool permissions (approve/deny/escalate) within 1.5s."
+  - "Thinking-tier model resolves strategic multiple-choice questions within 10s based on plan constraints."
+  - "internal/poller/poller.go routes unresolved approvals through Fast-Brain and auto-sends affirmative or chosen keys."
+  - "Full unit and integration test coverage across all 4 supported backends."
+tasks:
+  - id: Task1_FastBrainCoreAndClassifier
+    prompt: >-
+      Implement the Fast-Brain core types, runner interfaces, and prompt classifier:
+      1) In internal/fastbrain/types.go:
+         - Define PromptCategory (`CategoryToolPermission`, `CategoryStrategicQuestion`, `CategoryUnrecognized`).
+         - Define `ArbiterInput`, `ArbiterDecision`, and decision outcome types (`DecisionApprove`, `DecisionDeny`, `DecisionSelectOption`, `DecisionEscalate`).
+      2) In internal/fastbrain/runner.go:
+         - Define `Runner` interface with `Run(ctx context.Context, prompt string) (string, error)` (compatible with agentname.BackendRunner).
+      3) In internal/fastbrain/classify.go:
+         - Implement `ClassifyPrompt(a *agentbackend.Approval) PromptCategory` using affirmative tokens and action presence.
+      4) Add comprehensive unit tests in internal/fastbrain/classify_test.go testing prompts from Claude, Codex, Cursor, and Antigravity.
+      Ensure `go test ./internal/fastbrain/...` passes. Commit on dedicated branch `feature/fastbrain-arbiter`.
+
+  - id: Task2_ArbiterEvaluationEngine
+    after:
+      - Task1_FastBrainCoreAndClassifier
+    prompt: >-
+      Implement the Arbiter evaluation engine and prompt templates:
+      1) In internal/fastbrain/templates.go:
+         - Define compact zero-shot prompts for Tool Permissions and Strategic Questions with strict JSON schemas.
+      2) In internal/fastbrain/arbiter.go:
+         - Implement `Arbitrate(ctx context.Context, in ArbiterInput, fastRunner Runner, thinkingRunner Runner) (ArbiterDecision, error)`.
+         - Parse structured JSON response with sanitization.
+         - Enforce confidence thresholds (>= 0.8) and bounds check on selected options (1 <= option <= len(Options)).
+         - Return `DecisionEscalate` on timeout, error, or low confidence.
+      3) Add unit tests in internal/fastbrain/arbiter_test.go mocking both runners:
+         - Tool permission approval, rejection, and escalation.
+         - Strategic question selection and invalid option handling.
+         - Timeout and network error fallback.
+      Ensure `go test ./internal/fastbrain/...` passes.
+
+  - id: Task3_PollerIntegrationAndTests
+    after:
+      - Task2_ArbiterEvaluationEngine
+    prompt: >-
+      Integrate Fast-Brain arbiter into the Poller approval worker:
+      1) In internal/approval/policy.go:
+         - Add `UseFastBrain bool` to `Policy`.
+      2) In internal/poller/poller.go:
+         - Wire Fast-Brain arbiter into `tryAutoApprove` when static rules do not match or when `AffirmativeIdx == 0`.
+         - On `DecisionApprove`: dispatch `a.AffirmativeIdx`.
+         - On `DecisionSelectOption`: dispatch `strconv.Itoa(decision.SelectedOption)`.
+         - On `DecisionEscalate`: leave for human / route to brain.
+         - Log structured decision rationale and audit event.
+      3) Add tests in internal/poller/poller_test.go testing automated tool approvals and question resolution.
+      4) Verify `make verify-fast` and all tests pass. Open a PR against `main`.
