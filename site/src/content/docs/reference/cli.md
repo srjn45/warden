@@ -152,21 +152,22 @@ Interactive: warden agent start --role <ROLE> --dir <path>                (opens
 Managed:     warden agent start --role worker --repo <PATH> [TICKET]      (isolated worktree)
              (worker + --repo enters the managed path; --type is a deprecated alias)
 
-The spawn's AI CLI+model is resolved (top wins): an explicit --ai-cli/--model
-pin > --tier (or --task, which derives a tier) routed through the quota-balanced
-resolver > the resolver routed by --role alone > warden's configured defaults.
-So --role on its own is always enough to spawn — --tier/--ai-cli/--model are
-optional refinements, not additional requirements.
+The spawn's AI CLI+model is resolved (top wins): an explicit --aicli/--model
+pin > --aicli alone (optimal model for that AI CLI at the tier) > --tier (or
+--task, which derives a tier) routed through the quota-balanced resolver >
+the resolver routed by --role alone > warden's configured defaults.
+So --role on its own is always enough to spawn — --tier/--aicli/--model are
+optional refinements, not additional requirements. --model requires --aicli.
 
-AI CLIs (--ai-cli; deprecated alias --backend): warden drives Claude Code by default.
+AI CLIs (--aicli; aliases --ai-cli and deprecated --backend): warden drives Claude Code by default.
 Accepted values: claude (default, stable), aider, opencode, codex, crush, goose, cursor, antigravity.
 Only claude is fully tested; codex and antigravity are beta, the rest experimental / WIP.
-When both --ai-cli and --backend are set, --ai-cli wins.
+Precedence when multiple AI CLI flags are set: --aicli > --ai-cli > --backend.
 Terminal (--kind terminal): not an AI agent — opens a plain interactive shell ($SHELL)
 in --dir, managed with the same worktree/git/tmux lifecycle as any agent. It is a
-session kind, not an AI CLI, so --ai-cli/--backend/--model/--role/prompt are ignored.
-Aider: BYO model (pass --model), no resume, runs a one-shot --message task.
-OpenCode: BYO model (pass --model), structured transcript, DOES resume.
+session kind, not an AI CLI, so --aicli/--ai-cli/--backend/--model/--role/prompt are ignored.
+Aider: BYO model (pass --model with --aicli), no resume, runs a one-shot --message task.
+OpenCode: BYO model (pass --model with --aicli), structured transcript, DOES resume.
 Codex: BYO provider (via ~/.codex/config.toml), DOES resume (dir-scoped).
 Crush: BYO model (config-driven TUI; --model for headless), DOES resume (dir-scoped); initial prompt auto-typed post-launch.
 Goose: BYO provider (GOOSE_PROVIDER/GOOSE_MODEL env), DOES resume (name-deterministic); no --model on session launch.
@@ -175,10 +176,11 @@ Antigravity: Google-hosted agy; defaults gemini-3.5-flash; pass --model (agy mod
 All non-claude backends show tokens-only spend. Claude remains full-fidelity.
 
 Usage:
-  warden agent start --role <ROLE> [TICKET|"<prompt>"] [--repo <PATH>] [--dir <PATH>] [--ai-cli <ID>] [flags]
+  warden agent start --role <ROLE> [TICKET|"<prompt>"] [--repo <PATH>] [--dir <PATH>] [--aicli <ID>] [flags]
 
 Flags:
-      --ai-cli warden start --help               AI CLI: claude (default, stable) | aider | opencode | codex | crush | goose | cursor | antigravity — only claude is fully tested; codex/antigravity are beta, the rest experimental. See warden start --help for per-AI-CLI notes
+      --ai-cli string                            alias for --aicli
+      --aicli warden start --help                AI CLI: claude (default, stable) | aider | opencode | codex | crush | goose | cursor | antigravity — only claude is fully tested; codex/antigravity are beta, the rest experimental. See warden start --help for per-AI-CLI notes
       --auto-restart                             auto-resume this agent if it crashes (errored), capped at a few attempts
       --branch string                            new branch (development) or checkout target (pr-review)
       --dir string                               directory to launch the agent from (default: current directory)
@@ -186,8 +188,8 @@ Flags:
       --fork-from codex fork                     fork an existing agent's recorded session into this new managed agent (codex codex fork): branches the source's conversation in a fresh sibling worktree off its branch, carrying its uncommitted tracked changes; the source keeps running. Uses --role worker when the chosen role does not own a worktree; the fork inherits the source's repo+backend. See `warden fork` for the shorthand
   -h, --help                                     help for start
       --in-repo                                  write-agent opt-out: run in the shared repo instead of an isolated worktree (ignored for pr-review)
-      --kind string                              session kind: empty/agent (default) spawns an AI agent; terminal opens a plain interactive shell ($SHELL) in --dir (not an AI agent — --ai-cli/--backend/--model/--role/prompt ignored)
-      --model string                             claude model: opus, sonnet, haiku, fable, or full model ID (default: the model_default config setting, i.e. sonnet)
+      --kind string                              session kind: empty/agent (default) spawns an AI agent; terminal opens a plain interactive shell ($SHELL) in --dir (not an AI agent — --aicli/--ai-cli/--backend/--model/--role/prompt ignored)
+      --model string                             model ID for the chosen AI CLI (requires --aicli). Empty lets the tier resolver pick an explicit model
       --name string                              optional human-friendly name (max 32 chars, alphanumeric + hyphens/underscores)
       --permission-mode string                   permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan (default: from config or 'auto')
       --plan string                              optional planstore plan id in the same project (plan-<8hex>); empty = planless agent. A non-empty value must name an existing plan belonging to the resolved project
@@ -201,7 +203,7 @@ Flags:
       --supervised                               alias for --permission-mode acceptEdits (kept for backwards compatibility)
       --tags warden ls --tag                     comma-separated labels for grouping/filtering (e.g. --tags backend,urgent); searchable and filterable via warden ls --tag
       --task string                              task name (task registry) used to derive the model tier when --tier is empty. Empty = none
-      --tier string                              model tier for the quota-balanced resolver that picks the AI CLI+model: tier-1|tier-2|tier-3. Empty derives the tier from --task, then --role (--role is required, so this always has a role to derive from). An explicit --ai-cli/--model still wins over the resolver
+      --tier string                              model tier for the quota-balanced resolver that picks the AI CLI+model: tier-1|tier-2|tier-3. Empty derives the tier from --task, then --role (--role is required, so this always has a role to derive from). An explicit --aicli/--model still wins over the resolver
       --worktree                                 create a scratch worktree for analysis/spike
 
 Inherited flags:
@@ -570,15 +572,16 @@ Mid-session hot-swap: retire the active CLI process and launch a successor AI CL
 in the SAME worktree, carrying forward structured context (Goal, Decisions Log,
 Modified Files Diff, Immediate Next Step) so the new agent continues without starting cold.
 
-The successor can be chosen by explicit --ai-cli and/or --model, or by --tier
+The successor can be chosen by explicit --aicli and/or --model, or by --tier
 (resolved via quota-balanced weighted headroom routing across eligible AI CLIs).
-Deprecated alias --backend is accepted for one release; --ai-cli wins if both are set.
+Aliases --ai-cli and deprecated --backend are accepted; --aicli wins if multiple are set.
+--model requires --aicli (or an alias).
 
 The swap is performed by the warden daemon (the sole owner of the session store),
 so the daemon must be running.
 
 Examples:
-  warden agent switch --ai-cli antigravity --model gemini-3.1-pro
+  warden agent switch --aicli antigravity --model gemini-3.1-pro
   warden agent switch --tier tier-1
   warden agent switch abc123 --tier tier-3 --prompt 'Focus on unit test coverage'
 
@@ -587,10 +590,11 @@ Usage:
   warden agent switch [agent-id] [flags]
 
 Flags:
-      --ai-cli string   explicit successor AI CLI id (claude, antigravity, codex, …)
+      --ai-cli string   alias for --aicli
+      --aicli string    explicit successor AI CLI id (claude, antigravity, codex, …)
   -h, --help            help for switch
       --json            emit result as JSON
-  -m, --model string    explicit successor model id
+  -m, --model string    explicit successor model id (requires --aicli)
   -p, --prompt string   optional extra instruction appended to successor's continuation prompt
       --reason string   reason recorded for hot-swap (manual|context_fill|quota) (default "manual")
   -r, --role string     role to resolve tier from when --tier is not given
@@ -3858,6 +3862,8 @@ inspect and configure the tiered model catalog in warden.
 Subcommands:
   list      List models in the catalog and their assigned tiers
   tier      Set a model's tier classification (tier-1|tier-2|tier-3)
+  add       Register a custom model in the catalog at runtime
+  discover  Probe installed AI CLIs for live model menus
 
 When run without subcommands, `warden backend model` shows the live model menu of the
 current or specified backend.
@@ -3866,6 +3872,8 @@ Usage:
   warden backend model [flags]
 
 Commands:
+  add                  Register a custom model in the catalog
+  discover             Probe installed AI CLIs for live model menus
   list                 List models in the catalog and their assigned tiers
   tier                 Set a model's tier classification (tier-1|tier-2|tier-3)
 
@@ -3873,6 +3881,78 @@ Flags:
       --backend string   list models for this backend id (default: the current agent's backend)
   -h, --help             help for model
       --json             emit the menu as a JSON array instead of one id per line
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden backend model add
+
+```text
+Insert a new model into warden's catalog at runtime.
+
+The model is marked custom so seed pruning never removes it. Use this when a
+backend gains a model that is not in the built-in seed (or after
+`warden backend model discover` surfaces a live id you want to route).
+
+Tiers:
+  tier-1   Highest-capability models
+  tier-2   Standard implementation models
+  tier-3   Fast, low-cost models
+
+Examples:
+  warden backend model add cursor my-model --tier tier-2 --display "My Model" --auto-assign
+  warden backend model add opencode ollama/qwen2.5-coder:3b --tier tier-3 --quota-scope default
+
+Usage:
+  warden backend model add <aicli> <model> [flags]
+
+Flags:
+      --auto-assign          include the model in quota-balanced AutoAssign routing
+      --display string       human-readable display name (default: the model id)
+  -h, --help                 help for add
+      --quota-scope string   quota scope tag this model consumes (blank = default)
+      --tier string          model tier (tier-1|tier-2|tier-3) (required)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden backend model discover
+
+```text
+Discover model ids from installed AI CLI tools and optionally import them
+into the catalog.
+
+Sources (when the tool is installed / the file is readable):
+  cursor        cursor-agent --list-models
+  antigravity   agy models
+  opencode      opencode models
+  crush         crush models
+  codex         ~/.codex/config.toml (top-level model = "…")
+
+By default this only lists what was discovered. Pass --import --tier <tier> to
+register missing models as custom catalog entries (already-present ids are
+skipped).
+
+Examples:
+  warden backend model discover
+  warden backend model discover --backend cursor --json
+  warden backend model discover --import --tier tier-2 --auto-assign
+
+Usage:
+  warden backend model discover [flags]
+
+Flags:
+      --auto-assign          mark imported models AutoAssign (with --import)
+      --backend string       limit discovery to this backend id (cursor|antigravity|opencode|crush|codex)
+  -h, --help                 help for discover
+      --import               register discovered models missing from the catalog
+      --json                 emit discovered models as a JSON array
+      --quota-scope string   quota scope for imported models (with --import)
+      --tier string          tier to assign when --import is set (tier-1|tier-2|tier-3)
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -4616,21 +4696,22 @@ Interactive: warden start --role <ROLE> --dir <path>                (opens the a
 Managed:     warden start --role worker --repo <PATH> [TICKET]      (isolated worktree)
              (worker + --repo enters the managed path; --type is a deprecated alias)
 
-The spawn's AI CLI+model is resolved (top wins): an explicit --ai-cli/--model
-pin > --tier (or --task, which derives a tier) routed through the quota-balanced
-resolver > the resolver routed by --role alone > warden's configured defaults.
-So --role on its own is always enough to spawn — --tier/--ai-cli/--model are
-optional refinements, not additional requirements.
+The spawn's AI CLI+model is resolved (top wins): an explicit --aicli/--model
+pin > --aicli alone (optimal model for that AI CLI at the tier) > --tier (or
+--task, which derives a tier) routed through the quota-balanced resolver >
+the resolver routed by --role alone > warden's configured defaults.
+So --role on its own is always enough to spawn — --tier/--aicli/--model are
+optional refinements, not additional requirements. --model requires --aicli.
 
-AI CLIs (--ai-cli; deprecated alias --backend): warden drives Claude Code by default.
+AI CLIs (--aicli; aliases --ai-cli and deprecated --backend): warden drives Claude Code by default.
 Accepted values: claude (default, stable), aider, opencode, codex, crush, goose, cursor, antigravity.
 Only claude is fully tested; codex and antigravity are beta, the rest experimental / WIP.
-When both --ai-cli and --backend are set, --ai-cli wins.
+Precedence when multiple AI CLI flags are set: --aicli > --ai-cli > --backend.
 Terminal (--kind terminal): not an AI agent — opens a plain interactive shell ($SHELL)
 in --dir, managed with the same worktree/git/tmux lifecycle as any agent. It is a
-session kind, not an AI CLI, so --ai-cli/--backend/--model/--role/prompt are ignored.
-Aider: BYO model (pass --model), no resume, runs a one-shot --message task.
-OpenCode: BYO model (pass --model), structured transcript, DOES resume.
+session kind, not an AI CLI, so --aicli/--ai-cli/--backend/--model/--role/prompt are ignored.
+Aider: BYO model (pass --model with --aicli), no resume, runs a one-shot --message task.
+OpenCode: BYO model (pass --model with --aicli), structured transcript, DOES resume.
 Codex: BYO provider (via ~/.codex/config.toml), DOES resume (dir-scoped).
 Crush: BYO model (config-driven TUI; --model for headless), DOES resume (dir-scoped); initial prompt auto-typed post-launch.
 Goose: BYO provider (GOOSE_PROVIDER/GOOSE_MODEL env), DOES resume (name-deterministic); no --model on session launch.
@@ -4639,10 +4720,11 @@ Antigravity: Google-hosted agy; defaults gemini-3.5-flash; pass --model (agy mod
 All non-claude backends show tokens-only spend. Claude remains full-fidelity.
 
 Usage:
-  warden start --role <ROLE> [TICKET|"<prompt>"] [--repo <PATH>] [--dir <PATH>] [--ai-cli <ID>] [flags]
+  warden start --role <ROLE> [TICKET|"<prompt>"] [--repo <PATH>] [--dir <PATH>] [--aicli <ID>] [flags]
 
 Flags:
-      --ai-cli warden start --help               AI CLI: claude (default, stable) | aider | opencode | codex | crush | goose | cursor | antigravity — only claude is fully tested; codex/antigravity are beta, the rest experimental. See warden start --help for per-AI-CLI notes
+      --ai-cli string                            alias for --aicli
+      --aicli warden start --help                AI CLI: claude (default, stable) | aider | opencode | codex | crush | goose | cursor | antigravity — only claude is fully tested; codex/antigravity are beta, the rest experimental. See warden start --help for per-AI-CLI notes
       --auto-restart                             auto-resume this agent if it crashes (errored), capped at a few attempts
       --branch string                            new branch (development) or checkout target (pr-review)
       --dir string                               directory to launch the agent from (default: current directory)
@@ -4650,8 +4732,8 @@ Flags:
       --fork-from codex fork                     fork an existing agent's recorded session into this new managed agent (codex codex fork): branches the source's conversation in a fresh sibling worktree off its branch, carrying its uncommitted tracked changes; the source keeps running. Uses --role worker when the chosen role does not own a worktree; the fork inherits the source's repo+backend. See `warden fork` for the shorthand
   -h, --help                                     help for start
       --in-repo                                  write-agent opt-out: run in the shared repo instead of an isolated worktree (ignored for pr-review)
-      --kind string                              session kind: empty/agent (default) spawns an AI agent; terminal opens a plain interactive shell ($SHELL) in --dir (not an AI agent — --ai-cli/--backend/--model/--role/prompt ignored)
-      --model string                             claude model: opus, sonnet, haiku, fable, or full model ID (default: the model_default config setting, i.e. sonnet)
+      --kind string                              session kind: empty/agent (default) spawns an AI agent; terminal opens a plain interactive shell ($SHELL) in --dir (not an AI agent — --aicli/--ai-cli/--backend/--model/--role/prompt ignored)
+      --model string                             model ID for the chosen AI CLI (requires --aicli). Empty lets the tier resolver pick an explicit model
       --name string                              optional human-friendly name (max 32 chars, alphanumeric + hyphens/underscores)
       --permission-mode string                   permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan (default: from config or 'auto')
       --plan string                              optional planstore plan id in the same project (plan-<8hex>); empty = planless agent. A non-empty value must name an existing plan belonging to the resolved project
@@ -4665,7 +4747,7 @@ Flags:
       --supervised                               alias for --permission-mode acceptEdits (kept for backwards compatibility)
       --tags warden ls --tag                     comma-separated labels for grouping/filtering (e.g. --tags backend,urgent); searchable and filterable via warden ls --tag
       --task string                              task name (task registry) used to derive the model tier when --tier is empty. Empty = none
-      --tier string                              model tier for the quota-balanced resolver that picks the AI CLI+model: tier-1|tier-2|tier-3. Empty derives the tier from --task, then --role (--role is required, so this always has a role to derive from). An explicit --ai-cli/--model still wins over the resolver
+      --tier string                              model tier for the quota-balanced resolver that picks the AI CLI+model: tier-1|tier-2|tier-3. Empty derives the tier from --task, then --role (--role is required, so this always has a role to derive from). An explicit --aicli/--model still wins over the resolver
       --worktree                                 create a scratch worktree for analysis/spike
 
 Inherited flags:
@@ -4884,6 +4966,8 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | `warden mcp` | `warden daemon mcp` |
 | `warden memory` | `warden project memory` |
 | `warden models` | `warden backend model` |
+| `warden models add` | `warden backend model add` |
+| `warden models discover` | `warden backend model discover` |
 | `warden models list` | `warden backend model list` |
 | `warden models ls` | `warden backend model list` |
 | `warden models tier` | `warden backend model tier` |

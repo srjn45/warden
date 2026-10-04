@@ -272,7 +272,7 @@ Notes:
 
 ## 5.1. Model Selection
 
-Warden supports per-agent model selection via the `--model` flag. You can specify either a short alias or a full model ID. The model is stored with the session and preserved across restores.
+Warden supports per-agent model selection via the `--model` flag. The model string is passed through **verbatim** to the AI CLI (e.g. `claude --model '<model>'`) — warden does not expand short names to full IDs. The model is stored with the session and preserved across restores.
 
 ### How to specify a model
 
@@ -288,19 +288,12 @@ warden start PROJ-350 --type development --model opus
 warden start --type pr-review --pr 1234 --model sonnet
 ```
 
-### Model aliases
+### Model IDs
 
-Warden recognizes these short aliases:
+Pass any model id the target AI CLI accepts. Common Claude short names and full ids both work as-is (the Claude CLI resolves them):
 
-| Alias | Full Model ID | Use Case |
-|---|---|---|
-| `opus` | `claude-opus-4-8` | Complex reasoning, large codebases, architectural decisions |
-| `sonnet` | `claude-sonnet-4-6` | Balanced performance (default) |
-| `haiku` | `claude-haiku-4-5` | Fast, lightweight tasks |
-| `fable` | `claude-fable-5` | Experimental tasks |
-
-You can also use any full model ID directly:
 ```sh
+warden start "Task" --model opus
 warden start "Task" --model claude-sonnet-4-6
 ```
 
@@ -318,10 +311,10 @@ first if it doesn't exist yet), then restart the daemon:
 model_default: opus
 ```
 
-`model_default` accepts either an alias or a full model ID:
+`model_default` is passed through verbatim (short name or full id — whatever you configure):
 ```yaml
 model_default: opus
-model_default: claude-opus-4-8   # same effect
+model_default: claude-opus-4-8
 ```
 
 Run `warden config` to print the resolved configuration that is currently live.
@@ -475,11 +468,11 @@ warden agent role list
 | Role | Persona (summary) | Default flags | Default tier |
 |---|---|---|---|
 | `general` | *(none — a plain agent)* | — | tier-2 |
-| `orchestrator` | Coordinates a fleet of warden agents to deliver a goal — plans and delegates via the warden MCP/CLI, doesn't write feature code itself unless trivial. | `--permission-mode auto` | tier-1 |
+| `orchestrator` | Coordinates a fleet of warden agents to deliver a goal — plans and delegates via the warden MCP/CLI, doesn't write feature code itself unless trivial. | `--permission-mode bypassPermissions`, auto-approve on (hardcoded) | tier-1 |
 | `planner` | Research, analysis, and planning only — produces tech specs, RFCs, and design docs; must not edit code. | `--permission-mode plan` | tier-1 |
 | `worker` | Owns one task end-to-end: implement (code + tests + checks + commit), self-review the diff, open a PR, drive it green, and merge — then report status back to its coordinator. | `--type development`, `--permission-mode auto`, auto-approve on | tier-2 |
 | `autopilot` | Long-lived headless **manager** of a whole autopilot run — decomposes the goal, spawns worker/brain agents, gates their PRs, and lands into the integration branch. | `--permission-mode bypassPermissions`, auto-approve on | tier-1 |
-| `brain` | On-demand **decision resolver** — unblocks a stuck agent or makes an ad-hoc design/architecture call, no human interaction. | `--permission-mode auto`, auto-approve on | tier-2 |
+| `brain` | On-demand **decision resolver** — unblocks a stuck agent or makes an ad-hoc design/architecture call, no human interaction. | `--permission-mode bypassPermissions`, auto-approve on (hardcoded) | tier-2 |
 
 `autopilot`, `worker`, and `brain` power autopilot's manager → worker → brain
 topology.
@@ -677,7 +670,7 @@ Spawn an agent. Prompt mode if no `--type`; managed-worktree mode otherwise.
 | `--pr` | PR number/URL (pr-review). |
 | `--worktree` | Create a scratch worktree for analysis/spike. |
 | `--in-repo` | Write-agent opt-out: run in the shared repo instead of an isolated worktree (ignored for pr-review). |
-| `--model` | Model to use: short alias (`opus`/`sonnet`/`haiku`/`fable`) or full model ID. Default: the `model_default` config setting, or `claude-sonnet-4-6`. |
+| `--model` | Model id passed through verbatim to the AI CLI (e.g. `opus`, `sonnet`, `claude-sonnet-4-6`). Default: the `model_default` config setting, or `claude-sonnet-4-6`. |
 | `--role` | Built-in agent role (*who the agent is*): `general` (default, no persona) / `orchestrator` / `planner` / `worker` / `autopilot` / `brain` (legacy `implementer`/`auto-merger`/`reviewer` map to `worker`). Injects the role's persona and fills its default flags for any left unset (see §5.3). |
 | `--task` | Unit of work (*what the agent is doing*) from the task registry, used to derive the model **tier** for routing when `--tier` is empty (see §5.5). Distinct from `--type`, which controls worktree policy. |
 | `--tier` | Pin the model tier for the quota-balanced resolver: `tier-1` / `tier-2` / `tier-3`. Empty derives it from `--task`, then `--role`, else tier-2. A pinned `--ai-cli`/`--model` still wins (see §5.5). |
@@ -851,12 +844,12 @@ warden git review --ai-cli codex --json
 ### `warden backend model [--backend <id>] [--json]` (live backend model menu)
 
 `warden backend model` lists the **live, currently-available model menu** the agent's
-backend exposes — the agent-native counterpart to warden's static `opus`/`sonnet`/
-`haiku`/`fable` aliases. Backends whose model set is a runtime, multi-vendor menu
-implement it: **Antigravity** (`agy models` — Gemini/Claude/GPT-OSS variants) and
-**Cursor** (`cursor-agent --list-models`). The ids print one per line (or `--json`
-for an array) and feed `--model` verbatim. Listing is a metadata read (the
-backend's own list subcommand, not a generation request), so it spends no
+backend exposes. Claude has no live menu — pass `--model` with any id the Claude
+CLI accepts (warden does not rewrite it). Backends whose model set is a runtime,
+multi-vendor menu implement it: **Antigravity** (`agy models` — Gemini/Claude/GPT-OSS
+variants) and **Cursor** (`cursor-agent --list-models`). The ids print one per line
+(or `--json` for an array) and feed `--model` verbatim. Listing is a metadata read
+(the backend's own list subcommand, not a generation request), so it spends no
 hosted-tier quota; like `warden git review` it runs locally (CLI-only). Backends with
 a static model set (e.g. Claude) have no live menu and exit non-zero pointing you
 at `--model` with a known id.
@@ -866,6 +859,27 @@ warden backend model                       # the current agent's backend menu, o
 warden backend model --backend antigravity # e.g. Gemini 3.5 Flash (Low), Claude Opus 4.6 (Thinking), …
 warden backend model --backend cursor --json
 ```
+
+### `warden backend model list|tier|add|discover` (model catalog)
+
+Inspect and extend warden's **tiered model catalog** (ScrivaDB `models` collection) —
+the seed list used by quota-balanced routing (`--task` / `--tier`). Distinct from the
+bare `warden backend model` live menu above: these subcommands read/write the local
+catalog store (CLI-only, no daemon round-trip).
+
+```sh
+warden backend model list [--by-tier] [--tier tier-2] [--backend cursor]
+warden backend model tier claude sonnet tier-1
+warden backend model add cursor my-model --tier tier-2 --display "My Model" --auto-assign
+warden backend model discover                              # probe installed AI CLIs
+warden backend model discover --backend opencode --json
+warden backend model discover --import --tier tier-2       # register missing ids as custom
+```
+
+`add` inserts a custom row (`IsCustom=true`) so seed pruning never removes it.
+`discover` soft-fails missing tools and parses: `cursor-agent --list-models`,
+`agy models`, `opencode models`, `crush models`, and the top-level `model = "…"`
+from `~/.codex/config.toml`.
 
 ### `warden backend list|rescan|tier|default|enable|disable|thinking-mode` (backend registry)
 
@@ -1952,7 +1966,7 @@ restart list; everything else takes effect on save.
 | `data_dir` | `~/.warden` | Directory for warden state: embedded ScrivaDB stores for sessions (`sessions-db/`), schedules (`schedules-db/`), pipelines (`pipelines-db/`), and snapshot metadata (`snapshots-db/` — transcripts stay as flat files under `snapshots/`), each with a one-time-imported read-only backup left in place (`sessions/`+`closed/`, `schedules.json`, `pipelines/`, `snapshots/*.json`), plus per-agent prompt files (`prompts/`), inbox, and metrics |
 | `claude_projects_dir` | `~/.claude/projects` | Where the poller reads transcripts to generate subjects and the context gauge |
 | `ai_cli_default` | _(empty)_ | Default AI CLI when a spawn does not pin one (falls through to the backend-registry default, then claude). Deprecated alias: `backend_default`. |
-| `model_default` | `claude-sonnet-4-6` | Default model for new agents (a model id or alias: `sonnet`/`opus`/`haiku`/`fable`) |
+| `model_default` | `claude-sonnet-4-6` | Default model for new agents (passed through verbatim to the AI CLI) |
 | `default_permission_mode` | `auto` | Default permission mode for new agents (`auto`/`default`/`acceptEdits`/`bypassPermissions`/`dontAsk`/`plan`) |
 | `notify.enabled` | `false` | macOS/libnotify desktop notifications when an agent needs attention |
 | `notify.webhook_enabled` | `false` | POST a notification to `notify.webhook_url` for every alert that also goes to desktop `notify.enabled` — attention-needed transitions (`waiting_for_input`, `errored`, `orphaned`) and context-size warning/critical alerts. Best-effort and non-blocking |

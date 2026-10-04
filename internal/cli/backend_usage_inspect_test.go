@@ -19,6 +19,7 @@ func TestBackendUsageInspectCanonicalAndCompatibilityPaths(t *testing.T) {
 		"backend enable": "backends enable", "backend disable": "backends disable",
 		"backend thinking-mode": "backends thinking-mode",
 		"backend model":         "models", "backend model list": "models list", "backend model tier": "models tier",
+		"backend model add": "models add", "backend model discover": "models discover",
 		"backend suggest": "llm suggest", "backend repl": "repl",
 		"usage spend": "spend", "usage savings": "savings", "usage insights": "insights",
 		"inspect resources": "stats", "inspect search": "search", "inspect history": "history",

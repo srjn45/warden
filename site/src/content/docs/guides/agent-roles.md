@@ -22,11 +22,11 @@ warden agent role list
 | Role | What the persona tells the agent to do | Default flags | Default tier |
 |---|---|---|---|
 | `general` | *(no persona — a plain agent)* | — | tier-2 |
-| `orchestrator` | Coordinate a fleet of warden agents to deliver a goal: break the work into tasks, spawn and assign worker agents via the warden MCP/CLI, monitor progress, resolve blockers, integrate results. Plan and delegate; don't write feature code yourself unless it's trivial. | `--permission-mode auto` | tier-1 |
+| `orchestrator` | Coordinate a fleet of warden agents to deliver a goal: break the work into tasks, spawn and assign worker agents via the warden MCP/CLI, monitor progress, resolve blockers, integrate results. Plan and delegate; don't write feature code yourself unless it's trivial. | `--permission-mode bypassPermissions`, auto-approve on (hardcoded) | tier-1 |
 | `planner` | Research, analysis, and planning **only**: produce tech specs, RFCs, design docs, and tradeoff analyses. Read and search the codebase to inform the work, but don't edit source, config, or tests. | `--permission-mode plan` | tier-1 |
 | `worker` | Own one task end-to-end: implement (code + tests + checks + commit), self-review the diff, open a PR on your integration branch, drive it to green, and merge — then report status back to your coordinator. | `--permission-mode auto`, auto-approve on (worktree isolation is role-driven) | tier-2 |
 | `autopilot` | Long-lived headless **manager** that drives a whole autopilot run: decompose the goal, spawn `worker`/`brain` agents, gate their PRs, and land into the integration branch — fully unattended. | `--permission-mode bypassPermissions`, auto-approve on | tier-1 |
-| `brain` | On-demand **decision resolver**: unblock a stuck agent or make an ad-hoc design/architecture call, decisively and without human interaction, then report the resolution back. | `--permission-mode auto`, auto-approve on | tier-2 |
+| `brain` | On-demand **decision resolver**: unblock a stuck agent or make an ad-hoc design/architecture call, decisively and without human interaction, then report the resolution back. | `--permission-mode bypassPermissions`, auto-approve on (hardcoded) | tier-2 |
 
 `autopilot`, `worker`, and `brain` power [autopilot](/warden/guides/autopilot/)'s
 topology: the `autopilot` manager spawns `worker` agents to deliver tasks and

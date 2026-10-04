@@ -455,8 +455,7 @@ The hook fails soft — it never blocks or errors the agent, even if the daemon 
 
 Warden supports per-agent model selection:
 
-- **Short aliases:** `opus`, `sonnet`, `haiku`, `fable`
-- **Full model IDs:** `claude-opus-4-8`, `claude-sonnet-4-6`, etc.
+- **Any model id**, passed through verbatim to the AI CLI (e.g. `opus`, `sonnet`, `claude-sonnet-4-6`)
 - **Default:** `claude-sonnet-4-6` (or the `model_default` config setting)
 
 ```bash
@@ -599,7 +598,7 @@ Warden reads all settings from a single YAML file (default `~/.warden/config.yam
 | `data_dir` | `~/.warden` | Directory for warden state: the embedded ScrivaDB session store (`sessions-db/`, with a one-time-imported read-only JSON backup in `sessions/`+`closed/`), per-agent prompt files (`prompts/`), inbox, pipelines, and metrics |
 | `claude_projects_dir` | `~/.claude/projects` | Root of Claude Code transcript directories; the poller reads agent transcripts here to generate subjects and the context gauge |
 | `ai_cli_default` | _(empty)_ | Default AI CLI when a spawn does not pin one (falls through to the backend-registry default, then claude). Deprecated alias: `backend_default`. |
-| `model_default` | `claude-sonnet-4-6` | Default model for new agents (a model id or alias: `sonnet`/`opus`/`haiku`/`fable`) |
+| `model_default` | `claude-sonnet-4-6` | Default model for new agents (passed through verbatim to the AI CLI) |
 | `default_permission_mode` | `auto` | Default permission mode for new agents (`auto`/`default`/`acceptEdits`/`bypassPermissions`/`dontAsk`/`plan`) |
 | `notify.enabled` | `false` | Desktop notifications when an agent needs attention |
 | `approvals` | `true` | The approvals inbox: the daemon parses recognized Claude Code tool-permission prompts and surfaces them for answering. The web AttentionQueue shows one-click option buttons, the CLI exposes `warden approval list`/`warden approval answer`, and the TUI shows a pinned **⏳ Approvals** row — answer it in place (`i`, or `enter` on the row, then `1`-`9`; `tab` cycles between waiting agents) or from the web / `warden approval answer`. Unrecognized prompts always fall back to attach |
@@ -790,7 +789,7 @@ Flags:
 - `--dir <path>` — directory to run a prompt-spawned agent in (default: current directory)
 - `--worktree` — opt-in worktree for analysis/spike
 - `--in-repo` — write-type opt-out: run in the shared repo instead of an isolated worktree (ignored for pr-review)
-- `--model <model>` — per-agent model (id or alias `opus`/`sonnet`/`haiku`/`fable`); defaults to the `model_default` config setting
+- `--model <model>` — per-agent model id (passed through verbatim); defaults to the `model_default` config setting
 - `--role <role>` — built-in agent role (*who the agent is*): `general` (default, no persona) · `orchestrator` · `planner` · `worker` · `autopilot` · `brain` (the legacy names `implementer`/`auto-merger`/`reviewer` still work, mapped to `worker`). Injects the role's persona as a system-prompt addendum and fills its default spawn flags (`--type`/`--model`/`--permission-mode`/auto-approve/tags) for any you leave unset (explicit flags still win). See [`warden agent role list`](#warden-agent-role-list--warden-agent-role-set)
 - `--task <name>` — the unit of work (*what the agent is doing*) from the task registry, used to derive the model **tier** for quota-balanced routing when `--tier` is empty (e.g. `architecture`→tier-1, `development`→tier-2, `merge-pr`→tier-3). Distinct from `--type` (which controls worktree policy)
 - `--tier <tier>` — pin the model tier for the resolver directly (`tier-1`/`tier-2`/`tier-3`). Empty derives it from `--task`, then `--role`, else tier-2. A pinned `--backend`/`--model` still wins over the resolver. See [Tiered model routing](#warden-agent-role-list--warden-agent-role-set)
@@ -1150,7 +1149,7 @@ warden backend model                  # the backend's LIVE model menu (one id pe
 ```
 
 - **`warden git review`** — the agent-native counterpart to `warden check` (configured test/lint) and a `pr-review` agent (a whole reviewer session): it runs the backend's own one-shot reviewer against the worktree. **Codex** implements it (`codex review`); backends without a native reviewer (e.g. Claude) exit non-zero pointing you at `warden check` / `pr-review`. `--json` runs the structured form (`codex exec review`) and normalizes the backend's native output into one neutral findings shape; review quality rides the backend's configured model.
-- **`warden backend model`** — the live runtime model menu (vs warden's static `opus`/`sonnet`/`haiku`/`fable` aliases). **Antigravity** (`agy models`) and **Cursor** (`cursor-agent --list-models`) implement it; the ids feed `--model` verbatim. Listing is a metadata read, so it spends no quota. Backends with a static model set (Claude) degrade non-zero ("pass `--model` with a known id").
+- **`warden backend model`** — the live runtime model menu for backends that expose one. **Antigravity** (`agy models`) and **Cursor** (`cursor-agent --list-models`) implement it; the ids feed `--model` verbatim. Listing is a metadata read, so it spends no quota. Claude has no live menu (pass `--model` with any id the Claude CLI accepts; warden does not rewrite it) and degrades non-zero.
 
 Both take `--backend <id>` to target a specific backend (default: the current agent's). See [AI CLIs](#ai-clis---ai-cli).
 
@@ -1388,11 +1387,11 @@ nothing more specific pins the tier:
 | Role | Persona | Default flags | Default tier |
 |---|---|---|---|
 | `general` | *(none — plain agent)* | — | tier-2 |
-| `orchestrator` | coordinates a fleet of warden agents; plans and delegates, doesn't write feature code itself unless trivial | `--permission-mode auto` | tier-1 |
+| `orchestrator` | coordinates a fleet of warden agents; plans and delegates, doesn't write feature code itself unless trivial | `--permission-mode bypassPermissions`, auto-approve on (hardcoded) | tier-1 |
 | `planner` | research/analysis/planning only — produces specs, RFCs, design docs; must not edit code | `--permission-mode plan` | tier-1 |
 | `worker` | owns one task end-to-end (implement, self-review, PR, drive green, merge) and reports status back to its coordinator | `--type development`, `--permission-mode auto`, auto-approve on | tier-2 |
 | `autopilot` | long-lived headless **manager** of a whole autopilot run — decomposes, spawns workers/brains, gates + lands into the integration branch | `--permission-mode bypassPermissions`, auto-approve on | tier-1 |
-| `brain` | on-demand **decision resolver** — unblocks a stuck agent or makes an ad-hoc design/arch call, no human interaction | `--permission-mode auto`, auto-approve on | tier-2 |
+| `brain` | on-demand **decision resolver** — unblocks a stuck agent or makes an ad-hoc design/arch call, no human interaction | `--permission-mode bypassPermissions`, auto-approve on (hardcoded) | tier-2 |
 
 `autopilot`, `worker`, and `brain` power autopilot's manager →
 worker → brain topology. **Legacy aliases:** `reviewer`, `implementer`, and

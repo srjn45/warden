@@ -590,6 +590,39 @@ func (s *Store) getModel(backendID, modelID string) (ModelEntry, error) {
 	return modelFromRecord(r.Data)
 }
 
+// AddModel inserts a new custom model into the catalog. Returns ErrExists if the
+// (backendID, modelID) pair is already registered, or ErrInvalidTier if tier is
+// invalid. The new row is Enabled and marked IsCustom so seed pruning never
+// removes it. Empty displayName defaults to modelID.
+func (s *Store) AddModel(backendID, modelID, displayName string, tier ModelTier, autoAssign bool, quotaScope string) error {
+	if backendID == "" || modelID == "" {
+		return errors.New("backend ID and model ID cannot be empty")
+	}
+	if !tier.Valid() {
+		return ErrInvalidTier
+	}
+	if displayName == "" {
+		displayName = modelID
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, err := s.getModel(backendID, modelID); err == nil {
+		return ErrExists
+	} else if !errors.Is(err, ErrModelNotFound) {
+		return err
+	}
+	return s.upsertModel(ModelEntry{
+		BackendID:   backendID,
+		ModelID:     modelID,
+		DisplayName: displayName,
+		Tier:        tier,
+		Enabled:     true,
+		AutoAssign:  autoAssign,
+		IsCustom:    true,
+		QuotaScope:  quotaScope,
+	})
+}
+
 // SetModelTier updates the tier for a specific model (RMW). Returns ErrModelNotFound if missing, or ErrInvalidTier if tier is invalid.
 func (s *Store) SetModelTier(backendID, modelID string, tier ModelTier) error {
 	if !tier.Valid() {

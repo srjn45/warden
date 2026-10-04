@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -51,7 +52,9 @@ func newModelsCmd() *cobra.Command {
 			"inspect and configure the tiered model catalog in warden.\n\n" +
 			"Subcommands:\n" +
 			"  list      List models in the catalog and their assigned tiers\n" +
-			"  tier      Set a model's tier classification (tier-1|tier-2|tier-3)\n\n" +
+			"  tier      Set a model's tier classification (tier-1|tier-2|tier-3)\n" +
+			"  add       Register a custom model in the catalog at runtime\n" +
+			"  discover  Probe installed AI CLIs for live model menus\n\n" +
 			"When run without subcommands, `warden models` shows the live model menu of the\n" +
 			"current or specified backend.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -88,7 +91,7 @@ func newModelsCmd() *cobra.Command {
 	cmd.Flags().StringVar(&backend, "backend", "", "list models for this backend id (default: the current agent's backend)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit the menu as a JSON array instead of one id per line")
 
-	cmd.AddCommand(newModelsListCmd(), newModelsTierCmd())
+	cmd.AddCommand(newModelsListCmd(), newModelsTierCmd(), newModelsAddCmd(), newModelsDiscoverCmd())
 	return cmd
 }
 
@@ -195,6 +198,159 @@ Example:
 			return nil
 		},
 	}
+}
+
+func newModelsAddCmd() *cobra.Command {
+	var tier string
+	var display string
+	var autoAssign bool
+	var quotaScope string
+
+	cmd := &cobra.Command{
+		Use:   "add <aicli> <model>",
+		Short: "Register a custom model in the catalog",
+		Long: `Insert a new model into warden's catalog at runtime.
+
+The model is marked custom so seed pruning never removes it. Use this when a
+backend gains a model that is not in the built-in seed (or after
+` + "`warden backend model discover`" + ` surfaces a live id you want to route).
+
+Tiers:
+  tier-1   Highest-capability models
+  tier-2   Standard implementation models
+  tier-3   Fast, low-cost models
+
+Examples:
+  warden backend model add cursor my-model --tier tier-2 --display "My Model" --auto-assign
+  warden backend model add opencode ollama/qwen2.5-coder:3b --tier tier-3 --quota-scope default`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			backendID := strings.TrimSpace(args[0])
+			modelID := strings.TrimSpace(args[1])
+			if backendID == "" || modelID == "" {
+				return fmt.Errorf("aicli and model are required")
+			}
+			mt := backendstore.ModelTier(tier)
+			if !mt.Valid() {
+				return fmt.Errorf("invalid tier %q (valid: tier-1, tier-2, tier-3); pass --tier", tier)
+			}
+
+			st, err := openBackendStore(cmd)
+			if err != nil {
+				return err
+			}
+			defer st.Close()
+
+			if err := st.AddModel(backendID, modelID, display, mt, autoAssign, quotaScope); err != nil {
+				if errors.Is(err, backendstore.ErrExists) {
+					return fmt.Errorf("model %s/%s already exists in the catalog", backendID, modelID)
+				}
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "model %s/%s added as %s\n", backendID, modelID, mt)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&tier, "tier", "", "model tier (tier-1|tier-2|tier-3) (required)")
+	cmd.Flags().StringVar(&display, "display", "", "human-readable display name (default: the model id)")
+	cmd.Flags().BoolVar(&autoAssign, "auto-assign", false, "include the model in quota-balanced AutoAssign routing")
+	cmd.Flags().StringVar(&quotaScope, "quota-scope", "", "quota scope tag this model consumes (blank = default)")
+	_ = cmd.MarkFlagRequired("tier")
+	return cmd
+}
+
+func newModelsDiscoverCmd() *cobra.Command {
+	var backend string
+	var asJSON bool
+	var doImport bool
+	var tier string
+	var autoAssign bool
+	var quotaScope string
+
+	cmd := &cobra.Command{
+		Use:   "discover",
+		Short: "Probe installed AI CLIs for live model menus",
+		Long: `Discover model ids from installed AI CLI tools and optionally import them
+into the catalog.
+
+Sources (when the tool is installed / the file is readable):
+  cursor        cursor-agent --list-models
+  antigravity   agy models
+  opencode      opencode models
+  crush         crush models
+  codex         ~/.codex/config.toml (top-level model = "…")
+
+By default this only lists what was discovered. Pass --import --tier <tier> to
+register missing models as custom catalog entries (already-present ids are
+skipped).
+
+Examples:
+  warden backend model discover
+  warden backend model discover --backend cursor --json
+  warden backend model discover --import --tier tier-2 --auto-assign`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			discovered, err := discoverInstalledModels(backend)
+			if err != nil {
+				return err
+			}
+
+			if doImport {
+				mt := backendstore.ModelTier(tier)
+				if !mt.Valid() {
+					return fmt.Errorf("--import requires --tier (tier-1|tier-2|tier-3)")
+				}
+				st, err := openBackendStore(cmd)
+				if err != nil {
+					return err
+				}
+				defer st.Close()
+
+				added, skipped := 0, 0
+				for _, d := range discovered {
+					err := st.AddModel(d.BackendID, d.ModelID, d.DisplayName, mt, autoAssign, quotaScope)
+					if err == nil {
+						added++
+						continue
+					}
+					if errors.Is(err, backendstore.ErrExists) {
+						skipped++
+						continue
+					}
+					return err
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "imported %d model(s), skipped %d already present\n", added, skipped)
+				return nil
+			}
+
+			out := cmd.OutOrStdout()
+			if asJSON {
+				if discovered == nil {
+					discovered = []DiscoveredModel{}
+				}
+				enc := json.NewEncoder(out)
+				enc.SetIndent("", "  ")
+				return enc.Encode(discovered)
+			}
+			if len(discovered) == 0 {
+				fmt.Fprintln(out, "no models discovered (are the AI CLIs installed?)")
+				return nil
+			}
+			w := tabwriter.NewWriter(out, 0, 2, 2, ' ', 0)
+			fmt.Fprintln(w, "BACKEND\tMODEL\tDISPLAY NAME")
+			for _, d := range discovered {
+				fmt.Fprintf(w, "%s\t%s\t%s\n", d.BackendID, d.ModelID, d.DisplayName)
+			}
+			return w.Flush()
+		},
+	}
+	cmd.Flags().StringVar(&backend, "backend", "", "limit discovery to this backend id (cursor|antigravity|opencode|crush|codex)")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "emit discovered models as a JSON array")
+	cmd.Flags().BoolVar(&doImport, "import", false, "register discovered models missing from the catalog")
+	cmd.Flags().StringVar(&tier, "tier", "", "tier to assign when --import is set (tier-1|tier-2|tier-3)")
+	cmd.Flags().BoolVar(&autoAssign, "auto-assign", false, "mark imported models AutoAssign (with --import)")
+	cmd.Flags().StringVar(&quotaScope, "quota-scope", "", "quota scope for imported models (with --import)")
+	return cmd
 }
 
 func printModelsTable(out io.Writer, models []backendstore.ModelEntry) error {

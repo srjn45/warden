@@ -20,44 +20,44 @@ func TestCursorLaunchCmd(t *testing.T) {
 		want string
 	}{
 		{
-			name: "model + default mode (Cursor's own posture applies)",
+			name: "model + default mode always trusts workspace + approves MCPs",
 			opts: agentbackend.LaunchOpts{Model: "composer-2.5", Mode: "default"},
-			want: "cursor-agent --model 'composer-2.5'",
+			want: "cursor-agent --model 'composer-2.5' --trust --approve-mcps",
 		},
 		{
 			name: "plan mode maps to --mode plan",
 			opts: agentbackend.LaunchOpts{Model: "m", Mode: "plan"},
-			want: "cursor-agent --model 'm' --mode plan",
+			want: "cursor-agent --model 'm' --mode plan --trust --approve-mcps",
 		},
 		{
 			name: "ask mode maps to --mode ask",
 			opts: agentbackend.LaunchOpts{Model: "m", Mode: "ask"},
-			want: "cursor-agent --model 'm' --mode ask",
+			want: "cursor-agent --model 'm' --mode ask --trust --approve-mcps",
 		},
 		{
 			name: "auto-review maps to --auto-review",
 			opts: agentbackend.LaunchOpts{Model: "m", Mode: "auto-review"},
-			want: "cursor-agent --model 'm' --auto-review",
+			want: "cursor-agent --model 'm' --auto-review --trust --approve-mcps",
 		},
 		{
 			name: "force maps to -f (run everything)",
 			opts: agentbackend.LaunchOpts{Model: "m", Mode: "force"},
-			want: "cursor-agent --model 'm' -f",
+			want: "cursor-agent --model 'm' -f --trust --approve-mcps",
 		},
 		{
 			name: "claude 'dangerously-skip-permissions' folds onto -f",
 			opts: agentbackend.LaunchOpts{Model: "m", Mode: "dangerously-skip-permissions"},
-			want: "cursor-agent --model 'm' -f",
+			want: "cursor-agent --model 'm' -f --trust --approve-mcps",
 		},
 		{
 			name: "empty model omits --model (Cursor's configured default applies)",
 			opts: agentbackend.LaunchOpts{Mode: "default"},
-			want: "cursor-agent",
+			want: "cursor-agent --trust --approve-mcps",
 		},
 		{
 			name: "session id and name are ignored (SessionIDControl=false)",
 			opts: agentbackend.LaunchOpts{SessionID: "uuid", Name: "JIRA-1", Model: "m", Mode: "default"},
-			want: "cursor-agent --model 'm'",
+			want: "cursor-agent --model 'm' --trust --approve-mcps",
 		},
 	}
 	for _, tt := range tests {
@@ -82,7 +82,7 @@ func TestCursorLaunchNoOwnWorktree(t *testing.T) {
 // into a tmux pane.
 func TestCursorLaunchQuotesModel(t *testing.T) {
 	got := Cursor{}.LaunchCmd(agentbackend.LaunchOpts{Model: "m; touch /tmp/pwned #", Mode: "default"})
-	require.Equal(t, "cursor-agent --model 'm; touch /tmp/pwned #'", got)
+	require.Equal(t, "cursor-agent --model 'm; touch /tmp/pwned #' --trust --approve-mcps", got)
 }
 
 func TestCursorResumeCmd(t *testing.T) {
@@ -90,11 +90,11 @@ func TestCursorResumeCmd(t *testing.T) {
 	// is dir/workspace-scoped --continue, regardless of the passed SessionID.
 	cmd, ok := Cursor{}.ResumeCmd(agentbackend.ResumeOpts{SessionID: "whatever", Model: "m"})
 	require.True(t, ok, "Cursor supports resume (Caps.Resume=true)")
-	require.Equal(t, "cursor-agent --continue --model 'm'", cmd)
+	require.Equal(t, "cursor-agent --continue --model 'm' --trust --approve-mcps", cmd)
 
 	cmd, ok = Cursor{}.ResumeCmd(agentbackend.ResumeOpts{})
 	require.True(t, ok)
-	require.Equal(t, "cursor-agent --continue", cmd, "empty model omits --model")
+	require.Equal(t, "cursor-agent --continue --trust --approve-mcps", cmd, "empty model omits --model")
 }
 
 // TestCursorLaunchEmitsSandboxNetworkFromProfile locks that Launch and Resume emit
@@ -152,7 +152,7 @@ func TestCursorPromptSeeder(t *testing.T) {
 func TestCursorHeadlessCmd(t *testing.T) {
 	argv, ok := Cursor{}.HeadlessCmd("classify this")
 	require.True(t, ok)
-	require.Equal(t, []string{"cursor-agent", "-p", "--force", "--trust", "classify this"}, argv)
+	require.Equal(t, []string{"cursor-agent", "-p", "--force", "--trust", "--approve-mcps", "classify this"}, argv)
 }
 
 // --- Transcript (Tier C: degraded) ------------------------------------------

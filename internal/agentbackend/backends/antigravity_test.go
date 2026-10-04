@@ -25,14 +25,29 @@ func TestAntigravityLaunchCmd(t *testing.T) {
 		want string
 	}{
 		{
-			name: "model + default mode (agy's own posture applies)",
+			name: "model + default mode defaults to --dangerously-skip-permissions",
 			opts: agentbackend.LaunchOpts{Model: "Gemini 3.5 Flash (Low)", Mode: "default"},
-			want: "agy --model 'Gemini 3.5 Flash (Low)'",
+			want: "agy --model 'Gemini 3.5 Flash (Low)' --dangerously-skip-permissions",
 		},
 		{
-			name: "sandbox mode maps to --sandbox",
+			name: "plan maps to --mode plan",
+			opts: agentbackend.LaunchOpts{Model: "m", Mode: "plan"},
+			want: "agy --model 'm' --mode plan",
+		},
+		{
+			name: "accept-edits maps to --mode accept-edits",
+			opts: agentbackend.LaunchOpts{Model: "m", Mode: "accept-edits"},
+			want: "agy --model 'm' --mode accept-edits",
+		},
+		{
+			name: "claude acceptEdits maps to --mode accept-edits",
+			opts: agentbackend.LaunchOpts{Model: "m", Mode: "acceptEdits"},
+			want: "agy --model 'm' --mode accept-edits",
+		},
+		{
+			name: "sandbox mode does not emit --sandbox (universal full network)",
 			opts: agentbackend.LaunchOpts{Model: "m", Mode: "sandbox"},
-			want: "agy --model 'm' --sandbox",
+			want: "agy --model 'm'",
 		},
 		{
 			name: "dangerously-skip-permissions passes through",
@@ -47,12 +62,12 @@ func TestAntigravityLaunchCmd(t *testing.T) {
 		{
 			name: "empty model omits --model (agy config default applies)",
 			opts: agentbackend.LaunchOpts{Mode: "default"},
-			want: "agy",
+			want: "agy --dangerously-skip-permissions",
 		},
 		{
 			name: "session id and name are ignored (SessionIDControl=false)",
 			opts: agentbackend.LaunchOpts{SessionID: "uuid", Name: "JIRA-1", Model: "m", Mode: "default"},
-			want: "agy --model 'm'",
+			want: "agy --model 'm' --dangerously-skip-permissions",
 		},
 	}
 	for _, tt := range tests {
@@ -67,7 +82,7 @@ func TestAntigravityLaunchCmd(t *testing.T) {
 // typed into a tmux pane.
 func TestAntigravityLaunchQuotesModel(t *testing.T) {
 	got := Antigravity{}.LaunchCmd(agentbackend.LaunchOpts{Model: "m; touch /tmp/pwned #", Mode: "default"})
-	require.Equal(t, "agy --model 'm; touch /tmp/pwned #'", got)
+	require.Equal(t, "agy --model 'm; touch /tmp/pwned #' --dangerously-skip-permissions", got)
 }
 
 func TestAntigravityResumeCmd(t *testing.T) {
@@ -75,11 +90,14 @@ func TestAntigravityResumeCmd(t *testing.T) {
 	// UUID), so resume is dir-scoped `agy -c`.
 	cmd, ok := Antigravity{}.ResumeCmd(agentbackend.ResumeOpts{SessionID: "whatever", Model: "m"})
 	require.True(t, ok, "Antigravity supports resume (Caps.Resume=true)")
-	require.Equal(t, "agy -c --model 'm'", cmd)
+	require.Equal(t, "agy -c --model 'm' --dangerously-skip-permissions", cmd)
 
 	// Permission mode flows through resume too.
 	cmd, _ = Antigravity{}.ResumeCmd(agentbackend.ResumeOpts{Mode: "dangerously-skip-permissions"})
 	require.Equal(t, "agy -c --dangerously-skip-permissions", cmd)
+
+	cmd, _ = Antigravity{}.ResumeCmd(agentbackend.ResumeOpts{Mode: "plan"})
+	require.Equal(t, "agy -c --mode plan", cmd)
 }
 
 func TestAntigravityLaunchPromptArg(t *testing.T) {
@@ -367,7 +385,7 @@ func TestAntigravityCapabilities(t *testing.T) {
 	require.True(t, c.StructuredTranscript, "Tier A: trajectory JSONL parses into Turns")
 	require.False(t, c.SessionIDControl, "agy mints its own UUID conversation id")
 	require.False(t, c.SystemPromptInject)
-	require.Equal(t, []string{"default", "sandbox", "dangerously-skip-permissions"}, c.PermissionModes)
+	require.Equal(t, []string{"default", "plan", "accept-edits", "sandbox", "dangerously-skip-permissions"}, c.PermissionModes)
 }
 
 func TestAntigravityNoPricing(t *testing.T) {

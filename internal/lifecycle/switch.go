@@ -248,51 +248,89 @@ func (l *Lifecycle) routerResolve(ctx context.Context, req SwapRequest) (*router
 	return l.Resolver.Resolve(ctx, router.ResolveOptions{Role: req.Role, AllowFallback: true})
 }
 
-// resolveSpawnTarget decides the backend+model for a FIRST spawn, mirroring
-// resolveSuccessor but with one critical difference: a first spawn must ALWAYS
-// succeed. Precedence (top wins):
+// ErrModelRequiresAiCli is returned when a spawn pins a model without also
+// pinning an AI CLI. A model is only meaningful relative to an AI CLI, so the
+// pair must be specified together (or neither — then the router picks both).
+var ErrModelRequiresAiCli = fmt.Errorf("model requires an explicit aicli; cannot pin --model without --aicli")
+
+// resolveSpawnTarget decides the AI CLI+model for a FIRST spawn via the
+// deterministic Role → Tier → (AICLI, Model) matrix:
 //
-//   - an explicit pinned backend (with model, or the backend's default when the
-//     model is empty) — the caller chose it;
-//   - an explicit or role-default model (a role's Defaults.Model is folded into
-//     the request's model before this runs, so it lands here) on the default
-//     backend — a model pin the router must not override;
-//   - otherwise the quota-balanced router picks backend+model from
-//     ResolveOptions{Role, Task, Tier, AllowFallback:true}.
+//	a) Exact pin: both aicli and model set → validate the AI CLI and use them
+//	   directly (tier is ignored).
+//	b) Invalid: model set without aicli → ErrModelRequiresAiCli.
+//	c) AICLI pin without model → resolve the optimal model for that AI CLI from
+//	   the requested tier (or role/task-mapped tier) via PreferredBackend.
+//	d) Neither pinned → resolve the optimal (aicli, model) from the requested
+//	   tier (or role/task-mapped tier).
+//	e) Model is never left empty — when the router is absent or declines, the
+//	   config/default model fills in so every spawn carries an explicit model.
 //
 // Unlike a hot-swap (which refuses with ErrNoResolver when nothing is wired), a
-// first spawn DEGRADES gracefully: with no resolver, or when the resolver returns
-// no eligible candidate / errors, it falls back to the passed backend+model
-// (i.e. current behavior — the config default backend and an empty model). It
-// never fails the spawn because the resolver is absent or empty.
-func (l *Lifecycle) resolveSpawnTarget(ctx context.Context, roleName, taskName, tier, backend, model string) (resolvedBackend, resolvedModel string) {
-	// A pinned backend wins outright (keep the model, empty ⇒ backend default).
+// first spawn DEGRADES gracefully on resolver absence/errors — except for the
+// hard validation in (b). It never fails the spawn because the resolver is
+// absent or empty.
+func (l *Lifecycle) resolveSpawnTarget(ctx context.Context, roleName, taskName, tier, backend, model string) (resolvedBackend, resolvedModel string, err error) {
+	backend = strings.TrimSpace(backend)
+	model = strings.TrimSpace(model)
+
+	// b) Model without AI CLI is always invalid.
+	if model != "" && backend == "" {
+		return "", "", fmt.Errorf("%w (got model %q)", ErrModelRequiresAiCli, model)
+	}
+
+	// a) Exact pin: both set — validate AI CLI, ignore tier, use as-is.
+	if backend != "" && model != "" {
+		if _, err := agentbackend.Get(backend); err != nil {
+			return "", "", err
+		}
+		return backend, model, nil
+	}
+
+	// c) AICLI pin without model — pick the optimal model for that AI CLI.
 	if backend != "" {
-		return backend, model
+		if _, err := agentbackend.Get(backend); err != nil {
+			return "", "", err
+		}
+		if l.Resolver == nil {
+			return backend, l.resolveDefaultModel(), nil
+		}
+		res, resErr := l.Resolver.Resolve(ctx, router.ResolveOptions{
+			Role:             roleName,
+			Task:             taskName,
+			Tier:             backendstore.ModelTier(tier),
+			PreferredBackend: backend,
+			AllowFallback:    true,
+		})
+		if resErr != nil || res == nil || res.BackendID == "" || res.ModelID == "" {
+			if resErr != nil {
+				slog.Debug("spawn: resolver declined preferred aicli, using default model",
+					"aicli", backend, "role", roleName, "task", taskName, "tier", tier, "err", resErr)
+			}
+			return backend, l.resolveDefaultModel(), nil
+		}
+		return res.BackendID, res.ModelID, nil
 	}
-	// A pinned or role-default model on the default backend wins over the router.
-	if model != "" {
-		return backend, model
-	}
-	// Nothing pinned: let the router pick. Degrade silently when it can't so the
-	// spawn still proceeds on the config default backend.
+
+	// d) Neither pinned — let the router pick both. Degrade to defaults when it
+	// can't so the spawn still proceeds (e: model is never empty).
 	if l.Resolver == nil {
-		return backend, model
+		return "", l.resolveDefaultModel(), nil
 	}
-	res, err := l.Resolver.Resolve(ctx, router.ResolveOptions{
+	res, resErr := l.Resolver.Resolve(ctx, router.ResolveOptions{
 		Role:          roleName,
 		Task:          taskName,
 		Tier:          backendstore.ModelTier(tier),
 		AllowFallback: true,
 	})
-	if err != nil || res == nil || res.BackendID == "" {
-		if err != nil {
+	if resErr != nil || res == nil || res.BackendID == "" || res.ModelID == "" {
+		if resErr != nil {
 			slog.Debug("spawn: resolver declined, using request defaults",
-				"role", roleName, "task", taskName, "tier", tier, "err", err)
+				"role", roleName, "task", taskName, "tier", tier, "err", resErr)
 		}
-		return backend, model
+		return "", l.resolveDefaultModel(), nil
 	}
-	return res.BackendID, res.ModelID
+	return res.BackendID, res.ModelID, nil
 }
 
 // launchSuccessor brings up the successor backend b in the retiring agent's existing

@@ -1,0 +1,113 @@
+version: 1
+name: aicli-profiles-and-tier-routing
+goal: >-
+  Standardize AI CLI execution profiles, implement deterministic Role -> Tier -> (AICLI, Model)
+  resolution hierarchy, enforce role permission mode postures and hardcoded autonomous overrides,
+  apply universal full outbound network access, and add dynamic model catalog extensibility across
+  all 8 supported AI CLIs (Claude, Codex, Cursor, Antigravity, OpenCode, Crush, Aider, Goose).
+constraints:
+  - "Work in an isolated git worktree branched off origin/main or the plan integration branch; one worker per task."
+  - "Keep the tree green — run `wd check` (or make verify-fast) before every commit/push."
+  - "API is spec-first — if OpenAPI schema changes, edit internal/daemon/apidocs/openapi.yaml then `make generate`; never hand-edit generated code (api.gen.go)."
+  - "Open PRs against autopilot/aicli-profiles-and-tier-routing (never main)."
+  - "End each task with `wd job done --summary '...'` once the PR is up and gate is green."
+done_when:
+  - "All 8 AI CLIs execute with their agreed permission mode, sandbox posture, and prompt seeding."
+  - "Universal full network policy is enforced across all backends (store.NetworkFull default, Codex sandbox network arg, Cursor sandbox disabled, Antigravity no sandbox)."
+  - "Deterministic Role -> Tier -> (AICLI, Model) hierarchy resolves explicit models for all spawns, rejecting --model without --aicli."
+  - "Autonomous roles (autopilot, brain, orchestrator) unconditionally override to full bypass permissions."
+  - "CLI accepts --aicli flag canonically across all commands."
+  - "Dynamic model registration is supported via `warden backend model add`."
+  - "All unit and integration tests in `make test` / `wd check` pass."
+tasks:
+  - id: Task1_UniversalNetworkPolicy
+    prompt: >-
+      Enforce universal full network access across all backends:
+      1) In internal/lifecycle/lifecycle.go, change default execution profile network in
+         stampSpawnExecutionProfile and launchNetwork from store.NetworkLoopback to store.NetworkFull.
+      2) In internal/agentbackend/backends/codex.go, update codexSandboxFlag and launch/resume assembly
+         to always append `-c sandbox_workspace_write.network_access=true` whenever the sandbox is not
+         danger-full-access, ensuring sandboxed workers and planners always have outbound network access.
+      3) In internal/agentbackend/backends/cursor.go, ensure `--sandbox disabled` is emitted when network
+         is full.
+      4) In internal/agentbackend/backends/antigravity.go, ensure `--sandbox` is never passed for standard
+         agent execution.
+      5) Update unit tests in lifecycle_test.go, codex_test.go, and conformance tests to verify full network defaults.
+      Ensure `wd check` passes before opening a PR against autopilot/aicli-profiles-and-tier-routing.
+      End with `wd job done --summary 'feat(lifecycle): enforce universal full network access across all backends'`.
+    status: done
+    landed_pr: 625
+
+  - id: Task2_ClaudeModelPassThrough
+    prompt: >-
+      Drop static Claude model alias mappings in favor of verbatim pass-through:
+      1) In internal/lifecycle/models.go, remove hardcoded modelAliases expansion (opus -> claude-opus-4-8,
+         sonnet -> claude-sonnet-4-6, etc.). Pass model strings directly to `claude --model '<model>'` as configured.
+      2) Keep DefaultModel tracking the default model ID or config fallback so an empty request resolves cleanly.
+      3) Update ResolveModel, resolveDefaultModel, and internal/lifecycle/models_test.go to assert verbatim model preservation.
+      Ensure `wd check` passes before opening a PR against autopilot/aicli-profiles-and-tier-routing.
+      End with `wd job done --summary 'feat(lifecycle): pass claude model strings verbatim without static alias expansion'`.
+    status: done
+    landed_pr: 626
+
+  - id: Task3_DeterministicTierResolutionAndAiCliFlag
+    prompt: >-
+      Implement deterministic Role -> Tier -> (AICLI, Model) resolution and standard `--aicli` flag:
+      1) In internal/lifecycle/switch.go (resolveSpawnTarget):
+         - Remove the early return `if backend != "" { return backend, model }`.
+         - Implement the full resolution matrix:
+           a) Exact pin: If both `aicli` and `model` are specified, validate and use them directly (tier is ignored).
+           b) Invalid config validation: If `model` is specified without `aicli`, reject with an explicit validation error.
+           c) AICLI pin without model: If `aicli` is specified without `model`, resolve the optimal model for that AI CLI
+              from the requested `--tier` (or role's mapped tier) using PreferredBackend: aicli.
+           d) Role / Tier routing: If neither is pinned, resolve the optimal `(aicli, model)` from the requested `--tier`
+              (or role's mapped tier).
+           e) Never leave `model` empty; always pass an explicit model argument.
+      2) In internal/cli/lifecycle.go and CLI definitions:
+         - Standardize flag name to `--aicli` (with `--ai-cli` and `--backend` as backwards-compatible aliases).
+         - Require `--aicli` when `--model` is passed.
+      3) Update unit tests in spawn_resolve_test.go, lifecycle_test.go, and router/resolver_test.go.
+      Ensure `wd check` passes before opening a PR against autopilot/aicli-profiles-and-tier-routing.
+      End with `wd job done --summary 'feat(lifecycle): deterministic role -> tier -> (aicli, model) resolution and --aicli flag'`.
+    status: done
+    landed_pr: 627
+
+  - id: Task4_BackendRoleModesAndOverrides
+    prompt: >-
+      Align permission modes and hardcoded autonomous overrides across all 8 AI CLIs:
+      1) In internal/lifecycle/lifecycle.go (resolveRole and Spawn):
+         - Hardcode autonomous role overrides: `autopilot`, `brain`, and `orchestrator` must unconditionally override
+           to full autonomous bypass mode regardless of user config.
+         - For `planner`: enforce read-only planning modes across all backends:
+           Claude: `plan`, Codex: `-s read-only`, Cursor: `--mode plan`, Antigravity: `--mode plan`,
+           OpenCode: `--agent plan`, Goose: `GOOSE_MODE=chat`.
+         - For `worker`:
+           Claude: `auto` + `auto_approve: true`, Codex: `-s workspace-write` + `auto_approve: true`,
+           Cursor: `-f` + `auto_approve: true`, Antigravity: `--mode accept-edits` + `auto_approve: true`,
+           OpenCode: full-allow env + `auto_approve: true`, Crush: `--yolo` + `auto_approve: true`,
+           Aider: `--yes-always` + `auto_approve: true`, Goose: `GOOSE_MODE=auto` + `auto_approve: true`.
+      2) In internal/agentbackend/backends/cursor.go:
+         - Always pass `--trust` and `--approve-mcps` on launch to prevent interactive modal halts in fresh worktrees.
+      3) In internal/agentbackend/backends/antigravity.go:
+         - Map `plan` to `--mode plan` and `accept-edits` to `--mode accept-edits`. Default mode: `--dangerously-skip-permissions`.
+      4) Update backend tests across cursor_test.go, antigravity_test.go, codex_test.go, opencode_test.go, crush_test.go, goose_test.go.
+      Ensure `wd check` passes before opening a PR against autopilot/aicli-profiles-and-tier-routing.
+      End with `wd job done --summary 'feat(backends): align role permission modes and hardcoded autonomous overrides'`.
+    status: done
+    landed_pr: 628
+
+  - id: Task5_ModelCatalogExtensibility
+    prompt: >-
+      Implement model catalog extensibility and dynamic discovery:
+      1) In internal/backendstore/:
+         - Add AddModel(backendID, modelID, displayName string, tier ModelTier, autoAssign bool, quotaScope string) error
+           to insert new models into the ScrivaDB `models` collection at runtime.
+      2) In internal/cli/models.go (or internal/cli/backend.go):
+         - Add CLI command `warden backend model add <aicli> <model> --tier <tier> [--display <name>] [--auto-assign] [--quota-scope <scope>]`.
+         - Implement dynamic model discovery parsing from installed tools where available (cursor-agent --list-models,
+           agy models, opencode models, crush models, ~/.codex/config.toml).
+      3) Add unit tests for CLI model addition and persistence.
+      Ensure `wd check` passes before opening a PR against autopilot/aicli-profiles-and-tier-routing.
+      End with `wd job done --summary 'feat(models): dynamic model registration CLI and host tool discovery'`.
+    status: done
+    landed_pr: 629

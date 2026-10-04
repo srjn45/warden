@@ -10,11 +10,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// resolveRole fills unset spawn fields from the role's defaults, with precedence
-// explicit request value > role default > global default. Type is never filled
+// resolveRole fills unset spawn fields from the role's defaults, then hardcodes
+// permission posture for autonomous/planner/worker roles. Type is never filled
 // from the role (isolation is role-driven via RoleOwnsWorktree).
 func TestResolveRolePrecedence(t *testing.T) {
-	// worker: permission_mode + auto_approve defaults apply; Type stays empty.
+	// worker: permission_mode + auto_approve are hardcoded; Type stays empty.
 	req := SpawnRequest{Role: "worker"}
 	r, err := resolveRole(&req)
 	require.NoError(t, err)
@@ -30,30 +30,44 @@ func TestResolveRolePrecedence(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, store.TypeSpike, req.Type)
 
-	// orchestrator: default permission_mode=auto fills unset…
+	// worker: an explicit permission mode is overridden to auto + auto_approve.
+	req = SpawnRequest{Role: "worker", PermissionMode: "plan", AutoApprove: false}
+	_, err = resolveRole(&req)
+	require.NoError(t, err)
+	require.Equal(t, "auto", req.PermissionMode)
+	require.True(t, req.AutoApprove)
+
+	// orchestrator: unconditional full autonomous bypass, ignoring user config.
 	req = SpawnRequest{Role: "orchestrator"}
 	_, err = resolveRole(&req)
 	require.NoError(t, err)
-	require.Equal(t, "auto", req.PermissionMode)
-	// …but an explicit permission mode wins.
+	require.Equal(t, "bypassPermissions", req.PermissionMode)
+	require.True(t, req.AutoApprove)
 	req = SpawnRequest{Role: "orchestrator", PermissionMode: "acceptEdits"}
 	_, err = resolveRole(&req)
 	require.NoError(t, err)
-	require.Equal(t, "acceptEdits", req.PermissionMode)
-
-	// brain: both permission_mode=auto and auto_approve=true are applied.
-	req = SpawnRequest{Role: "brain"}
-	_, err = resolveRole(&req)
-	require.NoError(t, err)
-	require.Equal(t, "auto", req.PermissionMode)
+	require.Equal(t, "bypassPermissions", req.PermissionMode, "autonomous roles ignore explicit permission mode")
 	require.True(t, req.AutoApprove)
 
-	// auto_approve is OR-ed: an explicit true survives a role with no auto_approve
-	// default.
-	req = SpawnRequest{Role: "orchestrator", AutoApprove: true}
+	// brain: same unconditional bypass + auto_approve.
+	req = SpawnRequest{Role: "brain", PermissionMode: "plan"}
 	_, err = resolveRole(&req)
 	require.NoError(t, err)
+	require.Equal(t, "bypassPermissions", req.PermissionMode)
 	require.True(t, req.AutoApprove)
+
+	// autopilot: same unconditional bypass.
+	req = SpawnRequest{Role: "autopilot", PermissionMode: "default"}
+	_, err = resolveRole(&req)
+	require.NoError(t, err)
+	require.Equal(t, "bypassPermissions", req.PermissionMode)
+	require.True(t, req.AutoApprove)
+
+	// planner: unconditional read-only plan mode.
+	req = SpawnRequest{Role: "planner", PermissionMode: "auto"}
+	_, err = resolveRole(&req)
+	require.NoError(t, err)
+	require.Equal(t, "plan", req.PermissionMode)
 }
 
 // A role's default tags are UNIONED onto the request's tags, never replacing
@@ -115,6 +129,39 @@ func TestResolveRoleUnknownErrors(t *testing.T) {
 	req := SpawnRequest{Role: "does-not-exist"}
 	_, err := resolveRole(&req)
 	require.Error(t, err)
+}
+
+func TestApplyRoleBackendMode(t *testing.T) {
+	cases := []struct {
+		role, backend, wantMode string
+		wantApprove             bool
+	}{
+		{"planner", "claude", "plan", false},
+		{"planner", "codex", "read-only", false},
+		{"planner", "cursor", "plan", false},
+		{"planner", "antigravity", "plan", false},
+		{"planner", "opencode", "plan", false},
+		{"planner", "goose", "chat", false},
+		{"worker", "claude", "auto", true},
+		{"worker", "codex", "workspace-write", true},
+		{"worker", "cursor", "force", true},
+		{"worker", "antigravity", "accept-edits", true},
+		{"worker", "opencode", "auto", true},
+		{"worker", "crush", "yolo", true},
+		{"worker", "aider", "yes-always", true},
+		{"worker", "goose", "auto", true},
+		{"autopilot", "claude", "bypassPermissions", true},
+		{"brain", "codex", "danger-full-access", true},
+		{"orchestrator", "cursor", "force", true},
+		{"orchestrator", "antigravity", "dangerously-skip-permissions", true},
+		{"", "codex", "acceptEdits", false}, // general: untouched
+	}
+	for _, tc := range cases {
+		req := SpawnRequest{Role: tc.role, Backend: tc.backend, PermissionMode: "acceptEdits"}
+		applyRoleBackendMode(&req)
+		require.Equal(t, tc.wantMode, req.PermissionMode, "role=%s backend=%s", tc.role, tc.backend)
+		require.Equal(t, tc.wantApprove, req.AutoApprove, "role=%s backend=%s", tc.role, tc.backend)
+	}
 }
 
 // End-to-end: a typed spawn under a role persists the role name and file-backs the

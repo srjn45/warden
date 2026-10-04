@@ -94,10 +94,10 @@ func TestBuiltinDefaults(t *testing.T) {
 	// role-driven and tiering is Role+Task.
 	cases := map[string]Defaults{
 		"general":      {},
-		"orchestrator": {PermissionMode: "auto"},
+		"orchestrator": {PermissionMode: "bypassPermissions", AutoApprove: true},
 		"planner":      {PermissionMode: "plan"},
 		"worker":       {PermissionMode: "auto", AutoApprove: true},
-		"brain":        {PermissionMode: "auto", AutoApprove: true},
+		"brain":        {PermissionMode: "bypassPermissions", AutoApprove: true},
 	}
 	for name, want := range cases {
 		r, ok := Get(name)

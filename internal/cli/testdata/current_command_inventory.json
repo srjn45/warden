@@ -308,10 +308,11 @@
   },
   {
     "path": "agent start",
-    "use": "start --role \u003cROLE\u003e [TICKET|\"\u003cprompt\u003e\"] [--repo \u003cPATH\u003e] [--dir \u003cPATH\u003e] [--ai-cli \u003cID\u003e]",
+    "use": "start --role \u003cROLE\u003e [TICKET|\"\u003cprompt\u003e\"] [--repo \u003cPATH\u003e] [--dir \u003cPATH\u003e] [--aicli \u003cID\u003e]",
     "runnable": true,
     "local_flags": [
       "ai-cli",
+      "aicli",
       "auto-restart",
       "backend",
       "branch",
@@ -381,6 +382,7 @@
     "runnable": true,
     "local_flags": [
       "ai-cli",
+      "aicli",
       "backend",
       "json",
       "model",
@@ -924,6 +926,39 @@
     "local_flags": [
       "backend",
       "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "backend model add",
+    "use": "add \u003caicli\u003e \u003cmodel\u003e",
+    "runnable": true,
+    "local_flags": [
+      "auto-assign",
+      "display",
+      "quota-scope",
+      "tier"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "backend model discover",
+    "use": "discover",
+    "runnable": true,
+    "local_flags": [
+      "auto-assign",
+      "backend",
+      "import",
+      "json",
+      "quota-scope",
+      "tier"
     ],
     "inherited_flags": [
       "addr",
@@ -2181,6 +2216,41 @@
     "local_flags": [
       "backend",
       "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "models add",
+    "use": "add \u003caicli\u003e \u003cmodel\u003e",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "auto-assign",
+      "display",
+      "quota-scope",
+      "tier"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "models discover",
+    "use": "discover",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "auto-assign",
+      "backend",
+      "import",
+      "json",
+      "quota-scope",
+      "tier"
     ],
     "inherited_flags": [
       "addr",
@@ -3619,10 +3689,11 @@
   },
   {
     "path": "start",
-    "use": "start --role \u003cROLE\u003e [TICKET|\"\u003cprompt\u003e\"] [--repo \u003cPATH\u003e] [--dir \u003cPATH\u003e] [--ai-cli \u003cID\u003e]",
+    "use": "start --role \u003cROLE\u003e [TICKET|\"\u003cprompt\u003e\"] [--repo \u003cPATH\u003e] [--dir \u003cPATH\u003e] [--aicli \u003cID\u003e]",
     "runnable": true,
     "local_flags": [
       "ai-cli",
+      "aicli",
       "auto-restart",
       "backend",
       "branch",
@@ -3711,6 +3782,7 @@
     "runnable": true,
     "local_flags": [
       "ai-cli",
+      "aicli",
       "backend",
       "json",
       "model",

@@ -25,6 +25,11 @@ func TestOpenCodeLaunchCmd(t *testing.T) {
 			want: "opencode -m 'ollama/qwen2.5-coder:3b'",
 		},
 		{
+			name: "plan mode maps to --agent plan",
+			opts: agentbackend.LaunchOpts{Model: "m", Mode: "plan"},
+			want: "opencode -m 'm' --agent plan",
+		},
+		{
 			name: "skip-permissions mode prepends the auto-approve env (TUI has no flag)",
 			opts: agentbackend.LaunchOpts{Model: "anthropic/claude-sonnet-4-6", Mode: "dangerously-skip-permissions"},
 			want: opencodeAutoApproveEnv + " opencode -m 'anthropic/claude-sonnet-4-6'",
@@ -294,7 +299,7 @@ func TestOpenCodeCapabilities(t *testing.T) {
 	require.True(t, c.StructuredTranscript, "Tier A: export JSON parses into Turns")
 	require.False(t, c.SessionIDControl, "OpenCode mints its own ses_ id")
 	require.False(t, c.SystemPromptInject)
-	require.Equal(t, []string{"default", "dangerously-skip-permissions"}, c.PermissionModes)
+	require.Equal(t, []string{"default", "plan", "dangerously-skip-permissions"}, c.PermissionModes)
 }
 
 func TestOpenCodeNoPricing(t *testing.T) {
