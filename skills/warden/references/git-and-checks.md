@@ -61,6 +61,10 @@ round-trip, so there is **no MCP tool**; run them through the CLI (`wd git revie
   backend. Listing is a metadata read (no generation), so it costs no quota.
   Implemented by **Antigravity** and **Cursor**; Claude has no live menu (pass
   `--model` with any id the Claude CLI accepts) and exits non-zero.
+  Catalog verbs on the same namespace: `wd backend model list` / `tier`,
+  `wd backend model add <aicli> <model> --tier <tier>` (register a custom model),
+  and `wd backend model discover` (probe installed CLIs; `--import --tier` to
+  register missing ids).
 
 A **third** Codex superpower — **`wd agent fork`** (branch an agent's session into a new
 managed agent) — is a spawn-family verb, not a check-family one, and unlike these two

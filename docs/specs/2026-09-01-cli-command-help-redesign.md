@@ -130,6 +130,8 @@ The table is the migration inventory for the current tree registered in `interna
 | `models` | `backend model` | Preserve its current default catalog view. |
 | `models list` | `backend model list` | Live model/catalog view. |
 | `models tier <backend> <model> <tier>` | `backend model tier <backend> <model> <tier>` | Do not merge with backend-level tier assignment. |
+| `models add <aicli> <model>` | `backend model add <aicli> <model>` | Runtime custom model registration (`--tier` required). |
+| `models discover` | `backend model discover` | Probe installed AI CLIs; optional `--import --tier`. |
 | `llm suggest` | `backend suggest` | Preserve local hardware/model recommendation semantics. |
 | `llm` | `backend suggest` | The empty legacy parent remains a hidden compatibility path. |
 | `repl` | `backend repl` | Its interactive semantics do not change. |

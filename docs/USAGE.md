@@ -860,6 +860,27 @@ warden backend model --backend antigravity # e.g. Gemini 3.5 Flash (Low), Claude
 warden backend model --backend cursor --json
 ```
 
+### `warden backend model list|tier|add|discover` (model catalog)
+
+Inspect and extend warden's **tiered model catalog** (ScrivaDB `models` collection) —
+the seed list used by quota-balanced routing (`--task` / `--tier`). Distinct from the
+bare `warden backend model` live menu above: these subcommands read/write the local
+catalog store (CLI-only, no daemon round-trip).
+
+```sh
+warden backend model list [--by-tier] [--tier tier-2] [--backend cursor]
+warden backend model tier claude sonnet tier-1
+warden backend model add cursor my-model --tier tier-2 --display "My Model" --auto-assign
+warden backend model discover                              # probe installed AI CLIs
+warden backend model discover --backend opencode --json
+warden backend model discover --import --tier tier-2       # register missing ids as custom
+```
+
+`add` inserts a custom row (`IsCustom=true`) so seed pruning never removes it.
+`discover` soft-fails missing tools and parses: `cursor-agent --list-models`,
+`agy models`, `opencode models`, `crush models`, and the top-level `model = "…"`
+from `~/.codex/config.toml`.
+
 ### `warden backend list|rescan|tier|default|enable|disable|thinking-mode` (backend registry)
 
 Inspect and manage warden's **agent-backend registry** (§5.4) — the persistent store

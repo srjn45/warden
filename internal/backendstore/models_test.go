@@ -253,6 +253,57 @@ func TestModelOperations(t *testing.T) {
 	require.Error(t, s.UpsertModel(ModelEntry{BackendID: "custom", ModelID: "", Tier: Tier1}))
 }
 
+func TestAddModel(t *testing.T) {
+	s := newTestStore(t)
+
+	require.NoError(t, s.AddModel("cursor", "my-new-model", "My New Model", Tier2, true, "api"))
+	m, err := s.GetModel("cursor", "my-new-model")
+	require.NoError(t, err)
+	require.Equal(t, "cursor", m.BackendID)
+	require.Equal(t, "my-new-model", m.ModelID)
+	require.Equal(t, "My New Model", m.DisplayName)
+	require.Equal(t, Tier2, m.Tier)
+	require.True(t, m.Enabled)
+	require.True(t, m.AutoAssign)
+	require.True(t, m.IsCustom)
+	require.Equal(t, "api", m.QuotaScope)
+
+	// Empty displayName defaults to modelID.
+	require.NoError(t, s.AddModel("codex", "gpt-local", "", Tier3, false, ""))
+	m, err = s.GetModel("codex", "gpt-local")
+	require.NoError(t, err)
+	require.Equal(t, "gpt-local", m.DisplayName)
+	require.False(t, m.AutoAssign)
+	require.True(t, m.IsCustom)
+
+	// Duplicate rejected.
+	require.ErrorIs(t, s.AddModel("cursor", "my-new-model", "dup", Tier1, false, ""), ErrExists)
+
+	// Seeded model also counts as exists.
+	require.ErrorIs(t, s.AddModel("claude", "opus", "x", Tier1, false, ""), ErrExists)
+
+	require.ErrorIs(t, s.AddModel("cursor", "x", "x", "bad-tier", false, ""), ErrInvalidTier)
+	require.Error(t, s.AddModel("", "x", "x", Tier1, false, ""))
+	require.Error(t, s.AddModel("cursor", "", "x", Tier1, false, ""))
+}
+
+func TestAddModelSurvivesReseed(t *testing.T) {
+	dir := t.TempDir()
+	s, err := NewStore(dir)
+	require.NoError(t, err)
+	require.NoError(t, s.AddModel("opencode", "ollama/qwen", "Qwen Local", Tier3, true, "default"))
+	require.NoError(t, s.Close())
+
+	s2, err := NewStore(dir)
+	require.NoError(t, err)
+	defer s2.Close()
+	m, err := s2.GetModel("opencode", "ollama/qwen")
+	require.NoError(t, err)
+	require.True(t, m.IsCustom)
+	require.Equal(t, Tier3, m.Tier)
+	require.Equal(t, "Qwen Local", m.DisplayName)
+}
+
 func TestRoleTierOperations(t *testing.T) {
 	s := newTestStore(t)
 
