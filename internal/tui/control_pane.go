@@ -208,6 +208,15 @@ type controlPaneModel struct {
 	// consecutive failures without the pane recovering. Cleared when the pane
 	// is observed alive again.
 	agentPaneReattachCircuitOpen bool
+
+	// Hot-reload / self-update state (Task3: in-place TUI reload via syscall.Exec).
+	localVersion     string    // this process's build version
+	daemonVersion    string    // last /healthz version (empty until first probe)
+	availableVersion string    // newer GitHub release, if any
+	lastUpdateCheck  time.Time // wall clock of the last GitHub update check
+	// pendingExec is set when the Bubble Tea loop should exit so RunControlPane
+	// can re-exec the binary in place (after an update or external upgrade).
+	pendingExec bool
 }
 
 // quitCmd is what `q`/`ctrl+c` runs: tear the whole cockpit down (killCockpitCmd
@@ -238,9 +247,18 @@ func newListPane(a api, agentPane, terminalPane string) controlPaneModel {
 		// first), so the picker is populated synchronously — no daemon round-trip.
 		roles:      role.All(),
 		openedDirs: map[string]time.Time{}, collapsed: map[string]bool{}, seen: map[string]bool{},
-		termInfo: map[string]terminalLiveInfo{},
-		plans:    make(map[string][]*planstore.Plan),
-		vp:       viewport.New(0, 0),
+		termInfo:     map[string]terminalLiveInfo{},
+		plans:        make(map[string][]*planstore.Plan),
+		vp:           viewport.New(0, 0),
+		localVersion: localVersion,
+	}
+}
+
+func (m controlPaneModel) updateState() updateState {
+	return updateState{
+		LocalVersion:     m.localVersion,
+		DaemonVersion:    m.daemonVersion,
+		AvailableVersion: m.availableVersion,
 	}
 }
 
@@ -840,7 +858,11 @@ func (m *controlPaneModel) applyDefaultCollapse() {
 }
 
 func (m controlPaneModel) Init() tea.Cmd {
-	return tea.Batch(listCmd(m.api, true), pipelinesCmd(m.api), projectsCmd(m.api), projectGroupsCmd(m.api), approvalsCmd(m.api), autopilotCmd(m.api), plansCmd(m.api, m.projects), tick())
+	return tea.Batch(
+		listCmd(m.api, true), pipelinesCmd(m.api), projectsCmd(m.api), projectGroupsCmd(m.api),
+		approvalsCmd(m.api), autopilotCmd(m.api), plansCmd(m.api, m.projects),
+		healthCmd(m.api), updateCheckCmd(m.localVersion), tick(),
+	)
 }
 
 func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -870,7 +892,7 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready = true
 		return m, nil
 	case tickMsg:
-		cmds := []tea.Cmd{listCmd(m.api, true), pipelinesCmd(m.api), projectsCmd(m.api), projectGroupsCmd(m.api), approvalsCmd(m.api), pressureCmd(m.api), autopilotCmd(m.api), plansCmd(m.api, m.projects), tick()}
+		cmds := []tea.Cmd{listCmd(m.api, true), pipelinesCmd(m.api), projectsCmd(m.api), projectGroupsCmd(m.api), approvalsCmd(m.api), pressureCmd(m.api), autopilotCmd(m.api), plansCmd(m.api, m.projects), healthCmd(m.api), tick()}
 		if m.mode == modeInspector {
 			cmds = append(cmds, contextCmd(m.api), messagesCmd(m.api))
 		}
@@ -884,7 +906,32 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, terminalInfoCmd(terms))
 			}
 		}
+		// GitHub release check is intentionally sparse (not every 1s tick).
+		if m.lastUpdateCheck.IsZero() || time.Since(m.lastUpdateCheck) >= updateCheckInterval {
+			cmds = append(cmds, updateCheckCmd(m.localVersion))
+		}
 		return m, tea.Batch(cmds...)
+	case healthMsg:
+		if msg.err == nil && msg.version != "" {
+			m.daemonVersion = msg.version
+		}
+		return m, nil
+	case updateCheckMsg:
+		m.lastUpdateCheck = time.Now()
+		if msg.err == nil {
+			m.availableVersion = msg.available
+		}
+		return m, nil
+	case updateApplyMsg:
+		if msg.err != nil {
+			m.mode = modeNormal
+			m.status = "update failed: " + msg.err.Error()
+			return m, nil
+		}
+		// Daemon has the new binary; re-exec this process in place.
+		m.pendingExec = true
+		m.status = "updated to v" + stripVer(msg.target) + " — reloading…"
+		return m, reloadQuitCmd()
 	case pressureMsg:
 		if msg.err == nil {
 			m.pressure = msg.status
@@ -1603,6 +1650,17 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case modeConfirmUpdate:
+		switch msg.String() {
+		case "esc", "n", "N":
+			m.mode = modeNormal
+			m.status = "update cancelled"
+		case "y", "Y":
+			m.mode = modeNormal
+			m.status = "updating to v" + stripVer(m.availableVersion) + "…"
+			return m, updateApplyCmd(m.localVersion)
+		}
+		return m, nil
 	case modeInspector:
 		switch msg.String() {
 		case "q", "ctrl+c":
@@ -1914,6 +1972,11 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q", "ctrl+c":
 		return m, m.quitCmd()
+	case "u":
+		if routeHotReloadKey("u", m.updateState()) == hotReloadKeyPromptUpdate {
+			m.mode = modeConfirmUpdate
+			return m, nil
+		}
 	case "ctrl+a":
 		// Toggle autopilot on/off. The result message updates m.autopilot.
 		return m, autopilotToggleCmd(m.api, !m.autopilot.Enabled)
@@ -2258,6 +2321,12 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = modeConfirmDeletePipeline
 		}
 	case "r":
+		// Prefer in-place TUI reload when the daemon binary is ahead of this process.
+		if routeHotReloadKey("r", m.updateState()) == hotReloadKeyReload {
+			m.pendingExec = true
+			m.status = "reloading TUI…"
+			return m, reloadQuitCmd()
+		}
 		it := itemAt(m.items(), m.cursor)
 		if it.plan != nil {
 			m.mode = modePlanRunMode
@@ -2445,6 +2514,9 @@ func (m controlPaneModel) View() string {
 	// Lean teaser — the full keymap (o/d/i/c/r/x/←→/D…) lives in the ? overlay, so
 	// this stays short enough to fit the narrow control pane and always show `? help`.
 	footer := stMuted.Render("enter open · tab switch · S system · n new · o open project · s send · a attach · x kill · ? help · q quit")
+	if chip := updateChipText(m.updateState()); chip != "" {
+		footer = stAttention.Render(chip)
+	}
 	if m.status != "" {
 		footer = stStatus.Render(m.status)
 	}
@@ -2483,6 +2555,8 @@ func (m controlPaneModel) View() string {
 	case modeConfirmCloseProject:
 		footer = stAttention.Render(fmt.Sprintf("Close project %s? its %d active agent(s) will be terminated (restored on reopen)  y / N",
 			filepath.Base(m.pendingCloseID), m.pendingCloseN))
+	case modeConfirmUpdate:
+		footer = stAttention.Render(fmt.Sprintf("Update warden to v%s and reload TUI? y / N", stripVer(m.availableVersion)))
 	case modeTerminalChoice:
 		footer = stPaneTitle.Render("Terminal in " + abbrevHome(m.termChoiceDir) + ":  (c)reate new  ·  (f)ocus existing  ·  esc cancel")
 	case modePlanRunMode:
@@ -2799,6 +2873,16 @@ func RunControlPane(a api, agentPane, terminalPane string, killWindow bool) erro
 	m := newListPane(a, agentPane, terminalPane)
 	m.killWindow = killWindow
 	p := tea.NewProgram(m, tea.WithAltScreen())
-	_, err := p.Run()
-	return err
+	final, err := p.Run()
+	if err != nil {
+		return err
+	}
+	// Bubble Tea has restored the terminal; re-exec in place so tmux panes and
+	// agent sessions survive while this control-pane process picks up the new binary.
+	if cm, ok := final.(controlPaneModel); ok && cm.pendingExec {
+		if execErr := execSelfFn(); execErr != nil {
+			return fmt.Errorf("hot-reload exec: %w", execErr)
+		}
+	}
+	return nil
 }
