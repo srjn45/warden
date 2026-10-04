@@ -1087,6 +1087,17 @@ func TestRenderItemLinePipelineRows(t *testing.T) {
 	}
 }
 
+func TestRenderItemLinePipelineDisplayName(t *testing.T) {
+	named := renderItemLine(item{pipeline: &pipeline.Pipeline{ID: "plan-81d55a07", Name: "P:hub-sync-phase-b-c", Status: pipeline.StatusRunning}}, false, 80)
+	if !strings.Contains(named, "P:hub-sync-phase-b-c") || strings.Contains(named, "plan-81d55a07") {
+		t.Fatalf("named pipeline should render Name, not ID: %q", named)
+	}
+	unnamed := renderItemLine(item{pipeline: &pipeline.Pipeline{ID: "plan-81d55a07", Status: pipeline.StatusRunning}}, false, 80)
+	if !strings.Contains(unnamed, "plan-81d55a07") {
+		t.Fatalf("unnamed pipeline should fall back to ID: %q", unnamed)
+	}
+}
+
 func TestRenderItemLineJobRowWithLiveSession(t *testing.T) {
 	// A running job linked to a live session surfaces the agent badge, the token
 	// gauge, and the branch.

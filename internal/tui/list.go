@@ -930,7 +930,11 @@ func renderItemLine(it item, selected bool, width int) string {
 		line = "  " + gst.Render(glyph) + " " + name
 	case it.pipeline != nil:
 		label, st, glyph := pipelineDisplayStatus(it.pipeline)
-		line = collapsePrefix(it.depth, it.collapsed) + stPaneTitle.Render(it.pipeline.ID) + "  " + st.Render(glyph+" "+label)
+		title := it.pipeline.Name
+		if title == "" {
+			title = it.pipeline.ID
+		}
+		line = collapsePrefix(it.depth, it.collapsed) + stPaneTitle.Render(title) + "  " + st.Render(glyph+" "+label)
 	case it.pjJob != nil:
 		deps := ""
 		if len(it.pjJob.DependsOn) > 0 {
