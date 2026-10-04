@@ -290,21 +290,22 @@ func SafeID(id string) error { return safeID(id) }
 
 var (
 	namePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,32}$`)
-	// Plan-executor display names follow the AP:/O:/M:/P:/mgr:/wkr:/brain:<name> convention
-	// (plan-execution-entity-redesign). Longer than plain names so a typical
-	// plan slug fits after the prefix.
-	planExecutorNamePattern = regexp.MustCompile(`^(?:O|M|P|AP|mgr|wkr|brain):[a-zA-Z0-9_-]{1,64}$`)
+	// Prefixed display names cover plan executors (O:/M:/P:/AP:), role
+	// conventions (mgr:/wkr:/brain:), and pipeline stages (<pipe>:<stage>).
+	// The left side is a short slug (1–16 chars starting with a letter); the
+	// right side is up to 64 slug chars so a typical plan/task/job id fits.
+	prefixedNamePattern = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_-]{0,15}:[a-zA-Z0-9_-]{1,64}$`)
 )
 
 // ValidateName checks that name matches the allowed format (alphanumeric +
-// hyphens/underscores, 1-32 chars), or a plan-executor display name
-// (O:/M:/P:/AP:/mgr:/wkr:/brain:<slug>). Empty or whitespace-only names are
-// rejected with ErrEmptyName: every agent must carry a name.
+// hyphens/underscores, 1-32 chars), or a prefixed display name
+// (O:/M:/P:/AP:/mgr:/wkr:/brain:/<pipe>:<slug>). Empty or whitespace-only
+// names are rejected with ErrEmptyName: every agent must carry a name.
 func ValidateName(name string) error {
 	if strings.TrimSpace(name) == "" {
 		return ErrEmptyName
 	}
-	if namePattern.MatchString(name) || planExecutorNamePattern.MatchString(name) {
+	if namePattern.MatchString(name) || prefixedNamePattern.MatchString(name) {
 		return nil
 	}
 	return ErrInvalidName

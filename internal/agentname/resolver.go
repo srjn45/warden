@@ -28,6 +28,14 @@ type BackendRunner interface {
 	Run(ctx context.Context, prompt string) (string, error)
 }
 
+// RunnerFunc adapts a plain function to BackendRunner.
+type RunnerFunc func(ctx context.Context, prompt string) (string, error)
+
+// Run calls f.
+func (f RunnerFunc) Run(ctx context.Context, prompt string) (string, error) {
+	return f(ctx, prompt)
+}
+
 // ResolvePromptName derives a short kebab-case agent name from prompt via the
 // fast-tier subscription runner. It always returns a store-valid name: on
 // timeout, CLI/network error, empty/invalid model output, or a nil runner it

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/srjn45/warden/internal/agentname"
 	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/audit"
@@ -97,8 +98,11 @@ type sessionsResponse struct {
 
 // Server holds the daemon's dependencies. store is the single writer.
 type Server struct {
-	store        agentstore.AgentStore
-	life         Lifecycle
+	store agentstore.AgentStore
+	life  Lifecycle
+	// promptNamer optionally overrides the lifecycle NameRunner for
+	// prepareSpawnName (tests inject a stub; production leaves it nil).
+	promptNamer  agentname.BackendRunner
 	poller       *poller.Poller
 	pollInterval time.Duration
 	hub          *hub
