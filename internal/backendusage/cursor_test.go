@@ -254,7 +254,7 @@ func TestCursorAdapter401IsTransientWithoutPercents(t *testing.T) {
 }
 
 func TestCursorAdapterAuthPathDefault(t *testing.T) {
-	// CI runs go test on macos-latest; exercise the GOOS auth path, not Linux-only XDG.
+	// CI runs go test on ubuntu-latest; still exercise the GOOS auth path, not Linux-only XDG.
 	dir := t.TempDir()
 	var auth string
 	switch runtime.GOOS {
