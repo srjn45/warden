@@ -177,6 +177,23 @@ to the human / brain. The destructive deny-list and the circuit breaker always
 run *before* the model. The daemon builds the engine from the existing Claude
 `-p` runner (same runner for both tiers).
 
+**Fast-Brain crash triage (engine only):** `Engine.DiagnoseFailure` classifies
+a failed agent process (exit code, signal, command, last 40 lines of
+stderr/pane) via `Decide(KindDiagnoseFailure, TierFast)` into `internal_bug`
+(Go panic / nil pointer / invariant — a warden bug), `transient_error`
+(429 / network — suggests a backend switch), `environment_error` (missing
+`docker`/`make`/`npm`) or `task_failure` (the agent's own project). It fails
+open to a deterministic heuristic when the model is missing, slow or returns
+bad JSON. Every excerpt — in the model prompt and on any draft — is sanitized
+first: `sk-…`, `AIza…`, `ghp_…`/`github_pat_…` and Bearer/Authorization values
+are redacted, `/home/<user>/` becomes `~/`, and absolute prefixes are stripped
+from stack frames (`internal/planstore/store.go:142`). Only `internal_bug`
+builds a GitHub-issue draft (`crash(pkg): msg in Func`, `Warden vX.Y.Z
+(os/arch)`), staged locally at `~/.warden/crashes/<id>.json` (0600, dir 0700;
+`StageCrashDraft` / `LoadCrashDraft` / `ListCrashDrafts`). Drafts are
+**local-only**: nothing is sent to GitHub without explicit user approval
+(the `warden bug-report` flow lands separately).
+
 **Per-agent overrides** live under `agents:` keyed by agent name or id; each is its
 own `{enabled, allow_sticky, rules}` block that replaces the default for that agent
 (and can enable auto-approve for just that agent).
