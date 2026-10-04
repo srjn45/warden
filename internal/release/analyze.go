@@ -28,11 +28,12 @@ type GH interface {
 
 // Options configures Analyze.
 type Options struct {
-	Repo    string
-	Head    string // default HEAD
-	BaseTag string // optional pin; empty = latest SemVer tag
-	Git     Git    // default: the git binary in Repo
-	GH      GH     // default: the gh binary if on PATH, else none
+	Repo      string
+	Head      string // default HEAD, or target ref like origin/main
+	TargetSHA string // optional resolved commit SHA of Head
+	BaseTag   string // optional pin; empty = latest SemVer tag
+	Git       Git    // default: the git binary in Repo
+	GH        GH     // default: the gh binary if on PATH, else none
 }
 
 // Analyze inspects commits since the base tag and recommends the next version.
@@ -56,6 +57,8 @@ func Analyze(ctx context.Context, opts Options) (Advice, error) {
 		return Advice{}, fmt.Errorf("release: list tags: %w", err)
 	}
 	var a Advice
+	a.Target = opts.Head
+	a.TargetSHA = opts.TargetSHA
 	if opts.BaseTag != "" {
 		v, err := ParseVersion(opts.BaseTag)
 		if err != nil {

@@ -1779,7 +1779,9 @@
     "local_flags": [
       "dry-run",
       "json",
+      "no-fetch",
       "push",
+      "target",
       "yes"
     ],
     "inherited_flags": [
@@ -3447,7 +3449,9 @@
     "local_flags": [
       "dry-run",
       "json",
+      "no-fetch",
       "push",
+      "target",
       "yes"
     ],
     "inherited_flags": [

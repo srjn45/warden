@@ -98,6 +98,8 @@ type Changelog struct {
 
 // Advice is the full recommendation.
 type Advice struct {
+	Target    string
+	TargetSHA string
 	LatestTag string
 	Current   Version
 	Next      Version
