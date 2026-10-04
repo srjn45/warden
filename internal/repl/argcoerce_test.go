@@ -1,10 +1,8 @@
 package repl
 
 import (
-	"strings"
 	"testing"
 
-	"github.com/srjn45/warden/internal/llm"
 	"github.com/stretchr/testify/require"
 )
 
@@ -56,27 +54,4 @@ func TestRequireStr(t *testing.T) {
 func TestJsonish(t *testing.T) {
 	require.Equal(t, `{"a":1}`, jsonish(map[string]any{"a": 1}))
 	require.Equal(t, `["x","y"]`, jsonish([]string{"x", "y"}))
-}
-
-func TestBuildEscalationPrompt(t *testing.T) {
-	tools := []llm.ToolSchema{
-		{Name: "spawn_agent", Description: "spawn a coding agent"},
-		{Name: "list_agents", Description: "list active agents"},
-	}
-	got := buildEscalationPrompt("scale up the backend work", tools)
-
-	// The system framing must forbid prose and demand a JSON array of tool calls.
-	require.Contains(t, got, "ONLY a JSON array")
-	require.Contains(t, got, "never write code")
-	// Every tool is offered with its description.
-	require.Contains(t, got, "- spawn_agent: spawn a coding agent")
-	require.Contains(t, got, "- list_agents: list active agents")
-	// The operator request is appended verbatim at the end.
-	require.True(t, strings.HasSuffix(got, "Operator request: scale up the backend work"))
-}
-
-func TestBuildEscalationPromptNoTools(t *testing.T) {
-	got := buildEscalationPrompt("do x", nil)
-	require.NotContains(t, got, "Available tools:")
-	require.Contains(t, got, "Operator request: do x")
 }

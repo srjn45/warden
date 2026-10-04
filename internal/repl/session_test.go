@@ -300,3 +300,21 @@ func lastToolContent(msgs []llm.Message) string {
 	}
 	return ""
 }
+
+// TestSession_ChatterPlansEvenWithRouter: planning always goes through the
+// injected Chatter (Fast-Brain); a router is a no-op compat shim and a
+// multi-clause request is never escalated or refused as under-tier.
+func TestSession_ChatterPlansEvenWithRouter(t *testing.T) {
+	chat := &scriptChatter{replies: []llm.Reply{
+		{ToolCalls: []ToolCall{{Name: "spawn_agent", Args: map[string]any{"prompt": "do x"}}}},
+		{Text: "spawned."},
+	}}
+	fd := &fakeDaemon{}
+	gate := alwaysApprove()
+	s := NewSession(chat, fd, NewRegistry(), gate, NewRouter())
+	out := s.Handle(context.Background(), "spawn one, and then a pipeline, and review")
+	require.Contains(t, out, "spawned")
+	require.Equal(t, 1, fd.spawnCalls)
+	require.Equal(t, 2, chat.calls, "the chatter planned both turns")
+	require.Equal(t, 1, gate.confirmCalls, "mutation still passes the confirm gate")
+}
