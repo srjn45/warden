@@ -168,3 +168,18 @@ them. Tier autopilot's backends with `warden backend tier` from then on.
   / tool / config surface.
 - [Autopilot](/warden/concepts/autopilot/) — the cost-tier ladder that reads this
   registry.
+
+## Perishable quota: reset-aware model selection
+
+When warden picks a backend and model within a tier (initial routing and
+reactive rate-limit recovery alike), it prefers capacity that is about to reset
+so subscription quota isn't wasted. Candidates fall into two classes:
+
+- **Class A — impending resets:** quota resets within **1 hour** and has at least
+  **10% headroom**. Ordered by earliest reset first, then most headroom.
+- **Class B — standard:** resets further out, already past, unknown, or with
+  under 10% headroom. Ordered by most headroom, with round-robin among ties.
+
+Class A is tried before Class B. The **10% safety floor** means a nearly
+exhausted pool is never prioritized just because it resets soon — that would
+only cause an immediate rate-limit stall.
