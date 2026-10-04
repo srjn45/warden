@@ -169,6 +169,8 @@ Complete command tree:
   warden backend thinking-mode         Set the internal-thinking routing mode (local_only|free_plus_local)
   warden backend tier                  Set a backend's billing tier (free|subscription|pay_per_use|unclassified)
   warden backend model                 Inspect and manage model catalog and live model menus
+  warden backend model add             Register a custom model in the catalog
+  warden backend model discover        Probe installed AI CLIs for live model menus
   warden backend model list            List models in the catalog and their assigned tiers
   warden backend model tier            Set a model's tier classification (tier-1|tier-2|tier-3)
   warden backend suggest               Recommend local models for the REPL, sized to this machine's memory
@@ -285,6 +287,8 @@ Compatibility aliases:
   warden mcp -> warden daemon mcp (compatibility)
   warden memory -> warden project memory (compatibility)
   warden models -> warden backend model (compatibility)
+  warden models add -> warden backend model add (compatibility)
+  warden models discover -> warden backend model discover (compatibility)
   warden models list -> warden backend model list (compatibility)
   warden models ls -> warden backend model list (compatibility)
   warden models tier -> warden backend model tier (compatibility)
