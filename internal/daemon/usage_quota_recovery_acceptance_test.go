@@ -29,8 +29,6 @@ import (
 func TestUsageAPIQuotaRecovery_Phase10Acceptance(t *testing.T) {
 	fp := "sha256:shared-claude-weekly"
 	s, coord, st, life, snapStore := bulkRecoveryFixture(t, map[string][]backendusage.Limit{
-		// Claude weekly is exhausted — the motivating shared bucket.
-		"claude": {{ID: "weekly", Scope: "weekly", Label: "Weekly", UsedPercent: used(100)}},
 		// Codex has headroom so both agents can recover without operator action.
 		"codex":       {{ID: "weekly", Scope: "weekly", Label: "Weekly", UsedPercent: used(20)}},
 		"antigravity": {{ID: "other", Scope: "other", Label: "Other", UsedPercent: used(40)}},
@@ -151,7 +149,6 @@ func TestUsageAPIQuotaRecovery_Phase10Acceptance(t *testing.T) {
 func TestUsageAPIQuotaRecovery_Phase10UsageFirstBothAgents(t *testing.T) {
 	fp := "sha256:shared-claude-usage-first"
 	s, coord, st, life, snapStore := bulkRecoveryFixture(t, map[string][]backendusage.Limit{
-		"claude":      {{ID: "weekly", Scope: "weekly", Label: "Weekly", UsedPercent: used(100)}},
 		"codex":       {{ID: "weekly", Scope: "weekly", Label: "Weekly", UsedPercent: used(15)}},
 		"antigravity": {{ID: "other", Scope: "other", Label: "Other", UsedPercent: used(50)}},
 	})
