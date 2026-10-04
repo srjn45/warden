@@ -1754,6 +1754,101 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
 
+  /api/v1/plans/{plan_id}/tasks:
+    post:
+      operationId: AddPlanTask
+      tags: [Plans]
+      summary: Add a task to a pending plan
+      description: >
+        Appends a task to the plan DAG. Only pending plans are mutable; a plan
+        that has started or finished returns 409. Declared after dependencies
+        must already exist, and the resulting DAG must be acyclic (400 on
+        validation failure). A stale expected_revision returns 409 with
+        structured conflict fields.
+      parameters: [{ $ref: "#/components/parameters/PlanId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AddPlanTaskRequest" }
+      responses:
+        "200":
+          description: The plan with the new task
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Plan" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Plan is not pending, or revision conflict
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlanMutationConflict" }
+
+  /api/v1/plans/{plan_id}/tasks/{task_id}/definition:
+    patch:
+      operationId: UpdatePlanTaskDefinition
+      tags: [Plans]
+      summary: Update a task definition on a pending plan
+      description: >
+        Patches prompt and/or after edges for one task. Only pending plans are
+        mutable. Omitting a field leaves it unchanged; an empty prompt is
+        rejected. Dependency and cycle validation failures return 400. A stale
+        expected_revision returns 409 with structured conflict fields.
+      parameters:
+        - { $ref: "#/components/parameters/PlanId" }
+        - { $ref: "#/components/parameters/TaskId" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdatePlanTaskDefinitionRequest" }
+      responses:
+        "200":
+          description: The plan with the updated task
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Plan" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Plan is not pending, or revision conflict
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlanMutationConflict" }
+
+  /api/v1/plans/{plan_id}/tasks/{task_id}:
+    delete:
+      operationId: DeletePlanTask
+      tags: [Plans]
+      summary: Remove a task from a pending plan
+      description: >
+        Deletes a task from the plan DAG. Only pending plans are mutable.
+        Removal is rejected (400) when any remaining task still depends on the
+        target. A stale expected_revision returns 409 with structured conflict
+        fields.
+      parameters:
+        - { $ref: "#/components/parameters/PlanId" }
+        - { $ref: "#/components/parameters/TaskId" }
+        - name: expected_revision
+          in: query
+          required: false
+          schema: { type: integer, format: int64 }
+          description: "optimistic concurrency token; omit to use the revision observed at request start"
+      responses:
+        "200":
+          description: The plan without the removed task
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Plan" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Plan is not pending, or revision conflict
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlanMutationConflict" }
+
   /api/v1/plans/{plan_id}/tasks/{task_id}/status:
     post:
       operationId: UpdateTaskStatus
@@ -4990,6 +5085,45 @@ components:
       required: [status]
       properties:
         status: { $ref: "#/components/schemas/TaskStatus" }
+
+    AddPlanTaskRequest:
+      type: object
+      description: >
+        Append a task to a pending plan's DAG. When expected_revision is set, a
+        mismatch returns 409 with structured conflict fields.
+      required: [id, prompt]
+      properties:
+        id: { type: string, description: "stable task id within its plan" }
+        prompt: { type: string, description: "work instruction for this task" }
+        after:
+          type: array
+          items: { type: string }
+          description: "Task ids that must complete before this task starts"
+        expected_revision:
+          type: integer
+          format: int64
+          description: "optimistic concurrency token; omit to use the revision observed at request start"
+
+    UpdatePlanTaskDefinitionRequest:
+      type: object
+      description: >
+        Patch prompt and/or after edges for one task on a pending plan. Omitted
+        fields are left unchanged. When expected_revision is set, a mismatch
+        returns 409 with structured conflict fields.
+      properties:
+        prompt:
+          type: string
+          x-go-type-skip-optional-pointer: false
+          description: "replacement prompt; omit to leave unchanged"
+        after:
+          type: array
+          items: { type: string }
+          x-go-type-skip-optional-pointer: false
+          description: "replacement after edges; omit to leave unchanged; empty clears deps"
+        expected_revision:
+          type: integer
+          format: int64
+          description: "optimistic concurrency token; omit to use the revision observed at request start"
 
     SyncPlanToRepoRequest:
       type: object
