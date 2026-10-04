@@ -141,6 +141,43 @@ picked up.
 
 ---
 
+## 🧠 Fast-Brain Micro-Decisions & Sub-Second Autonomous Assist
+
+#### 55. Fast-Brain Shared Micro-Decision Engine — *planned*
+**Effort:** 3-5 days
+**Context:** Expands the synchronous fast-tier subscription AI CLI naming mechanism into a unified `internal/fastbrain` subsystem for sub-second (~200–500ms), low-token micro-decisions across Warden.
+**Core Architecture:** Uses existing user subscription AI CLIs (Claude 3.5 Haiku, Gemini Flash, GPT-4o-mini) with strict schemas, hard timeouts ($\le 1.5$s), and deterministic zero-downtime heuristic fallbacks.
+
+Key capabilities and use cases:
+
+1. **Semantic Agent Naming (`ResolveAgentName`)**:
+   - Compresses user prompts into concise 2–4 word kebab-case slugs (`ws-leak-fix`, `telemetry-export`) within 1.5s.
+   - Falls back immediately to memorable `adjective-noun` codenames (`swift-falcon`, `amber-badger`) on timeout, offline, or prompt-less spawns.
+
+2. **Intelligent Auto-Approval & Question Arbiter (`ArbitrateApproval`)**:
+   - Acts as an inline safety judge for forwarded tool execution and permission prompts (`[y/n]`, bash commands, file edits).
+   - Evaluates whether commands are safe and aligned with the plan/task goal, avoiding stalling unattended worker pipelines.
+   - Resolves ambiguous multi-choice options asked by workers (`"Should I update struct A or create B?"`) according to the active plan's constraints.
+
+3. **Crash Triage & User-Approved Automated Bug Reporting (`DiagnoseFailure` & `ReportBug`)**:
+   - **Binary Distribution Reality**: End users install Warden via pre-compiled binaries (`install.sh`), so agents cannot simply "fix the code" for genuine internal daemon or tooling bugs.
+   - **Triage**: Inspects the last 30 lines of pane excerpt/stderr and categorizes the failure:
+     - *Transient*: Rate-limits, network timeouts, or git rebase conflicts $\rightarrow$ auto-switch backend or abort/rebase.
+     - *Genuine Bug / Internal Panic*: Fast-Brain isolates the stack trace, sanitizes sensitive tokens and paths, and structures a reproducible bug report.
+   - **User-Approved Bug Reporting**: Prompts the operator (`"Warden encountered an internal panic in planstore. Would you like to file a bug report to GitHub issues? [y/n]"`), and on approval files the issue via `gh issue create` or generates a pre-filled browser URL.
+
+4. **Live TUI Cockpit Activity Summarizer (`SummarizeActivity`)**:
+   - Glances at active terminal pane excerpts every 10–15s and compresses noisy compiler/test logs into a clean 3–5 word live status badge (e.g. `Compiling Go binaries...`, `Fixing lint in store.go`, `Waiting on CI checks`).
+   - Displays directly in the TUI hierarchy row next to the agent name, removing the need to manually attach to the tmux pane to see current progress.
+
+5. **Semantic Conventional Commits & PR Summaries (`GenerateCommitSummary`)**:
+   - Synthesizes `task.Prompt` and `git diff --stat` into clean Conventional Commits (e.g. `feat(planstore): enforce acyclic task DAG validation on plan update`) and human-readable PR bodies upon `wd job done`.
+
+6. **Adaptive Execution Profile Router (`RouteExecutionProfile`)**:
+   - Evaluates user prompt complexity to route tasks to the most cost-effective tier: simple typos and config tweaks route to `fast`, standard tasks to `standard`, and deep architectural refactors to `heavy`/`reasoning`.
+
+---
+
 ## 🖥️ Web Cockpit / Full-Screen TUI
 
 #### 51. Self-healing web cockpit session — *shipped*
