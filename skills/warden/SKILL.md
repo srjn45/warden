@@ -56,6 +56,8 @@ The everyday verbs, so the common path needs no reference-file round-trip:
 | stop (full teardown, confirm first) | `warden agent stop <id>` |
 | finish, keep worktree | `warden agent done <id>` (`--create-pr`) |
 | git lifecycle / checks | `wd commit` / `wd push` / `wd sync` / `wd check [name]` |
+| release tag advice (never `--yes` unless the operator asked to tag) | `wd release --dry-run` |
+| release tag advice (never `--yes` unless the operator asked to tag) | `wd release --dry-run` |
 | pipelines | `warden pipeline create -f spec.yaml` → `warden pipeline start/show <id>` |
 | projects / groups | `warden projects list` · `warden project-groups list` |
 

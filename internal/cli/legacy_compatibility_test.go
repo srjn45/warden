@@ -125,7 +125,7 @@ func TestPermanentShortcutsAreExactlyTheApprovedSet(t *testing.T) {
 
 	want := map[string]bool{
 		"ls": true, "start": true, "status": true, "send": true,
-		"commit": true, "push": true, "sync": true, "check": true,
+		"commit": true, "push": true, "sync": true, "check": true, "release": true,
 	}
 	root := newRootCmd()
 	got := map[string]bool{}

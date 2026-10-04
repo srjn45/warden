@@ -27,6 +27,7 @@ daemon-side session link — the high-frequency flat shortcuts ` + "`wd commit`"
 		canonicalGitCommand(newPushCmd(), "push"),
 		canonicalGitCommand(newSyncCmd(), "sync"),
 		canonicalGitCommand(newReviewCmd(), "review"),
+		canonicalGitCommand(newReleaseCmd(), "release"),
 		canonicalGitHookCommand(newHookGitGuardCmd(), "guard", "git-guard"),
 	}
 	for i, child := range children {

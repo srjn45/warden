@@ -73,6 +73,7 @@ Shortcuts:
   commit               Stage and commit the worktree (warden rails + hooks + bookkeeping)
   push                 Push the current branch to origin (warden rails + bookkeeping)
   sync                 Fetch and rebase the current branch onto its base (warden conflict detect)
+  release              Recommend the next SemVer release tag, then tag and push it on confirmation
 
 Use "warden help <command>" for focused command help; add --all for the complete tree.
 ```
@@ -2950,6 +2951,7 @@ Commands:
   push                 Push the current branch to origin (warden rails + bookkeeping)
   sync                 Fetch and rebase the current branch onto its base (warden conflict detect)
   review               Run the agent backend's native diff review on the worktree
+  release              Recommend the next SemVer release tag, then tag and push it on confirmation
   guard                PreToolUse git-redirect guard (reads hook JSON on stdin)
 
 Flags:
@@ -3066,6 +3068,42 @@ Flags:
   -h, --help             help for review
       --json             emit machine-readable findings (neutral JSON) instead of streaming the prose review
       --prompt string    optional extra review instructions for the backend's reviewer
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden git release
+
+```text
+Inspect the current repo since its latest SemVer tag and recommend the next
+release: the bump (major/minor/patch), the next vMAJOR.MINOR.PATCH, and a
+categorized changelog built from conventional commits and merged PRs.
+
+By default the command is interactive: it asks before creating an annotated tag
+(default N), then — only if --push was given — asks before pushing it to origin
+(default N). The tag message carries the rendered changelog. An existing tag is
+never overwritten.
+
+  --dry-run      print the recommendation only; never tag or push
+  --yes          skip the create-tag prompt and create the annotated tag
+  --push         push the tag to origin after it exists (prompts unless --yes)
+  --yes --push   tag and push with no prompts
+  --json         emit the advice and the actions taken as JSON
+
+Agents should run `wd git release --dry-run`; pass --yes only when the operator
+explicitly asked for a tag. Pushing a v* tag triggers the release pipeline.
+
+Usage:
+  warden git release [flags]
+
+Flags:
+      --dry-run   print the recommendation only; never tag or push
+  -h, --help      help for release
+      --json      emit the advice and actions taken as JSON
+      --push      push the tag to origin after creating it (prompts unless --yes)
+      --yes       skip the create-tag prompt and create the annotated tag
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -5056,6 +5094,42 @@ Flags:
       --base string   base branch to rebase onto (default main)
   -h, --help          help for sync
       --json          emit the raw result as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden release
+
+```text
+Inspect the current repo since its latest SemVer tag and recommend the next
+release: the bump (major/minor/patch), the next vMAJOR.MINOR.PATCH, and a
+categorized changelog built from conventional commits and merged PRs.
+
+By default the command is interactive: it asks before creating an annotated tag
+(default N), then — only if --push was given — asks before pushing it to origin
+(default N). The tag message carries the rendered changelog. An existing tag is
+never overwritten.
+
+  --dry-run      print the recommendation only; never tag or push
+  --yes          skip the create-tag prompt and create the annotated tag
+  --push         push the tag to origin after it exists (prompts unless --yes)
+  --yes --push   tag and push with no prompts
+  --json         emit the advice and the actions taken as JSON
+
+Agents should run `wd release --dry-run`; pass --yes only when the operator
+explicitly asked for a tag. Pushing a v* tag triggers the release pipeline.
+
+Usage:
+  warden release [flags]
+
+Flags:
+      --dry-run   print the recommendation only; never tag or push
+  -h, --help      help for release
+      --json      emit the advice and actions taken as JSON
+      --push      push the tag to origin after creating it (prompts unless --yes)
+      --yes       skip the create-tag prompt and create the annotated tag
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)

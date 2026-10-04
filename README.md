@@ -1155,6 +1155,7 @@ warden backend model                  # the backend's LIVE model menu (one id pe
 ```
 
 - **`warden git review`** — the agent-native counterpart to `warden check` (configured test/lint) and a `pr-review` agent (a whole reviewer session): it runs the backend's own one-shot reviewer against the worktree. **Codex** implements it (`codex review`); backends without a native reviewer (e.g. Claude) exit non-zero pointing you at `warden check` / `pr-review`. `--json` runs the structured form (`codex exec review`) and normalizes the backend's native output into one neutral findings shape; review quality rides the backend's configured model.
+- **`warden git release`** (alias `wd release`) — the release tag advisor: recommends the next SemVer bump + tag from the commits since the latest tag, prints a categorized changelog, and (on confirmation, default N) creates an annotated tag and pushes it. `--dry-run`, `--yes`, `--push`, `--json`.
 - **`warden backend model`** — the live runtime model menu for backends that expose one. **Antigravity** (`agy models`) and **Cursor** (`cursor-agent --list-models`) implement it; the ids feed `--model` verbatim. Listing is a metadata read, so it spends no quota. Claude has no live menu (pass `--model` with any id the Claude CLI accepts; warden does not rewrite it) and degrades non-zero.
 
 Both take `--backend <id>` to target a specific backend (default: the current agent's). See [AI CLIs](#ai-clis---ai-cli).

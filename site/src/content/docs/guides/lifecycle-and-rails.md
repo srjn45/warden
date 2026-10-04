@@ -37,6 +37,20 @@ Omit `-m` and warden fills the message: if a local model is configured (`local_l
 
 `check` runs the commands declared in the project's `.warden/check.yml` and returns a pass/fail summary with captured output **for the failing checks only** — in place of the hundreds of lines a raw test run spills into the transcript (the single biggest token win). Commands come from the project, so warden stays language-agnostic; a repo with no `.warden/check.yml` has nothing to run. Per-entry `dir:` supports monorepos.
 
+### `warden git release` (alias `wd release`) — release tag advisor
+
+`warden git release` reads the commits since the latest SemVer tag, recommends the bump (major/minor/patch) and next `vMAJOR.MINOR.PATCH`, and prints a categorized changelog. It then offers a 1-click flow: create an annotated tag (default **N**), and — with `--push` — push it to `origin` (default **N**). The tag message carries the changelog; an existing tag is never overwritten.
+
+```bash
+wd release --dry-run          # recommendation only — what agents should run
+wd release                    # interactive: confirm tag
+wd release --push             # confirm tag, then confirm push
+wd release --yes --push       # no prompts: tag and push
+wd release --json             # advice + actions taken
+```
+
+Pushing a `v*` tag triggers the release pipeline, so agents must not pass `--yes` unless the operator explicitly asked to tag. When nothing is releasable (bump `none`) the command says so and does not prompt.
+
 ## Boundary enforcement (PreToolUse hooks)
 
 The verbs are only half the story — warden also keeps agents *on* them. On the Claude Code backend, each agent is launched with a per-agent `claude --settings` file carrying PreToolUse hooks (backends without a system-prompt/hook seam degrade gracefully — the verbs still work, the in-agent guard rails are skipped). Every hook **fails open** (a hook error never blocks the agent) and is individually config-gated (default on). The layering goes *steer first, then deny-and-redirect*.
