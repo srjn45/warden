@@ -41,6 +41,13 @@ type Policy struct {
 	// to a human (the agent is looping, not progressing). 0 ⇒ DefaultMaxRepeats;
 	// negative ⇒ breaker disabled. Resolve with EffectiveMaxRepeats.
 	MaxRepeats int `yaml:"max_repeats,omitempty" json:"max_repeats,omitempty"`
+	// UseFastBrain lets the Fast-Brain arbiter answer prompts the static rules
+	// cannot (no matching allow rule, or no affirmative option such as a strategic
+	// question). Static rules still answer first; destructive prompts and the
+	// circuit breaker run before the arbiter. Inheritance in For: a bool cannot
+	// distinguish "unset" from false, so an override inherits the default's value
+	// unless it explicitly sets true (an override cannot turn it off for one agent).
+	UseFastBrain bool `yaml:"use_fast_brain,omitempty" json:"use_fast_brain,omitempty"`
 	// Agents maps an agent name (or id) to a policy override. An override fully
 	// replaces the default's rules + allow_sticky for that agent and may enable
 	// auto-approve for it alone; the master Enabled switch is inherited (OR'd)
@@ -117,6 +124,7 @@ func (p Policy) For(names ...string) Policy {
 			if ov.MaxRepeats == 0 {
 				ov.MaxRepeats = p.MaxRepeats
 			}
+			ov.UseFastBrain = p.UseFastBrain || ov.UseFastBrain
 			ov.Agents = nil
 			return ov
 		}

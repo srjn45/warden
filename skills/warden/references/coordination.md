@@ -97,6 +97,12 @@ recognized, non-destructive prompt — `auto_approve: true` still works). Skips
 multi-select/text-entry/unrecognized (falls back to manual); never retries on
 failure; logs every attempt.
 
+**Fast-Brain arbiter** (opt-in, `auto_approve.use_fast_brain: true`, default
+false): a third layer for prompts the static rules can't answer. Tool
+permissions go to a ≤1.5s fast-tier model call, strategic questions to a ≤10s
+thinking-tier call; applied only at confidence ≥ 0.8, otherwise it fails open to
+a human/brain. The destructive deny-list and circuit breaker run first.
+
 **Circuit breaker** (always on): when the *identical* prompt keeps re-appearing
 after being approved (the agent re-runs a failing command and re-asks), warden
 stops auto-approving it after `max_repeats` consecutive identical approvals

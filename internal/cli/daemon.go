@@ -30,6 +30,7 @@ import (
 	"github.com/srjn45/warden/internal/curate"
 	"github.com/srjn45/warden/internal/daemon"
 	"github.com/srjn45/warden/internal/digest"
+	"github.com/srjn45/warden/internal/fastbrain"
 	"github.com/srjn45/warden/internal/internalrouter"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/llm"
@@ -223,6 +224,10 @@ func newDaemonRunCmd() *cobra.Command {
 			pl.ForceCompact = cfg.Tokens.ForceCompact
 			pl.CompactResumePrompt = cfg.Tokens.CompactResumePrompt
 			pl.AutoApprovePolicy = cfg.AutoApprove
+			// Fast-Brain arbiter: one headless-claude runner serves both tiers
+			// (per-tier timeouts still apply). Inert unless auto_approve.use_fast_brain.
+			fbRunner := fastbrain.RunnerFunc(lc.RunClaudeP)
+			pl.FastBrain = fastbrain.NewEngine(fbRunner, fbRunner)
 			pl.RateLimitAutoResume = cfg.RateLimit.AutoResume
 			pstore, err := pipeline.NewStore(filepath.Join(cfg.DataDir, "pipelines"))
 			if err != nil {

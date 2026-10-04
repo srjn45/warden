@@ -13,6 +13,7 @@ import (
 	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/ctxtokens"
+	"github.com/srjn45/warden/internal/fastbrain"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -136,6 +137,11 @@ type Deps interface {
 
 type Poller struct {
 	deps Deps
+	// FastBrain is the AI arbiter for prompts the static auto-approve rules cannot
+	// answer (strategic questions, unmatched tool permissions). nil ⇒ feature off,
+	// even when the policy sets use_fast_brain. The destructive guard and the
+	// circuit breaker always run before it.
+	FastBrain fastbrain.Engine
 	// Backend resolves the agent backend for a session, used for pane state
 	// detection (classify) and approval parsing (tryAutoApprove). Defaults in New
 	// to the agentbackend registry (with the Claude default for an empty/unknown
@@ -650,13 +656,13 @@ func (p *Poller) tryAutoApprove(ctx context.Context, s *agentstore.Agent, pane s
 	if pol.HasRules() {
 		if d := pol.Decide(a); !d.Approve {
 			slog.Debug("auto-approve skipped by policy", "agent", s.ID, "reason", d.Reason)
-			p.routeToBrain(ctx, s, sig, "auto-approve policy could not answer ("+d.Reason+"): "+a.Action)
+			p.fallbackOrArbitrate(ctx, s, pol, ap, a, sig, "auto-approve policy could not answer ("+d.Reason+"): "+a.Action)
 			return
 		}
 	}
 	if a.AffirmativeIdx == 0 {
 		slog.Debug("auto-approve skipped: no affirmative option", "agent", s.ID)
-		p.routeToBrain(ctx, s, sig, "prompt has no auto-approvable option: "+a.Action)
+		p.fallbackOrArbitrate(ctx, s, pol, ap, a, sig, "prompt has no auto-approvable option: "+a.Action)
 		return
 	}
 	if a.AffirmativeSticky && !pol.AllowSticky {
@@ -670,19 +676,7 @@ func (p *Poller) tryAutoApprove(ctx context.Context, s *agentstore.Agent, pane s
 	// An autopilot-owned worker hands the loop to its brain instead of a human
 	// (§8: no human escalation entry); any other agent escalates to a human and the
 	// prompt sits unanswered (surfaces as waiting_for_input).
-	maxRepeats := pol.EffectiveMaxRepeats()
-	if ok, trippedNow := p.approveBreaker.Allow(s.ID, sig, maxRepeats); !ok {
-		if trippedNow {
-			slog.Warn("auto-approve circuit breaker tripped", "agent", s.ID, "action", a.Action, "repeats", maxRepeats)
-			detail := fmt.Sprintf("auto-approve halted: the identical prompt (%s) was approved %d times in a row without unblocking the agent",
-				a.Action, maxRepeats)
-			if !p.routeToBrain(ctx, s, sig, detail) {
-				p.raiseAnomaly(ctx, s, Anomaly{
-					Kind:   anomalyApprovalLoop,
-					Detail: detail + " — answer it manually or interrupt the agent",
-				})
-			}
-		}
+	if !p.breakerAllows(ctx, s, pol, a, sig) {
 		return
 	}
 
@@ -696,6 +690,94 @@ func (p *Poller) tryAutoApprove(ctx context.Context, s *agentstore.Agent, pane s
 	if p.OnChange != nil {
 		p.OnChange()
 	}
+}
+
+// breakerAllows runs the approve circuit breaker for this prompt. It returns
+// false when the identical prompt has been answered too many times in a row; the
+// loop is then handed to the autopilot brain (§8) or raised as an anomaly for a
+// human, exactly once when the breaker trips.
+func (p *Poller) breakerAllows(ctx context.Context, s *agentstore.Agent, pol approval.Policy, a approval.Approval, sig string) bool {
+	maxRepeats := pol.EffectiveMaxRepeats()
+	ok, trippedNow := p.approveBreaker.Allow(s.ID, sig, maxRepeats)
+	if ok {
+		return true
+	}
+	if trippedNow {
+		slog.Warn("auto-approve circuit breaker tripped", "agent", s.ID, "action", a.Action, "repeats", maxRepeats)
+		detail := fmt.Sprintf("auto-approve halted: the identical prompt (%s) was approved %d times in a row without unblocking the agent",
+			a.Action, maxRepeats)
+		if !p.routeToBrain(ctx, s, sig, detail) {
+			p.raiseAnomaly(ctx, s, Anomaly{
+				Kind:   anomalyApprovalLoop,
+				Detail: detail + " — answer it manually or interrupt the agent",
+			})
+		}
+	}
+	return false
+}
+
+// fallbackOrArbitrate is the "static rules could not answer" exit of
+// tryAutoApprove. With Fast-Brain on (policy.UseFastBrain and a non-nil
+// FastBrain engine) the AI arbiter gets a chance first; otherwise — or when the
+// arbiter declines — the prompt goes to the autopilot brain / stays for a human,
+// exactly as before Fast-Brain existed.
+func (p *Poller) fallbackOrArbitrate(ctx context.Context, s *agentstore.Agent, pol approval.Policy, ap *agentbackend.Approval, a approval.Approval, sig, reason string) {
+	if pol.UseFastBrain && p.FastBrain != nil {
+		if p.arbitrate(ctx, s, pol, ap, a, sig) {
+			return
+		}
+	}
+	p.routeToBrain(ctx, s, sig, reason)
+}
+
+// arbitrate consults the Fast-Brain arbiter for a prompt the static rules could
+// not answer. The caller has already run the destructive guard; the circuit
+// breaker runs here BEFORE the model call. It returns true when the prompt was
+// answered (keys sent); false means escalate (reject, escalate, error, or an
+// unusable answer) and the caller falls back to the brain/human path.
+func (p *Poller) arbitrate(ctx context.Context, s *agentstore.Agent, pol approval.Policy, ap *agentbackend.Approval, a approval.Approval, sig string) bool {
+	if !p.breakerAllows(ctx, s, pol, a, sig) {
+		return true // loop halted and already routed; do not also escalate
+	}
+	d, err := p.FastBrain.ArbitrateApproval(ctx, fastbrain.ArbiterInput{Approval: ap, AgentID: s.ID})
+	if err != nil {
+		slog.Warn("fastbrain arbiter error — escalating", "agent", s.ID, "err", err)
+		return false
+	}
+	slog.Info("fastbrain arbiter decision", "agent", s.ID, "category", d.Category, "action", d.Action,
+		"confidence", d.Confidence, "rationale", d.Rationale, "tier", d.Tier)
+	_ = p.deps.RecordEvent(ctx, s.ID, store.Event{
+		TS:     time.Now(),
+		Type:   "fastbrain_arbiter",
+		Detail: fmt.Sprintf("%s (%s, confidence %.2f): %s", d.Action, d.Category, d.Confidence, d.Rationale),
+	})
+
+	var opt int
+	switch d.Action {
+	case fastbrain.DecisionApprove:
+		if a.AffirmativeIdx == 0 || (a.AffirmativeSticky && !pol.AllowSticky) {
+			return false
+		}
+		opt = a.AffirmativeIdx
+	case fastbrain.DecisionSelectOption:
+		opt = d.SelectedOption
+		if opt < 1 || opt > len(a.Options) {
+			slog.Warn("fastbrain arbiter selected an out-of-range option — escalating", "agent", s.ID, "option", opt)
+			return false
+		}
+	default:
+		return false
+	}
+	key := strconv.Itoa(opt)
+	if err := p.deps.SendKeys(ctx, s.TmuxSession, key); err != nil {
+		slog.Warn("fastbrain arbiter failed to send keys", "agent", s.ID, "err", err)
+		return true
+	}
+	slog.Info("fastbrain answered prompt", "agent", s.ID, "option", key)
+	if p.OnChange != nil {
+		p.OnChange()
+	}
+	return true
 }
 
 // menuVerifyDelay is how long tryLimitMenu waits after its first keystroke
