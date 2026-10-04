@@ -20,7 +20,7 @@ func TestStartFreeFormPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
-	if !strings.Contains(out, "spawned code-1 (scout) [general]") {
+	if !strings.Contains(out, "spawned agent code-1 (scout) [general]") {
 		t.Fatalf("start output: %q", out)
 	}
 	if !strings.Contains(body["/api/v1/spawn"], `"prompt":"research SSE reconnection"`) {
@@ -51,14 +51,30 @@ func TestStartProjectFlagPassesProjectID(t *testing.T) {
 func TestStartInteractiveNoPrompt(t *testing.T) {
 	t.Setenv("WARDEN_SESSION_ID", "")
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"POST /api/v1/spawn": `{"id":"code-2","status":"spawning"}`,
+		"POST /api/v1/spawn": `{"id":"code-2","name":"quiet-otter","status":"spawning"}`,
 	}, nil, nil))
 	out, err := runCLI(t, addr, "start", "--dir", t.TempDir(), "--role", "general")
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
-	if !strings.Contains(out, "opened interactive agent code-2") || !strings.Contains(out, "[general]") {
+	if !strings.Contains(out, "opened interactive agent code-2 (quiet-otter) [general]") {
 		t.Fatalf("start interactive output: %q", out)
+	}
+}
+
+// TestStartShowsResolvedNameWithoutExplicitFlag asserts the CLI prints the
+// daemon-assigned name when the caller omitted --name.
+func TestStartShowsResolvedNameWithoutExplicitFlag(t *testing.T) {
+	t.Setenv("WARDEN_SESSION_ID", "")
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"POST /api/v1/spawn": `{"id":"code-3","name":"ws-leak-fix","status":"spawning"}`,
+	}, nil, nil))
+	out, err := runCLI(t, addr, "start", "Fix memory leak in websocket listener", "--role", "general")
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if !strings.Contains(out, "spawned agent code-3 (ws-leak-fix) [general]") {
+		t.Fatalf("start must show resolved name: %q", out)
 	}
 }
 
@@ -66,13 +82,13 @@ func TestStartInteractiveNoPrompt(t *testing.T) {
 func TestStartTypedManaged(t *testing.T) {
 	body := map[string]string{}
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"POST /api/v1/spawn": `{"id":"DEV-1","role":"worker","type":"development","status":"spawning"}`,
+		"POST /api/v1/spawn": `{"id":"DEV-1","name":"wkr-dev-1","role":"worker","type":"development","status":"spawning"}`,
 	}, nil, body))
 	out, err := runCLI(t, addr, "start", "DEV-1", "--type", "development", "--repo", t.TempDir(), "--tags", "backend, urgent", "--project", "/repos/alpha", "--role", "worker")
 	if err != nil {
 		t.Fatalf("start typed: %v", err)
 	}
-	if !strings.Contains(out, "spawned DEV-1 [worker] (spawning)") {
+	if !strings.Contains(out, "spawned agent DEV-1 (wkr-dev-1) [worker] (spawning)") {
 		t.Fatalf("start typed output: %q", out)
 	}
 	var sent map[string]any

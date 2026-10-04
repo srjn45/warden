@@ -29,6 +29,7 @@ func TestAgentHierarchyAuthorityDB(t *testing.T) {
 			dir := t.TempDir()
 			s, err := New(dir)
 			require.NoError(t, err)
+			decoded.Name = "n-" + tc.name
 			require.NoError(t, s.Insert(ctx, &decoded))
 			require.NoError(t, s.Close())
 			s, err = New(dir)

@@ -25,7 +25,7 @@ func TestArchivedAgentLifecycleAfterUpgrade(t *testing.T) {
 	}))
 	require.NoError(t, legacy.Archive(ctx, "old-agent"))
 	require.NoError(t, legacy.Insert(ctx, &store.Session{
-		ID: "shell", Kind: store.KindTerminal, TmuxSession: "shell", Status: store.StatusWorking,
+		ID: "shell", Name: "n-shell", Kind: store.KindTerminal, TmuxSession: "shell", Status: store.StatusWorking,
 	}))
 	require.NoError(t, legacy.Close(ctx))
 

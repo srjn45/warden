@@ -60,6 +60,7 @@ func TestParentIDRoundTrip(t *testing.T) {
 	root := sample()
 	root.ID = child.ID + "-root"
 	root.TmuxSession = root.ID
+	root.Name = "root-agent"
 	require.NoError(t, st.Insert(ctx, root))
 
 	gotChild, err := st.Get(ctx, child.ID)
@@ -110,17 +111,17 @@ func TestProvenanceMigration(t *testing.T) {
 
 	// Legacy active record: branch == id → warden-created.
 	wardenBranch := &Session{
-		ID: "dev-aaaa", TmuxSession: "dev-aaaa", Repo: "/repo",
+		ID: "dev-aaaa", Name: "n-dev-aaaa", TmuxSession: "dev-aaaa", Repo: "/repo",
 		Worktree: ".worktrees/dev-aaaa", Branch: "dev-aaaa", Status: StatusWorking,
 	}
 	// Legacy active record: user-named branch ≠ id → adopted branch.
 	userBranch := &Session{
-		ID: "dev-bbbb", TmuxSession: "dev-bbbb", Repo: "/repo",
+		ID: "dev-bbbb", Name: "n-dev-bbbb", TmuxSession: "dev-bbbb", Repo: "/repo",
 		Worktree: ".worktrees/dev-bbbb", Branch: "feature/login", Status: StatusWorking,
 	}
 	// Legacy archived record: branch == id → warden-created.
 	closedBranch := &Session{
-		ID: "dev-cccc", TmuxSession: "dev-cccc", Repo: "/repo",
+		ID: "dev-cccc", Name: "n-dev-cccc", TmuxSession: "dev-cccc", Repo: "/repo",
 		Worktree: ".worktrees/dev-cccc", Branch: "dev-cccc", Status: StatusDone,
 	}
 	// Seed the legacy dirs BEFORE the first open, so the import backfills them (no

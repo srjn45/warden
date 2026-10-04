@@ -191,7 +191,7 @@ Flags:
       --in-repo                                  write-agent opt-out: run in the shared repo instead of an isolated worktree (ignored for pr-review)
       --kind string                              session kind: empty/agent (default) spawns an AI agent; terminal opens a plain interactive shell ($SHELL) in --dir (not an AI agent — --aicli/--ai-cli/--backend/--model/--role/prompt ignored)
       --model string                             model ID for the chosen AI CLI (requires --aicli). Empty lets the tier resolver pick an explicit model
-      --name string                              optional human-friendly name (max 32 chars, alphanumeric + hyphens/underscores)
+      --name string                              explicit agent name (omit to auto-resolve); max 32 chars, alphanumeric + hyphens/underscores
       --permission-mode string                   permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan (default: from config or 'auto')
       --plan string                              optional planstore plan id in the same project (plan-<8hex>); empty = planless agent. A non-empty value must name an existing plan belonging to the resolved project
       --pr string                                PR number/url (pr-review)
@@ -4916,7 +4916,7 @@ Flags:
       --in-repo                                  write-agent opt-out: run in the shared repo instead of an isolated worktree (ignored for pr-review)
       --kind string                              session kind: empty/agent (default) spawns an AI agent; terminal opens a plain interactive shell ($SHELL) in --dir (not an AI agent — --aicli/--ai-cli/--backend/--model/--role/prompt ignored)
       --model string                             model ID for the chosen AI CLI (requires --aicli). Empty lets the tier resolver pick an explicit model
-      --name string                              optional human-friendly name (max 32 chars, alphanumeric + hyphens/underscores)
+      --name string                              explicit agent name (omit to auto-resolve); max 32 chars, alphanumeric + hyphens/underscores
       --permission-mode string                   permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan (default: from config or 'auto')
       --plan string                              optional planstore plan id in the same project (plan-<8hex>); empty = planless agent. A non-empty value must name an existing plan belonging to the resolved project
       --pr string                                PR number/url (pr-review)

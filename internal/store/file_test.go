@@ -17,7 +17,8 @@ import (
 // mongo_test.go; file_test.go is now the home for store test fixtures.)
 func sample() *Session {
 	return &Session{
-		ID: "PROJ-350", Ticket: "PROJ-350", TmuxSession: "PROJ-350",
+		ID:     "PROJ-350",
+		Ticket: "PROJ-350", TmuxSession: "PROJ-350", Name: "test-agent",
 		Repo: "/repo", Worktree: ".worktrees/PROJ-350", Branch: "PROJ-350",
 		Status: StatusSpawning,
 	}
@@ -58,7 +59,7 @@ func TestFileInsertDuplicate(t *testing.T) {
 	ctx := context.Background()
 	st := newFileStore(t)
 	require.NoError(t, st.Insert(ctx, sample()))
-	require.ErrorIs(t, st.Insert(ctx, sample()), ErrExists)
+	require.ErrorIs(t, st.Insert(ctx, dupSample()), ErrExists)
 }
 
 func TestFileGetNotFound(t *testing.T) {
@@ -121,8 +122,10 @@ func TestFileListSortedByUpdatedDesc(t *testing.T) {
 	st := newFileStore(t)
 	a := sample()
 	a.ID, a.TmuxSession, a.Ticket = "agent-aaaa", "agent-aaaa", ""
+	a.Name = "name-a"
 	b := sample()
 	b.ID, b.TmuxSession, b.Ticket = "agent-bbbb", "agent-bbbb", ""
+	b.Name = "name-b"
 	require.NoError(t, st.Insert(ctx, a))
 	require.NoError(t, st.Insert(ctx, b))
 	// Touch a so its updated_at is newest.
@@ -392,7 +395,7 @@ func TestFileConcurrentAccess(t *testing.T) {
 func TestFinalizeExitErroredSetsCodeAndEvent(t *testing.T) {
 	fs := newFileStore(t)
 	ctx := context.Background()
-	require.NoError(t, fs.Insert(ctx, &Session{ID: "x", Status: StatusWorking}))
+	require.NoError(t, fs.Insert(ctx, &Session{ID: "x", Name: "n-x", Status: StatusWorking}))
 
 	ok, err := fs.FinalizeExit(ctx, "x", StatusWorking, StatusErrored, 137)
 	require.NoError(t, err)
@@ -411,7 +414,7 @@ func TestFinalizeExitErroredSetsCodeAndEvent(t *testing.T) {
 func TestFinalizeExitCleanSetsCodeNoEvent(t *testing.T) {
 	fs := newFileStore(t)
 	ctx := context.Background()
-	require.NoError(t, fs.Insert(ctx, &Session{ID: "y", Status: StatusWorking}))
+	require.NoError(t, fs.Insert(ctx, &Session{ID: "y", Name: "n-y", Status: StatusWorking}))
 
 	ok, err := fs.FinalizeExit(ctx, "y", StatusWorking, StatusDone, 0)
 	require.NoError(t, err)
@@ -427,7 +430,7 @@ func TestFinalizeExitCleanSetsCodeNoEvent(t *testing.T) {
 func TestFinalizeExitNonSignalCodeNoSignalName(t *testing.T) {
 	fs := newFileStore(t)
 	ctx := context.Background()
-	require.NoError(t, fs.Insert(ctx, &Session{ID: "w", Status: StatusWorking}))
+	require.NoError(t, fs.Insert(ctx, &Session{ID: "w", Name: "n-w", Status: StatusWorking}))
 
 	ok, err := fs.FinalizeExit(ctx, "w", StatusWorking, StatusErrored, 1)
 	require.NoError(t, err)
@@ -444,7 +447,7 @@ func TestFinalizeExitNonSignalCodeNoSignalName(t *testing.T) {
 func TestFinalizeExitCASLoses(t *testing.T) {
 	fs := newFileStore(t)
 	ctx := context.Background()
-	require.NoError(t, fs.Insert(ctx, &Session{ID: "z", Status: StatusDone})) // hook already finished it
+	require.NoError(t, fs.Insert(ctx, &Session{ID: "z", Name: "n-z", Status: StatusDone})) // hook already finished it
 
 	ok, err := fs.FinalizeExit(ctx, "z", StatusWorking, StatusErrored, 1)
 	require.NoError(t, err)
@@ -457,7 +460,7 @@ func TestFinalizeExitCASLoses(t *testing.T) {
 func TestSetRestart(t *testing.T) {
 	fs := newFileStore(t)
 	ctx := context.Background()
-	require.NoError(t, fs.Insert(ctx, &Session{ID: "x", Status: StatusErrored}))
+	require.NoError(t, fs.Insert(ctx, &Session{ID: "x", Name: "n-x", Status: StatusErrored}))
 
 	at := time.Date(2026, 6, 10, 1, 2, 3, 0, time.UTC)
 	require.NoError(t, fs.SetRestart(ctx, "x", 1, at))
@@ -494,7 +497,7 @@ func TestUpdateContextPersistsAndEventsOnTransition(t *testing.T) {
 	}
 	defer fs.Close(context.Background())
 	ctx := context.Background()
-	s := &Session{ID: "agent-ctx1", Status: StatusWorking}
+	s := &Session{ID: "agent-ctx1", Name: "n-agent-ctx1", Status: StatusWorking}
 	if err := fs.Insert(ctx, s); err != nil {
 		t.Fatal(err)
 	}
@@ -554,7 +557,8 @@ func TestFileInsertInvalidNameFormat(t *testing.T) {
 		{"has/slash", ErrInvalidName},
 		{"has.dot", ErrInvalidName},
 		{"has@at", ErrInvalidName},
-		{"", nil},                                  // empty is valid
+		{"", ErrEmptyName},                         // empty is rejected
+		{"   ", ErrEmptyName},                      // whitespace-only is rejected
 		{"a", nil},                                 // 1 char is valid
 		{string(make([]byte, 33)), ErrInvalidName}, // 33 chars too long
 		{"valid-name_123", nil},
@@ -563,8 +567,13 @@ func TestFileInsertInvalidNameFormat(t *testing.T) {
 		{"M:manual-plan", nil},
 		{"P:pipeline-plan", nil},
 		{"AP:autopilot-plan", nil},
+		{"mgr:my-plan", nil},
+		{"wkr:task-1", nil},
+		{"brain:target", nil},
 		{"O:plan-execution-entity-redesign", nil},
-		{"X:bad-prefix", ErrInvalidName},
+		{"X:ok-prefix", nil}, // any letter-led short prefix is allowed (<pipe>:<stage>)
+		{"demo:analyze", nil},
+		{"1:digit-prefix", ErrInvalidName}, // prefix must start with a letter
 		{"O:", ErrInvalidName},
 		{"O:has space", ErrInvalidName},
 	}
@@ -629,7 +638,7 @@ func TestFileNameCaseSensitive(t *testing.T) {
 	require.ErrorIs(t, st.Insert(ctx, s3), ErrNameExists)
 }
 
-func TestFileEmptyNamesAllowed(t *testing.T) {
+func TestFileEmptyNamesRejected(t *testing.T) {
 	ctx := context.Background()
 	st := newFileStore(t)
 
@@ -637,15 +646,8 @@ func TestFileEmptyNamesAllowed(t *testing.T) {
 	s1.ID = "agent-a1b2"
 	s1.TmuxSession = "agent-a1b2"
 	s1.Ticket = ""
-	s1.Name = "" // empty
-	require.NoError(t, st.Insert(ctx, s1))
-
-	s2 := sample()
-	s2.ID = "agent-c3d4"
-	s2.TmuxSession = "agent-c3d4"
-	s2.Ticket = ""
-	s2.Name = "" // also empty, should not conflict
-	require.NoError(t, st.Insert(ctx, s2))
+	s1.Name = ""
+	require.ErrorIs(t, st.Insert(ctx, s1), ErrEmptyName)
 }
 
 func TestFileGetByNameOrIDNameFirst(t *testing.T) {
@@ -728,7 +730,7 @@ func TestFileGetByNameOrIDNamePrecedence(t *testing.T) {
 func TestFileStore_SetRateLimit(t *testing.T) {
 	st := newFileStore(t)
 
-	sess := &Session{ID: "test-123", Status: StatusWorking}
+	sess := &Session{ID: "test-123", Name: "n-test-123", Status: StatusWorking}
 	require.NoError(t, st.Insert(context.Background(), sess))
 
 	restoreAt := time.Now().Add(1 * time.Hour).UTC()
@@ -758,6 +760,7 @@ func TestFileStore_SetRateLimit_PreservesFirstLimitedAt(t *testing.T) {
 	firstTime := time.Now().Add(-1 * time.Hour).UTC()
 	sess := &Session{
 		ID:            "test-123",
+		Name:          "n-test-123",
 		Status:        StatusRateLimited,
 		RateLimitedAt: &firstTime,
 	}
@@ -784,6 +787,7 @@ func TestFileStore_ClearRateLimit(t *testing.T) {
 	limitedAt := time.Now().UTC()
 	sess := &Session{
 		ID:                  "test-123",
+		Name:                "n-test-123",
 		Status:              StatusRateLimited,
 		RateLimitedAt:       &limitedAt,
 		RateLimitRestoreAt:  &restoreAt,
@@ -818,6 +822,7 @@ func TestAutoApproveFieldPersistence(t *testing.T) {
 	// Insert session with AutoApprove = true
 	s1 := &Session{
 		ID:          "test-auto-approve-1",
+		Name:        "n-test-auto-approve-1",
 		TmuxSession: "tmux-1",
 		Repo:        "/repo",
 		Status:      StatusWorking,
@@ -833,6 +838,7 @@ func TestAutoApproveFieldPersistence(t *testing.T) {
 	// Insert session with AutoApprove = false (default)
 	s2 := &Session{
 		ID:          "test-auto-approve-2",
+		Name:        "n-test-auto-approve-2",
 		TmuxSession: "tmux-2",
 		Repo:        "/repo",
 		Status:      StatusWorking,
@@ -854,6 +860,7 @@ func TestUpdateAutoApprove(t *testing.T) {
 	// Insert session with AutoApprove = false
 	s := &Session{
 		ID:          "test-update-auto",
+		Name:        "n-test-update-auto",
 		TmuxSession: "tmux-1",
 		Repo:        "/repo",
 		Status:      StatusWorking,
@@ -894,7 +901,7 @@ func TestSetForceCompact(t *testing.T) {
 	require.NoError(t, err)
 	ctx := context.Background()
 
-	s := &Session{ID: "fc-1", TmuxSession: "tmux-1", Repo: "/repo", Status: StatusWorking}
+	s := &Session{ID: "fc-1", Name: "n-fc-1", TmuxSession: "tmux-1", Repo: "/repo", Status: StatusWorking}
 	require.NoError(t, st.Insert(ctx, s))
 
 	// Starts unset (inherit global).
@@ -934,6 +941,7 @@ func TestPermissionModeFieldPersistence(t *testing.T) {
 	// Insert session with PermissionMode = "bypassPermissions"
 	s1 := &Session{
 		ID:             "test-perm-1",
+		Name:           "n-test-perm-1",
 		TmuxSession:    "tmux-1",
 		Repo:           "/repo",
 		Status:         StatusWorking,
@@ -949,6 +957,7 @@ func TestPermissionModeFieldPersistence(t *testing.T) {
 	// Insert session with empty PermissionMode (use global default)
 	s2 := &Session{
 		ID:             "test-perm-2",
+		Name:           "n-test-perm-2",
 		TmuxSession:    "tmux-2",
 		Repo:           "/repo",
 		Status:         StatusWorking,
@@ -970,6 +979,7 @@ func TestUpdatePermissionMode(t *testing.T) {
 	// Insert session with PermissionMode = ""
 	s := &Session{
 		ID:             "test-update-perm",
+		Name:           "n-test-update-perm",
 		TmuxSession:    "tmux-1",
 		Repo:           "/repo",
 		Status:         StatusWorking,
@@ -1013,6 +1023,7 @@ func TestUpdateRole(t *testing.T) {
 	// Insert a session with no role (empty = general).
 	s := &Session{
 		ID:          "test-update-role",
+		Name:        "n-test-update-role",
 		TmuxSession: "tmux-1",
 		Repo:        "/repo",
 		Status:      StatusWorking,
@@ -1050,4 +1061,12 @@ func TestUpdateRoleNotFound(t *testing.T) {
 
 	err = st.UpdateRole(ctx, "nonexistent", "reviewer")
 	require.ErrorIs(t, err, ErrNotFound)
+}
+
+// dupSample is sample() under a different name, so ID collision (not name
+// collision) is what Insert reports.
+func dupSample() *Session {
+	s := sample()
+	s.Name = "other-agent"
+	return s
 }

@@ -137,6 +137,9 @@ func TestReconcileProjectMembershipNilStores(t *testing.T) {
 
 func insertSession(t *testing.T, ctx context.Context, s agentstore.AgentStore, sess *agentstore.Agent) {
 	t.Helper()
+	if sess.Name == "" {
+		sess.Name = "n-" + sess.ID
+	}
 	require.NoError(t, s.Insert(ctx, sess))
 }
 

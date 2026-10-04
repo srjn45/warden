@@ -61,10 +61,10 @@ func TestMigratesOnlyActiveTerminalSessions(t *testing.T) {
 	legacy, err := store.NewFileStore(dir)
 	require.NoError(t, err)
 	ctx := context.Background()
-	require.NoError(t, legacy.Insert(ctx, &store.Session{ID: "agent-live", Status: store.StatusWorking, ProjectID: "agent-project", TmuxSession: "agent-pane"}))
-	require.NoError(t, legacy.Insert(ctx, &store.Session{ID: "terminal-closed", Kind: store.KindTerminal, Status: store.StatusIdle, ProjectID: "old-project", TmuxSession: "old-pane"}))
+	require.NoError(t, legacy.Insert(ctx, &store.Session{ID: "agent-live", Name: "n-agent-live", Status: store.StatusWorking, ProjectID: "agent-project", TmuxSession: "agent-pane"}))
+	require.NoError(t, legacy.Insert(ctx, &store.Session{ID: "terminal-closed", Name: "n-terminal-closed", Kind: store.KindTerminal, Status: store.StatusIdle, ProjectID: "old-project", TmuxSession: "old-pane"}))
 	require.NoError(t, legacy.Archive(ctx, "terminal-closed"))
-	require.NoError(t, legacy.Insert(ctx, &store.Session{ID: "terminal-current", Kind: store.KindTerminal, Status: store.StatusIdle, ProjectID: "project-1", TmuxSession: "term-pane"}))
+	require.NoError(t, legacy.Insert(ctx, &store.Session{ID: "terminal-current", Name: "n-terminal-current", Kind: store.KindTerminal, Status: store.StatusIdle, ProjectID: "project-1", TmuxSession: "term-pane"}))
 	require.NoError(t, legacy.Close(ctx))
 
 	terminals, err := New(dir)
@@ -84,7 +84,7 @@ func TestMigrationMarkerPreventsDuplicateImport(t *testing.T) {
 	dir := t.TempDir()
 	legacy, err := store.NewFileStore(dir)
 	require.NoError(t, err)
-	require.NoError(t, legacy.Insert(context.Background(), &store.Session{ID: "terminal-1", Kind: store.KindTerminal}))
+	require.NoError(t, legacy.Insert(context.Background(), &store.Session{ID: "terminal-1", Name: "n-terminal-1", Kind: store.KindTerminal}))
 	require.NoError(t, legacy.Close(context.Background()))
 	s, err := New(dir)
 	require.NoError(t, err)
@@ -103,14 +103,14 @@ func TestMigrationImportIdempotence(t *testing.T) {
 	require.NoError(t, err)
 	ctx := context.Background()
 	require.NoError(t, legacy.Insert(ctx, &store.Session{
-		ID:          "terminal-idem-1",
+		ID: "terminal-idem-1", Name: "n-terminal-idem-1",
 		Kind:        store.KindTerminal,
 		Status:      store.StatusIdle,
 		ProjectID:   "proj-idem",
 		TmuxSession: "pane-idem",
 	}))
 	require.NoError(t, legacy.Insert(ctx, &store.Session{
-		ID:          "terminal-idem-2",
+		ID: "terminal-idem-2", Name: "n-terminal-idem-2",
 		Kind:        store.KindTerminal,
 		Status:      store.StatusIdle,
 		ProjectID:   "proj-idem",
@@ -145,7 +145,7 @@ func TestMigrationRestartSafety(t *testing.T) {
 	require.NoError(t, err)
 	ctx := context.Background()
 	require.NoError(t, legacy.Insert(ctx, &store.Session{
-		ID:          "terminal-rs",
+		ID: "terminal-rs", Name: "n-terminal-rs",
 		Kind:        store.KindTerminal,
 		Status:      store.StatusIdle,
 		ProjectID:   "proj-rs",

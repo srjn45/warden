@@ -22,7 +22,7 @@ const (
 var planSlugSanitizer = regexp.MustCompile(`[^a-zA-Z0-9_-]+`)
 
 // sanitizePlanSlug forces planName into the ValidateName slug charset and
-// truncates to 64 chars so O:/M:<slug> stays within planExecutorNamePattern.
+// truncates to 64 chars so O:/M:<slug> stays within prefixedNamePattern.
 func sanitizePlanSlug(planName string) string {
 	slug := planSlugSanitizer.ReplaceAllString(strings.TrimSpace(planName), "-")
 	slug = strings.Trim(slug, "-_")
@@ -89,6 +89,7 @@ func (s *Server) spawnPlanBoundAgent(ctx context.Context, p *planstore.Plan, roo
 	if code, msg := s.validateSpawnRequest(ctx, req); code != 0 {
 		return nil, errStatus(code, msg)
 	}
+	s.prepareSpawnName(ctx, &req)
 	sess, err := s.life.Spawn(ctx, req)
 	if err != nil {
 		return nil, errStatus(http.StatusInternalServerError, "spawn plan agent: "+err.Error())

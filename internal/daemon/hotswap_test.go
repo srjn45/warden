@@ -29,7 +29,7 @@ func setupTestDaemonHotSwap(t *testing.T) (*backendstore.Store, *agentstore.Stor
 
 	workdir := t.TempDir()
 	sess := &agentstore.Agent{
-		ID:          "agent-hs-1",
+		ID: "agent-hs-1", Name: "n-agent-hs-1",
 		TmuxSession: "agent-hs-1",
 		AiCli:       "claude",
 		Model:       "opus",

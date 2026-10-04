@@ -97,6 +97,9 @@ func (s *Server) SpawnAgent(ctx context.Context, req oapi.SpawnAgentRequestObjec
 	if code, msg := s.validateSpawnRequest(ctx, sr); code != 0 {
 		return nil, errStatus(code, msg)
 	}
+	// Resolve a mandatory name before Spawn so Insert never sees an empty name
+	// and the 201 response already carries the assigned handle.
+	s.prepareSpawnName(ctx, &sr)
 	freeMode := sr.Type == "" && !(lifecycle.RoleOwnsWorktree(sr.Role) && sr.Repo != "")
 	// pre-spawn hook (#47): advisory, fail-open.
 	s.plugins.Dispatch(ctx, plugin.EventPreSpawn, plugin.SessionMeta{Type: sr.Type, Repo: sr.Repo}, nil)
@@ -176,13 +179,10 @@ func (s *Server) SpawnAgent(ctx context.Context, req oapi.SpawnAgentRequestObjec
 	// races with their Type/Name writes even though FileStore itself decodes a
 	// fresh value. The client should receive the synchronous spawn state anyway.
 	response := oapi.SpawnAgent201JSONResponse(*sess.ToSession())
-	// Background, best-effort enrichment (detached contexts): a missing
-	// type/name never blocks or fails the spawn.
+	// Background, best-effort type enrichment (detached context). Naming is
+	// synchronous in prepareSpawnName — names are mandatory at Insert time.
 	if freeMode && sr.Prompt != "" {
 		go s.classifyAndUpdate(sess.ID, sr.Prompt)
-	}
-	if sr.Name == "" && sr.Prompt != "" {
-		go s.nameAndUpdate(sess.ID, sr.Prompt)
 	}
 	return response, nil
 }

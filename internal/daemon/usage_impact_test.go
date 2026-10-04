@@ -20,7 +20,7 @@ func TestCalculateBucketImpactRestartAndDualSource(t *testing.T) {
 	ctx := context.Background()
 	fp := "sha256:acct"
 	require.NoError(t, fs.Insert(ctx, &agentstore.Agent{
-		ID: "agent-1", Status: store.StatusWorking, AiCli: "claude", Model: "sonnet",
+		ID: "agent-1", Name: "test-agent", Status: store.StatusWorking, AiCli: "claude", Model: "sonnet",
 		QuotaBinding: &capacity.QuotaBinding{
 			Domain: capacity.CapacityDomain{
 				Provider: "claude", AiCli: "claude", AccountFingerprint: fp, Route: "sonnet",
@@ -31,7 +31,7 @@ func TestCalculateBucketImpactRestartAndDualSource(t *testing.T) {
 		TmuxSession: "agent-1", CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
 	}))
 	require.NoError(t, fs.Insert(ctx, &agentstore.Agent{
-		ID: "agent-2", Status: store.StatusIdle, AiCli: "claude", Model: "opus",
+		ID: "agent-2", Name: "n-agent-2", Status: store.StatusIdle, AiCli: "claude", Model: "opus",
 		QuotaBinding: &capacity.QuotaBinding{
 			Domain: capacity.CapacityDomain{
 				Provider: "claude", AiCli: "claude", AccountFingerprint: fp, Route: "opus",

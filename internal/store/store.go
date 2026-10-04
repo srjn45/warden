@@ -18,7 +18,10 @@ var ErrExists = errors.New("session already exists")
 var ErrNameExists = errors.New("agent name already exists")
 
 // ErrInvalidName is returned when a session name is invalid.
-var ErrInvalidName = errors.New("invalid agent name: must be 1-32 alphanumeric chars, hyphens, or underscores (or O:/M:/P:/AP:<plan-slug>)")
+var ErrInvalidName = errors.New("invalid agent name: must be 1-32 alphanumeric chars, hyphens, or underscores (or a prefixed slug like O:/M:/P:/AP:/mgr:/wkr:/brain:/<pipe>:<slug>)")
+
+// ErrEmptyName is returned when a session name is empty or whitespace-only.
+var ErrEmptyName = errors.New("invalid agent name: name must not be empty")
 
 // ErrStoreOwned is returned by NewFileStore when the data directory's writable
 // session store is already held by another live process (normally the daemon).

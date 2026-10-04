@@ -79,6 +79,7 @@ func (rt autopilotRuntime) SpawnBrain(ctx context.Context, spec autopilot.BrainS
 	if code, msg := rt.s.validateSpawnRequest(ctx, req); code != 0 {
 		return autopilot.BrainHandle{}, errors.New(msg)
 	}
+	rt.s.prepareSpawnName(ctx, &req)
 	sess, err := rt.s.life.Spawn(ctx, req)
 	if err != nil {
 		return autopilot.BrainHandle{}, err
@@ -487,6 +488,7 @@ func (rt autopilotRuntime) SpawnConsultBrain(ctx context.Context, spec autopilot
 	if code, msg := rt.s.validateSpawnRequest(ctx, req); code != 0 {
 		return autopilot.BrainHandle{}, errors.New(msg)
 	}
+	rt.s.prepareSpawnName(ctx, &req)
 	sess, err := rt.s.life.Spawn(ctx, req)
 	if err != nil {
 		return autopilot.BrainHandle{}, err

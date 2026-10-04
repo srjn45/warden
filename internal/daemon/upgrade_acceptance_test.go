@@ -313,7 +313,7 @@ func TestUpgradeAcceptanceFromLegacyCorpus(t *testing.T) {
 	t.Cleanup(ts.Close)
 
 	spawnBody, _ := json.Marshal(map[string]any{
-		"role": "general", "prompt": "independent analysis",
+		"role": "general", "prompt": "independent analysis", "name": "test-agent",
 		"project_id": repo, "cwd": repo,
 	})
 	resp, err := http.Post(ts.URL+"/api/v1/spawn", "application/json", bytes.NewReader(spawnBody))

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/srjn45/warden/internal/agentname"
 	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/pressure"
@@ -28,27 +29,30 @@ func NewLifecycleAdapter(lc *lifecycle.Lifecycle, st agentstore.AgentStore) Life
 // "classifying" and lifecycle.Spawn launches in the caller's cwd.
 func (a *lifecycleAdapter) Spawn(ctx context.Context, req SpawnRequest) (*agentstore.Agent, error) {
 	lr := lifecycle.SpawnRequest{
-		Ticket:         req.Ticket,
-		Name:           req.Name,
-		Repo:           req.Repo,
-		Branch:         req.Branch,
-		PR:             req.PR,
-		Worktree:       req.Worktree,
-		InRepo:         req.InRepo,
-		Prompt:         req.Prompt,
-		Cwd:            req.Cwd,
-		PermissionMode: req.PermissionMode,
-		AutoRestart:    req.AutoRestart,
-		Model:          req.Model,
-		Backend:        req.Backend,
-		Kind:           store.SessionKind(req.Kind),
-		Tags:           req.Tags,
-		ParentID:       req.ParentID,
-		ProjectID:      req.ProjectID,
-		PlanID:         req.PlanID,
-		Role:           req.Role,
-		Tier:           req.Tier,
-		Task:           req.Task,
+		Ticket:          req.Ticket,
+		Name:            req.Name,
+		Repo:            req.Repo,
+		Branch:          req.Branch,
+		PR:              req.PR,
+		Worktree:        req.Worktree,
+		InRepo:          req.InRepo,
+		Prompt:          req.Prompt,
+		Cwd:             req.Cwd,
+		PermissionMode:  req.PermissionMode,
+		AutoRestart:     req.AutoRestart,
+		Model:           req.Model,
+		Backend:         req.Backend,
+		Kind:            store.SessionKind(req.Kind),
+		Tags:            req.Tags,
+		ParentID:        req.ParentID,
+		ProjectID:       req.ProjectID,
+		PlanID:          req.PlanID,
+		Role:            req.Role,
+		Tier:            req.Tier,
+		Task:            req.Task,
+		AutopilotRunID:  req.AutopilotRunID,
+		AutopilotSlot:   req.AutopilotSlot,
+		AutopilotTaskID: req.AutopilotTaskID,
 	}
 	// Normalize only a typed spawn. Free-form (Type empty) is keyed on cwd, not the
 	// prompt: leaving Type empty keeps lifecycle.Spawn on the cwd-launch path and the
@@ -95,6 +99,14 @@ func (a *lifecycleAdapter) Classify(ctx context.Context, prompt string) (store.T
 
 func (a *lifecycleAdapter) GenerateName(ctx context.Context, prompt string) string {
 	return a.lc.GenerateName(ctx, prompt)
+}
+
+// NameRunner exposes the lifecycle's fast-tier naming runner (may be nil).
+func (a *lifecycleAdapter) NameRunner() agentname.BackendRunner {
+	if a == nil || a.lc == nil {
+		return nil
+	}
+	return a.lc.NameRunner
 }
 
 func (a *lifecycleAdapter) Terminate(ctx context.Context, tmuxSession string) error {

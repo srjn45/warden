@@ -20,7 +20,7 @@ func TestDiagnoseAndRebuildSessionsSkipsCorruption(t *testing.T) {
 	require.NoError(t, fs.Insert(ctx, active))
 	closed := sample()
 	closed.ID = "closed-1"
-	closed.Name = ""
+	closed.Name = "closed-agent"
 	require.NoError(t, fs.Insert(ctx, closed))
 	require.NoError(t, fs.Archive(ctx, closed.ID))
 	require.NoError(t, fs.Close(ctx))

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/srjn45/warden/internal/agentbackend"
+	"github.com/srjn45/warden/internal/agentname"
 	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/lifecycle"
@@ -454,15 +455,15 @@ func TestHandleSetNameAllowsKeepingOwnName(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode, "renaming to the same name must not collide with itself")
 }
 
-func TestHandleSetNameClearsWhenBlank(t *testing.T) {
+func TestHandleSetNameRejectsBlank(t *testing.T) {
 	fs := newFakeStore()
 	_ = fs.Insert(context.Background(), &agentstore.Agent{ID: "A-1", TmuxSession: "A-1", Name: "mine", Status: store.StatusWorking})
 	srv := lifeServer(t, fs, &fakeLife{})
 	resp := patchJSON(t, srv.URL+"/api/v1/sessions/A-1/name", `{"name":""}`)
 	defer resp.Body.Close()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, "names are mandatory; blank rename is rejected")
 	got, _ := fs.Get(context.Background(), "A-1")
-	require.Equal(t, "", got.Name)
+	require.Equal(t, "mine", got.Name)
 }
 
 func TestHandleSetNameUnknownSession(t *testing.T) {
@@ -829,8 +830,11 @@ func TestPostSpawnPromptThenClassifies(t *testing.T) {
 
 func TestPostSpawnAutoNamesWhenUnnamed(t *testing.T) {
 	fs := newFakeStore()
-	fl := &fakeLife{nameResult: "flaky-test-hunt"}
+	fl := &fakeLife{}
 	srv := promptServer(t, fs, fl)
+	srv.promptNamer = agentname.RunnerFunc(func(_ context.Context, _ string) (string, error) {
+		return "flaky-test-hunt", nil
+	})
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
 
@@ -840,19 +844,19 @@ func TestPostSpawnAutoNamesWhenUnnamed(t *testing.T) {
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	var created store.Session
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&created))
-	require.Empty(t, created.Name, "spawn responds before the background naming lands")
-
-	// Background naming assigns the generated handle shortly after.
-	require.Eventually(t, func() bool {
-		s, err := fs.Get(context.Background(), created.ID)
-		return err == nil && s.Name == "flaky-test-hunt"
-	}, 2*time.Second, 10*time.Millisecond)
+	require.Equal(t, "flaky-test-hunt", created.Name, "name is assigned synchronously before 201")
+	got, err := fs.Get(context.Background(), created.ID)
+	require.NoError(t, err)
+	require.Equal(t, "flaky-test-hunt", got.Name)
 }
 
 func TestPostSpawnKeepsExplicitName(t *testing.T) {
 	fs := newFakeStore()
-	fl := &fakeLife{nameResult: "auto-handle"}
+	fl := &fakeLife{}
 	srv := promptServer(t, fs, fl)
+	srv.promptNamer = agentname.RunnerFunc(func(_ context.Context, _ string) (string, error) {
+		return "auto-handle", nil
+	})
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
 
@@ -863,13 +867,75 @@ func TestPostSpawnKeepsExplicitName(t *testing.T) {
 	var created store.Session
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&created))
 	require.Equal(t, "my-name", created.Name)
+}
 
-	// Give any (incorrect) background naming a chance to fire, then assert the
-	// operator's chosen name is never overwritten.
-	require.Never(t, func() bool {
-		s, err := fs.Get(context.Background(), created.ID)
-		return err == nil && s.Name == "auto-handle"
-	}, 200*time.Millisecond, 20*time.Millisecond)
+func TestPostSpawnPromptLessGetsCodename(t *testing.T) {
+	fs := newFakeStore()
+	srv := promptServer(t, fs, &fakeLife{})
+	ts := httptest.NewServer(srv.router())
+	defer ts.Close()
+
+	body, _ := json.Marshal(SpawnRequest{Cwd: t.TempDir()})
+	resp, err := http.Post(ts.URL+"/api/v1/spawn", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	var created store.Session
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&created))
+	require.NoError(t, store.ValidateName(created.Name))
+	require.Contains(t, created.Name, "-", "adjective-noun codename")
+}
+
+func TestPostSpawnDisambiguatesAutoNameCollision(t *testing.T) {
+	fs := newFakeStore()
+	require.NoError(t, fs.Insert(context.Background(), &agentstore.Agent{
+		ID: "taken-1", TmuxSession: "taken-1", Name: "ws-leak-fix", Status: store.StatusWorking,
+	}))
+	srv := promptServer(t, fs, &fakeLife{})
+	srv.promptNamer = agentname.RunnerFunc(func(_ context.Context, _ string) (string, error) {
+		return "ws-leak-fix", nil
+	})
+	ts := httptest.NewServer(srv.router())
+	defer ts.Close()
+
+	body, _ := json.Marshal(SpawnRequest{Prompt: "fix ws leak", Cwd: t.TempDir()})
+	resp, err := http.Post(ts.URL+"/api/v1/spawn", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	var created store.Session
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&created))
+	require.Equal(t, "ws-leak-fix-2", created.Name)
+}
+
+func TestPostSpawnExplicitNameCollisionStill409(t *testing.T) {
+	fs := newFakeStore()
+	require.NoError(t, fs.Insert(context.Background(), &agentstore.Agent{
+		ID: "taken-1", TmuxSession: "taken-1", Name: "my-name", Status: store.StatusWorking,
+	}))
+	srv := promptServer(t, fs, &fakeLife{})
+	ts := httptest.NewServer(srv.router())
+	defer ts.Close()
+
+	body, _ := json.Marshal(SpawnRequest{Prompt: "x", Name: "my-name", Cwd: t.TempDir()})
+	resp, err := http.Post(ts.URL+"/api/v1/spawn", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusConflict, resp.StatusCode)
+}
+
+func TestPostSpawnAutopilotRoleConvention(t *testing.T) {
+	fs := newFakeStore()
+	srv := promptServer(t, fs, &fakeLife{})
+	ts := httptest.NewServer(srv.router())
+	defer ts.Close()
+
+	body, _ := json.Marshal(SpawnRequest{
+		Role: "autopilot", Ticket: "ship-autopilot", Prompt: "manage the run", Cwd: t.TempDir(),
+	})
+	resp, err := http.Post(ts.URL+"/api/v1/spawn", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	var created store.Session
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&created))
+	require.Equal(t, "AP:ship", created.Name)
 }
 
 func TestPostSpawnRejectsEmptyRequest(t *testing.T) {

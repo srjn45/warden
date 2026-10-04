@@ -39,7 +39,7 @@ func TestPipelineParentEdgeInvariant(t *testing.T) {
 	t.Cleanup(func() { _ = st.Close() })
 	s := &Server{store: st}
 
-	owner := &agentstore.Agent{ID: "agent-owner", Status: store.StatusWorking}
+	owner := &agentstore.Agent{ID: "agent-owner", Name: "n-agent-owner", Status: store.StatusWorking}
 	require.NoError(t, st.Insert(ctx, owner))
 
 	// --- create: add edge (both ends) ---
@@ -74,7 +74,7 @@ func TestPipelineParentEdgeExclusions(t *testing.T) {
 	t.Cleanup(func() { _ = st.Close() })
 	s := &Server{store: st}
 
-	owner := &agentstore.Agent{ID: "agent-owner", Status: store.StatusWorking}
+	owner := &agentstore.Agent{ID: "agent-owner", Name: "n-agent-owner", Status: store.StatusWorking}
 	require.NoError(t, st.Insert(ctx, owner))
 
 	require.NotPanics(t, func() {
@@ -153,9 +153,9 @@ func TestPipelineCreateStampsParentAgent(t *testing.T) {
 	defer ts.Close()
 	ctx := context.Background()
 
-	owner := &agentstore.Agent{ID: "agent-owner", Status: store.StatusWorking}
+	owner := &agentstore.Agent{ID: "agent-owner", Name: "n-agent-owner", Status: store.StatusWorking}
 	require.NoError(t, ss.Insert(ctx, owner))
-	other := &agentstore.Agent{ID: "agent-other", Status: store.StatusWorking}
+	other := &agentstore.Agent{ID: "agent-other", Name: "n-agent-other", Status: store.StatusWorking}
 	require.NoError(t, ss.Insert(ctx, other))
 	term := &terminalstore.Terminal{ID: "term-1", Status: terminalstore.StatusRunning}
 	require.NoError(t, terms.Insert(ctx, term))

@@ -95,6 +95,25 @@ func NewExecutor(ps *pipeline.Store, ss agentstore.AgentStore, life Lifecycle, c
 	return &Executor{pstore: ps, sstore: ss, life: life, cstore: cs, notify: notify}
 }
 
+// existingAgentNames returns the set of names currently held by active agents
+// so pipeline stage auto-names can be disambiguated without 409.
+func (e *Executor) existingAgentNames(ctx context.Context) map[string]bool {
+	taken := map[string]bool{}
+	if e == nil || e.sstore == nil {
+		return taken
+	}
+	sessions, err := e.sstore.List(ctx)
+	if err != nil {
+		return taken
+	}
+	for _, sess := range sessions {
+		if sess.Name != "" {
+			taken[sess.Name] = true
+		}
+	}
+	return taken
+}
+
 // Both setters are called once at server construction, before any concurrent use.
 
 // SetProjects wires the project store so executable job agents join
@@ -386,6 +405,7 @@ func (e *Executor) Reconcile(ctx context.Context, pid string) error {
 			Role: resolveRoleCanonical(job.Role, job.Type), Tier: job.Tier, Backend: job.Backend, Model: job.Model,
 			Tags: p.Tags, ScheduleID: p.ScheduleID, ScheduleName: p.ScheduleName,
 			Workdir: job.Workdir, Branch: job.Branch,
+			ExistingNames: e.existingAgentNames(ctx),
 		}
 		if lvl, _ := e.life.MemoryPressure(ctx); lvl >= pressure.Warn {
 			slog.Warn("pipeline: spawning job under memory pressure", "pipeline", req.PipelineID, "job", jobID, "pressure", lvl.String())

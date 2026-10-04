@@ -52,7 +52,7 @@ func TestCreateCanonicalizesStatusAliases(t *testing.T) {
 	s, err := New(t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, s.Close()) })
-	require.NoError(t, s.Create(context.Background(), &Agent{ID: "busy-agent", Status: store.Status("busy")}))
+	require.NoError(t, s.Create(context.Background(), &Agent{ID: "busy-agent", Name: "n-busy-agent", Status: store.Status("busy")}))
 	got, err := s.Get(context.Background(), "busy-agent")
 	require.NoError(t, err)
 	require.Equal(t, store.StatusWorking, got.Status)
@@ -63,7 +63,7 @@ func TestTerminateAndDelete(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, s.Close()) })
 	ctx := context.Background()
-	require.NoError(t, s.Spawn(ctx, &Agent{ID: "agent-stop", Status: store.StatusWorking}, "tmux-stop", "ai-stop"))
+	require.NoError(t, s.Spawn(ctx, &Agent{ID: "agent-stop", Name: "n-agent-stop", Status: store.StatusWorking}, "tmux-stop", "ai-stop"))
 	require.NoError(t, s.Terminate(ctx, "agent-stop"))
 	got, err := s.Get(ctx, "agent-stop")
 	require.NoError(t, err)
@@ -78,13 +78,13 @@ func TestRecoverOnlyRevivesOrphanedAgent(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, s.Close()) })
 	ctx := context.Background()
-	require.NoError(t, s.Insert(ctx, &Agent{ID: "orphan", Status: store.StatusOrphaned}))
+	require.NoError(t, s.Insert(ctx, &Agent{ID: "orphan", Name: "n-orphan", Status: store.StatusOrphaned}))
 	require.NoError(t, s.Recover(ctx, "orphan"))
 	got, err := s.Get(ctx, "orphan")
 	require.NoError(t, err)
 	require.Equal(t, store.StatusWorking, got.Status)
 
-	require.NoError(t, s.Insert(ctx, &Agent{ID: "done", Status: store.StatusDone}))
+	require.NoError(t, s.Insert(ctx, &Agent{ID: "done", Name: "n-done", Status: store.StatusDone}))
 	require.ErrorIs(t, s.Recover(ctx, "done"), ErrNotOrphaned)
 }
 
@@ -93,10 +93,10 @@ func TestMigratesOnlyActiveNonTerminalSessions(t *testing.T) {
 	legacy, err := store.NewFileStore(dir)
 	require.NoError(t, err)
 	ctx := context.Background()
-	require.NoError(t, legacy.Insert(ctx, &store.Session{ID: "agent-live", Status: store.StatusWorking, AutopilotRunID: "ap", PipelineID: "p", JobID: "j", ChildPipelines: []string{"child"}}))
-	require.NoError(t, legacy.Insert(ctx, &store.Session{ID: "terminal-live", Kind: store.KindTerminal, Status: store.StatusIdle}))
+	require.NoError(t, legacy.Insert(ctx, &store.Session{ID: "agent-live", Name: "n-agent-live", Status: store.StatusWorking, AutopilotRunID: "ap", PipelineID: "p", JobID: "j", ChildPipelines: []string{"child"}}))
+	require.NoError(t, legacy.Insert(ctx, &store.Session{ID: "terminal-live", Name: "n-terminal-live", Kind: store.KindTerminal, Status: store.StatusIdle}))
 	require.NoError(t, legacy.Archive(ctx, "agent-live"))
-	require.NoError(t, legacy.Insert(ctx, &store.Session{ID: "agent-current", Status: store.StatusWorking, Tags: []string{"tag"}}))
+	require.NoError(t, legacy.Insert(ctx, &store.Session{ID: "agent-current", Name: "n-agent-current", Status: store.StatusWorking, Tags: []string{"tag"}}))
 	require.NoError(t, legacy.Close(ctx))
 
 	agents, err := New(dir)
@@ -114,7 +114,7 @@ func TestMigrationImportsExistingActiveAgentFields(t *testing.T) {
 	legacy, err := store.NewFileStore(dir)
 	require.NoError(t, err)
 	ctx := context.Background()
-	want := &store.Session{ID: "agent-live", Status: store.StatusWorking, PipelineID: "pipe", JobID: "job", Tags: []string{"autopilot"}, ParentID: "parent", ChildAgents: []string{"child"}, ChildPipelines: []string{"pipeline"}, AutopilotRunID: "run", AutopilotSlot: store.AutopilotSlotWorker, ProjectID: "project"}
+	want := &store.Session{ID: "agent-live", Name: "n-agent-live", Status: store.StatusWorking, PipelineID: "pipe", JobID: "job", Tags: []string{"autopilot"}, ParentID: "parent", ChildAgents: []string{"child"}, ChildPipelines: []string{"pipeline"}, AutopilotRunID: "run", AutopilotSlot: store.AutopilotSlotWorker, ProjectID: "project"}
 	require.NoError(t, legacy.Insert(ctx, want))
 	require.NoError(t, legacy.Close(ctx))
 	agents, err := New(dir)
@@ -134,7 +134,7 @@ func TestMigrationMarkerPreventsDuplicateImport(t *testing.T) {
 	dir := t.TempDir()
 	legacy, err := store.NewFileStore(dir)
 	require.NoError(t, err)
-	require.NoError(t, legacy.Insert(context.Background(), &store.Session{ID: "agent-1"}))
+	require.NoError(t, legacy.Insert(context.Background(), &store.Session{ID: "agent-1", Name: "n-agent-1"}))
 	require.NoError(t, legacy.Close(context.Background()))
 	s, err := New(dir)
 	require.NoError(t, err)
@@ -181,7 +181,7 @@ func TestLegacyClaudeSessionIDDecode(t *testing.T) {
 // canonical fields also emits the deprecated alias keys during the alias window.
 func TestMarshalEmitsLegacyAliases(t *testing.T) {
 	a := Agent{
-		ID:             "agent-emit",
+		ID: "agent-emit", Name: "n-agent-emit",
 		AiCli:          "aider",
 		AICLISessionID: "session-xyz",
 	}
@@ -203,7 +203,7 @@ func TestMigrationPreservesAgentStatus(t *testing.T) {
 	require.NoError(t, err)
 	ctx := context.Background()
 	// An agent that finished but has not been archived yet.
-	require.NoError(t, legacy.Insert(ctx, &store.Session{ID: "agent-done", Status: store.StatusDone}))
+	require.NoError(t, legacy.Insert(ctx, &store.Session{ID: "agent-done", Name: "n-agent-done", Status: store.StatusDone}))
 	require.NoError(t, legacy.Close(ctx))
 
 	agents, err := New(dir)
@@ -221,8 +221,8 @@ func TestMigrationSkipsTerminalByKindField(t *testing.T) {
 	legacy, err := store.NewFileStore(dir)
 	require.NoError(t, err)
 	ctx := context.Background()
-	require.NoError(t, legacy.Insert(ctx, &store.Session{ID: "term-1", Kind: store.KindTerminal, Status: store.StatusIdle}))
-	require.NoError(t, legacy.Insert(ctx, &store.Session{ID: "agent-1", Status: store.StatusWorking}))
+	require.NoError(t, legacy.Insert(ctx, &store.Session{ID: "term-1", Name: "n-term-1", Kind: store.KindTerminal, Status: store.StatusIdle}))
+	require.NoError(t, legacy.Insert(ctx, &store.Session{ID: "agent-1", Name: "n-agent-1", Status: store.StatusWorking}))
 	require.NoError(t, legacy.Close(ctx))
 
 	agents, err := New(dir)
@@ -280,7 +280,7 @@ func TestUpdateStatusIfAndFinalizeExit(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, s.Close()) })
 	ctx := context.Background()
 
-	a := &Agent{ID: "agent-cas", Status: store.StatusWorking}
+	a := &Agent{ID: "agent-cas", Name: "n-agent-cas", Status: store.StatusWorking}
 	require.NoError(t, s.Insert(ctx, a))
 
 	// Mismatched expected status returns false
@@ -337,8 +337,8 @@ func TestArchiveUpgradeAfterActiveMigration(t *testing.T) {
 	legacy, err := store.NewFileStore(dir)
 	require.NoError(t, err)
 	for _, a := range []*store.Session{
-		{ID: "archived", Status: store.StatusOrphaned, AICLISessionID: "resume-id", ProjectID: "project", Workdir: "/work", TmuxSession: "archived"},
-		{ID: "shell", Kind: store.KindTerminal, Status: store.StatusOrphaned},
+		{ID: "archived", Name: "n-archived", Status: store.StatusOrphaned, AICLISessionID: "resume-id", ProjectID: "project", Workdir: "/work", TmuxSession: "archived"},
+		{ID: "shell", Name: "n-shell", Kind: store.KindTerminal, Status: store.StatusOrphaned},
 	} {
 		require.NoError(t, legacy.Insert(ctx, a))
 		require.NoError(t, legacy.Archive(ctx, a.ID))
@@ -348,7 +348,7 @@ func TestArchiveUpgradeAfterActiveMigration(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, importedMarker), []byte("done"), 0600))
 	s, err := New(dir)
 	require.NoError(t, err)
-	require.NoError(t, s.Insert(ctx, &Agent{ID: "new-live", Subject: "must survive archive import"}))
+	require.NoError(t, s.Insert(ctx, &Agent{ID: "new-live", Name: "n-new-live", Subject: "must survive archive import"}))
 	closed, err := s.ListClosed(ctx)
 	require.NoError(t, err)
 	require.Len(t, closed, 1)
@@ -388,7 +388,7 @@ func TestLifecycleMutationsPreserveLegacySemantics(t *testing.T) {
 	changed, err = s.FinalizeExit(ctx, "missing", store.StatusWorking, store.StatusDone, 1)
 	require.NoError(t, err)
 	require.False(t, changed)
-	a := &Agent{ID: "worker", Status: store.StatusWorking}
+	a := &Agent{ID: "worker", Name: "n-worker", Status: store.StatusWorking}
 	require.NoError(t, s.Insert(ctx, a))
 	require.NoError(t, s.SetRateLimit(ctx, a.ID, time.Now().Add(time.Hour), 1))
 	first, err := s.Get(ctx, a.ID)
@@ -442,7 +442,7 @@ func TestRoleBackfillFromLegacyType(t *testing.T) {
 			ctx := context.Background()
 			id := "agent-" + string(tc.typ)
 			require.NoError(t, s.Insert(ctx, &Agent{
-				ID: id, Status: store.StatusWorking, Type: tc.typ,
+				ID: id, Name: id, Status: store.StatusWorking, Type: tc.typ,
 				// Role intentionally absent: simulates a legacy record
 			}))
 			got, err := s.Get(ctx, id)
@@ -460,7 +460,7 @@ func TestRoleBackfillDoesNotOverwriteExplicitRole(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, s.Close()) })
 	ctx := context.Background()
 	require.NoError(t, s.Insert(ctx, &Agent{
-		ID:     "agent-explicit-role",
+		ID: "agent-explicit-role", Name: "n-agent-explicit-role",
 		Status: store.StatusWorking,
 		Type:   store.TypeDevelopment,
 		Role:   "orchestrator",
@@ -478,10 +478,10 @@ func TestRoleBackfillFromLegacyMigration(t *testing.T) {
 	require.NoError(t, err)
 	ctx := context.Background()
 	require.NoError(t, legacy.Insert(ctx, &store.Session{
-		ID: "pr-agent", Status: store.StatusWorking, Type: store.TypePRReview,
+		ID: "pr-agent", Name: "n-pr-agent", Status: store.StatusWorking, Type: store.TypePRReview,
 	}))
 	require.NoError(t, legacy.Insert(ctx, &store.Session{
-		ID: "dev-agent", Status: store.StatusWorking, Type: store.TypeDevelopment,
+		ID: "dev-agent", Name: "n-dev-agent", Status: store.StatusWorking, Type: store.TypeDevelopment,
 	}))
 	require.NoError(t, legacy.Close(ctx))
 

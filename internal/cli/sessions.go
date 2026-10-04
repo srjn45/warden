@@ -99,10 +99,9 @@ func renderSessions(w io.Writer, sessions []*store.Session, cost map[string]floa
 	tw := tabwriter.NewWriter(w, 0, 2, 2, ' ', 0)
 	fmt.Fprintln(tw, "NAME\tID\tROLE\tMODEL\tPERMISSION_MODE\tSTATUS\tCONTEXT\tCOST\tAGE\tDIR\tSUBJECT")
 	for _, s := range sessions {
+		// Names are mandatory at spawn; leave the cell blank only for legacy
+		// sparse records (never render a muted "—" placeholder).
 		name := s.Name
-		if name == "" {
-			name = "—"
-		}
 		permMode := s.PermissionMode
 		if permMode == "" {
 			permMode = "default"
