@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/srjn45/warden/internal/fastbrain"
 	"github.com/srjn45/warden/internal/savings"
 )
 
@@ -147,6 +148,23 @@ const commitMsgInstruction = "Write a single-line git commit message for the sta
 // includes new files. The result is never empty.
 func (l *Lifecycle) commitMessage(ctx context.Context, dir string, files []string) string {
 	floor := deterministicCommitMessage(files)
+	if l.FastBrain != nil {
+		diff, err := l.run.Run(ctx, dir, "git", "diff", "--cached")
+		if err != nil || strings.TrimSpace(diff) == "" {
+			return floor
+		}
+		resp, err := l.FastBrain.Decide(ctx, fastbrain.Request{
+			Kind: fastbrain.KindCommitMessage, Tier: fastbrain.TierFast,
+			Prompt: fastbrain.CommitMessagePrompt(capDiff(diff)),
+		})
+		if err != nil || !resp.OK() {
+			return floor
+		}
+		if m := parseCommitMessage(fastbrain.ParseCommitMessage(resp)); m != "" {
+			return m
+		}
+		return floor
+	}
 	if l.LLM == nil {
 		return floor
 	}
