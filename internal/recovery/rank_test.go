@@ -190,3 +190,74 @@ func TestRankRefreshFailureNoFabricatedUsage(t *testing.T) {
 		require.Empty(t, c.Resets, "refresh failure must not fabricate reset times")
 	}
 }
+
+func rankSnap(now time.Time, limits map[string]backendusage.Limit) backendusage.Snapshot {
+	var rows []backendusage.BackendResult
+	for id, l := range limits {
+		rows = append(rows, backendusage.BackendResult{ID: id, Usage: []backendusage.Limit{l}})
+	}
+	return backendusage.Snapshot{GeneratedAt: now, Backends: rows}
+}
+
+func inDur(now time.Time, d time.Duration) *time.Time { t := now.Add(d); return &t }
+
+func rankOrder(got []Candidate) []string {
+	var o []string
+	for _, c := range got {
+		o = append(o, c.BackendID)
+	}
+	return o
+}
+
+func TestRankImpendingResetBeatsHigherHeadroom(t *testing.T) {
+	now := time.Now().UTC()
+	snap := rankSnap(now, map[string]backendusage.Limit{
+		"soon":   {ID: "a", UsedPercent: pct(60), ResetsAt: inDur(now, 30*time.Minute)},
+		"far":    {ID: "b", UsedPercent: pct(10), ResetsAt: inDur(now, 6*time.Hour)},
+		"nilrst": {ID: "c", UsedPercent: pct(5)},
+	})
+	got := Rank([]Candidate{{BackendID: "far"}, {BackendID: "nilrst"}, {BackendID: "soon"}}, snap)
+	require.Equal(t, []string{"soon", "nilrst", "far"}, rankOrder(got))
+	require.NotNil(t, got[0].BottleneckReset)
+}
+
+func TestRankImpendingSafetyFloor(t *testing.T) {
+	now := time.Now().UTC()
+	snap := rankSnap(now, map[string]backendusage.Limit{
+		"low":  {ID: "a", UsedPercent: pct(95), ResetsAt: inDur(now, 20*time.Minute)},
+		"high": {ID: "b", UsedPercent: pct(20), ResetsAt: inDur(now, 5*time.Hour)},
+	})
+	got := Rank([]Candidate{{BackendID: "low"}, {BackendID: "high"}}, snap)
+	require.Equal(t, []string{"high", "low"}, rankOrder(got))
+}
+
+func TestRankEarlierImpendingResetWins(t *testing.T) {
+	now := time.Now().UTC()
+	snap := rankSnap(now, map[string]backendusage.Limit{
+		"x": {ID: "a", UsedPercent: pct(10), ResetsAt: inDur(now, 45*time.Minute)},
+		"y": {ID: "b", UsedPercent: pct(50), ResetsAt: inDur(now, 15*time.Minute)},
+	})
+	got := Rank([]Candidate{{BackendID: "x"}, {BackendID: "y"}}, snap)
+	require.Equal(t, []string{"y", "x"}, rankOrder(got))
+}
+
+func TestRankPastAndFarResetsAreClassB(t *testing.T) {
+	now := time.Now().UTC()
+	snap := rankSnap(now, map[string]backendusage.Limit{
+		"past": {ID: "a", UsedPercent: pct(70), ResetsAt: inDur(now, -10*time.Minute)},
+		"far":  {ID: "b", UsedPercent: pct(60), ResetsAt: inDur(now, 61*time.Minute)},
+		"best": {ID: "c", UsedPercent: pct(10), ResetsAt: inDur(now, 3*time.Hour)},
+	})
+	got := Rank([]Candidate{{BackendID: "past"}, {BackendID: "far"}, {BackendID: "best"}}, snap)
+	require.Equal(t, []string{"best", "far", "past"}, rankOrder(got))
+}
+
+func TestRankPriorityStillDominatesImpending(t *testing.T) {
+	now := time.Now().UTC()
+	snap := rankSnap(now, map[string]backendusage.Limit{
+		"soon": {ID: "a", UsedPercent: pct(50), ResetsAt: inDur(now, 10*time.Minute)},
+		"p0":   {ID: "b", UsedPercent: pct(50)},
+	})
+	got := Rank([]Candidate{{BackendID: "soon", Priority: 1}, {BackendID: "p0", Priority: 0}}, snap)
+	require.Equal(t, []string{"p0", "soon"}, rankOrder(got))
+}
