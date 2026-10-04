@@ -3,6 +3,7 @@ package insights
 import (
 	"context"
 	"errors"
+	"github.com/srjn45/warden/internal/fastbrain"
 	"strings"
 	"testing"
 )
@@ -93,5 +94,30 @@ func TestNarratorPromptNoPreambleInstruction(t *testing.T) {
 	p := NarratorPrompt(sampleReport())
 	if !strings.Contains(p, "Output ONLY the summary") {
 		t.Errorf("prompt missing the no-preamble instruction:\n%s", p)
+	}
+}
+
+type fakeBrain struct {
+	fastbrain.Engine
+	resp fastbrain.Response
+}
+
+func (f fakeBrain) Decide(context.Context, fastbrain.Request) (fastbrain.Response, error) {
+	return f.resp, nil
+}
+
+func TestNarrateWithBrain(t *testing.T) {
+	r := Report{Sessions: 2}
+	ok := fakeBrain{resp: fastbrain.Response{Status: fastbrain.StatusOK,
+		Output: fastbrain.Output{Parsed: []byte(`{"summary":"  all good "}`)}}}
+	if got := NarrateWithBrain(context.Background(), ok, r); got != "all good" {
+		t.Fatalf("got %q", got)
+	}
+	bad := fakeBrain{resp: fastbrain.Response{Status: fastbrain.StatusInvalidJSON}}
+	if got := NarrateWithBrain(context.Background(), bad, r); got != DeterministicSummary(r) {
+		t.Fatalf("got %q", got)
+	}
+	if got := NarrateWithBrain(context.Background(), nil, r); got != DeterministicSummary(r) {
+		t.Fatalf("got %q", got)
 	}
 }
