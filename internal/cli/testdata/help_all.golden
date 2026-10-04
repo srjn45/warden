@@ -47,6 +47,12 @@ Complete command tree:
   warden plan                          Manage plans tracked by the daemon
   warden plan list                     List plans for a project
   warden plan create                   Create a canonical plan in ScrivaDB
+  warden plan update                   Update a pending plan definition
+  warden plan edit                     Edit a pending plan definition in $EDITOR
+  warden plan task                     Add, edit, or remove tasks on a pending plan
+  warden plan task add                 Add a task to a pending plan
+  warden plan task edit                Edit a task definition on a pending plan
+  warden plan task rm                  Remove a task from a pending plan
   warden plan show                     Show detail for one plan
   warden plan related                  List heuristic related / overlapping plans
   warden plan run                      Start execution of a plan in the given mode
