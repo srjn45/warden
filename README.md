@@ -1482,7 +1482,11 @@ warden workspace                       # list warden-owned worktrees (same as `w
 warden workspace list                  # list worktrees under .worktrees, joined to records (alias: ls)
 warden workspace prune                 # reclaim orphaned worktrees (prompts; --force overrides guards)
 warden workspace prune --include-archived  # widen scope to archived records
+warden workspace clean                 # preview, then delete merged branches + prune stale worktrees
+warden workspace clean --dry-run       # preview only (also --json, --local-only, --force, --yes)
 ```
+
+`warden workspace clean` (alias `warden clean`) is different from `prune`: **prune** reclaims *orphaned warden worktrees* (their agent record is gone), while **clean** deletes *merged branches* — local and on `origin`, including squash-merged ones — and the stale worktrees checked out on them. It previews three tables (merged local branches, merged remote branches, stale worktrees), asks `[y/N]` (skip with `--yes`), removes worktrees first, then local, then remote branches. `main`/`master`/`develop`/`release/*`, the base branch and the current branch are never deleted; dirty worktrees are kept unless `--force`.
 
 `warden workspace prune` remains as a top-level alias for `warden workspace prune` (same flags, prompts, and output). Retention is policy-driven via the `worktree.keep_done` / `worktree.auto_prune` config settings; dirty/unpushed worktrees are always kept. Reclaiming whole orphaned worktrees is distinct from `warden agent remove-worktree`, which tears down one agent's worktree.
 

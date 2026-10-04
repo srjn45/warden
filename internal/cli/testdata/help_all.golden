@@ -121,6 +121,7 @@ Complete command tree:
   warden workspace                     Inspect and manage warden git worktrees, snapshots, branches, and file collisions
   warden workspace list                List warden worktrees under .worktrees, joined to active/archived records
   warden workspace prune               Reclaim orphaned warden worktrees under .worktrees (always asks; --force overrides guards)
+  warden workspace clean               Delete merged local/origin branches and prune stale worktrees (previews, then asks)
   warden workspace snapshot            Checkpoint an agent's worktree + transcript, list checkpoints, and restore one
   warden workspace snapshot create     Capture the worktree state + transcript of an agent (defaults to the current one)
   warden workspace snapshot list       List snapshots for an agent (newest first); --all for every session
@@ -254,6 +255,7 @@ Compatibility aliases:
   warden backends thinking-mode -> warden backend thinking-mode (compatibility)
   warden backends tier -> warden backend tier (compatibility)
   warden branches -> warden workspace branches (compatibility)
+  warden clean -> warden workspace clean (compatibility)
   warden collab -> warden workspace (compatibility)
   warden collab conflicts -> warden workspace conflicts (compatibility)
   warden collab who-is-editing -> warden workspace who-is-editing (compatibility)

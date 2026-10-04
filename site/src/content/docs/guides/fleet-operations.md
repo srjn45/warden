@@ -98,3 +98,17 @@ warden inspect audit --since 24h --target agent-4f2a --json
 ```
 
 `warden inspect audit` reads the file directly, so it works even while the daemon is down.
+
+## Cleaning up merged branches and stale worktrees
+
+`warden workspace clean` (alias `warden clean`) deletes branches whose work already landed on the base branch — local and on `origin`, including **squash-merged** ones — and prunes the worktrees checked out on them, in one coordinated step.
+
+```sh
+warden clean --dry-run     # preview only: merged local, merged remote, stale worktrees
+warden clean               # preview, then confirm [y/N]
+warden clean --yes --json  # non-interactive, machine-readable result
+warden clean --local-only  # skip fetch and origin deletes
+warden clean --force       # also remove dirty worktrees
+```
+
+This is not `warden workspace prune`: **prune** reclaims *orphaned warden worktrees* (their agent record is gone); **clean** targets *merged branches*. Worktrees go first, then local branches, then remote branches. `main`, `master`, `develop`, `release/*`, the base branch and the primary worktree's current branch are never deleted.
