@@ -5,10 +5,10 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentname"
 	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/store"
@@ -59,12 +59,13 @@ func (s *Server) validateSpawnRequest(ctx context.Context, req SpawnRequest) (in
 		return http.StatusBadRequest, "invalid permission mode " + req.PermissionMode +
 			"; valid: acceptEdits, auto, bypassPermissions, default, dontAsk, plan"
 	}
-	// Validate the optional name field for format and uniqueness.
+	// Explicit names: validate format and uniqueness (409 on collision).
+	// Empty names are filled synchronously in prepareSpawnName before Spawn —
+	// auto-generated names are disambiguated instead of conflicting.
 	if req.Name != "" {
 		if err := store.ValidateName(req.Name); err != nil {
 			return http.StatusBadRequest, err.Error()
 		}
-		// Check uniqueness: no other session should have the same name.
 		sessions, err := s.store.List(ctx)
 		if err != nil {
 			return http.StatusInternalServerError, "failed to check name uniqueness: " + err.Error()
@@ -137,67 +138,69 @@ func (s *Server) classifyAndUpdate(id, prompt string) {
 	s.notify()
 }
 
-// nameAndUpdate runs in the background after a spawn that had no explicit name:
-// it derives a human-friendly handle (local LLM when available, else a
-// deterministic slug) and assigns it, skipping if no usable handle comes back or
-// every candidate collides with an existing agent. Detached context (the request
-// is already answered) and best-effort — a missing name never blocks the spawn.
-func (s *Server) nameAndUpdate(id, prompt string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	name := s.life.GenerateName(ctx, prompt)
-	if name == "" {
+// prepareSpawnName fills req.Name synchronously when the caller left it empty.
+// Role conventions (AP:/wkr:/brain:/<pipe>:<stage>), prompt resolution via the
+// fast-tier NameRunner, and adjective-noun codenames are tried in order; auto
+// names are disambiguated against active sessions so they never 409.
+func (s *Server) prepareSpawnName(ctx context.Context, req *SpawnRequest) {
+	if req == nil || strings.TrimSpace(req.Name) != "" {
 		return
 	}
-	name = s.uniqueName(ctx, name, id)
-	if name == "" {
-		return // could not find a free variant; leave the agent unnamed
-	}
-	if err := s.store.Update(ctx, id, func(sess *agentstore.Agent) error {
-		sess.Name = name
-		return nil
-	}); err != nil {
-		slog.Warn("name update failed", "agent", id, "err", err)
-		return
-	}
-	s.notify()
+	req.Name = agentname.ResolveSpawnName(ctx, spawnNameInput(*req), s.nameRunner(), s.existingAgentNames(ctx))
 }
 
-// uniqueName returns name — or a numeric-suffixed variant — that no session other
-// than selfID currently uses, or "" when no free variant is found. The store
-// rejects duplicate names; this keeps an auto-generated handle from colliding with
-// one an operator already chose.
-func (s *Server) uniqueName(ctx context.Context, name, selfID string) string {
+func (s *Server) existingAgentNames(ctx context.Context) map[string]bool {
+	taken := map[string]bool{}
+	if s.store == nil {
+		return taken
+	}
 	sessions, err := s.store.List(ctx)
 	if err != nil {
-		return name // best-effort: skip the collision check rather than drop the name
+		return taken
 	}
-	taken := map[string]bool{}
 	for _, sess := range sessions {
-		if sess.ID != selfID && sess.Name != "" {
+		if sess.Name != "" {
 			taken[sess.Name] = true
 		}
 	}
-	if !taken[name] {
-		return name
-	}
-	for i := 2; i <= 9; i++ {
-		if cand := suffixName(name, i); !taken[cand] {
-			return cand
-		}
-	}
-	return ""
+	return taken
 }
 
-// suffixName appends "-n" to a generated handle, trimming the base first so the
-// result still fits the 32-char stored-name limit. name is ASCII (kebab-case),
-// so byte length equals rune length here.
-func suffixName(name string, n int) string {
-	suffix := "-" + strconv.Itoa(n)
-	if len(name)+len(suffix) > 32 {
-		name = strings.TrimRight(name[:32-len(suffix)], "-")
+func (s *Server) nameRunner() agentname.BackendRunner {
+	if s.promptNamer != nil {
+		return s.promptNamer
 	}
-	return name + suffix
+	if s.life == nil {
+		return nil
+	}
+	// Prefer a lifecycle-backed runner when the adapter exposes one; otherwise
+	// ResolvePromptName falls back to GenerateCodename (never blocks spawn).
+	if r, ok := s.life.(interface {
+		NameRunner() agentname.BackendRunner
+	}); ok {
+		return r.NameRunner()
+	}
+	return nil
+}
+
+func spawnNameInput(req SpawnRequest) agentname.SpawnNameInput {
+	planSlug := ""
+	ticket := strings.TrimSpace(req.Ticket)
+	if strings.HasSuffix(ticket, "-autopilot") {
+		planSlug = strings.TrimSuffix(ticket, "-autopilot")
+	}
+	if planSlug == "" {
+		planSlug = strings.TrimSpace(req.PlanID)
+	}
+	return agentname.SpawnNameInput{
+		Explicit: req.Name,
+		Role:     req.Role,
+		Prompt:   req.Prompt,
+		PlanSlug: planSlug,
+		// AutopilotTaskID only — Task is the tier-routing registry name.
+		TaskID:   req.AutopilotTaskID,
+		TargetID: firstNonEmpty(req.ParentID, req.Ticket),
+	}
 }
 
 // liveStatus reports whether the stored status implies the agent may still be

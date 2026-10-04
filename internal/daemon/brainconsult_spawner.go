@@ -34,6 +34,8 @@ func (a brainConsultSpawner) Spawn(ctx context.Context, args brainconsult.BrainS
 		Backend: args.Backend,
 		Tags:    args.Tags,
 	}
+	// brainConsultSpawner has no Server; lifecycle.Spawn assigns a name when
+	// empty (role convention → prompt → codename).
 	sess, err := a.life.Spawn(ctx, req)
 	if err != nil {
 		return nil, err

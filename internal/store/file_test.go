@@ -571,7 +571,9 @@ func TestFileInsertInvalidNameFormat(t *testing.T) {
 		{"wkr:task-1", nil},
 		{"brain:target", nil},
 		{"O:plan-execution-entity-redesign", nil},
-		{"X:bad-prefix", ErrInvalidName},
+		{"X:ok-prefix", nil}, // any letter-led short prefix is allowed (<pipe>:<stage>)
+		{"demo:analyze", nil},
+		{"1:digit-prefix", ErrInvalidName}, // prefix must start with a letter
 		{"O:", ErrInvalidName},
 		{"O:has space", ErrInvalidName},
 	}

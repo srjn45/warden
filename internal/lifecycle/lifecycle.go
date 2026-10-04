@@ -817,6 +817,10 @@ type Lifecycle struct {
 	// then headless Claude. The daemon always wires it, so production internal
 	// thinking is strictly free/local.
 	Internal InternalThinker
+	// NameRunner is the optional fast-tier subscription AI CLI used by
+	// assignSpawnName / assignJobName to derive prompt-based agent names
+	// (agentname.ResolvePromptName). Nil falls back to adjective-noun codenames.
+	NameRunner NameRunner
 	// SavingsHook, when set, is called by the LLM-offload sites (Classify/Summarize/
 	// GenerateName/commit-message) when a responsibility is served by the local
 	// model instead of warden's own Claude — with the prompt tokens that never
@@ -945,6 +949,10 @@ type SpawnRequest struct {
 	AutopilotRunID   string                 // owning ap- run id (autopilot back-ref)
 	AutopilotSlot    string                 // autopilot | guardian | worker
 	AutopilotTaskID  string                 // plan task id (workers only)
+	// ExistingNames lists names already taken by active agents. When non-nil,
+	// auto-generated names are disambiguated against it (never 409). Explicit
+	// caller names ignore this map — collisions stay the caller's 409.
+	ExistingNames map[string]bool
 
 	// Fork fields (codex fork superpower, #52). Set by the daemon adapter when a
 	// spawn carries fork_from: the adapter (which owns the store) resolves the
@@ -1598,6 +1606,10 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*agentstore.Ag
 	if _, err := resolveRole(&req); err != nil {
 		return nil, err
 	}
+	// Mandatory name: every agent leaves Spawn with a non-empty, store-valid
+	// name. Explicit names are kept; otherwise role convention → prompt
+	// resolver → codename, with Disambiguate for auto names.
+	l.assignSpawnName(ctx, &req)
 	// Managed when Type is set, ForkFrom is set (repo resolved adapter-side), or
 	// a worktree-owning role (worker) has a Repo. Worker+Cwd-only stays free-form
 	// (master-shell quick spawn).
@@ -2478,6 +2490,9 @@ type JobSpawnRequest struct {
 	Tags             []string               // labels stamped on the job's session (e.g. inherited autopilot ownership tags)
 	ScheduleID       string                 // origin schedule (set when the pipeline was schedule-fired); empty otherwise
 	ScheduleName     string                 // origin schedule's display name; empty otherwise
+	// ExistingNames lists names already taken by active agents for
+	// auto-disambiguation of pipeline stage names.
+	ExistingNames map[string]bool
 }
 
 // exitSuffix ensures ExitsDir exists, clears any stale exit-file for id (from a
@@ -2697,7 +2712,7 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*agentst
 	}
 	agent := &agentstore.Agent{
 		ChildAgents: []string{}, ChildPipelines: []string{}, ChildAutopilots: []string{},
-		ID: id, TmuxSession: id, Type: req.Type, Repo: req.Repo,
+		ID: id, TmuxSession: id, Name: l.assignJobName(ctx, req), Type: req.Type, Repo: req.Repo,
 		Prompt: req.Prompt, Subject: firstWords(req.Prompt, 10),
 		Status: store.StatusSpawning, PermissionMode: req.PermissionMode,
 		ExecutionProfile: stampSpawnExecutionProfile(req.ExecutionProfile),
