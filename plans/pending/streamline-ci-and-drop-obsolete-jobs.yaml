@@ -1,0 +1,41 @@
+version: 1
+name: streamline-ci-and-drop-obsolete-jobs
+goal: >-
+  Optimize CI workflow by switching Go tests to ubuntu-latest, streamlining release build to ubuntu-only,
+  removing obsolete distro-smoke container testing, verifying CI on PR, and merging to main.
+constraints:
+  - "Work in an isolated branch/worktree off origin/main; one worker per task."
+  - "Keep the tree green — run make verify-fast and go test ./... before committing."
+  - "Ensure .github/workflows/ci.yml syntax is valid."
+done_when:
+  - ".github/workflows/ci.yml runs test-go on ubuntu-latest without Homebrew overhead."
+  - "build job runs on ubuntu-latest only (macOS matrix removed)."
+  - "distro-smoke job is removed completely from .github/workflows/ci.yml."
+  - "Stale comment in internal/backendusage/cursor_test.go is updated."
+  - "Pull request is opened, passes the optimized CI, and is merged into main."
+tasks:
+  - id: Task1_UpdateCIWorkflowAndCleanup
+    prompt: >-
+      Apply the CI optimizations and local test cleanups:
+      1) In .github/workflows/ci.yml:
+         - Change `test-go` from `runs-on: macos-latest` to `runs-on: ubuntu-latest`.
+         - Remove `- name: Install tmux / run: brew install tmux` (pre-installed on ubuntu runners).
+         - In `build`, remove `strategy: matrix: os: [ubuntu-latest, macos-latest]`, set `runs-on: ubuntu-latest`, and rename to `Release build`.
+         - Delete the entire `distro-smoke` job (lines 115-142).
+      2) In internal/backendusage/cursor_test.go:
+         - Update stale comment around line 257 to reference general GOOS auth path testing.
+      3) Validate:
+         - Run `make verify-fast` and `go test ./...` to confirm everything passes locally.
+      4) Commit on dedicated branch `ci/streamline-and-drop-distro-smoke`.
+
+  - id: Task2_OpenPRAndVerifyCI
+    after:
+      - Task1_UpdateCIWorkflowAndCleanup
+    prompt: >-
+      Open Pull Request, monitor the new streamlined CI, and merge into main:
+      1) Push branch `ci/streamline-and-drop-distro-smoke` to origin.
+      2) Open PR against `main` using `gh pr create`:
+         - Title: `ci: switch Go tests to ubuntu, drop distro smoke and macos build matrix`
+         - Body: Detail the removal of obsolete distro-smoke (package managers deprecated), dropping expensive macos-latest runner from build matrix, switching test-go to ubuntu-latest (no brew install overhead), and the resulting ~80% CI minute savings.
+      3) Watch CI checks using `gh pr checks --watch` until all status checks pass green.
+      4) Merge the PR into `main` using `gh pr merge --squash --delete-branch`.
