@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"github.com/spf13/cobra"
+
+	"github.com/srjn45/warden/internal/tui"
 )
 
 // banner is the ASCII wordmark shown at the top of `warden --help`.
@@ -227,6 +229,7 @@ func newRootCmd() *cobra.Command {
 	var rootTmuxNative bool
 	root.Flags().BoolVar(&rootTmuxNative, "tmux-native", false, "lay the cockpit out as a native tmux window in the current session instead of a nested tmux (auto-enabled when launched inside tmux; requires $TMUX)")
 	root.RunE = func(cmd *cobra.Command, args []string) error {
+		tui.SetLocalVersion(version)
 		return runCockpit(clientFor(cmd), cockpitTmuxNative(cmd, rootTmuxNative))
 	}
 	return root

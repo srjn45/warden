@@ -72,6 +72,8 @@ type fakeAPI struct {
 	digestErr        error
 	pressure         client.PressureStatus
 	pressureErr      error
+	health           client.HealthStatus
+	healthErr        error
 	ctxEntries       []client.ContextEntry
 	ctxListErr       error
 	messages         []client.Message
@@ -242,6 +244,9 @@ func (f *fakeAPI) Digest(_ context.Context, _ string) (*digest.Digest, error) {
 }
 func (f *fakeAPI) Pressure(context.Context) (client.PressureStatus, error) {
 	return f.pressure, f.pressureErr
+}
+func (f *fakeAPI) Health(context.Context) (client.HealthStatus, error) {
+	return f.health, f.healthErr
 }
 func (f *fakeAPI) CtxList(_ context.Context, _ string) ([]client.ContextEntry, error) {
 	return f.ctxEntries, f.ctxListErr

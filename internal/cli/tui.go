@@ -23,6 +23,7 @@ func newTUICmd() *cobra.Command {
 				return rebuildWebCockpitSession()
 			}
 			a := clientFor(cmd)
+			tui.SetLocalVersion(version)
 			switch pane {
 			case "control":
 				return tui.RunControlPane(a, agentPane, terminalPane, killWindow)

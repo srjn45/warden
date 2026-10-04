@@ -65,6 +65,8 @@ func helpText() string {
 		"               closing a project hibernates it — its agents are restored on reopen)\n" +
 		"  D            delete a stopped pipeline's record (confirm y/N)\n" +
 		"  ctrl+a       toggle autopilot on/off (run `warden autopilot init` first if not configured)\n" +
+		"  u            apply a pending warden update (footer chip) then hot-reload the TUI in place\n" +
+		"  r            reload the TUI after an external upgrade (footer chip); otherwise restore/retry\n" +
 		"  ?            toggle this help\n" +
 		"  q            quit\n" +
 		"\n" +
