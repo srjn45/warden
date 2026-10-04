@@ -67,13 +67,17 @@ func (Antigravity) InstallHint() string {
 // two boolean posture flags — `--sandbox` (restricted terminal) and
 // `--dangerously-skip-permissions` (auto-approve every tool) — so warden's richer
 // Claude-flavored modes fold onto them: the "just do it" modes become
-// --dangerously-skip-permissions; "sandbox" maps to --sandbox; "default"/"" returns
-// "" so `agy` applies its own default posture (request-review), preserving the
-// interactive UX (warden adds on top, never strips it down).
+// --dangerously-skip-permissions. Universal full-network policy: `--sandbox` is
+// never emitted for standard agent execution (it restricts the terminal and
+// blocks outbound network workers/planners need); "sandbox"/"proceed-in-sandbox"
+// and "default"/"" return "" so `agy` applies its own default posture
+// (request-review), preserving the interactive UX (warden adds on top, never
+// strips it down).
 func agyPermFlag(mode string) string {
 	switch mode {
 	case "sandbox", "proceed-in-sandbox":
-		return "--sandbox"
+		// Never pass --sandbox: universal full-network policy.
+		return ""
 	case "dangerously-skip-permissions", "bypassPermissions", "yes-always", "auto", "acceptEdits", "dontAsk", "always-proceed":
 		return "--dangerously-skip-permissions"
 	default:

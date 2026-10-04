@@ -195,7 +195,7 @@ func TestSpawnTypedLaunchIncludesExecutionProfile(t *testing.T) {
 		Prompt: "implement execution profile",
 	})
 	require.NoError(t, err)
-	require.Equal(t, store.NetworkLoopback, s.ExecutionProfile.Network)
+	require.Equal(t, store.NetworkFull, s.ExecutionProfile.Network)
 
 	var launch string
 	for _, c := range fr.Calls {
@@ -224,7 +224,7 @@ func TestSpawnTypedLaunchIncludesExecutionProfile(t *testing.T) {
 		ForkSourceBranch: "feat/src",
 	})
 	require.NoError(t, err)
-	require.Equal(t, store.NetworkLoopback, forked.ExecutionProfile.Network)
+	require.Equal(t, store.NetworkFull, forked.ExecutionProfile.Network)
 	var forkLaunch string
 	for _, c := range forkFR.Calls {
 		if len(c.Argv) >= 5 && c.Argv[0] == "tmux" && c.Argv[1] == "send-keys" && c.Argv[3] == forked.ID {
@@ -1133,7 +1133,7 @@ func TestRestoreRecreatesAndResumes(t *testing.T) {
 }
 
 // TestRestoreLaunchIncludesExecutionProfile: Restore → ResumeCmd launch line
-// includes the profile translation (Cursor --sandbox from loopback stamp).
+// includes the profile translation (Cursor --sandbox disabled from full stamp).
 func TestRestoreLaunchIncludesExecutionProfile(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"tmux has-session -t agent-cursor-r": {Err: errStub("no session")},
@@ -1143,11 +1143,11 @@ func TestRestoreLaunchIncludesExecutionProfile(t *testing.T) {
 	sess := &agentstore.Agent{
 		ID: "agent-cursor-r", TmuxSession: "agent-cursor-r", AiCli: "cursor",
 		Workdir: t.TempDir(),
-		// empty profile → stamp loopback at restore
+		// empty profile → stamp full at restore
 	}
 
 	require.NoError(t, lc.Restore(context.Background(), sess))
-	require.Equal(t, store.NetworkLoopback, sess.ExecutionProfile.Network)
+	require.Equal(t, store.NetworkFull, sess.ExecutionProfile.Network)
 
 	var launch string
 	for _, c := range fr.Calls {
@@ -1158,7 +1158,7 @@ func TestRestoreLaunchIncludesExecutionProfile(t *testing.T) {
 	}
 	require.NotEmpty(t, launch, "expected resume send-keys")
 	require.Contains(t, launch, "cursor-agent --continue")
-	require.Contains(t, launch, "--sandbox enabled")
+	require.Contains(t, launch, "--sandbox disabled")
 }
 
 func TestRestorePreconditionErrors(t *testing.T) {
@@ -1201,7 +1201,7 @@ func TestRestoreAllowsResumeWithoutStructuredTranscript(t *testing.T) {
 
 	require.Empty(t, lc.transcriptPath(sess), "Cursor has no structured transcript path")
 	require.NoError(t, lc.Restore(context.Background(), sess))
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "agent-cursor", "cursor-agent --continue -f --sandbox enabled", "Enter"})
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "agent-cursor", "cursor-agent --continue -f --sandbox disabled", "Enter"})
 }
 
 // SwitchRole shares Restore's transcript precondition: Cursor's resumable
@@ -1223,7 +1223,7 @@ func TestSwitchRoleAllowsResumeWithoutStructuredTranscript(t *testing.T) {
 		fr.callIndex("tmux kill-session -t agent-cursor"),
 		"SwitchRole must list clients before killing session via Host.KillSession",
 	)
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "agent-cursor", "cursor-agent --continue -f --sandbox enabled", "Enter"})
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "agent-cursor", "cursor-agent --continue -f --sandbox disabled", "Enter"})
 }
 
 // Restore is the shared resume primitive: internal relaunch paths (auto-restart

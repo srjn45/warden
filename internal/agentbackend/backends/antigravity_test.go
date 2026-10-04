@@ -30,9 +30,9 @@ func TestAntigravityLaunchCmd(t *testing.T) {
 			want: "agy --model 'Gemini 3.5 Flash (Low)'",
 		},
 		{
-			name: "sandbox mode maps to --sandbox",
+			name: "sandbox mode does not emit --sandbox (universal full network)",
 			opts: agentbackend.LaunchOpts{Model: "m", Mode: "sandbox"},
-			want: "agy --model 'm' --sandbox",
+			want: "agy --model 'm'",
 		},
 		{
 			name: "dangerously-skip-permissions passes through",

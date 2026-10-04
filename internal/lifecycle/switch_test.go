@@ -262,12 +262,12 @@ func requireNewSessionInWorkdir(t *testing.T, fr *FakeRunner, id, workdir string
 	t.Fatalf("no `tmux new-session -s %s … -c %s` recorded", id, workdir)
 }
 
-// TestLegacyRecordEmptyProfileHotSwapCursorToCodexEmitsLoopback is the incident:
+// TestLegacyRecordEmptyProfileHotSwapCursorToCodexEmitsFull is the incident:
 // empty PermissionMode, Cursor→Codex HotSwap must emit sandbox_workspace_write
-// network_access without requiring -s danger-full-access.
-func TestLegacyRecordEmptyProfileHotSwapCursorToCodexEmitsLoopback(t *testing.T) {
+// network_access without requiring -s danger-full-access (universal full network).
+func TestLegacyRecordEmptyProfileHotSwapCursorToCodexEmitsFull(t *testing.T) {
 	lc, fr, sess := newSwapLC(t)
-	// Use "default" (not "auto") so Codex omits -s and loopback is expressed via
+	// Use "default" (not "auto") so Codex omits -s and full network is expressed via
 	// -c network_access — matching the empty-Mode incident shape.
 	lc.SetConfig(&FakeConfig{PermissionMode: "default"})
 	sess.AiCli = "cursor"
@@ -281,10 +281,10 @@ func TestLegacyRecordEmptyProfileHotSwapCursorToCodexEmitsLoopback(t *testing.T)
 	launch := swapLaunchLine(t, fr, sess.ID)
 	require.Contains(t, launch, "sandbox_workspace_write.network_access")
 	require.NotContains(t, launch, "danger-full-access")
-	require.Equal(t, store.NetworkLoopback, sess.ExecutionProfile.Network, "legacy empty must stamp loopback")
+	require.Equal(t, store.NetworkFull, sess.ExecutionProfile.Network, "legacy empty must stamp full")
 	body, err := os.ReadFile(filepath.Join(sess.Workdir, ".warden", "handoff-agent-swap1.md"))
 	require.NoError(t, err)
-	require.Contains(t, string(body), "Execution profile: network=loopback")
+	require.Contains(t, string(body), "Execution profile: network=full")
 }
 
 // TestHotSwapPreservesPinnedNetworkNone: a pinned Network=none must not emit

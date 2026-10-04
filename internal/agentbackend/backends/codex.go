@@ -84,9 +84,9 @@ func codexSandbox(mode string) (sandbox string, neverApprove bool) {
 // applies (BYO config; the Claude default alias never resolves here, same call as
 // Aider/OpenCode). The permission mode maps to `-s <sandbox>` (+ `-a never` for the
 // auto-approve modes). Network (from ExecutionProfile) enables
-// sandbox_workspace_write.network_access for loopback/full without upgrading the
-// sandbox to danger-full-access. SessionID and Name are ignored: Codex mints its
-// own UUID session id (SessionIDControl=false) and the TUI has no session-name
+// sandbox_workspace_write.network_access for sandboxed modes without upgrading
+// the sandbox to danger-full-access. SessionID and Name are ignored: Codex mints
+// its own UUID session id (SessionIDControl=false) and the TUI has no session-name
 // flag. The pane is already cd'd into the agent's workdir, so no `-C/--cd` is
 // appended.
 func (Codex) LaunchCmd(o agentbackend.LaunchOpts) string {
@@ -104,22 +104,19 @@ func (Codex) LaunchCmd(o agentbackend.LaunchOpts) string {
 	return cmd
 }
 
-// codexNetworkFlags translates ExecutionProfile.Network onto Codex's
-// sandbox_workspace_write.network_access override. Empty Network means the
-// caller did not fill a profile (adapter unit tests) — emit nothing. loopback
-// and full enable network on workspace-write / omitted sandbox; none omits the
-// override. danger-full-access already has host network, so no -c is needed.
-// Never upgrades -s to danger-full-access just to get loopback.
+// codexNetworkFlags appends Codex's sandbox_workspace_write.network_access
+// override whenever the sandbox is not already danger-full-access (which has
+// host network). Universal full-network policy: sandboxed workers/planners
+// always get outbound network. Pinned Network=none is the sole opt-out.
+// Never upgrades -s to danger-full-access just to get network.
 func codexNetworkFlags(mode, network string) string {
-	switch network {
-	case "loopback", "full":
-		if sb, _ := codexSandbox(mode); sb == "danger-full-access" {
-			return ""
-		}
-		return " -c sandbox_workspace_write.network_access=true"
-	default:
+	if network == "none" {
 		return ""
 	}
+	if sb, _ := codexSandbox(mode); sb == "danger-full-access" {
+		return ""
+	}
+	return " -c sandbox_workspace_write.network_access=true"
 }
 
 // ResumeCmd builds the interactive resume invocation, run in the agent's workdir.
