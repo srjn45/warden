@@ -417,8 +417,7 @@ export async function controlAutopilotRun(runID: string, action: 'start'|'pause'
 //
 // The agent-backend registry is warden's source of truth for which backend CLIs
 // exist, their billing tier, which one is the default, and whether each is
-// enabled — plus a store-level settings singleton (internal-thinking routing
-// mode). These mirror the daemon's Backend / BackendSettings / BackendsState
+// enabled — plus a store-level settings singleton. These mirror the daemon's Backend / BackendSettings / BackendsState
 // schemas exactly.
 
 // Backend is one row of the registry. Detection fields (installed / binary_path
@@ -441,7 +440,7 @@ export interface Backend {
 // BackendSettings is the store-level policy singleton.
 export interface BackendSettings {
   id: string;
-  internal_thinking_mode: string; // local_only | free_plus_local
+  internal_thinking_mode?: string; // legacy; no longer user-controlled from the web UI
   allow_paid_autopilot: boolean;
 }
 
@@ -475,18 +474,6 @@ export async function setDefaultBackend(id: string): Promise<BackendsState> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id }),
   })));
-}
-
-// setThinkingMode sets the internal-thinking routing mode (PUT
-// /backends/thinking-mode): 'local_only' keeps warden's own thinking on the $0
-// local model; 'free_plus_local' prefers free cloud backends. Returns the
-// updated settings.
-export async function setThinkingMode(mode: string): Promise<BackendSettings> {
-  return parse<BackendSettings>(await apiFetch('/backends/thinking-mode', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mode }),
-  }));
 }
 
 // patchBackend updates one backend's tier and/or enabled flag (PATCH

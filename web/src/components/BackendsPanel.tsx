@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  listBackends, rescanBackends, setDefaultBackend, setThinkingMode, patchBackend,
+  listBackends, rescanBackends, setDefaultBackend, patchBackend,
   ApiError, type Backend, type BackendsState,
 } from '../lib/api';
 import BackendLogo from './BackendLogo';
@@ -18,8 +18,7 @@ const TIER_LABEL: Record<string, string> = {
 
 // BackendsPanel is the agent-backend registry settings surface (spec §9): a
 // table of detected backends with a per-row tier dropdown, a single-choice
-// default radio, and an enable toggle, plus a thinking-mode selector and a
-// Rescan button. Opens from the "🧩 backends" button in the AttentionBar and
+// default radio, and an enable toggle, plus a Rescan button. Opens from the "🧩 backends" button in the AttentionBar and
 // mirrors the TUI Backends page. Every mutation goes through the Stage-2 daemon
 // endpoints and re-lists so the whole table stays coherent.
 export default function BackendsPanel({ onClose }: { onClose: () => void }) {
@@ -64,7 +63,6 @@ export default function BackendsPanel({ onClose }: { onClose: () => void }) {
   }, []);
 
   const backends = state?.backends ?? [];
-  const mode = state?.settings.internal_thinking_mode ?? 'local_only';
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -74,20 +72,8 @@ export default function BackendsPanel({ onClose }: { onClose: () => void }) {
           <button className="context-drawer-close" title="Close" onClick={onClose}>✕</button>
         </header>
 
-        {/* Header controls: internal-thinking mode selector + rescan. */}
+        {/* Header controls: rescan. */}
         <div className="backends-controls">
-          <label className="backends-mode">
-            <span>Internal thinking</span>
-            <select
-              value={mode}
-              disabled={busy || state == null}
-              onChange={(e) => mutate(() => setThinkingMode(e.target.value))}
-              aria-label="Internal thinking mode"
-            >
-              <option value="local_only">Local only</option>
-              <option value="free_plus_local">Free + local</option>
-            </select>
-          </label>
           <button
             className="backends-rescan"
             disabled={busy}
@@ -128,11 +114,6 @@ export default function BackendsPanel({ onClose }: { onClose: () => void }) {
           </div>
         )}
 
-        <p className="muted backends-foot">
-          The <strong>local</strong> row is the reserved $0 model — its tier is system-set
-          and it can never be the default. Internal-thinking mode routes warden's own
-          (non-user-facing) thinking.
-        </p>
       </div>
     </div>
   );

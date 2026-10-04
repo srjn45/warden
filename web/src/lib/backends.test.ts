@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
-  listBackends, rescanBackends, setDefaultBackend, setThinkingMode, patchBackend,
+  listBackends, rescanBackends, setDefaultBackend, patchBackend,
   ApiError, type Backend,
 } from './api';
 
@@ -67,17 +67,6 @@ describe('backends api', () => {
       jsonResponse({ error: 'local cannot be the default backend' }, 400),
     ));
     await expect(setDefaultBackend('local')).rejects.toBeInstanceOf(ApiError);
-  });
-
-  it('setThinkingMode PUTs the mode to /backends/thinking-mode', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ...SETTINGS, internal_thinking_mode: 'free_plus_local' }));
-    vi.stubGlobal('fetch', fetchMock);
-    const out = await setThinkingMode('free_plus_local');
-    const [url, opts] = fetchMock.mock.calls[0];
-    expect(url).toBe('/api/v1/backends/thinking-mode');
-    expect(opts.method).toBe('PUT');
-    expect(JSON.parse(opts.body)).toEqual({ mode: 'free_plus_local' });
-    expect(out.internal_thinking_mode).toBe('free_plus_local');
   });
 
   it('patchBackend PATCHes the tier to /backends/{id}', async () => {
