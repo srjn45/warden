@@ -151,12 +151,9 @@ func newInsightsCmd() *cobra.Command {
 				return err
 			}
 
-			// Narration is opt-in via local_llm, mirroring the digest narrator: a nil
-			// completer means deterministic-only, which Narrate handles.
+			// The local model is retired: a nil completer means deterministic-only,
+			// which Narrate handles.
 			var comp llm.Completer
-			if cfg.GetLocalLLM() {
-				comp = llm.NewOllama(cfg.LocalLLM.URL, cfg.LocalLLM.Model, cfg.LocalLLMTimeoutDuration())
-			}
 
 			r, narration, err := runInsights(cmd.Context(), clientFor(cmd), comp,
 				client.InsightsParams{Since: since, HistoryLimit: limit}, session)
