@@ -17,13 +17,13 @@ import (
 func TestGitCheckNamespaceCanonicalAndCompatibilityPaths(t *testing.T) {
 	root := newRootCmd()
 	gitPairs := map[string]string{
-		"git commit": "commit", "git push": "push", "git sync": "sync", "git review": "review",
+		"git commit": "commit", "git push": "push", "git sync": "sync", "git review": "review", "git release": "release",
 		"git guard": "hook git-guard",
 	}
 	checkPairs := map[string]string{
 		"check guard": "hook check-guard", "check boundary": "hook guard", "check root-guard": "hook root-guard",
 	}
-	permanent := map[string]bool{"commit": true, "push": true, "sync": true, "check": true}
+	permanent := map[string]bool{"commit": true, "push": true, "sync": true, "check": true, "release": true}
 	for canonical, legacy := range gitPairs {
 		assertCanonicalAliasPair(t, root, canonical, legacy, permanent[legacy])
 	}
