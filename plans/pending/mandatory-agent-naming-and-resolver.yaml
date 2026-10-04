@@ -1,0 +1,114 @@
+version: 1
+name: mandatory-agent-naming-and-resolver
+goal: >-
+  Enforce mandatory agent names across Warden so no agent has an empty name, resolve prompt-driven
+  agent names synchronously using fast-tier subscription AI CLIs (with a 1.5s timeout and strict kebab-case constraints),
+  provide an adjective-noun memorable codename generator for prompt-less agents and offline fallback,
+  apply standardized naming conventions for autopilot/pipeline/workers, and ensure auto-disambiguation on name collisions.
+constraints:
+  - "Work in an isolated git worktree branched off origin/main or the plan integration branch; one worker per task."
+  - "Keep the tree green — run `wd check` (or make verify-fast) before every commit/push."
+  - "Agent name must never be empty in agentstore/ScrivaDB; ValidateName must reject empty strings on direct input."
+  - "Subscription AI CLI resolution must have a strict 1.5s timeout with immediate fallback to adjective-noun codenames."
+  - "Auto-generated names must never fail spawn with 409 Conflict; auto-disambiguate with numerical suffixes (-2, -3)."
+  - "Explicit user-supplied names that collide still return 409 Conflict."
+  - "Open PRs against autopilot/mandatory-agent-naming-and-resolver (never main)."
+  - "End each task with `wd job done --summary '...'` once the PR is up and gate is green."
+done_when:
+  - "All unit and integration tests pass: go test ./internal/agentname/... ./internal/store/... ./internal/daemon/... ./internal/lifecycle/... ./internal/tui/..."
+  - "Every agent spawned without an explicit name receives a valid, non-empty name."
+  - "Prompt-driven spawns resolve a 2-4 word kebab-case name via subscription fast-tier AI CLI within 1.5s."
+  - "Prompt-less spawns receive a clean adjective-noun codename (e.g. swift-falcon)."
+  - "Autopilot managers and workers follow standardized conventions (AP:<plan>, wkr:<task>)."
+  - "TUI displays the agent name cleanly in the first column without any muted dashes (—)."
+  - "A final integration Pull Request is opened against main with all checks green."
+tasks:
+  - id: Task1_CodenameGeneratorAndValidation
+    prompt: >-
+      Implement the adjective-noun codename generator and mandatory name validation:
+      1) In internal/agentname/codename.go:
+         - Create a curated, clean list of ~100 distinct adjectives and ~100 distinct animals/nouns.
+         - Implement `GenerateCodename() string` producing slugs like `swift-falcon`, `amber-badger`, `quiet-stream`.
+         - Ensure generated names conform to store.ValidateName (lowercase alphanumeric + hyphens, <= 32 chars).
+      2) In internal/store/file.go:
+         - Update `ValidateName(name string)` to reject empty names (`ErrEmptyName`).
+         - Ensure `planExecutorNamePattern` accommodates role conventions (`AP:`, `mgr:`, `wkr:`, `brain:`).
+      3) In internal/agentname/disambiguate.go:
+         - Implement `Disambiguate(candidate string, existingNames map[string]bool) string` which appends `-2`, `-3` etc.
+      4) Add unit tests in internal/agentname/codename_test.go and internal/store/file_test.go.
+      Ensure `go test ./internal/agentname/... ./internal/store/...` passes.
+      Open a PR against autopilot/mandatory-agent-naming-and-resolver and end with `wd job done --summary 'feat(agentname): adjective-noun codename generator and mandatory name validation'`.
+
+  - id: Task2_FastTierBrainNameResolver
+    after:
+      - Task1_CodenameGeneratorAndValidation
+    prompt: >-
+      Implement the synchronous fast-tier subscription AI CLI name resolver:
+      1) In internal/agentname/resolver.go:
+         - Implement `ResolvePromptName(ctx context.Context, prompt string, runner BackendRunner) (string, error)`:
+           - Sets a strict 1.5-second timeout on ctx.
+           - Invokes the active subscription AI CLI on the `fast` tier (e.g. Claude Haiku, Gemini Flash, GPT-4o-mini).
+           - Injects strict one-shot prompt: "Given this user task prompt, output ONLY a concise kebab-case slug of 2 to 4 words (maximum 20 characters, lowercase letters and hyphens only). Do not include any explanations, markdown ticks, or punctuation."
+           - Cleans, strips, and sanitizes output (removes quotes, backticks, spaces to hyphens, trims to 20 chars).
+           - If resolution fails, times out, or produces invalid output, falls back to `GenerateCodename()`.
+      2) Add comprehensive unit tests in internal/agentname/resolver_test.go mocking the runner, verifying:
+         - Valid 2-4 word kebab-case output parsing.
+         - Stripping markdown backticks and conversational prefixes.
+         - Timeout fallback to adjective-noun.
+         - Network/CLI error fallback to adjective-noun.
+      Ensure `go test ./internal/agentname/...` passes.
+      Open a PR against autopilot/mandatory-agent-naming-and-resolver and end with `wd job done --summary 'feat(agentname): fast-tier subscription ai cli prompt name resolver'`.
+
+  - id: Task3_DaemonLifecycleSpawnIntegration
+    after:
+      - Task2_FastTierBrainNameResolver
+    prompt: >-
+      Integrate mandatory name resolution into daemon spawn lifecycle:
+      1) In internal/daemon/lifecycle_routes.go and internal/lifecycle/lifecycle.go:
+         - When handling agent spawn:
+           a) If `req.Name` is explicitly provided by caller: validate with `store.ValidateName`, check uniqueness (409 on collision).
+           b) If `req.Name` is empty and `req.Role` is an autopilot/pipeline role: assign standard naming:
+              - Autopilot Manager: `AP:<plan-slug>` or `mgr:<plan-slug>`
+              - Autopilot Worker: `wkr:<task-id>`
+              - Brain Consult: `brain:<target-id>`
+              - Pipeline Stage: `<pipe>:<stage>`
+           c) If `req.Name` is empty and `req.Prompt` is non-empty: invoke `ResolvePromptName(ctx, req.Prompt)`.
+           d) If `req.Name` is empty and `req.Prompt` is empty: invoke `GenerateCodename()`.
+           e) Run `Disambiguate` on auto-generated names against active sessions so auto-names never fail with 409.
+      2) Update OpenAPI spec in internal/daemon/apidocs/openapi.yaml if needed and run make generate.
+      3) Add route tests in internal/daemon/lifecycle_routes_test.go verifying prompt-based naming, prompt-less naming, and collision disambiguation.
+      Ensure `go test ./internal/daemon/... ./internal/lifecycle/...` passes.
+      Open a PR against autopilot/mandatory-agent-naming-and-resolver and end with `wd job done --summary 'feat(lifecycle): automatic agent name resolution on spawn'`.
+
+  - id: Task4_CLIAndTUIParity
+    after:
+      - Task3_DaemonLifecycleSpawnIntegration
+    prompt: >-
+      Ensure CLI and TUI cleanly reflect mandatory agent names:
+      1) In internal/cli/spawn.go:
+         - Update stdout messages to display the assigned name: `spawned agent <id> (<name>)`.
+      2) In internal/tui/list.go:
+         - Remove muted dash (`—`) placeholder since names are now strictly mandatory.
+         - Ensure the 16-char name column renders cleanly for all agents.
+         - Verify the rename option in the agent info panel continues to work seamlessly with the new validation rules.
+      3) Add tests in internal/cli/ and internal/tui/ verifying name rendering and CLI output.
+      Ensure `go test ./internal/cli/... ./internal/tui/...` passes.
+      Open a PR against autopilot/mandatory-agent-naming-and-resolver and end with `wd job done --summary 'feat(cli,tui): display mandatory resolved agent names cleanly'`.
+
+  - id: Task5_E2EVerificationAndFinalPR
+    after:
+      - Task4_CLIAndTUIParity
+    prompt: >-
+      Perform end-to-end verification, documentation updates, and open the final PR:
+      1) Run full test suites:
+         `go test ./...`
+         `make verify-fast` (or `wd check`)
+      2) Perform end-to-end verification against local daemon:
+         - Spawn without prompt: `wd spawn` -> verify adjective-noun name assigned (e.g. `swift-falcon`).
+         - Spawn with prompt: `wd spawn -p "Fix memory leak in websocket listener"` -> verify fast-tier subscription AI CLI resolves clean name (e.g. `ws-leak-fix`).
+         - Spawn duplicate auto-name -> verify disambiguated without 409.
+         - Check TUI hierarchy -> verify no muted dashes, all agents named.
+      3) Update documentation:
+         - Update docs/ and README.md describing the automatic naming conventions and subscription AI CLI resolver.
+      4) Open the final integration Pull Request against `main`.
+      End with `wd job done --summary 'chore: e2e verification, documentation, and final PR for mandatory agent naming'`.
