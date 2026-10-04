@@ -30,6 +30,7 @@ package daemon
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -358,7 +359,9 @@ func TestE2EHarness_CooldownFromParsedReset(t *testing.T) {
 	}
 
 	require.NoError(t, st.UpdateStatus(context.Background(), "agent-1", store.StatusRateLimited))
-	obs := poller.NewRateLimitObservation("agent-1", confirmBanner)
+	resetTime := time.Now().UTC().Add(2 * time.Hour)
+	banner := fmt.Sprintf("Claude usage limit reached · resets %s (UTC)", resetTime.Format("3:04pm"))
+	obs := poller.NewRateLimitObservation("agent-1", banner)
 	sched.OnRateLimitObservation(obs)
 
 	require.Eventually(t, func() bool {
