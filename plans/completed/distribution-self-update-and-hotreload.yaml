@@ -130,3 +130,4 @@ tasks:
       Ensure all project checks pass.
       End with `wd job done --summary 'chore: open final integration PR against main'`.
     status: done
+    landed_pr: 636
