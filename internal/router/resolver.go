@@ -35,6 +35,7 @@ type Store interface {
 	GetHeadroom(backendID string, now time.Time) (headroom float64, used float64, limit float64, limited bool, err error)
 	GetModelHeadroom(backendID, modelID string, now time.Time) (headroom float64, used float64, limit float64, limited bool, err error)
 	GetQuota(backendID string, scope ...string) (backendstore.BackendQuota, error)
+	GetModelBottleneckReset(backendID, modelID string, now time.Time) (time.Time, error)
 }
 
 // ResolveOptions configures the resolution request.
@@ -64,6 +65,7 @@ type CandidateEvaluation struct {
 	UsageRatio   float64                `json:"usage_ratio"` // used / limit
 	Limited      bool                   `json:"limited"`
 	LimitedUntil time.Time              `json:"limited_until,omitempty"`
+	ResetsAt     *time.Time             `json:"resets_at,omitempty"` // reset time of the bottleneck quota window
 	Eligible     bool                   `json:"eligible"`
 	RejectReason string                 `json:"reject_reason,omitempty"`
 }
@@ -293,6 +295,10 @@ func (r *Resolver) EvaluateCandidates(ctx context.Context, targetTier backendsto
 			eval.UsageRatio = used / limit
 		}
 
+		if resetAt, rErr := r.store.GetModelBottleneckReset(m.BackendID, m.ModelID, now); rErr == nil && !resetAt.IsZero() {
+			eval.ResetsAt = &resetAt
+		}
+
 		// Scoped LimitedUntil is authoritative when a scoped record exists.
 		// Without one, honour GetModelHeadroom's limited flag (which folds in
 		// the backend-row cooldown) and the backend LimitedUntil fallback.
@@ -368,22 +374,49 @@ func (r *Resolver) Resolve(ctx context.Context, opts ResolveOptions) (*Resolutio
 		}, ErrAllExhausted
 	}
 
-	// Sort eligible candidates by highest headroom first
-	// Tied candidates (within delta epsilon 0.0001) will be resolved via round-robin
+	// Two-tier selection. Class A: perishable quota that resets within the hour
+	// and still has a safe headroom floor; spend it before it evaporates.
+	// Class B: everything else, by highest headroom.
 	const epsilon = 0.0001
-	maxHeadroom := -1.0
+	now := r.now().UTC()
+	var classA, classB []CandidateEvaluation
 	for _, e := range eligible {
-		if e.Headroom > maxHeadroom {
-			maxHeadroom = e.Headroom
+		if isImpendingReset(e, now) {
+			classA = append(classA, e)
+		} else {
+			classB = append(classB, e)
 		}
 	}
 
-	var topTied []CandidateEvaluation
-	for _, e := range eligible {
-		if math.Abs(e.Headroom-maxHeadroom) <= epsilon {
-			topTied = append(topTied, e)
+	var pool []CandidateEvaluation
+	perishable := len(classA) > 0
+	if perishable {
+		// Earliest reset first; ties (within epsilon headroom irrelevant) by headroom DESC.
+		sort.SliceStable(classA, func(i, j int) bool {
+			if !classA[i].ResetsAt.Equal(*classA[j].ResetsAt) {
+				return classA[i].ResetsAt.Before(*classA[j].ResetsAt)
+			}
+			return classA[i].Headroom > classA[j].Headroom
+		})
+		for _, e := range classA {
+			if e.ResetsAt.Equal(*classA[0].ResetsAt) && math.Abs(e.Headroom-classA[0].Headroom) <= epsilon {
+				pool = append(pool, e)
+			}
+		}
+	} else {
+		maxHeadroom := -1.0
+		for _, e := range classB {
+			if e.Headroom > maxHeadroom {
+				maxHeadroom = e.Headroom
+			}
+		}
+		for _, e := range classB {
+			if math.Abs(e.Headroom-maxHeadroom) <= epsilon {
+				pool = append(pool, e)
+			}
 		}
 	}
+	topTied := pool
 
 	// Sort tied candidates deterministically by BackendID, ModelID
 	sort.Slice(topTied, func(i, j int) bool {
@@ -398,6 +431,9 @@ func (r *Resolver) Resolve(ctx context.Context, opts ResolveOptions) (*Resolutio
 	winner := topTied[int(rrIdx%uint64(len(topTied)))]
 
 	reasonDesc := fmt.Sprintf("selected %s:%s (headroom: %.1f%%, tier: %s)", winner.BackendID, winner.ModelID, winner.Headroom*100, winner.Tier)
+	if perishable {
+		reasonDesc += fmt.Sprintf(" [perishable quota: impending reset at %s]", winner.ResetsAt.Format(time.RFC3339))
+	}
 	if opts.Role != "" {
 		reasonDesc += fmt.Sprintf(" for role '%s'", opts.Role)
 	}
@@ -412,6 +448,22 @@ func (r *Resolver) Resolve(ctx context.Context, opts ResolveOptions) (*Resolutio
 		Reason:      reasonDesc,
 		Candidates:  evals,
 	}, nil
+}
+
+// impendingResetWindow and safetyHeadroomFloor define Class A eligibility.
+const (
+	impendingResetWindow = time.Hour
+	safetyHeadroomFloor  = 0.10
+)
+
+// isImpendingReset reports whether e's bottleneck quota resets within the
+// next hour while keeping at least the safety headroom floor.
+func isImpendingReset(e CandidateEvaluation, now time.Time) bool {
+	if e.ResetsAt == nil || e.Headroom < safetyHeadroomFloor {
+		return false
+	}
+	d := e.ResetsAt.Sub(now)
+	return d >= 0 && d <= impendingResetWindow
 }
 
 func getFallbackTiers(t backendstore.ModelTier) []backendstore.ModelTier {

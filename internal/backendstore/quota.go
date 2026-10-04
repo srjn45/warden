@@ -712,6 +712,50 @@ func (s *Store) getModelHeadroom(backendID, modelID string, now time.Time) (floa
 	return minHeadroomAcross(windows, backendLimited, now)
 }
 
+// GetModelBottleneckReset returns the NextReset of the quota window that
+// determines the model's minimum headroom (the bottleneck window). The zero
+// time means there is no quota window or its reset is unknown.
+func (s *Store) GetModelBottleneckReset(backendID, modelID string, now time.Time) (time.Time, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if backendID == "" {
+		return time.Time{}, errors.New("backend ID cannot be empty")
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	} else {
+		now = now.UTC()
+	}
+	if err := s.migrateQuotaScopeIfNeeded(backendID); err != nil {
+		return time.Time{}, err
+	}
+	scope := DefaultQuotaScope
+	if modelID != "" {
+		if m, err := s.getModel(backendID, modelID); err == nil {
+			scope = normalizeQuotaScope(m.QuotaScope)
+		}
+	}
+	backendLimited := false
+	if b, err := s.get(backendID); err == nil && b.LimitedUntil.After(now) {
+		backendLimited = true
+	}
+	windows, err := s.listQuotasForScope(backendID, scope)
+	if err != nil {
+		return time.Time{}, err
+	}
+	var reset time.Time
+	minHR := math.Inf(1)
+	for _, q := range windows {
+		isLimited := backendLimited || q.LimitedUntil.After(now)
+		CalculateQuotaUsage(&q, now)
+		if hr := CalculateHeadroom(q.UsedAmount, q.QuotaLimit, isLimited); hr < minHR {
+			minHR = hr
+			reset = q.NextReset
+		}
+	}
+	return reset, nil
+}
+
 func minHeadroomAcross(quotas []BackendQuota, backendLimited bool, now time.Time) (float64, float64, float64, bool, error) {
 	minHR := math.Inf(1)
 	var usedAtMin, limitAtMin float64
