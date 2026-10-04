@@ -29,7 +29,8 @@ import (
 type SessionRecord struct {
 	ID     string
 	Name   string
-	Type   string
+	Role   string // canonical classification (Role; Type mapped via store.EffectiveRole)
+	Type   string // deprecated alias of Role; kept populated for one-release dual-read
 	Status string
 	Repo   string
 	Start  time.Time
@@ -67,13 +68,15 @@ func (r SessionRecord) label() string {
 // FromSession projects a stored session into a SessionRecord, attaching the
 // (best-effort) touched-file set. CreatedAt is the start; a session in a terminal
 // status takes UpdatedAt as its end, while a live one is left open-ended (End
-// zero). The type is normalized through store.NormalizeType so unknown labels
-// collapse to "other".
+// zero). Role is canonical (persisted Role, else type→role mapping, else
+// "general"); Type is retained as a deprecated dual-read mirror of Role.
 func FromSession(s *store.Session, files []string) SessionRecord {
+	role := store.DisplayRole(s.Role, s.Type)
 	rec := SessionRecord{
 		ID:     s.ID,
 		Name:   s.Name,
-		Type:   string(store.NormalizeType(string(s.Type))),
+		Role:   role,
+		Type:   role, // deprecated mirror — counters group by Role
 		Status: string(s.Status),
 		Repo:   s.Repo,
 		Start:  s.CreatedAt,
@@ -116,24 +119,30 @@ type Report struct {
 	GeneratedAt    time.Time            `json:"generated_at"`
 	Sessions       int                  `json:"sessions"`        // records analyzed
 	ActiveSessions int                  `json:"active_sessions"` // open-ended subset
-	Durations      []TypeDuration       `json:"durations"`
+	Durations      []RoleDuration       `json:"durations"`
 	CoEdits        []CoEditPair         `json:"co_edits"`
-	ErrorRates     []TypeErrorRate      `json:"error_rates"`
+	ErrorRates     []RoleErrorRate      `json:"error_rates"`
 	BusiestPeriods []HourBucket         `json:"busiest_periods"`
 	Parallelizable []ParallelSuggestion `json:"parallelizable"`
 	Anomalies      []AgentAnomaly       `json:"anomalies"`
 }
 
-// TypeDuration is the duration distribution for one task type, with the session
-// ids that ran far longer than the type's median flagged as outliers.
-type TypeDuration struct {
-	Type      string   `json:"type"`
+// RoleDuration is the duration distribution for one role, with the session
+// ids that ran far longer than the role's median flagged as outliers.
+// Type is a deprecated JSON alias of Role for one-release dual-read.
+type RoleDuration struct {
+	Role      string   `json:"role"`
+	Type      string   `json:"type"` // deprecated alias of Role
 	Count     int      `json:"count"`
 	MedianSec int64    `json:"median_sec"`
 	P90Sec    int64    `json:"p90_sec"`
 	MaxSec    int64    `json:"max_sec"`
 	Outliers  []string `json:"outliers,omitempty"`
 }
+
+// TypeDuration is a deprecated alias of RoleDuration kept so existing call
+// sites compile during the Type→Role rename window.
+type TypeDuration = RoleDuration
 
 // CoEditPair is two files touched together across Count sessions — a hint that
 // they form a coupled area worth keeping in one agent's scope.
@@ -143,13 +152,18 @@ type CoEditPair struct {
 	Count int    `json:"count"`
 }
 
-// TypeErrorRate is the error/orphan rate for one task type.
-type TypeErrorRate struct {
-	Type    string  `json:"type"`
+// RoleErrorRate is the error/orphan rate for one role.
+// Type is a deprecated JSON alias of Role for one-release dual-read.
+type RoleErrorRate struct {
+	Role    string  `json:"role"`
+	Type    string  `json:"type"` // deprecated alias of Role
 	Total   int     `json:"total"`
 	Errored int     `json:"errored"`
 	Rate    float64 `json:"rate"`
 }
+
+// TypeErrorRate is a deprecated alias of RoleErrorRate.
+type TypeErrorRate = RoleErrorRate
 
 // HourBucket counts sessions started in a given hour-of-day (UTC).
 type HourBucket struct {
@@ -201,28 +215,36 @@ func Analyze(in Input) Report {
 	return r
 }
 
-// durationStats groups finished sessions by type and summarizes each type's
+// durationStats groups finished sessions by role and summarizes each role's
 // wall-clock distribution (median / p90 / max) plus the session ids that ran
 // past durationOutlierFactor × median. Active sessions are excluded so a single
 // long-running agent can't skew the historical baseline.
-func durationStats(sessions []SessionRecord, now time.Time) []TypeDuration {
-	byType := map[string][]SessionRecord{}
+func durationStats(sessions []SessionRecord, now time.Time) []RoleDuration {
+	byRole := map[string][]SessionRecord{}
 	for _, s := range sessions {
 		if s.active() || s.duration(now) <= 0 {
 			continue
 		}
-		byType[s.Type] = append(byType[s.Type], s)
+		key := s.Role
+		if key == "" {
+			key = s.Type
+		}
+		if key == "" {
+			key = "general"
+		}
+		byRole[key] = append(byRole[key], s)
 	}
-	var out []TypeDuration
-	for typ, recs := range byType {
+	var out []RoleDuration
+	for roleName, recs := range byRole {
 		secs := make([]int64, 0, len(recs))
 		for _, r := range recs {
 			secs = append(secs, int64(r.duration(now).Seconds()))
 		}
 		sort.Slice(secs, func(i, j int) bool { return secs[i] < secs[j] })
 		med := percentile(secs, 50)
-		td := TypeDuration{
-			Type:      typ,
+		td := RoleDuration{
+			Role:      roleName,
+			Type:      roleName, // deprecated dual-emit
 			Count:     len(recs),
 			MedianSec: med,
 			P90Sec:    percentile(secs, 90),
@@ -249,7 +271,7 @@ func durationStats(sessions []SessionRecord, now time.Time) []TypeDuration {
 		}
 		out = append(out, td)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Type < out[j].Type })
+	sort.Slice(out, func(i, j int) bool { return out[i].Role < out[j].Role })
 	return out
 }
 
@@ -288,35 +310,42 @@ func coEdits(sessions []SessionRecord) []CoEditPair {
 	return out
 }
 
-// errorRates groups every session by type and reports the errored/orphaned share,
+// errorRates groups every session by role and reports the errored/orphaned share,
 // sorted worst-first.
-func errorRates(sessions []SessionRecord) []TypeErrorRate {
+func errorRates(sessions []SessionRecord) []RoleErrorRate {
 	type acc struct{ total, errored int }
 	m := map[string]*acc{}
 	for _, s := range sessions {
-		a := m[s.Type]
+		key := s.Role
+		if key == "" {
+			key = s.Type
+		}
+		if key == "" {
+			key = "general"
+		}
+		a := m[key]
 		if a == nil {
 			a = &acc{}
-			m[s.Type] = a
+			m[key] = a
 		}
 		a.total++
 		if isErrorStatus(s.Status) {
 			a.errored++
 		}
 	}
-	out := make([]TypeErrorRate, 0, len(m))
-	for typ, a := range m {
+	out := make([]RoleErrorRate, 0, len(m))
+	for roleName, a := range m {
 		rate := 0.0
 		if a.total > 0 {
 			rate = float64(a.errored) / float64(a.total)
 		}
-		out = append(out, TypeErrorRate{Type: typ, Total: a.total, Errored: a.errored, Rate: rate})
+		out = append(out, RoleErrorRate{Role: roleName, Type: roleName, Total: a.total, Errored: a.errored, Rate: rate})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Rate != out[j].Rate {
 			return out[i].Rate > out[j].Rate
 		}
-		return out[i].Type < out[j].Type
+		return out[i].Role < out[j].Role
 	})
 	return out
 }

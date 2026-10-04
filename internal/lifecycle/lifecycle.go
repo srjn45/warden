@@ -305,13 +305,15 @@ func (l *Lifecycle) peerGuidance(ctx context.Context, agent *agentstore.Agent) s
 
 // resolveRole applies the requested built-in role to req: it validates the role
 // name and fills each unset spawn field from the role's defaults, with precedence
-// explicit request value > role default > global default. type/model/
-// permission_mode fill only when the request left them empty; auto_approve (a
-// bool with no tri-state) is OR-ed in so an explicit true and a role default of
-// true both enable it; tags are UNIONED onto the request's tags (normalized,
-// de-duplicated) rather than replacing them. It returns the resolved Role so the
-// caller can inject its persona, and mutates req in place. An empty role
-// normalizes to role.Default ("general"); an unknown name is an error.
+// explicit request value > role default > global default. model/permission_mode
+// fill only when the request left them empty; auto_approve (a bool with no
+// tri-state) is OR-ed in so an explicit true and a role default of true both
+// enable it; tags are UNIONED onto the request's tags (normalized, de-duplicated)
+// rather than replacing them. Type is never filled from the role — isolation is
+// role-driven (RoleOwnsWorktree / wantWorktree) and tiering is Role+Task. It
+// returns the resolved Role so the caller can inject its persona, and mutates
+// req in place. An empty role normalizes to role.Default ("general"); an unknown
+// name is an error.
 func resolveRole(req *SpawnRequest) (role.Role, error) {
 	name := req.Role
 	if name == "" {
@@ -330,9 +332,6 @@ func resolveRole(req *SpawnRequest) (role.Role, error) {
 		req.Role = r.Name
 	}
 	d := r.Defaults
-	if req.Type == "" && d.Type != "" {
-		req.Type = store.Type(d.Type)
-	}
 	if req.Model == "" {
 		req.Model = d.Model
 	}
@@ -344,6 +343,21 @@ func resolveRole(req *SpawnRequest) (role.Role, error) {
 		req.Tags = store.NormalizeTags(append(append([]string{}, req.Tags...), d.Tags...))
 	}
 	return r, nil
+}
+
+// RoleOwnsWorktree reports whether a role enters the managed (repo/worktree)
+// spawn path even when Type is unset. Only worker (and its legacy aliases
+// implementer/reviewer/auto-merger) do: they previously carried a Type default
+// that flipped free-form→managed. Other roles (planner/autopilot/brain/
+// orchestrator/general) stay free-form unless an explicit Type is provided —
+// autopilot managers in particular spawn with Cwd only and must not require
+// Repo. Isolation for a managed spawn still follows wantWorktree (InRepo opt-out).
+func RoleOwnsWorktree(name string) bool {
+	r, ok := role.Get(name)
+	if !ok {
+		return false
+	}
+	return r.Name == "worker"
 }
 
 // personaGuidance returns the trimmed persona text for the built-in role named
@@ -858,12 +872,16 @@ func shortID() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-// resolveID uses the ticket when given, else "<typeslug>-<shortid>".
+// resolveID uses the ticket when given, else "<slug>-<shortid>" where slug
+// prefers an explicit Type, then the resolved Role, then the generic "agent".
 func resolveID(req SpawnRequest) (string, error) {
 	if req.Ticket != "" {
 		return req.Ticket, nil
 	}
 	slug := strings.ReplaceAll(string(req.Type), "-", "")
+	if slug == "" {
+		slug = strings.ReplaceAll(req.Role, "-", "")
+	}
 	if slug == "" {
 		slug = "agent"
 	}
@@ -1456,10 +1474,12 @@ func (l *Lifecycle) launchBackend(agent *agentstore.Agent) agentbackend.Backend 
 	return l.backendFor(agent.AiCli)
 }
 
-// Spawn creates an agent session. Prompt mode (Prompt set, no Type) runs a plain
-// claude in Workdir with NO git worktree, seeded with the prompt. Typed mode is
-// the existing per-type worktree flow. Spawn resolves the id + aicli session id
-// shared by both, then dispatches to spawnFreeForm or spawnTyped.
+// Spawn creates an agent session. Free-form mode (no Type, or worker without
+// Repo) runs a plain agent in Cwd with NO git worktree. Managed mode is the
+// repo/worktree flow: entered by an explicit Type OR by a worktree-owning role
+// (worker) with a Repo — Role+Task drive persona and tier, not a Type default.
+// Spawn resolves the id + aicli session id shared by both, then dispatches to
+// spawnFreeForm or spawnTyped.
 func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*agentstore.Agent, error) {
 	if req.Kind == store.KindTerminal || req.Backend == terminalBackendID || req.AiCli == terminalBackendID {
 		return nil, fmt.Errorf("terminal requires SpawnTerminal")
@@ -1467,14 +1487,17 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*agentstore.Ag
 	if req.AiCli != "" {
 		req.Backend = req.AiCli
 	}
-	// Resolve the role FIRST: its defaults fill unset request fields, and a role
-	// default type (e.g. implementer ⇒ development) can flip a spawn from free-form
-	// to typed, so this must precede the freeMode decision below.
+	// Resolve the role FIRST: its defaults fill unset request fields (model /
+	// permission_mode / auto_approve / tags). Worktree-owning roles enter the
+	// managed path without a Type, so this must precede the freeMode decision.
 	if _, err := resolveRole(&req); err != nil {
 		return nil, err
 	}
-	freeMode := req.Type == ""
-	if !freeMode {
+	// Managed when Type is set, ForkFrom is set (repo resolved adapter-side), or
+	// a worktree-owning role (worker) has a Repo. Worker+Cwd-only stays free-form
+	// (master-shell quick spawn).
+	freeMode := req.Type == "" && req.ForkFrom == "" && !(RoleOwnsWorktree(req.Role) && req.Repo != "")
+	if !freeMode && req.Type != "" {
 		req.Type = store.NormalizeType(string(req.Type))
 	}
 	// Reject an unknown backend up front (before any tmux/worktree side effects),
@@ -2334,6 +2357,7 @@ type JobSpawnRequest struct {
 	Type             store.Type
 	PermissionMode   string                 // explicit mode override; empty = use global default
 	ExecutionProfile store.ExecutionProfile // optional pin (none|full); empty stamps loopback on Warden-managed spawn
+	AutoApprove      bool                   // opt-in: auto-approve yes/no prompts (also filled by a role default)
 	Role             string                 // built-in role (persona + default flags); empty = "general" (no persona)
 	Tier             string                 // explicit model tier ("tier-1", "tier-2", "tier-3")
 	Task             string                 // task name (task registry) for tier routing via task.TierFor; empty = none
@@ -2518,6 +2542,10 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*agentst
 	if err := store.SafeID(id); err != nil {
 		return nil, fmt.Errorf("invalid job session id %q: %w", id, err)
 	}
+	// Role defaults fill unset fields the same way Spawn does (persona + flags).
+	// Type is never derived from the role — pipeline jobs may still stamp an
+	// explicit Type for legacy worktree templates, but persona and tier come
+	// from Role + Task via resolveSpawnTarget below.
 	if req.Role != "" {
 		if r, ok := role.Get(req.Role); ok {
 			if r.Name == role.Default {
@@ -2531,6 +2559,7 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*agentst
 			if req.Model == "" && r.Defaults.Model != "" {
 				req.Model = r.Defaults.Model
 			}
+			req.AutoApprove = req.AutoApprove || r.Defaults.AutoApprove
 			if len(r.Defaults.Tags) > 0 {
 				req.Tags = store.NormalizeTags(append(append([]string{}, req.Tags...), r.Defaults.Tags...))
 			}
@@ -2556,9 +2585,10 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*agentst
 		Prompt: req.Prompt, Subject: firstWords(req.Prompt, 10),
 		Status: store.StatusSpawning, PermissionMode: req.PermissionMode,
 		ExecutionProfile: stampSpawnExecutionProfile(req.ExecutionProfile),
+		AutoApprove:      req.AutoApprove,
 		PipelineID:       req.PipelineID, PlanID: req.PlanID, JobID: req.JobID,
 		ScheduleID: req.ScheduleID, ScheduleName: req.ScheduleName,
-		Role: req.Role, AiCli: req.Backend, Model: req.Model, QuotaBinding: binding,
+		Role: req.Role, Task: req.Task, AiCli: req.Backend, Model: req.Model, QuotaBinding: binding,
 		Tags: store.NormalizeTags(req.Tags),
 	}
 	cid, err := store.NewSessionID()

@@ -52,13 +52,13 @@ func TestRenderSessions(t *testing.T) {
 		t.Fatalf("renderSessions returned error: %v", err)
 	}
 	out := buf.String()
-	for _, want := range []string{"NAME", "ID", "COST", "SUBJECT", "alpha", "A-1", "B-2", "do a thing", "$1.50"} {
+	for _, want := range []string{"NAME", "ID", "ROLE", "COST", "SUBJECT", "alpha", "A-1", "B-2", "do a thing", "$1.50", "implementer"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)
 		}
 	}
-	// The unnamed B-2 row falls back to "—" for name and "…" for a pending type.
-	if !strings.Contains(out, "—") || !strings.Contains(out, "…") {
+	// The unnamed B-2 row falls back to "—" for name and "general" for unset role.
+	if !strings.Contains(out, "—") || !strings.Contains(out, "general") {
 		t.Errorf("expected fallback glyphs for sparse row:\n%s", out)
 	}
 }
@@ -350,6 +350,27 @@ func TestStatusCmd(t *testing.T) {
 		t.Fatalf("status: %v", err)
 	}
 	for _, want := range []string{"id:", "code-7", "beta", "rate limit:", "events:"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("status output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+// TestStatusCmdShowsRoleFromTypeOnlyRecord proves status detail prefers Role
+// (via DisplayRole) for a pre-migration Type-only agent and marks type deprecated.
+func TestStatusCmdShowsRoleFromTypeOnlyRecord(t *testing.T) {
+	addr := stubDaemon(t, func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(&store.Session{
+			ID: "legacy-1", Name: "old", Status: store.StatusIdle,
+			Type: store.TypeDevelopment,
+			// Role intentionally empty — DisplayRole must backfill implementer
+		})
+	})
+	out, err := runCLI(t, addr, "status", "legacy-1")
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	for _, want := range []string{"role:", "implementer", "type:", "development (deprecated)"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("status output missing %q:\n%s", want, out)
 		}

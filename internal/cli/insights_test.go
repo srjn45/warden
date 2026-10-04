@@ -26,13 +26,13 @@ func sampleReport() *insights.Report {
 		Sessions:       3,
 		ActiveSessions: 1,
 		Durations: []insights.TypeDuration{
-			{Type: "development", Count: 2, MedianSec: 600, P90Sec: 1200, MaxSec: 3600, Outliers: []string{"d4"}},
+			{Role: "implementer", Type: "implementer", Count: 2, MedianSec: 600, P90Sec: 1200, MaxSec: 3600, Outliers: []string{"d4"}},
 		},
 		Parallelizable: []insights.ParallelSuggestion{
 			{A: "s1", B: "s2", ALabel: "alpha", BLabel: "beta", Repo: "/r", SavedSec: 600, Reason: "s1 and s2 disjoint"},
 			{A: "s3", B: "s4", ALabel: "s3", BLabel: "s4", Repo: "/r", SavedSec: 120, Reason: "s3 and s4 disjoint"},
 		},
-		ErrorRates: []insights.TypeErrorRate{{Type: "tests", Total: 3, Errored: 1, Rate: 1.0 / 3.0}},
+		ErrorRates: []insights.TypeErrorRate{{Role: "worker", Type: "worker", Total: 3, Errored: 1, Rate: 1.0 / 3.0}},
 	}
 }
 
@@ -101,12 +101,12 @@ func TestFormatInsightsSections(t *testing.T) {
 	out := formatInsights(r, "Top suggestion: parallelize alpha and beta.", "")
 	for _, want := range []string{
 		"Top suggestion: parallelize alpha and beta.",
-		"session duration by type:",
-		"development",
+		"session duration by role:",
+		"implementer",
 		"outliers: d4",
 		"parallelization opportunities:",
 		"alpha + beta",
-		"error rate by type:",
+		"error rate by role:",
 		"3 sessions analyzed (1 active)",
 	} {
 		if !strings.Contains(out, want) {

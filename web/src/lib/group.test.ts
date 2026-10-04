@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { groupSessions, groupSessionsBy, sourceDir, baseName, UNTYPED, UNTAGGED } from './group';
+import { groupSessions, groupSessionsBy, sourceDir, baseName, UNROLEED, UNTAGGED } from './group';
 import type { Session } from './types';
 
 function sess(p: Partial<Session>): Session {
@@ -47,16 +47,18 @@ describe('groupSessions', () => {
 });
 
 describe('groupSessionsBy', () => {
-  it('groups by type and falls back to the untyped sentinel', () => {
+  it('groups by role (preferring role over deprecated type) and falls back to the no-role sentinel', () => {
     const out = groupSessionsBy([
-      sess({ id: 'a', type: 'feature', created_at: '2026-06-03T10:00:00Z' }),
+      sess({ id: 'a', role: 'worker', type: 'feature', created_at: '2026-06-03T10:00:00Z' }),
       sess({ id: 'b', type: '', created_at: '2026-06-03T09:00:00Z' }),
       sess({ id: 'c', type: 'feature', created_at: '2026-06-03T08:00:00Z' }),
     ], 'type');
-    expect(out.map((g) => g.key)).toEqual(['feature', UNTYPED]);
-    expect(out[0].label).toBe('feature');
-    expect(out[0].sessions.map((s) => s.id)).toEqual(['a', 'c']);
+    // Groups ordered by newest created_at in the group (desc).
+    expect(out.map((g) => g.key)).toEqual(['worker', UNROLEED, 'feature']);
+    expect(out[0].label).toBe('worker');
+    expect(out[0].sessions.map((s) => s.id)).toEqual(['a']);
     expect(out[1].sessions.map((s) => s.id)).toEqual(['b']);
+    expect(out[2].sessions.map((s) => s.id)).toEqual(['c']);
   });
 
   it('groups by presented status', () => {

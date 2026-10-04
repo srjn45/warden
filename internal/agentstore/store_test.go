@@ -409,3 +409,91 @@ func TestLifecycleMutationsPreserveLegacySemantics(t *testing.T) {
 	require.Equal(t, "context none→warning (90k)", got.Events[3].Detail)
 	require.ErrorIs(t, s.SetSessionID(ctx, a.ID, "bad;ref"), store.ErrBadSessionRef)
 }
+
+// TestRoleBackfillFromLegacyType verifies that records persisted with a legacy
+// Type but no Role return the canonical Role on read (lazy migration).
+func TestRoleBackfillFromLegacyType(t *testing.T) {
+	cases := []struct {
+		typ  store.Type
+		role string
+	}{
+		{store.TypePRReview, "reviewer"},
+		{store.TypeCodeReview, "reviewer"},
+		{store.TypeDevelopment, "implementer"},
+		{store.TypeCode, "implementer"},
+		{store.TypeDocs, "implementer"},
+		{store.TypeWebsite, "implementer"},
+		{store.TypeDebugCI, "implementer"},
+		{store.TypeTests, "implementer"},
+		{store.TypeMergePR, "implementer"},
+		{store.TypeRelease, "implementer"},
+		{store.TypeMonitorCI, "implementer"},
+		{store.TypeAnalysis, "general"},
+		{store.TypeSpike, "general"},
+		{store.TypeResearch, "general"},
+		{store.TypeArchitecture, "general"},
+		{store.TypeDesign, "general"},
+	}
+	for _, tc := range cases {
+		t.Run(string(tc.typ), func(t *testing.T) {
+			s, err := New(t.TempDir())
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, s.Close()) })
+			ctx := context.Background()
+			id := "agent-" + string(tc.typ)
+			require.NoError(t, s.Insert(ctx, &Agent{
+				ID: id, Status: store.StatusWorking, Type: tc.typ,
+				// Role intentionally absent: simulates a legacy record
+			}))
+			got, err := s.Get(ctx, id)
+			require.NoError(t, err)
+			require.Equal(t, tc.role, got.Role, "Role must be backfilled from Type=%q", tc.typ)
+		})
+	}
+}
+
+// TestRoleBackfillDoesNotOverwriteExplicitRole verifies that a record with an
+// explicit Role is never overwritten by the Type→Role backfill.
+func TestRoleBackfillDoesNotOverwriteExplicitRole(t *testing.T) {
+	s, err := New(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+	ctx := context.Background()
+	require.NoError(t, s.Insert(ctx, &Agent{
+		ID:     "agent-explicit-role",
+		Status: store.StatusWorking,
+		Type:   store.TypeDevelopment,
+		Role:   "orchestrator",
+	}))
+	got, err := s.Get(ctx, "agent-explicit-role")
+	require.NoError(t, err)
+	require.Equal(t, "orchestrator", got.Role, "explicit Role must not be overwritten by Type backfill")
+}
+
+// TestRoleBackfillFromLegacyMigration verifies that legacy Session records with
+// a Type but no Role are backfilled at import time.
+func TestRoleBackfillFromLegacyMigration(t *testing.T) {
+	dir := t.TempDir()
+	legacy, err := store.NewFileStore(dir)
+	require.NoError(t, err)
+	ctx := context.Background()
+	require.NoError(t, legacy.Insert(ctx, &store.Session{
+		ID: "pr-agent", Status: store.StatusWorking, Type: store.TypePRReview,
+	}))
+	require.NoError(t, legacy.Insert(ctx, &store.Session{
+		ID: "dev-agent", Status: store.StatusWorking, Type: store.TypeDevelopment,
+	}))
+	require.NoError(t, legacy.Close(ctx))
+
+	agents, err := New(dir)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, agents.Close()) })
+
+	pr, err := agents.Get(ctx, "pr-agent")
+	require.NoError(t, err)
+	require.Equal(t, "reviewer", pr.Role)
+
+	dev, err := agents.Get(ctx, "dev-agent")
+	require.NoError(t, err)
+	require.Equal(t, "implementer", dev.Role)
+}

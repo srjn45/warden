@@ -198,6 +198,52 @@ func NormalizeType(s string) Type {
 	return ""
 }
 
+// RoleFromDeprecatedType maps a legacy Agent.Type value onto the canonical Role
+// name for the one-release deprecation window. Role is canonical; Type is
+// accepted only when Role is empty on a persisted record. Returns "" when typ is
+// empty or unmapped (e.g. pipeline span-out/span-in), leaving role unset so the
+// default general persona applies.
+//
+// Mapping (plan-213eaa87 / drop-agent-type-in-favor-of-role):
+//
+//	pr-review, code-review          → reviewer
+//	development, code, docs, …      → implementer
+//	analysis, spike, research, …    → general
+func RoleFromDeprecatedType(typ string) string {
+	switch NormalizeType(strings.TrimSpace(typ)) {
+	case TypePRReview, TypeCodeReview:
+		return "reviewer"
+	case TypeDevelopment, TypeCode, TypeDocs, TypeWebsite,
+		TypeDebugCI, TypeTests, TypeMergePR, TypeRelease, TypeMonitorCI:
+		return "implementer"
+	case TypeAnalysis, TypeSpike, TypeResearch, TypeArchitecture, TypeDesign:
+		return "general"
+	default:
+		return ""
+	}
+}
+
+// EffectiveRole returns the role a session should be classified under during the
+// Type→Role alias window: persisted Role if set, else the type→role mapping.
+// Returns "" when both are empty/unmapped (callers that need a display default
+// should fall back to "general").
+func EffectiveRole(role string, typ Type) string {
+	if r := strings.TrimSpace(role); r != "" {
+		return r
+	}
+	return RoleFromDeprecatedType(string(typ))
+}
+
+// DisplayRole is EffectiveRole with the built-in "general" default when neither
+// Role nor a mappable Type is present — for CLI/TUI columns that must never
+// render blank.
+func DisplayRole(role string, typ Type) string {
+	if r := EffectiveRole(role, typ); r != "" {
+		return r
+	}
+	return "general"
+}
+
 // DefaultWorktree reports whether spawning this type creates a git worktree by
 // default. Phase 0a isolates every write-agent — development, pr-review, code,
 // docs, website, debug-ci, tests — so parallel write-agents never collide in the

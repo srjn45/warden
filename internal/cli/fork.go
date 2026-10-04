@@ -55,13 +55,17 @@ NOTE: ` + "`git stash create`" + ` carries only TRACKED changes; the source's un
 				prompt = args[1]
 			}
 			typ, _ := cmd.Flags().GetString("type")
+			roleName, _ := cmd.Flags().GetString("role")
+			if roleName == "" {
+				roleName = "worker"
+			}
 			name, _ := cmd.Flags().GetString("name")
 			model, _ := cmd.Flags().GetString("model")
 			permissionMode, _ := cmd.Flags().GetString("permission-mode")
 			force, _ := cmd.Flags().GetBool("force")
 
 			s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{
-				Type: typ, ForkFrom: source, Prompt: prompt, Name: name, Model: model,
+				Type: typ, Role: roleName, ForkFrom: source, Prompt: prompt, Name: name, Model: model,
 				PermissionMode: permissionMode, Force: force,
 			})
 			if err != nil {
@@ -77,12 +81,18 @@ NOTE: ` + "`git stash create`" + ` carries only TRACKED changes; the source's un
 			if s.Name != "" {
 				nameLabel = fmt.Sprintf(" (%s)", s.Name)
 			}
+			roleLabel := s.Role
+			if roleLabel == "" {
+				roleLabel = roleName
+			}
 			fmt.Fprintf(cmd.OutOrStdout(), "forked %s → %s%s [%s] (%s) — attach with `warden attach %s`\n",
-				source, s.ID, nameLabel, s.Type, s.Status, s.ID)
+				source, s.ID, nameLabel, roleLabel, s.Status, s.ID)
 			return nil
 		},
 	}
-	cmd.Flags().String("type", "development", "worktree-backed task type for the fork (must isolate in its own worktree)")
+	cmd.Flags().String("role", "worker", "built-in role for the fork (default worker — owns a worktree)")
+	cmd.Flags().String("type", "", "deprecated alias: legacy task type for the fork. Prefer --role worker")
+	_ = cmd.Flags().MarkDeprecated("type", "use --role")
 	cmd.Flags().String("name", "", "optional human-friendly name for the fork")
 	cmd.Flags().String("model", "", "model override for the fork (default: the source/backend default)")
 	cmd.Flags().String("permission-mode", "", "permission mode for the fork: acceptEdits|auto|bypassPermissions|default|dontAsk|plan (default: from config)")

@@ -63,7 +63,7 @@ on-disk state:
 | **Prompt-spawn** | `warden start "<prompt>"` — no repo or type needed. Runs `claude` in the caller's directory (or `--dir`). |
 | **Auto-classification** | The daemon classifies a prompt-spawned agent's type with `claude -p` shortly after creation (falls back to `other`). |
 | **Auto-generated subject** | Each agent gets a one-line ≤8-word summary of what it's doing, seeded from the prompt and refreshed by the poller from the transcript or tmux pane (throttled, change-gated). |
-| **Managed worktree spawn** | `--type` creates/adopts a git worktree where the type needs one. |
+| **Managed worktree spawn** | `--role worker --repo` (or deprecated `--type`) creates/adopts a git worktree. |
 | **Worktree adoption** | If a worktree for the ticket already exists, the spawn reattaches to it instead of erroring. |
 | **Configurable permission mode** | Per-agent and global control over Claude permission level. CLI flag: `--permission-mode <mode>` (values: `acceptEdits`, `auto`, `bypassPermissions`, `default`, `dontAsk`, `plan`). Legacy alias: `--supervised` (equivalent to `--permission-mode acceptEdits`). Global default: the `default_permission_mode` config setting (defaults to `auto`). Runtime change: `warden agent permission-mode set <id> <mode>`. Display: PERMISSION_MODE column in `warden ls`, permission_mode field in `warden status`. Stored in session: mode preserved on restore/resume. Empty mode means "use global default" and displays as `default`. |
 | **Successor ExecutionProfile** | Warden-managed successors (HotSwap, Restore, SwitchRole, spawn, SpawnJob, Adopt resume) inherit a backend-neutral `ExecutionProfile` (network/sandbox: `loopback` \| `full` \| `none`), orthogonal to permission mode. Empty/legacy profile ⇒ effective `loopback` so the successor can reach the local Warden daemon. Codex gets workspace-write + `-c sandbox_workspace_write.network_access=true` without `danger-full-access`; Cursor emits `--sandbox enabled\|disabled` from the profile. Persist-only (like QuotaBinding); no OpenAPI field in this phase. |
@@ -568,7 +568,7 @@ session to the `closed/` store (newest-first), and this surfaces it.
 
 | Feature | Description |
 |---|---|
-| **`warden inspect history`** | Lists archived sessions. `--since` accepts a duration (`24h`, `90m`, `7d`, `2w`), a date, or an RFC3339 timestamp; `--type` filters by normalized task type; `--limit` caps the count; `--json` prints raw records. |
+| **`warden inspect history`** | Lists archived sessions. `--since` accepts a duration (`24h`, `90m`, `7d`, `2w`), a date, or an RFC3339 timestamp; `--role` filters by role (canonical); `--type` is a deprecated alias mapped to role; `--limit` caps the count; `--json` prints raw records. |
 | **`GET /api/v1/history?since=&type=&limit=`** | Daemon endpoint (`internal/daemon/history_routes.go`); `since` is RFC3339 (`400` on a bad value), `type` is normalized, `limit` caps the result. |
 | **Web Archive tab** | A 🗄 Archive tab fetches history with since (all / 24h / 7d / 30d) and type selectors, plus a client-side text filter, rendering a table of ID / Name / Type / Status / Branch / Updated / Subject. |
 
@@ -778,7 +778,7 @@ the deterministic text whenever the model is off, unreachable, errors, or return
 an empty reply. Config-gated by `insights` (default on).
 
 - **`wd usage insights`** (CLI + MCP `insights`) — aggregates history into a report:
-  - **session duration by type** — count, median / p90 / max per agent type, with
+  - **session duration by role** — count, median / p90 / max per agent role, with
     individual runs flagged as **outliers** when they exceed 2× the type's median.
   - **parallelization opportunities** — pairs of **finished, same-repo** sessions
     whose run windows did **not** overlap and whose edited file sets are
@@ -786,7 +786,7 @@ an empty reply. Config-gated by `insights` (default on).
     time the shorter run could have saved.
   - **frequently co-edited files** — file pairs touched together across multiple
     sessions, a hint for module coupling.
-  - **error rate by type** — errored/orphaned over total per type.
+  - **error rate by role** — errored/orphaned over total per role.
   - **busiest hours (UTC)** — when agent activity clusters.
   - **live agent anomalies** — surfaced straight from the metrics summarizer.
 - **Flags** mirror the history/digest neighbors: `--since <24h|7d|2w|date>` to bound

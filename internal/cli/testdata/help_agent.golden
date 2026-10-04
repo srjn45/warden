@@ -10,7 +10,7 @@ Usage:
 
 Commands:
   list                 List all active agent sessions
-  start                Spawn an agent — `start --role <ROLE> "<prompt>"` (auto-typed), `start --role <ROLE> --dir <path>` (interactive: open Claude & wait), or `start --role <ROLE> TICKET --type <TYPE>` (managed worktree)
+  start                Spawn an agent — `start --role <ROLE> "<prompt>"` (free-form), `start --role <ROLE> --dir <path>` (interactive), or `start --role worker --repo <PATH>` (managed worktree)
   status               Show full status for one session
   digest               Summarize what an agent accomplished (files, branch, turns, narrative)
   fork                 Fork an agent's session into a new managed agent (branches the conversation; the source keeps running)

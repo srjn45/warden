@@ -11,14 +11,16 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/client"
+	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/preset"
 	"github.com/srjn45/warden/internal/prompttemplate"
 	"github.com/srjn45/warden/internal/role"
+	"github.com/srjn45/warden/internal/store"
 	"github.com/srjn45/warden/internal/task"
 )
 
-// promptFromArgs returns the prompt for a free-form (no --type) spawn: the
-// single positional argument, or "" when none is given — an empty prompt opens
+// promptFromArgs returns the prompt for a free-form spawn: the single
+// positional argument, or "" when none is given — an empty prompt opens
 // claude interactively in the launch dir and waits for instructions.
 func promptFromArgs(args []string) string {
 	if len(args) == 1 {
@@ -45,14 +47,15 @@ func parseTags(flag string) []string {
 
 func newStartCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "start --role <ROLE> [TICKET|\"<prompt>\"] [--type <TYPE>] [--dir <PATH>] [--ai-cli <ID>]",
-		Short: "Spawn an agent — `start --role <ROLE> \"<prompt>\"` (auto-typed), `start --role <ROLE> --dir <path>` (interactive: open Claude & wait), or `start --role <ROLE> TICKET --type <TYPE>` (managed worktree)",
+		Use:   "start --role <ROLE> [TICKET|\"<prompt>\"] [--repo <PATH>] [--dir <PATH>] [--ai-cli <ID>]",
+		Short: "Spawn an agent — `start --role <ROLE> \"<prompt>\"` (free-form), `start --role <ROLE> --dir <path>` (interactive), or `start --role worker --repo <PATH>` (managed worktree)",
 		Long: `Spawn an agent. --role is required (see 'warden role list'); there is no
 implicit fallback role.
 
 Free-form:   warden start --role <ROLE> "<prompt>" [--dir <path>]   (autonomous)
 Interactive: warden start --role <ROLE> --dir <path>                (opens the agent and waits)
-Managed:     warden start --role <ROLE> TICKET --type <TYPE>        (isolated worktree)
+Managed:     warden start --role worker --repo <PATH> [TICKET]      (isolated worktree)
+             (worker + --repo enters the managed path; --type is a deprecated alias)
 
 The spawn's AI CLI+model is resolved (top wins): an explicit --ai-cli/--model
 pin > --tier (or --task, which derives a tier) routed through the quota-balanced
@@ -84,26 +87,25 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 				return err
 			}
 			typ := stringFlagOr(cmd, "type", pre.Type)
-
-			// A fork is intrinsically a managed (worktree-backed) spawn (§7): it bases a
-			// fresh sibling worktree off the source's branch, which the free-form (cwd)
-			// path has no worktree for. So --fork-from defaults the type to development
-			// when none was given, routing it onto the typed path below.
 			forkFrom, _ := cmd.Flags().GetString("fork-from")
-			if forkFrom != "" && typ == "" {
-				typ = "development"
-			}
+			repoFlag, _ := cmd.Flags().GetString("repo")
 
 			// --role is mandatory: no implicit fallback to "general". Resolve the
 			// built-in role up front so a missing/bad name fails fast with a clear
-			// list (the daemon validates too). The role's default flags
-			// (type/model/etc.) are applied daemon-side.
+			// list (the daemon validates too). The role's default flags are applied
+			// daemon-side.
 			roleName, _ := cmd.Flags().GetString("role")
 			if strings.TrimSpace(roleName) == "" {
 				return fmt.Errorf("--role is required (valid: %s)", strings.Join(role.Names(), ", "))
 			}
 			if _, ok := role.Get(roleName); !ok {
 				return fmt.Errorf("unknown role %q (valid: %s)", roleName, strings.Join(role.Names(), ", "))
+			}
+			// A fork is intrinsically managed (§7). Default to worker when the
+			// caller did not pick a worktree-owning role so isolation still holds
+			// without the deprecated --type development default.
+			if forkFrom != "" && !lifecycle.RoleOwnsWorktree(roleName) {
+				roleName = "worker"
 			}
 
 			// --tier / --task steer the quota-balanced resolver that picks the spawn's
@@ -120,16 +122,19 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 				}
 			}
 
+			// Managed when Type is set (deprecated), fork_from is set, or a
+			// worktree-owning role is paired with an explicit --repo.
+			managed := typ != "" || forkFrom != "" || (lifecycle.RoleOwnsWorktree(roleName) && repoFlag != "")
+
 			// A prompt template fills the (free-form) spawn prompt; it has no role
-			// in typed mode, where the daemon generates the prompt from the ticket.
-			if tplName, _ := cmd.Flags().GetString("prompt-template"); tplName != "" && typ != "" {
-				return fmt.Errorf("--prompt-template applies to free-form spawns; drop --type or use the template's prompt directly")
+			// in managed mode, where the daemon generates the prompt from the ticket.
+			if tplName, _ := cmd.Flags().GetString("prompt-template"); tplName != "" && managed {
+				return fmt.Errorf("--prompt-template applies to free-form spawns; drop --repo/--type/--fork-from or use the template's prompt directly")
 			}
 
 			// Free-form mode: `warden start "<prompt>" [--dir]` (autonomous) or
-			// `warden start --dir <path>` with no prompt (interactive: opens
-			// claude in the dir and waits). No --type.
-			if typ == "" {
+			// `warden start --dir <path>` with no prompt (interactive).
+			if !managed {
 				prompt, err := resolveStartPrompt(cmd, args)
 				if err != nil {
 					return err
@@ -168,17 +173,17 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 				if s.Name != "" {
 					nameLabel = fmt.Sprintf(" (%s)", s.Name)
 				}
-				outcome := fmt.Sprintf("spawned %s%s (classifying…)", s.ID, nameLabel)
+				outcome := fmt.Sprintf("spawned %s%s [%s]", s.ID, nameLabel, store.DisplayRole(s.Role, s.Type))
 				if prompt == "" {
-					outcome = fmt.Sprintf("opened interactive agent %s%s", s.ID, nameLabel)
+					outcome = fmt.Sprintf("opened interactive agent %s%s [%s]", s.ID, nameLabel, store.DisplayRole(s.Role, s.Type))
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "%s — attach with `warden attach %s`\n", outcome, s.ID)
 				return nil
 			}
 
-			// Typed/managed worktree mode (unchanged).
-			repo, _ := cmd.Flags().GetString("repo")
-			if repo == "" {
+			// Managed worktree mode: role+repo (canonical) or deprecated --type.
+			repo := repoFlag
+			if repo == "" && forkFrom == "" {
 				cwd, err := os.Getwd()
 				if err != nil {
 					return err
@@ -226,13 +231,14 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 			if s.Name != "" {
 				nameLabel = fmt.Sprintf(" (%s)", s.Name)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "spawned %s%s [%s] (%s) — attach with `warden attach %s`\n", s.ID, nameLabel, s.Type, s.Status, s.ID)
+			fmt.Fprintf(cmd.OutOrStdout(), "spawned %s%s [%s] (%s) — attach with `warden attach %s`\n", s.ID, nameLabel, store.DisplayRole(s.Role, s.Type), s.Status, s.ID)
 			return nil
 		},
 	}
 	cmd.Flags().String("name", "", "optional human-friendly name (max 32 chars, alphanumeric + hyphens/underscores)")
-	cmd.Flags().String("type", "", "task type: development|analysis|spike|pr-review|code|docs|website|debug-ci|tests|other")
-	cmd.Flags().String("repo", "", "repo path (default: current directory)")
+	cmd.Flags().String("type", "", "deprecated alias: legacy task type (development|analysis|spike|pr-review|…). Prefer --role worker --repo for managed worktrees")
+	_ = cmd.Flags().MarkDeprecated("type", "use --role (and --repo for managed worktrees)")
+	cmd.Flags().String("repo", "", "repo path for a managed (worktree) spawn; with --role worker this enters the managed path without --type. Empty = free-form unless --type/--fork-from force managed (then defaults to cwd)")
 	cmd.Flags().String("branch", "", "new branch (development) or checkout target (pr-review)")
 	cmd.Flags().String("pr", "", "PR number/url (pr-review)")
 	cmd.Flags().Bool("worktree", false, "create a scratch worktree for analysis/spike")
@@ -256,7 +262,7 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 	cmd.Flags().String("role", "", "REQUIRED — built-in agent role: general | orchestrator | planner | worker (legacy aliases implementer/auto-merger/reviewer resolve to worker). Injects the role's persona as a system-prompt addendum and applies its default flags. See `warden role list`")
 	cmd.Flags().String("tier", "", "model tier for the quota-balanced resolver that picks the AI CLI+model: tier-1|tier-2|tier-3. Empty derives the tier from --task, then --role (--role is required, so this always has a role to derive from). An explicit --ai-cli/--model still wins over the resolver")
 	cmd.Flags().String("task", "", "task name (task registry) used to derive the model tier when --tier is empty. Empty = none")
-	cmd.Flags().String("fork-from", "", "fork an existing agent's recorded session into this new managed agent (codex `codex fork`): branches the source's conversation in a fresh sibling worktree off its branch, carrying its uncommitted tracked changes; the source keeps running. Defaults --type to development; the fork inherits the source's repo+backend. See `warden fork` for the shorthand")
+	cmd.Flags().String("fork-from", "", "fork an existing agent's recorded session into this new managed agent (codex `codex fork`): branches the source's conversation in a fresh sibling worktree off its branch, carrying its uncommitted tracked changes; the source keeps running. Uses --role worker when the chosen role does not own a worktree; the fork inherits the source's repo+backend. See `warden fork` for the shorthand")
 	return cmd
 }
 

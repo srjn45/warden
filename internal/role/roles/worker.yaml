@@ -18,6 +18,5 @@ persona: >
   — to keep the run moving. Never wait on a human; surface blockers to your
   coordinator instead.
 defaults:
-  type: development
   permission_mode: auto
   auto_approve: true

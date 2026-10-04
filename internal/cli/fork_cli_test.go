@@ -8,18 +8,18 @@ import (
 
 // TestForkCmdPlumbsForkFrom drives `warden fork <agent> [prompt]` against a stub
 // daemon and asserts it is a managed spawn carrying fork_from (+ the trailing prompt
-// on the existing prompt seam) with the default worktree-backed type.
+// on the existing prompt seam) with the default worktree-owning role.
 func TestForkCmdPlumbsForkFrom(t *testing.T) {
 	t.Setenv("WARDEN_SESSION_ID", "")
 	body := map[string]string{}
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"POST /api/v1/spawn": `{"id":"development-ab12","type":"development","status":"spawning"}`,
+		"POST /api/v1/spawn": `{"id":"worker-ab12","role":"worker","status":"spawning"}`,
 	}, nil, body))
 	out, err := runCLI(t, addr, "fork", "src-agent", "now try the other approach")
 	if err != nil {
 		t.Fatalf("fork: %v", err)
 	}
-	if !strings.Contains(out, "forked src-agent → development-ab12") {
+	if !strings.Contains(out, "forked src-agent → worker-ab12") {
 		t.Fatalf("fork output: %q", out)
 	}
 	var sent map[string]any
@@ -29,8 +29,8 @@ func TestForkCmdPlumbsForkFrom(t *testing.T) {
 	if sent["fork_from"] != "src-agent" {
 		t.Fatalf("fork_from not forwarded: %v", sent["fork_from"])
 	}
-	if sent["type"] != "development" {
-		t.Fatalf("fork must default to a worktree-backed type: %v", sent["type"])
+	if sent["role"] != "worker" {
+		t.Fatalf("fork must default to worktree-owning role worker: %v", sent["role"])
 	}
 	if sent["prompt"] != "now try the other approach" {
 		t.Fatalf("trailing prompt not forwarded: %v", sent["prompt"])
@@ -55,13 +55,13 @@ func TestForkCmdNoPrompt(t *testing.T) {
 	}
 }
 
-// TestStartForkFromFlag covers `warden start --fork-from <agent>`: the flag defaults
-// the type to development (a fork needs a worktree) and forwards fork_from.
+// TestStartForkFromFlag covers `warden start --fork-from <agent>`: a non-worktree
+// role is upgraded to worker (a fork needs a worktree) and fork_from is forwarded.
 func TestStartForkFromFlag(t *testing.T) {
 	t.Setenv("WARDEN_SESSION_ID", "")
 	body := map[string]string{}
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"POST /api/v1/spawn": `{"id":"development-ef56","type":"development","status":"spawning"}`,
+		"POST /api/v1/spawn": `{"id":"worker-ef56","role":"worker","status":"spawning"}`,
 	}, nil, body))
 	if _, err := runCLI(t, addr, "start", "--fork-from", "src-agent", "--repo", t.TempDir(), "--role", "general"); err != nil {
 		t.Fatalf("start --fork-from: %v", err)
@@ -73,7 +73,7 @@ func TestStartForkFromFlag(t *testing.T) {
 	if sent["fork_from"] != "src-agent" {
 		t.Fatalf("--fork-from not forwarded: %v", sent["fork_from"])
 	}
-	if sent["type"] != "development" {
-		t.Fatalf("--fork-from must default the type to a worktree-backed one: %v", sent["type"])
+	if sent["role"] != "worker" {
+		t.Fatalf("--fork-from must upgrade a non-worktree role to worker: %v", sent["role"])
 	}
 }

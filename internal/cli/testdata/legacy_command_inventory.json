@@ -711,6 +711,7 @@
       "model",
       "name",
       "permission-mode",
+      "role",
       "type"
     ],
     "inherited_flags": [
@@ -732,6 +733,7 @@
       "resume-file",
       "resume-prompt",
       "retire",
+      "role",
       "to",
       "type"
     ],
@@ -747,6 +749,7 @@
     "local_flags": [
       "json",
       "limit",
+      "role",
       "since",
       "type"
     ],
@@ -1492,7 +1495,7 @@
   },
   {
     "path": "schedule create",
-    "use": "create <name> (--cron <spec> | --at <time>) [--type <t> --repo <p> --prompt <s> | --pipeline <spec.yaml>]",
+    "use": "create <name> (--cron <spec> | --at <time>) [--repo <p> --prompt <s> | --pipeline <spec.yaml>]",
     "runnable": true,
     "local_flags": [
       "agent",
@@ -1673,7 +1676,7 @@
   },
   {
     "path": "start",
-    "use": "start --role <ROLE> [TICKET|\"<prompt>\"] [--type <TYPE>] [--dir <PATH>] [--ai-cli <ID>]",
+    "use": "start --role <ROLE> [TICKET|\"<prompt>\"] [--repo <PATH>] [--dir <PATH>] [--ai-cli <ID>]",
     "runnable": true,
     "local_flags": [
       "ai-cli",

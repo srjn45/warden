@@ -75,16 +75,23 @@ func (s *Server) validateSpawnRequest(ctx context.Context, req SpawnRequest) (in
 			}
 		}
 	}
-	freeMode := req.Type == ""
+	// Managed spawn: explicit Type, a fork (repo resolved adapter-side from
+	// fork_from), OR a worktree-owning role (worker) that has a Repo.
+	// Role-driven workers no longer rely on a Type default to enter the managed
+	// path — see lifecycle.RoleOwnsWorktree. A worker spawned with only Cwd (no
+	// Repo) stays free-form, matching the master-shell quick-spawn path.
+	managed := req.Type != "" || req.ForkFrom != "" || (lifecycle.RoleOwnsWorktree(req.Role) && req.Repo != "")
+	freeMode := !managed
 	if !freeMode {
 		// A fork's repo is the SOURCE agent's repo, resolved by the lifecycle adapter
 		// from fork_from (the caller need not — and `wd fork`/`fork_agent` do not —
 		// pass one), so the repo requirement does not apply to a fork.
 		if req.Repo == "" && req.ForkFrom == "" {
-			return http.StatusBadRequest, "typed spawn requires repo"
+			return http.StatusBadRequest, "managed spawn requires repo"
 		}
 		// Reject an unknown type rather than silently collapsing it to "other".
-		if !store.Type(req.Type).Valid() {
+		// Role-only managed spawns leave Type empty (isolation is role-driven).
+		if req.Type != "" && !store.Type(req.Type).Valid() {
 			return http.StatusBadRequest, "unknown type " + req.Type +
 				"; valid: development, analysis, spike, pr-review, code, docs, website, debug-ci, tests, other"
 		}
@@ -100,7 +107,7 @@ func (s *Server) validateSpawnRequest(ctx context.Context, req SpawnRequest) (in
 	// which is already trusted by Claude Code. It is required — we no longer
 	// create a per-agent directory to fall back to — and must be a real dir.
 	if freeMode && req.Cwd == "" {
-		return http.StatusBadRequest, "provide a launch dir (cwd; prompt optional), or type and repo"
+		return http.StatusBadRequest, "provide a launch dir (cwd; prompt optional), or role/type and repo"
 	}
 	if req.Cwd != "" {
 		if fi, err := os.Stat(req.Cwd); err != nil || !fi.IsDir() {

@@ -32,8 +32,11 @@ const Default = "general"
 // explicit request value > role default > global default); tags are unioned onto
 // the request's tags rather than replacing them. A zero value means "no default"
 // for that field.
+//
+// Type is intentionally absent: worktree/isolation policy is role-driven
+// (lifecycle.RoleOwnsWorktree / wantWorktree), and model tiering is driven by
+// Role + Task — not by a deprecated type default on the role.
 type Defaults struct {
-	Type           string   `yaml:"type"`
 	Model          string   `yaml:"model"`
 	PermissionMode string   `yaml:"permission_mode"`
 	AutoApprove    bool     `yaml:"auto_approve"`

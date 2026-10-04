@@ -150,6 +150,9 @@ func TestFromSession(t *testing.T) {
 	if r.End.IsZero() {
 		t.Fatal("finished session must carry an End")
 	}
+	if r.Role != "implementer" {
+		t.Fatalf("legacy Type=development should map to Role=implementer, got %q", r.Role)
+	}
 	if !reflect.DeepEqual(r.Files, []string{"a.go", "b.go"}) {
 		t.Fatalf("files should be deduped+sorted, got %v", r.Files)
 	}

@@ -97,7 +97,7 @@ func filterByTags(sessions []*store.Session, want []string) []*store.Session {
 // spend for the COST column (nil/absent ⇒ "—"). color enables ANSI tinting.
 func renderSessions(w io.Writer, sessions []*store.Session, cost map[string]float64, color bool) error {
 	tw := tabwriter.NewWriter(w, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(tw, "NAME\tID\tTYPE\tMODEL\tPERMISSION_MODE\tSTATUS\tCONTEXT\tCOST\tAGE\tDIR\tSUBJECT")
+	fmt.Fprintln(tw, "NAME\tID\tROLE\tMODEL\tPERMISSION_MODE\tSTATUS\tCONTEXT\tCOST\tAGE\tDIR\tSUBJECT")
 	for _, s := range sessions {
 		name := s.Name
 		if name == "" {
@@ -108,7 +108,7 @@ func renderSessions(w io.Writer, sessions []*store.Session, cost map[string]floa
 			permMode = "default"
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			name, s.ID, typeOrPending(s.Type), modelCell(s.Model), permMode, statusCell(s.Status, color, s.ExitCode), contextCell(s.ContextTokens, s.ContextState, color),
+			name, s.ID, store.DisplayRole(s.Role, s.Type), modelCell(s.Model), permMode, statusCell(s.Status, color, s.ExitCode), contextCell(s.ContextTokens, s.ContextState, color),
 			costCell(cost, s.ID), age(s.UpdatedAt), dirName(s.Workdir), s.Subject)
 	}
 	return tw.Flush()
@@ -285,8 +285,11 @@ func newStatusCmd() *cobra.Command {
 			if permMode == "" {
 				permMode = "default"
 			}
-			fmt.Fprintf(out, "id:              %s\nname:            %s\ntype:            %s\nmodel:           %s\nticket:          %s\nstatus:          %s\nrepo:            %s\nworkdir:         %s\nworktree:        %s\nbranch:          %s\npr:              %s\npermission_mode: %s\nsubject:         %s\nclaude:          %s\nupdated:         %s\n",
-				s.ID, name, typeOrPending(s.Type), modelOrDefault(s.Model), s.Ticket, statusCell(s.Status, color, s.ExitCode), s.Repo, s.Workdir, s.Worktree, s.Branch, s.PR, permMode, s.Subject, s.AICLISessionID, s.UpdatedAt.Format(time.RFC3339))
+			fmt.Fprintf(out, "id:              %s\nname:            %s\nrole:            %s\nmodel:           %s\nticket:          %s\nstatus:          %s\nrepo:            %s\nworkdir:         %s\nworktree:        %s\nbranch:          %s\npr:              %s\npermission_mode: %s\nsubject:         %s\nclaude:          %s\nupdated:         %s\n",
+				s.ID, name, store.DisplayRole(s.Role, s.Type), modelOrDefault(s.Model), s.Ticket, statusCell(s.Status, color, s.ExitCode), s.Repo, s.Workdir, s.Worktree, s.Branch, s.PR, permMode, s.Subject, s.AICLISessionID, s.UpdatedAt.Format(time.RFC3339))
+			if s.Type != "" {
+				fmt.Fprintf(out, "type:            %s (deprecated)\n", s.Type)
+			}
 			if s.ProjectID != "" {
 				fmt.Fprintf(out, "project:         %s\n", s.ProjectID)
 			}
@@ -387,6 +390,8 @@ func isTTY(w io.Writer) bool {
 	return fi.Mode()&os.ModeCharDevice != 0
 }
 
+// typeOrPending is retained for tests that still exercise the deprecated Type
+// display path; new surfaces use store.DisplayRole.
 func typeOrPending(t store.Type) string {
 	if t == "" {
 		return "…"

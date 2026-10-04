@@ -1144,13 +1144,11 @@ func nextForceCompact(cur string) string {
 	}
 }
 
-// roleOr returns the agent's role, defaulting to "general" (no persona) when
-// unset — mirroring backendOr so the field never renders blank.
+// roleOr returns the agent's effective role for display, defaulting to
+// "general" (no persona) when unset — including the type→role mapping for
+// legacy records that still carry only Type.
 func roleOr(s *store.Session) string {
-	if s.Role == "" {
-		return "general"
-	}
-	return s.Role
+	return store.DisplayRole(s.Role, s.Type)
 }
 
 // fmtTime renders an absolute timestamp for the detail view; a zero time is "—".
@@ -1225,12 +1223,14 @@ func detailBody(s *store.Session, sel, width int) string {
 	if s.Subject != "" {
 		b.WriteString(field("subject", s.Subject))
 	}
-	b.WriteString(stMuted.Render("type      ") + typeOr(s) + "   " + stMuted.Render("age ") + age(s.UpdatedAt) + "\n")
+	b.WriteString(stMuted.Render("role      ") + roleOr(s) + "   " + stMuted.Render("age ") + age(s.UpdatedAt) + "\n")
 	b.WriteString(field("ai_cli", backendOr(s)))
 	if s.Model != "" {
 		b.WriteString(field("model", s.Model))
 	}
-	b.WriteString(field("role", roleOr(s)))
+	if s.Type != "" {
+		b.WriteString(field("type", typeOr(s)+stMuted.Render(" (deprecated)")))
+	}
 	if len(s.Tags) > 0 {
 		b.WriteString(field("tags", strings.Join(s.Tags, ", ")))
 	}

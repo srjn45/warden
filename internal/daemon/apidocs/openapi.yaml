@@ -2800,9 +2800,17 @@ paths:
           in: query
           description: RFC3339 lower bound
           schema: { type: string, format: date-time }
+        - name: role
+          in: query
+          description: Filter by built-in agent role (canonical)
+          schema: { type: string }
         - name: type
           in: query
-          description: Filter by normalized task type
+          deprecated: true
+          description: >
+            Deprecated alias for filtering by legacy task type. Prefer `role`.
+            Accepted for one release; when both `role` and `type` are provided,
+            `role` wins.
           schema: { type: string }
         - name: limit
           in: query
@@ -3696,7 +3704,11 @@ components:
 
     TaskType:
       type: string
-      description: Normalized task type
+      deprecated: true
+      description: >
+        Deprecated legacy agent task type. Prefer Session/SpawnRequest `role`
+        (with optional `task` for tier routing). Kept for one-release
+        compatibility; new clients must not set this as classification.
       enum: [development, analysis, spike, pr-review, code, docs, website, debug-ci, tests, other]
 
     Event:
@@ -3914,7 +3926,14 @@ components:
             (encoded with `omitempty`), so an absent key decodes as null/empty —
             terminals and un-named agents carry no name. Treat as optional and
             never derive identity or kind from it.
-        type: { $ref: "#/components/schemas/TaskType" }
+        type:
+          allOf:
+            - { $ref: "#/components/schemas/TaskType" }
+          deprecated: true
+          description: >
+            Deprecated legacy agent classification. Prefer `role`. Accepted and
+            dual-emitted for one release; when both `role` and `type` are present
+            on input, `role` wins. Empty/`other` means free-form (no typed worktree).
         ticket: { type: string }
         tmux_session: { type: string }
         ai_cli:
@@ -3971,7 +3990,11 @@ components:
         restart_count: { type: integer }
         permission_mode: { type: string }
         auto_approve: { type: boolean }
-        role: { type: string, description: "built-in role name; empty = general (no persona)" }
+        role:
+          type: string
+          description: >
+            Built-in agent role name (canonical classification). Empty = general
+            (no persona). Preferred over the deprecated `type` field.
         task: { type: string, description: "assigned task dimension from the registry" }
         pipeline_id: { type: string }
         job_id: { type: string }
@@ -4083,7 +4106,7 @@ components:
             after all candidates were exhausted.
             SSE (GET /api/v1/events) fires on phase transitions — subscribe there
             rather than polling. Requires the "backend-recovery" capability flag.
-      required: [id, type, status, created_at, updated_at]
+      required: [id, status, created_at, updated_at]
 
     SessionList:
       type: object
@@ -4102,10 +4125,19 @@ components:
     SpawnRequest:
       type: object
       properties:
-        type: { type: string, description: "task type (typed mode); empty = free-form" }
+        type:
+          type: string
+          deprecated: true
+          description: >
+            Deprecated legacy task type (typed mode). Prefer `role` (and optional
+            `task` for tier routing). Accepted for one release: when `role` is
+            empty, the daemon maps known type values onto a role
+            (development→implementer, pr-review→reviewer, analysis/spike→general,
+            …). When both `role` and `type` are provided, `role` wins. Empty =
+            free-form (no typed worktree).
         ticket: { type: string }
         name: { type: string }
-        repo: { type: string, description: "required in typed mode" }
+        repo: { type: string, description: "required in typed mode (legacy type or role defaults that imply a worktree)" }
         branch: { type: string }
         pr: { type: string }
         worktree: { type: boolean }
@@ -4151,7 +4183,16 @@ components:
             plan whose ProjectID matches the resolved project for this spawn;
             otherwise the request is rejected with 400. Does not change execution
             behavior — adapters that drive plan-bound runs set this later.
-        role: { type: string, description: "built-in agent role name (general|orchestrator|implementer|auto-merger|reviewer); empty = general (no persona). The role's persona is injected as a system-prompt addendum and its default flags fill any request fields left unset." }
+        role:
+          type: string
+          description: >
+            Built-in agent role name (canonical classification:
+            general|orchestrator|planner|worker|autopilot|brain; legacy aliases
+            implementer|auto-merger|reviewer still resolve). Empty = general
+            (no persona). The role's persona is injected as a system-prompt
+            addendum and its default flags fill any request fields left unset.
+            Preferred over the deprecated `type` field — when both are provided,
+            `role` wins.
         tier: { type: string, description: "explicit model tier (tier-1|tier-2|tier-3) for the quota-balanced resolver that picks the AI CLI+model at spawn. Empty derives the tier from task, then role. A pinned ai_cli/model still wins over the resolver." }
         task: { type: string, description: "task name (task registry) used to derive the model tier via the task→tier map when tier is empty. Empty = none." }
         fork_from:
@@ -5646,7 +5687,19 @@ components:
         handoff: { type: string }
         worktree: { type: string, description: "none | fresh | from:<jobid>" }
         supervised: { type: boolean }
-        type: { type: string }
+        role:
+          type: string
+          description: >
+            Built-in agent role for the job's spawn (canonical). Preferred over
+            the deprecated `type` field.
+        type:
+          type: string
+          deprecated: true
+          description: >
+            Deprecated legacy task type for the job's spawn. Prefer `role`.
+            Accepted for one release; when `role` is empty the daemon maps known
+            type values onto a role. When both are provided, `role` wins.
+            Special executor values `span-out` / `span-in` are not role aliases.
         run_if: { type: string, enum: [success, failure, always] }
         agent_id: { type: string, description: "id of the agent executing this job (project entity hierarchy D5). Supersedes session_id; both are written during the transition so older clients remain compatible." }
         session_id: { type: string, description: "Deprecated: use agent_id. Kept for backward compatibility during the agent-id migration; mirrors agent_id on write." }
@@ -6074,7 +6127,14 @@ components:
         name: { type: string, description: "schedule id (== name)" }
         cron: { type: string, description: "recurring cron spec (mutually exclusive with at)" }
         at: { type: string, description: "single-shot time, RFC3339 or 2006-01-02T15:04 (mutually exclusive with cron)" }
-        type: { type: string, description: "agent task type (agent mode)" }
+        type:
+          type: string
+          deprecated: true
+          description: >
+            Deprecated legacy agent task type (agent mode). Prefer spawning with
+            an explicit role via POST /api/v1/spawn. Accepted for one release:
+            at fire time the daemon maps known type values onto a role
+            (development→implementer, pr-review→reviewer, analysis/spike→general).
         repo: { type: string, description: "repo path (required for a typed agent)" }
         prompt: { type: string, description: "agent prompt (agent mode)" }
         agent: { type: string, description: "optional name for the spawned agent" }
@@ -6102,12 +6162,18 @@ components:
           enum: [agent, pipeline]
           description: >
             what the schedule fires: `agent` = one agent spawn (type/repo/prompt/
-            agent/branch), `pipeline` = a whole pipeline (spec). This is the
-            agent-vs-pipeline distinction a UI usually labels "type".
+            agent/branch — `type` is deprecated and mapped to role at fire time),
+            `pipeline` = a whole pipeline (spec). This is the agent-vs-pipeline
+            distinction a UI usually labels "type".
         cron: { type: string, description: "recurring spec; present when kind=cron" }
         at: { type: string, description: "single-shot time; present when kind=at" }
         enabled: { type: boolean }
-        type: { type: string }
+        type:
+          type: string
+          deprecated: true
+          description: >
+            Deprecated legacy agent task type. Mapped onto a role at fire time
+            during the one-release alias window.
         repo: { type: string }
         prompt: { type: string }
         agent: { type: string }

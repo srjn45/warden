@@ -24,7 +24,7 @@ warden agent role list
 | `general` | *(no persona — a plain agent)* | — | tier-2 |
 | `orchestrator` | Coordinate a fleet of warden agents to deliver a goal: break the work into tasks, spawn and assign worker agents via the warden MCP/CLI, monitor progress, resolve blockers, integrate results. Plan and delegate; don't write feature code yourself unless it's trivial. | `--permission-mode auto` | tier-1 |
 | `planner` | Research, analysis, and planning **only**: produce tech specs, RFCs, design docs, and tradeoff analyses. Read and search the codebase to inform the work, but don't edit source, config, or tests. | `--permission-mode plan` | tier-1 |
-| `worker` | Own one task end-to-end: implement (code + tests + checks + commit), self-review the diff, open a PR on your integration branch, drive it to green, and merge — then report status back to your coordinator. | `--type development`, `--permission-mode auto`, auto-approve on | tier-2 |
+| `worker` | Own one task end-to-end: implement (code + tests + checks + commit), self-review the diff, open a PR on your integration branch, drive it to green, and merge — then report status back to your coordinator. | `--permission-mode auto`, auto-approve on (worktree isolation is role-driven) | tier-2 |
 | `autopilot` | Long-lived headless **manager** that drives a whole autopilot run: decompose the goal, spawn `worker`/`brain` agents, gate their PRs, and land into the integration branch — fully unattended. | `--permission-mode bypassPermissions`, auto-approve on | tier-1 |
 | `brain` | On-demand **decision resolver**: unblock a stuck agent or make an ad-hoc design/architecture call, decisively and without human interaction, then report the resolution back. | `--permission-mode auto`, auto-approve on | tier-2 |
 
@@ -47,8 +47,10 @@ Pass `--role` on `warden start`:
 # The role's persona is injected and its default flags fill anything you leave unset
 warden start "review PR 1234 for correctness" --role worker
 
-# An explicit flag always overrides the role's default
-warden start PROJ-9 --role worker --type spike   # spike wins over the role's development default
+# Managed worktree via role+repo (no --type needed)
+warden start PROJ-9 --role worker --repo .
+# Optional legacy --type still accepted as a deprecated alias
+warden start PROJ-9 --role worker --type spike
 ```
 
 **Precedence** for each default: an explicit request value beats the role default
@@ -96,15 +98,15 @@ the request defaults if routing is unavailable — it never hard-fails.
 
 ```sh
 warden start "design the sync protocol" --role planner     # role → tier-1
-warden start PROJ-9 --type development --task development   # task → tier-2
-warden start "cut the v9 release" --task release           # task → tier-3
-warden start "urgent hotfix" --tier tier-1                 # pin the tier directly
+warden start PROJ-9 --role worker --repo . --task development   # task → tier-2
+warden start "cut the v9 release" --role worker --task release  # task → tier-3
+warden start "urgent hotfix" --role worker --tier tier-1        # pin the tier directly
 ```
 
 :::caution[`--task` is not `--type`]
-`--type` decides worktree/branch policy
-([worktrees & task types](/warden/concepts/worktrees-task-types/)); `--task`
-decides the model tier. The two name-sets overlap but are independent flags.
+`--type` is a **deprecated** alias for legacy worktree/branch policy
+([worktrees & task types](/warden/concepts/worktrees-task-types/)); prefer
+`--role worker --repo` for managed spawns. `--task` decides the model tier.
 :::
 
 **Surfaces:** `--task` and `--tier` are on `warden start` and the REST spawn body;

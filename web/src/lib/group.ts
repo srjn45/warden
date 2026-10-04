@@ -13,16 +13,17 @@ export interface SessionGroup {
 }
 
 // GroupBy is the dimension AgentGrid buckets agents on. 'dir' is the historical
-// default (directory the command ran from). 'type' / 'status' / 'tag' were added
-// for #20 (agent grouping/filtering). 'backend' (#52) buckets by the AI agent
-// driving each session and is labelled "Agent" in the UI.
+// default (directory the command ran from). 'type' is kept as the wire key for
+// the Role grouping (Role is canonical; Type is a deprecated alias). 'status' /
+// 'tag' were added for #20. 'backend' (#52) buckets by the AI agent driving
+// each session and is labelled "Agent" in the UI.
 export type GroupBy = 'dir' | 'type' | 'status' | 'tag' | 'backend';
 
 export const GROUP_BY_VALUES: GroupBy[] = ['dir', 'type', 'status', 'tag', 'backend'];
 
 export const GROUP_BY_LABELS: Record<GroupBy, string> = {
   dir: 'Directory',
-  type: 'Type',
+  type: 'Role',
   status: 'Status',
   tag: 'Tag',
   backend: 'Agent',
@@ -41,8 +42,14 @@ export function sessionAiCli(s: { ai_cli?: string; backend?: string } | null | u
 export const UNKNOWN_DIR = '—';
 
 // Sentinel group keys for agents missing the grouping attribute.
-export const UNTYPED = '(untyped)';
+export const UNTYPED = '(untyped)'; // deprecated sentinel; prefer UNROLEED
+export const UNROLEED = '(no role)';
 export const UNTAGGED = '(untagged)';
+
+/** Prefer Role; fall back to deprecated Type for legacy records. */
+export function sessionRole(s: { role?: string; type?: string } | null | undefined): string {
+  return s?.role || s?.type || '';
+}
 
 // sourceDir is the grouping key: the directory the warden command was
 // triggered from. repo (typed/worktree agents) wins; otherwise workdir (prompt
@@ -56,7 +63,7 @@ export function sourceDir(s: Session): string {
 // in each of its tag groups, and an untagged agent falls into UNTAGGED.
 function keysFor(s: Session, by: GroupBy): string[] {
   switch (by) {
-    case 'type': return [s.type || UNTYPED];
+    case 'type': return [sessionRole(s) || UNROLEED];
     case 'backend': return [sessionAiCli(s)];
     case 'status': return [presentedStatus(s.status, s.exit_code)];
     case 'tag': {

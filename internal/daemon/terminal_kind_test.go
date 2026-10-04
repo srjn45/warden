@@ -62,7 +62,7 @@ func TestFilterClosedExcludesTerminals(t *testing.T) {
 	in := []*agentstore.Agent{
 		{ID: "agent-1", UpdatedAt: now, Type: store.TypeDevelopment},
 	}
-	out := filterClosed(in, time.Time{}, "", 0)
+	out := filterClosed(in, time.Time{}, "", "", 0)
 	require.Len(t, out, 1, "history is an AI-agent record; terminals are dropped")
 	require.Equal(t, "agent-1", out[0].ID)
 }

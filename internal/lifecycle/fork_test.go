@@ -92,9 +92,9 @@ func TestSpawnForkNonForkerBackendCannotFork(t *testing.T) {
 	require.Contains(t, err.Error(), "claude")
 }
 
-// TestSpawnForkFreeFormRejected guards the free-form path: a fork has no worktree in
-// free-form mode, which would break dir-scoped discover-then-pin (§5), so it is
-// rejected (free-form fork is deferred per design §4.2).
+// TestSpawnForkFreeFormRejected guards that a ForkFrom spawn without a
+// worktree-owning role/type cannot land on a shared tree: ForkFrom is always
+// managed, and wantWorktree must still be true (§5/§7).
 func TestSpawnForkFreeFormRejected(t *testing.T) {
 	lc, _ := newForkLC()
 	_, err := lc.Spawn(context.Background(), SpawnRequest{
@@ -104,7 +104,7 @@ func TestSpawnForkFreeFormRejected(t *testing.T) {
 		ForkSourceBranch:    "src-branch",
 	})
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "free-form fork is not supported")
+	require.Contains(t, err.Error(), "fork requires its own worktree")
 }
 
 // TestSpawnForkRequiresOwnWorktree guards the §5/§7 correctness requirement: a fork

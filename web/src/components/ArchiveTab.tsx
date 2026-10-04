@@ -69,7 +69,7 @@ export default function ArchiveTab() {
         <table className="archive-table">
           <thead>
             <tr>
-              <th>ID</th><th>Name</th><th>Type</th><th>Status</th>
+              <th>ID</th><th>Name</th><th>Role</th><th>Status</th>
               <th>Branch</th><th>Updated</th><th>Subject</th>
             </tr>
           </thead>
@@ -78,7 +78,7 @@ export default function ArchiveTab() {
               <tr key={s.id}>
                 <td>{s.id}</td>
                 <td>{s.name || '—'}</td>
-                <td>{s.type || '—'}</td>
+                <td>{s.role || s.type || '—'}</td>
                 <td>{s.status}</td>
                 <td>{s.branch || '—'}</td>
                 <td>{s.updated_at ? new Date(s.updated_at).toLocaleString() : '—'}</td>

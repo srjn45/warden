@@ -111,6 +111,20 @@ func TestHistoryForwardsFilters(t *testing.T) {
 	require.Len(t, got, 1)
 }
 
+// TestHistoryForwardsRoleFilter proves the canonical Role query param is sent
+// during the Type→Role deprecation window (plan-213eaa87).
+func TestHistoryForwardsRoleFilter(t *testing.T) {
+	var c capture
+	ts := jsonServer(t, &c, 0, `{"sessions":[{"id":"A-1","role":"implementer"}]}`)
+	got, err := New(ts.URL).History(context.Background(), HistoryParams{Role: "implementer", Limit: 5})
+	require.NoError(t, err)
+	require.Equal(t, "/api/v1/history", c.path)
+	require.Equal(t, "implementer", queryParam(c.rawQ, "role"))
+	require.Equal(t, "", queryParam(c.rawQ, "type"), "role-only filter must omit type")
+	require.Equal(t, "5", queryParam(c.rawQ, "limit"))
+	require.Len(t, got, 1)
+}
+
 func TestHistoryOmitsZeroFilters(t *testing.T) {
 	var c capture
 	ts := jsonServer(t, &c, 0, `{"sessions":[]}`)

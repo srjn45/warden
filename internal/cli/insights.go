@@ -67,10 +67,10 @@ func formatInsights(r *insights.Report, narration, session string) string {
 	}
 
 	if len(r.Durations) > 0 {
-		b.WriteString("session duration by type:\n")
+		b.WriteString("session duration by role:\n")
 		for _, d := range r.Durations {
 			fmt.Fprintf(&b, "  %-14s %3d runs · median %s · p90 %s · max %s",
-				d.Type, d.Count, humanDuration(d.MedianSec), humanDuration(d.P90Sec), humanDuration(d.MaxSec))
+				d.Role, d.Count, humanDuration(d.MedianSec), humanDuration(d.P90Sec), humanDuration(d.MaxSec))
 			if len(d.Outliers) > 0 {
 				fmt.Fprintf(&b, " · outliers: %s", strings.Join(d.Outliers, ", "))
 			}
@@ -97,9 +97,9 @@ func formatInsights(r *insights.Report, narration, session string) string {
 	}
 
 	if len(r.ErrorRates) > 0 {
-		b.WriteString("error rate by type:\n")
+		b.WriteString("error rate by role:\n")
 		for _, e := range r.ErrorRates {
-			fmt.Fprintf(&b, "  %-14s %d/%d (%.0f%%)\n", e.Type, e.Errored, e.Total, e.Rate*100)
+			fmt.Fprintf(&b, "  %-14s %d/%d (%.0f%%)\n", e.Role, e.Errored, e.Total, e.Rate*100)
 		}
 		b.WriteString("\n")
 	}
