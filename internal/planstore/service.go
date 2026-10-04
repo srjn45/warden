@@ -337,6 +337,261 @@ func (s *PlanService) Create(ctx context.Context, projectID string, req CreateRe
 	return s.store.Get(ctx, p.ID)
 }
 
+// AddTask appends a task to a pending plan's DAG. The plan must be pending;
+// task id must be unique; After deps must exist; the resulting DAG must be
+// acyclic. TaskProgress for the new task is initialized to "pending".
+func (s *PlanService) AddTask(ctx context.Context, planID string, task TaskSpec, expectedRev *int64) (*Plan, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	p, err := s.store.Get(ctx, planID)
+	if err != nil {
+		return nil, err
+	}
+	if p.Status != PlanStatusPending {
+		return nil, ErrNotPending
+	}
+
+	task.ID = strings.TrimSpace(task.ID)
+	task.Prompt = strings.TrimSpace(task.Prompt)
+	if task.ID == "" {
+		return nil, &ValidationError{Field: "task.id", Msg: "task id is required"}
+	}
+	if task.Prompt == "" {
+		return nil, &ValidationError{Field: "task.prompt", Msg: "task prompt is required"}
+	}
+	for _, existing := range p.Tasks {
+		if strings.TrimSpace(existing.ID) == task.ID {
+			return nil, &ValidationError{Field: "task.id", Msg: fmt.Sprintf("duplicate task id %q", task.ID)}
+		}
+	}
+
+	next := append(planTasksToTaskSpecs(p.Tasks), TaskSpec{
+		ID:     task.ID,
+		Prompt: task.Prompt,
+		After:  append([]string(nil), task.After...),
+	})
+	if err := validateTasks(next); err != nil {
+		return nil, err
+	}
+
+	expected := p.Revision
+	if expectedRev != nil {
+		expected = *expectedRev
+	}
+	if err := s.store.UpdateIf(ctx, planID, expected, func(pl *Plan) error {
+		if pl.Status != PlanStatusPending {
+			return ErrNotPending
+		}
+		for _, existing := range pl.Tasks {
+			if strings.TrimSpace(existing.ID) == task.ID {
+				return &ValidationError{Field: "task.id", Msg: fmt.Sprintf("duplicate task id %q", task.ID)}
+			}
+		}
+		candidate := append(planTasksToTaskSpecs(pl.Tasks), TaskSpec{
+			ID:     task.ID,
+			Prompt: task.Prompt,
+			After:  append([]string(nil), task.After...),
+		})
+		if err := validateTasks(candidate); err != nil {
+			return err
+		}
+		pl.Tasks = append(pl.Tasks, PlanTask{
+			ID:     task.ID,
+			Prompt: task.Prompt,
+			After:  append([]string(nil), task.After...),
+		})
+		if pl.TaskProgress == nil {
+			pl.TaskProgress = map[string]string{}
+		}
+		pl.TaskProgress[task.ID] = "pending"
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return s.store.Get(ctx, planID)
+}
+
+// UpdateTask patches prompt and/or after edges for one task on a pending plan.
+// Nil prompt/after leave that field unchanged. An empty prompt string is rejected.
+func (s *PlanService) UpdateTask(ctx context.Context, planID, taskID string, prompt *string, after *[]string, expectedRev *int64) (*Plan, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return nil, &ValidationError{Field: "task_id", Msg: "task id is required"}
+	}
+	if prompt == nil && after == nil {
+		return nil, &ValidationError{Field: "task", Msg: "prompt or after is required"}
+	}
+	if prompt != nil && strings.TrimSpace(*prompt) == "" {
+		return nil, &ValidationError{Field: "task.prompt", Msg: "task prompt is required"}
+	}
+
+	p, err := s.store.Get(ctx, planID)
+	if err != nil {
+		return nil, err
+	}
+	if p.Status != PlanStatusPending {
+		return nil, ErrNotPending
+	}
+
+	idx := -1
+	for i, t := range p.Tasks {
+		if strings.TrimSpace(t.ID) == taskID {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return nil, &ValidationError{Field: "task_id", Msg: fmt.Sprintf("unknown task %q", taskID)}
+	}
+
+	specs := planTasksToTaskSpecs(p.Tasks)
+	if prompt != nil {
+		specs[idx].Prompt = strings.TrimSpace(*prompt)
+	}
+	if after != nil {
+		specs[idx].After = append([]string(nil), (*after)...)
+	}
+	if err := validateTasks(specs); err != nil {
+		return nil, err
+	}
+
+	expected := p.Revision
+	if expectedRev != nil {
+		expected = *expectedRev
+	}
+	if err := s.store.UpdateIf(ctx, planID, expected, func(pl *Plan) error {
+		if pl.Status != PlanStatusPending {
+			return ErrNotPending
+		}
+		liveIdx := -1
+		for i, t := range pl.Tasks {
+			if strings.TrimSpace(t.ID) == taskID {
+				liveIdx = i
+				break
+			}
+		}
+		if liveIdx < 0 {
+			return &ValidationError{Field: "task_id", Msg: fmt.Sprintf("unknown task %q", taskID)}
+		}
+		candidate := planTasksToTaskSpecs(pl.Tasks)
+		if prompt != nil {
+			candidate[liveIdx].Prompt = strings.TrimSpace(*prompt)
+		}
+		if after != nil {
+			candidate[liveIdx].After = append([]string(nil), (*after)...)
+		}
+		if err := validateTasks(candidate); err != nil {
+			return err
+		}
+		if prompt != nil {
+			pl.Tasks[liveIdx].Prompt = strings.TrimSpace(*prompt)
+		}
+		if after != nil {
+			pl.Tasks[liveIdx].After = append([]string(nil), (*after)...)
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return s.store.Get(ctx, planID)
+}
+
+// RemoveTask deletes a task from a pending plan. Removal is rejected when any
+// remaining task still depends on taskID (via After).
+func (s *PlanService) RemoveTask(ctx context.Context, planID, taskID string, expectedRev *int64) (*Plan, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return nil, &ValidationError{Field: "task_id", Msg: "task id is required"}
+	}
+
+	p, err := s.store.Get(ctx, planID)
+	if err != nil {
+		return nil, err
+	}
+	if p.Status != PlanStatusPending {
+		return nil, ErrNotPending
+	}
+
+	found := false
+	for _, t := range p.Tasks {
+		if strings.TrimSpace(t.ID) == taskID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, &ValidationError{Field: "task_id", Msg: fmt.Sprintf("unknown task %q", taskID)}
+	}
+	for _, t := range p.Tasks {
+		id := strings.TrimSpace(t.ID)
+		if id == taskID {
+			continue
+		}
+		for _, dep := range t.After {
+			if strings.TrimSpace(dep) == taskID {
+				return nil, &ValidationError{
+					Field: "task_id",
+					Msg:   fmt.Sprintf("cannot remove task %q: task %q depends on it", taskID, id),
+				}
+			}
+		}
+	}
+
+	expected := p.Revision
+	if expectedRev != nil {
+		expected = *expectedRev
+	}
+	if err := s.store.UpdateIf(ctx, planID, expected, func(pl *Plan) error {
+		if pl.Status != PlanStatusPending {
+			return ErrNotPending
+		}
+		liveIdx := -1
+		for i, t := range pl.Tasks {
+			if strings.TrimSpace(t.ID) == taskID {
+				liveIdx = i
+				break
+			}
+		}
+		if liveIdx < 0 {
+			return &ValidationError{Field: "task_id", Msg: fmt.Sprintf("unknown task %q", taskID)}
+		}
+		for _, t := range pl.Tasks {
+			id := strings.TrimSpace(t.ID)
+			if id == taskID {
+				continue
+			}
+			for _, dep := range t.After {
+				if strings.TrimSpace(dep) == taskID {
+					return &ValidationError{
+						Field: "task_id",
+						Msg:   fmt.Sprintf("cannot remove task %q: task %q depends on it", taskID, id),
+					}
+				}
+			}
+		}
+		pl.Tasks = append(pl.Tasks[:liveIdx], pl.Tasks[liveIdx+1:]...)
+		if pl.TaskProgress != nil {
+			delete(pl.TaskProgress, taskID)
+		}
+		if len(pl.Tasks) > 0 {
+			if err := validateTasks(planTasksToTaskSpecs(pl.Tasks)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return s.store.Get(ctx, planID)
+}
+
 // Update rejects non-pending plans, validates fields being updated, and applies
 // the definition change atomically via UpdateIf (revision bump + content hash).
 func (s *PlanService) Update(ctx context.Context, planID string, req UpdateRequest) (*Plan, error) {
@@ -662,6 +917,18 @@ func taskSpecsToPlanTasks(tasks []TaskSpec) []PlanTask {
 	out := make([]PlanTask, 0, len(tasks))
 	for _, t := range tasks {
 		out = append(out, PlanTask{
+			ID:     strings.TrimSpace(t.ID),
+			Prompt: t.Prompt,
+			After:  append([]string(nil), t.After...),
+		})
+	}
+	return out
+}
+
+func planTasksToTaskSpecs(tasks []PlanTask) []TaskSpec {
+	out := make([]TaskSpec, 0, len(tasks))
+	for _, t := range tasks {
+		out = append(out, TaskSpec{
 			ID:     strings.TrimSpace(t.ID),
 			Prompt: t.Prompt,
 			After:  append([]string(nil), t.After...),
