@@ -68,6 +68,7 @@ func helpText() string {
 		"  ctrl+a       toggle autopilot on/off (run `warden autopilot init` first if not configured)\n" +
 		"  u            apply a pending warden update (footer chip) then hot-reload the TUI in place\n" +
 		"  r            reload the TUI after an external upgrade (footer chip); otherwise restore/retry\n" +
+		"  B            review a staged warden-bug crash draft (Submit / Dismiss; footer badge)\n" +
 		"  ?            toggle this help\n" +
 		"  q            quit\n" +
 		"\n" +

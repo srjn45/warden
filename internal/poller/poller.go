@@ -142,6 +142,12 @@ type Poller struct {
 	// even when the policy sets use_fast_brain. The destructive guard and the
 	// circuit breaker always run before it.
 	FastBrain fastbrain.Engine
+	// Version is the warden version reported in staged crash drafts ("" ⇒ unknown).
+	Version string
+	// CrashDir is where warden-bug crash drafts are staged. Empty ⇒
+	// fastbrain.DefaultCrashDir(). Triage runs only when FastBrain is non-nil.
+	CrashDir string
+	triageWG sync.WaitGroup
 	// Backend resolves the agent backend for a session, used for pane state
 	// detection (classify) and approval parsing (tryAutoApprove). Defaults in New
 	// to the agentbackend registry (with the Claude default for an empty/unknown
@@ -952,6 +958,7 @@ func (p *Poller) tick(ctx context.Context) error {
 					if a, ok := crashAnomaly(code); ok {
 						p.raiseAnomaly(ctx, s, a)
 					}
+					p.triageCrash(s, code)
 				}
 				if p.OnTransition != nil {
 					p.OnTransition(s, s.Status, next)

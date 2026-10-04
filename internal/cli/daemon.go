@@ -228,6 +228,7 @@ func newDaemonRunCmd() *cobra.Command {
 			// (per-tier timeouts still apply). Inert unless auto_approve.use_fast_brain.
 			fbRunner := fastbrain.RunnerFunc(lc.RunClaudeP)
 			pl.FastBrain = fastbrain.NewEngine(fbRunner, fbRunner)
+			pl.Version = version
 			pl.RateLimitAutoResume = cfg.RateLimit.AutoResume
 			pstore, err := pipeline.NewStore(filepath.Join(cfg.DataDir, "pipelines"))
 			if err != nil {
