@@ -45,7 +45,8 @@ default; each in its own tmux session, most in a git worktree).
 | Restore an orphaned agent | `restore` | `restore_agent` | ✓ | ✓ | `r` | [agents-lifecycle](https://srjn45.github.io/warden/concepts/agents-lifecycle/) |
 | Recover an archived `orphaned` agent with a live pane (tombstone-reaper safety net) | `recover` | `recover_agents` | ✓ | — | — | [agents-lifecycle](https://srjn45.github.io/warden/concepts/agents-lifecycle/) |
 | Delete / hard-purge | `delete` (= `stop --keep-worktree`, record only) | `delete_agent` | ✓ | ✓ | `D` | [fleet-operations](https://srjn45.github.io/warden/guides/fleet-operations/) |
-| Rename an agent | `adopt --name` / spawn `name` | `spawn_agent` (`name`) | ✓ | ✓ | — | [fleet-operations](https://srjn45.github.io/warden/guides/fleet-operations/) |
+| Mandatory agent naming (auto-resolve when `--name`/`name` omitted; role conventions + fast-tier slug + adjective-noun fallback; auto-disambiguate) | `start` (omit `--name`) | `spawn_agent` (omit `name`) | ✓ | ✓ | list name col | [spawn-and-watch](https://srjn45.github.io/warden/guides/spawn-and-watch/) |
+| Rename an agent | `adopt --name` / spawn `name` | `spawn_agent` (`name`) | ✓ | ✓ | info panel | [fleet-operations](https://srjn45.github.io/warden/guides/fleet-operations/) |
 | Tags (group / filter) | `start --tag`, `ls --tag` | `spawn_agent` (`tags`) | ✓ | ✓ | — | [fleet-operations](https://srjn45.github.io/warden/guides/fleet-operations/) |
 | Model selection | `start --model` / config | `spawn_agent` (`model`) | ✓ | ✓ | — | [env-vars](https://srjn45.github.io/warden/reference/env-vars/) |
 | Agent role (built-in persona + default flags) at spawn | `start --role` | `spawn_agent` (`role`) | ✓ | ✓ (Role select) | `ctrl+r` (new-agent) | [agent-roles](https://srjn45.github.io/warden/guides/agent-roles/) |

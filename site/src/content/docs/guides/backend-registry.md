@@ -15,8 +15,10 @@ from it:
 - **[Autopilot](/warden/concepts/autopilot/)'s cost-tier ladder** — cheapest-first
   backend selection for the manager and guardian.
 - **The internal free/local thinking router** — warden's own thinking (task
-  classification, agent naming, digest narration, memory curation) routed *strictly*
-  through free and local backends, **never** a paid call.
+  classification, digest narration, memory curation) routed *strictly*
+  through free and local backends, **never** a paid call. Prompt-driven agent
+  naming is separate (subscription fast-tier, 1.5s timeout, adjective-noun
+  fallback — see [Spawn & watch](/warden/guides/spawn-and-watch/)).
 
 ## The mental model: detection is a fact, tiering is a preference
 
@@ -64,9 +66,11 @@ backend is free (and never routes internal thinking to it) without you saying so
 ## The internal-thinking mode
 
 warden does a fair amount of its own "thinking" — classifying a task, summarizing
-activity, naming an agent, narrating a digest, curating project memory. This is
+activity, narrating a digest, curating project memory. This is
 **internal**, non-user-facing work, and warden routes it **only** through free and
-local backends. It **never makes a paid call**. The **thinking-mode** picks the walk:
+local backends. It **never makes a paid call**. (Agent naming at spawn uses a
+subscription fast-tier lookup with a hard timeout instead — see
+[Spawn & watch](/warden/guides/spawn-and-watch/).) The **thinking-mode** picks the walk:
 
 | Mode | Walk |
 |---|---|
