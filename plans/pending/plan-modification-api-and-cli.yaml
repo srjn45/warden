@@ -1,0 +1,135 @@
+version: 1
+name: plan-modification-api-and-cli
+goal: >-
+  Implement a first-class Plan Modification API and CLI subcommands allowing plan definitions
+  (task DAG, goal, constraints, done_when, name) to be updated while in pending status,
+  with strict immutability checks on non-pending plans, granular task mutations, and an interactive
+  YAML editor (`warden plan edit`).
+constraints:
+  - "Work in an isolated git worktree branched off origin/main or the plan integration branch; one worker per task."
+  - "Keep the tree green — run `wd check` (or make verify-fast) before every commit/push."
+  - "Modifications to plan definition must strictly require Status == pending; non-pending plans must return HTTP 409 Conflict."
+  - "Spec-first API: update internal/daemon/apidocs/openapi.yaml and run make generate for any daemon endpoint changes."
+  - "Optimistic concurrency: support expected_revision and return structured 409 conflict on revision mismatch."
+  - "Never mutate canonical database records without validating DAG acyclicity and dependency existence."
+  - "Open PRs against autopilot/plan-modification-api-and-cli (never main)."
+  - "End each task with `wd job done --summary '...'` once the PR is up and gate is green."
+done_when:
+  - "All unit and integration tests pass: go test ./internal/planstore/... ./internal/daemon/... ./internal/client/... ./internal/cli/..."
+  - "warden plan update --file successfully applies a YAML definition to a pending plan in ScrivaDB."
+  - "warden plan edit opens $EDITOR and saves the updated definition with bumped revision and content hash."
+  - "warden plan task add, edit, and rm manipulate task DAGs with cycle detection and dependency validation."
+  - "Attempting definition modification on an in_progress, completed, or archived plan returns 409 Conflict."
+  - "A final integration Pull Request is opened against main with all checks green."
+tasks:
+  - id: Task1_PlanStoreTaskMutations
+    prompt: >-
+      Implement granular task-level mutation methods in internal/planstore/service.go:
+      1) Add `AddTask(ctx context.Context, planID string, task TaskSpec, expectedRev *int64) (*Plan, error)`:
+         - Validates plan is pending; returns ErrNotPending (409) if not.
+         - Validates task ID is non-empty, unique in the plan, prompt is non-empty.
+         - Validates that declared `After` dependencies exist in the plan.
+         - Checks that adding the task does not introduce a cycle via ValidateTaskDAG.
+         - Initializes `TaskProgress[task.ID] = "pending"`.
+         - Updates revision, content hash, and saves via UpdateIf.
+      2) Add `UpdateTask(ctx context.Context, planID, taskID string, prompt *string, after *[]string, expectedRev *int64) (*Plan, error)`:
+         - Validates plan is pending.
+         - If prompt is non-nil, updates prompt (rejecting empty string).
+         - If after is non-nil, validates dependencies exist and runs cycle detection.
+         - Updates revision and content hash.
+      3) Add `RemoveTask(ctx context.Context, planID, taskID string, expectedRev *int64) (*Plan, error)`:
+         - Validates plan is pending.
+         - Checks that no remaining task depends on `taskID` (returns validation error if dependent tasks exist).
+         - Removes task from Tasks list and TaskProgress map.
+         - Updates revision and content hash.
+      4) Add comprehensive unit tests in internal/planstore/service_test.go covering:
+         - Task addition, update, removal on pending plans.
+         - Rejection (ErrNotPending) on in_progress, completed, and archived plans.
+         - Cycle detection and missing dependency rejection.
+         - Deletion blocked by downstream dependents.
+         - Revision bumping and optimistic concurrency conflict handling.
+      Run `go test ./internal/planstore/...` and ensure all tests pass.
+      Open a PR against autopilot/plan-modification-api-and-cli and end with `wd job done --summary 'feat(planstore): granular task DAG mutations and lifecycle guardrails'`.
+
+  - id: Task2_DaemonRoutesAndOpenAPI
+    prompt: >-
+      Expose granular task mutation endpoints in the daemon and update OpenAPI spec:
+      1) In internal/daemon/apidocs/openapi.yaml:
+         - Define `POST /api/v1/plans/{plan_id}/tasks` (`AddPlanTask`): body with id, prompt, after (optional), expected_revision.
+         - Define `PATCH /api/v1/plans/{plan_id}/tasks/{task_id}/definition` (`UpdatePlanTaskDefinition`): body with prompt (optional), after (optional), expected_revision.
+         - Define `DELETE /api/v1/plans/{plan_id}/tasks/{task_id}` (`DeletePlanTask`): query or body with expected_revision.
+         - Ensure responses include 200 (Plan), 400 (Validation/DAG cycle), 404 (Not Found), 409 (Plan not pending or revision conflict).
+      2) Run `make generate` to regenerate internal/daemon/oapi/api.gen.go.
+      3) In internal/daemon/strict_plans.go:
+         - Implement `AddPlanTask`, `UpdatePlanTaskDefinition`, and `DeletePlanTask` delegating to PlanService.
+         - Map `planstore.ErrNotPending` to 409 Conflict.
+         - Map `planstore.RevisionConflictError` to 409 Conflict with structured fields (plan_id, expected, actual).
+         - Map `planstore.ValidationError` to 400 Bad Request.
+      4) Add route integration tests in internal/daemon/plans_crud_routes_test.go asserting status codes and error payloads.
+      Run `go test ./internal/daemon/...` and verify tests pass.
+      Open a PR against autopilot/plan-modification-api-and-cli and end with `wd job done --summary 'feat(daemon): openapi spec and routes for plan task mutations'`.
+
+  - id: Task3_ClientSDKMethods
+    after:
+      - Task2_DaemonRoutesAndOpenAPI
+    prompt: >-
+      Add client SDK methods and YAML parsing helpers in internal/client/:
+      1) In internal/client/plans_crud.go:
+         - Add `PlansTaskAdd(ctx context.Context, planID string, task PlanTaskSpec, expectedRevision int64) (*PlanView, error)`.
+         - Add `PlansTaskUpdate(ctx context.Context, planID, taskID string, prompt *string, after *[]string, expectedRevision int64) (*PlanView, error)`.
+         - Add `PlansTaskDelete(ctx context.Context, planID, taskID string, expectedRevision int64) (*PlanView, error)`.
+         - Add `ParsePlanYAML(data []byte) (*PlansUpdateRequest, error)` which parses a plan YAML document into a PlansUpdateRequest, validating task DAG structures before submission.
+      2) Add unit tests in internal/client/plans_crud_test.go covering:
+         - Adding, updating, deleting tasks via the client.
+         - Parsing valid and invalid YAML files.
+         - Handling 409 conflict errors properly.
+      Run `go test ./internal/client/...` and ensure all tests pass.
+      Open a PR against autopilot/plan-modification-api-and-cli and end with `wd job done --summary 'feat(client): sdk methods for plan task mutations and yaml parsing'`.
+
+  - id: Task4_CLIPlanModificationCommands
+    after:
+      - Task3_ClientSDKMethods
+    prompt: >-
+      Implement CLI subcommands for plan definition modification in internal/cli/:
+      1) Implement `warden plan update <plan-id>`:
+         - `--file <path.yaml>`: reads YAML file, parses via ParsePlanYAML, and calls PlansUpdate to apply changes to ScrivaDB.
+         - `--name <str>`, `--goal <str>`: updates plan metadata.
+         - `--constraint <str>` (repeatable), `--done-when <str>` (repeatable).
+         - `--expected-revision <int>`: optional concurrency token.
+      2) Implement `warden plan edit <plan-id>` (in internal/cli/plan_edit.go):
+         - Fetches plan definition via PlansGet.
+         - Serializes definition to YAML in a temporary file with clear instructions/headers.
+         - Opens temporary file in `$EDITOR` (falling back to `nano` or `vi`).
+         - Validates edited YAML locally on save; if invalid, displays syntax/DAG error and prompts user to re-edit or abort.
+         - If valid, sends PlansUpdate with the original revision as expected_revision.
+         - Displays success message with new revision and hash.
+      3) Implement `warden plan task <subcommand> <plan-id>`:
+         - `warden plan task add <plan-id> --id <id> --prompt <prompt> [--after <dep1,dep2>]`
+         - `warden plan task edit <plan-id> <task-id> [--prompt <prompt>] [--after <dep1,dep2>]`
+         - `warden plan task rm <plan-id> <task-id>`
+      4) Register commands under `newPlanCmd()` in internal/cli/plan.go and update command help metadata.
+      5) Add CLI tests in internal/cli/plan_test.go verifying argument parsing, flag handling, and output formats.
+      Run `go test ./internal/cli/...` and ensure all tests pass.
+      Open a PR against autopilot/plan-modification-api-and-cli and end with `wd job done --summary 'feat(cli): wd plan update, edit, and task commands'`.
+
+  - id: Task5_E2EVerificationAndFinalPR
+    after:
+      - Task4_CLIPlanModificationCommands
+    prompt: >-
+      Perform end-to-end verification, documentation updates, and open the final PR:
+      1) Run the complete project test suite:
+         `go test ./...`
+         `make verify-fast` (or `wd check`)
+      2) Perform end-to-end verification with local daemon:
+         - Create a test pending plan: `wd plan create --name test-modify --goal "Test modification" --task "t1:Initial task"`
+         - Modify goal and constraints: `wd plan update <id> --goal "Updated goal" --constraint "Fast turnaround"`
+         - Add a task: `wd plan task add <id> --id "t2" --prompt "Second task" --after "t1"`
+         - Remove a task: `wd plan task rm <id> t2`
+         - Edit a task: `wd plan task edit <id> t1 --prompt "Refined first task"`
+         - Transition plan to in_progress: `wd plan run <id>`
+         - Verify immutability: `wd plan update <id> --goal "Should fail"` returns 409 Conflict.
+         - Clean up test plan: `wd plan archive <id>`
+      3) Update documentation:
+         - Update docs/specs/ and README.md describing `wd plan edit`, `wd plan update`, and `wd plan task` commands.
+      4) Open the final integration Pull Request against `main` summarizing all changes and linking to issues/discussions.
+      End with `wd job done --summary 'chore: e2e verification, documentation, and final PR for plan modification'`.
