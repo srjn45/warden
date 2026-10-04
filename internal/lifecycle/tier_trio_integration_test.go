@@ -122,9 +122,9 @@ func TestTierTrioEndToEnd(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, s)
 		// A first spawn never hard-fails on resolution: with no resolver it degrades
-		// to the request values — the config default backend (empty ⇒ claude) and no
-		// model pin.
+		// to the request values — the config default backend (empty ⇒ claude) and an
+		// explicit default model (model is never left empty).
 		require.Equal(t, "", s.AiCli)
-		require.Equal(t, "", s.Model)
+		require.Equal(t, DefaultModel, s.Model)
 	})
 }
