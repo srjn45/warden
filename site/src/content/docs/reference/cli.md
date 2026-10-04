@@ -62,6 +62,7 @@ Get started and interact:
   tutorial             Run the first-run guided walkthrough of warden's core loop
   doctor               Run preflight checks (required binaries, daemon, data dir, configured local model)
   tui                  Live terminal cockpit for agents
+  update               Update the installed warden binary from GitHub Releases
   version              Print warden version and build information
 
 Shortcuts:
@@ -4662,6 +4663,39 @@ Flags:
   -h, --help                  help for tui
       --rebuild-web-cockpit   kill and rebuild the daemon-owned web cockpit tmux session (the browser /tui view), then exit — an escape hatch for a wedged web cockpit
       --tmux-native           lay the cockpit out as a native tmux window in the current session instead of a nested tmux (auto-enabled when launched inside tmux; requires $TMUX)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden update
+
+```text
+Download a verified GitHub release archive, atomically replace
+~/.local/bin/warden, re-sign on macOS when the warden-codesign identity is
+present, run config migrations, restart the user-level daemon service, and
+probe /healthz — rolling the binary back if the new daemon is unhealthy.
+
+Flags:
+  --check            report whether an update is available without applying it
+  --version <tag>    install a specific release (e.g. 9.9.0 or v9.9.0)
+  --force            reinstall even when already on the target version
+
+Examples:
+  warden update
+  warden update --check
+  warden update --version v9.9.0
+  wd update --force
+
+Usage:
+  warden update [flags]
+
+Flags:
+      --check            query and print whether an update is available without applying it
+      --force            reinstall even when already on the target version
+  -h, --help             help for update
+      --version string   install a specific release tag (e.g. 9.9.0 or v9.9.0)
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
