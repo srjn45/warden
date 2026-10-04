@@ -1,14 +1,27 @@
 # Shipping warden
 
-This guide describes how to take warden from its current **single-developer,
-local-macOS** setup to something other people can install on macOS *and* Linux.
-It documents the real flow as it exists today, the concrete blockers to wider
-distribution, and a step-by-step plan to remove them.
+This guide describes how warden is built, released, and installed on macOS and
+Linux. It began as a planning document for wider distribution; the channels it
+describes have since landed. Keep it as the reference for the release flow —
+each section marks what exists today versus what was retired.
 
-> Scope: this began as a planning document; the distribution work it describes
-> (versioned builds, GoReleaser pipeline, systemd unit, deb/rpm/AUR packages, and
-> the Homebrew tap) is now **shipped** and live as of v8.16.3. It is kept as a
-> reference for how the release flow is wired — each section marks what exists.
+> **Current distribution (canonical):**
+>
+> 1. **Install** — zero-prerequisite curl one-liner:
+>    `curl -fsSL https://raw.githubusercontent.com/srjn45/warden/main/scripts/install.sh | bash`
+> 2. **Upgrade** — first-class `warden update` / `wd update` (checksum-verified
+>    atomic swap, macOS re-sign, migrations, service restart, `/healthz` probe
+>    with rollback).
+> 3. **TUI hot-reload** — cockpit footer chips `[u]` (apply update) and `[r]`
+>    (reload after external upgrade) via `syscall.Exec` without interrupting
+>    active tmux agent sessions.
+> 4. **Release artifacts** — GoReleaser cross-compiled archives + `checksums.txt`
+>    + `scripts/install.sh` attached to every GitHub Release. The site
+>    `prebuild` also copies `install.sh` to `public/install.sh` for Pages.
+>
+> **Deprecated / removed:** OS package managers (`nfpms` deb/rpm/Arch, AUR
+> `aurs`, Homebrew cask) are no longer published from `.goreleaser.yaml` or the
+> release workflow. Direct users to the curl installer and `warden update`.
 
 ---
 
@@ -32,31 +45,55 @@ HTTP daemon API, the MCP server, the TUI, and the CLI.
 
 ### Install: `scripts/install.sh`
 
-`make install` calls `scripts/install.sh`, which (sourcing `scripts/common.sh`):
+`scripts/install.sh` (sourcing `scripts/common.sh`) has **two modes**:
 
-1. `build_release` — runs `make release` (skip with `NO_BUILD=1` / `--no-build`).
-2. `deploy_binary` — copies `bin/warden` → `~/.local/bin/warden`, then
-   **code-signs** it with a stable self-signed identity (`warden-codesign`,
-   created once by `scripts/codesign-setup.sh`) so a granted macOS Full Disk
-   Access survives rebuilds.
-3. `render_plist` — renders `deploy/com.srajanpathak.warden.plist.template`
-   by `sed`-substituting `__BINARY__`, `__ADDR__`, `__HOME__`, writing it to
-   `~/Library/LaunchAgents/com.srajanpathak.warden.plist`.
-4. `restart_service` — boots the launchd job (`launchctl bootstrap`, falling
-   back to legacy `load -w`). Re-derives launchd's Lightweight Code Requirement
-   on binary/plist change to avoid the stale-LWCR spawn failure (EX_CONFIG/78).
-5. **Skill symlink** — `ln -sfn $REPO/skills/warden ~/.claude/skills/warden`.
-6. **MCP registration** — `claude mcp add warden --scope user -- warden mcp`
-   (idempotent remove-then-add; degrades to a warning if enterprise MCP policy
-   blocks it).
-7. `check_path` / `report_health` — warns if `~/.local/bin` isn't on `PATH`,
+| Mode | How you invoke it | Binary source |
+|---|---|---|
+| **Standalone** | `curl -fsSL …/install.sh \| bash` | GitHub Releases archive for detected `OS`/`ARCH` (override with `WARDEN_VERSION`) |
+| **Dev checkout** | `./scripts/install.sh` / `make install` | Local `make release` (skip with `--no-build`) |
+
+Standalone mode needs only `curl` (plus `sha256sum` / `shasum` for checksum
+verification). It does **not** require git, Go, or npm. When piped via curl,
+the script bootstraps `common.sh` from the same git ref and embeds/renders the
+service templates so the remote machine never needs the `deploy/` directory.
+
+Shared post-binary steps (both modes):
+
+1. `deploy_binary` — installs `~/.local/bin/warden` (+ `wd` symlink), then
+   **code-signs** on macOS with a stable self-signed identity (`warden-codesign`,
+   created once by `scripts/codesign-setup.sh`) so a granted Full Disk Access
+   survives rebuilds.
+2. Render and load the user-level service — launchd plist on macOS, systemd
+   `--user` unit on Linux (templates are embedded for standalone installs).
+3. **Skill symlink / copy** and **MCP registration**
+   (`claude mcp add warden --scope user -- warden mcp`; degrades to a warning
+   if enterprise MCP policy blocks it).
+4. `check_path` / `report_health` — warns if `~/.local/bin` isn't on `PATH`,
    then polls `/healthz` until the daemon answers.
 
 Companion scripts: `scripts/reinstall.sh` (rebuild + redeploy the running
-daemon) and `scripts/uninstall.sh` (bootout, remove plist/binary/skill-symlink/
-MCP registration; **preserves** `~/.warden` data and `/tmp/warden.daemon.*`
-logs).
+daemon; checkout-oriented) and `scripts/uninstall.sh` (stop service, remove
+binary/skill/MCP; **preserves** `~/.warden` data and logs). Day-to-day upgrades
+for release installs use **`warden update`** instead of re-running install.sh.
 
+### Self-update: `warden update`
+
+Implemented in `internal/updater/` and exposed as `warden update` / `wd update`:
+
+1. Query GitHub Releases for the target tag (`--version`, else latest).
+2. Compare against the running `cli.version`; exit 0 when already current
+   (unless `--force`).
+3. Download the release archive + `checksums.txt` into `~/.warden/tmp/`.
+4. Verify SHA256; atomically swap `~/.local/bin/warden` (backup for rollback).
+5. On macOS, re-sign with `codesign --force --sign warden-codesign` when that
+   identity exists.
+6. Run config/DB migrations (`warden config` reconcile hooks).
+7. Restart the user service (`launchctl kickstart -k` / `systemctl --user restart`).
+8. Probe `/healthz`; roll the binary back if the new daemon is unhealthy.
+
+`--check` reports availability without applying. The TUI cockpit polls for
+updates on a timer and surfaces `[u]` / `[r]` chips that drive the same path
+plus an in-place `syscall.Exec` reload.
 ### Runtime layout
 
 | Thing | Location |
@@ -363,98 +400,32 @@ Notes:
   launchd on Darwin, systemd on Linux. The label, health probe, skill copy, and
   MCP registration steps are platform-independent and stay shared.
 
-### 4.4a Native packages & publishers — SHIPPED (one-time setup below)
+### 4.4a Native packages & publishers — DEPRECATED / REMOVED
 
-`.goreleaser.yaml` now builds, on every `v*` tag:
+OS package channels were shipped historically (deb/rpm/Arch via `nfpms`, AUR
+via `aurs`, Homebrew cask via `homebrew_casks`) but are **no longer built or
+published**. `.goreleaser.yaml` now ships only:
 
-- **`.deb` / `.rpm` / Arch `.pkg.tar.zst`** (`nfpms`) — attached to the GitHub
-  release; include the `/usr/bin/wd` symlink and tmux/git as weak deps.
-- **AUR `warden-bin`** (`aurs`) — PKGBUILD + .SRCINFO pushed to
-  `ssh://aur@aur.archlinux.org/warden-bin.git`.
-- **Homebrew cask** (`homebrew_casks`) — pushed to `srjn45/homebrew-tap`
-  (`brew install --cask srjn45/tap/warden`), with a post-install hook that
-  clears the Gatekeeper quarantine (release binaries are not notarized).
+- Cross-compiled archives for darwin/linux amd64/arm64
+- `checksums.txt`
+- `scripts/install.sh` as a `release.extra_files` attachment
 
-Both *publishers* are gated on repo secrets so a release never fails on
-missing setup — absent the secret, the artifact is generated into `dist/` but
-not pushed. **One-time activation:**
+The release workflow no longer depends on `AUR_KEY` or `HOMEBREW_TAP_TOKEN`.
+User-facing docs point at the curl installer and `warden update`. Historical
+design notes for Homebrew live below for archaeology only.
 
-1. **AUR** — create an AUR account, upload an SSH public key to it, then add
-   the *private* key as the `AUR_KEY` GitHub Actions secret. The first tag
-   push after that creates the `warden-bin` package base automatically.
-2. **Homebrew** — create the (public) `srjn45/homebrew-tap` repo, mint a
-   fine-grained PAT with **Contents: write** on that repo only, and add it as
-   the `HOMEBREW_TAP_TOKEN` secret.
+### 4.5 Homebrew tap — superseded / deprecated
 
-### 4.5 Homebrew tap (primary macOS channel) — superseded by §4.4a
-
-**Original goal:** the headline install for the macOS-first audience is
-`brew install srajanpathak/tap/warden`. Shipped as a **cask** (not the formula
-sketched below) via GoReleaser's `homebrew_casks` — the `brews` formula pipe is
-deprecated upstream. The notes below are kept for the design considerations.
-
-GoReleaser can generate and push the formula automatically from the release
-archives. Add a `brews:` block to `.goreleaser.yaml` pointing at a tap repo
-(e.g. `srajanpathak/homebrew-tap`):
-
-```yaml
-brews:
-  - name: warden
-    repository:
-      owner: srajanpathak
-      name: homebrew-tap
-    homepage: "https://github.com/srjn45/warden"
-    description: "Spawn, monitor, and tear down coding-agent sessions"
-    license: "MIT"   # set to the real license
-    dependencies:
-      - tmux
-      - git
-      - gh
-    # claude is not in Homebrew core — call it out in the caveat instead.
-    caveats: |
-      warden needs the Claude Code CLI on your PATH:
-        https://docs.claude.com/claude-code
-      Start the daemon as a launchd service:
-        warden service install      # (planned installer subcommand)
-      Then run `warden doctor` to verify tmux/git/claude/gh and daemon health.
-    service: |
-      run [opt_bin/"warden", "daemon"]
-      keep_alive true
-      log_path var/"log/warden.log"
-      error_log_path var/"log/warden.err"
-```
-
-Considerations:
-
-- **Formula `service` block vs. our launchd installer.** Homebrew can manage the
-  daemon via `brew services start warden` using its own generated plist. That
-  is simpler for users but uses Homebrew's label and paths, *not*
-  `com.srajanpathak.warden` + `~/.local/bin`. Decide one of:
-  (a) lean on `brew services` and retire the bespoke plist for tap users, or
-  (b) keep the formula binary-only and have an `warden service install`
-  subcommand own the plist (recommended — keeps macOS and Linux service setup
-  going through the same code path as §4.4).
-- **`claude` dependency.** The Claude Code CLI isn't in Homebrew core, so it
-  can't be a formula `depends_on`. Surface it in `caveats` and have
-  `warden doctor` check it.
-- **Skill + hook + MCP** are warden-specific and don't belong in a generic
-  formula. Move them behind an `warden install` / `warden service install`
-  subcommand the user runs once post-`brew install`, replacing the bash
-  installer for tap users while the scripts remain for from-source installs.
-- Tag the formula license to match the repo's actual `LICENSE`.
+**Original goal:** `brew install …/warden` as the macOS front door. That
+channel is retired in favor of curl + `warden update`. Do not re-add
+`homebrew_casks` / `brews` without an explicit product decision.
 
 ---
 
 ## 5. Suggested sequencing
 
-1. **§4.1 version + doctor** — smallest change, immediately makes every later
-   step debuggable in the field.
-2. **§4.2 de-hardcode** — unblocks installing on a machine that isn't the
-   author's; prerequisite for any channel.
-3. **§4.3 GoReleaser** — produces the artifacts the next two steps consume.
-4. **§4.4 systemd** + finish the cross-platform installer branch.
-5. **§4.5 Homebrew tap** — the user-facing front door, built on top of the
-   release artifacts.
-
-Each step is independently shippable and leaves the current `make release` /
-`make install` from-source flow working throughout.
+The original sequencing (§4.1 version/doctor → de-hardcode → GoReleaser →
+systemd → Homebrew) is complete for the pieces we kept. The live front door is
+**curl `install.sh` + `warden update` + TUI hot-reload**, not package managers.
+Keep the from-source `make release` / `make install` path working for
+contributors throughout.
