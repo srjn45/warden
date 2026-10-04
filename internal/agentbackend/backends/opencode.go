@@ -90,6 +90,9 @@ func (OpenCode) LaunchCmd(o agentbackend.LaunchOpts) string {
 	if o.Model != "" {
 		cmd += " -m " + shellQuoteArg(o.Model)
 	}
+	if o.Mode == "plan" {
+		cmd += " --agent plan"
+	}
 	if opencodeSkipPerms(o.Mode) {
 		cmd = opencodeAutoApproveEnv + " " + cmd
 	}
@@ -111,6 +114,9 @@ func (OpenCode) ResumeCmd(o agentbackend.ResumeOpts) (string, bool) {
 	}
 	if o.Model != "" {
 		cmd += " -m " + shellQuoteArg(o.Model)
+	}
+	if o.Mode == "plan" {
+		cmd += " --agent plan"
 	}
 	if opencodeSkipPerms(o.Mode) {
 		cmd = opencodeAutoApproveEnv + " " + cmd
@@ -429,7 +435,7 @@ func (OpenCode) Capabilities() agentbackend.Caps {
 		Resume:               true,
 		Headless:             true,
 		ModelSelection:       true,
-		PermissionModes:      []string{"default", "dangerously-skip-permissions"},
+		PermissionModes:      []string{"default", "plan", "dangerously-skip-permissions"},
 		StructuredTranscript: true,
 		SystemPromptInject:   false,
 		SessionIDControl:     false,

@@ -13,5 +13,5 @@ persona: >
   defer to a human and never leave the decision open — resolve it, report it, and
   finish.
 defaults:
-  permission_mode: auto
+  permission_mode: bypassPermissions
   auto_approve: true

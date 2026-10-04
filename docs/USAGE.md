@@ -468,11 +468,11 @@ warden agent role list
 | Role | Persona (summary) | Default flags | Default tier |
 |---|---|---|---|
 | `general` | *(none — a plain agent)* | — | tier-2 |
-| `orchestrator` | Coordinates a fleet of warden agents to deliver a goal — plans and delegates via the warden MCP/CLI, doesn't write feature code itself unless trivial. | `--permission-mode auto` | tier-1 |
+| `orchestrator` | Coordinates a fleet of warden agents to deliver a goal — plans and delegates via the warden MCP/CLI, doesn't write feature code itself unless trivial. | `--permission-mode bypassPermissions`, auto-approve on (hardcoded) | tier-1 |
 | `planner` | Research, analysis, and planning only — produces tech specs, RFCs, and design docs; must not edit code. | `--permission-mode plan` | tier-1 |
 | `worker` | Owns one task end-to-end: implement (code + tests + checks + commit), self-review the diff, open a PR, drive it green, and merge — then report status back to its coordinator. | `--type development`, `--permission-mode auto`, auto-approve on | tier-2 |
 | `autopilot` | Long-lived headless **manager** of a whole autopilot run — decomposes the goal, spawns worker/brain agents, gates their PRs, and lands into the integration branch. | `--permission-mode bypassPermissions`, auto-approve on | tier-1 |
-| `brain` | On-demand **decision resolver** — unblocks a stuck agent or makes an ad-hoc design/architecture call, no human interaction. | `--permission-mode auto`, auto-approve on | tier-2 |
+| `brain` | On-demand **decision resolver** — unblocks a stuck agent or makes an ad-hoc design/architecture call, no human interaction. | `--permission-mode bypassPermissions`, auto-approve on (hardcoded) | tier-2 |
 
 `autopilot`, `worker`, and `brain` power autopilot's manager → worker → brain
 topology.

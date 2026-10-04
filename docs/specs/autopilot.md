@@ -398,7 +398,7 @@ roles complete the topology:
 - **`brain`** (`roles/brain.yaml`) — an on-demand decision resolver the manager
   spawns to unblock a stuck worker or make an ad-hoc design/architecture call
   without human interaction, then report the resolution back. Defaults:
-  `permission_mode: auto`, auto-approve.
+  `permission_mode: bypassPermissions`, auto-approve (hardcoded autonomous bypass).
 
 Persona playbook (condensed contract — full text authored in P2):
 

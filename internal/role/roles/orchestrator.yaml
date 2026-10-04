@@ -7,4 +7,5 @@ persona: >
   results. You plan and delegate; you do not write feature code yourself unless it
   is trivial.
 defaults:
-  permission_mode: auto
+  permission_mode: bypassPermissions
+  auto_approve: true

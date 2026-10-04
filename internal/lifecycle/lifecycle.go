@@ -305,13 +305,20 @@ func (l *Lifecycle) peerGuidance(ctx context.Context, agent *agentstore.Agent) s
 
 // resolveRole applies the requested built-in role to req: it validates the role
 // name and fills each unset spawn field from the role's defaults, with precedence
-// explicit request value > role default > global default. model/permission_mode
-// fill only when the request left them empty; auto_approve (a bool with no
-// tri-state) is OR-ed in so an explicit true and a role default of true both
-// enable it; tags are UNIONED onto the request's tags (normalized, de-duplicated)
-// rather than replacing them. Type is never filled from the role — isolation is
-// role-driven (RoleOwnsWorktree / wantWorktree) and tiering is Role+Task. It
-// returns the resolved Role so the caller can inject its persona, and mutates
+// explicit request value > role default > global default. model fills only when
+// the request left it empty; auto_approve (a bool with no tri-state) is OR-ed in
+// so an explicit true and a role default of true both enable it; tags are UNIONED
+// onto the request's tags (normalized, de-duplicated) rather than replacing them.
+// Type is never filled from the role — isolation is role-driven (RoleOwnsWorktree
+// / wantWorktree) and tiering is Role+Task.
+//
+// After soft defaults, applyRolePermissionOverrides hardcodes the permission
+// posture for roles that must not honor user/config overrides (autonomous
+// bypass, planner read-only, worker auto+approve). Backend-native remapping
+// (Codex sandbox, Antigravity --mode, Goose GOOSE_MODE, …) happens later in
+// Spawn via applyRoleBackendMode once the AI CLI is resolved.
+//
+// It returns the resolved Role so the caller can inject its persona, and mutates
 // req in place. An empty role normalizes to role.Default ("general"); an unknown
 // name is an error.
 func resolveRole(req *SpawnRequest) (role.Role, error) {
@@ -342,7 +349,105 @@ func resolveRole(req *SpawnRequest) (role.Role, error) {
 	if len(d.Tags) > 0 {
 		req.Tags = store.NormalizeTags(append(append([]string{}, req.Tags...), d.Tags...))
 	}
+	applyRolePermissionOverrides(req)
 	return r, nil
+}
+
+// applyRolePermissionOverrides hardcodes the Claude-canonical permission posture
+// for roles that must run with a fixed safety/autonomy contract regardless of
+// user config or an explicit --permission-mode on the request. General (empty)
+// roles are left untouched. Backend-specific flag vocabulary is applied later
+// by applyRoleBackendMode once AICLI is known.
+func applyRolePermissionOverrides(req *SpawnRequest) {
+	switch req.Role {
+	case "autopilot", "brain", "orchestrator":
+		req.PermissionMode = "bypassPermissions"
+		req.AutoApprove = true
+	case "planner":
+		req.PermissionMode = "plan"
+	case "worker":
+		req.PermissionMode = "auto"
+		req.AutoApprove = true
+	}
+}
+
+// applyRoleBackendMode remaps a role's canonical permission mode onto the
+// backend-native vocabulary for the resolved AI CLI. Called from Spawn /
+// SpawnJob after resolveSpawnTarget so req.Backend is final. No-op for the
+// general (empty) role — those agents keep whatever mode the request/config set.
+func applyRoleBackendMode(req *SpawnRequest) {
+	switch req.Role {
+	case "planner":
+		req.PermissionMode = plannerModeForBackend(req.Backend)
+	case "worker":
+		req.PermissionMode = workerModeForBackend(req.Backend)
+		req.AutoApprove = true
+	case "autopilot", "brain", "orchestrator":
+		req.PermissionMode = autonomousModeForBackend(req.Backend)
+		req.AutoApprove = true
+	}
+}
+
+// plannerModeForBackend is the read-only planning posture for each AI CLI:
+// Claude/Cursor/Antigravity/OpenCode use plan; Codex uses -s read-only; Goose
+// uses GOOSE_MODE=chat.
+func plannerModeForBackend(backend string) string {
+	switch backend {
+	case "codex":
+		return "read-only"
+	case "goose":
+		return "chat"
+	default:
+		return "plan"
+	}
+}
+
+// workerModeForBackend is the write-capable worker posture for each AI CLI:
+// Claude auto, Codex workspace-write, Cursor -f, Antigravity --mode accept-edits,
+// OpenCode full-allow env, Crush --yolo, Aider --yes-always, Goose GOOSE_MODE=auto.
+func workerModeForBackend(backend string) string {
+	switch backend {
+	case "codex":
+		return "workspace-write"
+	case "cursor":
+		return "force"
+	case "antigravity":
+		return "accept-edits"
+	case "crush":
+		return "yolo"
+	case "aider":
+		return "yes-always"
+	case "goose":
+		return "auto"
+	case "opencode":
+		return "auto"
+	default:
+		return "auto"
+	}
+}
+
+// autonomousModeForBackend is the full-bypass posture for autopilot/brain/
+// orchestrator on each AI CLI. Claude keeps bypassPermissions; others map onto
+// their native "just do it" flag/env.
+func autonomousModeForBackend(backend string) string {
+	switch backend {
+	case "codex":
+		return "danger-full-access"
+	case "cursor":
+		return "force"
+	case "antigravity":
+		return "dangerously-skip-permissions"
+	case "crush":
+		return "yolo"
+	case "aider":
+		return "yes-always"
+	case "goose":
+		return "auto"
+	case "opencode":
+		return "dangerously-skip-permissions"
+	default:
+		return "bypassPermissions"
+	}
 }
 
 // RoleOwnsWorktree reports whether a role enters the managed (repo/worktree)
@@ -1520,6 +1625,9 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*agentstore.Ag
 	if resolveErr != nil {
 		return nil, resolveErr
 	}
+	// Remap the role's canonical permission posture onto the resolved AI CLI's
+	// native vocabulary (Codex sandbox, Antigravity --mode, Goose GOOSE_MODE, …).
+	applyRoleBackendMode(&req)
 	var binding *capacity.QuotaBinding
 	if l.CapacityResolver != nil {
 		var bindErr error
@@ -2545,28 +2653,24 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*agentst
 	if err := store.SafeID(id); err != nil {
 		return nil, fmt.Errorf("invalid job session id %q: %w", id, err)
 	}
-	// Role defaults fill unset fields the same way Spawn does (persona + flags).
+	// Role defaults fill unset fields the same way Spawn does (persona + flags),
+	// including the hardcoded autonomous/planner/worker permission overrides.
 	// Type is never derived from the role — pipeline jobs may still stamp an
 	// explicit Type for legacy worktree templates, but persona and tier come
 	// from Role + Task via resolveSpawnTarget below.
 	if req.Role != "" {
-		if r, ok := role.Get(req.Role); ok {
-			if r.Name == role.Default {
-				req.Role = ""
-			} else {
-				req.Role = r.Name
-			}
-			if req.PermissionMode == "" && r.Defaults.PermissionMode != "" {
-				req.PermissionMode = r.Defaults.PermissionMode
-			}
-			if req.Model == "" && r.Defaults.Model != "" {
-				req.Model = r.Defaults.Model
-			}
-			req.AutoApprove = req.AutoApprove || r.Defaults.AutoApprove
-			if len(r.Defaults.Tags) > 0 {
-				req.Tags = store.NormalizeTags(append(append([]string{}, req.Tags...), r.Defaults.Tags...))
-			}
+		spawnReq := SpawnRequest{
+			Role: req.Role, Model: req.Model, PermissionMode: req.PermissionMode,
+			AutoApprove: req.AutoApprove, Tags: req.Tags,
 		}
+		if _, err := resolveRole(&spawnReq); err != nil {
+			return nil, err
+		}
+		req.Role = spawnReq.Role
+		req.Model = spawnReq.Model
+		req.PermissionMode = spawnReq.PermissionMode
+		req.AutoApprove = spawnReq.AutoApprove
+		req.Tags = spawnReq.Tags
 	}
 	// Route the initial AI CLI+model through the same Role→Tier→(AICLI, Model)
 	// matrix as Spawn. Model without aicli is a hard validation error; resolver
@@ -2576,6 +2680,12 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*agentst
 	req.Backend, req.Model, resolveErr = l.resolveSpawnTarget(ctx, req.Role, req.Task, req.Tier, req.Backend, req.Model)
 	if resolveErr != nil {
 		return nil, resolveErr
+	}
+	{
+		tmp := SpawnRequest{Role: req.Role, Backend: req.Backend, PermissionMode: req.PermissionMode, AutoApprove: req.AutoApprove}
+		applyRoleBackendMode(&tmp)
+		req.PermissionMode = tmp.PermissionMode
+		req.AutoApprove = tmp.AutoApprove
 	}
 	var binding *capacity.QuotaBinding
 	if l.CapacityResolver != nil {

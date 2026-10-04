@@ -63,25 +63,26 @@ func (Antigravity) InstallHint() string {
 
 // --- Launch / resume --------------------------------------------------------
 
-// agyPermFlag maps a warden permission mode onto an `agy` launch flag. `agy` exposes
-// two boolean posture flags — `--sandbox` (restricted terminal) and
-// `--dangerously-skip-permissions` (auto-approve every tool) — so warden's richer
-// Claude-flavored modes fold onto them: the "just do it" modes become
-// --dangerously-skip-permissions. Universal full-network policy: `--sandbox` is
-// never emitted for standard agent execution (it restricts the terminal and
-// blocks outbound network workers/planners need); "sandbox"/"proceed-in-sandbox"
-// and "default"/"" return "" so `agy` applies its own default posture
-// (request-review), preserving the interactive UX (warden adds on top, never
-// strips it down).
+// agyPermFlag maps a warden permission mode onto an `agy` launch flag. Role
+// postures use `agy`'s native `--mode` vocabulary when set: `plan` →
+// `--mode plan` (read-only planning) and `accept-edits` → `--mode accept-edits`
+// (worker write posture). Everything else — including empty/"default" — defaults
+// to `--dangerously-skip-permissions` so autonomous agents never block on a
+// permission prompt. Universal full-network policy: `--sandbox` is never emitted
+// for standard agent execution (it restricts the terminal and blocks outbound
+// network workers/planners need).
 func agyPermFlag(mode string) string {
 	switch mode {
+	case "plan":
+		return "--mode plan"
+	case "accept-edits", "acceptEdits":
+		return "--mode accept-edits"
 	case "sandbox", "proceed-in-sandbox":
 		// Never pass --sandbox: universal full-network policy.
 		return ""
-	case "dangerously-skip-permissions", "bypassPermissions", "yes-always", "auto", "acceptEdits", "dontAsk", "always-proceed":
-		return "--dangerously-skip-permissions"
 	default:
-		return ""
+		// default/"" and every "just do it" alias → full bypass.
+		return "--dangerously-skip-permissions"
 	}
 }
 
@@ -1174,7 +1175,7 @@ func (Antigravity) Capabilities() agentbackend.Caps {
 		Resume:               true,
 		Headless:             true,
 		ModelSelection:       true,
-		PermissionModes:      []string{"default", "sandbox", "dangerously-skip-permissions"},
+		PermissionModes:      []string{"default", "plan", "accept-edits", "sandbox", "dangerously-skip-permissions"},
 		StructuredTranscript: true,
 		SystemPromptInject:   false,
 		SessionIDControl:     false,
