@@ -53,6 +53,14 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
 
 ## Spawn options worth knowing
 
+- **Name** — `--name` (CLI) / `name` (MCP). Explicit names are optional; **every
+  agent still gets a non-empty name**. Omit it and warden auto-resolves:
+  role/pipeline conventions (`AP:<plan>`, `wkr:<task>`, `brain:<target>`,
+  `<pipe>:<stage>`), else a 2–4 word kebab-case slug from a fast-tier
+  subscription AI CLI (hard 1.5s timeout → adjective-noun codename fallback
+  like `swift-falcon`), else a codename for prompt-less spawns. Auto-names are
+  disambiguated (`-2`, `-3`, …) so they never 409; an explicit colliding name
+  still returns 409. CLI prints `spawned agent <id> (<name>)`.
 - **Model** — `--model` (CLI) / `model` (MCP). Passed through verbatim to the AI CLI
   (no static alias expansion); config default `model_default`; fallback
   `claude-sonnet-4-6`. Shown in the MODEL column, preserved on restore.

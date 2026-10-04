@@ -186,14 +186,17 @@ warden handle the rest. No repo, no flags.
 
 ```sh
 warden start "review the auth module for security issues"
-# spawned agent-a1b2 (classifying…) — attach with `warden agent attach agent-a1b2`
+# spawned agent-a1b2 (auth-review) — attach with `warden agent attach agent-a1b2`
 ```
 
 What just happened:
 
-- A new agent got an ID like `agent-a1b2` and is launched in the directory you
-  ran the command from (your current shell's cwd) — no per-agent directory is
-  created.
+- A new agent got an ID like `agent-a1b2` plus a **mandatory display name**
+  (here a short kebab-case slug derived from the prompt, e.g. `auth-review`).
+  Omit `--name` and warden resolves one automatically — see
+  [Mandatory agent names](#mandatory-agent-names) below.
+- It's launched in the directory you ran the command from (your current shell's
+  cwd) — no per-agent directory is created.
 - It's running `claude` on your prompt inside a tmux window.
 - The type shows as `classifying…` for a moment, then the daemon labels it
   (e.g. `analysis`) automatically.
@@ -587,9 +590,11 @@ system-set `local`. Exactly one backend may be the **default** (what an empty
 default. (Terminals are no longer a backend row — spawn one with `--kind terminal`.)
 
 **Internal-thinking router — free/local only, never paid.** warden's own internal
-thinking (task classification, activity summaries, agent naming, digest narration,
-memory curation) is routed *strictly* through free and local backends and **never**
-makes a paid call. The **thinking-mode** picks the walk:
+thinking (task classification, activity summaries, digest narration, memory curation)
+is routed *strictly* through free and local backends and **never** makes a paid call.
+(Prompt-driven **agent naming** is separate — a subscription fast-tier lookup with a
+1.5s timeout and adjective-noun fallback; see [Mandatory agent names](#mandatory-agent-names).)
+The **thinking-mode** picks the walk:
 
 - `local_only` — the local model only.
 - `free_plus_local` (default) — eligible **free** CLI backends first (installed +
@@ -691,6 +696,27 @@ Spawn an agent. Prompt mode if no `--type`; managed-worktree mode otherwise.
 | `--role` | Built-in agent role (*who the agent is*): `general` (default, no persona) / `orchestrator` / `planner` / `worker` / `autopilot` / `brain` (legacy `implementer`/`auto-merger`/`reviewer` map to `worker`). Injects the role's persona and fills its default flags for any left unset (see §5.3). |
 | `--task` | Unit of work (*what the agent is doing*) from the task registry, used to derive the model **tier** for routing when `--tier` is empty (see §5.5). Distinct from `--type`, which controls worktree policy. |
 | `--tier` | Pin the model tier for the quota-balanced resolver: `tier-1` / `tier-2` / `tier-3`. Empty derives it from `--task`, then `--role`, else tier-2. A pinned `--ai-cli`/`--model` still wins (see §5.5). |
+| `--name` | Explicit agent name (max 32 chars, alphanumeric + hyphens/underscores; role prefixes like `AP:` / `wkr:` are allowed). Omit to **auto-resolve** — see [Mandatory agent names](#mandatory-agent-names). Collisions on an explicit name return **409 Conflict**. |
+
+### Mandatory agent names
+
+Every agent has a non-empty name. When you omit `--name` (CLI) / `name` (MCP/REST),
+warden picks one at spawn time:
+
+| Situation | Name assigned |
+|---|---|
+| Role `autopilot` with a plan | `AP:<plan-slug>` |
+| Role `worker` with a task id | `wkr:<task-id>` |
+| Role `brain` (consult) | `brain:<target>` |
+| Pipeline stage job | `<pipe>:<stage>` |
+| Prompt-driven spawn (no role convention) | 2–4 word kebab-case slug from a **fast-tier** subscription AI CLI (≤1.5s); falls back to an adjective-noun codename (`swift-falcon`, `amber-badger`, …) on timeout/error/invalid output |
+| Prompt-less spawn | Adjective-noun codename |
+
+Auto-generated names are disambiguated with numeric suffixes (`-2`, `-3`, …) so
+they never fail spawn with 409. Pass `--name` yourself when you want a stable
+handle — that path still 409s on collision. The CLI echoes
+`spawned agent <id> (<name>)`; the TUI always renders the name in the first
+column (no muted `—` placeholder).
 
 ### `warden agent role list` / `warden agent role set <id> <role>`
 List the built-in role catalog (name + description), or switch a running agent's
