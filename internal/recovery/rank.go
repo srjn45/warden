@@ -14,6 +14,8 @@ type Candidate struct {
 	Priority  int
 	Headroom  *float64
 	Resets    []Reset
+	// BottleneckReset is the reset time of the limit that determined Headroom.
+	BottleneckReset *time.Time
 }
 
 type Reset struct {
@@ -29,10 +31,15 @@ func Rank(ids []Candidate, snap backendusage.Snapshot) []Candidate {
 	for _, b := range snap.Backends {
 		byBackend[b.ID] = b
 	}
+	now := snap.GeneratedAt
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
 	out := make([]Candidate, 0, len(ids))
 	for _, c := range ids {
 		row := byBackend[c.BackendID]
 		var min *float64
+		var minReset *time.Time
 		for _, limit := range row.Usage {
 			if !applies(limit, c.ModelID) {
 				continue
@@ -51,15 +58,24 @@ func Rank(ids []Candidate, snap backendusage.Snapshot) []Candidate {
 			if min == nil || h < *min {
 				v := h
 				min = &v
+				minReset = cloneTime(limit.ResetsAt)
 			}
 		}
 		c.Headroom = min
+		c.BottleneckReset = minReset
 		out = append(out, c)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		a, b := out[i], out[j]
 		if a.Priority != b.Priority {
 			return a.Priority < b.Priority
+		}
+		ca, cb := impending(a, now), impending(b, now)
+		if ca != cb {
+			return ca
+		}
+		if ca && !a.BottleneckReset.Equal(*b.BottleneckReset) {
+			return a.BottleneckReset.Before(*b.BottleneckReset)
 		}
 		if (a.Headroom != nil) != (b.Headroom != nil) {
 			return a.Headroom != nil
@@ -73,6 +89,16 @@ func Rank(ids []Candidate, snap backendusage.Snapshot) []Candidate {
 		return a.ModelID < b.ModelID
 	})
 	return out
+}
+
+// impending reports whether c is perishable quota: its bottleneck window resets
+// within an hour and at least 10% headroom remains (mirrors router/resolver.go).
+func impending(c Candidate, now time.Time) bool {
+	if c.BottleneckReset == nil || c.Headroom == nil || *c.Headroom < 10.0 {
+		return false
+	}
+	d := c.BottleneckReset.Sub(now)
+	return d >= 0 && d <= time.Hour
 }
 
 func applies(l backendusage.Limit, model string) bool {
