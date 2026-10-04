@@ -61,6 +61,7 @@ on-disk state:
 | Feature | Description |
 |---|---|
 | **Prompt-spawn** | `warden start "<prompt>"` — no repo or type needed. Runs `claude` in the caller's directory (or `--dir`). |
+| **Mandatory agent naming** | Every agent carries a non-empty name. Omit `--name` / `name` and warden resolves one at spawn (`internal/agentname`): **(1)** role/pipeline conventions — autopilot manager `AP:<plan-slug>`, worker `wkr:<task-id>`, brain consult `brain:<target>`, pipeline stage `<pipe>:<stage>`; **(2)** prompt-driven spawn → a 2–4 word kebab-case slug via the active subscription AI CLI on a **fast** tier with a hard **1.5s** timeout (falls back to a memorable adjective-noun codename such as `swift-falcon` on timeout, error, or invalid output); **(3)** prompt-less spawn → adjective-noun codename. Auto-generated names are **disambiguated** with `-2`, `-3`, … so they never 409; an explicit caller name that collides still returns **409 Conflict**. Empty names are rejected by `store.ValidateName` (`ErrEmptyName`). CLI prints `spawned agent <id> (<name>)`; the TUI name column never shows a muted dash placeholder. |
 | **Auto-classification** | The daemon classifies a prompt-spawned agent's type with `claude -p` shortly after creation (falls back to `other`). |
 | **Auto-generated subject** | Each agent gets a one-line ≤8-word summary of what it's doing, seeded from the prompt and refreshed by the poller from the transcript or tmux pane (throttled, change-gated). |
 | **Managed worktree spawn** | `--role worker --repo` (or deprecated `--type`) creates/adopts a git worktree. |
@@ -1422,9 +1423,11 @@ longer a backend row — they are a `kind=terminal` session, §8.)
 ### 35.3 Internal-thinking router (free/local only, never paid)
 
 warden does its own **internal thinking** — task classification, activity
-summaries, agent naming, digest narration, and memory curation — and routes it
+summaries, digest narration, and memory curation — and routes it
 **strictly through free and local backends** (`internal/internalrouter`). It
-**never makes a paid call**. The store's **internal-thinking mode** picks the walk:
+**never makes a paid call**. (Prompt-driven **agent naming** is separate: a
+subscription fast-tier AI CLI with a 1.5s timeout and adjective-noun fallback —
+see §2 Mandatory agent naming.) The store's **internal-thinking mode** picks the walk:
 
 - **`local_only`** — route internal thinking to the local model only.
 - **`free_plus_local`** (the default) — try eligible **free** CLI backends first

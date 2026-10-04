@@ -150,9 +150,10 @@ picked up.
 
 Key capabilities and use cases:
 
-1. **Semantic Agent Naming (`ResolveAgentName`)**:
+1. **Semantic Agent Naming (`ResolveAgentName`)** — *partially shipped* as `internal/agentname` (mandatory names, fast-tier `ResolvePromptName`, adjective-noun codenames, role conventions, disambiguation):
    - Compresses user prompts into concise 2–4 word kebab-case slugs (`ws-leak-fix`, `telemetry-export`) within 1.5s.
    - Falls back immediately to memorable `adjective-noun` codenames (`swift-falcon`, `amber-badger`) on timeout, offline, or prompt-less spawns.
+   - Remaining Fast-Brain work: fold naming into the shared `internal/fastbrain` micro-decision engine with unified schemas/telemetry.
 
 2. **Intelligent Auto-Approval & Question Arbiter (`ArbitrateApproval`)**:
    - Acts as an inline safety judge for forwarded tool execution and permission prompts (`[y/n]`, bash commands, file edits).

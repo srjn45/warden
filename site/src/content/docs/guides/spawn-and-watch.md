@@ -12,8 +12,10 @@ Just pass a quoted prompt. The agent launches in your current directory (or the 
 ```sh
 warden start "investigate why the nightly build is flaky"
 warden start "summarize the changes in /path/to/repo since last Friday"
+# spawned agent-a1b2 (flaky-nightly) — name auto-resolved from the prompt
 ```
 
+- **Name is mandatory** — omit `--name` and warden resolves one: role/pipeline conventions (`AP:<plan>`, `wkr:<task>`, `brain:<target>`, `<pipe>:<stage>`), else a 2–4 word kebab-case slug from a fast-tier subscription AI CLI (1.5s timeout) with adjective-noun codename fallback (`swift-falcon`), else a codename for prompt-less spawns. Auto-names disambiguate with `-2`, `-3`; explicit `--name` collisions still 409.
 - **Type is auto-assigned** shortly after spawn (the daemon asks `claude -p` to classify the prompt; falls back to `other` if `claude` isn't available).
 - **Subject is auto-generated** — a ≤8-word phrase summarizing current work, seeded from the prompt and refreshed by the poller.
 
