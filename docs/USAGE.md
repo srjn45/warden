@@ -124,17 +124,34 @@ If `healthz` doesn't return `ok`, start the daemon — see §3.
 
 The daemon is the engine. Pick one of:
 
-**Recommended — launchd (auto-start at login, restarts on crash):**
+**Recommended — official install (auto-start at login, restarts on crash):**
 
 ```sh
+# zero-prerequisite (no git/Go/npm):
+curl -fsSL https://raw.githubusercontent.com/srjn45/warden/main/scripts/install.sh | bash
+
+# or from a git checkout (builds from source):
 ./scripts/install.sh   # or: make install
 ```
 
-The installer builds the release, installs the binary, renders the launchd
-plist from `deploy/com.srajanpathak.warden.plist.template`, loads it, links the
-Claude skill, and registers the MCP server. See the
-[README](../README.md#install-the-daemon-as-a-launchd-service-auto-start) for
-details (code-signing, redeploy, uninstall).
+The installer installs the binary to `~/.local/bin/warden`, wires the
+user-level service (launchd on macOS, systemd `--user` on Linux), links the
+Claude skill, and registers the MCP server. Homebrew / apt / rpm / AUR packages
+are **deprecated** — use the curl installer instead. See the
+[README](../README.md#install) for details (code-signing, redeploy, uninstall).
+
+**Upgrade an existing install:**
+
+```sh
+warden update          # or: wd update
+warden update --check  # report only
+```
+
+`warden update` downloads a verified release, atomically swaps the binary,
+re-signs on macOS when `warden-codesign` is present, runs migrations, restarts
+the daemon service, and rolls back if `/healthz` fails. In the TUI cockpit,
+press **`u`** when an update chip appears, or **`r`** to hot-reload the
+cockpit after an external upgrade (active tmux agent sessions keep running).
 
 **Manual (for debugging — runs in the foreground):**
 

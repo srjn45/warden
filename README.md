@@ -165,42 +165,44 @@ For a direct endpoint check, POST a valid v1 plan-sync envelope to `http://127.0
 
 ## Install
 
-warden is one self-contained binary. Pick whichever fits:
+warden is one self-contained binary. The official install needs **only curl** — no git, Go, npm, or OS package manager.
 
-### 1. Download a release binary (quickest)
-
-Grab the archive for your OS/arch from the [latest release](https://github.com/srjn45/warden/releases/latest), extract `warden`, and put it on your `PATH`. Released binaries have the web dashboard embedded.
+### 1. Official one-liner (recommended)
 
 ```sh
-# example: macOS arm64 (adjust the version/arch)
-curl -fsSL https://github.com/srjn45/warden/releases/latest/download/warden_8.16.3_darwin_arm64.tar.gz | tar -xz
-sudo mv warden /usr/local/bin/        # or any dir on your PATH
-warden --version
+curl -fsSL https://raw.githubusercontent.com/srjn45/warden/main/scripts/install.sh | bash
 ```
 
-> **macOS Gatekeeper:** downloaded binaries are unsigned, so the first run may be blocked. Clear the quarantine flag once: `xattr -d com.apple.quarantine $(which warden)` (or right-click → Open). Building from source — option 3 — avoids this.
+That downloads a verified GitHub release archive for your OS/arch, installs
+`~/.local/bin/warden` (plus the `wd` alias), wires the user-level daemon
+service (launchd on macOS, systemd `--user` on Linux), links the Claude skill,
+registers the MCP server, and probes `/healthz`. Pin a release with
+`WARDEN_VERSION=9.9.0` (with or without a leading `v`).
 
-### 1b. Package managers (Homebrew / deb / rpm / Arch)
+> Same script from a git checkout: `./scripts/install.sh` / `make install`
+> builds from source instead of downloading a release. See
+> [Install the daemon as a service](#install-the-daemon-as-a-launchd-service-auto-start)
+> below for codesigning, redeploy, and uninstall.
 
-Every release also ships native packages (all with the `wd` alias included and the web dashboard embedded):
+**Upgrade after install:**
 
 ```sh
-# macOS — Homebrew tap (clears the Gatekeeper quarantine for you)
-brew install --cask srjn45/tap/warden
-
-# Debian / Ubuntu
-curl -fsSLO https://github.com/srjn45/warden/releases/latest/download/warden_8.16.3_linux_amd64.deb
-sudo apt install ./warden_8.16.3_linux_amd64.deb
-
-# Fedora / RHEL
-sudo dnf install https://github.com/srjn45/warden/releases/latest/download/warden_8.16.3_linux_amd64.rpm
-
-# Arch — install the packaged .pkg.tar.zst straight from the release
-curl -fsSLO https://github.com/srjn45/warden/releases/latest/download/warden_8.16.3_linux_amd64.pkg.tar.zst
-sudo pacman -U ./warden_8.16.3_linux_amd64.pkg.tar.zst
+warden update          # or: wd update
+warden update --check  # report only
+warden update --version v9.9.0
 ```
 
-(Adjust the version/arch in the URLs; the `.deb`/`.rpm` pull in `tmux` and `git` as recommended packages.)
+`warden update` verifies checksums, atomically swaps the binary, re-signs on
+macOS when the `warden-codesign` identity is present, runs config migrations,
+restarts the daemon service, and rolls back if `/healthz` fails. In the TUI
+cockpit, press **`u`** when the footer shows an update chip
+(`[u] Update to vX.Y.Z available`), or **`r`** to hot-reload the cockpit
+in place after an external upgrade (`syscall.Exec` — active tmux agent
+sessions keep running).
+
+> **Deprecated:** Homebrew, apt/deb, rpm, and AUR packages are no longer
+> published. Use the curl installer and `warden update` instead. Existing
+> package installs still run; migrate with the one-liner above.
 
 ### 2. `go install` (Go toolchain)
 
@@ -208,7 +210,7 @@ sudo pacman -U ./warden_8.16.3_linux_amd64.pkg.tar.zst
 go install github.com/srjn45/warden/cmd/warden@latest
 ```
 
-This installs the `warden` binary (CLI + daemon + MCP server + TUI). **Note:** `go install` does *not* bundle the web dashboard (the UI is built from `web/` and embedded at release time, and isn't committed to the repo). The CLI, daemon API, TUI, and MCP server all work; for the embedded web GUI use a release binary (option 1) or build from source (option 3).
+This installs the `warden` binary (CLI + daemon + MCP server + TUI). **Note:** `go install` does *not* bundle the web dashboard (the UI is built from `web/` and embedded at release time, and isn't committed to the repo). The CLI, daemon API, TUI, and MCP server all work; for the embedded web GUI use the official installer (option 1) or build from source (option 3). `go install` also does **not** register the background service — run `./scripts/install.sh --no-build` from a checkout, or start `warden daemon` manually.
 
 ### 3. Build from source
 
@@ -217,8 +219,8 @@ git clone https://github.com/srjn45/warden.git
 cd warden
 make build           # CLI/daemon/TUI only → bin/warden
 make release         # builds the web UI first, then embeds it → full GUI
+./scripts/install.sh --no-build   # deploy + start the user service
 ```
-
 ### Shell Completion
 
 warden supports shell completion for Bash, Zsh, Fish, and PowerShell. Generate the completion script for your shell and install it to the appropriate location:
@@ -272,12 +274,15 @@ The recommended setup on macOS installs warden as an auto-starting launchd daemo
 
 ## Install the daemon as a launchd service (auto-start)
 
-Install with the script — it builds the release, installs the binary to
-`~/.local/bin/warden`, renders and loads the launchd plist, links the Claude
-skill, and registers the MCP server:
+The [official one-liner](#1-official-one-liner-recommended) already installs
+and starts the daemon. From a git checkout the same script builds from source,
+installs the binary to `~/.local/bin/warden`, renders and loads the launchd
+plist, links the Claude skill, and registers the MCP server:
 
 ```sh
 ./scripts/install.sh        # or: make install
+# or, without a checkout:
+# curl -fsSL https://raw.githubusercontent.com/srjn45/warden/main/scripts/install.sh | bash
 ```
 
 The daemon then starts automatically at login and restarts on crash
