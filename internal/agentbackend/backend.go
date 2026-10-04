@@ -46,7 +46,7 @@ const (
 type LaunchOpts struct {
 	SessionID string // session id to assign (when Caps.SessionIDControl); pinned for deterministic transcript + resume
 	Name      string // display label for the session (warden uses the agent id)
-	Model     string // already-resolved model id (aliases expanded, default applied) — empty only if the backend has no model flag
+	Model     string // model id as configured (verbatim pass-through, default applied) — empty only if the backend has no model flag
 	Mode      string // permission/approval mode (one of Caps.PermissionModes)
 	Network   string // sandbox/network from ExecutionProfile.EffectiveNetwork (loopback|full|none); empty = adapter emits no network override
 }

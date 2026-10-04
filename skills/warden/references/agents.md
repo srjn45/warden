@@ -53,9 +53,9 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
 
 ## Spawn options worth knowing
 
-- **Model** — `--model` (CLI) / `model` (MCP). Aliases `opus`/`sonnet`/`haiku`/`fable`;
-  config default `model_default`; fallback `claude-sonnet-4-6`. Shown in the MODEL
-  column, preserved on restore.
+- **Model** — `--model` (CLI) / `model` (MCP). Passed through verbatim to the AI CLI
+  (no static alias expansion); config default `model_default`; fallback
+  `claude-sonnet-4-6`. Shown in the MODEL column, preserved on restore.
 - **Role** — `--role` (CLI) / `role` (MCP): attach a built-in persona + default
   flags + a default model tier — *who the agent is*. `general` (default, no
   persona) | `orchestrator` | `planner` | `worker` | `autopilot` | `brain` (legacy

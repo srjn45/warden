@@ -453,7 +453,7 @@ func defaults() Config {
 		DefaultPermissionMode: "auto",
 		MetricsEnabled:        true,
 		AllowNonLoopback:      false,
-		ModelDefault:          "claude-sonnet-4-6", // current "sonnet" alias; keep in sync with lifecycle.DefaultModel
+		ModelDefault:          "claude-sonnet-4-6", // keep in sync with lifecycle.DefaultModel
 		Snapshots:             true,
 		Tutorial:              true,
 		Insights:              true,

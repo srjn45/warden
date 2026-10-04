@@ -92,10 +92,10 @@ model is where this earns its keep.
 
 ## `wd backend model` — the backend's live model menu
 
-Warden ships a small static alias table (`opus`/`sonnet`/`haiku`/`fable`) for the
-Claude backend. Other backends expose a **live, multi-vendor menu** that the
-operator's account/plan can change at any time — so guessing from a hard-coded
-table is wrong. `wd backend model` surfaces the real menu:
+Claude model ids pass through verbatim to `claude --model` (no warden rewrite).
+Other backends expose a **live, multi-vendor menu** that the operator's
+account/plan can change at any time — so guessing from a hard-coded table is
+wrong. `wd backend model` surfaces the real menu:
 
 ```sh
 wd backend model                       # the current agent's backend menu, one id per line
