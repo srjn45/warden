@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "prebuild": "mkdir -p public && cp ../scripts/install.sh public/install.sh",
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview"
