@@ -1,0 +1,120 @@
+version: 1
+name: distribution-self-update-and-hotreload
+goal: >-
+  Streamline Warden distribution by establishing the official zero-prerequisite curl-piped installer
+  (install.sh), a first-class `warden update` self-updater CLI command with atomic service restart
+  and migration hooks, and in-place TUI hot-reloading (syscall.Exec) without interrupting active work,
+  while deprecating OS package managers (deb/rpm/AUR/Homebrew), simplifying CI, and opening the final PR against main.
+constraints:
+  - "Work in an isolated git worktree branched off origin/main or the plan integration branch; one worker per task."
+  - "Keep the tree green — run `wd check` (or make verify-fast) before every commit/push."
+  - "Open PRs against autopilot/distribution-self-update-and-hotreload (never main)."
+  - "End each task with `wd job done --summary '...'` once the PR is up and gate is green."
+done_when:
+  - "curl -fsSL .../install.sh | bash installs Warden on fresh macOS and Linux systems without requiring git, Go, or npm."
+  - "warden update checks releases, verifies checksums, atomically updates binary, re-signs on macOS, runs migrations, restarts daemon, and verifies health."
+  - "TUI cockpit supports in-place hot-reloading (syscall.Exec) via u shortcut or version change detection without closing the terminal or interrupting active tmux agent sessions."
+  - "OS package managers (nfpms deb/rpm and AUR) are removed from .goreleaser.yaml and CI release workflow."
+  - "Documentation in README.md, docs/SHIPPING.md, and site docs reflect the curl installer, warden update, and hot-reload."
+  - "A final integration Pull Request is opened against main with all checks green."
+  - "All unit and integration tests pass."
+tasks:
+  - id: Task1_StandaloneCurlInstaller
+    prompt: >-
+      Overhaul scripts/install.sh and scripts/common.sh for standalone curl-piped installation:
+      1) In scripts/install.sh and scripts/common.sh, detect when running outside a git repository or when
+         the local binary bin/warden is not present.
+      2) When running standalone (e.g. `curl -fsSL https://.../install.sh | bash`):
+         - Detect OS (darwin, linux) and architecture (arm64, amd64).
+         - Resolve the target release tag from GitHub Releases API (latest by default, or WARDEN_VERSION override).
+         - Download the pre-built release archive `warden_${VERSION}_${OS}_${ARCH}.tar.gz` and `checksums.txt`.
+         - Verify SHA256 checksum with sha256sum or shasum -a 256.
+         - Extract the warden binary to ~/.local/bin/warden and symlink ~/.local/bin/wd.
+      3) Embed/render service templates (LaunchAgent plist on macOS, systemd user service on Linux) directly
+         so the script does not require the deploy/ directory from the git checkout.
+      4) Preserve existing service management, macOS codesigning (warden-codesign), config init, Claude skill symlink,
+         MCP auto-registration, and /healthz validation.
+      5) Ensure both local dev workflow (`./scripts/install.sh` / `make install`) and remote curl workflow work seamlessly.
+      Ensure `wd check` passes before opening a PR against autopilot/distribution-self-update-and-hotreload.
+      End with `wd job done --summary 'feat(distribution): standalone curl-piped install.sh with github release asset download'`.
+
+  - id: Task2_WardenUpdateCommand
+    prompt: >-
+      Implement the first-class `warden update` (and `wd update`) self-updater command:
+      1) In internal/cli/update.go and internal/updater/:
+         - Add `update` command to the root CLI (aliased under `wd update`).
+         - Support `--check` flag (query and print if an update is available without applying).
+         - Support `--version <tag>` flag to pin/downgrade/upgrade to a specific version.
+         - Support `--force` flag to reinstall the current version.
+      2) Updater mechanics:
+         - Query GitHub Releases API for latest release metadata.
+         - Check target version against current cli.version; exit 0 if already up to date.
+         - Download release archive for current runtime.GOOS / runtime.GOARCH into a temporary staging file under ~/.warden/tmp/.
+         - Download checksums.txt and verify SHA256.
+         - Atomically swap the binary at ~/.local/bin/warden (keeping a backup to roll back on failure).
+         - On macOS: re-sign ~/.local/bin/warden using `codesign --force --sign warden-codesign` to preserve TCC/FDA grants.
+         - Execute config and database migrations via `warden config init` / internal migration hooks.
+         - Restart the background daemon service (`launchctl kickstart -k` on macOS, `systemctl --user restart warden` on Linux).
+         - Probe http://127.0.0.1:8765/healthz to verify the new version is healthy; roll back binary on health failure.
+         - Print a clean, friendly outcome summary.
+      3) Add unit tests for update checking, checksum validation, and rollback on error.
+      Ensure `wd check` passes before opening a PR against autopilot/distribution-self-update-and-hotreload.
+      End with `wd job done --summary 'feat(cli): first-class warden update command with atomic swap and service restart'`.
+
+  - id: Task3_TuiInPlaceHotReload
+    prompt: >-
+      Implement in-place TUI hot-reloading via syscall.Exec:
+      1) In internal/tui/:
+         - When a new version is detected from the daemon / update checker, render an update indicator chip in the footer:
+           `[u] Update to vX.Y.Z available (press 'u')`.
+         - Pressing 'u' triggers the update workflow, prompts for confirmation, applies the update, restarts the daemon,
+           and gracefully releases terminal raw mode before invoking `syscall.Exec(self, os.Args, os.Environ())` to hot-reload
+           the running TUI in place without terminating the terminal window or interrupting active tmux agent sessions.
+         - If the binary is updated externally while the TUI is open, detect the binary/daemon version mismatch and prompt:
+           `[r] Warden upgraded to vX.Y.Z — press 'r' to reload TUI`.
+      2) Add unit tests for version change detection and keybinding routing in internal/tui/.
+      Ensure `wd check` passes before opening a PR against autopilot/distribution-self-update-and-hotreload.
+      End with `wd job done --summary 'feat(tui): in-place hot-reload via syscall.Exec and in-cockpit update trigger'`.
+
+  - id: Task4_DeprecatePackageManagersAndCleanupCI
+    prompt: >-
+      Deprecate OS package managers (deb/rpm/AUR) and simplify CI release workflow:
+      1) In .goreleaser.yaml:
+         - Remove `nfpms` section (deb, rpm, archlinux packages).
+         - Remove `aurs` section (Arch AUR publishing).
+         - Deprecate or remove `homebrew_casks` section in favor of official curl + update distribution.
+         - Add `release.extra_files` pointing to `./scripts/install.sh` so GitHub Releases automatically attach the installer.
+         - Keep clean cross-compiled archives (darwin/linux amd64/arm64) and checksums.txt.
+      2) In .github/workflows/release.yml:
+         - Remove AUR_KEY and HOMEBREW_TAP_TOKEN secrets and publisher dependencies.
+      3) In site/package.json:
+         - Ensure prebuild copies scripts/install.sh to public/install.sh for automatic GitHub Pages hosting.
+      Ensure `wd check` passes before opening a PR against autopilot/distribution-self-update-and-hotreload.
+      End with `wd job done --summary 'chore(release): remove nfpm/aur packaging, wire automated install.sh assets, and simplify CI'`.
+
+  - id: Task5_DocumentationAndDeprecationNotices
+    prompt: >-
+      Update documentation to feature the curl installer, self-updater, and hot-reload:
+      1) In README.md:
+         - Replace package manager commands with the official one-liner:
+           `curl -fsSL https://raw.githubusercontent.com/srjn45/warden/main/scripts/install.sh | bash`
+         - Highlight `warden update` / `wd update` and in-cockpit `[u]` update shortcut.
+      2) In docs/SHIPPING.md and docs/USAGE.md:
+         - Document the standalone curl installer architecture, update flow, and TUI hot-reload mechanics.
+         - Add deprecation notices for brew, apt, and rpm packages.
+      3) In site documentation (site/src/content/docs/):
+         - Update installation and upgrade guides.
+      Ensure `wd check` passes before opening a PR against autopilot/distribution-self-update-and-hotreload.
+      End with `wd job done --summary 'docs: update installation guides for curl installer, self-updater, and hot-reload'`.
+
+  - id: Task6_OpenFinalPR
+    prompt: >-
+      Open the final integration Pull Request against main:
+      1) Export the completed plan from plans/pending/distribution-curl-updater-and-hotreload.yaml
+         to plans/completed/distribution-curl-updater-and-hotreload.yaml with all task statuses set to done.
+      2) Commit and push all changes to origin/autopilot/distribution-self-update-and-hotreload.
+      3) Open a Pull Request using `gh pr create` with base main and head autopilot/distribution-self-update-and-hotreload,
+         including a comprehensive summary of all implemented features.
+      4) Verify checks are green on the opened PR.
+      Ensure all project checks pass.
+      End with `wd job done --summary 'chore: open final integration PR against main'`.
