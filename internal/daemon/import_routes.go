@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/srjn45/warden/internal/agentname"
 	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -18,13 +19,14 @@ type importStore interface {
 // importSessions inserts each record from env into st, keyed on session id for
 // idempotency. A record whose id already exists is skipped (default) or, with
 // merge, deleted and re-inserted from the imported data. A brand-new id whose
-// human-friendly name collides with a different existing record is imported with
-// the name dropped (recorded under Renamed) so the data still lands rather than
+// human-friendly name collides with a different existing record is imported under a
+// generated codename (recorded under Renamed) so the data still lands rather than
 // being lost to a cosmetic clash. It mutates env.Sessions only on that rename
 // path. A malformed record (no id) aborts the whole run so a partial import is
 // never silently reported as success.
 func importSessions(ctx context.Context, st importStore, env *store.Export, merge bool) (store.ImportResult, error) {
 	var res store.ImportResult
+sessions:
 	for _, sess := range env.Sessions {
 		if sess == nil || sess.ID == "" {
 			return res, errors.New("import contains a record with no id")
@@ -54,12 +56,14 @@ func importSessions(ctx context.Context, st importStore, env *store.Export, merg
 			// A name clash against a *different* active record: keep the record by
 			// importing it without the colliding alias rather than failing the run.
 			if errors.Is(err, agentstore.ErrNameExists) {
-				sess.Name = ""
-				agent.Name = ""
-				if err2 := st.Insert(ctx, agent); err2 == nil {
-					res.Imported = append(res.Imported, sess.ID)
-					res.Renamed = append(res.Renamed, sess.ID)
-					continue
+				for attempt := 0; attempt < 5; attempt++ {
+					sess.Name = agentname.GenerateCodename()
+					agent.Name = sess.Name
+					if err2 := st.Insert(ctx, agent); err2 == nil {
+						res.Imported = append(res.Imported, sess.ID)
+						res.Renamed = append(res.Renamed, sess.ID)
+						continue sessions
+					}
 				}
 			}
 			return res, fmt.Errorf("import %s: %w", sess.ID, err)

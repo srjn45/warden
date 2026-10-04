@@ -48,7 +48,7 @@ func TestSpawnBrainAdoptsLiveSlot(t *testing.T) {
 	fs := &slotSpawnStore{fakeStore: newFakeStore()}
 	now := time.Now().UTC()
 	fs.data["voyage-autopilot"] = &agentstore.Agent{
-		ID: "voyage-autopilot", TmuxSession: "voyage-autopilot",
+		ID: "voyage-autopilot", Name: "n-voyage-autopilot", TmuxSession: "voyage-autopilot",
 		Status: store.StatusWorking, AiCli: "claude", UpdatedAt: now, CreatedAt: now,
 	}
 	fl := &fakeLife{}
@@ -71,7 +71,7 @@ func TestRotateBrainInvokesHotSwapNotRecovery(t *testing.T) {
 	life := &fakeLife{}
 	workdir := t.TempDir()
 	sess := &agentstore.Agent{
-		ID: "agent-mgr-1", TmuxSession: "agent-mgr-1", AiCli: "claude", Model: "opus",
+		ID: "agent-mgr-1", Name: "n-agent-mgr-1", TmuxSession: "agent-mgr-1", AiCli: "claude", Model: "opus",
 		Role: "autopilot", Repo: workdir, Workdir: workdir, Status: store.StatusWorking,
 		Tags: []string{"autopilot", "run:ap-rotate"},
 	}
@@ -124,13 +124,13 @@ func TestRotateBrainWithLiveWorkersPreservesTreeAndLand(t *testing.T) {
 
 	workers := []*agentstore.Agent{
 		{
-			ID: "agent-w1", TmuxSession: "agent-w1", ParentID: mgrID, AiCli: "claude",
+			ID: "agent-w1", Name: "agent-w1", TmuxSession: "agent-w1", ParentID: mgrID, AiCli: "claude",
 			Role: "worker", Repo: workdir, Workdir: workdir, Branch: "autopilot/task-a",
 			Worktree: t.TempDir(), Status: store.StatusWorking, CreatedAt: now, UpdatedAt: now,
 			Tags: []string{"autopilot", "run:" + runID},
 		},
 		{
-			ID: "agent-w2", TmuxSession: "agent-w2", ParentID: mgrID, AiCli: "claude",
+			ID: "agent-w2", Name: "agent-w2", TmuxSession: "agent-w2", ParentID: mgrID, AiCli: "claude",
 			Role: "worker", Repo: workdir, Workdir: workdir, Branch: "autopilot/task-b",
 			Worktree: t.TempDir(), Status: store.StatusWorking, CreatedAt: now, UpdatedAt: now,
 			Tags: []string{"autopilot", "run:" + runID},

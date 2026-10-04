@@ -290,18 +290,19 @@ func SafeID(id string) error { return safeID(id) }
 
 var (
 	namePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,32}$`)
-	// Plan-executor display names follow the AP:/O:/M:/P:<plan-name> convention
+	// Plan-executor display names follow the AP:/O:/M:/P:/mgr:/wkr:/brain:<name> convention
 	// (plan-execution-entity-redesign). Longer than plain names so a typical
 	// plan slug fits after the prefix.
-	planExecutorNamePattern = regexp.MustCompile(`^(?:O|M|P|AP):[a-zA-Z0-9_-]{1,64}$`)
+	planExecutorNamePattern = regexp.MustCompile(`^(?:O|M|P|AP|mgr|wkr|brain):[a-zA-Z0-9_-]{1,64}$`)
 )
 
 // ValidateName checks that name matches the allowed format (alphanumeric +
 // hyphens/underscores, 1-32 chars), or a plan-executor display name
-// (O:/M:/P:/AP:<slug>). Empty names are valid (no-name agents).
+// (O:/M:/P:/AP:/mgr:/wkr:/brain:<slug>). Empty or whitespace-only names are
+// rejected with ErrEmptyName: every agent must carry a name.
 func ValidateName(name string) error {
-	if name == "" {
-		return nil // empty is valid
+	if strings.TrimSpace(name) == "" {
+		return ErrEmptyName
 	}
 	if namePattern.MatchString(name) || planExecutorNamePattern.MatchString(name) {
 		return nil
