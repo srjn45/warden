@@ -85,6 +85,9 @@ var ErrInvalidRequest = errors.New("fastbrain: invalid request")
 // Engine is the single evaluation path for all fast-brain decisions.
 type Engine interface {
 	Decide(ctx context.Context, req Request) (Response, error)
+	// ArbitrateApproval decides a pending approval/question prompt. It is
+	// built on Decide and fails open to DecisionEscalate.
+	ArbitrateApproval(ctx context.Context, in ArbiterInput) (ArbiterDecision, error)
 }
 
 // ErrNoJSON is returned by SanitizeJSON when no JSON object can be found.
