@@ -20,8 +20,19 @@ const (
 	KindArbitrateApproval DecisionKind = "arbitrate_approval"
 	KindResolveAgentName  DecisionKind = "resolve_agent_name"
 	KindDiagnoseFailure   DecisionKind = "diagnose_failure"
-	// Reserved: declared so the port is universal; no handlers yet.
+	// KindSummarizeActivity is reserved for activity summaries (prompt+parser
+	// exist; callers land separately).
 	KindSummarizeActivity DecisionKind = "summarize_activity"
+	// KindClassifyTask classifies a prompt into a task type.
+	KindClassifyTask DecisionKind = "classify_task"
+	// KindSummarizeCheck condenses oversized test/linter failures.
+	KindSummarizeCheck DecisionKind = "summarize_check"
+	// KindCommitMessage drafts a conventional commit message from a diff.
+	KindCommitMessage DecisionKind = "commit_message"
+	// KindCurateExtract extracts durable facts as bullet entries.
+	KindCurateExtract DecisionKind = "curate_extract"
+	// KindReplTurn plans tool calls or prose for a REPL turn.
+	KindReplTurn DecisionKind = "repl_turn"
 )
 
 // Tier selects the model class (and therefore the timeout budget).
