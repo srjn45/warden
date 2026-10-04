@@ -24,6 +24,7 @@ import (
 	_ "github.com/srjn45/warden/internal/agentbackend/backends" // register the Claude backend (and future adapters)
 	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/capacity"
+	"github.com/srjn45/warden/internal/fastbrain"
 	"github.com/srjn45/warden/internal/llm"
 	"github.com/srjn45/warden/internal/memory"
 	"github.com/srjn45/warden/internal/pressure"
@@ -726,6 +727,23 @@ func summaryArg(text string) string {
 }
 
 // parseType extracts the first known type label from a model's free-form reply.
+// fromFastBrainType maps a Fast-Brain task type onto a store.Type.
+func fromFastBrainType(t string) store.Type {
+	switch t {
+	case "test":
+		return store.TypeTests
+	case "implementation":
+		return store.TypeDevelopment
+	case "review":
+		return store.TypePRReview
+	case "refactor":
+		return store.TypeCode
+	case "docs":
+		return store.TypeDocs
+	}
+	return store.TypeOther
+}
+
 func parseType(out string) store.Type {
 	for _, raw := range strings.Fields(strings.ToLower(out)) {
 		tok := strings.Trim(raw, ".,:;'\"`*()[]")
@@ -805,6 +823,11 @@ type Lifecycle struct {
 	// os.Executable). It is the command the generated settings file invokes as the
 	// PreToolUse hook (`<WardenBin> hook guard`). Empty disables guard injection.
 	WardenBin string
+	// FastBrain is the universal Fast-Brain gateway. When set, Classify /
+	// Summarize / GenerateName / summarizeCheckOutput / commitMessage route through
+	// it first and FAIL OPEN on any non-OK response — they never fall through to
+	// Internal, LLM or headless Claude. nil keeps the legacy path below.
+	FastBrain fastbrain.Engine
 	// LLM is the optional local-model provider (Ollama). nil — the default — means
 	// the local LLM is off, so every LLM-backed method uses its headless-Claude or
 	// deterministic fallback. The daemon sets it only when config enables it.
@@ -1189,6 +1212,17 @@ func (l *Lifecycle) ensureWorktree(ctx context.Context, req SpawnRequest, id, re
 // trusted as-is: the fallback exists for unavailability, not to second-guess the
 // model's label.
 func (l *Lifecycle) Classify(ctx context.Context, prompt string) (store.Type, error) {
+	if l.FastBrain != nil {
+		resp, err := l.FastBrain.Decide(ctx, fastbrain.Request{
+			Kind: fastbrain.KindClassifyTask, Tier: fastbrain.TierFast,
+			Prompt: fastbrain.ClassifyTaskPrompt(prompt),
+		})
+		if err != nil || !resp.OK() {
+			return store.TypeOther, nil
+		}
+		t, _ := fastbrain.ParseClassifyTask(resp)
+		return fromFastBrainType(t), nil
+	}
 	arg := classifyArg(prompt)
 	// Registry path (§7): walk the free/local candidates. On success record the
 	// offload saving (the whole classify stayed off warden's paid spend); on an
@@ -1230,6 +1264,16 @@ func (l *Lifecycle) Summarize(ctx context.Context, agent *agentstore.Agent) (str
 	}
 	if strings.TrimSpace(text) == "" {
 		return "", nil
+	}
+	if l.FastBrain != nil {
+		resp, err := l.FastBrain.Decide(ctx, fastbrain.Request{
+			Kind: fastbrain.KindSummarizeActivity, Tier: fastbrain.TierFast,
+			Prompt: fastbrain.SummarizeActivityPrompt(text),
+		})
+		if err != nil || !resp.OK() {
+			return "", nil // fail open: skip narration
+		}
+		return parseSummary(fastbrain.ParseSummary(resp)), nil
 	}
 	arg := summaryArg(text)
 	// Registry path (§7): walk the free/local candidates. Record the offload on a
@@ -1273,6 +1317,23 @@ func (l *Lifecycle) Summarize(ctx context.Context, agent *agentstore.Agent) (str
 func (l *Lifecycle) GenerateName(ctx context.Context, prompt string) string {
 	if strings.TrimSpace(prompt) == "" {
 		return ""
+	}
+	if l.FastBrain != nil {
+		resp, err := l.FastBrain.Decide(ctx, fastbrain.Request{
+			Kind: fastbrain.KindResolveAgentName, Tier: fastbrain.TierFast,
+			Prompt: nameArg(prompt) + "\n\nReply with ONLY this JSON: {\"name\":\"<kebab-case-handle>\"}",
+		})
+		if err == nil && resp.OK() {
+			var v struct {
+				Name string `json:"name"`
+			}
+			if json.Unmarshal(resp.Output.Parsed, &v) == nil {
+				if n := parseName(v.Name); n != "" {
+					return n
+				}
+			}
+		}
+		return parseName(firstWords(prompt, 4))
 	}
 	// No savings event on either path: GenerateName's fallback is a deterministic
 	// slug, not Claude — a free/local model displaces no paid call, so there is
@@ -1348,6 +1409,22 @@ func parseCheckSummary(out string) string {
 // loses the failure to a slow or absent model.
 func (l *Lifecycle) summarizeCheckOutput(ctx context.Context, name, out string) string {
 	truncated := truncateTail(out, maxCheckOutputLines)
+	if l.FastBrain != nil {
+		if !oversizedOutput(out) {
+			return truncated
+		}
+		resp, err := l.FastBrain.Decide(ctx, fastbrain.Request{
+			Kind: fastbrain.KindSummarizeCheck, Tier: fastbrain.TierFast,
+			Prompt: fastbrain.SummarizeCheckPrompt(out),
+		})
+		if err != nil || !resp.OK() {
+			return truncated
+		}
+		if s := parseCheckSummary(fastbrain.ParseSummary(resp)); s != "" {
+			return checkSummaryMarker + s
+		}
+		return truncated
+	}
 	if l.LLM == nil || !oversizedOutput(out) {
 		return truncated
 	}
