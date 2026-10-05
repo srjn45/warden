@@ -93,6 +93,12 @@ type controlPlanArgs struct {
 	Action string `json:"action" jsonschema:"pause|resume|stop"`
 }
 
+type restartPlanArgs struct {
+	PlanID  string `json:"plan_id" jsonschema:"the stable plan id (plan-<8hex>) to restart"`
+	Force   bool   `json:"force,omitempty" jsonschema:"also restart an active, starting or paused executor"`
+	Backend string `json:"backend,omitempty" jsonschema:"autopilot only: backend id for the new manager"`
+}
+
 type completePlanArgs struct {
 	PlanID string `json:"plan_id" jsonschema:"the stable plan id (plan-<8hex>) to complete"`
 }
@@ -377,6 +383,17 @@ func (s *Server) registerPlanTools() {
 		Description: "Pause, resume, or stop an in-progress plan's active executor. Together with run_plan, this is the only public lifecycle surface for plan execution. action is pause|resume|stop.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a controlPlanArgs) (*mcpsdk.CallToolResult, any, error) {
 		p, err := s.cl.PlansControl(ctx, a.PlanID, a.Action)
+		if err != nil {
+			return planToolErr(err)
+		}
+		return jsonResultAny(p)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "restart_plan",
+		Description: "DESTRUCTIVE: restart an in_progress plan's executor with a brand-new set of agents (autopilot or pipeline mode). Terminates the old agents and removes their worktrees; keeps landed/done work, handoffs and branches with commits. Use for stopped, degraded, parked or stuck plans; an active/starting/paused executor needs force=true. backend (autopilot only) overrides the new manager's backend. Mirrors `wd plan restart --yes`.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a restartPlanArgs) (*mcpsdk.CallToolResult, any, error) {
+		p, err := s.cl.PlansRestart(ctx, a.PlanID, client.RestartPlanRequest{Force: a.Force, Backend: a.Backend})
 		if err != nil {
 			return planToolErr(err)
 		}

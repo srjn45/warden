@@ -1557,7 +1557,14 @@ type PlanExecutorStatus struct {
 	Id                string                 `json:"id"`
 	IntegrationBranch string                 `json:"integration_branch,omitempty"`
 	Kind              PlanExecutorStatusKind `json:"kind"`
-	ManagerAgentId    string                 `json:"manager_agent_id,omitempty"`
+
+	// LastRestartAt RFC3339 time of the last restart
+	LastRestartAt     string `json:"last_restart_at,omitempty"`
+	LastRestartReason string `json:"last_restart_reason,omitempty"`
+	ManagerAgentId    string `json:"manager_agent_id,omitempty"`
+
+	// RestartCount operator restarts of this plan's executor (wd plan restart)
+	RestartCount int `json:"restart_count,omitempty"`
 
 	// State autopilot: active|healing|degraded|paused|stopped|complete; pipeline: the pipeline status; agent: the session status
 	State string             `json:"state"`

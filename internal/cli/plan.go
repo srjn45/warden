@@ -56,6 +56,7 @@ func newPlanCmd() *cobra.Command {
 		newPlanControlCmd("pause"),
 		newPlanControlCmd("resume"),
 		newPlanControlCmd("stop"),
+		newPlanRestartCmd(),
 		newPlanDoneCmd(),
 		newPlanCompleteCmd(),
 		newPlanArchiveCmd(),
@@ -1057,6 +1058,78 @@ func newPlanControlCmd(action string) *cobra.Command {
 	return cmd
 }
 
+// newPlanRestartCmd builds `wd plan restart`.
+func newPlanRestartCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "restart <plan-id>",
+		Short: "Restart an in-progress plan's executor with fresh agents",
+		Long: "Restart the executor of an in-progress plan with a brand-new set of agents,\n" +
+			"keeping the work already done. Use it when a plan is stopped, degraded,\n" +
+			"parked or stuck. This is destructive: the old agents are terminated and\n" +
+			"their worktrees removed.\n\n" +
+			"  autopilot     The manager and workers are terminated and their worktrees\n" +
+			"                removed. The landed-task ledger and the plan's tasks are kept;\n" +
+			"                branches with unmerged commits are kept, empty ones deleted.\n" +
+			"                A new manager starts with a restart context (what is merged,\n" +
+			"                what is unfinished); in-flight tasks are re-issued.\n" +
+			"  pipeline      Running job agents are terminated and their worktrees removed.\n" +
+			"                Done jobs and handoffs are kept; failed, skipped and unfinished\n" +
+			"                jobs are reset and re-run with fresh agents. Branches with\n" +
+			"                commits are kept as the base for the re-run.\n" +
+			"  orchestrator_worker, manual\n" +
+			"                Not supported; use `wd plan stop` and run a new path.\n\n" +
+			"An executor that is still active, starting or paused is refused unless\n" +
+			"--force is given. --backend picks the backend of the new autopilot manager.\n" +
+			"Without --yes the command asks for confirmation and refuses when stdin is\n" +
+			"not a terminal.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			force, _ := cmd.Flags().GetBool("force")
+			backend, _ := cmd.Flags().GetString("backend")
+			yes, _ := cmd.Flags().GetBool("yes")
+			jsonOut, _ := cmd.Flags().GetBool("json")
+			c := clientFor(cmd)
+			if !yes {
+				in := cmd.InOrStdin()
+				if f, ok := in.(*os.File); ok && !isTTY(f) {
+					return fmt.Errorf("refusing to restart plan %s without --yes in a non-interactive session", args[0])
+				}
+				p, err := c.PlansGet(cmd.Context(), args[0])
+				if err != nil {
+					return err
+				}
+				out := cmd.ErrOrStderr()
+				fmt.Fprintf(out, "Plan:   %s (%s)\nStatus: %s\nMode:   %s\n", p.ID, p.Name, p.Status, p.ExecutionMode)
+				if e := p.Executor; e != nil {
+					fmt.Fprintf(out, "Executor: %s %s (%s)\n", e.Kind, e.ID, e.State)
+				}
+				fmt.Fprintln(out, "Will terminate all agents of this plan's executor and remove their worktrees.")
+				fmt.Fprintln(out, "Branches with unmerged commits are kept; empty task branches are deleted.")
+				fmt.Fprintf(out, "Restart plan %s? [y/N]: ", p.ID)
+				line, _ := bufio.NewReader(in).ReadString('\n')
+				if ans := strings.ToLower(strings.TrimSpace(line)); ans != "y" && ans != "yes" {
+					fmt.Fprintln(out, "cancelled")
+					return nil
+				}
+			}
+			p, err := c.PlansRestart(cmd.Context(), args[0], client.RestartPlanRequest{Force: force, Backend: backend})
+			if err != nil {
+				return err
+			}
+			if jsonOut {
+				return printJSON(cmd.OutOrStdout(), p)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "plan %s restarted\n", p.ID)
+			return nil
+		},
+	}
+	cmd.Flags().Bool("force", false, "restart even when the executor is active, starting or paused")
+	cmd.Flags().String("backend", "", "backend id for the new autopilot manager (autopilot only)")
+	cmd.Flags().BoolP("yes", "y", false, "skip the confirmation prompt")
+	cmd.Flags().Bool("json", false, "output as JSON")
+	return cmd
+}
+
 // planControlHelp returns the Short and Long help for pause, resume or stop.
 // The per-executor behaviour mirrors internal/daemon/plan_control.go.
 func planControlHelp(action string) (string, string) {
@@ -1080,15 +1153,16 @@ func planControlHelp(action string) (string, string) {
 				"  plan-bound    Not supported (orchestrator and manual plans).\n" +
 				"  agent\n\n" +
 				"Resuming an executor that is not paused is refused. A stopped executor\n" +
-				"cannot be resumed.\n\n" + inProgressOnly
+				"cannot be resumed — use `wd plan restart` to bring it back.\n\n" + inProgressOnly
 	default:
 		return "Stop an in-progress plan's executor",
 			"Stop the executor of an in-progress plan. The plan itself stays in_progress\n" +
 				"(stop does not complete, archive or reset it).\n\n" +
 				"  autopilot     The run is stopped and its brain is shut down. A stopped\n" +
-				"                run cannot be resumed.\n" +
+				"                run cannot be resumed; use `wd plan restart`.\n" +
 				"  pipeline      The pipeline is canceled: running jobs are terminated and\n" +
-				"                unfinished jobs are skipped. It cannot be resumed.\n" +
+				"                unfinished jobs are skipped. It cannot be resumed; use\n" +
+				"                `wd plan restart`.\n" +
 				"  plan-bound    The agent is terminated.\n" +
 				"  agent\n\n" +
 				"A stopped plan is not re-run with `wd plan run` (that needs a pending plan).\n" +
@@ -1454,6 +1528,9 @@ func printPlanExecutor(w io.Writer, e *client.PlanExecutor) {
 	}
 	if e.ManagerAgentID != "" {
 		fmt.Fprintf(w, "manager:        %s\n", e.ManagerAgentID)
+	}
+	if e.RestartCount > 0 {
+		fmt.Fprintf(w, "restarts:       %d (last: %s at %s)\n", e.RestartCount, e.LastRestartReason, e.LastRestartAt)
 	}
 	if len(e.Tasks) > 0 {
 		fmt.Fprintln(w, "executor_tasks:")
