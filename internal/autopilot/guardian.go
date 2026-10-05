@@ -47,6 +47,7 @@ func (c *Controller) RunGuardian(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+			c.limitTick(ctx)
 			c.guardianTick(ctx)
 			c.overwatchTick(ctx)
 			c.landingTick(ctx)
@@ -74,6 +75,7 @@ func (c *Controller) guardianTick(ctx context.Context) {
 			continue
 		}
 		c.superviseRun(ctx, gr, r, now)
+		c.checkNextStep(r, now)
 		c.persistRunLocked(r)
 	}
 }
@@ -153,6 +155,12 @@ func (c *Controller) superviseRun(ctx context.Context, gr GuardianRuntime, r *ru
 		if contextTriggersRotation(level, c.guardian.RotateAtContext) && !now.Before(r.plannedRotateNextAt) {
 			c.plannedRotate(ctx, gr, r, now)
 		}
+		return
+	}
+
+	// A manager resting on a usage limit is silent because of the limit: the
+	// limit pass owns it until its resume time.
+	if r.managerResting(now) {
 		return
 	}
 
@@ -524,4 +532,9 @@ func rfc3339OrEmpty(t time.Time) string {
 		return ""
 	}
 	return t.UTC().Format(time.RFC3339)
+}
+
+func restingUntil(r *run) time.Time {
+	t, _ := r.earliestResting()
+	return t
 }

@@ -594,6 +594,7 @@ func (c *Controller) runStatusLocked(r *run) RunStatus {
 		ManagerSlotID: managerSlotIDOrEmpty(r.slotScope), GuardianSlotID: guardianSlotIDOrEmpty(r.slotScope),
 		LedgerTasks:    c.ledgerTasksLocked(r.runID),
 		LastProgressAt: rfc3339OrEmpty(r.lastProgressAt), Watchdog: c.watchdogState(r, c.now()),
+		NextStep: c.nextStepLocked(r, c.now()), RestingUntil: rfc3339OrEmpty(restingUntil(r)),
 		PreflightWarnings: append([]string(nil), r.preflightWarnings...)}
 	return st
 }

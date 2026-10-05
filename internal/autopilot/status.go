@@ -53,8 +53,12 @@ type RunStatus struct {
 	// LastProgressAt is the last observed run progress (ledger task change,
 	// landing, plan task status change, worker spawn); Watchdog is the progress
 	// watchdog state: disabled | idle | armed | escalating | parked.
-	LastProgressAt    string              `json:"last_progress_at,omitempty"`
-	Watchdog          string              `json:"watchdog,omitempty"`
+	LastProgressAt string `json:"last_progress_at,omitempty"`
+	Watchdog       string `json:"watchdog,omitempty"`
+	// NextStep is the guardian's scheduled next action; RestingUntil is the
+	// earliest instant a rate-limited agent is resumed or re-switched.
+	NextStep          *NextStep           `json:"next_step,omitempty"`
+	RestingUntil      string              `json:"resting_until,omitempty"`
 	LandedTotal       int                 `json:"landed_total"`
 	PlanTasks         []PlanTask          `json:"plan_tasks"`
 	GuardianID        string              `json:"guardian_id,omitempty"`

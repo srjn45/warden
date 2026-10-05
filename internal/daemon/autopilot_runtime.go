@@ -658,3 +658,34 @@ func (rt autopilotRuntime) RedeliverPrompt(ctx context.Context, agentID string) 
 	}
 	return rt.s.life.Input(ctx, sess.TmuxSession, sess.Prompt)
 }
+
+// SwitchLimited moves a rate-limited run agent onto another selectable backend by
+// handing it to the BackendRecoveryCoordinator (the one hot-swap / usage-recovery
+// path; autopilot adds the trigger, not a second swap). With no alternate it
+// reports ErrNoAlternateBackend and the agent's recorded reset time so the
+// guardian can schedule a timed resume.
+func (rt autopilotRuntime) SwitchLimited(ctx context.Context, agentID string) (autopilot.LimitSwitch, error) {
+	sess, err := rt.evidenceSession(ctx, agentID)
+	if err != nil {
+		return autopilot.LimitSwitch{}, err
+	}
+	if rt.s.recovery == nil {
+		return autopilot.LimitSwitch{}, errors.New("backend recovery unavailable")
+	}
+	var reset time.Time
+	if sess.RateLimitRestoreAt != nil {
+		reset = *sess.RateLimitRestoreAt
+	}
+	selected, _ := rt.s.recovery.PreviewCandidates(ctx, sess)
+	if selected == nil {
+		return autopilot.LimitSwitch{From: sess.AiCli, Reset: reset}, autopilot.ErrNoAlternateBackend
+	}
+	fallbackAt := reset
+	if fallbackAt.IsZero() {
+		fallbackAt = time.Now().Add(30 * time.Minute)
+	}
+	rt.s.recovery.OnHardLimit(sess, fallbackAt)
+	return autopilot.LimitSwitch{From: sess.AiCli, To: selected.BackendID, Reset: reset}, nil
+}
+
+var _ autopilot.LimitRuntime = autopilotRuntime{}

@@ -538,3 +538,9 @@ The needs-attention park and `paused`/`stopped`/`complete` are the only states w
 1. `store.Status` has no explicit `terminated` value; the `terminal` liveness kind relies on `done|errored|orphaned` plus a `terminate_agent`-written marker. If `Terminate` does not currently record one, the implementation PR for §H adds it (additive store field) — decision here is only that it must be detectable.
 2. `Session.SwapInFlight` (§H.2) may be satisfiable with an existing lifecycle field; if so reuse it.
 3. Whether `wd agent terminate` on an autopilot manager should additionally *warn* at the CLI (recommended; copy in §H.2).
+
+## J.3 Implementation status (t14-usage-limits)
+
+- `internal/autopilot/limits.go`: `limitTick` runs each guardian interval for every live run. A `rate_limited` run agent (manager, worker, fix-up worker) is handed to `LimitRuntime.SwitchLimited` (daemon: `BackendRecoveryCoordinator.PreviewCandidates` + `OnHardLimit` — no second swap path). On `ErrNoAlternateBackend` the earliest reset (agent's recorded restore time, else `tierstate.earliestReset()`, else a 30m fallback) + buffer becomes the agent's `resting_until`; at that time `ResumeRateLimit` runs, and a still-limited agent is re-checked once and rescheduled — never left without a next action. Audit events: `autopilot_limit_switched`, `autopilot_limit_resume_scheduled`, `autopilot_limit_resumed`.
+- A resting agent is not stalled: the watchdog (`watchdogDue`) and the manager heartbeat ladder skip a run whose manager (or any agent) rests until a future time.
+- `internal/autopilot/nextstep.go`: `RunStatus.next_step {action, at, owner}` and `resting_until` are surfaced in `wd autopilot status` and the API. `nextStepViolation` encodes the §J.2 invariant (backoff needs a retry time; nudged/restarted/rotated need `healNextAt`); the package's `TestMain` fails the suite if any guardian tick in any test observes a violation.
