@@ -24,7 +24,7 @@ worktree.
 | `push {dir?, force?}` | Push the branch (sets upstream). Pass `force: true` after a rebase/amend to overwrite the remote branch. Returns `{branch, remote, pushed, forced}`. | Refuses `main`/`master`. Force is always `--force-with-lease` (never a bare `--force`), so it aborts if a teammate pushed to your branch since your last fetch. |
 | `sync {dir?}` | Rebase-sync onto the upstream. | Refuses a dirty tree; on conflict leaves it in progress carrying only the conflicting files (then resolve + continue). |
 
-`wd agent done <id> --create-pr` pushes the branch and opens a GitHub PR before
+`wd agent stop <id> --keep-worktree --pr` pushes the branch and opens a GitHub PR before
 terminating the agent (see agents.md); Fast-Brain drafts the PR title/body when available, falling back per field to the digest, and an explicit title/body wins.
 
 ## Checks — `check`
@@ -53,7 +53,7 @@ round-trip, so there is **no MCP tool**; run them through the CLI (`wd git revie
   instructions, `--backend <id>` targets a backend. `--json` emits a neutral,
   machine-readable result `{summary, verdict, findings[]}` to stdout (backend
   progress on stderr) — parse that when self-checking your own change before
-  `wd agent done`. Implemented by **Codex**; backends without a native reviewer (e.g.
+  `wd agent stop --pr`. Implemented by **Codex**; backends without a native reviewer (e.g.
   Claude) exit non-zero pointing you back at `wd check` / a `pr-review` agent —
   use those instead there. Review quality rides the backend's configured model.
 - **`wd backend model`** — list the backend's **live** model menu. The printed ids

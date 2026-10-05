@@ -241,7 +241,7 @@ fresh snapshots for its filtered scope.
 
 ```bash
 warden usage recover --dry-run
-warden usage recover --dry-run --ai-cli claude --project /path/to/repo
+warden usage recover --dry-run --aicli claude --project /path/to/repo
 ```
 
 Dry-run always fetches fresh supported snapshots, calculates bucket→agent impact,
@@ -282,7 +282,7 @@ After launching the successor, warden watches it for about a second. If the CLI 
 ### Manually overriding recovery
 
 ```bash
-warden switch <id> --ai-cli codex --model gpt-5-codex   # or stop / delete
+warden switch <id> --aicli codex --model gpt-5-codex   # or stop / delete
 ```
 
 Manual switch/stop/delete **supersedes** automatic recovery immediately: the
@@ -313,7 +313,7 @@ Four signals look similar in the UI but answer different questions. Mixing them 
 
 1. Agent flipping backends while `wd usage` looks healthy → check the agent's event log for `backend_recovery_*` and whether the pane showed a provider banner or (Claude) a confirmed limit-menu selection. Usage headroom does not veto a confirmed pane signal.
 2. Same backend reselected seconds after a successful swap → expect durable cooldown on the previous pool; if it still cycles, capture `warden status <id> --json` and the protected ratelimit capture under `<data_dir>/ratelimit-captures/` (not ordinary audit text — raw banners stay off the event log).
-3. Recovery stuck or unwanted → `warden switch <id> --backend …` (or stop/delete) supersedes; attach only if you need to drive the pane by hand.
+3. Recovery stuck or unwanted → `warden switch <id> --aicli …` (or stop/delete) supersedes; attach only if you need to drive the pane by hand.
 4. Cockpit layout blank/narrow after a hot-swap → quit and reopen the TUI, or let the local reattach path recover; terminal-kind cockpit panes are orthogonal to agent recovery and never start a generation.
 
 ## Interaction with pipelines and Autopilot

@@ -13,7 +13,7 @@ binary directly. You pick the backend **per agent at spawn time**.
 :::
 
 :::tip[The backend registry]
-`--backend` picks a backend for **one** spawn. The [**backend
+`--aicli` picks a backend for **one** spawn. The [**backend
 registry**](/warden/guides/backend-registry/) is the durable, machine-wide picture
 behind it — warden detects the installed CLIs and remembers each one's billing
 **tier**, whether it's **enabled**, and which is the **default**. It is the
@@ -91,7 +91,7 @@ runs on Fast-Brain, independent of the registry.)
 | **Cursor CLI** | `cursor` | C | ✅ Stable. Hosted plan (`cursor-agent`, billed to your Cursor subscription); rich native permission modes (`plan`/`ask`/`auto-review`/`force`); **resumes** dir-scoped; live state + approval/trust detection; **no structured transcript yet** ⇒ no digests; no priced spend |
 | **Antigravity CLI** | `antigravity` | A | ✅ Stable. Google-hosted free tier (`agy`, multi-vendor model menu); structured trajectory JSONL (incl. tool calls / files changed) ⇒ real digests; **resumes** dir-scoped; live state + approval/trust detection; no priced spend |
 
-> A plain **terminal** is not a `--backend` — it's a first-class session kind
+> A plain **terminal** is not an AI CLI choice — it's a first-class session kind
 > (`kind=terminal`): a managed `$SHELL` seat beside the fleet with warden's normal
 > worktree/git/tmux lifecycle but no AI features. Spawn one with `warden start --kind
 > terminal` / `spawn_agent {kind:"terminal"}`. See the [TUI cockpit
@@ -111,28 +111,28 @@ warden start "implement the add function" \
   --backend opencode --model ollama/qwen2.5-coder:3b --dir .
 
 # Codex — configure provider in ~/.codex/config.toml first
-warden start "implement the add function" --backend codex --dir .
+warden start "implement the add function" --aicli codex --dir .
 
 # Crush — configure provider in ~/.config/crush/crush.json first
-warden start "implement the add function" --backend crush --dir .
+warden start "implement the add function" --aicli crush --dir .
 
 # Goose against a local Ollama model ($0)
 GOOSE_PROVIDER=ollama GOOSE_MODEL=qwen2.5-coder:3b \
-warden start "implement the add function" --backend goose --dir .
+warden start "implement the add function" --aicli goose --dir .
 
 # Cursor — log in once with `cursor-agent login` (hosted, billed to your Cursor plan)
-warden start "implement the add function" --backend cursor --dir .
+warden start "implement the add function" --aicli cursor --dir .
 
 # Antigravity — Google-hosted free tier; `agy` resolves its model from config
-warden start "implement the add function" --backend antigravity --dir .
+warden start "implement the add function" --aicli antigravity --dir .
 
 # Terminal — a plain shell in the directory, no AI (prompt is ignored)
-# terminal is a session kind, not a backend (back-compat: --backend terminal still works)
+# terminal is a session kind, not a backend (back-compat: --backend terminal still works as a hidden alias)
 warden start --kind terminal --dir .
 ```
 
 Over MCP, pass the `backend` param to `spawn_agent` (kept at parity with the
-`--backend` CLI flag); `spawn_agent` also takes a `kind` arg (e.g. `kind:"terminal"`
+`--aicli` CLI flag); `spawn_agent` also takes a `kind` arg (e.g. `kind:"terminal"`
 for a plain shell). The selection is stored on the session (`Session.Backend`;
 empty means `claude`, so existing stores need no migration), and an unknown
 backend id is rejected before any tmux/worktree side effect.

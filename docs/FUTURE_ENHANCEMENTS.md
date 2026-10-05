@@ -157,7 +157,7 @@ Status per capability:
 
 4. **Live TUI Cockpit Activity Summarizer** — *shipped.* A distinct 3–5 word badge prompt/parser feeds a separate `activity` field (the subject stays for PR titles and notifications), rendered on each TUI agent row. Cadence is `activity.interval` (default `15s`), refreshed only while the pane is changing; a failed decision keeps the previous badge. Web UI does not render it yet.
 
-5. **Semantic Commits & PR Summaries** — *shipped.* Headless `wd commit` drafts a Conventional-Commits message from the staged diff (`KindCommitMessage`), and `agent done --create-pr` drafts the PR title/body (`KindPRSummary`: fast tier then thinking tier, per-field fallback, explicit title/body wins, attribution footer kept). *Remaining:* the PR is opened via `--create-pr`, not automatically on every `wd job done`.
+5. **Semantic Commits & PR Summaries** — *shipped.* Headless `wd commit` drafts a Conventional-Commits message from the staged diff (`KindCommitMessage`), and `agent stop <AGENT> --pr` drafts the PR title/body (`KindPRSummary`: fast tier then thinking tier, per-field fallback, explicit title/body wins, attribution footer kept). *Remaining:* the PR is opened via `--pr`, not automatically on every `wd job done`.
 
 6. **Adaptive Execution Profile Router** — *shipped, opt-in.* `Decide(KindRouteTier)` rates prompt complexity into `tier-1`/`tier-2`/`tier-3`. Enabled by `router.use_fast_brain` (default `false`); lowest precedence (explicit tier > task > role > router > default), applies only at confidence ≥ 0.8, only to spawns pinning no tier/task/role/model/backend/ai_cli, and is recorded as a `tier-route` event. *Remaining:* no per-decision `fast`/`standard`/`heavy` profile beyond the model tier.
 

@@ -35,7 +35,7 @@ Omit `-m` and warden fills the message: Fast-Brain distils a Conventional-Commit
 
 ### Fast-Brain PR titles and bodies
 
-`warden agent done <id> --create-pr` pushes the branch and opens the PR. When Fast-Brain is available it drafts a Conventional-Commits **title** and a short what/why **body** from the task, `git diff --stat` and the commit subjects against the base (fast tier first, thinking tier as a retry), and the digest attribution footer is kept. Each field falls back on its own to the deterministic title (from the agent's subject/task) and the completion-digest body, and an explicit title or body in the request always wins. A failed draft never blocks the PR.
+`warden agent stop <id> --keep-worktree --pr` pushes the branch and opens the PR. When Fast-Brain is available it drafts a Conventional-Commits **title** and a short what/why **body** from the task, `git diff --stat` and the commit subjects against the base (fast tier first, thinking tier as a retry), and the digest attribution footer is kept. Each field falls back on its own to the deterministic title (from the agent's subject/task) and the completion-digest body, and an explicit title or body in the request always wins. A failed draft never blocks the PR.
 
 ### `warden check` and `.warden/check.yml`
 

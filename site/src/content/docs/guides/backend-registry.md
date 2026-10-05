@@ -3,7 +3,7 @@ title: Backend registry
 description: warden keeps a persistent registry of the coding-agent CLIs on your machine — their billing tier, the enabled flag, and the default. Manage it from the CLI, web, TUI, or MCP; it is the single source of truth for autopilot's cost ladder.
 ---
 
-Picking a backend per spawn with [`--backend`](/warden/concepts/agent-backends/) is
+Picking a backend per spawn with [`--aicli`](/warden/concepts/agent-backends/) is
 the *foreground* choice. The **backend registry** is the durable *background* picture
 behind it: warden detects the coding-agent CLIs installed on this machine and
 remembers, per backend, **how it's billed**, **whether it's enabled**, and **which one

@@ -93,7 +93,7 @@ The **target tier** resolves with the precedence **explicit `--tier` > task tier
 role default tier > tier-2**. Within the tier, the router scores every model by
 quota headroom (`1 − used/limit`), skips rate-limited or ineligible backends, and
 picks the highest-headroom candidate (round-robin among ties). A pinned
-`--backend`/`--model` **bypasses** the router, and a first spawn **degrades** to
+`--aicli`/`--model` **bypasses** the router, and a first spawn **degrades** to
 the request defaults if routing is unavailable — it never hard-fails.
 
 ```sh
@@ -116,9 +116,11 @@ feeds the router — no `task`/`tier` params).
 
 ## Switch a running agent's role
 
+Use `agent set <AGENT> role <role>`; read it back with `agent get <AGENT> role`. The older `agent role set` still works as a hidden alias. A role's default tier is changed with `warden agent role tier set <role> <tier>`.
+
 ```sh
-warden agent role set agent-abc123 worker    # give the running agent the worker persona
-warden agent role set agent-abc123 general   # clear the persona (back to a plain agent)
+warden agent set agent-abc123 role worker    # give the running agent the worker persona
+warden agent set agent-abc123 role general   # clear the persona (back to a plain agent)
 ```
 
 `set-role` persists the new role **name** and **relaunches** the agent so the new
