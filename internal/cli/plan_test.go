@@ -840,3 +840,99 @@ func TestPlanDeleteCmd(t *testing.T) {
 		t.Fatalf("delete not sent: %q", seen)
 	}
 }
+
+func walkPlanCommands(c *cobra.Command, visit func(*cobra.Command)) {
+	for _, sub := range c.Commands() {
+		if sub.Name() == "help" {
+			continue
+		}
+		visit(sub)
+		walkPlanCommands(sub, visit)
+	}
+}
+
+func TestPlanCommandsHaveShortAndLong(t *testing.T) {
+	var plan *cobra.Command
+	for _, c := range newRootCmd().Commands() {
+		if c.Name() == "plan" {
+			plan = c
+		}
+	}
+	if plan == nil {
+		t.Fatal("plan command not found")
+	}
+	walkPlanCommands(plan, func(c *cobra.Command) {
+		if strings.TrimSpace(c.Short) == "" {
+			t.Errorf("%s: empty Short", c.CommandPath())
+		}
+		if strings.TrimSpace(c.Long) == "" {
+			t.Errorf("%s: empty Long", c.CommandPath())
+		}
+		if c.Short != "" && c.Short[0] >= 'a' && c.Short[0] <= 'z' {
+			t.Errorf("%s: Short %q should start with a capital", c.CommandPath(), c.Short)
+		}
+		for _, banned := range []string{"ParsePlanYAML", "PlansUpdate", "POST /", "HTTP 409"} {
+			if strings.Contains(c.Long, banned) || strings.Contains(c.Short, banned) {
+				t.Errorf("%s: help names internal detail %q", c.CommandPath(), banned)
+			}
+		}
+	})
+}
+
+func TestPlanControlHelpDiffers(t *testing.T) {
+	seen := map[string]string{}
+	for _, a := range []string{"pause", "resume", "stop"} {
+		c := newPlanControlCmd(a)
+		if prev, ok := seen[c.Long]; ok {
+			t.Errorf("%s and %s share the same Long", a, prev)
+		}
+		seen[c.Long] = a
+	}
+}
+
+func TestPlanSyncToRepoLegacySpellingStillRegistered(t *testing.T) {
+	help, err := executeHelp(t, "plan", "--help")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(help, "sync_to_repo") {
+		t.Error("plan --help lists the legacy sync_to_repo spelling")
+	}
+	if !strings.Contains(help, "sync-to-repo") {
+		t.Error("plan --help missing sync-to-repo")
+	}
+	for _, name := range []string{"sync-to-repo", "sync_to_repo"} {
+		out, err := executeHelp(t, "plan", name, "--help")
+		if err != nil {
+			t.Fatalf("plan %s --help: %v", name, err)
+		}
+		if !strings.Contains(out, "<plan-id>") {
+			t.Errorf("plan %s help: %q", name, out)
+		}
+	}
+	// The legacy path must still run (fails on the missing --base, not "unknown command").
+	root := newRootCmd()
+	var buf bytes.Buffer
+	root.SetOut(&buf)
+	root.SetErr(&buf)
+	root.SetArgs([]string{"plan", "sync_to_repo", "plan-ab12cd34"})
+	err = root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "--base is required") {
+		t.Fatalf("legacy sync_to_repo did not reach its handler: %v", err)
+	}
+}
+
+func TestPlanRunModeNormalization(t *testing.T) {
+	for in, want := range map[string]string{
+		"orchestrator": "orchestrator_worker", "orchestrator_worker": "orchestrator_worker",
+		"autopilot": "autopilot", "pipeline": "pipeline", "manual": "manual",
+	} {
+		got, err := normalizePlanRunMode(in)
+		if err != nil || got != want {
+			t.Errorf("normalizePlanRunMode(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	if _, err := normalizePlanRunMode(""); err == nil {
+		t.Error("empty --mode must be rejected")
+	}
+}

@@ -57,18 +57,19 @@ Complete command tree:
   warden plan show                     Show detail for one plan
   warden plan related                  List heuristic related / overlapping plans
   warden plan run                      Start execution of a plan in the given mode
-  warden plan pause                    pause an in-progress plan's active executor
-  warden plan resume                   resume an in-progress plan's active executor
-  warden plan stop                     stop an in-progress plan's active executor
+  warden plan pause                    Pause an in-progress plan's executor
+  warden plan resume                   Resume a paused plan's executor
+  warden plan stop                     Stop an in-progress plan's executor
   warden plan done                     Mark a plan task done
   warden plan complete                 Complete a plan (in_progress → completed)
   warden plan archive                  Archive a plan (any status → archived)
   warden plan delete                   Permanently delete a plan
+  warden plan sync-to-repo             Export a plan revision to a dedicated branch and open a PR
   warden plan sync_to_repo             Export a plan revision to a dedicated branch and open a PR
   warden plan hub-sync                 Explicitly sync canonical plans with the configured Hub
-  warden plan hub-sync discover        
-  warden plan hub-sync pull            
-  warden plan hub-sync push            
+  warden plan hub-sync discover        List plans available on the Hub
+  warden plan hub-sync pull            Fetch plan envelopes from the Hub
+  warden plan hub-sync push            Push one local plan revision to the Hub
   warden plan backup                   Export or restore a portable Plan backup bundle
   warden plan backup export            Write a Plan backup bundle to a file or stdout
   warden plan backup restore           Restore Plans from a backup bundle into ScrivaDB

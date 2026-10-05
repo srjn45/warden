@@ -28,10 +28,16 @@ func newPlanCmd() *cobra.Command {
 			"Plans are canonical ScrivaDB records (goal, tasks, lifecycle, revision).\n" +
 			"Repository YAML under plans/ is an optional inert export — not required\n" +
 			"for create/run/complete/archive.\n\n" +
-			"Create with `wd plan create`, modify pending definitions with\n" +
-			"`wd plan update` / `wd plan edit` / `wd plan task`, start with `wd plan run`,\n" +
-			"control with `wd plan pause|resume|stop`, mark tasks done with `wd plan done`,\n" +
-			"then `wd plan complete` (or `wd plan archive`).",
+			"Typical journey:\n\n" +
+			"  1. Create    `wd plan create` (then `wd plan show` to inspect it)\n" +
+			"  2. Edit      `wd plan update`, `wd plan edit` or `wd plan task add|edit|rm`\n" +
+			"               (only while the plan is pending)\n" +
+			"  3. Run       `wd plan run --mode <mode>` (pending → in_progress)\n" +
+			"  4. Control   `wd plan pause`, `resume` or `stop` the running executor\n" +
+			"  5. Progress  `wd plan task status` / `wd plan done` record task progress\n" +
+			"  6. Complete  `wd plan complete` (in_progress → completed)\n" +
+			"  7. Finish    `wd plan archive` (reversible), or `wd plan delete` to remove a\n" +
+			"               pending or archived plan permanently",
 	}
 	SetCommandHelpMetadata(cmd, "run", 25, "warden plan", "", NodeNamespace)
 
@@ -51,7 +57,8 @@ func newPlanCmd() *cobra.Command {
 		newPlanCompleteCmd(),
 		newPlanArchiveCmd(),
 		newPlanDeleteCmd(),
-		newPlanSyncToRepoCmd(),
+		newPlanSyncToRepoCmd("sync-to-repo", false),
+		newPlanSyncToRepoCmd("sync_to_repo", true), // deprecated spelling, kept as a hidden alias
 		newPlanHubSyncCmd(),
 		newPlanBackupCmd(),
 		newPlanImportCmd(),
@@ -68,10 +75,48 @@ func newPlanCmd() *cobra.Command {
 }
 
 func newPlanHubSyncCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "hub-sync", Short: "Explicitly sync canonical plans with the configured Hub"}
+	cmd := &cobra.Command{
+		Use:   "hub-sync",
+		Short: "Explicitly sync canonical plans with the configured Hub",
+		Long: "Explicit, operator-driven sync of canonical plans with the configured Hub.\n" +
+			"Nothing syncs automatically: the Hub is only contacted when you run one of\n" +
+			"these subcommands.\n\n" +
+			"  discover  List plans the Hub offers (read-only)\n" +
+			"  pull      Fetch plan envelopes from the Hub (does not overwrite local plans)\n" +
+			"  push      Offer one local plan revision to the Hub",
+	}
+	type hubVerb struct{ short, long, scope string }
+	verbs := map[string]hubVerb{
+		"push": {
+			short: "Push one local plan revision to the Hub",
+			long: "Send a local plan's current revision to the Hub and stamp the local record\n" +
+				"with the remote id and sync time. The plan id is required.",
+			scope: "Hub project scope to push into (default: the plan's own project)",
+		},
+		"pull": {
+			short: "Fetch plan envelopes from the Hub",
+			long: "Fetch plan envelopes from the Hub and print them. Pulling never imports or\n" +
+				"overwrites local plan definitions; it only stamps sync metadata on local\n" +
+				"plans the Hub already knows. With a plan id, only that plan is fetched;\n" +
+				"otherwise all plans in scope are returned (narrow with --status).",
+			scope: "Hub project scope to pull from (default: unscoped)",
+		},
+		"discover": {
+			short: "List plans available on the Hub",
+			long: "Ask the Hub which plans it has in scope and print their envelopes. This is\n" +
+				"read-only discovery: nothing is imported. With a plan id, the result is\n" +
+				"limited to that plan (narrow further with --status).",
+			scope: "Hub project scope to search (default: unscoped)",
+		},
+	}
 	for _, verb := range []string{"push", "pull", "discover"} {
 		verb := verb
-		child := &cobra.Command{Use: verb + " [plan-id]", Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		hv := verbs[verb]
+		use := verb + " [plan-id]"
+		if verb == "push" {
+			use = "push <plan-id>"
+		}
+		child := &cobra.Command{Use: use, Short: hv.short, Long: hv.long, Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 			scope, _ := cmd.Flags().GetString("scope")
 			statuses, _ := cmd.Flags().GetStringArray("status")
 			req := client.PlanSyncRequest{Scope: plansync.Scope{ProjectID: scope}, Statuses: planSyncStatuses(statuses)}
@@ -86,7 +131,11 @@ func newPlanHubSyncCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				return printJSON(cmd.OutOrStdout(), p)
+				if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+					return printJSON(cmd.OutOrStdout(), p)
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "plan %s pushed to the Hub (rev %d)\n", p.ID, p.Revision)
+				return nil
 			}
 			var out *client.PlanSyncEnvelopes
 			var err error
@@ -98,9 +147,18 @@ func newPlanHubSyncCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return printJSON(cmd.OutOrStdout(), out)
+			if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+				return printJSON(cmd.OutOrStdout(), out)
+			}
+			w := cmd.OutOrStdout()
+			fmt.Fprintf(w, "%d plan envelope(s)\n", len(out.Envelopes))
+			for _, env := range out.Envelopes {
+				fmt.Fprintf(w, "  %s  %s  rev=%d  %s\n", env.PlanID, env.Name, env.Revision, env.Lifecycle)
+			}
+			return nil
 		}}
-		child.Flags().String("scope", "", "Hub project scope (defaults to the plan project on push)")
+		child.Flags().String("scope", "", hv.scope)
+		child.Flags().Bool("json", false, "output as JSON")
 		child.Flags().StringArray("status", nil, "lifecycle status filter (repeatable)")
 		cmd.AddCommand(child)
 	}
@@ -212,12 +270,12 @@ func newPlanUpdateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "update <plan-id>",
 		Short: "Update a pending plan definition",
-		Long: "Patch a pending plan's definition in ScrivaDB. Non-pending plans are rejected\n" +
-			"by the daemon with HTTP 409 Conflict.\n\n" +
+		Long: "Change a pending plan's definition. Only pending plans can be edited;\n" +
+			"once a plan is running, completed or archived the update is refused.\n\n" +
 			"Provide at least one of --file, --name, --goal, --constraint, or --done-when.\n" +
-			"When --file is set, the YAML is parsed via ParsePlanYAML and any explicit\n" +
-			"flags overlay those fields. Optimistic concurrency uses the plan's current\n" +
-			"revision (fetched first).",
+			"When --file is set, the plan YAML in that file is applied first and any\n" +
+			"explicit flags overlay those fields. The update is checked against the\n" +
+			"plan's current revision, so it fails if the plan changed since it was read.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runPlanUpdate(cmd, args[0])
@@ -288,11 +346,11 @@ func newPlanTaskCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "task",
 		Short: "Add, edit, or remove tasks on a pending plan",
-		Long: "Granular task-DAG mutations for a pending plan. Non-pending plans are\n" +
-			"rejected with HTTP 409 Conflict. Subcommands:\n\n" +
-			"  add     Append a task (POST /plans/{id}/tasks)\n" +
-			"  edit    Patch one task's prompt/after deps\n" +
-			"  rm      Remove a task (blocked if dependents remain)\n" +
+		Long: "Manage a plan's tasks. add, edit and rm change the task definitions and only\n" +
+			"work on pending plans; status records progress and is used while a plan runs.\n\n" +
+			"  add     Append a task to the plan\n" +
+			"  edit    Change one task's prompt or dependencies\n" +
+			"  rm      Remove a task (refused while other tasks depend on it)\n" +
 			"  status  Set a task's status (pending|in_progress|done|skipped)\n\n" +
 			"edit and rm take the task id as the second argument (or --id). The skipped\n" +
 			"status counts as finished: `plan complete` accepts done or skipped tasks.",
@@ -306,8 +364,8 @@ func newPlanTaskAddCmd() *cobra.Command {
 		Use:   "add <plan-id>",
 		Short: "Add a task to a pending plan",
 		Long: "Append a task to a pending plan's DAG. --id and --prompt are required.\n" +
-			"Repeat --after for dependencies. Optional --expected-revision for optimistic\n" +
-			"concurrency (omit to skip the check).",
+			"Repeat --after for dependencies. Optional --expected-revision fails the change\n" +
+			"if the plan was modified since that revision (omit to skip the check).",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, _ := cmd.Flags().GetString("id")
@@ -333,7 +391,7 @@ func newPlanTaskAddCmd() *cobra.Command {
 	cmd.Flags().String("id", "", "task id")
 	cmd.Flags().String("prompt", "", "task prompt")
 	cmd.Flags().StringArray("after", nil, "dependency task id (repeatable)")
-	cmd.Flags().Int64("expected-revision", 0, "optimistic concurrency token")
+	cmd.Flags().Int64("expected-revision", 0, "fail if the plan is no longer at this revision (omit to skip the check)")
 	cmd.Flags().Bool("json", false, "output as JSON")
 	_ = cmd.MarkFlagRequired("id")
 	_ = cmd.MarkFlagRequired("prompt")
@@ -346,7 +404,8 @@ func newPlanTaskEditCmd() *cobra.Command {
 		Short: "Edit a task definition on a pending plan",
 		Long: "Patch one task's prompt and/or after-deps on a pending plan. Pass the task\n" +
 			"id as a second argument or via --id. Provide --prompt and/or --after; omitted fields are left unchanged.\n" +
-			"Optional --expected-revision for optimistic concurrency.",
+			"Optional --expected-revision fails the change if the plan was modified\n" +
+			"since that revision (omit to skip the check).",
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			taskID, err := planTaskIDArg(cmd, args, 1)
@@ -383,7 +442,7 @@ func newPlanTaskEditCmd() *cobra.Command {
 	cmd.Flags().String("id", "", "task id (alternative to positional)")
 	cmd.Flags().String("prompt", "", "new task prompt")
 	cmd.Flags().StringArray("after", nil, "replace after-deps (repeatable; pass once with empty to clear)")
-	cmd.Flags().Int64("expected-revision", 0, "optimistic concurrency token")
+	cmd.Flags().Int64("expected-revision", 0, "fail if the plan is no longer at this revision (omit to skip the check)")
 	cmd.Flags().Bool("json", false, "output as JSON")
 	return cmd
 }
@@ -394,7 +453,8 @@ func newPlanTaskRmCmd() *cobra.Command {
 		Short: "Remove a task from a pending plan",
 		Long: "Remove a task from a pending plan. Pass the task id as a second argument\n" +
 			"or via --id. Removal is rejected if other tasks still depend on it.\n" +
-			"Optional --expected-revision for optimistic concurrency.",
+			"Optional --expected-revision fails the change if the plan was modified\n" +
+			"since that revision (omit to skip the check).",
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			planID := args[0]
@@ -418,7 +478,7 @@ func newPlanTaskRmCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().String("id", "", "task id (alternative to positional)")
-	cmd.Flags().Int64("expected-revision", 0, "optimistic concurrency token")
+	cmd.Flags().Int64("expected-revision", 0, "fail if the plan is no longer at this revision (omit to skip the check)")
 	cmd.Flags().Bool("json", false, "output as JSON")
 	return cmd
 }
@@ -678,10 +738,11 @@ func newPlanDeleteCmd() *cobra.Command {
 	return cmd
 }
 
-func newPlanSyncToRepoCmd() *cobra.Command {
+func newPlanSyncToRepoCmd(use string, hidden bool) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "sync_to_repo <plan-id>",
-		Short: "Export a plan revision to a dedicated branch and open a PR",
+		Use:    use + " <plan-id>",
+		Hidden: hidden,
+		Short:  "Export a plan revision to a dedicated branch and open a PR",
 		Long: "Render the canonical ScrivaDB Plan as an inert replica (YAML by default;\n" +
 			"`--format json` for JSON) on a dedicated `warden/plan-sync/<plan-id>/<revision>`\n" +
 			"branch and open (or reuse) a PR against --base. Uses an isolated git worktree —\n" +
@@ -782,6 +843,13 @@ func newPlanBackupExportCmd() *cobra.Command {
 			if err := os.WriteFile(outPath, raw, 0o600); err != nil {
 				return err
 			}
+			if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+				return printJSON(cmd.OutOrStdout(), map[string]any{
+					"output":      outPath,
+					"plans":       len(bundle.Entries),
+					"bundle_hash": bundle.BundleHash,
+				})
+			}
 			fmt.Fprintf(cmd.ErrOrStderr(), "exported %d plan(s) → %s (bundle_hash=%s)\n",
 				len(bundle.Entries), outPath, bundle.BundleHash)
 			return nil
@@ -790,6 +858,7 @@ func newPlanBackupExportCmd() *cobra.Command {
 	cmd.Flags().Bool("all", false, "export every plan (optionally scoped by --project)")
 	cmd.Flags().String("project", "", "when used with --all, limit export to this project id")
 	cmd.Flags().StringP("output", "o", "", "output file (default: stdout)")
+	cmd.Flags().Bool("json", false, "with -o, print the export summary as JSON instead of text (the bundle itself is always JSON)")
 	return cmd
 }
 
@@ -849,7 +918,9 @@ func newPlanAssessCmd() *cobra.Command {
 		Use:   "assess <plan-id>",
 		Short: "Brain-assisted task progress assessment",
 		Long: "Use a brain model to reconstruct task progress from git history and open PRs.\n" +
-			"Updates task_progress in the DB record. Opt-in — never run automatically.",
+			"Updates the plan's recorded task progress. Opt-in — never run automatically.\n" +
+			"--project is only needed when the plan belongs to a different project than\n" +
+			"the current directory's.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			planID := args[0]
@@ -857,14 +928,19 @@ func newPlanAssessCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if _, err := clientFor(cmd).PlanAssess(cmd.Context(), projectID, planID); err != nil {
+			p, err := clientFor(cmd).PlanAssess(cmd.Context(), projectID, planID)
+			if err != nil {
 				return err
+			}
+			if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+				return printJSON(cmd.OutOrStdout(), p)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "assess triggered for plan %s\n", planID)
 			return nil
 		},
 	}
 	cmd.Flags().String("project", "", "project ID (default: git root of the current directory)")
+	cmd.Flags().Bool("json", false, "output as JSON")
 	return cmd
 }
 
@@ -873,13 +949,13 @@ func newPlanRunCmd() *cobra.Command {
 		Use:   "run <plan-id>",
 		Short: "Start execution of a plan in the given mode",
 		Long: "Start execution of a plan (pending → in_progress). This is the only supported\n" +
-			"public start path for plan execution (including autopilot). The mode determines\n" +
-			"how the plan is executed:\n\n" +
-			"  autopilot           Creates a live Autopilot executor + manager\n" +
-			"  pipeline            Each task becomes a pipeline job\n" +
-			"  orchestrator        Orchestrator + workers with human approval gates\n" +
-			"  manual              Plan-bound general agent; human drives prompting\n\n" +
-			"`orchestrator` is accepted as an alias for `orchestrator_worker`.\n" +
+			"public start path for plan execution (including autopilot). --mode is\n" +
+			"required; it decides how the plan is executed:\n\n" +
+			"  autopilot            Creates a live Autopilot executor + manager\n" +
+			"  pipeline             Each task becomes a pipeline job\n" +
+			"  orchestrator_worker  Orchestrator + workers with human approval gates\n" +
+			"  manual               Plan-bound general agent; human drives prompting\n\n" +
+			"`orchestrator` is accepted as a shorthand for `orchestrator_worker`.\n" +
 			"Control a running plan with `wd plan pause|resume|stop`.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -900,19 +976,18 @@ func newPlanRunCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().String("mode", "", "execution mode: autopilot|pipeline|orchestrator|manual")
+	cmd.Flags().String("mode", "", "execution mode (required): autopilot|pipeline|orchestrator_worker|manual")
 	cmd.Flags().Bool("json", false, "output as JSON")
 	return cmd
 }
 
 func newPlanControlCmd(action string) *cobra.Command {
+	short, long := planControlHelp(action)
 	cmd := &cobra.Command{
 		Use:   action + " <plan-id>",
-		Short: action + " an in-progress plan's active executor",
-		Long: "Control the active executor for an in-progress plan (autopilot, pipeline, or\n" +
-			"plan-bound agent). Together with `wd plan run`, this is the public lifecycle\n" +
-			"surface for plan execution.",
-		Args: cobra.ExactArgs(1),
+		Short: short,
+		Long:  long,
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p, err := clientFor(cmd).PlansControl(cmd.Context(), args[0], action)
 			if err != nil {
@@ -927,6 +1002,46 @@ func newPlanControlCmd(action string) *cobra.Command {
 	}
 	cmd.Flags().Bool("json", false, "output as JSON")
 	return cmd
+}
+
+// planControlHelp returns the Short and Long help for pause, resume or stop.
+// The per-executor behaviour mirrors internal/daemon/plan_control.go.
+func planControlHelp(action string) (string, string) {
+	const inProgressOnly = "Only plans that are in_progress and have an active executor can be controlled.\n"
+	switch action {
+	case "pause":
+		return "Pause an in-progress plan's executor",
+			"Pause the executor of an in-progress plan so no new work starts. The plan\n" +
+				"stays in_progress; undo with `wd plan resume`.\n\n" +
+				"  autopilot     The run is paused. Workers already running keep going.\n" +
+				"  pipeline      No new jobs are started. Jobs already running keep going\n" +
+				"                and may still finish or fail.\n" +
+				"  plan-bound    Not supported (orchestrator and manual plans); use\n" +
+				"  agent         `wd plan stop` instead.\n\n" + inProgressOnly
+	case "resume":
+		return "Resume a paused plan's executor",
+			"Resume an executor paused with `wd plan pause`. The plan stays in_progress.\n\n" +
+				"  autopilot     The paused run becomes active again (its brain is respawned\n" +
+				"                if it was torn down).\n" +
+				"  pipeline      Jobs that became ready while paused are started.\n" +
+				"  plan-bound    Not supported (orchestrator and manual plans).\n" +
+				"  agent\n\n" +
+				"Resuming an executor that is not paused is refused. A stopped executor\n" +
+				"cannot be resumed.\n\n" + inProgressOnly
+	default:
+		return "Stop an in-progress plan's executor",
+			"Stop the executor of an in-progress plan. The plan itself stays in_progress\n" +
+				"(stop does not complete, archive or reset it).\n\n" +
+				"  autopilot     The run is stopped and its brain is shut down. A stopped\n" +
+				"                run cannot be resumed.\n" +
+				"  pipeline      The pipeline is canceled: running jobs are terminated and\n" +
+				"                unfinished jobs are skipped. It cannot be resumed.\n" +
+				"  plan-bound    The agent is terminated.\n" +
+				"  agent\n\n" +
+				"A stopped plan is not re-run with `wd plan run` (that needs a pending plan).\n" +
+				"Record the outcome with `wd plan task status`, then `wd plan complete`, or\n" +
+				"`wd plan archive` to give up.\n\n" + inProgressOnly
+	}
 }
 
 // planTaskStatuses are the task statuses the daemon accepts.
@@ -1034,8 +1149,13 @@ func newPlanCompleteCmd() *cobra.Command {
 		Use:   "complete <plan-id>",
 		Short: "Complete a plan (in_progress → completed)",
 		Long: "Complete a plan: in_progress → completed. Blocked if any task is not\n" +
-			"done/skipped (skipped counts as finished) or any associated branch is still unmerged. On success moves\n" +
-			"the YAML to plans/completed/ and cleans up worktrees.",
+			"done or skipped (skipped counts as finished), or if any branch the plan's\n" +
+			"work opened a PR for is still unmerged.\n\n" +
+			"On success the daemon records an execution summary on the plan, tears down\n" +
+			"its executor (autopilot run, pipeline and plan-bound agents), and removes\n" +
+			"their worktrees and branches. The plan record itself is kept; PR references\n" +
+			"and execution history are preserved. If cleanup only partly succeeds the\n" +
+			"plan stays in_progress and the command can be run again.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p, err := clientFor(cmd).PlansComplete(cmd.Context(), args[0])
@@ -1235,9 +1355,9 @@ func normalizePlanRunMode(mode string) (string, error) {
 	case "orchestrator":
 		return "orchestrator_worker", nil
 	case "":
-		return "", fmt.Errorf("--mode is required (autopilot|pipeline|orchestrator|manual)")
+		return "", fmt.Errorf("--mode is required (autopilot|pipeline|orchestrator_worker|manual)")
 	default:
-		return "", fmt.Errorf("unknown --mode %q (autopilot|pipeline|orchestrator|manual)", mode)
+		return "", fmt.Errorf("unknown --mode %q (autopilot|pipeline|orchestrator_worker|manual)", mode)
 	}
 }
 

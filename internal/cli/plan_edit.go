@@ -15,7 +15,7 @@ func newPlanEditCmd() *cobra.Command {
 		Use:   "edit <plan-id>",
 		Short: "Edit a pending plan definition in $EDITOR",
 		Long: "Fetch a pending plan's definition, open it as YAML in $EDITOR (or $VISUAL,\n" +
-			"falling back to vi), then apply the saved document via PlansUpdate.\n\n" +
+			"falling back to vi), then apply the saved document as the new definition.\n\n" +
 			"Only name, goal, constraints, done_when, and tasks are written/applied.\n" +
 			"Lifecycle and execution fields are ignored. If the editor exits non-zero or\n" +
 			"the file is unchanged, no API call is made. Optimistic concurrency uses the\n" +
