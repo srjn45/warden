@@ -5,19 +5,19 @@ Complete command tree:
   warden agent status                  Show full status for one session
   warden agent digest                  Summarize what an agent accomplished (files, branch, turns, narrative)
   warden agent fork                    Fork an agent's session into a new managed agent (branches the conversation; the source keeps running)
-  warden agent restore                 Recreate and resume a lost/orphaned agent (claude --resume)
+  warden agent restore                 Recreate and resume a lost/orphaned agent (resumes its AI CLI session)
   warden agent recover                 Revive archived orphaned agent records whose tmux session is still alive (dry run unless --apply)
-  warden agent adopt                   Register the Claude session in this directory (resume it under tmux, or register the current tmux session live)
+  warden agent adopt                   Register the AI CLI session in this directory (resume it under tmux, or register the current tmux session live)
   warden agent attach                  Attach to the agent's tmux session
   warden agent stop                    Tear down an agent — the single umbrella verb (default: terminate + clear record + remove worktree)
-  warden agent terminate               Stop an agent: kill its tmux+claude session (keeps the record and worktree) — alias for `stop --keep-record --keep-worktree`
+  warden agent terminate               Stop an agent: kill its tmux+AI CLI session (keeps the record and worktree) — alias for `stop --keep-record --keep-worktree`
   warden agent done                    Terminate an agent and clear its record (does NOT remove the worktree) — alias for `stop --keep-worktree`
   warden agent delete                  Clear an agent's stored record (archives by default; --hard to purge) — alias for `stop --keep-worktree` (record only)
   warden agent remove-worktree         Remove an agent's git worktree + branch (always asks; --force overrides guards) — alias for `stop --keep-record` (worktree only)
-  warden agent send                    Type a message into an agent's claude session and press Enter
-  warden agent tail                    Print the recent output of an agent's claude session
+  warden agent send                    Type a message into an agent's AI CLI session and press Enter
+  warden agent tail                    Print the recent output of an agent's AI CLI session
   warden agent handoff                 Hand off work: delegate to a new/existing agent (--to), or retire self into a successor (--retire)
-  warden agent rotate                  Retire this agent and hand its work to a fresh successor in the same workspace (alias for `handoff --retire`)
+  warden agent rotate                  Retire this agent and hand its work to a fresh successor in the same workspace (alias for `warden agent handoff --retire`)
   warden agent switch                  Hot-swap an agent session to a different AI CLI, model, or tier mid-task
   warden agent permission-mode         Manage an agent's permission mode
   warden agent permission-mode set     Set the permission mode for an agent
@@ -213,7 +213,7 @@ Complete command tree:
   warden start                         Spawn an agent — `start --role <ROLE> "<prompt>"` (free-form), `start --role <ROLE> --dir <path>` (interactive), or `start --role worker --repo <PATH>` (managed worktree)
   warden ls                            List all active agent sessions
   warden status                        Show full status for one session
-  warden send                          Type a message into an agent's claude session and press Enter
+  warden send                          Type a message into an agent's AI CLI session and press Enter
   warden commit                        Stage and commit the worktree (warden rails + hooks + bookkeeping)
   warden push                          Push the current branch to origin (warden rails + bookkeeping)
   warden sync                          Fetch and rebase the current branch onto its base (warden conflict detect)

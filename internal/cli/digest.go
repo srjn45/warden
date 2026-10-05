@@ -11,7 +11,7 @@ import (
 
 func newDigestCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "digest <TICKET>",
+		Use:   "digest <AGENT>",
 		Short: "Summarize what an agent accomplished (files, branch, turns, narrative)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

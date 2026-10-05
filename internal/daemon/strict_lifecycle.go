@@ -695,7 +695,11 @@ func (s *Server) SetForceCompact(ctx context.Context, req oapi.SetForceCompactRe
 	default:
 		return nil, errStatus(http.StatusBadRequest, "state must be one of: on, off, inherit")
 	}
-	if err := s.store.SetForceCompact(ctx, req.Id, override); err != nil {
+	target, err := s.resolveSession(ctx, req.Id)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.store.SetForceCompact(ctx, target.ID, override); err != nil {
 		if errors.Is(err, agentstore.ErrNotFound) {
 			return nil, errStatus(http.StatusNotFound, "session not found")
 		}
@@ -715,7 +719,11 @@ func (s *Server) SetPermissionMode(ctx context.Context, req oapi.SetPermissionMo
 	if !lifecycle.ValidPermissionMode(mode) {
 		return nil, errStatus(http.StatusBadRequest, "invalid permission mode")
 	}
-	if err := s.store.UpdatePermissionMode(ctx, req.Id, mode); err != nil {
+	target, err := s.resolveSession(ctx, req.Id)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.store.UpdatePermissionMode(ctx, target.ID, mode); err != nil {
 		if errors.Is(err, agentstore.ErrNotFound) {
 			return nil, errStatus(http.StatusNotFound, "session not found")
 		}

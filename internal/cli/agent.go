@@ -15,6 +15,9 @@ func newAgentCmd() *cobra.Command {
 		Short: "Create, inspect, communicate with, and manage agents",
 		Long: `Create, inspect, communicate with, and manage agents.
 
+Wherever a command takes <AGENT>, it is the agent's name, id or ticket as shown
+by 'warden ls'.
+
 Lifecycle commands deliberately remain distinct: terminate keeps the record and
 worktree; done clears the record but keeps the worktree; delete changes only the
 record; remove-worktree changes only the worktree; and stop composes teardown

@@ -9,8 +9,8 @@ import (
 
 func newSendCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "send <TICKET> <message...>",
-		Short: "Type a message into an agent's claude session and press Enter",
+		Use:   "send <AGENT> <message...>",
+		Short: "Type a message into an agent's AI CLI session and press Enter",
 		Args:  cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, msg := args[0], strings.Join(args[1:], " ")
@@ -25,8 +25,8 @@ func newSendCmd() *cobra.Command {
 
 func newTailCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "tail <TICKET>",
-		Short: "Print the recent output of an agent's claude session",
+		Use:   "tail <AGENT>",
+		Short: "Print the recent output of an agent's AI CLI session",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			lines, _ := cmd.Flags().GetInt("lines")

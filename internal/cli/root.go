@@ -18,8 +18,8 @@ __      ____ _ _ __ __| | ___ _ __
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "warden",
-		Short:         "warden — spawn, monitor, and tear down per-ticket Claude Code agent sessions (alias: wd)",
-		Long:          banner + "\n\nspawn, monitor, and tear down Claude Code agent sessions.\nRun `warden` with no arguments to open the cockpit TUI. Alias: wd.",
+		Short:         "warden — spawn, monitor, and tear down per-ticket AI coding agent sessions (alias: wd)",
+		Long:          banner + "\n\nspawn, monitor, and tear down AI coding agent sessions.\nRun `warden` with no arguments to open the cockpit TUI. Alias: wd.",
 		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
