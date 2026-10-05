@@ -271,3 +271,90 @@ func TestSpawnTerminalAutoRegistersProject(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, p.Terminals, "term-auto")
 }
+
+func spawnAgentWithProject(t *testing.T, srv *Server, cwd, ticket, projectID string) oapi.Session {
+	t.Helper()
+	body := `{"ticket":"` + ticket + `","prompt":"work","cwd":"` + cwd + `","project_id":"` + projectID + `"}`
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/spawn", strings.NewReader(body))
+	req.Host = "127.0.0.1"
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.router().ServeHTTP(w, req)
+	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
+	var out oapi.Session
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	return out
+}
+
+func closedProjectFixture(t *testing.T, ps *projectstore.Store, dir string) {
+	t.Helper()
+	_, err := ps.OpenProject(dir, "keep-me", dir)
+	require.NoError(t, err)
+	_, err = ps.AddPlanToProject(dir, "plan-1")
+	require.NoError(t, err)
+	_, err = ps.CloseProject(dir)
+	require.NoError(t, err)
+}
+
+func requireReopenedKept(t *testing.T, ps *projectstore.Store, dir string) projectstore.Project {
+	t.Helper()
+	p, err := ps.Get(dir)
+	require.NoError(t, err)
+	require.Equal(t, projectstore.StatusOpen, projectstore.NormalizeStatus(p.Status))
+	require.Equal(t, "keep-me", p.Name)
+	require.Equal(t, []string{"plan-1"}, p.Plans)
+	return p
+}
+
+func TestExplicitProjectIDReopensClosedProject(t *testing.T) {
+	srv, ps := newAutoRegServer(t)
+	dir := t.TempDir()
+	closedProjectFixture(t, ps, dir)
+
+	resp := spawnAgentWithProject(t, srv, dir, "exp-a", dir)
+	require.Equal(t, dir, resp.ProjectID)
+	p := requireReopenedKept(t, ps, dir)
+	require.Contains(t, p.Agents, resp.ID)
+}
+
+func TestExplicitProjectIDAbsolutePathRegisters(t *testing.T) {
+	srv, ps := newAutoRegServer(t)
+	dir := t.TempDir()
+
+	resp := spawnAgentWithProject(t, srv, dir, "exp-b", dir)
+	require.Equal(t, dir, resp.ProjectID)
+	p, err := ps.Get(dir)
+	require.NoError(t, err)
+	require.Equal(t, projectstore.StatusOpen, projectstore.NormalizeStatus(p.Status))
+	require.Contains(t, p.Agents, resp.ID)
+
+	// A .worktrees path is normalized to the parent repo root.
+	root := t.TempDir()
+	require.Equal(t, root, srv.ensureExplicitProjectID(filepath.Join(root, ".worktrees", "x")))
+}
+
+func TestExplicitProjectIDNonPathUnchanged(t *testing.T) {
+	srv, ps := newAutoRegServer(t)
+	dir := t.TempDir()
+
+	resp := spawnAgentWithProject(t, srv, dir, "exp-c", "not-a-path")
+	require.Equal(t, "not-a-path", resp.ProjectID)
+	projs, err := ps.List()
+	require.NoError(t, err)
+	require.Empty(t, projs, "a non-path unknown id registers nothing")
+}
+
+func TestExplicitProjectIDReopensForTerminal(t *testing.T) {
+	srv, ps := newAutoRegServer(t)
+	ts, err := terminalstore.New(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ts.Close() })
+	srv.terminals = ts
+	dir := t.TempDir()
+	closedProjectFixture(t, ps, dir)
+
+	_, err = srv.spawnTerminal(context.Background(), SpawnRequest{Cwd: dir, Ticket: "term-exp", ProjectID: dir})
+	require.NoError(t, err)
+	p := requireReopenedKept(t, ps, dir)
+	require.Contains(t, p.Terminals, "term-exp")
+}
