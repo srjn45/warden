@@ -102,8 +102,16 @@ func (c *Controller) superviseRun(ctx context.Context, gr GuardianRuntime, r *ru
 	// respawn now — no heartbeat wait, no nudge of a ghost. Only a definitive
 	// "missing" counts; an unknown answer (daemon restart, store error) is ignored.
 	if r.brain != nil && r.brain.AgentID != "" && gr.BrainSession(ctx, r.brain.AgentID) == SessionMissing {
-		c.managerLost(ctx, gr, r, "session missing or archived")
+		cause := "missing"
+		if lc, ok := gr.(BrainLossCauser); ok {
+			if cc := lc.BrainLossCause(ctx, r.brain.AgentID); cc != "" {
+				cause = cc
+			}
+		}
+		id := r.brain.AgentID
+		c.managerLost(ctx, gr, r, "session "+cause)
 		c.rotateStep(ctx, gr, r, now)
+		auditRespawn(ctx, gr, r, id, cause)
 		return
 	}
 
@@ -174,6 +182,17 @@ func (c *Controller) managerLost(ctx context.Context, gr GuardianRuntime, r *run
 	r.wdActive = false
 }
 
+// auditRespawn records autopilot.manager_respawned once a lost manager's slot has
+// a live successor (nothing is recorded when the respawn failed and the run went
+// to backoff).
+func auditRespawn(ctx context.Context, gr GuardianRuntime, r *run, lostID, cause string) {
+	if r.brain == nil || r.brain.AgentID == "" {
+		return
+	}
+	gr.AuditRunEvent(ctx, r.runID, "autopilot.manager_respawned", r.brain.AgentID,
+		"cause="+cause+" (lost "+lostID+"); successor takes the same slot and reconciles ledger, open PRs and live workers first")
+}
+
 // recover clears the heal ladder after a brain proves alive again: the cycle
 // restarts from healthy, the tried-backend set and backoff are reset.
 func (c *Controller) recover(r *run) {
@@ -218,8 +237,10 @@ func (c *Controller) escalateWith(ctx context.Context, gr GuardianRuntime, r *ru
 		// Stage 1 — nudge the existing brain.
 		if err := gr.NudgeBrain(ctx, r.brain.AgentID, nudge); err != nil {
 			if errors.Is(err, ErrAgentNotFound) {
+				lost := r.brain.AgentID
 				c.managerLost(ctx, gr, r, "nudge target not found")
 				c.rotateStep(ctx, gr, r, now)
+				auditRespawn(ctx, gr, r, lost, "missing")
 				return
 			}
 			slog.Warn("autopilot guardian: nudge failed", "run", r.runID, "err", err)

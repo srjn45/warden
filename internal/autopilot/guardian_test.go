@@ -34,11 +34,12 @@ type guardianFake struct {
 	rosterErr error                  // when non-nil, RunAgents fails (overwatch degrade)
 	wakes     []string               // overwatch pane-injected wakes ("agentID: msg")
 
-	missing  map[string]bool // agentID → session deleted/archived
-	unknown  map[string]bool // agentID → store cannot answer
-	nudgeErr error           // when set, NudgeBrain fails with it
-	wakeErr  error           // when set, WakeAgent fails with it
-	audits   []string        // "action:agentID"
+	missing  map[string]bool   // agentID → session deleted/archived
+	cause    map[string]string // agentID → loss cause reported via BrainLossCauser
+	unknown  map[string]bool   // agentID → store cannot answer
+	nudgeErr error             // when set, NudgeBrain fails with it
+	wakeErr  error             // when set, WakeAgent fails with it
+	audits   []string          // "action:agentID"
 	onRotate func(agentID string)
 
 	// RestartRuntime seams for RestartRun tests.
@@ -56,6 +57,8 @@ func (f *guardianFake) BrainSession(_ context.Context, id string) SessionPresenc
 	}
 	return SessionPresent
 }
+
+func (f *guardianFake) BrainLossCause(_ context.Context, id string) string { return f.cause[id] }
 
 func (f *guardianFake) AuditRunEvent(_ context.Context, _, action, agentID, _ string) {
 	f.audits = append(f.audits, action+":"+agentID)
@@ -648,10 +651,12 @@ func TestGuardianMissingManagerSession(t *testing.T) {
 			require.Len(t, fake.spawned, tc.wantSpawned)
 			require.Len(t, fake.nudges, tc.wantNudges)
 			require.Len(t, fake.rotated, tc.wantRotated, "a missing manager is respawned, never hot-swapped")
-			require.Equal(t, tc.wantAudit, len(fake.audits) == 1, "audits=%v", fake.audits)
+			require.Equal(t, tc.wantAudit, len(fake.audits) > 0, "audits=%v", fake.audits)
 			require.Equal(t, tc.wantBrain, c.Status().Runs[0].Brain.AgentID)
 			if tc.wantAudit {
 				require.Equal(t, "autopilot.manager_missing:brain-1", fake.audits[0])
+				require.Len(t, fake.audits, 2)
+				require.Contains(t, fake.audits[1], "autopilot.manager_respawned:")
 				require.Equal(t, StateActive, c.runs[runID].state, "respawn succeeded")
 			}
 		})
@@ -754,4 +759,42 @@ func TestOverwatchWakeNotFoundClearsManager(t *testing.T) {
 	c.guardianTick(ctx)
 	require.Len(t, fake.spawned, 2)
 	require.Equal(t, "brain-2", c.Status().Runs[0].Brain.AgentID)
+}
+
+// TestGuardianManagerLossCauseAudited: a terminated manager (cause from the
+// runtime) is respawned in one tick and the respawn audit names the cause.
+func TestGuardianManagerLossCauseAudited(t *testing.T) {
+	t0 := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)
+	clock := &fakeClock{t: t0}
+	fake := newGuardianFake()
+	fake.cause = map[string]string{}
+	c, _ := enabledGuardianController(t, fake, clock, cyclicResolver("a", "free"), testGuardian())
+	fake.missing["brain-1"] = true
+	fake.cause["brain-1"] = "terminal"
+	before := len(fake.spawned)
+
+	clock.t = t0.Add(time.Second)
+	c.guardianTick(context.Background())
+
+	require.Len(t, fake.spawned, before+1)
+	require.Empty(t, fake.nudges, "no nudge to a dead pane")
+	require.Len(t, fake.audits, 2)
+	require.Equal(t, "autopilot.manager_respawned:"+c.Status().Runs[0].Brain.AgentID, fake.audits[1])
+}
+
+// TestGuardianPausedStoppedDoNotRespawn: operator pause/stop never respawns.
+func TestGuardianPausedStoppedDoNotRespawn(t *testing.T) {
+	for _, st := range []RunState{StatePaused, StateStopped, StateComplete} {
+		t0 := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)
+		clock := &fakeClock{t: t0}
+		fake := newGuardianFake()
+		c, runID := enabledGuardianController(t, fake, clock, cyclicResolver("a", "free"), testGuardian())
+		fake.missing["brain-1"] = true
+		c.runs[runID].state = st
+		before := len(fake.spawned)
+		clock.t = t0.Add(time.Minute)
+		c.guardianTick(context.Background())
+		require.Len(t, fake.spawned, before, string(st))
+		require.Empty(t, fake.audits, string(st))
+	}
 }

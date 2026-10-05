@@ -649,6 +649,7 @@ func newTerminateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "terminate <AGENT>",
 		Short: "Stop an agent: kill its tmux+AI CLI session (keeps the record and worktree)",
+		Long:  "Stop an agent: kill its tmux+AI CLI session (keeps the record and worktree).\n\nTerminating the manager of an active autopilot run is not a stop: the guardian\nrespawns it in the same slot. To stop a run use `wd plan pause` or `wd plan stop`.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			res := &teardownResult{}

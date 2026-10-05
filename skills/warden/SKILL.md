@@ -227,7 +227,7 @@ stuck worker or make an ad-hoc design call — gating
 PRs and landing them into the run's **per-plan integration branch** (default
 `autopilot/<plan-name>`; legacy `autopilot/integration` runs are grandfathered),
 all without human intervention. Guardian heal-ladder rotation is an in-place
-**hot-swap** into the same manager slot (not a new `agent-<hex>` id). If the manager's session is gone (deleted/archived) the guardian replaces it on the next tick without waiting for the heartbeat timeout (audit `autopilot.manager_missing`); `autopilot_status` shows `healing` with no manager id meanwhile. A
+**hot-swap** into the same manager slot (not a new `agent-<hex>` id). If the manager's session is gone (deleted/archived, terminated, or tmux dead — `terminate` is not a stop; use `wd plan pause`) the guardian replaces it on the next tick without waiting for the heartbeat timeout (audit `autopilot.manager_missing` then `autopilot.manager_respawned`); `autopilot_status` shows `healing` with no manager id meanwhile. A
 daemon-internal **overwatch** backstop nudges the manager to tend workers that
 fall idle or wait on input (automatic; generous cadences — a backstop, not a
 pacer). Multiple named runs can be active in one repo concurrently — each gets
