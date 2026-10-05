@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/srjn45/warden/internal/agentbackend"
@@ -245,6 +246,14 @@ type Poller struct {
 	// the resume-after-clear scheduling lives in the daemon's RateLimitScheduler,
 	// which shares the same toggle.
 	RateLimitAutoResume bool
+
+	// trustWorkspace mirrors trust_workspace (see SetTrustWorkspace). When true
+	// the poller answers an AI CLI's launch-time "do you trust this folder?"
+	// prompt with its "yes" option, for every agent and independently of the
+	// auto-approve policy: the operator already chose the directory by launching
+	// an agent in it. When false the prompt is left to the approvals inbox / the
+	// auto-approve policy like any other sticky prompt.
+	trustWorkspace atomic.Bool
 
 	// OnSaving, if set, records a token-savings event (the daemon wires it to the
 	// savings ledger). The poller uses it for the auto-/compact win: when a
@@ -646,6 +655,9 @@ func (p *Poller) tryAutoApprove(ctx context.Context, s *agentstore.Agent, pane s
 		slog.Debug("auto-approve skipped: unrecognized prompt", "agent", s.ID)
 		return
 	}
+	if ap.Kind == agentbackend.ApprovalKindTrust && p.trustWorkspace.Load() {
+		return // the tick answers workspace-trust prompts itself (tryTrustPrompt)
+	}
 	a := approval.Approval{
 		Action:            ap.Action,
 		Question:          ap.Question,
@@ -704,7 +716,7 @@ func (p *Poller) tryAutoApprove(ctx context.Context, s *agentstore.Agent, pane s
 	}
 
 	key := strconv.Itoa(a.AffirmativeIdx)
-	if err := p.deps.SendKeys(ctx, s.TmuxSession, key); err != nil {
+	if err := p.answer(ctx, s, ap, a.AffirmativeIdx); err != nil {
 		slog.Warn("auto-approve failed to send keys", "agent", s.ID, "err", err)
 		return
 	}
@@ -713,6 +725,76 @@ func (p *Poller) tryAutoApprove(ctx context.Context, s *agentstore.Agent, pane s
 	if owned {
 		p.Autopilot.Audit(ctx, "autopilot_prompt_resolved", s, map[string]string{"stage": "policy", "decision": "approve", "option": key})
 	}
+	if p.OnChange != nil {
+		p.OnChange()
+	}
+}
+
+// SetTrustWorkspace turns the automatic answering of workspace-trust prompts on
+// or off (config trust_workspace); safe to call while the poller runs.
+func (p *Poller) SetTrustWorkspace(on bool) { p.trustWorkspace.Store(on) }
+
+// answerVerifyDelay is how long answer waits after moving a cursor menu's
+// selection before re-capturing the pane to confirm where the cursor landed.
+// Overridable in tests.
+var answerVerifyDelay = 400 * time.Millisecond
+
+// answer selects option idx of the agent's pending prompt with the keystrokes its
+// menu takes: the option's number for a hotkey menu, or cursor moves plus a
+// verified Enter for a cursor menu (see agentbackend.Answer).
+func (p *Poller) answer(ctx context.Context, s *agentstore.Agent, ap *agentbackend.Approval, idx int) error {
+	send := func(key string) error { return p.deps.SendKeys(ctx, s.TmuxSession, key) }
+	reparse := func() (*agentbackend.Approval, bool) {
+		if answerVerifyDelay > 0 {
+			select {
+			case <-time.After(answerVerifyDelay):
+			case <-ctx.Done():
+				return nil, false
+			}
+		}
+		pane, err := p.deps.CapturePane(ctx, s.TmuxSession)
+		if err != nil {
+			return nil, false
+		}
+		return p.backendFor(s).ParseApproval(pane)
+	}
+	return agentbackend.Answer(ap, idx, send, reparse)
+}
+
+// trustMaxAttempts caps how often the same workspace-trust prompt is answered for
+// one agent. Trusting clears the prompt for good, so a prompt that survives this
+// many answers is not being unblocked by them; it is then left for a human.
+const trustMaxAttempts = 3
+
+// tryTrustPrompt answers an AI CLI's launch-time workspace-trust prompt with its
+// "yes, trust" option. It runs from the tick for every live agent while
+// trust_workspace is on and is a no-op for any other pane. It is deliberately
+// outside the auto-approve policy: the prompt precedes the agent's first turn, so
+// nothing the agent did is being approved — only the operator's own choice of
+// directory is confirmed, as Cursor's --trust launch flag already does.
+func (p *Poller) tryTrustPrompt(ctx context.Context, s *agentstore.Agent, pane string) {
+	ap, ok := p.backendFor(s).ParseApproval(pane)
+	if !ok || ap == nil || ap.Kind != agentbackend.ApprovalKindTrust || ap.AffirmativeIdx == 0 {
+		return
+	}
+	sig := "trust\x00" + ap.Action
+	allowed, trippedNow := p.approveBreaker.Allow(s.ID, sig, trustMaxAttempts)
+	if !allowed {
+		if trippedNow {
+			slog.Warn("workspace-trust prompt still showing after repeated answers; leaving it for a human", "agent", s.ID, "dir", ap.Action)
+		}
+		return
+	}
+	if err := p.answer(ctx, s, ap, ap.AffirmativeIdx); err != nil {
+		slog.Warn("workspace-trust auto-answer failed", "agent", s.ID, "err", err)
+		return
+	}
+	slog.Info("workspace trusted", "agent", s.ID, "dir", ap.Action, "label", ap.Options[ap.AffirmativeIdx-1])
+	_ = p.deps.RecordEvent(ctx, s.ID, store.Event{
+		TS:     time.Now(),
+		Type:   "workspace_trusted",
+		Detail: "answered the workspace-trust prompt for " + ap.Action,
+	})
 	if p.OnChange != nil {
 		p.OnChange()
 	}
@@ -809,7 +891,7 @@ func (p *Poller) arbitrate(ctx context.Context, s *agentstore.Agent, pol approva
 		return false
 	}
 	key := strconv.Itoa(opt)
-	if err := p.deps.SendKeys(ctx, s.TmuxSession, key); err != nil {
+	if err := p.answer(ctx, s, ap, opt); err != nil {
 		slog.Warn("fastbrain arbiter failed to send keys", "agent", s.ID, "err", err)
 		return true
 	}
@@ -1045,6 +1127,9 @@ func (p *Poller) tick(ctx context.Context) error {
 					}
 				}
 			}
+		}
+		if alive && captureOK && p.trustWorkspace.Load() {
+			p.tryTrustPrompt(ctx, s, pane)
 		}
 		if alive && captureOK && p.OnObservedQuotaScope != nil && s.QuotaBinding != nil {
 			if qo, ok := p.backendFor(s).(agentbackend.QuotaScopeObserver); ok {

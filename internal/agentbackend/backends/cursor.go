@@ -545,6 +545,7 @@ func cursorParseTrustApproval(pane string) (*agentbackend.Approval, bool) {
 		Options:           opts,
 		SelectedIdx:       sel,
 		AffirmativeSticky: true, // trusting persists to .workspace-trusted (a standing grant)
+		Kind:              agentbackend.ApprovalKindTrust,
 	}
 	for i, o := range opts {
 		if strings.Contains(strings.ToLower(o), "trust") {

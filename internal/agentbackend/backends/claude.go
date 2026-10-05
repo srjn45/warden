@@ -331,9 +331,14 @@ func (Claude) DetectState(pane string) agentbackend.State {
 	return agentbackend.StateUnknown
 }
 
-// ParseApproval normalizes Claude's box-drawing approval prompt into the neutral
-// Approval, delegating to the existing approval detector.
+// ParseApproval normalizes Claude's two blocking prompts into the neutral
+// Approval: the launch-time workspace-trust dialog (checked first — it replaces
+// the whole screen) and the box-drawing permission prompt, which delegates to the
+// existing approval detector.
 func (Claude) ParseApproval(pane string) (*agentbackend.Approval, bool) {
+	if a, ok := claudeParseTrustApproval(pane); ok {
+		return a, true
+	}
 	a, ok := approval.Parse(pane)
 	if !ok {
 		return nil, false
@@ -346,6 +351,92 @@ func (Claude) ParseApproval(pane string) (*agentbackend.Approval, bool) {
 		AffirmativeIdx:    a.AffirmativeIdx,
 		AffirmativeSticky: a.AffirmativeSticky,
 	}, true
+}
+
+// claudeTrustHint is the key-hint footer of Claude's workspace-trust dialog. With
+// the "Accessing workspace:" label it gates recognition, so agent prose that
+// merely mentions trusting a folder is never parsed as the dialog.
+const claudeTrustHint = "Enter to confirm"
+
+// claudeParseTrustApproval recognizes the workspace-trust dialog Claude shows
+// when launched interactively in a directory it has not trusted, before any
+// model call. Captured live (Claude Code v2.1.289):
+//
+//	Accessing workspace:
+//
+//	/path/to/workdir
+//
+//	Quick safety check: Is this a project you created or one you trust? …
+//
+//	Security guide
+//
+//	❯ No, exit
+//	  Yes, I trust this folder
+//
+//	Enter to confirm · Esc to cancel
+//
+// The options carry no numbers and the cursor starts on "No, exit", so the menu
+// is a cursor menu (Navigate): a digit does nothing and a bare Enter quits Claude.
+// The options are the contiguous non-empty run directly above the key hint; the
+// Action is the directory under the "Accessing workspace:" label. Trust is
+// persisted per directory, so the affirmative is a standing grant.
+func claudeParseTrustApproval(pane string) (*agentbackend.Approval, bool) {
+	if !strings.Contains(pane, "Accessing workspace:") || !strings.Contains(pane, claudeTrustHint) {
+		return nil, false
+	}
+	lines := strings.Split(pane, "\n")
+	hint := -1
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.Contains(lines[i], claudeTrustHint) {
+			hint = i
+			break
+		}
+	}
+	end := hint - 1
+	for end >= 0 && strings.TrimSpace(lines[end]) == "" {
+		end--
+	}
+	if end < 0 {
+		return nil, false
+	}
+	start := end
+	for start-1 >= 0 && strings.TrimSpace(lines[start-1]) != "" {
+		start--
+	}
+
+	a := &agentbackend.Approval{
+		Question:          "Do you trust this folder?",
+		AffirmativeSticky: true,
+		Kind:              agentbackend.ApprovalKindTrust,
+		Navigate:          true,
+	}
+	for i := start; i <= end; i++ {
+		t := strings.TrimSpace(lines[i])
+		if rest, ok := strings.CutPrefix(t, "❯"); ok {
+			a.SelectedIdx = i - start + 1
+			t = strings.TrimSpace(rest)
+		}
+		a.Options = append(a.Options, t)
+		if low := strings.ToLower(t); a.AffirmativeIdx == 0 && strings.HasPrefix(low, "yes") && strings.Contains(low, "trust") {
+			a.AffirmativeIdx = i - start + 1
+		}
+	}
+	if len(a.Options) < 2 || a.AffirmativeIdx == 0 {
+		return nil, false
+	}
+	for i, l := range lines {
+		if !strings.Contains(l, "Accessing workspace:") {
+			continue
+		}
+		for j := i + 1; j < start; j++ {
+			if t := strings.TrimSpace(lines[j]); t != "" {
+				a.Action = t
+				break
+			}
+		}
+		break
+	}
+	return a, true
 }
 
 // --- System prompt / pricing ------------------------------------------------

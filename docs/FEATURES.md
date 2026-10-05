@@ -152,6 +152,17 @@ safety). Two cooperating layers, plus an optional third (Fast-Brain, below):
 2. **Rule policy** (the `auto_approve` config block / `warden approval auto set`
    subcommands) — an allow/deny engine evaluated for every participating agent.
 
+**Workspace-trust prompts are separate.** The one-time "do you trust this folder?"
+prompt an AI CLI raises when launched in a new directory is answered "yes"
+automatically for every agent (`trust_workspace: true`, the default), whether or not
+auto-approve is on: launching an agent in a directory is already your choice of that
+directory. Claude, Codex and Antigravity are answered in the pane (their menus need
+cursor keys plus Enter, not an option number — Claude's even highlights "No, exit" by
+default, so the move is verified before Enter is sent); Cursor is launched with
+`--trust`. Each answer is recorded as a `workspace_trusted` event on the agent. Set
+`trust_workspace: false` to leave the prompt for the approvals inbox, where it then
+follows the normal policy as a sticky grant (`allow_sticky`).
+
 **Decision order** (a prompt is auto-answered only if all pass):
 - The built-in **destructive deny-list** (delete, `rm -rf`, force, push, deploy,
   reset --hard, …) **always wins** — it is checked first and is not configurable.

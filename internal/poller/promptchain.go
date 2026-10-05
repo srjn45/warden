@@ -195,21 +195,25 @@ func (p *Poller) deliver(ctx context.Context, s *agentstore.Agent, ap *agentback
 		if ap.AffirmativeIdx == 0 {
 			return "", false
 		}
-		return "approve", p.sendKey(ctx, s, strconv.Itoa(ap.AffirmativeIdx))
+		return "approve", p.sendOption(ctx, s, ap, ap.AffirmativeIdx)
 	case PromptSelectOption:
 		if ans.Option < 1 || ans.Option > len(ap.Options) {
 			return "", false
 		}
-		return "select_option:" + strconv.Itoa(ans.Option), p.sendKey(ctx, s, strconv.Itoa(ans.Option))
+		return "select_option:" + strconv.Itoa(ans.Option), p.sendOption(ctx, s, ap, ans.Option)
 	case PromptReject:
-		key := "Escape"
+		neg := 0
 		for i, o := range ap.Options {
 			if isNegative(o) {
-				key = strconv.Itoa(i + 1)
+				neg = i + 1
 				break
 			}
 		}
-		if !p.sendKey(ctx, s, key) {
+		if neg == 0 {
+			if !p.sendKey(ctx, s, "Escape") {
+				return "", false
+			}
+		} else if !p.sendOption(ctx, s, ap, neg) {
 			return "", false
 		}
 		if ans.Text != "" {
@@ -224,6 +228,16 @@ func (p *Poller) deliver(ctx context.Context, s *agentstore.Agent, ap *agentback
 		return "type", true
 	}
 	return "", false
+}
+
+// sendOption selects option idx of the prompt with the keystrokes its menu takes
+// (see answer).
+func (p *Poller) sendOption(ctx context.Context, s *agentstore.Agent, ap *agentbackend.Approval, idx int) bool {
+	if err := p.answer(ctx, s, ap, idx); err != nil {
+		slog.Warn("autopilot: failed to send brain answer", "agent", s.ID, "option", idx, "err", err)
+		return false
+	}
+	return true
 }
 
 func (p *Poller) sendKey(ctx context.Context, s *agentstore.Agent, key string) bool {

@@ -590,6 +590,8 @@ func agyParseTrustApproval(pane string) (*agentbackend.Approval, bool) {
 		Options:           opts,
 		SelectedIdx:       sel,
 		AffirmativeSticky: true, // trusting the folder is a standing grant
+		Kind:              agentbackend.ApprovalKindTrust,
+		Navigate:          true, // unnumbered: move the ">" cursor, then Enter
 	}
 
 	// The directory under question is the first non-empty line after the

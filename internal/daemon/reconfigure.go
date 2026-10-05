@@ -74,6 +74,7 @@ func (s *Server) ApplyConfig(cfg config.Config) {
 	if s.poller != nil {
 		// Auto-approve policy: same live-swap the PUT /auto-approve/policy handler uses.
 		s.poller.SetAutoApprovePolicy(cfg.AutoApprove)
+		s.poller.SetTrustWorkspace(cfg.TrustWorkspace)
 		// Context/token guard: guard on/off, warn/critical bands, warn alerting,
 		// auto-/force-compact, and the compact resume prompt — applied on the next tick.
 		s.poller.SetContextGuard(
