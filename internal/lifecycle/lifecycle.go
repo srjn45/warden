@@ -2518,8 +2518,8 @@ var inputSubmitDelay = 150 * time.Millisecond
 // sends) and then presses Enter as a SEPARATE keystroke after a short settle.
 func (l *Lifecycle) Input(ctx context.Context, tmuxSession, text string) error {
 	buf := "warden-input-" + tmuxSession
-	if out, err := l.run.Run(ctx, "", "tmux", "set-buffer", "-b", buf, "--", text); err != nil {
-		return fmt.Errorf("tmux set-buffer: %w: %s", err, out)
+	if err := l.loadBuffer(ctx, buf, text); err != nil {
+		return err
 	}
 	// -p bracketed-pastes (newlines stay content) when the app is in bracketed-
 	// paste mode; -r additionally stops paste-buffer translating LF→CR so an
@@ -2537,6 +2537,39 @@ func (l *Lifecycle) Input(ctx context.Context, tmuxSession, text string) error {
 	}
 	if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", tmuxSession, "Enter"); err != nil {
 		return fmt.Errorf("tmux send-keys Enter: %w: %s", err, out)
+	}
+	return nil
+}
+
+// loadBuffer puts text into the named tmux buffer without ever passing it as a
+// command argument (tmux rejects set-buffer args beyond ~16 KB with "command too
+// long"): the text goes to a 0600 file under the daemon data dir, tmux
+// load-buffer reads it, and the file is removed on every path. The file lives in
+// PromptsDir (0700, daemon-owned) because prompt text can carry sensitive
+// context; only when no data dir is wired (tests) does it fall back to the OS
+// temp dir.
+func (l *Lifecycle) loadBuffer(ctx context.Context, buf, text string) error {
+	dir := ""
+	if l.PromptsDir != "" {
+		dir = filepath.Join(l.PromptsDir, ".input")
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return fmt.Errorf("mkdir input dir: %w", err)
+		}
+	}
+	f, err := os.CreateTemp(dir, "input-*") // created 0600
+	if err != nil {
+		return fmt.Errorf("create input file: %w", err)
+	}
+	defer os.Remove(f.Name())
+	if _, err := f.WriteString(text); err != nil {
+		f.Close()
+		return fmt.Errorf("write input file: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("write input file: %w", err)
+	}
+	if out, err := l.run.Run(ctx, "", "tmux", "load-buffer", "-b", buf, f.Name()); err != nil {
+		return fmt.Errorf("tmux load-buffer: %w: %s", err, out)
 	}
 	return nil
 }
