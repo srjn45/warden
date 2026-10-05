@@ -756,3 +756,24 @@ func (Cursor) Capabilities() agentbackend.Caps {
 		SessionIDControl:     false,
 	}
 }
+
+var cursorModeTable = agentbackend.ModeTable{
+	ToIntent: map[string]agentbackend.PermissionIntent{
+		"default": agentbackend.IntentDefault, "plan": agentbackend.IntentPlan,
+		"ask": agentbackend.IntentReadOnly, "force": agentbackend.IntentSkipAll,
+	},
+	FromIntent: map[agentbackend.PermissionIntent]string{
+		agentbackend.IntentDefault: "default", agentbackend.IntentPlan: "plan",
+		agentbackend.IntentReadOnly: "ask", agentbackend.IntentSkipAll: "force",
+	},
+}
+
+// ModeIntent implements agentbackend.PermissionMapper.
+func (Cursor) ModeIntent(mode string) (agentbackend.PermissionIntent, bool) {
+	return cursorModeTable.Intent(mode)
+}
+
+// ModeForIntent implements agentbackend.PermissionMapper.
+func (Cursor) ModeForIntent(i agentbackend.PermissionIntent) (string, bool) {
+	return cursorModeTable.ForIntent(i)
+}

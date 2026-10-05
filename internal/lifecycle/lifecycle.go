@@ -814,6 +814,10 @@ type Lifecycle struct {
 	// (tests) disables exit capture — agents then fall back to orphaned-only
 	// classification. Never the dir the agent runs in.
 	ExitsDir string
+
+	// SwapVerifyWindow bounds the post-launch liveness check in HotSwap (zero =
+	// 1s default, negative disables it).
+	SwapVerifyWindow time.Duration
 	// SettingsDir is a shared dir (the daemon sets it, e.g. ~/.warden/settings)
 	// where each isolated agent's generated `claude --settings` file is written,
 	// keyed by agent id. The file installs the PreToolUse isolation guard hook.

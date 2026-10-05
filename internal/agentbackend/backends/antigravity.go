@@ -1181,3 +1181,25 @@ func (Antigravity) Capabilities() agentbackend.Caps {
 		SessionIDControl:     false,
 	}
 }
+
+var agyModeTable = agentbackend.ModeTable{
+	ToIntent: map[string]agentbackend.PermissionIntent{
+		"default": agentbackend.IntentDefault, "plan": agentbackend.IntentPlan,
+		"accept-edits": agentbackend.IntentAcceptEdits, "dangerously-skip-permissions": agentbackend.IntentSkipAll,
+	},
+	FromIntent: map[agentbackend.PermissionIntent]string{
+		agentbackend.IntentDefault: "default", agentbackend.IntentPlan: "plan",
+		agentbackend.IntentReadOnly: "plan", agentbackend.IntentAcceptEdits: "accept-edits",
+		agentbackend.IntentSkipAll: "dangerously-skip-permissions",
+	},
+}
+
+// ModeIntent implements agentbackend.PermissionMapper.
+func (Antigravity) ModeIntent(mode string) (agentbackend.PermissionIntent, bool) {
+	return agyModeTable.Intent(mode)
+}
+
+// ModeForIntent implements agentbackend.PermissionMapper.
+func (Antigravity) ModeForIntent(i agentbackend.PermissionIntent) (string, bool) {
+	return agyModeTable.ForIntent(i)
+}

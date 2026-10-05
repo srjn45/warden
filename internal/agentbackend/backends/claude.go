@@ -437,3 +437,25 @@ func (Claude) Capabilities() agentbackend.Caps {
 		SessionIDControl:     true,
 	}
 }
+
+var claudeModeTable = agentbackend.ModeTable{
+	ToIntent: map[string]agentbackend.PermissionIntent{
+		"default": agentbackend.IntentDefault, "plan": agentbackend.IntentPlan,
+		"acceptEdits": agentbackend.IntentAcceptEdits, "bypassPermissions": agentbackend.IntentSkipAll,
+	},
+	FromIntent: map[agentbackend.PermissionIntent]string{
+		agentbackend.IntentDefault: "default", agentbackend.IntentPlan: "plan",
+		agentbackend.IntentReadOnly: "plan", agentbackend.IntentAcceptEdits: "acceptEdits",
+		agentbackend.IntentSkipAll: "bypassPermissions",
+	},
+}
+
+// ModeIntent implements agentbackend.PermissionMapper.
+func (Claude) ModeIntent(mode string) (agentbackend.PermissionIntent, bool) {
+	return claudeModeTable.Intent(mode)
+}
+
+// ModeForIntent implements agentbackend.PermissionMapper.
+func (Claude) ModeForIntent(i agentbackend.PermissionIntent) (string, bool) {
+	return claudeModeTable.ForIntent(i)
+}

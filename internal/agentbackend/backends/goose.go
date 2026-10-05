@@ -430,3 +430,24 @@ func (Goose) Capabilities() agentbackend.Caps {
 		SessionIDControl:     false,
 	}
 }
+
+var gooseModeTable = agentbackend.ModeTable{
+	ToIntent: map[string]agentbackend.PermissionIntent{
+		"approve": agentbackend.IntentDefault, "chat": agentbackend.IntentPlan,
+		"auto": agentbackend.IntentSkipAll,
+	},
+	FromIntent: map[agentbackend.PermissionIntent]string{
+		agentbackend.IntentDefault: "approve", agentbackend.IntentPlan: "chat",
+		agentbackend.IntentReadOnly: "chat", agentbackend.IntentSkipAll: "auto",
+	},
+}
+
+// ModeIntent implements agentbackend.PermissionMapper.
+func (Goose) ModeIntent(mode string) (agentbackend.PermissionIntent, bool) {
+	return gooseModeTable.Intent(mode)
+}
+
+// ModeForIntent implements agentbackend.PermissionMapper.
+func (Goose) ModeForIntent(i agentbackend.PermissionIntent) (string, bool) {
+	return gooseModeTable.ForIntent(i)
+}

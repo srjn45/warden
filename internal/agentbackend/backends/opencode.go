@@ -441,3 +441,24 @@ func (OpenCode) Capabilities() agentbackend.Caps {
 		SessionIDControl:     false,
 	}
 }
+
+var opencodeModeTable = agentbackend.ModeTable{
+	ToIntent: map[string]agentbackend.PermissionIntent{
+		"default": agentbackend.IntentDefault, "plan": agentbackend.IntentPlan,
+		"dangerously-skip-permissions": agentbackend.IntentSkipAll,
+	},
+	FromIntent: map[agentbackend.PermissionIntent]string{
+		agentbackend.IntentDefault: "default", agentbackend.IntentPlan: "plan",
+		agentbackend.IntentReadOnly: "plan", agentbackend.IntentSkipAll: "dangerously-skip-permissions",
+	},
+}
+
+// ModeIntent implements agentbackend.PermissionMapper.
+func (OpenCode) ModeIntent(mode string) (agentbackend.PermissionIntent, bool) {
+	return opencodeModeTable.Intent(mode)
+}
+
+// ModeForIntent implements agentbackend.PermissionMapper.
+func (OpenCode) ModeForIntent(i agentbackend.PermissionIntent) (string, bool) {
+	return opencodeModeTable.ForIntent(i)
+}
