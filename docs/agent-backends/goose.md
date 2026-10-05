@@ -141,6 +141,8 @@ a dir-scoped `session-list.json`.
   it waits for the 'goose is ready' banner, then types the task prompt and
   presses Enter (`PromptText`/`ReadyMarker`). `LaunchPromptArg` still returns
   `""` because the launch command itself accepts no initial-prompt argument.
+  A seed that fails after retries sets `seed_status=failed` on the session,
+  audits + notifies once, and leaves the prompt at `<data_dir>/prompts/<id>`.
 - **No warden-driven model/provider on launch.** Interactive `session` has no
   `--model`/`--provider`; warden relies on `GOOSE_PROVIDER`/`GOOSE_MODEL`.
 - **No warden-driven permission mode on launch.** `GOOSE_MODE` env/config only.

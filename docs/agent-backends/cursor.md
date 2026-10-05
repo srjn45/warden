@@ -29,7 +29,7 @@ strips Cursor's features down to a lowest common denominator.
 |----------------------|----------------------------------------------------|-------|
 | `LaunchCmd` (TUI)    | `cursor-agent [--model <m>] [mode flag] [--sandbox enabled\|disabled]` | Interactive TUI; task prompt seeded after launch (see `PromptText`). Sandbox from `ExecutionProfile.Network`. |
 | `LaunchPromptArg`    | `""` (empty)                                       | The trailing positional only *populates* cursor-agent's composer — it does not auto-submit — so nothing goes on the launch line. |
-| `PromptText`/`ReadyMarker` | types the task + Enter once the composer is ready | `PromptSeeder` (like Aider/Goose): warden types the prompt into the interactive composer and submits it once the fresh-launch placeholder appears. |
+| `PromptText`/`ReadyMarker` | types the task + Enter once the composer is ready | `PromptSeeder` (like Aider/Goose): warden types the prompt into the interactive composer and submits it once the fresh-launch placeholder appears. Retried with backoff; a final failure sets `seed_status=failed` on the session, audits + notifies once, and leaves the prompt at `<data_dir>/prompts/<id>`. |
 | `ResumeCmd`          | `cursor-agent --continue [--model <m>] [mode] [--sandbox …]` | Dir/workspace-scoped; Mode + Network match LaunchCmd. |
 | `HeadlessCmd`        | `cursor-agent -p --force --trust <prompt>`         | One-shot for warden's classify/summarize offload. |
 | `TranscriptPath`     | — (degraded, returns false)                        | Interactive transcript is an unreadable SQLite `store.db` (see below). |
