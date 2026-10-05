@@ -30,7 +30,7 @@ warden status agent-a1b2          # full detail + event history
 warden agent tail agent-a1b2            # recent terminal output
 warden send agent-a1b2 "also check the session cookie handling"
 warden agent attach agent-a1b2          # drop into its terminal (Ctrl-b d to detach)
-warden agent done agent-a1b2            # tear it down when finished
+warden agent stop agent-a1b2 --keep-worktree            # tear it down when finished
 ```
 
 That's the whole loop. Everything else is variations on it.
@@ -53,7 +53,7 @@ warden start "find and fix the flaky test in the payments suite"
 warden ls
 warden agent tail <id>
 warden send <id> "skip the integration tests for now"
-warden agent done <id>
+warden agent stop <id> --keep-worktree
 ```
 
 **Ticketed development (managed worktree):**
@@ -62,7 +62,7 @@ warden agent done <id>
 warden start PROJ-350 --type development     # worktree + branch
 warden status PROJ-350
 warden agent attach PROJ-350                       # jump in when needed
-warden agent done PROJ-350                          # guarded teardown
+warden agent stop PROJ-350 --keep-worktree                          # guarded teardown
 ```
 
 **Reviewing a PR:**
@@ -70,5 +70,5 @@ warden agent done PROJ-350                          # guarded teardown
 ```sh
 warden start --type pr-review --pr 1234
 warden agent tail prreview-...
-warden agent done prreview-...
+warden agent stop prreview-... --keep-worktree
 ```

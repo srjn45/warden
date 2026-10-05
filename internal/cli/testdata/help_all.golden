@@ -5,30 +5,27 @@ Complete command tree:
   warden agent status                  Show full status for one session
   warden agent digest                  Summarize what an agent accomplished (files, branch, turns, narrative)
   warden agent fork                    Fork an agent's session into a new managed agent (branches the conversation; the source keeps running)
-  warden agent restore                 Recreate and resume a lost/orphaned agent (claude --resume)
+  warden agent restore                 Recreate and resume a lost/orphaned agent (resumes its AI CLI session)
   warden agent recover                 Revive archived orphaned agent records whose tmux session is still alive (dry run unless --apply)
-  warden agent adopt                   Register the Claude session in this directory (resume it under tmux, or register the current tmux session live)
+  warden agent adopt                   Register the AI CLI session in this directory (resume it under tmux, or register the current tmux session live)
   warden agent attach                  Attach to the agent's tmux session
-  warden agent stop                    Tear down an agent — the single umbrella verb (default: terminate + clear record + remove worktree)
-  warden agent terminate               Stop an agent: kill its tmux+claude session (keeps the record and worktree) — alias for `stop --keep-record --keep-worktree`
-  warden agent done                    Terminate an agent and clear its record (does NOT remove the worktree) — alias for `stop --keep-worktree`
-  warden agent delete                  Clear an agent's stored record (archives by default; --hard to purge) — alias for `stop --keep-worktree` (record only)
-  warden agent remove-worktree         Remove an agent's git worktree + branch (always asks; --force overrides guards) — alias for `stop --keep-record` (worktree only)
-  warden agent send                    Type a message into an agent's claude session and press Enter
-  warden agent tail                    Print the recent output of an agent's claude session
+  warden agent stop                    Tear down an agent (default: terminate + clear record + remove worktree; --keep-* flags keep parts)
+  warden agent terminate               Stop an agent: kill its tmux+AI CLI session (keeps the record and worktree)
+  warden agent done                    Terminate an agent and clear its record, keeping the worktree (same as `stop --keep-worktree`)
+  warden agent delete                  Clear only an agent's stored record (archives by default; --hard to purge); does not terminate it or touch the worktree
+  warden agent remove-worktree         Remove only an agent's git worktree + branch (asks first unless --yes; --force overrides guards); does not terminate it or clear the record
+  warden agent send                    Type a message into an agent's AI CLI session and press Enter
+  warden agent tail                    Print the recent output of an agent's AI CLI session
   warden agent handoff                 Hand off work: delegate to a new/existing agent (--to), or retire self into a successor (--retire)
-  warden agent rotate                  Retire this agent and hand its work to a fresh successor in the same workspace (alias for `handoff --retire`)
+  warden agent rotate                  Retire this agent and hand its work to a fresh successor in the same workspace (alias for `warden agent handoff --retire`)
   warden agent switch                  Hot-swap an agent session to a different AI CLI, model, or tier mid-task
-  warden agent permission-mode         Manage an agent's permission mode
-  warden agent permission-mode set     Set the permission mode for an agent
+  warden agent set                     Change one per-agent setting (permission-mode, compact, role, auto-approve)
+  warden agent get                     Show one or all per-agent settings (permission-mode, compact, role, auto-approve)
   warden agent role                    Inspect warden's built-in agent roles and tier mappings
   warden agent role list               List the built-in agent roles and their descriptions
-  warden agent role set                Switch an agent's built-in role (relaunches to re-inject the persona)
-  warden agent role set-tier           Set the default model tier for an agent role (tier-1|tier-2|tier-3)
   warden agent role tier               Inspect and manage role-to-tier mappings
   warden agent role tier list          List agent roles and their default model tiers
-  warden agent compact                 Manage an agent's force-compact override
-  warden agent compact set             Override force-compact for one agent (interrupt → /compact → resume)
+  warden agent role tier set           Set the default model tier for an agent role (tier-1|tier-2|tier-3)
   warden pipeline                      Define and run DAG pipelines of agent jobs
   warden pipeline validate             Validate a pipeline YAML spec without creating it
   warden pipeline create               Create a pipeline from a YAML spec or a built-in template
@@ -213,7 +210,7 @@ Complete command tree:
   warden start                         Spawn an agent — `start --role <ROLE> "<prompt>"` (free-form), `start --role <ROLE> --dir <path>` (interactive), or `start --role worker --repo <PATH>` (managed worktree)
   warden ls                            List all active agent sessions
   warden status                        Show full status for one session
-  warden send                          Type a message into an agent's claude session and press Enter
+  warden send                          Type a message into an agent's AI CLI session and press Enter
   warden commit                        Stage and commit the worktree (warden rails + hooks + bookkeeping)
   warden push                          Push the current branch to origin (warden rails + bookkeeping)
   warden sync                          Fetch and rebase the current branch onto its base (warden conflict detect)
@@ -221,6 +218,12 @@ Complete command tree:
 
 Compatibility aliases:
   warden adopt -> warden agent adopt (compatibility)
+  warden agent compact -> warden agent set (compatibility)
+  warden agent compact set -> warden agent set (compatibility)
+  warden agent permission-mode -> warden agent set (compatibility)
+  warden agent permission-mode set -> warden agent set (compatibility)
+  warden agent role set -> warden agent set (compatibility)
+  warden agent role set-tier -> warden agent role tier set (compatibility)
   warden agent role tier ls -> warden agent role tier list (compatibility)
   warden approvals -> warden approval list (compatibility)
   warden approve -> warden approval answer (compatibility)
@@ -274,7 +277,7 @@ Compatibility aliases:
   warden digest -> warden agent digest (compatibility)
   warden done -> warden agent done (compatibility)
   warden export -> warden inspect export (compatibility)
-  warden force-compact -> warden agent compact set (compatibility)
+  warden force-compact -> warden agent set (compatibility)
   warden fork -> warden agent fork (compatibility)
   warden handoff -> warden agent handoff (compatibility)
   warden history -> warden inspect history (compatibility)
@@ -332,16 +335,17 @@ Compatibility aliases:
   warden review -> warden git review (compatibility)
   warden role -> warden agent role (compatibility)
   warden role list -> warden agent role list (compatibility)
-  warden role set-tier -> warden agent role set-tier (compatibility)
+  warden role set-tier -> warden agent role tier set (compatibility)
   warden role tier -> warden agent role tier (compatibility)
   warden role tier list -> warden agent role tier list (compatibility)
   warden role tier ls -> warden agent role tier list (compatibility)
+  warden role tier set -> warden agent role tier set (compatibility)
   warden rotate -> warden agent rotate (compatibility)
   warden savings -> warden usage savings (compatibility)
   warden schedule get -> warden schedule show (compatibility)
   warden search -> warden inspect search (compatibility)
-  warden set-permission-mode -> warden agent permission-mode set (compatibility)
-  warden set-role -> warden agent role set (compatibility)
+  warden set-permission-mode -> warden agent set (compatibility)
+  warden set-role -> warden agent set (compatibility)
   warden snapshot -> warden workspace snapshot (compatibility)
   warden snapshot create -> warden workspace snapshot create (compatibility)
   warden snapshot list -> warden workspace snapshot list (compatibility)

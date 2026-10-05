@@ -64,36 +64,31 @@ func newStartCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "start --role <ROLE> [TICKET|\"<prompt>\"] [--repo <PATH>] [--dir <PATH>] [--aicli <ID>]",
 		Short: "Spawn an agent — `start --role <ROLE> \"<prompt>\"` (free-form), `start --role <ROLE> --dir <path>` (interactive), or `start --role worker --repo <PATH>` (managed worktree)",
-		Long: `Spawn an agent. --role is required (see 'warden role list'); there is no
+		Long: `Spawn an agent. --role is required (see 'warden agent role list'); there is no
 implicit fallback role.
 
-Free-form:   warden start --role <ROLE> "<prompt>" [--dir <path>]   (autonomous)
-Interactive: warden start --role <ROLE> --dir <path>                (opens the agent and waits)
-Managed:     warden start --role worker --repo <PATH> [TICKET]      (isolated worktree)
-             (worker + --repo enters the managed path; --type is a deprecated alias)
+Spawn modes:
+  Free-form    warden agent start --role <ROLE> "<prompt>" [--dir <path>]
+               Autonomous: runs the prompt in --dir (default: current directory).
+  Interactive  warden agent start --role <ROLE> --dir <path>
+               No prompt: opens the agent and waits for you.
+  Managed      warden agent start --role worker --repo <PATH> [TICKET]
+               Isolated git worktree off --repo (worker role + --repo).
+  Terminal     warden agent start --kind terminal --dir <path>
+               Not an AI agent: a plain shell ($SHELL) in --dir, with the same
+               worktree/git/tmux lifecycle. --aicli/--model/--role/prompt are ignored.
 
-The spawn's AI CLI+model is resolved (top wins): an explicit --aicli/--model
-pin > --aicli alone (optimal model for that AI CLI at the tier) > --tier (or
---task, which derives a tier) routed through the quota-balanced resolver >
-the resolver routed by --role alone > warden's configured defaults.
-So --role on its own is always enough to spawn — --tier/--aicli/--model are
-optional refinements, not additional requirements. --model requires --aicli.
+Which AI CLI + model runs (first match wins):
+  1. --aicli + --model         explicit pin (--model requires --aicli)
+  2. --aicli alone             optimal model for that AI CLI at the tier
+  3. --tier (or --task)        quota-balanced resolver at that tier
+  4. --role alone              resolver routed by the role's tier
+  5. configured defaults
+So --role on its own is always enough; --tier/--aicli/--model only refine it.
 
-AI CLIs (--aicli; aliases --ai-cli and deprecated --backend): warden drives Claude Code by default.
-Accepted values: claude (default, stable), aider, opencode, codex, crush, goose, cursor, antigravity.
-Only claude is fully tested; codex and antigravity are beta, the rest experimental / WIP.
-Precedence when multiple AI CLI flags are set: --aicli > --ai-cli > --backend.
-Terminal (--kind terminal): not an AI agent — opens a plain interactive shell ($SHELL)
-in --dir, managed with the same worktree/git/tmux lifecycle as any agent. It is a
-session kind, not an AI CLI, so --aicli/--ai-cli/--backend/--model/--role/prompt are ignored.
-Aider: BYO model (pass --model with --aicli), no resume, runs a one-shot --message task.
-OpenCode: BYO model (pass --model with --aicli), structured transcript, DOES resume.
-Codex: BYO provider (via ~/.codex/config.toml), DOES resume (dir-scoped).
-Crush: BYO model (config-driven TUI; --model for headless), DOES resume (dir-scoped); initial prompt auto-typed post-launch.
-Goose: BYO provider (GOOSE_PROVIDER/GOOSE_MODEL env), DOES resume (name-deterministic); no --model on session launch.
-Cursor: hosted model catalog; pass --model to override (cursor-agent --list-models / wd models); DOES resume (dir-scoped --continue); warden owns the worktree (cursor's own -w never passed).
-Antigravity: Google-hosted agy; defaults gemini-3.5-flash; pass --model (agy models / wd models); DOES resume (dir-scoped agy -c).
-All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
+Accepted --aicli values: claude (default), aider, opencode, codex, crush, goose,
+cursor, antigravity. Per-AI-CLI behaviour (model, resume, spend fidelity) and
+maturity labels: see 'warden backend --help'.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Load the named preset first (if any) so its saved defaults seed the
@@ -196,6 +191,9 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 					}
 					return err
 				}
+				if jsonRequested(cmd) {
+					return printSpawnedJSON(cmd, s)
+				}
 				outcome := formatSpawnOutcome(s, prompt == "")
 				fmt.Fprintf(cmd.OutOrStdout(), "%s — attach with `warden attach %s`\n", outcome, s.ID)
 				return nil
@@ -252,40 +250,48 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 				}
 				return err
 			}
+			if jsonRequested(cmd) {
+				return printSpawnedJSON(cmd, s)
+			}
 			fmt.Fprintf(cmd.OutOrStdout(), "%s (%s) — attach with `warden attach %s`\n",
 				formatSpawnOutcome(s, false), s.Status, s.ID)
 			return nil
 		},
 	}
+	addJSONFlag(cmd, "emit the new agent (id, name, role, ai_cli, model, workdir) as JSON")
 	cmd.Flags().String("name", "", "explicit agent name (omit to auto-resolve); max 32 chars, alphanumeric + hyphens/underscores")
 	cmd.Flags().String("type", "", "deprecated alias: legacy task type (development|analysis|spike|pr-review|…). Prefer --role worker --repo for managed worktrees")
 	_ = cmd.Flags().MarkDeprecated("type", "use --role (and --repo for managed worktrees)")
-	cmd.Flags().String("repo", "", "repo path for a managed (worktree) spawn; with --role worker this enters the managed path without --type. Empty = free-form unless --type/--fork-from force managed (then defaults to cwd)")
+	_ = cmd.Flags().MarkHidden("type")
+	cmd.Flags().String("repo", "", "repo path for a managed spawn: with --role worker, picks an isolated worktree off this repo (the default managed mode; branch it with --branch). Empty = free-form unless --fork-from forces managed (then defaults to cwd)")
 	cmd.Flags().String("branch", "", "new branch (development) or checkout target (pr-review)")
 	cmd.Flags().String("pr", "", "PR number/url (pr-review)")
-	cmd.Flags().Bool("worktree", false, "create a scratch worktree for analysis/spike")
-	cmd.Flags().Bool("in-repo", false, "write-agent opt-out: run in the shared repo instead of an isolated worktree (ignored for pr-review)")
+	cmd.Flags().Bool("worktree", false, "managed spawns only: use a throwaway scratch worktree instead of a branch worktree (analysis/spike). Neither --worktree nor --in-repo = the normal isolated branch worktree")
+	cmd.Flags().Bool("in-repo", false, "managed spawns only: opt out of isolation and run in the shared --repo checkout instead of a worktree (ignored for pr-review; overridden when root_guard is on)")
 	cmd.Flags().String("dir", "", "directory to launch the agent from (default: current directory)")
 	cmd.Flags().Bool("supervised", false, "alias for --permission-mode acceptEdits (kept for backwards compatibility)")
+	_ = cmd.Flags().MarkHidden("supervised")
 	cmd.Flags().String("permission-mode", "", "permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan (default: from config or 'auto')")
 	cmd.Flags().Bool("auto-restart", false, "auto-resume this agent if it crashes (errored), capped at a few attempts")
 	cmd.Flags().Bool("force", false, "spawn even when the memory-pressure gate warns")
 	cmd.Flags().String("model", "", "model ID for the chosen AI CLI (requires --aicli). Empty lets the tier resolver pick an explicit model")
-	cmd.Flags().String("aicli", "", "AI CLI: claude (default, stable) | aider | opencode | codex | crush | goose | cursor | antigravity — only claude is fully tested; codex/antigravity are beta, the rest experimental. See `warden start --help` for per-AI-CLI notes")
+	cmd.Flags().String("aicli", "", "AI CLI `<ID>`: claude (default, stable) | aider | opencode | codex | crush | goose | cursor | antigravity — only claude is fully tested; codex/antigravity are beta, the rest experimental. See 'warden backend --help' for per-AI-CLI notes")
 	cmd.Flags().String("ai-cli", "", "alias for --aicli")
+	_ = cmd.Flags().MarkHidden("ai-cli")
 	cmd.Flags().String("backend", "", "deprecated alias for --aicli (accepted for one release; --aicli wins if both are set)")
 	_ = cmd.Flags().MarkDeprecated("backend", "use --aicli")
-	cmd.Flags().String("kind", "", "session kind: empty/agent (default) spawns an AI agent; terminal opens a plain interactive shell ($SHELL) in --dir (not an AI agent — --aicli/--ai-cli/--backend/--model/--role/prompt ignored)")
-	cmd.Flags().String("preset", "", "load saved spawn defaults from a named preset (see `warden preset`); explicit flags override")
-	cmd.Flags().String("prompt-template", "", "fill a saved prompt template (see `warden prompt-template`) as the spawn prompt; a positional prompt still wins")
+	_ = cmd.Flags().MarkHidden("backend")
+	cmd.Flags().String("kind", "", "session kind: empty/agent (default) spawns an AI agent; terminal opens a plain interactive shell ($SHELL) in --dir (not an AI agent — --aicli/--model/--role/prompt ignored)")
+	cmd.Flags().String("preset", "", "load saved spawn defaults from the named preset `<NAME>` (see 'warden project preset'); explicit flags override")
+	cmd.Flags().String("prompt-template", "", "fill the saved prompt template `<NAME>` (see 'warden project prompt-template') as the spawn prompt; a positional prompt still wins")
 	cmd.Flags().StringArray("set", nil, "supply a prompt-template variable as VAR=value (repeatable, e.g. --set FILE=foo.go --set X=y)")
-	cmd.Flags().String("tags", "", "comma-separated labels for grouping/filtering (e.g. --tags backend,urgent); searchable and filterable via `warden ls --tag`")
-	cmd.Flags().String("project", "", "id of the daemon project this agent joins (its canonical path or remote URL, from `warden projects list`); stamps membership explicitly instead of leaving the daemon to path-match the launch dir. Empty = the git repository root of the launch directory (the daemon auto-registers it)")
+	cmd.Flags().String("tags", "", "comma-separated labels `<LIST>` for grouping/filtering (e.g. --tags backend,urgent); searchable and filterable via 'warden agent list --tag'")
+	cmd.Flags().String("project", "", "`<ID>` of the daemon project this agent joins (its canonical path or remote URL, from 'warden projects list'); stamps membership explicitly instead of leaving the daemon to path-match the launch dir. Empty = the git repository root of the launch directory (the daemon auto-registers it)")
 	cmd.Flags().String("plan", "", "optional planstore plan id in the same project (plan-<8hex>); empty = planless agent. A non-empty value must name an existing plan belonging to the resolved project")
-	cmd.Flags().String("role", "", "REQUIRED — built-in agent role: general | orchestrator | planner | worker (legacy aliases implementer/auto-merger/reviewer resolve to worker). Injects the role's persona as a system-prompt addendum and applies its default flags. See `warden role list`")
+	cmd.Flags().String("role", "", "REQUIRED — built-in agent role `<ROLE>`: "+roleChoices()+". Injects the role's persona as a system-prompt addendum and applies its default flags. See 'warden agent role list'")
 	cmd.Flags().String("tier", "", "model tier for the quota-balanced resolver that picks the AI CLI+model: tier-1|tier-2|tier-3. Empty derives the tier from --task, then --role (--role is required, so this always has a role to derive from). An explicit --aicli/--model still wins over the resolver")
 	cmd.Flags().String("task", "", "task name (task registry) used to derive the model tier when --tier is empty. Empty = none")
-	cmd.Flags().String("fork-from", "", "fork an existing agent's recorded session into this new managed agent (codex `codex fork`): branches the source's conversation in a fresh sibling worktree off its branch, carrying its uncommitted tracked changes; the source keeps running. Uses --role worker when the chosen role does not own a worktree; the fork inherits the source's repo+backend. See `warden fork` for the shorthand")
+	cmd.Flags().String("fork-from", "", "fork the existing agent `<AGENT>`'s recorded session into this new managed agent (codex's native fork): branches the source's conversation in a fresh sibling worktree off its branch, carrying its uncommitted tracked changes; the source keeps running. Uses --role worker when the chosen role does not own a worktree; the fork inherits the source's repo+backend. See 'warden agent fork' for the shorthand")
 	return cmd
 }
 
@@ -303,7 +309,7 @@ func loadStartPreset(cmd *cobra.Command) (preset.Preset, error) {
 	}
 	p, ok := store.Get(name)
 	if !ok {
-		return preset.Preset{}, fmt.Errorf("preset %q not found — list saved presets with `warden preset list`", name)
+		return preset.Preset{}, fmt.Errorf("preset %q not found — list saved presets with 'warden project preset list'", name)
 	}
 	return p, nil
 }
@@ -326,7 +332,7 @@ func resolveStartPrompt(cmd *cobra.Command, args []string) (string, error) {
 	}
 	tpl, ok := store.Get(name)
 	if !ok {
-		return "", fmt.Errorf("prompt template %q not found — list saved templates with `warden prompt-template list`", name)
+		return "", fmt.Errorf("prompt template %q not found — list saved templates with 'warden project prompt-template list'", name)
 	}
 	sets, _ := cmd.Flags().GetStringArray("set")
 	vars, err := parseSetVars(sets)
@@ -367,9 +373,19 @@ func resolveDir(flagVal string) (string, error) {
 
 func newRestoreCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "restore <TICKET>",
-		Short: "Recreate and resume a lost/orphaned agent (claude --resume)",
-		Args:  cobra.ExactArgs(1),
+		Use:   "restore <AGENT>",
+		Short: "Recreate and resume a lost/orphaned agent (resumes its AI CLI session)",
+		Long: `Use when warden still has the agent's record but its tmux session is gone
+(orphaned: reboot, killed tmux server, crash). Recreates the tmux session in the
+agent's original workdir and resumes the same AI CLI conversation. Resume-only:
+it refuses rather than start a fresh conversation (e.g. backend cannot resume,
+no pinned session id, workdir or transcript missing) and refuses while the tmux
+session is still alive.
+
+Not this command?
+  warden agent recover   archived orphaned records whose tmux session is still alive
+  warden agent adopt     a session warden never managed`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := clientFor(cmd).Restore(cmd.Context(), args[0]); err != nil {
 				return err
@@ -393,14 +409,20 @@ func newRecoverCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "recover",
 		Short: "Revive archived orphaned agent records whose tmux session is still alive (dry run unless --apply)",
-		Long: "Scans archived (closed) agent records for ones whose status is orphaned\n" +
+		Long: "Use when an agent vanished from the list but its tmux session is still running\n" +
+			"(the record was archived by mistake) — it brings the record back; it never\n" +
+			"relaunches anything. If the tmux session is gone, use `warden agent restore`;\n" +
+			"for a session warden never managed, use `warden agent adopt`.\n\n" +
+			"Scans archived (closed) agent records for ones whose status is orphaned\n" +
 			"(the only recovery source) and whose tmux session is confirmed still alive\n" +
 			"— a live session's record should never end up archived, but a stale orphaned\n" +
 			"status racing a daemon restart could previously slip one past the tombstone\n" +
 			"reaper. Bare `wd recover` only reports what it finds; --apply re-inserts each\n" +
 			"candidate into the active store under its original id. Any children (linked\n" +
 			"via parent_id, untouched by archiving) reconnect automatically — no need to\n" +
-			"recover them separately.",
+			"recover them separately.\n\n" +
+			"--apply is a dry-run switch (report vs. act), not a confirmation, so it is\n" +
+			"intentionally NOT --yes.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			apply, _ := cmd.Flags().GetBool("apply")
@@ -441,25 +463,26 @@ func newRecoverCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().Bool("apply", false, "actually re-insert candidates (default: report only)")
+	cmd.Flags().Bool("apply", false, "actually re-insert candidates (default: report only); a dry-run switch, not a --yes confirmation")
 	cmd.Flags().Bool("json", false, "output as JSON")
 	return cmd
 }
 
 // teardownOpts selects which teardown steps to run and how. The zero value is a
-// no-op; callers turn on the steps they want. It backs the single `stop`
-// umbrella command AND its four thin-wrapper aliases (terminate/delete/
-// remove-worktree/done), so every teardown path composes the SAME helper.
+// no-op; callers turn on the steps they want. It backs `stop` and the
+// narrower terminate/delete/remove-worktree/done verbs, so every teardown path
+// composes the SAME helper.
 type teardownOpts struct {
-	terminate      bool   // kill the tmux+claude session
-	deleteRecord   bool   // clear (archive) the stored record
-	removeWorktree bool   // remove the git worktree + branch
-	hard           bool   // purge the record instead of archiving
-	createPR       bool   // open a GitHub PR first, while the agent is intact
-	base           string // base branch for the PR (only with createPR)
-	force          bool   // override the worktree alive/uncommitted/unpushed guards
-	deleteAdopted  bool   // also delete an adopted (warden-didn't-create) branch
-	yes            bool   // skip the interactive worktree-removal confirmation
+	terminate      bool            // kill the tmux+AI CLI session
+	deleteRecord   bool            // clear (archive) the stored record
+	removeWorktree bool            // remove the git worktree + branch
+	hard           bool            // purge the record instead of archiving
+	createPR       bool            // open a GitHub PR first, while the agent is intact
+	base           string          // base branch for the PR (only with createPR)
+	force          bool            // override the worktree alive/uncommitted/unpushed guards
+	deleteAdopted  bool            // also delete an adopted (warden-didn't-create) branch
+	yes            bool            // skip the interactive worktree-removal confirmation
+	result         *teardownResult // when non-nil, filled with the steps that ran
 }
 
 // teardown composes the existing daemon-client calls in the safe order —
@@ -473,12 +496,19 @@ type teardownOpts struct {
 func teardown(cmd *cobra.Command, c *client.Client, id string, o teardownOpts) (ok bool, err error) {
 	// Confirm worktree removal before doing anything destructive, so a decline
 	// is a true no-op rather than a half-finished teardown.
+	if o.removeWorktree && !o.yes && jsonRequested(cmd) {
+		return false, requireYesForJSON(cmd, "remove the worktree")
+	}
+	if o.result != nil {
+		o.result.ID = id
+		o.result.Steps = []string{}
+	}
 	if o.removeWorktree && !o.yes {
-		fmt.Fprintf(cmd.OutOrStdout(), "Remove the git worktree and branch for %s? This cannot be undone. [y/N]: ", id)
+		fmt.Fprintf(progressOut(cmd), "Remove the git worktree and branch for %s? This cannot be undone. [y/N]: ", id)
 		var ans string
 		_, _ = fmt.Fscanln(cmd.InOrStdin(), &ans)
 		if ans != "y" && ans != "Y" {
-			fmt.Fprintln(cmd.OutOrStdout(), "aborted")
+			fmt.Fprintln(progressOut(cmd), "aborted")
 			return false, nil
 		}
 	}
@@ -494,7 +524,11 @@ func teardown(cmd *cobra.Command, c *client.Client, id string, o teardownOpts) (
 		if !res.Created {
 			verb = "PR already exists"
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", verb, res.URL)
+		fmt.Fprintf(progressOut(cmd), "%s: %s\n", verb, res.URL)
+		if o.result != nil {
+			o.result.PRURL = res.URL
+			o.result.Steps = append(o.result.Steps, "pr")
+		}
 	}
 	// Order: terminate → remove worktree → clear record. The daemon resolves the
 	// session by its record, so the worktree must go while it still resolves; a
@@ -523,6 +557,10 @@ func teardown(cmd *cobra.Command, c *client.Client, id string, o teardownOpts) (
 		if err := c.Delete(cmd.Context(), id, o.hard); err != nil {
 			return fail("clear record", err)
 		}
+		done = append(done, "record cleared")
+	}
+	if o.result != nil {
+		o.result.Steps = append(o.result.Steps, done...)
 	}
 	return true, nil
 }
@@ -530,32 +568,37 @@ func teardown(cmd *cobra.Command, c *client.Client, id string, o teardownOpts) (
 func newStopCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "stop <AGENT>",
-		Short: "Tear down an agent — the single umbrella verb (default: terminate + clear record + remove worktree)",
-		Long: `Stop an agent. The single umbrella teardown verb.
+		Short: "Tear down an agent (default: terminate + clear record + remove worktree; --keep-* flags keep parts)",
+		Long: `Stop an agent: the default, full teardown.
 
 <AGENT> is any identifier ` + "`wd ls`" + ` shows — the agent's name, its id, or its
-ticket. All teardown verbs resolve by name-or-id.
+ticket.
 
-By default ` + "`wd stop <TICKET>`" + ` does a FULL teardown: terminate the
-tmux+claude session, clear (archive) the record, and remove the git worktree +
-branch (asking for confirmation first, unless --yes). Subtractive flags keep
-parts around; --pr opens a GitHub PR first while the agent is still intact.
+By default ` + "`wd agent stop <AGENT>`" + ` terminates the tmux+AI CLI session, clears
+(archives) the record, and removes the git worktree + branch (asking for
+confirmation first, unless --yes). Keep parts around with:
 
-The four older verbs are kept as thin aliases — each is just ` + "`stop`" + ` with a
-fixed flag combo:
-
-  old verb                    equivalent
-  --------------------------  ------------------------------------------------
-  wd terminate <T>            wd stop <T> --keep-record --keep-worktree
-  wd delete <T> [--hard]      wd stop <T> --keep-worktree (record only)
-  wd remove-worktree <T>      wd stop <T> --keep-record  (worktree only)
-  wd done <T> [--hard|--pr]   wd stop <T> --keep-worktree [--hard|--pr]
-  wd stop <T>                 terminate + clear record + remove worktree
+  --keep-worktree   leave the git worktree and branch in place
+  --keep-record     leave the stored record in place
+  --hard            purge the record instead of archiving it
+  --pr              open a GitHub PR first, while the agent is still intact
 
 Safe ordering is always: PR -> terminate -> remove worktree -> clear record, so
 a failed push leaves the agent running and a failed worktree guard (alive /
 dirty / unpushed) leaves the record intact and the call retryable. A failure
-reports which steps already ran.`,
+reports which steps already ran.
+
+To only kill the session and keep everything else, use
+` + "`wd agent terminate <AGENT>`" + ` (same as stop --keep-record --keep-worktree).
+
+Older verbs (hidden, still work; not all are expressible as stop flags):
+
+  wd agent done <A> [--hard|--pr]  terminate + clear record, worktree kept
+                                   (stop --keep-worktree [--hard|--pr])
+  wd agent delete <A> [--hard]     clear the record ONLY; does not terminate
+                                   (no stop equivalent)
+  wd agent remove-worktree <A>     remove the worktree + branch ONLY; does not
+                                   terminate (no stop equivalent)`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			keepRecord, _ := cmd.Flags().GetBool("keep-record")
@@ -566,7 +609,9 @@ reports which steps already ran.`,
 			yes, _ := cmd.Flags().GetBool("yes")
 			force, _ := cmd.Flags().GetBool("force")
 			deleteAdopted, _ := cmd.Flags().GetBool("delete-adopted-branch")
+			res := &teardownResult{}
 			ok, err := teardown(cmd, clientFor(cmd), args[0], teardownOpts{
+				result:         res,
 				terminate:      true,
 				deleteRecord:   !keepRecord,
 				removeWorktree: !keepWorktree,
@@ -580,12 +625,16 @@ reports which steps already ran.`,
 			if err != nil || !ok {
 				return err
 			}
+			if jsonRequested(cmd) {
+				return printJSON(cmd.OutOrStdout(), res)
+			}
 			fmt.Fprintf(cmd.OutOrStdout(), "stopped %s\n", args[0])
 			return nil
 		},
 	}
+	addJSONFlag(cmd, "emit the teardown result (id, steps that ran) as JSON; never prompts — remove-worktree needs --yes")
 	cmd.Flags().Bool("keep-record", false, "do not clear the stored record")
-	cmd.Flags().Bool("keep-worktree", false, "do not remove the git worktree (this + default == the old 'done')")
+	cmd.Flags().Bool("keep-worktree", false, "do not remove the git worktree and branch")
 	cmd.Flags().Bool("hard", false, "purge the record instead of archiving")
 	cmd.Flags().Bool("pr", false, "open a GitHub PR for the agent's branch (pushes first; title+body from the digest) before tearing down")
 	cmd.Flags().String("base", "", "base branch for the PR (default main); only meaningful with --pr")
@@ -595,59 +644,79 @@ reports which steps already ran.`,
 	return cmd
 }
 
-// newTerminateCmd is a thin alias for `stop --keep-record --keep-worktree`.
+// newTerminateCmd kills the session only; same as `stop --keep-record --keep-worktree`.
 func newTerminateCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "terminate <AGENT>",
-		Short: "Stop an agent: kill its tmux+claude session (keeps the record and worktree) — alias for `stop --keep-record --keep-worktree`",
+		Short: "Stop an agent: kill its tmux+AI CLI session (keeps the record and worktree)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ok, err := teardown(cmd, clientFor(cmd), args[0], teardownOpts{terminate: true})
+			res := &teardownResult{}
+			ok, err := teardown(cmd, clientFor(cmd), args[0], teardownOpts{terminate: true, result: res})
 			if err != nil || !ok {
 				return err
+			}
+			if jsonRequested(cmd) {
+				return printJSON(cmd.OutOrStdout(), res)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "terminated %s\n", args[0])
 			return nil
 		},
 	}
+	addJSONFlag(cmd, "emit the teardown result (id, steps that ran) as JSON")
+	return cmd
 }
 
-// newDeleteCmd is a thin alias for `stop` that only clears the record.
+// newDeleteCmd clears only the stored record. It does not terminate the session
+// or touch the worktree, so it is not expressible as `stop` flags. Hidden: use stop.
 func newDeleteCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "delete <AGENT>",
-		Short: "Clear an agent's stored record (archives by default; --hard to purge) — alias for `stop --keep-worktree` (record only)",
-		Args:  cobra.ExactArgs(1),
+		Use:    "delete <AGENT>",
+		Short:  "Clear only an agent's stored record (archives by default; --hard to purge); does not terminate it or touch the worktree",
+		Hidden: true,
+		Args:   cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			hard, _ := cmd.Flags().GetBool("hard")
-			ok, err := teardown(cmd, clientFor(cmd), args[0], teardownOpts{deleteRecord: true, hard: hard})
+			res := &teardownResult{}
+			ok, err := teardown(cmd, clientFor(cmd), args[0], teardownOpts{deleteRecord: true, hard: hard, result: res})
 			if err != nil || !ok {
 				return err
+			}
+			if jsonRequested(cmd) {
+				return printJSON(cmd.OutOrStdout(), res)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "deleted %s\n", args[0])
 			return nil
 		},
 	}
+	addJSONFlag(cmd, "emit the teardown result (id, steps that ran) as JSON; never prompts — remove-worktree needs --yes")
 	cmd.Flags().Bool("hard", false, "permanently purge the record instead of archiving")
 	return cmd
 }
 
-// newRemoveWorktreeCmd is a thin alias for `stop --keep-record` (worktree only),
-// preserving the always-ask confirmation prompt.
+// newRemoveWorktreeCmd removes only the worktree + branch. It does not terminate
+// the session or clear the record, so it is not expressible as `stop` flags.
+// Hidden: use stop.
 func newRemoveWorktreeCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "remove-worktree <AGENT>",
-		Short: "Remove an agent's git worktree + branch (always asks; --force overrides guards) — alias for `stop --keep-record` (worktree only)",
-		Args:  cobra.ExactArgs(1),
+		Use:    "remove-worktree <AGENT>",
+		Short:  "Remove only an agent's git worktree + branch (asks first unless --yes; --force overrides guards); does not terminate it or clear the record",
+		Hidden: true,
+		Args:   cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			yes, _ := cmd.Flags().GetBool("yes")
 			force, _ := cmd.Flags().GetBool("force")
 			deleteAdopted, _ := cmd.Flags().GetBool("delete-adopted-branch")
+			res := &teardownResult{}
 			ok, err := teardown(cmd, clientFor(cmd), args[0], teardownOpts{
+				result:         res,
 				removeWorktree: true, force: force, deleteAdopted: deleteAdopted, yes: yes,
 			})
 			if err != nil || !ok {
 				return err
+			}
+			if jsonRequested(cmd) {
+				return printJSON(cmd.OutOrStdout(), res)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "removed worktree for %s\n", args[0])
 			return nil
@@ -655,40 +724,53 @@ func newRemoveWorktreeCmd() *cobra.Command {
 	}
 	cmd.Flags().Bool("force", false, "override the alive/uncommitted/unpushed guards")
 	cmd.Flags().Bool("delete-adopted-branch", false, "also delete the branch even if warden did not create it (adopted branches are kept by default)")
+	addJSONFlag(cmd, "emit the teardown result (id, steps that ran) as JSON; never prompts — remove-worktree needs --yes")
 	cmd.Flags().Bool("yes", false, "skip the confirmation prompt")
 	return cmd
 }
 
-// newDoneCmd is a thin alias for `stop --keep-worktree`: terminate + clear the
-// record while keeping the worktree, with the PR-first ordering.
+// newDoneCmd terminates the session and clears the record, keeping the worktree
+// (same as `stop --keep-worktree`), with the PR-first ordering. Hidden: use stop.
 func newDoneCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "done <AGENT>",
-		Short: "Terminate an agent and clear its record (does NOT remove the worktree) — alias for `stop --keep-worktree`",
-		Args:  cobra.ExactArgs(1),
+		Use:    "done <AGENT>",
+		Short:  "Terminate an agent and clear its record, keeping the worktree (same as `stop --keep-worktree`)",
+		Hidden: true,
+		Args:   cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			hard, _ := cmd.Flags().GetBool("hard")
-			createPR, _ := cmd.Flags().GetBool("create-pr")
+			createPR, _ := cmd.Flags().GetBool("pr")
+			if legacy, _ := cmd.Flags().GetBool("create-pr"); legacy {
+				createPR = true
+			}
 			base, _ := cmd.Flags().GetString("base")
+			res := &teardownResult{}
 			ok, err := teardown(cmd, clientFor(cmd), args[0], teardownOpts{
+				result:    res,
 				terminate: true, deleteRecord: true, hard: hard, createPR: createPR, base: base,
 			})
 			if err != nil || !ok {
 				return err
 			}
+			if jsonRequested(cmd) {
+				return printJSON(cmd.OutOrStdout(), res)
+			}
 			fmt.Fprintf(cmd.OutOrStdout(), "done %s (terminated + record cleared; worktree, if any, kept — use remove-worktree)\n", args[0])
 			return nil
 		},
 	}
+	addJSONFlag(cmd, "emit the teardown result (id, steps that ran) as JSON; never prompts — remove-worktree needs --yes")
 	cmd.Flags().Bool("hard", false, "purge the record instead of archiving")
-	cmd.Flags().Bool("create-pr", false, "open a GitHub PR for the agent's branch (pushes first; title+body drafted by Fast-Brain when available, else from the digest) before finishing")
-	cmd.Flags().String("base", "", "base branch for the PR (default main); only meaningful with --create-pr")
+	cmd.Flags().Bool("pr", false, "open a GitHub PR for the agent's branch (pushes first; title+body drafted by Fast-Brain when available, else from the digest) before finishing")
+	cmd.Flags().Bool("create-pr", false, "alias for --pr")
+	_ = cmd.Flags().MarkHidden("create-pr")
+	cmd.Flags().String("base", "", "base branch for the PR (default main); only meaningful with --pr")
 	return cmd
 }
 
 func newAttachCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "attach <TICKET>",
+		Use:   "attach <AGENT>",
 		Short: "Attach to the agent's tmux session",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -697,7 +779,13 @@ func newAttachCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			c := exec.Command(tmux, "attach", "-t", args[0])
+			// Resolve name/id/ticket to the tmux session via the daemon; fall back
+			// to the raw argument (a tmux session name) if the daemon cannot.
+			target := args[0]
+			if sess, gerr := clientFor(cmd).Get(cmd.Context(), target); gerr == nil && sess.TmuxSession != "" {
+				target = sess.TmuxSession
+			}
+			c := exec.Command(tmux, "attach", "-t", target)
 			c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
 			return c.Run()
 		},
@@ -721,8 +809,16 @@ func currentTmuxSession() string {
 func newAdoptCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "adopt",
-		Short: "Register the Claude session in this directory (resume it under tmux, or register the current tmux session live)",
-		Args:  cobra.NoArgs,
+		Short: "Register the AI CLI session in this directory (resume it under tmux, or register the current tmux session live)",
+		Long: `Use for an AI CLI session warden never spawned or tracked — no existing record.
+Registers it and returns a new warden agent id. Run from inside a tmux session it
+adopts that session live (no relaunch); otherwise it resumes the newest session
+for --dir (or --session-id) under a fresh tmux session.
+
+Not this command?
+  warden agent restore   a known warden record whose tmux session is gone
+  warden agent recover   archived orphaned records whose tmux session is still alive`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dirFlag, _ := cmd.Flags().GetString("dir")
 			dir, err := resolveDir(dirFlag)
@@ -749,8 +845,8 @@ func newAdoptCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().String("session-id", "", "claude session uuid to adopt (default: newest for the directory)")
-	cmd.Flags().String("dir", "", "directory whose claude session to adopt (default: current directory)")
+	cmd.Flags().String("session-id", "", "AI CLI session id to adopt (default: newest for the directory)")
+	cmd.Flags().String("dir", "", "directory whose AI CLI session to adopt (default: current directory)")
 	return cmd
 }
 

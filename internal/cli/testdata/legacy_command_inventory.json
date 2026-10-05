@@ -42,7 +42,7 @@
   },
   {
     "path": "attach",
-    "use": "attach <TICKET>",
+    "use": "attach <AGENT>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -625,16 +625,18 @@
     "use": "delete <AGENT>",
     "runnable": true,
     "local_flags": [
-      "hard"
+      "hard",
+      "json"
     ],
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
   },
   {
     "path": "digest",
-    "use": "digest <TICKET>",
+    "use": "digest <AGENT>",
     "runnable": true,
     "local_flags": [
       "json"
@@ -665,12 +667,15 @@
     "local_flags": [
       "base",
       "create-pr",
-      "hard"
+      "hard",
+      "json",
+      "pr"
     ],
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
   },
   {
     "path": "export",
@@ -686,7 +691,7 @@
   },
   {
     "path": "force-compact",
-    "use": "force-compact <agent-id> <on|off|inherit>",
+    "use": "force-compact <AGENT> <on|off|inherit>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -695,10 +700,11 @@
   },
   {
     "path": "fork",
-    "use": "fork <agent> [\"<prompt>\"]",
+    "use": "fork <AGENT> [\"<prompt>\"]",
     "runnable": true,
     "local_flags": [
       "force",
+      "json",
       "model",
       "name",
       "permission-mode",
@@ -708,7 +714,8 @@
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
   },
   {
     "path": "handoff",
@@ -719,6 +726,7 @@
       "branch",
       "confirm",
       "force",
+      "json",
       "name",
       "repo",
       "resume-file",
@@ -726,12 +734,14 @@
       "retire",
       "role",
       "to",
-      "type"
+      "type",
+      "yes"
     ],
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
   },
   {
     "path": "history",
@@ -1313,12 +1323,14 @@
     "local_flags": [
       "delete-adopted-branch",
       "force",
+      "json",
       "yes"
     ],
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
   },
   {
     "path": "repair",
@@ -1359,7 +1371,7 @@
   },
   {
     "path": "restore",
-    "use": "restore <TICKET>",
+    "use": "restore <AGENT>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -1397,6 +1409,10 @@
     "inherited_flags": [
       "addr",
       "config"
+    ],
+    "json": true,
+    "local_flags": [
+      "json"
     ]
   },
   {
@@ -1444,7 +1460,8 @@
     "local_flags": [
       "confirm",
       "resume-file",
-      "resume-prompt"
+      "resume-prompt",
+      "yes"
     ],
     "inherited_flags": [
       "addr",
@@ -1557,7 +1574,7 @@
   },
   {
     "path": "send",
-    "use": "send <TICKET> <message...>",
+    "use": "send <AGENT> <message...>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -1566,7 +1583,7 @@
   },
   {
     "path": "set-permission-mode",
-    "use": "set-permission-mode <agent-id> <mode>",
+    "use": "set-permission-mode <AGENT> <mode>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -1575,7 +1592,7 @@
   },
   {
     "path": "set-role",
-    "use": "set-role <agent-id> <role>",
+    "use": "set-role <AGENT> <role>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -1672,6 +1689,7 @@
       "force",
       "fork-from",
       "in-repo",
+      "json",
       "kind",
       "model",
       "name",
@@ -1694,7 +1712,8 @@
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
   },
   {
     "path": "stats",
@@ -1714,7 +1733,7 @@
   },
   {
     "path": "status",
-    "use": "status <TICKET>",
+    "use": "status <AGENT>",
     "runnable": true,
     "local_flags": [
       "json"
@@ -1734,6 +1753,7 @@
       "delete-adopted-branch",
       "force",
       "hard",
+      "json",
       "keep-record",
       "keep-worktree",
       "pr",
@@ -1742,11 +1762,12 @@
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
   },
   {
     "path": "switch",
-    "use": "switch [agent-id]",
+    "use": "switch [AGENT]",
     "runnable": true,
     "local_flags": [
       "ai-cli",
@@ -1781,7 +1802,7 @@
   },
   {
     "path": "tail",
-    "use": "tail <TICKET>",
+    "use": "tail <AGENT>",
     "runnable": true,
     "local_flags": [
       "lines"
@@ -1798,6 +1819,10 @@
     "inherited_flags": [
       "addr",
       "config"
+    ],
+    "json": true,
+    "local_flags": [
+      "json"
     ]
   },
   {

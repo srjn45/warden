@@ -18,8 +18,8 @@ __      ____ _ _ __ __| | ___ _ __
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "warden",
-		Short:         "warden — spawn, monitor, and tear down per-ticket Claude Code agent sessions (alias: wd)",
-		Long:          banner + "\n\nspawn, monitor, and tear down Claude Code agent sessions.\nRun `warden` with no arguments to open the cockpit TUI. Alias: wd.",
+		Short:         "warden — spawn, monitor, and tear down per-ticket AI coding agent sessions (alias: wd)",
+		Long:          banner + "\n\nspawn, monitor, and tear down AI coding agent sessions.\nRun `warden` with no arguments to open the cockpit TUI. Alias: wd.",
 		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -168,9 +168,9 @@ func newRootCmd() *cobra.Command {
 		cmd       *cobra.Command
 		canonical string
 	}{
-		{newForceCompactCmd(), "warden agent compact set"},
-		{newSetPermissionModeCmd(), "warden agent permission-mode set"},
-		{newSetRoleCmd(), "warden agent role set"}, {newRoleCmd(), "warden agent role"},
+		{newForceCompactCmd(), "warden agent set"},
+		{newSetPermissionModeCmd(), "warden agent set"},
+		{newSetRoleCmd(), "warden agent set"}, {newRoleCmd(), "warden agent role"},
 		{newRotateCmd(), "warden agent rotate"}, {newHandoffCmd(), "warden agent handoff"},
 		{newSwitchCmd(), "warden agent switch"},
 	} {

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 )
 
@@ -201,4 +202,34 @@ func TestStartModelWithAicliAliasPassesValidation(t *testing.T) {
 	if err != nil {
 		require.NotContains(t, err.Error(), "--model requires --aicli")
 	}
+}
+
+func TestStartSwitchHiddenFlagsStillParse(t *testing.T) {
+	hidden := map[string]*cobra.Command{
+		"start":  newStartCmd(),
+		"switch": newSwitchCmd(),
+	}
+	want := map[string][]string{
+		"start":  {"ai-cli", "backend", "supervised", "type"},
+		"switch": {"ai-cli", "backend"},
+	}
+	for name, cmd := range hidden {
+		for _, f := range want[name] {
+			fl := cmd.Flags().Lookup(f)
+			require.NotNil(t, fl, "%s --%s must exist", name, f)
+			require.True(t, fl.Hidden, "%s --%s must be hidden", name, f)
+		}
+		require.False(t, cmd.Flags().Lookup("aicli").Hidden, "%s --aicli stays visible", name)
+	}
+	start := hidden["start"]
+	require.NoError(t, start.Flags().Parse([]string{"--ai-cli", "codex", "--supervised", "--type", "development", "--backend", "aider"}))
+	require.Equal(t, "codex", startFlag(t, start, "ai-cli"))
+	require.Equal(t, "aider", startFlag(t, start, "backend"))
+}
+
+func startFlag(t *testing.T, c *cobra.Command, name string) string {
+	t.Helper()
+	v, err := c.Flags().GetString(name)
+	require.NoError(t, err)
+	return v
 }

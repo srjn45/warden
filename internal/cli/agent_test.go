@@ -23,8 +23,7 @@ func TestAgentNamespaceCanonicalAndCompatibilityPaths(t *testing.T) {
 		"agent delete": "delete", "agent remove-worktree": "remove-worktree",
 		"agent send": "send", "agent tail": "tail", "agent handoff": "handoff",
 		"agent rotate": "rotate", "agent switch": "switch",
-		"agent permission-mode set": "set-permission-mode", "agent role set": "set-role",
-		"agent role": "role", "agent compact set": "force-compact",
+		"agent role": "role",
 	}
 	permanent := map[string]bool{"ls": true, "start": true, "status": true, "send": true}
 	for canonical, legacy := range pairs {
@@ -114,7 +113,7 @@ func TestAgentProgressiveHelp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(namespace, "Lifecycle commands deliberately remain distinct") || !strings.Contains(namespace, "remove-worktree") {
+	if !strings.Contains(namespace, "Teardown:") {
 		t.Fatalf("agent namespace help lacks lifecycle guidance: %s", namespace)
 	}
 	if !strings.Contains(leaf, "--keep-record") || strings.Contains(leaf, "agent start") {
@@ -155,4 +154,60 @@ func wrapRoot(child *cobra.Command) *cobra.Command {
 	root := &cobra.Command{Use: "warden"}
 	root.AddCommand(child)
 	return root
+}
+
+func TestAgentHiddenTeardownVerbsStillExecute(t *testing.T) {
+	for _, args := range [][]string{
+		{"agent", "done", "A-1", "--pr"}, {"done", "A-1", "--create-pr"},
+		{"agent", "delete", "A-1"}, {"delete", "A-1"},
+		{"agent", "remove-worktree", "A-1", "--yes"}, {"remove-worktree", "A-1", "--yes"},
+	} {
+		t.Run(strings.Join(args, "_"), func(t *testing.T) {
+			var paths []string
+			addr := stubDaemon(t, func(w http.ResponseWriter, r *http.Request) {
+				paths = append(paths, r.Method+" "+r.URL.Path)
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"created":true,"url":"u"}`))
+			})
+			if _, err := runCLI(t, addr, args...); err != nil {
+				t.Fatal(err)
+			}
+			if len(paths) == 0 {
+				t.Fatal("hidden verb made no daemon call")
+			}
+		})
+	}
+}
+
+func TestAgentHelpListsOnlyStopAndTerminateForTeardown(t *testing.T) {
+	root := newRootCmd()
+	for _, name := range []string{"stop", "terminate", "done", "delete", "remove-worktree"} {
+		want := name == "done" || name == "delete" || name == "remove-worktree"
+		if got := findExactCommand(t, root, "agent "+name).Hidden; got != want {
+			t.Errorf("agent %s hidden=%v, want %v", name, got, want)
+		}
+	}
+	out, err := executeHelp(t, "help", "agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var listed []string
+	for _, line := range strings.Split(out, "\n") {
+		if f := strings.Fields(line); len(f) > 0 {
+			switch f[0] {
+			case "stop", "terminate", "done", "delete", "remove-worktree":
+				listed = append(listed, f[0])
+			}
+		}
+	}
+	if !reflect.DeepEqual(listed, []string{"stop", "terminate"}) {
+		t.Fatalf("visible teardown verbs = %v\n%s", listed, out)
+	}
+	all, err := executeHelp(t, "help", "--all")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(all, "remove-worktree") {
+		t.Fatalf("help --all lost hidden verbs")
+	}
 }

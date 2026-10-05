@@ -7,6 +7,23 @@ ladder reads from it.
 
 Tiers:   free | subscription | pay_per_use | unclassified
 
+AI CLI notes (for 'warden agent start --aicli <ID>'):
+  claude       default, stable; the only fully tested AI CLI, full-fidelity spend.
+  codex        beta. BYO provider (~/.codex/config.toml); resumes (dir-scoped).
+  antigravity  beta. Google-hosted agy; defaults gemini-3.5-flash; pass --model
+               (see 'warden backend model'); resumes (dir-scoped agy -c).
+  opencode     experimental. BYO model (--model with --aicli); structured
+               transcript; resumes.
+  aider        experimental. BYO model (--model with --aicli); runs a one-shot
+               --message task; no resume.
+  crush        experimental. BYO model (config-driven TUI; --model for headless);
+               resumes (dir-scoped); initial prompt auto-typed post-launch.
+  goose        experimental. BYO provider (GOOSE_PROVIDER/GOOSE_MODEL env); resumes
+               (name-deterministic); no --model on session launch.
+  cursor       experimental. Hosted model catalog; --model overrides; resumes
+               (dir-scoped --continue); warden owns the worktree (cursor's -w unused).
+All non-claude AI CLIs show tokens-only spend.
+
 Examples:
   warden backend backend list                 # full table of detected backends
   warden backend backend rescan               # re-detect installed CLIs, print the table

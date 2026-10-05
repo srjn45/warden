@@ -8,7 +8,7 @@ import (
 
 func newForceCompactCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "force-compact <agent-id> <on|off|inherit>",
+		Use:   "force-compact <AGENT> <on|off|inherit>",
 		Short: "Override force-compact for one agent (interrupt → /compact → resume)",
 		Long: `Set the per-agent force-compact override.
 

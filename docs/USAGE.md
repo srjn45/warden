@@ -209,7 +209,7 @@ warden status agent-a1b2          # full detail + event history
 warden agent tail agent-a1b2            # recent terminal output
 warden send agent-a1b2 "also check the session cookie handling"
 warden agent attach agent-a1b2          # drop into its terminal (Ctrl-b d to detach)
-warden agent done agent-a1b2            # tear it down when finished
+warden agent stop agent-a1b2 --keep-worktree            # tear it down when finished
 ```
 
 That's the whole loop. Everything else is variations on it.
@@ -380,11 +380,11 @@ When you `warden agent restore <id>` an orphaned agent, it resumes with the **or
 
 ---
 
-## 5.2. AI CLIs (`--ai-cli`)
+## 5.2. AI CLIs (`--aicli`)
 
 Warden drives **Claude Code** by default, but the agent layer is an **adapter
 layer**: each console coding agent is normalized behind a `Backend` interface, and
-you pick one per agent at spawn time with `--ai-cli` (deprecated alias `--backend` still accepted for one release; `--ai-cli` wins if both are set).
+you pick one per agent at spawn time with `--aicli` (`--backend` still works as a hidden alias; `--aicli` wins if both are set).
 
 > **Important:** warden is fully tested only with **Claude Code**. **Codex CLI** and
 > **Antigravity CLI** are **β beta** — live-verified state, approval, and transcript
@@ -403,7 +403,7 @@ you pick one per agent at spawn time with `--ai-cli` (deprecated alias `--backen
 | Cursor CLI | 🧪 Experimental (WIP) |
 | Antigravity CLI | β Beta |
 
-| AI CLI | `--ai-cli` | Tier | What works / degrades |
+| AI CLI | `--aicli` | Tier | What works / degrades |
 |---|---|---|---|
 | **Claude Code** (default) | `claude` | A | Everything — digests, savings, priced spend, resume, all permission modes |
 | **Aider** | `aider` | A | 🧪 Experimental. Bring-your-own-model (pass `--model`); structured markdown transcript ⇒ real digests. **No** resume (rotate/handoff re-spawn fresh), **no** priced spend (`wd usage spend` shows tokens, `wd usage savings` omits it), no assignable session id, system-prompt hints skipped. Runs an autonomous `--message` task that exits when done. |
@@ -422,21 +422,21 @@ warden start "review the auth module"
 # provider choice, not a warden dependency (warden no longer needs Ollama itself)
 export OLLAMA_API_BASE=http://127.0.0.1:11434
 warden start "implement the add function" \
-  --ai-cli aider --model ollama_chat/qwen2.5-coder:3b --dir .
+  --aicli aider --model ollama_chat/qwen2.5-coder:3b --dir .
 
 # OpenCode against a local Ollama model (free, offline, $0)
 warden start "implement the add function" \
-  --ai-cli opencode --model ollama/qwen2.5-coder:3b --dir .
+  --aicli opencode --model ollama/qwen2.5-coder:3b --dir .
 
 # Codex — configure provider in ~/.codex/config.toml first
-warden start "implement the add function" --ai-cli codex --dir .
+warden start "implement the add function" --aicli codex --dir .
 
 # Crush — configure provider in ~/.config/crush/crush.json first
-warden start "implement the add function" --ai-cli crush --dir .
+warden start "implement the add function" --aicli crush --dir .
 
 # Goose against a local Ollama model ($0)
 GOOSE_PROVIDER=ollama GOOSE_MODEL=qwen2.5-coder:3b \
-warden start "implement the add function" --ai-cli goose --dir .
+warden start "implement the add function" --aicli goose --dir .
 ```
 
 > **Terminals are a session kind, not a backend.** A plain interactive `$SHELL`
@@ -536,14 +536,19 @@ default to `general` / `auto`) — and over MCP via `spawn_agent`'s `role` param
 ### Switching a running agent's role
 
 ```sh
-warden agent role set agent-abc123 worker    # give the running agent the worker persona
-warden agent role set agent-abc123 general   # clear the persona (back to a plain agent)
+warden agent set agent-abc123 role worker    # give the running agent the worker persona
+warden agent set agent-abc123 role general   # clear the persona (back to a plain agent)
 ```
 
 `set-role` persists the new role **name** and **relaunches** the agent so the
 persona takes effect — a persona only injects at (re)launch, so unlike
 `set-permission-mode` this discards the agent's in-flight turn. MCP equivalent:
 `set_role {ticket, role}`.
+
+The preferred form is the consolidated `warden agent set <AGENT> role <role>`
+(also `permission-mode`, `compact`, `auto-approve`); read values back with
+`warden agent get <AGENT> [key] [--json]`. Role tier defaults:
+`warden agent role tier set <role> <tier>`.
 
 ### How it's stored and injected
 
@@ -563,7 +568,7 @@ nothing, leaving a plain/`general` spawn byte-identical to before roles existed.
 
 ## 5.4. Backend registry (`warden backend`)
 
-`--ai-cli` (§5.2) picks an AI CLI for *one* spawn. The **backend registry** is the
+`--aicli` (§5.2) picks an AI CLI for *one* spawn. The **backend registry** is the
 durable, machine-wide picture behind it: warden detects the coding-agent CLIs
 installed on this machine (`claude`, `codex`, `aider`, …) and persists each in an embedded store
 (`~/.warden/backends`) with a billing **tier**, an **enabled** flag, and at most one
@@ -616,7 +621,7 @@ Over **MCP**: `list_backends`, `rescan_backends`, `set_backend_tier`,
 
 warden picks each spawn's **backend + model** by **quota headroom within a model
 tier**, so a fleet of agents spreads across your providers instead of hammering
-one until it rate-limits. This is a spawn's third axis, alongside `--ai-cli`
+one until it rate-limits. This is a spawn's third axis, alongside `--aicli`
 (§5.2) and `--role` (§5.3). Two optional inputs steer it:
 
 - **`--task <name>`** — *what the agent is doing*, from the built-in **task
@@ -636,7 +641,7 @@ model by headroom (`1 − used/limit`), drops rate-limited or ineligible backend
 (usage ≥ threshold, default 90%), and picks the highest-headroom candidate
 (round-robin among ties).
 
-A pinned `--ai-cli` or `--model` **bypasses** the resolver entirely — you chose
+A pinned `--aicli` or `--model` **bypasses** the resolver entirely — you chose
 it. And a first spawn always succeeds: if no resolver is wired, or it returns no
 eligible candidate, the spawn **degrades** to the request's backend+model rather
 than failing.
@@ -646,7 +651,7 @@ warden start "design the sync protocol" --role planner     # role → tier-1
 warden start PROJ-9 --type development --task development   # task → tier-2
 warden start "cut the v9 release" --task release           # task → tier-3
 warden start "urgent hotfix" --tier tier-1                  # pin the tier directly
-warden start "run it on codex" --ai-cli codex --model o1  # explicit pins bypass routing
+warden start "run it on codex" --aicli codex --model o1  # explicit pins bypass routing
 ```
 
 > **`--task` is not `--type`.** `--type` (§5) controls worktree/branch policy;
@@ -665,7 +670,7 @@ and [`docs/specs/agent-roles.md`](specs/agent-roles.md).
 ## 6. Command reference
 
 All commands accept `--addr` to point at a non-default daemon (overrides
-the `addr` config setting). `<TICKET>` is the agent ID — a Jira key for managed agents,
+the `addr` config setting). `<AGENT>` is the agent ID — a Jira key for managed agents,
 or an `agent-xxxx` ID for prompt-spawned ones. Agent-addressed commands
 (`stop`/`terminate`/`delete`/`remove-worktree`/`done`/`restore`/`send`/`digest`/`create-pr`)
 resolve by **either** the agent's `name` **or** its id — the same identifiers `warden ls` shows.
@@ -691,7 +696,7 @@ Spawn an agent. Prompt mode if no `--type`; managed-worktree mode otherwise.
 | `--model` | Model id passed through verbatim to the AI CLI (e.g. `opus`, `sonnet`, `claude-sonnet-4-6`). Default: the `model_default` config setting, or `claude-sonnet-4-6`. |
 | `--role` | Built-in agent role (*who the agent is*): `general` (default, no persona) / `orchestrator` / `planner` / `worker` / `autopilot` / `brain` (legacy `implementer`/`auto-merger`/`reviewer` map to `worker`). Injects the role's persona and fills its default flags for any left unset (see §5.3). |
 | `--task` | Unit of work (*what the agent is doing*) from the task registry, used to derive the model **tier** for routing when `--tier` is empty (see §5.5). Distinct from `--type`, which controls worktree policy. |
-| `--tier` | Pin the model tier for the quota-balanced resolver: `tier-1` / `tier-2` / `tier-3`. Empty derives it from `--task`, then `--role`, else tier-2. A pinned `--ai-cli`/`--model` still wins (see §5.5). |
+| `--tier` | Pin the model tier for the quota-balanced resolver: `tier-1` / `tier-2` / `tier-3`. Empty derives it from `--task`, then `--role`, else tier-2. A pinned `--aicli`/`--model` still wins (see §5.5). |
 | `--name` | Explicit agent name (max 32 chars, alphanumeric + hyphens/underscores; role prefixes like `AP:` / `wkr:` are allowed). Omit to **auto-resolve** — see [Mandatory agent names](#mandatory-agent-names). Collisions on an explicit name return **409 Conflict**. |
 
 ### Mandatory agent names
@@ -714,16 +719,35 @@ handle — that path still 409s on collision. The CLI echoes
 `spawned agent <id> (<name>)`; the TUI always renders the name in the first
 column (no muted `—` placeholder).
 
-### `warden agent role list` / `warden agent role set <id> <role>`
+### `warden agent role list` / `warden agent set <AGENT> role <role>`
 List the built-in role catalog (name + description), or switch a running agent's
 role. `set-role` persists the name and **relaunches** the agent so the new persona
 re-injects (its in-flight turn is discarded); `general`/`""` clears the persona.
 See §5.3 for the full role model.
 
 ```sh
-warden agent role list
-warden agent role set agent-abc123 worker
+warden agent role list [--json]
+warden agent set agent-abc123 role worker
+warden agent role tier set worker tier-2     # change a role's default model tier
 ```
+
+### `warden agent set <AGENT> <key> <value>` / `warden agent get <AGENT> [key] [--json]`
+One pair of verbs for the per-agent settings that used to have their own commands.
+Keys: `permission-mode` (`acceptEdits|auto|bypassPermissions|default|dontAsk|plan`),
+`compact` (`on|off|inherit`), `role` (a role name; **relaunches** the agent) and
+`auto-approve` (`on|off`). `get` with no key prints all four; `--json` emits them
+as JSON. An empty `permission-mode` means no per-agent override; `compact
+inherit` defers to `tokens.force_compact`.
+
+```sh
+warden agent set agent-abc123 permission-mode acceptEdits
+warden agent set agent-abc123 compact inherit
+warden agent get agent-abc123
+warden agent get agent-abc123 role --json
+```
+
+> The older `agent permission-mode set`, `agent compact set` and `agent role set`
+> still work as hidden aliases.
 
 ### `warden ls`
 List all active sessions: `ID  TYPE  STATUS  AGE  DIR  SUBJECT`.
@@ -753,11 +777,11 @@ warden inspect history --since 7d                 # ended in the last week
 warden inspect history --type pr-review --limit 20
 ```
 
-### `warden status <TICKET>`
+### `warden status <AGENT>`
 Full detail for one session: id, type, ticket, status, repo, workdir,
 worktree, branch, pr, subject, last-updated, and the full event timeline.
 
-### `warden agent tail <TICKET> [--lines N]`
+### `warden agent tail <AGENT> [--lines N]`
 Print the recent terminal output of the agent's claude session
 (default 200 lines).
 
@@ -765,7 +789,7 @@ Print the recent terminal output of the agent's claude session
 warden agent tail PROJ-350 --lines 80
 ```
 
-### `warden send <TICKET> <message...>`
+### `warden send <AGENT> <message...>`
 Type a message into the agent's claude session and press Enter — exactly as if
 you'd typed it at the prompt.
 
@@ -877,7 +901,7 @@ exits non-zero pointing you at `warden check` or a `pr-review` agent.
 warden git review                       # review my uncommitted changes, stream findings
 warden git review --base main           # review this branch against main
 warden git review --json                # neutral machine-readable findings
-warden git review --ai-cli codex --json
+warden git review --aicli codex --json
 ```
 
 ### `warden bug-report [id] [--json]` (user-approved crash reports)
@@ -1059,44 +1083,48 @@ warden agent adopt --session-id <uuid>      # pick a specific Claude conversatio
 warden agent adopt --dir /path/to/project   # target a different directory
 ```
 
-### `warden agent attach <TICKET>`
+### `warden agent attach <AGENT>`
 Hand your terminal to the agent's tmux session interactively. Detach with the
 tmux prefix-then-`d` (default `Ctrl-b d`) to leave the agent running.
 
-### `warden agent stop <TICKET>`
+### `warden agent stop <AGENT>`
 The umbrella teardown verb: terminate → remove worktree → clear record (PR first with `--pr`, while the agent is still intact). Asks before removing the worktree unless `--yes`; subtractive flags `--keep-record`, `--keep-worktree`, `--hard`, `--force`, `--delete-adopted-branch`.
 
 A failed step stops the teardown and names itself plus what already ran, e.g. `remove worktree failed: … (completed: terminated; record left intact — fix the cause and retry)`. Because the record is cleared **last**, a worktree guard (agent alive / uncommitted / unpushed work) leaves it intact and `stop` is safely retryable once the cause is fixed; a branch that is already gone counts as success. No workaround is needed — do not call `delete`/`delete_agent` first (that archives the record and orphans the worktree). Worktrees orphaned by the older order (record cleared, worktree left behind) are reclaimed with `warden worktree prune`.
 
-### `warden agent done <TICKET> [--hard] [--create-pr [--base <branch>]]`
-Terminate the agent (kill its tmux + claude session) **and** clear its record in
-one step — equivalent to `terminate` then `delete`. It does **not** remove the
-git worktree; that's a separate, explicitly-confirmed step (`remove-worktree`).
-
-With `--create-pr`, warden first pushes the agent's branch and opens a GitHub PR
-(via `gh`) before finishing — the title comes from the agent's subject/task and
+With `--pr`, warden first pushes the agent's branch and opens a GitHub PR
+(via `gh`) before tearing down — the title comes from the agent's subject/task and
 the body is its completion digest (files changed + narrative). When Fast-Brain is
 available it instead drafts a Conventional-Commits title and a short what/why
 body from the task, `git diff --stat` and commit subjects against the base
 (attribution footer kept); on any failure it falls back to the title/body above.
-`--base` sets the
-PR target (default `main`). The PR is opened *before* the agent is torn down, so
-if it fails (dirty push, protected branch, `gh` missing) the agent is left
-running to fix and retry; an existing PR for the branch is reported, not
-re-created. Requires the [`gh` CLI](https://cli.github.com) authenticated.
+`--base` sets the PR target (default `main`). The PR is opened *before* the agent
+is torn down, so if it fails (dirty push, protected branch, `gh` missing) the
+agent is left running to fix and retry; an existing PR for the branch is
+reported, not re-created. Requires the [`gh` CLI](https://cli.github.com)
+authenticated.
 
 ```sh
-warden agent done PROJ-350               # terminate + clear record (worktree kept)
-warden agent done PROJ-350 --hard        # purge the record instead of archiving it
-warden agent done PROJ-350 --create-pr   # push branch + open a GitHub PR, then finish
-warden agent done PROJ-350 --create-pr --base develop
+warden agent stop PROJ-350 --keep-worktree              # terminate + clear record (worktree kept)
+warden agent stop PROJ-350 --keep-worktree --hard       # purge the record instead of archiving it
+warden agent stop PROJ-350 --keep-worktree --pr         # push branch + open a GitHub PR, then finish
+warden agent stop PROJ-350 --pr --base develop --yes    # PR first, then full teardown, no prompt
+warden agent stop PROJ-350 --json --yes                 # machine-readable result: id + steps that ran
 ```
 
-### `warden agent terminate <TICKET>`
+`--json` (on `stop` and `terminate`) never prompts, so a worktree removal needs
+`--yes`.
+
+> **Older verbs.** `agent done` (= `stop --keep-worktree`), `agent delete` (clear
+> the record only) and `agent remove-worktree` (remove the worktree + branch only;
+> guarded, `--force` overrides) still work as hidden aliases but no longer appear
+> in `--help`. Prefer `stop` with `--keep-*` flags.
+
+### `warden agent terminate <AGENT>`
 Stop an agent — kill tmux + claude — but **keep** the record and worktree. The
 safe "stop this agent" default; reversible with `warden agent restore`.
 
-### `warden agent restore <TICKET>`
+### `warden agent restore <AGENT>`
 Recreate and resume a lost/orphaned agent (`claude --resume`). Use only when the
 agent's tmux session is gone (status `orphaned`).
 
@@ -1114,21 +1142,6 @@ warden agent recover                # report candidates only (dry run)
 warden agent recover --apply        # actually revive them
 ```
 
-### `warden agent delete <TICKET> [--hard]`
-Clear an agent's stored record (archives by default; `--hard` purges). Leaves
-tmux and the worktree alone.
-
-### `warden agent remove-worktree <TICKET> [--force]`
-Remove an agent's git worktree and branch. **Destructive** and **guarded** — it
-refuses while the agent is still running (terminate it first) or while the
-worktree has uncommitted changes or unpushed commits. `--force` overrides the
-guard.
-
-```sh
-warden agent remove-worktree PROJ-350
-warden agent remove-worktree PROJ-350 --force
-```
-
 ### `warden daemon [--addr ADDR] [--log-level LEVEL] [--log-format FORMAT]`
 Run the hub (HTTP API + poller). Normally launchd's job; run by hand to debug.
 
@@ -1144,11 +1157,11 @@ warden daemon --log-level debug --log-format json
 ### `warden daemon mcp [--addr ADDR]`
 Run the MCP stdio server (see §8).
 
-### `warden agent digest <TICKET> [--json]`
+### `warden agent digest <AGENT> [--json]`
 Summarize what an agent accomplished — files touched, branch, turn count, and a
 short narrative. Also a web **Digest** panel and the cockpit `d` key.
 
-### `warden approval list` / `warden approval answer <TICKET> <option>`
+### `warden approval list` / `warden approval answer <AGENT> <option>`
 With the approvals inbox on (the `approvals` setting, default on), `approvals` lists
 recognized tool-permission prompts waiting for an answer (each with its numbered
 options), and `approve` answers one by option number — without attaching. Also
@@ -1161,10 +1174,10 @@ warden approval list
 warden approval answer PROJ-350 1     # answer with option 1 (e.g. "Yes")
 ```
 
-### `warden agent rotate --confirm --resume-file <path> --resume-prompt <text>`
+### `warden agent rotate --yes --resume-file <path> --resume-prompt <text>`
 Run **inside an agent session** to retire a context-heavy agent and hand off to
 a fresh successor in the same workdir/worktree. Phase 1 is driven by the
-`/warden` skill (writes the handoff + resume prompt); `--confirm` then spawns the
+`/warden` skill (writes the handoff + resume prompt); `--yes` then spawns the
 successor and reaps the current agent (spawn-before-reap, fail-safe; never
 removes the worktree).
 
@@ -2029,7 +2042,7 @@ restart list; everything else takes effect on save.
 | `tokens.guard` | `true` | Context-size guard master switch: read each live agent's context-window fill from its transcript, classify `ok`/`warning`/`critical`, and show a state-colored token figure in `ls`/TUI/web |
 | `tokens.warn_alert` | `true` | Fire a desktop notification (when `notify.enabled` is on) once per upward crossing into warning/critical |
 | `tokens.auto_compact` | `true` | Auto-send `/compact` when an agent is `critical` and idle/waiting (cooldown-guarded) |
-| `tokens.force_compact` | `false` | When an agent goes `critical` while **still working**, interrupt it (Escape), `/compact` once idle, then send `tokens.compact_resume_prompt`. Destructive (discards the in-flight turn) → off by default. Per-agent override: `warden agent compact set <id> on\|off\|inherit` |
+| `tokens.force_compact` | `false` | When an agent goes `critical` while **still working**, interrupt it (Escape), `/compact` once idle, then send `tokens.compact_resume_prompt`. Destructive (discards the in-flight turn) → off by default. Per-agent override: `warden agent set <id> compact on\|off\|inherit` |
 | `tokens.compact_resume_prompt` | _(built-in)_ | Message sent to a force-compacted agent once compaction lands so it resumes its work |
 | `tokens.warn` | `200000` | Warning threshold in context tokens (inclusive). Both thresholds reset to defaults if critical ≤ warn |
 | `tokens.critical` | `400000` | Critical threshold in context tokens (inclusive) — the auto-`/compact` trigger band |
@@ -2217,7 +2230,7 @@ rate_limit:
       max_parallel_swaps: 3    # bounded concurrency for bulk recovery
 ```
 
-**Operator command.** `warden usage recover [--dry-run] [--ai-cli <id>] [--project <path>] [--max-parallel-swaps <n>]` fetches fresh supported snapshots, calculates impact, and (unless `--dry-run`) starts the same recovery path as the background poller. When polling is disabled, the daemon makes no provider usage network calls — recover remains the explicit operator action. See the [backend recovery playbooks](https://srjn45.github.io/warden/guides/backend-recovery/#operator-playbooks).
+**Operator command.** `warden usage recover [--dry-run] [--aicli <id>] [--project <path>] [--max-parallel-swaps <n>]` fetches fresh supported snapshots, calculates impact, and (unless `--dry-run`) starts the same recovery path as the background poller. When polling is disabled, the daemon makes no provider usage network calls — recover remains the explicit operator action. See the [backend recovery playbooks](https://srjn45.github.io/warden/guides/backend-recovery/#operator-playbooks).
 
 **Legacy agents.** Records with only backend/model (no `QuotaBinding`) stay operable as `unbound_legacy`: they are skipped by bulk reconciliation (never mass-swapped on a guessed account/bucket) and acquire a binding on the next HotSwap. Restore alone does not invent a binding.
 
@@ -2232,7 +2245,7 @@ You can override the scheduler:
 warden agent attach <agent-id>
 
 # Terminate if no longer needed
-warden agent done <agent-id>
+warden agent stop <agent-id> --keep-worktree
 ```
 
 The scheduler persists across daemon restarts — if you restart the daemon,
@@ -2249,7 +2262,7 @@ warden start "find and fix the flaky test in the payments suite"
 warden ls
 warden agent tail <id>
 warden send <id> "skip the integration tests for now"
-warden agent done <id>
+warden agent stop <id> --keep-worktree
 ```
 
 **Ticketed development (managed worktree):**
@@ -2257,14 +2270,14 @@ warden agent done <id>
 warden start PROJ-350 --type development     # worktree + branch
 warden status PROJ-350
 warden agent attach PROJ-350                       # jump in when needed
-warden agent done PROJ-350                          # guarded teardown
+warden agent stop PROJ-350 --keep-worktree                          # guarded teardown
 ```
 
 **Reviewing a PR:**
 ```sh
 warden start --type pr-review --pr 1234
 warden agent tail prreview-... 
-warden agent done prreview-...
+warden agent stop prreview-... --keep-worktree
 ```
 
 ---

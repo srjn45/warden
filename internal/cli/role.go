@@ -18,7 +18,7 @@ import (
 // (re)launch.
 func newSetRoleCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "set-role <agent-id> <role>",
+		Use:   "set-role <AGENT> <role>",
 		Short: "Switch an agent's built-in role (relaunches to re-inject the persona)",
 		Long: `Switch a running agent's built-in role.
 
@@ -26,9 +26,8 @@ The role's persona is injected as a system-prompt addendum; changing it relaunch
 the agent (its current turn is discarded) so the new persona takes effect. Set the
 role to "general" (or "") to clear the persona and behave like a plain agent.
 
-Valid roles (see ` + "`warden role list`" + ` for descriptions):
-  general | orchestrator | planner | worker
-  (legacy aliases implementer/auto-merger/reviewer resolve to worker)
+Valid roles (see ` + "`warden agent role list`" + ` for descriptions):
+  ` + roleChoices() + `
 
 Examples:
   warden set-role abc123 reviewer      # give the agent the reviewer persona
@@ -50,6 +49,13 @@ Examples:
 	}
 }
 
+// roleChoices renders the valid role names from the one role registry, so every
+// help string and error that lists roles stays in sync with role.Names().
+func roleChoices() string {
+	return strings.Join(role.Names(), " | ") +
+		" (legacy aliases implementer/auto-merger/reviewer resolve to worker)"
+}
+
 // newRoleCmd groups the role inspection and tier management verbs.
 func newRoleCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -59,17 +65,30 @@ func newRoleCmd() *cobra.Command {
 	cmd.AddCommand(
 		newRoleListCmd(),
 		newRoleTierCmd(),
-		newRoleSetTierCmd(),
 	)
+	setTier := newRoleSetTierCmd("set-tier")
+	markCompatibilityChild(setTier, "warden agent role tier set")
+	cmd.AddCommand(setTier)
 	return cmd
 }
 
 func newRoleListCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List the built-in agent roles and their descriptions",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if jsonRequested(cmd) {
+				type roleRow struct {
+					Name        string `json:"name"`
+					Description string `json:"description"`
+				}
+				rows := []roleRow{}
+				for _, r := range role.All() {
+					rows = append(rows, roleRow{Name: r.Name, Description: r.Description})
+				}
+				return printJSON(cmd.OutOrStdout(), rows)
+			}
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 			fmt.Fprintln(w, "ROLE\tDESCRIPTION")
 			for _, r := range role.All() {
@@ -82,6 +101,8 @@ func newRoleListCmd() *cobra.Command {
 			return w.Flush()
 		},
 	}
+	addJSONFlag(cmd, "emit the roles as a JSON array")
+	return cmd
 }
 
 func newRoleTierCmd() *cobra.Command {
@@ -95,7 +116,7 @@ Subcommands:
   list    List all role-to-tier mappings
   set     Set the default model tier for a role
 
-When run without subcommands, ` + "`warden role tier`" + ` lists all mappings.`,
+When run without subcommands, ` + "`warden agent role tier`" + ` lists all mappings.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			st, err := openBackendStore(cmd)
 			if err != nil {
@@ -128,7 +149,7 @@ When run without subcommands, ` + "`warden role tier`" + ` lists all mappings.`,
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit role tier mappings as a JSON array")
 
-	cmd.AddCommand(newRoleTierListCmd())
+	cmd.AddCommand(newRoleTierListCmd(), newRoleSetTierCmd("set"))
 	return cmd
 }
 
@@ -173,9 +194,9 @@ func newRoleTierListCmd() *cobra.Command {
 	return cmd
 }
 
-func newRoleSetTierCmd() *cobra.Command {
+func newRoleSetTierCmd(name string) *cobra.Command {
 	return &cobra.Command{
-		Use:   "set-tier <role> <tier>",
+		Use:   name + " <role> <tier>",
 		Short: "Set the default model tier for an agent role (tier-1|tier-2|tier-3)",
 		Long: `Set the default model tier assigned when creating agents with this role.
 
@@ -185,8 +206,8 @@ Tiers:
   tier-3   Fast, low-cost models (e.g. Claude Haiku, Gemini Flash, GPT-4.1-mini) for quick tasks and CI triage
 
 Example:
-  warden role set-tier worker tier-2
-  warden role set-tier orchestrator tier-1`,
+  warden agent role tier set worker tier-2
+  warden agent role tier set orchestrator tier-1`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			roleName := args[0]

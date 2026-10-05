@@ -136,7 +136,7 @@ func newHandoffCmd() *cobra.Command {
 			"  • --to <id> — deliver the handoff into an already-running agent's inbox (waking it); " +
 			"the source agent keeps running.\n" +
 			"  • --retire — spawn a successor in THIS agent's SAME worktree, then reap the calling " +
-			"agent (self-succession). Requires --confirm. This is what the `rotate` alias runs.\n\n" +
+			"agent (self-succession). Requires --yes. This is what the `warden agent rotate` alias runs.\n\n" +
 			"--retire and --to are mutually exclusive: retire reaps the caller, --to never does.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -171,6 +171,9 @@ func newHandoffCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
+				if jsonRequested(cmd) {
+					return printJSON(out, map[string]any{"to": to, "from": from, "woke": woke})
+				}
 				msg := fmt.Sprintf("handed off to %s", to)
 				if woke {
 					msg += " — woke recipient"
@@ -200,6 +203,9 @@ func newHandoffCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if jsonRequested(cmd) {
+				return printSpawnedJSON(cmd, delegate)
+			}
 			nameLabel := ""
 			if delegate.Name != "" {
 				nameLabel = fmt.Sprintf(" (%s)", delegate.Name)
@@ -212,8 +218,11 @@ func newHandoffCmd() *cobra.Command {
 	}
 	cmd.Flags().String("resume-file", "", "path to the handoff notes file whose content is delivered to the recipient (with --retire, the path the successor reads in place)")
 	cmd.Flags().String("resume-prompt", "", "the recipient's task prompt")
-	cmd.Flags().Bool("retire", false, "self-succession: spawn a successor in THIS agent's worktree and reap the calling agent (mutually exclusive with --to; requires --confirm). Equivalent to 'warden rotate'")
-	cmd.Flags().Bool("confirm", false, "with --retire, actually spawn the successor and retire this agent (required)")
+	cmd.Flags().Bool("retire", false, "self-succession: spawn a successor in THIS agent's worktree and reap the calling agent (mutually exclusive with --to; requires --yes). Equivalent to 'warden rotate'")
+	cmd.Flags().Bool("yes", false, "with --retire, confirm: actually spawn the successor and retire this agent (required)")
+	cmd.Flags().Bool("confirm", false, "alias for --yes")
+	_ = cmd.Flags().MarkHidden("confirm")
+	addJSONFlag(cmd, "emit the result as JSON (new delegate: id, name, role, ai_cli, model, workdir; --to: to, from, woke)")
 	cmd.Flags().String("to", "", "deliver to this existing agent id instead of spawning a new one")
 	cmd.Flags().String("as", "", "act as this agent id for provenance (defaults to $WARDEN_SESSION_ID, else 'human')")
 	cmd.Flags().String("role", "worker", "built-in role for a new delegate (ignored with --to)")

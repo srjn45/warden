@@ -28,7 +28,7 @@ description: >-
 # warden — drive your agent fleet, the warden way
 
 warden (CLI `warden`, aliased `wd`) runs a local daemon that manages per-task
-coding agents (Claude Code by default, plus other AI CLIs via `--ai-cli`; each in
+coding agents (Claude Code by default, plus other AI CLIs via `--aicli`; each in
 its own tmux session, most in a git worktree) and the work around them. You drive it through the **warden MCP tools** (when registered)
 or the **`warden` CLI** (always available).
 
@@ -51,10 +51,12 @@ The everyday verbs, so the common path needs no reference-file round-trip:
 |---|---|
 | list / triage | `warden ls` (`--json`, `--watch`) |
 | one agent's status / output | `warden status <id>` · `warden agent tail <id>` |
-| spawn from a prompt | `warden start "<prompt>"` (`--name`, `--model`, `--ai-cli`) |
+| spawn from a prompt | `warden start "<prompt>"` (`--name`, `--model`, `--aicli`) |
 | message an agent | `warden send <id> "<text>"` |
 | stop (full teardown, confirm first) | `warden agent stop <id>` |
-| finish, keep worktree | `warden agent done <id>` (`--create-pr`) |
+| read / change per-agent settings | `warden agent get <id> [key]` · `warden agent set <id> <permission-mode\|compact\|role\|auto-approve> <value>` |
+| JSON output for scripting | `--json` on `agent start`/`fork`/`handoff`/`stop`/`terminate`/`role list`/`get` |
+| finish, keep worktree | `warden agent stop <id> --keep-worktree` (`--pr`) |
 | git lifecycle / checks | `wd commit` / `wd push` / `wd sync` / `wd check [name]` |
 | release tag advice (never `--yes` unless the operator asked to tag) | `wd release --dry-run` |
 | release tag advice (never `--yes` unless the operator asked to tag) | `wd release --dry-run` |
