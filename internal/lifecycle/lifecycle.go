@@ -544,6 +544,7 @@ func (l *Lifecycle) buildLaunch(b agentbackend.Backend, req SpawnRequest, agent 
 	if req.ForkFrom == "" {
 		return b.LaunchCmd(agentbackend.LaunchOpts{
 			SessionID: agent.AICLISessionID, Name: agent.ID, Model: l.launchModel(b, req.Model), Mode: mode, Network: network,
+			LogFile: l.sessionLogFile(b, agent.ID),
 		}), nil
 	}
 	fk, ok := b.(agentbackend.SessionForker)
@@ -793,6 +794,17 @@ type Lifecycle struct {
 	// Empty (tests / older configs) disables file-backing — the addendum then rides
 	// the launch line inline exactly as before. Never the dir the agent runs in.
 	HintsDir string
+	// SessionLogsDir is a shared dir (the daemon sets it, e.g. ~/.warden/session-logs)
+	// where a SessionLogDiscoverer backend (antigravity) is told to write its own
+	// per-session log, keyed by agent id, so the poller can pin the conversation id
+	// that belongs to THAT session. Empty (tests / older configs) disables it: the
+	// session stays unpinned and resolves dir-scoped, exactly as before.
+	SessionLogsDir string
+	// PeerSessions, when set, returns the store's current sessions so an unpinned
+	// dir-scoped transcript can be refused when another live session of the same
+	// backend shares the workdir (the directory then maps to ONE conversation that
+	// is not reliably this session's). Nil = no ambiguity check (legacy behaviour).
+	PeerSessions func() []*agentstore.Agent
 	// MemStore reads the repo's curated .warden/memory.md for launch-time projection
 	// (#53 PR-1). The zero value (nil) uses a default memory.Store, which resolves the
 	// repo root by shelling `git rev-parse`; tests inject a Store with a stub RepoRoot
@@ -1456,8 +1468,65 @@ func oversizedOutput(s string) bool {
 // globally unique, so this is robust to cwd path-encoding quirks). With no
 // pinned id (legacy sessions) it falls back to the newest .jsonl in the dir.
 func (l *Lifecycle) transcriptPath(agent *agentstore.Agent) string {
+	if l.transcriptAmbiguous(agent) {
+		return ""
+	}
 	p, _ := l.backendFor(agent.AiCli).TranscriptPath(l.ProjectsDir, agent.Workdir, agent.AICLISessionID)
 	return p
+}
+
+// transcriptAmbiguous reports whether agent's transcript can only be resolved by
+// directory and another live session of the same backend shares that directory, so
+// the resolved conversation could belong to either. It only applies to backends that
+// pin their conversation id from a per-session log (SessionLogDiscoverer) and only to
+// a session that is not yet pinned: a pinned id resolves exactly. A lone session in
+// its directory is never ambiguous, so single-session behaviour is unchanged.
+func (l *Lifecycle) transcriptAmbiguous(agent *agentstore.Agent) bool {
+	if agent == nil || agent.AICLISessionID != "" || l.PeerSessions == nil || agent.Workdir == "" {
+		return false
+	}
+	if _, ok := l.backendFor(agent.AiCli).(agentbackend.SessionLogDiscoverer); !ok {
+		return false
+	}
+	for _, o := range l.PeerSessions() {
+		if o == nil || o.ID == agent.ID || o.Workdir != agent.Workdir || o.AiCli != agent.AiCli {
+			continue
+		}
+		switch o.Status {
+		case store.StatusDone, store.StatusErrored, store.StatusOrphaned:
+			continue // no live process writing a conversation for that directory
+		}
+		return true
+	}
+	return false
+}
+
+// sessionLogFile returns the per-session log path to pass a SessionLogDiscoverer
+// backend at launch (and clears any stale log from a previous launch of the same
+// agent id, so the first "Created conversation" line is this launch's). "" when the
+// backend does not use one or no SessionLogsDir is configured.
+func (l *Lifecycle) sessionLogFile(b agentbackend.Backend, id string) string {
+	if l.SessionLogsDir == "" || id == "" {
+		return ""
+	}
+	if _, ok := b.(agentbackend.SessionLogDiscoverer); !ok {
+		return ""
+	}
+	if err := os.MkdirAll(l.SessionLogsDir, 0o755); err != nil {
+		return ""
+	}
+	p := filepath.Join(l.SessionLogsDir, id+".log")
+	_ = os.Remove(p)
+	return p
+}
+
+// SessionLogPath is the per-session log path for agent id (see sessionLogFile),
+// without creating or clearing anything; "" when no SessionLogsDir is configured.
+func (l *Lifecycle) SessionLogPath(id string) string {
+	if l.SessionLogsDir == "" || id == "" {
+		return ""
+	}
+	return filepath.Join(l.SessionLogsDir, id+".log")
 }
 
 // TranscriptPath is the exported accessor the daemon uses to resolve an agent's
@@ -1865,6 +1934,7 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, agent *
 		hintSpec{peers != "", peers})
 	launch := b.LaunchCmd(agentbackend.LaunchOpts{
 		SessionID: agent.AICLISessionID, Name: agent.ID, Model: l.launchModel(b, req.Model), Mode: mode, Network: launchNetwork(agent),
+		LogFile: l.sessionLogFile(b, agent.ID),
 	}) + hints + l.promptArg(b, promptFile) + l.exitSuffix(agent.ID)
 	if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", agent.ID, launch, "Enter"); err != nil {
 		// The session exists but launch failed — don't orphan it. No worktree here.
@@ -2309,6 +2379,10 @@ var (
 	ErrNoSessionID     = errors.New("no pinned claude session id; re-spawn instead")
 	ErrWorkdirMissing  = errors.New("agent workdir is gone; re-spawn instead")
 	ErrNoTranscript    = errors.New("no transcript to resume")
+	// ErrAmbiguousTranscript is returned when a handoff would have to be built from a
+	// directory-scoped transcript that another live session in the same workdir also
+	// resolves to; building it would hand the successor the WRONG conversation.
+	ErrAmbiguousTranscript = errors.New("transcript is ambiguous: another live session of the same backend shares this workdir and this session's conversation is not pinned yet")
 	// ErrNotOrphaned is returned by operator recovery endpoints (RestoreSession)
 	// when the session is not orphaned. Kept here so daemon mapping and tests
 	// share one sentinel; lifecycle.Restore itself does not return it.
@@ -2883,6 +2957,7 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*agentst
 		hintSpec{peers != "", peers})
 	launch := b.LaunchCmd(agentbackend.LaunchOpts{
 		SessionID: agent.AICLISessionID, Name: id, Model: l.launchModel(b, req.Model), Mode: mode, Network: launchNetwork(agent),
+		LogFile: l.sessionLogFile(b, id),
 	}) + hints + l.promptArg(b, promptFile) + l.exitSuffix(id)
 	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", id, launch, "Enter"); err != nil {
 		l.cleanupFailedSpawn(agent, true, worktreeCreated)

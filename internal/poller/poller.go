@@ -443,12 +443,26 @@ func (p *Poller) discoverSessionID(ctx context.Context, s *agentstore.Agent) {
 	if b.Capabilities().SessionIDControl {
 		return // pinning backend mints at spawn; never discovered
 	}
-	d, ok := b.(agentbackend.SessionIDDiscoverer)
-	if !ok {
+	var id string
+	if ld, ok := b.(agentbackend.SessionLogDiscoverer); ok {
+		// Log-based discovery (antigravity): exact per-session id even when several
+		// sessions share a workdir. Sessions launched before per-session logs existed
+		// have no log, so they stay unpinned and keep dir-scoping.
+		lp, ok := p.deps.(interface{ SessionLogPath(id string) string })
+		if !ok {
+			return
+		}
+		logFile := lp.SessionLogPath(s.ID)
+		if logFile == "" {
+			return
+		}
+		id, _ = ld.DiscoverSessionIDFromLog(logFile)
+	} else if d, ok := b.(agentbackend.SessionIDDiscoverer); ok {
+		id, _ = d.DiscoverSessionID(p.deps.ProjectsDir(), s.Workdir)
+	} else {
 		return // backend keeps dir-scoping (no discovery support yet)
 	}
-	id, ok := d.DiscoverSessionID(p.deps.ProjectsDir(), s.Workdir)
-	if !ok || id == "" {
+	if id == "" {
 		return // transcript not written yet — retry on a later tick
 	}
 	if err := p.deps.SetSessionID(ctx, s.ID, id); err != nil {

@@ -167,6 +167,10 @@ func (d *pollerDeps) RecordEvent(ctx context.Context, id string, ev store.Event)
 // a backend's DiscoverSessionID (same root TranscriptPath receives).
 func (d *pollerDeps) ProjectsDir() string { return d.lc.ProjectsDir }
 
+// SessionLogPath is the per-session backend log the poller reads a conversation id
+// from (see lifecycle.SessionLogsDir).
+func (d *pollerDeps) SessionLogPath(id string) string { return d.lc.SessionLogPath(id) }
+
 // SetSessionID persists a discovered agent-generated session id (discover-then-pin).
 func (d *pollerDeps) SetSessionID(ctx context.Context, id, sessionID string) error {
 	return d.store.SetSessionID(ctx, id, sessionID)

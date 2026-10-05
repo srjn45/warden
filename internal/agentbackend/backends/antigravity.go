@@ -95,6 +95,12 @@ func agyPermFlag(mode string) string {
 // agent's workdir, so no --add-dir/--project is appended.
 func (Antigravity) LaunchCmd(o agentbackend.LaunchOpts) string {
 	cmd := "agy"
+	if o.LogFile != "" {
+		// Per-session log: records the id of the conversation THIS process creates,
+		// which DiscoverSessionIDFromLog pins to the session (the dir-scoped
+		// last_conversations.json cannot tell two same-workdir sessions apart).
+		cmd += " --log-file " + shellQuoteArg(o.LogFile)
+	}
 	if o.Model != "" {
 		cmd += " --model " + shellQuoteArg(o.Model)
 	}
@@ -115,6 +121,12 @@ func (Antigravity) LaunchCmd(o agentbackend.LaunchOpts) string {
 // (FUTURE_ENHANCEMENTS #52).
 func (Antigravity) ResumeCmd(o agentbackend.ResumeOpts) (string, bool) {
 	cmd := "agy -c"
+	if agyConvIDRe.MatchString(o.SessionID) {
+		// A pinned id (discovered from the session's own log) resumes exactly that
+		// conversation; `-c` would resume the workspace's most recent one, which is
+		// another session's when two share a workdir.
+		cmd = "agy --conversation " + o.SessionID
+	}
 	if o.Model != "" {
 		cmd += " --model " + shellQuoteArg(o.Model)
 	}
@@ -161,26 +173,58 @@ var agyHome = func() string {
 // plaintext JSONL trajectory log warden parses.
 var agyTranscriptRel = filepath.Join(".system_generated", "logs", "transcript.jsonl")
 
+// agyConvIDRe matches an `agy` conversation id (a canonical lowercase UUID).
+var agyConvIDRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+// agyCreatedConvRe matches the `Created conversation <id>` line `agy` logs when its
+// process starts a new conversation.
+var agyCreatedConvRe = regexp.MustCompile(`Created conversation ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`)
+
+// DiscoverSessionIDFromLog implements agentbackend.SessionLogDiscoverer: it returns
+// the FIRST conversation the process logging to logFile created. Each warden agent
+// launches `agy --log-file <its own file>`, so — unlike the one-entry-per-directory
+// last_conversations.json — the id is unambiguous even when several sessions share a
+// workdir and start together. A resumed/continued run logs no "Created conversation"
+// line, so it never mis-pins.
+func (Antigravity) DiscoverSessionIDFromLog(logFile string) (string, bool) {
+	data, err := os.ReadFile(logFile)
+	if err != nil {
+		return "", false
+	}
+	m := agyCreatedConvRe.FindSubmatch(data)
+	if m == nil {
+		return "", false
+	}
+	return string(m[1]), true
+}
+
 // TranscriptPath resolves the agent's plaintext trajectory log. `agy` stores it at
 // `<home>/brain/<conv-id>/.system_generated/logs/transcript.jsonl`, keyed by a
-// `agy`-minted conv-id warden cannot pin, so this resolves **dir-scoped**: it reads
+// `agy`-minted conv-id. With a pinned sessionID (see DiscoverSessionIDFromLog) it
+// resolves exactly that conversation. Otherwise it resolves **dir-scoped**: it reads
 // `<home>/cache/last_conversations.json` (a `{workspace -> conv-id}` map `agy`
 // maintains) to find the conv-id for workdir, then points at that conversation's
 // transcript. projectsDir (Claude-specific) and sessionID (warden's placeholder
 // UUID, indistinguishable from a real conv-id) are ignored. ok=false on any miss (no
 // home, no map, no entry for the dir, no transcript yet), so the digest path degrades
 // to "no transcript" rather than erroring — same contract as Aider/OpenCode/Codex.
-func (Antigravity) TranscriptPath(_, workdir, _ string) (string, bool) {
-	if workdir == "" {
-		return "", false
-	}
+func (Antigravity) TranscriptPath(_, workdir, sessionID string) (string, bool) {
 	home := agyHome()
 	if home == "" {
 		return "", false
 	}
-	id, ok := agyConvIDForDir(filepath.Join(home, "cache", "last_conversations.json"), workdir)
-	if !ok {
-		return "", false
+	id := sessionID
+	if !agyConvIDRe.MatchString(id) {
+		// Unpinned (legacy, or not yet discovered): dir-scoped fallback. The caller
+		// (lifecycle) must not use this when another live session shares the workdir.
+		if workdir == "" {
+			return "", false
+		}
+		var ok bool
+		id, ok = agyConvIDForDir(filepath.Join(home, "cache", "last_conversations.json"), workdir)
+		if !ok {
+			return "", false
+		}
 	}
 	p := filepath.Join(home, "brain", id, agyTranscriptRel)
 	if _, err := os.Stat(p); err != nil {
