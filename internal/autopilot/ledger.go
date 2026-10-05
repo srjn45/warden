@@ -1,6 +1,7 @@
 package autopilot
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -296,4 +297,22 @@ func writerOrDefault(by string) string {
 		return ledgerWriter
 	}
 	return by
+}
+
+// RestartContextKey is the shared-context key holding this run's restart context.
+func (l *Ledger) RestartContextKey() string { return RestartContextKey(l.runID) }
+
+// LoadRestartContext reads the run's restart context; (nil, nil) when absent.
+func (l *Ledger) LoadRestartContext() (*RestartContext, error) {
+	if l == nil || l.store == nil {
+		return nil, nil
+	}
+	return LoadRestartContext(l.store, l.RestartContextKey())
+}
+
+// CaptureRestartContext assembles + persists the restart context for this run.
+// RestartRun calls it BEFORE tearing agents down; in.Ledger is defaulted to l.
+func (l *Ledger) CaptureRestartContext(ctx context.Context, in RestartAssembleInput) (*RestartContext, error) {
+	in.Ledger = l
+	return CaptureRestartContext(ctx, l.store, l.RestartContextKey(), in)
 }
