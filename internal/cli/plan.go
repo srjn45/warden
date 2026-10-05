@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"text/tabwriter"
@@ -974,6 +975,42 @@ func resolveProjectID(_ *cobra.Command) (string, error) {
 		return "", fmt.Errorf("get working directory: %w", err)
 	}
 	return cwd, nil
+}
+
+// projectIDForDir returns the project id to send for a launch from dir: the
+// git repository root (a linked worktree maps to its parent repository root),
+// or dir itself when it is not inside a git repository. Shared by agent spawn
+// and pipeline create so both default --project identically. dir "" means cwd.
+func projectIDForDir(dir string) (string, error) {
+	if dir == "" {
+		wd, err := os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("get working directory: %w", err)
+		}
+		dir = wd
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return "", err
+	}
+	if st, err := os.Stat(abs); err == nil && !st.IsDir() {
+		abs = filepath.Dir(abs) // a file path (e.g. a spec) resolves from its directory
+	}
+	// --git-common-dir is the main repo's .git for both the main checkout and any
+	// linked worktree, so its parent is the repo root either way.
+	out, err := exec.Command("git", "-C", abs, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
+	if err == nil {
+		common := strings.TrimSpace(string(out))
+		if filepath.Base(common) == ".git" {
+			return filepath.Dir(common), nil
+		}
+	}
+	if out, err := exec.Command("git", "-C", abs, "rev-parse", "--show-toplevel").Output(); err == nil {
+		if top := strings.TrimSpace(string(out)); top != "" {
+			return top, nil
+		}
+	}
+	return abs, nil
 }
 
 // resolveProjectRoot returns the filesystem root for a project. For a local

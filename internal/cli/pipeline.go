@@ -163,6 +163,19 @@ func newPipelineCreateCmd() *cobra.Command {
 			}
 
 			projectID, _ := cmd.Flags().GetString("project")
+			if projectID == "" {
+				// A spec-authored project_id wins; only default when it has none.
+				if parsed, perr := pipeline.ParseSpec([]byte(spec)); perr != nil || parsed.ProjectID == "" {
+					base, _ := cmd.Flags().GetString("repo")
+					if base == "" && file != "" {
+						base = file
+					}
+					var derr error
+					if projectID, derr = projectIDForDir(base); derr != nil {
+						return derr
+					}
+				}
+			}
 			planID, _ := cmd.Flags().GetString("plan")
 			p, err := clientFor(cmd).PipelineCreateWith(cmd.Context(), client.PipelineCreateParams{
 				Spec: spec, ProjectID: projectID, PlanID: planID,
@@ -179,7 +192,7 @@ func newPipelineCreateCmd() *cobra.Command {
 	cmd.Flags().String("name", "", "pipeline name — fills {{NAME}} (default: the template name)")
 	cmd.Flags().String("repo", "", "repo path — fills {{REPO}} (default: the current directory)")
 	cmd.Flags().StringArray("set", nil, "fill a template placeholder, KEY=VALUE (repeatable)")
-	cmd.Flags().String("project", "", "optional project id this pipeline joins; overrides YAML project_id")
+	cmd.Flags().String("project", "", "optional project id this pipeline joins; overrides YAML project_id (default: git root of --repo / the spec file / cwd, unless the YAML sets project_id)")
 	cmd.Flags().String("plan", "", "optional planstore plan id in the same project; empty = planless pipeline")
 	return cmd
 }
