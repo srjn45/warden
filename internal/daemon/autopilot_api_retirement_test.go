@@ -39,11 +39,10 @@ func TestEnableDoesNotRegisterWork(t *testing.T) {
 	var stResp oapi.AutopilotStatus
 	code := apPostJSON(t, ts.URL+"/api/v1/autopilot", `{"enabled":true,"repo":"`+dir+`"}`, &stResp)
 	require.Equal(t, http.StatusOK, code)
-	require.True(t, stResp.Enabled)
+	require.Empty(t, stResp.EnabledRepos)
 
 	st := c.Status()
-	require.True(t, st.Enabled)
-	require.Contains(t, st.EnabledRepos, dir)
+	require.Empty(t, st.EnabledRepos)
 	require.Empty(t, st.Runs, "enable must not register or start Autopilot work")
 	require.Empty(t, stResp.Runs)
 }

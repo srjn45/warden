@@ -2,7 +2,6 @@ package autopilot
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,13 +11,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 )
-
-type failingEnableStore struct{ err error }
-
-func (s failingEnableStore) Enable(string) error { return s.err }
-func (failingEnableStore) Disable(string) error  { return nil }
-func (failingEnableStore) IsEnabled(string) bool { return false }
-func (failingEnableStore) List() []string        { return nil }
 
 func TestRunStoreReopenAndConcurrentRMW(t *testing.T) {
 	dir := t.TempDir()
@@ -54,23 +46,6 @@ func TestConfiguredRunStoreFailureFailsClosed(t *testing.T) {
 	c := NewController(ControllerConfig{DataDir: badDataDir}, &fakeEnv{})
 	_, err := c.Register(context.Background(), RegisterRequest{PlanFile: "plan.yaml"})
 	require.ErrorContains(t, err, "persistent run store unavailable")
-}
-
-func TestStartRunRetriesAfterEnableStoreWriteFailure(t *testing.T) {
-	repo := t.TempDir()
-	plan := writePlan(t, repo, "retry.yaml", "retry")
-	c := NewController(ControllerConfig{BaseDir: repo}, &fakeEnv{})
-	r, err := c.Register(context.Background(), RegisterRequest{PlanFile: plan})
-	require.NoError(t, err)
-	c.enableStore = failingEnableStore{err: errors.New("disk full")}
-	_, err = c.StartRun(context.Background(), r.RunID)
-	require.ErrorContains(t, err, "disk full")
-	require.Equal(t, StateRegistered, c.runs[r.RunID].state)
-
-	c.enableStore = newMemEnableStore()
-	got, err := c.StartRun(context.Background(), r.RunID)
-	require.NoError(t, err)
-	require.Equal(t, StateActive, got.State)
 }
 
 func TestMultiRunLifecyclePersists(t *testing.T) {

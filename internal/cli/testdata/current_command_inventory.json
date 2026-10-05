@@ -769,6 +769,7 @@
   {
     "path": "autopilot disable",
     "use": "disable",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "repo"
@@ -781,6 +782,7 @@
   {
     "path": "autopilot enable",
     "use": "enable",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "repo"

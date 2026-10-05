@@ -233,6 +233,19 @@ func TestGuardianWedgeWalksLadder(t *testing.T) {
 	require.NotEmpty(t, fake.escalations, "a stall notifies the owner")
 }
 
+// TestGuardianSupervisesNeverEnabledRepo proves there is no per-repo enable gate:
+// a run in a repo that was never passed to the (removed) enable switch is still
+// supervised by the guardian.
+func TestGuardianSupervisesNeverEnabledRepo(t *testing.T) {
+	t0 := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)
+	clock := &fakeClock{t: t0}
+	fake := newGuardianFake()
+	c, _ := enabledGuardianController(t, fake, clock, cyclicResolver("a", "free"), testGuardian())
+	clock.t = t0.Add(11 * time.Minute)
+	c.guardianTick(context.Background())
+	require.Len(t, fake.nudges, 1, "wedged run in a never-enabled repo is nudged")
+}
+
 // TestGuardianRecoversOnHeartbeat proves a fresh heartbeat clears the heal ladder
 // (autopilot.md §2.3 healthy transition).
 func TestGuardianRecoversOnHeartbeat(t *testing.T) {
@@ -370,10 +383,10 @@ func TestGuardianHonorsKillSwitch(t *testing.T) {
 	c, _ := enabledGuardianController(t, fake, clock, cyclicResolver("a", "free"), testGuardian())
 	ctx := context.Background()
 
-	c.Disable(ctx, "")
+	c.Disable(ctx, "") // deprecated: pauses the repo's runs
 	clock.t = t0.Add(30 * time.Minute)
-	c.guardianTick(ctx) // wedged by the clock, but disabled ⇒ no heal
-	require.Empty(t, fake.nudges, "a disabled controller heals nothing")
+	c.guardianTick(ctx) // wedged by the clock, but paused ⇒ no heal
+	require.Empty(t, fake.nudges, "a paused run heals nothing")
 
 	// A runtime that does not implement GuardianRuntime is never guardian-managed.
 	dir := t.TempDir()

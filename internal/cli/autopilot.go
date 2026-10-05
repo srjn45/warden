@@ -20,19 +20,16 @@ import (
 func newAutopilotCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "autopilot",
-		Short: "Turn autopilot capability on/off per repo and show its status",
-		Long: "Autopilot is the unattended Plan execution mode. `warden autopilot enable`\n" +
-			"flips a PER-REPO capability switch (it does not register plan files or start\n" +
-			"work). Start and control execution with `warden plan run` / `warden plan\n" +
-			"pause|resume|stop`. `disable` is the kill switch. Configure the feature under\n" +
-			"the `autopilot` block in the config file (or scaffold it with `warden\n" +
-			"autopilot init`).",
+		Short: "Show autopilot status, scaffold adoption, and land worker branches",
+		Long: "Autopilot is the unattended Plan execution mode. There is no per-repo switch:\n" +
+			"start a run explicitly with `warden plan run <plan-id> --mode autopilot` and\n" +
+			"control it with `warden plan pause|resume|stop`. This namespace shows status\n" +
+			"(`status`), scaffolds adoption (`init`) and lands worker branches (`land`).\n" +
+			"Configure the feature under the `autopilot` block in the config file.",
 	}
 	SetCommandHelpMetadata(cmd, "run", 30, "warden autopilot", "", NodeNamespace)
 
 	children := []*cobra.Command{
-		canonicalAutopilotCommand(newAutopilotOnCmd(), "enable"),
-		canonicalAutopilotCommand(newAutopilotOffCmd(), "disable"),
 		newAutopilotStatusCmd(),
 		newAutopilotInitCmd(),
 		newAutopilotLandCmd(),
@@ -52,8 +49,10 @@ func newAutopilotCmd() *cobra.Command {
 		factory   func() *cobra.Command
 		canonical string
 	}{
-		{newAutopilotOnCmd, "warden autopilot enable"},
-		{newAutopilotOffCmd, "warden autopilot disable"},
+		{func() *cobra.Command { return newAutopilotEnableCmd("enable") }, "warden plan run"},
+		{func() *cobra.Command { return newAutopilotEnableCmd("on") }, "warden plan run"},
+		{func() *cobra.Command { return newAutopilotDisableCmd("disable") }, "warden plan pause"},
+		{func() *cobra.Command { return newAutopilotDisableCmd("off") }, "warden plan pause"},
 		{newAutopilotRegisterCmd, "warden plan run"},
 		{newAutopilotListCmd, "warden autopilot status"},
 		{func() *cobra.Command { return newAutopilotRunActionCmd("start") }, "warden plan run"},
@@ -93,18 +92,6 @@ func markStatusAlias(cmd *cobra.Command, canonicalPath string) {
 	for _, child := range cmd.Commands() {
 		markStatusAlias(child, canonicalPath)
 	}
-}
-
-func canonicalAutopilotCommand(cmd *cobra.Command, name string) *cobra.Command {
-	parts := strings.SplitN(cmd.Use, " ", 2)
-	legacyName := parts[0]
-	rewriteAutopilotHelpPaths(cmd, legacyName, name)
-	cmd.Use = name
-	if len(parts) == 2 {
-		cmd.Use += " " + parts[1]
-	}
-	cmd.Aliases = nil
-	return cmd
 }
 
 func rewriteAutopilotHelpPaths(cmd *cobra.Command, legacyName, canonicalName string) {
@@ -179,68 +166,72 @@ func newAutopilotRunActionCmd(action string) *cobra.Command {
 	}}
 }
 
-func newAutopilotOnCmd() *cobra.Command {
+const autopilotEnableNotice = "note: the per-repo autopilot switch is gone; start runs with `wd plan run <plan-id> --mode autopilot`"
+
+// newAutopilotEnableCmd is the DEPRECATED hidden no-op for enable/on.
+func newAutopilotEnableCmd(name string) *cobra.Command {
 	var repoFlag string
 	cmd := &cobra.Command{
-		Use:   "on",
-		Short: "Enable autopilot capability for this repo (does not start work)",
-		Long: "Enables the autopilot capability for the current git repository only (other\n" +
-			"repos are unaffected). This persists the repo as allowed to run Autopilot\n" +
-			"executors — it does not register plan files or start work. Start a plan with\n" +
-			"`warden plan run <plan-id> --mode autopilot`. Use --repo to target a different\n" +
-			"repository.",
+		Use:   name,
+		Short: "Deprecated no-op (use `warden plan run --mode autopilot`)",
+		Long: "Deprecated: there is no per-repo autopilot switch any more, so this does\n" +
+			"nothing. Start a run with `warden plan run <plan-id> --mode autopilot`.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			repo, err := resolveAutopilotRepo(cmd, repoFlag)
-			if err != nil {
-				return err
-			}
-			st, err := clientFor(cmd).SetAutopilot(cmd.Context(), true, repo)
-			if err != nil {
-				var pfe *client.AutopilotPreflightError
-				if errors.As(err, &pfe) {
-					fmt.Fprintln(cmd.ErrOrStderr(), "autopilot enable-time preflight failed — fix these and retry:")
-					for _, f := range pfe.Failures {
-						fmt.Fprintf(cmd.ErrOrStderr(), "  • %s\n", f)
-					}
-					fmt.Fprintln(cmd.ErrOrStderr(), "\nhint: run `warden autopilot init` to scaffold a plan file and config block")
-					return fmt.Errorf("autopilot not enabled (%d preflight failure(s))", len(pfe.Failures))
-				}
-				return err
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "autopilot capability enabled for %s (start work with `warden plan run`)\n", repo)
-			if len(st.Runs) > 0 {
-				printAutopilotRuns(cmd, st)
-			}
+			fmt.Fprintln(cmd.OutOrStdout(), autopilotEnableNotice)
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&repoFlag, "repo", "", "repo root to enable (default: the current git repository)")
+	cmd.Flags().StringVar(&repoFlag, "repo", "", "ignored (kept for compatibility)")
 	return cmd
 }
 
-func newAutopilotOffCmd() *cobra.Command {
+// newAutopilotDisableCmd is the DEPRECATED hidden disable/off: it pauses every
+// active autopilot run in the target repo and says what it paused.
+func newAutopilotDisableCmd(name string) *cobra.Command {
 	var repoFlag string
 	cmd := &cobra.Command{
-		Use:   "off",
-		Short: "Disable autopilot for this repo (kill switch — stops spawning/landing)",
-		Long: "Disables autopilot for the current git repository only (other enabled repos\n" +
-			"keep running). In-flight workers are left running. Use --repo to target a\n" +
-			"different repository.",
+		Use:   name,
+		Short: "Deprecated: pause every active autopilot run in this repo (use `warden plan pause`)",
+		Long: "Deprecated: there is no per-repo autopilot switch any more. This pauses every\n" +
+			"active autopilot run in the repo (same as `warden plan pause` on each).\n" +
+			"In-flight workers are left running. Use --repo to target another repository.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			repo, err := resolveAutopilotRepo(cmd, repoFlag)
 			if err != nil {
 				return err
 			}
-			if _, err := clientFor(cmd).SetAutopilot(cmd.Context(), false, repo); err != nil {
+			c := clientFor(cmd)
+			before, err := c.GetAutopilot(cmd.Context())
+			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "autopilot disabled for %s\n", repo)
+			after, err := c.SetAutopilot(cmd.Context(), false, repo)
+			if err != nil {
+				return err
+			}
+			wasLive := map[string]bool{}
+			for _, r := range before.Runs {
+				if r.Repo == repo && (r.State == "active" || r.State == "healing" || r.State == "degraded") {
+					wasLive[r.RunID] = true
+				}
+			}
+			n := 0
+			for _, r := range after.Runs {
+				if wasLive[r.RunID] && r.State == "paused" {
+					fmt.Fprintf(cmd.OutOrStdout(), "paused %s\t%s\n", r.RunID, r.Name)
+					n++
+				}
+			}
+			if n == 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "no active autopilot runs to pause in %s\n", repo)
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "note: `autopilot disable` is deprecated; use `wd plan pause <plan-id>`")
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&repoFlag, "repo", "", "repo root to disable (default: the current git repository)")
+	cmd.Flags().StringVar(&repoFlag, "repo", "", "repo root (default: the current git repository)")
 	return cmd
 }
 
@@ -266,8 +257,8 @@ func resolveAutopilotRepo(cmd *cobra.Command, override string) (string, error) {
 func newAutopilotStatusCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "status",
-		Short: "Show autopilot status (enabled repos and every run)",
-		Long: "Shows which repos have autopilot enabled and one line per run: run id, name,\n" +
+		Short: "Show autopilot status (every run)",
+		Long: "Shows one line per run: run id, name,\n" +
 			"state, plan id, repo, gate, integration branch, and backoff summary. For a\n" +
 			"running plan's task-level progress use `warden plan show`.",
 		Args: cobra.NoArgs,
@@ -285,15 +276,7 @@ func runAutopilotStatus(cmd *cobra.Command, _ []string) error {
 	if jsonRequested(cmd) {
 		return printJSON(cmd.OutOrStdout(), st)
 	}
-	state := "disabled"
-	if st.Enabled {
-		state = "enabled"
-	}
-	fmt.Fprintf(cmd.OutOrStdout(), "autopilot: %s — %d repo(s), %d run(s)\n",
-		state, len(st.EnabledRepos), len(st.Runs))
-	for _, repo := range st.EnabledRepos {
-		fmt.Fprintf(cmd.OutOrStdout(), "  enabled: %s\n", repo)
-	}
+	fmt.Fprintf(cmd.OutOrStdout(), "autopilot: %d run(s)\n", len(st.Runs))
 	printAutopilotRuns(cmd, st)
 	return nil
 }

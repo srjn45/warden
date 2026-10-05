@@ -1,17 +1,14 @@
-Autopilot is the unattended Plan execution mode. `warden autopilot enable`
-flips a PER-REPO capability switch (it does not register plan files or start
-work). Start and control execution with `warden plan run` / `warden plan
-pause|resume|stop`. `disable` is the kill switch. Configure the feature under
-the `autopilot` block in the config file (or scaffold it with `warden
-autopilot init`).
+Autopilot is the unattended Plan execution mode. There is no per-repo switch:
+start a run explicitly with `warden plan run <plan-id> --mode autopilot` and
+control it with `warden plan pause|resume|stop`. This namespace shows status
+(`status`), scaffolds adoption (`init`) and lands worker branches (`land`).
+Configure the feature under the `autopilot` block in the config file.
 
 Usage:
   warden autopilot [flags]
 
 Commands:
-  enable               Enable autopilot capability for this repo (does not start work)
-  disable              Disable autopilot for this repo (kill switch — stops spawning/landing)
-  status               Show autopilot status (enabled repos and every run)
+  status               Show autopilot status (every run)
   init                 Scaffold autopilot adoption in the current repo
   land                 Land an autopilot worker branch into the integration branch
 

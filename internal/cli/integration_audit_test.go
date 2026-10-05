@@ -162,7 +162,7 @@ func TestCompletionOffersCanonicalPathsAndHidesLegacyAliases(t *testing.T) {
 	}{
 		{"agent", []string{"start", "list", "stop", "role", "set", "get"}},
 		{"git", []string{"commit", "push", "sync", "review", "release"}},
-		{"autopilot", []string{"enable", "disable", "status", "land"}},
+		{"autopilot", []string{"status", "land"}},
 		{"approval", []string{"list", "answer", "auto"}},
 		{"schedule", []string{"create", "list", "show"}},
 	} {

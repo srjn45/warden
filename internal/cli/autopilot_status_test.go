@@ -18,7 +18,7 @@ func TestAutopilotStatusShowsRunColumns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"ap-1", "demo", "running", "plan=plan-9", "/r", "gate=ci", "branch=autopilot/demo", "backoff=stage 2 retry T (boom)", "enabled: /r"} {
+	for _, want := range []string{"ap-1", "demo", "running", "plan=plan-9", "/r", "gate=ci", "branch=autopilot/demo", "backoff=stage 2 retry T (boom)"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("status output missing %q:\n%s", want, out)
 		}
