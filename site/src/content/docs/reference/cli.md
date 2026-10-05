@@ -198,7 +198,7 @@ Flags:
       --plan string                              optional planstore plan id in the same project (plan-<8hex>); empty = planless agent. A non-empty value must name an existing plan belonging to the resolved project
       --pr string                                PR number/url (pr-review)
       --preset warden preset                     load saved spawn defaults from a named preset (see warden preset); explicit flags override
-      --project warden projects list             id of the daemon project this agent joins (its canonical path or remote URL, from warden projects list); stamps membership explicitly instead of leaving the daemon to path-match the launch dir. Empty = path-match
+      --project warden projects list             id of the daemon project this agent joins (its canonical path or remote URL, from warden projects list); stamps membership explicitly instead of leaving the daemon to path-match the launch dir. Empty = the git repository root of the launch directory (the daemon auto-registers it)
       --prompt-template warden prompt-template   fill a saved prompt template (see warden prompt-template) as the spawn prompt; a positional prompt still wins
       --repo string                              repo path for a managed (worktree) spawn; with --role worker this enters the managed path without --type. Empty = free-form unless --type/--fork-from force managed (then defaults to cwd)
       --role warden role list                    REQUIRED — built-in agent role: general | orchestrator | planner | worker (legacy aliases implementer/auto-merger/reviewer resolve to worker). Injects the role's persona as a system-prompt addendum and applies its default flags. See warden role list
@@ -917,7 +917,7 @@ Flags:
   -h, --help                              help for create
       --name string                       pipeline name — fills {{NAME}} (default: the template name)
       --plan string                       optional planstore plan id in the same project; empty = planless pipeline
-      --project string                    optional project id this pipeline joins; overrides YAML project_id
+      --project string                    optional project id this pipeline joins; overrides YAML project_id (default: git root of --repo / the spec file / cwd, unless the YAML sets project_id)
       --repo string                       repo path — fills {{REPO}} (default: the current directory)
       --set stringArray                   fill a template placeholder, KEY=VALUE (repeatable)
       --template pipeline template list   built-in template to render (see pipeline template list)
@@ -1180,7 +1180,7 @@ Inherited flags:
 ```text
 List plans registered in the daemon for a project.
 
-Use --project to specify the project (defaults to the current directory).
+Use --project to specify the project (defaults to the git root of the current directory).
 Filter by lifecycle stage with --status.
 
 Usage:
@@ -1189,7 +1189,7 @@ Usage:
 Flags:
   -h, --help             help for list
       --json             output as JSON
-      --project string   project ID (default: current directory)
+      --project string   project ID (default: git root of the current directory)
       --status string    filter by status: pending|in_progress|completed|archived
 
 Inherited flags:
@@ -1223,7 +1223,7 @@ Flags:
   -h, --help                     help for create
       --json                     output as JSON
       --name string              plan name
-      --project string           project ID (default: current directory)
+      --project string           project ID (default: git root of the current directory)
       --task stringArray         task as id:prompt or id@dep1,dep2:prompt (repeatable; skip interactive prompt)
 
 Inherited flags:
@@ -1741,7 +1741,7 @@ Usage:
 
 Flags:
   -h, --help             help for import
-      --project string   project ID (default: current directory)
+      --project string   project ID (default: git root of the current directory)
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -1768,7 +1768,7 @@ Usage:
 Flags:
   -h, --help             help for import-legacy
       --json             output as JSON
-      --project string   project ID (default: current directory)
+      --project string   project ID (default: git root of the current directory)
       --report           classify without mutating ScrivaDB
 
 Inherited flags:
@@ -1798,7 +1798,7 @@ Flags:
   -h, --help             help for scan
       --json             output as JSON
       --migrate-flat     move flat plans/*.yaml files into plans/pending/ with git mv + commit
-      --project string   project ID (default: current directory)
+      --project string   project ID (default: git root of the current directory)
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -1821,7 +1821,7 @@ Usage:
 
 Flags:
   -h, --help             help for status
-      --project string   project ID (default: current directory)
+      --project string   project ID (default: git root of the current directory)
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -1839,7 +1839,7 @@ Usage:
 
 Flags:
   -h, --help             help for assess
-      --project string   project ID (default: current directory)
+      --project string   project ID (default: git root of the current directory)
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -4992,7 +4992,7 @@ Flags:
       --plan string                              optional planstore plan id in the same project (plan-<8hex>); empty = planless agent. A non-empty value must name an existing plan belonging to the resolved project
       --pr string                                PR number/url (pr-review)
       --preset warden preset                     load saved spawn defaults from a named preset (see warden preset); explicit flags override
-      --project warden projects list             id of the daemon project this agent joins (its canonical path or remote URL, from warden projects list); stamps membership explicitly instead of leaving the daemon to path-match the launch dir. Empty = path-match
+      --project warden projects list             id of the daemon project this agent joins (its canonical path or remote URL, from warden projects list); stamps membership explicitly instead of leaving the daemon to path-match the launch dir. Empty = the git repository root of the launch directory (the daemon auto-registers it)
       --prompt-template warden prompt-template   fill a saved prompt template (see warden prompt-template) as the spawn prompt; a positional prompt still wins
       --repo string                              repo path for a managed (worktree) spawn; with --role worker this enters the managed path without --type. Empty = free-form unless --type/--fork-from force managed (then defaults to cwd)
       --role warden role list                    REQUIRED — built-in agent role: general | orchestrator | planner | worker (legacy aliases implementer/auto-merger/reviewer resolve to worker). Injects the role's persona as a system-prompt addendum and applies its default flags. See warden role list

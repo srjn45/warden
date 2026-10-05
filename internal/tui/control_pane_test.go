@@ -1057,3 +1057,69 @@ func TestRestoreOrphanedAgentOnRKey(t *testing.T) {
 	require.Nil(t, cmd)
 	require.Empty(t, f.restored)
 }
+
+// Zero-touch auto-registration: the daemon creates an open project (ID == Path ==
+// repo root) with the launched agent listed in Agents[]. The tree must render it
+// at once as a project header with the agent row beneath it.
+func TestAutoRegisteredProjectRendersHeaderWithAgent(t *testing.T) {
+	proj := projectstore.Project{ID: "/repos/auto", Name: "auto", Path: "/repos/auto",
+		Status: projectstore.StatusOpen, Agents: []string{"a1"}}
+	f := &fakeAPI{projects: []projectstore.Project{proj}}
+	m := newListPane(f, "%9", "")
+	m = lstep(m, projectsMsg{projects: f.projects})
+	m = lstep(m, sessionsMsg{sessions: []*store.Session{
+		{ID: "a1", Name: "worker", ProjectID: "/repos/auto", Repo: "/repos/auto/.worktrees/w", Status: store.StatusWorking, Kind: store.KindAgent},
+	}})
+
+	items := m.items()
+	hdr := projHdrByID(items, "/repos/auto")
+	require.NotNil(t, hdr, "auto-registered project renders its header")
+	require.True(t, hdr.isProject, "a registered project, not a loose dir")
+	require.Equal(t, "auto", hdr.name)
+	require.Nil(t, projHdrByID(items, ""), "agent is not parked in Ungrouped")
+	require.Equal(t, []string{"a1"}, itemSessionIDs(items))
+	hi := cursorOn(m, onProject("/repos/auto"))
+	ai := cursorOn(m, func(it item) bool { return it.session != nil && it.session.ID == "a1" })
+	require.Greater(t, ai, hi, "agent row sits beneath the project header")
+}
+
+// Closing an auto-registered project works from the TUI, and when the daemon
+// reopens it on the next launch (fields preserved, new agent appended) the tree
+// shows an open project with that agent — not closed, not a loose directory.
+func TestAutoRegisteredProjectCloseThenReopenWithNewAgent(t *testing.T) {
+	open := projectstore.Project{ID: "/repos/auto", Name: "auto", Path: "/repos/auto",
+		Status: projectstore.StatusOpen, Agents: []string{"old"}}
+	f := &fakeAPI{projects: []projectstore.Project{open}}
+	m := newListPane(f, "%9", "")
+	m = lstep(m, projectsMsg{projects: f.projects})
+	m = lstep(m, sessionsMsg{sessions: []*store.Session{
+		{ID: "old", ProjectID: "/repos/auto", Repo: "/repos/auto", Status: store.StatusDone, Kind: store.KindAgent},
+	}})
+	m.cursor = cursorOn(m, onProject("/repos/auto"))
+	require.GreaterOrEqual(t, m.cursor, 0)
+	_, cmd := m.handleKey(key("x"))
+	require.NotNil(t, cmd)
+	cmd()
+	require.Equal(t, "/repos/auto", f.closedProjectID)
+
+	// Daemon state after close: project closed → no header, agent parked.
+	closed := open
+	closed.Status = projectstore.StatusClosed
+	m = lstep(m, projectsMsg{projects: []projectstore.Project{closed}})
+	require.Nil(t, projHdrByID(m.items(), "/repos/auto"), "closed project has no open header")
+
+	// Next launch in that repo: project reopened, new agent appended.
+	reopened := open
+	reopened.Agents = []string{"old", "new"}
+	m = lstep(m, projectsMsg{projects: []projectstore.Project{reopened}})
+	m = lstep(m, sessionsMsg{sessions: []*store.Session{
+		{ID: "old", ProjectID: "/repos/auto", Repo: "/repos/auto", Status: store.StatusDone, Kind: store.KindAgent},
+		{ID: "new", ProjectID: "/repos/auto", Repo: "/repos/auto", Status: store.StatusWorking, Kind: store.KindAgent},
+	}})
+	items := m.items()
+	hdr := projHdrByID(items, "/repos/auto")
+	require.NotNil(t, hdr, "reopened project shows its header again")
+	require.True(t, hdr.isProject)
+	require.Nil(t, projHdrByID(items, ""), "no Ungrouped bucket")
+	require.ElementsMatch(t, []string{"old", "new"}, itemSessionIDs(items))
+}

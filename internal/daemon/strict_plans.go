@@ -169,14 +169,16 @@ func (s *Server) CreateProjectPlan(ctx context.Context, req oapi.CreateProjectPl
 	if name == "" || filePath == "" {
 		return oapi.CreateProjectPlan400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{Error: "name and file_path are required"}}, nil
 	}
-	p := &planstore.Plan{ID: planstore.PlanID(req.ProjectId, name), ProjectID: req.ProjectId, Name: name, FilePath: filePath, Status: planstore.PlanStatusPending}
+	// Zero-touch: register/reopen the project (an unknown non-absolute id is kept as-is).
+	projectID := s.ensureExplicitProjectID(req.ProjectId)
+	p := &planstore.Plan{ID: planstore.PlanID(projectID, name), ProjectID: projectID, Name: name, FilePath: filePath, Status: planstore.PlanStatusPending}
 	if err := s.plans.Create(ctx, p); err != nil {
 		if errors.Is(err, planstore.ErrExists) {
 			return oapi.CreateProjectPlan400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{Error: "plan already exists: " + p.ID}}, nil
 		}
 		return nil, errStatus(http.StatusInternalServerError, "create plan: "+err.Error())
 	}
-	s.addPlanMembership(p.ID, req.ProjectId)
+	s.addPlanMembership(p.ID, projectID)
 	got, err := s.plans.Get(ctx, p.ID)
 	if err != nil {
 		return nil, errStatus(http.StatusInternalServerError, "fetch created plan: "+err.Error())
@@ -188,6 +190,8 @@ func (s *Server) ScanProjectPlans(ctx context.Context, req oapi.ScanProjectPlans
 	if s.plans == nil {
 		return nil, planNotConfigured()
 	}
+	// Scan upserts plan records for the project, so it registers/reopens it too.
+	req.ProjectId = s.ensureExplicitProjectID(req.ProjectId)
 	root := s.resolvePlanRoot(req.ProjectId)
 	if root == "" {
 		return oapi.ScanProjectPlans404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "project not found"}}, nil
@@ -219,6 +223,11 @@ func (s *Server) ImportLegacyPlans(ctx context.Context, req oapi.ImportLegacyPla
 	svc := s.planSvc()
 	if svc == nil {
 		return nil, planNotConfigured()
+	}
+	// A real import writes plan records, so it registers/reopens the project;
+	// a report-only dry run stays read-only.
+	if req.Body == nil || !req.Body.ReportOnly {
+		req.ProjectId = s.ensureExplicitProjectID(req.ProjectId)
 	}
 	root := s.resolvePlanRoot(req.ProjectId)
 	if root == "" {
@@ -426,6 +435,9 @@ func (s *Server) CreatePlan(ctx context.Context, req oapi.CreatePlanRequestObjec
 	if projectID == "" {
 		return oapi.CreatePlan400JSONResponse{BadRequestJSONResponse: oapi.BadRequestJSONResponse{Error: "project_id: project_id is required"}}, nil
 	}
+	// Zero-touch: register an unknown absolute-path project / reopen a closed one.
+	// A non-absolute unknown id is returned unchanged and still 404s below.
+	projectID = s.ensureExplicitProjectID(projectID)
 	if s.projects != nil {
 		if _, err := s.projects.Get(projectID); err != nil {
 			return oapi.CreatePlan404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "project not found"}}, nil
@@ -844,7 +856,10 @@ func (s *Server) RunPlan(ctx context.Context, req oapi.RunPlanRequestObject) (oa
 // startPlanExecution creates the execution entity for mode and records its id
 // on the plan. The plan Status is already in_progress.
 func (s *Server) startPlanExecution(ctx context.Context, p *planstore.Plan, mode planstore.PlanExecutionMode) error {
-	root := s.resolvePlanRoot(p.ProjectID)
+	// Zero-touch: running a plan reopens a closed project / registers an
+	// unregistered one. The plan's stored ProjectID is never rewritten.
+	projectID := s.ensureExplicitProjectID(p.ProjectID)
+	root := s.resolvePlanRoot(projectID)
 	if root == "" {
 		return errStatus(http.StatusNotFound, "project not found")
 	}
@@ -867,7 +882,7 @@ func (s *Server) startPlanExecution(ctx context.Context, p *planstore.Plan, mode
 		if spawnErr != nil {
 			return spawnErr
 		}
-		s.addPlanMembership(p.ID, p.ProjectID)
+		s.addPlanMembership(p.ID, projectID)
 		return s.beginPlanAgentExecution(ctx, p, mode, sess.ID, sess.ID, root)
 
 	case planstore.PlanModeManual:
@@ -879,7 +894,7 @@ func (s *Server) startPlanExecution(ctx context.Context, p *planstore.Plan, mode
 		if spawnErr != nil {
 			return spawnErr
 		}
-		s.addPlanMembership(p.ID, p.ProjectID)
+		s.addPlanMembership(p.ID, projectID)
 		return s.beginPlanAgentExecution(ctx, p, mode, sess.ID, sess.ID, root)
 
 	default:

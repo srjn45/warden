@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"text/tabwriter"
@@ -118,7 +119,7 @@ func newPlanListCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List plans for a project",
 		Long: "List plans registered in the daemon for a project.\n\n" +
-			"Use --project to specify the project (defaults to the current directory).\n" +
+			"Use --project to specify the project (defaults to the git root of the current directory).\n" +
 			"Filter by lifecycle stage with --status.",
 		Aliases: []string{"ls"},
 		Args:    cobra.NoArgs,
@@ -142,7 +143,7 @@ func newPlanListCmd() *cobra.Command {
 			return printPlanTable(cmd.OutOrStdout(), plans)
 		},
 	}
-	cmd.Flags().String("project", "", "project ID (default: current directory)")
+	cmd.Flags().String("project", "", "project ID (default: git root of the current directory)")
 	cmd.Flags().String("status", "", "filter by status: pending|in_progress|completed|archived")
 	cmd.Flags().Bool("json", false, "output as JSON")
 	return cmd
@@ -194,7 +195,7 @@ func newPlanCreateCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().String("project", "", "project ID (default: current directory)")
+	cmd.Flags().String("project", "", "project ID (default: git root of the current directory)")
 	cmd.Flags().String("name", "", "plan name")
 	cmd.Flags().String("goal", "", "what the plan is trying to achieve")
 	cmd.Flags().StringArray("task", nil, "task as id:prompt or id@dep1,dep2:prompt (repeatable; skip interactive prompt)")
@@ -499,7 +500,7 @@ func newPlanImportCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().String("project", "", "project ID (default: current directory)")
+	cmd.Flags().String("project", "", "project ID (default: git root of the current directory)")
 	return cmd
 }
 
@@ -547,7 +548,7 @@ func newPlanImportLegacyCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().String("project", "", "project ID (default: current directory)")
+	cmd.Flags().String("project", "", "project ID (default: git root of the current directory)")
 	cmd.Flags().Bool("report", false, "classify without mutating ScrivaDB")
 	cmd.Flags().Bool("json", false, "output as JSON")
 	return cmd
@@ -598,7 +599,7 @@ func newPlanScanCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().String("project", "", "project ID (default: current directory)")
+	cmd.Flags().String("project", "", "project ID (default: git root of the current directory)")
 	cmd.Flags().Bool("migrate-flat", false, "move flat plans/*.yaml files into plans/pending/ with git mv + commit")
 	cmd.Flags().Bool("assess", false, "run brain-assisted progress assessment for in_progress plans")
 	cmd.Flags().Bool("json", false, "output as JSON")
@@ -632,7 +633,7 @@ func newPlanStatusCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().String("project", "", "project ID (default: current directory)")
+	cmd.Flags().String("project", "", "project ID (default: git root of the current directory)")
 	return cmd
 }
 
@@ -844,7 +845,7 @@ func newPlanAssessCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().String("project", "", "project ID (default: current directory)")
+	cmd.Flags().String("project", "", "project ID (default: git root of the current directory)")
 	return cmd
 }
 
@@ -957,23 +958,50 @@ func newPlanCompleteCmd() *cobra.Command {
 	return cmd
 }
 
-// planProjectFlag returns --project, defaulting to the current directory.
+// planProjectFlag returns --project, defaulting to the launch dir's project id
+// (git root; linked worktree -> parent repo root), same as `warden start`.
 func planProjectFlag(cmd *cobra.Command) (string, error) {
 	projectID, _ := cmd.Flags().GetString("project")
 	if projectID != "" {
 		return projectID, nil
 	}
-	return resolveProjectID(cmd)
+	return projectIDForDir("")
 }
 
-// resolveProjectID returns the project ID from the current directory (cwd).
-// For local projects warden uses the absolute path as the project ID.
-func resolveProjectID(_ *cobra.Command) (string, error) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("get working directory: %w", err)
+// projectIDForDir returns the project id to send for a launch from dir: the
+// git repository root (a linked worktree maps to its parent repository root),
+// or dir itself when it is not inside a git repository. Shared by agent spawn
+// and pipeline create so both default --project identically. dir "" means cwd.
+func projectIDForDir(dir string) (string, error) {
+	if dir == "" {
+		wd, err := os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("get working directory: %w", err)
+		}
+		dir = wd
 	}
-	return cwd, nil
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return "", err
+	}
+	if st, err := os.Stat(abs); err == nil && !st.IsDir() {
+		abs = filepath.Dir(abs) // a file path (e.g. a spec) resolves from its directory
+	}
+	// --git-common-dir is the main repo's .git for both the main checkout and any
+	// linked worktree, so its parent is the repo root either way.
+	out, err := exec.Command("git", "-C", abs, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
+	if err == nil {
+		common := strings.TrimSpace(string(out))
+		if filepath.Base(common) == ".git" {
+			return filepath.Dir(common), nil
+		}
+	}
+	if out, err := exec.Command("git", "-C", abs, "rev-parse", "--show-toplevel").Output(); err == nil {
+		if top := strings.TrimSpace(string(out)); top != "" {
+			return top, nil
+		}
+	}
+	return abs, nil
 }
 
 // resolveProjectRoot returns the filesystem root for a project. For a local

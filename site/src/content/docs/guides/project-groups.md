@@ -9,13 +9,15 @@ Project groups are a lightweight organizational layer above projects: a named co
 
 A **project** in warden is one repo root — the main checkout path, or a remote URL. Every agent running in any worktree of that repo shares the same project id. Pipelines carry a `project_id` back-ref too, so the Cockpit and web grid can group all the moving pieces for a repo in one place.
 
-Projects are registered the first time you open them. They are never hard-deleted — closing a project hibernates it (agents archived but restorable) and hides it from the active surfaces; reopening flips it back.
+Projects register themselves. Whenever you launch an agent, pipeline or terminal — or create or run a plan — in a directory, the daemon registers that directory's project as open — or reopens it if it was closed. `.worktrees/<name>` checkouts normalize to the parent repo root, and an already-open project is left untouched (settings, groups and plans preserved). The CLI defaults `--project` to the git root of `--dir` (or the cwd); `warden pipeline create` uses the git root of `--repo`, else the spec file's directory, else the cwd, unless the YAML spec sets `project_id`. An explicit `--project` always wins.
+
+So `warden projects open-local`, `open-remote` and `open` are an optional convenience, not a prerequisite. Projects are never hard-deleted — closing a project hibernates it (agents archived but restorable) and hides it from the active surfaces; reopening flips it back.
 
 ## Creating and managing projects
 
 ### Via CLI
 
-Manage registered projects with the `warden projects` command:
+Manage registered projects with the `warden projects` command (optional — launching work in a directory registers it for you):
 
 ```sh
 # Register an existing local directory

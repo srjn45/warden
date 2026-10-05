@@ -1237,7 +1237,11 @@ Purely additive: it reuses the existing preset store, the prompt-template store,
 
 ### `warden projects` — manage registered projects
 
-Manage first-class daemon projects (checkout roots or remote repos):
+Manage first-class daemon projects (checkout roots or remote repos). Projects register
+themselves: launching an agent, pipeline or terminal, or creating/running a plan, in a directory auto-registers its
+project as open (or reopens it if closed; `.worktrees/` checkouts map to the parent repo),
+so `open` / `open-local` / `open-remote` are an optional convenience, not a prerequisite —
+and `close` still works (a closed project reopens on the next launch in it).
 
 ```sh
 warden projects list                         # list all registered projects (alias: ls)

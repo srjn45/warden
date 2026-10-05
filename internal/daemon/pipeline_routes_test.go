@@ -77,9 +77,12 @@ func TestPipelineCreateStampsProjectAndMembership(t *testing.T) {
 	p3 := createPipeline(t, ts.URL, `{"spec":"name: p3\nrepo: `+projectDir+`\njobs:\n  - id: a\n    prompt: go\n    worktree: none\n"}`)
 	require.Equal(t, proj.ID, p3.ProjectID)
 
-	// 4. No match and nothing explicit → project-less, no membership.
-	pNone := createPipeline(t, ts.URL, `{"spec":"name: p4\nrepo: /nowhere\njobs:\n  - id: a\n    prompt: go\n    worktree: none\n"}`)
-	require.Equal(t, "", pNone.ProjectID)
+	// 4. No match and nothing explicit → the repo is auto-registered as a new open project.
+	pAuto := createPipeline(t, ts.URL, `{"spec":"name: p4\nrepo: /nowhere\njobs:\n  - id: a\n    prompt: go\n    worktree: none\n"}`)
+	require.Equal(t, "/nowhere", pAuto.ProjectID)
+	autoProj, err := projs.Get("/nowhere")
+	require.NoError(t, err)
+	require.Equal(t, []string{"p4"}, autoProj.Pipelines)
 
 	// All stamped pipelines appear on the project's authoritative pipelines[] list.
 	got, err := projs.Get(proj.ID)
@@ -603,4 +606,26 @@ func TestGetPipelineJobAgentIDRoundtrip(t *testing.T) {
 	if job["session_id"] != agentID {
 		t.Errorf("session_id: want %q (backward-compat mirror), got %v", agentID, job["session_id"])
 	}
+}
+
+func TestPipelineExplicitProjectIDReopensClosedProject(t *testing.T) {
+	ts, _, projs := newPipeServerWithProjects(t)
+	defer ts.Close()
+
+	dir := t.TempDir()
+	_, err := projs.OpenProject(dir, "keep-me", dir)
+	require.NoError(t, err)
+	_, err = projs.AddPlanToProject(dir, "plan-1")
+	require.NoError(t, err)
+	_, err = projs.CloseProject(dir)
+	require.NoError(t, err)
+
+	p := createPipeline(t, ts.URL, `{"project_id":"`+dir+`","spec":"name: pe\nrepo: /elsewhere\njobs:\n  - id: a\n    prompt: go\n    worktree: none\n"}`)
+	require.Equal(t, dir, p.ProjectID)
+	got, err := projs.Get(dir)
+	require.NoError(t, err)
+	require.Equal(t, "open", string(got.Status))
+	require.Equal(t, "keep-me", got.Name)
+	require.Equal(t, []string{"plan-1"}, got.Plans)
+	require.Contains(t, got.Pipelines, "pe")
 }

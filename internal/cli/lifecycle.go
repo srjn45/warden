@@ -180,6 +180,11 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 				kind, _ := cmd.Flags().GetString("kind")
 				tagsFlag, _ := cmd.Flags().GetString("tags")
 				projectID, _ := cmd.Flags().GetString("project")
+				if projectID == "" {
+					if projectID, err = projectIDForDir(dir); err != nil {
+						return err
+					}
+				}
 				planID, _ := cmd.Flags().GetString("plan")
 				s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{Name: name, Prompt: prompt, Cwd: dir, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model, AiCli: aiCli, Backend: aiCli, Kind: kind, Tags: parseTags(tagsFlag), Role: roleName, Tier: tier, Task: taskName, ProjectID: projectID, PlanID: planID, ParentID: os.Getenv("WARDEN_SESSION_ID")})
 				if err != nil {
@@ -229,6 +234,11 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 			aiCli := resolveAiCliFlag(cmd)
 			tagsFlag, _ := cmd.Flags().GetString("tags")
 			projectID, _ := cmd.Flags().GetString("project")
+			if projectID == "" && repo != "" {
+				if projectID, err = projectIDForDir(repo); err != nil {
+					return err
+				}
+			}
 			planID, _ := cmd.Flags().GetString("plan")
 			s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{
 				Name: name, Type: typ, Ticket: ticket, Repo: repo, Branch: branch, PR: pr, Worktree: worktree, InRepo: inRepo, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model, AiCli: aiCli, Backend: aiCli, Tags: parseTags(tagsFlag), ForkFrom: forkFrom, Role: roleName, Tier: tier, Task: taskName, ProjectID: projectID, PlanID: planID, ParentID: os.Getenv("WARDEN_SESSION_ID"),
@@ -270,7 +280,7 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 	cmd.Flags().String("prompt-template", "", "fill a saved prompt template (see `warden prompt-template`) as the spawn prompt; a positional prompt still wins")
 	cmd.Flags().StringArray("set", nil, "supply a prompt-template variable as VAR=value (repeatable, e.g. --set FILE=foo.go --set X=y)")
 	cmd.Flags().String("tags", "", "comma-separated labels for grouping/filtering (e.g. --tags backend,urgent); searchable and filterable via `warden ls --tag`")
-	cmd.Flags().String("project", "", "id of the daemon project this agent joins (its canonical path or remote URL, from `warden projects list`); stamps membership explicitly instead of leaving the daemon to path-match the launch dir. Empty = path-match")
+	cmd.Flags().String("project", "", "id of the daemon project this agent joins (its canonical path or remote URL, from `warden projects list`); stamps membership explicitly instead of leaving the daemon to path-match the launch dir. Empty = the git repository root of the launch directory (the daemon auto-registers it)")
 	cmd.Flags().String("plan", "", "optional planstore plan id in the same project (plan-<8hex>); empty = planless agent. A non-empty value must name an existing plan belonging to the resolved project")
 	cmd.Flags().String("role", "", "REQUIRED — built-in agent role: general | orchestrator | planner | worker (legacy aliases implementer/auto-merger/reviewer resolve to worker). Injects the role's persona as a system-prompt addendum and applies its default flags. See `warden role list`")
 	cmd.Flags().String("tier", "", "model tier for the quota-balanced resolver that picks the AI CLI+model: tier-1|tier-2|tier-3. Empty derives the tier from --task, then --role (--role is required, so this always has a role to derive from). An explicit --aicli/--model still wins over the resolver")

@@ -1018,7 +1018,9 @@ warden project memory --path                # just the resolved path (scriptable
 
 ### `warden projects` (manage registered projects)
 
-Manage first-class daemon projects:
+Manage first-class daemon projects.
+
+**Zero-touch registration.** You do not need to open a project before using it. Whenever an agent, pipeline, terminal or plan (created or run) targets a directory, the daemon registers that directory's project as open — or reopens it if you had closed it. `.worktrees/<name>` checkouts normalize to the parent repo root. Already-open projects are left untouched (settings, groups and plans are preserved). With no `--project`, `warden start` / `warden agent start` send the git root of `--dir` (or the cwd; `--repo` on the managed path) and `warden pipeline create` uses the git root of `--repo`, else the spec file's directory, else the cwd (a YAML `project_id` wins); plan commands default to the same git root; explicit `--project` always wins. `projects open` / `open-local` / `open-remote` are therefore optional conveniences, and `projects close` still works — a closed project simply reopens on the next launch in it.
 
 ```sh
 warden projects list                         # list registered projects (status, paths)

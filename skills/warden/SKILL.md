@@ -385,4 +385,4 @@ assess_plan { project_id: "<id>", plan_id: "<id>" } # brain reconstructs task pr
 - **Mutate definitions only while pending** — `update_plan` / `wd plan update|edit|task` return 409 on non-pending plans. Do not invent workarounds (editing replicas, raw DB writes).
 - **Use `run_plan` / `complete_plan` / `archive_plan` instead of raw `git mv`** — lifecycle is a ScrivaDB field update.
 - **`assess_plan` is opt-in** — never call it automatically on every import; it spawns a brain Consultor and takes time.
-- **`project_id` for local projects is the absolute path** — e.g. `"/home/user/my-repo"`. Pass the `cwd` of the project, not a short name.
+- **`project_id` for local projects is the absolute path** — e.g. `"/home/user/my-repo"`. Pass the `cwd` of the project, not a short name. Projects auto-register on launch: spawning an agent/pipeline/terminal, or creating/running a plan, in a directory registers (or reopens, if closed) its project, so no `projects open*` step is needed first.

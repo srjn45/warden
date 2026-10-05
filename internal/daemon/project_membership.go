@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"log/slog"
+	"path/filepath"
 
 	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/pipeline"
@@ -22,14 +23,17 @@ import (
 // location is path-matched against the OPEN projects (the daemon owns the projects
 // store, so this resolution lives here, not in the store-free lifecycle). Returns
 // "" when no projects store is wired or no open project matches — the agent is
-// then project-less and joins no membership list. A closed (hibernated) project is
-// never auto-matched: opening it is what re-associates its members.
+// then project-less and joins no membership list. When no open project matches, the
+// launch directory is auto-registered (or a closed/hibernated project there is
+// reopened) via ensureOpenProject, so the agent always lands under a project.
 func (s *Server) resolveProjectID(sess *agentstore.Agent) string {
 	if sess == nil {
 		return ""
 	}
 	if sess.ProjectID != "" {
-		return sess.ProjectID // explicit request param — wins over path-match
+		// explicit request param — wins over path-match, but a closed/unregistered
+		// project it names is still reopened/registered.
+		return s.ensureExplicitProjectID(sess.ProjectID)
 	}
 	if s.projects == nil {
 		return ""
@@ -49,16 +53,102 @@ func (s *Server) resolveProjectID(sess *agentstore.Agent) string {
 			return p.ID
 		}
 	}
-	return ""
+	return s.ensureProjectID(projectSourceDir(sess), sess.ID)
+}
+
+// ensureOpenProject guarantees an OPEN project exists for dir (zero-touch
+// registration). dir is normalized so a .worktrees/<name> checkout maps to its
+// parent repo root. A missing project is created open (ID=Path=dir, Name=base);
+// a closed one is reopened keeping its name, settings, groups, plans and member
+// lists; an already-open one is returned untouched with no write. Returns nil, nil
+// when no projects store is wired or dir is empty.
+func (s *Server) ensureOpenProject(dir string) (*projectstore.Project, error) {
+	if s.projects == nil || dir == "" {
+		return nil, nil
+	}
+	dir = normalizeProjectDir(dir)
+	if dir == "" {
+		return nil, nil
+	}
+	projs, err := s.projects.List()
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range projs {
+		if p.ID != dir && p.Path != dir {
+			continue
+		}
+		if projectstore.NormalizeStatus(p.Status) == projectstore.StatusOpen {
+			return &p, nil
+		}
+		// Empty name/path leave the stored values intact on reopen.
+		reopened, err := s.projects.OpenProject(p.ID, "", "")
+		if err != nil {
+			return nil, err
+		}
+		return &reopened, nil
+	}
+	created, err := s.projects.OpenProject(dir, filepath.Base(dir), dir)
+	if err != nil {
+		return nil, err
+	}
+	return &created, nil
+}
+
+// ensureExplicitProjectID honors an explicit project id (request param) while
+// still guaranteeing the project is open: an existing project matching the id (or
+// its Path) is reopened if closed, preserving all fields; a missing one whose id is
+// an absolute filesystem path is registered via ensureOpenProject (returning its
+// normalized id); any other unknown id is returned unchanged.
+func (s *Server) ensureExplicitProjectID(id string) string {
+	if s.projects == nil || id == "" {
+		return id
+	}
+	projs, err := s.projects.List()
+	if err != nil {
+		slog.Warn("daemon: project membership: list projects failed", "project", id, "err", err)
+		return id
+	}
+	for _, p := range projs {
+		if p.ID != id && p.Path != id {
+			continue
+		}
+		if projectstore.NormalizeStatus(p.Status) != projectstore.StatusOpen {
+			if _, err := s.projects.OpenProject(p.ID, "", ""); err != nil {
+				slog.Warn("daemon: project reopen failed", "project", p.ID, "err", err)
+			}
+		}
+		return p.ID
+	}
+	if filepath.IsAbs(id) {
+		if got := s.ensureProjectID(id, id); got != "" {
+			return got
+		}
+	}
+	return id
+}
+
+// ensureProjectID is the best-effort id form of ensureOpenProject for the
+// resolve* fallbacks: any failure is logged and yields "" (project-less).
+func (s *Server) ensureProjectID(dir, owner string) string {
+	p, err := s.ensureOpenProject(dir)
+	if err != nil {
+		slog.Warn("daemon: project auto-register failed", "owner", owner, "dir", dir, "err", err)
+		return ""
+	}
+	if p == nil {
+		return ""
+	}
+	return p.ID
 }
 
 // stampProjectMembership resolves the owning project for a not-yet-inserted agent
 // and stamps sess.ProjectID with it, so the back-ref persists in the same store
-// write as the insert. It only ever fills an empty id (an explicit request id or a
-// prior stamp is left untouched) and is a no-op when no project resolves. Call
+// write as the insert. An explicit id is kept (only normalized/reopened via
+// ensureExplicitProjectID); an empty one is path-resolved, and nothing resolving is a no-op. Call
 // BEFORE store.Insert; pair it with addProjectMembership AFTER a successful insert.
 func (s *Server) stampProjectMembership(sess *agentstore.Agent) {
-	if sess == nil || sess.ProjectID != "" {
+	if sess == nil {
 		return
 	}
 	sess.ProjectID = s.resolveProjectID(sess)
@@ -99,8 +189,9 @@ func (s *Server) removeProjectMembership(sess *agentstore.Agent) {
 // The caller has already applied the higher-precedence sources (an explicit
 // request-body project_id, then the YAML spec's project_id); this only fills the
 // still-empty case by location. Returns "" when no projects store is wired or no
-// open project matches — the pipeline is then project-less and joins no membership
-// list. A closed (hibernated) project is never auto-matched.
+// open project matches and no repo is given — the pipeline is then project-less and joins no membership
+// list. With no open match the repo is auto-registered (or its closed project
+// reopened) via ensureOpenProject.
 func (s *Server) resolvePipelineProjectID(p *pipeline.Pipeline) string {
 	if p == nil || s.projects == nil {
 		return ""
@@ -122,7 +213,7 @@ func (s *Server) resolvePipelineProjectID(p *pipeline.Pipeline) string {
 			return proj.ID
 		}
 	}
-	return ""
+	return s.ensureProjectID(dir, p.ID)
 }
 
 // addPipelineMembership appends a created pipeline to its project's authoritative
