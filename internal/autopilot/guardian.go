@@ -159,6 +159,7 @@ func (c *Controller) recover(r *run) {
 	r.backoffStage = 0
 	r.backoffNextRetry = time.Time{}
 	r.backoffLastErr = ""
+	r.backoffKind = ""
 	r.tried = map[string]bool{}
 }
 
@@ -220,7 +221,7 @@ func (c *Controller) escalate(ctx context.Context, gr GuardianRuntime, r *run, n
 func (c *Controller) rotateStep(ctx context.Context, gr GuardianRuntime, r *run, now time.Time) {
 	sel := c.selectBrain(r.tried)
 	if !sel.OK {
-		c.enterBackoff(gr, r, now, sel.GateOnly)
+		c.enterBackoff(gr, r, now, KindNoBackendSelectable, sel.GateOnly, nil)
 		return
 	}
 	r.tried[sel.Backend] = true
@@ -229,7 +230,7 @@ func (c *Controller) rotateStep(ctx context.Context, gr GuardianRuntime, r *run,
 		// off; the next tick re-selects with this backend already marked tried.
 		slog.Warn("autopilot guardian: rotate spawn failed", "run", r.runID, "backend", sel.Backend, "err", err)
 		r.state = StateDegraded
-		c.enterBackoff(gr, r, now, false)
+		c.enterBackoff(gr, r, now, classifySpawnError(err), false, err)
 		return
 	}
 	r.tier = sel.Tier
@@ -243,7 +244,7 @@ func (c *Controller) rotateStep(ctx context.Context, gr GuardianRuntime, r *run,
 // guardian.backoff_max and floored by the earliest known backend reset so the run
 // climbs back up the ladder the moment a backend frees (§7). gateOnly emits the
 // distinct "flip allow_pay_per_use" notification.
-func (c *Controller) enterBackoff(gr GuardianRuntime, r *run, now time.Time, gateOnly bool) {
+func (c *Controller) enterBackoff(gr GuardianRuntime, r *run, now time.Time, kind FailureKind, gateOnly bool, cause error) {
 	r.healStage = stageBackoff
 	r.state = StateDegraded
 	r.backoffStage++
@@ -258,14 +259,27 @@ func (c *Controller) enterBackoff(gr GuardianRuntime, r *run, now time.Time, gat
 	}
 	r.backoffNextRetry = next
 	r.healNextAt = next
+	r.backoffKind = kind
 
-	if gateOnly {
+	switch {
+	case cause != nil:
+		// A real spawn/rotate error: report it verbatim, never as a rate limit.
+		r.backoffLastErr = fmt.Sprintf("%s: %v — backing off until %s", kind, cause, next.Format(time.RFC3339))
+	case gateOnly:
 		r.backoffLastErr = "only pay-per-use backends remain; set autopilot.brain.allow_pay_per_use to continue"
-		c.notify(gr, r, "autopilot brain stalled", r.backoffLastErr)
-		return
+	default:
+		r.backoffLastErr = "all backends rate-limited — backing off until " + next.Format(time.RFC3339)
 	}
-	r.backoffLastErr = "all backends rate-limited — backing off until " + next.Format(time.RFC3339)
-	c.notify(gr, r, "autopilot brain stalled", r.backoffLastErr)
+	slog.Warn("autopilot guardian: entering backoff", "run", r.runID, "kind", string(kind), "detail", r.backoffLastErr)
+	gr.AuditRunEvent(context.Background(), r.runID, "autopilot.backoff", brainAgentID(r), string(kind)+": "+r.backoffLastErr)
+	c.notify(gr, r, "autopilot brain stalled ("+string(kind)+")", r.backoffLastErr)
+}
+
+func brainAgentID(r *run) string {
+	if r.brain == nil {
+		return ""
+	}
+	return r.brain.AgentID
 }
 
 // plannedRotate hot-swaps a healthy brain whose context has reached the rotate
@@ -315,6 +329,7 @@ func (r *run) backoffStatus() *Backoff {
 		Stage:       r.backoffStage,
 		NextRetryAt: rfc3339OrEmpty(r.backoffNextRetry),
 		LastError:   r.backoffLastErr,
+		Kind:        string(r.backoffKind),
 	}
 }
 

@@ -6480,6 +6480,10 @@ components:
                   stage: { type: integer }
                   next_retry_at: { type: string }
                   last_error: { type: string }
+                  kind:
+                    type: string
+                    enum: [backend_unavailable, no_backend_selectable, definition_error, spawn_error]
+                    description: classified cause of the current backoff
               landed_total: { type: integer }
               guardian_id: { type: string }
               slot_scope: { type: string, description: "stable scope token for manager/guardian slot ids" }
