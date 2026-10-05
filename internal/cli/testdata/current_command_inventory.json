@@ -2916,7 +2916,8 @@
     "use": "show \u003cplan-id\u003e",
     "runnable": true,
     "local_flags": [
-      "json"
+      "json",
+      "watch"
     ],
     "inherited_flags": [
       "addr",
