@@ -11,7 +11,7 @@ A **project** in warden is one repo root — the main checkout path, or a remote
 
 Projects register themselves. Whenever you launch an agent, pipeline or terminal in a directory, the daemon registers that directory's project as open — or reopens it if it was closed. `.worktrees/<name>` checkouts normalize to the parent repo root, and an already-open project is left untouched (settings, groups and plans preserved). The CLI defaults `--project` to the git root of `--dir` (or the cwd); `warden pipeline create` uses the git root of `--repo`, else the spec file's directory, else the cwd, unless the YAML spec sets `project_id`. An explicit `--project` always wins.
 
-So `warden projects open-local`, `open-remote` and `open` are an optional convenience, not a prerequisite. They are never hard-deleted — closing a project hibernates it (agents archived but restorable) and hides it from the active surfaces; reopening flips it back.
+So `warden projects open-local`, `open-remote` and `open` are an optional convenience, not a prerequisite. Projects are never hard-deleted — closing a project hibernates it (agents archived but restorable) and hides it from the active surfaces; reopening flips it back.
 
 ## Creating and managing projects
 
