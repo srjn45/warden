@@ -345,11 +345,14 @@ type Config struct {
 	// WorkspacePath is the directory the "Open remote project" flow (TUI/daemon
 	// `POST /fs/clone`) clones a GitHub/GitLab URL into, as <workspace_path>/
 	// <repo-name>. Values: absolute path.
-	WorkspacePath         string          `yaml:"workspace_path"`
-	ApprovalsEnabled      bool            `yaml:"approvals"`
-	AutoApprove           approval.Policy `yaml:"auto_approve"`
-	DefaultPermissionMode string          `yaml:"default_permission_mode"`
-	MetricsEnabled        bool            `yaml:"metrics"`
+	WorkspacePath    string          `yaml:"workspace_path"`
+	ApprovalsEnabled bool            `yaml:"approvals"`
+	AutoApprove      approval.Policy `yaml:"auto_approve"`
+	// TrustWorkspace answers an AI CLI's launch-time "do you trust this folder?"
+	// prompt automatically for every agent warden launches (default true).
+	TrustWorkspace        bool   `yaml:"trust_workspace"`
+	DefaultPermissionMode string `yaml:"default_permission_mode"`
+	MetricsEnabled        bool   `yaml:"metrics"`
 	// AllowNonLoopback is DEPRECATED and inert (audit #7): it no longer bypasses
 	// authentication. A bearer token is mandatory for any non-loopback bind. The
 	// field is kept so existing configs still parse; setting it true only logs a
@@ -428,6 +431,7 @@ var schema = []setting{
 	{"claude_projects_dir", "Claude Code transcript root. Values: absolute path"},
 	{"workspace_path", "Directory the \"Open remote project\" flow clones a GitHub/GitLab URL into, as <workspace_path>/<repo-name>. Values: absolute path"},
 	{"approvals", "Enable the approvals inbox (parse + answer permission prompts). Values: true | false"},
+	{"trust_workspace", "Automatically answer an AI CLI's launch-time \"do you trust this folder?\" prompt with yes, for every agent warden launches (Claude, Codex, Antigravity; Cursor is launched with --trust). Independent of auto_approve: launching an agent in a directory is the operator's choice of that directory. Set false to leave the prompt for the approvals inbox. Values: true | false"},
 	{"auto_approve", "Auto-approve policy. With NO rules configured this is the simple on/off toggle (enabled answers every recognized, non-destructive prompt). With rules, the daemon answers a recognized prompt only when it matches an allow rule, matches no deny rule, and is not on the built-in destructive deny-list (which always wins). Sub-keys: enabled (master switch), allow_sticky (press \"don't ask again\" options), rules.allow / rules.deny (lists of {tool, pattern, regex, paths} — tool/pattern are case-insensitive, regex is a Go regexp), max_repeats (circuit breaker: how many times the IDENTICAL prompt may be consecutively approved for one agent before auto-approve halts and escalates to a human; 0 = default 10, negative = off), agents (per-agent overrides keyed by agent name or id, each its own {enabled, allow_sticky, rules, max_repeats} block that replaces the default for that agent)."},
 	{"default_permission_mode", "Default permission mode for new agents.\nValues: auto | default | acceptEdits | bypassPermissions | dontAsk | plan"},
 	{"metrics", "Record per-agent metrics to disk. Values: true | false"},
@@ -491,6 +495,7 @@ func defaults() Config {
 		ClaudeProjectsDir: defaultClaudeProjectsDir(),
 		WorkspacePath:     defaultWorkspaceDir(),
 		ApprovalsEnabled:  true,
+		TrustWorkspace:    true,
 		AutoApprove: approval.Policy{
 			Enabled:     false,
 			AllowSticky: false,

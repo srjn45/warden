@@ -79,6 +79,13 @@ func codexSandbox(mode string) (sandbox string, neverApprove bool) {
 	}
 }
 
+// codexNoUpdatePrompt turns off Codex's startup update check for a warden-launched
+// TUI. When a newer release exists that check opens a blocking menu before
+// anything else ("1. Update now / 2. Skip / 3. Skip until next version") whose
+// highlighted default runs the installer — an unattended agent would sit on it
+// forever. The operator still updates Codex the normal way, outside warden.
+const codexNoUpdatePrompt = " -c check_for_update_on_startup=false"
+
 // LaunchCmd builds the interactive `codex` (TUI) invocation for a tmux pane. Model
 // is shaped as Codex's `-m` and omitted when empty so the config-default provider
 // applies (BYO config; the Claude default alias never resolves here, same call as
@@ -101,7 +108,7 @@ func (Codex) LaunchCmd(o agentbackend.LaunchOpts) string {
 		}
 	}
 	cmd += codexNetworkFlags(o.Mode, o.Network)
-	return cmd
+	return cmd + codexNoUpdatePrompt
 }
 
 // codexNetworkFlags appends Codex's sandbox_workspace_write.network_access
@@ -137,7 +144,7 @@ func (Codex) ResumeCmd(o agentbackend.ResumeOpts) (string, bool) {
 		}
 	}
 	cmd += codexNetworkFlags(o.Mode, o.Network)
-	return cmd, true
+	return cmd + codexNoUpdatePrompt, true
 }
 
 // ForkCmd implements agentbackend.SessionForker. It forks the EXPLICIT source
@@ -173,7 +180,7 @@ func (Codex) ForkCmd(o agentbackend.ForkOpts) (string, bool) {
 		}
 	}
 	cmd += codexNetworkFlags(o.Mode, o.Network)
-	return cmd, true
+	return cmd + codexNoUpdatePrompt, true
 }
 
 // ReviewCmd implements agentbackend.Reviewer: it returns the argv for a one-shot
@@ -815,11 +822,72 @@ func (Codex) ParseApproval(pane string) (*agentbackend.Approval, bool) {
 			break
 		}
 	}
-	// The header gates recognition: without it this is not a Codex approval.
+	// The header gates recognition: without it this is not a command approval —
+	// but it may be the launch-time folder-trust prompt, which has its own header.
 	if a.Question == "" {
-		return nil, false
+		return codexTrustApproval(lines, start, a)
 	}
 	a.AffirmativeIdx, a.AffirmativeSticky = codexAffirmative(opts)
+	return a, true
+}
+
+// codexTrustQuestion opens the body of Codex's folder-trust prompt.
+const codexTrustQuestion = "Trust this folder?"
+
+// codexTrustApproval recognizes the folder-trust prompt Codex shows when launched
+// in a directory it has not trusted, before any model call. Captured live
+// (codex v0.159.2):
+//
+//	  Folder access
+//	  /path/to/workdir
+//
+//	  Trust this folder? Codex can read, edit, and run files here, …
+//	  decision will be saved.
+//
+//	› 1. Trust and continue
+//	  2. Quit
+//
+//	  enter continue · esc quit
+//
+// a carries the option run ParseApproval already extracted; start is its first
+// line. Recognition needs both the "Folder access" title and the "Trust this
+// folder?" body above the options. Unlike the command menu the digits here only
+// move the cursor (Enter confirms), so the prompt is answered as a cursor menu.
+// The decision is saved per folder, so the affirmative is a standing grant.
+func codexTrustApproval(lines []string, start int, a *agentbackend.Approval) (*agentbackend.Approval, bool) {
+	title, question := -1, false
+	for i := start - 1; i >= 0 && i >= start-14; i-- {
+		t := strings.TrimSpace(lines[i])
+		if strings.HasPrefix(t, codexTrustQuestion) {
+			question = true
+		}
+		if t == "Folder access" {
+			title = i
+			break
+		}
+	}
+	if title < 0 || !question {
+		return nil, false
+	}
+	for i := title + 1; i < start; i++ {
+		if t := strings.TrimSpace(lines[i]); t != "" {
+			a.Action = t
+			break
+		}
+	}
+	a.Question = codexTrustQuestion
+	a.Kind = agentbackend.ApprovalKindTrust
+	a.Navigate = true
+	a.AffirmativeSticky = true
+	for i, o := range a.Options {
+		if strings.HasPrefix(strings.ToLower(o), "trust") {
+			a.AffirmativeIdx = i + 1
+			break
+		}
+	}
+	if a.AffirmativeIdx == 0 {
+		return nil, false
+	}
 	return a, true
 }
 

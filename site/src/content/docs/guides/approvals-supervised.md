@@ -88,6 +88,16 @@ auto_approve:
 
 Tool permissions get a ≤1.5s fast-tier call; strategic questions get a ≤10s thinking-tier call. A decision is only applied at confidence ≥ 0.8; on timeout, error, reject, or low confidence it fails open and the prompt goes to you (or the brain agent). The destructive deny-list and the circuit breaker always run before the model, so it can never approve something they would block. The daemon reuses its existing Claude `-p` runner for both tiers.
 
+## Workspace-trust prompts
+
+Claude, Codex, Antigravity and Cursor each ask "do you trust this folder?" the first time they start in a directory — which, for warden, is every fresh worktree. warden answers that prompt "yes" automatically for every agent, independently of auto-approve: you chose the directory when you launched the agent there, and nothing the agent did is being approved (the prompt appears before its first turn). Each answer is recorded as a `workspace_trusted` event on the agent.
+
+```yaml
+trust_workspace: true   # default; false leaves the prompt in the approvals inbox
+```
+
+With `trust_workspace: false` the prompt is treated like any other standing grant: it shows in the approvals inbox, and auto-approve only answers it when `allow_sticky` is on.
+
 ## The circuit breaker
 
 Auto-approving a prompt should unblock the agent. When the **identical** prompt keeps re-appearing after being approved — the agent is re-running a failing command (expired credentials, a broken login) and re-asking forever — approving again just burns CPU and tokens. The breaker halts auto-approval after `max_repeats` consecutive identical approvals (default **10**), records an `approval_loop` anomaly on the agent, fires your notifier, and leaves the prompt unanswered so the agent surfaces as `waiting_for_input`.
