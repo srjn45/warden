@@ -48,7 +48,7 @@ Common settings (run `warden config` for the complete, live list):
 | `tokens.guard` | `true` | Context-size guard master switch (gauge + alert + auto-compact) |
 | `tokens.warn_alert` | `true` | Fire a desktop notification once per upward crossing into warning/critical |
 | `tokens.auto_compact` | `true` | Auto-send `/compact` when an agent is `critical` and idle/waiting |
-| `tokens.force_compact` | `false` | Interrupt a `critical` **busy** agent, `/compact`, then resume it (destructive). Per-agent override via `warden agent compact set` |
+| `tokens.force_compact` | `false` | Interrupt a `critical` **busy** agent, `/compact`, then resume it (destructive). Per-agent override via `warden agent set <id> compact` |
 | `tokens.compact_resume_prompt` | _(built-in)_ | Resume message sent to a force-compacted agent once compaction lands |
 | `tokens.warn` | `200000` | Warning threshold in context tokens (inclusive) |
 | `tokens.critical` | `400000` | Critical threshold in context tokens (inclusive) — the auto-`/compact` band |

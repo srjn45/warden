@@ -15,7 +15,7 @@
 binary (`warden`, aliased `wd`) that spawns, monitors, and tears down coding-agent
 sessions — each in its own isolated git worktree — while tracking exactly what every agent
 costs and how many tokens its lifecycle features keep out of context. It drives multiple
-AI CLIs (Claude Code by default — see [AI CLIs](#ai-clis---ai-cli)),
+AI CLIs (Claude Code by default — see [AI CLIs](#ai-clis---aicli)),
 backed by a local daemon and a file-based JSON store: **no database, no SaaS, no telemetry.**
 
 <p align="center">
@@ -103,11 +103,11 @@ Capability highlights from recent releases (full notes on the [releases page](ht
 - **ScrivaDB-canonical Plans** — Plans are first-class ScrivaDB records (goal, tasks, lifecycle, revision, execution evidence). Repository `plans/**/*.{yaml,yml,json}` is an optional inert export via `wd plan sync_to_repo` (YAML default; `--format json` opt-in), never required for create/run/complete, and **not** scanned at daemon startup. JSON replicas are never execution SoT. Use `wd plan create` / `run` / `complete` / `archive` for DB-native work; while **pending**, mutate definitions with `wd plan update` / `edit` / `task` (non-pending → 409 Conflict; see [`docs/specs/2026-10-04-plan-modification-api.md`](docs/specs/2026-10-04-plan-modification-api.md)); `wd plan import-legacy` for one-time YAML cutover; `wd plan backup export|restore` for recovery without Git. Deprecated for one release: `wd plan scan` / `import` / `status` (cannot affect canonical execution after import). Playbooks: [Plans migration](https://srjn45.github.io/warden/guides/plans-migration/), [Using plans](https://srjn45.github.io/warden/guides/using-plans/), [Plan backup](https://srjn45.github.io/warden/guides/plan-backup-restore/), [Plans concepts](https://srjn45.github.io/warden/concepts/plans/), [`docs/MIGRATION-plans-scrivadb.md`](docs/MIGRATION-plans-scrivadb.md). Phase 12 acceptance gate is green ([report](docs/specs/2026-09-30-scrivadb-canonical-plans-acceptance.md)); JSON export [#585](https://github.com/srjn45/warden/issues/585) is opt-in; Hub plan sync [#586](https://github.com/srjn45/warden/issues/586) ships as opt-in explicit Push/Pull/Discover plus read-only remote discovery. Defaults remain offline: no startup calls or background replication, and Hub never replaces merged Git history as code-shipping authority.
 - **Autopilot** — a goal-directed, long-running autonomous mode. Author a named plan under `plans/` (`warden autopilot init --name <name>`), then `warden autopilot run start <name>` (or `warden autopilot enable` for legacy single-plan flows). Each run renders as a **plan-scoped tree** with stable slot ids (`<scope>-autopilot` for the manager, `<scope>-guardian` for the guardian daemon session) — guardian heal-ladder rotation is an in-place **hot-swap** into the same slot, not a new `agent-<hex>` id. A **manager** agent (role `autopilot`) drives **worker** agents (role `worker`, one per task) in isolated worktrees, gates their PRs through CI, and lands them into a **per-plan integration branch** (default `autopilot/<plan-name>`; existing runs on `autopilot/integration` are grandfathered) — all without human intervention, spawning a **resolver** (role `brain`) on demand to unblock a stuck worker. Multiple named runs can be active in one repo concurrently, each with its own branch. Configure CI with `autopilot/**` in workflow `pull_request` triggers so `gate: auto` covers every per-plan branch. The kill switch is `warden autopilot disable`. The switch is **per-repo** — `warden autopilot enable` enables only the current repository (add `--repo <root>` to target another), the enabled set is persisted so repos come back up across a daemon restart, and the manager marks its plan `status: complete` in place when it finishes so a done run is never re-run. See [Autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) and [Autopilot concepts](https://srjn45.github.io/warden/concepts/autopilot/).
 - **Live activity badge** — each agent row in the TUI shows a 3–5 word status badge (`Fixing failing auth tests`) that Fast-Brain refreshes from the agent's pane only while it is changing, at most once per `activity.interval` (default `15s`); a failed decision keeps the previous badge. See [docs/FEATURES.md](docs/FEATURES.md).
-- **Fast-Brain PR titles & bodies** — `warden agent done --create-pr` drafts the PR title and a short what/why body from the task, `git diff --stat` and commit subjects (fast tier first, thinking tier as retry), with per-field fallback to the deterministic title/digest body; an explicit title/body always wins.
+- **Fast-Brain PR titles & bodies** — `warden agent stop <AGENT> --pr` drafts the PR title and a short what/why body from the task, `git diff --stat` and commit subjects (fast tier first, thinking tier as retry), with per-field fallback to the deterministic title/digest body; an explicit title/body always wins.
 - **Backend registry** — warden detects the coding-agent CLIs installed on this machine (`claude`, `codex`, `aider`, …) and persists each with a billing **tier** (`free`/`subscription`/`pay_per_use`/`unclassified`), an **enabled** flag, and at most one **default**. The store is the **single source of truth** — autopilot's cost-tier ladder reads from it. warden's own internal micro-cognition (task classification, summaries, agent naming, commit messages, digest narration, memory curation, REPL planning) runs on **Fast-Brain** — a latency-bounded, fail-open gateway over a headless backend CLI — and is independent of the registry's tiers. Manage it with `warden backend list|rescan|tier|default|enable|disable`, the web **🧩 backends** panel, the TUI Backends page (`b`), or MCP (`list_backends`, `rescan_backends`, `set_backend_tier`, `set_default_backend`). It supersedes the deprecated `autopilot.brain.backends` / `allow_pay_per_use` config (imported once, then ignored). See [Backend registry guide](https://srjn45.github.io/warden/guides/backend-registry/).
 - **Live config hot-reload** — edit `~/.warden/config.yaml` and warden **applies it with no daemon restart**: the autopilot template, `auto_approve` policy, token/context guard (`tokens.*`), `rails.*`, `model_default`, `default_permission_mode`, hint gates, and `notify.*`/webhook all re-apply on the next tick or spawn. A bad edit **keeps the last-good config** and alerts you rather than falling back to defaults; keys that genuinely need a restart (`addr`, `data_dir`, timers, loop cadences) are logged as changed-but-pending. See [Configuration](docs/FEATURES.md#12-configuration-yaml-config-file).
-- **Agent roles (`--role`)** — attach a named, persistent **persona** to an agent at spawn (`warden start … --role worker`) or switch it on a running agent (`warden agent role set <id> worker`, which relaunches to re-inject). Six built-in roles — `general` (default, no persona), `orchestrator`, `planner`, `worker`, `autopilot`, `brain` — each carrying a persona, default spawn flags, and a default model tier (the legacy names `implementer`/`auto-merger`/`reviewer` still work, mapped to `worker`). `warden agent role list` shows the catalog; the TUI new-agent form has a `ctrl+r` role picker and the web **+ New agent** modal a Role dropdown. See [Agent roles](#warden-agent-role-list--warden-agent-role-set).
-- **Tiered model routing (`--task` / `--tier`)** — warden picks each spawn's backend+model by **quota headroom** within a **model tier**, so a fleet spreads across providers instead of hammering one. The tier is resolved with the precedence `explicit --tier > task tier > role default tier > tier-2`: a **task** (`--task architecture`, the *what*, from the task registry) or **role** (`--role planner`, the *who*) derives the tier, or pin it with `--tier tier-1`. Headroom is **per quota scope** (e.g. Cursor `api`/`auto`/`included`), so exhausting one scope no longer blocks sibling models on the same backend. The TUI new-agent form is **tier-first** (`ctrl+t`: `auto` / `tier-1`/`2`/`3` plus a live candidate table); spawn passes the tier to the resolver rather than pinning a backend CLI. A pinned `--ai-cli`/`--model` bypasses the resolver, and a first spawn degrades to defaults if routing is unavailable — it never hard-fails. `--tier` is also a pipeline-job field (`tier:`). See [Tiered model routing](docs/specs/tiered-model-routing.plan.md), [`docs/specs/agent-roles.md`](docs/specs/agent-roles.md), and [per-scope quota routing](docs/specs/2026-09-26-per-scope-quota-routing.md).
+- **Agent roles (`--role`)** — attach a named, persistent **persona** to an agent at spawn (`warden start … --role worker`) or switch it on a running agent (`warden agent set <id> role worker`, which relaunches to re-inject). Six built-in roles — `general` (default, no persona), `orchestrator`, `planner`, `worker`, `autopilot`, `brain` — each carrying a persona, default spawn flags, and a default model tier (the legacy names `implementer`/`auto-merger`/`reviewer` still work, mapped to `worker`). `warden agent role list` shows the catalog; the TUI new-agent form has a `ctrl+r` role picker and the web **+ New agent** modal a Role dropdown. See [Agent roles](#warden-agent-role-list--warden-agent-role-set).
+- **Tiered model routing (`--task` / `--tier`)** — warden picks each spawn's backend+model by **quota headroom** within a **model tier**, so a fleet spreads across providers instead of hammering one. The tier is resolved with the precedence `explicit --tier > task tier > role default tier > tier-2`: a **task** (`--task architecture`, the *what*, from the task registry) or **role** (`--role planner`, the *who*) derives the tier, or pin it with `--tier tier-1`. Headroom is **per quota scope** (e.g. Cursor `api`/`auto`/`included`), so exhausting one scope no longer blocks sibling models on the same backend. The TUI new-agent form is **tier-first** (`ctrl+t`: `auto` / `tier-1`/`2`/`3` plus a live candidate table); spawn passes the tier to the resolver rather than pinning a backend CLI. A pinned `--aicli`/`--model` bypasses the resolver, and a first spawn degrades to defaults if routing is unavailable — it never hard-fails. `--tier` is also a pipeline-job field (`tier:`). See [Tiered model routing](docs/specs/tiered-model-routing.plan.md), [`docs/specs/agent-roles.md`](docs/specs/agent-roles.md), and [per-scope quota routing](docs/specs/2026-09-26-per-scope-quota-routing.md).
 - **Reactive backend hard-limit recovery** — when an agent hits a confirmed provider hard limit (session, weekly, or monthly cap), the daemon automatically **tries the next eligible backend/model** from the backend registry without operator intervention. Daemon-owned **QuotaBinding** maps agents to capacity domains; fresh provider usage snapshots can bulk-reconcile exhausted buckets to every bound peer (Claude wait-menu still fires immediately even with no parseable `resets` banner). Opt-in polling: `rate_limit.recovery.usage_reconciliation` (default off); operator one-shot: `wd usage recover [--dry-run]`. Legacy backend/model-only agents stay `unbound_legacy` (never mass-swapped on a guess; bind on next HotSwap). Usage windows are refreshed from `internal/backendusage`, candidates are ranked by known headroom, and each attempt must **stabilize** (10 s of live non-limited status) before recovery clears. When all candidates are exhausted, the agent persists `waiting_for_capacity` and retries on the earliest reset. Manual switch/stop/delete always supersedes automatic recovery. See [Backend hard-limit recovery guide](https://srjn45.github.io/warden/guides/backend-recovery/) and [Phase 10 acceptance](docs/specs/2026-09-29-usage-api-quota-recovery-acceptance.md).
 - **Resilience & ergonomics round-up** — `warden agent recover` re-registers archived `orphaned` agents with live panes (tombstone-reaper safety net); the web `/tui` cockpit **self-heals** (validated and auto-rebuilt if wedged; `warden tui --rebuild-web-cockpit` forces it); `warden tui` inside an existing tmux session lays out as a **native tmux window** instead of erroring (`--tmux-native`); `wd push --force-with-lease` for safe force-pushes; rate-limit auto-resume now also answers Claude's **wait-menu and monthly spend cap** (`rate_limit.spend_retry_interval`); and all daemon stores (sessions, pipelines, schedules, snapshots, context, mailbox) run on an embedded ScrivaDB — still no database server.
 - **Factory reset (`warden factory-reset`)** — drain all live agents/pipelines/autopilot/schedules, then wipe on-disk stores with `--scope runtime|data|full`. `--backup` archives the data dir first; `--keep-config` and `--keep-backends` preserve configuration and the backend registry across the wipe. Requires `--yes`. CLI-only by design (destructive; the daemon must be stopped for the data phase). See [`reference/cli#warden-factory-reset`](https://srjn45.github.io/warden/reference/cli/#warden-factory-reset).
@@ -154,9 +154,9 @@ For a direct endpoint check, POST a valid v1 plan-sync envelope to `http://127.0
 - **tmux** — every agent session runs in a detached tmux window
 - **git** — worktree creation and guarded cleanup
 - **Claude Code** (`claude` on PATH) — the default agent runtime launched in each session
-- **Aider** (`aider` on PATH, optional) — only needed to spawn agents with `--ai-cli aider`; bring-your-own-model (works with local Ollama models, $0)
-- **OpenCode** (`opencode` on PATH, optional) — only needed to spawn agents with `--ai-cli opencode`; bring-your-own-model (works with local Ollama models, $0). Install: `npm install -g opencode-ai` (https://opencode.ai)
-- **`gh`** (GitHub CLI) — required for `pr-review` sessions to check out the PR branch, and for `warden agent done --create-pr`
+- **Aider** (`aider` on PATH, optional) — only needed to spawn agents with `--aicli aider`; bring-your-own-model (works with local Ollama models, $0)
+- **OpenCode** (`opencode` on PATH, optional) — only needed to spawn agents with `--aicli opencode`; bring-your-own-model (works with local Ollama models, $0). Install: `npm install -g opencode-ai` (https://opencode.ai)
+- **`gh`** (GitHub CLI) — required for `pr-review` sessions to check out the PR branch, and for `warden agent stop <AGENT> --pr`
 
 > **Tip:** once you have the `warden` binary, run **`warden doctor`** to check
 > these dependencies and **`warden setup`** to install whatever is missing
@@ -478,10 +478,10 @@ warden ls  # Shows MODEL column
 
 ---
 
-## AI CLIs (`--ai-cli`)
+## AI CLIs (`--aicli`)
 
 Warden drives **Claude Code** by default, but the agent layer is pluggable: pick
-the AI CLI per agent at spawn time with `--ai-cli` (CLI; deprecated alias `--backend`) or the `ai_cli` param
+the AI CLI per agent at spawn time with `--aicli` (CLI; `--backend` still works as a hidden alias) or the `ai_cli` param
 (`spawn_agent` MCP tool).
 
 > **Supported agents — status:** warden is fully tested only with **Claude Code**.
@@ -501,7 +501,7 @@ the AI CLI per agent at spawn time with `--ai-cli` (CLI; deprecated alias `--bac
 | Cursor CLI | ✅ Stable |
 | Antigravity CLI | ✅ Stable |
 
-| AI CLI | `--ai-cli` | Tier | Notes |
+| AI CLI | `--aicli` | Tier | Notes |
 |---|---|---|---|
 | **Claude Code** (default) | `claude` | A | Full fidelity — digests, savings, priced spend, resume, all permission modes |
 | **Aider** | `aider` | A | 🧪 Experimental. Bring-your-own-model (pass `--model`, e.g. `ollama_chat/qwen2.5-coder:3b`); structured markdown transcript ⇒ real digests; **no** resume, **no** priced spend (tokens only), runs an autonomous `--message` task that exits when done |
@@ -516,20 +516,20 @@ the AI CLI per agent at spawn time with `--ai-cli` (CLI; deprecated alias `--bac
 # Optional BYO: drive Aider against a local Ollama model (free, offline) — a backend
 # provider choice, not a warden dependency (warden itself no longer needs Ollama)
 export OLLAMA_API_BASE=http://127.0.0.1:11434
-warden start "implement the add function" --ai-cli aider --model ollama_chat/qwen2.5-coder:3b --dir .
+warden start "implement the add function" --aicli aider --model ollama_chat/qwen2.5-coder:3b --dir .
 
 # Drive OpenCode against a local Ollama model (free, offline)
-warden start "implement the add function" --ai-cli opencode --model ollama/qwen2.5-coder:3b --dir .
+warden start "implement the add function" --aicli opencode --model ollama/qwen2.5-coder:3b --dir .
 
 # Drive Codex against a local Ollama model (configure provider in ~/.codex/config.toml first)
-warden start "implement the add function" --ai-cli codex --dir .
+warden start "implement the add function" --aicli codex --dir .
 
 # Drive Crush against a local Ollama model (configure provider in ~/.config/crush/crush.json first)
-warden start "implement the add function" --ai-cli crush --dir .
+warden start "implement the add function" --aicli crush --dir .
 
 # Drive Goose against a local Ollama model
 GOOSE_PROVIDER=ollama GOOSE_MODEL=qwen2.5-coder:3b \
-warden start "implement the add function" --ai-cli goose --dir .
+warden start "implement the add function" --aicli goose --dir .
 ```
 
 > **Terminals are not a backend.** A plain interactive shell beside the fleet is a
@@ -610,7 +610,7 @@ Warden reads all settings from a single YAML file (default `~/.warden/config.yam
 | `tokens.guard` | `true` | The context-size guard: the poller reads each live agent's context-window fill from its transcript, classifies it `ok`/`warning`/`critical`, and shows a state-colored token figure in `warden ls`, the TUI row, and the web tile. Master switch for the whole guard (gauge, alert, auto-compact) |
 | `tokens.warn_alert` | `true` | Fire a desktop notification (when `notify.enabled` is on) once per upward crossing into the warning or critical band |
 | `tokens.auto_compact` | `true` | When an agent is `critical` **and** idle/waiting, auto-send `/compact` to reclaim its context (cooldown-guarded) |
-| `tokens.force_compact` | `false` | When an agent goes `critical` **while still working**, interrupt it (Escape), `/compact` once it idles, then send the resume prompt. **Destructive** — discards the in-flight turn — so off by default. Per-agent override via `warden agent compact set <id> on\|off\|inherit` |
+| `tokens.force_compact` | `false` | When an agent goes `critical` **while still working**, interrupt it (Escape), `/compact` once it idles, then send the resume prompt. **Destructive** — discards the in-flight turn — so off by default. Per-agent override via `warden agent set <id> compact on\|off\|inherit` |
 | `tokens.compact_resume_prompt` | _(built-in)_ | Message sent to a force-compacted agent once compaction lands so it resumes its work |
 | `tokens.warn` | `200000` | Warning threshold in context tokens (inclusive lower bound). If `tokens.critical` is not greater than this, both reset to the defaults |
 | `tokens.critical` | `400000` | Critical threshold in context tokens (inclusive lower bound) — the auto-`/compact` trigger band |
@@ -784,7 +784,7 @@ warden start "debug the API rate limit"  # uses acceptEdits mode
 warden start "quick spike" --permission-mode auto  # bypass global setting
 
 # Change permission mode for a running agent:
-warden agent permission-mode set agent-abc123 dontAsk
+warden agent set agent-abc123 permission-mode dontAsk
 ```
 
 Flags:
@@ -798,13 +798,13 @@ Flags:
 - `--model <model>` — per-agent model id (passed through verbatim); defaults to the `model_default` config setting
 - `--role <role>` — built-in agent role (*who the agent is*): `general` (default, no persona) · `orchestrator` · `planner` · `worker` · `autopilot` · `brain` (the legacy names `implementer`/`auto-merger`/`reviewer` still work, mapped to `worker`). Injects the role's persona as a system-prompt addendum and fills its default spawn flags (`--type`/`--model`/`--permission-mode`/auto-approve/tags) for any you leave unset (explicit flags still win). See [`warden agent role list`](#warden-agent-role-list--warden-agent-role-set)
 - `--task <name>` — the unit of work (*what the agent is doing*) from the task registry, used to derive the model **tier** for quota-balanced routing when `--tier` is empty (e.g. `architecture`→tier-1, `development`→tier-2, `merge-pr`→tier-3). Distinct from `--type` (which controls worktree policy)
-- `--tier <tier>` — pin the model tier for the resolver directly (`tier-1`/`tier-2`/`tier-3`). Empty derives it from `--task`, then `--role`, else tier-2. A pinned `--backend`/`--model` still wins over the resolver. See [Tiered model routing](#warden-agent-role-list--warden-agent-role-set)
+- `--tier <tier>` — pin the model tier for the resolver directly (`tier-1`/`tier-2`/`tier-3`). Empty derives it from `--task`, then `--role`, else tier-2. A pinned `--aicli`/`--model` still wins over the resolver. See [Tiered model routing](#warden-agent-role-list--warden-agent-role-set)
 - `--tags <a,b>` — attach tags (lowercased, deduped); searchable and filterable with `warden ls --tag`
 - `--preset <name>` — seed spawn defaults from a saved preset (`warden project preset save`); explicit flags still override
 - `--prompt-template <name> --set VAR=value` — fill a saved prompt template (`warden project prompt-template save`) into the spawn prompt; repeat `--set` per variable. A positional prompt still wins; free-form only (no `--type`)
 - `--auto-restart` — opt this agent into daemon auto-restart on error (tuned by `auto_restart_*` config)
 - `--permission-mode <mode>` — control Claude's permission level (valid modes: `acceptEdits`, `auto`, `bypassPermissions`, `default`, `dontAsk`, `plan`); defaults to the `default_permission_mode` config setting (default: `auto`)
-- `--supervised` — legacy alias for `--permission-mode acceptEdits`; risky tools prompt and the approvals inbox surfaces them (see the `approvals` setting)
+- `--supervised` — hidden legacy alias for `--permission-mode acceptEdits`; risky tools prompt and the approvals inbox surfaces them (see the `approvals` setting)
 
 ### `warden ls`
 
@@ -830,7 +830,7 @@ Other flags:
 - `--watch` / `-w` — live-update the table on every agent state change over the daemon's SSE stream (Ctrl+C to exit); combine with `--json` to stream one JSON snapshot per change.
 - `--tag <tag>` — filter to agents carrying *every* given tag (AND semantics; repeatable or comma-separated). Tags are set at spawn with `warden start --tags backend,urgent` and are part of the search haystack.
 
-### `warden status <TICKET>`
+### `warden status <AGENT>`
 
 Show full detail for one session: working directory, subject, worktree, branch, PR, all events.
 
@@ -857,7 +857,7 @@ warden agent adopt --session-id <uuid>      # pick a specific Claude conversatio
 warden agent adopt --dir /path/to/project   # target a different directory
 ```
 
-### `warden agent attach <TICKET>`
+### `warden agent attach <AGENT>`
 
 Attach your terminal to the agent's tmux session interactively.
 
@@ -865,14 +865,14 @@ Attach your terminal to the agent's tmux session interactively.
 warden agent attach PROJ-350
 ```
 
-### `warden agent stop <TICKET>`
+### `warden agent stop <AGENT>`
 
-The **single umbrella teardown verb.** By default `warden agent stop <TICKET>` does a **full teardown**: terminate the tmux + claude session, clear (archive) the record, **and** remove the git worktree + branch (asking for confirmation first, unless `--yes`). Subtractive flags keep parts around; `--pr` opens a GitHub PR first while the agent is still intact. Safe order is always PR → terminate → remove worktree → clear record, so a failed push leaves the agent running.
+The **single umbrella teardown verb.** By default `warden agent stop <AGENT>` does a **full teardown**: terminate the tmux + claude session, clear (archive) the record, **and** remove the git worktree + branch (asking for confirmation first, unless `--yes`). Subtractive flags keep parts around; `--pr` opens a GitHub PR first while the agent is still intact. Safe order is always PR → terminate → remove worktree → clear record, so a failed push leaves the agent running.
 
 ```sh
 warden agent stop PROJ-350                 # full teardown (asks before removing the worktree)
 warden agent stop PROJ-350 --yes           # ...without the confirmation prompt
-warden agent stop PROJ-350 --keep-worktree # terminate + clear record, keep the worktree (== `done`)
+warden agent stop PROJ-350 --keep-worktree # terminate + clear record, keep the worktree (the old `done`)
 warden agent stop PROJ-350 --keep-record   # terminate + remove worktree, keep the record
 warden agent stop PROJ-350 --hard          # purge the record instead of archiving
 warden agent stop PROJ-350 --pr --base main # open a GitHub PR first, then tear down
@@ -880,29 +880,9 @@ warden agent stop PROJ-350 --pr --base main # open a GitHub PR first, then tear 
 
 A failed step stops the teardown and names itself plus what already ran, e.g. `remove worktree failed: … (completed: terminated; record left intact — fix the cause and retry)`. Because the record is cleared **last**, a worktree guard (agent alive / uncommitted / unpushed work) leaves it intact and `stop` is safely retryable once the cause is fixed; a branch that is already gone counts as success. No workaround is needed — do not call `delete`/`delete_agent` first (that archives the record and orphans the worktree). Worktrees orphaned by the older order (record cleared, worktree left behind) are reclaimed with `warden worktree prune`.
 
-The four older verbs are kept as thin **aliases** — each is just `stop` with a fixed flag combo:
+Older verbs still work as **hidden aliases** (they no longer appear in `--help`): `agent done` = `stop --keep-worktree` (with `--hard`/`--pr`), `agent delete` (record only) and `agent remove-worktree` (worktree only) have no exact `stop` equivalent because they do not terminate the session. Prefer `stop` with `--keep-*` flags. Pass `--json` to `stop`/`terminate` for the teardown result (id + steps that ran); `--json` never prompts, so removing a worktree then needs `--yes`.
 
-| old verb | equivalent |
-|---|---|
-| `wd agent terminate <T>` | `wd agent stop <T> --keep-record --keep-worktree` |
-| `wd agent delete <T> [--hard]` | `wd agent stop <T> --keep-worktree` (record only) |
-| `wd agent remove-worktree <T>` | `wd agent stop <T> --keep-record` (worktree only) |
-| `wd agent done <T> [--hard\|--create-pr]` | `wd agent stop <T> --keep-worktree [--hard\|--pr]` |
-| `wd agent stop <T>` | terminate + clear record + remove worktree |
-
-### `warden agent done <TICKET>`
-
-Terminate the agent (kill its tmux + claude session) **and** clear its stored record in one step. It does **not** remove the git worktree — that is a separate, explicitly-confirmed step (`remove-worktree`). Equivalent to `terminate` followed by `delete`, i.e. `stop --keep-worktree`.
-
-```sh
-warden agent done PROJ-350          # terminate + clear record (worktree kept)
-warden agent done PROJ-350 --hard   # purge the record instead of archiving it
-warden agent done PROJ-350 --create-pr --base main   # push the branch + open a GitHub PR first
-```
-
-`--create-pr` pushes the agent's branch and opens a GitHub PR (via `gh`) — titled and bodied by Fast-Brain when available (Conventional-Commits title + what/why body; falls back per field to the agent-derived title and its digest), targeting `--base` (default `main`) — *before* terminating, so a failure leaves the agent running to retry; an existing PR for the branch is reported, not re-created.
-
-### `warden agent terminate <TICKET>`
+### `warden agent terminate <AGENT>`
 
 Stop an agent: kill its tmux + claude session, but **keep** the record and worktree. This is the safe "stop this agent" default — it is reversible with `warden agent restore`. Alias for `stop --keep-record --keep-worktree`.
 
@@ -910,7 +890,7 @@ Stop an agent: kill its tmux + claude session, but **keep** the record and workt
 warden agent terminate PROJ-350
 ```
 
-### `warden agent restore <TICKET>`
+### `warden agent restore <AGENT>`
 
 Recreate and resume a lost/orphaned agent's tmux + claude session (`claude --resume`). Use only when the agent's tmux session is gone (status `orphaned`).
 
@@ -928,25 +908,7 @@ warden agent recover --apply        # actually revive them
 warden agent recover --json         # scripting
 ```
 
-### `warden agent delete <TICKET>`
-
-Clear an agent's stored record (archives by default; `--hard` purges). Does not touch tmux or the worktree. Alias for `stop --keep-worktree` (record only).
-
-```sh
-warden agent delete PROJ-350
-warden agent delete PROJ-350 --hard
-```
-
-### `warden agent remove-worktree <TICKET>`
-
-Remove an agent's git worktree and branch. **Destructive.** It refuses if the agent is still running (terminate it first) or if the worktree has uncommitted changes or unpushed commits — use `--force` to override the guard. Alias for `stop --keep-record` (worktree only); always asks unless `--yes`.
-
-```sh
-warden agent remove-worktree PROJ-350
-warden agent remove-worktree PROJ-350 --force
-```
-
-### `warden send <TICKET> <message...>`
+### `warden send <AGENT> <message...>`
 
 Type a message into the agent's claude session and press Enter.
 
@@ -954,7 +916,7 @@ Type a message into the agent's claude session and press Enter.
 warden send PROJ-350 "run the unit tests and fix any failures"
 ```
 
-### `warden agent tail <TICKET>`
+### `warden agent tail <AGENT>`
 
 Print the recent terminal output of the agent's claude session.
 
@@ -963,7 +925,7 @@ warden agent tail PROJ-350
 warden agent tail PROJ-350 --lines 80
 ```
 
-### `warden agent digest <TICKET>`
+### `warden agent digest <AGENT>`
 
 Summarize what an agent accomplished — files touched, branch, number of turns, and a short narrative (best-effort, via `claude -p`). Also available as a web **Digest** panel and, in the cockpit, the `d` key (opens a scrollable digest for the selected agent).
 
@@ -972,7 +934,7 @@ warden agent digest PROJ-350
 warden agent digest PROJ-350 --json
 ```
 
-### `warden approval list` / `warden approval answer <TICKET> <option>`
+### `warden approval list` / `warden approval answer <AGENT> <option>`
 
 The **approvals inbox** (on by default; the `approvals` setting). When a `--supervised` agent hits a tool-permission prompt, the daemon recognizes it and surfaces the numbered options so you can answer without attaching.
 
@@ -1154,7 +1116,7 @@ warden backend model                  # the backend's LIVE model menu (one id pe
 - **`warden git release`** (alias `wd release`) — the release tag advisor: recommends the next SemVer bump + tag from the commits since the latest tag, prints a categorized changelog, and (on confirmation, default N) creates an annotated tag and pushes it. `--dry-run`, `--yes`, `--push`, `--json`.
 - **`warden backend model`** — the live runtime model menu for backends that expose one. **Antigravity** (`agy models`) and **Cursor** (`cursor-agent --list-models`) implement it; the ids feed `--model` verbatim. Listing is a metadata read, so it spends no quota. Claude has no live menu (pass `--model` with any id the Claude CLI accepts; warden does not rewrite it) and degrades non-zero.
 
-Both take `--backend <id>` to target a specific backend (default: the current agent's). See [AI CLIs](#ai-clis---ai-cli).
+Both take `--backend <id>` to target a specific backend (default: the current agent's). See [AI CLIs](#ai-clis---aicli).
 
 ### `warden project memory` — project memory projected into every spawn
 
@@ -1374,15 +1336,23 @@ warden approval auto clear --agent reviewer         # drop reviewer's overrides
 
 With **no rules** configured, an enabled policy keeps the simple legacy behavior: it auto-answers every recognized, non-destructive prompt (selecting the least-privilege affirmative). Multi-select / text-entry / unrecognized prompts always fall back to manual. Also available as the `set_auto_approve` (toggle) and `set_auto_approve_policy` (rules) MCP tools.
 
-### `warden agent permission-mode set <id> <mode>`
+### `warden agent set <AGENT> <key> <value>` / `warden agent get <AGENT> [key]`
 
-Change a running agent's permission mode (`acceptEdits`/`auto`/`bypassPermissions`/`default`/`dontAsk`/`plan`); preserved on restore.
+One pair of verbs for every per-agent setting. Keys: `permission-mode`
+(`acceptEdits`/`auto`/`bypassPermissions`/`default`/`dontAsk`/`plan`; preserved on
+restore), `compact` (`on`/`off`/`inherit` — per-agent force-compact override),
+`role` (a role name; **relaunches** the agent) and `auto-approve` (`on`/`off`).
+`get` prints all four, or one with a key; `--json` emits machine-readable output.
 
 ```sh
-warden agent permission-mode set agent-abc123 dontAsk
+warden agent set agent-abc123 permission-mode dontAsk
+warden agent set agent-abc123 compact inherit
+warden agent get agent-abc123 --json
 ```
 
-### `warden agent role list` / `warden agent role set`
+The older `agent permission-mode set`, `agent compact set` and `agent role set` still work as hidden aliases.
+
+### `warden agent role list` / `warden agent set <AGENT> role <role>`
 
 A **role** is a named, persistent system-prompt **persona** attached to an
 agent, plus a set of default spawn flags. Every agent has exactly one role; the
@@ -1415,16 +1385,19 @@ left unset (explicit `start` flags win); default tags are unioned in.
 
 ```sh
 # List the built-in roles and their descriptions
-warden agent role list
+warden agent role list            # add --json for scripting
 
 # Spawn an agent with a role (its default flags apply unless you override them)
 warden start "ship the auth refactor end-to-end" --role worker
 
 # Switch a running agent's role — relaunches to re-inject the new persona
-warden agent role set agent-abc123 worker
+warden agent set agent-abc123 role worker
 
 # Clear the persona (back to a plain agent)
-warden agent role set agent-abc123 general
+warden agent set agent-abc123 role general
+
+# Change a role's default model tier
+warden agent role tier set worker tier-2
 ```
 
 Roles are also drivable from the UIs (TUI new-agent `ctrl+r` role picker and
@@ -1439,7 +1412,7 @@ persists a value but a persona additionally needs a fresh launch.
 
 warden resolves each spawn's **backend + model** by **quota headroom within a
 model tier**, so a fleet spreads across providers instead of exhausting one. Two
-optional, orthogonal inputs feed it (a spawn's third axis, alongside `--ai-cli`
+optional, orthogonal inputs feed it (a spawn's third axis, alongside `--aicli`
 and `--role`):
 
 - **`--task <name>`** — *what the agent is doing*, from the built-in **task
@@ -1452,7 +1425,7 @@ and `--role`):
 The target tier is resolved with the precedence **`explicit --tier` > task tier >
 role default tier > tier-2**; within the tier the router scores every model by
 headroom (`1 − used/limit`), skips rate-limited or ineligible backends, and picks
-the highest-headroom candidate (round-robin among ties). A pinned `--ai-cli` or
+the highest-headroom candidate (round-robin among ties). A pinned `--aicli` or
 `--model` **bypasses** the router, and a first spawn **degrades** to the request
 defaults if no resolver is wired — routing never hard-fails a spawn.
 
@@ -1461,7 +1434,7 @@ warden start "design the sync protocol" --role planner        # role → tier-1
 warden start PROJ-9 --type development --task development      # task → tier-2
 warden start "cut the v9 release" --task release              # task → tier-3
 warden start "urgent hotfix" --tier tier-1                    # pin the tier
-warden start "run it on codex" --ai-cli codex --model o1     # pins bypass routing
+warden start "run it on codex" --aicli codex --model o1     # pins bypass routing
 ```
 
 > **`--task` ≠ `--type`.** `--type` decides worktree/branch policy (see
@@ -1695,7 +1668,7 @@ warden status PROJ-350
 warden agent attach PROJ-350
 
 # 5. Clean up when done
-warden agent done PROJ-350
+warden agent stop PROJ-350 --keep-worktree
 ```
 
 ---

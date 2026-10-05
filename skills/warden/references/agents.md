@@ -34,13 +34,15 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
 | full status of one agent | `warden status <id>` (`--json`) |
 | recent terminal output | `warden agent tail <id>` (`--lines N`) |
 | spawn from a prompt | `warden start "<prompt>"` |
-| spawn a managed worktree agent | `warden start <TICKET> --type <TYPE> --repo <repo>` |
-| spawn with a role / switch a role | `warden start "<prompt>" --role worker`; `warden agent role set <id> <role>` (relaunches); `warden agent role list`. See **Roles** below |
-| route a spawn to a model tier | `warden start … --task <name>` (tier from the task registry) or `--tier tier-1\|tier-2\|tier-3` (`--tier` also a pipeline `tier:`; neither on MCP). A pinned `--backend`/`--model` bypasses it. With `router.use_fast_brain: true` (default off) an unpinned spawn — no tier/task/role/model/backend — is rated by Fast-Brain and routed to a tier automatically (lowest precedence, confidence ≥ 0.8), so **don't pass a tier unless you mean it**. See **Roles** below |
+| spawn a managed worktree agent | `warden start <AGENT> --type <TYPE> --repo <repo>` |
+| spawn with a role / switch a role | `warden start "<prompt>" --role worker`; `warden agent set <id> role <role>` (relaunches); `warden agent role list`. See **Roles** below |
+| route a spawn to a model tier | `warden start … --task <name>` (tier from the task registry) or `--tier tier-1\|tier-2\|tier-3` (`--tier` also a pipeline `tier:`; neither on MCP). A pinned `--aicli`/`--model` bypasses it. With `router.use_fast_brain: true` (default off) an unpinned spawn — no tier/task/role/model/backend — is rated by Fast-Brain and routed to a tier automatically (lowest precedence, confidence ≥ 0.8), so **don't pass a tier unless you mean it**. See **Roles** below |
 | send a message to an agent | `warden send <id> "<text>"` |
 | full teardown (terminate + clear record + remove worktree) | `warden agent stop <id>` (asks before removing the worktree unless `--yes`; `--keep-record`/`--keep-worktree` subtract steps; `--hard`; `--pr [--base <b>]` opens a PR first) |
-| terminate + clear record (keeps worktree) | `warden agent done <id>` (= `warden agent stop <id> --keep-worktree`; `--create-pr` pushes the branch and opens a GitHub PR (Fast-Brain drafts the title/body; fallback to the digest) before terminating, `--base` sets target, default main) |
-| remove the worktree | `warden agent remove-worktree <id>` (= `warden agent stop <id> --keep-record`; guarded; `--force` overrides) |
+| terminate + clear record (keeps worktree) | `warden agent stop <id> --keep-worktree` (the old hidden `agent done`; `--pr` pushes the branch and opens a GitHub PR (Fast-Brain drafts the title/body; fallback to the digest) before terminating, `--base` sets target, default main) |
+| remove the worktree only | `warden agent stop <id> --keep-record` (guarded; `--force` overrides). Hidden aliases `agent done` / `agent delete` / `agent remove-worktree` still work. `--json` (never prompts; needs `--yes` to remove a worktree) |
+| read / change a per-agent setting | `warden agent get <id> [key]` (`--json`) · `warden agent set <id> <key> <value>` — keys `permission-mode`, `compact` (`on\|off\|inherit`), `role` (relaunches), `auto-approve` (`on\|off`). Hidden aliases `agent permission-mode set` / `compact set` / `role set` still work |
+| change a role's default tier | `warden agent role tier set <role> <tier>` (`agent role list --json`) |
 | restore a lost/orphaned agent | `warden agent restore <id>` |
 | revive an archived `orphaned` record whose tmux is still alive | `warden agent recover` (dry-run; `--apply` to actually revive, `--json` for scripting) |
 | adopt an existing session | `warden agent adopt [--session-id <uuid>] [--dir <path>]` |
@@ -78,9 +80,9 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
   whose tier drives routing (tier-1 `analysis`/`architecture`/`design`/`research`/`spike`,
   tier-2 `code-review`/`development`/`docs`/`pr-review`, tier-3 `debug-ci`/`merge-pr`/`monitor-ci`/`release`);
   `--tier` pins `tier-1`/`tier-2`/`tier-3` directly. Precedence: explicit `--tier` >
-  task tier > role default tier > Fast-Brain router (opt-in `router.use_fast_brain`, only when nothing above is pinned; omit the tier to let it choose) > tier-2. A pinned `--backend`/`--model` bypasses the
+  task tier > role default tier > Fast-Brain router (opt-in `router.use_fast_brain`, only when nothing above is pinned; omit the tier to let it choose) > tier-2. A pinned `--aicli`/`--model` bypasses the
   router. Distinct from `--type` (worktree policy). See **Roles** below.
-- **Backend** — `--backend <id>` (CLI) / `backend` (MCP); default `claude`.
+- **Backend** — `--aicli <id>` (CLI; `--backend` is a hidden alias) / `backend` (MCP); default `claude`.
   Accepted ids: `claude` | `aider` | `opencode` | `codex` | `crush` | `goose` | `cursor` | `antigravity`.
   A plain terminal is **not** a backend — spawn one as a session kind via `--kind
   terminal` (CLI) / `kind:"terminal"` (MCP `spawn_agent`); the back-compat alias
@@ -147,12 +149,12 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
 - **Permission mode** — `--permission-mode <acceptEdits|auto|bypassPermissions|default|dontAsk|plan>`
   (legacy `--supervised` = `acceptEdits`). Global default `default_permission_mode`
   (defaults `auto`). Change at runtime: MCP `set_permission_mode {ticket, mode}` /
-  `warden agent permission-mode set <id> <mode>`.
+  `warden agent set <id> permission-mode <mode>`.
 - **Force-compact** — when an agent hits the critical context threshold while
   **still working**, warden can interrupt it (Escape), `/compact` once it idles,
   then send a resume prompt — destructive, so it's off by default. Global default
   `token_force_compact`; per-agent override: MCP `set_force_compact {ticket, state}`
-  (`on|off|inherit`) / `warden agent compact set <id> on|off|inherit`. The resume
+  (`on|off|inherit`) / `warden agent set <id> compact on|off|inherit`. The resume
   message is `token_compact_resume_prompt`.
 - **Presets** — `warden project preset save <name> [spawn flags]` persists
   `--type`/`--model`/`--permission-mode`/`--auto-restart`/`--worktree`/`--in-repo`;

@@ -16,7 +16,7 @@ warden start "summarize the changes in /path/to/repo since last Friday"
 ```
 
 - **Name is mandatory** — omit `--name` and warden resolves one: role/pipeline conventions (`AP:<plan>`, `wkr:<task>`, `brain:<target>`, `<pipe>:<stage>`), else a 2–4 word kebab-case slug from the Fast-Brain engine (fast tier, 1.5s timeout) with adjective-noun codename fallback (`swift-falcon`), else a codename for prompt-less spawns. Auto-names disambiguate with `-2`, `-3`; explicit `--name` collisions still 409.
-- **Optional complexity routing** — set `router.use_fast_brain: true` (default `false`) and a spawn that pins no `--tier`, `--task`, `--role`, `--model`, `--backend` or `--ai-cli` has Fast-Brain rate the prompt: `tier-1` (trivial tweaks), `tier-2` (standard work) or `tier-3` (deep refactors). It is the **lowest-precedence** input (explicit tier > task > role > router > default), applies only at confidence ≥ 0.8, falls back to the normal resolution on any failure, and is recorded as a `tier-route` event on the agent. Autopilot and pipeline spawns are never touched.
+- **Optional complexity routing** — set `router.use_fast_brain: true` (default `false`) and a spawn that pins no `--tier`, `--task`, `--role`, `--model`, `--aicli` or `--aicli` has Fast-Brain rate the prompt: `tier-1` (trivial tweaks), `tier-2` (standard work) or `tier-3` (deep refactors). It is the **lowest-precedence** input (explicit tier > task > role > router > default), applies only at confidence ≥ 0.8, falls back to the normal resolution on any failure, and is recorded as a `tier-route` event on the agent. Autopilot and pipeline spawns are never touched.
 - **Type is auto-assigned** shortly after spawn (the daemon asks `claude -p` to classify the prompt; falls back to `other` if `claude` isn't available).
 - **Subject is auto-generated** — a ≤8-word phrase summarizing current work, seeded from the prompt and refreshed by the poller.
 
@@ -65,3 +65,30 @@ warden agent tail agent-a1b2 --lines 80
 warden send agent-a1b2 "run the unit tests and fix any failures"
 warden agent attach agent-a1b2          # Ctrl-b d to detach
 ```
+
+## Per-agent settings: `agent set` / `agent get`
+
+One pair of verbs reads and changes the settings of a running agent:
+
+```sh
+warden agent get agent-a1b2                       # all settings
+warden agent get agent-a1b2 role --json           # one key, machine-readable
+warden agent set agent-a1b2 permission-mode acceptEdits
+warden agent set agent-a1b2 compact inherit       # on | off | inherit
+warden agent set agent-a1b2 role worker           # relaunches the agent
+warden agent set agent-a1b2 auto-approve on
+```
+
+Keys are `permission-mode`, `compact`, `role` and `auto-approve`. Changing `role`
+relaunches the agent (its in-flight turn is discarded). To change a role's
+default model tier use `warden agent role tier set <role> <tier>`.
+
+## Scripting: `--json`
+
+`agent start`, `fork`, `handoff`, `stop`, `terminate`, `role list` and `get` take
+`--json` for machine-readable output (`stop`/`terminate` report the id and the
+steps that ran; `--json` never prompts, so removing a worktree needs `--yes`).
+
+> The older `agent permission-mode set`, `agent compact set`, `agent role set`,
+> `agent done`, `agent delete` and `agent remove-worktree` still work as hidden
+> aliases.
