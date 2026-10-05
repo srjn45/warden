@@ -821,6 +821,11 @@ type Lifecycle struct {
 	// block or fail a spawn — the result is an additive hint, exactly like the memory
 	// projection, recomputed from live state at every fresh (re)launch.
 	PeerContextFn func(ctx context.Context, agent *agentstore.Agent) string
+	// OnSeed, when set, receives the final outcome of every post-launch prompt seed
+	// (typed-prompt backends only) so the daemon can persist seed_status, audit a
+	// failure and notify the operator. Called from the seeding goroutine; nil in
+	// tests / `wd switch` (the outcome is then only logged).
+	OnSeed func(SeedOutcome)
 	// ExitsDir is a shared dir (the daemon sets it, e.g. ~/.warden/exits) where
 	// each agent's shell records claude's exit status, keyed by agent id. Empty
 	// (tests) disables exit capture — agents then fall back to orphaned-only
@@ -1941,7 +1946,7 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, agent *
 		l.cleanupFailedSpawn(agent, true, false)
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
 	}
-	l.seedInteractivePrompt(b, agent.ID, req.Prompt)
+	l.seedInteractivePrompt(b, agent, req.Prompt)
 	return agent, nil
 }
 
@@ -2046,7 +2051,7 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, agent *age
 		l.cleanupFailedSpawn(agent, true, worktreeCreated)
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
 	}
-	l.seedInteractivePrompt(b, agent.ID, req.Prompt)
+	l.seedInteractivePrompt(b, agent, req.Prompt)
 	return agent, nil
 }
 
@@ -2579,17 +2584,35 @@ var (
 	promptSeedPollInterval = 400 * time.Millisecond // pane re-capture cadence while waiting
 	promptSeedSettle       = 700 * time.Millisecond // extra wait after the marker appears
 	promptSeedFallbackWait = 6 * time.Second        // used when the backend has no ReadyMarker
+	promptSeedAttempts     = 4                      // paste tries before the seed is reported failed
+	promptSeedRetryBackoff = 2 * time.Second        // i-th retry waits i × this
 )
+
+// SeedOutcome reports the final result of a post-launch prompt seed to the
+// daemon (Lifecycle.OnSeed), which persists it on the session, audits a failure and
+// notifies the operator. Status is store.SeedDelivered or store.SeedFailed.
+type SeedOutcome struct {
+	AgentID    string
+	Backend    string
+	Status     string
+	Err        string // last failure; empty when delivered
+	PromptFile string // <PromptsDir>/<id>: where the undelivered prompt is saved
+}
 
 // seedInteractivePrompt types the task prompt into a just-launched interactive
 // agent whose UI accepts the prompt only as typed input (PromptSeeder). It is a
 // no-op for backends that seed on the launch line. It runs asynchronously: the
 // launch keystroke must land and the agent's UI must finish booting before the
 // prompt can be typed, so the goroutine waits for the backend's ReadyMarker in the
-// captured pane (or a fallback settle) and then bracketed-pastes the prompt + Enter
-// via Input — the same path an operator's message takes. Failures degrade to "no
-// seed" (the agent simply waits at an empty prompt) rather than erroring the spawn.
-func (l *Lifecycle) seedInteractivePrompt(b agentbackend.Backend, tmuxSession, prompt string) {
+// captured pane (or a fallback settle) and then pastes the prompt + Enter via
+// Input — the same path an operator's message takes — retrying with backoff.
+//
+// A seed that cannot be delivered never fails the spawn, but it is no longer
+// silent: the session is stamped seed_status=pending here (so spawn's persist
+// carries it), and the outcome is reported through OnSeed. The prompt is also
+// written to <PromptsDir>/<id> up front so an operator can recover it by hand on
+// every spawn path that seeds.
+func (l *Lifecycle) seedInteractivePrompt(b agentbackend.Backend, agent *agentstore.Agent, prompt string) {
 	ps, ok := b.(agentbackend.PromptSeeder)
 	if !ok {
 		return
@@ -2598,18 +2621,52 @@ func (l *Lifecycle) seedInteractivePrompt(b agentbackend.Backend, tmuxSession, p
 	if !ok || strings.TrimSpace(text) == "" {
 		return
 	}
-	marker := ps.ReadyMarker()
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), promptSeedTimeout)
-		defer cancel()
-		if !l.waitPaneReady(ctx, tmuxSession, marker) {
-			slog.Warn("prompt seed: agent UI not ready, skipping initial prompt", "agent", tmuxSession, "backend", b.ID())
-			return
+	agent.SeedStatus, agent.SeedError = store.SeedPending, ""
+	file := ""
+	if l.PromptsDir != "" {
+		if _, err := l.writePromptFile(context.Background(), agent.ID, prompt); err != nil {
+			slog.Warn("prompt seed: could not save prompt file", "agent", agent.ID, "err", err)
+		} else {
+			file = filepath.Join(l.PromptsDir, agent.ID)
 		}
-		if err := l.Input(ctx, tmuxSession, text); err != nil {
-			slog.Warn("prompt seed: failed to type initial prompt", "agent", tmuxSession, "backend", b.ID(), "err", err)
+	}
+	id, backend, marker := agent.ID, b.ID(), ps.ReadyMarker()
+	go func() {
+		out := SeedOutcome{AgentID: id, Backend: backend, PromptFile: file, Status: store.SeedDelivered}
+		if err := l.deliverSeed(id, text, marker); err != nil {
+			out.Status, out.Err = store.SeedFailed, err.Error()
+			slog.Warn("prompt seed: failed, initial prompt not delivered", "agent", id, "backend", backend, "err", err)
+		}
+		if l.OnSeed != nil {
+			l.OnSeed(out)
 		}
 	}()
+}
+
+// deliverSeed waits for the agent UI, then pastes text, retrying a failed paste
+// promptSeedAttempts times with a growing backoff. The readiness wait and each
+// paste get their own generous budget.
+func (l *Lifecycle) deliverSeed(id, text, marker string) error {
+	rctx, cancel := context.WithTimeout(context.Background(), promptSeedTimeout)
+	ready := l.waitPaneReady(rctx, id, marker)
+	cancel()
+	if !ready {
+		return fmt.Errorf("agent UI not ready after %s", promptSeedTimeout)
+	}
+	var err error
+	for i := 1; i <= promptSeedAttempts; i++ {
+		pctx, pcancel := context.WithTimeout(context.Background(), promptSeedTimeout)
+		err = l.Input(pctx, id, text)
+		pcancel()
+		if err == nil {
+			return nil
+		}
+		slog.Warn("prompt seed: paste failed", "agent", id, "attempt", i, "of", promptSeedAttempts, "err", err)
+		if i < promptSeedAttempts {
+			time.Sleep(time.Duration(i) * promptSeedRetryBackoff)
+		}
+	}
+	return fmt.Errorf("paste failed after %d attempts: %w", promptSeedAttempts, err)
 }
 
 // waitPaneReady blocks until marker appears in the agent's captured pane (then a
@@ -2996,7 +3053,7 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*agentst
 		l.cleanupFailedSpawn(agent, true, worktreeCreated)
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
 	}
-	l.seedInteractivePrompt(b, id, req.Prompt)
+	l.seedInteractivePrompt(b, agent, req.Prompt)
 	return agent, nil
 }
 

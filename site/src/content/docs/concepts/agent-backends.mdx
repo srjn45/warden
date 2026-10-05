@@ -180,6 +180,12 @@ CLI parity** via the `fork_agent` tool. Cursor's server-side `--auto-review` ("S
 Auto") is surfaced not as a verb but as the `auto-review` **permission mode**. Full
 walkthrough: [Backend superpowers](/warden/guides/backend-superpowers/).
 
+## Typed-prompt seeding (Aider, Crush, Goose)
+
+Backends that take their first task only as typed input have it pasted into the pane after launch, once the UI is ready. A failed paste is retried a few times with a growing backoff, and the outcome is recorded on the session as `seed_status` (`pending` → `delivered` | `failed`, plus `seed_error`) — visible in `GET /sessions/{id}` and `wd agent status <id>` (`prompt seed:`).
+
+If every retry fails, spawn still succeeds but the failure is no longer silent: warden writes a `prompt_seed_failed` audit event and sends **one** operator notification naming the agent and the saved prompt file, `<data_dir>/prompts/<id>` (written for every spawn path that seeds, mode `0600`). Paste it in by hand or `wd agent send` it. Under autopilot, the guardian re-delivers a failed manager digest once and otherwise escalates it as a spawn failure on the normal heal ladder; the overwatch tells the manager when a worker never got its prompt. Launch-line backends (Claude, Codex, …) are unaffected.
+
 ## Aider specifics
 
 - **Bring-your-own-model:** pass `--model` (any provider, or a local Ollama model

@@ -129,6 +129,13 @@ func (c *Controller) overwatchRun(ctx context.Context, ow OverwatchRuntime, r *r
 		return
 	}
 
+	// A worker that never got its initial prompt is told to the manager once,
+	// outside the periodic/event cadence below (seed.go).
+	if c.tellManagerSeedFailed(ctx, ow, r, roster) {
+		r.overwatchLastNudgeAt = now
+		return
+	}
+
 	// The nudge clock floors at the manager's spawn instant (the guardian's
 	// cold-start convention): a manager that spawned moments ago is never nudged
 	// for being briefly idle while its CLI boots or between its first turns.

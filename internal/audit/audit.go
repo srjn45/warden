@@ -35,6 +35,7 @@ const (
 	ActionAutopilotLand     = "autopilot_land"
 	ActionAutopilotComplete = "autopilot_complete"
 	ActionBrainConsult      = "brain_consult"
+	ActionPromptSeedFailed  = "prompt_seed_failed"
 )
 
 // Event is one audit record: who (Actor) did what (Action) when (Time) to which

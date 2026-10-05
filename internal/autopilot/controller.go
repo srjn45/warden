@@ -160,8 +160,11 @@ type run struct {
 	// Overwatch-owned state (autopilot.md §2.4). Mutated only under c.mu by the
 	// overwatch tick, which nudges a live-but-quiet manager to tend workers that
 	// have fallen idle or are waiting on input.
-	overwatchLastNudgeAt time.Time // last overwatch nudge instant (periodic + event-debounce clock)
-	workersInFlight      int       // busy (spawning/working) non-manager agents, refreshed each overwatch tick
+	seedRedelivered      string          // manager id whose failed seed the guardian already re-delivered (once)
+	seedEscalated        string          // manager id whose seed failure was escalated to the heal ladder
+	seedReported         map[string]bool // worker ids the manager was already told never got their prompt
+	overwatchLastNudgeAt time.Time       // last overwatch nudge instant (periodic + event-debounce clock)
+	workersInFlight      int             // busy (spawning/working) non-manager agents, refreshed each overwatch tick
 }
 
 // NewController builds a Controller from cfg backed by env (pass NewExecEnv() in

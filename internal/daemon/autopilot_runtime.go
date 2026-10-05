@@ -265,6 +265,8 @@ func (rt autopilotRuntime) RunAgents(ctx context.Context, runID string) ([]autop
 			State:  string(sess.Status),
 			Branch: sess.Branch,
 			Tags:   sess.Tags,
+
+			SeedStatus: sess.SeedStatus,
 		})
 	}
 	return out, nil
@@ -534,3 +536,34 @@ func (rt autopilotRuntime) SpawnConsultBrain(ctx context.Context, spec autopilot
 }
 
 var _ autopilot.ConsultBrainRuntime = autopilotRuntime{}
+
+// SeedState reports an agent's initial-prompt seed status (autopilot.SeedRuntime).
+func (rt autopilotRuntime) SeedState(ctx context.Context, agentID string) (string, bool) {
+	if rt.s == nil || rt.s.store == nil {
+		return "", false
+	}
+	sess, err := rt.s.store.Get(ctx, agentID)
+	if err != nil {
+		return "", false
+	}
+	return sess.SeedStatus, true
+}
+
+// RedeliverSeed types text into the agent's pane and, on success, marks its seed
+// delivered (autopilot.SeedRuntime).
+func (rt autopilotRuntime) RedeliverSeed(ctx context.Context, agentID, text string) error {
+	sess, err := rt.s.store.Get(ctx, agentID)
+	if errors.Is(err, agentstore.ErrNotFound) {
+		return fmt.Errorf("%w: %s", autopilot.ErrAgentNotFound, agentID)
+	}
+	if err != nil {
+		return err
+	}
+	if err := rt.s.life.Input(ctx, sess.TmuxSession, text); err != nil {
+		return err
+	}
+	return rt.s.store.Update(ctx, agentID, func(a *agentstore.Agent) error {
+		a.SeedStatus, a.SeedError = store.SeedDelivered, ""
+		return nil
+	})
+}
