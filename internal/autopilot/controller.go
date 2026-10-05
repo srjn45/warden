@@ -151,6 +151,7 @@ type run struct {
 	backoffStage        int             // capped-exponential backoff exponent (stage 4)
 	backoffNextRetry    time.Time       // when the current backoff wait elapses
 	backoffLastErr      string          // human-facing reason for the current backoff
+	backoffKind         FailureKind     // classified cause of the current backoff
 	plannedRotateNextAt time.Time       // cooldown floor so planned rotation can't thrash
 	tried               map[string]bool // backends tried this heal cycle (rotate-down exclusion)
 

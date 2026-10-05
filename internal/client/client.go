@@ -1533,6 +1533,7 @@ type AutopilotBackoff struct {
 	Stage       int    `json:"stage"`
 	NextRetryAt string `json:"next_retry_at"`
 	LastError   string `json:"last_error"`
+	Kind        string `json:"kind,omitempty"`
 }
 
 // AutopilotPreflightError is the 409 body when enabling fails preflight: the full

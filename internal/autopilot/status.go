@@ -81,4 +81,7 @@ type Backoff struct {
 	Stage       int    `json:"stage"`
 	NextRetryAt string `json:"next_retry_at"`
 	LastError   string `json:"last_error"`
+	// Kind classifies the cause: backend_unavailable | no_backend_selectable |
+	// definition_error | spawn_error.
+	Kind string `json:"kind,omitempty"`
 }
