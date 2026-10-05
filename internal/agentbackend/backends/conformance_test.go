@@ -83,15 +83,18 @@ type conformanceCase struct {
 // always Unknown (crush / goose / opencode infer state from their transcript,
 // not the pane) carry no pane fixtures here.
 //
-// Coverage today: codex, cursor, antigravity, aider. The remaining pane-driven
-// backend (claude — its DetectState tests still use inline literals) is a
-// follow-up: capture testdata/claude/{state-working,approval,state-idle}.txt and
-// add rows below.
+// Coverage today: codex, cursor, antigravity, aider, plus claude's trust dialog.
+// Claude's other DetectState tests still use inline literals; capturing
+// testdata/claude/{state-working,approval,state-idle}.txt is a follow-up.
 var conformanceCases = []conformanceCase{
 	// --- codex (has no positive idle marker; idle is inferred from staleness) ---
 	{backend: "codex", fixture: "state-working.txt", capturedWith: "0.142.3", wantState: agentbackend.StateWorking},
 	{backend: "codex", fixture: "approval-command.txt", capturedWith: "0.142.3", wantState: agentbackend.StateNeedsInput, wantApproval: true},
 	{backend: "codex", fixture: "state-idle.txt", capturedWith: "0.142.3", wantState: agentbackend.StateUnknown},
+	{backend: "codex", fixture: "trust-prompt.txt", capturedWith: "0.159.2", wantState: agentbackend.StateNeedsInput, wantApproval: true},
+
+	// --- claude (only the launch-time trust dialog is fixture-backed so far) ---
+	{backend: "claude", fixture: "trust-prompt.txt", capturedWith: "2.1.289", wantState: agentbackend.StateNeedsInput, wantApproval: true},
 
 	// --- cursor (cursor-agent; positive idle marker on the composer) ---
 	{backend: "cursor", fixture: "state-working.txt", capturedWith: "cursor-agent 2026.06", wantState: agentbackend.StateWorking},

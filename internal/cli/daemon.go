@@ -218,6 +218,7 @@ func newDaemonRunCmd() *cobra.Command {
 			lc.FastBrain = fbEngine
 			pl.Version = version
 			pl.RateLimitAutoResume = cfg.RateLimit.AutoResume
+			pl.SetTrustWorkspace(cfg.TrustWorkspace)
 			pstore, err := pipeline.NewStore(filepath.Join(cfg.DataDir, "pipelines"))
 			if err != nil {
 				return err

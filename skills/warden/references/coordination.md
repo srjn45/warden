@@ -79,6 +79,12 @@ attaching. Config-gated by `approvals` (on by default).
 - A TOCTOU re-capture + fingerprint re-verify guards each answer; unrecognized
   prompts fall back to attach.
 
+**Workspace-trust prompts are not your job.** The "do you trust this folder?" prompt
+Claude/Codex/Antigravity raise in a fresh worktree is answered by the daemon
+(`trust_workspace: true`, default; Cursor is launched with `--trust`), regardless of
+auto-approve. Do not attach to answer it; if an agent still sits on it, the operator
+set `trust_workspace: false` — answer it from the approvals inbox.
+
 **Auto-approve** (off by default): auto-answers recognized yes/no prompts. Two layers:
 
 - **Per-agent toggle** — opt one agent in even when the global policy is off:
