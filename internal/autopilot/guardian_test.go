@@ -342,9 +342,9 @@ func TestGuardianResolverExhaustedEntersBackoff(t *testing.T) {
 	ctx := context.Background()
 
 	// Drive straight to backoff: bypass nudge/restart stages.
-	c.runs[runID].healStage = stageRotated
-	c.runs[runID].healNextAt = time.Time{}
 	clock.t = t0.Add(11 * time.Minute)
+	c.runs[runID].healStage = stageRotated
+	c.runs[runID].healNextAt = clock.t // due now (a real rotated run always has a next step)
 	c.guardianTick(ctx)
 
 	require.NotNil(t, c.Status().Runs[0].Backoff, "exhausted resolver ⇒ backoff")
@@ -453,9 +453,9 @@ func TestGuardianHealStagesHotSwap(t *testing.T) {
 			name: "restart",
 			res:  cyclicResolver("a", "free"),
 			setup: func(c *Controller, fake *guardianFake, runID string, clock *fakeClock) {
-				c.runs[runID].healStage = stageNudged
-				c.runs[runID].healNextAt = time.Time{}
 				clock.t = t0.Add(11 * time.Minute)
+				c.runs[runID].healStage = stageNudged
+				c.runs[runID].healNextAt = clock.t // due now
 				c.guardianTick(ctx)
 			},
 			want: want{rotated: 1, backend: "a", reason: RotateReasonHeal, spawned: 1, stage: stageRestarted, id: "brain-1"},
@@ -464,10 +464,10 @@ func TestGuardianHealStagesHotSwap(t *testing.T) {
 			name: "rotate",
 			res:  &roundRobinResolver{backends: []string{"a", "b"}, tiers: []backendstore.ModelTier{"free", "subscription"}},
 			setup: func(c *Controller, fake *guardianFake, runID string, clock *fakeClock) {
-				c.runs[runID].healStage = stageRestarted
-				c.runs[runID].healNextAt = time.Time{}
-				c.runs[runID].tried = map[string]bool{"a": true}
 				clock.t = t0.Add(11 * time.Minute)
+				c.runs[runID].healStage = stageRestarted
+				c.runs[runID].healNextAt = clock.t // due now
+				c.runs[runID].tried = map[string]bool{"a": true}
 				c.guardianTick(ctx)
 			},
 			want: want{rotated: 1, backend: "b", reason: RotateReasonHeal, spawned: 1, stage: stageRotated, id: "brain-1"},
@@ -476,9 +476,9 @@ func TestGuardianHealStagesHotSwap(t *testing.T) {
 			name: "backoff",
 			res:  &fakeResolver{err: router.ErrAllExhausted},
 			setup: func(c *Controller, fake *guardianFake, runID string, clock *fakeClock) {
-				c.runs[runID].healStage = stageRotated
-				c.runs[runID].healNextAt = time.Time{}
 				clock.t = t0.Add(11 * time.Minute)
+				c.runs[runID].healStage = stageRotated
+				c.runs[runID].healNextAt = clock.t // due now
 				c.guardianTick(ctx)
 			},
 			want: want{spawned: 1, stage: stageBackoff, id: "brain-1", backoff: true},
@@ -498,10 +498,10 @@ func TestGuardianHealStagesHotSwap(t *testing.T) {
 			name: "missing-brain-respawns",
 			res:  cyclicResolver("a", "free"),
 			setup: func(c *Controller, fake *guardianFake, runID string, clock *fakeClock) {
+				clock.t = t0.Add(11 * time.Minute)
 				c.runs[runID].brain = nil
 				c.runs[runID].healStage = stageRestarted
-				c.runs[runID].healNextAt = time.Time{}
-				clock.t = t0.Add(11 * time.Minute)
+				c.runs[runID].healNextAt = clock.t // due now
 				c.guardianTick(ctx)
 			},
 			want: want{spawned: 2, rotated: 0, stage: stageRotated, id: "brain-2"},
@@ -567,9 +567,9 @@ func TestGuardianRotationLeavesLiveWorkersUntouched(t *testing.T) {
 		parentBefore[w.id] = w.parent
 	}
 
-	c.runs[runID].healStage = stageNudged
-	c.runs[runID].healNextAt = time.Time{}
 	clock.t = t0.Add(11 * time.Minute)
+	c.runs[runID].healStage = stageNudged
+	c.runs[runID].healNextAt = clock.t // due now
 	c.guardianTick(context.Background())
 
 	require.Len(t, fake.rotated, 1)

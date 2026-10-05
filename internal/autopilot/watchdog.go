@@ -154,7 +154,7 @@ func (c *Controller) watchdogDue(r *run, roster []AgentInfo, rosterOK bool, now 
 	if r.state != StateActive && !r.wdActive {
 		return false
 	}
-	if r.needsAttention != "" {
+	if r.needsAttention != "" || r.restingNow(now) {
 		return false
 	}
 	if now.Sub(r.lastProgressAt) < c.guardian.WatchdogWindow {

@@ -193,6 +193,9 @@ type run struct {
 	// Guardian triage state (guardian_triage.go); mutated only under c.mu.
 	triage triageState
 
+	// resting is the guardian's per-agent usage-limit bookkeeping (limits.go).
+	resting map[string]*restingAgent
+
 	// Overwatch-owned state (autopilot.md §2.4). Mutated only under c.mu by the
 	// overwatch tick, which nudges a live-but-quiet manager to tend workers that
 	// have fallen idle or are waiting on input.
@@ -1004,6 +1007,8 @@ func (c *Controller) statusLocked() Status {
 			ResolverAttempts:  copyAttempts(r.resolverAttempts),
 			LastProgressAt:    rfc3339OrEmpty(r.lastProgressAt),
 			Watchdog:          c.watchdogState(r, c.now()),
+			NextStep:          c.nextStepLocked(r, c.now()),
+			RestingUntil:      rfc3339OrEmpty(restingUntil(r)),
 			PlanTasks:         append([]PlanTask(nil), r.plan.Tasks...),
 			GuardianID:        guardianSlotIDOrEmpty(r.slotScope),
 			SlotScope:         r.slotScope,

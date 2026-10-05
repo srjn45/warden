@@ -239,6 +239,7 @@ func TestTriageStaleResultDiscardedAfterStageChanged(t *testing.T) {
 	h.settle()
 	h.c.mu.Lock()
 	h.c.runs[h.runID].healStage = stageNudged
+	h.c.runs[h.runID].healNextAt = h.clock.now().Add(time.Minute) // a real nudged run always has a next step
 	h.c.mu.Unlock()
 	h.tick(time.Minute)
 	require.Empty(t, h.fake.nudges)

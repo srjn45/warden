@@ -6587,6 +6587,14 @@ components:
                 description: set when the guardian parked the run because a failure cannot succeed on retry; carries the reason and how to clear it
               last_progress_at: { type: string, description: "RFC3339 time of the run's last observed progress (ledger task change, landing, plan task status change, worker spawn); heartbeats and nudges do not count" }
               watchdog: { type: string, enum: [disabled, idle, armed, escalating, parked], description: "progress watchdog state" }
+              next_step:
+                type: object
+                description: the guardian's scheduled next action for this run (absent for complete, paused, stopped or registered runs)
+                properties:
+                  action: { type: string }
+                  at: { type: string, description: "RFC3339 time the action fires; empty when it waits for an operator" }
+                  owner: { type: string, description: "guardian | overwatch | operator" }
+              resting_until: { type: string, description: "RFC3339 time the guardian next resumes or re-switches a rate-limited agent of this run" }
               landed_total: { type: integer }
               guardian_id: { type: string }
               slot_scope: { type: string, description: "stable scope token for manager/guardian slot ids" }
