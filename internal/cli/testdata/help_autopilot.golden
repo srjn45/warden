@@ -11,10 +11,9 @@ Usage:
 Commands:
   enable               Enable autopilot capability for this repo (does not start work)
   disable              Disable autopilot for this repo (kill switch — stops spawning/landing)
-  status               Show autopilot status (which repos are enabled, and each run)
+  status               Show autopilot status (enabled repos and every run)
   init                 Scaffold autopilot adoption in the current repo
   land                 Land an autopilot worker branch into the integration branch
-  run                  Inspect live Autopilot executors
 
 Flags:
   -h, --help   help for autopilot

@@ -36,12 +36,16 @@ func newAutopilotCmd() *cobra.Command {
 		newAutopilotStatusCmd(),
 		newAutopilotInitCmd(),
 		newAutopilotLandCmd(),
-		newAutopilotRunListOnlyCmd(),
 	}
 	for i, child := range children {
 		SetCommandHelpMetadata(child, "run", (i+1)*10, "warden autopilot "+child.Name(), "", nodeKind(child))
 		cmd.AddCommand(child)
 	}
+	// Hidden compatibility aliases for the retired run listing: all print the
+	// same output as `autopilot status`.
+	runAlias := newAutopilotRunListOnlyCmd()
+	markStatusAlias(runAlias, "warden autopilot status")
+	cmd.AddCommand(runAlias)
 	// Deprecated one-release aliases: register / run lifecycle verbs translate via
 	// the daemon to PlanID where safe (or return a precise migration error).
 	for _, legacy := range []struct {
@@ -51,7 +55,7 @@ func newAutopilotCmd() *cobra.Command {
 		{newAutopilotOnCmd, "warden autopilot enable"},
 		{newAutopilotOffCmd, "warden autopilot disable"},
 		{newAutopilotRegisterCmd, "warden plan run"},
-		{newAutopilotListCmd, "warden autopilot run list"},
+		{newAutopilotListCmd, "warden autopilot status"},
 		{func() *cobra.Command { return newAutopilotRunActionCmd("start") }, "warden plan run"},
 		{func() *cobra.Command { return newAutopilotRunActionCmd("pause") }, "warden plan pause"},
 		{func() *cobra.Command { return newAutopilotRunActionCmd("resume") }, "warden plan resume"},
@@ -68,15 +72,27 @@ func newAutopilotCmd() *cobra.Command {
 func newAutopilotRunListOnlyCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "run",
-		Short: "Inspect live Autopilot executors",
-		Long: "List live Autopilot executors. Lifecycle control (start/pause/resume/stop)\n" +
-			"moved to `warden plan run` / `warden plan pause|resume|stop`. Repository\n" +
-			"enablement remains `autopilot enable` / `autopilot disable`.",
+		Short: "Compatibility alias for `autopilot status`",
+		Long: "Hidden compatibility alias: prints the same output as `warden autopilot status`.\n" +
+			"Lifecycle control (start/pause/resume/stop) moved to `warden plan run` /\n" +
+			"`warden plan pause|resume|stop`.",
+		Args: cobra.NoArgs,
+		RunE: runAutopilotStatus,
 	}
+	addJSONFlag(cmd, "emit the raw autopilot status as JSON")
 	list := newAutopilotListCmd()
-	SetCommandHelpMetadata(list, "run", 10, "warden autopilot run list", "", NodeLeaf)
 	cmd.AddCommand(list)
 	return cmd
+}
+
+// markStatusAlias hides cmd and its children as compatibility aliases of
+// `autopilot status` (all share its canonical path).
+func markStatusAlias(cmd *cobra.Command, canonicalPath string) {
+	cmd.Hidden = true
+	SetCommandHelpMetadata(cmd, "run", 900, canonicalPath, AliasCompatibility, nodeKind(cmd))
+	for _, child := range cmd.Commands() {
+		markStatusAlias(child, canonicalPath)
+	}
 }
 
 func canonicalAutopilotCommand(cmd *cobra.Command, name string) *cobra.Command {
@@ -102,16 +118,9 @@ func rewriteAutopilotHelpPaths(cmd *cobra.Command, legacyName, canonicalName str
 }
 
 func newAutopilotListCmd() *cobra.Command {
-	return &cobra.Command{Use: "list", Short: "List all registered autopilot runs", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
-		runs, err := clientFor(cmd).ListAutopilotRuns(cmd.Context())
-		if err != nil {
-			return err
-		}
-		for _, r := range runs {
-			fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\t%s\t%s\n", r.RunID, r.Name, r.State, r.PlanFile, r.Repo)
-		}
-		return nil
-	}}
+	cmd := &cobra.Command{Use: "list", Short: "Compatibility alias for `autopilot status`", Args: cobra.NoArgs, RunE: runAutopilotStatus}
+	addJSONFlag(cmd, "emit the raw autopilot status as JSON")
+	return cmd
 }
 
 func newAutopilotRegisterCmd() *cobra.Command {
@@ -255,36 +264,61 @@ func resolveAutopilotRepo(cmd *cobra.Command, override string) (string, error) {
 }
 
 func newAutopilotStatusCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "status",
-		Short: "Show autopilot status (which repos are enabled, and each run)",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			st, err := clientFor(cmd).GetAutopilot(cmd.Context())
-			if err != nil {
-				return err
-			}
-			state := "disabled"
-			if st.Enabled {
-				state = "enabled"
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "autopilot: %s — %d repo(s), %d run(s)\n",
-				state, len(st.EnabledRepos), len(st.Runs))
-			for _, repo := range st.EnabledRepos {
-				fmt.Fprintf(cmd.OutOrStdout(), "  enabled: %s\n", repo)
-			}
-			printAutopilotRuns(cmd, st)
-			return nil
-		},
+		Short: "Show autopilot status (enabled repos and every run)",
+		Long: "Shows which repos have autopilot enabled and one line per run: run id, name,\n" +
+			"state, plan id, repo, gate, integration branch, and backoff summary. For a\n" +
+			"running plan's task-level progress use `warden plan show`.",
+		Args: cobra.NoArgs,
+		RunE: runAutopilotStatus,
+	}
+	addJSONFlag(cmd, "emit the raw autopilot status as JSON")
+	return cmd
+}
+
+func runAutopilotStatus(cmd *cobra.Command, _ []string) error {
+	st, err := clientFor(cmd).GetAutopilot(cmd.Context())
+	if err != nil {
+		return err
+	}
+	if jsonRequested(cmd) {
+		return printJSON(cmd.OutOrStdout(), st)
+	}
+	state := "disabled"
+	if st.Enabled {
+		state = "enabled"
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "autopilot: %s — %d repo(s), %d run(s)\n",
+		state, len(st.EnabledRepos), len(st.Runs))
+	for _, repo := range st.EnabledRepos {
+		fmt.Fprintf(cmd.OutOrStdout(), "  enabled: %s\n", repo)
+	}
+	printAutopilotRuns(cmd, st)
+	return nil
+}
+
+// printAutopilotRuns renders one line per run: id, name, state, plan id, repo,
+// gate, integration branch, backoff summary.
+func printAutopilotRuns(cmd *cobra.Command, st client.AutopilotStatus) {
+	for _, r := range st.Runs {
+		fmt.Fprintf(cmd.OutOrStdout(), "  %s\t%s\t%s\tplan=%s\t%s\tgate=%s\tbranch=%s\tbackoff=%s\n",
+			r.RunID, r.Name, r.State, dash(r.PlanID), r.Repo, dash(r.Gate), dash(r.IntegrationBranch), backoffSummary(r.Backoff))
 	}
 }
 
-// printAutopilotRuns renders one line per run: id, state, gate, plan file, repo.
-func printAutopilotRuns(cmd *cobra.Command, st client.AutopilotStatus) {
-	for _, r := range st.Runs {
-		fmt.Fprintf(cmd.OutOrStdout(), "  %s\t%s\tgate=%s\t%s\t%s\n",
-			r.RunID, r.State, r.Gate, r.PlanFile, r.Repo)
+func backoffSummary(b *client.AutopilotBackoff) string {
+	if b == nil {
+		return "-"
 	}
+	out := fmt.Sprintf("stage %d", b.Stage)
+	if b.NextRetryAt != "" {
+		out += " retry " + b.NextRetryAt
+	}
+	if b.LastError != "" {
+		out += " (" + b.LastError + ")"
+	}
+	return out
 }
 
 func newAutopilotInitCmd() *cobra.Command {
@@ -334,7 +368,7 @@ func newAutopilotLandCmd() *cobra.Command {
 // merge of one autopilot worker branch into the integration branch (autopilot.md
 // §6). It mirrors the MCP `land` tool the brain uses.
 func newLandCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "land <agent-or-branch>",
 		Short: "Land an autopilot worker branch into the integration branch",
 		Long: "Merges one autopilot worker branch into the integration branch — the brain's\n" +
@@ -359,6 +393,9 @@ func newLandCmd() *cobra.Command {
 				}
 				return err
 			}
+			if jsonRequested(cmd) {
+				return printJSON(cmd.OutOrStdout(), res)
+			}
 			if res.AlreadyLanded {
 				fmt.Fprintf(cmd.OutOrStdout(), "already landed: %s @ %s (PR #%d)\n", res.Branch, res.SHA, res.PR)
 				return nil
@@ -367,6 +404,8 @@ func newLandCmd() *cobra.Command {
 			return nil
 		},
 	}
+	addJSONFlag(cmd, "emit the raw land result as JSON")
+	return cmd
 }
 
 // detectInstalledBackends returns the ids of every registered backend whose

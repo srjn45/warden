@@ -1812,10 +1812,9 @@ Usage:
 Commands:
   enable               Enable autopilot capability for this repo (does not start work)
   disable              Disable autopilot for this repo (kill switch — stops spawning/landing)
-  status               Show autopilot status (which repos are enabled, and each run)
+  status               Show autopilot status (enabled repos and every run)
   init                 Scaffold autopilot adoption in the current repo
   land                 Land an autopilot worker branch into the integration branch
-  run                  Inspect live Autopilot executors
 
 Flags:
   -h, --help   help for autopilot
@@ -1868,13 +1867,16 @@ Inherited flags:
 ## warden autopilot status
 
 ```text
-Show autopilot status (which repos are enabled, and each run)
+Shows which repos have autopilot enabled and one line per run: run id, name,
+state, plan id, repo, gate, integration branch, and backoff summary. For a
+running plan's task-level progress use `warden plan show`.
 
 Usage:
   warden autopilot status [flags]
 
 Flags:
   -h, --help   help for status
+      --json   emit the raw autopilot status as JSON
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -1919,43 +1921,7 @@ Usage:
 
 Flags:
   -h, --help   help for land
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden autopilot run
-
-```text
-List live Autopilot executors. Lifecycle control (start/pause/resume/stop)
-moved to `warden plan run` / `warden plan pause|resume|stop`. Repository
-enablement remains `autopilot enable` / `autopilot disable`.
-
-Usage:
-  warden autopilot run [flags]
-
-Commands:
-  list                 List all registered autopilot runs
-
-Flags:
-  -h, --help   help for run
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden autopilot run list
-
-```text
-List all registered autopilot runs
-
-Usage:
-  warden autopilot run list [flags]
-
-Flags:
-  -h, --help   help for list
+      --json   emit the raw land result as JSON
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -5171,12 +5137,14 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | `warden auto-approve policy` | `warden approval auto rules` |
 | `warden auto-approve rules` | `warden approval auto rules` |
 | `warden auto-approve show` | `warden approval auto rules` |
-| `warden autopilot list` | `warden autopilot run list` |
+| `warden autopilot list` | `warden autopilot status` |
 | `warden autopilot off` | `warden autopilot disable` |
 | `warden autopilot on` | `warden autopilot enable` |
 | `warden autopilot pause` | `warden plan pause` |
 | `warden autopilot register` | `warden plan run` |
 | `warden autopilot resume` | `warden plan resume` |
+| `warden autopilot run` | `warden autopilot status` |
+| `warden autopilot run list` | `warden autopilot status` |
 | `warden autopilot start` | `warden plan run` |
 | `warden autopilot stop` | `warden plan stop` |
 | `warden autopilot unregister` | `warden plan stop` |
