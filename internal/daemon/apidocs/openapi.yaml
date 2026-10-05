@@ -4952,6 +4952,9 @@ components:
           $ref: "#/components/schemas/PlanExecutorBackoff"
         integration_branch: { type: string }
         manager_agent_id: { type: string }
+        restart_count: { type: integer, description: "operator restarts of this plan's executor (wd plan restart)" }
+        last_restart_reason: { type: string }
+        last_restart_at: { type: string, description: "RFC3339 time of the last restart" }
         tasks:
           type: array
           items: { $ref: "#/components/schemas/PlanExecutorTask" }

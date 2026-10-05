@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/srjn45/warden/internal/client"
 )
 
 const planListJSON = `[
@@ -1074,5 +1075,58 @@ func TestPlanExecutionHelpText(t *testing.T) {
 	f := newPlanAssessCmd().Flags().Lookup("project")
 	if f == nil || !f.Hidden {
 		t.Error("assess --project must exist and be hidden")
+	}
+}
+
+func TestPlanRestartCmdYes(t *testing.T) {
+	seen, body := map[string]string{}, map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"POST /api/v1/plans/plan-ab12cd34/restart": `{"id":"plan-ab12cd34","status":"in_progress"}`,
+	}, seen, body))
+	out, err := runCLI(t, addr, "plan", "restart", "plan-ab12cd34", "--yes", "--force", "--backend", "codex")
+	if err != nil {
+		t.Fatalf("plan restart: %v", err)
+	}
+	if !strings.Contains(out, "plan plan-ab12cd34 restarted") {
+		t.Fatalf("output: %q", out)
+	}
+	p := "/api/v1/plans/plan-ab12cd34/restart"
+	if seen[p] != "POST" || !strings.Contains(body[p], `"force":true`) || !strings.Contains(body[p], `"backend":"codex"`) {
+		t.Fatalf("request: %q %q", seen[p], body[p])
+	}
+}
+
+func TestPlanRestartCmdPromptCancel(t *testing.T) {
+	seen := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"GET /api/v1/plans/plan-ab12cd34": `{"id":"plan-ab12cd34","name":"feat","status":"in_progress","execution_mode":"autopilot"}`,
+	}, seen, nil))
+	if _, err := runCLIStdin(t, addr, "n\n", "plan", "restart", "plan-ab12cd34"); err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	if seen["/api/v1/plans/plan-ab12cd34/restart"] != "" {
+		t.Fatalf("restart sent despite cancel")
+	}
+}
+
+func TestPlanRestartCmdPromptConfirm(t *testing.T) {
+	seen := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"GET /api/v1/plans/plan-ab12cd34":          `{"id":"plan-ab12cd34","name":"feat","status":"in_progress","execution_mode":"pipeline"}`,
+		"POST /api/v1/plans/plan-ab12cd34/restart": `{"id":"plan-ab12cd34","status":"in_progress"}`,
+	}, seen, nil))
+	if _, err := runCLIStdin(t, addr, "y\n", "plan", "restart", "plan-ab12cd34"); err != nil {
+		t.Fatalf("confirm: %v", err)
+	}
+	if seen["/api/v1/plans/plan-ab12cd34/restart"] != "POST" {
+		t.Fatalf("restart not sent")
+	}
+}
+
+func TestPlanShowRendersRestartInfo(t *testing.T) {
+	var sb strings.Builder
+	printPlanExecutor(&sb, &client.PlanExecutor{Kind: "autopilot", ID: "ap-1", State: "active", RestartCount: 2, LastRestartReason: "needs_attention", LastRestartAt: "2026-10-05T10:00:00Z"})
+	if !strings.Contains(sb.String(), "restarts:       2 (last: needs_attention at 2026-10-05T10:00:00Z)") {
+		t.Fatalf("got %q", sb.String())
 	}
 }

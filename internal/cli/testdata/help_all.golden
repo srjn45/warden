@@ -57,6 +57,7 @@ Complete command tree:
   warden plan pause                    Pause an in-progress plan's executor
   warden plan resume                   Resume a paused plan's executor
   warden plan stop                     Stop an in-progress plan's executor
+  warden plan restart                  Restart an in-progress plan's executor with fresh agents
   warden plan done                     Mark a plan task done
   warden plan complete                 Complete a plan (in_progress → completed)
   warden plan archive                  Archive a plan (any status → archived)

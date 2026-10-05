@@ -129,6 +129,9 @@ type PlanExecutor struct {
 	Backoff           *PlanExecutorBackoff `json:"backoff,omitempty"`
 	IntegrationBranch string               `json:"integration_branch,omitempty"`
 	ManagerAgentID    string               `json:"manager_agent_id,omitempty"`
+	RestartCount      int                  `json:"restart_count,omitempty"`
+	LastRestartReason string               `json:"last_restart_reason,omitempty"`
+	LastRestartAt     string               `json:"last_restart_at,omitempty"`
 	Tasks             []PlanExecutorTask   `json:"tasks,omitempty"`
 }
 
@@ -261,6 +264,22 @@ func (c *Client) PlansControl(ctx context.Context, planID, action string) (*Plan
 	var p PlanView
 	path := "/plans/" + url.PathEscape(planID) + "/" + url.PathEscape(action)
 	if err := c.do(ctx, http.MethodPost, path, nil, &p); err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+// RestartPlanRequest is the body of POST /plans/{id}/restart.
+type RestartPlanRequest struct {
+	Force   bool   `json:"force,omitempty"`
+	Backend string `json:"backend,omitempty"`
+}
+
+// PlansRestart restarts an in_progress plan's executor with a fresh agent set.
+// Uses longTimeout — it terminates agents, removes worktrees and respawns.
+func (c *Client) PlansRestart(ctx context.Context, planID string, req RestartPlanRequest) (*PlanView, error) {
+	var p PlanView
+	if err := c.doT(ctx, longTimeout, http.MethodPost, "/plans/"+url.PathEscape(planID)+"/restart", req, &p); err != nil {
 		return nil, err
 	}
 	return &p, nil

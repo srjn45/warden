@@ -505,6 +505,9 @@ func (c *Controller) ResumeRun(ctx context.Context, id string) (RunStatus, error
 		return c.runStatusLocked(r), nil
 	}
 	if r.state != StatePaused {
+		if r.state == StateStopped {
+			return RunStatus{}, fmt.Errorf("%w: cannot resume a stopped run; use `wd plan restart` to start it again with fresh agents", ErrRunConflict)
+		}
 		return RunStatus{}, fmt.Errorf("%w: cannot resume run in state %s", ErrRunConflict, r.state)
 	}
 	c.clearParked(r)
