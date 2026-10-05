@@ -1530,7 +1530,7 @@ Operator playbooks:
 | **Lifecycle** | ScrivaDB `Status` field |
 | **Revision / hash** | ScrivaDB `revision` + `content_hash` |
 | **Execution evidence** | ScrivaDB events / summaries / task progress |
-| **Repository YAML / JSON** | Optional replica via `sync_to_repo` (YAML default; JSON opt-in) — inert unless explicit `import-legacy` (YAML only) |
+| **Repository YAML / JSON** | Optional replica via `sync-to-repo` (YAML default; JSON opt-in) — inert unless explicit `import-legacy` (YAML only) |
 
 ### 37.2 Lifecycle states
 
@@ -1557,7 +1557,7 @@ one-time cutover:
 - Leaves source files untouched; `--report` classifies without writing
 - Records a `legacy_imported` migration audit event per successful import
 
-**Deprecated for one release** (help + responses state they cannot affect
+**Retired — hidden aliases only** (help + responses state they cannot affect
 canonical execution after import):
 - `wd plan scan` / `scan_plans` / `POST …/plans/scan` — upserts stubs only;
   does **not** reseed `Status` for Plans with a non-empty definition; response
@@ -1606,11 +1606,12 @@ canonical recovery.
 | `wd plan edit <id>` | Interactive `$EDITOR` edit of pending definition (DAG-validated on save) |
 | `wd plan task add\|edit\|rm …` | Granular task-DAG mutations (cycle/dep checks; 409 if not pending) |
 | `wd plan show <id> [--json]` | Canonical detail (never reads repo YAML/JSON replicas) |
-| `wd plan sync_to_repo <id> --base <ref> [--format yaml\|json]` | Optional inert replica PR (YAML default; JSON opt-in) |
+| `wd plan sync-to-repo <id> --base <ref> [--format yaml\|json]` | Optional inert replica PR (YAML default; JSON opt-in) |
 | `wd plan backup export\|restore …` | Portable ScrivaDB bundle |
 | `wd plan import-legacy [--report]` | Explicit legacy YAML cutover |
-| `wd plan scan` / `import` / `status` | **Deprecated** migration aids |
-| `wd plan done` / `complete` / `archive` / `run` / `pause\|resume\|stop` | Lifecycle + execution |
+| `wd plan task status <id> <task> <status>` | Set one task's progress (pending/in_progress/done/skipped) |
+| `wd plan delete <id>` | Permanently delete a plan (refused while in_progress) |
+| `wd plan complete` / `archive` / `run` / `pause\|resume\|stop` | Lifecycle + execution |
 | `wd plan assess <id>` | Brain-based task progress reconstruction |
 
 ### 37.8 MCP tools
@@ -1663,7 +1664,7 @@ Phase 12 acceptance records them as follow-up issues — see
 **Shipped follow-up (no longer deferred):**
 
 - **JSON export format** ([#585](https://github.com/srjn45/warden/issues/585)) —
-  optional inert JSON replicas via `planexport.JSONRenderer` / `sync_to_repo
+  optional inert JSON replicas via `planexport.JSONRenderer` / `sync-to-repo
   --format json`. Same §8.1 envelope as YAML; top-level
   `"warden_plan_export":"replica only — not authoritative"`. YAML remains the
   default. JSON files under `plans/` are **never** scan/import-legacy
