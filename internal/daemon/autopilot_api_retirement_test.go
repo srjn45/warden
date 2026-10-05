@@ -220,18 +220,19 @@ func TestDeprecatedControlPauseTranslatesToPlanControl(t *testing.T) {
 	srv.SetAutopilotController(c)
 
 	planID := "plan-translat1"
+	// The plan store is canonical for plan-bound runs: the definition must exist
+	// before the run is started or recovered.
+	require.NoError(t, ps.Create(context.Background(), &planstore.Plan{
+		ID: planID, ProjectID: dir, Name: "ship",
+		FilePath: "ship.yaml", Status: planstore.PlanStatusInProgress,
+		AutopilotRunID: autopilot.RunID(dir, plan), ExecutionMode: planstore.PlanModeAutopilot,
+	}))
 	r, err := c.Register(context.Background(), autopilot.RegisterRequest{
 		Name: "ship", Repo: dir, PlanFile: plan, PlanID: planID,
 	})
 	require.NoError(t, err)
 	_, err = c.StartRun(context.Background(), r.RunID)
 	require.NoError(t, err)
-
-	require.NoError(t, ps.Create(context.Background(), &planstore.Plan{
-		ID: planID, ProjectID: dir, Name: "ship",
-		FilePath: "ship.yaml", Status: planstore.PlanStatusInProgress,
-		AutopilotRunID: r.RunID, ExecutionMode: planstore.PlanModeAutopilot,
-	}))
 
 	ts := httptest.NewServer(srv.router())
 	t.Cleanup(ts.Close)

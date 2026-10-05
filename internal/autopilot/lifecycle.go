@@ -72,6 +72,7 @@ func (c *Controller) restoreStoredRuns() {
 				r.preflightWarnings = warnings
 			}
 		}
+		c.hydratePlanTasksLocked(context.Background(), r)
 		c.runs[rec.RunID] = r
 	}
 	c.rebuildClaimsLocked()
@@ -373,6 +374,9 @@ func (c *Controller) RetargetIntegrationBranch(_ context.Context, id string, req
 // path in SetRuntime can distinguish permanent failures from transient ones.
 // Caller holds c.mu.
 func (c *Controller) preflightRegisteredRunLocked(ctx context.Context, r *run) error {
+	if c.planBound(r) {
+		return c.preflightPlanBoundRunLocked(ctx, r)
+	}
 	resolved, failures := c.preflightPlan(ctx, r.absPlanFile, nil)
 	if len(failures) == 0 && !resolved.skipComplete {
 		for _, msg := range c.validatePersistedDoneClaims(resolved.runID, resolved.plan) {
@@ -404,6 +408,22 @@ func (c *Controller) preflightRegisteredRunLocked(ctx context.Context, r *run) e
 	}
 	if info, err := os.Stat(resolved.absFile); err == nil {
 		r.planModTime = info.ModTime()
+	}
+	return nil
+}
+
+// preflightPlanBoundRunLocked is the preflight for a run whose definition is
+// canonical in the plan store: the YAML export is never read, so a stale or
+// unparsable export can neither fail preflight nor degrade the run. Only an
+// unloadable plan-store definition is a (structural) failure. Caller holds c.mu.
+func (c *Controller) preflightPlanBoundRunLocked(ctx context.Context, r *run) error {
+	if err := c.hydratePlanFromSource(ctx, r); err != nil {
+		return newPreflightError([]preflightFailure{{msg: err.Error(), kind: preflightKindStructural}})
+	}
+	if r.defaultBranch == "" && r.repo != "" {
+		if def, err := c.env.DefaultBranch(ctx, r.repo); err == nil {
+			r.defaultBranch = def
+		}
 	}
 	return nil
 }
@@ -470,6 +490,7 @@ func (c *Controller) PauseRun(ctx context.Context, id string) (RunStatus, error)
 		return RunStatus{}, fmt.Errorf("%w: cannot pause run in state %s", ErrRunConflict, r.state)
 	}
 	r.state = StatePaused
+	c.clearParked(r)
 	if err := c.persistRunLockedErr(r); err != nil {
 		return RunStatus{}, err
 	}
@@ -489,6 +510,7 @@ func (c *Controller) ResumeRun(ctx context.Context, id string) (RunStatus, error
 	if r.state != StatePaused {
 		return RunStatus{}, fmt.Errorf("%w: cannot resume run in state %s", ErrRunConflict, r.state)
 	}
+	c.clearParked(r)
 	if err := c.preflightRegisteredRunLocked(ctx, r); err != nil {
 		return c.runStatusLocked(r), err
 	}

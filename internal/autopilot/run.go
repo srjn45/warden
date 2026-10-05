@@ -192,6 +192,10 @@ func (c *Controller) rotateBrain(ctx context.Context, r *run, backend, reason st
 	if r.brain == nil || r.brain.AgentID == "" {
 		return c.spawnBrain(ctx, r, backend)
 	}
+	if err := c.hydratePlanFromSource(ctx, r); err != nil {
+		r.state = StateDegraded
+		return tagFailure(KindDefinitionError, fmt.Errorf("rotate: %w", err))
+	}
 	prompt, err := ComposeDigest(ctx, DigestInput{
 		RunID:    r.runID,
 		Repo:     r.repo,
@@ -202,7 +206,7 @@ func (c *Controller) rotateBrain(ctx context.Context, r *run, backend, reason st
 	})
 	if err != nil {
 		r.state = StateDegraded
-		return fmt.Errorf("compose digest: %w", err)
+		return tagFailure(KindDefinitionError, fmt.Errorf("compose digest: %w", err))
 	}
 	handle, err := c.runtime.RotateBrain(ctx, RotateBrainSpec{
 		AgentID: r.brain.AgentID,
@@ -212,7 +216,7 @@ func (c *Controller) rotateBrain(ctx context.Context, r *run, backend, reason st
 	})
 	if err != nil {
 		r.state = StateDegraded
-		return fmt.Errorf("rotate: hot-swap brain: %w", err)
+		return tagFailure(classifySpawnError(err), fmt.Errorf("rotate: hot-swap brain: %w", err))
 	}
 	r.brain = &handle
 	r.brainSpawnedAt = c.now() // fresh successor counts as a heartbeat until it acts
@@ -234,11 +238,17 @@ func (c *Controller) spawnBrain(ctx context.Context, r *run, backend string) err
 	// populated it), attempt a lenient reload from disk before composing the
 	// digest — so the guardian's blind-spawn hole is closed for runs whose plan
 	// was not in memory yet.
-	if strings.TrimSpace(r.plan.Goal) == "" {
+	if c.planBound(r) {
+		// Plan-bound runs never read the YAML export (ScrivaDB is canonical).
+		if err := c.hydratePlanFromSource(ctx, r); err != nil {
+			r.state = StateDegraded
+			return tagFailure(KindDefinitionError, fmt.Errorf("spawn brain: %w", err))
+		}
+	} else if strings.TrimSpace(r.plan.Goal) == "" {
 		plan, warnings, lerr := loadPlanLenient(r.absPlanFile)
 		if lerr != nil {
 			r.state = StateDegraded
-			return fmt.Errorf("spawn brain: plan not loadable: %w", lerr)
+			return tagFailure(KindDefinitionError, fmt.Errorf("spawn brain: plan not loadable: %w", lerr))
 		}
 		r.plan = plan
 		r.preflightWarnings = warnings
@@ -254,7 +264,7 @@ func (c *Controller) spawnBrain(ctx context.Context, r *run, backend string) err
 	})
 	if err != nil {
 		r.state = StateDegraded
-		return fmt.Errorf("compose digest: %w", err)
+		return tagFailure(KindDefinitionError, fmt.Errorf("compose digest: %w", err))
 	}
 	c.persistIntegrationBranch(r)
 	handle, err := c.runtime.SpawnBrain(ctx, BrainSpec{
@@ -271,7 +281,7 @@ func (c *Controller) spawnBrain(ctx context.Context, r *run, backend string) err
 	})
 	if err != nil {
 		r.state = StateDegraded
-		return fmt.Errorf("spawn brain: %w", err)
+		return tagFailure(classifySpawnError(err), fmt.Errorf("spawn brain: %w", err))
 	}
 	r.brain = &handle
 	r.brainSpawnedAt = c.now() // fresh spawn counts as a heartbeat until the brain acts

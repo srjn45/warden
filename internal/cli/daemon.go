@@ -766,12 +766,13 @@ func buildAutopilotControllerConfig(cfg config.Config, baseDir string, res autop
 		DataDir:           cfg.DataDir,
 		Resolver:          res,
 		Guardian: autopilot.GuardianParams{
-			Interval:         cfg.AutopilotGuardianInterval(),
-			HeartbeatTimeout: cfg.AutopilotGuardianHeartbeatTimeout(),
-			BackoffMin:       cfg.AutopilotGuardianBackoffMin(),
-			BackoffMax:       cfg.AutopilotGuardianBackoffMax(),
-			RotateAtContext:  cfg.AutopilotGuardianRotateAtContext(),
-			NotifyEach:       cfg.AutopilotGuardianNotifyEach(),
+			Interval:             cfg.AutopilotGuardianInterval(),
+			HeartbeatTimeout:     cfg.AutopilotGuardianHeartbeatTimeout(),
+			BackoffMin:           cfg.AutopilotGuardianBackoffMin(),
+			BackoffMax:           cfg.AutopilotGuardianBackoffMax(),
+			RotateAtContext:      cfg.AutopilotGuardianRotateAtContext(),
+			NotifyEach:           cfg.AutopilotGuardianNotifyEach(),
+			MaxIdenticalFailures: cfg.AutopilotGuardianMaxIdenticalFailures(),
 		},
 	}
 }

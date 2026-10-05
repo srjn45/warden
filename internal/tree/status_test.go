@@ -1,6 +1,7 @@
 package tree
 
 import (
+	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 	"testing"
@@ -40,4 +41,15 @@ func TestTerminalPresentation(t *testing.T) {
 	require.Equal(t, "done", terminalStatus(store.StatusErrored, &code))
 	require.Equal(t, "orphaned", terminalStatus(store.StatusErrored))
 	require.Equal(t, "orphaned", terminalStatus(store.StatusOrphaned))
+}
+
+func TestRunStatusNeedsAttentionIsWaiting(t *testing.T) {
+	r := autopilot.RunStatus{State: autopilot.StateDegraded, NeedsAttention: "definition_error: x"}
+	if got := runStatus(r); got != StatusWaiting {
+		t.Fatalf("parked run status = %q, want %q", got, StatusWaiting)
+	}
+	r.NeedsAttention = ""
+	if got := runStatus(r); got != StatusError {
+		t.Fatalf("plain degraded status = %q, want %q", got, StatusError)
+	}
 }
