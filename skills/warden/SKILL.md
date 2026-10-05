@@ -174,7 +174,7 @@ The per-agent MCP tools take a `ticket` argument — the agent's **id** from
 | spin up an agent to do X | `spawn_agent {prompt: "X"}` (auto-typed, no repo needed). Use `type`+`repo` only for a managed worktree tied to a repo/ticket. |
 | what is agent <id> doing | `get_agent` (status/subject/workdir/events) + `get_agent_output` (recent terminal) → report concisely. |
 | tell / ask agent <id> to do Y | `send_to_agent` (id as `ticket`, `text`). Echo back what you sent. |
-| tear down / clean up <id> (full) | `stop_agent` — **the primary teardown verb.** Default = terminate + clear record + remove worktree. `keep_record`/`keep_worktree` subtract steps (`keep_worktree` alone == old `done`); `hard` purges; `pr`/`base` open a PR first; `force`/`delete_adopted_branch` for the worktree. DESTRUCTIVE (removes the worktree) — **confirm first**. |
+| tear down / clean up <id> (full) | `stop_agent` — **the primary teardown verb.** Default = terminate + clear record + remove worktree. `keep_record`/`keep_worktree` subtract steps (`keep_worktree` alone == old `done`); `hard` purges; `pr`/`base` open a PR first; `force`/`delete_adopted_branch` for the worktree. Order terminate → remove worktree → clear record; errors name the failed + completed steps and the record stays until last, so fix the cause and re-call `stop_agent` (don't `delete_agent` first). DESTRUCTIVE (removes the worktree) — **confirm first**. |
 | stop / terminate <id> (reversible) | `terminate_agent` — kills tmux+claude, keeps record+worktree; reversible via `restore_agent`. Alias for `stop_agent {keep_record:true, keep_worktree:true}`. |
 | delete an agent's record | `delete_agent` (id, `hard?`) — archives by default. |
 | remove an agent's worktree | `remove_worktree` — DESTRUCTIVE; **confirm first**; terminate the agent first. |
@@ -225,7 +225,7 @@ stuck worker or make an ad-hoc design call — gating
 PRs and landing them into the run's **per-plan integration branch** (default
 `autopilot/<plan-name>`; legacy `autopilot/integration` runs are grandfathered),
 all without human intervention. Guardian heal-ladder rotation is an in-place
-**hot-swap** into the same manager slot (not a new `agent-<hex>` id). A
+**hot-swap** into the same manager slot (not a new `agent-<hex>` id). If the manager's session is gone (deleted/archived) the guardian replaces it on the next tick without waiting for the heartbeat timeout (audit `autopilot.manager_missing`); `autopilot_status` shows `healing` with no manager id meanwhile. A
 daemon-internal **overwatch** backstop nudges the manager to tend workers that
 fall idle or wait on input (automatic; generous cadences — a backstop, not a
 pacer). Multiple named runs can be active in one repo concurrently — each gets

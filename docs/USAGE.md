@@ -1063,6 +1063,11 @@ warden agent adopt --dir /path/to/project   # target a different directory
 Hand your terminal to the agent's tmux session interactively. Detach with the
 tmux prefix-then-`d` (default `Ctrl-b d`) to leave the agent running.
 
+### `warden agent stop <TICKET>`
+The umbrella teardown verb: terminate → remove worktree → clear record (PR first with `--pr`, while the agent is still intact). Asks before removing the worktree unless `--yes`; subtractive flags `--keep-record`, `--keep-worktree`, `--hard`, `--force`, `--delete-adopted-branch`.
+
+A failed step stops the teardown and names itself plus what already ran, e.g. `remove worktree failed: … (completed: terminated; record left intact — fix the cause and retry)`. Because the record is cleared **last**, a worktree guard (agent alive / uncommitted / unpushed work) leaves it intact and `stop` is safely retryable once the cause is fixed; a branch that is already gone counts as success. No workaround is needed — do not call `delete`/`delete_agent` first (that archives the record and orphans the worktree). Worktrees orphaned by the older order (record cleared, worktree left behind) are reclaimed with `warden worktree prune`.
+
 ### `warden agent done <TICKET> [--hard] [--create-pr [--base <branch>]]`
 Terminate the agent (kill its tmux + claude session) **and** clear its record in
 one step — equivalent to `terminate` then `delete`. It does **not** remove the
@@ -2169,6 +2174,17 @@ keeps working even if the current provider is fully exhausted.
 6. **Immediate hard limit** — if the new candidate is immediately rate-limited, that attempt is recorded and the coordinator advances to the next candidate in the same generation.
 7. **Exhaustion** — if no unattempted candidate is available, the session persists `waiting_for_capacity` with known reset times and retries automatically on the earliest reset.
 
+#### Permission mode across a backend swap
+
+A cross-backend swap (`warden switch`, quota/hard-limit recovery, autopilot rotation) never hands the successor a mode string from the old backend's vocabulary. Each backend maps its own modes to a neutral **intent** — `default`, `plan`, `read-only`, `accept-edits`, `skip-all` — and the stored mode is translated by intent into the successor's own mode. For example Claude `bypassPermissions` → Codex `danger-full-access` → Antigravity `dangerously-skip-permissions` (all `skip-all`), and Claude `acceptEdits` → Codex `workspace-write`. A same-backend swap keeps the stored mode unchanged.
+
+- **No equivalent mode.** When the successor has no mode for that intent (or the old mode has no known intent), warden falls back to the agent's role default, then the configured default, then the successor's own default posture — each validated against the modes the successor accepts. The fallback is never `skip-all` when the original intent is known and weaker, so a swap cannot silently widen permissions.
+- **Visible.** A change is recorded as a `hot-swap-permission-mode` event and the agent record's `permission_mode` is updated to the successor's mode on success.
+
+#### Failed swaps are reported and retryable
+
+After launching the successor, warden watches it for about a second. If the CLI exits at once (bad flag, missing binary, rejected mode) the swap fails with `launch_failed` plus the first lines of the pane, a `hot-swap-failed` event is appended, and the agent record is left **untouched** — old backend, model, permission mode and session id intact — so nothing disappears from `list_agents` and you can simply retry `warden switch <id> …` (or `restore`). Manual switches, quota recovery and autopilot rotation all share this path, so the autopilot guardian sees the failure and degrades/retries instead of losing its manager.
+
 **Manual actions win.** A `warden switch`, stop, or delete always supersedes automatic recovery; stale timers and late callbacks cannot undo it.
 
 **Durable cooldown.** A confirmed hard limit stamps the exact `(backend, model)` pool as ineligible until the parsed pane reset time (or a conservative fallback). That evidence survives the short stabilization window and daemon restarts, so recovery cannot immediately reselect the same limited pool.
@@ -2503,6 +2519,8 @@ Session records carry `autopilot_run_id`, `autopilot_slot`
 (`autopilot` | `guardian` | `worker`), and `autopilot_task_id` (workers). Guardian
 heal-ladder stages 2–3 **hot-swap** into the manager slot in-place — the slot id
 survives rotation and daemon restarts.
+
+**Missing manager session (no heartbeat wait).** Each guardian tick also checks that the manager's session still exists. If it was deleted or archived (e.g. a failed hot-swap, or an operator `stop`), the guardian does not wait for the heartbeat timeout and does not nudge a ghost: it clears the stale manager record, writes an `autopilot.manager_missing` audit event, and goes straight to the respawn step. While the slot is empty `warden autopilot status` reports the run as `healing` with no manager id (never an id that resolves to nothing); if the respawn fails it becomes `degraded` with the usual backoff. Only a definitive "not found" counts — a store error or daemon restart is treated as unknown and ignored — and a manager that exists but is quiet, busy, rate-limited or mid hot-swap still follows the normal ladder.
 
 ### Quickstart
 

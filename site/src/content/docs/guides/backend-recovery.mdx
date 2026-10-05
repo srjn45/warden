@@ -268,6 +268,17 @@ attempt history, and arms a retry at the earliest known reset (or
 different backend now — see override below. Treat this like `rate_limited` in
 fleet triage.
 
+### Permission mode across a backend swap
+
+A cross-backend swap (`warden switch`, quota/hard-limit recovery, autopilot rotation) never hands the successor a mode string from the old backend's vocabulary. Each backend maps its own modes to a neutral **intent** — `default`, `plan`, `read-only`, `accept-edits`, `skip-all` — and the stored mode is translated by intent into the successor's own mode. For example Claude `bypassPermissions` → Codex `danger-full-access` → Antigravity `dangerously-skip-permissions` (all `skip-all`), and Claude `acceptEdits` → Codex `workspace-write`. A same-backend swap keeps the stored mode unchanged.
+
+- **No equivalent mode.** When the successor has no mode for that intent (or the old mode has no known intent), warden falls back to the agent's role default, then the configured default, then the successor's own default posture — each validated against the modes the successor accepts. The fallback is never `skip-all` when the original intent is known and weaker, so a swap cannot silently widen permissions.
+- **Visible.** A change is recorded as a `hot-swap-permission-mode` event and the agent record's `permission_mode` is updated to the successor's mode on success.
+
+### Failed swaps are reported and retryable
+
+After launching the successor, warden watches it for about a second. If the CLI exits at once (bad flag, missing binary, rejected mode) the swap fails with `launch_failed` plus the first lines of the pane, a `hot-swap-failed` event is appended, and the agent record is left **untouched** — old backend, model, permission mode and session id intact — so nothing disappears from `list_agents` and you can simply retry `warden switch <id> …` (or `restore`). Manual switches, quota recovery and autopilot rotation all share this path, so the autopilot guardian sees the failure and degrades/retries instead of losing its manager.
+
 ### Manually overriding recovery
 
 ```bash
