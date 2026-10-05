@@ -151,6 +151,7 @@ default; each in its own tmux session, most in a git worktree).
 | Auto-approve toggle | `auto-approve <id> on\|off` | `set_auto_approve` | ✓ | ✓ | — | [approvals-supervised](https://srjn45.github.io/warden/guides/approvals-supervised/) |
 | Auto-approve rule policy (tool/glob/regex/paths, per-agent, identical-prompt circuit breaker) | `auto-approve rules\|allow\|deny\|clear\|enable\|disable` | `set_auto_approve_policy` | ✓ | ✓ | — | [approvals-supervised](https://srjn45.github.io/warden/guides/approvals-supervised/) |
 | Workspace-trust prompt auto-answer (Claude/Codex/Antigravity in-pane; Cursor via `--trust`; on by default) | `config` (`trust_workspace`) | — | — | — | — | [approvals-supervised](https://srjn45.github.io/warden/guides/approvals-supervised/) |
+| Model-assisted prompt recognition (a reworded/unknown menu is read by Fast-Brain, verified against the pane, then follows the normal policy; on by default) | `config` (`recognize_prompts`) | — | — | — | — | [approvals-supervised](https://srjn45.github.io/warden/guides/approvals-supervised/) |
 | Set permission mode (running agent) | `set-permission-mode` | `set_permission_mode` | ✓ | ✓ | — | [approvals-supervised](https://srjn45.github.io/warden/guides/approvals-supervised/) |
 | Supervised spawn (gate every prompt) | `start --supervised` | `spawn_agent` (`supervised`) | ✓ | ✓ | — | [approvals-supervised](https://srjn45.github.io/warden/guides/approvals-supervised/) |
 

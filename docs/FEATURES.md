@@ -163,6 +163,20 @@ default, so the move is verified before Enter is sent); Cursor is launched with
 `trust_workspace: false` to leave the prompt for the approvals inbox, where it then
 follows the normal policy as a sticky grant (`allow_sticky`).
 
+**Prompts no parser recognizes.** Each backend's parser keys on that CLI's prompt
+wording, and vendors reword prompts between releases (Antigravity 1.2 turned "Do you
+want to proceed?" into "Run this command?"). With `recognize_prompts: true` (the
+default), a menu that sits unchanged at the bottom of a pane and that no parser
+matches is read by the Fast-Brain model, which transcribes the question, the command
+and the options. The model only recognizes — it never decides or presses a key. Its
+reading is discarded unless every option label is really on screen, in order; the
+destructive guard reads the pane text above the menu rather than the model's summary;
+and the result then follows the same decision order as any parsed prompt. It is
+answered by moving the cursor and pressing Enter only after a re-capture confirms the
+cursor is on the chosen option. The agent shows as `waiting_for_input`, the prompt
+appears in the approvals inbox, and a `prompt_recognized` event is recorded. Cost: one
+model call per stalled, unrecognized menu (a second only if the first failed).
+
 **Decision order** (a prompt is auto-answered only if all pass):
 - The built-in **destructive deny-list** (delete, `rm -rf`, force, push, deploy,
   reset --hard, …) **always wins** — it is checked first and is not configurable.
