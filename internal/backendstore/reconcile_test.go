@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestReconcileFirstSightAndLocalSeeding(t *testing.T) {
+func TestReconcileFirstSight(t *testing.T) {
 	s := newTestStore(t)
 	now := time.Now().Truncate(time.Second)
 
@@ -16,7 +16,7 @@ func TestReconcileFirstSightAndLocalSeeding(t *testing.T) {
 		{ID: "claude", Binary: "claude", Path: "/usr/bin/claude", Installed: true},
 		{ID: "aider", Binary: "aider", Path: "", Installed: false},
 	}
-	require.NoError(t, Reconcile(s, det, true, now))
+	require.NoError(t, Reconcile(s, det, now))
 
 	claude, err := s.Get("claude")
 	require.NoError(t, err)
@@ -30,18 +30,21 @@ func TestReconcileFirstSightAndLocalSeeding(t *testing.T) {
 	_, err = s.Get("terminal")
 	require.ErrorIs(t, err, ErrNotFound, "terminal is not a backend row")
 
-	// local row seeded from localInstalled, with the system-set local invariants.
-	local, err := s.Get(idLocal)
-	require.NoError(t, err)
-	require.True(t, local.IsLocal)
-	require.Equal(t, TierLocal, local.Tier)
-	require.True(t, local.Installed)
-	require.Empty(t, local.BinaryPath)
-	require.True(t, local.LimitedUntil.IsZero())
-	require.False(t, local.Default)
+	// no reserved local row is ever created.
+	_, err = s.Get(idLocal)
+	require.ErrorIs(t, err, ErrNotFound)
 
-	// local excluded from being a candidate is enforced via SetDefault too.
+	// SetDefault still rejects the retired local id.
 	require.Error(t, s.SetDefault(idLocal))
+}
+
+// A `local` row persisted by a pre-Fast-Brain daemon is pruned on reconcile.
+func TestReconcilePrunesStaleLocalRow(t *testing.T) {
+	s := newTestStore(t)
+	require.NoError(t, s.Upsert(Backend{ID: idLocal, IsLocal: true, Installed: true, Tier: TierLocal, Enabled: true}))
+	require.NoError(t, Reconcile(s, nil, time.Now()))
+	_, err := s.Get(idLocal)
+	require.ErrorIs(t, err, ErrNotFound)
 }
 
 // A `terminal` row persisted by a pre-stage-6 daemon is pruned on the next
@@ -51,7 +54,7 @@ func TestReconcilePrunesStaleTerminalRow(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	require.NoError(t, s.Upsert(Backend{ID: "terminal", Installed: true, Tier: TierUnclassified, Enabled: true}))
 
-	require.NoError(t, Reconcile(s, nil, true, now))
+	require.NoError(t, Reconcile(s, nil, now))
 
 	_, err := s.Get("terminal")
 	require.ErrorIs(t, err, ErrNotFound, "the stale terminal row is pruned")
@@ -70,7 +73,7 @@ func TestReconcilePreservesPreferences(t *testing.T) {
 		{ID: "claude", Binary: "claude", Path: "/new/claude", Installed: true},
 		{ID: "codex", Binary: "codex", Path: "", Installed: false}, // uninstalled between rescans
 	}
-	require.NoError(t, Reconcile(s, det, false, now))
+	require.NoError(t, Reconcile(s, det, now))
 
 	claude, err := s.Get("claude")
 	require.NoError(t, err)
@@ -87,25 +90,4 @@ func TestReconcilePreservesPreferences(t *testing.T) {
 	require.False(t, codex.Installed) // record kept, marked uninstalled
 	require.Equal(t, "subscription", codex.Tier)
 	require.False(t, codex.Enabled) // disabled preference survives
-
-	// local seeded not-installed (localInstalled=false) but still present as a row.
-	local, err := s.Get(idLocal)
-	require.NoError(t, err)
-	require.False(t, local.Installed)
-	require.True(t, local.IsLocal)
-}
-
-func TestReconcilePreservesLocalEnabled(t *testing.T) {
-	s := newTestStore(t)
-	now := time.Now().Truncate(time.Second)
-
-	require.NoError(t, Reconcile(s, nil, true, now))
-	require.NoError(t, s.SetEnabled(idLocal, false))
-
-	// A later reconcile must not re-enable the user-disabled local row.
-	require.NoError(t, Reconcile(s, nil, true, now.Add(time.Minute)))
-	local, err := s.Get(idLocal)
-	require.NoError(t, err)
-	require.False(t, local.Enabled)
-	require.True(t, local.Installed)
 }

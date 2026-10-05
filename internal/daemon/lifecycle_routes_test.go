@@ -1091,7 +1091,7 @@ func lifeServerBackends(t *testing.T, fs *fakeStore, fl *fakeLife) (*httptest.Se
 	bs, err := backendstore.NewStore(t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { bs.Close() })
-	require.NoError(t, backendstore.Reconcile(bs, agentbackend.Detect(), false, time.Now()))
+	require.NoError(t, backendstore.Reconcile(bs, agentbackend.Detect(), time.Now()))
 	srv := &Server{store: fs, life: fl, backends: bs}
 	ts := httptest.NewServer(srv.router())
 	t.Cleanup(ts.Close)
@@ -1130,6 +1130,7 @@ func TestHandleListBackends(t *testing.T) {
 	// terminal is no longer a backend (cockpit stage 6): it never appears in the
 	// registry — terminals are the session Kind=terminal, created via spawn `kind`.
 	require.False(t, ids["terminal"], "terminal is not a backend row")
+	require.False(t, ids["local"], "local is not a backend row")
 	// Default settings applied.
 	require.Equal(t, "free_plus_local", out.Settings.InternalThinkingMode)
 }
@@ -1235,12 +1236,12 @@ func TestHandleSetDefaultBackend(t *testing.T) {
 	require.True(t, ok)
 	require.True(t, d.Default)
 
-	// The reserved local row cannot be the default → 400.
+	// The local row no longer exists, so it cannot be the default → 404.
 	body, _ = json.Marshal(map[string]string{"id": "local"})
 	req, _ = http.NewRequest(http.MethodPut, srv.URL+"/api/v1/backends/default", bytes.NewReader(body))
 	resp, err = http.DefaultClient.Do(req)
 	require.NoError(t, err)
-	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	require.Equal(t, http.StatusNotFound, resp.StatusCode)
 	resp.Body.Close()
 
 	// Unknown backend → 404.
@@ -1279,14 +1280,15 @@ func TestHandleSetThinkingMode(t *testing.T) {
 	}
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
 	resp.Body.Close()
-	require.Equal(t, "local_only", out.InternalThinkingMode)
+	// Deprecated no-op: the stored mode is unchanged.
+	require.Equal(t, "free_plus_local", out.InternalThinkingMode)
 
-	// Invalid mode → 400.
+	// Any body (even a formerly-invalid mode) is still a 200 no-op.
 	body, _ = json.Marshal(map[string]string{"mode": "bogus"})
 	req, _ = http.NewRequest(http.MethodPut, srv.URL+"/api/v1/backends/thinking-mode", bytes.NewReader(body))
 	resp, err = http.DefaultClient.Do(req)
 	require.NoError(t, err)
-	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
 	resp.Body.Close()
 }
 

@@ -311,8 +311,7 @@ func newDaemonRunCmd() *cobra.Command {
 				return err
 			}
 			defer backendStore.Close()
-			localConfigured := cfg.LocalLLM.Enabled && strings.TrimSpace(cfg.LocalLLM.URL) != ""
-			if rerr := backendstore.Reconcile(backendStore, agentbackend.Detect(), localConfigured, time.Now()); rerr != nil {
+			if rerr := backendstore.Reconcile(backendStore, agentbackend.Detect(), time.Now()); rerr != nil {
 				return rerr
 			}
 			srv.SetBackends(backendStore)
