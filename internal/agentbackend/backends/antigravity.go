@@ -426,7 +426,9 @@ func (Antigravity) ParseApproval(pane string) (*agentbackend.Approval, bool) {
 }
 
 // agyParseCommandApproval normalizes `agy`'s interactive tool-permission prompt into
-// the neutral Approval. Captured live (`agy` v1.0.13) — a shell-command escalation
+// the neutral Approval. Captured live (`agy` v1.0.13; v1.2.17 reworded the header to
+// "Run this command?" and the options to "Yes, run command" / "No, cancel", see
+// testdata/antigravity/approval-run-command.txt) — a shell-command escalation
 // renders as:
 //
 //	● Bash(echo hello-from-agy) (ctrl+o to expand)
@@ -443,8 +445,8 @@ func (Antigravity) ParseApproval(pane string) (*agentbackend.Approval, bool) {
 //	esc to cancel
 //
 // It locates the contiguous 1..N option run, then reads the "Requesting permission
-// for:" command (the Action) and the "Do you want to proceed?" header (the Question)
-// just above it. The header is required, so a bare numbered list in agent prose is
+// for:" command (the Action) and the question header (the Question) just above it.
+// A question header is required, so a bare numbered list in agent prose is
 // NOT mis-parsed — it returns (nil,false), as does any non-approval pane. Options are
 // 1-indexed top-down so Fingerprint(Options) — which the auto-approve policy and the
 // daemon re-verify guard both key off — is stable and faithful to the pane.
@@ -487,28 +489,41 @@ func agyParseCommandApproval(pane string) (*agentbackend.Approval, bool) {
 
 	a := &agentbackend.Approval{Options: opts, SelectedIdx: sel}
 
-	// Scan upward from the option run (a bounded window) for the "Do you want to
-	// proceed?" Question and the command echoed under "Requesting permission for:".
-	// The command sits on the line directly below its label, so we track the most
-	// recent non-empty line seen on the way up and claim it when the label appears.
+	// Scan upward from the option run (a bounded window) for the Question header and
+	// the command echoed under "Requesting permission for:". The command sits on the
+	// line directly below its label, so we track the most recent non-empty line seen
+	// on the way up and claim it when the label appears.
+	//
+	// The header wording is `agy`'s to change — v1.0.13 asked "Do you want to
+	// proceed?", v1.2.17 asks "Run this command?" — so the Question is whatever
+	// question line sits directly above the options, and recognition is gated on
+	// the stable part of the prompt instead: that line being a question AND either
+	// the legacy header or the "Requesting permission for:" label above it.
 	below := ""
+	header := ""
+	labelled := false
 	for i := start - 1; i >= 0 && i >= start-12; i-- {
 		t := strings.TrimSpace(lines[i])
 		if t == "" {
 			continue
 		}
-		if a.Question == "" && strings.HasPrefix(t, "Do you want to proceed") {
-			a.Question = t
+		if below == "" {
+			header = t // nearest non-empty line above the option run
 		}
 		if a.Action == "" && strings.HasPrefix(t, "Requesting permission for") {
 			a.Action = below
+			labelled = true
 		}
 		below = t
 	}
 	// The header gates recognition: without it this is not an `agy` approval.
-	if a.Question == "" {
+	if !strings.HasSuffix(header, "?") {
 		return nil, false
 	}
+	if !labelled && !strings.HasPrefix(header, "Do you want to proceed") {
+		return nil, false
+	}
+	a.Question = header
 	a.AffirmativeIdx, a.AffirmativeSticky = agyAffirmative(opts)
 	return a, true
 }

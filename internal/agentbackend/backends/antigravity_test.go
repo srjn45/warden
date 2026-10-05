@@ -291,6 +291,7 @@ func TestAntigravityDetectState(t *testing.T) {
 		{"state-idle.txt", agentbackend.StateIdle},
 		{"state-working.txt", agentbackend.StateWorking},
 		{"approval.txt", agentbackend.StateNeedsInput},
+		{"approval-run-command.txt", agentbackend.StateNeedsInput},
 		{"trust-prompt.txt", agentbackend.StateNeedsInput},
 	}
 	for _, tt := range tests {
@@ -323,6 +324,29 @@ func TestAntigravityParseApproval(t *testing.T) {
 	require.Equal(t, 1, a.SelectedIdx, "the > cursor sits on option 1")
 	require.Equal(t, 1, a.AffirmativeIdx, "least-privilege affirmative is the bare non-sticky Yes")
 	require.False(t, a.AffirmativeSticky, "option 1 is a one-shot grant, not a standing one")
+}
+
+// TestAntigravityParseApprovalRunCommand parses the reworded prompt `agy` v1.2.17
+// shows ("Run this command?" / "Yes, run command" / "No, cancel"). The old parser
+// required the "Do you want to proceed?" header, so this prompt was never recognized:
+// the agent stayed "working" and auto-approve never answered it.
+func TestAntigravityParseApprovalRunCommand(t *testing.T) {
+	a, ok := Antigravity{}.ParseApproval(agyFixture(t, "approval-run-command.txt"))
+	require.True(t, ok, "the reworded permission prompt parses")
+
+	require.Equal(t, "git rev-parse HEAD origin/main", a.Action)
+	require.Equal(t, "Run this command?", a.Question)
+	require.Equal(t, []string{
+		"Yes, run command",
+		"Yes, and always allow in this conversation for commands that start with 'git rev-parse'",
+		"Yes, and always allow for commands that start with 'git rev-parse' (Persist to settings.json)",
+		"No, cancel",
+	}, a.Options)
+	require.Equal(t, 1, a.SelectedIdx)
+	require.Equal(t, 1, a.AffirmativeIdx, "least-privilege affirmative is the one-shot Yes")
+	require.False(t, a.AffirmativeSticky)
+	require.Empty(t, a.Kind, "a command prompt is not a trust prompt")
+	require.False(t, a.Navigate, "numbered options are answered by their digit")
 }
 
 // TestAntigravityParseApprovalTrust parses the captured workspace-trust prompt (shown
@@ -359,6 +383,12 @@ func TestAntigravityParseApprovalNegative(t *testing.T) {
 	prose := "Here are the steps:\n  1. Yes do this\n  2. No skip that\n"
 	_, ok := Antigravity{}.ParseApproval(prose)
 	require.False(t, ok, "a numbered list without the permission header is not a prompt")
+
+	// Nor is a numbered list that merely follows a question in prose: without the
+	// "Requesting permission for:" label an unknown question is not a prompt.
+	asked := "Which do you prefer?\n  1. Yes do this\n  2. No skip that\n"
+	_, ok = Antigravity{}.ParseApproval(asked)
+	require.False(t, ok, "a question plus a numbered list is not a permission prompt")
 }
 
 // TestAntigravityAffirmativeStickyFallback covers the case where the only affirmative

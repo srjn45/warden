@@ -42,7 +42,7 @@ a lowest common denominator.
 | `InjectContext`      | writes `<workdir>/AGENTS.md`                                 | warden's collab/git/pipeline addendum is delivered via the AGENTS.md rules file `agy` reads on startup (the no-flag fallback). |
 | `Pricing`            | — (unsupported)                                              | Google-hosted free tier; tokens shown in `/usage` TUI only, dollars not surfaced. |
 | `DetectState`        | classify the TUI status bar                                  | `? for shortcuts` ⇒ idle, `esc to cancel` / `Generating...` ⇒ working, a permission menu ⇒ needs-input. |
-| `ParseApproval`      | parse the `Do you want to proceed?` permission menu **and** the launch-time workspace-trust prompt | numbered options (`Yes` / `Yes, and always allow …` / `No`), or the trust prompt's `Yes, I trust this folder` / `No, exit` → neutral `Approval`. |
+| `ParseApproval`      | parse the command-permission menu (`Run this command?`; `Do you want to proceed?` before v1.2) **and** the launch-time workspace-trust prompt | numbered options (`Yes` / `Yes, and always allow …` / `No`), or the trust prompt's `Yes, I trust this folder` / `No, exit` → neutral `Approval`. |
 
 ### Models & permissions
 
