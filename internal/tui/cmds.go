@@ -573,7 +573,7 @@ func autopilotToggleCmd(a api, enable bool) tea.Cmd {
 }
 
 // backendsMsg carries a backend-registry snapshot to the Backends page. action is
-// set for the result of a user action (rescan / tier / default / enable / thinking
+// set for the result of a user action (rescan / tier / default / enable
 // mode) so its errors surface in the status line; a passive load/refresh (open or
 // tick) leaves it false and keeps the last good table on a transient blip.
 type backendsMsg struct {
@@ -635,21 +635,6 @@ func setBackendEnabledCmd(a api, id string, enabled bool) tea.Cmd {
 		ctx, cancel := bg()
 		defer cancel()
 		if _, err := a.SetBackendEnabled(ctx, id, enabled); err != nil {
-			return backendsMsg{err: err, action: true}
-		}
-		st, err := a.ListBackends(ctx)
-		return backendsMsg{state: st, err: err, action: true}
-	}
-}
-
-// setThinkingModeCmd sets the internal-thinking routing mode, then re-lists so the
-// header control and the settings footer reflect it (SetThinkingMode returns only
-// the settings singleton).
-func setThinkingModeCmd(a api, mode string) tea.Cmd {
-	return func() tea.Msg {
-		ctx, cancel := bg()
-		defer cancel()
-		if _, err := a.SetThinkingMode(ctx, mode); err != nil {
 			return backendsMsg{err: err, action: true}
 		}
 		st, err := a.ListBackends(ctx)

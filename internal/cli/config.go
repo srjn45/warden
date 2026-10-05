@@ -21,7 +21,7 @@ func newConfigCmd() *cobra.Command {
 			"  tokens.*   — token-guard, budget-gate, and savings settings\n" +
 			"  notify.*   — desktop notification and webhook settings\n" +
 			"  worktree.* — worktree-retention and spawn-gate settings\n" +
-			"  local_llm.*— local-model, REPL, and LLM-offload settings\n\n" +
+			"  local_llm.*— DEPRECATED (Fast-Brain replaced the local model); still parsed, ignored\n\n" +
 			"Deprecated flat keys (e.g. token_guard, notify, local_llm_url) still load\n" +
 			"and are automatically migrated to the namespaced form on `warden config init`.",
 		Args: cobra.NoArgs,
@@ -150,7 +150,7 @@ func printConfig(out io.Writer, cfg config.Config) {
 			{"branch_track.enabled", fmt.Sprintf("%t", cfg.BranchTrack.Enabled)},
 			{"branch_track.interval", cfg.BranchTrack.Interval},
 		}},
-		{"local model / REPL (local_llm.*)", [][2]string{
+		{"deprecated — ignored (local_llm.*)", [][2]string{
 			{"local_llm.enabled", fmt.Sprintf("%t", cfg.LocalLLM.Enabled)},
 			{"local_llm.url", cfg.LocalLLM.URL},
 			{"local_llm.model", cfg.LocalLLM.Model},

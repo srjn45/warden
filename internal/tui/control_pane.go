@@ -1906,10 +1906,6 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "r":
 			m.status = "rescanning backends…"
 			return m, rescanBackendsCmd(m.api)
-		case "m":
-			next := nextThinkingMode(thinkingModeOf(m.backendsState))
-			m.status = "thinking mode → " + next
-			return m, setThinkingModeCmd(m.api, next)
 		case "t":
 			b, ok := m.backendRow()
 			if !ok {

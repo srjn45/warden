@@ -16,7 +16,7 @@ import (
 // newBackendsCmd is the umbrella over the agent-backend registry (docs/specs/
 // 2026-08-06-backend-registry.md §9). The store — persisted by the daemon — is
 // warden's source of truth for which CLI backends exist, their billing tier, the
-// single default, and whether each is enabled, plus the internal-thinking mode.
+// single default, and whether each is enabled.
 // Every subcommand is a thin caller of the Stage-2 daemon endpoints (§6).
 func newBackendsCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -25,21 +25,18 @@ func newBackendsCmd() *cobra.Command {
 		Long: `Inspect and manage warden's agent-backend registry.
 
 warden detects the coding-agent CLIs installed on this machine (claude, codex,
-aider, …) plus a reserved ` + "`local`" + ` row for the free/local model, and persists
-each with a billing tier, an enabled flag, and at most one default. The daemon's
-store is the source of truth — autopilot's cost-tier ladder and the internal
-free/local thinking router both read from it.
+aider, …), and persists each with a billing tier, an enabled flag, and at most
+one default. The daemon's store is the source of truth — autopilot's cost-tier
+ladder reads from it.
 
-Tiers:   free | subscription | pay_per_use | unclassified   (` + "`local`" + ` is system-set)
-Thinking-mode: local_only | free_plus_local   (which backends internal thinking may call)
+Tiers:   free | subscription | pay_per_use | unclassified
 
 Examples:
-  warden backends list                 # full table incl. the local row
+  warden backends list                 # full table of detected backends
   warden backends rescan               # re-detect installed CLIs, print the table
   warden backends tier codex free      # tier codex as a $0 backend
   warden backends default claude       # make claude the default backend
-  warden backends disable aider        # stop using a backend
-  warden backends thinking-mode local_only`,
+  warden backends disable aider        # stop using a backend`,
 	}
 	cmd.AddCommand(
 		newBackendsListCmd(),
@@ -48,7 +45,6 @@ Examples:
 		newBackendsDefaultCmd(),
 		newBackendsEnableCmd(),
 		newBackendsDisableCmd(),
-		newBackendsThinkingModeCmd(),
 	)
 	return cmd
 }
@@ -57,7 +53,7 @@ func newBackendsListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "List detected backends (installed, tier, default, enabled, limited)",
-		Long: `List every backend in the registry, including the reserved local row, with its
+		Long: `List every backend in the registry, with its
 installed state, billing tier, whether it is the default, whether it is enabled,
 and whether it is currently rate-limited. The current internal-thinking mode is
 printed below the table.`,
@@ -176,33 +172,6 @@ func setBackendEnabled(cmd *cobra.Command, id string, enabled bool) error {
 	return nil
 }
 
-func newBackendsThinkingModeCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "thinking-mode <mode>",
-		Short: "Set the internal-thinking routing mode (local_only|free_plus_local)",
-		Long: `Set which backends warden's internal free/local thinking router may call.
-
-  local_only        # route internal thinking to the local model only
-  free_plus_local   # prefer free cloud backends, fall back to the local model (default)
-
-Paid (subscription / pay_per_use) backends are never called for internal
-thinking in either mode.`,
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			mode := args[0]
-			if !validThinkingMode(mode) {
-				return fmt.Errorf("invalid mode %q (valid: %s)", mode, strings.Join(thinkingModes, ", "))
-			}
-			s, err := clientFor(cmd).SetThinkingMode(cmd.Context(), mode)
-			if err != nil {
-				return err
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "internal thinking mode set to %s\n", s.InternalThinkingMode)
-			return nil
-		},
-	}
-}
-
 // assignableTiers are the user-assignable billing tiers (the reserved `local`
 // tier is excluded — it is system-set on the local row).
 var assignableTiers = []string{
@@ -212,19 +181,10 @@ var assignableTiers = []string{
 	backendstore.TierUnclassified,
 }
 
-var thinkingModes = []string{
-	backendstore.ThinkingModeLocalOnly,
-	backendstore.ThinkingModeFreePlusLocal,
-}
-
 func validTier(t string) bool { return slices.Contains(assignableTiers, t) }
 
-func validThinkingMode(m string) bool { return slices.Contains(thinkingModes, m) }
-
 // printBackends renders the registry as a table (id, installed, tier, default,
-// enabled, limited) followed by the current internal-thinking mode. Rows are
-// listed in the order the daemon returns them (id-ascending); the reserved local
-// row is included.
+// enabled, limited). Rows are sorted id-ascending.
 func printBackends(cmd *cobra.Command, state client.BackendsState) error {
 	out := cmd.OutOrStdout()
 	rows := append([]client.Backend(nil), state.Backends...)
@@ -245,11 +205,6 @@ func printBackends(cmd *cobra.Command, state client.BackendsState) error {
 	if err := w.Flush(); err != nil {
 		return err
 	}
-	mode := state.Settings.InternalThinkingMode
-	if mode == "" {
-		mode = backendstore.ThinkingModeFreePlusLocal
-	}
-	fmt.Fprintf(out, "\ninternal thinking mode: %s\n", mode)
 	return nil
 }
 

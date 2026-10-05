@@ -6,7 +6,7 @@ Settings are organized into namespaced blocks in the config file:
   tokens.*   — token-guard, budget-gate, and savings settings
   notify.*   — desktop notification and webhook settings
   worktree.* — worktree-retention and spawn-gate settings
-  local_llm.*— local-model, REPL, and LLM-offload settings
+  local_llm.*— DEPRECATED (Fast-Brain replaced the local model); still parsed, ignored
 
 Deprecated flat keys (e.g. token_guard, notify, local_llm_url) still load
 and are automatically migrated to the namespaced form on `warden config init`.
