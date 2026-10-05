@@ -4173,6 +4173,19 @@ components:
             operator-facing name of that schedule (== schedule_id today), carried
             for display so a client need not re-fetch the schedule. Absent when
             schedule_id is.
+        seed_status:
+          type: string
+          enum: [pending, delivered, failed]
+          description: >
+            outcome of the post-launch initial-prompt seed for typed-prompt
+            backends (crush/goose/aider), whose first task is pasted into the pane
+            rather than passed on the launch line. `failed` means every retry
+            failed: the agent idles at an empty composer and the prompt is saved at
+            `<prompts dir>/<id>`. Absent for launch-line backends and agents spawned
+            without a prompt.
+        seed_error:
+          type: string
+          description: last seed failure text; present only with seed_status=failed.
         autopilot_run_id:
           type: string
           description: >

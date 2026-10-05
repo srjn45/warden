@@ -130,6 +130,15 @@ const (
 	AutopilotSlotWorker   = "worker"
 )
 
+// Initial-prompt seed outcomes stored in Session.SeedStatus. Only agents on a
+// typed-prompt backend (agentbackend.PromptSeeder) carry one; launch-line
+// backends leave it empty.
+const (
+	SeedPending   = "pending"   // prompt not yet pasted into the pane
+	SeedDelivered = "delivered" // prompt pasted and submitted
+	SeedFailed    = "failed"    // every retry failed; the prompt is saved in the prompts dir
+)
+
 // Type is the kind of work an agent session is doing (design §2).
 type Type string
 
@@ -402,6 +411,8 @@ type Session struct {
 	// tolerated. Nil denotes a legacy missing list; non-nil, including [], is
 	// authoritative.
 	ChildAutopilots []string               `json:"child_autopilots,omitempty"`
+	SeedStatus      string                 `json:"seed_status,omitempty"`       // typed-prompt backends: pending | delivered | failed (empty = launch-line seed / no prompt)
+	SeedError       string                 `json:"seed_error,omitempty"`        // last seed failure; set with seed_status=failed
 	AutopilotRunID  string                 `json:"autopilot_run_id,omitempty"`  // owning ap- run id (autopilot back-ref)
 	AutopilotSlot   string                 `json:"autopilot_slot,omitempty"`    // autopilot | guardian | worker
 	AutopilotTaskID string                 `json:"autopilot_task_id,omitempty"` // plan task id (workers only)

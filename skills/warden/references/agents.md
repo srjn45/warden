@@ -115,7 +115,7 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
   it **DOES resume** (dir-scoped, `crush --continue`), has a **structured Tier-A
   transcript** (SQLite, via `crush session show --json`), gets **context injection**
   (`CRUSH.md`), and the initial prompt is **auto-typed into the TUI after launch**
-  (`PromptSeeder`), but its approval prompts are **not yet parsed**; no priced spend.
+  (`PromptSeeder`; a seed that fails after retries sets `seed_status=failed` on the session, notifies the operator, and leaves the prompt at `<data_dir>/prompts/<id>` — check `get_agent`), but its approval prompts are **not yet parsed**; no priced spend.
   `goose` is BYO-provider (set `GOOSE_PROVIDER`/`GOOSE_MODEL` env before
   spawning; no `--model` flag on `goose session`); it **DOES resume**
   (name-deterministic — warden pins its own id as the Goose `--name`, so
