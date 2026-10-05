@@ -50,7 +50,8 @@ type DigestInput struct {
 	Plan              Plan   // the last-good decoded plan
 	Ledger            *Ledger
 	Sources           DigestSources
-	IntegrationBranch string // resolved per-plan merge target workers must base PRs on
+	IntegrationBranch string          // resolved per-plan merge target workers must base PRs on
+	RestartContext    *RestartContext // set after an operator restart; nil → no section
 }
 
 // ComposeDigest builds the brain's recovery digest (autopilot.md §4): the plan,
@@ -99,6 +100,9 @@ func ComposeDigest(ctx context.Context, in DigestInput) (string, error) {
 	writeLandings(&b, in.Ledger)
 	writeAgents(ctx, &b, in)
 	writeAudit(ctx, &b, in)
+	if sec := RenderRestartContext(in.RestartContext); sec != "" {
+		b.WriteString(sec + "\n")
+	}
 
 	b.WriteString("\nYou may have been restarted: verify before re-issuing anything")
 	b.WriteString(" (`land` is idempotent; `list_agents` shows what already exists).\n")

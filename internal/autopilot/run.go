@@ -253,7 +253,10 @@ func (c *Controller) spawnBrain(ctx context.Context, r *run, backend string) err
 		r.plan = plan
 		r.preflightWarnings = warnings
 	}
+	ledger := c.runtime.NewLedger(r.runID)
+	restartCtx, _ := ledger.LoadRestartContext() // best-effort: absent/unreadable → no section
 	prompt, err := ComposeDigest(ctx, DigestInput{
+		RestartContext:    restartCtx,
 		RunID:             r.runID,
 		Repo:              r.repo,
 		PlanFile:          r.absPlanFile,
