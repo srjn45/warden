@@ -732,6 +732,34 @@ func (s *Server) UpdateTaskStatus(ctx context.Context, req oapi.UpdateTaskStatus
 	return oapi.UpdateTaskStatus200JSONResponse(s.planToOAPI(p)), nil
 }
 
+// DeletePlan implements DELETE /api/v1/plans/{plan_id}. Only pending and
+// archived plans may be deleted; in-progress and completed plans get a 409.
+func (s *Server) DeletePlan(ctx context.Context, req oapi.DeletePlanRequestObject) (oapi.DeletePlanResponseObject, error) {
+	if s.plans == nil {
+		return nil, planNotConfigured()
+	}
+	p, err := s.plans.Get(ctx, req.PlanId)
+	if errors.Is(err, planstore.ErrNotFound) {
+		return oapi.DeletePlan404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "plan not found"}}, nil
+	}
+	if err != nil {
+		return nil, errStatus(http.StatusInternalServerError, "get plan: "+err.Error())
+	}
+	switch p.Status {
+	case planstore.PlanStatusInProgress:
+		return nil, errStatus(http.StatusConflict, "plan is in progress; stop and archive it before deleting")
+	case planstore.PlanStatusCompleted:
+		return nil, errStatus(http.StatusConflict, "plan is completed; archive it before deleting")
+	}
+	if err := s.plans.Delete(ctx, req.PlanId); errors.Is(err, planstore.ErrNotFound) {
+		return oapi.DeletePlan404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "plan not found"}}, nil
+	} else if err != nil {
+		return nil, errStatus(http.StatusInternalServerError, "delete plan: "+err.Error())
+	}
+	s.removePlanMembership(req.PlanId, p.ProjectID)
+	return oapi.DeletePlan200JSONResponse{OKJSONResponse: oapi.OKJSONResponse{Status: "deleted"}}, nil
+}
+
 // ArchivePlan implements POST /api/v1/plans/{plan_id}/archive.
 func (s *Server) ArchivePlan(ctx context.Context, req oapi.ArchivePlanRequestObject) (oapi.ArchivePlanResponseObject, error) {
 	svc := s.planSvc()

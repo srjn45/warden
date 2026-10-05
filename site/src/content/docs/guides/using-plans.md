@@ -19,18 +19,46 @@ wd plan create --name feature-x --goal "ship it" \
 wd plan list
 wd plan show <plan-id>
 wd plan run <plan-id> --mode autopilot   # or pipeline | orchestrator | manual
-wd plan done <plan-id> analyze           # only ready tasks can be marked done
+wd plan task status <plan-id> analyze done   # pending | in_progress | done | skipped
 wd plan complete <plan-id>               # when the mode requires it
 wd plan archive <plan-id>
+wd plan delete <plan-id>   # permanently remove a pending or archived plan (-y skips the prompt)
 ```
+
+## The plan journey
+
+```text
+create → edit while pending → run → pause / resume / stop → task status → complete → archive / delete
+```
+
+| Stage | Command | Notes |
+|---|---|---|
+| Create | `wd plan create` | Plan starts `pending` |
+| Edit | `wd plan update` / `edit` / `task add\|edit\|rm` | Only while `pending` (409 otherwise) |
+| Run | `wd plan run <id> --mode …` | `pending → in_progress` |
+| Control | `wd plan pause\|resume\|stop <id>` | Acts on the active executor |
+| Track | `wd plan task status <id> <task> <status>` | Any lifecycle state; `skipped` counts as finished |
+| Finish | `wd plan complete <id>` | `in_progress → completed` (automatic for `autopilot`/`pipeline`) |
+| Retire | `wd plan archive <id>` | Any status → `archived` |
+| Remove | `wd plan delete <id>` | Permanent (back up first with `plan backup export`); only `pending`/`archived` plans — `in_progress` and `completed` get a 409, archive first |
+
+<Aside type="caution">
+**A running plan's definition cannot be edited.** Once a plan leaves `pending`, goal,
+tasks, and constraints are frozen — update/edit/task calls return 409 Conflict. Stop
+and archive it, then create a new plan if the definition must change.
+</Aside>
+
+`wd plan delete` removes the ScrivaDB record only; any exported YAML replica in the
+repository is left untouched. Deletion is available over the CLI and REST
+(`DELETE /api/v1/plans/{plan_id}`); there is currently no `delete_plan` MCP tool.
 
 `--name` and `--goal` are required. Tasks form a **DAG**: prefer `--task id@dep1,dep2:prompt`. If you pass two or more tasks with no `after` edges, warden **auto-chains them in flag order**. Cycles and unknown deps are rejected. Optional `--constraint` and `--done-when` may be repeated.
 
 No `plans/` write is required. To publish a reviewable replica later:
 
 ```sh
-wd plan sync_to_repo <plan-id> --base main
-wd plan sync_to_repo <plan-id> --base main --format json   # opt-in JSON replica
+wd plan sync-to-repo <plan-id> --base main
+wd plan sync-to-repo <plan-id> --base main --format json   # opt-in JSON replica
 ```
 
 YAML is the default. JSON uses the same envelope and is never execution authority.
@@ -118,16 +146,11 @@ wd plan assess <plan-id>
 
 Opt-in only — never runs on daemon start.
 
-## Deprecated migration aids (one release)
+## Legacy cutover and retired commands
 
-These remain callable so old scripts keep working. Their help and responses state that they **cannot affect canonical execution after import**. Prefer the DB-native commands above.
+`wd plan import-legacy [--report]` is the supported one-shot YAML → ScrivaDB cutover.
 
-| Command | Status |
-|---|---|
-| `wd plan scan [--migrate-flat] [--assess]` | Deprecated — upserts stubs only; does not reseed Status for Plans with a definition |
-| `wd plan import <file>` | Deprecated — copies into `plans/pending/` + scan |
-| `wd plan status <id> <status>` | Deprecated — prefer `run` / `complete` / `archive` |
-| `wd plan import-legacy [--report]` | Supported cutover — explicit one-shot YAML → ScrivaDB |
+`wd plan scan`, `wd plan import`, and `wd plan status` are retired. They remain only as hidden aliases so old scripts keep working, and they cannot affect canonical execution after import. `wd plan sync_to_repo` is likewise a hidden alias of `wd plan sync-to-repo`.
 
 Daemon startup does **not** scan `plans/`.
 
@@ -153,12 +176,13 @@ See [Plan backup and restore](/warden/guides/plan-backup-restore/).
 | `wd plan edit <id>` | Edit pending definition in `$EDITOR` |
 | `wd plan task add\|edit\|rm …` | Granular task-DAG mutations on pending plans |
 | `wd plan show <id> [--json]` | Show canonical detail |
-| `wd plan sync_to_repo <id> --base <ref> [--format yaml\|json]` | Optional inert replica PR (YAML default) |
+| `wd plan sync-to-repo <id> --base <ref> [--format yaml\|json]` | Optional inert replica PR (YAML default) |
 | `wd plan hub-sync push\|pull\|discover [<id>] --scope <project-id>` | Explicit opt-in Hub envelope sync |
 | `wd plan backup export\|restore …` | Portable ScrivaDB bundle |
 | `wd plan import-legacy [--report]` | Explicit legacy YAML cutover |
-| `wd plan scan …` / `import` / `status` | Deprecated migration aids |
-| `wd plan done` / `complete` / `archive` / `run` / `pause\|resume\|stop` | Lifecycle + execution |
+| `wd plan task status <id> <task> <status>` | Set one task's progress |
+| `wd plan delete <id>` | Permanently delete a plan (not while `in_progress`) |
+| `wd plan complete` / `archive` / `run` / `pause\|resume\|stop` | Lifecycle + execution |
 | `wd plan assess <id>` | Brain-assisted task progress |
 
 ## TUI
@@ -168,4 +192,4 @@ grouped by status. With a Hub provider configured, explicit Discover results
 also appear per project in a read-only **Remote Plans** section with a count
 badge; only pending and in-progress remote plans are shown. Detail for local
 plans is ScrivaDB-backed. Keybindings: `a` archive · `A` assess · `r` run ·
-`enter` detail. (`s` scan remains as a deprecated migration aid.)
+`enter` detail.

@@ -8,7 +8,7 @@ Covers Phases 11–12 of `scrivadb-canonical-plans-repo-sync` (design freeze:
 - ScrivaDB is the sole Plan authority for definition, lifecycle, and execution.
 - Daemon startup no longer scans `plans/` (already retired; remains a no-op).
 - `wd plan scan` / `import` / `status` (and MCP/API equivalents) are **deprecated
-  for one release**. Responses include an explicit notice that they **cannot
+  (now hidden aliases; use `import-legacy` / `create` / lifecycle commands)**. Responses include an explicit notice that they **cannot
   affect canonical execution after import**. Scan does not reseed `Status` for
   Plans that already have a non-empty definition (`skipped_canonical` count).
 - Operator playbooks: fresh DB-native use, legacy import, optional replica PR,

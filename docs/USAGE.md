@@ -2545,7 +2545,7 @@ warden autopilot enable
 
 # 2. Edit plans/notifications.yaml — set your goal, add constraints
 #    Import/create the Plan in the daemon, then start execution:
-warden plan create --name notifications --goal "…"   # or plan import / plan scan
+warden plan create --name notifications --goal "…"   
 warden plan run <plan-id> --mode autopilot
 
 # 3. Control
@@ -2756,7 +2756,7 @@ warden inspect audit --action recovery_started
 Plans are **canonical ScrivaDB records**. Repository YAML/JSON under
 `plans/{pending,in_progress,completed,archived}/` is an optional inert export —
 not required for create/run/complete, and **not** scanned at daemon startup.
-YAML is the default replica format; JSON is opt-in (`sync_to_repo --format json`)
+YAML is the default replica format; JSON is opt-in (`sync-to-repo --format json`)
 and is never execution SoT (scan/import-legacy discover YAML only).
 
 See `docs/MIGRATION-plans-scrivadb.md` and the site guide `guides/plans-migration`
@@ -2818,15 +2818,9 @@ wd plan import-legacy                 # import into ScrivaDB (files untouched)
 Matching content hash → skipped (cannot affect already-canonical execution).
 Differing hash → conflicted (no mutation).
 
-### Deprecated migration aids (one release)
-
-```sh
-wd plan scan                          # stubs only; no Status reseed after import
-wd plan import path/to/feature-x.yaml # copies to plans/pending/ + scan
-wd plan status <plan-id> in_progress  # prefer run / complete / archive
-```
-
-Help and responses state these cannot affect canonical execution after import.
+The old `plan scan` / `plan import` / `plan status` commands remain only as hidden
+aliases; they cannot affect canonical execution after import. Use `import-legacy`,
+`create`, and the lifecycle commands instead.
 
 ### Status transitions
 
@@ -2834,10 +2828,11 @@ Help and responses state these cannot affect canonical execution after import.
 wd plan run <plan-id> --mode manual     # pending → in_progress + start
 wd plan complete <plan-id>              # mark done
 wd plan archive <plan-id>               # any status → archived
-wd plan done <plan-id> <task-id>        # mark one task done
+wd plan delete <plan-id>                # permanently remove a pending or archived plan (asks to confirm; -y skips; --json needs -y)
+wd plan task status <plan-id> <task-id> done   # pending | in_progress | done | skipped
 ```
 
-### Optional repository export (`sync_to_repo`)
+### Optional repository export (`sync-to-repo`)
 
 Publish an inert replica of a canonical ScrivaDB Plan onto a dedicated
 `warden/plan-sync/<plan-id>/<revision>` branch and open (or reuse) a PR. YAML is
@@ -2848,9 +2843,9 @@ Repeating the same revision/hash for the same repo/ref/path is a no-op that
 returns the prior PR.
 
 ```sh
-wd plan sync_to_repo <plan-id> --base <integration-or-main>
-wd plan sync_to_repo <plan-id> --base main --path plans/pending/my-plan.yaml
-wd plan sync_to_repo <plan-id> --base main --format json
+wd plan sync-to-repo <plan-id> --base <integration-or-main>
+wd plan sync-to-repo <plan-id> --base main --path plans/pending/my-plan.yaml
+wd plan sync-to-repo <plan-id> --base main --format json
 ```
 
 ### Plan backup / restore (portable ScrivaDB bundle)
@@ -2911,10 +2906,11 @@ wd plan list
 | `wd plan task add\|edit\|rm …` | Granular task-DAG mutations on pending plans |
 | `wd plan show <id> [--json]` | Show canonical detail |
 | `wd plan import-legacy [--report]` | Explicit legacy YAML cutover |
-| `wd plan scan` / `import` / `status` | Deprecated migration aids |
-| `wd plan sync_to_repo <id> --base <ref>` | Optional inert replica PR |
+| `wd plan sync-to-repo <id> --base <ref>` | Optional inert replica PR |
 | `wd plan backup export|restore …` | Portable ScrivaDB bundle |
-| `wd plan done` / `complete` / `archive` / `run` / `pause|resume|stop` | Lifecycle + execution |
+| `wd plan task status <id> <task> <status>` | Set one task's progress |
+| `wd plan delete <id>` | Permanently delete a plan (not while in_progress) |
+| `wd plan complete` / `archive` / `run` / `pause|resume|stop` | Lifecycle + execution |
 | `wd plan assess <id>` | Brain-assisted task progress |
 
 

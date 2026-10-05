@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -688,5 +689,290 @@ func TestPlanTaskAddCmdConflict(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "409") && !strings.Contains(err.Error(), "conflict") {
 		t.Fatalf("expected conflict error, got %v", err)
+	}
+}
+
+func TestPlanDeprecatedCommandsHidden(t *testing.T) {
+	hidden := []string{"import", "scan", "status"}
+	help, err := executeHelp(t, "plan", "--help")
+	if err != nil {
+		t.Fatal(err)
+	}
+	all, err := executeHelp(t, "help", "--all")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range hidden {
+		if strings.Contains(help, "\n  "+name+" ") {
+			t.Errorf("plan --help still lists %q", name)
+		}
+		if !strings.Contains(all, "warden plan "+name+" ") {
+			t.Errorf("help --all missing plan %s", name)
+		}
+	}
+	if !strings.Contains(help, "import-legacy") {
+		t.Error("plan --help must keep import-legacy visible")
+	}
+}
+
+func TestPlanScanDeprecationNoticeOnStderrOnly(t *testing.T) {
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"POST /api/v1/projects/proj1/plans/scan": scanResultJSON,
+	}, nil, nil))
+	root := newRootCmd()
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"plan", "scan", "--json", "--project", planProjectID, "--addr", addr, "--config", t.TempDir() + "/none.yaml"})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr.String(), "deprecated") {
+		t.Errorf("stderr missing deprecation notice: %q", stderr.String())
+	}
+	if strings.Contains(stdout.String(), "warning") {
+		t.Errorf("stdout polluted: %q", stdout.String())
+	}
+}
+
+const planStatusPath = "/api/v1/plans/plan-ab12cd34/tasks/t1/status"
+
+func TestPlanTaskStatusCmdAllStatuses(t *testing.T) {
+	for _, st := range []string{"pending", "in_progress", "done", "skipped"} {
+		t.Run(st, func(t *testing.T) {
+			seen := map[string]string{}
+			body := map[string]string{}
+			addr := stubDaemon(t, routedDaemon(t, map[string]string{
+				"GET /api/v1/plans/plan-ab12cd34": planSingleJSON,
+				"POST " + planStatusPath:          planSingleJSON,
+			}, seen, body))
+			out, err := runCLI(t, addr, "plan", "task", "status", "plan-ab12cd34", "t1", st)
+			if err != nil {
+				t.Fatalf("plan task status %s: %v", st, err)
+			}
+			if !strings.Contains(body[planStatusPath], `"status":"`+st+`"`) {
+				t.Fatalf("status not forwarded: %q", body[planStatusPath])
+			}
+			if !strings.Contains(out, "pending → "+st) || !strings.Contains(out, "0/1 done") {
+				t.Fatalf("output: %q", out)
+			}
+		})
+	}
+}
+
+func TestPlanTaskStatusCmdJSON(t *testing.T) {
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"GET /api/v1/plans/plan-ab12cd34": planSingleJSON,
+		"POST " + planStatusPath:          planSingleJSON,
+	}, map[string]string{}, map[string]string{}))
+	out, err := runCLI(t, addr, "plan", "task", "status", "plan-ab12cd34", "t1", "skipped", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"old_status": "pending"`, `"new_status": "skipped"`} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("json missing %q: %s", want, out)
+		}
+	}
+}
+
+func TestPlanTaskStatusCmdInvalid(t *testing.T) {
+	called := false
+	addr := stubDaemon(t, func(w http.ResponseWriter, r *http.Request) { called = true })
+	_, err := runCLI(t, addr, "plan", "task", "status", "plan-ab12cd34", "t1", "bogus")
+	if err == nil {
+		t.Fatal("expected invalid status error")
+	}
+	for _, want := range []string{"bogus", "pending", "in_progress", "done", "skipped"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error missing %q: %v", want, err)
+		}
+	}
+	if called {
+		t.Fatal("daemon called despite invalid status")
+	}
+}
+
+func TestPlanTaskEditCmdPositional(t *testing.T) {
+	seen := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"PATCH /api/v1/plans/plan-ab12cd34/tasks/t1/definition": planUpdatedJSON,
+	}, seen, nil))
+	if _, err := runCLI(t, addr, "plan", "task", "edit", "plan-ab12cd34", "t1", "--prompt", "x"); err != nil {
+		t.Fatal(err)
+	}
+	if seen["/api/v1/plans/plan-ab12cd34/tasks/t1/definition"] != "PATCH" {
+		t.Fatalf("positional edit not PATCHed: %q", seen)
+	}
+	// --id equal to positional is fine.
+	if _, err := runCLI(t, addr, "plan", "task", "edit", "plan-ab12cd34", "t1", "--id", "t1", "--prompt", "x"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPlanTaskIDConflict(t *testing.T) {
+	addr := stubDaemon(t, func(w http.ResponseWriter, r *http.Request) {})
+	for _, sub := range []string{"edit", "rm"} {
+		args := []string{"plan", "task", sub, "plan-ab12cd34", "t1", "--id", "t2"}
+		if sub == "edit" {
+			args = append(args, "--prompt", "x")
+		}
+		_, err := runCLI(t, addr, args...)
+		if err == nil || !strings.Contains(err.Error(), "conflicting task id") {
+			t.Fatalf("%s: expected conflict error, got %v", sub, err)
+		}
+	}
+}
+
+const planDeleteGetJSON = `{"id":"plan-ab12cd34","name":"feat","status":"pending","task_summary":{"total":3,"done":1,"pending":2}}`
+
+func TestPlanDeleteCmd(t *testing.T) {
+	seen := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"DELETE /api/v1/plans/plan-ab12cd34": `{"status":"deleted"}`,
+	}, seen, nil))
+	out, err := runCLI(t, addr, "plan", "delete", "plan-ab12cd34", "--yes")
+	if err != nil {
+		t.Fatalf("plan delete: %v", err)
+	}
+	if !strings.Contains(out, "plan plan-ab12cd34 deleted") {
+		t.Fatalf("plan delete output: %q", out)
+	}
+	if seen["/api/v1/plans/plan-ab12cd34"] != "DELETE" {
+		t.Fatalf("delete not sent: %q", seen)
+	}
+}
+
+func TestPlanDeleteCmdJSON(t *testing.T) {
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"DELETE /api/v1/plans/plan-ab12cd34": `{"status":"deleted"}`,
+	}, map[string]string{}, nil))
+	if _, err := runCLI(t, addr, "plan", "delete", "plan-ab12cd34", "--json"); err == nil ||
+		!strings.Contains(err.Error(), "confirmation required (pass --yes with --json)") {
+		t.Fatalf("expected confirmation error, got %v", err)
+	}
+	out, err := runCLI(t, addr, "plan", "delete", "plan-ab12cd34", "--json", "-y")
+	if err != nil {
+		t.Fatalf("plan delete --json: %v", err)
+	}
+	if !strings.Contains(out, `"status": "deleted"`) && !strings.Contains(out, `"status":"deleted"`) {
+		t.Fatalf("json output: %q", out)
+	}
+	if !strings.Contains(out, "plan-ab12cd34") {
+		t.Fatalf("json output missing id: %q", out)
+	}
+}
+
+func TestPlanDeleteCmdPrompt(t *testing.T) {
+	seen := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"GET /api/v1/plans/plan-ab12cd34":    planDeleteGetJSON,
+		"DELETE /api/v1/plans/plan-ab12cd34": `{"status":"deleted"}`,
+	}, seen, nil))
+	got, err := runCLIStdin(t, addr, "n\n", "plan", "delete", "plan-ab12cd34")
+	if err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	if !strings.Contains(got, "3 total: 1 done") || !strings.Contains(got, "cancelled") {
+		t.Fatalf("output: %q", got)
+	}
+	if seen["/api/v1/plans/plan-ab12cd34"] == "DELETE" {
+		t.Fatalf("delete sent despite cancel")
+	}
+}
+
+func walkPlanCommands(c *cobra.Command, visit func(*cobra.Command)) {
+	for _, sub := range c.Commands() {
+		if sub.Name() == "help" {
+			continue
+		}
+		visit(sub)
+		walkPlanCommands(sub, visit)
+	}
+}
+
+func TestPlanCommandsHaveShortAndLong(t *testing.T) {
+	var plan *cobra.Command
+	for _, c := range newRootCmd().Commands() {
+		if c.Name() == "plan" {
+			plan = c
+		}
+	}
+	if plan == nil {
+		t.Fatal("plan command not found")
+	}
+	walkPlanCommands(plan, func(c *cobra.Command) {
+		if strings.TrimSpace(c.Short) == "" {
+			t.Errorf("%s: empty Short", c.CommandPath())
+		}
+		if strings.TrimSpace(c.Long) == "" {
+			t.Errorf("%s: empty Long", c.CommandPath())
+		}
+		if c.Short != "" && c.Short[0] >= 'a' && c.Short[0] <= 'z' {
+			t.Errorf("%s: Short %q should start with a capital", c.CommandPath(), c.Short)
+		}
+		for _, banned := range []string{"ParsePlanYAML", "PlansUpdate", "POST /", "HTTP 409"} {
+			if strings.Contains(c.Long, banned) || strings.Contains(c.Short, banned) {
+				t.Errorf("%s: help names internal detail %q", c.CommandPath(), banned)
+			}
+		}
+	})
+}
+
+func TestPlanControlHelpDiffers(t *testing.T) {
+	seen := map[string]string{}
+	for _, a := range []string{"pause", "resume", "stop"} {
+		c := newPlanControlCmd(a)
+		if prev, ok := seen[c.Long]; ok {
+			t.Errorf("%s and %s share the same Long", a, prev)
+		}
+		seen[c.Long] = a
+	}
+}
+
+func TestPlanSyncToRepoLegacySpellingStillRegistered(t *testing.T) {
+	help, err := executeHelp(t, "plan", "--help")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(help, "sync_to_repo") {
+		t.Error("plan --help lists the legacy sync_to_repo spelling")
+	}
+	if !strings.Contains(help, "sync-to-repo") {
+		t.Error("plan --help missing sync-to-repo")
+	}
+	for _, name := range []string{"sync-to-repo", "sync_to_repo"} {
+		out, err := executeHelp(t, "plan", name, "--help")
+		if err != nil {
+			t.Fatalf("plan %s --help: %v", name, err)
+		}
+		if !strings.Contains(out, "<plan-id>") {
+			t.Errorf("plan %s help: %q", name, out)
+		}
+	}
+	// The legacy path must still run (fails on the missing --base, not "unknown command").
+	root := newRootCmd()
+	var buf bytes.Buffer
+	root.SetOut(&buf)
+	root.SetErr(&buf)
+	root.SetArgs([]string{"plan", "sync_to_repo", "plan-ab12cd34"})
+	err = root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "--base is required") {
+		t.Fatalf("legacy sync_to_repo did not reach its handler: %v", err)
+	}
+}
+
+func TestPlanRunModeNormalization(t *testing.T) {
+	for in, want := range map[string]string{
+		"orchestrator": "orchestrator_worker", "orchestrator_worker": "orchestrator_worker",
+		"autopilot": "autopilot", "pipeline": "pipeline", "manual": "manual",
+	} {
+		got, err := normalizePlanRunMode(in)
+		if err != nil || got != want {
+			t.Errorf("normalizePlanRunMode(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	if _, err := normalizePlanRunMode(""); err == nil {
+		t.Error("empty --mode must be rejected")
 	}
 }

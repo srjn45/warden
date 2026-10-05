@@ -327,7 +327,7 @@ and lands them into an integration branch, without waiting on a human.
 
 Plans are **canonical ScrivaDB records** (goal, tasks, lifecycle, revision,
 execution evidence). Repository `plans/**/*.{yaml,yml,json}` is an optional inert export
-via `sync_to_repo` — never required for create/run/complete, and **not** scanned
+via `sync-to-repo` — never required for create/run/complete, and **not** scanned
 at daemon startup. YAML is the default; JSON is opt-in (`--format json`) and never
 execution SoT. See [plans migration](https://srjn45.github.io/warden/guides/plans-migration/)
 and [`docs/MIGRATION-plans-scrivadb.md`](docs/MIGRATION-plans-scrivadb.md).
@@ -353,13 +353,13 @@ authority for shipped code; merged Git history remains that authority.
 | Create a Plan in ScrivaDB (no YAML write) | `plan create` | `create_plan` | ✓ | — | — | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
 | Update a pending plan's definition | — | `update_plan` | ✓ | — | — | [concepts/plans](https://srjn45.github.io/warden/concepts/plans/) |
 | Explicit legacy YAML → ScrivaDB cutover | `plan import-legacy` | `import_legacy_plans` | ✓ | — | — | [plans-migration](https://srjn45.github.io/warden/guides/plans-migration/) |
-| **Deprecated** scan stubs (`--migrate-flat`, `--assess`) | `plan scan` | `scan_plans` | ✓ | — | `s` | [plans-migration](https://srjn45.github.io/warden/guides/plans-migration/) |
-| **Deprecated** copy YAML into `plans/pending/` + scan | `plan import` | — | ✓ | — | — | [plans-migration](https://srjn45.github.io/warden/guides/plans-migration/) |
-| **Deprecated** status field patch (prefer run/complete/archive) | `plan status` | `update_plan_status` | ✓ | — | — | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
-| Mark a task done | `plan done` | `update_task_status` | ✓ | — | — | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
+| **Deprecated** scan stubs (hidden CLI alias) | `plan scan` | `scan_plans` | ✓ | — | `s` | [plans-migration](https://srjn45.github.io/warden/guides/plans-migration/) |
+| **Deprecated** status field patch (hidden CLI alias; prefer run/complete/archive) | `plan status` | `update_plan_status` | ✓ | — | — | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
+| Set a task's status (pending/in_progress/done/skipped) | `plan task status` | `update_task_status` | ✓ | — | — | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
+| Permanently delete a plan (pending/archived only) | `plan delete` | `delete_plan` | ✓ | — | — | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
 | Archive a plan (any status → archived) | `plan archive` | `archive_plan` | ✓ | — | `a` | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
 | Complete a plan | `plan complete` | `complete_plan` | ✓ | — | — | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
-| Optional inert replica PR (YAML default; JSON `--format json`) | `plan sync_to_repo` | `sync_plan_to_repo` | ✓ | — | — | [plans-migration](https://srjn45.github.io/warden/guides/plans-migration/) |
+| Optional inert replica PR (YAML default; JSON `--format json`) | `plan sync-to-repo` | `sync_plan_to_repo` | ✓ | — | — | [plans-migration](https://srjn45.github.io/warden/guides/plans-migration/) |
 | Opt-in Hub revision sync (Phases A–C) | `plan hub-sync push\|pull\|discover` | `hub_sync_push` / `hub_sync_pull` / `hub_sync_discover` | ✓ | — | read-only Remote Plans (Hub only) | [Plan Hub sync boundary](docs/specs/2026-09-30-plan-hub-sync-boundary.md) |
 | Portable Plan backup bundle | `plan backup export\|restore` | `export_plan_backup` / `restore_plan_backup` | ✓ | — | — | [plan-backup-restore](https://srjn45.github.io/warden/guides/plan-backup-restore/) |
 | Brain-assisted task progress assessment | `plan assess` | `assess_plan` | ✓ | — | `A` | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |

@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -442,4 +443,55 @@ func TestPlanCRUDTaskUpdateNotPendingAndNotFound(t *testing.T) {
 	delMissing := planDelete(t, ts.URL+"/api/v1/plans/plan-deadbeef/tasks/t1")
 	defer delMissing.Body.Close()
 	require.Equal(t, http.StatusNotFound, delMissing.StatusCode)
+}
+
+func TestPlanCRUDDelete(t *testing.T) {
+	ts, _, root := crudPlanServer(t)
+	createdResp := postJSON(t, crudPlansURL(ts.URL, "", nil), sampleCreateBody(root, "delete-me"))
+	defer createdResp.Body.Close()
+	created := decodePlan(t, createdResp)
+
+	del := planDelete(t, ts.URL+"/api/v1/plans/"+created.Id)
+	defer del.Body.Close()
+	require.Equal(t, http.StatusOK, del.StatusCode)
+
+	get, err := http.Get(ts.URL + "/api/v1/plans/" + created.Id)
+	require.NoError(t, err)
+	defer get.Body.Close()
+	require.Equal(t, http.StatusNotFound, get.StatusCode)
+
+	again := planDelete(t, ts.URL+"/api/v1/plans/"+created.Id)
+	defer again.Body.Close()
+	require.Equal(t, http.StatusNotFound, again.StatusCode)
+}
+
+func TestPlanCRUDDeleteStatusGate(t *testing.T) {
+	cases := []struct {
+		status planstore.PlanStatus
+		code   int
+		msg    string
+	}{
+		{planstore.PlanStatusInProgress, http.StatusConflict, "plan is in progress; stop and archive it before deleting"},
+		{planstore.PlanStatusCompleted, http.StatusConflict, "plan is completed; archive it before deleting"},
+		{planstore.PlanStatusArchived, http.StatusOK, ""},
+	}
+	for _, tc := range cases {
+		t.Run(string(tc.status), func(t *testing.T) {
+			ts, ps, root := crudPlanServer(t)
+			createdResp := postJSON(t, crudPlansURL(ts.URL, "", nil), sampleCreateBody(root, "gate-"+string(tc.status)))
+			defer createdResp.Body.Close()
+			created := decodePlan(t, createdResp)
+			require.NoError(t, ps.Update(context.Background(), created.Id, func(p *planstore.Plan) error {
+				p.Status = tc.status
+				return nil
+			}))
+			del := planDelete(t, ts.URL+"/api/v1/plans/"+created.Id)
+			defer del.Body.Close()
+			require.Equal(t, tc.code, del.StatusCode)
+			if tc.msg != "" {
+				body, _ := io.ReadAll(del.Body)
+				require.Contains(t, string(body), tc.msg)
+			}
+		})
+	}
 }

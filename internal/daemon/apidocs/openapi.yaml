@@ -1668,6 +1668,24 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/PlanMutationConflict" }
 
+    delete:
+      operationId: DeletePlan
+      tags: [Plans]
+      summary: Delete a plan
+      description: >
+        Permanently removes the plan record from ScrivaDB (never touches any
+        YAML replica in the repository). A plan that is in_progress returns 409;
+        archive or complete it first.
+      parameters: [{ $ref: "#/components/parameters/PlanId" }]
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Plan is in progress
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
   /api/v1/plans/{plan_id}/related:
     get:
       operationId: ListRelatedPlans
