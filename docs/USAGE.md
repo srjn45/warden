@@ -2821,6 +2821,7 @@ Help and responses state these cannot affect canonical execution after import.
 wd plan run <plan-id> --mode manual     # pending → in_progress + start
 wd plan complete <plan-id>              # mark done
 wd plan archive <plan-id>               # any status → archived
+wd plan delete <plan-id>                # permanently remove a plan record (not in_progress)
 wd plan done <plan-id> <task-id>        # mark one task done
 ```
 

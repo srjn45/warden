@@ -443,3 +443,23 @@ func TestPlanCRUDTaskUpdateNotPendingAndNotFound(t *testing.T) {
 	defer delMissing.Body.Close()
 	require.Equal(t, http.StatusNotFound, delMissing.StatusCode)
 }
+
+func TestPlanCRUDDelete(t *testing.T) {
+	ts, _, root := crudPlanServer(t)
+	createdResp := postJSON(t, crudPlansURL(ts.URL, "", nil), sampleCreateBody(root, "delete-me"))
+	defer createdResp.Body.Close()
+	created := decodePlan(t, createdResp)
+
+	del := planDelete(t, ts.URL+"/api/v1/plans/"+created.Id)
+	defer del.Body.Close()
+	require.Equal(t, http.StatusOK, del.StatusCode)
+
+	get, err := http.Get(ts.URL + "/api/v1/plans/" + created.Id)
+	require.NoError(t, err)
+	defer get.Body.Close()
+	require.Equal(t, http.StatusNotFound, get.StatusCode)
+
+	again := planDelete(t, ts.URL+"/api/v1/plans/"+created.Id)
+	defer again.Body.Close()
+	require.Equal(t, http.StatusNotFound, again.StatusCode)
+}

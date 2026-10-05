@@ -22,6 +22,7 @@ wd plan run <plan-id> --mode autopilot   # or pipeline | orchestrator | manual
 wd plan done <plan-id> analyze           # only ready tasks can be marked done
 wd plan complete <plan-id>               # when the mode requires it
 wd plan archive <plan-id>
+wd plan delete <plan-id>   # permanently remove (refused while in_progress)
 ```
 
 `--name` and `--goal` are required. Tasks form a **DAG**: prefer `--task id@dep1,dep2:prompt`. If you pass two or more tasks with no `after` edges, warden **auto-chains them in flag order**. Cycles and unknown deps are rejected. Optional `--constraint` and `--done-when` may be repeated.

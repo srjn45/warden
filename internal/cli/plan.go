@@ -50,6 +50,7 @@ func newPlanCmd() *cobra.Command {
 		newPlanDoneCmd(),
 		newPlanCompleteCmd(),
 		newPlanArchiveCmd(),
+		newPlanDeleteCmd(),
 		newPlanSyncToRepoCmd(),
 		newPlanHubSyncCmd(),
 		newPlanBackupCmd(),
@@ -656,6 +657,24 @@ func newPlanArchiveCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().Bool("json", false, "output as JSON")
+	return cmd
+}
+
+func newPlanDeleteCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "delete <plan-id>",
+		Short: "Permanently delete a plan",
+		Long: "Permanently remove a plan record. In-progress plans are refused; archive or\n" +
+			"complete them first. Any YAML replica in the repository is left untouched.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := clientFor(cmd).PlansDelete(cmd.Context(), args[0]); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "plan %s deleted\n", args[0])
+			return nil
+		},
+	}
 	return cmd
 }
 
