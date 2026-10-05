@@ -48,10 +48,13 @@ func strategicQuestionPrompt(in ArbiterInput) string {
 const (
 	classifyTaskSystem   = `Classify the coding task. Reply with ONLY this JSON, no prose: {"type":"test|implementation|review|refactor|docs|other","confidence":0.0-1.0}`
 	summarizeActivitySys = `Summarize what the agent is doing in one short sentence (max 12 words). Reply with ONLY this JSON, no prose: {"summary":"<text>"}`
+	activityBadgeSys     = `Give a status badge for what the agent is doing right now: 3 to 5 words, no trailing punctuation (e.g. "Fixing failing auth tests"). Reply with ONLY this JSON, no prose: {"summary":"<badge>"}`
 	summarizeCheckSystem = `Condense this test/linter output into the actionable failure lines (file:line + cause), max 15 lines. Reply with ONLY this JSON, no prose: {"summary":"<text>"}`
 	commitMessageSystem  = `Write a conventional commit message for this diff: "type: subject" (<=72 chars, imperative). Reply with ONLY this JSON, no prose: {"message":"type: subject"}`
+	prSummarySystem      = `Write a pull-request title and description for this change. "title": Conventional Commits style "type(scope): subject", imperative, <=72 chars. "body": short markdown with a "## What changed" section and a "## Why" section. Reply with ONLY this JSON, no prose: {"title":"type: subject","body":"## What changed\n- ...\n\n## Why\n..."}`
 	curateExtractSystem  = `Extract durable, reusable project facts (decisions, conventions, gotchas) from the text as short bullets. Skip transient chatter. Reply with ONLY this JSON, no prose: {"entries":["<fact>"]}`
 	replTurnSystem       = `You are a tool-using assistant. Answer briefly, or call tools from the list. Reply with ONLY this JSON, no prose outside it: {"text":"<reply or empty>","tool_calls":[{"name":"<tool>","args":{}}]}`
+	routeTierSystem      = `Rate how demanding this coding task is and pick the model tier. "tier-1": trivial, mechanical work (typo, rename, small config or docs tweak). "tier-2": standard feature, bug-fix or test work. "tier-3": deep architectural refactors, cross-cutting redesigns or hard debugging. Reply with ONLY this JSON, no prose: {"tier":"tier-1|tier-2|tier-3","confidence":0.0-1.0}`
 	classifyTaskFallback = "other"
 	maxPromptInputBytes  = 8000
 )
@@ -75,6 +78,13 @@ func SummarizeActivityPrompt(activity string) string {
 	return summarizeActivitySys + "\n\nActivity:\n" + clip(activity) + "\n"
 }
 
+// ActivityBadgePrompt builds the live-row status-badge prompt. It reuses
+// KindSummarizeActivity (same decision kind, different prompt) so narrators that
+// want a full sentence keep SummarizeActivityPrompt untouched.
+func ActivityBadgePrompt(activity string) string {
+	return activityBadgeSys + "\n\nActivity:\n" + clip(activity) + "\n"
+}
+
 // SummarizeCheckPrompt builds the KindSummarizeCheck prompt.
 func SummarizeCheckPrompt(output string) string {
 	return summarizeCheckSystem + "\n\nOutput:\n" + clip(output) + "\n"
@@ -83,6 +93,40 @@ func SummarizeCheckPrompt(output string) string {
 // CommitMessagePrompt builds the KindCommitMessage prompt.
 func CommitMessagePrompt(diff string) string {
 	return commitMessageSystem + "\n\nDiff:\n" + clip(diff) + "\n"
+}
+
+// PRSummaryPrompt builds the KindPRSummary prompt from the agent's task, the
+// `git diff --stat` against the PR base and the commit subjects on the branch.
+// The combined input is capped (head kept) so a huge branch cannot blow the
+// prompt budget.
+func PRSummaryPrompt(task, diffStat, commits string) string {
+	cap := func(s string, n int) string {
+		s = strings.TrimSpace(s)
+		if len(s) > n {
+			s = strings.ToValidUTF8(s[:n], "")
+		}
+		return s
+	}
+	return prSummarySystem + "\n\nTask:\n" + cap(task, 2000) + "\n\nDiff stat:\n" + cap(diffStat, 4000) +
+		"\n\nCommits:\n" + cap(commits, 2000) + "\n"
+}
+
+// PRSummaryMaxTitle is the hard cap on a drafted PR title.
+const PRSummaryMaxTitle = 72
+
+// ParsePRSummary parses {"title":"...","body":"..."}. It never errors: a
+// non-OK response yields ("",""), and each field is "" when absent or blank so
+// the caller can fall back per field. The title is reduced to its first line
+// and capped at PRSummaryMaxTitle bytes (with an ellipsis).
+func ParsePRSummary(r Response) (title, body string) {
+	title = stringField(r, "title")
+	if i := strings.IndexByte(title, '\n'); i >= 0 {
+		title = strings.TrimSpace(title[:i])
+	}
+	if len(title) > PRSummaryMaxTitle {
+		title = strings.TrimSpace(strings.ToValidUTF8(title[:PRSummaryMaxTitle-1], "")) + "…"
+	}
+	return title, stringField(r, "body")
 }
 
 // CurateExtractPrompt builds the KindCurateExtract prompt.
@@ -185,4 +229,51 @@ func ParseReplTurn(r Response) ReplTurn {
 	}
 	t.ToolCalls = calls
 	return t
+}
+
+const (
+	maxBadgeWords = 5
+	maxBadgeRunes = 40
+)
+
+// ParseActivityBadge parses {"summary":"..."} into a status badge: first line
+// only, quotes and trailing punctuation trimmed, capped at 5 words and 40
+// characters. "" on a non-OK response or empty reply.
+func ParseActivityBadge(r Response) string {
+	s := stringField(r, "summary")
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	words := strings.Fields(strings.Trim(s, "\"'`"))
+	if len(words) > maxBadgeWords {
+		words = words[:maxBadgeWords]
+	}
+	b := strings.Join(words, " ")
+	if r := []rune(b); len(r) > maxBadgeRunes {
+		b = string(r[:maxBadgeRunes])
+		if i := strings.LastIndexByte(b, ' '); i > 0 {
+			b = b[:i] // never leave a half word
+		}
+	}
+	return strings.TrimRight(strings.TrimSpace(b), ".,;:!-–—")
+}
+
+// RouteTierPrompt builds the KindRouteTier prompt.
+func RouteTierPrompt(prompt string) string {
+	return routeTierSystem + "\n\nTask: " + clip(prompt) + "\n"
+}
+
+// ParseRouteTier parses {"tier":"tier-N","confidence":x}. ok is false for a
+// non-OK response, an unknown tier, or a confidence outside [0,1]; the caller
+// must then keep today's tier resolution. The tier strings match
+// backendstore.ModelTier (this package stays backendstore-free).
+func ParseRouteTier(r Response) (tier string, confidence float64, ok bool) {
+	tier = strings.ToLower(strings.TrimSpace(stringField(r, "tier")))
+	if tier != "tier-1" && tier != "tier-2" && tier != "tier-3" {
+		return "", 0, false
+	}
+	if r.Confidence < 0 || r.Confidence > 1 {
+		return "", 0, false
+	}
+	return tier, r.Confidence, true
 }

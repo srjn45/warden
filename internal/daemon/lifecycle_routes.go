@@ -140,7 +140,7 @@ func (s *Server) classifyAndUpdate(id, prompt string) {
 
 // prepareSpawnName fills req.Name synchronously when the caller left it empty.
 // Role conventions (AP:/wkr:/brain:/<pipe>:<stage>), prompt resolution via the
-// fast-tier NameRunner, and adjective-noun codenames are tried in order; auto
+// Fast-Brain name runner, and adjective-noun codenames are tried in order; auto
 // names are disambiguated against active sessions so they never 409.
 func (s *Server) prepareSpawnName(ctx context.Context, req *SpawnRequest) {
 	if req == nil || strings.TrimSpace(req.Name) != "" {

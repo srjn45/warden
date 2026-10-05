@@ -5,11 +5,19 @@ import (
 	"strings"
 
 	"github.com/srjn45/warden/internal/agentname"
+	"github.com/srjn45/warden/internal/fastbrain"
 )
 
-// NameRunner is the optional fast-tier subscription AI CLI used to derive
-// prompt-based agent names. Nil → ResolvePromptName falls back to codenames.
-type NameRunner = agentname.BackendRunner
+// SpawnNameRunner returns the runner that derives prompt-based agent names: the
+// Fast-Brain engine (Decide KindResolveAgentName, TierFast), so naming shares
+// its timeout, telemetry and audit shape. Nil when no engine is wired — the
+// resolver then falls back to adjective-noun codenames.
+func (l *Lifecycle) SpawnNameRunner() agentname.BackendRunner {
+	if l == nil || l.FastBrain == nil {
+		return nil
+	}
+	return fastbrain.NameRunner{Engine: l.FastBrain}
+}
 
 // assignSpawnName fills req.Name when empty using role conventions, the prompt
 // resolver, or an adjective-noun codename. Explicit names are left untouched.
@@ -18,7 +26,7 @@ func (l *Lifecycle) assignSpawnName(ctx context.Context, req *SpawnRequest) {
 	if req == nil || strings.TrimSpace(req.Name) != "" {
 		return
 	}
-	req.Name = agentname.ResolveSpawnName(ctx, spawnNameInput(*req), l.NameRunner, req.ExistingNames)
+	req.Name = agentname.ResolveSpawnName(ctx, spawnNameInput(*req), l.SpawnNameRunner(), req.ExistingNames)
 }
 
 // assignJobName fills a pipeline job agent's name when unset. Pipeline stage
@@ -29,7 +37,7 @@ func (l *Lifecycle) assignJobName(ctx context.Context, req JobSpawnRequest) stri
 		Prompt: req.Prompt,
 		Pipe:   req.PipelineID,
 		Stage:  req.JobID,
-	}, l.NameRunner, req.ExistingNames)
+	}, l.SpawnNameRunner(), req.ExistingNames)
 }
 
 func spawnNameInput(req SpawnRequest) agentname.SpawnNameInput {

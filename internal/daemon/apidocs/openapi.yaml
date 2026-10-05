@@ -414,6 +414,8 @@ paths:
               type: object
               properties:
                 base: { type: string, description: "PR base branch ('' = main)" }
+                title: { type: string, description: "Explicit PR title; when set it is used verbatim (no Fast-Brain draft)" }
+                body: { type: string, description: "Explicit PR body; when set it is used verbatim (no Fast-Brain draft)" }
       responses:
         "200":
           description: PR result
@@ -4065,6 +4067,7 @@ components:
         prompt: { type: string }
         workdir: { type: string }
         subject: { type: string }
+        activity: { type: string, description: "live 3-5 word status badge, refreshed by the poller while the pane is changing (activity.interval); distinct from the one-line subject" }
         tags: { type: array, items: { type: string } }
         status: { $ref: "#/components/schemas/Status" }
         kind:

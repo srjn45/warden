@@ -26,73 +26,74 @@ import (
 
 // fakeLife implements daemon.Lifecycle for route tests.
 type fakeLife struct {
-	mu               sync.Mutex
-	spawned          *agentstore.Agent
-	lastInput        string
-	output           string
-	outputErr        error
-	classifyResult   store.Type
-	classified       string
-	nameResult       string
-	namedPrompt      string
-	spawnedCwd       string
-	tornDown         string
-	restoreErr       error
-	restored         string
-	switchRoleErr    error
-	switchedRole     string
-	switchedRoleName string
-	terminated       string
-	removedWT        string
-	removeWTForce    bool
-	removeWTErr      error
-	newestClaude     string
-	newestErr        error
-	adoptResult      *agentstore.Agent
-	adoptErr         error
-	adoptParams      AdoptParams
-	lastKey          string
-	commitCalls      int
-	committedDir     string
-	committedMsg     string
-	commitResult     bool
-	commitErr        error
-	lwRepo           string
-	lwActive         int
-	lwArchived       int
-	lwResult         []lifecycle.WorktreeListing
-	lwErr            error
-	pruneRepo        string
-	pruneOpts        lifecycle.PruneOpts
-	pruneResult      []lifecycle.PruneResult
-	pruneErr         error
-	gitCommitDir     string
-	gitCommitMsg     string
-	gitCommitResult  lifecycle.CommitResult
-	gitCommitErr     error
-	gitPushDir       string
-	gitPushForce     bool
-	gitPushResult    lifecycle.PushResult
-	gitPushErr       error
-	gitSyncDir       string
-	gitSyncBase      string
-	gitSyncResult    lifecycle.SyncResult
-	gitSyncErr       error
-	checkDir         string
-	checkName        string
-	checkResult      lifecycle.CheckResult
-	checkErr         error
-	prDir            string
-	prTitle          string
-	prBody           string
-	prBase           string
-	prResult         lifecycle.PRResult
-	prErr            error
-	hotSwapCalls     int
-	hotSwapReq       lifecycle.SwapRequest
-	hotSwapResult    *lifecycle.SwapResult
-	hotSwapErr       error
-	lastJobPrompt    string // captured req.Prompt of the most recent SpawnJob
+	mu                sync.Mutex
+	spawned           *agentstore.Agent
+	lastInput         string
+	output            string
+	outputErr         error
+	classifyResult    store.Type
+	classified        string
+	nameResult        string
+	namedPrompt       string
+	spawnedCwd        string
+	tornDown          string
+	restoreErr        error
+	restored          string
+	switchRoleErr     error
+	switchedRole      string
+	switchedRoleName  string
+	terminated        string
+	removedWT         string
+	removeWTForce     bool
+	removeWTErr       error
+	newestClaude      string
+	newestErr         error
+	adoptResult       *agentstore.Agent
+	adoptErr          error
+	adoptParams       AdoptParams
+	lastKey           string
+	commitCalls       int
+	committedDir      string
+	committedMsg      string
+	commitResult      bool
+	commitErr         error
+	lwRepo            string
+	lwActive          int
+	lwArchived        int
+	lwResult          []lifecycle.WorktreeListing
+	lwErr             error
+	pruneRepo         string
+	pruneOpts         lifecycle.PruneOpts
+	pruneResult       []lifecycle.PruneResult
+	pruneErr          error
+	gitCommitDir      string
+	gitCommitMsg      string
+	gitCommitResult   lifecycle.CommitResult
+	gitCommitErr      error
+	gitPushDir        string
+	gitPushForce      bool
+	gitPushResult     lifecycle.PushResult
+	gitPushErr        error
+	gitSyncDir        string
+	gitSyncBase       string
+	gitSyncResult     lifecycle.SyncResult
+	gitSyncErr        error
+	checkDir          string
+	checkName         string
+	checkResult       lifecycle.CheckResult
+	checkErr          error
+	prDir             string
+	prTitle           string
+	prBody            string
+	prBase            string
+	prResult          lifecycle.PRResult
+	prStat, prCommits string
+	prErr             error
+	hotSwapCalls      int
+	hotSwapReq        lifecycle.SwapRequest
+	hotSwapResult     *lifecycle.SwapResult
+	hotSwapErr        error
+	lastJobPrompt     string // captured req.Prompt of the most recent SpawnJob
 }
 
 var _ Lifecycle = (*fakeLife)(nil)
@@ -291,6 +292,10 @@ func (f *fakeLife) CreatePR(_ context.Context, dir, title, body, base string) (l
 	defer f.mu.Unlock()
 	f.prDir, f.prTitle, f.prBody, f.prBase = dir, title, body, base
 	return f.prResult, f.prErr
+}
+
+func (f *fakeLife) PRContext(_ context.Context, _, _ string) (string, string) {
+	return f.prStat, f.prCommits
 }
 
 func (f *fakeLife) Check(_ context.Context, dir, name string) (lifecycle.CheckResult, error) {

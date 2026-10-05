@@ -9,7 +9,6 @@ import (
 
 	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/daemon/oapi"
-	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/pressure"
@@ -159,9 +158,9 @@ func (s *Server) CreatePR(ctx context.Context, req oapi.CreatePRRequestObject) (
 	if err != nil {
 		return nil, err
 	}
-	base := ""
+	base, expTitle, expBody := "", "", ""
 	if req.Body != nil {
-		base = req.Body.Base
+		base, expTitle, expBody = req.Body.Base, req.Body.Title, req.Body.Body
 	}
 	dir := sess.Workdir
 	if dir == "" {
@@ -171,7 +170,8 @@ func (s *Server) CreatePR(ctx context.Context, req oapi.CreatePRRequestObject) (
 		return nil, errStatus(http.StatusConflict, "push failed: "+err.Error())
 	}
 	d := s.buildDigest(ctx, sess)
-	res, err := s.life.CreatePR(ctx, dir, prTitle(sess, d), digest.Markdown(&d), base)
+	title, body := s.prContent(ctx, sess, d, dir, base, expTitle, expBody)
+	res, err := s.life.CreatePR(ctx, dir, title, body, base)
 	if err != nil {
 		return nil, errStatus(http.StatusConflict, err.Error())
 	}

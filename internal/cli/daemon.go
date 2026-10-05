@@ -14,7 +14,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/srjn45/warden/internal/agentbackend"
-	"github.com/srjn45/warden/internal/agentname"
 	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/audit"
@@ -186,12 +185,10 @@ func newDaemonRunCmd() *cobra.Command {
 			if exe, err := os.Executable(); err == nil {
 				lc.WardenBin = exe
 			}
-			// Prompt-name resolution: subscription headless CLI under the
-			// agentname 1.5s deadline (falls back to adjective-noun codenames).
-			lc.NameRunner = agentname.RunnerFunc(lc.RunClaudeP)
 			life := daemon.NewLifecycleAdapter(lc, st)
 			pd := daemon.NewPollerDeps(st, runner, lc)
 			pl := poller.New(pd, 5*time.Minute)
+			pl.SummarizeAfter = cfg.ActivityIntervalDuration()
 			pl.TokenGuard = cfg.Tokens.Guard
 			pl.TokenWarn = cfg.Tokens.Warn
 			pl.TokenCrit = cfg.Tokens.Critical
@@ -515,6 +512,7 @@ func newDaemonRunCmd() *cobra.Command {
 			// free/local walk. On an exhausted walk Complete errors and the narrator
 			// returns "" so the digest skips its summary line (never a paid call).
 			srv.SetNarrator(digest.ClaudeNarrator{FastBrain: fbEngine})
+			srv.SetFastBrain(fbEngine)
 			srv.SetSpawnGate(cfg.Worktree.SpawnGate, cfg.Worktree.SpawnGateMax)
 			srv.SetBudget(cfg.Tokens.BudgetGate, cfg.Tokens.BudgetDailyUSD, cfg.Tokens.BudgetWeeklyUSD)
 			srv.SetWorktreeRetention(cfg.Worktree.KeepDone, cfg.Worktree.AutoPrune)
