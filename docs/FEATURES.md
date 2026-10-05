@@ -1678,8 +1678,8 @@ them into named project groups visible in the cockpit TUI tree.
 ### 36.1 Projects (`warden projects`)
 
 A project is one repo checkout root or remote URL tracked by the daemon.
-**Zero-touch auto-registration:** whenever an agent, pipeline or terminal is
-launched in a directory, the daemon registers that directory's project as open,
+**Zero-touch auto-registration:** whenever an agent, pipeline, terminal or plan (created or run) is
+launched or targeted in a directory, the daemon registers that directory's project as open,
 or reopens it if it was closed (`.worktrees/<name>` normalizes to the parent repo
 root). An explicit `project_id` is honored — an existing project (by id or path)
 is reopened if closed, an unknown absolute path is registered, any other unknown

@@ -119,7 +119,7 @@ func newPlanListCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List plans for a project",
 		Long: "List plans registered in the daemon for a project.\n\n" +
-			"Use --project to specify the project (defaults to the current directory).\n" +
+			"Use --project to specify the project (defaults to the git root of the current directory).\n" +
 			"Filter by lifecycle stage with --status.",
 		Aliases: []string{"ls"},
 		Args:    cobra.NoArgs,
@@ -143,7 +143,7 @@ func newPlanListCmd() *cobra.Command {
 			return printPlanTable(cmd.OutOrStdout(), plans)
 		},
 	}
-	cmd.Flags().String("project", "", "project ID (default: current directory)")
+	cmd.Flags().String("project", "", "project ID (default: git root of the current directory)")
 	cmd.Flags().String("status", "", "filter by status: pending|in_progress|completed|archived")
 	cmd.Flags().Bool("json", false, "output as JSON")
 	return cmd
@@ -195,7 +195,7 @@ func newPlanCreateCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().String("project", "", "project ID (default: current directory)")
+	cmd.Flags().String("project", "", "project ID (default: git root of the current directory)")
 	cmd.Flags().String("name", "", "plan name")
 	cmd.Flags().String("goal", "", "what the plan is trying to achieve")
 	cmd.Flags().StringArray("task", nil, "task as id:prompt or id@dep1,dep2:prompt (repeatable; skip interactive prompt)")
@@ -500,7 +500,7 @@ func newPlanImportCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().String("project", "", "project ID (default: current directory)")
+	cmd.Flags().String("project", "", "project ID (default: git root of the current directory)")
 	return cmd
 }
 
@@ -548,7 +548,7 @@ func newPlanImportLegacyCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().String("project", "", "project ID (default: current directory)")
+	cmd.Flags().String("project", "", "project ID (default: git root of the current directory)")
 	cmd.Flags().Bool("report", false, "classify without mutating ScrivaDB")
 	cmd.Flags().Bool("json", false, "output as JSON")
 	return cmd
@@ -599,7 +599,7 @@ func newPlanScanCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().String("project", "", "project ID (default: current directory)")
+	cmd.Flags().String("project", "", "project ID (default: git root of the current directory)")
 	cmd.Flags().Bool("migrate-flat", false, "move flat plans/*.yaml files into plans/pending/ with git mv + commit")
 	cmd.Flags().Bool("assess", false, "run brain-assisted progress assessment for in_progress plans")
 	cmd.Flags().Bool("json", false, "output as JSON")
@@ -633,7 +633,7 @@ func newPlanStatusCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().String("project", "", "project ID (default: current directory)")
+	cmd.Flags().String("project", "", "project ID (default: git root of the current directory)")
 	return cmd
 }
 
@@ -845,7 +845,7 @@ func newPlanAssessCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().String("project", "", "project ID (default: current directory)")
+	cmd.Flags().String("project", "", "project ID (default: git root of the current directory)")
 	return cmd
 }
 
@@ -958,23 +958,14 @@ func newPlanCompleteCmd() *cobra.Command {
 	return cmd
 }
 
-// planProjectFlag returns --project, defaulting to the current directory.
+// planProjectFlag returns --project, defaulting to the launch dir's project id
+// (git root; linked worktree -> parent repo root), same as `warden start`.
 func planProjectFlag(cmd *cobra.Command) (string, error) {
 	projectID, _ := cmd.Flags().GetString("project")
 	if projectID != "" {
 		return projectID, nil
 	}
-	return resolveProjectID(cmd)
-}
-
-// resolveProjectID returns the project ID from the current directory (cwd).
-// For local projects warden uses the absolute path as the project ID.
-func resolveProjectID(_ *cobra.Command) (string, error) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("get working directory: %w", err)
-	}
-	return cwd, nil
+	return projectIDForDir("")
 }
 
 // projectIDForDir returns the project id to send for a launch from dir: the

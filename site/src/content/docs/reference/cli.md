@@ -1180,7 +1180,7 @@ Inherited flags:
 ```text
 List plans registered in the daemon for a project.
 
-Use --project to specify the project (defaults to the current directory).
+Use --project to specify the project (defaults to the git root of the current directory).
 Filter by lifecycle stage with --status.
 
 Usage:
@@ -1189,7 +1189,7 @@ Usage:
 Flags:
   -h, --help             help for list
       --json             output as JSON
-      --project string   project ID (default: current directory)
+      --project string   project ID (default: git root of the current directory)
       --status string    filter by status: pending|in_progress|completed|archived
 
 Inherited flags:
@@ -1223,7 +1223,7 @@ Flags:
   -h, --help                     help for create
       --json                     output as JSON
       --name string              plan name
-      --project string           project ID (default: current directory)
+      --project string           project ID (default: git root of the current directory)
       --task stringArray         task as id:prompt or id@dep1,dep2:prompt (repeatable; skip interactive prompt)
 
 Inherited flags:
@@ -1741,7 +1741,7 @@ Usage:
 
 Flags:
   -h, --help             help for import
-      --project string   project ID (default: current directory)
+      --project string   project ID (default: git root of the current directory)
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -1768,7 +1768,7 @@ Usage:
 Flags:
   -h, --help             help for import-legacy
       --json             output as JSON
-      --project string   project ID (default: current directory)
+      --project string   project ID (default: git root of the current directory)
       --report           classify without mutating ScrivaDB
 
 Inherited flags:
@@ -1798,7 +1798,7 @@ Flags:
   -h, --help             help for scan
       --json             output as JSON
       --migrate-flat     move flat plans/*.yaml files into plans/pending/ with git mv + commit
-      --project string   project ID (default: current directory)
+      --project string   project ID (default: git root of the current directory)
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -1821,7 +1821,7 @@ Usage:
 
 Flags:
   -h, --help             help for status
-      --project string   project ID (default: current directory)
+      --project string   project ID (default: git root of the current directory)
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -1839,7 +1839,7 @@ Usage:
 
 Flags:
   -h, --help             help for assess
-      --project string   project ID (default: current directory)
+      --project string   project ID (default: git root of the current directory)
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
