@@ -1387,6 +1387,15 @@ needs-attention (`no_progress`, one notification, points at `wd plan restart`).
 Config: `progress_watchdog_enabled` (default on), hot-reloadable; last progress
 and watchdog state appear in run status and `wd plan show`.
 
+**Guardian triage.** Before the guardian or watchdog escalates a stalled manager,
+a Fast-Brain diagnosis picks the recovery (wait, targeted nudge, resolve prompt,
+resume rate limit, redeliver prompt, restart/rotate at confidence ≥ 0.8, call
+resolver). It runs off the run lock and applies on a later tick only if the
+manager and heal stage are unchanged; any failure falls open to the plain ladder.
+Config `autopilot.guardian.use_fast_brain` (default on), `max_waits` (3),
+`max_wait_total` (30m), hot-reloadable; each decision is audited as
+`autopilot.guardian_diagnosis`.
+
 **Recovering a stuck plan (`wd plan restart`).** For an `in_progress` plan in
 `autopilot` or `pipeline` mode that is stopped, degraded, parked or stuck, `wd plan
 restart <plan-id> [--force] [--backend <id>] [--yes]` (REST `POST

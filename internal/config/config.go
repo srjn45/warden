@@ -308,6 +308,19 @@ type AutopilotGuardianConfig struct {
 	ProgressWatchdogEnabled *bool `yaml:"progress_watchdog_enabled"`
 	// ProgressWatchdogWindow is the no-progress window (Go duration, default 2h).
 	ProgressWatchdogWindow string `yaml:"progress_watchdog_window"`
+	// UseFastBrain switches Fast-Brain stall triage on (default true): before the
+	// guardian (stale heartbeat) or the progress watchdog escalates a run, a
+	// Fast-Brain diagnosis picks the recovery action (wait, a targeted nudge, resolve
+	// a prompt, resume a rate limit, restart, rotate…). false disables triage and
+	// restores the plain nudge → restart → rotate ladder. Nil ⇒ default (on).
+	// Hot-reloadable.
+	UseFastBrain *bool `yaml:"use_fast_brain"`
+	// MaxWaits caps how many consecutive "wait" diagnoses defer an escalation in one
+	// stall episode (default 3); the next one becomes a nudge.
+	MaxWaits int `yaml:"max_waits"`
+	// MaxWaitTotal caps the total time "wait" diagnoses may defer one stall episode
+	// (Go duration, default 30m).
+	MaxWaitTotal string `yaml:"max_wait_total"`
 }
 
 // ---------------------------------------------------------------------------
@@ -447,7 +460,7 @@ var schema = []setting{
 	{"log", "Structured-logging settings (previously flat keys: log_level, log_format). Sub-keys: level (debug | info | warn | error — minimum severity the daemon logs), format (text (human-readable) | json (structured)). Flat keys still load as deprecated aliases."},
 	{"plugins", "Plugin system (#47) settings (previously flat keys: plugins, plugin_registry). OFF by default — plugins execute external code, so this is deliberately opt-in. A broken, slow, or missing plugin fails open (logged and skipped); it never blocks or crashes an agent. Sub-keys: enabled (was plugins; load the executables in registry, register their custom task types, and invoke their subscribed lifecycle hooks over JSON-over-stdio), registry (was plugin_registry; a list of entries, each with name, path (the plugin executable), events (subscribed lifecycle hooks: any of pre-spawn, post-spawn, pre-commit, post-commit, pre-check, post-check, pre-teardown), and task_types (custom agent task types, each {name, worktree})). Flat keys still load as deprecated aliases."},
 	{"backends", "Agent-backend registry / internal-thinking router settings (docs/specs/2026-08-06-backend-registry.md §10). Warden's own internal thinking (task classification, activity summaries, agent naming, digest narration, memory curation) is routed STRICTLY through free/local backends — it never makes a paid call. Sub-keys: limit_retry (Go duration, e.g. 15m — how long a free CLI backend is skipped by the router after it returns a rate-limit / spend signal, before it is retried)."},
-	{"autopilot", "Autopilot defaults for named, durably registered runs. Create plans with `warden autopilot init --name <name>` or register existing plans with `warden autopilot register <file>`. Sub-keys: enabled (legacy per-repo switch), plans (DEPRECATED compatibility list; migrated into plans/ and the run store on boot), brain (role, headless, max_parallel_workers; backend tiers live in the backend registry), merge (target_branch, strategy, gate, delete_branch), guardian (interval, heartbeat_timeout, backoff_min, backoff_max, rotate_at_context, notify_each_escalation, max_identical_failures, progress_watchdog_enabled, progress_watchdog_window)."},
+	{"autopilot", "Autopilot defaults for named, durably registered runs. Create plans with `warden autopilot init --name <name>` or register existing plans with `warden autopilot register <file>`. Sub-keys: enabled (legacy per-repo switch), plans (DEPRECATED compatibility list; migrated into plans/ and the run store on boot), brain (role, headless, max_parallel_workers; backend tiers live in the backend registry), merge (target_branch, strategy, gate, delete_branch), guardian (interval, heartbeat_timeout, backoff_min, backoff_max, rotate_at_context, notify_each_escalation, max_identical_failures, progress_watchdog_enabled, progress_watchdog_window, use_fast_brain [default true: Fast-Brain triage picks the recovery action before an escalation; false = plain ladder], max_waits [3], max_wait_total [30m])."},
 	{"router", "Spawn-time model-tier routing. Sub-keys: use_fast_brain (true | false, default false — when true, a spawn that pins no tier, task, role, model or ai_cli has Fast-Brain rate the prompt's complexity and pick tier-1 (trivial tweaks), tier-2 (standard work) or tier-3 (deep refactors/architecture), applied only at confidence >= 0.8; it is the lowest-precedence input, so any explicit pin wins, and the decision is recorded on the agent's event log. Hot-reloaded: applies from the next spawn)."},
 	{"brain_consult", "Shared need-based brain consult settings (docs/specs/2026-09-27-brain-consult.md §D7). When enabled, stuck pipeline jobs that have exhausted the one deterministic auto-retry can consult a short-lived role=brain agent once per stuck episode. Sub-keys: enabled (true | false — global kill-switch; default true; set false to disable globally), timeout (Go duration, e.g. 10m — per-consult deadline; generous default because consults are infrequent), max_concurrent (integer >= 1 — max simultaneous brain consult agents across all pipelines; default 1). Per-pipeline opt-out: pipeline.brain_consult (true | false)."},
 }
@@ -624,6 +637,8 @@ func defaults() Config {
 				NotifyEachEscalation:   true,
 				MaxIdenticalFailures:   5,
 				ProgressWatchdogWindow: "2h",
+				MaxWaits:               3,
+				MaxWaitTotal:           "30m",
 			},
 		},
 		Backends: BackendsConfig{
@@ -782,6 +797,10 @@ func validate(c *Config) {
 	c.Autopilot.Guardian.BackoffMin = validDuration(c.Autopilot.Guardian.BackoffMin, d.Autopilot.Guardian.BackoffMin)
 	c.Autopilot.Guardian.BackoffMax = validDuration(c.Autopilot.Guardian.BackoffMax, d.Autopilot.Guardian.BackoffMax)
 	c.Autopilot.Guardian.ProgressWatchdogWindow = validDuration(c.Autopilot.Guardian.ProgressWatchdogWindow, d.Autopilot.Guardian.ProgressWatchdogWindow)
+	c.Autopilot.Guardian.MaxWaitTotal = validDuration(c.Autopilot.Guardian.MaxWaitTotal, d.Autopilot.Guardian.MaxWaitTotal)
+	if c.Autopilot.Guardian.MaxWaits <= 0 {
+		c.Autopilot.Guardian.MaxWaits = d.Autopilot.Guardian.MaxWaits
+	}
 	if c.Autopilot.Guardian.MaxIdenticalFailures <= 0 {
 		c.Autopilot.Guardian.MaxIdenticalFailures = d.Autopilot.Guardian.MaxIdenticalFailures
 	}
@@ -1911,6 +1930,30 @@ func (c Config) AutopilotProgressWatchdogEnabled() bool {
 // watchdog escalates (default 2h).
 func (c Config) AutopilotProgressWatchdogWindow() time.Duration {
 	return durOr(c.Autopilot.Guardian.ProgressWatchdogWindow, 2*time.Hour)
+}
+
+// AutopilotGuardianUseFastBrain reports whether Fast-Brain stall triage runs
+// before the guardian/watchdog escalates (default true when unset).
+func (c Config) AutopilotGuardianUseFastBrain() bool {
+	if p := c.Autopilot.Guardian.UseFastBrain; p != nil {
+		return *p
+	}
+	return true
+}
+
+// AutopilotGuardianMaxWaits is how many consecutive triage "wait" decisions may
+// defer one stall episode (default 3).
+func (c Config) AutopilotGuardianMaxWaits() int {
+	if n := c.Autopilot.Guardian.MaxWaits; n > 0 {
+		return n
+	}
+	return 3
+}
+
+// AutopilotGuardianMaxWaitTotal is the total time triage "wait" decisions may
+// defer one stall episode (default 30m).
+func (c Config) AutopilotGuardianMaxWaitTotal() time.Duration {
+	return durOr(c.Autopilot.Guardian.MaxWaitTotal, 30*time.Minute)
 }
 
 // AutopilotGuardianNotifyEach reports whether the guardian notifies the owner on
