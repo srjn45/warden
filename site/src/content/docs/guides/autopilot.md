@@ -227,9 +227,20 @@ warden inspect audit                 # full append-only audit trail of every act
 If status shows `preflight_warnings`, the run recovered from a **content-only**
 plan issue on daemon restart (e.g. an invalid task status that was normalized to
 `pending`). The run is active — edit the plan file to clear the warnings. A run
-stuck in `degraded` after a restart usually means a **structural** problem
-(missing or unreadable plan); fix or restore the file and the watcher will
-auto-recover without another enable.
+stuck in `degraded` after a restart on a **legacy file-only** run usually means a
+structural problem (missing or unreadable plan file); fix or restore the file and
+the watcher will auto-recover without another enable. **Plan-bound** runs recover
+from ScrivaDB, so a missing or bad YAML export never degrades them.
+
+Status shows spawn failures as a backoff object with a `kind` and `last_error`
+(`backend_unavailable`, `no_backend_selectable`, `definition_error`,
+`spawn_error`). Transient kinds retry with capped-exponential backoff forever.
+A `definition_error`, or the same `spawn_error` text repeated
+`autopilot.guardian.max_identical_failures` times (default 5, hot-reloadable),
+**parks** the run as needs-attention: one notification and one audit event, and
+it shows as *waiting* in the tree. To clear it, change the plan in ScrivaDB, run
+`wd plan resume` (or `pause` then `resume`), or restart the daemon — each retries
+the heal ladder from the top.
 
 The TUI cockpit (`warden tui`) shows each run as a **plan-scoped tree** — manager
 (`<scope>-autopilot`), guardian (`<scope>-guardian`), plan checklist, and workers
