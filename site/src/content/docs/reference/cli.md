@@ -1137,10 +1137,17 @@ Plans are canonical ScrivaDB records (goal, tasks, lifecycle, revision).
 Repository YAML under plans/ is an optional inert export — not required
 for create/run/complete/archive.
 
-Create with `wd plan create`, modify pending definitions with
-`wd plan update` / `wd plan edit` / `wd plan task`, start with `wd plan run`,
-control with `wd plan pause|resume|stop`, mark tasks done with `wd plan done`,
-then `wd plan complete` (or `wd plan archive`).
+Typical journey:
+
+  1. Create    `wd plan create` (then `wd plan show` to inspect it)
+  2. Edit      `wd plan update`, `wd plan edit` or `wd plan task add|edit|rm`
+               (only while the plan is pending)
+  3. Run       `wd plan run --mode <mode>` (pending → in_progress)
+  4. Control   `wd plan pause`, `resume` or `stop` the running executor
+  5. Progress  `wd plan task status` / `wd plan done` record task progress
+  6. Complete  `wd plan complete` (in_progress → completed)
+  7. Finish    `wd plan archive` (reversible), or `wd plan delete` to remove a
+               pending or archived plan permanently
 
 Usage:
   warden plan [flags]
@@ -1154,14 +1161,14 @@ Commands:
   show                 Show detail for one plan
   related              List heuristic related / overlapping plans
   run                  Start execution of a plan in the given mode
-  pause                pause an in-progress plan's active executor
-  resume               resume an in-progress plan's active executor
-  stop                 stop an in-progress plan's active executor
+  pause                Pause an in-progress plan's executor
+  resume               Resume a paused plan's executor
+  stop                 Stop an in-progress plan's executor
   done                 Mark a plan task done
   complete             Complete a plan (in_progress → completed)
   archive              Archive a plan (any status → archived)
   delete               Permanently delete a plan
-  sync_to_repo         Export a plan revision to a dedicated branch and open a PR
+  sync-to-repo         Export a plan revision to a dedicated branch and open a PR
   hub-sync             Explicitly sync canonical plans with the configured Hub
   backup               Export or restore a portable Plan backup bundle
   import-legacy        Import legacy plans/**/*.yaml into ScrivaDB (operator cutover)
@@ -1234,13 +1241,13 @@ Inherited flags:
 ## warden plan update
 
 ```text
-Patch a pending plan's definition in ScrivaDB. Non-pending plans are rejected
-by the daemon with HTTP 409 Conflict.
+Change a pending plan's definition. Only pending plans can be edited;
+once a plan is running, completed or archived the update is refused.
 
 Provide at least one of --file, --name, --goal, --constraint, or --done-when.
-When --file is set, the YAML is parsed via ParsePlanYAML and any explicit
-flags overlay those fields. Optimistic concurrency uses the plan's current
-revision (fetched first).
+When --file is set, the plan YAML in that file is applied first and any
+explicit flags overlay those fields. The update is checked against the
+plan's current revision, so it fails if the plan changed since it was read.
 
 Usage:
   warden plan update <plan-id> [flags]
@@ -1263,7 +1270,7 @@ Inherited flags:
 
 ```text
 Fetch a pending plan's definition, open it as YAML in $EDITOR (or $VISUAL,
-falling back to vi), then apply the saved document via PlansUpdate.
+falling back to vi), then apply the saved document as the new definition.
 
 Only name, goal, constraints, done_when, and tasks are written/applied.
 Lifecycle and execution fields are ignored. If the editor exits non-zero or
@@ -1285,12 +1292,12 @@ Inherited flags:
 ## warden plan task
 
 ```text
-Granular task-DAG mutations for a pending plan. Non-pending plans are
-rejected with HTTP 409 Conflict. Subcommands:
+Manage a plan's tasks. add, edit and rm change the task definitions and only
+work on pending plans; status records progress and is used while a plan runs.
 
-  add     Append a task (POST /plans/{id}/tasks)
-  edit    Patch one task's prompt/after deps
-  rm      Remove a task (blocked if dependents remain)
+  add     Append a task to the plan
+  edit    Change one task's prompt or dependencies
+  rm      Remove a task (refused while other tasks depend on it)
   status  Set a task's status (pending|in_progress|done|skipped)
 
 edit and rm take the task id as the second argument (or --id). The skipped
@@ -1317,15 +1324,15 @@ Inherited flags:
 
 ```text
 Append a task to a pending plan's DAG. --id and --prompt are required.
-Repeat --after for dependencies. Optional --expected-revision for optimistic
-concurrency (omit to skip the check).
+Repeat --after for dependencies. Optional --expected-revision fails the change
+if the plan was modified since that revision (omit to skip the check).
 
 Usage:
   warden plan task add <plan-id> [flags]
 
 Flags:
       --after stringArray       dependency task id (repeatable)
-      --expected-revision int   optimistic concurrency token
+      --expected-revision int   fail if the plan is no longer at this revision (omit to skip the check)
   -h, --help                    help for add
       --id string               task id
       --json                    output as JSON
@@ -1341,14 +1348,15 @@ Inherited flags:
 ```text
 Patch one task's prompt and/or after-deps on a pending plan. Pass the task
 id as a second argument or via --id. Provide --prompt and/or --after; omitted fields are left unchanged.
-Optional --expected-revision for optimistic concurrency.
+Optional --expected-revision fails the change if the plan was modified
+since that revision (omit to skip the check).
 
 Usage:
   warden plan task edit <plan-id> [task-id] [flags]
 
 Flags:
       --after stringArray       replace after-deps (repeatable; pass once with empty to clear)
-      --expected-revision int   optimistic concurrency token
+      --expected-revision int   fail if the plan is no longer at this revision (omit to skip the check)
   -h, --help                    help for edit
       --id string               task id (alternative to positional)
       --json                    output as JSON
@@ -1364,13 +1372,14 @@ Inherited flags:
 ```text
 Remove a task from a pending plan. Pass the task id as a second argument
 or via --id. Removal is rejected if other tasks still depend on it.
-Optional --expected-revision for optimistic concurrency.
+Optional --expected-revision fails the change if the plan was modified
+since that revision (omit to skip the check).
 
 Usage:
   warden plan task rm <plan-id> [task-id] [flags]
 
 Flags:
-      --expected-revision int   optimistic concurrency token
+      --expected-revision int   fail if the plan is no longer at this revision (omit to skip the check)
   -h, --help                    help for rm
       --id string               task id (alternative to positional)
       --json                    output as JSON
@@ -1444,15 +1453,15 @@ Inherited flags:
 
 ```text
 Start execution of a plan (pending → in_progress). This is the only supported
-public start path for plan execution (including autopilot). The mode determines
-how the plan is executed:
+public start path for plan execution (including autopilot). --mode is
+required; it decides how the plan is executed:
 
-  autopilot           Creates a live Autopilot executor + manager
-  pipeline            Each task becomes a pipeline job
-  orchestrator        Orchestrator + workers with human approval gates
-  manual              Plan-bound general agent; human drives prompting
+  autopilot            Creates a live Autopilot executor + manager
+  pipeline             Each task becomes a pipeline job
+  orchestrator_worker  Orchestrator + workers with human approval gates
+  manual               Plan-bound general agent; human drives prompting
 
-`orchestrator` is accepted as an alias for `orchestrator_worker`.
+`orchestrator` is accepted as a shorthand for `orchestrator_worker`.
 Control a running plan with `wd plan pause|resume|stop`.
 
 Usage:
@@ -1461,7 +1470,7 @@ Usage:
 Flags:
   -h, --help          help for run
       --json          output as JSON
-      --mode string   execution mode: autopilot|pipeline|orchestrator|manual
+      --mode string   execution mode (required): autopilot|pipeline|orchestrator_worker|manual
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -1471,9 +1480,17 @@ Inherited flags:
 ## warden plan pause
 
 ```text
-Control the active executor for an in-progress plan (autopilot, pipeline, or
-plan-bound agent). Together with `wd plan run`, this is the public lifecycle
-surface for plan execution.
+Pause the executor of an in-progress plan so no new work starts. The plan
+stays in_progress; undo with `wd plan resume`.
+
+  autopilot     The run is paused. Workers already running keep going.
+  pipeline      No new jobs are started. Jobs already running keep going
+                and may still finish or fail.
+  plan-bound    Not supported (orchestrator and manual plans); use
+  agent         `wd plan stop` instead.
+
+Only plans that are in_progress and have an active executor can be controlled.
+
 
 Usage:
   warden plan pause <plan-id> [flags]
@@ -1490,9 +1507,19 @@ Inherited flags:
 ## warden plan resume
 
 ```text
-Control the active executor for an in-progress plan (autopilot, pipeline, or
-plan-bound agent). Together with `wd plan run`, this is the public lifecycle
-surface for plan execution.
+Resume an executor paused with `wd plan pause`. The plan stays in_progress.
+
+  autopilot     The paused run becomes active again (its brain is respawned
+                if it was torn down).
+  pipeline      Jobs that became ready while paused are started.
+  plan-bound    Not supported (orchestrator and manual plans).
+  agent
+
+Resuming an executor that is not paused is refused. A stopped executor
+cannot be resumed.
+
+Only plans that are in_progress and have an active executor can be controlled.
+
 
 Usage:
   warden plan resume <plan-id> [flags]
@@ -1509,9 +1536,22 @@ Inherited flags:
 ## warden plan stop
 
 ```text
-Control the active executor for an in-progress plan (autopilot, pipeline, or
-plan-bound agent). Together with `wd plan run`, this is the public lifecycle
-surface for plan execution.
+Stop the executor of an in-progress plan. The plan itself stays in_progress
+(stop does not complete, archive or reset it).
+
+  autopilot     The run is stopped and its brain is shut down. A stopped
+                run cannot be resumed.
+  pipeline      The pipeline is canceled: running jobs are terminated and
+                unfinished jobs are skipped. It cannot be resumed.
+  plan-bound    The agent is terminated.
+  agent
+
+A stopped plan is not re-run with `wd plan run` (that needs a pending plan).
+Record the outcome with `wd plan task status`, then `wd plan complete`, or
+`wd plan archive` to give up.
+
+Only plans that are in_progress and have an active executor can be controlled.
+
 
 Usage:
   warden plan stop <plan-id> [flags]
@@ -1547,8 +1587,14 @@ Inherited flags:
 
 ```text
 Complete a plan: in_progress → completed. Blocked if any task is not
-done/skipped (skipped counts as finished) or any associated branch is still unmerged. On success moves
-the YAML to plans/completed/ and cleans up worktrees.
+done or skipped (skipped counts as finished), or if any branch the plan's
+work opened a PR for is still unmerged.
+
+On success the daemon records an execution summary on the plan, tears down
+its executor (autopilot run, pipeline and plan-bound agents), and removes
+their worktrees and branches. The plan record itself is kept; PR references
+and execution history are preserved. If cleanup only partly succeeds the
+plan stays in_progress and the command can be run again.
 
 Usage:
   warden plan complete <plan-id> [flags]
@@ -1596,7 +1642,7 @@ Inherited flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden plan sync_to_repo
+## warden plan sync-to-repo
 
 ```text
 Render the canonical ScrivaDB Plan as an inert replica (YAML by default;
@@ -1607,12 +1653,12 @@ overwrites a conflicting non-Warden file. Repeating the same revision/hash for
 the same repo/ref/path returns the prior result with no new GitHub activity.
 
 Usage:
-  warden plan sync_to_repo <plan-id> [flags]
+  warden plan sync-to-repo <plan-id> [flags]
 
 Flags:
       --base string         PR base branch / target ref (required)
       --format string       replica format: yaml (default) or json (default "yaml")
-  -h, --help                help for sync_to_repo
+  -h, --help                help for sync-to-repo
       --json                output as JSON
       --path string         replica output path override (default: plans/{lifecycle}/<slug>.{yaml|json})
       --repo string         local git repository path (default: plan project root)
@@ -1626,15 +1672,21 @@ Inherited flags:
 ## warden plan hub-sync
 
 ```text
-Explicitly sync canonical plans with the configured Hub
+Explicit, operator-driven sync of canonical plans with the configured Hub.
+Nothing syncs automatically: the Hub is only contacted when you run one of
+these subcommands.
+
+  discover  List plans the Hub offers (read-only)
+  pull      Fetch plan envelopes from the Hub (does not overwrite local plans)
+  push      Offer one local plan revision to the Hub
 
 Usage:
   warden plan hub-sync [flags]
 
 Commands:
-  discover             
-  pull                 
-  push                 
+  discover             List plans available on the Hub
+  pull                 Fetch plan envelopes from the Hub
+  push                 Push one local plan revision to the Hub
 
 Flags:
   -h, --help   help for hub-sync
@@ -1647,13 +1699,17 @@ Inherited flags:
 ## warden plan hub-sync discover
 
 ```text
+Ask the Hub which plans it has in scope and print their envelopes. This is
+read-only discovery: nothing is imported. With a plan id, the result is
+limited to that plan (narrow further with --status).
 
 Usage:
   warden plan hub-sync discover [plan-id] [flags]
 
 Flags:
   -h, --help                 help for discover
-      --scope string         Hub project scope (defaults to the plan project on push)
+      --json                 output as JSON
+      --scope string         Hub project scope to search (default: unscoped)
       --status stringArray   lifecycle status filter (repeatable)
 
 Inherited flags:
@@ -1664,13 +1720,18 @@ Inherited flags:
 ## warden plan hub-sync pull
 
 ```text
+Fetch plan envelopes from the Hub and print them. Pulling never imports or
+overwrites local plan definitions; it only stamps sync metadata on local
+plans the Hub already knows. With a plan id, only that plan is fetched;
+otherwise all plans in scope are returned (narrow with --status).
 
 Usage:
   warden plan hub-sync pull [plan-id] [flags]
 
 Flags:
   -h, --help                 help for pull
-      --scope string         Hub project scope (defaults to the plan project on push)
+      --json                 output as JSON
+      --scope string         Hub project scope to pull from (default: unscoped)
       --status stringArray   lifecycle status filter (repeatable)
 
 Inherited flags:
@@ -1681,13 +1742,16 @@ Inherited flags:
 ## warden plan hub-sync push
 
 ```text
+Send a local plan's current revision to the Hub and stamp the local record
+with the remote id and sync time. The plan id is required.
 
 Usage:
-  warden plan hub-sync push [plan-id] [flags]
+  warden plan hub-sync push <plan-id> [flags]
 
 Flags:
   -h, --help                 help for push
-      --scope string         Hub project scope (defaults to the plan project on push)
+      --json                 output as JSON
+      --scope string         Hub project scope to push into (default: the plan's own project)
       --status stringArray   lifecycle status filter (repeatable)
 
 Inherited flags:
@@ -1734,6 +1798,7 @@ Usage:
 Flags:
       --all              export every plan (optionally scoped by --project)
   -h, --help             help for export
+      --json             with -o, print the export summary as JSON instead of text (the bundle itself is always JSON)
   -o, --output string    output file (default: stdout)
       --project string   when used with --all, limit export to this project id
 
@@ -1798,13 +1863,16 @@ Inherited flags:
 
 ```text
 Use a brain model to reconstruct task progress from git history and open PRs.
-Updates task_progress in the DB record. Opt-in — never run automatically.
+Updates the plan's recorded task progress. Opt-in — never run automatically.
+--project is only needed when the plan belongs to a different project than
+the current directory's.
 
 Usage:
   warden plan assess <plan-id> [flags]
 
 Flags:
   -h, --help             help for assess
+      --json             output as JSON
       --project string   project ID (default: git root of the current directory)
 
 Inherited flags:
