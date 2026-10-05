@@ -259,6 +259,8 @@ GET  /autopilot                                    → 200 AutopilotStatus
 actionable failures, not just the first, so the owner fixes everything in one
 pass.
 
+> Note: the `on|off` surfaces below are deprecated — see the callout in §13.
+
 Surfaces (all thin wrappers over these two routes): CLI `warden autopilot
 on|off|status|init`, MCP `set_autopilot`/`autopilot_status` (in
 `internal/mcp/tools_extra.go`), TUI header badge + keybind, web toggle + status
@@ -485,6 +487,17 @@ run signals it is finished*, and *how config edits take effect*. The §0
 extend to both the enabled-repo set and the config file.
 
 ## 13. Project-level (per-repo) enabling
+
+> **Current user-facing flow (supersedes the enable switch described below).**
+> There is no enable step: `wd plan create` (or `wd autopilot init` then
+> `wd plan create`) → `wd plan run <id> --mode autopilot`. Watch with
+> `wd plan show <id> --watch`; `wd autopilot status [--json]` lists all runs.
+> `autopilot enable|on` are hidden no-ops with a deprecation notice;
+> `autopilot disable|off` are hidden and pause every active run in the repo
+> (like `wd plan pause`); `autopilot run list` / `autopilot list` are hidden
+> aliases of `status`; MCP `set_autopilot` / REST are deprecated (`true` no-op,
+> `false` pauses). `autopilot init` no longer registers with the daemon. The
+> text below is the historical design.
 
 The autopilot switch is **per-repository**, not one global flag. `warden
 autopilot on` run inside a repo enables **only that repo**; other repos are

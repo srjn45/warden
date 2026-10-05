@@ -55,7 +55,7 @@ The **task list is always a DAG** (`after:` edges). Multi-task plans without exp
 | `orchestrator_worker` | Agent `O:<plan-name>` (`role=orchestrator`) | Prompt lists ready vs blocked; `wd plan task status` gated on deps |
 | `manual` | Agent `M:<plan-name>` (`role=general`) | Same ready/blocked prompt + task-status gating |
 
-Completion for autopilot/pipeline is watched by the daemon; orchestrator/manual complete via `wd plan complete <id>`.
+Watch a running plan with `wd plan show <id> --watch` (executor state, backoff, integration branch, per-task worker/PR). Completion for autopilot/pipeline is watched by the daemon; orchestrator/manual complete via `wd plan complete <id>`.
 
 
 ## Optional replica export
