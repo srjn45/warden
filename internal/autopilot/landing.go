@@ -44,6 +44,7 @@ type LandFix struct {
 	TaskID string
 	Kind   FixKind
 	Detail string
+	Owner  LandOwner
 }
 
 // LandingRuntime is the daemon seam the landing pass drives. Its host is a
@@ -212,10 +213,10 @@ func (c *Controller) landPR(ctx context.Context, lr LandingRuntime, host Landing
 		case errors.As(err, &le):
 			switch le.Kind {
 			case ErrGateRed:
-				lr.DispatchFix(ctx, s.runID, LandFix{PR: pr, TaskID: owner.TaskID, Kind: FixRed, Detail: le.Detail})
+				c.dispatchFix(ctx, lr, ledger, s, LandFix{PR: pr, TaskID: owner.TaskID, Kind: FixRed, Detail: le.Detail, Owner: owner})
 			case ErrNotMergeable:
 				if pr.Mergeable == "CONFLICTING" {
-					lr.DispatchFix(ctx, s.runID, LandFix{PR: pr, TaskID: owner.TaskID, Kind: FixConflict, Detail: le.Detail})
+					c.dispatchFix(ctx, lr, ledger, s, LandFix{PR: pr, TaskID: owner.TaskID, Kind: FixConflict, Detail: le.Detail, Owner: owner})
 				}
 				// UNKNOWN: GitHub still computing — re-evaluate next tick.
 			}
@@ -225,4 +226,14 @@ func (c *Controller) landPR(ctx context.Context, lr LandingRuntime, host Landing
 	}
 	// Even if the run was paused mid-merge the merge is real: always record it.
 	lr.FinalizeLanding(ctx, s.runID, owner, res)
+}
+
+// dispatchFix routes a red/conflicted PR to the fix loop when the runtime
+// implements it, else to the runtime's own DispatchFix hook.
+func (c *Controller) dispatchFix(ctx context.Context, lr LandingRuntime, ledger *Ledger, s landSnapshot, fix LandFix) {
+	if fr, ok := lr.(FixRuntime); ok {
+		c.runFixLoop(ctx, fr, ledger, s, fix)
+		return
+	}
+	lr.DispatchFix(ctx, s.runID, fix)
 }

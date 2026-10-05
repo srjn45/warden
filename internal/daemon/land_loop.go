@@ -82,6 +82,9 @@ func (rt autopilotRuntime) FinalizeLanding(ctx context.Context, runID string, ow
 			slog.Warn("autopilot landing: write ledger state", "run", runID, "task", owner.TaskID, "err", err)
 		}
 	}
+	if ledger != nil && owner.TaskID != "" {
+		_ = ledger.ClearFixState(owner.TaskID, "daemon-landing") // landed: the red streak resets
+	}
 	rt.teardownLandedWorker(ctx, tgt.sess)
 	s.recordAuditCtx(ctx, audit.ActionAutopilotAutoLand, runID, map[string]string{
 		"branch": res.Branch, "pr": strconv.Itoa(res.PR), "sha": res.HeadSHA, "task_id": owner.TaskID,
@@ -114,8 +117,8 @@ func (rt autopilotRuntime) teardownLandedWorker(ctx context.Context, sess *agent
 	s.notify()
 }
 
-// DispatchFix is the stub for the fix loop (spec §B): a red/conflicted PR is
-// recorded and never merged.
+// DispatchFix is the fallback hook; the Controller routes red/conflicted PRs to
+// the fix loop (FixRuntime, fix_runtime.go) instead. Never merges.
 func (rt autopilotRuntime) DispatchFix(ctx context.Context, runID string, fix autopilot.LandFix) {
 	slog.Debug("autopilot landing: PR needs a fix", "run", runID, "pr", fix.PR.Number, "kind", fix.Kind)
 }
