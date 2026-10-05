@@ -940,3 +940,24 @@ func (Codex) Capabilities() agentbackend.Caps {
 		SessionIDControl:     false,
 	}
 }
+
+var codexModeTable = agentbackend.ModeTable{
+	ToIntent: map[string]agentbackend.PermissionIntent{
+		"read-only": agentbackend.IntentReadOnly, "workspace-write": agentbackend.IntentAcceptEdits,
+		"danger-full-access": agentbackend.IntentSkipAll,
+	},
+	FromIntent: map[agentbackend.PermissionIntent]string{
+		agentbackend.IntentReadOnly: "read-only", agentbackend.IntentPlan: "read-only",
+		agentbackend.IntentAcceptEdits: "workspace-write", agentbackend.IntentSkipAll: "danger-full-access",
+	},
+}
+
+// ModeIntent implements agentbackend.PermissionMapper.
+func (Codex) ModeIntent(mode string) (agentbackend.PermissionIntent, bool) {
+	return codexModeTable.Intent(mode)
+}
+
+// ModeForIntent implements agentbackend.PermissionMapper.
+func (Codex) ModeForIntent(i agentbackend.PermissionIntent) (string, bool) {
+	return codexModeTable.ForIntent(i)
+}

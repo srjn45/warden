@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/srjn45/warden/internal/agentname"
@@ -243,12 +244,18 @@ func (a *lifecycleAdapter) MemoryPressure(ctx context.Context) (pressure.Level, 
 func (a *lifecycleAdapter) HotSwap(ctx context.Context, sess *agentstore.Agent, req lifecycle.SwapRequest) (*lifecycle.SwapResult, error) {
 	res, err := a.lc.HotSwap(ctx, sess, req)
 	if err != nil {
+		if a.store != nil && sess != nil && errors.Is(err, lifecycle.ErrLaunchFailed) {
+			// The record is deliberately untouched (previous backend/model/mode) so
+			// the swap can be retried or the agent restored; just leave a trail.
+			_ = a.store.AppendEvent(ctx, sess.ID, store.Event{Type: "hot-swap-failed", Detail: err.Error()})
+		}
 		return nil, err
 	}
 	if a.store != nil && sess != nil {
 		if err := a.store.Update(ctx, sess.ID, func(s *agentstore.Agent) error {
 			s.AiCli = sess.AiCli
 			s.Model = sess.Model
+			s.PermissionMode = sess.PermissionMode
 			s.AICLISessionID = sess.AICLISessionID
 			s.QuotaBinding = sess.QuotaBinding
 			s.ExecutionProfile = sess.ExecutionProfile
@@ -256,6 +263,9 @@ func (a *lifecycleAdapter) HotSwap(ctx context.Context, sess *agentstore.Agent, 
 			return nil
 		}); err != nil {
 			return nil, fmt.Errorf("persist hot-swap session: %w", err)
+		}
+		if res.ModeNote != "" {
+			_ = a.store.AppendEvent(ctx, sess.ID, store.Event{Type: "hot-swap-permission-mode", Detail: res.ModeNote})
 		}
 	}
 	return res, nil

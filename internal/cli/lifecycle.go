@@ -463,8 +463,8 @@ type teardownOpts struct {
 }
 
 // teardown composes the existing daemon-client calls in the safe order —
-// PR (while the agent is still intact) → terminate → delete record → remove
-// worktree. The worktree-removal confirmation prompt is asked UP FRONT, before
+// PR (while the agent is still intact) → terminate → remove worktree → delete
+// record. The worktree-removal confirmation prompt is asked UP FRONT, before
 // any destructive step, so declining leaves the agent fully intact; it is
 // gated by opts.yes and only shown when worktree removal is actually requested.
 //
@@ -496,19 +496,32 @@ func teardown(cmd *cobra.Command, c *client.Client, id string, o teardownOpts) (
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", verb, res.URL)
 	}
+	// Order: terminate → remove worktree → clear record. The daemon resolves the
+	// session by its record, so the worktree must go while it still resolves; a
+	// failed guard then leaves the record intact and the call retryable.
+	var done []string
+	fail := func(step string, err error) (bool, error) {
+		ran := "nothing"
+		if len(done) > 0 {
+			ran = strings.Join(done, ", ")
+		}
+		return false, fmt.Errorf("%s failed: %w\n(completed: %s; record left intact — fix the cause and retry)", step, err, ran)
+	}
 	if o.terminate {
 		if err := c.Terminate(cmd.Context(), id); err != nil {
-			return false, err
+			return fail("terminate", err)
 		}
-	}
-	if o.deleteRecord {
-		if err := c.Delete(cmd.Context(), id, o.hard); err != nil {
-			return false, err
-		}
+		done = append(done, "terminated")
 	}
 	if o.removeWorktree {
 		if err := c.RemoveWorktree(cmd.Context(), id, o.force, o.deleteAdopted); err != nil {
-			return false, err
+			return fail("remove worktree", err)
+		}
+		done = append(done, "worktree removed")
+	}
+	if o.deleteRecord {
+		if err := c.Delete(cmd.Context(), id, o.hard); err != nil {
+			return fail("clear record", err)
 		}
 	}
 	return true, nil
@@ -539,8 +552,10 @@ fixed flag combo:
   wd done <T> [--hard|--pr]   wd stop <T> --keep-worktree [--hard|--pr]
   wd stop <T>                 terminate + clear record + remove worktree
 
-Safe ordering is always: PR -> terminate -> clear record -> remove worktree, so
-a failed push leaves the agent running.`,
+Safe ordering is always: PR -> terminate -> remove worktree -> clear record, so
+a failed push leaves the agent running and a failed worktree guard (alive /
+dirty / unpushed) leaves the record intact and the call retryable. A failure
+reports which steps already ran.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			keepRecord, _ := cmd.Flags().GetBool("keep-record")

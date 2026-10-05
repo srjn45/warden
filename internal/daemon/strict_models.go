@@ -149,6 +149,9 @@ func (s *Server) SwitchSession(ctx context.Context, req oapi.SwitchSessionReques
 		if errors.Is(err, lifecycle.ErrNoSwapTarget) || errors.Is(err, lifecycle.ErrNoResolver) {
 			return nil, errStatus(http.StatusBadRequest, err.Error())
 		}
+		if errors.Is(err, lifecycle.ErrAmbiguousTranscript) {
+			return nil, errStatus(http.StatusConflict, "hot-swap refused: "+err.Error())
+		}
 		return nil, errStatus(http.StatusInternalServerError, "hot-swap failed: "+err.Error())
 	}
 	// Handoff prose is attributed-note only — never a PlanExecutionEvent / summary.

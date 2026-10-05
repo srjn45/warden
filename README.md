@@ -867,7 +867,7 @@ warden agent attach PROJ-350
 
 ### `warden agent stop <TICKET>`
 
-The **single umbrella teardown verb.** By default `warden agent stop <TICKET>` does a **full teardown**: terminate the tmux + claude session, clear (archive) the record, **and** remove the git worktree + branch (asking for confirmation first, unless `--yes`). Subtractive flags keep parts around; `--pr` opens a GitHub PR first while the agent is still intact. Safe order is always PR → terminate → clear record → remove worktree, so a failed push leaves the agent running.
+The **single umbrella teardown verb.** By default `warden agent stop <TICKET>` does a **full teardown**: terminate the tmux + claude session, clear (archive) the record, **and** remove the git worktree + branch (asking for confirmation first, unless `--yes`). Subtractive flags keep parts around; `--pr` opens a GitHub PR first while the agent is still intact. Safe order is always PR → terminate → remove worktree → clear record, so a failed push leaves the agent running.
 
 ```sh
 warden agent stop PROJ-350                 # full teardown (asks before removing the worktree)
@@ -877,6 +877,8 @@ warden agent stop PROJ-350 --keep-record   # terminate + remove worktree, keep t
 warden agent stop PROJ-350 --hard          # purge the record instead of archiving
 warden agent stop PROJ-350 --pr --base main # open a GitHub PR first, then tear down
 ```
+
+A failed step stops the teardown and names itself plus what already ran, e.g. `remove worktree failed: … (completed: terminated; record left intact — fix the cause and retry)`. Because the record is cleared **last**, a worktree guard (agent alive / uncommitted / unpushed work) leaves it intact and `stop` is safely retryable once the cause is fixed; a branch that is already gone counts as success. No workaround is needed — do not call `delete`/`delete_agent` first (that archives the record and orphans the worktree). Worktrees orphaned by the older order (record cleared, worktree left behind) are reclaimed with `warden worktree prune`.
 
 The four older verbs are kept as thin **aliases** — each is just `stop` with a fixed flag combo:
 

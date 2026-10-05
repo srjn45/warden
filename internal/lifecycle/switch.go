@@ -68,7 +68,42 @@ type SwapResult struct {
 	ToModel      string            `json:"to_model,omitempty"`
 	Reason       SwapReason        `json:"reason"`
 	ResolverUsed bool              `json:"resolver_used"` // true when the successor was chosen by the router (vs pinned)
+	// FromMode/ToMode are the permission mode before and after the swap; they
+	// differ only on a cross-backend swap that had to translate or replace the mode.
+	FromMode string `json:"from_mode,omitempty"`
+	ToMode   string `json:"to_mode,omitempty"`
+	// ModeNote explains a mode change for the agent's event log; "" when unchanged.
+	ModeNote string `json:"mode_note,omitempty"`
 }
+
+// ErrLaunchFailed is matched (errors.Is) by the error HotSwap returns when the
+// successor process exited immediately after launch.
+var ErrLaunchFailed = fmt.Errorf("launch_failed")
+
+// LaunchFailedError reports a successor that exited right after launch. The agent
+// record is left untouched (previous backend/model/mode) so the swap can be retried
+// or the agent restored; Output carries the first lines of the pane.
+type LaunchFailedError struct {
+	Backend  string
+	ExitCode int
+	HasExit  bool
+	Output   string
+}
+
+func (e *LaunchFailedError) Error() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "hot-swap: launch_failed: successor %s exited immediately", e.Backend)
+	if e.HasExit {
+		fmt.Fprintf(&b, " (exit %d)", e.ExitCode)
+	}
+	if e.Output != "" {
+		b.WriteString(": " + e.Output)
+	}
+	return b.String()
+}
+
+// Is makes errors.Is(err, ErrLaunchFailed) true.
+func (e *LaunchFailedError) Is(target error) bool { return target == ErrLaunchFailed }
 
 // ErrNoSwapTarget is returned when a SwapRequest names no successor at all (no
 // backend, no model, and no resolvable tier/role) — there is nothing to swap to.
@@ -109,6 +144,13 @@ func (l *Lifecycle) HotSwap(ctx context.Context, agent *agentstore.Agent, req Sw
 	fromBackend := normalizeBackendID(agent.AiCli)
 	fromModel := agent.Model
 
+	// A handoff built from a transcript that is really another live session's would
+	// hand the successor the wrong conversation: refuse instead (the agent keeps
+	// running untouched) until this session's conversation is pinned.
+	if l.transcriptAmbiguous(agent) {
+		return nil, ErrAmbiguousTranscript
+	}
+
 	// 1. Extract context from the retiring agent's transcript.
 	h := l.extractHandoff(ctx, agent)
 	h.SessionID = agent.ID
@@ -144,12 +186,24 @@ func (l *Lifecycle) HotSwap(ctx context.Context, agent *agentstore.Agent, req Sw
 		l.killSession(agent.TmuxSession)
 	}
 
-	// 5. Launch the successor in the same worktree with the handoff injected.
-	if err := l.launchSuccessor(ctx, agent, toBackend, toModel, handoffPath, h, req); err != nil {
+	// 5. Launch the successor in the same worktree with the handoff injected. The
+	//    mode is translated into the successor's vocabulary first; the agent record
+	//    is only mutated once the successor is confirmed running, so a failed swap
+	//    leaves the previous backend/model/mode intact for retry or restore.
+	prevSessionID := agent.AICLISessionID
+	fromMode := agent.PermissionMode
+	toMode, modeNote := l.successorMode(agent, l.backendFor(fromBackend), toBackend)
+	if err := l.launchSuccessor(ctx, agent, toBackend, toModel, toMode, handoffPath, h, req); err != nil {
+		agent.AICLISessionID = prevSessionID
 		return nil, fmt.Errorf("hot-swap: launch successor %s: %w", toBackend.ID(), err)
+	}
+	if lerr := l.verifySuccessorRunning(ctx, agent, toBackend); lerr != nil {
+		agent.AICLISessionID = prevSessionID
+		return nil, lerr
 	}
 
 	// Mutate the agent to reflect the new driver (caller persists).
+	agent.PermissionMode = toMode
 	agent.AiCli = toBackend.ID()
 	agent.Model = toModel
 	if l.CapacityResolver != nil {
@@ -171,7 +225,139 @@ func (l *Lifecycle) HotSwap(ctx context.Context, agent *agentstore.Agent, req Sw
 		ToModel:      toModel,
 		Reason:       req.Reason,
 		ResolverUsed: resolverUsed,
+		FromMode:     fromMode,
+		ToMode:       toMode,
+		ModeNote:     modeNote,
 	}, nil
+}
+
+// successorMode returns the permission mode the successor launches with plus a note
+// when it differs from the stored one. A same-backend swap keeps the stored mode
+// (config default when none). A cross-backend swap translates the stored mode by
+// intent through the backends' own tables; with no equivalent it falls back to the
+// role default, then the config default for the successor — never a mode the
+// successor does not accept, and never more permissive than a known weaker intent.
+func (l *Lifecycle) successorMode(agent *agentstore.Agent, from, to agentbackend.Backend) (mode, note string) {
+	stored := agent.PermissionMode
+	if from.ID() == to.ID() {
+		if stored == "" {
+			stored = l.config().GetDefaultPermissionMode()
+		}
+		return stored, ""
+	}
+	if stored != "" {
+		if m, ok := agentbackend.TranslateMode(from, to, stored); ok {
+			if m == stored {
+				return m, ""
+			}
+			return m, fmt.Sprintf("permission_mode %q (%s) translated to %q (%s) by intent", stored, from.ID(), m, to.ID())
+		}
+	}
+	// Intent of the stored mode bounds the fallback so it is not more permissive.
+	var storedIntent agentbackend.PermissionIntent
+	if fm, ok := from.(agentbackend.PermissionMapper); ok && stored != "" {
+		storedIntent, _ = fm.ModeIntent(stored)
+	}
+	m := l.fallbackMode(agent.Role, to, storedIntent)
+	if stored == "" {
+		return m, ""
+	}
+	return m, fmt.Sprintf("permission_mode %q (%s) has no equivalent on %s; fell back to %q", stored, from.ID(), to.ID(), m)
+}
+
+// fallbackMode picks a valid mode for to: the role default, then the config
+// default (translated from the config's Claude vocabulary when needed), then the
+// backend's own default posture. A candidate whose intent is skip-all is rejected
+// when the stored intent is known and weaker.
+func (l *Lifecycle) fallbackMode(role string, to agentbackend.Backend, storedIntent agentbackend.PermissionIntent) string {
+	tm, _ := to.(agentbackend.PermissionMapper)
+	allowed := func(m string) bool {
+		if m == "" || !agentbackend.ModeAccepted(to, m) {
+			return false
+		}
+		if tm != nil && storedIntent != "" && storedIntent != agentbackend.IntentSkipAll {
+			if i, ok := tm.ModeIntent(m); ok && i == agentbackend.IntentSkipAll {
+				return false
+			}
+		}
+		return true
+	}
+	if role != "" {
+		req := &SpawnRequest{Role: role, Backend: to.ID()}
+		applyRoleBackendMode(req)
+		if allowed(req.PermissionMode) {
+			return req.PermissionMode
+		}
+	}
+	cfg := l.config().GetDefaultPermissionMode()
+	if allowed(cfg) {
+		return cfg
+	}
+	if cfg != "" {
+		if m, ok := agentbackend.TranslateMode(l.backendFor(""), to, cfg); ok && allowed(m) {
+			return m
+		}
+	}
+	if tm != nil {
+		if m, ok := tm.ModeForIntent(agentbackend.IntentDefault); ok && allowed(m) {
+			return m
+		}
+	}
+	if modes := to.Capabilities().PermissionModes; len(modes) > 0 {
+		return modes[0]
+	}
+	return ""
+}
+
+// defaultSwapVerifyWindow bounds the post-launch liveness check: a CLI that rejects
+// its arguments exits within a fraction of a second.
+const defaultSwapVerifyWindow = time.Second
+
+// verifySuccessorRunning checks, shortly after launch, that the successor did not
+// exit at once. The launch line records the CLI's exit status to the agent's
+// exit-file (the same signal the poller uses), so its presence — or the tmux
+// session vanishing — means the process is gone. On failure it consumes the
+// exit-file (so the poller does not finalize the record as errored/orphaned and
+// have it reaped), leaves the pane in place and returns a LaunchFailedError.
+func (l *Lifecycle) verifySuccessorRunning(ctx context.Context, agent *agentstore.Agent, b agentbackend.Backend) error {
+	window := l.SwapVerifyWindow
+	if window == 0 {
+		window = defaultSwapVerifyWindow
+	}
+	if window < 0 {
+		return nil
+	}
+	deadline := time.Now().Add(window)
+	for {
+		code, exited := l.ReadExit(agent.ID)
+		if exited || !l.Proc().HasSession(ctx, agent.TmuxSession) {
+			pane, _ := l.Proc().CapturePane(ctx, agent.TmuxSession)
+			l.ClearExit(agent.ID)
+			return &LaunchFailedError{Backend: b.ID(), ExitCode: code, HasExit: exited, Output: firstLines(pane, 8)}
+		}
+		if !time.Now().Before(deadline) {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+}
+
+// firstLines returns up to n non-empty lines of s, trimmed and joined with " | ".
+func firstLines(s string, n int) string {
+	var out []string
+	for _, ln := range strings.Split(s, "\n") {
+		if ln = strings.TrimSpace(ln); ln != "" {
+			out = append(out, ln)
+			if len(out) == n {
+				break
+			}
+		}
+	}
+	return strings.Join(out, " | ")
 }
 
 // extractHandoff reads the retiring agent's transcript, parses it into neutral
@@ -338,7 +524,7 @@ func (l *Lifecycle) resolveSpawnTarget(ctx context.Context, roleName, taskName, 
 // (new tmux session → inject context → build launch → send-keys) minus the worktree
 // creation (the worktree already exists) and re-pins a fresh session id for a
 // pinning backend (a new backend session is a new conversation, not a resume).
-func (l *Lifecycle) launchSuccessor(ctx context.Context, agent *agentstore.Agent, b agentbackend.Backend, model, handoffPath string, h handoff.Handoff, req SwapRequest) error {
+func (l *Lifecycle) launchSuccessor(ctx context.Context, agent *agentstore.Agent, b agentbackend.Backend, model, mode, handoffPath string, h handoff.Handoff, req SwapRequest) error {
 	// A pinning backend (Claude) needs a fresh warden-minted session id for the new
 	// conversation; a non-pinning backend (codex/antigravity) mints its own, so leave
 	// the id empty for the poller's discover-then-pin.
@@ -350,11 +536,6 @@ func (l *Lifecycle) launchSuccessor(ctx context.Context, agent *agentstore.Agent
 		agent.AICLISessionID = id
 	} else {
 		agent.AICLISessionID = ""
-	}
-
-	mode := agent.PermissionMode
-	if mode == "" {
-		mode = l.config().GetDefaultPermissionMode()
 	}
 
 	// Recreate the tmux session in the SAME worktree.
@@ -386,6 +567,7 @@ func (l *Lifecycle) launchSuccessor(ctx context.Context, agent *agentstore.Agent
 
 	base := b.LaunchCmd(agentbackend.LaunchOpts{
 		SessionID: agent.AICLISessionID, Name: agent.ID, Model: l.launchModel(b, model), Mode: mode, Network: launchNetwork(agent),
+		LogFile: l.sessionLogFile(b, agent.ID),
 	})
 	hints := l.systemPromptHints(ctx, b, agent.ID,
 		hintSpec{persona != "", persona},

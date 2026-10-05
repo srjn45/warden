@@ -49,6 +49,10 @@ type LaunchOpts struct {
 	Model     string // model id as configured (verbatim pass-through, default applied) — empty only if the backend has no model flag
 	Mode      string // permission/approval mode (one of Caps.PermissionModes)
 	Network   string // sandbox/network from ExecutionProfile.EffectiveNetwork (loopback|full|none); empty = adapter emits no network override
+	// LogFile is a per-session file the backend's CLI should write its own log to,
+	// when the backend implements SessionLogDiscoverer (it reads the conversation id
+	// back out of it). Empty = no per-session log; other adapters ignore it.
+	LogFile string
 }
 
 // ResumeOpts is the neutral input for resuming an existing session by id.
@@ -359,6 +363,19 @@ type SessionIDDiscoverer interface {
 	DiscoverSessionID(projectsDir, workdir string) (id string, ok bool)
 }
 
+// SessionLogDiscoverer is an optional Backend extension for backends whose own
+// conversation id cannot be found reliably from the workdir (antigravity: its
+// workspace->conversation map has ONE entry per directory, so two sessions in one
+// workdir collide). Such a backend is launched with a per-session log file
+// (LaunchOpts.LogFile) that records the id of the conversation THAT process
+// created; DiscoverSessionIDFromLog reads it back so the poller can pin the exact
+// id to the session instead of resolving by directory.
+type SessionLogDiscoverer interface {
+	// DiscoverSessionIDFromLog returns the conversation id recorded in logFile.
+	// ok=false when the log is missing or has no id yet (retry on a later tick).
+	DiscoverSessionIDFromLog(logFile string) (id string, ok bool)
+}
+
 // SessionForker is an optional Backend extension implemented by agents that can
 // BRANCH a recorded session into a new DIVERGENT one (Codex: `codex fork <id>`).
 // It complements warden's snapshot (linear worktree+transcript rollback) and its
@@ -464,6 +481,17 @@ type RateLimitDetector interface {
 	// Implementations MUST fail closed: only return limited=true when the pane
 	// conclusively shows a rate-limit condition (anchored to trailing lines).
 	DetectRateLimit(pane string) (limited bool, resetAt time.Time, resetKnown bool)
+}
+
+// QuotaScopeObserver is an optional Backend extension: a backend whose live pane
+// shows which model is actually running (and so which quota bucket it drains)
+// implements this. The daemon re-binds the agent's capacity binding when the
+// observed scope differs from the bound one.
+type QuotaScopeObserver interface {
+	// ObservedQuotaScope reports the model shown in the pane and its quota
+	// scope. ok is false when the pane does not conclusively show a model of a
+	// known family; implementations must not guess.
+	ObservedQuotaScope(pane string) (model, scope string, ok bool)
 }
 
 // RateLimitResetParser is an optional Backend extension: extracts the reset time

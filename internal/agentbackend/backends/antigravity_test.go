@@ -2,6 +2,7 @@ package backends
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -720,4 +721,88 @@ func TestAntigravityParseRateLimitReset_ResetsAt(t *testing.T) {
 func TestAntigravityParseRateLimitReset_NoTime(t *testing.T) {
 	_, ok := Antigravity{}.ParseRateLimitReset("quota exceeded, try again later")
 	require.False(t, ok, "pane with no clock time must return ok=false")
+}
+
+// --- Per-session conversation pinning (#686) --------------------------------
+
+const (
+	agyConvA = "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa"
+	agyConvB = "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb"
+)
+
+// agyHomeWithConvs builds a throwaway agyHome holding one transcript per conv id and
+// a last_conversations.json mapping workdir -> mapped (the single dir-scoped entry).
+func agyHomeWithConvs(t *testing.T, workdir, mapped string, convs ...string) string {
+	t.Helper()
+	home := t.TempDir()
+	for _, c := range convs {
+		p := filepath.Join(home, "brain", c, agyTranscriptRel)
+		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+		require.NoError(t, os.WriteFile(p, []byte("{}\n"), 0o644))
+	}
+	require.NoError(t, os.MkdirAll(filepath.Join(home, "cache"), 0o755))
+	m, err := json.Marshal(map[string]string{workdir: mapped})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(home, "cache", "last_conversations.json"), m, 0o644))
+	withAgyHome(t, home)
+	return home
+}
+
+// Two sessions share one workdir: the dir map holds only the last writer, but each
+// pinned session resolves its OWN conversation.
+func TestAntigravityTranscriptPathPinnedPerSession(t *testing.T) {
+	home := agyHomeWithConvs(t, "/work/shared", agyConvB, agyConvA, agyConvB)
+
+	pa, ok := Antigravity{}.TranscriptPath("", "/work/shared", agyConvA)
+	require.True(t, ok)
+	pb, ok := Antigravity{}.TranscriptPath("", "/work/shared", agyConvB)
+	require.True(t, ok)
+	require.NotEqual(t, pa, pb)
+	require.Equal(t, filepath.Join(home, "brain", agyConvA, agyTranscriptRel), pa)
+	require.Equal(t, filepath.Join(home, "brain", agyConvB, agyTranscriptRel), pb)
+
+	// A pinned id whose transcript does not exist degrades; it never falls back to
+	// the directory's entry (that is another session's conversation).
+	_, ok = Antigravity{}.TranscriptPath("", "/work/shared", "cccccccc-3333-4333-8333-cccccccccccc")
+	require.False(t, ok)
+}
+
+// A legacy record (no pinned id) keeps the dir-scoped resolution.
+func TestAntigravityTranscriptPathLegacyUnpinned(t *testing.T) {
+	home := agyHomeWithConvs(t, "/work/solo", agyConvA, agyConvA)
+	p, ok := Antigravity{}.TranscriptPath("", "/work/solo", "")
+	require.True(t, ok)
+	require.Equal(t, filepath.Join(home, "brain", agyConvA, agyTranscriptRel), p)
+}
+
+func TestAntigravityLaunchCmdLogFile(t *testing.T) {
+	require.Equal(t, "agy --log-file '/d/a1.log' --dangerously-skip-permissions",
+		Antigravity{}.LaunchCmd(agentbackend.LaunchOpts{LogFile: "/d/a1.log"}))
+	require.Equal(t, "agy --dangerously-skip-permissions", Antigravity{}.LaunchCmd(agentbackend.LaunchOpts{}))
+}
+
+func TestAntigravityResumeCmdPinned(t *testing.T) {
+	cmd, ok := Antigravity{}.ResumeCmd(agentbackend.ResumeOpts{SessionID: agyConvA})
+	require.True(t, ok)
+	require.Equal(t, "agy --conversation "+agyConvA+" --dangerously-skip-permissions", cmd)
+	// Unpinned (legacy / not yet discovered) keeps `-c`.
+	cmd, _ = Antigravity{}.ResumeCmd(agentbackend.ResumeOpts{})
+	require.Equal(t, "agy -c --dangerously-skip-permissions", cmd)
+}
+
+func TestAntigravityDiscoverSessionIDFromLog(t *testing.T) {
+	dir := t.TempDir()
+	_, ok := Antigravity{}.DiscoverSessionIDFromLog(filepath.Join(dir, "missing.log"))
+	require.False(t, ok)
+
+	log := filepath.Join(dir, "a.log")
+	require.NoError(t, os.WriteFile(log, []byte("I1005 server.go:1] starting\n"), 0o644))
+	_, ok = Antigravity{}.DiscoverSessionIDFromLog(log)
+	require.False(t, ok, "no conversation created yet")
+
+	require.NoError(t, os.WriteFile(log, []byte(
+		"I1005 server.go:1263] Created conversation "+agyConvA+"\nI1005 server.go:1263] Created conversation "+agyConvB+"\n"), 0o644))
+	id, ok := Antigravity{}.DiscoverSessionIDFromLog(log)
+	require.True(t, ok)
+	require.Equal(t, agyConvA, id, "first created conversation is the session's own")
 }

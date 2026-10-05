@@ -349,7 +349,10 @@ func (rt autopilotRuntime) BrainContextLevel(ctx context.Context, agentID string
 // NudgeBrain delivers the guardian's steering message to the brain's mailbox — the
 // cheapest heal step (§2.3 stage 1). Best-effort: a mailbox error is returned for
 // logging but the guardian escalates on the next tick regardless.
-func (rt autopilotRuntime) NudgeBrain(_ context.Context, agentID, msg string) error {
+func (rt autopilotRuntime) NudgeBrain(ctx context.Context, agentID, msg string) error {
+	if _, err := rt.s.store.Get(ctx, agentID); errors.Is(err, agentstore.ErrNotFound) {
+		return fmt.Errorf("%w: %s", autopilot.ErrAgentNotFound, agentID)
+	}
 	if rt.s.mbox == nil {
 		return nil
 	}
@@ -365,6 +368,9 @@ func (rt autopilotRuntime) NudgeBrain(_ context.Context, agentID, msg string) er
 // lands somewhere durable; the injection error is still returned for logging.
 func (rt autopilotRuntime) WakeAgent(ctx context.Context, agentID, msg string) error {
 	sess, err := rt.s.store.Get(ctx, agentID)
+	if errors.Is(err, agentstore.ErrNotFound) {
+		return fmt.Errorf("%w: %s", autopilot.ErrAgentNotFound, agentID)
+	}
 	if err != nil {
 		return err
 	}
@@ -375,6 +381,30 @@ func (rt autopilotRuntime) WakeAgent(ctx context.Context, agentID, msg string) e
 		return err
 	}
 	return nil
+}
+
+// BrainSession reports whether the manager's session record exists. The agent
+// store holds only active records (archive moves a record out), so ErrNotFound
+// covers both deleted and archived. Hot-swap rewrites the record in place and
+// never removes it, so a mid-rotation manager reads as present; any other store
+// error is Unknown and never acted on.
+func (rt autopilotRuntime) BrainSession(ctx context.Context, agentID string) autopilot.SessionPresence {
+	if rt.s == nil || rt.s.store == nil {
+		return autopilot.SessionUnknown
+	}
+	switch _, err := rt.s.store.Get(ctx, agentID); {
+	case err == nil:
+		return autopilot.SessionPresent
+	case errors.Is(err, agentstore.ErrNotFound):
+		return autopilot.SessionMissing
+	default:
+		return autopilot.SessionUnknown
+	}
+}
+
+// AuditRunEvent writes a guardian event to the audit log, targeting the manager.
+func (rt autopilotRuntime) AuditRunEvent(ctx context.Context, runID, action, agentID, detail string) {
+	rt.s.recordAuditCtx(ctx, action, agentID, map[string]string{"run": runID, "detail": detail})
 }
 
 // NotifyEscalation surfaces a guardian escalation through the operator notifier

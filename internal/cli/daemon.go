@@ -178,6 +178,18 @@ func newDaemonRunCmd() *cobra.Command {
 			// canonical-mode line limit (1024 B on macOS/BSD) and the agent won't start.
 			lc.HintsDir = filepath.Join(cfg.DataDir, "hints")
 			lc.ExitsDir = filepath.Join(cfg.DataDir, "exits")
+			// Per-session logs let a backend whose conversation id is directory-scoped
+			// (antigravity) pin the id that belongs to each session (see
+			// agentbackend.SessionLogDiscoverer); PeerSessions lets lifecycle refuse an
+			// unpinned, ambiguous directory-scoped transcript.
+			lc.SessionLogsDir = filepath.Join(cfg.DataDir, "session-logs")
+			lc.PeerSessions = func() []*agentstore.Agent {
+				ss, err := st.List(context.Background())
+				if err != nil {
+					return nil
+				}
+				return ss
+			}
 			lc.SettingsDir = filepath.Join(cfg.DataDir, "settings")
 			// The isolation-guard PreToolUse hook is the warden binary itself
 			// (`<warden> hook guard`); resolve its absolute path for the generated
@@ -188,6 +200,7 @@ func newDaemonRunCmd() *cobra.Command {
 			life := daemon.NewLifecycleAdapter(lc, st)
 			pd := daemon.NewPollerDeps(st, runner, lc)
 			pl := poller.New(pd, 5*time.Minute)
+			pl.OnObservedQuotaScope = daemon.NewQuotaRebinder(st)
 			pl.SummarizeAfter = cfg.ActivityIntervalDuration()
 			pl.TokenGuard = cfg.Tokens.Guard
 			pl.TokenWarn = cfg.Tokens.Warn
@@ -421,6 +434,7 @@ func newDaemonRunCmd() *cobra.Command {
 				_ = st.Update(context.Background(), sess.ID, func(s *agentstore.Agent) error {
 					s.AiCli = sess.AiCli
 					s.Model = sess.Model
+					s.PermissionMode = sess.PermissionMode
 					s.AICLISessionID = sess.AICLISessionID
 					s.UpdatedAt = sess.UpdatedAt
 					return nil

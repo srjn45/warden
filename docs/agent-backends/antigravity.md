@@ -34,9 +34,9 @@ a lowest common denominator.
 |----------------------|--------------------------------------------------------------|-------|
 | `LaunchCmd` (TUI)    | `agy [--model <m>] [--sandbox \| --dangerously-skip-permissions]` | Interactive TUI; prompt seeded via `-i`. |
 | `LaunchPromptArg`    | ` -i "$(cat <file>)"`                                         | `-i`/`--prompt-interactive`: run the first task, then stay interactive (persistent loop, like Claude). |
-| `ResumeCmd`          | `agy -c [--model <m>] [posture flag]`                         | Dir-scoped; `-c` continues the most recent conversation for the workspace. |
+| `ResumeCmd`          | `agy --conversation <id> [--model <m>] [posture flag]`        | Pinned session: resumes that exact conversation. Unpinned/legacy lone session falls back to dir-scoped `agy -c`. |
 | `HeadlessCmd`        | `agy --dangerously-skip-permissions -p <prompt>`             | One-shot print for warden's classify/summarize offload. |
-| `TranscriptPath`     | reads `~/.gemini/antigravity-cli/brain/<conv-id>/.system_generated/logs/transcript.jsonl` | conv-id resolved dir-scoped via `cache/last_conversations.json`. |
+| `TranscriptPath`     | reads `~/.gemini/antigravity-cli/brain/<conv-id>/.system_generated/logs/transcript.jsonl` | conv-id is the per-session pinned id (see below); unpinned lone/legacy sessions fall back to the dir-scoped `cache/last_conversations.json`. |
 | `ParseTranscript`    | parses the trajectory JSONL `USER_INPUT` / `PLANNER_RESPONSE` records (incl. `tool_calls`) | → neutral Turns with tool names + files changed. |
 | `SystemPromptFlag`   | — (unsupported)                                              | `agy` has no `--append-system-prompt` flag. |
 | `InjectContext`      | writes `<workdir>/AGENTS.md`                                 | warden's collab/git/pipeline addendum is delivered via the AGENTS.md rules file `agy` reads on startup (the no-flag fallback). |
@@ -125,8 +125,26 @@ warden maps:
 `agy` mints its own UUID conversation id and maintains a `{workspace -> conv-id}` map
 at `~/.gemini/antigravity-cli/cache/last_conversations.json`. warden cannot assign the
 id, so `TranscriptPath` reads that map to find the conv-id for the agent's worktree,
-then opens that conversation's `transcript.jsonl`. Because every warden agent runs in
-its own git worktree, this resolution is unambiguous.
+then opens that conversation's `transcript.jsonl`. The map has **one entry per
+directory**, so it is only trustworthy while a single antigravity session uses the
+workdir (#686). warden therefore pins the id per session:
+
+- **Pin.** Each launch passes `agy --log-file <data_dir>/session-logs/<agent-id>.log`;
+  `agy` logs `Created conversation <uuid>` for the conversation *that process*
+  creates, and the poller reads it back and stores it in the session's
+  `AICLISessionID` (the same field codex uses for its rollout id). Verified against
+  `agy` 1.2.16: two concurrent same-workdir runs collapse to one map entry, but each
+  per-session log holds its own id. Pinned sessions resolve
+  `brain/<conv-id>/…` directly and resume with `agy --conversation <uuid>`.
+- **Unpinned + ambiguous.** Until a session is pinned, if another live antigravity
+  session shares its workdir, warden attributes **no** transcript to it: no context or
+  quota accounting, and a hot-swap/handoff is refused (HTTP 409 / `ErrAmbiguousTranscript`)
+  rather than built from the other session's conversation.
+- **Legacy.** Sessions launched before this change have no log and stay unpinned; a lone
+  one keeps the dir-scoped behaviour (`agy -c`).
+- **Limits.** Pinning needs the log file warden passes at launch; an `agy` started
+  outside warden, or a session whose log is lost before the first poll, stays unpinned.
+- **Same-workdir limitation that remains.** While unpinned, two live antigravity sessions in one workdir are ambiguous, and the guard is conservative: any live same-backend peer in the workdir blocks an unpinned session (even if the peer is pinned). Restoring such a session returns `ErrNoTranscript` rather than `agy -c` into the wrong conversation. Give concurrent sessions their own worktree (the warden default) or let the first poll pin them.
 
 ---
 
@@ -143,6 +161,12 @@ its own git worktree, this resolution is unambiguous.
 | `SystemPromptInject`   | ✅ via rules file | no `--append-system-prompt` equivalent on the launch command, but warden delivers the same addendum out-of-band via the `AGENTS.md` rules file `agy` reads on startup (`InjectContext`). The Caps flag stays `false` — it tracks the *launch flag* specifically. |
 | `Pricing`              | ❌    | Google-hosted free tier; tokens in `/usage` TUI, dollars not wired into warden usage spend. |
 | `UsageLimits`          | ✅    | Provider quota tracked via `retrieveUserQuotaSummary` (same as `agy /usage`): two pool buckets — `antigravity:gemini` and `antigravity:non-gemini` — each reporting its 5-hour session limit while its weekly limit has headroom, and flipping to the exhausted weekly limit (100% used, `reached`, weekly reset) once that pool's weekly bucket is drained. |
+
+
+### Quota banner & bucket re-binding (#684)
+
+- **Banner.** The hard-limit banner is detected with either an absolute reset (`Available at 15:30`) or a relative one (`Individual quota reached … Resets in 10m5s`; `45s`, `2h3m`, `1.5h`, `2 hours 3 minutes` all parse) — converted to an absolute reset time that feeds recovery. It is only honoured directly above (or inside) agy's input box, so an old banner in scrollback or quoted text is not mistaken for a live limit.
+- **Bucket re-binding.** An agent's quota is bound to one of the two pools (`gemini` / `non-gemini`). warden reads the running model from agy's status line (`Gemini 3.8 Flash · medium`, `Gemini 3.5 Flash (Low)`; `Claude*`/`GPT*` ⇒ `non-gemini`) and, when the in-session model switch puts it in a different pool than the bound one, re-binds the agent (a `quota_rebound` event; route and account fingerprint preserved). The status line is trusted only directly under the input box and for a recognised family; anything else keeps the existing binding rather than guessing, and legacy unbound agents stay unbound.
 
 ---
 

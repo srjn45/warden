@@ -17,8 +17,8 @@ func TestStopDefaultFullTeardown(t *testing.T) {
 	require.Contains(t, out, "stopped A-1")
 	require.Equal(t, []string{
 		"/api/v1/sessions/A-1/terminate",
-		"/api/v1/sessions/A-1/delete",
 		"/api/v1/sessions/A-1/remove-worktree",
+		"/api/v1/sessions/A-1/delete",
 	}, *hits)
 }
 
@@ -32,8 +32,8 @@ func TestStopYesSkipsPrompt(t *testing.T) {
 	require.Contains(t, out, "stopped A-1")
 	require.Equal(t, []string{
 		"/api/v1/sessions/A-1/terminate",
-		"/api/v1/sessions/A-1/delete",
 		"/api/v1/sessions/A-1/remove-worktree",
+		"/api/v1/sessions/A-1/delete",
 	}, *hits)
 }
 
@@ -90,8 +90,8 @@ func TestStopPRFirst(t *testing.T) {
 	require.Equal(t, []string{
 		"/api/v1/sessions/A-1/create-pr",
 		"/api/v1/sessions/A-1/terminate",
-		"/api/v1/sessions/A-1/delete",
 		"/api/v1/sessions/A-1/remove-worktree",
+		"/api/v1/sessions/A-1/delete",
 	}, *hits)
 }
 

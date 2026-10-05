@@ -174,6 +174,11 @@ type Poller struct {
 	// scheduler's capture and reset parsing consume the fresh excerpt rather than the
 	// pre-capture LastPaneExcerpt stored in the session snapshot. nil ⇒ no-op.
 	OnRateLimitObservation func(obs RateLimitObservation)
+	// OnObservedQuotaScope, if set, fires when a backend implementing
+	// agentbackend.QuotaScopeObserver reads a model off the live pane whose quota
+	// scope differs from the agent's bound bucket (QuotaBinding). The daemon
+	// re-binds the agent to the observed bucket.
+	OnObservedQuotaScope func(s *agentstore.Agent, model, scope string)
 
 	// OnLimitMenuSelected, if set, fires immediately after tryLimitMenu positively
 	// confirms that Claude's rate-limit "wait for limit to reset" menu selection
@@ -438,12 +443,26 @@ func (p *Poller) discoverSessionID(ctx context.Context, s *agentstore.Agent) {
 	if b.Capabilities().SessionIDControl {
 		return // pinning backend mints at spawn; never discovered
 	}
-	d, ok := b.(agentbackend.SessionIDDiscoverer)
-	if !ok {
+	var id string
+	if ld, ok := b.(agentbackend.SessionLogDiscoverer); ok {
+		// Log-based discovery (antigravity): exact per-session id even when several
+		// sessions share a workdir. Sessions launched before per-session logs existed
+		// have no log, so they stay unpinned and keep dir-scoping.
+		lp, ok := p.deps.(interface{ SessionLogPath(id string) string })
+		if !ok {
+			return
+		}
+		logFile := lp.SessionLogPath(s.ID)
+		if logFile == "" {
+			return
+		}
+		id, _ = ld.DiscoverSessionIDFromLog(logFile)
+	} else if d, ok := b.(agentbackend.SessionIDDiscoverer); ok {
+		id, _ = d.DiscoverSessionID(p.deps.ProjectsDir(), s.Workdir)
+	} else {
 		return // backend keeps dir-scoping (no discovery support yet)
 	}
-	id, ok := d.DiscoverSessionID(p.deps.ProjectsDir(), s.Workdir)
-	if !ok || id == "" {
+	if id == "" {
 		return // transcript not written yet — retry on a later tick
 	}
 	if err := p.deps.SetSessionID(ctx, s.ID, id); err != nil {
@@ -1003,6 +1022,15 @@ func (p *Poller) tick(ctx context.Context) error {
 					// Publish approval event if already waiting
 					if s.Status == store.StatusWaitingForInput && pane != "" {
 						p.publishApprovalEvent(s, pane)
+					}
+				}
+			}
+		}
+		if alive && captureOK && p.OnObservedQuotaScope != nil && s.QuotaBinding != nil {
+			if qo, ok := p.backendFor(s).(agentbackend.QuotaScopeObserver); ok {
+				if model, scope, ok := qo.ObservedQuotaScope(pane); ok {
+					if _, differs := s.QuotaBinding.Rebound(scope); differs {
+						p.OnObservedQuotaScope(s, model, scope)
 					}
 				}
 			}
