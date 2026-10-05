@@ -666,7 +666,7 @@ func newDoneCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().Bool("hard", false, "purge the record instead of archiving")
-	cmd.Flags().Bool("create-pr", false, "open a GitHub PR for the agent's branch (pushes first; title+body from the digest) before finishing")
+	cmd.Flags().Bool("create-pr", false, "open a GitHub PR for the agent's branch (pushes first; title+body drafted by Fast-Brain when available, else from the digest) before finishing")
 	cmd.Flags().String("base", "", "base branch for the PR (default main); only meaningful with --create-pr")
 	return cmd
 }

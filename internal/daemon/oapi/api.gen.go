@@ -2376,6 +2376,12 @@ type SetAutoApproveJSONBody struct {
 type CreatePRJSONBody struct {
 	// Base PR base branch ('' = main)
 	Base string `json:"base,omitempty"`
+
+	// Body Explicit PR body; when set it is used verbatim (no Fast-Brain draft)
+	Body string `json:"body,omitempty"`
+
+	// Title Explicit PR title; when set it is used verbatim (no Fast-Brain draft)
+	Title string `json:"title,omitempty"`
 }
 
 // SetForceCompactJSONBody defines parameters for SetForceCompact.

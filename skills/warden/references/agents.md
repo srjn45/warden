@@ -35,10 +35,10 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
 | spawn from a prompt | `warden start "<prompt>"` |
 | spawn a managed worktree agent | `warden start <TICKET> --type <TYPE> --repo <repo>` |
 | spawn with a role / switch a role | `warden start "<prompt>" --role worker`; `warden agent role set <id> <role>` (relaunches); `warden agent role list`. See **Roles** below |
-| route a spawn to a model tier | `warden start … --task <name>` (tier from the task registry) or `--tier tier-1\|tier-2\|tier-3` (`--tier` also a pipeline `tier:`; neither on MCP). A pinned `--backend`/`--model` bypasses it. See **Roles** below |
+| route a spawn to a model tier | `warden start … --task <name>` (tier from the task registry) or `--tier tier-1\|tier-2\|tier-3` (`--tier` also a pipeline `tier:`; neither on MCP). A pinned `--backend`/`--model` bypasses it. With `router.use_fast_brain: true` (default off) an unpinned spawn — no tier/task/role/model/backend — is rated by Fast-Brain and routed to a tier automatically (lowest precedence, confidence ≥ 0.8), so **don't pass a tier unless you mean it**. See **Roles** below |
 | send a message to an agent | `warden send <id> "<text>"` |
 | full teardown (terminate + clear record + remove worktree) | `warden agent stop <id>` (asks before removing the worktree unless `--yes`; `--keep-record`/`--keep-worktree` subtract steps; `--hard`; `--pr [--base <b>]` opens a PR first) |
-| terminate + clear record (keeps worktree) | `warden agent done <id>` (= `warden agent stop <id> --keep-worktree`; `--create-pr` pushes the branch and opens a GitHub PR before terminating, `--base` sets target, default main) |
+| terminate + clear record (keeps worktree) | `warden agent done <id>` (= `warden agent stop <id> --keep-worktree`; `--create-pr` pushes the branch and opens a GitHub PR (Fast-Brain drafts the title/body; fallback to the digest) before terminating, `--base` sets target, default main) |
 | remove the worktree | `warden agent remove-worktree <id>` (= `warden agent stop <id> --keep-record`; guarded; `--force` overrides) |
 | restore a lost/orphaned agent | `warden agent restore <id>` |
 | revive an archived `orphaned` record whose tmux is still alive | `warden agent recover` (dry-run; `--apply` to actually revive, `--json` for scripting) |
@@ -56,8 +56,8 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
 - **Name** — `--name` (CLI) / `name` (MCP). Explicit names are optional; **every
   agent still gets a non-empty name**. Omit it and warden auto-resolves:
   role/pipeline conventions (`AP:<plan>`, `wkr:<task>`, `brain:<target>`,
-  `<pipe>:<stage>`), else a 2–4 word kebab-case slug from a fast-tier
-  subscription AI CLI (hard 1.5s timeout → adjective-noun codename fallback
+  `<pipe>:<stage>`), else a 2–4 word kebab-case slug decided by the Fast-Brain
+  engine (fast tier, hard 1.5s timeout → adjective-noun codename fallback
   like `swift-falcon`), else a codename for prompt-less spawns. Auto-names are
   disambiguated (`-2`, `-3`, …) so they never 409; an explicit colliding name
   still returns 409. CLI prints `spawned agent <id> (<name>)`.
@@ -77,7 +77,7 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
   whose tier drives routing (tier-1 `analysis`/`architecture`/`design`/`research`/`spike`,
   tier-2 `code-review`/`development`/`docs`/`pr-review`, tier-3 `debug-ci`/`merge-pr`/`monitor-ci`/`release`);
   `--tier` pins `tier-1`/`tier-2`/`tier-3` directly. Precedence: explicit `--tier` >
-  task tier > role default tier > tier-2. A pinned `--backend`/`--model` bypasses the
+  task tier > role default tier > Fast-Brain router (opt-in `router.use_fast_brain`, only when nothing above is pinned; omit the tier to let it choose) > tier-2. A pinned `--backend`/`--model` bypasses the
   router. Distinct from `--type` (worktree policy). See **Roles** below.
 - **Backend** — `--backend <id>` (CLI) / `backend` (MCP); default `claude`.
   Accepted ids: `claude` | `aider` | `opencode` | `codex` | `crush` | `goose` | `cursor` | `antigravity`.

@@ -26,6 +26,7 @@ import (
 	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/daemon/oapi"
 	"github.com/srjn45/warden/internal/digest"
+	"github.com/srjn45/warden/internal/fastbrain"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/mailbox"
 	"github.com/srjn45/warden/internal/metrics"
@@ -100,7 +101,7 @@ type sessionsResponse struct {
 type Server struct {
 	store agentstore.AgentStore
 	life  Lifecycle
-	// promptNamer optionally overrides the lifecycle NameRunner for
+	// promptNamer optionally overrides the lifecycle SpawnNameRunner for
 	// prepareSpawnName (tests inject a stub; production leaves it nil).
 	promptNamer  agentname.BackendRunner
 	poller       *poller.Poller
@@ -141,6 +142,8 @@ type Server struct {
 	branchTrackInterval time.Duration
 	// narrator produces the digest's LLM summary (nil ⇒ degrade to LastMessage).
 	narrator digest.Narrator
+	// fastBrain drafts PR titles/bodies (nil ⇒ the deterministic title/body).
+	fastBrain fastbrain.Engine
 	// pressure caching for the spawn gate + GET /pressure. Sampled by a
 	// background loop (sibling to the poller); read on the spawn hot path.
 	pressMu      sync.RWMutex
@@ -502,6 +505,10 @@ func (s *Server) SetSpawnGate(enabled bool, maxAgents int) {
 	}
 }
 
+// SetFastBrain wires the Fast-Brain engine used to draft PR titles/bodies
+// (optional; nil ⇒ the deterministic title and digest body).
+func (s *Server) SetFastBrain(e fastbrain.Engine) { s.fastBrain = e }
+
 // SetBudget configures the cost gate: the daily/weekly dollar caps and whether a
 // spawn that has reached one warns (returns 428). enabled=false leaves spend
 // tracking + the report live but never gates a spawn.
@@ -568,6 +575,9 @@ type Lifecycle interface {
 	Sync(ctx context.Context, dir, base string) (lifecycle.SyncResult, error)
 	// CreatePR opens a GitHub PR for dir's branch (backs `done --create-pr`).
 	CreatePR(ctx context.Context, dir, title, body, base string) (lifecycle.PRResult, error)
+	// PRContext returns the diff stat and commit subjects of dir's branch against
+	// base, the grounding for a Fast-Brain PR summary (best-effort, "" on error).
+	PRContext(ctx context.Context, dir, base string) (stat, commits string)
 	// Check runs the project's configured .warden/check.yml command(s) in dir and
 	// returns a pass/fail summary with output only for failures — backs wd check /
 	// mcp__warden__check.

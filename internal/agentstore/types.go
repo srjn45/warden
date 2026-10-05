@@ -43,6 +43,7 @@ type Agent struct {
 	Prompt           string                 `json:"prompt"`
 	Workdir          string                 `json:"workdir"`
 	Subject          string                 `json:"subject"`
+	Activity         string                 `json:"activity,omitempty"`
 	Tags             []string               `json:"tags,omitempty"`
 	Status           store.Status           `json:"status"`
 	PID              int                    `json:"pid"`
@@ -192,6 +193,7 @@ func (a *Agent) ToSession() *store.Session {
 		Prompt:                    a.Prompt,
 		Workdir:                   a.Workdir,
 		Subject:                   a.Subject,
+		Activity:                  a.Activity,
 		Tags:                      append([]string{}, a.Tags...),
 		Status:                    a.Status,
 		PID:                       a.PID,
@@ -259,6 +261,7 @@ func FromSession(s *store.Session) *Agent {
 		Prompt:                    s.Prompt,
 		Workdir:                   s.Workdir,
 		Subject:                   s.Subject,
+		Activity:                  s.Activity,
 		Tags:                      append([]string{}, s.Tags...),
 		Status:                    s.Status,
 		PID:                       s.PID,

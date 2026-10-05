@@ -58,6 +58,7 @@ Common settings (run `warden config` for the complete, live list):
 | `spawn_gate` / `spawn_gate_max_agents` | `true` / `0` | Memory-pressure spawn gate + concurrent-agent cap (0 = no cap). Blocks a spawn only at **critical** pressure or the agent cap; **warn** pressure is advisory (spawns proceed). |
 | `pipeline.keep_done` / `pipeline.hint` | — | Pipeline retention + the decomposition nudge |
 | `memory.inject` | `true` | Project the repo's curated `.warden/memory.md` into every spawned agent's system prompt (Claude → `--append-system-prompt`; other backends → their `AGENTS.md`/`CRUSH.md`/`.goosehints` warden block). Off, or an empty/absent file, is byte-identical to no injection. See [Project memory](/warden/concepts/project-memory/) |
+| `router.use_fast_brain` | `false` | Opt-in prompt-complexity tier routing: for a spawn that pins no tier, task, role, model or ai_cli, Fast-Brain rates the prompt (`tier-1` trivial tweaks / `tier-2` standard / `tier-3` deep refactors) and the router uses it only at confidence ≥ 0.8. Lowest-precedence input; recorded as a `tier-route` event on the agent. Hot-reloaded |
 | `memory.curate` | `false` | Auto-propose durable memory entries from completion digests into `.warden/memory.md`. A debounced pass writes **`unverified`, timestamped, provenance-tagged** proposals to the **working tree only** — it never commits or pushes, so the committed diff is the human review gate. Proposals promote to `trusted` only on corroboration; contradictions supersede (tombstone) older entries; un-recorroborated entries age out; vanished paths are flagged stale. Runs on Fast-Brain (latency-bounded, fail-open). Opt-in. See [Project memory](/warden/concepts/project-memory/) |
 | `savings` | `true` | Record the token-savings ledger (`warden usage savings`, `GET /api/v1/savings`) |
 | `savings_samples` | `false` | Retain raw-vs-kept provenance samples for `warden usage savings --audit` (may hold sensitive output) |
@@ -68,6 +69,7 @@ Common settings (run `warden config` for the complete, live list):
 | `collab.hint` | `true` | Append the conflict-check coordination hint to spawned agents |
 | `branch_track.enabled` | `false` | Enable the per-agent branch monitor (`warden workspace branches`) |
 | `branch_track.interval` | `2m` | Poll interval for the branch monitor |
+| `activity.interval` | `15s` | Minimum gap between live activity-badge refreshes per agent (the 3-5 word status badge on each TUI agent row). Refreshes only while the agent's pane is changing, so idle agents cost no Fast-Brain calls; a failed/empty decision keeps the previous badge |
 | `snapshots` | `true` | Enable the worktree+transcript checkpoint store (`warden workspace snapshot`) |
 | `insights` | `true` | Enable history-mined insights (`warden usage insights`) |
 | `tutorial` | `true` | Show the first-run walkthrough nudge (`warden tutorial`) |
@@ -87,7 +89,7 @@ There are more (`auto_restart.*`, `rate_limit.*`, `worktree.keep_done` /
 `worktree.auto_prune`, …) — `warden config` is the authoritative, live list.
 
 Related settings are grouped into namespaced blocks (`pipeline.*`, `auto_restart.*`,
-`collab.*`, `memory.*`, `branch_track.*`, `rate_limit.*`, `http.*`, `log.*`,
+`collab.*`, `memory.*`, `branch_track.*`, `activity.*`, `rate_limit.*`, `http.*`, `log.*`,
 `plugins.*`, `backends.*`, alongside `rails.*` / `tokens.*` / `notify.*` /
 `worktree.*`; the retired `local_llm.*` is parsed but ignored). The `autopilot.brain.backends` ladder and
 `autopilot.brain.allow_pay_per_use` gate are **deprecated** — the [backend

@@ -86,3 +86,23 @@ func TestCreatePRGhFailureSurfaces(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "gh pr create")
 }
+
+func TestPRContextReadsStatAndCommitsAgainstBase(t *testing.T) {
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"git diff --stat origin/develop...HEAD":    {Out: " a.go | 2 +-\n"},
+		"git log --format=%s origin/develop..HEAD": {Out: "feat: a\nfix: b\n"},
+	}}
+	stat, commits := New(fr, &FakeConfig{}).PRContext(context.Background(), "/wt", "develop")
+	require.Equal(t, "a.go | 2 +-", stat)
+	require.Equal(t, "feat: a\nfix: b", commits)
+}
+
+func TestPRContextUnresolvableBaseIsEmpty(t *testing.T) {
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"git diff --stat origin/main...HEAD": {Err: errors.New("bad ref")},
+		"git diff --stat main...HEAD":        {Err: errors.New("bad ref")},
+	}}
+	stat, commits := New(fr, &FakeConfig{}).PRContext(context.Background(), "/wt", "")
+	require.Empty(t, stat)
+	require.Empty(t, commits)
+}

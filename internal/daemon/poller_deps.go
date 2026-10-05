@@ -40,9 +40,9 @@ func (d *pollerDeps) UpdatePane(ctx context.Context, id, ex string) error {
 	})
 }
 
-func (d *pollerDeps) UpdateSubject(ctx context.Context, id, subject string) error {
+func (d *pollerDeps) UpdateActivity(ctx context.Context, id, activity string) error {
 	return d.store.Update(ctx, id, func(s *agentstore.Agent) error {
-		s.Subject = subject
+		s.Activity = activity
 		return nil
 	})
 }

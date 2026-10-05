@@ -12,6 +12,9 @@ import (
 func AnomalyMessage(sess *agentstore.Agent, a poller.Anomaly) (title, body string) {
 	subj := sess.Subject
 	if subj == "" {
+		subj = sess.Activity
+	}
+	if subj == "" {
 		subj = sess.ID
 	}
 	switch a.Kind {

@@ -61,9 +61,10 @@ on-disk state:
 | Feature | Description |
 |---|---|
 | **Prompt-spawn** | `warden start "<prompt>"` — no repo or type needed. Runs `claude` in the caller's directory (or `--dir`). |
-| **Mandatory agent naming** | Every agent carries a non-empty name. Omit `--name` / `name` and warden resolves one at spawn (`internal/agentname`): **(1)** role/pipeline conventions — autopilot manager `AP:<plan-slug>`, worker `wkr:<task-id>`, brain consult `brain:<target>`, pipeline stage `<pipe>:<stage>`; **(2)** prompt-driven spawn → a 2–4 word kebab-case slug via the active subscription AI CLI on a **fast** tier with a hard **1.5s** timeout (falls back to a memorable adjective-noun codename such as `swift-falcon` on timeout, error, or invalid output); **(3)** prompt-less spawn → adjective-noun codename. Auto-generated names are **disambiguated** with `-2`, `-3`, … so they never 409; an explicit caller name that collides still returns **409 Conflict**. Empty names are rejected by `store.ValidateName` (`ErrEmptyName`). CLI prints `spawned agent <id> (<name>)`; the TUI name column never shows a muted dash placeholder. |
+| **Mandatory agent naming** | Every agent carries a non-empty name. Omit `--name` / `name` and warden resolves one at spawn (`internal/agentname`): **(1)** role/pipeline conventions — autopilot manager `AP:<plan-slug>`, worker `wkr:<task-id>`, brain consult `brain:<target>`, pipeline stage `<pipe>:<stage>`; **(2)** prompt-driven spawn → a 2–4 word kebab-case slug decided by the **Fast-Brain engine** (`Decide(KindResolveAgentName, TierFast)` via `fastbrain.NameRunner`) with a hard **1.5s** timeout (falls back to a memorable adjective-noun codename such as `swift-falcon` on timeout, error, or invalid output); **(3)** prompt-less spawn → adjective-noun codename. Auto-generated names are **disambiguated** with `-2`, `-3`, … so they never 409; an explicit caller name that collides still returns **409 Conflict**. Empty names are rejected by `store.ValidateName` (`ErrEmptyName`). CLI prints `spawned agent <id> (<name>)`; the TUI name column never shows a muted dash placeholder. |
 | **Auto-classification** | The daemon classifies a prompt-spawned agent's type with `claude -p` shortly after creation (falls back to `other`). |
-| **Auto-generated subject** | Each agent gets a one-line ≤8-word summary of what it's doing, seeded from the prompt and refreshed by the poller from the transcript or tmux pane (throttled, change-gated). |
+| **Auto-generated subject** | Each agent keeps a one-line subject (used for PR titles, notifications, search). |
+| **Live activity badge** | Each agent row shows a 3-5 word status badge (`activity` field, e.g. "Fixing failing auth tests"), refreshed by the poller via Fast-Brain from the transcript or tmux pane only while the pane is changing, at most once per `activity.interval` (default `15s`). A failed or empty decision keeps the previous badge. Kept separate from the subject so PR titles and notifications still get a full phrase. |
 | **Managed worktree spawn** | `--role worker --repo` (or deprecated `--type`) creates/adopts a git worktree. |
 | **Worktree adoption** | If a worktree for the ticket already exists, the spawn reattaches to it instead of erroring. |
 | **Configurable permission mode** | Per-agent and global control over Claude permission level. CLI flag: `--permission-mode <mode>` (values: `acceptEdits`, `auto`, `bypassPermissions`, `default`, `dontAsk`, `plan`). Legacy alias: `--supervised` (equivalent to `--permission-mode acceptEdits`). Global default: the `default_permission_mode` config setting (defaults to `auto`). Runtime change: `warden agent permission-mode set <id> <mode>`. Display: PERMISSION_MODE column in `warden ls`, permission_mode field in `warden status`. Stored in session: mode preserved on restore/resume. Empty mode means "use global default" and displays as `default`. |
@@ -101,7 +102,7 @@ on-disk state:
 | `terminate` | Stop an agent (kill tmux + claude); **keeps** the record and worktree. The safe, reversible "stop" default. Alias for `stop --keep-record --keep-worktree`. |
 | `restore` | Recreate and resume a lost/orphaned agent's session (`claude --resume`). |
 | `recover` | Safety net for the tombstone reaper: scans **archived `orphaned`** records for ones whose tmux session is confirmed still alive (a stale `orphaned` status racing a daemon restart could previously let one get archived out from under a live session). Bare `wd agent recover` only reports candidates; `--apply` re-inserts each one into the active store under its original id — any children (linked via `parent_id`, untouched by archiving) reconnect automatically. `--json` for scripting. Mirrors the `recover_agents` MCP tool. |
-| `done` | Terminate **and** clear the record in one step (worktree kept). Alias for `stop --keep-worktree`. `--hard` purges instead of archiving. `--create-pr` first pushes the agent's branch and opens a GitHub PR (`gh`) titled from the agent and bodied from its digest (`--base` sets the target, default main) — the PR is opened *before* termination, so a failure leaves the agent running to retry; an existing PR for the branch is reported, not re-created. |
+| `done` | Terminate **and** clear the record in one step (worktree kept). Alias for `stop --keep-worktree`. `--hard` purges instead of archiving. `--create-pr` first pushes the agent's branch and opens a GitHub PR (`gh`) titled from the agent and bodied from its digest — or drafted by Fast-Brain (`pr_summary`, deterministic fallback) when available (`--base` sets the target, default main) — the PR is opened *before* termination, so a failure leaves the agent running to retry; an existing PR for the branch is reported, not re-created. |
 | `delete` | Clear the stored record (archive by default, `--hard` purge). Leaves tmux + worktree alone. Alias for `stop --keep-worktree` (record only). |
 | `remove-worktree` | Remove the git worktree + branch. **Destructive** — refuses while the agent runs or has uncommitted/unpushed work unless `--force`. Alias for `stop --keep-record` (worktree only); always asks unless `--yes`. |
 | `worktree` | Umbrella for warden's worktree operations — **list** and **prune**. Bare `worktree` prints the list (same as `worktree list`). |
@@ -166,6 +167,18 @@ is a wildcard — an empty rule matches everything, so it is refused on the CLI)
 - `regex` — a **Go regular expression** over `Tool(arg)` and the question.
 - `paths` — globs against path tokens in the action argument.
 
+**Fast-Brain tier router (opt-in, `router.use_fast_brain`, default `false`):**
+`Decide(KindRouteTier)` rates a spawn prompt's complexity and suggests a model
+tier using the existing resolver tiers — `tier-1` (typo/config tweaks),
+`tier-2` (standard work), `tier-3` (deep architectural refactors). It is the
+LOWEST-precedence tier input (explicit tier > task > role > router > default):
+it runs only for a spawn that pins no tier, task, role, model or ai_cli, so
+autopilot manager/guardian/brain/worker spawns and pipeline jobs are
+untouched. Applied only at confidence ≥ 0.8; on off/timeout/invalid
+JSON/low confidence resolution is exactly as before. The suggestion,
+confidence and whether it was applied are recorded as a `tier-route` event on
+the agent. Hot-reloaded from config.
+
 **Fast-Brain arbiter (third layer, opt-in):** with `use_fast_brain: true`
 (default `false`) and the daemon's `internal/fastbrain` engine wired, prompts
 the static rules cannot answer — plus strategic questions where
@@ -177,7 +190,7 @@ to the human / brain. The destructive deny-list and the circuit breaker always
 run *before* the model. The daemon builds the engine from the existing Claude
 `-p` runner (same runner for both tiers).
 
-**Fast-Brain crash triage (engine only):** `Engine.DiagnoseFailure` classifies
+**Fast-Brain crash triage:** `Engine.DiagnoseFailure` classifies
 a failed agent process (exit code, signal, command, last 40 lines of
 stderr/pane) via `Decide(KindDiagnoseFailure, TierFast)` into `internal_bug`
 (Go panic / nil pointer / invariant — a warden bug), `transient_error`
@@ -713,7 +726,7 @@ warden dependency**, and legacy `local_llm.*` YAML keys still load but are ignor
 | Feature | Description |
 |---|---|
 | **Task classification** | Routes a prompt-spawned agent's type guess through Fast-Brain, falling back to `other` on any error. |
-| **Activity summaries** | The ≤8-word agent subject routes through the same gateway; an empty reply is not trusted and falls back. |
+| **Activity summaries** | The live 3-5 word activity badge routes through the same gateway (own prompt + parser; narrators keep the sentence prompt); a non-OK decision keeps the previous badge. |
 | **Agent naming** | Prompt-driven naming at spawn, with an adjective-noun fallback. |
 | **Check-failure condensation** | An **oversized** check-failure log is condensed into its distinct failures; deterministic tail-truncation is the fallback. Within-cap failures skip the model. |
 | **Headless commit messages** | `wd commit` / MCP `commit` no longer require `-m`: a missing message is distilled from the staged diff (capped to 16 KiB) into a Conventional-Commits subject, with a path-derived floor as the guaranteed fallback. |
