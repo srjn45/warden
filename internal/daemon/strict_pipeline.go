@@ -48,6 +48,8 @@ func (s *Server) CreatePipeline(ctx context.Context, req oapi.CreatePipelineRequ
 	}
 	if p.ProjectID == "" {
 		p.ProjectID = s.resolvePipelineProjectID(p)
+	} else {
+		p.ProjectID = s.ensureExplicitProjectID(p.ProjectID)
 	}
 	// Optional PlanID back-ref (plan-links-on-agent-pipeline). Empty is always
 	// valid; a non-empty value must name a plan in the same project.

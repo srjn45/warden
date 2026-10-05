@@ -31,7 +31,9 @@ func (s *Server) resolveProjectID(sess *agentstore.Agent) string {
 		return ""
 	}
 	if sess.ProjectID != "" {
-		return sess.ProjectID // explicit request param — wins over path-match
+		// explicit request param — wins over path-match, but a closed/unregistered
+		// project it names is still reopened/registered.
+		return s.ensureExplicitProjectID(sess.ProjectID)
 	}
 	if s.projects == nil {
 		return ""
@@ -93,6 +95,39 @@ func (s *Server) ensureOpenProject(dir string) (*projectstore.Project, error) {
 	return &created, nil
 }
 
+// ensureExplicitProjectID honors an explicit project id (request param) while
+// still guaranteeing the project is open: an existing project matching the id (or
+// its Path) is reopened if closed, preserving all fields; a missing one whose id is
+// an absolute filesystem path is registered via ensureOpenProject (returning its
+// normalized id); any other unknown id is returned unchanged.
+func (s *Server) ensureExplicitProjectID(id string) string {
+	if s.projects == nil || id == "" {
+		return id
+	}
+	projs, err := s.projects.List()
+	if err != nil {
+		slog.Warn("daemon: project membership: list projects failed", "project", id, "err", err)
+		return id
+	}
+	for _, p := range projs {
+		if p.ID != id && p.Path != id {
+			continue
+		}
+		if projectstore.NormalizeStatus(p.Status) != projectstore.StatusOpen {
+			if _, err := s.projects.OpenProject(p.ID, "", ""); err != nil {
+				slog.Warn("daemon: project reopen failed", "project", p.ID, "err", err)
+			}
+		}
+		return p.ID
+	}
+	if filepath.IsAbs(id) {
+		if got := s.ensureProjectID(id, id); got != "" {
+			return got
+		}
+	}
+	return id
+}
+
 // ensureProjectID is the best-effort id form of ensureOpenProject for the
 // resolve* fallbacks: any failure is logged and yields "" (project-less).
 func (s *Server) ensureProjectID(dir, owner string) string {
@@ -109,11 +144,11 @@ func (s *Server) ensureProjectID(dir, owner string) string {
 
 // stampProjectMembership resolves the owning project for a not-yet-inserted agent
 // and stamps sess.ProjectID with it, so the back-ref persists in the same store
-// write as the insert. It only ever fills an empty id (an explicit request id or a
-// prior stamp is left untouched) and is a no-op when no project resolves. Call
+// write as the insert. An explicit id is kept (only normalized/reopened via
+// ensureExplicitProjectID); an empty one is path-resolved, and nothing resolving is a no-op. Call
 // BEFORE store.Insert; pair it with addProjectMembership AFTER a successful insert.
 func (s *Server) stampProjectMembership(sess *agentstore.Agent) {
-	if sess == nil || sess.ProjectID != "" {
+	if sess == nil {
 		return
 	}
 	sess.ProjectID = s.resolveProjectID(sess)

@@ -203,6 +203,8 @@ func (s *Server) spawnTerminal(ctx context.Context, req SpawnRequest) (oapi.Spaw
 	}
 	if t.ProjectID == "" {
 		t.ProjectID = s.ensureProjectID(t.Workdir, t.ID)
+	} else {
+		t.ProjectID = s.ensureExplicitProjectID(t.ProjectID)
 	}
 	if err := s.terminals.Spawn(ctx, t, t.TmuxSession); err != nil {
 		_ = s.life.Terminate(ctx, t.TmuxSession)
