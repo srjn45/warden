@@ -341,7 +341,7 @@ MCP-first (all wrap `/api/v1/backends*`):
 Warden tracks daemon-registered checkout roots and remote repositories as first-class projects, organized into named Project Groups:
 
 - `warden projects list [--json]` — list registered projects (status, paths).
-- `warden projects open <id> [--name]` / `open-local <path>` / `open-remote <url>` — register/open projects.
+- `warden projects open <id> [--name]` / `open-local <path>` / `open-remote <url>` — register/open projects. **Optional**: spawning an agent/pipeline/terminal in a directory auto-registers (or reopens) its project — never open a project manually before spawning.
 - Opening a new project leaves it empty; reopening restores hibernated members.
   Spawn an orchestrator explicitly when needed.
 - `warden projects close <id>` — hibernate project and cleanly stop its agents.
