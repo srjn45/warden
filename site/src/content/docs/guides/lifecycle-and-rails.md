@@ -33,6 +33,10 @@ The verbs refuse the mistakes a raw git session makes:
 
 Omit `-m` and warden fills the message: Fast-Brain distils a Conventional-Commits subject from the staged diff; if it is unavailable, a deterministic conventional message is derived from the changed paths. A blank commit is impossible.
 
+### Fast-Brain PR titles and bodies
+
+`warden agent done <id> --create-pr` pushes the branch and opens the PR. When Fast-Brain is available it drafts a Conventional-Commits **title** and a short what/why **body** from the task, `git diff --stat` and the commit subjects against the base (fast tier first, thinking tier as a retry), and the digest attribution footer is kept. Each field falls back on its own to the deterministic title (from the agent's subject/task) and the completion-digest body, and an explicit title or body in the request always wins. A failed draft never blocks the PR.
+
 ### `warden check` and `.warden/check.yml`
 
 `check` runs the commands declared in the project's `.warden/check.yml` and returns a pass/fail summary with captured output **for the failing checks only** — in place of the hundreds of lines a raw test run spills into the transcript (the single biggest token win). Commands come from the project, so warden stays language-agnostic; a repo with no `.warden/check.yml` has nothing to run. Per-entry `dir:` supports monorepos.

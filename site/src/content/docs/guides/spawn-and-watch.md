@@ -15,7 +15,8 @@ warden start "summarize the changes in /path/to/repo since last Friday"
 # spawned agent-a1b2 (flaky-nightly) — name auto-resolved from the prompt
 ```
 
-- **Name is mandatory** — omit `--name` and warden resolves one: role/pipeline conventions (`AP:<plan>`, `wkr:<task>`, `brain:<target>`, `<pipe>:<stage>`), else a 2–4 word kebab-case slug from a fast-tier subscription AI CLI (1.5s timeout) with adjective-noun codename fallback (`swift-falcon`), else a codename for prompt-less spawns. Auto-names disambiguate with `-2`, `-3`; explicit `--name` collisions still 409.
+- **Name is mandatory** — omit `--name` and warden resolves one: role/pipeline conventions (`AP:<plan>`, `wkr:<task>`, `brain:<target>`, `<pipe>:<stage>`), else a 2–4 word kebab-case slug from the Fast-Brain engine (fast tier, 1.5s timeout) with adjective-noun codename fallback (`swift-falcon`), else a codename for prompt-less spawns. Auto-names disambiguate with `-2`, `-3`; explicit `--name` collisions still 409.
+- **Optional complexity routing** — set `router.use_fast_brain: true` (default `false`) and a spawn that pins no `--tier`, `--task`, `--role`, `--model`, `--backend` or `--ai-cli` has Fast-Brain rate the prompt: `tier-1` (trivial tweaks), `tier-2` (standard work) or `tier-3` (deep refactors). It is the **lowest-precedence** input (explicit tier > task > role > router > default), applies only at confidence ≥ 0.8, falls back to the normal resolution on any failure, and is recorded as a `tier-route` event on the agent. Autopilot and pipeline spawns are never touched.
 - **Type is auto-assigned** shortly after spawn (the daemon asks `claude -p` to classify the prompt; falls back to `other` if `claude` isn't available).
 - **Subject is auto-generated** — a ≤8-word phrase summarizing current work, seeded from the prompt and refreshed by the poller.
 

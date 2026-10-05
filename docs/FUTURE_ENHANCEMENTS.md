@@ -143,39 +143,23 @@ picked up.
 
 ## 🧠 Fast-Brain Micro-Decisions & Sub-Second Autonomous Assist
 
-#### 55. Fast-Brain Shared Micro-Decision Engine — *planned*
+#### 55. Fast-Brain Shared Micro-Decision Engine — *shipped (see per-capability notes for what remains)*
 **Effort:** 3-5 days
-**Context:** Expands the synchronous fast-tier subscription AI CLI naming mechanism into a unified `internal/fastbrain` subsystem for sub-second (~200–500ms), low-token micro-decisions across Warden.
-**Core Architecture:** Uses existing user subscription AI CLIs (Claude 3.5 Haiku, Gemini Flash, GPT-4o-mini) with strict schemas, hard timeouts ($\le 1.5$s), and deterministic zero-downtime heuristic fallbacks.
+**Context:** The unified `internal/fastbrain` subsystem for sub-second (~200–500ms), low-token micro-decisions across Warden: one `Engine.Decide` gateway with strict schemas, hard timeouts (≤1.5s fast tier) and deterministic fail-open fallbacks, running over the user's existing subscription AI CLIs.
 
-Key capabilities and use cases:
+Status per capability:
 
-1. **Semantic Agent Naming (`ResolveAgentName`)** — *partially shipped* as `internal/agentname` (mandatory names, fast-tier `ResolvePromptName`, adjective-noun codenames, role conventions, disambiguation):
-   - Compresses user prompts into concise 2–4 word kebab-case slugs (`ws-leak-fix`, `telemetry-export`) within 1.5s.
-   - Falls back immediately to memorable `adjective-noun` codenames (`swift-falcon`, `amber-badger`) on timeout, offline, or prompt-less spawns.
-   - Remaining Fast-Brain work: fold naming into the shared `internal/fastbrain` micro-decision engine with unified schemas/telemetry.
+1. **Semantic Agent Naming** — *shipped.* Spawn-path naming now runs through the engine (`fastbrain.NameRunner` → `Decide(KindResolveAgentName, TierFast)`); `internal/agentname` keeps role conventions, disambiguation and the adjective-noun codename fallback (timeout, offline, prompt-less).
 
-2. **Intelligent Auto-Approval & Question Arbiter (`ArbitrateApproval`)** — *shipped* (`internal/fastbrain`, opt-in via `auto_approve.use_fast_brain`; fast tier ≤1.5s for tool permissions, thinking tier ≤10s for strategic questions, confidence ≥ 0.8, fail-open to human/brain):
-   - Acts as an inline safety judge for forwarded tool execution and permission prompts (`[y/n]`, bash commands, file edits).
-   - Evaluates whether commands are safe and aligned with the plan/task goal, avoiding stalling unattended worker pipelines.
-   - Resolves ambiguous multi-choice options asked by workers (`"Should I update struct A or create B?"`) according to the active plan's constraints.
+2. **Intelligent Auto-Approval & Question Arbiter (`ArbitrateApproval`)** — *shipped* (opt-in via `auto_approve.use_fast_brain`; fast tier ≤1.5s for tool permissions, thinking tier ≤10s for strategic questions, confidence ≥ 0.8, fail-open to human/brain).
 
-3. **Crash Triage & User-Approved Automated Bug Reporting (`DiagnoseFailure` & `ReportBug`)**:
-   - **Binary Distribution Reality**: End users install Warden via pre-compiled binaries (`install.sh`), so agents cannot simply "fix the code" for genuine internal daemon or tooling bugs.
-   - **Triage**: Inspects the last 30 lines of pane excerpt/stderr and categorizes the failure:
-     - *Transient*: Rate-limits, network timeouts, or git rebase conflicts $\rightarrow$ auto-switch backend or abort/rebase.
-     - *Genuine Bug / Internal Panic*: Fast-Brain isolates the stack trace, sanitizes sensitive tokens and paths, and structures a reproducible bug report.
-   - **User-Approved Bug Reporting**: Prompts the operator (`"Warden encountered an internal panic in planstore. Would you like to file a bug report to GitHub issues? [y/n]"`), and on approval files the issue via `gh issue create` or generates a pre-filled browser URL.
+3. **Crash Triage & User-Approved Bug Reporting** — *shipped in PR #671.* `Engine.DiagnoseFailure` classifies crashes (`internal_bug` / `transient_error` / `environment_error` / `task_failure`) with a heuristic fallback; the poller triages each crash once, sanitizes the excerpt, and stages `internal_bug` drafts under `~/.warden/crashes/`. Nothing is sent without approval: `warden bug-report <id>` (default N) or the cockpit `B` modal files via `gh issue create` or prints a pre-filled URL; the cockpit also gained a log viewer (`l`). *Remaining:* automatic remediation of `transient_error` (backend switch / rebase abort) is not wired — triage only reports it.
 
-4. **Live TUI Cockpit Activity Summarizer (`SummarizeActivity`)**:
-   - Glances at active terminal pane excerpts every 10–15s and compresses noisy compiler/test logs into a clean 3–5 word live status badge (e.g. `Compiling Go binaries...`, `Fixing lint in store.go`, `Waiting on CI checks`).
-   - Displays directly in the TUI hierarchy row next to the agent name, removing the need to manually attach to the tmux pane to see current progress.
+4. **Live TUI Cockpit Activity Summarizer** — *shipped.* A distinct 3–5 word badge prompt/parser feeds a separate `activity` field (the subject stays for PR titles and notifications), rendered on each TUI agent row. Cadence is `activity.interval` (default `15s`), refreshed only while the pane is changing; a failed decision keeps the previous badge. Web UI does not render it yet.
 
-5. **Semantic Conventional Commits & PR Summaries (`GenerateCommitSummary`)**:
-   - Synthesizes `task.Prompt` and `git diff --stat` into clean Conventional Commits (e.g. `feat(planstore): enforce acyclic task DAG validation on plan update`) and human-readable PR bodies upon `wd job done`.
+5. **Semantic Commits & PR Summaries** — *shipped.* Headless `wd commit` drafts a Conventional-Commits message from the staged diff (`KindCommitMessage`), and `agent done --create-pr` drafts the PR title/body (`KindPRSummary`: fast tier then thinking tier, per-field fallback, explicit title/body wins, attribution footer kept). *Remaining:* the PR is opened via `--create-pr`, not automatically on every `wd job done`.
 
-6. **Adaptive Execution Profile Router (`RouteExecutionProfile`)**:
-   - Evaluates user prompt complexity to route tasks to the most cost-effective tier: simple typos and config tweaks route to `fast`, standard tasks to `standard`, and deep architectural refactors to `heavy`/`reasoning`.
+6. **Adaptive Execution Profile Router** — *shipped, opt-in.* `Decide(KindRouteTier)` rates prompt complexity into `tier-1`/`tier-2`/`tier-3`. Enabled by `router.use_fast_brain` (default `false`); lowest precedence (explicit tier > task > role > router > default), applies only at confidence ≥ 0.8, only to spawns pinning no tier/task/role/model/backend/ai_cli, and is recorded as a `tier-route` event. *Remaining:* no per-decision `fast`/`standard`/`heavy` profile beyond the model tier.
 
 ---
 

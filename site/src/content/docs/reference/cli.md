@@ -436,7 +436,7 @@ Usage:
 
 Flags:
       --base string   base branch for the PR (default main); only meaningful with --create-pr
-      --create-pr     open a GitHub PR for the agent's branch (pushes first; title+body from the digest) before finishing
+      --create-pr     open a GitHub PR for the agent's branch (pushes first; title+body drafted by Fast-Brain when available, else from the digest) before finishing
       --hard          purge the record instead of archiving
   -h, --help          help for done
 
