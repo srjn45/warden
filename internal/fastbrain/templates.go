@@ -54,6 +54,7 @@ const (
 	prSummarySystem      = `Write a pull-request title and description for this change. "title": Conventional Commits style "type(scope): subject", imperative, <=72 chars. "body": short markdown with a "## What changed" section and a "## Why" section. Reply with ONLY this JSON, no prose: {"title":"type: subject","body":"## What changed\n- ...\n\n## Why\n..."}`
 	curateExtractSystem  = `Extract durable, reusable project facts (decisions, conventions, gotchas) from the text as short bullets. Skip transient chatter. Reply with ONLY this JSON, no prose: {"entries":["<fact>"]}`
 	replTurnSystem       = `You are a tool-using assistant. Answer briefly, or call tools from the list. Reply with ONLY this JSON, no prose outside it: {"text":"<reply or empty>","tool_calls":[{"name":"<tool>","args":{}}]}`
+	routeTierSystem      = `Rate how demanding this coding task is and pick the model tier. "tier-1": trivial, mechanical work (typo, rename, small config or docs tweak). "tier-2": standard feature, bug-fix or test work. "tier-3": deep architectural refactors, cross-cutting redesigns or hard debugging. Reply with ONLY this JSON, no prose: {"tier":"tier-1|tier-2|tier-3","confidence":0.0-1.0}`
 	classifyTaskFallback = "other"
 	maxPromptInputBytes  = 8000
 )
@@ -255,4 +256,24 @@ func ParseActivityBadge(r Response) string {
 		}
 	}
 	return strings.TrimRight(strings.TrimSpace(b), ".,;:!-–—")
+}
+
+// RouteTierPrompt builds the KindRouteTier prompt.
+func RouteTierPrompt(prompt string) string {
+	return routeTierSystem + "\n\nTask: " + clip(prompt) + "\n"
+}
+
+// ParseRouteTier parses {"tier":"tier-N","confidence":x}. ok is false for a
+// non-OK response, an unknown tier, or a confidence outside [0,1]; the caller
+// must then keep today's tier resolution. The tier strings match
+// backendstore.ModelTier (this package stays backendstore-free).
+func ParseRouteTier(r Response) (tier string, confidence float64, ok bool) {
+	tier = strings.ToLower(strings.TrimSpace(stringField(r, "tier")))
+	if tier != "tier-1" && tier != "tier-2" && tier != "tier-3" {
+		return "", 0, false
+	}
+	if r.Confidence < 0 || r.Confidence > 1 {
+		return "", 0, false
+	}
+	return tier, r.Confidence, true
 }
