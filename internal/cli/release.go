@@ -55,6 +55,8 @@ By default, the analysis targets origin/main (or origin/master) so releases are
 evaluated against canonical upstream commits rather than uncommitted local edits
 or active feature/agent worktrees. Pass --target to override.
 
+This is the step after the final PR of a plan is merged.
+
 Unless --no-fetch is given, the command fetches the target ref from origin first.
 
 Interactive by default: asks before creating an annotated tag directly on the

@@ -18,7 +18,7 @@ import (
 
 // FinalizePlan runs the daemon-owned Plan finalization workflow: reconcile,
 // validate CompletionRequirements, persist the immutable ExecutionSummary,
-// tear down disposable executors, then move the YAML to plans/completed/.
+// tear down disposable executors, then mark the Plan completed (the plan record is kept).
 //
 // On partial cleanup failure the Plan stays in_progress with CleanupEvidence
 // and the summary is preserved for a retry-safe second call.

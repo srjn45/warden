@@ -24,6 +24,9 @@ func newAutopilotCmd() *cobra.Command {
 			"start a run explicitly with `warden plan run <plan-id> --mode autopilot` and\n" +
 			"control it with `warden plan pause|resume|stop`. This namespace shows status\n" +
 			"(`status`), scaffolds adoption (`init`) and lands worker branches (`land`).\n" +
+			"The daemon merges worker PRs into the integration branch itself once their\n" +
+			"gate is green; `land` is the manual fallback. A run ends with one final PR to\n" +
+			"the default branch that you merge.\n" +
 			"Configure the feature under the `autopilot` block in the config file.",
 	}
 	SetCommandHelpMetadata(cmd, "run", 30, "warden autopilot", "", NodeNamespace)
@@ -377,8 +380,9 @@ func newLandCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "land <agent-or-branch>",
 		Short: "Land an autopilot worker branch into the integration branch",
-		Long: "Merges one autopilot worker branch into the integration branch — the brain's\n" +
-			"only merge path. Runs every precondition (owning run active, branch\n" +
+		Long: "Merges one autopilot worker branch into the integration branch. The daemon\n" +
+			"does this itself when a worker PR's gate is green; `land` is the manual\n" +
+			"fallback for an operator or manager, with the same preconditions. Runs every precondition (owning run active, branch\n" +
 			"autopilot-owned, a PR based on the integration branch, the resolved gate green\n" +
 			"for the PR head, and the PR mergeable), merges with the configured strategy,\n" +
 			"deletes the worker branch if configured, and records the landing. Idempotent:\n" +
