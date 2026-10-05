@@ -1366,8 +1366,18 @@ running.
 On restart, live runs are re-preflighted with a **structural vs content** split:
 content-only plan issues (invalid task status, etc.) are normalized to `pending`
 and the run proceeds, with coercions listed on status as `preflight_warnings`;
-structural failures (missing/unreadable plan) leave the run `degraded` with a
-watcher that auto-recovers when the file is fixed. Enable/start/resume stay
+structural failures (missing/unreadable plan file) leave a **legacy file-only**
+run `degraded` with a watcher that auto-recovers when the file is fixed.
+**Plan-bound** runs (plan id set) recover goal/constraints/tasks from ScrivaDB on
+boot, spawn and rotation, so a missing or unparseable YAML export never fails
+preflight or degrades them. Spawn failures carry a `kind` + `last_error` on the
+status backoff object (`backend_unavailable`, `no_backend_selectable`,
+`definition_error`, `spawn_error`); transient kinds back off forever, while a
+`definition_error` (one attempt) or identical `spawn_error` text
+(`autopilot.guardian.max_identical_failures`, default 5, hot-reloadable) parks
+the run as needs-attention with one notification and one audit event per
+episode (shown as *waiting* in the tree). Clear it by editing the plan in
+ScrivaDB, `wd plan resume` (or pause + resume), or restarting the daemon. Enable/start/resume stay
 strict — leniency is boot- and watcher-only.
 
 ### 34.11 Run completion marker
