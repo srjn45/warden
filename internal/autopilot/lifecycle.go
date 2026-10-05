@@ -490,6 +490,7 @@ func (c *Controller) PauseRun(ctx context.Context, id string) (RunStatus, error)
 		return RunStatus{}, fmt.Errorf("%w: cannot pause run in state %s", ErrRunConflict, r.state)
 	}
 	r.state = StatePaused
+	c.clearParked(r)
 	if err := c.persistRunLockedErr(r); err != nil {
 		return RunStatus{}, err
 	}
@@ -509,6 +510,7 @@ func (c *Controller) ResumeRun(ctx context.Context, id string) (RunStatus, error
 	if r.state != StatePaused {
 		return RunStatus{}, fmt.Errorf("%w: cannot resume run in state %s", ErrRunConflict, r.state)
 	}
+	c.clearParked(r)
 	if err := c.preflightRegisteredRunLocked(ctx, r); err != nil {
 		return c.runStatusLocked(r), err
 	}

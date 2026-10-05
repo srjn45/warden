@@ -297,6 +297,9 @@ type AutopilotGuardianConfig struct {
 	BackoffMax           string `yaml:"backoff_max"`
 	RotateAtContext      string `yaml:"rotate_at_context"`
 	NotifyEachEscalation bool   `yaml:"notify_each_escalation"`
+	// MaxIdenticalFailures parks a run as needs-attention after this many
+	// consecutive identical non-transient spawn errors (default 5).
+	MaxIdenticalFailures int `yaml:"max_identical_failures"`
 }
 
 // ---------------------------------------------------------------------------
@@ -436,7 +439,7 @@ var schema = []setting{
 	{"log", "Structured-logging settings (previously flat keys: log_level, log_format). Sub-keys: level (debug | info | warn | error — minimum severity the daemon logs), format (text (human-readable) | json (structured)). Flat keys still load as deprecated aliases."},
 	{"plugins", "Plugin system (#47) settings (previously flat keys: plugins, plugin_registry). OFF by default — plugins execute external code, so this is deliberately opt-in. A broken, slow, or missing plugin fails open (logged and skipped); it never blocks or crashes an agent. Sub-keys: enabled (was plugins; load the executables in registry, register their custom task types, and invoke their subscribed lifecycle hooks over JSON-over-stdio), registry (was plugin_registry; a list of entries, each with name, path (the plugin executable), events (subscribed lifecycle hooks: any of pre-spawn, post-spawn, pre-commit, post-commit, pre-check, post-check, pre-teardown), and task_types (custom agent task types, each {name, worktree})). Flat keys still load as deprecated aliases."},
 	{"backends", "Agent-backend registry / internal-thinking router settings (docs/specs/2026-08-06-backend-registry.md §10). Warden's own internal thinking (task classification, activity summaries, agent naming, digest narration, memory curation) is routed STRICTLY through free/local backends — it never makes a paid call. Sub-keys: limit_retry (Go duration, e.g. 15m — how long a free CLI backend is skipped by the router after it returns a rate-limit / spend signal, before it is retried)."},
-	{"autopilot", "Autopilot defaults for named, durably registered runs. Create plans with `warden autopilot init --name <name>` or register existing plans with `warden autopilot register <file>`. Sub-keys: enabled (legacy per-repo switch), plans (DEPRECATED compatibility list; migrated into plans/ and the run store on boot), brain (role, headless, max_parallel_workers; backend tiers live in the backend registry), merge (target_branch, strategy, gate, delete_branch), guardian (interval, heartbeat_timeout, backoff_min, backoff_max, rotate_at_context, notify_each_escalation)."},
+	{"autopilot", "Autopilot defaults for named, durably registered runs. Create plans with `warden autopilot init --name <name>` or register existing plans with `warden autopilot register <file>`. Sub-keys: enabled (legacy per-repo switch), plans (DEPRECATED compatibility list; migrated into plans/ and the run store on boot), brain (role, headless, max_parallel_workers; backend tiers live in the backend registry), merge (target_branch, strategy, gate, delete_branch), guardian (interval, heartbeat_timeout, backoff_min, backoff_max, rotate_at_context, notify_each_escalation, max_identical_failures)."},
 	{"router", "Spawn-time model-tier routing. Sub-keys: use_fast_brain (true | false, default false — when true, a spawn that pins no tier, task, role, model or ai_cli has Fast-Brain rate the prompt's complexity and pick tier-1 (trivial tweaks), tier-2 (standard work) or tier-3 (deep refactors/architecture), applied only at confidence >= 0.8; it is the lowest-precedence input, so any explicit pin wins, and the decision is recorded on the agent's event log. Hot-reloaded: applies from the next spawn)."},
 	{"brain_consult", "Shared need-based brain consult settings (docs/specs/2026-09-27-brain-consult.md §D7). When enabled, stuck pipeline jobs that have exhausted the one deterministic auto-retry can consult a short-lived role=brain agent once per stuck episode. Sub-keys: enabled (true | false — global kill-switch; default true; set false to disable globally), timeout (Go duration, e.g. 10m — per-consult deadline; generous default because consults are infrequent), max_concurrent (integer >= 1 — max simultaneous brain consult agents across all pipelines; default 1). Per-pipeline opt-out: pipeline.brain_consult (true | false)."},
 }
@@ -611,6 +614,7 @@ func defaults() Config {
 				BackoffMax:           "6h",
 				RotateAtContext:      "critical",
 				NotifyEachEscalation: true,
+				MaxIdenticalFailures: 5,
 			},
 		},
 		Backends: BackendsConfig{
@@ -768,6 +772,9 @@ func validate(c *Config) {
 	c.Autopilot.Guardian.HeartbeatTimeout = validDuration(c.Autopilot.Guardian.HeartbeatTimeout, d.Autopilot.Guardian.HeartbeatTimeout)
 	c.Autopilot.Guardian.BackoffMin = validDuration(c.Autopilot.Guardian.BackoffMin, d.Autopilot.Guardian.BackoffMin)
 	c.Autopilot.Guardian.BackoffMax = validDuration(c.Autopilot.Guardian.BackoffMax, d.Autopilot.Guardian.BackoffMax)
+	if c.Autopilot.Guardian.MaxIdenticalFailures <= 0 {
+		c.Autopilot.Guardian.MaxIdenticalFailures = d.Autopilot.Guardian.MaxIdenticalFailures
+	}
 	if strings.TrimSpace(c.LocalLLM.URL) == "" {
 		c.LocalLLM.URL = d.LocalLLM.URL
 	}
@@ -1870,6 +1877,15 @@ func (c Config) AutopilotGuardianBackoffMax() time.Duration {
 // which a planned rotation fires (warning | critical).
 func (c Config) AutopilotGuardianRotateAtContext() string {
 	return c.Autopilot.Guardian.RotateAtContext
+}
+
+// AutopilotGuardianMaxIdenticalFailures is the consecutive identical
+// non-transient spawn failures after which a run is parked as needs-attention.
+func (c Config) AutopilotGuardianMaxIdenticalFailures() int {
+	if n := c.Autopilot.Guardian.MaxIdenticalFailures; n > 0 {
+		return n
+	}
+	return 5
 }
 
 // AutopilotGuardianNotifyEach reports whether the guardian notifies the owner on
