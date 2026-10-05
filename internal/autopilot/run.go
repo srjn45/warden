@@ -155,7 +155,9 @@ type GuardianRuntime interface {
 	// pay-per-use gate.
 	NotifyEscalation(runID, title, body string)
 	// BrainSession reports whether the manager session still exists. Missing means
-	// the session record is gone or archived (the brain is lost); Unknown means the
+	// the session record is gone or archived, is in a terminal status (done,
+	// errored, orphaned — e.g. terminate_agent), or its tmux session is gone (the
+	// brain is lost); Unknown means the
 	// store could not answer (restart, transient error) and MUST NOT be acted on.
 	// An existing session in any state — busy, quiet, rate-limited, mid hot-swap —
 	// is Present: hot-swap rewrites the record in place and never removes it.
@@ -199,6 +201,13 @@ type EvidenceRuntime interface {
 	ResumeRateLimit(ctx context.Context, agentID string) error
 	// RedeliverPrompt re-sends the agent's original task prompt.
 	RedeliverPrompt(ctx context.Context, agentID string) error
+}
+
+// BrainLossCauser is an optional GuardianRuntime extension: after BrainSession
+// reports SessionMissing it names why (missing, terminal, tmux_gone) so the audit
+// trail shows how the manager was lost. Runtimes without it audit "missing".
+type BrainLossCauser interface {
+	BrainLossCause(ctx context.Context, agentID string) string
 }
 
 // SessionPresence is the answer to GuardianRuntime.BrainSession. The zero value is

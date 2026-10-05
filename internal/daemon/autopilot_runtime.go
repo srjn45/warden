@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/srjn45/warden/internal/agentbackend"
@@ -384,23 +385,63 @@ func (rt autopilotRuntime) WakeAgent(ctx context.Context, agentID, msg string) e
 	return nil
 }
 
-// BrainSession reports whether the manager's session record exists. The agent
-// store holds only active records (archive moves a record out), so ErrNotFound
-// covers both deleted and archived. Hot-swap rewrites the record in place and
-// never removes it, so a mid-rotation manager reads as present; any other store
-// error is Unknown and never acted on.
-func (rt autopilotRuntime) BrainSession(ctx context.Context, agentID string) autopilot.SessionPresence {
+// tmuxGoneDebounce is how long a live-looking record must have lost its tmux
+// session before the manager counts as lost: an out-of-band hot-swap kills and
+// relaunches the session, and must not be mistaken for a death.
+const tmuxGoneDebounce = 20 * time.Second
+
+var brainTmuxGoneSince sync.Map // agent id -> time.Time first seen without tmux
+
+// brainLiveness classifies the manager: "" = alive/unknown-safe, else the loss
+// cause (missing | terminal | tmux_gone). known=false means never act on it.
+// The agent store holds only active records, so ErrNotFound covers deleted and
+// archived. Hot-swap rewrites the record in place; any other store error is
+// unknown.
+func (rt autopilotRuntime) brainLiveness(ctx context.Context, agentID string) (cause string, known bool) {
 	if rt.s == nil || rt.s.store == nil {
-		return autopilot.SessionUnknown
+		return "", false
 	}
-	switch _, err := rt.s.store.Get(ctx, agentID); {
-	case err == nil:
-		return autopilot.SessionPresent
+	sess, err := rt.s.store.Get(ctx, agentID)
+	switch {
 	case errors.Is(err, agentstore.ErrNotFound):
-		return autopilot.SessionMissing
-	default:
-		return autopilot.SessionUnknown
+		return "missing", true
+	case err != nil:
+		return "", false
 	}
+	switch sess.Status {
+	case store.StatusDone, store.StatusErrored, store.StatusOrphaned:
+		return "terminal", true
+	}
+	if rt.s.poller != nil && sess.TmuxSession != "" && guardianSessionLive(sess.Status) {
+		if rt.s.poller.SessionAlive(ctx, sess.TmuxSession) {
+			brainTmuxGoneSince.Delete(agentID)
+			return "", true
+		}
+		first, _ := brainTmuxGoneSince.LoadOrStore(agentID, time.Now())
+		if time.Since(first.(time.Time)) >= tmuxGoneDebounce {
+			return "tmux_gone", true
+		}
+	}
+	return "", true
+}
+
+// BrainSession reports whether the manager is lost: record missing, terminal
+// status (terminate_agent, done, errored, orphaned) or tmux session gone.
+func (rt autopilotRuntime) BrainSession(ctx context.Context, agentID string) autopilot.SessionPresence {
+	cause, known := rt.brainLiveness(ctx, agentID)
+	switch {
+	case !known:
+		return autopilot.SessionUnknown
+	case cause != "":
+		return autopilot.SessionMissing
+	}
+	return autopilot.SessionPresent
+}
+
+// BrainLossCause names why BrainSession reported the manager missing.
+func (rt autopilotRuntime) BrainLossCause(ctx context.Context, agentID string) string {
+	cause, _ := rt.brainLiveness(ctx, agentID)
+	return cause
 }
 
 // AuditRunEvent writes a guardian event to the audit log, targeting the manager.

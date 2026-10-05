@@ -441,7 +441,10 @@ Inherited flags:
 ## warden agent terminate
 
 ```text
-Stop an agent: kill its tmux+AI CLI session (keeps the record and worktree)
+Stop an agent: kill its tmux+AI CLI session (keeps the record and worktree).
+
+Terminating the manager of an active autopilot run is not a stop: the guardian
+respawns it in the same slot. To stop a run use `wd plan pause` or `wd plan stop`.
 
 Usage:
   warden agent terminate <AGENT> [flags]
