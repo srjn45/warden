@@ -122,6 +122,11 @@ func (c *Controller) overwatchRun(ctx context.Context, ow OverwatchRuntime, r *r
 	}
 	r.workersInFlight = inFlight
 
+	// Worker triage (overwatch_triage.go): resolves prompts/rate-limit banners
+	// directly and attaches specific findings. A no-op with triage off.
+	pending := false
+	needy, pending = c.workerTriage(ctx, ow, r, needy, now)
+
 	// Only a healthy, active run with an idle manager is nudged. While the run is
 	// starting/healing/degraded the guardian owns the manager, and a busy manager
 	// will notice its workers itself — interrupting it just derails the run.
@@ -142,8 +147,13 @@ func (c *Controller) overwatchRun(ctx context.Context, ow OverwatchRuntime, r *r
 	if !periodic && !event {
 		return
 	}
+	// A worker diagnosis is in flight: hold the nudge one tick so its specific
+	// finding (or its direct resolution) replaces the generic line.
+	if pending {
+		return
+	}
 
-	if err := ow.WakeAgent(ctx, r.brain.AgentID, composeOverwatchNudge(needy)); err != nil {
+	if err := ow.WakeAgent(ctx, r.brain.AgentID, composeOverwatchNudge(needy, r.wtriage.findings)); err != nil {
 		if errors.Is(err, ErrAgentNotFound) {
 			// The manager is gone: drop the stale record; the guardian respawns it on
 			// its next pass (this tick's nudge clock is not advanced).
@@ -174,7 +184,7 @@ func isAgentBusy(state string) bool {
 // workers it is a periodic check-in; otherwise it names the idle/waiting workers
 // (bounded) and asks the manager to answer or steer waiting ones and clean up
 // finished ones before pulling the next task.
-func composeOverwatchNudge(needy []AgentInfo) string {
+func composeOverwatchNudge(needy []AgentInfo, findings map[string]string) string {
 	if len(needy) == 0 {
 		return overwatchNudgePrefix + "periodic check-in — reconcile the ledger against list_agents, " +
 			"pull the next pending task if a worker slot is free, and verify the plan's done_when so a " +
@@ -196,7 +206,11 @@ func composeOverwatchNudge(needy []AgentInfo) string {
 		if label == "" {
 			label = a.ID
 		}
-		parts = append(parts, fmt.Sprintf("%s (%s, %s)", label, a.ID, a.State))
+		entry := fmt.Sprintf("%s (%s, %s)", label, a.ID, a.State)
+		if f := findings[a.ID]; f != "" {
+			entry += ": " + f
+		}
+		parts = append(parts, entry)
 	}
 	b.WriteString(strings.Join(parts, "; "))
 	if extra > 0 {
