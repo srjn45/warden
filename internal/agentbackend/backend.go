@@ -94,6 +94,10 @@ type Approval struct {
 	// means the menu has no usable hotkeys: the cursor must be moved onto the
 	// option (Up/Down from SelectedIdx) and confirmed with Enter. See Answer.
 	Navigate bool
+	// Inferred is true when no backend parser matched and the prompt was read by
+	// a model instead (then verified against the pane). It is informational: an
+	// inferred approval goes through the same policy chain as a parsed one.
+	Inferred bool
 }
 
 // ApprovalKindTrust is Approval.Kind for a workspace/folder-trust prompt.

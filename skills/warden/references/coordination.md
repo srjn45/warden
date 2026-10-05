@@ -85,6 +85,13 @@ Claude/Codex/Antigravity raise in a fresh worktree is answered by the daemon
 auto-approve. Do not attach to answer it; if an agent still sits on it, the operator
 set `trust_workspace: false` — answer it from the approvals inbox.
 
+**Unknown prompts are recognized for you.** When an AI CLI rewords a prompt and no
+parser matches it, the daemon has Fast-Brain read the stalled menu
+(`recognize_prompts: true`, default), verifies the reading against the pane and then
+treats it like any parsed prompt: `waiting_for_input`, listed in `warden approval
+list`, subject to the same auto-approve policy. A `prompt_recognized` event marks it.
+If an agent sits on a menu and is still not `waiting_for_input` after ~20s, attach.
+
 **Auto-approve** (off by default): auto-answers recognized yes/no prompts. Two layers:
 
 - **Per-agent toggle** — opt one agent in even when the global policy is off:

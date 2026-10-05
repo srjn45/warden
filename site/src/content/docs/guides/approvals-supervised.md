@@ -98,6 +98,26 @@ trust_workspace: true   # default; false leaves the prompt in the approvals inbo
 
 With `trust_workspace: false` the prompt is treated like any other standing grant: it shows in the approvals inbox, and auto-approve only answers it when `allow_sticky` is on.
 
+## Prompts warden does not recognize
+
+Every backend has a parser for its own prompt UI, and those parsers key on the CLI's wording. When a vendor rewords a prompt in an update, the parser stops matching: the agent looks busy, nothing reaches the inbox, and auto-approve never runs.
+
+warden covers that gap with the Fast-Brain model. When a menu sits unchanged at the bottom of an agent's pane for a few seconds and no parser matches it, the model reads the pane and transcribes the prompt: the question, the command being asked about, the options, and which option is the one-time "yes".
+
+```yaml
+recognize_prompts: true   # default; false relies on the built-in parsers only
+```
+
+The model **recognizes**; it does not decide and it never presses a key. What happens to its reading:
+
+- **Verified against the pane.** Every option label must really be on screen, in the same order. A paraphrased or invented option discards the whole reading.
+- **Destructive guard reads the pane, not the summary.** If any text above the menu trips the destructive deny-list, the prompt is blocked even if the model left the command out.
+- **Never less strict than the label.** An option whose label reads as a refusal is never treated as "yes"; one that reads as a standing grant ("always", "don't ask again", "trust") is always treated as sticky.
+- **Same decision order.** The recognized prompt then goes through the policy rules, the sticky gate and the circuit breaker like any other, and shows in the approvals inbox.
+- **Verified answer.** It is answered by moving the cursor and pressing Enter, and Enter is sent only after a re-capture confirms the cursor is on the chosen option.
+
+The agent's status becomes `waiting_for_input` and a `prompt_recognized` event is recorded. This costs one model call per stalled, unrecognized menu (a second only if the first failed or timed out). It covers menus with a visible cursor mark (`>`, `❯`, `›`, `→`); a free-text `[y/N]` question is still left to its backend parser or to you.
+
 ## The circuit breaker
 
 Auto-approving a prompt should unblock the agent. When the **identical** prompt keeps re-appearing after being approved — the agent is re-running a failing command (expired credentials, a broken login) and re-asking forever — approving again just burns CPU and tokens. The breaker halts auto-approval after `max_repeats` consecutive identical approvals (default **10**), records an `approval_loop` anomaly on the agent, fires your notifier, and leaves the prompt unanswered so the agent surfaces as `waiting_for_input`.

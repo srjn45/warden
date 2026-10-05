@@ -255,6 +255,15 @@ type Poller struct {
 	// auto-approve policy like any other sticky prompt.
 	trustWorkspace atomic.Bool
 
+	// recognizePrompts mirrors recognize_prompts (see SetRecognizePrompts): when
+	// true, a stalled menu no backend parser recognizes is read by the Fast-Brain
+	// model (recognize.go). recog holds the per-agent state, guarded by recogMu
+	// because the model call runs off the tick goroutine.
+	recognizePrompts atomic.Bool
+	recogMu          sync.Mutex
+	recog            map[string]*recognition
+	recogWG          sync.WaitGroup
+
 	// OnSaving, if set, records a token-savings event (the daemon wires it to the
 	// savings ledger). The poller uses it for the auto-/compact win: when a
 	// compaction it issued lands, the reclaimed context tokens are recorded as a
@@ -650,7 +659,7 @@ func (p *Poller) tryAutoApprove(ctx context.Context, s *agentstore.Agent, pane s
 	// own prompt UI; the Claude backend delegates to approval.Parse). The neutral
 	// agentbackend.Approval is mapped onto approval.Approval so the policy engine
 	// (IsDestructive / Decide) is unchanged.
-	ap, ok := p.backendFor(s).ParseApproval(pane)
+	ap, ok := p.ParseApproval(s, pane)
 	if !ok || ap == nil || len(ap.Options) == 0 {
 		slog.Debug("auto-approve skipped: unrecognized prompt", "agent", s.ID)
 		return
@@ -756,7 +765,7 @@ func (p *Poller) answer(ctx context.Context, s *agentstore.Agent, ap *agentbacke
 		if err != nil {
 			return nil, false
 		}
-		return p.backendFor(s).ParseApproval(pane)
+		return p.ParseApproval(s, pane)
 	}
 	return agentbackend.Answer(ap, idx, send, reparse)
 }
@@ -773,7 +782,7 @@ const trustMaxAttempts = 3
 // nothing the agent did is being approved — only the operator's own choice of
 // directory is confirmed, as Cursor's --trust launch flag already does.
 func (p *Poller) tryTrustPrompt(ctx context.Context, s *agentstore.Agent, pane string) {
-	ap, ok := p.backendFor(s).ParseApproval(pane)
+	ap, ok := p.ParseApproval(s, pane)
 	if !ok || ap == nil || ap.Kind != agentbackend.ApprovalKindTrust || ap.AffirmativeIdx == 0 {
 		return
 	}
@@ -1128,6 +1137,9 @@ func (p *Poller) tick(ctx context.Context) error {
 				}
 			}
 		}
+		if alive && captureOK {
+			p.tryRecognize(ctx, s, pane)
+		}
 		if alive && captureOK && p.trustWorkspace.Load() {
 			p.tryTrustPrompt(ctx, s, pane)
 		}
@@ -1144,6 +1156,11 @@ func (p *Poller) tick(ctx context.Context) error {
 		// (orphaned, pane-independent) or we captured the pane successfully.
 		if !alive || captureOK {
 			next := classify(p.backendFor(s), s, pane, alive, time.Since(s.UpdatedAt), p.stuckAfter)
+			// A prompt only a model could read is unknown to the backend's own state
+			// detection (it may even look "working"); it still needs an answer.
+			if alive && captureOK && next != store.StatusWaitingForInput && next != store.StatusRateLimited && p.recognizedLive(s, pane) {
+				next = store.StatusWaitingForInput
+			}
 			if next != store.StatusWaitingForInput {
 				// The prompt is gone (answered, or the agent moved on): cancel any
 				// in-flight stage-3 consult and forget the prompt so a recurrence
@@ -1183,6 +1200,7 @@ func (p *Poller) tick(ctx context.Context) error {
 		}
 	}
 	p.pruneSummaryState(sessions)
+	p.pruneRecognitions(sessions)
 	if changed && p.OnChange != nil {
 		p.OnChange()
 	}
