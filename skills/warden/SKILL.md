@@ -141,7 +141,7 @@ multi-phase task as one long-lived plain agent (decompose into stages).
   search/history, audit log, worktree list/prune, plugins, export/import,
   rotate/handoff, **fork** (`fork_agent`), **roles** (`set_role`/`list_roles`
   + `spawn_agent`'s `role` param), the **backend registry** (`list_backends`,
-  `rescan_backends`, `set_backend_tier`, `set_default_backend`, `set_thinking_mode`),
+  `rescan_backends`, `set_backend_tier`, `set_default_backend`),
   and **autopilot** (`set_autopilot`,
   `autopilot_status`, `autopilot_complete`, `land`). The only **CLI-only** verbs are host/process/interactive/secret
   ones — `daemon`, `config`, `token`, `attach`, `repl`, `doctor`, `setup`,
@@ -160,7 +160,7 @@ flags, fields, and rails.
 | build & run a **pipeline** — authoring the YAML, worktree modes, templates, `run_if`, pause/resume, retry, MCP vs CLI | [references/pipelines.md](references/pipelines.md) |
 | do an agent's **git** (commit/push/sync) and **checks**; **snapshot**/restore; understand the **boundary-enforcement hooks** (isolation/root/git/check guards) | [references/git-and-checks.md](references/git-and-checks.md) |
 | **coordinate** agents — shared context (incl. append/CAS), directed messages (incl. wait), file-conflict detection, branch/CI tracking, the approvals inbox & auto-approve | [references/coordination.md](references/coordination.md) |
-| **operate the fleet** — token-savings ledger, insights, audit log, scheduler, config, remote access & auth, notifications/token-guard, web GUI & cockpit TUI, export/import, local-LLM REPL, plugins, the **backend registry** (detected CLIs, tiers, default, thinking-mode) | [references/operations.md](references/operations.md) |
+| **operate the fleet** — token-savings ledger, insights, audit log, scheduler, config, remote access & auth, notifications/token-guard, web GUI & cockpit TUI, export/import, Fast-Brain REPL, plugins, the **backend registry** (detected CLIs, tiers, default) | [references/operations.md](references/operations.md) |
 | **autopilot** — enable/disable the autonomous run mode, check run state, land a worker branch | See below (§ Autopilot) |
 
 ## Plain-agent quick reference (the common path)

@@ -31,7 +31,7 @@ The verbs refuse the mistakes a raw git session makes:
 
 ### Auto-written commit messages
 
-Omit `-m` and warden fills the message: if a local model is configured (`local_llm`), it distils a Conventional-Commits subject from the staged diff; otherwise a deterministic conventional message is derived from the changed paths. A blank commit is impossible.
+Omit `-m` and warden fills the message: Fast-Brain distils a Conventional-Commits subject from the staged diff; if it is unavailable, a deterministic conventional message is derived from the changed paths. A blank commit is impossible.
 
 ### `warden check` and `.warden/check.yml`
 

@@ -52,14 +52,13 @@ Common settings (run `warden config` for the complete, live list):
 | `tokens.compact_resume_prompt` | _(built-in)_ | Resume message sent to a force-compacted agent once compaction lands |
 | `tokens.warn` | `200000` | Warning threshold in context tokens (inclusive) |
 | `tokens.critical` | `400000` | Critical threshold in context tokens (inclusive) — the auto-`/compact` band |
-| `local_llm.enabled` | `false` | Enable the local-LLM provider (REPL, commit-message/insights narration, classify/summarize offload) |
-| `local_llm.repl` | `false` | **Deprecated / no-op.** Historically started the cockpit's shell pane in `warden backend repl` mode; the cockpit no longer has a REPL-hosting pane (its bottom-left pane is now a first-class terminal). Run the REPL standalone with `warden backend repl`. |
-| `backends.limit_retry` | `15m` | Go duration — how long the internal free/local **thinking router** skips a free CLI backend after a rate-limit / spend signal, before retrying it. Backend **tiers**, the **default**, **enabled** flags, and the **thinking mode** live in the [backend registry](/warden/guides/backend-registry/) store (`~/.warden/backends`), not this file — edit them with `warden backend …`, the web 🧩 panel, or the TUI |
+| `local_llm.*` | — | **Retired.** The local-LLM/Ollama provider was replaced by Fast-Brain (no config). Legacy keys (`enabled`, `url`, `model`, `timeout`, `tier`, `escalate`, `classifier`, `repl`) still parse but are ignored. |
+| `backends.limit_retry` | `15m` | Go duration — how long a free CLI backend is skipped after a rate-limit / spend signal, before retrying it. Backend **tiers**, the **default**, and **enabled** flags live in the [backend registry](/warden/guides/backend-registry/) store (`~/.warden/backends`), not this file — edit them with `warden backend …`, the web 🧩 panel, or the TUI |
 | `metrics` | `true` | Record per-agent performance history for `warden inspect resources --history` |
 | `spawn_gate` / `spawn_gate_max_agents` | `true` / `0` | Memory-pressure spawn gate + concurrent-agent cap (0 = no cap). Blocks a spawn only at **critical** pressure or the agent cap; **warn** pressure is advisory (spawns proceed). |
 | `pipeline.keep_done` / `pipeline.hint` | — | Pipeline retention + the decomposition nudge |
 | `memory.inject` | `true` | Project the repo's curated `.warden/memory.md` into every spawned agent's system prompt (Claude → `--append-system-prompt`; other backends → their `AGENTS.md`/`CRUSH.md`/`.goosehints` warden block). Off, or an empty/absent file, is byte-identical to no injection. See [Project memory](/warden/concepts/project-memory/) |
-| `memory.curate` | `false` | Auto-propose durable memory entries from completion digests into `.warden/memory.md`. A debounced pass writes **`unverified`, timestamped, provenance-tagged** proposals to the **working tree only** — it never commits or pushes, so the committed diff is the human review gate. Proposals promote to `trusted` only on corroboration; contradictions supersede (tombstone) older entries; un-recorroborated entries age out; vanished paths are flagged stale. Prefers the `$0` local model, degrading to `claude -p` only where configured. Opt-in. See [Project memory](/warden/concepts/project-memory/) |
+| `memory.curate` | `false` | Auto-propose durable memory entries from completion digests into `.warden/memory.md`. A debounced pass writes **`unverified`, timestamped, provenance-tagged** proposals to the **working tree only** — it never commits or pushes, so the committed diff is the human review gate. Proposals promote to `trusted` only on corroboration; contradictions supersede (tombstone) older entries; un-recorroborated entries age out; vanished paths are flagged stale. Runs on Fast-Brain (latency-bounded, fail-open). Opt-in. See [Project memory](/warden/concepts/project-memory/) |
 | `savings` | `true` | Record the token-savings ledger (`warden usage savings`, `GET /api/v1/savings`) |
 | `savings_samples` | `false` | Retain raw-vs-kept provenance samples for `warden usage savings --audit` (may hold sensitive output) |
 | `scheduler_enabled` | `false` | Enable the native cron/at scheduler (`warden schedule`) |
@@ -90,7 +89,7 @@ There are more (`auto_restart.*`, `rate_limit.*`, `worktree.keep_done` /
 Related settings are grouped into namespaced blocks (`pipeline.*`, `auto_restart.*`,
 `collab.*`, `memory.*`, `branch_track.*`, `rate_limit.*`, `http.*`, `log.*`,
 `plugins.*`, `backends.*`, alongside `rails.*` / `tokens.*` / `notify.*` /
-`worktree.*` / `local_llm.*`). The `autopilot.brain.backends` ladder and
+`worktree.*`; the retired `local_llm.*` is parsed but ignored). The `autopilot.brain.backends` ladder and
 `autopilot.brain.allow_pay_per_use` gate are **deprecated** — the [backend
 registry](/warden/guides/backend-registry/) store is now their source of truth (the
 keys are imported once on the first boot after upgrade, then ignored). The old flat

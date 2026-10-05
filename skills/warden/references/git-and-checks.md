@@ -20,7 +20,7 @@ worktree.
 
 | Tool | Does | Rails |
 |---|---|---|
-| `commit {message?, dir?}` | Stage + commit everything on the branch in one call. Returns `{committed, sha, branch, files}` or a hook failure to fix. | Refuses `main`/`master`; runs pre-commit hooks and returns **only** a failure; links the commit to the agent. **Pass `message` when you can** (you made the change, you know the intent); omit it and warden writes one from the diff (local model, else a deterministic conventional-commit floor — a blank commit is impossible). |
+| `commit {message?, dir?}` | Stage + commit everything on the branch in one call. Returns `{committed, sha, branch, files}` or a hook failure to fix. | Refuses `main`/`master`; runs pre-commit hooks and returns **only** a failure; links the commit to the agent. **Pass `message` when you can** (you made the change, you know the intent); omit it and warden writes one from the diff (Fast-Brain, else a deterministic conventional-commit floor — a blank commit is impossible). |
 | `push {dir?, force?}` | Push the branch (sets upstream). Pass `force: true` after a rebase/amend to overwrite the remote branch. Returns `{branch, remote, pushed, forced}`. | Refuses `main`/`master`. Force is always `--force-with-lease` (never a bare `--force`), so it aborts if a teammate pushed to your branch since your last fetch. |
 | `sync {dir?}` | Rebase-sync onto the upstream. | Refuses a dirty tree; on conflict leaves it in progress carrying only the conflicting files (then resolve + continue). |
 
@@ -31,7 +31,7 @@ terminating the agent (see agents.md).
 
 MCP `check {name?, dir?}` (CLI `wd check [name]`) runs the project's
 `.warden/check.yml` command(s) and returns pass/fail with output for **only the
-failing** checks (tail-truncated; oversized logs condensed by the local model when
+failing** checks (tail-truncated; oversized logs condensed by Fast-Brain when
 enabled). Pass `name` for one check (`test`/`lint`/`build`) or omit to run all.
 Per-entry `dir:` supports monorepos; config is the single source of truth.
 
@@ -107,11 +107,11 @@ aged-out tombstones kept for context; `<!-- stale: … -->` marks a fact whose n
 path vanished. Never trust an `unverified` entry blindly, and never `wd commit` a
 memory diff you have not read.
 
-**Ask project memory locally (`memory.ground`, default on).** In `wd backend repl` you can
+**Ask project memory locally (`memory.ground`, default on).** In `wd repl` you can
 *ask* this memory a question instead of re-deriving the answer: `/memory <question>`
 (aliases `/mem`, `/ask`), or the model-callable `project_memory` tool, answers "where
-does X live?" / "how do I run Y?" **locally** from `.warden/memory.md` — served on the
-local model at `$0`, no cloud round-trip, so it *removes* tokens rather than adding
+does X live?" / "how do I run Y?" from `.warden/memory.md` — served by Fast-Brain
+(latency-bounded, fail-open), so it *removes* tokens rather than adding
 them. It is read-only (never writes memory; an absent/empty file answers "not in
 project memory") and cites each entry's trust + provenance, so treat an `unverified`
 citation as a hint to verify, same as the injected block above.
