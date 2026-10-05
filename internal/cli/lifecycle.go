@@ -191,6 +191,9 @@ maturity labels: see 'warden backend --help'.`,
 					}
 					return err
 				}
+				if jsonRequested(cmd) {
+					return printSpawnedJSON(cmd, s)
+				}
 				outcome := formatSpawnOutcome(s, prompt == "")
 				fmt.Fprintf(cmd.OutOrStdout(), "%s — attach with `warden attach %s`\n", outcome, s.ID)
 				return nil
@@ -247,11 +250,15 @@ maturity labels: see 'warden backend --help'.`,
 				}
 				return err
 			}
+			if jsonRequested(cmd) {
+				return printSpawnedJSON(cmd, s)
+			}
 			fmt.Fprintf(cmd.OutOrStdout(), "%s (%s) — attach with `warden attach %s`\n",
 				formatSpawnOutcome(s, false), s.Status, s.ID)
 			return nil
 		},
 	}
+	addJSONFlag(cmd, "emit the new agent (id, name, role, ai_cli, model, workdir) as JSON")
 	cmd.Flags().String("name", "", "explicit agent name (omit to auto-resolve); max 32 chars, alphanumeric + hyphens/underscores")
 	cmd.Flags().String("type", "", "deprecated alias: legacy task type (development|analysis|spike|pr-review|…). Prefer --role worker --repo for managed worktrees")
 	_ = cmd.Flags().MarkDeprecated("type", "use --role (and --repo for managed worktrees)")
@@ -413,7 +420,9 @@ func newRecoverCmd() *cobra.Command {
 			"reaper. Bare `wd recover` only reports what it finds; --apply re-inserts each\n" +
 			"candidate into the active store under its original id. Any children (linked\n" +
 			"via parent_id, untouched by archiving) reconnect automatically — no need to\n" +
-			"recover them separately.",
+			"recover them separately.\n\n" +
+			"--apply is a dry-run switch (report vs. act), not a confirmation, so it is\n" +
+			"intentionally NOT --yes.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			apply, _ := cmd.Flags().GetBool("apply")
@@ -454,7 +463,7 @@ func newRecoverCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().Bool("apply", false, "actually re-insert candidates (default: report only)")
+	cmd.Flags().Bool("apply", false, "actually re-insert candidates (default: report only); a dry-run switch, not a --yes confirmation")
 	cmd.Flags().Bool("json", false, "output as JSON")
 	return cmd
 }
@@ -464,15 +473,16 @@ func newRecoverCmd() *cobra.Command {
 // narrower terminate/delete/remove-worktree/done verbs, so every teardown path
 // composes the SAME helper.
 type teardownOpts struct {
-	terminate      bool   // kill the tmux+AI CLI session
-	deleteRecord   bool   // clear (archive) the stored record
-	removeWorktree bool   // remove the git worktree + branch
-	hard           bool   // purge the record instead of archiving
-	createPR       bool   // open a GitHub PR first, while the agent is intact
-	base           string // base branch for the PR (only with createPR)
-	force          bool   // override the worktree alive/uncommitted/unpushed guards
-	deleteAdopted  bool   // also delete an adopted (warden-didn't-create) branch
-	yes            bool   // skip the interactive worktree-removal confirmation
+	terminate      bool            // kill the tmux+AI CLI session
+	deleteRecord   bool            // clear (archive) the stored record
+	removeWorktree bool            // remove the git worktree + branch
+	hard           bool            // purge the record instead of archiving
+	createPR       bool            // open a GitHub PR first, while the agent is intact
+	base           string          // base branch for the PR (only with createPR)
+	force          bool            // override the worktree alive/uncommitted/unpushed guards
+	deleteAdopted  bool            // also delete an adopted (warden-didn't-create) branch
+	yes            bool            // skip the interactive worktree-removal confirmation
+	result         *teardownResult // when non-nil, filled with the steps that ran
 }
 
 // teardown composes the existing daemon-client calls in the safe order —
@@ -486,12 +496,19 @@ type teardownOpts struct {
 func teardown(cmd *cobra.Command, c *client.Client, id string, o teardownOpts) (ok bool, err error) {
 	// Confirm worktree removal before doing anything destructive, so a decline
 	// is a true no-op rather than a half-finished teardown.
+	if o.removeWorktree && !o.yes && jsonRequested(cmd) {
+		return false, requireYesForJSON(cmd, "remove the worktree")
+	}
+	if o.result != nil {
+		o.result.ID = id
+		o.result.Steps = []string{}
+	}
 	if o.removeWorktree && !o.yes {
-		fmt.Fprintf(cmd.OutOrStdout(), "Remove the git worktree and branch for %s? This cannot be undone. [y/N]: ", id)
+		fmt.Fprintf(progressOut(cmd), "Remove the git worktree and branch for %s? This cannot be undone. [y/N]: ", id)
 		var ans string
 		_, _ = fmt.Fscanln(cmd.InOrStdin(), &ans)
 		if ans != "y" && ans != "Y" {
-			fmt.Fprintln(cmd.OutOrStdout(), "aborted")
+			fmt.Fprintln(progressOut(cmd), "aborted")
 			return false, nil
 		}
 	}
@@ -507,7 +524,11 @@ func teardown(cmd *cobra.Command, c *client.Client, id string, o teardownOpts) (
 		if !res.Created {
 			verb = "PR already exists"
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", verb, res.URL)
+		fmt.Fprintf(progressOut(cmd), "%s: %s\n", verb, res.URL)
+		if o.result != nil {
+			o.result.PRURL = res.URL
+			o.result.Steps = append(o.result.Steps, "pr")
+		}
 	}
 	// Order: terminate → remove worktree → clear record. The daemon resolves the
 	// session by its record, so the worktree must go while it still resolves; a
@@ -536,6 +557,10 @@ func teardown(cmd *cobra.Command, c *client.Client, id string, o teardownOpts) (
 		if err := c.Delete(cmd.Context(), id, o.hard); err != nil {
 			return fail("clear record", err)
 		}
+		done = append(done, "record cleared")
+	}
+	if o.result != nil {
+		o.result.Steps = append(o.result.Steps, done...)
 	}
 	return true, nil
 }
@@ -584,7 +609,9 @@ Older verbs (hidden, still work; not all are expressible as stop flags):
 			yes, _ := cmd.Flags().GetBool("yes")
 			force, _ := cmd.Flags().GetBool("force")
 			deleteAdopted, _ := cmd.Flags().GetBool("delete-adopted-branch")
+			res := &teardownResult{}
 			ok, err := teardown(cmd, clientFor(cmd), args[0], teardownOpts{
+				result:         res,
 				terminate:      true,
 				deleteRecord:   !keepRecord,
 				removeWorktree: !keepWorktree,
@@ -598,10 +625,14 @@ Older verbs (hidden, still work; not all are expressible as stop flags):
 			if err != nil || !ok {
 				return err
 			}
+			if jsonRequested(cmd) {
+				return printJSON(cmd.OutOrStdout(), res)
+			}
 			fmt.Fprintf(cmd.OutOrStdout(), "stopped %s\n", args[0])
 			return nil
 		},
 	}
+	addJSONFlag(cmd, "emit the teardown result (id, steps that ran) as JSON; never prompts — remove-worktree needs --yes")
 	cmd.Flags().Bool("keep-record", false, "do not clear the stored record")
 	cmd.Flags().Bool("keep-worktree", false, "do not remove the git worktree and branch")
 	cmd.Flags().Bool("hard", false, "purge the record instead of archiving")
@@ -615,19 +646,25 @@ Older verbs (hidden, still work; not all are expressible as stop flags):
 
 // newTerminateCmd kills the session only; same as `stop --keep-record --keep-worktree`.
 func newTerminateCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "terminate <AGENT>",
 		Short: "Stop an agent: kill its tmux+AI CLI session (keeps the record and worktree)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ok, err := teardown(cmd, clientFor(cmd), args[0], teardownOpts{terminate: true})
+			res := &teardownResult{}
+			ok, err := teardown(cmd, clientFor(cmd), args[0], teardownOpts{terminate: true, result: res})
 			if err != nil || !ok {
 				return err
+			}
+			if jsonRequested(cmd) {
+				return printJSON(cmd.OutOrStdout(), res)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "terminated %s\n", args[0])
 			return nil
 		},
 	}
+	addJSONFlag(cmd, "emit the teardown result (id, steps that ran) as JSON")
+	return cmd
 }
 
 // newDeleteCmd clears only the stored record. It does not terminate the session
@@ -640,14 +677,19 @@ func newDeleteCmd() *cobra.Command {
 		Args:   cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			hard, _ := cmd.Flags().GetBool("hard")
-			ok, err := teardown(cmd, clientFor(cmd), args[0], teardownOpts{deleteRecord: true, hard: hard})
+			res := &teardownResult{}
+			ok, err := teardown(cmd, clientFor(cmd), args[0], teardownOpts{deleteRecord: true, hard: hard, result: res})
 			if err != nil || !ok {
 				return err
+			}
+			if jsonRequested(cmd) {
+				return printJSON(cmd.OutOrStdout(), res)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "deleted %s\n", args[0])
 			return nil
 		},
 	}
+	addJSONFlag(cmd, "emit the teardown result (id, steps that ran) as JSON; never prompts — remove-worktree needs --yes")
 	cmd.Flags().Bool("hard", false, "permanently purge the record instead of archiving")
 	return cmd
 }
@@ -665,11 +707,16 @@ func newRemoveWorktreeCmd() *cobra.Command {
 			yes, _ := cmd.Flags().GetBool("yes")
 			force, _ := cmd.Flags().GetBool("force")
 			deleteAdopted, _ := cmd.Flags().GetBool("delete-adopted-branch")
+			res := &teardownResult{}
 			ok, err := teardown(cmd, clientFor(cmd), args[0], teardownOpts{
+				result:         res,
 				removeWorktree: true, force: force, deleteAdopted: deleteAdopted, yes: yes,
 			})
 			if err != nil || !ok {
 				return err
+			}
+			if jsonRequested(cmd) {
+				return printJSON(cmd.OutOrStdout(), res)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "removed worktree for %s\n", args[0])
 			return nil
@@ -677,6 +724,7 @@ func newRemoveWorktreeCmd() *cobra.Command {
 	}
 	cmd.Flags().Bool("force", false, "override the alive/uncommitted/unpushed guards")
 	cmd.Flags().Bool("delete-adopted-branch", false, "also delete the branch even if warden did not create it (adopted branches are kept by default)")
+	addJSONFlag(cmd, "emit the teardown result (id, steps that ran) as JSON; never prompts — remove-worktree needs --yes")
 	cmd.Flags().Bool("yes", false, "skip the confirmation prompt")
 	return cmd
 }
@@ -696,16 +744,22 @@ func newDoneCmd() *cobra.Command {
 				createPR = true
 			}
 			base, _ := cmd.Flags().GetString("base")
+			res := &teardownResult{}
 			ok, err := teardown(cmd, clientFor(cmd), args[0], teardownOpts{
+				result:    res,
 				terminate: true, deleteRecord: true, hard: hard, createPR: createPR, base: base,
 			})
 			if err != nil || !ok {
 				return err
 			}
+			if jsonRequested(cmd) {
+				return printJSON(cmd.OutOrStdout(), res)
+			}
 			fmt.Fprintf(cmd.OutOrStdout(), "done %s (terminated + record cleared; worktree, if any, kept — use remove-worktree)\n", args[0])
 			return nil
 		},
 	}
+	addJSONFlag(cmd, "emit the teardown result (id, steps that ran) as JSON; never prompts — remove-worktree needs --yes")
 	cmd.Flags().Bool("hard", false, "purge the record instead of archiving")
 	cmd.Flags().Bool("pr", false, "open a GitHub PR for the agent's branch (pushes first; title+body drafted by Fast-Brain when available, else from the digest) before finishing")
 	cmd.Flags().Bool("create-pr", false, "alias for --pr")

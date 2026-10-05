@@ -8,10 +8,10 @@ description: Retire a context-heavy agent into a fresh successor, and summarize 
 Run **inside an agent session** to retire a long-lived, context-heavy agent and hand off to a fresh successor in the same workdir/worktree. This is the **retire** mode of the unified [`handoff`](/warden/guides/fleet-operations/#handoff-warden-handoff) verb; `warden agent rotate` is an exact alias. Phase 1 (writing the handoff file + resume prompt) is driven by the `/warden` skill; on confirmation the agent spawns its successor and reaps itself.
 
 ```sh
-warden agent handoff --retire --confirm \
+warden agent handoff --retire --yes \
   --resume-file "${TMPDIR:-/tmp}/warden-rotate-handoff-$WARDEN_SESSION_ID.md" \
   --resume-prompt "Continue the migration from where the notes leave off"
-# `warden agent rotate --confirm …` is an exact alias.
+# `warden agent rotate --yes …` is an exact alias.
 ```
 
 - The handoff file uses a **unique, per-agent temp path** (`$TMPDIR` keyed on `$WARDEN_SESSION_ID`), so concurrent agents rotating at the same time never overwrite each other's notes. The successor deletes it once it has read it, and `/tmp` self-clears as a backstop.

@@ -625,12 +625,14 @@
     "use": "delete <AGENT>",
     "runnable": true,
     "local_flags": [
-      "hard"
+      "hard",
+      "json"
     ],
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
   },
   {
     "path": "digest",
@@ -666,12 +668,14 @@
       "base",
       "create-pr",
       "hard",
+      "json",
       "pr"
     ],
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
   },
   {
     "path": "export",
@@ -700,6 +704,7 @@
     "runnable": true,
     "local_flags": [
       "force",
+      "json",
       "model",
       "name",
       "permission-mode",
@@ -709,7 +714,8 @@
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
   },
   {
     "path": "handoff",
@@ -720,6 +726,7 @@
       "branch",
       "confirm",
       "force",
+      "json",
       "name",
       "repo",
       "resume-file",
@@ -727,12 +734,14 @@
       "retire",
       "role",
       "to",
-      "type"
+      "type",
+      "yes"
     ],
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
   },
   {
     "path": "history",
@@ -1314,12 +1323,14 @@
     "local_flags": [
       "delete-adopted-branch",
       "force",
+      "json",
       "yes"
     ],
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
   },
   {
     "path": "repair",
@@ -1398,6 +1409,10 @@
     "inherited_flags": [
       "addr",
       "config"
+    ],
+    "json": true,
+    "local_flags": [
+      "json"
     ]
   },
   {
@@ -1445,7 +1460,8 @@
     "local_flags": [
       "confirm",
       "resume-file",
-      "resume-prompt"
+      "resume-prompt",
+      "yes"
     ],
     "inherited_flags": [
       "addr",
@@ -1673,6 +1689,7 @@
       "force",
       "fork-from",
       "in-repo",
+      "json",
       "kind",
       "model",
       "name",
@@ -1695,7 +1712,8 @@
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
   },
   {
     "path": "stats",
@@ -1735,6 +1753,7 @@
       "delete-adopted-branch",
       "force",
       "hard",
+      "json",
       "keep-record",
       "keep-worktree",
       "pr",
@@ -1743,7 +1762,8 @@
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
   },
   {
     "path": "switch",
@@ -1799,6 +1819,10 @@
     "inherited_flags": [
       "addr",
       "config"
+    ],
+    "json": true,
+    "local_flags": [
+      "json"
     ]
   },
   {

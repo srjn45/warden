@@ -77,6 +77,9 @@ NOTE: ` + "`git stash create`" + ` carries only TRACKED changes; the source's un
 				}
 				return err
 			}
+			if jsonRequested(cmd) {
+				return printSpawnedJSON(cmd, s)
+			}
 			nameLabel := ""
 			if s.Name != "" {
 				nameLabel = fmt.Sprintf(" (%s)", s.Name)
@@ -96,6 +99,7 @@ NOTE: ` + "`git stash create`" + ` carries only TRACKED changes; the source's un
 	cmd.Flags().String("name", "", "optional human-friendly name for the fork")
 	cmd.Flags().String("model", "", "model override for the fork (default: the source/backend default)")
 	cmd.Flags().String("permission-mode", "", "permission mode for the fork: acceptEdits|auto|bypassPermissions|default|dontAsk|plan (default: from config)")
+	addJSONFlag(cmd, "emit the forked agent (id, name, role, ai_cli, model, workdir) as JSON")
 	cmd.Flags().Bool("force", false, "fork even when the memory-pressure gate warns")
 	return cmd
 }

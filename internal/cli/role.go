@@ -73,11 +73,22 @@ func newRoleCmd() *cobra.Command {
 }
 
 func newRoleListCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List the built-in agent roles and their descriptions",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if jsonRequested(cmd) {
+				type roleRow struct {
+					Name        string `json:"name"`
+					Description string `json:"description"`
+				}
+				rows := []roleRow{}
+				for _, r := range role.All() {
+					rows = append(rows, roleRow{Name: r.Name, Description: r.Description})
+				}
+				return printJSON(cmd.OutOrStdout(), rows)
+			}
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 			fmt.Fprintln(w, "ROLE\tDESCRIPTION")
 			for _, r := range role.All() {
@@ -90,6 +101,8 @@ func newRoleListCmd() *cobra.Command {
 			return w.Flush()
 		},
 	}
+	addJSONFlag(cmd, "emit the roles as a JSON array")
+	return cmd
 }
 
 func newRoleTierCmd() *cobra.Command {

@@ -72,10 +72,10 @@ The Cockpit grid has per-tile checkboxes (with Shift-click range select). While 
 ```sh
 warden agent handoff --resume-file notes.md --resume-prompt "take the API layer"   # new delegate (own worktree); source keeps running
 warden agent handoff --to agent-4f2a --resume-file notes.md --resume-prompt "…"    # deliver into a running agent's inbox; source keeps running
-warden agent handoff --retire --confirm --resume-file notes.md --resume-prompt "…" # retire self into a same-worktree successor
+warden agent handoff --retire --yes --resume-file notes.md --resume-prompt "…" # retire self into a same-worktree successor
 ```
 
-The first two modes **keep the source running**. `--retire` (requires `--confirm`) is the **self-succession** mode — it spawns a successor in the calling agent's own worktree and reaps the caller, exactly what the `warden agent rotate` alias runs (see [Self-rotation](/warden/guides/rotation-digests/#self-rotation-warden-handoff---retire-alias-warden-rotate)). `--retire` and `--to` are mutually exclusive.
+The first two modes **keep the source running**. `--retire` (requires `--yes`) is the **self-succession** mode — it spawns a successor in the calling agent's own worktree and reaps the caller, exactly what the `warden agent rotate` alias runs (see [Self-rotation](/warden/guides/rotation-digests/#self-rotation-warden-handoff---retire-alias-warden-rotate)). `--retire` and `--to` are mutually exclusive.
 
 ## Export / import
 
