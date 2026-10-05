@@ -545,6 +545,11 @@ persona takes effect — a persona only injects at (re)launch, so unlike
 `set-permission-mode` this discards the agent's in-flight turn. MCP equivalent:
 `set_role {ticket, role}`.
 
+The preferred form is the consolidated `warden agent set <AGENT> role <role>`
+(also `permission-mode`, `compact`, `auto-approve`); read values back with
+`warden agent get <AGENT> [key] [--json]`. Role tier defaults:
+`warden agent role tier set <role> <tier>`.
+
 ### How it's stored and injected
 
 Only the role **name** is persisted (`Session.Role`; empty ⇒ `general`, so
