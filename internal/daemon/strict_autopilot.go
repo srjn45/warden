@@ -75,6 +75,17 @@ func (s *Server) CompleteAutopilot(ctx context.Context, _ oapi.CompleteAutopilot
 	if !s.autopilot.CanBrainComplete(runID, caller.ID) {
 		return oapi.CompleteAutopilot403JSONResponse{Error: "only the run's active brain may complete it"}, nil
 	}
+	if s.autopilot.CompletionManaged() {
+		// The daemon owns completion (run-to-final-pr §E): the brain's signal only
+		// confirms done_when. The run completes when the single final PR is green,
+		// and autopilot never merges that PR.
+		st, err := s.autopilot.MarkVerified(runID)
+		if err != nil {
+			return nil, err
+		}
+		s.recordAuditCtx(ctx, audit.ActionAutopilotComplete, runID, map[string]string{"verified": "true"})
+		return oapi.CompleteAutopilot200JSONResponse(st), nil
+	}
 	st, err := s.autopilot.CompleteRun(ctx, runID)
 	if err != nil {
 		return nil, err

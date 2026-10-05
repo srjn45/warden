@@ -29,13 +29,15 @@ const (
 
 // ResolverSpawn describes a resolver worker to start on a PR branch.
 type ResolverSpawn struct {
-	RunID   string
-	Repo    string
-	TaskID  string
-	Branch  string
-	Class   string
-	Attempt int
-	Prompt  string
+	RunID  string
+	Repo   string
+	TaskID string
+	Branch string
+	// BaseBranch non-empty: create Branch off this branch instead of checking out an existing one.
+	BaseBranch string
+	Class      string
+	Attempt    int
+	Prompt     string
 }
 
 // ResolverRuntime is the optional daemon seam that actually starts the resolver
@@ -50,7 +52,9 @@ type ResolverRequest struct {
 	RunID  string
 	TaskID string
 	Branch string // the exact PR branch; "" falls back to the run's integration branch
-	Class  string
+	// BaseBranch, when set, makes Branch a NEW branch created off BaseBranch.
+	BaseBranch string
+	Class      string
 	// Detail is the stall diagnosis or failure reason/evidence.
 	Detail string
 }
@@ -87,7 +91,7 @@ func (c *Controller) spawnResolverLocked(ctx context.Context, r *run, req Resolv
 	}
 	attempt := r.resolverAttempts[key] + 1
 	spec := ResolverSpawn{
-		RunID: r.runID, Repo: r.repo, TaskID: req.TaskID, Branch: branch,
+		RunID: r.runID, Repo: r.repo, TaskID: req.TaskID, Branch: branch, BaseBranch: req.BaseBranch,
 		Class: req.Class, Attempt: attempt,
 		Prompt: composeResolverPrompt(r, req, branch, attempt),
 	}

@@ -92,7 +92,7 @@ func runStatus(r autopilot.RunStatus) string {
 		return StatusWaiting // parked: needs an operator, not an ordinary backoff error
 	}
 	switch r.State {
-	case autopilot.StateActive, autopilot.StateStarting, autopilot.StateHealing:
+	case autopilot.StateActive, autopilot.StateFinalizing, autopilot.StateStarting, autopilot.StateHealing:
 		return StatusActive
 	case autopilot.StatePaused, autopilot.StateDisabled:
 		return StatusIdle

@@ -51,6 +51,7 @@ func (c *Controller) RunGuardian(ctx context.Context) {
 			c.guardianTick(ctx)
 			c.overwatchTick(ctx)
 			c.landingTick(ctx)
+			c.completionTick(ctx)
 		}
 	}
 }

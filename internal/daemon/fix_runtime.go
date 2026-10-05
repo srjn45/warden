@@ -203,7 +203,15 @@ func (rt autopilotRuntime) SpawnFixWorker(ctx context.Context, spec autopilot.Fi
 // exact PR branch, tagged "resolver". It does not wait for it; its exit feeds the
 // normal landing loop.
 func (rt autopilotRuntime) SpawnResolver(ctx context.Context, spec autopilot.ResolverSpawn) (string, error) {
-	cwd, err := ensureNamedBranchWorktree(ctx, spec.Repo, spec.Branch, "resolver-", true)
+	var (
+		cwd string
+		err error
+	)
+	if spec.BaseBranch != "" {
+		cwd, err = newBranchWorktree(ctx, spec.Repo, spec.Branch, spec.BaseBranch, "resolver-")
+	} else {
+		cwd, err = ensureNamedBranchWorktree(ctx, spec.Repo, spec.Branch, "resolver-", true)
+	}
 	if err != nil {
 		return "", err
 	}
@@ -265,6 +273,25 @@ func ensureNamedBranchWorktree(ctx context.Context, repo, branch, prefix string,
 	}
 	_ = run("fetch", "origin", branch)
 	if err := run(append(add, "-b", branch, path, "origin/"+branch)...); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+// newBranchWorktree creates branch off origin/<base> in a fresh worktree (the
+// final-PR fix path: a new branch whose PR lands into the integration branch).
+func newBranchWorktree(ctx context.Context, repo, branch, base, prefix string) (string, error) {
+	if repo == "" || branch == "" || base == "" || strings.HasPrefix(branch, "-") || strings.HasPrefix(base, "-") {
+		return "", errors.New("new branch worktree: repo, branch and base required")
+	}
+	path := filepath.Join(repo, ".worktrees", prefix+strings.NewReplacer("/", "-", " ", "-").Replace(branch))
+	if dirExists(path) {
+		return path, nil
+	}
+	if _, err := gitIn(ctx, repo, "fetch", "origin", base); err != nil {
+		return "", err
+	}
+	if _, err := gitIn(ctx, repo, "worktree", "add", "-b", branch, path, "origin/"+base); err != nil {
 		return "", err
 	}
 	return path, nil

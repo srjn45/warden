@@ -147,8 +147,8 @@ func (f *guardianFake) NudgeBrain(_ context.Context, agentID, msg string) error 
 	f.nudges = append(f.nudges, agentID+": "+msg)
 	return nil
 }
-func (f *guardianFake) NotifyEscalation(_ string, title, _ string) {
-	f.escalations = append(f.escalations, title)
+func (f *guardianFake) NotifyEscalation(_ string, title, body string) {
+	f.escalations = append(f.escalations, title+": "+body)
 }
 
 // enabledGuardianController spins up an enabled controller with the given resolver

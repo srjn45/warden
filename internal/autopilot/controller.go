@@ -114,6 +114,7 @@ type Controller struct {
 	resolver          Resolver
 	guardian          GuardianParams
 	fixPolicy         FixPolicy
+	completionPolicy  CompletionPolicy
 
 	// Guardian triage seams (guardian_triage.go). fastBrain is nil ⇒ heuristics
 	// only; triageFn overrides the diagnosis call (tests); stallResolver is the
@@ -194,6 +195,9 @@ type run struct {
 	triage triageState
 	// wtriage is the overwatch's worker-triage state (overwatch_triage.go).
 	wtriage workerTriageState
+
+	// completion is the run's completion-phase bookkeeping (completion.go).
+	completion completionState
 
 	// resting is the guardian's per-agent usage-limit bookkeeping (limits.go).
 	resting map[string]*restingAgent
@@ -999,7 +1003,8 @@ func (c *Controller) statusLocked() Status {
 			Repo:              r.repo,
 			PlanID:            r.planID,
 			ProjectID:         r.projectID,
-			State:             r.state,
+			State:             r.reportedState(),
+			FinalPR:           r.completion.finalPR.snapshot(),
 			Gate:              c.runGate(r), // the mode resolved at preflight (§6.1)
 			Brain:             brain,
 			WorkersInFlight:   r.workersInFlight, // last roster count from the overwatch tick
@@ -1024,7 +1029,7 @@ func (c *Controller) statusLocked() Status {
 	}
 	sort.Slice(st.Runs, func(i, j int) bool { return st.Runs[i].RunID < st.Runs[j].RunID })
 	for _, rs := range st.Runs {
-		if rs.State == StateActive || rs.State == StateStarting || rs.State == StateHealing {
+		if rs.State == StateActive || rs.State == StateFinalizing || rs.State == StateStarting || rs.State == StateHealing {
 			st.Enabled = true
 			break
 		}
