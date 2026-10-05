@@ -31,9 +31,7 @@ import (
 	"github.com/srjn45/warden/internal/daemon"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/fastbrain"
-	"github.com/srjn45/warden/internal/internalrouter"
 	"github.com/srjn45/warden/internal/lifecycle"
-	"github.com/srjn45/warden/internal/llm"
 	"github.com/srjn45/warden/internal/logging"
 	"github.com/srjn45/warden/internal/mailbox"
 	"github.com/srjn45/warden/internal/memory"
@@ -188,28 +186,6 @@ func newDaemonRunCmd() *cobra.Command {
 			if exe, err := os.Executable(); err == nil {
 				lc.WardenBin = exe
 			}
-			// Optional local-model provider (Phase 1): only constructed when the
-			// operator opts in, so the default build never reaches out to Ollama.
-			// Classify routes through it first and falls back to Claude on any error.
-			if cfg.LocalLLM.Enabled {
-				o := llm.NewOllama(cfg.LocalLLM.URL, cfg.LocalLLM.Model, cfg.LocalLLMTimeoutDuration())
-				lc.LLM = o
-				slog.Info("local LLM enabled", "url", cfg.LocalLLM.URL, "model", cfg.LocalLLM.Model)
-				// Validate the configured model is actually pulled: if it isn't, every
-				// classify/summarize call 404s and silently escalates to a full Claude
-				// process (a steady poller-driven load spike). Log a loud, actionable
-				// ERROR at startup so the operator fixes it (pull the model or change
-				// local_llm.model) — `wd doctor` also flags this. Best-effort: an
-				// unreachable ollama here is not fatal (the model may still be pulled).
-				vctx, vcancel := context.WithTimeout(context.Background(), 3*time.Second)
-				if installed, err := o.InstalledModels(vctx); err != nil {
-					slog.Warn("local LLM: could not verify configured model is installed", "model", cfg.LocalLLM.Model, "err", err)
-				} else if !llm.ModelInstalled(cfg.LocalLLM.Model, installed) {
-					slog.Error("local LLM: configured model is NOT installed in ollama — every classify/summarize will fall back to a full Claude process; run `ollama pull <model>` or fix local_llm.model",
-						"model", cfg.LocalLLM.Model, "installed", installed)
-				}
-				vcancel()
-			}
 			// Prompt-name resolution: subscription headless CLI under the
 			// agentname 1.5s deadline (falls back to adjective-noun codenames).
 			lc.NameRunner = agentname.RunnerFunc(lc.RunClaudeP)
@@ -227,7 +203,9 @@ func newDaemonRunCmd() *cobra.Command {
 			// Fast-Brain arbiter: one headless-claude runner serves both tiers
 			// (per-tier timeouts still apply). Inert unless auto_approve.use_fast_brain.
 			fbRunner := fastbrain.RunnerFunc(lc.RunClaudeP)
-			pl.FastBrain = fastbrain.NewEngine(fbRunner, fbRunner)
+			fbEngine := fastbrain.NewEngine(fbRunner, fbRunner)
+			pl.FastBrain = fbEngine
+			lc.FastBrain = fbEngine
 			pl.Version = version
 			pl.RateLimitAutoResume = cfg.RateLimit.AutoResume
 			pstore, err := pipeline.NewStore(filepath.Join(cfg.DataDir, "pipelines"))
@@ -476,17 +454,6 @@ func newDaemonRunCmd() *cobra.Command {
 					slog.Warn("autopilot: could not remove imported deprecated brain config", "err", err)
 				}
 			}
-			// Internal-thinking router (docs/specs/2026-08-06-backend-registry.md
-			// §7): warden's own thinking — classify / summarize / name (lifecycle),
-			// digest narration, and memory curation — routes STRICTLY through the
-			// registry's free-CLI-then-local candidate walk and degrades gracefully
-			// when exhausted, so it NEVER makes a paid call. It is the single seam
-			// replacing every prior hardcoded `claude -p` internal offload. The local
-			// model (lc.LLM, nil when local_llm is off) is the terminal candidate; the
-			// runner executes a free CLI backend's HeadlessCmd; backends.limit_retry
-			// is the per-backend skip TTL after a rate-limit / spend signal.
-			internalRouter := internalrouter.New(backendStore, lc.LLM, runner, cfg.BackendsLimitRetryDuration())
-			lc.Internal = internalRouter
 			// Autopilot (docs/specs/autopilot.md): construct the master-switch
 			// Controller from config. S1 is inert — the switch + preflight exist on
 			// every surface but no brain spawns yet. baseDir anchors relative plan
@@ -548,7 +515,7 @@ func newDaemonRunCmd() *cobra.Command {
 			// Digest narration is internal thinking too: route it through the same
 			// free/local walk. On an exhausted walk Complete errors and the narrator
 			// returns "" so the digest skips its summary line (never a paid call).
-			srv.SetNarrator(digest.ClaudeNarrator{Run: internalRouter.Complete})
+			srv.SetNarrator(digest.ClaudeNarrator{FastBrain: fbEngine})
 			srv.SetSpawnGate(cfg.Worktree.SpawnGate, cfg.Worktree.SpawnGateMax)
 			srv.SetBudget(cfg.Tokens.BudgetGate, cfg.Tokens.BudgetDailyUSD, cfg.Tokens.BudgetWeeklyUSD)
 			srv.SetWorktreeRetention(cfg.Worktree.KeepDone, cfg.Worktree.AutoPrune)
@@ -575,8 +542,8 @@ func newDaemonRunCmd() *cobra.Command {
 			// writes UNVERIFIED proposals to the working tree only — never commits.
 			if cfg.Memory.Curate {
 				proposer := curate.LLMProposer{
-					LLM:    internalRouter,
-					Record: lc.RecordOffload,
+					FastBrain: fbEngine,
+					Record:    lc.RecordOffload,
 				}
 				exec.SetCurator(curate.New(&memory.Store{}, proposer))
 				slog.Info("memory auto-curation enabled (proposals only; committed diff is the review gate)")

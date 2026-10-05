@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -54,7 +56,7 @@ natural-language half; the ` + "`/` commands" + ` work regardless.`,
 				fmt.Fprintln(out, "natural-language mode is off (local_llm.enabled: true not set in `wd config path`) — /commands and !shell still work; type /help.")
 			}
 			cl := clientFor(cmd)
-			chat := llm.NewOllama(cfg.LocalLLM.URL, cfg.LocalLLM.Model, cfg.LocalLLMTimeoutDuration())
+			chat := unavailableChatter{}
 			// Show the operator what an empty model / permission_mode field in the
 			// [e]dit flow will actually resolve to (warden fills these from config
 			// when the model omits them).
@@ -66,7 +68,7 @@ natural-language half; the ` + "`/` commands" + ` work regardless.`,
 			sess := repl.NewSession(
 				chat, cl, repl.NewRegistry(),
 				gate,
-				repl.NewRouterFromConfig(cfg, chat),
+				repl.NewRouterFromConfig(cfg, nil),
 			)
 			// The orchestrator runs on top of the operator's own shell: `!`-lines
 			// pass through to a persistent $SHELL started in the launch dir, teeing
@@ -80,9 +82,6 @@ natural-language half; the ` + "`/` commands" + ` work regardless.`,
 			// verbatim (still $0), never escalating to a paid model.
 			if cfg.GetMemoryGround() {
 				var comp llm.Completer
-				if cfg.GetLocalLLM() {
-					comp = chat // *llm.Ollama implements llm.Completer
-				}
 				sess.EnableGrounding(repl.NewGrounder(cwd, &memory.Store{}, comp))
 			}
 			var sh repl.ShellRunner
@@ -93,4 +92,12 @@ natural-language half; the ` + "`/` commands" + ` work regardless.`,
 			return repl.RunREPL(cmd.Context(), sess, sh, cmd.InOrStdin(), out)
 		},
 	}
+}
+
+// unavailableChatter stands in for the retired local model: natural-language
+// turns report that they are unavailable, while /commands and !shell still work.
+type unavailableChatter struct{}
+
+func (unavailableChatter) Chat(context.Context, []llm.Message, []llm.ToolSchema) (llm.Reply, error) {
+	return llm.Reply{}, errors.New("natural-language mode is unavailable (local model retired); use /commands")
 }
