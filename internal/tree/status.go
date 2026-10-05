@@ -94,6 +94,8 @@ func runStatus(r autopilot.RunStatus) string {
 	switch r.State {
 	case autopilot.StateActive, autopilot.StateFinalizing, autopilot.StateStarting, autopilot.StateHealing:
 		return StatusActive
+	case autopilot.StateAwaitingMerge:
+		return StatusWaiting // waiting on the owner to merge the final PR
 	case autopilot.StatePaused, autopilot.StateDisabled:
 		return StatusIdle
 	case autopilot.StateRegistered:

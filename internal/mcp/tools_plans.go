@@ -100,7 +100,8 @@ type restartPlanArgs struct {
 }
 
 type completePlanArgs struct {
-	PlanID string `json:"plan_id" jsonschema:"the stable plan id (plan-<8hex>) to complete"`
+	PlanID          string `json:"plan_id" jsonschema:"the stable plan id (plan-<8hex>) to complete"`
+	AbandonUnmerged bool   `json:"abandon_unmerged,omitempty" jsonschema:"complete even when the integration branch has unmerged commits; keep the branch"`
 }
 
 type syncPlanToRepoArgs struct {
@@ -402,9 +403,9 @@ func (s *Server) registerPlanTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "complete_plan",
-		Description: "Complete a plan (in_progress → completed). Blocked with a structured error listing incomplete tasks and/or unmerged branches. On success moves the YAML to plans/completed/, cleans up worktrees, and returns the Plan.",
+		Description: "Complete a plan (in_progress → completed). Blocked with a structured error listing incomplete tasks and/or unmerged branches. For an autopilot plan whose integration branch still has commits not on the default branch, set abandon_unmerged=true to complete and keep the branch. On success cleans up worktrees and returns the Plan.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a completePlanArgs) (*mcpsdk.CallToolResult, any, error) {
-		p, err := s.cl.PlansComplete(ctx, a.PlanID)
+		p, err := s.cl.PlansComplete(ctx, a.PlanID, a.AbandonUnmerged)
 		if err != nil {
 			return planToolErr(err)
 		}

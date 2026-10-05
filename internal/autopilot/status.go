@@ -50,6 +50,8 @@ type RunStatus struct {
 	NeedsAttention string `json:"needs_attention,omitempty"`
 	// FinalPR is the single final PR (integration → default) once opened.
 	FinalPR *FinalPR `json:"final_pr,omitempty"`
+	// AwaitingMerge is set while the green final PR waits for its merge.
+	AwaitingMerge *AwaitingMerge `json:"awaiting_merge,omitempty"`
 	// ResolverAttempts counts resolver agents spawned per PR branch (capped at 3).
 	ResolverAttempts map[string]int `json:"resolver_attempts,omitempty"`
 	// LastProgressAt is the last observed run progress (ledger task change,

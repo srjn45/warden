@@ -391,10 +391,15 @@ func ParsePlanYAML(data []byte) (PlansUpdateRequest, error) {
 
 // PlansComplete transitions in_progress → completed (422 if tasks/branches block).
 // Uses longTimeout — completion tears down the plan's executor, agents and
-// worktrees and shells gh once per plan branch.
-func (c *Client) PlansComplete(ctx context.Context, planID string) (*PlanView, error) {
+// worktrees and shells gh once per plan branch. abandonUnmerged opts into
+// completing despite an unmerged integration branch (plan-finish-flow §5).
+func (c *Client) PlansComplete(ctx context.Context, planID string, abandonUnmerged ...bool) (*PlanView, error) {
+	var body any
+	if len(abandonUnmerged) > 0 && abandonUnmerged[0] {
+		body = map[string]bool{"abandon_unmerged": true}
+	}
 	var p PlanView
-	if err := c.doT(ctx, longTimeout, http.MethodPost, "/plans/"+url.PathEscape(planID)+"/complete", nil, &p); err != nil {
+	if err := c.doT(ctx, longTimeout, http.MethodPost, "/plans/"+url.PathEscape(planID)+"/complete", body, &p); err != nil {
 		return nil, err
 	}
 	return &p, nil

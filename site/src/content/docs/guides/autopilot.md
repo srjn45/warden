@@ -97,6 +97,10 @@ autopilot:
   merge:
     target_branch: autopilot/integration   # legacy default; new runs derive autopilot/<plan>
     gate: auto            # auto | ci | local (auto picks ci when a workflow covers the branch)
+  completion:
+    merge_default: true              # bring integration current with the default branch before the final PR
+    manager_verify_timeout: 30m      # how long the manager has to verify done_when
+    merge_poll_interval: 2m          # how often to poll a green final PR while awaiting owner merge (floor 30s)
 ```
 
 `warden autopilot init` also prints a CI hint when no workflow covers the

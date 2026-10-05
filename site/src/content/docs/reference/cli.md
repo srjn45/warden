@@ -1553,6 +1553,10 @@ Complete a plan: in_progress → completed. Blocked if any task is not
 done or skipped (skipped counts as finished), or if any branch the plan's
 work opened a PR for is still unmerged.
 
+For an autopilot plan whose integration branch still has commits not on
+the default branch and no matching merged final PR, completion is refused
+unless --abandon-unmerged is set (keeps the branch; records it as abandoned).
+
 On success the daemon records an execution summary on the plan, tears down
 its executor (autopilot run, pipeline and plan-bound agents), and removes
 their worktrees and branches. The plan record itself is kept; PR references
@@ -1563,8 +1567,10 @@ Usage:
   warden plan complete <plan-id> [flags]
 
 Flags:
-  -h, --help   help for complete
-      --json   output as JSON
+      --abandon-unmerged   complete even when the integration branch has unmerged commits; keep the branch
+  -h, --help               help for complete
+      --json               output as JSON
+      --yes                skip the abandon-unmerged confirmation
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)

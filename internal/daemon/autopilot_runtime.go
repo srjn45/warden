@@ -32,12 +32,14 @@ type autopilotRuntime struct{ s *Server }
 // any surface (guardian liveness §2.3, overwatch fleet-tending §2.4, the digest
 // sources) is a build error, not a silent no-op.
 var (
-	_ autopilot.Runtime          = autopilotRuntime{}
-	_ autopilot.GuardianRuntime  = autopilotRuntime{}
-	_ autopilot.MigrationRuntime = autopilotRuntime{}
-	_ autopilot.OverwatchRuntime = autopilotRuntime{}
-	_ autopilot.DigestSources    = autopilotRuntime{}
-	_ autopilot.EvidenceRuntime  = autopilotRuntime{}
+	_ autopilot.Runtime           = autopilotRuntime{}
+	_ autopilot.GuardianRuntime   = autopilotRuntime{}
+	_ autopilot.MigrationRuntime  = autopilotRuntime{}
+	_ autopilot.OverwatchRuntime  = autopilotRuntime{}
+	_ autopilot.DigestSources     = autopilotRuntime{}
+	_ autopilot.EvidenceRuntime   = autopilotRuntime{}
+	_ autopilot.CompletionRuntime = autopilotRuntime{}
+	_ autopilot.RunAgentReaper    = autopilotRuntime{}
 )
 
 // autopilotBrainRole is the built-in role the brain spawns under: it carries the

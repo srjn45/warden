@@ -1113,6 +1113,12 @@ type CloneRepoResponse struct {
 // CommitResult defines model for CommitResult.
 type CommitResult = lifecycle.CommitResult
 
+// CompletePlanRequest Optional body for plan complete. abandon_unmerged lets an operator finish an autopilot plan whose integration branch still has commits not on the default branch; the branch is kept and recorded as abandoned.
+type CompletePlanRequest struct {
+	// AbandonUnmerged Complete even when the integration branch has unmerged commits; keep the branch and record branch_fate=abandoned. Default false.
+	AbandonUnmerged bool `json:"abandon_unmerged,omitempty"`
+}
+
 // ConfirmationResponse defines model for ConfirmationResponse.
 type ConfirmationResponse struct {
 	ConfirmationRequired bool    `json:"confirmation_required"`
@@ -2676,6 +2682,9 @@ type RestorePlanBackupJSONRequestBody = RestorePlanBackupRequest
 
 // UpdatePlanJSONRequestBody defines body for UpdatePlan for application/json ContentType.
 type UpdatePlanJSONRequestBody = UpdatePlanRequest
+
+// CompletePlanJSONRequestBody defines body for CompletePlan for application/json ContentType.
+type CompletePlanJSONRequestBody = CompletePlanRequest
 
 // RestartPlanJSONRequestBody defines body for RestartPlan for application/json ContentType.
 type RestartPlanJSONRequestBody = RestartPlanRequest
@@ -11450,6 +11459,7 @@ func (response ArchivePlan404JSONResponse) VisitArchivePlanResponse(w http.Respo
 
 type CompletePlanRequestObject struct {
 	PlanId PlanId `json:"plan_id"`
+	Body   *CompletePlanJSONRequestBody
 }
 
 type CompletePlanResponseObject interface {
@@ -17009,6 +17019,16 @@ func (sh *strictHandler) CompletePlan(w http.ResponseWriter, r *http.Request, pl
 	var request CompletePlanRequestObject
 
 	request.PlanId = planId
+
+	var body CompletePlanJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if !errors.Is(err, io.EOF) {
+			sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+			return
+		}
+	} else {
+		request.Body = &body
+	}
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.CompletePlan(ctx, request.(CompletePlanRequestObject))
