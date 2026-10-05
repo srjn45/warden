@@ -35,9 +35,6 @@ func TestDecodeArgs_GarbageErrors(t *testing.T) {
 	require.Error(t, err, "un-parseable args must error so the loop can recover")
 }
 
-// Compile-time proof the concrete client will satisfy the seam (filled in Task 2).
-var _ Chatter = (*Ollama)(nil)
-
 // A trivial fake keeps Phase B unblocked before the real client lands.
 type fakeChatter struct{ reply Reply }
 

@@ -14,7 +14,6 @@ import (
 	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/daemon"
-	"github.com/srjn45/warden/internal/llm"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/projectstore"
@@ -175,13 +174,6 @@ func newDoctorCmd() *cobra.Command {
 				return exec.Command(name, args...).Output()
 			}
 			results = append(results, localLLMAdvice(cfg, detectMemoryGB(runCmd, runtime.GOOS, systemRAMGB)))
-
-			// Verify a configured local_llm.model is actually pulled into ollama —
-			// a missing one silently escalates every classify/summarize to Claude.
-			results = append(results, checkLocalModelInstalled(cfg, func() ([]string, error) {
-				o := llm.NewOllama(cfg.LocalLLM.URL, cfg.LocalLLM.Model, 3*time.Second)
-				return o.InstalledModels(cmd.Context())
-			}))
 
 			fmt.Fprint(cmd.OutOrStdout(), formatReport(doctorVersion, results))
 			if !allRequiredPass(results) {

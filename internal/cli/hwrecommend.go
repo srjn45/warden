@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/srjn45/warden/internal/config"
-	"github.com/srjn45/warden/internal/llm"
 )
 
 // recommendModel maps detected accelerator/host memory (GB) to a recommended
@@ -115,7 +114,7 @@ func checkLocalModelInstalled(cfg config.Config, lister func() ([]string, error)
 		return checkResult{name: name, ok: false, required: false,
 			detail: fmt.Sprintf("cannot reach ollama to verify %q is installed (%v); start ollama or run `ollama pull %s`", model, err, model)}
 	}
-	if llm.ModelInstalled(model, installed) {
+	if modelInstalled(model, installed) {
 		return checkResult{name: name, ok: true, required: true, detail: fmt.Sprintf("configured model %q is installed ✓", model)}
 	}
 	return checkResult{name: name, ok: false, required: true,
@@ -146,4 +145,26 @@ func localLLMAdvice(cfg config.Config, mem memProbe) checkResult {
 		detail += fmt.Sprintf("; configured %s — change local_llm.model to %s in your config file (`wd config path`)", configured, rec)
 	}
 	return checkResult{name: "local llm", required: false, ok: true, detail: detail}
+}
+
+// modelInstalled reports whether configured appears in installed, treating a
+// bare name as ":latest".
+func modelInstalled(configured string, installed []string) bool {
+	configured = strings.TrimSpace(configured)
+	if configured == "" {
+		return false
+	}
+	norm := func(s string) string {
+		if !strings.Contains(s, ":") {
+			return s + ":latest"
+		}
+		return s
+	}
+	want := norm(configured)
+	for _, m := range installed {
+		if norm(strings.TrimSpace(m)) == want {
+			return true
+		}
+	}
+	return false
 }
