@@ -149,7 +149,7 @@ planning tick. You can add tasks or change constraints while a run is active.
 By default, the manager picks the **cheapest available backend**. The cost-tier ladder
 is now **derived from the [backend registry](/warden/guides/backend-registry/)** — a
 backend's tier is whatever you set with `warden backend tier`, and only **installed,
-enabled, non-`local`** backends are eligible. So you steer autopilot's spending by
+enabled** backends are eligible. So you steer autopilot's spending by
 tiering backends:
 
 ```sh

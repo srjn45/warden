@@ -102,7 +102,7 @@ Capability highlights from recent releases (full notes on the [releases page](ht
 - **Mandatory agent naming** — every agent gets a non-empty name. Omit `--name` and warden resolves one at spawn: role/pipeline conventions (`AP:<plan>`, `wkr:<task>`, `brain:<target>`, `<pipe>:<stage>`), else a 2–4 word kebab-case slug from a fast-tier subscription AI CLI (1.5s timeout) with memorable adjective-noun codename fallback (`swift-falcon`), else a codename for prompt-less spawns. Auto-names disambiguate with `-2`/`-3` (never 409); explicit name collisions still 409. See [docs/USAGE.md § Mandatory agent names](docs/USAGE.md#mandatory-agent-names) and [Spawn & watch](https://srjn45.github.io/warden/guides/spawn-and-watch/).
 - **ScrivaDB-canonical Plans** — Plans are first-class ScrivaDB records (goal, tasks, lifecycle, revision, execution evidence). Repository `plans/**/*.{yaml,yml,json}` is an optional inert export via `wd plan sync_to_repo` (YAML default; `--format json` opt-in), never required for create/run/complete, and **not** scanned at daemon startup. JSON replicas are never execution SoT. Use `wd plan create` / `run` / `complete` / `archive` for DB-native work; while **pending**, mutate definitions with `wd plan update` / `edit` / `task` (non-pending → 409 Conflict; see [`docs/specs/2026-10-04-plan-modification-api.md`](docs/specs/2026-10-04-plan-modification-api.md)); `wd plan import-legacy` for one-time YAML cutover; `wd plan backup export|restore` for recovery without Git. Deprecated for one release: `wd plan scan` / `import` / `status` (cannot affect canonical execution after import). Playbooks: [Plans migration](https://srjn45.github.io/warden/guides/plans-migration/), [Using plans](https://srjn45.github.io/warden/guides/using-plans/), [Plan backup](https://srjn45.github.io/warden/guides/plan-backup-restore/), [Plans concepts](https://srjn45.github.io/warden/concepts/plans/), [`docs/MIGRATION-plans-scrivadb.md`](docs/MIGRATION-plans-scrivadb.md). Phase 12 acceptance gate is green ([report](docs/specs/2026-09-30-scrivadb-canonical-plans-acceptance.md)); JSON export [#585](https://github.com/srjn45/warden/issues/585) is opt-in; Hub plan sync [#586](https://github.com/srjn45/warden/issues/586) ships as opt-in explicit Push/Pull/Discover plus read-only remote discovery. Defaults remain offline: no startup calls or background replication, and Hub never replaces merged Git history as code-shipping authority.
 - **Autopilot** — a goal-directed, long-running autonomous mode. Author a named plan under `plans/` (`warden autopilot init --name <name>`), then `warden autopilot run start <name>` (or `warden autopilot enable` for legacy single-plan flows). Each run renders as a **plan-scoped tree** with stable slot ids (`<scope>-autopilot` for the manager, `<scope>-guardian` for the guardian daemon session) — guardian heal-ladder rotation is an in-place **hot-swap** into the same slot, not a new `agent-<hex>` id. A **manager** agent (role `autopilot`) drives **worker** agents (role `worker`, one per task) in isolated worktrees, gates their PRs through CI, and lands them into a **per-plan integration branch** (default `autopilot/<plan-name>`; existing runs on `autopilot/integration` are grandfathered) — all without human intervention, spawning a **resolver** (role `brain`) on demand to unblock a stuck worker. Multiple named runs can be active in one repo concurrently, each with its own branch. Configure CI with `autopilot/**` in workflow `pull_request` triggers so `gate: auto` covers every per-plan branch. The kill switch is `warden autopilot disable`. The switch is **per-repo** — `warden autopilot enable` enables only the current repository (add `--repo <root>` to target another), the enabled set is persisted so repos come back up across a daemon restart, and the manager marks its plan `status: complete` in place when it finishes so a done run is never re-run. See [Autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) and [Autopilot concepts](https://srjn45.github.io/warden/concepts/autopilot/).
-- **Backend registry** — warden detects the coding-agent CLIs installed on this machine (`claude`, `codex`, `aider`, …) plus a reserved `local` row for the free/local model, and persists each with a billing **tier** (`free`/`subscription`/`pay_per_use`/`unclassified`), an **enabled** flag, and at most one **default**. The store is the **single source of truth** — autopilot's cost-tier ladder and the internal free/local **thinking router** (warden's own task classification, digest narration, and memory curation, routed *strictly* through free/local backends — never a paid call) both read from it. Prompt-driven **agent naming** is separate: it uses a subscription fast-tier AI CLI with a 1.5s timeout and adjective-noun fallback (see Mandatory agent naming above). Manage it with `warden backend list|rescan|tier|default|enable|disable|thinking-mode`, the web **🧩 backends** panel, the TUI Backends page (`b`), or MCP (`list_backends`, `rescan_backends`, `set_backend_tier`, `set_default_backend`, `set_thinking_mode`). It supersedes the deprecated `autopilot.brain.backends` / `allow_pay_per_use` config (imported once, then ignored). See [Backend registry guide](https://srjn45.github.io/warden/guides/backend-registry/).
+- **Backend registry** — warden detects the coding-agent CLIs installed on this machine (`claude`, `codex`, `aider`, …) and persists each with a billing **tier** (`free`/`subscription`/`pay_per_use`/`unclassified`), an **enabled** flag, and at most one **default**. The store is the **single source of truth** — autopilot's cost-tier ladder reads from it. warden's own internal micro-cognition (task classification, summaries, agent naming, commit messages, digest narration, memory curation, REPL planning) runs on **Fast-Brain** — a latency-bounded, fail-open gateway over a headless backend CLI — and is independent of the registry's tiers. Manage it with `warden backend list|rescan|tier|default|enable|disable`, the web **🧩 backends** panel, the TUI Backends page (`b`), or MCP (`list_backends`, `rescan_backends`, `set_backend_tier`, `set_default_backend`). It supersedes the deprecated `autopilot.brain.backends` / `allow_pay_per_use` config (imported once, then ignored). See [Backend registry guide](https://srjn45.github.io/warden/guides/backend-registry/).
 - **Live config hot-reload** — edit `~/.warden/config.yaml` and warden **applies it with no daemon restart**: the autopilot template, `auto_approve` policy, token/context guard (`tokens.*`), `rails.*`, `model_default`, `default_permission_mode`, hint gates, and `notify.*`/webhook all re-apply on the next tick or spawn. A bad edit **keeps the last-good config** and alerts you rather than falling back to defaults; keys that genuinely need a restart (`addr`, `data_dir`, timers, loop cadences) are logged as changed-but-pending. See [Configuration](docs/FEATURES.md#12-configuration-yaml-config-file).
 - **Agent roles (`--role`)** — attach a named, persistent **persona** to an agent at spawn (`warden start … --role worker`) or switch it on a running agent (`warden agent role set <id> worker`, which relaunches to re-inject). Six built-in roles — `general` (default, no persona), `orchestrator`, `planner`, `worker`, `autopilot`, `brain` — each carrying a persona, default spawn flags, and a default model tier (the legacy names `implementer`/`auto-merger`/`reviewer` still work, mapped to `worker`). `warden agent role list` shows the catalog; the TUI new-agent form has a `ctrl+r` role picker and the web **+ New agent** modal a Role dropdown. See [Agent roles](#warden-agent-role-list--warden-agent-role-set).
 - **Tiered model routing (`--task` / `--tier`)** — warden picks each spawn's backend+model by **quota headroom** within a **model tier**, so a fleet spreads across providers instead of hammering one. The tier is resolved with the precedence `explicit --tier > task tier > role default tier > tier-2`: a **task** (`--task architecture`, the *what*, from the task registry) or **role** (`--role planner`, the *who*) derives the tier, or pin it with `--tier tier-1`. Headroom is **per quota scope** (e.g. Cursor `api`/`auto`/`included`), so exhausting one scope no longer blocks sibling models on the same backend. The TUI new-agent form is **tier-first** (`ctrl+t`: `auto` / `tier-1`/`2`/`3` plus a live candidate table); spawn passes the tier to the resolver rather than pinning a backend CLI. A pinned `--ai-cli`/`--model` bypasses the resolver, and a first spawn degrades to defaults if routing is unavailable — it never hard-fails. `--tier` is also a pipeline-job field (`tier:`). See [Tiered model routing](docs/specs/tiered-model-routing.plan.md), [`docs/specs/agent-roles.md`](docs/specs/agent-roles.md), and [per-scope quota routing](docs/specs/2026-09-26-per-scope-quota-routing.md).
@@ -127,7 +127,7 @@ export WARDEN_PLAN_SYNC_TOKEN="$WARDEN_TOKEN"
 
 For a direct endpoint check, POST a valid v1 plan-sync envelope to `http://127.0.0.1:8787/api/v1/plan-sync/push` with `Authorization: Bearer $WARDEN_TOKEN`; use the matching `pull` or `discover` endpoint to read it back. Stop the daemon with `Ctrl-C` when finished. A default installation remains local/offline and makes no Hub network calls.
 - **Isolation guardrails (v5.0, breaking)** — write-type agents (`code`/`docs`/`website`/`debug-ci`/`tests`) now spawn into their own worktree by default (`--in-repo` opts out), backed by PreToolUse hooks that deny-redirect raw `git`/test commands to the first-class `warden commit`/`push`/`sync`/`check` tools. See [Lifecycle commands & boundary enforcement](#lifecycle-commands--boundary-enforcement).
-- **Interactive mode (`warden backend repl`)** — a terminal REPL with a real line editor (history, a live `/`-command menu, Tab completion, guided argument forms, colour) that drives the fleet via deterministic `/` commands (no model) or natural language (a local-LLM conductor that turns operator intent into confirmed warden tool calls without spending cloud-model tokens).
+- **Interactive mode (`warden repl`)** — a terminal REPL with a real line editor (history, a live `/`-command menu, Tab completion, guided argument forms, colour) that drives the fleet via deterministic `/` commands (no model) or natural language (a Fast-Brain conductor that turns operator intent into confirmed warden tool calls — works out of the box, no local model needed).
 - **Pipelines, end to end** — DAG pipelines are now drivable from the **MCP tools** (create/start/show/list/cancel), ship four built-in `--template` starters, and support `run_if` conditional steps.
 - **Stored entity hierarchy** — projects own complete `agents[]`, `pipelines[]`, and `terminals[]` membership lists. Agents store `parent_id`, `child_agents[]`, and `child_pipelines[]`; pipelines store `parent_agent_id`. Pipeline job agents belong to pipeline jobs, never the owner’s `child_agents[]`. The UX uses `pending`, `busy`, `idle`, `need-input`, `done`, `orphaned`, and `rate_limited`; raw status aliases remain compatible. See the [entity model and lifecycle](docs/USAGE.md#project-membership-and-agent-hierarchy).
 - **Project groups & per-project orchestrators** — organize repos into named project groups visible in the TUI tree (each member shows its group label), managed via first-class `warden projects` and `warden project-groups` CLI commands. Opening a project restores whatever members were hibernated when it was last closed and otherwise opens empty — you (or a parent agent) spawn an orchestrator into a project when you want one. Orchestrators running in a grouped project learn their group name and sibling orchestrator names via context injection at every launch so they can coordinate without manual wiring. See [Project groups guide](https://srjn45.github.io/warden/guides/project-groups/).
@@ -155,12 +155,11 @@ For a direct endpoint check, POST a valid v1 plan-sync envelope to `http://127.0
 - **Aider** (`aider` on PATH, optional) — only needed to spawn agents with `--ai-cli aider`; bring-your-own-model (works with local Ollama models, $0)
 - **OpenCode** (`opencode` on PATH, optional) — only needed to spawn agents with `--ai-cli opencode`; bring-your-own-model (works with local Ollama models, $0). Install: `npm install -g opencode-ai` (https://opencode.ai)
 - **`gh`** (GitHub CLI) — required for `pr-review` sessions to check out the PR branch, and for `warden agent done --create-pr`
-- **Ollama** (optional) — only needed if you enable the local-LLM features (`local_llm`) or the `warden backend repl` REPL; warden falls back to Claude when it's off or unreachable
 
 > **Tip:** once you have the `warden` binary, run **`warden doctor`** to check
 > these dependencies and **`warden setup`** to install whatever is missing
 > (Homebrew on macOS; apt/dnf/pacman on Linux; official installers for Claude
-> Code and Ollama). `warden setup --yes` does it non-interactively.
+> Code). `warden setup --yes` does it non-interactively.
 
 ---
 
@@ -512,7 +511,8 @@ the AI CLI per agent at spawn time with `--ai-cli` (CLI; deprecated alias `--bac
 | **Antigravity CLI** | `antigravity` | A | ✅ Stable. Google-hosted free tier (`agy`, multi-vendor model menu); structured trajectory JSONL (incl. tool calls / files changed) ⇒ real digests; **resumes** dir-scoped (`agy -c`); live state + approval/trust detection; context injection via `AGENTS.md`; spend tokens-only. See [`docs/agent-backends/antigravity.md`](docs/agent-backends/antigravity.md) |
 
 ```bash
-# Drive Aider against a local Ollama model (free, offline)
+# Optional BYO: drive Aider against a local Ollama model (free, offline) — a backend
+# provider choice, not a warden dependency (warden itself no longer needs Ollama)
 export OLLAMA_API_BASE=http://127.0.0.1:11434
 warden start "implement the add function" --ai-cli aider --model ollama_chat/qwen2.5-coder:3b --dir .
 
@@ -555,38 +555,35 @@ and roadmap item #52.
 
 Which backends exist, how they're billed, and which one is the default is a durable,
 inspectable fact — not something re-derived on every spawn. warden **detects** the
-coding-agent CLIs installed on this machine (`claude`, `codex`, `aider`, …) plus a
-reserved **`local`** row for the free/local model, and persists each in an embedded
+coding-agent CLIs installed on this machine (`claude`, `codex`, `aider`, …) and
+persists each in an embedded
 store (`~/.warden/backends`) with a billing **tier**, an **enabled** flag, and at
 most one **default**. The store is warden's **single source of truth**: autopilot's
-cost-tier ladder and the internal free/local **thinking router** both read from it.
+cost-tier ladder reads from it.
 
 - **Detection is a fact; tiering is a preference.** `warden backend rescan`
   reconciles detection (adds newly installed CLIs, marks vanished ones uninstalled)
   and **never** touches your tier / default / enabled choices.
 - **Tiers:** `free` · `subscription` · `pay_per_use` · `unclassified` (and the
-  reserved, system-set `local`). A newly detected CLI starts `unclassified` (treated
+  retired `local` row is no longer listed). A newly detected CLI starts `unclassified` (treated
   as *not free*).
-- **Internal-thinking router — free/local only, never paid.** warden's own internal
-  thinking (task classification, activity summaries, agent naming, digest narration,
-  memory curation) is routed *strictly* through free and local backends and **never**
-  makes a paid call. The **thinking-mode** picks the walk: `local_only` (local model
-  only) or `free_plus_local` (eligible free CLIs first, local model last — the
-  default). When the walk is exhausted warden degrades gracefully rather than
-  escalating to a paid backend.
+- **Internal thinking runs on Fast-Brain, not the registry.** warden's own micro-cognition
+  (task classification, summaries, agent naming, commit messages, curation, digest/insights
+  narration, REPL planning) goes through Fast-Brain (`internal/fastbrain`): latency-bounded and
+  fail-open — on timeout or no backend warden falls back to deterministic output. The old
+  *thinking-mode* setting, the reserved `local` row and the local-model router are retired
+  (`PUT /api/v1/backends/thinking-mode` is a 200 no-op for old clients).
 
 ```sh
-warden backend list                 # full table incl. the local row + thinking mode
+warden backend list                 # full table of detected backends
 warden backend rescan               # re-detect installed CLIs, preserve preferences
 warden backend tier codex free      # tier codex as a $0 backend
 warden backend default claude       # make claude the default backend
 warden backend disable aider        # stop using a backend
-warden backend thinking-mode local_only
 ```
 
 Drive it from the web **🧩 backends** panel, the TUI **Backends page** (`b`), or over
-MCP (`list_backends`, `rescan_backends`, `set_backend_tier`, `set_default_backend`,
-`set_thinking_mode` — enabling/disabling is CLI/web/TUI + REST `PATCH
+MCP (`list_backends`, `rescan_backends`, `set_backend_tier`, `set_default_backend` — enabling/disabling is CLI/web/TUI + REST `PATCH
 /api/v1/backends/{id}`). The registry **supersedes** the deprecated
 `autopilot.brain.backends` ladder and `autopilot.brain.allow_pay_per_use` gate: those
 config keys are imported into the store **once** on the first boot after upgrade, then
@@ -620,14 +617,13 @@ Warden reads all settings from a single YAML file (default `~/.warden/config.yam
 | `collab.enabled` / `collab.interval` / `collab.git_reconcile_interval` / `collab.hint` | `true` / `10s` / `2m` / `true` | File-conflict detection: fsnotify-first dirty tracking, watch-reconcile interval, git-diff backstop, and the spawn-time coordination hint |
 | `rails.isolation_guard` / `rails.git_redirect` / `rails.check_redirect` / `rails.git_conventions` | `true` | Boundary-enforcement hooks (see [Lifecycle commands & boundary enforcement](#lifecycle-commands--boundary-enforcement)) |
 | `log.level` / `log.format` | `info` / `text` | Daemon log verbosity (`debug`/`info`/`warn`/`error`) and format (`text`/`json`); `warden daemon --log-level`/`--log-format` override |
-| `local_llm.enabled` (+ `.url`/`.model`/`.timeout`) | `false` | Route fuzzy-cheap work (classify, summarize, commit messages) to a local Ollama model; falls back to Claude on any error. Powers the natural-language half of `warden backend repl` (its `/` commands work without it) |
-| `local_llm.repl` | `false` | **Deprecated / no-op.** Historically started the cockpit's shell pane in `warden backend repl` mode; the cockpit no longer has a REPL-hosting pane (its bottom-left pane is now a first-class terminal), so this setting is inert. Run the REPL standalone with `warden backend repl`. |
+| `local_llm.*` | — | **Retired.** Legacy `local_llm` keys still parse but are ignored; Fast-Brain replaced the local Ollama provider (no config needed) |
 
-`warden config` lists every setting, including `worktree.spawn_gate` / `worktree.spawn_gate_max_agents`, `tokens.budget_gate` / `tokens.budget_daily_usd` / `tokens.budget_weekly_usd`, `metrics`, `allow_nonloopback`, `pipeline.keep_done` / `pipeline.hint`, `worktree.keep_done` / `worktree.auto_prune`, the `auto_restart.*` and `rate_limit.*` knobs, and the REPL tier knobs (`local_llm.tier` / `local_llm.escalate` / `local_llm.classifier`).
+`warden config` lists every setting, including `worktree.spawn_gate` / `worktree.spawn_gate_max_agents`, `tokens.budget_gate` / `tokens.budget_daily_usd` / `tokens.budget_weekly_usd`, `metrics`, `allow_nonloopback`, `pipeline.keep_done` / `pipeline.hint`, `worktree.keep_done` / `worktree.auto_prune`, the `auto_restart.*` and `rate_limit.*` knobs.
 
 > Related settings are grouped into namespaced blocks (`pipeline.*`, `auto_restart.*`, `collab.*`, `memory.*`, `branch_track.*`, `rate_limit.*`, `http.*`, `log.*`, `plugins.*`, alongside the existing `rails.*` / `tokens.*` / `notify.*` / `worktree.*` / `local_llm.*`). The old flat keys (`collab_enabled`, `log_level`, `memory_inject`, …) still load as **deprecated aliases** — they work but emit a one-time deprecation warning; `warden config` rewrites them into the nested form.
 
-> **Config namespacing:** Settings are grouped into five YAML blocks — `rails`, `tokens`, `notify`, `worktree`, `local_llm`. Old flat keys (e.g. `token_guard`, `local_llm_url`, `notify`) are still accepted as deprecated aliases and migrate to the namespaced form automatically when `warden config init` is re-run.
+> **Config namespacing:** Settings are grouped into five YAML blocks — `rails`, `tokens`, `notify`, `worktree` (plus the retired, ignored `local_llm`). Old flat keys (e.g. `token_guard`, `local_llm_url`, `notify`) are still accepted as deprecated aliases and migrate to the namespaced form automatically when `warden config init` is re-run.
 
 > **Legacy env vars:** the old `WARDEN_*` environment variables (e.g. `WARDEN_ADDR`, `WARDEN_NOTIFY`, `WARDEN_TOKEN_*`) are no longer read — the daemon warns once at startup if any are still set. The per-agent IPC vars warden injects into each agent (`WARDEN_SESSION_ID`, `WARDEN_PIPELINE_ID`, `WARDEN_JOB_ID`) are not configuration and are unaffected.
 
@@ -984,7 +980,7 @@ Unrecognized prompts always fall back to attach. Also surfaced in the web Attent
 
 ### `warden doctor`
 
-Preflight checks — required binaries (`tmux`, `git`, `claude`), optional ones (`gh`, `ollama`, warn-only), daemon reachability, and the data directory. It also prints a one-line hardware-aware `local_llm_model` recommendation for the REPL.
+Preflight checks — required binaries (`tmux`, `git`, `claude`), optional ones (`gh`, warn-only), daemon reachability, and the data directory. It no longer checks for Ollama.
 
 ```sh
 warden doctor
@@ -992,23 +988,16 @@ warden doctor
 
 ### `warden setup`
 
-Verifies the install with the **same checks as `doctor`**, then installs whatever is missing — idempotent, so it only touches deps that aren't already on PATH. It prints the exact install command for each missing dependency and prompts before running it; `--yes` installs everything without prompting (for automation). Required deps (`tmux`, `git`, `claude`) come first, then optional ones (`gh`, `ollama`). Package managers are auto-detected — Homebrew on macOS (never auto-bootstrapped) and `apt`/`dnf`/`pacman` on Linux — and Claude Code and Ollama use their official installers. After installing, it re-runs the checks and prints a doctor-style report. `setup` is **CLI-only** (it installs host packages) and is not exposed over MCP.
+Verifies the install with the **same checks as `doctor`**, then installs whatever is missing — idempotent, so it only touches deps that aren't already on PATH. It prints the exact install command for each missing dependency and prompts before running it; `--yes` installs everything without prompting (for automation). Required deps (`tmux`, `git`, `claude`) come first, then optional ones (`gh`). Package managers are auto-detected — Homebrew on macOS (never auto-bootstrapped) and `apt`/`dnf`/`pacman` on Linux — and Claude Code uses its official installer. After installing, it re-runs the checks and prints a doctor-style report. `setup` is **CLI-only** (it installs host packages) and is not exposed over MCP.
 
 ```sh
 warden setup            # confirm-each install of anything missing
 warden setup --yes      # non-interactive: install all missing deps
 ```
 
-### `warden backend suggest` (memory-ranked model picker)
+### `warden backend suggest` (retired)
 
-Recommends local models for the REPL (`warden backend repl`), sized to this machine. It auto-detects **two** figures from the *same* memory pool — **total** memory (the bound) and **average free** memory (sampled to smooth spikes) — using NVIDIA VRAM (`nvidia-smi`), Apple unified memory, or Linux `MemAvailable`. It scores a curated, **tool-calling-forward** catalog (Qwen3, gpt-oss, Mistral Small, Qwen2.5) by **conductor suitability** — not raw size or coding skill, since the REPL routes tool calls and never writes code. Scores are calibrated against the [Berkeley Function-Calling Leaderboard](https://gorilla.cs.berkeley.edu/leaderboard.html) (BFCL v4), weighted toward the multi-turn subcategory that matches the REPL's tool-call loop. Each model is marked `fits now` / `free memory first` / `too large`. The ★ pick is the best-scoring model that runs *comfortably now* with headroom for your real workload (Docker, DBs, IDE, Claude sessions, the daemon). It only ever recommends — you set `local_llm_model` yourself.
-
-```sh
-warden backend suggest                    # auto-detect and rank
-warden backend suggest --samples 8        # average more free-memory samples
-warden backend suggest --total-gb 48 --free-gb 30   # what-if for another machine
-warden backend suggest --json
-```
+Retired compatibility stub: warden no longer runs a local model (the REPL and internal thinking use Fast-Brain), so there is nothing to size or pull. It prints a notice and exits 0.
 
 ### `warden tutorial` (first-run walkthrough)
 
@@ -1175,9 +1164,9 @@ warden project memory --path           # just the resolved path (scriptable; no 
 
 At **every spawn** warden projects the budgeted, navigational render into the agent's system prompt through the same seam the collab/pipeline/git hints ride: **Claude** via `--append-system-prompt` (file-backed, so it never bloats the launch line), **codex / cursor / opencode / antigravity** via their `AGENTS.md` warden block, **crush** via `CRUSH.md`, **goose** via `.goosehints`; **aider** degrade-skips. **7 of 8 backends project with zero new adapter code.** It is config-gated by `memory.inject` (default on) — off, or an empty/absent file, makes the launch **byte-identical** to no injection. warden **reads but never rewrites** your CLAUDE.md/AGENTS.md/CONVENTIONS.md; `.warden/memory.md` is warden's own. `warden project memory` is CLI-local like `warden check`/`warden git review` (no daemon round-trip, no MCP twin).
 
-**Auto-curation (`memory.curate`, default OFF).** warden can also *propose* memory for you: on the existing completion-digest hook, a debounced extraction pass reads finished agents' digests + the current memory and writes **durable, reusable facts** back as `- [unverified · <date> · <provenance>] <fact>`. It is deliberately never authoritative — proposals land in the **working tree only** (warden **never commits and never pushes** them, so the committed diff is the human review gate), promote to `trusted` only when corroborated by a second agent or a human, **supersede** older contradicting facts (struck with a tombstone), **age out** past a TTL, and get **flagged stale** when a named path vanishes. It prefers the `$0` local model and never sits on a paid critical path. This is the core defence against memory *poisoning*: one agent's wrong belief can never silently mislead the fleet.
+**Auto-curation (`memory.curate`, default OFF).** warden can also *propose* memory for you: on the existing completion-digest hook, a debounced extraction pass reads finished agents' digests + the current memory and writes **durable, reusable facts** back as `- [unverified · <date> · <provenance>] <fact>`. It is deliberately never authoritative — proposals land in the **working tree only** (warden **never commits and never pushes** them, so the committed diff is the human review gate), promote to `trusted` only when corroborated by a second agent or a human, **supersede** older contradicting facts (struck with a tombstone), **age out** past a TTL, and get **flagged stale** when a named path vanishes. It runs on Fast-Brain (latency-bounded, fail-open) and never sits on a paid critical path. This is the core defence against memory *poisoning*: one agent's wrong belief can never silently mislead the fleet.
 
-**Local grounding (`memory.ground`, default ON).** In `warden backend repl` you can also *ask* this memory a question — `/memory <q>` (`/mem`/`/ask`), or the model-callable `project_memory` tool — and warden answers "where does X live?" / "how do I run Y?" **locally** from `.warden/memory.md`. This is the token-*removing* lever of the feature: unlike projection (which *adds* input tokens per turn), grounding *removes* a cloud round-trip by serving the answer from the local model. It is read-only (never creates or writes memory), cites each entry's trust (`unverified`/`trusted`/`human`) + provenance so a stale hint reads as a hint, stays on the **local tier only** (structurally `$0` — it can never escalate to a paid model), and with no local model configured degrades to returning the matching entries verbatim. An absent/empty file answers "not in project memory".
+**Local grounding (`memory.ground`, default ON).** In `warden repl` you can also *ask* this memory a question — `/memory <q>` (`/mem`/`/ask`), or the model-callable `project_memory` tool — and warden answers "where does X live?" / "how do I run Y?" from `.warden/memory.md`. This is the token-*removing* lever of the feature: unlike projection (which *adds* input tokens per turn), grounding answers from the curated memory file rather than a full agent turn. It is read-only (never creates or writes memory), cites each entry's trust (`unverified`/`trusted`/`human`) + provenance so a stale hint reads as a hint, runs on Fast-Brain (latency-bounded, never a paid agent turn), and with no backend available degrades to returning the matching entries verbatim. An absent/empty file answers "not in project memory".
 
 ### `warden inspect search <query…>` / `warden inspect history`
 
@@ -1305,7 +1294,7 @@ warden usage savings --audit                # raw-vs-kept provenance samples (ne
 warden usage savings --calibrate            # measure this workload's bytes/token vs Claude count_tokens (needs ANTHROPIC_API_KEY)
 ```
 
-Two axes are reported separately and never blended: the **context** axis (how much leaner context stayed, in % and $) and the **offload** axis (cloud-model work moved off entirely onto the local LLM, in $). Each figure states its basis — `CALIBRATED` or the 4-bytes/token `HEURISTIC`. See [docs/FEATURES.md §29](docs/FEATURES.md).
+Two axes are reported separately and never blended: the **context** axis (how much leaner context stayed, in % and $) and the **offload** axis (cloud-model work moved off to Fast-Brain, in $). Each figure states its basis — `CALIBRATED` or the 4-bytes/token `HEURISTIC`. See [docs/FEATURES.md §29](docs/FEATURES.md).
 
 ### `warden usage spend`
 
@@ -1332,7 +1321,7 @@ The daemon monitor behind it (enable with `branch_track.enabled`) delivers **non
 
 ### `warden usage insights`
 
-Mine archived agent history for **patterns** — recurring task shapes, slow/failure-prone work, and parallelization opportunities — as a deterministic report (optionally narrated by the local LLM). Gated by `insights` (default on).
+Mine archived agent history for **patterns** — recurring task shapes, slow/failure-prone work, and parallelization opportunities — as a deterministic report (optionally narrated by Fast-Brain). Gated by `insights` (default on).
 
 ```sh
 warden usage insights
@@ -1529,18 +1518,18 @@ generate` and export it as `WARDEN_READONLY_TOKEN` (it only works alongside a
 primary `WARDEN_TOKEN`; the daemon refuses to start with a read-only token but no
 primary one).
 
-### `warden backend repl` — interactive mode
+### `warden repl` — interactive mode
 
 warden's **interactive mode**: a proper terminal REPL to drive the fleet, with a real line editor (arrow keys, persisted history, reverse-search, a **live `/`-command menu** that filters as you type, **Tab completion**, colourised prompt) that closes cleanly with Ctrl-D. It drives the fleet two ways:
 
-- **Deterministic `/` commands (no model)** — `/agents`, `/spawn <prompt>`, `/tell <id> <text>`, `/memory <question>`, `/pipelines`, … Typing `/` pops a live, filtering menu of matching verbs (each with its summary); `/help` lists them all. These keep working even when the local model is slow or wrong. When a command needs more input, a **guided argument form** collects it — numbered pick-lists for known fields (model, permission, type), free text for the rest — opening automatically for a missing required arg or on a `+`-suffixed verb (`/spawn+`); a local model, if present, pre-fills each field with a suggestion you can accept, override, or clear.
-- **Natural language (local LLM)** — any other line is planned into **confirmed** warden tool calls without spending cloud-model tokens. It conducts; it never implements — all code work is delegated by spawning an agent.
-- **Local project grounding (`$0`)** — ask a project question ("where does the spawn gate live?", "how do I run the tests?") via `/memory <q>` (`/mem`/`/ask`) or the `project_memory` tool and warden answers it **locally** from `.warden/memory.md`, citing each entry's trust + provenance. It *removes* a cloud round-trip (rather than adding tokens like injection); read-only, degrades to the matching entries verbatim with no local model, default on via `memory.ground`.
+- **Deterministic `/` commands (no model)** — `/agents`, `/spawn <prompt>`, `/tell <id> <text>`, `/memory <question>`, `/pipelines`, … Typing `/` pops a live, filtering menu of matching verbs (each with its summary); `/help` lists them all. These keep working even when Fast-Brain is slow or unavailable. When a command needs more input, a **guided argument form** collects it — numbered pick-lists for known fields (model, permission, type), free text for the rest — opening automatically for a missing required arg or on a `+`-suffixed verb (`/spawn+`); Fast-Brain, if available, pre-fills each field with a suggestion you can accept, override, or clear.
+- **Natural language (Fast-Brain)** — any other line is planned into **confirmed** warden tool calls by Fast-Brain; it works out of the box, with no local model or `local_llm` config. It conducts; it never implements — all code work is delegated by spawning an agent.
+- **Local project grounding (`$0`)** — ask a project question ("where does the spawn gate live?", "how do I run the tests?") via `/memory <q>` (`/mem`/`/ask`) or the `project_memory` tool and warden answers it from `.warden/memory.md`, citing each entry's trust + provenance. It *removes* a cloud round-trip (rather than adding tokens like injection); read-only, degrades to the matching entries verbatim with no backend available, default on via `memory.ground`.
 
-It **starts without a local model** (the `/` commands and `!`-shell always work); only the natural-language half needs `local_llm: true`. Every mutating action passes a mandatory confirm gate. Run it standalone with `warden backend repl`. See [docs/FEATURES.md §17](docs/FEATURES.md).
+The `/` commands and `!`-shell always work, even if Fast-Brain is unavailable. Every mutating action passes a mandatory confirm gate. Run it standalone with `warden repl`. See [docs/FEATURES.md §17](docs/FEATURES.md).
 
 ```sh
-warden backend repl                           # aliases: warden backend repl, warden i
+warden repl                                   # aliases: warden i, warden interactive; also warden backend repl
 ```
 
 ### `warden project plugin`

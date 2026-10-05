@@ -13,7 +13,7 @@ warden usage insights
 warden usage insights --json
 ```
 
-The aggregation is **deterministic** (pure history math); when `local_llm` is on, a
-local model adds a short narrative on top — it never invents numbers, and a missing
-model just yields the deterministic report. Also exposed as the `insights` MCP tool
+The aggregation is **deterministic** (pure history math); Fast-Brain
+adds a short narrative on top — it never invents numbers, and an unavailable
+backend just yields the deterministic report. Also exposed as the `insights` MCP tool
 so an orchestrator can ask for the same summary.

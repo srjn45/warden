@@ -43,7 +43,7 @@ One binary wears several hats:
 | **TUI cockpit** | `warden tui` (or bare `warden`) — a live tmux-based terminal dashboard of the whole fleet. | When you want a terminal cockpit. |
 | **Web GUI** | A React dashboard the daemon embeds and serves alongside the API — tabbed mission control with live SSE, interactive terminals, and an attention queue. | Open the daemon's address in a browser. |
 | **MCP server** | `warden daemon mcp` — a stdio bridge so an *orchestrator* agent session (e.g. Claude) can manage agents through tool calls. | Wired into an orchestrator agent's MCP config. |
-| **Interactive REPL** *(experimental)* | `warden backend repl` — a local-LLM conductor REPL that turns plain-English intent into confirmed warden actions, spending no cloud-model tokens. | When you want NL control without an MCP orchestrator session. |
+| **Interactive REPL** *(experimental)* | `warden repl` — a Fast-Brain conductor REPL that turns plain-English intent into confirmed warden actions; works out of the box, no local model needed. | When you want NL control without an MCP orchestrator session. |
 
 Everything flows through the daemon, so **the daemon must be running** before
 any other command will work.
@@ -108,7 +108,6 @@ claude --version     # the agent runtime
 tmux -V              # every agent lives in a tmux window (≥ 3.1 for the cockpit)
 git --version        # worktree creation/cleanup
 gh --version         # only needed for pr-review agents
-ollama --version     # optional — only for local_llm / `wd backend repl`
 curl -s localhost:8765/healthz   # → {"status":"ok"} means the daemon is up
 ```
 
@@ -419,7 +418,8 @@ you pick one per agent at spawn time with `--ai-cli` (deprecated alias `--backen
 # Claude (default) — nothing to pass
 warden start "review the auth module"
 
-# Aider against a local Ollama model (free, offline, $0)
+# Optional BYO: Aider against a local Ollama model (free, offline, $0) — a backend
+# provider choice, not a warden dependency (warden no longer needs Ollama itself)
 export OLLAMA_API_BASE=http://127.0.0.1:11434
 warden start "implement the add function" \
   --ai-cli aider --model ollama_chat/qwen2.5-coder:3b --dir .
@@ -556,55 +556,42 @@ nothing, leaving a plain/`general` spawn byte-identical to before roles existed.
 
 `--ai-cli` (§5.2) picks an AI CLI for *one* spawn. The **backend registry** is the
 durable, machine-wide picture behind it: warden detects the coding-agent CLIs
-installed on this machine (`claude`, `codex`, `aider`, …) plus a reserved **`local`**
-row for the free/local model, and persists each in an embedded store
+installed on this machine (`claude`, `codex`, `aider`, …) and persists each in an embedded store
 (`~/.warden/backends`) with a billing **tier**, an **enabled** flag, and at most one
 **default**. This store is warden's **single source of truth** — autopilot's cost-tier
-ladder and the internal free/local **thinking router** both read from it.
+ladder reads from it; warden's own internal thinking runs on Fast-Brain instead.
 
 **Detection is a fact; tiering is a preference.** A `rescan` reconciles the detection
 fields (installed / binary path) — adding newly installed CLIs and marking vanished
 ones uninstalled — and **never** touches your tier / default / enabled choices.
 
 ```sh
-warden backend list                 # full table incl. the reserved local row
+warden backend list                 # full table of detected backends
 # ID       INSTALLED  TIER          DEFAULT  ENABLED  LIMITED
 # aider    ✓          unclassified  -        ✓        -
 # claude   ✓          subscription  ✓        ✓        -
 # codex    ✓          free          -        ✓        -
-# local    -          local         -        ✓        -
-#
-# internal thinking mode: free_plus_local
 
 warden backend rescan               # re-detect installed CLIs (preferences preserved)
 warden backend tier codex free      # tier codex as a $0 backend
-warden backend default claude       # set the single default (rejects local)
+warden backend default claude       # set the single default
 warden backend enable codex         # / warden backend disable aider
-warden backend thinking-mode local_only   # or free_plus_local (default)
 ```
 
 **Tiers** are `free` · `subscription` · `pay_per_use` · `unclassified` (a newly
-detected CLI starts `unclassified`, treated as *not free*), plus the reserved,
-system-set `local`. Exactly one backend may be the **default** (what an empty
-`--backend` resolves to); the reserved `local` row can never be a
-default. (Terminals are no longer a backend row — spawn one with `--kind terminal`.)
+detected CLI starts `unclassified`, treated as *not free*). Exactly one backend may be the **default** (what an empty
+`--backend` resolves to). The former reserved `local` row is pruned. (Terminals are no longer a backend row — spawn one with `--kind terminal`.)
 
-**Internal-thinking router — free/local only, never paid.** warden's own internal
-thinking (task classification, activity summaries, digest narration, memory curation)
-is routed *strictly* through free and local backends and **never** makes a paid call.
-(Prompt-driven **agent naming** is separate — a subscription fast-tier lookup with a
-1.5s timeout and adjective-noun fallback; see [Mandatory agent names](#mandatory-agent-names).)
-The **thinking-mode** picks the walk:
-
-- `local_only` — the local model only.
-- `free_plus_local` (default) — eligible **free** CLI backends first (installed +
-  enabled + tier `free` + not currently rate-limited), then the never-limited local
-  model. On a rate-limit / spend signal warden marks that backend limited (config
-  `backends.limit_retry`, default `15m`) and moves on; when the walk is exhausted it
-  degrades gracefully instead of escalating to a paid backend.
+**Internal thinking runs on Fast-Brain.** warden's own micro-cognition (task
+classification, activity summaries, agent naming, commit messages, digest narration,
+memory curation, REPL planning) goes through **Fast-Brain** — latency-bounded and
+fail-open over a headless backend CLI — rather than walking the registry. The old
+thinking-mode setting is retired (`PUT /api/v1/backends/thinking-mode` is a 200 no-op
+for older clients). On a rate-limit / spend signal a backend is marked limited
+(config `backends.limit_retry`, default `15m`) and skipped until it clears.
 
 Over **MCP**: `list_backends`, `rescan_backends`, `set_backend_tier`,
-`set_default_backend`, `set_thinking_mode` (enabling/disabling is CLI/web/TUI + REST
+`set_default_backend` (enabling/disabling is CLI/web/TUI + REST
 `PATCH /api/v1/backends/{id}`). Also on the web **🧩 backends** panel and the TUI
 **Backends page** (`b`).
 
@@ -951,24 +938,23 @@ warden backend model discover --import --tier tier-2       # register missing id
 `agy models`, `opencode models`, `crush models`, and the top-level `model = "…"`
 from `~/.codex/config.toml`.
 
-### `warden backend list|rescan|tier|default|enable|disable|thinking-mode` (backend registry)
+### `warden backend list|rescan|tier|default|enable|disable` (backend registry)
 
 Inspect and manage warden's **agent-backend registry** (§5.4) — the persistent store
 of which CLI backends exist on this machine, their billing tier, the single default,
-and whether each is enabled, plus the internal-thinking mode. Every subcommand is a
+and whether each is enabled. Every subcommand is a
 thin caller of the daemon's `/api/v1/backends*` endpoints.
 
 ```sh
-warden backend list                 # table: ID INSTALLED TIER DEFAULT ENABLED LIMITED + thinking mode (alias: ls)
+warden backend list                 # table: ID INSTALLED TIER DEFAULT ENABLED LIMITED (alias: ls)
 warden backend rescan               # re-detect installed CLIs, reconcile detection, keep preferences
-warden backend tier <id> <tier>     # free | subscription | pay_per_use | unclassified (local is system-set)
-warden backend default <id>         # set the single default (rejects unknown/uninstalled/disabled/local)
+warden backend tier <id> <tier>     # free | subscription | pay_per_use | unclassified
+warden backend default <id>         # set the single default (rejects unknown/uninstalled/disabled)
 warden backend enable <id>          # / warden backend disable <id>
-warden backend thinking-mode <mode> # local_only | free_plus_local (which backends internal thinking may call)
 ```
 
 Over MCP: `list_backends`, `rescan_backends`, `set_backend_tier`,
-`set_default_backend`, `set_thinking_mode` (enable/disable is CLI/web/TUI + REST
+`set_default_backend` (enable/disable is CLI/web/TUI + REST
 only). Also on the web 🧩 backends panel and the TUI Backends page (`b`).
 
 ### `warden project memory [--raw] [--path] [--edit]` (project memory)
@@ -999,16 +985,16 @@ the completion-digest hook extracts durable facts from finished agents and write
 only**. It **never commits or pushes**, so the committed diff is the human review
 gate; proposals promote to `trusted` only on corroboration, contradictions supersede
 (tombstone) older entries, un-recorroborated entries age out, and vanished paths are
-flagged stale. It prefers the `$0` local model. See the
+flagged stale. It runs on Fast-Brain (latency-bounded, fail-open). See the
 [Project memory](https://srjn45.github.io/warden/concepts/project-memory/) concept
 page.
 
-In `warden backend repl` you can also **ask** this memory a question — `/memory <q>` (`/mem`,
+In `warden repl` you can also **ask** this memory a question — `/memory <q>` (`/mem`,
 `/ask`), or the model-callable `project_memory` tool — and warden answers "where does
-X live?" / "how do I run Y?" **locally** from `.warden/memory.md` (config-gated by
+X live?" / "how do I run Y?" from `.warden/memory.md` (config-gated by
 `memory.ground`, default on). Unlike projection (which *adds* input tokens), grounding
-*removes* a cloud round-trip: it is served on the **local model only**, so it is
-structurally `$0` and never escalates to a paid model; with no local model configured
+answers from the memory file rather than a full agent turn: it is served by
+Fast-Brain and never escalates to a paid agent; with no backend available
 it degrades to returning the matching entries verbatim. It is read-only (an
 absent/empty file answers "not in project memory", never auto-created) and cites each
 entry's trust (`unverified`/`trusted`/`human`) + provenance so a stale hint reads as a
@@ -1258,7 +1244,7 @@ Read back the **token-savings ledger** — a real, append-only record of the tok
 warden's lifecycle features (starting with `wd check`) kept out of agents' context
 windows. Two axes are reported separately and never blended: the **context** axis
 (how much leaner context stayed, % and $) and the **offload** axis (Claude work
-moved off entirely onto the local LLM, $). Gated by the `savings` setting (default
+moved off to Fast-Brain, $). Gated by the `savings` setting (default
 on); `GET /api/v1/savings` returns 403 when off. See [FEATURES.md §29](FEATURES.md).
 
 ```sh
@@ -1315,7 +1301,7 @@ merged or far-behind branch. Every `gh`/git call fails open. Also at
 ### `warden usage insights [--json]`
 Mine archived agent history for **patterns** — recurring task shapes,
 slow/failure-prone work, and parallelization opportunities — as a deterministic
-report, optionally narrated by the local LLM (`local_llm`). Gated by `insights`
+report, optionally narrated by Fast-Brain. Gated by `insights`
 (default on); also the `insights` MCP tool. See [FEATURES.md §25](FEATURES.md).
 
 ### `warden workspace snapshot create|list|restore`
@@ -1351,7 +1337,7 @@ via `plugins.enabled` + a `plugins.registry` list; a worked example lives under
 
 ### `warden doctor`
 Preflight checks — required binaries (`tmux`, `git`, `claude`), optional ones
-(`gh`, `ollama`, warn-only), daemon reachability, and the data directory.
+(`gh`, warn-only), daemon reachability, and the data directory.
 
 Flags:
 - `--sessions` — diagnose the session store offline without modifying it
@@ -1370,12 +1356,12 @@ is missing. Idempotent — it only touches deps that aren't already on PATH. For
 each missing dependency it prints the exact install command and prompts before
 running it; `--yes` installs everything missing without prompting (for
 automation). Required deps (`tmux`, `git`, `claude`) are offered first, then the
-optional ones (`gh`, `ollama`).
+optional ones (`gh`).
 
 Package managers are auto-detected: Homebrew on macOS (never auto-bootstrapped —
 if `brew` is missing, setup prints the instruction and skips brew installs) and
-`apt`/`dnf`/`pacman` on Linux. Claude Code and Ollama use their official
-installers (`curl … | bash` / `curl … | sh`). After installing, setup re-runs
+`apt`/`dnf`/`pacman` on Linux. Claude Code uses its official
+installer (`curl … | bash`). After installing, setup re-runs
 the checks and prints a doctor-style report.
 
 `setup` is **CLI-only by design** — it installs host packages, so it is not
@@ -1767,49 +1753,26 @@ repo with **no config redirects nothing**, so the feature is effectively opt-in
 per repo, and the hook **fails open** on unreadable input or a malformed config.
 Disable it by setting `check_redirect: false` in your config file.
 
-### Local model (optional, off by default)
+### Fast-Brain (internal micro-cognition)
 
-The guards above move deterministic work onto warden with **no LLM at all**. A few
-remaining responsibilities are fuzzy-but-cheap — the first is **task
-classification** (labelling a prompt-spawned agent as `development` / `tests` /
-`docs` / …), which warden does today by calling its *own* headless Claude on every
-spawn. You can route that to a **local model** instead, so it never touches your
-Claude budget:
+The guards above move deterministic work onto warden with **no LLM at all**. The
+remaining fuzzy-but-cheap responsibilities — task classification, activity subjects,
+agent naming, commit messages, oversized check-failure condensation, memory curation,
+digest/insights narration, and REPL planning — run on **Fast-Brain**
+(`internal/fastbrain`), a latency-bounded, **fail-open** gateway over a headless
+backend CLI. No configuration is needed, and **no local model / Ollama is required**.
 
-```yaml
-# in ~/.warden/config.yaml (run `wd config path` to locate it), then restart the daemon
-local_llm:
-  enabled: true                        # off by default
-  url: http://localhost:11434          # an Ollama-compatible server
-  model: qwen2.5-coder:7b
-  timeout: 20s                         # hard per-call cap
-```
+**Every call has a deterministic fallback:** on any error or timeout, classification
+falls back to the `other` label, a check summary to the truncated tail, a commit
+message to a path-derived Conventional-Commits subject — so a slow or unavailable
+backend never blocks an agent. Fast-Brain is never used to decide code changes or
+rewrite the operator's intent.
 
-> Not sure which `local_llm.model` to set? Run **`wd backend suggest`** — it detects
-> this machine's total and average-free memory (same pool) and prints a
-> memory-ranked, conductor-suitability-scored shortlist, starring the best model
-> that runs comfortably now. `wd doctor` gives the one-line version.
-
-With `local_llm.enabled` on, the daemon routes three fuzzy-but-cheap responsibilities at
-the configured Ollama endpoint:
-
-- **Task classification** — labelling a prompt-spawned agent (`Classify`).
-- **Activity subjects** — the ≤8-word "currently working on" phrase warden shows
-  in `wd ls` and digests (`Summarize`).
-- **Oversized check failures** — when a `wd check` command fails and its captured
-  output exceeds the line cap, the local model condenses it to the distinct
-  failures (the failing test / `file:line` plus the verbatim error) instead of
-  spilling a truncated tail into the agent's transcript. The deterministic
-  tail-truncation is the fallback, so the agent never loses the failure.
-
-**Every call has a deterministic fallback:** on any error, timeout, or unreachable
-server, classification and summaries fall back to headless Claude (classification
-then falls back to the `other` label; a check summary falls back to the truncated
-tail) — so a stopped or slow Ollama never blocks an agent, it just forgoes the
-saving. Local inference on CPU can be slower than calling Claude, hence the hard
-`local_llm_timeout`. warden works fully headless without any of this; the local
-model only earns its place on these cheap tasks and is never used to decide code
-changes or rewrite the operator's intent.
+> **Retired:** `local_llm.*` (Ollama) is no longer a warden dependency. Legacy
+> `local_llm` YAML keys still parse but are ignored, `wd doctor` / `wd setup` no
+> longer check for or install Ollama, and `wd backend suggest` is a no-op stub.
+> (Aider/OpenCode/Goose/Crush can still be pointed at a local Ollama *model* — see §5.2
+> — that is a backend-provider choice, not a warden setting.)
 
 ---
 
@@ -2065,11 +2028,11 @@ restart list; everything else takes effect on save.
 | `plugins.registry` | _(empty)_ | List of registered plugins (name, path, subscribed events, declared task types). Only consulted when `plugins.enabled` is on |
 
 `warden config` lists every setting, including `worktree.spawn_gate` / `worktree.spawn_gate_max_agents`,
-`metrics`, `allow_nonloopback`, `auto_approve`, `local_llm.enabled`, `pipeline.keep_done` / `pipeline.hint`,
+`metrics`, `allow_nonloopback`, `auto_approve`, `pipeline.keep_done` / `pipeline.hint`,
 the `auto_restart.*` knobs, the `rate_limit.*` knobs (§12.1), and the
 `log.level` / `log.format` logging knobs.
 
-> **Config namespacing:** Related settings are organized into YAML blocks — `rails`, `tokens`, `notify`, `worktree`, `local_llm`, `pipeline`, `auto_restart`, `collab`, `memory`, `branch_track`, `rate_limit`, `http`, `log`, `plugins`. Old flat keys (e.g. `token_guard`, `local_llm_url`, `notify`, `spawn_gate`, `worktree_keep_done`, `isolation_guard`, `git_redirect`, `collab_enabled`, `memory_inject`, `log_level`, `plugin_registry`) are deprecated aliases — they still load correctly, emit a one-time deprecation warning, and are permanently migrated into the nested form when `warden config init` is re-run.
+> **Config namespacing:** Related settings are organized into YAML blocks — `rails`, `tokens`, `notify`, `worktree`, `pipeline`, `auto_restart`, `collab`, `memory`, `branch_track`, `rate_limit`, `http`, `log`, `plugins`. Old flat keys (e.g. `token_guard`, `local_llm_url`, `notify`, `spawn_gate`, `worktree_keep_done`, `isolation_guard`, `git_redirect`, `collab_enabled`, `memory_inject`, `log_level`, `plugin_registry`) are deprecated aliases — they still load correctly, emit a one-time deprecation warning, and are permanently migrated into the nested form when `warden config init` is re-run.
 
 > The old `WARDEN_*` configuration environment variables are no longer read — the
 > daemon warns once at startup if any are still set. `WARDEN_TOKEN` and

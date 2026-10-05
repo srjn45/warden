@@ -5,7 +5,7 @@ description: Preflight checks with warden doctor, and fixes for the most common 
 
 ## Preflight: `warden doctor`
 
-Run preflight checks — required binaries (`tmux`, `git`, `claude`), optional ones (`gh`, `ollama`, warn-only), daemon reachability, and the data directory.
+Run preflight checks — required binaries (`tmux`, `git`, `claude`), optional ones (`gh`, warn-only), daemon reachability, and the data directory.
 
 ```sh
 warden doctor
@@ -23,13 +23,12 @@ claude --version     # the agent runtime
 tmux -V              # every agent lives in a tmux window (≥ 3.1 for the cockpit)
 git --version        # worktree creation/cleanup
 gh --version         # only needed for pr-review agents
-ollama --version     # optional — only for local_llm / `wd backend repl`
 curl -s localhost:8765/healthz   # → {"status":"ok"} means the daemon is up
 ```
 
 ## Install missing dependencies: `warden setup`
 
-If `doctor` reports a missing binary, `warden setup` installs it for you. It runs the **same checks as `doctor`**, then — for each missing dependency — prints the exact install command and prompts before running it (use `--yes` to install everything without prompting). It auto-detects Homebrew on macOS (never auto-bootstrapped) and `apt`/`dnf`/`pacman` on Linux; Claude Code and Ollama use their official installers. `setup` is idempotent and **CLI-only** (it installs host packages, so it is not exposed over MCP).
+If `doctor` reports a missing binary, `warden setup` installs it for you. It runs the **same checks as `doctor`**, then — for each missing dependency — prints the exact install command and prompts before running it (use `--yes` to install everything without prompting). It auto-detects Homebrew on macOS (never auto-bootstrapped) and `apt`/`dnf`/`pacman` on Linux; Claude Code uses its official installer. `setup` is idempotent and **CLI-only** (it installs host packages, so it is not exposed over MCP).
 
 ```sh
 warden setup            # confirm-each install of anything missing
@@ -50,7 +49,7 @@ warden setup --yes      # non-interactive: install all missing deps
 | An agent auto-approves the same prompt over and over | The auto-approve **circuit breaker** halts approvals after `auto_approve.max_repeats` consecutive identical approvals (default 10), raises an `approval_loop` anomaly, and leaves the prompt to you — the agent shows `waiting_for_input`. The underlying command is failing (e.g. expired credentials); fix that rather than re-approving. |
 | `stop`/`terminate`/`delete` says `session not found` for an agent `ls` shows | Fixed: these now resolve by the same **name or id** `ls` displays (previously only the id/ticket worked). Rebuild + restart the daemon if it predates this fix. |
 | `warden workspace prune` wants to remove a worktree with real work | Fixed: an orphan worktree carrying unmerged commits (ahead of the default branch) is now held back unless `--force`, alongside the existing dirty/unpushed guard. |
-| `wd doctor` never flags a bad `local_llm.model` | Fixed: doctor now FAILS when the configured local model isn't installed in ollama (run `ollama pull <model>` or fix `local_llm.model`); the daemon also logs a loud error at startup. |
+| `warden doctor` / `setup` don't mention Ollama | Expected: `local_llm` / Ollama is retired. warden's internal thinking and `warden repl` run on Fast-Brain and need no local model; legacy `local_llm.*` YAML keys still parse but are ignored. |
 | Status never updates live | Hooks not wired into `~/.claude/settings.json`. The poller still updates it, just less promptly. |
 | Agent spawned in the wrong place | Prompt-mode agents launch in your current directory — `cd` to the right place first, or pass `--dir <path>`. |
 | Every spawn asks for `--force` ("memory pressure") | The spawn gate blocks **only** at **critical** OS pressure or when live agents hit `worktree.spawn_gate_max_agents`. **Warn**-level pressure is advisory and no longer blocks. Still gated? Either you're at genuine critical pressure (terminate/rotate an agent to relieve it, or `--force`) or you've hit the agent cap (raise `worktree.spawn_gate_max_agents`, or set it to `0` to disable the count trigger). Restart the daemon after changing config. |

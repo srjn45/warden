@@ -16,9 +16,9 @@ binary directly. You pick the backend **per agent at spawn time**.
 `--backend` picks a backend for **one** spawn. The [**backend
 registry**](/warden/guides/backend-registry/) is the durable, machine-wide picture
 behind it — warden detects the installed CLIs and remembers each one's billing
-**tier**, whether it's **enabled**, and which is the **default**, plus an
-internal-thinking mode. It is the single source of truth for autopilot's cost ladder
-and warden's free/local thinking router.
+**tier**, whether it's **enabled**, and which is the **default**. It is the
+single source of truth for autopilot's cost ladder. (warden's own internal thinking
+runs on Fast-Brain, independent of the registry.)
 :::
 
 ## Supported agents — status

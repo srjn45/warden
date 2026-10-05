@@ -123,7 +123,7 @@ default; each in its own tmux session, most in a git worktree).
 | Project memory — show/edit `.warden/memory.md` | `memory` (`--raw`, `--path`, `--edit`) | **CLI-only** (local, no daemon round-trip) | ✓ | — | — | [project-memory](https://srjn45.github.io/warden/concepts/project-memory/) |
 | Project memory — projected into every spawn (`memory.inject`) | config (`memory.inject`, default on) | automatic (all backends but aider) | ✓ | — | — | [project-memory](https://srjn45.github.io/warden/concepts/project-memory/) |
 | Project memory — auto-curation from digests (`memory.curate`) | config (`memory.curate`, default **off**) | automatic on completion (proposes `unverified` entries to the working tree; never commits) | ✓ | — | — | [project-memory](https://srjn45.github.io/warden/concepts/project-memory/) |
-| Project memory — local grounding in the REPL (`memory.ground`) | `repl` → `/memory <q>` (`/mem`, `/ask`) + `project_memory` tool | **REPL-only** (local model, `$0`, no cloud round-trip) | ✓ | — | — | [project-memory](https://srjn45.github.io/warden/concepts/project-memory/) |
+| Project memory — local grounding in the REPL (`memory.ground`) | `repl` → `/memory <q>` (`/mem`, `/ask`) + `project_memory` tool | **REPL-only** (Fast-Brain, no full agent turn) | ✓ | — | — | [project-memory](https://srjn45.github.io/warden/concepts/project-memory/) |
 | **Projects** — first-class daemon projects (open local/remote, close, new, list) | `projects` (`list`, `open`, `open-local`, `open-remote`, `new`, `close`) | — | — | ✓ | ✓ | [project-groups](https://srjn45.github.io/warden/guides/project-groups/) |
 | **Project groups** — named collections of projects shown in the TUI tree; incremental `/members` add/remove and bulk replace | `project-groups` (`list`, `show`, `create`, `update`, `delete`, `members add\|remove`) | — | — | ✓ (read) | ✓ | [project-groups](https://srjn45.github.io/warden/guides/project-groups/) |
 | **Open restores members** — opening a project restores the members that were hibernated when it was last closed; it does **not** auto-spawn an orchestrator, so a project with no restorable members opens empty | automatic on project open | — | — | — | ✓ | [project-groups](https://srjn45.github.io/warden/guides/project-groups/) |
@@ -269,33 +269,29 @@ Includes a pipeline view and per-job info.
 | Interactive REPL | `repl` (aliases `interactive`, `i`) | **CLI-only** (interactive REPL) | — | — | — | [repl](https://srjn45.github.io/warden/multi-agent/repl/) |
 | ↳ deterministic `/` commands (no model) | `/agents`, `/spawn`, `/tell`, … `/help` | — | — | — | — | [repl](https://srjn45.github.io/warden/multi-agent/repl/) |
 | ↳ line editor: history, reverse-search, live `/` menu, Tab completion, colour | readline-backed | — | — | — | — | [repl](https://srjn45.github.io/warden/multi-agent/repl/) |
-| ↳ guided argument forms (pick-lists + free text, LLM pre-fill) | bare `/spawn`, `/spawn+ <prompt>` | — | — | — | — | [repl](https://srjn45.github.io/warden/multi-agent/repl/) |
+| ↳ guided argument forms (pick-lists + free text, Fast-Brain pre-fill) | bare `/spawn`, `/spawn+ <prompt>` | — | — | — | — | [repl](https://srjn45.github.io/warden/multi-agent/repl/) |
 
-## 15. Backend registry (detected CLIs, tiers, thinking-mode)
+## 15. Backend registry (detected CLIs, tiers)
 
 warden detects the coding-agent CLIs installed on this machine (`claude`, `codex`,
-`aider`, …) plus a reserved **`local`** row for the free/local model, and persists
+`aider`, …) and persists
 each in an embedded ScrivaDB store (`~/.warden/backends`) with a billing **tier**,
-an **enabled** flag, and at most one **default** — plus a store-level
-**internal-thinking mode**. The store is warden's **single source of truth** for
-which backends exist and how they're tiered: autopilot's cost-tier ladder and the
-internal free/local thinking router both read from it. **Detection is a fact**
+an **enabled** flag, and at most one **default**. The store is warden's **single source of truth** for
+which backends exist and how they're tiered: autopilot's cost-tier ladder reads from it.
+warden's own internal thinking runs on **Fast-Brain** instead (thinking-mode and the reserved `local` row are retired). **Detection is a fact**
 (installed / binary path / detected-at) a rescan reconciles; **tiering is a
 preference** (tier / default / enabled) a rescan preserves.
 
-Tiers: `free` · `subscription` · `pay_per_use` · `unclassified` (and the reserved,
-system-set `local`). Thinking-mode: `local_only` · `free_plus_local` — which
-backends warden's own internal thinking may call (**never** a paid one).
+Tiers: `free` · `subscription` · `pay_per_use` · `unclassified` .
 
 | Feature | CLI | MCP | Skill | Web | TUI | Docs |
 |---|---|---|---|---|---|---|
-| List the registry (installed, tier, default, enabled, limited) + thinking-mode | `backends list` (alias `ls`) | `list_backends` | ✓ | ✓ (🧩 backends panel) | `b` | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |
+| List the registry (installed, tier, default, enabled, limited) | `backends list` (alias `ls`) | `list_backends` | ✓ | ✓ (🧩 backends panel) | `b` | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |
 | Rescan installed CLIs (reconcile detection, preserve prefs) | `backends rescan` | `rescan_backends` | ✓ | ✓ (⟳ Rescan) | `r` | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |
 | Set a backend's billing tier (free\|subscription\|pay_per_use\|unclassified) | `backends tier <id> <tier>` | `set_backend_tier` | ✓ | ✓ (Tier dropdown) | `t` (cycle) | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |
-| Set the single default backend (rejects local) | `backends default <id>` | `set_default_backend` | ✓ | ✓ (Default radio) | `d`/`enter` | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |
+| Set the single default backend  | `backends default <id>` | `set_default_backend` | ✓ | ✓ (Default radio) | `d`/`enter` | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |
 | Enable / disable a backend | `backends enable\|disable <id>` | — (REST `PATCH /backends/{id}`; no MCP tool) | ✓ (via CLI) | ✓ (Enabled checkbox) | `e`/space | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |
-| Internal-thinking mode (which backends internal thinking may call) | `backends thinking-mode <mode>` | `set_thinking_mode` | ✓ | ✓ (mode select) | `m` (toggle) | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |
-| Internal free/local thinking router (classification, naming, digest narration, memory curation — never a paid call) | config (`backends.limit_retry`) | automatic | ✓ | — | — | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |
+| Fast-Brain internal thinking (classification, naming, commit messages, digest narration, memory curation, REPL planning — latency-bounded, fail-open) | automatic | automatic | ✓ | — | — | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |
 
 The registry supersedes the deprecated `autopilot.brain.backends` ladder and
 `autopilot.brain.allow_pay_per_use` gate — those keys are imported **once** on the
@@ -342,6 +338,5 @@ CLI-only **by design**. New parity tools added for full coverage: `digest`,
 `edit_pipeline_job`, `emit_pipeline_output`, `delete_pipeline`,
 `validate_pipeline`, `list_pipeline_templates`, `library_list`,
 `create_schedule`, `get_schedule`, `enable_schedule`, `disable_schedule`, `delete_schedule`, `fork_agent`, `set_role`, `list_roles`,
-`list_backends`, `rescan_backends`, `set_backend_tier`, `set_default_backend`,
-`set_thinking_mode`. (Enable/disable a backend is CLI/web/TUI + REST `PATCH
+`list_backends`, `rescan_backends`, `set_backend_tier`, `set_default_backend`. (`set_thinking_mode` is a retired no-op.) (Enable/disable a backend is CLI/web/TUI + REST `PATCH
 /backends/{id}` only — intentionally not an MCP tool.)

@@ -384,8 +384,8 @@ to pick the cheapest available backend for each worker spawn, though the manager
 may also select backends itself based on the task.
 
 The ladder and the pay-per-use gate are **derived from the [backend
-registry](/warden/guides/backend-registry/)** — only **installed, enabled,
-non-`local`** backends are eligible, bucketed by the tier you set with `warden
+registry](/warden/guides/backend-registry/)** — only **installed, enabled**
+backends are eligible, bucketed by the tier you set with `warden
 backend tier`. The gate is the store's `allow_paid_autopilot` setting.
 
 :::note[Deprecation]
