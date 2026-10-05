@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"os/exec"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/daemon/oapi"
+	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -84,11 +86,77 @@ func (s *Server) RestartPlan(ctx context.Context, req oapi.RestartPlanRequestObj
 	return oapi.RestartPlan200JSONResponse(s.planToOAPI(updated)), nil
 }
 
-// restartPlanPipeline is the pipeline-mode branch of RestartPlan. STUB: pipeline
-// restart (ReopenForRestart + job reset) lands in the t4 follow-up, which
-// replaces this body; the route, validation and audit above are shared.
-func (s *Server) restartPlanPipeline(_ context.Context, _ *planstore.Plan, _ bool) (oapi.RestartPlanResponseObject, error) {
-	return oapi.RestartPlan409JSONResponse{Error: "pipeline restart lands in a follow-up; not supported yet"}, nil
+// restartPlanPipeline is the pipeline-mode branch of RestartPlan (spec §3.2):
+// reset the plan's pipeline via Executor.RestartPipeline, sync plan task
+// progress, then reconcile so ready jobs spawn with fresh agents.
+func (s *Server) restartPlanPipeline(ctx context.Context, p *planstore.Plan, force bool) (oapi.RestartPlanResponseObject, error) {
+	if s.exec == nil || p.PipelineID == "" {
+		return oapi.RestartPlan409JSONResponse{Error: "plan has no active executor to restart"}, nil
+	}
+	in := pipelineRestartInput{Force: force, CtxKey: autopilot.PlanRestartContextKey(p.ID)}
+	if s.cstore != nil {
+		in.Store = ctxLedgerStore{cs: s.cstore}
+	}
+	res, err := s.exec.RestartPipeline(ctx, p.PipelineID, in)
+	switch {
+	case errors.Is(err, pipeline.ErrNotFound):
+		return oapi.RestartPlan404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "pipeline not found"}}, nil
+	case errors.Is(err, ErrPipelineRestartRefused):
+		return oapi.RestartPlan409JSONResponse{Error: err.Error()}, nil
+	case errors.Is(err, errPipelineComplete):
+		return oapi.RestartPlan409JSONResponse{Error: "complete run is terminal"}, nil
+	case err != nil:
+		return nil, errStatus(http.StatusInternalServerError, err.Error())
+	}
+	s.syncPlanProgressAfterRestart(ctx, p.ID, res.ResetJobs)
+	if rerr := s.exec.Reconcile(context.Background(), p.PipelineID); rerr != nil {
+		return nil, errStatus(http.StatusInternalServerError, "reconcile: "+rerr.Error())
+	}
+	updated, gerr := s.planSvc().Get(ctx, p.ID)
+	if gerr != nil {
+		return nil, errStatus(http.StatusInternalServerError, "fetch updated plan: "+gerr.Error())
+	}
+	s.recordAuditCtx(ctx, audit.ActionPlanRestart, p.ID, map[string]string{
+		"plan_id":          p.ID,
+		"mode":             string(planstore.PlanModePipeline),
+		"reason_kind":      res.ReasonKind,
+		"force":            strconv.FormatBool(force),
+		"agents_removed":   strconv.Itoa(res.AgentsRemoved),
+		"branches_kept":    strconv.Itoa(len(res.BranchesKept)),
+		"branches_deleted": strconv.Itoa(len(res.BranchesDeleted)),
+		"restart_count":    strconv.Itoa(res.RestartCount),
+	})
+	return oapi.RestartPlan200JSONResponse(s.planToOAPI(updated)), nil
+}
+
+// syncPlanProgressAfterRestart resets the plan's task progress for every reset
+// job to pending, drops their stale outcomes and reopens the sealed
+// ActiveExecution (a stopped pipeline sealed it "cancelled").
+func (s *Server) syncPlanProgressAfterRestart(ctx context.Context, planID string, resetJobs []string) {
+	if s.plans == nil {
+		return
+	}
+	err := s.plans.Update(ctx, planID, func(up *planstore.Plan) error {
+		if up.TaskProgress == nil {
+			up.TaskProgress = map[string]string{}
+		}
+		for _, jobID := range resetJobs {
+			taskID := resolvePlanTaskID(up, jobID)
+			up.TaskProgress[taskID] = "pending"
+			delete(up.TaskOutcomes, taskID)
+			if up.ActiveExecution != nil && up.ActiveExecution.TaskProgress != nil {
+				up.ActiveExecution.TaskProgress[taskID] = "pending"
+			}
+		}
+		if ae := up.ActiveExecution; ae != nil {
+			ae.TerminalStatus = planstore.ExecutionStatusRunning
+			ae.CompletedAt = nil
+		}
+		return nil
+	})
+	if err != nil {
+		slog.Warn("plan restart: progress sync failed", "plan", planID, "err", err)
+	}
 }
 
 func planExecutionMode(p *planstore.Plan) planstore.PlanExecutionMode {

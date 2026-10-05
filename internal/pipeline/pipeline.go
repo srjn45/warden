@@ -84,13 +84,18 @@ type Job struct {
 	// AgentRef and SetAgentID; JSON writes mirror AgentID here so older clients
 	// and persisted pipeline readers continue to work.
 	// Deprecated: use AgentID.
-	SessionID string         `json:"session_id,omitempty" yaml:"-"`
-	Status    JobStatus      `json:"status,omitempty" yaml:"-"`
-	Output    string         `json:"output,omitempty" yaml:"-"`
-	Branch    string         `json:"branch,omitempty" yaml:"-"`
-	Workdir   string         `json:"workdir,omitempty" yaml:"-"`
-	System    bool           `json:"system,omitempty" yaml:"-"`
-	Digest    *digest.Digest `json:"digest,omitempty" yaml:"-"` // completion snapshot (nil until reaped)
+	SessionID string    `json:"session_id,omitempty" yaml:"-"`
+	Status    JobStatus `json:"status,omitempty" yaml:"-"`
+	Output    string    `json:"output,omitempty" yaml:"-"`
+	Branch    string    `json:"branch,omitempty" yaml:"-"`
+	// RestartBranch is a previous attempt's branch that carries commits beyond its
+	// base, recorded by a plan restart. The next spawn of this (pending) job
+	// creates its worktree from it instead of the normal base; the executor clears
+	// it once consumed.
+	RestartBranch string         `json:"restart_branch,omitempty" yaml:"-"`
+	Workdir       string         `json:"workdir,omitempty" yaml:"-"`
+	System        bool           `json:"system,omitempty" yaml:"-"`
+	Digest        *digest.Digest `json:"digest,omitempty" yaml:"-"` // completion snapshot (nil until reaped)
 }
 
 // AgentRef returns the job's agent id, accepting legacy SessionID-only jobs

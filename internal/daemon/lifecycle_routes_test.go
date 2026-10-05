@@ -94,6 +94,8 @@ type fakeLife struct {
 	hotSwapResult     *lifecycle.SwapResult
 	hotSwapErr        error
 	lastJobPrompt     string // captured req.Prompt of the most recent SpawnJob
+	jobReqs           []lifecycle.JobSpawnRequest
+	removedWTs        []string
 }
 
 var _ Lifecycle = (*fakeLife)(nil)
@@ -161,6 +163,7 @@ func (f *fakeLife) RemoveWorktree(_ context.Context, sess *agentstore.Agent, for
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.removedWT = sess.ID
+	f.removedWTs = append(f.removedWTs, sess.ID)
 	f.removeWTForce = force
 	return f.removeWTErr
 }
@@ -238,6 +241,7 @@ func (f *fakeLife) MemoryPressure(_ context.Context) (pressure.Level, error) {
 func (f *fakeLife) SpawnJob(_ context.Context, req lifecycle.JobSpawnRequest) (*agentstore.Agent, error) {
 	f.mu.Lock()
 	f.lastJobPrompt = req.Prompt
+	f.jobReqs = append(f.jobReqs, req)
 	f.mu.Unlock()
 	id := req.PipelineID + "-" + req.JobID
 	branch := ""
