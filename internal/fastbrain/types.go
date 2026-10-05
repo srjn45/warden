@@ -25,6 +25,9 @@ const (
 	KindSummarizeActivity DecisionKind = "summarize_activity"
 	// KindClassifyTask classifies a prompt into a task type.
 	KindClassifyTask DecisionKind = "classify_task"
+	// KindRouteTier rates how hard a spawn prompt is and suggests a model tier
+	// (tier-1/tier-2/tier-3) for the quota-balanced resolver.
+	KindRouteTier DecisionKind = "route_tier"
 	// KindSummarizeCheck condenses oversized test/linter failures.
 	KindSummarizeCheck DecisionKind = "summarize_check"
 	// KindCommitMessage drafts a conventional commit message from a diff.

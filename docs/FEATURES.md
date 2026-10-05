@@ -167,6 +167,18 @@ is a wildcard — an empty rule matches everything, so it is refused on the CLI)
 - `regex` — a **Go regular expression** over `Tool(arg)` and the question.
 - `paths` — globs against path tokens in the action argument.
 
+**Fast-Brain tier router (opt-in, `router.use_fast_brain`, default `false`):**
+`Decide(KindRouteTier)` rates a spawn prompt's complexity and suggests a model
+tier using the existing resolver tiers — `tier-1` (typo/config tweaks),
+`tier-2` (standard work), `tier-3` (deep architectural refactors). It is the
+LOWEST-precedence tier input (explicit tier > task > role > router > default):
+it runs only for a spawn that pins no tier, task, role, model or ai_cli, so
+autopilot manager/guardian/brain/worker spawns and pipeline jobs are
+untouched. Applied only at confidence ≥ 0.8; on off/timeout/invalid
+JSON/low confidence resolution is exactly as before. The suggestion,
+confidence and whether it was applied are recorded as a `tier-route` event on
+the agent. Hot-reloaded from config.
+
 **Fast-Brain arbiter (third layer, opt-in):** with `use_fast_brain: true`
 (default `false`) and the daemon's `internal/fastbrain` engine wired, prompts
 the static rules cannot answer — plus strategic questions where

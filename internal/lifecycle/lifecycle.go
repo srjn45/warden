@@ -1706,6 +1706,9 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*agentstore.Ag
 	// without aicli is a hard validation error. Degrades to defaults when no
 	// resolver is wired — a first spawn must never hard-fail on resolution alone.
 	var resolveErr error
+	// Lowest-precedence tier input: Fast-Brain prompt-complexity routing (opt-in,
+	// only for a spawn that pins nothing; see routeTierByPrompt).
+	routeDecision := l.applyRouteTier(ctx, &req)
 	req.Backend, req.Model, resolveErr = l.resolveSpawnTarget(ctx, req.Role, req.Task, req.Tier, req.Backend, req.Model)
 	if resolveErr != nil {
 		return nil, resolveErr
@@ -1753,6 +1756,9 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*agentstore.Ag
 	// Stamp the explicit owning-project back-ref when the request carried one. An
 	// empty value is left empty for the daemon to resolve by path-match post-spawn
 	// (lifecycle has no projects store), so an explicit id always wins over the match.
+	if routeDecision != nil {
+		agent.Events = append(agent.Events, routeDecision.event())
+	}
 	agent.ProjectID = req.ProjectID
 	agent.PlanID = req.PlanID
 	agent.AutopilotRunID = req.AutopilotRunID
