@@ -11,8 +11,8 @@
 | YAML under `plans/` is definition SoT | ScrivaDB Plan record is sole authority |
 | Directory placement = Status | `Plan.Status` field only |
 | Daemon startup scans `plans/` | Startup scan **retired** (no-op) |
-| `wd plan scan` reseeds Status from dirs | Deprecated: stubs only; **no Status reseed** for Plans with a non-empty definition |
-| `wd plan import` → pending + scan | Deprecated; prefer `import-legacy` / `create` |
+| `wd plan scan` reseeds Status from dirs | Retired (hidden alias): stubs only; **no Status reseed** for Plans with a non-empty definition |
+| `wd plan import` → pending + scan | Retired (hidden alias); use `import-legacy` / `create` |
 | Recovery via `git pull` + scan | Recovery via `wd plan backup restore` |
 
 ## Deprecated for one release (then removable)
@@ -28,7 +28,7 @@ Help text and API/MCP responses state that these **cannot affect canonical execu
 
 1. **Fresh DB-native** — `wd plan create` → `run` / `complete` / `archive` (no `plans/` required).
 2. **Legacy repo** — `wd plan import-legacy [--report]` once.
-3. **Optional replica PR** — `wd plan sync_to_repo`.
+3. **Optional replica PR** — `wd plan sync-to-repo`.
 4. **Backup / machine transfer** — `wd plan backup export|restore`.
 5. **Export path conflict** — choose another `--path` or resolve foreign file; canonical Plan stays intact.
 
@@ -40,7 +40,7 @@ Exact steps: site guide `guides/plans-migration`.
 - [ ] Run `import-legacy` once per legacy project (not on every daemon start)
 - [ ] Prefer `wd plan create` / `run` / `complete` / `archive` for new work
 - [ ] Use `wd plan backup export|restore` for machine transfer (not `git pull` + scan)
-- [ ] Treat `sync_to_repo` as optional review replicas only
+- [ ] Treat `sync-to-repo` as optional review replicas only
 
 ## Acceptance
 

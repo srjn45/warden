@@ -288,7 +288,7 @@ checklist enum, not ledger states.
 ### Guardrails for autopilot operations
 
 - **Never start autopilot without a Plan.** Scaffold with `warden autopilot init`
-  or `warden plan create` / `import` / `scan`, enable the capability with
+  or `warden plan create`, enable the capability with
   `set_autopilot { enabled: true }`, then `run_plan` / `warden plan run --mode autopilot`.
   Enablement alone does not register or start work.
 - **Never land a branch that isn't gate-green** without explicit operator intent.
@@ -318,6 +318,16 @@ checklist enum, not ledger states.
 
 ## Plans
 
+**Plan journey:** create → edit while pending → run → pause/resume/stop → task status
+→ complete → archive/delete. Edit a definition (`update_plan`, `wd plan update|edit|task`)
+only while `pending`; **a running plan's definition cannot be edited** (409). Track
+progress with `update_task_status` / `wd plan task status <id> <task> <status>`
+(`pending|in_progress|done|skipped`). `wd plan delete <id>` (REST `DELETE
+/api/v1/plans/{id}`) permanently removes a plan that is not `in_progress` — archive or
+complete first; there is no `delete_plan` MCP tool, so use the CLI. Retired
+`plan scan|import|status` and `sync_to_repo` remain only as hidden aliases; use
+`import-legacy` and `sync-to-repo`.
+
 Plans are canonical ScrivaDB records (goal, **task DAG**, lifecycle, revision, content
 hash). Repository YAML/JSON under `plans/{pending,in_progress,completed,archived}/`
 is an optional inert export — not required for create/run/complete/archive, and
@@ -345,7 +355,7 @@ satisfied.
 | `assess_plan` | **After a reinstall recovery** — call `assess_plan { plan_id: "<id>" }` for each `in_progress` plan to reconstruct `task_progress` from `git log` and open PRs via the brain Consultor. Opt-in; never automatic. |
 | `run_plan` | Start execution of a plan (`execution_mode`: `autopilot`\|`pipeline`\|`orchestrator_worker`\|`manual`). Pending → `in_progress`. |
 | `complete_plan` | Complete a plan (`in_progress` → `completed`). Blocked with a structured error listing incomplete tasks and/or unmerged branches. |
-| `update_task_status` | Plan form: `{plan_id, task_id, status}` where status is `pending`\|`in_progress`\|`done`\|`skipped`. CLI shorthand: `wd plan done <plan-id> <task-id>`. |
+| `update_task_status` | Plan form: `{plan_id, task_id, status}` where status is `pending`\|`in_progress`\|`done`\|`skipped`. CLI: `wd plan task status <plan-id> <task-id> <status>`. |
 | `export_plan_backup` | Export Plans into a portable ScrivaDB backup bundle (`plan_ids` and/or `all`). Excludes credentials/worktrees; never reads Git. |
 | `restore_plan_backup` | Restore a bundle (`dry_run`, `on_conflict=skip\|fail\|overwrite`). Idempotent when id+hash+revision match. CLI: `wd plan backup export\|restore`. |
 
@@ -356,7 +366,7 @@ satisfied.
 import_legacy_plans { project_id: "<absolute-path-to-repo>", report_only: true }
 import_legacy_plans { project_id: "<absolute-path-to-repo>" }
 ```
-Prefer Plan backup restore for canonical recovery (execution evidence survives). `scan_plans` is a deprecated one-release migration aid and cannot affect canonical execution after import.
+Prefer Plan backup restore for canonical recovery (execution evidence survives). `scan_plans` is a deprecated migration aid (CLI `plan scan` is a hidden alias) and cannot affect canonical execution after import.
 
 **Starting a phase:**
 ```

@@ -15,7 +15,7 @@ Design freeze: [`docs/specs/2026-09-30-scrivadb-canonical-plans.md`](https://git
 | **Lifecycle** (`pending` → `in_progress` → `completed` / `archived`) | ScrivaDB `Status` field |
 | **Revision / content hash** | ScrivaDB (`revision`, `content_hash`) |
 | **Execution evidence** | ScrivaDB events, summaries, task progress |
-| **Repository YAML / JSON** | Optional replica via `wd plan sync_to_repo` (YAML default; JSON opt-in) — inert; `import-legacy` accepts legacy YAML only |
+| **Repository YAML / JSON** | Optional replica via `wd plan sync-to-repo` (YAML default; JSON opt-in) — inert; `import-legacy` accepts legacy YAML only |
 
 The daemon does **not** scan `plans/` on startup. Implicit directory-as-status and "YAML is the source of truth" are retired.
 
@@ -32,7 +32,7 @@ pending →                archived
 - **`completed`** — all tasks done, code merged; definition immutable
 - **`archived`** — de-prioritised or superseded; definition immutable
 
-Drive transitions with `wd plan run` / `wd plan complete` / `wd plan archive` (or the matching MCP/API). Deprecated `wd plan scan` / `wd plan status` / `wd plan import` remain for one release as migration aids and **cannot affect canonical execution after import**. See [Plan Modification API](https://github.com/srjn45/warden/blob/main/docs/specs/2026-10-04-plan-modification-api.md) for mutation contracts (DAG validation, optimistic concurrency).
+Drive transitions with `wd plan run` / `wd plan complete` / `wd plan archive` (or the matching MCP/API). `wd plan delete` removes a plan that is not `in_progress`. The old `plan scan` / `status` / `import` / `sync_to_repo` commands remain only as hidden aliases. See [Using plans](/warden/guides/using-plans/) for the full journey. See [Plan Modification API](https://github.com/srjn45/warden/blob/main/docs/specs/2026-10-04-plan-modification-api.md) for mutation contracts (DAG validation, optimistic concurrency).
 
 ## Stable plan identity
 
@@ -52,7 +52,7 @@ The **task list is always a DAG** (`after:` edges). Multi-task plans without exp
 |---|---|---|
 | `autopilot` | Live Autopilot + manager Agent (`PlanID` required) | Brain digest lists `after:`; only ready tasks should be spawned |
 | `pipeline` | Pipeline `P:<plan-name>` (one job per task ID + `depends_on`) | Executor spawns only when dependencies are done |
-| `orchestrator_worker` | Agent `O:<plan-name>` (`role=orchestrator`) | Prompt lists ready vs blocked; `wd plan done` / task status gated on deps |
+| `orchestrator_worker` | Agent `O:<plan-name>` (`role=orchestrator`) | Prompt lists ready vs blocked; `wd plan task status` gated on deps |
 | `manual` | Agent `M:<plan-name>` (`role=general`) | Same ready/blocked prompt + task-status gating |
 
 Completion for autopilot/pipeline is watched by the daemon; orchestrator/manual complete via `wd plan complete <id>`.
@@ -60,7 +60,7 @@ Completion for autopilot/pipeline is watched by the daemon; orchestrator/manual 
 
 ## Optional replica export
 
-`wd plan sync_to_repo` renders a revision onto a dedicated `warden/plan-sync/...` branch and opens/updates a PR. YAML is the default; pass `--format json` for an opt-in JSON replica (same envelope fields; top-level `"warden_plan_export":"replica only — not authoritative"`; path `plans/{lifecycle}/<slug>.json`). Editing that replica does nothing to listing or execution. `import-legacy` / deprecated `scan` discover **YAML only** — JSON files are never loaded as execution authority ([#585](https://github.com/srjn45/warden/issues/585)).
+`wd plan sync-to-repo` renders a revision onto a dedicated `warden/plan-sync/...` branch and opens/updates a PR. YAML is the default; pass `--format json` for an opt-in JSON replica (same envelope fields; top-level `"warden_plan_export":"replica only — not authoritative"`; path `plans/{lifecycle}/<slug>.json`). Editing that replica does nothing to listing or execution. `import-legacy` discovers **YAML only** — JSON files are never loaded as execution authority ([#585](https://github.com/srjn45/warden/issues/585)).
 
 ## Recovery
 

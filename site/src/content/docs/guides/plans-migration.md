@@ -8,7 +8,7 @@ import { Aside, Steps } from '@astrojs/starlight/components';
 Canonical Plans live in ScrivaDB. Repository `plans/**/*.{yaml,yml,json}` files are optional inert replicas (YAML default on export; JSON opt-in). These playbooks are the supported operator paths after the ScrivaDB cutover ([design freeze](https://github.com/srjn45/warden/blob/main/docs/specs/2026-09-30-scrivadb-canonical-plans.md)).
 
 <Aside type="caution">
-`wd plan scan`, `wd plan import`, and `wd plan status` are **deprecated migration aids for one release**. After a Plan is imported (or created DB-natively), they cannot affect canonical definition, lifecycle, or execution. Prefer the commands in each playbook below.
+`wd plan scan`, `wd plan import`, and `wd plan status` are retired: they remain only as hidden aliases and cannot affect canonical definition, lifecycle, or execution. Use `import-legacy`, `create`, and the lifecycle commands in each playbook below.
 </Aside>
 
 ## 1. Fresh DB-native use
@@ -68,7 +68,7 @@ Use this once per project that still has `plans/{pending,in_progress,completed,a
 </Steps>
 
 <Aside>
-Do **not** rely on daemon startup or `wd plan scan` to re-authorize Status from directories. Startup scan is retired.
+Do **not** rely on daemon startup or the retired `wd plan scan` to re-authorize Status from directories. Startup scan is retired.
 </Aside>
 
 ## 3. Optionally publishing a replica PR
@@ -81,10 +81,10 @@ Publish an inert YAML (default) or JSON (`--format json`) projection for human r
 2. Export onto a dedicated branch and open/reuse a PR:
 
    ```bash
-   wd plan sync_to_repo <plan-id> --base <integration-or-main>
+   wd plan sync-to-repo <plan-id> --base <integration-or-main>
    # optional path / format:
-   wd plan sync_to_repo <plan-id> --base main --path plans/pending/feature-x.yaml
-   wd plan sync_to_repo <plan-id> --base main --format json
+   wd plan sync-to-repo <plan-id> --base main --path plans/pending/feature-x.yaml
+   wd plan sync-to-repo <plan-id> --base main --format json
    ```
 
 3. Review the PR. Editing the exported replica does **not** change listing or execution.
@@ -121,7 +121,7 @@ Full cadence and conflict policy: [Plan backup and restore](/warden/guides/plan-
 
 ## 5. Resolving an export conflict
 
-`sync_to_repo` refuses to overwrite a non-Warden file at the target path on the export branch.
+`sync-to-repo` refuses to overwrite a non-Warden file at the target path on the export branch.
 
 <Steps>
 
@@ -129,7 +129,7 @@ Full cadence and conflict policy: [Plan backup and restore](/warden/guides/plan-
 2. Choose one:
    - **Different path** — re-run with `--path plans/pending/<other-name>.yaml` (or another free path under `plans/`).
    - **Keep foreign file** — leave the canonical Plan unchanged; do not force-overwrite.
-   - **Replace after review** — manually resolve on the export branch outside warden, or delete/move the conflicting file with an explicit operator commit, then re-run `sync_to_repo`.
+   - **Replace after review** — manually resolve on the export branch outside warden, or delete/move the conflicting file with an explicit operator commit, then re-run `sync-to-repo`.
 3. Confirm the ScrivaDB Plan is intact: `wd plan show <plan-id>` (revision/hash unchanged by a failed sync).
 
 </Steps>
