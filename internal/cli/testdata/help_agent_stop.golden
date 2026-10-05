@@ -19,8 +19,10 @@ fixed flag combo:
   wd done <T> [--hard|--pr]   wd agent stop <T> --keep-worktree [--hard|--pr]
   wd agent stop <T>                 terminate + clear record + remove worktree
 
-Safe ordering is always: PR -> terminate -> clear record -> remove worktree, so
-a failed push leaves the agent running.
+Safe ordering is always: PR -> terminate -> remove worktree -> clear record, so
+a failed push leaves the agent running and a failed worktree guard (alive /
+dirty / unpushed) leaves the record intact and the call retryable. A failure
+reports which steps already ran.
 
 Usage:
   warden agent stop <AGENT> [flags]

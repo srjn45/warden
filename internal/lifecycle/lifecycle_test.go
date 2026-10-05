@@ -1326,6 +1326,30 @@ func TestRemoveWorktreeForceProceeds(t *testing.T) {
 	require.Contains(t, fr.calledArgs(), []string{"git", "-C", "/repo", "branch", "-D", "A-1"})
 }
 
+// #703: a branch that is already gone is the desired end state — success even
+// without force, so the daemon proceeds to clear the record's worktree.
+func TestRemoveWorktreeMissingBranchIsSuccessWithoutForce(t *testing.T) {
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"tmux has-session -t A-1":                          {Err: errStub("dead")},
+		"git -C /repo/.worktrees/A-1 status --porcelain":   {Out: ""},
+		"git -C /repo/.worktrees/A-1 log @{u}.. --oneline": {Out: ""},
+		"git -C /repo branch -D A-1":                       {Out: "error: branch 'A-1' not found.", Err: errStub("exit 1")},
+	}}
+	require.NoError(t, New(fr, &FakeConfig{}).RemoveWorktree(context.Background(), cleanupInput("A-1"), false, false))
+	require.Contains(t, fr.calledArgs(), []string{"git", "-C", "/repo", "worktree", "prune"})
+}
+
+// Any other branch -D failure is still an error.
+func TestRemoveWorktreeOtherBranchDeleteFailureStillErrors(t *testing.T) {
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"tmux has-session -t A-1":                          {Err: errStub("dead")},
+		"git -C /repo/.worktrees/A-1 status --porcelain":   {Out: ""},
+		"git -C /repo/.worktrees/A-1 log @{u}.. --oneline": {Out: ""},
+		"git -C /repo branch -D A-1":                       {Out: "error: cannot delete branch checked out", Err: errStub("exit 1")},
+	}}
+	require.Error(t, New(fr, &FakeConfig{}).RemoveWorktree(context.Background(), cleanupInput("A-1"), false, false))
+}
+
 func TestRemoveWorktreeCleanProceeds(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"tmux has-session -t A-1":                          {Err: errStub("dead")},

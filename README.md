@@ -867,7 +867,7 @@ warden agent attach PROJ-350
 
 ### `warden agent stop <TICKET>`
 
-The **single umbrella teardown verb.** By default `warden agent stop <TICKET>` does a **full teardown**: terminate the tmux + claude session, clear (archive) the record, **and** remove the git worktree + branch (asking for confirmation first, unless `--yes`). Subtractive flags keep parts around; `--pr` opens a GitHub PR first while the agent is still intact. Safe order is always PR → terminate → clear record → remove worktree, so a failed push leaves the agent running.
+The **single umbrella teardown verb.** By default `warden agent stop <TICKET>` does a **full teardown**: terminate the tmux + claude session, clear (archive) the record, **and** remove the git worktree + branch (asking for confirmation first, unless `--yes`). Subtractive flags keep parts around; `--pr` opens a GitHub PR first while the agent is still intact. Safe order is always PR → terminate → remove worktree → clear record, so a failed push leaves the agent running.
 
 ```sh
 warden agent stop PROJ-350                 # full teardown (asks before removing the worktree)

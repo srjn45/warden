@@ -94,6 +94,14 @@ type stopArgs struct {
 	DeleteAdoptedBranch bool   `json:"delete_adopted_branch,omitempty" jsonschema:"also delete the branch even if warden did not create it (adopted branches are kept by default)"`
 }
 
+// stepsDone renders the completed teardown steps for an error message.
+func stepsDone(done []string) string {
+	if len(done) == 0 {
+		return "nothing"
+	}
+	return strings.Join(done, ", ")
+}
+
 type gitCommitArgs struct {
 	Message string `json:"message,omitempty" jsonschema:"the commit message — best to pass it, you wrote the change so you know the intent; if omitted warden generates one from the diff"`
 	Dir     string `json:"dir,omitempty" jsonschema:"worktree to commit (absolute or relative); defaults to the current directory. When this agent has a session, an explicit dir must belong to the same git repository (linked worktree ok) or the daemon rejects it — it will not silently commit the session worktree."`
@@ -676,9 +684,9 @@ func NewServer(daemonBase string) *Server {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "stop_agent",
-		Description: "Tear down an agent — the single umbrella verb. Default (all keep_* false) is a FULL teardown: terminate the session, clear (archive) the record, AND remove the git worktree + branch. Subtractive flags keep parts: keep_record, keep_worktree (keep_worktree alone == the old 'done'). hard=true purges the record; pr=true opens a GitHub PR first while the agent is intact (safe order: PR → terminate → clear record → remove worktree). DESTRUCTIVE when it removes the worktree — only do so after explicit user confirmation; force=true overrides the alive/uncommitted/unpushed guards.",
+		Description: "Tear down an agent — the single umbrella verb. Default (all keep_* false) is a FULL teardown: terminate the session, clear (archive) the record, AND remove the git worktree + branch. Subtractive flags keep parts: keep_record, keep_worktree (keep_worktree alone == the old 'done'). hard=true purges the record; pr=true opens a GitHub PR first while the agent is intact (safe order: PR → terminate → remove worktree → clear record). DESTRUCTIVE when it removes the worktree — only do so after explicit user confirmation; force=true overrides the alive/uncommitted/unpushed guards.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a stopArgs) (*mcpsdk.CallToolResult, any, error) {
-		// Safe order: PR (while the agent is intact) → terminate → clear record → remove worktree.
+		// Safe order: PR (while the agent is intact) → terminate → remove worktree → clear record.
 		prefix := ""
 		if a.PR {
 			res, err := s.cl.CreatePR(ctx, a.Ticket, a.Base)
@@ -691,17 +699,28 @@ func NewServer(daemonBase string) *Server {
 			}
 			prefix = verb + ": " + res.URL + "; "
 		}
+		// Order: terminate → remove worktree → clear record. The daemon resolves
+		// the session by its record, so the worktree must go while it still
+		// resolves; a failed guard then leaves the record intact and the call
+		// retryable. done lists the steps that ran, for error reporting.
+		var done []string
+		fail := func(step string, err error) (*mcpsdk.CallToolResult, any, error) {
+			return textResult(fmt.Sprintf("error: %s failed: %s (completed: %s; record not cleared — retry after fixing)",
+				step, err.Error(), stepsDone(done))), nil, nil
+		}
 		if err := s.cl.Terminate(ctx, a.Ticket); err != nil {
-			return textResult("error: " + err.Error()), nil, nil
+			return fail("terminate", err)
+		}
+		done = append(done, "terminated")
+		if !a.KeepWorktree {
+			if err := s.cl.RemoveWorktree(ctx, a.Ticket, a.Force, a.DeleteAdoptedBranch); err != nil {
+				return fail("remove worktree", err)
+			}
+			done = append(done, "worktree removed")
 		}
 		if !a.KeepRecord {
 			if err := s.cl.Delete(ctx, a.Ticket, a.Hard); err != nil {
-				return textResult("error: " + err.Error()), nil, nil
-			}
-		}
-		if !a.KeepWorktree {
-			if err := s.cl.RemoveWorktree(ctx, a.Ticket, a.Force, a.DeleteAdoptedBranch); err != nil {
-				return textResult("error: " + err.Error()), nil, nil
+				return fail("clear record", err)
 			}
 		}
 		return textResult(prefix + "stopped " + a.Ticket), nil, nil
