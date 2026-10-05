@@ -20,6 +20,10 @@ const (
 	KindArbitrateApproval DecisionKind = "arbitrate_approval"
 	KindResolveAgentName  DecisionKind = "resolve_agent_name"
 	KindDiagnoseFailure   DecisionKind = "diagnose_failure"
+	// KindDiagnoseStall picks the recovery action for a stalled manager/worker.
+	KindDiagnoseStall DecisionKind = "diagnose_stall"
+	// KindClassifyCIFailure rates a red CI log as flaky_or_infra or real.
+	KindClassifyCIFailure DecisionKind = "classify_ci_failure"
 	// KindSummarizeActivity is reserved for activity summaries (prompt+parser
 	// exist; callers land separately).
 	KindSummarizeActivity DecisionKind = "summarize_activity"
