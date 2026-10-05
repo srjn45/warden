@@ -154,7 +154,31 @@ type GuardianRuntime interface {
 	// path. Used for the states an owner must see: a full-ladder stall and the
 	// pay-per-use gate.
 	NotifyEscalation(runID, title, body string)
+	// BrainSession reports whether the manager session still exists. Missing means
+	// the session record is gone or archived (the brain is lost); Unknown means the
+	// store could not answer (restart, transient error) and MUST NOT be acted on.
+	// An existing session in any state — busy, quiet, rate-limited, mid hot-swap —
+	// is Present: hot-swap rewrites the record in place and never removes it.
+	BrainSession(ctx context.Context, agentID string) SessionPresence
+	// AuditRunEvent records a guardian-observed event for the run in the audit log
+	// so the operator can see it (best-effort).
+	AuditRunEvent(ctx context.Context, runID, action, agentID, detail string)
 }
+
+// SessionPresence is the answer to GuardianRuntime.BrainSession. The zero value is
+// SessionUnknown so a runtime that cannot tell never triggers a respawn.
+type SessionPresence int
+
+const (
+	SessionUnknown SessionPresence = iota // could not determine — take no action
+	SessionPresent                        // the session record exists (any status)
+	SessionMissing                        // no active record: deleted or archived
+)
+
+// ErrAgentNotFound is returned (wrapped) by a runtime when a nudge or wake targets
+// an agent whose session no longer exists. The guardian and overwatch treat it as
+// the same "brain gone" signal as BrainSession == SessionMissing.
+var ErrAgentNotFound = errors.New("agent not found")
 
 // rotateBrain is the guardian's rotation hook (autopilot.md §7): hot-swap the
 // successor backend into the existing manager slot so the session id is

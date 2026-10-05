@@ -2,6 +2,7 @@ package autopilot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -143,6 +144,14 @@ func (c *Controller) overwatchRun(ctx context.Context, ow OverwatchRuntime, r *r
 	}
 
 	if err := ow.WakeAgent(ctx, r.brain.AgentID, composeOverwatchNudge(needy)); err != nil {
+		if errors.Is(err, ErrAgentNotFound) {
+			// The manager is gone: drop the stale record; the guardian respawns it on
+			// its next pass (this tick's nudge clock is not advanced).
+			if gr, ok := c.runtime.(GuardianRuntime); ok {
+				c.managerLost(ctx, gr, r, "overwatch wake target not found")
+			}
+			return
+		}
 		slog.Warn("autopilot overwatch: wake failed", "run", r.runID, "err", err)
 	}
 	r.overwatchLastNudgeAt = now

@@ -33,6 +33,27 @@ type guardianFake struct {
 	roster    map[string][]AgentInfo // runID → live agent roster (overwatch)
 	rosterErr error                  // when non-nil, RunAgents fails (overwatch degrade)
 	wakes     []string               // overwatch pane-injected wakes ("agentID: msg")
+
+	missing  map[string]bool // agentID → session deleted/archived
+	unknown  map[string]bool // agentID → store cannot answer
+	nudgeErr error           // when set, NudgeBrain fails with it
+	wakeErr  error           // when set, WakeAgent fails with it
+	audits   []string        // "action:agentID"
+	onRotate func(agentID string)
+}
+
+func (f *guardianFake) BrainSession(_ context.Context, id string) SessionPresence {
+	switch {
+	case f.missing[id]:
+		return SessionMissing
+	case f.unknown[id]:
+		return SessionUnknown
+	}
+	return SessionPresent
+}
+
+func (f *guardianFake) AuditRunEvent(_ context.Context, _, action, agentID, _ string) {
+	f.audits = append(f.audits, action+":"+agentID)
 }
 
 func newGuardianFake() *guardianFake {
@@ -42,6 +63,8 @@ func newGuardianFake() *guardianFake {
 		activity:   map[string]time.Time{},
 		ctxLevel:   map[string]string{},
 		roster:     map[string][]AgentInfo{},
+		missing:    map[string]bool{},
+		unknown:    map[string]bool{},
 	}
 }
 
@@ -55,6 +78,9 @@ func (f *guardianFake) RunAgents(_ context.Context, runID string) ([]AgentInfo, 
 
 // WakeAgent backs OverwatchRuntime: records the pane-injected wake.
 func (f *guardianFake) WakeAgent(_ context.Context, agentID, msg string) error {
+	if f.wakeErr != nil {
+		return f.wakeErr
+	}
 	f.wakes = append(f.wakes, agentID+": "+msg)
 	return nil
 }
@@ -69,6 +95,9 @@ func (f *guardianFake) SpawnBrain(_ context.Context, spec BrainSpec) (BrainHandl
 }
 
 func (f *guardianFake) RotateBrain(_ context.Context, spec RotateBrainSpec) (BrainHandle, error) {
+	if f.onRotate != nil {
+		f.onRotate(spec.AgentID)
+	}
 	if f.rotateErr != nil {
 		return BrainHandle{}, f.rotateErr
 	}
@@ -98,6 +127,9 @@ func (f *guardianFake) BrainContextLevel(_ context.Context, agentID string) stri
 	return f.ctxLevel[agentID]
 }
 func (f *guardianFake) NudgeBrain(_ context.Context, agentID, msg string) error {
+	if f.nudgeErr != nil {
+		return f.nudgeErr
+	}
 	f.nudges = append(f.nudges, agentID+": "+msg)
 	return nil
 }
@@ -543,4 +575,165 @@ func ownershipFromTestTags(tags []string) (owned bool, runID string) {
 		}
 	}
 	return has && runID != "", runID
+}
+
+// TestGuardianMissingManagerSession covers the stale-manager-record fix (#704):
+// a definitively missing session is respawned on the next tick with no nudge and
+// no heartbeat wait, while a merely unresolvable or quiet one is left to the
+// normal ladder.
+func TestGuardianMissingManagerSession(t *testing.T) {
+	t0 := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+	notFound := fmt.Errorf("%w: brain-1", ErrAgentNotFound)
+
+	cases := []struct {
+		name        string
+		setup       func(f *guardianFake, runID string)
+		after       time.Duration // clock offset of the tick (inside the heartbeat timeout unless noted)
+		wantSpawned int
+		wantNudges  int
+		wantRotated int
+		wantAudit   bool
+		wantBrain   string
+	}{
+		{"session missing -> respawn, no nudge, no wait",
+			func(f *guardianFake, _ string) { f.missing["brain-1"] = true },
+			time.Minute, 2, 0, 0, true, "brain-2"},
+		{"session archived (same as missing to the store) -> respawn",
+			func(f *guardianFake, _ string) { f.missing["brain-1"] = true },
+			9 * time.Minute, 2, 0, 0, true, "brain-2"},
+		{"session unresolvable (daemon restart) -> untouched",
+			func(f *guardianFake, _ string) { f.unknown["brain-1"] = true },
+			time.Minute, 1, 0, 0, false, "brain-1"},
+		{"unresolvable and quiet -> today's ladder (nudge only)",
+			func(f *guardianFake, _ string) { f.unknown["brain-1"] = true },
+			11 * time.Minute, 1, 1, 0, false, "brain-1"},
+		{"session present but quiet -> today's ladder (nudge)",
+			func(*guardianFake, string) {},
+			11 * time.Minute, 1, 1, 0, false, "brain-1"},
+		{"session present and fresh -> nothing",
+			func(*guardianFake, string) {},
+			time.Minute, 1, 0, 0, false, "brain-1"},
+		{"nudge reports not-found -> respawn same tick",
+			func(f *guardianFake, _ string) { f.nudgeErr = notFound },
+			11 * time.Minute, 2, 0, 0, true, "brain-2"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			clock := &fakeClock{t: t0}
+			fake := newGuardianFake()
+			c, runID := enabledGuardianController(t, fake, clock, cyclicResolver("a", "free"), testGuardian())
+			tc.setup(fake, runID)
+			clock.t = t0.Add(tc.after)
+			c.guardianTick(ctx)
+
+			require.Len(t, fake.spawned, tc.wantSpawned)
+			require.Len(t, fake.nudges, tc.wantNudges)
+			require.Len(t, fake.rotated, tc.wantRotated, "a missing manager is respawned, never hot-swapped")
+			require.Equal(t, tc.wantAudit, len(fake.audits) == 1, "audits=%v", fake.audits)
+			require.Equal(t, tc.wantBrain, c.Status().Runs[0].Brain.AgentID)
+			if tc.wantAudit {
+				require.Equal(t, "autopilot.manager_missing:brain-1", fake.audits[0])
+				require.Equal(t, StateActive, c.runs[runID].state, "respawn succeeded")
+			}
+		})
+	}
+}
+
+// TestGuardianMissingManagerStatusWhileEmpty: when the respawn cannot happen the
+// run is never reported active with a dead manager id.
+func TestGuardianMissingManagerStatusWhileEmpty(t *testing.T) {
+	t0 := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)
+	clock := &fakeClock{t: t0}
+	fake := newGuardianFake()
+	c, runID := enabledGuardianController(t, fake, clock, cyclicResolver("a", "free"), testGuardian())
+	fake.missing["brain-1"] = true
+	fake.spawnErrOn["a"] = fmt.Errorf("backend down")
+
+	clock.t = t0.Add(time.Minute)
+	c.guardianTick(context.Background())
+
+	st := c.Status().Runs[0]
+	require.Nil(t, st.Brain, "no manager id that resolves to no session")
+	require.Equal(t, StateDegraded, st.State, "failed respawn reports degraded, as today")
+	require.NotNil(t, st.Backoff)
+	require.Nil(t, c.runs[runID].brain)
+	require.Len(t, fake.audits, 1)
+	require.Empty(t, fake.nudges)
+}
+
+// TestGuardianFailedHotSwapReachesRespawn: a heal restart whose hot-swap fails and
+// leaves the session removed (#685) is replaced on the very next tick.
+func TestGuardianFailedHotSwapReachesRespawn(t *testing.T) {
+	t0 := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)
+	clock := &fakeClock{t: t0}
+	fake := newGuardianFake()
+	c, _ := enabledGuardianController(t, fake, clock, cyclicResolver("a", "free"), testGuardian())
+	ctx := context.Background()
+	fake.rotateErr = fmt.Errorf("hot-swap: launch successor")
+	fake.onRotate = func(id string) { fake.missing[id] = true } // the failed swap lost the session
+
+	clock.t = t0.Add(11 * time.Minute)
+	c.guardianTick(ctx) // stage 1: nudge
+	clock.t = t0.Add(22 * time.Minute)
+	c.guardianTick(ctx) // stage 2: restart fails, session lost
+	require.Len(t, fake.spawned, 1)
+
+	fake.rotateErr = nil
+	clock.t = t0.Add(23 * time.Minute) // well inside the post-restart grace window
+	c.guardianTick(ctx)
+	require.Len(t, fake.spawned, 2, "lost manager respawned next tick, not after another timeout")
+	require.Equal(t, "brain-2", c.Status().Runs[0].Brain.AgentID)
+	require.Equal(t, StateActive, c.Status().Runs[0].State)
+}
+
+// TestGuardianNoDoubleManager: a manager mid-rotation (record present throughout)
+// is never respawned alongside itself, and once replaced the new id is stable.
+func TestGuardianNoDoubleManager(t *testing.T) {
+	t0 := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)
+	clock := &fakeClock{t: t0}
+	fake := newGuardianFake()
+	c, _ := enabledGuardianController(t, fake, clock, cyclicResolver("a", "free"), testGuardian())
+	ctx := context.Background()
+	// Mid hot-swap: the record stays present while the swap runs; the tick sees it.
+	fake.onRotate = func(id string) {
+		require.Equal(t, SessionPresent, fake.BrainSession(ctx, id))
+	}
+	for _, off := range []time.Duration{11, 22, 33} { // nudge, restart, rotate
+		clock.t = t0.Add(off * time.Minute)
+		c.guardianTick(ctx)
+	}
+	require.Len(t, fake.spawned, 1, "only ever one manager session")
+	require.Equal(t, "brain-1", c.Status().Runs[0].Brain.AgentID)
+
+	// Replaced once, then repeated ticks do not spawn again.
+	fake.missing["brain-1"] = true
+	for i := 0; i < 3; i++ {
+		clock.t = clock.t.Add(time.Minute)
+		c.guardianTick(ctx)
+	}
+	require.Len(t, fake.spawned, 2)
+}
+
+// TestOverwatchWakeNotFoundClearsManager: a wake that fails with agent-not-found
+// drops the stale record so the guardian respawns on its next pass.
+func TestOverwatchWakeNotFoundClearsManager(t *testing.T) {
+	t0 := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)
+	clock := &fakeClock{t: t0}
+	fake := newGuardianFake()
+	c, runID := enabledGuardianController(t, fake, clock, cyclicResolver("a", "free"), testGuardian())
+	ctx := context.Background()
+	fake.roster[runID] = []AgentInfo{{ID: "brain-1", State: "idle"}}
+	fake.wakeErr = fmt.Errorf("%w: brain-1", ErrAgentNotFound)
+
+	clock.t = t0.Add(overwatchPeriod + time.Minute)
+	fake.activity[runID] = clock.t // keep the guardian itself quiet
+	c.overwatchTick(ctx)
+	require.Nil(t, c.runs[runID].brain)
+	require.Equal(t, StateHealing, c.runs[runID].state)
+	require.Len(t, fake.audits, 1)
+
+	c.guardianTick(ctx)
+	require.Len(t, fake.spawned, 2)
+	require.Equal(t, "brain-2", c.Status().Runs[0].Brain.AgentID)
 }
