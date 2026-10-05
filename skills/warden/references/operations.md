@@ -161,7 +161,8 @@ Notable settings (see the generated file for the full set with defaults):
   incoming-webhook URL works out of the box), browser notifications.
 - **Token guard:** `tokens.guard`, `tokens.warn_alert`, `tokens.auto_compact`,
   `tokens.warn` (200000), `tokens.critical` (400000) — gauge + alert + auto-`/compact`
-  at critical when idle.
+  at critical when idle. Auto- and force-compact skip autopilot and pipeline agents
+  (unattended); only agents the operator drives are compacted automatically.
 - **Approvals:** `approvals`, `auto_approve`.
 - **Spawn / worktree / restart:** `worktree.spawn_gate`/`worktree.spawn_gate_max_agents`,
   `tokens.budget_gate`/`tokens.budget_daily_usd`/`tokens.budget_weekly_usd` (soft $ cap on spawn),

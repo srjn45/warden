@@ -652,3 +652,46 @@ func TestForceCompactResumeRetriesAndSucceedsExactlyOnce(t *testing.T) {
 	p.checkContext(context.Background(), s, t0.Add(3*time.Second))
 	require.Equal(t, 2, fd.resumed, "successful resume is sent exactly once")
 }
+
+// Autopilot and pipeline agents are never compacted by the global defaults: no
+// operator watches their pane, so a compaction gone wrong would derail the run.
+func TestCheckContextUnattendedAgentsAreNotCompacted(t *testing.T) {
+	for name, s := range map[string]*agentstore.Agent{
+		"autopilot idle":   {ID: "a1", Status: store.StatusIdle, AutopilotRunID: "ap-1"},
+		"autopilot busy":   {ID: "a1", Status: store.StatusWorking, AutopilotRunID: "ap-1"},
+		"pipeline job":     {ID: "a1", Status: store.StatusIdle, PipelineID: "pl-1", JobID: "j1"},
+		"pipeline working": {ID: "a1", Status: store.StatusWorking, PipelineID: "pl-1", JobID: "j1"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fd := &ctxFakeDeps{tokens: 200000, tokensOK: true}
+			p := newForcePoller(fd)
+			p.AutoCompact = true
+			var alerts int
+			p.OnContextAlert = func(*agentstore.Agent, ctxtokens.State, int) { alerts++ }
+			t0 := time.Now()
+			p.checkContext(context.Background(), s, t0)
+			p.checkContext(context.Background(), s, t0.Add(20*time.Second))
+			if fd.compacted != 0 || fd.interrupted != 0 {
+				t.Fatalf("compacted=%d interrupted=%d, want 0/0", fd.compacted, fd.interrupted)
+			}
+			if alerts != 1 {
+				t.Fatalf("alerts=%d, want 1 (the gauge and alert still apply)", alerts)
+			}
+			if len(fd.updated) == 0 {
+				t.Fatal("gauge not persisted")
+			}
+		})
+	}
+}
+
+// An explicit per-agent override is the operator's decision and still wins.
+func TestCheckContextUnattendedHonorsExplicitForceCompact(t *testing.T) {
+	fd := &ctxFakeDeps{tokens: 200000, tokensOK: true}
+	p := newForcePoller(fd)
+	on := true
+	s := &agentstore.Agent{ID: "a1", Status: store.StatusIdle, AutopilotRunID: "ap-1", ForceCompact: &on}
+	p.checkContext(context.Background(), s, time.Now())
+	if fd.compacted != 1 {
+		t.Fatalf("compacted=%d, want 1 (explicit per-agent force-compact)", fd.compacted)
+	}
+}
