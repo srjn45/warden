@@ -81,6 +81,8 @@ A confirmed `rate_limited` status transition starts at most one recovery **gener
 
 Menu, banner, and usage-API observations for the same agent all converge on the same handler, so whichever evidence arrives first claims the generation and every later signal for that incident is a no-op — never a duplicate recovery.
 
+**Antigravity specifics.** The banner may carry an absolute clock (`Available at 15:30`) or a relative duration (`Individual quota reached … Resets in 10m5s`); both are parsed into an absolute reset time. The banner is only honoured in the region directly above (or inside) agy's input box, so an old banner higher in scrollback, or quoted text in the conversation, is not mistaken for a live limit. The agent's quota bucket also follows the model agy is *actually* running: when the status line shows a model family (`Gemini …` vs `Claude …`/`GPT-OSS …`) whose bucket differs from the bound one, the binding is re-bound and a `quota_rebound` event is recorded, so usage reconciliation watches the bucket that is really draining.
+
 A duplicate transition while a generation is already running is a no-op — the coordinator owns the session exclusively. Reactive recovery runs for **every** agent session; it is not gated on handover settings (those still control context-fill handover only).
 
 ### Usage refresh

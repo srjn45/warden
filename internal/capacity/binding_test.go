@@ -47,3 +47,23 @@ func TestResolverUsesModelRouteScope(t *testing.T) {
 	require.Equal(t, []string{"gemini"}, b.Domain.BucketKeys)
 	require.Equal(t, b.Domain.BucketKeys, b.MandatoryBuckets)
 }
+
+func TestQuotaBindingRebound(t *testing.T) {
+	b := &QuotaBinding{
+		Domain:           CapacityDomain{Provider: "antigravity", AiCli: "antigravity", AccountFingerprint: "fp", Route: "r", BucketKeys: []string{"non-gemini"}},
+		MandatoryBuckets: []string{"non-gemini"},
+	}
+	nb, changed := b.Rebound("gemini")
+	if !changed || nb.MandatoryBuckets[0] != "gemini" || nb.Domain.BucketKeys[0] != "gemini" || nb.Domain.Route != "r" || nb.Domain.AccountFingerprint != "fp" {
+		t.Fatalf("unexpected rebind: %+v changed=%v", nb, changed)
+	}
+	if b.MandatoryBuckets[0] != "non-gemini" {
+		t.Fatal("original binding must not be mutated")
+	}
+	if _, changed := nb.Rebound("gemini"); changed {
+		t.Fatal("same scope must be a no-op")
+	}
+	if _, changed := (*QuotaBinding)(nil).Rebound("gemini"); changed {
+		t.Fatal("nil binding must be a no-op")
+	}
+}

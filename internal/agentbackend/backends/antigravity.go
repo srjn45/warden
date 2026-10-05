@@ -1097,45 +1097,95 @@ func agyWindow(id, scope, label string, families, models []string, used *float64
 
 // --- Rate-limit detection ---------------------------------------------------
 
-// antigravityRLBannerRe matches Antigravity (agy) rate-limit banners in the
-// trailing pane tail. The banner must carry both a limit phrase (quota /
-// session-exhaustion phrasing specific to agy's Google-backed quota system)
-// AND a reset/availability time clause ("resets at HH:MM" or "available at
-// HH:MM") so that ordinary agent prose merely mentioning "rate limit", "quota",
-// or "limit reached" — in code, discussion, tool output, or transcript review —
-// does NOT trigger detection. The [\s\S]{0,150}? bridge tolerates multi-line
-// banner layout while staying within the trailing window.
+// antigravityRLClause is the reset/availability clause every agy limit banner
+// carries: an absolute clock ("resets at 15:30", "available at 15:30") or the
+// relative form the live banner uses ("Resets in 10m5s").
+const antigravityRLClause = `(?:(?:resets|available)\s+at\s+\d{1,2}:\d{2}|(?:resets|available)\s+in\s+\d+(?:\.\d+)?\s*[hms])`
+
+// antigravityRLPhrase is the limit phrase specific to agy's Google-backed quota
+// system ("Individual quota reached", "Free-tier session quota reached", ...).
+const antigravityRLPhrase = `(?:rate\s+limit(?:ed)?|quota(?:\s+exceeded)?|usage\s+limit|session\s+(?:limit|quota)|limit\s+reached|resource\s+exhausted)`
+
+// antigravityRLBannerRe matches Antigravity (agy) rate-limit banners. The banner
+// must carry both a limit phrase AND a reset clause so that ordinary agent prose
+// merely mentioning "rate limit", "quota", or "limit reached" — in code,
+// discussion, tool output, or transcript review — does NOT trigger detection.
+// The [\s\S]{0,150}? bridge tolerates multi-line banner layout. Both orderings
+// are covered.
 //
-// Both orderings are covered: the time clause may follow or precede the limit
-// phrase in the banner.
-//
-// TODO(confirm-wording): verify against a live agy rate-limit pane fixture and
-// tighten or expand the phrase list as needed; keep sampleAgyRateLimitBanner
-// (test fixture) in sync with any change here.
+// Live capture (GitHub #684): "⚠ Individual quota reached. Please upgrade your
+// subscription to increase your limits. Resets in 10m5s."
 var antigravityRLBannerRe = regexp.MustCompile(
-	`(?i)(?:` +
-		`(?:rate\s+limit(?:ed)?|quota(?:\s+exceeded)?|usage\s+limit|session\s+(?:limit|quota)|limit\s+reached|resource\s+exhausted)[\s\S]{0,150}?(?:resets\s+at|available\s+at)\s+\d{1,2}:\d{2}` +
-		`|` +
-		`(?:resets\s+at|available\s+at)\s+\d{1,2}:\d{2}[\s\S]{0,150}?(?:rate\s+limit(?:ed)?|quota(?:\s+exceeded)?|usage\s+limit|session\s+(?:limit|quota)|limit\s+reached|resource\s+exhausted)` +
-		`)`,
+	`(?i)(?:` + antigravityRLPhrase + `[\s\S]{0,150}?` + antigravityRLClause +
+		`|` + antigravityRLClause + `[\s\S]{0,150}?` + antigravityRLPhrase + `)`,
 )
 
 // antigravityResetsAtRe matches "resets at HH:MM" / "available at HH:MM" in
-// agy's rate-limit output, used to extract a reset time.
+// agy's rate-limit output, used to extract an absolute reset time.
 var antigravityResetsAtRe = regexp.MustCompile(
 	`(?i)(?:resets\s+at|available\s+at)\s+(\d{1,2}:\d{2})\s*(am|pm)?`,
 )
 
-const antigravityRLTailLines = 6
+const (
+	// antigravityRLTailLines is the legacy trailing window, used only when the
+	// pane shows no input box to anchor on.
+	antigravityRLTailLines = 6
+	// antigravityRLAboveBox is how many lines directly above the input box are
+	// scanned: banner, "Error ID", blank, plus slack for an extra line or two.
+	antigravityRLAboveBox = 6
+	// antigravityRLBoxScan bounds how far from the bottom the input box's rules
+	// are searched for (rule, prompt, rule, status line, + slack).
+	antigravityRLBoxScan = 8
+)
+
+// agyIsRule reports whether a line is a horizontal rule of the input box.
+func agyIsRule(line string) bool {
+	t := strings.TrimSpace(line)
+	if len([]rune(t)) < 8 {
+		return false
+	}
+	for _, r := range t {
+		if r != '─' && r != '━' && r != '-' && r != '═' {
+			return false
+		}
+	}
+	return true
+}
+
+// agyBannerWindow returns the pane region a live limit banner can occupy. agy
+// renders the banner either directly above its input box (rule, prompt, rule,
+// status line — the live #684 capture, 7 lines from the bottom) or inside it. So
+// when the box is visible the window runs from antigravityRLAboveBox lines above
+// the box's top rule to the end of the pane — robust to however many lines the
+// banner/Error ID take — and always covers at least the legacy trailing window.
+// A banner (or quoted text) further up in scrollback falls outside it.
+func agyBannerWindow(pane string) string {
+	lines := strings.Split(strings.TrimRight(pane, "\n \t"), "\n")
+	from := len(lines) - antigravityRLTailLines
+	var rules []int
+	for i := len(lines) - 1; i >= 0 && i >= len(lines)-antigravityRLBoxScan; i-- {
+		if agyIsRule(lines[i]) {
+			rules = append(rules, i)
+		}
+	}
+	if len(rules) >= 2 {
+		if above := rules[1] - antigravityRLAboveBox; above < from {
+			from = above
+		}
+	}
+	if from < 0 {
+		from = 0
+	}
+	return strings.Join(lines[from:], "\n")
+}
 
 // DetectRateLimit implements agentbackend.RateLimitDetector for Antigravity.
-// It anchors on the trailing pane lines (antigravityRLTailLines) so neither a
-// stale banner that scrolled away nor a live agent writing about quota policies
-// triggers a false positive. The banner must exhibit both a provider-specific
-// limit phrase and a reset time clause — the combined structure is what
-// distinguishes a real agy error banner from ordinary conversation text.
+// It anchors on the structure of the live pane (the region directly above the
+// input box) so neither a stale banner that scrolled away nor a live agent
+// writing about quota policies triggers a false positive. The banner must
+// exhibit both a provider-specific limit phrase and a reset clause.
 func (Antigravity) DetectRateLimit(pane string) (bool, time.Time, bool) {
-	tail := limitLastLines(pane, antigravityRLTailLines)
+	tail := agyBannerWindow(pane)
 	if !antigravityRLBannerRe.MatchString(tail) {
 		return false, time.Time{}, false
 	}
@@ -1144,12 +1194,15 @@ func (Antigravity) DetectRateLimit(pane string) (bool, time.Time, bool) {
 }
 
 // ParseRateLimitReset implements agentbackend.RateLimitResetParser for
-// Antigravity. It extracts "resets at HH:MM" / "available at HH:MM" if
-// present; falls back to the generic parser on other formats.
+// Antigravity. It extracts "resets in 10m5s" (relative), then "resets at HH:MM" /
+// "available at HH:MM" (absolute); falls back to the generic parser otherwise.
 func (Antigravity) ParseRateLimitReset(pane string) (time.Time, bool) {
+	now := time.Now()
+	if t, ok := rlParseRelativeReset(pane, now); ok {
+		return t, true
+	}
 	if m := antigravityResetsAtRe.FindStringSubmatch(pane); len(m) == 3 {
 		if h, min, ok := rlParseClock(m[1], m[2]); ok {
-			now := time.Now()
 			result := time.Date(now.Year(), now.Month(), now.Day(), h, min, 0, 0, now.Location())
 			if result.Before(now) {
 				result = result.Add(24 * time.Hour)
@@ -1158,6 +1211,33 @@ func (Antigravity) ParseRateLimitReset(pane string) (time.Time, bool) {
 		}
 	}
 	return parseRateLimitResetTime(pane)
+}
+
+// agyStatusModelRe matches the status line's trailing "<model> · <effort>"
+// segment, e.g. "? for shortcuts      Gemini 3.8 Flash · medium" (live agy) or the
+// "Gemini 3.5 Flash (Low)" display-label form.
+var agyStatusModelRe = regexp.MustCompile(`(?i)(?:^|\s{2,})((?:gemini|claude|gpt)[\w .\-()]*?)(?:\s+·\s+(?:minimal|low|medium|high)|\s+\((?:[\w ]+)\))\s*$`)
+
+// ObservedQuotaScope implements agentbackend.QuotaScopeObserver. It reads the
+// model agy is actually running from the status line (the last line, below the
+// input box) and maps its family to the quota bucket scope: Gemini models share
+// the "gemini" bucket; Claude and GPT-OSS models the "non-gemini" one. Only a
+// recognised family on a pane with an input box is reported — anything else
+// returns ok=false rather than a guess.
+func (Antigravity) ObservedQuotaScope(pane string) (model, scope string, ok bool) {
+	lines := strings.Split(strings.TrimRight(pane, "\n \t"), "\n")
+	if len(lines) < 4 || !agyIsRule(lines[len(lines)-2]) {
+		return "", "", false
+	}
+	m := agyStatusModelRe.FindStringSubmatch(strings.TrimRight(lines[len(lines)-1], " \t"))
+	if m == nil {
+		return "", "", false
+	}
+	model = strings.TrimSpace(m[1])
+	if strings.HasPrefix(strings.ToLower(model), "gemini") {
+		return model, "gemini", true
+	}
+	return model, "non-gemini", true
 }
 
 // --- Capabilities -----------------------------------------------------------

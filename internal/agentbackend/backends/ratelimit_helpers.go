@@ -216,3 +216,44 @@ func rlResetLocation(tzName string) *time.Location {
 	}
 	return time.Local
 }
+
+// rlRelativeResetRe matches a relative reset clause — "resets in 10m5s",
+// "available in 2h 3m", "resets in 45 seconds". The capture is the run of
+// <number><unit> components; rlDurationPartRe splits it.
+var rlRelativeResetRe = regexp.MustCompile(
+	`(?i)(?:resets|available)\s+in\s+((?:\d+(?:\.\d+)?\s*(?:hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)[\s,]*(?:and\s+)?)+)`,
+)
+
+var rlDurationPartRe = regexp.MustCompile(`(?i)(\d+(?:\.\d+)?)\s*(hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)`)
+
+// rlParseRelativeReset extracts an absolute reset instant from a relative
+// "resets in <duration>" clause, anchored at now. Accepts Go-style (10m5s, 2h3m,
+// 45s, 1.5h) and spelled-out (2 hours 3 minutes) components. ok is false when no
+// clause is present or the duration is zero.
+func rlParseRelativeReset(pane string, now time.Time) (time.Time, bool) {
+	m := rlRelativeResetRe.FindStringSubmatch(pane)
+	if len(m) != 2 {
+		return time.Time{}, false
+	}
+	var total time.Duration
+	for _, p := range rlDurationPartRe.FindAllStringSubmatch(m[1], -1) {
+		n, err := strconv.ParseFloat(p[1], 64)
+		if err != nil {
+			return time.Time{}, false
+		}
+		var unit time.Duration
+		switch strings.ToLower(p[2])[0] {
+		case 'h':
+			unit = time.Hour
+		case 'm':
+			unit = time.Minute
+		default:
+			unit = time.Second
+		}
+		total += time.Duration(n * float64(unit))
+	}
+	if total <= 0 {
+		return time.Time{}, false
+	}
+	return now.Add(total), true
+}

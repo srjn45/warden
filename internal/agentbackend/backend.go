@@ -466,6 +466,17 @@ type RateLimitDetector interface {
 	DetectRateLimit(pane string) (limited bool, resetAt time.Time, resetKnown bool)
 }
 
+// QuotaScopeObserver is an optional Backend extension: a backend whose live pane
+// shows which model is actually running (and so which quota bucket it drains)
+// implements this. The daemon re-binds the agent's capacity binding when the
+// observed scope differs from the bound one.
+type QuotaScopeObserver interface {
+	// ObservedQuotaScope reports the model shown in the pane and its quota
+	// scope. ok is false when the pane does not conclusively show a model of a
+	// known family; implementations must not guess.
+	ObservedQuotaScope(pane string) (model, scope string, ok bool)
+}
+
 // RateLimitResetParser is an optional Backend extension: extracts the reset time
 // from a rate-limit pane excerpt. RateLimitScheduler.limitClearsAtExcerpt() prefers
 // this over the Claude-specific poller helpers when present.
