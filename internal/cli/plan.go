@@ -39,8 +39,8 @@ func newPlanCmd() *cobra.Command {
 			"  4. Control   `wd plan pause`, `resume` or `stop` the running executor\n" +
 			"  5. Progress  `wd plan task status` / `wd plan done` record task progress\n" +
 			"  6. Complete  `wd plan complete` (in_progress → completed)\n" +
-			"  7. Finish    `wd plan archive` (reversible), or `wd plan delete` to remove a\n" +
-			"               pending or archived plan permanently",
+			"  7. Finish    `wd plan archive` (reversible with `wd plan unarchive`), or\n" +
+			"               `wd plan delete` to remove a pending or archived plan permanently",
 	}
 	SetCommandHelpMetadata(cmd, "run", 25, "warden plan", "", NodeNamespace)
 
@@ -60,6 +60,7 @@ func newPlanCmd() *cobra.Command {
 		newPlanDoneCmd(),
 		newPlanCompleteCmd(),
 		newPlanArchiveCmd(),
+		newPlanUnarchiveCmd(),
 		newPlanDeleteCmd(),
 		newPlanSyncToRepoCmd("sync-to-repo", false),
 		newPlanSyncToRepoCmd("sync_to_repo", true), // deprecated spelling, kept as a hidden alias
@@ -725,9 +726,19 @@ func newPlanStatusCmd() *cobra.Command {
 func newPlanArchiveCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "archive <plan-id>",
-		Short: "Archive a plan (any status → archived)",
-		Long:  "Move a plan to the archived state. Allowed from pending, in_progress, or completed.",
-		Args:  cobra.ExactArgs(1),
+		Short: "Archive a plan (reversible with `plan unarchive`)",
+		Long: "Move a plan to the archived state, recording the status it was archived from\n" +
+			"so `wd plan unarchive` can restore it.\n\n" +
+			"Pending and completed plans archive as a status change only. An in-progress\n" +
+			"plan whose executor is still live (starting, active, paused, healing,\n" +
+			"degraded, finalizing or awaiting final PR merge) is refused: run\n" +
+			"`wd plan stop <plan-id>` first. With the executor stopped or absent, archive\n" +
+			"tears down what the run left behind — the executor record, plan-bound agents\n" +
+			"and their worktrees — and reports what was removed.\n\n" +
+			"Never torn down: any branch (worker or integration) with commits that are not\n" +
+			"on the default branch is kept, locally and on origin, and listed in the\n" +
+			"output. Open PRs are left open. Task progress and the plan record are kept.",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p, err := clientFor(cmd).PlansArchive(cmd.Context(), args[0])
 			if err != nil {
@@ -736,7 +747,63 @@ func newPlanArchiveCmd() *cobra.Command {
 			if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
 				return printJSON(cmd.OutOrStdout(), p)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "plan %s archived (status=%s rev=%d)\n", p.ID, p.Status, p.Revision)
+			out := cmd.OutOrStdout()
+			fmt.Fprintf(out, "plan %s archived (status=%s rev=%d)\n", p.ID, p.Status, p.Revision)
+			printArchiveReport(out, p.ArchiveReport)
+			fmt.Fprintf(out, "undo with: wd plan unarchive %s\n", p.ID)
+			return nil
+		},
+	}
+	cmd.Flags().Bool("json", false, "output as JSON")
+	return cmd
+}
+
+func printArchiveReport(w io.Writer, r *client.PlanArchiveReport) {
+	if r == nil {
+		return
+	}
+	if r.RemovedExecutor != "" {
+		fmt.Fprintf(w, "removed executor: %s\n", r.RemovedExecutor)
+	}
+	if len(r.RemovedAgents) > 0 {
+		fmt.Fprintf(w, "removed agents:   %s\n", strings.Join(r.RemovedAgents, ", "))
+	}
+	if len(r.RemovedBranches) > 0 {
+		fmt.Fprintf(w, "removed branches: %s\n", strings.Join(r.RemovedBranches, ", "))
+	}
+	for _, k := range r.KeptBranches {
+		fmt.Fprintf(w, "kept branch:      %s (%d commits not on the default branch)\n", k.Branch, k.Commits)
+	}
+	for _, e := range r.Errors {
+		fmt.Fprintf(w, "warning: %s\n", e)
+	}
+}
+
+func newPlanUnarchiveCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "unarchive <plan-id>",
+		Short: "Restore an archived plan to the status it was archived from",
+		Long: "Return an archived plan to the status it was archived from (pending,\n" +
+			"in_progress or completed) and clear its archived marker. A plan archived\n" +
+			"before that status was recorded returns to completed when it has a completion\n" +
+			"time, otherwise to pending (task progress is kept).\n\n" +
+			"An in-progress plan comes back in_progress with a stopped executor; nothing is\n" +
+			"started. Run `wd plan restart <plan-id>` to continue it. Refused on a plan\n" +
+			"that is not archived.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			p, err := clientFor(cmd).PlansUnarchive(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+				return printJSON(cmd.OutOrStdout(), p)
+			}
+			out := cmd.OutOrStdout()
+			fmt.Fprintf(out, "plan %s unarchived (status=%s rev=%d)\n", p.ID, p.Status, p.Revision)
+			if p.Status == "in_progress" {
+				fmt.Fprintf(out, "its executor is stopped; run `wd plan restart %s` to continue it\n", p.ID)
+			}
 			return nil
 		},
 	}

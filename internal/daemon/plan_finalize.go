@@ -39,9 +39,18 @@ func (s *Server) FinalizePlan(ctx context.Context, planID string, opts ...planst
 // refs on Plan.BranchSummaries / events, ExecutionSummary, PlanExecutionEvents,
 // and global audit entries.
 func (s *Server) cleanupPlanExecutors(ctx context.Context, p *planstore.Plan) planstore.CleanupEvidence {
+	ev, _ := s.cleanupPlanExecutorsMode(ctx, p, false)
+	return ev
+}
+
+// cleanupPlanExecutorsMode is cleanupPlanExecutors with an archive mode:
+// keepUnmerged keeps every branch (plan, integration, agent) that still has
+// commits not on the default branch, and the report says what was removed/kept.
+func (s *Server) cleanupPlanExecutorsMode(ctx context.Context, p *planstore.Plan, keepUnmerged bool) (planstore.CleanupEvidence, planstore.ArchiveCleanupReport) {
+	var rep planstore.ArchiveCleanupReport
 	ev := planstore.CleanupEvidence{AttemptedAt: time.Now().UTC()}
 	if p == nil {
-		return ev
+		return ev, rep
 	}
 
 	// Collect plan-bound agents (root + workers) before tearing down executors.
@@ -77,7 +86,7 @@ func (s *Server) cleanupPlanExecutors(ctx context.Context, p *planstore.Plan) pl
 	}
 
 	for _, a := range agents {
-		if err := s.teardownPlanAgent(ctx, a); err != nil {
+		if err := s.teardownPlanAgent(ctx, a, keepUnmerged, p, &rep); err != nil {
 			ev.Errors = append(ev.Errors, fmt.Sprintf("agent %s: %v", a.ID, err))
 			ev.PendingIDs = append(ev.PendingIDs, a.ID)
 			continue
@@ -86,11 +95,18 @@ func (s *Server) cleanupPlanExecutors(ctx context.Context, p *planstore.Plan) pl
 	}
 
 	if svc := s.planSvc(); svc != nil {
-		if err := svc.CleanupWorktrees(ctx, p); err != nil {
+		if keepUnmerged {
+			r, err := svc.CleanupWorktreesKeepUnmerged(ctx, p)
+			rep.RemovedBranches = append(rep.RemovedBranches, r.RemovedBranches...)
+			rep.KeptBranches = append(rep.KeptBranches, r.KeptBranches...)
+			if err != nil {
+				ev.WorktreeErrors = append(ev.WorktreeErrors, err.Error())
+			}
+		} else if err := svc.CleanupWorktrees(ctx, p); err != nil {
 			ev.WorktreeErrors = append(ev.WorktreeErrors, err.Error())
 		}
 	}
-	return ev
+	return ev, rep
 }
 
 func (s *Server) planBoundAgents(ctx context.Context, planID string) []*agentstore.Agent {
@@ -173,7 +189,7 @@ func (s *Server) teardownPlanPipeline(ctx context.Context, pipelineID string) er
 	return nil
 }
 
-func (s *Server) teardownPlanAgent(ctx context.Context, sess *agentstore.Agent) error {
+func (s *Server) teardownPlanAgent(ctx context.Context, sess *agentstore.Agent, keepUnmerged bool, p *planstore.Plan, rep *planstore.ArchiveCleanupReport) error {
 	if sess == nil || s.life == nil || s.store == nil {
 		return nil
 	}
@@ -189,7 +205,22 @@ func (s *Server) teardownPlanAgent(ctx context.Context, sess *agentstore.Agent) 
 		s.recordPlanBoundAgentFinished(sess, "plan_finalize")
 	}
 	if sess.Worktree != "" {
-		if err := s.life.RemoveWorktree(ctx, sess, true, true); err != nil {
+		target, deleteBranch := sess, true
+		if keepUnmerged && sess.Branch != "" {
+			if n := s.unmergedAgentBranch(ctx, p, sess); n > 0 {
+				// Remove the worktree but leave the branch: clone the record
+				// with the branch cleared so RemoveWorktree cannot -D it.
+				cp := *sess
+				cp.Branch = ""
+				target, deleteBranch = &cp, false
+				if rep != nil {
+					rep.KeptBranches = append(rep.KeptBranches, planstore.KeptBranch{Branch: sess.Branch, Commits: n})
+				}
+			} else if rep != nil {
+				rep.RemovedBranches = append(rep.RemovedBranches, sess.Branch)
+			}
+		}
+		if err := s.life.RemoveWorktree(ctx, target, true, deleteBranch); err != nil {
 			return fmt.Errorf("remove worktree: %w", err)
 		}
 		s.recordPlanBoundWorktreeRemoved(sess)

@@ -85,6 +85,7 @@ func (s *Server) planToOAPI(p *planstore.Plan) oapi.Plan {
 	out := oapi.Plan{
 		AutopilotRunId:   p.AutopilotRunID,
 		ArchivedAt:       archivedAt,
+		ArchivedFrom:     oapi.PlanArchivedFrom(p.ArchivedFrom),
 		CompletedAt:      completedAt,
 		Constraints:      append([]string(nil), p.Constraints...),
 		ContentHash:      p.ContentHash,
@@ -776,25 +777,6 @@ func (s *Server) DeletePlan(ctx context.Context, req oapi.DeletePlanRequestObjec
 	}
 	s.removePlanMembership(req.PlanId, p.ProjectID)
 	return oapi.DeletePlan200JSONResponse{OKJSONResponse: oapi.OKJSONResponse{Status: "deleted"}}, nil
-}
-
-// ArchivePlan implements POST /api/v1/plans/{plan_id}/archive.
-func (s *Server) ArchivePlan(ctx context.Context, req oapi.ArchivePlanRequestObject) (oapi.ArchivePlanResponseObject, error) {
-	svc := s.planSvc()
-	if svc == nil {
-		return nil, planNotConfigured()
-	}
-	p, err := svc.Transition(ctx, req.PlanId, planstore.PlanStatusArchived, planstore.TransitionOptions{})
-	if err != nil {
-		if errors.Is(err, planstore.ErrNotFound) {
-			return oapi.ArchivePlan404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "plan not found"}}, nil
-		}
-		if errors.Is(err, planstore.ErrInvalidTransition) {
-			return nil, errStatus(http.StatusConflict, err.Error())
-		}
-		return nil, errStatus(http.StatusInternalServerError, "archive plan: "+err.Error())
-	}
-	return oapi.ArchivePlan200JSONResponse(s.planToOAPI(p)), nil
 }
 
 // CompletePlan is implemented in plan_finalize.go via FinalizePlan.
