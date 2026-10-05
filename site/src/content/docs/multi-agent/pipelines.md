@@ -4,6 +4,7 @@ description: Define a DAG of dependent agent jobs in YAML and let the daemon run
 ---
 
 A pipeline is a separate entity with `project_id` and optional `parent_agent_id`.
+Creating one auto-registers (or reopens) its project — no `warden projects open` needed first.
 Its owning agent lists it in `child_pipelines[]`. Job agents remain members of
 `Project.agents[]`, but are reached through pipeline jobs (`pipeline_id`), never
 through the owner's `child_agents[]`. Ownership does not change DAG scheduling.
