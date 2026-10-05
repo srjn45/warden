@@ -40,6 +40,11 @@ type guardianFake struct {
 	wakeErr  error           // when set, WakeAgent fails with it
 	audits   []string        // "action:agentID"
 	onRotate func(agentID string)
+
+	// RestartRuntime seams for RestartRun tests.
+	teardowns      []string
+	teardownErr    error
+	teardownResult RestartTeardown
 }
 
 func (f *guardianFake) BrainSession(_ context.Context, id string) SessionPresence {

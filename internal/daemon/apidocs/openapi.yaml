@@ -1743,6 +1743,40 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
 
+  /api/v1/plans/{plan_id}/restart:
+    post:
+      operationId: RestartPlan
+      tags: [Plans]
+      summary: Restart plan execution with a fresh set of agents
+      description: >
+        Work-preserving restart of an in_progress plan's executor. Captures a
+        restart context, terminates the old manager and every run-tagged worker,
+        removes their worktrees (keeping any task branch with commits beyond the
+        integration branch and never closing PRs), resets unfinished tasks to
+        pending, clears the heal ladder/backoff/needs-attention parking and spawns
+        a new manager. Autopilot mode only for now; pipeline restart returns 409
+        until it lands. Without force, an active/starting/paused executor is
+        refused. Idempotent: safe to re-issue after a partial failure.
+      parameters: [{ $ref: "#/components/parameters/PlanId" }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RestartPlanRequest" }
+      responses:
+        "200":
+          description: The plan after the restart
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Plan" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Wrong plan status, unsupported mode, healthy executor without force, or no executor
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
   /api/v1/plans/{plan_id}/{action}:
     parameters:
       - { $ref: "#/components/parameters/PlanId" }
@@ -1756,10 +1790,12 @@ paths:
       summary: Pause, resume, or stop plan execution
       description: >
         Controls the active executor for an in-progress plan (autopilot, pipeline,
-        or plan-bound agent). Together with POST /plans/{plan_id}/run, this is the
-        only public lifecycle surface for plan execution. Deprecated autopilot
-        register/unregister/retarget and plan-file-based start aliases translate
-        here (or to run) when a PlanID can be resolved.
+        or plan-bound agent). Together with POST /plans/{plan_id}/run and
+        POST /plans/{plan_id}/restart, this is the public lifecycle surface for
+        plan execution. Use restart (not resume) to bring a stopped, degraded,
+        healing or parked executor back with a fresh agent set. Deprecated
+        autopilot register/unregister/retarget and plan-file-based start aliases
+        translate here (or to run) when a PlanID can be resolved.
       responses:
         "200":
           description: The plan after the control action
@@ -5145,6 +5181,16 @@ components:
         execution_mode:
           type: string
           enum: [autopilot, pipeline, orchestrator_worker, manual]
+
+    RestartPlanRequest:
+      type: object
+      properties:
+        force:
+          type: boolean
+          description: Also restart an active, starting or paused executor.
+        backend:
+          type: string
+          description: Optional backend override for the new manager (autopilot only).
 
     UpdateTaskStatusRequest:
       type: object
