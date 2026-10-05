@@ -9,11 +9,11 @@ Complete command tree:
   warden agent recover                 Revive archived orphaned agent records whose tmux session is still alive (dry run unless --apply)
   warden agent adopt                   Register the AI CLI session in this directory (resume it under tmux, or register the current tmux session live)
   warden agent attach                  Attach to the agent's tmux session
-  warden agent stop                    Tear down an agent — the single umbrella verb (default: terminate + clear record + remove worktree)
-  warden agent terminate               Stop an agent: kill its tmux+AI CLI session (keeps the record and worktree) — alias for `stop --keep-record --keep-worktree`
-  warden agent done                    Terminate an agent and clear its record (does NOT remove the worktree) — alias for `stop --keep-worktree`
-  warden agent delete                  Clear an agent's stored record (archives by default; --hard to purge) — alias for `stop --keep-worktree` (record only)
-  warden agent remove-worktree         Remove an agent's git worktree + branch (always asks; --force overrides guards) — alias for `stop --keep-record` (worktree only)
+  warden agent stop                    Tear down an agent (default: terminate + clear record + remove worktree; --keep-* flags keep parts)
+  warden agent terminate               Stop an agent: kill its tmux+AI CLI session (keeps the record and worktree)
+  warden agent done                    Terminate an agent and clear its record, keeping the worktree (same as `stop --keep-worktree`)
+  warden agent delete                  Clear only an agent's stored record (archives by default; --hard to purge); does not terminate it or touch the worktree
+  warden agent remove-worktree         Remove only an agent's git worktree + branch (asks first unless --yes; --force overrides guards); does not terminate it or clear the record
   warden agent send                    Type a message into an agent's AI CLI session and press Enter
   warden agent tail                    Print the recent output of an agent's AI CLI session
   warden agent handoff                 Hand off work: delegate to a new/existing agent (--to), or retire self into a successor (--retire)

@@ -18,10 +18,11 @@ func newAgentCmd() *cobra.Command {
 Wherever a command takes <AGENT>, it is the agent's name, id or ticket as shown
 by 'warden ls'.
 
-Lifecycle commands deliberately remain distinct: terminate keeps the record and
-worktree; done clears the record but keeps the worktree; delete changes only the
-record; remove-worktree changes only the worktree; and stop composes teardown
-steps according to its keep flags and preserves its confirmation safeguards.`,
+Teardown: 'stop' is the full teardown (terminate the session, clear the record,
+remove the worktree and branch) and takes --keep-worktree, --keep-record, --hard
+and --pr to keep parts. 'terminate' only kills the session, keeping the record
+and worktree. The narrower 'done', 'delete' and 'remove-worktree' verbs still work
+but are hidden; see 'warden help agent stop'.`,
 	}
 	SetCommandHelpMetadata(cmd, "run", 10, "warden agent", "", NodeNamespace)
 

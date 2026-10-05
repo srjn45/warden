@@ -665,7 +665,8 @@
     "local_flags": [
       "base",
       "create-pr",
-      "hard"
+      "hard",
+      "pr"
     ],
     "inherited_flags": [
       "addr",

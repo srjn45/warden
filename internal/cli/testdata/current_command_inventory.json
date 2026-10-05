@@ -73,6 +73,7 @@
   {
     "path": "agent delete",
     "use": "delete \u003cAGENT\u003e",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "hard"
@@ -98,11 +99,13 @@
   {
     "path": "agent done",
     "use": "done \u003cAGENT\u003e",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "base",
       "create-pr",
-      "hard"
+      "hard",
+      "pr"
     ],
     "inherited_flags": [
       "addr",
@@ -199,6 +202,7 @@
   {
     "path": "agent remove-worktree",
     "use": "remove-worktree \u003cAGENT\u003e",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "delete-adopted-branch",
@@ -1635,7 +1639,8 @@
     "local_flags": [
       "base",
       "create-pr",
-      "hard"
+      "hard",
+      "pr"
     ],
     "inherited_flags": [
       "addr",
