@@ -4891,6 +4891,51 @@ components:
           description: >
             best-known live or linked executor id (active execution preferred,
             else autopilot_run_id / pipeline_id / orchestrator_id)
+        executor:
+          x-go-type-skip-optional-pointer: false
+          $ref: "#/components/schemas/PlanExecutorStatus"
+          description: >
+            live status of the plan's executor (autopilot run, pipeline or
+            plan-bound agent). Only populated by GET /plans/{plan_id} for plans
+            that have an executor; omitted otherwise.
+
+    PlanExecutorStatus:
+      type: object
+      description: Live executor state for one plan (single status view behind `wd plan show`).
+      required: [kind, id, state]
+      properties:
+        kind: { type: string, enum: [autopilot, pipeline, agent] }
+        id: { type: string, description: "autopilot run id, pipeline id, or agent id" }
+        state:
+          type: string
+          description: >
+            autopilot: active|healing|degraded|paused|stopped|complete;
+            pipeline: the pipeline status; agent: the session status
+        backoff:
+          x-go-type-skip-optional-pointer: false
+          $ref: "#/components/schemas/PlanExecutorBackoff"
+        integration_branch: { type: string }
+        manager_agent_id: { type: string }
+        tasks:
+          type: array
+          items: { $ref: "#/components/schemas/PlanExecutorTask" }
+
+    PlanExecutorBackoff:
+      type: object
+      properties:
+        stage: { type: integer }
+        next_retry_at: { type: string }
+        last_error: { type: string }
+
+    PlanExecutorTask:
+      type: object
+      required: [id, state]
+      properties:
+        id: { type: string }
+        state: { type: string, description: "autopilot ledger state or pipeline job status" }
+        worker_agent_id: { type: string }
+        branch: { type: string }
+        pr: { type: integer, description: "PR number where known" }
 
 
     PlanExecution:

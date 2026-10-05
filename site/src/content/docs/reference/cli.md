@@ -1320,12 +1320,18 @@ Show the full canonical ScrivaDB record for one plan: goal, tasks, status,
 revision, executor, task summary, export status, linked branches, and timestamps.
 Repository YAML is never read for this view.
 
+For an in_progress plan it is the single status view of the run: executor
+kind and state (active, healing, degraded, paused, stopped), backoff detail
+when present, the integration branch, and per task the state, worker agent
+and PR. Use --watch to keep refreshing it.
+
 Usage:
   warden plan show <plan-id> [flags]
 
 Flags:
-  -h, --help   help for show
-      --json   output as JSON
+  -h, --help    help for show
+      --json    output as JSON
+      --watch   refresh the view every few seconds until interrupted
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)

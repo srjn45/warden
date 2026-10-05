@@ -2,11 +2,13 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -975,4 +977,83 @@ func TestPlanRunModeNormalization(t *testing.T) {
 	if _, err := normalizePlanRunMode(""); err == nil {
 		t.Error("empty --mode must be rejected")
 	}
+}
+
+const planExecutorJSON = `{"id":"plan-ef56ab78","project_id":"proj1","name":"brain-consult",
+	"goal":"g","status":"in_progress","execution_mode":"autopilot","executor_id":"ap-1","revision":2,
+	"executor":{"kind":"autopilot","id":"ap-1","state":"degraded",
+	 "backoff":{"stage":2,"next_retry_at":"2026-10-05T12:00:00Z","last_error":"all backends rate-limited"},
+	 "integration_branch":"autopilot/x","manager_agent_id":"mgr-1",
+	 "tasks":[{"id":"t1","state":"landed","worker_agent_id":"w-1","branch":"t1-br","pr":42},
+	          {"id":"t2","state":"pending"}]},
+	"created_at":"2026-09-28T00:00:00Z","updated_at":"2026-09-28T00:00:00Z"}`
+
+func TestPlanShowCmdExecutorBlock(t *testing.T) {
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"GET /api/v1/plans/plan-ef56ab78": planExecutorJSON,
+	}, nil, nil))
+	out, err := runCLI(t, addr, "plan", "show", "plan-ef56ab78")
+	if err != nil {
+		t.Fatalf("plan show: %v", err)
+	}
+	for _, want := range []string{"executor_state: degraded (autopilot ap-1)", "backoff:        stage 2",
+		"last_error:     all backends rate-limited", "integration:    autopilot/x", "manager:        mgr-1",
+		"t1: landed worker=w-1 branch=t1-br pr=#42", "t2: pending"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("plan show missing %q:\n%s", want, out)
+		}
+	}
+	js, err := runCLI(t, addr, "plan", "show", "plan-ef56ab78", "--json")
+	if err != nil {
+		t.Fatalf("plan show --json: %v", err)
+	}
+	for _, want := range []string{`"executor"`, `"state": "degraded"`, `"worker_agent_id": "w-1"`, `"pr": 42`, `"integration_branch": "autopilot/x"`} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("plan show --json missing %q:\n%s", want, js)
+		}
+	}
+}
+
+func TestPlanShowCmdNoExecutorUnchanged(t *testing.T) {
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"GET /api/v1/plans/plan-ab12cd34": planSingleJSON,
+	}, nil, nil))
+	out, err := runCLI(t, addr, "plan", "show", "plan-ab12cd34")
+	if err != nil {
+		t.Fatalf("plan show: %v", err)
+	}
+	for _, bad := range []string{"executor_state", "backoff:", "integration:", "executor_tasks"} {
+		if strings.Contains(out, bad) {
+			t.Fatalf("no-executor plan must not print %q:\n%s", bad, out)
+		}
+	}
+}
+
+func TestPlanShowCmdWatchNonTTYAppends(t *testing.T) {
+	old := planWatchInterval
+	planWatchInterval = 5 * time.Millisecond
+	defer func() { planWatchInterval = old }()
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"GET /api/v1/plans/plan-ab12cd34": planSingleJSON,
+	}, nil, nil))
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	out, err := runCLICtx(t, ctx, addr, "plan", "show", "plan-ab12cd34", "--watch")
+	if err != nil {
+		t.Fatalf("plan show --watch: %v", err)
+	}
+	if strings.Count(out, "id:             plan-ab12cd34") < 2 {
+		t.Fatalf("watch should refresh at least twice:\n%s", out)
+	}
+}
+
+func runCLICtx(t *testing.T, ctx context.Context, addr string, args ...string) (string, error) {
+	t.Helper()
+	root := newRootCmd()
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+	root.SetArgs(append(append([]string{}, args...), "--addr", addr, "--config", t.TempDir()+"/none.yaml"))
+	err := root.ExecuteContext(ctx)
+	return out.String(), err
 }
