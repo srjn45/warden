@@ -163,6 +163,21 @@ func TestBrainConsultFreshEpisodeAfterRetry(t *testing.T) {
 	waitForConsult(t, mc, 2*time.Second)
 
 	// Brain fired retry_job → AutoRetryCount is now 2; job went to pending.
+	// The retry (and its reconcile) is applied by the consult goroutine after
+	// Consult returns, so wait for that goroutine to finish — it holds the
+	// consult semaphore until then. Ticking earlier either reuses the old
+	// episode's dedupe key or finds the semaphore full and skips the consult.
+	deadline := time.Now().Add(2 * time.Second)
+	for len(w.consultSem) != 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("brain consult goroutine did not finish within 2s")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got, _ := ps.Get("bc4"); got == nil || got.Job("job-d") == nil || got.Job("job-d").AutoRetryCount != 2 {
+		t.Fatalf("brain retry_job was not applied: %+v", got)
+	}
+
 	// Simulate the job becoming stuck again.
 	_ = ps.Update("bc4", func(up *pipeline.Pipeline) {
 		j := up.Job("job-d")
