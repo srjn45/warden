@@ -118,6 +118,12 @@ func (c *Controller) superviseRun(ctx context.Context, gr GuardianRuntime, r *ru
 		return
 	}
 
+	// A manager whose initial digest never reached its pane is re-fed once, then
+	// escalated as a spawn failure (seed.go).
+	if c.superviseSeed(ctx, gr, r, now) {
+		return
+	}
+
 	hb := r.brainSpawnedAt // a cold-started brain heartbeats from its spawn instant
 	if act, ok := gr.BrainActivity(ctx, r.runID); ok && act.After(hb) {
 		hb = act

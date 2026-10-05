@@ -15,6 +15,8 @@ type AgentInfo struct {
 	State  string
 	Branch string
 	Tags   []string
+	// SeedStatus is the agent's initial-prompt seed outcome (typed-prompt backends).
+	SeedStatus string
 }
 
 // AuditEntry is one recent audit line for the run, newest-first.

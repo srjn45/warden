@@ -295,6 +295,12 @@ func newStatusCmd() *cobra.Command {
 			if s.PlanID != "" {
 				fmt.Fprintf(out, "plan:            %s\n", s.PlanID)
 			}
+			if s.SeedStatus != "" {
+				fmt.Fprintf(out, "prompt seed:     %s\n", s.SeedStatus)
+				if s.SeedError != "" {
+					fmt.Fprintf(out, "seed error:      %s\n", s.SeedError)
+				}
+			}
 
 			// Show rate limit info if present
 			if rateLimitInfo := formatRateLimitInfo(s); rateLimitInfo != "" {

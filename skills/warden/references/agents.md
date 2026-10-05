@@ -122,13 +122,17 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
   `goose session -r --name <id>` is exact, not dir-scoped guessing), has a
   **structured Tier-A transcript** (SQLite, via `goose session export`) and
   **context injection** (`.goosehints`); approval prompts **not yet parsed**; no
-  priced spend.
+  priced spend. Initial prompt is also **auto-typed** via `PromptSeeder`.
   `cursor` (`cursor-agent`) is a **hosted plan** (billed to the operator's Cursor
   subscription — no $0-local rig, no priced spend); it **DOES resume** (dir-scoped,
   `--continue`), exposes **rich native permission modes** (`plan`/`ask`/`auto-review`/`force`),
   has **live state + approval/trust detection** and **context injection** (`AGENTS.md`),
-  but its interactive transcript is an unreadable SQLite store with no export verb, so
-  it is **Tier C — no digests yet**.
+  initial prompt **auto-typed** via `PromptSeeder`, but its interactive transcript is
+  an unreadable SQLite store with no export verb, so it is **Tier C — no digests yet**.
+  **Typed-prompt seed failures** (Aider / Crush / Goose / Cursor): a seed that fails
+  after retries sets `seed_status=failed` on the session, notifies the operator once,
+  and leaves the prompt at `<data_dir>/prompts/<id>` — check `get_agent` / `wd agent
+  status`, then `send_message` / `wd agent send` the saved prompt.
   `antigravity` (`agy`) is a **Google-hosted free tier** (quota-capped; no priced spend)
   with a **multi-vendor model menu** (Gemini/Claude/GPT-OSS via env/config); it **DOES
   resume** (dir-scoped, `agy -c`), has a **structured Tier-A transcript** (plaintext

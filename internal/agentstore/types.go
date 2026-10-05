@@ -76,6 +76,8 @@ type Agent struct {
 	// live Autopilot runs this agent parents. Nil = legacy missing list; non-nil,
 	// including [], is authoritative.
 	ChildAutopilots []string               `json:"child_autopilots,omitempty"`
+	SeedStatus      string                 `json:"seed_status,omitempty"`
+	SeedError       string                 `json:"seed_error,omitempty"`
 	AutopilotRunID  string                 `json:"autopilot_run_id,omitempty"`
 	AutopilotSlot   string                 `json:"autopilot_slot,omitempty"`
 	AutopilotTaskID string                 `json:"autopilot_task_id,omitempty"`
@@ -220,6 +222,8 @@ func (a *Agent) ToSession() *store.Session {
 		ChildAgents:               a.ChildAgents,
 		ChildPipelines:            a.ChildPipelines,
 		ChildAutopilots:           a.ChildAutopilots,
+		SeedStatus:                a.SeedStatus,
+		SeedError:                 a.SeedError,
 		AutopilotRunID:            a.AutopilotRunID,
 		AutopilotSlot:             a.AutopilotSlot,
 		AutopilotTaskID:           a.AutopilotTaskID,
@@ -288,6 +292,8 @@ func FromSession(s *store.Session) *Agent {
 		ChildAgents:               s.ChildAgents,
 		ChildPipelines:            s.ChildPipelines,
 		ChildAutopilots:           s.ChildAutopilots,
+		SeedStatus:                s.SeedStatus,
+		SeedError:                 s.SeedError,
 		AutopilotRunID:            s.AutopilotRunID,
 		AutopilotSlot:             s.AutopilotSlot,
 		AutopilotTaskID:           s.AutopilotTaskID,

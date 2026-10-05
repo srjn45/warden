@@ -86,9 +86,9 @@ runs on Fast-Brain, independent of the registry.)
 | **Aider** | `aider` | A | 🧪 Experimental. Bring-your-own-model; structured markdown transcript ⇒ real digests; no resume, no priced spend |
 | **OpenCode** | `opencode` | A | 🧪 Experimental. Bring-your-own-model; structured JSON transcript (via `opencode export`) ⇒ real digests; **resumes** the worktree's last session; no priced spend (BYO model) |
 | **Codex CLI** | `codex` | A | ✅ Stable. BYO provider (Codex config / `-m`); structured JSONL transcript (rollout files) ⇒ real digests; **resumes** dir-scoped, upgraded to exact-id via discover-then-pin; live state + approval detection; context injection (AGENTS.md); no priced spend |
-| **Crush** | `crush` | A | 🧪 Experimental. BYO model (config-driven TUI); structured JSON transcript (via `crush session show --json`) ⇒ real digests; **resumes** dir-scoped; initial prompt auto-typed post-launch via `PromptSeeder`; no priced spend |
-| **Goose** | `goose` | A | 🧪 Experimental. BYO provider (`GOOSE_PROVIDER`/`GOOSE_MODEL` env); structured JSON transcript (via `goose session export`) ⇒ real digests; **resumes** name-deterministic; no model flag on session launch; no priced spend |
-| **Cursor CLI** | `cursor` | C | ✅ Stable. Hosted plan (`cursor-agent`, billed to your Cursor subscription); rich native permission modes (`plan`/`ask`/`auto-review`/`force`); **resumes** dir-scoped; live state + approval/trust detection; **no structured transcript yet** ⇒ no digests; no priced spend |
+| **Crush** | `crush` | A | 🧪 Experimental. BYO model (config-driven TUI); structured JSON transcript (via `crush session show --json`) ⇒ real digests; **resumes** dir-scoped; initial prompt auto-typed post-launch via `PromptSeeder` (see [Typed-prompt seeding](#typed-prompt-seeding-aider-crush-goose-cursor)); no priced spend |
+| **Goose** | `goose` | A | 🧪 Experimental. BYO provider (`GOOSE_PROVIDER`/`GOOSE_MODEL` env); structured JSON transcript (via `goose session export`) ⇒ real digests; **resumes** name-deterministic; no model flag on session launch; initial prompt seeded via `PromptSeeder`; no priced spend |
+| **Cursor CLI** | `cursor` | C | ✅ Stable. Hosted plan (`cursor-agent`, billed to your Cursor subscription); rich native permission modes (`plan`/`ask`/`auto-review`/`force`); **resumes** dir-scoped; live state + approval/trust detection; initial prompt seeded via `PromptSeeder`; **no structured transcript yet** ⇒ no digests; no priced spend |
 | **Antigravity CLI** | `antigravity` | A | ✅ Stable. Google-hosted free tier (`agy`, multi-vendor model menu); structured trajectory JSONL (incl. tool calls / files changed) ⇒ real digests; **resumes** dir-scoped; live state + approval/trust detection; no priced spend |
 
 > A plain **terminal** is not an AI CLI choice — it's a first-class session kind
@@ -180,6 +180,12 @@ CLI parity** via the `fork_agent` tool. Cursor's server-side `--auto-review` ("S
 Auto") is surfaced not as a verb but as the `auto-review` **permission mode**. Full
 walkthrough: [Backend superpowers](/warden/guides/backend-superpowers/).
 
+## Typed-prompt seeding (Aider, Crush, Goose, Cursor)
+
+Backends that take their first task only as typed input have it pasted into the pane after launch, once the UI is ready. A failed paste is retried a few times with a growing backoff, and the outcome is recorded on the session as `seed_status` (`pending` → `delivered` | `failed`, plus `seed_error`) — visible in `GET /sessions/{id}` and `wd agent status <id>` (`prompt seed:` / `seed error:`).
+
+If every retry fails, spawn still succeeds but the failure is no longer silent: warden writes a `prompt_seed_failed` audit event and sends **one** operator notification naming the agent and the saved prompt file, `<data_dir>/prompts/<id>` (written for every spawn path that seeds, mode `0600`). Paste it in by hand or `wd agent send` it. Under autopilot, the guardian re-delivers a failed manager digest once and otherwise escalates it as a spawn failure on the normal heal ladder; the overwatch tells the manager when a worker never got its prompt. Launch-line backends (Claude, Codex, OpenCode, Antigravity, …) are unaffected.
+
 ## Aider specifics
 
 - **Bring-your-own-model:** pass `--model` (any provider, or a local Ollama model
@@ -187,10 +193,9 @@ walkthrough: [Backend superpowers](/warden/guides/backend-superpowers/).
   price it — spend is tokens-only and savings omits the agent.
 - **Tier A transcript:** Aider's `.aider.chat.history.md` is parsed into warden's
   neutral turns, so completion digests work on real structured data.
-- **Autonomous, not a loop:** an Aider agent with a prompt runs a one-shot
-  `--message` task and exits when done (Aider has no persistent agent loop like
-  Claude). Launch it without a prompt for an interactive session you attach to and
-  drive by hand.
+- **Interactive REPL + PromptSeeder:** warden launches the bare Aider REPL and
+  types the task in once `Repo-map:` appears (see [Typed-prompt seeding](#typed-prompt-seeding-aider-crush-goose-cursor)).
+  Headless classify/summarize still uses `--message` (one-shot).
 - **No resume / no session id:** Aider continues from repo history, not a pinned
   id, so warden re-spawns fresh on rotate/handoff rather than resuming.
 
@@ -241,7 +246,7 @@ walkthrough: [Backend superpowers](/warden/guides/backend-superpowers/).
 - **BYO model:** the interactive `crush` TUI is config-driven (model set in `~/.config/crush/crush.json`); headless `crush run` accepts `-m`. Pass `--model` for headless use; TUI launch ignores it.
 - **Tier A transcript:** Crush stores sessions per-project in `.crush/crush.db` (SQLite). The adapter runs `crush session show <id> --json` to source the session as `{messages[]}` JSON and parses it into neutral Turns.
 - **Resumes — dir-scoped:** `crush --continue` continues the most recent session in the working directory (the DB is project-scoped, so no global filter needed). Exact-id resume (`--session <id>`) activates once the id is discovered-then-pinned.
-- **Initial prompt seeding:** warden launches the bare `crush` TUI, waits for the ready footer, then auto-types the task prompt via `PromptSeeder`. Headless `crush run "<prompt>"` remains the non-interactive path.
+- **Initial prompt seeding:** warden launches the bare `crush` TUI, waits for the ready footer, then auto-types the task prompt via `PromptSeeder` (retried with backoff; see [Typed-prompt seeding](#typed-prompt-seeding-aider-crush-goose-cursor) for `seed_status` / recovery). Headless `crush run "<prompt>"` remains the non-interactive path.
 - **Context injection (CRUSH.md):** warden delivers its collab/git/pipeline hints via the `CRUSH.md` context file Crush reads on startup (`InjectContext`); `SystemPromptInject` Caps stays `false` (it tracks a launch flag specifically).
 - **No TUI approval parsing yet** — warden infers idle from staleness for Crush agents (`crush run` and `--yolo` raise no prompts).
 - Full gap doc: [`docs/agent-backends/crush.md`](https://github.com/srjn45/warden/blob/main/docs/agent-backends/crush.md)
@@ -252,6 +257,7 @@ walkthrough: [Backend superpowers](/warden/guides/backend-superpowers/).
 - **Tier A transcript:** Goose stores sessions in a global SQLite DB. The adapter sources the transcript via `goose session export --format json` — one command emitting `{conversation:[...]}` JSON — and parses it into neutral Turns.
 - **Resumes — name-deterministic:** warden pins its own agent id as the Goose `--name` at launch (`goose session --name <warden-id>`), so `goose session -r --name <id>` resumes the exact session — strictly more reliable than dir-scoped guessing.
 - **No model flag on session launch.** The headless `goose run` path does accept `--model`/`--provider`.
+- **Initial prompt seeding:** post-launch via `PromptSeeder` (see [Typed-prompt seeding](#typed-prompt-seeding-aider-crush-goose-cursor)).
 - **Context injection (.goosehints):** warden delivers its collab/git/pipeline hints via the `.goosehints` file Goose auto-loads on startup (`InjectContext`); `SystemPromptInject` Caps stays `false` (it tracks a launch flag specifically).
 - **No TUI approval parsing yet** — warden infers idle from staleness for Goose agents (`goose run` in `auto` mode raises no prompts).
 - Full gap doc: [`docs/agent-backends/goose.md`](https://github.com/srjn45/warden/blob/main/docs/agent-backends/goose.md)
@@ -262,6 +268,7 @@ walkthrough: [Backend superpowers](/warden/guides/backend-superpowers/).
 - **Rich permission modes:** Cursor exposes a finer approval surface than a prompt/auto toggle, and warden surfaces it honestly — `PermissionModes = default | plan | ask | auto-review | force`. The Claude-flavored "just do it" aliases fold onto `-f`/`--yolo`.
 - **Tier C — no structured transcript yet:** an interactive Cursor session persists to an undocumented binary SQLite `store.db` with no `export` verb, so `wd agent digest` shows "no transcript" for Cursor agents rather than guessing. The headless `stream-json` parser is implemented and tested but not wired (the TUI writes no on-disk NDJSON); the day warden gains a `store.db` reader it flips to Tier A.
 - **Resumes — dir-scoped:** `cursor-agent --continue` continues the workspace's latest session (verified), so rotate/handoff work; exact-id resume lands with discover-then-pin.
+- **Initial prompt seeding:** post-launch via `PromptSeeder` (see [Typed-prompt seeding](#typed-prompt-seeding-aider-crush-goose-cursor)).
 - **Live state + approval/trust detection:** warden classifies the Cursor TUI pane (working / idle / needs-input) and normalizes both its command-allowlist menu and its one-time workspace-trust prompt into the approvals inbox.
 - **Context injection (AGENTS.md):** cursor-agent has no `--append-system-prompt` flag, so warden delivers its pipeline/collab/git hints via the `AGENTS.md` rules file cursor-agent reads on startup (`InjectContext`); `SystemPromptInject` Caps stays `false` (it tracks a launch flag specifically).
 - **Double-worktree hazard:** cursor-agent ships its own `-w/--worktree`; warden never passes it (warden already owns the worktree) and launches in warden's worktree dir directly.
