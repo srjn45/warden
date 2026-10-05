@@ -192,6 +192,10 @@ func (c *Controller) rotateBrain(ctx context.Context, r *run, backend, reason st
 	if r.brain == nil || r.brain.AgentID == "" {
 		return c.spawnBrain(ctx, r, backend)
 	}
+	if err := c.hydratePlanFromSource(ctx, r); err != nil {
+		r.state = StateDegraded
+		return fmt.Errorf("rotate: %w", err)
+	}
 	prompt, err := ComposeDigest(ctx, DigestInput{
 		RunID:    r.runID,
 		Repo:     r.repo,
@@ -234,7 +238,13 @@ func (c *Controller) spawnBrain(ctx context.Context, r *run, backend string) err
 	// populated it), attempt a lenient reload from disk before composing the
 	// digest — so the guardian's blind-spawn hole is closed for runs whose plan
 	// was not in memory yet.
-	if strings.TrimSpace(r.plan.Goal) == "" {
+	if c.planBound(r) {
+		// Plan-bound runs never read the YAML export (ScrivaDB is canonical).
+		if err := c.hydratePlanFromSource(ctx, r); err != nil {
+			r.state = StateDegraded
+			return fmt.Errorf("spawn brain: %w", err)
+		}
+	} else if strings.TrimSpace(r.plan.Goal) == "" {
 		plan, warnings, lerr := loadPlanLenient(r.absPlanFile)
 		if lerr != nil {
 			r.state = StateDegraded

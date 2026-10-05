@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -473,28 +474,42 @@ func (c *Controller) PlanTaskProgress(ctx context.Context, runID string) map[str
 	return out
 }
 
-func (c *Controller) hydratePlanTasksLocked(ctx context.Context, r *run) {
-	if r == nil || c.planSource == nil || r.planID == "" {
-		return
+// planBound reports whether the run's canonical definition lives in the plan
+// store, i.e. recovery must never require its repository YAML export.
+func (c *Controller) planBound(r *run) bool {
+	return r != nil && strings.TrimSpace(r.planID) != "" && c.planSource != nil
+}
+
+// hydratePlanFromSource loads r.plan from the plan store for a plan-bound run.
+// ScrivaDB is canonical: the immutable execution snapshot wins, then the live
+// definition. A run with no plan id (legacy file-only) or a controller with no
+// plan source is a no-op so the caller falls back to the file. A failing source
+// is returned, naming the plan id — never swallowed.
+func (c *Controller) hydratePlanFromSource(ctx context.Context, r *run) error {
+	if !c.planBound(r) {
+		return nil
 	}
 	p, err := c.planSource.Get(ctx, r.planID)
-	if err != nil || p == nil {
-		return
+	if err != nil {
+		return fmt.Errorf("plan %s: load from plan store: %w", r.planID, err)
 	}
-	// Prefer the immutable execution snapshot; fall back to live definition.
-	var def *planstore.ExecutionSnapshot
+	if p == nil {
+		return fmt.Errorf("plan %s: load from plan store: %w", r.planID, planstore.ErrNotFound)
+	}
+	def := planstore.SnapshotFromPlan(p)
 	if p.ActiveExecution != nil && p.ActiveExecution.Snapshot != nil {
 		def = p.ActiveExecution.Snapshot
-	} else {
-		def = planstore.SnapshotFromPlan(p)
 	}
-	if def == nil {
+	r.plan = planFromDefinition(def)
+	return nil
+}
+
+func (c *Controller) hydratePlanTasksLocked(ctx context.Context, r *run) {
+	if !c.planBound(r) {
 		return
 	}
-	// Always refresh the in-memory definition from ScrivaDB for plan-bound runs
-	// so restart recovery does not depend on a repository YAML path.
-	if len(r.plan.Tasks) == 0 || strings.TrimSpace(r.plan.Goal) == "" {
-		r.plan = planFromDefinition(def)
+	if err := c.hydratePlanFromSource(ctx, r); err != nil {
+		slog.Warn("autopilot: plan hydrate failed", "run", r.runID, "err", err)
 	}
 }
 
