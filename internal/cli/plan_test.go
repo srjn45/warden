@@ -1057,3 +1057,22 @@ func runCLICtx(t *testing.T, ctx context.Context, addr string, args ...string) (
 	err := root.ExecuteContext(ctx)
 	return out.String(), err
 }
+
+func TestPlanExecutionHelpText(t *testing.T) {
+	run := newPlanRunCmd().Long
+	for _, want := range []string{"pause/resume supported", "pause/resume refused; use stop", "plan show --watch"} {
+		if !strings.Contains(run, want) {
+			t.Errorf("plan run Long missing %q", want)
+		}
+	}
+	if !strings.Contains(newPlanCmd().Long, "plan show --watch") {
+		t.Error("plan root journey missing show --watch")
+	}
+	if !strings.Contains(newPlanTaskStatusCmd().Long, "wd plan done") {
+		t.Error("task status help missing plan done cross-reference")
+	}
+	f := newPlanAssessCmd().Flags().Lookup("project")
+	if f == nil || !f.Hidden {
+		t.Error("assess --project must exist and be hidden")
+	}
+}
