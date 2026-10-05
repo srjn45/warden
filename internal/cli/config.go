@@ -150,6 +150,9 @@ func printConfig(out io.Writer, cfg config.Config) {
 			{"branch_track.enabled", fmt.Sprintf("%t", cfg.BranchTrack.Enabled)},
 			{"branch_track.interval", cfg.BranchTrack.Interval},
 		}},
+		{"activity badge (activity.*)", [][2]string{
+			{"activity.interval", cfg.Activity.Interval},
+		}},
 		{"deprecated — ignored (local_llm.*)", [][2]string{
 			{"local_llm.enabled", fmt.Sprintf("%t", cfg.LocalLLM.Enabled)},
 			{"local_llm.url", cfg.LocalLLM.URL},

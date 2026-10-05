@@ -518,6 +518,15 @@ global default**. Default `tags` are **unioned** into whatever tags you passed
 **tier** feeds the quota-balanced model router (§5.5) unless a task or `--tier`
 overrides it.
 
+**Optional Fast-Brain complexity router (`router.use_fast_brain`, default `false`).**
+When on, a spawn that pins no tier, task, role, model, backend or ai_cli has
+Fast-Brain rate the prompt (`tier-1` trivial tweaks, `tier-2` standard work,
+`tier-3` deep refactors/architecture). It is the **lowest-precedence** input
+(explicit `--tier` > task > role default > router > default tier-2), is applied
+only at confidence ≥ 0.8, falls back to the normal resolution on timeout/invalid
+output, and is recorded as a `tier-route` event. Autopilot, role and pipeline
+spawns are never touched. Hot-reloaded: applies from the next spawn.
+
 Roles are also selectable in the UIs — the TUI new-agent form has a `ctrl+r` role
 picker and a `ctrl+t` **tier picker** (`auto` / `tier-1`/`2`/`3` plus a live
 candidate table of AutoAssign models with headroom; the resolver picks
@@ -696,7 +705,7 @@ warden picks one at spawn time:
 | Role `worker` with a task id | `wkr:<task-id>` |
 | Role `brain` (consult) | `brain:<target>` |
 | Pipeline stage job | `<pipe>:<stage>` |
-| Prompt-driven spawn (no role convention) | 2–4 word kebab-case slug from a **fast-tier** subscription AI CLI (≤1.5s); falls back to an adjective-noun codename (`swift-falcon`, `amber-badger`, …) on timeout/error/invalid output |
+| Prompt-driven spawn (no role convention) | 2–4 word kebab-case slug decided by the **Fast-Brain engine** (`KindResolveAgentName`, fast tier, ≤1.5s); falls back to an adjective-noun codename (`swift-falcon`, `amber-badger`, …) on timeout/error/invalid output |
 | Prompt-less spawn | Adjective-noun codename |
 
 Auto-generated names are disambiguated with numeric suffixes (`-2`, `-3`, …) so
@@ -1059,7 +1068,11 @@ git worktree; that's a separate, explicitly-confirmed step (`remove-worktree`).
 
 With `--create-pr`, warden first pushes the agent's branch and opens a GitHub PR
 (via `gh`) before finishing — the title comes from the agent's subject/task and
-the body is its completion digest (files changed + narrative). `--base` sets the
+the body is its completion digest (files changed + narrative). When Fast-Brain is
+available it instead drafts a Conventional-Commits title and a short what/why
+body from the task, `git diff --stat` and commit subjects against the base
+(attribution footer kept); on any failure it falls back to the title/body above.
+`--base` sets the
 PR target (default `main`). The PR is opened *before* the agent is torn down, so
 if it fails (dirty push, protected branch, `gh` missing) the agent is left
 running to fix and retry; an existing PR for the branch is reported, not
@@ -2020,6 +2033,8 @@ restart list; everything else takes effect on save.
 | `scheduler_enabled` | `false` | Enable the native cron/at scheduler (`warden schedule`). Off → the schedule routes 403 and the reconcile loop is a no-op |
 | `branch_track.enabled` | `false` | Enable the per-agent branch monitor (`warden workspace branches`): CI status + standing vs `origin/main`, with non-blocking inbox/desktop alerts |
 | `branch_track.interval` | `2m` | Poll interval for the branch monitor when `branch_track.enabled` is on |
+| `activity.interval` | `15s` | Minimum gap between live activity-badge refreshes per agent (the 3-5 word status badge on each TUI agent row). Refreshes only while the agent's pane is changing, so idle agents cost no Fast-Brain calls; a failed/empty decision keeps the previous badge |
+| `router.use_fast_brain` | `false` | Opt-in Fast-Brain prompt-complexity tier routing for unpinned spawns (lowest precedence; confidence ≥ 0.8; see §5.3) |
 | `snapshots` | `true` | Enable the worktree+transcript checkpoint store (`warden workspace snapshot`) and its `snapshot_*` MCP tools |
 | `insights` | `true` | Enable history-mined insights (`warden usage insights` + the `insights` MCP tool) |
 | `tutorial` | `true` | Show the first-run walkthrough nudge (`warden tutorial`). Off suppresses the hint entirely |

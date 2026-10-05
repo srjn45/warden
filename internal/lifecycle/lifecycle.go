@@ -840,10 +840,6 @@ type Lifecycle struct {
 	// then headless Claude. The daemon always wires it, so production internal
 	// thinking is strictly free/local.
 	Internal InternalThinker
-	// NameRunner is the optional fast-tier subscription AI CLI used by
-	// assignSpawnName / assignJobName to derive prompt-based agent names
-	// (agentname.ResolvePromptName). Nil falls back to adjective-noun codenames.
-	NameRunner NameRunner
 	// SavingsHook, when set, is called by the LLM-offload sites (Classify/Summarize/
 	// GenerateName/commit-message) when a responsibility is served by the local
 	// model instead of warden's own Claude — with the prompt tokens that never
@@ -1251,7 +1247,7 @@ func (l *Lifecycle) Classify(ctx context.Context, prompt string) (store.Type, er
 	return parseType(out), nil
 }
 
-// Summarize produces a one-line subject for an agent: it reads recent activity
+// Summarize produces the live activity badge (3-5 words) for an agent: it reads recent activity
 // (transcript, else pane) and asks for an <=8-word phrase. When the local LLM is
 // enabled it tries that first (summarization is a fuzzy-but-cheap task, safe to
 // move off warden's own Claude spend), and falls back to headless Claude on any
@@ -1268,12 +1264,12 @@ func (l *Lifecycle) Summarize(ctx context.Context, agent *agentstore.Agent) (str
 	if l.FastBrain != nil {
 		resp, err := l.FastBrain.Decide(ctx, fastbrain.Request{
 			Kind: fastbrain.KindSummarizeActivity, Tier: fastbrain.TierFast,
-			Prompt: fastbrain.SummarizeActivityPrompt(text),
+			Prompt: fastbrain.ActivityBadgePrompt(text),
 		})
 		if err != nil || !resp.OK() {
-			return "", nil // fail open: skip narration
+			return "", nil // fail open: caller keeps the previous badge
 		}
-		return parseSummary(fastbrain.ParseSummary(resp)), nil
+		return fastbrain.ParseActivityBadge(resp), nil
 	}
 	arg := summaryArg(text)
 	// Registry path (§7): walk the free/local candidates. Record the offload on a
@@ -1710,6 +1706,9 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*agentstore.Ag
 	// without aicli is a hard validation error. Degrades to defaults when no
 	// resolver is wired — a first spawn must never hard-fail on resolution alone.
 	var resolveErr error
+	// Lowest-precedence tier input: Fast-Brain prompt-complexity routing (opt-in,
+	// only for a spawn that pins nothing; see routeTierByPrompt).
+	routeDecision := l.applyRouteTier(ctx, &req)
 	req.Backend, req.Model, resolveErr = l.resolveSpawnTarget(ctx, req.Role, req.Task, req.Tier, req.Backend, req.Model)
 	if resolveErr != nil {
 		return nil, resolveErr
@@ -1757,6 +1756,9 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*agentstore.Ag
 	// Stamp the explicit owning-project back-ref when the request carried one. An
 	// empty value is left empty for the daemon to resolve by path-match post-spawn
 	// (lifecycle has no projects store), so an explicit id always wins over the match.
+	if routeDecision != nil {
+		agent.Events = append(agent.Events, routeDecision.event())
+	}
 	agent.ProjectID = req.ProjectID
 	agent.PlanID = req.PlanID
 	agent.AutopilotRunID = req.AutopilotRunID

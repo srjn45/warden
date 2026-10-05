@@ -48,6 +48,28 @@ func (l *Lifecycle) CreatePR(ctx context.Context, dir, title, body, base string)
 	return PRResult{Branch: branch, Base: base, URL: url, Created: true, Output: out}, nil
 }
 
+// PRContext returns the `git diff --stat` and the commit subjects (one per line)
+// of dir's branch against base (default main), for drafting a PR summary. It is
+// best-effort: it tries origin/<base> then <base>, and returns empty strings
+// when neither resolves, so callers fall back to their deterministic content.
+func (l *Lifecycle) PRContext(ctx context.Context, dir, base string) (stat, commits string) {
+	if base == "" {
+		base = "main"
+	}
+	if safeGitRef(base) != nil {
+		return "", ""
+	}
+	for _, ref := range []string{"origin/" + base, base} {
+		st, err := l.run.Run(ctx, dir, "git", "diff", "--stat", ref+"...HEAD")
+		if err != nil {
+			continue
+		}
+		cm, _ := l.run.Run(ctx, dir, "git", "log", "--format=%s", ref+"..HEAD")
+		return strings.TrimSpace(st), strings.TrimSpace(cm)
+	}
+	return "", ""
+}
+
 // firstURL returns the first whitespace-delimited token that looks like an http
 // URL in s, or "" — gh prints the PR URL on its own line both on success and in
 // the "already exists" message.

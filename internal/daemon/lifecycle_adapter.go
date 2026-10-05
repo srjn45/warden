@@ -101,12 +101,12 @@ func (a *lifecycleAdapter) GenerateName(ctx context.Context, prompt string) stri
 	return a.lc.GenerateName(ctx, prompt)
 }
 
-// NameRunner exposes the lifecycle's fast-tier naming runner (may be nil).
+// NameRunner exposes the lifecycle's Fast-Brain naming runner (may be nil).
 func (a *lifecycleAdapter) NameRunner() agentname.BackendRunner {
 	if a == nil || a.lc == nil {
 		return nil
 	}
-	return a.lc.NameRunner
+	return a.lc.SpawnNameRunner()
 }
 
 func (a *lifecycleAdapter) Terminate(ctx context.Context, tmuxSession string) error {
@@ -226,6 +226,10 @@ func (a *lifecycleAdapter) Sync(ctx context.Context, dir, base string) (lifecycl
 
 func (a *lifecycleAdapter) CreatePR(ctx context.Context, dir, title, body, base string) (lifecycle.PRResult, error) {
 	return a.lc.CreatePR(ctx, dir, title, body, base)
+}
+
+func (a *lifecycleAdapter) PRContext(ctx context.Context, dir, base string) (string, string) {
+	return a.lc.PRContext(ctx, dir, base)
 }
 
 func (a *lifecycleAdapter) Check(ctx context.Context, dir, name string) (lifecycle.CheckResult, error) {

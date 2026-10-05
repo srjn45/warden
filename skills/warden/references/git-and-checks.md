@@ -25,7 +25,7 @@ worktree.
 | `sync {dir?}` | Rebase-sync onto the upstream. | Refuses a dirty tree; on conflict leaves it in progress carrying only the conflicting files (then resolve + continue). |
 
 `wd agent done <id> --create-pr` pushes the branch and opens a GitHub PR before
-terminating the agent (see agents.md).
+terminating the agent (see agents.md); Fast-Brain drafts the PR title/body when available, falling back per field to the digest, and an explicit title/body wins.
 
 ## Checks — `check`
 
