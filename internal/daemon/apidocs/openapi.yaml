@@ -1754,8 +1754,9 @@ paths:
         removes their worktrees (keeping any task branch with commits beyond the
         integration branch and never closing PRs), resets unfinished tasks to
         pending, clears the heal ladder/backoff/needs-attention parking and spawns
-        a new manager. Autopilot mode only for now; pipeline restart returns 409
-        until it lands. Without force, an active/starting/paused executor is
+        a new manager. Pipeline-mode plans are reopened instead: done jobs and
+        handoffs are kept, other unfinished jobs are reset and re-run with fresh
+        agents. orchestrator_worker and manual plans return 409. Without force, an active/starting/paused executor is
         refused. Idempotent: safe to re-issue after a partial failure.
       parameters: [{ $ref: "#/components/parameters/PlanId" }]
       requestBody:

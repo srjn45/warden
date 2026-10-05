@@ -1,8 +1,9 @@
 # Plan Restart & Progress Watchdog
 
 **Date:** 2026-10-05  
-**Status:** Frozen — spec-only, no production code in this PR  
+**Status:** Implemented (t2–t6 landed on `autopilot/plan-restart-and-watchdog`); reconciled with the shipped code and docs in t7  
 **Feature branch:** `autopilot/plan-restart-and-watchdog`  
+**Docs:** [Recovering a stuck plan](https://srjn45.github.io/warden/guides/autopilot/#recovering-a-stuck-plan), `docs/USAGE.md` §18, `docs/specs/autopilot.md` §2.3.  
 **Depends on:** `plan-6c78ea4d` (autopilot-self-heal-fixes) and `plan-a08816a9`
 (plan-execution-cli) — reuse their failure classification, needs-attention
 condition, and `PlanExecutorStatus` block; do not reinvent them.
@@ -437,9 +438,9 @@ unchanged.
 
 ---
 
-## 8. Documentation & codegen (later tasks)
+## 8. Documentation & codegen
 
-Not in this PR (t7), but the design locks the names:
+Delivered in t7:
 
 - README, FEATURES, USAGE, `docs/specs/autopilot.md` guardian section
 - Site guide "Recovering a stuck plan" + reference
@@ -448,7 +449,7 @@ Not in this PR (t7), but the design locks the names:
 
 ---
 
-## 9. Test plan (contract; implemented in later tasks)
+## 9. Test plan (contract; implemented in t2–t6)
 
 | Area | Cases |
 |---|---|
@@ -460,17 +461,25 @@ Not in this PR (t7), but the design locks the names:
 
 ---
 
-## Open questions
+## Open questions — all resolved
 
-| ID | Question | Default if unresolved at implement time |
-|---|---|---|
-| **OQ-1** | Exact pipeline executor states that allow restart without `--force` beyond `canceled` (e.g. `stalled`, all-jobs-failed while status still `running`). | Allow without force when **no** job agent is `working`/`spawning` and pipeline status is `canceled` or `stalled`, or every non-done job is `failed`/`needs_attention`/`skipped`; otherwise require `--force`. |
-| **OQ-2** | Shared-context key for pipeline-only restart context. | `plan.<plan_id>.restart_context` so it is mode-agnostic. |
-| **OQ-3** | REST: dedicated `/restart` only vs also `/{action}` enum extension. | Dedicated `POST .../restart` only; keep `/{action}` as pause\|resume\|stop. |
-| **OQ-4** | Should force-restart from `paused` auto-unpause, or refuse until resume? | Force-restart **implies** becoming active (unpause + new agents). |
-| **OQ-5** | Delete remote empty task branches on restart, or local only? | Local + remote if warden created the branch (mirror finalize cleanup intent); never close PRs. |
-| **OQ-6** | Does guardian stage-2 HotSwap count as a "restart" toward `RestartCount`? | **No** — only operator/API `RestartPlan` (and watchdog-driven park that leads to operator restart) increments the counter. Guardian HotSwap does not write restart context. |
-| **OQ-7** | Watchdog vs overwatch: if overwatch is nudging an idle manager, does that block watchdog? | **No** — overwatch nudge is not progress and does not mark the manager `working`; watchdog may still escalate after the window. Shared heal grace still prevents double ladder steps. |
+| ID | Resolution (as built) |
+|---|---|
+| **OQ-1** | Resolved with the proposed default. `restartNeedsForce` (`internal/daemon/executor_restart.go`): no force when no job agent is `working`/`spawning` **and** the pipeline is `canceled`/`stalled`, or every non-done job is `done`/`failed`/`needs_attention`/`skipped`; otherwise `--force`. |
+| **OQ-2** | Resolved: pipeline-only plans use `plan.<plan_id>.restart_context` (`PlanRestartContextKey`); autopilot runs use `autopilot.<run_id>.restart_context`. |
+| **OQ-3** | Resolved: dedicated `POST /api/v1/plans/{plan_id}/restart` (`RestartPlan`) only; `/{action}` stays `pause\|resume\|stop`. Added to the slow-path set. |
+| **OQ-4** | Resolved: `--force` from `paused` restarts and leaves the executor active (new agents; effectively un-pauses). Without `--force` a paused run is refused. |
+| **OQ-5** | Resolved: empty task branches are deleted locally, and on the remote only when warden created the branch (`BranchCreated`, best-effort). A branch whose state cannot be determined is kept. PRs are never closed. |
+| **OQ-6** | Resolved: only operator/API `RestartPlan` increments `restart_count`; guardian HotSwap does not and writes no restart context. |
+| **OQ-7** | Resolved: overwatch nudges are not progress; they do not block the watchdog, and the shared heal grace prevents double ladder steps. |
+
+### Deviations from the original design
+
+- MCP: a dedicated **`restart_plan`** tool (destructive) was added; `control_plan` is unchanged.
+- CLI: `wd plan restart <id> [--force] [--backend <id>] [--yes] [--json]`. Without `--yes` it prints the effect and asks; with a non-terminal stdin it refuses.
+- Watchdog state values on `RunStatus.watchdog`: `idle`, `armed`, `escalating`, `parked`, `disabled`, plus `last_progress_at`; `wd plan show` prints `last_progress`, `restarts:` (count, last reason, time).
+- The watchdog park reuses the needs-attention mechanism with failure kind `no_progress`.
+- Docs delivered in t7: README, FEATURES (root + docs), USAGE, `docs/specs/autopilot.md`, site guide *Recovering a stuck plan* with plan/pipeline/concepts pages, and the `skills/warden` Autopilot section and `references/pipelines.md`. The CLI reference is generated (`make gendocs`).
 
 ---
 
@@ -488,7 +497,6 @@ Matches the plan decomposition:
 
 ---
 
-## Definition of done (feature; not this PR)
+## Definition of done
 
-See plan `done_when`. This PR is done when this file is merged to
-`autopilot/plan-restart-and-watchdog` with no production code changes.
+See plan `done_when`. The feature is code-complete (t2–t6) and documented (t7).

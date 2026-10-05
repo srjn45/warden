@@ -62,6 +62,16 @@ Watch a running plan with `wd plan show <id> --watch` (executor state, backoff, 
 
 `wd plan sync-to-repo` renders a revision onto a dedicated `warden/plan-sync/...` branch and opens/updates a PR. YAML is the default; pass `--format json` for an opt-in JSON replica (same envelope fields; top-level `"warden_plan_export":"replica only — not authoritative"`; path `plans/{lifecycle}/<slug>.json`). Editing that replica does nothing to listing or execution. `import-legacy` discovers **YAML only** — JSON files are never loaded as execution authority ([#585](https://github.com/srjn45/warden/issues/585)).
 
+## Restarting an executor
+
+`stop` is not terminal for the plan: an `in_progress` autopilot or pipeline plan
+can be brought back with `wd plan restart` (destructive; `--yes`; `--force` for a
+healthy executor). Agents and worktrees are replaced; task progress, landings and
+branches with commits are kept, and the new agents receive a restart context. The
+autopilot [progress watchdog](/warden/concepts/autopilot/#guardian) parks a
+heartbeating-but-stalled run as `no_progress` and points at this command. See
+[Recovering a stuck plan](/warden/guides/autopilot/#recovering-a-stuck-plan).
+
 ## Recovery
 
 Prefer `wd plan backup export` / `wd plan backup restore` — Plans are operable without Git. See [Plan backup and restore](/warden/guides/plan-backup-restore/) and the [migration playbooks](/warden/guides/plans-migration/).

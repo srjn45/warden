@@ -159,7 +159,33 @@ healthy → wedged?     (heartbeat timeout w/ pending work)
                        notify, retry from stage 1 — forever for transient
                        kinds; non-transient failures park, §2.1.2)  [stage 4]
 healthy → planned-rotation (context critical or cadence) → healthy
+healthy-but-stalled → same ladder via the progress watchdog (see below);
+                      ladder exhausted → park needs-attention (no_progress)
 ```
+
+**Progress watchdog.** A fresh heartbeat does not prove progress. The guardian
+tracks per-run `lastProgressAt` (persisted, so a daemon restart does not reset
+it): a ledger task state change, a new landing, a plan task status change, or a
+worker spawn. Heartbeats and overwatch nudges are not progress. On each tick, for
+an `active` run with `now - lastProgressAt >= progress_watchdog_window`
+(default `2h`) and no run-tagged agent `spawning`/`working`, the guardian climbs
+the same ladder with a watchdog-specific nudge naming the stalled tasks. It shares
+the heartbeat grace (`healNextAt`) so there is a single ladder per run. Progress
+clears it; exhaustion parks the run as needs-attention (`no_progress`, one
+notification pointing at `wd plan restart`). Config:
+`autopilot.guardian.progress_watchdog_enabled` (default `true`) and
+`progress_watchdog_window` (default `2h`), both hot-reloaded. `RunStatus` exposes
+`last_progress_at` and `watchdog` (`idle|armed|escalating|parked|disabled`).
+
+**Operator restart (`wd plan restart`).** Distinct from the stage-2 hot-swap: it
+terminates *all* run-tagged agents and worktrees, keeps the run id, slot,
+integration branch, landed tasks/landings and branches with commits, resets
+unfinished tasks to `pending`, clears heal/backoff/needs-attention state and
+spawns a fresh manager whose digest carries a `## Restart context`
+(`autopilot.<run_id>.restart_context`). It is destructive and requires `--yes`;
+`--force` is needed for an `active`/`starting`/`paused` run. A `stopped`/`degraded`
+(incl. parked)/`healing` run needs no force. See the
+[restart spec](2026-10-05-plan-restart-and-watchdog.md).
 
 ### 2.4 Overwatch (daemon-internal fleet-tending)
 
