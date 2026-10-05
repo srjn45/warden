@@ -1059,7 +1059,11 @@ git worktree; that's a separate, explicitly-confirmed step (`remove-worktree`).
 
 With `--create-pr`, warden first pushes the agent's branch and opens a GitHub PR
 (via `gh`) before finishing — the title comes from the agent's subject/task and
-the body is its completion digest (files changed + narrative). `--base` sets the
+the body is its completion digest (files changed + narrative). When Fast-Brain is
+available it instead drafts a Conventional-Commits title and a short what/why
+body from the task, `git diff --stat` and commit subjects against the base
+(attribution footer kept); on any failure it falls back to the title/body above.
+`--base` sets the
 PR target (default `main`). The PR is opened *before* the agent is torn down, so
 if it fails (dirty push, protected branch, `gh` missing) the agent is left
 running to fix and retry; an existing PR for the branch is reported, not

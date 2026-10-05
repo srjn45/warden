@@ -512,6 +512,7 @@ func newDaemonRunCmd() *cobra.Command {
 			// free/local walk. On an exhausted walk Complete errors and the narrator
 			// returns "" so the digest skips its summary line (never a paid call).
 			srv.SetNarrator(digest.ClaudeNarrator{FastBrain: fbEngine})
+			srv.SetFastBrain(fbEngine)
 			srv.SetSpawnGate(cfg.Worktree.SpawnGate, cfg.Worktree.SpawnGateMax)
 			srv.SetBudget(cfg.Tokens.BudgetGate, cfg.Tokens.BudgetDailyUSD, cfg.Tokens.BudgetWeeklyUSD)
 			srv.SetWorktreeRetention(cfg.Worktree.KeepDone, cfg.Worktree.AutoPrune)
