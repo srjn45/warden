@@ -30,14 +30,6 @@ func nextTier(cur string) string {
 	return tierCycle[0]
 }
 
-// nextThinkingMode flips between the two internal-thinking routing modes.
-func nextThinkingMode(cur string) string {
-	if cur == backendstore.ThinkingModeLocalOnly {
-		return backendstore.ThinkingModeFreePlusLocal
-	}
-	return backendstore.ThinkingModeLocalOnly
-}
-
 // sortBackendsState returns state with its backend rows in stable id-ascending
 // order, so the Backends-page cursor indexes the same rows the daemon lists (it
 // already sorts, but this keeps the TUI robust to ordering changes).
@@ -46,15 +38,6 @@ func sortBackendsState(state client.BackendsState) client.BackendsState {
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].ID < rows[j].ID })
 	state.Backends = rows
 	return state
-}
-
-// thinkingModeOf returns the state's internal-thinking mode, defaulting to
-// free_plus_local when unset (matching the daemon/store default).
-func thinkingModeOf(state client.BackendsState) string {
-	if m := state.Settings.InternalThinkingMode; m != "" {
-		return m
-	}
-	return backendstore.ThinkingModeFreePlusLocal
 }
 
 // enabledWord is the status-line verb for a toggle.
@@ -87,18 +70,12 @@ func backendLimited(until time.Time) string {
 	return rem.Round(time.Second).String()
 }
 
-// backendsBody renders the Backends page body: a one-line internal-thinking-mode
-// header control, then a table (ID, installed, tier, default, enabled, limited)
+// backendsBody renders the Backends page body: a table (ID, installed, tier, default, enabled, limited)
 // with the row under cursor marked. It includes the reserved local row exactly as
 // the daemon returns it. The table is compact for the narrow control pane; titleBox
 // clamps any overflow.
 func backendsBody(state client.BackendsState, cursor int) string {
 	var b strings.Builder
-
-	b.WriteString(stPaneTitle.Render("internal thinking: "))
-	b.WriteString(stStatus.Render(thinkingModeOf(state)))
-	b.WriteString(stMuted.Render("   (m: local_only ⇄ free_plus_local)"))
-	b.WriteString("\n\n")
 
 	rows := state.Backends
 	if len(rows) == 0 {

@@ -59,7 +59,7 @@ Operate warden:
 
 Get started and interact:
   login                Authenticate this node with a warden-hub relay using the device flow
-  setup                Install missing dependencies (tmux, git, claude; optional gh, ollama)
+  setup                Install missing dependencies (tmux, git, claude; optional gh)
   tutorial             Run the first-run guided walkthrough of warden's core loop
   doctor               Run preflight checks (required binaries, daemon, data dir, configured local model)
   tui                  Live terminal cockpit for agents
@@ -3912,21 +3912,18 @@ Inherited flags:
 Inspect and manage warden's agent-backend registry.
 
 warden detects the coding-agent CLIs installed on this machine (claude, codex,
-aider, …) plus a reserved `local` row for the free/local model, and persists
-each with a billing tier, an enabled flag, and at most one default. The daemon's
-store is the source of truth — autopilot's cost-tier ladder and the internal
-free/local thinking router both read from it.
+aider, …), and persists each with a billing tier, an enabled flag, and at most
+one default. The daemon's store is the source of truth — autopilot's cost-tier
+ladder reads from it.
 
-Tiers:   free | subscription | pay_per_use | unclassified   (`local` is system-set)
-Thinking-mode: local_only | free_plus_local   (which backends internal thinking may call)
+Tiers:   free | subscription | pay_per_use | unclassified
 
 Examples:
-  warden backend backend list                 # full table incl. the local row
+  warden backend backend list                 # full table of detected backends
   warden backend backend rescan               # re-detect installed CLIs, print the table
   warden backend backend tier codex free      # tier codex as a $0 backend
   warden backend backend default claude       # make claude the default backend
   warden backend backend disable aider        # stop using a backend
-  warden backend backend thinking-mode local_only
 
 Usage:
   warden backend [flags]
@@ -3937,11 +3934,10 @@ Commands:
   enable               Enable a backend so it may be used
   list                 List detected backends (installed, tier, default, enabled, limited)
   rescan               Re-detect installed backend CLIs and print the updated table
-  thinking-mode        Set the internal-thinking routing mode (local_only|free_plus_local)
   tier                 Set a backend's billing tier (free|subscription|pay_per_use|unclassified)
   model                Inspect and manage model catalog and live model menus
-  suggest              Recommend local models for the REPL, sized to this machine's memory
-  repl                 Interactive REPL for agents, pipelines, and the git/check lifecycle (local LLM + `/` commands).
+  suggest              Retired — Fast-Brain replaced local_llm
+  repl                 Interactive REPL for agents, pipelines, and the git/check lifecycle (Fast-Brain + `/` commands).
 
 Flags:
   -h, --help   help for backend
@@ -4004,7 +4000,7 @@ Inherited flags:
 ## warden backend list
 
 ```text
-List every backend in the registry, including the reserved local row, with its
+List every backend in the registry, with its
 installed state, billing tier, whether it is the default, whether it is enabled,
 and whether it is currently rate-limited. The current internal-thinking mode is
 printed below the table.
@@ -4035,28 +4031,6 @@ Usage:
 
 Flags:
   -h, --help   help for rescan
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden backend thinking-mode
-
-```text
-Set which backends warden's internal free/local thinking router may call.
-
-  local_only        # route internal thinking to the local model only
-  free_plus_local   # prefer free cloud backends, fall back to the local model (default)
-
-Paid (subscription / pay_per_use) backends are never called for internal
-thinking in either mode.
-
-Usage:
-  warden backend thinking-mode <mode> [flags]
-
-Flags:
-  -h, --help   help for thinking-mode
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -4245,32 +4219,15 @@ Inherited flags:
 ## warden backend suggest
 
 ```text
-Suggest local LLM models for warden's REPL (wd repl), ranked against
-this machine's memory.
-
-warden auto-detects two figures: total memory (GPU VRAM, Apple unified memory, or
-system RAM — whichever bounds a usable model) and average free memory (sampled a
-few times to smooth out spikes). Each candidate is then marked:
-
-  fits now           runnable right now within free memory
-  free memory first  fits the machine, but you'd need to close apps first
-  too large          won't fit this machine
-
-Models are scored by suitability for the conductor role — reliable tool/function
-calling, not coding or raw size. The recommendation (★) is the best-scoring model
-that runs comfortably now while leaving headroom for your real workload (Docker,
-DBs, IDE, Claude sessions, the warden daemon). warden only ever recommends — you
-set local_llm_model yourself.
+Retired. warden no longer runs a local model: the REPL (wd repl) and
+internal thinking use Fast-Brain, so there is no local model to size or pull.
+This command is kept for compatibility and exits 0.
 
 Usage:
   warden backend suggest [flags]
 
 Flags:
-      --free-gb float    override detected free memory (GB)
-  -h, --help             help for suggest
-      --json             output as JSON
-      --samples int      free-memory samples to average (default 5)
-      --total-gb float   override detected total memory (GB)
+  -h, --help   help for suggest
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -4290,19 +4247,19 @@ Two ways to drive it:
   • Deterministic `/` commands (no model): /agents, /spawn <prompt>, /tell <id> <text>,
     /memory <question>, /pipelines, … — typing / pops a live, filtering menu of verbs;
     Tab also completes verbs and live agent ids. Type /help for the list.
-  • Natural language: any other line is planned by the local LLM into warden tool
+  • Natural language: any other line is planned by Fast-Brain into warden tool
     calls, each confirmed before it runs.
 
 Guided argument forms: when a `/` command needs more than you typed, warden
 collects the arguments interactively — a numbered pick-list for fields with a
 known set (model, permission_mode, type, yes/no), free text for the rest. A
 command auto-opens the form when a required argument is missing (e.g. bare
-/spawn); add a trailing + to fill every field (/spawn+ <prompt>). With a local
-model present each field opens with a suggested value you can accept with Enter,
+/spawn); add a trailing + to fill every field (/spawn+ <prompt>). Each field opens with a suggested value you can accept with Enter,
 type over, or clear with "-".
 
-`!cmd` runs a command in your own $SHELL. Requires local_llm: true for the
-natural-language half; the `/` commands work regardless.
+`!cmd` runs a command in your own $SHELL. Natural language runs on
+Fast-Brain (headless backend CLI, no local model or config needed); the
+`/` commands and `!cmd` keep working if it is unavailable.
 
 Usage:
   warden backend repl [flags]
@@ -4382,7 +4339,7 @@ Inherited flags:
 ## warden usage insights
 
 ```text
-Analyze warden's own history — completed and active agent sessions plus recorded resource metrics — into actionable suggestions: typical/outlier durations by type, frequently co-edited files, error rates, busy periods, and sequential-but-disjoint sessions that could have run in parallel. Deterministic by default; when local_llm is enabled the summary is narrated by the local model (and degrades to the deterministic text on any model error).
+Analyze warden's own history — completed and active agent sessions plus recorded resource metrics — into actionable suggestions: typical/outlier durations by type, frequently co-edited files, error rates, busy periods, and sequential-but-disjoint sessions that could have run in parallel. Deterministic.
 
 Usage:
   warden usage insights [flags]
@@ -4444,7 +4401,7 @@ Settings are organized into namespaced blocks in the config file:
   tokens.*   — token-guard, budget-gate, and savings settings
   notify.*   — desktop notification and webhook settings
   worktree.* — worktree-retention and spawn-gate settings
-  local_llm.*— local-model, REPL, and LLM-offload settings
+  local_llm.*— DEPRECATED (Fast-Brain replaced the local model); still parsed, ignored
 
 Deprecated flat keys (e.g. token_guard, notify, local_llm_url) still load
 and are automatically migrated to the namespaced form on `warden config init`.
@@ -4851,11 +4808,11 @@ are not already on PATH.
 
 For each missing dependency it prints the exact install command and prompts
 before running it (use --yes for non-interactive/automation). Required deps
-(tmux, git, claude) are offered first, then optional ones (gh, ollama).
+(tmux, git, claude) are offered first, then optional ones (gh).
 
 Package managers: Homebrew on macOS (never auto-bootstrapped — if brew is
 missing setup prints the instruction and skips brew installs), and apt, dnf,
-or pacman on Linux (auto-detected). Claude Code and Ollama use their official
+or pacman on Linux (auto-detected). Claude Code uses its official
 installers. After installing, setup re-runs the checks and prints the report.
 
 setup is CLI-only by design (it installs host packages) and is not exposed
@@ -5265,7 +5222,6 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | `warden backends list` | `warden backend list` |
 | `warden backends ls` | `warden backend list` |
 | `warden backends rescan` | `warden backend rescan` |
-| `warden backends thinking-mode` | `warden backend thinking-mode` |
 | `warden backends tier` | `warden backend tier` |
 | `warden branches` | `warden workspace branches` |
 | `warden clean` | `warden workspace clean` |

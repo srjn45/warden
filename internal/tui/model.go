@@ -56,7 +56,6 @@ type api interface {
 	SetBackendTier(ctx context.Context, id, tier string) (client.Backend, error)
 	SetBackendEnabled(ctx context.Context, id string, enabled bool) (client.Backend, error)
 	SetDefaultBackend(ctx context.Context, id string) (client.BackendsState, error)
-	SetThinkingMode(ctx context.Context, mode string) (client.BackendSettings, error)
 	ListModels(ctx context.Context, tier string) ([]backendstore.ModelEntry, error)
 	ListRoleTiers(ctx context.Context) ([]backendstore.RoleTierMapping, error)
 	Usage(ctx context.Context, refresh bool) (backendusage.Snapshot, error)
@@ -96,7 +95,7 @@ const (
 	modeApprovals             // answer pending tool-permission prompts
 	modeDetails               // scrollable full detail view for the selected agent
 	modeEvents                // the selected agent's event log (opened from modeDetails)
-	modeBackends              // agent-backend registry page (list, tier, default, enabled, thinking-mode)
+	modeBackends              // agent-backend registry page (list, tier, default, enabled)
 	modeTerminalChoice        // `t`: (c)reate a terminal in the opened agent's dir or (f)ocus an existing one
 	modePlanRunMode           // `r` on a plan: execution mode picker
 	modePlanDetail            // in-pane full plan detail view

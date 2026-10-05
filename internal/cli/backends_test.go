@@ -25,7 +25,7 @@ func TestBackendsListCmd(t *testing.T) {
 		t.Fatalf("backends list: %v", err)
 	}
 	for _, want := range []string{"ID", "INSTALLED", "TIER", "DEFAULT", "ENABLED", "LIMITED",
-		"claude", "codex", "local", "internal thinking mode: local_only"} {
+		"claude", "codex", "local"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("backends list missing %q: %q", want, out)
 		}
@@ -123,28 +123,5 @@ func TestBackendsEnableDisableCmd(t *testing.T) {
 	}
 	if !strings.Contains(body2["/api/v1/backends/aider"], `"enabled":false`) {
 		t.Fatalf("disable not forwarded: %q", body2["/api/v1/backends/aider"])
-	}
-}
-
-func TestBackendsThinkingModeCmd(t *testing.T) {
-	body := map[string]string{}
-	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"PUT /api/v1/backends/thinking-mode": `{"id":"__settings__","internal_thinking_mode":"local_only"}`,
-	}, nil, body))
-	out, err := runCLI(t, addr, "backends", "thinking-mode", "local_only")
-	if err != nil {
-		t.Fatalf("backends thinking-mode: %v", err)
-	}
-	if !strings.Contains(out, "internal thinking mode set to local_only") {
-		t.Fatalf("thinking-mode output: %q", out)
-	}
-	if !strings.Contains(body["/api/v1/backends/thinking-mode"], `"mode":"local_only"`) {
-		t.Fatalf("mode not forwarded: %q", body["/api/v1/backends/thinking-mode"])
-	}
-}
-
-func TestBackendsThinkingModeCmdInvalid(t *testing.T) {
-	if _, err := runCLI(t, "", "backends", "thinking-mode", "nonsense"); err == nil {
-		t.Fatal("expected an error for an invalid thinking mode")
 	}
 }

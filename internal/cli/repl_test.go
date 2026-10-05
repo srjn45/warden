@@ -22,7 +22,7 @@ func TestRepl_StartsWithoutLocalLLM(t *testing.T) {
 	root.SetIn(strings.NewReader("/help\nexit\n"))
 	root.SetArgs([]string{"repl", "--config", path})
 	require.NoError(t, root.Execute())
-	require.Contains(t, out.String(), "natural-language mode is off")
+	require.NotContains(t, out.String(), "natural-language mode is off")
 	require.Contains(t, out.String(), "/spawn", "deterministic commands are listed by /help")
 }
 

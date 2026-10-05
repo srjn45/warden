@@ -26,7 +26,7 @@ type setupDep struct {
 
 // setupDeps is the ordered list `setup` offers: required first, then optional.
 // It mirrors doctor's required/optional binary lists exactly (so setup and
-// doctor never drift), and like doctor's optional set it includes gh and ollama.
+// doctor never drift), and like doctor's optional set it includes gh.
 func setupDeps() []setupDep {
 	deps := make([]setupDep, 0, len(requiredBinaries)+len(optionalBinaries))
 	for _, b := range requiredBinaries {
@@ -92,15 +92,6 @@ func resolveAction(dep setupDep, goos string, pm pkgManager, brewPresent bool) s
 		// native installer (works on macOS, Linux, and WSL). npm fallback if the
 		// native installer fails: `npm install -g @anthropic-ai/claude-code`.
 		return setupAction{dep: dep, cmd: "curl -fsSL https://claude.ai/install.sh | bash"}
-	case "ollama":
-		if goos == "darwin" {
-			if brewPresent {
-				return setupAction{dep: dep, cmd: "brew install ollama"}
-			}
-			return setupAction{dep: dep, note: "Homebrew not found; install Ollama from https://ollama.com/download"}
-		}
-		// Linux (and other non-darwin): official install script.
-		return setupAction{dep: dep, cmd: "curl -fsSL https://ollama.com/install.sh | sh"}
 	}
 
 	// tmux, git, gh: ordinary package-manager packages.
@@ -203,16 +194,16 @@ func depNames(deps []setupDep) string {
 func newSetupCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "setup",
-		Short: "Install missing dependencies (tmux, git, claude; optional gh, ollama)",
+		Short: "Install missing dependencies (tmux, git, claude; optional gh)",
 		Long: "Verify the current install with the same checks as `warden doctor`, then\n" +
 			"install whatever is missing. setup is idempotent: it only touches deps that\n" +
 			"are not already on PATH.\n\n" +
 			"For each missing dependency it prints the exact install command and prompts\n" +
 			"before running it (use --yes for non-interactive/automation). Required deps\n" +
-			"(tmux, git, claude) are offered first, then optional ones (gh, ollama).\n\n" +
+			"(tmux, git, claude) are offered first, then optional ones (gh).\n\n" +
 			"Package managers: Homebrew on macOS (never auto-bootstrapped — if brew is\n" +
 			"missing setup prints the instruction and skips brew installs), and apt, dnf,\n" +
-			"or pacman on Linux (auto-detected). Claude Code and Ollama use their official\n" +
+			"or pacman on Linux (auto-detected). Claude Code uses its official\n" +
 			"installers. After installing, setup re-runs the checks and prints the report.\n\n" +
 			"setup is CLI-only by design (it installs host packages) and is not exposed\n" +
 			"over MCP or the daemon.",

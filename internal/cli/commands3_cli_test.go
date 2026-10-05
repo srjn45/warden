@@ -103,14 +103,12 @@ func TestInsightsCmdJSON(t *testing.T) {
 }
 
 func TestReplCmdStartsWithoutLocalLLM(t *testing.T) {
-	// Default config has local_llm off. The deterministic /commands are the
-	// fallback, so repl now starts and notes the NL half is off instead of
-	// refusing. /help needs neither a daemon nor a model.
+	// NL mode runs on Fast-Brain and needs no local_llm config, so repl starts. /help needs neither a daemon nor a model.
 	out, err := runCLIStdin(t, "", "/help\nexit\n", "repl")
 	if err != nil {
 		t.Fatalf("repl should start without local_llm, got %v", err)
 	}
-	if !strings.Contains(out, "natural-language mode is off") {
-		t.Fatalf("expected the NL-off notice, got %q", out)
+	if strings.Contains(out, "natural-language mode is off") {
+		t.Fatalf("NL mode must not need local_llm, got %q", out)
 	}
 }

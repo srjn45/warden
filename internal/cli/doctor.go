@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -25,11 +24,10 @@ import (
 const doctorVersion = "dev"
 
 // External tools warden shells out to. Required ones must resolve on PATH;
-// optional ones are warn-only (gh is only used for some convenience flows;
-// ollama only for local_llm / `wd repl`).
+// optional ones are warn-only (gh is only used for some convenience flows).
 var (
 	requiredBinaries = []string{"tmux", "git", "claude"}
-	optionalBinaries = []string{"gh", "ollama"}
+	optionalBinaries = []string{"gh"}
 )
 
 // checkResult is the outcome of one preflight check.
@@ -166,14 +164,6 @@ func newDoctorCmd() *cobra.Command {
 			results := checkBinaries(exec.LookPath)
 			results = append(results, checkDaemon("http://"+cfg.Addr, httpGet))
 			results = append(results, checkDataDir(cfg.DataDir))
-
-			// Advisory: recommend a local_llm_model from detected hardware for the
-			// orchestrator (`wd repl`). Never auto-set — warden recommends, the
-			// operator decides.
-			runCmd := func(name string, args ...string) ([]byte, error) {
-				return exec.Command(name, args...).Output()
-			}
-			results = append(results, localLLMAdvice(cfg, detectMemoryGB(runCmd, runtime.GOOS, systemRAMGB)))
 
 			fmt.Fprint(cmd.OutOrStdout(), formatReport(doctorVersion, results))
 			if !allRequiredPass(results) {

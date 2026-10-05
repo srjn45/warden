@@ -55,21 +55,11 @@ func TestCheckBinaries(t *testing.T) {
 	}
 }
 
-// ollama is documented as a dependency (local_llm / `wd repl`) and must be
-// probed by doctor as a warn-only optional binary.
-func TestOllamaIsOptionalBinary(t *testing.T) {
-	found := false
-	for _, b := range optionalBinaries {
+// Ollama is no longer a dependency: Fast-Brain replaced the local LLM.
+func TestOllamaIsNotProbed(t *testing.T) {
+	for _, b := range append(append([]string{}, requiredBinaries...), optionalBinaries...) {
 		if b == "ollama" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("ollama should be in optionalBinaries, got %v", optionalBinaries)
-	}
-	for _, b := range requiredBinaries {
-		if b == "ollama" {
-			t.Fatalf("ollama must be optional (warn-only), not required")
+			t.Fatalf("ollama must not be probed by doctor/setup")
 		}
 	}
 }
