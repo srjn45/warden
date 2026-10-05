@@ -68,6 +68,12 @@ type Request struct {
 	RunID      string
 	TaskID     string
 
+	// Mode selects the reply schema. Empty is the classic action consult;
+	// ModeAnswer asks the brain to answer a stuck agent's prompt (see Answer).
+	Mode string
+	// Answer carries the prompt context when Mode == ModeAnswer.
+	Answer *AnswerContext
+
 	// Repo overrides Options.Repo when non-empty — the working directory the
 	// short-lived brain spawns in. Autopilot managers set this to their run's
 	// repo so multi-repo daemons consult in the right tree.
@@ -80,6 +86,11 @@ type Result struct {
 	Reason       string            // one-line explanation from the brain
 	BrainID      string            // agent id of the spawned brain (for tracing/audit)
 	TaskProgress map[string]string // non-nil when Action == ActionUpdateTaskProgress: task id → status
+
+	// Answer fields, set only for Mode == ModeAnswer.
+	Answer AnswerKind
+	Option int    // 1-based; for AnswerSelectOption
+	Text   string // for AnswerType; also the safe-alternative text on a reject
 }
 
 // Consultor is the single interface for all brain consult call sites.
@@ -110,12 +121,17 @@ type BrainSpawnArgs struct {
 	Backend string
 	Tags    []string
 	Repo    string
+	// ModelTier is the explicit model tier to route the spawn at ("" = router default).
+	ModelTier string
 }
 
 // Options configures a Consultor instance.
 type Options struct {
 	// Timeout is the per-consult deadline (default 10m).
 	Timeout time.Duration
+	// ModelTier pins the spawned brain's model tier (e.g. "tier-1"); empty
+	// leaves tier selection to the router.
+	ModelTier string
 	// Role is the agent role to spawn (default "autopilot").
 	Role string
 	// Backend is the agent backend to use; empty uses the daemon default.
@@ -230,7 +246,17 @@ func (c *consultor) Consult(ctx context.Context, req Request) (Result, error) {
 	tctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	prompt, err := buildPrompt(req)
+	answerMode := req.Mode == ModeAnswer
+	var prompt string
+	var err error
+	if answerMode {
+		if req.Answer == nil {
+			return Result{}, errors.New("brain consult: answer mode requires Answer context")
+		}
+		prompt = buildAnswerPrompt(*req.Answer)
+	} else {
+		prompt, err = buildPrompt(req)
+	}
 	if err != nil {
 		return Result{}, err
 	}
@@ -253,6 +279,8 @@ func (c *consultor) Consult(ctx context.Context, req Request) (Result, error) {
 		Prompt:  prompt,
 		Role:    c.opts.role(),
 		Backend: c.opts.Backend,
+
+		ModelTier: c.opts.ModelTier,
 	})
 	if err != nil {
 		return Result{}, fmt.Errorf("brain consult: spawn: %w", err)
@@ -267,7 +295,12 @@ func (c *consultor) Consult(ctx context.Context, req Request) (Result, error) {
 		}
 	}()
 
-	result, err := c.waitForReply(tctx, sess.ID, sess.TmuxSession, allowed)
+	var result Result
+	if answerMode {
+		result, err = c.waitForAnswer(tctx, sess.ID, sess.TmuxSession, *req.Answer)
+	} else {
+		result, err = c.waitForReply(tctx, sess.ID, sess.TmuxSession, allowed)
+	}
 	if err != nil {
 		return Result{BrainID: sess.ID}, err
 	}
@@ -279,6 +312,7 @@ func (c *consultor) Consult(ctx context.Context, req Request) (Result, error) {
 		Detail: omitEmpty(map[string]string{
 			"intent":      req.Intent,
 			"action":      string(result.Action),
+			"answer":      string(result.Answer),
 			"reason":      result.Reason,
 			"pipeline_id": req.PipelineID,
 			"job_id":      req.JobID,

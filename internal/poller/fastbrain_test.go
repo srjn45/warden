@@ -154,10 +154,10 @@ func TestFastBrainOtherBackendPane(t *testing.T) {
 
 func TestFastBrainEscalatesToAutopilotBrain(t *testing.T) {
 	fb := &fakeFB{dec: fastbrain.ArbiterDecision{Action: fastbrain.DecisionEscalate}}
-	p, d := fbPoller(fb, noMatchPolicy(true))
+	p, _ := fbPoller(fb, noMatchPolicy(true))
 	fa := &fakeAutopilot{brainID: "brain-1", own: true}
 	p.Autopilot = fa
 	p.tryAutoApprove(context.Background(), &agentstore.Agent{ID: "w1", TmuxSession: "tw"}, fbToolPane)
-	require.Zero(t, d.sendCount())
-	require.Len(t, fa.forwards, 1)
+	p.WaitPromptChains()
+	require.Len(t, fa.consults, 1, "an escalating arbiter falls to the stage-3 brain")
 }
