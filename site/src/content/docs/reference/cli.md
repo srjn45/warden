@@ -87,10 +87,11 @@ Create, inspect, communicate with, and manage agents.
 Wherever a command takes <AGENT>, it is the agent's name, id or ticket as shown
 by 'warden ls'.
 
-Lifecycle commands deliberately remain distinct: terminate keeps the record and
-worktree; done clears the record but keeps the worktree; delete changes only the
-record; remove-worktree changes only the worktree; and stop composes teardown
-steps according to its keep flags and preserves its confirmation safeguards.
+Teardown: 'stop' is the full teardown (terminate the session, clear the record,
+remove the worktree and branch) and takes --keep-worktree, --keep-record, --hard
+and --pr to keep parts. 'terminate' only kills the session, keeping the record
+and worktree. The narrower 'done', 'delete' and 'remove-worktree' verbs still work
+but are hidden; see 'warden help agent stop'.
 
 Usage:
   warden agent [flags]
@@ -105,11 +106,8 @@ Commands:
   recover              Revive archived orphaned agent records whose tmux session is still alive (dry run unless --apply)
   adopt                Register the AI CLI session in this directory (resume it under tmux, or register the current tmux session live)
   attach               Attach to the agent's tmux session
-  stop                 Tear down an agent — the single umbrella verb (default: terminate + clear record + remove worktree)
-  terminate            Stop an agent: kill its tmux+AI CLI session (keeps the record and worktree) — alias for `stop --keep-record --keep-worktree`
-  done                 Terminate an agent and clear its record (does NOT remove the worktree) — alias for `stop --keep-worktree`
-  delete               Clear an agent's stored record (archives by default; --hard to purge) — alias for `stop --keep-worktree` (record only)
-  remove-worktree      Remove an agent's git worktree + branch (always asks; --force overrides guards) — alias for `stop --keep-record` (worktree only)
+  stop                 Tear down an agent (default: terminate + clear record + remove worktree; --keep-* flags keep parts)
+  terminate            Stop an agent: kill its tmux+AI CLI session (keeps the record and worktree)
   send                 Type a message into an agent's AI CLI session and press Enter
   tail                 Print the recent output of an agent's AI CLI session
   handoff              Hand off work: delegate to a new/existing agent (--to), or retire self into a successor (--retire)
@@ -370,31 +368,36 @@ Inherited flags:
 ## warden agent stop
 
 ```text
-Stop an agent. The single umbrella teardown verb.
+Stop an agent: the default, full teardown.
 
 <AGENT> is any identifier `wd ls` shows — the agent's name, its id, or its
-ticket. All teardown verbs resolve by name-or-id.
+ticket.
 
-By default `wd agent stop <AGENT>` does a FULL teardown: terminate the
-tmux+AI CLI session, clear (archive) the record, and remove the git worktree +
-branch (asking for confirmation first, unless --yes). Subtractive flags keep
-parts around; --pr opens a GitHub PR first while the agent is still intact.
+By default `wd agent stop <AGENT>` terminates the tmux+AI CLI session, clears
+(archives) the record, and removes the git worktree + branch (asking for
+confirmation first, unless --yes). Keep parts around with:
 
-The four older verbs are kept as thin aliases — each is just `stop` with a
-fixed flag combo:
-
-  old verb                    equivalent
-  --------------------------  ------------------------------------------------
-  wd agent terminate <A>          wd agent stop <A> --keep-record --keep-worktree
-  wd agent delete <A> [--hard]    wd agent stop <A> --keep-worktree (record only)
-  wd agent remove-worktree <A>    wd agent stop <A> --keep-record  (worktree only)
-  wd agent done <A> [--hard|--pr] wd agent stop <A> --keep-worktree [--hard|--pr]
-  wd agent stop <A>               terminate + clear record + remove worktree
+  --keep-worktree   leave the git worktree and branch in place
+  --keep-record     leave the stored record in place
+  --hard            purge the record instead of archiving it
+  --pr              open a GitHub PR first, while the agent is still intact
 
 Safe ordering is always: PR -> terminate -> remove worktree -> clear record, so
 a failed push leaves the agent running and a failed worktree guard (alive /
 dirty / unpushed) leaves the record intact and the call retryable. A failure
 reports which steps already ran.
+
+To only kill the session and keep everything else, use
+`wd agent terminate <AGENT>` (same as stop --keep-record --keep-worktree).
+
+Older verbs (hidden, still work; not all are expressible as stop flags):
+
+  wd agent done <A> [--hard|--pr]  terminate + clear record, worktree kept
+                                   (stop --keep-worktree [--hard|--pr])
+  wd agent delete <A> [--hard]     clear the record ONLY; does not terminate
+                                   (no stop equivalent)
+  wd agent remove-worktree <A>     remove the worktree + branch ONLY; does not
+                                   terminate (no stop equivalent)
 
 Usage:
   warden agent stop <AGENT> [flags]
@@ -406,7 +409,7 @@ Flags:
       --hard                    purge the record instead of archiving
   -h, --help                    help for stop
       --keep-record             do not clear the stored record
-      --keep-worktree           do not remove the git worktree (this + default == the old 'done')
+      --keep-worktree           do not remove the git worktree and branch
       --pr                      open a GitHub PR for the agent's branch (pushes first; title+body from the digest) before tearing down
       --yes                     skip the worktree-removal confirmation prompt
 
@@ -418,68 +421,13 @@ Inherited flags:
 ## warden agent terminate
 
 ```text
-Stop an agent: kill its tmux+AI CLI session (keeps the record and worktree) — alias for `stop --keep-record --keep-worktree`
+Stop an agent: kill its tmux+AI CLI session (keeps the record and worktree)
 
 Usage:
   warden agent terminate <AGENT> [flags]
 
 Flags:
   -h, --help   help for terminate
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden agent done
-
-```text
-Terminate an agent and clear its record (does NOT remove the worktree) — alias for `stop --keep-worktree`
-
-Usage:
-  warden agent done <AGENT> [flags]
-
-Flags:
-      --base string   base branch for the PR (default main); only meaningful with --create-pr
-      --create-pr     open a GitHub PR for the agent's branch (pushes first; title+body drafted by Fast-Brain when available, else from the digest) before finishing
-      --hard          purge the record instead of archiving
-  -h, --help          help for done
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden agent delete
-
-```text
-Clear an agent's stored record (archives by default; --hard to purge) — alias for `stop --keep-worktree` (record only)
-
-Usage:
-  warden agent delete <AGENT> [flags]
-
-Flags:
-      --hard   permanently purge the record instead of archiving
-  -h, --help   help for delete
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden agent remove-worktree
-
-```text
-Remove an agent's git worktree + branch (always asks; --force overrides guards) — alias for `stop --keep-record` (worktree only)
-
-Usage:
-  warden agent remove-worktree <AGENT> [flags]
-
-Flags:
-      --delete-adopted-branch   also delete the branch even if warden did not create it (adopted branches are kept by default)
-      --force                   override the alive/uncommitted/unpushed guards
-  -h, --help                    help for remove-worktree
-      --yes                     skip the confirmation prompt
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
