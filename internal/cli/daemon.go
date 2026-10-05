@@ -192,6 +192,7 @@ func newDaemonRunCmd() *cobra.Command {
 			life := daemon.NewLifecycleAdapter(lc, st)
 			pd := daemon.NewPollerDeps(st, runner, lc)
 			pl := poller.New(pd, 5*time.Minute)
+			pl.SummarizeAfter = cfg.ActivityIntervalDuration()
 			pl.TokenGuard = cfg.Tokens.Guard
 			pl.TokenWarn = cfg.Tokens.Warn
 			pl.TokenCrit = cfg.Tokens.Critical

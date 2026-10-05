@@ -4065,6 +4065,7 @@ components:
         prompt: { type: string }
         workdir: { type: string }
         subject: { type: string }
+        activity: { type: string, description: "live 3-5 word status badge, refreshed by the poller while the pane is changing (activity.interval); distinct from the one-line subject" }
         tags: { type: array, items: { type: string } }
         status: { $ref: "#/components/schemas/Status" }
         kind:

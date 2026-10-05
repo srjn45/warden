@@ -1017,6 +1017,9 @@ func renderItemLine(it item, selected bool, width int) string {
 			s.ID, st.Render(label),
 			cst.Render(fmt.Sprintf("%-6s", cl)), age(s.UpdatedAt),
 			stMuted.Render(fmt.Sprintf("%-7s", trunc(backendOr(s), 7))), branchInfo)
+		if s.Activity != "" {
+			line += stMuted.Render("  ▸ " + trunc(s.Activity, 40))
+		}
 		if it.apSlot != "" {
 			line += stMuted.Render("  " + it.apSlot)
 		}

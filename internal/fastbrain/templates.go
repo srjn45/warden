@@ -48,6 +48,7 @@ func strategicQuestionPrompt(in ArbiterInput) string {
 const (
 	classifyTaskSystem   = `Classify the coding task. Reply with ONLY this JSON, no prose: {"type":"test|implementation|review|refactor|docs|other","confidence":0.0-1.0}`
 	summarizeActivitySys = `Summarize what the agent is doing in one short sentence (max 12 words). Reply with ONLY this JSON, no prose: {"summary":"<text>"}`
+	activityBadgeSys     = `Give a status badge for what the agent is doing right now: 3 to 5 words, no trailing punctuation (e.g. "Fixing failing auth tests"). Reply with ONLY this JSON, no prose: {"summary":"<badge>"}`
 	summarizeCheckSystem = `Condense this test/linter output into the actionable failure lines (file:line + cause), max 15 lines. Reply with ONLY this JSON, no prose: {"summary":"<text>"}`
 	commitMessageSystem  = `Write a conventional commit message for this diff: "type: subject" (<=72 chars, imperative). Reply with ONLY this JSON, no prose: {"message":"type: subject"}`
 	curateExtractSystem  = `Extract durable, reusable project facts (decisions, conventions, gotchas) from the text as short bullets. Skip transient chatter. Reply with ONLY this JSON, no prose: {"entries":["<fact>"]}`
@@ -73,6 +74,13 @@ func ClassifyTaskPrompt(prompt string) string {
 // SummarizeActivityPrompt builds the KindSummarizeActivity prompt.
 func SummarizeActivityPrompt(activity string) string {
 	return summarizeActivitySys + "\n\nActivity:\n" + clip(activity) + "\n"
+}
+
+// ActivityBadgePrompt builds the live-row status-badge prompt. It reuses
+// KindSummarizeActivity (same decision kind, different prompt) so narrators that
+// want a full sentence keep SummarizeActivityPrompt untouched.
+func ActivityBadgePrompt(activity string) string {
+	return activityBadgeSys + "\n\nActivity:\n" + clip(activity) + "\n"
 }
 
 // SummarizeCheckPrompt builds the KindSummarizeCheck prompt.
@@ -185,4 +193,31 @@ func ParseReplTurn(r Response) ReplTurn {
 	}
 	t.ToolCalls = calls
 	return t
+}
+
+const (
+	maxBadgeWords = 5
+	maxBadgeRunes = 40
+)
+
+// ParseActivityBadge parses {"summary":"..."} into a status badge: first line
+// only, quotes and trailing punctuation trimmed, capped at 5 words and 40
+// characters. "" on a non-OK response or empty reply.
+func ParseActivityBadge(r Response) string {
+	s := stringField(r, "summary")
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	words := strings.Fields(strings.Trim(s, "\"'`"))
+	if len(words) > maxBadgeWords {
+		words = words[:maxBadgeWords]
+	}
+	b := strings.Join(words, " ")
+	if r := []rune(b); len(r) > maxBadgeRunes {
+		b = string(r[:maxBadgeRunes])
+		if i := strings.LastIndexByte(b, ' '); i > 0 {
+			b = b[:i] // never leave a half word
+		}
+	}
+	return strings.TrimRight(strings.TrimSpace(b), ".,;:!-–—")
 }

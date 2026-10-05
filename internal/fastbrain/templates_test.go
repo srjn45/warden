@@ -58,3 +58,24 @@ func TestNewKindsRoutingAndSanitize(t *testing.T) {
 		require.Contains(t, p, "JSON")
 	}
 }
+
+func TestActivityBadgePromptIsDistinctFromSentencePrompt(t *testing.T) {
+	b, s := ActivityBadgePrompt("editing"), SummarizeActivityPrompt("editing")
+	require.NotEqual(t, b, s)
+	require.Contains(t, b, "3 to 5 words")
+	require.Contains(t, s, "max 12 words", "shared narrator prompt must stay a sentence")
+	require.Contains(t, b, "editing")
+}
+
+func TestParseActivityBadge(t *testing.T) {
+	p := func(out string) string { return ParseActivityBadge(decide(t, KindSummarizeActivity, out)) }
+	require.Equal(t, "Fixing failing auth tests", p(`{"summary":" Fixing failing auth tests. "}`))
+	require.Equal(t, "one two three four five", p(`{"summary":"one two three four five six seven"}`))
+	require.Equal(t, "first line", p(`{"summary":"first line\nsecond"}`))
+	require.Equal(t, "Running go test", p(`{"summary":"\"Running go test\""}`))
+	// character cap never leaves a half word
+	long := p(`{"summary":"Refactoring supercalifragilistic internationalization configuration modules"}`)
+	require.LessOrEqual(t, len([]rune(long)), 40)
+	require.Equal(t, "", p(`nope`))
+	require.Equal(t, "", p(`{"summary":""}`))
+}

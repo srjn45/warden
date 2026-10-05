@@ -70,11 +70,11 @@ func (f *ctxFakeDeps) List(context.Context) ([]*agentstore.Agent, error) { retur
 func (f *ctxFakeDeps) UpdateStatusIf(context.Context, string, store.Status, store.Status) (bool, error) {
 	return false, nil
 }
-func (f *ctxFakeDeps) UpdatePane(context.Context, string, string) error    { return nil }
-func (f *ctxFakeDeps) UpdateSubject(context.Context, string, string) error { return nil }
-func (f *ctxFakeDeps) ProjectsDir() string                                 { return "" }
-func (f *ctxFakeDeps) SetSessionID(context.Context, string, string) error  { return nil }
-func (f *ctxFakeDeps) SessionAlive(context.Context, string) bool           { return true }
+func (f *ctxFakeDeps) UpdatePane(context.Context, string, string) error     { return nil }
+func (f *ctxFakeDeps) UpdateActivity(context.Context, string, string) error { return nil }
+func (f *ctxFakeDeps) ProjectsDir() string                                  { return "" }
+func (f *ctxFakeDeps) SetSessionID(context.Context, string, string) error   { return nil }
+func (f *ctxFakeDeps) SessionAlive(context.Context, string) bool            { return true }
 func (f *ctxFakeDeps) CapturePane(_ context.Context, tmuxSession string) (string, error) {
 	f.capturedTmux = append(f.capturedTmux, tmuxSession)
 	return f.pane, nil

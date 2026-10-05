@@ -353,6 +353,7 @@ type Session struct {
 	Prompt           string           `json:"prompt"`                     // initial prompt (prompt-spawned agents)
 	Workdir          string           `json:"workdir"`                    // absolute cwd of the tmux session
 	Subject          string           `json:"subject"`                    // one-line auto summary of what it's doing
+	Activity         string           `json:"activity,omitempty"`         // live 3-5 word status badge (poller-refreshed while the pane changes)
 	Tags             []string         `json:"tags,omitempty"`             // optional free-form labels for grouping/filtering (#30); nil/empty for untagged sessions
 	Status           Status           `json:"status"`
 	PID              int              `json:"pid"`
