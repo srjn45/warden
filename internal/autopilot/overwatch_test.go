@@ -192,7 +192,7 @@ func TestComposeOverwatchNudgeCapsList(t *testing.T) {
 	for i := range needy {
 		needy[i] = AgentInfo{ID: string(rune('a'+i)) + "-id", Name: "", State: "idle"}
 	}
-	msg := composeOverwatchNudge(needy)
+	msg := composeOverwatchNudge(needy, nil)
 	require.Contains(t, msg, "(+3 more)", "the tail beyond the cap collapses")
 	require.Equal(t, overwatchNudgeListMax, strings.Count(msg, ", idle)"), "only the cap is enumerated")
 }

@@ -192,6 +192,8 @@ type run struct {
 
 	// Guardian triage state (guardian_triage.go); mutated only under c.mu.
 	triage triageState
+	// wtriage is the overwatch's worker-triage state (overwatch_triage.go).
+	wtriage workerTriageState
 
 	// resting is the guardian's per-agent usage-limit bookkeeping (limits.go).
 	resting map[string]*restingAgent

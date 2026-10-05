@@ -1245,8 +1245,11 @@ workers*. It derives the run's worker roster from the `run:<run_id>` tag and, on
 while the manager itself is idle, nudges it to attend workers that fall idle or
 wait on input — event-driven (debounced ~5m) or a periodic ~1h heartbeat. Its
 cadences are generous, fixed constants (frictionless-safeguards philosophy — a
-backstop, not a pacer). It only ever messages the manager; it never touches a
-worker itself.
+backstop, not a pacer). With Fast-Brain triage on (`autopilot.guardian.use_fast_brain`)
+it also diagnoses idle/waiting workers: a worker at an approval prompt or
+rate-limit banner is resumed directly, and the manager nudge carries a specific
+finding per worker instead of the generic line. It never restarts, terminates or
+removes a worker.
 
 ### 34.4 Cost-tier backend selection
 

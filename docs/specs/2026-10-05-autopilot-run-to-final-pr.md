@@ -214,6 +214,10 @@ Built by the daemon (all text passed through `fastbrain.Sanitize`); **hard cap 2
 
 On by default for autopilot runs: `autopilot.guardian.use_fast_brain` (default **true**, hot-reloaded). When false, `superviseRun` behaves exactly as today. A run with no Fast-Brain runner configured (`StatusNoRunner`) behaves as false per call (fail open) and audits `autopilot.triage_failopen` at most once per hour per run.
 
+### C.6 Workers in the overwatch pass
+
+The overwatch (`internal/autopilot/overwatch_triage.go`) applies the same triage to needy workers (not `spawning`/`working`) with the **worker action set** (`wait`, `nudge`, `resolve_prompt`, `resume_rate_limit`, `redeliver_prompt`; never restart, rotate, terminate or remove). At most one pass per run per overwatch gap (5m), at most 4 workers per pass; evidence and diagnosis run off `c.mu`, a later tick applies a result only if the run, manager and worker state are unchanged. `resolve_prompt` / `resume_rate_limit` / `redeliver_prompt` run directly through the evidence runtime and that worker is left out of the manager nudge; `nudge` text becomes the worker's specific finding in the manager nudge; `wait` leaves the worker out (bounded by `guardian.max_waits`). The manager nudge is held one tick while a pass is in flight. Fail-open results, a failed action, and `use_fast_brain: false` produce today's generic nudge text exactly. Audit event `autopilot.overwatch_diagnosis`.
+
 ---
 
 ## D. Resolver agent
