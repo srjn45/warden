@@ -20,7 +20,7 @@ type fixRT struct {
 	sent     []string
 	spawned  []FixSpawn
 	audits   []string
-	resolved int
+	resolved []ResolverSpawn
 }
 
 func (f *fixRT) CIEvidence(context.Context, string, string, string, string) FixEvidence { return f.ev }
@@ -46,9 +46,9 @@ func (f *fixRT) SpawnFixWorker(_ context.Context, s FixSpawn) (string, error) {
 func (f *fixRT) AuditRunEvent(_ context.Context, _, action, _, _ string) {
 	f.audits = append(f.audits, action)
 }
-func (f *fixRT) ResolveRedGate(context.Context, string, string, FixState) bool {
-	f.resolved++
-	return true
+func (f *fixRT) SpawnResolver(_ context.Context, s ResolverSpawn) (string, error) {
+	f.resolved = append(f.resolved, s)
+	return "resolver-1", nil
 }
 
 func fixSetup(t *testing.T) (*Controller, *fixRT) {
@@ -65,7 +65,13 @@ func redFix(sha string, owner LandOwner) LandFix {
 
 func runFix(c *Controller, fr *fixRT, f LandFix) {
 	rt := fr.landingRT
-	c.runFixLoop(context.Background(), fr, rt.NewLedger("run"), landSnapshot{runID: "run", repo: "/repo"}, f)
+	runID := "run"
+	c.mu.Lock()
+	for id := range c.runs {
+		runID = id // the resolver seam looks the real run up
+	}
+	c.mu.Unlock()
+	c.runFixLoop(context.Background(), fr, rt.NewLedger("run"), landSnapshot{runID: runID, repo: "/repo"}, f)
 }
 
 func TestFixRealFailureSendsLiveOwnerOncePerSHA(t *testing.T) {
@@ -147,17 +153,17 @@ func TestFixAttemptCapStopsDispatch(t *testing.T) {
 	}
 	require.Len(t, fr.sent, 2)
 	require.Contains(t, fr.audits, "autopilot.ci_fix_capped")
-	require.Equal(t, 2, fr.resolved, "capped SHAs offer the resolver seam once each")
+	require.Len(t, fr.resolved, 2, "capped SHAs offer the resolver seam once each")
 }
 
 func TestFixRedStreakCallsResolverSeam(t *testing.T) {
 	c, fr := fixSetup(t)
 	c.SetFixPolicy(FixPolicy{MaxRedSHAs: 2})
 	runFix(c, fr, redFix("s1", LandOwner{TaskID: "t1", WorkerID: "w1"}))
-	require.Zero(t, fr.resolved)
+	require.Empty(t, fr.resolved)
 	runFix(c, fr, redFix("s2", LandOwner{TaskID: "t1", WorkerID: "w1"}))
-	require.Equal(t, 1, fr.resolved)
-	require.Len(t, fr.sent, 1, "resolver took the second SHA")
+	require.Len(t, fr.resolved, 1)
+	require.Len(t, fr.sent, 1, "resolver spawn does not stop dispatch of the first fix")
 }
 
 func TestFixBusyOwnerDefersThenWakes(t *testing.T) {

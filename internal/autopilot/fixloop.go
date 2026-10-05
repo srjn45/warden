@@ -102,14 +102,6 @@ type FixRuntime interface {
 	AuditRunEvent(ctx context.Context, runID, action, agentID, detail string)
 }
 
-// RedGateResolver is the seam t7-resolver fills: called once per red head SHA
-// when a task's consecutive-red cap is reached. Returning true means the
-// resolver took the blocker (worker dispatch pauses for that SHA); false (or an
-// absent implementation) continues the loop — there is no park.
-type RedGateResolver interface {
-	ResolveRedGate(ctx context.Context, runID, taskID string, st FixState) bool
-}
-
 func (c *Controller) policy() FixPolicy {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -175,10 +167,10 @@ func (c *Controller) runFixLoop(ctx context.Context, fr FixRuntime, ledger *Ledg
 			fr.AuditRunEvent(ctx, s.runID, "autopilot.ci_fix_capped", fix.Owner.WorkerID,
 				fmt.Sprintf("task=%s pr=%d sha=%s attempts=%d", fix.TaskID, fix.PR.Number, sha, st.FixAttempts))
 		}
-		c.callRedResolver(ctx, fr, s, &st, sha, save)
+		c.callRedResolver(ctx, s, &st, sha, save)
 		return
 	}
-	if st.RedStreak >= pol.MaxRedSHAs && c.callRedResolver(ctx, fr, s, &st, sha, save) {
+	if st.RedStreak >= pol.MaxRedSHAs && c.callRedResolver(ctx, s, &st, sha, save) {
 		return
 	}
 
@@ -228,15 +220,20 @@ func (c *Controller) runFixLoop(ctx context.Context, fr FixRuntime, ledger *Ledg
 		fmt.Sprintf("task=%s pr=%d sha=%s kind=%s to=fixup attempt=%d streak=%d", fix.TaskID, fix.PR.Number, sha, fix.Kind, st.FixAttempts, st.RedStreak))
 }
 
-// callRedResolver offers the blocker to the resolver seam once per head SHA.
-func (c *Controller) callRedResolver(ctx context.Context, fr FixRuntime, s landSnapshot, st *FixState, sha string, save func()) bool {
-	rr, ok := fr.(RedGateResolver)
-	if !ok || st.ResolverCalledSHA == sha {
+// callRedResolver hands the blocker to the resolver once per head SHA. It returns
+// true when a resolver was started (worker dispatch pauses for that SHA) and
+// false otherwise; an exhausted per-PR cap parks the run (fail-open).
+func (c *Controller) callRedResolver(ctx context.Context, s landSnapshot, st *FixState, sha string, save func()) bool {
+	if st.ResolverCalledSHA == sha {
 		return false
 	}
 	st.ResolverCalledSHA = sha
 	save()
-	return rr.ResolveRedGate(ctx, s.runID, st.Task, *st)
+	started, err := c.SpawnResolver(ctx, ResolverRequest{
+		RunID: s.runID, TaskID: st.Task, Branch: st.Branch, Class: BlockerRedGate,
+		Detail: fmt.Sprintf("PR #%d stayed red across %d head SHAs (%d fix attempts).\n%s", st.PR, st.RedStreak, st.FixAttempts, st.Evidence),
+	})
+	return err == nil && started
 }
 
 func composeFixEvidence(fix LandFix, ev FixEvidence) string {

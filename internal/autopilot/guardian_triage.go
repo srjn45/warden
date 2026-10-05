@@ -21,11 +21,6 @@ import (
 // to the existing ladder step, so triage can only be more precise, never more
 // stuck, than the ladder.
 
-// StallResolver is the call_resolver seam: it hands a manager stall the manager
-// cannot clear to the resolver agent. It must return promptly (start the resolver,
-// do not wait for it) because it is invoked while the guardian holds c.mu.
-type StallResolver func(ctx context.Context, runID, blocker string) error
-
 // triageMinConfidence gates the destructive rungs (restart / rotate).
 const triageMinConfidence = 0.8
 
@@ -233,11 +228,14 @@ func (c *Controller) applyDiagnosis(ctx context.Context, gr GuardianRuntime, ev 
 		return triageOutcome{acted: true}
 
 	case fastbrain.ActionCallResolver:
-		if c.stallResolver == nil {
-			return failOpen("no resolver wired")
-		}
-		if err := c.stallResolver(ctx, r.runID, "manager_stall: "+d.Rationale); err != nil {
+		started, err := c.spawnResolverLocked(ctx, r, ResolverRequest{
+			RunID: r.runID, Class: BlockerManagerStall, Detail: "manager stall: " + d.Rationale})
+		if err != nil {
 			return failOpen("resolver start failed: " + err.Error())
+		}
+		if !started {
+			c.auditDiagnosis(ctx, gr, r, d, "applied", "resolver cap exhausted; run parked")
+			return triageOutcome{deferred: true}
 		}
 		c.auditDiagnosis(ctx, gr, r, d, "applied", "resolver started")
 		hold()

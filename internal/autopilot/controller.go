@@ -118,9 +118,8 @@ type Controller struct {
 	// Guardian triage seams (guardian_triage.go). fastBrain is nil ⇒ heuristics
 	// only; triageFn overrides the diagnosis call (tests); stallResolver is the
 	// call_resolver seam the resolver work fills (nil ⇒ that action falls open).
-	fastBrain     fastbrain.Engine
-	triageFn      func(ctx context.Context, in fastbrain.StallInput) fastbrain.StallDiagnosis
-	stallResolver StallResolver
+	fastBrain fastbrain.Engine
+	triageFn  func(ctx context.Context, in fastbrain.StallInput) fastbrain.StallDiagnosis
 
 	// now is the clock the guardian + tierstate read (injectable for tests via
 	// setClock). tierstate tracks per-backend rate-limit windows for selection.
@@ -166,19 +165,20 @@ type run struct {
 
 	// Guardian-owned state (autopilot.md §2.3, §7). All mutated only under c.mu, by
 	// the guardian tick or the (re)spawn helpers.
-	tier             string      // selected cost tier (free|subscription|pay_per_use)
-	brainSpawnedAt   time.Time   // last (re)spawn instant — the cold-start heartbeat floor
-	lastHeartbeat    time.Time   // most recent brain heartbeat seen by the guardian
-	contextLevel     string      // brain context-window level seen by the guardian
-	healStage        healStage   // current position on the heal ladder
-	healNextAt       time.Time   // earliest instant the next heal step may fire
-	backoffStage     int         // capped-exponential backoff exponent (stage 4)
-	backoffNextRetry time.Time   // when the current backoff wait elapses
-	backoffLastErr   string      // human-facing reason for the current backoff
-	backoffKind      FailureKind // classified cause of the current backoff
-	failStreak       int         // consecutive identical non-transient spawn failures
-	failStreakText   string      // error text the streak is counting
-	needsAttention   string      // non-empty ⇒ parked: retries stopped, reason for the operator
+	tier             string         // selected cost tier (free|subscription|pay_per_use)
+	brainSpawnedAt   time.Time      // last (re)spawn instant — the cold-start heartbeat floor
+	lastHeartbeat    time.Time      // most recent brain heartbeat seen by the guardian
+	contextLevel     string         // brain context-window level seen by the guardian
+	healStage        healStage      // current position on the heal ladder
+	healNextAt       time.Time      // earliest instant the next heal step may fire
+	backoffStage     int            // capped-exponential backoff exponent (stage 4)
+	backoffNextRetry time.Time      // when the current backoff wait elapses
+	backoffLastErr   string         // human-facing reason for the current backoff
+	backoffKind      FailureKind    // classified cause of the current backoff
+	failStreak       int            // consecutive identical non-transient spawn failures
+	failStreakText   string         // error text the streak is counting
+	resolverAttempts map[string]int // resolver spawns per PR branch (cap MaxResolverAttempts)
+	needsAttention   string         // non-empty ⇒ parked: retries stopped, reason for the operator
 	// Progress watchdog (watchdog.go): last observed progress, its fingerprint
 	// (both persisted), and whether the heal ladder is being climbed by the
 	// watchdog / the run was parked by it.
@@ -304,15 +304,6 @@ func (c *Controller) SetFastBrain(e fastbrain.Engine) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.fastBrain = e
-}
-
-// SetStallResolver fills the call_resolver seam: the resolver agent work
-// registers its starter here. Without one, a call_resolver diagnosis falls open
-// to the mechanical ladder step.
-func (c *Controller) SetStallResolver(sr StallResolver) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.stallResolver = sr
 }
 
 // SetRuntime injects the daemon-provided brain/ledger/digest surface. It must be
@@ -1010,6 +1001,7 @@ func (c *Controller) statusLocked() Status {
 			Tasks:             counts,
 			Backoff:           r.backoffStatus(),
 			NeedsAttention:    r.needsAttention,
+			ResolverAttempts:  copyAttempts(r.resolverAttempts),
 			LastProgressAt:    rfc3339OrEmpty(r.lastProgressAt),
 			Watchdog:          c.watchdogState(r, c.now()),
 			PlanTasks:         append([]PlanTask(nil), r.plan.Tasks...),
