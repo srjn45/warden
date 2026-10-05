@@ -2551,6 +2551,7 @@ warden plan run <plan-id> --mode autopilot
 warden plan pause <plan-id>
 warden plan resume <plan-id>
 warden plan stop <plan-id>
+warden plan restart <plan-id>        # recover a stopped/parked/stuck run (destructive; --yes, --force)
 
 # 4. Watch
 warden plan show <plan-id> --watch   # live status: executor, backoff, integration branch, per-task worker/PR
@@ -2590,6 +2591,43 @@ and per-task worker/PR.
 `warden plan pause <id>` stops new spawns and landings **immediately**, at any run
 state. In-flight workers keep running to completion. The ledger is retained;
 `warden plan resume <id>` continues from where the run left off.
+
+### Recovering a stuck plan {#recovering-a-stuck-plan}
+
+`warden plan resume` only undoes a pause. For an `in_progress` autopilot or
+pipeline plan that is stopped, parked as needs-attention, or stalled, use:
+
+```sh
+warden plan restart <plan-id> [--force] [--backend <id>] [--yes] [--json]
+```
+
+**Restart is destructive**: every agent of the executor is terminated and its
+worktree removed. Without `--yes` it prints the effect and asks; with no terminal
+it refuses. Kept: the plan (still `in_progress`), landed tasks and landings, the
+integration branch, done pipeline jobs and handoffs, and task branches with
+commits (open PRs are never closed). Removed: sessions, worktrees, empty branches.
+Unfinished tasks are reset and re-issued to a **brand-new set of agents** (same
+run id, manager slot and integration branch for autopilot). Without `--force` an
+active/starting/paused executor is refused (paused is a deliberate hold — use
+`plan resume`); `--force` restarts anyway and leaves it active.
+`orchestrator_worker`/`manual` plans are not supported. MCP: `restart_plan`.
+
+New agents receive a **`## Restart context`** section: why the previous run ended
+(`operator_stop`, `needs_attention`, `degraded_backoff`, `operator_force`,
+`watchdog`), the restart count, finished tasks (don't redo), unfinished tasks with
+their kept branch/open PR (continue from the branch, reuse the PR, never open a
+duplicate; if unusable start fresh and close the old PR with a comment) and the
+last 20 journal entries. Stored at `autopilot.<run_id>.restart_context`
+(pipeline-only plans: `plan.<plan_id>.restart_context`).
+
+**Progress watchdog.** A manager that heartbeats but makes no progress (ledger
+task change, landing, plan task status change, worker spawn — heartbeats and
+overwatch nudges don't count) for `autopilot.guardian.progress_watchdog_window`
+(default `2h`) with no agent working walks the heal ladder (nudge → restart →
+rotate), then parks as `no_progress` and tells you to run `plan restart`.
+`autopilot.guardian.progress_watchdog_enabled` (default `true`) switches it off;
+both keys hot-reload. `warden plan show` prints `last_progress`, the watchdog
+state (`idle|armed|escalating|parked|disabled`) and `restarts:`.
 
 ### `warden autopilot status`
 
