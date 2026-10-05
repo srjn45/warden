@@ -1379,6 +1379,14 @@ episode (shown as *waiting* in the tree). Clear it by editing the plan in
 ScrivaDB, `wd plan resume` (or pause + resume), or restarting the daemon. Enable/start/resume stay
 strict — leniency is boot- and watcher-only.
 
+**Progress watchdog.** A heartbeating manager that makes no progress (ledger
+task change, landing, plan task status change, worker spawn) for
+`autopilot.guardian.progress_watchdog_window` (default 2h) with no agent working
+climbs the existing nudge → restart → rotate ladder, then parks as
+needs-attention (`no_progress`, one notification, points at `wd plan restart`).
+Config: `progress_watchdog_enabled` (default on), hot-reloadable; last progress
+and watchdog state appear in run status and `wd plan show`.
+
 ### 34.11 Run completion marker
 
 When the manager has verified the plan's `done_when` criteria, it declares the

@@ -1558,6 +1558,9 @@ type PlanExecutorStatus struct {
 	IntegrationBranch string                 `json:"integration_branch,omitempty"`
 	Kind              PlanExecutorStatusKind `json:"kind"`
 
+	// LastProgressAt RFC3339 time of the run's last observed progress (autopilot executors)
+	LastProgressAt string `json:"last_progress_at,omitempty"`
+
 	// LastRestartAt RFC3339 time of the last restart
 	LastRestartAt     string `json:"last_restart_at,omitempty"`
 	LastRestartReason string `json:"last_restart_reason,omitempty"`
@@ -1569,6 +1572,9 @@ type PlanExecutorStatus struct {
 	// State autopilot: active|healing|degraded|paused|stopped|complete; pipeline: the pipeline status; agent: the session status
 	State string             `json:"state"`
 	Tasks []PlanExecutorTask `json:"tasks,omitempty"`
+
+	// Watchdog progress watchdog state: disabled|idle|armed|escalating|parked (autopilot executors)
+	Watchdog string `json:"watchdog,omitempty"`
 }
 
 // PlanExecutorStatusKind defines model for PlanExecutorStatus.Kind.

@@ -1529,6 +1529,9 @@ func printPlanExecutor(w io.Writer, e *client.PlanExecutor) {
 	if e.ManagerAgentID != "" {
 		fmt.Fprintf(w, "manager:        %s\n", e.ManagerAgentID)
 	}
+	if e.LastProgressAt != "" {
+		fmt.Fprintf(w, "last_progress:  %s (watchdog: %s)\n", e.LastProgressAt, dash(e.Watchdog))
+	}
 	if e.RestartCount > 0 {
 		fmt.Fprintf(w, "restarts:       %d (last: %s at %s)\n", e.RestartCount, e.LastRestartReason, e.LastRestartAt)
 	}

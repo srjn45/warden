@@ -53,6 +53,7 @@ func (c *Controller) restoreStoredRuns() {
 		r := &run{runID: rec.RunID, name: rec.Name, planID: rec.PlanID, projectID: rec.ProjectID, repo: rec.Repo, planFile: rec.PlanFile,
 			absPlanFile: rec.PlanFile, state: rec.State, resolvedGate: rec.Gate,
 			slotScope: rec.SlotScope, integrationBranch: rec.IntegrationBranch,
+			lastProgressAt: rec.LastProgressAt, progressFP: rec.ProgressFP,
 			tried: map[string]bool{}}
 		// Restore slot ids only when they match the persisted scope — legacy
 		// agent-<hex> ids are ignored so boot reconciliation adopts into slots.
@@ -110,7 +111,8 @@ func (c *Controller) recordLocked(r *run) RunRecord {
 	rec := RunRecord{RunID: r.runID, Name: r.name, Repo: r.repo, PlanFile: r.absPlanFile,
 		PlanID: r.planID, ProjectID: r.projectID,
 		State: r.state, IntegrationBranch: r.integrationBranch, Gate: c.runGate(r),
-		Strategy: c.strategy, DeleteBranch: c.deleteBranch, SlotScope: r.slotScope, UpdatedAt: now}
+		Strategy: c.strategy, DeleteBranch: c.deleteBranch, SlotScope: r.slotScope, UpdatedAt: now,
+		LastProgressAt: r.lastProgressAt, ProgressFP: r.progressFP}
 	if r.brain != nil && r.slotScope != "" {
 		rec.BrainID = ManagerSlotID(r.slotScope)
 	}
@@ -590,7 +592,8 @@ func (c *Controller) runStatusLocked(r *run) RunStatus {
 		PlanTasks: append([]PlanTask(nil), r.plan.Tasks...), GuardianID: guardianSlotIDOrEmpty(r.slotScope),
 		SlotScope: r.slotScope, IntegrationBranch: r.integrationBranch, GateWarning: r.gateWarning,
 		ManagerSlotID: managerSlotIDOrEmpty(r.slotScope), GuardianSlotID: guardianSlotIDOrEmpty(r.slotScope),
-		LedgerTasks:       c.ledgerTasksLocked(r.runID),
+		LedgerTasks:    c.ledgerTasksLocked(r.runID),
+		LastProgressAt: rfc3339OrEmpty(r.lastProgressAt), Watchdog: c.watchdogState(r, c.now()),
 		PreflightWarnings: append([]string(nil), r.preflightWarnings...)}
 	return st
 }

@@ -270,6 +270,10 @@ restored (the watcher then auto-recovers). Do not tell the user to re-enable.
 (one notification, shown as waiting). Clear it by editing the plan in ScrivaDB,
 `wd plan resume` (or pause + resume), or a daemon restart. Transient kinds back
 off forever.
+**Progress watchdog.** No progress (ledger/landing/plan task change/worker spawn)
+for `autopilot.guardian.progress_watchdog_window` (2h) with nothing working
+escalates nudge → restart → rotate, then parks as `no_progress` — recover with
+`wd plan restart`. `wd plan show` prints `last_progress` + watchdog state.
 
 **CLI-only** (local file authoring): `warden autopilot init [--name <name>]` —
 scaffold `plans/<name>.yaml`. Then create/import the Plan and start with
