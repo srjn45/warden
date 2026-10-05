@@ -46,7 +46,7 @@
   },
   {
     "path": "agent attach",
-    "use": "attach \u003cTICKET\u003e",
+    "use": "attach \u003cAGENT\u003e",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -63,7 +63,7 @@
   },
   {
     "path": "agent compact set",
-    "use": "set \u003cagent-id\u003e \u003con|off|inherit\u003e",
+    "use": "set \u003cAGENT\u003e \u003con|off|inherit\u003e",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -84,7 +84,7 @@
   },
   {
     "path": "agent digest",
-    "use": "digest \u003cTICKET\u003e",
+    "use": "digest \u003cAGENT\u003e",
     "runnable": true,
     "local_flags": [
       "json"
@@ -111,7 +111,7 @@
   },
   {
     "path": "agent fork",
-    "use": "fork \u003cagent\u003e [\"\u003cprompt\u003e\"]",
+    "use": "fork \u003cAGENT\u003e [\"\u003cprompt\u003e\"]",
     "runnable": true,
     "local_flags": [
       "force",
@@ -175,7 +175,7 @@
   },
   {
     "path": "agent permission-mode set",
-    "use": "set \u003cagent-id\u003e \u003cmode\u003e",
+    "use": "set \u003cAGENT\u003e \u003cmode\u003e",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -212,7 +212,7 @@
   },
   {
     "path": "agent restore",
-    "use": "restore \u003cTICKET\u003e",
+    "use": "restore \u003cAGENT\u003e",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -238,7 +238,7 @@
   },
   {
     "path": "agent role set",
-    "use": "set \u003cagent-id\u003e \u003crole\u003e",
+    "use": "set \u003cAGENT\u003e \u003crole\u003e",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -299,7 +299,7 @@
   },
   {
     "path": "agent send",
-    "use": "send \u003cTICKET\u003e \u003cmessage...\u003e",
+    "use": "send \u003cAGENT\u003e \u003cmessage...\u003e",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -346,7 +346,7 @@
   },
   {
     "path": "agent status",
-    "use": "status \u003cTICKET\u003e",
+    "use": "status \u003cAGENT\u003e",
     "runnable": true,
     "local_flags": [
       "json"
@@ -378,7 +378,7 @@
   },
   {
     "path": "agent switch",
-    "use": "switch [agent-id]",
+    "use": "switch [AGENT]",
     "runnable": true,
     "local_flags": [
       "ai-cli",
@@ -399,7 +399,7 @@
   },
   {
     "path": "agent tail",
-    "use": "tail \u003cTICKET\u003e",
+    "use": "tail \u003cAGENT\u003e",
     "runnable": true,
     "local_flags": [
       "lines"
@@ -560,7 +560,7 @@
   },
   {
     "path": "attach",
-    "use": "attach \u003cTICKET\u003e",
+    "use": "attach \u003cAGENT\u003e",
     "hidden": true,
     "runnable": true,
     "inherited_flags": [
@@ -1602,7 +1602,7 @@
   },
   {
     "path": "digest",
-    "use": "digest \u003cTICKET\u003e",
+    "use": "digest \u003cAGENT\u003e",
     "hidden": true,
     "runnable": true,
     "local_flags": [
@@ -1675,7 +1675,7 @@
   },
   {
     "path": "force-compact",
-    "use": "force-compact \u003cagent-id\u003e \u003con|off|inherit\u003e",
+    "use": "force-compact \u003cAGENT\u003e \u003con|off|inherit\u003e",
     "hidden": true,
     "runnable": true,
     "inherited_flags": [
@@ -1685,7 +1685,7 @@
   },
   {
     "path": "fork",
-    "use": "fork \u003cagent\u003e [\"\u003cprompt\u003e\"]",
+    "use": "fork \u003cAGENT\u003e [\"\u003cprompt\u003e\"]",
     "hidden": true,
     "runnable": true,
     "local_flags": [
@@ -3484,7 +3484,7 @@
   },
   {
     "path": "restore",
-    "use": "restore \u003cTICKET\u003e",
+    "use": "restore \u003cAGENT\u003e",
     "hidden": true,
     "runnable": true,
     "inherited_flags": [
@@ -3702,7 +3702,7 @@
   },
   {
     "path": "send",
-    "use": "send \u003cTICKET\u003e \u003cmessage...\u003e",
+    "use": "send \u003cAGENT\u003e \u003cmessage...\u003e",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -3711,7 +3711,7 @@
   },
   {
     "path": "set-permission-mode",
-    "use": "set-permission-mode \u003cagent-id\u003e \u003cmode\u003e",
+    "use": "set-permission-mode \u003cAGENT\u003e \u003cmode\u003e",
     "hidden": true,
     "runnable": true,
     "inherited_flags": [
@@ -3721,7 +3721,7 @@
   },
   {
     "path": "set-role",
-    "use": "set-role \u003cagent-id\u003e \u003crole\u003e",
+    "use": "set-role \u003cAGENT\u003e \u003crole\u003e",
     "hidden": true,
     "runnable": true,
     "inherited_flags": [
@@ -3867,7 +3867,7 @@
   },
   {
     "path": "status",
-    "use": "status \u003cTICKET\u003e",
+    "use": "status \u003cAGENT\u003e",
     "runnable": true,
     "local_flags": [
       "json"
@@ -3900,7 +3900,7 @@
   },
   {
     "path": "switch",
-    "use": "switch [agent-id]",
+    "use": "switch [AGENT]",
     "hidden": true,
     "runnable": true,
     "local_flags": [
@@ -3936,7 +3936,7 @@
   },
   {
     "path": "tail",
-    "use": "tail \u003cTICKET\u003e",
+    "use": "tail \u003cAGENT\u003e",
     "hidden": true,
     "runnable": true,
     "local_flags": [

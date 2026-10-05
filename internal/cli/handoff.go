@@ -136,7 +136,7 @@ func newHandoffCmd() *cobra.Command {
 			"  • --to <id> — deliver the handoff into an already-running agent's inbox (waking it); " +
 			"the source agent keeps running.\n" +
 			"  • --retire — spawn a successor in THIS agent's SAME worktree, then reap the calling " +
-			"agent (self-succession). Requires --confirm. This is what the `rotate` alias runs.\n\n" +
+			"agent (self-succession). Requires --confirm. This is what the `warden agent rotate` alias runs.\n\n" +
 			"--retire and --to are mutually exclusive: retire reaps the caller, --to never does.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {

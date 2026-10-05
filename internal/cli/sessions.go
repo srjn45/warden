@@ -263,7 +263,7 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 
 func newStatusCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "status <TICKET>",
+		Use:   "status <AGENT>",
 		Short: "Show full status for one session",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

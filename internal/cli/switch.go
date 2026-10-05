@@ -55,7 +55,7 @@ func newSwitchCmd() *cobra.Command {
 	var asJSON bool
 
 	cmd := &cobra.Command{
-		Use:   "switch [agent-id]",
+		Use:   "switch [AGENT]",
 		Short: "Hot-swap an agent session to a different AI CLI, model, or tier mid-task",
 		Long: "Mid-session hot-swap: retire the active CLI process and launch a successor AI CLI\n" +
 			"in the SAME worktree, carrying forward structured context (Goal, Decisions Log,\n" +

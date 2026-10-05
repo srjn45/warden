@@ -70,7 +70,7 @@ func (a *lifecycleAdapter) Spawn(ctx context.Context, req SpawnRequest) (*agents
 	// ⇒ ErrForkSourceNotPinned, §5) and its branch (the fork worktree's base, §7), and
 	// pins the fork to the source's repo so the worktree is a sibling off that branch.
 	if req.ForkFrom != "" {
-		src, err := a.store.Get(ctx, req.ForkFrom)
+		src, err := a.store.GetByNameOrID(ctx, req.ForkFrom)
 		if err != nil {
 			return nil, err
 		}

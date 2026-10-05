@@ -42,7 +42,7 @@
   },
   {
     "path": "attach",
-    "use": "attach <TICKET>",
+    "use": "attach <AGENT>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -634,7 +634,7 @@
   },
   {
     "path": "digest",
-    "use": "digest <TICKET>",
+    "use": "digest <AGENT>",
     "runnable": true,
     "local_flags": [
       "json"
@@ -686,7 +686,7 @@
   },
   {
     "path": "force-compact",
-    "use": "force-compact <agent-id> <on|off|inherit>",
+    "use": "force-compact <AGENT> <on|off|inherit>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -695,7 +695,7 @@
   },
   {
     "path": "fork",
-    "use": "fork <agent> [\"<prompt>\"]",
+    "use": "fork <AGENT> [\"<prompt>\"]",
     "runnable": true,
     "local_flags": [
       "force",
@@ -1359,7 +1359,7 @@
   },
   {
     "path": "restore",
-    "use": "restore <TICKET>",
+    "use": "restore <AGENT>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -1557,7 +1557,7 @@
   },
   {
     "path": "send",
-    "use": "send <TICKET> <message...>",
+    "use": "send <AGENT> <message...>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -1566,7 +1566,7 @@
   },
   {
     "path": "set-permission-mode",
-    "use": "set-permission-mode <agent-id> <mode>",
+    "use": "set-permission-mode <AGENT> <mode>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -1575,7 +1575,7 @@
   },
   {
     "path": "set-role",
-    "use": "set-role <agent-id> <role>",
+    "use": "set-role <AGENT> <role>",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -1714,7 +1714,7 @@
   },
   {
     "path": "status",
-    "use": "status <TICKET>",
+    "use": "status <AGENT>",
     "runnable": true,
     "local_flags": [
       "json"
@@ -1746,7 +1746,7 @@
   },
   {
     "path": "switch",
-    "use": "switch [agent-id]",
+    "use": "switch [AGENT]",
     "runnable": true,
     "local_flags": [
       "ai-cli",
@@ -1781,7 +1781,7 @@
   },
   {
     "path": "tail",
-    "use": "tail <TICKET>",
+    "use": "tail <AGENT>",
     "runnable": true,
     "local_flags": [
       "lines"

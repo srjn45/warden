@@ -3,8 +3,8 @@ Stop an agent. The single umbrella teardown verb.
 <AGENT> is any identifier `wd ls` shows — the agent's name, its id, or its
 ticket. All teardown verbs resolve by name-or-id.
 
-By default `wd agent stop <TICKET>` does a FULL teardown: terminate the
-tmux+claude session, clear (archive) the record, and remove the git worktree +
+By default `wd agent stop <AGENT>` does a FULL teardown: terminate the
+tmux+AI CLI session, clear (archive) the record, and remove the git worktree +
 branch (asking for confirmation first, unless --yes). Subtractive flags keep
 parts around; --pr opens a GitHub PR first while the agent is still intact.
 
@@ -13,11 +13,11 @@ fixed flag combo:
 
   old verb                    equivalent
   --------------------------  ------------------------------------------------
-  wd terminate <T>            wd agent stop <T> --keep-record --keep-worktree
-  wd delete <T> [--hard]      wd agent stop <T> --keep-worktree (record only)
-  wd remove-worktree <T>      wd agent stop <T> --keep-record  (worktree only)
-  wd done <T> [--hard|--pr]   wd agent stop <T> --keep-worktree [--hard|--pr]
-  wd agent stop <T>                 terminate + clear record + remove worktree
+  wd agent terminate <A>          wd agent stop <A> --keep-record --keep-worktree
+  wd agent delete <A> [--hard]    wd agent stop <A> --keep-worktree (record only)
+  wd agent remove-worktree <A>    wd agent stop <A> --keep-record  (worktree only)
+  wd agent done <A> [--hard|--pr] wd agent stop <A> --keep-worktree [--hard|--pr]
+  wd agent stop <A>               terminate + clear record + remove worktree
 
 Safe ordering is always: PR -> terminate -> remove worktree -> clear record, so
 a failed push leaves the agent running and a failed worktree guard (alive /

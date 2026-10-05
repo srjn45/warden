@@ -8,7 +8,7 @@ import (
 
 func newSetPermissionModeCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "set-permission-mode <agent-id> <mode>",
+		Use:   "set-permission-mode <AGENT> <mode>",
 		Short: "Set the permission mode for an agent",
 		Long: `Set the permission mode for a specific agent.
 
@@ -20,7 +20,7 @@ Valid permission modes:
   dontAsk            - Don't ask for permissions
   plan               - Plan mode
 
-The permission mode controls how Claude handles tool permission prompts.
+The permission mode controls how the agent handles tool permission prompts.
 Setting to "default" (or empty string) clears the agent-specific override
 and uses the global default_permission_mode config setting.
 

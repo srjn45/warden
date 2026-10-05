@@ -9,7 +9,7 @@ import (
 	"github.com/srjn45/warden/internal/client"
 )
 
-// newForkCmd is the ergonomic shorthand for `warden start --fork-from <agent>`: it
+// newForkCmd is the ergonomic shorthand for `warden agent start --fork-from <AGENT>`: it
 // forks an existing agent's recorded session into a NEW warden-managed agent. A fork
 // branches the source's conversation/reasoning (codex's session rollout) into a
 // divergent session and continues it as its own managed agent — a fresh sibling
@@ -24,7 +24,7 @@ import (
 // (resolved daemon-side), so neither is restated here.
 func newForkCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "fork <agent> [\"<prompt>\"]",
+		Use:   "fork <AGENT> [\"<prompt>\"]",
 		Short: "Fork an agent's session into a new managed agent (branches the conversation; the source keeps running)",
 		Long: `Fork an existing agent's recorded session into a NEW warden-managed agent.
 
@@ -36,7 +36,7 @@ down. The source agent keeps running, untouched — fork branches sideways, unli
 snapshot (rewinds one timeline) or rotate/handoff (carry the task, drop the
 conversation).
 
-This is the shorthand for ` + "`warden start --fork-from <agent>`" + ` — a managed spawn
+This is the shorthand for ` + "`warden agent start --fork-from <AGENT>`" + ` — a managed spawn
 whose launch command is the backend's fork verb. Only backends with a native session
 fork are forkable (codex today); forking one without (e.g. claude) reports a clean
 "cannot fork". The source's backend session id must already be pinned — if it has not

@@ -18,7 +18,7 @@ for managed agents, or an `agent-xxxx` ID for prompt-spawned ones.
 ## warden
 
 ```text
-spawn, monitor, and tear down Claude Code agent sessions.
+spawn, monitor, and tear down AI coding agent sessions.
 Run `warden` with no arguments to open the cockpit TUI. Alias: wd.
 
 Usage:
@@ -70,7 +70,7 @@ Shortcuts:
   start                Spawn an agent — `start --role <ROLE> "<prompt>"` (free-form), `start --role <ROLE> --dir <path>` (interactive), or `start --role worker --repo <PATH>` (managed worktree)
   ls                   List all active agent sessions
   status               Show full status for one session
-  send                 Type a message into an agent's claude session and press Enter
+  send                 Type a message into an agent's AI CLI session and press Enter
   commit               Stage and commit the worktree (warden rails + hooks + bookkeeping)
   push                 Push the current branch to origin (warden rails + bookkeeping)
   sync                 Fetch and rebase the current branch onto its base (warden conflict detect)
@@ -83,6 +83,9 @@ Use "warden help <command>" for focused command help; add --all for the complete
 
 ```text
 Create, inspect, communicate with, and manage agents.
+
+Wherever a command takes <AGENT>, it is the agent's name, id or ticket as shown
+by 'warden ls'.
 
 Lifecycle commands deliberately remain distinct: terminate keeps the record and
 worktree; done clears the record but keeps the worktree; delete changes only the
@@ -98,19 +101,19 @@ Commands:
   status               Show full status for one session
   digest               Summarize what an agent accomplished (files, branch, turns, narrative)
   fork                 Fork an agent's session into a new managed agent (branches the conversation; the source keeps running)
-  restore              Recreate and resume a lost/orphaned agent (claude --resume)
+  restore              Recreate and resume a lost/orphaned agent (resumes its AI CLI session)
   recover              Revive archived orphaned agent records whose tmux session is still alive (dry run unless --apply)
-  adopt                Register the Claude session in this directory (resume it under tmux, or register the current tmux session live)
+  adopt                Register the AI CLI session in this directory (resume it under tmux, or register the current tmux session live)
   attach               Attach to the agent's tmux session
   stop                 Tear down an agent — the single umbrella verb (default: terminate + clear record + remove worktree)
-  terminate            Stop an agent: kill its tmux+claude session (keeps the record and worktree) — alias for `stop --keep-record --keep-worktree`
+  terminate            Stop an agent: kill its tmux+AI CLI session (keeps the record and worktree) — alias for `stop --keep-record --keep-worktree`
   done                 Terminate an agent and clear its record (does NOT remove the worktree) — alias for `stop --keep-worktree`
   delete               Clear an agent's stored record (archives by default; --hard to purge) — alias for `stop --keep-worktree` (record only)
   remove-worktree      Remove an agent's git worktree + branch (always asks; --force overrides guards) — alias for `stop --keep-record` (worktree only)
-  send                 Type a message into an agent's claude session and press Enter
-  tail                 Print the recent output of an agent's claude session
+  send                 Type a message into an agent's AI CLI session and press Enter
+  tail                 Print the recent output of an agent's AI CLI session
   handoff              Hand off work: delegate to a new/existing agent (--to), or retire self into a successor (--retire)
-  rotate               Retire this agent and hand its work to a fresh successor in the same workspace (alias for `handoff --retire`)
+  rotate               Retire this agent and hand its work to a fresh successor in the same workspace (alias for `warden agent handoff --retire`)
   switch               Hot-swap an agent session to a different AI CLI, model, or tier mid-task
   permission-mode      Manage an agent's permission mode
   role                 Inspect warden's built-in agent roles and tier mappings
@@ -147,7 +150,7 @@ Inherited flags:
 ## warden agent start
 
 ```text
-Spawn an agent. --role is required (see 'warden role list'); there is no
+Spawn an agent. --role is required (see 'warden agent role list'); there is no
 implicit fallback role.
 
 Free-form:   warden agent start --role <ROLE> "<prompt>" [--dir <path>]   (autonomous)
@@ -182,32 +185,32 @@ Usage:
   warden agent start --role <ROLE> [TICKET|"<prompt>"] [--repo <PATH>] [--dir <PATH>] [--aicli <ID>] [flags]
 
 Flags:
-      --ai-cli string                            alias for --aicli
-      --aicli warden start --help                AI CLI: claude (default, stable) | aider | opencode | codex | crush | goose | cursor | antigravity — only claude is fully tested; codex/antigravity are beta, the rest experimental. See warden start --help for per-AI-CLI notes
-      --auto-restart                             auto-resume this agent if it crashes (errored), capped at a few attempts
-      --branch string                            new branch (development) or checkout target (pr-review)
-      --dir string                               directory to launch the agent from (default: current directory)
-      --force                                    spawn even when the memory-pressure gate warns
-      --fork-from codex fork                     fork an existing agent's recorded session into this new managed agent (codex codex fork): branches the source's conversation in a fresh sibling worktree off its branch, carrying its uncommitted tracked changes; the source keeps running. Uses --role worker when the chosen role does not own a worktree; the fork inherits the source's repo+backend. See `warden fork` for the shorthand
-  -h, --help                                     help for start
-      --in-repo                                  write-agent opt-out: run in the shared repo instead of an isolated worktree (ignored for pr-review)
-      --kind string                              session kind: empty/agent (default) spawns an AI agent; terminal opens a plain interactive shell ($SHELL) in --dir (not an AI agent — --aicli/--ai-cli/--backend/--model/--role/prompt ignored)
-      --model string                             model ID for the chosen AI CLI (requires --aicli). Empty lets the tier resolver pick an explicit model
-      --name string                              explicit agent name (omit to auto-resolve); max 32 chars, alphanumeric + hyphens/underscores
-      --permission-mode string                   permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan (default: from config or 'auto')
-      --plan string                              optional planstore plan id in the same project (plan-<8hex>); empty = planless agent. A non-empty value must name an existing plan belonging to the resolved project
-      --pr string                                PR number/url (pr-review)
-      --preset warden preset                     load saved spawn defaults from a named preset (see warden preset); explicit flags override
-      --project warden projects list             id of the daemon project this agent joins (its canonical path or remote URL, from warden projects list); stamps membership explicitly instead of leaving the daemon to path-match the launch dir. Empty = the git repository root of the launch directory (the daemon auto-registers it)
-      --prompt-template warden prompt-template   fill a saved prompt template (see warden prompt-template) as the spawn prompt; a positional prompt still wins
-      --repo string                              repo path for a managed (worktree) spawn; with --role worker this enters the managed path without --type. Empty = free-form unless --type/--fork-from force managed (then defaults to cwd)
-      --role warden role list                    REQUIRED — built-in agent role: general | orchestrator | planner | worker (legacy aliases implementer/auto-merger/reviewer resolve to worker). Injects the role's persona as a system-prompt addendum and applies its default flags. See warden role list
-      --set stringArray                          supply a prompt-template variable as VAR=value (repeatable, e.g. --set FILE=foo.go --set X=y)
-      --supervised                               alias for --permission-mode acceptEdits (kept for backwards compatibility)
-      --tags warden ls --tag                     comma-separated labels for grouping/filtering (e.g. --tags backend,urgent); searchable and filterable via warden ls --tag
-      --task string                              task name (task registry) used to derive the model tier when --tier is empty. Empty = none
-      --tier string                              model tier for the quota-balanced resolver that picks the AI CLI+model: tier-1|tier-2|tier-3. Empty derives the tier from --task, then --role (--role is required, so this always has a role to derive from). An explicit --aicli/--model still wins over the resolver
-      --worktree                                 create a scratch worktree for analysis/spike
+      --ai-cli string            alias for --aicli
+      --aicli <ID>               AI CLI <ID>: claude (default, stable) | aider | opencode | codex | crush | goose | cursor | antigravity — only claude is fully tested; codex/antigravity are beta, the rest experimental. See 'warden agent start --help' for per-AI-CLI notes
+      --auto-restart             auto-resume this agent if it crashes (errored), capped at a few attempts
+      --branch string            new branch (development) or checkout target (pr-review)
+      --dir string               directory to launch the agent from (default: current directory)
+      --force                    spawn even when the memory-pressure gate warns
+      --fork-from <AGENT>        fork the existing agent <AGENT>'s recorded session into this new managed agent (codex's native fork): branches the source's conversation in a fresh sibling worktree off its branch, carrying its uncommitted tracked changes; the source keeps running. Uses --role worker when the chosen role does not own a worktree; the fork inherits the source's repo+backend. See 'warden agent fork' for the shorthand
+  -h, --help                     help for start
+      --in-repo                  write-agent opt-out: run in the shared repo instead of an isolated worktree (ignored for pr-review)
+      --kind string              session kind: empty/agent (default) spawns an AI agent; terminal opens a plain interactive shell ($SHELL) in --dir (not an AI agent — --aicli/--ai-cli/--backend/--model/--role/prompt ignored)
+      --model string             model ID for the chosen AI CLI (requires --aicli). Empty lets the tier resolver pick an explicit model
+      --name string              explicit agent name (omit to auto-resolve); max 32 chars, alphanumeric + hyphens/underscores
+      --permission-mode string   permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan (default: from config or 'auto')
+      --plan string              optional planstore plan id in the same project (plan-<8hex>); empty = planless agent. A non-empty value must name an existing plan belonging to the resolved project
+      --pr string                PR number/url (pr-review)
+      --preset <NAME>            load saved spawn defaults from the named preset <NAME> (see 'warden project preset'); explicit flags override
+      --project <ID>             <ID> of the daemon project this agent joins (its canonical path or remote URL, from 'warden projects list'); stamps membership explicitly instead of leaving the daemon to path-match the launch dir. Empty = the git repository root of the launch directory (the daemon auto-registers it)
+      --prompt-template <NAME>   fill the saved prompt template <NAME> (see 'warden project prompt-template') as the spawn prompt; a positional prompt still wins
+      --repo string              repo path for a managed (worktree) spawn; with --role worker this enters the managed path without --type. Empty = free-form unless --type/--fork-from force managed (then defaults to cwd)
+      --role <ROLE>              REQUIRED — built-in agent role <ROLE>: general | autopilot | brain | orchestrator | planner | worker (legacy aliases implementer/auto-merger/reviewer resolve to worker). Injects the role's persona as a system-prompt addendum and applies its default flags. See 'warden agent role list'
+      --set stringArray          supply a prompt-template variable as VAR=value (repeatable, e.g. --set FILE=foo.go --set X=y)
+      --supervised               alias for --permission-mode acceptEdits (kept for backwards compatibility)
+      --tags <LIST>              comma-separated labels <LIST> for grouping/filtering (e.g. --tags backend,urgent); searchable and filterable via 'warden agent list --tag'
+      --task string              task name (task registry) used to derive the model tier when --tier is empty. Empty = none
+      --tier string              model tier for the quota-balanced resolver that picks the AI CLI+model: tier-1|tier-2|tier-3. Empty derives the tier from --task, then --role (--role is required, so this always has a role to derive from). An explicit --aicli/--model still wins over the resolver
+      --worktree                 create a scratch worktree for analysis/spike
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -220,7 +223,7 @@ Inherited flags:
 Show full status for one session
 
 Usage:
-  warden agent status <TICKET> [flags]
+  warden agent status <AGENT> [flags]
 
 Flags:
   -h, --help   help for status
@@ -237,7 +240,7 @@ Inherited flags:
 Summarize what an agent accomplished (files, branch, turns, narrative)
 
 Usage:
-  warden agent digest <TICKET> [flags]
+  warden agent digest <AGENT> [flags]
 
 Flags:
   -h, --help   help for digest
@@ -261,7 +264,7 @@ down. The source agent keeps running, untouched — fork branches sideways, unli
 snapshot (rewinds one timeline) or rotate/handoff (carry the task, drop the
 conversation).
 
-This is the shorthand for `warden start --fork-from <agent>` — a managed spawn
+This is the shorthand for `warden agent start --fork-from <AGENT>` — a managed spawn
 whose launch command is the backend's fork verb. Only backends with a native session
 fork are forkable (codex today); forking one without (e.g. claude) reports a clean
 "cannot fork". The source's backend session id must already be pinned — if it has not
@@ -274,7 +277,7 @@ NOTE: `git stash create` carries only TRACKED changes; the source's untracked /
   warden agent fork agent-7 "now try X"      fork and seed a divergent first prompt
 
 Usage:
-  warden agent fork <agent> ["<prompt>"] [flags]
+  warden agent fork <AGENT> ["<prompt>"] [flags]
 
 Flags:
       --force                    fork even when the memory-pressure gate warns
@@ -292,10 +295,10 @@ Inherited flags:
 ## warden agent restore
 
 ```text
-Recreate and resume a lost/orphaned agent (claude --resume)
+Recreate and resume a lost/orphaned agent (resumes its AI CLI session)
 
 Usage:
-  warden agent restore <TICKET> [flags]
+  warden agent restore <AGENT> [flags]
 
 Flags:
   -h, --help   help for restore
@@ -333,15 +336,15 @@ Inherited flags:
 ## warden agent adopt
 
 ```text
-Register the Claude session in this directory (resume it under tmux, or register the current tmux session live)
+Register the AI CLI session in this directory (resume it under tmux, or register the current tmux session live)
 
 Usage:
   warden agent adopt [flags]
 
 Flags:
-      --dir string          directory whose claude session to adopt (default: current directory)
+      --dir string          directory whose AI CLI session to adopt (default: current directory)
   -h, --help                help for adopt
-      --session-id string   claude session uuid to adopt (default: newest for the directory)
+      --session-id string   AI CLI session id to adopt (default: newest for the directory)
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -354,7 +357,7 @@ Inherited flags:
 Attach to the agent's tmux session
 
 Usage:
-  warden agent attach <TICKET> [flags]
+  warden agent attach <AGENT> [flags]
 
 Flags:
   -h, --help   help for attach
@@ -372,8 +375,8 @@ Stop an agent. The single umbrella teardown verb.
 <AGENT> is any identifier `wd ls` shows — the agent's name, its id, or its
 ticket. All teardown verbs resolve by name-or-id.
 
-By default `wd agent stop <TICKET>` does a FULL teardown: terminate the
-tmux+claude session, clear (archive) the record, and remove the git worktree +
+By default `wd agent stop <AGENT>` does a FULL teardown: terminate the
+tmux+AI CLI session, clear (archive) the record, and remove the git worktree +
 branch (asking for confirmation first, unless --yes). Subtractive flags keep
 parts around; --pr opens a GitHub PR first while the agent is still intact.
 
@@ -382,11 +385,11 @@ fixed flag combo:
 
   old verb                    equivalent
   --------------------------  ------------------------------------------------
-  wd terminate <T>            wd agent stop <T> --keep-record --keep-worktree
-  wd delete <T> [--hard]      wd agent stop <T> --keep-worktree (record only)
-  wd remove-worktree <T>      wd agent stop <T> --keep-record  (worktree only)
-  wd done <T> [--hard|--pr]   wd agent stop <T> --keep-worktree [--hard|--pr]
-  wd agent stop <T>                 terminate + clear record + remove worktree
+  wd agent terminate <A>          wd agent stop <A> --keep-record --keep-worktree
+  wd agent delete <A> [--hard]    wd agent stop <A> --keep-worktree (record only)
+  wd agent remove-worktree <A>    wd agent stop <A> --keep-record  (worktree only)
+  wd agent done <A> [--hard|--pr] wd agent stop <A> --keep-worktree [--hard|--pr]
+  wd agent stop <A>               terminate + clear record + remove worktree
 
 Safe ordering is always: PR -> terminate -> remove worktree -> clear record, so
 a failed push leaves the agent running and a failed worktree guard (alive /
@@ -415,7 +418,7 @@ Inherited flags:
 ## warden agent terminate
 
 ```text
-Stop an agent: kill its tmux+claude session (keeps the record and worktree) — alias for `stop --keep-record --keep-worktree`
+Stop an agent: kill its tmux+AI CLI session (keeps the record and worktree) — alias for `stop --keep-record --keep-worktree`
 
 Usage:
   warden agent terminate <AGENT> [flags]
@@ -486,10 +489,10 @@ Inherited flags:
 ## warden agent send
 
 ```text
-Type a message into an agent's claude session and press Enter
+Type a message into an agent's AI CLI session and press Enter
 
 Usage:
-  warden agent send <TICKET> <message...> [flags]
+  warden agent send <AGENT> <message...> [flags]
 
 Flags:
   -h, --help   help for send
@@ -502,10 +505,10 @@ Inherited flags:
 ## warden agent tail
 
 ```text
-Print the recent output of an agent's claude session
+Print the recent output of an agent's AI CLI session
 
 Usage:
-  warden agent tail <TICKET> [flags]
+  warden agent tail <AGENT> [flags]
 
 Flags:
   -h, --help        help for tail
@@ -523,7 +526,7 @@ Hand a structured context package off to another agent. Phase 1 (writing the han
 
   • default — spawn a fresh delegate in its own isolated worktree for a sub-task; the source agent keeps running.
   • --to <id> — deliver the handoff into an already-running agent's inbox (waking it); the source agent keeps running.
-  • --retire — spawn a successor in THIS agent's SAME worktree, then reap the calling agent (self-succession). Requires --confirm. This is what the `rotate` alias runs.
+  • --retire — spawn a successor in THIS agent's SAME worktree, then reap the calling agent (self-succession). Requires --confirm. This is what the `warden agent rotate` alias runs.
 
 --retire and --to are mutually exclusive: retire reaps the caller, --to never does.
 
@@ -554,7 +557,7 @@ Inherited flags:
 ```text
 Run inside an agent session. Phase 1 is driven by the /warden skill (the agent writes a handoff file + resume prompt and shows you). On your go-ahead, run with --confirm to spawn the successor and reap this agent.
 
-This is a thin alias for `warden handoff --retire` — the unified handoff verb's self-succession mode. Both run the identical code path.
+This is a thin alias for `warden agent handoff --retire` — the unified handoff verb's self-succession mode. Both run the identical code path.
 
 Usage:
   warden agent rotate [flags]
@@ -592,7 +595,7 @@ Examples:
 
 
 Usage:
-  warden agent switch [agent-id] [flags]
+  warden agent switch [AGENT] [flags]
 
 Flags:
       --ai-cli string   alias for --aicli
@@ -642,7 +645,7 @@ Valid permission modes:
   dontAsk            - Don't ask for permissions
   plan               - Plan mode
 
-The permission mode controls how Claude handles tool permission prompts.
+The permission mode controls how the agent handles tool permission prompts.
 Setting to "default" (or empty string) clears the agent-specific override
 and uses the global default_permission_mode config setting.
 
@@ -652,7 +655,7 @@ Examples:
   warden agent set abc123 default      # Use global default
 
 Usage:
-  warden agent permission-mode set <agent-id> <mode> [flags]
+  warden agent permission-mode set <AGENT> <mode> [flags]
 
 Flags:
   -h, --help   help for set
@@ -709,16 +712,15 @@ The role's persona is injected as a system-prompt addendum; changing it relaunch
 the agent (its current turn is discarded) so the new persona takes effect. Set the
 role to "general" (or "") to clear the persona and behave like a plain agent.
 
-Valid roles (see `warden role list` for descriptions):
-  general | orchestrator | planner | worker
-  (legacy aliases implementer/auto-merger/reviewer resolve to worker)
+Valid roles (see `warden agent role list` for descriptions):
+  general | autopilot | brain | orchestrator | planner | worker (legacy aliases implementer/auto-merger/reviewer resolve to worker)
 
 Examples:
   warden agent set abc123 reviewer      # give the agent the reviewer persona
   warden agent set abc123 general       # clear the persona
 
 Usage:
-  warden agent role set <agent-id> <role> [flags]
+  warden agent role set <AGENT> <role> [flags]
 
 Flags:
   -h, --help   help for set
@@ -841,7 +843,7 @@ Examples:
 The global default is the token_force_compact config setting (off by default).
 
 Usage:
-  warden agent compact set <agent-id> <on|off|inherit> [flags]
+  warden agent compact set <AGENT> <on|off|inherit> [flags]
 
 Flags:
   -h, --help   help for set
@@ -915,14 +917,14 @@ Usage:
   warden pipeline create (-f <spec.yaml> | --template <name>) [flags]
 
 Flags:
-  -f, --file string                       path to the pipeline YAML spec
-  -h, --help                              help for create
-      --name string                       pipeline name — fills {{NAME}} (default: the template name)
-      --plan string                       optional planstore plan id in the same project; empty = planless pipeline
-      --project string                    optional project id this pipeline joins; overrides YAML project_id (default: git root of --repo / the spec file / cwd, unless the YAML sets project_id)
-      --repo string                       repo path — fills {{REPO}} (default: the current directory)
-      --set stringArray                   fill a template placeholder, KEY=VALUE (repeatable)
-      --template pipeline template list   built-in template to render (see pipeline template list)
+  -f, --file string       path to the pipeline YAML spec
+  -h, --help              help for create
+      --name string       pipeline name — fills {{NAME}} (default: the template name)
+      --plan string       optional planstore plan id in the same project; empty = planless pipeline
+      --project string    optional project id this pipeline joins; overrides YAML project_id (default: git root of --repo / the spec file / cwd, unless the YAML sets project_id)
+      --repo string       repo path — fills {{REPO}} (default: the current directory)
+      --set stringArray   fill a template placeholder, KEY=VALUE (repeatable)
+      --template <NAME>   built-in template <NAME> to render (see 'warden pipeline template list')
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -4943,12 +4945,12 @@ Inherited flags:
 ## warden start
 
 ```text
-Spawn an agent. --role is required (see 'warden role list'); there is no
+Spawn an agent. --role is required (see 'warden agent role list'); there is no
 implicit fallback role.
 
-Free-form:   warden start --role <ROLE> "<prompt>" [--dir <path>]   (autonomous)
-Interactive: warden start --role <ROLE> --dir <path>                (opens the agent and waits)
-Managed:     warden start --role worker --repo <PATH> [TICKET]      (isolated worktree)
+Free-form:   warden agent start --role <ROLE> "<prompt>" [--dir <path>]   (autonomous)
+Interactive: warden agent start --role <ROLE> --dir <path>                (opens the agent and waits)
+Managed:     warden agent start --role worker --repo <PATH> [TICKET]      (isolated worktree)
              (worker + --repo enters the managed path; --type is a deprecated alias)
 
 The spawn's AI CLI+model is resolved (top wins): an explicit --aicli/--model
@@ -4978,32 +4980,32 @@ Usage:
   warden start --role <ROLE> [TICKET|"<prompt>"] [--repo <PATH>] [--dir <PATH>] [--aicli <ID>] [flags]
 
 Flags:
-      --ai-cli string                            alias for --aicli
-      --aicli warden start --help                AI CLI: claude (default, stable) | aider | opencode | codex | crush | goose | cursor | antigravity — only claude is fully tested; codex/antigravity are beta, the rest experimental. See warden start --help for per-AI-CLI notes
-      --auto-restart                             auto-resume this agent if it crashes (errored), capped at a few attempts
-      --branch string                            new branch (development) or checkout target (pr-review)
-      --dir string                               directory to launch the agent from (default: current directory)
-      --force                                    spawn even when the memory-pressure gate warns
-      --fork-from codex fork                     fork an existing agent's recorded session into this new managed agent (codex codex fork): branches the source's conversation in a fresh sibling worktree off its branch, carrying its uncommitted tracked changes; the source keeps running. Uses --role worker when the chosen role does not own a worktree; the fork inherits the source's repo+backend. See `warden fork` for the shorthand
-  -h, --help                                     help for start
-      --in-repo                                  write-agent opt-out: run in the shared repo instead of an isolated worktree (ignored for pr-review)
-      --kind string                              session kind: empty/agent (default) spawns an AI agent; terminal opens a plain interactive shell ($SHELL) in --dir (not an AI agent — --aicli/--ai-cli/--backend/--model/--role/prompt ignored)
-      --model string                             model ID for the chosen AI CLI (requires --aicli). Empty lets the tier resolver pick an explicit model
-      --name string                              explicit agent name (omit to auto-resolve); max 32 chars, alphanumeric + hyphens/underscores
-      --permission-mode string                   permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan (default: from config or 'auto')
-      --plan string                              optional planstore plan id in the same project (plan-<8hex>); empty = planless agent. A non-empty value must name an existing plan belonging to the resolved project
-      --pr string                                PR number/url (pr-review)
-      --preset warden preset                     load saved spawn defaults from a named preset (see warden preset); explicit flags override
-      --project warden projects list             id of the daemon project this agent joins (its canonical path or remote URL, from warden projects list); stamps membership explicitly instead of leaving the daemon to path-match the launch dir. Empty = the git repository root of the launch directory (the daemon auto-registers it)
-      --prompt-template warden prompt-template   fill a saved prompt template (see warden prompt-template) as the spawn prompt; a positional prompt still wins
-      --repo string                              repo path for a managed (worktree) spawn; with --role worker this enters the managed path without --type. Empty = free-form unless --type/--fork-from force managed (then defaults to cwd)
-      --role warden role list                    REQUIRED — built-in agent role: general | orchestrator | planner | worker (legacy aliases implementer/auto-merger/reviewer resolve to worker). Injects the role's persona as a system-prompt addendum and applies its default flags. See warden role list
-      --set stringArray                          supply a prompt-template variable as VAR=value (repeatable, e.g. --set FILE=foo.go --set X=y)
-      --supervised                               alias for --permission-mode acceptEdits (kept for backwards compatibility)
-      --tags warden ls --tag                     comma-separated labels for grouping/filtering (e.g. --tags backend,urgent); searchable and filterable via warden ls --tag
-      --task string                              task name (task registry) used to derive the model tier when --tier is empty. Empty = none
-      --tier string                              model tier for the quota-balanced resolver that picks the AI CLI+model: tier-1|tier-2|tier-3. Empty derives the tier from --task, then --role (--role is required, so this always has a role to derive from). An explicit --aicli/--model still wins over the resolver
-      --worktree                                 create a scratch worktree for analysis/spike
+      --ai-cli string            alias for --aicli
+      --aicli <ID>               AI CLI <ID>: claude (default, stable) | aider | opencode | codex | crush | goose | cursor | antigravity — only claude is fully tested; codex/antigravity are beta, the rest experimental. See 'warden agent start --help' for per-AI-CLI notes
+      --auto-restart             auto-resume this agent if it crashes (errored), capped at a few attempts
+      --branch string            new branch (development) or checkout target (pr-review)
+      --dir string               directory to launch the agent from (default: current directory)
+      --force                    spawn even when the memory-pressure gate warns
+      --fork-from <AGENT>        fork the existing agent <AGENT>'s recorded session into this new managed agent (codex's native fork): branches the source's conversation in a fresh sibling worktree off its branch, carrying its uncommitted tracked changes; the source keeps running. Uses --role worker when the chosen role does not own a worktree; the fork inherits the source's repo+backend. See 'warden agent fork' for the shorthand
+  -h, --help                     help for start
+      --in-repo                  write-agent opt-out: run in the shared repo instead of an isolated worktree (ignored for pr-review)
+      --kind string              session kind: empty/agent (default) spawns an AI agent; terminal opens a plain interactive shell ($SHELL) in --dir (not an AI agent — --aicli/--ai-cli/--backend/--model/--role/prompt ignored)
+      --model string             model ID for the chosen AI CLI (requires --aicli). Empty lets the tier resolver pick an explicit model
+      --name string              explicit agent name (omit to auto-resolve); max 32 chars, alphanumeric + hyphens/underscores
+      --permission-mode string   permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan (default: from config or 'auto')
+      --plan string              optional planstore plan id in the same project (plan-<8hex>); empty = planless agent. A non-empty value must name an existing plan belonging to the resolved project
+      --pr string                PR number/url (pr-review)
+      --preset <NAME>            load saved spawn defaults from the named preset <NAME> (see 'warden project preset'); explicit flags override
+      --project <ID>             <ID> of the daemon project this agent joins (its canonical path or remote URL, from 'warden projects list'); stamps membership explicitly instead of leaving the daemon to path-match the launch dir. Empty = the git repository root of the launch directory (the daemon auto-registers it)
+      --prompt-template <NAME>   fill the saved prompt template <NAME> (see 'warden project prompt-template') as the spawn prompt; a positional prompt still wins
+      --repo string              repo path for a managed (worktree) spawn; with --role worker this enters the managed path without --type. Empty = free-form unless --type/--fork-from force managed (then defaults to cwd)
+      --role <ROLE>              REQUIRED — built-in agent role <ROLE>: general | autopilot | brain | orchestrator | planner | worker (legacy aliases implementer/auto-merger/reviewer resolve to worker). Injects the role's persona as a system-prompt addendum and applies its default flags. See 'warden agent role list'
+      --set stringArray          supply a prompt-template variable as VAR=value (repeatable, e.g. --set FILE=foo.go --set X=y)
+      --supervised               alias for --permission-mode acceptEdits (kept for backwards compatibility)
+      --tags <LIST>              comma-separated labels <LIST> for grouping/filtering (e.g. --tags backend,urgent); searchable and filterable via 'warden agent list --tag'
+      --task string              task name (task registry) used to derive the model tier when --tier is empty. Empty = none
+      --tier string              model tier for the quota-balanced resolver that picks the AI CLI+model: tier-1|tier-2|tier-3. Empty derives the tier from --task, then --role (--role is required, so this always has a role to derive from). An explicit --aicli/--model still wins over the resolver
+      --worktree                 create a scratch worktree for analysis/spike
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -5036,7 +5038,7 @@ Inherited flags:
 Show full status for one session
 
 Usage:
-  warden status <TICKET> [flags]
+  warden status <AGENT> [flags]
 
 Flags:
   -h, --help   help for status
@@ -5050,10 +5052,10 @@ Inherited flags:
 ## warden send
 
 ```text
-Type a message into an agent's claude session and press Enter
+Type a message into an agent's AI CLI session and press Enter
 
 Usage:
-  warden send <TICKET> <message...> [flags]
+  warden send <AGENT> <message...> [flags]
 
 Flags:
   -h, --help   help for send

@@ -188,7 +188,7 @@ func newPipelineCreateCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringP("file", "f", "", "path to the pipeline YAML spec")
-	cmd.Flags().String("template", "", "built-in template to render (see `pipeline template list`)")
+	cmd.Flags().String("template", "", "built-in template `<NAME>` to render (see 'warden pipeline template list')")
 	cmd.Flags().String("name", "", "pipeline name — fills {{NAME}} (default: the template name)")
 	cmd.Flags().String("repo", "", "repo path — fills {{REPO}} (default: the current directory)")
 	cmd.Flags().StringArray("set", nil, "fill a template placeholder, KEY=VALUE (repeatable)")

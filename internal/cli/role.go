@@ -18,7 +18,7 @@ import (
 // (re)launch.
 func newSetRoleCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "set-role <agent-id> <role>",
+		Use:   "set-role <AGENT> <role>",
 		Short: "Switch an agent's built-in role (relaunches to re-inject the persona)",
 		Long: `Switch a running agent's built-in role.
 
@@ -26,9 +26,8 @@ The role's persona is injected as a system-prompt addendum; changing it relaunch
 the agent (its current turn is discarded) so the new persona takes effect. Set the
 role to "general" (or "") to clear the persona and behave like a plain agent.
 
-Valid roles (see ` + "`warden role list`" + ` for descriptions):
-  general | orchestrator | planner | worker
-  (legacy aliases implementer/auto-merger/reviewer resolve to worker)
+Valid roles (see ` + "`warden agent role list`" + ` for descriptions):
+  ` + roleChoices() + `
 
 Examples:
   warden set-role abc123 reviewer      # give the agent the reviewer persona
@@ -48,6 +47,13 @@ Examples:
 			return nil
 		},
 	}
+}
+
+// roleChoices renders the valid role names from the one role registry, so every
+// help string and error that lists roles stays in sync with role.Names().
+func roleChoices() string {
+	return strings.Join(role.Names(), " | ") +
+		" (legacy aliases implementer/auto-merger/reviewer resolve to worker)"
 }
 
 // newRoleCmd groups the role inspection and tier management verbs.
