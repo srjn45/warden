@@ -112,8 +112,13 @@ func (s *Server) planToOAPI(p *planstore.Plan) oapi.Plan {
 	if p.ActiveExecution != nil {
 		out.ActiveExecution = *p.ActiveExecution
 	}
-	if p.ExecutionSummary != nil {
-		out.ExecutionSummary = *p.ExecutionSummary
+	out.ExecutionSummary = p.ExecutionSummary
+	out.CleanupEvidence = p.CleanupEvidence
+	out.Outcome = p.Outcome
+	if lo := s.integrationLeftover(context.Background(), p); lo != nil {
+		out.IntegrationBranchLeftover = true
+		out.IntegrationBranchLeftoverCommits = lo.commits
+		out.Outcome = leftoverOutcome(p.Outcome, lo)
 	}
 	if p.RepoExport != nil {
 		out.RepoExport = *p.RepoExport
@@ -477,6 +482,15 @@ func (s *Server) GetPlan(ctx context.Context, req oapi.GetPlanRequestObject) (oa
 		return nil, errStatus(http.StatusInternalServerError, "get plan: "+err.Error())
 	}
 	out := s.planToOAPI(p)
+	if out.IntegrationBranchLeftover {
+		// show refines the offline list flag with one gh lookup (§9): a merged
+		// PR whose head is the tip means squash-merged, not leftover.
+		if lo := s.integrationLeftover(ctx, p); lo != nil && s.leftoverMergedPR(ctx, p.ProjectID, lo) {
+			out.IntegrationBranchLeftover = false
+			out.IntegrationBranchLeftoverCommits = 0
+			out.Outcome = p.Outcome
+		}
+	}
 	if p.Status == planstore.PlanStatusInProgress {
 		out.Executor = s.planExecutorStatus(ctx, p)
 	}

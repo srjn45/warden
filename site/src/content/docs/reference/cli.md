@@ -1329,7 +1329,16 @@ Repository YAML is never read for this view.
 For an in_progress plan it is the single status view of the run: executor
 kind and state (active, healing, degraded, paused, stopped), backoff detail
 when present, the integration branch, and per task the state, worker agent
-and PR. Use --watch to keep refreshing it.
+and PR, plus the final PR (integration → default branch) once it exists. Use
+--watch to keep refreshing it.
+
+For a completed plan it prints an outcome block: the final PR and its state,
+the integration branch and what became of it (deleted, kept, abandoned,
+delete failed), the execution summary (duration, tasks done and skipped, PRs
+landed) and any recorded cleanup failures. A plan completed before this
+record existed whose integration branch still has commits not on the default
+branch gets a warning line naming the branch (`plan list --json` flags it as
+integration_branch_leftover).
 
 Usage:
   warden plan show <plan-id> [flags]
@@ -1562,6 +1571,9 @@ its executor (autopilot run, pipeline and plan-bound agents), and removes
 their worktrees and branches. The plan record itself is kept; PR references
 and execution history are preserved. If cleanup only partly succeeds the
 plan stays in_progress and the command can be run again.
+
+The plan keeps an outcome record — final PR, integration branch and whether
+it was deleted — that `wd plan show` prints for completed plans.
 
 Usage:
   warden plan complete <plan-id> [flags]

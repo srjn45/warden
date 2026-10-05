@@ -4930,8 +4930,30 @@ components:
           type: array
           items: { $ref: "#/components/schemas/BranchSummary" }
         execution_summary:
+          x-go-type-skip-optional-pointer: false
           $ref: "#/components/schemas/ExecutionSummary"
           description: "immutable reduced report persisted on finalize"
+        outcome:
+          x-go-type-skip-optional-pointer: false
+          $ref: "#/components/schemas/PlanOutcome"
+          description: >
+            how the plan ended (plan-finish-flow §6): integration branch, final PR
+            and the branch's fate. Survives executor teardown; omitted for plans
+            with no autopilot integration branch. For plans completed before this
+            record existed it is computed at read time and may carry
+            branch_fate=leftover_unmerged.
+        cleanup_evidence:
+          x-go-type-skip-optional-pointer: false
+          $ref: "#/components/schemas/CleanupEvidence"
+          description: "recorded executor-cleanup failures; omitted when cleanup was clean"
+        integration_branch_leftover:
+          type: boolean
+          description: >
+            true for a completed autopilot plan whose integration branch still
+            exists with commits not on the default branch (computed from local git).
+        integration_branch_leftover_commits:
+          type: integer
+          description: "commits on the leftover integration branch not on the default branch"
         repo_export:
           $ref: "#/components/schemas/RepoExportMeta"
           description: "last repository replica export metadata; omitted when never exported"
@@ -5082,6 +5104,45 @@ components:
         tasks_done: { type: integer }
         outcome_note: { type: string }
 
+
+    PlanOutcome:
+      x-go-type: planstore.PlanOutcome
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/planstore
+        name: planstore
+      type: object
+      description: Durable record of how a plan ended (final PR, integration branch fate).
+      properties:
+        integration_branch: { type: string }
+        default_branch: { type: string }
+        final_pr:
+          type: object
+          properties:
+            number: { type: integer }
+            url: { type: string }
+            state: { type: string, enum: [open, merged, closed] }
+            head_sha: { type: string }
+            merged_at: { type: string }
+        branch_fate:
+          type: string
+          enum: [deleted, kept_unmerged, abandoned, delete_failed, leftover_unmerged]
+        branch_deleted_at: { type: string, format: date-time, nullable: true }
+        branch_delete_error: { type: string }
+        branch_delete_attempts: { type: integer }
+
+    CleanupEvidence:
+      x-go-type: planstore.CleanupEvidence
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/planstore
+        name: planstore
+      type: object
+      description: Partial executor-teardown evidence recorded by plan finalize.
+      properties:
+        attempted_at: { type: string, format: date-time }
+        errors: { type: array, items: { type: string } }
+        deleted_ids: { type: array, items: { type: string } }
+        pending_ids: { type: array, items: { type: string } }
+        worktree_errors: { type: array, items: { type: string } }
 
     RepoExportMeta:
       x-go-type: planstore.RepoExportMeta
