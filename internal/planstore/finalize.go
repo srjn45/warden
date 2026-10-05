@@ -65,7 +65,13 @@ type FinalizeResult struct {
 //
 // Retry-safe: a second call with an existing summary + cleanup evidence skips
 // re-validation and retries cleanup, then commits.
-func (s *PlanService) Finalize(ctx context.Context, planID string, cleanup ExecutorCleanupFunc) (*FinalizeResult, error) {
+//
+// opts controls optional behaviour such as AbandonUnmerged (plan-finish-flow §5).
+func (s *PlanService) Finalize(ctx context.Context, planID string, cleanup ExecutorCleanupFunc, opts ...FinalizeOptions) (*FinalizeResult, error) {
+	var opt FinalizeOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -102,6 +108,18 @@ func (s *PlanService) Finalize(ctx context.Context, planID string, cleanup Execu
 		// ResourcesClean is produced by cleanup below; do not demand it first.
 		if err := s.evaluateCompletionGates(ctx, p, false); err != nil {
 			return nil, err
+		}
+		if !opt.AbandonUnmerged {
+			if err := s.checkIntegrationMerged(ctx, p); err != nil {
+				return nil, err
+			}
+		} else if p.Outcome != nil && p.Outcome.IntegrationBranch != "" {
+			_ = s.store.Update(ctx, planID, func(pl *Plan) error {
+				ensurePlanOutcome(pl)
+				pl.Outcome.BranchFate = BranchFateAbandoned
+				pl.Outcome.BranchDeleteError = ""
+				return nil
+			})
 		}
 		if _, err := s.persistExecutionSummary(ctx, planID); err != nil {
 			return nil, err

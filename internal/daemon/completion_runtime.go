@@ -83,10 +83,26 @@ func (rt autopilotRuntime) MergeDefault(ctx context.Context, repo, integration, 
 }
 
 type ghFinalPR struct {
-	Number     int    `json:"number"`
-	URL        string `json:"url"`
-	HeadRefOid string `json:"headRefOid"`
-	State      string `json:"state"`
+	Number           int    `json:"number"`
+	URL              string `json:"url"`
+	HeadRefOid       string `json:"headRefOid"`
+	State            string `json:"state"`
+	MergedAt         string `json:"mergedAt"`
+	Mergeable        string `json:"mergeable"`
+	MergeStateStatus string `json:"mergeStateStatus"`
+}
+
+// ghFinalPRFields is the --json field list for a final-PR view (plan-finish-flow §2).
+const ghFinalPRFields = "number,url,headRefOid,state,mergedAt,mergeable,mergeStateStatus"
+
+func finalPRStateFromView(v ghFinalPR) autopilot.FinalPRState {
+	return autopilot.FinalPRState{
+		State:            strings.ToLower(v.State),
+		HeadSHA:          v.HeadRefOid,
+		MergedAt:         v.MergedAt,
+		Mergeable:        v.Mergeable,
+		MergeStateStatus: v.MergeStateStatus,
+	}
 }
 
 // EnsureFinalPR opens or adopts the one PR integration → default (spec §E.4).
@@ -97,7 +113,7 @@ func (rt autopilotRuntime) EnsureFinalPR(ctx context.Context, repo string, spec 
 	}
 	find := func() (ghFinalPR, bool, error) {
 		out, err := h.runGH(ctx, "pr", "list", "--head", spec.Integration, "--base", spec.DefaultBranch,
-			"--state", "open", "--json", "number,url,headRefOid,state", "--limit", "1")
+			"--state", "open", "--json", ghFinalPRFields, "--limit", "1")
 		if err != nil {
 			return ghFinalPR{}, false, err
 		}
@@ -131,13 +147,14 @@ func (rt autopilotRuntime) EnsureFinalPR(ctx context.Context, repo string, spec 
 	return autopilot.FinalPR{Number: pr.Number, URL: pr.URL, HeadSHA: pr.HeadRefOid}, nil
 }
 
-// FinalPRStatus reports the final PR's state and its gate on the integration head.
-func (rt autopilotRuntime) FinalPRStatus(ctx context.Context, repo, gate string, pr autopilot.FinalPR, integration string) (autopilot.FinalPRState, error) {
+// FinalPRView reports only the PR's host state (one gh pr view, no gate) — the
+// cheap poll used while awaiting the merge (plan-finish-flow §2).
+func (rt autopilotRuntime) FinalPRView(ctx context.Context, repo string, pr autopilot.FinalPR) (autopilot.FinalPRState, error) {
 	h, ok := rt.completionHost(repo)
 	if !ok {
 		return autopilot.FinalPRState{}, errors.New("final PR: no gh host for repo")
 	}
-	out, err := h.runGH(ctx, "pr", "view", strconv.Itoa(pr.Number), "--json", "number,url,headRefOid,state")
+	out, err := h.runGH(ctx, "pr", "view", strconv.Itoa(pr.Number), "--json", ghFinalPRFields)
 	if err != nil {
 		return autopilot.FinalPRState{}, err
 	}
@@ -145,7 +162,19 @@ func (rt autopilotRuntime) FinalPRStatus(ctx context.Context, repo, gate string,
 	if err := json.Unmarshal([]byte(out), &v); err != nil {
 		return autopilot.FinalPRState{}, err
 	}
-	st := autopilot.FinalPRState{State: strings.ToLower(v.State), HeadSHA: v.HeadRefOid}
+	return finalPRStateFromView(v), nil
+}
+
+// FinalPRStatus reports the final PR's state and its gate on the integration head.
+func (rt autopilotRuntime) FinalPRStatus(ctx context.Context, repo, gate string, pr autopilot.FinalPR, integration string) (autopilot.FinalPRState, error) {
+	h, ok := rt.completionHost(repo)
+	if !ok {
+		return autopilot.FinalPRState{}, errors.New("final PR: no gh host for repo")
+	}
+	st, err := rt.FinalPRView(ctx, repo, pr)
+	if err != nil {
+		return autopilot.FinalPRState{}, err
+	}
 	if st.State != "open" {
 		return st, nil
 	}
@@ -157,11 +186,28 @@ func (rt autopilotRuntime) FinalPRStatus(ctx context.Context, repo, gate string,
 			return gerr
 		})
 	} else {
-		gs, st.Detail, err = h.GateCI(ctx, repo, integration, v.HeadRefOid)
+		gs, st.Detail, err = h.GateCI(ctx, repo, integration, st.HeadSHA)
 	}
 	if err != nil {
 		return autopilot.FinalPRState{}, err
 	}
 	st.Gate = gs
 	return st, nil
+}
+
+// TerminateRunAgents implements RunAgentReaper: terminate every agent still
+// tagged to the run and remove their worktrees (plan-finish-flow §1). Branches
+// with unmerged commits are kept; empty ones are deleted.
+func (rt autopilotRuntime) TerminateRunAgents(ctx context.Context, runID string) error {
+	repo, integ := "", ""
+	if rt.s.autopilot != nil {
+		for _, r := range rt.s.autopilot.Status().Runs {
+			if r.RunID == runID {
+				repo, integ = r.Repo, r.IntegrationBranch
+				break
+			}
+		}
+	}
+	_, err := rt.TeardownRunAgents(ctx, runID, repo, integ)
+	return err
 }

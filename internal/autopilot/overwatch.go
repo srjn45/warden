@@ -86,6 +86,9 @@ func (c *Controller) overwatchTick(ctx context.Context) {
 		if r.state == StatePaused || r.state == StateStopped || r.state == StateComplete || r.state == StateRegistered {
 			continue
 		}
+		if r.state == StateActive && c.awaitingMergeLocked(r) {
+			continue // nothing to tend: the run only waits for the final PR merge
+		}
 		c.overwatchRun(ctx, ow, r, now)
 	}
 }

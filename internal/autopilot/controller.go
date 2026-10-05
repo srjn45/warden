@@ -64,6 +64,9 @@ type ControllerConfig struct {
 	// Guardian configures the heartbeat guardian's heal ladder + backoff (config
 	// autopilot.guardian). Zero-valued fields fall back to sane defaults.
 	Guardian GuardianParams
+	// Completion bounds the run-to-final-PR phase (config autopilot.completion).
+	// Zero fields take CompletionPolicy defaults.
+	Completion CompletionPolicy
 }
 
 // Resolver is the interface for selecting backends and models via the unified router.
@@ -244,6 +247,7 @@ func NewController(cfg ControllerConfig, env Env) *Controller {
 		baseDir:           cfg.BaseDir,
 		resolver:          cfg.Resolver,
 		guardian:          withGuardianDefaults(cfg.Guardian),
+		completionPolicy:  cfg.Completion,
 		fastBrain:         cfg.FastBrain,
 		now:               now,
 		tierstate:         newTierState(now),
@@ -337,6 +341,11 @@ func (c *Controller) SetRuntime(rt Runtime) {
 		switch r.state {
 		case StateActive, StateStarting, StateHealing, StateDegraded:
 		default:
+			continue
+		}
+		if r.state == StateActive && c.awaitingMergeLocked(r) {
+			// Waiting on the final PR merge: no manager is respawned and nothing is
+			// re-verified; the completion tick resumes polling.
 			continue
 		}
 		if err := c.preflightRegisteredRunLocked(context.Background(), r); err != nil {
@@ -765,6 +774,7 @@ func (c *Controller) Reconfigure(ctx context.Context, cfg ControllerConfig) {
 	c.deleteBranch = cfg.DeleteBranch
 	c.resolver = cfg.Resolver
 	c.guardian = withGuardianDefaults(cfg.Guardian)
+	c.completionPolicy = cfg.Completion
 	// BaseDir is the daemon cwd (stable for a daemon's life); guard against an
 	// empty override clobbering the anchor for relative plan paths.
 	if bd := strings.TrimSpace(cfg.BaseDir); bd != "" {
@@ -1002,7 +1012,7 @@ func (c *Controller) statusLocked() Status {
 				ContextLevel:  r.contextLevel,
 			}
 		}
-		sv := c.surfaceViewLocked(r)
+		sv := c.surfaceViewLocked(r) // also hydrates the persisted awaiting record
 		rs := RunStatus{
 			RunID:             r.runID,
 			Name:              r.name,
@@ -1010,7 +1020,7 @@ func (c *Controller) statusLocked() Status {
 			Repo:              r.repo,
 			PlanID:            r.planID,
 			ProjectID:         r.projectID,
-			State:             r.reportedState(),
+			State:             c.reportedStateLocked(r),
 			Gate:              c.runGate(r), // the mode resolved at preflight (§6.1)
 			Brain:             brain,
 			WorkersInFlight:   r.workersInFlight, // last roster count from the overwatch tick
@@ -1037,7 +1047,7 @@ func (c *Controller) statusLocked() Status {
 	}
 	sort.Slice(st.Runs, func(i, j int) bool { return st.Runs[i].RunID < st.Runs[j].RunID })
 	for _, rs := range st.Runs {
-		if rs.State == StateActive || rs.State == StateFinalizing || rs.State == StateStarting || rs.State == StateHealing {
+		if rs.State == StateActive || rs.State == StateFinalizing || rs.State == StateAwaitingMerge || rs.State == StateStarting || rs.State == StateHealing {
 			st.Enabled = true
 			break
 		}

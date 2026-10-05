@@ -2703,7 +2703,9 @@
     "use": "complete \u003cplan-id\u003e",
     "runnable": true,
     "local_flags": [
-      "json"
+      "abandon-unmerged",
+      "json",
+      "yes"
     ],
     "inherited_flags": [
       "addr",

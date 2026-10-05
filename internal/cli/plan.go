@@ -1279,6 +1279,9 @@ func newPlanCompleteCmd() *cobra.Command {
 		Long: "Complete a plan: in_progress → completed. Blocked if any task is not\n" +
 			"done or skipped (skipped counts as finished), or if any branch the plan's\n" +
 			"work opened a PR for is still unmerged.\n\n" +
+			"For an autopilot plan whose integration branch still has commits not on\n" +
+			"the default branch and no matching merged final PR, completion is refused\n" +
+			"unless --abandon-unmerged is set (keeps the branch; records it as abandoned).\n\n" +
 			"On success the daemon records an execution summary on the plan, tears down\n" +
 			"its executor (autopilot run, pipeline and plan-bound agents), and removes\n" +
 			"their worktrees and branches. The plan record itself is kept; PR references\n" +
@@ -1286,7 +1289,17 @@ func newPlanCompleteCmd() *cobra.Command {
 			"plan stays in_progress and the command can be run again.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, err := clientFor(cmd).PlansComplete(cmd.Context(), args[0])
+			abandon, _ := cmd.Flags().GetBool("abandon-unmerged")
+			if abandon {
+				yes, _ := cmd.Flags().GetBool("yes")
+				if !yes {
+					fmt.Fprintf(cmd.ErrOrStderr(),
+						"This will complete the plan and KEEP the integration branch with unmerged commits.\n"+
+							"Re-run with --yes to confirm.\n")
+					return fmt.Errorf("abandon-unmerged requires --yes")
+				}
+			}
+			p, err := clientFor(cmd).PlansComplete(cmd.Context(), args[0], abandon)
 			if err != nil {
 				return err
 			}
@@ -1298,6 +1311,8 @@ func newPlanCompleteCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().Bool("json", false, "output as JSON")
+	cmd.Flags().Bool("abandon-unmerged", false, "complete even when the integration branch has unmerged commits; keep the branch")
+	cmd.Flags().Bool("yes", false, "skip the abandon-unmerged confirmation")
 	return cmd
 }
 

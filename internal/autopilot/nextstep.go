@@ -1,6 +1,7 @@
 package autopilot
 
 import (
+	"fmt"
 	"time"
 )
 
@@ -26,6 +27,14 @@ func (c *Controller) nextStepLocked(r *run, now time.Time) *NextStep {
 	}
 	if r.needsAttention != "" {
 		return &NextStep{Action: "waiting for you: " + r.needsAttention, Owner: "operator"}
+	}
+	if r.state == StateActive && r.completion.awaiting != nil {
+		aw := r.completion.awaiting
+		at := aw.nextPollAt
+		if at.IsZero() {
+			at = now
+		}
+		return &NextStep{Action: fmt.Sprintf("check final PR #%d for merge", aw.PR), At: rfc3339OrEmpty(at), Owner: "daemon"}
 	}
 	tick := now.Add(c.guardian.Interval)
 	step := func(action string, at time.Time) *NextStep {

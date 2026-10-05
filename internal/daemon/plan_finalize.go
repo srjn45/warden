@@ -22,7 +22,7 @@ import (
 //
 // On partial cleanup failure the Plan stays in_progress with CleanupEvidence
 // and the summary is preserved for a retry-safe second call.
-func (s *Server) FinalizePlan(ctx context.Context, planID string) (*planstore.FinalizeResult, error) {
+func (s *Server) FinalizePlan(ctx context.Context, planID string, opts ...planstore.FinalizeOptions) (*planstore.FinalizeResult, error) {
 	svc := s.planSvc()
 	if svc == nil {
 		return nil, planNotConfigured()
@@ -31,7 +31,7 @@ func (s *Server) FinalizePlan(ctx context.Context, planID string) (*planstore.Fi
 	if cleanup == nil {
 		cleanup = s.cleanupPlanExecutors
 	}
-	return svc.Finalize(ctx, planID, cleanup)
+	return svc.Finalize(ctx, planID, cleanup, opts...)
 }
 
 // cleanupPlanExecutors deletes the live Autopilot / Pipeline / plan-bound root
@@ -206,13 +206,21 @@ func (s *Server) CompletePlan(ctx context.Context, req oapi.CompletePlanRequestO
 	if s.planSvc() == nil {
 		return nil, planNotConfigured()
 	}
-	res, err := s.FinalizePlan(ctx, req.PlanId)
+	var opts planstore.FinalizeOptions
+	if req.Body != nil {
+		opts.AbandonUnmerged = req.Body.AbandonUnmerged
+	}
+	res, err := s.FinalizePlan(ctx, req.PlanId, opts)
 	if err != nil {
 		if errors.Is(err, planstore.ErrNotFound) {
 			return oapi.CompletePlan404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "plan not found"}}, nil
 		}
 		if errors.Is(err, planstore.ErrInvalidTransition) {
 			return oapi.CompletePlan409JSONResponse{Error: err.Error()}, nil
+		}
+		var integ *planstore.IntegrationUnmergedError
+		if errors.As(err, &integ) {
+			return oapi.CompletePlan422JSONResponse{Error: integ.Error()}, nil
 		}
 		var unmet *planstore.UnmetRequirementsError
 		if errors.As(err, &unmet) {

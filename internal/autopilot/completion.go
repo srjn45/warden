@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
@@ -27,6 +28,32 @@ const StateFinalizing RunState = "finalizing"
 // KindFinalPRUnfixable: the final PR stayed red past the fix bound.
 const KindFinalPRUnfixable FailureKind = "final_pr_unfixable"
 
+// KindFinalPRClosed: the final PR was closed without merging.
+const KindFinalPRClosed FailureKind = "final_pr_closed"
+
+// StateAwaitingMerge is how a run whose final PR is green and waiting for the
+// owner to merge it is reported (plan-finish-flow §1). Like finalizing it is a
+// derived sub-phase of active: pause, stop and the kill switch work unchanged.
+const StateAwaitingMerge RunState = "awaiting_merge"
+
+// Merge-poll interval bounds (plan-finish-flow §2).
+const (
+	DefaultMergePollInterval = 2 * time.Minute
+	MinMergePollInterval     = 30 * time.Second
+)
+
+// AwaitingMerge is the persisted "waiting for the final PR to be merged" record.
+type AwaitingMerge struct {
+	Since    string `json:"since"`
+	GreenSHA string `json:"green_sha,omitempty"`
+	Notified bool   `json:"notified"`
+	PR       int    `json:"pr,omitempty"`
+
+	// In-memory only: the stale-result generation and the next poll instant.
+	gen        int
+	nextPollAt time.Time
+}
+
 // Final-PR gate values reported in RunStatus.final_pr.gate.
 const (
 	FinalGatePending = "pending"
@@ -48,6 +75,9 @@ type FinalPR struct {
 	HeadSHA     string `json:"head_sha,omitempty"`
 	Gate        string `json:"gate"` // pending | red | green
 	FixAttempts int    `json:"fix_attempts"`
+	// State is the PR's host state once polled: open | merged | closed.
+	State    string `json:"state,omitempty"`
+	MergedAt string `json:"merged_at,omitempty"`
 }
 
 // CompletionPolicy bounds the completion phase. Zero fields take the defaults.
@@ -58,6 +88,9 @@ type CompletionPolicy struct {
 	SkipMergeDefault     bool
 	ManagerVerifyTimeout time.Duration
 	MaxFinalFixes        int
+	// MergePollInterval is how often the final PR is polled while awaiting its
+	// merge; below MinMergePollInterval it is raised to it.
+	MergePollInterval time.Duration
 }
 
 func (p CompletionPolicy) withDefaults() CompletionPolicy {
@@ -66,6 +99,12 @@ func (p CompletionPolicy) withDefaults() CompletionPolicy {
 	}
 	if p.MaxFinalFixes <= 0 {
 		p.MaxFinalFixes = DefaultMaxFinalFixes
+	}
+	if p.MergePollInterval <= 0 {
+		p.MergePollInterval = DefaultMergePollInterval
+	}
+	if p.MergePollInterval < MinMergePollInterval {
+		p.MergePollInterval = MinMergePollInterval
 	}
 	return p
 }
@@ -100,6 +139,19 @@ type FinalPRState struct {
 	HeadSHA string
 	Gate    GateState
 	Detail  string // failing check summary when red
+	// MergedAt, Mergeable and MergeStateStatus come straight from gh pr view
+	// (MERGED covers merge, squash and rebase alike).
+	MergedAt         string
+	Mergeable        string // MERGEABLE | CONFLICTING | UNKNOWN
+	MergeStateStatus string // CLEAN | BEHIND | DIRTY | BLOCKED | ...
+}
+
+// needsBaseMerge reports a PR that conflicts with, or (under up-to-date branch
+// protection) is behind, its base.
+func (s FinalPRState) needsBaseMerge() bool {
+	return strings.EqualFold(s.Mergeable, "CONFLICTING") ||
+		strings.EqualFold(s.MergeStateStatus, "DIRTY") ||
+		strings.EqualFold(s.MergeStateStatus, "BEHIND")
 }
 
 // ErrNothingToMerge: integration has no commits beyond the default branch, so
@@ -117,6 +169,16 @@ type CompletionRuntime interface {
 	EnsureFinalPR(ctx context.Context, repo string, spec FinalPRSpec) (FinalPR, error)
 	// FinalPRStatus reports the PR's state and its gate on the integration head.
 	FinalPRStatus(ctx context.Context, repo, gate string, pr FinalPR, integration string) (FinalPRState, error)
+	// FinalPRView reports only the PR's host state (one gh pr view, no gate):
+	// the cheap poll used while awaiting the merge.
+	FinalPRView(ctx context.Context, repo string, pr FinalPR) (FinalPRState, error)
+}
+
+// RunAgentReaper is the optional seam that terminates every agent still tagged
+// to a run (strays, resolvers) and removes their worktrees. Used on entering
+// awaiting_merge so no agent stays alive only to wait.
+type RunAgentReaper interface {
+	TerminateRunAgents(ctx context.Context, runID string) error
 }
 
 // completionState is the in-memory completion bookkeeping of one run. Nothing
@@ -132,6 +194,11 @@ type completionState struct {
 	baseMergeDone bool
 	// resolverUntil holds off re-merging while a base_merge resolver works.
 	resolverUntil time.Time
+	// awaiting is set while the green final PR waits for its merge (hydrated from
+	// the persisted surface record after a restart).
+	awaiting *AwaitingMerge
+	// awaitGen numbers awaiting episodes so a stale poll result is discarded.
+	awaitGen int
 }
 
 // completionSnapshot is the slice of a run read under c.mu for the I/O pass.
@@ -142,6 +209,8 @@ type completionSnapshot struct {
 	allDone                                                   bool
 	cs                                                        completionState
 	resolverAttempts                                          map[string]int
+	awaiting                                                  *AwaitingMerge
+	notified                                                  bool
 }
 
 // CompletionManaged reports whether the daemon owns completion (a runtime with
@@ -189,10 +258,19 @@ func (c *Controller) completionTick(ctx context.Context) {
 			tasks: append([]PlanTask(nil), r.plan.Tasks...), allDone: allTasksDone(r.plan.Tasks),
 			cs: r.completion, resolverAttempts: copyAttempts(r.resolverAttempts),
 		})
+		last := &snaps[len(snaps)-1]
+		c.surfaceLocked(r) // hydrate persisted awaiting/verified after a restart
+		last.cs = r.completion
 		if r.completion.finalPR != nil {
 			fp := *r.completion.finalPR
-			snaps[len(snaps)-1].cs.finalPR = &fp
+			last.cs.finalPR = &fp
 		}
+		if aw := r.completion.awaiting; aw != nil {
+			cp := *aw
+			last.awaiting = &cp
+			last.cs.awaiting = &cp
+		}
+		last.notified = c.surfaceLocked(r).FinalNotified
 	}
 	c.mu.Unlock()
 	for _, s := range snaps {
@@ -222,9 +300,14 @@ func allTasksDone(tasks []PlanTask) bool {
 // completeRunPass runs one completion step for one run.
 func (c *Controller) completeRunPass(ctx context.Context, cr CompletionRuntime, lr LandingRuntime, s completionSnapshot) {
 	if !s.allDone {
-		if s.cs.finalizing {
-			c.setFinalizing(s.runID, false) // tasks were appended: back to active
+		if s.cs.finalizing || s.awaiting != nil {
+			c.leaveAwaiting(ctx, s.runID, "tasks were appended to the plan") // back to active
+			c.setFinalizing(s.runID, false)
 		}
+		return
+	}
+	if s.awaiting != nil {
+		c.awaitMergePass(ctx, cr, s)
 		return
 	}
 	// E.1: no open run-owned PR into integration (a final-fix PR counts).
@@ -246,6 +329,22 @@ func (c *Controller) completeRunPass(ctx context.Context, cr CompletionRuntime, 
 		c.auditRun(ctx, s.runID, "autopilot_finalizing", "integration="+s.integration)
 	}
 	pol := c.completionPolicyValue()
+
+	// A recorded final PR is read BEFORE anything else (and before EnsureFinalPR,
+	// which only finds open PRs): a PR merged while the daemon was down must not
+	// get a second one opened (plan-finish-flow §2).
+	if s.cs.finalPR != nil && s.cs.finalPR.Number > 0 {
+		if v, err := cr.FinalPRView(ctx, s.repo, *s.cs.finalPR); err == nil {
+			switch v.State {
+			case "merged":
+				c.finalPRMerged(ctx, s.runID, *s.cs.finalPR, v)
+				return
+			case "closed":
+				c.finalPRClosed(ctx, s.runID, *s.cs.finalPR)
+				return
+			}
+		}
+	}
 
 	// E.2: bring integration current with the default branch.
 	if !pol.SkipMergeDefault && !s.cs.baseMergeDone {
@@ -306,9 +405,11 @@ func (c *Controller) completeRunPass(ctx context.Context, cr CompletionRuntime, 
 		return
 	}
 	switch st.State {
-	case "merged", "closed":
-		// E.6: a human merged/closed it — the run completes immediately.
-		c.completeFinal(ctx, s.runID, fp.Number, "final PR "+st.State+" by a human")
+	case "merged":
+		c.finalPRMerged(ctx, s.runID, fp, st)
+		return
+	case "closed":
+		c.finalPRClosed(ctx, s.runID, fp)
 		return
 	}
 	fp.HeadSHA = firstNonEmpty(st.HeadSHA, fp.HeadSHA)
@@ -316,7 +417,7 @@ func (c *Controller) completeRunPass(ctx context.Context, cr CompletionRuntime, 
 	case GateGreen:
 		c.setFinalPR(s.runID, fp, FinalGateGreen)
 		c.auditRun(ctx, s.runID, "autopilot_final_pr_green", fmt.Sprintf("pr=%d sha=%s", fp.Number, fp.HeadSHA))
-		c.completeFinal(ctx, s.runID, fp.Number, "final PR green")
+		c.enterAwaitingMerge(ctx, s.runID, fp)
 	case GateRed:
 		c.setFinalPR(s.runID, fp, FinalGateRed)
 		c.fixFinalPR(ctx, s, fp, st.Detail)
@@ -533,9 +634,9 @@ func (c *Controller) completeFinal(ctx context.Context, runID string, pr int, wh
 	}
 	c.auditRun(ctx, runID, "autopilot_complete", why)
 	if gr != nil {
-		msg := fmt.Sprintf("autopilot run %s complete — %s (autopilot will not merge it).", runID, why)
+		msg := fmt.Sprintf("autopilot run %s complete — %s.", runID, why)
 		if pr > 0 {
-			msg = fmt.Sprintf("autopilot run %s complete — final PR #%d is green and waiting for your review (autopilot will not merge it).", runID, pr)
+			msg = fmt.Sprintf("autopilot run %s — final PR #%d merged — plan complete.", runID, pr)
 		}
 		gr.NotifyEscalation(runID, "autopilot run complete", msg)
 	}
@@ -576,8 +677,11 @@ func (c *Controller) setFinalPR(runID string, fp FinalPR, gate string) {
 		fix = r.completion.finalPR.FixAttempts
 	}
 	fp.Gate, fp.FixAttempts = gate, fix
+	fp.State = firstNonEmpty(fp.State, "open")
 	r.completion.finalPR = &fp
-	c.surfaceLocked(r).FinalPR = r.completion.finalPR.snapshot()
+	sf := c.surfaceLocked(r)
+	sf.FinalPR = r.completion.finalPR.snapshot()
+	sf.Verified = r.completion.verified
 	c.persistSurfaceLocked(r)
 }
 
@@ -590,10 +694,25 @@ func (c *Controller) auditRun(ctx context.Context, runID, action, detail string)
 // reportedState is the state shown in status: a run in its completion phase
 // reports finalizing while internally remaining active.
 func (r *run) reportedState() RunState {
+	if r.state == StateActive && r.completion.awaiting != nil {
+		return StateAwaitingMerge
+	}
 	if r.state == StateActive && r.completion.finalizing {
 		return StateFinalizing
 	}
 	return r.state
+}
+
+// awaitingMergeLocked reports whether r is only waiting for its final PR to be
+// merged, hydrating the persisted record after a restart. Caller holds c.mu.
+func (c *Controller) awaitingMergeLocked(r *run) bool {
+	c.surfaceLocked(r)
+	return r.completion.awaiting != nil
+}
+
+func (c *Controller) reportedStateLocked(r *run) RunState {
+	c.surfaceLocked(r)
+	return r.reportedState()
 }
 
 func (f *FinalPR) snapshot() *FinalPR {
@@ -602,4 +721,177 @@ func (f *FinalPR) snapshot() *FinalPR {
 	}
 	cp := *f
 	return &cp
+}
+
+// enterAwaitingMerge moves a run whose final PR just went green into the
+// awaiting_merge phase (plan-finish-flow §1): the record is persisted first (a
+// crash then resumes polling), the manager and every remaining run agent are
+// torn down, and the owner is notified once.
+func (c *Controller) enterAwaitingMerge(ctx context.Context, runID string, fp FinalPR) {
+	c.mu.Lock()
+	r, ok := c.runs[runID]
+	if !ok || r.state != StateActive || r.completion.awaiting != nil {
+		c.mu.Unlock()
+		return
+	}
+	sf := c.surfaceLocked(r)
+	notify := !sf.FinalNotified
+	r.completion.awaitGen++
+	aw := &AwaitingMerge{Since: c.now().UTC().Format(time.RFC3339), GreenSHA: fp.HeadSHA, Notified: true, PR: fp.Number,
+		gen: r.completion.awaitGen}
+	r.completion.awaiting = aw
+	r.completion.finalizing = false
+	sf.AwaitingMerge, sf.FinalNotified, sf.Verified = aw, true, true
+	c.persistSurfaceLocked(r)
+	if err := c.teardownBrain(ctx, r); err != nil {
+		slog.Warn("autopilot: manager teardown on awaiting_merge failed", "run", runID, "err", err)
+	}
+	c.persistRunLocked(r)
+	gr, _ := c.runtime.(GuardianRuntime)
+	reaper, _ := c.runtime.(RunAgentReaper)
+	c.mu.Unlock()
+	c.auditRun(ctx, runID, "autopilot_awaiting_merge", fmt.Sprintf("pr=%d sha=%s", fp.Number, fp.HeadSHA))
+	if reaper != nil {
+		if err := reaper.TerminateRunAgents(ctx, runID); err != nil {
+			c.auditRun(ctx, runID, "autopilot_awaiting_merge_cleanup_error", err.Error())
+		}
+	}
+	if notify && gr != nil {
+		gr.NotifyEscalation(runID, "autopilot final PR ready",
+			fmt.Sprintf("autopilot run %s — final PR #%d is green and waiting for your review (autopilot will not merge it).", runID, fp.Number))
+	}
+}
+
+// leaveAwaiting clears the awaiting record (the run goes back to finalizing or
+// active; the guardian respawns a manager for an active run as usual).
+func (c *Controller) leaveAwaiting(ctx context.Context, runID, why string) {
+	c.mu.Lock()
+	r, ok := c.runs[runID]
+	if !ok || r.completion.awaiting == nil {
+		c.mu.Unlock()
+		return
+	}
+	r.completion.awaiting = nil
+	sf := c.surfaceLocked(r)
+	sf.AwaitingMerge = nil
+	c.persistSurfaceLocked(r)
+	c.mu.Unlock()
+	c.auditRun(ctx, runID, "autopilot_awaiting_merge_left", why)
+}
+
+// awaitMergePass polls the final PR once per merge_poll_interval and acts on
+// what it finds (plan-finish-flow §2, §3). It runs off c.mu; the result is
+// applied only if the run is still the same awaiting episode.
+func (c *Controller) awaitMergePass(ctx context.Context, cr CompletionRuntime, s completionSnapshot) {
+	aw := s.awaiting
+	if !aw.nextPollAt.IsZero() && c.now().Before(aw.nextPollAt) {
+		return
+	}
+	pol := c.completionPolicyValue()
+	c.mu.Lock()
+	if r, ok := c.runs[s.runID]; ok && r.completion.awaiting != nil {
+		r.completion.awaiting.nextPollAt = c.now().Add(pol.MergePollInterval)
+	}
+	c.mu.Unlock()
+
+	fp := FinalPR{Number: aw.PR, HeadSHA: aw.GreenSHA}
+	if s.cs.finalPR != nil {
+		fp = *s.cs.finalPR
+	}
+	st, err := cr.FinalPRView(ctx, s.repo, fp)
+	if err != nil {
+		return // retried at the next interval; a failed poll never parks the run
+	}
+	if !c.awaitingCurrent(s.runID, aw) {
+		return // stale: the run left the episode while the poll was in flight
+	}
+	switch st.State {
+	case "merged":
+		c.finalPRMerged(ctx, s.runID, fp, st)
+	case "closed":
+		c.finalPRClosed(ctx, s.runID, fp)
+	default:
+		switch {
+		case st.HeadSHA != "" && aw.GreenSHA != "" && st.HeadSHA != aw.GreenSHA:
+			c.regress(ctx, s.runID, fp, st, false)
+		case st.needsBaseMerge():
+			c.regress(ctx, s.runID, fp, st, true)
+		}
+	}
+}
+
+// awaitingCurrent reports whether the run is still active and in the same
+// awaiting episode (same generation and PR) a poll was started for.
+func (c *Controller) awaitingCurrent(runID string, aw *AwaitingMerge) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	r, ok := c.runs[runID]
+	return ok && r.state == StateActive && r.completion.awaiting != nil &&
+		r.completion.awaiting.gen == aw.gen && r.completion.awaiting.PR == aw.PR
+}
+
+// regress leaves awaiting_merge for finalizing so the existing completion pass
+// re-gates the new head, or (baseMerge) re-merges the default branch first.
+func (c *Controller) regress(ctx context.Context, runID string, fp FinalPR, st FinalPRState, baseMerge bool) {
+	why := "final PR head moved to " + st.HeadSHA
+	if baseMerge {
+		why = fmt.Sprintf("final PR #%d is %s/%s", fp.Number, firstNonEmpty(st.Mergeable, "?"), firstNonEmpty(st.MergeStateStatus, "?"))
+	}
+	c.leaveAwaiting(ctx, runID, why)
+	c.updateCompletion(runID, func(cs *completionState) {
+		cs.finalizing = true
+		cs.lastRedSHA = ""
+		if baseMerge {
+			cs.baseMergeDone = false
+		}
+		if cs.finalPR != nil {
+			cs.finalPR.Gate = FinalGatePending
+			cs.finalPR.HeadSHA = firstNonEmpty(st.HeadSHA, cs.finalPR.HeadSHA)
+		}
+	})
+}
+
+// finalPRMerged records the merge and completes the run (plan-finish-flow §4).
+func (c *Controller) finalPRMerged(ctx context.Context, runID string, fp FinalPR, st FinalPRState) {
+	fp.HeadSHA = firstNonEmpty(st.HeadSHA, fp.HeadSHA)
+	c.mu.Lock()
+	if r, ok := c.runs[runID]; ok {
+		fp.Gate, fp.State, fp.MergedAt = FinalGateGreen, "merged", st.MergedAt
+		if r.completion.finalPR != nil {
+			fp.FixAttempts = r.completion.finalPR.FixAttempts
+		}
+		r.completion.finalPR = &fp
+		sf := c.surfaceLocked(r)
+		sf.FinalPR = fp.snapshot()
+		sf.AwaitingMerge = nil
+		r.completion.awaiting = nil
+		c.persistSurfaceLocked(r)
+	}
+	c.mu.Unlock()
+	c.auditRun(ctx, runID, "autopilot_final_pr_merged", fmt.Sprintf("pr=%d sha=%s", fp.Number, fp.HeadSHA))
+	c.completeFinal(ctx, runID, fp.Number, fmt.Sprintf("final PR #%d merged", fp.Number))
+}
+
+// finalPRClosed parks the run: the PR was closed without merging.
+func (c *Controller) finalPRClosed(ctx context.Context, runID string, fp FinalPR) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	r, ok := c.runs[runID]
+	if !ok || r.needsAttention != "" {
+		return
+	}
+	gr, ok := c.runtime.(GuardianRuntime)
+	if !ok {
+		return
+	}
+	r.completion.awaiting = nil
+	r.completion.finalizing = false
+	fp.State = "closed"
+	r.completion.finalPR = nil // a resumed run opens a new final PR
+	sf := c.surfaceLocked(r)
+	sf.AwaitingMerge = nil
+	sf.FinalPR = fp.snapshot()
+	c.park(gr, r, KindFinalPRClosed, fmt.Errorf("the final PR #%d was closed without merging. Reopen it, or run \"wd plan resume\" to open a new one; run \"wd plan stop\" to end the run and keep the branch", fp.Number))
+	c.persistSurfaceLocked(r)
+	c.persistRunLocked(r)
 }

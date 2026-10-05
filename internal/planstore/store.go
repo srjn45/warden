@@ -156,6 +156,11 @@ type Plan struct {
 	// retried without losing ExecutionSummary. Cleared on successful cleanup.
 	// New field: absent in old records → decodes as nil (backward-compatible).
 	CleanupEvidence *CleanupEvidence `json:"cleanup_evidence,omitempty"`
+
+	// Outcome is the durable ending record for an autopilot plan (final PR,
+	// integration branch fate). Written by the daemon; survives executor
+	// teardown. New field: absent in old records → nil.
+	Outcome *PlanOutcome `json:"outcome,omitempty"`
 }
 
 var (

@@ -113,6 +113,9 @@ func (c *Controller) limitTick(ctx context.Context) {
 			r.state == StateRegistered || r.state == StateDisabled {
 			continue
 		}
+		if r.state == StateActive && c.awaitingMergeLocked(r) {
+			continue
+		}
 		c.limitRun(ctx, lr, ow, ev, gr, r, now)
 	}
 }

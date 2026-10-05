@@ -19,6 +19,21 @@ type completionRT struct {
 	state     FinalPRState
 	resolved  []ResolverSpawn
 	mergedPRs int // number of host Merge calls against the final PR (must stay 0)
+	views     int // FinalPRView calls (the awaiting poll)
+	viewErr   error
+	reaped    []string
+}
+
+func (r *completionRT) FinalPRView(context.Context, string, FinalPR) (FinalPRState, error) {
+	r.views++
+	if r.viewErr != nil {
+		return FinalPRState{}, r.viewErr
+	}
+	return r.state, nil
+}
+func (r *completionRT) TerminateRunAgents(_ context.Context, runID string) error {
+	r.reaped = append(r.reaped, runID)
+	return nil
 }
 
 func (r *completionRT) MergeDefault(context.Context, string, string, string) (MergeDefaultResult, error) {
@@ -61,7 +76,7 @@ func completionSetup(t *testing.T, doneWhen []string) (*Controller, *completionR
 func runState(c *Controller, id string) RunState {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.runs[id].reportedState()
+	return c.reportedStateLocked(c.runs[id])
 }
 
 func TestCompletionWaitsForOpenRunPRs(t *testing.T) {
@@ -93,8 +108,9 @@ func TestCompletionOpensFinalPRAndStaysFinalizingUntilGreen(t *testing.T) {
 
 	rt.state.Gate = GateGreen
 	c.completionTick(context.Background())
-	require.Equal(t, StateComplete, runState(c, id))
+	require.Equal(t, StateAwaitingMerge, runState(c, id), "a green final PR does not complete the run")
 	require.Contains(t, rt.escalations[len(rt.escalations)-1], "final PR #99 is green")
+	require.Equal(t, []string{id}, rt.reaped)
 	require.Zero(t, rt.mergedPRs)
 }
 
