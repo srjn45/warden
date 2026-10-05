@@ -138,3 +138,12 @@ func TestFastBrainCommitMessage(t *testing.T) {
 	fb.status = fastbrain.StatusTimeout
 	require.Equal(t, deterministicCommitMessage(files), lc.commitMessage(context.Background(), "/d", files))
 }
+
+func TestFastBrainSummarizeUsesBadgePromptAndCaps(t *testing.T) {
+	fb := &fakeFB{json: `{"summary":"Fixing the parser bug in the lexer now please"}`}
+	lc, _ := fbLifecycle(fb)
+	got, err := lc.Summarize(context.Background(), &agentstore.Agent{ID: "a", Prompt: "fix parser"})
+	require.NoError(t, err)
+	require.Equal(t, "Fixing the parser bug in", got)
+	require.Contains(t, fb.calls[0].Prompt, "3 to 5 words")
+}

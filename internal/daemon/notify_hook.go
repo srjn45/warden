@@ -15,6 +15,9 @@ import (
 func ContextAlertMessage(sess *agentstore.Agent, state ctxtokens.State, tokens int) (title, body string) {
 	subj := sess.Subject
 	if subj == "" {
+		subj = sess.Activity
+	}
+	if subj == "" {
 		subj = sess.ID
 	}
 	size := fmt.Sprintf("%dk", tokens/1000)
@@ -32,6 +35,9 @@ func ContextAlertMessage(sess *agentstore.Agent, state ctxtokens.State, tokens i
 // returns actionable=false for states that don't need the user's attention.
 func notifyMessage(sess *agentstore.Agent, to store.Status) (title, body string, actionable bool) {
 	subj := sess.Subject
+	if subj == "" {
+		subj = sess.Activity
+	}
 	if subj == "" {
 		subj = sess.ID
 	}

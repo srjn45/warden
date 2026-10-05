@@ -1247,7 +1247,7 @@ func (l *Lifecycle) Classify(ctx context.Context, prompt string) (store.Type, er
 	return parseType(out), nil
 }
 
-// Summarize produces a one-line subject for an agent: it reads recent activity
+// Summarize produces the live activity badge (3-5 words) for an agent: it reads recent activity
 // (transcript, else pane) and asks for an <=8-word phrase. When the local LLM is
 // enabled it tries that first (summarization is a fuzzy-but-cheap task, safe to
 // move off warden's own Claude spend), and falls back to headless Claude on any
@@ -1264,12 +1264,12 @@ func (l *Lifecycle) Summarize(ctx context.Context, agent *agentstore.Agent) (str
 	if l.FastBrain != nil {
 		resp, err := l.FastBrain.Decide(ctx, fastbrain.Request{
 			Kind: fastbrain.KindSummarizeActivity, Tier: fastbrain.TierFast,
-			Prompt: fastbrain.SummarizeActivityPrompt(text),
+			Prompt: fastbrain.ActivityBadgePrompt(text),
 		})
 		if err != nil || !resp.OK() {
-			return "", nil // fail open: skip narration
+			return "", nil // fail open: caller keeps the previous badge
 		}
-		return parseSummary(fastbrain.ParseSummary(resp)), nil
+		return fastbrain.ParseActivityBadge(resp), nil
 	}
 	arg := summaryArg(text)
 	// Registry path (§7): walk the free/local candidates. Record the offload on a

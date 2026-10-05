@@ -1666,3 +1666,15 @@ func TestEnterOnProjectHeaderIsReserved(t *testing.T) {
 	require.Nil(t, cmd, "enter on a project header is a no-op for now")
 	require.False(t, mc.collapsed[projKey("/repoA")], "enter does not collapse the project group")
 }
+
+// The live activity badge renders on the agent row, after the name and id.
+func TestRenderItemLineShowsActivityBadge(t *testing.T) {
+	s := &store.Session{ID: "a1", Name: "worker", Status: store.StatusWorking, Activity: "Fixing failing auth tests"}
+	out := stripANSIForTest(renderItemLine(item{session: s}, false, 120))
+	require.Contains(t, out, "worker")
+	require.Contains(t, out, "▸ Fixing failing auth tests")
+	require.Less(t, strings.Index(out, "worker"), strings.Index(out, "Fixing"))
+
+	s.Activity = ""
+	require.NotContains(t, stripANSIForTest(renderItemLine(item{session: s}, false, 120)), "▸")
+}

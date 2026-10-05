@@ -87,7 +87,7 @@ type Deps interface {
 	// changed between this tick's List and its write.
 	UpdateStatusIf(ctx context.Context, id string, expected, next store.Status) (bool, error)
 	UpdatePane(ctx context.Context, id, excerpt string) error
-	UpdateSubject(ctx context.Context, id, subject string) error
+	UpdateActivity(ctx context.Context, id, activity string) error
 	SessionAlive(ctx context.Context, tmuxName string) bool
 	CapturePane(ctx context.Context, tmuxName string) (string, error)
 	Summarize(ctx context.Context, s *agentstore.Agent) (string, error)
@@ -154,7 +154,7 @@ type Poller struct {
 	// id); tests may override it with a fake backend.
 	Backend        func(s *agentstore.Agent) agentbackend.Backend
 	stuckAfter     time.Duration
-	SummarizeAfter time.Duration        // throttle for subject refresh (0 = every change)
+	SummarizeAfter time.Duration        // throttle for activity-badge refresh (0 = every change); cfg activity.interval
 	lastSummary    map[string]time.Time // touched only by the tick goroutine
 	// OnChange, if set, is called once after a tick that changed any session
 	// (status or pane), and again from a summarizer worker when it refreshes a
@@ -459,7 +459,7 @@ func New(d Deps, stuckAfter time.Duration) *Poller {
 		deps:            d,
 		Backend:         resolveBackend,
 		stuckAfter:      stuckAfter,
-		SummarizeAfter:  2 * time.Minute,
+		SummarizeAfter:  15 * time.Second,
 		lastSummary:     map[string]time.Time{},
 		inflight:        map[string]struct{}{},
 		lastCtxCheck:    map[string]time.Time{},
@@ -1146,16 +1146,17 @@ func (p *Poller) runSummary(ctx context.Context, s *agentstore.Agent) {
 	// Bound the slow model call so a hang can't latch inflight forever.
 	sctx, cancel := context.WithTimeout(ctx, summaryTimeout)
 	defer cancel()
-	subj, err := p.deps.Summarize(sctx, s)
+	badge, err := p.deps.Summarize(sctx, s)
 	if err != nil {
 		slog.Debug("poller: summarize failed", "agent", s.ID, "err", err)
 		return
 	}
-	if subj == "" || subj == s.Subject {
+	// Fail open: an empty badge (non-OK decision) keeps the previous one.
+	if badge == "" || badge == s.Activity {
 		return
 	}
-	if err := p.deps.UpdateSubject(ctx, s.ID, subj); err != nil {
-		slog.Warn("poller: subject update failed", "agent", s.ID, "err", err)
+	if err := p.deps.UpdateActivity(ctx, s.ID, badge); err != nil {
+		slog.Warn("poller: activity update failed", "agent", s.ID, "err", err)
 		return
 	}
 	if p.OnChange != nil {

@@ -68,6 +68,7 @@ Common settings (run `warden config` for the complete, live list):
 | `collab.hint` | `true` | Append the conflict-check coordination hint to spawned agents |
 | `branch_track.enabled` | `false` | Enable the per-agent branch monitor (`warden workspace branches`) |
 | `branch_track.interval` | `2m` | Poll interval for the branch monitor |
+| `activity.interval` | `15s` | Minimum gap between live activity-badge refreshes per agent (the 3-5 word status badge on each TUI agent row). Refreshes only while the agent's pane is changing, so idle agents cost no Fast-Brain calls; a failed/empty decision keeps the previous badge |
 | `snapshots` | `true` | Enable the worktree+transcript checkpoint store (`warden workspace snapshot`) |
 | `insights` | `true` | Enable history-mined insights (`warden usage insights`) |
 | `tutorial` | `true` | Show the first-run walkthrough nudge (`warden tutorial`) |
@@ -87,7 +88,7 @@ There are more (`auto_restart.*`, `rate_limit.*`, `worktree.keep_done` /
 `worktree.auto_prune`, …) — `warden config` is the authoritative, live list.
 
 Related settings are grouped into namespaced blocks (`pipeline.*`, `auto_restart.*`,
-`collab.*`, `memory.*`, `branch_track.*`, `rate_limit.*`, `http.*`, `log.*`,
+`collab.*`, `memory.*`, `branch_track.*`, `activity.*`, `rate_limit.*`, `http.*`, `log.*`,
 `plugins.*`, `backends.*`, alongside `rails.*` / `tokens.*` / `notify.*` /
 `worktree.*`; the retired `local_llm.*` is parsed but ignored). The `autopilot.brain.backends` ladder and
 `autopilot.brain.allow_pay_per_use` gate are **deprecated** — the [backend

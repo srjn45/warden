@@ -245,7 +245,7 @@ type stubDeps struct {
 	lastExpected map[string]store.Status // records the CAS "expected" arg
 	casFail      map[string]bool         // when true for an id, the CAS misses (lost race)
 	paneUpdates  map[string]string       // records UpdatePane calls when non-nil
-	subjects     map[string]string       // records UpdateSubject calls
+	subjects     map[string]string       // records UpdateActivity calls
 	summary      string                  // canned Summarize result
 	summarizeErr error
 	summarizeN   int   // count of Summarize calls
@@ -325,7 +325,7 @@ func (d *stubDeps) UpdatePane(_ context.Context, id, ex string) error {
 	}
 	return nil
 }
-func (d *stubDeps) UpdateSubject(_ context.Context, id, subject string) error {
+func (d *stubDeps) UpdateActivity(_ context.Context, id, subject string) error {
 	if d.subjects == nil {
 		d.subjects = map[string]string{}
 	}
@@ -1684,4 +1684,24 @@ func TestClassify_Antigravity_BannerDetected(t *testing.T) {
 	got := classify(backends.Antigravity{}, s, pane, true, 0, 5*time.Minute)
 	require.Equal(t, store.StatusRateLimited, got,
 		"Antigravity banner in tail must classify as RateLimited")
+}
+
+func TestNewDefaultsActivityCadenceTo15s(t *testing.T) {
+	require.Equal(t, 15*time.Second, New(&stubDeps{}, time.Minute).SummarizeAfter)
+}
+
+func TestSummaryFailOpenKeepsPreviousBadge(t *testing.T) {
+	d := &stubDeps{
+		sessions: []*agentstore.Agent{{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking, LastPaneExcerpt: "old", Activity: "Editing tests"}},
+		alive:    map[string]bool{"A-1": true},
+		panes:    map[string]string{"A-1": "new"},
+		updates:  map[string]store.Status{},
+		summary:  "", // non-OK decision → empty badge
+	}
+	p := New(d, 5*time.Minute)
+	p.SummarizeAfter = 0
+	require.NoError(t, p.tick(context.Background()))
+	p.wg.Wait()
+	require.Equal(t, 1, d.summarizeN)
+	require.Empty(t, d.subjects, "empty badge must not overwrite the previous one")
 }

@@ -57,6 +57,7 @@ export interface Session {
   prompt: string;
   workdir: string;
   subject: string;
+  activity?: string;
   tags?: string[];
   status: Status;
   pid: number;

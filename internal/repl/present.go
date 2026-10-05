@@ -218,6 +218,9 @@ func agentWhat(s *store.Session) string {
 	if s.Subject != "" {
 		return s.Subject
 	}
+	if s.Activity != "" {
+		return s.Activity
+	}
 	return s.Prompt
 }
 
