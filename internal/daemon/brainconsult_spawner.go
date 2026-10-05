@@ -33,6 +33,7 @@ func (a brainConsultSpawner) Spawn(ctx context.Context, args brainconsult.BrainS
 		Role:    args.Role,
 		Backend: args.Backend,
 		Tags:    args.Tags,
+		Tier:    args.ModelTier,
 	}
 	// brainConsultSpawner has no Server; lifecycle.Spawn assigns a name when
 	// empty (role convention → prompt → codename).

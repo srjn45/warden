@@ -307,3 +307,24 @@ func TestConsultUpdateTaskProgress(t *testing.T) {
 		t.Errorf("unexpected task progress: %v", res.TaskProgress)
 	}
 }
+
+func TestParseAnswer(t *testing.T) {
+	out := "noise\n{\"answer\": \"select_option\", \"option\": 2, \"reason\": \"r\"}\n"
+	r, ok := parseAnswer(out, 3)
+	if !ok || r.Answer != AnswerSelectOption || r.Option != 2 {
+		t.Fatalf("got %+v ok=%v", r, ok)
+	}
+	if _, ok := parseAnswer(`{"answer": "select_option", "option": 9}`, 3); ok {
+		t.Fatal("out-of-range option must be rejected")
+	}
+	if _, ok := parseAnswer(`{"answer": "type", "text": " "}`, 0); ok {
+		t.Fatal("empty type text must be rejected")
+	}
+	if _, ok := parseAnswer(`{"answer": "approve|reject|select_option|type"}`, 2); ok {
+		t.Fatal("template echo must not parse")
+	}
+	r, ok = parseAnswer(`{"answer": "reject", "text": "use scratch"}`, 2)
+	if !ok || r.Answer != AnswerReject || r.Text != "use scratch" {
+		t.Fatalf("got %+v", r)
+	}
+}

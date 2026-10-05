@@ -475,6 +475,12 @@ Every chain outcome is audited `autopilot_prompt_resolved {agent, stage, decisio
 
 ---
 
+### I.6 Implementation status
+
+Implemented: `autopilotApprovals` (internal/daemon/autopilot_approvals.go) no longer mailboxes the manager for answers — it sends only a short informational note plus the human-inbox mirror. The poller chain (internal/poller/promptchain.go) runs policy → arbiter (unconditional for run agents) → one async stage-3 consult per prompt via `brainconsult` `Mode: answer`, pinned `tier-1`; a changed or vanished prompt cancels it; two failures reject a destructive prompt, audit `autopilot_prompt_escalated` and hand the agent to the guardian (`NotifyEscalation`). `prompts.brain_timeout` is currently the daemon constant `promptBrainTimeout` (5m).
+
+---
+
 ## J. Usage limits and resting states
 
 ### J.1 Rate-limited or out-of-quota run agents
