@@ -70,7 +70,9 @@ adopt the shared helper).
 
 **Works today:**
 - Launch the interactive REPL in a tmux pane (core), with the task typed in after the
-  `Repo-map:` startup line (PromptSeeder).
+  `Repo-map:` startup line (PromptSeeder; retried with backoff — a final failure sets
+  `seed_status=failed` on the session, audits + notifies once, and leaves the prompt
+  at `<data_dir>/prompts/<id>`).
 - Headless classify/summarize offload via `aider --message`.
 - Tier-A digests / "what changed" from the markdown chat log.
 - Live needs-input detection + approval parsing from Aider's y/n prompt.

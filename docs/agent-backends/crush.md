@@ -109,7 +109,7 @@ Permission-mode folding: warden's `yolo` / `auto` / `acceptEdits` /
 | Permission modes       | default / `yolo` | TUI prompt vs. `--yolo` auto-accept |
 | Pricing / spend $      | ❌ (deferred) | Crush **does** track cost/tokens natively in session meta; warden's usage reader is Claude-JSONL-specific and doesn't read it yet |
 | System-prompt inject   | ✅ via rules file | no launch-time `--append-system-prompt`, but warden delivers the same addendum out-of-band via the `CRUSH.md` context file Crush reads on startup (`InjectContext`). `SystemPromptInject` Caps stays `false` — it tracks the *launch flag* specifically. |
-| Initial-prompt seeding | ✅ via `PromptSeeder` | warden launches the bare TUI, waits for the ready footer, then types the task prompt and presses Enter |
+| Initial-prompt seeding | ✅ via `PromptSeeder` | warden launches the bare TUI, waits for the ready footer, then types the task prompt and presses Enter (retried with backoff; a final failure sets `seed_status=failed` on the session, audits + notifies once, and leaves the prompt at `<data_dir>/prompts/<id>`) |
 
 ## What works vs. what warden can't do yet
 
@@ -124,7 +124,10 @@ Permission-mode folding: warden's `yolo` / `auto` / `acceptEdits` /
 1. ~~**No initial-prompt seeding into the TUI.**~~
    **Resolved** — warden launches the bare `crush` TUI, waits for the `ctrl+p commands`
    footer, then seeds the task prompt and presses Enter via `PromptSeeder`
-   (`LaunchPromptArg` still returns `""` because Crush has no prompt flag).
+   (`LaunchPromptArg` still returns `""` because Crush has no prompt flag). A seed
+   that fails after retries is no longer silent: `seed_status`/`seed_error` land on
+   the session (`wd agent status`), one audit + operator notification fire, and the
+   prompt is saved at `<data_dir>/prompts/<id>` for hand recovery.
 2. **No per-agent model on the TUI launch.** The TUI has no `-m`; the model is
    config-driven (`models.large`/`small`) or switched in-TUI. `LaunchCmd` omits
    the resolved model.
