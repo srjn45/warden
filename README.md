@@ -878,6 +878,8 @@ warden agent stop PROJ-350 --hard          # purge the record instead of archivi
 warden agent stop PROJ-350 --pr --base main # open a GitHub PR first, then tear down
 ```
 
+A failed step stops the teardown and names itself plus what already ran, e.g. `remove worktree failed: … (completed: terminated; record left intact — fix the cause and retry)`. Because the record is cleared **last**, a worktree guard (agent alive / uncommitted / unpushed work) leaves it intact and `stop` is safely retryable once the cause is fixed; a branch that is already gone counts as success. No workaround is needed — do not call `delete`/`delete_agent` first (that archives the record and orphans the worktree). Worktrees orphaned by the older order (record cleared, worktree left behind) are reclaimed with `warden worktree prune`.
+
 The four older verbs are kept as thin **aliases** — each is just `stop` with a fixed flag combo:
 
 | old verb | equivalent |
