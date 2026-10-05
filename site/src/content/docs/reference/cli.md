@@ -1047,7 +1047,8 @@ Typical journey:
   1. Create    `wd plan create` (then `wd plan show` to inspect it)
   2. Edit      `wd plan update`, `wd plan edit` or `wd plan task add|edit|rm`
                (only while the plan is pending)
-  3. Run       `wd plan run --mode <mode>` (pending → in_progress)
+  3. Run       `wd plan run --mode <mode>` (pending → in_progress); follow
+               progress with `wd plan show --watch`
   4. Control   `wd plan pause`, `resume` or `stop` the running executor
   5. Progress  `wd plan task status` / `wd plan done` record task progress
   6. Complete  `wd plan complete` (in_progress → completed)
@@ -1300,6 +1301,7 @@ Inherited flags:
 Set one task's progress status to pending, in_progress, done, or skipped.
 Prints the task's old and new status plus the plan's task summary. Works on
 plans in any lifecycle state. skipped counts as finished for `plan complete`.
+`wd plan done <plan-id> <task-id>` is the shorthand for setting a task to done.
 
 Usage:
   warden plan task status <plan-id> <task-id> <pending|in_progress|done|skipped> [flags]
@@ -1368,12 +1370,17 @@ public start path for plan execution (including autopilot). --mode is
 required; it decides how the plan is executed:
 
   autopilot            Creates a live Autopilot executor + manager
+                       (pause/resume supported)
   pipeline             Each task becomes a pipeline job
+                       (pause/resume supported)
   orchestrator_worker  Orchestrator + workers with human approval gates
+                       (pause/resume refused; use stop)
   manual               Plan-bound general agent; human drives prompting
+                       (pause/resume refused; use stop)
 
 `orchestrator` is accepted as a shorthand for `orchestrator_worker`.
-Control a running plan with `wd plan pause|resume|stop`.
+Follow progress with `wd plan show --watch`. `wd plan stop` works for every
+mode; `wd plan pause|resume` only for autopilot and pipeline.
 
 Usage:
   warden plan run <plan-id> [flags]
@@ -1780,16 +1787,14 @@ Inherited flags:
 ```text
 Use a brain model to reconstruct task progress from git history and open PRs.
 Updates the plan's recorded task progress. Opt-in — never run automatically.
---project is only needed when the plan belongs to a different project than
-the current directory's.
+Plan ids resolve globally; --project is optional and rarely needed.
 
 Usage:
   warden plan assess <plan-id> [flags]
 
 Flags:
-  -h, --help             help for assess
-      --json             output as JSON
-      --project string   project ID (default: git root of the current directory)
+  -h, --help   help for assess
+      --json   output as JSON
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)

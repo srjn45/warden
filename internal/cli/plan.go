@@ -34,7 +34,8 @@ func newPlanCmd() *cobra.Command {
 			"  1. Create    `wd plan create` (then `wd plan show` to inspect it)\n" +
 			"  2. Edit      `wd plan update`, `wd plan edit` or `wd plan task add|edit|rm`\n" +
 			"               (only while the plan is pending)\n" +
-			"  3. Run       `wd plan run --mode <mode>` (pending → in_progress)\n" +
+			"  3. Run       `wd plan run --mode <mode>` (pending → in_progress); follow\n" +
+			"               progress with `wd plan show --watch`\n" +
 			"  4. Control   `wd plan pause`, `resume` or `stop` the running executor\n" +
 			"  5. Progress  `wd plan task status` / `wd plan done` record task progress\n" +
 			"  6. Complete  `wd plan complete` (in_progress → completed)\n" +
@@ -966,8 +967,7 @@ func newPlanAssessCmd() *cobra.Command {
 		Short: "Brain-assisted task progress assessment",
 		Long: "Use a brain model to reconstruct task progress from git history and open PRs.\n" +
 			"Updates the plan's recorded task progress. Opt-in — never run automatically.\n" +
-			"--project is only needed when the plan belongs to a different project than\n" +
-			"the current directory's.",
+			"Plan ids resolve globally; --project is optional and rarely needed.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			planID := args[0]
@@ -986,7 +986,8 @@ func newPlanAssessCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().String("project", "", "project ID (default: git root of the current directory)")
+	cmd.Flags().String("project", "", "project ID (optional; plan ids resolve globally)")
+	_ = cmd.Flags().MarkHidden("project")
 	cmd.Flags().Bool("json", false, "output as JSON")
 	return cmd
 }
@@ -999,11 +1000,16 @@ func newPlanRunCmd() *cobra.Command {
 			"public start path for plan execution (including autopilot). --mode is\n" +
 			"required; it decides how the plan is executed:\n\n" +
 			"  autopilot            Creates a live Autopilot executor + manager\n" +
+			"                       (pause/resume supported)\n" +
 			"  pipeline             Each task becomes a pipeline job\n" +
+			"                       (pause/resume supported)\n" +
 			"  orchestrator_worker  Orchestrator + workers with human approval gates\n" +
-			"  manual               Plan-bound general agent; human drives prompting\n\n" +
+			"                       (pause/resume refused; use stop)\n" +
+			"  manual               Plan-bound general agent; human drives prompting\n" +
+			"                       (pause/resume refused; use stop)\n\n" +
 			"`orchestrator` is accepted as a shorthand for `orchestrator_worker`.\n" +
-			"Control a running plan with `wd plan pause|resume|stop`.",
+			"Follow progress with `wd plan show --watch`. `wd plan stop` works for every\n" +
+			"mode; `wd plan pause|resume` only for autopilot and pipeline.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			planID := args[0]
@@ -1145,7 +1151,8 @@ func newPlanTaskStatusCmd() *cobra.Command {
 		Short: "Set a plan task's status",
 		Long: "Set one task's progress status to pending, in_progress, done, or skipped.\n" +
 			"Prints the task's old and new status plus the plan's task summary. Works on\n" +
-			"plans in any lifecycle state. skipped counts as finished for `plan complete`.",
+			"plans in any lifecycle state. skipped counts as finished for `plan complete`.\n" +
+			"`wd plan done <plan-id> <task-id>` is the shorthand for setting a task to done.",
 		Args: cobra.ExactArgs(3),
 		ValidArgsFunction: func(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
 			if len(args) == 2 {
