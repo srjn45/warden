@@ -132,6 +132,8 @@ type PlanExecutor struct {
 	RestartCount      int                  `json:"restart_count,omitempty"`
 	LastRestartReason string               `json:"last_restart_reason,omitempty"`
 	LastRestartAt     string               `json:"last_restart_at,omitempty"`
+	LastProgressAt    string               `json:"last_progress_at,omitempty"`
+	Watchdog          string               `json:"watchdog,omitempty"`
 	Tasks             []PlanExecutorTask   `json:"tasks,omitempty"`
 }
 

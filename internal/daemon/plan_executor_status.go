@@ -45,6 +45,8 @@ func (s *Server) planExecutorStatus(ctx context.Context, p *planstore.Plan) *oap
 				Id: lt.ID, State: string(lt.State), WorkerAgentId: lt.WorkerID, Branch: lt.Branch, Pr: lt.PR,
 			})
 		}
+		out.LastProgressAt = rs.LastProgressAt
+		out.Watchdog = rs.Watchdog
 		s.fillRestartInfo(out, autopilot.RestartContextKey(rs.RunID))
 		return out
 	case p.PipelineID != "" && s.exec != nil && s.exec.pstore != nil:

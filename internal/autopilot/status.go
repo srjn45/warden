@@ -47,7 +47,12 @@ type RunStatus struct {
 	Backoff         *Backoff     `json:"backoff"`
 	// NeedsAttention is set when the guardian stopped retrying a failure that
 	// cannot succeed on retry; it carries the reason and how to clear it.
-	NeedsAttention    string              `json:"needs_attention,omitempty"`
+	NeedsAttention string `json:"needs_attention,omitempty"`
+	// LastProgressAt is the last observed run progress (ledger task change,
+	// landing, plan task status change, worker spawn); Watchdog is the progress
+	// watchdog state: disabled | idle | armed | escalating | parked.
+	LastProgressAt    string              `json:"last_progress_at,omitempty"`
+	Watchdog          string              `json:"watchdog,omitempty"`
 	LandedTotal       int                 `json:"landed_total"`
 	PlanTasks         []PlanTask          `json:"plan_tasks"`
 	GuardianID        string              `json:"guardian_id,omitempty"`

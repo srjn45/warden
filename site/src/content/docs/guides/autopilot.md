@@ -236,6 +236,21 @@ it shows as *waiting* in the tree. To clear it, change the plan in ScrivaDB, run
 `wd plan resume` (or `pause` then `resume`), or restart the daemon — each retries
 the heal ladder from the top.
 
+**Progress watchdog.** A manager can heartbeat forever while the run goes
+nowhere, so the guardian also tracks per-run *progress*: a ledger task state
+change, a new landing, a plan task status change, or a spawned worker. Heartbeats
+and overwatch nudges do not count. When an active run has made no progress for
+`autopilot.guardian.progress_watchdog_window` (default `2h`) **and** no
+run-tagged agent is working, the watchdog climbs the same heal ladder
+(watchdog-specific nudge naming the stalled tasks → restart → rotate), sharing
+the heartbeat grace so the two never double-step. Any progress clears it. If the
+ladder is exhausted without progress the run parks as needs-attention
+(`no_progress`), notifying once and pointing at `wd plan restart`. The last
+progress time is persisted (a daemon restart does not reset the window) and shown
+as `last_progress_at` / `watchdog` (`idle|armed|escalating|parked|disabled`) in
+run status and `wd plan show`. Switch it off with
+`autopilot.guardian.progress_watchdog_enabled: false`; both keys hot-reload.
+
 The TUI cockpit (`warden tui`) shows each run as a **plan-scoped tree** — manager
 (`<scope>-autopilot`), guardian (`<scope>-guardian`), plan checklist, and workers
 grouped by ledger state. The web dashboard shows an **Autopilot** panel when a run

@@ -81,6 +81,11 @@ type GuardianParams struct {
 	// MaxIdenticalFailures is how many consecutive identical non-transient spawn
 	// errors park the run as needs-attention (default 5).
 	MaxIdenticalFailures int
+	// WatchdogDisabled switches the progress watchdog off (default: on).
+	WatchdogDisabled bool
+	// WatchdogWindow is how long a run may go without progress, with no agent
+	// working, before the watchdog escalates (default 2h).
+	WatchdogWindow time.Duration
 }
 
 // Controller is the autopilot master switch and per-plan run registry
@@ -140,19 +145,26 @@ type run struct {
 
 	// Guardian-owned state (autopilot.md §2.3, §7). All mutated only under c.mu, by
 	// the guardian tick or the (re)spawn helpers.
-	tier                string          // selected cost tier (free|subscription|pay_per_use)
-	brainSpawnedAt      time.Time       // last (re)spawn instant — the cold-start heartbeat floor
-	lastHeartbeat       time.Time       // most recent brain heartbeat seen by the guardian
-	contextLevel        string          // brain context-window level seen by the guardian
-	healStage           healStage       // current position on the heal ladder
-	healNextAt          time.Time       // earliest instant the next heal step may fire
-	backoffStage        int             // capped-exponential backoff exponent (stage 4)
-	backoffNextRetry    time.Time       // when the current backoff wait elapses
-	backoffLastErr      string          // human-facing reason for the current backoff
-	backoffKind         FailureKind     // classified cause of the current backoff
-	failStreak          int             // consecutive identical non-transient spawn failures
-	failStreakText      string          // error text the streak is counting
-	needsAttention      string          // non-empty ⇒ parked: retries stopped, reason for the operator
+	tier             string      // selected cost tier (free|subscription|pay_per_use)
+	brainSpawnedAt   time.Time   // last (re)spawn instant — the cold-start heartbeat floor
+	lastHeartbeat    time.Time   // most recent brain heartbeat seen by the guardian
+	contextLevel     string      // brain context-window level seen by the guardian
+	healStage        healStage   // current position on the heal ladder
+	healNextAt       time.Time   // earliest instant the next heal step may fire
+	backoffStage     int         // capped-exponential backoff exponent (stage 4)
+	backoffNextRetry time.Time   // when the current backoff wait elapses
+	backoffLastErr   string      // human-facing reason for the current backoff
+	backoffKind      FailureKind // classified cause of the current backoff
+	failStreak       int         // consecutive identical non-transient spawn failures
+	failStreakText   string      // error text the streak is counting
+	needsAttention   string      // non-empty ⇒ parked: retries stopped, reason for the operator
+	// Progress watchdog (watchdog.go): last observed progress, its fingerprint
+	// (both persisted), and whether the heal ladder is being climbed by the
+	// watchdog / the run was parked by it.
+	lastProgressAt      time.Time
+	progressFP          string
+	wdActive            bool
+	wdParked            bool
 	parkedPlanKey       string          // plan revision:hash recorded when parked (plan-bound runs)
 	plannedRotateNextAt time.Time       // cooldown floor so planned rotation can't thrash
 	tried               map[string]bool // backends tried this heal cycle (rotate-down exclusion)
@@ -232,6 +244,9 @@ func withGuardianDefaults(g GuardianParams) GuardianParams {
 	}
 	if g.BackoffMax < g.BackoffMin {
 		g.BackoffMax = g.BackoffMin
+	}
+	if g.WatchdogWindow <= 0 {
+		g.WatchdogWindow = DefaultWatchdogWindow
 	}
 	if g.MaxIdenticalFailures <= 0 {
 		g.MaxIdenticalFailures = 5
@@ -948,6 +963,8 @@ func (c *Controller) statusLocked() Status {
 			Tasks:             counts,
 			Backoff:           r.backoffStatus(),
 			NeedsAttention:    r.needsAttention,
+			LastProgressAt:    rfc3339OrEmpty(r.lastProgressAt),
+			Watchdog:          c.watchdogState(r, c.now()),
 			PlanTasks:         append([]PlanTask(nil), r.plan.Tasks...),
 			GuardianID:        guardianSlotIDOrEmpty(r.slotScope),
 			SlotScope:         r.slotScope,

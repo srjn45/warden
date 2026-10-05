@@ -286,6 +286,9 @@ func printAutopilotRuns(cmd *cobra.Command, st client.AutopilotStatus) {
 	for _, r := range st.Runs {
 		fmt.Fprintf(cmd.OutOrStdout(), "  %s\t%s\t%s\tplan=%s\t%s\tgate=%s\tbranch=%s\tbackoff=%s\n",
 			r.RunID, r.Name, r.State, dash(r.PlanID), r.Repo, dash(r.Gate), dash(r.IntegrationBranch), backoffSummary(r.Backoff))
+		if r.LastProgressAt != "" {
+			fmt.Fprintf(cmd.OutOrStdout(), "    last progress: %s (watchdog: %s)\n", r.LastProgressAt, dash(r.Watchdog))
+		}
 		if r.NeedsAttention != "" {
 			fmt.Fprintf(cmd.OutOrStdout(), "    NEEDS ATTENTION: %s\n", r.NeedsAttention)
 		}

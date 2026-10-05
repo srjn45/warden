@@ -121,11 +121,20 @@ func (c *Controller) superviseRun(ctx context.Context, gr GuardianRuntime, r *ru
 	alive := r.brain != nil && r.brain.AgentID != ""
 	fresh := alive && !hb.IsZero() && now.Sub(hb) < c.guardian.HeartbeatTimeout
 
+	// Progress watchdog bookkeeping runs on the run's state BEFORE the fresh
+	// branch below promotes it to active.
+	roster, rosterOK := c.trackProgress(ctx, r, now)
+
 	if fresh {
-		if r.healStage != stageHealthy {
+		// A ladder the watchdog is climbing is cleared only by progress, never by a
+		// heartbeat (a manager can heartbeat forever while nothing moves).
+		if r.healStage != stageHealthy && !r.wdActive {
 			c.recover(r)
 		}
-		r.state = StateActive
+		if !r.wdActive {
+			r.state = StateActive
+		}
+		c.superviseWatchdog(ctx, gr, r, roster, rosterOK, now)
 		// Planned rotation: a healthy brain whose context has reached the configured
 		// level is cold-started on a freshly selected backend (§2.3, §7). A cooldown
 		// stops it thrashing while the fresh brain's context settles.
@@ -161,6 +170,7 @@ func (c *Controller) managerLost(ctx context.Context, gr GuardianRuntime, r *run
 	r.healStage = stageHealthy
 	r.healNextAt = time.Time{}
 	r.tried = map[string]bool{}
+	r.wdActive = false
 }
 
 // recover clears the heal ladder after a brain proves alive again: the cycle
@@ -180,6 +190,12 @@ func (c *Controller) recover(r *run) {
 // whole ladder from stage 1 (forever); a brain that is entirely gone jumps
 // straight to (re)spawn via the rotate step.
 func (c *Controller) escalate(ctx context.Context, gr GuardianRuntime, r *run, now time.Time) {
+	c.escalateWith(ctx, gr, r, now, guardianNudge)
+}
+
+// escalateWith is escalate with a caller-chosen stage-1 nudge text (the progress
+// watchdog names the stalled tasks); the ladder itself is identical.
+func (c *Controller) escalateWith(ctx context.Context, gr GuardianRuntime, r *run, now time.Time, nudge string) {
 	// Backoff elapsed → retry the ladder from the top (§2.3 stage 4 loops forever).
 	// The tried set is cleared so a backend freed during the wait re-qualifies; the
 	// backoff exponent is deliberately kept so repeated full-ladder failures keep
@@ -199,7 +215,7 @@ func (c *Controller) escalate(ctx context.Context, gr GuardianRuntime, r *run, n
 	switch r.healStage {
 	case stageHealthy:
 		// Stage 1 — nudge the existing brain.
-		if err := gr.NudgeBrain(ctx, r.brain.AgentID, guardianNudge); err != nil {
+		if err := gr.NudgeBrain(ctx, r.brain.AgentID, nudge); err != nil {
 			if errors.Is(err, ErrAgentNotFound) {
 				c.managerLost(ctx, gr, r, "nudge target not found")
 				c.rotateStep(ctx, gr, r, now)
@@ -368,6 +384,10 @@ func (c *Controller) clearParked(r *run) {
 	r.healStage = stageHealthy
 	r.healNextAt = time.Time{}
 	r.tried = map[string]bool{}
+	// Leaving needs-attention (plan change, pause+resume) restarts the watchdog
+	// window so the run is not immediately re-parked.
+	r.wdActive, r.wdParked = false, false
+	r.lastProgressAt = c.now()
 }
 
 func brainAgentID(r *run) string {
