@@ -158,12 +158,12 @@ func TestControllerSpawnsAndTearsDownBrain(t *testing.T) {
 	require.Len(t, rt.spawned, 1, "healthy brain not respawned on re-enable")
 	require.Empty(t, rt.killed)
 
-	// Disable is the kill switch: the brain is terminated.
-	dst := c.Disable(context.Background(), "")
-	require.False(t, dst.Enabled)
+	// Deprecated Disable pauses the run; the brain is left alone.
+	dst, paused := c.Disable(context.Background(), "")
+	require.Len(t, paused, 1)
 	require.Len(t, dst.Runs, 1)
-	require.Equal(t, StateStopped, dst.Runs[0].State)
-	require.Equal(t, []string{ManagerSlotID("plan")}, rt.killed)
+	require.Equal(t, StatePaused, dst.Runs[0].State)
+	require.Empty(t, rt.killed)
 }
 
 // TestControllerInstallsDefaultPolicyOnEnable proves enabling autopilot installs
@@ -212,9 +212,10 @@ func TestActiveBrainForRun(t *testing.T) {
 	_, ok = c.ActiveBrainForRun("ap-nonexistent")
 	require.False(t, ok, "an unknown run has no brain")
 
+	// A paused run (deprecated disable) keeps its brain; no enable gate.
 	c.Disable(context.Background(), "")
 	_, ok = c.ActiveBrainForRun(runID)
-	require.False(t, ok, "a disabled autopilot resolves no brain")
+	require.True(t, ok)
 }
 
 func TestControllerBrainSpawnFailureDegrades(t *testing.T) {

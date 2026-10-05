@@ -452,7 +452,7 @@ func (s *Server) registerExtraTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "set_autopilot",
-		Description: "Flip the per-repo autopilot capability switch. `repo` scopes the toggle (optional; defaults to the daemon working directory). enabled=true records the repo as allowed to run Autopilot executors — it does NOT register plan files or start work. Start with run_plan {execution_mode: autopilot}. enabled=false is the kill switch. Mirrors `warden autopilot enable|disable`.",
+		Description: "DEPRECATED — there is no per-repo autopilot switch. enabled=true is a no-op; enabled=false pauses every active autopilot run in `repo` (optional; defaults to the daemon working directory), same as pausing each plan. Start runs with run_plan {execution_mode: autopilot}; pause with control_plan.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a setAutopilotArgs) (*mcpsdk.CallToolResult, any, error) {
 		st, err := s.cl.SetAutopilot(ctx, a.Enabled, a.Repo)
 		if err != nil {

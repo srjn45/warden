@@ -100,15 +100,10 @@ type Controller struct {
 	now       func() time.Time
 	tierstate *tierState
 
-	// enableStore is the persisted per-repo on/off set (autopilot's switch is
-	// per-repo, not a single global flag). Read for status/kill-switch checks and
-	// written by Enable/Disable. Concurrency-safe on its own; mutated under c.mu so
-	// it stays consistent with c.runs.
-	enableStore EnableStore
-	store       *RunStore
-	storeErr    error // configured persistence unavailable: lifecycle writes must fail closed
-	live        *autopilotstore.Store
-	planSource  PlanTaskSource
+	store      *RunStore
+	storeErr   error // configured persistence unavailable: lifecycle writes must fail closed
+	live       *autopilotstore.Store
+	planSource PlanTaskSource
 
 	mu      sync.Mutex
 	runtime Runtime         // nil ⇒ inert (S1): no brain spawns
@@ -192,7 +187,6 @@ func NewController(cfg ControllerConfig, env Env) *Controller {
 		guardian:          withGuardianDefaults(cfg.Guardian),
 		now:               now,
 		tierstate:         newTierState(now),
-		enableStore:       newEnableStore(cfg.DataDir),
 		store:             cfg.RunStore,
 		live:              cfg.LiveStore,
 		planSource:        cfg.PlanSource,
@@ -261,11 +255,6 @@ func (c *Controller) SetRuntime(rt Runtime) {
 	// restart authority. Recreate every run whose persisted intent is live even
 	// when it was registered directly and therefore is absent from c.plans.
 	for _, r := range c.runs {
-		// The per-repo kill switch wins if shutdown happened between clearing the
-		// enabled set and persisting each run's stopped state.
-		if !c.enableStore.IsEnabled(r.repo) {
-			continue
-		}
 		switch r.state {
 		case StateActive, StateStarting, StateHealing, StateDegraded:
 		default:
@@ -361,10 +350,6 @@ func (c *Controller) Enable(ctx context.Context, repo string) (Status, error) {
 		return c.statusLocked(), c.storeErr
 	}
 
-	target := c.resolveRepo(ctx, repo)
-	if err := c.enableStore.Enable(target); err != nil {
-		return c.statusLocked(), fmt.Errorf("persist autopilot enable for %s: %w", target, err)
-	}
 	// Frictionless day-one (§10): when the owner has configured no auto-approve
 	// rules, enabling the capability installs a generous default so workers don't
 	// stall on recognized non-destructive prompts once a plan run starts.
@@ -477,12 +462,6 @@ func (c *Controller) ReconcileConfiguredPlans(ctx context.Context, repo string) 
 		return c.statusLocked(), &PreflightError{Failures: []string{fmt.Sprintf(
 			"no autopilot plan resolves to %s — add an autopilot.plans[].file inside it (run `warden autopilot init`), or pass --repo",
 			target)}}
-	}
-
-	// Preflight passed for this repo: persist the switch. Done only now so Enable
-	// stays atomic (no state change on failure).
-	if err := c.enableStore.Enable(target); err != nil {
-		return c.statusLocked(), fmt.Errorf("persist autopilot enable for %s: %w", target, err)
 	}
 
 	// Reconcile ONLY this repo's runs against what preflight resolved. Runs for
@@ -624,13 +603,6 @@ func (c *Controller) resolveRepo(ctx context.Context, repo string) string {
 	return filepath.Clean(target)
 }
 
-// PersistedEnabled returns every repo the EnableStore has recorded as switched on.
-// The daemon calls Enable(ctx, repo) for each on boot so previously-enabled repos
-// come back up across a restart.
-func (c *Controller) PersistedEnabled() []string {
-	return c.enableStore.List()
-}
-
 // stopRunLocked tears one run down: cancel its plan watcher and gracefully
 // terminate its brain (in-flight workers are untouched, §2.1). Caller holds c.mu.
 func (c *Controller) stopRunLocked(ctx context.Context, r *run) {
@@ -643,31 +615,29 @@ func (c *Controller) stopRunLocked(ctx context.Context, r *run) {
 	}
 }
 
-// Disable is the per-repo kill switch (§2.1): it clears repo's persisted switch
-// (empty ⇒ the controller BaseDir), stops that repo's plan watchers, and
-// terminates its brains gracefully. Runs belonging to OTHER enabled repos are left
-// untouched. In-flight workers are deliberately left running — disable stops the
-// orchestrator, not its work.
-func (c *Controller) Disable(ctx context.Context, repo string) Status {
+// Disable is DEPRECATED (there is no per-repo switch any more). It pauses every
+// active run in repo (empty ⇒ the controller BaseDir), same effect as PauseRun on
+// each, and returns the ids it paused. Nothing is torn down.
+func (c *Controller) Disable(ctx context.Context, repo string) (Status, []string) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	target := c.resolveRepo(ctx, repo)
-	if err := c.enableStore.Disable(target); err != nil {
-		slog.Warn("autopilot: persist disable failed", "repo", target, "err", err)
-	}
-	remaining := map[string]*run{}
+	var ids []string
 	for id, r := range c.runs {
-		if r.repo == target {
-			c.stopRunLocked(ctx, r)
-			r.state = StateStopped
-			c.persistRunLocked(r)
-			remaining[id] = r
+		if r.repo == target && (r.state == StateActive || r.state == StateHealing || r.state == StateDegraded) {
+			ids = append(ids, id)
+		}
+	}
+	c.mu.Unlock()
+	sort.Strings(ids)
+	paused := ids[:0]
+	for _, id := range ids {
+		if _, err := c.PauseRun(ctx, id); err != nil {
+			slog.Warn("autopilot: deprecated disable could not pause run", "run", id, "err", err)
 			continue
 		}
-		remaining[id] = r
+		paused = append(paused, id)
 	}
-	c.runs = remaining
-	return c.statusLocked()
+	return c.Status(), paused
 }
 
 // Reconfigure swaps the GLOBAL plan/brain/merge template live (config hot-reload,
@@ -725,15 +695,24 @@ func (c *Controller) Reconfigure(ctx context.Context, cfg ControllerConfig) {
 	for _, p := range cfg.Plans {
 		planSet[p] = struct{}{}
 	}
-	enabled := c.enableStore.List()
+	// Repos that already host config-managed runs: re-resolve them under the NEW
+	// template. (There is no per-repo enable set any more.)
+	var repos []string
+	seen := map[string]bool{}
+	for _, r := range c.runs {
+		if _, managed := oldPlanSet[r.planFile]; managed && !seen[r.repo] {
+			seen[r.repo] = true
+			repos = append(repos, r.repo)
+		}
+	}
+	sort.Strings(repos)
 	c.mu.Unlock()
 
-	// (b) Reconcile configured plan-file runs under the NEW template for every
-	// persisted-enabled repo. Public Enable is switch-only; this path keeps
-	// autopilot.plans[] hot-reload behavior for legacy config-driven runs.
-	for _, repo := range enabled {
+	// (b) Reconcile configured plan-file runs under the NEW template so
+	// autopilot.plans[] hot-reload keeps working for legacy config-driven runs.
+	for _, repo := range repos {
 		if _, err := c.ReconcileConfiguredPlans(ctx, repo); err != nil {
-			slog.Warn("autopilot: reconfigure reconcile skipped", "repo", repo, "err", err)
+			slog.Debug("autopilot: reconfigure reconcile skipped", "repo", repo, "err", err)
 		}
 	}
 
@@ -877,9 +856,6 @@ func (c *Controller) ActiveBrainForRun(runID string) (string, bool) {
 	if !ok || r.brain == nil || r.brain.AgentID == "" {
 		return "", false
 	}
-	if !c.enableStore.IsEnabled(r.repo) {
-		return "", false // the run's repo has been switched off
-	}
 	return r.brain.AgentID, true
 }
 
@@ -896,7 +872,7 @@ func (c *Controller) CanBrainComplete(runID, brainID string) bool {
 	if r.state == StateComplete {
 		return true
 	}
-	return r.brain != nil && r.brain.AgentID == brainID && c.enableStore.IsEnabled(r.repo)
+	return r.brain != nil && r.brain.AgentID == brainID
 }
 
 // Status returns the current AutopilotStatus (§5).
@@ -921,11 +897,8 @@ func (c *Controller) LookupRun(runID string) (RunStatus, error) {
 // now "any repo enabled" and EnabledRepos names exactly which ones — the switch is
 // per-repo, not a single global flag.
 func (c *Controller) statusLocked() Status {
-	enabledRepos := c.enableStore.List()
-	if enabledRepos == nil {
-		enabledRepos = []string{}
-	}
-	st := Status{Enabled: len(enabledRepos) > 0, EnabledRepos: enabledRepos, Runs: []RunStatus{}}
+	// EnabledRepos is deprecated and always empty: there is no per-repo switch.
+	st := Status{EnabledRepos: []string{}, Runs: []RunStatus{}}
 	for _, r := range c.runs {
 		counts := TaskCounts{}
 		for _, task := range r.plan.Tasks {
@@ -975,6 +948,12 @@ func (c *Controller) statusLocked() Status {
 		})
 	}
 	sort.Slice(st.Runs, func(i, j int) bool { return st.Runs[i].RunID < st.Runs[j].RunID })
+	for _, rs := range st.Runs {
+		if rs.State == StateActive || rs.State == StateStarting || rs.State == StateHealing {
+			st.Enabled = true
+			break
+		}
+	}
 	return st
 }
 
@@ -1019,7 +998,7 @@ func (c *Controller) LandParams(runID string) (LandParams, bool) {
 		Gate:              c.runGate(r),
 		Strategy:          c.strategy,
 		DeleteBranch:      c.deleteBranch,
-		Active:            c.enableStore.IsEnabled(r.repo) && isLandableState(r.state),
+		Active:            isLandableState(r.state),
 	}, true
 }
 
@@ -1071,9 +1050,6 @@ func (c *Controller) SelectWorkerBackend(runID string) (string, bool) {
 		return "", false
 	}
 	if r.state == StatePaused || r.state == StateStopped || r.state == StateComplete {
-		return "", false
-	}
-	if !c.enableStore.IsEnabled(r.repo) {
 		return "", false
 	}
 	if c.resolver == nil {

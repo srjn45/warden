@@ -963,9 +963,9 @@ type AutopilotTaskStatusRequest struct {
 // AutopilotTaskStatusRequestStatus defines model for AutopilotTaskStatusRequest.Status.
 type AutopilotTaskStatusRequestStatus string
 
-// AutopilotToggleRequest Body for POST /autopilot — the per-repo capability switch. `repo` scopes the toggle to one repository; omitted, it defaults to the daemon's working directory. Enabling does not register or start work.
+// AutopilotToggleRequest DEPRECATED body for POST /autopilot. `repo` scopes to one repository; omitted, it defaults to the daemon's working directory. enabled=true is a no-op; enabled=false pauses the repo's active runs.
 type AutopilotToggleRequest struct {
-	// Enabled true enables the capability for the repo (no registration); false is the kill switch
+	// Enabled true is a no-op; false pauses every active autopilot run in the repo
 	Enabled bool `json:"enabled"`
 
 	// Repo repo root to toggle (optional; defaults to the daemon's working directory)
@@ -2786,7 +2786,7 @@ type ServerInterface interface {
 	// Autopilot status
 	// (GET /api/v1/autopilot)
 	GetAutopilot(w http.ResponseWriter, r *http.Request)
-	// Enable or disable autopilot capability
+	// Deprecated: no per-repo switch (enabled=false pauses the repo's runs)
 	// (POST /api/v1/autopilot)
 	SetAutopilot(w http.ResponseWriter, r *http.Request)
 	// Consult a short-lived brain resolver (shared Consultor)
@@ -3227,7 +3227,7 @@ func (_ Unimplemented) GetAutopilot(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Enable or disable autopilot capability
+// Deprecated: no per-repo switch (enabled=false pauses the repo's runs)
 // (POST /api/v1/autopilot)
 func (_ Unimplemented) SetAutopilot(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -14577,7 +14577,7 @@ type StrictServerInterface interface {
 	// Autopilot status
 	// (GET /api/v1/autopilot)
 	GetAutopilot(ctx context.Context, request GetAutopilotRequestObject) (GetAutopilotResponseObject, error)
-	// Enable or disable autopilot capability
+	// Deprecated: no per-repo switch (enabled=false pauses the repo's runs)
 	// (POST /api/v1/autopilot)
 	SetAutopilot(ctx context.Context, request SetAutopilotRequestObject) (SetAutopilotResponseObject, error)
 	// Consult a short-lived brain resolver (shared Consultor)
