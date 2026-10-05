@@ -193,17 +193,15 @@ func TestTriageDelegatingActions(t *testing.T) {
 
 func TestTriageCallResolverSeam(t *testing.T) {
 	h := newTriageHarness(t, true, model(fastbrain.ActionCallResolver, 0.9))
-	var gotRun, gotBlocker string
-	h.c.SetStallResolver(func(_ context.Context, runID, blocker string) error {
-		gotRun, gotBlocker = runID, blocker
-		return nil
-	})
+	rr := &resolverFake{guardianFake: h.fake}
+	h.c.SetRuntime(rr)
 	h.stall()
-	require.Equal(t, h.runID, gotRun)
-	require.True(t, strings.HasPrefix(gotBlocker, "manager_stall"))
+	require.Len(t, rr.spawned, 1)
+	require.Equal(t, h.runID, rr.spawned[0].RunID)
+	require.Equal(t, BlockerManagerStall, rr.spawned[0].Class)
 	require.Empty(t, h.fake.nudges)
 
-	// No seam wired ⇒ mechanical ladder.
+	// Runtime cannot spawn resolvers ⇒ mechanical ladder.
 	h = newTriageHarness(t, true, model(fastbrain.ActionCallResolver, 0.9))
 	h.stall()
 	require.Len(t, h.fake.nudges, 1)

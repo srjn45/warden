@@ -199,6 +199,37 @@ func (rt autopilotRuntime) SpawnFixWorker(ctx context.Context, spec autopilot.Fi
 	return sess.ID, nil
 }
 
+// SpawnResolver starts the short-lived resolver worker in its own worktree on the
+// exact PR branch, tagged "resolver". It does not wait for it; its exit feeds the
+// normal landing loop.
+func (rt autopilotRuntime) SpawnResolver(ctx context.Context, spec autopilot.ResolverSpawn) (string, error) {
+	cwd, err := ensureNamedBranchWorktree(ctx, spec.Repo, spec.Branch, "resolver-", true)
+	if err != nil {
+		return "", err
+	}
+	req := SpawnRequest{
+		Cwd: cwd, Repo: spec.Repo, Prompt: spec.Prompt, Role: "worker", Branch: spec.Branch,
+		Tags:           []string{autopilotOwnTag, runTagPrefix + spec.RunID, "resolver"},
+		AutopilotRunID: spec.RunID,
+	}
+	if code, msg := rt.s.validateSpawnRequest(ctx, req); code != 0 {
+		return "", errors.New(msg)
+	}
+	rt.s.prepareSpawnName(ctx, &req)
+	sess, err := rt.s.life.Spawn(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	if err := rt.s.store.Insert(ctx, sess); err != nil {
+		tctx, cancel := context.WithTimeout(context.Background(), brainTeardownTimeout)
+		defer cancel()
+		_ = rt.s.life.Teardown(tctx, sess)
+		return "", err
+	}
+	rt.s.notify()
+	return sess.ID, nil
+}
+
 func dirExists(p string) bool {
 	fi, err := os.Stat(p)
 	return err == nil && fi.IsDir()
@@ -207,10 +238,16 @@ func dirExists(p string) bool {
 // ensureBranchWorktree adds a worktree for an existing branch (fetching it from
 // origin when it is not local) and returns its path.
 func ensureBranchWorktree(ctx context.Context, repo, branch string) (string, error) {
+	return ensureNamedBranchWorktree(ctx, repo, branch, "fix-", false)
+}
+
+// ensureNamedBranchWorktree is ensureBranchWorktree with a directory prefix and
+// an optional --force (a resolver may share the branch with a live owner's tree).
+func ensureNamedBranchWorktree(ctx context.Context, repo, branch, prefix string, force bool) (string, error) {
 	if repo == "" || branch == "" || strings.HasPrefix(branch, "-") {
 		return "", errors.New("fix worker: repo and branch required")
 	}
-	path := filepath.Join(repo, ".worktrees", "fix-"+strings.NewReplacer("/", "-", " ", "-").Replace(branch))
+	path := filepath.Join(repo, ".worktrees", prefix+strings.NewReplacer("/", "-", " ", "-").Replace(branch))
 	if dirExists(path) {
 		return path, nil
 	}
@@ -219,11 +256,15 @@ func ensureBranchWorktree(ctx context.Context, repo, branch string) (string, err
 		defer cancel()
 		return exec.CommandContext(cctx, "git", append([]string{"-C", repo}, args...)...).Run()
 	}
-	if err := run("worktree", "add", path, branch); err == nil {
+	add := []string{"worktree", "add"}
+	if force {
+		add = append(add, "--force")
+	}
+	if err := run(append(add, path, branch)...); err == nil {
 		return path, nil
 	}
 	_ = run("fetch", "origin", branch)
-	if err := run("worktree", "add", "-b", branch, path, "origin/"+branch); err != nil {
+	if err := run(append(add, "-b", branch, path, "origin/"+branch)...); err != nil {
 		return "", err
 	}
 	return path, nil
