@@ -218,7 +218,10 @@ func isSlowPath(r *http.Request) bool {
 		strings.HasSuffix(p, "/start"),
 		strings.HasSuffix(p, "/resume"),
 		strings.HasSuffix(p, "/emit"),
-		strings.HasSuffix(p, "/retry"):
+		strings.HasSuffix(p, "/retry"),
+		// plan complete tears down the plan's executor, agents and worktrees and
+		// shells `gh pr list` once per plan branch before it can answer.
+		strings.HasSuffix(p, "/complete"):
 		return true
 	}
 	return false
