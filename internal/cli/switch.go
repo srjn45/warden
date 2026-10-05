@@ -62,8 +62,8 @@ func newSwitchCmd() *cobra.Command {
 			"Modified Files Diff, Immediate Next Step) so the new agent continues without starting cold.\n\n" +
 			"The successor can be chosen by explicit --aicli and/or --model, or by --tier\n" +
 			"(resolved via quota-balanced weighted headroom routing across eligible AI CLIs).\n" +
-			"Aliases --ai-cli and deprecated --backend are accepted; --aicli wins if multiple are set.\n" +
-			"--model requires --aicli (or an alias).\n\n" +
+			"--model requires --aicli. --role only selects the tier to resolve from; it does not\n" +
+			"change the agent's role (see 'warden agent set <AGENT> role').\n\n" +
 			"The swap is performed by the warden daemon (the sole owner of the session store),\n" +
 			"so the daemon must be running.\n\n" +
 			"Examples:\n" +
@@ -91,7 +91,7 @@ func newSwitchCmd() *cobra.Command {
 				chosen = strings.TrimSpace(backend)
 			}
 			if strings.TrimSpace(model) != "" && chosen == "" {
-				return fmt.Errorf("--model requires --aicli (aliases: --ai-cli, --backend)")
+				return fmt.Errorf("--model requires --aicli ")
 			}
 			params := client.SwitchSessionParams{
 				AiCli:   chosen,
@@ -125,11 +125,13 @@ func newSwitchCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&aicli, "aicli", "", "explicit successor AI CLI id (claude, antigravity, codex, …)")
 	cmd.Flags().StringVar(&aiCli, "ai-cli", "", "alias for --aicli")
+	_ = cmd.Flags().MarkHidden("ai-cli")
 	cmd.Flags().StringVarP(&backend, "backend", "b", "", "deprecated alias for --aicli (accepted for one release; --aicli wins if both are set)")
 	_ = cmd.Flags().MarkDeprecated("backend", "use --aicli")
+	_ = cmd.Flags().MarkHidden("backend")
 	cmd.Flags().StringVarP(&model, "model", "m", "", "explicit successor model id (requires --aicli)")
 	cmd.Flags().StringVarP(&tier, "tier", "t", "", "resolve successor via quota-balanced router at this tier (tier-1|tier-2|tier-3)")
-	cmd.Flags().StringVarP(&roleName, "role", "r", "", "role to resolve tier from when --tier is not given")
+	cmd.Flags().StringVarP(&roleName, "role", "r", "", "role whose tier to resolve the successor from when --tier is not given; does NOT change the agent's role (use 'warden agent set <AGENT> role <ROLE>')")
 	cmd.Flags().StringVarP(&prompt, "prompt", "p", "", "optional extra instruction appended to successor's continuation prompt")
 	cmd.Flags().StringVar(&reason, "reason", "manual", "reason recorded for hot-swap (manual|context_fill|quota)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit result as JSON")

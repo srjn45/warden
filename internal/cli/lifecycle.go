@@ -67,33 +67,28 @@ func newStartCmd() *cobra.Command {
 		Long: `Spawn an agent. --role is required (see 'warden agent role list'); there is no
 implicit fallback role.
 
-Free-form:   warden agent start --role <ROLE> "<prompt>" [--dir <path>]   (autonomous)
-Interactive: warden agent start --role <ROLE> --dir <path>                (opens the agent and waits)
-Managed:     warden agent start --role worker --repo <PATH> [TICKET]      (isolated worktree)
-             (worker + --repo enters the managed path; --type is a deprecated alias)
+Spawn modes:
+  Free-form    warden agent start --role <ROLE> "<prompt>" [--dir <path>]
+               Autonomous: runs the prompt in --dir (default: current directory).
+  Interactive  warden agent start --role <ROLE> --dir <path>
+               No prompt: opens the agent and waits for you.
+  Managed      warden agent start --role worker --repo <PATH> [TICKET]
+               Isolated git worktree off --repo (worker role + --repo).
+  Terminal     warden agent start --kind terminal --dir <path>
+               Not an AI agent: a plain shell ($SHELL) in --dir, with the same
+               worktree/git/tmux lifecycle. --aicli/--model/--role/prompt are ignored.
 
-The spawn's AI CLI+model is resolved (top wins): an explicit --aicli/--model
-pin > --aicli alone (optimal model for that AI CLI at the tier) > --tier (or
---task, which derives a tier) routed through the quota-balanced resolver >
-the resolver routed by --role alone > warden's configured defaults.
-So --role on its own is always enough to spawn — --tier/--aicli/--model are
-optional refinements, not additional requirements. --model requires --aicli.
+Which AI CLI + model runs (first match wins):
+  1. --aicli + --model         explicit pin (--model requires --aicli)
+  2. --aicli alone             optimal model for that AI CLI at the tier
+  3. --tier (or --task)        quota-balanced resolver at that tier
+  4. --role alone              resolver routed by the role's tier
+  5. configured defaults
+So --role on its own is always enough; --tier/--aicli/--model only refine it.
 
-AI CLIs (--aicli; aliases --ai-cli and deprecated --backend): warden drives Claude Code by default.
-Accepted values: claude (default, stable), aider, opencode, codex, crush, goose, cursor, antigravity.
-Only claude is fully tested; codex and antigravity are beta, the rest experimental / WIP.
-Precedence when multiple AI CLI flags are set: --aicli > --ai-cli > --backend.
-Terminal (--kind terminal): not an AI agent — opens a plain interactive shell ($SHELL)
-in --dir, managed with the same worktree/git/tmux lifecycle as any agent. It is a
-session kind, not an AI CLI, so --aicli/--ai-cli/--backend/--model/--role/prompt are ignored.
-Aider: BYO model (pass --model with --aicli), no resume, runs a one-shot --message task.
-OpenCode: BYO model (pass --model with --aicli), structured transcript, DOES resume.
-Codex: BYO provider (via ~/.codex/config.toml), DOES resume (dir-scoped).
-Crush: BYO model (config-driven TUI; --model for headless), DOES resume (dir-scoped); initial prompt auto-typed post-launch.
-Goose: BYO provider (GOOSE_PROVIDER/GOOSE_MODEL env), DOES resume (name-deterministic); no --model on session launch.
-Cursor: hosted model catalog; pass --model to override (cursor-agent --list-models / wd models); DOES resume (dir-scoped --continue); warden owns the worktree (cursor's own -w never passed).
-Antigravity: Google-hosted agy; defaults gemini-3.5-flash; pass --model (agy models / wd models); DOES resume (dir-scoped agy -c).
-All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
+Accepted --aicli values: claude (default), aider, opencode, codex, crush, goose,
+cursor, antigravity. Per-AI-CLI behaviour (model, resume, spend fidelity) and
+maturity labels: see 'warden backend --help'.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Load the named preset first (if any) so its saved defaults seed the
@@ -260,22 +255,26 @@ All non-claude backends show tokens-only spend. Claude remains full-fidelity.`,
 	cmd.Flags().String("name", "", "explicit agent name (omit to auto-resolve); max 32 chars, alphanumeric + hyphens/underscores")
 	cmd.Flags().String("type", "", "deprecated alias: legacy task type (development|analysis|spike|pr-review|…). Prefer --role worker --repo for managed worktrees")
 	_ = cmd.Flags().MarkDeprecated("type", "use --role (and --repo for managed worktrees)")
-	cmd.Flags().String("repo", "", "repo path for a managed (worktree) spawn; with --role worker this enters the managed path without --type. Empty = free-form unless --type/--fork-from force managed (then defaults to cwd)")
+	_ = cmd.Flags().MarkHidden("type")
+	cmd.Flags().String("repo", "", "repo path for a managed spawn: with --role worker, picks an isolated worktree off this repo (the default managed mode; branch it with --branch). Empty = free-form unless --fork-from forces managed (then defaults to cwd)")
 	cmd.Flags().String("branch", "", "new branch (development) or checkout target (pr-review)")
 	cmd.Flags().String("pr", "", "PR number/url (pr-review)")
-	cmd.Flags().Bool("worktree", false, "create a scratch worktree for analysis/spike")
-	cmd.Flags().Bool("in-repo", false, "write-agent opt-out: run in the shared repo instead of an isolated worktree (ignored for pr-review)")
+	cmd.Flags().Bool("worktree", false, "managed spawns only: use a throwaway scratch worktree instead of a branch worktree (analysis/spike). Neither --worktree nor --in-repo = the normal isolated branch worktree")
+	cmd.Flags().Bool("in-repo", false, "managed spawns only: opt out of isolation and run in the shared --repo checkout instead of a worktree (ignored for pr-review; overridden when root_guard is on)")
 	cmd.Flags().String("dir", "", "directory to launch the agent from (default: current directory)")
 	cmd.Flags().Bool("supervised", false, "alias for --permission-mode acceptEdits (kept for backwards compatibility)")
+	_ = cmd.Flags().MarkHidden("supervised")
 	cmd.Flags().String("permission-mode", "", "permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan (default: from config or 'auto')")
 	cmd.Flags().Bool("auto-restart", false, "auto-resume this agent if it crashes (errored), capped at a few attempts")
 	cmd.Flags().Bool("force", false, "spawn even when the memory-pressure gate warns")
 	cmd.Flags().String("model", "", "model ID for the chosen AI CLI (requires --aicli). Empty lets the tier resolver pick an explicit model")
-	cmd.Flags().String("aicli", "", "AI CLI `<ID>`: claude (default, stable) | aider | opencode | codex | crush | goose | cursor | antigravity — only claude is fully tested; codex/antigravity are beta, the rest experimental. See 'warden agent start --help' for per-AI-CLI notes")
+	cmd.Flags().String("aicli", "", "AI CLI `<ID>`: claude (default, stable) | aider | opencode | codex | crush | goose | cursor | antigravity — only claude is fully tested; codex/antigravity are beta, the rest experimental. See 'warden backend --help' for per-AI-CLI notes")
 	cmd.Flags().String("ai-cli", "", "alias for --aicli")
+	_ = cmd.Flags().MarkHidden("ai-cli")
 	cmd.Flags().String("backend", "", "deprecated alias for --aicli (accepted for one release; --aicli wins if both are set)")
 	_ = cmd.Flags().MarkDeprecated("backend", "use --aicli")
-	cmd.Flags().String("kind", "", "session kind: empty/agent (default) spawns an AI agent; terminal opens a plain interactive shell ($SHELL) in --dir (not an AI agent — --aicli/--ai-cli/--backend/--model/--role/prompt ignored)")
+	_ = cmd.Flags().MarkHidden("backend")
+	cmd.Flags().String("kind", "", "session kind: empty/agent (default) spawns an AI agent; terminal opens a plain interactive shell ($SHELL) in --dir (not an AI agent — --aicli/--model/--role/prompt ignored)")
 	cmd.Flags().String("preset", "", "load saved spawn defaults from the named preset `<NAME>` (see 'warden project preset'); explicit flags override")
 	cmd.Flags().String("prompt-template", "", "fill the saved prompt template `<NAME>` (see 'warden project prompt-template') as the spawn prompt; a positional prompt still wins")
 	cmd.Flags().StringArray("set", nil, "supply a prompt-template variable as VAR=value (repeatable, e.g. --set FILE=foo.go --set X=y)")
@@ -369,7 +368,17 @@ func newRestoreCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "restore <AGENT>",
 		Short: "Recreate and resume a lost/orphaned agent (resumes its AI CLI session)",
-		Args:  cobra.ExactArgs(1),
+		Long: `Use when warden still has the agent's record but its tmux session is gone
+(orphaned: reboot, killed tmux server, crash). Recreates the tmux session in the
+agent's original workdir and resumes the same AI CLI conversation. Resume-only:
+it refuses rather than start a fresh conversation (e.g. backend cannot resume,
+no pinned session id, workdir or transcript missing) and refuses while the tmux
+session is still alive.
+
+Not this command?
+  warden agent recover   archived orphaned records whose tmux session is still alive
+  warden agent adopt     a session warden never managed`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := clientFor(cmd).Restore(cmd.Context(), args[0]); err != nil {
 				return err
@@ -393,7 +402,11 @@ func newRecoverCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "recover",
 		Short: "Revive archived orphaned agent records whose tmux session is still alive (dry run unless --apply)",
-		Long: "Scans archived (closed) agent records for ones whose status is orphaned\n" +
+		Long: "Use when an agent vanished from the list but its tmux session is still running\n" +
+			"(the record was archived by mistake) — it brings the record back; it never\n" +
+			"relaunches anything. If the tmux session is gone, use `warden agent restore`;\n" +
+			"for a session warden never managed, use `warden agent adopt`.\n\n" +
+			"Scans archived (closed) agent records for ones whose status is orphaned\n" +
 			"(the only recovery source) and whose tmux session is confirmed still alive\n" +
 			"— a live session's record should never end up archived, but a stale orphaned\n" +
 			"status racing a daemon restart could previously slip one past the tombstone\n" +
@@ -743,7 +756,15 @@ func newAdoptCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "adopt",
 		Short: "Register the AI CLI session in this directory (resume it under tmux, or register the current tmux session live)",
-		Args:  cobra.NoArgs,
+		Long: `Use for an AI CLI session warden never spawned or tracked — no existing record.
+Registers it and returns a new warden agent id. Run from inside a tmux session it
+adopts that session live (no relaunch); otherwise it resumes the newest session
+for --dir (or --session-id) under a fresh tmux session.
+
+Not this command?
+  warden agent restore   a known warden record whose tmux session is gone
+  warden agent recover   archived orphaned records whose tmux session is still alive`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dirFlag, _ := cmd.Flags().GetString("dir")
 			dir, err := resolveDir(dirFlag)
