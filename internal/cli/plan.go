@@ -289,11 +289,14 @@ func newPlanTaskCmd() *cobra.Command {
 		Short: "Add, edit, or remove tasks on a pending plan",
 		Long: "Granular task-DAG mutations for a pending plan. Non-pending plans are\n" +
 			"rejected with HTTP 409 Conflict. Subcommands:\n\n" +
-			"  add   Append a task (POST /plans/{id}/tasks)\n" +
-			"  edit   Patch one task's prompt/after deps\n" +
-			"  rm     Remove a task (blocked if dependents remain)",
+			"  add     Append a task (POST /plans/{id}/tasks)\n" +
+			"  edit    Patch one task's prompt/after deps\n" +
+			"  rm      Remove a task (blocked if dependents remain)\n" +
+			"  status  Set a task's status (pending|in_progress|done|skipped)\n\n" +
+			"edit and rm take the task id as the second argument (or --id). The skipped\n" +
+			"status counts as finished: `plan complete` accepts done or skipped tasks.",
 	}
-	cmd.AddCommand(newPlanTaskAddCmd(), newPlanTaskEditCmd(), newPlanTaskRmCmd())
+	cmd.AddCommand(newPlanTaskAddCmd(), newPlanTaskEditCmd(), newPlanTaskRmCmd(), newPlanTaskStatusCmd())
 	return cmd
 }
 
@@ -338,14 +341,17 @@ func newPlanTaskAddCmd() *cobra.Command {
 
 func newPlanTaskEditCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "edit <plan-id>",
+		Use:   "edit <plan-id> [task-id]",
 		Short: "Edit a task definition on a pending plan",
-		Long: "Patch one task's prompt and/or after-deps on a pending plan. --id is\n" +
-			"required. Provide --prompt and/or --after; omitted fields are left unchanged.\n" +
+		Long: "Patch one task's prompt and/or after-deps on a pending plan. Pass the task\n" +
+			"id as a second argument or via --id. Provide --prompt and/or --after; omitted fields are left unchanged.\n" +
 			"Optional --expected-revision for optimistic concurrency.",
-		Args: cobra.ExactArgs(1),
+		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			taskID, _ := cmd.Flags().GetString("id")
+			taskID, err := planTaskIDArg(cmd, args, 1)
+			if err != nil {
+				return err
+			}
 			req := client.PlansTaskUpdateRequest{}
 			if cmd.Flags().Changed("prompt") {
 				prompt, _ := cmd.Flags().GetString("prompt")
@@ -373,12 +379,11 @@ func newPlanTaskEditCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().String("id", "", "task id")
+	cmd.Flags().String("id", "", "task id (alternative to positional)")
 	cmd.Flags().String("prompt", "", "new task prompt")
 	cmd.Flags().StringArray("after", nil, "replace after-deps (repeatable; pass once with empty to clear)")
 	cmd.Flags().Int64("expected-revision", 0, "optimistic concurrency token")
 	cmd.Flags().Bool("json", false, "output as JSON")
-	_ = cmd.MarkFlagRequired("id")
 	return cmd
 }
 
@@ -392,15 +397,9 @@ func newPlanTaskRmCmd() *cobra.Command {
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			planID := args[0]
-			taskID, _ := cmd.Flags().GetString("id")
-			if len(args) == 2 {
-				if taskID != "" && taskID != args[1] {
-					return fmt.Errorf("conflicting task id: flag %q vs arg %q", taskID, args[1])
-				}
-				taskID = args[1]
-			}
-			if taskID == "" {
-				return fmt.Errorf("task id required (positional or --id)")
+			taskID, err := planTaskIDArg(cmd, args, 1)
+			if err != nil {
+				return err
 			}
 			var expected int64
 			if cmd.Flags().Changed("expected-revision") {
@@ -911,28 +910,104 @@ func newPlanControlCmd(action string) *cobra.Command {
 	return cmd
 }
 
-func newPlanDoneCmd() *cobra.Command {
+// planTaskStatuses are the task statuses the daemon accepts.
+var planTaskStatuses = []string{"pending", "in_progress", "done", "skipped"}
+
+func validPlanTaskStatus(status string) bool {
+	for _, s := range planTaskStatuses {
+		if s == status {
+			return true
+		}
+	}
+	return false
+}
+
+// runPlanTaskStatus is the shared code path for `plan task status` and
+// `plan done`: validate client-side, fetch the old status, then update.
+func runPlanTaskStatus(cmd *cobra.Command, planID, taskID, status string) error {
+	if !validPlanTaskStatus(status) {
+		return fmt.Errorf("invalid status %q (valid: %s)", status, strings.Join(planTaskStatuses, ", "))
+	}
+	c := clientFor(cmd)
+	old := "unknown"
+	if cur, err := c.PlansGet(cmd.Context(), planID); err == nil {
+		old = "pending"
+		if st := cur.TaskProgress[taskID]; st != "" {
+			old = st
+		}
+	}
+	p, err := c.PlansUpdateTaskStatus(cmd.Context(), planID, taskID, status)
+	if err != nil {
+		return err
+	}
+	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+		return printJSON(cmd.OutOrStdout(), map[string]any{
+			"plan_id":    p.ID,
+			"task_id":    taskID,
+			"old_status": old,
+			"new_status": status,
+			"plan":       p,
+		})
+	}
+	w := cmd.OutOrStdout()
+	fmt.Fprintf(w, "plan %s task %s: %s → %s\n", p.ID, taskID, old, status)
+	if ts := p.TaskSummary; ts != nil {
+		fmt.Fprintf(w, "tasks: %d/%d done (%d in_progress, %d pending, %d skipped)\n",
+			ts.Done, ts.Total, ts.InProgress, ts.Pending, ts.Skipped)
+	}
+	return nil
+}
+
+func newPlanTaskStatusCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "done <plan-id> <task-id>",
-		Short: "Mark a plan task done",
-		Long: "Shorthand for updating one task's status to done. Updates TaskProgress in\n" +
-			"the daemon only (the YAML is unchanged).",
-		Args: cobra.ExactArgs(2),
+		Use:   "status <plan-id> <task-id> <pending|in_progress|done|skipped>",
+		Short: "Set a plan task's status",
+		Long: "Set one task's progress status to pending, in_progress, done, or skipped.\n" +
+			"Prints the task's old and new status plus the plan's task summary. Works on\n" +
+			"plans in any lifecycle state. skipped counts as finished for `plan complete`.",
+		Args: cobra.ExactArgs(3),
+		ValidArgsFunction: func(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
+			if len(args) == 2 {
+				return planTaskStatuses, cobra.ShellCompDirectiveNoFileComp
+			}
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			planID, taskID := args[0], args[1]
-			p, err := clientFor(cmd).PlansUpdateTaskStatus(cmd.Context(), planID, taskID, "done")
-			if err != nil {
-				return err
-			}
-			if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
-				return printJSON(cmd.OutOrStdout(), p)
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "plan %s task %s → done\n", p.ID, taskID)
-			return nil
+			return runPlanTaskStatus(cmd, args[0], args[1], args[2])
 		},
 	}
 	cmd.Flags().Bool("json", false, "output as JSON")
 	return cmd
+}
+
+func newPlanDoneCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "done <plan-id> <task-id>",
+		Short: "Mark a plan task done",
+		Long: "Shorthand for `plan task status <plan-id> <task-id> done`. Updates the\n" +
+			"task's progress on the plan.",
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runPlanTaskStatus(cmd, args[0], args[1], "done")
+		},
+	}
+	cmd.Flags().Bool("json", false, "output as JSON")
+	return cmd
+}
+
+// planTaskIDArg resolves the task id from a positional arg and/or --id.
+func planTaskIDArg(cmd *cobra.Command, args []string, pos int) (string, error) {
+	taskID, _ := cmd.Flags().GetString("id")
+	if len(args) > pos {
+		if taskID != "" && taskID != args[pos] {
+			return "", fmt.Errorf("conflicting task id: flag %q vs arg %q", taskID, args[pos])
+		}
+		taskID = args[pos]
+	}
+	if taskID == "" {
+		return "", fmt.Errorf("task id required (positional or --id)")
+	}
+	return taskID, nil
 }
 
 func newPlanCompleteCmd() *cobra.Command {
@@ -940,7 +1015,7 @@ func newPlanCompleteCmd() *cobra.Command {
 		Use:   "complete <plan-id>",
 		Short: "Complete a plan (in_progress → completed)",
 		Long: "Complete a plan: in_progress → completed. Blocked if any task is not\n" +
-			"done/skipped or any associated branch is still unmerged. On success moves\n" +
+			"done/skipped (skipped counts as finished) or any associated branch is still unmerged. On success moves\n" +
 			"the YAML to plans/completed/ and cleans up worktrees.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

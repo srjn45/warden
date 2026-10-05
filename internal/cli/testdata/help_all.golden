@@ -53,6 +53,7 @@ Complete command tree:
   warden plan task add                 Add a task to a pending plan
   warden plan task edit                Edit a task definition on a pending plan
   warden plan task rm                  Remove a task from a pending plan
+  warden plan task status              Set a plan task's status
   warden plan show                     Show detail for one plan
   warden plan related                  List heuristic related / overlapping plans
   warden plan run                      Start execution of a plan in the given mode
