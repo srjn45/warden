@@ -2579,6 +2579,18 @@ func (l *Lifecycle) seedInteractivePrompt(b agentbackend.Backend, tmuxSession, p
 	}()
 }
 
+// RedeliverPrompt re-runs post-launch prompt seeding for an existing agent. It
+// reports false when the backend does not take its prompt as typed input (it
+// seeds on the launch line), in which case nothing was sent.
+func (l *Lifecycle) RedeliverPrompt(agent *agentstore.Agent) bool {
+	b := l.backendFor(agent.AiCli)
+	if _, ok := b.(agentbackend.PromptSeeder); !ok {
+		return false
+	}
+	l.seedInteractivePrompt(b, agent.TmuxSession, agent.Prompt)
+	return true
+}
+
 // waitPaneReady blocks until marker appears in the agent's captured pane (then a
 // short settle), up to ctx's deadline. With an empty marker it instead waits a
 // fixed fallback delay. Returns false if the deadline passes before the marker is

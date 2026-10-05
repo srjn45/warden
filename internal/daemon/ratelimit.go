@@ -262,6 +262,11 @@ func (r *RateLimitScheduler) scheduleResume(sessionID string, at time.Time) {
 	})
 }
 
+// ResumeNow runs the resume attempt immediately (the same code the timer fires),
+// for callers that want to retry without waiting for the scheduled time. It is a
+// no-op unless the session is still rate limited.
+func (r *RateLimitScheduler) ResumeNow(sessionID string) { r.attemptResume(sessionID) }
+
 // attemptResume fires when a scheduled timer triggers.
 func (r *RateLimitScheduler) attemptResume(sessionID string) {
 	ctx := context.Background()

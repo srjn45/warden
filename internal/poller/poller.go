@@ -717,6 +717,19 @@ func (p *Poller) tryAutoApprove(ctx context.Context, s *agentstore.Agent, pane s
 	}
 }
 
+// ResolvePrompt runs the auto-approve path (policy, Fast-Brain arbiter, brain
+// routing) once against the agent's current pane, outside the poll tick. It is the
+// entry point for callers (the autopilot guardian) that want the same answer the
+// poller would give; the result is observable via the pane/status afterwards.
+func (p *Poller) ResolvePrompt(ctx context.Context, s *agentstore.Agent) error {
+	pane, err := p.deps.CapturePane(ctx, s.TmuxSession)
+	if err != nil {
+		return err
+	}
+	p.tryAutoApprove(ctx, s, pane)
+	return nil
+}
+
 // breakerAllows runs the approve circuit breaker for this prompt. It returns
 // false when the identical prompt has been answered too many times in a row; the
 // loop is then handed to the autopilot brain (§8) or raised as an anomaly for a
