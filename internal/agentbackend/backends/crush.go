@@ -444,3 +444,22 @@ func (Crush) Capabilities() agentbackend.Caps {
 		SessionIDControl:     false,
 	}
 }
+
+var crushModeTable = agentbackend.ModeTable{
+	ToIntent: map[string]agentbackend.PermissionIntent{
+		"default": agentbackend.IntentDefault, "yolo": agentbackend.IntentSkipAll,
+	},
+	FromIntent: map[agentbackend.PermissionIntent]string{
+		agentbackend.IntentDefault: "default", agentbackend.IntentSkipAll: "yolo",
+	},
+}
+
+// ModeIntent implements agentbackend.PermissionMapper.
+func (Crush) ModeIntent(mode string) (agentbackend.PermissionIntent, bool) {
+	return crushModeTable.Intent(mode)
+}
+
+// ModeForIntent implements agentbackend.PermissionMapper.
+func (Crush) ModeForIntent(i agentbackend.PermissionIntent) (string, bool) {
+	return crushModeTable.ForIntent(i)
+}

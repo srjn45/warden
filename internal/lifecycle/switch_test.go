@@ -2,11 +2,13 @@ package lifecycle
 
 import (
 	"context"
+	"github.com/srjn45/warden/internal/agentbackend"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	_ "github.com/srjn45/warden/internal/agentbackend/backends" // register claude + codex
 	"github.com/srjn45/warden/internal/agentstore"
@@ -47,6 +49,8 @@ func newSwapLC(t *testing.T) (*Lifecycle, *FakeRunner, *agentstore.Agent) {
 	lc := New(fr, &FakeConfig{})
 	lc.ProjectsDir = projects
 	lc.PromptsDir = filepath.Join(t.TempDir(), "prompts")
+	lc.ExitsDir = filepath.Join(t.TempDir(), "exits")
+	lc.SwapVerifyWindow = 30 * time.Millisecond
 
 	sess := &agentstore.Agent{
 		ID:             "agent-swap1",
@@ -320,4 +324,93 @@ func TestHotSwapQuotaToCodexKeepsLoopback(t *testing.T) {
 	require.Contains(t, launch, "sandbox_workspace_write.network_access=true")
 	require.NotContains(t, launch, "danger-full-access")
 	require.Equal(t, store.NetworkLoopback, sess.ExecutionProfile.Network)
+}
+
+// swapWithMode runs a swap from backend `from` (stored mode) to `to`.
+func swapWithMode(t *testing.T, from, stored, to string) (*Lifecycle, *FakeRunner, *agentstore.Agent, *SwapResult) {
+	t.Helper()
+	lc, fr, sess := newSwapLC(t)
+	sess.AiCli, sess.PermissionMode = from, stored
+	res, err := lc.HotSwap(context.Background(), sess, SwapRequest{Backend: to, Model: "m"})
+	require.NoError(t, err)
+	return lc, fr, sess, res
+}
+
+// The issue's case: antigravity skip-permissions → claude must launch with a mode
+// claude accepts, and the persisted record must hold it.
+func TestHotSwapTranslatesPermissionModeAntigravityToClaude(t *testing.T) {
+	_, fr, sess, res := swapWithMode(t, "antigravity", "dangerously-skip-permissions", "claude")
+	launch := swapLaunchLine(t, fr, sess.ID)
+	require.Contains(t, launch, "--permission-mode 'bypassPermissions'")
+	require.NotContains(t, launch, "dangerously-skip-permissions")
+	require.Equal(t, "bypassPermissions", sess.PermissionMode)
+	require.Equal(t, "dangerously-skip-permissions", res.FromMode)
+	require.Equal(t, "bypassPermissions", res.ToMode)
+	require.NotEmpty(t, res.ModeNote)
+}
+
+func TestHotSwapSameBackendKeepsMode(t *testing.T) {
+	_, fr, sess, res := swapWithMode(t, "claude", "plan", "claude")
+	require.Contains(t, swapLaunchLine(t, fr, sess.ID), "--permission-mode 'plan'")
+	require.Equal(t, "plan", sess.PermissionMode)
+	require.Empty(t, res.ModeNote)
+}
+
+// No equivalent: claude "dontAsk" has no codex counterpart → config default if
+// codex accepts it, else codex's own default posture; never the claude string.
+func TestHotSwapNoEquivalentModeFallsBack(t *testing.T) {
+	_, fr, sess, res := swapWithMode(t, "claude", "dontAsk", "codex")
+	require.NotContains(t, swapLaunchLine(t, fr, sess.ID), "dontAsk")
+	require.True(t, agentbackend.ModeAccepted(mustBackend(t, "codex"), sess.PermissionMode), sess.PermissionMode)
+	require.Contains(t, res.ModeNote, "no equivalent")
+}
+
+// A weaker stored intent must not fall back to a skip-all default.
+func TestHotSwapFallbackNotMorePermissive(t *testing.T) {
+	lc, _, sess := newSwapLC(t)
+	lc.SetConfig(&FakeConfig{PermissionMode: "yolo"})
+	sess.AiCli, sess.PermissionMode = "claude", "plan"
+	_, err := lc.HotSwap(context.Background(), sess, SwapRequest{Backend: "aider", Model: "m"})
+	require.NoError(t, err)
+	require.Equal(t, "default", sess.PermissionMode, "plan has no aider equivalent; must not become yes-always")
+}
+
+func mustBackend(t *testing.T, id string) agentbackend.Backend {
+	t.Helper()
+	b, err := agentbackend.Get(id)
+	require.NoError(t, err)
+	return b
+}
+
+// A successor that exits immediately is a launch_failed error; the record is left
+// as it was and a retry (once the CLI starts) succeeds.
+func TestHotSwapSuccessorExitsImmediately(t *testing.T) {
+	lc, fr, sess := newSwapLC(t)
+	sess.AiCli, sess.PermissionMode = "antigravity", "dangerously-skip-permissions"
+	origSID := sess.AICLISessionID
+	fail := true
+	fr.FailIf = func(argv []string) error {
+		if fail && len(argv) >= 5 && argv[1] == "send-keys" {
+			_ = os.MkdirAll(lc.ExitsDir, 0o700)
+			_ = os.WriteFile(filepath.Join(lc.ExitsDir, sess.ID), []byte("1"), 0o600)
+		}
+		return nil
+	}
+	fr.Responses["tmux capture-pane -p -t agent-swap1"] = FakeResp{Out: "error: option invalid\n\nAllowed choices are plan\n"}
+
+	_, err := lc.HotSwap(context.Background(), sess, SwapRequest{Backend: "claude", Model: "opus"})
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrLaunchFailed)
+	require.Contains(t, err.Error(), "error: option invalid | Allowed choices are plan")
+	require.Equal(t, "antigravity", sess.AiCli)
+	require.Equal(t, "dangerously-skip-permissions", sess.PermissionMode)
+	require.Equal(t, origSID, sess.AICLISessionID)
+	_, stillThere := lc.ReadExit(sess.ID)
+	require.False(t, stillThere, "exit-file consumed so the poller cannot finalize/reap the record")
+
+	fail = false // retry succeeds
+	_, err = lc.HotSwap(context.Background(), sess, SwapRequest{Backend: "claude", Model: "opus"})
+	require.NoError(t, err)
+	require.Equal(t, "claude", sess.AiCli)
+	require.Equal(t, "bypassPermissions", sess.PermissionMode)
 }

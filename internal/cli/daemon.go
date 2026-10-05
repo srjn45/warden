@@ -421,6 +421,7 @@ func newDaemonRunCmd() *cobra.Command {
 				_ = st.Update(context.Background(), sess.ID, func(s *agentstore.Agent) error {
 					s.AiCli = sess.AiCli
 					s.Model = sess.Model
+					s.PermissionMode = sess.PermissionMode
 					s.AICLISessionID = sess.AICLISessionID
 					s.UpdatedAt = sess.UpdatedAt
 					return nil

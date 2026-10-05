@@ -361,3 +361,22 @@ func (Aider) Capabilities() agentbackend.Caps {
 		SessionIDControl:     false,
 	}
 }
+
+var aiderModeTable = agentbackend.ModeTable{
+	ToIntent: map[string]agentbackend.PermissionIntent{
+		"default": agentbackend.IntentDefault, "yes-always": agentbackend.IntentSkipAll,
+	},
+	FromIntent: map[agentbackend.PermissionIntent]string{
+		agentbackend.IntentDefault: "default", agentbackend.IntentSkipAll: "yes-always",
+	},
+}
+
+// ModeIntent implements agentbackend.PermissionMapper.
+func (Aider) ModeIntent(mode string) (agentbackend.PermissionIntent, bool) {
+	return aiderModeTable.Intent(mode)
+}
+
+// ModeForIntent implements agentbackend.PermissionMapper.
+func (Aider) ModeForIntent(i agentbackend.PermissionIntent) (string, bool) {
+	return aiderModeTable.ForIntent(i)
+}
