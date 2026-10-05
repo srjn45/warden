@@ -2,6 +2,7 @@ package autopilot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -84,6 +85,15 @@ func (c *Controller) superviseRun(ctx context.Context, gr GuardianRuntime, r *ru
 		r.tried = map[string]bool{}
 	}
 
+	// A manager whose session no longer exists is gone: drop the stale record and
+	// respawn now — no heartbeat wait, no nudge of a ghost. Only a definitive
+	// "missing" counts; an unknown answer (daemon restart, store error) is ignored.
+	if r.brain != nil && r.brain.AgentID != "" && gr.BrainSession(ctx, r.brain.AgentID) == SessionMissing {
+		c.managerLost(ctx, gr, r, "session missing or archived")
+		c.rotateStep(ctx, gr, r, now)
+		return
+	}
+
 	hb := r.brainSpawnedAt // a cold-started brain heartbeats from its spawn instant
 	if act, ok := gr.BrainActivity(ctx, r.runID); ok && act.After(hb) {
 		hb = act
@@ -122,6 +132,25 @@ func (c *Controller) superviseRun(ctx context.Context, gr GuardianRuntime, r *ru
 	c.escalate(ctx, gr, r, now)
 }
 
+// managerLost clears the run's stale manager record after the manager session was
+// found missing, resets the heal ladder, reports the run as healing while the slot
+// is empty (a failed respawn then moves it to degraded/backoff), and records the
+// event in the audit log. The caller follows with rotateStep (the respawn path).
+func (c *Controller) managerLost(ctx context.Context, gr GuardianRuntime, r *run, why string) {
+	id := ""
+	if r.brain != nil {
+		id = r.brain.AgentID
+	}
+	slog.Warn("autopilot guardian: manager session missing — replacing", "run", r.runID, "agent", id, "why", why)
+	gr.AuditRunEvent(ctx, r.runID, "autopilot.manager_missing", id, why+"; clearing stale manager record and respawning")
+	r.brain = nil
+	r.contextLevel = ""
+	r.state = StateHealing
+	r.healStage = stageHealthy
+	r.healNextAt = time.Time{}
+	r.tried = map[string]bool{}
+}
+
 // recover clears the heal ladder after a brain proves alive again: the cycle
 // restarts from healthy, the tried-backend set and backoff are reset.
 func (c *Controller) recover(r *run) {
@@ -157,6 +186,11 @@ func (c *Controller) escalate(ctx context.Context, gr GuardianRuntime, r *run, n
 	case stageHealthy:
 		// Stage 1 — nudge the existing brain.
 		if err := gr.NudgeBrain(ctx, r.brain.AgentID, guardianNudge); err != nil {
+			if errors.Is(err, ErrAgentNotFound) {
+				c.managerLost(ctx, gr, r, "nudge target not found")
+				c.rotateStep(ctx, gr, r, now)
+				return
+			}
 			slog.Warn("autopilot guardian: nudge failed", "run", r.runID, "err", err)
 		}
 		r.healStage = stageNudged
