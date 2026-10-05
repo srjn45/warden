@@ -1163,10 +1163,7 @@ Commands:
   sync_to_repo         Export a plan revision to a dedicated branch and open a PR
   hub-sync             Explicitly sync canonical plans with the configured Hub
   backup               Export or restore a portable Plan backup bundle
-  import               [deprecated] Copy a plan YAML into plans/pending/ and scan
   import-legacy        Import legacy plans/**/*.yaml into ScrivaDB (operator cutover)
-  scan                 [deprecated] Scan plans/ and upsert stub plan records
-  status               [deprecated] Transition a plan's status (DB field only)
   assess               Brain-assisted task progress assessment
 
 Flags:
@@ -1727,29 +1724,6 @@ Inherited flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden plan import
-
-```text
-Deprecated one-release migration aid. Copy a plan YAML file into the
-project's plans/pending/ directory and trigger a scan.
-
-This cannot affect canonical ScrivaDB Plan definition or execution after
-import — prefer `wd plan import-legacy` for one-time cutover of an existing
-plans/{pending,in_progress,completed,archived} tree, or `wd plan create` for
-new DB-native plans.
-
-Usage:
-  warden plan import <file> [flags]
-
-Flags:
-  -h, --help             help for import
-      --project string   project ID (default: git root of the current directory)
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
 ## warden plan import-legacy
 
 ```text
@@ -1772,58 +1746,6 @@ Flags:
       --json             output as JSON
       --project string   project ID (default: git root of the current directory)
       --report           classify without mutating ScrivaDB
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden plan scan
-
-```text
-Deprecated one-release migration aid. Walk plans/{pending,in_progress,
-completed,archived}/*.yaml and upsert stub plan records (name/status/path).
-
-After ImportLegacy or DB-native create, scan cannot affect canonical Plan
-definition, lifecycle, or execution — Status is not reseeded from directory
-placement for records with a non-empty definition. Prefer
-`wd plan import-legacy` for cutover.
-
---migrate-flat moves any flat plans/*.yaml files into plans/pending/ with git mv
-and creates a commit before scanning.
-
-Usage:
-  warden plan scan [flags]
-
-Flags:
-      --assess           run brain-assisted progress assessment for in_progress plans
-  -h, --help             help for scan
-      --json             output as JSON
-      --migrate-flat     move flat plans/*.yaml files into plans/pending/ with git mv + commit
-      --project string   project ID (default: git root of the current directory)
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden plan status
-
-```text
-Deprecated migration aid. Change a plan's lifecycle status via the
-project-scoped API (ScrivaDB Status field only — no repository YAML move).
-
-Prefer `wd plan run` / `wd plan complete` / `wd plan archive` for the
-PlanService state machine.
-
-Valid statuses: pending | in_progress | completed | archived
-
-Usage:
-  warden plan status <plan-id> <new-status> [flags]
-
-Flags:
-  -h, --help             help for status
-      --project string   project ID (default: git root of the current directory)
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
