@@ -61,7 +61,7 @@ on-disk state:
 | Feature | Description |
 |---|---|
 | **Prompt-spawn** | `warden start "<prompt>"` — no repo or type needed. Runs `claude` in the caller's directory (or `--dir`). |
-| **Mandatory agent naming** | Every agent carries a non-empty name. Omit `--name` / `name` and warden resolves one at spawn (`internal/agentname`): **(1)** role/pipeline conventions — autopilot manager `AP:<plan-slug>`, worker `wkr:<task-id>`, brain consult `brain:<target>`, pipeline stage `<pipe>:<stage>`; **(2)** prompt-driven spawn → a 2–4 word kebab-case slug via the active subscription AI CLI on a **fast** tier with a hard **1.5s** timeout (falls back to a memorable adjective-noun codename such as `swift-falcon` on timeout, error, or invalid output); **(3)** prompt-less spawn → adjective-noun codename. Auto-generated names are **disambiguated** with `-2`, `-3`, … so they never 409; an explicit caller name that collides still returns **409 Conflict**. Empty names are rejected by `store.ValidateName` (`ErrEmptyName`). CLI prints `spawned agent <id> (<name>)`; the TUI name column never shows a muted dash placeholder. |
+| **Mandatory agent naming** | Every agent carries a non-empty name. Omit `--name` / `name` and warden resolves one at spawn (`internal/agentname`): **(1)** role/pipeline conventions — autopilot manager `AP:<plan-slug>`, worker `wkr:<task-id>`, brain consult `brain:<target>`, pipeline stage `<pipe>:<stage>`; **(2)** prompt-driven spawn → a 2–4 word kebab-case slug decided by the **Fast-Brain engine** (`Decide(KindResolveAgentName, TierFast)` via `fastbrain.NameRunner`) with a hard **1.5s** timeout (falls back to a memorable adjective-noun codename such as `swift-falcon` on timeout, error, or invalid output); **(3)** prompt-less spawn → adjective-noun codename. Auto-generated names are **disambiguated** with `-2`, `-3`, … so they never 409; an explicit caller name that collides still returns **409 Conflict**. Empty names are rejected by `store.ValidateName` (`ErrEmptyName`). CLI prints `spawned agent <id> (<name>)`; the TUI name column never shows a muted dash placeholder. |
 | **Auto-classification** | The daemon classifies a prompt-spawned agent's type with `claude -p` shortly after creation (falls back to `other`). |
 | **Auto-generated subject** | Each agent keeps a one-line subject (used for PR titles, notifications, search). |
 | **Live activity badge** | Each agent row shows a 3-5 word status badge (`activity` field, e.g. "Fixing failing auth tests"), refreshed by the poller via Fast-Brain from the transcript or tmux pane only while the pane is changing, at most once per `activity.interval` (default `15s`). A failed or empty decision keeps the previous badge. Kept separate from the subject so PR titles and notifications still get a full phrase. |
@@ -190,7 +190,7 @@ to the human / brain. The destructive deny-list and the circuit breaker always
 run *before* the model. The daemon builds the engine from the existing Claude
 `-p` runner (same runner for both tiers).
 
-**Fast-Brain crash triage (engine only):** `Engine.DiagnoseFailure` classifies
+**Fast-Brain crash triage:** `Engine.DiagnoseFailure` classifies
 a failed agent process (exit code, signal, command, last 40 lines of
 stderr/pane) via `Decide(KindDiagnoseFailure, TierFast)` into `internal_bug`
 (Go panic / nil pointer / invariant — a warden bug), `transient_error`

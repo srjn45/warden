@@ -41,6 +41,7 @@ agents**.
 | Feature | Description |
 |---|---|
 | **Live control tree** | Polls the daemon ~1×/sec; browse with `↑`/`↓` without disturbing the agent pane. The **Agents** section shows each row's compact **backend** token (claude/aider/…); the full **agent info** pane (`i`) lists every stored field — backend, model, role, tags, context, location, refs, rate-limit, lifecycle, plumbing, and the last pane excerpt. An agent with no recorded backend reads as **claude**. |
+| **Live activity badge** | Each agent row carries a 3–5 word status badge (e.g. `Fixing failing auth tests`) that Fast-Brain refreshes from the agent's pane **only while the pane is changing**, at most once per `activity.interval` (default `15s`; set it in `~/.warden/config.yaml`, hot-reloaded). Idle agents cost no calls, and a failed or empty decision keeps the previous badge. |
 | **Four fixed sections** | The control pane is a navigator tree of four fixed collapsible sections in order — **Approvals · Pipelines · Agents · Terminals**. Approvals is a persistent section (not an overlay). |
 | **Pipelines section** | Pipelines are the collapsible **Pipelines** section of the control tree; expand/collapse, open running jobs, retry failed jobs. |
 | **Terminals section** | First-class terminal sessions (`kind=terminal`) live under the **Terminals** section; a default terminal opens at startup. |
