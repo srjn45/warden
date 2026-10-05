@@ -2900,7 +2900,12 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*agentst
 		}
 		rel := worktreeRel(id)
 		add := []string{"worktree", "add", rel, "-b", id}
-		if req.BaseBranch != "" {
+		switch {
+		case req.BaseBranch == id:
+			// A plan restart kept this job's own previous branch: check it out
+			// again (git refuses -b for an existing branch) so work continues.
+			add = []string{"worktree", "add", rel, id}
+		case req.BaseBranch != "":
 			add = append(add, req.BaseBranch)
 		}
 		if out, err := l.run.Run(ctx, req.Repo, "git", add...); err != nil {
