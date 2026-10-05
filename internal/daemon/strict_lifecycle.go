@@ -867,9 +867,7 @@ func (s *Server) RescanBackends(_ context.Context, _ oapi.RescanBackendsRequestO
 	if s.backends == nil {
 		return nil, errStatus(http.StatusServiceUnavailable, "backend registry not configured")
 	}
-	cfg := s.snapshotConfig()
-	localConfigured := cfg.LocalLLM.Enabled && strings.TrimSpace(cfg.LocalLLM.URL) != ""
-	if err := backendstore.Reconcile(s.backends, agentbackend.Detect(), localConfigured, time.Now()); err != nil {
+	if err := backendstore.Reconcile(s.backends, agentbackend.Detect(), time.Now()); err != nil {
 		return nil, errStatus(http.StatusInternalServerError, "rescan failed: "+err.Error())
 	}
 	state, err := s.backendsState()
@@ -923,19 +921,12 @@ func (s *Server) SetDefaultBackend(_ context.Context, req oapi.SetDefaultBackend
 	return oapi.SetDefaultBackend200JSONResponse(state), nil
 }
 
-// SetThinkingMode implements PUT /api/v1/backends/thinking-mode: set the
-// internal-thinking routing mode. Rejects any value other than local_only /
-// free_plus_local (400). Returns the updated settings.
-func (s *Server) SetThinkingMode(_ context.Context, req oapi.SetThinkingModeRequestObject) (oapi.SetThinkingModeResponseObject, error) {
+// SetThinkingMode implements PUT /api/v1/backends/thinking-mode. The local
+// model is gone, so the mode no longer routes anything; the endpoint is a
+// deprecated 200 no-op kept so existing clients don't 404.
+func (s *Server) SetThinkingMode(_ context.Context, _ oapi.SetThinkingModeRequestObject) (oapi.SetThinkingModeResponseObject, error) {
 	if s.backends == nil {
 		return nil, errStatus(http.StatusServiceUnavailable, "backend registry not configured")
-	}
-	mode := ""
-	if req.Body != nil {
-		mode = strings.TrimSpace(req.Body.Mode)
-	}
-	if err := s.backends.SetThinkingMode(mode); err != nil {
-		return nil, errStatus(http.StatusBadRequest, err.Error())
 	}
 	settings, err := s.backends.Settings()
 	if err != nil {
