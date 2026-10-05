@@ -142,3 +142,29 @@ func TestPipelineCreateExplicitAndSpecProjectWin(t *testing.T) {
 	_, sent := pipelineProjectID(t, "pipeline", "create", "-f", spec)
 	require.False(t, sent, "spec-authored project_id must not be overridden by a CLI default")
 }
+
+func planCreateProjectID(t *testing.T, dir string) any {
+	t.Helper()
+	t.Chdir(dir)
+	body := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"POST /api/v1/plans": planSingleJSON,
+	}, nil, body))
+	_, err := runCLI(t, addr, "plan", "create", "--name", "n", "--goal", "g", "--task", "t1:do it")
+	require.NoError(t, err)
+	var sent map[string]any
+	require.NoError(t, json.Unmarshal([]byte(body["/api/v1/plans"]), &sent))
+	return sent["project_id"]
+}
+
+func TestPlanCreateDefaultsProjectToGitRoot(t *testing.T) {
+	root := gitRepo(t)
+	sub := filepath.Join(root, "pkg", "x")
+	require.NoError(t, os.MkdirAll(sub, 0o755))
+	require.Equal(t, root, planCreateProjectID(t, sub), "subdirectory")
+
+	wt := filepath.Join(root, ".worktrees", "w")
+	out, err := exec.Command("git", "-C", root, "worktree", "add", "-q", "-b", "w", wt).CombinedOutput()
+	require.NoError(t, err, string(out))
+	require.Equal(t, root, planCreateProjectID(t, wt), "linked worktree")
+}
