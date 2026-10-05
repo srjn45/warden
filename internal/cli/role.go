@@ -65,8 +65,10 @@ func newRoleCmd() *cobra.Command {
 	cmd.AddCommand(
 		newRoleListCmd(),
 		newRoleTierCmd(),
-		newRoleSetTierCmd(),
 	)
+	setTier := newRoleSetTierCmd("set-tier")
+	markCompatibilityChild(setTier, "warden agent role tier set")
+	cmd.AddCommand(setTier)
 	return cmd
 }
 
@@ -101,7 +103,7 @@ Subcommands:
   list    List all role-to-tier mappings
   set     Set the default model tier for a role
 
-When run without subcommands, ` + "`warden role tier`" + ` lists all mappings.`,
+When run without subcommands, ` + "`warden agent role tier`" + ` lists all mappings.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			st, err := openBackendStore(cmd)
 			if err != nil {
@@ -134,7 +136,7 @@ When run without subcommands, ` + "`warden role tier`" + ` lists all mappings.`,
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit role tier mappings as a JSON array")
 
-	cmd.AddCommand(newRoleTierListCmd())
+	cmd.AddCommand(newRoleTierListCmd(), newRoleSetTierCmd("set"))
 	return cmd
 }
 
@@ -179,9 +181,9 @@ func newRoleTierListCmd() *cobra.Command {
 	return cmd
 }
 
-func newRoleSetTierCmd() *cobra.Command {
+func newRoleSetTierCmd(name string) *cobra.Command {
 	return &cobra.Command{
-		Use:   "set-tier <role> <tier>",
+		Use:   name + " <role> <tier>",
 		Short: "Set the default model tier for an agent role (tier-1|tier-2|tier-3)",
 		Long: `Set the default model tier assigned when creating agents with this role.
 
@@ -191,8 +193,8 @@ Tiers:
   tier-3   Fast, low-cost models (e.g. Claude Haiku, Gemini Flash, GPT-4.1-mini) for quick tasks and CI triage
 
 Example:
-  warden role set-tier worker tier-2
-  warden role set-tier orchestrator tier-1`,
+  warden agent role tier set worker tier-2
+  warden agent role tier set orchestrator tier-1`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			roleName := args[0]

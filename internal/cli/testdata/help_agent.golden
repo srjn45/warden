@@ -29,9 +29,9 @@ Commands:
   handoff              Hand off work: delegate to a new/existing agent (--to), or retire self into a successor (--retire)
   rotate               Retire this agent and hand its work to a fresh successor in the same workspace (alias for `warden agent handoff --retire`)
   switch               Hot-swap an agent session to a different AI CLI, model, or tier mid-task
-  permission-mode      Manage an agent's permission mode
+  set                  Change one per-agent setting (permission-mode, compact, role, auto-approve)
+  get                  Show one or all per-agent settings (permission-mode, compact, role, auto-approve)
   role                 Inspect warden's built-in agent roles and tier mappings
-  compact              Manage an agent's force-compact override
 
 Flags:
   -h, --help   help for agent

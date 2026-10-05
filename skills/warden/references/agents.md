@@ -207,7 +207,7 @@ Drive it:
 - **At spawn** — `warden start "<prompt>" --role worker` / `spawn_agent {role:"worker"}`.
   The role's default flags fill only fields you left unset (**explicit value >
   role default > global default**; tags unioned, `auto_approve` OR-ed).
-- **On a running agent** — `warden agent role set <id> <role>` / `set_role {ticket, role}`.
+- **On a running agent** — `warden agent set <id> role <role>` (`agent get <id> [key]` reads settings) / `set_role {ticket, role}`.
   This **relaunches** the agent so the new persona re-injects (its in-flight turn
   is discarded, unlike `set-permission-mode`); `general`/empty clears the persona.
 - **UIs** — TUI new-agent `ctrl+r` role picker and `ctrl+t` tier picker (live

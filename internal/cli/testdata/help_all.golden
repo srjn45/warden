@@ -19,16 +19,13 @@ Complete command tree:
   warden agent handoff                 Hand off work: delegate to a new/existing agent (--to), or retire self into a successor (--retire)
   warden agent rotate                  Retire this agent and hand its work to a fresh successor in the same workspace (alias for `warden agent handoff --retire`)
   warden agent switch                  Hot-swap an agent session to a different AI CLI, model, or tier mid-task
-  warden agent permission-mode         Manage an agent's permission mode
-  warden agent permission-mode set     Set the permission mode for an agent
+  warden agent set                     Change one per-agent setting (permission-mode, compact, role, auto-approve)
+  warden agent get                     Show one or all per-agent settings (permission-mode, compact, role, auto-approve)
   warden agent role                    Inspect warden's built-in agent roles and tier mappings
   warden agent role list               List the built-in agent roles and their descriptions
-  warden agent role set                Switch an agent's built-in role (relaunches to re-inject the persona)
-  warden agent role set-tier           Set the default model tier for an agent role (tier-1|tier-2|tier-3)
   warden agent role tier               Inspect and manage role-to-tier mappings
   warden agent role tier list          List agent roles and their default model tiers
-  warden agent compact                 Manage an agent's force-compact override
-  warden agent compact set             Override force-compact for one agent (interrupt → /compact → resume)
+  warden agent role tier set           Set the default model tier for an agent role (tier-1|tier-2|tier-3)
   warden pipeline                      Define and run DAG pipelines of agent jobs
   warden pipeline validate             Validate a pipeline YAML spec without creating it
   warden pipeline create               Create a pipeline from a YAML spec or a built-in template
@@ -221,6 +218,12 @@ Complete command tree:
 
 Compatibility aliases:
   warden adopt -> warden agent adopt (compatibility)
+  warden agent compact -> warden agent set (compatibility)
+  warden agent compact set -> warden agent set (compatibility)
+  warden agent permission-mode -> warden agent set (compatibility)
+  warden agent permission-mode set -> warden agent set (compatibility)
+  warden agent role set -> warden agent set (compatibility)
+  warden agent role set-tier -> warden agent role tier set (compatibility)
   warden agent role tier ls -> warden agent role tier list (compatibility)
   warden approvals -> warden approval list (compatibility)
   warden approve -> warden approval answer (compatibility)
@@ -274,7 +277,7 @@ Compatibility aliases:
   warden digest -> warden agent digest (compatibility)
   warden done -> warden agent done (compatibility)
   warden export -> warden inspect export (compatibility)
-  warden force-compact -> warden agent compact set (compatibility)
+  warden force-compact -> warden agent set (compatibility)
   warden fork -> warden agent fork (compatibility)
   warden handoff -> warden agent handoff (compatibility)
   warden history -> warden inspect history (compatibility)
@@ -332,16 +335,17 @@ Compatibility aliases:
   warden review -> warden git review (compatibility)
   warden role -> warden agent role (compatibility)
   warden role list -> warden agent role list (compatibility)
-  warden role set-tier -> warden agent role set-tier (compatibility)
+  warden role set-tier -> warden agent role tier set (compatibility)
   warden role tier -> warden agent role tier (compatibility)
   warden role tier list -> warden agent role tier list (compatibility)
   warden role tier ls -> warden agent role tier list (compatibility)
+  warden role tier set -> warden agent role tier set (compatibility)
   warden rotate -> warden agent rotate (compatibility)
   warden savings -> warden usage savings (compatibility)
   warden schedule get -> warden schedule show (compatibility)
   warden search -> warden inspect search (compatibility)
-  warden set-permission-mode -> warden agent permission-mode set (compatibility)
-  warden set-role -> warden agent role set (compatibility)
+  warden set-permission-mode -> warden agent set (compatibility)
+  warden set-role -> warden agent set (compatibility)
   warden snapshot -> warden workspace snapshot (compatibility)
   warden snapshot create -> warden workspace snapshot create (compatibility)
   warden snapshot list -> warden workspace snapshot list (compatibility)
