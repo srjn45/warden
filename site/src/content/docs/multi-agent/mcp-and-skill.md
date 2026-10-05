@@ -73,7 +73,7 @@ Example orchestrator prompts:
 - *"Kick off the analyze-implement-review pipeline on /path/to/repo"* → `create_pipeline` (template) + `start_pipeline`
 - *"Commit and push agent-4f2a's branch"* → `commit` then `push`; *"is anyone else editing auth.go?"* → `who_is_editing_file`
 
-> Prefer natural language over tool calls? `warden backend repl` is a local-LLM conductor REPL that drives these same operations from plain English without an orchestrator agent session — see [Interactive REPL](/warden/multi-agent/repl/).
+> Prefer natural language over tool calls? `warden repl` is a Fast-Brain conductor REPL that drives these same operations from plain English without an orchestrator agent session — see [Interactive REPL](/warden/multi-agent/repl/).
 
 ## The `/warden` Claude skill
 

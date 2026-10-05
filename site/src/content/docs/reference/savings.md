@@ -16,7 +16,7 @@ The report keeps two honest claims separate:
 
 - **Context axis** — how much leaner agent context stayed: the raw output that
   *would have* entered the model vs. what actually did, as a reduction % and dollars.
-- **Offload axis** — cloud-model work moved off entirely onto the local LLM
+- **Offload axis** — cloud-model work moved off entirely onto Fast-Brain
   (classify/summarize calls that never hit the cloud model), in dollars. It keeps nothing
   in-context, so it is never folded into the context percentage.
 
@@ -25,7 +25,7 @@ The report keeps two honest claims separate:
 - `warden check` — raw build/test output kept out of the transcript (only failures returned).
 - `warden commit` / `push` / `sync` — git plumbing output the agent never sees.
 - Auto-/`​/compact` context reclaim — tokens dropped when the guard compacts a critical agent.
-- Local-LLM offload — classify/summarize work routed to the local model instead of the cloud model.
+- Fast-Brain offload — classify/summarize work routed to Fast-Brain instead of the cloud model.
 
 ## Reading the report
 

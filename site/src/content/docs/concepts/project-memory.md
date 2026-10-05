@@ -116,9 +116,8 @@ deliberately conservative and **never authoritative**:
   reviewing agent) approves the `.warden/memory.md` diff in a PR before it reaches
   teammates. This is the core mitigation against memory *poisoning*: one agent's
   wrong belief can never silently mislead the whole fleet.
-- **`$0` by default.** The pass prefers the local model (`local_llm`), degrading to
-  headless `claude -p` only where configured — and it always runs off the critical
-  path.
+- **`$0` by default.** The pass runs on Fast-Brain (latency-bounded, fail-open) and
+  never sits on a paid critical path — it always runs off the critical path.
 
 ```yaml
 # ~/.warden/config.yaml
@@ -130,7 +129,7 @@ memory:
 ## Ask project memory locally — grounding (`memory.ground`)
 
 Projection *adds* input tokens to every spawn. **Grounding** is the opposite lever:
-in [`wd backend repl`](/warden/multi-agent/repl/) you can **ask** the memory a question and
+in [`wd repl`](/warden/multi-agent/repl/) you can **ask** the memory a question and
 warden answers it **locally**, *removing* a cloud round-trip instead of adding one.
 
 Ask it two ways — the deterministic **`/memory <question>`** command (aliases
@@ -149,10 +148,9 @@ grounded in .warden/memory.md:
 
 It is deliberately narrow and safe:
 
-- **Local-only, `$0`.** Grounding runs on the local model (`local_llm`) and holds no
-  cloud/escalation path — it is structurally free and can **never** escalate to a paid
-  model. Grounding-style questions also classify to the local tier, so a bare
-  natural-language project question plans locally, never in the cloud.
+- **Cheap and bounded.** Grounding runs on Fast-Brain (latency-bounded, fail-open) and
+  never escalates to a full agent turn; with no backend available it returns the
+  matching entries verbatim.
 - **Read-only.** It reads `.warden/memory.md` the same way projection does and
   **never creates or writes it** (that stays curation's job). An absent or empty file
   answers `not in project memory` — no crash, no auto-create.
@@ -160,8 +158,8 @@ It is deliberately narrow and safe:
   entries and cite each one's **trust** (`unverified` / `trusted` / `human`) and
   **provenance**, so a stale hint visibly reads as a hint. If the memory can't answer,
   it says so plainly rather than inventing.
-- **Degrades cleanly.** With no local model configured it returns the matching
-  entries **verbatim** (still `$0`) instead of escalating.
+- **Degrades cleanly.** With no backend available it returns the matching
+  entries **verbatim** instead of escalating.
 
 ```yaml
 # ~/.warden/config.yaml

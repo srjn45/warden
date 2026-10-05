@@ -19,9 +19,9 @@ adds the human-readable table and `--benchmark` headline.
 - `wd usage savings` — per-feature table (saved tokens, raw tokens, event count), kept on
   **two axes that are never blended into one number**: a **context** axis (how much
   leaner agent context stayed, as a reduction % and dollars) and an **offload** axis
-  (Claude work moved entirely onto the local LLM, dollars only).
+  (Claude work moved entirely onto Fast-Brain, dollars only).
 - What records a saving: `wd check` (raw build/test output), `wd commit`/`push`/`sync`
-  (git plumbing output), auto-/`/compact` context reclaim, and local-LLM offload.
+  (git plumbing output), auto-/`/compact` context reclaim, and Fast-Brain offload.
 - `--benchmark` — the screenshot-ready A/B headline: *without warden* vs *with
   warden* tokens, the reduction %, leaner factor, dollars saved, a per-day
   sparkline, and the cut as a share of real measured model spend when observed.
@@ -88,7 +88,7 @@ Unbound legacy agents (`backend`/`model` only) appear as skip reason
 ## Insights — mine warden's own history
 
 MCP `insights {limit?}`; CLI `wd usage insights`. A **deterministic** report (no LLM
-needed; optional local-LLM narration). Config-gated by `insights` (default on).
+needed; optional Fast-Brain narration). Config-gated by `insights` (default on).
 
 - **session duration by type** — count, median / p90 / max, with runs flagged
   **outlier** at >2× the type's median.
@@ -177,8 +177,8 @@ Notable settings (see the generated file for the full set with defaults):
   MCP `usage_recover`.
 - **Boundary guards:** `rails.isolation_guard`, `rails.root_guard`, `rails.git_redirect`,
   `rails.check_redirect`, `rails.git_conventions` (see git-and-checks.md).
-- **Local LLM / REPL:** `local_llm.enabled` (+ `local_llm.url`/`.model`/`.timeout`),
-  `local_llm.tier`/`.escalate`/`.classifier`, `local_llm.repl`.
+- **Retired `local_llm.*`:** Fast-Brain replaced the local Ollama provider; legacy keys
+  (`local_llm.enabled/url/model/timeout/tier/escalate/classifier/repl`) still parse but are ignored.
 - **Deprecated flat-key aliases:** old keys like `token_guard`, `local_llm_url`, `notify`,
   `spawn_gate`, `worktree_keep_done`, `isolation_guard`, `git_redirect`, `collab_enabled`,
   `memory_inject`, `pipeline_hint`, `auto_restart_max`, `rate_limit_buffer`, `http_timeout_slow`,
@@ -234,10 +234,10 @@ Tunnel rather than exposing it directly. Interactive OpenAPI docs at `/api/docs`
   `warden tui --rebuild-web-cockpit` to force a kill+rebuild (then have them
   reload `/tui`) — no `tmux kill-session` needed.
 
-## Interactive mode / REPL (`wd backend repl`)
+## Interactive mode / REPL (`wd repl`)
 
-warden's **interactive mode** — an operator-facing terminal REPL (aliases `wd
-backend repl` / `wd i`), **not** something an agent drives over MCP. A real line
+warden's **interactive mode** — an operator-facing terminal REPL (aliases `wd i` /
+`wd backend repl`), **not** something an agent drives over MCP. A real line
 editor (arrow keys, persisted history, reverse-search, a live `/`-command menu that
 filters as you type, Tab completion, colour) that closes with Ctrl-D. Two ways to
 drive the fleet:
@@ -245,38 +245,29 @@ drive the fleet:
 - **Deterministic `/` commands (no model):** `/agents`, `/spawn <prompt>`, `/tell
   <id> <text>`, `/stop`, `/commit`/`/push`/`/sync`/`/check`, `/pipelines`, `/ctx*`,
   `/approvals`, … `/help` lists them. Reads auto-execute; mutations pass the confirm
-  gate. Works even when the local model misbehaves.
+  gate. Works even when Fast-Brain is unavailable.
 - **Guided argument forms:** when a `/` command needs more than was typed, warden
   collects the args interactively — numbered pick-lists for known-set fields (model,
   permission_mode, type, yes/no), free text otherwise. Auto-opens for a missing
   required arg (bare `/spawn`); a `+` suffix (`/spawn+ <prompt>`) opens the full
-  form. Deterministic structure; a local model, if present, pre-fills each field
+  form. Deterministic structure; Fast-Brain, if available, pre-fills each field
   with a suggestion (Enter accepts, type overrides, `-` clears).
-- **Natural language (local LLM):** any other line is planned into **confirmed**
-  warden tool calls — no cloud-model tokens. **It conducts, never implements** (no
+- **Natural language (Fast-Brain):** any other line is planned into **confirmed**
+  warden tool calls (works out of the box). **It conducts, never implements** (no
   edit/write/bash in its registry — code work is delegated by spawning an
   agent).
 - **Local project grounding (`memory.ground`, default on):** `/memory <question>`
   (`/mem`/`/ask`), or the `project_memory` tool, answers "where does X live?" from
-  the repo's `.warden/memory.md` **locally** (local model, `$0`, no cloud round-trip).
+  the repo's `.warden/memory.md` (served by Fast-Brain, no full agent turn).
   Read-only; cites each entry's trust + provenance; degrades to the matching entries
-  verbatim with no local model; "not in project memory" for an absent/empty file.
+  verbatim with no backend available; "not in project memory" for an absent/empty file.
 
-Starts without a model (the `/` commands and `!`-shell always work); only the NL
-half needs `local_llm: true`. `!`-prefixed lines run in a persistent embedded shell,
+NL planning runs on Fast-Brain and works out of the box (no Ollama / `local_llm`); the `/`
+commands and `!`-shell always work even if it is unavailable. `!`-prefixed lines run in a persistent embedded shell,
 reported verbatim (no auto-action). Run standalone.
 
-**Picking the local model — `wd backend suggest`.** Auto-detects the machine's **total**
-and **average free** memory (same pool: NVIDIA VRAM / Apple unified / Linux
-`MemAvailable`, free sampled a few times) and prints a memory-ranked shortlist,
-marking each `fits now` / `free memory first` / `too large`. It scores a
-tool-calling-forward catalog (Qwen3, gpt-oss, Mistral Small, Qwen2.5) by
-**conductor suitability** — calibrated against the Berkeley Function-Calling
-Leaderboard (BFCL v4, multi-turn-weighted), since the REPL routes tool
-calls and never writes code, so size/coding skill is the wrong axis — and stars
-the best model that runs comfortably now with headroom. Flags: `--samples`, `--total-gb`/`--free-gb`
-overrides, `--json`. `wd doctor` prints the one-line version. Recommendation only —
-set `local_llm_model` by hand (no `config set`; `wd config path` locates the YAML).
+**No local model to pick.** `wd backend suggest` is a retired stub (prints a notice, exits 0) and
+`wd doctor` / `wd setup` no longer check for or install Ollama.
 
 ## Export / import & plugins
 
@@ -313,14 +304,13 @@ Read verbs for catching up on the fleet, all MCP-first:
   `--json`, `--local-only`, `--force` (dirty worktrees). Not `prune` (that reclaims orphaned worktrees).
 - `digest {ticket}` (CLI `wd agent digest`) — a compact catch-up summary of one agent.
 
-## Backend registry — detected CLIs, tiers, thinking-mode
+## Backend registry — detected CLIs and tiers
 
 warden persists a registry of the coding-agent CLIs installed on this machine
-(`claude`, `codex`, `aider`, …) plus a reserved **`local`** row for the free/local
-model, each with a billing **tier**, an **enabled** flag, and at most one **default**,
-plus a store-level **internal-thinking mode**. The store (`~/.warden/backends`) is
+(`claude`, `codex`, `aider`, …), each with a billing **tier**, an **enabled** flag, and at
+most one **default**. The store (`~/.warden/backends`) is
 warden's **single source of truth** for backends — [autopilot](../SKILL.md#autopilot)'s
-cost-tier ladder and the internal free/local thinking router both read from it.
+cost-tier ladder reads from it. warden's own internal thinking runs on Fast-Brain, not the registry.
 **Detection is a fact** (installed / binary path) a rescan reconciles; **tiering is a
 preference** (tier / default / enabled) a rescan preserves.
 
@@ -330,15 +320,14 @@ MCP-first (all wrap `/api/v1/backends*`):
 |---|---|---|
 | `list_backends` | The whole registry + settings (read-only) | `warden backend list` |
 | `rescan_backends` | Re-detect installed CLIs, reconcile detection, keep preferences | `warden backend rescan` |
-| `set_backend_tier {id, tier}` | Assign a tier: `free`\|`subscription`\|`pay_per_use`\|`unclassified` (the reserved `local` tier is system-set) | `warden backend tier <id> <tier>` |
-| `set_default_backend {id}` | Set the single default; rejects unknown/uninstalled/disabled/`local` | `warden backend default <id>` |
-| `set_thinking_mode {mode}` | `local_only` \| `free_plus_local` — which backends warden's own internal thinking may call (never a paid one) | `warden backend thinking-mode <mode>` |
+| `set_backend_tier {id, tier}` | Assign a tier: `free`\|`subscription`\|`pay_per_use`\|`unclassified` | `warden backend tier <id> <tier>` |
+| `set_default_backend {id}` | Set the single default; rejects unknown/uninstalled/disabled | `warden backend default <id>` |
+| `set_thinking_mode {mode}` | **Retired no-op** (thinking-mode was removed with the local router) | — |
 
 - **Enable/disable is not an MCP tool.** Use the CLI (`warden backend enable|disable
   <id>`), the web 🧩 panel / TUI Backends page (`b`), or REST `PATCH
   /api/v1/backends/{id}` (`{tier?, enabled?}`).
-- **Tiers drive real behaviour.** Only **`free`** CLI backends are ever called for
-  internal thinking, and only **installed + enabled + non-`local`** backends feed
+- **Tiers drive real behaviour.** Only **installed + enabled** backends feed
   autopilot's cost ladder. A newly detected CLI starts `unclassified` (treated as *not
   free*) until the user tiers it.
 - **Deprecation:** the registry supersedes `autopilot.brain.backends` /

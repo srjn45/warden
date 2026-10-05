@@ -1,24 +1,23 @@
 ---
 title: Backend registry
-description: warden keeps a persistent registry of the coding-agent CLIs on your machine — their billing tier, the default, and an internal-thinking mode. Manage it from the CLI, web, TUI, or MCP; it is the single source of truth for autopilot's cost ladder and the free/local thinking router.
+description: warden keeps a persistent registry of the coding-agent CLIs on your machine — their billing tier, the enabled flag, and the default. Manage it from the CLI, web, TUI, or MCP; it is the single source of truth for autopilot's cost ladder.
 ---
 
 Picking a backend per spawn with [`--backend`](/warden/concepts/agent-backends/) is
 the *foreground* choice. The **backend registry** is the durable *background* picture
 behind it: warden detects the coding-agent CLIs installed on this machine and
 remembers, per backend, **how it's billed**, **whether it's enabled**, and **which one
-is the default** — plus a machine-wide **internal-thinking mode**.
+is the default**.
 
-That store is warden's **single source of truth** for backends. Two subsystems read
-from it:
+That store is warden's **single source of truth** for backends. It feeds
+**[Autopilot](/warden/concepts/autopilot/)'s cost-tier ladder** — cheapest-first
+backend selection for the manager and guardian.
 
-- **[Autopilot](/warden/concepts/autopilot/)'s cost-tier ladder** — cheapest-first
-  backend selection for the manager and guardian.
-- **The internal free/local thinking router** — warden's own thinking (task
-  classification, digest narration, memory curation) routed *strictly*
-  through free and local backends, **never** a paid call. Prompt-driven agent
-  naming is separate (subscription fast-tier, 1.5s timeout, adjective-noun
-  fallback — see [Spawn & watch](/warden/guides/spawn-and-watch/)).
+warden's own internal thinking (task classification, summaries, agent naming, commit
+messages, digest narration, memory curation, REPL planning) is **not** driven by the
+registry: it runs on **Fast-Brain**, a latency-bounded, fail-open gateway over a
+headless backend CLI. There is no thinking-mode setting and no reserved `local` row
+any more (a legacy `PUT /api/v1/backends/thinking-mode` is a 200 no-op).
 
 ## The mental model: detection is a fact, tiering is a preference
 
@@ -37,84 +36,44 @@ The store lives in an embedded ScrivaDB collection at `~/.warden/backends` and i
 managed by the daemon — every surface below is a thin caller of the same
 `/api/v1/backends*` endpoints.
 
-## The reserved `local` row
-
-Alongside the detected CLIs, the registry always carries a reserved **`local`** row —
-a `$0`, **never-rate-limited** class representing warden's [local
-model](/warden/multi-agent/repl/). It is special:
-
-- Its tier is the system-set **`local`** (you can't re-tier it).
-- It can **never** be a user-agent default.
-- It is the **terminal candidate** of the internal-thinking walk — the fallback that
-  always answers.
-
 ## Tiers
 
 Every detected backend carries a billing **tier**:
 
 | Tier | Meaning |
 |---|---|
-| `free` | A `$0` backend (you run it on a free plan). The **only** CLI tier the internal-thinking router calls. |
+| `free` | A `$0` backend (you run it on a free plan). The cheapest rung of autopilot's cost ladder. |
 | `subscription` | Covered by a flat subscription. |
 | `pay_per_use` | Metered / pay-as-you-go. |
 | `unclassified` | Not yet tiered. A newly detected CLI starts here, treated as **not free**. |
-| `local` | Reserved, system-set — the `local` row only. |
 
 A newly detected CLI is `unclassified` until you tier it, so warden never assumes a
-backend is free (and never routes internal thinking to it) without you saying so.
-
-## The internal-thinking mode
-
-warden does a fair amount of its own "thinking" — classifying a task, summarizing
-activity, narrating a digest, curating project memory. This is
-**internal**, non-user-facing work, and warden routes it **only** through free and
-local backends. It **never makes a paid call**. (Agent naming at spawn uses a
-subscription fast-tier lookup with a hard timeout instead — see
-[Spawn & watch](/warden/guides/spawn-and-watch/).) The **thinking-mode** picks the walk:
-
-| Mode | Walk |
-|---|---|
-| `local_only` | The local model only. |
-| `free_plus_local` *(default)* | Eligible **free** CLI backends first (default-first, then stable id order), then the never-limited local model. |
-
-A free CLI backend is eligible only when it is **installed**, **enabled**, tier
-**`free`**, and **not currently rate-limited**. On a rate-limit / spend signal warden
-stamps that backend limited (config `backends.limit_retry`, default `15m`) and moves
-to the next candidate. When the walk is exhausted, the caller **degrades gracefully**
-— a deterministic slug, a skipped narration, the default task bucket, no memory
-proposal — rather than escalating to a `subscription` / `pay_per_use` backend.
+backend is free without you saying so.
 
 ## Managing it
 
 ### CLI — `warden backend`
 
 ```sh
-warden backend list                 # full table incl. the reserved local row (alias: ls)
+warden backend list                 # full table of detected backends (alias: ls)
 # ID       INSTALLED  TIER          DEFAULT  ENABLED  LIMITED
 # aider    ✓          unclassified  -        ✓        -
 # claude   ✓          subscription  ✓        ✓        -
 # codex    ✓          free          -        ✓        -
-# local    -          local         -        ✓        -
-#
-# internal thinking mode: free_plus_local
 
 warden backend rescan               # re-detect installed CLIs (preferences preserved)
 warden backend tier codex free      # free | subscription | pay_per_use | unclassified
-warden backend default claude       # set the single default (rejects local)
+warden backend default claude       # set the single default
 warden backend enable codex         # / warden backend disable aider
-warden backend thinking-mode local_only   # or free_plus_local
 ```
 
-`warden backend default <id>` is rejected for an unknown, uninstalled, disabled, or
-reserved (`local`) target — the same rules the daemon enforces.
+`warden backend default <id>` is rejected for an unknown, uninstalled, or disabled target — the same rules the daemon enforces.
 
 ### Web — the 🧩 backends panel
 
 Open the **🧩 backends** button in the web AttentionBar (Esc closes it). It's a table
 with a **Tier** dropdown, a **Default** radio, an **Enabled** checkbox, and a live
-**Limited** countdown per row, plus a header **thinking-mode** selector and a **⟳
-Rescan** button. The reserved `local` row shows a static "Local" tier and a disabled
-default radio.
+**Limited** countdown per row, plus a header **⟳ Rescan** button.
 
 ### TUI — the Backends page (`b`)
 
@@ -125,7 +84,6 @@ Press `b` in the [TUI cockpit](/warden/guides/tui-cockpit/) to open the Backends
 | `t` | Cycle the focused backend's tier |
 | `d` / `enter` | Make it the default |
 | `e` / space | Toggle enabled |
-| `m` | Flip the internal-thinking mode |
 | `r` | Rescan |
 | `esc` / `b` | Back |
 
@@ -139,7 +97,6 @@ For an orchestrating agent:
 | `rescan_backends` | Re-detect and reconcile, return the refreshed registry |
 | `set_backend_tier` | Assign a billing tier |
 | `set_default_backend` | Set the single default |
-| `set_thinking_mode` | Set `local_only` / `free_plus_local` |
 
 **Enabling/disabling a backend is intentionally not an MCP tool** — it is available on
 the CLI, web, and TUI, and over REST as `PATCH /api/v1/backends/{id}`.
@@ -147,8 +104,8 @@ the CLI, web, and TUI, and over REST as `PATCH /api/v1/backends/{id}`.
 ## Autopilot reads the same registry
 
 [Autopilot](/warden/concepts/autopilot/)'s **cost-tier backend ladder** and its
-**paid-autopilot gate** are derived from this registry: only **installed, enabled,
-non-`local`** backends are eligible, bucketed by tier, cheapest first. So the way you
+**paid-autopilot gate** are derived from this registry: only **installed, enabled**
+backends are eligible, bucketed by tier, cheapest first. So the way you
 steer autopilot's spending is simply how you tier backends here.
 
 :::note[Deprecation]
