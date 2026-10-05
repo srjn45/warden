@@ -34,6 +34,7 @@ const (
 	ActionAutopilotOff      = "autopilot_off"
 	ActionAutopilotLand     = "autopilot_land"
 	ActionAutopilotComplete = "autopilot_complete"
+	ActionPlanRestart       = "plan_restart"
 	ActionBrainConsult      = "brain_consult"
 )
 
