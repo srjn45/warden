@@ -114,11 +114,21 @@ type PlanView struct {
 	OrchestratorID string            `json:"orchestrator_id,omitempty"`
 	RepoExport     *PlanRepoExport   `json:"repo_export,omitempty"`
 	Executor       *PlanExecutor     `json:"executor,omitempty"`
-	CreatedAt      time.Time         `json:"created_at"`
-	UpdatedAt      time.Time         `json:"updated_at"`
-	StartedAt      time.Time         `json:"started_at,omitempty"`
-	CompletedAt    time.Time         `json:"completed_at,omitempty"`
-	ArchivedAt     time.Time         `json:"archived_at,omitempty"`
+	// Ending record (plan-finish-flow §6): decoded here so `plan show` and the
+	// MCP tools no longer drop them on re-encode.
+	Outcome                          *planstore.PlanOutcome           `json:"outcome,omitempty"`
+	CleanupEvidence                  *planstore.CleanupEvidence       `json:"cleanup_evidence,omitempty"`
+	ExecutionSummary                 *planstore.ExecutionSummary      `json:"execution_summary,omitempty"`
+	ExecutionHistory                 []planstore.PlanExecution        `json:"execution_history,omitempty"`
+	TaskOutcomes                     map[string]planstore.TaskOutcome `json:"task_outcomes,omitempty"`
+	BranchSummaries                  []planstore.BranchSummary        `json:"branch_summaries,omitempty"`
+	IntegrationBranchLeftover        bool                             `json:"integration_branch_leftover,omitempty"`
+	IntegrationBranchLeftoverCommits int                              `json:"integration_branch_leftover_commits,omitempty"`
+	CreatedAt                        time.Time                        `json:"created_at"`
+	UpdatedAt                        time.Time                        `json:"updated_at"`
+	StartedAt                        time.Time                        `json:"started_at,omitempty"`
+	CompletedAt                      time.Time                        `json:"completed_at,omitempty"`
+	ArchivedAt                       time.Time                        `json:"archived_at,omitempty"`
 }
 
 // PlanExecutor is the live executor block on GET /plans/{id} (in_progress plans only).

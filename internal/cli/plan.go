@@ -497,7 +497,15 @@ func newPlanShowCmd() *cobra.Command {
 			"For an in_progress plan it is the single status view of the run: executor\n" +
 			"kind and state (active, healing, degraded, paused, stopped), backoff detail\n" +
 			"when present, the integration branch, and per task the state, worker agent\n" +
-			"and PR. Use --watch to keep refreshing it.",
+			"and PR, plus the final PR (integration → default branch) once it exists. Use\n" +
+			"--watch to keep refreshing it.\n\n" +
+			"For a completed plan it prints an outcome block: the final PR and its state,\n" +
+			"the integration branch and what became of it (deleted, kept, abandoned,\n" +
+			"delete failed), the execution summary (duration, tasks done and skipped, PRs\n" +
+			"landed) and any recorded cleanup failures. A plan completed before this\n" +
+			"record existed whose integration branch still has commits not on the default\n" +
+			"branch gets a warning line naming the branch (`plan list --json` flags it as\n" +
+			"integration_branch_leftover).",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			jsonOut, _ := cmd.Flags().GetBool("json")
@@ -1286,7 +1294,9 @@ func newPlanCompleteCmd() *cobra.Command {
 			"its executor (autopilot run, pipeline and plan-bound agents), and removes\n" +
 			"their worktrees and branches. The plan record itself is kept; PR references\n" +
 			"and execution history are preserved. If cleanup only partly succeeds the\n" +
-			"plan stays in_progress and the command can be run again.",
+			"plan stays in_progress and the command can be run again.\n\n" +
+			"The plan keeps an outcome record — final PR, integration branch and whether\n" +
+			"it was deleted — that `wd plan show` prints for completed plans.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			abandon, _ := cmd.Flags().GetBool("abandon-unmerged")
@@ -1568,6 +1578,110 @@ func printPlanExecutor(w io.Writer, e *client.PlanExecutor) {
 	}
 }
 
+// planFinalPRLine renders the final PR as "#12 (merged) https://…".
+func planFinalPRLine(fp *planstore.PlanOutcomeFinalPR) string {
+	line := fmt.Sprintf("#%d", fp.Number)
+	if fp.State != "" {
+		line += " (" + fp.State + ")"
+	}
+	if fp.URL != "" {
+		line += " " + fp.URL
+	}
+	return line
+}
+
+// planBranchFateLine renders the integration branch and what became of it.
+func planBranchFateLine(o *planstore.PlanOutcome) string {
+	line := o.IntegrationBranch
+	switch o.BranchFate {
+	case planstore.BranchFateDeleted:
+		line += " — deleted"
+		if o.BranchDeletedAt != nil {
+			line += " " + o.BranchDeletedAt.Format(time.RFC3339)
+		}
+	case planstore.BranchFateKeptUnmerged:
+		line += " — kept: has commits the merged PR did not cover"
+	case planstore.BranchFateAbandoned:
+		line += " — kept (completed with --abandon-unmerged)"
+	case planstore.BranchFateDeleteFailed:
+		line += fmt.Sprintf(" — delete failed (%d attempts)", o.BranchDeleteAttempts)
+	case planstore.BranchFateLeftoverUnmerged:
+		line += " — still exists with unmerged commits"
+	case "":
+		line += " — not yet deleted"
+	default:
+		line += " — " + string(o.BranchFate)
+	}
+	if o.BranchDeleteError != "" {
+		line += ": " + o.BranchDeleteError
+	}
+	return line
+}
+
+// printPlanEnding renders how a plan ended: for an in_progress plan just the
+// final PR line once it exists; for a completed plan the full outcome block
+// (plan-finish-flow §6/§9).
+func printPlanEnding(w io.Writer, p *client.PlanView) {
+	o := p.Outcome
+	if p.Status != "completed" {
+		if o != nil && o.FinalPR != nil && o.FinalPR.Number > 0 {
+			fmt.Fprintf(w, "final_pr:       %s\n", planFinalPRLine(o.FinalPR))
+		}
+		return
+	}
+	fmt.Fprintln(w, "outcome:")
+	if o != nil && o.FinalPR != nil && o.FinalPR.Number > 0 {
+		fmt.Fprintf(w, "  final_pr:     %s\n", planFinalPRLine(o.FinalPR))
+	} else {
+		fmt.Fprintln(w, "  final_pr:     none")
+	}
+	if o != nil && o.IntegrationBranch != "" {
+		fmt.Fprintf(w, "  branch:       %s\n", planBranchFateLine(o))
+	}
+	if es := p.ExecutionSummary; es != nil && es.PlanID != "" {
+		dur := "unknown"
+		if es.CompletedAt != nil && !es.StartedAt.IsZero() {
+			dur = es.CompletedAt.Sub(es.StartedAt).Round(time.Second).String()
+		}
+		skipped := 0
+		if p.TaskSummary != nil {
+			skipped = p.TaskSummary.Skipped
+		}
+		fmt.Fprintf(w, "  summary:      duration %s, %d/%d tasks done, %d skipped, %s\n",
+			dur, es.TasksDone, es.TasksTotal, skipped, planPRsLanded(p))
+		if es.OutcomeNote != "" {
+			fmt.Fprintf(w, "  note:         %s\n", es.OutcomeNote)
+		}
+	} else {
+		fmt.Fprintln(w, "  summary:      none recorded")
+	}
+	if ce := p.CleanupEvidence; ce != nil {
+		for _, e := range append(append([]string{}, ce.Errors...), ce.WorktreeErrors...) {
+			fmt.Fprintf(w, "  cleanup_failure: %s\n", e)
+		}
+	}
+	if p.IntegrationBranchLeftover && o != nil {
+		fmt.Fprintf(w, "  WARNING: integration branch %s still has %d commit(s) not on %s and no merged final PR covers them — merge it or delete the branch.\n",
+			o.IntegrationBranch, p.IntegrationBranchLeftoverCommits, dash(o.DefaultBranch))
+	}
+}
+
+// planPRsLanded counts the distinct PRs recorded as merged across the plan's
+// branch summaries (the final PR included once).
+func planPRsLanded(p *client.PlanView) string {
+	seen := map[int]bool{}
+	for _, b := range p.BranchSummaries {
+		if b.PR != nil && b.PR.Number > 0 && strings.EqualFold(b.PR.State, "merged") {
+			seen[b.PR.Number] = true
+		}
+	}
+	if p.Outcome != nil && p.Outcome.FinalPR != nil && p.Outcome.FinalPR.Number > 0 &&
+		strings.EqualFold(p.Outcome.FinalPR.State, "merged") {
+		seen[p.Outcome.FinalPR.Number] = true
+	}
+	return fmt.Sprintf("%d PRs landed", len(seen))
+}
+
 func printPlanDetail(w io.Writer, p *client.PlanView) {
 	fmt.Fprintf(w, "id:             %s\n", p.ID)
 	fmt.Fprintf(w, "name:           %s\n", p.Name)
@@ -1606,6 +1720,7 @@ func printPlanDetail(w io.Writer, p *client.PlanView) {
 		fmt.Fprintf(w, "orchestrator:   %s\n", p.OrchestratorID)
 	}
 	printPlanExecutor(w, p.Executor)
+	printPlanEnding(w, p)
 	if p.TaskSummary != nil && p.TaskSummary.Total > 0 {
 		fmt.Fprintf(w, "task_summary:   %d/%d done (%d in_progress, %d pending, %d skipped)\n",
 			p.TaskSummary.Done, p.TaskSummary.Total, p.TaskSummary.InProgress, p.TaskSummary.Pending, p.TaskSummary.Skipped)
