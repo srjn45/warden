@@ -22,7 +22,6 @@ func backendsFixture() client.BackendsState {
 			{ID: "codex", Installed: true, Tier: backendstore.TierSubscription, Enabled: false},
 			{ID: "local", Installed: true, Tier: backendstore.TierLocal, IsLocal: true, Enabled: true},
 		},
-		Settings: client.BackendSettings{InternalThinkingMode: backendstore.ThinkingModeFreePlusLocal},
 	}
 }
 
@@ -164,19 +163,6 @@ func TestBackendsRescan(t *testing.T) {
 	}
 }
 
-func TestBackendsToggleThinkingMode(t *testing.T) {
-	m := backendsModel(0) // free_plus_local
-	_, cmd := m.handleKey(key("m"))
-	if cmd == nil {
-		t.Fatalf("m should return a set-thinking-mode cmd")
-	}
-	cmd()
-	fa := m.api.(*fakeAPI)
-	if fa.thinkingMode != backendstore.ThinkingModeLocalOnly {
-		t.Fatalf("free_plus_local should toggle to local_only, got %q", fa.thinkingMode)
-	}
-}
-
 func TestBackendsClose(t *testing.T) {
 	for _, k := range []string{"esc", "b"} {
 		m := backendsModel(0)
@@ -190,7 +176,6 @@ func TestBackendsClose(t *testing.T) {
 func TestBackendsBodyRendersTableAndLocalRow(t *testing.T) {
 	body := backendsBody(backendsFixture(), 0)
 	for _, want := range []string{
-		"internal thinking", "free_plus_local", // header control
 		"ID", "TIER", "DEF", "EN", "LIMITED", // column headers
 		"claude", "codex", "local", // every row incl. the reserved local row
 		"›", // the cursor marker on the selected row
@@ -222,14 +207,5 @@ func TestNextTierCycle(t *testing.T) {
 		if got := nextTier(cur); got != want {
 			t.Errorf("nextTier(%q) = %q, want %q", cur, got, want)
 		}
-	}
-}
-
-func TestNextThinkingMode(t *testing.T) {
-	if got := nextThinkingMode(backendstore.ThinkingModeFreePlusLocal); got != backendstore.ThinkingModeLocalOnly {
-		t.Errorf("free_plus_local should toggle to local_only, got %q", got)
-	}
-	if got := nextThinkingMode(backendstore.ThinkingModeLocalOnly); got != backendstore.ThinkingModeFreePlusLocal {
-		t.Errorf("local_only should toggle to free_plus_local, got %q", got)
 	}
 }

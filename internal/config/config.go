@@ -69,7 +69,10 @@ type WorktreeConfig struct {
 	AutoPrune    bool `yaml:"auto_prune"`
 }
 
-// LocalLLMConfig groups local-model, REPL, and LLM-offload settings.
+// LocalLLMConfig groups the legacy local-model, REPL, and LLM-offload settings.
+//
+// Deprecated: Fast-Brain replaced the local LLM. The keys are still parsed so
+// existing config files load, but they no longer drive runtime behavior.
 type LocalLLMConfig struct {
 	Enabled    bool   `yaml:"enabled"`
 	URL        string `yaml:"url"`
@@ -349,7 +352,7 @@ type Config struct {
 	Tokens       TokensConfig       `yaml:"tokens"`
 	Notify       NotifyConfig       `yaml:"notify"`
 	Worktree     WorktreeConfig     `yaml:"worktree"`
-	LocalLLM     LocalLLMConfig     `yaml:"local_llm"`
+	LocalLLM     LocalLLMConfig     `yaml:"local_llm"` // Deprecated: parsed, ignored
 	Pipeline     PipelineConfig     `yaml:"pipeline"`
 	AutoRestart  AutoRestartConfig  `yaml:"auto_restart"`
 	Collab       CollabConfig       `yaml:"collab"`

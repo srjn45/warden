@@ -37,7 +37,7 @@ func TestSetupNothingMissing(t *testing.T) {
 	rr := &recordRun{}
 	var out bytes.Buffer
 	sio := setupIO{
-		look:    lookFunc("tmux", "git", "claude", "gh", "ollama"),
+		look:    lookFunc("tmux", "git", "claude", "gh"),
 		run:     rr.run,
 		confirm: func(string) bool { return true },
 		goos:    "linux",
@@ -58,7 +58,7 @@ func TestSetupMissingRequiredConfirmYes(t *testing.T) {
 	rr := &recordRun{}
 	var out bytes.Buffer
 	sio := setupIO{
-		look:    lookFunc("tmux", "git", "gh", "ollama", "apt"),
+		look:    lookFunc("tmux", "git", "gh", "apt"),
 		run:     rr.run,
 		confirm: func(string) bool { return true },
 		goos:    "linux",
@@ -76,7 +76,7 @@ func TestSetupConfirmNoSkips(t *testing.T) {
 	rr := &recordRun{}
 	var out bytes.Buffer
 	sio := setupIO{
-		look:    lookFunc("tmux", "git", "gh", "ollama", "apt"),
+		look:    lookFunc("tmux", "git", "gh", "apt"),
 		run:     rr.run,
 		confirm: func(string) bool { return false },
 		goos:    "linux",
@@ -112,9 +112,9 @@ func TestSetupYesSkipsPrompts(t *testing.T) {
 	if confirmCalled {
 		t.Fatal("--yes must not consult confirm")
 	}
-	// tmux, git, claude, gh, ollama → 5 install commands.
-	if len(rr.cmds) != 5 {
-		t.Fatalf("expected 5 installs, ran: %v", rr.cmds)
+	// tmux, git, claude, gh → 4 install commands.
+	if len(rr.cmds) != 4 {
+		t.Fatalf("expected 4 installs, ran: %v", rr.cmds)
 	}
 	joined := strings.Join(rr.cmds, "\n")
 	for _, want := range []string{
@@ -122,7 +122,6 @@ func TestSetupYesSkipsPrompts(t *testing.T) {
 		"sudo apt install -y git",
 		"curl -fsSL https://claude.ai/install.sh | bash",
 		"sudo apt install -y gh",
-		"curl -fsSL https://ollama.com/install.sh | sh",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("missing %q in:\n%s", want, joined)
@@ -134,7 +133,7 @@ func TestSetupInstallFailureIsReported(t *testing.T) {
 	rr := &recordRun{err: errors.New("boom")}
 	var out bytes.Buffer
 	sio := setupIO{
-		look:    lookFunc("tmux", "git", "claude", "gh", "apt"), // only ollama missing
+		look:    lookFunc("tmux", "git", "claude", "apt"), // only gh missing
 		run:     rr.run,
 		confirm: func(string) bool { return true },
 		goos:    "linux",
@@ -142,7 +141,7 @@ func TestSetupInstallFailureIsReported(t *testing.T) {
 	if err := runSetup(&out, sio, true); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "failed to install ollama") {
+	if !strings.Contains(out.String(), "failed to install gh") {
 		t.Fatalf("expected failure report:\n%s", out.String())
 	}
 }
@@ -237,22 +236,6 @@ func TestResolveActionClaudeSpecialInstaller(t *testing.T) {
 	}
 }
 
-func TestResolveActionOllamaSpecialInstaller(t *testing.T) {
-	// Linux → official script.
-	if got := resolveAction(setupDep{name: "ollama"}, "linux", pmApt, false); got.cmd != "curl -fsSL https://ollama.com/install.sh | sh" {
-		t.Fatalf("linux ollama installer wrong: %q", got.cmd)
-	}
-	// macOS with brew → brew install.
-	if got := resolveAction(setupDep{name: "ollama"}, "darwin", pmBrew, true); got.cmd != "brew install ollama" {
-		t.Fatalf("darwin+brew ollama wrong: %q", got.cmd)
-	}
-	// macOS without brew → print-only with official download URL.
-	got := resolveAction(setupDep{name: "ollama"}, "darwin", pmBrew, false)
-	if got.cmd != "" || !strings.Contains(got.note, "ollama.com/download") {
-		t.Fatalf("darwin no-brew ollama should be print-only: cmd=%q note=%q", got.cmd, got.note)
-	}
-}
-
 func TestSetupDepsMirrorsDoctorLists(t *testing.T) {
 	deps := setupDeps()
 	if len(deps) != len(requiredBinaries)+len(optionalBinaries) {
@@ -278,7 +261,7 @@ func TestSetupPrintsFinalReport(t *testing.T) {
 	rr := &recordRun{}
 	var out bytes.Buffer
 	sio := setupIO{
-		look:    lookFunc("tmux", "git", "gh", "ollama", "apt"),
+		look:    lookFunc("tmux", "git", "gh", "apt"),
 		run:     rr.run,
 		confirm: func(string) bool { return true },
 		goos:    "linux",

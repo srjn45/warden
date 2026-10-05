@@ -131,9 +131,7 @@ func newInsightsCmd() *cobra.Command {
 		Long: "Analyze warden's own history — completed and active agent sessions plus recorded " +
 			"resource metrics — into actionable suggestions: typical/outlier durations by type, " +
 			"frequently co-edited files, error rates, busy periods, and sequential-but-disjoint " +
-			"sessions that could have run in parallel. Deterministic by default; when local_llm is " +
-			"enabled the summary is narrated by the local model (and degrades to the deterministic " +
-			"text on any model error).",
+			"sessions that could have run in parallel. Deterministic.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg := config.Load(configPathFor(cmd))

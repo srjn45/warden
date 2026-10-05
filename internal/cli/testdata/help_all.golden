@@ -174,15 +174,14 @@ Complete command tree:
   warden backend enable                Enable a backend so it may be used
   warden backend list                  List detected backends (installed, tier, default, enabled, limited)
   warden backend rescan                Re-detect installed backend CLIs and print the updated table
-  warden backend thinking-mode         Set the internal-thinking routing mode (local_only|free_plus_local)
   warden backend tier                  Set a backend's billing tier (free|subscription|pay_per_use|unclassified)
   warden backend model                 Inspect and manage model catalog and live model menus
   warden backend model add             Register a custom model in the catalog
   warden backend model discover        Probe installed AI CLIs for live model menus
   warden backend model list            List models in the catalog and their assigned tiers
   warden backend model tier            Set a model's tier classification (tier-1|tier-2|tier-3)
-  warden backend suggest               Recommend local models for the REPL, sized to this machine's memory
-  warden backend repl                  Interactive REPL for agents, pipelines, and the git/check lifecycle (local LLM + `/` commands).
+  warden backend suggest               Retired — Fast-Brain replaced local_llm
+  warden backend repl                  Interactive REPL for agents, pipelines, and the git/check lifecycle (Fast-Brain + `/` commands).
   warden usage                         Show provider usage for subscription backends
   warden usage spend                   Show measured Claude spend in dollars, per agent / repo / day
   warden usage savings                 Show the token reductions warden's lifecycle features have earned
@@ -205,7 +204,7 @@ Complete command tree:
   warden factory-reset                 Reset warden to a fresh-install state (scoped wipe of daemon data)
   warden bug-report                    Review a staged crash draft and, only if you approve, file it as a GitHub issue
   warden login                         Authenticate this node with a warden-hub relay using the device flow
-  warden setup                         Install missing dependencies (tmux, git, claude; optional gh, ollama)
+  warden setup                         Install missing dependencies (tmux, git, claude; optional gh)
   warden tutorial                      Run the first-run guided walkthrough of warden's core loop
   warden doctor                        Run preflight checks (required binaries, daemon, data dir, configured local model)
   warden tui                           Live terminal cockpit for agents
@@ -255,7 +254,6 @@ Compatibility aliases:
   warden backends list -> warden backend list (compatibility)
   warden backends ls -> warden backend list (compatibility)
   warden backends rescan -> warden backend rescan (compatibility)
-  warden backends thinking-mode -> warden backend thinking-mode (compatibility)
   warden backends tier -> warden backend tier (compatibility)
   warden branches -> warden workspace branches (compatibility)
   warden clean -> warden workspace clean (compatibility)

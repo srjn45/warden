@@ -84,19 +84,17 @@ type fakeAPI struct {
 	autopilotAction  string
 
 	// backend registry (Backends page)
-	backends     client.BackendsState
-	backendsErr  error // error ListBackends/RescanBackends return
-	rescanned    bool  // RescanBackends was called
-	tieredID     string
-	tieredTier   string
-	tierErr      error
-	enabledID    string
-	enabledVal   bool
-	enabledErr   error
-	defaultedID  string
-	defaultErr   error
-	thinkingMode string // last mode passed to SetThinkingMode
-	thinkingErr  error
+	backends    client.BackendsState
+	backendsErr error // error ListBackends/RescanBackends return
+	rescanned   bool  // RescanBackends was called
+	tieredID    string
+	tieredTier  string
+	tierErr     error
+	enabledID   string
+	enabledVal  bool
+	enabledErr  error
+	defaultedID string
+	defaultErr  error
 
 	models       []backendstore.ModelEntry
 	modelsErr    error
@@ -283,10 +281,6 @@ func (f *fakeAPI) SetBackendEnabled(_ context.Context, id string, enabled bool) 
 func (f *fakeAPI) SetDefaultBackend(_ context.Context, id string) (client.BackendsState, error) {
 	f.defaultedID = id
 	return f.backends, f.defaultErr
-}
-func (f *fakeAPI) SetThinkingMode(_ context.Context, mode string) (client.BackendSettings, error) {
-	f.thinkingMode = mode
-	return client.BackendSettings{InternalThinkingMode: mode}, f.thinkingErr
 }
 func (f *fakeAPI) ListModels(_ context.Context, tier string) ([]backendstore.ModelEntry, error) {
 	if f.modelsErr != nil {
