@@ -102,6 +102,7 @@ type Controller struct {
 	baseDir           string
 	resolver          Resolver
 	guardian          GuardianParams
+	fixPolicy         FixPolicy
 
 	// now is the clock the guardian + tierstate read (injectable for tests via
 	// setClock). tierstate tracks per-backend rate-limit windows for selection.
