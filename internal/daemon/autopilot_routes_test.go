@@ -199,10 +199,10 @@ func TestAutopilotUnconfigured(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, resp.StatusCode)
 }
 
-// TestCompleteAutopilotHandler exercises the brain's completion signal: only the
-// run's own brain may complete it (403 otherwise), completion writes the in-place
-// marker (comment preserved) and transitions the run to complete, and it is
-// idempotent.
+// TestCompleteAutopilotHandler exercises the brain's completion signal under
+// managed completion (run-to-final-pr §E): only the run's own brain may call it,
+// and the call only confirms done_when — the run stays active until the daemon
+// opens the final PR and it goes green. Non-brain / stale-brain callers get 403.
 func TestCompleteAutopilotHandler(t *testing.T) {
 	dir := t.TempDir()
 	plan := filepath.Join(dir, "plan.yaml")
@@ -215,6 +215,7 @@ func TestCompleteAutopilotHandler(t *testing.T) {
 		Gate:              "auto",
 		Resolver:          autopilotTestResolver{},
 	}, &apFakeEnv{repo: dir}))
+	require.True(t, srv.autopilot.CompletionManaged(), "daemon runtime owns the completion phase")
 
 	st, err := srv.autopilot.ReconcileConfiguredPlans(context.Background(), "")
 	require.NoError(t, err)
@@ -236,29 +237,32 @@ func TestCompleteAutopilotHandler(t *testing.T) {
 	_, forbidden = resp.(oapi.CompleteAutopilot403JSONResponse)
 	require.True(t, forbidden, "a stale brain cannot complete the run")
 
-	// The current brain completes the run.
+	// The current brain verifies done_when; the run does not complete yet.
 	activeBrainID := st.Runs[0].Brain.AgentID
 
 	resp, err = srv.CompleteAutopilot(ctxWithActor(activeBrainID), oapi.CompleteAutopilotRequestObject{})
 	require.NoError(t, err)
 	ok200, isOK := resp.(oapi.CompleteAutopilot200JSONResponse)
-	require.True(t, isOK, "the brain completes its run (200)")
+	require.True(t, isOK, "the brain's verify signal is accepted (200)")
 	require.Len(t, ok200.Runs, 1)
-	require.Equal(t, autopilot.StateComplete, ok200.Runs[0].State)
+	require.Equal(t, autopilot.StateActive, ok200.Runs[0].State, "managed completion defers StateComplete until the final PR is green")
 
-	// The plan file gained a durable, re-parseable marker with the comment intact.
+	// The plan file is untouched — the complete marker is written only when the
+	// final PR goes green (or nothing-to-merge / human merge).
 	raw, err := os.ReadFile(plan)
 	require.NoError(t, err)
 	require.Contains(t, string(raw), "# owner comment — keep me")
+	require.NotContains(t, string(raw), "status: complete")
 	p, err := autopilot.LoadPlan(plan)
 	require.NoError(t, err)
-	require.True(t, p.IsComplete())
+	require.False(t, p.IsComplete())
 
-	// Idempotent: completing again is still a 200 no-op.
-	resp, err = srv.CompleteAutopilot(ctxWithActor("brain-caller"), oapi.CompleteAutopilotRequestObject{})
+	// Idempotent: verifying again is still a 200 no-op.
+	resp, err = srv.CompleteAutopilot(ctxWithActor(activeBrainID), oapi.CompleteAutopilotRequestObject{})
 	require.NoError(t, err)
 	_, isOK = resp.(oapi.CompleteAutopilot200JSONResponse)
 	require.True(t, isOK)
+	require.Equal(t, autopilot.StateActive, srv.autopilot.Status().Runs[0].State)
 }
 
 func TestUpdateTaskStatusRejectsStaleBrain(t *testing.T) {

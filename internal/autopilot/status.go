@@ -48,6 +48,8 @@ type RunStatus struct {
 	// NeedsAttention is set when the guardian stopped retrying a failure that
 	// cannot succeed on retry; it carries the reason and how to clear it.
 	NeedsAttention string `json:"needs_attention,omitempty"`
+	// FinalPR is the single final PR (integration → default) once opened.
+	FinalPR *FinalPR `json:"final_pr,omitempty"`
 	// ResolverAttempts counts resolver agents spawned per PR branch (capped at 3).
 	ResolverAttempts map[string]int `json:"resolver_attempts,omitempty"`
 	// LastProgressAt is the last observed run progress (ledger task change,
