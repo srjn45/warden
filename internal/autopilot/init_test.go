@@ -95,17 +95,16 @@ func TestInit_PlanTemplateExpands(t *testing.T) {
 	require.Contains(t, env.created, dir+"|integration/release|main")
 }
 
-func TestInitRegistersNamedPlan(t *testing.T) {
+func TestInitScaffoldsAndPrintsNextSteps(t *testing.T) {
 	env := &fakeEnv{}
 	dir := t.TempDir()
-	var got RegisterRequest
-	err := Init(context.Background(), env, dir, InitConfig{Name: "release", Register: func(_ context.Context, req RegisterRequest) error {
-		got = req
-		return nil
-	}}, &bytes.Buffer{})
-	require.NoError(t, err)
-	require.Equal(t, "release", got.Name)
-	require.Equal(t, filepath.Join(dir, "plans", "release.yaml"), got.PlanFile)
+	var out bytes.Buffer
+	require.NoError(t, Init(context.Background(), env, dir, InitConfig{Name: "release"}, &out))
+	require.FileExists(t, filepath.Join(dir, "plans", "release.yaml"))
+	require.Contains(t, out.String(), "wd plan create")
+	require.Contains(t, out.String(), "wd plan run <id> --mode autopilot")
+	require.NotContains(t, out.String(), "registered")
+	require.NotContains(t, out.String(), "autopilot start")
 }
 
 func TestInitRejectsUnsafeName(t *testing.T) {

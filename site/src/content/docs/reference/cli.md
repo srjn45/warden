@@ -1810,7 +1810,7 @@ Usage:
 
 Commands:
   status               Show autopilot status (every run)
-  init                 Scaffold autopilot adoption in the current repo
+  init                 Scaffold the plan file and integration branch for autopilot
   land                 Land an autopilot worker branch into the integration branch
 
 Flags:
@@ -1844,10 +1844,10 @@ Inherited flags:
 
 ```text
 Creates a named template under plans/ in the current git repository (if absent),
-registers it with the daemon, creates the integration branch
-off the default branch if absent, and prints a CI-coverage hint when no workflow
-covers integration pull requests. After init, edit the plan file and run
-`warden autopilot enable` to enable.
+creates the integration branch off the default branch if absent, and prints a
+CI-coverage hint when no workflow covers integration pull requests. Nothing is
+registered with the daemon. Next, edit the plan file, create the canonical plan
+with `wd plan create`, then start it with `wd plan run <id> --mode autopilot`.
 
 Usage:
   warden autopilot init [flags]

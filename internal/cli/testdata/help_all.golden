@@ -77,7 +77,7 @@ Complete command tree:
   warden plan assess                   Brain-assisted task progress assessment
   warden autopilot                     Show autopilot status, scaffold adoption, and land worker branches
   warden autopilot status              Show autopilot status (every run)
-  warden autopilot init                Scaffold autopilot adoption in the current repo
+  warden autopilot init                Scaffold the plan file and integration branch for autopilot
   warden autopilot land                Land an autopilot worker branch into the integration branch
   warden schedule                      Schedule recurring (--cron) or single-shot (--at) agents and pipelines
   warden schedule create               Create a schedule that fires an agent or a pipeline

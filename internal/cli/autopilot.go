@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -308,12 +307,12 @@ func newAutopilotInitCmd() *cobra.Command {
 	var name string
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "Scaffold autopilot adoption in the current repo",
+		Short: "Scaffold the plan file and integration branch for autopilot",
 		Long: "Creates a named template under plans/ in the current git repository (if absent),\n" +
-			"registers it with the daemon, creates the integration branch\n" +
-			"off the default branch if absent, and prints a CI-coverage hint when no workflow\n" +
-			"covers integration pull requests. After init, edit the plan file and run\n" +
-			"`warden autopilot enable` to enable.",
+			"creates the integration branch off the default branch if absent, and prints a\n" +
+			"CI-coverage hint when no workflow covers integration pull requests. Nothing is\n" +
+			"registered with the daemon. Next, edit the plan file, create the canonical plan\n" +
+			"with `wd plan create`, then start it with `wd plan run <id> --mode autopilot`.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			env := autopilot.NewExecEnv()
@@ -329,10 +328,6 @@ func newAutopilotInitCmd() *cobra.Command {
 			return autopilot.Init(cmd.Context(), env, repo, autopilot.InitConfig{
 				Name:              name,
 				IntegrationBranch: cfg.AutopilotIntegrationBranch(),
-				Register: func(ctx context.Context, req autopilot.RegisterRequest) error {
-					_, err := clientFor(cmd).RegisterAutopilotRun(ctx, req.Name, req.Repo, req.PlanFile)
-					return err
-				},
 			}, cmd.OutOrStdout())
 		},
 	}

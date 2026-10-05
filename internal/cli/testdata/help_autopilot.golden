@@ -9,7 +9,7 @@ Usage:
 
 Commands:
   status               Show autopilot status (every run)
-  init                 Scaffold autopilot adoption in the current repo
+  init                 Scaffold the plan file and integration branch for autopilot
   land                 Land an autopilot worker branch into the integration branch
 
 Flags:
