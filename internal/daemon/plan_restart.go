@@ -247,7 +247,7 @@ func (rt autopilotRuntime) applyBranchPolicy(ctx context.Context, sess *agentsto
 		}
 	}
 	if sess.BranchCreated {
-		_, _ = gitOut(ctx, repo, "push", "origin", "--delete", sess.Branch) // best-effort; PRs are never closed
+		_, _ = gitOut(ctx, repo, "push", "--no-verify", "origin", "--delete", sess.Branch) // best-effort; PRs are never closed
 	}
 	td.BranchesDeleted = append(td.BranchesDeleted, sess.Branch)
 }

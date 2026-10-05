@@ -445,7 +445,7 @@ func TestPlanService_CleanupWorktrees(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, fake.called("git", "worktree", "remove"))
 	require.True(t, fake.called("git", "branch", "-d", "worker-1"))
-	require.True(t, fake.called("git", "push", "origin", "--delete", "worker-1"))
+	require.True(t, fake.called("git", "push", "--no-verify", "origin", "--delete", "worker-1"))
 }
 
 func TestPlan_BranchesRoundTrip(t *testing.T) {
