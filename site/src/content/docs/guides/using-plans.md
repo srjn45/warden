@@ -157,6 +157,18 @@ Opt-in only — never runs on daemon start.
 
 Daemon startup does **not** scan `plans/`.
 
+## Recovering a stuck plan
+
+`wd plan resume` only undoes a pause. For an `in_progress` autopilot or pipeline
+plan that was stopped, parked as needs-attention, or stalled with no progress,
+run `wd plan restart <id>` — **destructive**: it terminates the executor's agents
+and removes their worktrees, keeps landed/done work and branches with commits,
+and starts a brand-new set of agents with a `## Restart context`. It asks for
+confirmation (`--yes` to skip; required without a terminal); `--force` also
+restarts an active, starting or paused executor. Not supported for
+`orchestrator_worker`/`manual` plans. Full detail:
+[Recovering a stuck plan](/warden/guides/autopilot/#recovering-a-stuck-plan).
+
 ## Recovery
 
 Prefer Plan backup bundles (definition + audit; no Git required):
@@ -186,6 +198,7 @@ See [Plan backup and restore](/warden/guides/plan-backup-restore/).
 | `wd plan task status <id> <task> <status>` | Set one task's progress |
 | `wd plan delete <id>` | Permanently delete a plan (not while `in_progress`) |
 | `wd plan complete` / `archive` / `run` / `pause\|resume\|stop` | Lifecycle + execution |
+| `wd plan restart <id> [--force] [--backend <id>] [--yes]` | **Destructive.** Restart a stopped/parked/stuck autopilot or pipeline run with fresh agents |
 | `wd plan assess <id>` | Brain-assisted task progress |
 
 ## TUI

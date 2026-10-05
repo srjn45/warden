@@ -1557,11 +1557,24 @@ type PlanExecutorStatus struct {
 	Id                string                 `json:"id"`
 	IntegrationBranch string                 `json:"integration_branch,omitempty"`
 	Kind              PlanExecutorStatusKind `json:"kind"`
-	ManagerAgentId    string                 `json:"manager_agent_id,omitempty"`
+
+	// LastProgressAt RFC3339 time of the run's last observed progress (autopilot executors)
+	LastProgressAt string `json:"last_progress_at,omitempty"`
+
+	// LastRestartAt RFC3339 time of the last restart
+	LastRestartAt     string `json:"last_restart_at,omitempty"`
+	LastRestartReason string `json:"last_restart_reason,omitempty"`
+	ManagerAgentId    string `json:"manager_agent_id,omitempty"`
+
+	// RestartCount operator restarts of this plan's executor (wd plan restart)
+	RestartCount int `json:"restart_count,omitempty"`
 
 	// State autopilot: active|healing|degraded|paused|stopped|complete; pipeline: the pipeline status; agent: the session status
 	State string             `json:"state"`
 	Tasks []PlanExecutorTask `json:"tasks,omitempty"`
+
+	// Watchdog progress watchdog state: disabled|idle|armed|escalating|parked (autopilot executors)
+	Watchdog string `json:"watchdog,omitempty"`
 }
 
 // PlanExecutorStatusKind defines model for PlanExecutorStatus.Kind.
@@ -1789,6 +1802,15 @@ type RemoveWorktreeRequest struct {
 
 // RepoExportMeta Typed last-export metadata for an optional repository YAML replica. Separate from execution history; replicas are inert.
 type RepoExportMeta = planstore.RepoExportMeta
+
+// RestartPlanRequest defines model for RestartPlanRequest.
+type RestartPlanRequest struct {
+	// Backend Optional backend override for the new manager (autopilot only).
+	Backend string `json:"backend,omitempty"`
+
+	// Force Also restart an active, starting or paused executor.
+	Force bool `json:"force,omitempty"`
+}
 
 // RestorePlanBackupRequest defines model for RestorePlanBackupRequest.
 type RestorePlanBackupRequest struct {
@@ -2655,6 +2677,9 @@ type RestorePlanBackupJSONRequestBody = RestorePlanBackupRequest
 // UpdatePlanJSONRequestBody defines body for UpdatePlan for application/json ContentType.
 type UpdatePlanJSONRequestBody = UpdatePlanRequest
 
+// RestartPlanJSONRequestBody defines body for RestartPlan for application/json ContentType.
+type RestartPlanJSONRequestBody = RestartPlanRequest
+
 // RunPlanJSONRequestBody defines body for RunPlan for application/json ContentType.
 type RunPlanJSONRequestBody = RunPlanRequest
 
@@ -2972,6 +2997,9 @@ type ServerInterface interface {
 	// Heuristic related-plan / overlap query
 	// (GET /api/v1/plans/{plan_id}/related)
 	ListRelatedPlans(w http.ResponseWriter, r *http.Request, planId PlanId, params ListRelatedPlansParams)
+	// Restart plan execution with a fresh set of agents
+	// (POST /api/v1/plans/{plan_id}/restart)
+	RestartPlan(w http.ResponseWriter, r *http.Request, planId PlanId)
 	// Start plan execution
 	// (POST /api/v1/plans/{plan_id}/run)
 	RunPlan(w http.ResponseWriter, r *http.Request, planId PlanId)
@@ -3596,6 +3624,12 @@ func (_ Unimplemented) CompletePlan(w http.ResponseWriter, r *http.Request, plan
 // Heuristic related-plan / overlap query
 // (GET /api/v1/plans/{plan_id}/related)
 func (_ Unimplemented) ListRelatedPlans(w http.ResponseWriter, r *http.Request, planId PlanId, params ListRelatedPlansParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Restart plan execution with a fresh set of agents
+// (POST /api/v1/plans/{plan_id}/restart)
+func (_ Unimplemented) RestartPlan(w http.ResponseWriter, r *http.Request, planId PlanId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -5981,6 +6015,38 @@ func (siw *ServerInterfaceWrapper) ListRelatedPlans(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListRelatedPlans(w, r, planId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RestartPlan operation middleware
+func (siw *ServerInterfaceWrapper) RestartPlan(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "plan_id" -------------
+	var planId PlanId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "plan_id", chi.URLParam(r, "plan_id"), &planId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "plan_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RestartPlan(w, r, planId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -8699,6 +8765,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/plans/{plan_id}/related", wrapper.ListRelatedPlans)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/plans/{plan_id}/restart", wrapper.RestartPlan)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/plans/{plan_id}/run", wrapper.RunPlan)
@@ -11476,6 +11545,71 @@ func (response ListRelatedPlans404JSONResponse) VisitListRelatedPlansResponse(w 
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestartPlanRequestObject struct {
+	PlanId PlanId `json:"plan_id"`
+	Body   *RestartPlanJSONRequestBody
+}
+
+type RestartPlanResponseObject interface {
+	VisitRestartPlanResponse(w http.ResponseWriter) error
+}
+
+type RestartPlan200JSONResponse Plan
+
+func (response RestartPlan200JSONResponse) VisitRestartPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestartPlan400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response RestartPlan400JSONResponse) VisitRestartPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestartPlan404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RestartPlan404JSONResponse) VisitRestartPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestartPlan409JSONResponse Error
+
+func (response RestartPlan409JSONResponse) VisitRestartPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -14763,6 +14897,9 @@ type StrictServerInterface interface {
 	// Heuristic related-plan / overlap query
 	// (GET /api/v1/plans/{plan_id}/related)
 	ListRelatedPlans(ctx context.Context, request ListRelatedPlansRequestObject) (ListRelatedPlansResponseObject, error)
+	// Restart plan execution with a fresh set of agents
+	// (POST /api/v1/plans/{plan_id}/restart)
+	RestartPlan(ctx context.Context, request RestartPlanRequestObject) (RestartPlanResponseObject, error)
 	// Start plan execution
 	// (POST /api/v1/plans/{plan_id}/run)
 	RunPlan(ctx context.Context, request RunPlanRequestObject) (RunPlanResponseObject, error)
@@ -16913,6 +17050,42 @@ func (sh *strictHandler) ListRelatedPlans(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListRelatedPlansResponseObject); ok {
 		if err := validResponse.VisitListRelatedPlansResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RestartPlan operation middleware
+func (sh *strictHandler) RestartPlan(w http.ResponseWriter, r *http.Request, planId PlanId) {
+	var request RestartPlanRequestObject
+
+	request.PlanId = planId
+
+	var body RestartPlanJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if !errors.Is(err, io.EOF) {
+			sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+			return
+		}
+	} else {
+		request.Body = &body
+	}
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RestartPlan(ctx, request.(RestartPlanRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RestartPlan")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RestartPlanResponseObject); ok {
+		if err := validResponse.VisitRestartPlanResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

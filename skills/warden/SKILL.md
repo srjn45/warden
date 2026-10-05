@@ -246,6 +246,7 @@ its own integration branch and plan-scoped tree (`<scope>-autopilot`,
 | `set_autopilot { enabled: false, repo? }` | **Deprecated.** Pauses every active run in the repo (same as `control_plan` pause on each); prefer `control_plan` | `warden autopilot disable [--repo <root>]` (hidden) |
 | `run_plan { plan_id, execution_mode }` | Start plan execution (`autopilot` / `pipeline` / …) | `warden plan run <id> --mode <mode>` |
 | `control_plan { plan_id, action }` | Pause, resume, or stop an in-progress plan | `warden plan pause\|resume\|stop <id>` |
+| `restart_plan { plan_id, force?, backend? }` | **DESTRUCTIVE.** Restart a stopped/degraded/parked/stuck `in_progress` autopilot or pipeline plan with a brand-new agent set (old agents + worktrees removed; landed work, handoffs and branches with commits kept; new agents get a `## Restart context`). `force` needed for active/starting/paused; `backend` = new manager backend (autopilot). Unsupported for `orchestrator_worker`/`manual`. **Confirm with the operator before calling** | `warden plan restart <id> [--force] [--backend <id>] --yes` |
 | `autopilot_status` | Each run's state, manager slot id, integration branch, task counts, tier, backoff, optional `preflight_warnings` | `warden autopilot status [--json]` (aliases `autopilot run list` / `autopilot list`) |
 | `autopilot_complete` | **Manager-only.** Declare the caller's OWN run complete once `done_when` is verified — writes the in-place `status: complete` marker into the plan file, tears the manager down (workers keep running), retains the ledger. Idempotent | _(automatic; the manager calls it)_ |
 | `brain_consult` | **Manager-only.** Shared short-lived brain resolver for unblock/design decisions — prefer over `spawn_agent` with role=brain. Returns a closed action (`nudge_agent`/`wait`/`escalate`/`noop`); manager executes it. Same Consultor/audit/teardown as pipeline stuck recovery | _(automatic; the manager calls it)_ |
@@ -270,6 +271,21 @@ restored (the watcher then auto-recovers). Do not tell the user to re-enable.
 (one notification, shown as waiting). Clear it by editing the plan in ScrivaDB,
 `wd plan resume` (or pause + resume), or a daemon restart. Transient kinds back
 off forever.
+**Progress watchdog.** No progress (ledger/landing/plan task change/worker spawn)
+for `autopilot.guardian.progress_watchdog_window` (2h) with nothing working
+escalates nudge → restart → rotate, then parks as `no_progress` — recover with
+`wd plan restart`. `wd plan show` prints `last_progress` + watchdog state.
+Keys: `progress_watchdog_enabled` (default true), `progress_watchdog_window` (2h); hot-reload.
+
+**Restart is destructive — ask the operator first.** `wd plan resume` only undoes
+a pause; for a stopped/parked/`no_progress` run use `wd plan restart <id> --yes`
+(MCP `restart_plan`). It kills the old agents and removes their worktrees, then
+starts new ones; work already landed/done and branches with commits survive.
+An active/starting/paused executor needs `--force`. If you are a restarted agent,
+your prompt has a `## Restart context`: don't redo finished tasks, continue an
+unfinished task from its kept branch, reuse its open PR (never open a duplicate),
+and only if the kept work is unusable start from the integration branch and close
+the old PR with a comment.
 
 **CLI-only** (local file authoring): `warden autopilot init [--name <name>]` —
 scaffold `plans/<name>.yaml`. Then create/import the Plan and start with

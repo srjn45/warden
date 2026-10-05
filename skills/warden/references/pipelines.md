@@ -101,6 +101,15 @@ Four bundled starters — `analyze-implement-review`, `parallel-tasks`,
 | tweak a *pending* job before it starts | `warden pipeline edit-job <p> <job> --prompt "…" --handoff "…"` |
 | re-run a failed / needs-attention job (reopens skipped descendants) | `warden pipeline retry <p> <job>` |
 
+**Plan-bound pipelines** (`wd plan run --mode pipeline`): a canceled or stalled
+pipeline is reopened with `wd plan restart <plan-id> --yes` (MCP `restart_plan`),
+not `pipeline resume` (paused-only) or `retry` (one job). **Destructive** — ask the
+operator first: live job agents and worktrees are removed, `done` jobs and
+handoffs are kept, other unfinished jobs are reset and re-run with fresh agents
+(branches with commits become their base) and a `## Restart context` in the job
+prompt. `--force` is needed while a job agent is working or the pipeline is
+running/paused.
+
 A job whose agent goes quiet without emitting is flagged `needs_attention` (the
 pipeline stays `running`) — resolve it with `emit` (if it actually finished) or
 `retry`. If the job remains `needs_attention` after the watcher's one deterministic

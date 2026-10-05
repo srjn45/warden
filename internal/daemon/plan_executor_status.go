@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"time"
 
 	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/daemon/oapi"
@@ -44,6 +45,9 @@ func (s *Server) planExecutorStatus(ctx context.Context, p *planstore.Plan) *oap
 				Id: lt.ID, State: string(lt.State), WorkerAgentId: lt.WorkerID, Branch: lt.Branch, Pr: lt.PR,
 			})
 		}
+		out.LastProgressAt = rs.LastProgressAt
+		out.Watchdog = rs.Watchdog
+		s.fillRestartInfo(out, autopilot.RestartContextKey(rs.RunID))
 		return out
 	case p.PipelineID != "" && s.exec != nil && s.exec.pstore != nil:
 		pl, err := s.exec.pstore.Get(p.PipelineID)
@@ -56,6 +60,7 @@ func (s *Server) planExecutorStatus(ctx context.Context, p *planstore.Plan) *oap
 				Id: j.ID, State: string(j.Status), WorkerAgentId: j.AgentRef(), Branch: j.Branch,
 			})
 		}
+		s.fillRestartInfo(out, autopilot.PlanRestartContextKey(p.ID))
 		return out
 	}
 	agentID := p.OrchestratorID
@@ -70,4 +75,21 @@ func (s *Server) planExecutorStatus(ctx context.Context, p *planstore.Plan) *oap
 		return nil
 	}
 	return &oapi.PlanExecutorStatus{Kind: "agent", Id: agentID, State: string(sess.Status)}
+}
+
+// fillRestartInfo copies the durable restart context (count/reason/time) onto
+// the executor block; absent or unreadable context leaves it untouched.
+func (s *Server) fillRestartInfo(out *oapi.PlanExecutorStatus, key string) {
+	if s.cstore == nil {
+		return
+	}
+	rc, err := autopilot.LoadRestartContext(ctxLedgerStore{cs: s.cstore}, key)
+	if err != nil || rc == nil {
+		return
+	}
+	out.RestartCount = rc.RestartCount
+	out.LastRestartReason = rc.Reason
+	if !rc.RestartedAt.IsZero() {
+		out.LastRestartAt = rc.RestartedAt.UTC().Format(time.RFC3339)
+	}
 }

@@ -219,6 +219,9 @@ func isSlowPath(r *http.Request) bool {
 		strings.HasSuffix(p, "/resume"),
 		strings.HasSuffix(p, "/emit"),
 		strings.HasSuffix(p, "/retry"),
+		// plan restart tears down the whole agent set (terminate, worktree
+		// removal, git branch probing) and spawns a fresh manager.
+		strings.HasSuffix(p, "/restart"),
 		// plan complete tears down the plan's executor, agents and worktrees and
 		// shells `gh pr list` once per plan branch before it can answer.
 		strings.HasSuffix(p, "/complete"):

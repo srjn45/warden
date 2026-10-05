@@ -110,6 +110,19 @@ warden pipeline retry <pipeline> <job>
 
 `edit-job` tweaks a job's prompt and/or handoff *before it starts* (pending jobs only). If a job's agent goes quiet without emitting (its session is flagged `idle` by stuck-detection), the job is marked **`needs_attention`** rather than silently stalling — the pipeline stays `running` and the job is shown flagged. Resolve it by `pipeline emit`-ing on the job's behalf (if the agent actually finished) or `pipeline retry`, which tears down the stale job session/worktree, resets the job, reopens any descendants that were skipped, and re-runs from there.
 
+### Restarting a plan-bound pipeline
+
+A pipeline created by `wd plan run --mode pipeline` is reopened with
+`wd plan restart <plan-id>` (a plain `pipeline resume` still only accepts a paused
+pipeline). **Destructive** — confirm with `--yes`. Live job agents are terminated
+and worktrees removed; `done` jobs and their handoffs are kept; `failed`,
+`needs_attention`, `skipped` and unfinished jobs are reset to `pending` and re-run
+with fresh agents, using any branch that has commits as their base. Reset jobs'
+prompts carry a `## Restart context`. No `--force` is needed once the pipeline is
+canceled/stalled or every non-done job is failed/needs-attention/skipped with no
+working agent; a running or paused pipeline with a working agent needs `--force`.
+See [Recovering a stuck plan](/warden/guides/autopilot/#recovering-a-stuck-plan).
+
 ### Automatic brain consult for stuck jobs
 
 If the job is still `needs_attention` after the watcher's one deterministic auto-retry (`AutoRetryCount ≥ 1`), the daemon may automatically run a **brain consult**: it spawns a short-lived `role=brain` agent, injects a structured prompt, and executes one action from a closed set:

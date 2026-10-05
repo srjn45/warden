@@ -332,6 +332,16 @@ pending work). The heal ladder:
 | 3 — rotate | **Hot-swap** onto the next backend down the cost tier (slot id unchanged) |
 | 4 — backoff | All backends exhausted or rate-limited: wait (capped-exponential backoff), notify, then retry from stage 1 |
 
+**Progress watchdog.** The heartbeat ladder only catches a *dead* manager. A
+second check catches a *live but going nowhere* one: when an active run has had no
+progress (ledger task change, landing, plan task status change, worker spawn) for
+`autopilot.guardian.progress_watchdog_window` (default `2h`) and no run-tagged
+agent is working, the guardian walks the same ladder (watchdog-specific nudge →
+restart → rotate), sharing the heartbeat grace so only one rung climbs per grace
+window. Overwatch nudges and heartbeats are not progress. After the ladder the run
+parks as needs-attention (`no_progress`) and the operator is told to use
+`wd plan restart`. Disable with `progress_watchdog_enabled: false`.
+
 **Missing manager session (no heartbeat wait).** Each guardian tick also checks that the manager's session still exists. If it was deleted or archived (e.g. a failed hot-swap, or an operator `stop`), the guardian does not wait for the heartbeat timeout and does not nudge a ghost: it clears the stale manager record, writes an `autopilot.manager_missing` audit event, and goes straight to the respawn step. While the slot is empty `warden autopilot status` reports the run as `healing` with no manager id (never an id that resolves to nothing); if the respawn fails it becomes `degraded` with the usual backoff. Only a definitive "not found" counts — a store error or daemon restart is treated as unknown and ignored — and a manager that exists but is quiet, busy, rate-limited or mid hot-swap still follows the normal ladder.
 
 Guardian rotation calls `Lifecycle.HotSwap` directly — not the backend

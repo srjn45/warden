@@ -761,6 +761,8 @@ func buildAutopilotControllerConfig(cfg config.Config, baseDir string, res autop
 			RotateAtContext:      cfg.AutopilotGuardianRotateAtContext(),
 			NotifyEach:           cfg.AutopilotGuardianNotifyEach(),
 			MaxIdenticalFailures: cfg.AutopilotGuardianMaxIdenticalFailures(),
+			WatchdogDisabled:     !cfg.AutopilotProgressWatchdogEnabled(),
+			WatchdogWindow:       cfg.AutopilotProgressWatchdogWindow(),
 		},
 	}
 }

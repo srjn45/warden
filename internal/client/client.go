@@ -1435,6 +1435,8 @@ type AutopilotRunStatus struct {
 	Tasks             AutopilotTaskCounts   `json:"tasks"`
 	Backoff           *AutopilotBackoff     `json:"backoff"`
 	NeedsAttention    string                `json:"needs_attention,omitempty"`
+	LastProgressAt    string                `json:"last_progress_at,omitempty"`
+	Watchdog          string                `json:"watchdog,omitempty"`
 	LandedTotal       int                   `json:"landed_total"`
 	PlanTasks         []AutopilotPlanTask   `json:"plan_tasks"`
 	GuardianID        string                `json:"guardian_id,omitempty"`

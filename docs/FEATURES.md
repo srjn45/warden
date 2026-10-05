@@ -1379,6 +1379,29 @@ episode (shown as *waiting* in the tree). Clear it by editing the plan in
 ScrivaDB, `wd plan resume` (or pause + resume), or restarting the daemon. Enable/start/resume stay
 strict — leniency is boot- and watcher-only.
 
+**Progress watchdog.** A heartbeating manager that makes no progress (ledger
+task change, landing, plan task status change, worker spawn) for
+`autopilot.guardian.progress_watchdog_window` (default 2h) with no agent working
+climbs the existing nudge → restart → rotate ladder, then parks as
+needs-attention (`no_progress`, one notification, points at `wd plan restart`).
+Config: `progress_watchdog_enabled` (default on), hot-reloadable; last progress
+and watchdog state appear in run status and `wd plan show`.
+
+**Recovering a stuck plan (`wd plan restart`).** For an `in_progress` plan in
+`autopilot` or `pipeline` mode that is stopped, degraded, parked or stuck, `wd plan
+restart <plan-id> [--force] [--backend <id>] [--yes]` (REST `POST
+/plans/{id}/restart`, MCP `restart_plan`) is **destructive**: it terminates the
+executor's agents and removes their worktrees, then starts a brand-new set. Kept:
+the plan (stays `in_progress`), landed tasks/landings, integration branch, done
+pipeline jobs + handoffs, branches with commits (open PRs never closed). Removed:
+sessions, worktrees, empty branches. Needs `--yes` (refused when non-interactive
+without it); `--force` is required for an active/starting/paused executor.
+`orchestrator_worker`/`manual` plans are refused. New agents receive a
+`## Restart context` (reason kind, restart count, finished tasks, unfinished tasks
+with kept branch/PR, last 20 journal entries) stored at
+`autopilot.<run_id>.restart_context`. `plan resume` on a stopped run now points at
+`plan restart`.
+
 ### 34.11 Run completion marker
 
 When the manager has verified the plan's `done_when` criteria, it declares the

@@ -236,6 +236,21 @@ it shows as *waiting* in the tree. To clear it, change the plan in ScrivaDB, run
 `wd plan resume` (or `pause` then `resume`), or restart the daemon — each retries
 the heal ladder from the top.
 
+**Progress watchdog.** A manager can heartbeat forever while the run goes
+nowhere, so the guardian also tracks per-run *progress*: a ledger task state
+change, a new landing, a plan task status change, or a spawned worker. Heartbeats
+and overwatch nudges do not count. When an active run has made no progress for
+`autopilot.guardian.progress_watchdog_window` (default `2h`) **and** no
+run-tagged agent is working, the watchdog climbs the same heal ladder
+(watchdog-specific nudge naming the stalled tasks → restart → rotate), sharing
+the heartbeat grace so the two never double-step. Any progress clears it. If the
+ladder is exhausted without progress the run parks as needs-attention
+(`no_progress`), notifying once and pointing at `wd plan restart`. The last
+progress time is persisted (a daemon restart does not reset the window) and shown
+as `last_progress_at` / `watchdog` (`idle|armed|escalating|parked|disabled`) in
+run status and `wd plan show`. Switch it off with
+`autopilot.guardian.progress_watchdog_enabled: false`; both keys hot-reload.
+
 The TUI cockpit (`warden tui`) shows each run as a **plan-scoped tree** — manager
 (`<scope>-autopilot`), guardian (`<scope>-guardian`), plan checklist, and workers
 grouped by ledger state. The web dashboard shows an **Autopilot** panel when a run
@@ -243,6 +258,67 @@ is active. The TUI header has a status badge (press `ctrl+a` to toggle autopilot
 on/off without leaving the cockpit).
 
 ---
+
+## Recovering a stuck plan
+
+A run can stall in three ways: you stopped it, the guardian parked it as
+needs-attention, or the manager heartbeats but nothing moves (the
+progress watchdog parks that as `no_progress`).
+`wd plan resume` only undoes a *pause*; for a stopped or parked run use
+**`wd plan restart`**.
+
+```sh
+wd plan show <plan-id>                    # executor state, last_progress, watchdog, restarts
+wd plan restart <plan-id>                 # asks for confirmation
+wd plan restart <plan-id> --yes           # skip the prompt (required when non-interactive)
+wd plan restart <plan-id> --force --yes   # also restart an active, starting or paused executor
+wd plan restart <plan-id> --backend <id>  # autopilot only: backend for the new manager
+```
+
+> **Restart is destructive.** Every agent of the executor (manager and workers,
+> or pipeline job agents) is terminated and its worktree removed. Without `--yes`
+> the CLI prints what will happen and asks; with no terminal it refuses. The MCP
+> tool `restart_plan` is the same operation and is flagged destructive.
+
+What is **kept**: the plan (stays `in_progress`), landed tasks and the landing
+list, the integration branch, done pipeline jobs and their handoffs, and every
+task branch that has commits beyond the integration branch (open PRs are never
+closed). What is **removed**: agent sessions, their worktrees, and task branches
+with no commits. Unfinished tasks are reset to `pending` and re-issued to a
+**brand-new set of agents** — nothing from the old manager or workers is reused.
+
+Restart works for `in_progress` plans in `autopilot` or `pipeline` mode. It is
+refused for `orchestrator_worker` and `manual` plans, for plans that are not
+`in_progress`, and for a completed run. Without `--force` it also refuses an
+executor that is still healthy (autopilot `active`/`starting`/`paused`; a
+pipeline that is running or paused with a working job agent) — `paused` is a
+deliberate hold, so use `plan resume` to undo it. `--force` restarts anyway and
+leaves the executor active (a paused run is un-paused). Autopilot reuses the
+same run id, manager slot and integration branch.
+
+### The restart context
+
+Every new agent gets a **`## Restart context`** section in its prompt (the
+manager's digest, each worker's prompt, and each reset pipeline job). It records
+why the previous run ended (`operator_stop`, `needs_attention`,
+`degraded_backoff`, `operator_force` or `watchdog`), the restart count, the
+finished tasks (do **not** redo them), the unfinished tasks with any kept branch
+and open PR, and the last 20 decision-journal entries. The instructions are:
+continue an unfinished task from its kept branch, reuse its open PR rather than
+opening a duplicate, and — only if the kept work is unusable — start again from
+the integration branch and close the old PR with a comment. It is stored under
+the shared-context key `autopilot.<run_id>.restart_context` (pipeline-only plans:
+`plan.<plan_id>.restart_context`), so it survives a daemon restart.
+
+### Progress watchdog
+
+See *Monitoring a run* above for the full behaviour. In short:
+`autopilot.guardian.progress_watchdog_enabled` (default `true`) and
+`autopilot.guardian.progress_watchdog_window` (default `2h`) control it; both
+hot-reload. After the window with no progress and no working agent it walks the
+heal ladder, then parks the run as `no_progress` and points you at
+`wd plan restart`. `wd plan show` prints `last_progress` and the watchdog state,
+plus `restarts:` (count, last reason, time) once a plan has been restarted.
 
 ## Landing a worker branch manually
 

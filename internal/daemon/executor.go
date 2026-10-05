@@ -392,6 +392,9 @@ func (e *Executor) Reconcile(ctx context.Context, pid string) error {
 		if job.Workdir != "" {
 			worktree = false
 		}
+		if worktree && job.RestartBranch != "" {
+			base = job.RestartBranch // plan restart: continue from the kept branch
+		}
 		// Convert job.Supervised (bool) to permission mode (string)
 		permissionMode := ""
 		if job.Supervised {
@@ -440,6 +443,7 @@ func (e *Executor) Reconcile(ctx context.Context, pid string) error {
 			if j := p.Job(s.jobID); j != nil {
 				j.Status = pipeline.JobRunning
 				j.SetAgentID(s.sessionID)
+				j.RestartBranch = "" // consumed by the spawn above
 			}
 		}
 		for _, id := range d.Skip {

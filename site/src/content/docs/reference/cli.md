@@ -1070,6 +1070,7 @@ Commands:
   pause                Pause an in-progress plan's executor
   resume               Resume a paused plan's executor
   stop                 Stop an in-progress plan's executor
+  restart              Restart an in-progress plan's executor with fresh agents
   done                 Mark a plan task done
   complete             Complete a plan (in_progress → completed)
   archive              Archive a plan (any status → archived)
@@ -1434,7 +1435,7 @@ Resume an executor paused with `wd plan pause`. The plan stays in_progress.
   agent
 
 Resuming an executor that is not paused is refused. A stopped executor
-cannot be resumed.
+cannot be resumed — use `wd plan restart` to bring it back.
 
 Only plans that are in_progress and have an active executor can be controlled.
 
@@ -1458,9 +1459,10 @@ Stop the executor of an in-progress plan. The plan itself stays in_progress
 (stop does not complete, archive or reset it).
 
   autopilot     The run is stopped and its brain is shut down. A stopped
-                run cannot be resumed.
+                run cannot be resumed; use `wd plan restart`.
   pipeline      The pipeline is canceled: running jobs are terminated and
-                unfinished jobs are skipped. It cannot be resumed.
+                unfinished jobs are skipped. It cannot be resumed; use
+                `wd plan restart`.
   plan-bound    The agent is terminated.
   agent
 
@@ -1477,6 +1479,46 @@ Usage:
 Flags:
   -h, --help   help for stop
       --json   output as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan restart
+
+```text
+Restart the executor of an in-progress plan with a brand-new set of agents,
+keeping the work already done. Use it when a plan is stopped, degraded,
+parked or stuck. This is destructive: the old agents are terminated and
+their worktrees removed.
+
+  autopilot     The manager and workers are terminated and their worktrees
+                removed. The landed-task ledger and the plan's tasks are kept;
+                branches with unmerged commits are kept, empty ones deleted.
+                A new manager starts with a restart context (what is merged,
+                what is unfinished); in-flight tasks are re-issued.
+  pipeline      Running job agents are terminated and their worktrees removed.
+                Done jobs and handoffs are kept; failed, skipped and unfinished
+                jobs are reset and re-run with fresh agents. Branches with
+                commits are kept as the base for the re-run.
+  orchestrator_worker, manual
+                Not supported; use `wd plan stop` and run a new path.
+
+An executor that is still active, starting or paused is refused unless
+--force is given. --backend picks the backend of the new autopilot manager.
+Without --yes the command asks for confirmation and refuses when stdin is
+not a terminal.
+
+Usage:
+  warden plan restart <plan-id> [flags]
+
+Flags:
+      --backend string   backend id for the new autopilot manager (autopilot only)
+      --force            restart even when the executor is active, starting or paused
+  -h, --help             help for restart
+      --json             output as JSON
+  -y, --yes              skip the confirmation prompt
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)

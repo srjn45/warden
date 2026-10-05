@@ -1787,6 +1787,20 @@ func TestSpawnJobFromBaseBranch(t *testing.T) {
 	require.Contains(t, fr.calledArgs(), []string{"git", "worktree", "add", ".worktrees/p-review", "-b", "p-review", "p-impl"})
 }
 
+// A plan restart keeps the job's own branch (p-review): the respawn checks it
+// out again rather than `-b` (which git refuses for an existing branch).
+func TestSpawnJobReusesKeptOwnBranch(t *testing.T) {
+	fr := &FakeRunner{}
+	lc := New(fr, &FakeConfig{})
+	lc.PromptsDir = "/tmp/prompts"
+	_, err := lc.SpawnJob(context.Background(), JobSpawnRequest{
+		PipelineID: "p", JobID: "review", Repo: "/repo",
+		Prompt: "merge", Worktree: true, BaseBranch: "p-review", Type: store.TypeDevelopment,
+	})
+	require.NoError(t, err)
+	require.Contains(t, fr.calledArgs(), []string{"git", "worktree", "add", ".worktrees/p-review", "p-review"})
+}
+
 func TestSpawnJobNoneRunsInRepoRoot(t *testing.T) {
 	fr := &FakeRunner{}
 	lc := New(fr, &FakeConfig{})
