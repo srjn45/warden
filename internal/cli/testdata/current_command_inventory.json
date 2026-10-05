@@ -2896,7 +2896,7 @@
   },
   {
     "path": "plan task edit",
-    "use": "edit \u003cplan-id\u003e",
+    "use": "edit \u003cplan-id\u003e [task-id]",
     "runnable": true,
     "local_flags": [
       "after",
@@ -2918,6 +2918,19 @@
     "local_flags": [
       "expected-revision",
       "id",
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "plan task status",
+    "use": "status \u003cplan-id\u003e \u003ctask-id\u003e \u003cpending|in_progress|done|skipped\u003e",
+    "runnable": true,
+    "local_flags": [
       "json"
     ],
     "inherited_flags": [

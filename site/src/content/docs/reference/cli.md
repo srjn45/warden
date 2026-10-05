@@ -1287,9 +1287,13 @@ Inherited flags:
 Granular task-DAG mutations for a pending plan. Non-pending plans are
 rejected with HTTP 409 Conflict. Subcommands:
 
-  add   Append a task (POST /plans/{id}/tasks)
-  edit   Patch one task's prompt/after deps
-  rm     Remove a task (blocked if dependents remain)
+  add     Append a task (POST /plans/{id}/tasks)
+  edit    Patch one task's prompt/after deps
+  rm      Remove a task (blocked if dependents remain)
+  status  Set a task's status (pending|in_progress|done|skipped)
+
+edit and rm take the task id as the second argument (or --id). The skipped
+status counts as finished: `plan complete` accepts done or skipped tasks.
 
 Usage:
   warden plan task [flags]
@@ -1298,6 +1302,7 @@ Commands:
   add                  Add a task to a pending plan
   edit                 Edit a task definition on a pending plan
   rm                   Remove a task from a pending plan
+  status               Set a plan task's status
 
 Flags:
   -h, --help   help for task
@@ -1333,18 +1338,18 @@ Inherited flags:
 ## warden plan task edit
 
 ```text
-Patch one task's prompt and/or after-deps on a pending plan. --id is
-required. Provide --prompt and/or --after; omitted fields are left unchanged.
+Patch one task's prompt and/or after-deps on a pending plan. Pass the task
+id as a second argument or via --id. Provide --prompt and/or --after; omitted fields are left unchanged.
 Optional --expected-revision for optimistic concurrency.
 
 Usage:
-  warden plan task edit <plan-id> [flags]
+  warden plan task edit <plan-id> [task-id] [flags]
 
 Flags:
       --after stringArray       replace after-deps (repeatable; pass once with empty to clear)
       --expected-revision int   optimistic concurrency token
   -h, --help                    help for edit
-      --id string               task id
+      --id string               task id (alternative to positional)
       --json                    output as JSON
       --prompt string           new task prompt
 
@@ -1368,6 +1373,25 @@ Flags:
   -h, --help                    help for rm
       --id string               task id (alternative to positional)
       --json                    output as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan task status
+
+```text
+Set one task's progress status to pending, in_progress, done, or skipped.
+Prints the task's old and new status plus the plan's task summary. Works on
+plans in any lifecycle state. skipped counts as finished for `plan complete`.
+
+Usage:
+  warden plan task status <plan-id> <task-id> <pending|in_progress|done|skipped> [flags]
+
+Flags:
+  -h, --help   help for status
+      --json   output as JSON
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -1503,8 +1527,8 @@ Inherited flags:
 ## warden plan done
 
 ```text
-Shorthand for updating one task's status to done. Updates TaskProgress in
-the daemon only (the YAML is unchanged).
+Shorthand for `plan task status <plan-id> <task-id> done`. Updates the
+task's progress on the plan.
 
 Usage:
   warden plan done <plan-id> <task-id> [flags]
@@ -1522,7 +1546,7 @@ Inherited flags:
 
 ```text
 Complete a plan: in_progress → completed. Blocked if any task is not
-done/skipped or any associated branch is still unmerged. On success moves
+done/skipped (skipped counts as finished) or any associated branch is still unmerged. On success moves
 the YAML to plans/completed/ and cleans up worktrees.
 
 Usage:

@@ -734,3 +734,92 @@ func TestPlanScanDeprecationNoticeOnStderrOnly(t *testing.T) {
 		t.Errorf("stdout polluted: %q", stdout.String())
 	}
 }
+
+const planStatusPath = "/api/v1/plans/plan-ab12cd34/tasks/t1/status"
+
+func TestPlanTaskStatusCmdAllStatuses(t *testing.T) {
+	for _, st := range []string{"pending", "in_progress", "done", "skipped"} {
+		t.Run(st, func(t *testing.T) {
+			seen := map[string]string{}
+			body := map[string]string{}
+			addr := stubDaemon(t, routedDaemon(t, map[string]string{
+				"GET /api/v1/plans/plan-ab12cd34": planSingleJSON,
+				"POST " + planStatusPath:          planSingleJSON,
+			}, seen, body))
+			out, err := runCLI(t, addr, "plan", "task", "status", "plan-ab12cd34", "t1", st)
+			if err != nil {
+				t.Fatalf("plan task status %s: %v", st, err)
+			}
+			if !strings.Contains(body[planStatusPath], `"status":"`+st+`"`) {
+				t.Fatalf("status not forwarded: %q", body[planStatusPath])
+			}
+			if !strings.Contains(out, "pending → "+st) || !strings.Contains(out, "0/1 done") {
+				t.Fatalf("output: %q", out)
+			}
+		})
+	}
+}
+
+func TestPlanTaskStatusCmdJSON(t *testing.T) {
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"GET /api/v1/plans/plan-ab12cd34": planSingleJSON,
+		"POST " + planStatusPath:          planSingleJSON,
+	}, map[string]string{}, map[string]string{}))
+	out, err := runCLI(t, addr, "plan", "task", "status", "plan-ab12cd34", "t1", "skipped", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"old_status": "pending"`, `"new_status": "skipped"`} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("json missing %q: %s", want, out)
+		}
+	}
+}
+
+func TestPlanTaskStatusCmdInvalid(t *testing.T) {
+	called := false
+	addr := stubDaemon(t, func(w http.ResponseWriter, r *http.Request) { called = true })
+	_, err := runCLI(t, addr, "plan", "task", "status", "plan-ab12cd34", "t1", "bogus")
+	if err == nil {
+		t.Fatal("expected invalid status error")
+	}
+	for _, want := range []string{"bogus", "pending", "in_progress", "done", "skipped"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error missing %q: %v", want, err)
+		}
+	}
+	if called {
+		t.Fatal("daemon called despite invalid status")
+	}
+}
+
+func TestPlanTaskEditCmdPositional(t *testing.T) {
+	seen := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"PATCH /api/v1/plans/plan-ab12cd34/tasks/t1/definition": planUpdatedJSON,
+	}, seen, nil))
+	if _, err := runCLI(t, addr, "plan", "task", "edit", "plan-ab12cd34", "t1", "--prompt", "x"); err != nil {
+		t.Fatal(err)
+	}
+	if seen["/api/v1/plans/plan-ab12cd34/tasks/t1/definition"] != "PATCH" {
+		t.Fatalf("positional edit not PATCHed: %q", seen)
+	}
+	// --id equal to positional is fine.
+	if _, err := runCLI(t, addr, "plan", "task", "edit", "plan-ab12cd34", "t1", "--id", "t1", "--prompt", "x"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPlanTaskIDConflict(t *testing.T) {
+	addr := stubDaemon(t, func(w http.ResponseWriter, r *http.Request) {})
+	for _, sub := range []string{"edit", "rm"} {
+		args := []string{"plan", "task", sub, "plan-ab12cd34", "t1", "--id", "t2"}
+		if sub == "edit" {
+			args = append(args, "--prompt", "x")
+		}
+		_, err := runCLI(t, addr, args...)
+		if err == nil || !strings.Contains(err.Error(), "conflicting task id") {
+			t.Fatalf("%s: expected conflict error, got %v", sub, err)
+		}
+	}
+}
