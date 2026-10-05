@@ -2698,6 +2698,7 @@
   {
     "path": "plan import",
     "use": "import \u003cfile\u003e",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "project"
@@ -2797,6 +2798,7 @@
   {
     "path": "plan scan",
     "use": "scan",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "assess",
@@ -2826,6 +2828,7 @@
   {
     "path": "plan status",
     "use": "status \u003cplan-id\u003e \u003cnew-status\u003e",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "project"

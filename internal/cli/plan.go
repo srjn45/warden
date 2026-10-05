@@ -457,9 +457,10 @@ func newPlanImportCmd() *cobra.Command {
 			"import — prefer `wd plan import-legacy` for one-time cutover of an existing\n" +
 			"plans/{pending,in_progress,completed,archived} tree, or `wd plan create` for\n" +
 			"new DB-native plans.",
-		Args: cobra.ExactArgs(1),
+		Hidden: true,
+		Args:   cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Fprintln(cmd.ErrOrStderr(), "warning: wd plan import is deprecated; prefer wd plan import-legacy or wd plan create — scan/import cannot affect canonical execution after import")
+			fmt.Fprintln(cmd.ErrOrStderr(), "warning: wd plan import is deprecated; use wd plan create or wd plan import-legacy instead")
 			projectID, err := planProjectFlag(cmd)
 			if err != nil {
 				return err
@@ -566,12 +567,11 @@ func newPlanScanCmd() *cobra.Command {
 			"`wd plan import-legacy` for cutover.\n\n" +
 			"--migrate-flat moves any flat plans/*.yaml files into plans/pending/ with git mv\n" +
 			"and creates a commit before scanning.",
-		Args: cobra.NoArgs,
+		Hidden: true,
+		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			jsonOut, _ := cmd.Flags().GetBool("json")
-			if !jsonOut {
-				fmt.Fprintln(cmd.ErrOrStderr(), "warning: wd plan scan is deprecated; prefer wd plan import-legacy — scan cannot affect canonical execution after import")
-			}
+			fmt.Fprintln(cmd.ErrOrStderr(), "warning: wd plan scan is deprecated; use wd plan create or wd plan import-legacy instead")
 			projectID, err := planProjectFlag(cmd)
 			if err != nil {
 				return err
@@ -615,9 +615,10 @@ func newPlanStatusCmd() *cobra.Command {
 			"Prefer `wd plan run` / `wd plan complete` / `wd plan archive` for the\n" +
 			"PlanService state machine.\n\n" +
 			"Valid statuses: pending | in_progress | completed | archived",
-		Args: cobra.ExactArgs(2),
+		Hidden: true,
+		Args:   cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Fprintln(cmd.ErrOrStderr(), "warning: wd plan status is deprecated; prefer wd plan run|complete|archive")
+			fmt.Fprintln(cmd.ErrOrStderr(), "warning: wd plan status is deprecated; use wd plan run, complete, archive or task status instead")
 			planID, newStatus := args[0], args[1]
 			projectID, err := planProjectFlag(cmd)
 			if err != nil {

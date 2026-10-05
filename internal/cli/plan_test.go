@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -688,5 +689,48 @@ func TestPlanTaskAddCmdConflict(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "409") && !strings.Contains(err.Error(), "conflict") {
 		t.Fatalf("expected conflict error, got %v", err)
+	}
+}
+
+func TestPlanDeprecatedCommandsHidden(t *testing.T) {
+	hidden := []string{"import", "scan", "status"}
+	help, err := executeHelp(t, "plan", "--help")
+	if err != nil {
+		t.Fatal(err)
+	}
+	all, err := executeHelp(t, "help", "--all")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range hidden {
+		if strings.Contains(help, "\n  "+name+" ") {
+			t.Errorf("plan --help still lists %q", name)
+		}
+		if !strings.Contains(all, "warden plan "+name+" ") {
+			t.Errorf("help --all missing plan %s", name)
+		}
+	}
+	if !strings.Contains(help, "import-legacy") {
+		t.Error("plan --help must keep import-legacy visible")
+	}
+}
+
+func TestPlanScanDeprecationNoticeOnStderrOnly(t *testing.T) {
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"POST /api/v1/projects/proj1/plans/scan": scanResultJSON,
+	}, nil, nil))
+	root := newRootCmd()
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"plan", "scan", "--json", "--project", planProjectID, "--addr", addr, "--config", t.TempDir() + "/none.yaml"})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr.String(), "deprecated") {
+		t.Errorf("stderr missing deprecation notice: %q", stderr.String())
+	}
+	if strings.Contains(stdout.String(), "warning") {
+		t.Errorf("stdout polluted: %q", stdout.String())
 	}
 }
