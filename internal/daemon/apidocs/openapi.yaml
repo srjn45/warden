@@ -2022,7 +2022,15 @@ paths:
       operationId: ArchivePlan
       tags: [Plans]
       summary: Archive a plan
-      description: Moves the plan file to plans/archived/ from any status.
+      description: >
+        Pending and completed plans archive as a status change. An in_progress
+        plan is refused with 409 while its executor is live (autopilot starting,
+        active, paused, healing, degraded, finalizing or awaiting_merge; a
+        cancelable pipeline; a live orchestrator agent) — stop it first. With a
+        stopped or absent executor the plan's leftover agents, executor record
+        and worktrees are torn down; branches with commits not on the default
+        branch are kept. The status the plan was archived from is recorded so
+        unarchive can restore it. The response carries `archive_report`.
       parameters: [{ $ref: "#/components/parameters/PlanId" }]
       responses:
         "200":
@@ -2031,6 +2039,36 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Plan" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Plan is still running (live executor) or cannot be archived
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v1/plans/{plan_id}/unarchive:
+    post:
+      operationId: UnarchivePlan
+      tags: [Plans]
+      summary: Unarchive a plan
+      description: >
+        Returns an archived plan to the status it was archived from and clears
+        archived_at / archived_from. A plan archived before archived_from was
+        recorded returns to completed when completed_at is set, otherwise
+        pending. An in_progress plan comes back with a stopped or absent
+        executor; nothing is started (`restart_plan` continues it).
+      parameters: [{ $ref: "#/components/parameters/PlanId" }]
+      responses:
+        "200":
+          description: The restored plan
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Plan" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Plan is not archived
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
   /api/v1/plans/{plan_id}/sync_to_repo:
     post:
@@ -4862,6 +4900,21 @@ components:
             multi-task creates with no after edges are auto-chained in declaration
             order. Cycles are rejected.
 
+    PlanArchiveReport:
+      type: object
+      properties:
+        removed_agents: { type: array, items: { type: string } }
+        removed_branches: { type: array, items: { type: string } }
+        removed_executor: { type: string }
+        kept_branches:
+          type: array
+          items: { $ref: "#/components/schemas/PlanArchiveKeptBranch" }
+        errors: { type: array, items: { type: string } }
+    PlanArchiveKeptBranch:
+      type: object
+      properties:
+        branch: { type: string }
+        commits: { type: integer }
     Plan:
       type: object
       description: >
@@ -4915,6 +4968,14 @@ components:
         started_at: { type: string, format: date-time, nullable: true }
         completed_at: { type: string, format: date-time, nullable: true }
         archived_at: { type: string, format: date-time, nullable: true }
+        archived_from:
+          type: string
+          enum: [pending, in_progress, completed]
+          description: "status the plan was archived from; unarchive restores it (absent on legacy records)"
+        archive_report:
+          x-go-type-skip-optional-pointer: false
+          $ref: "#/components/schemas/PlanArchiveReport"
+          description: "set only on the archive response: what archiving tore down and kept (not stored)"
         active_execution:
           $ref: "#/components/schemas/PlanExecution"
           description: "currently-running execution attempt; omitted when idle"

@@ -129,6 +129,21 @@ type PlanView struct {
 	StartedAt                        time.Time                        `json:"started_at,omitempty"`
 	CompletedAt                      time.Time                        `json:"completed_at,omitempty"`
 	ArchivedAt                       time.Time                        `json:"archived_at,omitempty"`
+	ArchivedFrom                     string                           `json:"archived_from,omitempty"`
+	ArchiveReport                    *PlanArchiveReport               `json:"archive_report,omitempty"`
+}
+
+// PlanArchiveReport is what archiving an in-progress plan tore down and kept
+// (present only on the archive response).
+type PlanArchiveReport struct {
+	RemovedAgents   []string `json:"removed_agents,omitempty"`
+	RemovedBranches []string `json:"removed_branches,omitempty"`
+	RemovedExecutor string   `json:"removed_executor,omitempty"`
+	KeptBranches    []struct {
+		Branch  string `json:"branch"`
+		Commits int    `json:"commits"`
+	} `json:"kept_branches,omitempty"`
+	Errors []string `json:"errors,omitempty"`
 }
 
 // PlanExecutor is the live executor block on GET /plans/{id} (in_progress plans only).
@@ -419,6 +434,15 @@ func (c *Client) PlansComplete(ctx context.Context, planID string, abandonUnmerg
 func (c *Client) PlansArchive(ctx context.Context, planID string) (*PlanView, error) {
 	var p PlanView
 	if err := c.do(ctx, http.MethodPost, "/plans/"+url.PathEscape(planID)+"/archive", nil, &p); err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+// PlansUnarchive returns an archived plan to the status it was archived from.
+func (c *Client) PlansUnarchive(ctx context.Context, planID string) (*PlanView, error) {
+	var p PlanView
+	if err := c.do(ctx, http.MethodPost, "/plans/"+url.PathEscape(planID)+"/unarchive", nil, &p); err != nil {
 		return nil, err
 	}
 	return &p, nil

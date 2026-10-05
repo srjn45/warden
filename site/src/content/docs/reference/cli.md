@@ -1055,8 +1055,8 @@ Typical journey:
   4. Control   `wd plan pause`, `resume` or `stop` the running executor
   5. Progress  `wd plan task status` / `wd plan done` record task progress
   6. Complete  `wd plan complete` (in_progress → completed)
-  7. Finish    `wd plan archive` (reversible), or `wd plan delete` to remove a
-               pending or archived plan permanently
+  7. Finish    `wd plan archive` (reversible with `wd plan unarchive`), or
+               `wd plan delete` to remove a pending or archived plan permanently
 
 Usage:
   warden plan [flags]
@@ -1076,7 +1076,8 @@ Commands:
   restart              Restart an in-progress plan's executor with fresh agents
   done                 Mark a plan task done
   complete             Complete a plan (in_progress → completed)
-  archive              Archive a plan (any status → archived)
+  archive              Archive a plan (reversible with `plan unarchive`)
+  unarchive            Restore an archived plan to the status it was archived from
   delete               Permanently delete a plan
   sync-to-repo         Export a plan revision to a dedicated branch and open a PR
   hub-sync             Explicitly sync canonical plans with the configured Hub
@@ -1592,13 +1593,49 @@ Inherited flags:
 ## warden plan archive
 
 ```text
-Move a plan to the archived state. Allowed from pending, in_progress, or completed.
+Move a plan to the archived state, recording the status it was archived from
+so `wd plan unarchive` can restore it.
+
+Pending and completed plans archive as a status change only. An in-progress
+plan whose executor is still live (starting, active, paused, healing,
+degraded, finalizing or awaiting final PR merge) is refused: run
+`wd plan stop <plan-id>` first. With the executor stopped or absent, archive
+tears down what the run left behind — the executor record, plan-bound agents
+and their worktrees — and reports what was removed.
+
+Never torn down: any branch (worker or integration) with commits that are not
+on the default branch is kept, locally and on origin, and listed in the
+output. Open PRs are left open. Task progress and the plan record are kept.
 
 Usage:
   warden plan archive <plan-id> [flags]
 
 Flags:
   -h, --help   help for archive
+      --json   output as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan unarchive
+
+```text
+Return an archived plan to the status it was archived from (pending,
+in_progress or completed) and clear its archived marker. A plan archived
+before that status was recorded returns to completed when it has a completion
+time, otherwise to pending (task progress is kept).
+
+An in-progress plan comes back in_progress with a stopped executor; nothing is
+started. Run `wd plan restart <plan-id>` to continue it. Refused on a plan
+that is not archived.
+
+Usage:
+  warden plan unarchive <plan-id> [flags]
+
+Flags:
+  -h, --help   help for unarchive
       --json   output as JSON
 
 Inherited flags:

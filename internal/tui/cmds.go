@@ -731,17 +731,28 @@ func plansCmd(a api, projects []projectstore.Project) tea.Cmd {
 type planArchivedMsg struct {
 	projectID string
 	planID    string
+	unarchive bool
 	err       error
 }
 
+// archivePlanCmd archives a plan through the archive route so the daemon's
+// live-executor refusal and branch-keeping teardown apply (not the deprecated
+// status update).
 func archivePlanCmd(a api, projectID, planID string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := bg()
 		defer cancel()
-		_, err := a.PlanUpdate(ctx, projectID, planID, client.PlanUpdateRequest{
-			Status: string(planstore.PlanStatusArchived),
-		})
+		_, err := a.PlansArchive(ctx, planID)
 		return planArchivedMsg{projectID: projectID, planID: planID, err: err}
+	}
+}
+
+func unarchivePlanCmd(a api, projectID, planID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bg()
+		defer cancel()
+		_, err := a.PlansUnarchive(ctx, planID)
+		return planArchivedMsg{projectID: projectID, planID: planID, unarchive: true, err: err}
 	}
 }
 
