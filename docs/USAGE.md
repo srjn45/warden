@@ -2815,7 +2815,7 @@ aliases; they cannot affect canonical execution after import. Use `import-legacy
 wd plan run <plan-id> --mode manual     # pending → in_progress + start
 wd plan complete <plan-id>              # mark done
 wd plan archive <plan-id>               # any status → archived
-wd plan delete <plan-id>                # permanently remove a plan record (refused while in_progress)
+wd plan delete <plan-id>                # permanently remove a pending or archived plan (asks to confirm; -y skips; --json needs -y)
 wd plan task status <plan-id> <task-id> done   # pending | in_progress | done | skipped
 ```
 

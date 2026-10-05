@@ -1610,7 +1610,7 @@ canonical recovery.
 | `wd plan backup export\|restore …` | Portable ScrivaDB bundle |
 | `wd plan import-legacy [--report]` | Explicit legacy YAML cutover |
 | `wd plan task status <id> <task> <status>` | Set one task's progress (pending/in_progress/done/skipped) |
-| `wd plan delete <id>` | Permanently delete a plan (refused while in_progress) |
+| `wd plan delete <id>` | Permanently delete a pending or archived plan (in-progress/completed refused) |
 | `wd plan complete` / `archive` / `run` / `pause\|resume\|stop` | Lifecycle + execution |
 | `wd plan assess <id>` | Brain-based task progress reconstruction |
 
@@ -1623,6 +1623,7 @@ canonical recovery.
 | `scan_plans` | **Deprecated** migration aid (notice + skipped_canonical) |
 | `update_plan_status` | **Deprecated**; prefer `run_plan` / `complete_plan` / `archive_plan` |
 | `update_task_status` / `archive_plan` / `complete_plan` / `assess_plan` | Lifecycle helpers |
+| `delete_plan` | Permanently delete a pending/archived plan (409 otherwise) |
 | `sync_plan_to_repo` | Optional replica PR |
 | `export_plan_backup` / `restore_plan_backup` | Portable bundle |
 | `run_plan` / `control_plan` | Start / pause / resume / stop |

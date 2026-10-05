@@ -1628,14 +1628,19 @@ Inherited flags:
 ## warden plan delete
 
 ```text
-Permanently remove a plan record. In-progress plans are refused; archive or
-complete them first. Any YAML replica in the repository is left untouched.
+Permanently delete a pending or archived plan. This cannot be undone; use
+`plan archive` for the reversible alternative. Consider `plan backup export`
+first. In-progress plans (stop and archive first) and completed plans (archive
+first) are refused. Any YAML replica in the repository is left untouched.
+Asks for confirmation unless --yes is given; --json requires --yes.
 
 Usage:
   warden plan delete <plan-id> [flags]
 
 Flags:
   -h, --help   help for delete
+      --json   output as JSON (requires --yes)
+  -y, --yes    skip the confirmation prompt
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)

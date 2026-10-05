@@ -724,17 +724,50 @@ func newPlanDeleteCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "delete <plan-id>",
 		Short: "Permanently delete a plan",
-		Long: "Permanently remove a plan record. In-progress plans are refused; archive or\n" +
-			"complete them first. Any YAML replica in the repository is left untouched.",
+		Long: "Permanently delete a pending or archived plan. This cannot be undone; use\n" +
+			"`plan archive` for the reversible alternative. Consider `plan backup export`\n" +
+			"first. In-progress plans (stop and archive first) and completed plans (archive\n" +
+			"first) are refused. Any YAML replica in the repository is left untouched.\n" +
+			"Asks for confirmation unless --yes is given; --json requires --yes.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := clientFor(cmd).PlansDelete(cmd.Context(), args[0]); err != nil {
+			planID := args[0]
+			yes, _ := cmd.Flags().GetBool("yes")
+			jsonOut, _ := cmd.Flags().GetBool("json")
+			if jsonOut && !yes {
+				return errors.New("confirmation required (pass --yes with --json)")
+			}
+			c := clientFor(cmd)
+			if !yes {
+				p, err := c.PlansGet(cmd.Context(), planID)
+				if err != nil {
+					return err
+				}
+				out := cmd.OutOrStdout()
+				fmt.Fprintf(out, "Plan:   %s (%s)\nStatus: %s\n", p.ID, p.Name, p.Status)
+				if ts := p.TaskSummary; ts != nil {
+					fmt.Fprintf(out, "Tasks:  %d total: %d done, %d in progress, %d pending, %d skipped\n",
+						ts.Total, ts.Done, ts.InProgress, ts.Pending, ts.Skipped)
+				}
+				fmt.Fprintf(out, "Permanently delete plan %s (%q)? [y/N]: ", p.ID, p.Name)
+				line, _ := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
+				if ans := strings.ToLower(strings.TrimSpace(line)); ans != "y" && ans != "yes" {
+					fmt.Fprintln(out, "cancelled")
+					return nil
+				}
+			}
+			if err := c.PlansDelete(cmd.Context(), planID); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "plan %s deleted\n", args[0])
+			if jsonOut {
+				return printJSON(cmd.OutOrStdout(), map[string]string{"status": "deleted", "id": planID})
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "plan %s deleted\n", planID)
 			return nil
 		},
 	}
+	cmd.Flags().BoolP("yes", "y", false, "skip the confirmation prompt")
+	cmd.Flags().Bool("json", false, "output as JSON (requires --yes)")
 	return cmd
 }
 

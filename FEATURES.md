@@ -356,7 +356,7 @@ authority for shipped code; merged Git history remains that authority.
 | **Deprecated** scan stubs (hidden CLI alias) | `plan scan` | `scan_plans` | ✓ | — | `s` | [plans-migration](https://srjn45.github.io/warden/guides/plans-migration/) |
 | **Deprecated** status field patch (hidden CLI alias; prefer run/complete/archive) | `plan status` | `update_plan_status` | ✓ | — | — | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
 | Set a task's status (pending/in_progress/done/skipped) | `plan task status` | `update_task_status` | ✓ | — | — | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
-| Permanently delete a plan (refused while in_progress) | `plan delete` | — (REST only) | ✓ | — | — | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
+| Permanently delete a plan (pending/archived only) | `plan delete` | `delete_plan` | ✓ | — | — | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
 | Archive a plan (any status → archived) | `plan archive` | `archive_plan` | ✓ | — | `a` | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
 | Complete a plan | `plan complete` | `complete_plan` | ✓ | — | — | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
 | Optional inert replica PR (YAML default; JSON `--format json`) | `plan sync-to-repo` | `sync_plan_to_repo` | ✓ | — | — | [plans-migration](https://srjn45.github.io/warden/guides/plans-migration/) |

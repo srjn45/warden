@@ -37,7 +37,7 @@ func TestPlanToolsRegistered(t *testing.T) {
 	want := []string{
 		"list_plans", "get_plan", "find_related_plans", "create_plan", "update_plan",
 		"scan_plans", "import_legacy_plans", "update_plan_status", "archive_plan", "assess_plan",
-		"run_plan", "control_plan", "complete_plan", "sync_plan_to_repo", "update_task_status",
+		"run_plan", "control_plan", "complete_plan", "sync_plan_to_repo", "update_task_status", "delete_plan",
 	}
 	for _, name := range want {
 		require.Truef(t, got[name], "tool %q should be registered", name)
@@ -388,4 +388,25 @@ func TestCompletePlanToolStructuredError(t *testing.T) {
 	require.Contains(t, out, `"unmerged_branches"`)
 	require.Contains(t, out, `"feat/x"`)
 	require.Contains(t, out, "incomplete tasks")
+}
+
+func TestDeletePlanTool(t *testing.T) {
+	var method, path string
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		method, path = r.Method, r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"deleted"}`))
+	}))
+	defer daemon.Close()
+	session := connectTo(t, daemon.URL)
+
+	res, err := session.CallTool(context.Background(), &mcpsdk.CallToolParams{
+		Name:      "delete_plan",
+		Arguments: map[string]any{"plan_id": "plan-ab12cd34"},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError, textOf(res))
+	require.Contains(t, textOf(res), `"deleted"`)
+	require.Equal(t, http.MethodDelete, method)
+	require.Equal(t, "/api/v1/plans/plan-ab12cd34", path)
 }

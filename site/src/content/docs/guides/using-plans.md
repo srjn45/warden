@@ -22,7 +22,7 @@ wd plan run <plan-id> --mode autopilot   # or pipeline | orchestrator | manual
 wd plan task status <plan-id> analyze done   # pending | in_progress | done | skipped
 wd plan complete <plan-id>               # when the mode requires it
 wd plan archive <plan-id>
-wd plan delete <plan-id>   # permanently remove (refused while in_progress)
+wd plan delete <plan-id>   # permanently remove a pending or archived plan (-y skips the prompt)
 ```
 
 ## The plan journey
@@ -40,7 +40,7 @@ create → edit while pending → run → pause / resume / stop → task status 
 | Track | `wd plan task status <id> <task> <status>` | Any lifecycle state; `skipped` counts as finished |
 | Finish | `wd plan complete <id>` | `in_progress → completed` (automatic for `autopilot`/`pipeline`) |
 | Retire | `wd plan archive <id>` | Any status → `archived` |
-| Remove | `wd plan delete <id>` | Permanent; refused while `in_progress`, so archive or complete first |
+| Remove | `wd plan delete <id>` | Permanent (back up first with `plan backup export`); only `pending`/`archived` plans — `in_progress` and `completed` get a 409, archive first |
 
 <Aside type="caution">
 **A running plan's definition cannot be edited.** Once a plan leaves `pending`, goal,
