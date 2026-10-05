@@ -100,7 +100,7 @@ type sessionsResponse struct {
 type Server struct {
 	store agentstore.AgentStore
 	life  Lifecycle
-	// promptNamer optionally overrides the lifecycle NameRunner for
+	// promptNamer optionally overrides the lifecycle SpawnNameRunner for
 	// prepareSpawnName (tests inject a stub; production leaves it nil).
 	promptNamer  agentname.BackendRunner
 	poller       *poller.Poller

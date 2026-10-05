@@ -840,10 +840,6 @@ type Lifecycle struct {
 	// then headless Claude. The daemon always wires it, so production internal
 	// thinking is strictly free/local.
 	Internal InternalThinker
-	// NameRunner is the optional fast-tier subscription AI CLI used by
-	// assignSpawnName / assignJobName to derive prompt-based agent names
-	// (agentname.ResolvePromptName). Nil falls back to adjective-noun codenames.
-	NameRunner NameRunner
 	// SavingsHook, when set, is called by the LLM-offload sites (Classify/Summarize/
 	// GenerateName/commit-message) when a responsibility is served by the local
 	// model instead of warden's own Claude — with the prompt tokens that never

@@ -14,7 +14,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/srjn45/warden/internal/agentbackend"
-	"github.com/srjn45/warden/internal/agentname"
 	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/audit"
@@ -186,9 +185,6 @@ func newDaemonRunCmd() *cobra.Command {
 			if exe, err := os.Executable(); err == nil {
 				lc.WardenBin = exe
 			}
-			// Prompt-name resolution: subscription headless CLI under the
-			// agentname 1.5s deadline (falls back to adjective-noun codenames).
-			lc.NameRunner = agentname.RunnerFunc(lc.RunClaudeP)
 			life := daemon.NewLifecycleAdapter(lc, st)
 			pd := daemon.NewPollerDeps(st, runner, lc)
 			pl := poller.New(pd, 5*time.Minute)
