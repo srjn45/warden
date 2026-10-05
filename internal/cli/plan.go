@@ -1612,6 +1612,11 @@ func watchPlanShow(cmd *cobra.Command, show func() error, jsonOut bool) error {
 			fmt.Fprint(out, "\033[2J\033[H")
 		}
 		if err := show(); err != nil {
+			// Ctrl-C (or the caller's deadline) landing mid-refresh is a normal
+			// exit, not a failed fetch.
+			if ctx.Err() != nil {
+				return nil
+			}
 			return err
 		}
 		select {

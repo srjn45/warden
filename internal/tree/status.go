@@ -88,6 +88,9 @@ func runStatus(r autopilot.RunStatus) string {
 	if r.GateWarning != "" {
 		return StatusWaiting
 	}
+	if r.NeedsAttention != "" {
+		return StatusWaiting // parked: needs an operator, not an ordinary backoff error
+	}
 	switch r.State {
 	case autopilot.StateActive, autopilot.StateStarting, autopilot.StateHealing:
 		return StatusActive

@@ -1434,6 +1434,7 @@ type AutopilotRunStatus struct {
 	WorkersInFlight   int                   `json:"workers_in_flight"`
 	Tasks             AutopilotTaskCounts   `json:"tasks"`
 	Backoff           *AutopilotBackoff     `json:"backoff"`
+	NeedsAttention    string                `json:"needs_attention,omitempty"`
 	LandedTotal       int                   `json:"landed_total"`
 	PlanTasks         []AutopilotPlanTask   `json:"plan_tasks"`
 	GuardianID        string                `json:"guardian_id,omitempty"`
@@ -1534,6 +1535,7 @@ type AutopilotBackoff struct {
 	Stage       int    `json:"stage"`
 	NextRetryAt string `json:"next_retry_at"`
 	LastError   string `json:"last_error"`
+	Kind        string `json:"kind,omitempty"`
 }
 
 // AutopilotPreflightError is the 409 body when enabling fails preflight: the full

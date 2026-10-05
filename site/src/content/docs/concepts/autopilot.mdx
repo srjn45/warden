@@ -463,7 +463,7 @@ live-but-quiet manager to tend idle/waiting workers.
 ### Boot recovery after a daemon restart
 
 On restart, live runs are re-preflighted. **Structural** plan failures (missing
-file, bad YAML, empty goal, broken dependency graph) leave the run `degraded`
+file, bad YAML, empty goal, broken dependency graph) leave a legacy file-only run `degraded`
 but keep a plan watcher running — restore or fix the file and the next tick
 promotes the run and respawns the manager. **Content-only** failures (invalid
 task status, `done` without `landed_pr`) do **not** strand the run: the daemon
@@ -471,6 +471,26 @@ normalizes those statuses to `pending`, spawns the manager, and surfaces the
 coercions on `warden autopilot status` as `preflight_warnings`. Fix the plan
 file to clear the warnings. Enable / start / resume stay strict — only boot and
 the degraded watcher apply this leniency.
+
+**Plan-bound runs** (plan id set) recover their goal, constraints and tasks from
+ScrivaDB on boot and whenever the manager is spawned or rotated. A missing or
+unparseable YAML export never fails preflight and never marks them `degraded`;
+only legacy file-only runs rely on the file and its watcher.
+
+### Failure kinds and the needs-attention park
+
+A failed manager spawn is recorded on the status backoff object as a `kind` plus
+`last_error`: `backend_unavailable`, `no_backend_selectable` (the only case
+reported as "all backends rate-limited"), `definition_error`, or `spawn_error`.
+Transient kinds back off (capped-exponential) forever. A `definition_error`
+parks the run after one attempt; identical `spawn_error` text parks it after
+`autopilot.guardian.max_identical_failures` consecutive failures (default 5,
+hot-reloadable). Parking sends one operator notification and writes one audit
+event per episode — later ticks do not escalate — and the tree shows the run as
+*waiting* (ordinary degraded/backoff still shows as an error). Clear the park by
+changing the plan in ScrivaDB, running `wd plan resume` (or `pause` then
+`resume`), or restarting the daemon; each resets the counter and retries the
+heal ladder from the top.
 
 ### Completion marker
 

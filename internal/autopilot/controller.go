@@ -78,6 +78,9 @@ type GuardianParams struct {
 	BackoffMax       time.Duration // backoff ceiling (never parks past it)
 	RotateAtContext  string        // context level that triggers a planned rotation
 	NotifyEach       bool          // notify the owner on every heal step, not just stalls
+	// MaxIdenticalFailures is how many consecutive identical non-transient spawn
+	// errors park the run as needs-attention (default 5).
+	MaxIdenticalFailures int
 }
 
 // Controller is the autopilot master switch and per-plan run registry
@@ -146,6 +149,11 @@ type run struct {
 	backoffStage        int             // capped-exponential backoff exponent (stage 4)
 	backoffNextRetry    time.Time       // when the current backoff wait elapses
 	backoffLastErr      string          // human-facing reason for the current backoff
+	backoffKind         FailureKind     // classified cause of the current backoff
+	failStreak          int             // consecutive identical non-transient spawn failures
+	failStreakText      string          // error text the streak is counting
+	needsAttention      string          // non-empty ⇒ parked: retries stopped, reason for the operator
+	parkedPlanKey       string          // plan revision:hash recorded when parked (plan-bound runs)
 	plannedRotateNextAt time.Time       // cooldown floor so planned rotation can't thrash
 	tried               map[string]bool // backends tried this heal cycle (rotate-down exclusion)
 
@@ -224,6 +232,9 @@ func withGuardianDefaults(g GuardianParams) GuardianParams {
 	}
 	if g.BackoffMax < g.BackoffMin {
 		g.BackoffMax = g.BackoffMin
+	}
+	if g.MaxIdenticalFailures <= 0 {
+		g.MaxIdenticalFailures = 5
 	}
 	if strings.TrimSpace(g.RotateAtContext) == "" {
 		g.RotateAtContext = "critical"
@@ -936,6 +947,7 @@ func (c *Controller) statusLocked() Status {
 			WorkersInFlight:   r.workersInFlight, // last roster count from the overwatch tick
 			Tasks:             counts,
 			Backoff:           r.backoffStatus(),
+			NeedsAttention:    r.needsAttention,
 			PlanTasks:         append([]PlanTask(nil), r.plan.Tasks...),
 			GuardianID:        guardianSlotIDOrEmpty(r.slotScope),
 			SlotScope:         r.slotScope,

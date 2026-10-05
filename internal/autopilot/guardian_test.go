@@ -287,7 +287,7 @@ func TestGuardianBackoffCapAndNeverParks(t *testing.T) {
 	wantWaits := []time.Duration{time.Minute, 2 * time.Minute, 4 * time.Minute, 8 * time.Minute, 8 * time.Minute}
 	for i, want := range wantWaits {
 		before := clock.t
-		c.enterBackoff(fake, r, before, false)
+		c.enterBackoff(fake, r, before, KindNoBackendSelectable, false, nil)
 		require.Equal(t, i+1, r.backoffStage)
 		require.Equal(t, before.Add(want), r.backoffNextRetry, "capped-exponential step %d", i+1)
 		require.True(t, r.backoffNextRetry.After(before), "never parks — retry is always in the future")
@@ -310,7 +310,7 @@ func TestGuardianBackoffWakesAtEarliestReset(t *testing.T) {
 
 	c.MarkBackendLimited("a", t0.Add(20*time.Minute)) // ...but a backend frees in 20m
 	r := &run{runID: "ap-x", tried: map[string]bool{}}
-	c.enterBackoff(fake, r, t0, false)
+	c.enterBackoff(fake, r, t0, KindNoBackendSelectable, false, nil)
 	require.Equal(t, t0.Add(20*time.Minute), r.backoffNextRetry, "wake at the earliest reset, not the full backoff")
 }
 
@@ -671,7 +671,7 @@ func TestGuardianMissingManagerStatusWhileEmpty(t *testing.T) {
 	require.Equal(t, StateDegraded, st.State, "failed respawn reports degraded, as today")
 	require.NotNil(t, st.Backoff)
 	require.Nil(t, c.runs[runID].brain)
-	require.Len(t, fake.audits, 1)
+	require.Equal(t, []string{"autopilot.manager_missing:brain-1", "autopilot.backoff:"}, fake.audits)
 	require.Empty(t, fake.nudges)
 }
 

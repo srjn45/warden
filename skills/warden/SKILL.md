@@ -258,9 +258,18 @@ manager's own completion signal.
 **Boot recovery.** A daemon restart re-preflights live runs. Content-only plan
 issues (invalid task status, etc.) are normalized and the run stays active —
 `autopilot_status` may show `preflight_warnings` listing what was coerced; tell
-the operator to fix the plan file. Structural failures (missing plan file, bad
-YAML) leave the run `degraded` until the file is restored; the watcher then
-auto-recovers. Do not tell the user to re-enable for those cases.
+the operator to fix the plan file. **Plan-bound** runs (plan id set) recover from
+ScrivaDB, so a missing/bad YAML export does not degrade them. Only legacy
+file-only runs stay `degraded` on a missing plan file/bad YAML until it is
+restored (the watcher then auto-recovers). Do not tell the user to re-enable.
+
+**Parked (needs-attention).** Status backoff carries `kind` + `last_error`
+(`backend_unavailable`, `no_backend_selectable`, `definition_error`,
+`spawn_error`). A `definition_error`, or identical `spawn_error` text
+`autopilot.guardian.max_identical_failures` (default 5) times, parks the run
+(one notification, shown as waiting). Clear it by editing the plan in ScrivaDB,
+`wd plan resume` (or pause + resume), or a daemon restart. Transient kinds back
+off forever.
 
 **CLI-only** (local file authoring): `warden autopilot init [--name <name>]` —
 scaffold `plans/<name>.yaml`. Then create/import the Plan and start with

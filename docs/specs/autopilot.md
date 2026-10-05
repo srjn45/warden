@@ -75,7 +75,9 @@ active ──all tasks landed──▶ complete (brain torn down, ledger retaine
 - `disable` at any state: Controller stops spawning + landing immediately
   (kill switch); in-flight workers keep running; brain is terminated gracefully.
 - `degraded` is visible in status (backoff stage, last error, next retry at).
-  There is no terminal failure state — owner choice #4 (never park).
+  Transient failures never park — owner choice #4 — but a failure that
+  provably cannot self-heal is **parked as needs-attention** (§2.1.2); it is
+  still not a terminal state.
 - While a run is `active`, two daemon-internal supervisors run on the guardian's
   ticker: the guardian heals manager *liveness* (§2.3), and the overwatch nudges
   a live-but-quiet manager to tend idle/waiting *workers* (§2.4).
@@ -87,8 +89,15 @@ are classified:
 
 | Kind | Examples | Boot behavior |
 |---|---|---|
-| **Structural** | missing/unreadable plan, bad YAML, empty goal, duplicate task ids, bad dep edges, integration-branch create failure | Stay `degraded`; start `watchPlan` so an operator fix can auto-recover |
+| **Structural** (legacy file-only runs, no plan id) | missing/unreadable plan file, bad YAML, empty goal, duplicate task ids, bad dep edges, integration-branch create failure | Stay `degraded`; start `watchPlan` so an operator fix can auto-recover |
+| **Plan-bound** (plan id set) | missing or unparseable repository YAML export | **Not a failure.** Goal, constraints and tasks are hydrated from ScrivaDB (the canonical store); the export is ignored for recovery |
 | **Content** | invalid task status string, `done` without `landed_pr`, unverified done claims, transient `gh` auth | Proceed: `loadPlanLenient` normalizes invalid statuses → `pending`, records warnings, spawns the brain |
+
+**Plan-bound runs** recover their goal/constraints/tasks from ScrivaDB on boot,
+`spawnBrain` and `rotateBrain`. A missing or unparseable YAML export never fails
+preflight and never marks the run `degraded`. Only legacy file-only runs keep
+file-based recovery, including `watchPlan`. Genuine definition problems in the
+ScrivaDB plan itself (empty goal, bad dep graph) are `definition_error`s (§2.1.2).
 
 User-facing paths (`Enable`, `StartRun`, `ResumeRun`) stay **strict** — content
 failures still block those. Leniency applies only to boot recovery and the
@@ -105,6 +114,30 @@ structural failure it waits until the operator restores a loadable file.
 `spawnBrain` refuses a blind spawn when `r.plan.Goal` is empty — it reloads
 leniently from disk first, and returns an error (stays `degraded`) if even that
 fails.
+
+### 2.1.2 Failure kinds and the needs-attention park
+
+Every failed spawn/heal records a typed failure on the status backoff object
+(`kind` + `last_error`):
+
+| `kind` | Meaning | Transient? |
+|---|---|---|
+| `backend_unavailable` | the chosen backend is unavailable or rate-limited at spawn time | yes |
+| `no_backend_selectable` | backend selection returned nothing selectable (the only case worded `all backends rate-limited`) | yes |
+| `definition_error` | the plan definition itself is invalid | no |
+| `spawn_error` | any other spawn failure | no (unless the text repeats) |
+
+Transient kinds keep the capped-exponential backoff **forever** (heal ladder,
+§2.3). Non-transient failures **park** as *needs-attention*: a `definition_error`
+after a single attempt; identical `spawn_error` text after
+`autopilot.guardian.max_identical_failures` consecutive occurrences (default 5,
+hot-reloadable). Parking emits exactly one operator notification and one audit
+event per episode; later ticks do not escalate. In the project tree a parked run
+shows as *waiting*; ordinary degraded/backoff still shows as error.
+
+A park is cleared (counter reset, heal ladder retried from the top) by any of:
+changing the plan definition in ScrivaDB (revision or content hash), `wd plan
+resume` (or `pause` then `resume`), or a daemon restart.
 
 ### 2.2 Task (ledger-tracked, brain-written)
 
@@ -123,7 +156,8 @@ healthy → wedged?     (heartbeat timeout w/ pending work)
   nudged → restarted  (same backend, fresh context, ledger cold-start) [stage 2]
   restarted → rotated (next backend down the cost ladder)        [stage 3]
   rotated → backoff   (all backends limited/gated: wait capped-exponential,
-                       notify, retry from stage 1 — forever)     [stage 4]
+                       notify, retry from stage 1 — forever for transient
+                       kinds; non-transient failures park, §2.1.2)  [stage 4]
 healthy → planned-rotation (context critical or cadence) → healthy
 ```
 

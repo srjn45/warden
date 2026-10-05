@@ -85,6 +85,18 @@ func (c *Controller) superviseRun(ctx context.Context, gr GuardianRuntime, r *ru
 		r.tried = map[string]bool{}
 	}
 
+	// A run parked as needs-attention is left alone until its plan definition
+	// changes in ScrivaDB; the operator (pause+resume) and a daemon restart clear
+	// it elsewhere.
+	if r.needsAttention != "" {
+		if !c.parkExpired(ctx, r) {
+			return
+		}
+		slog.Info("autopilot guardian: plan definition changed — leaving needs-attention", "run", r.runID)
+		gr.AuditRunEvent(ctx, r.runID, "autopilot.unparked", brainAgentID(r), "plan definition changed; retrying the heal ladder")
+		c.clearParked(r)
+	}
+
 	// A manager whose session no longer exists is gone: drop the stale record and
 	// respawn now — no heartbeat wait, no nudge of a ghost. Only a definitive
 	// "missing" counts; an unknown answer (daemon restart, store error) is ignored.
@@ -159,6 +171,8 @@ func (c *Controller) recover(r *run) {
 	r.backoffStage = 0
 	r.backoffNextRetry = time.Time{}
 	r.backoffLastErr = ""
+	r.backoffKind = ""
+	r.failStreak, r.failStreakText = 0, ""
 	r.tried = map[string]bool{}
 }
 
@@ -220,7 +234,7 @@ func (c *Controller) escalate(ctx context.Context, gr GuardianRuntime, r *run, n
 func (c *Controller) rotateStep(ctx context.Context, gr GuardianRuntime, r *run, now time.Time) {
 	sel := c.selectBrain(r.tried)
 	if !sel.OK {
-		c.enterBackoff(gr, r, now, sel.GateOnly)
+		c.enterBackoff(gr, r, now, KindNoBackendSelectable, sel.GateOnly, nil)
 		return
 	}
 	r.tried[sel.Backend] = true
@@ -229,7 +243,7 @@ func (c *Controller) rotateStep(ctx context.Context, gr GuardianRuntime, r *run,
 		// off; the next tick re-selects with this backend already marked tried.
 		slog.Warn("autopilot guardian: rotate spawn failed", "run", r.runID, "backend", sel.Backend, "err", err)
 		r.state = StateDegraded
-		c.enterBackoff(gr, r, now, false)
+		c.enterBackoff(gr, r, now, classifySpawnError(err), false, err)
 		return
 	}
 	r.tier = sel.Tier
@@ -243,7 +257,11 @@ func (c *Controller) rotateStep(ctx context.Context, gr GuardianRuntime, r *run,
 // guardian.backoff_max and floored by the earliest known backend reset so the run
 // climbs back up the ladder the moment a backend frees (§7). gateOnly emits the
 // distinct "flip allow_pay_per_use" notification.
-func (c *Controller) enterBackoff(gr GuardianRuntime, r *run, now time.Time, gateOnly bool) {
+func (c *Controller) enterBackoff(gr GuardianRuntime, r *run, now time.Time, kind FailureKind, gateOnly bool, cause error) {
+	if c.trackFailure(r, kind, cause) {
+		c.park(gr, r, kind, cause)
+		return
+	}
 	r.healStage = stageBackoff
 	r.state = StateDegraded
 	r.backoffStage++
@@ -258,14 +276,105 @@ func (c *Controller) enterBackoff(gr GuardianRuntime, r *run, now time.Time, gat
 	}
 	r.backoffNextRetry = next
 	r.healNextAt = next
+	r.backoffKind = kind
 
-	if gateOnly {
+	switch {
+	case cause != nil:
+		// A real spawn/rotate error: report it verbatim, never as a rate limit.
+		r.backoffLastErr = fmt.Sprintf("%s: %v — backing off until %s", kind, cause, next.Format(time.RFC3339))
+	case gateOnly:
 		r.backoffLastErr = "only pay-per-use backends remain; set autopilot.brain.allow_pay_per_use to continue"
-		c.notify(gr, r, "autopilot brain stalled", r.backoffLastErr)
-		return
+	default:
+		r.backoffLastErr = "all backends rate-limited — backing off until " + next.Format(time.RFC3339)
 	}
-	r.backoffLastErr = "all backends rate-limited — backing off until " + next.Format(time.RFC3339)
-	c.notify(gr, r, "autopilot brain stalled", r.backoffLastErr)
+	slog.Warn("autopilot guardian: entering backoff", "run", r.runID, "kind", string(kind), "detail", r.backoffLastErr)
+	gr.AuditRunEvent(context.Background(), r.runID, "autopilot.backoff", brainAgentID(r), string(kind)+": "+r.backoffLastErr)
+	c.notify(gr, r, "autopilot brain stalled ("+string(kind)+")", r.backoffLastErr)
+}
+
+// trackFailure updates the run's consecutive-identical-failure streak and reports
+// whether the failure is hopeless: a definition error always is; an unknown spawn
+// error is once the same text has repeated guardian.max_identical_failures times.
+// Transient kinds (backend unavailable, nothing selectable) reset the streak and
+// never park — they keep the capped-exponential backoff forever.
+func (c *Controller) trackFailure(r *run, kind FailureKind, cause error) bool {
+	switch kind {
+	case KindDefinitionError:
+		return cause != nil
+	case KindSpawnError:
+		if cause == nil {
+			return false
+		}
+		text := cause.Error()
+		if text == r.failStreakText {
+			r.failStreak++
+		} else {
+			r.failStreak, r.failStreakText = 1, text
+		}
+		return r.failStreak >= c.guardian.MaxIdenticalFailures
+	}
+	r.failStreak, r.failStreakText = 0, ""
+	return false
+}
+
+// park stops the retry loop for a failure that cannot succeed on retry: the run
+// stays degraded with a distinct needs-attention reason, the operator is notified
+// and the audit log written exactly once, and later ticks do nothing until the
+// run is unparked (plan change, pause+resume, daemon restart).
+func (c *Controller) park(gr GuardianRuntime, r *run, kind FailureKind, cause error) {
+	r.healStage = stageHealthy
+	r.state = StateDegraded
+	r.backoffKind = kind
+	r.backoffNextRetry = time.Time{}
+	r.healNextAt = time.Time{}
+	r.needsAttention = fmt.Sprintf("%s: %v — retries stopped; fix the plan/config, then `wd plan resume` (or pause+resume)", kind, cause)
+	r.parkedPlanKey = c.planKey(context.Background(), r)
+	slog.Warn("autopilot guardian: parked as needs-attention", "run", r.runID, "kind", string(kind), "detail", r.needsAttention)
+	gr.AuditRunEvent(context.Background(), r.runID, "autopilot.needs_attention", brainAgentID(r), r.needsAttention)
+	c.notify(gr, r, "autopilot needs attention ("+string(kind)+")", r.needsAttention)
+}
+
+// planKey identifies the plan definition revision a plan-bound run last saw
+// ("" for legacy file-only runs or when the plan source is unavailable).
+func (c *Controller) planKey(ctx context.Context, r *run) string {
+	if r.planID == "" || c.planSource == nil {
+		return ""
+	}
+	p, err := c.planSource.Get(ctx, r.planID)
+	if err != nil || p == nil {
+		return ""
+	}
+	return fmt.Sprintf("%d:%s", p.Revision, p.ContentHash)
+}
+
+// parkExpired reports whether the plan definition changed since the run parked.
+func (c *Controller) parkExpired(ctx context.Context, r *run) bool {
+	if r.parkedPlanKey == "" {
+		return false
+	}
+	key := c.planKey(ctx, r)
+	return key != "" && key != r.parkedPlanKey
+}
+
+// clearParked leaves the needs-attention condition and restarts the heal ladder
+// from the top with a clean failure counter and backoff exponent.
+func (c *Controller) clearParked(r *run) {
+	r.needsAttention, r.parkedPlanKey = "", ""
+	r.failStreak, r.failStreakText = 0, ""
+	r.backoffStage = 0
+	r.backoffKind = ""
+	r.backoffLastErr = ""
+	r.backoffNextRetry = time.Time{}
+	r.healStage = stageHealthy
+	r.healNextAt = time.Time{}
+	r.tried = map[string]bool{}
+}
+
+func brainAgentID(r *run) string {
+	if r.brain == nil {
+		return ""
+	}
+	return r.brain.AgentID
 }
 
 // plannedRotate hot-swaps a healthy brain whose context has reached the rotate
@@ -315,6 +424,7 @@ func (r *run) backoffStatus() *Backoff {
 		Stage:       r.backoffStage,
 		NextRetryAt: rfc3339OrEmpty(r.backoffNextRetry),
 		LastError:   r.backoffLastErr,
+		Kind:        string(r.backoffKind),
 	}
 }
 
