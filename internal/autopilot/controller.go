@@ -117,6 +117,8 @@ type Controller struct {
 	runtime Runtime         // nil ⇒ inert (S1): no brain spawns
 	runs    map[string]*run // keyed by run_id (across all enabled repos)
 	claims  *claimRegistry  // slot scope + reserved manager/guardian id claims
+
+	landLocks sync.Map // per-run / per-PR landing mutexes (landing.go)
 }
 
 // run is one registered plan execution: identity + state plus, once the brain

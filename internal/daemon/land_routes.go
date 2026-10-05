@@ -93,9 +93,27 @@ func (s *Server) LandAutopilot(ctx context.Context, req oapi.LandAutopilotReques
 	// never be forged or forgotten. Skip on an idempotent re-issue (already
 	// recorded). A ledger write failure does not un-merge the PR, so it is logged,
 	// not surfaced as a land failure.
-	if !res.AlreadyLanded && ledger != nil {
-		// The landing's sha is the PR HEAD SHA — the idempotency key `land` reads on
-		// a re-issue (autopilot.md §6), not the merge commit.
+	s.recordLanding(ctx, ledger, tgt, res, params.DeleteBranch)
+
+	return oapi.LandAutopilot200JSONResponse{
+		Sha:           res.SHA,
+		Pr:            res.PR,
+		Branch:        res.Branch,
+		AlreadyLanded: res.AlreadyLanded,
+	}, nil
+}
+
+// recordLanding is the authoritative post-merge bookkeeping shared by the land
+// handler and the daemon landing loop: landings ledger row, audit, plan task
+// done, plan-bound evidence. No-ops on an idempotent re-issue (already recorded).
+func (s *Server) recordLanding(ctx context.Context, ledger *autopilot.Ledger, tgt landTarget, res autopilot.LandResult, deleteBranch bool) {
+	if res.AlreadyLanded {
+		return
+	}
+	// The landing's sha is the PR HEAD SHA — the idempotency key `land` reads on
+	// a re-issue (autopilot.md §6), not the merge commit. A ledger write failure
+	// does not un-merge the PR, so it is audited, not surfaced as a land failure.
+	if ledger != nil {
 		if lerr := ledger.AppendLanding(autopilot.Landing{
 			Branch:   res.Branch,
 			SHA:      res.HeadSHA,
@@ -107,30 +125,47 @@ func (s *Server) LandAutopilot(ctx context.Context, req oapi.LandAutopilotReques
 			})
 		}
 	}
-	if !res.AlreadyLanded {
-		s.recordAuditCtx(ctx, audit.ActionAutopilotLand, tgt.runID, map[string]string{
-			"branch": res.Branch, "sha": res.SHA, "pr": strconv.Itoa(res.PR),
-		})
-		if s.autopilot != nil && res.PR > 0 && tgt.owned && tgt.runID != "" && tgt.taskID != "" {
-			if _, err := s.autopilot.UpdateTaskStatus(tgt.runID, tgt.taskID, autopilot.TaskStatusDone, res.PR); err != nil {
-				s.recordAuditCtx(ctx, audit.ActionAutopilotLand, tgt.runID, map[string]string{
-					"branch": res.Branch, "task_id": tgt.taskID, "task_status_error": err.Error(),
-				})
-			}
-		}
-		// Daemon-owned plan evidence: PR merge + land (+ optional branch cleanup).
-		if tgt.sess != nil && strings.TrimSpace(tgt.sess.PlanID) != "" {
-			s.recordPlanBoundLandEvents(tgt.sess, res.Branch, res.PR, firstNonEmptyStr(res.SHA, res.HeadSHA), params.DeleteBranch)
-			s.trackPlanBranch(tgt.sess, res.Branch)
+	s.recordAuditCtx(ctx, audit.ActionAutopilotLand, tgt.runID, map[string]string{
+		"branch": res.Branch, "sha": res.SHA, "pr": strconv.Itoa(res.PR),
+	})
+	if s.autopilot != nil && res.PR > 0 && tgt.owned && tgt.runID != "" && tgt.taskID != "" {
+		if _, err := s.autopilot.UpdateTaskStatus(tgt.runID, tgt.taskID, autopilot.TaskStatusDone, res.PR); err != nil {
+			s.recordAuditCtx(ctx, audit.ActionAutopilotLand, tgt.runID, map[string]string{
+				"branch": res.Branch, "task_id": tgt.taskID, "task_status_error": err.Error(),
+			})
 		}
 	}
+	// Daemon-owned plan evidence: PR merge + land (+ optional branch cleanup).
+	if tgt.sess != nil && strings.TrimSpace(tgt.sess.PlanID) != "" {
+		s.recordPlanBoundLandEvents(tgt.sess, res.Branch, res.PR, firstNonEmptyStr(res.SHA, res.HeadSHA), deleteBranch)
+		s.trackPlanBranch(tgt.sess, res.Branch)
+	}
+}
 
-	return oapi.LandAutopilot200JSONResponse{
-		Sha:           res.SHA,
-		Pr:            res.PR,
-		Branch:        res.Branch,
-		AlreadyLanded: res.AlreadyLanded,
-	}, nil
+// ListOpenPRs lists open PRs into integration with one gh call.
+func (h daemonLandHost) ListOpenPRs(ctx context.Context, integration string) ([]autopilot.OpenPR, error) {
+	out, err := h.runGH(ctx, "pr", "list", "--base", integration, "--state", "open", "--limit", "100",
+		"--json", "number,headRefName,headRefOid,mergeable,isDraft,url")
+	if err != nil {
+		return nil, err
+	}
+	var raw []struct {
+		Number      int    `json:"number"`
+		HeadRefName string `json:"headRefName"`
+		HeadRefOid  string `json:"headRefOid"`
+		Mergeable   string `json:"mergeable"`
+		IsDraft     bool   `json:"isDraft"`
+		URL         string `json:"url"`
+	}
+	if err := json.Unmarshal([]byte(out), &raw); err != nil {
+		return nil, fmt.Errorf("decode gh pr list: %w", err)
+	}
+	prs := make([]autopilot.OpenPR, 0, len(raw))
+	for _, r := range raw {
+		prs = append(prs, autopilot.OpenPR{Number: r.Number, HeadRef: r.HeadRefName, HeadSHA: r.HeadRefOid,
+			Draft: r.IsDraft, Mergeable: strings.ToUpper(r.Mergeable), URL: r.URL})
+	}
+	return prs, nil
 }
 
 // landHost builds the LandHost the land orchestration drives — the gh/git +
