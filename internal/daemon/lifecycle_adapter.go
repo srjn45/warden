@@ -228,6 +228,10 @@ func (a *lifecycleAdapter) CreatePR(ctx context.Context, dir, title, body, base 
 	return a.lc.CreatePR(ctx, dir, title, body, base)
 }
 
+func (a *lifecycleAdapter) PRContext(ctx context.Context, dir, base string) (string, string) {
+	return a.lc.PRContext(ctx, dir, base)
+}
+
 func (a *lifecycleAdapter) Check(ctx context.Context, dir, name string) (lifecycle.CheckResult, error) {
 	return a.lc.Check(ctx, dir, name)
 }

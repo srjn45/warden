@@ -414,6 +414,8 @@ paths:
               type: object
               properties:
                 base: { type: string, description: "PR base branch ('' = main)" }
+                title: { type: string, description: "Explicit PR title; when set it is used verbatim (no Fast-Brain draft)" }
+                body: { type: string, description: "Explicit PR body; when set it is used verbatim (no Fast-Brain draft)" }
       responses:
         "200":
           description: PR result

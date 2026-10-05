@@ -50,6 +50,7 @@ const (
 	summarizeActivitySys = `Summarize what the agent is doing in one short sentence (max 12 words). Reply with ONLY this JSON, no prose: {"summary":"<text>"}`
 	summarizeCheckSystem = `Condense this test/linter output into the actionable failure lines (file:line + cause), max 15 lines. Reply with ONLY this JSON, no prose: {"summary":"<text>"}`
 	commitMessageSystem  = `Write a conventional commit message for this diff: "type: subject" (<=72 chars, imperative). Reply with ONLY this JSON, no prose: {"message":"type: subject"}`
+	prSummarySystem      = `Write a pull-request title and description for this change. "title": Conventional Commits style "type(scope): subject", imperative, <=72 chars. "body": short markdown with a "## What changed" section and a "## Why" section. Reply with ONLY this JSON, no prose: {"title":"type: subject","body":"## What changed\n- ...\n\n## Why\n..."}`
 	curateExtractSystem  = `Extract durable, reusable project facts (decisions, conventions, gotchas) from the text as short bullets. Skip transient chatter. Reply with ONLY this JSON, no prose: {"entries":["<fact>"]}`
 	replTurnSystem       = `You are a tool-using assistant. Answer briefly, or call tools from the list. Reply with ONLY this JSON, no prose outside it: {"text":"<reply or empty>","tool_calls":[{"name":"<tool>","args":{}}]}`
 	classifyTaskFallback = "other"
@@ -83,6 +84,40 @@ func SummarizeCheckPrompt(output string) string {
 // CommitMessagePrompt builds the KindCommitMessage prompt.
 func CommitMessagePrompt(diff string) string {
 	return commitMessageSystem + "\n\nDiff:\n" + clip(diff) + "\n"
+}
+
+// PRSummaryPrompt builds the KindPRSummary prompt from the agent's task, the
+// `git diff --stat` against the PR base and the commit subjects on the branch.
+// The combined input is capped (head kept) so a huge branch cannot blow the
+// prompt budget.
+func PRSummaryPrompt(task, diffStat, commits string) string {
+	cap := func(s string, n int) string {
+		s = strings.TrimSpace(s)
+		if len(s) > n {
+			s = strings.ToValidUTF8(s[:n], "")
+		}
+		return s
+	}
+	return prSummarySystem + "\n\nTask:\n" + cap(task, 2000) + "\n\nDiff stat:\n" + cap(diffStat, 4000) +
+		"\n\nCommits:\n" + cap(commits, 2000) + "\n"
+}
+
+// PRSummaryMaxTitle is the hard cap on a drafted PR title.
+const PRSummaryMaxTitle = 72
+
+// ParsePRSummary parses {"title":"...","body":"..."}. It never errors: a
+// non-OK response yields ("",""), and each field is "" when absent or blank so
+// the caller can fall back per field. The title is reduced to its first line
+// and capped at PRSummaryMaxTitle bytes (with an ellipsis).
+func ParsePRSummary(r Response) (title, body string) {
+	title = stringField(r, "title")
+	if i := strings.IndexByte(title, '\n'); i >= 0 {
+		title = strings.TrimSpace(title[:i])
+	}
+	if len(title) > PRSummaryMaxTitle {
+		title = strings.TrimSpace(strings.ToValidUTF8(title[:PRSummaryMaxTitle-1], "")) + "…"
+	}
+	return title, stringField(r, "body")
 }
 
 // CurateExtractPrompt builds the KindCurateExtract prompt.

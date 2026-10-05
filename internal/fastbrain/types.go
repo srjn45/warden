@@ -29,6 +29,9 @@ const (
 	KindSummarizeCheck DecisionKind = "summarize_check"
 	// KindCommitMessage drafts a conventional commit message from a diff.
 	KindCommitMessage DecisionKind = "commit_message"
+	// KindPRSummary drafts a pull-request title and body from the task, diff
+	// stat and commit subjects.
+	KindPRSummary DecisionKind = "pr_summary"
 	// KindCurateExtract extracts durable facts as bullet entries.
 	KindCurateExtract DecisionKind = "curate_extract"
 	// KindReplTurn plans tool calls or prose for a REPL turn.
