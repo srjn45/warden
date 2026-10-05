@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -525,6 +528,7 @@ func TestSpawnPRReviewWithExplicitBranch(t *testing.T) {
 func TestInputBracketPastesThenSubmits(t *testing.T) {
 	inputSubmitDelay = 0 // no real wait in tests
 	fr := &FakeRunner{}
+	captureLoads(fr)
 	lc := New(fr, &FakeConfig{})
 	require.NoError(t, lc.Input(context.Background(), "A-1", "what is your status?"))
 	args := fr.calledArgs()
@@ -533,7 +537,10 @@ func TestInputBracketPastesThenSubmits(t *testing.T) {
 	// -r flag stops paste-buffer translating LF→CR: -p (bracketed paste) only
 	// protects newlines when the app requested bracketed-paste mode, so without
 	// -r an embedded newline submits early at a non-composer prompt.
-	require.Contains(t, args, []string{"tmux", "set-buffer", "-b", "warden-input-A-1", "--", "what is your status?"})
+	require.Equal(t, "what is your status?", loadedText(t, fr, "warden-input-A-1"))
+	for _, a := range args {
+		require.NotContains(t, a, "set-buffer", "text must never ride as a tmux argument")
+	}
 	require.Contains(t, args, []string{"tmux", "paste-buffer", "-t", "A-1", "-b", "warden-input-A-1", "-p", "-r", "-d"})
 	require.Contains(t, args, []string{"tmux", "send-keys", "-t", "A-1", "Enter"})
 
@@ -553,9 +560,10 @@ func TestInputBracketPastesThenSubmits(t *testing.T) {
 func TestInputMultilineIsPastedAsContentNotEnters(t *testing.T) {
 	inputSubmitDelay = 0
 	fr := &FakeRunner{}
+	captureLoads(fr)
 	require.NoError(t, New(fr, &FakeConfig{}).Input(context.Background(), "A-1", "line one\nline two"))
 	// The whole multi-line message is one buffer (newlines preserved as content).
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "set-buffer", "-b", "warden-input-A-1", "--", "line one\nline two"})
+	require.Equal(t, "line one\nline two", loadedText(t, fr, "warden-input-A-1"))
 	// Exactly one Enter keystroke — the submit — never one per line.
 	enters := 0
 	for _, a := range fr.calledArgs() {
@@ -2012,4 +2020,96 @@ func TestValidPermissionMode(t *testing.T) {
 			t.Errorf("ValidPermissionMode(%q) = true, want false", m)
 		}
 	}
+}
+
+// loadedText returns the text a tmux load-buffer call for buf was given. The
+// fake runner is wrapped (via FailIf) to capture the file contents while it
+// still exists; see inputCapture.
+func loadedText(t *testing.T, fr *FakeRunner, buf string) string {
+	t.Helper()
+	for _, a := range fr.calledArgs() {
+		if len(a) == 5 && a[1] == "load-buffer" && a[2] == "-b" && a[3] == buf {
+			return inputCaptured[a[4]]
+		}
+	}
+	t.Fatalf("no load-buffer call for %s in %v", buf, fr.calledArgs())
+	return ""
+}
+
+// inputCaptured maps load-buffer file path -> contents at call time.
+var inputCaptured = map[string]string{}
+
+func captureLoads(fr *FakeRunner) {
+	prev := fr.FailIf
+	fr.FailIf = func(argv []string) error {
+		if len(argv) == 5 && argv[1] == "load-buffer" {
+			b, _ := os.ReadFile(argv[4])
+			inputCaptured[argv[4]] = string(b)
+			if st, err := os.Stat(argv[4]); err == nil && st.Mode().Perm() != 0o600 {
+				return fmt.Errorf("input file mode %v, want 0600", st.Mode().Perm())
+			}
+		}
+		if prev != nil {
+			return prev(argv)
+		}
+		return nil
+	}
+}
+
+func TestInputTempFileRemovedOnSuccessAndError(t *testing.T) {
+	inputSubmitDelay = 0
+	dir := t.TempDir()
+	for _, failLoad := range []bool{false, true} {
+		fr := &FakeRunner{}
+		captureLoads(fr)
+		if failLoad {
+			prev := fr.FailIf
+			fr.FailIf = func(argv []string) error {
+				if err := prev(argv); err != nil {
+					return err
+				}
+				if len(argv) > 1 && argv[1] == "load-buffer" {
+					return fmt.Errorf("boom")
+				}
+				return nil
+			}
+		}
+		lc := New(fr, &FakeConfig{})
+		lc.PromptsDir = dir
+		err := lc.Input(context.Background(), "A-1", "secret")
+		if failLoad {
+			require.Error(t, err)
+		} else {
+			require.NoError(t, err)
+		}
+		ents, _ := os.ReadDir(filepath.Join(dir, ".input"))
+		require.Empty(t, ents, "temp input file must be removed (failLoad=%v)", failLoad)
+	}
+}
+
+func TestInputLargeTextRealTmux(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not installed")
+	}
+	inputSubmitDelay = 0
+	run := ExecRunner{}
+	ctx := context.Background()
+	id := "warden-bigpaste-" + strconv.Itoa(os.Getpid())
+	out := filepath.Join(t.TempDir(), "out.txt")
+	if o, err := run.Run(ctx, "", "tmux", "new-session", "-d", "-s", id, "stty raw -echo; head -c 262144 > "+out+"; sleep 30"); err != nil {
+		t.Fatalf("new-session: %v %s", err, o)
+	}
+	defer run.Run(ctx, "", "tmux", "kill-session", "-t", id)
+
+	text := strings.Repeat("0123456789abcdef", 16*1024) // 256 KB, no newlines (a tty line is capped)
+	lc := New(run, &FakeConfig{})
+	lc.PromptsDir = t.TempDir()
+	time.Sleep(500 * time.Millisecond) // let stty put the tty in raw mode first
+	require.NoError(t, lc.Input(ctx, id, text))
+	require.Eventually(t, func() bool {
+		b, _ := os.ReadFile(out)
+		return len(b) == len(text)
+	}, 10*time.Second, 100*time.Millisecond)
+	b, _ := os.ReadFile(out)
+	require.Equal(t, text, string(b))
 }
