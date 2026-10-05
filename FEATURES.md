@@ -300,21 +300,21 @@ A goal-directed long-running autonomous mode: a **manager** agent (role
 and lands them into an integration branch, without waiting on a human.
 
 > ⚠️ **Prominent risk warning:** unattended operation is inherently risky.
-> Use `warden autopilot off` (the kill switch) to stop new spawns/landings at
+> Use `warden plan pause <id>` (or the deprecated `warden autopilot off`, which pauses every active run in the repo) to stop new spawns/landings at
 > any time. Workers always land into `autopilot/integration`, never directly
 > into `main`. Every action is recorded in `warden audit log`.
 
 | Feature | CLI | MCP | Skill | Web | TUI | Docs |
 |---|---|---|---|---|---|---|
-| Enable autopilot capability **per-repo** (switch only; does not start work) | `autopilot on [--repo <root>]` | `set_autopilot` (`enabled: true`, `repo?`) | ✓ | AttentionBar button | `ctrl+a` header badge | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
-| Disable autopilot **per-repo** — kill switch (stops spawns/landings, terminates manager) | `autopilot off [--repo <root>]` | `set_autopilot` (`enabled: false`, `repo?`) | ✓ | AttentionBar button | `ctrl+a` header badge | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
-| Status (enabled repos, run state, manager id, task counts, tier, backoff) | `autopilot status` | `autopilot_status` | ✓ | AutopilotPanel | TUI header badge | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
-| Scaffold + register a named plan | `autopilot init [--name <name>]` | **CLI-only** (local file authoring) | ✓ | — | — | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
+| Start autopilot — no enable step; `plan run --mode autopilot` starts the run (`autopilot on` is a deprecated hidden no-op) | `plan run <id> --mode autopilot` | `run_plan` (`set_autopilot` `enabled: true` deprecated no-op) | ✓ | — | — | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
+| Pause a run (deprecated `autopilot off`/`set_autopilot enabled:false` pauses every active run in the repo) | `plan pause <id>` | `control_plan` | ✓ | AttentionBar button | `ctrl+a` header badge | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
+| Status (run state, manager id, task counts, tier, backoff; absorbs the old run-list columns; hidden aliases `autopilot run list`/`list`) | `autopilot status [--json]` | `autopilot_status` | ✓ | AutopilotPanel | TUI header badge | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
+| Live status of one running plan (executor state, backoff, integration branch, per-task worker/PR) | `plan show <id> --watch` | `get_plan` | ✓ | — | — | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
+| Scaffold a named plan + config block (no daemon registration) | `autopilot init [--name <name>]` | **CLI-only** (local file authoring) | ✓ | — | — | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
 | Start / control plan execution | `plan run\|pause\|resume\|stop` | `run_plan` / `control_plan` | ✓ | AutopilotPanel | run nodes (`r`/`x`) | [plans](https://srjn45.github.io/warden/concepts/plans/) |
 | Land a worker branch into the integration branch (idempotent, guarded) | `land <agent-or-branch>` | `land` | ✓ | — | — | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
 | Mark the run complete (in-place `status: complete` plan marker; preflight skips it) | automatic (manager) | `autopilot_complete` | ✓ | — | — | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |
 | Ad-hoc brain consult from manager (shared `Consultor` with pipeline stuck recovery; short-lived `role=brain` spawn + teardown + audit; closed action enum) | automatic (manager) | `brain_consult` | ✓ | — | — | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |
-| Persisted per-repo enable set (repos come back up across daemon restart) | automatic (`<data_dir>/autopilot/enabled/`) | automatic | ✓ | — | — | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
 | Topology: manager (role `autopilot`) + worker (role `worker`) + on-demand resolver (role `brain`), tagged `autopilot`+`run:<id>` | automatic | automatic | ✓ | fleet list | TUI sub-tree | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |
 | Guardian heal loop (nudge→restart→rotate→backoff) | automatic | automatic | ✓ | AutopilotPanel | — | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |
 | Overwatch backstop (nudges manager to tend idle/waiting workers) | automatic | automatic | ✓ | — | — | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |

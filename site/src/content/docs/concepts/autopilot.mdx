@@ -3,13 +3,13 @@ title: Autopilot — concepts
 description: The core model behind warden's autonomous run mode — plan, run, the manager/worker/resolver topology, overwatch, ledger, guardian, and cost-tier backend selection.
 ---
 
-> ⚠️ **Autonomous operation is inherently risky.** When autopilot is enabled, a
+> ⚠️ **Autonomous operation is inherently risky.** When an autopilot plan is running, a
 > **manager** agent drives a fleet of worker agents **without human intervention**.
 > Review the [Autopilot guide](../guides/autopilot) — in particular the risk
-> warning and kill switch — before enabling.
+> warning and pause controls — before running a plan.
 
 Autopilot is warden's **long-running autonomous mode**: you author a goal in a
-plan file, enable autopilot, and warden spins up a *manager* agent that drives a
+plan and `warden plan run <id> --mode autopilot`, and warden spins up a *manager* agent that drives a
 fleet of worker agents, lands their branches into an integration branch, heals
 itself when it gets stuck, and escalates to progressively cheaper backends if
 rate-limited — all without waiting on a human.
@@ -164,7 +164,7 @@ picked up on the next planning tick.
 ### Run
 
 The daemon's execution of one plan: one manager + its workers + its ledger. The
-run id is a stable hash of the repo path and the plan file path, so enabling
+run id is a stable hash of the repo path and the plan file path, so running
 autopilot on the same repo + plan always continues the same logical run (the
 ledger persists landed tasks across manager restarts).
 
@@ -173,16 +173,20 @@ and `plans/notifications.yaml`) can be active concurrently — each gets its own
 per-plan integration branch and stable slot ids so they cannot land into each
 other's trees.
 
-**The switch is per-repository.** `warden autopilot enable` (or `set_autopilot`)
-enables only the repo it targets — the current git repository, or `--repo <root>`
-/ the `repo` field. The plan/manager/merge **template** stays global in the
-`autopilot` config block; per-repo state is just the on/off bit and its run. The
-enabled set is **persisted** under `<data_dir>/autopilot/enabled/`, so
-previously-enabled repos come back up automatically across a daemon restart, and
-it is the source of truth for which repos are on — a config hot-reload re-applies
-the template but never resets it. `warden autopilot status` reports the enabled
-repos (`enabled_repos`) and each run's `integration_branch`, `manager_slot_id`,
-and `slot_scope`; the scalar `enabled` means "any repo is on".
+**There is no per-repo enable switch.** Starting a plan with
+`warden plan run <id> --mode autopilot` is what starts a run, and
+`warden plan pause|resume|stop` controls it. `warden plan show <id> --watch` is
+the live status view (executor state, backoff, integration branch, per-task
+worker/PR). The plan/manager/merge **template** stays global in the `autopilot`
+config block. `warden autopilot status [--json]` lists every run with its
+`integration_branch`, `manager_slot_id`, and `slot_scope` (it absorbed the old
+`autopilot run list` columns; `run list` / `list` remain as hidden aliases).
+
+**Deprecated compatibility.** `autopilot enable|on` are hidden no-ops with a
+notice pointing at `plan run --mode autopilot`; `autopilot disable|off` are
+hidden and pause every active run in the repo (same as `plan pause` on each).
+MCP `set_autopilot` / REST behave the same: `enabled: true` is a no-op,
+`enabled: false` pauses the repo's runs.
 
 ### Plan-scoped hierarchy
 
@@ -435,21 +439,22 @@ agents still surface normally.
 ## Run state machine
 
 ```
-disabled ──enable──▶ starting ──manager healthy──▶ active
-   ▲                    │                          │
-   │                    │ spawn fails              │ manager wedged / rate-limited
-disable (kill switch)   ▼                          ▼
-   └───────────────  degraded ◀──────────────── healing
-                        │  guardian backoff loop (never parks)
-                        └──heal succeeds──▶ active
+plan run ──▶ starting ──manager healthy──▶ active
+                │                          │
+                │ spawn fails              │ manager wedged / rate-limited
+                ▼                          ▼
+             degraded ◀──────────────── healing
+                │  guardian backoff loop (never parks)
+                └──heal succeeds──▶ active
+active ──plan pause──▶ paused ──plan resume──▶ active
 active ──done_when verified──▶ complete
   (manager torn down, ledger retained, integration branch ready for owner review)
 ```
 
-`disable` is the **kill switch** — it is effective at any state. It stops all
-new spawns and landings immediately; in-flight workers keep running to completion.
-The manager is terminated gracefully. The ledger is retained so a future `enable`
-can continue from where the run left off.
+`plan pause` is effective at any state. It stops all new spawns and landings
+immediately; in-flight workers keep running to completion. The ledger is retained
+so `plan resume` continues from where the run left off. (The deprecated
+`autopilot disable` does the same for every active run in the repo.)
 
 While a run is `active`, two daemon-internal supervisors share the guardian's
 ticker: the **guardian** heals manager liveness, and the **overwatch** nudges a
@@ -477,7 +482,7 @@ complete it). The daemon writes an **in-place marker** into the plan file —
 your other keys, ordering, and inline comments survive; tears the manager down
 (in-flight workers keep running); and retains the ledger. **Preflight skips a
 plan carrying `status: complete`**, so a finished run is never executed again by
-mistake on a future enable or daemon restart. Completion is idempotent. To re-run
+mistake on a future plan run or daemon restart. Completion is idempotent. To re-run
 a completed plan, remove the `status: complete` line.
 
 ### Config hot-reload
@@ -485,7 +490,7 @@ a completed plan, remove the `status: complete` line.
 The `autopilot` config block **hot-reloads with no daemon restart** — editing
 `~/.warden/config.yaml` re-applies the plan/manager/merge template, backend cost
 ladder, and guardian heal thresholds on the next tick and re-runs the per-repo
-reconcile over the persisted enabled set (which is never reset). Adding a
+reconcile. Adding a
 `plans[]` entry starts it; removing one tears down its run. Only the guardian tick
 `interval` is read once at loop start and needs a restart; a syntactically bad
 edit keeps the last-good config and alerts the owner.

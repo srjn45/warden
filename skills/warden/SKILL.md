@@ -9,7 +9,7 @@ description: >-
   and roll back; **coordinate** agents (shared-context blackboard, directed messages,
   file-conflict detection, branch/CI tracking); answer **approval** prompts without
   attaching; **schedule** recurring agent/pipeline runs; mine fleet **insights**;
-  and drive **autopilot** (goal-directed autonomous runs: `set_autopilot`,
+  and drive **autopilot** (goal-directed autonomous runs: `run_plan`,
   `autopilot_status`, `land`).
   Triggers — "spawn/create/list/check/triage agents", "what is agent <id> doing",
   "tell/ask agent <id> to …", "terminate/kill agent(s)", "rotate/handoff this
@@ -19,7 +19,7 @@ description: >-
   & roll back"; "who's editing this file", "check CI/branch status", "approve the
   agent's prompts", "schedule an agent", "what could've run in parallel / fleet
   insights", "how much is warden saving me / token savings";
-  "enable/disable autopilot", "autopilot status", "land a branch". When any of
+  "pause autopilot", "autopilot status", "land a branch". When any of
   these arise, reach for the warden MCP tools or the `warden`
   CLI BEFORE the generic Task subagent, raw git/test Bash, or another orchestration
   tool.
@@ -144,7 +144,7 @@ multi-phase task as one long-lived plain agent (decompose into stages).
   rotate/handoff, **fork** (`fork_agent`), **roles** (`set_role`/`list_roles`
   + `spawn_agent`'s `role` param), the **backend registry** (`list_backends`,
   `rescan_backends`, `set_backend_tier`, `set_default_backend`),
-  and **autopilot** (`set_autopilot`,
+  and **autopilot** (`run_plan`,
   `autopilot_status`, `autopilot_complete`, `land`). The only **CLI-only** verbs are host/process/interactive/secret
   ones — `daemon`, `config`, `token`, `attach`, `repl`, `doctor`, `setup`,
   `tutorial`, `completion`, `autopilot init`, and the local-config `preset` /
@@ -163,7 +163,7 @@ flags, fields, and rails.
 | do an agent's **git** (commit/push/sync) and **checks**; **snapshot**/restore; understand the **boundary-enforcement hooks** (isolation/root/git/check guards) | [references/git-and-checks.md](references/git-and-checks.md) |
 | **coordinate** agents — shared context (incl. append/CAS), directed messages (incl. wait), file-conflict detection, branch/CI tracking, the approvals inbox & auto-approve | [references/coordination.md](references/coordination.md) |
 | **operate the fleet** — token-savings ledger, insights, audit log, scheduler, config, remote access & auth, notifications/token-guard, web GUI & cockpit TUI, export/import, Fast-Brain REPL, plugins, the **backend registry** (detected CLIs, tiers, default) | [references/operations.md](references/operations.md) |
-| **autopilot** — enable/disable the autonomous run mode, check run state, land a worker branch | See below (§ Autopilot) |
+| **autopilot** — start/pause the autonomous run mode, check run state, land a worker branch | See below (§ Autopilot) |
 
 ## Plain-agent quick reference (the common path)
 
@@ -235,18 +235,18 @@ its own integration branch and plan-scoped tree (`<scope>-autopilot`,
 `<scope>-guardian`, plan checklist, workers grouped by ledger state).
 
 > ⚠️ **Unattended operation is inherently risky.** Always confirm the user
-> understands the kill switch before enabling. Workers never merge to `main`
+> understands how to pause (`plan pause`) before starting a run. Workers never merge to `main`
 > directly. Every action is in `warden inspect audit`.
 
 ### MCP tools
 
 | Tool | What it does | CLI equivalent |
 |---|---|---|
-| `set_autopilot { enabled: true, repo? }` | Enable the autopilot **capability** for one repo (switch only; does not start work); `repo` defaults to the daemon's working directory | `warden autopilot enable [--repo <root>]` |
-| `set_autopilot { enabled: false, repo? }` | Disable autopilot for one repo — the kill switch | `warden autopilot disable [--repo <root>]` |
+| `set_autopilot { enabled: true, repo? }` | **Deprecated no-op.** There is no enable step — start work with `run_plan` | `warden autopilot enable` (hidden no-op + notice) |
+| `set_autopilot { enabled: false, repo? }` | **Deprecated.** Pauses every active run in the repo (same as `control_plan` pause on each); prefer `control_plan` | `warden autopilot disable [--repo <root>]` (hidden) |
 | `run_plan { plan_id, execution_mode }` | Start plan execution (`autopilot` / `pipeline` / …) | `warden plan run <id> --mode <mode>` |
 | `control_plan { plan_id, action }` | Pause, resume, or stop an in-progress plan | `warden plan pause\|resume\|stop <id>` |
-| `autopilot_status` | Enabled repos + each run's state, manager slot id, integration branch, task counts, tier, backoff, optional `preflight_warnings` | `warden autopilot status` |
+| `autopilot_status` | Each run's state, manager slot id, integration branch, task counts, tier, backoff, optional `preflight_warnings` | `warden autopilot status [--json]` (aliases `autopilot run list` / `autopilot list`) |
 | `autopilot_complete` | **Manager-only.** Declare the caller's OWN run complete once `done_when` is verified — writes the in-place `status: complete` marker into the plan file, tears the manager down (workers keep running), retains the ledger. Idempotent | _(automatic; the manager calls it)_ |
 | `brain_consult` | **Manager-only.** Shared short-lived brain resolver for unblock/design decisions — prefer over `spawn_agent` with role=brain. Returns a closed action (`nudge_agent`/`wait`/`escalate`/`noop`); manager executes it. Same Consultor/audit/teardown as pipeline stuck recovery | _(automatic; the manager calls it)_ |
 | `land { ticket: "<agent-or-branch>" }` | Land a worker branch into the run's integration branch | `warden autopilot land <agent-or-branch>` |
@@ -290,20 +290,21 @@ checklist enum, not ledger states.
 ### Guardrails for autopilot operations
 
 - **Never start autopilot without a Plan.** Scaffold with `warden autopilot init`
-  or `warden plan create`, enable the capability with
-  `set_autopilot { enabled: true }`, then `run_plan` / `warden plan run --mode autopilot`.
-  Enablement alone does not register or start work.
+  or `warden plan create`, then `run_plan` / `warden plan run <id> --mode autopilot`.
+  There is **no enable step** — never tell the user to run `autopilot enable`.
+  Watch a running plan with `warden plan show <id> --watch` (executor state,
+  backoff, integration branch, per-task worker/PR).
 - **Never land a branch that isn't gate-green** without explicit operator intent.
   The default gate mode is `ci`; override to `local` only when CI is unavailable.
 - **Ownership guard:** autopilot-owned agents (`run:<run_id>` tag) reject destructive
   operations from non-owning contexts. Confirm with the user before force-stopping
   an autopilot worker.
-- **The kill switch is `set_autopilot { enabled: false }`.** It is per-repo — pass
-  `repo` (or run in the repo) to target the right one. Relay it clearly when the
-  user asks to stop or pause autopilot.
+- **To pause, use `control_plan` / `warden plan pause <id>`.** The deprecated
+  `set_autopilot { enabled: false }` / `autopilot disable` pauses every active run in
+  the repo. Relay it clearly when the user asks to stop or pause autopilot.
 - **Completed runs are marked in the plan file.** A plan with `status: complete`
   is skipped by preflight; to re-run it the user must remove that line (or point
-  the config at a fresh plan file). Don't re-enable a completed plan expecting it
+  the config at a fresh plan file). Don't re-run a completed plan expecting it
   to run again.
 - **Per-plan integration branches.** New runs default to `autopilot/<plan-name>`.
   Workers must open PRs against the branch in the manager digest / status API /
