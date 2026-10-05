@@ -2892,6 +2892,9 @@ type ServerInterface interface {
 	// Restore Plans from a portable backup bundle
 	// (POST /api/v1/plans/restore_backup)
 	RestorePlanBackup(w http.ResponseWriter, r *http.Request)
+	// Delete a plan
+	// (DELETE /api/v1/plans/{plan_id})
+	DeletePlan(w http.ResponseWriter, r *http.Request, planId PlanId)
 	// Get a plan
 	// (GET /api/v1/plans/{plan_id})
 	GetPlan(w http.ResponseWriter, r *http.Request, planId PlanId)
@@ -3495,6 +3498,12 @@ func (_ Unimplemented) ExportPlanBackup(w http.ResponseWriter, r *http.Request) 
 // Restore Plans from a portable backup bundle
 // (POST /api/v1/plans/restore_backup)
 func (_ Unimplemented) RestorePlanBackup(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Delete a plan
+// (DELETE /api/v1/plans/{plan_id})
+func (_ Unimplemented) DeletePlan(w http.ResponseWriter, r *http.Request, planId PlanId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -5702,6 +5711,38 @@ func (siw *ServerInterfaceWrapper) RestorePlanBackup(w http.ResponseWriter, r *h
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RestorePlanBackup(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeletePlan operation middleware
+func (siw *ServerInterfaceWrapper) DeletePlan(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "plan_id" -------------
+	var planId PlanId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "plan_id", chi.URLParam(r, "plan_id"), &planId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "plan_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeletePlan(w, r, planId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -8580,6 +8621,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/api/v1/plans/restore_backup", wrapper.RestorePlanBackup)
 	})
 	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/api/v1/plans/{plan_id}", wrapper.DeletePlan)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/plans/{plan_id}", wrapper.GetPlan)
 	})
 	r.Group(func(r chi.Router) {
@@ -11082,6 +11126,56 @@ func (response RestorePlanBackup503JSONResponse) VisitRestorePlanBackupResponse(
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeletePlanRequestObject struct {
+	PlanId PlanId `json:"plan_id"`
+}
+
+type DeletePlanResponseObject interface {
+	VisitDeletePlanResponse(w http.ResponseWriter) error
+}
+
+type DeletePlan200JSONResponse struct{ OKJSONResponse }
+
+func (response DeletePlan200JSONResponse) VisitDeletePlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeletePlan404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeletePlan404JSONResponse) VisitDeletePlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeletePlan409JSONResponse Error
+
+func (response DeletePlan409JSONResponse) VisitDeletePlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -14589,6 +14683,9 @@ type StrictServerInterface interface {
 	// Restore Plans from a portable backup bundle
 	// (POST /api/v1/plans/restore_backup)
 	RestorePlanBackup(ctx context.Context, request RestorePlanBackupRequestObject) (RestorePlanBackupResponseObject, error)
+	// Delete a plan
+	// (DELETE /api/v1/plans/{plan_id})
+	DeletePlan(ctx context.Context, request DeletePlanRequestObject) (DeletePlanResponseObject, error)
 	// Get a plan
 	// (GET /api/v1/plans/{plan_id})
 	GetPlan(ctx context.Context, request GetPlanRequestObject) (GetPlanResponseObject, error)
@@ -16590,6 +16687,32 @@ func (sh *strictHandler) RestorePlanBackup(w http.ResponseWriter, r *http.Reques
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RestorePlanBackupResponseObject); ok {
 		if err := validResponse.VisitRestorePlanBackupResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeletePlan operation middleware
+func (sh *strictHandler) DeletePlan(w http.ResponseWriter, r *http.Request, planId PlanId) {
+	var request DeletePlanRequestObject
+
+	request.PlanId = planId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeletePlan(ctx, request.(DeletePlanRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeletePlan")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeletePlanResponseObject); ok {
+		if err := validResponse.VisitDeletePlanResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -2623,6 +2623,15 @@
     "json": true
   },
   {
+    "path": "plan delete",
+    "use": "delete \u003cplan-id\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
     "path": "plan done",
     "use": "done \u003cplan-id\u003e \u003ctask-id\u003e",
     "runnable": true,

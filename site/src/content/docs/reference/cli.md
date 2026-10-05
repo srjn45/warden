@@ -1160,6 +1160,7 @@ Commands:
   done                 Mark a plan task done
   complete             Complete a plan (in_progress → completed)
   archive              Archive a plan (any status → archived)
+  delete               Permanently delete a plan
   sync_to_repo         Export a plan revision to a dedicated branch and open a PR
   hub-sync             Explicitly sync canonical plans with the configured Hub
   backup               Export or restore a portable Plan backup bundle
@@ -1572,6 +1573,23 @@ Usage:
 Flags:
   -h, --help   help for archive
       --json   output as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan delete
+
+```text
+Permanently remove a plan record. In-progress plans are refused; archive or
+complete them first. Any YAML replica in the repository is left untouched.
+
+Usage:
+  warden plan delete <plan-id> [flags]
+
+Flags:
+  -h, --help   help for delete
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)

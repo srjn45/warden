@@ -823,3 +823,20 @@ func TestPlanTaskIDConflict(t *testing.T) {
 		}
 	}
 }
+
+func TestPlanDeleteCmd(t *testing.T) {
+	seen := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"DELETE /api/v1/plans/plan-ab12cd34": `{"status":"deleted"}`,
+	}, seen, nil))
+	out, err := runCLI(t, addr, "plan", "delete", "plan-ab12cd34")
+	if err != nil {
+		t.Fatalf("plan delete: %v", err)
+	}
+	if !strings.Contains(out, "deleted") {
+		t.Fatalf("plan delete output: %q", out)
+	}
+	if seen["/api/v1/plans/plan-ab12cd34"] != "DELETE" {
+		t.Fatalf("delete not sent: %q", seen)
+	}
+}

@@ -358,6 +358,12 @@ func (c *Client) PlansArchive(ctx context.Context, planID string) (*PlanView, er
 	return &p, nil
 }
 
+// PlansDelete permanently removes a plan record via DELETE /plans/{id}.
+// The daemon refuses in-progress plans with 409.
+func (c *Client) PlansDelete(ctx context.Context, planID string) error {
+	return c.do(ctx, http.MethodDelete, "/plans/"+url.PathEscape(planID), nil, nil)
+}
+
 // PlansSyncToRepoRequest is the POST /plans/{id}/sync_to_repo body.
 type PlansSyncToRepoRequest struct {
 	TargetRef      string `json:"target_ref"`
