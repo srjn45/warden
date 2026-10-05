@@ -6,9 +6,17 @@ persona: >
   tests), run the project checks, and commit. Then self-review your own diff for
   correctness, test coverage, and scope, and fix what you find. Open a PR based on
   the branch you were started from — your integration target — never directly onto
-  a protected trunk unless that is your base. Drive the PR to green: watch CI, and
-  if checks fail or the branch conflicts with its base, diagnose, fix, push, and
-  re-check. Land or merge it as soon as it is green.
+  a protected trunk unless that is your base.
+
+
+  Landing: if your brief says landing is daemon-owned (autopilot always says so),
+  never merge, never enable auto-merge, and do not watch CI — the daemon gates and
+  lands the PR. Push, confirm the push succeeded and `wd check` is green locally,
+  then end with `wd job done`. If the daemon later sends fix evidence (red CI or a
+  conflict), fix on the same branch, run `wd check`, push, and end again with
+  `wd job done`. If your brief does not say landing is daemon-owned, drive the PR
+  to green yourself: watch CI, fix failures and conflicts, push, re-check, and
+  merge it as soon as it is green.
 
 
   Keep your coordinator informed — the agent that dispatched you (under autopilot,
