@@ -59,8 +59,14 @@ type RunStatus struct {
 	Watchdog       string `json:"watchdog,omitempty"`
 	// NextStep is the guardian's scheduled next action; RestingUntil is the
 	// earliest instant a rate-limited agent is resumed or re-switched.
-	NextStep          *NextStep           `json:"next_step,omitempty"`
-	RestingUntil      string              `json:"resting_until,omitempty"`
+	NextStep     *NextStep `json:"next_step,omitempty"`
+	RestingUntil string    `json:"resting_until,omitempty"`
+	// LastDiagnosis is the guardian's last triage decision; Fix is the per-task
+	// gate/fix-loop state; Resolver summarises resolver-agent activity. All are
+	// persisted across daemon restarts (surface.go).
+	LastDiagnosis     *Diagnosis          `json:"last_diagnosis,omitempty"`
+	Fix               []FixStatus         `json:"fix,omitempty"`
+	Resolver          *ResolverStatus     `json:"resolver,omitempty"`
 	LandedTotal       int                 `json:"landed_total"`
 	PlanTasks         []PlanTask          `json:"plan_tasks"`
 	GuardianID        string              `json:"guardian_id,omitempty"`

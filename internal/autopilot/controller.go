@@ -198,6 +198,9 @@ type run struct {
 
 	// completion is the run's completion-phase bookkeeping (completion.go).
 	completion completionState
+	// surface is the persisted operator status surface (surface.go).
+	surface       surfaceRecord
+	surfaceLoaded bool
 
 	// resting is the guardian's per-agent usage-limit bookkeeping (limits.go).
 	resting map[string]*restingAgent
@@ -996,7 +999,8 @@ func (c *Controller) statusLocked() Status {
 				ContextLevel:  r.contextLevel,
 			}
 		}
-		st.Runs = append(st.Runs, RunStatus{
+		sv := c.surfaceViewLocked(r)
+		rs := RunStatus{
 			RunID:             r.runID,
 			Name:              r.name,
 			PlanFile:          r.planFile,
@@ -1004,7 +1008,6 @@ func (c *Controller) statusLocked() Status {
 			PlanID:            r.planID,
 			ProjectID:         r.projectID,
 			State:             r.reportedState(),
-			FinalPR:           r.completion.finalPR.snapshot(),
 			Gate:              c.runGate(r), // the mode resolved at preflight (§6.1)
 			Brain:             brain,
 			WorkersInFlight:   r.workersInFlight, // last roster count from the overwatch tick
@@ -1025,7 +1028,9 @@ func (c *Controller) statusLocked() Status {
 			GuardianSlotID:    guardianSlotIDOrEmpty(r.slotScope),
 			LedgerTasks:       c.ledgerTasksLocked(r.runID),
 			PreflightWarnings: append([]string(nil), r.preflightWarnings...),
-		})
+		}
+		sv.apply(&rs)
+		st.Runs = append(st.Runs, rs)
 	}
 	sort.Slice(st.Runs, func(i, j int) bool { return st.Runs[i].RunID < st.Runs[j].RunID })
 	for _, rs := range st.Runs {

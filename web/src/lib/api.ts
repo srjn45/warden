@@ -364,7 +364,17 @@ export interface AutopilotRun {
 	integration_branch?: string;
 	gate_warning?: string;
 	ledger_tasks?: AutopilotLedgerTask[];
+	watchdog?: string;
+	final_pr?: AutopilotFinalPR;
+	last_diagnosis?: AutopilotDiagnosis;
+	fix?: AutopilotFixStatus[];
+	resolver?: AutopilotResolverStatus;
 }
+
+export interface AutopilotFinalPR { number: number; url?: string; head_sha?: string; gate: 'pending' | 'red' | 'green' | string; fix_attempts: number; }
+export interface AutopilotDiagnosis { action: string; confidence: number; rationale?: string; fail_open_reason?: string; source?: string; outcome?: string; at: string; }
+export interface AutopilotFixStatus { task: string; pr?: number; gate: 'red' | 'conflict' | 'clear' | string; kind?: string; red_streak: number; fix_attempts: number; reruns?: number; fixing?: boolean; last_dispatched_sha?: string; updated_at?: string; }
+export interface AutopilotResolverStatus { attempts: number; last_class?: string; last_task?: string; last_branch?: string; last_outcome?: string; last_at?: string; }
 
 export interface AutopilotLedgerTask { id: string; state: string; }
 

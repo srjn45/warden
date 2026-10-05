@@ -6551,7 +6551,7 @@ components:
               run_id: { type: string }
               plan_file: { type: string }
               repo: { type: string }
-              state: { type: string, enum: [disabled, registered, starting, active, paused, stopped, degraded, healing, complete] }
+              state: { type: string, enum: [disabled, registered, starting, active, finalizing, paused, stopped, degraded, healing, complete] }
               name: { type: string }
               gate: { type: string, description: "resolved gate mode (ci|local) or the configured mode in the S1 inert core" }
               brain:
@@ -6594,6 +6594,52 @@ components:
                   action: { type: string }
                   at: { type: string, description: "RFC3339 time the action fires; empty when it waits for an operator" }
                   owner: { type: string, description: "guardian | overwatch | operator" }
+              final_pr:
+                type: object
+                description: the single final PR (integration -> default branch) once autopilot opened it; persisted across daemon restarts
+                properties:
+                  number: { type: integer }
+                  url: { type: string }
+                  head_sha: { type: string }
+                  gate: { type: string, enum: [pending, red, green] }
+                  fix_attempts: { type: integer }
+              last_diagnosis:
+                type: object
+                description: the guardian's last triage decision for this run; persisted across daemon restarts
+                properties:
+                  action: { type: string, description: "wait|nudge|resolve_prompt|resume_rate_limit|redeliver_prompt|restart|rotate|call_resolver|mechanical" }
+                  confidence: { type: number }
+                  rationale: { type: string }
+                  fail_open_reason: { type: string, description: "why triage fell open to the mechanical ladder; empty when it did not" }
+                  source: { type: string, enum: [heuristic, model, failopen] }
+                  outcome: { type: string, enum: [applied, mechanical] }
+                  at: { type: string, description: RFC3339 }
+              fix:
+                type: array
+                description: per-task gate and fix-loop state for every task that ever went red or conflicted
+                items:
+                  type: object
+                  properties:
+                    task: { type: string }
+                    pr: { type: integer }
+                    gate: { type: string, enum: [red, conflict, clear] }
+                    kind: { type: string, enum: [red, conflict] }
+                    red_streak: { type: integer }
+                    fix_attempts: { type: integer }
+                    reruns: { type: integer }
+                    fixing: { type: boolean }
+                    last_dispatched_sha: { type: string }
+                    updated_at: { type: string }
+              resolver:
+                type: object
+                description: resolver-agent activity for this run; persisted across daemon restarts
+                properties:
+                  attempts: { type: integer, description: "resolver agents started for this run" }
+                  last_class: { type: string, enum: [red_gate, manager_stall] }
+                  last_task: { type: string }
+                  last_branch: { type: string }
+                  last_outcome: { type: string, enum: [started, exhausted, start_failed] }
+                  last_at: { type: string }
               resting_until: { type: string, description: "RFC3339 time the guardian next resumes or re-switches a rate-limited agent of this run" }
               landed_total: { type: integer }
               guardian_id: { type: string }

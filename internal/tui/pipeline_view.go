@@ -77,6 +77,12 @@ func renderAutopilotRun(r *client.AutopilotRunStatus, width, height int) string 
 	if r.Gate != "" {
 		b.WriteString(stMuted.Render("gate: "+r.Gate) + "\n")
 	}
+	if r.Watchdog != "" {
+		b.WriteString(stMuted.Render("watchdog: "+r.Watchdog) + "\n")
+	}
+	for _, l := range r.SurfaceLines() {
+		b.WriteString(stMuted.Render(l) + "\n")
+	}
 	b.WriteString("\n" + stMuted.Render("r pause/resume · x stop · ←/→ fold · enter on manager/worker opens agent pane"))
 	return padTo(strings.TrimRight(b.String(), "\n"), height)
 }
