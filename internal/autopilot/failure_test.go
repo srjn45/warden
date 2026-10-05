@@ -28,13 +28,19 @@ func backoffAfterRotateFailure(t *testing.T, mutate func(f *guardianFake, r *run
 }
 
 func TestSpawnFailureDefinitionErrorNotRateLimited(t *testing.T) {
-	b := backoffAfterRotateFailure(t, func(_ *guardianFake, r *run) {
-		require.NoError(t, os.Remove(r.absPlanFile))
-		r.plan.Goal = ""
-	})
-	require.Equal(t, string(KindDefinitionError), b.Kind)
-	require.Contains(t, b.LastError, "plan not loadable")
-	require.NotContains(t, b.LastError, "rate-limited")
+	t0 := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)
+	fake := newGuardianFake()
+	c, runID := enabledGuardianController(t, fake, &fakeClock{t: t0}, cyclicResolver("a", "free"), testGuardian())
+	r := c.runs[runID]
+	r.brain = nil
+	require.NoError(t, os.Remove(r.absPlanFile))
+	r.plan.Goal = ""
+	c.rotateStep(context.Background(), fake, r, t0)
+	st := c.Status().Runs[0]
+	// A definition error cannot succeed on retry: parked as needs-attention, not backoff.
+	require.Contains(t, st.NeedsAttention, string(KindDefinitionError))
+	require.Contains(t, st.NeedsAttention, "plan not loadable")
+	require.NotContains(t, st.NeedsAttention, "rate-limited")
 }
 
 func TestSpawnFailureUnknownErrorNotRateLimited(t *testing.T) {
