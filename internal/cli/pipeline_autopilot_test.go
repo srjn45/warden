@@ -35,13 +35,13 @@ func TestPipelineNamespaceCanonicalAndCompatibilityPaths(t *testing.T) {
 func TestAutopilotNamespaceCanonicalAndCompatibilityPaths(t *testing.T) {
 	root := newRootCmd()
 	pairs := map[string]string{
-		"autopilot enable":   "autopilot on",
-		"autopilot disable":  "autopilot off",
-		"autopilot run list": "autopilot list",
-		"plan pause":         "autopilot pause",
-		"plan resume":        "autopilot resume",
-		"plan stop":          "autopilot stop",
-		"autopilot land":     "land",
+		"autopilot enable":  "autopilot on",
+		"autopilot disable": "autopilot off",
+		"autopilot status":  "autopilot list",
+		"plan pause":        "autopilot pause",
+		"plan resume":       "autopilot resume",
+		"plan stop":         "autopilot stop",
+		"autopilot land":    "land",
 	}
 	for canonical, legacy := range pairs {
 		canonicalCmd := findExactCommand(t, root, canonical)
@@ -153,7 +153,6 @@ func TestPipelineAutopilotProgressiveHelp(t *testing.T) {
 		"pipeline":      {"help", "pipeline"},
 		"pipeline_leaf": {"help", "pipeline", "edit-job"},
 		"autopilot":     {"help", "autopilot"},
-		"autopilot_run": {"help", "autopilot", "run"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			got, err := executeHelp(t, args...)
@@ -179,7 +178,6 @@ func TestWritePipelineAutopilotHelpGoldens(t *testing.T) {
 		"pipeline":      {"help", "pipeline"},
 		"pipeline_leaf": {"help", "pipeline", "edit-job"},
 		"autopilot":     {"help", "autopilot"},
-		"autopilot_run": {"help", "autopilot", "run"},
 		"namespace":     {"help", "pipeline"},
 	} {
 		got, err := executeHelp(t, args...)
