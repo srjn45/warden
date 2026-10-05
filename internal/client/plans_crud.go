@@ -341,9 +341,11 @@ func ParsePlanYAML(data []byte) (PlansUpdateRequest, error) {
 }
 
 // PlansComplete transitions in_progress → completed (422 if tasks/branches block).
+// Uses longTimeout — completion tears down the plan's executor, agents and
+// worktrees and shells gh once per plan branch.
 func (c *Client) PlansComplete(ctx context.Context, planID string) (*PlanView, error) {
 	var p PlanView
-	if err := c.do(ctx, http.MethodPost, "/plans/"+url.PathEscape(planID)+"/complete", nil, &p); err != nil {
+	if err := c.doT(ctx, longTimeout, http.MethodPost, "/plans/"+url.PathEscape(planID)+"/complete", nil, &p); err != nil {
 		return nil, err
 	}
 	return &p, nil

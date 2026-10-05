@@ -47,6 +47,7 @@ func TestIsSlowPath(t *testing.T) {
 		"/api/v1/pipelines/p1/resume":          true,
 		"/api/v1/pipelines/p1/jobs/j1/emit":    true,
 		"/api/v1/pipelines/p1/jobs/j1/retry":   true,
+		"/api/v1/plans/plan-1/complete":        true,
 		// Fast routes — the 30s guard still applies. Notably /events is the hot
 		// Claude-hook ingestion path and must stay fast.
 		"/api/v1/events":        false,
