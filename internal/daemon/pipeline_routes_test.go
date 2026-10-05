@@ -77,9 +77,12 @@ func TestPipelineCreateStampsProjectAndMembership(t *testing.T) {
 	p3 := createPipeline(t, ts.URL, `{"spec":"name: p3\nrepo: `+projectDir+`\njobs:\n  - id: a\n    prompt: go\n    worktree: none\n"}`)
 	require.Equal(t, proj.ID, p3.ProjectID)
 
-	// 4. No match and nothing explicit → project-less, no membership.
-	pNone := createPipeline(t, ts.URL, `{"spec":"name: p4\nrepo: /nowhere\njobs:\n  - id: a\n    prompt: go\n    worktree: none\n"}`)
-	require.Equal(t, "", pNone.ProjectID)
+	// 4. No match and nothing explicit → the repo is auto-registered as a new open project.
+	pAuto := createPipeline(t, ts.URL, `{"spec":"name: p4\nrepo: /nowhere\njobs:\n  - id: a\n    prompt: go\n    worktree: none\n"}`)
+	require.Equal(t, "/nowhere", pAuto.ProjectID)
+	autoProj, err := projs.Get("/nowhere")
+	require.NoError(t, err)
+	require.Equal(t, []string{"p4"}, autoProj.Pipelines)
 
 	// All stamped pipelines appear on the project's authoritative pipelines[] list.
 	got, err := projs.Get(proj.ID)

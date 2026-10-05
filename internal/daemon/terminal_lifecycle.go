@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"github.com/srjn45/warden/internal/daemon/oapi"
-	"github.com/srjn45/warden/internal/projectstore"
 	"log/slog"
 	"net/http"
 	"time"
@@ -202,15 +201,8 @@ func (s *Server) spawnTerminal(ctx context.Context, req SpawnRequest) (oapi.Spaw
 	if err != nil {
 		return nil, err
 	}
-	if t.ProjectID == "" && s.projects != nil {
-		if projects, err := s.projects.List(); err == nil {
-			for _, p := range projects {
-				if projectstore.NormalizeStatus(p.Status) == projectstore.StatusOpen && (t.Workdir == p.ID || t.Workdir == p.Path) {
-					t.ProjectID = p.ID
-					break
-				}
-			}
-		}
+	if t.ProjectID == "" {
+		t.ProjectID = s.ensureProjectID(t.Workdir, t.ID)
 	}
 	if err := s.terminals.Spawn(ctx, t, t.TmuxSession); err != nil {
 		_ = s.life.Terminate(ctx, t.TmuxSession)
