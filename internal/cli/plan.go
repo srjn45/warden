@@ -8,8 +8,10 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"text/tabwriter"
 	"time"
 
@@ -489,21 +491,33 @@ func newPlanShowCmd() *cobra.Command {
 		Short: "Show detail for one plan",
 		Long: "Show the full canonical ScrivaDB record for one plan: goal, tasks, status,\n" +
 			"revision, executor, task summary, export status, linked branches, and timestamps.\n" +
-			"Repository YAML is never read for this view.",
+			"Repository YAML is never read for this view.\n\n" +
+			"For an in_progress plan it is the single status view of the run: executor\n" +
+			"kind and state (active, healing, degraded, paused, stopped), backoff detail\n" +
+			"when present, the integration branch, and per task the state, worker agent\n" +
+			"and PR. Use --watch to keep refreshing it.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, err := clientFor(cmd).PlansGet(cmd.Context(), args[0])
-			if err != nil {
-				return err
+			jsonOut, _ := cmd.Flags().GetBool("json")
+			show := func() error {
+				p, err := clientFor(cmd).PlansGet(cmd.Context(), args[0])
+				if err != nil {
+					return err
+				}
+				if jsonOut {
+					return printJSON(cmd.OutOrStdout(), p)
+				}
+				printPlanDetail(cmd.OutOrStdout(), p)
+				return nil
 			}
-			if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
-				return printJSON(cmd.OutOrStdout(), p)
+			if watch, _ := cmd.Flags().GetBool("watch"); watch {
+				return watchPlanShow(cmd, show, jsonOut)
 			}
-			printPlanDetail(cmd.OutOrStdout(), p)
-			return nil
+			return show()
 		},
 	}
 	cmd.Flags().Bool("json", false, "output as JSON")
+	cmd.Flags().Bool("watch", false, "refresh the view every few seconds until interrupted")
 	return cmd
 }
 
@@ -1416,6 +1430,42 @@ func printPlanTable(w io.Writer, plans []client.PlanView) error {
 	return tw.Flush()
 }
 
+// printPlanExecutor renders the live executor block; nothing for plans without one.
+func printPlanExecutor(w io.Writer, e *client.PlanExecutor) {
+	if e == nil {
+		return
+	}
+	fmt.Fprintf(w, "executor_state: %s (%s %s)\n", e.State, e.Kind, e.ID)
+	if b := e.Backoff; b != nil {
+		fmt.Fprintf(w, "backoff:        stage %d, next retry %s\n", b.Stage, b.NextRetryAt)
+		if b.LastError != "" {
+			fmt.Fprintf(w, "last_error:     %s\n", b.LastError)
+		}
+	}
+	if e.IntegrationBranch != "" {
+		fmt.Fprintf(w, "integration:    %s\n", e.IntegrationBranch)
+	}
+	if e.ManagerAgentID != "" {
+		fmt.Fprintf(w, "manager:        %s\n", e.ManagerAgentID)
+	}
+	if len(e.Tasks) > 0 {
+		fmt.Fprintln(w, "executor_tasks:")
+		for _, t := range e.Tasks {
+			line := fmt.Sprintf("  %s: %s", t.ID, t.State)
+			if t.WorkerAgentID != "" {
+				line += " worker=" + t.WorkerAgentID
+			}
+			if t.Branch != "" {
+				line += " branch=" + t.Branch
+			}
+			if t.PR > 0 {
+				line += fmt.Sprintf(" pr=#%d", t.PR)
+			}
+			fmt.Fprintln(w, line)
+		}
+	}
+}
+
 func printPlanDetail(w io.Writer, p *client.PlanView) {
 	fmt.Fprintf(w, "id:             %s\n", p.ID)
 	fmt.Fprintf(w, "name:           %s\n", p.Name)
@@ -1453,6 +1503,7 @@ func printPlanDetail(w io.Writer, p *client.PlanView) {
 	if p.OrchestratorID != "" {
 		fmt.Fprintf(w, "orchestrator:   %s\n", p.OrchestratorID)
 	}
+	printPlanExecutor(w, p.Executor)
 	if p.TaskSummary != nil && p.TaskSummary.Total > 0 {
 		fmt.Fprintf(w, "task_summary:   %d/%d done (%d in_progress, %d pending, %d skipped)\n",
 			p.TaskSummary.Done, p.TaskSummary.Total, p.TaskSummary.InProgress, p.TaskSummary.Pending, p.TaskSummary.Skipped)
@@ -1538,3 +1589,30 @@ func newPlanRelatedCmd() *cobra.Command {
 	cmd.Flags().Bool("json", false, "output as JSON")
 	return cmd
 }
+
+// watchPlanShow redraws `plan show` on an interval until interrupted, with the
+// same clear-and-home redraw as `wd stats --watch`. Redrawing only happens on a
+// real terminal; piped output just appends each snapshot.
+func watchPlanShow(cmd *cobra.Command, show func() error, jsonOut bool) error {
+	out := cmd.OutOrStdout()
+	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	clearable := !jsonOut && isTTY(out)
+	t := time.NewTicker(planWatchInterval)
+	defer t.Stop()
+	for {
+		if clearable {
+			fmt.Fprint(out, "\033[2J\033[H")
+		}
+		if err := show(); err != nil {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-t.C:
+		}
+	}
+}
+
+var planWatchInterval = 3 * time.Second
