@@ -235,7 +235,7 @@ its own integration branch and plan-scoped tree (`<scope>-autopilot`,
 `<scope>-guardian`, plan checklist, workers grouped by ledger state).
 
 > ⚠️ **Unattended operation is inherently risky.** Always confirm the user
-> understands how to pause (`plan pause`) before starting a run. Workers never merge to `main`
+> understands how to pause (`plan pause`) before starting a run. Under autopilot, landing is daemon-owned: workers do not merge — they push and end with `wd job done` — and the manager calls `land` only as an escape hatch (`landing: disabled`). Workers never merge to `main`
 > directly. Every action is in `warden inspect audit`.
 
 ### MCP tools

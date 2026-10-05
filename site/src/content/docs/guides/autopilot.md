@@ -335,8 +335,10 @@ plus `restarts:` (count, last reason, time) once a plan has been restarted.
 
 ## Landing a worker branch manually
 
-The manager calls `warden autopilot land` automatically when a worker finishes and its PR
-is gate-green. You can also call it manually to land a specific worker (e.g.
+Landing is daemon-owned: workers open a PR against the integration branch and end with
+`wd job done` — they never merge — and warden gates, fixes red CI, and lands the PR for the
+manager. `land` is an escape hatch (for when status reports `landing: disabled`). You can
+also call it manually to land a specific worker (e.g.
 to bypass a stuck gate, or to pre-land a branch you've already reviewed):
 
 ```sh
