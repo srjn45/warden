@@ -58,10 +58,21 @@ func backendFor(id string) agentbackend.Backend {
 	return agentbackend.Default()
 }
 
+// parseApproval reads a session's pending prompt. It goes through the poller when
+// one is wired, so a prompt no backend parser matched but a model recognized
+// (poller/recognize.go) is listed and answerable exactly like a parsed one.
+func (s *Server) parseApproval(sess *agentstore.Agent, pane string) (*agentbackend.Approval, bool) {
+	if s.poller != nil {
+		return s.poller.ParseApproval(sess, pane)
+	}
+	return backendFor(sess.AiCli).ParseApproval(pane)
+}
+
 // approvalView builds the wire view for a session's pending approval by parsing
 // the pane through its backend (each backend recognizes its own prompt UI).
-func approvalView(b agentbackend.Backend, id, pane string) approval.View {
-	ap, ok := b.ParseApproval(pane)
+func (s *Server) approvalView(sess *agentstore.Agent, pane string) approval.View {
+	id := sess.ID
+	ap, ok := s.parseApproval(sess, pane)
 	if !ok || ap == nil {
 		return approval.View{ID: id, Recognized: false}
 	}
@@ -292,7 +303,7 @@ func (s *Server) ListApprovals(ctx context.Context, _ oapi.ListApprovalsRequestO
 		if sess.Status != store.StatusWaitingForInput {
 			continue
 		}
-		views = append(views, approvalView(backendFor(sess.AiCli), sess.ID, sess.LastPaneExcerpt))
+		views = append(views, s.approvalView(sess, sess.LastPaneExcerpt))
 	}
 	return oapi.ListApprovals200JSONResponse{Enabled: true, Approvals: views}, nil
 }
@@ -324,7 +335,7 @@ func (s *Server) ApproveSession(ctx context.Context, req oapi.ApproveSessionRequ
 	if err != nil {
 		return nil, err
 	}
-	a, ok := backendFor(sess.AiCli).ParseApproval(pane)
+	a, ok := s.parseApproval(sess, pane)
 	if !ok || a == nil || approval.Fingerprint(a.Options) != b.Fingerprint {
 		return nil, errStatus(http.StatusConflict, "prompt changed; reopen")
 	}
@@ -342,7 +353,7 @@ func (s *Server) ApproveSession(ctx context.Context, req oapi.ApproveSessionRequ
 		if err != nil {
 			return nil, false
 		}
-		return backendFor(sess.AiCli).ParseApproval(now)
+		return s.parseApproval(sess, now)
 	}
 	if err := agentbackend.Answer(a, b.Option, send, reparse); err != nil {
 		if errors.Is(err, agentbackend.ErrPromptChanged) {

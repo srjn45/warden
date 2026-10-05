@@ -219,6 +219,7 @@ func newDaemonRunCmd() *cobra.Command {
 			pl.Version = version
 			pl.RateLimitAutoResume = cfg.RateLimit.AutoResume
 			pl.SetTrustWorkspace(cfg.TrustWorkspace)
+			pl.SetRecognizePrompts(cfg.RecognizePrompts)
 			pstore, err := pipeline.NewStore(filepath.Join(cfg.DataDir, "pipelines"))
 			if err != nil {
 				return err
