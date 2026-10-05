@@ -49,6 +49,7 @@ func (c *Controller) RunGuardian(ctx context.Context) {
 		case <-t.C:
 			c.guardianTick(ctx)
 			c.overwatchTick(ctx)
+			c.landingTick(ctx)
 		}
 	}
 }

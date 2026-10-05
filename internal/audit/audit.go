@@ -34,6 +34,7 @@ const (
 	ActionAutopilotOff      = "autopilot_off"
 	ActionAutopilotLand     = "autopilot_land"
 	ActionAutopilotComplete = "autopilot_complete"
+	ActionAutopilotAutoLand = "autopilot.auto_land" // daemon landing loop merged a run PR
 	ActionPlanRestart       = "plan_restart"
 	ActionBrainConsult      = "brain_consult"
 )
