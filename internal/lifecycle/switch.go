@@ -144,6 +144,13 @@ func (l *Lifecycle) HotSwap(ctx context.Context, agent *agentstore.Agent, req Sw
 	fromBackend := normalizeBackendID(agent.AiCli)
 	fromModel := agent.Model
 
+	// A handoff built from a transcript that is really another live session's would
+	// hand the successor the wrong conversation: refuse instead (the agent keeps
+	// running untouched) until this session's conversation is pinned.
+	if l.transcriptAmbiguous(agent) {
+		return nil, ErrAmbiguousTranscript
+	}
+
 	// 1. Extract context from the retiring agent's transcript.
 	h := l.extractHandoff(ctx, agent)
 	h.SessionID = agent.ID
@@ -560,6 +567,7 @@ func (l *Lifecycle) launchSuccessor(ctx context.Context, agent *agentstore.Agent
 
 	base := b.LaunchCmd(agentbackend.LaunchOpts{
 		SessionID: agent.AICLISessionID, Name: agent.ID, Model: l.launchModel(b, model), Mode: mode, Network: launchNetwork(agent),
+		LogFile: l.sessionLogFile(b, agent.ID),
 	})
 	hints := l.systemPromptHints(ctx, b, agent.ID,
 		hintSpec{persona != "", persona},

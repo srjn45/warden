@@ -49,6 +49,10 @@ type LaunchOpts struct {
 	Model     string // model id as configured (verbatim pass-through, default applied) — empty only if the backend has no model flag
 	Mode      string // permission/approval mode (one of Caps.PermissionModes)
 	Network   string // sandbox/network from ExecutionProfile.EffectiveNetwork (loopback|full|none); empty = adapter emits no network override
+	// LogFile is a per-session file the backend's CLI should write its own log to,
+	// when the backend implements SessionLogDiscoverer (it reads the conversation id
+	// back out of it). Empty = no per-session log; other adapters ignore it.
+	LogFile string
 }
 
 // ResumeOpts is the neutral input for resuming an existing session by id.
@@ -357,6 +361,19 @@ type SessionIDDiscoverer interface {
 	// signature mirrors TranscriptPath(projectsDir, workdir, sessionID) minus the
 	// not-yet-known id.
 	DiscoverSessionID(projectsDir, workdir string) (id string, ok bool)
+}
+
+// SessionLogDiscoverer is an optional Backend extension for backends whose own
+// conversation id cannot be found reliably from the workdir (antigravity: its
+// workspace->conversation map has ONE entry per directory, so two sessions in one
+// workdir collide). Such a backend is launched with a per-session log file
+// (LaunchOpts.LogFile) that records the id of the conversation THAT process
+// created; DiscoverSessionIDFromLog reads it back so the poller can pin the exact
+// id to the session instead of resolving by directory.
+type SessionLogDiscoverer interface {
+	// DiscoverSessionIDFromLog returns the conversation id recorded in logFile.
+	// ok=false when the log is missing or has no id yet (retry on a later tick).
+	DiscoverSessionIDFromLog(logFile string) (id string, ok bool)
 }
 
 // SessionForker is an optional Backend extension implemented by agents that can

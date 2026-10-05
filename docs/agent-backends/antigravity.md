@@ -125,8 +125,25 @@ warden maps:
 `agy` mints its own UUID conversation id and maintains a `{workspace -> conv-id}` map
 at `~/.gemini/antigravity-cli/cache/last_conversations.json`. warden cannot assign the
 id, so `TranscriptPath` reads that map to find the conv-id for the agent's worktree,
-then opens that conversation's `transcript.jsonl`. Because every warden agent runs in
-its own git worktree, this resolution is unambiguous.
+then opens that conversation's `transcript.jsonl`. The map has **one entry per
+directory**, so it is only trustworthy while a single antigravity session uses the
+workdir (#686). warden therefore pins the id per session:
+
+- **Pin.** Each launch passes `agy --log-file <data_dir>/session-logs/<agent-id>.log`;
+  `agy` logs `Created conversation <uuid>` for the conversation *that process*
+  creates, and the poller reads it back and stores it in the session's
+  `AICLISessionID` (the same field codex uses for its rollout id). Verified against
+  `agy` 1.2.16: two concurrent same-workdir runs collapse to one map entry, but each
+  per-session log holds its own id. Pinned sessions resolve
+  `brain/<conv-id>/…` directly and resume with `agy --conversation <uuid>`.
+- **Unpinned + ambiguous.** Until a session is pinned, if another live antigravity
+  session shares its workdir, warden attributes **no** transcript to it: no context or
+  quota accounting, and a hot-swap/handoff is refused (HTTP 409 / `ErrAmbiguousTranscript`)
+  rather than built from the other session's conversation.
+- **Legacy.** Sessions launched before this change have no log and stay unpinned; a lone
+  one keeps the dir-scoped behaviour (`agy -c`).
+- **Limits.** Pinning needs the log file warden passes at launch; an `agy` started
+  outside warden, or a session whose log is lost before the first poll, stays unpinned.
 
 ---
 

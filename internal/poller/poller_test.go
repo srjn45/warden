@@ -72,6 +72,76 @@ func (d *discoverBackend) DiscoverSessionID(_, _ string) (string, bool) {
 	return d.id, d.ok
 }
 
+// logDiscoverBackend is a non-pinning backend that discovers its id from a
+// per-session log (agentbackend.SessionLogDiscoverer), like antigravity.
+type logDiscoverBackend struct {
+	fakeBackend
+	ids   map[string]string // log file -> conversation id
+	calls int
+}
+
+func (logDiscoverBackend) Capabilities() agentbackend.Caps { return agentbackend.Caps{} }
+func (l *logDiscoverBackend) DiscoverSessionIDFromLog(f string) (string, bool) {
+	l.calls++
+	id, ok := l.ids[f]
+	return id, ok
+}
+
+// logDeps adds SessionLogPath (the optional deps seam) to stubDeps.
+type logDeps struct{ *stubDeps }
+
+func (logDeps) SessionLogPath(id string) string { return "/logs/" + id + ".log" }
+
+// TestDiscoverSessionIDFromLogPinsPerSession proves two sessions sharing a workdir
+// each pin THEIR OWN conversation id from their own log, and that a pinned session
+// (as after a daemon restart, when the id is read back from the store) is never
+// re-discovered.
+func TestDiscoverSessionIDFromLogPinsPerSession(t *testing.T) {
+	d := logDeps{&stubDeps{projectsDir: "/projects"}}
+	lb := &logDiscoverBackend{ids: map[string]string{"/logs/A.log": "conv-a", "/logs/B.log": "conv-b"}}
+	p := New(d, 5*time.Minute)
+	p.Backend = func(*agentstore.Agent) agentbackend.Backend { return lb }
+
+	a := &agentstore.Agent{ID: "A", Workdir: "/work/shared", AiCli: "antigravity"}
+	b := &agentstore.Agent{ID: "B", Workdir: "/work/shared", AiCli: "antigravity"}
+	p.discoverSessionID(context.Background(), a)
+	p.discoverSessionID(context.Background(), b)
+	require.Equal(t, "conv-a", d.sessionIDs["A"])
+	require.Equal(t, "conv-b", d.sessionIDs["B"])
+
+	// "Restart": a fresh poller sees the persisted ids on the records and skips.
+	p2 := New(d, 5*time.Minute)
+	p2.Backend = func(*agentstore.Agent) agentbackend.Backend { return lb }
+	before := lb.calls
+	p2.discoverSessionID(context.Background(), a)
+	require.Equal(t, before, lb.calls, "pinned id survives restart; no rediscovery")
+}
+
+// TestDiscoverSessionIDFromLogRetriesAndNeedsLogPath: no id in the log yet ⇒ retry;
+// deps without a SessionLogPath ⇒ stays unpinned (legacy dir-scoping).
+func TestDiscoverSessionIDFromLogRetriesAndNeedsLogPath(t *testing.T) {
+	d := logDeps{&stubDeps{projectsDir: "/projects"}}
+	lb := &logDiscoverBackend{ids: map[string]string{}}
+	p := New(d, 5*time.Minute)
+	p.Backend = func(*agentstore.Agent) agentbackend.Backend { return lb }
+	s := &agentstore.Agent{ID: "A", Workdir: "/work/x", AiCli: "antigravity"}
+	p.discoverSessionID(context.Background(), s)
+	require.Empty(t, s.AICLISessionID)
+	require.Equal(t, 0, d.setIDN)
+
+	lb.ids["/logs/A.log"] = "conv-a"
+	p.discoverSessionID(context.Background(), s)
+	require.Equal(t, "conv-a", s.AICLISessionID)
+
+	plain := &stubDeps{projectsDir: "/projects"}
+	p3 := New(plain, 5*time.Minute)
+	p3.Backend = func(*agentstore.Agent) agentbackend.Backend { return lb }
+	s3 := &agentstore.Agent{ID: "A", Workdir: "/work/x", AiCli: "antigravity"}
+	p3.discoverSessionID(context.Background(), s3)
+	require.Empty(t, s3.AICLISessionID)
+	require.Equal(t, 0, plain.setIDN)
+}
+
 // TestDiscoverSessionIDPinsOnce proves a non-pinning backend's agent-generated id
 // is discovered, persisted, and reflected on the snapshot — and that a second pass
 // (id now set) neither re-discovers nor re-persists (pinned once).
