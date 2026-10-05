@@ -160,7 +160,7 @@ func TestCompletionOffersCanonicalPathsAndHidesLegacyAliases(t *testing.T) {
 		path string
 		want []string
 	}{
-		{"agent", []string{"start", "list", "stop", "role", "permission-mode", "compact"}},
+		{"agent", []string{"start", "list", "stop", "role", "set", "get"}},
 		{"git", []string{"commit", "push", "sync", "review", "release"}},
 		{"autopilot", []string{"enable", "disable", "run", "land"}},
 		{"approval", []string{"list", "answer", "auto"}},

@@ -113,9 +113,9 @@ Commands:
   handoff              Hand off work: delegate to a new/existing agent (--to), or retire self into a successor (--retire)
   rotate               Retire this agent and hand its work to a fresh successor in the same workspace (alias for `warden agent handoff --retire`)
   switch               Hot-swap an agent session to a different AI CLI, model, or tier mid-task
-  permission-mode      Manage an agent's permission mode
+  set                  Change one per-agent setting (permission-mode, compact, role, auto-approve)
+  get                  Show one or all per-agent settings (permission-mode, compact, role, auto-approve)
   role                 Inspect warden's built-in agent roles and tier mappings
-  compact              Manage an agent's force-compact override
 
 Flags:
   -h, --help   help for agent
@@ -561,52 +561,65 @@ Inherited flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden agent permission-mode
+## warden agent set
 
 ```text
-Manage an agent's permission mode
+Change one per-agent setting. Each key runs the same code path as its older command.
+
+Keys and values:
+  permission-mode  acceptEdits | auto | bypassPermissions | default | dontAsk | plan
+  compact          on | off | inherit
+  role             general | autopilot | brain | orchestrator | planner | worker
+  auto-approve     on | off
+
+Warnings:
+  role          RELAUNCHES the agent so the new persona is injected; its current
+                turn is discarded.
+  compact on    force-compact can INTERRUPT an in-flight turn (Escape, /compact,
+                then resume) when the context crosses the critical threshold.
+
+Examples:
+  warden agent set abc123 permission-mode acceptEdits
+  warden agent set abc123 compact inherit
+  warden agent set abc123 role reviewer
+  warden agent set abc123 auto-approve on
+
+See also: 'warden agent get <AGENT> [key]' to read the current values.
 
 Usage:
-  warden agent permission-mode [flags]
-
-Commands:
-  set                  Set the permission mode for an agent
+  warden agent set <AGENT> <key> <value> [flags]
 
 Flags:
-  -h, --help   help for permission-mode
+  -h, --help   help for set
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden agent permission-mode set
+## warden agent get
 
 ```text
-Set the permission mode for a specific agent.
+Show the current value of one or all per-agent settings, read from the agent's
+status record.
 
-Valid permission modes:
-  acceptEdits        - Prompt for tool permissions (supervised mode)
-  auto               - Default behavior
-  bypassPermissions  - Skip all permission prompts
-  default            - Use global default from config
-  dontAsk            - Don't ask for permissions
-  plan               - Plan mode
+Keys: permission-mode, compact, role, auto-approve
 
-The permission mode controls how the agent handles tool permission prompts.
-Setting to "default" (or empty string) clears the agent-specific override
-and uses the global default_permission_mode config setting.
+An empty permission-mode means no per-agent override (the global default applies);
+compact "inherit" means the global token_force_compact setting applies; role
+"general" means no persona.
 
 Examples:
-  warden agent set abc123 acceptEdits  # Enable supervised mode
-  warden agent set abc123 auto         # Use auto mode
-  warden agent set abc123 default      # Use global default
+  warden agent get abc123
+  warden agent get abc123 role
+  warden agent get abc123 --json
 
 Usage:
-  warden agent permission-mode set <AGENT> <mode> [flags]
+  warden agent get <AGENT> [key] [flags]
 
 Flags:
-  -h, --help   help for set
+  -h, --help   help for get
+      --json   emit settings as JSON
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -623,8 +636,6 @@ Usage:
 
 Commands:
   list                 List the built-in agent roles and their descriptions
-  set                  Switch an agent's built-in role (relaunches to re-inject the persona)
-  set-tier             Set the default model tier for an agent role (tier-1|tier-2|tier-3)
   tier                 Inspect and manage role-to-tier mappings
 
 Flags:
@@ -651,58 +662,6 @@ Inherited flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden agent role set
-
-```text
-Switch a running agent's built-in role.
-
-The role's persona is injected as a system-prompt addendum; changing it relaunches
-the agent (its current turn is discarded) so the new persona takes effect. Set the
-role to "general" (or "") to clear the persona and behave like a plain agent.
-
-Valid roles (see `warden agent role list` for descriptions):
-  general | autopilot | brain | orchestrator | planner | worker (legacy aliases implementer/auto-merger/reviewer resolve to worker)
-
-Examples:
-  warden agent set abc123 reviewer      # give the agent the reviewer persona
-  warden agent set abc123 general       # clear the persona
-
-Usage:
-  warden agent role set <AGENT> <role> [flags]
-
-Flags:
-  -h, --help   help for set
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden agent role set-tier
-
-```text
-Set the default model tier assigned when creating agents with this role.
-
-Tiers:
-  tier-1   Highest-capability models (e.g. Claude Opus, o1) for architecture, design, and complex planning
-  tier-2   Standard implementation models (e.g. Claude Sonnet, Gemini Pro, GPT-4.1) for everyday coding
-  tier-3   Fast, low-cost models (e.g. Claude Haiku, Gemini Flash, GPT-4.1-mini) for quick tasks and CI triage
-
-Example:
-  warden agent role set-tier worker tier-2
-  warden agent role set-tier orchestrator tier-1
-
-Usage:
-  warden agent role set-tier <role> <tier> [flags]
-
-Flags:
-  -h, --help   help for set-tier
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
 ## warden agent role tier
 
 ```text
@@ -719,6 +678,7 @@ Usage:
 
 Commands:
   list                 List agent roles and their default model tiers
+  set                  Set the default model tier for an agent role (tier-1|tier-2|tier-3)
 
 Flags:
   -h, --help   help for tier
@@ -749,49 +709,22 @@ Aliases:
   ls
 ```
 
-## warden agent compact
+## warden agent role tier set
 
 ```text
-Manage the per-agent force-compact override. Setting it may interrupt an in-flight turn when the configured context threshold is crossed.
+Set the default model tier assigned when creating agents with this role.
+
+Tiers:
+  tier-1   Highest-capability models (e.g. Claude Opus, o1) for architecture, design, and complex planning
+  tier-2   Standard implementation models (e.g. Claude Sonnet, Gemini Pro, GPT-4.1) for everyday coding
+  tier-3   Fast, low-cost models (e.g. Claude Haiku, Gemini Flash, GPT-4.1-mini) for quick tasks and CI triage
+
+Example:
+  warden agent role tier set worker tier-2
+  warden agent role tier set orchestrator tier-1
 
 Usage:
-  warden agent compact [flags]
-
-Commands:
-  set                  Override force-compact for one agent (interrupt → /compact → resume)
-
-Flags:
-  -h, --help   help for compact
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden agent compact set
-
-```text
-Set the per-agent force-compact override.
-
-When force-compact is on and an agent's context crosses the critical threshold
-while it is still working, warden interrupts the agent (Escape), runs /compact
-once it goes idle, then sends the configured resume prompt so it picks its work
-back up. This is destructive: the interrupt discards the agent's in-flight turn.
-
-States:
-  on       force-compact this agent (overrides the global setting)
-  off      never force-compact this agent (overrides the global setting)
-  inherit  clear the override; follow the global token_force_compact setting
-
-Examples:
-  warden agent set abc123 on       # always force-compact agent abc123
-  warden agent set abc123 off      # never force-compact agent abc123
-  warden agent set abc123 inherit  # follow the global default
-
-The global default is the token_force_compact config setting (off by default).
-
-Usage:
-  warden agent compact set <AGENT> <on|off|inherit> [flags]
+  warden agent role tier set <role> <tier> [flags]
 
 Flags:
   -h, --help   help for set
@@ -5141,6 +5074,12 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | Legacy path | Canonical path |
 |---|---|
 | `warden adopt` | `warden agent adopt` |
+| `warden agent compact` | `warden agent set` |
+| `warden agent compact set` | `warden agent set` |
+| `warden agent permission-mode` | `warden agent set` |
+| `warden agent permission-mode set` | `warden agent set` |
+| `warden agent role set` | `warden agent set` |
+| `warden agent role set-tier` | `warden agent role tier set` |
 | `warden agent role tier ls` | `warden agent role tier list` |
 | `warden approvals` | `warden approval list` |
 | `warden approve` | `warden approval answer` |
@@ -5194,7 +5133,7 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | `warden digest` | `warden agent digest` |
 | `warden done` | `warden agent done` |
 | `warden export` | `warden inspect export` |
-| `warden force-compact` | `warden agent compact set` |
+| `warden force-compact` | `warden agent set` |
 | `warden fork` | `warden agent fork` |
 | `warden handoff` | `warden agent handoff` |
 | `warden history` | `warden inspect history` |
@@ -5252,16 +5191,17 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | `warden review` | `warden git review` |
 | `warden role` | `warden agent role` |
 | `warden role list` | `warden agent role list` |
-| `warden role set-tier` | `warden agent role set-tier` |
+| `warden role set-tier` | `warden agent role tier set` |
 | `warden role tier` | `warden agent role tier` |
 | `warden role tier list` | `warden agent role tier list` |
 | `warden role tier ls` | `warden agent role tier list` |
+| `warden role tier set` | `warden agent role tier set` |
 | `warden rotate` | `warden agent rotate` |
 | `warden savings` | `warden usage savings` |
 | `warden schedule get` | `warden schedule show` |
 | `warden search` | `warden inspect search` |
-| `warden set-permission-mode` | `warden agent permission-mode set` |
-| `warden set-role` | `warden agent role set` |
+| `warden set-permission-mode` | `warden agent set` |
+| `warden set-role` | `warden agent set` |
 | `warden snapshot` | `warden workspace snapshot` |
 | `warden snapshot create` | `warden workspace snapshot create` |
 | `warden snapshot list` | `warden workspace snapshot list` |

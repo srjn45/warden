@@ -23,8 +23,7 @@ func TestAgentNamespaceCanonicalAndCompatibilityPaths(t *testing.T) {
 		"agent delete": "delete", "agent remove-worktree": "remove-worktree",
 		"agent send": "send", "agent tail": "tail", "agent handoff": "handoff",
 		"agent rotate": "rotate", "agent switch": "switch",
-		"agent permission-mode set": "set-permission-mode", "agent role set": "set-role",
-		"agent role": "role", "agent compact set": "force-compact",
+		"agent role": "role",
 	}
 	permanent := map[string]bool{"ls": true, "start": true, "status": true, "send": true}
 	for canonical, legacy := range pairs {
