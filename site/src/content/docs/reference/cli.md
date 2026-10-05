@@ -1875,7 +1875,8 @@ Inherited flags:
 
 ```text
 Shows one line per run: run id, name,
-state, plan id, repo, gate, integration branch, and backoff summary. For a
+state, plan id, repo, gate, integration branch, and backoff summary. Healing,
+degraded and resting runs also print their next_step / resting_until. For a
 running plan's task-level progress use `warden plan show`.
 
 Usage:

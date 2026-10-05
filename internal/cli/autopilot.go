@@ -258,7 +258,8 @@ func newAutopilotStatusCmd() *cobra.Command {
 		Use:   "status",
 		Short: "Show autopilot status (every run)",
 		Long: "Shows one line per run: run id, name,\n" +
-			"state, plan id, repo, gate, integration branch, and backoff summary. For a\n" +
+			"state, plan id, repo, gate, integration branch, and backoff summary. Healing,\n" +
+			"degraded and resting runs also print their next_step / resting_until. For a\n" +
 			"running plan's task-level progress use `warden plan show`.",
 		Args: cobra.NoArgs,
 		RunE: runAutopilotStatus,
@@ -281,13 +282,26 @@ func runAutopilotStatus(cmd *cobra.Command, _ []string) error {
 }
 
 // printAutopilotRuns renders one line per run: id, name, state, plan id, repo,
-// gate, integration branch, backoff summary.
+// gate, integration branch, backoff summary; plus next_step / resting_until when set.
 func printAutopilotRuns(cmd *cobra.Command, st client.AutopilotStatus) {
 	for _, r := range st.Runs {
 		fmt.Fprintf(cmd.OutOrStdout(), "  %s\t%s\t%s\tplan=%s\t%s\tgate=%s\tbranch=%s\tbackoff=%s\n",
 			r.RunID, r.Name, r.State, dash(r.PlanID), r.Repo, dash(r.Gate), dash(r.IntegrationBranch), backoffSummary(r.Backoff))
 		if r.LastProgressAt != "" {
 			fmt.Fprintf(cmd.OutOrStdout(), "    last progress: %s (watchdog: %s)\n", r.LastProgressAt, dash(r.Watchdog))
+		}
+		if r.NextStep != nil {
+			line := "    next: " + r.NextStep.Action
+			if r.NextStep.At != "" {
+				line += " at " + r.NextStep.At
+			}
+			if r.NextStep.Owner != "" {
+				line += " (" + r.NextStep.Owner + ")"
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), line)
+		}
+		if r.RestingUntil != "" {
+			fmt.Fprintf(cmd.OutOrStdout(), "    resting until: %s\n", r.RestingUntil)
 		}
 		if r.NeedsAttention != "" {
 			fmt.Fprintf(cmd.OutOrStdout(), "    NEEDS ATTENTION: %s\n", r.NeedsAttention)

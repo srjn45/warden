@@ -1,7 +1,6 @@
 package autopilot
 
 import (
-	"fmt"
 	"time"
 )
 
@@ -61,6 +60,9 @@ func (c *Controller) nextStepLocked(r *run, now time.Time) *NextStep {
 
 // nextStepViolation names a missing schedule, or "" when r honors the invariant:
 // every degraded, healing or backoff run carries an explicit next action time.
+// A zero healNextAt on a heal stage means "due immediately" — nextStepLocked
+// falls back to the next guardian tick — so that is not a violation. Backoff is
+// stricter: it must carry backoffNextRetry (healNextAt alone is not enough).
 func (c *Controller) nextStepViolation(r *run, now time.Time) string {
 	ns := c.nextStepLocked(r, now)
 	if ns == nil || ns.Owner == "operator" {
@@ -69,11 +71,11 @@ func (c *Controller) nextStepViolation(r *run, now time.Time) string {
 	if r.restingNow(now) {
 		return ""
 	}
-	switch {
-	case r.healStage == stageBackoff && r.backoffNextRetry.IsZero():
+	if r.healStage == stageBackoff && r.backoffNextRetry.IsZero() {
 		return "backoff without a retry time"
-	case (r.healStage == stageNudged || r.healStage == stageRestarted || r.healStage == stageRotated) && r.healNextAt.IsZero():
-		return fmt.Sprintf("heal stage %d without a next-step time", r.healStage)
+	}
+	if ns.At == "" {
+		return "guardian next_step missing at"
 	}
 	return ""
 }

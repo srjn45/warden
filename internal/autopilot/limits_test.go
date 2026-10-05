@@ -226,4 +226,10 @@ func TestNextStepViolationDetected(t *testing.T) {
 	require.NotEmpty(t, c.nextStepViolation(r, clock.now()))
 	r.needsAttention = "bad plan"
 	require.Empty(t, c.nextStepViolation(r, clock.now()), "parked runs are exempt")
+
+	// A heal stage with a zero healNextAt is "due immediately" — nextStepLocked
+	// falls back to the next tick — so it is not a violation.
+	r.needsAttention = ""
+	r.state, r.healStage, r.healNextAt = StateHealing, stageNudged, time.Time{}
+	require.Empty(t, c.nextStepViolation(r, clock.now()))
 }
