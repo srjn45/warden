@@ -75,14 +75,10 @@ Complete command tree:
   warden plan scan                     [deprecated] Scan plans/ and upsert stub plan records
   warden plan status                   [deprecated] Transition a plan's status (DB field only)
   warden plan assess                   Brain-assisted task progress assessment
-  warden autopilot                     Turn autopilot capability on/off per repo and show its status
-  warden autopilot enable              Enable autopilot capability for this repo (does not start work)
-  warden autopilot disable             Disable autopilot for this repo (kill switch — stops spawning/landing)
-  warden autopilot status              Show autopilot status (which repos are enabled, and each run)
-  warden autopilot init                Scaffold autopilot adoption in the current repo
+  warden autopilot                     Show autopilot status, scaffold adoption, and land worker branches
+  warden autopilot status              Show autopilot status (every run)
+  warden autopilot init                Scaffold the plan file and integration branch for autopilot
   warden autopilot land                Land an autopilot worker branch into the integration branch
-  warden autopilot run                 Inspect live Autopilot executors
-  warden autopilot run list            List all registered autopilot runs
   warden schedule                      Schedule recurring (--cron) or single-shot (--at) agents and pipelines
   warden schedule create               Create a schedule that fires an agent or a pipeline
   warden schedule list                 List schedules
@@ -242,12 +238,16 @@ Compatibility aliases:
   warden auto-approve policy -> warden approval auto rules (compatibility)
   warden auto-approve rules -> warden approval auto rules (compatibility)
   warden auto-approve show -> warden approval auto rules (compatibility)
-  warden autopilot list -> warden autopilot run list (compatibility)
-  warden autopilot off -> warden autopilot disable (compatibility)
-  warden autopilot on -> warden autopilot enable (compatibility)
+  warden autopilot disable -> warden plan pause (compatibility)
+  warden autopilot enable -> warden plan run (compatibility)
+  warden autopilot list -> warden autopilot status (compatibility)
+  warden autopilot off -> warden plan pause (compatibility)
+  warden autopilot on -> warden plan run (compatibility)
   warden autopilot pause -> warden plan pause (compatibility)
   warden autopilot register -> warden plan run (compatibility)
   warden autopilot resume -> warden plan resume (compatibility)
+  warden autopilot run -> warden autopilot status (compatibility)
+  warden autopilot run list -> warden autopilot status (compatibility)
   warden autopilot start -> warden plan run (compatibility)
   warden autopilot stop -> warden plan stop (compatibility)
   warden autopilot unregister -> warden plan stop (compatibility)

@@ -192,6 +192,10 @@
     "inherited_flags": [
       "addr",
       "config"
+    ],
+    "json": true,
+    "local_flags": [
+      "json"
     ]
   },
   {
@@ -265,6 +269,10 @@
     "inherited_flags": [
       "addr",
       "config"
+    ],
+    "json": true,
+    "local_flags": [
+      "json"
     ]
   },
   {
@@ -842,6 +850,10 @@
     "inherited_flags": [
       "addr",
       "config"
+    ],
+    "json": true,
+    "local_flags": [
+      "json"
     ]
   },
   {

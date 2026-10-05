@@ -2486,13 +2486,13 @@ brain consult is a backstop, not a blocker.
 
 > ⚠️ **Unattended operation is inherently risky.** When autopilot is enabled, a
 > manager agent drives a fleet of workers without human intervention. Review the
-> [kill switch](#kill-switch) and [integration branch](#integration-branch)
+> [kill switch](#pausing-a-run) and [integration branch](#integration-branch)
 > sections before enabling. Workers land into their run's integration branch
 > (default `autopilot/<plan-name>`), never directly into `main`. Everything
 > autopilot does is recorded in `warden inspect audit`.
 
 Autopilot is a **goal-directed, long-running autonomous mode**. You describe a
-goal in a plan file, enable autopilot once, and warden runs it — a **manager**
+goal in a plan, run it with `warden plan run <id> --mode autopilot`, and warden runs it — a **manager**
 agent decomposes the goal into tasks, spawns workers in isolated worktrees, gates
 their PRs through CI, and lands the results into a staging integration branch. A
 guardian daemon loop keeps the manager alive through stalls; a cost-tier backend
@@ -2538,10 +2538,9 @@ survives rotation and daemon restarts.
 ### Quickstart
 
 ```sh
-# 1. Scaffold a plan file and enable the capability
+# 1. Scaffold a plan file (no enable step)
 cd /path/to/your-repo
 warden autopilot init --name notifications
-warden autopilot enable
 
 # 2. Edit plans/notifications.yaml — set your goal, add constraints
 #    Import/create the Plan in the daemon, then start execution:
@@ -2554,12 +2553,13 @@ warden plan resume <plan-id>
 warden plan stop <plan-id>
 
 # 4. Watch
-warden autopilot status      # enabled repos + run state, manager id, task counts
+warden plan show <plan-id> --watch   # live status: executor, backoff, integration branch, per-task worker/PR
+warden autopilot status [--json]     # every run: state, manager id, task counts
 warden ls                    # manager + workers in the fleet list
 warden agent tail <manager-id>       # live manager output
 
-# 5. Kill switch (any time)
-warden autopilot disable
+# 5. Pause any time
+warden plan pause <plan-id>
 ```
 
 ### `warden autopilot init`
@@ -2572,58 +2572,46 @@ not overwrite existing files. Follow up with Plan CRUD (`warden plan create` /
 > `autopilot run start` translate to a PlanID where safe or return a precise
 > migration error. Prefer `plan run|pause|resume|stop`.
 
-### The switch is per-repo
+### No enable step
 
-Autopilot is enabled **per repository**, not globally. `warden autopilot enable` run
-inside a repo enables **only that repo** as a capability switch — it does **not**
-register or start plan work. Other repos are unaffected.
-`warden autopilot disable` disables just that repo (other enabled repos keep
-running). Add `--repo <root>` to `on`/`off` to target a different repository
-(default: the current git repository). The enabled set is **persisted** under
-`<data_dir>/autopilot/enabled/`, so enabled repos come back up automatically
-across a daemon restart. The plan/manager/merge template stays global in the
-`autopilot` config block.
+Starting a plan with `warden plan run <id> --mode autopilot` is all it takes —
+preflight (missing plan, unauthenticated backends, missing integration branch,
+dead `gh` auth) runs at plan-start time and reports every failure at once. The
+plan/manager/merge template stays global in the `autopilot` config block.
+`autopilot init` no longer registers anything with the daemon.
 
-### `warden autopilot enable` (enable)
+### `warden plan show --watch`
 
-Enables the **current repository** (or `--repo <root>`) after a **preflight
-check** — which surfaces every condition that would stall an unattended run
-(missing plan file, unauthenticated backends, missing integration branch, dead
-`gh` auth) as actionable errors. After the preflight passes, the daemon spawns
-the manager agent and the run enters `active` state. On success the repo is
-persisted as enabled.
+The status view for a running plan: executor state, backoff, integration branch,
+and per-task worker/PR.
 
-```sh
-warden autopilot enable
-# ✓ plan file found: autopilot.plan.yaml
-# ✓ integration branch: autopilot/integration
-# ✓ backend: antigravity (free tier)
-# autopilot enabled for /home/you/my-repo — 1 run(s)
+### Pausing a run {#pausing-a-run}
 
-warden autopilot enable --repo /path/to/other-repo   # enable a different repo
-```
-
-### `warden autopilot disable` (kill switch) {#kill-switch}
-
-Disables the **current repository** (or `--repo <root>`). Stops new spawns and
-landings **immediately**, at any run state; other enabled repos keep running.
-In-flight workers keep running to completion — they are not terminated. The
-manager is terminated gracefully. The run ledger is retained; `warden autopilot enable`
-continues from where the run left off.
-
-Use this any time you need to pause the run, inspect what workers are doing,
-or abort a run that is heading in the wrong direction.
+`warden plan pause <id>` stops new spawns and landings **immediately**, at any run
+state. In-flight workers keep running to completion. The ledger is retained;
+`warden plan resume <id>` continues from where the run left off.
 
 ### `warden autopilot status`
 
-Lists which repos are enabled and one line per run:
+Lists every run (state, gate, manager slot id, integration branch, task summary —
+this absorbed the old `autopilot run list` columns). `--json` emits the raw
+status for scripts.
 
 ```sh
 warden autopilot status
-# autopilot: enabled — 1 repo(s), 1 run(s)
-#   enabled: /home/you/my-repo
-#   sha256:abc123…   active   gate=ci   autopilot.plan.yaml   /home/you/my-repo
+warden autopilot status --json
 ```
+
+### Deprecated compatibility commands
+
+These are hidden and kept for one release:
+
+| Command | Behaviour |
+|---|---|
+| `autopilot enable` / `on` | no-op + deprecation notice pointing at `plan run --mode autopilot` |
+| `autopilot disable` / `off` | pauses every active run in the repo (same as `plan pause` on each) + notice; `--repo <root>` targets another repo |
+| `autopilot run list` / `autopilot list` | aliases of `autopilot status` |
+| MCP `set_autopilot` / REST | `enabled: true` no-op; `enabled: false` pauses the repo's runs |
 
 ### Run completion
 
@@ -2634,7 +2622,7 @@ completion marker** into the plan file — `status: complete` and `completed_at:
 manager down gracefully (in-flight workers keep running), and retains the ledger.
 
 A plan carrying `status: complete` is **skipped by preflight**, so a finished run
-is never executed again by mistake on a future enable or daemon restart. To re-run
+is never executed again by mistake on a future plan run or daemon restart. To re-run
 a completed plan, delete the `status: complete` line (or point the config at a
 fresh plan file).
 

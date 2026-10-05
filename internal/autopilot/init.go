@@ -19,11 +19,8 @@ type InitConfig struct {
 	ConfigPath string
 	// PlanFile is the plan file path relative to repo (default "autopilot.plan.yaml").
 	PlanFile string
-	// Name is the registered plan name (default "default").
+	// Name is the plan name (default "default").
 	Name string
-	// Register persists the newly scaffolded plan in the daemon run store.
-	// It is optional for embedders and tests that only need filesystem setup.
-	Register func(context.Context, RegisterRequest) error
 	// IntegrationBranch is the merge-target template (config
 	// autopilot.merge.target_branch, default "autopilot/integration"). Empty and
 	// the legacy default derive autopilot/<plan-name>; {{plan}} is expanded.
@@ -72,20 +69,16 @@ func Init(ctx context.Context, env Env, repo string, cfg InitConfig, out io.Writ
 		return err
 	}
 
-	if cfg.Register != nil {
-		if err := cfg.Register(ctx, RegisterRequest{Name: cfg.Name, Repo: repo, PlanFile: filepath.Join(repo, cfg.PlanFile)}); err != nil {
-			return fmt.Errorf("register autopilot plan: %w", err)
-		}
-		fmt.Fprintf(out, "✓ registered autopilot plan %s\n", cfg.Name)
-	}
-
 	if err := ensureIntegrationBranch(ctx, env, repo, cfg.IntegrationBranch, out); err != nil {
 		fmt.Fprintf(out, "  warning: integration branch: %v\n", err)
 	}
 
 	printCIHint(repo, cfg.IntegrationBranch, out)
 
-	fmt.Fprintf(out, "\nnext: edit %s, then run `warden autopilot start %s`\n", cfg.PlanFile, cfg.Name)
+	fmt.Fprintf(out, "\nnext:\n")
+	fmt.Fprintf(out, "  1. edit %s (set the goal)\n", cfg.PlanFile)
+	fmt.Fprintf(out, "  2. wd plan create --name %s --goal \"<goal>\"   # create the canonical plan; note its id\n", cfg.Name)
+	fmt.Fprintf(out, "  3. wd plan run <id> --mode autopilot\n")
 	return nil
 }
 

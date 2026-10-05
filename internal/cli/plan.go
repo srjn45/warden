@@ -8,8 +8,10 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"text/tabwriter"
 	"time"
 
@@ -32,7 +34,8 @@ func newPlanCmd() *cobra.Command {
 			"  1. Create    `wd plan create` (then `wd plan show` to inspect it)\n" +
 			"  2. Edit      `wd plan update`, `wd plan edit` or `wd plan task add|edit|rm`\n" +
 			"               (only while the plan is pending)\n" +
-			"  3. Run       `wd plan run --mode <mode>` (pending → in_progress)\n" +
+			"  3. Run       `wd plan run --mode <mode>` (pending → in_progress); follow\n" +
+			"               progress with `wd plan show --watch`\n" +
 			"  4. Control   `wd plan pause`, `resume` or `stop` the running executor\n" +
 			"  5. Progress  `wd plan task status` / `wd plan done` record task progress\n" +
 			"  6. Complete  `wd plan complete` (in_progress → completed)\n" +
@@ -489,21 +492,33 @@ func newPlanShowCmd() *cobra.Command {
 		Short: "Show detail for one plan",
 		Long: "Show the full canonical ScrivaDB record for one plan: goal, tasks, status,\n" +
 			"revision, executor, task summary, export status, linked branches, and timestamps.\n" +
-			"Repository YAML is never read for this view.",
+			"Repository YAML is never read for this view.\n\n" +
+			"For an in_progress plan it is the single status view of the run: executor\n" +
+			"kind and state (active, healing, degraded, paused, stopped), backoff detail\n" +
+			"when present, the integration branch, and per task the state, worker agent\n" +
+			"and PR. Use --watch to keep refreshing it.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, err := clientFor(cmd).PlansGet(cmd.Context(), args[0])
-			if err != nil {
-				return err
+			jsonOut, _ := cmd.Flags().GetBool("json")
+			show := func() error {
+				p, err := clientFor(cmd).PlansGet(cmd.Context(), args[0])
+				if err != nil {
+					return err
+				}
+				if jsonOut {
+					return printJSON(cmd.OutOrStdout(), p)
+				}
+				printPlanDetail(cmd.OutOrStdout(), p)
+				return nil
 			}
-			if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
-				return printJSON(cmd.OutOrStdout(), p)
+			if watch, _ := cmd.Flags().GetBool("watch"); watch {
+				return watchPlanShow(cmd, show, jsonOut)
 			}
-			printPlanDetail(cmd.OutOrStdout(), p)
-			return nil
+			return show()
 		},
 	}
 	cmd.Flags().Bool("json", false, "output as JSON")
+	cmd.Flags().Bool("watch", false, "refresh the view every few seconds until interrupted")
 	return cmd
 }
 
@@ -952,8 +967,7 @@ func newPlanAssessCmd() *cobra.Command {
 		Short: "Brain-assisted task progress assessment",
 		Long: "Use a brain model to reconstruct task progress from git history and open PRs.\n" +
 			"Updates the plan's recorded task progress. Opt-in — never run automatically.\n" +
-			"--project is only needed when the plan belongs to a different project than\n" +
-			"the current directory's.",
+			"Plan ids resolve globally; --project is optional and rarely needed.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			planID := args[0]
@@ -972,7 +986,8 @@ func newPlanAssessCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().String("project", "", "project ID (default: git root of the current directory)")
+	cmd.Flags().String("project", "", "project ID (optional; plan ids resolve globally)")
+	_ = cmd.Flags().MarkHidden("project")
 	cmd.Flags().Bool("json", false, "output as JSON")
 	return cmd
 }
@@ -985,11 +1000,16 @@ func newPlanRunCmd() *cobra.Command {
 			"public start path for plan execution (including autopilot). --mode is\n" +
 			"required; it decides how the plan is executed:\n\n" +
 			"  autopilot            Creates a live Autopilot executor + manager\n" +
+			"                       (pause/resume supported)\n" +
 			"  pipeline             Each task becomes a pipeline job\n" +
+			"                       (pause/resume supported)\n" +
 			"  orchestrator_worker  Orchestrator + workers with human approval gates\n" +
-			"  manual               Plan-bound general agent; human drives prompting\n\n" +
+			"                       (pause/resume refused; use stop)\n" +
+			"  manual               Plan-bound general agent; human drives prompting\n" +
+			"                       (pause/resume refused; use stop)\n\n" +
 			"`orchestrator` is accepted as a shorthand for `orchestrator_worker`.\n" +
-			"Control a running plan with `wd plan pause|resume|stop`.",
+			"Follow progress with `wd plan show --watch`. `wd plan stop` works for every\n" +
+			"mode; `wd plan pause|resume` only for autopilot and pipeline.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			planID := args[0]
@@ -1131,7 +1151,8 @@ func newPlanTaskStatusCmd() *cobra.Command {
 		Short: "Set a plan task's status",
 		Long: "Set one task's progress status to pending, in_progress, done, or skipped.\n" +
 			"Prints the task's old and new status plus the plan's task summary. Works on\n" +
-			"plans in any lifecycle state. skipped counts as finished for `plan complete`.",
+			"plans in any lifecycle state. skipped counts as finished for `plan complete`.\n" +
+			"`wd plan done <plan-id> <task-id>` is the shorthand for setting a task to done.",
 		Args: cobra.ExactArgs(3),
 		ValidArgsFunction: func(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
 			if len(args) == 2 {
@@ -1416,6 +1437,42 @@ func printPlanTable(w io.Writer, plans []client.PlanView) error {
 	return tw.Flush()
 }
 
+// printPlanExecutor renders the live executor block; nothing for plans without one.
+func printPlanExecutor(w io.Writer, e *client.PlanExecutor) {
+	if e == nil {
+		return
+	}
+	fmt.Fprintf(w, "executor_state: %s (%s %s)\n", e.State, e.Kind, e.ID)
+	if b := e.Backoff; b != nil {
+		fmt.Fprintf(w, "backoff:        stage %d, next retry %s\n", b.Stage, b.NextRetryAt)
+		if b.LastError != "" {
+			fmt.Fprintf(w, "last_error:     %s\n", b.LastError)
+		}
+	}
+	if e.IntegrationBranch != "" {
+		fmt.Fprintf(w, "integration:    %s\n", e.IntegrationBranch)
+	}
+	if e.ManagerAgentID != "" {
+		fmt.Fprintf(w, "manager:        %s\n", e.ManagerAgentID)
+	}
+	if len(e.Tasks) > 0 {
+		fmt.Fprintln(w, "executor_tasks:")
+		for _, t := range e.Tasks {
+			line := fmt.Sprintf("  %s: %s", t.ID, t.State)
+			if t.WorkerAgentID != "" {
+				line += " worker=" + t.WorkerAgentID
+			}
+			if t.Branch != "" {
+				line += " branch=" + t.Branch
+			}
+			if t.PR > 0 {
+				line += fmt.Sprintf(" pr=#%d", t.PR)
+			}
+			fmt.Fprintln(w, line)
+		}
+	}
+}
+
 func printPlanDetail(w io.Writer, p *client.PlanView) {
 	fmt.Fprintf(w, "id:             %s\n", p.ID)
 	fmt.Fprintf(w, "name:           %s\n", p.Name)
@@ -1453,6 +1510,7 @@ func printPlanDetail(w io.Writer, p *client.PlanView) {
 	if p.OrchestratorID != "" {
 		fmt.Fprintf(w, "orchestrator:   %s\n", p.OrchestratorID)
 	}
+	printPlanExecutor(w, p.Executor)
 	if p.TaskSummary != nil && p.TaskSummary.Total > 0 {
 		fmt.Fprintf(w, "task_summary:   %d/%d done (%d in_progress, %d pending, %d skipped)\n",
 			p.TaskSummary.Done, p.TaskSummary.Total, p.TaskSummary.InProgress, p.TaskSummary.Pending, p.TaskSummary.Skipped)
@@ -1538,3 +1596,35 @@ func newPlanRelatedCmd() *cobra.Command {
 	cmd.Flags().Bool("json", false, "output as JSON")
 	return cmd
 }
+
+// watchPlanShow redraws `plan show` on an interval until interrupted, with the
+// same clear-and-home redraw as `wd stats --watch`. Redrawing only happens on a
+// real terminal; piped output just appends each snapshot.
+func watchPlanShow(cmd *cobra.Command, show func() error, jsonOut bool) error {
+	out := cmd.OutOrStdout()
+	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	clearable := !jsonOut && isTTY(out)
+	t := time.NewTicker(planWatchInterval)
+	defer t.Stop()
+	for {
+		if clearable {
+			fmt.Fprint(out, "\033[2J\033[H")
+		}
+		if err := show(); err != nil {
+			// Ctrl-C (or the caller's deadline) landing mid-refresh is a normal
+			// exit, not a failed fetch.
+			if ctx.Err() != nil {
+				return nil
+			}
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-t.C:
+		}
+	}
+}
+
+var planWatchInterval = 3 * time.Second

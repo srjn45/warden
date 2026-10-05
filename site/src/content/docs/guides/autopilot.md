@@ -1,19 +1,19 @@
 ---
 title: Autopilot — autonomous agent runs
-description: Adoption walkthrough — init, cost-tier config, enable/disable, landing branches, and how to stay safe running agents unattended.
+description: Adoption walkthrough — init, cost-tier config, plan run/pause, landing branches, and how to stay safe running agents unattended.
 ---
 
 import { Aside } from '@astrojs/starlight/components';
 
 <Aside type="caution" title="Unattended operation is inherently risky">
-When the autopilot **capability** is enabled, start a plan with
-`warden plan run --mode autopilot`. A **manager** agent then drives a fleet of
+Start a plan with `warden plan run <id> --mode autopilot` — there is no
+separate enable step. A **manager** agent then drives a fleet of
 worker agents.
 **without waiting for human input**. Workers write code, open PRs, and merge
 branches into the integration branch — autonomously. You should understand the
 mitigations before enabling:
 
-- **Kill switch:** `warden autopilot disable` stops new spawns and landings
+- **Pause switch:** `warden plan pause <id>` stops new spawns and landings
   immediately (in-flight workers keep running). Use it any time you need to
   regain control.
 - **Integration-branch boundary:** workers never merge to `main` directly —
@@ -26,7 +26,7 @@ mitigations before enabling:
 </Aside>
 
 Autopilot lets warden run a **goal-directed, long-lived agent loop** over your
-codebase. You describe what you want in a plan, enable the autopilot capability,
+codebase. You describe what you want in a plan
 and start with `warden plan run --mode autopilot`. Warden takes care of the rest:
 spawning a **manager** agent that breaks the goal into
 tasks, delegates each task to worker agents in isolated worktrees, gates their
@@ -178,46 +178,40 @@ daemon warns if they linger). Manage tiers with `warden backend tier` from then 
 
 ---
 
-## Step 4 — enable capability, then start the plan
+## Step 4 — create and start the plan
 
-Enablement is a **capability switch** — it does not register or start work:
-
-```sh
-warden autopilot enable          # per-repo switch only
-```
-
-Start execution through the Plan surface (canonical):
+There is **no enable step**: starting a plan is what starts autopilot.
 
 ```sh
-warden plan run <plan-id> --mode autopilot
-# or by name after import/create:
+warden autopilot init --name notifications   # optional: scaffold plans/<name>.yaml + config block
+warden plan create ...                        # canonical plan in the store
+warden plan run <plan-id> --mode autopilot    # preflight runs here
+# or by name:
 warden plan run notifications --mode autopilot
 ```
 
-Control an in-progress plan:
+Watch and control a running plan:
 
 ```sh
+warden plan show <plan-id> --watch   # live status: executor state, backoff, integration branch, per-task worker/PR
 warden plan pause <plan-id>
 warden plan resume <plan-id>
 warden plan stop <plan-id>
 ```
 
-> **Deprecated (one release):** `warden autopilot register`, `unregister`,
-> `retarget`, and plan-file-based `autopilot run start` translate to a PlanID
-> where safe or return a precise migration error. Prefer `plan run|pause|resume|stop`.
-
-`warden autopilot enable` enables **only the current repository** (other repos
-are unaffected). Add `--repo <root>` to target a different repository. When the
-capability is on, the repo is **persisted as enabled** — so it comes back up
-automatically if the daemon restarts. Starting a plan still requires
-`warden plan run --mode autopilot` (preflight runs at plan-start time).
+> **Deprecated:** `warden autopilot enable` / `on` are hidden no-ops that print a
+> deprecation notice pointing at `warden plan run --mode autopilot`.
+> `warden autopilot register`, `unregister`, `retarget`, and plan-file-based
+> `autopilot run start` translate to a PlanID where safe or return a precise
+> migration error. `autopilot init` no longer registers with the daemon.
 
 ---
 
 ## Monitoring a run
 
 ```sh
-warden autopilot status          # enabled repos + run state, manager id, task counts
+warden autopilot status          # every run's state, manager id, task counts (--json for scripts)
+warden plan show <id> --watch    # live status of one plan: executor, backoff, integration branch, per-task worker/PR
 warden ls                        # shows the manager + all worker agents
 warden status <manager-id>       # full manager detail + events
 warden agent tail <manager-id>         # recent manager output
@@ -229,7 +223,7 @@ plan issue on daemon restart (e.g. an invalid task status that was normalized to
 `pending`). The run is active — edit the plan file to clear the warnings. A run
 stuck in `degraded` after a restart on a **legacy file-only** run usually means a
 structural problem (missing or unreadable plan file); fix or restore the file and
-the watcher will auto-recover without another enable. **Plan-bound** runs recover
+the watcher will auto-recover without any manual step. **Plan-bound** runs recover
 from ScrivaDB, so a missing or bad YAML export never degrades them.
 
 Status shows spawn failures as a backoff object with a `kind` and `last_error`
@@ -279,7 +273,7 @@ When the manager has verified the plan's `done_when` criteria, it marks the run
 `completed_at` timestamp) into your plan file — preserving your other keys,
 ordering, and comments — tears down the manager (in-flight workers keep running),
 and retains the ledger. A plan carrying `status: complete` is **skipped by
-preflight**, so a finished run is never re-run by mistake on a future enable or
+preflight**, so a finished run is never re-run by mistake on a future plan run or
 daemon restart. To re-run it, remove the `status: complete` line (or point the
 config at a fresh plan file).
 
@@ -305,24 +299,24 @@ always belongs to the operator.
 
 ---
 
-## Kill switch
+## Pausing a repo's runs
 
 ```sh
-warden autopilot disable              # disable the current repo
-warden autopilot disable --repo <root>  # disable a specific repo
+warden plan pause <plan-id>     # pause one run
+warden autopilot disable        # deprecated: pause every active run in this repo
 ```
 
-Disables the **current repository** (or `--repo <root>`); other enabled repos
-keep running. Effective immediately, at any state:
+`warden plan pause` is the supported control. `warden autopilot disable` (alias
+`off`, hidden, deprecated; `--repo <root>` to target another repo) is equivalent
+to `plan pause` on each active run in the repo and prints a deprecation notice.
+Effective immediately:
 
 - The Controller stops spawning new workers and landing new branches
 - In-flight workers **keep running** to completion (they are not terminated)
-- The manager is terminated gracefully
-- The ledger is retained — `warden autopilot enable` continues from where the run
-  left off
+- The ledger is retained — `warden plan resume <id>` continues where the run left off
 
-Use the kill switch any time you want to pause the run, inspect what workers are
-doing, or abort a run that is heading in the wrong direction.
+Use it any time you want to inspect what workers are doing, or stop a run that
+is heading in the wrong direction.
 
 ---
 
@@ -333,19 +327,21 @@ doing, or abort a run that is heading in the wrong direction.
 | `warden autopilot init [--name <name>]` | Scaffold `plans/<name>.yaml` + config block |
 | `warden plan run <id> --mode autopilot` | Start plan execution (canonical lifecycle) |
 | `warden plan pause\|resume\|stop <id>` | Control an in-progress plan's executor |
-| `warden autopilot enable [--repo <root>]` | Enable the autopilot **capability** for this repo (switch only; does not start work) |
-| `warden autopilot disable [--repo <root>]` | Disable autopilot for this repo — the kill switch |
-| `warden autopilot status` | Show enabled repos + each run's state, manager slot id, integration branch, task summary |
+| `warden plan show <id> --watch` | Live status of a running plan: executor state, backoff, integration branch, per-task worker/PR |
+| `warden autopilot status [--json]` | Every run's state, manager slot id, integration branch, task summary (includes the former run-list columns) |
+| `warden autopilot enable\|on` | Deprecated, hidden no-op with a notice pointing at `plan run --mode autopilot` |
+| `warden autopilot disable\|off` | Deprecated, hidden; pauses every active run in the repo (like `plan pause`) |
+| `warden autopilot run list` / `autopilot list` | Hidden aliases of `autopilot status` |
 | `warden autopilot land <agent-or-branch>` | Land a worker branch into the integration branch |
 
 ## MCP tools
 
 | Tool | What it does |
 |---|---|
-| `set_autopilot { enabled: true\|false, repo? }` | Capability switch / kill switch; does **not** register or start plan work |
+| `set_autopilot { enabled, repo? }` | **Deprecated.** `enabled: true` is a no-op; `enabled: false` pauses the repo's active runs. Use `run_plan` / `control_plan` |
 | `run_plan { plan_id, execution_mode }` | Start plan execution |
 | `control_plan { plan_id, action }` | Pause, resume, or stop an in-progress plan |
-| `autopilot_status` | Return enabled repos + each run's state, manager id, task counts |
+| `autopilot_status` | Return each run's state, manager id, task counts |
 | `autopilot_complete` | Manager-only: declare the caller's run complete once `done_when` is met (writes the in-place `status: complete` marker, tears down the manager) |
 | `land { ticket: "<agent-or-branch>" }` | Land a worker branch |
 
@@ -353,8 +349,7 @@ doing, or abort a run that is heading in the wrong direction.
 
 The `autopilot` config block **hot-reloads with no daemon restart** — edit
 `~/.warden/config.yaml` and the plan/manager/merge template, backend cost ladder,
-and guardian heal thresholds re-apply on the next tick, with the per-repo enabled
-set left untouched. Adding a `plans[]` entry starts it; removing one tears down
+and guardian heal thresholds re-apply on the next tick. Adding a `plans[]` entry starts it; removing one tears down
 its run. Only the guardian tick `interval` still needs a restart. A syntactically
 bad edit keeps the last-good config and alerts you. This applies to warden's
 whole config file — see [Configuration](/warden/reference/env-vars/).

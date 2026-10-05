@@ -31,7 +31,7 @@ func TestAutopilotEnablementAndRunLifecycleDispatchRemainDistinct(t *testing.T) 
 		!strings.Contains(bodies["/api/v1/autopilot"], `"repo":`) {
 		t.Fatalf("repo disable dispatch changed: method=%q body=%q", methods["/api/v1/autopilot"], bodies["/api/v1/autopilot"])
 	}
-	if !strings.Contains(out, "autopilot disabled for ") {
+	if !strings.Contains(out, "deprecated") {
 		t.Fatalf("repo disable output changed: %q", out)
 	}
 

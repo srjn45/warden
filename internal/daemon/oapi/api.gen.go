@@ -371,6 +371,27 @@ func (e PlanExportStatus) Valid() bool {
 	}
 }
 
+// Defines values for PlanExecutorStatusKind.
+const (
+	PlanExecutorStatusKindAgent     PlanExecutorStatusKind = "agent"
+	PlanExecutorStatusKindAutopilot PlanExecutorStatusKind = "autopilot"
+	PlanExecutorStatusKindPipeline  PlanExecutorStatusKind = "pipeline"
+)
+
+// Valid indicates whether the value is a known member of the PlanExecutorStatusKind enum.
+func (e PlanExecutorStatusKind) Valid() bool {
+	switch e {
+	case PlanExecutorStatusKindAgent:
+		return true
+	case PlanExecutorStatusKindAutopilot:
+		return true
+	case PlanExecutorStatusKindPipeline:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PlanStatus.
 const (
 	PlanStatusArchived   PlanStatus = "archived"
@@ -942,9 +963,9 @@ type AutopilotTaskStatusRequest struct {
 // AutopilotTaskStatusRequestStatus defines model for AutopilotTaskStatusRequest.Status.
 type AutopilotTaskStatusRequestStatus string
 
-// AutopilotToggleRequest Body for POST /autopilot — the per-repo capability switch. `repo` scopes the toggle to one repository; omitted, it defaults to the daemon's working directory. Enabling does not register or start work.
+// AutopilotToggleRequest DEPRECATED body for POST /autopilot. `repo` scopes to one repository; omitted, it defaults to the daemon's working directory. enabled=true is a no-op; enabled=false pauses the repo's active runs.
 type AutopilotToggleRequest struct {
-	// Enabled true enables the capability for the repo (no registration); false is the kill switch
+	// Enabled true is a no-op; false pauses every active autopilot run in the repo
 	Enabled bool `json:"enabled"`
 
 	// Repo repo root to toggle (optional; defaults to the daemon's working directory)
@@ -1454,6 +1475,9 @@ type Plan struct {
 	// ExecutionSummary Immutable reduced report for a completed PlanExecution.
 	ExecutionSummary ExecutionSummary `json:"execution_summary,omitempty"`
 
+	// Executor Live executor state for one plan (single status view behind `wd plan show`).
+	Executor *PlanExecutorStatus `json:"executor,omitempty"`
+
 	// ExecutorId best-known live or linked executor id (active execution preferred, else autopilot_run_id / pipeline_id / orchestrator_id)
 	ExecutorId string `json:"executor_id,omitempty"`
 
@@ -1517,6 +1541,44 @@ type PlanCompletionError struct {
 
 // PlanExecution A single execution attempt of a Plan.
 type PlanExecution = planstore.PlanExecution
+
+// PlanExecutorBackoff defines model for PlanExecutorBackoff.
+type PlanExecutorBackoff struct {
+	LastError   string `json:"last_error,omitempty"`
+	NextRetryAt string `json:"next_retry_at,omitempty"`
+	Stage       int    `json:"stage,omitempty"`
+}
+
+// PlanExecutorStatus Live executor state for one plan (single status view behind `wd plan show`).
+type PlanExecutorStatus struct {
+	Backoff *PlanExecutorBackoff `json:"backoff,omitempty"`
+
+	// Id autopilot run id, pipeline id, or agent id
+	Id                string                 `json:"id"`
+	IntegrationBranch string                 `json:"integration_branch,omitempty"`
+	Kind              PlanExecutorStatusKind `json:"kind"`
+	ManagerAgentId    string                 `json:"manager_agent_id,omitempty"`
+
+	// State autopilot: active|healing|degraded|paused|stopped|complete; pipeline: the pipeline status; agent: the session status
+	State string             `json:"state"`
+	Tasks []PlanExecutorTask `json:"tasks,omitempty"`
+}
+
+// PlanExecutorStatusKind defines model for PlanExecutorStatus.Kind.
+type PlanExecutorStatusKind string
+
+// PlanExecutorTask defines model for PlanExecutorTask.
+type PlanExecutorTask struct {
+	Branch string `json:"branch,omitempty"`
+	Id     string `json:"id"`
+
+	// Pr PR number where known
+	Pr int `json:"pr,omitempty"`
+
+	// State autopilot ledger state or pipeline job status
+	State         string `json:"state"`
+	WorkerAgentId string `json:"worker_agent_id,omitempty"`
+}
 
 // PlanMutationConflict 409 body for plan definition/lifecycle mutations that cannot proceed — not-pending edits or optimistic revision conflicts.
 type PlanMutationConflict struct {
@@ -2724,7 +2786,7 @@ type ServerInterface interface {
 	// Autopilot status
 	// (GET /api/v1/autopilot)
 	GetAutopilot(w http.ResponseWriter, r *http.Request)
-	// Enable or disable autopilot capability
+	// Deprecated: no per-repo switch (enabled=false pauses the repo's runs)
 	// (POST /api/v1/autopilot)
 	SetAutopilot(w http.ResponseWriter, r *http.Request)
 	// Consult a short-lived brain resolver (shared Consultor)
@@ -3165,7 +3227,7 @@ func (_ Unimplemented) GetAutopilot(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Enable or disable autopilot capability
+// Deprecated: no per-repo switch (enabled=false pauses the repo's runs)
 // (POST /api/v1/autopilot)
 func (_ Unimplemented) SetAutopilot(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -14515,7 +14577,7 @@ type StrictServerInterface interface {
 	// Autopilot status
 	// (GET /api/v1/autopilot)
 	GetAutopilot(ctx context.Context, request GetAutopilotRequestObject) (GetAutopilotResponseObject, error)
-	// Enable or disable autopilot capability
+	// Deprecated: no per-repo switch (enabled=false pauses the repo's runs)
 	// (POST /api/v1/autopilot)
 	SetAutopilot(ctx context.Context, request SetAutopilotRequestObject) (SetAutopilotResponseObject, error)
 	// Consult a short-lived brain resolver (shared Consultor)

@@ -132,7 +132,6 @@ func TestWatchPlanDegradedContentRecovery(t *testing.T) {
 	run.state = StateDegraded
 	run.brain = nil
 	run.plan = Plan{} // empty — as if restore could not load it cleanly
-	require.NoError(t, c.enableStore.Enable(run.repo))
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	run.cancel = cancel
@@ -178,7 +177,6 @@ func TestWatchPlanDegradedStructuralThenFix(t *testing.T) {
 	run.state = StateDegraded
 	run.brain = nil
 	run.plan = Plan{}
-	require.NoError(t, c.enableStore.Enable(run.repo))
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	run.cancel = cancel

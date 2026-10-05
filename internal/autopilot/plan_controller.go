@@ -232,11 +232,6 @@ func (c *Controller) StartFromPlan(ctx context.Context, req PlanStartRequest) (P
 		return c.adoptLiveLocked(ctx, existing, absPlan, repo, name, req)
 	}
 
-	if err := c.enableStore.Enable(repo); err != nil {
-		_ = c.live.Delete(ctx, runID)
-		return PlanStartResult{}, fmt.Errorf("persist enabled repo: %w", err)
-	}
-
 	r := &run{
 		runID:             runID,
 		name:              name,

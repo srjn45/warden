@@ -476,7 +476,11 @@ func (s *Server) GetPlan(ctx context.Context, req oapi.GetPlanRequestObject) (oa
 		}
 		return nil, errStatus(http.StatusInternalServerError, "get plan: "+err.Error())
 	}
-	return oapi.GetPlan200JSONResponse(s.planToOAPI(p)), nil
+	out := s.planToOAPI(p)
+	if p.Status == planstore.PlanStatusInProgress {
+		out.Executor = s.planExecutorStatus(ctx, p)
+	}
+	return oapi.GetPlan200JSONResponse(out), nil
 }
 
 // ListRelatedPlans implements GET /api/v1/plans/{plan_id}/related.

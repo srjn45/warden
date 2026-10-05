@@ -1427,6 +1427,7 @@ type AutopilotRunStatus struct {
 	Name              string                `json:"name"`
 	PlanFile          string                `json:"plan_file"`
 	Repo              string                `json:"repo"`
+	PlanID            string                `json:"plan_id,omitempty"`
 	State             string                `json:"state"`
 	Gate              string                `json:"gate"`
 	Brain             *AutopilotBrain       `json:"brain"`

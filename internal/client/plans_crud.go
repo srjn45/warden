@@ -113,11 +113,39 @@ type PlanView struct {
 	PipelineID     string            `json:"pipeline_id,omitempty"`
 	OrchestratorID string            `json:"orchestrator_id,omitempty"`
 	RepoExport     *PlanRepoExport   `json:"repo_export,omitempty"`
+	Executor       *PlanExecutor     `json:"executor,omitempty"`
 	CreatedAt      time.Time         `json:"created_at"`
 	UpdatedAt      time.Time         `json:"updated_at"`
 	StartedAt      time.Time         `json:"started_at,omitempty"`
 	CompletedAt    time.Time         `json:"completed_at,omitempty"`
 	ArchivedAt     time.Time         `json:"archived_at,omitempty"`
+}
+
+// PlanExecutor is the live executor block on GET /plans/{id} (in_progress plans only).
+type PlanExecutor struct {
+	Kind              string               `json:"kind"`
+	ID                string               `json:"id"`
+	State             string               `json:"state"`
+	Backoff           *PlanExecutorBackoff `json:"backoff,omitempty"`
+	IntegrationBranch string               `json:"integration_branch,omitempty"`
+	ManagerAgentID    string               `json:"manager_agent_id,omitempty"`
+	Tasks             []PlanExecutorTask   `json:"tasks,omitempty"`
+}
+
+// PlanExecutorBackoff is the guardian backoff detail, present while degraded.
+type PlanExecutorBackoff struct {
+	Stage       int    `json:"stage"`
+	NextRetryAt string `json:"next_retry_at,omitempty"`
+	LastError   string `json:"last_error,omitempty"`
+}
+
+// PlanExecutorTask is one task's ledger/job state with its worker and PR.
+type PlanExecutorTask struct {
+	ID            string `json:"id"`
+	State         string `json:"state"`
+	WorkerAgentID string `json:"worker_agent_id,omitempty"`
+	Branch        string `json:"branch,omitempty"`
+	PR            int    `json:"pr,omitempty"`
 }
 
 // PlansCreateRequest is the POST /plans body.

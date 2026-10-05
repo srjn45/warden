@@ -29,7 +29,7 @@ Run work:
   agent                Create, inspect, communicate with, and manage agents
   pipeline             Define and run DAG pipelines of agent jobs
   plan                 Manage plans tracked by the daemon
-  autopilot            Turn autopilot capability on/off per repo and show its status
+  autopilot            Show autopilot status, scaffold adoption, and land worker branches
   schedule             Schedule recurring (--cron) or single-shot (--at) agents and pipelines
 
 Work with a project:
@@ -1047,7 +1047,8 @@ Typical journey:
   1. Create    `wd plan create` (then `wd plan show` to inspect it)
   2. Edit      `wd plan update`, `wd plan edit` or `wd plan task add|edit|rm`
                (only while the plan is pending)
-  3. Run       `wd plan run --mode <mode>` (pending → in_progress)
+  3. Run       `wd plan run --mode <mode>` (pending → in_progress); follow
+               progress with `wd plan show --watch`
   4. Control   `wd plan pause`, `resume` or `stop` the running executor
   5. Progress  `wd plan task status` / `wd plan done` record task progress
   6. Complete  `wd plan complete` (in_progress → completed)
@@ -1300,6 +1301,7 @@ Inherited flags:
 Set one task's progress status to pending, in_progress, done, or skipped.
 Prints the task's old and new status plus the plan's task summary. Works on
 plans in any lifecycle state. skipped counts as finished for `plan complete`.
+`wd plan done <plan-id> <task-id>` is the shorthand for setting a task to done.
 
 Usage:
   warden plan task status <plan-id> <task-id> <pending|in_progress|done|skipped> [flags]
@@ -1320,12 +1322,18 @@ Show the full canonical ScrivaDB record for one plan: goal, tasks, status,
 revision, executor, task summary, export status, linked branches, and timestamps.
 Repository YAML is never read for this view.
 
+For an in_progress plan it is the single status view of the run: executor
+kind and state (active, healing, degraded, paused, stopped), backoff detail
+when present, the integration branch, and per task the state, worker agent
+and PR. Use --watch to keep refreshing it.
+
 Usage:
   warden plan show <plan-id> [flags]
 
 Flags:
-  -h, --help   help for show
-      --json   output as JSON
+  -h, --help    help for show
+      --json    output as JSON
+      --watch   refresh the view every few seconds until interrupted
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -1362,12 +1370,17 @@ public start path for plan execution (including autopilot). --mode is
 required; it decides how the plan is executed:
 
   autopilot            Creates a live Autopilot executor + manager
+                       (pause/resume supported)
   pipeline             Each task becomes a pipeline job
+                       (pause/resume supported)
   orchestrator_worker  Orchestrator + workers with human approval gates
+                       (pause/resume refused; use stop)
   manual               Plan-bound general agent; human drives prompting
+                       (pause/resume refused; use stop)
 
 `orchestrator` is accepted as a shorthand for `orchestrator_worker`.
-Control a running plan with `wd plan pause|resume|stop`.
+Follow progress with `wd plan show --watch`. `wd plan stop` works for every
+mode; `wd plan pause|resume` only for autopilot and pipeline.
 
 Usage:
   warden plan run <plan-id> [flags]
@@ -1774,16 +1787,14 @@ Inherited flags:
 ```text
 Use a brain model to reconstruct task progress from git history and open PRs.
 Updates the plan's recorded task progress. Opt-in — never run automatically.
---project is only needed when the plan belongs to a different project than
-the current directory's.
+Plan ids resolve globally; --project is optional and rarely needed.
 
 Usage:
   warden plan assess <plan-id> [flags]
 
 Flags:
-  -h, --help             help for assess
-      --json             output as JSON
-      --project string   project ID (default: git root of the current directory)
+  -h, --help   help for assess
+      --json   output as JSON
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -1793,23 +1804,19 @@ Inherited flags:
 ## warden autopilot
 
 ```text
-Autopilot is the unattended Plan execution mode. `warden autopilot enable`
-flips a PER-REPO capability switch (it does not register plan files or start
-work). Start and control execution with `warden plan run` / `warden plan
-pause|resume|stop`. `disable` is the kill switch. Configure the feature under
-the `autopilot` block in the config file (or scaffold it with `warden
-autopilot init`).
+Autopilot is the unattended Plan execution mode. There is no per-repo switch:
+start a run explicitly with `warden plan run <plan-id> --mode autopilot` and
+control it with `warden plan pause|resume|stop`. This namespace shows status
+(`status`), scaffolds adoption (`init`) and lands worker branches (`land`).
+Configure the feature under the `autopilot` block in the config file.
 
 Usage:
   warden autopilot [flags]
 
 Commands:
-  enable               Enable autopilot capability for this repo (does not start work)
-  disable              Disable autopilot for this repo (kill switch — stops spawning/landing)
-  status               Show autopilot status (which repos are enabled, and each run)
-  init                 Scaffold autopilot adoption in the current repo
+  status               Show autopilot status (every run)
+  init                 Scaffold the plan file and integration branch for autopilot
   land                 Land an autopilot worker branch into the integration branch
-  run                  Inspect live Autopilot executors
 
 Flags:
   -h, --help   help for autopilot
@@ -1819,56 +1826,19 @@ Inherited flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden autopilot enable
-
-```text
-Enables the autopilot capability for the current git repository only (other
-repos are unaffected). This persists the repo as allowed to run Autopilot
-executors — it does not register plan files or start work. Start a plan with
-`warden plan run <plan-id> --mode autopilot`. Use --repo to target a different
-repository.
-
-Usage:
-  warden autopilot enable [flags]
-
-Flags:
-  -h, --help          help for enable
-      --repo string   repo root to enable (default: the current git repository)
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden autopilot disable
-
-```text
-Disables autopilot for the current git repository only (other enabled repos
-keep running). In-flight workers are left running. Use --repo to target a
-different repository.
-
-Usage:
-  warden autopilot disable [flags]
-
-Flags:
-  -h, --help          help for disable
-      --repo string   repo root to disable (default: the current git repository)
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
 ## warden autopilot status
 
 ```text
-Show autopilot status (which repos are enabled, and each run)
+Shows one line per run: run id, name,
+state, plan id, repo, gate, integration branch, and backoff summary. For a
+running plan's task-level progress use `warden plan show`.
 
 Usage:
   warden autopilot status [flags]
 
 Flags:
   -h, --help   help for status
+      --json   emit the raw autopilot status as JSON
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -1879,10 +1849,10 @@ Inherited flags:
 
 ```text
 Creates a named template under plans/ in the current git repository (if absent),
-registers it with the daemon, creates the integration branch
-off the default branch if absent, and prints a CI-coverage hint when no workflow
-covers integration pull requests. After init, edit the plan file and run
-`warden autopilot enable` to enable.
+creates the integration branch off the default branch if absent, and prints a
+CI-coverage hint when no workflow covers integration pull requests. Nothing is
+registered with the daemon. Next, edit the plan file, create the canonical plan
+with `wd plan create`, then start it with `wd plan run <id> --mode autopilot`.
 
 Usage:
   warden autopilot init [flags]
@@ -1913,43 +1883,7 @@ Usage:
 
 Flags:
   -h, --help   help for land
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden autopilot run
-
-```text
-List live Autopilot executors. Lifecycle control (start/pause/resume/stop)
-moved to `warden plan run` / `warden plan pause|resume|stop`. Repository
-enablement remains `autopilot enable` / `autopilot disable`.
-
-Usage:
-  warden autopilot run [flags]
-
-Commands:
-  list                 List all registered autopilot runs
-
-Flags:
-  -h, --help   help for run
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden autopilot run list
-
-```text
-List all registered autopilot runs
-
-Usage:
-  warden autopilot run list [flags]
-
-Flags:
-  -h, --help   help for list
+      --json   emit the raw land result as JSON
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -5165,12 +5099,16 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | `warden auto-approve policy` | `warden approval auto rules` |
 | `warden auto-approve rules` | `warden approval auto rules` |
 | `warden auto-approve show` | `warden approval auto rules` |
-| `warden autopilot list` | `warden autopilot run list` |
-| `warden autopilot off` | `warden autopilot disable` |
-| `warden autopilot on` | `warden autopilot enable` |
+| `warden autopilot disable` | `warden plan pause` |
+| `warden autopilot enable` | `warden plan run` |
+| `warden autopilot list` | `warden autopilot status` |
+| `warden autopilot off` | `warden plan pause` |
+| `warden autopilot on` | `warden plan run` |
 | `warden autopilot pause` | `warden plan pause` |
 | `warden autopilot register` | `warden plan run` |
 | `warden autopilot resume` | `warden plan resume` |
+| `warden autopilot run` | `warden autopilot status` |
+| `warden autopilot run list` | `warden autopilot status` |
 | `warden autopilot start` | `warden plan run` |
 | `warden autopilot stop` | `warden plan stop` |
 | `warden autopilot unregister` | `warden plan stop` |

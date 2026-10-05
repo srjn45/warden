@@ -769,6 +769,7 @@
   {
     "path": "autopilot disable",
     "use": "disable",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "repo"
@@ -781,6 +782,7 @@
   {
     "path": "autopilot enable",
     "use": "enable",
+    "hidden": true,
     "runnable": true,
     "local_flags": [
       "repo"
@@ -806,20 +808,28 @@
     "path": "autopilot land",
     "use": "land \u003cagent-or-branch\u003e",
     "runnable": true,
+    "local_flags": [
+      "json"
+    ],
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
   },
   {
     "path": "autopilot list",
     "use": "list",
     "hidden": true,
     "runnable": true,
+    "local_flags": [
+      "json"
+    ],
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
   },
   {
     "path": "autopilot off",
@@ -884,19 +894,30 @@
   {
     "path": "autopilot run",
     "use": "run",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "json"
+    ],
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
   },
   {
     "path": "autopilot run list",
     "use": "list",
+    "hidden": true,
     "runnable": true,
+    "local_flags": [
+      "json"
+    ],
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
   },
   {
     "path": "autopilot start",
@@ -912,10 +933,14 @@
     "path": "autopilot status",
     "use": "status",
     "runnable": true,
+    "local_flags": [
+      "json"
+    ],
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
   },
   {
     "path": "autopilot stop",
@@ -2120,10 +2145,14 @@
     "use": "land \u003cagent-or-branch\u003e",
     "hidden": true,
     "runnable": true,
+    "local_flags": [
+      "json"
+    ],
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
   },
   {
     "path": "library",
@@ -2916,7 +2945,8 @@
     "use": "show \u003cplan-id\u003e",
     "runnable": true,
     "local_flags": [
-      "json"
+      "json",
+      "watch"
     ],
     "inherited_flags": [
       "addr",

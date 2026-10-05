@@ -1135,14 +1135,15 @@ wipes the half-built `snapshots-db/` and re-imports from the intact legacy JSON.
 
 ## 34. Autopilot (autonomous agent runs)
 
-> ⚠️ **Unattended operation is inherently risky.** Use `warden autopilot disable`
-> (the kill switch) any time you need to stop. Workers always land into their
+> ⚠️ **Unattended operation is inherently risky.** Use `warden plan pause <id>`
+> (or the deprecated `warden autopilot disable`, which pauses every active run in
+> the repo) any time you need to stop. Workers always land into their
 > run's integration branch (default `autopilot/<plan-name>`), never directly into
 > `main`. See the [Autopilot guide](https://srjn45.github.io/warden/guides/autopilot/).
 
 Autopilot is warden's **goal-directed, long-running autonomous mode**. You
-describe a goal in a plan file, enable the autopilot capability for the repo, and
-start the plan with `wd plan run --mode autopilot`. Warden creates a live
+describe a goal in a plan and start it with `wd plan run <id> --mode autopilot`
+(no separate enable step). Warden creates a live
 **Autopilot** executor and a **manager** agent that breaks the goal into tasks,
 delegates each task to a **worker** agent in an isolated worktree, gates the
 worker's PR through CI, and lands it into an integration branch. The manager heals
@@ -1344,24 +1345,22 @@ spec-machine labels such as `fixing` / `replanned`) are not enforced here.
 Persists across manager restarts and daemon restarts — re-enabling autopilot
 continues from the ledger.
 
-### 34.10 Per-repo (project-level) switch
+### 34.10 No enable switch; deprecated compatibility
 
-The autopilot switch is **per-repository**, not one global flag. `warden autopilot
-on` run inside a repo enables **only that repo** — other repos are unaffected.
-`warden autopilot enable --repo <root>` (MCP: `set_autopilot { repo }`) targets a
-different repository. Enablement is a **capability switch only** — it does not
-register or start plan work. Start execution with `wd plan run <id> --mode autopilot`
-(MCP: `run_plan`). The plan/manager/merge **template** stays global in the
-`autopilot` config block; per-repo state is just the on/off bit and its run.
+There is no per-repo enable switch. Flow: `wd plan create` (or `wd autopilot init`
+then `wd plan create`) → `wd plan run <id> --mode autopilot` (MCP: `run_plan`).
+`wd plan show <id> --watch` is the live status view (executor state, backoff,
+integration branch, per-task worker/PR). `warden autopilot status [--json]` lists
+every run and now includes the old run-list columns. The plan/manager/merge
+**template** stays global in the `autopilot` config block. `autopilot init` no
+longer registers with the daemon.
 
-The enabled set is **persisted** as marker files under
-`<data_dir>/autopilot/enabled/`, so previously-enabled repos **come back up
-automatically across a daemon restart**. It is the source of truth for which
-repos are on — a config hot-reload re-applies the template but never resets the
-enabled set. `warden autopilot status` lists the enabled repos (`enabled_repos`
-in the wire status; the scalar `enabled` now means "any repo is on"). `warden
-autopilot disable` is per-repo — disabling one repo leaves other enabled repos
-running.
+Deprecated, hidden compatibility commands:
+
+- `autopilot enable` / `on` — no-ops with a notice pointing at `wd plan run --mode autopilot`.
+- `autopilot disable` / `off` — pause every active run in the repo (same as `wd plan pause` on each) with a notice.
+- `autopilot run list` / `autopilot list` — aliases of `autopilot status`.
+- MCP `set_autopilot` / REST `/autopilot` — `enabled: true` is a no-op, `enabled: false` pauses the repo's runs.
 
 On restart, live runs are re-preflighted with a **structural vs content** split:
 content-only plan issues (invalid task status, etc.) are normalized to `pending`
@@ -1395,7 +1394,7 @@ a run's own manager may complete it). The daemon then:
 
 **Preflight skips a complete plan:** a plan carrying `status: complete` is not
 registered as an active run, so a finished run is **never executed again by
-mistake** on a future enable or daemon restart. `autopilot_complete` is
+mistake** on a future plan run or daemon restart. `autopilot_complete` is
 idempotent — a second call is a no-op. To re-run a completed plan, remove the
 `status: complete` line (or point the config at a fresh plan file).
 
@@ -1404,7 +1403,7 @@ idempotent — a second call is a no-op. To re-run a completed plan, remove the
 The entire `autopilot` config block **hot-reloads with no daemon restart** (see
 §12.1). Editing `~/.warden/config.yaml` re-applies the plan/manager/merge template,
 the backend cost ladder, `allow_pay_per_use`, and the guardian heal thresholds,
-and re-runs the per-repo reconcile over the persisted enabled set. Adding a
+and re-runs the per-repo reconcile. Adding a
 `plans[]` entry starts it; **removing one tears down its run** (a config-presence
 sweep, so a transient preflight failure never kills a still-configured run). The
 guardian **tick cadence** (`interval`) is the one autopilot setting still read

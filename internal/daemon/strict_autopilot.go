@@ -26,9 +26,9 @@ func (s *Server) GetAutopilot(_ context.Context, _ oapi.GetAutopilotRequestObjec
 	return oapi.GetAutopilot200JSONResponse(s.autopilot.Status()), nil
 }
 
-// SetAutopilot implements POST /api/v1/autopilot: flip the per-repo capability
-// switch. Enabling records the repo as allowed to run Autopilot executors — it
-// does not register plan files or start work. Disabling is the kill switch.
+// SetAutopilot implements POST /api/v1/autopilot (DEPRECATED — there is no
+// per-repo switch). enabled=true is a no-op; enabled=false pauses every active
+// autopilot run in the repo. Start runs with POST /plans/{id}/run.
 func (s *Server) SetAutopilot(ctx context.Context, req oapi.SetAutopilotRequestObject) (oapi.SetAutopilotResponseObject, error) {
 	if s.autopilot == nil {
 		return nil, errStatus(http.StatusForbidden, autopilotDisabledMsg)
@@ -47,8 +47,8 @@ func (s *Server) SetAutopilot(ctx context.Context, req oapi.SetAutopilotRequestO
 		s.recordAuditCtx(ctx, audit.ActionAutopilotOn, "", map[string]string{"repo": b.Repo, "runs": strconv.Itoa(len(st.Runs))})
 		return oapi.SetAutopilot200JSONResponse(st), nil
 	}
-	st := s.autopilot.Disable(ctx, b.Repo)
-	s.recordAuditCtx(ctx, audit.ActionAutopilotOff, "", map[string]string{"repo": b.Repo})
+	st, paused := s.autopilot.Disable(ctx, b.Repo)
+	s.recordAuditCtx(ctx, audit.ActionAutopilotOff, "", map[string]string{"repo": b.Repo, "paused": strconv.Itoa(len(paused))})
 	return oapi.SetAutopilot200JSONResponse(st), nil
 }
 

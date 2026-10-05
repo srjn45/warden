@@ -3146,14 +3146,14 @@ paths:
               schema: { $ref: "#/components/schemas/AutopilotStatus" }
     post:
       operationId: setAutopilot
+      deprecated: true
       tags: [Autopilot]
-      summary: Enable or disable autopilot capability
+      summary: "Deprecated: no per-repo switch (enabled=false pauses the repo's runs)"
       description: >
-        Flips the per-repo autopilot capability switch. Enabling records the repo
-        as allowed to run Autopilot executors — it does NOT register plan files or
-        start work. Start execution with POST /plans/{plan_id}/run
-        (execution_mode=autopilot). Disabling is the kill switch — it stops
-        spawning/landing immediately for that repo.
+        DEPRECATED — there is no per-repo autopilot switch. enabled=true is a
+        no-op. enabled=false pauses every active autopilot run in the repo (same
+        effect as pausing each plan). Start execution with
+        POST /plans/{plan_id}/run (execution_mode=autopilot).
       requestBody:
         required: true
         content:
@@ -4891,6 +4891,51 @@ components:
           description: >
             best-known live or linked executor id (active execution preferred,
             else autopilot_run_id / pipeline_id / orchestrator_id)
+        executor:
+          x-go-type-skip-optional-pointer: false
+          $ref: "#/components/schemas/PlanExecutorStatus"
+          description: >
+            live status of the plan's executor (autopilot run, pipeline or
+            plan-bound agent). Only populated by GET /plans/{plan_id} for plans
+            that have an executor; omitted otherwise.
+
+    PlanExecutorStatus:
+      type: object
+      description: Live executor state for one plan (single status view behind `wd plan show`).
+      required: [kind, id, state]
+      properties:
+        kind: { type: string, enum: [autopilot, pipeline, agent] }
+        id: { type: string, description: "autopilot run id, pipeline id, or agent id" }
+        state:
+          type: string
+          description: >
+            autopilot: active|healing|degraded|paused|stopped|complete;
+            pipeline: the pipeline status; agent: the session status
+        backoff:
+          x-go-type-skip-optional-pointer: false
+          $ref: "#/components/schemas/PlanExecutorBackoff"
+        integration_branch: { type: string }
+        manager_agent_id: { type: string }
+        tasks:
+          type: array
+          items: { $ref: "#/components/schemas/PlanExecutorTask" }
+
+    PlanExecutorBackoff:
+      type: object
+      properties:
+        stage: { type: integer }
+        next_retry_at: { type: string }
+        last_error: { type: string }
+
+    PlanExecutorTask:
+      type: object
+      required: [id, state]
+      properties:
+        id: { type: string }
+        state: { type: string, description: "autopilot ledger state or pipeline job status" }
+        worker_agent_id: { type: string }
+        branch: { type: string }
+        pr: { type: integer, description: "PR number where known" }
 
 
     PlanExecution:
@@ -6355,11 +6400,11 @@ components:
     AutopilotToggleRequest:
       type: object
       description: >
-        Body for POST /autopilot — the per-repo capability switch. `repo` scopes the
-        toggle to one repository; omitted, it defaults to the daemon's working
-        directory. Enabling does not register or start work.
+        DEPRECATED body for POST /autopilot. `repo` scopes to one repository;
+        omitted, it defaults to the daemon's working directory. enabled=true is a
+        no-op; enabled=false pauses the repo's active runs.
       properties:
-        enabled: { type: boolean, description: "true enables the capability for the repo (no registration); false is the kill switch" }
+        enabled: { type: boolean, description: "true is a no-op; false pauses every active autopilot run in the repo" }
         repo: { type: string, description: "repo root to toggle (optional; defaults to the daemon's working directory)" }
       required: [enabled]
 
@@ -6440,10 +6485,11 @@ components:
         (docs/specs/autopilot.md §5). The Go shape is autopilot.Status; the
         properties below document the wire contract.
       properties:
-        enabled: { type: boolean, description: "true when any repo has autopilot switched on" }
+        enabled: { type: boolean, description: "true when any run is live (active/starting/healing)" }
         enabled_repos:
           type: array
-          description: "repo roots currently switched on (the per-repo switch is not a single global flag)"
+          deprecated: true
+          description: "DEPRECATED, always empty; there is no per-repo switch. Removed next release."
           items: { type: string }
         runs:
           type: array

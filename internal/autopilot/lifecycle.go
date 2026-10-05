@@ -450,9 +450,6 @@ func (c *Controller) StartRun(ctx context.Context, id string) (RunStatus, error)
 	if err := c.preflightRegisteredRunLocked(ctx, r); err != nil {
 		return c.runStatusLocked(r), err
 	}
-	if err := c.enableStore.Enable(r.repo); err != nil {
-		return RunStatus{}, fmt.Errorf("persist enabled repo: %w", err)
-	}
 	r.state = StateStarting
 	if err := c.persistRunLockedErr(r); err != nil {
 		return RunStatus{}, err

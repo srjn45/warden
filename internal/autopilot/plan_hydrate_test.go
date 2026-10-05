@@ -64,7 +64,6 @@ func TestPlanBoundRecoveryIgnoresBrokenYAMLExport(t *testing.T) {
 	}, &fakeEnv{repoOf: func(string) (string, error) { return repo, nil }})
 	t.Cleanup(func() { _ = c.Close() })
 	c.setClock(clock.now)
-	require.NoError(t, c.enableStore.Enable(repo))
 	c.SetRuntime(fake)
 	require.NoError(t, c.RecoverLiveAutopilots(context.Background()))
 

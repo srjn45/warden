@@ -182,7 +182,7 @@ func (s *Server) registerPlanTools() {
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name: "list_plans",
 		Description: "List ScrivaDB-canonical plans for a daemon project (optional status filter). " +
-			"Each plan includes revision, executor_id, task_summary, export_status, and timestamps. " +
+			"Each plan includes revision, executor_id, executor (live kind/state/backoff/integration branch/per-task worker+PR while in_progress), task_summary, export_status, and timestamps. " +
 			"Repository YAML replicas are never listed as additional plans — discovery is DB-only.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a listPlansArgs) (*mcpsdk.CallToolResult, any, error) {
 		plans, err := s.cl.PlansList(ctx, a.ProjectID, a.Status)
@@ -226,7 +226,7 @@ func (s *Server) registerPlanTools() {
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name: "get_plan",
 		Description: "Get one ScrivaDB-canonical plan by stable ID. Returns goal, tasks, constraints, " +
-			"done_when, status, revision, content_hash, executor_id, task_summary, export_status, " +
+			"done_when, status, revision, content_hash, executor_id, executor (live kind/state/backoff/integration branch/per-task worker+PR while in_progress), task_summary, export_status, " +
 			"repo_export metadata, linked IDs, task progress, and timestamps. Does not read repository YAML.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a getPlanArgs) (*mcpsdk.CallToolResult, any, error) {
 		p, err := s.cl.PlansGet(ctx, a.PlanID)
