@@ -84,6 +84,7 @@ func (c *Controller) spawnResolverLocked(ctx context.Context, r *run, req Resolv
 	if r.resolverAttempts[key] >= MaxResolverAttempts {
 		// Park only once per exhausted blocker (park is idempotent state-wise but
 		// would re-notify on every landing tick).
+		c.recordResolver(r, req, branch, "exhausted")
 		if r.needsAttention == "" && gr != nil {
 			c.park(gr, r, KindResolverExhausted, fmt.Errorf("the resolver tried %d times and could not clear %s on %s", MaxResolverAttempts, req.Class, key))
 		}
@@ -97,12 +98,14 @@ func (c *Controller) spawnResolverLocked(ctx context.Context, r *run, req Resolv
 	}
 	id, err := rt.SpawnResolver(ctx, spec)
 	if err != nil {
+		c.recordResolver(r, req, branch, "start_failed")
 		return false, err // not counted: a failed start is not an attempt
 	}
 	if r.resolverAttempts == nil {
 		r.resolverAttempts = map[string]int{}
 	}
 	r.resolverAttempts[key] = attempt
+	c.recordResolver(r, req, branch, "started")
 	if gr != nil {
 		gr.AuditRunEvent(ctx, r.runID, "autopilot.resolver_spawned", id,
 			fmt.Sprintf("class=%s task=%s branch=%s attempt=%d/%d", req.Class, req.TaskID, branch, attempt, MaxResolverAttempts))

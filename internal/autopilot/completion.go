@@ -565,14 +565,20 @@ func (c *Controller) setFinalizing(runID string, on bool) {
 }
 
 func (c *Controller) setFinalPR(runID string, fp FinalPR, gate string) {
-	c.updateCompletion(runID, func(cs *completionState) {
-		fix := 0
-		if cs.finalPR != nil {
-			fix = cs.finalPR.FixAttempts
-		}
-		fp.Gate, fp.FixAttempts = gate, fix
-		cs.finalPR = &fp
-	})
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	r, ok := c.runs[runID]
+	if !ok {
+		return
+	}
+	fix := 0
+	if r.completion.finalPR != nil {
+		fix = r.completion.finalPR.FixAttempts
+	}
+	fp.Gate, fp.FixAttempts = gate, fix
+	r.completion.finalPR = &fp
+	c.surfaceLocked(r).FinalPR = r.completion.finalPR.snapshot()
+	c.persistSurfaceLocked(r)
 }
 
 func (c *Controller) auditRun(ctx context.Context, runID, action, detail string) {

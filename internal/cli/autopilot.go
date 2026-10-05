@@ -259,7 +259,9 @@ func newAutopilotStatusCmd() *cobra.Command {
 		Short: "Show autopilot status (every run)",
 		Long: "Shows one line per run: run id, name,\n" +
 			"state, plan id, repo, gate, integration branch, and backoff summary. Healing,\n" +
-			"degraded and resting runs also print their next_step / resting_until. For a\n" +
+			"degraded and resting runs also print their next_step / resting_until, and runs\n" +
+			"print the guardian's last diagnosis, per-task gate/fix state, resolver activity\n" +
+			"and the final PR (all fields are also in --json). For a\n" +
 			"running plan's task-level progress use `warden plan show`.",
 		Args: cobra.NoArgs,
 		RunE: runAutopilotStatus,
@@ -302,6 +304,9 @@ func printAutopilotRuns(cmd *cobra.Command, st client.AutopilotStatus) {
 		}
 		if r.RestingUntil != "" {
 			fmt.Fprintf(cmd.OutOrStdout(), "    resting until: %s\n", r.RestingUntil)
+		}
+		for _, l := range r.SurfaceLines() {
+			fmt.Fprintln(cmd.OutOrStdout(), "    "+l)
 		}
 		if r.NeedsAttention != "" {
 			fmt.Fprintf(cmd.OutOrStdout(), "    NEEDS ATTENTION: %s\n", r.NeedsAttention)

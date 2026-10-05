@@ -256,5 +256,6 @@ func orEmpty(m map[string]bool) map[string]bool {
 func (c *Controller) auditDiagnosis(ctx context.Context, gr GuardianRuntime, r *run, d fastbrain.StallDiagnosis, outcome, note string) {
 	detail := fmt.Sprintf("action=%s outcome=%s source=%s confidence=%.2f failopen=%q rationale=%q note=%q",
 		d.Action, outcome, d.Source, d.Confidence, d.FailOpen, d.Rationale, note)
+	c.recordDiagnosis(r, d, outcome)
 	gr.AuditRunEvent(ctx, r.runID, "autopilot.guardian_diagnosis", brainAgentID(r), detail)
 }

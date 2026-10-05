@@ -1449,6 +1449,11 @@ type AutopilotRunStatus struct {
 	GateWarning       string                `json:"gate_warning,omitempty"`
 	Workers           map[string][]string   `json:"workers,omitempty"`
 	LedgerTasks       []AutopilotLedgerTask `json:"ledger_tasks,omitempty"`
+	// Operator status surface (run-to-final-pr spec §G.3).
+	LastDiagnosis *AutopilotDiagnosis      `json:"last_diagnosis,omitempty"`
+	Fix           []AutopilotFixStatus     `json:"fix,omitempty"`
+	Resolver      *AutopilotResolverStatus `json:"resolver,omitempty"`
+	FinalPR       *AutopilotFinalPR        `json:"final_pr,omitempty"`
 }
 
 // AutopilotLedgerTask is one ledger row used to order the TUI/web workers tree.
