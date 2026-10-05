@@ -2393,7 +2393,9 @@ func (l *Lifecycle) RemoveWorktree(ctx context.Context, t CleanupTarget, force, 
 	// dirty/unpushed guard + worktree removal, NOT branch provenance.
 	if t.Branch != "" && (t.BranchCreated || deleteAdoptedBranch) {
 		if out, err := l.run.Run(ctx, "", "git", "-C", t.Repo, "branch", "-D", t.Branch); err != nil {
-			if !force || (!strings.Contains(out, "not found") && !strings.Contains(out, "does not exist")) {
+			// A branch that is already gone (landed and deleted) is the desired end
+			// state, so it is success regardless of force.
+			if !strings.Contains(out, "not found") && !strings.Contains(out, "does not exist") {
 				return fmt.Errorf("git branch -D: %w: %s", err, out)
 			}
 		}
