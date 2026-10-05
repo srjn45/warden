@@ -122,7 +122,7 @@ func Apply(ctx context.Context, o Options, a ApplyOptions, report *Report) (*App
 			continue
 		}
 		if !a.DryRun {
-			if _, err := d.git(ctx, "", "push", "origin", "--delete", b.Name); err != nil {
+			if _, err := d.git(ctx, "", "push", "--no-verify", "origin", "--delete", b.Name); err != nil {
 				fail("delete remote branch %s: %v", b.Name, err)
 				continue
 			}
