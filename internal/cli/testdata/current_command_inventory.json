@@ -2630,10 +2630,15 @@
     "path": "plan delete",
     "use": "delete \u003cplan-id\u003e",
     "runnable": true,
+    "local_flags": [
+      "json",
+      "yes"
+    ],
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
   },
   {
     "path": "plan done",

@@ -824,20 +824,60 @@ func TestPlanTaskIDConflict(t *testing.T) {
 	}
 }
 
+const planDeleteGetJSON = `{"id":"plan-ab12cd34","name":"feat","status":"pending","task_summary":{"total":3,"done":1,"pending":2}}`
+
 func TestPlanDeleteCmd(t *testing.T) {
 	seen := map[string]string{}
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
 		"DELETE /api/v1/plans/plan-ab12cd34": `{"status":"deleted"}`,
 	}, seen, nil))
-	out, err := runCLI(t, addr, "plan", "delete", "plan-ab12cd34")
+	out, err := runCLI(t, addr, "plan", "delete", "plan-ab12cd34", "--yes")
 	if err != nil {
 		t.Fatalf("plan delete: %v", err)
 	}
-	if !strings.Contains(out, "deleted") {
+	if !strings.Contains(out, "plan plan-ab12cd34 deleted") {
 		t.Fatalf("plan delete output: %q", out)
 	}
 	if seen["/api/v1/plans/plan-ab12cd34"] != "DELETE" {
 		t.Fatalf("delete not sent: %q", seen)
+	}
+}
+
+func TestPlanDeleteCmdJSON(t *testing.T) {
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"DELETE /api/v1/plans/plan-ab12cd34": `{"status":"deleted"}`,
+	}, map[string]string{}, nil))
+	if _, err := runCLI(t, addr, "plan", "delete", "plan-ab12cd34", "--json"); err == nil ||
+		!strings.Contains(err.Error(), "confirmation required (pass --yes with --json)") {
+		t.Fatalf("expected confirmation error, got %v", err)
+	}
+	out, err := runCLI(t, addr, "plan", "delete", "plan-ab12cd34", "--json", "-y")
+	if err != nil {
+		t.Fatalf("plan delete --json: %v", err)
+	}
+	if !strings.Contains(out, `"status": "deleted"`) && !strings.Contains(out, `"status":"deleted"`) {
+		t.Fatalf("json output: %q", out)
+	}
+	if !strings.Contains(out, "plan-ab12cd34") {
+		t.Fatalf("json output missing id: %q", out)
+	}
+}
+
+func TestPlanDeleteCmdPrompt(t *testing.T) {
+	seen := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"GET /api/v1/plans/plan-ab12cd34":    planDeleteGetJSON,
+		"DELETE /api/v1/plans/plan-ab12cd34": `{"status":"deleted"}`,
+	}, seen, nil))
+	got, err := runCLIStdin(t, addr, "n\n", "plan", "delete", "plan-ab12cd34")
+	if err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	if !strings.Contains(got, "3 total: 1 done") || !strings.Contains(got, "cancelled") {
+		t.Fatalf("output: %q", got)
+	}
+	if seen["/api/v1/plans/plan-ab12cd34"] == "DELETE" {
+		t.Fatalf("delete sent despite cancel")
 	}
 }
 

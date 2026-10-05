@@ -74,6 +74,10 @@ type archivePlanArgs struct {
 	PlanID string `json:"plan_id" jsonschema:"the stable plan id (plan-<8hex>) to archive"`
 }
 
+type deletePlanArgs struct {
+	PlanID string `json:"plan_id" jsonschema:"the stable plan id (plan-<8hex>) to delete"`
+}
+
 type assessPlanArgs struct {
 	ProjectID string `json:"project_id" jsonschema:"the daemon project id"`
 	PlanID    string `json:"plan_id" jsonschema:"the stable plan id (plan-<8hex>) to assess"`
@@ -334,6 +338,16 @@ func (s *Server) registerPlanTools() {
 			return planToolErr(err)
 		}
 		return jsonResultAny(p)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "delete_plan",
+		Description: "Permanently delete a plan (irreversible; prefer archive_plan). Only pending and archived plans may be deleted; in-progress and completed plans return 409.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a deletePlanArgs) (*mcpsdk.CallToolResult, any, error) {
+		if err := s.cl.PlansDelete(ctx, a.PlanID); err != nil {
+			return planToolErr(err)
+		}
+		return jsonResultAny(map[string]string{"status": "deleted", "id": a.PlanID})
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
