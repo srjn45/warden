@@ -125,6 +125,7 @@ func (c *Controller) trackProgress(ctx context.Context, r *run, now time.Time) (
 	case fp != r.progressFP:
 		r.progressFP = fp
 		r.lastProgressAt = now
+		c.resetTriageEpisode(r)
 		c.clearWatchdog(r)
 	case r.state != StateActive && !r.wdActive:
 		// A run that is starting / healing / degraded for other reasons is not
@@ -183,9 +184,15 @@ func (c *Controller) superviseWatchdog(ctx context.Context, gr GuardianRuntime, 
 		c.parkNoProgress(gr, r, now)
 		return
 	}
+	tr := c.triageStall(ctx, gr, r, roster, true, now, c.watchdogNudge(r, now))
+	if tr.deferred {
+		return
+	}
 	r.wdActive = true
 	r.state = StateHealing
-	c.escalateWith(ctx, gr, r, now, c.watchdogNudge(r, now))
+	if !tr.acted {
+		c.escalateWith(ctx, gr, r, now, tr.nudge)
+	}
 	if r.healStage == stageBackoff {
 		c.parkNoProgress(gr, r, now)
 	}

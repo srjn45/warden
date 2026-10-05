@@ -277,6 +277,13 @@ escalates nudge → restart → rotate, then parks as `no_progress` — recover 
 `wd plan restart`. `wd plan show` prints `last_progress` + watchdog state.
 Keys: `progress_watchdog_enabled` (default true), `progress_watchdog_window` (2h); hot-reload.
 
+**Guardian triage.** Before escalating a stalled manager, a Fast-Brain diagnosis
+may wait, send a targeted nudge, resolve a prompt, resume a rate limit, redeliver
+the brief, restart/rotate (confidence ≥ 0.8) or call the resolver; failures fall
+open to the plain ladder. `autopilot.guardian.use_fast_brain` (default true; false
+= plain ladder), `max_waits` (3), `max_wait_total` (30m); hot-reload; audited as
+`autopilot.guardian_diagnosis`.
+
 **Restart is destructive — ask the operator first.** `wd plan resume` only undoes
 a pause; for a stopped/parked/`no_progress` run use `wd plan restart <id> --yes`
 (MCP `restart_plan`). It kills the old agents and removes their worktrees, then

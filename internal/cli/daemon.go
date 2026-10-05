@@ -471,6 +471,7 @@ func newDaemonRunCmd() *cobra.Command {
 			apBaseDir, _ := os.Getwd()
 			apCtrl := autopilot.NewController(buildAutopilotControllerConfig(cfg, apBaseDir, lc.Resolver), nil)
 			defer apCtrl.Close()
+			apCtrl.SetFastBrain(lc.FastBrain)
 			srv.SetAutopilotController(apCtrl)
 			// Legacy plan migration and the per-repo boot re-enable below can shell
 			// out to git/gh (MigrateLegacyPlans, Enable's preflight gate check),
@@ -763,6 +764,9 @@ func buildAutopilotControllerConfig(cfg config.Config, baseDir string, res autop
 			MaxIdenticalFailures: cfg.AutopilotGuardianMaxIdenticalFailures(),
 			WatchdogDisabled:     !cfg.AutopilotProgressWatchdogEnabled(),
 			WatchdogWindow:       cfg.AutopilotProgressWatchdogWindow(),
+			UseFastBrain:         cfg.AutopilotGuardianUseFastBrain(),
+			MaxWaits:             cfg.AutopilotGuardianMaxWaits(),
+			MaxWaitTotal:         cfg.AutopilotGuardianMaxWaitTotal(),
 		},
 	}
 }

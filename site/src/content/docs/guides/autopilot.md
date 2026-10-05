@@ -310,6 +310,19 @@ the integration branch and close the old PR with a comment. It is stored under
 the shared-context key `autopilot.<run_id>.restart_context` (pipeline-only plans:
 `plan.<plan_id>.restart_context`), so it survives a daemon restart.
 
+### Guardian triage
+
+Before the guardian (stale heartbeat) or the progress watchdog climbs a rung, a
+Fast-Brain diagnosis picks the recovery: `wait` (healthy but slow), a targeted
+`nudge`, resolve a stuck prompt, resume a rate limit, redeliver the brief,
+`restart`/`rotate` (confidence ≥ 0.8) or hand the stall to the resolver. The model
+call runs off the run lock and is applied on a later tick only if the manager and
+heal stage have not changed; any failure, timeout or unclear answer runs the plain
+ladder step. Keys (all hot-reload): `autopilot.guardian.use_fast_brain` (default
+`true`; `false` restores the plain ladder), `max_waits` (3) and `max_wait_total`
+(`30m`) bound consecutive `wait` decisions per stall. Every decision is audited as
+`autopilot.guardian_diagnosis`.
+
 ### Progress watchdog
 
 See *Monitoring a run* above for the full behaviour. In short:

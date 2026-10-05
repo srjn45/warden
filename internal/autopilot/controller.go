@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/srjn45/warden/internal/autopilotstore"
+	"github.com/srjn45/warden/internal/fastbrain"
 	"github.com/srjn45/warden/internal/router"
 )
 
@@ -58,6 +59,8 @@ type ControllerConfig struct {
 	PlanSource PlanTaskSource
 	// Resolver is the unified router resolver for selecting backends.
 	Resolver Resolver
+	// FastBrain serves guardian stall triage (nil ⇒ heuristics only).
+	FastBrain fastbrain.Engine
 	// Guardian configures the heartbeat guardian's heal ladder + backoff (config
 	// autopilot.guardian). Zero-valued fields fall back to sane defaults.
 	Guardian GuardianParams
@@ -86,6 +89,14 @@ type GuardianParams struct {
 	// WatchdogWindow is how long a run may go without progress, with no agent
 	// working, before the watchdog escalates (default 2h).
 	WatchdogWindow time.Duration
+	// UseFastBrain enables Fast-Brain stall triage before an escalation (config
+	// autopilot.guardian.use_fast_brain). The zero value is off, which keeps the
+	// plain ladder; the daemon passes the config default (on).
+	UseFastBrain bool
+	// MaxWaits / MaxWaitTotal bound consecutive triage "wait" decisions per stall
+	// episode (defaults 3 / 30m).
+	MaxWaits     int
+	MaxWaitTotal time.Duration
 }
 
 // Controller is the autopilot master switch and per-plan run registry
@@ -103,6 +114,13 @@ type Controller struct {
 	resolver          Resolver
 	guardian          GuardianParams
 	fixPolicy         FixPolicy
+
+	// Guardian triage seams (guardian_triage.go). fastBrain is nil ⇒ heuristics
+	// only; triageFn overrides the diagnosis call (tests); stallResolver is the
+	// call_resolver seam the resolver work fills (nil ⇒ that action falls open).
+	fastBrain     fastbrain.Engine
+	triageFn      func(ctx context.Context, in fastbrain.StallInput) fastbrain.StallDiagnosis
+	stallResolver StallResolver
 
 	// now is the clock the guardian + tierstate read (injectable for tests via
 	// setClock). tierstate tracks per-backend rate-limit windows for selection.
@@ -172,6 +190,9 @@ type run struct {
 	plannedRotateNextAt time.Time       // cooldown floor so planned rotation can't thrash
 	tried               map[string]bool // backends tried this heal cycle (rotate-down exclusion)
 
+	// Guardian triage state (guardian_triage.go); mutated only under c.mu.
+	triage triageState
+
 	// Overwatch-owned state (autopilot.md §2.4). Mutated only under c.mu by the
 	// overwatch tick, which nudges a live-but-quiet manager to tend workers that
 	// have fallen idle or are waiting on input.
@@ -208,6 +229,7 @@ func NewController(cfg ControllerConfig, env Env) *Controller {
 		baseDir:           cfg.BaseDir,
 		resolver:          cfg.Resolver,
 		guardian:          withGuardianDefaults(cfg.Guardian),
+		fastBrain:         cfg.FastBrain,
 		now:               now,
 		tierstate:         newTierState(now),
 		store:             cfg.RunStore,
@@ -254,6 +276,12 @@ func withGuardianDefaults(g GuardianParams) GuardianParams {
 	if g.MaxIdenticalFailures <= 0 {
 		g.MaxIdenticalFailures = 5
 	}
+	if g.MaxWaits <= 0 {
+		g.MaxWaits = 3
+	}
+	if g.MaxWaitTotal <= 0 {
+		g.MaxWaitTotal = 30 * time.Minute
+	}
 	if strings.TrimSpace(g.RotateAtContext) == "" {
 		g.RotateAtContext = "critical"
 	}
@@ -269,6 +297,22 @@ func (c *Controller) setClock(now func() time.Time) {
 	}
 	c.now = now
 	c.tierstate.now = now
+}
+
+// SetFastBrain injects the Fast-Brain engine used for guardian stall triage.
+func (c *Controller) SetFastBrain(e fastbrain.Engine) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.fastBrain = e
+}
+
+// SetStallResolver fills the call_resolver seam: the resolver agent work
+// registers its starter here. Without one, a call_resolver diagnosis falls open
+// to the mechanical ladder step.
+func (c *Controller) SetStallResolver(sr StallResolver) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.stallResolver = sr
 }
 
 // SetRuntime injects the daemon-provided brain/ledger/digest surface. It must be

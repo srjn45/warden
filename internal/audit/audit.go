@@ -20,25 +20,26 @@ import (
 // Action names for the audited daemon operations. They are part of the on-disk
 // schema (callers filter on them), so existing values are stable.
 const (
-	ActionSpawn                    = "spawn"
-	ActionTerminate                = "terminate"
-	ActionDelete                   = "delete"
-	ActionApprove                  = "approve"
-	ActionPipelineStart            = "pipeline_start"
-	ActionPipelineCancel           = "pipeline_cancel"
-	ActionScheduleCreate           = "schedule_create"
-	ActionScheduleDelete           = "schedule_delete"
-	ActionScheduleEnable           = "schedule_enable"
-	ActionScheduleDisable          = "schedule_disable"
-	ActionAutopilotOn              = "autopilot_on"
-	ActionAutopilotOff             = "autopilot_off"
-	ActionAutopilotLand            = "autopilot_land"
-	ActionAutopilotComplete        = "autopilot_complete"
-	ActionAutopilotAutoLand        = "autopilot.auto_land"         // daemon landing loop merged a run PR
-	ActionAutopilotCIFixDispatched = "autopilot.ci_fix_dispatched" // fix loop sent a red PR to a worker
-	ActionAutopilotCIRerun         = "autopilot.ci_rerun"          // flaky CI failure re-run once
-	ActionPlanRestart              = "plan_restart"
-	ActionBrainConsult             = "brain_consult"
+	ActionSpawn                      = "spawn"
+	ActionTerminate                  = "terminate"
+	ActionDelete                     = "delete"
+	ActionApprove                    = "approve"
+	ActionPipelineStart              = "pipeline_start"
+	ActionPipelineCancel             = "pipeline_cancel"
+	ActionScheduleCreate             = "schedule_create"
+	ActionScheduleDelete             = "schedule_delete"
+	ActionScheduleEnable             = "schedule_enable"
+	ActionScheduleDisable            = "schedule_disable"
+	ActionAutopilotOn                = "autopilot_on"
+	ActionAutopilotOff               = "autopilot_off"
+	ActionAutopilotLand              = "autopilot_land"
+	ActionAutopilotComplete          = "autopilot_complete"
+	ActionAutopilotAutoLand          = "autopilot.auto_land"          // daemon landing loop merged a run PR
+	ActionAutopilotCIFixDispatched   = "autopilot.ci_fix_dispatched"  // fix loop sent a red PR to a worker
+	ActionAutopilotCIRerun           = "autopilot.ci_rerun"           // flaky CI failure re-run once
+	ActionAutopilotGuardianDiagnosis = "autopilot.guardian_diagnosis" // Fast-Brain triage decision before an escalation
+	ActionPlanRestart                = "plan_restart"
+	ActionBrainConsult               = "brain_consult"
 )
 
 // Event is one audit record: who (Actor) did what (Action) when (Time) to which

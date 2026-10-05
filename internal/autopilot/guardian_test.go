@@ -42,6 +42,12 @@ type guardianFake struct {
 	audits   []string          // "action:agentID"
 	onRotate func(agentID string)
 
+	// EvidenceRuntime seams (guardian triage tests).
+	evidence AgentEvidence
+	evErr    error
+	evCalls  []string // "resolve:<id>" | "resume:<id>" | "redeliver:<id>"
+	evActErr error    // when set, the delegating actions fail with it
+
 	// RestartRuntime seams for RestartRun tests.
 	teardowns      []string
 	teardownErr    error
