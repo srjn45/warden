@@ -2041,8 +2041,8 @@ restart list; everything else takes effect on save.
 | `approvals` | `true` | The approvals inbox: parse recognized tool-permission prompts and surface them for one-click answers in the web/TUI/CLI |
 | `tokens.guard` | `true` | Context-size guard master switch: read each live agent's context-window fill from its transcript, classify `ok`/`warning`/`critical`, and show a state-colored token figure in `ls`/TUI/web |
 | `tokens.warn_alert` | `true` | Fire a desktop notification (when `notify.enabled` is on) once per upward crossing into warning/critical |
-| `tokens.auto_compact` | `true` | Auto-send `/compact` when an agent is `critical` and idle/waiting (cooldown-guarded) |
-| `tokens.force_compact` | `false` | When an agent goes `critical` while **still working**, interrupt it (Escape), `/compact` once idle, then send `tokens.compact_resume_prompt`. Destructive (discards the in-flight turn) → off by default. Per-agent override: `warden agent set <id> compact on\|off\|inherit` |
+| `tokens.auto_compact` | `true` | Auto-send `/compact` when an agent is `critical` and idle/waiting (cooldown-guarded). Autopilot workers and pipeline jobs are short-lived and are never compacted by this default (the long-lived autopilot manager still is). |
+| `tokens.force_compact` | `false` | When an agent goes `critical` while **still working**, interrupt it (Escape), `/compact` once idle, then send `tokens.compact_resume_prompt`. Destructive (discards the in-flight turn) → off by default. Per-agent override: `warden agent set <id> compact on\|off\|inherit`. Autopilot workers and pipeline jobs are short-lived and are never compacted by this default (the long-lived autopilot manager still is). |
 | `tokens.compact_resume_prompt` | _(built-in)_ | Message sent to a force-compacted agent once compaction lands so it resumes its work |
 | `tokens.warn` | `200000` | Warning threshold in context tokens (inclusive). Both thresholds reset to defaults if critical ≤ warn |
 | `tokens.critical` | `400000` | Critical threshold in context tokens (inclusive) — the auto-`/compact` trigger band |

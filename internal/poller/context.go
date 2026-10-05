@@ -82,12 +82,7 @@ func (p *Poller) checkContext(ctx context.Context, s *agentstore.Agent, now time
 	}
 	// Snapshot the hot-reloadable guard knobs once for this tick (a live config
 	// reload may swap them concurrently via SetContextGuard).
-	g := p.ctxGuard()
-	// Antigravity uses a large context window and does not require manual compaction.
-	if s.AiCli == "antigravity" {
-		g.AutoCompact = false
-		g.ForceCompact = false
-	}
+	g := p.guardFor(s)
 	cur := ctxtokens.Classify(tokens, g.Warn, g.Crit)
 	prev := ctxtokens.State(s.ContextState)
 	if err := p.deps.UpdateContext(ctx, s.ID, tokens, string(cur)); err == nil {
@@ -180,6 +175,39 @@ func (p *Poller) evalHotSwap(s *agentstore.Agent, cur ctxtokens.State, tokens in
 	p.OnHotSwap(s, tokens)
 }
 
+// guardFor returns the context-guard knobs as they apply to one agent. The
+// global auto-compact and force-compact defaults are switched off for agents
+// warden must not compact on its own:
+//
+//   - Antigravity, whose large context window needs no manual compaction.
+//   - Short-lived unattended agents (see unattended): they are torn down when
+//     their task ends, so a compaction saves little, while interrupting one
+//     mid-turn with no operator watching the pane can strand it.
+//
+// Gauges, alerts and the hot-swap trigger still apply to them, and an explicit
+// per-agent force-compact override (Agent.ForceCompact) is still honored.
+func (p *Poller) guardFor(s *agentstore.Agent) ctxGuardSnapshot {
+	g := p.ctxGuard()
+	if s.AiCli == "antigravity" || unattended(s) {
+		g.AutoCompact = false
+		g.ForceCompact = false
+	}
+	return g
+}
+
+// unattended reports whether an agent is a short-lived one driven by warden
+// rather than by an operator: an autopilot worker or brain, or a pipeline job.
+// The autopilot manager is deliberately not included — it lives for the whole
+// run, so its context does need compacting, and the guardian nudges it back to
+// its loop if a compaction leaves it quiet. Agents the operator spawned and
+// talks to directly are attended.
+func unattended(s *agentstore.Agent) bool {
+	if s.PipelineID != "" {
+		return true
+	}
+	return s.AutopilotRunID != "" && s.Role != "autopilot"
+}
+
 // sendCompact issues /compact to s and parks the pre-compact reading so the
 // reclaim can be measured once the compaction lands (reconcileCompact on a later
 // tick). preOut is the cumulative billed output now, before the summary is
@@ -221,12 +249,7 @@ func (p *Poller) sendCompact(ctx context.Context, s *agentstore.Agent, tokens, o
 // The compact itself is gated by the cooldown so a failed/slow landing can't
 // storm /compact. Tick goroutine only.
 func (p *Poller) stepForceCompact(ctx context.Context, s *agentstore.Agent, cur ctxtokens.State, tokens, outUsage int, usageOK bool, sinceCompact time.Duration, now time.Time) bool {
-	g := p.ctxGuard()
-	// Antigravity uses a large context window and does not require manual compaction.
-	if s.AiCli == "antigravity" {
-		g.AutoCompact = false
-		g.ForceCompact = false
-	} // hot-reloadable: force-compact default + resume prompt
+	g := p.guardFor(s) // hot-reloadable: force-compact default + resume prompt
 	st, active := p.forceCompact[s.ID]
 
 	// Resume only after reconcileCompact positively observed a context drop.
