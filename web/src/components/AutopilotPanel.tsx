@@ -128,9 +128,29 @@ function RunCard({ run, sessions, onChanged, onError }: { run: AutopilotRun; ses
         <span className="muted">gate: {run.gate}</span>
 		{run.integration_branch && <span className="muted" title="integration branch">base: {run.integration_branch}</span>}
 		{run.gate_warning && <span className="warn" title={run.gate_warning}>gate warning</span>}
+		{run.watchdog && !['idle', 'disabled'].includes(run.watchdog) && <span className="warn" title="progress watchdog">watchdog: {run.watchdog}</span>}
+		{run.final_pr && (
+			<span className={run.final_pr.gate === 'red' ? 'warn' : 'muted'} title="final PR (autopilot never merges it)">
+				final PR {run.final_pr.url ? <a href={run.final_pr.url} target="_blank" rel="noreferrer">#{run.final_pr.number}</a> : `#${run.final_pr.number}`} {run.final_pr.gate}
+			</span>
+		)}
+		{(run.resolver?.attempts ?? 0) > 0 && <span className="muted" title={`last: ${run.resolver?.last_outcome ?? ''} ${run.resolver?.last_class ?? ''}`}>resolver ×{run.resolver?.attempts}</span>}
       </div>
+	  {run.last_diagnosis && (
+		<div className="autopilot-run-diagnosis muted" title={run.last_diagnosis.rationale}>
+			diagnosis: {run.last_diagnosis.action} ({Math.round(run.last_diagnosis.confidence * 100)}%{run.last_diagnosis.source ? `, ${run.last_diagnosis.source}` : ''}) {relativeTime(run.last_diagnosis.at)}
+			{run.last_diagnosis.fail_open_reason && <span className="warn"> · fail-open: {run.last_diagnosis.fail_open_reason}</span>}
+		</div>
+	  )}
+	  {(run.fix ?? []).some((f) => f.gate !== 'clear') && (
+		<div className="autopilot-run-fixes">
+			{(run.fix ?? []).filter((f) => f.gate !== 'clear').map((f) => (
+				<span key={f.task} className="warn" title={`red streak ${f.red_streak}`}>{f.task}: {f.gate}{f.pr ? ` #${f.pr}` : ''} · fix ×{f.fix_attempts}{f.fixing ? ' (in flight)' : ''}</span>
+			))}
+		</div>
+	  )}
 	  <div className="autopilot-run-controls">
-		<button disabled={busy || !['active','paused','degraded','healing'].includes(run.state)} onClick={() => act(run.state === 'paused' ? 'resume' : 'pause')}>{run.state === 'paused' ? 'Resume' : 'Pause'}</button>
+		<button disabled={busy || !['active','finalizing','paused','degraded','healing'].includes(run.state)} onClick={() => act(run.state === 'paused' ? 'resume' : 'pause')}>{run.state === 'paused' ? 'Resume' : 'Pause'}</button>
 		<button className="danger" disabled={busy || ['stopped','complete'].includes(run.state)} onClick={() => act('stop')}>Stop</button>
 	  </div>
 

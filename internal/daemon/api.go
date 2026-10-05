@@ -300,6 +300,9 @@ type Server struct {
 	// SetBrainConsultor; PipelineWatcher and the autopilot manager entry point
 	// share the same instance so teardown + audit stay identical.
 	brainConsultor brainconsult.Consultor
+	// promptConsultor overrides the stage-3 prompt-chain brain (tests); nil builds
+	// a tier-1 pinned one on demand (autopilot_approvals.go).
+	promptConsultor brainconsult.Consultor
 	// landHostFn builds the LandHost the `land` handler drives (autopilot.md §6).
 	// nil ⇒ the real gh/git + check-rail host; tests inject a fake to exercise the
 	// handler's resolution, ledger write, and error mapping without a live GitHub.

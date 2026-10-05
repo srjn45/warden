@@ -298,11 +298,26 @@ func (l *Lifecycle) memoryGuidance(ctx context.Context, dir string) string {
 // orchestrators at every fresh (re)launch while an ungrouped agent projects nothing.
 // Additive and fail-open, exactly like memory: any absent provider degrades to "".
 func (l *Lifecycle) peerGuidance(ctx context.Context, agent *agentstore.Agent) string {
-	if l.PeerContextFn == nil || agent == nil {
+	if agent == nil {
 		return ""
 	}
-	return l.PeerContextFn(ctx, agent)
+	var peers string
+	if l.PeerContextFn != nil {
+		peers = l.PeerContextFn(ctx, agent)
+	}
+	if agent.Role == "worker" && agent.HasTag("autopilot") {
+		if peers != "" {
+			peers += "\n\n"
+		}
+		peers += landingDaemonOwnedGuidance
+	}
+	return peers
 }
+
+// landingDaemonOwnedGuidance is injected into every worker spawned inside an
+// autopilot run: the daemon gates and lands the PR, so the worker must not merge
+// (the worker persona is brief-driven and merges itself when this is absent).
+const landingDaemonOwnedGuidance = `Landing is daemon-owned: do not merge; end with "wd job done" after a green push.`
 
 // resolveRole applies the requested built-in role to req: it validates the role
 // name and fills each unset spawn field from the role's defaults, with precedence
@@ -2577,6 +2592,18 @@ func (l *Lifecycle) seedInteractivePrompt(b agentbackend.Backend, tmuxSession, p
 			slog.Warn("prompt seed: failed to type initial prompt", "agent", tmuxSession, "backend", b.ID(), "err", err)
 		}
 	}()
+}
+
+// RedeliverPrompt re-runs post-launch prompt seeding for an existing agent. It
+// reports false when the backend does not take its prompt as typed input (it
+// seeds on the launch line), in which case nothing was sent.
+func (l *Lifecycle) RedeliverPrompt(agent *agentstore.Agent) bool {
+	b := l.backendFor(agent.AiCli)
+	if _, ok := b.(agentbackend.PromptSeeder); !ok {
+		return false
+	}
+	l.seedInteractivePrompt(b, agent.TmuxSession, agent.Prompt)
+	return true
 }
 
 // waitPaneReady blocks until marker appears in the agent's captured pane (then a

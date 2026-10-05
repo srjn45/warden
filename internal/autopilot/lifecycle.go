@@ -588,13 +588,15 @@ func (c *Controller) UnregisterRun(_ context.Context, id string) (RunStatus, err
 
 func (c *Controller) runStatusLocked(r *run) RunStatus {
 	st := RunStatus{RunID: r.runID, Name: r.name, PlanFile: r.planFile, Repo: r.repo, PlanID: r.planID, ProjectID: r.projectID,
-		State: r.state, Gate: c.runGate(r), Tasks: TaskCounts{},
+		State: r.reportedState(), Gate: c.runGate(r), Tasks: TaskCounts{},
 		PlanTasks: append([]PlanTask(nil), r.plan.Tasks...), GuardianID: guardianSlotIDOrEmpty(r.slotScope),
 		SlotScope: r.slotScope, IntegrationBranch: r.integrationBranch, GateWarning: r.gateWarning,
 		ManagerSlotID: managerSlotIDOrEmpty(r.slotScope), GuardianSlotID: guardianSlotIDOrEmpty(r.slotScope),
 		LedgerTasks:    c.ledgerTasksLocked(r.runID),
 		LastProgressAt: rfc3339OrEmpty(r.lastProgressAt), Watchdog: c.watchdogState(r, c.now()),
+		NextStep: c.nextStepLocked(r, c.now()), RestingUntil: rfc3339OrEmpty(restingUntil(r)),
 		PreflightWarnings: append([]string(nil), r.preflightWarnings...)}
+	c.surfaceViewLocked(r).apply(&st)
 	return st
 }
 

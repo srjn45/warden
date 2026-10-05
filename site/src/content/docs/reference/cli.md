@@ -441,7 +441,10 @@ Inherited flags:
 ## warden agent terminate
 
 ```text
-Stop an agent: kill its tmux+AI CLI session (keeps the record and worktree)
+Stop an agent: kill its tmux+AI CLI session (keeps the record and worktree).
+
+Terminating the manager of an active autopilot run is not a stop: the guardian
+respawns it in the same slot. To stop a run use `wd plan pause` or `wd plan stop`.
 
 Usage:
   warden agent terminate <AGENT> [flags]
@@ -1872,7 +1875,10 @@ Inherited flags:
 
 ```text
 Shows one line per run: run id, name,
-state, plan id, repo, gate, integration branch, and backoff summary. For a
+state, plan id, repo, gate, integration branch, and backoff summary. Healing,
+degraded and resting runs also print their next_step / resting_until, and runs
+print the guardian's last diagnosis, per-task gate/fix state, resolver activity
+and the final PR (all fields are also in --json). For a
 running plan's task-level progress use `warden plan show`.
 
 Usage:

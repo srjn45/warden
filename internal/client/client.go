@@ -1437,6 +1437,8 @@ type AutopilotRunStatus struct {
 	NeedsAttention    string                `json:"needs_attention,omitempty"`
 	LastProgressAt    string                `json:"last_progress_at,omitempty"`
 	Watchdog          string                `json:"watchdog,omitempty"`
+	NextStep          *AutopilotNextStep    `json:"next_step,omitempty"`
+	RestingUntil      string                `json:"resting_until,omitempty"`
 	LandedTotal       int                   `json:"landed_total"`
 	PlanTasks         []AutopilotPlanTask   `json:"plan_tasks"`
 	GuardianID        string                `json:"guardian_id,omitempty"`
@@ -1447,6 +1449,11 @@ type AutopilotRunStatus struct {
 	GateWarning       string                `json:"gate_warning,omitempty"`
 	Workers           map[string][]string   `json:"workers,omitempty"`
 	LedgerTasks       []AutopilotLedgerTask `json:"ledger_tasks,omitempty"`
+	// Operator status surface (run-to-final-pr spec §G.3).
+	LastDiagnosis *AutopilotDiagnosis      `json:"last_diagnosis,omitempty"`
+	Fix           []AutopilotFixStatus     `json:"fix,omitempty"`
+	Resolver      *AutopilotResolverStatus `json:"resolver,omitempty"`
+	FinalPR       *AutopilotFinalPR        `json:"final_pr,omitempty"`
 }
 
 // AutopilotLedgerTask is one ledger row used to order the TUI/web workers tree.
@@ -2238,4 +2245,11 @@ type PlanRunRequest struct {
 // PlanRun starts execution of a plan in the given mode (Phase 5 stub).
 func (c *Client) PlanRun(ctx context.Context, projectID, planID string, req PlanRunRequest) error {
 	return c.do(ctx, http.MethodPost, "/projects/"+url.PathEscape(projectID)+"/plans/"+url.PathEscape(planID)+"/run", req, nil)
+}
+
+// AutopilotNextStep is the guardian's scheduled next action for a run.
+type AutopilotNextStep struct {
+	Action string `json:"action"`
+	At     string `json:"at,omitempty"`
+	Owner  string `json:"owner,omitempty"`
 }

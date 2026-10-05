@@ -884,6 +884,9 @@ func renderItemLine(it item, selected bool, width int) string {
 		if r.IntegrationBranch != "" {
 			line += stMuted.Render(" · " + r.IntegrationBranch)
 		}
+		if badge := r.SurfaceBadge(); badge != "" {
+			line += stMuted.Render(" · " + badge)
+		}
 	case it.apPlan:
 		line = collapsePrefix(it.depth, it.collapsed) + stPaneTitle.Render("plan")
 	case it.apWorkers:

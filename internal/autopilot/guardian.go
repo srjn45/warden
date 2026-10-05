@@ -47,8 +47,11 @@ func (c *Controller) RunGuardian(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+			c.limitTick(ctx)
 			c.guardianTick(ctx)
 			c.overwatchTick(ctx)
+			c.landingTick(ctx)
+			c.completionTick(ctx)
 		}
 	}
 }
@@ -73,6 +76,7 @@ func (c *Controller) guardianTick(ctx context.Context) {
 			continue
 		}
 		c.superviseRun(ctx, gr, r, now)
+		c.checkNextStep(r, now)
 		c.persistRunLocked(r)
 	}
 }
@@ -101,8 +105,16 @@ func (c *Controller) superviseRun(ctx context.Context, gr GuardianRuntime, r *ru
 	// respawn now — no heartbeat wait, no nudge of a ghost. Only a definitive
 	// "missing" counts; an unknown answer (daemon restart, store error) is ignored.
 	if r.brain != nil && r.brain.AgentID != "" && gr.BrainSession(ctx, r.brain.AgentID) == SessionMissing {
-		c.managerLost(ctx, gr, r, "session missing or archived")
+		cause := "missing"
+		if lc, ok := gr.(BrainLossCauser); ok {
+			if cc := lc.BrainLossCause(ctx, r.brain.AgentID); cc != "" {
+				cause = cc
+			}
+		}
+		id := r.brain.AgentID
+		c.managerLost(ctx, gr, r, "session "+cause)
 		c.rotateStep(ctx, gr, r, now)
+		auditRespawn(ctx, gr, r, id, cause)
 		return
 	}
 
@@ -134,6 +146,9 @@ func (c *Controller) superviseRun(ctx context.Context, gr GuardianRuntime, r *ru
 		if !r.wdActive {
 			r.state = StateActive
 		}
+		if !c.watchdogDue(r, roster, rosterOK, now) {
+			c.resetTriageEpisode(r) // a heartbeat with nothing stalled ends the episode
+		}
 		c.superviseWatchdog(ctx, gr, r, roster, rosterOK, now)
 		// Planned rotation: a healthy brain whose context has reached the configured
 		// level is cold-started on a freshly selected backend (§2.3, §7). A cooldown
@@ -144,13 +159,25 @@ func (c *Controller) superviseRun(ctx context.Context, gr GuardianRuntime, r *ru
 		return
 	}
 
+	// A manager resting on a usage limit is silent because of the limit: the
+	// limit pass owns it until its resume time.
+	if r.managerResting(now) {
+		return
+	}
+
 	// Wedged (stale heartbeat, or the brain is gone). Wait out the current step's
 	// grace so an escalation gets a full heartbeat window to prove itself.
 	if now.Before(r.healNextAt) {
 		return
 	}
+	tr := c.triageStall(ctx, gr, r, nil, false, now, guardianNudge)
+	if tr.deferred {
+		return
+	}
 	r.state = StateHealing
-	c.escalate(ctx, gr, r, now)
+	if !tr.acted {
+		c.escalateWith(ctx, gr, r, now, tr.nudge)
+	}
 }
 
 // managerLost clears the run's stale manager record after the manager session was
@@ -173,6 +200,17 @@ func (c *Controller) managerLost(ctx context.Context, gr GuardianRuntime, r *run
 	r.wdActive = false
 }
 
+// auditRespawn records autopilot.manager_respawned once a lost manager's slot has
+// a live successor (nothing is recorded when the respawn failed and the run went
+// to backoff).
+func auditRespawn(ctx context.Context, gr GuardianRuntime, r *run, lostID, cause string) {
+	if r.brain == nil || r.brain.AgentID == "" {
+		return
+	}
+	gr.AuditRunEvent(ctx, r.runID, "autopilot.manager_respawned", r.brain.AgentID,
+		"cause="+cause+" (lost "+lostID+"); successor takes the same slot and reconciles ledger, open PRs and live workers first")
+}
+
 // recover clears the heal ladder after a brain proves alive again: the cycle
 // restarts from healthy, the tried-backend set and backoff are reset.
 func (c *Controller) recover(r *run) {
@@ -186,15 +224,10 @@ func (c *Controller) recover(r *run) {
 	r.tried = map[string]bool{}
 }
 
-// escalate advances one rung up the heal ladder (§2.3). Backoff expiry retries the
-// whole ladder from stage 1 (forever); a brain that is entirely gone jumps
-// straight to (re)spawn via the rotate step.
-func (c *Controller) escalate(ctx context.Context, gr GuardianRuntime, r *run, now time.Time) {
-	c.escalateWith(ctx, gr, r, now, guardianNudge)
-}
-
-// escalateWith is escalate with a caller-chosen stage-1 nudge text (the progress
-// watchdog names the stalled tasks); the ladder itself is identical.
+// escalateWith advances one rung up the heal ladder (§2.3) with a caller-chosen
+// stage-1 nudge text (the watchdog names stalled tasks, triage supplies model
+// text). Backoff expiry retries the whole ladder from stage 1 (forever); a brain
+// that is entirely gone jumps straight to (re)spawn via the rotate step.
 func (c *Controller) escalateWith(ctx context.Context, gr GuardianRuntime, r *run, now time.Time, nudge string) {
 	// Backoff elapsed → retry the ladder from the top (§2.3 stage 4 loops forever).
 	// The tried set is cleared so a backend freed during the wait re-qualifies; the
@@ -217,8 +250,10 @@ func (c *Controller) escalateWith(ctx context.Context, gr GuardianRuntime, r *ru
 		// Stage 1 — nudge the existing brain.
 		if err := gr.NudgeBrain(ctx, r.brain.AgentID, nudge); err != nil {
 			if errors.Is(err, ErrAgentNotFound) {
+				lost := r.brain.AgentID
 				c.managerLost(ctx, gr, r, "nudge target not found")
 				c.rotateStep(ctx, gr, r, now)
+				auditRespawn(ctx, gr, r, lost, "missing")
 				return
 			}
 			slog.Warn("autopilot guardian: nudge failed", "run", r.runID, "err", err)
@@ -228,19 +263,25 @@ func (c *Controller) escalateWith(ctx context.Context, gr GuardianRuntime, r *ru
 		c.escalated(gr, r, "nudge", "brain quiet past heartbeat timeout — sent a steering nudge")
 	case stageNudged:
 		// Stage 2 — restart on the same backend with a fresh context (in-place HotSwap).
-		cur := brainBackend(r)
-		r.tried[cur] = true
-		if err := c.rotateBrain(ctx, r, cur, RotateReasonHeal); err != nil {
-			slog.Warn("autopilot guardian: restart failed", "run", r.runID, "err", err)
-			r.state = StateDegraded
-		}
-		r.healStage = stageRestarted
-		r.healNextAt = now.Add(c.guardian.HeartbeatTimeout)
-		c.escalated(gr, r, "restart", "nudge did not revive the brain — restarted it (same backend, fresh context)")
+		c.restartStep(ctx, gr, r, now)
 	default:
 		// Stage 3 — rotate down the ladder to the next available backend.
 		c.rotateStep(ctx, gr, r, now)
 	}
+}
+
+// restartStep is ladder stage 2: restart the manager in place (same backend,
+// fresh context) and give it one heartbeat window to prove itself.
+func (c *Controller) restartStep(ctx context.Context, gr GuardianRuntime, r *run, now time.Time) {
+	cur := brainBackend(r)
+	r.tried[cur] = true
+	if err := c.rotateBrain(ctx, r, cur, RotateReasonHeal); err != nil {
+		slog.Warn("autopilot guardian: restart failed", "run", r.runID, "err", err)
+		r.state = StateDegraded
+	}
+	r.healStage = stageRestarted
+	r.healNextAt = now.Add(c.guardian.HeartbeatTimeout)
+	c.escalated(gr, r, "restart", "nudge did not revive the brain — restarted it (same backend, fresh context)")
 }
 
 // rotateStep rotates the brain onto the next selectable backend not yet tried this
@@ -492,4 +533,9 @@ func rfc3339OrEmpty(t time.Time) string {
 		return ""
 	}
 	return t.UTC().Format(time.RFC3339)
+}
+
+func restingUntil(r *run) time.Time {
+	t, _ := r.earliestResting()
+	return t
 }

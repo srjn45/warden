@@ -48,11 +48,25 @@ type RunStatus struct {
 	// NeedsAttention is set when the guardian stopped retrying a failure that
 	// cannot succeed on retry; it carries the reason and how to clear it.
 	NeedsAttention string `json:"needs_attention,omitempty"`
+	// FinalPR is the single final PR (integration → default) once opened.
+	FinalPR *FinalPR `json:"final_pr,omitempty"`
+	// ResolverAttempts counts resolver agents spawned per PR branch (capped at 3).
+	ResolverAttempts map[string]int `json:"resolver_attempts,omitempty"`
 	// LastProgressAt is the last observed run progress (ledger task change,
 	// landing, plan task status change, worker spawn); Watchdog is the progress
 	// watchdog state: disabled | idle | armed | escalating | parked.
-	LastProgressAt    string              `json:"last_progress_at,omitempty"`
-	Watchdog          string              `json:"watchdog,omitempty"`
+	LastProgressAt string `json:"last_progress_at,omitempty"`
+	Watchdog       string `json:"watchdog,omitempty"`
+	// NextStep is the guardian's scheduled next action; RestingUntil is the
+	// earliest instant a rate-limited agent is resumed or re-switched.
+	NextStep     *NextStep `json:"next_step,omitempty"`
+	RestingUntil string    `json:"resting_until,omitempty"`
+	// LastDiagnosis is the guardian's last triage decision; Fix is the per-task
+	// gate/fix-loop state; Resolver summarises resolver-agent activity. All are
+	// persisted across daemon restarts (surface.go).
+	LastDiagnosis     *Diagnosis          `json:"last_diagnosis,omitempty"`
+	Fix               []FixStatus         `json:"fix,omitempty"`
+	Resolver          *ResolverStatus     `json:"resolver,omitempty"`
 	LandedTotal       int                 `json:"landed_total"`
 	PlanTasks         []PlanTask          `json:"plan_tasks"`
 	GuardianID        string              `json:"guardian_id,omitempty"`
@@ -92,4 +106,15 @@ type Backoff struct {
 	// Kind classifies the cause: backend_unavailable | no_backend_selectable |
 	// definition_error | spawn_error.
 	Kind string `json:"kind,omitempty"`
+}
+
+func copyAttempts(m map[string]int) map[string]int {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make(map[string]int, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
 }

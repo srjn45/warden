@@ -328,6 +328,10 @@ type Poller struct {
 	// and by Prune on session teardown).
 	lastForward map[string]string
 	fwdMu       sync.Mutex
+	// chains tracks the in-flight stage-3 consult per agent (one per prompt).
+	// Guarded by fwdMu.
+	chains  map[string]*promptChain
+	chainWG sync.WaitGroup
 
 	// ApprovalEvents is a buffered channel for approval opportunities.
 	// Published when: (1) status transitions to waiting_for_input, OR
@@ -349,21 +353,35 @@ type ApprovalEvent struct {
 	Pane  string            // pane content that triggered the event
 }
 
-// AutopilotApprovals routes approval decisions for autopilot-owned workers to
-// their run's brain instead of a human (docs/specs/autopilot.md §8). The daemon
-// implements it over the autopilot Controller (which run is active + its brain)
-// and the mailbox; a nil poller.Autopilot leaves every worker on the normal
-// human path.
+// AutopilotApprovals makes prompt handling for autopilot run agents (workers,
+// the manager, resolvers) daemon-owned (docs/specs/2026-10-05-autopilot-run-to-
+// final-pr.md §I): policy → Fast-Brain arbiter → a tier-1 brain consult, never a
+// mailbox round-trip to the manager and never a human wait. The daemon
+// implements it over the autopilot Controller, brainconsult, mailbox and audit
+// log; a nil poller.Autopilot leaves every agent on the normal human path.
 type AutopilotApprovals interface {
-	// BrainFor returns the brain agent id owning worker session s while its run is
-	// active; ok=false when s is not an active autopilot-owned worker (or is the
-	// brain itself), in which case the normal human-escalation path applies.
+	// OwnsAgent reports whether s is an agent of an active run (worker, manager
+	// or resolver), i.e. whether the daemon-owned prompt chain applies to it.
+	OwnsAgent(s *agentstore.Agent) bool
+	// BrainFor returns the run's manager id for the short informational note;
+	// ok=false when s is the manager itself or has no live manager.
 	BrainFor(s *agentstore.Agent) (brainID string, ok bool)
-	// Forward delivers a prompt the auto-approve policy could not answer to the
-	// brain's mailbox and mirrors a non-blocking copy to the human inbox
-	// (visibility + audit). The poller de-dupes by prompt, so Forward is called at
-	// most once per distinct prompt per worker and need not throttle itself.
+	// Forward is informational only: a short note to the manager (when brainID
+	// is non-empty) and a non-blocking mirror to the human inbox. Nothing waits
+	// on either.
 	Forward(ctx context.Context, brainID string, worker *agentstore.Agent, reason string)
+	// ConsultPrompt is stage 3: a tier-1 brain agent answers the prompt. It
+	// blocks until the brain replies, errors or ctx is cancelled.
+	ConsultPrompt(ctx context.Context, s *agentstore.Agent, q PromptQuestion) (PromptAnswer, error)
+	// TypeText delivers free text to the stuck agent through the daemon's
+	// existing send path.
+	TypeText(ctx context.Context, s *agentstore.Agent, text string) error
+	// HandOff gives an agent whose prompt the chain could not answer to the
+	// guardian as a blocker.
+	HandOff(ctx context.Context, s *agentstore.Agent, reason string)
+	// Audit records one chain outcome (autopilot_prompt_resolved /
+	// autopilot_prompt_escalated).
+	Audit(ctx context.Context, action string, s *agentstore.Agent, detail map[string]string)
 }
 
 // compactPending is a /compact awaiting its reclaim: pre is the context-token
@@ -490,6 +508,7 @@ func New(d Deps, stuckAfter time.Duration) *Poller {
 		forceCompact:    map[string]fcState{},
 		approveBreaker:  approval.NewBreaker(),
 		lastForward:     map[string]string{},
+		chains:          map[string]*promptChain{},
 		CheckEvery:      20 * time.Second,
 		CompactCooldown: 2 * time.Minute,
 		ApprovalEvents:  make(chan ApprovalEvent, 100),
@@ -585,36 +604,6 @@ func (p *Poller) SetContextGuard(guard bool, warn, crit int, warnAlert, autoComp
 	p.CompactResumePrompt = compactResume
 }
 
-// routeToBrain forwards an unanswerable worker prompt to its run's brain,
-// de-duped so an identical prompt seen on every tick forwards once (autopilot.md
-// §8). It returns true when the worker is an active autopilot-owned agent — the
-// caller then suppresses the human-escalation path, since no autopilot worker
-// ever waits on a human. It is a no-op returning false for every ordinary agent
-// (Autopilot unset, or the worker isn't autopilot-owned).
-func (p *Poller) routeToBrain(ctx context.Context, s *agentstore.Agent, sig, reason string) bool {
-	if p.Autopilot == nil {
-		return false
-	}
-	brainID, ok := p.Autopilot.BrainFor(s)
-	if !ok {
-		return false
-	}
-	// Forward once per distinct prompt: the same prompt re-observed each tick
-	// stays "handled" (suppress the human path) but is not re-sent to the brain.
-	p.fwdMu.Lock()
-	dup := p.lastForward[s.ID] == sig
-	if !dup {
-		p.lastForward[s.ID] = sig
-	}
-	p.fwdMu.Unlock()
-	if dup {
-		return true
-	}
-	slog.Info("autopilot: forwarding worker prompt to brain", "agent", s.ID, "brain", brainID, "reason", reason)
-	p.Autopilot.Forward(ctx, brainID, s, reason)
-	return true
-}
-
 // tryAutoApprove attempts to auto-approve a recognized prompt by pressing its
 // least-privilege affirmative ("yes") option. Only attempts auto-approval if:
 //   - the effective policy is enabled OR session.AutoApprove is true (the
@@ -640,7 +629,11 @@ func (p *Poller) tryAutoApprove(ctx context.Context, s *agentstore.Agent, pane s
 	pol := p.autoApprovePolicy().For(s.Name, s.ID)
 
 	// participate-gate: master switch (default or per-agent) OR per-session opt-in.
-	if !pol.Enabled && !s.AutoApprove {
+	// An autopilot run agent always participates: its prompts go through the
+	// daemon-owned chain (policy → arbiter → brain) even with auto-approve off.
+	policyOn := pol.Enabled || s.AutoApprove
+	owned := p.Autopilot != nil && p.Autopilot.OwnsAgent(s)
+	if !policyOn && !owned {
 		return
 	}
 
@@ -672,7 +665,12 @@ func (p *Poller) tryAutoApprove(ctx context.Context, s *agentstore.Agent, pane s
 	// for any other agent it stays unanswered (surfaces as waiting_for_input).
 	if bad, marker := approval.IsDestructive(a); bad {
 		slog.Warn("auto-approve BLOCKED: destructive action", "agent", s.ID, "marker", marker)
-		p.routeToBrain(ctx, s, sig, "destructive prompt blocked ("+marker+"): "+a.Action)
+		p.routeToBrain(ctx, s, ap, pane, sig, "destructive prompt blocked ("+marker+"): "+a.Action, true)
+		return
+	}
+	if !policyOn {
+		// Owned agent with no auto-approve policy: stage 1 has nothing to say.
+		p.fallbackOrArbitrate(ctx, s, pol, ap, a, pane, sig, "no auto-approve policy: "+a.Action)
 		return
 	}
 	// Evaluate against the allow/deny policy only when rules are configured. With
@@ -681,18 +679,18 @@ func (p *Poller) tryAutoApprove(ctx context.Context, s *agentstore.Agent, pane s
 	if pol.HasRules() {
 		if d := pol.Decide(a); !d.Approve {
 			slog.Debug("auto-approve skipped by policy", "agent", s.ID, "reason", d.Reason)
-			p.fallbackOrArbitrate(ctx, s, pol, ap, a, sig, "auto-approve policy could not answer ("+d.Reason+"): "+a.Action)
+			p.fallbackOrArbitrate(ctx, s, pol, ap, a, pane, sig, "auto-approve policy could not answer ("+d.Reason+"): "+a.Action)
 			return
 		}
 	}
 	if a.AffirmativeIdx == 0 {
 		slog.Debug("auto-approve skipped: no affirmative option", "agent", s.ID)
-		p.fallbackOrArbitrate(ctx, s, pol, ap, a, sig, "prompt has no auto-approvable option: "+a.Action)
+		p.fallbackOrArbitrate(ctx, s, pol, ap, a, pane, sig, "prompt has no auto-approvable option: "+a.Action)
 		return
 	}
 	if a.AffirmativeSticky && !pol.AllowSticky {
 		slog.Debug("auto-approve skipped: only a sticky affirmative (allow_sticky off)", "agent", s.ID)
-		p.routeToBrain(ctx, s, sig, "only a sticky 'don't ask again' affirmative (allow_sticky off): "+a.Action)
+		p.routeToBrain(ctx, s, ap, pane, sig, "only a sticky 'don't ask again' affirmative (allow_sticky off): "+a.Action, false)
 		return
 	}
 
@@ -701,7 +699,7 @@ func (p *Poller) tryAutoApprove(ctx context.Context, s *agentstore.Agent, pane s
 	// An autopilot-owned worker hands the loop to its brain instead of a human
 	// (§8: no human escalation entry); any other agent escalates to a human and the
 	// prompt sits unanswered (surfaces as waiting_for_input).
-	if !p.breakerAllows(ctx, s, pol, a, sig) {
+	if !p.breakerAllows(ctx, s, pol, ap, a, pane, sig) {
 		return
 	}
 
@@ -712,16 +710,32 @@ func (p *Poller) tryAutoApprove(ctx context.Context, s *agentstore.Agent, pane s
 	}
 
 	slog.Info("auto-approved", "agent", s.ID, "option", key, "label", a.Options[a.AffirmativeIdx-1])
+	if owned {
+		p.Autopilot.Audit(ctx, "autopilot_prompt_resolved", s, map[string]string{"stage": "policy", "decision": "approve", "option": key})
+	}
 	if p.OnChange != nil {
 		p.OnChange()
 	}
+}
+
+// ResolvePrompt runs the auto-approve path (policy, Fast-Brain arbiter, brain
+// routing) once against the agent's current pane, outside the poll tick. It is the
+// entry point for callers (the autopilot guardian) that want the same answer the
+// poller would give; the result is observable via the pane/status afterwards.
+func (p *Poller) ResolvePrompt(ctx context.Context, s *agentstore.Agent) error {
+	pane, err := p.deps.CapturePane(ctx, s.TmuxSession)
+	if err != nil {
+		return err
+	}
+	p.tryAutoApprove(ctx, s, pane)
+	return nil
 }
 
 // breakerAllows runs the approve circuit breaker for this prompt. It returns
 // false when the identical prompt has been answered too many times in a row; the
 // loop is then handed to the autopilot brain (§8) or raised as an anomaly for a
 // human, exactly once when the breaker trips.
-func (p *Poller) breakerAllows(ctx context.Context, s *agentstore.Agent, pol approval.Policy, a approval.Approval, sig string) bool {
+func (p *Poller) breakerAllows(ctx context.Context, s *agentstore.Agent, pol approval.Policy, ap *agentbackend.Approval, a approval.Approval, pane, sig string) bool {
 	maxRepeats := pol.EffectiveMaxRepeats()
 	ok, trippedNow := p.approveBreaker.Allow(s.ID, sig, maxRepeats)
 	if ok {
@@ -731,7 +745,7 @@ func (p *Poller) breakerAllows(ctx context.Context, s *agentstore.Agent, pol app
 		slog.Warn("auto-approve circuit breaker tripped", "agent", s.ID, "action", a.Action, "repeats", maxRepeats)
 		detail := fmt.Sprintf("auto-approve halted: the identical prompt (%s) was approved %d times in a row without unblocking the agent",
 			a.Action, maxRepeats)
-		if !p.routeToBrain(ctx, s, sig, detail) {
+		if !p.routeToBrain(ctx, s, ap, pane, sig, detail, false) {
 			p.raiseAnomaly(ctx, s, Anomaly{
 				Kind:   anomalyApprovalLoop,
 				Detail: detail + " — answer it manually or interrupt the agent",
@@ -746,13 +760,14 @@ func (p *Poller) breakerAllows(ctx context.Context, s *agentstore.Agent, pol app
 // FastBrain engine) the AI arbiter gets a chance first; otherwise — or when the
 // arbiter declines — the prompt goes to the autopilot brain / stays for a human,
 // exactly as before Fast-Brain existed.
-func (p *Poller) fallbackOrArbitrate(ctx context.Context, s *agentstore.Agent, pol approval.Policy, ap *agentbackend.Approval, a approval.Approval, sig, reason string) {
-	if pol.UseFastBrain && p.FastBrain != nil {
-		if p.arbitrate(ctx, s, pol, ap, a, sig) {
+func (p *Poller) fallbackOrArbitrate(ctx context.Context, s *agentstore.Agent, pol approval.Policy, ap *agentbackend.Approval, a approval.Approval, pane, sig, reason string) {
+	// Stage 2 is unconditional for autopilot run agents; others keep the opt-in.
+	if (pol.UseFastBrain || (p.Autopilot != nil && p.Autopilot.OwnsAgent(s))) && p.FastBrain != nil {
+		if p.arbitrate(ctx, s, pol, ap, a, pane, sig) {
 			return
 		}
 	}
-	p.routeToBrain(ctx, s, sig, reason)
+	p.routeToBrain(ctx, s, ap, pane, sig, reason, false)
 }
 
 // arbitrate consults the Fast-Brain arbiter for a prompt the static rules could
@@ -760,8 +775,8 @@ func (p *Poller) fallbackOrArbitrate(ctx context.Context, s *agentstore.Agent, p
 // breaker runs here BEFORE the model call. It returns true when the prompt was
 // answered (keys sent); false means escalate (reject, escalate, error, or an
 // unusable answer) and the caller falls back to the brain/human path.
-func (p *Poller) arbitrate(ctx context.Context, s *agentstore.Agent, pol approval.Policy, ap *agentbackend.Approval, a approval.Approval, sig string) bool {
-	if !p.breakerAllows(ctx, s, pol, a, sig) {
+func (p *Poller) arbitrate(ctx context.Context, s *agentstore.Agent, pol approval.Policy, ap *agentbackend.Approval, a approval.Approval, pane, sig string) bool {
+	if !p.breakerAllows(ctx, s, pol, ap, a, pane, sig) {
 		return true // loop halted and already routed; do not also escalate
 	}
 	d, err := p.FastBrain.ArbitrateApproval(ctx, fastbrain.ArbiterInput{Approval: ap, AgentID: s.ID})
@@ -799,6 +814,11 @@ func (p *Poller) arbitrate(ctx context.Context, s *agentstore.Agent, pol approva
 		return true
 	}
 	slog.Info("fastbrain answered prompt", "agent", s.ID, "option", key)
+	if p.Autopilot != nil && p.Autopilot.OwnsAgent(s) {
+		p.Autopilot.Audit(ctx, "autopilot_prompt_resolved", s, map[string]string{
+			"stage": "arbiter", "decision": string(d.Action), "option": key,
+			"confidence": fmt.Sprintf("%.2f", d.Confidence), "category": string(d.Category)})
+	}
 	if p.OnChange != nil {
 		p.OnChange()
 	}
@@ -1039,6 +1059,12 @@ func (p *Poller) tick(ctx context.Context) error {
 		// (orphaned, pane-independent) or we captured the pane successfully.
 		if !alive || captureOK {
 			next := classify(p.backendFor(s), s, pane, alive, time.Since(s.UpdatedAt), p.stuckAfter)
+			if next != store.StatusWaitingForInput {
+				// The prompt is gone (answered, or the agent moved on): cancel any
+				// in-flight stage-3 consult and forget the prompt so a recurrence
+				// is handled afresh.
+				p.endPromptChain(s.ID)
+			}
 			if next != s.Status {
 				// CAS on the snapshot's status: if a hook changed it since List,
 				// the swap is skipped and the hook's newer status stands.
@@ -1138,6 +1164,12 @@ func (p *Poller) pruneSummaryState(sessions []*agentstore.Agent) {
 	for id := range p.lastForward {
 		if _, ok := live[id]; !ok {
 			delete(p.lastForward, id)
+		}
+	}
+	for id, c := range p.chains {
+		if _, ok := live[id]; !ok {
+			c.cancel()
+			delete(p.chains, id)
 		}
 	}
 	p.fwdMu.Unlock()

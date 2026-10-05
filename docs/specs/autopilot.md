@@ -202,7 +202,12 @@ Each tick, for every **active** run with a live manager, the overwatch:
 2. classifies each agent — `spawning`/`working` are **busy**; everything else
    (`waiting_for_input`, `idle`, `done`, `errored`, `orphaned`, `rate_limited`)
    is **not busy** and, for a worker, something the manager should tend;
-3. caches the in-flight worker count into status (`workers_in_flight`).
+3. caches the in-flight worker count into status (`workers_in_flight`);
+4. when `autopilot.guardian.use_fast_brain` is on, triages needy workers (off
+   the lock, at most once per gap): a worker at an approval prompt or rate-limit
+   banner is resumed directly, and a specific finding replaces the generic line
+   for that worker in the nudge (run-to-final-pr spec §C.6). The overwatch never
+   restarts, terminates or removes a worker.
 
 It then **wakes** the manager on either of two triggers — the nudge is typed
 into the manager's pane as a real input turn (the `send_to_agent` path), not

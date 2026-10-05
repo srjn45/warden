@@ -210,3 +210,26 @@ func TestRotateBrainWithLiveWorkersPreservesTreeAndLand(t *testing.T) {
 	require.Equal(t, "sha-merge", res.SHA)
 	require.Equal(t, 1, merges, "a live worker remains landable after manager rotation")
 }
+
+func TestBrainSessionLossCauses(t *testing.T) {
+	fs := &slotSpawnStore{fakeStore: newFakeStore()}
+	now := time.Now().UTC()
+	put := func(id string, st store.Status) {
+		fs.data[id] = &agentstore.Agent{ID: id, TmuxSession: id, Status: st, UpdatedAt: now, CreatedAt: now}
+	}
+	put("live", store.StatusWorking)
+	put("done", store.StatusDone)
+	put("errored", store.StatusErrored)
+	put("orphan", store.StatusOrphaned)
+	rt := autopilotRuntime{s: &Server{store: fs}}
+	ctx := context.Background()
+
+	require.Equal(t, autopilot.SessionPresent, rt.BrainSession(ctx, "live"))
+	require.Equal(t, autopilot.SessionMissing, rt.BrainSession(ctx, "gone"))
+	require.Equal(t, "missing", rt.BrainLossCause(ctx, "gone"))
+	for _, id := range []string{"done", "errored", "orphan"} {
+		require.Equal(t, autopilot.SessionMissing, rt.BrainSession(ctx, id), id)
+		require.Equal(t, "terminal", rt.BrainLossCause(ctx, id), id)
+	}
+	require.Equal(t, autopilot.SessionUnknown, autopilotRuntime{s: &Server{}}.BrainSession(ctx, "x"))
+}

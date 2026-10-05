@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/srjn45/warden/internal/autopilotstore"
+	"github.com/srjn45/warden/internal/fastbrain"
 	"github.com/srjn45/warden/internal/router"
 )
 
@@ -58,6 +59,8 @@ type ControllerConfig struct {
 	PlanSource PlanTaskSource
 	// Resolver is the unified router resolver for selecting backends.
 	Resolver Resolver
+	// FastBrain serves guardian stall triage (nil ⇒ heuristics only).
+	FastBrain fastbrain.Engine
 	// Guardian configures the heartbeat guardian's heal ladder + backoff (config
 	// autopilot.guardian). Zero-valued fields fall back to sane defaults.
 	Guardian GuardianParams
@@ -86,6 +89,14 @@ type GuardianParams struct {
 	// WatchdogWindow is how long a run may go without progress, with no agent
 	// working, before the watchdog escalates (default 2h).
 	WatchdogWindow time.Duration
+	// UseFastBrain enables Fast-Brain stall triage before an escalation (config
+	// autopilot.guardian.use_fast_brain). The zero value is off, which keeps the
+	// plain ladder; the daemon passes the config default (on).
+	UseFastBrain bool
+	// MaxWaits / MaxWaitTotal bound consecutive triage "wait" decisions per stall
+	// episode (defaults 3 / 30m).
+	MaxWaits     int
+	MaxWaitTotal time.Duration
 }
 
 // Controller is the autopilot master switch and per-plan run registry
@@ -102,6 +113,14 @@ type Controller struct {
 	baseDir           string
 	resolver          Resolver
 	guardian          GuardianParams
+	fixPolicy         FixPolicy
+	completionPolicy  CompletionPolicy
+
+	// Guardian triage seams (guardian_triage.go). fastBrain is nil ⇒ heuristics
+	// only; triageFn overrides the diagnosis call (tests); stallResolver is the
+	// call_resolver seam the resolver work fills (nil ⇒ that action falls open).
+	fastBrain fastbrain.Engine
+	triageFn  func(ctx context.Context, in fastbrain.StallInput) fastbrain.StallDiagnosis
 
 	// now is the clock the guardian + tierstate read (injectable for tests via
 	// setClock). tierstate tracks per-backend rate-limit windows for selection.
@@ -117,6 +136,8 @@ type Controller struct {
 	runtime Runtime         // nil ⇒ inert (S1): no brain spawns
 	runs    map[string]*run // keyed by run_id (across all enabled repos)
 	claims  *claimRegistry  // slot scope + reserved manager/guardian id claims
+
+	landLocks sync.Map // per-run / per-PR landing mutexes (landing.go)
 }
 
 // run is one registered plan execution: identity + state plus, once the brain
@@ -145,19 +166,20 @@ type run struct {
 
 	// Guardian-owned state (autopilot.md §2.3, §7). All mutated only under c.mu, by
 	// the guardian tick or the (re)spawn helpers.
-	tier             string      // selected cost tier (free|subscription|pay_per_use)
-	brainSpawnedAt   time.Time   // last (re)spawn instant — the cold-start heartbeat floor
-	lastHeartbeat    time.Time   // most recent brain heartbeat seen by the guardian
-	contextLevel     string      // brain context-window level seen by the guardian
-	healStage        healStage   // current position on the heal ladder
-	healNextAt       time.Time   // earliest instant the next heal step may fire
-	backoffStage     int         // capped-exponential backoff exponent (stage 4)
-	backoffNextRetry time.Time   // when the current backoff wait elapses
-	backoffLastErr   string      // human-facing reason for the current backoff
-	backoffKind      FailureKind // classified cause of the current backoff
-	failStreak       int         // consecutive identical non-transient spawn failures
-	failStreakText   string      // error text the streak is counting
-	needsAttention   string      // non-empty ⇒ parked: retries stopped, reason for the operator
+	tier             string         // selected cost tier (free|subscription|pay_per_use)
+	brainSpawnedAt   time.Time      // last (re)spawn instant — the cold-start heartbeat floor
+	lastHeartbeat    time.Time      // most recent brain heartbeat seen by the guardian
+	contextLevel     string         // brain context-window level seen by the guardian
+	healStage        healStage      // current position on the heal ladder
+	healNextAt       time.Time      // earliest instant the next heal step may fire
+	backoffStage     int            // capped-exponential backoff exponent (stage 4)
+	backoffNextRetry time.Time      // when the current backoff wait elapses
+	backoffLastErr   string         // human-facing reason for the current backoff
+	backoffKind      FailureKind    // classified cause of the current backoff
+	failStreak       int            // consecutive identical non-transient spawn failures
+	failStreakText   string         // error text the streak is counting
+	resolverAttempts map[string]int // resolver spawns per PR branch (cap MaxResolverAttempts)
+	needsAttention   string         // non-empty ⇒ parked: retries stopped, reason for the operator
 	// Progress watchdog (watchdog.go): last observed progress, its fingerprint
 	// (both persisted), and whether the heal ladder is being climbed by the
 	// watchdog / the run was parked by it.
@@ -168,6 +190,20 @@ type run struct {
 	parkedPlanKey       string          // plan revision:hash recorded when parked (plan-bound runs)
 	plannedRotateNextAt time.Time       // cooldown floor so planned rotation can't thrash
 	tried               map[string]bool // backends tried this heal cycle (rotate-down exclusion)
+
+	// Guardian triage state (guardian_triage.go); mutated only under c.mu.
+	triage triageState
+	// wtriage is the overwatch's worker-triage state (overwatch_triage.go).
+	wtriage workerTriageState
+
+	// completion is the run's completion-phase bookkeeping (completion.go).
+	completion completionState
+	// surface is the persisted operator status surface (surface.go).
+	surface       surfaceRecord
+	surfaceLoaded bool
+
+	// resting is the guardian's per-agent usage-limit bookkeeping (limits.go).
+	resting map[string]*restingAgent
 
 	// Overwatch-owned state (autopilot.md §2.4). Mutated only under c.mu by the
 	// overwatch tick, which nudges a live-but-quiet manager to tend workers that
@@ -205,6 +241,7 @@ func NewController(cfg ControllerConfig, env Env) *Controller {
 		baseDir:           cfg.BaseDir,
 		resolver:          cfg.Resolver,
 		guardian:          withGuardianDefaults(cfg.Guardian),
+		fastBrain:         cfg.FastBrain,
 		now:               now,
 		tierstate:         newTierState(now),
 		store:             cfg.RunStore,
@@ -251,6 +288,12 @@ func withGuardianDefaults(g GuardianParams) GuardianParams {
 	if g.MaxIdenticalFailures <= 0 {
 		g.MaxIdenticalFailures = 5
 	}
+	if g.MaxWaits <= 0 {
+		g.MaxWaits = 3
+	}
+	if g.MaxWaitTotal <= 0 {
+		g.MaxWaitTotal = 30 * time.Minute
+	}
 	if strings.TrimSpace(g.RotateAtContext) == "" {
 		g.RotateAtContext = "critical"
 	}
@@ -266,6 +309,13 @@ func (c *Controller) setClock(now func() time.Time) {
 	}
 	c.now = now
 	c.tierstate.now = now
+}
+
+// SetFastBrain injects the Fast-Brain engine used for guardian stall triage.
+func (c *Controller) SetFastBrain(e fastbrain.Engine) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.fastBrain = e
 }
 
 // SetRuntime injects the daemon-provided brain/ledger/digest surface. It must be
@@ -949,22 +999,26 @@ func (c *Controller) statusLocked() Status {
 				ContextLevel:  r.contextLevel,
 			}
 		}
-		st.Runs = append(st.Runs, RunStatus{
+		sv := c.surfaceViewLocked(r)
+		rs := RunStatus{
 			RunID:             r.runID,
 			Name:              r.name,
 			PlanFile:          r.planFile,
 			Repo:              r.repo,
 			PlanID:            r.planID,
 			ProjectID:         r.projectID,
-			State:             r.state,
+			State:             r.reportedState(),
 			Gate:              c.runGate(r), // the mode resolved at preflight (§6.1)
 			Brain:             brain,
 			WorkersInFlight:   r.workersInFlight, // last roster count from the overwatch tick
 			Tasks:             counts,
 			Backoff:           r.backoffStatus(),
 			NeedsAttention:    r.needsAttention,
+			ResolverAttempts:  copyAttempts(r.resolverAttempts),
 			LastProgressAt:    rfc3339OrEmpty(r.lastProgressAt),
 			Watchdog:          c.watchdogState(r, c.now()),
+			NextStep:          c.nextStepLocked(r, c.now()),
+			RestingUntil:      rfc3339OrEmpty(restingUntil(r)),
 			PlanTasks:         append([]PlanTask(nil), r.plan.Tasks...),
 			GuardianID:        guardianSlotIDOrEmpty(r.slotScope),
 			SlotScope:         r.slotScope,
@@ -974,11 +1028,13 @@ func (c *Controller) statusLocked() Status {
 			GuardianSlotID:    guardianSlotIDOrEmpty(r.slotScope),
 			LedgerTasks:       c.ledgerTasksLocked(r.runID),
 			PreflightWarnings: append([]string(nil), r.preflightWarnings...),
-		})
+		}
+		sv.apply(&rs)
+		st.Runs = append(st.Runs, rs)
 	}
 	sort.Slice(st.Runs, func(i, j int) bool { return st.Runs[i].RunID < st.Runs[j].RunID })
 	for _, rs := range st.Runs {
-		if rs.State == StateActive || rs.State == StateStarting || rs.State == StateHealing {
+		if rs.State == StateActive || rs.State == StateFinalizing || rs.State == StateStarting || rs.State == StateHealing {
 			st.Enabled = true
 			break
 		}

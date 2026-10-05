@@ -227,7 +227,7 @@ stuck worker or make an ad-hoc design call — gating
 PRs and landing them into the run's **per-plan integration branch** (default
 `autopilot/<plan-name>`; legacy `autopilot/integration` runs are grandfathered),
 all without human intervention. Guardian heal-ladder rotation is an in-place
-**hot-swap** into the same manager slot (not a new `agent-<hex>` id). If the manager's session is gone (deleted/archived) the guardian replaces it on the next tick without waiting for the heartbeat timeout (audit `autopilot.manager_missing`); `autopilot_status` shows `healing` with no manager id meanwhile. A
+**hot-swap** into the same manager slot (not a new `agent-<hex>` id). If the manager's session is gone (deleted/archived, terminated, or tmux dead — `terminate` is not a stop; use `wd plan pause`) the guardian replaces it on the next tick without waiting for the heartbeat timeout (audit `autopilot.manager_missing` then `autopilot.manager_respawned`); `autopilot_status` shows `healing` with no manager id meanwhile. A
 daemon-internal **overwatch** backstop nudges the manager to tend workers that
 fall idle or wait on input (automatic; generous cadences — a backstop, not a
 pacer). Multiple named runs can be active in one repo concurrently — each gets
@@ -235,7 +235,7 @@ its own integration branch and plan-scoped tree (`<scope>-autopilot`,
 `<scope>-guardian`, plan checklist, workers grouped by ledger state).
 
 > ⚠️ **Unattended operation is inherently risky.** Always confirm the user
-> understands how to pause (`plan pause`) before starting a run. Workers never merge to `main`
+> understands how to pause (`plan pause`) before starting a run. Under autopilot, landing is daemon-owned: workers do not merge — they push and end with `wd job done` — and the manager calls `land` only as an escape hatch (`landing: disabled`). Workers never merge to `main`
 > directly. Every action is in `warden inspect audit`.
 
 ### MCP tools
@@ -276,6 +276,13 @@ for `autopilot.guardian.progress_watchdog_window` (2h) with nothing working
 escalates nudge → restart → rotate, then parks as `no_progress` — recover with
 `wd plan restart`. `wd plan show` prints `last_progress` + watchdog state.
 Keys: `progress_watchdog_enabled` (default true), `progress_watchdog_window` (2h); hot-reload.
+
+**Guardian triage.** Before escalating a stalled manager, a Fast-Brain diagnosis
+may wait, send a targeted nudge, resolve a prompt, resume a rate limit, redeliver
+the brief, restart/rotate (confidence ≥ 0.8) or call the resolver; failures fall
+open to the plain ladder. `autopilot.guardian.use_fast_brain` (default true; false
+= plain ladder), `max_waits` (3), `max_wait_total` (30m); hot-reload; audited as
+`autopilot.guardian_diagnosis`.
 
 **Restart is destructive — ask the operator first.** `wd plan resume` only undoes
 a pause; for a stopped/parked/`no_progress` run use `wd plan restart <id> --yes`

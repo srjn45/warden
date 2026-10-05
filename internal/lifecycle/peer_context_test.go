@@ -69,3 +69,14 @@ func TestSpawnPeerContextByteIdenticalWhenNoProvider(t *testing.T) {
 	empty := spawn(func(context.Context, *agentstore.Agent) string { return "" })
 	require.Equal(t, baseline, empty, "an empty peer context must not perturb the launch")
 }
+
+func TestPeerGuidanceLandingForAutopilotWorker(t *testing.T) {
+	ctx := context.Background()
+	l := &Lifecycle{}
+	w := &agentstore.Agent{ID: "w", Role: "worker", Tags: []string{"autopilot", "run:r1"}}
+	require.Equal(t, landingDaemonOwnedGuidance, l.peerGuidance(ctx, w))
+	require.Equal(t, "", l.peerGuidance(ctx, &agentstore.Agent{ID: "w2", Role: "worker"}), "standalone worker merges as before")
+	require.Equal(t, "", l.peerGuidance(ctx, &agentstore.Agent{ID: "m", Role: "autopilot", Tags: []string{"autopilot"}}))
+	withPeers := &Lifecycle{PeerContextFn: func(context.Context, *agentstore.Agent) string { return "P" }}
+	require.Equal(t, "P\n\n"+landingDaemonOwnedGuidance, withPeers.peerGuidance(ctx, w))
+}

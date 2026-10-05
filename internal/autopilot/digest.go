@@ -104,8 +104,12 @@ func ComposeDigest(ctx context.Context, in DigestInput) (string, error) {
 		b.WriteString(sec + "\n")
 	}
 
-	b.WriteString("\nYou may have been restarted: verify before re-issuing anything")
-	b.WriteString(" (`land` is idempotent; `list_agents` shows what already exists).\n")
+	b.WriteString("\n## Before you act\n")
+	b.WriteString("You may have replaced a lost manager. Do NOT act from memory of a predecessor; first reconcile:\n")
+	b.WriteString("1. The task ledger and landings above against the plan tasks.\n")
+	b.WriteString("2. The run's open PRs and their gate state — never re-spawn a worker for a task whose PR is open or being fixed.\n")
+	b.WriteString("3. Live workers (`list_agents` filtered to this run) — spawn only for a task with no live worker, no open PR and no fix in flight.\n")
+	b.WriteString("`land` is idempotent; never redo a landed task.\n")
 	return b.String(), nil
 }
 

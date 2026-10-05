@@ -7,8 +7,10 @@ import (
 )
 
 const autopilotStatusBody = `{"enabled":true,"enabled_repos":["/r"],"runs":[` +
-	`{"run_id":"ap-1","name":"demo","state":"running","plan_id":"plan-9","repo":"/r","gate":"ci",` +
-	`"integration_branch":"autopilot/demo","backoff":{"stage":2,"next_retry_at":"T","last_error":"boom"}}]}`
+	`{"run_id":"ap-1","name":"demo","state":"degraded","plan_id":"plan-9","repo":"/r","gate":"ci",` +
+	`"integration_branch":"autopilot/demo","backoff":{"stage":2,"next_retry_at":"T","last_error":"boom"},` +
+	`"next_step":{"action":"retry the backend ladder from the top","at":"T","owner":"guardian"},` +
+	`"resting_until":"T2"}]}`
 
 func TestAutopilotStatusShowsRunColumns(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
@@ -18,7 +20,12 @@ func TestAutopilotStatusShowsRunColumns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"ap-1", "demo", "running", "plan=plan-9", "/r", "gate=ci", "branch=autopilot/demo", "backoff=stage 2 retry T (boom)"} {
+	for _, want := range []string{
+		"ap-1", "demo", "degraded", "plan=plan-9", "/r", "gate=ci", "branch=autopilot/demo",
+		"backoff=stage 2 retry T (boom)",
+		"next: retry the backend ladder from the top at T (guardian)",
+		"resting until: T2",
+	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("status output missing %q:\n%s", want, out)
 		}

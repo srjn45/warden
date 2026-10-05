@@ -155,7 +155,9 @@ type GuardianRuntime interface {
 	// pay-per-use gate.
 	NotifyEscalation(runID, title, body string)
 	// BrainSession reports whether the manager session still exists. Missing means
-	// the session record is gone or archived (the brain is lost); Unknown means the
+	// the session record is gone or archived, is in a terminal status (done,
+	// errored, orphaned — e.g. terminate_agent), or its tmux session is gone (the
+	// brain is lost); Unknown means the
 	// store could not answer (restart, transient error) and MUST NOT be acted on.
 	// An existing session in any state — busy, quiet, rate-limited, mid hot-swap —
 	// is Present: hot-swap rewrites the record in place and never removes it.
@@ -163,6 +165,49 @@ type GuardianRuntime interface {
 	// AuditRunEvent records a guardian-observed event for the run in the audit log
 	// so the operator can see it (best-effort).
 	AuditRunEvent(ctx context.Context, runID, action, agentID, detail string)
+}
+
+// AgentEvidence is one worker agent's observable state: what the guardian needs
+// to tell "wedged" from "working" without opening the pane itself.
+type AgentEvidence struct {
+	AgentID string
+	// Status is the session status (working, idle, waiting_for_input, rate_limited…).
+	Status string
+	// PaneTail is the tail of the agent's captured pane ("" when capture failed).
+	PaneTail string
+	// PendingApproval summarizes the approval prompt the pane shows ("" when none
+	// is recognized).
+	PendingApproval string
+	// RateLimited reports the session is parked on a rate/usage limit.
+	RateLimited bool
+	// ContextLevel is the context-window pressure level ("" | ok | warning | critical).
+	ContextLevel string
+}
+
+// EvidenceRuntime is the optional slice of the runtime that gives the guardian
+// evidence about worker agents and the delegating actions to unstick them. Each
+// action delegates to the daemon's existing path (the approval arbiter, the
+// rate-limit resume, prompt-seed delivery) rather than re-implementing it. A
+// Runtime that does not implement it leaves the guardian exactly as it is.
+type EvidenceRuntime interface {
+	// AgentEvidence reads the agent's current evidence; ErrAgentNotFound when the
+	// session is gone.
+	AgentEvidence(ctx context.Context, agentID string) (AgentEvidence, error)
+	// ResolvePrompt runs the poller's approval path (policy, arbiter, brain
+	// routing) against the agent's current prompt.
+	ResolvePrompt(ctx context.Context, agentID string) error
+	// ResumeRateLimit retries the rate-limit resume now instead of waiting for the
+	// scheduled timer.
+	ResumeRateLimit(ctx context.Context, agentID string) error
+	// RedeliverPrompt re-sends the agent's original task prompt.
+	RedeliverPrompt(ctx context.Context, agentID string) error
+}
+
+// BrainLossCauser is an optional GuardianRuntime extension: after BrainSession
+// reports SessionMissing it names why (missing, terminal, tmux_gone) so the audit
+// trail shows how the manager was lost. Runtimes without it audit "missing".
+type BrainLossCauser interface {
+	BrainLossCause(ctx context.Context, agentID string) string
 }
 
 // SessionPresence is the answer to GuardianRuntime.BrainSession. The zero value is
