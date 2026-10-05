@@ -180,9 +180,9 @@ func (p *Poller) evalHotSwap(s *agentstore.Agent, cur ctxtokens.State, tokens in
 // warden must not compact on its own:
 //
 //   - Antigravity, whose large context window needs no manual compaction.
-//   - Unattended agents (see unattended): a /compact rewrites the agent's context
-//     mid-task, and with no operator watching the pane a stalled or lossy
-//     compaction silently derails the autopilot run or pipeline that owns it.
+//   - Short-lived unattended agents (see unattended): they are torn down when
+//     their task ends, so a compaction saves little, while interrupting one
+//     mid-turn with no operator watching the pane can strand it.
 //
 // Gauges, alerts and the hot-swap trigger still apply to them, and an explicit
 // per-agent force-compact override (Agent.ForceCompact) is still honored.
@@ -195,11 +195,17 @@ func (p *Poller) guardFor(s *agentstore.Agent) ctxGuardSnapshot {
 	return g
 }
 
-// unattended reports whether an agent is driven by warden rather than by an
-// operator: it belongs to an autopilot run (manager, worker, brain) or is a
-// pipeline job. Agents the operator spawned and talks to directly are attended.
+// unattended reports whether an agent is a short-lived one driven by warden
+// rather than by an operator: an autopilot worker or brain, or a pipeline job.
+// The autopilot manager is deliberately not included — it lives for the whole
+// run, so its context does need compacting, and the guardian nudges it back to
+// its loop if a compaction leaves it quiet. Agents the operator spawned and
+// talks to directly are attended.
 func unattended(s *agentstore.Agent) bool {
-	return s.AutopilotRunID != "" || s.PipelineID != ""
+	if s.PipelineID != "" {
+		return true
+	}
+	return s.AutopilotRunID != "" && s.Role != "autopilot"
 }
 
 // sendCompact issues /compact to s and parks the pre-compact reading so the

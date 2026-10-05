@@ -657,8 +657,9 @@ func TestForceCompactResumeRetriesAndSucceedsExactlyOnce(t *testing.T) {
 // operator watches their pane, so a compaction gone wrong would derail the run.
 func TestCheckContextUnattendedAgentsAreNotCompacted(t *testing.T) {
 	for name, s := range map[string]*agentstore.Agent{
-		"autopilot idle":   {ID: "a1", Status: store.StatusIdle, AutopilotRunID: "ap-1"},
-		"autopilot busy":   {ID: "a1", Status: store.StatusWorking, AutopilotRunID: "ap-1"},
+		"worker idle":      {ID: "a1", Status: store.StatusIdle, AutopilotRunID: "ap-1", Role: "worker"},
+		"worker busy":      {ID: "a1", Status: store.StatusWorking, AutopilotRunID: "ap-1", Role: "worker"},
+		"brain":            {ID: "a1", Status: store.StatusIdle, AutopilotRunID: "ap-1", Role: "brain"},
 		"pipeline job":     {ID: "a1", Status: store.StatusIdle, PipelineID: "pl-1", JobID: "j1"},
 		"pipeline working": {ID: "a1", Status: store.StatusWorking, PipelineID: "pl-1", JobID: "j1"},
 	} {
@@ -684,12 +685,24 @@ func TestCheckContextUnattendedAgentsAreNotCompacted(t *testing.T) {
 	}
 }
 
+// The autopilot manager lives for the whole run, so it is still compacted.
+func TestCheckContextAutopilotManagerIsCompacted(t *testing.T) {
+	fd := &ctxFakeDeps{tokens: 200000, tokensOK: true}
+	p := newForcePoller(fd)
+	p.AutoCompact = true
+	s := &agentstore.Agent{ID: "a1", Status: store.StatusIdle, AutopilotRunID: "ap-1", Role: "autopilot"}
+	p.checkContext(context.Background(), s, time.Now())
+	if fd.compacted != 1 {
+		t.Fatalf("compacted=%d, want 1 (the long-lived manager is compacted)", fd.compacted)
+	}
+}
+
 // An explicit per-agent override is the operator's decision and still wins.
 func TestCheckContextUnattendedHonorsExplicitForceCompact(t *testing.T) {
 	fd := &ctxFakeDeps{tokens: 200000, tokensOK: true}
 	p := newForcePoller(fd)
 	on := true
-	s := &agentstore.Agent{ID: "a1", Status: store.StatusIdle, AutopilotRunID: "ap-1", ForceCompact: &on}
+	s := &agentstore.Agent{ID: "a1", Status: store.StatusIdle, AutopilotRunID: "ap-1", Role: "worker", ForceCompact: &on}
 	p.checkContext(context.Background(), s, time.Now())
 	if fd.compacted != 1 {
 		t.Fatalf("compacted=%d, want 1 (explicit per-agent force-compact)", fd.compacted)
