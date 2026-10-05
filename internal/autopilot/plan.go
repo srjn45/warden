@@ -11,7 +11,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -252,7 +254,7 @@ func loadPlanLenient(path string) (Plan, []string, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(&p); err != nil {
-		return Plan{}, nil, fmt.Errorf("plan %s: decode: %w", path, err)
+		return Plan{}, nil, fmt.Errorf("plan %s: decode: %w%s", path, err, decodeHint(data, err))
 	}
 	if err := p.validateStructural(); err != nil {
 		return Plan{}, nil, fmt.Errorf("plan %s: %w", path, err)
@@ -477,4 +479,23 @@ func upsertMapScalar(mapping *yaml.Node, key, value string) {
 		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
 		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value},
 	)
+}
+
+var yamlErrLineRe = regexp.MustCompile(`line (\d+): cannot unmarshal !!(\w+) into`)
+
+// decodeHint returns a suffix naming the offending line and advising to quote
+// the value when a yaml type error indicates an unquoted scalar (typically
+// "key: value" text) was decoded as a map/seq. Empty when not applicable.
+func decodeHint(data []byte, err error) string {
+	m := yamlErrLineRe.FindStringSubmatch(err.Error())
+	if m == nil || (m[2] != "map" && m[2] != "seq") {
+		return ""
+	}
+	n, _ := strconv.Atoi(m[1])
+	lines := strings.Split(string(data), "\n")
+	text := ""
+	if n >= 1 && n <= len(lines) {
+		text = strings.TrimSpace(lines[n-1])
+	}
+	return fmt.Sprintf("\n  offending line %d: %s\n  hint: quote the value (e.g. wrap it in double quotes) — an unquoted string containing \": \" parses as a YAML map", n, text)
 }
