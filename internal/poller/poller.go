@@ -174,6 +174,11 @@ type Poller struct {
 	// scheduler's capture and reset parsing consume the fresh excerpt rather than the
 	// pre-capture LastPaneExcerpt stored in the session snapshot. nil ⇒ no-op.
 	OnRateLimitObservation func(obs RateLimitObservation)
+	// OnObservedQuotaScope, if set, fires when a backend implementing
+	// agentbackend.QuotaScopeObserver reads a model off the live pane whose quota
+	// scope differs from the agent's bound bucket (QuotaBinding). The daemon
+	// re-binds the agent to the observed bucket.
+	OnObservedQuotaScope func(s *agentstore.Agent, model, scope string)
 
 	// OnLimitMenuSelected, if set, fires immediately after tryLimitMenu positively
 	// confirms that Claude's rate-limit "wait for limit to reset" menu selection
@@ -1003,6 +1008,15 @@ func (p *Poller) tick(ctx context.Context) error {
 					// Publish approval event if already waiting
 					if s.Status == store.StatusWaitingForInput && pane != "" {
 						p.publishApprovalEvent(s, pane)
+					}
+				}
+			}
+		}
+		if alive && captureOK && p.OnObservedQuotaScope != nil && s.QuotaBinding != nil {
+			if qo, ok := p.backendFor(s).(agentbackend.QuotaScopeObserver); ok {
+				if model, scope, ok := qo.ObservedQuotaScope(pane); ok {
+					if _, differs := s.QuotaBinding.Rebound(scope); differs {
+						p.OnObservedQuotaScope(s, model, scope)
 					}
 				}
 			}

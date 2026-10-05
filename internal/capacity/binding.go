@@ -96,3 +96,21 @@ func providerBuckets(aiCli, scope string) []string {
 		return []string{scope}
 	}
 }
+
+// Rebound returns a copy of b bound to the given observed quota scope, keeping
+// the provider, account fingerprint and route (the route stays the catalog id the
+// agent was spawned with; route-scoped observations key on it). It reports false when b already
+// requires exactly that scope (nothing to change).
+func (b *QuotaBinding) Rebound(scope string) (*QuotaBinding, bool) {
+	scope = strings.TrimSpace(scope)
+	if b == nil || scope == "" {
+		return nil, false
+	}
+	if len(b.MandatoryBuckets) == 1 && b.MandatoryBuckets[0] == scope {
+		return nil, false
+	}
+	buckets := providerBuckets(b.Domain.AiCli, scope)
+	d := b.Domain
+	d.BucketKeys = append([]string(nil), buckets...)
+	return &QuotaBinding{Domain: d, MandatoryBuckets: append([]string(nil), buckets...)}, true
+}
