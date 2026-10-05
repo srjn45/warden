@@ -274,3 +274,8 @@ func (a *lifecycleAdapter) HotSwap(ctx context.Context, sess *agentstore.Agent, 
 func (a *lifecycleAdapter) SpawnTerminal(ctx context.Context, req SpawnRequest) (*terminalstore.Terminal, error) {
 	return a.lc.SpawnTerminal(ctx, lifecycle.SpawnRequest{Ticket: req.Ticket, Name: req.Name, Cwd: req.Cwd, ProjectID: req.ProjectID})
 }
+
+// RedeliverPrompt re-runs prompt-seed delivery (see lifecycle.RedeliverPrompt).
+func (a *lifecycleAdapter) RedeliverPrompt(agent *agentstore.Agent) bool {
+	return a.lc.RedeliverPrompt(agent)
+}

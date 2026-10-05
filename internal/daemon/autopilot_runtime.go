@@ -36,6 +36,7 @@ var (
 	_ autopilot.MigrationRuntime = autopilotRuntime{}
 	_ autopilot.OverwatchRuntime = autopilotRuntime{}
 	_ autopilot.DigestSources    = autopilotRuntime{}
+	_ autopilot.EvidenceRuntime  = autopilotRuntime{}
 )
 
 // autopilotBrainRole is the built-in role the brain spawns under: it carries the
@@ -534,3 +535,85 @@ func (rt autopilotRuntime) SpawnConsultBrain(ctx context.Context, spec autopilot
 }
 
 var _ autopilot.ConsultBrainRuntime = autopilotRuntime{}
+
+// evidencePaneLines is the pane tail AgentEvidence captures (get_agent_output's
+// default depth).
+const evidencePaneLines = 200
+
+// promptRedeliverer is the optional Lifecycle extension that re-runs prompt-seed
+// delivery; the production adapter implements it, test fakes need not.
+type promptRedeliverer interface {
+	RedeliverPrompt(agent *agentstore.Agent) bool
+}
+
+func (rt autopilotRuntime) evidenceSession(ctx context.Context, agentID string) (*agentstore.Agent, error) {
+	sess, err := rt.s.store.Get(ctx, agentID)
+	if errors.Is(err, agentstore.ErrNotFound) {
+		return nil, fmt.Errorf("%w: %s", autopilot.ErrAgentNotFound, agentID)
+	}
+	return sess, err
+}
+
+// AgentEvidence reads the agent's status, context level and pane tail (the same
+// Output capture GET /sessions/{id}/output serves), and summarizes any approval
+// prompt the pane shows through the agent's backend parser.
+func (rt autopilotRuntime) AgentEvidence(ctx context.Context, agentID string) (autopilot.AgentEvidence, error) {
+	sess, err := rt.evidenceSession(ctx, agentID)
+	if err != nil {
+		return autopilot.AgentEvidence{}, err
+	}
+	ev := autopilot.AgentEvidence{
+		AgentID:      sess.ID,
+		Status:       string(sess.Status),
+		RateLimited:  sess.Status == store.StatusRateLimited,
+		ContextLevel: sess.ContextState,
+	}
+	if pane, err := rt.s.life.Output(ctx, sess.TmuxSession, evidencePaneLines); err == nil {
+		ev.PaneTail = pane
+		if v := approvalView(backendFor(sess.AiCli), sess.ID, pane); v.Recognized {
+			ev.PendingApproval = v.Action + ": " + v.Question
+		}
+	}
+	return ev, nil
+}
+
+// ResolvePrompt delegates to the poller's approval path.
+func (rt autopilotRuntime) ResolvePrompt(ctx context.Context, agentID string) error {
+	sess, err := rt.evidenceSession(ctx, agentID)
+	if err != nil {
+		return err
+	}
+	if rt.s.poller == nil {
+		return errors.New("prompt resolution unavailable: no poller")
+	}
+	return rt.s.poller.ResolvePrompt(ctx, sess)
+}
+
+// ResumeRateLimit delegates to the rate-limit scheduler's resume attempt.
+func (rt autopilotRuntime) ResumeRateLimit(ctx context.Context, agentID string) error {
+	if _, err := rt.evidenceSession(ctx, agentID); err != nil {
+		return err
+	}
+	if rt.s.rateLimitScheduler == nil {
+		return errors.New("rate-limit resume unavailable: no scheduler")
+	}
+	rt.s.rateLimitScheduler.ResumeNow(agentID)
+	return nil
+}
+
+// RedeliverPrompt re-runs prompt-seed delivery. A backend that seeds on its launch
+// line has no typed seed to redo, so the prompt is typed in directly — the final
+// step seeding itself performs.
+func (rt autopilotRuntime) RedeliverPrompt(ctx context.Context, agentID string) error {
+	sess, err := rt.evidenceSession(ctx, agentID)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(sess.Prompt) == "" {
+		return errors.New("agent has no recorded prompt to redeliver")
+	}
+	if r, ok := rt.s.life.(promptRedeliverer); ok && r.RedeliverPrompt(sess) {
+		return nil
+	}
+	return rt.s.life.Input(ctx, sess.TmuxSession, sess.Prompt)
+}
