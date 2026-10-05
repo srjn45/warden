@@ -113,14 +113,14 @@ func runRotate(ctx context.Context, r rotator, selfID, successorPrompt string, o
 // compile-time guarantee. Both entry points call this so their behavior is
 // byte-for-byte identical.
 func runRetire(cmd *cobra.Command) error {
-	confirm, _ := cmd.Flags().GetBool("confirm")
+	confirm := retireConfirmed(cmd)
 	if !confirm {
-		return fmt.Errorf("retire is irreversible; re-run with --confirm once you've reviewed the handoff")
+		return fmt.Errorf("retire is irreversible; re-run with --yes once you've reviewed the handoff")
 	}
 	resumeFile, _ := cmd.Flags().GetString("resume-file")
 	resumePrompt, _ := cmd.Flags().GetString("resume-prompt")
 	if resumeFile == "" || resumePrompt == "" {
-		return fmt.Errorf("--resume-file and --resume-prompt are both required with --confirm")
+		return fmt.Errorf("--resume-file and --resume-prompt are both required with --yes")
 	}
 	selfID, err := selfSessionID()
 	if err != nil {
@@ -151,10 +151,20 @@ func runRetire(cmd *cobra.Command) error {
 	return nil
 }
 
+// retireConfirmed reports whether the operator confirmed the retire: --yes, or
+// its hidden alias --confirm.
+func retireConfirmed(cmd *cobra.Command) bool {
+	yes, _ := cmd.Flags().GetBool("yes")
+	confirm, _ := cmd.Flags().GetBool("confirm")
+	return yes || confirm
+}
+
 // addRetireFlags installs the flags the retire flow reads. Shared so the `rotate`
 // alias and `warden agent handoff --retire` expose the identical surface.
 func addRetireFlags(cmd *cobra.Command) {
-	cmd.Flags().Bool("confirm", false, "actually spawn the successor and retire this agent (required for retire)")
+	cmd.Flags().Bool("yes", false, "confirm: actually spawn the successor and retire this agent (required for retire)")
+	cmd.Flags().Bool("confirm", false, "alias for --yes")
+	_ = cmd.Flags().MarkHidden("confirm")
 	cmd.Flags().String("resume-file", "", "path to the handoff notes file the successor reads (use a unique per-agent path, e.g. $TMPDIR/warden-rotate-handoff-$WARDEN_SESSION_ID.md, so concurrent rotations don't clobber each other)")
 	cmd.Flags().String("resume-prompt", "", "the successor's initial task prompt")
 }
@@ -168,7 +178,7 @@ func newRotateCmd() *cobra.Command {
 		Short: "Retire this agent and hand its work to a fresh successor in the same workspace (alias for `warden agent handoff --retire`)",
 		Long: "Run inside an agent session. Phase 1 is driven by the /warden skill " +
 			"(the agent writes a handoff file + resume prompt and shows you). On your " +
-			"go-ahead, run with --confirm to spawn the successor and reap this agent.\n\n" +
+			"go-ahead, run with --yes to spawn the successor and reap this agent.\n\n" +
 			"This is a thin alias for `warden agent handoff --retire` — the unified handoff " +
 			"verb's self-succession mode. Both run the identical code path.",
 		Args: cobra.NoArgs,

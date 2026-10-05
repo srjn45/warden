@@ -1166,10 +1166,10 @@ warden approval list
 warden approval answer PROJ-350 1     # answer with option 1 (e.g. "Yes")
 ```
 
-### `warden agent rotate --confirm --resume-file <path> --resume-prompt <text>`
+### `warden agent rotate --yes --resume-file <path> --resume-prompt <text>`
 Run **inside an agent session** to retire a context-heavy agent and hand off to
 a fresh successor in the same workdir/worktree. Phase 1 is driven by the
-`/warden` skill (writes the handoff + resume prompt); `--confirm` then spawns the
+`/warden` skill (writes the handoff + resume prompt); `--yes` then spawns the
 successor and reaps the current agent (spawn-before-reap, fail-safe; never
 removes the worktree).
 

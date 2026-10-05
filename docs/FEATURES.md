@@ -305,7 +305,7 @@ survives. Phase 1 (writing the handoff file + resume prompt) is driven by the
   worktree** for a sub-task; the source agent **keeps running**.
 - **Existing agent (`--to <id>`)** — delivers the handoff into an already-running
   agent's inbox (waking it); the source agent **keeps running**.
-- **Retire self (`--retire`, requires `--confirm`)** — spawns a successor in the
+- **Retire self (`--retire`, requires `--yes`)** — spawns a successor in the
   calling agent's **same workdir/worktree**, then reaps the caller
   (self-succession). This is what the `warden agent rotate` **alias** runs.
 

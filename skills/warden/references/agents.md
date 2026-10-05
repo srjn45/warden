@@ -287,16 +287,16 @@ Two phases, with a human review gate between them:
 
    ```sh
    HANDOFF="${TMPDIR:-/tmp}/warden-rotate-handoff-$WARDEN_SESSION_ID.md"
-   warden agent handoff --retire --confirm \
+   warden agent handoff --retire --yes \
      --resume-file "$HANDOFF" \
      --resume-prompt "<the resume prompt>"
-   # `warden agent rotate --confirm …` is an exact alias if you prefer the short verb.
+   # `warden agent rotate --yes …` is an exact alias if you prefer the short verb.
    ```
 
    This spawns the successor in your exact working directory (same worktree, same
    supervised mode), prints the new agent id, then retires you. The successor
    deletes the temp handoff file once read. Nothing irreversible happens without
-   `--confirm`.
+   `--yes`.
 
 Do **not** spawn the successor or terminate yourself by hand — `warden agent handoff
 --retire` inherits your launch config and orders spawn-before-reap safely (a

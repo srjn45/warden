@@ -186,6 +186,7 @@ Flags:
       --fork-from <AGENT>        fork the existing agent <AGENT>'s recorded session into this new managed agent (codex's native fork): branches the source's conversation in a fresh sibling worktree off its branch, carrying its uncommitted tracked changes; the source keeps running. Uses --role worker when the chosen role does not own a worktree; the fork inherits the source's repo+backend. See 'warden agent fork' for the shorthand
   -h, --help                     help for start
       --in-repo                  managed spawns only: opt out of isolation and run in the shared --repo checkout instead of a worktree (ignored for pr-review; overridden when root_guard is on)
+      --json                     emit the new agent (id, name, role, ai_cli, model, workdir) as JSON
       --kind string              session kind: empty/agent (default) spawns an AI agent; terminal opens a plain interactive shell ($SHELL) in --dir (not an AI agent — --aicli/--model/--role/prompt ignored)
       --model string             model ID for the chosen AI CLI (requires --aicli). Empty lets the tier resolver pick an explicit model
       --name string              explicit agent name (omit to auto-resolve); max 32 chars, alphanumeric + hyphens/underscores
@@ -273,6 +274,7 @@ Usage:
 Flags:
       --force                    fork even when the memory-pressure gate warns
   -h, --help                     help for fork
+      --json                     emit the forked agent (id, name, role, ai_cli, model, workdir) as JSON
       --model string             model override for the fork (default: the source/backend default)
       --name string              optional human-friendly name for the fork
       --permission-mode string   permission mode for the fork: acceptEdits|auto|bypassPermissions|default|dontAsk|plan (default: from config)
@@ -325,11 +327,14 @@ candidate into the active store under its original id. Any children (linked
 via parent_id, untouched by archiving) reconnect automatically — no need to
 recover them separately.
 
+--apply is a dry-run switch (report vs. act), not a confirmation, so it is
+intentionally NOT --yes.
+
 Usage:
   warden agent recover [flags]
 
 Flags:
-      --apply   actually re-insert candidates (default: report only)
+      --apply   actually re-insert candidates (default: report only); a dry-run switch, not a --yes confirmation
   -h, --help    help for recover
       --json    output as JSON
 
@@ -422,6 +427,7 @@ Flags:
       --force                   override the alive/uncommitted/unpushed worktree guards
       --hard                    purge the record instead of archiving
   -h, --help                    help for stop
+      --json                    emit the teardown result (id, steps that ran) as JSON; never prompts — remove-worktree needs --yes
       --keep-record             do not clear the stored record
       --keep-worktree           do not remove the git worktree and branch
       --pr                      open a GitHub PR for the agent's branch (pushes first; title+body from the digest) before tearing down
@@ -442,6 +448,7 @@ Usage:
 
 Flags:
   -h, --help   help for terminate
+      --json   emit the teardown result (id, steps that ran) as JSON
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -488,7 +495,7 @@ Hand a structured context package off to another agent. Phase 1 (writing the han
 
   • default — spawn a fresh delegate in its own isolated worktree for a sub-task; the source agent keeps running.
   • --to <id> — deliver the handoff into an already-running agent's inbox (waking it); the source agent keeps running.
-  • --retire — spawn a successor in THIS agent's SAME worktree, then reap the calling agent (self-succession). Requires --confirm. This is what the `warden agent rotate` alias runs.
+  • --retire — spawn a successor in THIS agent's SAME worktree, then reap the calling agent (self-succession). Requires --yes. This is what the `warden agent rotate` alias runs.
 
 --retire and --to are mutually exclusive: retire reaps the caller, --to never does.
 
@@ -498,16 +505,17 @@ Usage:
 Flags:
       --as string              act as this agent id for provenance (defaults to $WARDEN_SESSION_ID, else 'human')
       --branch string          optional branch for a new delegate (ignored with --to)
-      --confirm                with --retire, actually spawn the successor and retire this agent (required)
       --force                  spawn the new delegate even when the memory-pressure gate warns (ignored with --to)
   -h, --help                   help for handoff
+      --json                   emit the result as JSON (new delegate: id, name, role, ai_cli, model, workdir; --to: to, from, woke)
       --name string            optional human-friendly name for a new delegate (ignored with --to)
       --repo string            repo for a new delegate (default: source agent's repo, else cwd; ignored with --to)
       --resume-file string     path to the handoff notes file whose content is delivered to the recipient (with --retire, the path the successor reads in place)
       --resume-prompt string   the recipient's task prompt
-      --retire                 self-succession: spawn a successor in THIS agent's worktree and reap the calling agent (mutually exclusive with --to; requires --confirm). Equivalent to 'warden rotate'
+      --retire                 self-succession: spawn a successor in THIS agent's worktree and reap the calling agent (mutually exclusive with --to; requires --yes). Equivalent to 'warden rotate'
       --role string            built-in role for a new delegate (ignored with --to) (default "worker")
       --to string              deliver to this existing agent id instead of spawning a new one
+      --yes                    with --retire, confirm: actually spawn the successor and retire this agent (required)
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -517,7 +525,7 @@ Inherited flags:
 ## warden agent rotate
 
 ```text
-Run inside an agent session. Phase 1 is driven by the /warden skill (the agent writes a handoff file + resume prompt and shows you). On your go-ahead, run with --confirm to spawn the successor and reap this agent.
+Run inside an agent session. Phase 1 is driven by the /warden skill (the agent writes a handoff file + resume prompt and shows you). On your go-ahead, run with --yes to spawn the successor and reap this agent.
 
 This is a thin alias for `warden agent handoff --retire` — the unified handoff verb's self-succession mode. Both run the identical code path.
 
@@ -525,10 +533,10 @@ Usage:
   warden agent rotate [flags]
 
 Flags:
-      --confirm                actually spawn the successor and retire this agent (required for retire)
   -h, --help                   help for rotate
       --resume-file string     path to the handoff notes file the successor reads (use a unique per-agent path, e.g. $TMPDIR/warden-rotate-handoff-$WARDEN_SESSION_ID.md, so concurrent rotations don't clobber each other)
       --resume-prompt string   the successor's initial task prompt
+      --yes                    confirm: actually spawn the successor and retire this agent (required for retire)
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -669,6 +677,7 @@ Usage:
 
 Flags:
   -h, --help   help for list
+      --json   emit the roles as a JSON array
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -4894,6 +4903,7 @@ Flags:
       --fork-from <AGENT>        fork the existing agent <AGENT>'s recorded session into this new managed agent (codex's native fork): branches the source's conversation in a fresh sibling worktree off its branch, carrying its uncommitted tracked changes; the source keeps running. Uses --role worker when the chosen role does not own a worktree; the fork inherits the source's repo+backend. See 'warden agent fork' for the shorthand
   -h, --help                     help for start
       --in-repo                  managed spawns only: opt out of isolation and run in the shared --repo checkout instead of a worktree (ignored for pr-review; overridden when root_guard is on)
+      --json                     emit the new agent (id, name, role, ai_cli, model, workdir) as JSON
       --kind string              session kind: empty/agent (default) spawns an AI agent; terminal opens a plain interactive shell ($SHELL) in --dir (not an AI agent — --aicli/--model/--role/prompt ignored)
       --model string             model ID for the chosen AI CLI (requires --aicli). Empty lets the tier resolver pick an explicit model
       --name string              explicit agent name (omit to auto-resolve); max 32 chars, alphanumeric + hyphens/underscores

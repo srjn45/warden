@@ -38,6 +38,7 @@ Flags:
       --force                   override the alive/uncommitted/unpushed worktree guards
       --hard                    purge the record instead of archiving
   -h, --help                    help for stop
+      --json                    emit the teardown result (id, steps that ran) as JSON; never prompts — remove-worktree needs --yes
       --keep-record             do not clear the stored record
       --keep-worktree           do not remove the git worktree and branch
       --pr                      open a GitHub PR for the agent's branch (pushes first; title+body from the digest) before tearing down
