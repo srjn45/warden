@@ -30,6 +30,7 @@ import (
 	"github.com/srjn45/warden/internal/daemon"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/fastbrain"
+	"github.com/srjn45/warden/internal/knownprompts"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/logging"
 	"github.com/srjn45/warden/internal/mailbox"
@@ -220,6 +221,12 @@ func newDaemonRunCmd() *cobra.Command {
 			pl.RateLimitAutoResume = cfg.RateLimit.AutoResume
 			pl.SetTrustWorkspace(cfg.TrustWorkspace)
 			pl.SetRecognizePrompts(cfg.RecognizePrompts)
+			knownStore, err := knownprompts.New(cfg.DataDir)
+			if err != nil {
+				return err
+			}
+			defer knownStore.Close()
+			pl.Known = knownStore
 			pstore, err := pipeline.NewStore(filepath.Join(cfg.DataDir, "pipelines"))
 			if err != nil {
 				return err

@@ -11,6 +11,7 @@ import (
 	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/fastbrain"
+	"github.com/srjn45/warden/internal/knownprompts"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -50,6 +51,7 @@ type recognition struct {
 	attempts int
 	inflight bool
 	ap       *agentbackend.Approval // the verified reading; nil until recognized
+	knownKey string                 // menu key a store hit was already announced for
 }
 
 // SetRecognizePrompts turns model-assisted prompt recognition on or off (config
@@ -65,12 +67,16 @@ func (p *Poller) SetRecognizePrompts(on bool) {
 }
 
 // ParseApproval is the poller's view of an agent's pending prompt: the backend's
-// own parser first, then — when that does not match — a model-recognized prompt
-// that is still showing in pane. Every consumer of "what is this agent asking"
+// own parser first, then a prompt shape learned earlier (the known-prompts
+// store), then — when neither matches — a model-recognized prompt that is still
+// showing in pane. Every consumer of "what is this agent asking"
 // (auto-approve, the trust step, the approvals inbox, manual approve) goes
 // through it so a model-recognized prompt behaves exactly like a parsed one.
 func (p *Poller) ParseApproval(s *agentstore.Agent, pane string) (*agentbackend.Approval, bool) {
 	if ap, ok := p.backendFor(s).ParseApproval(pane); ok && ap != nil {
+		return ap, true
+	}
+	if ap, _, ok := p.knownApproval(s, pane); ok {
 		return ap, true
 	}
 	p.recogMu.Lock()
@@ -98,7 +104,7 @@ func (p *Poller) ParseApproval(s *agentstore.Agent, pane string) (*agentbackend.
 // menu-shaped block has been sitting unchanged for recognizeAfter; then it asks
 // the model once (in the background — a model call must never stall the tick).
 func (p *Poller) tryRecognize(ctx context.Context, s *agentstore.Agent, pane string) {
-	if !p.recognizePrompts.Load() || p.FastBrain == nil {
+	if !p.recognizePrompts.Load() || (p.FastBrain == nil && p.Known == nil) {
 		return
 	}
 	var key string
@@ -106,6 +112,20 @@ func (p *Poller) tryRecognize(ctx context.Context, s *agentstore.Agent, pane str
 		key, _ = agentbackend.FindMenu(pane)
 	}
 	now := time.Now()
+
+	// A prompt shape the store knows needs no stall delay and no model call.
+	if key != "" {
+		if _, m, ok := p.knownApproval(s, pane); ok {
+			p.announceKnown(ctx, s, pane, key, m)
+			return
+		}
+	}
+	if p.FastBrain == nil {
+		p.recogMu.Lock()
+		delete(p.recog, s.ID)
+		p.recogMu.Unlock()
+		return
+	}
 
 	p.recogMu.Lock()
 	if key == "" {
@@ -134,6 +154,74 @@ func (p *Poller) tryRecognize(ctx context.Context, s *agentstore.Agent, pane str
 		defer p.recogWG.Done()
 		p.recognize(ctx, s, pane, key)
 	}()
+}
+
+// knownApproval resolves pane against the known-prompts store (a no-op when the
+// feature is off or the store absent). The entry only says how to READ the
+// prompt: it goes through the same verification and clamps as a model reading,
+// and the unchanged approval chain still decides whether to answer.
+func (p *Poller) knownApproval(s *agentstore.Agent, pane string) (*agentbackend.Approval, *knownprompts.Match, bool) {
+	if p.Known == nil || !p.recognizePrompts.Load() {
+		return nil, nil, false
+	}
+	m, ok := p.Known.Match(p.backendFor(s).ID(), pane)
+	if !ok {
+		return nil, nil, false
+	}
+	var sticky bool
+	if i := m.Entry.Affirmative; i >= 1 && i <= len(m.Entry.Sticky) {
+		sticky = m.Entry.Sticky[i-1]
+	}
+	ap := readingApproval(pane, fastbrain.Recognition{
+		Options:     m.Options,
+		Affirmative: m.Entry.Affirmative,
+		Sticky:      sticky,
+		Trust:       m.Entry.Kind == knownprompts.KindTrust,
+	}, true)
+	if ap == nil {
+		return nil, nil, false
+	}
+	return ap, m, true
+}
+
+// announceKnown records the store hit once per menu, bumps the entry's counters
+// off the tick, and hands the prompt to the same worker a parsed one reaches.
+func (p *Poller) announceKnown(ctx context.Context, s *agentstore.Agent, pane, key string, m *knownprompts.Match) {
+	p.recogMu.Lock()
+	if p.recog == nil {
+		p.recog = map[string]*recognition{}
+	}
+	e := p.recog[s.ID]
+	if e == nil || e.key != key {
+		e = &recognition{key: key, since: time.Now()}
+		p.recog[s.ID] = e
+	}
+	if e.knownKey == key {
+		p.recogMu.Unlock()
+		return
+	}
+	e.knownKey = key
+	p.recogMu.Unlock()
+
+	id := m.Entry.ID
+	p.recogWG.Add(1)
+	go func() {
+		defer p.recogWG.Done()
+		if err := p.Known.Hit(context.WithoutCancel(ctx), id); err != nil {
+			slog.Warn("known prompt hit not recorded", "agent", s.ID, "id", id, "err", err)
+		}
+	}()
+	slog.Info("prompt recognized from known-prompts store", "agent", s.ID, "id", id, "options", len(m.Options))
+	_ = p.deps.RecordEvent(ctx, s.ID, store.Event{
+		TS:   time.Now(),
+		Type: "prompt_known",
+		Detail: fmt.Sprintf("no parser matched this prompt; a known prompt shape (%s) read it with %d options (no model call)",
+			id, len(m.Options)),
+	})
+	p.publishApprovalEvent(s, pane)
+	if p.OnChange != nil {
+		p.OnChange()
+	}
 }
 
 // recognize makes the model call for one menu and stores a verified reading.
@@ -197,6 +285,15 @@ const recognizedBlockLines = 12
 //   - "trust" (which is answered without the auto-approve policy) is accepted
 //     only when the block itself talks about trust.
 func recognizedApproval(pane string, r fastbrain.Recognition) *agentbackend.Approval {
+	return readingApproval(pane, r, false)
+}
+
+// readingApproval is the shared verification for any reading of a prompt, from
+// the model or the known-prompts store. A stored shape carries no concrete
+// command, so with fromStore the whole block above the options becomes the
+// Action: policy rules and the destructive guard then see everything the pane
+// shows rather than nothing.
+func readingApproval(pane string, r fastbrain.Recognition, fromStore bool) *agentbackend.Approval {
 	loc, ok := agentbackend.LocateOptions(pane, r.Options)
 	if !ok {
 		return nil
@@ -232,7 +329,7 @@ func recognizedApproval(pane string, r fastbrain.Recognition) *agentbackend.Appr
 	if r.Action != "" && strings.Contains(pane, r.Action) {
 		ap.Action = r.Action
 	}
-	if bad, _ := approval.IsDestructive(approval.Approval{Action: block}); bad {
+	if bad, _ := approval.IsDestructive(approval.Approval{Action: block}); bad || (fromStore && ap.Action == "") {
 		ap.Action = block
 	}
 
