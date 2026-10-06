@@ -1931,14 +1931,20 @@ type ScheduleCreateRequest struct {
 	// Cron recurring cron spec (mutually exclusive with at)
 	Cron string `json:"cron,omitempty"`
 
+	// Cwd existing absolute directory a free-form agent launches in (required when there is no repo)
+	Cwd string `json:"cwd,omitempty"`
+
 	// Name schedule id (== name)
 	Name string `json:"name"`
 
 	// Prompt agent prompt (agent mode)
 	Prompt string `json:"prompt,omitempty"`
 
-	// Repo repo path (required for a typed agent)
+	// Repo repo path; with a worktree-owning role (the default when a repo is given) the agent runs in an isolated worktree off it
 	Repo string `json:"repo,omitempty"`
+
+	// Role agent role (see GET /api/v1/roles); empty = worker when a repo is given, otherwise general
+	Role string `json:"role,omitempty"`
 
 	// Spec pipeline YAML; non-empty selects pipeline mode
 	Spec string `json:"spec,omitempty"`

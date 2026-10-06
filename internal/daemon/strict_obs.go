@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/daemon/oapi"
 	"github.com/srjn45/warden/internal/metrics"
 	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/role"
 	"github.com/srjn45/warden/internal/schedule"
 	"github.com/srjn45/warden/internal/snapshot"
 )
@@ -103,12 +105,19 @@ func (s *Server) CreateSchedule(ctx context.Context, req oapi.CreateScheduleRequ
 			return nil, errStatus(http.StatusBadRequest, "invalid pipeline spec: "+err.Error())
 		}
 	}
+	if strings.TrimSpace(b.Spec) == "" {
+		if msg := s.validateScheduleAgent(ctx, b); msg != "" {
+			return nil, errStatus(http.StatusBadRequest, msg)
+		}
+	}
 	sc, err := schedule.New(schedule.Params{
 		Name:   b.Name,
 		Cron:   b.Cron,
 		At:     b.At,
 		Type:   b.Type,
 		Repo:   b.Repo,
+		Cwd:    b.Cwd,
+		Role:   b.Role,
 		Prompt: b.Prompt,
 		Agent:  b.Agent,
 		Branch: b.Branch,
@@ -285,4 +294,26 @@ func (s *Server) RestoreSnapshot(ctx context.Context, req oapi.RestoreSnapshotRe
 		return nil, errStatus(http.StatusConflict, err.Error())
 	}
 	return oapi.RestoreSnapshot200JSONResponse(*res), nil
+}
+
+// validateScheduleAgent rejects an agent-mode schedule that could never fire:
+// it builds the spawn the fire would build and runs the spawn checks that do
+// not depend on transient state (name collisions and existing tickets are only
+// meaningful at fire time). It returns the reason, or "" when acceptable. Done
+// here, not in schedule.Validate, to keep that package dependency-light.
+func (s *Server) validateScheduleAgent(ctx context.Context, b oapi.ScheduleCreateRequest) string {
+	if r := strings.TrimSpace(b.Role); r != "" {
+		if _, ok := role.Get(r); !ok {
+			return "unknown role " + r + " (valid: " + strings.Join(role.Names(), ", ") + ")"
+		}
+	}
+	probe := &schedule.Schedule{
+		Type: b.Type, Repo: b.Repo, Cwd: b.Cwd, Role: b.Role,
+		Agent: b.Agent, Branch: b.Branch, Prompt: b.Prompt,
+	}
+	req := scheduleSpawnRequest(probe)
+	if code, msg := s.validateSpawnRequestOpts(ctx, req, true); code != 0 {
+		return scheduleFireHint(code, msg, req)
+	}
+	return ""
 }

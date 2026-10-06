@@ -3,10 +3,13 @@ package cli
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/srjn45/warden/internal/client"
+	"github.com/srjn45/warden/internal/lifecycle"
+	"github.com/srjn45/warden/internal/role"
 	"github.com/srjn45/warden/internal/schedule"
 )
 
@@ -45,12 +48,21 @@ func newScheduleShowCmd() *cobra.Command {
 
 func newScheduleCreateCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "create <name> (--cron <spec> | --at <time>) [--repo <p> --prompt <s> | --pipeline <spec.yaml>]",
+		Use:   "create <name> (--cron <spec> | --at <time>) [--prompt <s>] [--role <role>] [--cwd <dir> | --repo <path>] | --pipeline <spec.yaml>",
 		Short: "Create a schedule that fires an agent or a pipeline",
 		Long: "Create a recurring (--cron) or single-shot (--at) schedule. By default a\n" +
-			"schedule fires one agent spawn — pass --repo, --prompt (and optionally\n" +
-			"--agent name / --branch; --type is a deprecated alias mapped to role at fire).\n" +
-			"Pass --pipeline <spec.yaml> instead to fire a pipeline (its name is\n" +
+			"schedule fires one agent, started the same way `warden start` would start it\n" +
+			"with the same flags from the directory you run this in:\n" +
+			"  --cwd <dir>    launch the agent in this existing directory (default: the\n" +
+			"                 current directory, stored as an absolute path)\n" +
+			"  --repo <path>  run the agent in an isolated worktree off this repo\n" +
+			"                 (--branch picks the branch); replaces the --cwd default\n" +
+			"  --role <role>  agent role, see `warden agent role list` (default: worker\n" +
+			"                 with --repo, otherwise general)\n" +
+			"  --prompt, --agent <name>   the agent's task and optional name\n" +
+			"A schedule that could never fire (unknown role, missing directory, no\n" +
+			"prompt) is rejected with the reason. --type is a deprecated alias mapped to\n" +
+			"role. Pass --pipeline <spec.yaml> instead to fire a pipeline (its name is\n" +
 			"timestamp-suffixed per fire so recurring runs don't collide).\n" +
 			"Provide exactly one of --cron/--at and exactly one fire mode.",
 		Args: cobra.ExactArgs(1),
@@ -72,6 +84,27 @@ func newScheduleCreateCmd() *cobra.Command {
 			} else {
 				req.Type, _ = cmd.Flags().GetString("type")
 				req.Repo, _ = cmd.Flags().GetString("repo")
+				req.Role, _ = cmd.Flags().GetString("role")
+				if req.Role != "" {
+					if _, ok := role.Get(req.Role); !ok {
+						return fmt.Errorf("unknown role %q (valid: %s)", req.Role, strings.Join(role.Names(), ", "))
+					}
+				}
+				// Mirror `warden start`: no --repo means a free-form agent launched in
+				// the directory the command is run from (resolved here, not by the
+				// daemon, whose own working directory is unrelated).
+				cwdFlag, _ := cmd.Flags().GetString("cwd")
+				freeForm := req.Type == "" && req.Role != "" && !lifecycle.RoleOwnsWorktree(req.Role)
+				if cwdFlag != "" || req.Repo == "" || freeForm {
+					dir, err := resolveDir(cwdFlag)
+					if err != nil {
+						return err
+					}
+					if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+						return fmt.Errorf("--cwd %q is not an existing directory", dir)
+					}
+					req.Cwd = dir
+				}
 				req.Prompt, _ = cmd.Flags().GetString("prompt")
 				req.Agent, _ = cmd.Flags().GetString("agent")
 				req.Branch, _ = cmd.Flags().GetString("branch")
@@ -89,7 +122,9 @@ func newScheduleCreateCmd() *cobra.Command {
 	cmd.Flags().String("at", "", "single-shot time, RFC3339 or 2006-01-02T15:04 (local)")
 	cmd.Flags().String("type", "", "deprecated: legacy agent task type (mapped to role at fire time); empty = free-form")
 	_ = cmd.Flags().MarkDeprecated("type", "schedules map type→role at fire; prefer an explicit role via spawn / pipeline job role")
-	cmd.Flags().String("repo", "", "repo path (required for a typed/legacy managed agent)")
+	cmd.Flags().String("repo", "", "repo path: the agent runs in an isolated worktree off it (default role worker)")
+	cmd.Flags().String("cwd", "", "directory to launch the agent in (default: the current directory unless --repo is given)")
+	cmd.Flags().String("role", "", "agent role `<ROLE>`: "+roleChoices()+" (default: worker with --repo, otherwise general)")
 	cmd.Flags().String("prompt", "", "the agent's initial prompt")
 	cmd.Flags().String("agent", "", "optional name for the spawned agent")
 	cmd.Flags().String("branch", "", "optional development branch / pr-review checkout")

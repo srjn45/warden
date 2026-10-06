@@ -6470,7 +6470,9 @@ components:
             an explicit role via POST /api/v1/spawn. Accepted for one release:
             at fire time the daemon maps known type values onto a role
             (development→implementer, pr-review→reviewer, analysis/spike→general).
-        repo: { type: string, description: "repo path (required for a typed agent)" }
+        repo: { type: string, description: "repo path; with a worktree-owning role (the default when a repo is given) the agent runs in an isolated worktree off it" }
+        cwd: { type: string, description: "existing absolute directory a free-form agent launches in (required when there is no repo)" }
+        role: { type: string, description: "agent role (see GET /api/v1/roles); empty = worker when a repo is given, otherwise general" }
         prompt: { type: string, description: "agent prompt (agent mode)" }
         agent: { type: string, description: "optional name for the spawned agent" }
         branch: { type: string, description: "optional development branch / pr-review checkout" }
@@ -6510,6 +6512,8 @@ components:
             Deprecated legacy agent task type. Mapped onto a role at fire time
             during the one-release alias window.
         repo: { type: string }
+        cwd: { type: string, description: "launch directory of a free-form agent schedule; absent on older schedules" }
+        role: { type: string, description: "agent role the schedule spawns; absent = worker with a repo, else general" }
         prompt: { type: string }
         agent: { type: string }
         branch: { type: string }
