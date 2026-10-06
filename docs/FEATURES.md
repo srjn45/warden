@@ -177,6 +177,8 @@ cursor is on the chosen option. The agent shows as `waiting_for_input`, the prom
 appears in the approvals inbox, and a `prompt_recognized` event is recorded. Cost: one
 model call per stalled, unrecognized menu (a second only if the first failed).
 
+**Three-tier lookup.** Backend parser first, then the known-prompts store (no model call), then the Fast-Brain model. Whichever tier reads a prompt, the same pane verification, destructive guard, policy and circuit breaker apply.
+
 **Learning.** A model-read prompt is persisted (its shape, never the concrete command)
 on its first verified success: it was answered and a later capture shows the menu gone.
 Readings that failed verification, answers that returned "prompt changed", and menus
