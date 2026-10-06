@@ -69,7 +69,10 @@ disable (kill switch)   ▼                          ▼
    └───────────────  degraded ◀──────────────── healing
                         │  guardian backoff loop (never parks)
                         └──heal succeeds──▶ active
-active ──all tasks landed──▶ complete (brain torn down, ledger retained)
+active ──all tasks landed──▶ finalizing ──final PR green──▶ awaiting_merge ──final PR merged──▶ complete
+                                  (brain torn down, ledger retained; see
+                                   2026-10-05-plan-finish-flow.md — `awaiting_merge` and
+                                   `finalizing` are reported states over internal `active`)
 ```
 
 - `disable` at any state: Controller stops spawning + landing immediately
@@ -589,6 +592,8 @@ config block — per-repo state is only the on/off bit and its run.
   §2.1).
 
 ## 14. Plan completion marker
+
+> **Finish flow.** `autopilot_complete` starts the final-PR phase; the run is not *finished* until the final PR is merged. See [plan-finish-flow](2026-10-05-plan-finish-flow.md) (`awaiting_merge`, merge polling, integration-branch cleanup, `--abandon-unmerged`).
 
 When the brain has verified the plan's `done_when` criteria, it declares the run
 complete via the MCP tool `autopilot_complete` (daemon `POST

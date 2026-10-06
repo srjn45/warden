@@ -139,6 +139,8 @@ func TestWatchPlanDegradedContentRecovery(t *testing.T) {
 	c.mu.Unlock()
 
 	require.Eventually(t, func() bool {
+		c.mu.Lock() // spawns happen under c.mu
+		defer c.mu.Unlock()
 		return len(rt.spawned) > 0
 	}, 2*time.Second, 20*time.Millisecond, "watchPlan should recover content-only degraded run")
 
@@ -191,6 +193,8 @@ func TestWatchPlanDegradedStructuralThenFix(t *testing.T) {
 	require.NoError(t, os.WriteFile(planPath, []byte("version: 1\ngoal: ship it\n"), 0o644))
 
 	require.Eventually(t, func() bool {
+		c.mu.Lock() // spawns happen under c.mu
+		defer c.mu.Unlock()
 		return len(rt.spawned) > 0
 	}, 2*time.Second, 20*time.Millisecond, "watchPlan should recover after the plan file is restored")
 

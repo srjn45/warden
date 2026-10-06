@@ -112,21 +112,22 @@ type fakeAPI struct {
 	closeProjectErr  error
 
 	// plans
-	plans          map[string][]*planstore.Plan
-	remotePlans    map[string][]plansync.Envelope
-	remotePlansErr error
-	planListErr    error
-	planGetErr     error
-	planScanRes    client.PlanScanResult
-	planScanErr    error
-	planUpdateReq  *client.PlanUpdateRequest
-	planUpdateErr  error
-	planAssessPlan *planstore.Plan
-	planAssessErr  error
-	planRunProject string
-	planRunID      string
-	planRunMode    string
-	planRunErr     error
+	plans                            map[string][]*planstore.Plan
+	remotePlans                      map[string][]plansync.Envelope
+	remotePlansErr                   error
+	planListErr                      error
+	planGetErr                       error
+	planScanRes                      client.PlanScanResult
+	planScanErr                      error
+	planUpdateReq                    *client.PlanUpdateRequest
+	archivedPlanID, unarchivedPlanID string
+	planUpdateErr                    error
+	planAssessPlan                   *planstore.Plan
+	planAssessErr                    error
+	planRunProject                   string
+	planRunID                        string
+	planRunMode                      string
+	planRunErr                       error
 }
 
 func (f *fakeAPI) List(context.Context) ([]*store.Session, error) { return f.sessions, f.listErr }
@@ -330,6 +331,16 @@ func (f *fakeAPI) PlanGet(_ context.Context, projectID, planID string) (*plansto
 
 func (f *fakeAPI) PlanScan(_ context.Context, _ string, _ client.PlanScanRequest) (client.PlanScanResult, error) {
 	return f.planScanRes, f.planScanErr
+}
+
+func (f *fakeAPI) PlansArchive(_ context.Context, planID string) (*client.PlanView, error) {
+	f.archivedPlanID = planID
+	return &client.PlanView{ID: planID, Status: "archived"}, f.planUpdateErr
+}
+
+func (f *fakeAPI) PlansUnarchive(_ context.Context, planID string) (*client.PlanView, error) {
+	f.unarchivedPlanID = planID
+	return &client.PlanView{ID: planID, Status: "pending"}, f.planUpdateErr
 }
 
 func (f *fakeAPI) PlanUpdate(_ context.Context, projectID, planID string, req client.PlanUpdateRequest) (*planstore.Plan, error) {

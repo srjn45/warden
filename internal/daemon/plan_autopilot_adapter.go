@@ -46,6 +46,15 @@ func (s *Server) startPlanAutopilotExecution(ctx context.Context, p *planstore.P
 	if err := s.beginPlanAutopilotExecution(ctx, p, snap, res.AutopilotID, res.ManagerAgentID); err != nil {
 		return res.AutopilotID, err
 	}
+	// Seed outcome.integration_branch / default_branch (plan-finish-flow §6).
+	integ, def := res.Status.IntegrationBranch, ""
+	if lp, ok := s.autopilot.LandParams(res.AutopilotID); ok {
+		if integ == "" {
+			integ = lp.IntegrationBranch
+		}
+		def = lp.DefaultBranch
+	}
+	s.seedPlanOutcome(ctx, p.ID, integ, def)
 	return res.AutopilotID, nil
 }
 

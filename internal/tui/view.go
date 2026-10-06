@@ -74,7 +74,7 @@ func helpText() string {
 		"\n" +
 		stPaneTitle.Render("Plans (when focused on a plan)") + "\n" +
 		"  enter        open plan detail pane\n" +
-		"  a            archive plan\n" +
+		"  a            archive plan (unarchive when it is archived)\n" +
 		"  s            scan plans from filesystem\n" +
 		"  A            assess plan progress with brain consult\n" +
 		"  r            run plan (select execution mode)\n" +

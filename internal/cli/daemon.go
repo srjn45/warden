@@ -750,6 +750,7 @@ func newDaemonRunCmd() *cobra.Command {
 // per-repo enable reconcile. baseDir anchors relative plan paths to the daemon cwd.
 // res is the daemon's shared router.Resolver (wrapping the backend registry store).
 func buildAutopilotControllerConfig(cfg config.Config, baseDir string, res autopilot.Resolver) autopilot.ControllerConfig {
+	mergeDefault, managerVerify, mergePoll := cfg.AutopilotCompletionPolicy()
 	return autopilot.ControllerConfig{
 		Plans:             cfg.AutopilotPlanFiles(),
 		IntegrationBranch: cfg.AutopilotIntegrationBranch(),
@@ -772,6 +773,11 @@ func buildAutopilotControllerConfig(cfg config.Config, baseDir string, res autop
 			UseFastBrain:         cfg.AutopilotGuardianUseFastBrain(),
 			MaxWaits:             cfg.AutopilotGuardianMaxWaits(),
 			MaxWaitTotal:         cfg.AutopilotGuardianMaxWaitTotal(),
+		},
+		Completion: autopilot.CompletionPolicy{
+			SkipMergeDefault:     !mergeDefault,
+			ManagerVerifyTimeout: managerVerify,
+			MergePollInterval:    mergePoll,
 		},
 	}
 }

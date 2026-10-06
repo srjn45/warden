@@ -251,6 +251,30 @@ func TestArchivePlanTool(t *testing.T) {
 	require.Equal(t, "/api/v1/plans/plan-ab12cd34/archive", path)
 }
 
+func TestUnarchivePlanTool(t *testing.T) {
+	var path string
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/unarchive") && r.Method == http.MethodPost {
+			path = r.URL.Path
+			_, _ = w.Write([]byte(`{"id":"plan-ab12cd34","project_id":"/tmp/proj","name":"feature-x","status":"in_progress","created_at":"2026-09-28T00:00:00Z","updated_at":"2026-09-28T03:00:00Z"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer daemon.Close()
+	session := connectTo(t, daemon.URL)
+
+	res, err := session.CallTool(context.Background(), &mcpsdk.CallToolParams{
+		Name:      "unarchive_plan",
+		Arguments: map[string]any{"plan_id": "plan-ab12cd34"},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError, textOf(res))
+	require.Contains(t, textOf(res), `"in_progress"`)
+	require.Equal(t, "/api/v1/plans/plan-ab12cd34/unarchive", path)
+}
+
 func TestRunPlanTool(t *testing.T) {
 	const runningJSON = `{"id":"plan-ab12cd34","project_id":"/tmp/proj","name":"feature-x",
 		"file_path":"plans/in_progress/feature-x.yaml","status":"in_progress",

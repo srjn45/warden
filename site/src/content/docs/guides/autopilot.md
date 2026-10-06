@@ -97,6 +97,10 @@ autopilot:
   merge:
     target_branch: autopilot/integration   # legacy default; new runs derive autopilot/<plan>
     gate: auto            # auto | ci | local (auto picks ci when a workflow covers the branch)
+  completion:
+    merge_default: true              # bring integration current with the default branch before the final PR
+    manager_verify_timeout: 30m      # how long the manager has to verify done_when
+    merge_poll_interval: 2m          # how often to poll a green final PR while awaiting owner merge (floor 30s)
 ```
 
 `warden autopilot init` also prints a CI hint when no workflow covers the
@@ -359,33 +363,55 @@ Over MCP: `land { ticket: "<agent-or-branch>" }`.
 
 ## Reviewing the integration branch
 
-When the manager has verified the plan's `done_when` criteria, it marks the run
-**complete**: the daemon writes an in-place `status: complete` marker (plus a
-`completed_at` timestamp) into your plan file — preserving your other keys,
-ordering, and comments — tears down the manager (in-flight workers keep running),
-and retains the ledger. A plan carrying `status: complete` is **skipped by
-preflight**, so a finished run is never re-run by mistake on a future plan run or
-daemon restart. To re-run it, remove the `status: complete` line (or point the
-config at a fresh plan file).
+When the manager has verified the plan's `done_when` criteria it declares the run
+done (`autopilot_complete`) and the daemon opens, gates and waits on the final PR
+(next section). The run is **complete** only once that PR is merged: the daemon then
+writes an in-place `status: complete` marker (plus a `completed_at` timestamp) into
+your plan file — preserving your other keys, ordering, and comments — and retains the
+ledger. A plan carrying `status: complete` is **skipped by preflight**, so a finished
+run is never re-run by mistake on a future plan run or daemon restart. To re-run it,
+remove the `status: complete` line (or point the config at a fresh plan file).
+
+### After the final PR is green: awaiting merge
+
+Declaring the run done does not finish the plan. Once `done_when` is verified, the
+daemon opens a single final PR (integration → default branch) and gates it. When it
+is green the run enters the **`awaiting_merge`** state (`wd autopilot status` shows
+"awaiting final PR merge (#n)"):
+
+- The manager and every remaining run agent are terminated and their worktrees
+  removed — no agent stays alive just to wait. You are notified once.
+- The plan stays **`in_progress`**. Autopilot never merges, approves or closes the
+  final PR; merging it is your act.
+- The daemon polls the PR every `autopilot.completion.merge_poll_interval` (default
+  `2m`, floor `30s`) with no model call. The wait survives a daemon restart.
+- **Merged** (merge, squash or rebase) → the run completes, the plan becomes
+  `completed`, and the integration branch is deleted locally and on `origin`
+  (only when its tip is what was merged; commits pushed afterwards keep it).
+- **Head moved**, or the PR became conflicting/dirty/behind → autopilot leaves the
+  state, brings integration current or re-gates, and returns to awaiting merge
+  without a second notification.
+- **Closed without merging** → the run parks as needs-attention (`final_pr_closed`).
+  Reopen the PR, run `wd plan resume` to open a new one, or `wd plan stop` to end
+  the run and keep the branch.
+
+`wd plan show <id>` prints how the plan ended: the final PR, and the fate of the
+integration branch (`deleted`, `kept_unmerged`, `abandoned`, `delete_failed`).
+
 
 The integration branch for a run (default `autopilot/<plan-name>`; shown in
 `warden autopilot status` as `integration_branch`) holds all the merged worker
 branches — one merge commit per landed task. Runs already on the legacy
 `autopilot/integration` branch keep it across upgrade.
 
-Review the branch, then fast-forward `main` when you're satisfied:
+Review the final PR and merge it on GitHub — that merge is what finishes the plan. You can inspect the branch locally first:
 
 ```sh
 git log autopilot/notifications --oneline   # example per-plan branch
 git diff main..autopilot/notifications
-
-# fast-forward main (after your review)
-git checkout main
-git merge --ff-only autopilot/notifications
-git push
 ```
 
-The integration branch is **never** merged to `main` automatically. That step
+The integration branch is **never** merged to `main` by autopilot. That step
 always belongs to the operator.
 
 ---

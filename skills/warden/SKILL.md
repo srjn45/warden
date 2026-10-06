@@ -248,9 +248,17 @@ its own integration branch and plan-scoped tree (`<scope>-autopilot`,
 | `control_plan { plan_id, action }` | Pause, resume, or stop an in-progress plan | `warden plan pause\|resume\|stop <id>` |
 | `restart_plan { plan_id, force?, backend? }` | **DESTRUCTIVE.** Restart a stopped/degraded/parked/stuck `in_progress` autopilot or pipeline plan with a brand-new agent set (old agents + worktrees removed; landed work, handoffs and branches with commits kept; new agents get a `## Restart context`). `force` needed for active/starting/paused; `backend` = new manager backend (autopilot). Unsupported for `orchestrator_worker`/`manual`. **Confirm with the operator before calling** | `warden plan restart <id> [--force] [--backend <id>] --yes` |
 | `autopilot_status` | Each run's state, manager slot id, integration branch, task counts, tier, backoff, optional `preflight_warnings` | `warden autopilot status [--json]` (aliases `autopilot run list` / `autopilot list`) |
-| `autopilot_complete` | **Manager-only.** Declare the caller's OWN run complete once `done_when` is verified — writes the in-place `status: complete` marker into the plan file, tears the manager down (workers keep running), retains the ledger. Idempotent | _(automatic; the manager calls it)_ |
+| `autopilot_complete` | **Manager-only.** Declare the caller's OWN run done once `done_when` is verified — the daemon opens + gates the final PR; the run is only *complete* (in-place `status: complete` marker, plan `completed`, integration branch deleted) once that PR is **merged**. Idempotent | _(automatic; the manager calls it)_ |
 | `brain_consult` | **Manager-only.** Shared short-lived brain resolver for unblock/design decisions — prefer over `spawn_agent` with role=brain. Returns a closed action (`nudge_agent`/`wait`/`escalate`/`noop`); manager executes it. Same Consultor/audit/teardown as pipeline stuck recovery | _(automatic; the manager calls it)_ |
 | `land { ticket: "<agent-or-branch>" }` | Land a worker branch into the run's integration branch | `warden autopilot land <agent-or-branch>` |
+
+**Finish flow.** A run's reported state goes `finalizing` (final PR opened/gated/fixed)
+→ `awaiting_merge` (PR green: manager + run agents are torn down, owner notified once,
+daemon polls every `autopilot.completion.merge_poll_interval`, default 2m) → `complete`
+only when the final PR is **merged**. The plan stays `in_progress` throughout. Autopilot
+never merges, approves or closes the final PR — tell the owner to merge it; don't wait
+on an agent. A PR closed unmerged parks the run (`final_pr_closed`: reopen, `run_plan`/
+`wd plan resume` for a new PR, or `wd plan stop`). Spec: `docs/specs/2026-10-05-plan-finish-flow.md`.
 
 The enabled set is persisted so repos come back up across a daemon restart. Do not
 call `autopilot_complete` yourself when driving the fleet — it is the autopilot
@@ -307,7 +315,7 @@ per run — not a per-task key tree:
 | Key | Contents |
 |---|---|
 | `autopilot.run_id` | Stable run identifier |
-| `autopilot.state` | `starting` / `active` / `healing` / `degraded` / `complete` |
+| `autopilot.state` | `starting` / `active` / `healing` / `degraded` / `complete` (reported also: `finalizing`, `awaiting_merge`) |
 | `autopilot.brain` | Manager slot id (key name kept for back-compat — the "brain" is the manager; value is `<scope>-autopilot`) |
 | `autopilot.<run_id>.integration_branch` | Resolved per-plan merge target workers must base PRs on |
 | `autopilot.<run_id>.tasks` | **Canonical task ledger** — JSON array of `{id, state, worker_id, branch, pr, note, updated_at}`. `state` is one of `pending` / `assigned` / `in_progress` / `pr_open` / `gated` / `landed` (validated on write). |
@@ -386,10 +394,11 @@ satisfied.
 | `create_plan` | Create a new canonical plan in ScrivaDB (no `plans/` directory required). Requires `project_id`, `name`, `goal`, and at least one task (`id` + `prompt`; optional `after[]`). Multi-task plans without `after` are auto-chained in order. |
 | `update_plan` | Patch a **pending** plan's definition (`name`/`goal`/`tasks`/`constraints`/`done_when`). Rejected if the plan is not pending (409). Supports `expected_revision` for optimistic concurrency. CLI: `wd plan update` / `wd plan edit` (interactive `$EDITOR`). Granular task DAG: `wd plan task add\|edit\|rm` (API `POST/PATCH/DELETE …/tasks`). |
 | `update_plan_status` | **Legacy.** Prefer `run_plan` / `complete_plan` / `archive_plan` for the PlanService state machine. |
-| `archive_plan` | Move a plan to `archived` (any status). |
+| `archive_plan` | Move a plan to `archived`. Refused (409) while the executor is live (stop it first: `control_plan` stop); branches with unmerged commits are kept. Records `archived_from`. |
+| `unarchive_plan` | Restore an archived plan to the status it was archived from (`wd plan unarchive`). In-progress plans return with a stopped executor — `restart_plan` continues them. 409 if not archived. |
 | `assess_plan` | **After a reinstall recovery** — call `assess_plan { plan_id: "<id>" }` for each `in_progress` plan to reconstruct `task_progress` from `git log` and open PRs via the brain Consultor. Opt-in; never automatic. |
 | `run_plan` | Start execution of a plan (`execution_mode`: `autopilot`\|`pipeline`\|`orchestrator_worker`\|`manual`). Pending → `in_progress`. |
-| `complete_plan` | Complete a plan (`in_progress` → `completed`). Blocked with a structured error listing incomplete tasks and/or unmerged branches. |
+| `complete_plan` | Complete a plan (`in_progress` → `completed`). Blocked with a structured error listing incomplete tasks and/or unmerged branches — including an integration branch with commits not on the default branch (422). `abandon_unmerged: true` (CLI `--abandon-unmerged --yes`) completes anyway and keeps the branch (`branch_fate: abandoned`). **Confirm with the operator first.** `get_plan` shows the `outcome` (final PR, branch fate). |
 | `update_task_status` | Plan form: `{plan_id, task_id, status}` where status is `pending`\|`in_progress`\|`done`\|`skipped`. CLI: `wd plan task status <plan-id> <task-id> <status>`. |
 | `export_plan_backup` | Export Plans into a portable ScrivaDB backup bundle (`plan_ids` and/or `all`). Excludes credentials/worktrees; never reads Git. |
 | `restore_plan_backup` | Restore a bundle (`dry_run`, `on_conflict=skip\|fail\|overwrite`). Idempotent when id+hash+revision match. CLI: `wd plan backup export\|restore`. |

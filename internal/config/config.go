@@ -248,11 +248,27 @@ type PluginsConfig struct {
 // inert core only Enabled + Plans + Merge.{TargetBranch,Gate} are consumed; the
 // rest is carried forward for the brain (S3), land (S4), and guardian (S5).
 type AutopilotConfig struct {
-	Enabled  bool                    `yaml:"enabled"`
-	Plans    []AutopilotPlan         `yaml:"plans"`
-	Brain    AutopilotBrainConfig    `yaml:"brain"`
-	Merge    AutopilotMergeConfig    `yaml:"merge"`
-	Guardian AutopilotGuardianConfig `yaml:"guardian"`
+	Enabled    bool                      `yaml:"enabled"`
+	Plans      []AutopilotPlan           `yaml:"plans"`
+	Brain      AutopilotBrainConfig      `yaml:"brain"`
+	Merge      AutopilotMergeConfig      `yaml:"merge"`
+	Guardian   AutopilotGuardianConfig   `yaml:"guardian"`
+	Completion AutopilotCompletionConfig `yaml:"completion"`
+}
+
+// AutopilotCompletionConfig bounds the run-to-final-PR completion phase
+// (run-to-final-pr §G.1, plan-finish-flow §2). Duration fields are Go duration
+// strings; all keys hot-reload.
+type AutopilotCompletionConfig struct {
+	// MergeDefault brings integration current with the default branch before
+	// opening the final PR (default true).
+	MergeDefault *bool `yaml:"merge_default"`
+	// ManagerVerifyTimeout bounds how long the manager has to verify done_when
+	// (default 30m).
+	ManagerVerifyTimeout string `yaml:"manager_verify_timeout"`
+	// MergePollInterval is how often the final PR is polled while awaiting its
+	// merge (default 2m; values below 30s are raised to 30s).
+	MergePollInterval string `yaml:"merge_poll_interval"`
 }
 
 // AutopilotPlan is one configured plan file (one brain per plan; at most one
@@ -469,7 +485,7 @@ var schema = []setting{
 	{"log", "Structured-logging settings (previously flat keys: log_level, log_format). Sub-keys: level (debug | info | warn | error — minimum severity the daemon logs), format (text (human-readable) | json (structured)). Flat keys still load as deprecated aliases."},
 	{"plugins", "Plugin system (#47) settings (previously flat keys: plugins, plugin_registry). OFF by default — plugins execute external code, so this is deliberately opt-in. A broken, slow, or missing plugin fails open (logged and skipped); it never blocks or crashes an agent. Sub-keys: enabled (was plugins; load the executables in registry, register their custom task types, and invoke their subscribed lifecycle hooks over JSON-over-stdio), registry (was plugin_registry; a list of entries, each with name, path (the plugin executable), events (subscribed lifecycle hooks: any of pre-spawn, post-spawn, pre-commit, post-commit, pre-check, post-check, pre-teardown), and task_types (custom agent task types, each {name, worktree})). Flat keys still load as deprecated aliases."},
 	{"backends", "Agent-backend registry / internal-thinking router settings (docs/specs/2026-08-06-backend-registry.md §10). Warden's own internal thinking (task classification, activity summaries, agent naming, digest narration, memory curation) is routed STRICTLY through free/local backends — it never makes a paid call. Sub-keys: limit_retry (Go duration, e.g. 15m — how long a free CLI backend is skipped by the router after it returns a rate-limit / spend signal, before it is retried)."},
-	{"autopilot", "Autopilot defaults for named, durably registered runs. Create plans with `warden autopilot init --name <name>` or register existing plans with `warden autopilot register <file>`. Sub-keys: enabled (legacy per-repo switch), plans (DEPRECATED compatibility list; migrated into plans/ and the run store on boot), brain (role, headless, max_parallel_workers; backend tiers live in the backend registry), merge (target_branch, strategy, gate, delete_branch), guardian (interval, heartbeat_timeout, backoff_min, backoff_max, rotate_at_context, notify_each_escalation, max_identical_failures, progress_watchdog_enabled, progress_watchdog_window, use_fast_brain [default true: Fast-Brain triage picks the recovery action before an escalation; false = plain ladder], max_waits [3], max_wait_total [30m])."},
+	{"autopilot", "Autopilot defaults for named, durably registered runs. Create plans with `warden autopilot init --name <name>` or register existing plans with `warden autopilot register <file>`. Sub-keys: enabled (legacy per-repo switch), plans (DEPRECATED compatibility list; migrated into plans/ and the run store on boot), brain (role, headless, max_parallel_workers; backend tiers live in the backend registry), merge (target_branch, strategy, gate, delete_branch), guardian (interval, heartbeat_timeout, backoff_min, backoff_max, rotate_at_context, notify_each_escalation, max_identical_failures, progress_watchdog_enabled, progress_watchdog_window, use_fast_brain [default true: Fast-Brain triage picks the recovery action before an escalation; false = plain ladder], max_waits [3], max_wait_total [30m]), completion (merge_default [true], manager_verify_timeout [30m], merge_poll_interval [2m, floor 30s] — how often to poll a green final PR while awaiting owner merge; all hot-reloaded)."},
 	{"router", "Spawn-time model-tier routing. Sub-keys: use_fast_brain (true | false, default false — when true, a spawn that pins no tier, task, role, model or ai_cli has Fast-Brain rate the prompt's complexity and pick tier-1 (trivial tweaks), tier-2 (standard work) or tier-3 (deep refactors/architecture), applied only at confidence >= 0.8; it is the lowest-precedence input, so any explicit pin wins, and the decision is recorded on the agent's event log. Hot-reloaded: applies from the next spawn)."},
 	{"brain_consult", "Shared need-based brain consult settings (docs/specs/2026-09-27-brain-consult.md §D7). When enabled, stuck pipeline jobs that have exhausted the one deterministic auto-retry can consult a short-lived role=brain agent once per stuck episode. Sub-keys: enabled (true | false — global kill-switch; default true; set false to disable globally), timeout (Go duration, e.g. 10m — per-consult deadline; generous default because consults are infrequent), max_concurrent (integer >= 1 — max simultaneous brain consult agents across all pipelines; default 1). Per-pipeline opt-out: pipeline.brain_consult (true | false)."},
 }
@@ -650,6 +666,10 @@ func defaults() Config {
 				ProgressWatchdogWindow: "2h",
 				MaxWaits:               3,
 				MaxWaitTotal:           "30m",
+			},
+			Completion: AutopilotCompletionConfig{
+				ManagerVerifyTimeout: "30m",
+				MergePollInterval:    "2m",
 			},
 		},
 		Backends: BackendsConfig{
@@ -1971,6 +1991,19 @@ func (c Config) AutopilotGuardianMaxWaitTotal() time.Duration {
 // every heal step, not just the stall/gate states.
 func (c Config) AutopilotGuardianNotifyEach() bool {
 	return c.Autopilot.Guardian.NotifyEachEscalation
+}
+
+// AutopilotCompletionPolicy returns the completion-phase bounds from
+// autopilot.completion (plan-finish-flow §2). Zero / unset fields take the
+// autopilot package defaults when applied via withDefaults.
+func (c Config) AutopilotCompletionPolicy() (mergeDefault bool, managerVerify, mergePoll time.Duration) {
+	mergeDefault = true
+	if c.Autopilot.Completion.MergeDefault != nil {
+		mergeDefault = *c.Autopilot.Completion.MergeDefault
+	}
+	managerVerify = durOr(c.Autopilot.Completion.ManagerVerifyTimeout, 30*time.Minute)
+	mergePoll = durOr(c.Autopilot.Completion.MergePollInterval, 2*time.Minute)
+	return mergeDefault, managerVerify, mergePoll
 }
 
 // AutopilotBundle is the OR-bundle autopilot applies to its own agents when

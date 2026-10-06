@@ -63,6 +63,8 @@ type api interface {
 	PlanGet(ctx context.Context, projectID, planID string) (*planstore.Plan, error)
 	PlanScan(ctx context.Context, projectID string, req client.PlanScanRequest) (client.PlanScanResult, error)
 	PlanUpdate(ctx context.Context, projectID, planID string, req client.PlanUpdateRequest) (*planstore.Plan, error)
+	PlansArchive(ctx context.Context, planID string) (*client.PlanView, error)
+	PlansUnarchive(ctx context.Context, planID string) (*client.PlanView, error)
 	PlanAssess(ctx context.Context, projectID, planID string) (*planstore.Plan, error)
 	PlanRun(ctx context.Context, projectID, planID string, req client.PlanRunRequest) error
 	PlansSyncDiscover(ctx context.Context, req client.PlanSyncRequest) (*client.PlanSyncEnvelopes, error)

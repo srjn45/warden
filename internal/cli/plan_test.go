@@ -276,6 +276,28 @@ func TestPlanArchiveCmd(t *testing.T) {
 	}
 }
 
+func TestPlanUnarchiveCmd(t *testing.T) {
+	seen := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"POST /api/v1/plans/plan-ab12cd34/unarchive": `{"id":"plan-ab12cd34","project_id":"proj1","name":"feature-x",
+		"status":"in_progress","created_at":"2026-09-28T00:00:00Z","updated_at":"2026-09-28T03:00:00Z"}`,
+	}, seen, nil))
+	out, err := runCLI(t, addr, "plan", "unarchive", "plan-ab12cd34")
+	if err != nil {
+		t.Fatalf("plan unarchive: %v", err)
+	}
+	if !strings.Contains(out, "unarchived") || !strings.Contains(out, "wd plan restart plan-ab12cd34") {
+		t.Fatalf("plan unarchive output: %q", out)
+	}
+	if seen["/api/v1/plans/plan-ab12cd34/unarchive"] != "POST" {
+		t.Fatalf("unarchive not POSTed: %q", seen)
+	}
+	out, err = runCLI(t, addr, "plan", "unarchive", "plan-ab12cd34", "--json")
+	if err != nil || !strings.Contains(out, `"in_progress"`) {
+		t.Fatalf("plan unarchive --json: %v %q", err, out)
+	}
+}
+
 func TestPlanAssessCmd(t *testing.T) {
 	seen := map[string]string{}
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{

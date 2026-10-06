@@ -70,6 +70,10 @@ type updatePlanStatusArgs struct {
 	Status    string `json:"status" jsonschema:"new status: pending|in_progress|completed|archived"`
 }
 
+type unarchivePlanArgs struct {
+	PlanID string `json:"plan_id" jsonschema:"the stable plan id (plan-<8hex>) to unarchive"`
+}
+
 type archivePlanArgs struct {
 	PlanID string `json:"plan_id" jsonschema:"the stable plan id (plan-<8hex>) to archive"`
 }
@@ -100,7 +104,8 @@ type restartPlanArgs struct {
 }
 
 type completePlanArgs struct {
-	PlanID string `json:"plan_id" jsonschema:"the stable plan id (plan-<8hex>) to complete"`
+	PlanID          string `json:"plan_id" jsonschema:"the stable plan id (plan-<8hex>) to complete"`
+	AbandonUnmerged bool   `json:"abandon_unmerged,omitempty" jsonschema:"complete even when the integration branch has unmerged commits; keep the branch"`
 }
 
 type syncPlanToRepoArgs struct {
@@ -337,9 +342,20 @@ func (s *Server) registerPlanTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "archive_plan",
-		Description: "Archive a plan (any status → archived). Moves the YAML to plans/archived/ and returns the updated Plan.",
+		Description: "Archive a plan (reversible with unarchive_plan). An in_progress plan with a live executor is refused (409) — stop it first. With a stopped or absent executor, leftover plan-bound agents/worktrees are torn down and branches with commits not on the default branch are kept; the returned Plan carries archive_report (removed/kept). The status archived from is recorded as archived_from.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a archivePlanArgs) (*mcpsdk.CallToolResult, any, error) {
 		p, err := s.cl.PlansArchive(ctx, a.PlanID)
+		if err != nil {
+			return planToolErr(err)
+		}
+		return jsonResultAny(p)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "unarchive_plan",
+		Description: "Return an archived plan to the status it was archived from (legacy records: completed when completed_at is set, else pending). An in_progress plan comes back with a stopped executor — call restart_plan to continue it. Refused (409) on a plan that is not archived.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a unarchivePlanArgs) (*mcpsdk.CallToolResult, any, error) {
+		p, err := s.cl.PlansUnarchive(ctx, a.PlanID)
 		if err != nil {
 			return planToolErr(err)
 		}
@@ -402,9 +418,9 @@ func (s *Server) registerPlanTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "complete_plan",
-		Description: "Complete a plan (in_progress → completed). Blocked with a structured error listing incomplete tasks and/or unmerged branches. On success moves the YAML to plans/completed/, cleans up worktrees, and returns the Plan.",
+		Description: "Complete a plan (in_progress → completed). Blocked with a structured error listing incomplete tasks and/or unmerged branches. For an autopilot plan whose integration branch still has commits not on the default branch, set abandon_unmerged=true to complete and keep the branch. On success cleans up worktrees and returns the Plan.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a completePlanArgs) (*mcpsdk.CallToolResult, any, error) {
-		p, err := s.cl.PlansComplete(ctx, a.PlanID)
+		p, err := s.cl.PlansComplete(ctx, a.PlanID, a.AbandonUnmerged)
 		if err != nil {
 			return planToolErr(err)
 		}
