@@ -46,6 +46,9 @@ const (
 	// DegradeRead: the underlying engine scan itself failed (segment framing,
 	// checksum, or index read error) before any record could be examined.
 	DegradeRead DegradationClass = "read"
+	// DegradeIntegrity: the engine returned data that contradicts its own index
+	// (identity mismatch, duplicate key, a record silently omitted from a scan).
+	DegradeIntegrity DegradationClass = "integrity"
 )
 
 // ScanFailure is one record (or one whole-scan) failure recorded during an

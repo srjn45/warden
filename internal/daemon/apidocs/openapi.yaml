@@ -3825,11 +3825,13 @@ components:
             any record could be examined.
         class:
           type: string
-          enum: [decode, read]
+          enum: [decode, read, integrity]
           description: >
             Failure class: "decode" = the record's stored payload would not decode
             into a session (shape-invalid); "read" = the underlying segment scan
-            itself failed (framing, checksum, or index read).
+            itself failed (framing, checksum, or index read); "integrity" = the
+            engine returned data contradicting its index (identity mismatch,
+            duplicate key, or a record silently omitted from a scan).
         detail:
           type: string
           description: Human-readable failure detail.
