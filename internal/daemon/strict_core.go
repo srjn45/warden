@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/srjn45/warden/internal/agentbackend"
 	"github.com/srjn45/warden/internal/agentstore"
@@ -296,6 +297,10 @@ func (s *Server) ListApprovals(ctx context.Context, _ oapi.ListApprovalsRequestO
 	return oapi.ListApprovals200JSONResponse{Enabled: true, Approvals: views}, nil
 }
 
+// approveVerifyDelay is the pause before re-capturing the pane to confirm a
+// cursor menu's selection moved (see agentbackend.Answer). Overridable in tests.
+var approveVerifyDelay = 400 * time.Millisecond
+
 // ApproveSession implements POST /api/v1/sessions/{id}/approve with the
 // re-verify guard: re-capture the pane, re-parse, and inject the digit ONLY if
 // the fingerprint still matches — otherwise 409, so a prompt that changed
@@ -326,7 +331,23 @@ func (s *Server) ApproveSession(ctx context.Context, req oapi.ApproveSessionRequ
 	if b.Option < 1 || b.Option > len(a.Options) {
 		return nil, errStatus(http.StatusBadRequest, "option out of range")
 	}
-	if err := s.life.SendKeys(ctx, sess.TmuxSession, strconv.Itoa(b.Option)); err != nil {
+	send := func(key string) error { return s.life.SendKeys(ctx, sess.TmuxSession, key) }
+	reparse := func() (*agentbackend.Approval, bool) {
+		select {
+		case <-time.After(approveVerifyDelay):
+		case <-ctx.Done():
+			return nil, false
+		}
+		now, err := s.life.Output(ctx, sess.TmuxSession, 200)
+		if err != nil {
+			return nil, false
+		}
+		return backendFor(sess.AiCli).ParseApproval(now)
+	}
+	if err := agentbackend.Answer(a, b.Option, send, reparse); err != nil {
+		if errors.Is(err, agentbackend.ErrPromptChanged) {
+			return nil, errStatus(http.StatusConflict, "prompt changed; reopen")
+		}
 		return nil, err
 	}
 	s.notify()

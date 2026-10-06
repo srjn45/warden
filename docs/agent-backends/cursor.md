@@ -206,6 +206,11 @@ standing grants (sticky). The Question gate keeps a lone parenthesized composer 
 the workspace are auto-applied in the default posture and do not raise this menu, so
 the command case is the representative approval shape.)*
 
+> **Current behavior:** warden launches `cursor-agent` with `--trust --approve-mcps`,
+> so this prompt is not shown for warden-launched agents. The parse below remains as
+> a fallback (e.g. an adopted session). For the other AI CLIs warden answers the trust
+> prompt itself — see `trust_workspace` in the approvals guide.
+
 **Workspace-trust prompt — a 1-time manual step, not a launch blocker.** A fresh
 warden workspace is an untrusted directory, so the *interactive* launch shows a one-time
 box:

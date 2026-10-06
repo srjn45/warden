@@ -85,7 +85,19 @@ type Approval struct {
 	SelectedIdx       int      // 1-based index of the highlighted option; 0 if none
 	AffirmativeIdx    int      // 1-based least-privilege "yes"; 0 = none found
 	AffirmativeSticky bool     // true when the affirmative is a standing/"don't ask again" grant
+	// Kind classifies the prompt; "" is an ordinary tool/command permission.
+	// ApprovalKindTrust marks the one-time "do you trust this folder?" prompt an
+	// AI CLI raises when launched in a directory it has not trusted yet.
+	Kind string
+	// Navigate reports how an option is chosen. false (the default) means the
+	// option's number is a hotkey that selects and confirms in one keystroke. true
+	// means the menu has no usable hotkeys: the cursor must be moved onto the
+	// option (Up/Down from SelectedIdx) and confirmed with Enter. See Answer.
+	Navigate bool
 }
+
+// ApprovalKindTrust is Approval.Kind for a workspace/folder-trust prompt.
+const ApprovalKindTrust = "trust"
 
 // Price is one model's published per-million-token rates.
 type Price struct {

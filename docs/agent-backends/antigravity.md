@@ -200,8 +200,11 @@ workdir (#686). warden therefore pins the id per session:
   `Do you trust the contents of this project?` prompt **before any model call**.
   `ParseApproval` normalizes it (the directory under question as the Action, the
   `Yes, I trust this folder` / `No, exit` options, sticky affirmative — trusting
-  persists for the folder) so it reaches the approvals inbox instead of silently
-  stalling the agent. Captured live (v1.0.16).
+  persists for the folder). With `trust_workspace` on (the default) warden answers it
+  itself: the menu is unnumbered, so it confirms the highlighted
+  `Yes, I trust this folder` with Enter (an option number does nothing here). With it
+  off the prompt reaches the approvals inbox instead of silently stalling the agent.
+  Captured live (v1.0.16, re-verified v1.2.17).
 
 **Gaps (degraded, documented — not mis-handled)**
 

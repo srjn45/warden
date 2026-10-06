@@ -38,9 +38,15 @@ func newPlanCmd() *cobra.Command {
 			"               progress with `wd plan show --watch`\n" +
 			"  4. Control   `wd plan pause`, `resume` or `stop` the running executor\n" +
 			"  5. Progress  `wd plan task status` / `wd plan done` record task progress\n" +
-			"  6. Complete  `wd plan complete` (in_progress → completed)\n" +
+			"  6. Complete  `wd plan complete` (in_progress → completed). An autopilot plan\n" +
+			"               does this itself: the daemon opens one final PR to the\n" +
+			"               default branch and gets it green, the plan waits for you\n" +
+			"               to merge it, then completes and deletes the integration\n" +
+			"               branch by itself\n" +
 			"  7. Finish    `wd plan archive` (reversible with `wd plan unarchive`), or\n" +
-			"               `wd plan delete` to remove a pending or archived plan permanently",
+			"               `wd plan delete` to remove a pending or archived plan permanently\n" +
+			"  8. Ship      `wd workspace clean` removes leftover merged branches;\n" +
+			"               `wd release` tags the next release",
 	}
 	SetCommandHelpMetadata(cmd, "run", 25, "warden plan", "", NodeNamespace)
 
@@ -1084,6 +1090,7 @@ func newPlanRunCmd() *cobra.Command {
 			"  manual               Plan-bound general agent; human drives prompting\n" +
 			"                       (pause/resume refused; use stop)\n\n" +
 			"`orchestrator` is accepted as a shorthand for `orchestrator_worker`.\n" +
+			"An autopilot run ends with one final PR to the default branch; you merge it.\n" +
 			"Follow progress with `wd plan show --watch`. `wd plan stop` works for every\n" +
 			"mode; `wd plan pause|resume` only for autopilot and pipeline.",
 		Args: cobra.ExactArgs(1),
@@ -1351,7 +1358,9 @@ func newPlanCompleteCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "complete <plan-id>",
 		Short: "Complete a plan (in_progress → completed)",
-		Long: "Complete a plan: in_progress → completed. Blocked if any task is not\n" +
+		Long: "Complete a plan: in_progress → completed. An autopilot plan runs this\n" +
+			"automatically once its final PR is merged; run it by hand for other modes,\n" +
+			"or to finish an autopilot plan without waiting for the merge. Blocked if any task is not\n" +
 			"done or skipped (skipped counts as finished), or if any branch the plan's\n" +
 			"work opened a PR for is still unmerged.\n\n" +
 			"For an autopilot plan whose integration branch still has commits not on\n" +

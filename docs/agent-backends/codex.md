@@ -388,8 +388,19 @@ state/approval polling, and teardown. See
   **default is the source dir** — the wrong, unsafe choice (it would run the fork in the
   source's tree, corrupting both and breaking discover-then-pin). warden pins
   `-C <fork-worktree>`, which suppresses the picker entirely while still minting the
-  fork's own id under the fork worktree's cwd. (Only the one-time per-directory trust
-  prompt remains — a known manual step for a fresh worktree.)
+  fork's own id under the fork worktree's cwd. (The one-time per-directory trust
+  prompt is answered by warden — see below.)
+- **Folder-trust prompt and update menu.** In a directory Codex has not trusted (a
+  fresh worktree) the TUI opens on a `Folder access … Trust this folder?` menu
+  (`1. Trust and continue` / `2. Quit`). `ParseApproval` recognizes it as a trust
+  prompt and, with `trust_workspace` on (the default), warden answers it — with Enter
+  on the highlighted option, because the digits in this menu only move the cursor.
+  Codex's `-c projects."<dir>".trust_level` override does **not** pre-trust a folder
+  (verified 0.159.2), so answering the prompt is the only route. Separately, when a
+  newer Codex exists the TUI first shows a blocking `Update now / Skip` menu whose
+  default runs the installer; warden launches Codex with
+  `-c check_for_update_on_startup=false` so an unattended agent never sits on it.
+  Update Codex yourself, outside warden.
 - **Degrades cleanly.** A backend with no native fork (Claude) does not implement
   `SessionForker`, so a `fork_from` spawn against it returns a clean
   "backend … cannot fork a session" and every non-fork spawn stays byte-identical.

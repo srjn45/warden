@@ -1054,9 +1054,15 @@ Typical journey:
                progress with `wd plan show --watch`
   4. Control   `wd plan pause`, `resume` or `stop` the running executor
   5. Progress  `wd plan task status` / `wd plan done` record task progress
-  6. Complete  `wd plan complete` (in_progress → completed)
+  6. Complete  `wd plan complete` (in_progress → completed). An autopilot plan
+               does this itself: the daemon opens one final PR to the
+               default branch and gets it green, the plan waits for you
+               to merge it, then completes and deletes the integration
+               branch by itself
   7. Finish    `wd plan archive` (reversible with `wd plan unarchive`), or
                `wd plan delete` to remove a pending or archived plan permanently
+  8. Ship      `wd workspace clean` removes leftover merged branches;
+               `wd release` tags the next release
 
 Usage:
   warden plan [flags]
@@ -1393,6 +1399,7 @@ required; it decides how the plan is executed:
                        (pause/resume refused; use stop)
 
 `orchestrator` is accepted as a shorthand for `orchestrator_worker`.
+An autopilot run ends with one final PR to the default branch; you merge it.
 Follow progress with `wd plan show --watch`. `wd plan stop` works for every
 mode; `wd plan pause|resume` only for autopilot and pipeline.
 
@@ -1559,7 +1566,9 @@ Inherited flags:
 ## warden plan complete
 
 ```text
-Complete a plan: in_progress → completed. Blocked if any task is not
+Complete a plan: in_progress → completed. An autopilot plan runs this
+automatically once its final PR is merged; run it by hand for other modes,
+or to finish an autopilot plan without waiting for the merge. Blocked if any task is not
 done or skipped (skipped counts as finished), or if any branch the plan's
 work opened a PR for is still unmerged.
 
@@ -1908,6 +1917,9 @@ Autopilot is the unattended Plan execution mode. There is no per-repo switch:
 start a run explicitly with `warden plan run <plan-id> --mode autopilot` and
 control it with `warden plan pause|resume|stop`. This namespace shows status
 (`status`), scaffolds adoption (`init`) and lands worker branches (`land`).
+The daemon merges worker PRs into the integration branch itself once their
+gate is green; `land` is the manual fallback. A run ends with one final PR to
+the default branch that you merge.
 Configure the feature under the `autopilot` block in the config file.
 
 Usage:
@@ -1972,8 +1984,9 @@ Inherited flags:
 ## warden autopilot land
 
 ```text
-Merges one autopilot worker branch into the integration branch — the brain's
-only merge path. Runs every precondition (owning run active, branch
+Merges one autopilot worker branch into the integration branch. The daemon
+does this itself when a worker PR's gate is green; `land` is the manual
+fallback for an operator or manager, with the same preconditions. Runs every precondition (owning run active, branch
 autopilot-owned, a PR based on the integration branch, the resolved gate green
 for the PR head, and the PR mergeable), merges with the configured strategy,
 deletes the worker branch if configured, and records the landing. Idempotent:
@@ -3104,6 +3117,8 @@ changelog built from conventional commits and merged PRs.
 By default, the analysis targets origin/main (or origin/master) so releases are
 evaluated against canonical upstream commits rather than uncommitted local edits
 or active feature/agent worktrees. Pass --target to override.
+
+This is the step after the final PR of a plan is merged.
 
 Unless --no-fetch is given, the command fetches the target ref from origin first.
 
@@ -5135,6 +5150,8 @@ changelog built from conventional commits and merged PRs.
 By default, the analysis targets origin/main (or origin/master) so releases are
 evaluated against canonical upstream commits rather than uncommitted local edits
 or active feature/agent worktrees. Pass --target to override.
+
+This is the step after the final PR of a plan is merged.
 
 Unless --no-fetch is given, the command fetches the target ref from origin first.
 

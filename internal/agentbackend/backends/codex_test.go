@@ -21,52 +21,52 @@ func TestCodexLaunchCmd(t *testing.T) {
 		{
 			name: "model + default mode enables network_access (sandboxed default)",
 			opts: agentbackend.LaunchOpts{Model: "qwen2.5-coder:3b", Mode: "default"},
-			want: "codex -m 'qwen2.5-coder:3b' -c sandbox_workspace_write.network_access=true",
+			want: "codex -m 'qwen2.5-coder:3b' -c sandbox_workspace_write.network_access=true -c check_for_update_on_startup=false",
 		},
 		{
 			name: "read-only sandbox enables network_access",
 			opts: agentbackend.LaunchOpts{Model: "m", Mode: "read-only"},
-			want: "codex -m 'm' -s read-only -c sandbox_workspace_write.network_access=true",
+			want: "codex -m 'm' -s read-only -c sandbox_workspace_write.network_access=true -c check_for_update_on_startup=false",
 		},
 		{
 			name: "workspace-write sandbox enables network_access",
 			opts: agentbackend.LaunchOpts{Model: "m", Mode: "workspace-write"},
-			want: "codex -m 'm' -s workspace-write -c sandbox_workspace_write.network_access=true",
+			want: "codex -m 'm' -s workspace-write -c sandbox_workspace_write.network_access=true -c check_for_update_on_startup=false",
 		},
 		{
 			name: "danger-full-access also pins -a never (host network, no -c)",
 			opts: agentbackend.LaunchOpts{Model: "m", Mode: "danger-full-access"},
-			want: "codex -m 'm' -s danger-full-access -a never",
+			want: "codex -m 'm' -s danger-full-access -a never -c check_for_update_on_startup=false",
 		},
 		{
 			name: "claude 'dangerously-skip-permissions' folds onto danger-full-access",
 			opts: agentbackend.LaunchOpts{Model: "m", Mode: "dangerously-skip-permissions"},
-			want: "codex -m 'm' -s danger-full-access -a never",
+			want: "codex -m 'm' -s danger-full-access -a never -c check_for_update_on_startup=false",
 		},
 		{
 			name: "planner posture uses read-only sandbox",
 			opts: agentbackend.LaunchOpts{Model: "m", Mode: "read-only", Network: "full"},
-			want: "codex -m 'm' -s read-only -c sandbox_workspace_write.network_access=true",
+			want: "codex -m 'm' -s read-only -c sandbox_workspace_write.network_access=true -c check_for_update_on_startup=false",
 		},
 		{
 			name: "worker posture uses workspace-write sandbox",
 			opts: agentbackend.LaunchOpts{Model: "m", Mode: "workspace-write", Network: "full"},
-			want: "codex -m 'm' -s workspace-write -c sandbox_workspace_write.network_access=true",
+			want: "codex -m 'm' -s workspace-write -c sandbox_workspace_write.network_access=true -c check_for_update_on_startup=false",
 		},
 		{
 			name: "empty model omits -m (BYO config provider) but still enables network",
 			opts: agentbackend.LaunchOpts{Mode: "default"},
-			want: "codex -c sandbox_workspace_write.network_access=true",
+			want: "codex -c sandbox_workspace_write.network_access=true -c check_for_update_on_startup=false",
 		},
 		{
 			name: "session id and name are ignored (SessionIDControl=false)",
 			opts: agentbackend.LaunchOpts{SessionID: "uuid", Name: "JIRA-1", Model: "m", Mode: "default"},
-			want: "codex -m 'm' -c sandbox_workspace_write.network_access=true",
+			want: "codex -m 'm' -c sandbox_workspace_write.network_access=true -c check_for_update_on_startup=false",
 		},
 		{
 			name: "Network=full enables network_access under workspace-write",
 			opts: agentbackend.LaunchOpts{Model: "m", Mode: "workspace-write", Network: "full"},
-			want: "codex -m 'm' -s workspace-write -c sandbox_workspace_write.network_access=true",
+			want: "codex -m 'm' -s workspace-write -c sandbox_workspace_write.network_access=true -c check_for_update_on_startup=false",
 		},
 	}
 	for _, tt := range tests {
@@ -81,14 +81,14 @@ func TestCodexLaunchCmd(t *testing.T) {
 // typed into a tmux pane.
 func TestCodexLaunchQuotesModel(t *testing.T) {
 	got := Codex{}.LaunchCmd(agentbackend.LaunchOpts{Model: "m; touch /tmp/pwned #", Mode: "default"})
-	require.Equal(t, "codex -m 'm; touch /tmp/pwned #' -c sandbox_workspace_write.network_access=true", got)
+	require.Equal(t, "codex -m 'm; touch /tmp/pwned #' -c sandbox_workspace_write.network_access=true -c check_for_update_on_startup=false", got)
 }
 
 func TestCodexResumeCmd(t *testing.T) {
 	// Codex mints its own UUID id warden cannot pin, so resume is dir-scoped --last.
 	cmd, ok := Codex{}.ResumeCmd(agentbackend.ResumeOpts{SessionID: "whatever", Model: "m"})
 	require.True(t, ok, "Codex supports resume (Caps.Resume=true)")
-	require.Equal(t, "codex resume --last -c sandbox_workspace_write.network_access=true", cmd)
+	require.Equal(t, "codex resume --last -c sandbox_workspace_write.network_access=true -c check_for_update_on_startup=false", cmd)
 }
 
 // TestCodexWorkspaceWriteNetworkDoesNotRequireDangerFullAccess locks the incident
@@ -161,37 +161,37 @@ func TestCodexForkCmd(t *testing.T) {
 		{
 			name:   "explicit id + model, default mode enables network_access",
 			opts:   agentbackend.ForkOpts{SourceSessionID: "11111111-2222-3333-4444-555555555555", Model: "qwen2.5-coder:3b", Mode: "default"},
-			want:   "codex fork '11111111-2222-3333-4444-555555555555' -m 'qwen2.5-coder:3b' -c sandbox_workspace_write.network_access=true",
+			want:   "codex fork '11111111-2222-3333-4444-555555555555' -m 'qwen2.5-coder:3b' -c sandbox_workspace_write.network_access=true -c check_for_update_on_startup=false",
 			wantOK: true,
 		},
 		{
 			name:   "workdir pins -C right after the id (suppresses the cross-cwd picker)",
 			opts:   agentbackend.ForkOpts{SourceSessionID: "id", Workdir: "/repo/.worktrees/fork-1", Model: "m", Mode: "workspace-write"},
-			want:   "codex fork 'id' -C '/repo/.worktrees/fork-1' -m 'm' -s workspace-write -c sandbox_workspace_write.network_access=true",
+			want:   "codex fork 'id' -C '/repo/.worktrees/fork-1' -m 'm' -s workspace-write -c sandbox_workspace_write.network_access=true -c check_for_update_on_startup=false",
 			wantOK: true,
 		},
 		{
 			name:   "read-only sandbox enables network_access",
 			opts:   agentbackend.ForkOpts{SourceSessionID: "id", Model: "m", Mode: "read-only"},
-			want:   "codex fork 'id' -m 'm' -s read-only -c sandbox_workspace_write.network_access=true",
+			want:   "codex fork 'id' -m 'm' -s read-only -c sandbox_workspace_write.network_access=true -c check_for_update_on_startup=false",
 			wantOK: true,
 		},
 		{
 			name:   "danger-full-access also pins -a never (host network, no -c)",
 			opts:   agentbackend.ForkOpts{SourceSessionID: "id", Model: "m", Mode: "danger-full-access"},
-			want:   "codex fork 'id' -m 'm' -s danger-full-access -a never",
+			want:   "codex fork 'id' -m 'm' -s danger-full-access -a never -c check_for_update_on_startup=false",
 			wantOK: true,
 		},
 		{
 			name:   "empty model omits -m (BYO config provider) but still enables network",
 			opts:   agentbackend.ForkOpts{SourceSessionID: "id", Mode: "default"},
-			want:   "codex fork 'id' -c sandbox_workspace_write.network_access=true",
+			want:   "codex fork 'id' -c sandbox_workspace_write.network_access=true -c check_for_update_on_startup=false",
 			wantOK: true,
 		},
 		{
 			name:   "Name is ignored (codex mints its own id)",
 			opts:   agentbackend.ForkOpts{SourceSessionID: "id", Name: "fork-1", Mode: "default"},
-			want:   "codex fork 'id' -c sandbox_workspace_write.network_access=true",
+			want:   "codex fork 'id' -c sandbox_workspace_write.network_access=true -c check_for_update_on_startup=false",
 			wantOK: true,
 		},
 	}
@@ -210,7 +210,7 @@ func TestCodexForkCmd(t *testing.T) {
 func TestCodexForkQuotesSourceID(t *testing.T) {
 	got, ok := Codex{}.ForkCmd(agentbackend.ForkOpts{SourceSessionID: "id'; touch /tmp/pwned #", Mode: "default"})
 	require.True(t, ok)
-	require.Equal(t, `codex fork 'id'\''; touch /tmp/pwned #' -c sandbox_workspace_write.network_access=true`, got)
+	require.Equal(t, `codex fork 'id'\''; touch /tmp/pwned #' -c sandbox_workspace_write.network_access=true -c check_for_update_on_startup=false`, got)
 }
 
 // TestCodexForkNeverUsesLast guards §4.3: the fork must pass the explicit source id,
