@@ -25,11 +25,18 @@ func newScheduleCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "schedule",
 		Short: "Schedule recurring (--cron) or single-shot (--at) agents and pipelines",
-		Long: "Create timer-driven triggers that the daemon fires on a schedule: a recurring\n" +
-			"cron spec (--cron \"0 9 * * *\") or a single-shot time (--at 2026-06-27T09:00).\n" +
-			"Each schedule fires either one agent spawn (the default — pass --repo/\n" +
-			"--prompt) or a pipeline (--pipeline <spec.yaml>). The scheduler is opt-in: set\n" +
-			"scheduler_enabled: true in the config file and keep the daemon running.",
+		Long: "Timer-driven triggers the daemon fires for you: an agent or a pipeline, on a\n" +
+			"recurring cron spec, at one set time, or right now.\n\n" +
+			"A typical journey:\n" +
+			"  1. create   warden schedule create nightly --cron \"0 2 * * *\" --prompt \"...\"\n" +
+			"  2. look     warden schedule list, then warden schedule show nightly\n" +
+			"  3. test     warden schedule run nightly (fires once now; next run unchanged)\n" +
+			"  4. change   warden schedule edit nightly --cron \"0 3 * * *\"\n" +
+			"  5. pause    warden schedule disable nightly, and enable to resume\n" +
+			"  6. remove   warden schedule delete nightly\n\n" +
+			"Nothing fires unless the scheduler is enabled (scheduler_enabled: true in the\n" +
+			"config file) and the daemon is running. Runs a recurring schedule missed while\n" +
+			"the daemon was down are not made up: it resumes at its next regular time.",
 	}
 	SetCommandHelpMetadata(cmd, "run", 40, "warden schedule", "", NodeNamespace)
 	children := []*cobra.Command{
@@ -40,11 +47,13 @@ func newScheduleCmd() *cobra.Command {
 		SetCommandHelpMetadata(child, "run", (i+1)*10, "warden schedule "+child.Name(), "", NodeLeaf)
 		cmd.AddCommand(child)
 	}
-	legacyGet := newScheduleGetCmd()
-	legacyGet.Hidden = true
-	SetCommandHelpMetadata(legacyGet, "run", 900, "warden schedule show", AliasCompatibility, NodeLeaf)
-	cmd.AddCommand(legacyGet)
 	return cmd
+}
+
+func init() {
+	removedCommandHints["warden schedule"] = map[string]string{
+		"get": "`wd schedule get` was removed: use `wd schedule show <id>`.",
+	}
 }
 
 // scheduleAgentFlags are the options that only apply to an agent schedule, in
@@ -180,7 +189,7 @@ func newScheduleCreateCmd() *cobra.Command {
 			}
 			sc, err := clientFor(cmd).ScheduleCreate(cmd.Context(), req)
 			if err != nil {
-				return err
+				return wrapScheduleError(err)
 			}
 			out := cmd.OutOrStdout()
 			if asJSON, _ := cmd.Flags().GetBool("json"); asJSON {
@@ -300,6 +309,14 @@ func wrapScheduleError(err error) error {
 	var se *client.StatusError
 	if errors.As(err, &se) && strings.Contains(se.Msg, "scheduler disabled") {
 		return fmt.Errorf("the scheduler is turned off: set scheduler_enabled: true in the warden config file (see `warden config path`) and restart the daemon")
+	}
+	if errors.As(err, &se) {
+		switch se.Code {
+		case http.StatusNotFound:
+			return fmt.Errorf("%w\nNext: wd schedule list", err)
+		case http.StatusConflict:
+			return fmt.Errorf("%w\nNext: change it with wd schedule edit, or pick another name", err)
+		}
 	}
 	return err
 }
@@ -432,15 +449,8 @@ func printScheduleTable(w io.Writer, list []*schedule.Schedule, now time.Time) e
 }
 
 func newScheduleShowCmd() *cobra.Command {
-	cmd := newScheduleGetCmd()
-	cmd.Use = "show <id>"
-	cmd.Aliases = nil
-	return cmd
-}
-
-func newScheduleGetCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "get <id>",
+		Use:   "show <id>",
 		Short: "Show one schedule, including its last-run outcome",
 		Long: "Show a schedule: its state, timing, next run and when it was created, then\n" +
 			"what it fires in full (for an agent: the prompt, directory, repo, branch, role,\n" +
@@ -454,12 +464,7 @@ func newScheduleGetCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			sc, err := clientFor(cmd).ScheduleGet(cmd.Context(), args[0])
 			if err != nil {
-				err = wrapScheduleError(err)
-				var se *client.StatusError
-				if errors.As(err, &se) && se.Code == http.StatusNotFound {
-					return fmt.Errorf("%w\nNext: wd schedule list", err)
-				}
-				return err
+				return wrapScheduleError(err)
 			}
 			out := cmd.OutOrStdout()
 			if asJSON, _ := cmd.Flags().GetBool("json"); asJSON {
@@ -577,7 +582,14 @@ func newScheduleEditCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "edit <id> [--cron <spec> | --at <time>] [agent flags] | --pipeline <spec.yaml>",
 		Short: "Edit a schedule's timing or fire payload",
-		Args:  cobra.ExactArgs(1),
+		Long: "Change only the parts you pass; everything else stays as it is. Timing:\n" +
+			"--cron or --at (switching a schedule between recurring and single-shot).\n" +
+			"Payload: the agent options (--prompt, --role, --repo, --cwd, --branch, --model,\n" +
+			"--aicli, --agent) or a new --pipeline spec file. An empty value clears an\n" +
+			"optional field. --json prints the updated schedule.",
+		Example: "  warden schedule edit nightly --cron \"0 3 * * *\"\n" +
+			"  warden schedule edit nightly --prompt \"\"",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if cmd.Flags().Changed("cron") && cmd.Flags().Changed("at") {
 				return fmt.Errorf("provide exactly one of --cron or --at, not both")
@@ -655,7 +667,13 @@ func newScheduleEditCmd() *cobra.Command {
 
 func newScheduleRunCmd() *cobra.Command {
 	return &cobra.Command{
-		Use: "run <id>", Short: "Fire a schedule once now without changing its next run", Args: cobra.ExactArgs(1),
+		Use:   "run <id>",
+		Short: "Fire a schedule once now without changing its next run",
+		Long: "Fire the schedule's agent or pipeline once, right now, to test it. This does\n" +
+			"not consume a single-shot or move a recurring schedule's next run, and it works\n" +
+			"on a disabled schedule.",
+		Example: "  warden schedule run nightly",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			sc, runID, err := clientFor(cmd).ScheduleRun(cmd.Context(), args[0])
 			if err != nil {
@@ -667,55 +685,133 @@ func newScheduleRunCmd() *cobra.Command {
 	}
 }
 
+// scheduleToggleResult is the --json shape of enable/disable.
+type scheduleToggleResult struct {
+	Changed  bool               `json:"changed"`
+	Schedule *schedule.Schedule `json:"schedule"`
+}
+
 func newScheduleEnableCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "enable <id>",
 		Short: "Enable a schedule so it fires again (re-arms next run)",
-		Args:  cobra.ExactArgs(1),
+		Long: "Turn a disabled schedule back on and re-arm its next run from now. Says so when\n" +
+			"the schedule was already enabled. --json prints {changed, schedule}.",
+		Example: "  warden schedule enable nightly",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			sc, err := clientFor(cmd).ScheduleEnable(cmd.Context(), args[0])
+			cl := clientFor(cmd)
+			prev, err := cl.ScheduleGet(cmd.Context(), args[0])
 			if err != nil {
-				return err
+				return wrapScheduleError(err)
 			}
-			if sc.NextRun != nil && !sc.NextRun.After(time.Now()) {
-				fmt.Fprintf(cmd.OutOrStdout(), "enabled %s — will fire within a minute\n", sc.ID)
-				return nil
+			changed := !prev.Enabled
+			sc := prev
+			if changed {
+				if sc, err = cl.ScheduleEnable(cmd.Context(), args[0]); err != nil {
+					return wrapScheduleError(err)
+				}
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "enabled %s — next run %s\n", sc.ID, formatNextRun(sc.NextRun))
+			out := cmd.OutOrStdout()
+			if asJSON, _ := cmd.Flags().GetBool("json"); asJSON {
+				return printJSON(out, scheduleToggleResult{Changed: changed, Schedule: sc})
+			}
+			switch {
+			case !changed:
+				fmt.Fprintf(out, "%s is already enabled — nothing changed; next run %s\n", sc.ID, formatNextRun(sc.NextRun))
+			case sc.NextRun != nil && !sc.NextRun.After(time.Now()):
+				fmt.Fprintf(out, "enabled %s — will fire within a minute\n", sc.ID)
+			default:
+				fmt.Fprintf(out, "enabled %s — next run %s\n", sc.ID, formatNextRun(sc.NextRun))
+			}
 			return nil
 		},
 	}
+	cmd.Flags().Bool("json", false, "print {changed, schedule} as JSON")
+	return cmd
 }
 
 func newScheduleDisableCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "disable <id>",
 		Short: "Disable a schedule so it stops firing (history preserved)",
-		Args:  cobra.ExactArgs(1),
+		Long: "Stop a schedule from firing without deleting it; its record and last-run\n" +
+			"history are kept. Turn it back on with `warden schedule enable`. Says so when\n" +
+			"the schedule was already disabled. --json prints {changed, schedule}.",
+		Example: "  warden schedule disable nightly",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			sc, err := clientFor(cmd).ScheduleDisable(cmd.Context(), args[0])
+			cl := clientFor(cmd)
+			prev, err := cl.ScheduleGet(cmd.Context(), args[0])
 			if err != nil {
-				return err
+				return wrapScheduleError(err)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "disabled %s\n", sc.ID)
+			changed := prev.Enabled
+			sc := prev
+			if changed {
+				if sc, err = cl.ScheduleDisable(cmd.Context(), args[0]); err != nil {
+					return wrapScheduleError(err)
+				}
+			}
+			out := cmd.OutOrStdout()
+			if asJSON, _ := cmd.Flags().GetBool("json"); asJSON {
+				return printJSON(out, scheduleToggleResult{Changed: changed, Schedule: sc})
+			}
+			msg := fmt.Sprintf("disabled %s", sc.ID)
+			if !changed {
+				msg = fmt.Sprintf("%s is already disabled — nothing changed", sc.ID)
+			}
+			if sc.Kind != schedule.KindAt {
+				msg += fmt.Sprintf("; turn it back on with: wd schedule enable %s", sc.ID)
+			}
+			fmt.Fprintln(out, msg)
 			return nil
 		},
 	}
+	cmd.Flags().Bool("json", false, "print {changed, schedule} as JSON")
+	return cmd
 }
 
 func newScheduleDeleteCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "delete <id>",
-		Short: "Delete a schedule",
-		Args:  cobra.ExactArgs(1),
+	cmd := &cobra.Command{
+		Use:     "delete <id>",
+		Aliases: []string{"rm"},
+		Short:   "Delete a schedule",
+		Long: "Delete a schedule permanently, after asking you to confirm. The prompt names the\n" +
+			"schedule, what it fires and its next run. Only the schedule is removed: agents\n" +
+			"and pipelines it already started keep running and are not affected. To stop a\n" +
+			"schedule but keep it, use `warden schedule disable`.\n\n" +
+			"Pass --yes/-y to skip the prompt; without a terminal on stdin, --yes is required.",
+		Example: "  warden schedule delete nightly\n" +
+			"  warden schedule rm nightly --yes",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := clientFor(cmd).ScheduleDelete(cmd.Context(), args[0]); err != nil {
-				return err
+			cl := clientFor(cmd)
+			yes, _ := cmd.Flags().GetBool("yes")
+			sc, err := cl.ScheduleGet(cmd.Context(), args[0])
+			if err != nil {
+				return wrapScheduleError(err)
+			}
+			prompt := fmt.Sprintf("Delete schedule %q? It fires %s; next run %s.\n"+
+				"Agents and pipelines it already started are not affected. [y/N] ",
+				sc.Name, scheduleFires(sc), scheduleNext(sc, time.Now()))
+			ok, err := confirmOrYes(cmd, yes, prompt)
+			if err != nil {
+				return fmt.Errorf("deleting schedule %q needs confirmation: re-run with --yes", sc.Name)
+			}
+			if !ok {
+				fmt.Fprintln(cmd.OutOrStdout(), "aborted; nothing deleted")
+				return nil
+			}
+			if err := cl.ScheduleDelete(cmd.Context(), args[0]); err != nil {
+				return wrapScheduleError(err)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "deleted %s\n", args[0])
 			return nil
 		},
 	}
+	cmd.Flags().BoolP("yes", "y", false, "skip the confirmation prompt")
+	return cmd
 }
 
 // formatNextRun renders a schedule's next-fire time (or "—" when inactive).

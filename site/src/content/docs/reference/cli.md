@@ -2201,11 +2201,20 @@ Inherited flags:
 ## warden schedule
 
 ```text
-Create timer-driven triggers that the daemon fires on a schedule: a recurring
-cron spec (--cron "0 9 * * *") or a single-shot time (--at 2026-06-27T09:00).
-Each schedule fires either one agent spawn (the default — pass --repo/
---prompt) or a pipeline (--pipeline <spec.yaml>). The scheduler is opt-in: set
-scheduler_enabled: true in the config file and keep the daemon running.
+Timer-driven triggers the daemon fires for you: an agent or a pipeline, on a
+recurring cron spec, at one set time, or right now.
+
+A typical journey:
+  1. create   warden schedule create nightly --cron "0 2 * * *" --prompt "..."
+  2. look     warden schedule list, then warden schedule show nightly
+  3. test     warden schedule run nightly (fires once now; next run unchanged)
+  4. change   warden schedule edit nightly --cron "0 3 * * *"
+  5. pause    warden schedule disable nightly, and enable to resume
+  6. remove   warden schedule delete nightly
+
+Nothing fires unless the scheduler is enabled (scheduler_enabled: true in the
+config file) and the daemon is running. Runs a recurring schedule missed while
+the daemon was down are not made up: it resumes at its next regular time.
 
 Usage:
   warden schedule [flags]
@@ -2214,6 +2223,8 @@ Commands:
   create               Create a schedule that fires an agent or a pipeline
   list                 List schedules
   show                 Show one schedule, including its last-run outcome
+  edit                 Edit a schedule's timing or fire payload
+  run                  Fire a schedule once now without changing its next run
   enable               Enable a schedule so it fires again (re-arms next run)
   disable              Disable a schedule so it stops firing (history preserved)
   delete               Delete a schedule
@@ -2350,16 +2361,78 @@ Inherited flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
+## warden schedule edit
+
+```text
+Change only the parts you pass; everything else stays as it is. Timing:
+--cron or --at (switching a schedule between recurring and single-shot).
+Payload: the agent options (--prompt, --role, --repo, --cwd, --branch, --model,
+--aicli, --agent) or a new --pipeline spec file. An empty value clears an
+optional field. --json prints the updated schedule.
+
+Usage:
+  warden schedule edit <id> [--cron <spec> | --at <time>] [agent flags] | --pipeline <spec.yaml> [flags]
+
+Examples:
+  warden schedule edit nightly --cron "0 3 * * *"
+    warden schedule edit nightly --prompt ""
+
+Flags:
+      --agent string      agent name (empty clears it)
+      --aicli string      AI CLI (empty clears it)
+      --at string         new single-shot time in the future (switches from --cron)
+      --branch string     development branch (empty clears it)
+      --cron string       new recurring cron spec (switches from --at)
+      --cwd string        agent launch directory (empty clears it)
+  -h, --help              help for edit
+      --json              print the updated schedule as JSON
+      --model string      model ID (empty clears it)
+      --pipeline string   new pipeline YAML spec file
+      --prompt string     agent prompt (empty clears it)
+      --repo string       repo path for an agent schedule
+      --role string       agent role (empty clears it)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden schedule run
+
+```text
+Fire the schedule's agent or pipeline once, right now, to test it. This does
+not consume a single-shot or move a recurring schedule's next run, and it works
+on a disabled schedule.
+
+Usage:
+  warden schedule run <id> [flags]
+
+Examples:
+  warden schedule run nightly
+
+Flags:
+  -h, --help   help for run
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
 ## warden schedule enable
 
 ```text
-Enable a schedule so it fires again (re-arms next run)
+Turn a disabled schedule back on and re-arm its next run from now. Says so when
+the schedule was already enabled. --json prints {changed, schedule}.
 
 Usage:
   warden schedule enable <id> [flags]
 
+Examples:
+  warden schedule enable nightly
+
 Flags:
   -h, --help   help for enable
+      --json   print {changed, schedule} as JSON
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -2369,13 +2442,19 @@ Inherited flags:
 ## warden schedule disable
 
 ```text
-Disable a schedule so it stops firing (history preserved)
+Stop a schedule from firing without deleting it; its record and last-run
+history are kept. Turn it back on with `warden schedule enable`. Says so when
+the schedule was already disabled. --json prints {changed, schedule}.
 
 Usage:
   warden schedule disable <id> [flags]
 
+Examples:
+  warden schedule disable nightly
+
 Flags:
   -h, --help   help for disable
+      --json   print {changed, schedule} as JSON
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -2385,17 +2464,30 @@ Inherited flags:
 ## warden schedule delete
 
 ```text
-Delete a schedule
+Delete a schedule permanently, after asking you to confirm. The prompt names the
+schedule, what it fires and its next run. Only the schedule is removed: agents
+and pipelines it already started keep running and are not affected. To stop a
+schedule but keep it, use `warden schedule disable`.
+
+Pass --yes/-y to skip the prompt; without a terminal on stdin, --yes is required.
 
 Usage:
   warden schedule delete <id> [flags]
 
+Examples:
+  warden schedule delete nightly
+    warden schedule rm nightly --yes
+
 Flags:
   -h, --help   help for delete
+  -y, --yes    skip the confirmation prompt
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
+
+Aliases:
+  rm
 ```
 
 ## warden project
@@ -5641,8 +5733,8 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | `warden role tier set` | `warden agent role tier set` |
 | `warden rotate` | `warden agent rotate` |
 | `warden savings` | `warden usage savings` |
-| `warden schedule get` | `warden schedule show` |
 | `warden schedule ls` | `warden schedule list` |
+| `warden schedule rm` | `warden schedule delete` |
 | `warden search` | `warden inspect search` |
 | `warden set-permission-mode` | `warden agent set` |
 | `warden set-role` | `warden agent set` |

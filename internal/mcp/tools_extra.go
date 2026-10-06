@@ -1095,7 +1095,7 @@ func (s *Server) registerExtraTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "create_schedule",
-		Description: "Create a daemon-side schedule that fires an agent spawn or a whole pipeline on its own timer. Use cron for recurring (5-field or @daily etc., evaluated in the daemon host's local time), at for a single-shot in the future (RFC3339, or local time when no zone is given; a past time is rejected), or now to fire once immediately. Provide prompt plus repo (isolated worktree) or cwd (launch directory), and optionally role, model/ai_cli, permission_mode, auto_restart, tags, tier, for an agent, or spec for a pipeline (a spec cannot be combined with agent arguments). Mirrors `warden schedule create`.",
+		Description: "Create a daemon-side schedule that fires an agent spawn or a whole pipeline on its own timer. Use cron for recurring (5-field or @daily etc., evaluated in the daemon host's local time), at for a single-shot in the future (RFC3339, or local time when no zone is given; a past time is rejected), or now to fire once immediately. Provide prompt plus repo (isolated worktree) or cwd (launch directory), and optionally role, model/ai_cli, permission_mode, auto_restart, tags, tier, for an agent, or spec for a pipeline (a spec cannot be combined with agent arguments). An agent schedule starts the agent like `warden start` would. Mirrors `warden schedule create`.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a createScheduleArgs) (*mcpsdk.CallToolResult, any, error) {
 		sch, err := s.cl.ScheduleCreate(ctx, client.ScheduleCreateRequest{
 			Name: a.Name, Cron: a.Cron, At: a.At, Now: a.Now, Repo: a.Repo, Cwd: a.Cwd, Role: a.Role,
@@ -1111,7 +1111,7 @@ func (s *Server) registerExtraTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "delete_schedule",
-		Description: "Delete a schedule by id so it stops firing. Mirrors `warden schedule delete`.",
+		Description: "Delete a schedule by id so it stops firing. Only the schedule record is removed: agents and pipelines it already started are not affected. Immediate and without confirmation; use disable_schedule to pause instead. Mirrors `warden schedule delete`.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a scheduleIDArgs) (*mcpsdk.CallToolResult, any, error) {
 		if err := s.cl.ScheduleDelete(ctx, a.ID); err != nil {
 			return textResult("error: " + err.Error()), nil, nil
@@ -1121,7 +1121,7 @@ func (s *Server) registerExtraTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "get_schedule",
-		Description: "Get one schedule by id, including its cadence, fire payload, enabled state, next/last run, and durable last-run outcome. Mirrors `warden schedule get`.",
+		Description: "Get one schedule by id, including its cadence, fire payload, enabled state, next/last run, and durable last-run outcome. Mirrors `warden schedule show`. (`warden schedule run` test-fires and `warden schedule edit` changes a schedule from the CLI.)",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a scheduleIDArgs) (*mcpsdk.CallToolResult, any, error) {
 		sch, err := s.cl.ScheduleGet(ctx, a.ID)
 		if err != nil {
@@ -1143,7 +1143,7 @@ func (s *Server) registerExtraTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "disable_schedule",
-		Description: "Disable a schedule so it stops firing (record and last-run history preserved). Idempotent. Mirrors `warden schedule disable`.",
+		Description: "Disable a schedule so it stops firing (record and last-run history preserved). Idempotent; enable_schedule turns it back on. Mirrors `warden schedule disable`.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a scheduleIDArgs) (*mcpsdk.CallToolResult, any, error) {
 		sch, err := s.cl.ScheduleDisable(ctx, a.ID)
 		if err != nil {

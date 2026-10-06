@@ -3755,7 +3755,13 @@
   {
     "path": "schedule delete",
     "use": "delete \u003cid\u003e",
+    "aliases": [
+      "rm"
+    ],
     "runnable": true,
+    "local_flags": [
+      "yes"
+    ],
     "inherited_flags": [
       "addr",
       "config"
@@ -3765,10 +3771,14 @@
     "path": "schedule disable",
     "use": "disable \u003cid\u003e",
     "runnable": true,
+    "local_flags": [
+      "json"
+    ],
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
   },
   {
     "path": "schedule edit",
@@ -3799,19 +3809,8 @@
     "path": "schedule enable",
     "use": "enable \u003cid\u003e",
     "runnable": true,
-    "inherited_flags": [
-      "addr",
-      "config"
-    ]
-  },
-  {
-    "path": "schedule get",
-    "use": "get \u003cid\u003e",
-    "hidden": true,
-    "runnable": true,
     "local_flags": [
-      "json",
-      "spec"
+      "json"
     ],
     "inherited_flags": [
       "addr",
