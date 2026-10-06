@@ -432,7 +432,7 @@ out / rotating the very token that guards the MCP and HTTP channels).
 
 ### MCP parity summary
 
-Every fleet/data feature is reachable over MCP (**81 tools**, including the
+Every fleet/data feature is reachable over MCP (**83 tools**, including the
 umbrella `stop_agent`). The only
 CLI-exclusive features are the host/process/interactive/secret commands in
 §17 (plus interactive `attach`/`repl`, the local-config `preset` /
