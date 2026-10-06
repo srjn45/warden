@@ -129,8 +129,12 @@ const (
 type FinalPRSpec struct {
 	Integration   string
 	DefaultBranch string
-	Title         string
-	Body          string
+	// Title is the fallback/legacy title; a host that creates the PR may
+	// replace it with FinalPRTitle(Name, RunID, <integration commits>).
+	Title string
+	Body  string
+	// Name and RunID feed FinalPRTitle.
+	Name, RunID string
 }
 
 // FinalPRState is a final PR's host-side state.
@@ -547,8 +551,9 @@ func (c *Controller) finalPRSpec(ctx context.Context, lr LandingRuntime, s compl
 	}
 	return FinalPRSpec{
 		Integration: s.integration, DefaultBranch: s.defaultBranch,
-		Title: "autopilot: " + firstNonEmpty(s.name, s.runID),
+		Title: FinalPRTitle(s.name, s.runID, nil),
 		Body:  FinalPRBody(in),
+		Name:  s.name, RunID: s.runID,
 	}
 }
 
