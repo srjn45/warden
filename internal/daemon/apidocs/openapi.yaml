@@ -2568,6 +2568,59 @@ paths:
               schema: { $ref: "#/components/schemas/AutoApprovePolicy" }
         "400": { $ref: "#/components/responses/BadRequest" }
 
+  /api/v1/known-prompts:
+    get:
+      operationId: listKnownPrompts
+      tags: [Approvals]
+      summary: List learned prompt shapes
+      description: >
+        The known-prompts store: prompt shapes the Fast-Brain has already read, so
+        the next occurrence is recognized without a model call. Entries hold only
+        templated shapes (never concrete commands or paths). Oldest first. An
+        empty list when the feature is absent.
+      responses:
+        "200":
+          description: Every stored entry
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [prompts]
+                properties:
+                  prompts:
+                    type: array
+                    items: { $ref: "#/components/schemas/KnownPrompt" }
+    delete:
+      operationId: forgetAllKnownPrompts
+      tags: [Approvals]
+      summary: Forget every learned prompt shape
+      description: Empties the known-prompts store and audit-logs the action.
+      responses:
+        "200":
+          description: Number of entries removed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [removed]
+                properties:
+                  removed: { type: integer }
+
+  /api/v1/known-prompts/{id}:
+    delete:
+      operationId: forgetKnownPrompt
+      tags: [Approvals]
+      summary: Forget one learned prompt shape
+      description: Removes one entry (the prompt is re-learned on its next appearance) and audit-logs the action.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /api/v1/context:
     get:
       operationId: listContext
@@ -4415,6 +4468,14 @@ components:
             into a divergent session. Requires an AI CLI implementing SessionForker
             and a source agent whose AI CLI session id is already pinned. Empty =
             a normal (non-fork) spawn.
+
+    KnownPrompt:
+      x-go-type: knownprompts.Entry
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/knownprompts
+        name: knownprompts
+      type: object
+      description: One learned prompt shape (templated question + option labels, never concrete commands).
 
     RoleInfo:
       type: object

@@ -91,6 +91,7 @@ parser matches it, the daemon has Fast-Brain read the stalled menu
 treats it like any parsed prompt: `waiting_for_input`, listed in `warden approval
 list`, subject to the same auto-approve policy. A `prompt_recognized` event marks it.
 If an agent sits on a menu and is still not `waiting_for_input` after ~20s, attach.
+Lookup order is backend parser → learned-prompt store (no model call) → Fast-Brain; a Fast-Brain reading is learned (shape only, never the command) once its answer verifiably cleared the menu, and a shape that keeps failing is dropped automatically (`prompt_known_invalidated`). Learned shapes are inspectable: `warden approval known list` (MCP `list_known_prompts`); drop a bad one with `warden approval known forget <id>` (MCP `forget_known_prompt`).
 
 **Auto-approve** (off by default): auto-answers recognized yes/no prompts. Two layers:
 

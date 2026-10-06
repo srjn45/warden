@@ -146,25 +146,41 @@ func LocateOptions(pane string, options []string) (MenuLocation, bool) {
 	if len(options) < 2 {
 		return MenuLocation{}, false
 	}
+	loc, _, ok := LocateMatching(pane, len(options), func(i int, label string) bool {
+		return options[i] != "" && label == strings.TrimSpace(options[i])
+	})
+	return loc, ok
+}
+
+// LocateMatching is LocateOptions generalized to a predicate: it finds n option
+// lines in order (same geometry and bottom-most-wins rule) where match(i, label)
+// accepts the i-th label, and returns the labels exactly as they appear on
+// screen (number and cursor glyph stripped). It lets a caller match option
+// shapes — templates — rather than fixed text, while still reading the concrete
+// labels from the pane.
+func LocateMatching(pane string, n int, match func(i int, label string) bool) (MenuLocation, []string, bool) {
+	if n < 2 {
+		return MenuLocation{}, nil, false
+	}
 	lines := strings.Split(strings.TrimRight(pane, "\n"), "\n")
 	lo := len(lines) - menuWindow
 	if lo < 0 {
 		lo = 0
 	}
 	for first := len(lines) - 1; first >= lo; first-- {
-		loc, ok := locateFrom(lines, first, options)
-		if ok {
-			return loc, true
+		if loc, labels, ok := locateFrom(lines, first, n, match); ok {
+			return loc, labels, true
 		}
 	}
-	return MenuLocation{}, false
+	return MenuLocation{}, nil, false
 }
 
-func locateFrom(lines []string, first int, options []string) (MenuLocation, bool) {
+func locateFrom(lines []string, first, n int, match func(i int, label string) bool) (MenuLocation, []string, bool) {
 	loc := MenuLocation{First: first, Numbered: true}
 	cursors := 0
 	at := first
-	for i, want := range options {
+	labels := make([]string, 0, n)
+	for i := 0; i < n; i++ {
 		found := -1
 		limit := at
 		if i > 0 {
@@ -172,10 +188,16 @@ func locateFrom(lines []string, first int, options []string) (MenuLocation, bool
 		}
 		for j := at; j <= limit && j < len(lines); j++ {
 			cursor, number, label, _ := menuLine(lines[j])
-			if label != strings.TrimSpace(want) || want == "" {
+			if label == "" || !match(i, label) {
+				// A skipped line may be a description under the option, but not
+				// another option: that menu has an extra choice.
+				if cursor || number > 0 {
+					break
+				}
 				continue
 			}
 			found = j
+			labels = append(labels, label)
 			if cursor {
 				cursors++
 				loc.Selected = i + 1
@@ -186,12 +208,19 @@ func locateFrom(lines []string, first int, options []string) (MenuLocation, bool
 			break
 		}
 		if found < 0 {
-			return MenuLocation{}, false
+			return MenuLocation{}, nil, false
 		}
 		at = found + 1
+	}
+	// Another numbered option right below the last one: the menu has more choices
+	// than the shape being located.
+	if at < len(lines) {
+		if _, number, label, _ := menuLine(lines[at]); label != "" && number == n+1 {
+			return MenuLocation{}, nil, false
+		}
 	}
 	if cursors != 1 {
 		loc.Selected = 0
 	}
-	return loc, true
+	return loc, labels, true
 }

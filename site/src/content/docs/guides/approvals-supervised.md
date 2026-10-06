@@ -118,6 +118,28 @@ The model **recognizes**; it does not decide and it never presses a key. What ha
 
 The agent's status becomes `waiting_for_input` and a `prompt_recognized` event is recorded. This costs one model call per stalled, unrecognized menu (a second only if the first failed or timed out). It covers menus with a visible cursor mark (`>`, `❯`, `›`, `→`); a free-text `[y/N]` question is still left to its backend parser or to you.
 
+### Learning prompts it has read
+
+### Three-tier lookup
+
+For a menu that has sat unchanged for a few seconds, warden resolves the prompt in this order and stops at the first tier that reads it:
+
+1. **The backend's own parser**: free and exact, keyed on the CLI's wording.
+2. **The known-prompts store**: a shape learned earlier, matched against the pane with no model call.
+3. **The Fast-Brain model**: one model call; a verified reading can then be learned.
+
+Whichever tier reads the prompt, the result goes through the same verification, destructive guard, policy rules and circuit breaker.
+
+### What is stored, and what is not
+
+An entry holds only the prompt's *shape*: the backend, the question and the ordered option labels (with quoted commands and the prompt's action replaced by a placeholder), which option is the one-time "yes", which options are standing grants, plus a hit count, timestamps and the source. It never stores the concrete command, path or any other text the prompt was asking about; a stored shape is matched back to the live pane, so everything you see in the inbox is the real on-screen text. A stored shape only says how to *read* a prompt, never whether to answer it.
+
+A prompt the model read is **learned** once its answer provably worked: it was answered (by auto-approve, the arbiter, the brain or you via the approve endpoint) and a later capture shows the menu gone. The first verified success is enough, because a learned shape is re-verified against the live pane on every use and only says how to *read* a prompt, never whether to answer it. A reading that failed verification, an answer that bounced with "prompt changed", or a menu that is still showing teaches nothing. The next occurrence is then read from the store with no model call (`prompt_known` event; `prompt_learned` when it is first learned).
+
+The store keeps itself honest (self-healing): a learned shape that trips the circuit breaker, or whose answers fail to clear the menu three times in a row, is dropped (`prompt_known_invalidated` event) and the next occurrence goes back to the model. It is bounded by `known_prompts_max` (default 500, least recently seen evicted) and entries unseen for `known_prompts_prune_days` (default 90) are pruned.
+
+Inspect or prune the store yourself: `warden approval known list` (`--json` for scripts) shows each shape's id, backend, templated question, options (the answered one marked `*`), hit count and last-seen time; `warden approval known forget <id>` drops one that was learned wrong (it is simply re-learned next time), and `forget --all` empties the store after a confirmation (`--yes` skips it). The same is available over MCP (`list_known_prompts`, `forget_known_prompt`) and REST (`GET/DELETE /api/v1/known-prompts`); forgets are audit-logged (`known_prompt_forget`, `known_prompt_forget_all`).
+
 ## The circuit breaker
 
 Auto-approving a prompt should unblock the agent. When the **identical** prompt keeps re-appearing after being approved — the agent is re-running a failing command (expired credentials, a broken login) and re-asking forever — approving again just burns CPU and tokens. The breaker halts auto-approval after `max_repeats` consecutive identical approvals (default **10**), records an `approval_loop` anomaly on the agent, fires your notifier, and leaves the prompt unanswered so the agent surfaces as `waiting_for_input`.

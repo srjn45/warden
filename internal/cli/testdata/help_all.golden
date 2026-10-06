@@ -157,6 +157,9 @@ Complete command tree:
   warden approval auto clear           Clear auto-approve rules (default, or a per-agent override with --agent)
   warden approval auto enable          Enable the auto-approve policy (global, or per-agent with --agent)
   warden approval auto disable         Disable the auto-approve policy (global, or per-agent with --agent)
+  warden approval known                Inspect and forget learned prompt shapes
+  warden approval known list           List learned prompt shapes (id, backend, question, options, hits, last seen)
+  warden approval known forget         Forget one learned prompt shape, or all with --all
   warden inspect                       Search, audit, export, repair, and measure warden's fleet and resources
   warden inspect resources             Show warden's resource footprint (per-agent memory/CPU, system pressure, daemon stats)
   warden inspect search                Full-text search agents by subject, prompt, type, name, branch, or pane text

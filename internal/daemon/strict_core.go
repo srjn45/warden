@@ -361,6 +361,9 @@ func (s *Server) ApproveSession(ctx context.Context, req oapi.ApproveSessionRequ
 		}
 		return nil, err
 	}
+	if s.poller != nil {
+		s.poller.NoteAnswered(sess, a, pane)
+	}
 	s.notify()
 	s.recordAuditCtx(ctx, audit.ActionApprove, req.Id, map[string]string{"option": strconv.Itoa(b.Option)})
 	return oapi.ApproveSession200JSONResponse{OKJSONResponse: oapi.OKJSONResponse{Status: "answered"}}, nil
