@@ -83,3 +83,14 @@ matrix is re-audited.
 ## 6. Open items
 - Exact trigger of the production second writer is unidentified; candidates: `doctor --reconcile-membership`, a second daemon.
 - Other stores' overlapping-handle exposure (§1).
+
+## 7. Membership reconcile identity rules (p4)
+
+`daemon.ReconcileProjectMembership` (boot + `doctor --reconcile-membership`) only
+acts on verified identities. It reports, and never resolves, two conflict kinds:
+`duplicate_agent_id` (one id in active+archived, or repeated within a set) and
+`ambiguous_membership` (id claimed by several projects' `agents[]`). Conflicted ids
+are skipped for restamping and legacy backfill; archived records are read-only.
+Dangling members and explicit removals (non-nil forward lists) are preserved.
+Reconcile edits only `project_id`/project lists — it never adopts, relaunches or
+touches tmux sessions. Fixture: `internal/daemon/testdata/incident_membership.json`.

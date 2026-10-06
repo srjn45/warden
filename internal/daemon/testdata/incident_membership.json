@@ -1,0 +1,17 @@
+{
+  "_comment": "Sanitized shape of the #795 agent-store incident: ids are synthetic.",
+  "projects": [
+    {"id": "proj-a", "agents": ["agent-1", "agent-dup", "agent-shared", "agent-gone"]},
+    {"id": "proj-b", "agents": ["agent-shared"]},
+    {"id": "proj-c", "agents": []}
+  ],
+  "active": [
+    {"id": "agent-1", "project_id": ""},
+    {"id": "agent-dup", "project_id": ""},
+    {"id": "agent-shared", "project_id": ""},
+    {"id": "agent-removed", "project_id": "proj-c"}
+  ],
+  "archived": [
+    {"id": "agent-dup", "project_id": "proj-a"}
+  ]
+}
