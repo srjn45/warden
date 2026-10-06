@@ -1061,7 +1061,7 @@ func (s *Server) registerExtraTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "retry_pipeline_job",
-		Description: "Re-run a failed pipeline job (and unblock its dependents) without recreating the whole pipeline. Mirrors `warden pipeline retry`.",
+		Description: "Re-run a failed pipeline job (and unblock its dependents) without recreating the whole pipeline. Mirrors `warden pipeline job retry`.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a retryPipelineArgs) (*mcpsdk.CallToolResult, any, error) {
 		if err := s.cl.PipelineRetry(ctx, a.Pipeline, a.Job); err != nil {
 			return textResult("error: " + err.Error()), nil, nil
@@ -1071,7 +1071,7 @@ func (s *Server) registerExtraTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "edit_pipeline_job",
-		Description: "Edit a pending pipeline job's prompt and/or handoff output before it runs. Omit a field to leave it unchanged. Mirrors `warden pipeline edit-job`.",
+		Description: "Edit a pending pipeline job's prompt and/or handoff output before it runs. Omit a field to leave it unchanged. Mirrors `warden pipeline job edit`.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a editPipelineJobArgs) (*mcpsdk.CallToolResult, any, error) {
 		var prompt, handoff *string
 		if a.Prompt != "" {
@@ -1098,7 +1098,7 @@ func (s *Server) registerExtraTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "delete_pipeline",
-		Description: "Delete a pipeline record (and its job bookkeeping). Use after a pipeline is finished/cancelled to clean up. Mirrors `warden pipeline delete`; cancel_pipeline stops a running one without deleting it.",
+		Description: "Delete a pipeline record (and its job bookkeeping). Use after a pipeline is finished/cancelled to clean up. Branches and worktrees are kept. Mirrors `warden pipeline delete`; cancel_pipeline stops a running one without deleting it — cancel terminates live job agents and cannot be undone. The calling agent is responsible for confirming before calling.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a pipelineIDArgs) (*mcpsdk.CallToolResult, any, error) {
 		if err := s.cl.PipelineDelete(ctx, a.Pipeline); err != nil {
 			return textResult("error: " + err.Error()), nil, nil

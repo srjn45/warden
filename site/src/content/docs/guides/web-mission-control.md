@@ -59,7 +59,7 @@ Each agent card also shows the **brand logo of the backend** driving it in the t
 | **Theme toggle** | Light / dark / system theming. |
 | **Keyboard shortcuts** | Global shortcuts for navigation and actions (`1`–`9` jump to a tab, `j`/`k` next/previous, `Esc` close), with a `?` help overlay listing them. |
 
-The web dashboard also has a **Pipelines** tab: it lists pipelines, shows a selected pipeline's jobs as status-colored cards with dependency chips, and a per-job drawer with the prompt/handoff/output, a **Cancel** (pipeline) / **Retry** (job) control, and an **Open terminal** link to a running job's session. (Creating / editing pipelines in the browser is not yet available — use `warden pipeline create -f`.)
+The web dashboard also has a **Pipelines** tab: it lists pipelines, shows a selected pipeline's jobs as status-colored cards with dependency chips, and a per-job drawer with the prompt/handoff/output, a **Cancel** (pipeline) / **Retry** (job) control, and an **Open terminal** link to a running job's session. (Creating / editing pipelines in the browser is not yet available — use `warden pipeline create <spec.yaml>` or `-f`.)
 
 ## Full-screen TUI
 

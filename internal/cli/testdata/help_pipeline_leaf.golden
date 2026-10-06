@@ -1,11 +1,16 @@
-Edit a pending job's prompt and/or handoff
+Change the prompt and/or handoff hint of a job before it starts. A job that
+has already started cannot be edited.
+
+Examples:
+  wd pipeline job edit my-run build --prompt "build with -race"
+  wd pipeline job edit my-run build --handoff "report the test count"
 
 Usage:
-  warden pipeline edit-job <pipeline> <job> [flags]
+  warden pipeline job edit <pipeline> <job> [flags]
 
 Flags:
       --handoff string   new handoff hint for the job
-  -h, --help             help for edit-job
+  -h, --help             help for edit
       --prompt string    new prompt for the job
 
 Inherited flags:

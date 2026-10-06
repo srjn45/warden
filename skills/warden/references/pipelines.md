@@ -18,29 +18,47 @@ it's registered. **Every** pipeline verb now has an MCP tool (full parity); only
 | `list_pipeline_templates` | Built-in templates + their placeholders. |
 | `library_list` | Browse spawn presets AND pipeline templates together (`warden project library list`). |
 | `start_pipeline {pipeline}` | Spawn the dependency-free entry jobs; the daemon drives the rest. |
-| `show_pipeline {pipeline}` | Per-job status + branch + emitted output (durable after agents are gone). |
-| `list_pipelines` | All pipelines + status. |
-| `pause_pipeline` / `resume_pipeline {pipeline}` | Halt new spawns (in-flight finish) / resume spawning. |
-| `retry_pipeline_job {pipeline, job}` | Re-run a failed job and reopen skipped descendants. |
-| `edit_pipeline_job {pipeline, job, prompt?, handoff?}` | Tweak a pending job before it runs. |
+| `show_pipeline {pipeline}` | Per-job status + branch + emitted output (durable after agents are gone). CLI: `--prompts`, `--json`, `--watch`, `--all-jobs`. |
+| `list_pipelines` | Pipelines + status; optional `project_id` and `status` (comma-separated) narrow the list. CLI: `wd pipeline list` (current project; `--all`, `--project`, `--status`, `--json`). |
+| `pause_pipeline` / `resume_pipeline {pipeline}` | Halt new spawns (in-flight finish) / resume spawning. Plan-owned pipelines refuse these — use `control_plan` / `wd plan pause\|resume`. |
+| `retry_pipeline_job {pipeline, job}` | Re-run a failed job and reopen skipped descendants. CLI: `wd pipeline job retry`. |
+| `edit_pipeline_job {pipeline, job, prompt?, handoff?}` | Tweak a pending job before it runs. CLI: `wd pipeline job edit`. |
 | `emit_pipeline_output {pipeline, job, text}` | Set a job's handoff output passed downstream. |
-| `cancel_pipeline {pipeline}` | Stop (terminates any live jobs). |
-| `delete_pipeline {pipeline}` | Remove the record (cancel first if jobs are live). |
+| `cancel_pipeline {pipeline}` | Stop (terminates any live job agents; cannot be undone — a canceled pipeline cannot be restarted). Confirm before calling; CLI needs `--yes` when jobs are live. |
+| `delete_pipeline {pipeline}` | Remove the record (cancel first if jobs are live). Confirm before calling; CLI needs `--yes`. |
 
 ## CLI lifecycle
 
 ```sh
-warden pipeline validate -f spec.yaml   # client-side spec check (DAG/refs/cycles); exit 0/1, no daemon
-warden pipeline create -f spec.yaml     # validate + register  (or: --template <name> [--set K=V])
+warden pipeline validate spec.yaml      # client-side spec check (DAG/refs/cycles); exit 0/1, no daemon
+warden pipeline create spec.yaml        # validate + register
+warden pipeline create spec.yaml --start  # create and start in one step
+warden pipeline create -f spec.yaml --json  # -f still works; --json for scripting
+warden pipeline create --template <name> [--set K=V]
 warden pipeline template list          # built-in templates + their placeholders
 warden pipeline start <name>            # spawn entry jobs; daemon drives the rest
-warden pipeline show <name>             # per-job status + branch + emitted output
-warden pipeline list                    # all pipelines + status
+warden pipeline show <name>             # jobs table (hidden span jobs by default)
+warden pipeline show <name> --watch     # refresh until done/stalled/canceled
+warden pipeline show <name> --prompts   # also print each job's prompt and handoff
+warden pipeline show <name> --all-jobs  # include warden-injected span-out/span-in jobs
+warden pipeline show <name> --json
+warden pipeline list                    # current project
+warden pipeline list --all --status running,paused
+warden pipeline list --project ~/dev/app --json
 warden pipeline pause <name>            # halt new spawns; in-flight jobs finish
 warden pipeline resume <name>           # resume spawning
-warden pipeline cancel <name>           # stop (terminates live jobs)
-warden pipeline delete <name>           # remove the record (cancel first if jobs are live)
+warden pipeline cancel <name> --yes     # stop (terminates live jobs; --yes skips confirm)
+warden pipeline delete <name> --yes     # remove the record (always confirms unless --yes)
 ```
+
+Span-out/span-in jobs are created by warden for fan-out/join — hidden by default
+in `show`, marked `[warden]` with `--all-jobs`, and cannot be edited or retried.
+A pipeline run by a plan is controlled with `wd plan pause|resume|stop` — the
+pipeline pause/resume/cancel/delete verbs refuse it.
+
+**Removed in this release:** `pipeline edit-job` → `pipeline job edit`;
+`pipeline retry` → `pipeline job retry`; `pipeline list-templates` →
+`pipeline template list`.
 
 ## Authoring the spec (analyze → implement → review)
 
@@ -62,8 +80,9 @@ jobs:
     worktree: from:implement   # branch off implement's branch (builds on its commits)
 ```
 
-Then create + start (MCP `create_pipeline`/`start_pipeline`, or `warden pipeline
-create -f refactor-auth.yaml && warden pipeline start refactor-auth`).
+Then create + start (MCP `create_pipeline`/`start_pipeline`, or
+`warden pipeline create refactor-auth.yaml --start`, or
+`warden pipeline create -f refactor-auth.yaml && warden pipeline start refactor-auth`).
 
 Per-job fields: `id` (required, unique, safe — no `/` `:`), `prompt` (required),
 `depends_on` (list of job ids), `worktree` (`none` | `fresh` | `from:<job>`,
@@ -98,28 +117,30 @@ Four bundled starters — `analyze-implement-review`, `parallel-tasks`,
 | Intent | Command |
 |---|---|
 | publish a job's handoff (an agent runs this itself when done; a lead can run it on a job's behalf) | `warden pipeline emit "<text>" [--pipeline <p> --job <j>]` (defaults from `$WARDEN_PIPELINE_ID`/`$WARDEN_JOB_ID`) |
-| tweak a *pending* job before it starts | `warden pipeline edit-job <p> <job> --prompt "…" --handoff "…"` |
-| re-run a failed / needs-attention job (reopens skipped descendants) | `warden pipeline retry <p> <job>` |
+| inspect one job in full | `warden pipeline job show <p> <job>` |
+| tweak a *pending* job before it starts | `warden pipeline job edit <p> <job> --prompt "…" --handoff "…"` |
+| re-run a failed / needs-attention job (reopens skipped descendants) | `warden pipeline job retry <p> <job>` |
 
-**Plan-bound pipelines** (`wd plan run --mode pipeline`): a canceled or stalled
-pipeline is reopened with `wd plan restart <plan-id> --yes` (MCP `restart_plan`),
-not `pipeline resume` (paused-only) or `retry` (one job). **Destructive** — ask the
-operator first: live job agents and worktrees are removed, `done` jobs and
-handoffs are kept, other unfinished jobs are reset and re-run with fresh agents
-(branches with commits become their base) and a `## Restart context` in the job
-prompt. `--force` is needed while a job agent is working or the pipeline is
-running/paused.
+**Plan-bound pipelines** (`wd plan run --mode pipeline`): control with
+`wd plan pause|resume|stop` — the pipeline pause/resume/cancel/delete verbs refuse
+it. A canceled or stalled pipeline is reopened with `wd plan restart <plan-id> --yes`
+(MCP `restart_plan`), not `pipeline resume` (paused-only) or `job retry` (one job).
+**Destructive** — ask the operator first: live job agents and worktrees are removed,
+`done` jobs and handoffs are kept, other unfinished jobs are reset and re-run with
+fresh agents (branches with commits become their base) and a `## Restart context`
+in the job prompt. `--force` is needed while a job agent is working or the pipeline
+is running/paused.
 
 A job whose agent goes quiet without emitting is flagged `needs_attention` (the
 pipeline stays `running`) — resolve it with `emit` (if it actually finished) or
-`retry`. If the job remains `needs_attention` after the watcher's one deterministic
+`job retry`. If the job remains `needs_attention` after the watcher's one deterministic
 auto-retry, the daemon automatically runs a **brain consult**: a short-lived
 `role=brain` agent picks one action from the closed enum (`wait` / `nudge_agent` /
 `retry_job` / `mark_failed` / `skip_job` / `escalate` / `noop`) and the daemon
 executes it — the brain is torn down right after. Every consult writes a
 `brain_consult` audit event. This is the **same `Consultor`** the autopilot
 manager uses for ad-hoc decisions — no duplicate spawn/teardown logic. You can
-still `retry` or `emit` manually at any time. Disable globally with
+still `job retry` or `emit` manually at any time. Disable globally with
 `brain_consult.enabled: false` or per-pipeline with `pipeline.brain_consult: false`.
 
 **Results are durable:** `show_pipeline` / `warden pipeline show` prints

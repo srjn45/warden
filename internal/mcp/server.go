@@ -26,6 +26,10 @@ type Server struct {
 
 // Tool argument structs (the SDK derives JSON schema from these).
 type listArgs struct{}
+type listPipelinesArgs struct {
+	ProjectID string `json:"project_id,omitempty" jsonschema:"only pipelines in this project (id, usually the repo root path)"`
+	Status    string `json:"status,omitempty" jsonschema:"only pipelines in these statuses, comma-separated (pending, running, paused, done, stalled, canceled)"`
+}
 type ticketArgs struct {
 	Ticket string `json:"ticket" jsonschema:"the ticket / session id, e.g. PROJ-350"`
 }
@@ -164,9 +168,10 @@ type whoIsEditingArgs struct {
 }
 
 type createPipelineArgs struct {
-	Spec      string `json:"spec" jsonschema:"the pipeline definition as a YAML spec — top-level name, repo, and a jobs list (each job: id, prompt, optional depends_on, worktree none|fresh|from:<job>, type, run_if, supervised). Same schema as a 'warden pipeline create -f' file."`
+	Spec      string `json:"spec" jsonschema:"the pipeline definition as a YAML spec — top-level name, repo, and a jobs list (each job: id, prompt, optional depends_on, worktree none|fresh|from:<job>, type, run_if, supervised). Same schema as a 'warden pipeline create' file."`
 	ProjectID string `json:"project_id,omitempty" jsonschema:"optional first-class project id this pipeline joins; overrides YAML project_id; empty = daemon path-matches the pipeline repo to an OPEN project"`
-	PlanID    string `json:"plan_id,omitempty" jsonschema:"optional planstore plan id in the same project; empty = planless pipeline. A non-empty value must name an existing plan belonging to the resolved project"`
+	PlanID    string `json:"plan_id,omitempty" jsonschema:"optional plan id to link for reference; does not make that plan run this pipeline. A non-empty value must name an existing plan belonging to the resolved project"`
+	Start     bool   `json:"start,omitempty" jsonschema:"when true, start the pipeline immediately after creating it (same as CLI create --start). If start fails the pipeline is still created — call start_pipeline separately"`
 }
 type pipelineIDArgs struct {
 	Pipeline string `json:"pipeline" jsonschema:"the pipeline id (equals its name)"`
@@ -738,7 +743,7 @@ func NewServer(daemonBase string) *Server {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "create_pipeline",
-		Description: "Create a DAG pipeline of agent jobs from a YAML spec (the daemon parses, validates, and stores it). Use this to drive a multi-stage / dependent agent workflow (e.g. analyze→implement→review) instead of spawning and wiring agents by hand. The pipeline starts in `pending` — call start_pipeline to spawn its entry jobs. Returns the created pipeline {id, status, jobs}.",
+		Description: "Create a DAG pipeline of agent jobs from a YAML spec (the daemon parses, validates, and stores it). Use this to drive a multi-stage / dependent agent workflow (e.g. analyze→implement→review) instead of spawning and wiring agents by hand. By default the pipeline starts in `pending` — call start_pipeline (or pass start:true) to spawn its entry jobs. Returns the created pipeline {id, status, jobs, job_count, jobs_done}; job_count/jobs_done count only your jobs — warden-injected span jobs appear in `jobs` flagged `synthetic` and cannot be edited or retried.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a createPipelineArgs) (*mcpsdk.CallToolResult, any, error) {
 		p, err := s.cl.PipelineCreateWith(ctx, client.PipelineCreateParams{
 			Spec: a.Spec, ProjectID: a.ProjectID, PlanID: a.PlanID,
@@ -746,15 +751,26 @@ func NewServer(daemonBase string) *Server {
 		if err != nil {
 			return textResult("error: " + err.Error()), nil, nil
 		}
+		if a.Start {
+			if err := s.cl.PipelineStart(ctx, p.ID); err != nil {
+				return textResult(fmt.Sprintf(
+					"created pipeline %s, but start failed: %s — call start_pipeline with pipeline %q",
+					p.ID, err.Error(), p.ID)), nil, nil
+			}
+			// Refresh so the returned object reflects the started status.
+			if refreshed, gerr := s.cl.PipelineGet(ctx, p.ID); gerr == nil {
+				p = refreshed
+			}
+		}
 		r, err := jsonResult(p)
 		return r, nil, err
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "list_pipelines",
-		Description: "List all pipelines with their status and job count.",
-	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ listArgs) (*mcpsdk.CallToolResult, any, error) {
-		ps, err := s.cl.PipelineList(ctx)
+		Description: "List pipelines with their status and job count. Optional project_id and status (comma-separated) narrow the result; with neither, every pipeline is returned.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a listPipelinesArgs) (*mcpsdk.CallToolResult, any, error) {
+		ps, err := s.cl.PipelineListFiltered(ctx, a.ProjectID, a.Status)
 		if err != nil {
 			return textResult("error: " + err.Error()), nil, nil
 		}
@@ -776,7 +792,7 @@ func NewServer(daemonBase string) *Server {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "show_pipeline",
-		Description: "Show one pipeline's jobs and their status, including each job's branch and emitted handoff output — so a finished pipeline's results are readable here even after its agents are gone.",
+		Description: "Show one pipeline's jobs and their status (job_count/jobs_done count only user-authored jobs; jobs flagged `synthetic` are warden-injected), including each job's branch and emitted handoff output — so a finished pipeline's results are readable here even after its agents are gone.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a pipelineIDArgs) (*mcpsdk.CallToolResult, any, error) {
 		p, err := s.cl.PipelineGet(ctx, a.Pipeline)
 		if err != nil {
@@ -798,7 +814,7 @@ func NewServer(daemonBase string) *Server {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "cancel_pipeline",
-		Description: "Cancel a pipeline: terminates any live job sessions and marks remaining jobs skipped. A finished pipeline cannot be canceled (delete it via the CLI instead).",
+		Description: "Cancel a pipeline: terminates any live job agents immediately and marks remaining jobs skipped. This cannot be undone — a canceled pipeline cannot be restarted (create a new one from the same spec or template). A finished pipeline cannot be canceled (delete it via the CLI instead). The calling agent is responsible for confirming before calling.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a pipelineIDArgs) (*mcpsdk.CallToolResult, any, error) {
 		if err := s.cl.PipelineCancel(ctx, a.Pipeline); err != nil {
 			return textResult("error: " + err.Error()), nil, nil

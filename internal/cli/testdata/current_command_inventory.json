@@ -2509,23 +2509,8 @@
     "path": "pipeline cancel",
     "use": "cancel \u003cpipeline\u003e",
     "runnable": true,
-    "inherited_flags": [
-      "addr",
-      "config"
-    ]
-  },
-  {
-    "path": "pipeline create",
-    "use": "create (-f \u003cspec.yaml\u003e | --template \u003cname\u003e)",
-    "runnable": true,
     "local_flags": [
-      "file",
-      "name",
-      "plan",
-      "project",
-      "repo",
-      "set",
-      "template"
+      "yes"
     ],
     "inherited_flags": [
       "addr",
@@ -2533,21 +2518,32 @@
     ]
   },
   {
-    "path": "pipeline delete",
-    "use": "delete \u003cpipeline\u003e",
+    "path": "pipeline create",
+    "use": "create [spec.yaml]",
     "runnable": true,
+    "local_flags": [
+      "file",
+      "json",
+      "name",
+      "plan",
+      "project",
+      "repo",
+      "set",
+      "start",
+      "template"
+    ],
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
   },
   {
-    "path": "pipeline edit-job",
-    "use": "edit-job \u003cpipeline\u003e \u003cjob\u003e",
+    "path": "pipeline delete",
+    "use": "delete \u003cpipeline\u003e",
     "runnable": true,
     "local_flags": [
-      "handoff",
-      "prompt"
+      "yes"
     ],
     "inherited_flags": [
       "addr",
@@ -2568,8 +2564,29 @@
     ]
   },
   {
-    "path": "pipeline list",
-    "use": "list",
+    "path": "pipeline job",
+    "use": "job",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "pipeline job edit",
+    "use": "edit \u003cpipeline\u003e \u003cjob\u003e",
+    "runnable": true,
+    "local_flags": [
+      "handoff",
+      "prompt"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "pipeline job retry",
+    "use": "retry \u003cpipeline\u003e \u003cjob\u003e",
     "runnable": true,
     "inherited_flags": [
       "addr",
@@ -2577,14 +2594,36 @@
     ]
   },
   {
-    "path": "pipeline list-templates",
-    "use": "list-templates",
-    "hidden": true,
+    "path": "pipeline job show",
+    "use": "show \u003cpipeline\u003e \u003cjob\u003e",
     "runnable": true,
+    "local_flags": [
+      "json"
+    ],
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
+  },
+  {
+    "path": "pipeline list",
+    "use": "list",
+    "aliases": [
+      "ls"
+    ],
+    "runnable": true,
+    "local_flags": [
+      "all",
+      "json",
+      "project",
+      "status"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
   },
   {
     "path": "pipeline pause",
@@ -2605,22 +2644,20 @@
     ]
   },
   {
-    "path": "pipeline retry",
-    "use": "retry \u003cpipeline\u003e \u003cjob\u003e",
-    "runnable": true,
-    "inherited_flags": [
-      "addr",
-      "config"
-    ]
-  },
-  {
     "path": "pipeline show",
     "use": "show \u003cpipeline\u003e",
     "runnable": true,
+    "local_flags": [
+      "all-jobs",
+      "json",
+      "prompts",
+      "watch"
+    ],
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
   },
   {
     "path": "pipeline start",
@@ -2649,8 +2686,17 @@
     ]
   },
   {
+    "path": "pipeline template show",
+    "use": "show \u003cname\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
     "path": "pipeline validate",
-    "use": "validate -f \u003cspec.yaml\u003e",
+    "use": "validate [spec.yaml]",
     "runnable": true,
     "local_flags": [
       "file"

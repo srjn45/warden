@@ -31,6 +31,7 @@ Complete command tree:
   warden pipeline create               Create a pipeline from a YAML spec or a built-in template
   warden pipeline template             Built-in pipeline templates
   warden pipeline template list        List the built-in pipeline templates and their placeholders
+  warden pipeline template show        Print a built-in pipeline template's YAML
   warden pipeline list                 List pipelines
   warden pipeline show                 Show a pipeline's jobs and their status
   warden pipeline start                Start a pipeline (spawns jobs with no dependencies)
@@ -39,8 +40,10 @@ Complete command tree:
   warden pipeline cancel               Cancel a pipeline (terminates running jobs)
   warden pipeline delete               Delete a pipeline's record (must not have live jobs — cancel first)
   warden pipeline emit                 Publish this job's handoff (run from inside a pipeline job)
-  warden pipeline edit-job             Edit a pending job's prompt and/or handoff
-  warden pipeline retry                Re-run a failed or needs-attention job (reopens skipped descendants)
+  warden pipeline job                  Inspect, edit and retry one job of a pipeline
+  warden pipeline job show             Show everything about one job
+  warden pipeline job edit             Edit the prompt and/or handoff of a job that has not started
+  warden pipeline job retry            Re-run a failed or needs-attention job (reopens skipped descendants)
   warden plan                          Manage plans tracked by the daemon
   warden plan list                     List plans for a project
   warden plan create                   Create a canonical plan in ScrivaDB
@@ -317,7 +320,7 @@ Compatibility aliases:
   warden msg inbox -> warden message inbox (compatibility)
   warden msg send -> warden message send (compatibility)
   warden msg wait -> warden message wait (compatibility)
-  warden pipeline list-templates -> warden pipeline template list (compatibility)
+  warden pipeline ls -> warden pipeline list (compatibility)
   warden plan ls -> warden plan list (compatibility)
   warden plugin -> warden project plugin (compatibility)
   warden plugin list -> warden project plugin list (compatibility)

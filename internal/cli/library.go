@@ -16,7 +16,7 @@ import (
 // adds no storage or format of its own — it is a single discoverable entry point
 // that reuses the existing preset store, the prompt-template store, and the
 // embedded pipeline-template catalog. The standalone `preset`, `prompt-template`,
-// and `pipeline list-templates` commands keep working exactly as before.
+// and `pipeline template list` commands keep working exactly as before.
 func newLibraryCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "library",
@@ -30,8 +30,8 @@ func newLibraryCmd() *cobra.Command {
 			"same as `warden preset save`) and `library save-prompt` saves a prompt template\n" +
 			"(the same as `warden prompt-template save`). Pipeline templates are embedded and\n" +
 			"read-only, so there is no `save-template`; author a pipeline from a YAML spec with\n" +
-			"`warden pipeline create -f <spec.yaml>` instead. The `preset`, `prompt-template`,\n" +
-			"and `pipeline list-templates` commands remain available and unchanged.",
+			"`warden pipeline create <spec.yaml>` instead. The `preset`, `prompt-template`,\n" +
+			"and `pipeline template list` commands remain available and unchanged.",
 	}
 	cmd.AddCommand(newLibraryListCmd(), newLibrarySavePresetCmd(), newLibrarySavePromptCmd())
 	return cmd
@@ -41,10 +41,11 @@ func newLibraryListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "List saved spawn presets and built-in pipeline templates",
-		Long: "Show both libraries in two labeled sections: saved spawn presets (name +\n" +
-			"their stored defaults) and the built-in pipeline templates (name + a short\n" +
-			"description). Reuses the same sources as `warden preset list` and `warden\n" +
-			"pipeline list-templates`.",
+		Long: "Show all three libraries in labeled sections: saved spawn presets (name +\n" +
+			"their stored defaults), prompt templates, and the built-in pipeline templates\n" +
+			"(name + a short description). The pipeline templates section is the same catalog\n" +
+			"as `wd pipeline template list`. Reuses the same sources as `warden preset list`\n" +
+			"and `wd pipeline template list`.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()

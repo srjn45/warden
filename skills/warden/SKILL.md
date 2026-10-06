@@ -60,7 +60,7 @@ The everyday verbs, so the common path needs no reference-file round-trip:
 | git lifecycle / checks | `wd commit` / `wd push` / `wd sync` / `wd check [name]` |
 | release tag advice (never `--yes` unless the operator asked to tag) | `wd release --dry-run` |
 | release tag advice (never `--yes` unless the operator asked to tag) | `wd release --dry-run` |
-| pipelines | `warden pipeline create -f spec.yaml` → `warden pipeline start/show <id>` |
+| pipelines | `warden pipeline create spec.yaml` → `warden pipeline start/show <id>` (cancel/delete need `--yes`) |
 | projects / groups | `warden projects list` · `warden project-groups list` |
 
 For anything beyond these, open the matching reference file — each carries the
@@ -119,7 +119,7 @@ OS and avoiding compaction spikes.
 | Use… | When | How |
 |---|---|---|
 | **Plain agent** *(default)* | one self-contained task; OR several **independent** tasks (none needs another's result — just spawn several) | `spawn_agent` / `warden start "…"` |
-| **Pipeline** | **dependent stages** — sequential handoff (analyze→implement→review), fan-out→fan-in (parallel work → a synthesis/merge step), code flowing downstream, or anything to run **unattended** | MCP `create_pipeline`+`start_pipeline`, or `warden pipeline create -f spec.yaml` then `start` |
+| **Pipeline** | **dependent stages** — sequential handoff (analyze→implement→review), fan-out→fan-in (parallel work → a synthesis/merge step), code flowing downstream, or anything to run **unattended** | MCP `create_pipeline`+`start_pipeline`, or `warden pipeline create spec.yaml` (or `--start`) then `start`/`show` |
 | **ctx / msg** | ad-hoc coordination between otherwise-independent agents — a shared scratchpad, or one agent asking another a question | `ctx_*` / `send_message` MCP, or `warden context …` / `warden message …` |
 
 **Don't:** use a pipeline for a single task (use a plain agent); use plain agents +
@@ -137,7 +137,7 @@ multi-phase task as one long-lived plain agent (decompose into stages).
 - **MCP tools and the CLI wrap the same daemon REST API** (81 MCP tools), so prefer
   MCP and fall back to CLI only when MCP is blocked (see above). **Every fleet/data
   feature is reachable from MCP *and* CLI** — pipelines (all verbs incl.
-  pause/resume/retry/edit-job/emit/delete/validate/templates), schedules
+  pause/resume/job show|edit|retry/emit/delete/validate/templates), schedules
   (create/list/delete), git/check lifecycle, snapshots, ctx/msg, approvals +
   auto-approve + permission-mode, branches/collab, insights, savings, metrics,
   search/history, audit log, worktree list/prune, plugins, export/import,
@@ -195,7 +195,9 @@ and the rotate/handoff workflows.
   with the user first, naming what will be lost. `terminate_agent` is the safe
   reversible "stop" default.
 - **Cancel a pipeline before deleting it** — `pipeline delete` refuses while any
-  job is live.
+  job is live. From a shell, pass `--yes` on both `pipeline cancel` and
+  `pipeline delete` (they confirm otherwise; a canceled pipeline cannot be
+  restarted).
 - **Respect the boundary guards** — when a hook denies a raw `git`/test command or
   an out-of-worktree edit, that is by design (see git-and-checks.md); switch to the
   warden tool it names rather than working around it.

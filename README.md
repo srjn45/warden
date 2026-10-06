@@ -996,20 +996,31 @@ The handoff file lives at a unique, per-agent temp path so concurrent rotations 
 Define a **DAG of agent jobs** in YAML and let the daemon run them: jobs with no dependencies start first, and each job's `emit` publishes its output and unblocks its dependents. The daemon owns the cheap "await + fire" so the lead Claude stays off the critical path.
 
 ```sh
-warden pipeline validate -f review.yaml # check the spec (DAG/refs/cycles); exit 0/1, no daemon
-warden pipeline create -f review.yaml   # validate + register (does not start)
+warden pipeline validate review.yaml    # check the spec (DAG/refs/cycles); exit 0/1, no daemon
+warden pipeline create review.yaml      # validate + register (does not start)
+warden pipeline create review.yaml --start  # create and start in one step
+warden pipeline create -f review.yaml --json  # -f still works; --json for scripting
 warden pipeline template list          # list the built-in starter templates + their placeholders
 warden pipeline create --template analyze-implement-review --set REPO=. # render from a template
 warden pipeline start <id>              # spawn jobs with no dependencies
-warden pipeline show <id>               # jobs, status, branches, and emitted output
-warden pipeline list
-warden pipeline edit-job <id> <job> ... # edit a not-yet-started job's fields
-warden pipeline retry <id> <job>        # re-run a failed/needs-attention job
+warden pipeline show <id>               # jobs table (status, agent, backend, after, branch)
+warden pipeline show <id> --watch       # refresh until done/stalled/canceled
+warden pipeline show <id> --prompts     # also print each job's prompt and handoff
+warden pipeline show <id> --all-jobs    # include warden-injected span-out/span-in jobs
+warden pipeline show <id> --json        # full machine-readable view
+warden pipeline list                    # current project (use --all / --project / --status / --json)
+warden pipeline job show <id> <job>     # full detail for one job
+warden pipeline job edit <id> <job> ... # edit a not-yet-started job's fields
+warden pipeline job retry <id> <job>    # re-run a failed/needs-attention job
 warden pipeline pause <id>              # stop spawning new jobs (in-flight keep running)
 warden pipeline resume <id>             # resume a paused pipeline
-warden pipeline cancel <id>             # terminate running jobs
-warden pipeline delete <id>             # remove the record (cancel first if live)
+warden pipeline cancel <id> [--yes]     # terminate running jobs (confirms if any are live; cannot restart)
+warden pipeline delete <id> [--yes]     # remove the record (always confirms; cancel first if live)
 ```
+
+`pipeline list` defaults to the project of the current directory (`--all` for every project, `--project` to pick one, `--status` / `--json` to filter or script). Span-out/span-in jobs are created by warden for fan-out/join — hidden by default in `show`, marked `[warden]` with `--all-jobs`, and cannot be edited or retried. A pipeline run by a plan is controlled with `wd plan pause|resume|stop` — the pipeline pause/resume/cancel/delete verbs refuse it. A canceled pipeline cannot be restarted; create a new one from the same spec or template.
+
+**Removed in this release:** `pipeline edit-job` → `pipeline job edit`; `pipeline retry` → `pipeline job retry`; `pipeline list-templates` → `pipeline template list`.
 
 Four `go:embed`-bundled templates ship in the binary — `analyze-implement-review`, `parallel-tasks`, `test-fix-verify`, `research-synthesis`. Render one with `warden pipeline create --template <name>`, substituting placeholders via `{{NAME}}`/`{{REPO}}` (auto-filled) and `--set KEY=VALUE`.
 

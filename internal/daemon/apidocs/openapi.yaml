@@ -2884,6 +2884,17 @@ paths:
       operationId: listPipelines
       tags: [Pipelines]
       summary: List pipelines
+      parameters:
+        - name: project_id
+          in: query
+          required: false
+          description: Only pipelines belonging to this project id.
+          schema: { type: string }
+        - name: status
+          in: query
+          required: false
+          description: Only pipelines in one of these statuses (comma-separated).
+          schema: { type: string }
       responses:
         "200":
           description: All pipelines
@@ -2948,6 +2959,11 @@ paths:
       responses:
         "200": { $ref: "#/components/responses/OK" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Refused because a plan runs this pipeline (use the plan command named in the message) or the pipeline is in the wrong state for this action
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
   /api/v1/pipelines/{pid}/start:
     post:
@@ -2968,6 +2984,11 @@ paths:
       responses:
         "200": { $ref: "#/components/responses/OK" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Refused because a plan runs this pipeline (use the plan command named in the message) or the pipeline is in the wrong state for this action
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
   /api/v1/pipelines/{pid}/resume:
     post:
@@ -2978,6 +2999,11 @@ paths:
       responses:
         "200": { $ref: "#/components/responses/OK" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Refused because a plan runs this pipeline (use the plan command named in the message) or the pipeline is in the wrong state for this action
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
   /api/v1/pipelines/{pid}/cancel:
     post:
@@ -2988,6 +3014,11 @@ paths:
       responses:
         "200": { $ref: "#/components/responses/OK" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Refused because a plan runs this pipeline (use the plan command named in the message) or the pipeline is in the wrong state for this action
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
   /api/v1/pipelines/{pid}/jobs/{job}/emit:
     post:
@@ -6154,6 +6185,8 @@ components:
         prompt: { type: string }
         depends_on: { type: array, items: { type: string } }
         handoff: { type: string }
+        backend: { type: string, description: "agent backend the job's agent runs on, when set" }
+        model: { type: string, description: "model the job's agent runs, when set" }
         worktree: { type: string, description: "none | fresh | from:<jobid>" }
         supervised: { type: boolean }
         role:
@@ -6176,6 +6209,13 @@ components:
         output: { type: string }
         branch: { type: string }
         digest: { $ref: "#/components/schemas/Digest" }
+        synthetic:
+          type: boolean
+          description: >-
+            True for jobs warden injects itself (the span-out / span-in fan-out
+            and join jobs) rather than ones the spec author wrote. They stay in
+            `jobs` for the executor and UIs but cannot be edited or retried and
+            are excluded from `job_count` / `jobs_done`.
 
     Pipeline:
       x-go-type: pipeline.Pipeline
@@ -6188,6 +6228,8 @@ components:
         name: { type: string }
         repo: { type: string }
         status: { type: string }
+        schedule_id: { type: string, description: "schedule that created this pipeline, when scheduled" }
+        schedule_name: { type: string, description: "operator-facing name of that schedule" }
         plan_id:
           type: string
           description: "back-ref to the plan this pipeline is executing; absent for pipelines not created from a plan"
@@ -6219,6 +6261,12 @@ components:
         jobs:
           type: array
           items: { $ref: "#/components/schemas/PipelineJob" }
+        job_count:
+          type: integer
+          description: Number of user-authored jobs (synthetic jobs excluded).
+        jobs_done:
+          type: integer
+          description: Number of user-authored jobs whose status is done.
 
     Tree:
       x-go-type: tree.Tree

@@ -87,8 +87,12 @@ func TestRenderTemplateMissingVar(t *testing.T) {
 }
 
 func TestRenderTemplateUnknown(t *testing.T) {
-	if _, err := RenderTemplate("nope", map[string]string{}); err == nil {
+	_, err := RenderTemplate("nope", map[string]string{})
+	if err == nil {
 		t.Fatal("expected an error for an unknown template")
+	}
+	if !strings.Contains(err.Error(), "wd pipeline template list") {
+		t.Fatalf("unknown-template hint: %v", err)
 	}
 	if _, err := RenderTemplate("../secret", map[string]string{}); err == nil {
 		t.Fatal("expected an error for a traversal name")
