@@ -1,9 +1,17 @@
-Create timer-driven triggers that the daemon fires on a schedule: a recurring
-cron spec (--cron "0 9 * * *") or a single-shot time (--at 2026-06-27T09:00).
-Each schedule fires either one agent spawn (the default — pass --repo/
---prompt; --type is a deprecated alias mapped to role at fire time) or a
-pipeline (--pipeline <spec.yaml>). The scheduler is opt-in: set
-scheduler_enabled: true in the config file and keep the daemon running.
+Timer-driven triggers the daemon fires for you: an agent or a pipeline, on a
+recurring cron spec, at one set time, or right now.
+
+A typical journey:
+  1. create   warden schedule create nightly --cron "0 2 * * *" --prompt "..."
+  2. look     warden schedule list, then warden schedule show nightly
+  3. test     warden schedule run nightly (fires once now; next run unchanged)
+  4. change   warden schedule edit nightly --cron "0 3 * * *"
+  5. pause    warden schedule disable nightly, and enable to resume
+  6. remove   warden schedule delete nightly
+
+Nothing fires unless the scheduler is enabled (scheduler_enabled: true in the
+config file) and the daemon is running. Runs a recurring schedule missed while
+the daemon was down are not made up: it resumes at its next regular time.
 
 Usage:
   warden schedule [flags]
@@ -12,6 +20,8 @@ Commands:
   create               Create a schedule that fires an agent or a pipeline
   list                 List schedules
   show                 Show one schedule, including its last-run outcome
+  edit                 Edit a schedule's timing or fire payload
+  run                  Fire a schedule once now without changing its next run
   enable               Enable a schedule so it fires again (re-arms next run)
   disable              Disable a schedule so it stops firing (history preserved)
   delete               Delete a schedule

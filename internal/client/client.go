@@ -1386,15 +1386,29 @@ func (c *Client) ScheduleCreate(ctx context.Context, req ScheduleCreateRequest) 
 
 // ScheduleCreateRequest is the JSON body for POST /schedules.
 type ScheduleCreateRequest struct {
-	Name   string `json:"name"`
-	Cron   string `json:"cron,omitempty"`
-	At     string `json:"at,omitempty"`
+	Name string `json:"name"`
+	Cron string `json:"cron,omitempty"`
+	At   string `json:"at,omitempty"`
+	Now  bool   `json:"now,omitempty"`
+	// Type is the deprecated legacy task type, kept so older callers still
+	// compile and send it; the daemon maps it onto a role at fire time.
 	Type   string `json:"type,omitempty"`
 	Repo   string `json:"repo,omitempty"`
+	Cwd    string `json:"cwd,omitempty"`
+	Role   string `json:"role,omitempty"`
 	Prompt string `json:"prompt,omitempty"`
 	Agent  string `json:"agent,omitempty"`
 	Branch string `json:"branch,omitempty"`
-	Spec   string `json:"spec,omitempty"`
+
+	Model          string   `json:"model,omitempty"`
+	AiCli          string   `json:"ai_cli,omitempty"`
+	PermissionMode string   `json:"permission_mode,omitempty"`
+	AutoRestart    bool     `json:"auto_restart,omitempty"`
+	Tags           []string `json:"tags,omitempty"`
+	Tier           string   `json:"tier,omitempty"`
+	ProjectID      string   `json:"project_id,omitempty"`
+
+	Spec string `json:"spec,omitempty"`
 }
 
 func (c *Client) ScheduleList(ctx context.Context) ([]*schedule.Schedule, error) {
@@ -1409,6 +1423,43 @@ func (c *Client) ScheduleList(ctx context.Context) ([]*schedule.Schedule, error)
 
 func (c *Client) ScheduleDelete(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, "/schedules/"+url.PathEscape(id), nil, nil)
+}
+
+// ScheduleUpdate partially edits a schedule. Nil fields are left unchanged;
+// non-nil empty strings clear optional fields.
+func (c *Client) ScheduleUpdate(ctx context.Context, id string, req ScheduleUpdateRequest) (*schedule.Schedule, error) {
+	var sc schedule.Schedule
+	if err := c.do(ctx, http.MethodPatch, "/schedules/"+url.PathEscape(id), req, &sc); err != nil {
+		return nil, err
+	}
+	return &sc, nil
+}
+
+// ScheduleUpdateRequest is the JSON body for PATCH /schedules/{id}.
+type ScheduleUpdateRequest struct {
+	Cron   *string `json:"cron,omitempty"`
+	At     *string `json:"at,omitempty"`
+	Repo   *string `json:"repo,omitempty"`
+	Cwd    *string `json:"cwd,omitempty"`
+	Role   *string `json:"role,omitempty"`
+	Prompt *string `json:"prompt,omitempty"`
+	Agent  *string `json:"agent,omitempty"`
+	Branch *string `json:"branch,omitempty"`
+	Model  *string `json:"model,omitempty"`
+	AiCli  *string `json:"ai_cli,omitempty"`
+	Spec   *string `json:"spec,omitempty"`
+}
+
+// ScheduleRun fires a schedule immediately without changing its next run.
+func (c *Client) ScheduleRun(ctx context.Context, id string) (*schedule.Schedule, string, error) {
+	var resp struct {
+		Schedule schedule.Schedule `json:"schedule"`
+		RunID    string            `json:"run_id"`
+	}
+	if err := c.do(ctx, http.MethodPost, "/schedules/"+url.PathEscape(id)+"/run", nil, &resp); err != nil {
+		return nil, "", err
+	}
+	return &resp.Schedule, resp.RunID, nil
 }
 
 // ScheduleGet fetches one schedule by id.

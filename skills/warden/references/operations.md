@@ -117,18 +117,21 @@ record: `time`, `action`, `actor`, `target`, action-specific `detail`. Flags:
 Daemon-fired triggers — no external crontab. **Opt-in:** gated by
 `scheduler_enabled` (default **off**); routes return 403 and the loop is a no-op
 until enabled (schedules only fire while the daemon runs). Full MCP coverage:
-`list_schedules` / `get_schedule {id}` (read), `create_schedule {name, cron|at, type/repo/prompt | spec}`,
-`enable_schedule {id}` / `disable_schedule {id}` (toggle without deleting),
+`list_schedules` / `get_schedule {id}` (read), `create_schedule {name, cron|at, role/repo/cwd/prompt | spec}`,
+`run_schedule {id}` (test-fire) / `update_schedule {id, ...}` (edit) / `enable_schedule {id}` / `disable_schedule {id}` (toggle without deleting),
 `delete_schedule {id}` (all 403 when disabled).
 
 ```sh
-warden schedule create <name> --cron "0 9 * * *" --type pr-review --repo <p> --prompt "…"
-warden schedule create <name> --at 2026-06-27T09:00 --prompt "…"        # single-shot
-warden schedule create <name> --cron "…" --pipeline <spec.yaml>          # fire a pipeline
-warden schedule list      # kind (cron/at), mode (agent/pipeline), spec, enabled, next run, last error
-warden schedule show <id>  # + last_run_session_id and last_run_status
+warden schedule create <name> --cron "0 9 * * 1-5" --role reviewer --prompt "…"   # recurring agent, current dir
+warden schedule create <name> --at 2026-12-01T08:00 --repo <p> --aicli claude --model sonnet --prompt "…"  # single-shot, worktree
+warden schedule create <name> --now --prompt "…"                          # fire once immediately
+warden schedule create <name> --cron "…" --pipeline <spec.yaml>          # fire a pipeline (no agent flags)
+warden schedule list      # table: NAME, STATE (enabled|disabled|done|failed), WHEN, FIRES, NEXT, LAST
+warden schedule show <id>  # full fire payload + last run (--spec, --json)
+warden schedule run <id>   # fire once now to TEST it; does not move the next run — use after every create
+warden schedule edit <id> --cron "0 8 * * 1-5"   # only passed flags change; "" clears an optional field
 warden schedule enable <id> / disable <id>   # re-arm / stop firing (kept either way)
-warden schedule delete <id>
+warden schedule delete <id> --yes   # ALWAYS pass --yes from a shell: it prompts otherwise and fails without a terminal
 ```
 
 Every fired run's session carries a `schedule_id` (+ `schedule_name`) back-ref —
@@ -136,6 +139,15 @@ on agent-mode fires and a scheduled pipeline's job sessions alike — visible in
 `list_agents`/`GET /sessions` and the SSE stream, so scheduled runs are separable
 from ad-hoc agents. Daemons advertise the `scheduled-agents` capability
 (`GET /api/v1/capabilities`) when this is supported end-to-end.
+
+A scheduled agent starts like `wd start` with the same flags: `--cwd` (default: the
+directory you ran `create` in) or `--repo` (isolated worktree; `--branch`), `--role`
+(default `worker` with `--repo`, else `general`), `--aicli`/`--model` (`--model`
+needs `--aicli`). Unfireable schedules (unknown role, missing dir, no prompt) are
+rejected at create; a past `--at` is rejected; agent flags can't combine with
+`--pipeline`. Zone-less `--at` and cron specs use the daemon host's local time
+(cron: prefix `TZ=<zone>`). `--type` and `schedule get` were removed (use `--role`
+and `schedule show`).
 
 `--cron` is a 5-field spec (`robfig/cron/v3`, `@daily` etc.); `--at` is RFC3339 or
 `2006-01-02T15:04` (local). A pipeline fire gets a timestamp-suffixed name so

@@ -1922,30 +1922,81 @@ type ScheduleCreateRequest struct {
 	// Agent optional name for the spawned agent
 	Agent string `json:"agent,omitempty"`
 
-	// At single-shot time, RFC3339 or 2006-01-02T15:04 (mutually exclusive with cron)
+	// AiCli AI CLI id the agent runs (claude, aider, …); empty = the daemon's default
+	AiCli string `json:"ai_cli,omitempty"`
+
+	// At single-shot time, RFC3339 or 2006-01-02T15:04; a time without a zone is the daemon host's local time. Must be in the future (mutually exclusive with cron and now)
 	At string `json:"at,omitempty"`
+
+	// AutoRestart auto-resume the agent if it crashes, capped at a few attempts
+	AutoRestart bool `json:"auto_restart,omitempty"`
 
 	// Branch optional development branch / pr-review checkout
 	Branch string `json:"branch,omitempty"`
 
-	// Cron recurring cron spec (mutually exclusive with at)
+	// Cron recurring cron spec, evaluated in the daemon host's local time unless it starts with TZ=<zone> (mutually exclusive with at and now)
 	Cron string `json:"cron,omitempty"`
+
+	// Cwd existing absolute directory a free-form agent launches in (required when there is no repo)
+	Cwd string `json:"cwd,omitempty"`
+
+	// Model model ID for ai_cli (requires ai_cli); empty lets the model-tier resolver pick
+	Model string `json:"model,omitempty"`
 
 	// Name schedule id (== name)
 	Name string `json:"name"`
 
+	// Now fire once as soon as possible: a single-shot due immediately (mutually exclusive with cron and at)
+	Now bool `json:"now,omitempty"`
+
+	// PermissionMode permission mode for the agent: acceptEdits|auto|bypassPermissions|default|dontAsk|plan; empty = the configured default
+	PermissionMode string `json:"permission_mode,omitempty"`
+
+	// ProjectId id of the project the agent joins; empty = the project owning the launch directory, resolved at fire time like a normal spawn
+	ProjectId string `json:"project_id,omitempty"`
+
 	// Prompt agent prompt (agent mode)
 	Prompt string `json:"prompt,omitempty"`
 
-	// Repo repo path (required for a typed agent)
+	// Repo repo path; with a worktree-owning role (the default when a repo is given) the agent runs in an isolated worktree off it
 	Repo string `json:"repo,omitempty"`
 
-	// Spec pipeline YAML; non-empty selects pipeline mode
+	// Role agent role (see GET /api/v1/roles); empty = worker when a repo is given, otherwise general
+	Role string `json:"role,omitempty"`
+
+	// Spec pipeline YAML; non-empty selects pipeline mode and is rejected together with any agent field (prompt, repo, cwd, role, agent, branch, model, ai_cli, …)
 	Spec string `json:"spec,omitempty"`
+
+	// Tags labels stamped on every agent the schedule spawns
+	Tags []string `json:"tags,omitempty"`
+
+	// Tier model tier for the quota-balanced resolver: tier-1|tier-2|tier-3
+	Tier string `json:"tier,omitempty"`
 
 	// Type Deprecated legacy agent task type (agent mode). Prefer spawning with an explicit role via POST /api/v1/spawn. Accepted for one release: at fire time the daemon maps known type values onto a role (development→implementer, pr-review→reviewer, analysis/spike→general).
 	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
 	Type string `json:"type,omitempty"`
+}
+
+// ScheduleUpdateRequest Only the fields present change; an empty string clears an optional field.
+type ScheduleUpdateRequest struct {
+	Agent *string `json:"agent,omitempty"`
+	AiCli *string `json:"ai_cli,omitempty"`
+
+	// At new single-shot time, must be in the future (switches a cron schedule to single-shot)
+	At     *string `json:"at,omitempty"`
+	Branch *string `json:"branch,omitempty"`
+
+	// Cron new recurring cron spec (switches an `at` schedule to recurring)
+	Cron   *string `json:"cron,omitempty"`
+	Cwd    *string `json:"cwd,omitempty"`
+	Model  *string `json:"model,omitempty"`
+	Prompt *string `json:"prompt,omitempty"`
+	Repo   *string `json:"repo,omitempty"`
+	Role   *string `json:"role,omitempty"`
+
+	// Spec new pipeline YAML; only valid on a pipeline schedule
+	Spec *string `json:"spec,omitempty"`
 }
 
 // Session defines model for Session.
@@ -2798,6 +2849,9 @@ type SetRoleTierJSONRequestBody SetRoleTierJSONBody
 // CreateScheduleJSONRequestBody defines body for CreateSchedule for application/json ContentType.
 type CreateScheduleJSONRequestBody = ScheduleCreateRequest
 
+// UpdateScheduleJSONRequestBody defines body for UpdateSchedule for application/json ContentType.
+type UpdateScheduleJSONRequestBody = ScheduleUpdateRequest
+
 // ApproveSessionJSONRequestBody defines body for ApproveSession for application/json ContentType.
 type ApproveSessionJSONRequestBody ApproveSessionJSONBody
 
@@ -3166,12 +3220,18 @@ type ServerInterface interface {
 	// Get one schedule by id
 	// (GET /api/v1/schedules/{id})
 	GetSchedule(w http.ResponseWriter, r *http.Request, id ScheduleId)
+	// Edit a schedule in place
+	// (PATCH /api/v1/schedules/{id})
+	UpdateSchedule(w http.ResponseWriter, r *http.Request, id ScheduleId)
 	// Disable a schedule
 	// (POST /api/v1/schedules/{id}/disable)
 	DisableSchedule(w http.ResponseWriter, r *http.Request, id ScheduleId)
 	// Enable a schedule
 	// (POST /api/v1/schedules/{id}/enable)
 	EnableSchedule(w http.ResponseWriter, r *http.Request, id ScheduleId)
+	// Fire a schedule once, now
+	// (POST /api/v1/schedules/{id}/run)
+	RunSchedule(w http.ResponseWriter, r *http.Request, id ScheduleId)
 	// Full-text search across sessions
 	// (GET /api/v1/search)
 	Search(w http.ResponseWriter, r *http.Request, params SearchParams)
@@ -3907,6 +3967,12 @@ func (_ Unimplemented) GetSchedule(w http.ResponseWriter, r *http.Request, id Sc
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Edit a schedule in place
+// (PATCH /api/v1/schedules/{id})
+func (_ Unimplemented) UpdateSchedule(w http.ResponseWriter, r *http.Request, id ScheduleId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Disable a schedule
 // (POST /api/v1/schedules/{id}/disable)
 func (_ Unimplemented) DisableSchedule(w http.ResponseWriter, r *http.Request, id ScheduleId) {
@@ -3916,6 +3982,12 @@ func (_ Unimplemented) DisableSchedule(w http.ResponseWriter, r *http.Request, i
 // Enable a schedule
 // (POST /api/v1/schedules/{id}/enable)
 func (_ Unimplemented) EnableSchedule(w http.ResponseWriter, r *http.Request, id ScheduleId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Fire a schedule once, now
+// (POST /api/v1/schedules/{id}/run)
+func (_ Unimplemented) RunSchedule(w http.ResponseWriter, r *http.Request, id ScheduleId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -7319,6 +7391,38 @@ func (siw *ServerInterfaceWrapper) GetSchedule(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
+// UpdateSchedule operation middleware
+func (siw *ServerInterfaceWrapper) UpdateSchedule(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ScheduleId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateSchedule(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // DisableSchedule operation middleware
 func (siw *ServerInterfaceWrapper) DisableSchedule(w http.ResponseWriter, r *http.Request) {
 
@@ -7374,6 +7478,38 @@ func (siw *ServerInterfaceWrapper) EnableSchedule(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.EnableSchedule(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RunSchedule operation middleware
+func (siw *ServerInterfaceWrapper) RunSchedule(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ScheduleId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RunSchedule(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -8889,10 +9025,16 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/api/v1/schedules/{id}", wrapper.GetSchedule)
 	})
 	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/api/v1/schedules/{id}", wrapper.UpdateSchedule)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/schedules/{id}/disable", wrapper.DisableSchedule)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/schedules/{id}/enable", wrapper.EnableSchedule)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/schedules/{id}/run", wrapper.RunSchedule)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/search", wrapper.Search)
@@ -13220,6 +13362,71 @@ func (response GetSchedule404JSONResponse) VisitGetScheduleResponse(w http.Respo
 	return err
 }
 
+type UpdateScheduleRequestObject struct {
+	Id   ScheduleId `json:"id"`
+	Body *UpdateScheduleJSONRequestBody
+}
+
+type UpdateScheduleResponseObject interface {
+	VisitUpdateScheduleResponse(w http.ResponseWriter) error
+}
+
+type UpdateSchedule200JSONResponse Schedule
+
+func (response UpdateSchedule200JSONResponse) VisitUpdateScheduleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateSchedule400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response UpdateSchedule400JSONResponse) VisitUpdateScheduleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateSchedule403JSONResponse Error
+
+func (response UpdateSchedule403JSONResponse) VisitUpdateScheduleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateSchedule404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UpdateSchedule404JSONResponse) VisitUpdateScheduleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type DisableScheduleRequestObject struct {
 	Id ScheduleId `json:"id"`
 }
@@ -13316,6 +13523,74 @@ func (response EnableSchedule404JSONResponse) VisitEnableScheduleResponse(w http
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunScheduleRequestObject struct {
+	Id ScheduleId `json:"id"`
+}
+
+type RunScheduleResponseObject interface {
+	VisitRunScheduleResponse(w http.ResponseWriter) error
+}
+
+type RunSchedule200JSONResponse struct {
+	// RunId id of the agent (agent mode) or pipeline (pipeline mode) that was started
+	RunId    string   `json:"run_id"`
+	Schedule Schedule `json:"schedule"`
+}
+
+func (response RunSchedule200JSONResponse) VisitRunScheduleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunSchedule403JSONResponse Error
+
+func (response RunSchedule403JSONResponse) VisitRunScheduleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunSchedule404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RunSchedule404JSONResponse) VisitRunScheduleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunSchedule409JSONResponse Error
+
+func (response RunSchedule409JSONResponse) VisitRunScheduleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -14873,12 +15148,18 @@ type StrictServerInterface interface {
 	// Get one schedule by id
 	// (GET /api/v1/schedules/{id})
 	GetSchedule(ctx context.Context, request GetScheduleRequestObject) (GetScheduleResponseObject, error)
+	// Edit a schedule in place
+	// (PATCH /api/v1/schedules/{id})
+	UpdateSchedule(ctx context.Context, request UpdateScheduleRequestObject) (UpdateScheduleResponseObject, error)
 	// Disable a schedule
 	// (POST /api/v1/schedules/{id}/disable)
 	DisableSchedule(ctx context.Context, request DisableScheduleRequestObject) (DisableScheduleResponseObject, error)
 	// Enable a schedule
 	// (POST /api/v1/schedules/{id}/enable)
 	EnableSchedule(ctx context.Context, request EnableScheduleRequestObject) (EnableScheduleResponseObject, error)
+	// Fire a schedule once, now
+	// (POST /api/v1/schedules/{id}/run)
+	RunSchedule(ctx context.Context, request RunScheduleRequestObject) (RunScheduleResponseObject, error)
 	// Full-text search across sessions
 	// (GET /api/v1/search)
 	Search(ctx context.Context, request SearchRequestObject) (SearchResponseObject, error)
@@ -18065,6 +18346,39 @@ func (sh *strictHandler) GetSchedule(w http.ResponseWriter, r *http.Request, id 
 	}
 }
 
+// UpdateSchedule operation middleware
+func (sh *strictHandler) UpdateSchedule(w http.ResponseWriter, r *http.Request, id ScheduleId) {
+	var request UpdateScheduleRequestObject
+
+	request.Id = id
+
+	var body UpdateScheduleJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateSchedule(ctx, request.(UpdateScheduleRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateSchedule")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateScheduleResponseObject); ok {
+		if err := validResponse.VisitUpdateScheduleResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // DisableSchedule operation middleware
 func (sh *strictHandler) DisableSchedule(w http.ResponseWriter, r *http.Request, id ScheduleId) {
 	var request DisableScheduleRequestObject
@@ -18110,6 +18424,32 @@ func (sh *strictHandler) EnableSchedule(w http.ResponseWriter, r *http.Request, 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(EnableScheduleResponseObject); ok {
 		if err := validResponse.VisitEnableScheduleResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RunSchedule operation middleware
+func (sh *strictHandler) RunSchedule(w http.ResponseWriter, r *http.Request, id ScheduleId) {
+	var request RunScheduleRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RunSchedule(ctx, request.(RunScheduleRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RunSchedule")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RunScheduleResponseObject); ok {
+		if err := validResponse.VisitRunScheduleResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

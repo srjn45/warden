@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/srjn45/warden/internal/agentstore"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/schedule"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
@@ -82,7 +84,7 @@ func TestScheduleCreateBadPipelineSpec400(t *testing.T) {
 func TestScheduleCreateDuplicate409(t *testing.T) {
 	ts, _, _ := newSchedServer(t)
 	defer ts.Close()
-	body := `{"name":"dup","cron":"0 9 * * *","prompt":"x"}`
+	body := `{"name":"dup","cron":"0 9 * * *","prompt":"x","cwd":"` + t.TempDir() + `"}`
 	http.Post(ts.URL+"/api/v1/schedules", "application/json", strings.NewReader(body)) //nolint:errcheck
 	resp, err := http.Post(ts.URL+"/api/v1/schedules", "application/json", strings.NewReader(body))
 	require.NoError(t, err)
@@ -93,7 +95,7 @@ func TestScheduleCreateDuplicate409(t *testing.T) {
 func TestScheduleDelete(t *testing.T) {
 	ts, _, _ := newSchedServer(t)
 	defer ts.Close()
-	http.Post(ts.URL+"/api/v1/schedules", "application/json", strings.NewReader(`{"name":"s","cron":"0 9 * * *","prompt":"x"}`)) //nolint:errcheck
+	http.Post(ts.URL+"/api/v1/schedules", "application/json", strings.NewReader(`{"name":"s","cron":"0 9 * * *","prompt":"x","cwd":"`+t.TempDir()+`"}`)) //nolint:errcheck
 
 	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/v1/schedules/s", nil)
 	resp, err := http.DefaultClient.Do(req)
@@ -107,6 +109,38 @@ func TestScheduleDelete(t *testing.T) {
 	require.NoError(t, err)
 	defer resp2.Body.Close()
 	require.Equal(t, http.StatusNotFound, resp2.StatusCode)
+}
+
+func TestScheduleEditAndRun(t *testing.T) {
+	ts, srv, fl := newSchedServer(t)
+	defer ts.Close()
+	create := `{"name":"editme","cron":"0 9 * * *","prompt":"old","cwd":"` + t.TempDir() + `"}`
+	code, _ := postSchedule(t, ts, create)
+	require.Equal(t, http.StatusCreated, code)
+
+	req, err := http.NewRequest(http.MethodPatch, ts.URL+"/api/v1/schedules/editme", strings.NewReader(`{"prompt":"new","cron":"0 10 * * *"}`))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	resp.Body.Close()
+	got, err := srv.schedStore.Get("editme")
+	require.NoError(t, err)
+	require.Equal(t, "new", got.Prompt)
+	require.Equal(t, "0 10 * * *", got.Cron)
+	next := *got.NextRun
+
+	resp, err = http.Post(ts.URL+"/api/v1/schedules/editme/run", "application/json", nil)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	resp.Body.Close()
+	got, err = srv.schedStore.Get("editme")
+	require.NoError(t, err)
+	require.NotNil(t, fl.spawned)
+	require.NotNil(t, got.LastRun)
+	require.True(t, got.Enabled)
+	require.Equal(t, next, *got.NextRun, "manual runs must not re-arm or consume the schedule")
 }
 
 // With the gate off every schedule endpoint returns 403.
@@ -253,7 +287,7 @@ func TestScheduleRefreshesLastRunStatus(t *testing.T) {
 func TestGetScheduleByID(t *testing.T) {
 	ts, _, _ := newSchedServer(t)
 	defer ts.Close()
-	http.Post(ts.URL+"/api/v1/schedules", "application/json", strings.NewReader(`{"name":"s","cron":"0 9 * * *","prompt":"x"}`)) //nolint:errcheck
+	http.Post(ts.URL+"/api/v1/schedules", "application/json", strings.NewReader(`{"name":"s","cron":"0 9 * * *","prompt":"x","repo":"/r"}`)) //nolint:errcheck
 
 	resp, err := http.Get(ts.URL + "/api/v1/schedules/s")
 	require.NoError(t, err)
@@ -273,7 +307,7 @@ func TestGetScheduleByID(t *testing.T) {
 func TestScheduleEnableDisable(t *testing.T) {
 	ts, _, _ := newSchedServer(t)
 	defer ts.Close()
-	http.Post(ts.URL+"/api/v1/schedules", "application/json", strings.NewReader(`{"name":"s","cron":"* * * * *","prompt":"x"}`)) //nolint:errcheck
+	http.Post(ts.URL+"/api/v1/schedules", "application/json", strings.NewReader(`{"name":"s","cron":"* * * * *","prompt":"x","repo":"/r"}`)) //nolint:errcheck
 
 	// Disable → enabled false, NextRun nil.
 	resp, err := http.Post(ts.URL+"/api/v1/schedules/s/disable", "application/json", nil)
@@ -332,4 +366,324 @@ func TestScheduleTickCronReArms(t *testing.T) {
 	require.True(t, got.Enabled, "cron schedule should stay enabled")
 	require.NotNil(t, got.NextRun)
 	require.True(t, got.NextRun.After(time.Now().Add(-time.Second)), "NextRun should be re-armed to the future")
+}
+
+// postSchedule posts a create body and returns the status code and body text.
+func postSchedule(t *testing.T, ts *httptest.Server, body string) (int, string) {
+	t.Helper()
+	resp, err := http.Post(ts.URL+"/api/v1/schedules", "application/json", strings.NewReader(body))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(b)
+}
+
+// firePastSchedule stores a due single-shot schedule and ticks the scheduler.
+func firePastSchedule(t *testing.T, srv *Server, p schedule.Params) *schedule.Schedule {
+	t.Helper()
+	p.At = time.Now().Add(-time.Minute).Format(time.RFC3339)
+	sc, err := schedule.New(p, time.Now())
+	require.NoError(t, err)
+	require.NoError(t, srv.schedStore.Create(sc))
+	srv.scheduleTick(context.Background())
+	got, err := srv.schedStore.Get(sc.ID)
+	require.NoError(t, err)
+	return got
+}
+
+// Regression: a prompt-only schedule (launch dir, no repo/type) was accepted
+// but never fired — last_error "provide a launch dir…".
+func TestScheduleTickFiresPromptOnly(t *testing.T) {
+	_, srv, fl := newSchedServer(t)
+	dir := t.TempDir()
+	got := firePastSchedule(t, srv, schedule.Params{Name: "po", Cwd: dir, Prompt: "hi"})
+	require.Empty(t, got.LastError)
+	require.NotNil(t, fl.spawned, "prompt-only schedule must spawn an agent")
+	require.Equal(t, dir, fl.spawnedCwd)
+	require.Equal(t, "general", fl.spawned.Role)
+}
+
+// Regression: the documented default (--repo + --prompt, no type) never fired.
+func TestScheduleTickFiresRepoPrompt(t *testing.T) {
+	_, srv, fl := newSchedServer(t)
+	got := firePastSchedule(t, srv, schedule.Params{Name: "rp", Repo: "/r", Prompt: "hi"})
+	require.Empty(t, got.LastError)
+	require.NotNil(t, fl.spawned)
+	require.Equal(t, "/r", fl.spawned.Repo)
+	require.Equal(t, "worker", fl.spawned.Role)
+}
+
+func TestScheduleTickFiresExplicitRole(t *testing.T) {
+	_, srv, fl := newSchedServer(t)
+	got := firePastSchedule(t, srv, schedule.Params{Name: "rr", Cwd: t.TempDir(), Role: "reviewer", Prompt: "hi"})
+	require.Empty(t, got.LastError)
+	require.Equal(t, "reviewer", fl.spawned.Role)
+}
+
+// A stored schedule predating cwd/role still loads; with nothing to launch in it
+// records an actionable error instead of spawning.
+func TestScheduleTickLegacyPromptOnlyExplainsFix(t *testing.T) {
+	_, srv, fl := newSchedServer(t)
+	sc := &schedule.Schedule{ID: "old", Name: "old", Kind: schedule.KindAt, Mode: schedule.ModeAgent,
+		At: time.Now().Add(-time.Minute).Format(time.RFC3339), Enabled: true, Prompt: "hi", CreatedAt: time.Now()}
+	require.NoError(t, schedule.Recompute(sc, time.Now().Add(-2*time.Minute)))
+	require.NoError(t, srv.schedStore.Create(sc))
+	srv.scheduleTick(context.Background())
+	got, _ := srv.schedStore.Get("old")
+	require.Nil(t, fl.spawned)
+	require.Contains(t, got.LastError, "--cwd")
+}
+
+func TestScheduleFireDeletedDirExplainsFix(t *testing.T) {
+	_, srv, fl := newSchedServer(t)
+	dir := filepath.Join(t.TempDir(), "gone")
+	sc := &schedule.Schedule{ID: "gd", Name: "gd", Kind: schedule.KindAt, Mode: schedule.ModeAgent,
+		At: time.Now().Add(-time.Minute).Format(time.RFC3339), Enabled: true, Prompt: "hi", Cwd: dir, CreatedAt: time.Now()}
+	require.NoError(t, schedule.Recompute(sc, time.Now().Add(-2*time.Minute)))
+	require.NoError(t, srv.schedStore.Create(sc))
+	srv.scheduleTick(context.Background())
+	got, _ := srv.schedStore.Get("gd")
+	require.Nil(t, fl.spawned)
+	require.Contains(t, got.LastError, "no longer exists")
+}
+
+func TestScheduleFireNameInUseExplainsFix(t *testing.T) {
+	_, srv, fl := newSchedServer(t)
+	require.NoError(t, srv.store.Insert(context.Background(), &agentstore.Agent{ID: "x1", Name: "taken"}))
+	got := firePastSchedule(t, srv, schedule.Params{Name: "nu", Cwd: t.TempDir(), Agent: "taken", Prompt: "hi"})
+	require.Nil(t, fl.spawned)
+	require.Contains(t, got.LastError, "name already in use")
+	require.Contains(t, got.LastError, "--agent")
+}
+
+// Create-time validation rejects schedules that could never fire.
+func TestScheduleCreateRejectsUnfireable(t *testing.T) {
+	ts, _, _ := newSchedServer(t)
+	defer ts.Close()
+	dir := t.TempDir()
+	cases := map[string]string{
+		"no dir or repo": `{"name":"a","cron":"0 9 * * *","prompt":"x"}`,
+		"missing dir":    `{"name":"b","cron":"0 9 * * *","prompt":"x","cwd":"` + dir + `/nope"}`,
+		"unknown role":   `{"name":"c","cron":"0 9 * * *","prompt":"x","cwd":"` + dir + `","role":"wizard"}`,
+		"bad type":       `{"name":"d","cron":"0 9 * * *","prompt":"x","type":"bogus","repo":"/r"}`,
+	}
+	for name, body := range cases {
+		code, msg := postSchedule(t, ts, body)
+		require.Equal(t, http.StatusBadRequest, code, "%s: %s", name, msg)
+	}
+}
+
+// Create accepts every launchable form, stores cwd/role, and does not apply the
+// fire-time name-in-use check.
+func TestScheduleCreateAcceptsFireableForms(t *testing.T) {
+	ts, srv, _ := newSchedServer(t)
+	defer ts.Close()
+	require.NoError(t, srv.store.Insert(context.Background(), &agentstore.Agent{ID: "x1", Name: "taken"}))
+	dir := t.TempDir()
+	for i, body := range []string{
+		`{"name":"a","cron":"0 9 * * *","prompt":"x","cwd":"` + dir + `"}`,
+		`{"name":"b","cron":"0 9 * * *","prompt":"x","repo":"/r"}`,
+		`{"name":"c","cron":"0 9 * * *","prompt":"x","cwd":"` + dir + `","role":"reviewer","agent":"taken"}`,
+		`{"name":"d","cron":"0 9 * * *","prompt":"x","type":"development","repo":"/r"}`,
+	} {
+		code, msg := postSchedule(t, ts, body)
+		require.Equal(t, http.StatusCreated, code, "form %d: %s", i, msg)
+	}
+	got, _ := srv.schedStore.Get("c")
+	require.Equal(t, dir, got.Cwd)
+	require.Equal(t, "reviewer", got.Role)
+}
+
+func TestScheduleCreateRejectsPastAt(t *testing.T) {
+	ts, _, _ := newSchedServer(t)
+	defer ts.Close()
+	code, body := postSchedule(t, ts, `{"name":"old","at":"2020-01-01T09:00","repo":"/r","prompt":"hi"}`)
+	require.Equal(t, http.StatusBadRequest, code)
+	require.Contains(t, body, "2020-01-01T09:00:00")
+	require.Contains(t, body, "not in the future")
+	require.Contains(t, body, "--now")
+}
+
+func TestScheduleCreateRejectsAtExactlyNow(t *testing.T) {
+	ts, _, _ := newSchedServer(t)
+	defer ts.Close()
+	// RFC3339 has second resolution: a time truncated to the current second is
+	// never after now.
+	at := time.Now().Truncate(time.Second).Format(time.RFC3339)
+	code, _ := postSchedule(t, ts, `{"name":"edge","at":"`+at+`","repo":"/r","prompt":"hi"}`)
+	require.Equal(t, http.StatusBadRequest, code)
+}
+
+func TestScheduleCreateAcceptsFutureAt(t *testing.T) {
+	ts, _, _ := newSchedServer(t)
+	defer ts.Close()
+	at := time.Now().Add(time.Hour).Format(time.RFC3339)
+	code, _ := postSchedule(t, ts, `{"name":"later","at":"`+at+`","repo":"/r","prompt":"hi"}`)
+	require.Equal(t, http.StatusCreated, code)
+}
+
+func TestScheduleCreateNow(t *testing.T) {
+	ts, srv, fl := newSchedServer(t)
+	defer ts.Close()
+	code, _ := postSchedule(t, ts, `{"name":"asap","now":true,"repo":"/r","prompt":"hi"}`)
+	require.Equal(t, http.StatusCreated, code)
+	got, err := srv.schedStore.Get("asap")
+	require.NoError(t, err)
+	require.Equal(t, schedule.KindAt, got.Kind)
+	require.True(t, schedule.Due(got, time.Now()), "--now schedule is due immediately")
+	srv.scheduleTick(context.Background())
+	require.NotNil(t, fl.spawned)
+}
+
+func TestScheduleCreateNowExclusive(t *testing.T) {
+	ts, _, _ := newSchedServer(t)
+	defer ts.Close()
+	for _, extra := range []string{`"cron":"0 9 * * *"`, `"at":"2099-01-01T09:00"`} {
+		code, body := postSchedule(t, ts, `{"name":"x","now":true,`+extra+`,"repo":"/r","prompt":"hi"}`)
+		require.Equal(t, http.StatusBadRequest, code)
+		require.Contains(t, body, "--now")
+	}
+}
+
+// A single-shot that was in the future when created and came due while the
+// daemon was down still fires once on startup.
+func TestSchedulerStartupFiresDueDuringDowntime(t *testing.T) {
+	_, srv, fl := newSchedServer(t)
+	created := time.Now().Add(-2 * time.Hour)
+	sc, err := schedule.New(schedule.Params{
+		Name: "missed", At: time.Now().Add(-time.Hour).Format(time.RFC3339), Repo: "/r", Prompt: "go",
+	}, created)
+	require.NoError(t, err)
+	require.NoError(t, srv.schedStore.Create(sc))
+
+	srv.reconcileScheduleNextRuns()
+	srv.scheduleTick(context.Background())
+
+	require.NotNil(t, fl.spawned)
+	got, _ := srv.schedStore.Get("missed")
+	require.False(t, got.Enabled)
+}
+
+// Every spawn option stored on an agent schedule reaches the spawn request.
+func TestScheduleFireAgentPassesSpawnOptions(t *testing.T) {
+	_, srv, fl := newSchedServer(t)
+	dir := t.TempDir()
+	at := time.Now().Add(-time.Minute).Format(time.RFC3339)
+	sc, err := schedule.New(schedule.Params{
+		Name: "opts", At: at, Cwd: dir, Prompt: "go", Role: "reviewer",
+		Model: "sonnet", AiCli: "claude", PermissionMode: "acceptEdits",
+		AutoRestart: true, Tags: []string{"nightly", "x"}, Tier: "tier-2", ProjectID: dir,
+	}, time.Now())
+	require.NoError(t, err)
+	require.NoError(t, srv.schedStore.Create(sc))
+
+	srv.scheduleTick(context.Background())
+
+	got := fl.spawnReq
+	require.Equal(t, "sonnet", got.Model)
+	require.Equal(t, "claude", got.AiCli)
+	require.Equal(t, "claude", got.Backend)
+	require.Equal(t, "acceptEdits", got.PermissionMode)
+	require.True(t, got.AutoRestart)
+	require.Equal(t, []string{"nightly", "x"}, got.Tags)
+	require.Equal(t, "tier-2", got.Tier)
+	require.Equal(t, "reviewer", got.Role)
+	require.Equal(t, dir, got.ProjectID)
+	stored, _ := srv.schedStore.Get("opts")
+	require.Empty(t, stored.LastError)
+}
+
+// A fired agent joins a project exactly like a normal spawn: an explicit
+// project_id wins, otherwise the launch directory is path-matched, and the
+// session is added to the project's membership list.
+func TestScheduleFireAgentJoinsProject(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		explicit bool
+	}{{"path-matched", false}, {"explicit", true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, srv, fl := newSchedServer(t)
+			projects, err := projectstore.NewStore(t.TempDir())
+			require.NoError(t, err)
+			srv.projects = projects
+			dir := t.TempDir()
+			params := schedule.Params{Name: "p", At: time.Now().Add(-time.Minute).Format(time.RFC3339), Cwd: dir, Prompt: "go"}
+			if tc.explicit {
+				params.ProjectID = dir
+			}
+			sc, err := schedule.New(params, time.Now())
+			require.NoError(t, err)
+			require.NoError(t, srv.schedStore.Create(sc))
+
+			srv.scheduleTick(context.Background())
+
+			sess, err := srv.store.Get(context.Background(), fl.spawned.ID)
+			require.NoError(t, err)
+			require.Equal(t, dir, sess.ProjectID, "same project id a normal spawn from this directory gets")
+			proj, err := projects.Get(dir)
+			require.NoError(t, err)
+			require.Contains(t, proj.Agents, sess.ID)
+		})
+	}
+}
+
+// A record stored before the type→role change (type only, no role) still fires,
+// mapped onto its canonical role.
+func TestScheduleFireLegacyTypeRecord(t *testing.T) {
+	_, srv, fl := newSchedServer(t)
+	at := time.Now().Add(-time.Minute)
+	legacy := &schedule.Schedule{
+		ID: "old", Name: "old", Kind: schedule.KindAt, Mode: schedule.ModeAgent, At: at.Format(time.RFC3339),
+		Enabled: true, Type: "pr-review", Repo: "/r", Prompt: "look", CreatedAt: at, NextRun: &at,
+	}
+	require.NoError(t, srv.schedStore.Create(legacy))
+
+	srv.scheduleTick(context.Background())
+
+	require.NotNil(t, fl.spawned, "a legacy-type schedule must still fire")
+	require.Equal(t, "reviewer", fl.spawnReq.Role)
+	stored, _ := srv.schedStore.Get("old")
+	require.Empty(t, stored.LastError)
+	require.Equal(t, "pr-review", stored.Type, "the stored record is not rewritten")
+}
+
+// A pipeline spec together with agent options is rejected, naming the options.
+func TestScheduleCreatePipelineWithAgentFields400(t *testing.T) {
+	ts, _, _ := newSchedServer(t)
+	defer ts.Close()
+	spec := `name: p\nrepo: /r\njobs:\n  - id: a\n    prompt: go\n    worktree: none\n`
+	code, body := postSchedule(t, ts, `{"name":"x","cron":"@daily","spec":"`+spec+`","prompt":"p","model":"m","ai_cli":"claude"}`)
+	require.Equal(t, http.StatusBadRequest, code)
+	for _, f := range []string{"--prompt", "--model", "--aicli"} {
+		require.Contains(t, body, f)
+	}
+}
+
+func TestScheduleCreateModelWithoutAiCli400(t *testing.T) {
+	ts, _, _ := newSchedServer(t)
+	defer ts.Close()
+	code, body := postSchedule(t, ts, `{"name":"x","cron":"@daily","prompt":"p","cwd":"`+t.TempDir()+`","model":"m"}`)
+	require.Equal(t, http.StatusBadRequest, code)
+	require.Contains(t, body, "--model requires --aicli")
+}
+
+// The new options round-trip through create → stored schedule.
+func TestScheduleCreateStoresSpawnOptions(t *testing.T) {
+	ts, srv, _ := newSchedServer(t)
+	defer ts.Close()
+	code, _ := postSchedule(t, ts, `{"name":"x","cron":"@daily","prompt":"p","cwd":"`+t.TempDir()+`","ai_cli":"claude","model":"m","permission_mode":"plan","auto_restart":true,"tags":["a"],"tier":"tier-1","project_id":"/pj"}`)
+	require.Equal(t, http.StatusCreated, code)
+	sc, err := srv.schedStore.Get("x")
+	require.NoError(t, err)
+	require.Equal(t, "claude", sc.AiCli)
+	require.Equal(t, "m", sc.Model)
+	require.Equal(t, "plan", sc.PermissionMode)
+	require.True(t, sc.AutoRestart)
+	require.Equal(t, []string{"a"}, sc.Tags)
+	require.Equal(t, "tier-1", sc.Tier)
+	require.Equal(t, "/pj", sc.ProjectID)
+
+	code, body := postSchedule(t, ts, `{"name":"y","cron":"@daily","prompt":"p","cwd":"`+t.TempDir()+`","tier":"bogus"}`)
+	require.Equal(t, http.StatusBadRequest, code)
+	require.Contains(t, body, "invalid tier")
 }

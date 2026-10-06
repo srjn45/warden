@@ -1383,27 +1383,45 @@
   },
   {
     "path": "schedule create",
-    "use": "create <name> (--cron <spec> | --at <time>) [--repo <p> --prompt <s> | --pipeline <spec.yaml>]",
+    "use": "create <name> (--cron <spec> | --at <time> | --now) [--prompt <s>] [--role <role>] [--cwd <dir> | --repo <path>] | --pipeline <spec.yaml>",
     "runnable": true,
     "local_flags": [
       "agent",
+      "ai-cli",
+      "aicli",
       "at",
+      "auto-restart",
       "branch",
       "cron",
+      "cwd",
+      "json",
+      "model",
+      "now",
+      "permission-mode",
       "pipeline",
+      "project",
       "prompt",
       "repo",
-      "type"
+      "role",
+      "tags",
+      "tier"
     ],
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
   },
   {
     "path": "schedule delete",
     "use": "delete <id>",
+    "aliases": [
+      "rm"
+    ],
     "runnable": true,
+    "local_flags": [
+      "yes"
+    ],
     "inherited_flags": [
       "addr",
       "config"
@@ -1413,37 +1431,43 @@
     "path": "schedule disable",
     "use": "disable <id>",
     "runnable": true,
+    "local_flags": [
+      "json"
+    ],
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
   },
   {
     "path": "schedule enable",
     "use": "enable <id>",
     "runnable": true,
+    "local_flags": [
+      "json"
+    ],
     "inherited_flags": [
       "addr",
       "config"
-    ]
-  },
-  {
-    "path": "schedule get",
-    "use": "get <id>",
-    "runnable": true,
-    "inherited_flags": [
-      "addr",
-      "config"
-    ]
+    ],
+    "json": true
   },
   {
     "path": "schedule list",
     "use": "list",
+    "aliases": [
+      "ls"
+    ],
     "runnable": true,
+    "local_flags": [
+      "json"
+    ],
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
   },
   {
     "path": "search",

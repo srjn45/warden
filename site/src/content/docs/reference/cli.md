@@ -2201,12 +2201,20 @@ Inherited flags:
 ## warden schedule
 
 ```text
-Create timer-driven triggers that the daemon fires on a schedule: a recurring
-cron spec (--cron "0 9 * * *") or a single-shot time (--at 2026-06-27T09:00).
-Each schedule fires either one agent spawn (the default — pass --repo/
---prompt; --type is a deprecated alias mapped to role at fire time) or a
-pipeline (--pipeline <spec.yaml>). The scheduler is opt-in: set
-scheduler_enabled: true in the config file and keep the daemon running.
+Timer-driven triggers the daemon fires for you: an agent or a pipeline, on a
+recurring cron spec, at one set time, or right now.
+
+A typical journey:
+  1. create   warden schedule create nightly --cron "0 2 * * *" --prompt "..."
+  2. look     warden schedule list, then warden schedule show nightly
+  3. test     warden schedule run nightly (fires once now; next run unchanged)
+  4. change   warden schedule edit nightly --cron "0 3 * * *"
+  5. pause    warden schedule disable nightly, and enable to resume
+  6. remove   warden schedule delete nightly
+
+Nothing fires unless the scheduler is enabled (scheduler_enabled: true in the
+config file) and the daemon is running. Runs a recurring schedule missed while
+the daemon was down are not made up: it resumes at its next regular time.
 
 Usage:
   warden schedule [flags]
@@ -2215,6 +2223,8 @@ Commands:
   create               Create a schedule that fires an agent or a pipeline
   list                 List schedules
   show                 Show one schedule, including its last-run outcome
+  edit                 Edit a schedule's timing or fire payload
+  run                  Fire a schedule once now without changing its next run
   enable               Enable a schedule so it fires again (re-arms next run)
   disable              Disable a schedule so it stops firing (history preserved)
   delete               Delete a schedule
@@ -2230,25 +2240,63 @@ Inherited flags:
 ## warden schedule create
 
 ```text
-Create a recurring (--cron) or single-shot (--at) schedule. By default a
-schedule fires one agent spawn — pass --repo, --prompt (and optionally
---agent name / --branch; --type is a deprecated alias mapped to role at fire).
+Create a recurring (--cron), single-shot (--at) or immediate (--now) schedule. By default a
+schedule fires one agent, started the same way `warden start` would start it
+with the same flags from the directory you run this in:
+  --cwd <dir>    launch the agent in this existing directory (default: the
+                 current directory, stored as an absolute path)
+  --repo <path>  run the agent in an isolated worktree off this repo
+                 (--branch picks the branch); replaces the --cwd default
+  --role <role>  agent role, see `warden agent role list` (default: worker
+                 with --repo, otherwise general)
+  --prompt, --agent <name>   the agent's task and optional name
+  --aicli <id>, --model <id>   the AI CLI and model to run (--model needs --aicli)
+  --permission-mode, --auto-restart, --tags, --tier   as for `warden start`
+  --project <id> the project the agent joins (default: the one owning its directory)
+A schedule that could never fire (unknown role, missing directory, no
+prompt) is rejected with the reason.
+
 Pass --pipeline <spec.yaml> instead to fire a pipeline (its name is
-timestamp-suffixed per fire so recurring runs don't collide).
-Provide exactly one of --cron/--at and exactly one fire mode.
+timestamp-suffixed per fire so recurring runs don't collide). A pipeline runs as
+written, so combining --pipeline with any agent option is an error.
+
+Provide exactly one of --cron/--at/--now: --at must be in the future (a past
+time is rejected) and --now fires once as soon as possible. --json prints the
+created schedule.
+
+Examples:
+  # recurring agent: a weekday-morning review in the current directory
+  warden schedule create morning-review --cron "0 9 * * 1-5" --role reviewer \
+      --prompt "review yesterday's merged PRs and list follow-ups"
+  # single-shot agent: a worktree off a repo, once, at a set time
+  warden schedule create release-prep --at 2026-12-01T08:00 --repo ~/dev/app \
+      --aicli claude --model sonnet --prompt "prepare the release notes"
+  # recurring pipeline: a nightly spec file
+  warden schedule create nightly --cron "@daily" --pipeline nightly.yaml
 
 Usage:
-  warden schedule create <name> (--cron <spec> | --at <time>) [--repo <p> --prompt <s> | --pipeline <spec.yaml>] [flags]
+  warden schedule create <name> (--cron <spec> | --at <time> | --now) [--prompt <s>] [--role <role>] [--cwd <dir> | --repo <path>] | --pipeline <spec.yaml> [flags]
 
 Flags:
-      --agent string      optional name for the spawned agent
-      --at string         single-shot time, RFC3339 or 2006-01-02T15:04 (local)
-      --branch string     optional development branch / pr-review checkout
-      --cron string       recurring cron spec, e.g. "0 9 * * *" (minute hour dom month dow)
-  -h, --help              help for create
-      --pipeline string   fire a pipeline from this YAML spec file (instead of an agent)
-      --prompt string     the agent's initial prompt
-      --repo string       repo path (required for a typed/legacy managed agent)
+      --agent string             optional name for the spawned agent
+      --aicli <ID>               AI CLI <ID>: claude (default, stable) | aider | opencode | codex | crush | goose | cursor | antigravity — only claude is fully tested; codex/antigravity are beta, the rest experimental. See 'warden backend --help' for per-AI-CLI notes
+      --at string                single-shot time in the future, RFC3339 or 2006-01-02T15:04; a time without a zone is the local time of the machine running the daemon
+      --auto-restart             auto-resume the agent if it crashes (errored), capped at a few attempts
+      --branch string            optional development branch / pr-review checkout
+      --cron string              recurring cron spec, e.g. "0 9 * * *" (minute hour dom month dow); evaluated in the daemon host's local time unless prefixed TZ=<zone>
+      --cwd string               directory to launch the agent in (default: the current directory unless --repo is given)
+  -h, --help                     help for create
+      --json                     print the created schedule as JSON
+      --model string             model ID for the chosen AI CLI (requires --aicli). Empty lets the tier resolver pick an explicit model
+      --now                      fire once as soon as possible (a single-shot due immediately); exclusive with --cron and --at
+      --permission-mode string   permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan (default: from config or 'auto')
+      --pipeline string          fire a pipeline from this YAML spec file (instead of an agent)
+      --project <ID>             <ID> of the daemon project the agent joins (its canonical path or remote URL, from 'warden projects list'). Empty = the git repository root of the launch directory
+      --prompt string            the agent's initial prompt
+      --repo string              repo path: the agent runs in an isolated worktree off it (default role worker)
+      --role <ROLE>              agent role <ROLE>: general | autopilot | brain | orchestrator | planner | worker (legacy aliases implementer/auto-merger/reviewer resolve to worker) (default: worker with --repo, otherwise general)
+      --tags <LIST>              comma-separated labels <LIST> stamped on every agent this schedule starts (e.g. --tags nightly,backend)
+      --tier string              model tier for the quota-balanced resolver that picks the AI CLI+model: tier-1|tier-2|tier-3. An explicit --aicli/--model still wins
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -2258,29 +2306,112 @@ Inherited flags:
 ## warden schedule list
 
 ```text
-List schedules
+List schedules as a table. Columns: NAME, STATE (enabled, disabled, done for a
+single-shot that has fired, failed for a single-shot whose fire failed), WHEN
+(the cron spec, or the single-shot time), FIRES (the agent and its role, or
+the pipeline), NEXT (the next run, local time) and LAST (when it last ran and
+how it went). A schedule whose last run failed has the error on the line
+beneath it; a recurring one is still enabled and will try again.
+
+--json prints the raw result.
 
 Usage:
   warden schedule list [flags]
 
+Examples:
+  warden schedule list
+    warden schedule ls --json
+
 Flags:
   -h, --help   help for list
+      --json   output as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+
+Aliases:
+  ls
+```
+
+## warden schedule show
+
+```text
+Show a schedule: its state, timing, next run and when it was created, then
+what it fires in full (for an agent: the prompt, directory, repo, branch, role,
+model, AI CLI and agent name; for a pipeline: its name and job count) and its
+last run with the command to look at it. --spec also prints the stored
+pipeline YAML. --json prints the raw record.
+
+Usage:
+  warden schedule show <id> [flags]
+
+Examples:
+  warden schedule show nightly
+    warden schedule show nightly --spec
+    warden schedule show nightly --json
+
+Flags:
+  -h, --help   help for show
+      --json   output as JSON
+      --spec   also print the stored pipeline YAML
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden schedule show
+## warden schedule edit
 
 ```text
-Show one schedule, including its last-run outcome
+Change only the parts you pass; everything else stays as it is. Timing:
+--cron or --at (switching a schedule between recurring and single-shot).
+Payload: the agent options (--prompt, --role, --repo, --cwd, --branch, --model,
+--aicli, --agent) or a new --pipeline spec file. An empty value clears an
+optional field. --json prints the updated schedule.
 
 Usage:
-  warden schedule show <id> [flags]
+  warden schedule edit <id> [--cron <spec> | --at <time>] [agent flags] | --pipeline <spec.yaml> [flags]
+
+Examples:
+  warden schedule edit nightly --cron "0 3 * * *"
+    warden schedule edit nightly --prompt ""
 
 Flags:
-  -h, --help   help for show
+      --agent string      agent name (empty clears it)
+      --aicli string      AI CLI (empty clears it)
+      --at string         new single-shot time in the future (switches from --cron)
+      --branch string     development branch (empty clears it)
+      --cron string       new recurring cron spec (switches from --at)
+      --cwd string        agent launch directory (empty clears it)
+  -h, --help              help for edit
+      --json              print the updated schedule as JSON
+      --model string      model ID (empty clears it)
+      --pipeline string   new pipeline YAML spec file
+      --prompt string     agent prompt (empty clears it)
+      --repo string       repo path for an agent schedule
+      --role string       agent role (empty clears it)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden schedule run
+
+```text
+Fire the schedule's agent or pipeline once, right now, to test it. This does
+not consume a single-shot or move a recurring schedule's next run, and it works
+on a disabled schedule.
+
+Usage:
+  warden schedule run <id> [flags]
+
+Examples:
+  warden schedule run nightly
+
+Flags:
+  -h, --help   help for run
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -2290,13 +2421,18 @@ Inherited flags:
 ## warden schedule enable
 
 ```text
-Enable a schedule so it fires again (re-arms next run)
+Turn a disabled schedule back on and re-arm its next run from now. Says so when
+the schedule was already enabled. --json prints {changed, schedule}.
 
 Usage:
   warden schedule enable <id> [flags]
 
+Examples:
+  warden schedule enable nightly
+
 Flags:
   -h, --help   help for enable
+      --json   print {changed, schedule} as JSON
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -2306,13 +2442,19 @@ Inherited flags:
 ## warden schedule disable
 
 ```text
-Disable a schedule so it stops firing (history preserved)
+Stop a schedule from firing without deleting it; its record and last-run
+history are kept. Turn it back on with `warden schedule enable`. Says so when
+the schedule was already disabled. --json prints {changed, schedule}.
 
 Usage:
   warden schedule disable <id> [flags]
 
+Examples:
+  warden schedule disable nightly
+
 Flags:
   -h, --help   help for disable
+      --json   print {changed, schedule} as JSON
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -2322,17 +2464,30 @@ Inherited flags:
 ## warden schedule delete
 
 ```text
-Delete a schedule
+Delete a schedule permanently, after asking you to confirm. The prompt names the
+schedule, what it fires and its next run. Only the schedule is removed: agents
+and pipelines it already started keep running and are not affected. To stop a
+schedule but keep it, use `warden schedule disable`.
+
+Pass --yes/-y to skip the prompt; without a terminal on stdin, --yes is required.
 
 Usage:
   warden schedule delete <id> [flags]
 
+Examples:
+  warden schedule delete nightly
+    warden schedule rm nightly --yes
+
 Flags:
   -h, --help   help for delete
+  -y, --yes    skip the confirmation prompt
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
+
+Aliases:
+  rm
 ```
 
 ## warden project
@@ -5578,7 +5733,8 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | `warden role tier set` | `warden agent role tier set` |
 | `warden rotate` | `warden agent rotate` |
 | `warden savings` | `warden usage savings` |
-| `warden schedule get` | `warden schedule show` |
+| `warden schedule ls` | `warden schedule list` |
+| `warden schedule rm` | `warden schedule delete` |
 | `warden search` | `warden inspect search` |
 | `warden set-permission-mode` | `warden agent set` |
 | `warden set-role` | `warden agent set` |

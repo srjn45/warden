@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
 	"github.com/srjn45/warden/internal/pipeline"
 	"io"
@@ -349,7 +350,7 @@ func TestScheduleCreateCmd(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
 		"POST /api/v1/schedules": `{"id":"nightly","name":"nightly","kind":"cron","mode":"agent","enabled":true}`,
 	}, nil, body))
-	out, err := runCLI(t, addr, "schedule", "create", "nightly", "--cron", "0 9 * * *", "--type", "development", "--repo", "/r", "--prompt", "go")
+	out, err := runCLI(t, addr, "schedule", "create", "nightly", "--cron", "0 9 * * *", "--repo", "/r", "--prompt", "go")
 	if err != nil {
 		t.Fatalf("schedule create: %v", err)
 	}
@@ -374,10 +375,12 @@ func TestScheduleListCmd(t *testing.T) {
 	}
 }
 
+const scheduleStub = `{"id":"nightly","name":"nightly","kind":"cron","cron":"0 2 * * *","mode":"agent","enabled":true}`
+
 func TestScheduleDeleteCmd(t *testing.T) {
 	method := map[string]string{}
-	addr := stubDaemon(t, routedDaemon(t, nil, method, nil))
-	out, err := runCLI(t, addr, "schedule", "delete", "nightly")
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{"GET /api/v1/schedules/nightly": scheduleStub}, method, nil))
+	out, err := runCLI(t, addr, "schedule", "delete", "nightly", "--yes")
 	if err != nil {
 		t.Fatalf("schedule delete: %v", err)
 	}
@@ -386,6 +389,47 @@ func TestScheduleDeleteCmd(t *testing.T) {
 	}
 	if method["/api/v1/schedules/nightly"] != http.MethodDelete {
 		t.Fatalf("expected DELETE, got %q", method["/api/v1/schedules/nightly"])
+	}
+}
+
+func TestScheduleDeletePromptNamesScheduleAndAborts(t *testing.T) {
+	method := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{"GET /api/v1/schedules/nightly": scheduleStub}, method, nil))
+	root := newRootCmd()
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+	root.SetIn(strings.NewReader("n\n"))
+	root.SetArgs([]string{"schedule", "rm", "nightly", "--addr", addr})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"nightly"`, "already started are not affected", "nothing deleted"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output missing %q: %q", want, out.String())
+		}
+	}
+	if method["/api/v1/schedules/nightly"] == http.MethodDelete {
+		t.Fatal("must not delete after answering n")
+	}
+}
+
+func TestScheduleEnableDisableAlreadyAndJSON(t *testing.T) {
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"GET /api/v1/schedules/nightly":          scheduleStub,
+		"POST /api/v1/schedules/nightly/disable": strings.Replace(scheduleStub, `"enabled":true`, `"enabled":false`, 1),
+	}, nil, nil))
+	out, err := runCLI(t, addr, "schedule", "enable", "nightly")
+	if err != nil || !strings.Contains(out, "already enabled") {
+		t.Fatalf("enable: %v %q", err, out)
+	}
+	out, err = runCLI(t, addr, "schedule", "enable", "nightly", "--json")
+	if err != nil || !strings.Contains(out, `"changed": false`) {
+		t.Fatalf("enable --json: %v %q", err, out)
+	}
+	out, err = runCLI(t, addr, "schedule", "disable", "nightly")
+	if err != nil || !strings.Contains(out, "wd schedule enable nightly") {
+		t.Fatalf("disable should say how to re-enable: %v %q", err, out)
 	}
 }
 

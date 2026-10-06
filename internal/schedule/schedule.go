@@ -7,6 +7,7 @@
 package schedule
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -32,7 +33,8 @@ const (
 )
 
 // cronParser matches robfig/cron's default 5-field spec (minute-resolution),
-// with the usual @hourly/@daily/@weekly descriptors. The daemon ticks once a
+// with the usual @hourly/@daily/@weekly descriptors. A spec is evaluated in the
+// daemon host's local time unless it starts with TZ=<zone> (or CRON_TZ=<zone>). The daemon ticks once a
 // minute, so second-resolution specs would not buy anything.
 var cronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
 
@@ -48,13 +50,29 @@ type Schedule struct {
 	Cron    string `json:"cron,omitempty"`
 	At      string `json:"at,omitempty"` // RFC3339-ish single-shot time
 	Enabled bool   `json:"enabled"`
+	// Disabled records that an operator turned the schedule off, so a schedule
+	// that was switched off can be told apart from a single-shot that is spent
+	// (both have Enabled=false). Absent on schedules stored before it existed.
+	Disabled bool `json:"disabled,omitempty"`
 
 	// Agent fire payload (Mode == agent). Mirrors the spawn passthrough fields.
 	Type   string `json:"type,omitempty"`
 	Repo   string `json:"repo,omitempty"`
+	Cwd    string `json:"cwd,omitempty"`  // launch directory for a free-form agent (absolute)
+	Role   string `json:"role,omitempty"` // agent role; empty = worker with a repo, else general
 	Prompt string `json:"prompt,omitempty"`
 	Agent  string `json:"agent,omitempty"`  // optional agent name passthrough
 	Branch string `json:"branch,omitempty"` // optional development branch / pr-review checkout
+
+	// Further agent spawn passthrough, same meaning as the matching `warden start`
+	// flags. All optional; empty means "the daemon's default".
+	Model          string   `json:"model,omitempty"`           // model ID for AiCli
+	AiCli          string   `json:"ai_cli,omitempty"`          // AI CLI id (claude, aider, …)
+	PermissionMode string   `json:"permission_mode,omitempty"` // explicit permission mode
+	AutoRestart    bool     `json:"auto_restart,omitempty"`    // auto-resume the agent if it crashes
+	Tags           []string `json:"tags,omitempty"`            // labels stamped on every spawned agent
+	Tier           string   `json:"tier,omitempty"`            // model tier for the quota-balanced resolver
+	ProjectID      string   `json:"project_id,omitempty"`      // project the agent joins; empty = path-matched to the launch dir at fire time
 
 	// Pipeline fire payload (Mode == pipeline): the raw pipeline YAML spec. It is
 	// validated at create time (in the route handler) and re-parsed on each fire.
@@ -75,6 +93,43 @@ type Schedule struct {
 	LastRunStatus    string `json:"last_run_status,omitempty"`
 }
 
+// State is the one-word lifecycle answer every surface shows for a schedule.
+type State string
+
+const (
+	StateEnabled  State = "enabled"  // armed; a recurring schedule with a failed last run is still enabled
+	StateDisabled State = "disabled" // turned off by the operator
+	StateDone     State = "done"     // single-shot that fired successfully and will not fire again
+	StateFailed   State = "failed"   // single-shot whose only fire failed
+)
+
+// State derives the schedule's lifecycle state from its stored fields. A
+// disabled schedule that never recorded the operator's choice (stored before
+// Disabled existed) counts as spent only when it is a single-shot that has
+// fired; anything else switched off is disabled.
+func (s Schedule) State() State {
+	if s.Enabled {
+		return StateEnabled
+	}
+	if !s.Disabled && s.Kind == KindAt && s.LastRun != nil {
+		if s.LastError != "" {
+			return StateFailed
+		}
+		return StateDone
+	}
+	return StateDisabled
+}
+
+// MarshalJSON adds the derived, read-only `state` field to the wire form so the
+// web cockpit, the app and MCP get the same answer as the CLI.
+func (s Schedule) MarshalJSON() ([]byte, error) {
+	type plain Schedule
+	return json.Marshal(struct {
+		plain
+		State State `json:"state"`
+	}{plain(s), s.State()})
+}
+
 // Params are the validated inputs used to build a Schedule (one per CLI/route
 // create call). Exactly one of Cron/At and exactly one fire mode must be set.
 type Params struct {
@@ -85,9 +140,19 @@ type Params struct {
 	// Agent mode (Spec empty).
 	Type   string
 	Repo   string
+	Cwd    string
+	Role   string
 	Prompt string
 	Agent  string
 	Branch string
+
+	Model          string
+	AiCli          string
+	PermissionMode string
+	AutoRestart    bool
+	Tags           []string
+	Tier           string
+	ProjectID      string
 
 	// Pipeline mode (Spec set; agent fields ignored).
 	Spec string
@@ -98,18 +163,28 @@ type Params struct {
 // (see Validate) or the cron/at spec does not parse.
 func New(p Params, now time.Time) (*Schedule, error) {
 	s := &Schedule{
-		ID:        p.Name,
-		Name:      p.Name,
-		Cron:      strings.TrimSpace(p.Cron),
-		At:        strings.TrimSpace(p.At),
-		Enabled:   true,
-		Type:      p.Type,
-		Repo:      p.Repo,
-		Prompt:    p.Prompt,
-		Agent:     p.Agent,
-		Branch:    p.Branch,
-		Spec:      p.Spec,
-		CreatedAt: now,
+		ID:      p.Name,
+		Name:    p.Name,
+		Cron:    strings.TrimSpace(p.Cron),
+		At:      strings.TrimSpace(p.At),
+		Enabled: true,
+		Type:    p.Type,
+		Repo:    p.Repo,
+		Cwd:     p.Cwd,
+		Role:    p.Role,
+		Prompt:  p.Prompt,
+		Agent:   p.Agent,
+		Branch:  p.Branch,
+		Spec:    p.Spec,
+
+		Model:          p.Model,
+		AiCli:          p.AiCli,
+		PermissionMode: p.PermissionMode,
+		AutoRestart:    p.AutoRestart,
+		Tags:           p.Tags,
+		Tier:           p.Tier,
+		ProjectID:      p.ProjectID,
+		CreatedAt:      now,
 	}
 	if s.Cron != "" {
 		s.Kind = KindCron
@@ -161,6 +236,9 @@ func Validate(s *Schedule) error {
 		if strings.TrimSpace(s.Prompt) == "" {
 			return fmt.Errorf("agent mode requires --prompt")
 		}
+		if strings.TrimSpace(s.Model) != "" && strings.TrimSpace(s.AiCli) == "" {
+			return fmt.Errorf("--model requires --aicli (alias --ai-cli)")
+		}
 		// A typed spawn needs a repo (mirrors the daemon's spawn precondition); a
 		// free-form spawn (empty type) does not.
 		if strings.TrimSpace(s.Type) != "" && strings.TrimSpace(s.Repo) == "" {
@@ -168,6 +246,51 @@ func Validate(s *Schedule) error {
 		}
 	default:
 		return fmt.Errorf("unknown fire mode %q", s.Mode)
+	}
+	return nil
+}
+
+// AgentFlagConflicts lists the agent-only options set on a create request that
+// also carries a pipeline spec, as the CLI flag names, in a stable order. A
+// pipeline schedule fires the pipeline as written, so these would be silently
+// ignored; the create path rejects the combination and names them instead.
+func AgentFlagConflicts(p Params) []string {
+	var out []string
+	add := func(set bool, flag string) {
+		if set {
+			out = append(out, flag)
+		}
+	}
+	add(strings.TrimSpace(p.Prompt) != "", "--prompt")
+	add(strings.TrimSpace(p.Repo) != "", "--repo")
+	add(strings.TrimSpace(p.Cwd) != "", "--cwd")
+	add(strings.TrimSpace(p.Role) != "", "--role")
+	add(strings.TrimSpace(p.Agent) != "", "--agent")
+	add(strings.TrimSpace(p.Branch) != "", "--branch")
+	add(strings.TrimSpace(p.Model) != "", "--model")
+	add(strings.TrimSpace(p.AiCli) != "", "--aicli")
+	add(strings.TrimSpace(p.PermissionMode) != "", "--permission-mode")
+	add(p.AutoRestart, "--auto-restart")
+	add(len(p.Tags) > 0, "--tags")
+	add(strings.TrimSpace(p.Tier) != "", "--tier")
+	add(strings.TrimSpace(p.ProjectID) != "", "--project")
+	add(strings.TrimSpace(p.Type) != "", "type")
+	return out
+}
+
+// CheckAtInFuture rejects a single-shot time that is not strictly after now. It
+// is the create-time (and edit-time) guard against a wrong date launching an
+// agent on the next tick; New and Recompute deliberately do not apply it, so the
+// daemon's startup path still fires a single-shot that came due during downtime.
+// The message shows the time as parsed (with its zone) and the current time.
+func CheckAtInFuture(at string, now time.Time) error {
+	t, err := ParseAt(at)
+	if err != nil {
+		return fmt.Errorf("invalid --at time %q: %w (want RFC3339, e.g. 2026-06-27T09:00:00Z, or 2026-06-27T09:00)", at, err)
+	}
+	if !t.After(now) {
+		return fmt.Errorf("--at %q is %s, which is not in the future (it is now %s); pass a later time, or --now to fire once immediately",
+			strings.TrimSpace(at), t.Format(time.RFC3339), now.Format(time.RFC3339))
 	}
 	return nil
 }
@@ -252,6 +375,7 @@ func Recompute(s *Schedule, now time.Time) error {
 // should not happen for a schedule that validated at create time.
 func SetEnabled(s *Schedule, enabled bool, now time.Time) error {
 	s.Enabled = enabled
+	s.Disabled = !enabled
 	return Recompute(s, now)
 }
 
@@ -292,4 +416,108 @@ func Advance(s *Schedule, now time.Time, sessionID string, fireErr error) {
 		s.Enabled = false
 		s.NextRun = nil
 	}
+}
+
+// RecordRun stamps a manual fire (`schedule run`) on s: the fire time, outcome
+// and the run it produced, exactly as Advance does, but WITHOUT touching
+// Enabled or NextRun — a test-fire must not consume a single-shot or move a
+// cron schedule's next occurrence.
+func RecordRun(s *Schedule, now time.Time, sessionID string, fireErr error) {
+	t := now
+	s.LastRun = &t
+	if fireErr != nil {
+		s.LastError = fireErr.Error()
+	} else {
+		s.LastError = ""
+	}
+	s.LastRunSessionID = sessionID
+	s.LastRunStatus = ""
+}
+
+// Patch is a partial edit of a schedule: only non-nil fields change, and an
+// empty string clears an optional field. Mirrors the `schedule edit` flags.
+type Patch struct {
+	Cron, At                                             *string // timing (exclusive)
+	Repo, Cwd, Role, Prompt, Agent, Branch, Model, AiCli *string // agent payload
+	Spec                                                 *string // pipeline payload
+}
+
+// agentFields lists the agent-payload fields the patch sets, as flag names.
+func (p Patch) agentFields() []string {
+	var out []string
+	add := func(v *string, flag string) {
+		if v != nil {
+			out = append(out, flag)
+		}
+	}
+	add(p.Prompt, "--prompt")
+	add(p.Repo, "--repo")
+	add(p.Cwd, "--cwd")
+	add(p.Role, "--role")
+	add(p.Agent, "--agent")
+	add(p.Branch, "--branch")
+	add(p.Model, "--model")
+	add(p.AiCli, "--aicli")
+	return out
+}
+
+// Empty reports whether the patch changes nothing.
+func (p Patch) Empty() bool {
+	return p.Cron == nil && p.At == nil && p.Spec == nil && len(p.agentFields()) == 0
+}
+
+// ApplyPatch applies p to s in place and re-validates the result. It enforces
+// the edit rules: timing may switch between cron and at; a past at is rejected;
+// agent and pipeline mode cannot be switched (create a new schedule). When s is
+// enabled its NextRun is recomputed from now. On error s may be partially
+// modified — apply to a copy first.
+func ApplyPatch(s *Schedule, p Patch, now time.Time) error {
+	if p.Empty() {
+		return fmt.Errorf("nothing to change: pass at least one of --cron, --at, --prompt, --cwd, --repo, --branch, --role, --model, --aicli, --agent or --pipeline")
+	}
+	if p.Cron != nil && p.At != nil {
+		return fmt.Errorf("provide exactly one of --cron or --at, not both")
+	}
+	switch s.Mode {
+	case ModePipeline:
+		if fl := p.agentFields(); len(fl) > 0 {
+			return fmt.Errorf("%s only apply to an agent schedule; %s fires a pipeline — create a new schedule to fire an agent", strings.Join(fl, ", "), s.Name)
+		}
+	default:
+		if p.Spec != nil {
+			return fmt.Errorf("--pipeline cannot be set on %s: it fires an agent — create a new schedule to fire a pipeline", s.Name)
+		}
+	}
+	if p.Cron != nil {
+		if strings.TrimSpace(*p.Cron) == "" {
+			return fmt.Errorf("--cron cannot be empty")
+		}
+		s.Kind, s.Cron, s.At = KindCron, strings.TrimSpace(*p.Cron), ""
+	}
+	if p.At != nil {
+		if err := CheckAtInFuture(*p.At, now); err != nil {
+			return err
+		}
+		s.Kind, s.At, s.Cron = KindAt, strings.TrimSpace(*p.At), ""
+	}
+	set := func(dst *string, v *string) {
+		if v != nil {
+			*dst = strings.TrimSpace(*v)
+		}
+	}
+	set(&s.Repo, p.Repo)
+	set(&s.Cwd, p.Cwd)
+	set(&s.Role, p.Role)
+	set(&s.Prompt, p.Prompt)
+	set(&s.Agent, p.Agent)
+	set(&s.Branch, p.Branch)
+	set(&s.Model, p.Model)
+	set(&s.AiCli, p.AiCli)
+	if p.Spec != nil {
+		s.Spec = *p.Spec
+	}
+	if err := Validate(s); err != nil {
+		return err
+	}
+	return Recompute(s, now)
 }

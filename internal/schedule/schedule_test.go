@@ -1,7 +1,9 @@
 package schedule
 
 import (
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -58,6 +60,8 @@ func TestValidate(t *testing.T) {
 		{"agent no prompt", Params{Name: "a", Cron: "0 9 * * *"}, true},
 		{"typed agent no repo", Params{Name: "a", Cron: "0 9 * * *", Type: "pr-review", Prompt: "go"}, true},
 		{"typed agent with repo", Params{Name: "a", Cron: "0 9 * * *", Type: "pr-review", Repo: "/r", Prompt: "go"}, false},
+		{"model without aicli", Params{Name: "a", Cron: "0 9 * * *", Prompt: "go", Model: "sonnet"}, true},
+		{"model with aicli", Params{Name: "a", Cron: "0 9 * * *", Prompt: "go", Model: "sonnet", AiCli: "claude"}, false},
 		{"pipeline ok", Params{Name: "a", Cron: "0 9 * * *", Spec: "name: p"}, false},
 	}
 	now := time.Now()
@@ -68,6 +72,29 @@ func TestValidate(t *testing.T) {
 				t.Fatalf("New err = %v, wantErr %v", err, tc.wantErr)
 			}
 		})
+	}
+}
+
+func TestAgentFlagConflicts(t *testing.T) {
+	got := AgentFlagConflicts(Params{
+		Spec: "x", Prompt: "p", Repo: "/r", Cwd: "/c", Role: "worker", Agent: "n",
+		Branch: "b", Model: "m", AiCli: "claude", PermissionMode: "plan",
+		AutoRestart: true, Tags: []string{"t"}, Tier: "tier-1", ProjectID: "/p", Type: "development",
+	})
+	want := []string{
+		"--prompt", "--repo", "--cwd", "--role", "--agent", "--branch",
+		"--model", "--aicli", "--permission-mode", "--auto-restart", "--tags", "--tier", "--project", "type",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+	if n := AgentFlagConflicts(Params{Spec: "x"}); len(n) != 0 {
+		t.Fatalf("pipeline-only should have no conflicts, got %v", n)
 	}
 }
 
@@ -180,5 +207,81 @@ func TestRecomputeDisabledClearsNext(t *testing.T) {
 	}
 	if s.NextRun != nil {
 		t.Fatal("disabled schedule should have nil NextRun after Recompute")
+	}
+}
+
+func TestCheckAtInFuture(t *testing.T) {
+	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
+	err := CheckAtInFuture("2020-01-01T09:00:00Z", now)
+	if err == nil {
+		t.Fatal("past time accepted")
+	}
+	for _, want := range []string{"2020-01-01T09:00:00Z", "2026-10-06T12:00:00Z", "--now"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("message %q missing %q", err, want)
+		}
+	}
+	if CheckAtInFuture("2026-10-06T12:00:00Z", now) == nil {
+		t.Error("exactly now accepted")
+	}
+	if err := CheckAtInFuture("2026-10-06T12:00:01Z", now); err != nil {
+		t.Errorf("future rejected: %v", err)
+	}
+	if CheckAtInFuture("garbage", now) == nil {
+		t.Error("garbage accepted")
+	}
+}
+
+func TestNewStillAcceptsPastAt(t *testing.T) {
+	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
+	if _, err := New(Params{Name: "p", At: "2020-01-01T09:00:00Z", Prompt: "x"}, now); err != nil {
+		t.Fatalf("New must not reject past times (startup path): %v", err)
+	}
+}
+
+func TestSetEnabledRecordsOperatorChoice(t *testing.T) {
+	now := time.Now()
+	s, err := New(Params{Name: "n", Cron: "@daily", Prompt: "p", Cwd: "/w"}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SetEnabled(s, false, now); err != nil {
+		t.Fatal(err)
+	}
+	if !s.Disabled || s.State() != StateDisabled {
+		t.Fatalf("disabled = %v state = %s", s.Disabled, s.State())
+	}
+	if err := SetEnabled(s, true, now); err != nil {
+		t.Fatal(err)
+	}
+	if s.Disabled || s.State() != StateEnabled {
+		t.Fatalf("disabled = %v state = %s", s.Disabled, s.State())
+	}
+}
+
+func TestAdvanceSingleShotIsDoneNotDisabled(t *testing.T) {
+	now := time.Now()
+	s, _ := New(Params{Name: "n", At: now.Add(time.Hour).Format(time.RFC3339), Prompt: "p", Cwd: "/w"}, now)
+	Advance(s, now, "agent-1", nil)
+	if s.State() != StateDone {
+		t.Fatalf("state = %s", s.State())
+	}
+	Advance(s, now, "", errors.New("boom"))
+	if s.State() != StateFailed {
+		t.Fatalf("state = %s", s.State())
+	}
+}
+
+func TestMarshalIncludesDerivedState(t *testing.T) {
+	b, err := json.Marshal(&Schedule{Name: "n", Kind: KindCron, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"state":"enabled"`) {
+		t.Fatalf("json = %s", b)
+	}
+	var back Schedule
+	if err := json.Unmarshal(b, &back); err != nil || back.Name != "n" {
+		t.Fatalf("round trip: %v %+v", err, back)
 	}
 }

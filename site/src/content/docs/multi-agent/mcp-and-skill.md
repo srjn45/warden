@@ -51,7 +51,7 @@ Register `warden daemon mcp` as an MCP server in your orchestrator agent's MCP c
 | `start_pipeline` / `pause_pipeline` / `resume_pipeline` / `cancel_pipeline` | Run / pause / resume / cancel a pipeline |
 | `show_pipeline` / `list_pipelines` / `delete_pipeline` | Inspect / list / delete pipelines |
 | `retry_pipeline_job` / `edit_pipeline_job` / `emit_pipeline_output` | Per-job retry / edit a pending job / set handoff output |
-| `list_schedules` / `get_schedule` / `create_schedule` / `enable_schedule` / `disable_schedule` / `delete_schedule` | List / get / create / enable / disable / delete the daemon's cron/at schedules (403 when disabled) |
+| `list_schedules` / `get_schedule` / `create_schedule` / `update_schedule` / `run_schedule` / `enable_schedule` / `disable_schedule` / `delete_schedule` | List / get / create / enable / disable / delete the daemon's cron/at schedules (403 when disabled) |
 | `snapshot_create` / `snapshot_list` / `snapshot_restore` | Worktree + transcript checkpoints and rollback |
 | `insights` / `savings` / `spend` | History-mined patterns / the token-savings ledger / the $ spend rollup |
 | `get_metrics` / `get_pressure` | Live/historical resource metrics / memory-pressure gate verdict |
@@ -60,7 +60,7 @@ Register `warden daemon mcp` as an MCP server in your orchestrator agent's MCP c
 | `library_list` | Browse presets + prompt templates + pipeline templates (one umbrella) |
 | `export_sessions` / `import_sessions` / `list_plugins` | Serialize / load session metadata / list registered plugins |
 
-> **Full parity (76 tools):** every fleet/data feature warden's CLI has is also an MCP tool — including all pipeline verbs (`pause`/`resume`/`job` edit+retry/`emit`/`delete`/`validate`/`template list`), scheduling, `rotate`/`handoff`, `fork`, and agent roles (`set_role`/`list_roles` + `spawn_agent`'s `role` param). The only CLI-only verbs are host/process/interactive/secret ones (`daemon`, `config`, `token`, `attach`, `repl`) plus the worktree-local `review`/`models` superpowers; see the [feature catalog](/warden/reference/features/).
+> **Full parity (83 tools):** every fleet/data feature warden's CLI has is also an MCP tool — including all pipeline verbs (`pause`/`resume`/`job` edit+retry/`emit`/`delete`/`validate`/`template list`), scheduling, `rotate`/`handoff`, `fork`, and agent roles (`set_role`/`list_roles` + `spawn_agent`'s `role` param). The only CLI-only verbs are host/process/interactive/secret ones (`daemon`, `config`, `token`, `attach`, `repl`) plus the worktree-local `review`/`models` superpowers; see the [feature catalog](/warden/reference/features/).
 
 Example orchestrator prompts:
 

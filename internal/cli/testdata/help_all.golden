@@ -87,6 +87,8 @@ Complete command tree:
   warden schedule create               Create a schedule that fires an agent or a pipeline
   warden schedule list                 List schedules
   warden schedule show                 Show one schedule, including its last-run outcome
+  warden schedule edit                 Edit a schedule's timing or fire payload
+  warden schedule run                  Fire a schedule once now without changing its next run
   warden schedule enable               Enable a schedule so it fires again (re-arms next run)
   warden schedule disable              Disable a schedule so it stops firing (history preserved)
   warden schedule delete               Delete a schedule
@@ -338,7 +340,8 @@ Compatibility aliases:
   warden role tier set -> warden agent role tier set (compatibility)
   warden rotate -> warden agent rotate (compatibility)
   warden savings -> warden usage savings (compatibility)
-  warden schedule get -> warden schedule show (compatibility)
+  warden schedule ls -> warden schedule list (compatibility)
+  warden schedule rm -> warden schedule delete (compatibility)
   warden search -> warden inspect search (compatibility)
   warden set-permission-mode -> warden agent set (compatibility)
   warden set-role -> warden agent set (compatibility)

@@ -51,7 +51,7 @@ func TestExtraToolsRegistered(t *testing.T) {
 		"pause_pipeline", "resume_pipeline", "retry_pipeline_job",
 		"edit_pipeline_job", "emit_pipeline_output", "delete_pipeline",
 		"validate_pipeline", "list_pipeline_templates", "library_list",
-		"create_schedule", "delete_schedule",
+		"create_schedule", "delete_schedule", "run_schedule", "update_schedule",
 		"autopilot_status", "land", "autopilot_complete", "brain_consult",
 		"list_models", "set_model_tier", "list_role_tiers", "set_role_tier",
 		"switch_agent", "get_handover_settings", "set_handover_settings",
@@ -352,6 +352,42 @@ func TestCreateScheduleTool(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, res.IsError, textOf(res))
 	require.Contains(t, textOf(res), "nightly")
+}
+
+func TestRunAndUpdateScheduleTools(t *testing.T) {
+	var hits []string
+	var patch string
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits = append(hits, r.Method+" "+r.URL.Path)
+		if r.Method == http.MethodPatch {
+			b, _ := io.ReadAll(r.Body)
+			patch = string(b)
+			_, _ = w.Write([]byte(`{"id":"nightly","cron":"0 3 * * *"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"schedule":{"id":"nightly"},"run_id":"run-1"}`))
+	}))
+	defer daemon.Close()
+	session := connectTo(t, daemon.URL)
+	ctx := context.Background()
+
+	res, err := session.CallTool(ctx, &mcpsdk.CallToolParams{Name: "run_schedule", Arguments: map[string]any{"id": "nightly"}})
+	require.NoError(t, err)
+	require.False(t, res.IsError, textOf(res))
+	require.Contains(t, textOf(res), "run-1")
+
+	res, err = session.CallTool(ctx, &mcpsdk.CallToolParams{Name: "update_schedule", Arguments: map[string]any{"id": "nightly", "cron": "0 3 * * *", "prompt": ""}})
+	require.NoError(t, err)
+	require.False(t, res.IsError, textOf(res))
+	require.JSONEq(t, `{"cron":"0 3 * * *","prompt":""}`, patch)
+
+	res, err = session.CallTool(ctx, &mcpsdk.CallToolParams{Name: "update_schedule", Arguments: map[string]any{"id": "nightly"}})
+	require.NoError(t, err)
+	require.Contains(t, textOf(res), "nothing to change")
+	res, err = session.CallTool(ctx, &mcpsdk.CallToolParams{Name: "update_schedule", Arguments: map[string]any{"id": "nightly", "cron": "@daily", "at": "2030-01-01T00:00:00Z"}})
+	require.NoError(t, err)
+	require.Contains(t, textOf(res), "not both")
+	require.Equal(t, []string{"POST /api/v1/schedules/nightly/run", "PATCH /api/v1/schedules/nightly"}, hits)
 }
 
 // TestKnownPromptsTools covers list + forget (one, all) and arg validation.

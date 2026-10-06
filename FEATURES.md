@@ -162,11 +162,13 @@ default; each in its own tmux session, most in a git worktree).
 
 | Feature | CLI | MCP | Skill | Web | TUI | Docs |
 |---|---|---|---|---|---|---|
-| Create schedule (cron / at; agent or pipeline) | `schedule create` | `create_schedule` | ✓ | — | — | [scheduling](https://srjn45.github.io/warden/guides/scheduling/) |
-| List schedules | `schedule list` | `list_schedules` | ✓ | — | — | [scheduling](https://srjn45.github.io/warden/guides/scheduling/) |
-| Get one schedule (+ last-run outcome) | `schedule get` | `get_schedule` | ✓ | — | — | [scheduling](https://srjn45.github.io/warden/guides/scheduling/) |
+| Create schedule (cron / at / now; agent or pipeline; same options as `start`) | `schedule create` | `create_schedule` | ✓ | — | — | [scheduling](https://srjn45.github.io/warden/guides/scheduling/) |
+| List schedules (table with state: enabled / disabled / done / failed) | `schedule list` | `list_schedules` | ✓ | — | — | [scheduling](https://srjn45.github.io/warden/guides/scheduling/) |
+| Show one schedule (full fire payload + last run) | `schedule show` | `get_schedule` | ✓ | — | — | [scheduling](https://srjn45.github.io/warden/guides/scheduling/) |
+| Test a schedule (fire once, next run unchanged) | `schedule run` | `run_schedule` | ✓ | — | — | [scheduling](https://srjn45.github.io/warden/guides/scheduling/) |
+| Edit a schedule (only the flags passed) | `schedule edit` | `update_schedule` | ✓ | — | — | [scheduling](https://srjn45.github.io/warden/guides/scheduling/) |
 | Enable / disable schedule | `schedule enable` / `disable` | `enable_schedule` / `disable_schedule` | ✓ | — | — | [scheduling](https://srjn45.github.io/warden/guides/scheduling/) |
-| Delete schedule | `schedule delete` | `delete_schedule` | ✓ | — | — | [scheduling](https://srjn45.github.io/warden/guides/scheduling/) |
+| Delete schedule (confirms; `--yes` to skip) | `schedule delete` | `delete_schedule` | ✓ | — | — | [scheduling](https://srjn45.github.io/warden/guides/scheduling/) |
 | Scheduled-run session linkage (`schedule_id` on sessions; `scheduled-agents` capability) | — | — | ✓ | — | — | [scheduling](https://srjn45.github.io/warden/guides/scheduling/) |
 
 ## 8. Snapshots & rollback
@@ -430,7 +432,7 @@ out / rotating the very token that guards the MCP and HTTP channels).
 
 ### MCP parity summary
 
-Every fleet/data feature is reachable over MCP (**81 tools**, including the
+Every fleet/data feature is reachable over MCP (**83 tools**, including the
 umbrella `stop_agent`). The only
 CLI-exclusive features are the host/process/interactive/secret commands in
 §17 (plus interactive `attach`/`repl`, the local-config `preset` /
@@ -445,7 +447,7 @@ CLI-only **by design**. New parity tools added for full coverage: `digest`,
 `handoff_agent`, `pause_pipeline`, `resume_pipeline`, `retry_pipeline_job`,
 `edit_pipeline_job`, `emit_pipeline_output`, `delete_pipeline`,
 `validate_pipeline`, `list_pipeline_templates`, `library_list`,
-`create_schedule`, `get_schedule`, `enable_schedule`, `disable_schedule`, `delete_schedule`, `fork_agent`, `set_role`, `list_roles`,
+`create_schedule`, `get_schedule`, `update_schedule`, `run_schedule`, `enable_schedule`, `disable_schedule`, `delete_schedule`, `fork_agent`, `set_role`, `list_roles`,
 `autopilot_status`, `land`, `list_backends`, `rescan_backends`,
 `set_backend_tier`, `set_default_backend`. (`set_thinking_mode` is a retired no-op.)
 

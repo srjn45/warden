@@ -3471,8 +3471,10 @@ paths:
       summary: Create a recurring (cron) or single-shot (at) schedule
       description: >
         Fires either an agent spawn (type/repo/prompt/agent/branch) or a pipeline
-        (spec). Provide exactly one of cron/at and exactly one fire mode. Gated by
-        the `scheduler_enabled` config setting; returns 403 when disabled.
+        (spec). Provide exactly one of cron/at/now and exactly one fire mode. An `at`
+        time that is not after the current time is rejected with 400; use `now`
+        to fire once immediately. Gated by the `scheduler_enabled` config
+        setting; returns 403 when disabled.
       requestBody:
         required: true
         content:
@@ -3504,6 +3506,37 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Schedule" }
+        "403":
+          description: Scheduler disabled
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      operationId: updateSchedule
+      tags: [Schedules]
+      summary: Edit a schedule in place
+      description: >
+        Changes a schedule's timing or fire payload while keeping its id, created
+        time and last-run history. Only the fields present in the body change; an
+        empty string clears an optional field. Changing timing recomputes next_run;
+        switching between cron and at is allowed; a past `at` is rejected. Switching
+        between agent and pipeline mode is rejected (create a new schedule). The
+        result is validated like a create, so an edit cannot produce a schedule that
+        could never fire. Gated by `scheduler_enabled`; 403 when disabled.
+      parameters: [{ $ref: "#/components/parameters/ScheduleId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ScheduleUpdateRequest" }
+      responses:
+        "200":
+          description: The updated schedule
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Schedule" }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "403":
           description: Scheduler disabled
           content:
@@ -3570,6 +3603,42 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/schedules/{id}/run:
+    post:
+      operationId: runSchedule
+      tags: [Schedules]
+      summary: Fire a schedule once, now
+      description: >
+        Fires the schedule immediately, exactly as the scheduler would (same spawn
+        or pipeline start, same schedule back-reference, same last-run recording),
+        without changing its next run, its enabled state or whether a single-shot
+        is still pending. Works on a disabled schedule. A fire failure is returned
+        as an error and also recorded in the schedule's last_error. Gated by
+        `scheduler_enabled`; 403 when disabled.
+      parameters: [{ $ref: "#/components/parameters/ScheduleId" }]
+      responses:
+        "200":
+          description: The schedule and the run this fire produced
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [schedule, run_id]
+                properties:
+                  schedule: { $ref: "#/components/schemas/Schedule" }
+                  run_id: { type: string, description: "id of the agent (agent mode) or pipeline (pipeline mode) that was started" }
+        "403":
+          description: Scheduler disabled
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: The fire failed; the reason is also recorded in last_error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
 components:
   securitySchemes:
@@ -6460,8 +6529,9 @@ components:
       required: [name]
       properties:
         name: { type: string, description: "schedule id (== name)" }
-        cron: { type: string, description: "recurring cron spec (mutually exclusive with at)" }
-        at: { type: string, description: "single-shot time, RFC3339 or 2006-01-02T15:04 (mutually exclusive with cron)" }
+        cron: { type: string, description: "recurring cron spec, evaluated in the daemon host's local time unless it starts with TZ=<zone> (mutually exclusive with at and now)" }
+        at: { type: string, description: "single-shot time, RFC3339 or 2006-01-02T15:04; a time without a zone is the daemon host's local time. Must be in the future (mutually exclusive with cron and now)" }
+        now: { type: boolean, description: "fire once as soon as possible: a single-shot due immediately (mutually exclusive with cron and at)" }
         type:
           type: string
           deprecated: true
@@ -6470,11 +6540,61 @@ components:
             an explicit role via POST /api/v1/spawn. Accepted for one release:
             at fire time the daemon maps known type values onto a role
             (development→implementer, pr-review→reviewer, analysis/spike→general).
-        repo: { type: string, description: "repo path (required for a typed agent)" }
+        repo: { type: string, description: "repo path; with a worktree-owning role (the default when a repo is given) the agent runs in an isolated worktree off it" }
+        cwd: { type: string, description: "existing absolute directory a free-form agent launches in (required when there is no repo)" }
+        role: { type: string, description: "agent role (see GET /api/v1/roles); empty = worker when a repo is given, otherwise general" }
         prompt: { type: string, description: "agent prompt (agent mode)" }
         agent: { type: string, description: "optional name for the spawned agent" }
         branch: { type: string, description: "optional development branch / pr-review checkout" }
-        spec: { type: string, description: "pipeline YAML; non-empty selects pipeline mode" }
+        model: { type: string, description: "model ID for ai_cli (requires ai_cli); empty lets the model-tier resolver pick" }
+        ai_cli: { type: string, description: "AI CLI id the agent runs (claude, aider, …); empty = the daemon's default" }
+        permission_mode: { type: string, description: "permission mode for the agent: acceptEdits|auto|bypassPermissions|default|dontAsk|plan; empty = the configured default" }
+        auto_restart: { type: boolean, description: "auto-resume the agent if it crashes, capped at a few attempts" }
+        tags: { type: array, items: { type: string }, description: "labels stamped on every agent the schedule spawns" }
+        tier: { type: string, description: "model tier for the quota-balanced resolver: tier-1|tier-2|tier-3" }
+        project_id: { type: string, description: "id of the project the agent joins; empty = the project owning the launch directory, resolved at fire time like a normal spawn" }
+        spec: { type: string, description: "pipeline YAML; non-empty selects pipeline mode and is rejected together with any agent field (prompt, repo, cwd, role, agent, branch, model, ai_cli, …)" }
+
+    ScheduleUpdateRequest:
+      type: object
+      description: Only the fields present change; an empty string clears an optional field.
+      properties:
+        cron:
+          type: string
+          x-go-type: "*string"
+          description: "new recurring cron spec (switches an `at` schedule to recurring)"
+        at:
+          type: string
+          x-go-type: "*string"
+          description: "new single-shot time, must be in the future (switches a cron schedule to single-shot)"
+        repo:
+          type: string
+          x-go-type: "*string"
+        cwd:
+          type: string
+          x-go-type: "*string"
+        role:
+          type: string
+          x-go-type: "*string"
+        prompt:
+          type: string
+          x-go-type: "*string"
+        agent:
+          type: string
+          x-go-type: "*string"
+        branch:
+          type: string
+          x-go-type: "*string"
+        model:
+          type: string
+          x-go-type: "*string"
+        ai_cli:
+          type: string
+          x-go-type: "*string"
+        spec:
+          type: string
+          x-go-type: "*string"
+          description: "new pipeline YAML; only valid on a pipeline schedule"
 
     Schedule:
       x-go-type: schedule.Schedule
@@ -6503,6 +6623,16 @@ components:
         cron: { type: string, description: "recurring spec; present when kind=cron" }
         at: { type: string, description: "single-shot time; present when kind=at" }
         enabled: { type: boolean }
+        disabled: { type: boolean, description: "true when an operator turned the schedule off; distinguishes a disabled schedule from a spent single-shot. Absent on schedules stored before the field existed" }
+        state:
+          type: string
+          enum: [enabled, disabled, done, failed]
+          readOnly: true
+          description: >
+            derived lifecycle state: `enabled` (armed; a recurring schedule whose
+            last run failed stays enabled, see last_error), `disabled` (turned
+            off by the operator), `done` (single-shot that fired successfully) or
+            `failed` (single-shot whose only fire failed).
         type:
           type: string
           deprecated: true
@@ -6510,9 +6640,18 @@ components:
             Deprecated legacy agent task type. Mapped onto a role at fire time
             during the one-release alias window.
         repo: { type: string }
+        cwd: { type: string, description: "launch directory of a free-form agent schedule; absent on older schedules" }
+        role: { type: string, description: "agent role the schedule spawns; absent = worker with a repo, else general" }
         prompt: { type: string }
         agent: { type: string }
         branch: { type: string }
+        model: { type: string, description: "model ID for ai_cli; absent = resolver/default" }
+        ai_cli: { type: string, description: "AI CLI the agent runs; absent = the daemon's default" }
+        permission_mode: { type: string }
+        auto_restart: { type: boolean }
+        tags: { type: array, items: { type: string } }
+        tier: { type: string }
+        project_id: { type: string, description: "project the spawned agent joins; absent = resolved from the launch directory at fire time" }
         spec: { type: string }
         created_at: { type: string, format: date-time }
         last_run: { type: string, format: date-time, description: "time of the most recent fire; absent if never fired" }

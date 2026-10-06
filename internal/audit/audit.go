@@ -30,6 +30,8 @@ const (
 	ActionScheduleDelete             = "schedule_delete"
 	ActionScheduleEnable             = "schedule_enable"
 	ActionScheduleDisable            = "schedule_disable"
+	ActionScheduleUpdate             = "schedule_update"
+	ActionScheduleRun                = "schedule_run"
 	ActionAutopilotOn                = "autopilot_on"
 	ActionAutopilotOff               = "autopilot_off"
 	ActionAutopilotLand              = "autopilot_land"
