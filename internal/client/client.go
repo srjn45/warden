@@ -1455,6 +1455,7 @@ type AutopilotRunStatus struct {
 	Fix           []AutopilotFixStatus     `json:"fix,omitempty"`
 	Resolver      *AutopilotResolverStatus `json:"resolver,omitempty"`
 	FinalPR       *AutopilotFinalPR        `json:"final_pr,omitempty"`
+	AwaitingMerge *AutopilotAwaitingMerge  `json:"awaiting_merge,omitempty"`
 }
 
 // AutopilotLedgerTask is one ledger row used to order the TUI/web workers tree.

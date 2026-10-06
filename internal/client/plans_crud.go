@@ -114,11 +114,36 @@ type PlanView struct {
 	OrchestratorID string            `json:"orchestrator_id,omitempty"`
 	RepoExport     *PlanRepoExport   `json:"repo_export,omitempty"`
 	Executor       *PlanExecutor     `json:"executor,omitempty"`
-	CreatedAt      time.Time         `json:"created_at"`
-	UpdatedAt      time.Time         `json:"updated_at"`
-	StartedAt      time.Time         `json:"started_at,omitempty"`
-	CompletedAt    time.Time         `json:"completed_at,omitempty"`
-	ArchivedAt     time.Time         `json:"archived_at,omitempty"`
+	// Ending record (plan-finish-flow §6): decoded here so `plan show` and the
+	// MCP tools no longer drop them on re-encode.
+	Outcome                          *planstore.PlanOutcome           `json:"outcome,omitempty"`
+	CleanupEvidence                  *planstore.CleanupEvidence       `json:"cleanup_evidence,omitempty"`
+	ExecutionSummary                 *planstore.ExecutionSummary      `json:"execution_summary,omitempty"`
+	ExecutionHistory                 []planstore.PlanExecution        `json:"execution_history,omitempty"`
+	TaskOutcomes                     map[string]planstore.TaskOutcome `json:"task_outcomes,omitempty"`
+	BranchSummaries                  []planstore.BranchSummary        `json:"branch_summaries,omitempty"`
+	IntegrationBranchLeftover        bool                             `json:"integration_branch_leftover,omitempty"`
+	IntegrationBranchLeftoverCommits int                              `json:"integration_branch_leftover_commits,omitempty"`
+	CreatedAt                        time.Time                        `json:"created_at"`
+	UpdatedAt                        time.Time                        `json:"updated_at"`
+	StartedAt                        time.Time                        `json:"started_at,omitempty"`
+	CompletedAt                      time.Time                        `json:"completed_at,omitempty"`
+	ArchivedAt                       time.Time                        `json:"archived_at,omitempty"`
+	ArchivedFrom                     string                           `json:"archived_from,omitempty"`
+	ArchiveReport                    *PlanArchiveReport               `json:"archive_report,omitempty"`
+}
+
+// PlanArchiveReport is what archiving an in-progress plan tore down and kept
+// (present only on the archive response).
+type PlanArchiveReport struct {
+	RemovedAgents   []string `json:"removed_agents,omitempty"`
+	RemovedBranches []string `json:"removed_branches,omitempty"`
+	RemovedExecutor string   `json:"removed_executor,omitempty"`
+	KeptBranches    []struct {
+		Branch  string `json:"branch"`
+		Commits int    `json:"commits"`
+	} `json:"kept_branches,omitempty"`
+	Errors []string `json:"errors,omitempty"`
 }
 
 // PlanExecutor is the live executor block on GET /plans/{id} (in_progress plans only).
@@ -391,10 +416,15 @@ func ParsePlanYAML(data []byte) (PlansUpdateRequest, error) {
 
 // PlansComplete transitions in_progress → completed (422 if tasks/branches block).
 // Uses longTimeout — completion tears down the plan's executor, agents and
-// worktrees and shells gh once per plan branch.
-func (c *Client) PlansComplete(ctx context.Context, planID string) (*PlanView, error) {
+// worktrees and shells gh once per plan branch. abandonUnmerged opts into
+// completing despite an unmerged integration branch (plan-finish-flow §5).
+func (c *Client) PlansComplete(ctx context.Context, planID string, abandonUnmerged ...bool) (*PlanView, error) {
+	var body any
+	if len(abandonUnmerged) > 0 && abandonUnmerged[0] {
+		body = map[string]bool{"abandon_unmerged": true}
+	}
 	var p PlanView
-	if err := c.doT(ctx, longTimeout, http.MethodPost, "/plans/"+url.PathEscape(planID)+"/complete", nil, &p); err != nil {
+	if err := c.doT(ctx, longTimeout, http.MethodPost, "/plans/"+url.PathEscape(planID)+"/complete", body, &p); err != nil {
 		return nil, err
 	}
 	return &p, nil
@@ -404,6 +434,15 @@ func (c *Client) PlansComplete(ctx context.Context, planID string) (*PlanView, e
 func (c *Client) PlansArchive(ctx context.Context, planID string) (*PlanView, error) {
 	var p PlanView
 	if err := c.do(ctx, http.MethodPost, "/plans/"+url.PathEscape(planID)+"/archive", nil, &p); err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+// PlansUnarchive returns an archived plan to the status it was archived from.
+func (c *Client) PlansUnarchive(ctx context.Context, planID string) (*PlanView, error) {
+	var p PlanView
+	if err := c.do(ctx, http.MethodPost, "/plans/"+url.PathEscape(planID)+"/unarchive", nil, &p); err != nil {
 		return nil, err
 	}
 	return &p, nil

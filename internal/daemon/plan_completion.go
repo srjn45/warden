@@ -44,6 +44,10 @@ func (s *Server) tickPlanCompletion(ctx context.Context) {
 	for _, p := range all {
 		if p.Status == planstore.PlanStatusCompleted {
 			completed[p.ID] = p
+			// Retry a bounded integration-branch deletion (plan-finish-flow §4).
+			if p.Outcome != nil && p.Outcome.NeedsBranchDeleteRetry() {
+				s.deleteIntegrationBranchAfterMerge(ctx, p)
+			}
 			continue
 		}
 		if p.Status != planstore.PlanStatusInProgress {
@@ -106,10 +110,15 @@ func (s *Server) maybeCompleteAutopilotPlan(ctx context.Context, p *planstore.Pl
 	seen := make(map[string]bool)
 	for _, rs := range st.Runs {
 		matches := rs.PlanID == p.ID || (p.AutopilotRunID != "" && rs.RunID == p.AutopilotRunID)
-		if !matches || rs.State != autopilot.StateComplete || rs.RunID == "" || seen[rs.RunID] {
+		if !matches || rs.RunID == "" || seen[rs.RunID] {
 			continue
 		}
 		seen[rs.RunID] = true
+		// Mirror final_pr onto the plan while still in_progress (plan-finish-flow §6).
+		s.mirrorPlanFinalPR(ctx, p, rs)
+		if rs.State != autopilot.StateComplete {
+			continue
+		}
 		completeIDs = append(completeIDs, rs.RunID)
 		if rs.RunID == p.AutopilotRunID {
 			currentComplete = true
@@ -120,6 +129,11 @@ func (s *Server) maybeCompleteAutopilotPlan(ctx context.Context, p *planstore.Pl
 	// attempt already sealed ActiveExecution (e.g. blocked on cleanup gates).
 	if currentComplete || sealed {
 		s.advancePlanToCompleted(ctx, p)
+		// Re-read so branch deletion sees the completed plan + outcome.
+		if fresh, err := s.plans.Get(ctx, p.ID); err == nil && fresh != nil &&
+			fresh.Status == planstore.PlanStatusCompleted {
+			s.deleteIntegrationBranchAfterMerge(ctx, fresh)
+		}
 	}
 
 	// Autopilot executors are disposable. A StateComplete run must leave the

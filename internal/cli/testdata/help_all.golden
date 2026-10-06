@@ -60,7 +60,8 @@ Complete command tree:
   warden plan restart                  Restart an in-progress plan's executor with fresh agents
   warden plan done                     Mark a plan task done
   warden plan complete                 Complete a plan (in_progress → completed)
-  warden plan archive                  Archive a plan (any status → archived)
+  warden plan archive                  Archive a plan (reversible with `plan unarchive`)
+  warden plan unarchive                Restore an archived plan to the status it was archived from
   warden plan delete                   Permanently delete a plan
   warden plan sync-to-repo             Export a plan revision to a dedicated branch and open a PR
   warden plan sync_to_repo             Export a plan revision to a dedicated branch and open a PR

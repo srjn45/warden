@@ -182,6 +182,8 @@ type UpdateRequest struct {
 type TransitionOptions struct {
 	ExecutionMode    PlanExecutionMode
 	ExpectedRevision *int64
+	// unarchive permits leaving archived; set only by PlanService.Unarchive.
+	unarchive bool
 }
 
 // CommandRunner executes an external command in an optional working directory.
@@ -673,7 +675,7 @@ func (s *PlanService) Transition(ctx context.Context, planID string, to PlanStat
 	if err != nil {
 		return nil, err
 	}
-	if !canTransition(p.Status, to) {
+	if !canTransition(p.Status, to) || (p.Status == PlanStatusArchived && !opts.unarchive) {
 		return nil, &InvalidTransitionError{From: p.Status, To: to}
 	}
 	if p.Status == PlanStatusInProgress && to == PlanStatusCompleted {
@@ -688,9 +690,10 @@ func (s *PlanService) Transition(ctx context.Context, planID string, to PlanStat
 	}
 	now := s.clock()
 	if err := s.store.UpdateIf(ctx, planID, expected, func(pl *Plan) error {
-		if !canTransition(pl.Status, to) {
+		if !canTransition(pl.Status, to) || (pl.Status == PlanStatusArchived && !opts.unarchive) {
 			return &InvalidTransitionError{From: pl.Status, To: to}
 		}
+		from := pl.Status
 		pl.Status = to
 		if to == PlanStatusInProgress {
 			if opts.ExecutionMode != "" {
@@ -709,11 +712,51 @@ func (s *PlanService) Transition(ctx context.Context, planID string, to PlanStat
 			ts := now
 			pl.ArchivedAt = &ts
 		}
+		if to == PlanStatusArchived {
+			pl.ArchivedFrom = from
+		}
+		if from == PlanStatusArchived {
+			pl.ArchivedAt = nil
+			pl.ArchivedFrom = ""
+		}
 		return nil
 	}); err != nil {
 		return nil, err
 	}
 	return s.store.Get(ctx, planID)
+}
+
+// UnarchiveTarget returns the status an archived plan returns to: the recorded
+// ArchivedFrom, or for plans archived before it was recorded completed when
+// completed_at is set and pending otherwise.
+func UnarchiveTarget(p *Plan) PlanStatus {
+	switch p.ArchivedFrom {
+	case PlanStatusPending, PlanStatusInProgress, PlanStatusCompleted:
+		return p.ArchivedFrom
+	}
+	if p.CompletedAt != nil {
+		return PlanStatusCompleted
+	}
+	return PlanStatusPending
+}
+
+// Unarchive returns an archived plan to the status it was archived from and
+// clears archived_at / archived_from. Any other status is an
+// InvalidTransitionError (to = the would-be target is unknown, so To is
+// pending). Nothing is started: an in_progress plan comes back with its
+// executor stopped or absent.
+func (s *PlanService) Unarchive(ctx context.Context, planID string) (*Plan, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	p, err := s.store.Get(ctx, planID)
+	if err != nil {
+		return nil, err
+	}
+	if p.Status != PlanStatusArchived {
+		return nil, &InvalidTransitionError{From: p.Status, To: PlanStatusPending}
+	}
+	return s.Transition(ctx, planID, UnarchiveTarget(p), TransitionOptions{unarchive: true})
 }
 
 // UpdateTaskStatus merges taskID→status into plan.TaskProgress.
@@ -907,6 +950,9 @@ func canTransition(from, to PlanStatus) bool {
 		return to == PlanStatusPending || to == PlanStatusCompleted || to == PlanStatusArchived
 	case PlanStatusCompleted:
 		return to == PlanStatusArchived
+	case PlanStatusArchived:
+		// Reachable only through PlanService.Unarchive (Transition enforces it).
+		return to == PlanStatusPending || to == PlanStatusInProgress || to == PlanStatusCompleted
 	default:
 		return false
 	}

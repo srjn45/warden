@@ -105,6 +105,11 @@ type Plan struct {
 	CompletedAt *time.Time `json:"completed_at,omitempty"`
 	ArchivedAt  *time.Time `json:"archived_at,omitempty"`
 
+	// ArchivedFrom is the status the plan held when it was archived; unarchive
+	// returns the plan to it. Empty on plans archived before this field existed
+	// (see PlanService.Unarchive for the legacy fallback).
+	ArchivedFrom PlanStatus `json:"archived_from,omitempty"`
+
 	// Revision is the optimistic-concurrency token. Starts at 1 on Create.
 	// Bumps on UpdateIf when definition hash or Status changes (see
 	// contentHashPolicy in canonical.go). Absent in old records → 0.
@@ -156,6 +161,11 @@ type Plan struct {
 	// retried without losing ExecutionSummary. Cleared on successful cleanup.
 	// New field: absent in old records → decodes as nil (backward-compatible).
 	CleanupEvidence *CleanupEvidence `json:"cleanup_evidence,omitempty"`
+
+	// Outcome is the durable ending record for an autopilot plan (final PR,
+	// integration branch fate). Written by the daemon; survives executor
+	// teardown. New field: absent in old records → nil.
+	Outcome *PlanOutcome `json:"outcome,omitempty"`
 }
 
 var (

@@ -327,6 +327,27 @@ func (e PipelineJobRunIf) Valid() bool {
 	}
 }
 
+// Defines values for PlanArchivedFrom.
+const (
+	PlanArchivedFromCompleted  PlanArchivedFrom = "completed"
+	PlanArchivedFromInProgress PlanArchivedFrom = "in_progress"
+	PlanArchivedFromPending    PlanArchivedFrom = "pending"
+)
+
+// Valid indicates whether the value is a known member of the PlanArchivedFrom enum.
+func (e PlanArchivedFrom) Valid() bool {
+	switch e {
+	case PlanArchivedFromCompleted:
+		return true
+	case PlanArchivedFromInProgress:
+		return true
+	case PlanArchivedFromPending:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PlanExecutionMode.
 const (
 	PlanExecutionModeAutopilot          PlanExecutionMode = "autopilot"
@@ -1099,6 +1120,9 @@ type CheckRequest struct {
 // CheckResult defines model for CheckResult.
 type CheckResult = lifecycle.CheckResult
 
+// CleanupEvidence Partial executor-teardown evidence recorded by plan finalize.
+type CleanupEvidence = planstore.CleanupEvidence
+
 // CloneRepoRequest defines model for CloneRepoRequest.
 type CloneRepoRequest struct {
 	// Url Git remote URL (https or ssh) to clone
@@ -1113,6 +1137,12 @@ type CloneRepoResponse struct {
 
 // CommitResult defines model for CommitResult.
 type CommitResult = lifecycle.CommitResult
+
+// CompletePlanRequest Optional body for plan complete. abandon_unmerged lets an operator finish an autopilot plan whose integration branch still has commits not on the default branch; the branch is kept and recorded as abandoned.
+type CompletePlanRequest struct {
+	// AbandonUnmerged Complete even when the integration branch has unmerged commits; keep the branch and record branch_fate=abandoned. Default false.
+	AbandonUnmerged bool `json:"abandon_unmerged,omitempty"`
+}
 
 // ConfirmationResponse defines model for ConfirmationResponse.
 type ConfirmationResponse struct {
@@ -1460,12 +1490,19 @@ type PipelineJobRunIf string
 // Plan Canonical ScrivaDB Plan: definition, lifecycle, revision, and execution state. Repository YAML under plans/ is an optional inert export, not authority for these fields.
 type Plan struct {
 	// ActiveExecution A single execution attempt of a Plan.
-	ActiveExecution PlanExecution   `json:"active_execution,omitempty"`
-	ArchivedAt      time.Time       `json:"archived_at,omitempty"`
-	AutopilotRunId  string          `json:"autopilot_run_id,omitempty"`
-	BranchSummaries []BranchSummary `json:"branch_summaries,omitempty"`
-	CompletedAt     time.Time       `json:"completed_at,omitempty"`
-	Constraints     []string        `json:"constraints"`
+	ActiveExecution PlanExecution      `json:"active_execution,omitempty"`
+	ArchiveReport   *PlanArchiveReport `json:"archive_report,omitempty"`
+	ArchivedAt      time.Time          `json:"archived_at,omitempty"`
+
+	// ArchivedFrom status the plan was archived from; unarchive restores it (absent on legacy records)
+	ArchivedFrom    PlanArchivedFrom `json:"archived_from,omitempty"`
+	AutopilotRunId  string           `json:"autopilot_run_id,omitempty"`
+	BranchSummaries []BranchSummary  `json:"branch_summaries,omitempty"`
+
+	// CleanupEvidence Partial executor-teardown evidence recorded by plan finalize.
+	CleanupEvidence *CleanupEvidence `json:"cleanup_evidence,omitempty"`
+	CompletedAt     time.Time        `json:"completed_at,omitempty"`
+	Constraints     []string         `json:"constraints"`
 
 	// ContentHash sha256:… digest of canonical definition fields at this revision
 	ContentHash string    `json:"content_hash,omitempty"`
@@ -1477,7 +1514,7 @@ type Plan struct {
 	ExecutionMode    PlanExecutionMode `json:"execution_mode,omitempty"`
 
 	// ExecutionSummary Immutable reduced report for a completed PlanExecution.
-	ExecutionSummary ExecutionSummary `json:"execution_summary,omitempty"`
+	ExecutionSummary *ExecutionSummary `json:"execution_summary,omitempty"`
 
 	// Executor Live executor state for one plan (single status view behind `wd plan show`).
 	Executor *PlanExecutorStatus `json:"executor,omitempty"`
@@ -1493,10 +1530,19 @@ type Plan struct {
 	Goal     string `json:"goal"`
 
 	// Id stable plan id (plan-<8hex>)
-	Id             string `json:"id"`
-	Name           string `json:"name"`
-	OrchestratorId string `json:"orchestrator_id,omitempty"`
-	PipelineId     string `json:"pipeline_id,omitempty"`
+	Id string `json:"id"`
+
+	// IntegrationBranchLeftover true for a completed autopilot plan whose integration branch still exists with commits not on the default branch (computed from local git).
+	IntegrationBranchLeftover bool `json:"integration_branch_leftover,omitempty"`
+
+	// IntegrationBranchLeftoverCommits commits on the leftover integration branch not on the default branch
+	IntegrationBranchLeftoverCommits int    `json:"integration_branch_leftover_commits,omitempty"`
+	Name                             string `json:"name"`
+	OrchestratorId                   string `json:"orchestrator_id,omitempty"`
+
+	// Outcome Durable record of how a plan ended (final PR, integration branch fate).
+	Outcome    *PlanOutcome `json:"outcome,omitempty"`
+	PipelineId string       `json:"pipeline_id,omitempty"`
 
 	// PlanBranches branches associated with plan execution and checked before completion
 	PlanBranches []string `json:"plan_branches,omitempty"`
@@ -1524,11 +1570,29 @@ type Plan struct {
 	UpdatedAt   time.Time       `json:"updated_at"`
 }
 
+// PlanArchivedFrom status the plan was archived from; unarchive restores it (absent on legacy records)
+type PlanArchivedFrom string
+
 // PlanExecutionMode defines model for Plan.ExecutionMode.
 type PlanExecutionMode string
 
 // PlanExportStatus computed freshness of the last repository export relative to the canonical revision (none|current|stale). Never reads filesystem YAML.
 type PlanExportStatus string
+
+// PlanArchiveKeptBranch defines model for PlanArchiveKeptBranch.
+type PlanArchiveKeptBranch struct {
+	Branch  string `json:"branch,omitempty"`
+	Commits int    `json:"commits,omitempty"`
+}
+
+// PlanArchiveReport defines model for PlanArchiveReport.
+type PlanArchiveReport struct {
+	Errors          []string                `json:"errors,omitempty"`
+	KeptBranches    []PlanArchiveKeptBranch `json:"kept_branches,omitempty"`
+	RemovedAgents   []string                `json:"removed_agents,omitempty"`
+	RemovedBranches []string                `json:"removed_branches,omitempty"`
+	RemovedExecutor string                  `json:"removed_executor,omitempty"`
+}
 
 // PlanBackupBundle Versioned Plan backup bundle for local backup / machine transfer.
 type PlanBackupBundle = planbackup.Bundle
@@ -1607,6 +1671,9 @@ type PlanMutationConflict struct {
 	Expected int64  `json:"expected,omitempty"`
 	PlanId   string `json:"plan_id,omitempty"`
 }
+
+// PlanOutcome Durable record of how a plan ended (final PR, integration branch fate).
+type PlanOutcome = planstore.PlanOutcome
 
 // PlanStatus defines model for PlanStatus.
 type PlanStatus string
@@ -2681,6 +2748,9 @@ type RestorePlanBackupJSONRequestBody = RestorePlanBackupRequest
 // UpdatePlanJSONRequestBody defines body for UpdatePlan for application/json ContentType.
 type UpdatePlanJSONRequestBody = UpdatePlanRequest
 
+// CompletePlanJSONRequestBody defines body for CompletePlan for application/json ContentType.
+type CompletePlanJSONRequestBody = CompletePlanRequest
+
 // RestartPlanJSONRequestBody defines body for RestartPlan for application/json ContentType.
 type RestartPlanJSONRequestBody = RestartPlanRequest
 
@@ -3031,6 +3101,9 @@ type ServerInterface interface {
 	// Update task progress
 	// (POST /api/v1/plans/{plan_id}/tasks/{task_id}/status)
 	UpdateTaskStatus(w http.ResponseWriter, r *http.Request, planId PlanId, taskId TaskId)
+	// Unarchive a plan
+	// (POST /api/v1/plans/{plan_id}/unarchive)
+	UnarchivePlan(w http.ResponseWriter, r *http.Request, planId PlanId)
 	// Pause, resume, or stop plan execution
 	// (POST /api/v1/plans/{plan_id}/{action})
 	ControlPlan(w http.ResponseWriter, r *http.Request, planId PlanId, action string)
@@ -3697,6 +3770,12 @@ func (_ Unimplemented) UpdatePlanTaskDefinition(w http.ResponseWriter, r *http.R
 // Update task progress
 // (POST /api/v1/plans/{plan_id}/tasks/{task_id}/status)
 func (_ Unimplemented) UpdateTaskStatus(w http.ResponseWriter, r *http.Request, planId PlanId, taskId TaskId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Unarchive a plan
+// (POST /api/v1/plans/{plan_id}/unarchive)
+func (_ Unimplemented) UnarchivePlan(w http.ResponseWriter, r *http.Request, planId PlanId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -6394,6 +6473,38 @@ func (siw *ServerInterfaceWrapper) UpdateTaskStatus(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// UnarchivePlan operation middleware
+func (siw *ServerInterfaceWrapper) UnarchivePlan(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "plan_id" -------------
+	var planId PlanId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "plan_id", chi.URLParam(r, "plan_id"), &planId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "plan_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UnarchivePlan(w, r, planId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ControlPlan operation middleware
 func (siw *ServerInterfaceWrapper) ControlPlan(w http.ResponseWriter, r *http.Request) {
 
@@ -8898,6 +9009,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/plans/{plan_id}/tasks/{task_id}/status", wrapper.UpdateTaskStatus)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/plans/{plan_id}/unarchive", wrapper.UnarchivePlan)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/plans/{plan_id}/{action}", wrapper.ControlPlan)
@@ -11642,8 +11756,23 @@ func (response ArchivePlan404JSONResponse) VisitArchivePlanResponse(w http.Respo
 	return err
 }
 
+type ArchivePlan409JSONResponse Error
+
+func (response ArchivePlan409JSONResponse) VisitArchivePlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type CompletePlanRequestObject struct {
 	PlanId PlanId `json:"plan_id"`
+	Body   *CompletePlanJSONRequestBody
 }
 
 type CompletePlanResponseObject interface {
@@ -12197,6 +12326,56 @@ func (response UpdateTaskStatus404JSONResponse) VisitUpdateTaskStatusResponse(w 
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UnarchivePlanRequestObject struct {
+	PlanId PlanId `json:"plan_id"`
+}
+
+type UnarchivePlanResponseObject interface {
+	VisitUnarchivePlanResponse(w http.ResponseWriter) error
+}
+
+type UnarchivePlan200JSONResponse Plan
+
+func (response UnarchivePlan200JSONResponse) VisitUnarchivePlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UnarchivePlan404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UnarchivePlan404JSONResponse) VisitUnarchivePlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UnarchivePlan409JSONResponse Error
+
+func (response UnarchivePlan409JSONResponse) VisitUnarchivePlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -15121,6 +15300,9 @@ type StrictServerInterface interface {
 	// Update task progress
 	// (POST /api/v1/plans/{plan_id}/tasks/{task_id}/status)
 	UpdateTaskStatus(ctx context.Context, request UpdateTaskStatusRequestObject) (UpdateTaskStatusResponseObject, error)
+	// Unarchive a plan
+	// (POST /api/v1/plans/{plan_id}/unarchive)
+	UnarchivePlan(ctx context.Context, request UnarchivePlanRequestObject) (UnarchivePlanResponseObject, error)
 	// Pause, resume, or stop plan execution
 	// (POST /api/v1/plans/{plan_id}/{action})
 	ControlPlan(ctx context.Context, request ControlPlanRequestObject) (ControlPlanResponseObject, error)
@@ -17287,6 +17469,16 @@ func (sh *strictHandler) CompletePlan(w http.ResponseWriter, r *http.Request, pl
 
 	request.PlanId = planId
 
+	var body CompletePlanJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if !errors.Is(err, io.EOF) {
+			sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+			return
+		}
+	} else {
+		request.Body = &body
+	}
+
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.CompletePlan(ctx, request.(CompletePlanRequestObject))
 	}
@@ -17558,6 +17750,32 @@ func (sh *strictHandler) UpdateTaskStatus(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateTaskStatusResponseObject); ok {
 		if err := validResponse.VisitUpdateTaskStatusResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UnarchivePlan operation middleware
+func (sh *strictHandler) UnarchivePlan(w http.ResponseWriter, r *http.Request, planId PlanId) {
+	var request UnarchivePlanRequestObject
+
+	request.PlanId = planId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UnarchivePlan(ctx, request.(UnarchivePlanRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UnarchivePlan")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UnarchivePlanResponseObject); ok {
+		if err := validResponse.VisitUnarchivePlanResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

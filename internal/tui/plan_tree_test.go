@@ -370,12 +370,38 @@ func TestPlanKeybindings_Archive(t *testing.T) {
 	msg := cmd().(planArchivedMsg)
 	require.Equal(t, "proj-1", msg.projectID)
 	require.Equal(t, "plan-ip", msg.planID)
+	require.Equal(t, "plan-ip", a.archivedPlanID)
 
 	// Handle completion message
 	nm, refreshCmd := m.Update(msg)
 	m = nm.(controlPaneModel)
 	require.Equal(t, "archived plan plan-ip", m.status)
 	require.NotNil(t, refreshCmd)
+}
+
+func TestPlanKeybindings_UnarchiveOnArchivedPlan(t *testing.T) {
+	a := &fakeAPI{}
+	m := setupPlanTestModel(a)
+	m.plans["proj-1"] = []*planstore.Plan{{ID: "plan-arch", ProjectID: "proj-1", Name: "old", Status: planstore.PlanStatusArchived}}
+	m.collapsed["plans:proj-1:archived"] = false
+	idx := -1
+	for i, it := range m.items() {
+		if it.plan != nil && it.plan.ID == "plan-arch" {
+			idx = i
+		}
+	}
+	require.GreaterOrEqual(t, idx, 0)
+	m.cursor = idx
+
+	nm, cmd := m.Update(key("a"))
+	m = nm.(controlPaneModel)
+	require.Equal(t, "unarchiving plan plan-arch…", m.status)
+	msg := cmd().(planArchivedMsg)
+	require.True(t, msg.unarchive)
+	require.Equal(t, "plan-arch", a.unarchivedPlanID)
+	nm, _ = m.Update(msg)
+	m = nm.(controlPaneModel)
+	require.Equal(t, "unarchived plan plan-arch", m.status)
 }
 
 func TestPlanKeybindings_Scan(t *testing.T) {

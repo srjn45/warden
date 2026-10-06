@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -810,4 +811,40 @@ func TestPlanService_RemoveTask_notPendingAndConflict(t *testing.T) {
 	got, err := svc.Get(ctx, p2.ID)
 	require.NoError(t, err)
 	require.Len(t, got.Tasks, 2)
+}
+
+func TestPlanService_ArchiveUnarchive_stateMachine(t *testing.T) {
+	ctx := context.Background()
+	svc, _, _, _ := newTestService(t)
+
+	p, err := svc.Create(ctx, "proj-1", sampleCreate("Roundtrip"))
+	require.NoError(t, err)
+	_, err = svc.Transition(ctx, p.ID, PlanStatusInProgress, TransitionOptions{})
+	require.NoError(t, err)
+
+	got, err := svc.Transition(ctx, p.ID, PlanStatusArchived, TransitionOptions{})
+	require.NoError(t, err)
+	require.Equal(t, PlanStatusInProgress, got.ArchivedFrom)
+
+	// archived is only left through Unarchive.
+	for _, to := range []PlanStatus{PlanStatusPending, PlanStatusInProgress, PlanStatusCompleted} {
+		_, err = svc.Transition(ctx, p.ID, to, TransitionOptions{})
+		require.ErrorIs(t, err, ErrInvalidTransition, to)
+	}
+
+	got, err = svc.Unarchive(ctx, p.ID)
+	require.NoError(t, err)
+	require.Equal(t, PlanStatusInProgress, got.Status)
+	require.Nil(t, got.ArchivedAt)
+	require.Empty(t, got.ArchivedFrom)
+
+	_, err = svc.Unarchive(ctx, p.ID)
+	require.ErrorIs(t, err, ErrInvalidTransition, "unarchive of a non-archived plan is refused")
+}
+
+func TestUnarchiveTarget_legacy(t *testing.T) {
+	now := time.Now()
+	require.Equal(t, PlanStatusPending, UnarchiveTarget(&Plan{}))
+	require.Equal(t, PlanStatusCompleted, UnarchiveTarget(&Plan{CompletedAt: &now}))
+	require.Equal(t, PlanStatusInProgress, UnarchiveTarget(&Plan{ArchivedFrom: PlanStatusInProgress, CompletedAt: &now}))
 }

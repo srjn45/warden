@@ -1054,9 +1054,15 @@ Typical journey:
                progress with `wd plan show --watch`
   4. Control   `wd plan pause`, `resume` or `stop` the running executor
   5. Progress  `wd plan task status` / `wd plan done` record task progress
-  6. Complete  `wd plan complete` (in_progress → completed)
-  7. Finish    `wd plan archive` (reversible), or `wd plan delete` to remove a
-               pending or archived plan permanently
+  6. Complete  `wd plan complete` (in_progress → completed). An autopilot plan
+               does this itself: the daemon opens one final PR to the
+               default branch and gets it green, the plan waits for you
+               to merge it, then completes and deletes the integration
+               branch by itself
+  7. Finish    `wd plan archive` (reversible with `wd plan unarchive`), or
+               `wd plan delete` to remove a pending or archived plan permanently
+  8. Ship      `wd workspace clean` removes leftover merged branches;
+               `wd release` tags the next release
 
 Usage:
   warden plan [flags]
@@ -1076,7 +1082,8 @@ Commands:
   restart              Restart an in-progress plan's executor with fresh agents
   done                 Mark a plan task done
   complete             Complete a plan (in_progress → completed)
-  archive              Archive a plan (any status → archived)
+  archive              Archive a plan (reversible with `plan unarchive`)
+  unarchive            Restore an archived plan to the status it was archived from
   delete               Permanently delete a plan
   sync-to-repo         Export a plan revision to a dedicated branch and open a PR
   hub-sync             Explicitly sync canonical plans with the configured Hub
@@ -1329,7 +1336,16 @@ Repository YAML is never read for this view.
 For an in_progress plan it is the single status view of the run: executor
 kind and state (active, healing, degraded, paused, stopped), backoff detail
 when present, the integration branch, and per task the state, worker agent
-and PR. Use --watch to keep refreshing it.
+and PR, plus the final PR (integration → default branch) once it exists. Use
+--watch to keep refreshing it.
+
+For a completed plan it prints an outcome block: the final PR and its state,
+the integration branch and what became of it (deleted, kept, abandoned,
+delete failed), the execution summary (duration, tasks done and skipped, PRs
+landed) and any recorded cleanup failures. A plan completed before this
+record existed whose integration branch still has commits not on the default
+branch gets a warning line naming the branch (`plan list --json` flags it as
+integration_branch_leftover).
 
 Usage:
   warden plan show <plan-id> [flags]
@@ -1383,6 +1399,7 @@ required; it decides how the plan is executed:
                        (pause/resume refused; use stop)
 
 `orchestrator` is accepted as a shorthand for `orchestrator_worker`.
+An autopilot run ends with one final PR to the default branch; you merge it.
 Follow progress with `wd plan show --watch`. `wd plan stop` works for every
 mode; `wd plan pause|resume` only for autopilot and pipeline.
 
@@ -1549,9 +1566,15 @@ Inherited flags:
 ## warden plan complete
 
 ```text
-Complete a plan: in_progress → completed. Blocked if any task is not
+Complete a plan: in_progress → completed. An autopilot plan runs this
+automatically once its final PR is merged; run it by hand for other modes,
+or to finish an autopilot plan without waiting for the merge. Blocked if any task is not
 done or skipped (skipped counts as finished), or if any branch the plan's
 work opened a PR for is still unmerged.
+
+For an autopilot plan whose integration branch still has commits not on
+the default branch and no matching merged final PR, completion is refused
+unless --abandon-unmerged is set (keeps the branch; records it as abandoned).
 
 On success the daemon records an execution summary on the plan, tears down
 its executor (autopilot run, pipeline and plan-bound agents), and removes
@@ -1559,12 +1582,17 @@ their worktrees and branches. The plan record itself is kept; PR references
 and execution history are preserved. If cleanup only partly succeeds the
 plan stays in_progress and the command can be run again.
 
+The plan keeps an outcome record — final PR, integration branch and whether
+it was deleted — that `wd plan show` prints for completed plans.
+
 Usage:
   warden plan complete <plan-id> [flags]
 
 Flags:
-  -h, --help   help for complete
-      --json   output as JSON
+      --abandon-unmerged   complete even when the integration branch has unmerged commits; keep the branch
+  -h, --help               help for complete
+      --json               output as JSON
+      --yes                skip the abandon-unmerged confirmation
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -1574,13 +1602,49 @@ Inherited flags:
 ## warden plan archive
 
 ```text
-Move a plan to the archived state. Allowed from pending, in_progress, or completed.
+Move a plan to the archived state, recording the status it was archived from
+so `wd plan unarchive` can restore it.
+
+Pending and completed plans archive as a status change only. An in-progress
+plan whose executor is still live (starting, active, paused, healing,
+degraded, finalizing or awaiting final PR merge) is refused: run
+`wd plan stop <plan-id>` first. With the executor stopped or absent, archive
+tears down what the run left behind — the executor record, plan-bound agents
+and their worktrees — and reports what was removed.
+
+Never torn down: any branch (worker or integration) with commits that are not
+on the default branch is kept, locally and on origin, and listed in the
+output. Open PRs are left open. Task progress and the plan record are kept.
 
 Usage:
   warden plan archive <plan-id> [flags]
 
 Flags:
   -h, --help   help for archive
+      --json   output as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden plan unarchive
+
+```text
+Return an archived plan to the status it was archived from (pending,
+in_progress or completed) and clear its archived marker. A plan archived
+before that status was recorded returns to completed when it has a completion
+time, otherwise to pending (task progress is kept).
+
+An in-progress plan comes back in_progress with a stopped executor; nothing is
+started. Run `wd plan restart <plan-id>` to continue it. Refused on a plan
+that is not archived.
+
+Usage:
+  warden plan unarchive <plan-id> [flags]
+
+Flags:
+  -h, --help   help for unarchive
       --json   output as JSON
 
 Inherited flags:
@@ -1853,6 +1917,9 @@ Autopilot is the unattended Plan execution mode. There is no per-repo switch:
 start a run explicitly with `warden plan run <plan-id> --mode autopilot` and
 control it with `warden plan pause|resume|stop`. This namespace shows status
 (`status`), scaffolds adoption (`init`) and lands worker branches (`land`).
+The daemon merges worker PRs into the integration branch itself once their
+gate is green; `land` is the manual fallback. A run ends with one final PR to
+the default branch that you merge.
 Configure the feature under the `autopilot` block in the config file.
 
 Usage:
@@ -1917,8 +1984,9 @@ Inherited flags:
 ## warden autopilot land
 
 ```text
-Merges one autopilot worker branch into the integration branch — the brain's
-only merge path. Runs every precondition (owning run active, branch
+Merges one autopilot worker branch into the integration branch. The daemon
+does this itself when a worker PR's gate is green; `land` is the manual
+fallback for an operator or manager, with the same preconditions. Runs every precondition (owning run active, branch
 autopilot-owned, a PR based on the integration branch, the resolved gate green
 for the PR head, and the PR mergeable), merges with the configured strategy,
 deletes the worker branch if configured, and records the landing. Idempotent:
@@ -3049,6 +3117,8 @@ changelog built from conventional commits and merged PRs.
 By default, the analysis targets origin/main (or origin/master) so releases are
 evaluated against canonical upstream commits rather than uncommitted local edits
 or active feature/agent worktrees. Pass --target to override.
+
+This is the step after the final PR of a plan is merged.
 
 Unless --no-fetch is given, the command fetches the target ref from origin first.
 
@@ -5153,6 +5223,8 @@ changelog built from conventional commits and merged PRs.
 By default, the analysis targets origin/main (or origin/master) so releases are
 evaluated against canonical upstream commits rather than uncommitted local edits
 or active feature/agent worktrees. Pass --target to override.
+
+This is the step after the final PR of a plan is merged.
 
 Unless --no-fetch is given, the command fetches the target ref from origin first.
 

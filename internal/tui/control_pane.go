@@ -1138,10 +1138,14 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case planArchivedMsg:
+		verb := "archive"
+		if msg.unarchive {
+			verb = "unarchive"
+		}
 		if msg.err != nil {
-			m.status = "archive plan failed: " + msg.err.Error()
+			m.status = verb + " plan failed: " + msg.err.Error()
 		} else {
-			m.status = "archived plan " + msg.planID
+			m.status = verb + "d plan " + msg.planID
 		}
 		return m, plansCmd(m.api, m.projects)
 	case plansScannedMsg:
@@ -2420,6 +2424,10 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "a":
 		it := itemAt(m.items(), m.cursor)
+		if it.plan != nil && it.plan.Status == planstore.PlanStatusArchived {
+			m.status = "unarchiving plan " + it.plan.ID + "…"
+			return m, unarchivePlanCmd(m.api, it.plan.ProjectID, it.plan.ID)
+		}
 		if it.plan != nil {
 			m.status = "archiving plan " + it.plan.ID + "…"
 			return m, archivePlanCmd(m.api, it.plan.ProjectID, it.plan.ID)

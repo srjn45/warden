@@ -89,6 +89,8 @@ Common settings (run `warden config` for the complete, live list):
 | `rate_limit.recovery.usage_reconciliation.stale_after` | `15m` | Freshness window — only successful snapshots inside this window may force exhaustion |
 | `rate_limit.recovery.usage_reconciliation.max_parallel_swaps` | `3` | Bounded concurrency for bulk recovery candidate selection/launch |
 
+`autopilot.completion.merge_poll_interval` (default `2m`, hot-reloaded, floor `30s`) sets how often a green autopilot final PR is polled while the run is awaiting your merge; `autopilot.completion.merge_default` / `manager_verify_timeout` are its siblings (see the [autopilot guide](/warden/guides/autopilot/)).
+
 There are more (`auto_restart.*`, `rate_limit.*`, `worktree.keep_done` /
 `worktree.auto_prune`, …) — `warden config` is the authoritative, live list.
 

@@ -2663,6 +2663,19 @@ completion marker** into the plan file — `status: complete` and `completed_at:
 <timestamp>`, preserving your other keys, ordering, and comments — tears the
 manager down gracefully (in-flight workers keep running), and retains the ledger.
 
+The marker is written when the run completes — i.e. after the final PR is merged
+(see below) — not when the PR is merely green.
+
+The plan then **stays `in_progress`** while the run is `finalizing` and, once the
+final PR is green, `awaiting_merge` (manager and run agents torn down; the daemon
+polls the PR every `autopilot.completion.merge_poll_interval`, default `2m`, floor
+`30s`). It completes when the PR is observed **merged** (merge, squash or rebase) and
+the integration branch is then deleted locally and on `origin` (kept if commits were
+pushed after the merge). A PR closed without merging parks the run (`final_pr_closed`:
+reopen it, `wd plan resume` to open a new one, or `wd plan stop`). Autopilot never
+merges, approves or closes the final PR. Design:
+[`specs/2026-10-05-plan-finish-flow.md`](specs/2026-10-05-plan-finish-flow.md).
+
 A plan carrying `status: complete` is **skipped by preflight**, so a finished run
 is never executed again by mistake on a future plan run or daemon restart. To re-run
 a completed plan, delete the `status: complete` line (or point the config at a
@@ -2710,6 +2723,8 @@ fails land with `ErrWrongBase`.
 **Default for new runs:** `autopilot/<sanitized-plan-name>` (plan `notifications`
 → `autopilot/notifications`). **Concurrent runs** in one repo each get a distinct
 branch.
+
+**Config** (`autopilot.completion.merge_poll_interval`, default `2m`, hot-reloaded, values below `30s` raised to `30s`): how often a green final PR is polled while the run is `awaiting_merge`.
 
 **Config** (`autopilot.merge.target_branch`):
 
@@ -2856,8 +2871,10 @@ aliases; they cannot affect canonical execution after import. Use `import-legacy
 
 ```sh
 wd plan run <plan-id> --mode manual     # pending → in_progress + start
-wd plan complete <plan-id>              # mark done
-wd plan archive <plan-id>               # any status → archived
+wd plan complete <plan-id>              # mark done; refused (422) while the integration branch has commits not on the default branch
+wd plan complete <plan-id> --abandon-unmerged [--yes]   # complete anyway; the branch is kept and recorded as `abandoned`
+wd plan archive <plan-id>               # → archived; refused (409) while the executor is live (stop first); unmerged branches are kept
+wd plan unarchive <plan-id>             # restore the status it was archived from (pending/in_progress/completed)
 wd plan delete <plan-id>                # permanently remove a pending or archived plan (asks to confirm; -y skips; --json needs -y)
 wd plan task status <plan-id> <task-id> done   # pending | in_progress | done | skipped
 ```
@@ -2940,7 +2957,7 @@ wd plan list
 | `wd plan backup export|restore …` | Portable ScrivaDB bundle |
 | `wd plan task status <id> <task> <status>` | Set one task's progress |
 | `wd plan delete <id>` | Permanently delete a plan (not while in_progress) |
-| `wd plan complete` / `archive` / `run` / `pause|resume|stop` | Lifecycle + execution |
+| `wd plan complete` / `archive` / `unarchive` / `run` / `pause|resume|stop` | Lifecycle + execution |
 | `wd plan assess <id>` | Brain-assisted task progress |
 
 

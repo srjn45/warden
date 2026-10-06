@@ -22,6 +22,7 @@ wd plan run <plan-id> --mode autopilot   # or pipeline | orchestrator | manual
 wd plan task status <plan-id> analyze done   # pending | in_progress | done | skipped
 wd plan complete <plan-id>               # when the mode requires it
 wd plan archive <plan-id>
+wd plan unarchive <plan-id>             # undo an archive
 wd plan delete <plan-id>   # permanently remove a pending or archived plan (-y skips the prompt)
 ```
 
@@ -38,8 +39,9 @@ create → edit while pending → run → pause / resume / stop → task status 
 | Run | `wd plan run <id> --mode …` | `pending → in_progress` |
 | Control | `wd plan pause\|resume\|stop <id>` | Acts on the active executor |
 | Track | `wd plan task status <id> <task> <status>` | Any lifecycle state; `skipped` counts as finished |
-| Finish | `wd plan complete <id>` | `in_progress → completed` (automatic for `autopilot`/`pipeline`) |
-| Retire | `wd plan archive <id>` | Any status → `archived` |
+| Finish | `wd plan complete <id>` | `in_progress → completed` (automatic for `autopilot`/`pipeline`; autopilot finishes when its final PR is **merged**). Refused (422) while the integration branch has commits not on the default branch — merge the PR, or `--abandon-unmerged [--yes]` to complete and keep the branch |
+| Retire | `wd plan archive <id>` | → `archived`. Refused (409) while the executor is live (`wd plan stop` first); branches with unmerged commits are kept |
+| Restore | `wd plan unarchive <id>` | `archived →` the status it was archived from; an in-progress plan returns with a stopped executor (`wd plan restart <id>` continues it) |
 | Remove | `wd plan delete <id>` | Permanent (back up first with `plan backup export`); only `pending`/`archived` plans — `in_progress` and `completed` get a 409, archive first |
 
 <Aside type="caution">
@@ -197,7 +199,7 @@ See [Plan backup and restore](/warden/guides/plan-backup-restore/).
 | `wd plan import-legacy [--report]` | Explicit legacy YAML cutover |
 | `wd plan task status <id> <task> <status>` | Set one task's progress |
 | `wd plan delete <id>` | Permanently delete a plan (not while `in_progress`) |
-| `wd plan complete` / `archive` / `run` / `pause\|resume\|stop` | Lifecycle + execution |
+| `wd plan complete` / `archive` / `unarchive` / `run` / `pause\|resume\|stop` | Lifecycle + execution |
 | `wd plan restart <id> [--force] [--backend <id>] [--yes]` | **Destructive.** Restart a stopped/parked/stuck autopilot or pipeline run with fresh agents |
 | `wd plan assess <id>` | Brain-assisted task progress |
 

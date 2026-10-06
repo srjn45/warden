@@ -47,13 +47,27 @@ type AutopilotFinalPR struct {
 	HeadSHA     string `json:"head_sha,omitempty"`
 	Gate        string `json:"gate"` // pending | red | green
 	FixAttempts int    `json:"fix_attempts"`
+	State       string `json:"state,omitempty"` // open | merged | closed
+	MergedAt    string `json:"merged_at,omitempty"`
+}
+
+// AutopilotAwaitingMerge is the persisted wait-for-merge record.
+type AutopilotAwaitingMerge struct {
+	Since    string `json:"since"`
+	GreenSHA string `json:"green_sha,omitempty"`
+	Notified bool   `json:"notified"`
+	PR       int    `json:"pr,omitempty"`
 }
 
 // SurfaceBadge is a compact one-line summary of the operator status surface for
 // a run row (TUI): final PR, open fixes, resolver. Empty when there is nothing.
 func (r AutopilotRunStatus) SurfaceBadge() string {
 	var parts []string
-	if r.FinalPR != nil {
+	if r.State == "awaiting_merge" && r.FinalPR != nil {
+		parts = append(parts, fmt.Sprintf("awaiting final PR merge (#%d)", r.FinalPR.Number))
+	} else if r.AwaitingMerge != nil && r.AwaitingMerge.PR > 0 {
+		parts = append(parts, fmt.Sprintf("awaiting final PR merge (#%d)", r.AwaitingMerge.PR))
+	} else if r.FinalPR != nil {
 		parts = append(parts, fmt.Sprintf("final PR #%d %s", r.FinalPR.Number, r.FinalPR.Gate))
 	}
 	if n := r.redTasks(); n > 0 {
@@ -82,8 +96,24 @@ func (r AutopilotRunStatus) redTasks() int {
 // (shared by `warden autopilot status` and the TUI run detail pane).
 func (r AutopilotRunStatus) SurfaceLines() []string {
 	var out []string
+	if r.State == "awaiting_merge" || r.AwaitingMerge != nil {
+		pr := 0
+		if r.FinalPR != nil {
+			pr = r.FinalPR.Number
+		} else if r.AwaitingMerge != nil {
+			pr = r.AwaitingMerge.PR
+		}
+		if pr > 0 {
+			out = append(out, fmt.Sprintf("awaiting final PR merge (#%d)", pr))
+		} else {
+			out = append(out, "awaiting final PR merge")
+		}
+	}
 	if r.FinalPR != nil {
 		l := fmt.Sprintf("final PR: #%d gate=%s fix_attempts=%d", r.FinalPR.Number, r.FinalPR.Gate, r.FinalPR.FixAttempts)
+		if r.FinalPR.State != "" {
+			l += " state=" + r.FinalPR.State
+		}
 		if r.FinalPR.URL != "" {
 			l += " " + r.FinalPR.URL
 		}

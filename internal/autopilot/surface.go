@@ -53,6 +53,11 @@ type surfaceRecord struct {
 	LastDiagnosis *Diagnosis      `json:"last_diagnosis,omitempty"`
 	Resolver      *ResolverStatus `json:"resolver,omitempty"`
 	FinalPR       *FinalPR        `json:"final_pr,omitempty"`
+	// AwaitingMerge survives a restart: a run with it set polls the final PR
+	// without a manager, re-verification or a second notification (plan-finish-flow §1).
+	AwaitingMerge *AwaitingMerge `json:"awaiting_merge,omitempty"`
+	Verified      bool           `json:"verified,omitempty"`
+	FinalNotified bool           `json:"final_notified,omitempty"`
 }
 
 // SurfaceKey is the ctx key of the persisted status-surface record.
@@ -84,12 +89,31 @@ func (c *Controller) runLedger(runID string) *Ledger {
 // ledger after a restart. The caller must hold c.mu.
 func (c *Controller) surfaceLocked(r *run) *surfaceRecord {
 	if !r.surfaceLoaded {
-		r.surfaceLoaded = true
 		if l := c.runLedger(r.runID); l != nil {
+			r.surfaceLoaded = true
 			r.surface = l.loadSurface()
+			c.hydrateCompletionLocked(r)
 		}
 	}
 	return &r.surface
+}
+
+// hydrateCompletionLocked restores the persisted completion bookkeeping into a
+// run whose in-memory state was lost to a restart.
+func (c *Controller) hydrateCompletionLocked(r *run) {
+	rec := r.surface
+	if rec.Verified {
+		r.completion.verified = true
+	}
+	if r.completion.awaiting == nil && rec.AwaitingMerge != nil {
+		aw := *rec.AwaitingMerge
+		r.completion.awaitGen++
+		aw.gen = r.completion.awaitGen
+		r.completion.awaiting = &aw
+	}
+	if r.completion.finalPR == nil && rec.FinalPR != nil && rec.FinalPR.State != "closed" {
+		r.completion.finalPR = rec.FinalPR.snapshot()
+	}
 }
 
 // persistSurfaceLocked writes the surface record. The caller must hold c.mu.
@@ -132,6 +156,7 @@ type surfaceView struct {
 	fix      []FixStatus
 	resolver *ResolverStatus
 	finalPR  *FinalPR
+	awaiting *AwaitingMerge
 }
 
 // surfaceViewLocked assembles the status surface; in-memory completion state
@@ -139,6 +164,10 @@ type surfaceView struct {
 func (c *Controller) surfaceViewLocked(r *run) surfaceView {
 	s := c.surfaceLocked(r)
 	v := surfaceView{diag: s.LastDiagnosis, finalPR: r.completion.finalPR.snapshot()}
+	if aw := r.completion.awaiting; aw != nil {
+		cp := *aw
+		v.awaiting = &cp
+	}
 	if v.finalPR == nil {
 		v.finalPR = s.FinalPR.snapshot()
 	}
@@ -179,5 +208,5 @@ func fixStatuses(l *Ledger, tasks []PlanTask) []FixStatus {
 }
 
 func (v surfaceView) apply(st *RunStatus) {
-	st.LastDiagnosis, st.Fix, st.Resolver, st.FinalPR = v.diag, v.fix, v.resolver, v.finalPR
+	st.LastDiagnosis, st.Fix, st.Resolver, st.FinalPR, st.AwaitingMerge = v.diag, v.fix, v.resolver, v.finalPR, v.awaiting
 }

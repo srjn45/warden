@@ -1691,7 +1691,7 @@ canonical recovery.
 | `wd plan import-legacy [--report]` | Explicit legacy YAML cutover |
 | `wd plan task status <id> <task> <status>` | Set one task's progress (pending/in_progress/done/skipped) |
 | `wd plan delete <id>` | Permanently delete a pending or archived plan (in-progress/completed refused) |
-| `wd plan complete` / `archive` / `run` / `pause\|resume\|stop` | Lifecycle + execution |
+| `wd plan complete` / `archive` / `unarchive` / `run` / `pause\|resume\|stop` | Lifecycle + execution |
 | `wd plan assess <id>` | Brain-based task progress reconstruction |
 
 ### 37.8 MCP tools
@@ -1702,7 +1702,7 @@ canonical recovery.
 | `import_legacy_plans` | Explicit YAML → ScrivaDB cutover |
 | `scan_plans` | **Deprecated** migration aid (notice + skipped_canonical) |
 | `update_plan_status` | **Deprecated**; prefer `run_plan` / `complete_plan` / `archive_plan` |
-| `update_task_status` / `archive_plan` / `complete_plan` / `assess_plan` | Lifecycle helpers |
+| `update_task_status` / `archive_plan` / `unarchive_plan` / `complete_plan` / `assess_plan` | Lifecycle helpers (`complete_plan` takes `abandon_unmerged`) |
 | `delete_plan` | Permanently delete a pending/archived plan (409 otherwise) |
 | `sync_plan_to_repo` | Optional replica PR |
 | `export_plan_backup` / `restore_plan_backup` | Portable bundle |
@@ -1720,6 +1720,28 @@ Detail is ScrivaDB-backed. Keybindings: `a` archive · `A` assess · `r` run ·
 with a `completion_verified` event, reduces an immutable `ExecutionSummary`,
 **then** tears down disposable executors. See
 [§38](#38-plan-execution-entity-upgrade-migration).
+
+#### Plan finish flow
+
+An autopilot plan finishes when its **final PR is merged**, not when it is green.
+The plan then **stays `in_progress`** while the run is `finalizing` and, once the
+final PR is green, `awaiting_merge` (manager and run agents torn down; the daemon
+polls the PR every `autopilot.completion.merge_poll_interval`, default `2m`, floor
+`30s`). It completes when the PR is observed **merged** (merge, squash or rebase) and
+the integration branch is then deleted locally and on `origin` (kept if commits were
+pushed after the merge). A PR closed without merging parks the run (`final_pr_closed`:
+reopen it, `wd plan resume` to open a new one, or `wd plan stop`). Autopilot never
+merges, approves or closes the final PR. Design:
+[`specs/2026-10-05-plan-finish-flow.md`](specs/2026-10-05-plan-finish-flow.md).
+
+**Manual complete gate.** `wd plan complete` (API/CLI/MCP share it) refuses a plan
+whose integration branch has commits not on the default branch unless a merged PR
+for that exact tip exists (so squash merges pass); `--abandon-unmerged` (MCP
+`abandon_unmerged`) completes anyway and keeps the branch. `wd plan show` reports the
+outcome (final PR, `branch_fate`). **Archive/unarchive:** archive is refused while the
+executor is live, keeps branches with unmerged commits, and records `archived_from`;
+`wd plan unarchive` restores it (an in-progress plan returns with a stopped executor —
+`wd plan restart` continues it).
 
 ### 37.11 Non-goals / deferred follow-ups
 

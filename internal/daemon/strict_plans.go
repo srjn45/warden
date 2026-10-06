@@ -85,6 +85,7 @@ func (s *Server) planToOAPI(p *planstore.Plan) oapi.Plan {
 	out := oapi.Plan{
 		AutopilotRunId:   p.AutopilotRunID,
 		ArchivedAt:       archivedAt,
+		ArchivedFrom:     oapi.PlanArchivedFrom(p.ArchivedFrom),
 		CompletedAt:      completedAt,
 		Constraints:      append([]string(nil), p.Constraints...),
 		ContentHash:      p.ContentHash,
@@ -112,8 +113,13 @@ func (s *Server) planToOAPI(p *planstore.Plan) oapi.Plan {
 	if p.ActiveExecution != nil {
 		out.ActiveExecution = *p.ActiveExecution
 	}
-	if p.ExecutionSummary != nil {
-		out.ExecutionSummary = *p.ExecutionSummary
+	out.ExecutionSummary = p.ExecutionSummary
+	out.CleanupEvidence = p.CleanupEvidence
+	out.Outcome = p.Outcome
+	if lo := s.integrationLeftover(context.Background(), p); lo != nil {
+		out.IntegrationBranchLeftover = true
+		out.IntegrationBranchLeftoverCommits = lo.commits
+		out.Outcome = leftoverOutcome(p.Outcome, lo)
 	}
 	if p.RepoExport != nil {
 		out.RepoExport = *p.RepoExport
@@ -477,6 +483,15 @@ func (s *Server) GetPlan(ctx context.Context, req oapi.GetPlanRequestObject) (oa
 		return nil, errStatus(http.StatusInternalServerError, "get plan: "+err.Error())
 	}
 	out := s.planToOAPI(p)
+	if out.IntegrationBranchLeftover {
+		// show refines the offline list flag with one gh lookup (§9): a merged
+		// PR whose head is the tip means squash-merged, not leftover.
+		if lo := s.integrationLeftover(ctx, p); lo != nil && s.leftoverMergedPR(ctx, p.ProjectID, lo) {
+			out.IntegrationBranchLeftover = false
+			out.IntegrationBranchLeftoverCommits = 0
+			out.Outcome = p.Outcome
+		}
+	}
 	if p.Status == planstore.PlanStatusInProgress {
 		out.Executor = s.planExecutorStatus(ctx, p)
 	}
@@ -762,25 +777,6 @@ func (s *Server) DeletePlan(ctx context.Context, req oapi.DeletePlanRequestObjec
 	}
 	s.removePlanMembership(req.PlanId, p.ProjectID)
 	return oapi.DeletePlan200JSONResponse{OKJSONResponse: oapi.OKJSONResponse{Status: "deleted"}}, nil
-}
-
-// ArchivePlan implements POST /api/v1/plans/{plan_id}/archive.
-func (s *Server) ArchivePlan(ctx context.Context, req oapi.ArchivePlanRequestObject) (oapi.ArchivePlanResponseObject, error) {
-	svc := s.planSvc()
-	if svc == nil {
-		return nil, planNotConfigured()
-	}
-	p, err := svc.Transition(ctx, req.PlanId, planstore.PlanStatusArchived, planstore.TransitionOptions{})
-	if err != nil {
-		if errors.Is(err, planstore.ErrNotFound) {
-			return oapi.ArchivePlan404JSONResponse{NotFoundJSONResponse: oapi.NotFoundJSONResponse{Error: "plan not found"}}, nil
-		}
-		if errors.Is(err, planstore.ErrInvalidTransition) {
-			return nil, errStatus(http.StatusConflict, err.Error())
-		}
-		return nil, errStatus(http.StatusInternalServerError, "archive plan: "+err.Error())
-	}
-	return oapi.ArchivePlan200JSONResponse(s.planToOAPI(p)), nil
 }
 
 // CompletePlan is implemented in plan_finalize.go via FinalizePlan.

@@ -130,7 +130,7 @@ func TestSurfaceFinalPRPersistsAcrossRestart(t *testing.T) {
 
 	c.setFinalPR(runID, FinalPR{Number: 42, URL: "https://x/pull/42", HeadSHA: "abc"}, "red")
 	st := runStatusOf(t, c, runID)
-	require.Equal(t, &FinalPR{Number: 42, URL: "https://x/pull/42", HeadSHA: "abc", Gate: "red"}, st.FinalPR)
+	require.Equal(t, &FinalPR{Number: 42, URL: "https://x/pull/42", HeadSHA: "abc", Gate: "red", State: "open"}, st.FinalPR)
 
 	restart(c, runID)
 	st = runStatusOf(t, c, runID)
