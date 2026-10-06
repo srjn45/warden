@@ -1047,24 +1047,31 @@ Jobs can be made conditional with `run_if: success` (default) `| failure | alway
 Fire an agent spawn **or** a pipeline on the daemon's own timer — no external crontab. **Opt-in:** set `scheduler_enabled: true` in the config and keep the daemon running (schedules only fire while it is up).
 
 ```sh
-# Recurring agent spawn (5-field cron; @daily etc. supported):
-warden schedule create daily-review --cron "0 9 * * *" \
-  --type pr-review --repo . --prompt "Review yesterday's merged PRs"
+# Recurring agent in the current directory (a weekday-morning review):
+warden schedule create morning-review --cron "0 9 * * 1-5" --role reviewer \
+  --prompt "Review yesterday's merged PRs and list follow-ups"
 
-# Single-shot spawn (RFC3339 or 2006-01-02T15:04, local time):
-warden schedule create launch --at 2026-06-27T09:00 --prompt "Kick off the release checklist"
+# Single-shot agent in an isolated worktree off a repo, on a chosen AI CLI + model:
+warden schedule create release-prep --at 2026-12-01T08:00 --repo ~/dev/app \
+  --aicli claude --model sonnet --prompt "Prepare the release notes"
 
-# Fire a pipeline on a schedule (each run gets a timestamped name):
+# Fire a pipeline instead (each run gets a timestamped name):
 warden schedule create nightly --cron "0 2 * * *" --pipeline ci.yaml
 
-warden schedule list                  # kind, mode, spec, enabled, next run, last error
-warden schedule show daily-review      # one schedule + its last-run session id and outcome
-warden schedule disable daily-review  # stop firing (kept; re-enable later)
-warden schedule enable  daily-review  # re-arm (recompute next run)
-warden schedule delete  daily-review   # asks to confirm; add --yes in scripts
+warden schedule list                    # NAME, STATE, WHEN, FIRES, NEXT, LAST
+warden schedule show morning-review     # full fire payload + last run
+warden schedule run  morning-review     # fire once now, to test it
+warden schedule edit morning-review --cron "0 8 * * 1-5"
+warden schedule disable morning-review  # stop firing (kept; re-enable later)
+warden schedule enable  morning-review  # re-arm (recompute next run)
+warden schedule delete  morning-review --yes  # --yes skips the confirmation prompt
 ```
 
+A scheduled agent starts exactly as `warden start` would with the same flags: `--cwd` (default: the directory you ran `create` in), or `--repo` for an isolated worktree (`--branch` picks the branch), plus `--role` (default `worker` with `--repo`, otherwise `general`), `--aicli`/`--model`, `--tier`, `--tags`. A schedule that could never fire (unknown role, missing directory, no prompt) is rejected at create time. A past `--at` is rejected; `--now` fires once immediately. A `--at` time without a zone, and every cron spec, use the daemon host's local time (prefix a cron spec with `TZ=<zone>` to override). `schedule list` shows each schedule's state — `enabled`, `disabled`, `done` (single-shot that fired) or `failed` (single-shot whose fire failed); `show` prints the full payload and last run. `schedule run` fires a schedule once to test it and does not move its next run. `schedule edit` changes only the flags you pass (an empty value clears an optional field). `delete` asks for confirmation (`--yes` to skip; required without a terminal). `--pipeline` cannot be combined with agent flags.
+
 Each fired run's session carries a `schedule_id` back-reference (on agent spawns and a scheduled pipeline's job sessions), so scheduled runs are separable from ad-hoc agents everywhere sessions surface — list, `GET /sessions`, and the SSE stream. Daemons advertise the `scheduled-agents` capability when this is supported end-to-end.
+
+**Fixed and removed in this release:** agent schedules created without `--type` never fired — fixed; every accepted schedule now fires. `warden schedule get` is removed (use `schedule show`) and so is `--type` (use `--role`/`--repo`).
 
 Missed runs are **not** backfilled — on daemon startup each next-fire is recomputed from the wall clock. The reconcile loop fails soft (a bad fire is recorded in `last_error`, never crashes the loop). `list_schedules` exposes the same read-only view over MCP.
 
