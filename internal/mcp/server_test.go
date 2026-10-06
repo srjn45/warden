@@ -693,3 +693,47 @@ func TestPipelineTools(t *testing.T) {
 	require.False(t, res.IsError, textOf(res))
 	require.Equal(t, http.MethodPost, hits["/api/v1/pipelines/demo/cancel"])
 }
+
+func TestCreatePipelineMCPStart(t *testing.T) {
+	hits := map[string]string{}
+	bodies := map[string]string{}
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits[r.URL.Path] = r.Method
+		raw, _ := io.ReadAll(r.Body)
+		bodies[r.Method+" "+r.URL.Path] = string(raw)
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/pipelines":
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"id":"go","name":"go","status":"pending","jobs":[{"id":"a"}],"job_count":1,"jobs_done":0}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/pipelines/go/start":
+			_, _ = w.Write([]byte(`{"status":"started"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/pipelines/go":
+			_, _ = w.Write([]byte(`{"id":"go","name":"go","status":"running","jobs":[{"id":"a"}],"job_count":1,"jobs_done":0}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(daemon.Close)
+
+	srv := NewServer(daemon.URL)
+	ctx := context.Background()
+	ct, st := mcpsdk.NewInMemoryTransports()
+	go func() { _ = srv.Run(ctx, st) }()
+	cl := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test", Version: "0"}, nil)
+	session, err := cl.Connect(ctx, ct, nil)
+	require.NoError(t, err)
+	defer session.Close()
+
+	res, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name: "create_pipeline",
+		Arguments: map[string]any{
+			"spec":  "name: go\nrepo: /r\njobs:\n  - id: a\n    prompt: x\n",
+			"start": true,
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError, textOf(res))
+	require.Equal(t, http.MethodPost, hits["/api/v1/pipelines"])
+	require.Equal(t, http.MethodPost, hits["/api/v1/pipelines/go/start"])
+	require.Contains(t, textOf(res), "running")
+}

@@ -1,7 +1,22 @@
-Define and run DAG pipelines of agent jobs.
+Define and run a DAG of dependent agent jobs.
 
-Use validate locally before create; template list shows built-in starters;
-start/pause/resume/cancel control lifecycle; show lists per-job status and handoffs.
+Typical journey:
+  1. Write a YAML spec, or pick a starter with `wd pipeline template list`
+  2. `wd pipeline validate <spec.yaml>` — check the DAG locally (no daemon)
+  3. `wd pipeline create <spec.yaml>` — register it (or add --start to begin immediately)
+  4. `wd pipeline start <id>` — spawn jobs that have no dependencies
+  5. `wd pipeline show <id> --watch` — follow progress until it finishes
+  6. On failure, `wd pipeline job retry <id> <job>` to re-run a failed job
+
+pause stops new jobs from spawning while in-flight agents finish (undo with resume).
+cancel terminates running job agents and cannot be undone — create a new pipeline to run again.
+delete removes the pipeline record after jobs are settled (cancel first if any are live).
+
+Examples:
+  wd pipeline template list
+  wd pipeline validate review.yaml
+  wd pipeline create review.yaml --start
+  wd pipeline show my-run --watch
 
 Usage:
   warden pipeline [flags]

@@ -69,15 +69,21 @@ func RenderTemplate(name string, vars map[string]string) (string, error) {
 	return rendered, nil
 }
 
+// TemplateBody returns the raw YAML of the named template, rejecting names that
+// would escape the embedded templates/ directory.
+func TemplateBody(name string) (string, error) {
+	return templateBody(name)
+}
+
 // templateBody returns the raw YAML of the named template, rejecting names that
 // would escape the embedded templates/ directory.
 func templateBody(name string) (string, error) {
 	if name == "" || strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") {
-		return "", fmt.Errorf("unknown template %q (run `warden pipeline list-templates`)", name)
+		return "", fmt.Errorf("unknown template %q (run `wd pipeline template list`)", name)
 	}
 	data, err := templatesFS.ReadFile(filepath.ToSlash("templates/" + name + ".yaml"))
 	if err != nil {
-		return "", fmt.Errorf("unknown template %q (run `warden pipeline list-templates`)", name)
+		return "", fmt.Errorf("unknown template %q (run `wd pipeline template list`)", name)
 	}
 	return string(data), nil
 }

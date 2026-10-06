@@ -169,9 +169,25 @@ func newPipelineCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "pipeline",
 		Short: "Define and run DAG pipelines of agent jobs",
-		Long: "Define and run DAG pipelines of agent jobs.\n\n" +
-			"Use validate locally before create; template list shows built-in starters;\n" +
-			"start/pause/resume/cancel control lifecycle; show lists per-job status and handoffs.",
+		Long: `Define and run a DAG of dependent agent jobs.
+
+Typical journey:
+  1. Write a YAML spec, or pick a starter with ` + "`wd pipeline template list`" + `
+  2. ` + "`wd pipeline validate <spec.yaml>`" + ` — check the DAG locally (no daemon)
+  3. ` + "`wd pipeline create <spec.yaml>`" + ` — register it (or add --start to begin immediately)
+  4. ` + "`wd pipeline start <id>`" + ` — spawn jobs that have no dependencies
+  5. ` + "`wd pipeline show <id> --watch`" + ` — follow progress until it finishes
+  6. On failure, ` + "`wd pipeline job retry <id> <job>`" + ` to re-run a failed job
+
+pause stops new jobs from spawning while in-flight agents finish (undo with resume).
+cancel terminates running job agents and cannot be undone — create a new pipeline to run again.
+delete removes the pipeline record after jobs are settled (cancel first if any are live).
+
+Examples:
+  wd pipeline template list
+  wd pipeline validate review.yaml
+  wd pipeline create review.yaml --start
+  wd pipeline show my-run --watch`,
 	}
 	SetCommandHelpMetadata(cmd, "run", 20, "warden pipeline", "", NodeNamespace)
 
@@ -186,9 +202,6 @@ func newPipelineCmd() *cobra.Command {
 		SetCommandHelpMetadata(child, "run", (i+1)*10, "warden pipeline "+child.Name(), "", nodeKind(child))
 		cmd.AddCommand(child)
 	}
-	listTemplatesAlias := newPipelineListTemplatesCmd()
-	markCompatibilityChild(listTemplatesAlias, "warden pipeline template list")
-	cmd.AddCommand(listTemplatesAlias)
 	return cmd
 }
 
@@ -196,49 +209,39 @@ func newPipelineTemplateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "template",
 		Short: "Built-in pipeline templates",
-		Long:  "Built-in pipeline templates render via create --template and support placeholder substitution.",
+		Long: "Built-in pipeline templates render via create --template and support placeholder\n" +
+			"substitution. `template list` names them; `template show` prints one template's\n" +
+			"YAML. The pipeline templates section of `wd project library list` shows the same\n" +
+			"catalog alongside spawn presets and prompt templates.",
 	}
 	SetCommandHelpMetadata(cmd, "run", 30, "warden pipeline template", "", NodeNamespace)
-	list := canonicalPipelineCommand(newPipelineListTemplatesCmd(), "list")
+	list := newPipelineTemplateListCmd()
+	show := newPipelineTemplateShowCmd()
 	SetCommandHelpMetadata(list, "run", 10, "warden pipeline template list", "", NodeLeaf)
-	cmd.AddCommand(list)
+	SetCommandHelpMetadata(show, "run", 20, "warden pipeline template show", "", NodeLeaf)
+	cmd.AddCommand(list, show)
 	return cmd
-}
-
-func canonicalPipelineCommand(cmd *cobra.Command, name string) *cobra.Command {
-	parts := strings.SplitN(cmd.Use, " ", 2)
-	legacyName := parts[0]
-	rewritePipelineHelpPaths(cmd, legacyName, name)
-	cmd.Use = name
-	if len(parts) == 2 {
-		cmd.Use += " " + parts[1]
-	}
-	cmd.Aliases = nil
-	return cmd
-}
-
-func rewritePipelineHelpPaths(cmd *cobra.Command, legacyName, canonicalName string) {
-	replacer := strings.NewReplacer(
-		"warden pipeline "+legacyName, "warden pipeline template "+canonicalName,
-		"wd pipeline "+legacyName, "wd pipeline template "+canonicalName,
-		"pipeline "+legacyName, "pipeline template "+canonicalName,
-	)
-	cmd.Long = replacer.Replace(cmd.Long)
-	cmd.Example = replacer.Replace(cmd.Example)
 }
 
 func newPipelineValidateCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "validate -f <spec.yaml>",
+		Use:   "validate [spec.yaml]",
 		Short: "Validate a pipeline YAML spec without creating it",
 		Long: "Parse and validate a pipeline spec locally — checks required fields, " +
 			"job ids, dependency references, worktree/run_if values, and DAG cycles. " +
-			"Exits 0 if valid, 1 if not (suitable for CI). Does not contact the daemon.",
-		Args: cobra.NoArgs,
+			"Exits 0 if valid, 1 if not (suitable for CI). Does not contact the daemon.\n\n" +
+			"Pass the spec as a positional argument or with -f (not both).\n\n" +
+			"Examples:\n" +
+			"  wd pipeline validate review.yaml\n" +
+			"  wd pipeline validate -f review.yaml",
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			file, _ := cmd.Flags().GetString("file")
+			file, err := resolvePipelineSpecFile(cmd, args)
+			if err != nil {
+				return err
+			}
 			if file == "" {
-				return fmt.Errorf("provide a spec with -f <spec.yaml>")
+				return fmt.Errorf("provide a spec file as a positional argument or with -f <spec.yaml>")
 			}
 			data, err := os.ReadFile(file)
 			if err != nil {
@@ -248,7 +251,9 @@ func newPipelineValidateCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("invalid pipeline %s: %w", file, err)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s is valid — pipeline %q, %d jobs\n", file, p.ID, userJobs(p))
+			order := userJobOrder(p)
+			fmt.Fprintf(cmd.OutOrStdout(), "%s is valid — pipeline %q, %d jobs: %s\n",
+				file, p.ID, len(order), strings.Join(order, " → "))
 			return nil
 		},
 	}
@@ -258,19 +263,33 @@ func newPipelineValidateCmd() *cobra.Command {
 
 func newPipelineCreateCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "create (-f <spec.yaml> | --template <name>)",
+		Use:   "create [spec.yaml]",
 		Short: "Create a pipeline from a YAML spec or a built-in template",
-		Long: "Create a pipeline either from a YAML spec file (-f) or from a built-in\n" +
-			"template (--template). Templates render with placeholder substitution: --name\n" +
-			"fills {{NAME}} (default the template name), --repo fills {{REPO}} (default the\n" +
-			"current directory), and each remaining {{KEY}} is filled with --set KEY=VALUE.\n" +
-			"Run `warden pipeline template list` to see templates and their placeholders.",
-		Args: cobra.NoArgs,
+		Long: "Create a pipeline either from a YAML spec file (positional or -f) or from a\n" +
+			"built-in template (--template). Templates render with placeholder substitution:\n" +
+			"--name fills {{NAME}} (default the template name), --repo fills {{REPO}}\n" +
+			"(default the current directory), and each remaining {{KEY}} is filled with\n" +
+			"--set KEY=VALUE. Run `wd pipeline template list` to see templates and their\n" +
+			"placeholders.\n\n" +
+			"--start begins the pipeline right after creating it. --json prints the created\n" +
+			"pipeline as JSON.\n\n" +
+			"Examples:\n" +
+			"  wd pipeline create review.yaml\n" +
+			"  wd pipeline create review.yaml --start\n" +
+			"  wd pipeline create --template analyze-implement-review --set TASK=\"add a flag\" --start\n" +
+			"  wd pipeline create -f review.yaml --json",
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			file, _ := cmd.Flags().GetString("file")
+			file, err := resolvePipelineSpecFile(cmd, args)
+			if err != nil {
+				return err
+			}
 			tmpl, _ := cmd.Flags().GetString("template")
-			if (file == "") == (tmpl == "") {
-				return fmt.Errorf("provide exactly one of -f <spec.yaml> or --template <name>")
+			switch {
+			case file != "" && tmpl != "":
+				return fmt.Errorf("provide a spec file or --template <name>, not both")
+			case file == "" && tmpl == "":
+				return fmt.Errorf("provide a spec file (positional or -f) or --template <name>")
 			}
 
 			var spec string
@@ -303,24 +322,68 @@ func newPipelineCreateCmd() *cobra.Command {
 				}
 			}
 			planID, _ := cmd.Flags().GetString("plan")
-			p, err := clientFor(cmd).PipelineCreateWith(cmd.Context(), client.PipelineCreateParams{
+			c := clientFor(cmd)
+			p, err := c.PipelineCreateWith(cmd.Context(), client.PipelineCreateParams{
 				Spec: spec, ProjectID: projectID, PlanID: planID,
 			})
 			if err != nil {
-				return err
+				return wrapPipelineError(err)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "created pipeline %s (%d jobs) — start it with `warden pipeline start %s`\n", p.ID, userJobs(p), p.ID)
+
+			doStart, _ := cmd.Flags().GetBool("start")
+			jsonOut, _ := cmd.Flags().GetBool("json")
+			out := cmd.OutOrStdout()
+
+			if doStart {
+				if serr := c.PipelineStart(cmd.Context(), p.ID); serr != nil {
+					if jsonOut {
+						_ = printJSON(out, p)
+					} else {
+						fmt.Fprintf(out, "created pipeline %s (%d jobs), but start failed — start it with `wd pipeline start %s`\n",
+							p.ID, userJobs(p), p.ID)
+					}
+					return wrapPipelineError(serr)
+				}
+			}
+
+			if jsonOut {
+				return printJSON(out, p)
+			}
+			if doStart {
+				fmt.Fprintf(out, "created and started pipeline %s (%d jobs)\n", p.ID, userJobs(p))
+			} else {
+				fmt.Fprintf(out, "created pipeline %s (%d jobs) — start it with `wd pipeline start %s`\n", p.ID, userJobs(p), p.ID)
+			}
 			return nil
 		},
 	}
 	cmd.Flags().StringP("file", "f", "", "path to the pipeline YAML spec")
-	cmd.Flags().String("template", "", "built-in template `<NAME>` to render (see 'warden pipeline template list')")
+	cmd.Flags().String("template", "", "built-in template `<NAME>` to render (see 'wd pipeline template list')")
 	cmd.Flags().String("name", "", "pipeline name — fills {{NAME}} (default: the template name)")
 	cmd.Flags().String("repo", "", "repo path — fills {{REPO}} (default: the current directory)")
 	cmd.Flags().StringArray("set", nil, "fill a template placeholder, KEY=VALUE (repeatable)")
 	cmd.Flags().String("project", "", "optional project id this pipeline joins; overrides YAML project_id (default: git root of --repo / the spec file / cwd, unless the YAML sets project_id)")
-	cmd.Flags().String("plan", "", "optional planstore plan id in the same project; empty = planless pipeline")
+	cmd.Flags().String("plan", "", "optional plan id to link for reference; does not make that plan run this pipeline")
+	cmd.Flags().Bool("start", false, "start the pipeline immediately after creating it")
+	cmd.Flags().Bool("json", false, "print the created pipeline as JSON")
 	return cmd
+}
+
+// resolvePipelineSpecFile returns the spec path from a positional arg or -f.
+// Both together is an error; neither is allowed (caller checks empty).
+func resolvePipelineSpecFile(cmd *cobra.Command, args []string) (string, error) {
+	file, _ := cmd.Flags().GetString("file")
+	var positional string
+	if len(args) > 0 {
+		positional = args[0]
+	}
+	if file != "" && positional != "" {
+		return "", fmt.Errorf("provide the spec file as a positional argument or with -f, not both")
+	}
+	if file != "" {
+		return file, nil
+	}
+	return positional, nil
 }
 
 // renderTemplateFromFlags builds the substitution map for a --template create
@@ -353,15 +416,44 @@ func renderTemplateFromFlags(cmd *cobra.Command, tmpl string) (string, error) {
 	return pipeline.RenderTemplate(tmpl, vars)
 }
 
-func newPipelineListTemplatesCmd() *cobra.Command {
+func newPipelineTemplateListCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "list-templates",
+		Use:   "list",
 		Short: "List the built-in pipeline templates and their placeholders",
-		Args:  cobra.NoArgs,
+		Long: "List the built-in pipeline templates bundled with warden, each with a short\n" +
+			"description and the placeholders create --template needs. The same catalog\n" +
+			"appears under PIPELINE TEMPLATES in `wd project library list`.\n\n" +
+			"Examples:\n" +
+			"  wd pipeline template list",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			for _, t := range pipeline.ListTemplates() {
 				fmt.Fprintf(cmd.OutOrStdout(), "%s\n    %s\n    placeholders: %s\n",
 					t.Name, t.Description, strings.Join(t.Placeholders, ", "))
+			}
+			return nil
+		},
+	}
+}
+
+func newPipelineTemplateShowCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "show <name>",
+		Short: "Print a built-in pipeline template's YAML",
+		Long: "Print the raw YAML of a built-in pipeline template, including its leading\n" +
+			"description comment and {{PLACEHOLDER}} markers. Use create --template to\n" +
+			"render and register one.\n\n" +
+			"Examples:\n" +
+			"  wd pipeline template show analyze-implement-review",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			body, err := pipeline.TemplateBody(args[0])
+			if err != nil {
+				return err
+			}
+			fmt.Fprint(cmd.OutOrStdout(), body)
+			if !strings.HasSuffix(body, "\n") {
+				fmt.Fprintln(cmd.OutOrStdout())
 			}
 			return nil
 		},
@@ -454,7 +546,7 @@ func newPipelineListCmd() *cobra.Command {
 			}
 			ps, err := clientFor(cmd).PipelineListFiltered(cmd.Context(), projectID, status)
 			if err != nil {
-				return err
+				return wrapPipelineError(err)
 			}
 			out := cmd.OutOrStdout()
 			if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
@@ -600,7 +692,7 @@ Examples:
 			show := func() (bool, error) {
 				p, err := clientFor(cmd).PipelineGet(cmd.Context(), args[0])
 				if err != nil {
-					return false, err
+					return false, wrapPipelineError(err)
 				}
 				if jsonOut {
 					err = printJSON(cmd.OutOrStdout(), p)
@@ -627,10 +719,16 @@ func newPipelineStartCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "start <pipeline>",
 		Short: "Start a pipeline (spawns jobs with no dependencies)",
-		Args:  cobra.ExactArgs(1),
+		Long: "Start a pending pipeline: spawns its jobs that have no dependencies;\n" +
+			"dependents spawn automatically as their upstreams emit. Refuses if the\n" +
+			"pipeline was already started. A canceled pipeline cannot be restarted —\n" +
+			"create a new one from the same spec or template.\n\n" +
+			"Examples:\n" +
+			"  wd pipeline start my-run",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := clientFor(cmd).PipelineStart(cmd.Context(), args[0]); err != nil {
-				return wrapCanceledStartError(err)
+				return wrapPipelineError(err)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "started %s\n", args[0])
 			return nil
@@ -638,24 +736,43 @@ func newPipelineStartCmd() *cobra.Command {
 	}
 }
 
-// wrapCanceledStartError adds a next-step hint when start is refused because the
-// pipeline was already canceled (it cannot be restarted).
-func wrapCanceledStartError(err error) error {
+// wrapPipelineError appends a concrete next step when the daemon error is one
+// the CLI can map without guessing.
+func wrapPipelineError(err error) error {
 	var se *client.StatusError
-	if !errors.As(err, &se) || !strings.Contains(se.Msg, "status canceled") {
+	if !errors.As(err, &se) {
 		return err
 	}
-	return fmt.Errorf("%w\nA canceled pipeline cannot be restarted; create a new pipeline from the same spec or template", err)
+	msg := se.Msg
+	switch {
+	case strings.Contains(msg, "not found"):
+		return fmt.Errorf("%w\nNext: wd pipeline list --all", err)
+	case strings.Contains(msg, "already exists"):
+		return fmt.Errorf("%w\nNext: pick another --name, or delete the old pipeline first", err)
+	case strings.Contains(msg, "status canceled"):
+		return fmt.Errorf("%w\nA canceled pipeline cannot be restarted; create a new pipeline from the same spec or template", err)
+	case strings.Contains(msg, "only a running pipeline can be paused"):
+		return fmt.Errorf("%w\nNext: wd pipeline start <pipeline>", err)
+	case strings.Contains(msg, "pipeline is not paused"):
+		return fmt.Errorf("%w\nNext: wd pipeline pause <pipeline>", err)
+	default:
+		return err
+	}
 }
 
 func newPipelinePauseCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "pause <pipeline>",
 		Short: "Pause a running pipeline (in-flight jobs finish; no new jobs spawn)",
-		Args:  cobra.ExactArgs(1),
+		Long: "Pause a running pipeline: jobs that are already running keep going, but no\n" +
+			"new jobs spawn until you resume. Undo with `wd pipeline resume`. Only a\n" +
+			"running pipeline can be paused.\n\n" +
+			"Examples:\n" +
+			"  wd pipeline pause my-run",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := clientFor(cmd).PipelinePause(cmd.Context(), args[0]); err != nil {
-				return err
+				return wrapPipelineError(err)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "paused %s\n", args[0])
 			return nil
@@ -667,10 +784,14 @@ func newPipelineResumeCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "resume <pipeline>",
 		Short: "Resume a paused pipeline (spawns jobs that became ready while paused)",
-		Args:  cobra.ExactArgs(1),
+		Long: "Resume a paused pipeline: spawns any jobs that became ready while it was\n" +
+			"paused and continues the DAG. Only a paused pipeline can be resumed.\n\n" +
+			"Examples:\n" +
+			"  wd pipeline resume my-run",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := clientFor(cmd).PipelineResume(cmd.Context(), args[0]); err != nil {
-				return err
+				return wrapPipelineError(err)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "resumed %s\n", args[0])
 			return nil
@@ -687,14 +808,17 @@ func newPipelineCancelCmd() *cobra.Command {
 			"same spec or template if you need to run it again.\n\n" +
 			"When jobs are still running, asks for confirmation (skip with --yes). With no\n" +
 			"running jobs it cancels without asking. Non-interactive sessions must pass --yes\n" +
-			"when jobs are running.",
+			"when jobs are running.\n\n" +
+			"Examples:\n" +
+			"  wd pipeline cancel my-run\n" +
+			"  wd pipeline cancel my-run --yes",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			yes, _ := cmd.Flags().GetBool("yes")
 			c := clientFor(cmd)
 			p, err := c.PipelineGet(cmd.Context(), args[0])
 			if err != nil {
-				return err
+				return wrapPipelineError(err)
 			}
 			live := livePipelineJobs(p)
 			if len(live) > 0 {
@@ -715,7 +839,7 @@ func newPipelineCancelCmd() *cobra.Command {
 				}
 			}
 			if err := c.PipelineCancel(cmd.Context(), args[0]); err != nil {
-				return err
+				return wrapPipelineError(err)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "canceled %s\n", args[0])
 			return nil
@@ -733,14 +857,17 @@ func newPipelineDeleteCmd() *cobra.Command {
 			"are archived; branches and worktrees are left in place. Refuses while any job is\n" +
 			"still live — cancel first.\n\n" +
 			"Asks for confirmation unless --yes is given. Non-interactive sessions must pass\n" +
-			"--yes.",
+			"--yes.\n\n" +
+			"Examples:\n" +
+			"  wd pipeline delete my-run\n" +
+			"  wd pipeline delete my-run --yes",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			yes, _ := cmd.Flags().GetBool("yes")
 			c := clientFor(cmd)
 			p, err := c.PipelineGet(cmd.Context(), args[0])
 			if err != nil {
-				return err
+				return wrapPipelineError(err)
 			}
 			label := firstNonEmpty(p.Name, p.ID)
 			out := cmd.OutOrStdout()
@@ -755,7 +882,7 @@ func newPipelineDeleteCmd() *cobra.Command {
 				return nil
 			}
 			if err := c.PipelineDelete(cmd.Context(), args[0]); err != nil {
-				return err
+				return wrapPipelineError(err)
 			}
 			fmt.Fprintf(out, "deleted %s\n", args[0])
 			return nil
@@ -783,7 +910,15 @@ func newPipelineEmitCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "emit <text>",
 		Short: "Publish this job's handoff (run from inside a pipeline job)",
-		Args:  cobra.MinimumNArgs(1),
+		Long: "Publish this job's handoff text so dependent jobs can start. Intended to be\n" +
+			"called by the job's own agent (pipeline and job ids come from\n" +
+			"$WARDEN_PIPELINE_ID and $WARDEN_JOB_ID). Called elsewhere, you must pass\n" +
+			"--pipeline and --job; emitting for the wrong job or after the job has\n" +
+			"already emitted is refused.\n\n" +
+			"Examples:\n" +
+			"  wd pipeline emit \"plan ready; start with auth.go\"\n" +
+			"  wd pipeline emit --pipeline my-run --job analyze \"done\"",
+		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			pid, _ := cmd.Flags().GetString("pipeline")
 			job, _ := cmd.Flags().GetString("job")
@@ -798,7 +933,7 @@ func newPipelineEmitCmd() *cobra.Command {
 			}
 			text := strings.Join(args, " ")
 			if err := clientFor(cmd).PipelineEmit(cmd.Context(), pid, job, text); err != nil {
-				return err
+				return wrapPipelineError(err)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "emitted handoff for %s/%s\n", pid, job)
 			return nil
@@ -813,4 +948,16 @@ func newPipelineEmitCmd() *cobra.Command {
 func userJobs(p *pipeline.Pipeline) int {
 	n, _ := p.UserJobCount()
 	return n
+}
+
+// userJobOrder returns user-authored job ids in declaration order.
+func userJobOrder(p *pipeline.Pipeline) []string {
+	var out []string
+	for _, j := range p.Jobs {
+		if j.IsSynthetic() {
+			continue
+		}
+		out = append(out, j.ID)
+	}
+	return out
 }
