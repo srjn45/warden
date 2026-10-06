@@ -1067,6 +1067,9 @@
     "inherited_flags": [
       "addr",
       "config"
+    ],
+    "local_flags": [
+      "yes"
     ]
   },
   {
@@ -1094,6 +1097,9 @@
     "inherited_flags": [
       "addr",
       "config"
+    ],
+    "local_flags": [
+      "yes"
     ]
   },
   {

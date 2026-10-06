@@ -222,7 +222,10 @@ func TestPipelineListShowCmds(t *testing.T) {
 
 func TestPipelineLifecycleCmds(t *testing.T) {
 	method := map[string]string{}
-	addr := stubDaemon(t, routedDaemon(t, nil, method, nil))
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		// cancel with no live jobs skips the prompt; delete always needs --yes.
+		"GET /api/v1/pipelines/demo": `{"id":"demo","name":"demo","status":"done","jobs":[{"id":"a","status":"done"}]}`,
+	}, method, nil))
 	cases := []struct {
 		args     []string
 		path     string
@@ -233,7 +236,7 @@ func TestPipelineLifecycleCmds(t *testing.T) {
 		{[]string{"pipeline", "pause", "demo"}, "/api/v1/pipelines/demo/pause", http.MethodPost, "paused demo"},
 		{[]string{"pipeline", "resume", "demo"}, "/api/v1/pipelines/demo/resume", http.MethodPost, "resumed demo"},
 		{[]string{"pipeline", "cancel", "demo"}, "/api/v1/pipelines/demo/cancel", http.MethodPost, "canceled demo"},
-		{[]string{"pipeline", "delete", "demo"}, "/api/v1/pipelines/demo", http.MethodDelete, "deleted demo"},
+		{[]string{"pipeline", "delete", "demo", "--yes"}, "/api/v1/pipelines/demo", http.MethodDelete, "deleted demo"},
 		{[]string{"pipeline", "job", "retry", "demo", "a"}, "/api/v1/pipelines/demo/jobs/a/retry", http.MethodPost, "retrying demo/a"},
 	}
 	for _, tc := range cases {

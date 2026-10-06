@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -629,12 +630,22 @@ func newPipelineStartCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := clientFor(cmd).PipelineStart(cmd.Context(), args[0]); err != nil {
-				return err
+				return wrapCanceledStartError(err)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "started %s\n", args[0])
 			return nil
 		},
 	}
+}
+
+// wrapCanceledStartError adds a next-step hint when start is refused because the
+// pipeline was already canceled (it cannot be restarted).
+func wrapCanceledStartError(err error) error {
+	var se *client.StatusError
+	if !errors.As(err, &se) || !strings.Contains(se.Msg, "status canceled") {
+		return err
+	}
+	return fmt.Errorf("%w\nA canceled pipeline cannot be restarted; create a new pipeline from the same spec or template", err)
 }
 
 func newPipelinePauseCmd() *cobra.Command {
@@ -668,33 +679,104 @@ func newPipelineResumeCmd() *cobra.Command {
 }
 
 func newPipelineCancelCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "cancel <pipeline>",
 		Short: "Cancel a pipeline (terminates running jobs)",
-		Args:  cobra.ExactArgs(1),
+		Long: "Cancel a pipeline: terminates any live job agents and marks remaining jobs\n" +
+			"skipped. A canceled pipeline cannot be restarted — create a new one from the\n" +
+			"same spec or template if you need to run it again.\n\n" +
+			"When jobs are still running, asks for confirmation (skip with --yes). With no\n" +
+			"running jobs it cancels without asking. Non-interactive sessions must pass --yes\n" +
+			"when jobs are running.",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := clientFor(cmd).PipelineCancel(cmd.Context(), args[0]); err != nil {
+			yes, _ := cmd.Flags().GetBool("yes")
+			c := clientFor(cmd)
+			p, err := c.PipelineGet(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			live := livePipelineJobs(p)
+			if len(live) > 0 {
+				out := cmd.OutOrStdout()
+				label := firstNonEmpty(p.Name, p.ID)
+				fmt.Fprintf(out, "%d job(s) are still running:\n", len(live))
+				for _, j := range live {
+					fmt.Fprintf(out, "  job %s (agent %s)\n", j.ID, dashIfEmpty(j.AgentRef()))
+				}
+				fmt.Fprintln(out, "Their agents will be terminated. A canceled pipeline cannot be restarted.")
+				ok, cerr := confirmOrYes(cmd, yes, fmt.Sprintf("Cancel pipeline %q? [y/N] ", label))
+				if cerr != nil {
+					return cerr
+				}
+				if !ok {
+					fmt.Fprintln(out, "aborted")
+					return nil
+				}
+			}
+			if err := c.PipelineCancel(cmd.Context(), args[0]); err != nil {
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "canceled %s\n", args[0])
 			return nil
 		},
 	}
+	cmd.Flags().BoolP("yes", "y", false, "skip the confirmation prompt")
+	return cmd
 }
 
 func newPipelineDeleteCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "delete <pipeline>",
 		Short: "Delete a pipeline's record (must not have live jobs — cancel first)",
-		Args:  cobra.ExactArgs(1),
+		Long: "Delete a pipeline record and its job history. Agent sessions for settled jobs\n" +
+			"are archived; branches and worktrees are left in place. Refuses while any job is\n" +
+			"still live — cancel first.\n\n" +
+			"Asks for confirmation unless --yes is given. Non-interactive sessions must pass\n" +
+			"--yes.",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := clientFor(cmd).PipelineDelete(cmd.Context(), args[0]); err != nil {
+			yes, _ := cmd.Flags().GetBool("yes")
+			c := clientFor(cmd)
+			p, err := c.PipelineGet(cmd.Context(), args[0])
+			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "deleted %s\n", args[0])
+			label := firstNonEmpty(p.Name, p.ID)
+			out := cmd.OutOrStdout()
+			fmt.Fprintf(out, "This removes the pipeline record and its job history for %q.\n", label)
+			fmt.Fprintln(out, "Branches and worktrees are kept.")
+			ok, cerr := confirmOrYes(cmd, yes, fmt.Sprintf("Delete pipeline %q? [y/N] ", label))
+			if cerr != nil {
+				return cerr
+			}
+			if !ok {
+				fmt.Fprintln(out, "aborted")
+				return nil
+			}
+			if err := c.PipelineDelete(cmd.Context(), args[0]); err != nil {
+				return err
+			}
+			fmt.Fprintf(out, "deleted %s\n", args[0])
 			return nil
 		},
 	}
+	cmd.Flags().BoolP("yes", "y", false, "skip the confirmation prompt")
+	return cmd
+}
+
+// livePipelineJobs returns jobs that cancel would terminate (running or needs_attention).
+func livePipelineJobs(p *pipeline.Pipeline) []pipeline.Job {
+	if p == nil {
+		return nil
+	}
+	var live []pipeline.Job
+	for _, j := range p.Jobs {
+		if j.Status == pipeline.JobRunning || j.Status == pipeline.JobNeedsAttention {
+			live = append(live, j)
+		}
+	}
+	return live
 }
 
 func newPipelineEmitCmd() *cobra.Command {

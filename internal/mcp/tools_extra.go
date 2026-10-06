@@ -1098,7 +1098,7 @@ func (s *Server) registerExtraTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "delete_pipeline",
-		Description: "Delete a pipeline record (and its job bookkeeping). Use after a pipeline is finished/cancelled to clean up. Mirrors `warden pipeline delete`; cancel_pipeline stops a running one without deleting it.",
+		Description: "Delete a pipeline record (and its job bookkeeping). Use after a pipeline is finished/cancelled to clean up. Branches and worktrees are kept. Mirrors `warden pipeline delete`; cancel_pipeline stops a running one without deleting it — cancel terminates live job agents and cannot be undone. The calling agent is responsible for confirming before calling.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a pipelineIDArgs) (*mcpsdk.CallToolResult, any, error) {
 		if err := s.cl.PipelineDelete(ctx, a.Pipeline); err != nil {
 			return textResult("error: " + err.Error()), nil, nil

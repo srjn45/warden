@@ -1007,8 +1007,8 @@ warden pipeline edit-job <id> <job> ... # edit a not-yet-started job's fields
 warden pipeline retry <id> <job>        # re-run a failed/needs-attention job
 warden pipeline pause <id>              # stop spawning new jobs (in-flight keep running)
 warden pipeline resume <id>             # resume a paused pipeline
-warden pipeline cancel <id>             # terminate running jobs
-warden pipeline delete <id>             # remove the record (cancel first if live)
+warden pipeline cancel <id> [--yes]     # terminate running jobs (confirms if any are live)
+warden pipeline delete <id> [--yes]     # remove the record (always confirms; cancel first if live)
 ```
 
 Four `go:embed`-bundled templates ship in the binary — `analyze-implement-review`, `parallel-tasks`, `test-fix-verify`, `research-synthesis`. Render one with `warden pipeline create --template <name>`, substituting placeholders via `{{NAME}}`/`{{REPO}}` (auto-filled) and `--set KEY=VALUE`.

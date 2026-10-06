@@ -994,13 +994,20 @@ Inherited flags:
 ## warden pipeline cancel
 
 ```text
-Cancel a pipeline (terminates running jobs)
+Cancel a pipeline: terminates any live job agents and marks remaining jobs
+skipped. A canceled pipeline cannot be restarted — create a new one from the
+same spec or template if you need to run it again.
+
+When jobs are still running, asks for confirmation (skip with --yes). With no
+running jobs it cancels without asking. Non-interactive sessions must pass --yes
+when jobs are running.
 
 Usage:
   warden pipeline cancel <pipeline> [flags]
 
 Flags:
   -h, --help   help for cancel
+  -y, --yes    skip the confirmation prompt
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -1010,13 +1017,19 @@ Inherited flags:
 ## warden pipeline delete
 
 ```text
-Delete a pipeline's record (must not have live jobs — cancel first)
+Delete a pipeline record and its job history. Agent sessions for settled jobs
+are archived; branches and worktrees are left in place. Refuses while any job is
+still live — cancel first.
+
+Asks for confirmation unless --yes is given. Non-interactive sessions must pass
+--yes.
 
 Usage:
   warden pipeline delete <pipeline> [flags]
 
 Flags:
   -h, --help   help for delete
+  -y, --yes    skip the confirmation prompt
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)

@@ -802,7 +802,7 @@ func NewServer(daemonBase string) *Server {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "cancel_pipeline",
-		Description: "Cancel a pipeline: terminates any live job sessions and marks remaining jobs skipped. A finished pipeline cannot be canceled (delete it via the CLI instead).",
+		Description: "Cancel a pipeline: terminates any live job agents immediately and marks remaining jobs skipped. This cannot be undone — a canceled pipeline cannot be restarted (create a new one from the same spec or template). A finished pipeline cannot be canceled (delete it via the CLI instead). The calling agent is responsible for confirming before calling.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a pipelineIDArgs) (*mcpsdk.CallToolResult, any, error) {
 		if err := s.cl.PipelineCancel(ctx, a.Pipeline); err != nil {
 			return textResult("error: " + err.Error()), nil, nil
