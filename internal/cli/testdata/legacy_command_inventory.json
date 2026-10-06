@@ -1387,21 +1387,30 @@
     "runnable": true,
     "local_flags": [
       "agent",
+      "ai-cli",
+      "aicli",
       "at",
+      "auto-restart",
       "branch",
       "cron",
       "cwd",
+      "json",
+      "model",
       "now",
+      "permission-mode",
       "pipeline",
+      "project",
       "prompt",
       "repo",
       "role",
-      "type"
+      "tags",
+      "tier"
     ],
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
   },
   {
     "path": "schedule delete",

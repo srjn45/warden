@@ -1,8 +1,7 @@
 Create timer-driven triggers that the daemon fires on a schedule: a recurring
 cron spec (--cron "0 9 * * *") or a single-shot time (--at 2026-06-27T09:00).
 Each schedule fires either one agent spawn (the default — pass --repo/
---prompt; --type is a deprecated alias mapped to role at fire time) or a
-pipeline (--pipeline <spec.yaml>). The scheduler is opt-in: set
+--prompt) or a pipeline (--pipeline <spec.yaml>). The scheduler is opt-in: set
 scheduler_enabled: true in the config file and keep the daemon running.
 
 Usage:

@@ -1386,10 +1386,12 @@ func (c *Client) ScheduleCreate(ctx context.Context, req ScheduleCreateRequest) 
 
 // ScheduleCreateRequest is the JSON body for POST /schedules.
 type ScheduleCreateRequest struct {
-	Name   string `json:"name"`
-	Cron   string `json:"cron,omitempty"`
-	At     string `json:"at,omitempty"`
-	Now    bool   `json:"now,omitempty"`
+	Name string `json:"name"`
+	Cron string `json:"cron,omitempty"`
+	At   string `json:"at,omitempty"`
+	Now  bool   `json:"now,omitempty"`
+	// Type is the deprecated legacy task type, kept so older callers still
+	// compile and send it; the daemon maps it onto a role at fire time.
 	Type   string `json:"type,omitempty"`
 	Repo   string `json:"repo,omitempty"`
 	Cwd    string `json:"cwd,omitempty"`
@@ -1397,7 +1399,16 @@ type ScheduleCreateRequest struct {
 	Prompt string `json:"prompt,omitempty"`
 	Agent  string `json:"agent,omitempty"`
 	Branch string `json:"branch,omitempty"`
-	Spec   string `json:"spec,omitempty"`
+
+	Model          string   `json:"model,omitempty"`
+	AiCli          string   `json:"ai_cli,omitempty"`
+	PermissionMode string   `json:"permission_mode,omitempty"`
+	AutoRestart    bool     `json:"auto_restart,omitempty"`
+	Tags           []string `json:"tags,omitempty"`
+	Tier           string   `json:"tier,omitempty"`
+	ProjectID      string   `json:"project_id,omitempty"`
+
+	Spec string `json:"spec,omitempty"`
 }
 
 func (c *Client) ScheduleList(ctx context.Context) ([]*schedule.Schedule, error) {

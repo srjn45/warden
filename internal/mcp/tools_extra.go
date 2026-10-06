@@ -225,14 +225,22 @@ type createScheduleArgs struct {
 	Cron   string `json:"cron,omitempty" jsonschema:"5-field cron spec (or @daily etc.) for a recurring run; mutually exclusive with at"`
 	At     string `json:"at,omitempty" jsonschema:"single-shot time (RFC3339 or 2006-01-02T15:04; a time without a zone is the daemon host's local time); must be in the future; mutually exclusive with cron and now"`
 	Now    bool   `json:"now,omitempty" jsonschema:"fire once as soon as possible (a single-shot due immediately); mutually exclusive with cron and at"`
-	Type   string `json:"type,omitempty" jsonschema:"agent task type (for an agent-spawn schedule)"`
 	Repo   string `json:"repo,omitempty" jsonschema:"repo for an agent-spawn schedule (with the default worker role the agent runs in an isolated worktree off it)"`
 	Cwd    string `json:"cwd,omitempty" jsonschema:"existing absolute directory a free-form agent launches in; required when there is no repo"`
 	Role   string `json:"role,omitempty" jsonschema:"agent role (see list_roles); empty = worker when a repo is given, otherwise general"`
 	Prompt string `json:"prompt,omitempty" jsonschema:"prompt for an agent-spawn schedule"`
 	Agent  string `json:"agent,omitempty" jsonschema:"optional agent name for an agent-spawn schedule"`
 	Branch string `json:"branch,omitempty" jsonschema:"optional branch for an agent-spawn schedule"`
-	Spec   string `json:"spec,omitempty" jsonschema:"a pipeline YAML spec to fire a whole pipeline on the schedule instead of a single agent"`
+
+	Model          string   `json:"model,omitempty" jsonschema:"model ID for ai_cli (requires ai_cli); empty lets the model-tier resolver pick"`
+	AiCli          string   `json:"ai_cli,omitempty" jsonschema:"AI CLI the agent runs (claude, aider, opencode, codex, …); empty = the daemon default"`
+	PermissionMode string   `json:"permission_mode,omitempty" jsonschema:"permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan; empty = the configured default"`
+	AutoRestart    bool     `json:"auto_restart,omitempty" jsonschema:"auto-resume the agent if it crashes (capped)"`
+	Tags           []string `json:"tags,omitempty" jsonschema:"labels stamped on every agent the schedule spawns"`
+	Tier           string   `json:"tier,omitempty" jsonschema:"model tier for the quota-balanced resolver: tier-1|tier-2|tier-3"`
+	ProjectID      string   `json:"project_id,omitempty" jsonschema:"project the agent joins; empty = the project owning its launch directory"`
+
+	Spec string `json:"spec,omitempty" jsonschema:"a pipeline YAML spec to fire a whole pipeline on the schedule instead of a single agent; cannot be combined with any agent argument (prompt, repo, cwd, role, agent, branch, model, ai_cli, …)"`
 }
 type scheduleIDArgs struct {
 	ID string `json:"id" jsonschema:"the schedule id"`
@@ -1087,11 +1095,13 @@ func (s *Server) registerExtraTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "create_schedule",
-		Description: "Create a daemon-side schedule that fires an agent spawn or a whole pipeline on its own timer. Use cron for recurring (5-field or @daily etc., evaluated in the daemon host's local time), at for a single-shot in the future (RFC3339, or local time when no zone is given; a past time is rejected), or now to fire once immediately. Provide prompt plus repo (isolated worktree) or cwd (launch directory), and optionally role, for an agent, or spec for a pipeline. Mirrors `warden schedule create`.",
+		Description: "Create a daemon-side schedule that fires an agent spawn or a whole pipeline on its own timer. Use cron for recurring (5-field or @daily etc., evaluated in the daemon host's local time), at for a single-shot in the future (RFC3339, or local time when no zone is given; a past time is rejected), or now to fire once immediately. Provide prompt plus repo (isolated worktree) or cwd (launch directory), and optionally role, model/ai_cli, permission_mode, auto_restart, tags, tier, for an agent, or spec for a pipeline (a spec cannot be combined with agent arguments). Mirrors `warden schedule create`.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a createScheduleArgs) (*mcpsdk.CallToolResult, any, error) {
 		sch, err := s.cl.ScheduleCreate(ctx, client.ScheduleCreateRequest{
-			Name: a.Name, Cron: a.Cron, At: a.At, Now: a.Now, Type: a.Type, Repo: a.Repo, Cwd: a.Cwd, Role: a.Role,
+			Name: a.Name, Cron: a.Cron, At: a.At, Now: a.Now, Repo: a.Repo, Cwd: a.Cwd, Role: a.Role,
 			Prompt: a.Prompt, Agent: a.Agent, Branch: a.Branch, Spec: a.Spec,
+			Model: a.Model, AiCli: a.AiCli, PermissionMode: a.PermissionMode, AutoRestart: a.AutoRestart,
+			Tags: a.Tags, Tier: a.Tier, ProjectID: a.ProjectID,
 		})
 		if err != nil {
 			return textResult("error: " + err.Error()), nil, nil

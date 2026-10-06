@@ -1922,8 +1922,14 @@ type ScheduleCreateRequest struct {
 	// Agent optional name for the spawned agent
 	Agent string `json:"agent,omitempty"`
 
+	// AiCli AI CLI id the agent runs (claude, aider, …); empty = the daemon's default
+	AiCli string `json:"ai_cli,omitempty"`
+
 	// At single-shot time, RFC3339 or 2006-01-02T15:04; a time without a zone is the daemon host's local time. Must be in the future (mutually exclusive with cron and now)
 	At string `json:"at,omitempty"`
+
+	// AutoRestart auto-resume the agent if it crashes, capped at a few attempts
+	AutoRestart bool `json:"auto_restart,omitempty"`
 
 	// Branch optional development branch / pr-review checkout
 	Branch string `json:"branch,omitempty"`
@@ -1934,11 +1940,20 @@ type ScheduleCreateRequest struct {
 	// Cwd existing absolute directory a free-form agent launches in (required when there is no repo)
 	Cwd string `json:"cwd,omitempty"`
 
+	// Model model ID for ai_cli (requires ai_cli); empty lets the model-tier resolver pick
+	Model string `json:"model,omitempty"`
+
 	// Name schedule id (== name)
 	Name string `json:"name"`
 
 	// Now fire once as soon as possible: a single-shot due immediately (mutually exclusive with cron and at)
 	Now bool `json:"now,omitempty"`
+
+	// PermissionMode permission mode for the agent: acceptEdits|auto|bypassPermissions|default|dontAsk|plan; empty = the configured default
+	PermissionMode string `json:"permission_mode,omitempty"`
+
+	// ProjectId id of the project the agent joins; empty = the project owning the launch directory, resolved at fire time like a normal spawn
+	ProjectId string `json:"project_id,omitempty"`
 
 	// Prompt agent prompt (agent mode)
 	Prompt string `json:"prompt,omitempty"`
@@ -1949,8 +1964,14 @@ type ScheduleCreateRequest struct {
 	// Role agent role (see GET /api/v1/roles); empty = worker when a repo is given, otherwise general
 	Role string `json:"role,omitempty"`
 
-	// Spec pipeline YAML; non-empty selects pipeline mode
+	// Spec pipeline YAML; non-empty selects pipeline mode and is rejected together with any agent field (prompt, repo, cwd, role, agent, branch, model, ai_cli, …)
 	Spec string `json:"spec,omitempty"`
+
+	// Tags labels stamped on every agent the schedule spawns
+	Tags []string `json:"tags,omitempty"`
+
+	// Tier model tier for the quota-balanced resolver: tier-1|tier-2|tier-3
+	Tier string `json:"tier,omitempty"`
 
 	// Type Deprecated legacy agent task type (agent mode). Prefer spawning with an explicit role via POST /api/v1/spawn. Accepted for one release: at fire time the daemon maps known type values onto a role (development→implementer, pr-review→reviewer, analysis/spike→general).
 	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set

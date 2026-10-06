@@ -60,6 +60,15 @@ func scheduleSpawnRequest(sc *schedule.Schedule) SpawnRequest {
 		Branch: sc.Branch,
 		Prompt: sc.Prompt,
 		Role:   r,
+
+		Model:          sc.Model,
+		AiCli:          sc.AiCli,
+		Backend:        sc.AiCli, // deprecated alias field kept for lifecycle adapters
+		PermissionMode: sc.PermissionMode,
+		AutoRestart:    sc.AutoRestart,
+		Tags:           sc.Tags,
+		Tier:           sc.Tier,
+		ProjectID:      sc.ProjectID,
 	}
 }
 
@@ -95,6 +104,9 @@ func (s *Server) fireScheduleAgent(ctx context.Context, sc *schedule.Schedule) (
 	// pipeline_id/job_id back-ref set on pipeline jobs.
 	sess.ScheduleID = sc.ID
 	sess.ScheduleName = sc.Name
+	// Join the project the same way a normal spawn does: an explicit project_id
+	// wins, otherwise the launch directory is path-matched (and auto-registered).
+	s.stampProjectMembership(sess)
 	if err := s.store.Insert(ctx, sess); err != nil {
 		// Roll back the tmux session (and any worktree) so a failed insert doesn't
 		// leak an untracked agent — same guard handleSpawn applies.
@@ -105,6 +117,7 @@ func (s *Server) fireScheduleAgent(ctx context.Context, sc *schedule.Schedule) (
 		}
 		return "", err
 	}
+	s.addProjectMembership(sess)
 	s.notify()
 	return sess.ID, nil
 }

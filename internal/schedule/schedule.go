@@ -59,6 +59,16 @@ type Schedule struct {
 	Agent  string `json:"agent,omitempty"`  // optional agent name passthrough
 	Branch string `json:"branch,omitempty"` // optional development branch / pr-review checkout
 
+	// Further agent spawn passthrough, same meaning as the matching `warden start`
+	// flags. All optional; empty means "the daemon's default".
+	Model          string   `json:"model,omitempty"`           // model ID for AiCli
+	AiCli          string   `json:"ai_cli,omitempty"`          // AI CLI id (claude, aider, …)
+	PermissionMode string   `json:"permission_mode,omitempty"` // explicit permission mode
+	AutoRestart    bool     `json:"auto_restart,omitempty"`    // auto-resume the agent if it crashes
+	Tags           []string `json:"tags,omitempty"`            // labels stamped on every spawned agent
+	Tier           string   `json:"tier,omitempty"`            // model tier for the quota-balanced resolver
+	ProjectID      string   `json:"project_id,omitempty"`      // project the agent joins; empty = path-matched to the launch dir at fire time
+
 	// Pipeline fire payload (Mode == pipeline): the raw pipeline YAML spec. It is
 	// validated at create time (in the route handler) and re-parsed on each fire.
 	Spec string `json:"spec,omitempty"`
@@ -94,6 +104,14 @@ type Params struct {
 	Agent  string
 	Branch string
 
+	Model          string
+	AiCli          string
+	PermissionMode string
+	AutoRestart    bool
+	Tags           []string
+	Tier           string
+	ProjectID      string
+
 	// Pipeline mode (Spec set; agent fields ignored).
 	Spec string
 }
@@ -103,20 +121,28 @@ type Params struct {
 // (see Validate) or the cron/at spec does not parse.
 func New(p Params, now time.Time) (*Schedule, error) {
 	s := &Schedule{
-		ID:        p.Name,
-		Name:      p.Name,
-		Cron:      strings.TrimSpace(p.Cron),
-		At:        strings.TrimSpace(p.At),
-		Enabled:   true,
-		Type:      p.Type,
-		Repo:      p.Repo,
-		Cwd:       p.Cwd,
-		Role:      p.Role,
-		Prompt:    p.Prompt,
-		Agent:     p.Agent,
-		Branch:    p.Branch,
-		Spec:      p.Spec,
-		CreatedAt: now,
+		ID:      p.Name,
+		Name:    p.Name,
+		Cron:    strings.TrimSpace(p.Cron),
+		At:      strings.TrimSpace(p.At),
+		Enabled: true,
+		Type:    p.Type,
+		Repo:    p.Repo,
+		Cwd:     p.Cwd,
+		Role:    p.Role,
+		Prompt:  p.Prompt,
+		Agent:   p.Agent,
+		Branch:  p.Branch,
+		Spec:    p.Spec,
+
+		Model:          p.Model,
+		AiCli:          p.AiCli,
+		PermissionMode: p.PermissionMode,
+		AutoRestart:    p.AutoRestart,
+		Tags:           p.Tags,
+		Tier:           p.Tier,
+		ProjectID:      p.ProjectID,
+		CreatedAt:      now,
 	}
 	if s.Cron != "" {
 		s.Kind = KindCron
@@ -168,6 +194,9 @@ func Validate(s *Schedule) error {
 		if strings.TrimSpace(s.Prompt) == "" {
 			return fmt.Errorf("agent mode requires --prompt")
 		}
+		if strings.TrimSpace(s.Model) != "" && strings.TrimSpace(s.AiCli) == "" {
+			return fmt.Errorf("--model requires --aicli (alias --ai-cli)")
+		}
 		// A typed spawn needs a repo (mirrors the daemon's spawn precondition); a
 		// free-form spawn (empty type) does not.
 		if strings.TrimSpace(s.Type) != "" && strings.TrimSpace(s.Repo) == "" {
@@ -177,6 +206,34 @@ func Validate(s *Schedule) error {
 		return fmt.Errorf("unknown fire mode %q", s.Mode)
 	}
 	return nil
+}
+
+// AgentFlagConflicts lists the agent-only options set on a create request that
+// also carries a pipeline spec, as the CLI flag names, in a stable order. A
+// pipeline schedule fires the pipeline as written, so these would be silently
+// ignored; the create path rejects the combination and names them instead.
+func AgentFlagConflicts(p Params) []string {
+	var out []string
+	add := func(set bool, flag string) {
+		if set {
+			out = append(out, flag)
+		}
+	}
+	add(strings.TrimSpace(p.Prompt) != "", "--prompt")
+	add(strings.TrimSpace(p.Repo) != "", "--repo")
+	add(strings.TrimSpace(p.Cwd) != "", "--cwd")
+	add(strings.TrimSpace(p.Role) != "", "--role")
+	add(strings.TrimSpace(p.Agent) != "", "--agent")
+	add(strings.TrimSpace(p.Branch) != "", "--branch")
+	add(strings.TrimSpace(p.Model) != "", "--model")
+	add(strings.TrimSpace(p.AiCli) != "", "--aicli")
+	add(strings.TrimSpace(p.PermissionMode) != "", "--permission-mode")
+	add(p.AutoRestart, "--auto-restart")
+	add(len(p.Tags) > 0, "--tags")
+	add(strings.TrimSpace(p.Tier) != "", "--tier")
+	add(strings.TrimSpace(p.ProjectID) != "", "--project")
+	add(strings.TrimSpace(p.Type) != "", "type")
+	return out
 }
 
 // CheckAtInFuture rejects a single-shot time that is not strictly after now. It

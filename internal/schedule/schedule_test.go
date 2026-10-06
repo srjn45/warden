@@ -59,6 +59,8 @@ func TestValidate(t *testing.T) {
 		{"agent no prompt", Params{Name: "a", Cron: "0 9 * * *"}, true},
 		{"typed agent no repo", Params{Name: "a", Cron: "0 9 * * *", Type: "pr-review", Prompt: "go"}, true},
 		{"typed agent with repo", Params{Name: "a", Cron: "0 9 * * *", Type: "pr-review", Repo: "/r", Prompt: "go"}, false},
+		{"model without aicli", Params{Name: "a", Cron: "0 9 * * *", Prompt: "go", Model: "sonnet"}, true},
+		{"model with aicli", Params{Name: "a", Cron: "0 9 * * *", Prompt: "go", Model: "sonnet", AiCli: "claude"}, false},
 		{"pipeline ok", Params{Name: "a", Cron: "0 9 * * *", Spec: "name: p"}, false},
 	}
 	now := time.Now()
@@ -69,6 +71,29 @@ func TestValidate(t *testing.T) {
 				t.Fatalf("New err = %v, wantErr %v", err, tc.wantErr)
 			}
 		})
+	}
+}
+
+func TestAgentFlagConflicts(t *testing.T) {
+	got := AgentFlagConflicts(Params{
+		Spec: "x", Prompt: "p", Repo: "/r", Cwd: "/c", Role: "worker", Agent: "n",
+		Branch: "b", Model: "m", AiCli: "claude", PermissionMode: "plan",
+		AutoRestart: true, Tags: []string{"t"}, Tier: "tier-1", ProjectID: "/p", Type: "development",
+	})
+	want := []string{
+		"--prompt", "--repo", "--cwd", "--role", "--agent", "--branch",
+		"--model", "--aicli", "--permission-mode", "--auto-restart", "--tags", "--tier", "--project", "type",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+	if n := AgentFlagConflicts(Params{Spec: "x"}); len(n) != 0 {
+		t.Fatalf("pipeline-only should have no conflicts, got %v", n)
 	}
 }
 
