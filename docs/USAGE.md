@@ -1420,9 +1420,16 @@ slow, or crashing plugin is logged and skipped, never blocking an agent. Configu
 via `plugins.enabled` + a `plugins.registry` list; a worked example lives under
 `examples/plugins/`. See [FEATURES.md §26](FEATURES.md).
 
+### `warden repair agents`
+Offline, permission-gated precondition check for agent-store repair. Refuses
+unless you own the data dir and no warden process owns the store; audits every
+attempt. Repair itself is **not available yet** (needs ScrivaDB Verify/Repair,
+srjn45/scriva#107) — the command says so and changes nothing.
+
 ### `warden doctor`
 Preflight checks — required binaries (`tmux`, `git`, `claude`), optional ones
-(`gh`, warn-only), daemon reachability, and the data directory.
+(`gh`, warn-only), daemon reachability, the data directory, and an **agent store**
+health/ownership line (see the *Agent store integrity* guide).
 
 Flags:
 - `--sessions` — diagnose the session store offline without modifying it

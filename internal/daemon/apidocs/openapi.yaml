@@ -3838,7 +3838,7 @@ components:
 
     StoreHealth:
       type: object
-      required: [healthy, degraded, failure_count, failures, checked_at]
+      required: [healthy, degraded, failure_count, failures, checked_at, repair_available, next_step]
       description: >
         Health verdict for the active session store. `healthy` is the top-line
         boolean; `degraded` is its inverse, provided for readability. When
@@ -3861,6 +3861,17 @@ components:
           type: string
           format: date-time
           description: When this health check ran (server time, UTC).
+        repair_available:
+          type: boolean
+          description: >
+            Whether warden can rebuild a corrupt agent store. False until the
+            ScrivaDB Verify/Repair primitives exist upstream; clients must not
+            offer a repair action while false.
+        next_step:
+          type: string
+          description: >
+            Safe operator guidance (daemon-offline procedure). Never suggests
+            deleting files; running agents are unaffected by a degraded store.
 
     Status:
       type: string

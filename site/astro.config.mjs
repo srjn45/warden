@@ -75,6 +75,7 @@ export default defineConfig({
           { label: 'Using plans', slug: 'guides/using-plans' },
           { label: 'Plans migration', slug: 'guides/plans-migration' },
           { label: 'Plan backup and restore', slug: 'guides/plan-backup-restore' },
+          { label: 'Agent store integrity', slug: 'guides/agent-store-integrity' },
         ]},
         { label: 'Multi-agent', items: [
           { label: 'Pipelines (DAG)', slug: 'multi-agent/pipelines' },

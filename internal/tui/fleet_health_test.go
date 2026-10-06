@@ -37,7 +37,7 @@ func TestFleetBannerDetail(t *testing.T) {
 
 	at := time.Date(2026, 8, 31, 18, 4, 31, 0, time.Local)
 	require.Equal(t,
-		"session store degraded · showing last complete fleet from 18:04:31",
+		"session store degraded — run `warden doctor` · showing last complete fleet from 18:04:31",
 		fleetBannerDetail(fleetDegraded, at))
 	require.Equal(t,
 		"daemon not responding — request timed out · showing last complete fleet from 18:04:31",

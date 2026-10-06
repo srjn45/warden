@@ -94,3 +94,18 @@ are skipped for restamping and legacy backfill; archived records are read-only.
 Dangling members and explicit removals (non-nil forward lists) are preserved.
 Reconcile edits only `project_id`/project lists — it never adopts, relaunches or
 touches tmux sessions. Fixture: `internal/daemon/testdata/incident_membership.json`.
+
+## 8. Entry-point wiring (p5)
+
+| Surface | Behavior |
+|---|---|
+| Daemon startup | `*OwnershipError` aborts before any listener/import/goroutine; logs `audit: daemon startup refused` and prints the safe next step |
+| `doctor` | "agent store" check: daemon-reported health when up; non-mutating ownership probe (`ProbeOwnership`) when down |
+| REST | `GET /store/health` gains `repair_available` and `next_step`; 503 bodies carry `SafeNextStep` |
+| MCP | read-only `store_health`; repair deliberately not exposed |
+| TUI | degraded banner points to `warden doctor`; last-good snapshot retained |
+| CLI `repair agents` | gated by `CheckRepairAuthority` (data-dir owner/root) + ownership probe; audits `denied`/`refused_owned`/`unavailable`; never mutates |
+
+**Dependency (not implemented here):** the rebuild itself needs ScrivaDB
+Verify/Repair (§2). `agentstore.RepairAvailable` is the single flag; flipping it
+and replacing `RepairUnavailableError` is the follow-up once scriva ships them.
