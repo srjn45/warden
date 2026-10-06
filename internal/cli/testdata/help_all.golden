@@ -318,6 +318,7 @@ Compatibility aliases:
   warden msg send -> warden message send (compatibility)
   warden msg wait -> warden message wait (compatibility)
   warden pipeline list-templates -> warden pipeline template list (compatibility)
+  warden pipeline ls -> warden pipeline list (compatibility)
   warden plan ls -> warden plan list (compatibility)
   warden plugin -> warden project plugin (compatibility)
   warden plugin list -> warden project plugin list (compatibility)

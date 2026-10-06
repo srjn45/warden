@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/daemon/oapi"
@@ -12,13 +13,26 @@ import (
 )
 
 // ListPipelines implements GET /api/v1/pipelines.
-func (s *Server) ListPipelines(_ context.Context, _ oapi.ListPipelinesRequestObject) (oapi.ListPipelinesResponseObject, error) {
+func (s *Server) ListPipelines(_ context.Context, req oapi.ListPipelinesRequestObject) (oapi.ListPipelinesResponseObject, error) {
 	ps, err := s.exec.pstore.List()
 	if err != nil {
 		return nil, err
 	}
+	projectID := strings.TrimSpace(req.Params.ProjectId)
+	statuses := map[string]bool{}
+	for _, st := range strings.Split(req.Params.Status, ",") {
+		if st = strings.TrimSpace(st); st != "" {
+			statuses[st] = true
+		}
+	}
 	out := make([]oapi.Pipeline, 0, len(ps))
 	for _, p := range ps {
+		if projectID != "" && p.ProjectID != projectID {
+			continue
+		}
+		if len(statuses) > 0 && !statuses[string(p.Status)] {
+			continue
+		}
 		out = append(out, *p)
 	}
 	return oapi.ListPipelines200JSONResponse{Pipelines: out}, nil

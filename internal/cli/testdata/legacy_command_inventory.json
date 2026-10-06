@@ -1129,6 +1129,16 @@
     "inherited_flags": [
       "addr",
       "config"
+    ],
+    "json": true,
+    "aliases": [
+      "ls"
+    ],
+    "local_flags": [
+      "all",
+      "json",
+      "project",
+      "status"
     ]
   },
   {

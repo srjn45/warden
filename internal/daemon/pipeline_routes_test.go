@@ -653,3 +653,34 @@ func TestPipelineEditRetrySyntheticJobRefused(t *testing.T) {
 		require.Contains(t, msg.Error, `job "root-span-out" is created by warden and cannot be`)
 	}
 }
+
+func TestPipelineListFilters(t *testing.T) {
+	ts, ps := newPipeServer(t)
+	defer ts.Close()
+	for _, p := range []*pipeline.Pipeline{
+		{ID: "a", Name: "a", Status: pipeline.StatusRunning, ProjectID: "/p1"},
+		{ID: "b", Name: "b", Status: pipeline.StatusDone, ProjectID: "/p1"},
+		{ID: "c", Name: "c", Status: pipeline.StatusRunning, ProjectID: "/p2"},
+	} {
+		require.NoError(t, ps.Create(p))
+	}
+	ids := func(query string) []string {
+		resp, err := http.Get(ts.URL + "/api/v1/pipelines" + query)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		var lr struct {
+			Pipelines []pipeline.Pipeline `json:"pipelines"`
+		}
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&lr))
+		out := []string{}
+		for _, p := range lr.Pipelines {
+			out = append(out, p.ID)
+		}
+		return out
+	}
+	require.ElementsMatch(t, []string{"a", "b", "c"}, ids(""))
+	require.ElementsMatch(t, []string{"a", "b"}, ids("?project_id=/p1"))
+	require.ElementsMatch(t, []string{"a", "c"}, ids("?status=running"))
+	require.ElementsMatch(t, []string{"a", "b"}, ids("?status=running,done&project_id=/p1"))
+	require.Empty(t, ids("?project_id=/nope"))
+}

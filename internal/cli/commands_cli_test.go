@@ -200,11 +200,11 @@ func TestPipelineListShowCmds(t *testing.T) {
 		"GET /api/v1/pipelines/demo": `{"id":"demo","status":"running","repo":"/r","jobs":[{"id":"a","status":"done","branch":"feat","output":"result"}]}`,
 	}, nil, nil))
 
-	out, err := runCLI(t, addr, "pipeline", "list")
+	out, err := runCLI(t, addr, "pipeline", "list", "--all")
 	if err != nil {
 		t.Fatalf("pipeline list: %v", err)
 	}
-	if !strings.Contains(out, "demo") || !strings.Contains(out, "2 jobs") {
+	if !strings.Contains(out, "demo") || !strings.Contains(out, "0/2") {
 		t.Fatalf("pipeline list output: %q", out)
 	}
 

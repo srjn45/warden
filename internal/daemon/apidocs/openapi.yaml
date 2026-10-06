@@ -2884,6 +2884,17 @@ paths:
       operationId: listPipelines
       tags: [Pipelines]
       summary: List pipelines
+      parameters:
+        - name: project_id
+          in: query
+          required: false
+          description: Only pipelines belonging to this project id.
+          schema: { type: string }
+        - name: status
+          in: query
+          required: false
+          description: Only pipelines in one of these statuses (comma-separated).
+          schema: { type: string }
       responses:
         "200":
           description: All pipelines
