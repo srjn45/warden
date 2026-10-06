@@ -8,7 +8,7 @@ in the repository — the authoritative inventory of **every** warden capability
 which surface can drive it.
 
 warden exposes its features across five surfaces — the **CLI** (`warden`, aliased
-`wd`), **MCP** (81 structured tools for an orchestrating agent), the **/warden
+`wd`), **MCP** (83 structured tools for an orchestrating agent), the **/warden
 skill**, the **web** GUI, and the **TUI** cockpit.
 
 **Coverage legend:** ✓ supported · — not applicable / not present on that surface ·
@@ -156,8 +156,8 @@ default; each in its own tmux session, most in a git worktree).
 | Create schedule (cron / at / now; agent or pipeline; same options as `start`) | `schedule create` | `create_schedule` | ✓ | — | — | [scheduling](https://srjn45.github.io/warden/guides/scheduling/) |
 | List schedules (table with state: enabled / disabled / done / failed) | `schedule list` | `list_schedules` | ✓ | — | — | [scheduling](https://srjn45.github.io/warden/guides/scheduling/) |
 | Show one schedule (full fire payload + last run) | `schedule show` | `get_schedule` | ✓ | — | — | [scheduling](https://srjn45.github.io/warden/guides/scheduling/) |
-| Test a schedule (fire once, next run unchanged) | `schedule run` | — | ✓ | — | — | [scheduling](https://srjn45.github.io/warden/guides/scheduling/) |
-| Edit a schedule (only the flags passed) | `schedule edit` | — | ✓ | — | — | [scheduling](https://srjn45.github.io/warden/guides/scheduling/) |
+| Test a schedule (fire once, next run unchanged) | `schedule run` | `run_schedule` | ✓ | — | — | [scheduling](https://srjn45.github.io/warden/guides/scheduling/) |
+| Edit a schedule (only the flags passed) | `schedule edit` | `update_schedule` | ✓ | — | — | [scheduling](https://srjn45.github.io/warden/guides/scheduling/) |
 | Enable / disable schedule | `schedule enable` / `disable` | `enable_schedule` / `disable_schedule` | ✓ | — | — | [scheduling](https://srjn45.github.io/warden/guides/scheduling/) |
 | Delete schedule (confirms; `--yes` to skip) | `schedule delete` | `delete_schedule` | ✓ | — | — | [scheduling](https://srjn45.github.io/warden/guides/scheduling/) |
 | Scheduled-run session linkage (`schedule_id` on sessions; `scheduled-agents` capability) | — | — | ✓ | — | — | [scheduling](https://srjn45.github.io/warden/guides/scheduling/) |
