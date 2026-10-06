@@ -104,19 +104,21 @@ default; each in its own tmux session, most in a git worktree).
 
 | Feature | CLI | MCP | Skill | Web | TUI | Docs |
 |---|---|---|---|---|---|---|
-| Create from YAML spec / template | `pipeline create` | `create_pipeline` | ✓ | ✓ | — | [pipelines](https://srjn45.github.io/warden/multi-agent/pipelines/) |
-| List pipelines | `pipeline list` | `list_pipelines` | ✓ | ✓ | view | [pipelines](https://srjn45.github.io/warden/multi-agent/pipelines/) |
-| Show one pipeline's jobs/output | `pipeline show` | `show_pipeline` | ✓ | ✓ | `i` | [pipelines](https://srjn45.github.io/warden/multi-agent/pipelines/) |
+| Create from YAML spec / template (`[spec.yaml]` or `-f`; `--start`, `--json`) | `pipeline create` | `create_pipeline` | ✓ | ✓ | — | [pipelines](https://srjn45.github.io/warden/multi-agent/pipelines/) |
+| List pipelines (default: current project; `--all` / `--project` / `--status` / `--json`) | `pipeline list` | `list_pipelines` | ✓ | ✓ | view | [pipelines](https://srjn45.github.io/warden/multi-agent/pipelines/) |
+| Show one pipeline's jobs/output (`--prompts` / `--json` / `--watch` / `--all-jobs`) | `pipeline show` | `show_pipeline` | ✓ | ✓ | `i` | [pipelines](https://srjn45.github.io/warden/multi-agent/pipelines/) |
 | Start | `pipeline start` | `start_pipeline` | ✓ | ✓ | — | [pipelines](https://srjn45.github.io/warden/multi-agent/pipelines/) |
-| Cancel | `pipeline cancel` | `cancel_pipeline` | ✓ | ✓ | — | [pipelines](https://srjn45.github.io/warden/multi-agent/pipelines/) |
+| Cancel (confirms when jobs are live; `--yes`; cannot restart) | `pipeline cancel` | `cancel_pipeline` | ✓ | ✓ | — | [pipelines](https://srjn45.github.io/warden/multi-agent/pipelines/) |
 | Pause | `pipeline pause` | `pause_pipeline` | ✓ | ✓ | — | [pipelines](https://srjn45.github.io/warden/multi-agent/pipelines/) |
 | Resume | `pipeline resume` | `resume_pipeline` | ✓ | ✓ | — | [pipelines](https://srjn45.github.io/warden/multi-agent/pipelines/) |
-| Retry a failed job | `pipeline retry` | `retry_pipeline_job` | ✓ | ✓ | — | [pipelines](https://srjn45.github.io/warden/multi-agent/pipelines/) |
-| Edit a pending job | `pipeline edit-job` | `edit_pipeline_job` | ✓ | — | — | [pipelines](https://srjn45.github.io/warden/multi-agent/pipelines/) |
+| Show one job | `pipeline job show` | `show_pipeline` (job in payload) | ✓ | ✓ | — | [pipelines](https://srjn45.github.io/warden/multi-agent/pipelines/) |
+| Retry a failed job | `pipeline job retry` | `retry_pipeline_job` | ✓ | ✓ | — | [pipelines](https://srjn45.github.io/warden/multi-agent/pipelines/) |
+| Edit a pending job | `pipeline job edit` | `edit_pipeline_job` | ✓ | — | — | [pipelines](https://srjn45.github.io/warden/multi-agent/pipelines/) |
 | Emit a job's handoff output | `pipeline emit` | `emit_pipeline_output` | ✓ | — | — | [pipelines](https://srjn45.github.io/warden/multi-agent/pipelines/) |
-| Delete a pipeline record | `pipeline delete` | `delete_pipeline` | ✓ | — | — | [pipelines](https://srjn45.github.io/warden/multi-agent/pipelines/) |
+| Delete a pipeline record (always confirms; `--yes`) | `pipeline delete` | `delete_pipeline` | ✓ | — | — | [pipelines](https://srjn45.github.io/warden/multi-agent/pipelines/) |
 | Validate a spec (no daemon) | `pipeline validate` | `validate_pipeline` | ✓ | — | — | [pipelines](https://srjn45.github.io/warden/multi-agent/pipelines/) |
-| List built-in templates | `pipeline list-templates` | `list_pipeline_templates` | ✓ | — | — | [pipelines](https://srjn45.github.io/warden/multi-agent/pipelines/) |
+| List built-in templates | `pipeline template list` | `list_pipeline_templates` | ✓ | — | — | [pipelines](https://srjn45.github.io/warden/multi-agent/pipelines/) |
+| Plan-owned pipeline control (pipeline pause/resume/cancel/delete refuse) | `plan pause\|resume\|stop` | `control_plan` | ✓ | — | — | [pipelines](https://srjn45.github.io/warden/multi-agent/pipelines/) |
 | Stuck-job brain consult (automatic after auto-retry; closed action enum; shared `Consultor` with autopilot resolver) | — | automatic (daemon-internal) | — | — | — | [pipelines](https://srjn45.github.io/warden/multi-agent/pipelines/) |
 
 ## 5. Coordination (shared context, messages, conflicts)
