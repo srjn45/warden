@@ -13,6 +13,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type workspacePreparingBackend struct {
+	agentbackend.Backend
+	workdir string
+}
+
+func (b *workspacePreparingBackend) PrepareWorkspace(workdir string) error {
+	b.workdir = workdir
+	return nil
+}
+
 // TestRestoreRefusesNonResumableBackend verifies the !Caps.Resume degradation
 // (design §5): a backend that can't resume by id (Aider) is refused by Restore
 // with a clear "start fresh" message rather than building a wrong resume command.
@@ -91,6 +101,18 @@ func TestInjectContextSkipsWhenAllHintsDisabled(t *testing.T) {
 	))
 	_, err = os.Stat(filepath.Join(dir, "AGENTS.md"))
 	require.True(t, os.IsNotExist(err), "all-disabled hints write no file")
+}
+
+// TestInjectContextPreparesWorkspaceWithoutHints locks the independent
+// WorkspacePreparer seam: launch safety (such as a backend workspace-trust
+// registration) must run even when optional prompt hints are all disabled.
+func TestInjectContextPreparesWorkspaceWithoutHints(t *testing.T) {
+	lc := New(&FakeRunner{}, &FakeConfig{})
+	dir := t.TempDir()
+	b := &workspacePreparingBackend{Backend: agentbackend.Default()}
+
+	require.NoError(t, lc.injectContext(b, dir))
+	require.Equal(t, dir, b.workdir)
 }
 
 // TestSpawnAiderLaunchString locks the full command typed into tmux for an

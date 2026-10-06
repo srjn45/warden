@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
@@ -15,12 +16,15 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/srjn45/warden/internal/agentbackend"
 )
 
 func init() { agentbackend.Register(Antigravity{}) }
+
+var _ agentbackend.WorkspacePreparer = Antigravity{}
 
 // Antigravity is the **stable** Backend adapter for Google's Antigravity CLI
 // (the `agy` binary). It is breadth-first work (#52): a thin, correct adapter that
@@ -486,19 +490,22 @@ func agyParseCommandApproval(pane string) (*agentbackend.Approval, bool) {
 	if len(opts) < 2 {
 		return nil, false
 	}
+	if sel == 0 {
+		sel = 1
+	}
 
-	a := &agentbackend.Approval{Options: opts, SelectedIdx: sel}
+	a := &agentbackend.Approval{Options: opts, SelectedIdx: sel, Navigate: true}
 
 	// Scan upward from the option run (a bounded window) for the Question header and
-	// the command echoed under "Requesting permission for:". The command sits on the
-	// line directly below its label, so we track the most recent non-empty line seen
-	// on the way up and claim it when the label appears.
+	// the command echoed under "Requesting permission for:" or file under "Read:" / "Write:".
+	// The command sits on the line directly below its label, so we track the most
+	// recent non-empty line seen on the way up and claim it when the label appears.
 	//
 	// The header wording is `agy`'s to change — v1.0.13 asked "Do you want to
-	// proceed?", v1.2.17 asks "Run this command?" — so the Question is whatever
-	// question line sits directly above the options, and recognition is gated on
-	// the stable part of the prompt instead: that line being a question AND either
-	// the legacy header or the "Requesting permission for:" label above it.
+	// proceed?", v1.2.17 asks "Run this command?", file access asks "Allow access to
+	// this file?" — so the Question is whatever question line sits directly above the
+	// options, and recognition is gated on the stable part of the prompt instead: that
+	// line being a question AND either a known header or an action label above it.
 	below := ""
 	header := ""
 	labelled := false
@@ -514,13 +521,17 @@ func agyParseCommandApproval(pane string) (*agentbackend.Approval, bool) {
 			a.Action = below
 			labelled = true
 		}
+		if a.Action == "" && (strings.HasPrefix(t, "Read:") || strings.HasPrefix(t, "Write:")) {
+			a.Action = t
+			labelled = true
+		}
 		below = t
 	}
 	// The header gates recognition: without it this is not an `agy` approval.
 	if !strings.HasSuffix(header, "?") {
 		return nil, false
 	}
-	if !labelled && !strings.HasPrefix(header, "Do you want to proceed") {
+	if !labelled && !strings.HasPrefix(header, "Do you want to proceed") && !strings.HasPrefix(header, "Run this command") && !strings.HasPrefix(header, "Allow access to this file") {
 		return nil, false
 	}
 	a.Question = header
@@ -569,26 +580,42 @@ func agyParseTrustApproval(pane string) (*agentbackend.Approval, bool) {
 	// The option run sits directly above the navigate/confirm key hint.
 	hint := -1
 	for i, l := range lines {
-		if strings.Contains(l, "Navigate") && strings.Contains(l, "Confirm") {
+		if strings.Contains(l, "Navigate") || strings.Contains(l, "Confirm") {
 			hint = i
 			break
 		}
 	}
-	if hint < 0 {
+	start, end := -1, -1
+	if hint >= 0 {
+		end = hint - 1
+		for end >= 0 && strings.TrimSpace(lines[end]) == "" {
+			end--
+		}
+		start = end
+		for start-1 >= 0 && strings.TrimSpace(lines[start-1]) != "" {
+			start--
+		}
+	}
+	if start < 0 || end < start {
+		// Fallback: locate options directly by text
+		for i, l := range lines {
+			if strings.Contains(l, "Yes, I trust this folder") {
+				start = i
+				end = i
+				if i+1 < len(lines) && strings.Contains(lines[i+1], "No, exit") {
+					end = i + 1
+				}
+				break
+			}
+		}
+	}
+	if start < 0 || end < start {
 		return nil, false
-	}
-	end := hint - 1
-	for end >= 0 && strings.TrimSpace(lines[end]) == "" {
-		end--
-	}
-	start := end
-	for start-1 >= 0 && strings.TrimSpace(lines[start-1]) != "" {
-		start--
 	}
 
 	var opts []string
 	sel := 0
-	for i := start; i <= end && i >= 0; i++ {
+	for i := start; i <= end && i >= 0 && i < len(lines); i++ {
 		t := strings.TrimSpace(lines[i])
 		if strings.HasPrefix(t, ">") { // the ">" cursor marks the highlighted option
 			sel = i - start + 1
@@ -598,6 +625,9 @@ func agyParseTrustApproval(pane string) (*agentbackend.Approval, bool) {
 	}
 	if len(opts) < 2 {
 		return nil, false
+	}
+	if sel == 0 {
+		sel = 1
 	}
 
 	a := &agentbackend.Approval{
@@ -678,14 +708,110 @@ func (Antigravity) SystemPromptFlag(string) (string, bool) { return "", false }
 // addendum into the cross-tool-standard <workdir>/AGENTS.md.
 const agyRulesFile = "AGENTS.md"
 
+// agySettingsMu serializes writes to Antigravity's settings.json across concurrent agents.
+var agySettingsMu sync.Mutex
+
+// ensureAgyTrustedWorkspace ensures workdir is present in Antigravity's
+// settings.json under "trustedWorkspaces", creating or updating the file
+// atomically while preserving all other settings.
+func ensureAgyTrustedWorkspace(workdir string) error {
+	if strings.TrimSpace(workdir) == "" {
+		return nil
+	}
+	home := agyHome()
+	if home == "" {
+		return nil
+	}
+	abs, err := filepath.Abs(workdir)
+	if err == nil {
+		workdir = abs
+	}
+	workdir = filepath.Clean(workdir)
+
+	agySettingsMu.Lock()
+	defer agySettingsMu.Unlock()
+
+	settingsPath := filepath.Join(home, "settings.json")
+	raw := make(map[string]json.RawMessage)
+	mode := os.FileMode(0o600)
+	if info, err := os.Stat(settingsPath); err == nil {
+		mode = info.Mode().Perm()
+	}
+	if data, err := os.ReadFile(settingsPath); err == nil {
+		if err := json.Unmarshal(data, &raw); err != nil {
+			return fmt.Errorf("parse Antigravity settings %s: %w", settingsPath, err)
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	var workspaces []string
+	if tw, ok := raw["trustedWorkspaces"]; ok {
+		if err := json.Unmarshal(tw, &workspaces); err != nil {
+			return fmt.Errorf("parse trustedWorkspaces in %s: %w", settingsPath, err)
+		}
+	}
+	for _, w := range workspaces {
+		if filepath.Clean(w) == workdir {
+			return nil
+		}
+	}
+	workspaces = append(workspaces, workdir)
+	twBytes, err := json.Marshal(workspaces)
+	if err != nil {
+		return err
+	}
+	raw["trustedWorkspaces"] = twBytes
+
+	out, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return err
+	}
+	out = append(out, '\n')
+
+	if err := os.MkdirAll(home, 0700); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(home, "settings.json.tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpFile := tmp.Name()
+	defer os.Remove(tmpFile)
+	if err := tmp.Chmod(mode); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(out); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpFile, settingsPath)
+}
+
+// PrepareWorkspace implements agentbackend.WorkspacePreparer. It pre-records
+// workdir in ~/.gemini/antigravity-cli/settings.json under trustedWorkspaces so
+// Antigravity's launch-time workspace-trust prompt never blocks agent startup.
+func (Antigravity) PrepareWorkspace(workdir string) error {
+	return ensureAgyTrustedWorkspace(workdir)
+}
+
 // InjectContext implements agentbackend.ContextInjector. `agy` has no
 // --append-system-prompt flag (Caps.SystemPromptInject=false) but reads an AGENTS.md
 // rules file from its working directory on startup, so warden delivers its
 // collab/git/pipeline addendum by writing that text into <workdir>/AGENTS.md.
+// It also ensures the workdir is recorded in trustedWorkspaces as a secondary
+// guarantee.
 // Lifecycle calls this post-worktree-creation / pre-launch so the file is present
 // when `agy` starts. The no-clobber/idempotent/git-exclude write is the shared
 // writeRulesFile helper (see inject.go and docs/agent-backends/antigravity.md).
 func (Antigravity) InjectContext(workdir, text string) error {
+	if err := ensureAgyTrustedWorkspace(workdir); err != nil {
+		return err
+	}
 	return writeRulesFile(workdir, agyRulesFile, text)
 }
 
@@ -1326,7 +1452,8 @@ func (Antigravity) Capabilities() agentbackend.Caps {
 var agyModeTable = agentbackend.ModeTable{
 	ToIntent: map[string]agentbackend.PermissionIntent{
 		"default": agentbackend.IntentDefault, "plan": agentbackend.IntentPlan,
-		"accept-edits": agentbackend.IntentAcceptEdits, "dangerously-skip-permissions": agentbackend.IntentSkipAll,
+		"accept-edits": agentbackend.IntentAcceptEdits, "acceptEdits": agentbackend.IntentAcceptEdits,
+		"dangerously-skip-permissions": agentbackend.IntentSkipAll,
 	},
 	FromIntent: map[agentbackend.PermissionIntent]string{
 		agentbackend.IntentDefault: "default", agentbackend.IntentPlan: "plan",
