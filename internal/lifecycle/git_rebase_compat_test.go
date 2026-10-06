@@ -32,24 +32,28 @@ func conflictedRebase(t *testing.T) (compatRepo, *Lifecycle) {
 	return r, l
 }
 
-// A second Sync while the rebase is in progress is REFUSED as a dirty tree and
-// does NOT abort the rebase (the unmerged path keeps the tree "dirty").
+// t2-rebase-merge-safety INTENTIONALLY changed both assertions below: a Sync or
+// Commit while a rebase is in progress is now refused with a message naming
+// `wd sync --continue` / `--abort` (previously: "uncommitted changes" dirty-tree
+// error, and a commit landing on the detached HEAD as branch "HEAD").
+
+// A second Sync while the rebase is in progress is REFUSED (naming the next step)
+// and does NOT abort the rebase.
 func TestCompatSecondSyncDuringConflictedRebaseRefusesWithoutAborting(t *testing.T) {
 	r, l := conflictedRebase(t)
 	_, err := l.Sync(context.Background(), r.dir, "")
-	require.ErrorContains(t, err, "uncommitted changes")
+	require.ErrorContains(t, err, "already in progress")
+	require.ErrorContains(t, err, "wd sync --continue")
 	require.DirExists(t, filepath.Join(r.dir, ".git", "rebase-merge"), "rebase still in progress")
 	require.Equal(t, []string{"f.txt"}, l.unmergedPaths(context.Background(), r.dir))
 }
 
-// Commit mid-rebase reports the detached HEAD as branch "HEAD" (not protected, so
-// the rail does not fire) and commits on it.
-func TestCompatCommitMidRebaseRunsOnDetachedHead(t *testing.T) {
+// Commit mid-rebase is refused and commits nothing.
+func TestCompatCommitMidRebaseRefused(t *testing.T) {
 	r, l := conflictedRebase(t)
 	compatWrite(t, r.dir, "f.txt", "resolved\n")
-	res, err := l.Commit(context.Background(), r.dir, "resolve")
-	require.NoError(t, err)
-	require.True(t, res.Committed)
-	require.Equal(t, "HEAD", res.Branch, "mid-rebase the branch name resolves to the detached HEAD")
-	require.Equal(t, "resolve", compatGit(t, r.dir, "log", "-1", "--format=%s"))
+	head := compatGit(t, r.dir, "rev-parse", "HEAD")
+	_, err := l.Commit(context.Background(), r.dir, "resolve")
+	require.ErrorContains(t, err, "wd sync --continue")
+	require.Equal(t, head, compatGit(t, r.dir, "rev-parse", "HEAD"))
 }

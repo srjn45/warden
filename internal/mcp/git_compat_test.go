@@ -30,7 +30,7 @@ func TestCompatGitCheckToolsAndParams(t *testing.T) {
 	want := map[string][]string{
 		"commit": {"dir", "message"},
 		"push":   {"dir", "force"},
-		"sync":   {"base", "dir"},
+		"sync":   {"abort", "base", "continue", "dir"},
 		"check":  {"dir", "name"},
 	}
 	got := map[string]*mcpsdk.Tool{}

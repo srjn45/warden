@@ -225,6 +225,14 @@ func (a *lifecycleAdapter) Sync(ctx context.Context, dir, base string) (lifecycl
 	return a.lc.Sync(ctx, dir, base)
 }
 
+func (a *lifecycleAdapter) SyncContinue(ctx context.Context, dir string) (lifecycle.SyncResult, error) {
+	return a.lc.SyncContinue(ctx, dir)
+}
+
+func (a *lifecycleAdapter) SyncAbort(ctx context.Context, dir string) (lifecycle.SyncResult, error) {
+	return a.lc.SyncAbort(ctx, dir)
+}
+
 func (a *lifecycleAdapter) CreatePR(ctx context.Context, dir, title, body, base string) (lifecycle.PRResult, error) {
 	return a.lc.CreatePR(ctx, dir, title, body, base)
 }
