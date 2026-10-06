@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -21,6 +23,7 @@ import (
 func newRepairCmd() *cobra.Command {
 	root := &cobra.Command{Use: "repair", Short: "Offline, backup-first repair tools"}
 	root.AddCommand(newRepairSessionsCmd())
+	root.AddCommand(newRepairAgentsCmd())
 	return root
 }
 
@@ -252,4 +255,46 @@ func enrichSessionReconciliation(r *store.RecoveryReport) {
 		}
 	}
 	sort.Strings(r.LiveTmuxMissingMetadata)
+}
+
+func newRepairAgentsCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "agents",
+		Short: "Check preconditions for offline agent-store repair (repair itself awaits ScrivaDB support)",
+		Long: `Offline repair of the agent store (<data>/agents-db).
+
+This command enforces the repair preconditions and then reports honestly that
+the repair primitive is not available yet: rebuilding a corrupt index needs
+ScrivaDB Verify/Repair support that the pinned release does not export, and
+warden does not emulate it. Nothing is modified.
+
+Preconditions checked, in order:
+  1. you own the data directory (or are root)
+  2. no warden process owns the agent store (stop the daemon first)
+
+Running agents are never affected. See the "Agent store integrity" guide for
+the daemon-offline procedure.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg := config.Load(configPathFor(cmd))
+			audit := func(outcome string, err error) {
+				slog.Warn("audit: agent-store repair attempt", "audit", true, "action", "repair_agents",
+					"outcome", outcome, "data_dir", cfg.DataDir, "uid", os.Geteuid(), "err", err)
+			}
+			if err := agentstore.CheckRepairAuthority(cfg.DataDir); err != nil {
+				audit("denied", err)
+				return err
+			}
+			if err := agentstore.ProbeOwnership(cfg.DataDir); err != nil {
+				audit("refused_owned", err)
+				var oe *agentstore.OwnershipError
+				if errors.As(err, &oe) {
+					return fmt.Errorf("%w\nnext step: %s", err, oe.NextStep())
+				}
+				return err
+			}
+			rerr := &agentstore.RepairUnavailableError{}
+			audit("unavailable", rerr)
+			return rerr
+		}}
 }

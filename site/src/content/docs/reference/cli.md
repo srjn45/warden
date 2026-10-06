@@ -4293,10 +4293,39 @@ Usage:
   warden inspect repair [flags]
 
 Commands:
+  agents               Check preconditions for offline agent-store repair (repair itself awaits ScrivaDB support)
   sessions             Diagnose or reconstruct the offline session store
 
 Flags:
   -h, --help   help for repair
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden inspect repair agents
+
+```text
+Offline repair of the agent store (<data>/agents-db).
+
+This command enforces the repair preconditions and then reports honestly that
+the repair primitive is not available yet: rebuilding a corrupt index needs
+ScrivaDB Verify/Repair support that the pinned release does not export, and
+warden does not emulate it. Nothing is modified.
+
+Preconditions checked, in order:
+  1. you own the data directory (or are root)
+  2. no warden process owns the agent store (stop the daemon first)
+
+Running agents are never affected. See the "Agent store integrity" guide for
+the daemon-offline procedure.
+
+Usage:
+  warden inspect repair agents [flags]
+
+Flags:
+  -h, --help   help for agents
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -5720,6 +5749,7 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | `warden recover` | `warden agent recover` |
 | `warden remove-worktree` | `warden agent remove-worktree` |
 | `warden repair` | `warden inspect repair` |
+| `warden repair agents` | `warden inspect repair agents` |
 | `warden repair sessions` | `warden inspect repair sessions` |
 | `warden repl` | `warden backend repl` |
 | `warden restore` | `warden agent restore` |

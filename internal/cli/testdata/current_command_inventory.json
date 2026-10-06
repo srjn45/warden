@@ -1961,6 +1961,15 @@
     ]
   },
   {
+    "path": "inspect repair agents",
+    "use": "agents",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
     "path": "inspect repair sessions",
     "use": "sessions",
     "runnable": true,
@@ -3541,6 +3550,16 @@
     "path": "repair",
     "use": "repair",
     "hidden": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "repair agents",
+    "use": "agents",
+    "hidden": true,
+    "runnable": true,
     "inherited_flags": [
       "addr",
       "config"

@@ -139,6 +139,14 @@ func newDaemonRunCmd() *cobra.Command {
 
 			st, err := agentstore.New(cfg.DataDir)
 			if err != nil {
+				var oe *agentstore.OwnershipError
+				if errors.As(err, &oe) {
+					// Refused before any listener, import, reconcile or goroutine:
+					// nothing was touched. Audit it and give the safe next step.
+					slog.Error("audit: daemon startup refused", "audit", true, "action", "daemon_start",
+						"outcome", "refused_owned", "data_dir", oe.Dir, "lock", oe.Lock)
+					return fmt.Errorf("%w\nnext step: %s", err, oe.NextStep())
+				}
 				return err
 			}
 			defer st.Close()

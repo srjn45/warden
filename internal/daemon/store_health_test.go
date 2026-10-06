@@ -57,10 +57,12 @@ func TestListApprovalsDegradedReturns503(t *testing.T) {
 // storeHealth fetches GET /api/v1/store/health, asserts it is always 200, and
 // returns the decoded verdict.
 func storeHealth(t *testing.T, url string) struct {
-	Healthy      bool `json:"healthy"`
-	Degraded     bool `json:"degraded"`
-	FailureCount int  `json:"failure_count"`
-	Failures     []struct {
+	Healthy         bool   `json:"healthy"`
+	Degraded        bool   `json:"degraded"`
+	FailureCount    int    `json:"failure_count"`
+	RepairAvailable bool   `json:"repair_available"`
+	NextStep        string `json:"next_step"`
+	Failures        []struct {
 		Collection string `json:"collection"`
 		Key        string `json:"key"`
 		Class      string `json:"class"`
@@ -73,10 +75,12 @@ func storeHealth(t *testing.T, url string) struct {
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode, "store-health is always 200 so a monitor can tell degraded from unreachable")
 	var out struct {
-		Healthy      bool `json:"healthy"`
-		Degraded     bool `json:"degraded"`
-		FailureCount int  `json:"failure_count"`
-		Failures     []struct {
+		Healthy         bool   `json:"healthy"`
+		Degraded        bool   `json:"degraded"`
+		FailureCount    int    `json:"failure_count"`
+		RepairAvailable bool   `json:"repair_available"`
+		NextStep        string `json:"next_step"`
+		Failures        []struct {
 			Collection string `json:"collection"`
 			Key        string `json:"key"`
 			Class      string `json:"class"`
@@ -99,6 +103,8 @@ func TestStoreHealthHealthy(t *testing.T) {
 	require.False(t, h.Degraded)
 	require.Equal(t, 0, h.FailureCount)
 	require.Empty(t, h.Failures)
+	require.False(t, h.RepairAvailable)
+	require.NotEmpty(t, h.NextStep)
 }
 
 // TestStoreHealthDegraded verifies a degraded store reports healthy=false with the
@@ -117,6 +123,8 @@ func TestStoreHealthDegraded(t *testing.T) {
 	require.Equal(t, "active", h.Failures[0].Collection)
 	require.Equal(t, "corrupt-1", h.Failures[0].Key)
 	require.Equal(t, "decode", h.Failures[0].Class)
+	require.False(t, h.RepairAvailable, "repair primitive absent: must not be advertised")
+	require.Contains(t, h.NextStep, "stop the daemon")
 }
 
 // TestStoreHealthNonDegradedError verifies a plain (non-degradation) read error

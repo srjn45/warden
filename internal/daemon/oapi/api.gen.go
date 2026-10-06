@@ -2112,6 +2112,12 @@ type StoreHealth struct {
 
 	// Healthy True when the active fleet can be read completely.
 	Healthy bool `json:"healthy"`
+
+	// NextStep Safe operator guidance (daemon-offline procedure). Never suggests deleting files; running agents are unaffected by a degraded store.
+	NextStep string `json:"next_step"`
+
+	// RepairAvailable Whether warden can rebuild a corrupt agent store. False until the ScrivaDB Verify/Repair primitives exist upstream; clients must not offer a repair action while false.
+	RepairAvailable bool `json:"repair_available"`
 }
 
 // StoreScanFailure One record (or whole-scan) failure encountered reading the store.

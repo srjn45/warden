@@ -39,9 +39,9 @@ func newInspectRepairCmd() *cobra.Command {
 	cmd := newRepairCmd()
 	rewriteInspectHelpPaths(cmd, "repair", "repair")
 	cmd.Use = "repair"
-	for _, child := range cmd.Commands() {
-		rewriteInspectHelpPaths(child, "repair sessions", "repair sessions")
-		SetCommandHelpMetadata(child, "observe", 80, "warden inspect repair "+child.Name(), "", nodeKind(child))
+	for i, child := range cmd.Commands() {
+		rewriteInspectHelpPaths(child, "repair "+child.Name(), "repair "+child.Name())
+		SetCommandHelpMetadata(child, "observe", 80+10*i, "warden inspect repair "+child.Name(), "", nodeKind(child))
 	}
 	return cmd
 }

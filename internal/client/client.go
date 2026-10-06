@@ -2268,3 +2268,27 @@ func (c *Client) ForgetAllKnownPrompts(ctx context.Context) (int, error) {
 	}
 	return resp.Removed, nil
 }
+
+// StoreHealth mirrors GET /api/v1/store/health: the daemon's verdict on whether
+// its active agent store can be read completely, plus whether automated repair
+// exists and the safe next step. The endpoint always answers 200 when reachable.
+type StoreHealth struct {
+	Healthy         bool   `json:"healthy"`
+	Degraded        bool   `json:"degraded"`
+	FailureCount    int    `json:"failure_count"`
+	RepairAvailable bool   `json:"repair_available"`
+	NextStep        string `json:"next_step"`
+	Failures        []struct {
+		Collection string `json:"collection"`
+		Key        string `json:"key,omitempty"`
+		Class      string `json:"class"`
+		Detail     string `json:"detail"`
+	} `json:"failures"`
+}
+
+// StoreHealth fetches the daemon's agent-store health verdict.
+func (c *Client) StoreHealth(ctx context.Context) (StoreHealth, error) {
+	var h StoreHealth
+	err := c.do(ctx, http.MethodGet, "/store/health", nil, &h)
+	return h, err
+}

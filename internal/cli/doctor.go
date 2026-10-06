@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/srjn45/warden/internal/agentstore"
+	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/daemon"
 	"github.com/srjn45/warden/internal/pipeline"
@@ -94,6 +96,41 @@ func checkDataDir(dir string) checkResult {
 	return checkResult{name: "data dir", ok: true, required: true, detail: dir + " (writable)"}
 }
 
+// checkAgentStore reports agent-store health. With the daemon up it asks the
+// daemon (the only process allowed to open the store); with the daemon down it
+// only probes ownership, never opening or mutating the store. It is optional:
+// a degraded store is loud in the report but does not fail the preflight, since
+// running agents are unaffected and repair is a separate offline procedure.
+func checkAgentStore(ctx context.Context, base, dataDir string) checkResult {
+	cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	h, err := client.New(base).StoreHealth(cctx)
+	switch {
+	case err == nil && h.Healthy:
+		return checkResult{name: "agent store", ok: true, detail: "healthy (read complete)"}
+	case err == nil:
+		repair := "automated repair not yet available"
+		if h.RepairAvailable {
+			repair = "repair available: stop the daemon, then run `warden repair agents`"
+		}
+		return checkResult{name: "agent store", ok: false, detail: fmt.Sprintf("DEGRADED: %d failure(s); %s; %s", h.FailureCount, repair, h.NextStep)}
+	case errors.Is(err, client.ErrDaemonDown):
+		if _, serr := os.Stat(dataDir); serr != nil {
+			return checkResult{name: "agent store", ok: true, detail: "daemon offline; no data dir yet"}
+		}
+		if oerr := agentstore.ProbeOwnership(dataDir); oerr != nil {
+			var oe *agentstore.OwnershipError
+			if errors.As(oerr, &oe) {
+				return checkResult{name: "agent store", ok: false, detail: "owned by another warden process although the daemon is not reachable at " + base + "; " + oe.NextStep()}
+			}
+			return checkResult{name: "agent store", ok: false, detail: "ownership probe failed: " + oerr.Error()}
+		}
+		return checkResult{name: "agent store", ok: true, detail: "daemon offline; store not owned (safe for offline tools)"}
+	default:
+		return checkResult{name: "agent store", ok: false, detail: "health unavailable: " + err.Error()}
+	}
+}
+
 // allRequiredPass reports whether every required check passed (optional
 // failures are tolerated).
 func allRequiredPass(results []checkResult) bool {
@@ -165,6 +202,7 @@ func newDoctorCmd() *cobra.Command {
 			results := checkBinaries(exec.LookPath)
 			results = append(results, checkDaemon("http://"+cfg.Addr, httpGet))
 			results = append(results, checkDataDir(cfg.DataDir))
+			results = append(results, checkAgentStore(cmd.Context(), "http://"+cfg.Addr, cfg.DataDir))
 
 			fmt.Fprint(cmd.OutOrStdout(), formatReport(doctorVersion, results))
 			if !allRequiredPass(results) {
