@@ -782,8 +782,7 @@ Commands:
   cancel               Cancel a pipeline (terminates running jobs)
   delete               Delete a pipeline's record (must not have live jobs — cancel first)
   emit                 Publish this job's handoff (run from inside a pipeline job)
-  edit-job             Edit a pending job's prompt and/or handoff
-  retry                Re-run a failed or needs-attention job (reopens skipped descendants)
+  job                  Inspect, edit and retry one job of a pipeline
 
 Flags:
   -h, --help   help for pipeline
@@ -1042,17 +1041,70 @@ Inherited flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden pipeline edit-job
+## warden pipeline job
 
 ```text
-Edit a pending job's prompt and/or handoff
+Commands that act on a single job of a pipeline: show everything about it, edit a job that has not started, or retry one that failed.
 
 Usage:
-  warden pipeline edit-job <pipeline> <job> [flags]
+  warden pipeline job [flags]
+
+Commands:
+  show                 Show everything about one job
+  edit                 Edit the prompt and/or handoff of a job that has not started
+  retry                Re-run a failed or needs-attention job (reopens skipped descendants)
+
+Flags:
+  -h, --help   help for job
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden pipeline job show
+
+```text
+Show one job of a pipeline in full: its status, type, role, tier, backend and
+model, worktree mode, whether it is supervised, when it runs, what it depends
+on, the agent and session that ran it, its branch, how many times it was
+retried automatically, and its complete prompt, handoff hint and output.
+
+Jobs warden adds on its own to fan work out and join it back are shown too,
+marked as created by warden. --json prints the job as JSON.
+
+Examples:
+  wd pipeline job show my-run build
+  wd pipeline job show my-run build --json
+
+Usage:
+  warden pipeline job show <pipeline> <job> [flags]
+
+Flags:
+  -h, --help   help for show
+      --json   output as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden pipeline job edit
+
+```text
+Change the prompt and/or handoff hint of a job before it starts. A job that
+has already started cannot be edited.
+
+Examples:
+  wd pipeline job edit my-run build --prompt "build with -race"
+  wd pipeline job edit my-run build --handoff "report the test count"
+
+Usage:
+  warden pipeline job edit <pipeline> <job> [flags]
 
 Flags:
       --handoff string   new handoff hint for the job
-  -h, --help             help for edit-job
+  -h, --help             help for edit
       --prompt string    new prompt for the job
 
 Inherited flags:
@@ -1060,13 +1112,17 @@ Inherited flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden pipeline retry
+## warden pipeline job retry
 
 ```text
-Re-run a failed or needs-attention job (reopens skipped descendants)
+Re-run a job that failed or needs attention. Jobs downstream of it that were
+skipped because it failed are reopened so the pipeline can carry on.
+
+Example:
+  wd pipeline job retry my-run build
 
 Usage:
-  warden pipeline retry <pipeline> <job> [flags]
+  warden pipeline job retry <pipeline> <job> [flags]
 
 Flags:
   -h, --help   help for retry

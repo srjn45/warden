@@ -149,7 +149,7 @@ func TestAutopilotEnablementAndRunLifecycleCanonicalPaths(t *testing.T) {
 func TestPipelineAutopilotProgressiveHelp(t *testing.T) {
 	for name, args := range map[string][]string{
 		"pipeline":      {"help", "pipeline"},
-		"pipeline_leaf": {"help", "pipeline", "edit-job"},
+		"pipeline_leaf": {"help", "pipeline", "job", "edit"},
 		"autopilot":     {"help", "autopilot"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -174,7 +174,7 @@ func TestWritePipelineAutopilotHelpGoldens(t *testing.T) {
 	}
 	for name, args := range map[string][]string{
 		"pipeline":      {"help", "pipeline"},
-		"pipeline_leaf": {"help", "pipeline", "edit-job"},
+		"pipeline_leaf": {"help", "pipeline", "job", "edit"},
 		"autopilot":     {"help", "autopilot"},
 		"namespace":     {"help", "pipeline"},
 	} {
