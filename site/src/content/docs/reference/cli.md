@@ -3356,9 +3356,6 @@ Pass -m to author the message (best — you made the change). Omit it and warden
 writes one: the local model from the staged diff if configured, otherwise a
 deterministic conventional-commit message from the changed paths.
 
-Exits non-zero when a pre-commit hook rejects the commit; the index is then
-restored exactly as it was before the call.
-
 Usage:
   warden git commit [flags]
 
@@ -5512,9 +5509,6 @@ of the git status/add/commit/rev-parse round-trips.
 Pass -m to author the message (best — you made the change). Omit it and warden
 writes one: the local model from the staged diff if configured, otherwise a
 deterministic conventional-commit message from the changed paths.
-
-Exits non-zero when a pre-commit hook rejects the commit; the index is then
-restored exactly as it was before the call.
 
 Usage:
   warden commit [flags]

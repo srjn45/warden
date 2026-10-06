@@ -49,9 +49,7 @@ func newCommitCmd() *cobra.Command {
 			"of the git status/add/commit/rev-parse round-trips.\n\n" +
 			"Pass -m to author the message (best — you made the change). Omit it and warden\n" +
 			"writes one: the local model from the staged diff if configured, otherwise a\n" +
-			"deterministic conventional-commit message from the changed paths.\n\n" +
-			"Exits non-zero when a pre-commit hook rejects the commit; the index is then\n" +
-			"restored exactly as it was before the call.",
+			"deterministic conventional-commit message from the changed paths.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			dir, session := gitTarget()
