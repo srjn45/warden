@@ -21,6 +21,7 @@ import (
 	"github.com/srjn45/warden/internal/backendusage"
 	"github.com/srjn45/warden/internal/capacity"
 	"github.com/srjn45/warden/internal/digest"
+	"github.com/srjn45/warden/internal/knownprompts"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/metrics"
 	"github.com/srjn45/warden/internal/pipeline"
@@ -2252,4 +2253,31 @@ type AutopilotNextStep struct {
 	Action string `json:"action"`
 	At     string `json:"at,omitempty"`
 	Owner  string `json:"owner,omitempty"`
+}
+
+// KnownPrompts lists the learned prompt shapes (GET /known-prompts), oldest first.
+func (c *Client) KnownPrompts(ctx context.Context) ([]knownprompts.Entry, error) {
+	var resp struct {
+		Prompts []knownprompts.Entry `json:"prompts"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/known-prompts", nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Prompts, nil
+}
+
+// ForgetKnownPrompt removes one learned prompt shape by id.
+func (c *Client) ForgetKnownPrompt(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/known-prompts/"+url.PathEscape(id), nil, nil)
+}
+
+// ForgetAllKnownPrompts empties the store and returns how many entries went.
+func (c *Client) ForgetAllKnownPrompts(ctx context.Context) (int, error) {
+	var resp struct {
+		Removed int `json:"removed"`
+	}
+	if err := c.do(ctx, http.MethodDelete, "/known-prompts", nil, &resp); err != nil {
+		return 0, err
+	}
+	return resp.Removed, nil
 }

@@ -1,7 +1,8 @@
 Manage tool-permission prompts and the auto-approve policy.
 
 List pending prompts with list, answer recognized menus by option number with
-answer, and configure per-agent participation plus allow/deny rules under auto.
+answer, configure per-agent participation plus allow/deny rules under auto, and
+inspect or forget the prompt shapes warden has learned under known.
 
 Usage:
   warden approval [flags]
@@ -10,6 +11,7 @@ Commands:
   list                 List pending tool-permission prompts waiting for an answer
   answer               Answer a pending tool-permission prompt by option number
   auto                 Toggle per-agent auto-approve and manage the rule policy
+  known                Inspect and forget learned prompt shapes
 
 Flags:
   -h, --help   help for approval

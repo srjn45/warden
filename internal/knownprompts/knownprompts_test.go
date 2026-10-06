@@ -359,3 +359,24 @@ func TestStorePrunesStaleEntries(t *testing.T) {
 		t.Fatalf("reopened with %d entries", len(s2.List()))
 	}
 }
+
+func TestDeleteAll(t *testing.T) {
+	s, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	for _, q := range []string{"First question?", "Second question?"} {
+		if _, _, err := s.Learn(ctx, "claude", "", Reading{Question: q, Options: []string{"Yes", "No"}, Affirmative: 1}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	n, err := s.DeleteAll(ctx)
+	if err != nil || n != 2 || len(s.List()) != 0 {
+		t.Fatalf("DeleteAll = %d, %v; left %d", n, err, len(s.List()))
+	}
+	if n, err := s.DeleteAll(ctx); err != nil || n != 0 {
+		t.Fatalf("second DeleteAll = %d, %v", n, err)
+	}
+}

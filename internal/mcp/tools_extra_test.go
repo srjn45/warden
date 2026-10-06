@@ -44,7 +44,7 @@ func TestExtraToolsRegistered(t *testing.T) {
 		"digest", "get_metrics", "savings", "spend", "search", "history", "audit_log",
 		"list_worktrees", "list_plugins", "get_pressure",
 		"set_auto_approve", "set_auto_approve_policy", "set_force_compact",
-		"set_permission_mode", "set_role", "list_roles", "prune_worktrees",
+		"set_permission_mode", "set_role", "list_roles", "list_known_prompts", "forget_known_prompt", "prune_worktrees",
 		"recover_agents",
 		"usage_recover",
 		"export_sessions", "import_sessions", "rotate_agent", "handoff_agent",
@@ -352,4 +352,38 @@ func TestCreateScheduleTool(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, res.IsError, textOf(res))
 	require.Contains(t, textOf(res), "nightly")
+}
+
+// TestKnownPromptsTools covers list + forget (one, all) and arg validation.
+func TestKnownPromptsTools(t *testing.T) {
+	var hits []string
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits = append(hits, r.Method+" "+r.URL.Path)
+		switch {
+		case r.Method == http.MethodGet:
+			_, _ = w.Write([]byte(`{"prompts":[{"id":"abc","backend":"claude","question":"Allow?","options":["Yes","No"],"affirmative":1,"hits":3}]}`))
+		case r.URL.Path == "/api/v1/known-prompts":
+			_, _ = w.Write([]byte(`{"removed":4}`))
+		default:
+			_, _ = w.Write([]byte(`{"status":"forgotten"}`))
+		}
+	}))
+	defer daemon.Close()
+	session := connectTo(t, daemon.URL)
+	ctx := context.Background()
+	call := func(name string, args map[string]any) string {
+		res, err := session.CallTool(ctx, &mcpsdk.CallToolParams{Name: name, Arguments: args})
+		require.NoError(t, err)
+		return textOf(res)
+	}
+
+	out := call("list_known_prompts", nil)
+	require.Contains(t, out, `"id": "abc"`)
+	require.Contains(t, out, `"hits": 3`)
+
+	require.Contains(t, call("forget_known_prompt", map[string]any{"id": "abc"}), "forgot abc")
+	require.Contains(t, call("forget_known_prompt", map[string]any{"all": true}), "forgot 4")
+	require.Contains(t, call("forget_known_prompt", map[string]any{}), "error")
+	require.Contains(t, call("forget_known_prompt", map[string]any{"id": "x", "all": true}), "error")
+	require.Equal(t, []string{"GET /api/v1/known-prompts", "DELETE /api/v1/known-prompts/abc", "DELETE /api/v1/known-prompts"}, hits)
 }

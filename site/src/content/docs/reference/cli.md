@@ -3412,7 +3412,8 @@ Inherited flags:
 Manage tool-permission prompts and the auto-approve policy.
 
 List pending prompts with list, answer recognized menus by option number with
-answer, and configure per-agent participation plus allow/deny rules under auto.
+answer, configure per-agent participation plus allow/deny rules under auto, and
+inspect or forget the prompt shapes warden has learned under known.
 
 Usage:
   warden approval [flags]
@@ -3421,6 +3422,7 @@ Commands:
   list                 List pending tool-permission prompts waiting for an answer
   answer               Answer a pending tool-permission prompt by option number
   auto                 Toggle per-agent auto-approve and manage the rule policy
+  known                Inspect and forget learned prompt shapes
 
 Flags:
   -h, --help   help for approval
@@ -3636,6 +3638,77 @@ Usage:
 Flags:
       --agent string   toggle a per-agent override (agent name or id) instead of the global default
   -h, --help           help for disable
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden approval known
+
+```text
+Inspect and forget the known-prompts store.
+
+When the Fast-Brain reads a permission prompt no backend parser recognizes, warden
+remembers its SHAPE (templated question + option labels, never the concrete
+command or path) so the next occurrence is recognized without a model call. Use
+list to see what was learned and forget to drop an entry that was learned wrong.
+
+Usage:
+  warden approval known [flags]
+
+Commands:
+  list                 List learned prompt shapes (id, backend, question, options, hits, last seen)
+  forget               Forget one learned prompt shape, or all with --all
+
+Flags:
+  -h, --help   help for known
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden approval known list
+
+```text
+List learned prompt shapes (id, backend, question, options, hits, last seen)
+
+Usage:
+  warden approval known list [flags]
+
+Examples:
+  warden approval known list
+    warden approval known list --json
+
+Flags:
+  -h, --help   help for list
+      --json   emit the entries as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden approval known forget
+
+```text
+Forget a learned prompt shape by id (see approval known list). The prompt is
+re-learned the next time it appears. With --all, empties the whole store after a
+confirmation prompt (skip it with --yes). Forget actions are audit-logged.
+
+Usage:
+  warden approval known forget [ID] [flags]
+
+Examples:
+  warden approval known forget 3f9a1c0d2b7e4a65c8d1e0f2
+    warden approval known forget --all --yes
+
+Flags:
+      --all    forget every learned prompt shape
+  -h, --help   help for forget
+      --json   emit the result as JSON
+      --yes    skip the confirmation prompt for --all
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
