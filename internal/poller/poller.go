@@ -15,6 +15,7 @@ import (
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/ctxtokens"
 	"github.com/srjn45/warden/internal/fastbrain"
+	"github.com/srjn45/warden/internal/knownprompts"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -260,9 +261,14 @@ type Poller struct {
 	// model (recognize.go). recog holds the per-agent state, guarded by recogMu
 	// because the model call runs off the tick goroutine.
 	recognizePrompts atomic.Bool
-	recogMu          sync.Mutex
-	recog            map[string]*recognition
-	recogWG          sync.WaitGroup
+
+	// Known is the store of learned prompt shapes (nil = feature absent). It is
+	// consulted between the backend parser and the model, only while
+	// recognize_prompts is on.
+	Known   *knownprompts.Store
+	recogMu sync.Mutex
+	recog   map[string]*recognition
+	recogWG sync.WaitGroup
 
 	// OnSaving, if set, records a token-savings event (the daemon wires it to the
 	// savings ledger). The poller uses it for the auto-/compact win: when a
