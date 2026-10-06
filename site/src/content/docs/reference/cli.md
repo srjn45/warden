@@ -3461,6 +3461,8 @@ Inherited flags:
 Inspect commits since the latest SemVer tag and recommend the next release:
 the bump (major/minor/patch), the next vMAJOR.MINOR.PATCH, and a categorized
 changelog built from conventional commits and merged PRs.
+A squash commit whose subject is not itself releasable (e.g. "autopilot: x (#1)")
+is bumped by the conventional "* feat(...): ..." bullets in its body.
 
 By default, the analysis targets origin/main (or origin/master) so releases are
 evaluated against canonical upstream commits rather than uncommitted local edits
@@ -5567,6 +5569,8 @@ Inherited flags:
 Inspect commits since the latest SemVer tag and recommend the next release:
 the bump (major/minor/patch), the next vMAJOR.MINOR.PATCH, and a categorized
 changelog built from conventional commits and merged PRs.
+A squash commit whose subject is not itself releasable (e.g. "autopilot: x (#1)")
+is bumped by the conventional "* feat(...): ..." bullets in its body.
 
 By default, the analysis targets origin/main (or origin/master) so releases are
 evaluated against canonical upstream commits rather than uncommitted local edits
