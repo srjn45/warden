@@ -60,23 +60,6 @@ func TestContractScrivaDependencyPin(t *testing.T) {
 	}
 }
 
-// TestContractCurrentGapSecondOpenerSucceeds characterizes the regression:
-// today a second handle opens the same agents-db. When ownership lands this
-// test must be deleted and TestContractExclusiveOwnership unskipped.
-func TestContractCurrentGapSecondOpenerSucceeds(t *testing.T) {
-	dir := t.TempDir()
-	first, err := New(dir)
-	require.NoError(t, err)
-	defer first.Close()
-	second, err := New(dir)
-	if err == nil {
-		defer second.Close()
-	}
-	if err != nil {
-		t.Skip("ownership enforced: delete this characterization test")
-	}
-}
-
 // TestContractLegacyLockDoesNotCoverAgentStore pins that the legacy
 // .sessions-store.lock held by store.FileStore does not protect agents-db, so
 // the new lock must be its own file (contract §3).
@@ -85,9 +68,11 @@ func TestContractLegacyLockDoesNotCoverAgentStore(t *testing.T) {
 	legacy, err := store.NewFileStore(dir)
 	require.NoError(t, err)
 	defer legacy.Close(context.Background())
-	s, err := New(dir)
-	require.NoError(t, err, "agentstore currently ignores the legacy lock")
-	s.Close()
+	// A live legacy owner blocks the import read, but the agent lock itself is
+	// a separate file.
+	_, err = New(dir)
+	require.ErrorIs(t, err, store.ErrStoreOwned)
+	require.FileExists(t, filepath.Join(dir, ".agents-store.lock"))
 	require.FileExists(t, filepath.Join(dir, ".sessions-store.lock"))
 }
 
@@ -95,7 +80,6 @@ func TestContractLegacyLockDoesNotCoverAgentStore(t *testing.T) {
 // openers get an ownership error without touching data; Close or process exit
 // releases the lock.
 func TestContractExclusiveOwnership(t *testing.T) {
-	t.Skip("pending: exclusive ownership task (#795)")
 	dir := t.TempDir()
 	first, err := New(dir)
 	require.NoError(t, err)
