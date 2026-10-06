@@ -7,6 +7,7 @@
 package schedule
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -49,6 +50,10 @@ type Schedule struct {
 	Cron    string `json:"cron,omitempty"`
 	At      string `json:"at,omitempty"` // RFC3339-ish single-shot time
 	Enabled bool   `json:"enabled"`
+	// Disabled records that an operator turned the schedule off, so a schedule
+	// that was switched off can be told apart from a single-shot that is spent
+	// (both have Enabled=false). Absent on schedules stored before it existed.
+	Disabled bool `json:"disabled,omitempty"`
 
 	// Agent fire payload (Mode == agent). Mirrors the spawn passthrough fields.
 	Type   string `json:"type,omitempty"`
@@ -86,6 +91,43 @@ type Schedule struct {
 	// while the session record still exists (running → exited/error).
 	LastRunSessionID string `json:"last_run_session_id,omitempty"`
 	LastRunStatus    string `json:"last_run_status,omitempty"`
+}
+
+// State is the one-word lifecycle answer every surface shows for a schedule.
+type State string
+
+const (
+	StateEnabled  State = "enabled"  // armed; a recurring schedule with a failed last run is still enabled
+	StateDisabled State = "disabled" // turned off by the operator
+	StateDone     State = "done"     // single-shot that fired successfully and will not fire again
+	StateFailed   State = "failed"   // single-shot whose only fire failed
+)
+
+// State derives the schedule's lifecycle state from its stored fields. A
+// disabled schedule that never recorded the operator's choice (stored before
+// Disabled existed) counts as spent only when it is a single-shot that has
+// fired; anything else switched off is disabled.
+func (s Schedule) State() State {
+	if s.Enabled {
+		return StateEnabled
+	}
+	if !s.Disabled && s.Kind == KindAt && s.LastRun != nil {
+		if s.LastError != "" {
+			return StateFailed
+		}
+		return StateDone
+	}
+	return StateDisabled
+}
+
+// MarshalJSON adds the derived, read-only `state` field to the wire form so the
+// web cockpit, the app and MCP get the same answer as the CLI.
+func (s Schedule) MarshalJSON() ([]byte, error) {
+	type plain Schedule
+	return json.Marshal(struct {
+		plain
+		State State `json:"state"`
+	}{plain(s), s.State()})
 }
 
 // Params are the validated inputs used to build a Schedule (one per CLI/route
@@ -333,6 +375,7 @@ func Recompute(s *Schedule, now time.Time) error {
 // should not happen for a schedule that validated at create time.
 func SetEnabled(s *Schedule, enabled bool, now time.Time) error {
 	s.Enabled = enabled
+	s.Disabled = !enabled
 	return Recompute(s, now)
 }
 

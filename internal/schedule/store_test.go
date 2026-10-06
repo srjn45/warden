@@ -191,3 +191,23 @@ func TestStoreLegacyImport(t *testing.T) {
 		t.Fatalf("after reopen want 3 schedules (no re-import clobber), got %d: %+v", len(list2), list2)
 	}
 }
+
+// The derived state is never persisted, and a stored schedule keeps its fields.
+func TestStoreDoesNotPersistDerivedState(t *testing.T) {
+	st := newTestStore(t)
+	sc := &Schedule{ID: "a", Name: "a", Kind: KindCron, Mode: ModeAgent, Cron: "@daily", Enabled: true, Prompt: "p"}
+	if err := st.Create(sc); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := toRecord(sc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := rec["state"]; ok {
+		t.Fatalf("state leaked into the stored record: %v", rec)
+	}
+	got, err := st.Get("a")
+	if err != nil || got.Prompt != "p" || got.State() != StateEnabled {
+		t.Fatalf("get: %v %+v", err, got)
+	}
+}

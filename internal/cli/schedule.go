@@ -1,9 +1,15 @@
 package cli
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
+	"strconv"
 	"strings"
+	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -38,12 +44,6 @@ func newScheduleCmd() *cobra.Command {
 	legacyGet.Hidden = true
 	SetCommandHelpMetadata(legacyGet, "run", 900, "warden schedule show", AliasCompatibility, NodeLeaf)
 	cmd.AddCommand(legacyGet)
-	return cmd
-}
-
-func newScheduleShowCmd() *cobra.Command {
-	cmd := newScheduleGetCmd()
-	cmd.Use = "show <id>"
 	return cmd
 }
 
@@ -256,62 +256,319 @@ func describeScheduleFire(sc *schedule.Schedule, pipelineName string, jobs int) 
 }
 
 func newScheduleListCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "list",
-		Short: "List schedules",
-		Args:  cobra.NoArgs,
+	cmd := &cobra.Command{
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List schedules",
+		Long: "List schedules as a table. Columns: NAME, STATE (enabled, disabled, done for a\n" +
+			"single-shot that has fired, failed for a single-shot whose fire failed), WHEN\n" +
+			"(the cron spec, or the single-shot time), FIRES (the agent and its role, or\n" +
+			"the pipeline), NEXT (the next run, local time) and LAST (when it last ran and\n" +
+			"how it went). A schedule whose last run failed has the error on the line\n" +
+			"beneath it; a recurring one is still enabled and will try again.\n\n" +
+			"--json prints the raw result.",
+		Example: "  warden schedule list\n" +
+			"  warden schedule ls --json",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			list, err := clientFor(cmd).ScheduleList(cmd.Context())
 			if err != nil {
-				return err
+				return wrapScheduleError(err)
 			}
-			for _, sc := range list {
-				spec := sc.Cron
-				if sc.Kind == schedule.KindAt {
-					spec = sc.At
+			out := cmd.OutOrStdout()
+			if asJSON, _ := cmd.Flags().GetBool("json"); asJSON {
+				if list == nil {
+					list = []*schedule.Schedule{}
 				}
-				state := "enabled"
-				if !sc.Enabled {
-					state = "inactive"
-				}
-				fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\t%q\t%s\tnext=%s",
-					sc.ID, sc.Mode, sc.Kind, spec, state, formatNextRun(sc.NextRun))
-				if sc.LastError != "" {
-					fmt.Fprintf(cmd.OutOrStdout(), "\tlast_error=%q", sc.LastError)
-				}
-				fmt.Fprintln(cmd.OutOrStdout())
+				return printJSON(out, list)
 			}
-			return nil
+			if len(list) == 0 {
+				fmt.Fprintln(out, "no schedules")
+				fmt.Fprintln(out, "hint: wd schedule create nightly --cron \"0 2 * * *\" --prompt \"run the nightly cleanup\"")
+				return nil
+			}
+			return printScheduleTable(out, list, time.Now())
 		},
 	}
+	cmd.Flags().Bool("json", false, "output as JSON")
+	return cmd
+}
+
+// wrapScheduleError turns the daemon's scheduler-disabled answer into the
+// instruction to enable it.
+func wrapScheduleError(err error) error {
+	var se *client.StatusError
+	if errors.As(err, &se) && strings.Contains(se.Msg, "scheduler disabled") {
+		return fmt.Errorf("the scheduler is turned off: set scheduler_enabled: true in the warden config file (see `warden config path`) and restart the daemon")
+	}
+	return err
+}
+
+// scheduleWhen is the timing of a schedule: its cron spec or its single-shot time.
+func scheduleWhen(sc *schedule.Schedule) string {
+	if sc.Kind == schedule.KindAt {
+		if t, err := schedule.ParseAt(sc.At); err == nil {
+			return t.Local().Format("2006-01-02 15:04")
+		}
+		return sc.At
+	}
+	return sc.Cron
+}
+
+// scheduleFires is what a schedule fires, short enough for a table cell.
+func scheduleFires(sc *schedule.Schedule) string {
+	if sc.Mode == schedule.ModePipeline {
+		if p, err := pipeline.ParseSpec([]byte(sc.Spec)); err == nil && p.Name != "" {
+			return "pipeline " + p.Name
+		}
+		return "pipeline"
+	}
+	return "agent (" + scheduleRole(sc) + ")"
+}
+
+func scheduleRole(sc *schedule.Schedule) string {
+	switch {
+	case sc.Role != "":
+		return sc.Role
+	case sc.Repo != "":
+		return "worker"
+	}
+	return "general"
+}
+
+// relativeTime renders t relative to now: "in 3h", "2d ago", "just now".
+func relativeTime(t, now time.Time) string {
+	d := t.Sub(now)
+	future := d > 0
+	if d < 0 {
+		d = -d
+	}
+	var v string
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		v = fmt.Sprintf("%dm", int(d/time.Minute))
+	case d < 48*time.Hour:
+		v = fmt.Sprintf("%dh", int(d/time.Hour))
+	default:
+		v = fmt.Sprintf("%dd", int(d/(24*time.Hour)))
+	}
+	if future {
+		return "in " + v
+	}
+	return v + " ago"
+}
+
+func scheduleNext(sc *schedule.Schedule, now time.Time) string {
+	if sc.NextRun == nil {
+		return "-"
+	}
+	return sc.NextRun.Local().Format("2006-01-02 15:04") + " (" + relativeTime(*sc.NextRun, now) + ")"
+}
+
+// scheduleLastOutcome is the outcome word of the last run: its live status, or
+// "failed" when the fire itself errored.
+func scheduleLastOutcome(sc *schedule.Schedule) string {
+	switch {
+	case sc.LastError != "":
+		return "failed"
+	case sc.LastRunStatus != "":
+		return sc.LastRunStatus
+	}
+	return "fired"
+}
+
+func scheduleLast(sc *schedule.Schedule, now time.Time) string {
+	if sc.LastRun == nil {
+		return "-"
+	}
+	return sc.LastRun.Local().Format("2006-01-02 15:04") + " " + scheduleLastOutcome(sc)
+}
+
+func printScheduleTable(w io.Writer, list []*schedule.Schedule, now time.Time) error {
+	// Flush the table around each error line so the long text does not stretch
+	// the columns of the rows above and below it.
+	var buf bytes.Buffer
+	tw := tabwriter.NewWriter(&buf, 0, 2, 2, ' ', 0)
+	flush := func() error {
+		if err := tw.Flush(); err != nil {
+			return err
+		}
+		for _, line := range strings.Split(strings.TrimRight(buf.String(), "\n"), "\n") {
+			if line != "" {
+				fmt.Fprintln(w, strings.TrimRight(line, " "))
+			}
+		}
+		buf.Reset()
+		return nil
+	}
+	rows := [][]string{{"NAME", "STATE", "WHEN", "FIRES", "NEXT", "LAST"}}
+	for _, sc := range list {
+		rows = append(rows, []string{sc.Name, string(sc.State()), scheduleWhen(sc),
+			scheduleFires(sc), scheduleNext(sc, now), scheduleLast(sc, now)})
+	}
+	// Align every column over all rows, then print the error lines in between.
+	widths := make([]int, 6)
+	for _, r := range rows {
+		for i, c := range r {
+			if n := len([]rune(c)); n > widths[i] {
+				widths[i] = n
+			}
+		}
+	}
+	_ = flush
+	for i, r := range rows {
+		var cells []string
+		for j, c := range r {
+			cells = append(cells, c+strings.Repeat(" ", widths[j]-len([]rune(c))))
+		}
+		fmt.Fprintln(w, strings.TrimRight(strings.Join(cells, "  "), " "))
+		if i > 0 && list[i-1].LastError != "" {
+			fmt.Fprintf(w, "  error: %s\n", list[i-1].LastError)
+		}
+	}
+	return nil
+}
+
+func newScheduleShowCmd() *cobra.Command {
+	cmd := newScheduleGetCmd()
+	cmd.Use = "show <id>"
+	cmd.Aliases = nil
+	return cmd
 }
 
 func newScheduleGetCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "get <id>",
 		Short: "Show one schedule, including its last-run outcome",
-		Args:  cobra.ExactArgs(1),
+		Long: "Show a schedule: its state, timing, next run and when it was created, then\n" +
+			"what it fires in full (for an agent: the prompt, directory, repo, branch, role,\n" +
+			"model, AI CLI and agent name; for a pipeline: its name and job count) and its\n" +
+			"last run with the command to look at it. --spec also prints the stored\n" +
+			"pipeline YAML. --json prints the raw record.",
+		Example: "  warden schedule show nightly\n" +
+			"  warden schedule show nightly --spec\n" +
+			"  warden schedule show nightly --json",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			sc, err := clientFor(cmd).ScheduleGet(cmd.Context(), args[0])
 			if err != nil {
+				err = wrapScheduleError(err)
+				var se *client.StatusError
+				if errors.As(err, &se) && se.Code == http.StatusNotFound {
+					return fmt.Errorf("%w\nNext: wd schedule list", err)
+				}
 				return err
 			}
-			state := "enabled"
-			if !sc.Enabled {
-				state = "inactive"
-			}
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "%s\t%s\t%s\t%s\tnext=%s\tlast=%s\n",
-				sc.ID, sc.Mode, sc.Kind, state, formatNextRun(sc.NextRun), formatNextRun(sc.LastRun))
-			if sc.LastRunSessionID != "" {
-				fmt.Fprintf(out, "last_run: %s (%s)\n", sc.LastRunSessionID, sc.LastRunStatus)
+			if asJSON, _ := cmd.Flags().GetBool("json"); asJSON {
+				return printJSON(out, sc)
 			}
-			if sc.LastError != "" {
-				fmt.Fprintf(out, "last_error: %s\n", sc.LastError)
-			}
+			withSpec, _ := cmd.Flags().GetBool("spec")
+			fmt.Fprint(out, renderScheduleDetail(sc, time.Now(), withSpec))
 			return nil
 		},
 	}
+	cmd.Flags().Bool("json", false, "output as JSON")
+	cmd.Flags().Bool("spec", false, "also print the stored pipeline YAML")
+	return cmd
+}
+
+// describeCron is a plain reading of a cron spec when it is cheap to give one.
+func describeCron(spec string) string {
+	switch strings.TrimSpace(spec) {
+	case "@hourly":
+		return "every hour"
+	case "@daily", "@midnight":
+		return "every day at 00:00"
+	case "@weekly":
+		return "every week, Sunday 00:00"
+	case "@monthly":
+		return "on the 1st of every month at 00:00"
+	case "@yearly", "@annually":
+		return "every year on 1 January at 00:00"
+	}
+	f := strings.Fields(spec)
+	if len(f) == 5 && f[2] == "*" && f[3] == "*" && f[4] == "*" {
+		min, hr := f[0], f[1]
+		if _, err := strconv.Atoi(min); err == nil {
+			if _, err := strconv.Atoi(hr); err == nil {
+				return fmt.Sprintf("every day at %02s:%02s", hr, min)
+			}
+		}
+	}
+	return ""
+}
+
+func renderScheduleDetail(sc *schedule.Schedule, now time.Time, withSpec bool) string {
+	var b strings.Builder
+	kv := func(k, v string) { fmt.Fprintf(&b, "%-12s%s\n", k+":", v) }
+	kv("name", sc.Name)
+	state := string(sc.State())
+	if sc.State() == schedule.StateEnabled && sc.LastError != "" {
+		state += " (last run failed)"
+	}
+	kv("state", state)
+	if sc.Kind == schedule.KindAt {
+		kv("when", "once, at "+scheduleWhen(sc))
+	} else {
+		w := "cron " + sc.Cron
+		if d := describeCron(sc.Cron); d != "" {
+			w += " — " + d
+		}
+		kv("when", w)
+	}
+	kv("next run", scheduleNext(sc, now))
+	kv("created", sc.CreatedAt.Local().Format("2006-01-02 15:04"))
+
+	b.WriteString("\n")
+	if sc.Mode == schedule.ModePipeline {
+		kv("fires", "pipeline")
+		name, jobs := "", 0
+		if p, err := pipeline.ParseSpec([]byte(sc.Spec)); err == nil {
+			name, jobs = p.Name, userJobs(p)
+		}
+		kv("pipeline", dashIfEmpty(name))
+		kv("jobs", strconv.Itoa(jobs))
+		if withSpec {
+			b.WriteString("\nspec:\n")
+			b.WriteString(strings.TrimRight(sc.Spec, "\n"))
+			b.WriteString("\n")
+		}
+	} else {
+		kv("fires", "agent")
+		kv("prompt", dashIfEmpty(sc.Prompt))
+		kv("directory", dashIfEmpty(sc.Cwd))
+		kv("repo", dashIfEmpty(sc.Repo))
+		kv("branch", dashIfEmpty(sc.Branch))
+		kv("role", scheduleRole(sc))
+		kv("model", dashIfEmpty(sc.Model))
+		kv("ai cli", dashIfEmpty(sc.AiCli))
+		kv("agent name", dashIfEmpty(sc.Agent))
+	}
+
+	b.WriteString("\n")
+	if sc.LastRun == nil {
+		kv("last run", "never")
+		return b.String()
+	}
+	kv("last run", sc.LastRun.Local().Format("2006-01-02 15:04")+" ("+relativeTime(*sc.LastRun, now)+")")
+	if sc.LastRunSessionID != "" {
+		kv("produced", sc.LastRunSessionID)
+	}
+	kv("status", scheduleLastOutcome(sc))
+	if sc.LastError != "" {
+		kv("error", sc.LastError)
+	}
+	if sc.LastRunSessionID != "" {
+		cmdHint := "wd status " + sc.LastRunSessionID
+		if sc.Mode == schedule.ModePipeline {
+			cmdHint = "wd pipeline show " + sc.LastRunSessionID
+		}
+		kv("look at it", cmdHint)
+	}
+	return b.String()
 }
 
 func newScheduleEnableCmd() *cobra.Command {

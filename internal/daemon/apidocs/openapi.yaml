@@ -6515,6 +6515,16 @@ components:
         cron: { type: string, description: "recurring spec; present when kind=cron" }
         at: { type: string, description: "single-shot time; present when kind=at" }
         enabled: { type: boolean }
+        disabled: { type: boolean, description: "true when an operator turned the schedule off; distinguishes a disabled schedule from a spent single-shot. Absent on schedules stored before the field existed" }
+        state:
+          type: string
+          enum: [enabled, disabled, done, failed]
+          readOnly: true
+          description: >
+            derived lifecycle state: `enabled` (armed; a recurring schedule whose
+            last run failed stays enabled, see last_error), `disabled` (turned
+            off by the operator), `done` (single-shot that fired successfully) or
+            `failed` (single-shot whose only fire failed).
         type:
           type: string
           deprecated: true

@@ -2295,29 +2295,55 @@ Inherited flags:
 ## warden schedule list
 
 ```text
-List schedules
+List schedules as a table. Columns: NAME, STATE (enabled, disabled, done for a
+single-shot that has fired, failed for a single-shot whose fire failed), WHEN
+(the cron spec, or the single-shot time), FIRES (the agent and its role, or
+the pipeline), NEXT (the next run, local time) and LAST (when it last ran and
+how it went). A schedule whose last run failed has the error on the line
+beneath it; a recurring one is still enabled and will try again.
+
+--json prints the raw result.
 
 Usage:
   warden schedule list [flags]
 
+Examples:
+  warden schedule list
+    warden schedule ls --json
+
 Flags:
   -h, --help   help for list
+      --json   output as JSON
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
+
+Aliases:
+  ls
 ```
 
 ## warden schedule show
 
 ```text
-Show one schedule, including its last-run outcome
+Show a schedule: its state, timing, next run and when it was created, then
+what it fires in full (for an agent: the prompt, directory, repo, branch, role,
+model, AI CLI and agent name; for a pipeline: its name and job count) and its
+last run with the command to look at it. --spec also prints the stored
+pipeline YAML. --json prints the raw record.
 
 Usage:
   warden schedule show <id> [flags]
 
+Examples:
+  warden schedule show nightly
+    warden schedule show nightly --spec
+    warden schedule show nightly --json
+
 Flags:
   -h, --help   help for show
+      --json   output as JSON
+      --spec   also print the stored pipeline YAML
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -5616,6 +5642,7 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | `warden rotate` | `warden agent rotate` |
 | `warden savings` | `warden usage savings` |
 | `warden schedule get` | `warden schedule show` |
+| `warden schedule ls` | `warden schedule list` |
 | `warden search` | `warden inspect search` |
 | `warden set-permission-mode` | `warden agent set` |
 | `warden set-role` | `warden agent set` |

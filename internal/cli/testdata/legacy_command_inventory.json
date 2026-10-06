@@ -1443,6 +1443,11 @@
     "path": "schedule get",
     "use": "get <id>",
     "runnable": true,
+    "json": true,
+    "local_flags": [
+      "json",
+      "spec"
+    ],
     "inherited_flags": [
       "addr",
       "config"
@@ -1451,7 +1456,14 @@
   {
     "path": "schedule list",
     "use": "list",
+    "aliases": [
+      "ls"
+    ],
     "runnable": true,
+    "json": true,
+    "local_flags": [
+      "json"
+    ],
     "inherited_flags": [
       "addr",
       "config"
