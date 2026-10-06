@@ -573,6 +573,16 @@ func (c *Client) Check(ctx context.Context, session, dir, name string) (lifecycl
 	return res, nil
 }
 
+// ListChecks returns configured checks without executing them.
+func (c *Client) ListChecks(ctx context.Context, session, dir string) ([]lifecycle.CheckDefinition, error) {
+	var res []lifecycle.CheckDefinition
+	path := "/check?" + url.Values{"session": {session}, "dir": {dir}}.Encode()
+	if err := c.do(ctx, http.MethodGet, path, nil, &res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 func (c *Client) Terminate(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodPost, "/sessions/"+id+"/terminate", nil, nil)
 }

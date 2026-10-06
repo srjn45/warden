@@ -83,6 +83,8 @@ type fakeLife struct {
 	checkName         string
 	checkResult       lifecycle.CheckResult
 	checkErr          error
+	checkList         []lifecycle.CheckDefinition
+	checkListErr      error
 	prDir             string
 	prTitle           string
 	prBody            string
@@ -323,6 +325,13 @@ func (f *fakeLife) Check(_ context.Context, dir, name string) (lifecycle.CheckRe
 	defer f.mu.Unlock()
 	f.checkDir, f.checkName = dir, name
 	return f.checkResult, f.checkErr
+}
+
+func (f *fakeLife) ListChecks(_ context.Context, dir string) ([]lifecycle.CheckDefinition, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.checkDir = dir
+	return f.checkList, f.checkListErr
 }
 
 func (f *fakeLife) HotSwap(_ context.Context, sess *agentstore.Agent, req lifecycle.SwapRequest) (*lifecycle.SwapResult, error) {

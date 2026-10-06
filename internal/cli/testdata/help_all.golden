@@ -139,6 +139,7 @@ Complete command tree:
   warden git release                   Recommend the next SemVer release tag, then tag and push it on confirmation
   warden check                         Run project checks and install hook guards
   warden check run                     Run the project's configured checks and report only failures
+  warden check list                    List configured project checks without running them
   warden context                       Read and write the shared context (a namespaced key/value store agents share)
   warden context set                   Set a context key (value inline, or --file / --stdin)
   warden context cas                   Set a key only if its current value matches --expected (atomic compare-and-set)
@@ -259,6 +260,7 @@ Compatibility aliases:
   warden backends rescan -> warden backend rescan (compatibility)
   warden backends tier -> warden backend tier (compatibility)
   warden branches -> warden workspace branches (compatibility)
+  warden check ls -> warden check list (compatibility)
   warden clean -> warden workspace clean (compatibility)
   warden collab -> warden workspace (compatibility)
   warden collab conflicts -> warden workspace conflicts (compatibility)

@@ -588,6 +588,7 @@ type Lifecycle interface {
 	// returns a pass/fail summary with output only for failures — backs wd check /
 	// mcp__warden__check.
 	Check(ctx context.Context, dir, name string) (lifecycle.CheckResult, error)
+	ListChecks(ctx context.Context, dir string) ([]lifecycle.CheckDefinition, error)
 	// TranscriptPath resolves the agent's transcript file ("" when none).
 	TranscriptPath(sess *agentstore.Agent) string
 	// GitBranch / GitNumstat read git state in dir (best-effort, "" on error).

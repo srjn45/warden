@@ -3537,13 +3537,15 @@ Run project checks and install hook guards.
 `wd check` (or `wd check run`) executes the commands declared in .warden/check.yml
 and returns only failures. Guard subcommands are hook-facing entry points installed
 by warden; they preserve the stdin/stdout JSON protocol and fail-open semantics of
-the legacy `hook` paths.
+the legacy `hook` paths. A configured check named list, run, guard, boundary,
+or root-guard remains runnable as `wd check run <name>`.
 
 Usage:
   warden check [name] [flags]
 
 Commands:
   run                  Run the project's configured checks and report only failures
+  list                 List configured project checks without running them
   guard                PreToolUse check-redirect guard (reads hook JSON on stdin)
   boundary             PreToolUse isolation guard (reads hook JSON on stdin)
   root-guard           PreToolUse main-worktree guard (reads hook JSON on stdin)
@@ -3578,6 +3580,26 @@ Flags:
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden check list
+
+```text
+List configured project checks without running them
+
+Usage:
+  warden check list [flags]
+
+Flags:
+  -h, --help   help for list
+      --json   emit the raw result as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+
+Aliases:
+  ls
 ```
 
 ## warden check guard
@@ -5696,6 +5718,7 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | `warden backends rescan` | `warden backend rescan` |
 | `warden backends tier` | `warden backend tier` |
 | `warden branches` | `warden workspace branches` |
+| `warden check ls` | `warden check list` |
 | `warden clean` | `warden workspace clean` |
 | `warden collab` | `warden workspace` |
 | `warden collab conflicts` | `warden workspace conflicts` |

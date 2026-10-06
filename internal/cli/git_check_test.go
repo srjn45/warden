@@ -156,6 +156,9 @@ func TestGitCheckProgressiveHelp(t *testing.T) {
 	if !strings.Contains(checkNS, ".warden/check.yml") || !strings.Contains(checkNS, "run") {
 		t.Fatalf("check namespace help missing domain guidance: %s", checkNS)
 	}
+	if !strings.Contains(checkNS, "wd check run <name>") {
+		t.Fatalf("check namespace help must document command-name collisions: %s", checkNS)
+	}
 	if !strings.Contains(checkLeaf, "--json") || strings.Contains(checkLeaf, "boundary") {
 		t.Fatalf("check run help is not focused: %s", checkLeaf)
 	}
