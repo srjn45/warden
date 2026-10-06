@@ -47,31 +47,34 @@ const (
 
 // Defines values for AutopilotLandErrorKind.
 const (
-	CiMissing    AutopilotLandErrorKind = "ci_missing"
-	GatePending  AutopilotLandErrorKind = "gate_pending"
-	GateRed      AutopilotLandErrorKind = "gate_red"
-	NotMergeable AutopilotLandErrorKind = "not_mergeable"
-	NotOwned     AutopilotLandErrorKind = "not_owned"
-	RunDisabled  AutopilotLandErrorKind = "run_disabled"
-	WrongBase    AutopilotLandErrorKind = "wrong_base"
+	AutopilotLandErrorKindCiMissing    AutopilotLandErrorKind = "ci_missing"
+	AutopilotLandErrorKindGatePending  AutopilotLandErrorKind = "gate_pending"
+	AutopilotLandErrorKindGateRed      AutopilotLandErrorKind = "gate_red"
+	AutopilotLandErrorKindNotFound     AutopilotLandErrorKind = "not_found"
+	AutopilotLandErrorKindNotMergeable AutopilotLandErrorKind = "not_mergeable"
+	AutopilotLandErrorKindNotOwned     AutopilotLandErrorKind = "not_owned"
+	AutopilotLandErrorKindRunDisabled  AutopilotLandErrorKind = "run_disabled"
+	AutopilotLandErrorKindWrongBase    AutopilotLandErrorKind = "wrong_base"
 )
 
 // Valid indicates whether the value is a known member of the AutopilotLandErrorKind enum.
 func (e AutopilotLandErrorKind) Valid() bool {
 	switch e {
-	case CiMissing:
+	case AutopilotLandErrorKindCiMissing:
 		return true
-	case GatePending:
+	case AutopilotLandErrorKindGatePending:
 		return true
-	case GateRed:
+	case AutopilotLandErrorKindGateRed:
 		return true
-	case NotMergeable:
+	case AutopilotLandErrorKindNotFound:
 		return true
-	case NotOwned:
+	case AutopilotLandErrorKindNotMergeable:
 		return true
-	case RunDisabled:
+	case AutopilotLandErrorKindNotOwned:
 		return true
-	case WrongBase:
+	case AutopilotLandErrorKindRunDisabled:
+		return true
+	case AutopilotLandErrorKindWrongBase:
 		return true
 	default:
 		return false

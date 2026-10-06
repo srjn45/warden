@@ -102,16 +102,6 @@ func markStatusAlias(cmd *cobra.Command, canonicalPath string) {
 	}
 }
 
-func rewriteAutopilotHelpPaths(cmd *cobra.Command, legacyName, canonicalName string) {
-	replacer := strings.NewReplacer(
-		"warden autopilot "+legacyName, "warden autopilot "+canonicalName,
-		"wd autopilot "+legacyName, "wd autopilot "+canonicalName,
-		"`warden autopilot "+legacyName, "`warden autopilot "+canonicalName,
-	)
-	cmd.Long = replacer.Replace(cmd.Long)
-	cmd.Example = replacer.Replace(cmd.Example)
-}
-
 func newAutopilotListCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "list", Short: "Compatibility alias for `autopilot status`", Args: cobra.NoArgs, RunE: runAutopilotStatus}
 	addJSONFlag(cmd, "emit the raw autopilot status as JSON")
@@ -391,40 +381,68 @@ func backoffSummary(b *client.AutopilotBackoff) string {
 	return out
 }
 
-// newAutopilotLandCmd is the canonical `warden autopilot land` command.
-func newAutopilotLandCmd() *cobra.Command {
-	cmd := newLandCmd()
-	rewriteAutopilotHelpPaths(cmd, "land", "land")
-	return cmd
+// landAdvice maps each land failure kind to a plain sentence and a next step.
+var landAdvice = map[string]string{
+	"not_found":     "no agent or branch matches that name. Next: check `wd autopilot status` or `wd ls` for the exact name.",
+	"not_owned":     "that branch exists but is not owned by an autopilot run, so autopilot will not merge it. Next: merge it yourself, or land a worker branch from `wd autopilot status`.",
+	"run_disabled":  "the owning autopilot run is paused or stopped. Next: resume it with `wd plan resume`, then land again.",
+	"wrong_base":    "the pull request does not target the run's integration branch. Next: retarget the PR to the integration branch and land again.",
+	"gate_pending":  "the merge gate has not finished yet. Next: wait for it, or check the PR's checks, then land again.",
+	"gate_red":      "the merge gate failed. Next: fix the failing checks on the worker branch, push, then land again.",
+	"ci_missing":    "the gate requires CI but the PR has no CI results. Next: make sure CI runs on the PR, or change the run's gate mode.",
+	"not_mergeable": "the pull request has conflicts with the integration branch. Next: sync the branch (`wd sync --base <integration-branch>`), push, then land again.",
 }
 
-// newLandCmd is the legacy top-level `warden land` compatibility wrapper.
-// merge of one autopilot worker branch into the integration branch (autopilot.md
-// §6). It mirrors the MCP `land` tool the brain uses.
-func newLandCmd() *cobra.Command {
+// landFailure turns a land precondition failure into the single error the CLI
+// prints: a plain sentence, a next step, and the daemon's detail when present.
+func landFailure(le *client.AutopilotLandError) error {
+	msg, ok := landAdvice[string(le.Kind)]
+	if !ok {
+		msg = "the daemon refused the merge."
+	}
+	out := fmt.Sprintf("not landed (%s): %s", le.Kind, msg)
+	if le.Detail != "" {
+		out += " Detail: " + le.Detail
+	}
+	return errors.New(out)
+}
+
+// newAutopilotLandCmd is `warden autopilot land`: the manual, gated merge of one
+// autopilot worker branch into the integration branch. It mirrors the MCP `land`
+// tool the brain uses.
+func newAutopilotLandCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "land <agent-or-branch>",
 		Short: "Land an autopilot worker branch into the integration branch",
 		Long: "Merges one autopilot worker branch into the integration branch. The daemon\n" +
 			"does this itself when a worker PR's gate is green; `land` is the manual\n" +
-			"fallback for an operator or manager, with the same preconditions. Runs every precondition (owning run active, branch\n" +
-			"autopilot-owned, a PR based on the integration branch, the resolved gate green\n" +
-			"for the PR head, and the PR mergeable), merges with the configured strategy,\n" +
-			"deletes the worker branch if configured, and records the landing. Idempotent:\n" +
-			"re-issuing after a merge reports already-landed with no second merge. On a\n" +
-			"precondition failure it prints the typed kind\n" +
-			"(gate_pending|gate_red|ci_missing|not_mergeable|not_owned|run_disabled|wrong_base).",
+			"fallback for an operator or manager, with the same preconditions.\n\n" +
+			"It checks that the owning run is active, the branch is autopilot-owned, a PR\n" +
+			"targets the integration branch, the gate is green for the PR head, and the PR\n" +
+			"is mergeable. It then merges with the configured strategy, deletes the worker\n" +
+			"branch if configured, and records the landing. Re-running after a merge\n" +
+			"reports already-landed without merging again.\n\n" +
+			"If a check fails, nothing is merged and one error names the reason:\n\n" +
+			"  not_found      no agent or branch matches the name\n" +
+			"  not_owned      the branch exists but no autopilot run owns it\n" +
+			"  run_disabled   the run is paused or stopped\n" +
+			"  wrong_base     the PR does not target the integration branch\n" +
+			"  gate_pending   the gate has not finished yet\n" +
+			"  gate_red       the gate failed\n" +
+			"  ci_missing     the gate needs CI but the PR has none\n" +
+			"  not_mergeable  the PR has conflicts",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			res, err := clientFor(cmd).Land(cmd.Context(), args[0])
 			if err != nil {
 				var le *client.AutopilotLandError
 				if errors.As(err, &le) {
-					fmt.Fprintf(cmd.ErrOrStderr(), "land failed: %s\n", le.Kind)
-					if le.Detail != "" {
-						fmt.Fprintf(cmd.ErrOrStderr(), "  %s\n", le.Detail)
+					if jsonRequested(cmd) {
+						if perr := printJSON(cmd.OutOrStdout(), map[string]any{"landed": false, "kind": le.Kind, "detail": le.Detail}); perr != nil {
+							return perr
+						}
 					}
-					return fmt.Errorf("not landed (%s)", le.Kind)
+					return landFailure(le)
 				}
 				return err
 			}

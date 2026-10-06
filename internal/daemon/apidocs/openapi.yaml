@@ -3481,7 +3481,7 @@ paths:
         run ledger. Idempotent: re-issuing after a merge (or an already-recorded
         head SHA) returns already_landed with no second merge. On a precondition
         failure it returns 409 with a typed `kind`
-        (gate_pending|gate_red|ci_missing|not_mergeable|not_owned|run_disabled|wrong_base)
+        (gate_pending|gate_red|ci_missing|not_mergeable|not_found|not_owned|run_disabled|wrong_base)
         and changes nothing.
       requestBody:
         required: true
@@ -6987,6 +6987,6 @@ components:
         error: { type: string }
         kind:
           type: string
-          enum: [gate_pending, gate_red, ci_missing, not_mergeable, not_owned, run_disabled, wrong_base]
+          enum: [gate_pending, gate_red, ci_missing, not_mergeable, not_found, not_owned, run_disabled, wrong_base]
         detail: { type: string }
       required: [error, kind]

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"net/http"
 	"strings"
 	"testing"
 )
@@ -132,5 +133,53 @@ func TestAutopilotStatusTableProgressAndRepoColumn(t *testing.T) {
 	out, _ = runCLI(t, addr, "autopilot", "status")
 	if strings.Contains(out, "REPO") {
 		t.Errorf("single-repo output must not have REPO column:\n%s", out)
+	}
+}
+
+func TestAutopilotLandFailureMessages(t *testing.T) {
+	wants := map[string][]string{
+		"not_found":     {"wd autopilot status", "wd ls"},
+		"not_owned":     {"not owned by an autopilot run"},
+		"run_disabled":  {"wd plan resume"},
+		"wrong_base":    {"integration branch"},
+		"gate_pending":  {"wait", "checks"},
+		"gate_red":      {"failing checks"},
+		"ci_missing":    {"CI"},
+		"not_mergeable": {"conflicts", "sync"},
+	}
+	for kind, subs := range wants {
+		addr := stubDaemon(t, func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"error":"x","kind":"` + kind + `","detail":"the-detail"}`))
+		})
+		out, err := runCLI(t, addr, "autopilot", "land", "w/x")
+		if err == nil {
+			t.Fatalf("%s: want error", kind)
+		}
+		msg := err.Error()
+		for _, want := range append(subs, "not landed ("+kind+")", "the-detail") {
+			if !strings.Contains(msg, want) {
+				t.Errorf("%s: error %q missing %q", kind, msg, want)
+			}
+		}
+		if strings.Contains(out, "land failed") {
+			t.Errorf("%s: duplicate stderr line: %q", kind, out)
+		}
+		out, err = runCLI(t, addr, "autopilot", "land", "w/x", "--json")
+		if err == nil {
+			t.Fatalf("%s --json: want error", kind)
+		}
+		var got map[string]any
+		if jerr := json.Unmarshal([]byte(out), &got); jerr != nil || got["kind"] != kind || got["detail"] != "the-detail" {
+			t.Errorf("%s --json: %v %q", kind, jerr, out)
+		}
+	}
+}
+
+func TestTopLevelLandRemoved(t *testing.T) {
+	for _, c := range newRootCmd().Commands() {
+		if c.Name() == "land" {
+			t.Fatal("top-level `land` command must not exist")
+		}
 	}
 }
