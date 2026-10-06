@@ -61,6 +61,7 @@ func TestCompatGitCheckToolsAndParams(t *testing.T) {
 	}
 	require.Equal(t, "boolean", mustType(t, got["push"], "force"))
 	require.Equal(t, "string", mustType(t, got["commit"], "message"))
+	require.Contains(t, got, "list_checks", "check listing has MCP parity")
 }
 
 func mustType(t *testing.T, tool *mcpsdk.Tool, prop string) string {

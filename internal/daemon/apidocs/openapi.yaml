@@ -2458,6 +2458,25 @@ paths:
               schema: { $ref: "#/components/schemas/SyncResult" }
 
   /api/v1/check:
+    get:
+      operationId: listChecks
+      tags: [Git]
+      summary: List the project's configured check commands
+      parameters:
+        - name: dir
+          in: query
+          schema: { type: string }
+        - name: session
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Configured checks in stable name order
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/CheckDefinition" }
     post:
       operationId: runCheck
       tags: [Git]
@@ -6370,6 +6389,17 @@ components:
         passed: { type: boolean }
         exit_code: { type: integer }
         output: { type: string }
+
+    CheckDefinition:
+      x-go-type: lifecycle.CheckDefinition
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/lifecycle
+        name: lifecycle
+      type: object
+      properties:
+        name: { type: string }
+        cmd: { type: string }
+        dir: { type: string }
 
     CheckResult:
       x-go-type: lifecycle.CheckResult

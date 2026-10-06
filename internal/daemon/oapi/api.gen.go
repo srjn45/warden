@@ -1065,6 +1065,9 @@ type CapacityDomain = backendusage.CapacityDomain
 // CapacityUsageSnapshot One durable provider capacity observation for a CapacityDomain. Only authoritative + fresh snapshots may force exhaustion / recovery.
 type CapacityUsageSnapshot = backendusage.UsageSnapshot
 
+// CheckDefinition defines model for CheckDefinition.
+type CheckDefinition = lifecycle.CheckDefinition
+
 // CheckOutcome defines model for CheckOutcome.
 type CheckOutcome struct {
 	Cmd      string `json:"cmd,omitempty"`
@@ -2376,6 +2379,12 @@ type PatchBackendJSONBody struct {
 	Tier *string `json:"tier,omitempty"`
 }
 
+// ListChecksParams defines parameters for ListChecks.
+type ListChecksParams struct {
+	Dir     string `form:"dir,omitempty" json:"dir,omitempty"`
+	Session string `form:"session,omitempty" json:"session,omitempty"`
+}
+
 // ListContextParams defines parameters for ListContext.
 type ListContextParams struct {
 	Prefix string `form:"prefix,omitempty" json:"prefix,omitempty"`
@@ -2952,6 +2961,9 @@ type ServerInterface interface {
 	// Server capability flags
 	// (GET /api/v1/capabilities)
 	GetCapabilities(w http.ResponseWriter, r *http.Request)
+	// List the project's configured check commands
+	// (GET /api/v1/check)
+	ListChecks(w http.ResponseWriter, r *http.Request, params ListChecksParams)
 	// Run the project's .warden/check.yml command(s)
 	// (POST /api/v1/check)
 	RunCheck(w http.ResponseWriter, r *http.Request)
@@ -3423,6 +3435,12 @@ func (_ Unimplemented) PatchBackend(w http.ResponseWriter, r *http.Request, id s
 // Server capability flags
 // (GET /api/v1/capabilities)
 func (_ Unimplemented) GetCapabilities(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List the project's configured check commands
+// (GET /api/v1/check)
+func (_ Unimplemented) ListChecks(w http.ResponseWriter, r *http.Request, params ListChecksParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -4494,6 +4512,58 @@ func (siw *ServerInterfaceWrapper) GetCapabilities(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetCapabilities(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListChecks operation middleware
+func (siw *ServerInterfaceWrapper) ListChecks(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListChecksParams
+
+	// ------------- Optional query parameter "dir" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "dir", r.URL.Query(), &params.Dir, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "dir"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "dir", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "session" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "session", r.URL.Query(), &params.Session, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "session"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "session", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListChecks(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -8757,6 +8827,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/api/v1/capabilities", wrapper.GetCapabilities)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/check", wrapper.ListChecks)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/check", wrapper.RunCheck)
 	})
 	r.Group(func(r chi.Router) {
@@ -9683,6 +9756,28 @@ type GetCapabilitiesResponseObject interface {
 type GetCapabilities200JSONResponse CapabilitiesResponse
 
 func (response GetCapabilities200JSONResponse) VisitGetCapabilitiesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListChecksRequestObject struct {
+	Params ListChecksParams
+}
+
+type ListChecksResponseObject interface {
+	VisitListChecksResponse(w http.ResponseWriter) error
+}
+
+type ListChecks200JSONResponse []CheckDefinition
+
+func (response ListChecks200JSONResponse) VisitListChecksResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -14880,6 +14975,9 @@ type StrictServerInterface interface {
 	// Server capability flags
 	// (GET /api/v1/capabilities)
 	GetCapabilities(ctx context.Context, request GetCapabilitiesRequestObject) (GetCapabilitiesResponseObject, error)
+	// List the project's configured check commands
+	// (GET /api/v1/check)
+	ListChecks(ctx context.Context, request ListChecksRequestObject) (ListChecksResponseObject, error)
 	// Run the project's .warden/check.yml command(s)
 	// (POST /api/v1/check)
 	RunCheck(ctx context.Context, request RunCheckRequestObject) (RunCheckResponseObject, error)
@@ -15700,6 +15798,32 @@ func (sh *strictHandler) GetCapabilities(w http.ResponseWriter, r *http.Request)
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetCapabilitiesResponseObject); ok {
 		if err := validResponse.VisitGetCapabilitiesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListChecks operation middleware
+func (sh *strictHandler) ListChecks(w http.ResponseWriter, r *http.Request, params ListChecksParams) {
+	var request ListChecksRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListChecks(ctx, request.(ListChecksRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListChecks")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListChecksResponseObject); ok {
+		if err := validResponse.VisitListChecksResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

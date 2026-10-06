@@ -298,6 +298,18 @@ func NewServer(daemonBase string) *Server {
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "list_checks",
+		Description: "List configured project checks without running them. Optional `dir` selects a same-repo linked worktree. Returns [{name,cmd,dir}] in stable name order.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a checkArgs) (*mcpsdk.CallToolResult, any, error) {
+		res, err := s.cl.ListChecks(ctx, sessionID(), mcpDir(a.Dir))
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		r, err := jsonResult(res)
+		return r, nil, err
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name: "get_agent",
 		Description: "Get full detail (status, events, worktree, backend recovery) for one agent. " +
 			"The `backend_recovery` field is non-null during automatic hard-limit recovery and contains: " +

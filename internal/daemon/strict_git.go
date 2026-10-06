@@ -171,6 +171,20 @@ func (s *Server) RunCheck(ctx context.Context, req oapi.RunCheckRequestObject) (
 	return oapi.RunCheck200JSONResponse(res), nil
 }
 
+// ListChecks implements GET /api/v1/check. It uses the same pinned worktree
+// resolution as a check run, but never executes configured commands.
+func (s *Server) ListChecks(ctx context.Context, req oapi.ListChecksRequestObject) (oapi.ListChecksResponseObject, error) {
+	dir, _, err := s.pinnedGitTarget(ctx, req.Params.Session, req.Params.Dir)
+	if err != nil {
+		return nil, err
+	}
+	checks, err := s.life.ListChecks(ctx, dir)
+	if err != nil {
+		return nil, errStatus(http.StatusUnprocessableEntity, err.Error())
+	}
+	return oapi.ListChecks200JSONResponse(checks), nil
+}
+
 // CreatePR implements POST /api/v1/sessions/{id}/create-pr. Idempotent: an
 // already-open PR comes back as a non-error result.
 func (s *Server) CreatePR(ctx context.Context, req oapi.CreatePRRequestObject) (oapi.CreatePRResponseObject, error) {
