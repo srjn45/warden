@@ -18,8 +18,7 @@ Commands:
   cancel               Cancel a pipeline (terminates running jobs)
   delete               Delete a pipeline's record (must not have live jobs — cancel first)
   emit                 Publish this job's handoff (run from inside a pipeline job)
-  edit-job             Edit a pending job's prompt and/or handoff
-  retry                Re-run a failed or needs-attention job (reopens skipped descendants)
+  job                  Inspect, edit and retry one job of a pipeline
 
 Flags:
   -h, --help   help for pipeline

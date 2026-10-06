@@ -98,8 +98,8 @@ Four bundled starters — `analyze-implement-review`, `parallel-tasks`,
 | Intent | Command |
 |---|---|
 | publish a job's handoff (an agent runs this itself when done; a lead can run it on a job's behalf) | `warden pipeline emit "<text>" [--pipeline <p> --job <j>]` (defaults from `$WARDEN_PIPELINE_ID`/`$WARDEN_JOB_ID`) |
-| tweak a *pending* job before it starts | `warden pipeline edit-job <p> <job> --prompt "…" --handoff "…"` |
-| re-run a failed / needs-attention job (reopens skipped descendants) | `warden pipeline retry <p> <job>` |
+| tweak a *pending* job before it starts | `warden pipeline job edit <p> <job> --prompt "…" --handoff "…"` |
+| re-run a failed / needs-attention job (reopens skipped descendants) | `warden pipeline job retry <p> <job>` |
 
 **Plan-bound pipelines** (`wd plan run --mode pipeline`): a canceled or stalled
 pipeline is reopened with `wd plan restart <plan-id> --yes` (MCP `restart_plan`),

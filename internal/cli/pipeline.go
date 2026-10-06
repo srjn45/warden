@@ -179,7 +179,7 @@ func newPipelineCmd() *cobra.Command {
 		newPipelineListCmd(), newPipelineShowCmd(),
 		newPipelineStartCmd(), newPipelinePauseCmd(), newPipelineResumeCmd(),
 		newPipelineCancelCmd(), newPipelineDeleteCmd(), newPipelineEmitCmd(),
-		newPipelineEditJobCmd(), newPipelineRetryCmd(),
+		newPipelineJobCmd(),
 	}
 	for i, child := range children {
 		SetCommandHelpMetadata(child, "run", (i+1)*10, "warden pipeline "+child.Name(), "", nodeKind(child))
@@ -725,51 +725,6 @@ func newPipelineEmitCmd() *cobra.Command {
 	cmd.Flags().String("pipeline", "", "pipeline id (defaults to $WARDEN_PIPELINE_ID)")
 	cmd.Flags().String("job", "", "job id (defaults to $WARDEN_JOB_ID)")
 	return cmd
-}
-
-func newPipelineEditJobCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "edit-job <pipeline> <job>",
-		Short: "Edit a pending job's prompt and/or handoff",
-		Args:  cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			var prompt, handoff *string
-			if cmd.Flags().Changed("prompt") {
-				v, _ := cmd.Flags().GetString("prompt")
-				prompt = &v
-			}
-			if cmd.Flags().Changed("handoff") {
-				v, _ := cmd.Flags().GetString("handoff")
-				handoff = &v
-			}
-			if prompt == nil && handoff == nil {
-				return fmt.Errorf("provide --prompt and/or --handoff")
-			}
-			if err := clientFor(cmd).PipelineEditJob(cmd.Context(), args[0], args[1], prompt, handoff); err != nil {
-				return err
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "edited %s/%s\n", args[0], args[1])
-			return nil
-		},
-	}
-	cmd.Flags().String("prompt", "", "new prompt for the job")
-	cmd.Flags().String("handoff", "", "new handoff hint for the job")
-	return cmd
-}
-
-func newPipelineRetryCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "retry <pipeline> <job>",
-		Short: "Re-run a failed or needs-attention job (reopens skipped descendants)",
-		Args:  cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := clientFor(cmd).PipelineRetry(cmd.Context(), args[0], args[1]); err != nil {
-				return err
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "retrying %s/%s\n", args[0], args[1])
-			return nil
-		},
-	}
 }
 
 // userJobs counts the jobs a spec author wrote, excluding those warden injects.

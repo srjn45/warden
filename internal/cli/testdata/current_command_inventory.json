@@ -2542,19 +2542,6 @@
     ]
   },
   {
-    "path": "pipeline edit-job",
-    "use": "edit-job \u003cpipeline\u003e \u003cjob\u003e",
-    "runnable": true,
-    "local_flags": [
-      "handoff",
-      "prompt"
-    ],
-    "inherited_flags": [
-      "addr",
-      "config"
-    ]
-  },
-  {
     "path": "pipeline emit",
     "use": "emit \u003ctext\u003e",
     "runnable": true,
@@ -2566,6 +2553,49 @@
       "addr",
       "config"
     ]
+  },
+  {
+    "path": "pipeline job",
+    "use": "job",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "pipeline job edit",
+    "use": "edit \u003cpipeline\u003e \u003cjob\u003e",
+    "runnable": true,
+    "local_flags": [
+      "handoff",
+      "prompt"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "pipeline job retry",
+    "use": "retry \u003cpipeline\u003e \u003cjob\u003e",
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "pipeline job show",
+    "use": "show \u003cpipeline\u003e \u003cjob\u003e",
+    "runnable": true,
+    "local_flags": [
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
   },
   {
     "path": "pipeline list",
@@ -2608,15 +2638,6 @@
   {
     "path": "pipeline resume",
     "use": "resume \u003cpipeline\u003e",
-    "runnable": true,
-    "inherited_flags": [
-      "addr",
-      "config"
-    ]
-  },
-  {
-    "path": "pipeline retry",
-    "use": "retry \u003cpipeline\u003e \u003cjob\u003e",
     "runnable": true,
     "inherited_flags": [
       "addr",

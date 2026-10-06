@@ -39,8 +39,10 @@ Complete command tree:
   warden pipeline cancel               Cancel a pipeline (terminates running jobs)
   warden pipeline delete               Delete a pipeline's record (must not have live jobs — cancel first)
   warden pipeline emit                 Publish this job's handoff (run from inside a pipeline job)
-  warden pipeline edit-job             Edit a pending job's prompt and/or handoff
-  warden pipeline retry                Re-run a failed or needs-attention job (reopens skipped descendants)
+  warden pipeline job                  Inspect, edit and retry one job of a pipeline
+  warden pipeline job show             Show everything about one job
+  warden pipeline job edit             Edit the prompt and/or handoff of a job that has not started
+  warden pipeline job retry            Re-run a failed or needs-attention job (reopens skipped descendants)
   warden plan                          Manage plans tracked by the daemon
   warden plan list                     List plans for a project
   warden plan create                   Create a canonical plan in ScrivaDB

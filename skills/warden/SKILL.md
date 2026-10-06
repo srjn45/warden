@@ -137,7 +137,7 @@ multi-phase task as one long-lived plain agent (decompose into stages).
 - **MCP tools and the CLI wrap the same daemon REST API** (81 MCP tools), so prefer
   MCP and fall back to CLI only when MCP is blocked (see above). **Every fleet/data
   feature is reachable from MCP *and* CLI** — pipelines (all verbs incl.
-  pause/resume/retry/edit-job/emit/delete/validate/templates), schedules
+  pause/resume/job show|edit|retry/emit/delete/validate/templates), schedules
   (create/list/delete), git/check lifecycle, snapshots, ctx/msg, approvals +
   auto-approve + permission-mode, branches/collab, insights, savings, metrics,
   search/history, audit log, worktree list/prune, plugins, export/import,
