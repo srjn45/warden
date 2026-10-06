@@ -4,7 +4,7 @@ The authoritative inventory of **every** warden capability and where you can dri
 it. warden exposes its features across five surfaces:
 
 - **CLI** — the `warden` binary (aliased `wd`); always available.
-- **MCP** — structured tools for an orchestrating agent (`warden mcp`); **81 tools**.
+- **MCP** — structured tools for an orchestrating agent (`warden mcp`).
 - **Skill** — the `/warden` Claude Code skill that prefers MCP, falls back to CLI.
 - **Web** — the browser mission-control GUI (`warden daemon` + the web app).
 - **TUI** — the terminal cockpit (`warden tui`).
@@ -311,12 +311,12 @@ and lands them into an integration branch, without waiting on a human.
 |---|---|---|---|---|---|---|
 | Start autopilot — no enable step; `plan run --mode autopilot` starts the run | `plan run <id> --mode autopilot` | `run_plan` | ✓ | — | — | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
 | Pause a run | `plan pause <id>` | `control_plan` | ✓ | AttentionBar button | header badge | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
-| Status (run state, manager id, task counts, tier, backoff; absorbs the old run-list columns; hidden aliases `autopilot run list`/`list`) | `autopilot status [--json]` | `autopilot_status` | ✓ | AutopilotPanel | TUI header badge | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
+| Status (aligned all-runs table: RUN NAME STATE PLAN GATE BRANCH PROGRESS; `--json` is the raw API result) | `autopilot status [--json]` | `autopilot_status` | ✓ | AutopilotPanel | TUI header badge | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
 | Live status of one running plan (executor state, backoff, integration branch, per-task worker/PR) | `plan show <id> --watch` | `get_plan` | ✓ | — | — | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
 | Start / control plan execution | `plan run\|pause\|resume\|stop` | `run_plan` / `control_plan` | ✓ | AutopilotPanel | run nodes (`r`/`x`) | [plans](https://srjn45.github.io/warden/concepts/plans/) |
 | Restart a stopped/parked/stuck autopilot or pipeline plan with a fresh agent set + restart context (**destructive**; `--yes`, `--force` for a healthy executor) | `plan restart <id> [--force] [--backend <id>] [--yes]` | `restart_plan` | ✓ | — | — | [recovering a stuck plan](https://srjn45.github.io/warden/guides/autopilot/#recovering-a-stuck-plan) |
 | Progress watchdog (no progress + nothing working for `progress_watchdog_window` → heal ladder → park `no_progress`) | config (`autopilot.guardian.progress_watchdog_enabled` / `_window`) | automatic | ✓ | — | — | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |
-| Land a worker branch into the integration branch (idempotent, guarded) | `land <agent-or-branch>` | `land` | ✓ | — | — | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
+| Land a worker branch into the integration branch (idempotent, guarded; failure kinds include `not_found`) | `autopilot land <agent-or-branch>` | `land` | ✓ | — | — | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
 | Declare the run done (opens the final PR; the in-place `status: complete` marker is written once it is merged; preflight skips it) | automatic (manager) | `autopilot_complete` | ✓ | — | — | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |
 | Ad-hoc brain consult from manager (shared `Consultor` with pipeline stuck recovery; short-lived `role=brain` spawn + teardown + audit; closed action enum) | automatic (manager) | `brain_consult` | ✓ | — | — | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |
 | Topology: manager (role `autopilot`) + worker (role `worker`) + on-demand resolver (role `brain`), tagged `autopilot`+`run:<id>` | automatic | automatic | ✓ | fleet list | TUI sub-tree | [concepts/autopilot](https://srjn45.github.io/warden/concepts/autopilot/) |

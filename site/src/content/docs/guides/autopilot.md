@@ -1,6 +1,6 @@
 ---
 title: Autopilot — autonomous agent runs
-description: Adoption walkthrough — init, cost-tier config, plan run/pause, landing branches, and how to stay safe running agents unattended.
+description: Adoption walkthrough — create a plan, run it in autopilot mode, watch status, land worker branches, and how to stay safe running agents unattended.
 ---
 
 import { Aside } from '@astrojs/starlight/components';
@@ -8,10 +8,9 @@ import { Aside } from '@astrojs/starlight/components';
 <Aside type="caution" title="Unattended operation is inherently risky">
 Start a plan with `warden plan run <id> --mode autopilot` — there is no
 separate enable step. A **manager** agent then drives a fleet of
-worker agents.
-**without waiting for human input**. Workers write code, open PRs, and merge
-branches into the integration branch — autonomously. You should understand the
-mitigations before enabling:
+worker agents without waiting for human input. Workers write code and open
+PRs; the daemon lands them into the integration branch. You should understand
+the mitigations before starting:
 
 - **Pause switch:** `warden plan pause <id>` stops new spawns and landings
   immediately (in-flight workers keep running). Use it any time you need to
@@ -55,7 +54,7 @@ guardian, cost-tier ladder — see [Autopilot concepts](../concepts/autopilot).
 
 ## Prerequisites
 
-Before enabling autopilot, make sure:
+Before starting autopilot, make sure:
 
 - `warden daemon` is running and healthy (`warden doctor`)
 - At least one agent backend is authenticated (`claude --version` for the default
@@ -96,16 +95,18 @@ on:
       - autopilot/**
 ```
 
-Commit `plans/<name>.yaml` to your repo so the manager can read it from its
-worktree.
+Unknown subcommands now error: `wd autopilot bogus` exits non-zero with an
+unknown-command message (and a suggestion when the name is close). Bare
+`wd autopilot` still prints help and exits 0.
 
 ---
 
-## Step 2 — edit your plan file
+## Step 2 — add tasks while the plan is pending
 
-Open `plans/notifications.yaml` and fill in the goal. The manager decomposes the goal
-into tasks automatically if you leave the `tasks:` list empty. Or provide coarse
-tasks yourself to guide decomposition:
+Create the plan with `warden plan create` (or `warden plan update` / `warden plan task`
+while it is still `pending`). A running plan's definition cannot be edited.
+The manager decomposes the goal into tasks if you leave the list empty; or
+provide coarse tasks yourself:
 
 ```yaml
 version: 1
@@ -124,8 +125,8 @@ tasks:
     after: [ui]
 ```
 
-The plan file is **owner-editable mid-flight** — the manager re-reads it on each
-planning tick. You can add tasks or change constraints while a run is active.
+The plan file is **owner-editable while pending** — a running plan's definition
+cannot be edited.
 
 ---
 
@@ -236,8 +237,7 @@ run status and `wd plan show`. Switch it off with
 The TUI cockpit (`warden tui`) shows each run as a **plan-scoped tree** — manager
 (`<scope>-autopilot`), guardian (`<scope>-guardian`), plan checklist, and workers
 grouped by ledger state. The web dashboard shows an **Autopilot** panel when a run
-is active. The TUI header has a status badge (press `ctrl+a` to toggle autopilot
-on/off without leaving the cockpit).
+is active.
 
 ---
 
@@ -329,11 +329,21 @@ warden autopilot land <branch-name>        # land by branch name
 ```
 
 The land operation is **idempotent** — landing the same branch twice is a no-op.
-It fails with an error if:
+A failure prints **one** message (plain sentence + next step, plus the daemon's
+detail when present) and exits non-zero. `--json` emits `{kind, detail}`.
 
-- The branch is not autopilot-owned (ownership guard)
-- The configured gate is not green (`--gate-mode=local` bypasses CI and uses the
-  local `.warden/check.yml` checks instead)
+| Kind | Meaning | Next step |
+|---|---|---|
+| `not_found` | Nothing matches that agent or branch | `wd autopilot status` / `wd ls` |
+| `not_owned` | The branch exists but is not owned by an autopilot run | Check the run owns it |
+| `run_disabled` | The run is paused or stopped | `wd plan resume` |
+| `wrong_base` | The PR does not target the integration branch | Retarget the PR |
+| `gate_pending` | Checks are still running | Wait, or see the PR checks |
+| `gate_red` | Checks failed | Fix the PR |
+| `ci_missing` | No CI covers the branch | Add `autopilot/**` to workflow branches, or use local gate |
+| `not_mergeable` | Conflicts | Sync the branch |
+
+There is no top-level `wd land`; only `wd autopilot land`.
 
 Over MCP: `land { ticket: "<agent-or-branch>" }`.
 

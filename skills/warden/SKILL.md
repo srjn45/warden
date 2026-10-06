@@ -342,7 +342,7 @@ checklist enum, not ledger states.
   to run again.
 - **Per-plan integration branches.** New runs default to `autopilot/<plan-name>`.
   Workers must open PRs against the branch in the manager digest / status API /
-  ledger — never guess. Wrong PR base fails land with `ErrWrongBase`. Add
+  ledger — never guess. Wrong PR base fails land with `wrong_base`. Add
   `autopilot/**` to CI workflow `pull_request` triggers so `gate: auto` covers
   every per-plan branch (listing only `autopilot/integration` does not).
 - **Config is hot-reloaded.** Edits to `~/.warden/config.yaml` — including the

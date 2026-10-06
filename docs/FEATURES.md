@@ -1388,7 +1388,10 @@ There is no per-repo enable switch. Flow: `wd plan create`  → `wd plan run <id
 integration branch, per-task worker/PR). `warden autopilot status [--json]` lists
 every run and now includes the old run-list columns. The plan/manager/merge
 **template** stays global in the `autopilot` config block. `autopilot init` and the old
-lifecycle aliases were removed.
+lifecycle aliases were removed. Unknown subcommands now error (`wd autopilot bogus`
+exits non-zero). `wd autopilot status` prints an aligned all-runs table; `wd plan show
+<id> --watch` is the view for one plan. `wd plan run` prints preflight warnings,
+including the CI-coverage hint (`autopilot/**` under `on.pull_request.branches`).
 
 Removed commands (typing one prints its replacement):
 
