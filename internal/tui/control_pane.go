@@ -980,22 +980,11 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.autopilot = msg.status
 		}
 		return m, nil
-	case autopilotToggleDoneMsg:
-		if msg.err == nil {
-			m.autopilot = msg.status
-		} else {
-			m.status = "autopilot: " + msg.err.Error()
-		}
-		return m, nil
 	case autopilotRunActionMsg:
 		if msg.err != nil {
 			m.status = "autopilot " + msg.action + ": " + msg.err.Error()
 		} else {
-			pastTense := map[string]string{
-				"register": "registered", "unregister": "unregistered",
-				"start": "started", "stop": "stopped",
-				"rename": "renamed", "retarget": "retargeted",
-			}
+			pastTense := map[string]string{"stop": "stopped"}
 			verb := pastTense[msg.action]
 			if verb == "" {
 				verb = msg.action + "d"
@@ -2044,9 +2033,6 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = modeConfirmUpdate
 			return m, nil
 		}
-	case "ctrl+a":
-		// Toggle autopilot on/off. The result message updates m.autopilot.
-		return m, autopilotToggleCmd(m.api, !m.autopilot.Live())
 	case "S":
 		m.showSystemAgents = !m.showSystemAgents
 		if m.showSystemAgents {
@@ -2363,8 +2349,12 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		it := itemAt(m.items(), m.cursor)
 		switch {
 		case it.apRun != nil:
+			if it.apRun.PlanID == "" {
+				m.status = it.apRun.Name + " has no plan to stop"
+				return m, nil
+			}
 			m.status = "stopping " + it.apRun.Name
-			return m, autopilotRunActionCmd(m.api, it.apRun.RunID, "stop")
+			return m, autopilotRunActionCmd(m.api, it.apRun.RunID, it.apRun.PlanID, "stop")
 		case it.projHdr != nil:
 			return m.closeProjectFromHeader(it.projHdr)
 		case it.pipeline != nil:
@@ -2411,8 +2401,12 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if it.apRun.State != "paused" {
 				action = "pause"
 			}
+			if it.apRun.PlanID == "" {
+				m.status = it.apRun.Name + " has no plan to " + action
+				return m, nil
+			}
 			m.status = action + " " + it.apRun.Name
-			return m, autopilotRunActionCmd(m.api, it.apRun.RunID, action)
+			return m, autopilotRunActionCmd(m.api, it.apRun.RunID, it.apRun.PlanID, action)
 		}
 		if it.pjJob != nil && (it.pjJob.Status == pipeline.JobFailed || it.pjJob.Status == pipeline.JobNeedsAttention) {
 			m.status = "retrying " + it.pjPipe + "/" + it.pjJob.ID

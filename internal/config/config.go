@@ -1218,7 +1218,7 @@ func warnDeprecatedAutopilotBackends(mapping *yaml.Node) {
 	autopilotNode := nestedMapping(mapping, "autopilot")
 	if autopilotNode != nil {
 		if v := findValue(autopilotNode, "plans"); v != nil && v.Kind == yaml.SequenceNode && len(v.Content) > 0 {
-			slog.Warn("config: deprecated key autopilot.plans — plans are migrated into each repository's plans/ directory and registered in the daemon store; run `warden autopilot register <plan>` for new plans, then remove this key",
+			slog.Warn("config: deprecated key autopilot.plans — plans are migrated into each repository's plans/ directory and registered in the daemon store; create new plans with `warden plan create`, then remove this key",
 				"key", "autopilot.plans")
 		}
 	}
@@ -1869,7 +1869,7 @@ func durOr(s string, def time.Duration) time.Duration {
 // ---------------------------------------------------------------------------
 
 // GetAutopilotEnabled reports the persisted master-switch value. The live toggle
-// is driven through the daemon Controller (POST /autopilot); this is the on-disk
+// is driven through the daemon Controller; this is the on-disk
 // default the daemon starts from.
 func (c Config) GetAutopilotEnabled() bool { return c.Autopilot.Enabled }
 

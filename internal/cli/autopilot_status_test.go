@@ -34,40 +34,6 @@ func TestAutopilotStatusShowsRunColumns(t *testing.T) {
 	}
 }
 
-// TestAutopilotHiddenRunAliasesMatchStatus covers the hidden compatibility
-// aliases (`autopilot run`, `autopilot run list`, `autopilot list`).
-func TestAutopilotHiddenRunAliasesMatchStatus(t *testing.T) {
-	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"GET /api/v1/autopilot": autopilotStatusBody,
-	}, map[string]string{}, map[string]string{}))
-	want, err := runCLI(t, addr, "autopilot", "status")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, args := range [][]string{{"autopilot", "run"}, {"autopilot", "run", "list"}, {"autopilot", "list"}} {
-		got, err := runCLI(t, addr, args...)
-		if err != nil {
-			t.Fatalf("%v: %v", args, err)
-		}
-		if got != want {
-			t.Errorf("%v output differs from status:\n%s\nvs\n%s", args, got, want)
-		}
-		cmd := findExactCommand(t, newRootCmd(), strings.Join(args, " "))
-		if !cmd.Hidden {
-			t.Errorf("%v should be hidden", args)
-		}
-	}
-	help, err := executeHelp(t, "help", "--all")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, p := range []string{"autopilot run", "autopilot list"} {
-		if !strings.Contains(help, p) {
-			t.Errorf("help --all missing hidden alias %q", p)
-		}
-	}
-}
-
 func TestAutopilotStatusAndLandJSON(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
 		"GET /api/v1/autopilot":       autopilotStatusBody,

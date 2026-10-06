@@ -2636,16 +2636,19 @@ warden autopilot status
 warden autopilot status --json
 ```
 
-### Deprecated compatibility commands
+### Removed compatibility commands
 
-These are hidden and kept for one release:
+The old autopilot lifecycle commands are gone. Typing one prints its replacement:
 
-| Command | Behaviour |
+| Removed | Use instead |
 |---|---|
-| `autopilot enable` / `on` | no-op + deprecation notice pointing at `plan run --mode autopilot` |
-| `autopilot disable` / `off` | pauses every active run in the repo (same as `plan pause` on each) + notice; `--repo <root>` targets another repo |
-| `autopilot run list` / `autopilot list` | aliases of `autopilot status` |
-| MCP `set_autopilot` / REST | `enabled: true` no-op; `enabled: false` pauses the repo's runs |
+| `autopilot enable` / `on` / `register` / `start` | `plan run <id> --mode autopilot` |
+| `autopilot disable` / `off` / `pause` | `plan pause` |
+| `autopilot resume` | `plan resume` |
+| `autopilot stop` / `unregister` | `plan stop` |
+| `autopilot list` / `run` / `run list` | `autopilot status` |
+
+The MCP tools `set_autopilot`, `register_autopilot_run`, `control_autopilot_run`, `retarget_autopilot_run`, `rename_autopilot_run` and `list_autopilot_runs` were removed as well; use `run_plan`, `control_plan`, `list_plans` and `autopilot_status`.
 
 ### Run completion
 

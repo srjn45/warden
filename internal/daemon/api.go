@@ -292,7 +292,7 @@ type Server struct {
 	autoApprovePersist func(approval.Policy) error
 	// autopilot is the autopilot master switch + per-plan run registry (S1). nil ⇒
 	// the feature is unconfigured; GET /autopilot then reports disabled/empty and
-	// POST /autopilot returns 403. See strict_autopilot.go / internal/autopilot.
+	// the autopilot routes return 403. See strict_autopilot.go / internal/autopilot.
 	autopilot *autopilot.Controller
 	// brainConsultor is the shared need-based brain Consultor (spec
 	// 2026-09-27-brain-consult.md). nil ⇒ feature off (pipeline stuck recovery
@@ -328,8 +328,8 @@ type Server struct {
 
 // SetAutopilotController wires the autopilot Controller (docs/specs/autopilot.md).
 // A nil controller leaves the feature unconfigured (GET reports disabled, POST
-// returns 403). Named to avoid colliding with the generated SetAutopilot strict
-// handler (POST /autopilot). It also injects the daemon-backed Runtime so that
+// returns 403). Named to avoid colliding with a generated strict
+// handler. It also injects the daemon-backed Runtime so that
 // enabling a run spawns a real headless brain (S3): the brain lifecycle, the
 // ctx-store ledger, the recovery digest sources, and owner notifications.
 func (s *Server) SetAutopilotController(c *autopilot.Controller) {

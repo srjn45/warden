@@ -183,11 +183,9 @@ warden plan resume <plan-id>
 warden plan stop <plan-id>
 ```
 
-> **Deprecated:** `warden autopilot enable` / `on` are hidden no-ops that print a
-> deprecation notice pointing at `warden plan run --mode autopilot`.
-> `warden autopilot register`, `unregister`, `retarget`, and plan-file-based
-> `autopilot run start` translate to a PlanID where safe or return a precise
-> migration error.  `autopilot init` was removed; use `warden plan create`.
+> **Removed:** `warden autopilot enable|on|register|start|disable|off|pause|resume|stop|unregister|list|run`
+> no longer exist; typing one prints the `warden plan` replacement. `autopilot init`
+> was removed too; use `warden plan create`.
 
 ---
 
@@ -400,12 +398,9 @@ always belongs to the operator.
 
 ```sh
 warden plan pause <plan-id>     # pause one run
-warden autopilot disable        # deprecated: pause every active run in this repo
 ```
 
-`warden plan pause` is the supported control. `warden autopilot disable` (alias
-`off`, hidden, deprecated; `--repo <root>` to target another repo) is equivalent
-to `plan pause` on each active run in the repo and prints a deprecation notice.
+`warden plan pause` is the supported control.
 Effective immediately:
 
 - The Controller stops spawning new workers and landing new branches
@@ -425,16 +420,12 @@ is heading in the wrong direction.
 | `warden plan pause\|resume\|stop <id>` | Control an in-progress plan's executor |
 | `warden plan show <id> --watch` | Live status of a running plan: executor state, backoff, integration branch, per-task worker/PR |
 | `warden autopilot status [--json]` | Every run's state, manager slot id, integration branch, task summary (includes the former run-list columns) |
-| `warden autopilot enable\|on` | Deprecated, hidden no-op with a notice pointing at `plan run --mode autopilot` |
-| `warden autopilot disable\|off` | Deprecated, hidden; pauses every active run in the repo (like `plan pause`) |
-| `warden autopilot run list` / `autopilot list` | Hidden aliases of `autopilot status` |
 | `warden autopilot land <agent-or-branch>` | Land a worker branch into the integration branch |
 
 ## MCP tools
 
 | Tool | What it does |
 |---|---|
-| `set_autopilot { enabled, repo? }` | **Deprecated.** `enabled: true` is a no-op; `enabled: false` pauses the repo's active runs. Use `run_plan` / `control_plan` |
 | `run_plan { plan_id, execution_mode }` | Start plan execution |
 | `control_plan { plan_id, action }` | Pause, resume, or stop an in-progress plan |
 | `autopilot_status` | Return each run's state, manager id, task counts |

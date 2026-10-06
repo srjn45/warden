@@ -174,83 +174,6 @@
     ]
   },
   {
-    "path": "autopilot list",
-    "use": "list",
-    "runnable": true,
-    "inherited_flags": [
-      "addr",
-      "config"
-    ],
-    "json": true,
-    "local_flags": [
-      "json"
-    ]
-  },
-  {
-    "path": "autopilot off",
-    "use": "off",
-    "runnable": true,
-    "local_flags": [
-      "repo"
-    ],
-    "inherited_flags": [
-      "addr",
-      "config"
-    ]
-  },
-  {
-    "path": "autopilot on",
-    "use": "on",
-    "runnable": true,
-    "local_flags": [
-      "repo"
-    ],
-    "inherited_flags": [
-      "addr",
-      "config"
-    ]
-  },
-  {
-    "path": "autopilot pause",
-    "use": "pause <run-id-or-name>",
-    "runnable": true,
-    "inherited_flags": [
-      "addr",
-      "config"
-    ]
-  },
-  {
-    "path": "autopilot register",
-    "use": "register <plan-file>",
-    "runnable": true,
-    "local_flags": [
-      "name",
-      "repo"
-    ],
-    "inherited_flags": [
-      "addr",
-      "config"
-    ]
-  },
-  {
-    "path": "autopilot resume",
-    "use": "resume <run-id-or-name>",
-    "runnable": true,
-    "inherited_flags": [
-      "addr",
-      "config"
-    ]
-  },
-  {
-    "path": "autopilot start",
-    "use": "start <run-id-or-name>",
-    "runnable": true,
-    "inherited_flags": [
-      "addr",
-      "config"
-    ]
-  },
-  {
     "path": "autopilot status",
     "use": "status",
     "runnable": true,
@@ -261,24 +184,6 @@
     "json": true,
     "local_flags": [
       "json"
-    ]
-  },
-  {
-    "path": "autopilot stop",
-    "use": "stop <run-id-or-name>",
-    "runnable": true,
-    "inherited_flags": [
-      "addr",
-      "config"
-    ]
-  },
-  {
-    "path": "autopilot unregister",
-    "use": "unregister <run-id-or-name>",
-    "runnable": true,
-    "inherited_flags": [
-      "addr",
-      "config"
     ]
   },
   {

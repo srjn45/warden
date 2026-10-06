@@ -1,150 +1,20 @@
 package daemon
 
 import (
-	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/autopilotstore"
-	"github.com/srjn45/warden/internal/daemon/oapi"
 	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/projectstore"
 )
-
-func TestEnableDoesNotRegisterWork(t *testing.T) {
-	dir := t.TempDir()
-	plan := filepath.Join(dir, "plans", "pending", "ship.yaml")
-	require.NoError(t, os.MkdirAll(filepath.Dir(plan), 0o755))
-	require.NoError(t, os.WriteFile(plan, []byte("version: 1\nname: ship\ngoal: go\ntasks:\n  - id: t1\n    prompt: do\n"), 0o644))
-
-	c := autopilot.NewController(autopilot.ControllerConfig{
-		Plans:             []string{plan},
-		BaseDir:           dir,
-		IntegrationBranch: "autopilot/integration",
-		Resolver:          autopilotTestResolver{},
-	}, &apFakeEnv{repo: dir})
-	srv := &Server{store: newFakeStore(), life: &fakeLife{}, hub: newHub(), done: make(chan struct{})}
-	srv.SetAutopilotController(c)
-	ts := httptest.NewServer(srv.router())
-	t.Cleanup(ts.Close)
-
-	var stResp oapi.AutopilotStatus
-	code := apPostJSON(t, ts.URL+"/api/v1/autopilot", `{"enabled":true,"repo":"`+dir+`"}`, &stResp)
-	require.Equal(t, http.StatusOK, code)
-
-	st := c.Status()
-	require.Empty(t, st.Runs, "enable must not register or start Autopilot work")
-	require.Empty(t, stResp.Runs)
-}
-
-func TestDeprecatedRegisterReturnsMigrationWithPlanID(t *testing.T) {
-	root := t.TempDir()
-	ps, err := planstore.New(t.TempDir())
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ps.Close() })
-
-	svc := planstore.NewPlanService(ps, planstore.WithProjectRoot(func(string) string { return root }))
-	p, err := svc.Create(context.Background(), root, planstore.CreateRequest{
-		Name:  "ship",
-		Goal:  "go",
-		Tasks: []planstore.TaskSpec{{ID: "t1", Prompt: "do"}},
-	})
-	require.NoError(t, err)
-
-	// Last-export path metadata only — replica is inert for PlanService, but the
-	// deprecated register endpoint still resolves plan_file → plan_id.
-	rel := filepath.Join("plans", "pending", "ship.yaml")
-	abs := filepath.Join(root, rel)
-	require.NoError(t, os.MkdirAll(filepath.Dir(abs), 0o755))
-	require.NoError(t, os.WriteFile(abs, []byte("version: 1\nname: ship\ngoal: go\ntasks:\n  - id: t1\n    prompt: do\n"), 0o644))
-	require.NoError(t, ps.Update(context.Background(), p.ID, func(pl *planstore.Plan) error {
-		pl.FilePath = rel
-		return nil
-	}))
-
-	c := autopilot.NewController(autopilot.ControllerConfig{
-		BaseDir:           root,
-		IntegrationBranch: "autopilot/integration",
-		Resolver:          autopilotTestResolver{},
-	}, &apFakeEnv{repo: root})
-	srv := &Server{store: newFakeStore(), life: &fakeLife{}, hub: newHub(), done: make(chan struct{}), plans: ps}
-	srv.SetAutopilotController(c)
-	ts := httptest.NewServer(srv.router())
-	t.Cleanup(ts.Close)
-
-	var body oapi.Error
-	code := apPostJSON(t, ts.URL+"/api/v1/autopilot/runs",
-		`{"plan_file":"`+abs+`","name":"ship","repo":"`+root+`"}`, &body)
-	require.Equal(t, http.StatusGone, code)
-	require.Contains(t, body.Error, p.ID)
-	require.Contains(t, body.Error, "/run")
-}
-
-func TestDeprecatedRegisterWithoutPlanIDReturnsPreciseError(t *testing.T) {
-	dir := t.TempDir()
-	orphan := filepath.Join(dir, "orphan.yaml")
-	require.NoError(t, os.WriteFile(orphan, []byte("version: 1\ngoal: x\n"), 0o644))
-
-	ps, err := planstore.New(t.TempDir())
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ps.Close() })
-
-	c := autopilot.NewController(autopilot.ControllerConfig{
-		BaseDir:  dir,
-		Resolver: autopilotTestResolver{},
-	}, &apFakeEnv{repo: dir})
-	srv := &Server{store: newFakeStore(), life: &fakeLife{}, hub: newHub(), done: make(chan struct{}), plans: ps}
-	srv.SetAutopilotController(c)
-	ts := httptest.NewServer(srv.router())
-	t.Cleanup(ts.Close)
-
-	var body oapi.Error
-	code := apPostJSON(t, ts.URL+"/api/v1/autopilot/runs",
-		`{"plan_file":"`+orphan+`","name":"orphan","repo":"`+dir+`"}`, &body)
-	require.Equal(t, http.StatusBadRequest, code)
-	require.Contains(t, body.Error, "cannot resolve PlanID")
-	require.Contains(t, body.Error, "wd plan scan")
-}
-
-func TestDeprecatedRetargetReturnsMigrationError(t *testing.T) {
-	dir := t.TempDir()
-	plan := filepath.Join(dir, "ship.yaml")
-	require.NoError(t, os.WriteFile(plan, []byte("version: 1\ngoal: ship\n"), 0o644))
-
-	ps, err := planstore.New(t.TempDir())
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ps.Close() })
-
-	c := autopilot.NewController(autopilot.ControllerConfig{
-		BaseDir:  dir,
-		Resolver: autopilotTestResolver{},
-	}, &apFakeEnv{repo: dir})
-	srv := &Server{store: newFakeStore(), life: &fakeLife{}, hub: newHub(), done: make(chan struct{}), plans: ps}
-	srv.SetAutopilotController(c)
-
-	r, err := c.Register(context.Background(), autopilot.RegisterRequest{
-		Name: "ship", Repo: dir, PlanFile: plan, PlanID: "plan-aabbccdd",
-	})
-	require.NoError(t, err)
-
-	ts := httptest.NewServer(srv.router())
-	t.Cleanup(ts.Close)
-
-	var body oapi.Error
-	code := apPostJSON(t, ts.URL+"/api/v1/autopilot/runs/"+r.RunID+"/retarget",
-		`{"derive":true}`, &body)
-	require.Equal(t, http.StatusGone, code)
-	require.Contains(t, body.Error, "retarget is retired")
-	require.Contains(t, body.Error, "plan-aabbccdd")
-}
 
 func TestControlPlanPauseResumeStopAutopilot(t *testing.T) {
 	root := t.TempDir()
@@ -200,42 +70,51 @@ func TestControlPlanPauseResumeStopAutopilot(t *testing.T) {
 	}
 }
 
-func TestDeprecatedControlPauseTranslatesToPlanControl(t *testing.T) {
+// TestRetiredAutopilotAliasRoutesAreGone pins the removal of the deprecated
+// write aliases: plan execution is driven only through /plans/{plan_id}/....
+// GET /api/v1/autopilot remains the status surface.
+func TestRetiredAutopilotAliasRoutesAreGone(t *testing.T) {
 	dir := t.TempDir()
-	plan := filepath.Join(dir, "ship.yaml")
-	require.NoError(t, os.WriteFile(plan, []byte("version: 1\ngoal: ship\n"), 0o644))
-
-	ps, err := planstore.New(t.TempDir())
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ps.Close() })
-
 	c := autopilot.NewController(autopilot.ControllerConfig{
 		BaseDir:  dir,
 		Resolver: autopilotTestResolver{},
 	}, &apFakeEnv{repo: dir})
-	srv := &Server{store: newFakeStore(), life: &fakeLife{}, hub: newHub(), done: make(chan struct{}), plans: ps}
+	srv := &Server{store: newFakeStore(), life: &fakeLife{}, hub: newHub(), done: make(chan struct{})}
 	srv.SetAutopilotController(c)
-
-	planID := "plan-translat1"
-	// The plan store is canonical for plan-bound runs: the definition must exist
-	// before the run is started or recovered.
-	require.NoError(t, ps.Create(context.Background(), &planstore.Plan{
-		ID: planID, ProjectID: dir, Name: "ship",
-		FilePath: "ship.yaml", Status: planstore.PlanStatusInProgress,
-		AutopilotRunID: autopilot.RunID(dir, plan), ExecutionMode: planstore.PlanModeAutopilot,
-	}))
-	r, err := c.Register(context.Background(), autopilot.RegisterRequest{
-		Name: "ship", Repo: dir, PlanFile: plan, PlanID: planID,
-	})
-	require.NoError(t, err)
-	_, err = c.StartRun(context.Background(), r.RunID)
-	require.NoError(t, err)
-
 	ts := httptest.NewServer(srv.router())
 	t.Cleanup(ts.Close)
 
-	var out autopilot.RunStatus
-	code := apPostJSON(t, ts.URL+"/api/v1/autopilot/runs/"+r.RunID+"/pause", `{}`, &out)
-	require.Equal(t, http.StatusOK, code)
-	require.Equal(t, autopilot.StatePaused, out.State)
+	// Status GET stays.
+	var st autopilot.Status
+	apGetJSON(t, ts.URL+"/api/v1/autopilot", &st)
+	require.Empty(t, st.Runs)
+
+	// Retired write/list aliases must not be JSON API handlers. POSTs get
+	// 404/405 from chi; the retired GET falls through to the SPA catch-all
+	// (non-JSON 200) because nothing under /api/v1/autopilot/runs is registered.
+	for _, tc := range []struct{ method, path string }{
+		{http.MethodPost, "/api/v1/autopilot"},
+		{http.MethodPost, "/api/v1/autopilot/runs"},
+		{http.MethodPost, "/api/v1/autopilot/runs/ap-x/start"},
+		{http.MethodPost, "/api/v1/autopilot/runs/ap-x/pause"},
+		{http.MethodPost, "/api/v1/autopilot/runs/ap-x/unregister"},
+		{http.MethodPost, "/api/v1/autopilot/runs/ap-x/rename"},
+		{http.MethodPost, "/api/v1/autopilot/runs/ap-x/retarget"},
+	} {
+		req, err := http.NewRequest(tc.method, ts.URL+tc.path, strings.NewReader(`{}`))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+		require.Contains(t, []int{http.StatusNotFound, http.StatusMethodNotAllowed}, resp.StatusCode,
+			"%s %s must not be routed", tc.method, tc.path)
+	}
+
+	resp, err := http.Get(ts.URL + "/api/v1/autopilot/runs")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	ct := resp.Header.Get("Content-Type")
+	require.NotContains(t, ct, "application/json",
+		"GET /api/v1/autopilot/runs must not be a JSON API route (got Content-Type %q)", ct)
 }
