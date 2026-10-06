@@ -226,3 +226,79 @@ func TestAnalyzeTagError(t *testing.T) {
 	_, err := Analyze(context.Background(), Options{Git: &fakeGit{tagErr: errors.New("boom")}})
 	assert.ErrorContains(t, err, "boom")
 }
+
+const squashBody797 = `* feat(pipeline): hide synthetic span jobs from user counts
+
+Co-authored-by: Cursor <cursoragent@cursor.com>
+
+* feat(pipeline): confirm cancel and delete
+
+Co-authored-by: Cursor <cursoragent@cursor.com>
+
+* feat(pipeline): create/validate positional spec, --start, help (#793)
+
+Remove the hidden list-templates alias.
+
+* docs(pipeline): align docs and skill with cleaned-up commands (#794)
+
+* test(plan): stop pipeline-mode restart via plan cancel, not REST
+
+---------
+
+Co-authored-by: Cursor <cursoragent@cursor.com>`
+
+func TestSquashBodyBump(t *testing.T) {
+	cases := []struct {
+		name, subj, body string
+		want             Bump
+	}{
+		{"real squash body", "autopilot: pipeline-cli-cleanup (#797)", squashBody797, BumpMinor},
+		{"fix bullet", "autopilot: x (#1)", "* docs: a\n- fix(x): b", BumpPatch},
+		{"highest wins", "autopilot: x (#1)", "* fix: a\n* feat: b", BumpMinor},
+		{"breaking bullet", "autopilot: x (#1)", "* feat(x)!: b", BumpMajor},
+		{"breaking footer", "autopilot: x (#1)", "* fix: a\n\nBREAKING CHANGE: gone", BumpMajor},
+		{"prose body", "chore: tidy", "Cleaned up some things.\nfeat: not a bullet", BumpNone},
+		{"non-conventional bullets", "chore: tidy", "* did stuff\n* note: hello", BumpNone},
+		{"releasable subject ignores bullets", "fix: a (#2)", "* feat: b", BumpPatch},
+		{"docs subject ignores nothing", "docs: a", "* feat: b", BumpMinor},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, DecideBump([]Commit{ParseConventional(tc.subj, tc.body)}))
+		})
+	}
+}
+
+func TestSquashBodyChangelog(t *testing.T) {
+	sq := ParseConventional("autopilot: pipeline-cli-cleanup (#797)", squashBody797)
+	alone := ParseConventional("feat(pipeline): confirm cancel and delete", "")
+	cl := BuildChangelog([]Commit{sq, alone}, nil)
+	assert.Equal(t, []string{
+		"**pipeline:** hide synthetic span jobs from user counts (#797)",
+		"**pipeline:** create/validate positional spec, --start, help (#793)",
+		"**pipeline:** confirm cancel and delete",
+	}, cl.Features)
+	assert.Equal(t, []string{"**pipeline:** align docs and skill with cleaned-up commands (#794)"}, cl.Docs)
+	assert.Equal(t, []string{"**plan:** stop pipeline-mode restart via plan cancel, not REST (#797)"}, cl.Other)
+}
+
+func TestAnalyzeSquashBody(t *testing.T) {
+	g := &fakeGit{tags: []string{"v1.0.0"}, commits: []RawCommit{
+		{"b1", "autopilot: pipeline-cli-cleanup (#797)", squashBody797},
+		{"b2", "chore: tidy", "Just prose."},
+	}}
+	a, err := Analyze(context.Background(), Options{Git: g, GH: &fakeGH{}})
+	assert.NoError(t, err)
+	assert.Equal(t, BumpMinor, a.Bump)
+	assert.Equal(t, Version{1, 1, 0}, a.Next)
+}
+
+func TestSquashBodyBreakingFooterKeepsBullets(t *testing.T) {
+	body := "* feat(api): add widget\n\n* fix(cli): stop crash\n\nBREAKING CHANGE: widget replaces gadget"
+	c := ParseConventional("autopilot: widgets (#900)", body)
+	assert.Equal(t, BumpMajor, DecideBump([]Commit{c}))
+	cl := BuildChangelog([]Commit{c}, nil)
+	assert.Equal(t, []string{"widgets (#900)"}, cl.Breaking)
+	assert.Equal(t, []string{"**api:** add widget (#900)"}, cl.Features)
+	assert.Equal(t, []string{"**cli:** stop crash (#900)"}, cl.Fixes)
+}
