@@ -2570,11 +2570,21 @@
   {
     "path": "pipeline list",
     "use": "list",
+    "aliases": [
+      "ls"
+    ],
     "runnable": true,
+    "local_flags": [
+      "all",
+      "json",
+      "project",
+      "status"
+    ],
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
   },
   {
     "path": "pipeline list-templates",

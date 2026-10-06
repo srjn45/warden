@@ -2,8 +2,11 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 	"github.com/srjn45/warden/internal/client"
@@ -253,22 +256,179 @@ func newPipelineListTemplatesCmd() *cobra.Command {
 	}
 }
 
+// pipelineStatuses is the set of pipeline statuses `--status` accepts.
+var pipelineStatuses = []pipeline.Status{
+	pipeline.StatusPending, pipeline.StatusRunning, pipeline.StatusPaused,
+	pipeline.StatusDone, pipeline.StatusStalled, pipeline.StatusCanceled,
+}
+
+// parsePipelineStatuses validates --status values (repeatable or
+// comma-separated) and returns them comma-joined for the daemon.
+func parsePipelineStatuses(in []string) (string, error) {
+	var out []string
+	for _, raw := range in {
+		for _, v := range strings.Split(raw, ",") {
+			if v = strings.TrimSpace(v); v == "" {
+				continue
+			}
+			ok := false
+			for _, st := range pipelineStatuses {
+				if string(st) == v {
+					ok = true
+					break
+				}
+			}
+			if !ok {
+				valid := make([]string, len(pipelineStatuses))
+				for i, st := range pipelineStatuses {
+					valid[i] = string(st)
+				}
+				return "", fmt.Errorf("invalid status %q (valid: %s)", v, strings.Join(valid, ", "))
+			}
+			out = append(out, v)
+		}
+	}
+	return strings.Join(out, ","), nil
+}
+
+// pipelineListScope resolves which project `pipeline list` covers. all is true
+// when every project is listed (--all, or the directory is in no project).
+func pipelineListScope(cmd *cobra.Command) (projectID string, all bool, err error) {
+	if a, _ := cmd.Flags().GetBool("all"); a {
+		return "", true, nil
+	}
+	if p, _ := cmd.Flags().GetString("project"); p != "" {
+		if st, serr := os.Stat(p); serr == nil && st.IsDir() {
+			id, err := projectIDForDir(p)
+			return id, false, err
+		}
+		return p, false, nil
+	}
+	id, err := projectIDForDir("")
+	if err != nil {
+		return "", true, nil
+	}
+	if _, serr := os.Stat(filepath.Join(id, ".git")); serr != nil {
+		fmt.Fprintln(cmd.ErrOrStderr(), "not in a project; listing pipelines for all projects")
+		return "", true, nil
+	}
+	return id, false, nil
+}
+
 func newPipelineListCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "list",
-		Short: "List pipelines",
-		Args:  cobra.NoArgs,
+	cmd := &cobra.Command{
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List pipelines",
+		Long: "List pipelines as a table. By default only the project of the current\n" +
+			"directory is listed; use --all for every project or --project to pick one.\n" +
+			"Outside any project all pipelines are listed.\n\n" +
+			"Columns: NAME, STATUS, JOBS (finished/total of the jobs in the spec),\n" +
+			"PROJECT (only with --all), PLAN (the plan it executes, or -) and\n" +
+			"SCHEDULE (only when a pipeline was started by a schedule).",
+		Example: "  warden pipeline list\n" +
+			"  warden pipeline list --all --status running,paused\n" +
+			"  warden pipeline list --project ~/dev/app --json",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ps, err := clientFor(cmd).PipelineList(cmd.Context())
+			statusFlags, _ := cmd.Flags().GetStringSlice("status")
+			status, err := parsePipelineStatuses(statusFlags)
 			if err != nil {
 				return err
 			}
-			for _, p := range ps {
-				fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%d jobs\n", p.ID, p.Status, userJobs(p))
+			projectID, all, err := pipelineListScope(cmd)
+			if err != nil {
+				return err
 			}
-			return nil
+			ps, err := clientFor(cmd).PipelineListFiltered(cmd.Context(), projectID, status)
+			if err != nil {
+				return err
+			}
+			out := cmd.OutOrStdout()
+			if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+				if ps == nil {
+					ps = []*pipeline.Pipeline{}
+				}
+				return printJSON(out, ps)
+			}
+			if len(ps) == 0 {
+				printNoPipelines(out, projectID, status)
+				return nil
+			}
+			return printPipelineTable(out, ps, all)
 		},
 	}
+	cmd.Flags().Bool("all", false, "list pipelines from every project")
+	cmd.Flags().String("project", "", "project `<id-or-path>` (default: the project of the current directory)")
+	cmd.Flags().StringSlice("status", nil, "only pipelines in this status (repeatable or comma-separated: pending, running, paused, done, stalled, canceled)")
+	cmd.Flags().Bool("json", false, "output as JSON")
+	return cmd
+}
+
+func printNoPipelines(w io.Writer, projectID, status string) {
+	var filters []string
+	if projectID != "" {
+		filters = append(filters, "project "+projectID)
+	}
+	if status != "" {
+		filters = append(filters, "status "+status)
+	}
+	if len(filters) > 0 {
+		fmt.Fprintf(w, "no pipelines match %s\n", strings.Join(filters, " and "))
+	} else {
+		fmt.Fprintln(w, "no pipelines")
+	}
+	fmt.Fprintln(w, "hint: wd pipeline create <spec.yaml>  or  wd pipeline template list")
+}
+
+func printPipelineTable(w io.Writer, ps []*pipeline.Pipeline, all bool) error {
+	hasSchedule := false
+	for _, p := range ps {
+		if p.ScheduleName != "" || p.ScheduleID != "" {
+			hasSchedule = true
+			break
+		}
+	}
+	dash := func(v string) string {
+		if v == "" {
+			return "-"
+		}
+		return v
+	}
+	tw := tabwriter.NewWriter(w, 0, 2, 2, ' ', 0)
+	header := []string{"NAME", "STATUS", "JOBS"}
+	if all {
+		header = append(header, "PROJECT")
+	}
+	header = append(header, "PLAN")
+	if hasSchedule {
+		header = append(header, "SCHEDULE")
+	}
+	fmt.Fprintln(tw, strings.Join(header, "\t"))
+	for _, p := range ps {
+		total, done := p.UserJobCount()
+		row := []string{p.Name, string(p.Status), fmt.Sprintf("%d/%d", done, total)}
+		if row[0] == "" {
+			row[0] = p.ID
+		}
+		if all {
+			proj := ""
+			if p.ProjectID != "" {
+				proj = filepath.Base(p.ProjectID)
+			}
+			row = append(row, dash(proj))
+		}
+		row = append(row, dash(p.PlanID))
+		if hasSchedule {
+			sched := p.ScheduleName
+			if sched == "" {
+				sched = p.ScheduleID
+			}
+			row = append(row, dash(sched))
+		}
+		fmt.Fprintln(tw, strings.Join(row, "\t"))
+	}
+	return tw.Flush()
 }
 
 // realDependencies maps dependency ids onto user-authored jobs: a synthetic

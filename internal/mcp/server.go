@@ -26,6 +26,10 @@ type Server struct {
 
 // Tool argument structs (the SDK derives JSON schema from these).
 type listArgs struct{}
+type listPipelinesArgs struct {
+	ProjectID string `json:"project_id,omitempty" jsonschema:"only pipelines in this project (id, usually the repo root path)"`
+	Status    string `json:"status,omitempty" jsonschema:"only pipelines in these statuses, comma-separated (pending, running, paused, done, stalled, canceled)"`
+}
 type ticketArgs struct {
 	Ticket string `json:"ticket" jsonschema:"the ticket / session id, e.g. PROJ-350"`
 }
@@ -752,9 +756,9 @@ func NewServer(daemonBase string) *Server {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "list_pipelines",
-		Description: "List all pipelines with their status and job count.",
-	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ listArgs) (*mcpsdk.CallToolResult, any, error) {
-		ps, err := s.cl.PipelineList(ctx)
+		Description: "List pipelines with their status and job count. Optional project_id and status (comma-separated) narrow the result; with neither, every pipeline is returned.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a listPipelinesArgs) (*mcpsdk.CallToolResult, any, error) {
+		ps, err := s.cl.PipelineListFiltered(ctx, a.ProjectID, a.Status)
 		if err != nil {
 			return textResult("error: " + err.Error()), nil, nil
 		}

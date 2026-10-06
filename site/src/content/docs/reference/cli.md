@@ -875,17 +875,35 @@ Inherited flags:
 ## warden pipeline list
 
 ```text
-List pipelines
+List pipelines as a table. By default only the project of the current
+directory is listed; use --all for every project or --project to pick one.
+Outside any project all pipelines are listed.
+
+Columns: NAME, STATUS, JOBS (finished/total of the jobs in the spec),
+PROJECT (only with --all), PLAN (the plan it executes, or -) and
+SCHEDULE (only when a pipeline was started by a schedule).
 
 Usage:
   warden pipeline list [flags]
 
+Examples:
+  warden pipeline list
+    warden pipeline list --all --status running,paused
+    warden pipeline list --project ~/dev/app --json
+
 Flags:
-  -h, --help   help for list
+      --all                    list pipelines from every project
+  -h, --help                   help for list
+      --json                   output as JSON
+      --project <id-or-path>   project <id-or-path> (default: the project of the current directory)
+      --status strings         only pipelines in this status (repeatable or comma-separated: pending, running, paused, done, stalled, canceled)
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
+
+Aliases:
+  ls
 ```
 
 ## warden pipeline show
@@ -5371,6 +5389,7 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | `warden msg send` | `warden message send` |
 | `warden msg wait` | `warden message wait` |
 | `warden pipeline list-templates` | `warden pipeline template list` |
+| `warden pipeline ls` | `warden pipeline list` |
 | `warden plan ls` | `warden plan list` |
 | `warden plugin` | `warden project plugin` |
 | `warden plugin list` | `warden project plugin list` |

@@ -19,7 +19,7 @@ it's registered. **Every** pipeline verb now has an MCP tool (full parity); only
 | `library_list` | Browse spawn presets AND pipeline templates together (`warden project library list`). |
 | `start_pipeline {pipeline}` | Spawn the dependency-free entry jobs; the daemon drives the rest. |
 | `show_pipeline {pipeline}` | Per-job status + branch + emitted output (durable after agents are gone). |
-| `list_pipelines` | All pipelines + status. |
+| `list_pipelines` | Pipelines + status; optional `project_id` and `status` (comma-separated) narrow the list. CLI: `wd pipeline list` (current project; `--all`, `--project`, `--status`). |
 | `pause_pipeline` / `resume_pipeline {pipeline}` | Halt new spawns (in-flight finish) / resume spawning. |
 | `retry_pipeline_job {pipeline, job}` | Re-run a failed job and reopen skipped descendants. |
 | `edit_pipeline_job {pipeline, job, prompt?, handoff?}` | Tweak a pending job before it runs. |

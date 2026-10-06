@@ -2426,6 +2426,15 @@ type SetModelTierJSONBody struct {
 	Tier string `json:"tier"`
 }
 
+// ListPipelinesParams defines parameters for ListPipelines.
+type ListPipelinesParams struct {
+	// ProjectId Only pipelines belonging to this project id.
+	ProjectId string `form:"project_id,omitempty" json:"project_id,omitempty"`
+
+	// Status Only pipelines in one of these statuses (comma-separated).
+	Status string `form:"status,omitempty" json:"status,omitempty"`
+}
+
 // CreatePipelineJSONBody defines parameters for CreatePipeline.
 type CreatePipelineJSONBody struct {
 	// ParentAgentId id of the agent that owns this pipeline (project entity hierarchy D6). Overrides the identity of the agent behind the request; when both are empty the pipeline is operator-created and has no owning agent. On create the pipeline is stamped with the resolved id and appended to the owning agent's child_pipelines[] forward edge.
@@ -3022,7 +3031,7 @@ type ServerInterface interface {
 	SetModelTier(w http.ResponseWriter, r *http.Request, backend string, model string)
 	// List pipelines
 	// (GET /api/v1/pipelines)
-	ListPipelines(w http.ResponseWriter, r *http.Request)
+	ListPipelines(w http.ResponseWriter, r *http.Request, params ListPipelinesParams)
 	// Create a pipeline from a YAML spec
 	// (POST /api/v1/pipelines)
 	CreatePipeline(w http.ResponseWriter, r *http.Request)
@@ -3610,7 +3619,7 @@ func (_ Unimplemented) SetModelTier(w http.ResponseWriter, r *http.Request, back
 
 // List pipelines
 // (GET /api/v1/pipelines)
-func (_ Unimplemented) ListPipelines(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) ListPipelines(w http.ResponseWriter, r *http.Request, params ListPipelinesParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -5537,14 +5546,46 @@ func (siw *ServerInterfaceWrapper) SetModelTier(w http.ResponseWriter, r *http.R
 // ListPipelines operation middleware
 func (siw *ServerInterfaceWrapper) ListPipelines(w http.ResponseWriter, r *http.Request) {
 
+	var err error
+	_ = err
+
 	ctx := r.Context()
 
 	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListPipelinesParams
+
+	// ------------- Optional query parameter "project_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "project_id", r.URL.Query(), &params.ProjectId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "project_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListPipelines(w, r)
+		siw.Handler.ListPipelines(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -10971,6 +11012,7 @@ func (response SetModelTier503JSONResponse) VisitSetModelTierResponse(w http.Res
 }
 
 type ListPipelinesRequestObject struct {
+	Params ListPipelinesParams
 }
 
 type ListPipelinesResponseObject interface {
@@ -16928,8 +16970,10 @@ func (sh *strictHandler) SetModelTier(w http.ResponseWriter, r *http.Request, ba
 }
 
 // ListPipelines operation middleware
-func (sh *strictHandler) ListPipelines(w http.ResponseWriter, r *http.Request) {
+func (sh *strictHandler) ListPipelines(w http.ResponseWriter, r *http.Request, params ListPipelinesParams) {
 	var request ListPipelinesRequestObject
+
+	request.Params = params
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.ListPipelines(ctx, request.(ListPipelinesRequestObject))
