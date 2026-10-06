@@ -446,7 +446,7 @@ func (s *Server) registerExtraTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "land",
-		Description: "Land (merge) one autopilot worker branch into the integration branch — the brain's ONLY merge path. Runs every precondition (owning run active, branch autopilot-owned, a PR based on the integration branch, the resolved gate GREEN for the PR head, and the PR mergeable), merges with the configured strategy, deletes the worker branch if configured, and records the landing. Idempotent: re-issuing after a merge returns already_landed with no second merge. On a precondition failure returns the typed kind (gate_pending|gate_red|ci_missing|not_mergeable|not_found|not_owned|run_disabled|wrong_base) for you to reason over — never a human prompt. Autopilot-only. Mirrors `warden land`.",
+		Description: "Land (merge) one autopilot worker branch into the integration branch — the brain's ONLY merge path. Runs every precondition (owning run active, branch autopilot-owned, a PR based on the integration branch, the resolved gate GREEN for the PR head, and the PR mergeable), merges with the configured strategy, deletes the worker branch if configured, and records the landing. Idempotent: re-issuing after a merge returns already_landed with no second merge. On a precondition failure returns the typed kind (gate_pending|gate_red|ci_missing|not_mergeable|not_found|not_owned|run_disabled|wrong_base) for you to reason over — never a human prompt. Autopilot-only. Mirrors `warden autopilot land`.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a landArgs) (*mcpsdk.CallToolResult, any, error) {
 		res, err := s.cl.Land(ctx, a.AgentOrBranch)
 		if err != nil {

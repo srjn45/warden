@@ -2565,9 +2565,9 @@ warden agent tail <manager-id>       # live manager output
 warden plan pause <plan-id>
 ```
 
-> **Deprecated (one release):** `warden autopilot register` and plan-file-based
-> `autopilot run start` translate to a PlanID where safe or return a precise
-> migration error. Prefer `plan run|pause|resume|stop`.
+> **Removed in this release:** `warden autopilot register` and plan-file-based
+> start no longer exist. Use `plan run|pause|resume|stop`. Unknown subcommands
+> (`wd autopilot bogus`) exit non-zero.
 
 ### No enable step
 
@@ -2627,9 +2627,10 @@ state (`idle|armed|escalating|parked|disabled`) and `restarts:`.
 
 ### `warden autopilot status`
 
-Lists every run (state, gate, manager slot id, integration branch, task summary —
-this absorbed the old `autopilot run list` columns). `--json` emits the raw
-status for scripts.
+Lists every run as an aligned table (RUN, NAME, STATE, PLAN, GATE, BRANCH,
+PROGRESS; REPO only when runs span more than one repo). Empty state prints
+`no autopilot runs` and a hint pointing at `wd plan run <plan-id> --mode autopilot`.
+`--json` emits the raw API result (no `enabled` / `enabled_repos` fields).
 
 ```sh
 warden autopilot status
@@ -2648,7 +2649,11 @@ The old autopilot lifecycle commands are gone. Typing one prints its replacement
 | `autopilot stop` / `unregister` | `plan stop` |
 | `autopilot list` / `run` / `run list` | `autopilot status` |
 
-The MCP tools `set_autopilot`, `register_autopilot_run`, `control_autopilot_run`, `retarget_autopilot_run`, `rename_autopilot_run` and `list_autopilot_runs` were removed as well; use `run_plan`, `control_plan`, `list_plans` and `autopilot_status`.
+The MCP tools `set_autopilot`, `register_autopilot_run`, `control_autopilot_run`, `retarget_autopilot_run`, `rename_autopilot_run` and `list_autopilot_runs` were removed as well; use `run_plan`, `control_plan`, `list_plans` and `autopilot_status`. REST writes on `/api/v1/autopilot` (enable/disable), `/api/v1/autopilot/runs`, `/api/v1/autopilot/runs/{run_id}/{action}`, `/rename` and `/retarget` are gone. Keep GET `/api/v1/autopilot`, `/land`, `/complete`, `/tasks/status` and `/brain-consult`. Top-level `wd land` was removed; use `wd autopilot land`. Unknown subcommands now error.
+
+### `warden autopilot land`
+
+Manual fallback when daemon landing is disabled. Failures print one message with a next step. Kinds: `not_found`, `not_owned`, `run_disabled`, `wrong_base`, `gate_pending`, `gate_red`, `ci_missing`, `not_mergeable`. `--json` emits `{kind, detail}`.
 
 ### Run completion
 
