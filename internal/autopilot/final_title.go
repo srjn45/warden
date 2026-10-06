@@ -22,7 +22,10 @@ var finalTitleRank = map[string]int{
 // FinalPRTitle renders the conventional-commit title of the final PR from the
 // plan name and the integration branch's commits. Pure and deterministic.
 func FinalPRTitle(name, runID string, commits []CommitMsg) string {
-	desc := strings.Join(strings.Fields(strings.NewReplacer("-", " ", "_", " ").Replace(firstNonEmpty(name, runID))), " ")
+	desc := strings.Join(strings.Fields(strings.NewReplacer("-", " ", "_", " ").Replace(name)), " ")
+	if desc == "" {
+		desc = runID
+	}
 
 	var conv []release.Commit
 	breaking := false
