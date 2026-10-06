@@ -223,3 +223,44 @@ func TestReleaseTargetResolution(t *testing.T) {
 		t.Fatalf("git tag was not called with target SHA: %v", tagArgs)
 	}
 }
+
+type squashGit struct{ commits []release.RawCommit }
+
+func (squashGit) Tags(context.Context) ([]string, error) { return []string{"v1.2.3"}, nil }
+func (s squashGit) Log(context.Context, string, string) ([]release.RawCommit, error) {
+	return s.commits, nil
+}
+
+func stubSquashAnalyze(t *testing.T, commits ...release.RawCommit) {
+	t.Helper()
+	oa := releaseAnalyze
+	t.Cleanup(func() { releaseAnalyze = oa })
+	releaseAnalyze = func(ctx context.Context, _, _, _ string) (release.Advice, error) {
+		return release.Analyze(ctx, release.Options{Git: squashGit{commits}, GH: nil, Head: "origin/main"})
+	}
+}
+
+func TestReleaseSquashBodyMinor(t *testing.T) {
+	stubRelease(t, release.Advice{}, "")
+	stubSquashAnalyze(t, release.RawCommit{SHA: "9b113532", Subject: "autopilot: pipeline-cli-cleanup (#797)",
+		Body: "* feat(pipeline): hide synthetic span jobs from user counts\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\n\n* docs(pipeline): align docs (#794)"})
+	out, err := run(t, "", false, false, true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "minor") || !strings.Contains(out, "v1.3.0") || !strings.Contains(out, "hide synthetic span jobs (#797)"[:20]) {
+		t.Fatalf("output: %s", out)
+	}
+}
+
+func TestReleaseSquashProseBodyNoBump(t *testing.T) {
+	calls := stubRelease(t, release.Advice{}, "")
+	stubSquashAnalyze(t, release.RawCommit{SHA: "c1", Subject: "chore: tidy", Body: "Reworded some comments.\nfeat: not a bullet"})
+	out, err := run(t, "", true, true, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if has(*calls, "tag") || has(*calls, "push") {
+		t.Fatalf("tagged with no bump: %v\n%s", *calls, out)
+	}
+}

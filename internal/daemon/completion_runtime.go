@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"strconv"
@@ -133,6 +134,9 @@ func (rt autopilotRuntime) EnsureFinalPR(ctx context.Context, repo string, spec 
 	if found {
 		_, _ = h.runGH(ctx, "pr", "edit", strconv.Itoa(pr.Number), "--body", spec.Body) // deterministic, idempotent
 	} else {
+		// Only a daemon-created PR gets the conventional title; an existing PR
+		// (fix loop, re-finalize, restart) keeps whatever the owner set.
+		spec.Title = rt.finalPRTitle(ctx, repo, spec)
 		if _, err := h.runGH(ctx, "pr", "create", "--base", spec.DefaultBranch, "--head", spec.Integration,
 			"--title", spec.Title, "--body", spec.Body); err != nil {
 			if strings.Contains(strings.ToLower(err.Error()), "no commits between") {
@@ -210,4 +214,23 @@ func (rt autopilotRuntime) TerminateRunAgents(ctx context.Context, runID string)
 	}
 	_, err := rt.TeardownRunAgents(ctx, runID, repo, integ)
 	return err
+}
+
+// finalPRTitle derives the conventional-commit title from the commits on the
+// integration branch; a history read failure degrades to "chore: <name>".
+func (rt autopilotRuntime) finalPRTitle(ctx context.Context, repo string, spec autopilot.FinalPRSpec) string {
+	out, err := gitIn(ctx, repo, "log", "--format=%s%x1f%b%x1e",
+		"origin/"+spec.DefaultBranch+"..origin/"+spec.Integration)
+	if err != nil {
+		slog.Warn("autopilot: final PR title: reading integration history failed; using chore", "run", spec.RunID, "err", err)
+		return autopilot.FinalPRTitle(spec.Name, spec.RunID, nil)
+	}
+	var commits []autopilot.CommitMsg
+	for _, rec := range strings.Split(out, "\x1e") {
+		subj, body, _ := strings.Cut(strings.TrimLeft(rec, "\n"), "\x1f")
+		if strings.TrimSpace(subj) != "" {
+			commits = append(commits, autopilot.CommitMsg{Subject: subj, Body: body})
+		}
+	}
+	return autopilot.FinalPRTitle(spec.Name, spec.RunID, commits)
 }

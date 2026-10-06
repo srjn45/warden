@@ -422,6 +422,17 @@ channel is retired in favor of curl + `warden update`. Do not re-add
 
 ---
 
+
+### Releasing after an autopilot run
+
+An autopilot plan ends in a single final PR (integration → default branch). It is
+titled with a conventional-commit subject derived from the landed commits (type by
+priority `feat`, `fix`, `perf`, `revert`, `refactor`, `docs`, `test`, `build`,
+`ci`, `chore`; shared scope; `!` when breaking). **Squash-merge it**: `wd release`
+reads that subject, and also the `* type(scope): …` bullet list in a squash commit
+body, to recommend the bump. Editing the PR title before merging changes the
+recommended bump. Tagging still needs maintainer confirmation (`wd release
+--dry-run` first).
 ## 5. Suggested sequencing
 
 The original sequencing (§4.1 version/doctor → de-hardcode → GoReleaser →
