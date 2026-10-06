@@ -523,6 +523,14 @@ plan carrying `status: complete`**, so a finished run is never executed again by
 mistake on a future plan run or daemon restart. Completion is idempotent. To re-run
 a completed plan, remove the `status: complete` line.
 
+The final PR carries a conventional-commit title derived from the landed commits
+(type by priority `feat`, `fix`, `perf`, `revert`, `refactor`, `docs`, `test`,
+`build`, `ci`, `chore`; shared scope; `!` if breaking). Squash-merge it and
+`wd release` reads that title — and any `* type(scope): …` bullets in the squash
+body — to recommend a bump; editing the title before merging changes the
+recommendation.
+
+
 ### Config hot-reload
 
 The `autopilot` config block **hot-reloads with no daemon restart** — editing
