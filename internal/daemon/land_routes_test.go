@@ -155,12 +155,27 @@ func TestLandRouteAlreadyMergedPR(t *testing.T) {
 	require.Equal(t, 0, merges)
 }
 
-func TestLandRouteNotOwned(t *testing.T) {
+func TestLandRouteNotFound(t *testing.T) {
 	merges := 0
 	host := &stubLandHost{merges: &merges}
 	ts, _, _ := newLandServer(t, host)
 
-	// A branch with no owning autopilot session → not_owned (never reaches gh).
+	// Nothing matches the reference → not_found (never reaches gh).
+	code, body := postLand(t, ts.URL, "nothing/matches")
+	require.Equal(t, http.StatusConflict, code)
+	require.Equal(t, "not_found", body["kind"])
+	require.Equal(t, 0, merges)
+}
+
+func TestLandRouteNotOwned(t *testing.T) {
+	merges := 0
+	host := &stubLandHost{merges: &merges}
+	ts, srv, _ := newLandServer(t, host)
+
+	// A branch that exists on a non-autopilot session → not_owned.
+	require.NoError(t, srv.store.Insert(context.Background(), &agentstore.Agent{
+		ID: "F-1", Branch: "some/foreign-branch", Worktree: t.TempDir(), Status: store.StatusWorking,
+	}))
 	code, body := postLand(t, ts.URL, "some/foreign-branch")
 	require.Equal(t, http.StatusConflict, code)
 	require.Equal(t, "not_owned", body["kind"])

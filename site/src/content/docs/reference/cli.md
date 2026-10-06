@@ -1964,13 +1964,24 @@ Inherited flags:
 ```text
 Merges one autopilot worker branch into the integration branch. The daemon
 does this itself when a worker PR's gate is green; `land` is the manual
-fallback for an operator or manager, with the same preconditions. Runs every precondition (owning run active, branch
-autopilot-owned, a PR based on the integration branch, the resolved gate green
-for the PR head, and the PR mergeable), merges with the configured strategy,
-deletes the worker branch if configured, and records the landing. Idempotent:
-re-issuing after a merge reports already-landed with no second merge. On a
-precondition failure it prints the typed kind
-(gate_pending|gate_red|ci_missing|not_mergeable|not_owned|run_disabled|wrong_base).
+fallback for an operator or manager, with the same preconditions.
+
+It checks that the owning run is active, the branch is autopilot-owned, a PR
+targets the integration branch, the gate is green for the PR head, and the PR
+is mergeable. It then merges with the configured strategy, deletes the worker
+branch if configured, and records the landing. Re-running after a merge
+reports already-landed without merging again.
+
+If a check fails, nothing is merged and one error names the reason:
+
+  not_found      no agent or branch matches the name
+  not_owned      the branch exists but no autopilot run owns it
+  run_disabled   the run is paused or stopped
+  wrong_base     the PR does not target the integration branch
+  gate_pending   the gate has not finished yet
+  gate_red       the gate failed
+  ci_missing     the gate needs CI but the PR has none
+  not_mergeable  the PR has conflicts
 
 Usage:
   warden autopilot land <agent-or-branch> [flags]
@@ -5324,7 +5335,6 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | `warden import` | `warden inspect import` |
 | `warden insights` | `warden usage insights` |
 | `warden interactive` | `warden backend repl` |
-| `warden land` | `warden autopilot land` |
 | `warden lib` | `warden project library` |
 | `warden library` | `warden project library` |
 | `warden library list` | `warden project library list` |

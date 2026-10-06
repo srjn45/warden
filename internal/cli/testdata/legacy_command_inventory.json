@@ -832,19 +832,6 @@
     "json": true
   },
   {
-    "path": "land",
-    "use": "land <agent-or-branch>",
-    "runnable": true,
-    "inherited_flags": [
-      "addr",
-      "config"
-    ],
-    "json": true,
-    "local_flags": [
-      "json"
-    ]
-  },
-  {
     "path": "library",
     "use": "library",
     "aliases": [

@@ -23,6 +23,8 @@ const (
 	ErrCIMissing LandErrorKind = "ci_missing"
 	// ErrNotMergeable: the PR has conflicts against the integration branch.
 	ErrNotMergeable LandErrorKind = "not_mergeable"
+	// ErrNotFound: the reference matches no agent and no branch.
+	ErrNotFound LandErrorKind = "not_found"
 	// ErrNotOwned: the target is not an autopilot-owned worker branch/agent.
 	ErrNotOwned LandErrorKind = "not_owned"
 	// ErrRunDisabled: the caller's run is not active (kill switch honored).
@@ -105,6 +107,7 @@ type LandHost interface {
 type LandRequest struct {
 	RunActive         bool   // precondition 1: caller's run is active (kill switch)
 	Owned             bool   // precondition 2: branch is autopilot-owned
+	NotFound          bool   // the reference matches no agent and no branch
 	Branch            string // resolved worker branch (from agent_or_branch)
 	Worktree          string // PR head worktree (local gate + CI query dir)
 	IntegrationBranch string // the only branch autopilot merges into
@@ -123,6 +126,9 @@ type LandRequest struct {
 // landings-ledger write is the daemon handler's job AFTER a non-idempotent
 // success; ledger here is read-only, used for the idempotency check.
 func Land(ctx context.Context, req LandRequest, host LandHost, ledger *Ledger) (LandResult, error) {
+	if req.NotFound {
+		return LandResult{}, &LandError{Kind: ErrNotFound}
+	}
 	// Precondition 1: kill switch. A disabled/torn-down run lands nothing.
 	if !req.RunActive {
 		return LandResult{}, &LandError{Kind: ErrRunDisabled}
@@ -144,7 +150,7 @@ func Land(ctx context.Context, req LandRequest, host LandHost, ledger *Ledger) (
 		return LandResult{}, fmt.Errorf("land: find PR for %s: %w", req.Branch, err)
 	}
 	if !ok {
-		return LandResult{}, &LandError{Kind: ErrWrongBase, Detail: "no pull request found for branch " + req.Branch}
+		return LandResult{}, &LandError{Kind: ErrWrongBase, Detail: "no pull request found for branch " + req.Branch + " targeting " + req.IntegrationBranch}
 	}
 	// Idempotency: an already-merged PR is a no-op success (§6). Checked before the
 	// base assertion so a merged-and-deleted branch still reports already_landed.

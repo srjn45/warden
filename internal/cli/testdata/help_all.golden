@@ -296,7 +296,6 @@ Compatibility aliases:
   warden import -> warden inspect import (compatibility)
   warden insights -> warden usage insights (compatibility)
   warden interactive -> warden backend repl (compatibility)
-  warden land -> warden autopilot land (compatibility)
   warden lib -> warden project library (compatibility)
   warden library -> warden project library (compatibility)
   warden library list -> warden project library list (compatibility)

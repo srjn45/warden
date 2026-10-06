@@ -39,7 +39,6 @@ func TestAutopilotNamespaceCanonicalAndCompatibilityPaths(t *testing.T) {
 		"plan pause":       "autopilot pause",
 		"plan resume":      "autopilot resume",
 		"plan stop":        "autopilot stop",
-		"autopilot land":   "land",
 	}
 	for canonical, legacy := range pairs {
 		canonicalCmd := findExactCommand(t, root, canonical)
