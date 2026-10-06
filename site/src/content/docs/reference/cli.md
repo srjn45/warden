@@ -29,7 +29,7 @@ Run work:
   agent                Create, inspect, communicate with, and manage agents
   pipeline             Define and run DAG pipelines of agent jobs
   plan                 Manage plans tracked by the daemon
-  autopilot            Show autopilot status, scaffold adoption, and land worker branches
+  autopilot            Show autopilot status and land worker branches
   schedule             Schedule recurring (--cron) or single-shot (--at) agents and pipelines
 
 Work with a project:
@@ -2119,7 +2119,7 @@ Inherited flags:
 Autopilot is the unattended Plan execution mode. There is no per-repo switch:
 start a run explicitly with `warden plan run <plan-id> --mode autopilot` and
 control it with `warden plan pause|resume|stop`. This namespace shows status
-(`status`), scaffolds adoption (`init`) and lands worker branches (`land`).
+(`status`) and lands worker branches (`land`).
 The daemon merges worker PRs into the integration branch itself once their
 gate is green; `land` is the manual fallback. A run ends with one final PR to
 the default branch that you merge.
@@ -2129,8 +2129,7 @@ Usage:
   warden autopilot [flags]
 
 Commands:
-  status               Show autopilot status (every run)
-  init                 Scaffold the plan file and integration branch for autopilot
+  status               List every autopilot run
   land                 Land an autopilot worker branch into the integration branch
 
 Flags:
@@ -2144,12 +2143,12 @@ Inherited flags:
 ## warden autopilot status
 
 ```text
-Shows one line per run: run id, name,
-state, plan id, repo, gate, integration branch, and backoff summary. Healing,
-degraded and resting runs also print their next_step / resting_until, and runs
-print the guardian's last diagnosis, per-task gate/fix state, resolver activity
-and the final PR (all fields are also in --json). For a
-running plan's task-level progress use `warden plan show`.
+The all-runs view: one table row per autopilot run (run id, name, state, plan,
+gate, branch and task progress; the repo column appears only when runs span
+more than one repo). Runs that are waiting, degraded or need attention print
+indented detail lines under their row (next step, resting until, the guardian's
+diagnosis, the final PR). Use `wd plan show <id> --watch` for the view of one
+plan. --json emits the raw result.
 
 Usage:
   warden autopilot status [flags]
@@ -2163,39 +2162,29 @@ Inherited flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden autopilot init
-
-```text
-Creates a named template under plans/ in the current git repository (if absent),
-creates the integration branch off the default branch if absent, and prints a
-CI-coverage hint when no workflow covers integration pull requests. Nothing is
-registered with the daemon. Next, edit the plan file, create the canonical plan
-with `wd plan create`, then start it with `wd plan run <id> --mode autopilot`.
-
-Usage:
-  warden autopilot init [flags]
-
-Flags:
-  -h, --help          help for init
-      --name string   plan name (creates plans/<name>.yaml) (default "default")
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
 ## warden autopilot land
 
 ```text
 Merges one autopilot worker branch into the integration branch. The daemon
 does this itself when a worker PR's gate is green; `land` is the manual
-fallback for an operator or manager, with the same preconditions. Runs every precondition (owning run active, branch
-autopilot-owned, a PR based on the integration branch, the resolved gate green
-for the PR head, and the PR mergeable), merges with the configured strategy,
-deletes the worker branch if configured, and records the landing. Idempotent:
-re-issuing after a merge reports already-landed with no second merge. On a
-precondition failure it prints the typed kind
-(gate_pending|gate_red|ci_missing|not_mergeable|not_owned|run_disabled|wrong_base).
+fallback for an operator or manager, with the same preconditions.
+
+It checks that the owning run is active, the branch is autopilot-owned, a PR
+targets the integration branch, the gate is green for the PR head, and the PR
+is mergeable. It then merges with the configured strategy, deletes the worker
+branch if configured, and records the landing. Re-running after a merge
+reports already-landed without merging again.
+
+If a check fails, nothing is merged and one error names the reason:
+
+  not_found      no agent or branch matches the name
+  not_owned      the branch exists but no autopilot run owns it
+  run_disabled   the run is paused or stopped
+  wrong_base     the PR does not target the integration branch
+  gate_pending   the gate has not finished yet
+  gate_red       the gate failed
+  ci_missing     the gate needs CI but the PR has none
+  not_mergeable  the PR has conflicts
 
 Usage:
   warden autopilot land <agent-or-branch> [flags]
@@ -5496,19 +5485,6 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | `warden auto-approve policy` | `warden approval auto rules` |
 | `warden auto-approve rules` | `warden approval auto rules` |
 | `warden auto-approve show` | `warden approval auto rules` |
-| `warden autopilot disable` | `warden plan pause` |
-| `warden autopilot enable` | `warden plan run` |
-| `warden autopilot list` | `warden autopilot status` |
-| `warden autopilot off` | `warden plan pause` |
-| `warden autopilot on` | `warden plan run` |
-| `warden autopilot pause` | `warden plan pause` |
-| `warden autopilot register` | `warden plan run` |
-| `warden autopilot resume` | `warden plan resume` |
-| `warden autopilot run` | `warden autopilot status` |
-| `warden autopilot run list` | `warden autopilot status` |
-| `warden autopilot start` | `warden plan run` |
-| `warden autopilot stop` | `warden plan stop` |
-| `warden autopilot unregister` | `warden plan stop` |
 | `warden backend ls` | `warden backend list` |
 | `warden backend model ls` | `warden backend model list` |
 | `warden backends` | `warden backend` |
@@ -5550,7 +5526,6 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | `warden import` | `warden inspect import` |
 | `warden insights` | `warden usage insights` |
 | `warden interactive` | `warden backend repl` |
-| `warden land` | `warden autopilot land` |
 | `warden lib` | `warden project library` |
 | `warden library` | `warden project library` |
 | `warden library list` | `warden project library list` |

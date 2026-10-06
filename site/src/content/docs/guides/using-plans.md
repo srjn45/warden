@@ -137,7 +137,7 @@ wd plan pause|resume|stop <plan-id>
 | `orchestrator_worker` | Agent `O:<plan-name>`; complete with `wd plan complete` |
 | `manual` | Agent `M:<plan-name>`; complete with `wd plan complete` |
 
-`wd plan show <id> --watch` is the status view for a running plan: executor state, backoff, integration branch, and per-task worker/PR. For autopilot mode there is no separate enable step — `plan run --mode autopilot` is all it takes (the old `wd autopilot enable|on` is a deprecated no-op, and `disable|off` pauses the repo's runs).
+`wd plan show <id> --watch` is the status view for a running plan: executor state, backoff, integration branch, and per-task worker/PR. For autopilot mode there is no separate enable step — `plan run --mode autopilot` is all it takes.
 
 Completion is automatic for `autopilot` and `pipeline` when the executor finishes.
 

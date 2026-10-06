@@ -1,66 +1,46 @@
 package cli
 
 import (
-	"context"
 	"strings"
 	"testing"
-
-	"github.com/srjn45/warden/internal/autopilot"
 )
 
-// The enable/on switch is a hidden no-op that points at `plan run`.
-func TestAutopilotEnableOnAreHiddenNoOps(t *testing.T) {
+// The autopilot namespace has exactly status and land; every removed name
+// errors with the replacement command.
+func TestAutopilotRemovedCommandsHintReplacement(t *testing.T) {
 	root := newRootCmd()
-	for _, name := range []string{"enable", "on", "disable", "off"} {
-		if c := findExactCommand(t, root, "autopilot "+name); !c.Hidden {
-			t.Errorf("autopilot %s should be hidden", name)
-		}
+	ap := findExactCommand(t, root, "autopilot")
+	var names []string
+	for _, c := range ap.Commands() {
+		names = append(names, c.Name())
 	}
-	methods := map[string]string{}
-	addr := stubDaemon(t, routedDaemon(t, map[string]string{}, methods, map[string]string{}))
-	for _, name := range []string{"enable", "on"} {
-		out, err := runCLI(t, addr, "autopilot", name)
-		if err != nil {
-			t.Fatalf("autopilot %s: %v", name, err)
-		}
-		if !strings.Contains(out, "plan run <plan-id> --mode autopilot") {
-			t.Errorf("autopilot %s notice missing: %q", name, out)
-		}
+	if got := strings.Join(names, ","); got != "status,land" && got != "land,status" {
+		t.Errorf("autopilot subcommands = %q, want status and land only", got)
 	}
-	if len(methods) != 0 {
-		t.Errorf("enable/on must not call the daemon, got %v", methods)
-	}
-}
 
-// disable/off pause the repo's active runs and say which.
-func TestAutopilotDisableOffPauseRuns(t *testing.T) {
-	for _, name := range []string{"disable", "off"} {
-		methods := map[string]string{}
-		bodies := map[string]string{}
-		cwd := mustGetwdRoot(t)
-		before := `{"enabled":true,"enabled_repos":[],"runs":[{"run_id":"ap-1","name":"demo","state":"active","repo":"` + cwd + `"}]}`
-		addr := stubDaemon(t, routedDaemon(t, map[string]string{
-			"GET /api/v1/autopilot":  before,
-			"POST /api/v1/autopilot": strings.Replace(before, `"active"`, `"paused"`, 1),
-		}, methods, bodies))
-		out, err := runCLI(t, addr, "autopilot", name)
-		if err != nil {
-			t.Fatalf("autopilot %s: %v", name, err)
+	want := map[string]string{
+		"init":       "wd plan run <plan-id> --mode autopilot",
+		"enable":     "wd plan run <plan-id> --mode autopilot",
+		"on":         "wd plan run <plan-id> --mode autopilot",
+		"register":   "wd plan run <plan-id> --mode autopilot",
+		"start":      "wd plan run <plan-id> --mode autopilot",
+		"disable":    "wd plan pause",
+		"off":        "wd plan pause",
+		"pause":      "wd plan pause",
+		"resume":     "wd plan resume",
+		"stop":       "wd plan stop",
+		"unregister": "wd plan stop",
+		"list":       "wd autopilot status",
+		"run":        "wd autopilot status",
+	}
+	for name, repl := range want {
+		out, err := runCLI(t, "http://127.0.0.1:1", "autopilot", name)
+		if err == nil {
+			t.Errorf("autopilot %s: expected error, got %q", name, out)
+			continue
 		}
-		if !strings.Contains(out, "paused ap-1") || !strings.Contains(out, "deprecated") {
-			t.Errorf("autopilot %s output: %q", name, out)
-		}
-		if !strings.Contains(bodies["/api/v1/autopilot"], `"enabled":false`) {
-			t.Errorf("autopilot %s body: %q", name, bodies["/api/v1/autopilot"])
+		if !strings.Contains(err.Error(), "unknown command") || !strings.Contains(err.Error(), repl) {
+			t.Errorf("autopilot %s error = %q, want hint containing %q", name, err, repl)
 		}
 	}
-}
-
-func mustGetwdRoot(t *testing.T) string {
-	t.Helper()
-	root, err := autopilot.NewExecEnv().GitToplevel(context.Background(), ".")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return root
 }

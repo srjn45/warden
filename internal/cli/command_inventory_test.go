@@ -57,11 +57,12 @@ func snapshotCommandInventory(root *cobra.Command) []commandInventory {
 	var visit func(*cobra.Command)
 	visit = func(cmd *cobra.Command) {
 		entry := commandInventory{
-			Path:           strings.TrimSpace(strings.TrimPrefix(cmd.CommandPath(), root.Name())),
-			Use:            cmd.Use,
-			Aliases:        sortedStrings(cmd.Aliases),
-			Hidden:         cmd.Hidden,
-			Runnable:       cmd.Runnable(),
+			Path:    strings.TrimSpace(strings.TrimPrefix(cmd.CommandPath(), root.Name())),
+			Use:     cmd.Use,
+			Aliases: sortedStrings(cmd.Aliases),
+			Hidden:  cmd.Hidden,
+			// The unknown-subcommand guard makes help-only namespaces technically runnable; the inventory keeps the user-visible contract.
+			Runnable:       cmd.Runnable() && cmd.Annotations[annotationUnknownGuard] != "true",
 			LocalFlags:     localFlagNames(cmd),
 			InheritedFlags: flagNames(cmd.InheritedFlags()),
 		}

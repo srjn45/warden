@@ -80,9 +80,8 @@ Complete command tree:
   warden plan scan                     [deprecated] Scan plans/ and upsert stub plan records
   warden plan status                   [deprecated] Transition a plan's status (DB field only)
   warden plan assess                   Brain-assisted task progress assessment
-  warden autopilot                     Show autopilot status, scaffold adoption, and land worker branches
-  warden autopilot status              Show autopilot status (every run)
-  warden autopilot init                Scaffold the plan file and integration branch for autopilot
+  warden autopilot                     Show autopilot status and land worker branches
+  warden autopilot status              List every autopilot run
   warden autopilot land                Land an autopilot worker branch into the integration branch
   warden schedule                      Schedule recurring (--cron) or single-shot (--at) agents and pipelines
   warden schedule create               Create a schedule that fires an agent or a pipeline
@@ -246,19 +245,6 @@ Compatibility aliases:
   warden auto-approve policy -> warden approval auto rules (compatibility)
   warden auto-approve rules -> warden approval auto rules (compatibility)
   warden auto-approve show -> warden approval auto rules (compatibility)
-  warden autopilot disable -> warden plan pause (compatibility)
-  warden autopilot enable -> warden plan run (compatibility)
-  warden autopilot list -> warden autopilot status (compatibility)
-  warden autopilot off -> warden plan pause (compatibility)
-  warden autopilot on -> warden plan run (compatibility)
-  warden autopilot pause -> warden plan pause (compatibility)
-  warden autopilot register -> warden plan run (compatibility)
-  warden autopilot resume -> warden plan resume (compatibility)
-  warden autopilot run -> warden autopilot status (compatibility)
-  warden autopilot run list -> warden autopilot status (compatibility)
-  warden autopilot start -> warden plan run (compatibility)
-  warden autopilot stop -> warden plan stop (compatibility)
-  warden autopilot unregister -> warden plan stop (compatibility)
   warden backend ls -> warden backend list (compatibility)
   warden backend model ls -> warden backend model list (compatibility)
   warden backends -> warden backend (compatibility)
@@ -300,7 +286,6 @@ Compatibility aliases:
   warden import -> warden inspect import (compatibility)
   warden insights -> warden usage insights (compatibility)
   warden interactive -> warden backend repl (compatibility)
-  warden land -> warden autopilot land (compatibility)
   warden lib -> warden project library (compatibility)
   warden library -> warden project library (compatibility)
   warden library list -> warden project library list (compatibility)

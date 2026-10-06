@@ -1,7 +1,7 @@
 Autopilot is the unattended Plan execution mode. There is no per-repo switch:
 start a run explicitly with `warden plan run <plan-id> --mode autopilot` and
 control it with `warden plan pause|resume|stop`. This namespace shows status
-(`status`), scaffolds adoption (`init`) and lands worker branches (`land`).
+(`status`) and lands worker branches (`land`).
 The daemon merges worker PRs into the integration branch itself once their
 gate is green; `land` is the manual fallback. A run ends with one final PR to
 the default branch that you merge.
@@ -11,8 +11,7 @@ Usage:
   warden autopilot [flags]
 
 Commands:
-  status               Show autopilot status (every run)
-  init                 Scaffold the plan file and integration branch for autopilot
+  status               List every autopilot run
   land                 Land an autopilot worker branch into the integration branch
 
 Flags:

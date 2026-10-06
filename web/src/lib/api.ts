@@ -350,6 +350,7 @@ export interface AutopilotBackoff {
 export interface AutopilotRun {
   run_id: string;
 	name: string;
+  plan_id?: string;
   plan_file: string;
   repo: string;
   state: string;
@@ -380,17 +381,13 @@ export interface AutopilotLedgerTask { id: string; state: string; }
 
 // AutopilotStatus is the full response shape for GET/POST /autopilot.
 export interface AutopilotStatus {
-  enabled: boolean;
   runs: AutopilotRun[];
 }
 
-// AutopilotPreflightError represents a 409 from POST /autopilot when the
-// enable-time preflight fails (autopilot.md §5.1).
-export class AutopilotPreflightError extends Error {
-  constructor(public failures: string[]) {
-    super(`autopilot preflight failed (${failures.length} issue${failures.length === 1 ? '' : 's'})`);
-    this.name = 'AutopilotPreflightError';
-  }
+// autopilotLive is true when any run is executing; the status no longer
+// carries a separate switch, so it is derived from the runs.
+export function autopilotLive(s: AutopilotStatus | null | undefined): boolean {
+  return (s?.runs ?? []).some((r) => ['active', 'finalizing', 'awaiting_merge', 'starting', 'healing'].includes(r.state));
 }
 
 // getAutopilot fetches the current autopilot status (GET /autopilot).
@@ -399,28 +396,11 @@ export async function getAutopilot(): Promise<AutopilotStatus> {
   return { ...data, runs: data.runs ?? [] };
 }
 
-// setAutopilot flips the master switch (POST /autopilot). A 409 from the
-// daemon's enable-time preflight surfaces as AutopilotPreflightError so the UI
-// can render the full failure list with an init hint.
-export async function setAutopilot(enabled: boolean): Promise<AutopilotStatus> {
-  const res = await apiFetch('/autopilot', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ enabled }),
-  });
-  if (res.status === 409) {
-    let failures: string[] = [];
-    try {
-      const body = await res.json() as { failures?: string[] };
-      failures = body.failures ?? [];
-    } catch { /* non-JSON body */ }
-    throw new AutopilotPreflightError(failures);
-  }
-  return parse<AutopilotStatus>(res);
-}
-
-export async function controlAutopilotRun(runID: string, action: 'start'|'pause'|'resume'|'stop'): Promise<AutopilotRun> {
-	return parse<AutopilotRun>(await apiFetch(`/autopilot/runs/${encodeURIComponent(runID)}/${action}`, { method: 'POST' }));
+// controlPlan pauses, resumes or stops a plan's active executor
+// (POST /plans/{id}/{action}).
+export async function controlPlan(planID: string, action: 'pause'|'resume'|'stop'): Promise<void> {
+  const res = await apiFetch(`/plans/${encodeURIComponent(planID)}/${action}`, { method: 'POST' });
+  if (!res.ok) throw new ApiError(res.status, await res.text());
 }
 
 // --- Backend registry (docs/specs/2026-08-06-backend-registry.md) -----------

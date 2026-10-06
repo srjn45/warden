@@ -1440,9 +1440,19 @@ func (c *Client) ScheduleDisable(ctx context.Context, id string) (*schedule.Sche
 
 // AutopilotStatus mirrors the daemon's GET /autopilot response (autopilot.md §5).
 type AutopilotStatus struct {
-	Enabled      bool                 `json:"enabled"`
-	EnabledRepos []string             `json:"enabled_repos"`
-	Runs         []AutopilotRunStatus `json:"runs"`
+	Runs []AutopilotRunStatus `json:"runs"`
+}
+
+// Live reports whether any run is currently executing (derived from the runs;
+// the status no longer carries a separate switch).
+func (s AutopilotStatus) Live() bool {
+	for _, r := range s.Runs {
+		switch r.State {
+		case "active", "finalizing", "awaiting_merge", "starting", "healing":
+			return true
+		}
+	}
+	return false
 }
 
 // AutopilotRunStatus is one run's slice of AutopilotStatus.
@@ -1485,48 +1495,6 @@ type AutopilotRunStatus struct {
 type AutopilotLedgerTask struct {
 	ID    string `json:"id"`
 	State string `json:"state"`
-}
-
-// RegisterAutopilotRun is a deprecated one-release alias for POST /autopilot/runs.
-// Prefer PlansCreate/PlansImport + PlansRun. The daemon returns 410 Gone with a
-// migration hint (PlanID when resolvable).
-func (c *Client) RegisterAutopilotRun(ctx context.Context, name, repo, planFile string) (AutopilotRunStatus, error) {
-	var out AutopilotRunStatus
-	err := c.doT(ctx, longTimeout, http.MethodPost, "/autopilot/runs", map[string]string{"name": name, "repo": repo, "plan_file": planFile}, &out)
-	return out, err
-}
-
-func (c *Client) ListAutopilotRuns(ctx context.Context) ([]AutopilotRunStatus, error) {
-	var out []AutopilotRunStatus
-	err := c.do(ctx, http.MethodGet, "/autopilot/runs", nil, &out)
-	return out, err
-}
-
-// ControlAutopilotRun is a deprecated one-release alias for POST /autopilot/runs/{id}/{action}.
-// Prefer PlansControl. When PlanID is known the daemon translates; otherwise 410 Gone.
-func (c *Client) ControlAutopilotRun(ctx context.Context, runID, action string) (AutopilotRunStatus, error) {
-	var out AutopilotRunStatus
-	err := c.doT(ctx, longTimeout, http.MethodPost, "/autopilot/runs/"+url.PathEscape(runID)+"/"+url.PathEscape(action), nil, &out)
-	return out, err
-}
-
-func (c *Client) RenameAutopilotRun(ctx context.Context, runID, name string) (AutopilotRunStatus, error) {
-	var out AutopilotRunStatus
-	err := c.doT(ctx, longTimeout, http.MethodPost, "/autopilot/runs/"+url.PathEscape(runID)+"/rename", map[string]string{"name": name}, &out)
-	return out, err
-}
-
-// RetargetAutopilotRun is deprecated; returns 410 Gone with a migration error.
-func (c *Client) RetargetAutopilotRun(ctx context.Context, runID, integrationBranch string, derive bool) (AutopilotRunStatus, error) {
-	body := map[string]any{}
-	if derive {
-		body["derive"] = true
-	} else {
-		body["integration_branch"] = integrationBranch
-	}
-	var out AutopilotRunStatus
-	err := c.doT(ctx, longTimeout, http.MethodPost, "/autopilot/runs/"+url.PathEscape(runID)+"/retarget", body, &out)
-	return out, err
 }
 
 type AutopilotPlanTask struct {
@@ -1572,20 +1540,6 @@ type AutopilotBackoff struct {
 	Kind        string `json:"kind,omitempty"`
 }
 
-// AutopilotPreflightError is the 409 body when enabling fails preflight: the full
-// list of actionable failures (autopilot.md §5.1). Client surfaces it verbatim.
-type AutopilotPreflightError struct {
-	Summary  string
-	Failures []string
-}
-
-func (e *AutopilotPreflightError) Error() string {
-	if len(e.Failures) == 0 {
-		return e.Summary
-	}
-	return e.Summary + ": " + strings.Join(e.Failures, "; ")
-}
-
 // GetAutopilot fetches the autopilot status (GET /autopilot).
 func (c *Client) GetAutopilot(ctx context.Context) (AutopilotStatus, error) {
 	var st AutopilotStatus
@@ -1593,48 +1547,6 @@ func (c *Client) GetAutopilot(ctx context.Context) (AutopilotStatus, error) {
 		return AutopilotStatus{}, err
 	}
 	return st, nil
-}
-
-// SetAutopilot flips the per-repo switch (POST /autopilot). repo scopes the toggle
-// to one repository (empty ⇒ the daemon's working directory). On a 409 preflight
-// failure it returns a *AutopilotPreflightError carrying the full failure list so
-// callers can print every problem in one pass.
-func (c *Client) SetAutopilot(ctx context.Context, enabled bool, repo string) (AutopilotStatus, error) {
-	var st AutopilotStatus
-	body := map[string]any{"enabled": enabled}
-	if strings.TrimSpace(repo) != "" {
-		body["repo"] = repo
-	}
-	// longTimeout: enabling runs the preflight, which may auto-create the
-	// integration branch and shell git/gh.
-	err := c.doT(ctx, longTimeout, http.MethodPost, "/autopilot", body, &st)
-	if err != nil {
-		var se *StatusError
-		if errors.As(err, &se) && se.Code == http.StatusConflict {
-			if pfe := parseAutopilotPreflight(se.Body); pfe != nil {
-				return AutopilotStatus{}, pfe
-			}
-		}
-		return AutopilotStatus{}, err
-	}
-	return st, nil
-}
-
-// parseAutopilotPreflight decodes a 409 body into the typed preflight error, or
-// nil if the body is not the expected shape.
-func parseAutopilotPreflight(body []byte) *AutopilotPreflightError {
-	var wire struct {
-		Error    string   `json:"error"`
-		Failures []string `json:"failures"`
-	}
-	if err := json.Unmarshal(body, &wire); err != nil || len(wire.Failures) == 0 {
-		return nil
-	}
-	summary := wire.Error
-	if summary == "" {
-		summary = "autopilot preflight failed"
-	}
-	return &AutopilotPreflightError{Summary: summary, Failures: wire.Failures}
 }
 
 // CompleteAutopilot declares the calling brain's run complete (POST

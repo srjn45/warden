@@ -68,6 +68,7 @@ func (s *Server) LandAutopilot(ctx context.Context, req oapi.LandAutopilotReques
 	res, err := autopilot.Land(ctx, autopilot.LandRequest{
 		RunActive:         active,
 		Owned:             tgt.owned,
+		NotFound:          tgt.notFound,
 		Branch:            tgt.branch,
 		Worktree:          tgt.worktree,
 		IntegrationBranch: params.IntegrationBranch,
@@ -188,6 +189,7 @@ type landTarget struct {
 	agentID  string
 	sess     *agentstore.Agent
 	owned    bool
+	notFound bool // reference matches no agent and no branch
 }
 
 // resolveLandTarget maps an agent_or_branch reference to a landTarget. It first
@@ -210,7 +212,30 @@ func (s *Server) resolveLandTarget(ctx context.Context, ref string) landTarget {
 	}
 	// Unresolvable to an owned worker — carry the branch through so Land returns
 	// not_owned rather than the handler guessing.
-	return landTarget{branch: ref}
+	// not_owned rather than the handler guessing — unless nothing matches at all.
+	return landTarget{branch: ref, notFound: !s.landRefExists(ctx, ref, sessions)}
+}
+
+// landRefExists reports whether ref names an existing branch: a session on it
+// (any owner) or a local/remote git ref visible from any agent worktree.
+func (s *Server) landRefExists(ctx context.Context, ref string, sessions []*agentstore.Agent) bool {
+	for _, sess := range sessions {
+		if sess.Branch == ref {
+			return true
+		}
+	}
+	for _, sess := range sessions {
+		if sess.Worktree == "" {
+			continue
+		}
+		for _, r := range []string{"refs/heads/" + ref, "refs/remotes/origin/" + ref} {
+			if _, err := gitIn(ctx, sess.Worktree, "rev-parse", "--verify", "--quiet", r); err == nil {
+				return true
+			}
+		}
+		break
+	}
+	return false
 }
 
 // sessionLandTarget builds a landTarget from a resolved session.

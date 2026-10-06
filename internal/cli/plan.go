@@ -1108,7 +1108,14 @@ func newPlanRunCmd() *cobra.Command {
 			if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
 				return printJSON(cmd.OutOrStdout(), p)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "plan %s run started (mode: %s)\n", p.ID, mode)
+			out := cmd.OutOrStdout()
+			fmt.Fprintf(out, "plan %s run started (mode: %s)\n", p.ID, mode)
+			if len(p.Warnings) > 0 {
+				fmt.Fprintln(out, "warnings:")
+				for _, w := range p.Warnings {
+					fmt.Fprintf(out, "  - %s\n", w)
+				}
+			}
 			return nil
 		},
 	}

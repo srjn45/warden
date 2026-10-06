@@ -156,28 +156,6 @@ type setForceCompactArgs struct {
 	Ticket string `json:"ticket" jsonschema:"the agent's ticket / session id"`
 	State  string `json:"state" jsonschema:"force-compact override: on (always) | off (never) | inherit (follow the global token_force_compact)"`
 }
-type setAutopilotArgs struct {
-	Enabled bool   `json:"enabled" jsonschema:"true enables autopilot (runs the enable-time preflight), false is the kill switch"`
-	Repo    string `json:"repo,omitempty" jsonschema:"repo root to toggle (optional; defaults to the daemon's working directory) — the switch is per-repo"`
-}
-type registerAutopilotRunArgs struct {
-	Name     string `json:"name"`
-	Repo     string `json:"repo"`
-	PlanFile string `json:"plan_file"`
-}
-type controlAutopilotRunArgs struct {
-	RunID  string `json:"run_id"`
-	Action string `json:"action" jsonschema:"start, pause, resume, or stop"`
-}
-type renameAutopilotRunArgs struct {
-	RunID string `json:"run_id"`
-	Name  string `json:"name"`
-}
-type retargetAutopilotRunArgs struct {
-	RunID             string `json:"run_id"`
-	IntegrationBranch string `json:"integration_branch,omitempty"`
-	Derive            bool   `json:"derive,omitempty"`
-}
 type landArgs struct {
 	AgentOrBranch string `json:"agent_or_branch" jsonschema:"the autopilot worker agent (id or name) or the branch to land into the integration branch"`
 }
@@ -456,23 +434,8 @@ func (s *Server) registerExtraTools() {
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
-		Name:        "set_autopilot",
-		Description: "DEPRECATED — there is no per-repo autopilot switch. enabled=true is a no-op; enabled=false pauses every active autopilot run in `repo` (optional; defaults to the daemon working directory), same as pausing each plan. Start runs with run_plan {execution_mode: autopilot}; pause with control_plan.",
-	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a setAutopilotArgs) (*mcpsdk.CallToolResult, any, error) {
-		st, err := s.cl.SetAutopilot(ctx, a.Enabled, a.Repo)
-		if err != nil {
-			var pfe *client.AutopilotPreflightError
-			if errors.As(err, &pfe) {
-				return jsonResultAny(map[string]any{"enabled": false, "preflight_failed": true, "failures": pfe.Failures})
-			}
-			return textResult("error: " + err.Error()), nil, nil
-		}
-		return jsonResultAny(st)
-	})
-
-	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "autopilot_status",
-		Description: "Read the autopilot capability switch plus one entry per live Autopilot executor (run id, plan id, plan file, repo, state, gate, manager, workers, task rollup, backoff). Read-only. Mirrors `warden autopilot status`. Prefer list_plans / get_plan for plan lifecycle.",
+		Description: "Read one entry per autopilot run (run id, plan id, plan file, repo, state, gate, manager, workers, task rollup, backoff). Read-only. Mirrors `warden autopilot status`. Prefer list_plans / get_plan for plan lifecycle.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ listArgs) (*mcpsdk.CallToolResult, any, error) {
 		st, err := s.cl.GetAutopilot(ctx)
 		if err != nil {
@@ -481,45 +444,9 @@ func (s *Server) registerExtraTools() {
 		return jsonResultAny(st)
 	})
 
-	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{Name: "list_autopilot_runs", Description: "List live Autopilot executors (and any legacy registered runs). Prefer list_plans for plan lifecycle."}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ listArgs) (*mcpsdk.CallToolResult, any, error) {
-		runs, err := s.cl.ListAutopilotRuns(ctx)
-		if err != nil {
-			return textResult("error: " + err.Error()), nil, nil
-		}
-		return jsonResultAny(runs)
-	})
-	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{Name: "register_autopilot_run", Description: "DEPRECATED for one release. Plan-file registration is retired. Returns a migration error naming PlanID when the plan_file can be resolved; otherwise a precise scan/create/import hint. Prefer run_plan."}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a registerAutopilotRunArgs) (*mcpsdk.CallToolResult, any, error) {
-		r, err := s.cl.RegisterAutopilotRun(ctx, a.Name, a.Repo, a.PlanFile)
-		if err != nil {
-			return textResult("error: " + err.Error()), nil, nil
-		}
-		return jsonResultAny(r)
-	})
-	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{Name: "control_autopilot_run", Description: "DEPRECATED for one release. Translates to run_plan / control_plan when a PlanID can be resolved from the run; otherwise returns a precise migration error. Prefer control_plan (pause|resume|stop) or run_plan (start)."}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a controlAutopilotRunArgs) (*mcpsdk.CallToolResult, any, error) {
-		r, err := s.cl.ControlAutopilotRun(ctx, a.RunID, a.Action)
-		if err != nil {
-			return textResult("error: " + err.Error()), nil, nil
-		}
-		return jsonResultAny(r)
-	})
-	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{Name: "rename_autopilot_run", Description: "Rename a run's display name and slot scope without changing its run_id or integration branch."}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a renameAutopilotRunArgs) (*mcpsdk.CallToolResult, any, error) {
-		r, err := s.cl.RenameAutopilotRun(ctx, a.RunID, a.Name)
-		if err != nil {
-			return textResult("error: " + err.Error()), nil, nil
-		}
-		return jsonResultAny(r)
-	})
-	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{Name: "retarget_autopilot_run", Description: "DEPRECATED for one release. Retarget has no safe PlanID translation — always returns a precise migration error. Prefer stopping and re-running via run_plan if a new integration branch is required."}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a retargetAutopilotRunArgs) (*mcpsdk.CallToolResult, any, error) {
-		r, err := s.cl.RetargetAutopilotRun(ctx, a.RunID, a.IntegrationBranch, a.Derive)
-		if err != nil {
-			return textResult("error: " + err.Error()), nil, nil
-		}
-		return jsonResultAny(r)
-	})
-
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "land",
-		Description: "Land (merge) one autopilot worker branch into the integration branch — the brain's ONLY merge path. Runs every precondition (owning run active, branch autopilot-owned, a PR based on the integration branch, the resolved gate GREEN for the PR head, and the PR mergeable), merges with the configured strategy, deletes the worker branch if configured, and records the landing. Idempotent: re-issuing after a merge returns already_landed with no second merge. On a precondition failure returns the typed kind (gate_pending|gate_red|ci_missing|not_mergeable|not_owned|run_disabled|wrong_base) for you to reason over — never a human prompt. Autopilot-only. Mirrors `warden land`.",
+		Description: "Land (merge) one autopilot worker branch into the integration branch — the brain's ONLY merge path. Runs every precondition (owning run active, branch autopilot-owned, a PR based on the integration branch, the resolved gate GREEN for the PR head, and the PR mergeable), merges with the configured strategy, deletes the worker branch if configured, and records the landing. Idempotent: re-issuing after a merge returns already_landed with no second merge. On a precondition failure returns the typed kind (gate_pending|gate_red|ci_missing|not_mergeable|not_found|not_owned|run_disabled|wrong_base) for you to reason over — never a human prompt. Autopilot-only. Mirrors `warden autopilot land`.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a landArgs) (*mcpsdk.CallToolResult, any, error) {
 		res, err := s.cl.Land(ctx, a.AgentOrBranch)
 		if err != nil {

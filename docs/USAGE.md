@@ -2568,12 +2568,10 @@ survives rotation and daemon restarts.
 ### Quickstart
 
 ```sh
-# 1. Scaffold a plan file (no enable step)
+# 1. Create the plan (no enable step)
 cd /path/to/your-repo
-warden autopilot init --name notifications
 
-# 2. Edit plans/notifications.yaml — set your goal, add constraints
-#    Import/create the Plan in the daemon, then start execution:
+# 2. Create the Plan in the daemon, then start execution:
 warden plan create --name notifications --goal "…"   
 warden plan run <plan-id> --mode autopilot
 
@@ -2593,15 +2591,9 @@ warden agent tail <manager-id>       # live manager output
 warden plan pause <plan-id>
 ```
 
-### `warden autopilot init`
-
-Creates `plans/<name>.yaml` in the current git repository (if absent). It does
-not overwrite existing files. Follow up with Plan CRUD (`warden plan create` /
-`import` / `scan`) and `warden plan run <id> --mode autopilot`.
-
-> **Deprecated (one release):** `warden autopilot register` and plan-file-based
-> `autopilot run start` translate to a PlanID where safe or return a precise
-> migration error. Prefer `plan run|pause|resume|stop`.
+> **Removed in this release:** `warden autopilot register` and plan-file-based
+> start no longer exist. Use `plan run|pause|resume|stop`. Unknown subcommands
+> (`wd autopilot bogus`) exit non-zero.
 
 ### No enable step
 
@@ -2609,7 +2601,7 @@ Starting a plan with `warden plan run <id> --mode autopilot` is all it takes —
 preflight (missing plan, unauthenticated backends, missing integration branch,
 dead `gh` auth) runs at plan-start time and reports every failure at once. The
 plan/manager/merge template stays global in the `autopilot` config block.
-`autopilot init` no longer registers anything with the daemon.
+`autopilot init` was removed; create plans with `warden plan create`.
 
 ### `warden plan show --watch`
 
@@ -2661,25 +2653,33 @@ state (`idle|armed|escalating|parked|disabled`) and `restarts:`.
 
 ### `warden autopilot status`
 
-Lists every run (state, gate, manager slot id, integration branch, task summary —
-this absorbed the old `autopilot run list` columns). `--json` emits the raw
-status for scripts.
+Lists every run as an aligned table (RUN, NAME, STATE, PLAN, GATE, BRANCH,
+PROGRESS; REPO only when runs span more than one repo). Empty state prints
+`no autopilot runs` and a hint pointing at `wd plan run <plan-id> --mode autopilot`.
+`--json` emits the raw API result (no `enabled` / `enabled_repos` fields).
 
 ```sh
 warden autopilot status
 warden autopilot status --json
 ```
 
-### Deprecated compatibility commands
+### Removed compatibility commands
 
-These are hidden and kept for one release:
+The old autopilot lifecycle commands are gone. Typing one prints its replacement:
 
-| Command | Behaviour |
+| Removed | Use instead |
 |---|---|
-| `autopilot enable` / `on` | no-op + deprecation notice pointing at `plan run --mode autopilot` |
-| `autopilot disable` / `off` | pauses every active run in the repo (same as `plan pause` on each) + notice; `--repo <root>` targets another repo |
-| `autopilot run list` / `autopilot list` | aliases of `autopilot status` |
-| MCP `set_autopilot` / REST | `enabled: true` no-op; `enabled: false` pauses the repo's runs |
+| `autopilot enable` / `on` / `register` / `start` | `plan run <id> --mode autopilot` |
+| `autopilot disable` / `off` / `pause` | `plan pause` |
+| `autopilot resume` | `plan resume` |
+| `autopilot stop` / `unregister` | `plan stop` |
+| `autopilot list` / `run` / `run list` | `autopilot status` |
+
+The MCP tools `set_autopilot`, `register_autopilot_run`, `control_autopilot_run`, `retarget_autopilot_run`, `rename_autopilot_run` and `list_autopilot_runs` were removed as well; use `run_plan`, `control_plan`, `list_plans` and `autopilot_status`. REST writes on `/api/v1/autopilot` (enable/disable), `/api/v1/autopilot/runs`, `/api/v1/autopilot/runs/{run_id}/{action}`, `/rename` and `/retarget` are gone. Keep GET `/api/v1/autopilot`, `/land`, `/complete`, `/tasks/status` and `/brain-consult`. Top-level `wd land` was removed; use `wd autopilot land`. Unknown subcommands now error.
+
+### `warden autopilot land`
+
+Manual fallback when daemon landing is disabled. Failures print one message with a next step. Kinds: `not_found`, `not_owned`, `run_disabled`, `wrong_base`, `gate_pending`, `gate_red`, `ci_missing`, `not_mergeable`. `--json` emits `{kind, detail}`.
 
 ### Run completion
 
@@ -2766,8 +2766,8 @@ re-derives a stored branch.
 **CI (`gate: auto`):** add `autopilot/**` to `on.pull_request.branches` in your
 workflows so every per-plan branch is covered. Listing only `autopilot/integration`
 does not cover `autopilot/<plan>`; when no workflow matches, `gate: auto`
-downgrades to `local` and preflight emits a warning. `warden autopilot init`
-prints the hint.
+downgrades to `local` and preflight emits a warning. `warden plan run`
+prints the hint under `warnings:`.
 
 When a run completes, review the integration branch and fast-forward `main`:
 

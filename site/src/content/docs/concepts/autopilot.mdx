@@ -131,9 +131,14 @@ A run is a small fleet with clearly separated jobs:
 
 ### Plan
 
-A YAML brief you author in your repository under `plans/` (for example,
-`plans/notifications.yaml`). `warden autopilot init --name notifications`
-scaffolds and registers it.
+Plans are canonical ScrivaDB records. Create one with `warden plan create` (not
+`warden autopilot init`, which no longer exists) and start it with
+`warden plan run <id> --mode autopilot`. Repository YAML under `plans/` is an
+optional inert export — not required to run.
+
+A plan has a `goal`, optional `constraints` (injected into every manager and
+worker spawn), and a task DAG. The manager decomposes the goal if you leave
+the task list empty.
 
 ```yaml
 version: 1
@@ -157,9 +162,8 @@ tasks:                        # optional — the manager authors these if absent
 | `tasks[].prompt` | no | Worker's task description |
 | `tasks[].after` | no | Dependency edge ids |
 
-The plan file is **owner-editable mid-flight** — the manager re-reads it on each
-planning cycle. Changing constraints takes effect immediately; adding tasks is
-picked up on the next planning tick.
+A plan's definition is **editable only while pending**. A running plan cannot
+be patched (409).
 
 ### Run
 
@@ -180,13 +184,12 @@ the live status view (executor state, backoff, integration branch, per-task
 worker/PR). The plan/manager/merge **template** stays global in the `autopilot`
 config block. `warden autopilot status [--json]` lists every run with its
 `integration_branch`, `manager_slot_id`, and `slot_scope` (it absorbed the old
-`autopilot run list` columns; `run list` / `list` remain as hidden aliases).
+`autopilot run list` columns).
 
-**Deprecated compatibility.** `autopilot enable|on` are hidden no-ops with a
-notice pointing at `plan run --mode autopilot`; `autopilot disable|off` are
-hidden and pause every active run in the repo (same as `plan pause` on each).
-MCP `set_autopilot` / REST behave the same: `enabled: true` is a no-op,
-`enabled: false` pauses the repo's runs.
+**Removed commands.** `autopilot enable|on|register|start|disable|off|pause|resume|stop|unregister|list|run`
+and the MCP tools `set_autopilot`, `register_autopilot_run`, `control_autopilot_run`,
+`retarget_autopilot_run`, `rename_autopilot_run` and `list_autopilot_runs` no longer
+exist. Use `plan run|pause|resume|stop`; typing an old command prints its replacement.
 
 ### Plan-scoped hierarchy
 

@@ -1172,8 +1172,7 @@ wipes the half-built `snapshots-db/` and re-imports from the intact legacy JSON.
 ## 34. Autopilot (autonomous agent runs)
 
 > ⚠️ **Unattended operation is inherently risky.** Use `warden plan pause <id>`
-> (or the deprecated `warden autopilot disable`, which pauses every active run in
-> the repo) any time you need to stop. Workers always land into their
+> any time you need to stop. Workers always land into their
 > run's integration branch (default `autopilot/<plan-name>`), never directly into
 > `main`. See the [Autopilot guide](https://srjn45.github.io/warden/guides/autopilot/).
 
@@ -1189,8 +1188,7 @@ when rate-limited (cost-tier ladder).
 ### 34.1 Plan file
 
 Authored by the operator as a named file under `plans/` (for example,
-`plans/release.yaml`). `warden autopilot init --name release` scaffolds config and
-a plan YAML; prefer `wd plan create` / `wd plan import-legacy` for the
+`plans/release.yaml`). Prefer `wd plan create` / `wd plan import-legacy` for the
 tracked Plan surface (scan/import file commands are deprecated migration aids).
 Plan CRUD surface, then `wd plan run <id> --mode autopilot`. Contains a
 `goal`, optional `constraints` (injected into every manager and worker spawn), and
@@ -1198,9 +1196,8 @@ an optional coarse `tasks` list. The manager decomposes the goal into tasks if t
 list is empty. The file is owner-editable mid-flight; the manager re-reads it on
 each planning cycle.
 
-> **Retired:** `warden autopilot register` / plan-file-based start are deprecated
-> one-release aliases. They translate to a PlanID where safe or return a precise
-> migration error. Canonical lifecycle is `wd plan run|pause|resume|stop`.
+> **Removed:** `warden autopilot register` and the plan-file-based start are gone.
+> The lifecycle is `wd plan run|pause|resume|stop`.
 
 ### 34.2 Agent topology — manager, worker, resolver
 
@@ -1359,7 +1356,7 @@ branch. New runs after upgrade use the per-plan default unless overridden.
 `on.pull_request.branches` covers the **resolved** branch. Workflows listing
 `autopilot/integration` exactly do **not** cover `autopilot/<plan>`. When no
 workflow matches, `gate: auto` downgrades to `local` and preflight/status emit
-an explicit warning. **`warden autopilot init`** prints a hint to add
+an explicit warning. **`wd plan run`** prints a `warnings:` hint to add
 `autopilot/**` to workflow triggers — that glob covers every per-plan branch.
 Never auto-merged to `main` — the operator reviews the integration branch and
 fast-forwards `main` when satisfied.
@@ -1384,22 +1381,24 @@ spec-machine labels such as `fixing` / `replanned`) are not enforced here.
 Persists across manager restarts and daemon restarts — re-enabling autopilot
 continues from the ledger.
 
-### 34.10 No enable switch; deprecated compatibility
+### 34.10 No enable switch
 
-There is no per-repo enable switch. Flow: `wd plan create` (or `wd autopilot init`
-then `wd plan create`) → `wd plan run <id> --mode autopilot` (MCP: `run_plan`).
+There is no per-repo enable switch. Flow: `wd plan create`  → `wd plan run <id> --mode autopilot` (MCP: `run_plan`).
 `wd plan show <id> --watch` is the live status view (executor state, backoff,
 integration branch, per-task worker/PR). `warden autopilot status [--json]` lists
 every run and now includes the old run-list columns. The plan/manager/merge
-**template** stays global in the `autopilot` config block. `autopilot init` no
-longer registers with the daemon.
+**template** stays global in the `autopilot` config block. `autopilot init` and the old
+lifecycle aliases were removed. Unknown subcommands now error (`wd autopilot bogus`
+exits non-zero). `wd autopilot status` prints an aligned all-runs table; `wd plan show
+<id> --watch` is the view for one plan. `wd plan run` prints preflight warnings,
+including the CI-coverage hint (`autopilot/**` under `on.pull_request.branches`).
 
-Deprecated, hidden compatibility commands:
+Removed commands (typing one prints its replacement):
 
-- `autopilot enable` / `on` — no-ops with a notice pointing at `wd plan run --mode autopilot`.
-- `autopilot disable` / `off` — pause every active run in the repo (same as `wd plan pause` on each) with a notice.
-- `autopilot run list` / `autopilot list` — aliases of `autopilot status`.
-- MCP `set_autopilot` / REST `/autopilot` — `enabled: true` is a no-op, `enabled: false` pauses the repo's runs.
+- `autopilot enable` / `on` / `register` / `start` → `wd plan run <id> --mode autopilot`.
+- `autopilot disable` / `off` / `pause` → `wd plan pause`; `resume` → `wd plan resume`; `stop` / `unregister` → `wd plan stop`.
+- `autopilot list` / `run` / `run list` → `wd autopilot status`.
+- MCP `set_autopilot`, `register_autopilot_run`, `control_autopilot_run`, `retarget_autopilot_run`, `rename_autopilot_run`, `list_autopilot_runs` and the matching REST write routes were removed; use `run_plan`, `control_plan`, `list_plans` and `autopilot_status`.
 
 On restart, live runs are re-preflighted with a **structural vs content** split:
 content-only plan issues (invalid task status, etc.) are normalized to `pending`

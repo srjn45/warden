@@ -11,10 +11,10 @@ import (
 // Returns an empty string when autopilot status has not been fetched yet (zero
 // value), so the header is not cluttered on first paint.
 func autopilotBadge(st client.AutopilotStatus) string {
-	if !st.Enabled && len(st.Runs) == 0 {
-		return "" // not yet fetched or definitively off — show nothing on first paint
+	if len(st.Runs) == 0 {
+		return "" // not yet fetched or no runs — show nothing on first paint
 	}
-	if !st.Enabled {
+	if !st.Live() {
 		return stMuted.Render("autopilot: off")
 	}
 	runs := len(st.Runs)
@@ -65,7 +65,6 @@ func helpText() string {
 		"  x            kill agent / cancel pipeline / close project or dir (context-sensitive;\n" +
 		"               closing a project hibernates it — its agents are restored on reopen)\n" +
 		"  D            delete a stopped pipeline's record (confirm y/N)\n" +
-		"  ctrl+a       toggle autopilot on/off (run `warden autopilot init` first if not configured)\n" +
 		"  u            apply a pending warden update (footer chip) then hot-reload the TUI in place\n" +
 		"  r            reload the TUI after an external upgrade (footer chip); otherwise restore/retry\n" +
 		"  B            review a staged warden-bug crash draft (Submit / Dismiss; footer badge)\n" +

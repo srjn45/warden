@@ -3,7 +3,6 @@ package daemon
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"strconv"
 	"strings"
 
@@ -17,39 +16,13 @@ import (
 // happens on a bare Server literal (some tests).
 const autopilotDisabledMsg = "autopilot is not configured"
 
-// GetAutopilot implements GET /api/v1/autopilot: the master switch + per-run
+// GetAutopilot implements GET /api/v1/autopilot: the per-run
 // status (autopilot.md §5). Reports disabled/empty when unconfigured.
 func (s *Server) GetAutopilot(_ context.Context, _ oapi.GetAutopilotRequestObject) (oapi.GetAutopilotResponseObject, error) {
 	if s.autopilot == nil {
-		return oapi.GetAutopilot200JSONResponse(autopilot.Status{Enabled: false, Runs: []autopilot.RunStatus{}}), nil
+		return oapi.GetAutopilot200JSONResponse(autopilot.Status{Runs: []autopilot.RunStatus{}}), nil
 	}
 	return oapi.GetAutopilot200JSONResponse(s.autopilot.Status()), nil
-}
-
-// SetAutopilot implements POST /api/v1/autopilot (DEPRECATED — there is no
-// per-repo switch). enabled=true is a no-op; enabled=false pauses every active
-// autopilot run in the repo. Start runs with POST /plans/{id}/run.
-func (s *Server) SetAutopilot(ctx context.Context, req oapi.SetAutopilotRequestObject) (oapi.SetAutopilotResponseObject, error) {
-	if s.autopilot == nil {
-		return nil, errStatus(http.StatusForbidden, autopilotDisabledMsg)
-	}
-	var b oapi.AutopilotToggleRequest
-	if req.Body != nil {
-		b = *req.Body
-	}
-	// repo scopes the toggle to one repository (empty ⇒ the daemon's working
-	// directory, resolved by the Controller for backward compatibility).
-	if b.Enabled {
-		st, err := s.autopilot.Enable(ctx, b.Repo)
-		if err != nil {
-			return nil, err
-		}
-		s.recordAuditCtx(ctx, audit.ActionAutopilotOn, "", map[string]string{"repo": b.Repo, "runs": strconv.Itoa(len(st.Runs))})
-		return oapi.SetAutopilot200JSONResponse(st), nil
-	}
-	st, paused := s.autopilot.Disable(ctx, b.Repo)
-	s.recordAuditCtx(ctx, audit.ActionAutopilotOff, "", map[string]string{"repo": b.Repo, "paused": strconv.Itoa(len(paused))})
-	return oapi.SetAutopilot200JSONResponse(st), nil
 }
 
 // CompleteAutopilot implements POST /api/v1/autopilot/complete: the brain's

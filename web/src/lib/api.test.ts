@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { listSessions, spawn, listRoles, listDirs, terminate, removeWorktree, deleteSession, ApiError, listApprovals, approve, listPipelines, cancelPipeline, deletePipeline, retryJob, createPipeline, startPipeline, pausePipeline, resumePipeline, listConflicts, controlAutopilotRun, subscribeSessions } from './api';
+import { listSessions, spawn, listRoles, listDirs, terminate, removeWorktree, deleteSession, ApiError, listApprovals, approve, listPipelines, cancelPipeline, deletePipeline, retryJob, createPipeline, startPipeline, pausePipeline, resumePipeline, listConflicts, controlPlan, subscribeSessions } from './api';
 import { setToken, clearToken, onAuthRequired } from './token';
 
 function authHeader(call: unknown[]): string | null {
@@ -140,11 +140,11 @@ describe('api', () => {
     expect(body.supervised).toBe(true);
   });
 
-	it('controls one autopilot run without toggling the repo', async () => {
-		const f = vi.fn().mockResolvedValue(jsonResponse({ run_id: 'ap-1', state: 'paused' }));
+	it('controls an autopilot run through its plan', async () => {
+		const f = vi.fn().mockResolvedValue(jsonResponse({ id: 'plan-1' }));
 		vi.stubGlobal('fetch', f);
-		await controlAutopilotRun('ap-1', 'pause');
-		expect(f.mock.calls[0][0]).toBe('/api/v1/autopilot/runs/ap-1/pause');
+		await controlPlan('plan-1', 'pause');
+		expect(f.mock.calls[0][0]).toBe('/api/v1/plans/plan-1/pause');
 		expect(f.mock.calls[0][1].method).toBe('POST');
 	});
 

@@ -1,6 +1,6 @@
 ---
 title: Autopilot — autonomous agent runs
-description: Adoption walkthrough — init, cost-tier config, plan run/pause, landing branches, and how to stay safe running agents unattended.
+description: Adoption walkthrough — create a plan, run it in autopilot mode, watch status, land worker branches, and how to stay safe running agents unattended.
 ---
 
 import { Aside } from '@astrojs/starlight/components';
@@ -8,10 +8,9 @@ import { Aside } from '@astrojs/starlight/components';
 <Aside type="caution" title="Unattended operation is inherently risky">
 Start a plan with `warden plan run <id> --mode autopilot` — there is no
 separate enable step. A **manager** agent then drives a fleet of
-worker agents.
-**without waiting for human input**. Workers write code, open PRs, and merge
-branches into the integration branch — autonomously. You should understand the
-mitigations before enabling:
+worker agents without waiting for human input. Workers write code and open
+PRs; the daemon lands them into the integration branch. You should understand
+the mitigations before starting:
 
 - **Pause switch:** `warden plan pause <id>` stops new spawns and landings
   immediately (in-flight workers keep running). Use it any time you need to
@@ -55,7 +54,7 @@ guardian, cost-tier ladder — see [Autopilot concepts](../concepts/autopilot).
 
 ## Prerequisites
 
-Before enabling autopilot, make sure:
+Before starting autopilot, make sure:
 
 - `warden daemon` is running and healthy (`warden doctor`)
 - At least one agent backend is authenticated (`claude --version` for the default
@@ -68,34 +67,15 @@ Before enabling autopilot, make sure:
 
 ---
 
-## Step 1 — scaffold with `warden autopilot init`
+## Step 1 — create the plan
 
-Run `init` inside the repo you want autopilot to drive:
-
-```sh
-cd /path/to/my-repo
-warden autopilot init --name notifications
-```
-
-This creates (without overwriting if they already exist):
-
-**`plans/notifications.yaml`** — edit this to describe your goal:
-
-```yaml
-version: 1
-goal: "Describe your goal here"
-constraints:
-  - "keep all changes behind a feature flag"
-tasks: []           # leave empty to let the manager decompose the goal automatically
-```
-
-**`~/.warden/config.yaml`** — updated with an `autopilot` block:
+Plans live in the daemon store, not in a repo file. Create one from inside the
+repo you want autopilot to drive (see `warden plan create --help`), and set the
+`autopilot` block in `~/.warden/config.yaml` if you want non-default settings:
 
 ```yaml
 autopilot:
-  enabled: false
   merge:
-    target_branch: autopilot/integration   # legacy default; new runs derive autopilot/<plan>
     gate: auto            # auto | ci | local (auto picks ci when a workflow covers the branch)
   completion:
     merge_default: true              # bring integration current with the default branch before the final PR
@@ -103,10 +83,10 @@ autopilot:
     merge_poll_interval: 2m          # how often to poll a green final PR while awaiting owner merge (floor 30s)
 ```
 
-`warden autopilot init` also prints a CI hint when no workflow covers the
-resolved integration branch — add `autopilot/**` to `on.pull_request.branches`
-in one of your `.github/workflows/*.yml` files so `gate: auto` covers every
-per-plan branch:
+`warden plan run <plan-id> --mode autopilot` prints a `warnings:` note when no
+workflow covers the resolved integration branch — add `autopilot/**` to
+`on.pull_request.branches` in one of your `.github/workflows/*.yml` files so
+`gate: auto` covers every per-plan branch:
 
 ```yaml
 on:
@@ -115,16 +95,18 @@ on:
       - autopilot/**
 ```
 
-Commit `plans/<name>.yaml` to your repo so the manager can read it from its
-worktree.
+Unknown subcommands now error: `wd autopilot bogus` exits non-zero with an
+unknown-command message (and a suggestion when the name is close). Bare
+`wd autopilot` still prints help and exits 0.
 
 ---
 
-## Step 2 — edit your plan file
+## Step 2 — add tasks while the plan is pending
 
-Open `plans/notifications.yaml` and fill in the goal. The manager decomposes the goal
-into tasks automatically if you leave the `tasks:` list empty. Or provide coarse
-tasks yourself to guide decomposition:
+Create the plan with `warden plan create` (or `warden plan update` / `warden plan task`
+while it is still `pending`). A running plan's definition cannot be edited.
+The manager decomposes the goal into tasks if you leave the list empty; or
+provide coarse tasks yourself:
 
 ```yaml
 version: 1
@@ -143,8 +125,8 @@ tasks:
     after: [ui]
 ```
 
-The plan file is **owner-editable mid-flight** — the manager re-reads it on each
-planning tick. You can add tasks or change constraints while a run is active.
+The plan file is **owner-editable while pending** — a running plan's definition
+cannot be edited.
 
 ---
 
@@ -187,7 +169,6 @@ daemon warns if they linger). Manage tiers with `warden backend tier` from then 
 There is **no enable step**: starting a plan is what starts autopilot.
 
 ```sh
-warden autopilot init --name notifications   # optional: scaffold plans/<name>.yaml + config block
 warden plan create ...                        # canonical plan in the store
 warden plan run <plan-id> --mode autopilot    # preflight runs here
 # or by name:
@@ -203,11 +184,9 @@ warden plan resume <plan-id>
 warden plan stop <plan-id>
 ```
 
-> **Deprecated:** `warden autopilot enable` / `on` are hidden no-ops that print a
-> deprecation notice pointing at `warden plan run --mode autopilot`.
-> `warden autopilot register`, `unregister`, `retarget`, and plan-file-based
-> `autopilot run start` translate to a PlanID where safe or return a precise
-> migration error. `autopilot init` no longer registers with the daemon.
+> **Removed:** `warden autopilot enable|on|register|start|disable|off|pause|resume|stop|unregister|list|run`
+> no longer exist; typing one prints the `warden plan` replacement. `autopilot init`
+> was removed too; use `warden plan create`.
 
 ---
 
@@ -258,8 +237,7 @@ run status and `wd plan show`. Switch it off with
 The TUI cockpit (`warden tui`) shows each run as a **plan-scoped tree** — manager
 (`<scope>-autopilot`), guardian (`<scope>-guardian`), plan checklist, and workers
 grouped by ledger state. The web dashboard shows an **Autopilot** panel when a run
-is active. The TUI header has a status badge (press `ctrl+a` to toggle autopilot
-on/off without leaving the cockpit).
+is active.
 
 ---
 
@@ -351,11 +329,21 @@ warden autopilot land <branch-name>        # land by branch name
 ```
 
 The land operation is **idempotent** — landing the same branch twice is a no-op.
-It fails with an error if:
+A failure prints **one** message (plain sentence + next step, plus the daemon's
+detail when present) and exits non-zero. `--json` emits `{kind, detail}`.
 
-- The branch is not autopilot-owned (ownership guard)
-- The configured gate is not green (`--gate-mode=local` bypasses CI and uses the
-  local `.warden/check.yml` checks instead)
+| Kind | Meaning | Next step |
+|---|---|---|
+| `not_found` | Nothing matches that agent or branch | `wd autopilot status` / `wd ls` |
+| `not_owned` | The branch exists but is not owned by an autopilot run | Check the run owns it |
+| `run_disabled` | The run is paused or stopped | `wd plan resume` |
+| `wrong_base` | The PR does not target the integration branch | Retarget the PR |
+| `gate_pending` | Checks are still running | Wait, or see the PR checks |
+| `gate_red` | Checks failed | Fix the PR |
+| `ci_missing` | No CI covers the branch | Add `autopilot/**` to workflow branches, or use local gate |
+| `not_mergeable` | Conflicts | Sync the branch |
+
+There is no top-level `wd land`; only `wd autopilot land`.
 
 Over MCP: `land { ticket: "<agent-or-branch>" }`.
 
@@ -420,12 +408,9 @@ always belongs to the operator.
 
 ```sh
 warden plan pause <plan-id>     # pause one run
-warden autopilot disable        # deprecated: pause every active run in this repo
 ```
 
-`warden plan pause` is the supported control. `warden autopilot disable` (alias
-`off`, hidden, deprecated; `--repo <root>` to target another repo) is equivalent
-to `plan pause` on each active run in the repo and prints a deprecation notice.
+`warden plan pause` is the supported control.
 Effective immediately:
 
 - The Controller stops spawning new workers and landing new branches
@@ -441,21 +426,16 @@ is heading in the wrong direction.
 
 | Command | What it does |
 |---|---|
-| `warden autopilot init [--name <name>]` | Scaffold `plans/<name>.yaml` + config block |
 | `warden plan run <id> --mode autopilot` | Start plan execution (canonical lifecycle) |
 | `warden plan pause\|resume\|stop <id>` | Control an in-progress plan's executor |
 | `warden plan show <id> --watch` | Live status of a running plan: executor state, backoff, integration branch, per-task worker/PR |
 | `warden autopilot status [--json]` | Every run's state, manager slot id, integration branch, task summary (includes the former run-list columns) |
-| `warden autopilot enable\|on` | Deprecated, hidden no-op with a notice pointing at `plan run --mode autopilot` |
-| `warden autopilot disable\|off` | Deprecated, hidden; pauses every active run in the repo (like `plan pause`) |
-| `warden autopilot run list` / `autopilot list` | Hidden aliases of `autopilot status` |
 | `warden autopilot land <agent-or-branch>` | Land a worker branch into the integration branch |
 
 ## MCP tools
 
 | Tool | What it does |
 |---|---|
-| `set_autopilot { enabled, repo? }` | **Deprecated.** `enabled: true` is a no-op; `enabled: false` pauses the repo's active runs. Use `run_plan` / `control_plan` |
 | `run_plan { plan_id, execution_mode }` | Start plan execution |
 | `control_plan { plan_id, action }` | Pause, resume, or stop an in-progress plan |
 | `autopilot_status` | Return each run's state, manager id, task counts |

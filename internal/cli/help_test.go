@@ -175,3 +175,64 @@ func rootHelpOutline(help string) string {
 	}
 	return strings.Join(out, "\n") + "\n"
 }
+
+// TestUnknownSubcommandErrorsInEveryNamespace walks the whole tree so a new
+// namespace cannot regress `wd <ns> <unknown>` back to printing help.
+func TestUnknownSubcommandErrorsInEveryNamespace(t *testing.T) {
+	n := 0
+	var walk func(*cobra.Command)
+	walk = func(cmd *cobra.Command) {
+		if cmd.Annotations[annotationUnknownGuard] == "true" {
+			n++
+			path := strings.Fields(cmd.CommandPath())[1:]
+			if _, err := runCLI(t, "", append(append([]string{}, path...), "zzbogus")...); err == nil ||
+				!strings.Contains(err.Error(), `unknown command "zzbogus" for "`+cmd.CommandPath()+`"`) ||
+				!strings.Contains(err.Error(), cmd.CommandPath()+" --help") {
+				t.Errorf("%s zzbogus: want unknown-command error, got %v", cmd.CommandPath(), err)
+			}
+			if out, err := runCLI(t, "", path...); err != nil || !strings.Contains(out, "Usage") {
+				t.Errorf("%s with no args: want help and nil error, got %v / %q", cmd.CommandPath(), err, out)
+			}
+		}
+		for _, c := range cmd.Commands() {
+			walk(c)
+		}
+	}
+	root := newRootCmd()
+	walk(root)
+	// Every help-only namespace must have been guarded; runnable ones own their args.
+	var check func(*cobra.Command)
+	check = func(cmd *cobra.Command) {
+		if cmd != root && cmd.HasSubCommands() && cmd.Name() != "help" && !cmd.Runnable() {
+			t.Errorf("%s is a non-runnable namespace without the unknown-subcommand guard", cmd.CommandPath())
+		}
+		for _, c := range cmd.Commands() {
+			check(c)
+		}
+	}
+	check(root)
+	if n == 0 {
+		t.Fatal("no namespaces found")
+	}
+}
+
+func TestUnknownSubcommandSuggestionAndHint(t *testing.T) {
+	_, err := runCLI(t, "", "plan", "lis")
+	if err == nil || !strings.Contains(err.Error(), "Did you mean") {
+		t.Fatalf("want suggestion, got %v", err)
+	}
+	removedCommandHints["warden plan"] = map[string]string{"gone": "use `wd plan list`"}
+	defer delete(removedCommandHints, "warden plan")
+	if _, err = runCLI(t, "", "plan", "gone"); err == nil || !strings.Contains(err.Error(), "use `wd plan list`") {
+		t.Fatalf("want hint, got %v", err)
+	}
+}
+
+func TestAutopilotInitRemovedHint(t *testing.T) {
+	_, err := runCLI(t, "", "autopilot", "init")
+	if err == nil || !strings.Contains(err.Error(), "unknown command") ||
+		!strings.Contains(err.Error(), "wd plan create") ||
+		!strings.Contains(err.Error(), "wd plan run <plan-id> --mode autopilot") {
+		t.Fatalf("want unknown-command error pointing at plan create/run, got %v", err)
+	}
+}

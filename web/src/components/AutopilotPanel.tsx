@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  getAutopilot, setAutopilot,
-	controlAutopilotRun,
-  AutopilotPreflightError,
+  getAutopilot, autopilotLive, controlPlan,
   type AutopilotStatus, type AutopilotRun,
 } from '../lib/api';
 import type { Session } from '../lib/types';
@@ -12,9 +10,7 @@ import { buildRunTree } from '../lib/autopilot-tree';
 // Opens from the "⚙ autopilot" button in the AttentionBar.
 export default function AutopilotPanel({ onClose, liveStatus, sessions, stale }: { onClose: () => void; liveStatus?: AutopilotStatus | null; sessions?: Session[]; stale?: boolean }) {
   const [status, setStatus] = useState<AutopilotStatus | null>(null);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [preflightFailures, setPreflightFailures] = useState<string[] | null>(null);
 
   const refresh = useCallback(() => {
     getAutopilot().then((s) => {
@@ -30,26 +26,7 @@ export default function AutopilotPanel({ onClose, liveStatus, sessions, stale }:
 
 	useEffect(() => { if (liveStatus) setStatus(liveStatus); }, [liveStatus]);
 
-  async function toggle() {
-    if (!status) return;
-    setLoading(true);
-    setError(null);
-    setPreflightFailures(null);
-    try {
-      const next = await setAutopilot(!status.enabled);
-      setStatus({ ...next, runs: next.runs ?? [] });
-    } catch (e) {
-      if (e instanceof AutopilotPreflightError) {
-        setPreflightFailures(e.failures);
-      } else {
-        setError(e instanceof Error ? e.message : String(e));
-      }
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  const enabled = status?.enabled ?? false;
+  const enabled = autopilotLive(status);
   const runs = status?.runs ?? [];
 
   return (
@@ -61,32 +38,11 @@ export default function AutopilotPanel({ onClose, liveStatus, sessions, stale }:
           <button className="context-drawer-close" title="Close" onClick={onClose}>✕</button>
         </header>
 
-        {/* Toggle row */}
         <div className="autopilot-toggle-row">
           <span className={`autopilot-state ${enabled ? 'on' : 'off'}`}>
-            {status == null ? '…' : enabled ? 'on' : 'off'}
+            {status == null ? '…' : enabled ? 'live' : 'idle'}
           </span>
-          <button
-            className={`autopilot-toggle-btn ${enabled ? 'danger' : 'new-btn'}`}
-            disabled={loading || status == null}
-            onClick={toggle}
-          >
-            {loading ? '…' : enabled ? 'Disable' : 'Enable'}
-          </button>
         </div>
-
-        {/* Preflight failures (409) */}
-        {preflightFailures != null && (
-          <div className="autopilot-preflight-error">
-            <strong>Enable failed — fix these issues:</strong>
-            <ul>
-              {preflightFailures.map((f, i) => <li key={i}>{f}</li>)}
-            </ul>
-            <p className="autopilot-init-hint">
-              Run <code>warden autopilot init</code> to scaffold a plan file and config block.
-            </p>
-          </div>
-        )}
 
         {/* Generic error */}
         {error != null && (
@@ -99,7 +55,7 @@ export default function AutopilotPanel({ onClose, liveStatus, sessions, stale }:
         )}
         {runs.length === 0 && !enabled && status != null && (
           <p className="muted">
-            Disabled. Run <code>warden autopilot init</code> in your repo, then enable here or with <code>warden autopilot on</code>.
+            No autopilot runs. Create a plan with <code>warden plan create</code>, then start it with <code>warden plan run &lt;plan-id&gt; --mode autopilot</code>.
           </p>
         )}
 		{runs.map((r) => <RunCard key={r.run_id} run={r} sessions={sessions ?? []} onChanged={refresh} onError={setError} />)}
@@ -116,7 +72,8 @@ function RunCard({ run, sessions, onChanged, onError }: { run: AutopilotRun; ses
 		: (run.guardian_id ? [{ id: run.guardian_id, name: run.guardian_id, status: ['stopped','complete'].includes(run.state) ? 'done' : 'idle' } as Session] : []);
 	async function act(action: 'pause'|'resume'|'stop') {
 		onError(null); setBusy(true);
-		try { await controlAutopilotRun(run.run_id, action); onChanged(); }
+		try { if (!run.plan_id) throw new Error('this run has no plan to control');
+			await controlPlan(run.plan_id, action); onChanged(); }
 		catch (e) { onError(e instanceof Error ? e.message : String(e)); }
 		finally { setBusy(false); }
 	}

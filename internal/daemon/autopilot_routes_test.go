@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -53,20 +52,6 @@ func (e *apFakeEnv) WorkflowsCoverPRs(context.Context, string, string) (bool, er
 	return false, nil
 }
 
-func newAutopilotServer(t *testing.T, env autopilot.Env, plans []string) *httptest.Server {
-	t.Helper()
-	// A real (fake) lifecycle so enabling spawns a brain through the daemon runtime
-	// wired by SetAutopilotController (S3).
-	srv := &Server{store: newFakeStore(), life: &fakeLife{}, hub: newHub(), done: make(chan struct{})}
-	srv.SetAutopilotController(autopilot.NewController(autopilot.ControllerConfig{
-		Plans:             plans,
-		IntegrationBranch: "autopilot/integration",
-		Gate:              "auto",
-		Resolver:          autopilotTestResolver{},
-	}, env))
-	return httptest.NewServer(srv.router())
-}
-
 func TestManagerVisibilityAndRunStopCleanup(t *testing.T) {
 	dir := t.TempDir()
 	plan := filepath.Join(dir, "guardian.yaml")
@@ -97,43 +82,6 @@ func TestManagerVisibilityAndRunStopCleanup(t *testing.T) {
 	_, err = c.StopRun(context.Background(), runID)
 	require.NoError(t, err)
 	require.Equal(t, managerID, life.terminated)
-}
-
-func TestAutopilotEnableStatusDisable(t *testing.T) {
-	dir := t.TempDir()
-	plan := filepath.Join(dir, "plan.yaml")
-	require.NoError(t, os.WriteFile(plan, []byte("version: 1\ngoal: ship\n"), 0o644))
-
-	ts := newAutopilotServer(t, &apFakeEnv{repo: dir}, []string{plan})
-	defer ts.Close()
-
-	// GET before enabling → disabled, no runs.
-	var st autopilot.Status
-	apGetJSON(t, ts.URL+"/api/v1/autopilot", &st)
-	require.False(t, st.Enabled)
-	require.Empty(t, st.Runs)
-
-	// Enable is a capability switch only — no plan-file registration or spawn.
-	code := apPostJSON(t, ts.URL+"/api/v1/autopilot", `{"enabled":true,"repo":"`+dir+`"}`, &st)
-	require.Equal(t, http.StatusOK, code)
-	require.Empty(t, st.EnabledRepos)
-	require.Empty(t, st.Runs)
-
-	// Disable → kill switch (still OK with no live runs).
-	code = apPostJSON(t, ts.URL+"/api/v1/autopilot", `{"enabled":false,"repo":"`+dir+`"}`, &st)
-	require.Equal(t, http.StatusOK, code)
-	require.False(t, st.Enabled)
-}
-
-func TestAutopilotEnableSucceedsWithoutConfiguredPlans(t *testing.T) {
-	dir := t.TempDir() // plan file intentionally absent
-	ts := newAutopilotServer(t, &apFakeEnv{repo: dir}, []string{filepath.Join(dir, "missing.yaml")})
-	defer ts.Close()
-
-	var st autopilot.Status
-	code := apPostJSON(t, ts.URL+"/api/v1/autopilot", `{"enabled":true,"repo":"`+dir+`"}`, &st)
-	require.Equal(t, http.StatusOK, code)
-	require.Empty(t, st.Runs)
 }
 
 func TestSpawnAnnotatesWorkerPromptWithIntegrationBranch(t *testing.T) {
@@ -169,34 +117,15 @@ func TestSpawnAnnotatesWorkerPromptWithIntegrationBranch(t *testing.T) {
 	require.Contains(t, life.spawned.Prompt, autopilot.WorkerSpawnBranchPrompt("autopilot/ship"))
 }
 
-func TestAutopilotRunRegistryLifecycleRoutes(t *testing.T) {
-	dir := t.TempDir()
-	plan := filepath.Join(dir, "named.yaml")
-	require.NoError(t, os.WriteFile(plan, []byte("version: 1\ngoal: ship\n"), 0o644))
-	ts := newAutopilotServer(t, &apFakeEnv{repo: dir}, nil)
-	defer ts.Close()
-
-	// Register is retired — without a resolvable PlanID it returns a precise migration error.
-	var errBody oapi.Error
-	code := apPostJSON(t, ts.URL+"/api/v1/autopilot/runs", `{"name":"release","repo":"`+dir+`","plan_file":"`+plan+`"}`, &errBody)
-	require.Equal(t, http.StatusBadRequest, code)
-	require.Contains(t, errBody.Error, "cannot resolve PlanID")
-}
-
 func TestAutopilotUnconfigured(t *testing.T) {
-	// No Controller wired: GET reports disabled, POST is 403.
+	// No Controller wired: GET reports no runs.
 	srv := &Server{store: newFakeStore(), hub: newHub(), done: make(chan struct{})}
 	ts := httptest.NewServer(srv.router())
 	defer ts.Close()
 
 	var st autopilot.Status
 	apGetJSON(t, ts.URL+"/api/v1/autopilot", &st)
-	require.False(t, st.Enabled)
-
-	resp, err := http.Post(ts.URL+"/api/v1/autopilot", "application/json", strings.NewReader(`{"enabled":true}`))
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	require.Equal(t, http.StatusForbidden, resp.StatusCode)
+	require.Empty(t, st.Runs)
 }
 
 // TestCompleteAutopilotHandler exercises the brain's completion signal under
@@ -350,13 +279,4 @@ func apGetJSON(t *testing.T, url string, out any) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(out))
-}
-
-func apPostJSON(t *testing.T, url, body string, out any) int {
-	t.Helper()
-	resp, err := http.Post(url, "application/json", strings.NewReader(body))
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(out))
-	return resp.StatusCode
 }

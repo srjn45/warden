@@ -89,6 +89,12 @@ func TestLandTypedErrors(t *testing.T) {
 			want:   ErrRunDisabled,
 		},
 		{
+			name:   "not_found: nothing matches",
+			mutate: func(r *LandRequest) { r.NotFound = true },
+			host:   greenHost,
+			want:   ErrNotFound,
+		},
+		{
 			name:   "not_owned: foreign branch",
 			mutate: func(r *LandRequest) { r.Owned = false },
 			host:   greenHost,

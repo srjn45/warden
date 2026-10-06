@@ -27,7 +27,6 @@ func TestGolden_RFC18PopulatedTree(t *testing.T) {
 			},
 		},
 		Autopilot: autopilot.Status{
-			Enabled: true,
 			Runs: []autopilot.RunStatus{
 				{
 					RunID:      "ap-42",
@@ -443,7 +442,6 @@ func TestGolden_AutopilotWorkerClearedParentID(t *testing.T) {
 			},
 		},
 		Autopilot: autopilot.Status{
-			Enabled: true,
 			Runs: []autopilot.RunStatus{
 				{
 					RunID: "ap-99",
