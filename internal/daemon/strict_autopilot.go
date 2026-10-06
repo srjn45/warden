@@ -17,11 +17,11 @@ import (
 // happens on a bare Server literal (some tests).
 const autopilotDisabledMsg = "autopilot is not configured"
 
-// GetAutopilot implements GET /api/v1/autopilot: the master switch + per-run
+// GetAutopilot implements GET /api/v1/autopilot: the per-run
 // status (autopilot.md §5). Reports disabled/empty when unconfigured.
 func (s *Server) GetAutopilot(_ context.Context, _ oapi.GetAutopilotRequestObject) (oapi.GetAutopilotResponseObject, error) {
 	if s.autopilot == nil {
-		return oapi.GetAutopilot200JSONResponse(autopilot.Status{Enabled: false, Runs: []autopilot.RunStatus{}}), nil
+		return oapi.GetAutopilot200JSONResponse(autopilot.Status{Runs: []autopilot.RunStatus{}}), nil
 	}
 	return oapi.GetAutopilot200JSONResponse(s.autopilot.Status()), nil
 }

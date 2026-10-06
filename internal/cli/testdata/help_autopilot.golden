@@ -11,7 +11,7 @@ Usage:
   warden autopilot [flags]
 
 Commands:
-  status               Show autopilot status (every run)
+  status               List every autopilot run
   land                 Land an autopilot worker branch into the integration branch
 
 Flags:

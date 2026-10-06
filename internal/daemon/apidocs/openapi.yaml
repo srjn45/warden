@@ -3269,7 +3269,7 @@ paths:
       tags: [Autopilot]
       summary: Autopilot status
       description: >
-        Returns the current autopilot capability switch plus one entry per live
+        Returns one entry per live
         Autopilot executor (run id, plan id, plan file, repo, state, gate, manager,
         workers, task rollup, backoff). Start and control plan execution via
         POST /plans/{plan_id}/run and POST /plans/{plan_id}/{action} instead of
@@ -6756,16 +6756,10 @@ components:
         name: autopilot
       type: object
       description: >
-        The autopilot master switch plus one entry per active run
+        One entry per autopilot run
         (docs/specs/autopilot.md §5). The Go shape is autopilot.Status; the
         properties below document the wire contract.
       properties:
-        enabled: { type: boolean, description: "true when any run is live (active/starting/healing)" }
-        enabled_repos:
-          type: array
-          deprecated: true
-          description: "DEPRECATED, always empty; there is no per-repo switch. Removed next release."
-          items: { type: string }
         runs:
           type: array
           items:

@@ -971,7 +971,7 @@ type AutopilotRetargetRequest struct {
 // AutopilotRun defines model for AutopilotRun.
 type AutopilotRun = autopilot.RunStatus
 
-// AutopilotStatus The autopilot master switch plus one entry per active run (docs/specs/autopilot.md §5). The Go shape is autopilot.Status; the properties below document the wire contract.
+// AutopilotStatus One entry per autopilot run (docs/specs/autopilot.md §5). The Go shape is autopilot.Status; the properties below document the wire contract.
 type AutopilotStatus = autopilot.Status
 
 // AutopilotTaskStatusRequest defines model for AutopilotTaskStatusRequest.

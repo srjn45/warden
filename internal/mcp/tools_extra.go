@@ -472,7 +472,7 @@ func (s *Server) registerExtraTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "autopilot_status",
-		Description: "Read the autopilot capability switch plus one entry per live Autopilot executor (run id, plan id, plan file, repo, state, gate, manager, workers, task rollup, backoff). Read-only. Mirrors `warden autopilot status`. Prefer list_plans / get_plan for plan lifecycle.",
+		Description: "Read one entry per autopilot run (run id, plan id, plan file, repo, state, gate, manager, workers, task rollup, backoff). Read-only. Mirrors `warden autopilot status`. Prefer list_plans / get_plan for plan lifecycle.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ listArgs) (*mcpsdk.CallToolResult, any, error) {
 		st, err := s.cl.GetAutopilot(ctx)
 		if err != nil {

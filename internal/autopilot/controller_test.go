@@ -107,7 +107,7 @@ func TestEnableHappyPath(t *testing.T) {
 
 	st, err := c.ReconcileConfiguredPlans(context.Background(), "")
 	require.NoError(t, err)
-	require.True(t, st.Enabled)
+	require.NotEmpty(t, st.Runs)
 	require.Len(t, st.Runs, 1)
 	require.Equal(t, StateActive, st.Runs[0].State)
 	// gate `auto` resolves at preflight (§6.1): this fake repo has no workflows
@@ -262,7 +262,7 @@ func TestEnablePreflightFailures(t *testing.T) {
 			joined := pfe.Error()
 			require.Contains(t, joined, tt.wantSub)
 			// a failed enable changes no state
-			require.False(t, c.Status().Enabled)
+			require.Empty(t, c.Status().Runs)
 			require.Empty(t, c.Status().Runs)
 		})
 	}
@@ -290,11 +290,10 @@ func TestDisablePausesRuns(t *testing.T) {
 
 	_, err := c.ReconcileConfiguredPlans(context.Background(), "")
 	require.NoError(t, err)
-	require.True(t, c.Status().Enabled)
+	require.NotEmpty(t, c.Status().Runs)
 
 	st, paused := c.Disable(context.Background(), "")
 	require.Len(t, paused, 1)
-	require.False(t, st.Enabled)
 	require.Len(t, st.Runs, 1)
 	require.Equal(t, StatePaused, st.Runs[0].State)
 }
@@ -311,7 +310,6 @@ func TestDisableIsDeprecatedPause(t *testing.T) {
 	require.NoError(t, err)
 	st, err := c.ReconcileConfiguredPlans(context.Background(), dirB)
 	require.NoError(t, err)
-	require.Empty(t, st.EnabledRepos, "enabled_repos is deprecated and always empty")
 	require.Len(t, st.Runs, 2)
 
 	st, paused := c.Disable(context.Background(), dirA)
@@ -391,7 +389,7 @@ func TestEnableNoPlanForRepo(t *testing.T) {
 	var pfe *PreflightError
 	require.ErrorAs(t, err, &pfe)
 	require.Contains(t, pfe.Error(), "no autopilot plan resolves to "+dirB)
-	require.False(t, c.Status().Enabled)
+	require.Empty(t, c.Status().Runs)
 }
 
 // TestLegacyEnabledMarkersIgnoredOnBoot proves stale persisted enable-store data
@@ -484,7 +482,7 @@ func TestCompletedPlanDoesNotClaimRepoForActiveSibling(t *testing.T) {
 func TestStatusUnconfiguredDefaults(t *testing.T) {
 	c := NewController(ControllerConfig{}, &fakeEnv{})
 	st := c.Status()
-	require.False(t, st.Enabled)
+	require.Empty(t, st.Runs)
 	require.NotNil(t, st.Runs)
 	require.Empty(t, st.Runs)
 

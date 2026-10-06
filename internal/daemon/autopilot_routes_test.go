@@ -110,19 +110,18 @@ func TestAutopilotEnableStatusDisable(t *testing.T) {
 	// GET before enabling → disabled, no runs.
 	var st autopilot.Status
 	apGetJSON(t, ts.URL+"/api/v1/autopilot", &st)
-	require.False(t, st.Enabled)
+	require.Empty(t, st.Runs)
 	require.Empty(t, st.Runs)
 
 	// Enable is a capability switch only — no plan-file registration or spawn.
 	code := apPostJSON(t, ts.URL+"/api/v1/autopilot", `{"enabled":true,"repo":"`+dir+`"}`, &st)
 	require.Equal(t, http.StatusOK, code)
-	require.Empty(t, st.EnabledRepos)
 	require.Empty(t, st.Runs)
 
 	// Disable → kill switch (still OK with no live runs).
 	code = apPostJSON(t, ts.URL+"/api/v1/autopilot", `{"enabled":false,"repo":"`+dir+`"}`, &st)
 	require.Equal(t, http.StatusOK, code)
-	require.False(t, st.Enabled)
+	require.Empty(t, st.Runs)
 }
 
 func TestAutopilotEnableSucceedsWithoutConfiguredPlans(t *testing.T) {
@@ -191,7 +190,7 @@ func TestAutopilotUnconfigured(t *testing.T) {
 
 	var st autopilot.Status
 	apGetJSON(t, ts.URL+"/api/v1/autopilot", &st)
-	require.False(t, st.Enabled)
+	require.Empty(t, st.Runs)
 
 	resp, err := http.Post(ts.URL+"/api/v1/autopilot", "application/json", strings.NewReader(`{"enabled":true}`))
 	require.NoError(t, err)

@@ -1926,7 +1926,7 @@ Usage:
   warden autopilot [flags]
 
 Commands:
-  status               Show autopilot status (every run)
+  status               List every autopilot run
   land                 Land an autopilot worker branch into the integration branch
 
 Flags:
@@ -1940,12 +1940,12 @@ Inherited flags:
 ## warden autopilot status
 
 ```text
-Shows one line per run: run id, name,
-state, plan id, repo, gate, integration branch, and backoff summary. Healing,
-degraded and resting runs also print their next_step / resting_until, and runs
-print the guardian's last diagnosis, per-task gate/fix state, resolver activity
-and the final PR (all fields are also in --json). For a
-running plan's task-level progress use `warden plan show`.
+The all-runs view: one table row per autopilot run (run id, name, state, plan,
+gate, branch and task progress; the repo column appears only when runs span
+more than one repo). Runs that are waiting, degraded or need attention print
+indented detail lines under their row (next step, resting until, the guardian's
+diagnosis, the final PR). Use `wd plan show <id> --watch` for the view of one
+plan. --json emits the raw result.
 
 Usage:
   warden autopilot status [flags]
