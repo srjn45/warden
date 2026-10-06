@@ -1207,7 +1207,7 @@ warden message inbox --as agent-9c1d
 warden message wait --as agent-9c1d --timeout 120
 ```
 
-### `warden pipeline validate|create|list-templates|start|show|list|cancel|retry|edit-job|delete`
+### `warden pipeline validate|create|template|list|show|start|pause|resume|cancel|delete|emit|job`
 Define and run a **DAG of agent jobs** from a YAML spec or a built-in template. See
 §7.5 below for the full guide.
 
@@ -1479,8 +1479,8 @@ per pipeline, then an indented row per job with a status glyph). Collapse/expand
 pipeline with `←`/`→` (or `h`). On a pipeline row, `x` cancels it and `D`
 deletes a stopped pipeline's record; on a job row, `r` retries a
 failed/needs-attention job, and `enter`/`a` opens a running job's session.
-(Authoring pipelines is via `warden pipeline create -f` — see §7.5; editing job
-prompts and building pipelines in the TUI are not yet available.)
+(Authoring pipelines is via `warden pipeline create <spec.yaml>` — see §7.5; editing job
+prompts and building pipelines in the TUI are not yet available. `-f` still works.)
 
 Agents spawned by another agent (via the `spawn_agent` MCP tool) **nest under
 their parent** as a collapsible sub-tree — a `▸ / ▾` header indented per depth,
@@ -1599,26 +1599,39 @@ running before you open the TUI.
 A **pipeline** is a DAG of agent jobs defined in YAML. The daemon runs it: jobs
 with no dependencies start first, and each job's `emit` publishes its output and
 unblocks its dependents — so a "lead" Claude stays off the critical path.
-Authoring is CLI-only (`warden pipeline create -f`); the TUI and web show + control
+Authoring is CLI-only (`warden pipeline create <spec.yaml>` or `-f`); the TUI and web show + control
 pipelines but don't author them.
 
 **Lifecycle:**
 
 ```sh
-warden pipeline validate -f review.yaml # check the spec (DAG/refs/cycles); exit 0/1, no daemon
+warden pipeline validate review.yaml    # check the spec (DAG/refs/cycles); exit 0/1, no daemon
 warden pipeline template list          # built-in starters + their placeholders
-warden pipeline create -f review.yaml   # validate + register (does NOT start)
+warden pipeline create review.yaml      # validate + register (does NOT start)
+warden pipeline create review.yaml --start  # create and start in one step
+warden pipeline create -f review.yaml --json  # -f still works; --json for scripting
 warden pipeline create --template analyze-implement-review --set TASK="…"  # from a template
 warden pipeline start <id>              # spawn jobs with no dependencies
-warden pipeline show <id>               # jobs, status, branches, emitted output
-warden pipeline list
-warden pipeline retry <id> <job>        # re-run a failed/needs-attention job
-warden pipeline edit-job <id> <job> --prompt "…"   # edit a still-pending job
+warden pipeline show <id>               # jobs table (status, agent, backend, after, branch)
+warden pipeline show <id> --watch       # refresh until done/stalled/canceled
+warden pipeline show <id> --prompts     # also print each job's prompt and handoff
+warden pipeline show <id> --all-jobs    # include warden-injected span-out/span-in jobs
+warden pipeline show <id> --json        # full machine-readable view
+warden pipeline list                    # current project
+warden pipeline list --all --status running,paused
+warden pipeline list --project ~/dev/app --json
+warden pipeline job show <id> <job>     # full detail for one job
+warden pipeline job retry <id> <job>    # re-run a failed/needs-attention job
+warden pipeline job edit <id> <job> --prompt "…"   # edit a still-pending job
 warden pipeline pause <id>              # stop spawning new jobs (in-flight keep running)
 warden pipeline resume <id>             # resume a paused pipeline
-warden pipeline cancel <id> [--yes]     # terminate running jobs (confirms if any are live)
+warden pipeline cancel <id> [--yes]     # terminate running jobs (confirms if any are live; cannot restart)
 warden pipeline delete <id> [--yes]     # remove the record (always confirms; cancel first if live)
 ```
+
+`pipeline list` defaults to the project of the current directory (`--all` for every project, `--project` to pick one). Span-out/span-in jobs are created by warden for fan-out/join — hidden by default in `show`, marked `[warden]` with `--all-jobs`, and cannot be edited or retried. A pipeline run by a plan is controlled with `wd plan pause|resume|stop` — the pipeline pause/resume/cancel/delete verbs refuse it.
+
+**Removed in this release:** `pipeline edit-job` → `pipeline job edit`; `pipeline retry` → `pipeline job retry`; `pipeline list-templates` → `pipeline template list`.
 
 **Spec** — a minimal `analyze → implement → review` chain. **Important:** job
 prompts must **not** mention `emit` — the daemon auto-appends the emit step and
@@ -1643,7 +1656,7 @@ context (`pipeline.<id>.<job>.output`), and each job's git branch — they are n
 tied to the (possibly reaped) live agent.
 
 **Templates** — skip hand-writing a spec for common shapes. `warden pipeline
-list-templates` shows the four bundled starters and the placeholders each needs:
+template list` shows the four bundled starters and the placeholders each needs:
 
 | Template | Shape | Placeholders |
 |---|---|---|
@@ -1857,7 +1870,7 @@ selected pipeline's jobs as status-colored cards with dependency chips, and a
 per-job drawer with the prompt/handoff/output, a **Cancel** (pipeline) /
 **Retry** (job) control, and an **Open terminal** link to a running job's
 session. (Creating / editing pipelines in the browser is not yet available —
-use `warden pipeline create -f`.)
+use `warden pipeline create <spec.yaml>` or `-f`.)
 
 **Search the fleet:** the dashboard has a search box that filters the agent
 grid live as you type (matching id/name/type/subject/branch and more), so you
@@ -2375,9 +2388,12 @@ jobs:
 Then:
 
 ```sh
-warden pipeline create -f refactor.yaml   # validate the DAG (cycles, unknown refs)
+warden pipeline create refactor.yaml       # validate the DAG (cycles, unknown refs)
+warden pipeline create refactor.yaml --start  # or create + start in one step
+warden pipeline create -f refactor.yaml --json  # -f still works
 warden pipeline start refactor-auth        # spawn all jobs with no deps immediately
 warden pipeline show refactor-auth         # DAG + per-job status
+warden pipeline show refactor-auth --watch # follow until done/stalled/canceled
 warden pipeline cancel refactor-auth --yes # terminate running jobs + mark canceled
 ```
 
@@ -2455,16 +2471,18 @@ stay fully controllable.
 **Editing and recovery:**
 
 ```sh
-warden pipeline edit-job <pipeline> <job> --prompt "..." --handoff "..."
-warden pipeline retry <pipeline> <job>
+warden pipeline job edit <pipeline> <job> --prompt "..." --handoff "..."
+warden pipeline job retry <pipeline> <job>
+warden pipeline job show <pipeline> <job>
 ```
 
-`edit-job` tweaks a job's prompt and/or handoff *before it starts* (pending jobs
-only). If a job's agent goes quiet without emitting (its session is flagged
+`job edit` tweaks a job's prompt and/or handoff *before it starts* (pending jobs
+only). Span-out/span-in jobs warden injects for fan-out/join cannot be edited or
+retried. If a job's agent goes quiet without emitting (its session is flagged
 `idle` by stuck-detection), the job is marked **`needs_attention`** rather than
 silently stalling — the pipeline stays `running` and the job is shown flagged.
 Resolve it by `pipeline emit`-ing on the job's behalf (if the agent actually
-finished) or `pipeline retry`, which tears down the stale job session/worktree,
+finished) or `pipeline job retry`, which tears down the stale job session/worktree,
 resets the job, reopens any descendants that were skipped, and re-runs from there.
 
 If the job is still `needs_attention` after the watcher's one deterministic

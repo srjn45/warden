@@ -9,7 +9,7 @@ Its owning agent lists it in `child_pipelines[]`. Job agents remain members of
 `Project.agents[]`, but are reached through pipeline jobs (`pipeline_id`), never
 through the owner's `child_agents[]`. Ownership does not change DAG scheduling.
 
-A **pipeline** is a DAG of agent jobs defined in YAML. The daemon runs it: jobs with no dependencies start first, and each job's `emit` publishes its output and unblocks its dependents — so a "lead" orchestrator agent stays off the critical path. Author from a YAML spec (`warden pipeline create -f`), from a built-in template (`warden pipeline create --template …`), or over MCP (`create_pipeline`/`start_pipeline`). The TUI and web show + control pipelines but don't author them.
+A **pipeline** is a DAG of agent jobs defined in YAML. The daemon runs it: jobs with no dependencies start first, and each job's `emit` publishes its output and unblocks its dependents — so a "lead" orchestrator agent stays off the critical path. Author from a YAML spec (`warden pipeline create <spec.yaml>` or `-f`), from a built-in template (`warden pipeline create --template …`), or over MCP (`create_pipeline`/`start_pipeline`). The TUI and web show + control pipelines but don't author them.
 
 ![A pipeline rendered as a DAG in the warden web UI: two parallel root jobs fan out through design and implementation jobs, converge on a three-parent `integrate` job, then fan out again to parallel test/review jobs before a final `release` job — each job card shows its live status.](/warden/media/web-pipeline.png)
 
@@ -21,18 +21,31 @@ Selecting a job opens a drawer with its prompt, emitted output, and completion d
 
 ```sh
 warden pipeline template list          # show the built-in templates + placeholders
-warden pipeline validate -f review.yaml # check the spec (DAG/refs/cycles); exit 0/1, no daemon
-warden pipeline create -f review.yaml   # validate + register (does NOT start)
+warden pipeline validate review.yaml    # check the spec (DAG/refs/cycles); exit 0/1, no daemon
+warden pipeline create review.yaml      # validate + register (does NOT start)
+warden pipeline create review.yaml --start  # create and start in one step
+warden pipeline create -f review.yaml --json  # -f still works; --json for scripting
 warden pipeline start <id>              # spawn jobs with no dependencies
-warden pipeline show <id>               # jobs, status, branches, emitted output
-warden pipeline list
+warden pipeline show <id>               # jobs table (status, agent, backend, after, branch)
+warden pipeline show <id> --watch       # refresh until done/stalled/canceled
+warden pipeline show <id> --prompts     # also print each job's prompt and handoff
+warden pipeline show <id> --all-jobs    # include warden-injected span-out/span-in jobs
+warden pipeline show <id> --json        # full machine-readable view
+warden pipeline list                    # current project
+warden pipeline list --all --status running,paused
+warden pipeline list --project ~/dev/app --json
 warden pipeline pause <id>              # let in-flight jobs finish; spawn no new ones
 warden pipeline resume <id>             # spawn jobs that became ready while paused
-warden pipeline retry <id> <job>        # re-run a failed/needs-attention job
-warden pipeline edit-job <id> <job> --prompt "…"   # edit a still-pending job
-warden pipeline cancel <id> [--yes]     # terminate running jobs (confirms if any are live)
+warden pipeline job show <id> <job>     # full detail for one job
+warden pipeline job retry <id> <job>    # re-run a failed/needs-attention job
+warden pipeline job edit <id> <job> --prompt "…"   # edit a still-pending job
+warden pipeline cancel <id> [--yes]     # terminate running jobs (confirms if any are live; cannot restart)
 warden pipeline delete <id> [--yes]     # remove the record (always confirms; cancel first if live)
 ```
+
+`pipeline list` defaults to the project of the current directory (`--all` for every project, `--project` to pick one). Span-out/span-in jobs are created by warden for fan-out/join — hidden by default in `show`, marked `[warden]` with `--all-jobs`, and cannot be edited or retried. A pipeline run by a plan is controlled with `wd plan pause|resume|stop` — the pipeline pause/resume/cancel/delete verbs refuse it.
+
+**Removed in this release:** `pipeline edit-job` → `pipeline job edit`; `pipeline retry` → `pipeline job retry`; `pipeline list-templates` → `pipeline template list`.
 
 ## Built-in templates
 
@@ -104,11 +117,16 @@ If a job's agent session enters `errored` or `orphaned`, the job is marked `fail
 ## Editing and recovery
 
 ```sh
-warden pipeline edit-job <pipeline> <job> --prompt "..." --handoff "..."
-warden pipeline retry <pipeline> <job>
+warden pipeline job edit <pipeline> <job> --prompt "..." --handoff "..."
+warden pipeline job retry <pipeline> <job>
+warden pipeline job show <pipeline> <job>
 ```
 
-`edit-job` tweaks a job's prompt and/or handoff *before it starts* (pending jobs only). If a job's agent goes quiet without emitting (its session is flagged `idle` by stuck-detection), the job is marked **`needs_attention`** rather than silently stalling — the pipeline stays `running` and the job is shown flagged. Resolve it by `pipeline emit`-ing on the job's behalf (if the agent actually finished) or `pipeline retry`, which tears down the stale job session/worktree, resets the job, reopens any descendants that were skipped, and re-runs from there.
+`job edit` tweaks a job's prompt and/or handoff *before it starts* (pending jobs only). Span-out/span-in jobs warden injects for fan-out/join cannot be edited or retried. If a job's agent goes quiet without emitting (its session is flagged `idle` by stuck-detection), the job is marked **`needs_attention`** rather than silently stalling — the pipeline stays `running` and the job is shown flagged. Resolve it by `pipeline emit`-ing on the job's behalf (if the agent actually finished) or `pipeline job retry`, which tears down the stale job session/worktree, resets the job, reopens any descendants that were skipped, and re-runs from there.
+
+### Plan-owned pipelines
+
+A pipeline started by `wd plan run --mode pipeline` belongs to its plan. `pipeline pause`, `resume`, `cancel` and `delete` refuse it and name the plan command to use instead (`wd plan pause`, `resume`, `stop`, or `stop` then `archive`). Showing it and job-level retry/edit/emit still work.
 
 ### Restarting a plan-bound pipeline
 
