@@ -703,11 +703,16 @@ func newDaemonRunCmd() *cobra.Command {
 			// no writer contention.
 			if rep, rerr := daemon.ReconcileProjectMembership(ctx, st, pstore, planStore, projectStore); rerr != nil {
 				slog.Warn("daemon: project membership reconcile failed", "err", rerr)
-			} else if rep.Changed() {
-				slog.Info("daemon: project membership reconciled",
-					"sessions_stamped", rep.SessionsStamped,
-					"pipelines_stamped", rep.PipelinesStamped,
-					"projects_rebuilt", rep.ProjectsRebuilt)
+			} else {
+				for _, c := range rep.Conflicts {
+					slog.Warn("daemon: membership identity conflict left untouched", "kind", c.Kind, "id", c.ID, "detail", c.Detail)
+				}
+				if rep.Changed() {
+					slog.Info("daemon: project membership reconciled",
+						"sessions_stamped", rep.SessionsStamped,
+						"pipelines_stamped", rep.PipelinesStamped,
+						"projects_rebuilt", rep.ProjectsRebuilt)
+				}
 			}
 
 			// Live Autopilot entity store (plan-execution-entity-redesign): migrate

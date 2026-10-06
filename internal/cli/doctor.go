@@ -228,6 +228,9 @@ func runMembershipReconcile(cmd *cobra.Command, dataDir string) error {
 	fmt.Fprintf(out, "  sessions stamped:  %d\n", rep.SessionsStamped)
 	fmt.Fprintf(out, "  pipelines stamped: %d\n", rep.PipelinesStamped)
 	fmt.Fprintf(out, "  projects rebuilt:  %d\n", rep.ProjectsRebuilt)
+	for _, c := range rep.Conflicts {
+		fmt.Fprintf(out, "  CONFLICT %s %s: %s (left untouched)\n", c.Kind, c.ID, c.Detail)
+	}
 	if !rep.Changed() {
 		fmt.Fprintln(out, "already consistent — no changes")
 	}
