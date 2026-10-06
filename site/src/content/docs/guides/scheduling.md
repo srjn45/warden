@@ -123,9 +123,9 @@ detects `terminal-sessions`.
 - **Fail-soft.** A fire error is recorded in the schedule's `last_error` and logged;
   it never crashes the reconcile loop or stops other schedules firing.
 - **Fully driveable over MCP.** `create_schedule` / `list_schedules` /
-  `get_schedule` / `enable_schedule` / `disable_schedule` / `delete_schedule`
-  cover the schedule lifecycle (`schedule run` and `schedule edit` are CLI-only for
-  now); create/delete/enable/disable are written to the audit log
+  `get_schedule` / `update_schedule` (`schedule edit`) / `run_schedule`
+  (`schedule run`) / `enable_schedule` / `disable_schedule` / `delete_schedule`
+  mirror the CLI; create/delete/enable/disable are written to the audit log
   (`schedule_create` / `schedule_delete` / `schedule_enable` / `schedule_disable`).
 
 Schedules persist to an embedded ScrivaDB store under `~/.warden/schedules-db/`
