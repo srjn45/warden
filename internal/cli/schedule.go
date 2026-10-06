@@ -48,9 +48,9 @@ func newScheduleShowCmd() *cobra.Command {
 
 func newScheduleCreateCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "create <name> (--cron <spec> | --at <time>) [--prompt <s>] [--role <role>] [--cwd <dir> | --repo <path>] | --pipeline <spec.yaml>",
+		Use:   "create <name> (--cron <spec> | --at <time> | --now) [--prompt <s>] [--role <role>] [--cwd <dir> | --repo <path>] | --pipeline <spec.yaml>",
 		Short: "Create a schedule that fires an agent or a pipeline",
-		Long: "Create a recurring (--cron) or single-shot (--at) schedule. By default a\n" +
+		Long: "Create a recurring (--cron), single-shot (--at) or immediate (--now) schedule. By default a\n" +
 			"schedule fires one agent, started the same way `warden start` would start it\n" +
 			"with the same flags from the directory you run this in:\n" +
 			"  --cwd <dir>    launch the agent in this existing directory (default: the\n" +
@@ -64,16 +64,22 @@ func newScheduleCreateCmd() *cobra.Command {
 			"prompt) is rejected with the reason. --type is a deprecated alias mapped to\n" +
 			"role. Pass --pipeline <spec.yaml> instead to fire a pipeline (its name is\n" +
 			"timestamp-suffixed per fire so recurring runs don't collide).\n" +
-			"Provide exactly one of --cron/--at and exactly one fire mode.",
+			"--at must be in the future (a past time is rejected); --now fires once as soon\n" +
+			"as possible. Provide exactly one of --cron/--at/--now and exactly one fire mode.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cron, _ := cmd.Flags().GetString("cron")
 			at, _ := cmd.Flags().GetString("at")
 			pipelineFile, _ := cmd.Flags().GetString("pipeline")
+			now, _ := cmd.Flags().GetBool("now")
+			if now && (cron != "" || at != "") {
+				return fmt.Errorf("--now cannot be combined with --cron or --at")
+			}
 			req := client.ScheduleCreateRequest{
 				Name: args[0],
 				Cron: cron,
 				At:   at,
+				Now:  now,
 			}
 			if pipelineFile != "" {
 				data, err := os.ReadFile(pipelineFile)
@@ -113,13 +119,18 @@ func newScheduleCreateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if now {
+				fmt.Fprintf(cmd.OutOrStdout(), "created schedule %s (%s %s) — will fire within a minute\n", sc.ID, sc.Kind, sc.Mode)
+				return nil
+			}
 			fmt.Fprintf(cmd.OutOrStdout(), "created schedule %s (%s %s) — next run %s\n",
 				sc.ID, sc.Kind, sc.Mode, formatNextRun(sc.NextRun))
 			return nil
 		},
 	}
-	cmd.Flags().String("cron", "", "recurring cron spec, e.g. \"0 9 * * *\" (minute hour dom month dow)")
-	cmd.Flags().String("at", "", "single-shot time, RFC3339 or 2006-01-02T15:04 (local)")
+	cmd.Flags().String("cron", "", "recurring cron spec, e.g. \"0 9 * * *\" (minute hour dom month dow); evaluated in the daemon host's local time unless prefixed TZ=<zone>")
+	cmd.Flags().String("at", "", "single-shot time in the future, RFC3339 or 2006-01-02T15:04; a time without a zone is the local time of the machine running the daemon")
+	cmd.Flags().Bool("now", false, "fire once as soon as possible (a single-shot due immediately); exclusive with --cron and --at")
 	cmd.Flags().String("type", "", "deprecated: legacy agent task type (mapped to role at fire time); empty = free-form")
 	_ = cmd.Flags().MarkDeprecated("type", "schedules map type→role at fire; prefer an explicit role via spawn / pipeline job role")
 	cmd.Flags().String("repo", "", "repo path: the agent runs in an isolated worktree off it (default role worker)")
@@ -200,6 +211,10 @@ func newScheduleEnableCmd() *cobra.Command {
 			sc, err := clientFor(cmd).ScheduleEnable(cmd.Context(), args[0])
 			if err != nil {
 				return err
+			}
+			if sc.NextRun != nil && !sc.NextRun.After(time.Now()) {
+				fmt.Fprintf(cmd.OutOrStdout(), "enabled %s — will fire within a minute\n", sc.ID)
+				return nil
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "enabled %s — next run %s\n", sc.ID, formatNextRun(sc.NextRun))
 			return nil

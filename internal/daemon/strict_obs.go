@@ -100,6 +100,19 @@ func (s *Server) CreateSchedule(ctx context.Context, req oapi.CreateScheduleRequ
 	if req.Body != nil {
 		b = *req.Body
 	}
+	// --now is the explicit "fire once as soon as possible": a single-shot due
+	// immediately. It is stored as that instant so the next tick fires it.
+	now := time.Now()
+	if b.Now {
+		if strings.TrimSpace(b.Cron) != "" || strings.TrimSpace(b.At) != "" {
+			return nil, errStatus(http.StatusBadRequest, "--now cannot be combined with --cron or --at")
+		}
+		b.At = now.Format(time.RFC3339)
+	} else if strings.TrimSpace(b.At) != "" && strings.TrimSpace(b.Cron) == "" {
+		if err := schedule.CheckAtInFuture(b.At, now); err != nil {
+			return nil, errStatus(http.StatusBadRequest, err.Error())
+		}
+	}
 	if b.Spec != "" {
 		if _, err := pipeline.ParseSpec([]byte(b.Spec)); err != nil {
 			return nil, errStatus(http.StatusBadRequest, "invalid pipeline spec: "+err.Error())
@@ -122,7 +135,7 @@ func (s *Server) CreateSchedule(ctx context.Context, req oapi.CreateScheduleRequ
 		Agent:  b.Agent,
 		Branch: b.Branch,
 		Spec:   b.Spec,
-	}, time.Now())
+	}, now)
 	if err != nil {
 		return nil, errStatus(http.StatusBadRequest, err.Error())
 	}

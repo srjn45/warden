@@ -460,3 +460,73 @@ func TestScheduleCreateAcceptsFireableForms(t *testing.T) {
 	require.Equal(t, dir, got.Cwd)
 	require.Equal(t, "reviewer", got.Role)
 }
+
+func TestScheduleCreateRejectsPastAt(t *testing.T) {
+	ts, _, _ := newSchedServer(t)
+	defer ts.Close()
+	code, body := postSchedule(t, ts, `{"name":"old","at":"2020-01-01T09:00","repo":"/r","prompt":"hi"}`)
+	require.Equal(t, http.StatusBadRequest, code)
+	require.Contains(t, body, "2020-01-01T09:00:00")
+	require.Contains(t, body, "not in the future")
+	require.Contains(t, body, "--now")
+}
+
+func TestScheduleCreateRejectsAtExactlyNow(t *testing.T) {
+	ts, _, _ := newSchedServer(t)
+	defer ts.Close()
+	// RFC3339 has second resolution: a time truncated to the current second is
+	// never after now.
+	at := time.Now().Truncate(time.Second).Format(time.RFC3339)
+	code, _ := postSchedule(t, ts, `{"name":"edge","at":"`+at+`","repo":"/r","prompt":"hi"}`)
+	require.Equal(t, http.StatusBadRequest, code)
+}
+
+func TestScheduleCreateAcceptsFutureAt(t *testing.T) {
+	ts, _, _ := newSchedServer(t)
+	defer ts.Close()
+	at := time.Now().Add(time.Hour).Format(time.RFC3339)
+	code, _ := postSchedule(t, ts, `{"name":"later","at":"`+at+`","repo":"/r","prompt":"hi"}`)
+	require.Equal(t, http.StatusCreated, code)
+}
+
+func TestScheduleCreateNow(t *testing.T) {
+	ts, srv, fl := newSchedServer(t)
+	defer ts.Close()
+	code, _ := postSchedule(t, ts, `{"name":"asap","now":true,"repo":"/r","prompt":"hi"}`)
+	require.Equal(t, http.StatusCreated, code)
+	got, err := srv.schedStore.Get("asap")
+	require.NoError(t, err)
+	require.Equal(t, schedule.KindAt, got.Kind)
+	require.True(t, schedule.Due(got, time.Now()), "--now schedule is due immediately")
+	srv.scheduleTick(context.Background())
+	require.NotNil(t, fl.spawned)
+}
+
+func TestScheduleCreateNowExclusive(t *testing.T) {
+	ts, _, _ := newSchedServer(t)
+	defer ts.Close()
+	for _, extra := range []string{`"cron":"0 9 * * *"`, `"at":"2099-01-01T09:00"`} {
+		code, body := postSchedule(t, ts, `{"name":"x","now":true,`+extra+`,"repo":"/r","prompt":"hi"}`)
+		require.Equal(t, http.StatusBadRequest, code)
+		require.Contains(t, body, "--now")
+	}
+}
+
+// A single-shot that was in the future when created and came due while the
+// daemon was down still fires once on startup.
+func TestSchedulerStartupFiresDueDuringDowntime(t *testing.T) {
+	_, srv, fl := newSchedServer(t)
+	created := time.Now().Add(-2 * time.Hour)
+	sc, err := schedule.New(schedule.Params{
+		Name: "missed", At: time.Now().Add(-time.Hour).Format(time.RFC3339), Repo: "/r", Prompt: "go",
+	}, created)
+	require.NoError(t, err)
+	require.NoError(t, srv.schedStore.Create(sc))
+
+	srv.reconcileScheduleNextRuns()
+	srv.scheduleTick(context.Background())
+
+	require.NotNil(t, fl.spawned)
+	got, _ := srv.schedStore.Get("missed")
+	require.False(t, got.Enabled)
+}

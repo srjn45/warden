@@ -1389,6 +1389,7 @@ type ScheduleCreateRequest struct {
 	Name   string `json:"name"`
 	Cron   string `json:"cron,omitempty"`
 	At     string `json:"at,omitempty"`
+	Now    bool   `json:"now,omitempty"`
 	Type   string `json:"type,omitempty"`
 	Repo   string `json:"repo,omitempty"`
 	Cwd    string `json:"cwd,omitempty"`

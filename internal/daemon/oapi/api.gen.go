@@ -1922,13 +1922,13 @@ type ScheduleCreateRequest struct {
 	// Agent optional name for the spawned agent
 	Agent string `json:"agent,omitempty"`
 
-	// At single-shot time, RFC3339 or 2006-01-02T15:04 (mutually exclusive with cron)
+	// At single-shot time, RFC3339 or 2006-01-02T15:04; a time without a zone is the daemon host's local time. Must be in the future (mutually exclusive with cron and now)
 	At string `json:"at,omitempty"`
 
 	// Branch optional development branch / pr-review checkout
 	Branch string `json:"branch,omitempty"`
 
-	// Cron recurring cron spec (mutually exclusive with at)
+	// Cron recurring cron spec, evaluated in the daemon host's local time unless it starts with TZ=<zone> (mutually exclusive with at and now)
 	Cron string `json:"cron,omitempty"`
 
 	// Cwd existing absolute directory a free-form agent launches in (required when there is no repo)
@@ -1936,6 +1936,9 @@ type ScheduleCreateRequest struct {
 
 	// Name schedule id (== name)
 	Name string `json:"name"`
+
+	// Now fire once as soon as possible: a single-shot due immediately (mutually exclusive with cron and at)
+	Now bool `json:"now,omitempty"`
 
 	// Prompt agent prompt (agent mode)
 	Prompt string `json:"prompt,omitempty"`

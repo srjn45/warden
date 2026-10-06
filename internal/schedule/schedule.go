@@ -32,7 +32,8 @@ const (
 )
 
 // cronParser matches robfig/cron's default 5-field spec (minute-resolution),
-// with the usual @hourly/@daily/@weekly descriptors. The daemon ticks once a
+// with the usual @hourly/@daily/@weekly descriptors. A spec is evaluated in the
+// daemon host's local time unless it starts with TZ=<zone> (or CRON_TZ=<zone>). The daemon ticks once a
 // minute, so second-resolution specs would not buy anything.
 var cronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
 
@@ -174,6 +175,23 @@ func Validate(s *Schedule) error {
 		}
 	default:
 		return fmt.Errorf("unknown fire mode %q", s.Mode)
+	}
+	return nil
+}
+
+// CheckAtInFuture rejects a single-shot time that is not strictly after now. It
+// is the create-time (and edit-time) guard against a wrong date launching an
+// agent on the next tick; New and Recompute deliberately do not apply it, so the
+// daemon's startup path still fires a single-shot that came due during downtime.
+// The message shows the time as parsed (with its zone) and the current time.
+func CheckAtInFuture(at string, now time.Time) error {
+	t, err := ParseAt(at)
+	if err != nil {
+		return fmt.Errorf("invalid --at time %q: %w (want RFC3339, e.g. 2026-06-27T09:00:00Z, or 2026-06-27T09:00)", at, err)
+	}
+	if !t.After(now) {
+		return fmt.Errorf("--at %q is %s, which is not in the future (it is now %s); pass a later time, or --now to fire once immediately",
+			strings.TrimSpace(at), t.Format(time.RFC3339), now.Format(time.RFC3339))
 	}
 	return nil
 }

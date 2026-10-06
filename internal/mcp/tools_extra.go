@@ -223,7 +223,8 @@ type validatePipelineArgs struct {
 type createScheduleArgs struct {
 	Name   string `json:"name" jsonschema:"unique schedule name"`
 	Cron   string `json:"cron,omitempty" jsonschema:"5-field cron spec (or @daily etc.) for a recurring run; mutually exclusive with at"`
-	At     string `json:"at,omitempty" jsonschema:"single-shot time (RFC3339 or 2006-01-02T15:04, local); mutually exclusive with cron"`
+	At     string `json:"at,omitempty" jsonschema:"single-shot time (RFC3339 or 2006-01-02T15:04; a time without a zone is the daemon host's local time); must be in the future; mutually exclusive with cron and now"`
+	Now    bool   `json:"now,omitempty" jsonschema:"fire once as soon as possible (a single-shot due immediately); mutually exclusive with cron and at"`
 	Type   string `json:"type,omitempty" jsonschema:"agent task type (for an agent-spawn schedule)"`
 	Repo   string `json:"repo,omitempty" jsonschema:"repo for an agent-spawn schedule (with the default worker role the agent runs in an isolated worktree off it)"`
 	Cwd    string `json:"cwd,omitempty" jsonschema:"existing absolute directory a free-form agent launches in; required when there is no repo"`
@@ -1086,10 +1087,10 @@ func (s *Server) registerExtraTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "create_schedule",
-		Description: "Create a daemon-side schedule that fires an agent spawn or a whole pipeline on its own timer. Use cron for recurring (5-field or @daily etc.) or at for single-shot (RFC3339/local). Provide prompt plus repo (isolated worktree) or cwd (launch directory), and optionally role, for an agent, or spec for a pipeline. Mirrors `warden schedule create`.",
+		Description: "Create a daemon-side schedule that fires an agent spawn or a whole pipeline on its own timer. Use cron for recurring (5-field or @daily etc., evaluated in the daemon host's local time), at for a single-shot in the future (RFC3339, or local time when no zone is given; a past time is rejected), or now to fire once immediately. Provide prompt plus repo (isolated worktree) or cwd (launch directory), and optionally role, for an agent, or spec for a pipeline. Mirrors `warden schedule create`.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a createScheduleArgs) (*mcpsdk.CallToolResult, any, error) {
 		sch, err := s.cl.ScheduleCreate(ctx, client.ScheduleCreateRequest{
-			Name: a.Name, Cron: a.Cron, At: a.At, Type: a.Type, Repo: a.Repo, Cwd: a.Cwd, Role: a.Role,
+			Name: a.Name, Cron: a.Cron, At: a.At, Now: a.Now, Type: a.Type, Repo: a.Repo, Cwd: a.Cwd, Role: a.Role,
 			Prompt: a.Prompt, Agent: a.Agent, Branch: a.Branch, Spec: a.Spec,
 		})
 		if err != nil {

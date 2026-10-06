@@ -3723,7 +3723,7 @@
   },
   {
     "path": "schedule create",
-    "use": "create \u003cname\u003e (--cron \u003cspec\u003e | --at \u003ctime\u003e) [--prompt \u003cs\u003e] [--role \u003crole\u003e] [--cwd \u003cdir\u003e | --repo \u003cpath\u003e] | --pipeline \u003cspec.yaml\u003e",
+    "use": "create \u003cname\u003e (--cron \u003cspec\u003e | --at \u003ctime\u003e | --now) [--prompt \u003cs\u003e] [--role \u003crole\u003e] [--cwd \u003cdir\u003e | --repo \u003cpath\u003e] | --pipeline \u003cspec.yaml\u003e",
     "runnable": true,
     "local_flags": [
       "agent",
@@ -3731,6 +3731,7 @@
       "branch",
       "cron",
       "cwd",
+      "now",
       "pipeline",
       "prompt",
       "repo",
