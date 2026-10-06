@@ -104,6 +104,7 @@ func setAnnotationDefault(cmd *cobra.Command, key, value string) {
 
 func installCommandHelp(root *cobra.Command) error {
 	annotateExistingTree(root)
+	installUnknownSubcommandErrors(root)
 	if err := ValidateCommandTree(root); err != nil {
 		return err
 	}
@@ -398,4 +399,51 @@ func renderAllHelp(w io.Writer, root *cobra.Command) error {
 		}
 	}
 	return nil
+}
+
+const annotationUnknownGuard = "warden.help.unknown-guard"
+
+// removedCommandHints maps a namespace path ("warden plan") to removed or
+// renamed subcommand names and the text pointing at their replacement, e.g.
+// removedCommandHints["warden plan"] = map[string]string{"old": "use `wd plan new`"}.
+// The unknown-command error appends the hint when the word matches. Register
+// entries from an init() in the file that owns the change. Empty by default.
+var removedCommandHints = map[string]map[string]string{}
+
+// installUnknownSubcommandErrors makes `wd <ns> <unknown>` fail like the root
+// does. Help-only namespace commands (including nested and hidden ones) have
+// no Run, so cobra would otherwise print help and exit 0 for a stray word.
+// Namespaces that are themselves runnable keep their own argument handling.
+func installUnknownSubcommandErrors(root *cobra.Command) {
+	var walk func(*cobra.Command)
+	walk = func(cmd *cobra.Command) {
+		if cmd != root && cmd.HasSubCommands() && cmd.Annotations != nil && cmd.Run == nil && cmd.RunE == nil {
+			cmd.Args = unknownSubcommandArgs
+			cmd.Annotations[annotationUnknownGuard] = "true"
+			cmd.RunE = func(c *cobra.Command, _ []string) error { return c.Help() }
+		}
+		for _, c := range cmd.Commands() {
+			walk(c)
+		}
+	}
+	walk(root)
+}
+
+func unknownSubcommandArgs(cmd *cobra.Command, args []string) error {
+	if len(args) == 0 {
+		return nil
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "unknown command %q for %q", args[0], cmd.CommandPath())
+	if sugg := cmd.SuggestionsFor(args[0]); len(sugg) > 0 {
+		b.WriteString("\n\nDid you mean this?\n")
+		for _, s := range sugg {
+			fmt.Fprintf(&b, "\t%s\n", s)
+		}
+	}
+	if hint := removedCommandHints[cmd.CommandPath()][args[0]]; hint != "" {
+		fmt.Fprintf(&b, "\n%s\n", hint)
+	}
+	fmt.Fprintf(&b, "\nRun '%s --help' for usage.", cmd.CommandPath())
+	return fmt.Errorf("%s", b.String())
 }
