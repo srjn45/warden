@@ -349,7 +349,7 @@ func TestScheduleCreateCmd(t *testing.T) {
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
 		"POST /api/v1/schedules": `{"id":"nightly","name":"nightly","kind":"cron","mode":"agent","enabled":true}`,
 	}, nil, body))
-	out, err := runCLI(t, addr, "schedule", "create", "nightly", "--cron", "0 9 * * *", "--type", "development", "--repo", "/r", "--prompt", "go")
+	out, err := runCLI(t, addr, "schedule", "create", "nightly", "--cron", "0 9 * * *", "--repo", "/r", "--prompt", "go")
 	if err != nil {
 		t.Fatalf("schedule create: %v", err)
 	}

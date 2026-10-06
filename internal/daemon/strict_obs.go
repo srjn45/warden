@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/srjn45/warden/internal/audit"
+	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/daemon/oapi"
 	"github.com/srjn45/warden/internal/metrics"
 	"github.com/srjn45/warden/internal/pipeline"
@@ -113,7 +114,31 @@ func (s *Server) CreateSchedule(ctx context.Context, req oapi.CreateScheduleRequ
 			return nil, errStatus(http.StatusBadRequest, err.Error())
 		}
 	}
-	if b.Spec != "" {
+	params := schedule.Params{
+		Name:           b.Name,
+		Cron:           b.Cron,
+		At:             b.At,
+		Type:           b.Type,
+		Repo:           b.Repo,
+		Cwd:            b.Cwd,
+		Role:           b.Role,
+		Prompt:         b.Prompt,
+		Agent:          b.Agent,
+		Branch:         b.Branch,
+		Model:          b.Model,
+		AiCli:          b.AiCli,
+		PermissionMode: b.PermissionMode,
+		AutoRestart:    b.AutoRestart,
+		Tags:           b.Tags,
+		Tier:           b.Tier,
+		ProjectID:      b.ProjectId,
+		Spec:           b.Spec,
+	}
+	if strings.TrimSpace(b.Spec) != "" {
+		if conflicts := schedule.AgentFlagConflicts(params); len(conflicts) > 0 {
+			return nil, errStatus(http.StatusBadRequest, "a pipeline schedule fires the pipeline as written; "+
+				strings.Join(conflicts, ", ")+" only apply to an agent schedule — drop them or drop the pipeline")
+		}
 		if _, err := pipeline.ParseSpec([]byte(b.Spec)); err != nil {
 			return nil, errStatus(http.StatusBadRequest, "invalid pipeline spec: "+err.Error())
 		}
@@ -123,19 +148,7 @@ func (s *Server) CreateSchedule(ctx context.Context, req oapi.CreateScheduleRequ
 			return nil, errStatus(http.StatusBadRequest, msg)
 		}
 	}
-	sc, err := schedule.New(schedule.Params{
-		Name:   b.Name,
-		Cron:   b.Cron,
-		At:     b.At,
-		Type:   b.Type,
-		Repo:   b.Repo,
-		Cwd:    b.Cwd,
-		Role:   b.Role,
-		Prompt: b.Prompt,
-		Agent:  b.Agent,
-		Branch: b.Branch,
-		Spec:   b.Spec,
-	}, now)
+	sc, err := schedule.New(params, now)
 	if err != nil {
 		return nil, errStatus(http.StatusBadRequest, err.Error())
 	}
@@ -320,9 +333,14 @@ func (s *Server) validateScheduleAgent(ctx context.Context, b oapi.ScheduleCreat
 			return "unknown role " + r + " (valid: " + strings.Join(role.Names(), ", ") + ")"
 		}
 	}
+	if t := strings.TrimSpace(b.Tier); t != "" && !backendstore.ModelTier(t).Valid() {
+		return "invalid tier " + t + " (valid: tier-1, tier-2, tier-3)"
+	}
 	probe := &schedule.Schedule{
 		Type: b.Type, Repo: b.Repo, Cwd: b.Cwd, Role: b.Role,
 		Agent: b.Agent, Branch: b.Branch, Prompt: b.Prompt,
+		Model: b.Model, AiCli: b.AiCli, PermissionMode: b.PermissionMode,
+		AutoRestart: b.AutoRestart, Tags: b.Tags, Tier: b.Tier, ProjectID: b.ProjectId,
 	}
 	req := scheduleSpawnRequest(probe)
 	if code, msg := s.validateSpawnRequestOpts(ctx, req, true); code != 0 {

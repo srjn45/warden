@@ -28,6 +28,7 @@ import (
 type fakeLife struct {
 	mu                sync.Mutex
 	spawned           *agentstore.Agent
+	spawnReq          SpawnRequest // the last request handed to Spawn
 	lastInput         string
 	output            string
 	outputErr         error
@@ -102,6 +103,7 @@ var _ Lifecycle = (*fakeLife)(nil)
 
 func (f *fakeLife) Spawn(_ context.Context, req SpawnRequest) (*agentstore.Agent, error) {
 	f.spawnedCwd = req.Cwd
+	f.spawnReq = req
 	freeMode := req.Type == "" && req.ForkFrom == "" && !(lifecycle.RoleOwnsWorktree(req.Role) && req.Repo != "")
 	id := req.Ticket
 	if id == "" {

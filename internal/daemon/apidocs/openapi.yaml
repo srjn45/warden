@@ -6479,7 +6479,14 @@ components:
         prompt: { type: string, description: "agent prompt (agent mode)" }
         agent: { type: string, description: "optional name for the spawned agent" }
         branch: { type: string, description: "optional development branch / pr-review checkout" }
-        spec: { type: string, description: "pipeline YAML; non-empty selects pipeline mode" }
+        model: { type: string, description: "model ID for ai_cli (requires ai_cli); empty lets the model-tier resolver pick" }
+        ai_cli: { type: string, description: "AI CLI id the agent runs (claude, aider, …); empty = the daemon's default" }
+        permission_mode: { type: string, description: "permission mode for the agent: acceptEdits|auto|bypassPermissions|default|dontAsk|plan; empty = the configured default" }
+        auto_restart: { type: boolean, description: "auto-resume the agent if it crashes, capped at a few attempts" }
+        tags: { type: array, items: { type: string }, description: "labels stamped on every agent the schedule spawns" }
+        tier: { type: string, description: "model tier for the quota-balanced resolver: tier-1|tier-2|tier-3" }
+        project_id: { type: string, description: "id of the project the agent joins; empty = the project owning the launch directory, resolved at fire time like a normal spawn" }
+        spec: { type: string, description: "pipeline YAML; non-empty selects pipeline mode and is rejected together with any agent field (prompt, repo, cwd, role, agent, branch, model, ai_cli, …)" }
 
     Schedule:
       x-go-type: schedule.Schedule
@@ -6520,6 +6527,13 @@ components:
         prompt: { type: string }
         agent: { type: string }
         branch: { type: string }
+        model: { type: string, description: "model ID for ai_cli; absent = resolver/default" }
+        ai_cli: { type: string, description: "AI CLI the agent runs; absent = the daemon's default" }
+        permission_mode: { type: string }
+        auto_restart: { type: boolean }
+        tags: { type: array, items: { type: string } }
+        tier: { type: string }
+        project_id: { type: string, description: "project the spawned agent joins; absent = resolved from the launch directory at fire time" }
         spec: { type: string }
         created_at: { type: string, format: date-time }
         last_run: { type: string, format: date-time, description: "time of the most recent fire; absent if never fired" }

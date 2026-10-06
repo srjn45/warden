@@ -2204,8 +2204,7 @@ Inherited flags:
 Create timer-driven triggers that the daemon fires on a schedule: a recurring
 cron spec (--cron "0 9 * * *") or a single-shot time (--at 2026-06-27T09:00).
 Each schedule fires either one agent spawn (the default — pass --repo/
---prompt; --type is a deprecated alias mapped to role at fire time) or a
-pipeline (--pipeline <spec.yaml>). The scheduler is opt-in: set
+--prompt) or a pipeline (--pipeline <spec.yaml>). The scheduler is opt-in: set
 scheduler_enabled: true in the config file and keep the daemon running.
 
 Usage:
@@ -2240,28 +2239,53 @@ with the same flags from the directory you run this in:
   --role <role>  agent role, see `warden agent role list` (default: worker
                  with --repo, otherwise general)
   --prompt, --agent <name>   the agent's task and optional name
+  --aicli <id>, --model <id>   the AI CLI and model to run (--model needs --aicli)
+  --permission-mode, --auto-restart, --tags, --tier   as for `warden start`
+  --project <id> the project the agent joins (default: the one owning its directory)
 A schedule that could never fire (unknown role, missing directory, no
-prompt) is rejected with the reason. --type is a deprecated alias mapped to
-role. Pass --pipeline <spec.yaml> instead to fire a pipeline (its name is
-timestamp-suffixed per fire so recurring runs don't collide).
---at must be in the future (a past time is rejected); --now fires once as soon
-as possible. Provide exactly one of --cron/--at/--now and exactly one fire mode.
+prompt) is rejected with the reason.
+
+Pass --pipeline <spec.yaml> instead to fire a pipeline (its name is
+timestamp-suffixed per fire so recurring runs don't collide). A pipeline runs as
+written, so combining --pipeline with any agent option is an error.
+
+Provide exactly one of --cron/--at/--now: --at must be in the future (a past
+time is rejected) and --now fires once as soon as possible. --json prints the
+created schedule.
+
+Examples:
+  # recurring agent: a weekday-morning review in the current directory
+  warden schedule create morning-review --cron "0 9 * * 1-5" --role reviewer \
+      --prompt "review yesterday's merged PRs and list follow-ups"
+  # single-shot agent: a worktree off a repo, once, at a set time
+  warden schedule create release-prep --at 2026-12-01T08:00 --repo ~/dev/app \
+      --aicli claude --model sonnet --prompt "prepare the release notes"
+  # recurring pipeline: a nightly spec file
+  warden schedule create nightly --cron "@daily" --pipeline nightly.yaml
 
 Usage:
   warden schedule create <name> (--cron <spec> | --at <time> | --now) [--prompt <s>] [--role <role>] [--cwd <dir> | --repo <path>] | --pipeline <spec.yaml> [flags]
 
 Flags:
-      --agent string      optional name for the spawned agent
-      --at string         single-shot time in the future, RFC3339 or 2006-01-02T15:04; a time without a zone is the local time of the machine running the daemon
-      --branch string     optional development branch / pr-review checkout
-      --cron string       recurring cron spec, e.g. "0 9 * * *" (minute hour dom month dow); evaluated in the daemon host's local time unless prefixed TZ=<zone>
-      --cwd string        directory to launch the agent in (default: the current directory unless --repo is given)
-  -h, --help              help for create
-      --now               fire once as soon as possible (a single-shot due immediately); exclusive with --cron and --at
-      --pipeline string   fire a pipeline from this YAML spec file (instead of an agent)
-      --prompt string     the agent's initial prompt
-      --repo string       repo path: the agent runs in an isolated worktree off it (default role worker)
-      --role <ROLE>       agent role <ROLE>: general | autopilot | brain | orchestrator | planner | worker (legacy aliases implementer/auto-merger/reviewer resolve to worker) (default: worker with --repo, otherwise general)
+      --agent string             optional name for the spawned agent
+      --aicli <ID>               AI CLI <ID>: claude (default, stable) | aider | opencode | codex | crush | goose | cursor | antigravity — only claude is fully tested; codex/antigravity are beta, the rest experimental. See 'warden backend --help' for per-AI-CLI notes
+      --at string                single-shot time in the future, RFC3339 or 2006-01-02T15:04; a time without a zone is the local time of the machine running the daemon
+      --auto-restart             auto-resume the agent if it crashes (errored), capped at a few attempts
+      --branch string            optional development branch / pr-review checkout
+      --cron string              recurring cron spec, e.g. "0 9 * * *" (minute hour dom month dow); evaluated in the daemon host's local time unless prefixed TZ=<zone>
+      --cwd string               directory to launch the agent in (default: the current directory unless --repo is given)
+  -h, --help                     help for create
+      --json                     print the created schedule as JSON
+      --model string             model ID for the chosen AI CLI (requires --aicli). Empty lets the tier resolver pick an explicit model
+      --now                      fire once as soon as possible (a single-shot due immediately); exclusive with --cron and --at
+      --permission-mode string   permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan (default: from config or 'auto')
+      --pipeline string          fire a pipeline from this YAML spec file (instead of an agent)
+      --project <ID>             <ID> of the daemon project the agent joins (its canonical path or remote URL, from 'warden projects list'). Empty = the git repository root of the launch directory
+      --prompt string            the agent's initial prompt
+      --repo string              repo path: the agent runs in an isolated worktree off it (default role worker)
+      --role <ROLE>              agent role <ROLE>: general | autopilot | brain | orchestrator | planner | worker (legacy aliases implementer/auto-merger/reviewer resolve to worker) (default: worker with --repo, otherwise general)
+      --tags <LIST>              comma-separated labels <LIST> stamped on every agent this schedule starts (e.g. --tags nightly,backend)
+      --tier string              model tier for the quota-balanced resolver that picks the AI CLI+model: tier-1|tier-2|tier-3. An explicit --aicli/--model still wins
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)

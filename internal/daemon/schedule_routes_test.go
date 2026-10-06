@@ -14,6 +14,7 @@ import (
 
 	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/schedule"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
@@ -529,4 +530,128 @@ func TestSchedulerStartupFiresDueDuringDowntime(t *testing.T) {
 	require.NotNil(t, fl.spawned)
 	got, _ := srv.schedStore.Get("missed")
 	require.False(t, got.Enabled)
+}
+
+// Every spawn option stored on an agent schedule reaches the spawn request.
+func TestScheduleFireAgentPassesSpawnOptions(t *testing.T) {
+	_, srv, fl := newSchedServer(t)
+	dir := t.TempDir()
+	at := time.Now().Add(-time.Minute).Format(time.RFC3339)
+	sc, err := schedule.New(schedule.Params{
+		Name: "opts", At: at, Cwd: dir, Prompt: "go", Role: "reviewer",
+		Model: "sonnet", AiCli: "claude", PermissionMode: "acceptEdits",
+		AutoRestart: true, Tags: []string{"nightly", "x"}, Tier: "tier-2", ProjectID: dir,
+	}, time.Now())
+	require.NoError(t, err)
+	require.NoError(t, srv.schedStore.Create(sc))
+
+	srv.scheduleTick(context.Background())
+
+	got := fl.spawnReq
+	require.Equal(t, "sonnet", got.Model)
+	require.Equal(t, "claude", got.AiCli)
+	require.Equal(t, "claude", got.Backend)
+	require.Equal(t, "acceptEdits", got.PermissionMode)
+	require.True(t, got.AutoRestart)
+	require.Equal(t, []string{"nightly", "x"}, got.Tags)
+	require.Equal(t, "tier-2", got.Tier)
+	require.Equal(t, "reviewer", got.Role)
+	require.Equal(t, dir, got.ProjectID)
+	stored, _ := srv.schedStore.Get("opts")
+	require.Empty(t, stored.LastError)
+}
+
+// A fired agent joins a project exactly like a normal spawn: an explicit
+// project_id wins, otherwise the launch directory is path-matched, and the
+// session is added to the project's membership list.
+func TestScheduleFireAgentJoinsProject(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		explicit bool
+	}{{"path-matched", false}, {"explicit", true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, srv, fl := newSchedServer(t)
+			projects, err := projectstore.NewStore(t.TempDir())
+			require.NoError(t, err)
+			srv.projects = projects
+			dir := t.TempDir()
+			params := schedule.Params{Name: "p", At: time.Now().Add(-time.Minute).Format(time.RFC3339), Cwd: dir, Prompt: "go"}
+			if tc.explicit {
+				params.ProjectID = dir
+			}
+			sc, err := schedule.New(params, time.Now())
+			require.NoError(t, err)
+			require.NoError(t, srv.schedStore.Create(sc))
+
+			srv.scheduleTick(context.Background())
+
+			sess, err := srv.store.Get(context.Background(), fl.spawned.ID)
+			require.NoError(t, err)
+			require.Equal(t, dir, sess.ProjectID, "same project id a normal spawn from this directory gets")
+			proj, err := projects.Get(dir)
+			require.NoError(t, err)
+			require.Contains(t, proj.Agents, sess.ID)
+		})
+	}
+}
+
+// A record stored before the type→role change (type only, no role) still fires,
+// mapped onto its canonical role.
+func TestScheduleFireLegacyTypeRecord(t *testing.T) {
+	_, srv, fl := newSchedServer(t)
+	at := time.Now().Add(-time.Minute)
+	legacy := &schedule.Schedule{
+		ID: "old", Name: "old", Kind: schedule.KindAt, Mode: schedule.ModeAgent, At: at.Format(time.RFC3339),
+		Enabled: true, Type: "pr-review", Repo: "/r", Prompt: "look", CreatedAt: at, NextRun: &at,
+	}
+	require.NoError(t, srv.schedStore.Create(legacy))
+
+	srv.scheduleTick(context.Background())
+
+	require.NotNil(t, fl.spawned, "a legacy-type schedule must still fire")
+	require.Equal(t, "reviewer", fl.spawnReq.Role)
+	stored, _ := srv.schedStore.Get("old")
+	require.Empty(t, stored.LastError)
+	require.Equal(t, "pr-review", stored.Type, "the stored record is not rewritten")
+}
+
+// A pipeline spec together with agent options is rejected, naming the options.
+func TestScheduleCreatePipelineWithAgentFields400(t *testing.T) {
+	ts, _, _ := newSchedServer(t)
+	defer ts.Close()
+	spec := `name: p\nrepo: /r\njobs:\n  - id: a\n    prompt: go\n    worktree: none\n`
+	code, body := postSchedule(t, ts, `{"name":"x","cron":"@daily","spec":"`+spec+`","prompt":"p","model":"m","ai_cli":"claude"}`)
+	require.Equal(t, http.StatusBadRequest, code)
+	for _, f := range []string{"--prompt", "--model", "--aicli"} {
+		require.Contains(t, body, f)
+	}
+}
+
+func TestScheduleCreateModelWithoutAiCli400(t *testing.T) {
+	ts, _, _ := newSchedServer(t)
+	defer ts.Close()
+	code, body := postSchedule(t, ts, `{"name":"x","cron":"@daily","prompt":"p","cwd":"`+t.TempDir()+`","model":"m"}`)
+	require.Equal(t, http.StatusBadRequest, code)
+	require.Contains(t, body, "--model requires --aicli")
+}
+
+// The new options round-trip through create → stored schedule.
+func TestScheduleCreateStoresSpawnOptions(t *testing.T) {
+	ts, srv, _ := newSchedServer(t)
+	defer ts.Close()
+	code, _ := postSchedule(t, ts, `{"name":"x","cron":"@daily","prompt":"p","cwd":"`+t.TempDir()+`","ai_cli":"claude","model":"m","permission_mode":"plan","auto_restart":true,"tags":["a"],"tier":"tier-1","project_id":"/pj"}`)
+	require.Equal(t, http.StatusCreated, code)
+	sc, err := srv.schedStore.Get("x")
+	require.NoError(t, err)
+	require.Equal(t, "claude", sc.AiCli)
+	require.Equal(t, "m", sc.Model)
+	require.Equal(t, "plan", sc.PermissionMode)
+	require.True(t, sc.AutoRestart)
+	require.Equal(t, []string{"a"}, sc.Tags)
+	require.Equal(t, "tier-1", sc.Tier)
+	require.Equal(t, "/pj", sc.ProjectID)
+
+	code, body := postSchedule(t, ts, `{"name":"y","cron":"@daily","prompt":"p","cwd":"`+t.TempDir()+`","tier":"bogus"}`)
+	require.Equal(t, http.StatusBadRequest, code)
+	require.Contains(t, body, "invalid tier")
 }
