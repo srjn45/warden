@@ -6176,6 +6176,13 @@ components:
         output: { type: string }
         branch: { type: string }
         digest: { $ref: "#/components/schemas/Digest" }
+        synthetic:
+          type: boolean
+          description: >-
+            True for jobs warden injects itself (the span-out / span-in fan-out
+            and join jobs) rather than ones the spec author wrote. They stay in
+            `jobs` for the executor and UIs but cannot be edited or retried and
+            are excluded from `job_count` / `jobs_done`.
 
     Pipeline:
       x-go-type: pipeline.Pipeline
@@ -6219,6 +6226,12 @@ components:
         jobs:
           type: array
           items: { $ref: "#/components/schemas/PipelineJob" }
+        job_count:
+          type: integer
+          description: Number of user-authored jobs (synthetic jobs excluded).
+        jobs_done:
+          type: integer
+          description: Number of user-authored jobs whose status is done.
 
     Tree:
       x-go-type: tree.Tree

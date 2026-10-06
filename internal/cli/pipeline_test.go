@@ -41,7 +41,7 @@ jobs:
 `)
 	require.NoError(t, err)
 	require.Contains(t, out, "is valid")
-	require.Contains(t, out, "3 jobs")
+	require.Contains(t, out, "2 jobs")
 }
 
 func TestPipelineValidateRejectsCycle(t *testing.T) {
@@ -163,7 +163,7 @@ func TestRenderPipelineDetailShowsBranchAndOutput(t *testing.T) {
 				Branch: "demo-impl", Output: "done on demo-impl"},
 		},
 	}
-	out := renderPipelineDetail(p)
+	out := renderPipelineDetail(p, false)
 	for _, want := range []string{
 		"demo [done] repo=/r",
 		"analyze", "found X; no code",
@@ -182,7 +182,7 @@ func TestRenderPipelineDetailShowsPlanAndProject(t *testing.T) {
 		ProjectID: "/proj", PlanID: "plan-aabbccdd",
 		Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobPending}},
 	}
-	out := renderPipelineDetail(p)
+	out := renderPipelineDetail(p, false)
 	for _, want := range []string{"project: /proj", "plan: plan-aabbccdd"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("renderPipelineDetail missing %q in:\n%s", want, out)
@@ -193,8 +193,33 @@ func TestRenderPipelineDetailShowsPlanAndProject(t *testing.T) {
 func TestRenderPipelineDetailOmitsEmptyBranchAndOutput(t *testing.T) {
 	p := &pipeline.Pipeline{ID: "p", Status: pipeline.StatusRunning, Repo: "/r",
 		Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobRunning}}}
-	out := renderPipelineDetail(p)
+	out := renderPipelineDetail(p, false)
 	if strings.Contains(out, "branch:") || strings.Contains(out, "output:") {
 		t.Fatalf("a job with no branch/output should print neither:\n%s", out)
+	}
+}
+
+func TestRenderPipelineDetailHidesSyntheticJobs(t *testing.T) {
+	p := &pipeline.Pipeline{
+		ID: "demo", Status: pipeline.StatusRunning, Repo: "/r",
+		Jobs: []pipeline.Job{
+			{ID: "root-span-out", Type: "span-out", Status: pipeline.JobDone},
+			{ID: "a", Status: pipeline.JobDone, DependsOn: []string{"root-span-out"}},
+			{ID: "a-span-out", Type: "span-out", Status: pipeline.JobDone, DependsOn: []string{"a"}},
+			{ID: "b", Status: pipeline.JobPending, DependsOn: []string{"a-span-out"}},
+		},
+	}
+	out := renderPipelineDetail(p, false)
+	if strings.Contains(out, "span-out") {
+		t.Fatalf("default view must hide synthetic jobs and deps:\n%s", out)
+	}
+	if !strings.Contains(out, "(depends: [a])") {
+		t.Fatalf("synthetic dep should resolve to the real job:\n%s", out)
+	}
+	all := renderPipelineDetail(p, true)
+	for _, want := range []string{"root-span-out [warden]", "a-span-out [warden]", "(depends: [a-span-out])"} {
+		if !strings.Contains(all, want) {
+			t.Fatalf("--all-jobs missing %q:\n%s", want, all)
+		}
 	}
 }

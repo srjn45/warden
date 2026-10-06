@@ -1,6 +1,9 @@
 package pipeline
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 const sampleYAML = `
 name: refactor-auth
@@ -206,6 +209,64 @@ func TestParseSpecRoleValidation(t *testing.T) {
 		spec := "name: p\nrepo: /r\njobs:\n  - id: a\n    prompt: x\n    role: " + r + "\n"
 		if _, err := ParseSpec([]byte(spec)); err == nil {
 			t.Fatalf("expected error for invalid role %q", r)
+		}
+	}
+}
+
+func TestUserJobCountIgnoresSyntheticJobs(t *testing.T) {
+	const spec = `
+name: three
+repo: /repo
+jobs:
+  - id: a
+    prompt: "a"
+  - id: b
+    prompt: "b"
+    depends_on: [a]
+  - id: c
+    prompt: "c"
+    depends_on: [a]
+`
+	p, err := ParseSpec([]byte(spec))
+	if err != nil {
+		t.Fatalf("ParseSpec: %v", err)
+	}
+	if len(p.Jobs) <= 3 {
+		t.Fatalf("expected injected jobs beyond the 3 user jobs, got %d", len(p.Jobs))
+	}
+	p.Job("a").Status = JobDone
+	total, done := p.UserJobCount()
+	if total != 3 || done != 1 {
+		t.Fatalf("UserJobCount = %d/%d, want 3/1", total, done)
+	}
+	if !p.Job("root-span-out").IsSynthetic() || p.Job("a").IsSynthetic() {
+		t.Fatal("IsSynthetic should key on Type")
+	}
+	// A user job named like a synthetic one is still a user job.
+	if (Job{ID: "x-span-out", Type: "development"}).IsSynthetic() {
+		t.Fatal("name suffix must not mark a job synthetic")
+	}
+	raw, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m struct {
+		JobCount int `json:"job_count"`
+		JobsDone int `json:"jobs_done"`
+		Jobs     []struct {
+			ID        string `json:"id"`
+			Synthetic bool   `json:"synthetic"`
+		} `json:"jobs"`
+	}
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	if m.JobCount != 3 || m.JobsDone != 1 || len(m.Jobs) != len(p.Jobs) {
+		t.Fatalf("wire counts wrong: %+v", m)
+	}
+	for _, j := range m.Jobs {
+		if j.Synthetic != (j.ID != "a" && j.ID != "b" && j.ID != "c") {
+			t.Fatalf("synthetic flag wrong for %s", j.ID)
 		}
 	}
 }

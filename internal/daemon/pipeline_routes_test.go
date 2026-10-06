@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/srjn45/warden/internal/agentstore"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -628,4 +629,27 @@ func TestPipelineExplicitProjectIDReopensClosedProject(t *testing.T) {
 	require.Equal(t, "keep-me", got.Name)
 	require.Equal(t, []string{"plan-1"}, got.Plans)
 	require.Contains(t, got.Pipelines, "pe")
+}
+
+func TestPipelineEditRetrySyntheticJobRefused(t *testing.T) {
+	ts, ps := newPipeServer(t)
+	defer ts.Close()
+	http.Post(ts.URL+"/api/v1/pipelines", "application/json", strings.NewReader(yamlBody)) //nolint:errcheck
+	ps.Update("demo", func(p *pipeline.Pipeline) { p.Job("root-span-out").Status = pipeline.JobFailed })
+
+	for path, body := range map[string]string{
+		"/api/v1/pipelines/demo/jobs/root-span-out/edit":  `{"prompt":"x"}`,
+		"/api/v1/pipelines/demo/jobs/root-span-out/retry": ``,
+	} {
+		resp, err := http.Post(ts.URL+path, "application/json", strings.NewReader(body))
+		require.NoError(t, err)
+		b, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode, path)
+		var msg struct {
+			Error string `json:"error"`
+		}
+		require.NoError(t, json.Unmarshal(b, &msg))
+		require.Contains(t, msg.Error, `job "root-span-out" is created by warden and cannot be`)
+	}
 }

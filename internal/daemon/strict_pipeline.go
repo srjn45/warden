@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/srjn45/warden/internal/audit"
@@ -271,6 +272,9 @@ func (s *Server) EditPipelineJob(_ context.Context, req oapi.EditPipelineJobRequ
 	if prompt == nil && handoff == nil {
 		return nil, errStatus(http.StatusBadRequest, "nothing to edit (provide prompt and/or handoff)")
 	}
+	if serr := s.guardSyntheticJob(req.Pid, req.Job, "edited"); serr != nil {
+		return nil, serr
+	}
 	switch err := s.exec.EditJob(req.Pid, req.Job, prompt, handoff); {
 	case errors.Is(err, pipeline.ErrNotFound):
 		return nil, errStatus(http.StatusNotFound, "pipeline not found")
@@ -286,6 +290,9 @@ func (s *Server) EditPipelineJob(_ context.Context, req oapi.EditPipelineJobRequ
 
 // RetryPipelineJob implements POST /api/v1/pipelines/{pid}/jobs/{job}/retry.
 func (s *Server) RetryPipelineJob(_ context.Context, req oapi.RetryPipelineJobRequestObject) (oapi.RetryPipelineJobResponseObject, error) {
+	if serr := s.guardSyntheticJob(req.Pid, req.Job, "retried"); serr != nil {
+		return nil, serr
+	}
 	// Background context: retry reconciles and may spawn worktree jobs.
 	switch err := s.exec.Retry(context.Background(), req.Pid, req.Job); {
 	case errors.Is(err, pipeline.ErrNotFound):
@@ -298,4 +305,17 @@ func (s *Server) RetryPipelineJob(_ context.Context, req oapi.RetryPipelineJobRe
 		return nil, err
 	}
 	return oapi.RetryPipelineJob200JSONResponse{OKJSONResponse: oapi.OKJSONResponse{Status: "retrying"}}, nil
+}
+
+// guardSyntheticJob refuses edit/retry on jobs warden injected itself. A missing
+// pipeline or job falls through so the normal 404 handling applies.
+func (s *Server) guardSyntheticJob(pid, jobID, verb string) error {
+	p, err := s.exec.pstore.Get(pid)
+	if err != nil {
+		return nil
+	}
+	if j := p.Job(jobID); j != nil && j.IsSynthetic() {
+		return errStatus(http.StatusBadRequest, fmt.Sprintf("job %q is created by warden and cannot be %s", jobID, verb))
+	}
+	return nil
 }

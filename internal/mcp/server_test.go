@@ -677,6 +677,9 @@ func TestPipelineTools(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, res.IsError, textOf(res))
 	require.Contains(t, textOf(res), "running")
+	// The pipeline object carries the computed user-job counts.
+	require.Contains(t, textOf(res), `"job_count"`)
+	require.Contains(t, textOf(res), `"jobs_done"`)
 
 	res, err = session.CallTool(ctx, &mcpsdk.CallToolParams{
 		Name: "start_pipeline", Arguments: map[string]any{"pipeline": "demo"}})
