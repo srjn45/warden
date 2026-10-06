@@ -23,16 +23,20 @@ The daemon does **not** scan `plans/` on startup. Implicit directory-as-status a
 
 ```
 pending → in_progress → completed
-                      ↘ archived
+                      ↘ archived ⇢ (unarchive) back to pending / in_progress / completed
 pending →                archived
 ```
 
+An autopilot plan stays `in_progress` while its run is `finalizing` and then
+`awaiting_merge` (final PR green, waiting for you to merge it). It becomes `completed`
+only when that PR is observed merged.
+
 - **`pending`** — authored, not started; **definition is mutable** (`wd plan update` / `edit` / `task`, or the matching API)
 - **`in_progress`** — execution active (or was; stays until completed/archived); definition is **immutable** (409 Conflict)
-- **`completed`** — all tasks done, code merged; definition immutable
-- **`archived`** — de-prioritised or superseded; definition immutable
+- **`completed`** — all tasks done, code merged (for autopilot: the final PR is merged and the integration branch deleted; `wd plan show` records how it ended); definition immutable
+- **`archived`** — de-prioritised or superseded; definition immutable. A plan whose executor is still live is refused (409; `wd plan stop` first); branches with unmerged commits are kept. `wd plan unarchive` restores the status it was archived from
 
-Drive transitions with `wd plan run` / `wd plan complete` / `wd plan archive` (or the matching MCP/API). `wd plan delete` removes a plan that is not `in_progress`. The old `plan scan` / `status` / `import` / `sync_to_repo` commands remain only as hidden aliases. See [Using plans](/warden/guides/using-plans/) for the full journey. See [Plan Modification API](https://github.com/srjn45/warden/blob/main/docs/specs/2026-10-04-plan-modification-api.md) for mutation contracts (DAG validation, optimistic concurrency).
+Drive transitions with `wd plan run` / `wd plan complete` / `wd plan archive` / `wd plan unarchive` (or the matching MCP/API). `wd plan delete` removes a plan that is not `in_progress`. The old `plan scan` / `status` / `import` / `sync_to_repo` commands remain only as hidden aliases. See [Using plans](/warden/guides/using-plans/) for the full journey. See [Plan Modification API](https://github.com/srjn45/warden/blob/main/docs/specs/2026-10-04-plan-modification-api.md) for mutation contracts (DAG validation, optimistic concurrency).
 
 ## Stable plan identity
 

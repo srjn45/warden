@@ -107,6 +107,7 @@ var conformanceCases = []conformanceCase{
 	{backend: "antigravity", fixture: "state-idle.txt", capturedWith: "agy 0.1", wantState: agentbackend.StateIdle},
 	{backend: "antigravity", fixture: "state-working.txt", capturedWith: "agy 0.1", wantState: agentbackend.StateWorking},
 	{backend: "antigravity", fixture: "approval.txt", capturedWith: "agy 0.1", wantState: agentbackend.StateNeedsInput, wantApproval: true},
+	{backend: "antigravity", fixture: "approval-run-command.txt", capturedWith: "1.2.17", wantState: agentbackend.StateNeedsInput, wantApproval: true},
 	{backend: "antigravity", fixture: "trust-prompt.txt", capturedWith: "agy 1.0.16", wantState: agentbackend.StateNeedsInput, wantApproval: true},
 
 	// --- aider (needs-input on an open y/n prompt; idle inferred from staleness) ---

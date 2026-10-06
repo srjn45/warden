@@ -44,6 +44,7 @@ Common settings (run `warden config` for the complete, live list):
 | `approvals` | `true` | The approvals inbox: parse recognized tool-permission prompts and surface them for one-click answers |
 | `auto_approve` | `false` | Auto-answer recognized prompts. Bare on/off, or an allow/deny rule policy (by tool / glob / regex / paths, with per-agent overrides); manage with `warden approval auto set` |
 | `trust_workspace` | `true` | Automatically answer an AI CLI's launch-time "do you trust this folder?" prompt for every agent warden launches (Claude, Codex, Antigravity; Cursor is launched with `--trust`). Independent of `auto_approve`. `false` leaves the prompt for the approvals inbox |
+| `recognize_prompts` | `true` | When an agent sits on a choice menu no backend parser recognizes (an AI CLI reworded its prompt), have the Fast-Brain model read the pane and identify it, so it reaches the approvals inbox and the auto-approve policy. The model only recognizes; its reading is verified against the pane and then follows the unchanged destructive guard, rules and circuit breaker. One model call per stalled, unrecognized menu. |
 | `auto_approve.max_repeats` | `10` | Circuit breaker: consecutive identical approvals allowed per agent before auto-approve halts and escalates to a human (`0` = default, negative = off) |
 | `http.timeout_fast` / `http.timeout_slow` | `30s` / `10m` | Daemon write budgets: fast bounds ordinary data/action routes; slow bounds lifecycle routes (spawn's worktree checkout, commit/push hooks, checks). Backstops against a wedged handler — keep generous, especially in large monorepos |
 | `tokens.guard` | `true` | Context-size guard master switch (gauge + alert + auto-compact) |
@@ -85,6 +86,8 @@ Common settings (run `warden config` for the complete, live list):
 | `rate_limit.recovery.usage_reconciliation.interval` | `60s` | Poll cadence when usage reconciliation is enabled |
 | `rate_limit.recovery.usage_reconciliation.stale_after` | `15m` | Freshness window — only successful snapshots inside this window may force exhaustion |
 | `rate_limit.recovery.usage_reconciliation.max_parallel_swaps` | `3` | Bounded concurrency for bulk recovery candidate selection/launch |
+
+`autopilot.completion.merge_poll_interval` (default `2m`, hot-reloaded, floor `30s`) sets how often a green autopilot final PR is polled while the run is awaiting your merge; `autopilot.completion.merge_default` / `manager_verify_timeout` are its siblings (see the [autopilot guide](/warden/guides/autopilot/)).
 
 There are more (`auto_restart.*`, `rate_limit.*`, `worktree.keep_done` /
 `worktree.auto_prune`, …) — `warden config` is the authoritative, live list.

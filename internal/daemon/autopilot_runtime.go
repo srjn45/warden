@@ -615,7 +615,7 @@ func (rt autopilotRuntime) AgentEvidence(ctx context.Context, agentID string) (a
 	}
 	if pane, err := rt.s.life.Output(ctx, sess.TmuxSession, evidencePaneLines); err == nil {
 		ev.PaneTail = pane
-		if v := approvalView(backendFor(sess.AiCli), sess.ID, pane); v.Recognized {
+		if v := rt.s.approvalView(sess, pane); v.Recognized {
 			ev.PendingApproval = v.Action + ": " + v.Question
 		}
 	}
