@@ -867,7 +867,8 @@ func (s *Server) RunPlan(ctx context.Context, req oapi.RunPlanRequestObject) (oa
 		return nil, errStatus(http.StatusInternalServerError, "run plan: "+err.Error())
 	}
 
-	if err := s.startPlanExecution(ctx, p, mode); err != nil {
+	warnings, err := s.startPlanExecution(ctx, p, mode)
+	if err != nil {
 		if errors.Is(err, pipeline.ErrExists) {
 			return oapi.RunPlan409JSONResponse{Error: "pipeline for this plan already exists"}, nil
 		}
@@ -878,55 +879,59 @@ func (s *Server) RunPlan(ctx context.Context, req oapi.RunPlanRequestObject) (oa
 	if err != nil {
 		return nil, errStatus(http.StatusInternalServerError, "fetch updated plan: "+err.Error())
 	}
-	return oapi.RunPlan200JSONResponse(s.planToOAPI(updated)), nil
+	out := s.planToOAPI(updated)
+	if len(warnings) > 0 {
+		out.Warnings = warnings
+	}
+	return oapi.RunPlan200JSONResponse(out), nil
 }
 
 // startPlanExecution creates the execution entity for mode and records its id
 // on the plan. The plan Status is already in_progress.
-func (s *Server) startPlanExecution(ctx context.Context, p *planstore.Plan, mode planstore.PlanExecutionMode) error {
+func (s *Server) startPlanExecution(ctx context.Context, p *planstore.Plan, mode planstore.PlanExecutionMode) ([]string, error) {
 	// Zero-touch: running a plan reopens a closed project / registers an
 	// unregistered one. The plan's stored ProjectID is never rewritten.
 	projectID := s.ensureExplicitProjectID(p.ProjectID)
 	root := s.resolvePlanRoot(projectID)
 	if root == "" {
-		return errStatus(http.StatusNotFound, "project not found")
+		return nil, errStatus(http.StatusNotFound, "project not found")
 	}
 
 	switch mode {
 	case planstore.PlanModeAutopilot:
 		if s.autopilot == nil {
-			return errStatus(http.StatusServiceUnavailable, "autopilot not configured")
+			return nil, errStatus(http.StatusServiceUnavailable, "autopilot not configured")
 		}
-		_, startErr := s.startPlanAutopilotExecution(ctx, p, root)
-		return startErr
+		_, warnings, startErr := s.startPlanAutopilotExecution(ctx, p, root)
+		return warnings, startErr
 
 	case planstore.PlanModePipeline:
 		_, pipeErr := s.startPlanPipeline(ctx, p, root)
-		return pipeErr
+		return nil, pipeErr
 
 	case planstore.PlanModeOrchestratorWorker:
 		sess, spawnErr := s.spawnPlanBoundAgent(ctx, p, root, "orchestrator",
 			orchestratorDisplayName(p.Name), s.planningAgentPrompt(ctx, p, root, "orchestrator"))
 		if spawnErr != nil {
-			return spawnErr
+			return nil, spawnErr
 		}
 		s.addPlanMembership(p.ID, projectID)
-		return s.beginPlanAgentExecution(ctx, p, mode, sess.ID, sess.ID, root)
+		return nil, s.beginPlanAgentExecution(ctx, p, mode, sess.ID, sess.ID, root)
 
 	case planstore.PlanModeManual:
 		if s.life == nil {
-			return errStatus(http.StatusServiceUnavailable, "lifecycle not configured")
+			return nil, errStatus(http.StatusServiceUnavailable, "lifecycle not configured")
 		}
 		sess, spawnErr := s.spawnPlanBoundAgent(ctx, p, root, "general",
 			manualDisplayName(p.Name), s.planningAgentPrompt(ctx, p, root, "manual"))
 		if spawnErr != nil {
-			return spawnErr
+			return nil, spawnErr
 		}
 		s.addPlanMembership(p.ID, projectID)
-		return s.beginPlanAgentExecution(ctx, p, mode, sess.ID, sess.ID, root)
+		return nil, s.beginPlanAgentExecution(ctx, p, mode, sess.ID, sess.ID, root)
 
 	default:
-		return errStatus(http.StatusBadRequest, "unknown execution mode: "+string(mode))
+		return nil, errStatus(http.StatusBadRequest, "unknown execution mode: "+string(mode))
 	}
 }
 

@@ -92,6 +92,8 @@ type RelatedPlansResult struct {
 
 // PlanView is the Plan CRUD API object (canonical ScrivaDB definition + execution state).
 type PlanView struct {
+	// Warnings are non-blocking preflight notes; set only on the run-start response.
+	Warnings       []string          `json:"warnings,omitempty"`
 	ID             string            `json:"id"`
 	ProjectID      string            `json:"project_id"`
 	Name           string            `json:"name"`

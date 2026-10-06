@@ -1568,6 +1568,9 @@ type Plan struct {
 	TaskSummary PlanTaskSummary `json:"task_summary,omitempty"`
 	Tasks       []PlanTask      `json:"tasks"`
 	UpdatedAt   time.Time       `json:"updated_at"`
+
+	// Warnings Non-blocking preflight warnings from starting a run (for example a CI-coverage note). Present only on the run-start response.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // PlanArchivedFrom status the plan was archived from; unarchive restores it (absent on legacy records)

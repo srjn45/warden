@@ -147,7 +147,7 @@ multi-phase task as one long-lived plain agent (decompose into stages).
   and **autopilot** (`run_plan`,
   `autopilot_status`, `autopilot_complete`, `land`). The only **CLI-only** verbs are host/process/interactive/secret
   ones — `daemon`, `config`, `token`, `attach`, `repl`, `doctor`, `setup`,
-  `tutorial`, `completion`, `autopilot init`, and the local-config `preset` /
+  `tutorial`, `completion`, and the local-config `preset` /
   `prompt-template` authoring commands — by design (see the [feature catalog](../../FEATURES.md)).
 
 ## Capability map → reference file
@@ -302,9 +302,8 @@ unfinished task from its kept branch, reuse its open PR (never open a duplicate)
 and only if the kept work is unusable start from the integration branch and close
 the old PR with a comment.
 
-**CLI-only** (local file authoring): `warden autopilot init [--name <name>]` —
-scaffold `plans/<name>.yaml`. Then create/import the Plan and start with
-`warden plan run <id> --mode autopilot` (do not use retired `autopilot register`).
+Create the Plan with `warden plan create`, then start with
+`warden plan run <id> --mode autopilot` (do not use retired `autopilot register` or `autopilot init`).
 
 ### Key ledger context keys
 
@@ -329,8 +328,7 @@ checklist enum, not ledger states.
 
 ### Guardrails for autopilot operations
 
-- **Never start autopilot without a Plan.** Scaffold with `warden autopilot init`
-  or `warden plan create`, then `run_plan` / `warden plan run <id> --mode autopilot`.
+- **Never start autopilot without a Plan.** Create one with `warden plan create`, then `run_plan` / `warden plan run <id> --mode autopilot`.
   There is **no enable step** — never tell the user to run `autopilot enable`.
   Watch a running plan with `warden plan show <id> --watch` (executor state,
   backoff, integration branch, per-task worker/PR).

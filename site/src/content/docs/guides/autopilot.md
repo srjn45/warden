@@ -68,34 +68,15 @@ Before enabling autopilot, make sure:
 
 ---
 
-## Step 1 — scaffold with `warden autopilot init`
+## Step 1 — create the plan
 
-Run `init` inside the repo you want autopilot to drive:
-
-```sh
-cd /path/to/my-repo
-warden autopilot init --name notifications
-```
-
-This creates (without overwriting if they already exist):
-
-**`plans/notifications.yaml`** — edit this to describe your goal:
-
-```yaml
-version: 1
-goal: "Describe your goal here"
-constraints:
-  - "keep all changes behind a feature flag"
-tasks: []           # leave empty to let the manager decompose the goal automatically
-```
-
-**`~/.warden/config.yaml`** — updated with an `autopilot` block:
+Plans live in the daemon store, not in a repo file. Create one from inside the
+repo you want autopilot to drive (see `warden plan create --help`), and set the
+`autopilot` block in `~/.warden/config.yaml` if you want non-default settings:
 
 ```yaml
 autopilot:
-  enabled: false
   merge:
-    target_branch: autopilot/integration   # legacy default; new runs derive autopilot/<plan>
     gate: auto            # auto | ci | local (auto picks ci when a workflow covers the branch)
   completion:
     merge_default: true              # bring integration current with the default branch before the final PR
@@ -103,10 +84,10 @@ autopilot:
     merge_poll_interval: 2m          # how often to poll a green final PR while awaiting owner merge (floor 30s)
 ```
 
-`warden autopilot init` also prints a CI hint when no workflow covers the
-resolved integration branch — add `autopilot/**` to `on.pull_request.branches`
-in one of your `.github/workflows/*.yml` files so `gate: auto` covers every
-per-plan branch:
+`warden plan run <plan-id> --mode autopilot` prints a `warnings:` note when no
+workflow covers the resolved integration branch — add `autopilot/**` to
+`on.pull_request.branches` in one of your `.github/workflows/*.yml` files so
+`gate: auto` covers every per-plan branch:
 
 ```yaml
 on:
@@ -187,7 +168,6 @@ daemon warns if they linger). Manage tiers with `warden backend tier` from then 
 There is **no enable step**: starting a plan is what starts autopilot.
 
 ```sh
-warden autopilot init --name notifications   # optional: scaffold plans/<name>.yaml + config block
 warden plan create ...                        # canonical plan in the store
 warden plan run <plan-id> --mode autopilot    # preflight runs here
 # or by name:
@@ -207,7 +187,7 @@ warden plan stop <plan-id>
 > deprecation notice pointing at `warden plan run --mode autopilot`.
 > `warden autopilot register`, `unregister`, `retarget`, and plan-file-based
 > `autopilot run start` translate to a PlanID where safe or return a precise
-> migration error. `autopilot init` no longer registers with the daemon.
+> migration error.  `autopilot init` was removed; use `warden plan create`.
 
 ---
 
@@ -441,7 +421,6 @@ is heading in the wrong direction.
 
 | Command | What it does |
 |---|---|
-| `warden autopilot init [--name <name>]` | Scaffold `plans/<name>.yaml` + config block |
 | `warden plan run <id> --mode autopilot` | Start plan execution (canonical lifecycle) |
 | `warden plan pause\|resume\|stop <id>` | Control an in-progress plan's executor |
 | `warden plan show <id> --watch` | Live status of a running plan: executor state, backoff, integration branch, per-task worker/PR |

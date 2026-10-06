@@ -183,7 +183,7 @@ func gateDowngradeWarning(configured, resolved, branch string, covers bool) stri
 	if branch == "" {
 		return ""
 	}
-	return fmt.Sprintf("gate auto downgraded to local: no CI workflow covers %q; add %q to on.pull_request.branches", branch, "autopilot/**")
+	return fmt.Sprintf("no CI workflow covers pull requests into %q, so autopilot gates merges on local project checks instead of CI; to use CI, add %q under on.pull_request.branches in a .github/workflows/*.yml file", branch, "autopilot/**")
 }
 
 // isProtectedBranch reports whether branch is a name autopilot must not merge

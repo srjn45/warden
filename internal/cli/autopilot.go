@@ -13,17 +13,22 @@ import (
 	_ "github.com/srjn45/warden/internal/agentbackend/backends" // register adapters for binary detection
 	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/client"
-	"github.com/srjn45/warden/internal/config"
 )
+
+func init() {
+	removedCommandHints["warden autopilot"] = map[string]string{
+		"init": "`wd autopilot init` was removed: create the plan with `wd plan create`, then start it with `wd plan run <plan-id> --mode autopilot`.",
+	}
+}
 
 func newAutopilotCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "autopilot",
-		Short: "Show autopilot status, scaffold adoption, and land worker branches",
+		Short: "Show autopilot status and land worker branches",
 		Long: "Autopilot is the unattended Plan execution mode. There is no per-repo switch:\n" +
 			"start a run explicitly with `warden plan run <plan-id> --mode autopilot` and\n" +
 			"control it with `warden plan pause|resume|stop`. This namespace shows status\n" +
-			"(`status`), scaffolds adoption (`init`) and lands worker branches (`land`).\n" +
+			"(`status`) and lands worker branches (`land`).\n" +
 			"The daemon merges worker PRs into the integration branch itself once their\n" +
 			"gate is green; `land` is the manual fallback. A run ends with one final PR to\n" +
 			"the default branch that you merge.\n" +
@@ -33,7 +38,6 @@ func newAutopilotCmd() *cobra.Command {
 
 	children := []*cobra.Command{
 		newAutopilotStatusCmd(),
-		newAutopilotInitCmd(),
 		newAutopilotLandCmd(),
 	}
 	for i, child := range children {
@@ -332,38 +336,6 @@ func backoffSummary(b *client.AutopilotBackoff) string {
 		out += " (" + b.LastError + ")"
 	}
 	return out
-}
-
-func newAutopilotInitCmd() *cobra.Command {
-	var name string
-	cmd := &cobra.Command{
-		Use:   "init",
-		Short: "Scaffold the plan file and integration branch for autopilot",
-		Long: "Creates a named template under plans/ in the current git repository (if absent),\n" +
-			"creates the integration branch off the default branch if absent, and prints a\n" +
-			"CI-coverage hint when no workflow covers integration pull requests. Nothing is\n" +
-			"registered with the daemon. Next, edit the plan file, create the canonical plan\n" +
-			"with `wd plan create`, then start it with `wd plan run <id> --mode autopilot`.",
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			env := autopilot.NewExecEnv()
-			cwd, err := os.Getwd()
-			if err != nil {
-				return fmt.Errorf("resolve working directory: %w", err)
-			}
-			repo, err := env.GitToplevel(cmd.Context(), cwd)
-			if err != nil {
-				return fmt.Errorf("not inside a git repository: %w", err)
-			}
-			cfg := config.Load(configPathFor(cmd))
-			return autopilot.Init(cmd.Context(), env, repo, autopilot.InitConfig{
-				Name:              name,
-				IntegrationBranch: cfg.AutopilotIntegrationBranch(),
-			}, cmd.OutOrStdout())
-		},
-	}
-	cmd.Flags().StringVar(&name, "name", "default", "plan name (creates plans/<name>.yaml)")
-	return cmd
 }
 
 // newAutopilotLandCmd is the canonical `warden autopilot land` command.

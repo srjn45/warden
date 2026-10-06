@@ -463,7 +463,7 @@ func (c *Controller) ReconcileConfiguredPlans(ctx context.Context, repo string) 
 
 	if len(c.plans) == 0 {
 		return c.statusLocked(), &PreflightError{Failures: []string{
-			"no plans configured — add at least one autopilot.plans[].file (run `warden autopilot init`)",
+			"no plans configured — add at least one autopilot.plans[].file (create a plan with `warden plan create`, then `warden plan run <plan-id> --mode autopilot`)",
 		}}
 	}
 
@@ -548,7 +548,7 @@ func (c *Controller) ReconcileConfiguredPlans(ctx context.Context, repo string) 
 		// No plan targets this repo and nothing else was wrong — a clean, actionable
 		// per-repo signal rather than a silent no-op.
 		return c.statusLocked(), &PreflightError{Failures: []string{fmt.Sprintf(
-			"no autopilot plan resolves to %s — add an autopilot.plans[].file inside it (run `warden autopilot init`), or pass --repo",
+			"no autopilot plan resolves to %s — add an autopilot.plans[].file inside it (create a plan with `warden plan create`, then `warden plan run <plan-id> --mode autopilot`), or pass --repo",
 			target)}}
 	}
 

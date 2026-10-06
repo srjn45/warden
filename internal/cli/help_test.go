@@ -227,3 +227,12 @@ func TestUnknownSubcommandSuggestionAndHint(t *testing.T) {
 		t.Fatalf("want hint, got %v", err)
 	}
 }
+
+func TestAutopilotInitRemovedHint(t *testing.T) {
+	_, err := runCLI(t, "", "autopilot", "init")
+	if err == nil || !strings.Contains(err.Error(), "unknown command") ||
+		!strings.Contains(err.Error(), "wd plan create") ||
+		!strings.Contains(err.Error(), "wd plan run <plan-id> --mode autopilot") {
+		t.Fatalf("want unknown-command error pointing at plan create/run, got %v", err)
+	}
+}

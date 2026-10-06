@@ -34,7 +34,7 @@ func isLegacyIntegrationTemplate(template string) bool {
 	return t == "" || t == DefaultIntegrationBranch
 }
 
-// ResolveInitIntegrationBranch applies WP9 precedence for `warden autopilot init`:
+// ResolveInitIntegrationBranch applies WP9 precedence for plan runs:
 // plan-name derivation when the configured template is empty or the legacy
 // global default, {{plan}} expansion, otherwise the custom global as-is.
 func ResolveInitIntegrationBranch(planName, template string) (string, error) {

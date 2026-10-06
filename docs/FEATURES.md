@@ -1189,8 +1189,7 @@ when rate-limited (cost-tier ladder).
 ### 34.1 Plan file
 
 Authored by the operator as a named file under `plans/` (for example,
-`plans/release.yaml`). `warden autopilot init --name release` scaffolds config and
-a plan YAML; prefer `wd plan create` / `wd plan import-legacy` for the
+`plans/release.yaml`). Prefer `wd plan create` / `wd plan import-legacy` for the
 tracked Plan surface (scan/import file commands are deprecated migration aids).
 Plan CRUD surface, then `wd plan run <id> --mode autopilot`. Contains a
 `goal`, optional `constraints` (injected into every manager and worker spawn), and
@@ -1359,7 +1358,7 @@ branch. New runs after upgrade use the per-plan default unless overridden.
 `on.pull_request.branches` covers the **resolved** branch. Workflows listing
 `autopilot/integration` exactly do **not** cover `autopilot/<plan>`. When no
 workflow matches, `gate: auto` downgrades to `local` and preflight/status emit
-an explicit warning. **`warden autopilot init`** prints a hint to add
+an explicit warning. **`wd plan run`** prints a `warnings:` hint to add
 `autopilot/**` to workflow triggers — that glob covers every per-plan branch.
 Never auto-merged to `main` — the operator reviews the integration branch and
 fast-forwards `main` when satisfied.
@@ -1386,13 +1385,12 @@ continues from the ledger.
 
 ### 34.10 No enable switch; deprecated compatibility
 
-There is no per-repo enable switch. Flow: `wd plan create` (or `wd autopilot init`
-then `wd plan create`) → `wd plan run <id> --mode autopilot` (MCP: `run_plan`).
+There is no per-repo enable switch. Flow: `wd plan create`  → `wd plan run <id> --mode autopilot` (MCP: `run_plan`).
 `wd plan show <id> --watch` is the live status view (executor state, backoff,
 integration branch, per-task worker/PR). `warden autopilot status [--json]` lists
 every run and now includes the old run-list columns. The plan/manager/merge
-**template** stays global in the `autopilot` config block. `autopilot init` no
-longer registers with the daemon.
+**template** stays global in the `autopilot` config block. `autopilot init` was
+removed.
 
 Deprecated, hidden compatibility commands:
 

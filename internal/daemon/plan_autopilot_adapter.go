@@ -15,12 +15,12 @@ import (
 // Plan run mode=autopilot, records ActiveExecution (with snapshot-at-start),
 // and appends typed PlanExecutionEvents. Plan definition comes from ScrivaDB
 // only — no repository YAML is read.
-func (s *Server) startPlanAutopilotExecution(ctx context.Context, p *planstore.Plan, root string) (string, error) {
+func (s *Server) startPlanAutopilotExecution(ctx context.Context, p *planstore.Plan, root string) (string, []string, error) {
 	if s.autopilot == nil {
-		return "", errStatus(http.StatusServiceUnavailable, "autopilot not configured")
+		return "", nil, errStatus(http.StatusServiceUnavailable, "autopilot not configured")
 	}
 	if strings.TrimSpace(p.ID) == "" {
-		return "", errStatus(http.StatusBadRequest, "autopilot requires a plan_id")
+		return "", nil, errStatus(http.StatusBadRequest, "autopilot requires a plan_id")
 	}
 
 	snap := planstore.SnapshotFromPlan(p)
@@ -35,16 +35,16 @@ func (s *Server) startPlanAutopilotExecution(ctx context.Context, p *planstore.P
 	})
 	if err != nil {
 		if err == autopilot.ErrPlanIDRequired {
-			return "", errStatus(http.StatusBadRequest, err.Error())
+			return "", nil, errStatus(http.StatusBadRequest, err.Error())
 		}
-		return "", errStatus(http.StatusInternalServerError, "start autopilot from plan: "+err.Error())
+		return "", nil, errStatus(http.StatusInternalServerError, "start autopilot from plan: "+err.Error())
 	}
 
 	s.addAutopilotMembership(res.AutopilotID, p.ProjectID)
 	s.addPlanMembership(p.ID, p.ProjectID)
 
 	if err := s.beginPlanAutopilotExecution(ctx, p, snap, res.AutopilotID, res.ManagerAgentID); err != nil {
-		return res.AutopilotID, err
+		return res.AutopilotID, nil, err
 	}
 	// Seed outcome.integration_branch / default_branch (plan-finish-flow §6).
 	integ, def := res.Status.IntegrationBranch, ""
@@ -55,7 +55,7 @@ func (s *Server) startPlanAutopilotExecution(ctx context.Context, p *planstore.P
 		def = lp.DefaultBranch
 	}
 	s.seedPlanOutcome(ctx, p.ID, integ, def)
-	return res.AutopilotID, nil
+	return res.AutopilotID, runWarnings(res.Status), nil
 }
 
 // beginPlanAutopilotExecution stamps ActiveExecution (with snapshot) and
@@ -138,4 +138,14 @@ func (s *Server) beginPlanAutopilotExecution(ctx context.Context, p *planstore.P
 		}
 	}
 	return nil
+}
+
+// runWarnings collects the operator-visible, non-blocking notes of a freshly
+// started run: the CI-coverage gate downgrade and any preflight warnings.
+func runWarnings(st autopilot.RunStatus) []string {
+	var out []string
+	if st.GateWarning != "" {
+		out = append(out, st.GateWarning)
+	}
+	return append(out, st.PreflightWarnings...)
 }

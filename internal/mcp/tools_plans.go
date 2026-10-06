@@ -385,7 +385,7 @@ func (s *Server) registerPlanTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "run_plan",
-		Description: "Start execution of a plan: pending → in_progress. This is the only supported public start path (including autopilot). execution_mode is autopilot|pipeline|orchestrator_worker|manual. Returns the updated Plan (with linked executor id when started).",
+		Description: "Start execution of a plan: pending → in_progress. This is the only supported public start path (including autopilot). execution_mode is autopilot|pipeline|orchestrator_worker|manual. Returns the updated Plan (with linked executor id when started); `warnings` lists non-blocking preflight notes such as a missing CI-coverage rule.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a runPlanArgs) (*mcpsdk.CallToolResult, any, error) {
 		p, err := s.cl.PlansRun(ctx, a.PlanID, a.ExecutionMode)
 		if err != nil {

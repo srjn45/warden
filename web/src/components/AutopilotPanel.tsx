@@ -83,7 +83,7 @@ export default function AutopilotPanel({ onClose, liveStatus, sessions, stale }:
               {preflightFailures.map((f, i) => <li key={i}>{f}</li>)}
             </ul>
             <p className="autopilot-init-hint">
-              Run <code>warden autopilot init</code> to scaffold a plan file and config block.
+              Create a plan with <code>warden plan create</code> and start it with <code>warden plan run</code>.
             </p>
           </div>
         )}
@@ -99,7 +99,7 @@ export default function AutopilotPanel({ onClose, liveStatus, sessions, stale }:
         )}
         {runs.length === 0 && !enabled && status != null && (
           <p className="muted">
-            Disabled. Run <code>warden autopilot init</code> in your repo, then enable here or with <code>warden autopilot on</code>.
+            No autopilot runs. Create a plan with <code>warden plan create</code>, then start it with <code>warden plan run &lt;plan-id&gt; --mode autopilot</code>.
           </p>
         )}
 		{runs.map((r) => <RunCard key={r.run_id} run={r} sessions={sessions ?? []} onChanged={refresh} onError={setError} />)}

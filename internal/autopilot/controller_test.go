@@ -114,7 +114,7 @@ func TestEnableHappyPath(t *testing.T) {
 	// covering integration PRs, so it degrades to the local-check gate.
 	require.Equal(t, "local", st.Runs[0].Gate)
 	require.Equal(t, "autopilot/plan", st.Runs[0].IntegrationBranch)
-	require.Contains(t, st.Runs[0].GateWarning, "gate auto downgraded to local")
+	require.Contains(t, st.Runs[0].GateWarning, "autopilot/**")
 	require.Contains(t, st.Runs[0].GateWarning, "autopilot/**")
 	require.Equal(t, plan, st.Runs[0].PlanFile)
 	require.Nil(t, st.Runs[0].Brain, "no brain in the S1 inert core")
