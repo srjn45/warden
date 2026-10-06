@@ -11113,6 +11113,20 @@ func (response DeletePipeline404JSONResponse) VisitDeletePipelineResponse(w http
 	return err
 }
 
+type DeletePipeline409JSONResponse Error
+
+func (response DeletePipeline409JSONResponse) VisitDeletePipelineResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetPipelineRequestObject struct {
 	Pid PipelineId `json:"pid"`
 }
@@ -11181,6 +11195,20 @@ func (response CancelPipeline404JSONResponse) VisitCancelPipelineResponse(w http
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelPipeline409JSONResponse Error
+
+func (response CancelPipeline409JSONResponse) VisitCancelPipelineResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -11334,6 +11362,20 @@ func (response PausePipeline404JSONResponse) VisitPausePipelineResponse(w http.R
 	return err
 }
 
+type PausePipeline409JSONResponse Error
+
+func (response PausePipeline409JSONResponse) VisitPausePipelineResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ResumePipelineRequestObject struct {
 	Pid PipelineId `json:"pid"`
 }
@@ -11366,6 +11408,20 @@ func (response ResumePipeline404JSONResponse) VisitResumePipelineResponse(w http
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResumePipeline409JSONResponse Error
+
+func (response ResumePipeline409JSONResponse) VisitResumePipelineResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
 	_, err := buf.WriteTo(w)
 	return err
 }

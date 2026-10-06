@@ -2959,6 +2959,11 @@ paths:
       responses:
         "200": { $ref: "#/components/responses/OK" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Refused because a plan runs this pipeline (use the plan command named in the message) or the pipeline is in the wrong state for this action
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
   /api/v1/pipelines/{pid}/start:
     post:
@@ -2979,6 +2984,11 @@ paths:
       responses:
         "200": { $ref: "#/components/responses/OK" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Refused because a plan runs this pipeline (use the plan command named in the message) or the pipeline is in the wrong state for this action
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
   /api/v1/pipelines/{pid}/resume:
     post:
@@ -2989,6 +2999,11 @@ paths:
       responses:
         "200": { $ref: "#/components/responses/OK" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Refused because a plan runs this pipeline (use the plan command named in the message) or the pipeline is in the wrong state for this action
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
   /api/v1/pipelines/{pid}/cancel:
     post:
@@ -2999,6 +3014,11 @@ paths:
       responses:
         "200": { $ref: "#/components/responses/OK" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Refused because a plan runs this pipeline (use the plan command named in the message) or the pipeline is in the wrong state for this action
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
   /api/v1/pipelines/{pid}/jobs/{job}/emit:
     post:
