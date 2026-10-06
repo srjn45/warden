@@ -486,6 +486,22 @@ func TestScheduleDelete(t *testing.T) {
 	require.Equal(t, "/api/v1/schedules/nightly", c.path)
 }
 
+func TestScheduleUpdateAndRun(t *testing.T) {
+	var c capture
+	ts := jsonServer(t, &c, 0, `{"id":"nightly","name":"nightly","kind":"cron","mode":"agent","enabled":true,"run_id":"A-1","schedule":{"id":"nightly"}}`)
+	prompt := "new task"
+	_, err := New(ts.URL).ScheduleUpdate(context.Background(), "nightly", ScheduleUpdateRequest{Prompt: &prompt})
+	require.NoError(t, err)
+	require.Equal(t, http.MethodPatch, c.method)
+	require.Equal(t, "/api/v1/schedules/nightly", c.path)
+	require.Equal(t, "new task", c.body["prompt"])
+
+	_, _, err = New(ts.URL).ScheduleRun(context.Background(), "nightly")
+	require.NoError(t, err)
+	require.Equal(t, http.MethodPost, c.method)
+	require.Equal(t, "/api/v1/schedules/nightly/run", c.path)
+}
+
 func TestGetAgentHistory(t *testing.T) {
 	var c capture
 	ts := jsonServer(t, &c, 0, `{"summaries":[{"id":"A-1","status":"working","samples":3}]}`)
