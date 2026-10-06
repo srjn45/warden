@@ -1417,9 +1417,19 @@ func (c *Client) ScheduleDisable(ctx context.Context, id string) (*schedule.Sche
 
 // AutopilotStatus mirrors the daemon's GET /autopilot response (autopilot.md §5).
 type AutopilotStatus struct {
-	Enabled      bool                 `json:"enabled"`
-	EnabledRepos []string             `json:"enabled_repos"`
-	Runs         []AutopilotRunStatus `json:"runs"`
+	Runs []AutopilotRunStatus `json:"runs"`
+}
+
+// Live reports whether any run is currently executing (derived from the runs;
+// the status no longer carries a separate switch).
+func (s AutopilotStatus) Live() bool {
+	for _, r := range s.Runs {
+		switch r.State {
+		case "active", "finalizing", "awaiting_merge", "starting", "healing":
+			return true
+		}
+	}
+	return false
 }
 
 // AutopilotRunStatus is one run's slice of AutopilotStatus.

@@ -135,7 +135,6 @@ func TestExecuteWithBackup(t *testing.T) {
 type fakeDrainer struct {
 	pipelines []*pipeline.Pipeline
 	agents    []*store.Session
-	repos     []string
 }
 
 func (f *fakeDrainer) List(context.Context) ([]*store.Session, error) { return f.agents, nil }
@@ -150,12 +149,6 @@ func (f *fakeDrainer) PipelineList(context.Context) ([]*pipeline.Pipeline, error
 }
 func (f *fakeDrainer) PipelineCancel(context.Context, string) error { return nil }
 func (f *fakeDrainer) PipelineDelete(context.Context, string) error { return nil }
-func (f *fakeDrainer) GetAutopilot(context.Context) (client.AutopilotStatus, error) {
-	return client.AutopilotStatus{EnabledRepos: f.repos}, nil
-}
-func (f *fakeDrainer) SetAutopilot(context.Context, bool, string) (client.AutopilotStatus, error) {
-	return client.AutopilotStatus{}, nil
-}
 func (f *fakeDrainer) ListAutopilotRuns(context.Context) ([]client.AutopilotRunStatus, error) {
 	return nil, nil
 }

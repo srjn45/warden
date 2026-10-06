@@ -59,8 +59,6 @@ type RuntimeDrainer interface {
 	PipelineList(ctx context.Context) ([]*pipeline.Pipeline, error)
 	PipelineCancel(ctx context.Context, id string) error
 	PipelineDelete(ctx context.Context, id string) error
-	GetAutopilot(ctx context.Context) (client.AutopilotStatus, error)
-	SetAutopilot(ctx context.Context, enabled bool, repo string) (client.AutopilotStatus, error)
 	ListAutopilotRuns(ctx context.Context) ([]client.AutopilotRunStatus, error)
 	ControlAutopilotRun(ctx context.Context, runID, action string) (client.AutopilotRunStatus, error)
 	ScheduleList(ctx context.Context) ([]*schedule.Schedule, error)
@@ -101,7 +99,7 @@ func Drain(ctx context.Context, d RuntimeDrainer, pruneWorktrees bool, out io.Wr
 		}
 	}
 
-	// Autopilot: stop runs, then disable every enabled repo.
+	// Autopilot: stop and unregister every run.
 	if runs, err := d.ListAutopilotRuns(ctx); err != nil {
 		errs = append(errs, fmt.Errorf("list autopilot runs: %w", err))
 	} else {
@@ -113,17 +111,6 @@ func Drain(ctx context.Context, d RuntimeDrainer, pruneWorktrees bool, out io.Wr
 				errs = append(errs, fmt.Errorf("unregister autopilot run %s: %w", r.RunID, err))
 			} else {
 				logf("removed autopilot run %s\n", r.RunID)
-			}
-		}
-	}
-	if st, err := d.GetAutopilot(ctx); err != nil {
-		errs = append(errs, fmt.Errorf("autopilot status: %w", err))
-	} else {
-		for _, repo := range st.EnabledRepos {
-			if _, err := d.SetAutopilot(ctx, false, repo); err != nil {
-				errs = append(errs, fmt.Errorf("disable autopilot for %s: %w", repo, err))
-			} else {
-				logf("disabled autopilot for %s\n", repo)
 			}
 		}
 	}

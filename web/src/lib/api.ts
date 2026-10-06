@@ -380,7 +380,6 @@ export interface AutopilotLedgerTask { id: string; state: string; }
 
 // AutopilotStatus is the full response shape for GET/POST /autopilot.
 export interface AutopilotStatus {
-  enabled: boolean;
   runs: AutopilotRun[];
 }
 
@@ -391,6 +390,12 @@ export class AutopilotPreflightError extends Error {
     super(`autopilot preflight failed (${failures.length} issue${failures.length === 1 ? '' : 's'})`);
     this.name = 'AutopilotPreflightError';
   }
+}
+
+// autopilotLive is true when any run is executing; the status no longer
+// carries a separate switch, so it is derived from the runs.
+export function autopilotLive(s: AutopilotStatus | null | undefined): boolean {
+  return (s?.runs ?? []).some((r) => ['active', 'finalizing', 'awaiting_merge', 'starting', 'healing'].includes(r.state));
 }
 
 // getAutopilot fetches the current autopilot status (GET /autopilot).

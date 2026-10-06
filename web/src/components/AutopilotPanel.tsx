@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  getAutopilot, setAutopilot,
+  getAutopilot, setAutopilot, autopilotLive,
 	controlAutopilotRun,
   AutopilotPreflightError,
   type AutopilotStatus, type AutopilotRun,
@@ -36,7 +36,7 @@ export default function AutopilotPanel({ onClose, liveStatus, sessions, stale }:
     setError(null);
     setPreflightFailures(null);
     try {
-      const next = await setAutopilot(!status.enabled);
+      const next = await setAutopilot(!autopilotLive(status));
       setStatus({ ...next, runs: next.runs ?? [] });
     } catch (e) {
       if (e instanceof AutopilotPreflightError) {
@@ -49,7 +49,7 @@ export default function AutopilotPanel({ onClose, liveStatus, sessions, stale }:
     }
   }
 
-  const enabled = status?.enabled ?? false;
+  const enabled = autopilotLive(status);
   const runs = status?.runs ?? [];
 
   return (

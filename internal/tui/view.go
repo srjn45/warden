@@ -11,10 +11,10 @@ import (
 // Returns an empty string when autopilot status has not been fetched yet (zero
 // value), so the header is not cluttered on first paint.
 func autopilotBadge(st client.AutopilotStatus) string {
-	if !st.Enabled && len(st.Runs) == 0 {
-		return "" // not yet fetched or definitively off — show nothing on first paint
+	if len(st.Runs) == 0 {
+		return "" // not yet fetched or no runs — show nothing on first paint
 	}
-	if !st.Enabled {
+	if !st.Live() {
 		return stMuted.Render("autopilot: off")
 	}
 	runs := len(st.Runs)

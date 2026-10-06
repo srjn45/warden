@@ -3,10 +3,12 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 	"github.com/srjn45/warden/internal/agentbackend"
@@ -263,13 +265,13 @@ func resolveAutopilotRepo(cmd *cobra.Command, override string) (string, error) {
 func newAutopilotStatusCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "status",
-		Short: "Show autopilot status (every run)",
-		Long: "Shows one line per run: run id, name,\n" +
-			"state, plan id, repo, gate, integration branch, and backoff summary. Healing,\n" +
-			"degraded and resting runs also print their next_step / resting_until, and runs\n" +
-			"print the guardian's last diagnosis, per-task gate/fix state, resolver activity\n" +
-			"and the final PR (all fields are also in --json). For a\n" +
-			"running plan's task-level progress use `warden plan show`.",
+		Short: "List every autopilot run",
+		Long: "The all-runs view: one table row per autopilot run (run id, name, state, plan,\n" +
+			"gate, branch and task progress; the repo column appears only when runs span\n" +
+			"more than one repo). Runs that are waiting, degraded or need attention print\n" +
+			"indented detail lines under their row (next step, resting until, the guardian's\n" +
+			"diagnosis, the final PR). Use `wd plan show <id> --watch` for the view of one\n" +
+			"plan. --json emits the raw result.",
 		Args: cobra.NoArgs,
 		RunE: runAutopilotStatus,
 	}
@@ -285,40 +287,91 @@ func runAutopilotStatus(cmd *cobra.Command, _ []string) error {
 	if jsonRequested(cmd) {
 		return printJSON(cmd.OutOrStdout(), st)
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "autopilot: %d run(s)\n", len(st.Runs))
-	printAutopilotRuns(cmd, st)
+	if len(st.Runs) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "no autopilot runs")
+		fmt.Fprintln(cmd.OutOrStdout(), "start one with: wd plan run <plan-id> --mode autopilot")
+		return nil
+	}
+	return printAutopilotRuns(cmd.OutOrStdout(), st)
+}
+
+// autopilotProgress is the task rollup "landed/total" ("-" with no tasks).
+func autopilotProgress(r client.AutopilotRunStatus) string {
+	total := r.Tasks.Pending + r.Tasks.InProgress + r.Tasks.Landed + r.Tasks.Failed
+	if total == 0 {
+		total = len(r.PlanTasks)
+	}
+	if total == 0 {
+		return "-"
+	}
+	return fmt.Sprintf("%d/%d", r.Tasks.Landed, total)
+}
+
+// printAutopilotRuns renders an aligned table of runs, with indented detail
+// lines under any run that needs them. The table is aligned as one block and
+// the detail lines are spliced in afterwards so they do not break alignment.
+func printAutopilotRuns(w io.Writer, st client.AutopilotStatus) error {
+	repos := map[string]bool{}
+	for _, r := range st.Runs {
+		repos[r.Repo] = true
+	}
+	showRepo := len(repos) > 1
+	var buf strings.Builder
+	tw := tabwriter.NewWriter(&buf, 0, 2, 2, ' ', 0)
+	head := "RUN\tNAME\tSTATE\tPLAN\tGATE\tBRANCH\tPROGRESS"
+	if showRepo {
+		head += "\tREPO"
+	}
+	fmt.Fprintln(tw, head)
+	for _, r := range st.Runs {
+		row := fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s\t%s", r.RunID, dash(r.Name), r.State,
+			dash(r.PlanID), dash(r.Gate), dash(r.IntegrationBranch), autopilotProgress(r))
+		if showRepo {
+			row += "\t" + dash(r.Repo)
+		}
+		fmt.Fprintln(tw, row)
+	}
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+	fmt.Fprintln(w, lines[0])
+	for i, r := range st.Runs {
+		fmt.Fprintln(w, lines[i+1])
+		for _, l := range autopilotRunDetails(r) {
+			fmt.Fprintln(w, "    "+l)
+		}
+	}
 	return nil
 }
 
-// printAutopilotRuns renders one line per run: id, name, state, plan id, repo,
-// gate, integration branch, backoff summary; plus next_step / resting_until when set.
-func printAutopilotRuns(cmd *cobra.Command, st client.AutopilotStatus) {
-	for _, r := range st.Runs {
-		fmt.Fprintf(cmd.OutOrStdout(), "  %s\t%s\t%s\tplan=%s\t%s\tgate=%s\tbranch=%s\tbackoff=%s\n",
-			r.RunID, r.Name, r.State, dash(r.PlanID), r.Repo, dash(r.Gate), dash(r.IntegrationBranch), backoffSummary(r.Backoff))
-		if r.LastProgressAt != "" {
-			fmt.Fprintf(cmd.OutOrStdout(), "    last progress: %s (watchdog: %s)\n", r.LastProgressAt, dash(r.Watchdog))
-		}
-		if r.NextStep != nil {
-			line := "    next: " + r.NextStep.Action
-			if r.NextStep.At != "" {
-				line += " at " + r.NextStep.At
-			}
-			if r.NextStep.Owner != "" {
-				line += " (" + r.NextStep.Owner + ")"
-			}
-			fmt.Fprintln(cmd.OutOrStdout(), line)
-		}
-		if r.RestingUntil != "" {
-			fmt.Fprintf(cmd.OutOrStdout(), "    resting until: %s\n", r.RestingUntil)
-		}
-		for _, l := range r.SurfaceLines() {
-			fmt.Fprintln(cmd.OutOrStdout(), "    "+l)
-		}
-		if r.NeedsAttention != "" {
-			fmt.Fprintf(cmd.OutOrStdout(), "    NEEDS ATTENTION: %s\n", r.NeedsAttention)
-		}
+// autopilotRunDetails are the per-run detail lines (no leading indent).
+func autopilotRunDetails(r client.AutopilotRunStatus) []string {
+	var out []string
+	if r.Backoff != nil {
+		out = append(out, "backoff: "+backoffSummary(r.Backoff))
 	}
+	if r.LastProgressAt != "" {
+		out = append(out, fmt.Sprintf("last progress: %s (watchdog: %s)", r.LastProgressAt, dash(r.Watchdog)))
+	}
+	if r.NextStep != nil {
+		line := "next: " + r.NextStep.Action
+		if r.NextStep.At != "" {
+			line += " at " + r.NextStep.At
+		}
+		if r.NextStep.Owner != "" {
+			line += " (" + r.NextStep.Owner + ")"
+		}
+		out = append(out, line)
+	}
+	if r.RestingUntil != "" {
+		out = append(out, "resting until: "+r.RestingUntil)
+	}
+	out = append(out, r.SurfaceLines()...)
+	if r.NeedsAttention != "" {
+		out = append(out, "NEEDS ATTENTION: "+r.NeedsAttention)
+	}
+	return out
 }
 
 func backoffSummary(b *client.AutopilotBackoff) string {

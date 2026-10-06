@@ -78,7 +78,7 @@ func TestAutopilotCanonicalAliasDispatchEquivalence(t *testing.T) {
 	methods := map[string]string{}
 	bodies := map[string]string{}
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"POST /api/v1/autopilot":                  `{"enabled":false,"enabled_repos":[],"runs":[]}`,
+		"POST /api/v1/autopilot":                  `{"runs":[]}`,
 		"POST /api/v1/autopilot/runs/ap-123/stop": `{"run_id":"ap-123","name":"demo","state":"stopped"}`,
 		"GET /api/v1/pipelines":                   `{"pipelines":[]}`,
 	}, methods, bodies))
@@ -113,7 +113,7 @@ func TestAutopilotEnablementAndRunLifecycleCanonicalPaths(t *testing.T) {
 	methods := map[string]string{}
 	bodies := map[string]string{}
 	addr := stubDaemon(t, routedDaemon(t, map[string]string{
-		"POST /api/v1/autopilot":                  `{"enabled":false,"enabled_repos":[],"runs":[]}`,
+		"POST /api/v1/autopilot":                  `{"runs":[]}`,
 		"POST /api/v1/autopilot/runs/ap-123/stop": `{"run_id":"ap-123","name":"demo","state":"stopped"}`,
 	}, methods, bodies))
 

@@ -2046,7 +2046,7 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "ctrl+a":
 		// Toggle autopilot on/off. The result message updates m.autopilot.
-		return m, autopilotToggleCmd(m.api, !m.autopilot.Enabled)
+		return m, autopilotToggleCmd(m.api, !m.autopilot.Live())
 	case "S":
 		m.showSystemAgents = !m.showSystemAgents
 		if m.showSystemAgents {

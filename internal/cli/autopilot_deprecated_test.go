@@ -38,7 +38,7 @@ func TestAutopilotDisableOffPauseRuns(t *testing.T) {
 		methods := map[string]string{}
 		bodies := map[string]string{}
 		cwd := mustGetwdRoot(t)
-		before := `{"enabled":true,"enabled_repos":[],"runs":[{"run_id":"ap-1","name":"demo","state":"active","repo":"` + cwd + `"}]}`
+		before := `{"runs":[{"run_id":"ap-1","name":"demo","state":"active","repo":"` + cwd + `"}]}`
 		addr := stubDaemon(t, routedDaemon(t, map[string]string{
 			"GET /api/v1/autopilot":  before,
 			"POST /api/v1/autopilot": strings.Replace(before, `"active"`, `"paused"`, 1),

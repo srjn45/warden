@@ -982,12 +982,9 @@ func (c *Controller) LookupRun(runID string) (RunStatus, error) {
 	return c.runStatusLocked(r), nil
 }
 
-// statusLocked builds the status snapshot; the caller must hold c.mu. Enabled is
-// now "any repo enabled" and EnabledRepos names exactly which ones — the switch is
-// per-repo, not a single global flag.
+// statusLocked builds the status snapshot; the caller must hold c.mu.
 func (c *Controller) statusLocked() Status {
-	// EnabledRepos is deprecated and always empty: there is no per-repo switch.
-	st := Status{EnabledRepos: []string{}, Runs: []RunStatus{}}
+	st := Status{Runs: []RunStatus{}}
 	for _, r := range c.runs {
 		counts := TaskCounts{}
 		for _, task := range r.plan.Tasks {
@@ -1046,12 +1043,6 @@ func (c *Controller) statusLocked() Status {
 		st.Runs = append(st.Runs, rs)
 	}
 	sort.Slice(st.Runs, func(i, j int) bool { return st.Runs[i].RunID < st.Runs[j].RunID })
-	for _, rs := range st.Runs {
-		if rs.State == StateActive || rs.State == StateFinalizing || rs.State == StateAwaitingMerge || rs.State == StateStarting || rs.State == StateHealing {
-			st.Enabled = true
-			break
-		}
-	}
 	return st
 }
 
