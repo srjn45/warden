@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -191,7 +192,11 @@ func newDoctorCmd() *cobra.Command {
 func runMembershipReconcile(cmd *cobra.Command, dataDir string) error {
 	sstore, err := agentstore.New(dataDir)
 	if err != nil {
-		return fmt.Errorf("open agent store (stop the daemon first, then retry): %w", err)
+		var oe *agentstore.OwnershipError
+		if errors.As(err, &oe) {
+			return fmt.Errorf("%w\nnext step: %s", err, oe.NextStep())
+		}
+		return fmt.Errorf("open agent store: %w", err)
 	}
 	defer sstore.Close()
 

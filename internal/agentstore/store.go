@@ -42,6 +42,7 @@ type Store struct {
 	db     *scriva.DB
 	col    *engine.Collection
 	closed *engine.Collection
+	lock   *flockFile
 }
 
 var _ AgentStore = (*Store)(nil)
@@ -49,10 +50,30 @@ var _ AgentStore = (*Store)(nil)
 // New opens the agent collection and, once, imports the legacy active and closed
 // records whose Kind is not terminal. The marker is written last, making a failed
 // import retryable without duplicating data (the destination is rebuilt first).
+//
+// New takes the exclusive agent-store ownership lock before any import, wipe or
+// open and holds it until Close; a second opener gets *OwnershipError.
 func New(dir string) (*Store, error) {
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	lock, canon, err := acquireOwnership(dir)
+	if err != nil {
 		return nil, err
 	}
+	legacy, err := acquireLegacyRead(canon)
+	if err != nil {
+		_ = lock.release()
+		return nil, err
+	}
+	defer func() { _ = legacy.release() }()
+	s, err := open(canon)
+	if err != nil {
+		_ = lock.release()
+		return nil, err
+	}
+	s.lock = lock
+	return s, nil
+}
+
+func open(dir string) (*Store, error) {
 	dbDir := filepath.Join(dir, "agents-db")
 	marker := filepath.Join(dir, importedMarker)
 	_, err := os.Stat(marker)
@@ -700,7 +721,13 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 	return err
 }
 
-func (s *Store) Close() error { return s.db.Close() }
+func (s *Store) Close() error {
+	err := s.db.Close()
+	if lerr := s.lock.release(); err == nil {
+		err = lerr
+	}
+	return err
+}
 
 func exitDetail(code int) string {
 	if sig := signalName(code - 128); code > 128 && code <= 128+64 && sig != "" {
