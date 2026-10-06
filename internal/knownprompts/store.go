@@ -371,6 +371,27 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 	return s.deleteLocked(id)
 }
 
+// DeleteAll forgets every entry and returns how many were removed.
+func (s *Store) DeleteAll(ctx context.Context) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ids := make([]string, 0, len(s.byID))
+	for id := range s.byID {
+		ids = append(ids, id)
+	}
+	n := 0
+	for _, id := range ids {
+		if err := s.deleteLocked(id); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
+}
+
 func (s *Store) deleteLocked(id string) error {
 	cur := s.byID[id]
 	if cur == nil {

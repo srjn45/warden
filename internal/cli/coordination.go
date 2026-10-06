@@ -107,7 +107,8 @@ func newApprovalCmd() *cobra.Command {
 		Long: `Manage tool-permission prompts and the auto-approve policy.
 
 List pending prompts with list, answer recognized menus by option number with
-answer, and configure per-agent participation plus allow/deny rules under auto.`,
+answer, configure per-agent participation plus allow/deny rules under auto, and
+inspect or forget the prompt shapes warden has learned under known.`,
 	}
 	SetCommandHelpMetadata(cmd, "coordinate", 30, "warden approval", "", NodeNamespace)
 
@@ -115,6 +116,7 @@ answer, and configure per-agent participation plus allow/deny rules under auto.`
 		canonicalApprovalCommand(newApprovalsCmd(), "list", "approvals"),
 		canonicalApprovalCommand(newApproveCmd(), "answer", "approve"),
 		newApprovalAutoCmd(),
+		newApprovalKnownCmd(),
 	}
 	for i, child := range children {
 		SetCommandHelpMetadata(child, "coordinate", (i+1)*10, "warden approval "+child.Name(), "", nodeKind(child))

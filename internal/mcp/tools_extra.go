@@ -15,6 +15,7 @@ import (
 	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/config"
+	"github.com/srjn45/warden/internal/knownprompts"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/preset"
 	"github.com/srjn45/warden/internal/prompttemplate"
@@ -70,6 +71,10 @@ func parseSinceArg(s string) (time.Time, error) {
 
 // --- argument structs for the parity tools ---
 
+type forgetKnownArgs struct {
+	ID  string `json:"id,omitempty" jsonschema:"the known-prompt id from list_known_prompts"`
+	All bool   `json:"all,omitempty" jsonschema:"forget every learned prompt shape instead of one"`
+}
 type digestArgs struct {
 	Ticket string `json:"ticket" jsonschema:"the agent's ticket / session id to summarize"`
 }
@@ -656,6 +661,43 @@ func (s *Server) registerExtraTools() {
 			roles = append(roles, map[string]string{"name": r.Name, "description": r.Description})
 		}
 		return jsonResultAny(map[string]any{"roles": roles})
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "list_known_prompts",
+		Description: "List the known-prompts store: prompt shapes the Fast-Brain has learned (id, backend, templated question, option labels, affirmative option, sticky flags, hits, last_seen_at). Shapes only — never concrete commands or paths. Read-only; pair with forget_known_prompt to drop one that was learned wrong.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ listArgs) (*mcpsdk.CallToolResult, any, error) {
+		entries, err := s.cl.KnownPrompts(ctx)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		if entries == nil {
+			entries = []knownprompts.Entry{}
+		}
+		return jsonResultAny(map[string]any{"prompts": entries})
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "forget_known_prompt",
+		Description: "Forget one learned prompt shape by id (see list_known_prompts), or every shape with all=true. The prompt is simply re-learned the next time it appears. Audit-logged.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a forgetKnownArgs) (*mcpsdk.CallToolResult, any, error) {
+		id := strings.TrimSpace(a.ID)
+		switch {
+		case a.All && id != "":
+			return textResult("error: pass either id or all=true, not both"), nil, nil
+		case a.All:
+			n, err := s.cl.ForgetAllKnownPrompts(ctx)
+			if err != nil {
+				return textResult("error: " + err.Error()), nil, nil
+			}
+			return textResult(fmt.Sprintf("forgot %d known prompt(s)", n)), nil, nil
+		case id == "":
+			return textResult("error: id is required (or all=true)"), nil, nil
+		}
+		if err := s.cl.ForgetKnownPrompt(ctx, id); err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return textResult("forgot " + id), nil, nil
 	})
 
 	// --- backend registry (docs/specs/2026-08-06-backend-registry.md) ---

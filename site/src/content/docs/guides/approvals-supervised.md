@@ -124,6 +124,8 @@ A prompt the model read is **learned** once its answer provably worked: it was a
 
 The store keeps itself honest: a learned shape that trips the circuit breaker, or whose answers fail to clear the menu three times in a row, is dropped (`prompt_known_invalidated` event) and the next occurrence goes back to the model. It is bounded by `known_prompts_max` (default 500, least recently seen evicted) and entries unseen for `known_prompts_prune_days` (default 90) are pruned.
 
+Inspect or prune the store yourself: `warden approval known list` (`--json` for scripts) shows each shape's id, backend, templated question, options (the answered one marked `*`), hit count and last-seen time; `warden approval known forget <id>` drops one that was learned wrong (it is simply re-learned next time), and `forget --all` empties the store after a confirmation (`--yes` skips it). The same is available over MCP (`list_known_prompts`, `forget_known_prompt`) and REST (`GET/DELETE /api/v1/known-prompts`); forgets are audit-logged (`known_prompt_forget`, `known_prompt_forget_all`).
+
 ## The circuit breaker
 
 Auto-approving a prompt should unblock the agent. When the **identical** prompt keeps re-appearing after being approved — the agent is re-running a failing command (expired credentials, a broken login) and re-asking forever — approving again just burns CPU and tokens. The breaker halts auto-approval after `max_repeats` consecutive identical approvals (default **10**), records an `approval_loop` anomaly on the agent, fires your notifier, and leaves the prompt unanswered so the agent surfaces as `waiting_for_input`.

@@ -184,6 +184,7 @@ still showing are never learned. Later occurrences are read from the store with 
 call, re-verified against the pane every time. A learned shape that trips the circuit
 breaker or fails to clear the menu three times in a row is dropped (`prompt_known_invalidated`).
 The store is bounded by `known_prompts_max` (500) and `known_prompts_prune_days` (90).
+Visibility and control: `warden approval known list [--json]` / `forget <id>|--all [--yes]`, MCP `list_known_prompts` / `forget_known_prompt`, REST `GET`/`DELETE /api/v1/known-prompts[/{id}]`; forgets are audit-logged.
 
 **Decision order** (a prompt is auto-answered only if all pass):
 - The built-in **destructive deny-list** (delete, `rm -rf`, force, push, deploy,

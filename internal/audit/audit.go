@@ -41,6 +41,8 @@ const (
 	ActionPlanRestart                = "plan_restart"
 	ActionBrainConsult               = "brain_consult"
 	ActionPromptSeedFailed           = "prompt_seed_failed"
+	ActionKnownPromptForget          = "known_prompt_forget"     // one learned prompt shape removed
+	ActionKnownPromptForgetAll       = "known_prompt_forget_all" // the whole known-prompts store emptied
 )
 
 // Event is one audit record: who (Actor) did what (Action) when (Time) to which

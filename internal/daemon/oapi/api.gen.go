@@ -24,6 +24,7 @@ import (
 	collab "github.com/srjn45/warden/internal/collab"
 	ctxstore "github.com/srjn45/warden/internal/ctxstore"
 	digest "github.com/srjn45/warden/internal/digest"
+	knownprompts "github.com/srjn45/warden/internal/knownprompts"
 	lifecycle "github.com/srjn45/warden/internal/lifecycle"
 	mailbox "github.com/srjn45/warden/internal/mailbox"
 	metrics "github.com/srjn45/warden/internal/metrics"
@@ -1312,6 +1313,9 @@ type ImportResult = store.ImportResult
 type InputRequest struct {
 	Text string `json:"text"`
 }
+
+// KnownPrompt One learned prompt shape (templated question + option labels, never concrete commands).
+type KnownPrompt = knownprompts.Entry
 
 // LegacyCreatePlanRequest defines model for LegacyCreatePlanRequest.
 type LegacyCreatePlanRequest struct {
@@ -2919,6 +2923,15 @@ type ServerInterface interface {
 	// Import session records from an export envelope
 	// (POST /api/v1/import)
 	ImportSessions(w http.ResponseWriter, r *http.Request, params ImportSessionsParams)
+	// Forget every learned prompt shape
+	// (DELETE /api/v1/known-prompts)
+	ForgetAllKnownPrompts(w http.ResponseWriter, r *http.Request)
+	// List learned prompt shapes
+	// (GET /api/v1/known-prompts)
+	ListKnownPrompts(w http.ResponseWriter, r *http.Request)
+	// Forget one learned prompt shape
+	// (DELETE /api/v1/known-prompts/{id})
+	ForgetKnownPrompt(w http.ResponseWriter, r *http.Request, id string)
 	// Recent message traffic across all inboxes
 	// (GET /api/v1/messages)
 	ListRecentMessages(w http.ResponseWriter, r *http.Request, params ListRecentMessagesParams)
@@ -3468,6 +3481,24 @@ func (_ Unimplemented) GuardHook(w http.ResponseWriter, r *http.Request) {
 // Import session records from an export envelope
 // (POST /api/v1/import)
 func (_ Unimplemented) ImportSessions(w http.ResponseWriter, r *http.Request, params ImportSessionsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Forget every learned prompt shape
+// (DELETE /api/v1/known-prompts)
+func (_ Unimplemented) ForgetAllKnownPrompts(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List learned prompt shapes
+// (GET /api/v1/known-prompts)
+func (_ Unimplemented) ListKnownPrompts(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Forget one learned prompt shape
+// (DELETE /api/v1/known-prompts/{id})
+func (_ Unimplemented) ForgetKnownPrompt(w http.ResponseWriter, r *http.Request, id string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -5123,6 +5154,78 @@ func (siw *ServerInterfaceWrapper) ImportSessions(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ImportSessions(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ForgetAllKnownPrompts operation middleware
+func (siw *ServerInterfaceWrapper) ForgetAllKnownPrompts(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ForgetAllKnownPrompts(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListKnownPrompts operation middleware
+func (siw *ServerInterfaceWrapper) ListKnownPrompts(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListKnownPrompts(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ForgetKnownPrompt operation middleware
+func (siw *ServerInterfaceWrapper) ForgetKnownPrompt(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ForgetKnownPrompt(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -8689,6 +8792,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/api/v1/import", wrapper.ImportSessions)
 	})
 	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/api/v1/known-prompts", wrapper.ForgetAllKnownPrompts)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/known-prompts", wrapper.ListKnownPrompts)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/api/v1/known-prompts/{id}", wrapper.ForgetKnownPrompt)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/messages", wrapper.ListRecentMessages)
 	})
 	r.Group(func(r chi.Router) {
@@ -10455,6 +10567,88 @@ func (response ImportSessions200JSONResponse) VisitImportSessionsResponse(w http
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ForgetAllKnownPromptsRequestObject struct {
+}
+
+type ForgetAllKnownPromptsResponseObject interface {
+	VisitForgetAllKnownPromptsResponse(w http.ResponseWriter) error
+}
+
+type ForgetAllKnownPrompts200JSONResponse struct {
+	Removed int `json:"removed"`
+}
+
+func (response ForgetAllKnownPrompts200JSONResponse) VisitForgetAllKnownPromptsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListKnownPromptsRequestObject struct {
+}
+
+type ListKnownPromptsResponseObject interface {
+	VisitListKnownPromptsResponse(w http.ResponseWriter) error
+}
+
+type ListKnownPrompts200JSONResponse struct {
+	Prompts []KnownPrompt `json:"prompts"`
+}
+
+func (response ListKnownPrompts200JSONResponse) VisitListKnownPromptsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ForgetKnownPromptRequestObject struct {
+	Id string `json:"id"`
+}
+
+type ForgetKnownPromptResponseObject interface {
+	VisitForgetKnownPromptResponse(w http.ResponseWriter) error
+}
+
+type ForgetKnownPrompt200JSONResponse struct{ OKJSONResponse }
+
+func (response ForgetKnownPrompt200JSONResponse) VisitForgetKnownPromptResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ForgetKnownPrompt404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ForgetKnownPrompt404JSONResponse) VisitForgetKnownPromptResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -14819,6 +15013,15 @@ type StrictServerInterface interface {
 	// Import session records from an export envelope
 	// (POST /api/v1/import)
 	ImportSessions(ctx context.Context, request ImportSessionsRequestObject) (ImportSessionsResponseObject, error)
+	// Forget every learned prompt shape
+	// (DELETE /api/v1/known-prompts)
+	ForgetAllKnownPrompts(ctx context.Context, request ForgetAllKnownPromptsRequestObject) (ForgetAllKnownPromptsResponseObject, error)
+	// List learned prompt shapes
+	// (GET /api/v1/known-prompts)
+	ListKnownPrompts(ctx context.Context, request ListKnownPromptsRequestObject) (ListKnownPromptsResponseObject, error)
+	// Forget one learned prompt shape
+	// (DELETE /api/v1/known-prompts/{id})
+	ForgetKnownPrompt(ctx context.Context, request ForgetKnownPromptRequestObject) (ForgetKnownPromptResponseObject, error)
 	// Recent message traffic across all inboxes
 	// (GET /api/v1/messages)
 	ListRecentMessages(ctx context.Context, request ListRecentMessagesRequestObject) (ListRecentMessagesResponseObject, error)
@@ -16322,6 +16525,80 @@ func (sh *strictHandler) ImportSessions(w http.ResponseWriter, r *http.Request, 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ImportSessionsResponseObject); ok {
 		if err := validResponse.VisitImportSessionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ForgetAllKnownPrompts operation middleware
+func (sh *strictHandler) ForgetAllKnownPrompts(w http.ResponseWriter, r *http.Request) {
+	var request ForgetAllKnownPromptsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ForgetAllKnownPrompts(ctx, request.(ForgetAllKnownPromptsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ForgetAllKnownPrompts")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ForgetAllKnownPromptsResponseObject); ok {
+		if err := validResponse.VisitForgetAllKnownPromptsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListKnownPrompts operation middleware
+func (sh *strictHandler) ListKnownPrompts(w http.ResponseWriter, r *http.Request) {
+	var request ListKnownPromptsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListKnownPrompts(ctx, request.(ListKnownPromptsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListKnownPrompts")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListKnownPromptsResponseObject); ok {
+		if err := validResponse.VisitListKnownPromptsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ForgetKnownPrompt operation middleware
+func (sh *strictHandler) ForgetKnownPrompt(w http.ResponseWriter, r *http.Request, id string) {
+	var request ForgetKnownPromptRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ForgetKnownPrompt(ctx, request.(ForgetKnownPromptRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ForgetKnownPrompt")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ForgetKnownPromptResponseObject); ok {
+		if err := validResponse.VisitForgetKnownPromptResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
