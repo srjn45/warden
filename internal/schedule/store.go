@@ -168,6 +168,7 @@ func toRecord(sc *Schedule) (map[string]any, error) {
 	if err := json.Unmarshal(b, &m); err != nil {
 		return nil, err
 	}
+	delete(m, "state") // derived on read, never stored
 	return m, nil
 }
 

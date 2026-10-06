@@ -3784,28 +3784,45 @@
     "use": "get \u003cid\u003e",
     "hidden": true,
     "runnable": true,
+    "local_flags": [
+      "json",
+      "spec"
+    ],
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
   },
   {
     "path": "schedule list",
     "use": "list",
+    "aliases": [
+      "ls"
+    ],
     "runnable": true,
+    "local_flags": [
+      "json"
+    ],
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
   },
   {
     "path": "schedule show",
     "use": "show \u003cid\u003e",
     "runnable": true,
+    "local_flags": [
+      "json",
+      "spec"
+    ],
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
   },
   {
     "path": "search",

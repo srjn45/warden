@@ -1,6 +1,7 @@
 package schedule
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -235,5 +236,52 @@ func TestNewStillAcceptsPastAt(t *testing.T) {
 	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
 	if _, err := New(Params{Name: "p", At: "2020-01-01T09:00:00Z", Prompt: "x"}, now); err != nil {
 		t.Fatalf("New must not reject past times (startup path): %v", err)
+	}
+}
+
+func TestSetEnabledRecordsOperatorChoice(t *testing.T) {
+	now := time.Now()
+	s, err := New(Params{Name: "n", Cron: "@daily", Prompt: "p", Cwd: "/w"}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SetEnabled(s, false, now); err != nil {
+		t.Fatal(err)
+	}
+	if !s.Disabled || s.State() != StateDisabled {
+		t.Fatalf("disabled = %v state = %s", s.Disabled, s.State())
+	}
+	if err := SetEnabled(s, true, now); err != nil {
+		t.Fatal(err)
+	}
+	if s.Disabled || s.State() != StateEnabled {
+		t.Fatalf("disabled = %v state = %s", s.Disabled, s.State())
+	}
+}
+
+func TestAdvanceSingleShotIsDoneNotDisabled(t *testing.T) {
+	now := time.Now()
+	s, _ := New(Params{Name: "n", At: now.Add(time.Hour).Format(time.RFC3339), Prompt: "p", Cwd: "/w"}, now)
+	Advance(s, now, "agent-1", nil)
+	if s.State() != StateDone {
+		t.Fatalf("state = %s", s.State())
+	}
+	Advance(s, now, "", errors.New("boom"))
+	if s.State() != StateFailed {
+		t.Fatalf("state = %s", s.State())
+	}
+}
+
+func TestMarshalIncludesDerivedState(t *testing.T) {
+	b, err := json.Marshal(&Schedule{Name: "n", Kind: KindCron, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"state":"enabled"`) {
+		t.Fatalf("json = %s", b)
+	}
+	var back Schedule
+	if err := json.Unmarshal(b, &back); err != nil || back.Name != "n" {
+		t.Fatalf("round trip: %v %+v", err, back)
 	}
 }

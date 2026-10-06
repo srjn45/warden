@@ -780,7 +780,7 @@ func NewServer(daemonBase string) *Server {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "list_schedules",
-		Description: "List the daemon's schedules (recurring cron and single-shot at triggers that fire an agent or pipeline), with each one's next run, enabled state, and last error. Returns a 403 error when the scheduler is disabled (scheduler_enabled config).",
+		Description: "List the daemon's schedules (recurring cron and single-shot at triggers that fire an agent or pipeline), with each one's next run, state (enabled|disabled|done|failed), and last error. Returns a 403 error when the scheduler is disabled (scheduler_enabled config).",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ listArgs) (*mcpsdk.CallToolResult, any, error) {
 		list, err := s.cl.ScheduleList(ctx)
 		if err != nil {
