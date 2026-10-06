@@ -97,6 +97,7 @@ func TestCommitHookFailureIsStructuredNotError(t *testing.T) {
 	fr := &FakeRunner{Responses: map[string]FakeResp{
 		"git rev-parse --abbrev-ref HEAD": {Out: "feature-x\n"},
 		"git status --porcelain":          {Out: " M foo.go\n"},
+		"git write-tree":                  {Out: "deadbeef\n"},
 		"git commit -m msg":               {Out: "gofmt found issues\n", Err: errStub("hook exit 1")},
 	}}
 	res, err := New(fr, &FakeConfig{}).Commit(context.Background(), "/wt", "msg")
@@ -104,7 +105,8 @@ func TestCommitHookFailureIsStructuredNotError(t *testing.T) {
 	require.True(t, res.HookFailed)
 	require.False(t, res.Committed)
 	require.Contains(t, res.HookOutput, "gofmt")
-	require.Contains(t, fr.calledArgs(), []string{"git", "reset"}, "staging is undone after a hook failure")
+	require.Contains(t, fr.calledArgs(), []string{"git", "read-tree", "deadbeef"}, "index is restored to its pre-call tree after a hook failure")
+	require.NotContains(t, fr.calledArgs(), []string{"git", "reset"})
 }
 
 func TestPushRefusesProtectedBranch(t *testing.T) {

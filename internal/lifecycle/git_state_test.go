@@ -125,3 +125,28 @@ func TestSecondSyncMidRebaseCleanTreeDoesNotAbort(t *testing.T) {
 	require.ErrorContains(t, err, "already in progress")
 	require.DirExists(t, filepath.Join(r.dir, ".git", "rebase-merge"))
 }
+
+// A rejected commit must leave `git status --porcelain` byte-identical, even
+// when the caller had a mix of staged, unstaged and untracked files.
+func TestCommitRejectionRestoresIndexExactly(t *testing.T) {
+	r := newCompatRepo(t)
+	l := compatLife()
+	compatGit(t, r.dir, "checkout", "-b", "feature")
+	compatCommitFile(t, r.dir, "tracked.txt", "one\n", "add tracked")
+	compatCommitFile(t, r.dir, "other.txt", "one\n", "add other")
+	hook := filepath.Join(r.dir, ".git", "hooks", "pre-commit")
+	require.NoError(t, os.WriteFile(hook, []byte("#!/bin/sh\necho nope\nexit 1\n"), 0o755))
+
+	compatWrite(t, r.dir, "tracked.txt", "staged\n")
+	compatGit(t, r.dir, "add", "tracked.txt")
+	compatWrite(t, r.dir, "tracked.txt", "staged then unstaged\n")
+	compatWrite(t, r.dir, "other.txt", "unstaged only\n")
+	compatWrite(t, r.dir, "new.txt", "untracked\n")
+	before := compatGit(t, r.dir, "status", "--porcelain")
+	require.NotEmpty(t, before)
+
+	res, err := l.Commit(context.Background(), r.dir, "m")
+	require.NoError(t, err)
+	require.True(t, res.HookFailed)
+	require.Equal(t, before, compatGit(t, r.dir, "status", "--porcelain"))
+}

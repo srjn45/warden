@@ -3406,6 +3406,8 @@ While a rebase is in progress, `wd git sync --continue` stages your resolved fil
 finishes it (reporting any conflicts from the next commit), and `wd git sync --abort`
 drops it and restores the branch. A plain sync or `wd commit` is refused until then.
 
+Exits non-zero when the rebase stops on conflicts.
+
 Usage:
   warden git sync [flags]
 
@@ -5557,6 +5559,8 @@ progress and reports only the conflicting files for you to resolve.
 While a rebase is in progress, `wd sync --continue` stages your resolved files and
 finishes it (reporting any conflicts from the next commit), and `wd sync --abort`
 drops it and restores the branch. A plain sync or `wd commit` is refused until then.
+
+Exits non-zero when the rebase stops on conflicts.
 
 Usage:
   warden sync [flags]
