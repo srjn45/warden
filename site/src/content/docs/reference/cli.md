@@ -762,10 +762,25 @@ Inherited flags:
 ## warden pipeline
 
 ```text
-Define and run DAG pipelines of agent jobs.
+Define and run a DAG of dependent agent jobs.
 
-Use validate locally before create; template list shows built-in starters;
-start/pause/resume/cancel control lifecycle; show lists per-job status and handoffs.
+Typical journey:
+  1. Write a YAML spec, or pick a starter with `wd pipeline template list`
+  2. `wd pipeline validate <spec.yaml>` — check the DAG locally (no daemon)
+  3. `wd pipeline create <spec.yaml>` — register it (or add --start to begin immediately)
+  4. `wd pipeline start <id>` — spawn jobs that have no dependencies
+  5. `wd pipeline show <id> --watch` — follow progress until it finishes
+  6. On failure, `wd pipeline job retry <id> <job>` to re-run a failed job
+
+pause stops new jobs from spawning while in-flight agents finish (undo with resume).
+cancel terminates running job agents and cannot be undone — create a new pipeline to run again.
+delete removes the pipeline record after jobs are settled (cancel first if any are live).
+
+Examples:
+  wd pipeline template list
+  wd pipeline validate review.yaml
+  wd pipeline create review.yaml --start
+  wd pipeline show my-run --watch
 
 Usage:
   warden pipeline [flags]
@@ -782,8 +797,7 @@ Commands:
   cancel               Cancel a pipeline (terminates running jobs)
   delete               Delete a pipeline's record (must not have live jobs — cancel first)
   emit                 Publish this job's handoff (run from inside a pipeline job)
-  edit-job             Edit a pending job's prompt and/or handoff
-  retry                Re-run a failed or needs-attention job (reopens skipped descendants)
+  job                  Inspect, edit and retry one job of a pipeline
 
 Flags:
   -h, --help   help for pipeline
@@ -798,8 +812,14 @@ Inherited flags:
 ```text
 Parse and validate a pipeline spec locally — checks required fields, job ids, dependency references, worktree/run_if values, and DAG cycles. Exits 0 if valid, 1 if not (suitable for CI). Does not contact the daemon.
 
+Pass the spec as a positional argument or with -f (not both).
+
+Examples:
+  wd pipeline validate review.yaml
+  wd pipeline validate -f review.yaml
+
 Usage:
-  warden pipeline validate -f <spec.yaml> [flags]
+  warden pipeline validate [spec.yaml] [flags]
 
 Flags:
   -f, --file string   path to the pipeline YAML spec
@@ -813,24 +833,36 @@ Inherited flags:
 ## warden pipeline create
 
 ```text
-Create a pipeline either from a YAML spec file (-f) or from a built-in
-template (--template). Templates render with placeholder substitution: --name
-fills {{NAME}} (default the template name), --repo fills {{REPO}} (default the
-current directory), and each remaining {{KEY}} is filled with --set KEY=VALUE.
-Run `warden pipeline template list` to see templates and their placeholders.
+Create a pipeline either from a YAML spec file (positional or -f) or from a
+built-in template (--template). Templates render with placeholder substitution:
+--name fills {{NAME}} (default the template name), --repo fills {{REPO}}
+(default the current directory), and each remaining {{KEY}} is filled with
+--set KEY=VALUE. Run `wd pipeline template list` to see templates and their
+placeholders.
+
+--start begins the pipeline right after creating it. --json prints the created
+pipeline as JSON.
+
+Examples:
+  wd pipeline create review.yaml
+  wd pipeline create review.yaml --start
+  wd pipeline create --template analyze-implement-review --set TASK="add a flag" --start
+  wd pipeline create -f review.yaml --json
 
 Usage:
-  warden pipeline create (-f <spec.yaml> | --template <name>) [flags]
+  warden pipeline create [spec.yaml] [flags]
 
 Flags:
   -f, --file string       path to the pipeline YAML spec
   -h, --help              help for create
+      --json              print the created pipeline as JSON
       --name string       pipeline name — fills {{NAME}} (default: the template name)
-      --plan string       optional planstore plan id in the same project; empty = planless pipeline
+      --plan string       optional plan id to link for reference; does not make that plan run this pipeline
       --project string    optional project id this pipeline joins; overrides YAML project_id (default: git root of --repo / the spec file / cwd, unless the YAML sets project_id)
       --repo string       repo path — fills {{REPO}} (default: the current directory)
       --set stringArray   fill a template placeholder, KEY=VALUE (repeatable)
-      --template <NAME>   built-in template <NAME> to render (see 'warden pipeline template list')
+      --start             start the pipeline immediately after creating it
+      --template <NAME>   built-in template <NAME> to render (see 'wd pipeline template list')
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -840,13 +872,17 @@ Inherited flags:
 ## warden pipeline template
 
 ```text
-Built-in pipeline templates render via create --template and support placeholder substitution.
+Built-in pipeline templates render via create --template and support placeholder
+substitution. `template list` names them; `template show` prints one template's
+YAML. The pipeline templates section of `wd project library list` shows the same
+catalog alongside spawn presets and prompt templates.
 
 Usage:
   warden pipeline template [flags]
 
 Commands:
   list                 List the built-in pipeline templates and their placeholders
+  show                 Print a built-in pipeline template's YAML
 
 Flags:
   -h, --help   help for template
@@ -859,7 +895,12 @@ Inherited flags:
 ## warden pipeline template list
 
 ```text
-List the built-in pipeline templates and their placeholders
+List the built-in pipeline templates bundled with warden, each with a short
+description and the placeholders create --template needs. The same catalog
+appears under PIPELINE TEMPLATES in `wd project library list`.
+
+Examples:
+  wd pipeline template list
 
 Usage:
   warden pipeline template list [flags]
@@ -872,29 +913,18 @@ Inherited flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden pipeline list
+## warden pipeline template show
 
 ```text
-List pipelines
+Print the raw YAML of a built-in pipeline template, including its leading
+description comment and {{PLACEHOLDER}} markers. Use create --template to
+render and register one.
+
+Examples:
+  wd pipeline template show analyze-implement-review
 
 Usage:
-  warden pipeline list [flags]
-
-Flags:
-  -h, --help   help for list
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden pipeline show
-
-```text
-Show a pipeline's jobs and their status
-
-Usage:
-  warden pipeline show <pipeline> [flags]
+  warden pipeline template show <name> [flags]
 
 Flags:
   -h, --help   help for show
@@ -904,10 +934,88 @@ Inherited flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
+## warden pipeline list
+
+```text
+List pipelines as a table. By default only the project of the current
+directory is listed; use --all for every project or --project to pick one.
+Outside any project all pipelines are listed.
+
+Columns: NAME, STATUS, JOBS (finished/total of the jobs in the spec),
+PROJECT (only with --all), PLAN (the plan it executes, or -) and
+SCHEDULE (only when a pipeline was started by a schedule).
+
+Usage:
+  warden pipeline list [flags]
+
+Examples:
+  warden pipeline list
+    warden pipeline list --all --status running,paused
+    warden pipeline list --project ~/dev/app --json
+
+Flags:
+      --all                    list pipelines from every project
+  -h, --help                   help for list
+      --json                   output as JSON
+      --project <id-or-path>   project <id-or-path> (default: the project of the current directory)
+      --status strings         only pipelines in this status (repeatable or comma-separated: pending, running, paused, done, stalled, canceled)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+
+Aliases:
+  ls
+```
+
+## warden pipeline show
+
+```text
+Show a pipeline: a header (name, status, project, repo, and the plan and
+schedule it belongs to) followed by a table of its jobs with status, agent,
+backend and model, what each job waits on, and its branch. A job that needs
+attention is marked with "!". A job's output appears as one truncated line
+beneath it; --json carries the full text.
+
+Jobs warden adds on its own to fan work out and join it back are hidden by
+default; pass --all-jobs to list them too, marked [warden].
+
+--prompts also prints each job's prompt and handoff hint. --watch refreshes
+the view every few seconds until the pipeline is done, stalled or canceled, or
+you interrupt it. A pipeline that belongs to a plan points you at
+`wd plan show <plan-id>`.
+
+Examples:
+  wd pipeline show my-run
+  wd pipeline show my-run --prompts
+  wd pipeline show my-run --watch
+  wd pipeline show my-run --json | jq '.jobs[].status'
+
+Usage:
+  warden pipeline show <pipeline> [flags]
+
+Flags:
+      --all-jobs   also list jobs warden added itself (marked [warden])
+  -h, --help       help for show
+      --json       output as JSON
+      --prompts    print each job's prompt and handoff hint
+      --watch      refresh the view every few seconds until the pipeline finishes or you interrupt
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
 ## warden pipeline start
 
 ```text
-Start a pipeline (spawns jobs with no dependencies)
+Start a pending pipeline: spawns its jobs that have no dependencies;
+dependents spawn automatically as their upstreams emit. Refuses if the
+pipeline was already started. A canceled pipeline cannot be restarted —
+create a new one from the same spec or template.
+
+Examples:
+  wd pipeline start my-run
 
 Usage:
   warden pipeline start <pipeline> [flags]
@@ -923,7 +1031,12 @@ Inherited flags:
 ## warden pipeline pause
 
 ```text
-Pause a running pipeline (in-flight jobs finish; no new jobs spawn)
+Pause a running pipeline: jobs that are already running keep going, but no
+new jobs spawn until you resume. Undo with `wd pipeline resume`. Only a
+running pipeline can be paused.
+
+Examples:
+  wd pipeline pause my-run
 
 Usage:
   warden pipeline pause <pipeline> [flags]
@@ -939,7 +1052,11 @@ Inherited flags:
 ## warden pipeline resume
 
 ```text
-Resume a paused pipeline (spawns jobs that became ready while paused)
+Resume a paused pipeline: spawns any jobs that became ready while it was
+paused and continues the DAG. Only a paused pipeline can be resumed.
+
+Examples:
+  wd pipeline resume my-run
 
 Usage:
   warden pipeline resume <pipeline> [flags]
@@ -955,13 +1072,24 @@ Inherited flags:
 ## warden pipeline cancel
 
 ```text
-Cancel a pipeline (terminates running jobs)
+Cancel a pipeline: terminates any live job agents and marks remaining jobs
+skipped. A canceled pipeline cannot be restarted — create a new one from the
+same spec or template if you need to run it again.
+
+When jobs are still running, asks for confirmation (skip with --yes). With no
+running jobs it cancels without asking. Non-interactive sessions must pass --yes
+when jobs are running.
+
+Examples:
+  wd pipeline cancel my-run
+  wd pipeline cancel my-run --yes
 
 Usage:
   warden pipeline cancel <pipeline> [flags]
 
 Flags:
   -h, --help   help for cancel
+  -y, --yes    skip the confirmation prompt
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -971,13 +1099,23 @@ Inherited flags:
 ## warden pipeline delete
 
 ```text
-Delete a pipeline's record (must not have live jobs — cancel first)
+Delete a pipeline record and its job history. Agent sessions for settled jobs
+are archived; branches and worktrees are left in place. Refuses while any job is
+still live — cancel first.
+
+Asks for confirmation unless --yes is given. Non-interactive sessions must pass
+--yes.
+
+Examples:
+  wd pipeline delete my-run
+  wd pipeline delete my-run --yes
 
 Usage:
   warden pipeline delete <pipeline> [flags]
 
 Flags:
   -h, --help   help for delete
+  -y, --yes    skip the confirmation prompt
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -987,7 +1125,15 @@ Inherited flags:
 ## warden pipeline emit
 
 ```text
-Publish this job's handoff (run from inside a pipeline job)
+Publish this job's handoff text so dependent jobs can start. Intended to be
+called by the job's own agent (pipeline and job ids come from
+$WARDEN_PIPELINE_ID and $WARDEN_JOB_ID). Called elsewhere, you must pass
+--pipeline and --job; emitting for the wrong job or after the job has
+already emitted is refused.
+
+Examples:
+  wd pipeline emit "plan ready; start with auth.go"
+  wd pipeline emit --pipeline my-run --job analyze "done"
 
 Usage:
   warden pipeline emit <text> [flags]
@@ -1002,17 +1148,70 @@ Inherited flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden pipeline edit-job
+## warden pipeline job
 
 ```text
-Edit a pending job's prompt and/or handoff
+Commands that act on a single job of a pipeline: show everything about it, edit a job that has not started, or retry one that failed.
 
 Usage:
-  warden pipeline edit-job <pipeline> <job> [flags]
+  warden pipeline job [flags]
+
+Commands:
+  show                 Show everything about one job
+  edit                 Edit the prompt and/or handoff of a job that has not started
+  retry                Re-run a failed or needs-attention job (reopens skipped descendants)
+
+Flags:
+  -h, --help   help for job
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden pipeline job show
+
+```text
+Show one job of a pipeline in full: its status, type, role, tier, backend and
+model, worktree mode, whether it is supervised, when it runs, what it depends
+on, the agent and session that ran it, its branch, how many times it was
+retried automatically, and its complete prompt, handoff hint and output.
+
+Jobs warden adds on its own to fan work out and join it back are shown too,
+marked as created by warden. --json prints the job as JSON.
+
+Examples:
+  wd pipeline job show my-run build
+  wd pipeline job show my-run build --json
+
+Usage:
+  warden pipeline job show <pipeline> <job> [flags]
+
+Flags:
+  -h, --help   help for show
+      --json   output as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden pipeline job edit
+
+```text
+Change the prompt and/or handoff hint of a job before it starts. A job that
+has already started cannot be edited.
+
+Examples:
+  wd pipeline job edit my-run build --prompt "build with -race"
+  wd pipeline job edit my-run build --handoff "report the test count"
+
+Usage:
+  warden pipeline job edit <pipeline> <job> [flags]
 
 Flags:
       --handoff string   new handoff hint for the job
-  -h, --help             help for edit-job
+  -h, --help             help for edit
       --prompt string    new prompt for the job
 
 Inherited flags:
@@ -1020,13 +1219,17 @@ Inherited flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden pipeline retry
+## warden pipeline job retry
 
 ```text
-Re-run a failed or needs-attention job (reopens skipped descendants)
+Re-run a job that failed or needs attention. Jobs downstream of it that were
+skipped because it failed are reopened so the pipeline can carry on.
+
+Example:
+  wd pipeline job retry my-run build
 
 Usage:
-  warden pipeline retry <pipeline> <job> [flags]
+  warden pipeline job retry <pipeline> <job> [flags]
 
 Flags:
   -h, --help   help for retry
@@ -2329,8 +2532,8 @@ One umbrella over warden's reusable launch configs:
 same as `warden preset save`) and `library save-prompt` saves a prompt template
 (the same as `warden prompt-template save`). Pipeline templates are embedded and
 read-only, so there is no `save-template`; author a pipeline from a YAML spec with
-`warden pipeline create -f <spec.yaml>` instead. The `preset`, `prompt-template`,
-and `pipeline list-templates` commands remain available and unchanged.
+`warden pipeline create <spec.yaml>` instead. The `preset`, `prompt-template`,
+and `pipeline template list` commands remain available and unchanged.
 
 Usage:
   warden project library [flags]
@@ -2349,10 +2552,11 @@ Inherited flags:
 ## warden project library list
 
 ```text
-Show both libraries in two labeled sections: saved spawn presets (name +
-their stored defaults) and the built-in pipeline templates (name + a short
-description). Reuses the same sources as `warden preset list` and `warden
-pipeline list-templates`.
+Show all three libraries in labeled sections: saved spawn presets (name +
+their stored defaults), prompt templates, and the built-in pipeline templates
+(name + a short description). The pipeline templates section is the same catalog
+as `wd pipeline template list`. Reuses the same sources as `warden preset list`
+and `wd pipeline template list`.
 
 Usage:
   warden project library list [flags]
@@ -5341,7 +5545,7 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | `warden msg inbox` | `warden message inbox` |
 | `warden msg send` | `warden message send` |
 | `warden msg wait` | `warden message wait` |
-| `warden pipeline list-templates` | `warden pipeline template list` |
+| `warden pipeline ls` | `warden pipeline list` |
 | `warden plan ls` | `warden plan list` |
 | `warden plugin` | `warden project plugin` |
 | `warden plugin list` | `warden project plugin list` |

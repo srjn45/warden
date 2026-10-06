@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"github.com/srjn45/warden/internal/pipeline"
 	"io"
 	"net/http"
 	"strings"
@@ -200,11 +201,11 @@ func TestPipelineListShowCmds(t *testing.T) {
 		"GET /api/v1/pipelines/demo": `{"id":"demo","status":"running","repo":"/r","jobs":[{"id":"a","status":"done","branch":"feat","output":"result"}]}`,
 	}, nil, nil))
 
-	out, err := runCLI(t, addr, "pipeline", "list")
+	out, err := runCLI(t, addr, "pipeline", "list", "--all")
 	if err != nil {
 		t.Fatalf("pipeline list: %v", err)
 	}
-	if !strings.Contains(out, "demo") || !strings.Contains(out, "2 jobs") {
+	if !strings.Contains(out, "demo") || !strings.Contains(out, "0/2") {
 		t.Fatalf("pipeline list output: %q", out)
 	}
 
@@ -212,7 +213,7 @@ func TestPipelineListShowCmds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pipeline show: %v", err)
 	}
-	for _, want := range []string{"demo", "running", "branch: feat", "output: result"} {
+	for _, want := range []string{"demo", "running", "feat", "output: result"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("pipeline show missing %q:\n%s", want, out)
 		}
@@ -221,7 +222,10 @@ func TestPipelineListShowCmds(t *testing.T) {
 
 func TestPipelineLifecycleCmds(t *testing.T) {
 	method := map[string]string{}
-	addr := stubDaemon(t, routedDaemon(t, nil, method, nil))
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		// cancel with no live jobs skips the prompt; delete always needs --yes.
+		"GET /api/v1/pipelines/demo": `{"id":"demo","name":"demo","status":"done","jobs":[{"id":"a","status":"done"}]}`,
+	}, method, nil))
 	cases := []struct {
 		args     []string
 		path     string
@@ -232,8 +236,8 @@ func TestPipelineLifecycleCmds(t *testing.T) {
 		{[]string{"pipeline", "pause", "demo"}, "/api/v1/pipelines/demo/pause", http.MethodPost, "paused demo"},
 		{[]string{"pipeline", "resume", "demo"}, "/api/v1/pipelines/demo/resume", http.MethodPost, "resumed demo"},
 		{[]string{"pipeline", "cancel", "demo"}, "/api/v1/pipelines/demo/cancel", http.MethodPost, "canceled demo"},
-		{[]string{"pipeline", "delete", "demo"}, "/api/v1/pipelines/demo", http.MethodDelete, "deleted demo"},
-		{[]string{"pipeline", "retry", "demo", "a"}, "/api/v1/pipelines/demo/jobs/a/retry", http.MethodPost, "retrying demo/a"},
+		{[]string{"pipeline", "delete", "demo", "--yes"}, "/api/v1/pipelines/demo", http.MethodDelete, "deleted demo"},
+		{[]string{"pipeline", "job", "retry", "demo", "a"}, "/api/v1/pipelines/demo/jobs/a/retry", http.MethodPost, "retrying demo/a"},
 	}
 	for _, tc := range cases {
 		out, err := runCLI(t, addr, tc.args...)
@@ -277,7 +281,7 @@ func TestPipelineEmitCmdNeedsContext(t *testing.T) {
 func TestPipelineEditJobCmd(t *testing.T) {
 	body := map[string]string{}
 	addr := stubDaemon(t, routedDaemon(t, nil, nil, body))
-	out, err := runCLI(t, addr, "pipeline", "edit-job", "demo", "a", "--prompt", "new prompt")
+	out, err := runCLI(t, addr, "pipeline", "job", "edit", "demo", "a", "--prompt", "new prompt")
 	if err != nil {
 		t.Fatalf("edit-job: %v", err)
 	}
@@ -290,8 +294,51 @@ func TestPipelineEditJobCmd(t *testing.T) {
 }
 
 func TestPipelineEditJobCmdNeedsFlag(t *testing.T) {
-	if _, err := runCLI(t, "", "pipeline", "edit-job", "demo", "a"); err == nil {
+	if _, err := runCLI(t, "", "pipeline", "job", "edit", "demo", "a"); err == nil {
 		t.Fatal("expected an error when neither --prompt nor --handoff is given")
+	}
+}
+
+func TestPipelineJobEditNoFlagsNamesFlags(t *testing.T) {
+	_, err := runCLI(t, "", "pipeline", "job", "edit", "demo", "a")
+	if err == nil || !strings.Contains(err.Error(), "--prompt") || !strings.Contains(err.Error(), "--handoff") {
+		t.Fatalf("error should name the accepted flags: %v", err)
+	}
+}
+
+func TestPipelineJobRetryCmd(t *testing.T) {
+	addr := stubDaemon(t, routedDaemon(t, nil, nil, map[string]string{}))
+	out, err := runCLI(t, addr, "pipeline", "job", "retry", "demo", "a")
+	if err != nil {
+		t.Fatalf("job retry: %v", err)
+	}
+	if !strings.Contains(out, "retrying demo/a") {
+		t.Fatalf("job retry output: %q", out)
+	}
+}
+
+func TestPipelineOldJobCommandsRemoved(t *testing.T) {
+	for _, old := range []string{"edit-job", "retry"} {
+		out, _ := runCLI(t, "", "pipeline", old, "demo", "a")
+		if strings.Contains(out, "retrying") || strings.Contains(out, "edited") {
+			t.Fatalf("pipeline %s should no longer run: %q", old, out)
+		}
+		if strings.Contains(out, "\n  "+old+" ") {
+			t.Fatalf("pipeline help still lists %s: %q", old, out)
+		}
+	}
+}
+
+func TestPipelineJobShowRender(t *testing.T) {
+	p := &pipeline.Pipeline{ID: "p1", Name: "demo"}
+	j := &pipeline.Job{ID: "fan", Type: "span-out", Status: "done", Prompt: "do it\nnow", Output: "ok", DependsOn: []string{"a", "b"}, AutoRetryCount: 2}
+	var b strings.Builder
+	renderJobDetail(&b, p, j)
+	got := b.String()
+	for _, w := range []string{"fan (created by warden)", "span-out", "a, b", "auto-retries:", "  do it\n  now", "  ok"} {
+		if !strings.Contains(got, w) {
+			t.Fatalf("missing %q in:\n%s", w, got)
+		}
 	}
 }
 

@@ -1290,6 +1290,29 @@ func (c *Client) PipelineList(ctx context.Context) ([]*pipeline.Pipeline, error)
 	return resp.Pipelines, nil
 }
 
+// PipelineListFiltered lists pipelines narrowed by project id and/or status
+// (comma-separated); empty values leave that dimension unfiltered.
+func (c *Client) PipelineListFiltered(ctx context.Context, projectID, status string) ([]*pipeline.Pipeline, error) {
+	q := url.Values{}
+	if projectID != "" {
+		q.Set("project_id", projectID)
+	}
+	if status != "" {
+		q.Set("status", status)
+	}
+	path := "/pipelines"
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	var resp struct {
+		Pipelines []*pipeline.Pipeline `json:"pipelines"`
+	}
+	if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Pipelines, nil
+}
+
 func (c *Client) PipelineGet(ctx context.Context, id string) (*pipeline.Pipeline, error) {
 	var p pipeline.Pipeline
 	if err := c.do(ctx, http.MethodGet, "/pipelines/"+url.PathEscape(id), nil, &p); err != nil {

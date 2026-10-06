@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bufio"
 	"fmt"
 	"io"
 	"strings"
@@ -117,10 +116,7 @@ confirmation prompt (skip it with --yes). Forget actions are audit-logged.`,
 }
 
 func confirmForgetAll(in io.Reader, out io.Writer) bool {
-	fmt.Fprint(out, "Forget ALL learned prompt shapes? [y/N] ")
-	line, _ := bufio.NewReader(in).ReadString('\n')
-	a := strings.ToLower(strings.TrimSpace(line))
-	return a == "y" || a == "yes"
+	return confirmYN(in, out, "Forget ALL learned prompt shapes? [y/N] ")
 }
 
 // formatKnownPrompts renders the table. Options are joined with " | " and the

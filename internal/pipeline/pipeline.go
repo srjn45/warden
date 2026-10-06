@@ -120,7 +120,44 @@ func (j Job) MarshalJSON() ([]byte, error) {
 	type wire Job
 	copy := j
 	copy.SetAgentID(j.AgentRef())
-	return json.Marshal(wire(copy))
+	return json.Marshal(struct {
+		wire
+		Synthetic bool `json:"synthetic"`
+	}{wire(copy), j.IsSynthetic()})
+}
+
+// IsSynthetic reports whether the job was injected by warden when the spec was
+// parsed (the span-out / span-in fan-out and join jobs) rather than authored by
+// the user. It keys on Type, never on the job id.
+func (j Job) IsSynthetic() bool {
+	return j.Type == "span-out" || j.Type == "span-in"
+}
+
+// UserJobCount returns how many of the pipeline's jobs are user-authored, and
+// how many of those are done.
+func (p *Pipeline) UserJobCount() (total, done int) {
+	for _, j := range p.Jobs {
+		if j.IsSynthetic() {
+			continue
+		}
+		total++
+		if j.Status == JobDone {
+			done++
+		}
+	}
+	return total, done
+}
+
+// MarshalJSON adds the computed user-job counts (job_count, jobs_done) to the
+// wire form; synthetic jobs stay in jobs but are excluded from the counts.
+func (p Pipeline) MarshalJSON() ([]byte, error) {
+	type wire Pipeline
+	total, done := p.UserJobCount()
+	return json.Marshal(struct {
+		wire
+		JobCount int `json:"job_count"`
+		JobsDone int `json:"jobs_done"`
+	}{wire(p), total, done})
 }
 
 // UnmarshalJSON accepts both the new agent_id and the legacy session_id. When

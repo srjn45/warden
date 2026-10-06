@@ -43,13 +43,13 @@ func TestPipelineValidateCmdRequiresFile(t *testing.T) {
 }
 
 func TestPipelineListTemplatesCmd(t *testing.T) {
-	out, err := runCLI(t, "", "pipeline", "list-templates")
+	out, err := runCLI(t, "", "pipeline", "template", "list")
 	if err != nil {
-		t.Fatalf("list-templates: %v", err)
+		t.Fatalf("template list: %v", err)
 	}
 	// The built-in templates ship with the binary; at least one well-known one.
 	if !strings.Contains(out, "analyze-implement-review") {
-		t.Fatalf("list-templates output: %q", out)
+		t.Fatalf("template list output: %q", out)
 	}
 }
 

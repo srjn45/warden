@@ -89,16 +89,7 @@ func (s *Server) controlPlanPipeline(ctx context.Context, pipelineID, action str
 	case "resume":
 		return s.exec.Resume(ctx, pipelineID)
 	case "stop":
-		resp, err := s.CancelPipeline(ctx, oapi.CancelPipelineRequestObject{Pid: pipelineID})
-		if err != nil {
-			return err
-		}
-		switch resp.(type) {
-		case oapi.CancelPipeline200JSONResponse:
-			return nil
-		default:
-			return errStatus(http.StatusConflict, "pipeline stop failed")
-		}
+		return s.cancelPipeline(ctx, pipelineID)
 	}
 	return nil
 }

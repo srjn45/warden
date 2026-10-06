@@ -947,25 +947,31 @@
     "inherited_flags": [
       "addr",
       "config"
+    ],
+    "local_flags": [
+      "yes"
     ]
   },
   {
     "path": "pipeline create",
-    "use": "create (-f <spec.yaml> | --template <name>)",
+    "use": "create [spec.yaml]",
     "runnable": true,
     "local_flags": [
       "file",
+      "json",
       "name",
       "plan",
       "project",
       "repo",
       "set",
+      "start",
       "template"
     ],
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
   },
   {
     "path": "pipeline delete",
@@ -974,19 +980,9 @@
     "inherited_flags": [
       "addr",
       "config"
-    ]
-  },
-  {
-    "path": "pipeline edit-job",
-    "use": "edit-job <pipeline> <job>",
-    "runnable": true,
-    "local_flags": [
-      "handoff",
-      "prompt"
     ],
-    "inherited_flags": [
-      "addr",
-      "config"
+    "local_flags": [
+      "yes"
     ]
   },
   {
@@ -1009,15 +1005,16 @@
     "inherited_flags": [
       "addr",
       "config"
-    ]
-  },
-  {
-    "path": "pipeline list-templates",
-    "use": "list-templates",
-    "runnable": true,
-    "inherited_flags": [
-      "addr",
-      "config"
+    ],
+    "json": true,
+    "aliases": [
+      "ls"
+    ],
+    "local_flags": [
+      "all",
+      "json",
+      "project",
+      "status"
     ]
   },
   {
@@ -1039,22 +1036,20 @@
     ]
   },
   {
-    "path": "pipeline retry",
-    "use": "retry <pipeline> <job>",
-    "runnable": true,
-    "inherited_flags": [
-      "addr",
-      "config"
-    ]
-  },
-  {
     "path": "pipeline show",
     "use": "show <pipeline>",
     "runnable": true,
+    "local_flags": [
+      "all-jobs",
+      "json",
+      "prompts",
+      "watch"
+    ],
     "inherited_flags": [
       "addr",
       "config"
-    ]
+    ],
+    "json": true
   },
   {
     "path": "pipeline start",
@@ -1067,7 +1062,7 @@
   },
   {
     "path": "pipeline validate",
-    "use": "validate -f <spec.yaml>",
+    "use": "validate [spec.yaml]",
     "runnable": true,
     "local_flags": [
       "file"

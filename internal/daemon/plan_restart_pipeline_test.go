@@ -14,7 +14,6 @@ import (
 
 	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/autopilot"
-	"github.com/srjn45/warden/internal/daemon/oapi"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/store"
@@ -158,8 +157,10 @@ func TestRestartPlanPipelineAfterStop(t *testing.T) {
 	ctx := context.Background()
 	fl := srv.life.(*fakeLife)
 
-	// a is running (spawned by the run). Stop the plan.
-	_, err := srv.CancelPipeline(ctx, oapi.CancelPipelineRequestObject{Pid: id})
+	// a is running (spawned by the run). Stop the plan via the plan-control
+	// path (unguarded cancelPipeline). The REST pipeline cancel is refused for
+	// plan-owned pipelines — see TestPlanOwnedPipelineRefusesDirectControl.
+	err := srv.cancelPipeline(ctx, id)
 	require.NoError(t, err)
 	p, _ := pips.Get(id)
 	require.Equal(t, pipeline.StatusCanceled, p.Status)

@@ -1894,23 +1894,33 @@ func newPlanRelatedCmd() *cobra.Command {
 // same clear-and-home redraw as `wd stats --watch`. Redrawing only happens on a
 // real terminal; piped output just appends each snapshot.
 func watchPlanShow(cmd *cobra.Command, show func() error, jsonOut bool) error {
+	return watchRefresh(cmd, func() (bool, error) { return false, show() }, jsonOut, planWatchInterval)
+}
+
+// watchRefresh is the shared --watch loop: it calls show on every tick and
+// returns once show reports the view is final (done) or the user interrupts.
+func watchRefresh(cmd *cobra.Command, show func() (done bool, err error), jsonOut bool, interval time.Duration) error {
 	out := cmd.OutOrStdout()
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	clearable := !jsonOut && isTTY(out)
-	t := time.NewTicker(planWatchInterval)
+	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
 		if clearable {
 			fmt.Fprint(out, "\033[2J\033[H")
 		}
-		if err := show(); err != nil {
+		done, err := show()
+		if err != nil {
 			// Ctrl-C (or the caller's deadline) landing mid-refresh is a normal
 			// exit, not a failed fetch.
 			if ctx.Err() != nil {
 				return nil
 			}
 			return err
+		}
+		if done {
+			return nil
 		}
 		select {
 		case <-ctx.Done():
