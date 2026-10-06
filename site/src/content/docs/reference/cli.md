@@ -29,7 +29,7 @@ Run work:
   agent                Create, inspect, communicate with, and manage agents
   pipeline             Define and run DAG pipelines of agent jobs
   plan                 Manage plans tracked by the daemon
-  autopilot            Show autopilot status, scaffold adoption, and land worker branches
+  autopilot            Show autopilot status and land worker branches
   schedule             Schedule recurring (--cron) or single-shot (--at) agents and pipelines
 
 Work with a project:
@@ -1916,7 +1916,7 @@ Inherited flags:
 Autopilot is the unattended Plan execution mode. There is no per-repo switch:
 start a run explicitly with `warden plan run <plan-id> --mode autopilot` and
 control it with `warden plan pause|resume|stop`. This namespace shows status
-(`status`), scaffolds adoption (`init`) and lands worker branches (`land`).
+(`status`) and lands worker branches (`land`).
 The daemon merges worker PRs into the integration branch itself once their
 gate is green; `land` is the manual fallback. A run ends with one final PR to
 the default branch that you merge.
@@ -1927,7 +1927,6 @@ Usage:
 
 Commands:
   status               Show autopilot status (every run)
-  init                 Scaffold the plan file and integration branch for autopilot
   land                 Land an autopilot worker branch into the integration branch
 
 Flags:
@@ -1954,27 +1953,6 @@ Usage:
 Flags:
   -h, --help   help for status
       --json   emit the raw autopilot status as JSON
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden autopilot init
-
-```text
-Creates a named template under plans/ in the current git repository (if absent),
-creates the integration branch off the default branch if absent, and prints a
-CI-coverage hint when no workflow covers integration pull requests. Nothing is
-registered with the daemon. Next, edit the plan file, create the canonical plan
-with `wd plan create`, then start it with `wd plan run <id> --mode autopilot`.
-
-Usage:
-  warden autopilot init [flags]
-
-Flags:
-  -h, --help          help for init
-      --name string   plan name (creates plans/<name>.yaml) (default "default")
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)

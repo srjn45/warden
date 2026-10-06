@@ -2542,12 +2542,10 @@ survives rotation and daemon restarts.
 ### Quickstart
 
 ```sh
-# 1. Scaffold a plan file (no enable step)
+# 1. Create the plan (no enable step)
 cd /path/to/your-repo
-warden autopilot init --name notifications
 
-# 2. Edit plans/notifications.yaml — set your goal, add constraints
-#    Import/create the Plan in the daemon, then start execution:
+# 2. Create the Plan in the daemon, then start execution:
 warden plan create --name notifications --goal "…"   
 warden plan run <plan-id> --mode autopilot
 
@@ -2567,12 +2565,6 @@ warden agent tail <manager-id>       # live manager output
 warden plan pause <plan-id>
 ```
 
-### `warden autopilot init`
-
-Creates `plans/<name>.yaml` in the current git repository (if absent). It does
-not overwrite existing files. Follow up with Plan CRUD (`warden plan create` /
-`import` / `scan`) and `warden plan run <id> --mode autopilot`.
-
 > **Deprecated (one release):** `warden autopilot register` and plan-file-based
 > `autopilot run start` translate to a PlanID where safe or return a precise
 > migration error. Prefer `plan run|pause|resume|stop`.
@@ -2583,7 +2575,7 @@ Starting a plan with `warden plan run <id> --mode autopilot` is all it takes —
 preflight (missing plan, unauthenticated backends, missing integration branch,
 dead `gh` auth) runs at plan-start time and reports every failure at once. The
 plan/manager/merge template stays global in the `autopilot` config block.
-`autopilot init` no longer registers anything with the daemon.
+`autopilot init` was removed; create plans with `warden plan create`.
 
 ### `warden plan show --watch`
 
@@ -2740,8 +2732,8 @@ re-derives a stored branch.
 **CI (`gate: auto`):** add `autopilot/**` to `on.pull_request.branches` in your
 workflows so every per-plan branch is covered. Listing only `autopilot/integration`
 does not cover `autopilot/<plan>`; when no workflow matches, `gate: auto`
-downgrades to `local` and preflight emits a warning. `warden autopilot init`
-prints the hint.
+downgrades to `local` and preflight emits a warning. `warden plan run`
+prints the hint under `warnings:`.
 
 When a run completes, review the integration branch and fast-forward `main`:
 

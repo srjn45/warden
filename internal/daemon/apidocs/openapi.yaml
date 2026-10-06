@@ -4986,6 +4986,12 @@ components:
         [id, project_id, name, goal, tasks, constraints, done_when,
          status, task_progress, revision, created_at, updated_at]
       properties:
+        warnings:
+          type: array
+          items: { type: string }
+          description: >
+            Non-blocking preflight warnings from starting a run (for example a
+            CI-coverage note). Present only on the run-start response.
         id: { type: string, description: "stable plan id (plan-<8hex>)" }
         project_id: { type: string, description: "owning project id" }
         name: { type: string }

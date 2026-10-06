@@ -1152,3 +1152,21 @@ func TestPlanShowRendersRestartInfo(t *testing.T) {
 		t.Fatalf("got %q", sb.String())
 	}
 }
+
+func TestPlanRunPrintsWarnings(t *testing.T) {
+	withWarn := strings.Replace(planSingleJSON, `{"id":"plan-ab12cd34",`, `{"warnings":["no CI workflow covers pull requests; add \"autopilot/**\" under on.pull_request.branches"],"id":"plan-ab12cd34",`, 1)
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"POST /api/v1/plans/plan-ab12cd34/run": withWarn,
+	}, map[string]string{}, map[string]string{}))
+	out, err := runCLI(t, addr, "plan", "run", "plan-ab12cd34", "--mode", "autopilot")
+	if err != nil {
+		t.Fatalf("plan run: %v", err)
+	}
+	if !strings.Contains(out, "warnings:") || !strings.Contains(out, "autopilot/**") {
+		t.Fatalf("warnings not printed: %q", out)
+	}
+	jout, err := runCLI(t, addr, "plan", "run", "plan-ab12cd34", "--mode", "autopilot", "--json")
+	if err != nil || !strings.Contains(jout, `"warnings"`) {
+		t.Fatalf("json missing warnings: %v %q", err, jout)
+	}
+}

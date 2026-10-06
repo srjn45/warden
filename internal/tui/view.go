@@ -65,7 +65,7 @@ func helpText() string {
 		"  x            kill agent / cancel pipeline / close project or dir (context-sensitive;\n" +
 		"               closing a project hibernates it — its agents are restored on reopen)\n" +
 		"  D            delete a stopped pipeline's record (confirm y/N)\n" +
-		"  ctrl+a       toggle autopilot on/off (run `warden autopilot init` first if not configured)\n" +
+		"  ctrl+a       toggle autopilot on/off\n" +
 		"  u            apply a pending warden update (footer chip) then hot-reload the TUI in place\n" +
 		"  r            reload the TUI after an external upgrade (footer chip); otherwise restore/retry\n" +
 		"  B            review a staged warden-bug crash draft (Submit / Dismiss; footer badge)\n" +
