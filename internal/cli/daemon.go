@@ -226,6 +226,8 @@ func newDaemonRunCmd() *cobra.Command {
 				return err
 			}
 			defer knownStore.Close()
+			knownStore.SetLimits(cfg.KnownPromptsMax, time.Duration(cfg.KnownPromptsPruneDays)*24*time.Hour)
+			knownStore.Prune()
 			pl.Known = knownStore
 			pstore, err := pipeline.NewStore(filepath.Join(cfg.DataDir, "pipelines"))
 			if err != nil {

@@ -392,3 +392,11 @@ func (p *Poller) pruneRecognitions(sessions []*agentstore.Agent) {
 		}
 	}
 }
+
+func liveIDs(sessions []*agentstore.Agent) map[string]bool {
+	live := make(map[string]bool, len(sessions))
+	for _, s := range sessions {
+		live[s.ID] = true
+	}
+	return live
+}
