@@ -14,7 +14,7 @@ import (
 // per job, its status + deps and (when present) the branch it worked on and the
 // handoff output it emitted — so a finished pipeline's results are visible from
 // the CLI even after its agents are gone.
-func renderPipelineDetail(p *pipeline.Pipeline) string {
+func renderPipelineDetail(p *pipeline.Pipeline, allJobs bool) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s [%s] repo=%s\n", p.ID, p.Status, p.Repo)
 	if p.ProjectID != "" {
@@ -24,11 +24,22 @@ func renderPipelineDetail(p *pipeline.Pipeline) string {
 		fmt.Fprintf(&b, "plan: %s\n", p.PlanID)
 	}
 	for _, j := range p.Jobs {
-		deps := ""
-		if len(j.DependsOn) > 0 {
-			deps = fmt.Sprintf(" (depends: %v)", j.DependsOn)
+		if j.IsSynthetic() && !allJobs {
+			continue
 		}
-		fmt.Fprintf(&b, "  %-12s %-9s%s\n", j.ID, j.Status, deps)
+		depIDs := j.DependsOn
+		if !allJobs {
+			depIDs = realDependencies(p, j.DependsOn)
+		}
+		deps := ""
+		if len(depIDs) > 0 {
+			deps = fmt.Sprintf(" (depends: %v)", depIDs)
+		}
+		name := j.ID
+		if j.IsSynthetic() {
+			name += " [warden]"
+		}
+		fmt.Fprintf(&b, "  %-12s %-9s%s\n", name, j.Status, deps)
 		if j.Branch != "" {
 			fmt.Fprintf(&b, "      branch: %s\n", j.Branch)
 		}
@@ -122,7 +133,7 @@ func newPipelineValidateCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("invalid pipeline %s: %w", file, err)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s is valid — pipeline %q, %d jobs\n", file, p.ID, len(p.Jobs))
+			fmt.Fprintf(cmd.OutOrStdout(), "%s is valid — pipeline %q, %d jobs\n", file, p.ID, userJobs(p))
 			return nil
 		},
 	}
@@ -183,7 +194,7 @@ func newPipelineCreateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "created pipeline %s (%d jobs) — start it with `warden pipeline start %s`\n", p.ID, len(p.Jobs), p.ID)
+			fmt.Fprintf(cmd.OutOrStdout(), "created pipeline %s (%d jobs) — start it with `warden pipeline start %s`\n", p.ID, userJobs(p), p.ID)
 			return nil
 		},
 	}
@@ -253,27 +264,61 @@ func newPipelineListCmd() *cobra.Command {
 				return err
 			}
 			for _, p := range ps {
-				fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%d jobs\n", p.ID, p.Status, len(p.Jobs))
+				fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%d jobs\n", p.ID, p.Status, userJobs(p))
 			}
 			return nil
 		},
 	}
 }
 
+// realDependencies maps dependency ids onto user-authored jobs: a synthetic
+// dependency is replaced by the real jobs behind it, or dropped when nothing
+// real stands behind it (the root fan-out).
+func realDependencies(p *pipeline.Pipeline, ids []string) []string {
+	var out []string
+	seen := map[string]bool{}
+	var walk func(id string)
+	walk = func(id string) {
+		if seen[id] {
+			return
+		}
+		seen[id] = true
+		j := p.Job(id)
+		if j == nil || !j.IsSynthetic() {
+			out = append(out, id)
+			return
+		}
+		for _, d := range j.DependsOn {
+			walk(d)
+		}
+	}
+	for _, id := range ids {
+		walk(id)
+	}
+	return out
+}
+
 func newPipelineShowCmd() *cobra.Command {
-	return &cobra.Command{
+	var allJobs bool
+	cmd := &cobra.Command{
 		Use:   "show <pipeline>",
 		Short: "Show a pipeline's jobs and their status",
-		Args:  cobra.ExactArgs(1),
+		Long: `Show a pipeline's jobs and their status.
+
+Jobs warden adds on its own to fan work out and join it back are hidden by
+default; pass --all-jobs to list them too, marked [warden].`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p, err := clientFor(cmd).PipelineGet(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
-			fmt.Fprint(cmd.OutOrStdout(), renderPipelineDetail(p))
+			fmt.Fprint(cmd.OutOrStdout(), renderPipelineDetail(p, allJobs))
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&allJobs, "all-jobs", false, "also list jobs warden added itself (marked [warden])")
+	return cmd
 }
 
 func newPipelineStartCmd() *cobra.Command {
@@ -424,4 +469,10 @@ func newPipelineRetryCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// userJobs counts the jobs a spec author wrote, excluding those warden injects.
+func userJobs(p *pipeline.Pipeline) int {
+	n, _ := p.UserJobCount()
+	return n
 }

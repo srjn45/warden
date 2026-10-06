@@ -738,7 +738,7 @@ func NewServer(daemonBase string) *Server {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "create_pipeline",
-		Description: "Create a DAG pipeline of agent jobs from a YAML spec (the daemon parses, validates, and stores it). Use this to drive a multi-stage / dependent agent workflow (e.g. analyze→implement→review) instead of spawning and wiring agents by hand. The pipeline starts in `pending` — call start_pipeline to spawn its entry jobs. Returns the created pipeline {id, status, jobs}.",
+		Description: "Create a DAG pipeline of agent jobs from a YAML spec (the daemon parses, validates, and stores it). Use this to drive a multi-stage / dependent agent workflow (e.g. analyze→implement→review) instead of spawning and wiring agents by hand. The pipeline starts in `pending` — call start_pipeline to spawn its entry jobs. Returns the created pipeline {id, status, jobs, job_count, jobs_done}; job_count/jobs_done count only your jobs — warden-injected span jobs appear in `jobs` flagged `synthetic` and cannot be edited or retried.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a createPipelineArgs) (*mcpsdk.CallToolResult, any, error) {
 		p, err := s.cl.PipelineCreateWith(ctx, client.PipelineCreateParams{
 			Spec: a.Spec, ProjectID: a.ProjectID, PlanID: a.PlanID,
@@ -776,7 +776,7 @@ func NewServer(daemonBase string) *Server {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "show_pipeline",
-		Description: "Show one pipeline's jobs and their status, including each job's branch and emitted handoff output — so a finished pipeline's results are readable here even after its agents are gone.",
+		Description: "Show one pipeline's jobs and their status (job_count/jobs_done count only user-authored jobs; jobs flagged `synthetic` are warden-injected), including each job's branch and emitted handoff output — so a finished pipeline's results are readable here even after its agents are gone.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a pipelineIDArgs) (*mcpsdk.CallToolResult, any, error) {
 		p, err := s.cl.PipelineGet(ctx, a.Pipeline)
 		if err != nil {

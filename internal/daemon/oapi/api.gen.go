@@ -1476,6 +1476,9 @@ type PipelineJob struct {
 	Status     string `json:"status,omitempty"`
 	Supervised bool   `json:"supervised,omitempty"`
 
+	// Synthetic True for jobs warden injects itself (the span-out / span-in fan-out and join jobs) rather than ones the spec author wrote. They stay in `jobs` for the executor and UIs but cannot be edited or retried and are excluded from `job_count` / `jobs_done`.
+	Synthetic bool `json:"synthetic,omitempty"`
+
 	// Type Deprecated legacy task type for the job's spawn. Prefer `role`. Accepted for one release; when `role` is empty the daemon maps known type values onto a role. When both are provided, `role` wins. Special executor values `span-out` / `span-in` are not role aliases.
 	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
 	Type string `json:"type,omitempty"`

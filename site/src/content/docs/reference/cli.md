@@ -891,13 +891,17 @@ Inherited flags:
 ## warden pipeline show
 
 ```text
-Show a pipeline's jobs and their status
+Show a pipeline's jobs and their status.
+
+Jobs warden adds on its own to fan work out and join it back are hidden by
+default; pass --all-jobs to list them too, marked [warden].
 
 Usage:
   warden pipeline show <pipeline> [flags]
 
 Flags:
-  -h, --help   help for show
+      --all-jobs   also list jobs warden added itself (marked [warden])
+  -h, --help       help for show
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
