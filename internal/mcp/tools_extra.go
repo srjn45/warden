@@ -225,7 +225,9 @@ type createScheduleArgs struct {
 	Cron   string `json:"cron,omitempty" jsonschema:"5-field cron spec (or @daily etc.) for a recurring run; mutually exclusive with at"`
 	At     string `json:"at,omitempty" jsonschema:"single-shot time (RFC3339 or 2006-01-02T15:04, local); mutually exclusive with cron"`
 	Type   string `json:"type,omitempty" jsonschema:"agent task type (for an agent-spawn schedule)"`
-	Repo   string `json:"repo,omitempty" jsonschema:"repo for an agent-spawn schedule"`
+	Repo   string `json:"repo,omitempty" jsonschema:"repo for an agent-spawn schedule (with the default worker role the agent runs in an isolated worktree off it)"`
+	Cwd    string `json:"cwd,omitempty" jsonschema:"existing absolute directory a free-form agent launches in; required when there is no repo"`
+	Role   string `json:"role,omitempty" jsonschema:"agent role (see list_roles); empty = worker when a repo is given, otherwise general"`
 	Prompt string `json:"prompt,omitempty" jsonschema:"prompt for an agent-spawn schedule"`
 	Agent  string `json:"agent,omitempty" jsonschema:"optional agent name for an agent-spawn schedule"`
 	Branch string `json:"branch,omitempty" jsonschema:"optional branch for an agent-spawn schedule"`
@@ -1084,10 +1086,10 @@ func (s *Server) registerExtraTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "create_schedule",
-		Description: "Create a daemon-side schedule that fires an agent spawn or a whole pipeline on its own timer. Use cron for recurring (5-field or @daily etc.) or at for single-shot (RFC3339/local). Provide type+repo+prompt for an agent, or spec for a pipeline. Mirrors `warden schedule create`.",
+		Description: "Create a daemon-side schedule that fires an agent spawn or a whole pipeline on its own timer. Use cron for recurring (5-field or @daily etc.) or at for single-shot (RFC3339/local). Provide prompt plus repo (isolated worktree) or cwd (launch directory), and optionally role, for an agent, or spec for a pipeline. Mirrors `warden schedule create`.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a createScheduleArgs) (*mcpsdk.CallToolResult, any, error) {
 		sch, err := s.cl.ScheduleCreate(ctx, client.ScheduleCreateRequest{
-			Name: a.Name, Cron: a.Cron, At: a.At, Type: a.Type, Repo: a.Repo,
+			Name: a.Name, Cron: a.Cron, At: a.At, Type: a.Type, Repo: a.Repo, Cwd: a.Cwd, Role: a.Role,
 			Prompt: a.Prompt, Agent: a.Agent, Branch: a.Branch, Spec: a.Spec,
 		})
 		if err != nil {

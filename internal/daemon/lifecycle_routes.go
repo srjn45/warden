@@ -40,6 +40,14 @@ func spawnAuditDetail(sess *agentstore.Agent, req SpawnRequest) map[string]strin
 // reads as decode → validate → gate → spawn. The memory-pressure soft gate and
 // the spawn itself stay in the handler (they have non-error response paths).
 func (s *Server) validateSpawnRequest(ctx context.Context, req SpawnRequest) (int, string) {
+	return s.validateSpawnRequestOpts(ctx, req, false)
+}
+
+// validateSpawnRequestOpts is validateSpawnRequest with an option to skip the
+// checks that depend on transient state (an agent name already in use, a ticket
+// that already has a session). A schedule validates with stateOnly=true at
+// create time: those collisions are only meaningful at fire time.
+func (s *Server) validateSpawnRequestOpts(ctx context.Context, req SpawnRequest, skipState bool) (int, string) {
 	// A ticket becomes the session id, which is used as a filesystem path
 	// component (the prompt file) and a tmux session name inside Spawn — which
 	// runs before store.Insert (the only other safeID gate). Validate up front so
@@ -66,13 +74,15 @@ func (s *Server) validateSpawnRequest(ctx context.Context, req SpawnRequest) (in
 		if err := store.ValidateName(req.Name); err != nil {
 			return http.StatusBadRequest, err.Error()
 		}
-		sessions, err := s.store.List(ctx)
-		if err != nil {
-			return http.StatusInternalServerError, "failed to check name uniqueness: " + err.Error()
-		}
-		for _, sess := range sessions {
-			if sess.Name == req.Name {
-				return http.StatusConflict, "name already in use: " + req.Name
+		if !skipState {
+			sessions, err := s.store.List(ctx)
+			if err != nil {
+				return http.StatusInternalServerError, "failed to check name uniqueness: " + err.Error()
+			}
+			for _, sess := range sessions {
+				if sess.Name == req.Name {
+					return http.StatusConflict, "name already in use: " + req.Name
+				}
 			}
 		}
 	}
@@ -99,7 +109,7 @@ func (s *Server) validateSpawnRequest(ctx context.Context, req SpawnRequest) (in
 	}
 	// Reject duplicate spawn on an existing ticket. No-ticket sessions get a
 	// random id, so there is nothing to collide on.
-	if req.Ticket != "" {
+	if req.Ticket != "" && !skipState {
 		if _, err := s.store.Get(ctx, req.Ticket); err == nil {
 			return http.StatusConflict, "session already exists — use `warden attach " + req.Ticket + "`"
 		}

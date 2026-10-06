@@ -52,6 +52,8 @@ type Schedule struct {
 	// Agent fire payload (Mode == agent). Mirrors the spawn passthrough fields.
 	Type   string `json:"type,omitempty"`
 	Repo   string `json:"repo,omitempty"`
+	Cwd    string `json:"cwd,omitempty"`  // launch directory for a free-form agent (absolute)
+	Role   string `json:"role,omitempty"` // agent role; empty = worker with a repo, else general
 	Prompt string `json:"prompt,omitempty"`
 	Agent  string `json:"agent,omitempty"`  // optional agent name passthrough
 	Branch string `json:"branch,omitempty"` // optional development branch / pr-review checkout
@@ -85,6 +87,8 @@ type Params struct {
 	// Agent mode (Spec empty).
 	Type   string
 	Repo   string
+	Cwd    string
+	Role   string
 	Prompt string
 	Agent  string
 	Branch string
@@ -105,6 +109,8 @@ func New(p Params, now time.Time) (*Schedule, error) {
 		Enabled:   true,
 		Type:      p.Type,
 		Repo:      p.Repo,
+		Cwd:       p.Cwd,
+		Role:      p.Role,
 		Prompt:    p.Prompt,
 		Agent:     p.Agent,
 		Branch:    p.Branch,

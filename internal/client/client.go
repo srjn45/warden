@@ -1391,6 +1391,8 @@ type ScheduleCreateRequest struct {
 	At     string `json:"at,omitempty"`
 	Type   string `json:"type,omitempty"`
 	Repo   string `json:"repo,omitempty"`
+	Cwd    string `json:"cwd,omitempty"`
+	Role   string `json:"role,omitempty"`
 	Prompt string `json:"prompt,omitempty"`
 	Agent  string `json:"agent,omitempty"`
 	Branch string `json:"branch,omitempty"`

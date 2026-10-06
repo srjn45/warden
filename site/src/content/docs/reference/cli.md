@@ -2231,24 +2231,35 @@ Inherited flags:
 
 ```text
 Create a recurring (--cron) or single-shot (--at) schedule. By default a
-schedule fires one agent spawn — pass --repo, --prompt (and optionally
---agent name / --branch; --type is a deprecated alias mapped to role at fire).
-Pass --pipeline <spec.yaml> instead to fire a pipeline (its name is
+schedule fires one agent, started the same way `warden start` would start it
+with the same flags from the directory you run this in:
+  --cwd <dir>    launch the agent in this existing directory (default: the
+                 current directory, stored as an absolute path)
+  --repo <path>  run the agent in an isolated worktree off this repo
+                 (--branch picks the branch); replaces the --cwd default
+  --role <role>  agent role, see `warden agent role list` (default: worker
+                 with --repo, otherwise general)
+  --prompt, --agent <name>   the agent's task and optional name
+A schedule that could never fire (unknown role, missing directory, no
+prompt) is rejected with the reason. --type is a deprecated alias mapped to
+role. Pass --pipeline <spec.yaml> instead to fire a pipeline (its name is
 timestamp-suffixed per fire so recurring runs don't collide).
 Provide exactly one of --cron/--at and exactly one fire mode.
 
 Usage:
-  warden schedule create <name> (--cron <spec> | --at <time>) [--repo <p> --prompt <s> | --pipeline <spec.yaml>] [flags]
+  warden schedule create <name> (--cron <spec> | --at <time>) [--prompt <s>] [--role <role>] [--cwd <dir> | --repo <path>] | --pipeline <spec.yaml> [flags]
 
 Flags:
       --agent string      optional name for the spawned agent
       --at string         single-shot time, RFC3339 or 2006-01-02T15:04 (local)
       --branch string     optional development branch / pr-review checkout
       --cron string       recurring cron spec, e.g. "0 9 * * *" (minute hour dom month dow)
+      --cwd string        directory to launch the agent in (default: the current directory unless --repo is given)
   -h, --help              help for create
       --pipeline string   fire a pipeline from this YAML spec file (instead of an agent)
       --prompt string     the agent's initial prompt
-      --repo string       repo path (required for a typed/legacy managed agent)
+      --repo string       repo path: the agent runs in an isolated worktree off it (default role worker)
+      --role <ROLE>       agent role <ROLE>: general | autopilot | brain | orchestrator | planner | worker (legacy aliases implementer/auto-merger/reviewer resolve to worker) (default: worker with --repo, otherwise general)
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
