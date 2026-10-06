@@ -103,7 +103,19 @@ func TestContractExclusiveOwnership(t *testing.T) {
 // rows than the primary index holds must surface as an error, never a short
 // list (contract §4).
 func TestContractListCompleteOrError(t *testing.T) {
-	t.Skip("pending: complete-or-error reads task (#795)")
+	dir := seeded(t)
+	rewriteIndex(t, dir, "agents", func(m map[string]idxEntry) {
+		ids := byOffset(m)
+		e := m[ids[len(ids)-1]]
+		e.Offset++
+		m[ids[len(ids)-1]] = e
+	})
+	s := reopen(t, dir)
+	got, err := s.List(context.Background())
+	require.Nil(t, got, "a corrupt index must never produce a partial fleet")
+	require.ErrorIs(t, err, ErrUnhealthy)
+	_, ok := store.IsDegraded(err)
+	require.True(t, ok, "the existing degraded-store boundary must remain usable")
 }
 
 // TestContractRepairConflicts: repair preserves duplicate logical IDs as

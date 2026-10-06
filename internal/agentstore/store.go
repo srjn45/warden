@@ -211,12 +211,30 @@ func fromRecord(rec map[string]any) (*Agent, error) {
 func (s *Store) get(id string) (*Agent, error) {
 	r, err := s.col.GetByKey(id)
 	if errors.Is(err, engine.ErrKeyNotFound) {
+		// The engine reports ErrKeyNotFound both for an absent index entry and
+		// for an entry whose offset decodes to a different record. Distinguish
+		// them through the primary index so the latter cannot masquerade as a
+		// legitimate missing agent.
+		exists, existsErr := s.col.Exists(id)
+		if existsErr != nil {
+			return nil, readFailure("agents", id, existsErr)
+		}
+		if exists {
+			return nil, newUnhealthy(integrityFailure("agents", id, "index contains key but its offset did not decode to that record"))
+		}
 		return nil, ErrNotFound
 	}
 	if err != nil {
+		return nil, readFailure("agents", id, err)
+	}
+	if err := verifyRecord("agents", id, r); err != nil {
 		return nil, err
 	}
-	return fromRecord(r.Data)
+	a, err := fromRecord(r.Data)
+	if err != nil {
+		return nil, newUnhealthy(store.ScanFailure{Collection: "agents", Key: id, Class: store.DegradeDecode, Detail: err.Error()})
+	}
+	return a, nil
 }
 
 // Insert creates an agent, initializing its lifecycle timestamps and events.
@@ -241,14 +259,13 @@ func (s *Store) Insert(ctx context.Context, a *Agent) error {
 		return ErrExists
 	}
 	if a.Name != "" {
-		rows, err := s.col.Scan(query.MatchAll)
+		rows, _, err := scanVerified(s.col, "agents", false)
 		if err != nil {
 			return err
 		}
 		{
-			for _, row := range rows {
-				other, err := fromRecord(row.Data)
-				if err == nil && other.Name == a.Name && other.ID != a.ID {
+			for _, other := range rows {
+				if other.Name == a.Name && other.ID != a.ID {
 					return ErrNameExists
 				}
 			}
@@ -337,7 +354,19 @@ func (s *Store) Get(ctx context.Context, id string) (*Agent, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.get(id)
+	// A point lookup alone cannot distinguish a genuinely absent key from an
+	// index entry the engine discarded while reopening a corrupt index. Verify
+	// the complete indexed view first, then select the requested agent.
+	rows, _, err := scanVerified(s.col, "agents", false)
+	if err != nil {
+		return nil, err
+	}
+	for _, a := range rows {
+		if a.ID == id {
+			return a, nil
+		}
+	}
+	return nil, ErrNotFound
 }
 
 // List returns all agents newest-updated first.
@@ -347,17 +376,9 @@ func (s *Store) List(ctx context.Context) ([]*Agent, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	rows, err := s.col.Scan(query.MatchAll)
+	out, _, err := scanVerified(s.col, "agents", false)
 	if err != nil {
 		return nil, err
-	}
-	out := make([]*Agent, 0, len(rows))
-	for _, row := range rows {
-		a, err := fromRecord(row.Data)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, a)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
 	return out, nil
@@ -402,13 +423,13 @@ func (s *Store) GetByNameOrID(ctx context.Context, nameOrID string) (*Agent, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	rows, err := s.col.Scan(query.MatchAll)
-	if err == nil {
-		for _, row := range rows {
-			a, err := fromRecord(row.Data)
-			if err == nil && a.Name == nameOrID {
-				return a, nil
-			}
+	rows, _, err := scanVerified(s.col, "agents", false)
+	if err != nil {
+		return nil, err
+	}
+	for _, a := range rows {
+		if a.Name == nameOrID {
+			return a, nil
 		}
 	}
 	return s.get(nameOrID)
@@ -421,17 +442,9 @@ func (s *Store) ListClosed(ctx context.Context) ([]*Agent, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	rows, err := s.closed.Scan(query.MatchAll)
+	out, _, err := scanVerified(s.closed, "closed", true)
 	if err != nil {
 		return nil, err
-	}
-	out := make([]*Agent, 0, len(rows))
-	for _, row := range rows {
-		a, err := fromRecord(row.Data)
-		if err != nil {
-			continue
-		}
-		out = append(out, a)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
 	return out, nil
@@ -444,19 +457,9 @@ func (s *Store) ListClosedDegraded(ctx context.Context) ([]*Agent, int, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	rows, err := s.closed.Scan(query.MatchAll)
+	out, skipped, err := scanVerified(s.closed, "closed", true)
 	if err != nil {
 		return nil, 0, err
-	}
-	out := make([]*Agent, 0, len(rows))
-	skipped := 0
-	for _, row := range rows {
-		a, err := fromRecord(row.Data)
-		if err != nil {
-			skipped++
-			continue
-		}
-		out = append(out, a)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
 	return out, skipped, nil

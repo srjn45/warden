@@ -566,14 +566,17 @@ func (e Status) Valid() bool {
 
 // Defines values for StoreScanFailureClass.
 const (
-	Decode StoreScanFailureClass = "decode"
-	Read   StoreScanFailureClass = "read"
+	Decode    StoreScanFailureClass = "decode"
+	Integrity StoreScanFailureClass = "integrity"
+	Read      StoreScanFailureClass = "read"
 )
 
 // Valid indicates whether the value is a known member of the StoreScanFailureClass enum.
 func (e StoreScanFailureClass) Valid() bool {
 	switch e {
 	case Decode:
+		return true
+	case Integrity:
 		return true
 	case Read:
 		return true
@@ -2121,7 +2124,7 @@ type StoreHealth struct {
 
 // StoreScanFailure One record (or whole-scan) failure encountered reading the store.
 type StoreScanFailure struct {
-	// Class Failure class: "decode" = the record's stored payload would not decode into a session (shape-invalid); "read" = the underlying segment scan itself failed (framing, checksum, or index read).
+	// Class Failure class: "decode" = the record's stored payload would not decode into a session (shape-invalid); "read" = the underlying segment scan itself failed (framing, checksum, or index read); "integrity" = the engine returned data contradicting its index (identity mismatch, duplicate key, or a record silently omitted from a scan).
 	Class StoreScanFailureClass `json:"class"`
 
 	// Collection The store collection the failure is in (e.g. "active").
@@ -2134,7 +2137,7 @@ type StoreScanFailure struct {
 	Key string `json:"key,omitempty"`
 }
 
-// StoreScanFailureClass Failure class: "decode" = the record's stored payload would not decode into a session (shape-invalid); "read" = the underlying segment scan itself failed (framing, checksum, or index read).
+// StoreScanFailureClass Failure class: "decode" = the record's stored payload would not decode into a session (shape-invalid); "read" = the underlying segment scan itself failed (framing, checksum, or index read); "integrity" = the engine returned data contradicting its index (identity mismatch, duplicate key, or a record silently omitted from a scan).
 type StoreScanFailureClass string
 
 // SwapResult Outcome of a completed hot-swap.
