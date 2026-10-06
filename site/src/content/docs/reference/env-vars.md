@@ -66,7 +66,7 @@ Common settings (run `warden config` for the complete, live list):
 | `memory.curate` | `false` | Auto-propose durable memory entries from completion digests into `.warden/memory.md`. A debounced pass writes **`unverified`, timestamped, provenance-tagged** proposals to the **working tree only** — it never commits or pushes, so the committed diff is the human review gate. Proposals promote to `trusted` only on corroboration; contradictions supersede (tombstone) older entries; un-recorroborated entries age out; vanished paths are flagged stale. Runs on Fast-Brain (latency-bounded, fail-open). Opt-in. See [Project memory](/warden/concepts/project-memory/) |
 | `savings` | `true` | Record the token-savings ledger (`warden usage savings`, `GET /api/v1/savings`) |
 | `savings_samples` | `false` | Retain raw-vs-kept provenance samples for `warden usage savings --audit` (may hold sensitive output) |
-| `scheduler_enabled` | `false` | Enable the native cron/at scheduler (`warden schedule`) |
+| `scheduler_enabled` | `false` | Enable the native cron/at scheduler (`warden schedule create/list/show/run/edit/enable/disable/delete`) |
 | `collab.enabled` | `true` | File-conflict detection across agent worktrees |
 | `collab.interval` | `10s` | Watch-reconcile + in-memory conflict scan interval |
 | `collab.git_reconcile_interval` | `2m` | Git-diff backstop when fsnotify is active (polling-only mode uses `collab.interval` instead) |

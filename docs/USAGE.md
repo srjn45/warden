@@ -1211,34 +1211,82 @@ warden message wait --as agent-9c1d --timeout 120
 Define and run a **DAG of agent jobs** from a YAML spec or a built-in template. See
 §7.5 below for the full guide.
 
-### `warden schedule create|list|get|enable|disable|delete`
+### `warden schedule create|list|show|run|edit|enable|disable|delete`
 Fire an agent or a pipeline on a timer — **opt-in**, set `scheduler_enabled: true`
 in the config file and keep the daemon running (schedules only fire while it is up).
-`--cron` is recurring; `--at` is single-shot (fires once, then goes inactive).
-Default fire mode is one agent spawn; pass `--pipeline <spec.yaml>` to fire a
-pipeline instead. The startup reconcile never backfills a cron run missed while the
-daemon was down. `enable`/`disable` toggle a schedule without deleting it (disable
-clears the next run; enable re-arms it). Every fired run carries a `schedule_id`
+`--cron` is recurring; `--at` is single-shot (fires once, then is `done`); `--now`
+fires once as soon as possible. Default fire mode is one agent; pass
+`--pipeline <spec.yaml>` to fire a pipeline instead (agent flags cannot be
+combined with `--pipeline`). The startup reconcile never backfills a cron run
+missed while the daemon was down. Every fired run carries a `schedule_id`
 back-reference on its session (see [FEATURES.md §28](FEATURES.md)).
 
-```bash
-# Recurring: review pending PRs every weekday at 9am
-warden schedule create daily-review --cron "0 9 * * *" \
-    --type pr-review --repo ~/dev/warden --prompt "Review any open PRs"
+**What the agent runs as.** A scheduled agent is started the way `warden start`
+would start it with the same flags: `--cwd <dir>` (default: the directory you ran
+`create` in, stored absolute) or `--repo <path>` for an isolated worktree
+(`--branch` picks the branch); `--role` (default `worker` with `--repo`, otherwise
+`general`); `--aicli <id>` and `--model <id>` (`--model` needs `--aicli`); and
+`--tier`, `--tags`, `--permission-mode`, `--auto-restart`, `--project`. A schedule
+that could never fire (unknown role, missing directory, no prompt) is rejected at
+create time with the reason.
 
-# Single-shot: kick off a development agent at a specific time
-warden schedule create launch --at 2026-06-27T09:00 \
-    --type development --repo ~/dev/warden --prompt "Start the migration"
+**Time.** `--at` takes RFC3339 or `2006-01-02T15:04` and must be in the future — a
+past time is rejected. A time without a zone is the local time of the machine
+running the daemon. Cron specs are evaluated in that same local time unless
+prefixed `TZ=<zone>` (e.g. `--cron "TZ=Europe/Berlin 0 9 * * *"`).
+
+```bash
+# Recurring: a weekday-morning review in the current directory
+warden schedule create morning-review --cron "0 9 * * 1-5" --role reviewer \
+    --prompt "Review yesterday's merged PRs and list follow-ups"
+
+# Single-shot: a worktree off a repo, on a chosen AI CLI and model
+warden schedule create release-prep --at 2026-12-01T08:00 --repo ~/dev/app \
+    --aicli claude --model sonnet --prompt "Prepare the release notes"
+
+# Fire once right now
+warden schedule create smoke --now --prompt "Run the smoke checklist"
 
 # Recurring pipeline
 warden schedule create nightly --cron "0 2 * * *" --pipeline ci.yaml
-
-warden schedule list
-warden schedule show daily-review        # + last-run session id and outcome
-warden schedule disable daily-review    # stop firing (kept, re-enable later)
-warden schedule enable  daily-review    # re-arm
-warden schedule delete  daily-review   # asks to confirm; add --yes in scripts
 ```
+
+**Inspect and test.**
+
+```bash
+warden schedule list                     # NAME STATE WHEN FIRES NEXT LAST
+warden schedule show morning-review      # full payload + last run (--spec, --json)
+warden schedule run morning-review       # fire once now to test it
+```
+
+`list` prints a table whose STATE is `enabled`, `disabled`, `done` (a single-shot
+that fired) or `failed` (a single-shot whose fire failed); NEXT is local time, and
+a failed last run's error appears beneath its row (a recurring schedule stays
+enabled and retries). `show` prints the state and timing, the full fire payload
+(for an agent: prompt, directory, repo, branch, role, model, AI CLI, name; for a
+pipeline: its name and job count) and the last run with the command to inspect it.
+`run` fires the schedule once and does **not** consume a single-shot or move a
+recurring schedule's next run; it works on a disabled schedule.
+
+**Change and remove.**
+
+```bash
+warden schedule edit morning-review --cron "0 8 * * 1-5"   # only what you pass changes
+warden schedule edit morning-review --prompt ""            # empty clears an optional field
+warden schedule disable morning-review                     # stop firing (kept)
+warden schedule enable  morning-review                     # re-arm
+warden schedule delete  morning-review --yes               # --yes skips the confirmation
+```
+
+`edit` changes only the flags you pass: timing via `--cron` or `--at` (switching a
+schedule between recurring and single-shot), payload via the agent options or a new
+`--pipeline` file. `disable` clears the next run; `enable` recomputes it. `delete`
+asks for confirmation, naming what the schedule fires and its next run; `--yes`/`-y`
+skips it and is required without a terminal. Agents and pipelines it already
+started are not affected.
+
+> **Removed.** `schedule get` is now `schedule show`; `--type` is gone — use
+> `--role` (and `--repo`) as with `warden start`.
 
 ### `warden inspect resources [--watch] [--history [--agent ID]] [--json]`
 Warden's resource footprint. Bare, it prints a live snapshot: a system line
@@ -2067,7 +2115,7 @@ restart list; everything else takes effect on save.
 | `log.format` | `text` | Daemon log output format: `text` (human-readable) or `json` (structured, one object per line). Overridden by `warden daemon --log-format` |
 | `savings` | `true` | Record the token reductions warden's lifecycle features earn to an append-only ledger, surfaced by `warden usage savings` and `GET /api/v1/savings` (403 when off) |
 | `savings_samples` | `false` | Retain opt-in raw-vs-kept **provenance samples** for `warden usage savings --audit`. WARNING: samples hold substrings of real build/test/git output, which may be sensitive. Requires `savings` |
-| `scheduler_enabled` | `false` | Enable the native cron/at scheduler (`warden schedule`). Off → the schedule routes 403 and the reconcile loop is a no-op |
+| `scheduler_enabled` | `false` | Enable the native cron/at scheduler (`warden schedule create/list/show/run/edit/enable/disable/delete`). Off → the schedule routes 403 and the reconcile loop is a no-op |
 | `branch_track.enabled` | `false` | Enable the per-agent branch monitor (`warden workspace branches`): CI status + standing vs `origin/main`, with non-blocking inbox/desktop alerts |
 | `branch_track.interval` | `2m` | Poll interval for the branch monitor when `branch_track.enabled` is on |
 | `activity.interval` | `15s` | Minimum gap between live activity-badge refreshes per agent (the 3-5 word status badge on each TUI agent row). Refreshes only while the agent's pane is changing, so idle agents cost no Fast-Brain calls; a failed/empty decision keeps the previous badge |
