@@ -1237,7 +1237,7 @@ warden schedule list
 warden schedule show daily-review        # + last-run session id and outcome
 warden schedule disable daily-review    # stop firing (kept, re-enable later)
 warden schedule enable  daily-review    # re-arm
-warden schedule delete  daily-review
+warden schedule delete  daily-review   # asks to confirm; add --yes in scripts
 ```
 
 ### `warden inspect resources [--watch] [--history [--agent ID]] [--json]`

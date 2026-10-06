@@ -128,7 +128,7 @@ warden schedule create <name> --cron "…" --pipeline <spec.yaml>          # fir
 warden schedule list      # kind (cron/at), mode (agent/pipeline), spec, enabled, next run, last error
 warden schedule show <id>  # + last_run_session_id and last_run_status
 warden schedule enable <id> / disable <id>   # re-arm / stop firing (kept either way)
-warden schedule delete <id>
+warden schedule delete <id> --yes   # --yes skips the confirmation prompt (required without a terminal)
 ```
 
 Every fired run's session carries a `schedule_id` (+ `schedule_name`) back-ref —

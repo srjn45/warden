@@ -155,7 +155,7 @@ default; each in its own tmux session, most in a git worktree).
 |---|---|---|---|---|---|---|
 | Create schedule (cron / at; agent or pipeline) | `schedule create` | `create_schedule` | ✓ | — | — | [scheduling](https://srjn45.github.io/warden/guides/scheduling/) |
 | List schedules | `schedule list` | `list_schedules` | ✓ | — | — | [scheduling](https://srjn45.github.io/warden/guides/scheduling/) |
-| Get one schedule (+ last-run outcome) | `schedule get` | `get_schedule` | ✓ | — | — | [scheduling](https://srjn45.github.io/warden/guides/scheduling/) |
+| Get one schedule (+ last-run outcome) | `schedule show` | `get_schedule` | ✓ | — | — | [scheduling](https://srjn45.github.io/warden/guides/scheduling/) |
 | Enable / disable schedule | `schedule enable` / `disable` | `enable_schedule` / `disable_schedule` | ✓ | — | — | [scheduling](https://srjn45.github.io/warden/guides/scheduling/) |
 | Delete schedule | `schedule delete` | `delete_schedule` | ✓ | — | — | [scheduling](https://srjn45.github.io/warden/guides/scheduling/) |
 | Scheduled-run session linkage (`schedule_id` on sessions; `scheduled-agents` capability) | — | — | ✓ | — | — | [scheduling](https://srjn45.github.io/warden/guides/scheduling/) |

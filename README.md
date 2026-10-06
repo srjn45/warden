@@ -1061,7 +1061,7 @@ warden schedule list                  # kind, mode, spec, enabled, next run, las
 warden schedule show daily-review      # one schedule + its last-run session id and outcome
 warden schedule disable daily-review  # stop firing (kept; re-enable later)
 warden schedule enable  daily-review  # re-arm (recompute next run)
-warden schedule delete  daily-review
+warden schedule delete  daily-review   # asks to confirm; add --yes in scripts
 ```
 
 Each fired run's session carries a `schedule_id` back-reference (on agent spawns and a scheduled pipeline's job sessions), so scheduled runs are separable from ad-hoc agents everywhere sessions surface — list, `GET /sessions`, and the SSE stream. Daemons advertise the `scheduled-agents` capability when this is supported end-to-end.

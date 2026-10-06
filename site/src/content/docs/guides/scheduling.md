@@ -35,7 +35,7 @@ warden schedule list              # kind (cron/at), mode (agent/pipeline), spec,
 warden schedule show daily-review  # one schedule + its last-run session id and outcome
 warden schedule disable daily-review   # stop firing (record + history preserved)
 warden schedule enable  daily-review   # re-arm: next_run is recomputed from now
-warden schedule delete  daily-review
+warden schedule delete  daily-review   # asks to confirm; add --yes in scripts
 ```
 
 `disable`/`enable` are idempotent and toggle a schedule without losing it —

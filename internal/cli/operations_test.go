@@ -116,7 +116,7 @@ func TestOperationsProgressiveHelp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(scheduleHelp, "timer-driven triggers") || !strings.Contains(scheduleHelp, "create") {
+	if !strings.Contains(scheduleHelp, "Timer-driven triggers") || !strings.Contains(scheduleHelp, "create") {
 		t.Fatalf("schedule namespace help missing expected sections: %s", scheduleHelp)
 	}
 	for name, got := range map[string]string{"daemon": daemonHelp, "schedule": scheduleHelp} {
@@ -137,17 +137,19 @@ func TestScheduleCanonicalPathUnchanged(t *testing.T) {
 	}
 }
 
-func TestScheduleShowKeepsGetAlias(t *testing.T) {
+func TestScheduleGetIsRemoved(t *testing.T) {
 	root := newRootCmd()
-	legacy := findExactCommand(t, root, "schedule get")
-	if !legacy.Hidden {
-		t.Error("legacy schedule get should be hidden")
+	sched, _, err := root.Find([]string{"schedule"})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := legacy.Annotations[AnnotationCanonicalPath]; got != "warden schedule show" {
-		t.Errorf("schedule get canonical = %q, want warden schedule show", got)
+	for _, c := range sched.Commands() {
+		if c.Name() == "get" {
+			t.Fatal("schedule get should be removed")
+		}
 	}
-	canonical := findExactCommand(t, root, "schedule show")
-	if canonical == legacy {
-		t.Fatal("schedule show/get must be separate cobra nodes")
+	out, err := runCLI(t, "http://127.0.0.1:1", "schedule", "get", "x")
+	if err == nil || !strings.Contains(err.Error()+out, "wd schedule show") {
+		t.Fatalf("want removed hint pointing at schedule show, got err=%v out=%q", err, out)
 	}
 }
