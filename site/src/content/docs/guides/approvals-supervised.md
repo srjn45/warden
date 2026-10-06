@@ -118,6 +118,12 @@ The model **recognizes**; it does not decide and it never presses a key. What ha
 
 The agent's status becomes `waiting_for_input` and a `prompt_recognized` event is recorded. This costs one model call per stalled, unrecognized menu (a second only if the first failed or timed out). It covers menus with a visible cursor mark (`>`, `❯`, `›`, `→`); a free-text `[y/N]` question is still left to its backend parser or to you.
 
+### Learning prompts it has read
+
+A prompt the model read is **learned** once its answer provably worked: it was answered (by auto-approve, the arbiter, the brain or you via the approve endpoint) and a later capture shows the menu gone. The first verified success is enough, because a learned shape is re-verified against the live pane on every use and only says how to *read* a prompt, never whether to answer it. A reading that failed verification, an answer that bounced with "prompt changed", or a menu that is still showing teaches nothing. The next occurrence is then read from the store with no model call (`prompt_known` event; `prompt_learned` when it is first learned).
+
+The store keeps itself honest: a learned shape that trips the circuit breaker, or whose answers fail to clear the menu three times in a row, is dropped (`prompt_known_invalidated` event) and the next occurrence goes back to the model. It is bounded by `known_prompts_max` (default 500, least recently seen evicted) and entries unseen for `known_prompts_prune_days` (default 90) are pruned.
+
 ## The circuit breaker
 
 Auto-approving a prompt should unblock the agent. When the **identical** prompt keeps re-appearing after being approved — the agent is re-running a failing command (expired credentials, a broken login) and re-asking forever — approving again just burns CPU and tokens. The breaker halts auto-approval after `max_repeats` consecutive identical approvals (default **10**), records an `approval_loop` anomaly on the agent, fires your notifier, and leaves the prompt unanswered so the agent surfaces as `waiting_for_input`.

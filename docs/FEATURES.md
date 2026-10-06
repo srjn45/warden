@@ -177,6 +177,14 @@ cursor is on the chosen option. The agent shows as `waiting_for_input`, the prom
 appears in the approvals inbox, and a `prompt_recognized` event is recorded. Cost: one
 model call per stalled, unrecognized menu (a second only if the first failed).
 
+**Learning.** A model-read prompt is persisted (its shape, never the concrete command)
+on its first verified success: it was answered and a later capture shows the menu gone.
+Readings that failed verification, answers that returned "prompt changed", and menus
+still showing are never learned. Later occurrences are read from the store with no model
+call, re-verified against the pane every time. A learned shape that trips the circuit
+breaker or fails to clear the menu three times in a row is dropped (`prompt_known_invalidated`).
+The store is bounded by `known_prompts_max` (500) and `known_prompts_prune_days` (90).
+
 **Decision order** (a prompt is auto-answered only if all pass):
 - The built-in **destructive deny-list** (delete, `rm -rf`, force, push, deploy,
   reset --hard, …) **always wins** — it is checked first and is not configurable.

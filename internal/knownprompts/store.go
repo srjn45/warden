@@ -100,7 +100,18 @@ type Store struct {
 	byID    map[string]*Entry
 	backend map[string][]*indexed
 	now     func() time.Time
+
+	maxEntries int           // 0 = unbounded
+	pruneAfter time.Duration // 0 = never prune by age
 }
+
+const (
+	// DefaultMaxEntries bounds the store; the least recently seen entry is
+	// evicted to stay under it.
+	DefaultMaxEntries = 500
+	// DefaultPruneAfter drops entries not seen for this long.
+	DefaultPruneAfter = 90 * 24 * time.Hour
+)
 
 // New opens (creating if needed) the store at <dir>/known-prompts-db and loads
 // the in-memory index.
@@ -118,7 +129,7 @@ func New(dir string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	s := &Store{db: db, col: col, byID: map[string]*Entry{}, backend: map[string][]*indexed{}, now: time.Now}
+	s := &Store{db: db, col: col, byID: map[string]*Entry{}, backend: map[string][]*indexed{}, now: time.Now, maxEntries: DefaultMaxEntries, pruneAfter: DefaultPruneAfter}
 	rows, err := col.Scan(query.MatchAll)
 	if err != nil {
 		_ = db.Close()
@@ -255,7 +266,64 @@ func (s *Store) Learn(ctx context.Context, backend, cliVersion string, r Reading
 	if err = s.save(n, false); err != nil {
 		return
 	}
+	s.enforceLocked(now, n.ID)
 	return *n, true, nil
+}
+
+// SetLimits bounds the store: at most maxEntries entries (the least recently
+// seen is evicted first) and none unseen for longer than pruneAfter. Zero
+// disables the respective bound. Limits apply from the next Learn or Prune.
+func (s *Store) SetLimits(maxEntries int, pruneAfter time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.maxEntries, s.pruneAfter = maxEntries, pruneAfter
+}
+
+// Prune applies the store's limits now and reports how many entries it removed.
+func (s *Store) Prune() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.enforceLocked(s.now(), "")
+}
+
+// enforceLocked drops entries unseen for pruneAfter, then evicts the least
+// recently seen until the store fits maxEntries. keep (the entry just learned)
+// is never evicted. A failed delete leaves the entry for the next pass.
+func (s *Store) enforceLocked(now time.Time, keep string) int {
+	removed := 0
+	drop := func(e *Entry) {
+		if s.deleteLocked(e.ID) == nil {
+			removed++
+		}
+	}
+	if s.pruneAfter > 0 {
+		for _, e := range s.byID {
+			if e.ID != keep && now.Sub(e.LastSeenAt) > s.pruneAfter {
+				drop(e)
+			}
+		}
+	}
+	if s.maxEntries > 0 && len(s.byID) > s.maxEntries {
+		all := make([]*Entry, 0, len(s.byID))
+		for _, e := range s.byID {
+			if e.ID != keep {
+				all = append(all, e)
+			}
+		}
+		sort.Slice(all, func(i, j int) bool {
+			if !all[i].LastSeenAt.Equal(all[j].LastSeenAt) {
+				return all[i].LastSeenAt.Before(all[j].LastSeenAt)
+			}
+			return all[i].ID < all[j].ID
+		})
+		for _, e := range all {
+			if len(s.byID) <= s.maxEntries {
+				break
+			}
+			drop(e)
+		}
+	}
+	return removed
 }
 
 // save persists e then refreshes the index (memory changes only on success).
@@ -300,6 +368,10 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.deleteLocked(id)
+}
+
+func (s *Store) deleteLocked(id string) error {
 	cur := s.byID[id]
 	if cur == nil {
 		return ErrNotFound

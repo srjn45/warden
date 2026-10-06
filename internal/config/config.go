@@ -354,7 +354,11 @@ type Config struct {
 	// RecognizePrompts lets the Fast-Brain model read a stalled menu that no
 	// backend parser recognizes, so a prompt an AI CLI reworded still reaches the
 	// approvals inbox and the auto-approve policy (default true).
-	RecognizePrompts      bool   `yaml:"recognize_prompts"`
+	RecognizePrompts bool `yaml:"recognize_prompts"`
+	// KnownPromptsMax bounds the learned-prompt store (least recently seen is
+	// evicted); KnownPromptsPruneDays drops entries unseen for that long. 0 = no bound.
+	KnownPromptsMax       int    `yaml:"known_prompts_max"`
+	KnownPromptsPruneDays int    `yaml:"known_prompts_prune_days"`
 	DefaultPermissionMode string `yaml:"default_permission_mode"`
 	MetricsEnabled        bool   `yaml:"metrics"`
 	// AllowNonLoopback is DEPRECATED and inert (audit #7): it no longer bypasses
@@ -437,6 +441,8 @@ var schema = []setting{
 	{"approvals", "Enable the approvals inbox (parse + answer permission prompts). Values: true | false"},
 	{"trust_workspace", "Automatically answer an AI CLI's launch-time \"do you trust this folder?\" prompt with yes, for every agent warden launches (Claude, Codex, Antigravity; Cursor is launched with --trust). Independent of auto_approve: launching an agent in a directory is the operator's choice of that directory. Set false to leave the prompt for the approvals inbox. Values: true | false"},
 	{"recognize_prompts", "When an agent sits on a choice menu that no backend parser recognizes (an AI CLI reworded its prompt), have the Fast-Brain model read the pane and identify the prompt, so it reaches the approvals inbox and the auto-approve policy like any other. The model only recognizes: its reading is checked against the live pane and then goes through the unchanged destructive guard, policy rules and circuit breaker. Costs one model call per stalled, unrecognized menu. Values: true | false"},
+	{"known_prompts_max", "Most prompt shapes the learned-prompt store keeps. A prompt the Fast-Brain read is learned once its answer verifiably cleared the menu, so the next occurrence needs no model call; past this bound the least recently seen shape is evicted. 0 = unbounded. Values: integer (default 500)"},
+	{"known_prompts_prune_days", "Learned prompt shapes not seen for this many days are dropped. 0 = never. Values: integer (default 90)"},
 	{"auto_approve", "Auto-approve policy. With NO rules configured this is the simple on/off toggle (enabled answers every recognized, non-destructive prompt). With rules, the daemon answers a recognized prompt only when it matches an allow rule, matches no deny rule, and is not on the built-in destructive deny-list (which always wins). Sub-keys: enabled (master switch), allow_sticky (press \"don't ask again\" options), rules.allow / rules.deny (lists of {tool, pattern, regex, paths} — tool/pattern are case-insensitive, regex is a Go regexp), max_repeats (circuit breaker: how many times the IDENTICAL prompt may be consecutively approved for one agent before auto-approve halts and escalates to a human; 0 = default 10, negative = off), agents (per-agent overrides keyed by agent name or id, each its own {enabled, allow_sticky, rules, max_repeats} block that replaces the default for that agent)."},
 	{"default_permission_mode", "Default permission mode for new agents.\nValues: auto | default | acceptEdits | bypassPermissions | dontAsk | plan"},
 	{"metrics", "Record per-agent metrics to disk. Values: true | false"},
@@ -495,13 +501,15 @@ const defaultRateLimitResumePrompt = "continue"
 // the values from here; Load starts from here and overlays the file).
 func defaults() Config {
 	return Config{
-		Addr:              "127.0.0.1:8765",
-		DataDir:           defaultDataDir(),
-		ClaudeProjectsDir: defaultClaudeProjectsDir(),
-		WorkspacePath:     defaultWorkspaceDir(),
-		ApprovalsEnabled:  true,
-		TrustWorkspace:    true,
-		RecognizePrompts:  true,
+		Addr:                  "127.0.0.1:8765",
+		DataDir:               defaultDataDir(),
+		ClaudeProjectsDir:     defaultClaudeProjectsDir(),
+		WorkspacePath:         defaultWorkspaceDir(),
+		ApprovalsEnabled:      true,
+		TrustWorkspace:        true,
+		RecognizePrompts:      true,
+		KnownPromptsMax:       500,
+		KnownPromptsPruneDays: 90,
 		AutoApprove: approval.Policy{
 			Enabled:     false,
 			AllowSticky: false,

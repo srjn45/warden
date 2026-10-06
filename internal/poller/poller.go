@@ -270,6 +270,12 @@ type Poller struct {
 	recog   map[string]*recognition
 	recogWG sync.WaitGroup
 
+	// learnMu guards the answered-prompt bookkeeping of learn.go.
+	learnMu        sync.Mutex
+	pendingLearns  map[string]*pendingLearn
+	knownStrikes   map[string]int
+	lastKnownPrune time.Time
+
 	// OnSaving, if set, records a token-savings event (the daemon wires it to the
 	// savings ledger). The poller uses it for the auto-/compact win: when a
 	// compaction it issued lands, the reclaimed context tokens are recorded as a
@@ -759,6 +765,7 @@ var answerVerifyDelay = 400 * time.Millisecond
 // verified Enter for a cursor menu (see agentbackend.Answer).
 func (p *Poller) answer(ctx context.Context, s *agentstore.Agent, ap *agentbackend.Approval, idx int) error {
 	send := func(key string) error { return p.deps.SendKeys(ctx, s.TmuxSession, key) }
+	var seen string // the last pane the answer verified against
 	reparse := func() (*agentbackend.Approval, bool) {
 		if answerVerifyDelay > 0 {
 			select {
@@ -771,9 +778,14 @@ func (p *Poller) answer(ctx context.Context, s *agentstore.Agent, ap *agentbacke
 		if err != nil {
 			return nil, false
 		}
+		seen = pane
 		return p.ParseApproval(s, pane)
 	}
-	return agentbackend.Answer(ap, idx, send, reparse)
+	if err := agentbackend.Answer(ap, idx, send, reparse); err != nil {
+		return err
+	}
+	p.NoteAnswered(s, ap, seen)
+	return nil
 }
 
 // trustMaxAttempts caps how often the same workspace-trust prompt is answered for
@@ -797,6 +809,7 @@ func (p *Poller) tryTrustPrompt(ctx context.Context, s *agentstore.Agent, pane s
 	if !allowed {
 		if trippedNow {
 			slog.Warn("workspace-trust prompt still showing after repeated answers; leaving it for a human", "agent", s.ID, "dir", ap.Action)
+			p.invalidateKnownFor(ctx, s, ap, pane, "the trust-prompt circuit breaker tripped on it")
 		}
 		return
 	}
@@ -840,6 +853,7 @@ func (p *Poller) breakerAllows(ctx context.Context, s *agentstore.Agent, pol app
 	}
 	if trippedNow {
 		slog.Warn("auto-approve circuit breaker tripped", "agent", s.ID, "action", a.Action, "repeats", maxRepeats)
+		p.invalidateKnownFor(ctx, s, ap, pane, "the approve circuit breaker tripped on it")
 		detail := fmt.Sprintf("auto-approve halted: the identical prompt (%s) was approved %d times in a row without unblocking the agent",
 			a.Action, maxRepeats)
 		if !p.routeToBrain(ctx, s, ap, pane, sig, detail, false) {
@@ -1144,6 +1158,7 @@ func (p *Poller) tick(ctx context.Context) error {
 			}
 		}
 		if alive && captureOK {
+			p.checkLearn(ctx, s, pane)
 			p.tryRecognize(ctx, s, pane)
 		}
 		if alive && captureOK && p.trustWorkspace.Load() {
@@ -1207,6 +1222,7 @@ func (p *Poller) tick(ctx context.Context) error {
 	}
 	p.pruneSummaryState(sessions)
 	p.pruneRecognitions(sessions)
+	p.pruneLearning(liveIDs(sessions))
 	if changed && p.OnChange != nil {
 		p.OnChange()
 	}

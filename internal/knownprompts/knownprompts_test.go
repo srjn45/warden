@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 const agyPane = `
@@ -287,5 +288,74 @@ func TestMatchRejectsTrailingExtraOption(t *testing.T) {
 	pane = strings.Replace(pane, "  4. No, cancel\n", "  4. No, cancel\n  5. Something else\n", 1)
 	if m, ok := s.Match("antigravity", pane); ok {
 		t.Fatalf("unexpected match: %+v", m)
+	}
+}
+
+func TestStoreEvictsLeastRecentlySeen(t *testing.T) {
+	s, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	clock := time.Unix(1_000_000, 0)
+	s.now = func() time.Time { return clock }
+	s.SetLimits(2, 0)
+
+	learn := func(label string) string {
+		clock = clock.Add(time.Minute)
+		e, _, err := s.Learn(context.Background(), "agy", "", Reading{
+			Question: "Q?", Options: []string{label + " yes", label + " no"}, Affirmative: 1,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return e.ID
+	}
+	a, b := learn("alpha"), learn("beta")
+	clock = clock.Add(time.Minute)
+	if err := s.Hit(context.Background(), a); err != nil { // a is now the most recently seen
+		t.Fatal(err)
+	}
+	learn("gamma")
+	ids := map[string]bool{}
+	for _, e := range s.List() {
+		ids[e.ID] = true
+	}
+	if len(ids) != 2 || !ids[a] || ids[b] {
+		t.Fatalf("want a kept and b evicted, got %v", ids)
+	}
+}
+
+func TestStorePrunesStaleEntries(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock := time.Unix(1_000_000, 0)
+	s.now = func() time.Time { return clock }
+	if _, _, err := s.Learn(context.Background(), "agy", "", Reading{
+		Question: "Q?", Options: []string{"old yes", "old no"}, Affirmative: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	clock = clock.Add(30 * 24 * time.Hour)
+	if _, _, err := s.Learn(context.Background(), "agy", "", Reading{
+		Question: "Q?", Options: []string{"new yes", "new no"}, Affirmative: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s.SetLimits(0, 20*24*time.Hour)
+	if n := s.Prune(); n != 1 || len(s.List()) != 1 || s.List()[0].Options[0] != "new yes" {
+		t.Fatalf("prune removed %d, left %v", n, s.List())
+	}
+	_ = s.Close()
+	s2, err := New(dir) // the deletion is durable
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s2.Close()
+	if len(s2.List()) != 1 {
+		t.Fatalf("reopened with %d entries", len(s2.List()))
 	}
 }
