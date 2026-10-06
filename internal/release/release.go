@@ -83,6 +83,9 @@ type Commit struct {
 	Description string
 	Breaking    bool
 	PR          int // 0 if none
+	// Squashed holds the conventional bullets ("* feat(x): ...") of a squash
+	// commit body. Only set when the subject itself is not releasable.
+	Squashed []Commit
 }
 
 // PullRequest is a merged PR.
@@ -132,7 +135,47 @@ func ParseConventional(subject, body string) Commit {
 		c.Breaking = true
 	}
 	c.PR = findPR(subject, body)
+	if !c.releasable() {
+		c.Squashed = parseSquashBullets(body)
+	}
 	return c
+}
+
+var (
+	bulletRe    = regexp.MustCompile(`^\s*[*-]\s+(\S.*)$`)
+	knownTypeRe = regexp.MustCompile(`^(feat|fix|perf|revert|docs|test|tests|chore|refactor|style|build|ci)$`)
+)
+
+// releasable reports whether the commit's own type calls for a bump.
+func (c Commit) releasable() bool {
+	switch c.Type {
+	case "feat", "fix", "perf", "revert":
+		return true
+	}
+	return false
+}
+
+// parseSquashBullets extracts conventional-commit bullets from a squash body.
+func parseSquashBullets(body string) []Commit {
+	var out []Commit
+	for _, line := range strings.Split(body, "\n") {
+		m := bulletRe.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		cm := convRe.FindStringSubmatch(strings.TrimSpace(m[1]))
+		if cm == nil || !knownTypeRe.MatchString(strings.ToLower(cm[1])) {
+			continue
+		}
+		out = append(out, Commit{
+			Subject:     strings.TrimSpace(m[1]),
+			Type:        strings.ToLower(cm[1]),
+			Scope:       cm[2],
+			Breaking:    cm[3] == "!",
+			Description: strings.TrimSpace(cm[4]),
+		})
+	}
+	return out
 }
 
 func findPR(subject, body string) int {
@@ -153,20 +196,28 @@ func findPR(subject, body string) int {
 func DecideBump(commits []Commit) Bump {
 	b := BumpNone
 	for _, c := range commits {
-		var cb Bump
-		switch {
-		case c.Breaking:
-			cb = BumpMajor
-		case c.Type == "feat":
-			cb = BumpMinor
-		case c.Type == "fix", c.Type == "perf", c.Type == "revert":
-			cb = BumpPatch
-		}
-		if cb > b {
+		if cb := commitBump(c); cb > b {
 			b = cb
+		}
+		for _, sc := range c.Squashed {
+			if cb := commitBump(sc); cb > b {
+				b = cb
+			}
 		}
 	}
 	return b
+}
+
+func commitBump(c Commit) Bump {
+	switch {
+	case c.Breaking:
+		return BumpMajor
+	case c.Type == "feat":
+		return BumpMinor
+	case c.Type == "fix", c.Type == "perf", c.Type == "revert":
+		return BumpPatch
+	}
+	return BumpNone
 }
 
 // category ranks changelog sections; lower wins when merging commits of one PR.
@@ -184,6 +235,10 @@ func category(c Commit) int {
 		return 4
 	}
 	return 5
+}
+
+func bulletKey(c Commit) string {
+	return strings.ToLower(c.Scope + "|" + strings.TrimSpace(c.Description))
 }
 
 func entryText(scope, desc string, pr int) string {
@@ -211,8 +266,39 @@ func BuildChangelog(commits []Commit, prs []PullRequest) Changelog {
 		text string
 	}
 	var entries []entry
+	// separate holds commits that stand alone in the range, so squash bullets
+	// repeating them are not listed twice.
+	separate := map[string]bool{}
+	for _, c := range commits {
+		if len(c.Squashed) == 0 {
+			separate[bulletKey(c)] = true
+		}
+	}
 	byPR := map[int]int{} // PR number -> index in entries
 	for _, c := range commits {
+		if len(c.Squashed) > 0 {
+			if c.Breaking {
+				// the squash itself is breaking: keep that visible alongside the bullets
+				bpr := c.PR
+				if squashRe.MatchString(c.Subject) {
+					bpr = 0 // description already ends with the PR number
+				}
+				entries = append(entries, entry{0, entryText(c.Scope, c.Description, bpr)})
+			}
+			for _, sc := range c.Squashed {
+				k := bulletKey(sc)
+				if separate[k] {
+					continue
+				}
+				separate[k] = true
+				pr := c.PR
+				if findPR(sc.Subject, "") > 0 {
+					pr = 0 // bullet already carries its own PR number
+				}
+				entries = append(entries, entry{category(sc), entryText(sc.Scope, sc.Description, pr)})
+			}
+			continue
+		}
 		desc := c.Description
 		if desc == "" {
 			desc = c.Subject
