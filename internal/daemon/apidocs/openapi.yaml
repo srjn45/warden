@@ -6325,6 +6325,8 @@ components:
         - type: object
           properties:
             base: { type: string }
+            continue: { type: boolean, description: "finish a conflicted rebase left in progress (stage resolved files, git rebase --continue); mutually exclusive with abort and base" }
+            abort: { type: boolean, description: "drop a rebase left in progress (git rebase --abort); mutually exclusive with continue and base" }
 
     CheckRequest:
       allOf:

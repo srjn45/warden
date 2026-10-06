@@ -540,6 +540,25 @@ func (c *Client) GitSync(ctx context.Context, session, dir, base string) (lifecy
 	return res, nil
 }
 
+// GitSyncContinue finishes a conflicted rebase left in progress (wd sync --continue).
+func (c *Client) GitSyncContinue(ctx context.Context, session, dir string) (lifecycle.SyncResult, error) {
+	return c.gitSyncMode(ctx, session, dir, "continue")
+}
+
+// GitSyncAbort drops a rebase left in progress (wd sync --abort).
+func (c *Client) GitSyncAbort(ctx context.Context, session, dir string) (lifecycle.SyncResult, error) {
+	return c.gitSyncMode(ctx, session, dir, "abort")
+}
+
+func (c *Client) gitSyncMode(ctx context.Context, session, dir, mode string) (lifecycle.SyncResult, error) {
+	var res lifecycle.SyncResult
+	body := map[string]any{"session": session, "dir": dir, mode: true}
+	if err := c.doT(ctx, longTimeout, http.MethodPost, "/git/sync", body, &res); err != nil {
+		return lifecycle.SyncResult{}, err
+	}
+	return res, nil
+}
+
 // Check runs the project's configured check command(s) in dir via the daemon and
 // returns a pass/fail summary with output only for the failures. name selects a
 // configured entry ("" runs all). Uses longTimeout — a check runs a test/build

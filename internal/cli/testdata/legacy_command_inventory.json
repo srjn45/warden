@@ -1702,7 +1702,9 @@
     "use": "sync",
     "runnable": true,
     "local_flags": [
+      "abort",
       "base",
+      "continue",
       "json"
     ],
     "inherited_flags": [

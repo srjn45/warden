@@ -105,17 +105,35 @@ func newPushCmd() *cobra.Command {
 
 func newSyncCmd() *cobra.Command {
 	var base string
-	var asJSON bool
+	var asJSON, cont, abort bool
 	cmd := &cobra.Command{
 		Use:   "sync",
 		Short: "Fetch and rebase the current branch onto its base (warden conflict detect)",
 		Long: "Fetch origin and rebase the current branch onto origin/<base> (default main).\n\n" +
 			"Refuses a dirty tree (commit first). On conflict warden leaves the rebase in\n" +
-			"progress and reports only the conflicting files for you to resolve.",
+			"progress and reports only the conflicting files for you to resolve.\n\n" +
+			"While a rebase is in progress, `wd sync --continue` stages your resolved files and\n" +
+			"finishes it (reporting any conflicts from the next commit), and `wd sync --abort`\n" +
+			"drops it and restores the branch. A plain sync or `wd commit` is refused until then.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if cont && abort {
+				return fmt.Errorf("--continue and --abort are mutually exclusive")
+			}
+			if (cont || abort) && base != "" {
+				return fmt.Errorf("--base cannot be combined with --continue or --abort")
+			}
 			dir, session := gitTarget()
-			res, err := clientFor(cmd).GitSync(context.Background(), session, dir, base)
+			var res lifecycle.SyncResult
+			var err error
+			switch {
+			case cont:
+				res, err = clientFor(cmd).GitSyncContinue(context.Background(), session, dir)
+			case abort:
+				res, err = clientFor(cmd).GitSyncAbort(context.Background(), session, dir)
+			default:
+				res, err = clientFor(cmd).GitSync(context.Background(), session, dir, base)
+			}
 			if err != nil {
 				return err
 			}
@@ -124,8 +142,16 @@ func newSyncCmd() *cobra.Command {
 			}
 			if len(res.Conflicts) > 0 {
 				fmt.Fprintf(cmd.OutOrStdout(),
-					"rebase onto origin/%s hit conflicts — resolve these files, then `git rebase --continue`:\n  %s\n",
-					res.Base, strings.Join(res.Conflicts, "\n  "))
+					"rebase hit conflicts — resolve these files, then `wd sync --continue` (`git rebase --continue` also works), or `wd sync --abort`:\n  %s\n",
+					strings.Join(res.Conflicts, "\n  "))
+				return nil
+			}
+			if abort {
+				fmt.Fprintf(cmd.OutOrStdout(), "rebase aborted; %s restored\n", res.Branch)
+				return nil
+			}
+			if cont {
+				fmt.Fprintf(cmd.OutOrStdout(), "rebase continued; %s is up to date\n", res.Branch)
 				return nil
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "rebased %s onto origin/%s\n", res.Branch, res.Base)
@@ -133,6 +159,8 @@ func newSyncCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&base, "base", "", "base branch to rebase onto (default main)")
+	cmd.Flags().BoolVar(&cont, "continue", false, "finish a conflicted rebase: stage resolved files and run git rebase --continue")
+	cmd.Flags().BoolVar(&abort, "abort", false, "drop a rebase in progress and restore the branch")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit the raw result as JSON")
 	return cmd
 }

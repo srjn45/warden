@@ -293,6 +293,20 @@ func (f *fakeLife) Sync(_ context.Context, dir, base string) (lifecycle.SyncResu
 	return f.gitSyncResult, f.gitSyncErr
 }
 
+func (f *fakeLife) SyncContinue(_ context.Context, dir string) (lifecycle.SyncResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.gitSyncDir, f.gitSyncBase = dir, "continue"
+	return f.gitSyncResult, f.gitSyncErr
+}
+
+func (f *fakeLife) SyncAbort(_ context.Context, dir string) (lifecycle.SyncResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.gitSyncDir, f.gitSyncBase = dir, "abort"
+	return f.gitSyncResult, f.gitSyncErr
+}
+
 func (f *fakeLife) CreatePR(_ context.Context, dir, title, body, base string) (lifecycle.PRResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

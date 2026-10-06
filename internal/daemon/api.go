@@ -576,6 +576,9 @@ type Lifecycle interface {
 	Commit(ctx context.Context, dir, message string) (lifecycle.CommitResult, error)
 	Push(ctx context.Context, dir string, force bool) (lifecycle.PushResult, error)
 	Sync(ctx context.Context, dir, base string) (lifecycle.SyncResult, error)
+	// SyncContinue / SyncAbort finish or drop a conflicted rebase left in progress.
+	SyncContinue(ctx context.Context, dir string) (lifecycle.SyncResult, error)
+	SyncAbort(ctx context.Context, dir string) (lifecycle.SyncResult, error)
 	// CreatePR opens a GitHub PR for dir's branch (backs `done --create-pr`).
 	CreatePR(ctx context.Context, dir, title, body, base string) (lifecycle.PRResult, error)
 	// PRContext returns the diff stat and commit subjects of dir's branch against

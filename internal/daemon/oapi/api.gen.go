@@ -1246,7 +1246,12 @@ type GitPushRequest struct {
 
 // GitSyncRequest defines model for GitSyncRequest.
 type GitSyncRequest struct {
-	Base string `json:"base,omitempty"`
+	// Abort drop a rebase left in progress (git rebase --abort); mutually exclusive with continue and base
+	Abort bool   `json:"abort,omitempty"`
+	Base  string `json:"base,omitempty"`
+
+	// Continue finish a conflicted rebase left in progress (stage resolved files, git rebase --continue); mutually exclusive with abort and base
+	Continue bool `json:"continue,omitempty"`
 
 	// Dir worktree directory — honored when it shares the session's git repository (linked worktree ok); rejected when outside that repository; human fallback when session is unknown/empty
 	Dir string `json:"dir,omitempty"`

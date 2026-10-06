@@ -3402,11 +3402,17 @@ Fetch origin and rebase the current branch onto origin/<base> (default main).
 Refuses a dirty tree (commit first). On conflict warden leaves the rebase in
 progress and reports only the conflicting files for you to resolve.
 
+While a rebase is in progress, `wd git sync --continue` stages your resolved files and
+finishes it (reporting any conflicts from the next commit), and `wd git sync --abort`
+drops it and restores the branch. A plain sync or `wd commit` is refused until then.
+
 Usage:
   warden git sync [flags]
 
 Flags:
+      --abort         drop a rebase in progress and restore the branch
       --base string   base branch to rebase onto (default main)
+      --continue      finish a conflicted rebase: stage resolved files and run git rebase --continue
   -h, --help          help for sync
       --json          emit the raw result as JSON
 
@@ -5575,11 +5581,17 @@ Fetch origin and rebase the current branch onto origin/<base> (default main).
 Refuses a dirty tree (commit first). On conflict warden leaves the rebase in
 progress and reports only the conflicting files for you to resolve.
 
+While a rebase is in progress, `wd sync --continue` stages your resolved files and
+finishes it (reporting any conflicts from the next commit), and `wd sync --abort`
+drops it and restores the branch. A plain sync or `wd commit` is refused until then.
+
 Usage:
   warden sync [flags]
 
 Flags:
+      --abort         drop a rebase in progress and restore the branch
       --base string   base branch to rebase onto (default main)
+      --continue      finish a conflicted rebase: stage resolved files and run git rebase --continue
   -h, --help          help for sync
       --json          emit the raw result as JSON
 
