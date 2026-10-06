@@ -44,7 +44,7 @@ jobs:
 `)
 	require.NoError(t, err)
 	require.Contains(t, out, "is valid")
-	require.Contains(t, out, "2 jobs")
+	require.Contains(t, out, "2 jobs: analyze → impl")
 }
 
 func TestPipelineValidateRejectsCycle(t *testing.T) {
@@ -88,7 +88,7 @@ func TestPipelineListTemplates(t *testing.T) {
 	var buf bytes.Buffer
 	root.SetOut(&buf)
 	root.SetErr(&buf)
-	root.SetArgs([]string{"pipeline", "list-templates"})
+	root.SetArgs([]string{"pipeline", "template", "list"})
 	require.NoError(t, root.Execute())
 	out := buf.String()
 	for _, name := range []string{
@@ -99,10 +99,29 @@ func TestPipelineListTemplates(t *testing.T) {
 	require.Contains(t, out, "placeholders:")
 }
 
+func TestPipelineTemplateShow(t *testing.T) {
+	out, err := runCLI(t, "", "pipeline", "template", "show", "analyze-implement-review")
+	require.NoError(t, err)
+	require.Contains(t, out, "name: {{NAME}}")
+	require.Contains(t, out, "{{TASK}}")
+}
+
+func TestPipelineListTemplatesRemoved(t *testing.T) {
+	out, _ := runCLI(t, "", "pipeline", "list-templates")
+	require.NotContains(t, out, "placeholders:")
+	require.NotContains(t, out, "\n  list-templates ")
+	root := newRootCmd()
+	cmd, rest, err := root.Find([]string{"pipeline", "list-templates"})
+	require.NoError(t, err)
+	require.Equal(t, "warden pipeline", cmd.CommandPath())
+	require.Equal(t, []string{"list-templates"}, rest)
+}
+
 func TestPipelineCreateRejectsBothOrNeitherSource(t *testing.T) {
 	for _, args := range [][]string{
 		{"pipeline", "create"},
 		{"pipeline", "create", "-f", "x.yaml", "--template", "parallel-tasks"},
+		{"pipeline", "create", "x.yaml", "--template", "parallel-tasks"},
 	} {
 		root := newRootCmd()
 		var buf bytes.Buffer
@@ -111,6 +130,95 @@ func TestPipelineCreateRejectsBothOrNeitherSource(t *testing.T) {
 		root.SetArgs(args)
 		require.Error(t, root.Execute(), "args %v should be rejected", args)
 	}
+}
+
+func TestPipelineCreatePositionalAndFlagConflict(t *testing.T) {
+	_, err := runCLI(t, "", "pipeline", "create", "a.yaml", "-f", "b.yaml")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not both")
+}
+
+func TestPipelineValidatePositional(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pipeline.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`name: demo
+repo: /tmp/repo
+jobs:
+  - id: a
+    prompt: x
+`), 0o644))
+	out, err := runCLI(t, "", "pipeline", "validate", path)
+	require.NoError(t, err)
+	require.Contains(t, out, "1 jobs: a")
+}
+
+func TestPipelineCreatePositionalSpec(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "spec.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("name: demo\nrepo: /r\njobs:\n  - id: a\n    prompt: x\n"), 0o644))
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"POST /api/v1/pipelines": `{"id":"demo","name":"demo","jobs":[{"id":"a"}]}`,
+	}, nil, nil))
+	out, err := runCLI(t, addr, "pipeline", "create", path)
+	require.NoError(t, err)
+	require.Contains(t, out, "created pipeline demo")
+	require.Contains(t, out, "wd pipeline start demo")
+}
+
+func TestPipelineCreateStartAndJSON(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "spec.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("name: demo\nrepo: /r\njobs:\n  - id: a\n    prompt: x\n"), 0o644))
+	seen := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"POST /api/v1/pipelines":            `{"id":"demo","name":"demo","status":"pending","jobs":[{"id":"a"}]}`,
+		"POST /api/v1/pipelines/demo/start": `{"status":"started"}`,
+	}, seen, nil))
+	out, err := runCLI(t, addr, "pipeline", "create", path, "--start", "--json")
+	require.NoError(t, err)
+	require.Contains(t, out, `"id": "demo"`)
+	require.Equal(t, "POST", seen["/api/v1/pipelines/demo/start"])
+}
+
+func TestPipelineCreateStartFailureKeepsCreated(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "spec.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("name: demo\nrepo: /r\njobs:\n  - id: a\n    prompt: x\n"), 0o644))
+	addr := stubDaemon(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/pipelines":
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"id":"demo","name":"demo","jobs":[{"id":"a"}]}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/pipelines/demo/start":
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"error":"pipeline already started (status running)"}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+	out, err := runCLI(t, addr, "pipeline", "create", path, "--start")
+	require.Error(t, err)
+	require.Contains(t, out, "created pipeline demo")
+	require.Contains(t, out, "wd pipeline start demo")
+}
+
+func TestPipelineCreateAlreadyExistsHint(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "spec.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("name: demo\nrepo: /r\njobs:\n  - id: a\n    prompt: x\n"), 0o644))
+	addr := stubDaemon(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte(`{"error":"pipeline demo already exists"}`))
+	})
+	_, err := runCLI(t, addr, "pipeline", "create", path)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "already exists")
+	require.Contains(t, err.Error(), "pick another --name")
+}
+
+func TestPipelineNotFoundHint(t *testing.T) {
+	addr := stubDaemon(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":"pipeline not found"}`))
+	})
+	_, err := runCLI(t, addr, "pipeline", "show", "missing")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "wd pipeline list --all")
 }
 
 func TestPipelineCreateTemplateMissingPlaceholder(t *testing.T) {

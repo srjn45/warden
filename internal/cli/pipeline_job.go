@@ -43,7 +43,7 @@ Examples:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p, err := clientFor(cmd).PipelineGet(cmd.Context(), args[0])
 			if err != nil {
-				return err
+				return wrapPipelineError(err)
 			}
 			var job *pipeline.Job
 			for i := range p.Jobs {
@@ -127,7 +127,7 @@ Examples:
 				return fmt.Errorf("nothing to edit: pass --prompt and/or --handoff")
 			}
 			if err := clientFor(cmd).PipelineEditJob(cmd.Context(), args[0], args[1], prompt, handoff); err != nil {
-				return err
+				return wrapPipelineError(err)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "edited %s/%s\n", args[0], args[1])
 			return nil
@@ -150,7 +150,7 @@ Example:
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := clientFor(cmd).PipelineRetry(cmd.Context(), args[0], args[1]); err != nil {
-				return err
+				return wrapPipelineError(err)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "retrying %s/%s\n", args[0], args[1])
 			return nil
