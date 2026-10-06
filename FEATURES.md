@@ -447,7 +447,7 @@ CLI-only **by design**. New parity tools added for full coverage: `digest`,
 `handoff_agent`, `pause_pipeline`, `resume_pipeline`, `retry_pipeline_job`,
 `edit_pipeline_job`, `emit_pipeline_output`, `delete_pipeline`,
 `validate_pipeline`, `list_pipeline_templates`, `library_list`,
-`create_schedule`, `get_schedule`, `enable_schedule`, `disable_schedule`, `delete_schedule`, `fork_agent`, `set_role`, `list_roles`,
+`create_schedule`, `get_schedule`, `update_schedule`, `run_schedule`, `enable_schedule`, `disable_schedule`, `delete_schedule`, `fork_agent`, `set_role`, `list_roles`,
 `autopilot_status`, `land`, `list_backends`, `rescan_backends`,
 `set_backend_tier`, `set_default_backend`. (`set_thinking_mode` is a retired no-op.)
 
