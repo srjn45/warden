@@ -1,0 +1,11 @@
+File access
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+Read: /home/srjn45/dev/warden/.worktrees/worker-b730ae8a/internal/daemon/oapi/api.gen.go
+
+Allow access to this file?
+> 1. Yes, allow access
+  2. No, deny access
+
+  ↑/↓ Navigate
+esc to cancel                                                                                      accept-edits · Gemini 3.8 Flash · medium

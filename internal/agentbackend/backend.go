@@ -462,6 +462,15 @@ type ContextInjector interface {
 	InjectContext(workdir, text string) error
 }
 
+// WorkspacePreparer is an optional Backend extension for agents that can
+// pre-configure or pre-trust a workspace directory before launch (e.g. Antigravity
+// recording the workdir in trustedWorkspaces so its launch-time trust prompt never appears).
+type WorkspacePreparer interface {
+	// PrepareWorkspace prepares or pre-trusts workdir on disk before the agent
+	// process is launched in it. The implementation must be idempotent.
+	PrepareWorkspace(workdir string) error
+}
+
 // SystemPromptFiler is an optional Backend extension for a flag-based backend
 // (SystemPromptInject=true) that can take its system-prompt addendum from a FILE
 // read at launch instead of as an inline literal. It is the file-backed
