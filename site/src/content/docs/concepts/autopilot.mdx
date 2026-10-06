@@ -457,8 +457,10 @@ plan run ──▶ starting ──manager healthy──▶ active
                 │  guardian backoff loop (never parks)
                 └──heal succeeds──▶ active
 active ──plan pause──▶ paused ──plan resume──▶ active
-active ──done_when verified──▶ complete
-  (manager torn down, ledger retained, integration branch ready for owner review)
+active ──done_when verified──▶ finalizing ──final PR green──▶ awaiting_merge ──PR merged──▶ complete
+  (finalizing / awaiting_merge are reported states over internal `active`; once awaiting_merge
+   the manager and run agents are torn down and the daemon polls the PR; a closed PR parks
+   the run as `final_pr_closed`; on merge the integration branch is deleted)
 ```
 
 `plan pause` is effective at any state. It stops all new spawns and landings
@@ -507,10 +509,13 @@ heal ladder from the top.
 When the manager has verified the plan's `done_when` criteria it declares the run
 complete (MCP `autopilot_complete` / `POST /api/v1/autopilot/complete`; the run is
 inferred from the manager's own identity, and only a run's own manager may
-complete it). The daemon writes an **in-place marker** into the plan file —
+complete it). The daemon then opens and gates the final PR, waits for you to merge it
+(state `awaiting_merge`, polled every `autopilot.completion.merge_poll_interval`), and on
+merge writes an **in-place marker** into the plan file —
 `status: complete` and `completed_at: <RFC3339>` — round-tripping the YAML so
-your other keys, ordering, and inline comments survive; tears the manager down
-(in-flight workers keep running); and retains the ledger. **Preflight skips a
+your other keys, ordering, and inline comments survive, and retains the ledger. The
+plan then finishes and the integration branch is deleted. See the
+[plan-finish-flow spec](https://github.com/srjn45/warden/blob/main/docs/specs/2026-10-05-plan-finish-flow.md). **Preflight skips a
 plan carrying `status: complete`**, so a finished run is never executed again by
 mistake on a future plan run or daemon restart. Completion is idempotent. To re-run
 a completed plan, remove the `status: complete` line.

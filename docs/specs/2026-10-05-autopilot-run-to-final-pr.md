@@ -321,11 +321,13 @@ The final PR is then **gated like any PR**: CI on the integration head SHA (or t
 
 ### E.5 Run state while the final PR is red
 
+> **Amended by [plan-finish-flow](2026-10-05-plan-finish-flow.md) §1–§4.** A green final PR no longer completes the run: it enters the reported state `awaiting_merge` (manager and run agents torn down, owner notified once, plan stays `in_progress`), and the run reaches `complete` only when the final PR is observed **merged**. The paragraph below describes the red/`finalizing` phase, which is unchanged; its "becomes `complete` only when the gate is green" sentence is superseded.
+
 The run stays in `finalizing` with `final_pr: {number, url, head_sha, gate: pending|red|green, fix_attempts}` in `RunStatus`; the manager is retained (it is the standing supervisor; the guardian keeps healing it); workers for `final-fix-*` tasks are normal run agents. It becomes **`complete`** only when the final PR gate is **green**: then the existing completion actions run (plan marker `status: complete` + `completed_at`, manager torn down, ledger retained) and the human is notified once: `autopilot run <id> complete — final PR #<n> is green and waiting for your review (autopilot will not merge it).` If the final PR cannot be made green within the §B.6/§D.4 bounds ⇒ the `final_pr_unfixable` park (§D.5).
 
 ### E.6 Autopilot never merges the final PR
 
-Stated normatively: **no autopilot code path merges, auto-merges (`gh pr merge --auto`), approves, enables auto-merge on, or closes the final PR**, and none writes to the default branch. `Land` already rejects the default branch as source or target (`ErrWrongBase`); the landing pass additionally filters out any PR whose base is the default branch, and the resolver brief forbids it (§D.3). Merging the final PR is the owner's act (autopilot.md §11, unchanged: "owner fast-forwards"). If the final PR is merged or closed by a human while the run is `finalizing`, the run completes immediately.
+Stated normatively: **no autopilot code path merges, auto-merges (`gh pr merge --auto`), approves, enables auto-merge on, or closes the final PR**, and none writes to the default branch. `Land` already rejects the default branch as source or target (`ErrWrongBase`); the landing pass additionally filters out any PR whose base is the default branch, and the resolver brief forbids it (§D.3). Merging the final PR is the owner's act (autopilot.md §11, unchanged: "owner fast-forwards"). If the final PR is merged by a human, the run completes (and the plan finishes, §4 of the finish-flow spec); if it is **closed without merging**, the run parks as needs-attention (`final_pr_closed`) instead of completing — *amended by [plan-finish-flow](2026-10-05-plan-finish-flow.md) §3*.
 
 ---
 
