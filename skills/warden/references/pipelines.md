@@ -24,8 +24,8 @@ it's registered. **Every** pipeline verb now has an MCP tool (full parity); only
 | `retry_pipeline_job {pipeline, job}` | Re-run a failed job and reopen skipped descendants. |
 | `edit_pipeline_job {pipeline, job, prompt?, handoff?}` | Tweak a pending job before it runs. |
 | `emit_pipeline_output {pipeline, job, text}` | Set a job's handoff output passed downstream. |
-| `cancel_pipeline {pipeline}` | Stop (terminates any live jobs). |
-| `delete_pipeline {pipeline}` | Remove the record (cancel first if jobs are live). |
+| `cancel_pipeline {pipeline}` | Stop (terminates any live job agents; cannot be undone — a canceled pipeline cannot be restarted). Confirm before calling. |
+| `delete_pipeline {pipeline}` | Remove the record (cancel first if jobs are live). Confirm before calling. |
 
 ## CLI lifecycle
 
@@ -38,8 +38,8 @@ warden pipeline show <name>             # per-job status + branch + emitted outp
 warden pipeline list                    # all pipelines + status
 warden pipeline pause <name>            # halt new spawns; in-flight jobs finish
 warden pipeline resume <name>           # resume spawning
-warden pipeline cancel <name>           # stop (terminates live jobs)
-warden pipeline delete <name>           # remove the record (cancel first if jobs are live)
+warden pipeline cancel <name> [--yes]   # stop (terminates live jobs; --yes skips confirm)
+warden pipeline delete <name> [--yes]   # remove the record (always confirms unless --yes)
 ```
 
 ## Authoring the spec (analyze → implement → review)

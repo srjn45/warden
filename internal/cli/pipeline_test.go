@@ -324,3 +324,155 @@ func TestWatchRefreshStopsWhenDone(t *testing.T) {
 		t.Fatalf("n=%d err=%v", n, err)
 	}
 }
+
+const pipelineCancelLiveJSON = `{"id":"demo","name":"refactor","status":"running","jobs":[{"id":"analyze","status":"running","agent_id":"agent-a1"},{"id":"impl","status":"pending"}]}`
+const pipelineCancelIdleJSON = `{"id":"demo","name":"refactor","status":"running","jobs":[{"id":"analyze","status":"done","agent_id":"agent-a1"},{"id":"impl","status":"pending"}]}`
+const pipelineDeleteJSON = `{"id":"demo","name":"refactor","status":"canceled","jobs":[{"id":"analyze","status":"skipped"}]}`
+
+func TestPipelineCancelNoRunningJobsFastPath(t *testing.T) {
+	seen := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"GET /api/v1/pipelines/demo":         pipelineCancelIdleJSON,
+		"POST /api/v1/pipelines/demo/cancel": `{"status":"canceled"}`,
+	}, seen, nil))
+	out, err := runCLI(t, addr, "pipeline", "cancel", "demo")
+	require.NoError(t, err)
+	require.Contains(t, out, "canceled demo")
+	require.NotContains(t, out, "Cancel pipeline")
+	require.Equal(t, "POST", seen["/api/v1/pipelines/demo/cancel"])
+}
+
+func TestPipelineCancelPromptYes(t *testing.T) {
+	seen := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"GET /api/v1/pipelines/demo":         pipelineCancelLiveJSON,
+		"POST /api/v1/pipelines/demo/cancel": `{"status":"canceled"}`,
+	}, seen, nil))
+	out, err := runCLIStdin(t, addr, "y\n", "pipeline", "cancel", "demo")
+	require.NoError(t, err)
+	require.Contains(t, out, "1 job(s) are still running")
+	require.Contains(t, out, "job analyze (agent agent-a1)")
+	require.Contains(t, out, "cannot be restarted")
+	require.Contains(t, out, "canceled demo")
+	require.Equal(t, "POST", seen["/api/v1/pipelines/demo/cancel"])
+}
+
+func TestPipelineCancelPromptNo(t *testing.T) {
+	seen := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"GET /api/v1/pipelines/demo": pipelineCancelLiveJSON,
+	}, seen, nil))
+	out, err := runCLIStdin(t, addr, "n\n", "pipeline", "cancel", "demo")
+	require.NoError(t, err)
+	require.Contains(t, out, "aborted")
+	require.Empty(t, seen["/api/v1/pipelines/demo/cancel"])
+}
+
+func TestPipelineCancelYesFlag(t *testing.T) {
+	seen := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"GET /api/v1/pipelines/demo":         pipelineCancelLiveJSON,
+		"POST /api/v1/pipelines/demo/cancel": `{"status":"canceled"}`,
+	}, seen, nil))
+	out, err := runCLI(t, addr, "pipeline", "cancel", "demo", "--yes")
+	require.NoError(t, err)
+	require.Contains(t, out, "canceled demo")
+	require.NotContains(t, out, "[y/N]")
+	require.Equal(t, "POST", seen["/api/v1/pipelines/demo/cancel"])
+}
+
+func TestPipelineCancelNonTTYRequiresYes(t *testing.T) {
+	seen := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"GET /api/v1/pipelines/demo": pipelineCancelLiveJSON,
+	}, seen, nil))
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	t.Cleanup(func() { r.Close(); w.Close() })
+	root := newRootCmd()
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+	root.SetIn(r)
+	root.SetArgs([]string{"pipeline", "cancel", "demo", "--addr", addr, "--config", t.TempDir() + "/none.yaml"})
+	err = root.Execute()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "--yes")
+	require.Empty(t, seen["/api/v1/pipelines/demo/cancel"])
+}
+
+func TestPipelineDeletePromptYes(t *testing.T) {
+	seen := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"GET /api/v1/pipelines/demo":    pipelineDeleteJSON,
+		"DELETE /api/v1/pipelines/demo": `{"status":"deleted"}`,
+	}, seen, nil))
+	out, err := runCLIStdin(t, addr, "yes\n", "pipeline", "delete", "demo")
+	require.NoError(t, err)
+	require.Contains(t, out, "pipeline record and its job history")
+	require.Contains(t, out, "Branches and worktrees are kept")
+	require.Contains(t, out, "deleted demo")
+	require.Equal(t, "DELETE", seen["/api/v1/pipelines/demo"])
+}
+
+func TestPipelineDeletePromptNo(t *testing.T) {
+	seen := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"GET /api/v1/pipelines/demo": pipelineDeleteJSON,
+	}, seen, nil))
+	out, err := runCLIStdin(t, addr, "n\n", "pipeline", "delete", "demo")
+	require.NoError(t, err)
+	require.Contains(t, out, "aborted")
+	require.NotEqual(t, "DELETE", seen["/api/v1/pipelines/demo"])
+}
+
+func TestPipelineDeleteYesFlag(t *testing.T) {
+	seen := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"GET /api/v1/pipelines/demo":    pipelineDeleteJSON,
+		"DELETE /api/v1/pipelines/demo": `{"status":"deleted"}`,
+	}, seen, nil))
+	out, err := runCLI(t, addr, "pipeline", "delete", "demo", "-y")
+	require.NoError(t, err)
+	require.Contains(t, out, "deleted demo")
+	require.Equal(t, "DELETE", seen["/api/v1/pipelines/demo"])
+}
+
+func TestPipelineDeleteNonTTYRequiresYes(t *testing.T) {
+	seen := map[string]string{}
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"GET /api/v1/pipelines/demo": pipelineDeleteJSON,
+	}, seen, nil))
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	t.Cleanup(func() { r.Close(); w.Close() })
+	root := newRootCmd()
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+	root.SetIn(r)
+	root.SetArgs([]string{"pipeline", "delete", "demo", "--addr", addr, "--config", t.TempDir() + "/none.yaml"})
+	err = root.Execute()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "--yes")
+	require.NotEqual(t, "DELETE", seen["/api/v1/pipelines/demo"])
+}
+
+func TestPipelineStartCanceledHint(t *testing.T) {
+	addr := stubDaemon(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte(`{"error":"pipeline already started (status canceled)"}`))
+	})
+	_, err := runCLI(t, addr, "pipeline", "start", "demo")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "status canceled")
+	require.Contains(t, err.Error(), "create a new pipeline from the same spec or template")
+}
+
+func TestConfirmYN(t *testing.T) {
+	var sink bytes.Buffer
+	require.True(t, confirmYN(strings.NewReader("y\n"), &sink, "go? "))
+	require.True(t, confirmYN(strings.NewReader("YES\n"), &sink, "go? "))
+	require.False(t, confirmYN(strings.NewReader("\n"), &sink, "go? "))
+	require.False(t, confirmYN(strings.NewReader("n\n"), &sink, "go? "))
+}

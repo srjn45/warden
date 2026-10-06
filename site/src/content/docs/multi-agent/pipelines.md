@@ -30,8 +30,8 @@ warden pipeline pause <id>              # let in-flight jobs finish; spawn no ne
 warden pipeline resume <id>             # spawn jobs that became ready while paused
 warden pipeline retry <id> <job>        # re-run a failed/needs-attention job
 warden pipeline edit-job <id> <job> --prompt "…"   # edit a still-pending job
-warden pipeline cancel <id>             # terminate running jobs
-warden pipeline delete <id>             # remove the record (cancel first if live)
+warden pipeline cancel <id> [--yes]     # terminate running jobs (confirms if any are live)
+warden pipeline delete <id> [--yes]     # remove the record (always confirms; cancel first if live)
 ```
 
 ## Built-in templates
