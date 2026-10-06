@@ -153,6 +153,45 @@ func withAgyHome(t *testing.T, dir string) {
 	t.Cleanup(func() { agyHome = prev })
 }
 
+func TestAntigravityPrepareWorkspaceTrustsAndPreservesSettings(t *testing.T) {
+	home := t.TempDir()
+	withAgyHome(t, home)
+	workdir := filepath.Join(t.TempDir(), "work")
+	require.NoError(t, os.MkdirAll(workdir, 0o755))
+	settings := filepath.Join(home, "settings.json")
+	require.NoError(t, os.WriteFile(settings, []byte(`{"model":"gemini","trustedWorkspaces":["/already-trusted"]}`), 0o600))
+
+	require.NoError(t, Antigravity{}.PrepareWorkspace(workdir))
+	require.NoError(t, Antigravity{}.PrepareWorkspace(workdir), "preparation is idempotent")
+
+	data, err := os.ReadFile(settings)
+	require.NoError(t, err)
+	var got struct {
+		Model             string   `json:"model"`
+		TrustedWorkspaces []string `json:"trustedWorkspaces"`
+	}
+	require.NoError(t, json.Unmarshal(data, &got))
+	require.Equal(t, "gemini", got.Model)
+	require.Equal(t, []string{"/already-trusted", filepath.Clean(workdir)}, got.TrustedWorkspaces)
+	info, err := os.Stat(settings)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "existing settings permissions are preserved")
+}
+
+func TestAntigravityPrepareWorkspaceRefusesMalformedSettings(t *testing.T) {
+	home := t.TempDir()
+	withAgyHome(t, home)
+	settings := filepath.Join(home, "settings.json")
+	broken := []byte(`{"trustedWorkspaces":`)
+	require.NoError(t, os.WriteFile(settings, broken, 0o600))
+
+	err := Antigravity{}.PrepareWorkspace(t.TempDir())
+	require.Error(t, err)
+	data, readErr := os.ReadFile(settings)
+	require.NoError(t, readErr)
+	require.Equal(t, broken, data, "a malformed user settings file is never overwritten")
+}
+
 // --- Transcript parsing -----------------------------------------------------
 
 // TestAntigravityParseTranscript parses the real captured trajectory fixture (a
@@ -292,6 +331,7 @@ func TestAntigravityDetectState(t *testing.T) {
 		{"state-working.txt", agentbackend.StateWorking},
 		{"approval.txt", agentbackend.StateNeedsInput},
 		{"approval-run-command.txt", agentbackend.StateNeedsInput},
+		{"approval-file-access.txt", agentbackend.StateNeedsInput},
 		{"trust-prompt.txt", agentbackend.StateNeedsInput},
 	}
 	for _, tt := range tests {
@@ -324,6 +364,7 @@ func TestAntigravityParseApproval(t *testing.T) {
 	require.Equal(t, 1, a.SelectedIdx, "the > cursor sits on option 1")
 	require.Equal(t, 1, a.AffirmativeIdx, "least-privilege affirmative is the bare non-sticky Yes")
 	require.False(t, a.AffirmativeSticky, "option 1 is a one-shot grant, not a standing one")
+	require.True(t, a.Navigate, "agy numbered options are answered via cursor navigation and Enter")
 }
 
 // TestAntigravityParseApprovalRunCommand parses the reworded prompt `agy` v1.2.17
@@ -346,7 +387,26 @@ func TestAntigravityParseApprovalRunCommand(t *testing.T) {
 	require.Equal(t, 1, a.AffirmativeIdx, "least-privilege affirmative is the one-shot Yes")
 	require.False(t, a.AffirmativeSticky)
 	require.Empty(t, a.Kind, "a command prompt is not a trust prompt")
-	require.False(t, a.Navigate, "numbered options are answered by their digit")
+	require.True(t, a.Navigate, "agy prompt menus are cursor menus answered with Navigate and Enter")
+}
+
+// TestAntigravityParseApprovalFileAccess parses the captured file-access prompt
+// shown by agy in accept-edits mode ("Allow access to this file?" / "Yes, allow access" / "No, deny access").
+func TestAntigravityParseApprovalFileAccess(t *testing.T) {
+	a, ok := Antigravity{}.ParseApproval(agyFixture(t, "approval-file-access.txt"))
+	require.True(t, ok, "the file access permission prompt parses")
+
+	require.Equal(t, "Read: /home/srjn45/dev/warden/.worktrees/worker-b730ae8a/internal/daemon/oapi/api.gen.go", a.Action)
+	require.Equal(t, "Allow access to this file?", a.Question)
+	require.Equal(t, []string{
+		"Yes, allow access",
+		"No, deny access",
+	}, a.Options)
+	require.Equal(t, 1, a.SelectedIdx)
+	require.Equal(t, 1, a.AffirmativeIdx, "least-privilege affirmative is the one-shot Yes")
+	require.False(t, a.AffirmativeSticky)
+	require.Empty(t, a.Kind, "a file access prompt is not a trust prompt")
+	require.True(t, a.Navigate, "agy prompt menus are cursor menus answered with Navigate and Enter")
 }
 
 // TestAntigravityParseApprovalTrust parses the captured workspace-trust prompt (shown

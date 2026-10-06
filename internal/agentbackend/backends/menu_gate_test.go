@@ -17,6 +17,7 @@ import (
 func TestFindMenuOnCapturedPanes(t *testing.T) {
 	menus := map[string]bool{
 		"antigravity/approval.txt":             true,
+		"antigravity/approval-file-access.txt": true,
 		"antigravity/approval-run-command.txt": true, // lands with the agy 1.2.17 fixture
 		"antigravity/trust-prompt.txt":         true,
 		"claude/trust-prompt.txt":              true,
