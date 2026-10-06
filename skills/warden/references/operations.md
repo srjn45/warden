@@ -118,7 +118,7 @@ Daemon-fired triggers — no external crontab. **Opt-in:** gated by
 `scheduler_enabled` (default **off**); routes return 403 and the loop is a no-op
 until enabled (schedules only fire while the daemon runs). Full MCP coverage:
 `list_schedules` / `get_schedule {id}` (read), `create_schedule {name, cron|at, role/repo/cwd/prompt | spec}`,
-`enable_schedule {id}` / `disable_schedule {id}` (toggle without deleting),
+`run_schedule {id}` (test-fire) / `update_schedule {id, ...}` (edit) / `enable_schedule {id}` / `disable_schedule {id}` (toggle without deleting),
 `delete_schedule {id}` (all 403 when disabled).
 
 ```sh

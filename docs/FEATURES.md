@@ -450,7 +450,7 @@ separate server.
 ## 10. Orchestration (MCP)
 
 `warden daemon mcp` is a stdio MCP server so an orchestrator agent session (e.g. Claude) can manage
-the fleet through tool calls. **81 tools** are exposed — every fleet/data feature
+the fleet through tool calls. **83 tools** are exposed — every fleet/data feature
 the CLI has, so the skill/MCP can drive warden at full parity (only the
 host/process/interactive/secret commands in the [feature catalog](../FEATURES.md)
 stay CLI-only). Tools exposed:
@@ -482,7 +482,7 @@ stay CLI-only). Tools exposed:
 | `retry_pipeline_job` / `edit_pipeline_job` / `emit_pipeline_output` / `delete_pipeline` | Per-job retry / edit a pending job / set handoff output / delete a pipeline (CLI: `pipeline job retry\|edit`; cancel/delete confirm with `--yes`) |
 | `validate_pipeline` / `list_pipeline_templates` | Local spec validation / built-in templates (no daemon; CLI: `pipeline template list`) |
 | `library_list` | Browse saved spawn presets, saved prompt templates, and built-in pipeline templates in one call (no daemon) |
-| `list_schedules` / `get_schedule` / `create_schedule` / `enable_schedule` / `disable_schedule` / `delete_schedule` | List / get / create / enable / disable / delete daemon cron/at schedules (see §28) |
+| `list_schedules` / `get_schedule` / `create_schedule` / `update_schedule` / `run_schedule` / `enable_schedule` / `disable_schedule` / `delete_schedule` | List / get / create / enable / disable / delete daemon cron/at schedules (see §28) |
 | `snapshot_create` / `snapshot_list` / `snapshot_restore` | Worktree+transcript checkpoints & rollback (see §23) |
 | `insights` | Mine fleet history for patterns & parallelization wins (see §25) |
 | `get_metrics` / `get_pressure` | Live/historical resource metrics / memory-pressure gate (see §11) |
@@ -975,7 +975,7 @@ keeping the concern as the default-off gate.
 | **Scheduled-run session linkage** | Every fired run carries a `schedule_id` (+ `schedule_name`) back-reference on its session — set on agent-mode fires and inherited by a scheduled pipeline's job sessions — surfaced in `GET /sessions`, `GET /sessions/{id}`, and the SSE stream. Lets a client separate scheduled runs from ad-hoc agents and drill into a live run's terminal by filtering one field. Advertised by the **`scheduled-agents`** capability (`GET /api/v1/capabilities`). |
 | **No backfill** | On daemon startup each schedule's next-run is recomputed from the wall clock: a cron schedule resumes at its next *future* occurrence (a run missed while the daemon was down is **not** replayed), while a past-due single-shot fires once. |
 | **Fail-soft loop** | A fire error is recorded in the schedule's `last_error` and logged; it never crashes the once-a-minute reconcile loop or stops other schedules firing. An agent-name collision fails just that fire (honest over silently renaming). |
-| **Full MCP + audit** | `list_schedules` / `get_schedule` / `create_schedule` / `enable_schedule` / `disable_schedule` / `delete_schedule` (MCP) cover the schedule lifecycle (`schedule run`/`edit` are CLI-only for now); create/delete/enable/disable are written to the audit log (`schedule_create` / `schedule_delete` / `schedule_enable` / `schedule_disable`). |
+| **Full MCP + audit** | `list_schedules` / `get_schedule` / `create_schedule` / `update_schedule` / `run_schedule` / `enable_schedule` / `disable_schedule` / `delete_schedule` (MCP) cover the schedule lifecycle; create/delete/enable/disable are written to the audit log (`schedule_create` / `schedule_delete` / `schedule_enable` / `schedule_disable`). |
 
 Persisted by an **embedded ScrivaDB** (`github.com/srjn45/scriva`, opened with
 `SyncModeNone`) rather than one flat JSON file: schedules live in a `schedules`

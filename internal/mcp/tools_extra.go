@@ -246,6 +246,23 @@ type scheduleIDArgs struct {
 	ID string `json:"id" jsonschema:"the schedule id"`
 }
 
+// updateScheduleArgs mirrors client.ScheduleUpdateRequest: only-present
+// semantics — an omitted field is unchanged, an empty string clears an optional one.
+type updateScheduleArgs struct {
+	ID     string  `json:"id" jsonschema:"the schedule id"`
+	Cron   *string `json:"cron,omitempty" jsonschema:"new recurring cadence (5-field cron or @daily etc.); mutually exclusive with at"`
+	At     *string `json:"at,omitempty" jsonschema:"new single-shot time (RFC3339, or local time when no zone is given); mutually exclusive with cron"`
+	Repo   *string `json:"repo,omitempty" jsonschema:"new repo (isolated worktree); empty string clears"`
+	Cwd    *string `json:"cwd,omitempty" jsonschema:"new launch directory; empty string clears"`
+	Role   *string `json:"role,omitempty" jsonschema:"new agent role; empty string clears"`
+	Prompt *string `json:"prompt,omitempty" jsonschema:"new agent prompt; empty string clears"`
+	Agent  *string `json:"agent,omitempty" jsonschema:"new agent name; empty string clears"`
+	Branch *string `json:"branch,omitempty" jsonschema:"new branch; empty string clears"`
+	Model  *string `json:"model,omitempty" jsonschema:"new model; empty string clears"`
+	AiCli  *string `json:"ai_cli,omitempty" jsonschema:"new AI CLI backend; empty string clears"`
+	Spec   *string `json:"spec,omitempty" jsonschema:"new pipeline YAML spec (pipeline schedules)"`
+}
+
 type listModelsArgs struct {
 	Tier string `json:"tier,omitempty" jsonschema:"optional filter by model tier: tier-1 | tier-2 | tier-3"`
 }
@@ -1121,9 +1138,41 @@ func (s *Server) registerExtraTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "get_schedule",
-		Description: "Get one schedule by id, including its cadence, fire payload, enabled state, next/last run, and durable last-run outcome. Mirrors `warden schedule show`. (`warden schedule run` test-fires and `warden schedule edit` changes a schedule from the CLI.)",
+		Description: "Get one schedule by id, including its cadence, fire payload, enabled state, next/last run, and durable last-run outcome. Mirrors `warden schedule show`. (run_schedule test-fires and update_schedule edits a schedule.)",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a scheduleIDArgs) (*mcpsdk.CallToolResult, any, error) {
 		sch, err := s.cl.ScheduleGet(ctx, a.ID)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(sch)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "run_schedule",
+		Description: "Fire a schedule immediately as a test run, without changing its next run or enabled state. Returns the schedule and the run id. Mirrors `warden schedule run`.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a scheduleIDArgs) (*mcpsdk.CallToolResult, any, error) {
+		sch, runID, err := s.cl.ScheduleRun(ctx, a.ID)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(map[string]any{"schedule": sch, "run_id": runID})
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "update_schedule",
+		Description: "Edit an existing schedule. Only the fields you pass change; omitted fields are left as they are and an empty string clears an optional field. Provide at most one of cron or at. Mirrors `warden schedule edit`.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a updateScheduleArgs) (*mcpsdk.CallToolResult, any, error) {
+		if a.Cron != nil && a.At != nil {
+			return textResult("error: provide exactly one of cron or at, not both"), nil, nil
+		}
+		req := client.ScheduleUpdateRequest{
+			Cron: a.Cron, At: a.At, Repo: a.Repo, Cwd: a.Cwd, Role: a.Role, Prompt: a.Prompt,
+			Agent: a.Agent, Branch: a.Branch, Model: a.Model, AiCli: a.AiCli, Spec: a.Spec,
+		}
+		if req == (client.ScheduleUpdateRequest{}) {
+			return textResult("error: nothing to change: pass at least one field to edit"), nil, nil
+		}
+		sch, err := s.cl.ScheduleUpdate(ctx, a.ID, req)
 		if err != nil {
 			return textResult("error: " + err.Error()), nil, nil
 		}

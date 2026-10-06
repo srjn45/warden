@@ -333,7 +333,7 @@ out / rotating the very token that guards the MCP and HTTP channels).
 
 ### MCP parity summary
 
-Every fleet/data feature is reachable over MCP (**81 tools**, including the
+Every fleet/data feature is reachable over MCP (**83 tools**, including the
 umbrella `stop_agent`). The only
 CLI-exclusive features are the host/process/interactive/secret commands in
 §16 (plus interactive `attach`/`repl`, the local-config `preset` /
@@ -348,6 +348,6 @@ CLI-only **by design**. New parity tools added for full coverage: `digest`,
 `handoff_agent`, `pause_pipeline`, `resume_pipeline`, `retry_pipeline_job`,
 `edit_pipeline_job`, `emit_pipeline_output`, `delete_pipeline`,
 `validate_pipeline`, `list_pipeline_templates`, `library_list`,
-`create_schedule`, `get_schedule`, `enable_schedule`, `disable_schedule`, `delete_schedule`, `fork_agent`, `set_role`, `list_roles`,
+`create_schedule`, `get_schedule`, `update_schedule`, `run_schedule`, `enable_schedule`, `disable_schedule`, `delete_schedule`, `fork_agent`, `set_role`, `list_roles`,
 `list_backends`, `rescan_backends`, `set_backend_tier`, `set_default_backend`. (`set_thinking_mode` is a retired no-op.) (Enable/disable a backend is CLI/web/TUI + REST `PATCH
 /backends/{id}` only — intentionally not an MCP tool.)
