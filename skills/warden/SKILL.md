@@ -259,6 +259,10 @@ only when the final PR is **merged**. The plan stays `in_progress` throughout. A
 never merges, approves or closes the final PR — tell the owner to merge it; don't wait
 on an agent. A PR closed unmerged parks the run (`final_pr_closed`: reopen, `run_plan`/
 `wd plan resume` for a new PR, or `wd plan stop`). Spec: `docs/specs/2026-10-05-plan-finish-flow.md`.
+The final PR is titled with a conventional-commit subject derived from the landed
+commits (type order feat>fix>perf>revert>refactor>docs>test>build>ci>chore, shared scope, `!` if
+breaking); a squash merge of it is what `wd release` reads (it also reads `* type(scope): …`
+bullets in a squash body), so editing the title before merging changes the recommended bump.
 
 The enabled set is persisted so repos come back up across a daemon restart. Do not
 call `autopilot_complete` yourself when driving the fleet — it is the autopilot
