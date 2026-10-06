@@ -212,7 +212,7 @@ func TestPipelineListShowCmds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pipeline show: %v", err)
 	}
-	for _, want := range []string{"demo", "running", "branch: feat", "output: result"} {
+	for _, want := range []string{"demo", "running", "feat", "output: result"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("pipeline show missing %q:\n%s", want, out)
 		}

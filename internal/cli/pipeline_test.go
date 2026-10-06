@@ -2,13 +2,16 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/stretchr/testify/require"
@@ -163,12 +166,11 @@ func TestRenderPipelineDetailShowsBranchAndOutput(t *testing.T) {
 				Branch: "demo-impl", Output: "done on demo-impl"},
 		},
 	}
-	out := renderPipelineDetail(p, false)
+	out := renderPipelineDetail(p, showOpts{})
 	for _, want := range []string{
-		"demo [done] repo=/r",
-		"analyze", "found X; no code",
-		"impl", "(depends: [analyze])",
-		"branch: demo-impl", "output: done on demo-impl",
+		"name:", "demo", "status:    done", "repo:",
+		"analyze", "output: found X; no code",
+		"impl", "demo-impl", "output: done on demo-impl",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("renderPipelineDetail missing %q in:\n%s", want, out)
@@ -182,8 +184,8 @@ func TestRenderPipelineDetailShowsPlanAndProject(t *testing.T) {
 		ProjectID: "/proj", PlanID: "plan-aabbccdd",
 		Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobPending}},
 	}
-	out := renderPipelineDetail(p, false)
-	for _, want := range []string{"project: /proj", "plan: plan-aabbccdd"} {
+	out := renderPipelineDetail(p, showOpts{})
+	for _, want := range []string{"project:   /proj", "plan:      plan-aabbccdd", "wd plan show plan-aabbccdd"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("renderPipelineDetail missing %q in:\n%s", want, out)
 		}
@@ -193,9 +195,9 @@ func TestRenderPipelineDetailShowsPlanAndProject(t *testing.T) {
 func TestRenderPipelineDetailOmitsEmptyBranchAndOutput(t *testing.T) {
 	p := &pipeline.Pipeline{ID: "p", Status: pipeline.StatusRunning, Repo: "/r",
 		Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobRunning}}}
-	out := renderPipelineDetail(p, false)
-	if strings.Contains(out, "branch:") || strings.Contains(out, "output:") {
-		t.Fatalf("a job with no branch/output should print neither:\n%s", out)
+	out := renderPipelineDetail(p, showOpts{})
+	if strings.Contains(out, "output:") {
+		t.Fatalf("a job with no output should not print an output line:\n%s", out)
 	}
 }
 
@@ -209,17 +211,116 @@ func TestRenderPipelineDetailHidesSyntheticJobs(t *testing.T) {
 			{ID: "b", Status: pipeline.JobPending, DependsOn: []string{"a-span-out"}},
 		},
 	}
-	out := renderPipelineDetail(p, false)
+	out := renderPipelineDetail(p, showOpts{})
 	if strings.Contains(out, "span-out") {
 		t.Fatalf("default view must hide synthetic jobs and deps:\n%s", out)
 	}
-	if !strings.Contains(out, "(depends: [a])") {
+	if !strings.Contains(out, "AFTER") || !strings.Contains(out, "  a  ") {
 		t.Fatalf("synthetic dep should resolve to the real job:\n%s", out)
 	}
-	all := renderPipelineDetail(p, true)
-	for _, want := range []string{"root-span-out [warden]", "a-span-out [warden]", "(depends: [a-span-out])"} {
+	all := renderPipelineDetail(p, showOpts{allJobs: true})
+	for _, want := range []string{"root-span-out [warden]", "a-span-out [warden]", "a-span-out"} {
 		if !strings.Contains(all, want) {
 			t.Fatalf("--all-jobs missing %q:\n%s", want, all)
 		}
+	}
+}
+
+func TestRenderPipelineDetailAlignsLongJobIDs(t *testing.T) {
+	long := "a-very-long-job-identifier-here"
+	p := &pipeline.Pipeline{ID: "p", Status: pipeline.StatusRunning, Repo: "/r", Jobs: []pipeline.Job{
+		{ID: "a", Status: pipeline.JobDone, AgentID: "ag-1", Backend: "claude", Model: "opus", Branch: "p-a"},
+		{ID: long, Status: pipeline.JobNeedsAttention, DependsOn: []string{"a", "c"}, Output: "x\ny"},
+		{ID: "c", Status: pipeline.JobPending},
+	}}
+	out := renderPipelineDetail(p, showOpts{})
+	lines := strings.Split(out, "\n")
+	col := -1
+	for _, l := range lines {
+		if strings.HasPrefix(l, "JOB") || strings.HasPrefix(l, "a ") || strings.HasPrefix(l, long) || strings.HasPrefix(l, "c ") {
+			idx := strings.Index(l, strings.Fields(l)[1])
+			if col == -1 {
+				col = idx
+			} else if idx != col {
+				t.Fatalf("status column misaligned (%d vs %d):\n%s", idx, col, out)
+			}
+		}
+	}
+	for _, want := range []string{"claude/opus", "ag-1", "a,c", "! needs_attention", "output: x y"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q in:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "[a c]") {
+		t.Fatalf("deps must not print as a Go slice:\n%s", out)
+	}
+}
+
+func TestRenderPipelineDetailPromptsAndHeader(t *testing.T) {
+	p := &pipeline.Pipeline{Name: "nm", ID: "p", Status: pipeline.StatusPending, Repo: "/r", ScheduleName: "nightly",
+		Jobs: []pipeline.Job{{ID: "a", Status: pipeline.JobPending, Prompt: "do it\nnow", Handoff: "summarize"}}}
+	plain := renderPipelineDetail(p, showOpts{})
+	if strings.Contains(plain, "do it") || !strings.Contains(plain, "schedule:") || !strings.Contains(plain, "nightly") {
+		t.Fatalf("unexpected default view:\n%s", plain)
+	}
+	out := renderPipelineDetail(p, showOpts{prompts: true})
+	for _, want := range []string{"    prompt:\n      do it\n      now", "    handoff:\n      summarize"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q in:\n%s", want, out)
+		}
+	}
+}
+
+func TestIsTerminalPipeline(t *testing.T) {
+	for s, want := range map[pipeline.Status]bool{
+		pipeline.StatusDone: true, pipeline.StatusCanceled: true, pipeline.StatusStalled: true,
+		pipeline.StatusRunning: false, pipeline.StatusPending: false, pipeline.StatusPaused: false,
+	} {
+		if isTerminalPipeline(s) != want {
+			t.Errorf("isTerminalPipeline(%s) != %v", s, want)
+		}
+	}
+}
+
+const pipelineShowJSON = `{"id":"p1","name":"p1","repo":"/r","status":"%s","jobs":[{"id":"a","status":"done","prompt":"hello","output":"full output"}]}`
+
+func TestPipelineShowJSONRaw(t *testing.T) {
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"GET /api/v1/pipelines/p1": fmt.Sprintf(pipelineShowJSON, "done"),
+	}, nil, nil))
+	out, err := runCLI(t, addr, "pipeline", "show", "p1", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"prompt": "hello"`) || !strings.Contains(out, `"output": "full output"`) {
+		t.Fatalf("json should carry full job fields:\n%s", out)
+	}
+}
+
+func TestPipelineShowWatchStopsOnTerminal(t *testing.T) {
+	old := planWatchInterval
+	planWatchInterval = 5 * time.Millisecond
+	defer func() { planWatchInterval = old }()
+	addr := stubDaemon(t, routedDaemon(t, map[string]string{
+		"GET /api/v1/pipelines/p1": fmt.Sprintf(pipelineShowJSON, "done"),
+	}, nil, nil))
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	out, err := runCLICtx(t, ctx, addr, "pipeline", "show", "p1", "--watch")
+	if err != nil || ctx.Err() != nil {
+		t.Fatalf("watch on a done pipeline must return promptly: err=%v ctx=%v", err, ctx.Err())
+	}
+	if strings.Count(out, "status:") != 1 {
+		t.Fatalf("expected a single render:\n%s", out)
+	}
+}
+
+func TestWatchRefreshStopsWhenDone(t *testing.T) {
+	n := 0
+	cmd := newPipelineShowCmd()
+	cmd.SetContext(context.Background())
+	err := watchRefresh(cmd, func() (bool, error) { n++; return n == 3, nil }, true, time.Millisecond)
+	if err != nil || n != 3 {
+		t.Fatalf("n=%d err=%v", n, err)
 	}
 }

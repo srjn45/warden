@@ -1458,14 +1458,20 @@ type Pipeline = pipeline.Pipeline
 // PipelineJob defines model for PipelineJob.
 type PipelineJob struct {
 	// AgentId id of the agent executing this job (project entity hierarchy D5). Supersedes session_id; both are written during the transition so older clients remain compatible.
-	AgentId   string   `json:"agent_id,omitempty"`
+	AgentId string `json:"agent_id,omitempty"`
+
+	// Backend agent backend the job's agent runs on, when set
+	Backend   string   `json:"backend,omitempty"`
 	Branch    string   `json:"branch,omitempty"`
 	DependsOn []string `json:"depends_on,omitempty"`
 	Digest    Digest   `json:"digest,omitempty"`
 	Handoff   string   `json:"handoff,omitempty"`
 	Id        string   `json:"id,omitempty"`
-	Output    string   `json:"output,omitempty"`
-	Prompt    string   `json:"prompt,omitempty"`
+
+	// Model model the job's agent runs, when set
+	Model  string `json:"model,omitempty"`
+	Output string `json:"output,omitempty"`
+	Prompt string `json:"prompt,omitempty"`
 
 	// Role Built-in agent role for the job's spawn (canonical). Preferred over the deprecated `type` field.
 	Role  string           `json:"role,omitempty"`

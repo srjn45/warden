@@ -6165,6 +6165,8 @@ components:
         prompt: { type: string }
         depends_on: { type: array, items: { type: string } }
         handoff: { type: string }
+        backend: { type: string, description: "agent backend the job's agent runs on, when set" }
+        model: { type: string, description: "model the job's agent runs, when set" }
         worktree: { type: string, description: "none | fresh | from:<jobid>" }
         supervised: { type: boolean }
         role:
@@ -6206,6 +6208,8 @@ components:
         name: { type: string }
         repo: { type: string }
         status: { type: string }
+        schedule_id: { type: string, description: "schedule that created this pipeline, when scheduled" }
+        schedule_name: { type: string, description: "operator-facing name of that schedule" }
         plan_id:
           type: string
           description: "back-ref to the plan this pipeline is executing; absent for pipelines not created from a plan"
