@@ -417,3 +417,107 @@ func Advance(s *Schedule, now time.Time, sessionID string, fireErr error) {
 		s.NextRun = nil
 	}
 }
+
+// RecordRun stamps a manual fire (`schedule run`) on s: the fire time, outcome
+// and the run it produced, exactly as Advance does, but WITHOUT touching
+// Enabled or NextRun — a test-fire must not consume a single-shot or move a
+// cron schedule's next occurrence.
+func RecordRun(s *Schedule, now time.Time, sessionID string, fireErr error) {
+	t := now
+	s.LastRun = &t
+	if fireErr != nil {
+		s.LastError = fireErr.Error()
+	} else {
+		s.LastError = ""
+	}
+	s.LastRunSessionID = sessionID
+	s.LastRunStatus = ""
+}
+
+// Patch is a partial edit of a schedule: only non-nil fields change, and an
+// empty string clears an optional field. Mirrors the `schedule edit` flags.
+type Patch struct {
+	Cron, At                                             *string // timing (exclusive)
+	Repo, Cwd, Role, Prompt, Agent, Branch, Model, AiCli *string // agent payload
+	Spec                                                 *string // pipeline payload
+}
+
+// agentFields lists the agent-payload fields the patch sets, as flag names.
+func (p Patch) agentFields() []string {
+	var out []string
+	add := func(v *string, flag string) {
+		if v != nil {
+			out = append(out, flag)
+		}
+	}
+	add(p.Prompt, "--prompt")
+	add(p.Repo, "--repo")
+	add(p.Cwd, "--cwd")
+	add(p.Role, "--role")
+	add(p.Agent, "--agent")
+	add(p.Branch, "--branch")
+	add(p.Model, "--model")
+	add(p.AiCli, "--aicli")
+	return out
+}
+
+// Empty reports whether the patch changes nothing.
+func (p Patch) Empty() bool {
+	return p.Cron == nil && p.At == nil && p.Spec == nil && len(p.agentFields()) == 0
+}
+
+// ApplyPatch applies p to s in place and re-validates the result. It enforces
+// the edit rules: timing may switch between cron and at; a past at is rejected;
+// agent and pipeline mode cannot be switched (create a new schedule). When s is
+// enabled its NextRun is recomputed from now. On error s may be partially
+// modified — apply to a copy first.
+func ApplyPatch(s *Schedule, p Patch, now time.Time) error {
+	if p.Empty() {
+		return fmt.Errorf("nothing to change: pass at least one of --cron, --at, --prompt, --cwd, --repo, --branch, --role, --model, --aicli, --agent or --pipeline")
+	}
+	if p.Cron != nil && p.At != nil {
+		return fmt.Errorf("provide exactly one of --cron or --at, not both")
+	}
+	switch s.Mode {
+	case ModePipeline:
+		if fl := p.agentFields(); len(fl) > 0 {
+			return fmt.Errorf("%s only apply to an agent schedule; %s fires a pipeline — create a new schedule to fire an agent", strings.Join(fl, ", "), s.Name)
+		}
+	default:
+		if p.Spec != nil {
+			return fmt.Errorf("--pipeline cannot be set on %s: it fires an agent — create a new schedule to fire a pipeline", s.Name)
+		}
+	}
+	if p.Cron != nil {
+		if strings.TrimSpace(*p.Cron) == "" {
+			return fmt.Errorf("--cron cannot be empty")
+		}
+		s.Kind, s.Cron, s.At = KindCron, strings.TrimSpace(*p.Cron), ""
+	}
+	if p.At != nil {
+		if err := CheckAtInFuture(*p.At, now); err != nil {
+			return err
+		}
+		s.Kind, s.At, s.Cron = KindAt, strings.TrimSpace(*p.At), ""
+	}
+	set := func(dst *string, v *string) {
+		if v != nil {
+			*dst = strings.TrimSpace(*v)
+		}
+	}
+	set(&s.Repo, p.Repo)
+	set(&s.Cwd, p.Cwd)
+	set(&s.Role, p.Role)
+	set(&s.Prompt, p.Prompt)
+	set(&s.Agent, p.Agent)
+	set(&s.Branch, p.Branch)
+	set(&s.Model, p.Model)
+	set(&s.AiCli, p.AiCli)
+	if p.Spec != nil {
+		s.Spec = *p.Spec
+	}
+	if err := Validate(s); err != nil {
+		return err
+	}
+	return Recompute(s, now)
+}

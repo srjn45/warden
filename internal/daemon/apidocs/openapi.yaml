@@ -3512,6 +3512,37 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      operationId: updateSchedule
+      tags: [Schedules]
+      summary: Edit a schedule in place
+      description: >
+        Changes a schedule's timing or fire payload while keeping its id, created
+        time and last-run history. Only the fields present in the body change; an
+        empty string clears an optional field. Changing timing recomputes next_run;
+        switching between cron and at is allowed; a past `at` is rejected. Switching
+        between agent and pipeline mode is rejected (create a new schedule). The
+        result is validated like a create, so an edit cannot produce a schedule that
+        could never fire. Gated by `scheduler_enabled`; 403 when disabled.
+      parameters: [{ $ref: "#/components/parameters/ScheduleId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ScheduleUpdateRequest" }
+      responses:
+        "200":
+          description: The updated schedule
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Schedule" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403":
+          description: Scheduler disabled
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404": { $ref: "#/components/responses/NotFound" }
     delete:
       operationId: deleteSchedule
       tags: [Schedules]
@@ -3572,6 +3603,42 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/schedules/{id}/run:
+    post:
+      operationId: runSchedule
+      tags: [Schedules]
+      summary: Fire a schedule once, now
+      description: >
+        Fires the schedule immediately, exactly as the scheduler would (same spawn
+        or pipeline start, same schedule back-reference, same last-run recording),
+        without changing its next run, its enabled state or whether a single-shot
+        is still pending. Works on a disabled schedule. A fire failure is returned
+        as an error and also recorded in the schedule's last_error. Gated by
+        `scheduler_enabled`; 403 when disabled.
+      parameters: [{ $ref: "#/components/parameters/ScheduleId" }]
+      responses:
+        "200":
+          description: The schedule and the run this fire produced
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [schedule, run_id]
+                properties:
+                  schedule: { $ref: "#/components/schemas/Schedule" }
+                  run_id: { type: string, description: "id of the agent (agent mode) or pipeline (pipeline mode) that was started" }
+        "403":
+          description: Scheduler disabled
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: The fire failed; the reason is also recorded in last_error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
 components:
   securitySchemes:
@@ -6487,6 +6554,47 @@ components:
         tier: { type: string, description: "model tier for the quota-balanced resolver: tier-1|tier-2|tier-3" }
         project_id: { type: string, description: "id of the project the agent joins; empty = the project owning the launch directory, resolved at fire time like a normal spawn" }
         spec: { type: string, description: "pipeline YAML; non-empty selects pipeline mode and is rejected together with any agent field (prompt, repo, cwd, role, agent, branch, model, ai_cli, …)" }
+
+    ScheduleUpdateRequest:
+      type: object
+      description: Only the fields present change; an empty string clears an optional field.
+      properties:
+        cron:
+          type: string
+          x-go-type: "*string"
+          description: "new recurring cron spec (switches an `at` schedule to recurring)"
+        at:
+          type: string
+          x-go-type: "*string"
+          description: "new single-shot time, must be in the future (switches a cron schedule to single-shot)"
+        repo:
+          type: string
+          x-go-type: "*string"
+        cwd:
+          type: string
+          x-go-type: "*string"
+        role:
+          type: string
+          x-go-type: "*string"
+        prompt:
+          type: string
+          x-go-type: "*string"
+        agent:
+          type: string
+          x-go-type: "*string"
+        branch:
+          type: string
+          x-go-type: "*string"
+        model:
+          type: string
+          x-go-type: "*string"
+        ai_cli:
+          type: string
+          x-go-type: "*string"
+        spec:
+          type: string
+          x-go-type: "*string"
+          description: "new pipeline YAML; only valid on a pipeline schedule"
 
     Schedule:
       x-go-type: schedule.Schedule

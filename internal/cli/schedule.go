@@ -34,7 +34,7 @@ func newScheduleCmd() *cobra.Command {
 	SetCommandHelpMetadata(cmd, "run", 40, "warden schedule", "", NodeNamespace)
 	children := []*cobra.Command{
 		newScheduleCreateCmd(), newScheduleListCmd(), newScheduleShowCmd(),
-		newScheduleEnableCmd(), newScheduleDisableCmd(), newScheduleDeleteCmd(),
+		newScheduleEditCmd(), newScheduleRunCmd(), newScheduleEnableCmd(), newScheduleDisableCmd(), newScheduleDeleteCmd(),
 	}
 	for i, child := range children {
 		SetCommandHelpMetadata(child, "run", (i+1)*10, "warden schedule "+child.Name(), "", NodeLeaf)
@@ -569,6 +569,102 @@ func renderScheduleDetail(sc *schedule.Schedule, now time.Time, withSpec bool) s
 		kv("look at it", cmdHint)
 	}
 	return b.String()
+}
+
+// newScheduleEditCmd changes only flags explicitly supplied by the caller. This
+// is important for optional fields: --prompt "" deliberately clears it.
+func newScheduleEditCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "edit <id> [--cron <spec> | --at <time>] [agent flags] | --pipeline <spec.yaml>",
+		Short: "Edit a schedule's timing or fire payload",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if cmd.Flags().Changed("cron") && cmd.Flags().Changed("at") {
+				return fmt.Errorf("provide exactly one of --cron or --at, not both")
+			}
+			req := client.ScheduleUpdateRequest{}
+			set := func(name string, dst **string) error {
+				if !cmd.Flags().Changed(name) {
+					return nil
+				}
+				v, err := cmd.Flags().GetString(name)
+				if err != nil {
+					return err
+				}
+				*dst = &v
+				return nil
+			}
+			for _, field := range []struct {
+				name string
+				dst  **string
+			}{
+				{"cron", &req.Cron}, {"at", &req.At}, {"repo", &req.Repo}, {"cwd", &req.Cwd},
+				{"role", &req.Role}, {"prompt", &req.Prompt}, {"agent", &req.Agent}, {"branch", &req.Branch},
+				{"model", &req.Model}, {"aicli", &req.AiCli},
+			} {
+				if err := set(field.name, field.dst); err != nil {
+					return err
+				}
+			}
+			if cmd.Flags().Changed("ai-cli") {
+				v, _ := cmd.Flags().GetString("ai-cli")
+				req.AiCli = &v
+			}
+			if cmd.Flags().Changed("pipeline") {
+				path, _ := cmd.Flags().GetString("pipeline")
+				data, err := os.ReadFile(path)
+				if err != nil {
+					return err
+				}
+				if _, err := pipeline.ParseSpec(data); err != nil {
+					return fmt.Errorf("invalid pipeline spec %s: %w", path, err)
+				}
+				v := string(data)
+				req.Spec = &v
+			}
+			if req.Cron == nil && req.At == nil && req.Repo == nil && req.Cwd == nil && req.Role == nil && req.Prompt == nil && req.Agent == nil && req.Branch == nil && req.Model == nil && req.AiCli == nil && req.Spec == nil {
+				return fmt.Errorf("nothing to change: pass an edit flag")
+			}
+			sc, err := clientFor(cmd).ScheduleUpdate(cmd.Context(), args[0], req)
+			if err != nil {
+				return wrapScheduleError(err)
+			}
+			if asJSON, _ := cmd.Flags().GetBool("json"); asJSON {
+				return printJSON(cmd.OutOrStdout(), sc)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "updated %s — next run %s\n", sc.ID, formatNextRun(sc.NextRun))
+			return nil
+		},
+	}
+	cmd.Flags().String("cron", "", "new recurring cron spec (switches from --at)")
+	cmd.Flags().String("at", "", "new single-shot time in the future (switches from --cron)")
+	cmd.Flags().String("repo", "", "repo path for an agent schedule")
+	cmd.Flags().String("cwd", "", "agent launch directory (empty clears it)")
+	cmd.Flags().String("role", "", "agent role (empty clears it)")
+	cmd.Flags().String("prompt", "", "agent prompt (empty clears it)")
+	cmd.Flags().String("agent", "", "agent name (empty clears it)")
+	cmd.Flags().String("branch", "", "development branch (empty clears it)")
+	cmd.Flags().String("model", "", "model ID (empty clears it)")
+	cmd.Flags().String("aicli", "", "AI CLI (empty clears it)")
+	cmd.Flags().String("ai-cli", "", "alias for --aicli")
+	_ = cmd.Flags().MarkHidden("ai-cli")
+	cmd.Flags().String("pipeline", "", "new pipeline YAML spec file")
+	cmd.Flags().Bool("json", false, "print the updated schedule as JSON")
+	return cmd
+}
+
+func newScheduleRunCmd() *cobra.Command {
+	return &cobra.Command{
+		Use: "run <id>", Short: "Fire a schedule once now without changing its next run", Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			sc, runID, err := clientFor(cmd).ScheduleRun(cmd.Context(), args[0])
+			if err != nil {
+				return wrapScheduleError(err)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "ran %s — started %s — next run %s\n", sc.ID, runID, formatNextRun(sc.NextRun))
+			return nil
+		},
+	}
 }
 
 func newScheduleEnableCmd() *cobra.Command {

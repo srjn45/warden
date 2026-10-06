@@ -1425,6 +1425,43 @@ func (c *Client) ScheduleDelete(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, "/schedules/"+url.PathEscape(id), nil, nil)
 }
 
+// ScheduleUpdate partially edits a schedule. Nil fields are left unchanged;
+// non-nil empty strings clear optional fields.
+func (c *Client) ScheduleUpdate(ctx context.Context, id string, req ScheduleUpdateRequest) (*schedule.Schedule, error) {
+	var sc schedule.Schedule
+	if err := c.do(ctx, http.MethodPatch, "/schedules/"+url.PathEscape(id), req, &sc); err != nil {
+		return nil, err
+	}
+	return &sc, nil
+}
+
+// ScheduleUpdateRequest is the JSON body for PATCH /schedules/{id}.
+type ScheduleUpdateRequest struct {
+	Cron   *string `json:"cron,omitempty"`
+	At     *string `json:"at,omitempty"`
+	Repo   *string `json:"repo,omitempty"`
+	Cwd    *string `json:"cwd,omitempty"`
+	Role   *string `json:"role,omitempty"`
+	Prompt *string `json:"prompt,omitempty"`
+	Agent  *string `json:"agent,omitempty"`
+	Branch *string `json:"branch,omitempty"`
+	Model  *string `json:"model,omitempty"`
+	AiCli  *string `json:"ai_cli,omitempty"`
+	Spec   *string `json:"spec,omitempty"`
+}
+
+// ScheduleRun fires a schedule immediately without changing its next run.
+func (c *Client) ScheduleRun(ctx context.Context, id string) (*schedule.Schedule, string, error) {
+	var resp struct {
+		Schedule schedule.Schedule `json:"schedule"`
+		RunID    string            `json:"run_id"`
+	}
+	if err := c.do(ctx, http.MethodPost, "/schedules/"+url.PathEscape(id)+"/run", nil, &resp); err != nil {
+		return nil, "", err
+	}
+	return &resp.Schedule, resp.RunID, nil
+}
+
 // ScheduleGet fetches one schedule by id.
 func (c *Client) ScheduleGet(ctx context.Context, id string) (*schedule.Schedule, error) {
 	var sc schedule.Schedule

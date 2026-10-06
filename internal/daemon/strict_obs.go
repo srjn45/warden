@@ -10,6 +10,7 @@ import (
 	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/daemon/oapi"
+	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/metrics"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/role"
@@ -241,6 +242,109 @@ func (s *Server) setScheduleEnabled(ctx context.Context, id string, enabled bool
 	return sc, nil
 }
 
+// UpdateSchedule implements PATCH /api/v1/schedules/{id}: edit timing or payload
+// in place, keeping the id, created time and last-run history. The patch is
+// validated on a copy (including the same fireability check create uses) and
+// then applied to the stored record under the store lock, so an edit racing a
+// scheduler tick cannot clobber the tick's last-run bookkeeping.
+func (s *Server) UpdateSchedule(ctx context.Context, req oapi.UpdateScheduleRequestObject) (oapi.UpdateScheduleResponseObject, error) {
+	if !s.scheduler || s.schedStore == nil {
+		return nil, errStatus(http.StatusForbidden, schedulerDisabledMsg)
+	}
+	var b oapi.ScheduleUpdateRequest
+	if req.Body != nil {
+		b = *req.Body
+	}
+	patch := schedule.Patch{
+		Cron: b.Cron, At: b.At, Repo: b.Repo, Cwd: b.Cwd, Role: b.Role, Prompt: b.Prompt,
+		Agent: b.Agent, Branch: b.Branch, Model: b.Model, AiCli: b.AiCli, Spec: b.Spec,
+	}
+	cur, err := s.schedStore.Get(req.Id)
+	if errors.Is(err, schedule.ErrNotFound) {
+		return nil, errStatus(http.StatusNotFound, "schedule not found")
+	} else if err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	// A new repo replaces the working-directory default, as on create — but only
+	// for a worktree-owning role, whose agent runs in the repo's worktree.
+	if patch.Repo != nil && strings.TrimSpace(*patch.Repo) != "" && patch.Cwd == nil && cur.Mode == schedule.ModeAgent {
+		probe := *cur
+		probe.Repo = *patch.Repo
+		if lifecycle.RoleOwnsWorktree(scheduleSpawnRequest(&probe).Role) {
+			empty := ""
+			patch.Cwd = &empty
+		}
+	}
+	cand := *cur
+	if err := schedule.ApplyPatch(&cand, patch, now); err != nil {
+		return nil, errStatus(http.StatusBadRequest, err.Error())
+	}
+	if cand.Mode == schedule.ModePipeline {
+		if _, err := pipeline.ParseSpec([]byte(cand.Spec)); err != nil {
+			return nil, errStatus(http.StatusBadRequest, "invalid pipeline spec: "+err.Error())
+		}
+	} else if msg := s.validateScheduleProbe(ctx, &cand); msg != "" {
+		return nil, errStatus(http.StatusBadRequest, msg)
+	}
+	var applyErr error
+	err = s.schedStore.Update(req.Id, func(stored *schedule.Schedule) {
+		applyErr = schedule.ApplyPatch(stored, patch, now)
+	})
+	if errors.Is(err, schedule.ErrNotFound) {
+		return nil, errStatus(http.StatusNotFound, "schedule not found")
+	} else if err != nil {
+		return nil, err
+	}
+	if applyErr != nil {
+		return nil, errStatus(http.StatusBadRequest, applyErr.Error())
+	}
+	sc, err := s.schedStore.Get(req.Id)
+	if err != nil {
+		return nil, err
+	}
+	s.recordAuditCtx(ctx, audit.ActionScheduleUpdate, sc.ID, nil)
+	s.notify()
+	return oapi.UpdateSchedule200JSONResponse(*sc), nil
+}
+
+// RunSchedule implements POST /api/v1/schedules/{id}/run: fire the schedule once
+// now through the same path the scheduler tick uses, recording the outcome
+// without re-arming — next run, enabled state and a single-shot's pending state
+// are untouched.
+func (s *Server) RunSchedule(ctx context.Context, req oapi.RunScheduleRequestObject) (oapi.RunScheduleResponseObject, error) {
+	if !s.scheduler || s.schedStore == nil {
+		return nil, errStatus(http.StatusForbidden, schedulerDisabledMsg)
+	}
+	sc, err := s.schedStore.Get(req.Id)
+	if errors.Is(err, schedule.ErrNotFound) {
+		return nil, errStatus(http.StatusNotFound, "schedule not found")
+	} else if err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	runID, fireErr := s.fireSchedule(ctx, sc)
+	if fireErr != nil {
+		runID = ""
+	}
+	// Persist under the same store update the tick uses.
+	if uerr := s.schedStore.Update(req.Id, func(stored *schedule.Schedule) {
+		schedule.RecordRun(stored, now, runID, fireErr)
+	}); uerr != nil && !errors.Is(uerr, schedule.ErrNotFound) {
+		return nil, uerr
+	}
+	s.recordAuditCtx(ctx, audit.ActionScheduleRun, req.Id, nil)
+	s.notify()
+	if fireErr != nil {
+		return nil, errStatus(http.StatusConflict, fireErr.Error())
+	}
+	cur, err := s.schedStore.Get(req.Id)
+	if err != nil {
+		return nil, err
+	}
+	return oapi.RunSchedule200JSONResponse{Schedule: *cur, RunId: runID}, nil
+}
+
 // ListSnapshots implements GET /api/v1/snapshots, newest first, optionally
 // filtered to one ?session=.
 func (s *Server) ListSnapshots(ctx context.Context, req oapi.ListSnapshotsRequestObject) (oapi.ListSnapshotsResponseObject, error) {
@@ -328,19 +432,24 @@ func (s *Server) RestoreSnapshot(ctx context.Context, req oapi.RestoreSnapshotRe
 // meaningful at fire time). It returns the reason, or "" when acceptable. Done
 // here, not in schedule.Validate, to keep that package dependency-light.
 func (s *Server) validateScheduleAgent(ctx context.Context, b oapi.ScheduleCreateRequest) string {
-	if r := strings.TrimSpace(b.Role); r != "" {
-		if _, ok := role.Get(r); !ok {
-			return "unknown role " + r + " (valid: " + strings.Join(role.Names(), ", ") + ")"
-		}
-	}
-	if t := strings.TrimSpace(b.Tier); t != "" && !backendstore.ModelTier(t).Valid() {
-		return "invalid tier " + t + " (valid: tier-1, tier-2, tier-3)"
-	}
-	probe := &schedule.Schedule{
+	return s.validateScheduleProbe(ctx, &schedule.Schedule{
 		Type: b.Type, Repo: b.Repo, Cwd: b.Cwd, Role: b.Role,
 		Agent: b.Agent, Branch: b.Branch, Prompt: b.Prompt,
 		Model: b.Model, AiCli: b.AiCli, PermissionMode: b.PermissionMode,
 		AutoRestart: b.AutoRestart, Tags: b.Tags, Tier: b.Tier, ProjectID: b.ProjectId,
+	})
+}
+
+// validateScheduleProbe is the create-time fireability check on an agent
+// schedule's payload, shared by create and edit. It returns the reason, or "".
+func (s *Server) validateScheduleProbe(ctx context.Context, probe *schedule.Schedule) string {
+	if r := strings.TrimSpace(probe.Role); r != "" {
+		if _, ok := role.Get(r); !ok {
+			return "unknown role " + r + " (valid: " + strings.Join(role.Names(), ", ") + ")"
+		}
+	}
+	if t := strings.TrimSpace(probe.Tier); t != "" && !backendstore.ModelTier(t).Valid() {
+		return "invalid tier " + t + " (valid: tier-1, tier-2, tier-3)"
 	}
 	req := scheduleSpawnRequest(probe)
 	if code, msg := s.validateSpawnRequestOpts(ctx, req, true); code != 0 {

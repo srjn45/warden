@@ -111,6 +111,38 @@ func TestScheduleDelete(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, resp2.StatusCode)
 }
 
+func TestScheduleEditAndRun(t *testing.T) {
+	ts, srv, fl := newSchedServer(t)
+	defer ts.Close()
+	create := `{"name":"editme","cron":"0 9 * * *","prompt":"old","cwd":"` + t.TempDir() + `"}`
+	code, _ := postSchedule(t, ts, create)
+	require.Equal(t, http.StatusCreated, code)
+
+	req, err := http.NewRequest(http.MethodPatch, ts.URL+"/api/v1/schedules/editme", strings.NewReader(`{"prompt":"new","cron":"0 10 * * *"}`))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	resp.Body.Close()
+	got, err := srv.schedStore.Get("editme")
+	require.NoError(t, err)
+	require.Equal(t, "new", got.Prompt)
+	require.Equal(t, "0 10 * * *", got.Cron)
+	next := *got.NextRun
+
+	resp, err = http.Post(ts.URL+"/api/v1/schedules/editme/run", "application/json", nil)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	resp.Body.Close()
+	got, err = srv.schedStore.Get("editme")
+	require.NoError(t, err)
+	require.NotNil(t, fl.spawned)
+	require.NotNil(t, got.LastRun)
+	require.True(t, got.Enabled)
+	require.Equal(t, next, *got.NextRun, "manual runs must not re-arm or consume the schedule")
+}
+
 // With the gate off every schedule endpoint returns 403.
 func TestScheduleGatedOff403(t *testing.T) {
 	ps, _ := pipeline.NewStore(t.TempDir())
