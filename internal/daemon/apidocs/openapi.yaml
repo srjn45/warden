@@ -1721,8 +1721,7 @@ paths:
       description: >
         Transitions a pending plan to in_progress and starts the selected execution
         mode. This is the only supported public start path for plan execution
-        (including mode=autopilot). Do not register plan files or call the
-        deprecated autopilot run-control start alias.
+        (including mode=autopilot).
       parameters: [{ $ref: "#/components/parameters/PlanId" }]
       requestBody:
         required: true
@@ -1794,9 +1793,7 @@ paths:
         or plan-bound agent). Together with POST /plans/{plan_id}/run and
         POST /plans/{plan_id}/restart, this is the public lifecycle surface for
         plan execution. Use restart (not resume) to bring a stopped, degraded,
-        healing or parked executor back with a fresh agent set. Deprecated
-        autopilot register/unregister/retarget and plan-file-based start aliases
-        translate here (or to run) when a PlanID can be resolved.
+        healing or parked executor back with a fresh agent set.
       responses:
         "200":
           description: The plan after the control action
@@ -3280,191 +3277,6 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/AutopilotStatus" }
-    post:
-      operationId: setAutopilot
-      deprecated: true
-      tags: [Autopilot]
-      summary: "Deprecated: no per-repo switch (enabled=false pauses the repo's runs)"
-      description: >
-        DEPRECATED — there is no per-repo autopilot switch. enabled=true is a
-        no-op. enabled=false pauses every active autopilot run in the repo (same
-        effect as pausing each plan). Start execution with
-        POST /plans/{plan_id}/run (execution_mode=autopilot).
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/AutopilotToggleRequest" }
-      responses:
-        "200":
-          description: The resulting autopilot status
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/AutopilotStatus" }
-        "400": { $ref: "#/components/responses/BadRequest" }
-
-  /api/v1/autopilot/runs:
-    get:
-      operationId: listAutopilotRuns
-      tags: [Autopilot]
-      summary: List live Autopilot executors
-      description: >
-        Lists live Autopilot executors (and any legacy registered runs still in
-        the store). Prefer listing plans via GET /plans and inspecting each plan's
-        active execution.
-      responses:
-        "200":
-          description: Autopilot executors, including stopped and complete records
-          content:
-            application/json:
-              schema:
-                type: array
-                items: { $ref: "#/components/schemas/AutopilotRun" }
-    post:
-      operationId: registerAutopilotRun
-      tags: [Autopilot]
-      deprecated: true
-      summary: "[deprecated] Register a named plan"
-      description: >
-        DEPRECATED for one release. Plan-file registration is retired. When the
-        plan_file resolves to a PlanID, returns 410 with a migration message naming
-        that PlanID and pointing at POST /plans/{plan_id}/run. When no Plan can be
-        resolved, returns 400 with a precise migration error (scan/import/create
-        the plan first).
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/AutopilotRegisterRequest" }
-      responses:
-        "400": { $ref: "#/components/responses/BadRequest" }
-        "403":
-          description: Autopilot is not configured
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Error" }
-        "410":
-          description: Retired — use plan run with the resolved PlanID
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Error" }
-
-  /api/v1/autopilot/runs/{run_id}/{action}:
-    parameters:
-      - in: path
-        name: run_id
-        required: true
-        schema: { type: string }
-      - in: path
-        name: action
-        required: true
-        schema: { type: string, enum: [start, pause, resume, stop, unregister] }
-    post:
-      operationId: controlAutopilotRun
-      tags: [Autopilot]
-      deprecated: true
-      summary: "[deprecated] Start, pause, resume, stop, or unregister one run"
-      description: >
-        DEPRECATED for one release. Translates to plan run/control when a PlanID
-        can be resolved from the run (start → POST /plans/{id}/run; pause/resume/stop
-        → POST /plans/{id}/{action}; unregister → stop). Returns a precise
-        migration error when no PlanID can be resolved. Prefer the plan endpoints.
-      responses:
-        "200":
-          description: Updated run (compat shape) or translated plan control result as AutopilotRun
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/AutopilotRun" }
-        "400": { $ref: "#/components/responses/BadRequest" }
-        "403":
-          description: Autopilot is not configured
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Error" }
-        "404": { $ref: "#/components/responses/NotFound" }
-        "409":
-          description: Illegal lifecycle transition
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Error" }
-        "410":
-          description: Retired start/unregister with resolved PlanID — use plan endpoints
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Error" }
-
-  /api/v1/autopilot/runs/{run_id}/rename:
-    parameters:
-      - in: path
-        name: run_id
-        required: true
-        schema: { type: string }
-    post:
-      operationId: renameAutopilotRun
-      tags: [Autopilot]
-      summary: Rename a run's display name and slot scope
-      description: >
-        Updates the display name and derived slot scope without changing the
-        path-derived run_id. Integration branch ownership follows the Plan executor;
-        do not use the retired retarget alias.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/AutopilotRenameRequest" }
-      responses:
-        "200":
-          description: Updated run
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/AutopilotRun" }
-        "400": { $ref: "#/components/responses/BadRequest" }
-        "403":
-          description: Autopilot is not configured
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Error" }
-        "404": { $ref: "#/components/responses/NotFound" }
-        "409":
-          description: Illegal rename (active run or name conflict)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Error" }
-
-  /api/v1/autopilot/runs/{run_id}/retarget:
-    parameters:
-      - in: path
-        name: run_id
-        required: true
-        schema: { type: string }
-    post:
-      operationId: retargetAutopilotRun
-      tags: [Autopilot]
-      deprecated: true
-      summary: "[deprecated] Retarget a run's integration branch"
-      description: >
-        DEPRECATED for one release. Retarget has no safe PlanID translation —
-        integration branches are owned by Plan-bound Autopilot executors created
-        via POST /plans/{plan_id}/run. Always returns 410 with a precise migration
-        error (include PlanID when the run resolves to one).
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/AutopilotRetargetRequest" }
-      responses:
-        "400": { $ref: "#/components/responses/BadRequest" }
-        "403":
-          description: Autopilot is not configured
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Error" }
-        "404": { $ref: "#/components/responses/NotFound" }
-        "410":
-          description: Retired — no safe PlanID translation for retarget
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Error" }
 
   /api/v1/autopilot/land:
     post:
@@ -6671,48 +6483,6 @@ components:
             live status of last_run_session_id (running → exited/error),
             refreshed each reconcile tick while the session record still exists.
             Empty once the session is gone or before the first fire.
-
-    AutopilotToggleRequest:
-      type: object
-      description: >
-        DEPRECATED body for POST /autopilot. `repo` scopes to one repository;
-        omitted, it defaults to the daemon's working directory. enabled=true is a
-        no-op; enabled=false pauses the repo's active runs.
-      properties:
-        enabled: { type: boolean, description: "true is a no-op; false pauses every active autopilot run in the repo" }
-        repo: { type: string, description: "repo root to toggle (optional; defaults to the daemon's working directory)" }
-      required: [enabled]
-
-    AutopilotRegisterRequest:
-      type: object
-      deprecated: true
-      description: >
-        DEPRECATED body for POST /autopilot/runs. Prefer creating/importing a Plan
-        and calling POST /plans/{plan_id}/run.
-      properties:
-        name: { type: string }
-        repo: { type: string }
-        plan_file: { type: string }
-      required: [plan_file]
-
-    AutopilotRenameRequest:
-      type: object
-      properties:
-        name: { type: string, description: "new display name within the repository" }
-      required: [name]
-
-    AutopilotRetargetRequest:
-      type: object
-      properties:
-        integration_branch:
-          type: string
-          description: "explicit new merge target branch"
-        derive:
-          type: boolean
-          description: "re-derive from the run's current display name and global template"
-      description: >
-        Provide integration_branch or derive=true. Open PRs on the previous
-        branch are not migrated automatically.
 
     AutopilotRun:
       x-go-type: autopilot.RunStatus

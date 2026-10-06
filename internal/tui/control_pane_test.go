@@ -982,14 +982,14 @@ func TestLeftRightCollapseProjectHeader(t *testing.T) {
 func TestAutopilotRunScopedKeyboardActions(t *testing.T) {
 	f := &fakeAPI{}
 	m := newListPane(f, "%9", "")
-	m.autopilot = client.AutopilotStatus{Runs: []client.AutopilotRunStatus{{RunID: "ap-1", Name: "release", Repo: "/repo", State: "active"}}}
+	m.autopilot = client.AutopilotStatus{Runs: []client.AutopilotRunStatus{{RunID: "ap-1", PlanID: "plan-1", Name: "release", Repo: "/repo", State: "active"}}}
 	m.cursor = cursorOn(m, func(it item) bool { return it.apRun != nil })
 	next, cmd := m.handleKey(key("r"))
 	require.NotNil(t, cmd)
 	_ = next
 	msg := cmd()
 	require.IsType(t, autopilotRunActionMsg{}, msg)
-	require.Equal(t, "ap-1", f.autopilotRunID)
+	require.Equal(t, "plan-1", f.autopilotRunID)
 	require.Equal(t, "pause", f.autopilotAction)
 
 	m.autopilot.Runs[0].State = "paused"
@@ -1006,7 +1006,7 @@ func TestAutopilotRunScopedKeyboardActions(t *testing.T) {
 func TestAutopilotOwnedAgentsHiddenFromFlatGrid(t *testing.T) {
 	m := newListPane(&fakeAPI{}, "%9", "")
 	m.projects = []projectstore.Project{{ID: "/repo", Name: "Repo", Path: "/repo", Status: projectstore.StatusOpen}}
-	m.autopilot = client.AutopilotStatus{Runs: []client.AutopilotRunStatus{{RunID: "ap-1", Name: "release", Repo: "/repo", State: "active"}}}
+	m.autopilot = client.AutopilotStatus{Runs: []client.AutopilotRunStatus{{RunID: "ap-1", PlanID: "plan-1", Name: "release", Repo: "/repo", State: "active"}}}
 	m.sessions = []*store.Session{
 		{ID: "plain", Repo: "/repo", Status: store.StatusIdle},
 		{ID: "tagged-worker", Repo: "/repo", Status: store.StatusWorking, Tags: []string{"autopilot", "run:ap-1"}},

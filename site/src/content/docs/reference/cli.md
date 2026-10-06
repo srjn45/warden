@@ -5281,19 +5281,6 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | `warden auto-approve policy` | `warden approval auto rules` |
 | `warden auto-approve rules` | `warden approval auto rules` |
 | `warden auto-approve show` | `warden approval auto rules` |
-| `warden autopilot disable` | `warden plan pause` |
-| `warden autopilot enable` | `warden plan run` |
-| `warden autopilot list` | `warden autopilot status` |
-| `warden autopilot off` | `warden plan pause` |
-| `warden autopilot on` | `warden plan run` |
-| `warden autopilot pause` | `warden plan pause` |
-| `warden autopilot register` | `warden plan run` |
-| `warden autopilot resume` | `warden plan resume` |
-| `warden autopilot run` | `warden autopilot status` |
-| `warden autopilot run list` | `warden autopilot status` |
-| `warden autopilot start` | `warden plan run` |
-| `warden autopilot stop` | `warden plan stop` |
-| `warden autopilot unregister` | `warden plan stop` |
 | `warden backend ls` | `warden backend list` |
 | `warden backend model ls` | `warden backend model list` |
 | `warden backends` | `warden backend` |

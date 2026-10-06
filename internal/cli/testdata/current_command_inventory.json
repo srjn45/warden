@@ -803,32 +803,6 @@
     ]
   },
   {
-    "path": "autopilot disable",
-    "use": "disable",
-    "hidden": true,
-    "runnable": true,
-    "local_flags": [
-      "repo"
-    ],
-    "inherited_flags": [
-      "addr",
-      "config"
-    ]
-  },
-  {
-    "path": "autopilot enable",
-    "use": "enable",
-    "hidden": true,
-    "runnable": true,
-    "local_flags": [
-      "repo"
-    ],
-    "inherited_flags": [
-      "addr",
-      "config"
-    ]
-  },
-  {
     "path": "autopilot land",
     "use": "land \u003cagent-or-branch\u003e",
     "runnable": true,
@@ -842,118 +816,6 @@
     "json": true
   },
   {
-    "path": "autopilot list",
-    "use": "list",
-    "hidden": true,
-    "runnable": true,
-    "local_flags": [
-      "json"
-    ],
-    "inherited_flags": [
-      "addr",
-      "config"
-    ],
-    "json": true
-  },
-  {
-    "path": "autopilot off",
-    "use": "off",
-    "hidden": true,
-    "runnable": true,
-    "local_flags": [
-      "repo"
-    ],
-    "inherited_flags": [
-      "addr",
-      "config"
-    ]
-  },
-  {
-    "path": "autopilot on",
-    "use": "on",
-    "hidden": true,
-    "runnable": true,
-    "local_flags": [
-      "repo"
-    ],
-    "inherited_flags": [
-      "addr",
-      "config"
-    ]
-  },
-  {
-    "path": "autopilot pause",
-    "use": "pause \u003crun-id-or-name\u003e",
-    "hidden": true,
-    "runnable": true,
-    "inherited_flags": [
-      "addr",
-      "config"
-    ]
-  },
-  {
-    "path": "autopilot register",
-    "use": "register \u003cplan-file\u003e",
-    "hidden": true,
-    "runnable": true,
-    "local_flags": [
-      "name",
-      "repo"
-    ],
-    "inherited_flags": [
-      "addr",
-      "config"
-    ]
-  },
-  {
-    "path": "autopilot resume",
-    "use": "resume \u003crun-id-or-name\u003e",
-    "hidden": true,
-    "runnable": true,
-    "inherited_flags": [
-      "addr",
-      "config"
-    ]
-  },
-  {
-    "path": "autopilot run",
-    "use": "run",
-    "hidden": true,
-    "runnable": true,
-    "local_flags": [
-      "json"
-    ],
-    "inherited_flags": [
-      "addr",
-      "config"
-    ],
-    "json": true
-  },
-  {
-    "path": "autopilot run list",
-    "use": "list",
-    "hidden": true,
-    "runnable": true,
-    "local_flags": [
-      "json"
-    ],
-    "inherited_flags": [
-      "addr",
-      "config"
-    ],
-    "json": true
-  },
-  {
-    "path": "autopilot start",
-    "use": "start \u003crun-id-or-name\u003e",
-    "hidden": true,
-    "runnable": true,
-    "inherited_flags": [
-      "addr",
-      "config"
-    ]
-  },
-  {
     "path": "autopilot status",
     "use": "status",
     "runnable": true,
@@ -965,26 +827,6 @@
       "config"
     ],
     "json": true
-  },
-  {
-    "path": "autopilot stop",
-    "use": "stop \u003crun-id-or-name\u003e",
-    "hidden": true,
-    "runnable": true,
-    "inherited_flags": [
-      "addr",
-      "config"
-    ]
-  },
-  {
-    "path": "autopilot unregister",
-    "use": "unregister \u003crun-id-or-name\u003e",
-    "hidden": true,
-    "runnable": true,
-    "inherited_flags": [
-      "addr",
-      "config"
-    ]
   },
   {
     "path": "backend",

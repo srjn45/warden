@@ -303,14 +303,14 @@ A goal-directed long-running autonomous mode: a **manager** agent (role
 and lands them into an integration branch, without waiting on a human.
 
 > ⚠️ **Prominent risk warning:** unattended operation is inherently risky.
-> Use `warden plan pause <id>` (or the deprecated `warden autopilot off`, which pauses every active run in the repo) to stop new spawns/landings at
+> Use `warden plan pause <id>` to stop new spawns/landings at
 > any time. Workers always land into `autopilot/integration`, never directly
 > into `main`. Every action is recorded in `warden audit log`.
 
 | Feature | CLI | MCP | Skill | Web | TUI | Docs |
 |---|---|---|---|---|---|---|
-| Start autopilot — no enable step; `plan run --mode autopilot` starts the run (`autopilot on` is a deprecated hidden no-op) | `plan run <id> --mode autopilot` | `run_plan` (`set_autopilot` `enabled: true` deprecated no-op) | ✓ | — | — | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
-| Pause a run (deprecated `autopilot off`/`set_autopilot enabled:false` pauses every active run in the repo) | `plan pause <id>` | `control_plan` | ✓ | AttentionBar button | `ctrl+a` header badge | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
+| Start autopilot — no enable step; `plan run --mode autopilot` starts the run | `plan run <id> --mode autopilot` | `run_plan` | ✓ | — | — | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
+| Pause a run | `plan pause <id>` | `control_plan` | ✓ | AttentionBar button | header badge | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
 | Status (run state, manager id, task counts, tier, backoff; absorbs the old run-list columns; hidden aliases `autopilot run list`/`list`) | `autopilot status [--json]` | `autopilot_status` | ✓ | AutopilotPanel | TUI header badge | [autopilot guide](https://srjn45.github.io/warden/guides/autopilot/) |
 | Live status of one running plan (executor state, backoff, integration branch, per-task worker/PR) | `plan show <id> --watch` | `get_plan` | ✓ | — | — | [using-plans](https://srjn45.github.io/warden/guides/using-plans/) |
 | Start / control plan execution | `plan run\|pause\|resume\|stop` | `run_plan` / `control_plan` | ✓ | AutopilotPanel | run nodes (`r`/`x`) | [plans](https://srjn45.github.io/warden/concepts/plans/) |
@@ -444,7 +444,7 @@ CLI-only **by design**. New parity tools added for full coverage: `digest`,
 `edit_pipeline_job`, `emit_pipeline_output`, `delete_pipeline`,
 `validate_pipeline`, `list_pipeline_templates`, `library_list`,
 `create_schedule`, `get_schedule`, `enable_schedule`, `disable_schedule`, `delete_schedule`, `fork_agent`, `set_role`, `list_roles`,
-`set_autopilot`, `autopilot_status`, `land`, `list_backends`, `rescan_backends`,
+`autopilot_status`, `land`, `list_backends`, `rescan_backends`,
 `set_backend_tier`, `set_default_backend`. (`set_thinking_mode` is a retired no-op.)
 
 > **Backend-registry parity note:** the backend tools cover list / rescan /

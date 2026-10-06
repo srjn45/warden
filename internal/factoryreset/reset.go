@@ -59,8 +59,8 @@ type RuntimeDrainer interface {
 	PipelineList(ctx context.Context) ([]*pipeline.Pipeline, error)
 	PipelineCancel(ctx context.Context, id string) error
 	PipelineDelete(ctx context.Context, id string) error
-	ListAutopilotRuns(ctx context.Context) ([]client.AutopilotRunStatus, error)
-	ControlAutopilotRun(ctx context.Context, runID, action string) (client.AutopilotRunStatus, error)
+	GetAutopilot(ctx context.Context) (client.AutopilotStatus, error)
+	PlansControl(ctx context.Context, planID, action string) (*client.PlanView, error)
 	ScheduleList(ctx context.Context) ([]*schedule.Schedule, error)
 	ScheduleDelete(ctx context.Context, id string) error
 	Prune(ctx context.Context, p client.PruneParams) ([]lifecycle.PruneResult, error)
@@ -99,18 +99,18 @@ func Drain(ctx context.Context, d RuntimeDrainer, pruneWorktrees bool, out io.Wr
 		}
 	}
 
-	// Autopilot: stop and unregister every run.
-	if runs, err := d.ListAutopilotRuns(ctx); err != nil {
+	// Autopilot: stop every run through its plan.
+	if st, err := d.GetAutopilot(ctx); err != nil {
 		errs = append(errs, fmt.Errorf("list autopilot runs: %w", err))
 	} else {
-		for _, r := range runs {
-			if _, err := d.ControlAutopilotRun(ctx, r.RunID, "stop"); err != nil {
-				errs = append(errs, fmt.Errorf("stop autopilot run %s: %w", r.RunID, err))
+		for _, r := range st.Runs {
+			if r.PlanID == "" {
+				continue
 			}
-			if _, err := d.ControlAutopilotRun(ctx, r.RunID, "unregister"); err != nil {
-				errs = append(errs, fmt.Errorf("unregister autopilot run %s: %w", r.RunID, err))
+			if _, err := d.PlansControl(ctx, r.PlanID, "stop"); err != nil {
+				errs = append(errs, fmt.Errorf("stop autopilot run %s: %w", r.RunID, err))
 			} else {
-				logf("removed autopilot run %s\n", r.RunID)
+				logf("stopped autopilot run %s\n", r.RunID)
 			}
 		}
 	}

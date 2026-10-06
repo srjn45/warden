@@ -242,12 +242,10 @@ its own integration branch and plan-scoped tree (`<scope>-autopilot`,
 
 | Tool | What it does | CLI equivalent |
 |---|---|---|
-| `set_autopilot { enabled: true, repo? }` | **Deprecated no-op.** There is no enable step — start work with `run_plan` | `warden autopilot enable` (hidden no-op + notice) |
-| `set_autopilot { enabled: false, repo? }` | **Deprecated.** Pauses every active run in the repo (same as `control_plan` pause on each); prefer `control_plan` | `warden autopilot disable [--repo <root>]` (hidden) |
 | `run_plan { plan_id, execution_mode }` | Start plan execution (`autopilot` / `pipeline` / …) | `warden plan run <id> --mode <mode>` |
 | `control_plan { plan_id, action }` | Pause, resume, or stop an in-progress plan | `warden plan pause\|resume\|stop <id>` |
 | `restart_plan { plan_id, force?, backend? }` | **DESTRUCTIVE.** Restart a stopped/degraded/parked/stuck `in_progress` autopilot or pipeline plan with a brand-new agent set (old agents + worktrees removed; landed work, handoffs and branches with commits kept; new agents get a `## Restart context`). `force` needed for active/starting/paused; `backend` = new manager backend (autopilot). Unsupported for `orchestrator_worker`/`manual`. **Confirm with the operator before calling** | `warden plan restart <id> [--force] [--backend <id>] --yes` |
-| `autopilot_status` | Each run's state, manager slot id, integration branch, task counts, tier, backoff, optional `preflight_warnings` | `warden autopilot status [--json]` (aliases `autopilot run list` / `autopilot list`) |
+| `autopilot_status` | Each run's state, manager slot id, integration branch, task counts, tier, backoff, optional `preflight_warnings` | `warden autopilot status [--json]` |
 | `autopilot_complete` | **Manager-only.** Declare the caller's OWN run done once `done_when` is verified — the daemon opens + gates the final PR; the run is only *complete* (in-place `status: complete` marker, plan `completed`, integration branch deleted) once that PR is **merged**. Idempotent | _(automatic; the manager calls it)_ |
 | `brain_consult` | **Manager-only.** Shared short-lived brain resolver for unblock/design decisions — prefer over `spawn_agent` with role=brain. Returns a closed action (`nudge_agent`/`wait`/`escalate`/`noop`); manager executes it. Same Consultor/audit/teardown as pipeline stuck recovery | _(automatic; the manager calls it)_ |
 | `land { ticket: "<agent-or-branch>" }` | Land a worker branch into the run's integration branch | `warden autopilot land <agent-or-branch>` |
@@ -303,7 +301,7 @@ and only if the kept work is unusable start from the integration branch and clos
 the old PR with a comment.
 
 Create the Plan with `warden plan create`, then start with
-`warden plan run <id> --mode autopilot` (do not use retired `autopilot register` or `autopilot init`).
+`warden plan run <id> --mode autopilot` (there is no `autopilot register` or `autopilot init`).
 
 ### Key ledger context keys
 
@@ -337,9 +335,7 @@ checklist enum, not ledger states.
 - **Ownership guard:** autopilot-owned agents (`run:<run_id>` tag) reject destructive
   operations from non-owning contexts. Confirm with the user before force-stopping
   an autopilot worker.
-- **To pause, use `control_plan` / `warden plan pause <id>`.** The deprecated
-  `set_autopilot { enabled: false }` / `autopilot disable` pauses every active run in
-  the repo. Relay it clearly when the user asks to stop or pause autopilot.
+- **To pause, use `control_plan` / `warden plan pause <id>`.** Relay it clearly when the user asks to stop or pause autopilot.
 - **Completed runs are marked in the plan file.** A plan with `status: complete`
   is skipped by preflight; to re-run it the user must remove that line (or point
   the config at a fresh plan file). Don't re-run a completed plan expecting it

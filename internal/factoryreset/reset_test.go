@@ -149,11 +149,11 @@ func (f *fakeDrainer) PipelineList(context.Context) ([]*pipeline.Pipeline, error
 }
 func (f *fakeDrainer) PipelineCancel(context.Context, string) error { return nil }
 func (f *fakeDrainer) PipelineDelete(context.Context, string) error { return nil }
-func (f *fakeDrainer) ListAutopilotRuns(context.Context) ([]client.AutopilotRunStatus, error) {
-	return nil, nil
+func (f *fakeDrainer) GetAutopilot(context.Context) (client.AutopilotStatus, error) {
+	return client.AutopilotStatus{}, nil
 }
-func (f *fakeDrainer) ControlAutopilotRun(context.Context, string, string) (client.AutopilotRunStatus, error) {
-	return client.AutopilotRunStatus{}, nil
+func (f *fakeDrainer) PlansControl(context.Context, string, string) (*client.PlanView, error) {
+	return &client.PlanView{}, nil
 }
 func (f *fakeDrainer) ScheduleList(context.Context) ([]*schedule.Schedule, error) { return nil, nil }
 func (f *fakeDrainer) ScheduleDelete(context.Context, string) error               { return nil }

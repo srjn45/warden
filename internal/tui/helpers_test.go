@@ -257,12 +257,9 @@ func (f *fakeAPI) MsgRecent(_ context.Context, limit int) ([]client.Message, err
 func (f *fakeAPI) GetAutopilot(context.Context) (client.AutopilotStatus, error) {
 	return f.autopilot, nil
 }
-func (f *fakeAPI) SetAutopilot(_ context.Context, _ bool, _ string) (client.AutopilotStatus, error) {
-	return client.AutopilotStatus{}, nil
-}
-func (f *fakeAPI) ControlAutopilotRun(_ context.Context, runID, action string) (client.AutopilotRunStatus, error) {
-	f.autopilotRunID, f.autopilotAction = runID, action
-	return client.AutopilotRunStatus{RunID: runID, State: action}, nil
+func (f *fakeAPI) PlansControl(_ context.Context, planID, action string) (*client.PlanView, error) {
+	f.autopilotRunID, f.autopilotAction = planID, action
+	return &client.PlanView{}, nil
 }
 func (f *fakeAPI) ListBackends(context.Context) (client.BackendsState, error) {
 	return f.backends, f.backendsErr

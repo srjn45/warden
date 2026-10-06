@@ -531,22 +531,17 @@ type autopilotMsg struct {
 	err    error
 }
 
-// autopilotToggleDoneMsg carries the result of toggling autopilot on or off.
-type autopilotToggleDoneMsg struct {
-	status client.AutopilotStatus
-	err    error
-}
-
 type autopilotRunActionMsg struct {
 	runID, action string
 	err           error
 }
 
-func autopilotRunActionCmd(a api, runID, action string) tea.Cmd {
+// autopilotRunActionCmd pauses, resumes or stops a run through its plan.
+func autopilotRunActionCmd(a api, runID, planID, action string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := bgLong()
 		defer cancel()
-		_, err := a.ControlAutopilotRun(ctx, runID, action)
+		_, err := a.PlansControl(ctx, planID, action)
 		return autopilotRunActionMsg{runID: runID, action: action, err: err}
 	}
 }
@@ -558,17 +553,6 @@ func autopilotCmd(a api) tea.Cmd {
 		defer cancel()
 		st, err := a.GetAutopilot(ctx)
 		return autopilotMsg{status: st, err: err}
-	}
-}
-
-// autopilotToggleCmd flips the autopilot switch for the daemon's working-directory
-// repo (empty repo ⇒ that default — the switch is per-repo).
-func autopilotToggleCmd(a api, enable bool) tea.Cmd {
-	return func() tea.Msg {
-		ctx, cancel := bgLong()
-		defer cancel()
-		st, err := a.SetAutopilot(ctx, enable, "")
-		return autopilotToggleDoneMsg{status: st, err: err}
 	}
 }
 

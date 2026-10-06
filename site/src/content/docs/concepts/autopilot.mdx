@@ -180,13 +180,12 @@ the live status view (executor state, backoff, integration branch, per-task
 worker/PR). The plan/manager/merge **template** stays global in the `autopilot`
 config block. `warden autopilot status [--json]` lists every run with its
 `integration_branch`, `manager_slot_id`, and `slot_scope` (it absorbed the old
-`autopilot run list` columns; `run list` / `list` remain as hidden aliases).
+`autopilot run list` columns).
 
-**Deprecated compatibility.** `autopilot enable|on` are hidden no-ops with a
-notice pointing at `plan run --mode autopilot`; `autopilot disable|off` are
-hidden and pause every active run in the repo (same as `plan pause` on each).
-MCP `set_autopilot` / REST behave the same: `enabled: true` is a no-op,
-`enabled: false` pauses the repo's runs.
+**Removed commands.** `autopilot enable|on|register|start|disable|off|pause|resume|stop|unregister|list|run`
+and the MCP tools `set_autopilot`, `register_autopilot_run`, `control_autopilot_run`,
+`retarget_autopilot_run`, `rename_autopilot_run` and `list_autopilot_runs` no longer
+exist. Use `plan run|pause|resume|stop`; typing an old command prints its replacement.
 
 ### Plan-scoped hierarchy
 
