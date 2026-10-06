@@ -10,6 +10,7 @@ import (
 	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/daemon/oapi"
 	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/planstore"
 )
 
 // ListPipelines implements GET /api/v1/pipelines.
@@ -134,6 +135,9 @@ func (s *Server) DeletePipeline(ctx context.Context, req oapi.DeletePipelineRequ
 	if err != nil {
 		return nil, err
 	}
+	if err := s.refusePlanOwnedPipeline(ctx, p, "delete"); err != nil {
+		return nil, err
+	}
 	for i := range p.Jobs {
 		if p.Jobs[i].Status == pipeline.JobRunning || p.Jobs[i].Status == pipeline.JobNeedsAttention {
 			return nil, errStatus(http.StatusConflict, "pipeline has live jobs — cancel it first")
@@ -192,7 +196,10 @@ func (s *Server) StartPipeline(ctx context.Context, req oapi.StartPipelineReques
 }
 
 // PausePipeline implements POST /api/v1/pipelines/{pid}/pause.
-func (s *Server) PausePipeline(_ context.Context, req oapi.PausePipelineRequestObject) (oapi.PausePipelineResponseObject, error) {
+func (s *Server) PausePipeline(ctx context.Context, req oapi.PausePipelineRequestObject) (oapi.PausePipelineResponseObject, error) {
+	if err := s.guardPlanOwnedByID(ctx, req.Pid, "pause"); err != nil {
+		return nil, err
+	}
 	switch err := s.exec.Pause(req.Pid); {
 	case errors.Is(err, pipeline.ErrNotFound):
 		return nil, errStatus(http.StatusNotFound, "pipeline not found")
@@ -206,7 +213,10 @@ func (s *Server) PausePipeline(_ context.Context, req oapi.PausePipelineRequestO
 }
 
 // ResumePipeline implements POST /api/v1/pipelines/{pid}/resume.
-func (s *Server) ResumePipeline(_ context.Context, req oapi.ResumePipelineRequestObject) (oapi.ResumePipelineResponseObject, error) {
+func (s *Server) ResumePipeline(ctx context.Context, req oapi.ResumePipelineRequestObject) (oapi.ResumePipelineResponseObject, error) {
+	if err := s.guardPlanOwnedByID(ctx, req.Pid, "resume"); err != nil {
+		return nil, err
+	}
 	switch err := s.exec.Resume(context.Background(), req.Pid); {
 	case errors.Is(err, pipeline.ErrNotFound):
 		return nil, errStatus(http.StatusNotFound, "pipeline not found")
@@ -220,16 +230,27 @@ func (s *Server) ResumePipeline(_ context.Context, req oapi.ResumePipelineReques
 
 // CancelPipeline implements POST /api/v1/pipelines/{pid}/cancel.
 func (s *Server) CancelPipeline(ctx context.Context, req oapi.CancelPipelineRequestObject) (oapi.CancelPipelineResponseObject, error) {
-	pid := req.Pid
-	p, err := s.exec.pstore.Get(pid)
-	if errors.Is(err, pipeline.ErrNotFound) {
-		return nil, errStatus(http.StatusNotFound, "pipeline not found")
-	}
-	if err != nil {
+	if err := s.guardPlanOwnedByID(ctx, req.Pid, "cancel"); err != nil {
 		return nil, err
 	}
+	if err := s.cancelPipeline(ctx, req.Pid); err != nil {
+		return nil, err
+	}
+	return oapi.CancelPipeline200JSONResponse{OKJSONResponse: oapi.OKJSONResponse{Status: "canceled"}}, nil
+}
+
+// cancelPipeline is the unguarded cancel used by the REST handler (after the
+// plan-ownership check) and by the plan stop path.
+func (s *Server) cancelPipeline(ctx context.Context, pid string) error {
+	p, err := s.exec.pstore.Get(pid)
+	if errors.Is(err, pipeline.ErrNotFound) {
+		return errStatus(http.StatusNotFound, "pipeline not found")
+	}
+	if err != nil {
+		return err
+	}
 	if !p.IsCancelable() {
-		return nil, errStatus(http.StatusConflict, "pipeline already finished (status "+string(p.Status)+") — nothing to cancel; delete it instead")
+		return errStatus(http.StatusConflict, "pipeline already finished (status "+string(p.Status)+") — nothing to cancel; delete it instead")
 	}
 	for i := range p.Jobs {
 		j := &p.Jobs[i]
@@ -246,11 +267,11 @@ func (s *Server) CancelPipeline(ctx context.Context, req oapi.CancelPipelineRequ
 		}
 		p.Status = pipeline.StatusCanceled
 	}); err != nil {
-		return nil, err
+		return err
 	}
 	s.notify()
 	s.recordAuditCtx(ctx, audit.ActionPipelineCancel, pid, map[string]string{"name": p.Name})
-	return oapi.CancelPipeline200JSONResponse{OKJSONResponse: oapi.OKJSONResponse{Status: "canceled"}}, nil
+	return nil
 }
 
 // EmitPipelineJob implements POST /api/v1/pipelines/{pid}/jobs/{job}/emit.
@@ -332,4 +353,50 @@ func (s *Server) guardSyntheticJob(pid, jobID, verb string) error {
 		return errStatus(http.StatusBadRequest, fmt.Sprintf("job %q is created by warden and cannot be %s", jobID, verb))
 	}
 	return nil
+}
+
+// planVerbForPipelineVerb maps a direct pipeline control verb to the plan
+// command that does the same thing for a plan-owned pipeline.
+var planVerbForPipelineVerb = map[string]string{
+	"pause":  "wd plan pause %s",
+	"resume": "wd plan resume %s",
+	"cancel": "wd plan stop %s",
+	"delete": "wd plan stop %s` then `wd plan archive %s",
+}
+
+// planOwningPipeline returns the in-progress plan that runs p, or nil. A
+// pipeline is plan-owned only when the plan's executor link points back at it
+// (set by the plan run adapter); a pipeline that merely records a --plan
+// back-reference, or whose plan is gone, archived or no longer running, is not.
+func (s *Server) planOwningPipeline(ctx context.Context, p *pipeline.Pipeline) *planstore.Plan {
+	if p == nil || p.PlanID == "" || s.plans == nil {
+		return nil
+	}
+	pl, err := s.plans.Get(ctx, p.PlanID)
+	if err != nil || pl == nil || pl.Status != planstore.PlanStatusInProgress {
+		return nil
+	}
+	if pl.PipelineID != p.ID {
+		return nil
+	}
+	return pl
+}
+
+// refusePlanOwnedPipeline returns a 409 naming the plan command to use when p
+// is run by a plan.
+func (s *Server) refusePlanOwnedPipeline(ctx context.Context, p *pipeline.Pipeline, verb string) error {
+	pl := s.planOwningPipeline(ctx, p)
+	if pl == nil {
+		return nil
+	}
+	cmd := strings.ReplaceAll(planVerbForPipelineVerb[verb], "%s", pl.ID)
+	return errStatus(http.StatusConflict, fmt.Sprintf("pipeline %q is run by plan %s; use `%s`", p.Name, pl.ID, cmd))
+}
+
+func (s *Server) guardPlanOwnedByID(ctx context.Context, pid, verb string) error {
+	p, err := s.exec.pstore.Get(pid)
+	if err != nil {
+		return nil // not found etc. is reported by the handler proper
+	}
+	return s.refusePlanOwnedPipeline(ctx, p, verb)
 }

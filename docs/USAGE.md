@@ -2434,6 +2434,14 @@ handler the pipeline status becomes `stalled`. Jobs that were already running ar
 not interrupted. A `stalled` pipeline can be inspected with `pipeline show` and
 cleaned up with `pipeline cancel`.
 
+**Plan-owned pipelines:** a pipeline started by `warden plan run --mode pipeline`
+belongs to its plan. `pipeline pause`, `resume`, `cancel` and `delete` refuse it
+(HTTP 409) and name the plan command to use instead (`plan pause`, `plan resume`,
+`plan stop`, or `plan stop` then `plan archive`). Showing it and job-level
+retry/edit/emit still work. Pipelines that merely record `--plan <id>` as a
+back-reference, and pipelines whose plan is gone, archived or no longer running,
+stay fully controllable.
+
 **Pipeline status values:**
 
 | Status | Meaning |
