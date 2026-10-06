@@ -210,6 +210,18 @@ func TestCheck(t *testing.T) {
 	require.Len(t, res.Checks, 1)
 }
 
+func TestListChecks(t *testing.T) {
+	var c capture
+	ts := jsonServer(t, &c, 0, `[{"name":"test","cmd":"go test ./...","dir":"pkg"}]`)
+	checks, err := New(ts.URL).ListChecks(context.Background(), "A-1", "/repo")
+	require.NoError(t, err)
+	require.Equal(t, http.MethodGet, c.method)
+	require.Equal(t, "/api/v1/check", c.path)
+	require.Equal(t, "A-1", queryParam(c.rawQ, "session"))
+	require.Equal(t, "/repo", queryParam(c.rawQ, "dir"))
+	require.Equal(t, "test", checks[0].Name)
+}
+
 func TestTerminate(t *testing.T) {
 	var c capture
 	ts := jsonServer(t, &c, 0, ``)

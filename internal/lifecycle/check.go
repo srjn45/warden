@@ -83,6 +83,14 @@ type CheckResult struct {
 	Checks []CheckOutcome `json:"checks"`
 }
 
+// CheckDefinition is one configured check, returned by ListChecks without
+// executing its command. Dir is relative to the directory holding check.yml.
+type CheckDefinition struct {
+	Name string `json:"name"`
+	Cmd  string `json:"cmd"`
+	Dir  string `json:"dir,omitempty"`
+}
+
 // Check runs the project's configured check command(s) in dir and returns a
 // pass/fail summary, capturing output only for the checks that failed. name
 // selects a single configured entry; "" runs them all (in stable, alphabetical
@@ -91,7 +99,7 @@ type CheckResult struct {
 // the configured checks. warden stays language-agnostic: it only runs what the
 // project registered.
 func (l *Lifecycle) Check(ctx context.Context, dir, name string) (CheckResult, error) {
-	cfg, err := loadCheckConfig(dir)
+	cfg, configDir, err := loadCheckConfig(dir)
 	if err != nil {
 		return CheckResult{}, err
 	}
@@ -104,13 +112,31 @@ func (l *Lifecycle) Check(ctx context.Context, dir, name string) (CheckResult, e
 	}
 	res := CheckResult{Passed: true}
 	for _, n := range names {
-		outcome := l.runCheck(ctx, dir, n, cfg.Check[n])
+		outcome := l.runCheck(ctx, configDir, n, cfg.Check[n])
 		if !outcome.Passed {
 			res.Passed = false
 		}
 		res.Checks = append(res.Checks, outcome)
 	}
 	return res, nil
+}
+
+// ListChecks returns configured checks in stable name order without running
+// them. It uses the same resolution as Check and the check guard.
+func ListChecks(dir string) ([]CheckDefinition, error) {
+	cfg, _, err := loadCheckConfig(dir)
+	if err != nil {
+		return nil, err
+	}
+	if len(cfg.Check) == 0 {
+		return nil, noCheckConfigError(dir)
+	}
+	defs := make([]CheckDefinition, 0, len(cfg.Check))
+	for _, name := range sortedKeys(cfg.Check) {
+		entry := cfg.Check[name]
+		defs = append(defs, CheckDefinition{Name: name, Cmd: entry.Cmd, Dir: entry.Dir})
+	}
+	return defs, nil
 }
 
 // runCheck executes one entry via `sh -c` (so full command lines, pipes, and the
@@ -138,7 +164,7 @@ func (l *Lifecycle) runCheck(ctx context.Context, dir, name string, entry CheckE
 // pass through), making the feature opt-in per repo by virtue of config existing.
 // A malformed config is a hard error the caller can choose to fail open on.
 func CheckCommands(dir string) (map[string]string, error) {
-	cfg, err := loadCheckConfig(dir)
+	cfg, _, err := loadCheckConfig(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -149,26 +175,58 @@ func CheckCommands(dir string) (map[string]string, error) {
 	return cmds, nil
 }
 
-// loadCheckConfig reads <dir>/.warden/check.yml (or .yaml). A missing file yields
-// an empty config (the caller maps that to ErrNoCheckConfig); a present but
-// malformed file is a hard error so the operator fixes it rather than silently
-// losing checks.
-func loadCheckConfig(dir string) (checkConfig, error) {
+// loadCheckConfig resolves a config from dir first, then from the repository
+// root when dir has none. It returns the directory containing the config so
+// command entry dirs are always relative to that config, not the caller's cwd.
+// A missing file yields an empty config; a present but malformed file is a hard
+// error so the operator fixes it rather than silently losing checks.
+func loadCheckConfig(dir string) (checkConfig, string, error) {
+	dir, err := filepath.Abs(dir)
+	if err != nil {
+		return checkConfig{}, "", fmt.Errorf("resolve check directory: %w", err)
+	}
+	searched := []string{dir}
+	if cfg, found, err := readCheckConfig(dir); err != nil || found {
+		return cfg, dir, err
+	}
+	root, err := repositoryRoot(dir)
+	if err == nil && root != dir {
+		searched = append(searched, root)
+		if cfg, found, err := readCheckConfig(root); err != nil || found {
+			return cfg, root, err
+		}
+	}
+	return checkConfig{}, "", noCheckConfigError(strings.Join(searched, ", "))
+}
+
+func readCheckConfig(dir string) (checkConfig, bool, error) {
 	b, path, err := readFirst(
 		filepath.Join(dir, ".warden", "check.yml"),
 		filepath.Join(dir, ".warden", "check.yaml"),
 	)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return checkConfig{}, nil
+			return checkConfig{}, false, nil
 		}
-		return checkConfig{}, fmt.Errorf("read check config: %w", err)
+		return checkConfig{}, false, fmt.Errorf("read check config: %w", err)
 	}
 	var cfg checkConfig
 	if err := yaml.Unmarshal(b, &cfg); err != nil {
-		return checkConfig{}, fmt.Errorf("parse %s: %w", path, err)
+		return checkConfig{}, true, fmt.Errorf("parse %s: %w", path, err)
 	}
-	return cfg, nil
+	return cfg, true, nil
+}
+
+func repositoryRoot(dir string) (string, error) {
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func noCheckConfigError(searched string) error {
+	return fmt.Errorf("%w (searched: %s)", ErrNoCheckConfig, searched)
 }
 
 // readFirst returns the contents of the first path that exists. If none exist it

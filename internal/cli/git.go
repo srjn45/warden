@@ -219,6 +219,36 @@ func newCheckRunCmd() *cobra.Command {
 	return cmd
 }
 
+func newCheckListCmd() *cobra.Command {
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List configured project checks without running them",
+		Args:    cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			dir, session := gitTarget()
+			checks, err := clientFor(cmd).ListChecks(context.Background(), session, dir)
+			if err != nil {
+				return err
+			}
+			if asJSON {
+				return emitJSON(cmd, checks)
+			}
+			for _, check := range checks {
+				if check.Dir == "" {
+					fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t.\n", check.Name, check.Cmd)
+				} else {
+					fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\n", check.Name, check.Cmd, check.Dir)
+				}
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "emit the raw result as JSON")
+	return cmd
+}
+
 // printCheckResult renders the per-check pass/fail lines (with failing output)
 // and returns a concise error when any check failed, so `wd check` exits non-zero
 // for scripts and CI without re-printing the already-shown detail.

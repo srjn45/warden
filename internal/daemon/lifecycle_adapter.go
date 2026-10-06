@@ -245,6 +245,10 @@ func (a *lifecycleAdapter) Check(ctx context.Context, dir, name string) (lifecyc
 	return a.lc.Check(ctx, dir, name)
 }
 
+func (a *lifecycleAdapter) ListChecks(_ context.Context, dir string) ([]lifecycle.CheckDefinition, error) {
+	return lifecycle.ListChecks(dir)
+}
+
 func (a *lifecycleAdapter) MemoryPressure(ctx context.Context) (pressure.Level, error) {
 	return a.lc.MemoryPressure(ctx)
 }
