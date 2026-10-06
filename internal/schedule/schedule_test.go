@@ -2,6 +2,7 @@ package schedule
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -180,5 +181,34 @@ func TestRecomputeDisabledClearsNext(t *testing.T) {
 	}
 	if s.NextRun != nil {
 		t.Fatal("disabled schedule should have nil NextRun after Recompute")
+	}
+}
+
+func TestCheckAtInFuture(t *testing.T) {
+	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
+	err := CheckAtInFuture("2020-01-01T09:00:00Z", now)
+	if err == nil {
+		t.Fatal("past time accepted")
+	}
+	for _, want := range []string{"2020-01-01T09:00:00Z", "2026-10-06T12:00:00Z", "--now"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("message %q missing %q", err, want)
+		}
+	}
+	if CheckAtInFuture("2026-10-06T12:00:00Z", now) == nil {
+		t.Error("exactly now accepted")
+	}
+	if err := CheckAtInFuture("2026-10-06T12:00:01Z", now); err != nil {
+		t.Errorf("future rejected: %v", err)
+	}
+	if CheckAtInFuture("garbage", now) == nil {
+		t.Error("garbage accepted")
+	}
+}
+
+func TestNewStillAcceptsPastAt(t *testing.T) {
+	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
+	if _, err := New(Params{Name: "p", At: "2020-01-01T09:00:00Z", Prompt: "x"}, now); err != nil {
+		t.Fatalf("New must not reject past times (startup path): %v", err)
 	}
 }

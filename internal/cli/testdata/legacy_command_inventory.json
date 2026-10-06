@@ -1383,7 +1383,7 @@
   },
   {
     "path": "schedule create",
-    "use": "create <name> (--cron <spec> | --at <time>) [--prompt <s>] [--role <role>] [--cwd <dir> | --repo <path>] | --pipeline <spec.yaml>",
+    "use": "create <name> (--cron <spec> | --at <time> | --now) [--prompt <s>] [--role <role>] [--cwd <dir> | --repo <path>] | --pipeline <spec.yaml>",
     "runnable": true,
     "local_flags": [
       "agent",
@@ -1391,6 +1391,7 @@
       "branch",
       "cron",
       "cwd",
+      "now",
       "pipeline",
       "prompt",
       "repo",

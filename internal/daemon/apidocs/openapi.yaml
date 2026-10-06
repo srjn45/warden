@@ -3471,8 +3471,10 @@ paths:
       summary: Create a recurring (cron) or single-shot (at) schedule
       description: >
         Fires either an agent spawn (type/repo/prompt/agent/branch) or a pipeline
-        (spec). Provide exactly one of cron/at and exactly one fire mode. Gated by
-        the `scheduler_enabled` config setting; returns 403 when disabled.
+        (spec). Provide exactly one of cron/at/now and exactly one fire mode. An `at`
+        time that is not after the current time is rejected with 400; use `now`
+        to fire once immediately. Gated by the `scheduler_enabled` config
+        setting; returns 403 when disabled.
       requestBody:
         required: true
         content:
@@ -6460,8 +6462,9 @@ components:
       required: [name]
       properties:
         name: { type: string, description: "schedule id (== name)" }
-        cron: { type: string, description: "recurring cron spec (mutually exclusive with at)" }
-        at: { type: string, description: "single-shot time, RFC3339 or 2006-01-02T15:04 (mutually exclusive with cron)" }
+        cron: { type: string, description: "recurring cron spec, evaluated in the daemon host's local time unless it starts with TZ=<zone> (mutually exclusive with at and now)" }
+        at: { type: string, description: "single-shot time, RFC3339 or 2006-01-02T15:04; a time without a zone is the daemon host's local time. Must be in the future (mutually exclusive with cron and now)" }
+        now: { type: boolean, description: "fire once as soon as possible: a single-shot due immediately (mutually exclusive with cron and at)" }
         type:
           type: string
           deprecated: true
