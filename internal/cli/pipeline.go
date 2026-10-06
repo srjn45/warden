@@ -13,44 +13,155 @@ import (
 	"github.com/srjn45/warden/internal/pipeline"
 )
 
-// renderPipelineDetail formats a pipeline for `pipeline show`: the header plus,
-// per job, its status + deps and (when present) the branch it worked on and the
-// handoff output it emitted — so a finished pipeline's results are visible from
-// the CLI even after its agents are gone.
-func renderPipelineDetail(p *pipeline.Pipeline, allJobs bool) string {
+// showOpts selects what `pipeline show` prints beyond the default view.
+type showOpts struct {
+	allJobs bool
+	prompts bool
+}
+
+// outputPreviewWidth caps the per-job output line in the human view; --json
+// carries the full text.
+const outputPreviewWidth = 100
+
+func dashIfEmpty(v string) string {
+	if v == "" {
+		return "-"
+	}
+	return v
+}
+
+// jobBackendLabel is the compact "backend/model" cell, or "-" when neither is set.
+func jobBackendLabel(j pipeline.Job) string {
+	switch {
+	case j.Backend != "" && j.Model != "":
+		return j.Backend + "/" + j.Model
+	case j.Backend != "":
+		return j.Backend
+	default:
+		return dashIfEmpty(j.Model)
+	}
+}
+
+// oneLine collapses text to a single line of at most max runes.
+func oneLine(text string, max int) string {
+	text = strings.Join(strings.Fields(text), " ")
+	if r := []rune(text); len(r) > max {
+		return string(r[:max-1]) + "…"
+	}
+	return text
+}
+
+func needsAttention(s pipeline.JobStatus) bool {
+	return s == pipeline.JobNeedsAttention || s == pipeline.JobFailed
+}
+
+// isTerminalPipeline reports whether a pipeline will not change without
+// operator action, which is where `pipeline show --watch` stops.
+func isTerminalPipeline(s pipeline.Status) bool {
+	return s == pipeline.StatusDone || s == pipeline.StatusCanceled || s == pipeline.StatusStalled
+}
+
+// renderPipelineDetail formats a pipeline for `pipeline show`: a labelled header
+// followed by an aligned job table. Jobs that carry output get one truncated
+// line beneath them and, with prompts, their prompt and handoff hint.
+func renderPipelineDetail(p *pipeline.Pipeline, o showOpts) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s [%s] repo=%s\n", p.ID, p.Status, p.Repo)
-	if p.ProjectID != "" {
-		fmt.Fprintf(&b, "project: %s\n", p.ProjectID)
+	header := [][2]string{{"name", firstNonEmpty(p.Name, p.ID)}, {"status", string(p.Status)}, {"project", p.ProjectID}, {"repo", p.Repo}}
+	if p.PlanID != "" {
+		header = append(header, [2]string{"plan", p.PlanID})
+	}
+	if sched := firstNonEmpty(p.ScheduleName, p.ScheduleID); sched != "" {
+		header = append(header, [2]string{"schedule", sched})
+	}
+	for _, h := range header {
+		fmt.Fprintf(&b, "%-10s %s\n", h[0]+":", dashIfEmpty(h[1]))
 	}
 	if p.PlanID != "" {
-		fmt.Fprintf(&b, "plan: %s\n", p.PlanID)
+		fmt.Fprintf(&b, "This pipeline belongs to a plan: see `wd plan show %s`.\n", p.PlanID)
 	}
+	b.WriteString("\n")
+
+	type row struct {
+		cells []string
+		job   pipeline.Job
+	}
+	var rows []row
 	for _, j := range p.Jobs {
-		if j.IsSynthetic() && !allJobs {
+		if j.IsSynthetic() && !o.allJobs {
 			continue
 		}
 		depIDs := j.DependsOn
-		if !allJobs {
+		if !o.allJobs {
 			depIDs = realDependencies(p, j.DependsOn)
 		}
-		deps := ""
-		if len(depIDs) > 0 {
-			deps = fmt.Sprintf(" (depends: %v)", depIDs)
-		}
-		name := j.ID
+		id := j.ID
 		if j.IsSynthetic() {
-			name += " [warden]"
+			id += " [warden]"
 		}
-		fmt.Fprintf(&b, "  %-12s %-9s%s\n", name, j.Status, deps)
-		if j.Branch != "" {
-			fmt.Fprintf(&b, "      branch: %s\n", j.Branch)
+		status := string(j.Status)
+		if needsAttention(j.Status) {
+			status = "! " + status
 		}
-		if j.Output != "" {
-			fmt.Fprintf(&b, "      output: %s\n", strings.ReplaceAll(j.Output, "\n", "\n              "))
+		rows = append(rows, row{job: j, cells: []string{
+			id, status, dashIfEmpty(j.AgentRef()), jobBackendLabel(j),
+			dashIfEmpty(strings.Join(depIDs, ",")), dashIfEmpty(j.Branch),
+		}})
+	}
+	heads := []string{"JOB", "STATUS", "AGENT", "BACKEND", "AFTER", "BRANCH"}
+	widths := make([]int, len(heads))
+	for i, h := range heads {
+		widths[i] = len(h)
+	}
+	for _, r := range rows {
+		for i, c := range r.cells {
+			if n := len([]rune(c)); n > widths[i] {
+				widths[i] = n
+			}
+		}
+	}
+	line := func(cells []string) {
+		for i, c := range cells {
+			if i == len(cells)-1 {
+				b.WriteString(c)
+				break
+			}
+			b.WriteString(c + strings.Repeat(" ", widths[i]-len([]rune(c))+2))
+		}
+		b.WriteString("\n")
+	}
+	line(heads)
+	for _, r := range rows {
+		line(r.cells)
+		if r.job.Output != "" {
+			fmt.Fprintf(&b, "    output: %s\n", oneLine(r.job.Output, outputPreviewWidth))
+		}
+		if o.prompts {
+			if r.job.Prompt != "" {
+				fmt.Fprintf(&b, "    prompt:\n%s\n", indentLines(r.job.Prompt, "      "))
+			}
+			if r.job.Handoff != "" {
+				fmt.Fprintf(&b, "    handoff:\n%s\n", indentLines(r.job.Handoff, "      "))
+			}
 		}
 	}
 	return b.String()
+}
+
+func indentLines(text, prefix string) string {
+	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
+	for i, l := range lines {
+		lines[i] = prefix + l
+	}
+	return strings.Join(lines, "\n")
+}
+
+func firstNonEmpty(vs ...string) string {
+	for _, v := range vs {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func newPipelineCmd() *cobra.Command {
@@ -459,25 +570,55 @@ func realDependencies(p *pipeline.Pipeline, ids []string) []string {
 }
 
 func newPipelineShowCmd() *cobra.Command {
-	var allJobs bool
+	var o showOpts
 	cmd := &cobra.Command{
 		Use:   "show <pipeline>",
 		Short: "Show a pipeline's jobs and their status",
-		Long: `Show a pipeline's jobs and their status.
+		Long: `Show a pipeline: a header (name, status, project, repo, and the plan and
+schedule it belongs to) followed by a table of its jobs with status, agent,
+backend and model, what each job waits on, and its branch. A job that needs
+attention is marked with "!". A job's output appears as one truncated line
+beneath it; --json carries the full text.
 
 Jobs warden adds on its own to fan work out and join it back are hidden by
-default; pass --all-jobs to list them too, marked [warden].`,
+default; pass --all-jobs to list them too, marked [warden].
+
+--prompts also prints each job's prompt and handoff hint. --watch refreshes
+the view every few seconds until the pipeline is done, stalled or canceled, or
+you interrupt it. A pipeline that belongs to a plan points you at
+` + "`wd plan show <plan-id>`" + `.
+
+Examples:
+  wd pipeline show my-run
+  wd pipeline show my-run --prompts
+  wd pipeline show my-run --watch
+  wd pipeline show my-run --json | jq '.jobs[].status'`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, err := clientFor(cmd).PipelineGet(cmd.Context(), args[0])
-			if err != nil {
-				return err
+			jsonOut, _ := cmd.Flags().GetBool("json")
+			show := func() (bool, error) {
+				p, err := clientFor(cmd).PipelineGet(cmd.Context(), args[0])
+				if err != nil {
+					return false, err
+				}
+				if jsonOut {
+					err = printJSON(cmd.OutOrStdout(), p)
+				} else {
+					fmt.Fprint(cmd.OutOrStdout(), renderPipelineDetail(p, o))
+				}
+				return isTerminalPipeline(p.Status), err
 			}
-			fmt.Fprint(cmd.OutOrStdout(), renderPipelineDetail(p, allJobs))
-			return nil
+			if watch, _ := cmd.Flags().GetBool("watch"); watch {
+				return watchRefresh(cmd, show, jsonOut, planWatchInterval)
+			}
+			_, err := show()
+			return err
 		},
 	}
-	cmd.Flags().BoolVar(&allJobs, "all-jobs", false, "also list jobs warden added itself (marked [warden])")
+	cmd.Flags().BoolVar(&o.allJobs, "all-jobs", false, "also list jobs warden added itself (marked [warden])")
+	cmd.Flags().BoolVar(&o.prompts, "prompts", false, "print each job's prompt and handoff hint")
+	cmd.Flags().Bool("json", false, "output as JSON")
+	cmd.Flags().Bool("watch", false, "refresh the view every few seconds until the pipeline finishes or you interrupt")
 	return cmd
 }
 

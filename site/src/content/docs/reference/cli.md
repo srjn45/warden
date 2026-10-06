@@ -909,10 +909,25 @@ Aliases:
 ## warden pipeline show
 
 ```text
-Show a pipeline's jobs and their status.
+Show a pipeline: a header (name, status, project, repo, and the plan and
+schedule it belongs to) followed by a table of its jobs with status, agent,
+backend and model, what each job waits on, and its branch. A job that needs
+attention is marked with "!". A job's output appears as one truncated line
+beneath it; --json carries the full text.
 
 Jobs warden adds on its own to fan work out and join it back are hidden by
 default; pass --all-jobs to list them too, marked [warden].
+
+--prompts also prints each job's prompt and handoff hint. --watch refreshes
+the view every few seconds until the pipeline is done, stalled or canceled, or
+you interrupt it. A pipeline that belongs to a plan points you at
+`wd plan show <plan-id>`.
+
+Examples:
+  wd pipeline show my-run
+  wd pipeline show my-run --prompts
+  wd pipeline show my-run --watch
+  wd pipeline show my-run --json | jq '.jobs[].status'
 
 Usage:
   warden pipeline show <pipeline> [flags]
@@ -920,6 +935,9 @@ Usage:
 Flags:
       --all-jobs   also list jobs warden added itself (marked [warden])
   -h, --help       help for show
+      --json       output as JSON
+      --prompts    print each job's prompt and handoff hint
+      --watch      refresh the view every few seconds until the pipeline finishes or you interrupt
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
