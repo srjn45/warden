@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -29,6 +30,13 @@ func emitJSON(cmd *cobra.Command, v any) error {
 	return enc.Encode(v)
 }
 
+// Short errors returned after the detail has already been printed, so the CLI
+// exits non-zero (HTTP/MCP results are unchanged: they still return the result).
+var (
+	errCommitRejected = errors.New("commit rejected by a pre-commit hook")
+	errSyncConflicts  = errors.New("sync stopped on conflicts")
+)
+
 func newCommitCmd() *cobra.Command {
 	var message string
 	var asJSON bool
@@ -41,7 +49,9 @@ func newCommitCmd() *cobra.Command {
 			"of the git status/add/commit/rev-parse round-trips.\n\n" +
 			"Pass -m to author the message (best — you made the change). Omit it and warden\n" +
 			"writes one: the local model from the staged diff if configured, otherwise a\n" +
-			"deterministic conventional-commit message from the changed paths.",
+			"deterministic conventional-commit message from the changed paths.\n\n" +
+			"Exits non-zero when a pre-commit hook rejects the commit; the index is then\n" +
+			"restored exactly as it was before the call.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			dir, session := gitTarget()
@@ -50,11 +60,18 @@ func newCommitCmd() *cobra.Command {
 				return err
 			}
 			if asJSON {
-				return emitJSON(cmd, res)
+				if err := emitJSON(cmd, res); err != nil {
+					return err
+				}
+				if res.HookFailed {
+					return errCommitRejected
+				}
+				return nil
 			}
 			switch {
 			case res.HookFailed:
 				fmt.Fprintf(cmd.OutOrStdout(), "commit rejected by a pre-commit hook:\n%s\n", res.HookOutput)
+				return errCommitRejected
 			case !res.Committed:
 				fmt.Fprintln(cmd.OutOrStdout(), "nothing to commit (clean tree)")
 			default:
@@ -114,7 +131,8 @@ func newSyncCmd() *cobra.Command {
 			"progress and reports only the conflicting files for you to resolve.\n\n" +
 			"While a rebase is in progress, `wd sync --continue` stages your resolved files and\n" +
 			"finishes it (reporting any conflicts from the next commit), and `wd sync --abort`\n" +
-			"drops it and restores the branch. A plain sync or `wd commit` is refused until then.",
+			"drops it and restores the branch. A plain sync or `wd commit` is refused until then.\n\n" +
+			"Exits non-zero when the rebase stops on conflicts.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if cont && abort {
@@ -138,13 +156,19 @@ func newSyncCmd() *cobra.Command {
 				return err
 			}
 			if asJSON {
-				return emitJSON(cmd, res)
+				if err := emitJSON(cmd, res); err != nil {
+					return err
+				}
+				if len(res.Conflicts) > 0 {
+					return errSyncConflicts
+				}
+				return nil
 			}
 			if len(res.Conflicts) > 0 {
 				fmt.Fprintf(cmd.OutOrStdout(),
 					"rebase hit conflicts — resolve these files, then `wd sync --continue` (`git rebase --continue` also works), or `wd sync --abort`:\n  %s\n",
 					strings.Join(res.Conflicts, "\n  "))
-				return nil
+				return errSyncConflicts
 			}
 			if abort {
 				fmt.Fprintf(cmd.OutOrStdout(), "rebase aborted; %s restored\n", res.Branch)

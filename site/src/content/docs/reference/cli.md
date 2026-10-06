@@ -3356,6 +3356,9 @@ Pass -m to author the message (best — you made the change). Omit it and warden
 writes one: the local model from the staged diff if configured, otherwise a
 deterministic conventional-commit message from the changed paths.
 
+Exits non-zero when a pre-commit hook rejects the commit; the index is then
+restored exactly as it was before the call.
+
 Usage:
   warden git commit [flags]
 
@@ -3405,6 +3408,8 @@ progress and reports only the conflicting files for you to resolve.
 While a rebase is in progress, `wd git sync --continue` stages your resolved files and
 finishes it (reporting any conflicts from the next commit), and `wd git sync --abort`
 drops it and restores the branch. A plain sync or `wd commit` is refused until then.
+
+Exits non-zero when the rebase stops on conflicts.
 
 Usage:
   warden git sync [flags]
@@ -5508,6 +5513,9 @@ Pass -m to author the message (best — you made the change). Omit it and warden
 writes one: the local model from the staged diff if configured, otherwise a
 deterministic conventional-commit message from the changed paths.
 
+Exits non-zero when a pre-commit hook rejects the commit; the index is then
+restored exactly as it was before the call.
+
 Usage:
   warden commit [flags]
 
@@ -5557,6 +5565,8 @@ progress and reports only the conflicting files for you to resolve.
 While a rebase is in progress, `wd sync --continue` stages your resolved files and
 finishes it (reporting any conflicts from the next commit), and `wd sync --abort`
 drops it and restores the branch. A plain sync or `wd commit` is refused until then.
+
+Exits non-zero when the rebase stops on conflicts.
 
 Usage:
   warden sync [flags]

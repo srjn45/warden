@@ -106,8 +106,18 @@ func (l *Lifecycle) Commit(ctx context.Context, dir, message string) (CommitResu
 	if len(files) == 0 {
 		return CommitResult{Committed: false, Branch: branch, RawBytes: raw, RawSample: savings.TruncateSample(rawText.String())}, nil // clean tree
 	}
+	// Snapshot the index before staging so a failed attempt can put it back
+	// exactly (staged, unstaged and untracked files all as the caller left them).
+	tree, treeErr := l.run.Run(ctx, dir, "git", "write-tree")
+	tree = strings.TrimSpace(tree)
+	restoreIndex := func() {
+		if treeErr == nil && tree != "" {
+			_, _ = l.run.Run(ctx, dir, "git", "read-tree", tree)
+		}
+	}
 	addOut, err := l.run.Run(ctx, dir, "git", "add", "-A")
 	if err != nil {
+		restoreIndex()
 		return CommitResult{}, fmt.Errorf("git add: %w: %s", err, addOut)
 	}
 	raw += len(addOut)
@@ -124,10 +134,10 @@ func (l *Lifecycle) Commit(ctx context.Context, dir, message string) (CommitResu
 	raw += len(out)
 	rawText.WriteString(out)
 	if err != nil {
-		// A pre-commit hook (or other commit-time check) rejected it. Unstage so
-		// the agent is back at its pre-commit state, and hand back only the output
-		// it needs to fix the failure.
-		_, _ = l.run.Run(ctx, dir, "git", "reset")
+		// A pre-commit hook (or other commit-time check) rejected it. Restore the
+		// index to its pre-call state so the agent is exactly where it started,
+		// and hand back only the output it needs to fix the failure.
+		restoreIndex()
 		return CommitResult{Branch: branch, Files: files, HookFailed: true, HookOutput: strings.TrimSpace(out), RawBytes: raw, RawSample: savings.TruncateSample(rawText.String())}, nil
 	}
 	sha, _ := l.run.Run(ctx, dir, "git", "rev-parse", "--short", "HEAD")

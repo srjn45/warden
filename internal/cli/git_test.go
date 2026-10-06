@@ -66,7 +66,7 @@ func TestCommitCmdAllowsNoMessage(t *testing.T) {
 func TestCommitCmdHookFailure(t *testing.T) {
 	addr, _ := gitStub(t, map[string]any{"hook_failed": true, "hook_output": "gofmt failed on a.go", "branch": "feat"})
 	out, err := runGit(t, addr, "commit", "-m", "x")
-	require.NoError(t, err)
+	require.ErrorIs(t, err, errCommitRejected, "a rejected commit exits non-zero")
 	require.Contains(t, out, "rejected by a pre-commit hook")
 	require.Contains(t, out, "gofmt failed")
 }
@@ -105,8 +105,36 @@ func TestSyncCmdClean(t *testing.T) {
 func TestSyncCmdConflicts(t *testing.T) {
 	addr, _ := gitStub(t, map[string]any{"branch": "feat", "base": "main", "conflicts": []string{"a.go", "b.go"}})
 	out, err := runGit(t, addr, "sync")
-	require.NoError(t, err)
+	require.ErrorIs(t, err, errSyncConflicts, "a conflicted sync exits non-zero")
 	require.Contains(t, out, "hit conflicts")
 	require.Contains(t, out, "a.go")
 	require.Contains(t, out, "b.go")
+}
+
+func TestCommitExitsNonZeroOnHookRejection(t *testing.T) {
+	addr, _ := gitStub(t, map[string]any{"hook_failed": true, "hook_output": "lint exploded", "branch": "f"})
+	out, err := runGit(t, addr, "commit", "-m", "x")
+	require.ErrorIs(t, err, errCommitRejected)
+	require.Contains(t, out, "lint exploded")
+
+	out, err = runGit(t, addr, "commit", "-m", "x", "--json")
+	require.ErrorIs(t, err, errCommitRejected)
+	require.Contains(t, out, `"hook_failed": true`)
+}
+
+func TestSyncExitsNonZeroOnConflicts(t *testing.T) {
+	addr, _ := gitStub(t, map[string]any{"conflicts": []string{"a.go"}, "branch": "f"})
+	for _, args := range [][]string{{"sync"}, {"sync", "--continue"}, {"sync", "--json"}} {
+		out, err := runGit(t, addr, args...)
+		require.ErrorIs(t, err, errSyncConflicts, "%v", args)
+		require.Contains(t, out, "a.go")
+	}
+}
+
+func TestCommitAndSyncSuccessExitZero(t *testing.T) {
+	addr, _ := gitStub(t, map[string]any{"committed": true, "sha": "abc", "branch": "f", "base": "main"})
+	_, err := runGit(t, addr, "commit", "-m", "x")
+	require.NoError(t, err)
+	_, err = runGit(t, addr, "sync")
+	require.NoError(t, err)
 }
