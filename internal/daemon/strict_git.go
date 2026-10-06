@@ -9,6 +9,7 @@ import (
 
 	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/daemon/oapi"
+	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/pressure"
@@ -97,12 +98,31 @@ func (s *Server) GitSync(ctx context.Context, req oapi.GitSyncRequestObject) (oa
 	if err != nil {
 		return nil, err
 	}
-	res, err := s.life.Sync(ctx, dir, b.Base)
+	cont, abort := b.Continue, b.Abort
+	if cont && abort {
+		return nil, errStatus(http.StatusBadRequest, "continue and abort are mutually exclusive")
+	}
+	if (cont || abort) && b.Base != "" {
+		return nil, errStatus(http.StatusBadRequest, "base cannot be combined with continue or abort")
+	}
+	var res lifecycle.SyncResult
+	switch {
+	case cont:
+		res, err = s.life.SyncContinue(ctx, dir)
+	case abort:
+		res, err = s.life.SyncAbort(ctx, dir)
+	default:
+		res, err = s.life.Sync(ctx, dir, b.Base)
+	}
 	if err != nil {
 		return nil, errStatus(http.StatusConflict, err.Error())
 	}
 	if sess != nil && res.Updated {
-		s.recordGitEvent(sess.ID, "sync", "rebased onto "+res.Base)
+		detail := "rebased onto " + res.Base
+		if cont {
+			detail = "rebase continued on " + res.Branch
+		}
+		s.recordGitEvent(sess.ID, "sync", detail)
 	}
 	s.recordGitSavings(sess, res.RawBytes, res.RawSample, res)
 	return oapi.GitSync200JSONResponse(res), nil

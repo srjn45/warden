@@ -85,6 +85,12 @@ func (l *Lifecycle) Commit(ctx context.Context, dir, message string) (CommitResu
 	if protectedBranches[branch] {
 		return CommitResult{}, fmt.Errorf("refusing to commit on protected branch %q — agents commit on their own branch and a human integrates", branch)
 	}
+	switch st := l.RepoState(ctx, dir); {
+	case st.Rebase:
+		return CommitResult{}, fmt.Errorf("a rebase is in progress — %s", rebaseInProgressHint)
+	case st.Merge && len(unresolved(dir, st.Unmerged)) > 0:
+		return CommitResult{}, fmt.Errorf("a merge is in progress with unresolved conflicts in: %s — resolve them, then commit", strings.Join(unresolved(dir, st.Unmerged), ", "))
+	}
 	status, err := l.run.Run(ctx, dir, "git", "status", "--porcelain")
 	if err != nil {
 		return CommitResult{}, fmt.Errorf("git status: %w: %s", err, status)
@@ -353,6 +359,13 @@ func (l *Lifecycle) Sync(ctx context.Context, dir, base string) (SyncResult, err
 	}
 	if err := safeGitRef(base); err != nil {
 		return SyncResult{}, err
+	}
+	if st := l.RepoState(ctx, dir); st.Rebase || st.Merge {
+		what := "rebase"
+		if !st.Rebase {
+			what = "merge"
+		}
+		return SyncResult{}, fmt.Errorf("a %s is already in progress — resolve the conflicts then run `wd sync --continue`, or run `wd sync --abort`", what)
 	}
 	status, err := l.run.Run(ctx, dir, "git", "status", "--porcelain")
 	if err != nil {
