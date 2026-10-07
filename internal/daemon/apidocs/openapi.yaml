@@ -4159,6 +4159,7 @@ components:
         repo: { type: string }
         worktree: { type: string }
         branch: { type: string }
+        base_branch: { type: string, description: "managed-worktree base branch, when known" }
         worktree_created: { type: boolean }
         branch_created: { type: boolean }
         pr: { type: string }
@@ -6390,6 +6391,7 @@ components:
       properties:
         branch: { type: string }
         base: { type: string }
+        base_source: { type: string, description: "why the daemon selected base when it was omitted" }
         updated: { type: boolean }
         conflicts: { type: array, items: { type: string } }
         output: { type: string }

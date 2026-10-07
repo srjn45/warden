@@ -34,6 +34,7 @@ func (a *lifecycleAdapter) Spawn(ctx context.Context, req SpawnRequest) (*agents
 		Name:            req.Name,
 		Repo:            req.Repo,
 		Branch:          req.Branch,
+		BaseBranch:      req.BaseBranch,
 		PR:              req.PR,
 		Worktree:        req.Worktree,
 		InRepo:          req.InRepo,
@@ -108,6 +109,10 @@ func (a *lifecycleAdapter) NameRunner() agentname.BackendRunner {
 		return nil
 	}
 	return a.lc.SpawnNameRunner()
+}
+
+func (a *lifecycleAdapter) DefaultBranch(ctx context.Context, dir string) string {
+	return a.lc.DefaultBranch(ctx, dir)
 }
 
 func (a *lifecycleAdapter) Terminate(ctx context.Context, tmuxSession string) error {
