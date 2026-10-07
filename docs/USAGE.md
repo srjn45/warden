@@ -811,6 +811,12 @@ the agent has to read:
   current branch. Refuses protected branches (`main`/`master`), runs pre-commit
   hooks and surfaces **only** a failure, and links the commit to the agent
   record. Returns `{committed, sha, branch, files}`; a clean tree is a no-op.
+  Pass paths (`warden commit -m msg src/a.go docs/`, relative to your cwd) to
+  stage and commit only those; paths outside the repo are rejected. `--amend`
+  rewrites the last commit (keeping its message unless `-m` is given, and
+  combinable with paths); it is refused on a merge commit and on a commit already
+  in the upstream branch unless `--force`, after which push needs
+  `--force-with-lease`. MCP `commit` takes `paths`, `amend` and `force`.
 - **`warden push [--force-with-lease]`** — pushes the current branch to `origin`
   (sets upstream). Refuses to push `main`/`master` directly — push your agent
   branch and open a PR. After a rebase or amend, `--force-with-lease` overwrites

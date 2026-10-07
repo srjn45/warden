@@ -6338,6 +6338,9 @@ components:
         - type: object
           properties:
             message: { type: string }
+            paths: { type: array, items: { type: string }, description: "stage and commit only these paths (absolute, or relative to dir); outside-repo paths are rejected; omitted = stage everything" }
+            amend: { type: boolean, description: "rewrite HEAD; with no message the existing one is kept. Refused on a merge commit or a commit already in the upstream branch unless force" }
+            force: { type: boolean, description: "with amend, allow amending a commit already contained in the upstream branch (push then needs force-with-lease)" }
 
     GitSyncRequest:
       allOf:
@@ -6368,6 +6371,8 @@ components:
         files: { type: array, items: { type: string } }
         hook_failed: { type: boolean }
         hook_output: { type: string }
+        amended: { type: boolean }
+        warning: { type: string }
 
     PushResult:
       x-go-type: lifecycle.PushResult

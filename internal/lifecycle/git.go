@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"strings"
 
 	"github.com/srjn45/warden/internal/fastbrain"
@@ -30,6 +31,8 @@ type CommitResult struct {
 	Files      []string `json:"files,omitempty"`       // paths included in the commit
 	HookFailed bool     `json:"hook_failed,omitempty"` // a pre-commit hook rejected the commit
 	HookOutput string   `json:"hook_output,omitempty"` // captured rejection output (only on failure)
+	Amended    bool     `json:"amended,omitempty"`     // the commit replaced HEAD (--amend)
+	Warning    string   `json:"warning,omitempty"`     // non-fatal advice, e.g. force-with-lease needed after amending a pushed commit
 	// RawBytes is the combined output of the git commands warden ran on the
 	// agent's behalf (status/add/commit/rev-parse) — the tool-result contents a
 	// manual agent would have read instead of this one compact struct. Accounting
@@ -74,11 +77,97 @@ type SyncResult struct {
 	RawSample string `json:"-"`
 }
 
+// CommitOptions refines a commit. The zero value (apart from Message) is the
+// classic "stage everything and commit" behaviour.
+type CommitOptions struct {
+	Message string
+	// Paths limits staging and the commit to these paths (absolute, or relative to
+	// dir). Empty = stage every change. Paths outside the repository are rejected.
+	Paths []string
+	// Amend rewrites HEAD instead of adding a commit. An empty Message keeps the
+	// existing one.
+	Amend bool
+	// Force allows amending a commit already contained in the upstream branch (the
+	// next push then needs force-with-lease).
+	Force bool
+}
+
 // Commit stages and commits every change in dir on its current branch, enforcing
 // the protected-branch rail and surfacing a pre-commit hook rejection as a
 // structured result (not an error) so the agent sees only the failure. A clean
 // tree returns Committed=false with no error.
 func (l *Lifecycle) Commit(ctx context.Context, dir, message string) (CommitResult, error) {
+	return l.CommitWith(ctx, dir, CommitOptions{Message: message})
+}
+
+// repoPathspecs validates paths against dir's repository and returns literal
+// repo-relative pathspecs. A path escaping the repository is an error.
+func (l *Lifecycle) repoPathspecs(ctx context.Context, dir string, paths []string) ([]string, error) {
+	top, err := l.run.Run(ctx, dir, "git", "rev-parse", "--show-toplevel")
+	if err != nil {
+		return nil, fmt.Errorf("git rev-parse --show-toplevel: %w", err)
+	}
+	top = resolveExisting(strings.TrimSpace(top))
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		if strings.TrimSpace(p) == "" {
+			return nil, fmt.Errorf("empty path")
+		}
+		abs := p
+		if !filepath.IsAbs(abs) {
+			abs = filepath.Join(dir, abs)
+		}
+		rel, err := filepath.Rel(top, resolveExisting(filepath.Clean(abs)))
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return nil, fmt.Errorf("path %q is outside the repository %s", p, top)
+		}
+		out = append(out, ":(literal)"+filepath.ToSlash(rel))
+	}
+	return out, nil
+}
+
+// resolveExisting resolves symlinks in the longest existing prefix of p, so
+// not-yet-existing (or deleted) paths still compare against a resolved toplevel.
+func resolveExisting(p string) string {
+	rest := ""
+	for cur := p; ; {
+		if r, err := filepath.EvalSymlinks(cur); err == nil {
+			return filepath.Join(r, rest)
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return p
+		}
+		rest = filepath.Join(filepath.Base(cur), rest)
+		cur = parent
+	}
+}
+
+// amendCheck enforces the amend rails; it returns a warning when force let an
+// upstream-contained commit through.
+func (l *Lifecycle) amendCheck(ctx context.Context, dir string, force bool) (string, error) {
+	parents, err := l.run.Run(ctx, dir, "git", "rev-list", "--parents", "-n", "1", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("cannot amend: no commit to amend (%w)", err)
+	}
+	if len(strings.Fields(parents)) > 2 {
+		return "", fmt.Errorf("refusing to amend a merge commit")
+	}
+	if _, err := l.run.Run(ctx, dir, "git", "rev-parse", "--verify", "--quiet", "@{upstream}"); err != nil {
+		return "", nil // no upstream: nothing published
+	}
+	if _, err := l.run.Run(ctx, dir, "git", "merge-base", "--is-ancestor", "HEAD", "@{upstream}"); err != nil {
+		return "", nil // HEAD not contained upstream
+	}
+	if !force {
+		return "", fmt.Errorf("refusing to amend: HEAD is already contained in the upstream branch — pass --force to amend anyway (the next push then needs --force-with-lease)")
+	}
+	return "amended a commit already on the upstream branch — pushing now needs force-with-lease (wd push --force-with-lease)", nil
+}
+
+// CommitWith is Commit with paths and amend support; see CommitOptions.
+func (l *Lifecycle) CommitWith(ctx context.Context, dir string, opts CommitOptions) (CommitResult, error) {
+	message := opts.Message
 	branch := l.GitBranch(ctx, dir)
 	if branch == "" {
 		return CommitResult{}, fmt.Errorf("not a git repository: %s", dir)
@@ -92,7 +181,27 @@ func (l *Lifecycle) Commit(ctx context.Context, dir, message string) (CommitResu
 	case st.Merge && len(unresolved(dir, st.Unmerged)) > 0:
 		return CommitResult{}, fmt.Errorf("a merge is in progress with unresolved conflicts in: %s — resolve them, then commit", strings.Join(unresolved(dir, st.Unmerged), ", "))
 	}
-	status, err := l.run.Run(ctx, dir, "git", "status", "--porcelain")
+	var specs []string
+	if len(opts.Paths) > 0 {
+		var perr error
+		if specs, perr = l.repoPathspecs(ctx, dir, opts.Paths); perr != nil {
+			return CommitResult{}, perr
+		}
+	}
+	var warning string
+	if opts.Amend {
+		w, aerr := l.amendCheck(ctx, dir, opts.Force)
+		if aerr != nil {
+			return CommitResult{}, aerr
+		}
+		warning = w
+	}
+	statusArgs := []string{"status", "--porcelain"}
+	if len(specs) > 0 {
+		statusArgs = append(statusArgs, "--")
+		statusArgs = append(statusArgs, specs...)
+	}
+	status, err := l.run.Run(ctx, dir, "git", statusArgs...)
 	if err != nil {
 		return CommitResult{}, fmt.Errorf("git status: %w: %s", err, status)
 	}
@@ -104,7 +213,9 @@ func (l *Lifecycle) Commit(ctx context.Context, dir, message string) (CommitResu
 	var rawText strings.Builder
 	rawText.WriteString(status)
 	files := parsePorcelainPaths(status)
-	if len(files) == 0 {
+	// An amend with a message (or none, keeping the old one) is meaningful even
+	// when nothing new is staged.
+	if len(files) == 0 && !opts.Amend {
 		return CommitResult{Committed: false, Branch: branch, RawBytes: raw, RawSample: savings.TruncateSample(rawText.String())}, nil // clean tree
 	}
 	// Snapshot the index before staging so a failed attempt can put it back
@@ -116,22 +227,44 @@ func (l *Lifecycle) Commit(ctx context.Context, dir, message string) (CommitResu
 			_, _ = l.run.Run(ctx, dir, "git", "read-tree", tree)
 		}
 	}
-	addOut, err := l.run.Run(ctx, dir, "git", "add", "-A")
-	if err != nil {
-		restoreIndex()
-		return CommitResult{}, fmt.Errorf("git add: %w: %s", err, addOut)
+	addArgs := []string{"add", "-A"}
+	if len(specs) > 0 {
+		addArgs = append(addArgs, "--")
+		addArgs = append(addArgs, specs...)
 	}
-	raw += len(addOut)
-	rawText.WriteString(addOut)
+	if len(files) > 0 || len(specs) == 0 {
+		addOut, err := l.run.Run(ctx, dir, "git", addArgs...)
+		if err != nil {
+			restoreIndex()
+			return CommitResult{}, fmt.Errorf("git add: %w: %s", err, addOut)
+		}
+		raw += len(addOut)
+		rawText.WriteString(addOut)
+	}
 	// Provenance tiers: the caller's message is best (the agent wrote the change,
 	// so it knows intent). With none, fill it in — local model from the staged diff,
 	// else a deterministic conventional-commit floor — staging first so git diff
 	// --cached sees new files too. Generation never returns empty, so we never
-	// commit with a blank -m.
-	if strings.TrimSpace(message) == "" {
-		message = l.commitMessage(ctx, dir, files)
+	// commit with a blank -m. An amend with no message keeps the existing one.
+	commitArgs := []string{"commit"}
+	if opts.Amend {
+		commitArgs = append(commitArgs, "--amend")
 	}
-	out, err := l.run.Run(ctx, dir, "git", "commit", "-m", message)
+	switch {
+	case strings.TrimSpace(message) != "":
+		commitArgs = append(commitArgs, "-m", message)
+	case opts.Amend:
+		commitArgs = append(commitArgs, "--no-edit")
+	default:
+		commitArgs = append(commitArgs, "-m", l.commitMessage(ctx, dir, files))
+	}
+	if len(specs) > 0 {
+		// --only (the default with paths) commits just these paths, ignoring
+		// anything else the caller had already staged.
+		commitArgs = append(commitArgs, "--only", "--")
+		commitArgs = append(commitArgs, specs...)
+	}
+	out, err := l.run.Run(ctx, dir, "git", commitArgs...)
 	raw += len(out)
 	rawText.WriteString(out)
 	if err != nil {
@@ -144,7 +277,7 @@ func (l *Lifecycle) Commit(ctx context.Context, dir, message string) (CommitResu
 	sha, _ := l.run.Run(ctx, dir, "git", "rev-parse", "--short", "HEAD")
 	raw += len(sha)
 	rawText.WriteString(sha)
-	return CommitResult{Committed: true, SHA: strings.TrimSpace(sha), Branch: branch, Files: files, RawBytes: raw, RawSample: savings.TruncateSample(rawText.String())}, nil
+	return CommitResult{Committed: true, Amended: opts.Amend, Warning: warning, SHA: strings.TrimSpace(sha), Branch: branch, Files: files, RawBytes: raw, RawSample: savings.TruncateSample(rawText.String())}, nil
 }
 
 // commitMsgMaxDiffBytes caps how much staged diff the local model sees when

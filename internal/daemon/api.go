@@ -574,7 +574,7 @@ type Lifecycle interface {
 	// Commit / Push / Sync back the wd commit/push/sync CLI + MCP tools: the
 	// rail-enforcing git lifecycle returning compact structs instead of git
 	// tool-spam Claude reads.
-	Commit(ctx context.Context, dir, message string) (lifecycle.CommitResult, error)
+	CommitWith(ctx context.Context, dir string, opts lifecycle.CommitOptions) (lifecycle.CommitResult, error)
 	Push(ctx context.Context, dir string, force bool) (lifecycle.PushResult, error)
 	Sync(ctx context.Context, dir, base string) (lifecycle.SyncResult, error)
 	DefaultBranch(ctx context.Context, dir string) string

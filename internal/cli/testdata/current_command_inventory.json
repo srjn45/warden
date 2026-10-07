@@ -1204,9 +1204,11 @@
   },
   {
     "path": "commit",
-    "use": "commit",
+    "use": "commit [paths...]",
     "runnable": true,
     "local_flags": [
+      "amend",
+      "force",
       "json",
       "message"
     ],
@@ -1690,9 +1692,11 @@
   },
   {
     "path": "git commit",
-    "use": "commit",
+    "use": "commit [paths...]",
     "runnable": true,
     "local_flags": [
+      "amend",
+      "force",
       "json",
       "message"
     ],

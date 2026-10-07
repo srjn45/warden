@@ -128,6 +128,8 @@ func TestCompatResultJSONFieldSets(t *testing.T) {
 		{"CommitResult", CommitResult{}, []compatField{
 			{"committed", "bool", false}, {"sha", "string", true}, {"branch", "string", false},
 			{"files", "[]string", true}, {"hook_failed", "bool", true}, {"hook_output", "string", true},
+			// t6 adds optional amend provenance; existing fields unchanged.
+			{"amended", "bool", true}, {"warning", "string", true},
 		}},
 		{"PushResult", PushResult{}, []compatField{
 			{"branch", "string", false}, {"remote", "string", false}, {"pushed", "bool", false},
@@ -387,4 +389,116 @@ func TestCompatCheckRealConfig(t *testing.T) {
 	require.Error(t, err)
 	require.NotErrorIs(t, err, ErrNoCheckConfig)
 	require.Contains(t, err.Error(), "alpha", "unknown-name error names the configured checks")
+}
+
+// --- t6: commit paths and amend ---------------------------------------------
+
+func TestCommitPathsStageOnlyGiven(t *testing.T) {
+	r := newCompatRepo(t)
+	l := compatLife()
+	ctx := context.Background()
+	compatGit(t, r.dir, "checkout", "-b", "feature")
+	compatWrite(t, r.dir, "a.txt", "a\n")
+	compatWrite(t, r.dir, "b.txt", "b\n")
+	compatWrite(t, r.dir, "sub/c.txt", "c\n")
+	compatWrite(t, r.dir, "pre.txt", "pre\n")
+	compatGit(t, r.dir, "add", "pre.txt") // pre-staged, must not leak in
+
+	res, err := l.CommitWith(ctx, r.dir, CommitOptions{Message: "only a and c", Paths: []string{"a.txt", filepath.Join(r.dir, "sub", "c.txt")}})
+	require.NoError(t, err)
+	require.True(t, res.Committed)
+	require.ElementsMatch(t, []string{"a.txt", "sub/c.txt"}, res.Files)
+	require.ElementsMatch(t, []string{"a.txt", "sub/c.txt"}, strings.Fields(compatGit(t, r.dir, "show", "--name-only", "--format=", "HEAD")))
+	st := compatGit(t, r.dir, "status", "--porcelain")
+	require.Contains(t, st, "A  pre.txt")
+	require.Contains(t, st, "?? b.txt")
+}
+
+func TestCommitPathsRejectsOutsideRepo(t *testing.T) {
+	r := newCompatRepo(t)
+	l := compatLife()
+	compatGit(t, r.dir, "checkout", "-b", "feature")
+	outside := filepath.Join(t.TempDir(), "x.txt")
+	require.NoError(t, os.WriteFile(outside, []byte("x"), 0o644))
+	for _, p := range []string{outside, "../escape.txt"} {
+		_, err := l.CommitWith(context.Background(), r.dir, CommitOptions{Message: "m", Paths: []string{p}})
+		require.ErrorContains(t, err, "outside the repository", p)
+	}
+}
+
+func TestCommitNoPathsStillStagesAll(t *testing.T) {
+	r := newCompatRepo(t)
+	l := compatLife()
+	compatGit(t, r.dir, "checkout", "-b", "feature")
+	compatWrite(t, r.dir, "a.txt", "a\n")
+	compatWrite(t, r.dir, "b.txt", "b\n")
+	res, err := l.CommitWith(context.Background(), r.dir, CommitOptions{Message: "all"})
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"a.txt", "b.txt"}, res.Files)
+	require.Empty(t, compatGit(t, r.dir, "status", "--porcelain"))
+}
+
+func TestCommitAmendRetainsAndReplacesMessage(t *testing.T) {
+	r := newCompatRepo(t)
+	l := compatLife()
+	ctx := context.Background()
+	compatGit(t, r.dir, "checkout", "-b", "feature")
+	compatCommitFile(t, r.dir, "a.txt", "a\n", "original msg")
+	compatWrite(t, r.dir, "a.txt", "a2\n")
+	compatWrite(t, r.dir, "other.txt", "o\n")
+
+	res, err := l.CommitWith(ctx, r.dir, CommitOptions{Amend: true, Paths: []string{"a.txt"}})
+	require.NoError(t, err)
+	require.True(t, res.Committed)
+	require.True(t, res.Amended)
+	require.Empty(t, res.Warning)
+	require.Equal(t, "original msg", compatGit(t, r.dir, "log", "-1", "--format=%s"))
+	require.Equal(t, "a2", compatGit(t, r.dir, "show", "HEAD:a.txt"))
+	require.Equal(t, "1", compatGit(t, r.dir, "rev-list", "--count", "main..HEAD"), "amend must not add a commit")
+	require.Contains(t, compatGit(t, r.dir, "status", "--porcelain"), "?? other.txt")
+
+	res, err = l.CommitWith(ctx, r.dir, CommitOptions{Amend: true, Message: "new msg"})
+	require.NoError(t, err)
+	require.True(t, res.Amended)
+	require.Equal(t, "new msg", compatGit(t, r.dir, "log", "-1", "--format=%s"))
+}
+
+func TestCommitAmendRefusesPushedWithoutForce(t *testing.T) {
+	r := newCompatRepo(t)
+	l := compatLife()
+	ctx := context.Background()
+	compatGit(t, r.dir, "checkout", "-b", "feature")
+	compatCommitFile(t, r.dir, "a.txt", "a\n", "pushed")
+	_, err := l.Push(ctx, r.dir, false)
+	require.NoError(t, err)
+	before := compatGit(t, r.dir, "rev-parse", "HEAD")
+
+	_, err = l.CommitWith(ctx, r.dir, CommitOptions{Amend: true, Message: "x"})
+	require.ErrorContains(t, err, "--force")
+	require.Equal(t, before, compatGit(t, r.dir, "rev-parse", "HEAD"))
+
+	res, err := l.CommitWith(ctx, r.dir, CommitOptions{Amend: true, Message: "x", Force: true})
+	require.NoError(t, err)
+	require.True(t, res.Amended)
+	require.Contains(t, res.Warning, "force-with-lease")
+	require.NotEqual(t, before, compatGit(t, r.dir, "rev-parse", "HEAD"))
+}
+
+func TestCommitAmendRefusesMergeCommit(t *testing.T) {
+	r := newCompatRepo(t)
+	l := compatLife()
+	compatGit(t, r.dir, "checkout", "-b", "feature")
+	compatCommitFile(t, r.dir, "a.txt", "a\n", "a")
+	compatGit(t, r.dir, "checkout", "-b", "side", "main")
+	compatCommitFile(t, r.dir, "s.txt", "s\n", "s")
+	compatGit(t, r.dir, "checkout", "feature")
+	compatGit(t, r.dir, "merge", "--no-ff", "-m", "merge", "side")
+	_, err := l.CommitWith(context.Background(), r.dir, CommitOptions{Amend: true, Message: "x", Force: true})
+	require.ErrorContains(t, err, "merge commit")
+}
+
+func TestCommitAmendRefusesProtectedBranch(t *testing.T) {
+	r := newCompatRepo(t)
+	_, err := compatLife().CommitWith(context.Background(), r.dir, CommitOptions{Amend: true, Message: "x", Force: true})
+	require.ErrorContains(t, err, "protected branch")
 }
