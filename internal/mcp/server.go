@@ -122,6 +122,12 @@ type gitSyncArgs struct {
 	Abort    bool   `json:"abort,omitempty" jsonschema:"drop a rebase left in progress (git rebase --abort), restoring the branch. Mutually exclusive with continue and base"`
 	Dir      string `json:"dir,omitempty" jsonschema:"worktree to sync; defaults to the current directory. Same-repo linked worktrees are honored; a dir outside this agent's repository is rejected."`
 }
+type createPRArgs struct {
+	Ticket string `json:"ticket,omitempty" jsonschema:"the agent's ticket / session id; defaults to this agent (WARDEN_SESSION_ID)"`
+	Base   string `json:"base,omitempty" jsonschema:"PR base branch; defaults like sync: the agent's recorded base, its autopilot integration branch, then the repository default"`
+	Title  string `json:"title,omitempty" jsonschema:"PR title, used verbatim; omit to draft one from the agent's work"`
+	Body   string `json:"body,omitempty" jsonschema:"PR body, used verbatim; omit to draft one from the agent's work"`
+}
 type checkArgs struct {
 	Name string `json:"name,omitempty" jsonschema:"the configured check to run (e.g. test, lint, build); omit to run them all"`
 	Dir  string `json:"dir,omitempty" jsonschema:"worktree to check; defaults to the current directory. Same-repo linked worktrees are honored; a dir outside this agent's repository is rejected."`
@@ -467,6 +473,25 @@ func NewServer(daemonBase string) *Server {
 		default:
 			res, err = s.cl.GitSync(ctx, sessionID(), mcpDir(a.Dir), a.Base)
 		}
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		r, err := jsonResult(res)
+		return r, nil, err
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "create_pr",
+		Description: "Push this agent's branch and open a GitHub pull request for it WITHOUT ending the agent (unlike stop_agent pr=true). Idempotent: an already-open PR for the branch is returned with created=false. Pass optional `ticket` to target another active agent; `base`, `title`, `body` are optional (base defaults like sync; title/body are drafted when omitted). main/master are refused as the PR head. Returns {branch, base, url, created}.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a createPRArgs) (*mcpsdk.CallToolResult, any, error) {
+		id := a.Ticket
+		if id == "" {
+			id = sessionID()
+		}
+		if id == "" {
+			return textResult("error: no agent session — pass ticket, or run `gh pr create` directly"), nil, nil
+		}
+		res, err := s.cl.CreatePRWith(ctx, id, a.Base, a.Title, a.Body)
 		if err != nil {
 			return textResult("error: " + err.Error()), nil, nil
 		}

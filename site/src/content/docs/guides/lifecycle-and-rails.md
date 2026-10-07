@@ -15,6 +15,7 @@ warden commit                              # …or let warden write the message
 warden push                                # push the branch to origin (sets upstream)
 warden push --force-with-lease             # …after a rebase/amend (safe force)
 warden sync --base main                    # fetch + rebase onto origin/main
+warden git pr --title "…" --body-file pr.md  # open (or return) the PR without ending the agent; MCP: create_pr
 warden check                               # run every configured check
 warden check test                          # run one (test / lint / build / …)
 ```

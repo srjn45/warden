@@ -58,6 +58,7 @@ The everyday verbs, so the common path needs no reference-file round-trip:
 | JSON output for scripting | `--json` on `agent start`/`fork`/`handoff`/`stop`/`terminate`/`role list`/`get` |
 | finish, keep worktree | `warden agent stop <id> --keep-worktree` (`--pr`) |
 | git lifecycle / checks | `wd commit` / `wd push` / `wd sync` / `wd check [name]` |
+| open PR (agent keeps running) | `wd git pr [--base B --title T --body-file F]` (MCP `create_pr`) — no root shortcut; idempotent |
 | release tag advice (never `--yes` unless the operator asked to tag) | `wd release --dry-run` |
 | release tag advice (never `--yes` unless the operator asked to tag) | `wd release --dry-run` |
 | pipelines | `warden pipeline create spec.yaml` → `warden pipeline start/show <id>` (cancel/delete need `--yes`) |
