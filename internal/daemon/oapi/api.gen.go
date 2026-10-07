@@ -1215,9 +1215,18 @@ type FileChange struct {
 
 // GitCommitRequest defines model for GitCommitRequest.
 type GitCommitRequest struct {
+	// Amend rewrite HEAD; with no message the existing one is kept. Refused on a merge commit or a commit already in the upstream branch unless force
+	Amend bool `json:"amend,omitempty"`
+
 	// Dir worktree directory — honored when it shares the session's git repository (linked worktree ok); rejected when outside that repository; human fallback when session is unknown/empty
-	Dir     string `json:"dir,omitempty"`
+	Dir string `json:"dir,omitempty"`
+
+	// Force with amend, allow amending a commit already contained in the upstream branch (push then needs force-with-lease)
+	Force   bool   `json:"force,omitempty"`
 	Message string `json:"message,omitempty"`
+
+	// Paths stage and commit only these paths (absolute, or relative to dir); outside-repo paths are rejected; omitted = stage everything
+	Paths []string `json:"paths,omitempty"`
 
 	// Session calling agent id ('' = human run); when set, empty/matching dir pins to the agent's worktree; an explicit dir must belong to the same git repository or the request is rejected
 	Session string `json:"session,omitempty"`

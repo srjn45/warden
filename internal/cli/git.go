@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -39,9 +40,9 @@ var (
 
 func newCommitCmd() *cobra.Command {
 	var message string
-	var asJSON bool
+	var asJSON, amend, force bool
 	cmd := &cobra.Command{
-		Use:   "commit",
+		Use:   "commit [paths...]",
 		Short: "Stage and commit the worktree (warden rails + hooks + bookkeeping)",
 		Long: "Stage and commit every change in the current worktree on its branch.\n\n" +
 			"warden refuses protected branches (main/master), runs pre-commit hooks and\n" +
@@ -49,13 +50,31 @@ func newCommitCmd() *cobra.Command {
 			"of the git status/add/commit/rev-parse round-trips.\n\n" +
 			"Pass -m to author the message (best — you made the change). Omit it and warden\n" +
 			"writes one: the local model from the staged diff if configured, otherwise a\n" +
-			"deterministic conventional-commit message from the changed paths.",
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
+			"deterministic conventional-commit message from the changed paths.\n\n" +
+			"Give paths (relative to the current directory) to stage and commit only those;\n" +
+			"paths outside the repository are rejected. With no paths everything is staged.\n\n" +
+			"--amend rewrites the last commit, keeping its message unless -m is given. It is\n" +
+			"refused on a merge commit and on a commit already in the upstream branch unless\n" +
+			"--force (after which push needs --force-with-lease).",
+		Args: cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
 			dir, session := gitTarget()
-			res, err := clientFor(cmd).GitCommit(context.Background(), session, dir, message)
+			paths := make([]string, 0, len(args))
+			for _, a := range args {
+				if !filepath.IsAbs(a) {
+					a = filepath.Join(dir, a)
+				}
+				paths = append(paths, a)
+			}
+			if force && !amend {
+				return errors.New("--force only applies with --amend")
+			}
+			res, err := clientFor(cmd).GitCommitWith(context.Background(), session, dir, lifecycle.CommitOptions{Message: message, Paths: paths, Amend: amend, Force: force})
 			if err != nil {
 				return err
+			}
+			if res.Warning != "" && !asJSON {
+				fmt.Fprintln(cmd.ErrOrStderr(), "warning: "+res.Warning)
 			}
 			if asJSON {
 				if err := emitJSON(cmd, res); err != nil {
@@ -79,6 +98,8 @@ func newCommitCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&message, "message", "m", "", "commit message; if omitted, warden generates one from the diff")
+	cmd.Flags().BoolVar(&amend, "amend", false, "rewrite the last commit (keeps its message unless -m is given)")
+	cmd.Flags().BoolVar(&force, "force", false, "with --amend, allow amending a commit already in the upstream branch")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit the raw result as JSON")
 	return cmd
 }

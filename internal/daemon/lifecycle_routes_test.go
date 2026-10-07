@@ -69,6 +69,7 @@ type fakeLife struct {
 	pruneErr          error
 	gitCommitDir      string
 	gitCommitMsg      string
+	gitCommitOpts     lifecycle.CommitOptions
 	gitCommitResult   lifecycle.CommitResult
 	gitCommitErr      error
 	gitPushDir        string
@@ -274,10 +275,10 @@ func (f *fakeLife) CommitWorktree(_ context.Context, dir, message string) (bool,
 	return f.commitResult, f.commitErr
 }
 
-func (f *fakeLife) Commit(_ context.Context, dir, message string) (lifecycle.CommitResult, error) {
+func (f *fakeLife) CommitWith(_ context.Context, dir string, opts lifecycle.CommitOptions) (lifecycle.CommitResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.gitCommitDir, f.gitCommitMsg = dir, message
+	f.gitCommitDir, f.gitCommitMsg, f.gitCommitOpts = dir, opts.Message, opts
 	return f.gitCommitResult, f.gitCommitErr
 }
 
