@@ -3331,6 +3331,7 @@ Commands:
   commit               Stage and commit the worktree (warden rails + hooks + bookkeeping)
   push                 Push the current branch to origin (warden rails + bookkeeping)
   sync                 Fetch and rebase the current branch onto its base (warden conflict detect)
+  pr                   Open (or return the already-open) pull request for the agent's branch
   review               Run the agent backend's native diff review on the worktree
   release              Recommend the next SemVer release tag, then tag and push it on confirmation
   guard                PreToolUse git-redirect guard (reads hook JSON on stdin)
@@ -3426,6 +3427,37 @@ Flags:
       --continue      finish a conflicted rebase: stage resolved files and run git rebase --continue
   -h, --help          help for sync
       --json          emit the raw result as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden git pr
+
+```text
+Push the agent's branch and open a GitHub pull request for it, without ending the
+agent. Idempotent: when a PR is already open for the branch it is returned instead.
+
+The agent comes from WARDEN_SESSION_ID (set in every warden-spawned session) or the
+optional [agent-id] argument. Without either there is no agent to resolve a branch
+and base from, so use `gh pr create` directly.
+
+--base defaults like `wd git sync`: the agent's recorded base, its autopilot
+integration branch, then the repository default. --title / --body (or --body-file,
+`-` for stdin) are used verbatim; omitted ones are drafted from the agent's work.
+main/master are refused as the PR head.
+
+Usage:
+  warden git pr [agent-id] [flags]
+
+Flags:
+      --base string        PR base branch (default: the agent's recorded base, resolved as for git sync)
+      --body string        PR body (default: drafted from the agent's work)
+      --body-file string   read the PR body from a file (- for stdin)
+  -h, --help               help for pr
+      --json               emit the raw result as JSON
+      --title string       PR title (default: drafted from the agent's work)
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)

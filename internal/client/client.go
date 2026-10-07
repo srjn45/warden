@@ -794,8 +794,20 @@ func (c *Client) Digest(ctx context.Context, id string) (*digest.Digest, error) 
 // longTimeout — it pushes and shells gh over the network. An already-existing PR
 // comes back as a successful result with Created=false.
 func (c *Client) CreatePR(ctx context.Context, id, base string) (lifecycle.PRResult, error) {
+	return c.CreatePRWith(ctx, id, base, "", "")
+}
+
+// CreatePRWith is CreatePR with an explicit PR title and body (either may be ""
+// to let the daemon draft it). Empty base resolves daemon-side exactly like sync.
+func (c *Client) CreatePRWith(ctx context.Context, id, base, title, prBody string) (lifecycle.PRResult, error) {
 	var res lifecycle.PRResult
 	body := map[string]string{"base": base}
+	if title != "" {
+		body["title"] = title
+	}
+	if prBody != "" {
+		body["body"] = prBody
+	}
 	if err := c.doT(ctx, longTimeout, http.MethodPost, "/sessions/"+id+"/create-pr", body, &res); err != nil {
 		return lifecycle.PRResult{}, err
 	}

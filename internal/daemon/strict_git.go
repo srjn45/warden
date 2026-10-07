@@ -112,24 +112,7 @@ func (s *Server) GitSync(ctx context.Context, req oapi.GitSyncRequestObject) (oa
 	case abort:
 		res, err = s.life.SyncAbort(ctx, dir)
 	default:
-		base := b.Base
-		baseSource := ""
-		if base == "" && sess != nil {
-			base = sess.BaseBranch
-			if base != "" {
-				baseSource = "recorded session base"
-			}
-		}
-		if base == "" && sess != nil && sess.AutopilotRunID != "" && s.autopilot != nil {
-			if lp, ok := s.autopilot.LandParams(sess.AutopilotRunID); ok {
-				base = lp.IntegrationBranch
-				baseSource = "autopilot integration branch"
-			}
-		}
-		if base == "" {
-			base = s.life.DefaultBranch(ctx, dir)
-			baseSource = "repository default"
-		}
+		base, baseSource := s.resolveGitBase(ctx, dir, sess, b.Base)
 		res, err = s.life.Sync(ctx, dir, base)
 		res.BaseSource = baseSource
 	}
@@ -145,6 +128,25 @@ func (s *Server) GitSync(ctx context.Context, req oapi.GitSyncRequestObject) (oa
 	}
 	s.recordGitSavings(sess, res.RawBytes, res.RawSample, res)
 	return oapi.GitSync200JSONResponse(res), nil
+}
+
+// resolveGitBase picks the base branch for sync / PR creation: an explicit value
+// wins, then the session's recorded base, then its autopilot integration branch,
+// then the repository default. The second result names where it came from ("" when
+// explicit).
+func (s *Server) resolveGitBase(ctx context.Context, dir string, sess *agentstore.Agent, explicit string) (base, source string) {
+	if explicit != "" {
+		return explicit, ""
+	}
+	if sess != nil && sess.BaseBranch != "" {
+		return sess.BaseBranch, "recorded session base"
+	}
+	if sess != nil && sess.AutopilotRunID != "" && s.autopilot != nil {
+		if lp, ok := s.autopilot.LandParams(sess.AutopilotRunID); ok && lp.IntegrationBranch != "" {
+			return lp.IntegrationBranch, "autopilot integration branch"
+		}
+	}
+	return s.life.DefaultBranch(ctx, dir), "repository default"
 }
 
 // RunCheck implements POST /api/v1/check. No config / unknown name are
@@ -222,6 +224,7 @@ func (s *Server) CreatePR(ctx context.Context, req oapi.CreatePRRequestObject) (
 	if _, err := s.life.Push(ctx, dir, false); err != nil {
 		return nil, errStatus(http.StatusConflict, "push failed: "+err.Error())
 	}
+	base, _ = s.resolveGitBase(ctx, dir, sess, base)
 	d := s.buildDigest(ctx, sess)
 	title, body := s.prContent(ctx, sess, d, dir, base, expTitle, expBody)
 	res, err := s.life.CreatePR(ctx, dir, title, body, base)

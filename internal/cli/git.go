@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -208,6 +209,69 @@ func newSyncCmd() *cobra.Command {
 	cmd.Flags().StringVar(&base, "base", "", "base branch to rebase onto (default main)")
 	cmd.Flags().BoolVar(&cont, "continue", false, "finish a conflicted rebase: stage resolved files and run git rebase --continue")
 	cmd.Flags().BoolVar(&abort, "abort", false, "drop a rebase in progress and restore the branch")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "emit the raw result as JSON")
+	return cmd
+}
+
+func newPRCmd() *cobra.Command {
+	var base, title, body, bodyFile string
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:   "pr [agent-id]",
+		Short: "Open (or return the already-open) pull request for the agent's branch",
+		Long: "Push the agent's branch and open a GitHub pull request for it, without ending the\n" +
+			"agent. Idempotent: when a PR is already open for the branch it is returned instead.\n\n" +
+			"The agent comes from WARDEN_SESSION_ID (set in every warden-spawned session) or the\n" +
+			"optional [agent-id] argument. Without either there is no agent to resolve a branch\n" +
+			"and base from, so use `gh pr create` directly.\n\n" +
+			"--base defaults like `wd git sync`: the agent's recorded base, its autopilot\n" +
+			"integration branch, then the repository default. --title / --body (or --body-file,\n" +
+			"`-` for stdin) are used verbatim; omitted ones are drafted from the agent's work.\n" +
+			"main/master are refused as the PR head.",
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if body != "" && bodyFile != "" {
+				return fmt.Errorf("--body and --body-file are mutually exclusive")
+			}
+			if bodyFile != "" {
+				var b []byte
+				var err error
+				if bodyFile == "-" {
+					b, err = io.ReadAll(cmd.InOrStdin())
+				} else {
+					b, err = os.ReadFile(bodyFile)
+				}
+				if err != nil {
+					return fmt.Errorf("read --body-file: %w", err)
+				}
+				body = string(b)
+			}
+			_, session := gitTarget()
+			if len(args) == 1 {
+				session = args[0]
+			}
+			if session == "" {
+				return errors.New("no agent session: WARDEN_SESSION_ID is unset and no agent id was given — run `gh pr create` directly, or pass an agent id")
+			}
+			res, err := clientFor(cmd).CreatePRWith(context.Background(), session, base, title, body)
+			if err != nil {
+				return err
+			}
+			if asJSON {
+				return emitJSON(cmd, res)
+			}
+			verb := "opened"
+			if !res.Created {
+				verb = "already open:"
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "PR %s %s (%s -> %s)\n", verb, res.URL, res.Branch, res.Base)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&base, "base", "", "PR base branch (default: the agent's recorded base, resolved as for git sync)")
+	cmd.Flags().StringVar(&title, "title", "", "PR title (default: drafted from the agent's work)")
+	cmd.Flags().StringVar(&body, "body", "", "PR body (default: drafted from the agent's work)")
+	cmd.Flags().StringVar(&bodyFile, "body-file", "", "read the PR body from a file (- for stdin)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit the raw result as JSON")
 	return cmd
 }
