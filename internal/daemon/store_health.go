@@ -57,8 +57,11 @@ func degradedFailuresToWire(d *store.DegradedScanError) []oapi.StoreScanFailure 
 	out := make([]oapi.StoreScanFailure, 0, len(d.Failures))
 	for _, f := range d.Failures {
 		class := oapi.Decode
-		if f.Class == store.DegradeRead {
+		switch f.Class {
+		case store.DegradeRead:
 			class = oapi.Read
+		case store.DegradeIntegrity:
+			class = oapi.Integrity
 		}
 		out = append(out, oapi.StoreScanFailure{
 			Collection: f.Collection,
