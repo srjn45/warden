@@ -595,6 +595,25 @@ config block — per-repo state is only the on/off bit and its run.
 
 > **Finish flow.** `autopilot_complete` starts the final-PR phase; the run is not *finished* until the final PR is merged. See [plan-finish-flow](2026-10-05-plan-finish-flow.md) (`awaiting_merge`, merge polling, integration-branch cleanup, `--abandon-unmerged`).
 
+**Final PR title.** The final PR is titled with a conventional-commit subject
+derived from the commits that landed on the integration branch
+(`internal/autopilot/final_title.go`), so a squash merge of it is releasable:
+
+- **Type** — the highest-ranked type among the landed commits, in the order
+  `feat`, `fix`, `perf`, `revert`, `refactor`, `docs`, `test`, `build`, `ci`,
+  `chore` (`chore` when none is conventional). Merge commits are ignored.
+- **Scope** — a scope shared by every commit of that type (else by every
+  conventional commit); omitted when scopes differ or are absent.
+- **Breaking marker** — `!` after the type/scope when any landed commit is
+  breaking.
+- **Description** — the plan name, de-hyphenated, capped so the title is at most
+  72 characters.
+
+`wd release` reads a squash merge of the final PR: the title subject, plus the
+conventional `* type(scope): …` bullets in the squash commit body when the
+subject itself is not releasable (`internal/release`). Editing the PR title
+before merging therefore changes the recommended bump.
+
 When the brain has verified the plan's `done_when` criteria, it declares the run
 complete via the MCP tool `autopilot_complete` (daemon `POST
 /api/v1/autopilot/complete`). No arguments: the owning run is inferred from the

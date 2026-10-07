@@ -37,6 +37,7 @@ type Agent struct {
 	Repo             string                 `json:"repo"`
 	Worktree         string                 `json:"worktree"`
 	Branch           string                 `json:"branch"`
+	BaseBranch       string                 `json:"base_branch,omitempty"`
 	WorktreeCreated  bool                   `json:"worktree_created,omitempty"`
 	BranchCreated    bool                   `json:"branch_created,omitempty"`
 	PR               string                 `json:"pr"`
@@ -189,6 +190,7 @@ func (a *Agent) ToSession() *store.Session {
 		Repo:                      a.Repo,
 		Worktree:                  a.Worktree,
 		Branch:                    a.Branch,
+		BaseBranch:                a.BaseBranch,
 		WorktreeCreated:           a.WorktreeCreated,
 		BranchCreated:             a.BranchCreated,
 		PR:                        a.PR,
@@ -259,6 +261,7 @@ func FromSession(s *store.Session) *Agent {
 		Repo:                      s.Repo,
 		Worktree:                  s.Worktree,
 		Branch:                    s.Branch,
+		BaseBranch:                s.BaseBranch,
 		WorktreeCreated:           s.WorktreeCreated,
 		BranchCreated:             s.BranchCreated,
 		PR:                        s.PR,

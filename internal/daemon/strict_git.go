@@ -112,7 +112,26 @@ func (s *Server) GitSync(ctx context.Context, req oapi.GitSyncRequestObject) (oa
 	case abort:
 		res, err = s.life.SyncAbort(ctx, dir)
 	default:
-		res, err = s.life.Sync(ctx, dir, b.Base)
+		base := b.Base
+		baseSource := ""
+		if base == "" && sess != nil {
+			base = sess.BaseBranch
+			if base != "" {
+				baseSource = "recorded session base"
+			}
+		}
+		if base == "" && sess != nil && sess.AutopilotRunID != "" && s.autopilot != nil {
+			if lp, ok := s.autopilot.LandParams(sess.AutopilotRunID); ok {
+				base = lp.IntegrationBranch
+				baseSource = "autopilot integration branch"
+			}
+		}
+		if base == "" {
+			base = s.life.DefaultBranch(ctx, dir)
+			baseSource = "repository default"
+		}
+		res, err = s.life.Sync(ctx, dir, base)
+		res.BaseSource = baseSource
 	}
 	if err != nil {
 		return nil, errStatus(http.StatusConflict, err.Error())

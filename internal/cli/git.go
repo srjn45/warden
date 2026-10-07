@@ -176,7 +176,11 @@ func newSyncCmd() *cobra.Command {
 				fmt.Fprintf(cmd.OutOrStdout(), "rebase continued; %s is up to date\n", res.Branch)
 				return nil
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "rebased %s onto origin/%s\n", res.Branch, res.Base)
+			why := ""
+			if res.BaseSource != "" {
+				why = " (defaulted from " + res.BaseSource + ")"
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "rebased %s onto origin/%s%s\n", res.Branch, res.Base, why)
 			return nil
 		},
 	}

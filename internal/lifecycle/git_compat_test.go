@@ -134,8 +134,10 @@ func TestCompatResultJSONFieldSets(t *testing.T) {
 			{"forced", "bool", true}, {"output", "string", true},
 		}},
 		{"SyncResult", SyncResult{}, []compatField{
-			{"branch", "string", false}, {"base", "string", false}, {"updated", "bool", false},
-			{"conflicts", "[]string", true}, {"output", "string", true},
+			// t5-sync-default-base adds an optional provenance field; existing
+			// result fields remain unchanged.
+			{"branch", "string", false}, {"base", "string", false}, {"base_source", "string", true},
+			{"updated", "bool", false}, {"conflicts", "[]string", true}, {"output", "string", true},
 		}},
 		{"CheckOutcome", CheckOutcome{}, []compatField{
 			{"name", "string", false}, {"cmd", "string", false}, {"passed", "bool", false},

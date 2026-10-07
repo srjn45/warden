@@ -79,6 +79,7 @@ type fakeLife struct {
 	gitSyncBase       string
 	gitSyncResult     lifecycle.SyncResult
 	gitSyncErr        error
+	defaultBranch     string
 	checkDir          string
 	checkName         string
 	checkResult       lifecycle.CheckResult
@@ -293,6 +294,13 @@ func (f *fakeLife) Sync(_ context.Context, dir, base string) (lifecycle.SyncResu
 	defer f.mu.Unlock()
 	f.gitSyncDir, f.gitSyncBase = dir, base
 	return f.gitSyncResult, f.gitSyncErr
+}
+
+func (f *fakeLife) DefaultBranch(_ context.Context, _ string) string {
+	if f.defaultBranch == "" {
+		return "main"
+	}
+	return f.defaultBranch
 }
 
 func (f *fakeLife) SyncContinue(_ context.Context, dir string) (lifecycle.SyncResult, error) {

@@ -62,11 +62,12 @@ type PushResult struct {
 // deterministic-detect half of "conflict resolution stays Claude, handed only
 // the conflicting hunks."
 type SyncResult struct {
-	Branch    string   `json:"branch"`
-	Base      string   `json:"base"`
-	Updated   bool     `json:"updated"`             // rebase completed cleanly
-	Conflicts []string `json:"conflicts,omitempty"` // unresolved paths (rebase in progress)
-	Output    string   `json:"output,omitempty"`
+	Branch     string   `json:"branch"`
+	Base       string   `json:"base"`
+	BaseSource string   `json:"base_source,omitempty"` // recorded session base or repository default when daemon selected it
+	Updated    bool     `json:"updated"`               // rebase completed cleanly
+	Conflicts  []string `json:"conflicts,omitempty"`   // unresolved paths (rebase in progress)
+	Output     string   `json:"output,omitempty"`
 	// RawBytes is the combined fetch+rebase output warden consumed; see CommitResult.RawBytes.
 	RawBytes int `json:"-"`
 	// RawSample is a truncated head of that raw output; see CommitResult.RawSample.

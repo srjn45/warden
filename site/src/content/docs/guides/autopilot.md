@@ -399,6 +399,16 @@ git log autopilot/notifications --oneline   # example per-plan branch
 git diff main..autopilot/notifications
 ```
 
+**The final PR title decides the release bump.** Autopilot titles the final PR
+with a conventional-commit subject built from the commits that landed: the type is
+the highest-ranked one present (`feat` > `fix` > `perf` > `revert` > `refactor` >
+`docs` > `test` > `build` > `ci` > `chore`), the scope is shared by those commits
+(omitted if mixed), and a `!` marks a breaking change. Squash-merging it gives
+`wd release` a releasable subject; `wd release` also reads the `* type(scope): …`
+bullet list in a squash commit body. **Editing the title before you merge changes
+the recommended bump** — check it first (`wd release --dry-run` after merging
+shows the advice).
+
 The integration branch is **never** merged to `main` by autopilot. That step
 always belongs to the operator.
 

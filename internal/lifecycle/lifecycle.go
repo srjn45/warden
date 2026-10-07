@@ -189,6 +189,17 @@ func hintGuidance(enabled bool, guidance string) string {
 // and continue (a failed hint-file write degrades the agent — no coordination hints
 // — rather than crashing the spawn, per design §5).
 func (l *Lifecycle) injectContext(b agentbackend.Backend, workdir string, guidances ...string) error {
+	// Some backends need to prepare their workspace independently of prompt
+	// injection. Do this before deciding whether there is any hint text: launch
+	// safety must not depend on optional collab/pipeline hints being enabled.
+	// Like ContextInjector, callers deliberately treat a preparation error as a
+	// non-fatal spawn degradation and log it before the backend is launched.
+	if preparer, ok := b.(agentbackend.WorkspacePreparer); ok {
+		if err := preparer.PrepareWorkspace(workdir); err != nil {
+			return err
+		}
+	}
+
 	inj, ok := b.(agentbackend.ContextInjector)
 	if !ok {
 		return nil
@@ -981,6 +992,7 @@ type SpawnRequest struct {
 	Name             string // optional; human-readable name for the agent
 	Repo             string
 	Branch           string                 // optional; development branch / pr-review checkout target
+	BaseBranch       string                 // managed-worktree base branch, when known
 	PR               string                 // optional; pr-review
 	Worktree         bool                   // analysis/spike opt-in
 	InRepo           bool                   // write-agent opt-out: share the repo instead of isolating in a worktree (ignored for pr-review)
@@ -1565,6 +1577,23 @@ func (l *Lifecycle) GitBranch(ctx context.Context, dir string) string {
 	return strings.TrimSpace(out)
 }
 
+// DefaultBranch returns origin's advertised default branch, falling back to the
+// conventional local names when the remote has no HEAD advertisement.
+func (l *Lifecycle) DefaultBranch(ctx context.Context, dir string) string {
+	out, err := l.run.Run(ctx, dir, "git", "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
+	if err == nil {
+		if branch := strings.TrimPrefix(strings.TrimSpace(out), "origin/"); branch != "" {
+			return branch
+		}
+	}
+	for _, branch := range []string{"main", "master"} {
+		if _, err := l.run.Run(ctx, dir, "git", "show-ref", "--verify", "--quiet", "refs/heads/"+branch); err == nil {
+			return branch
+		}
+	}
+	return "main"
+}
+
 // GitNumstat returns raw `git diff --numstat` output for dir, or "" on error.
 func (l *Lifecycle) GitNumstat(ctx context.Context, dir string) string {
 	out, err := l.run.Run(ctx, dir, "git", "diff", "--numstat")
@@ -1857,6 +1886,7 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*agentstore.Ag
 	agent.AutopilotRunID = req.AutopilotRunID
 	agent.AutopilotSlot = req.AutopilotSlot
 	agent.AutopilotTaskID = req.AutopilotTaskID
+	agent.BaseBranch = req.BaseBranch
 	// Only pinning backends (Caps.SessionIDControl) take a warden-minted session
 	// id — for them the id is pinned at launch for a deterministic transcript path
 	// + --resume. A non-pinning backend (codex, cursor, antigravity, …) mints its
@@ -2996,7 +3026,8 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*agentst
 		PipelineID:       req.PipelineID, PlanID: req.PlanID, JobID: req.JobID,
 		ScheduleID: req.ScheduleID, ScheduleName: req.ScheduleName,
 		Role: req.Role, Task: req.Task, AiCli: req.Backend, Model: req.Model, QuotaBinding: binding,
-		Tags: store.NormalizeTags(req.Tags),
+		BaseBranch: req.BaseBranch,
+		Tags:       store.NormalizeTags(req.Tags),
 	}
 	cid, err := store.NewSessionID()
 	if err != nil {
