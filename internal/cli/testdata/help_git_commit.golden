@@ -8,10 +8,19 @@ Pass -m to author the message (best — you made the change). Omit it and warden
 writes one: the local model from the staged diff if configured, otherwise a
 deterministic conventional-commit message from the changed paths.
 
+Give paths (relative to the current directory) to stage and commit only those;
+paths outside the repository are rejected. With no paths everything is staged.
+
+--amend rewrites the last commit, keeping its message unless -m is given. It is
+refused on a merge commit and on a commit already in the upstream branch unless
+--force (after which push needs --force-with-lease).
+
 Usage:
-  warden git commit [flags]
+  warden git commit [paths...] [flags]
 
 Flags:
+      --amend            rewrite the last commit (keeps its message unless -m is given)
+      --force            with --amend, allow amending a commit already in the upstream branch
   -h, --help             help for commit
       --json             emit the raw result as JSON
   -m, --message string   commit message; if omitted, warden generates one from the diff

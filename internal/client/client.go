@@ -508,8 +508,22 @@ func (c *Client) Guard(ctx context.Context, session, tool, path string) (GuardVe
 // action to that agent's own worktree. Uses longTimeout — commit runs the
 // repo's own pre-commit hooks, which in a large monorepo can take minutes.
 func (c *Client) GitCommit(ctx context.Context, session, dir, message string) (lifecycle.CommitResult, error) {
+	return c.GitCommitWith(ctx, session, dir, lifecycle.CommitOptions{Message: message})
+}
+
+// GitCommitWith is GitCommit with path-limited staging and amend support.
+func (c *Client) GitCommitWith(ctx context.Context, session, dir string, opts lifecycle.CommitOptions) (lifecycle.CommitResult, error) {
 	var res lifecycle.CommitResult
-	body := map[string]string{"session": session, "dir": dir, "message": message}
+	body := map[string]any{"session": session, "dir": dir, "message": opts.Message}
+	if len(opts.Paths) > 0 {
+		body["paths"] = opts.Paths
+	}
+	if opts.Amend {
+		body["amend"] = true
+	}
+	if opts.Force {
+		body["force"] = true
+	}
 	if err := c.doT(ctx, longTimeout, http.MethodPost, "/git/commit", body, &res); err != nil {
 		return lifecycle.CommitResult{}, err
 	}

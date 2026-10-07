@@ -111,6 +111,7 @@ type gitCommitArgs struct {
 	Message string `json:"message,omitempty" jsonschema:"the commit message — best to pass it, you wrote the change so you know the intent; if omitted warden generates one from the diff"`
 	Dir     string `json:"dir,omitempty" jsonschema:"worktree to commit (absolute or relative); defaults to the current directory. When this agent has a session, an explicit dir must belong to the same git repository (linked worktree ok) or the daemon rejects it — it will not silently commit the session worktree."`
 }
+type gitCommitPathsArgs struct{}
 type gitPushArgs struct {
 	Dir   string `json:"dir,omitempty" jsonschema:"worktree to push; defaults to the current directory. Same-repo linked worktrees are honored; a dir outside this agent's repository is rejected."`
 	Force bool   `json:"force,omitempty" jsonschema:"push with --force-with-lease after a rebase or amend — overwrites your own remote branch but aborts if a teammate pushed to it since your last fetch"`

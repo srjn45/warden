@@ -43,7 +43,7 @@ func (s *Server) GitCommit(ctx context.Context, req oapi.GitCommitRequestObject)
 	}
 	meta.Workdir = dir
 	s.plugins.Dispatch(ctx, plugin.EventPreCommit, meta, map[string]string{"message": b.Message})
-	res, err := s.life.Commit(ctx, dir, b.Message)
+	res, err := s.life.CommitWith(ctx, dir, lifecycle.CommitOptions{Message: b.Message, Paths: b.Paths, Amend: b.Amend, Force: b.Force})
 	if err != nil {
 		return nil, errStatus(http.StatusConflict, err.Error())
 	}

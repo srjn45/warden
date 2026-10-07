@@ -218,8 +218,8 @@ func (a *lifecycleAdapter) CommitWorktree(ctx context.Context, dir, message stri
 	return a.lc.CommitWorktree(ctx, dir, message)
 }
 
-func (a *lifecycleAdapter) Commit(ctx context.Context, dir, message string) (lifecycle.CommitResult, error) {
-	return a.lc.Commit(ctx, dir, message)
+func (a *lifecycleAdapter) CommitWith(ctx context.Context, dir string, opts lifecycle.CommitOptions) (lifecycle.CommitResult, error) {
+	return a.lc.CommitWith(ctx, dir, opts)
 }
 
 func (a *lifecycleAdapter) Push(ctx context.Context, dir string, force bool) (lifecycle.PushResult, error) {
