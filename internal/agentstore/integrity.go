@@ -76,6 +76,7 @@ func verifyRecord(col, key string, rec engine.Record) *UnhealthyError {
 // bodies are skipped and counted when tolerateDecode, else reported as failures.
 // The caller holds s.mu so Count and Scan see one state.
 func scanVerified(col *engine.Collection, name string, tolerateDecode bool) (out []*Agent, skipped int, err error) {
+	fireScanSeam(name)
 	// Count(nil) is the primary index length. Count(query.MatchAll) would stream
 	// the same (possibly short) scan and so could never expose an omission.
 	want, err := col.Count(nil)

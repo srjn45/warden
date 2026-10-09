@@ -106,6 +106,33 @@ func TestWatchDeliversSnapshots(t *testing.T) {
 		"heartbeat comments and terminal sessions must not produce agent snapshots")
 }
 
+func TestWatchAllRetainsTerminalSessions(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fl := w.(http.Flusher)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"sessions\":[{\"id\":\"A-1\"},{\"id\":\"T-1\",\"kind\":\"terminal\"}]}\n\n")
+		fl.Flush()
+		<-r.Context().Done()
+	}))
+	defer ts.Close()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	var snaps [][]string
+	err := New(ts.URL).WatchAll(ctx, func(sessions []*store.Session) error {
+		ids := make([]string, len(sessions))
+		for i, s := range sessions {
+			ids[i] = s.ID
+		}
+		snaps = append(snaps, ids)
+		cancel()
+		return nil
+	})
+	require.ErrorIs(t, err, context.Canceled)
+	require.Equal(t, [][]string{{"A-1", "T-1"}}, snaps, "WatchAll must keep terminal sessions")
+}
+
 func TestWatchPropagatesCallbackError(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fl := w.(http.Flusher)

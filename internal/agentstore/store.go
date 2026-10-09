@@ -11,8 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/srjn45/scriva"
@@ -38,16 +37,28 @@ const closedImportedMarker = ".archived-agents-from-sessions-imported"
 
 // Store owns the ScrivaDB "agents" and "closed" collections at <data>/agents-db.
 type Store struct {
-	mu        sync.Mutex
-	db        *scriva.DB
-	col       *engine.Collection
-	closed    *engine.Collection
-	lock      *flockFile
-	preflight *UnhealthyError
-	scratch   string // throwaway copy of a damaged agents-db; removed on Close
+	gate        *writeGate
+	snap        atomic.Pointer[Snapshot]
+	dataDir     string
+	db          *scriva.DB
+	col         *engine.Collection
+	closed      *engine.Collection
+	lock        *flockFile
+	preflight   *UnhealthyError
+	scratch     string // throwaway copy of a damaged agents-db; removed on Close
+	closedState atomic.Bool
+	gen         atomic.Uint64
+	state       atomic.Pointer[State]
+	degradedErr atomic.Pointer[UnhealthyError]
+	auditor     *Auditor
 }
 
 var _ AgentStore = (*Store)(nil)
+
+// Snapshot returns the current immutable published snapshot.
+func (s *Store) Snapshot() *Snapshot {
+	return s.snap.Load()
+}
 
 // New opens the agent collection and, once, imports the legacy active and closed
 // records whose Kind is not terminal. The marker is written last, making a failed
@@ -101,7 +112,20 @@ func New(dir string) (*Store, error) {
 		return nil, err
 	}
 	s.lock = lock
+	s.dataDir = canon
 	s.preflight = preflight
+	if preflight != nil {
+		st := StateDegraded
+		s.state.Store(&st)
+		s.degradedErr.Store(preflight)
+	} else {
+		st := StateOK
+		s.state.Store(&st)
+	}
+	s.auditor = NewAuditor(s, AuditorOptions{})
+	if preflight == nil {
+		s.auditor.Start()
+	}
 	return s, nil
 }
 
@@ -167,7 +191,7 @@ func openAt(dir, dbDir string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	s := &Store{db: db, col: col, closed: closed}
+	s := &Store{db: db, col: col, closed: closed, gate: newWriteGate()}
 	if !imported {
 		if err := s.importSessions(filepath.Join(dir, "sessions-db"), "active", s.col); err != nil {
 			_ = db.Close()
@@ -194,6 +218,20 @@ func openAt(dir, dbDir string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
+
+	activeRows, _, err := scanVerified(s.col, "agents", false)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	closedRows, skipped, err := scanVerified(s.closed, "closed", true)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	initSnap := buildSnapshot(1, time.Now().UTC(), activeRows, closedRows, skipped)
+	s.snap.Store(initSnap)
+
 	return s, nil
 }
 
@@ -273,8 +311,8 @@ func fromRecord(rec map[string]any) (*Agent, error) {
 }
 
 func (s *Store) get(id string) (*Agent, error) {
-	if s.preflight != nil {
-		return nil, s.preflight
+	if err := s.isDegraded(); err != nil {
+		return nil, err
 	}
 	r, err := s.col.GetByKey(id)
 	if errors.Is(err, engine.ErrKeyNotFound) {
@@ -305,9 +343,9 @@ func (s *Store) get(id string) (*Agent, error) {
 }
 
 // Insert creates an agent, initializing its lifecycle timestamps and events.
-func (s *Store) Insert(ctx context.Context, a *Agent) error {
-	if s.preflight != nil {
-		return s.preflight
+func (s *Store) Insert(ctx context.Context, a *Agent) (retErr error) {
+	if err := s.isDegraded(); err != nil {
+		return err
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -321,24 +359,21 @@ func (s *Store) Insert(ctx context.Context, a *Agent) error {
 	if err := store.ValidateName(a.Name); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	tk, err := s.beginWrite(ctx, "Insert")
+	if err != nil {
+		return err
+	}
+	defer tk.release(&retErr)
+	fireWriteSeam("Insert")
 	if ok, err := s.col.Exists(a.ID); err != nil {
 		return err
 	} else if ok {
 		return ErrExists
 	}
-	if a.Name != "" {
-		rows, _, err := scanVerified(s.col, "agents", false)
-		if err != nil {
-			return err
-		}
-		{
-			for _, other := range rows {
-				if other.Name == a.Name && other.ID != a.ID {
-					return ErrNameExists
-				}
-			}
+	currentSnap := s.snap.Load()
+	if a.Name != "" && currentSnap != nil {
+		if other, ok := currentSnap.ByName[a.Name]; ok && other.ID != a.ID {
+			return ErrNameExists
 		}
 	}
 	now := time.Now().UTC()
@@ -358,7 +393,18 @@ func (s *Store) Insert(ctx context.Context, a *Agent) error {
 	if errors.Is(err, engine.ErrDuplicateKey) {
 		return ErrExists
 	}
-	return err
+	if err != nil {
+		return err
+	}
+
+	verified, err := s.get(a.ID)
+	if err != nil {
+		return err
+	}
+	s.gen.Add(1)
+	*a = *cloneAgent(verified)
+	s.publishInsert(currentSnap, verified)
+	return nil
 }
 
 // Create reserves and persists an agent before its runtime has started. It is
@@ -416,51 +462,43 @@ func (s *Store) Recover(ctx context.Context, id string) error {
 }
 
 func (s *Store) Get(ctx context.Context, id string) (*Agent, error) {
+	if err := s.degradedErr.Load(); err != nil {
+		return nil, err
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if err := store.SafeID(id); err != nil {
 		return nil, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	// A point lookup alone cannot distinguish a genuinely absent key from an
-	// index entry the engine discarded while reopening a corrupt index. Verify
-	// the complete indexed view first, then select the requested agent.
-	rows, _, err := scanVerified(s.col, "agents", false)
-	if err != nil {
-		return nil, err
+	fireReadSeam("Get")
+	snap := s.snap.Load()
+	if snap == nil {
+		return nil, ErrNotFound
 	}
-	for _, a := range rows {
-		if a.ID == id {
-			return a, nil
-		}
-	}
-	return nil, ErrNotFound
+	return snap.Get(id)
 }
 
 // List returns all agents newest-updated first.
 func (s *Store) List(ctx context.Context) ([]*Agent, error) {
-	if s.preflight != nil {
-		return nil, s.preflight
+	if err := s.isDegraded(); err != nil {
+		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	out, _, err := scanVerified(s.col, "agents", false)
-	if err != nil {
-		return nil, err
+	fireReadSeam("List")
+	snap := s.snap.Load()
+	if snap == nil {
+		return nil, nil
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
-	return out, nil
+	return snap.List(), nil
 }
 
 // Update atomically applies fn and stamps UpdatedAt.
-func (s *Store) Update(ctx context.Context, id string, fn func(*Agent) error) error {
-	if s.preflight != nil {
-		return s.preflight
+func (s *Store) Update(ctx context.Context, id string, fn func(*Agent) error) (retErr error) {
+	if err := s.isDegraded(); err != nil {
+		return err
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -468,31 +506,50 @@ func (s *Store) Update(ctx context.Context, id string, fn func(*Agent) error) er
 	if err := store.SafeID(id); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	tk, err := s.beginWrite(ctx, "Update")
+	if err != nil {
+		return err
+	}
+	defer tk.release(&retErr)
+	fireWriteSeam("Update")
 	a, err := s.get(id)
 	if err != nil {
 		return err
 	}
-	if err := fn(a); err != nil {
+	aPrivate := cloneAgent(a)
+	if err := fn(aPrivate); err != nil {
 		return err
 	}
-	a.Status = a.Status.Canonical()
-	a.UpdatedAt = time.Now().UTC()
-	rec, err := toRecord(a)
+	if err := tk.ctxErr(ctx, "callback"); err != nil {
+		return err
+	}
+	aPrivate.Status = aPrivate.Status.Canonical()
+	aPrivate.UpdatedAt = time.Now().UTC()
+	rec, err := toRecord(aPrivate)
 	if err != nil {
 		return err
 	}
-	_, err = s.col.UpdateByKey(id, rec)
-	return err
+	if _, err := s.col.UpdateByKey(id, rec); err != nil {
+		return err
+	}
+
+	s.gen.Add(1)
+
+	verified, err := s.get(id)
+	if err != nil {
+		return err
+	}
+	currentSnap := s.snap.Load()
+	s.publishUpdate(currentSnap, verified)
+	return nil
 }
 
 // GetByNameOrID looks up an agent by name first (exact case-sensitive match
 // among active agents), falling back to ID lookup if no name matches.
 // Returns ErrNotFound if neither name nor ID match any active agent.
 func (s *Store) GetByNameOrID(ctx context.Context, nameOrID string) (*Agent, error) {
-	if s.preflight != nil {
-		return nil, s.preflight
+	if err := s.isDegraded(); err != nil {
+		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -500,18 +557,12 @@ func (s *Store) GetByNameOrID(ctx context.Context, nameOrID string) (*Agent, err
 	if nameOrID == "" {
 		return nil, ErrNotFound
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	rows, _, err := scanVerified(s.col, "agents", false)
-	if err != nil {
-		return nil, err
+	fireReadSeam("GetByNameOrID")
+	snap := s.snap.Load()
+	if snap == nil {
+		return nil, ErrNotFound
 	}
-	for _, a := range rows {
-		if a.Name == nameOrID {
-			return a, nil
-		}
-	}
-	return s.get(nameOrID)
+	return snap.GetByNameOrID(nameOrID)
 }
 
 // ListClosed returns all archived (closed) agents, newest updated first.
@@ -519,14 +570,12 @@ func (s *Store) ListClosed(ctx context.Context) ([]*Agent, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	out, _, err := scanVerified(s.closed, "closed", true)
-	if err != nil {
-		return nil, err
+	fireReadSeam("ListClosed")
+	snap := s.snap.Load()
+	if snap == nil {
+		return nil, nil
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
-	return out, nil
+	return snap.ListClosed(), nil
 }
 
 // ListClosedDegraded returns all archived agents, reporting how many records were skipped due to decode errors.
@@ -534,20 +583,19 @@ func (s *Store) ListClosedDegraded(ctx context.Context) ([]*Agent, int, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, 0, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	out, skipped, err := scanVerified(s.closed, "closed", true)
-	if err != nil {
-		return nil, 0, err
+	fireReadSeam("ListClosedDegraded")
+	snap := s.snap.Load()
+	if snap == nil {
+		return nil, 0, nil
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
-	return out, skipped, nil
+	list, skipped := snap.ListClosedDegraded()
+	return list, skipped, nil
 }
 
 // Archive moves the agent doc from active to closed collection.
-func (s *Store) Archive(ctx context.Context, id string) error {
-	if s.preflight != nil {
-		return s.preflight
+func (s *Store) Archive(ctx context.Context, id string) (retErr error) {
+	if err := s.isDegraded(); err != nil {
+		return err
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -555,8 +603,12 @@ func (s *Store) Archive(ctx context.Context, id string) error {
 	if err := store.SafeID(id); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	tk, err := s.beginWrite(ctx, "Archive")
+	if err != nil {
+		return err
+	}
+	defer tk.release(&retErr)
+	fireWriteSeam("Archive")
 	a, err := s.get(id)
 	if err != nil {
 		return err
@@ -568,7 +620,33 @@ func (s *Store) Archive(ctx context.Context, id string) error {
 	if _, err := s.closed.Upsert(id, rec); err != nil {
 		return err
 	}
-	return s.col.DeleteByKey(id)
+	rClosed, err := s.closed.GetByKey(id)
+	if err != nil {
+		return readFailure("closed", id, err)
+	}
+	if err := verifyRecord("closed", id, rClosed); err != nil {
+		return err
+	}
+	archivedAgent, err := fromRecord(rClosed.Data)
+	if err != nil {
+		return newUnhealthy(store.ScanFailure{Collection: "closed", Key: id, Class: store.DegradeDecode, Detail: err.Error()})
+	}
+
+	if err := s.col.DeleteByKey(id); err != nil {
+		return err
+	}
+	exists, err := s.col.Exists(id)
+	if err != nil {
+		return readFailure("agents", id, err)
+	}
+	if exists {
+		return newUnhealthy(integrityFailure("agents", id, "record still exists in index after DeleteByKey"))
+	}
+
+	s.gen.Add(1)
+	currentSnap := s.snap.Load()
+	s.publishArchive(currentSnap, id, archivedAgent)
+	return nil
 }
 
 // UpdateStatus updates the status of an agent.
@@ -580,15 +658,22 @@ func (s *Store) UpdateStatus(ctx context.Context, id string, status store.Status
 }
 
 // UpdateStatusIf is a compare-and-swap on agent status.
-func (s *Store) UpdateStatusIf(ctx context.Context, id string, expected, next store.Status) (bool, error) {
+func (s *Store) UpdateStatusIf(ctx context.Context, id string, expected, next store.Status) (ok bool, retErr error) {
+	if err := s.isDegraded(); err != nil {
+		return false, err
+	}
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
 	if err := store.SafeID(id); err != nil {
 		return false, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	tk, err := s.beginWrite(ctx, "UpdateStatusIf")
+	if err != nil {
+		return false, err
+	}
+	defer tk.release(&retErr)
+	fireWriteSeam("UpdateStatusIf")
 	a, err := s.get(id)
 	if errors.Is(err, ErrNotFound) {
 		return false, nil
@@ -599,9 +684,10 @@ func (s *Store) UpdateStatusIf(ctx context.Context, id string, expected, next st
 	if a.Status.Canonical() != expected.Canonical() {
 		return false, nil
 	}
-	a.Status = next.Canonical()
-	a.UpdatedAt = time.Now().UTC()
-	rec, err := toRecord(a)
+	aPrivate := cloneAgent(a)
+	aPrivate.Status = next.Canonical()
+	aPrivate.UpdatedAt = time.Now().UTC()
+	rec, err := toRecord(aPrivate)
 	if err != nil {
 		return false, err
 	}
@@ -609,19 +695,34 @@ func (s *Store) UpdateStatusIf(ctx context.Context, id string, expected, next st
 	if err != nil {
 		return false, err
 	}
+
+	s.gen.Add(1)
+	verified, err := s.get(id)
+	if err != nil {
+		return false, err
+	}
+	currentSnap := s.snap.Load()
+	s.publishUpdate(currentSnap, verified)
 	return true, nil
 }
 
 // FinalizeExit transitions the agent to next status and records exit code atomically.
-func (s *Store) FinalizeExit(ctx context.Context, id string, expected, next store.Status, code int) (bool, error) {
+func (s *Store) FinalizeExit(ctx context.Context, id string, expected, next store.Status, code int) (ok bool, retErr error) {
+	if err := s.isDegraded(); err != nil {
+		return false, err
+	}
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
 	if err := store.SafeID(id); err != nil {
 		return false, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	tk, err := s.beginWrite(ctx, "FinalizeExit")
+	if err != nil {
+		return false, err
+	}
+	defer tk.release(&retErr)
+	fireWriteSeam("FinalizeExit")
 	a, err := s.get(id)
 	if errors.Is(err, ErrNotFound) {
 		return false, nil
@@ -632,18 +733,19 @@ func (s *Store) FinalizeExit(ctx context.Context, id string, expected, next stor
 	if a.Status.Canonical() != expected.Canonical() {
 		return false, nil
 	}
+	aPrivate := cloneAgent(a)
 	now := time.Now().UTC()
-	a.Status = next.Canonical()
-	a.ExitCode = &code
-	a.UpdatedAt = now
+	aPrivate.Status = next.Canonical()
+	aPrivate.ExitCode = &code
+	aPrivate.UpdatedAt = now
 	if code != 0 {
-		a.Events = append(a.Events, store.Event{
+		aPrivate.Events = append(aPrivate.Events, store.Event{
 			TS:     now,
 			Type:   "exit",
 			Detail: exitDetail(code),
 		})
 	}
-	rec, err := toRecord(a)
+	rec, err := toRecord(aPrivate)
 	if err != nil {
 		return false, err
 	}
@@ -651,6 +753,14 @@ func (s *Store) FinalizeExit(ctx context.Context, id string, expected, next stor
 	if err != nil {
 		return false, err
 	}
+
+	s.gen.Add(1)
+	verified, err := s.get(id)
+	if err != nil {
+		return false, err
+	}
+	currentSnap := s.snap.Load()
+	s.publishUpdate(currentSnap, verified)
 	return true, nil
 }
 
@@ -781,18 +891,16 @@ func (s *Store) Ping(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.db == nil || s.col == nil {
+	if s.closedState.Load() {
 		return errors.New("agent store closed")
 	}
 	return nil
 }
 
 // Delete permanently removes an agent. A missing id returns ErrNotFound.
-func (s *Store) Delete(ctx context.Context, id string) error {
-	if s.preflight != nil {
-		return s.preflight
+func (s *Store) Delete(ctx context.Context, id string) (retErr error) {
+	if err := s.isDegraded(); err != nil {
+		return err
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -800,16 +908,51 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 	if err := store.SafeID(id); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	err := s.col.DeleteByKey(id)
+	tk, err := s.beginWrite(ctx, "Delete")
+	if err != nil {
+		return err
+	}
+	defer tk.release(&retErr)
+	fireWriteSeam("Delete")
+	err = s.col.DeleteByKey(id)
 	if errors.Is(err, engine.ErrKeyNotFound) {
 		return ErrNotFound
 	}
-	return err
+	if err != nil {
+		return err
+	}
+
+	exists, err := s.col.Exists(id)
+	if err != nil {
+		return readFailure("agents", id, err)
+	}
+	if exists {
+		return newUnhealthy(integrityFailure("agents", id, "record still exists in index after DeleteByKey"))
+	}
+
+	s.gen.Add(1)
+	currentSnap := s.snap.Load()
+	s.publishDelete(currentSnap, id)
+	return nil
 }
 
 func (s *Store) Close() error {
+	if s.closedState.Swap(true) {
+		return nil
+	}
+	if s.auditor != nil {
+		_ = s.auditor.Close()
+	}
+	if g := s.gate; g != nil {
+		// Queued writers are released with ErrClosed; wait (bounded) for an
+		// in-flight commit before the engine goes away.
+		g.close()
+		select {
+		case g.sem <- struct{}{}:
+			<-g.sem
+		case <-time.After(5 * time.Second):
+		}
+	}
 	err := s.db.Close()
 	if s.scratch != "" {
 		_ = os.RemoveAll(s.scratch)
@@ -818,6 +961,100 @@ func (s *Store) Close() error {
 		err = lerr
 	}
 	return err
+}
+
+// DataDir returns the canonical directory where the store is located.
+func (s *Store) DataDir() string {
+	return s.dataDir
+}
+
+// writeEpoch returns the write-slot seqlock counter (odd while a write is in flight).
+func (s *Store) writeEpoch() uint64 {
+	if s.gate == nil {
+		return 0
+	}
+	return s.gate.epoch.Load()
+}
+
+// Generation returns the monotonic count of committed mutations.
+func (s *Store) Generation() uint64 {
+	return s.gen.Load()
+}
+
+// State returns the operational state of the store (ok, suspect, degraded, unavailable).
+func (s *Store) State() State {
+	if st := s.state.Load(); st != nil {
+		return *st
+	}
+	return StateOK
+}
+
+// DegradedError returns the typed unhealthy error if the store is degraded.
+func (s *Store) DegradedError() *UnhealthyError {
+	if s.preflight != nil {
+		return s.preflight
+	}
+	return s.degradedErr.Load()
+}
+
+func (s *Store) isDegraded() *UnhealthyError {
+	return s.DegradedError()
+}
+
+// TransitionDegraded moves the store to StateDegraded and sets its typed failure.
+func (s *Store) TransitionDegraded(u *UnhealthyError) {
+	st := StateDegraded
+	s.state.Store(&st)
+	s.degradedErr.Store(u)
+}
+
+// TransitionSuspect moves the store to StateSuspect and triggers a debounced audit.
+func (s *Store) TransitionSuspect() {
+	if s.State() == StateOK {
+		st := StateSuspect
+		s.state.Store(&st)
+	}
+	if s.auditor != nil {
+		s.auditor.Trigger(false)
+	}
+}
+
+// TransitionOK moves the store from StateSuspect to StateOK. Degraded state is latched
+// and cannot be cleared by TransitionOK.
+func (s *Store) TransitionOK() {
+	if s.State() == StateSuspect {
+		st := StateOK
+		s.state.Store(&st)
+	}
+}
+
+// Auditor returns the store's integrity auditor.
+func (s *Store) Auditor() *Auditor {
+	return s.auditor
+}
+
+// SetAuditor overrides the store's auditor (used for testing custom intervals/timeouts).
+func (s *Store) SetAuditor(a *Auditor) {
+	if s.auditor != nil {
+		_ = s.auditor.Close()
+	}
+	s.auditor = a
+}
+
+// AuditReport returns the latest audit report.
+func (s *Store) AuditReport() AuditReport {
+	if s.auditor != nil {
+		return s.auditor.Report()
+	}
+	return AuditReport{}
+}
+
+// RunAudit triggers an audit pass on demand.
+func (s *Store) RunAudit(ctx context.Context, force bool) (*AuditReport, error) {
+	if s.auditor != nil {
+		return s.auditor.Audit(ctx, force)
+	}
+	return nil, nil
 }
 
 func exitDetail(code int) string {

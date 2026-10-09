@@ -269,6 +269,28 @@ input, select, textarea { font: inherit; color: var(--fg); }
 .muted { color: var(--fg-muted); }
 .warn { color: var(--error); }
 
+.fleet-banner {
+  padding: var(--sp-2) var(--sp-3);
+  margin-bottom: var(--sp-3);
+  border-radius: var(--r-sm);
+  font-size: .88rem;
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+.fleet-banner.warning {
+  background: var(--attention-soft);
+  color: var(--attention);
+  border: 1px solid var(--attention);
+}
+.fleet-banner.error {
+  background: var(--error-soft);
+  color: var(--error);
+  border: 1px solid var(--error);
+}
+.fleet-banner-icon { font-weight: bold; }
+.fleet-banner-text { flex: 1; }
+
 /* ── Tables ── */
 .list table, .backends-table, .archive-table, .shortcuts-table, .ctx-table, .resources-table {
   width: 100%; border-collapse: collapse; font-size: .88rem;

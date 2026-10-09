@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Session } from '../lib/types';
 import { visibleAgentIds, type ProjectTree } from '../lib/tree';
 import { partitionByKind } from '../lib/kind';
+import { formatFleetBanner, type FleetStatus } from '../lib/refresh';
 import AgentGrid from './AgentGrid';
 import BulkActionBar from './BulkActionBar';
 import FleetStats from './FleetStats';
@@ -13,11 +14,13 @@ import FleetStats from './FleetStats';
 //
 // The Cockpit is also where batch operations (#21) live: each tile carries a
 // checkbox, and selecting one or more agents reveals the bulk action bar.
-export default function CockpitTab({ sessions, tree, treeError, stale, onSelect, onCreated, onTerminalSelect }: {
+export default function CockpitTab({ sessions, tree, treeError, stale, lastCompleteAt, fleetStatus, onSelect, onCreated, onTerminalSelect }: {
   sessions: Session[];
   tree: ProjectTree | null;
   treeError: string | null;
   stale: boolean;
+  lastCompleteAt?: Date | null;
+  fleetStatus?: FleetStatus;
   onTerminalSelect: (id: string) => void;
   onSelect: (id: string) => void;
   onCreated: (id: string) => void;
@@ -65,14 +68,30 @@ export default function CockpitTab({ sessions, tree, treeError, stale, onSelect,
     lastRef.current = id;
   }
 
+  const banner = formatFleetBanner({
+    sessions,
+    tree,
+    treeError,
+    status: fleetStatus ?? (stale ? 'stale' : 'live'),
+    lastCompleteAt: lastCompleteAt ?? null,
+    inFlight: false,
+    failures: 0,
+  });
+
   return (
     <div className="cockpit">
+      {banner.show && (
+        <div className={`fleet-banner ${banner.severity}`} role="status">
+          <span className="fleet-banner-icon">⚠</span>
+          <span className="fleet-banner-text">{banner.text}</span>
+        </div>
+      )}
       <section className="card cockpit-fleet">
         <h3>Fleet</h3>
         <FleetStats sessions={agents} />
       </section>
       {treeError && <p className="warn" role="status">{treeError}</p>}
-      {tree && stale && <p className="muted" role="status">Project hierarchy may be out of date. Reconnecting…</p>}
+      {tree && stale && !banner.show && <p className="muted" role="status">Project hierarchy may be out of date. Reconnecting…</p>}
       {!tree && !treeError && <p className="muted" role="status">Loading projects…</p>}
       {tree && <AgentGrid
         tree={tree}
