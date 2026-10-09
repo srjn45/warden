@@ -2158,7 +2158,11 @@ restart list; everything else takes effect on save.
 | `scheduler_enabled` | `false` | Enable the native cron/at scheduler (`warden schedule create/list/show/run/edit/enable/disable/delete`). Off → the schedule routes 403 and the reconcile loop is a no-op |
 | `branch_track.enabled` | `false` | Enable the per-agent branch monitor (`warden workspace branches`): CI status + standing vs `origin/main`, with non-blocking inbox/desktop alerts |
 | `branch_track.interval` | `2m` | Poll interval for the branch monitor when `branch_track.enabled` is on |
-| `activity.interval` | `15s` | Minimum gap between live activity-badge refreshes per agent (the 3-5 word status badge on each TUI agent row). Refreshes only while the agent's pane is changing, so idle agents cost no Fast-Brain calls; a failed/empty decision keeps the previous badge |
+| `activity.enabled` | `true` | Enable cosmetic model-generated activity badges. Set `false` to prevent all `summarize_activity` Fast-Brain calls; agent status, approvals, prompt recognition, and Autopilot are unaffected. |
+| `activity.interval` | `15s` | Minimum gap between live activity-badge refreshes per agent (the 3-5 word status badge on each TUI agent row). Refreshes only while the agent's pane is changing, so idle agents cost no Fast-Brain calls; a failed/empty decision keeps the previous badge. |
+| `fast_brain.fast_timeout` | `10s` | Ceiling for ordinary Fast-Brain native-CLI decisions. |
+| `fast_brain.thinking_timeout` | `20s` | Ceiling for Fast-Brain reasoning and prompt-recognition decisions. |
+| `fast_brain.max_concurrent` | `2` | Process-wide cap on concurrent internal model calls. Identical in-flight decisions are coalesced, and cosmetic activity work yields capacity to operational decisions. |
 | `router.use_fast_brain` | `false` | Opt-in Fast-Brain prompt-complexity tier routing for unpinned spawns (lowest precedence; confidence ≥ 0.8; see §5.3) |
 | `snapshots` | `true` | Enable the worktree+transcript checkpoint store (`warden workspace snapshot`) and its `snapshot_*` MCP tools |
 | `insights` | `true` | Enable history-mined insights (`warden usage insights` + the `insights` MCP tool) |

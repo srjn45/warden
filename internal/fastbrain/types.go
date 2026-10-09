@@ -61,7 +61,7 @@ type Request struct {
 	Input    any               // optional structured input (caller context; not sent)
 	Metadata map[string]string // free-form, e.g. agent id; never logged verbatim
 	// Timeout optionally lowers the tier budget. It can never exceed the tier
-	// maximum (1.5s fast / 10s thinking).
+	// maximum for the configured tier.
 	Timeout time.Duration
 }
 
@@ -75,6 +75,9 @@ const (
 	StatusRunnerError Status = "runner_error"
 	StatusNoRunner    Status = "no_runner"
 	StatusInvalidJSON Status = "invalid_json"
+	// StatusDeferred means admission deliberately declined a nonessential
+	// decision rather than starting an unbounded extra model process.
+	StatusDeferred Status = "deferred"
 )
 
 // Output carries the model reply: the raw text and, when it contained a JSON
