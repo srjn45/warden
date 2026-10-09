@@ -54,9 +54,9 @@ func TestContractContentionGetIsPointRead(t *testing.T) {
 	require.Zero(t, n.Load(), "Get must not scan the collection")
 }
 
-// I-5: a caller whose ctx expires while queued returns ctx.Err() at the deadline.
+// I-5: a caller whose ctx expires while queued for the write slot returns
+// ctx.Err() at the deadline, before any engine mutation.
 func TestContractContentionContextBoundsQueuedCalls(t *testing.T) {
-	t.Skip("gate: cancellation (contract §7) — flips TestBaselineContextIgnoredWhileQueued")
 	s := seededStore(t, 2)
 	g := slowWrite(t, "Update")
 	go func() { _ = s.UpdateStatus(context.Background(), "a-0", store.StatusIdle) }()
@@ -64,9 +64,14 @@ func TestContractContentionContextBoundsQueuedCalls(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	_, err := s.List(ctx)
+	err := s.UpdateStatus(ctx, "a-1", store.StatusIdle)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.Less(t, time.Since(start), 200*time.Millisecond)
+	g.release()
+	// The abandoned write never happened.
+	a, gerr := s.Get(context.Background(), "a-1")
+	require.NoError(t, gerr)
+	require.NotEqual(t, store.StatusIdle, a.Status)
 }
 
 // I-6: while degraded the store serves a labelled stale snapshot, never a

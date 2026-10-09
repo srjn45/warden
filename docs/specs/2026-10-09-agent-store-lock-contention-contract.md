@@ -409,3 +409,15 @@ grep -rEn '\.(store|sstore|st|sessions|agents)\.(Get|GetByNameOrID|List|ListClos
 
 Counts in §2 come from this grep on commit `fbf575a6`; re-run it when the call-site set
 changes (a new reader on a Cockpit-hot path must be added to §2.3).
+
+## 9. Implementation status — writer serialization and cancellation (§4.4, §5, §6)
+
+- Writers (`Insert`, `Update`, `Archive`, `UpdateStatusIf`, `FinalizeExit`, `Delete`) serialize on a
+  ctx-aware single-slot gate (`internal/agentstore/writer.go`) instead of a `sync.Mutex`. A queued caller
+  returns `ctx.Err()` as soon as its ctx is done, before any engine mutation; `Close` releases queued
+  writers with `ErrClosed`. An `Update` callback that returns after cancel aborts pre-commit.
+- `Store.Diagnostics()` is lock-free and scan-free: state, snapshot version/age/size, lock waiters,
+  current holder op + held time, slowest holds, per-op count/result/p50/p99/lock-wait/lock-hold, and
+  `ctx_abandoned` by `op/phase`. Slow holds (>= 250 ms) and abandoned queued calls log one throttled line.
+- Gates flipped: `TestContractContentionContextBoundsQueuedCalls`, `TestBaselineContextIgnoredWhileQueued`.
+- Not yet wired: HTTP exposition of `Diagnostics()` (`GET /api/v1/store/diagnostics`, Prometheus names in §5).

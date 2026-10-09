@@ -139,9 +139,9 @@ func TestBaselineScanCountPerOperation(t *testing.T) {
 	}
 }
 
-// B5: ctx is checked only on entry. A caller whose deadline expires while it is
-// queued on the mutex is not released at the deadline; it returns success long
-// after, so cancellation does not bound request latency.
+// B5 (flipped): ctx is honoured while queued. A caller whose deadline expires
+// while it waits for the write slot returns ctx.Err() at the deadline and the
+// write is never applied.
 func TestBaselineContextIgnoredWhileQueued(t *testing.T) {
 	s := seededStore(t, 2)
 	g := slowWrite(t, "Update")
@@ -151,12 +151,11 @@ func TestBaselineContextIgnoredWhileQueued(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	blocked, wait := stalled(300*time.Millisecond, func() error { return s.UpdateStatus(ctx, "a-1", store.StatusIdle) })
-	require.True(t, blocked, "UpdateStatus returned at its 50ms deadline; baseline expected it to stay queued (BASELINE defect)")
-	g.release()
+	require.False(t, blocked, "queued call must return at its 50ms deadline")
 	el, err := wait()
-	require.NoError(t, err, "queued call with an expired ctx should currently still succeed")
-	require.Greater(t, el, 250*time.Millisecond)
-	require.Error(t, ctx.Err())
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.Less(t, el, 250*time.Millisecond)
+	g.release()
 }
 
 // B6: an Update whose fn is running does not block snapshot readers.

@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -38,7 +37,7 @@ const closedImportedMarker = ".archived-agents-from-sessions-imported"
 
 // Store owns the ScrivaDB "agents" and "closed" collections at <data>/agents-db.
 type Store struct {
-	mu          sync.Mutex
+	gate        *writeGate
 	snap        atomic.Pointer[Snapshot]
 	dataDir     string
 	db          *scriva.DB
@@ -192,7 +191,7 @@ func openAt(dir, dbDir string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	s := &Store{db: db, col: col, closed: closed}
+	s := &Store{db: db, col: col, closed: closed, gate: newWriteGate()}
 	if !imported {
 		if err := s.importSessions(filepath.Join(dir, "sessions-db"), "active", s.col); err != nil {
 			_ = db.Close()
@@ -344,7 +343,7 @@ func (s *Store) get(id string) (*Agent, error) {
 }
 
 // Insert creates an agent, initializing its lifecycle timestamps and events.
-func (s *Store) Insert(ctx context.Context, a *Agent) error {
+func (s *Store) Insert(ctx context.Context, a *Agent) (retErr error) {
 	if err := s.isDegraded(); err != nil {
 		return err
 	}
@@ -360,8 +359,11 @@ func (s *Store) Insert(ctx context.Context, a *Agent) error {
 	if err := store.ValidateName(a.Name); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	tk, err := s.beginWrite(ctx, "Insert")
+	if err != nil {
+		return err
+	}
+	defer tk.release(&retErr)
 	fireWriteSeam("Insert")
 	if ok, err := s.col.Exists(a.ID); err != nil {
 		return err
@@ -494,7 +496,7 @@ func (s *Store) List(ctx context.Context) ([]*Agent, error) {
 }
 
 // Update atomically applies fn and stamps UpdatedAt.
-func (s *Store) Update(ctx context.Context, id string, fn func(*Agent) error) error {
+func (s *Store) Update(ctx context.Context, id string, fn func(*Agent) error) (retErr error) {
 	if err := s.isDegraded(); err != nil {
 		return err
 	}
@@ -504,8 +506,11 @@ func (s *Store) Update(ctx context.Context, id string, fn func(*Agent) error) er
 	if err := store.SafeID(id); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	tk, err := s.beginWrite(ctx, "Update")
+	if err != nil {
+		return err
+	}
+	defer tk.release(&retErr)
 	fireWriteSeam("Update")
 	a, err := s.get(id)
 	if err != nil {
@@ -513,6 +518,9 @@ func (s *Store) Update(ctx context.Context, id string, fn func(*Agent) error) er
 	}
 	aPrivate := cloneAgent(a)
 	if err := fn(aPrivate); err != nil {
+		return err
+	}
+	if err := tk.ctxErr(ctx, "callback"); err != nil {
 		return err
 	}
 	aPrivate.Status = aPrivate.Status.Canonical()
@@ -585,7 +593,7 @@ func (s *Store) ListClosedDegraded(ctx context.Context) ([]*Agent, int, error) {
 }
 
 // Archive moves the agent doc from active to closed collection.
-func (s *Store) Archive(ctx context.Context, id string) error {
+func (s *Store) Archive(ctx context.Context, id string) (retErr error) {
 	if err := s.isDegraded(); err != nil {
 		return err
 	}
@@ -595,8 +603,11 @@ func (s *Store) Archive(ctx context.Context, id string) error {
 	if err := store.SafeID(id); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	tk, err := s.beginWrite(ctx, "Archive")
+	if err != nil {
+		return err
+	}
+	defer tk.release(&retErr)
 	fireWriteSeam("Archive")
 	a, err := s.get(id)
 	if err != nil {
@@ -647,7 +658,7 @@ func (s *Store) UpdateStatus(ctx context.Context, id string, status store.Status
 }
 
 // UpdateStatusIf is a compare-and-swap on agent status.
-func (s *Store) UpdateStatusIf(ctx context.Context, id string, expected, next store.Status) (bool, error) {
+func (s *Store) UpdateStatusIf(ctx context.Context, id string, expected, next store.Status) (ok bool, retErr error) {
 	if err := s.isDegraded(); err != nil {
 		return false, err
 	}
@@ -657,8 +668,11 @@ func (s *Store) UpdateStatusIf(ctx context.Context, id string, expected, next st
 	if err := store.SafeID(id); err != nil {
 		return false, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	tk, err := s.beginWrite(ctx, "UpdateStatusIf")
+	if err != nil {
+		return false, err
+	}
+	defer tk.release(&retErr)
 	fireWriteSeam("UpdateStatusIf")
 	a, err := s.get(id)
 	if errors.Is(err, ErrNotFound) {
@@ -693,7 +707,7 @@ func (s *Store) UpdateStatusIf(ctx context.Context, id string, expected, next st
 }
 
 // FinalizeExit transitions the agent to next status and records exit code atomically.
-func (s *Store) FinalizeExit(ctx context.Context, id string, expected, next store.Status, code int) (bool, error) {
+func (s *Store) FinalizeExit(ctx context.Context, id string, expected, next store.Status, code int) (ok bool, retErr error) {
 	if err := s.isDegraded(); err != nil {
 		return false, err
 	}
@@ -703,8 +717,11 @@ func (s *Store) FinalizeExit(ctx context.Context, id string, expected, next stor
 	if err := store.SafeID(id); err != nil {
 		return false, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	tk, err := s.beginWrite(ctx, "FinalizeExit")
+	if err != nil {
+		return false, err
+	}
+	defer tk.release(&retErr)
 	fireWriteSeam("FinalizeExit")
 	a, err := s.get(id)
 	if errors.Is(err, ErrNotFound) {
@@ -881,7 +898,7 @@ func (s *Store) Ping(ctx context.Context) error {
 }
 
 // Delete permanently removes an agent. A missing id returns ErrNotFound.
-func (s *Store) Delete(ctx context.Context, id string) error {
+func (s *Store) Delete(ctx context.Context, id string) (retErr error) {
 	if err := s.isDegraded(); err != nil {
 		return err
 	}
@@ -891,10 +908,13 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 	if err := store.SafeID(id); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	tk, err := s.beginWrite(ctx, "Delete")
+	if err != nil {
+		return err
+	}
+	defer tk.release(&retErr)
 	fireWriteSeam("Delete")
-	err := s.col.DeleteByKey(id)
+	err = s.col.DeleteByKey(id)
 	if errors.Is(err, engine.ErrKeyNotFound) {
 		return ErrNotFound
 	}
@@ -917,9 +937,21 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 }
 
 func (s *Store) Close() error {
-	s.closedState.Store(true)
+	if s.closedState.Swap(true) {
+		return nil
+	}
 	if s.auditor != nil {
 		_ = s.auditor.Close()
+	}
+	if g := s.gate; g != nil {
+		// Queued writers are released with ErrClosed; wait (bounded) for an
+		// in-flight commit before the engine goes away.
+		g.close()
+		select {
+		case g.sem <- struct{}{}:
+			<-g.sem
+		case <-time.After(5 * time.Second):
+		}
 	}
 	err := s.db.Close()
 	if s.scratch != "" {
