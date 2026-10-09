@@ -223,3 +223,56 @@ All backend-registry writes go through `*backendstore.Store`; the only processes
 - Docs should state: "run exactly one daemon per data dir; with the systemd user service, use `systemctl --user …`, not `warden daemon`".
 - Not done here: a *degraded start* for **ambiguous** registry findings (contract §5.4). Daemon still exits with the typed `*RecoveryRequiredError` (repair command in message) in that case; recoverable regressions auto-heal. If a degraded mode is wanted it is a separate change.
 - `wd update` (t4) may `ownerlock.Probe(dataDir)` to report/anticipate the owner.
+
+## 9. `wd update` transaction contract (t4, `internal/updater/transaction.go`)
+
+`warden update` is an explicit transaction over small interfaces
+(`ServiceController`, `Prober`, `BinaryInstaller`, `Clock`; real implementations
+in `service.go`, fakes in the tests).
+
+```
+resolve release ─▶ capture ─▶ preflight ─▶ download+verify ─▶ swap ─▶ codesign ─▶ migrate
+                                   │                                                  │
+                          PreflightError (no change)                              restart
+                                                                                      │
+                                                  ┌── rollback ◀── any failure ── readiness
+                                                  ▼
+                               restore binary → restart service → verify PRIOR version healthy
+```
+
+1. **Capture**: binary path+version, service kind (`systemd-user` / `launchd` /
+   `manual` / `none`), whether the daemon answers `/healthz` and its version.
+2. **Preflight** (before download and swap): `backendstore.Verify` on
+   `<data_dir>/backends`, read-only, using the *running* binary's classification.
+   Ambiguous/unreadable findings → `PreflightError` with the findings and
+   `backendstore.RepairCommand`; nothing changes. Recoverable findings are
+   printed as notes and do not block (the new daemon's `Open` repairs them).
+3. **Swap/restart**: atomic binary swap (`.bak` kept until success), codesign,
+   config migrate, restart via the service manager. With no manager
+   (`ErrNoServiceManager`) the binary is updated and the user is told to restart
+   manually; no readiness check is possible.
+4. **Readiness**: bounded backoff (250ms ×1.5, cap 2s) under one overall deadline
+   (`--ready-timeout`, default 90s). Success needs `status == ok` **and**
+   advertised version == target. Each poll also checks whether the supervised
+   process exited.
+5. **Diagnostics**: on failure the journal tail (`journalctl --user -u warden`) or
+   `/tmp/warden.daemon.err` (launchd) is attached, so the real startup error
+   (e.g. the integrity refusal) is shown rather than "connection refused".
+6. **Rollback** (any failure after the swap): restore the previous binary; restart
+   the service if the new daemon had been started; if a daemon was serving before,
+   require it healthy on the prior version. The report always contains both the
+   original failure and the rollback outcome.
+
+### Error taxonomy (all `errors.As`-able; wrapped in `*FailureError` after a swap)
+
+| type | meaning | message headline |
+|---|---|---|
+| `*PreflightError` | store blocker; nothing swapped | `update blocked before any change` |
+| `*StartupFailureError` | process exited / restart command failed before healthy | `startup failure` |
+| `*ReadinessTimeoutError` | no healthy response by deadline | `readiness timeout` |
+| `*WrongVersionError` | healthy but advertises another version | `wrong version` |
+| `*RollbackError` | restoring the previous version failed | `ROLLBACK FAILED` |
+
+Limitations: the preflight uses the installed binary's `Verify`, not the new
+binary's; a daemon-written startup-failure file is not required (journal/stderr
+capture covers supervised daemons).
