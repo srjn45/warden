@@ -4293,7 +4293,7 @@ Usage:
   warden inspect repair [flags]
 
 Commands:
-  agents               Check preconditions for offline agent-store repair (repair itself awaits ScrivaDB support)
+  agents               Verify or repair the agent store offline, backup-first
   sessions             Diagnose or reconstruct the offline session store
 
 Flags:
@@ -4309,23 +4309,19 @@ Inherited flags:
 ```text
 Offline repair of the agent store (<data>/agents-db).
 
-This command enforces the repair preconditions and then reports honestly that
-the repair primitive is not available yet: rebuilding a corrupt index needs
-ScrivaDB Verify/Repair support that the pinned release does not export, and
-warden does not emulate it. Nothing is modified.
-
-Preconditions checked, in order:
-  1. you own the data directory (or are root)
-  2. no warden process owns the agent store (stop the daemon first)
-
-Running agents are never affected. See the "Agent store integrity" guide for
-the daemon-offline procedure.
+The daemon must be stopped. --dry-run is read-only; repair uses ScrivaDB's
+verified backup, atomic journaled repair, and conflict-preserving report.
 
 Usage:
   warden inspect repair agents [flags]
 
 Flags:
-  -h, --help   help for agents
+      --backup-dir string    parent directory for the verified repair backup
+      --dry-run              verify and report only; do not modify files
+  -h, --help                 help for agents
+      --json                 print the machine-readable Verify/Repair report
+      --on-conflict string   report or abort on ambiguous history (default "report")
+      --salvage              permit ScrivaDB's conflict-safe segment salvage
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
