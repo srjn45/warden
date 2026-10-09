@@ -82,6 +82,108 @@ across many agents), a worker pool for resource-intensive operations, and load
 testing with 100+ agents. **Only matters past ~100 concurrent agents — not the
 current scale.**
 
+#### 57. CLI product-surface and safety review — *deferred until the PTY permission runtime lands*
+**Effort:** 1–2 weeks, best split into coordination/approval and operator/admin
+tracks
+
+The principal agent, pipeline, autopilot, schedule, plan, project/workspace,
+and git/check command families have already had focused consistency work. The
+remaining command surface needs a product review after the local
+`pty-runtime-and-permission-decision-engine` is proven. Do not undertake this
+as a cosmetic rename sweep: retain commands only where they solve a concrete
+operator or automation problem, preserve scripts through hidden compatibility
+aliases, and make safe/read-only behavior the default.
+
+**First priority — approval, context, and messaging:**
+
+- Replace the current auto-approve-centric UX with the PTY runtime's explicit
+  permission model: recognized permission/trust prompts, effective capability
+  posture, scope, available choices, confidence/evidence, decision/audit
+  history, and strategic-question escalation must be visible separately.
+- Target a durable surface such as `approval list`, `approval answer`,
+  `approval posture show|set`, `approval policy list|add|remove`,
+  `approval diagnostics known-prompts …`, and `approval audit`. Keep the old
+  `approval auto …` rule/toggle commands as compatibility only during a staged
+  migration; they cannot be the long-term representation of read/write,
+  allowlisted execution, or `dangerously-execute-all` policy.
+- Make `message list` read-only and add explicit `message ack`/`consume`;
+  today merely inspecting `message inbox` marks messages read. Keep `wait` for
+  scripts/agents, with stable timeout and JSON behavior.
+- Keep `context` as an agent/pipeline coordination primitive (`set`, `cas`,
+  `append`, `get`, `list`, `delete`), but document scope/retention/size limits,
+  add structured output where appropriate, and record authenticated writer
+  provenance separately from any user-supplied `--as` identity.
+
+**Backend, usage, and inspection clarity:**
+
+- Retain AI-CLI registry, discovery, model catalog, quota, spend, savings,
+  resource, search, history, audit, and recovery capabilities; they solve real
+  fleet-operation problems. Use "AI CLI" in user-facing text where "backend"
+  is an implementation term.
+- Hide the retired no-op `backend suggest` as compatibility-only. Relocate the
+  interactive fleet REPL from `backend repl` to a neutral `repl`/`console`
+  command, retaining the old path as an alias.
+- Disambiguate the live provider model menu from Warden's routing catalog
+  (`backend model available` versus `backend model list`) and distinguish
+  backend billing tiers from model routing tiers in names/help.
+- Keep provider quota as `usage`, but move non-financial historical analysis
+  from `usage insights` to `inspect insights` canonically. Make `usage spend`
+  accurately describe provider coverage and keep estimated dollar values
+  visibly distinct from exact token counts or invoices.
+- Retain operator-triggered quota recovery, but make its dry-run/apply boundary
+  unmistakable and consider a more operational home such as backend quota
+  reconciliation.
+- Reframe `inspect export|import` as agent-record metadata migration, not
+  backup/recovery: they do not restore worktrees, branches, or terminals. Add
+  dry-run and explicit confirmation before overwrite/merge.
+- Make every `inspect repair …` command diagnose by default and require an
+  explicit `--apply` for mutation; the current safe-looking `--dry-run` opt-in
+  is too easy to misuse.
+
+**Configuration, daemon, and operator safety:**
+
+- Keep `config`, `daemon`, MCP serving, token lifecycle, completion, doctor,
+  bug reporting, setup, tutorial, TUI, update, and version. These are real
+  installation and operational needs, not gratuitous commands.
+- Keep `doctor` read-only. Move mutating membership reconciliation out of
+  `doctor --reconcile-membership` to a dedicated `inspect repair` operation.
+- Make `config init` migration previewable, backup existing configuration, and
+  require an explicit apply step when it would rewrite an existing file.
+- Harden bearer-token display/rotation: secret output should require an
+  explicit reveal/machine-use mode and protect ordinary interactive users from
+  accidental terminal/log disclosure. Keep separate ephemeral generation and
+  persisted-service rotation because they solve different deployment cases.
+- Require an explicit reset scope for `factory-reset`; retain the drain,
+  backup, and confirmation model, but never make a broad data wipe an implicit
+  default choice.
+- Move the TUI's web-cockpit rebuild escape hatch to a daemon/cockpit repair
+  command; it is not normal TUI presentation behavior. Keep `--tmux-native` as
+  an advanced presentation option while tmux remains supported.
+- Make setup backend-neutral: validate Warden's core prerequisites and the
+  user's selected AI CLI rather than treating Claude as universally required.
+  Update tutorial language to current canonical commands and Cockpit terms.
+- Describe `daemon mcp` as usable by any compatible MCP client, not as
+  Claude-specific. Add machine-readable output to update/check paths where
+  automation needs it.
+- Keep Hub device login hidden/experimental or place it under a Hub namespace
+  until remote Hub enrollment is a generally deployable product capability.
+
+**Migration guardrails:**
+
+- Do not remove legacy command paths abruptly. Canonical replacements first,
+  then hidden aliases, stderr-only notices that are suppressed for JSON and
+  machine modes, telemetry only if separately approved, and a later removal
+  decision backed by use evidence.
+- Preserve automation contracts: stable JSON, raw stdout for intentional shell
+  composition, explicit exit behavior for waits/timeouts, and no destructive
+  action caused merely by a status or inspection command.
+
+**Revisit only after:** `pty-runtime-and-permission-decision-engine` is merged
+and operating as the authoritative permission/prompt decision path. The
+approval redesign must be derived from its actual event, capability, audit, and
+strategic-routing contracts rather than bolting more rules onto the current
+poller-era auto-approve interface.
+
 ---
 
 ## 🧊 Parked (need a concrete demand signal)
