@@ -49,6 +49,7 @@ import (
 	"github.com/srjn45/warden/internal/router"
 	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/schedule"
+	"github.com/srjn45/warden/internal/schema"
 	"github.com/srjn45/warden/internal/snapshot"
 	"github.com/srjn45/warden/internal/spend"
 	"github.com/srjn45/warden/internal/store"
@@ -153,6 +154,31 @@ func newDaemonRunCmd() *cobra.Command {
 				return err
 			}
 			defer own.Release()
+
+			// Data-format guard (docs/specs/2026-10-09-update-process.md §3), under
+			// the ownership lock and before any store is opened: a data dir this
+			// binary must not touch stops the boot here, having changed nothing. A
+			// pre-ledger install is stamped at its baseline and boots as before.
+			// Nothing is migrated at boot — that is `wd update` / `warden migrate`.
+			schemaBoot, err := schema.Boot(cfg.DataDir, version)
+			if err != nil {
+				outcome := "refused_schema"
+				var ge *schema.GuardError
+				if errors.As(err, &ge) {
+					outcome = "refused_schema_" + ge.Verdict.String()
+				}
+				slog.Error("audit: daemon startup refused", "audit", true, "action", "daemon_start",
+					"outcome", outcome, "data_dir", cfg.DataDir)
+				return err
+			}
+			switch {
+			case schemaBoot.StampErr != nil:
+				slog.Warn("schema: could not write the data-format ledger (continuing; will retry next boot)",
+					"err", schemaBoot.StampErr, "schema_version", schemaBoot.Ledger.SchemaVersion)
+			case schemaBoot.Stamped:
+				slog.Info("schema: stamped data-format ledger", "path", schema.Path(cfg.DataDir),
+					"schema_version", schemaBoot.Ledger.SchemaVersion, "baseline", schemaBoot.Ledger.History[0].Migration)
+			}
 
 			st, err := agentstore.New(cfg.DataDir)
 			if err != nil {
@@ -266,6 +292,7 @@ func newDaemonRunCmd() *cobra.Command {
 			}
 			srv := daemon.NewServer(st, life, pl, 10*time.Second, cfg.ApprovalsEnabled, cstore, mbox, nil)
 			srv.SetVersion(version)
+			srv.SetSchemaVersion(schemaBoot.Ledger.SchemaVersion)
 			srv.SetTerminals(termStore)
 			// TerminalWatcher polls terminalstore (not the agent session store) via
 			// the shared tmuxproc.Host for liveness/capture.

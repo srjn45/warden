@@ -2,9 +2,11 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/config"
+	"github.com/srjn45/warden/internal/schema"
 	"github.com/srjn45/warden/internal/updater"
 )
 
@@ -29,7 +32,8 @@ func newUpdateCmd() *cobra.Command {
 		Long: `Download a verified GitHub release archive, atomically replace
 ~/.local/bin/warden, re-sign on macOS when the warden-codesign identity is
 present, run config migrations, restart the user-level daemon service, and
-wait for /healthz to report ok on the new version.
+wait for /healthz to report ok on the new version AND on the data schema
+version the new binary writes (see "warden version").
 
 The update is a transaction. Before any change it records the current binary,
 service manager and daemon version, and verifies the backend store read-only:
@@ -75,6 +79,8 @@ Examples:
 				Migrate: func() error {
 					return config.Reconcile(cfgPath)
 				},
+				TargetSchema:  binarySchemaVersion,
+				CurrentSchema: schema.SchemaVersion,
 			}
 			if home, err := os.UserHomeDir(); err == nil && home != "" {
 				opts.StagingDir = filepath.Join(home, ".warden", "tmp")
@@ -99,6 +105,27 @@ Examples:
 	cmd.Flags().DurationVar(&ready, "ready-timeout", updater.DefaultReadyTimeout, "overall deadline for the restarted daemon to report healthy on the new version")
 	cmd.Flags().StringVar(&pin, "version", "", "install a specific release tag (e.g. 9.9.0 or v9.9.0)")
 	return cmd
+}
+
+// binarySchemaVersion asks an installed warden binary which data schema it
+// writes (`warden version --json`). The running updater is the OLD binary, so
+// the target's schema can only come from the target itself. A release that
+// predates the schema ledger has no such field and reports 0, which is also
+// what its daemon's /healthz reports — the readiness comparison stays exact.
+func binarySchemaVersion(ctx context.Context, bin string) (int, error) {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, bin, "version", "--json").Output()
+	if err != nil {
+		return 0, fmt.Errorf("%s version --json: %w", bin, err)
+	}
+	var bi struct {
+		SchemaVersion int `json:"schema_version"`
+	}
+	if err := json.Unmarshal(out, &bi); err != nil {
+		return 0, fmt.Errorf("decode %s version --json: %w", bin, err)
+	}
+	return bi.SchemaVersion, nil
 }
 
 // updateRecoveryGuidance appends the backend-registry recovery procedure

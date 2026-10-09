@@ -133,13 +133,14 @@ func (p httpProber) Probe(ctx context.Context) (Health, error) {
 		return Health{}, fmt.Errorf("%s returned %d", p.url, resp.StatusCode)
 	}
 	var body struct {
-		Status  string `json:"status"`
-		Version string `json:"version"`
+		Status        string `json:"status"`
+		Version       string `json:"version"`
+		SchemaVersion int    `json:"schema_version"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		return Health{}, fmt.Errorf("decode %s: %w", p.url, err)
 	}
-	return Health{Status: body.Status, Version: body.Version}, nil
+	return Health{Status: body.Status, Version: body.Version, SchemaVersion: body.SchemaVersion}, nil
 }
 
 // fsInstaller swaps the binary on disk.

@@ -196,7 +196,8 @@ warden update --version v9.9.0
 
 `warden update` verifies checksums, atomically swaps the binary, re-signs on
 macOS when the `warden-codesign` identity is present, runs config migrations,
-restarts the daemon service, and rolls back if `/healthz` fails. In the TUI
+restarts the daemon service, and rolls back unless `/healthz` reports ok on the
+new version and its data schema (`schema_version`). In the TUI
 cockpit, press **`u`** when the footer shows an update chip
 (`[u] Update to vX.Y.Z available`), or **`r`** to hot-reload the cockpit
 in place after an external upgrade (`syscall.Exec` — active tmux agent
