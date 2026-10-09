@@ -289,6 +289,37 @@ func TestGitSyncReturnsConflicts(t *testing.T) {
 	require.False(t, got.Updated)
 }
 
+func TestGitSyncDefaultsToRecordedBaseBranch(t *testing.T) {
+	fs := newFakeStore()
+	require.NoError(t, fs.Insert(context.Background(), &agentstore.Agent{ID: "A-1", Workdir: "/repo/wt", BaseBranch: "autopilot/ship", Status: store.StatusWorking}))
+	fl := &fakeLife{gitSyncResult: lifecycle.SyncResult{Branch: "feature", Base: "autopilot/ship", Updated: true}}
+	ts := lifeServer(t, fs, fl)
+	defer ts.Close()
+	resp := postGitOK(t, ts.URL+"/api/v1/git/sync", GitRequest{Session: "A-1"})
+	closeOK(t, resp)
+	require.Equal(t, "autopilot/ship", fl.gitSyncBase)
+}
+
+func TestGitSyncDefaultsToRepositoryBranch(t *testing.T) {
+	fl := &fakeLife{defaultBranch: "develop", gitSyncResult: lifecycle.SyncResult{Branch: "feature", Base: "develop", Updated: true}}
+	ts := lifeServer(t, newFakeStore(), fl)
+	defer ts.Close()
+	resp := postGitOK(t, ts.URL+"/api/v1/git/sync", GitRequest{Dir: "/wt"})
+	closeOK(t, resp)
+	require.Equal(t, "develop", fl.gitSyncBase)
+}
+
+func TestGitSyncExplicitBaseWinsOverRecordedBase(t *testing.T) {
+	fs := newFakeStore()
+	require.NoError(t, fs.Insert(context.Background(), &agentstore.Agent{ID: "A-1", Workdir: "/repo/wt", BaseBranch: "autopilot/ship", Status: store.StatusWorking}))
+	fl := &fakeLife{gitSyncResult: lifecycle.SyncResult{Branch: "feature", Base: "release", Updated: true}}
+	ts := lifeServer(t, fs, fl)
+	defer ts.Close()
+	resp := postGitOK(t, ts.URL+"/api/v1/git/sync", GitRequest{Session: "A-1", Base: "release"})
+	closeOK(t, resp)
+	require.Equal(t, "release", fl.gitSyncBase)
+}
+
 func postGitOK(t *testing.T, url string, body any) *http.Response {
 	t.Helper()
 	raw, err := json.Marshal(body)

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -171,6 +172,15 @@ func TestHookCheckGuardScopedEntryRedirects(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(out), &dec))
 	require.Equal(t, "deny", dec.HookSpecificOutput.PermissionDecision)
 	require.Contains(t, dec.HookSpecificOutput.PermissionDecisionReason, "wd check api")
+}
+
+func TestHookCheckGuardFindsRootConfigFromSubdirectory(t *testing.T) {
+	root := writeCheckCfg(t, t.TempDir(), "check:\n  test: go test ./...\n")
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "nested"), 0o755))
+	// The resolver only falls back to a repository root, as production does.
+	require.NoError(t, exec.Command("git", "init", "-q", root).Run())
+	out := runCheckGuardHook(t, bashHookInput(t, "go test ./...", filepath.Join(root, "nested")))
+	require.Contains(t, out, "wd check test")
 }
 
 func TestRegisteredChecksFixtureMatches(t *testing.T) {

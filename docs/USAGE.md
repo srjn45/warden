@@ -811,16 +811,44 @@ the agent has to read:
   current branch. Refuses protected branches (`main`/`master`), runs pre-commit
   hooks and surfaces **only** a failure, and links the commit to the agent
   record. Returns `{committed, sha, branch, files}`; a clean tree is a no-op.
+  Pass paths (`warden commit -m msg src/a.go docs/`, relative to your cwd) to
+  stage and commit only those; paths outside the repo are rejected. `--amend`
+  rewrites the last commit (keeping its message unless `-m` is given, and
+  combinable with paths); it is refused on a merge commit and on a commit already
+  in the upstream branch unless `--force`, after which push needs
+  `--force-with-lease`. MCP `commit` takes `paths`, `amend` and `force`.
 - **`warden push [--force-with-lease]`** — pushes the current branch to `origin`
   (sets upstream). Refuses to push `main`/`master` directly — push your agent
   branch and open a PR. After a rebase or amend, `--force-with-lease` overwrites
   your remote branch; warden only ever uses `--force-with-lease` (never a bare
   `--force`), so the push aborts if a teammate pushed to your branch since your
   last fetch. Returns `{branch, remote, pushed, forced}`.
-- **`warden sync [--base main]`** — fetches `origin` and rebases the current
-  branch onto `origin/<base>`. Refuses a dirty tree (commit first). On a conflict
-  it leaves the rebase in progress and reports **only** the conflicting files for
-  you to resolve, then `git rebase --continue`.
+- **`warden sync [--base B]`** — fetches `origin` and rebases the current
+  branch onto `origin/<base>`. With no `--base` the base is resolved server-side:
+  the session's recorded base branch, then its autopilot integration branch, then
+  the repository default branch (`main` only as the last resort); the result's
+  `base_source` says which one won. Refuses a dirty tree (commit first). On a
+  conflict it leaves the rebase in progress, reports **only** the conflicting
+  files, and **exits non-zero**. Resolve them, then `warden sync --continue`
+  (stages the resolved files and runs `git rebase --continue`; plain
+  `git rebase --continue` also works) or `warden sync --abort` (drops the rebase
+  and restores the branch). While a rebase is in progress, a plain `sync`
+  and `commit` are refused (naming `--continue`/`--abort`); `commit` concludes a
+  raw `git merge` once its conflicts are resolved.
+  `--continue`/`--abort` are mutually exclusive and cannot be combined with
+  `--base`. MCP `sync` takes `base`, `continue`, `abort`.
+- **`warden git pr [--base B] [--title T] [--body-file F]`** — opens (or returns
+  the existing) PR for the agent branch **without ending the agent**; idempotent.
+  The base defaults like `sync`. MCP: `create_pr`. There is no root shortcut.
+- **Exit codes and `up_to_date`** — `commit`, `sync` and `push` exit non-zero when
+  the action was rejected (hook failure, protected branch, rebase conflicts); a
+  rejected `commit` restores the index. `push` and `sync` results carry
+  `up_to_date: true` when nothing moved (`pushed`/`updated` keep their meaning).
+- **Protected branches** — `main`/`master` by default. Set
+  `git.protected_branches` to replace that list, and `git.protect_default_branch`
+  (default `true`) keeps the repository's remote default branch (e.g. `develop`)
+  protected even with a custom list. Both hot-reload. Protected branches are
+  refused for commit, push, `commit --amend` and as a PR head.
 
 Pass `--json` to any of them for the raw struct. `git status` / `log` / `diff`
 stay yours to run directly — only mutations are routed through warden. Spawned
@@ -864,6 +892,7 @@ check:
 ```sh
 warden check          # run every configured check
 warden check test     # run just the "test" entry
+warden check list     # list configured checks without running them (MCP list_checks)
 ```
 
 ### `warden git review [--base <branch>] [--prompt <text>] [--backend <id>] [--json]` (agent-native diff review)

@@ -241,7 +241,7 @@ func renderRootHelp(w io.Writer, root *cobra.Command) error {
 func groupedChildren(parent *cobra.Command, group string) []*cobra.Command {
 	var out []*cobra.Command
 	for _, cmd := range parent.Commands() {
-		if cmd.Hidden || cmd.Name() == "help" || cmd.Annotations[AnnotationHelpGroup] != group {
+		if cmd.Hidden || cmd.Name() == "help" || cmd.Annotations[AnnotationNodeKind] == NodeInternal || cmd.Annotations[AnnotationHelpGroup] != group {
 			continue
 		}
 		out = append(out, cmd)
@@ -284,7 +284,7 @@ func renderFocusedHelp(w io.Writer, cmd *cobra.Command) error {
 	fmt.Fprintf(w, "\nUsage:\n  %s\n", cmd.UseLine())
 	children := make([]*cobra.Command, 0)
 	for _, child := range cmd.Commands() {
-		if !child.Hidden && child.Name() != "help" {
+		if !child.Hidden && child.Name() != "help" && child.Annotations[AnnotationNodeKind] != NodeInternal {
 			children = append(children, child)
 		}
 	}

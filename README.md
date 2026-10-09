@@ -605,6 +605,7 @@ Warden reads all settings from a single YAML file (default `~/.warden/config.yam
 | `ai_cli_default` | _(empty)_ | Default AI CLI when a spawn does not pin one (falls through to the backend-registry default, then claude). Deprecated alias: `backend_default`. |
 | `model_default` | `claude-sonnet-4-6` | Default model for new agents (passed through verbatim to the AI CLI) |
 | `default_permission_mode` | `auto` | Default permission mode for new agents (`auto`/`default`/`acceptEdits`/`bypassPermissions`/`dontAsk`/`plan`) |
+| `git.protected_branches` / `git.protect_default_branch` | `main`, `master` / `true` | Lifecycle branches protected from direct commit, push, or PR-head use. A custom list replaces `main`/`master`; the repository default branch remains protected unless explicitly disabled. Hot-reloaded. |
 | `notify.enabled` | `false` | Desktop notifications when an agent needs attention |
 | `approvals` | `true` | The approvals inbox: the daemon parses recognized Claude Code tool-permission prompts and surfaces them for answering. The web AttentionQueue shows one-click option buttons, the CLI exposes `warden approval list`/`warden approval answer`, and the TUI shows a pinned **⏳ Approvals** row — answer it in place (`i`, or `enter` on the row, then `1`-`9`; `tab` cycles between waiting agents) or from the web / `warden approval answer`. Unrecognized prompts always fall back to attach |
 | `tokens.guard` | `true` | The context-size guard: the poller reads each live agent's context-window fill from its transcript, classifies it `ok`/`warning`/`critical`, and shows a state-colored token figure in `warden ls`, the TUI row, and the web tile. Master switch for the whole guard (gauge, alert, auto-compact) |
@@ -1109,13 +1110,18 @@ First-class, deterministic commands that move git and test/lint/build work off t
 ```sh
 warden commit            # stage + commit the agent's worktree (message auto-filled if omitted)
 warden commit -m "fix: …"
+warden commit -m "fix: …" src/a.go   # stage + commit only these paths
+warden commit --amend    # rewrite the last commit (--force if already pushed)
 warden push              # push the worktree's branch
 warden push --force-with-lease  # safe force after a rebase/amend
-warden sync              # rebase-sync against the upstream (refuses on a dirty tree)
+warden sync              # rebase onto the session/integration/default base (refuses on a dirty tree; non-zero on conflicts)
+warden sync --continue   # finish a conflicted rebase (or --abort to drop it)
+warden git pr            # open/return the PR without ending the agent (MCP create_pr)
 warden check [name]      # run the project's .warden/check.yml checks; reports only failures
+warden check list        # list configured checks without running them
 ```
 
-Rails: no commit/push on `main`/`master`, no dirty-tree sync, pre-commit-hook failures surfaced as a result. Force pushes are always `--force-with-lease` (never a bare `--force`), so a rebased branch can't clobber a teammate's push. All four are also MCP tools.
+Rails: no commit/push on `main`/`master`, no dirty-tree sync, pre-commit-hook failures surfaced as a result. Force pushes are always `--force-with-lease` (never a bare `--force`), so a rebased branch can't clobber a teammate's push. `commit`, `push`, `sync`, `check` and `git pr` (`create_pr`) are also MCP tools; `check` finds `.warden/check.yml` from the repository root even when run from a subdirectory. Which branches count as protected is configurable (`git.protected_branches`, `git.protect_default_branch`).
 
 ### Agent-native superpowers — `warden git review` / `warden backend model`
 
@@ -1129,7 +1135,7 @@ warden git review --json           # neutral machine-readable findings: {summary
 warden backend model                  # the backend's LIVE model menu (one id per line; --json for an array)
 ```
 
-- **`warden git review`** — the agent-native counterpart to `warden check` (configured test/lint) and a `pr-review` agent (a whole reviewer session): it runs the backend's own one-shot reviewer against the worktree. **Codex** implements it (`codex review`); backends without a native reviewer (e.g. Claude) exit non-zero pointing you at `warden check` / `pr-review`. `--json` runs the structured form (`codex exec review`) and normalizes the backend's native output into one neutral findings shape; review quality rides the backend's configured model.
+- **`warden git review`** — the agent-native counterpart to `warden check` (configured test/lint) and a reviewer-role agent (a whole reviewer session): it runs the backend's own one-shot reviewer against the worktree. **Codex** implements it (`codex review`); backends without a native reviewer (e.g. Claude) exit non-zero pointing you at `warden check` or a reviewer-role agent. `--json` runs the structured form (`codex exec review`) and normalizes the backend's native output into one neutral findings shape; review quality rides the backend's configured model.
 - **`warden bug-report [id]`** — review a sanitized crash draft staged under `~/.warden/crashes/` and file it as a GitHub issue **only if you answer `y`** (default N): authenticated `gh` creates the issue, otherwise a pre-filled link is printed. The cockpit shows `[⚠️ Bug Detected: Press B to Review]` with a Submit / Dismiss modal. Agents never auto-submit.
 - **`warden git release`** (alias `wd release`) — the release tag advisor: recommends the next SemVer bump + tag from the commits since the latest tag, prints a categorized changelog, and (on confirmation, default N) creates an annotated tag and pushes it. `--dry-run`, `--yes`, `--push`, `--json`.
 - **`warden backend model`** — the live runtime model menu for backends that expose one. **Antigravity** (`agy models`) and **Cursor** (`cursor-agent --list-models`) implement it; the ids feed `--model` verbatim. Listing is a metadata read, so it spends no quota. Claude has no live menu (pass `--model` with any id the Claude CLI accepts; warden does not rewrite it) and degrades non-zero.

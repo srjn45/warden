@@ -34,6 +34,7 @@ func (a *lifecycleAdapter) Spawn(ctx context.Context, req SpawnRequest) (*agents
 		Name:            req.Name,
 		Repo:            req.Repo,
 		Branch:          req.Branch,
+		BaseBranch:      req.BaseBranch,
 		PR:              req.PR,
 		Worktree:        req.Worktree,
 		InRepo:          req.InRepo,
@@ -108,6 +109,10 @@ func (a *lifecycleAdapter) NameRunner() agentname.BackendRunner {
 		return nil
 	}
 	return a.lc.SpawnNameRunner()
+}
+
+func (a *lifecycleAdapter) DefaultBranch(ctx context.Context, dir string) string {
+	return a.lc.DefaultBranch(ctx, dir)
 }
 
 func (a *lifecycleAdapter) Terminate(ctx context.Context, tmuxSession string) error {
@@ -213,8 +218,8 @@ func (a *lifecycleAdapter) CommitWorktree(ctx context.Context, dir, message stri
 	return a.lc.CommitWorktree(ctx, dir, message)
 }
 
-func (a *lifecycleAdapter) Commit(ctx context.Context, dir, message string) (lifecycle.CommitResult, error) {
-	return a.lc.Commit(ctx, dir, message)
+func (a *lifecycleAdapter) CommitWith(ctx context.Context, dir string, opts lifecycle.CommitOptions) (lifecycle.CommitResult, error) {
+	return a.lc.CommitWith(ctx, dir, opts)
 }
 
 func (a *lifecycleAdapter) Push(ctx context.Context, dir string, force bool) (lifecycle.PushResult, error) {
@@ -223,6 +228,14 @@ func (a *lifecycleAdapter) Push(ctx context.Context, dir string, force bool) (li
 
 func (a *lifecycleAdapter) Sync(ctx context.Context, dir, base string) (lifecycle.SyncResult, error) {
 	return a.lc.Sync(ctx, dir, base)
+}
+
+func (a *lifecycleAdapter) SyncContinue(ctx context.Context, dir string) (lifecycle.SyncResult, error) {
+	return a.lc.SyncContinue(ctx, dir)
+}
+
+func (a *lifecycleAdapter) SyncAbort(ctx context.Context, dir string) (lifecycle.SyncResult, error) {
+	return a.lc.SyncAbort(ctx, dir)
 }
 
 func (a *lifecycleAdapter) CreatePR(ctx context.Context, dir, title, body, base string) (lifecycle.PRResult, error) {
@@ -235,6 +248,10 @@ func (a *lifecycleAdapter) PRContext(ctx context.Context, dir, base string) (str
 
 func (a *lifecycleAdapter) Check(ctx context.Context, dir, name string) (lifecycle.CheckResult, error) {
 	return a.lc.Check(ctx, dir, name)
+}
+
+func (a *lifecycleAdapter) ListChecks(_ context.Context, dir string) ([]lifecycle.CheckDefinition, error) {
+	return lifecycle.ListChecks(dir)
 }
 
 func (a *lifecycleAdapter) MemoryPressure(ctx context.Context) (pressure.Level, error) {

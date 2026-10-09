@@ -12,9 +12,9 @@ Commands:
   commit               Stage and commit the worktree (warden rails + hooks + bookkeeping)
   push                 Push the current branch to origin (warden rails + bookkeeping)
   sync                 Fetch and rebase the current branch onto its base (warden conflict detect)
+  pr                   Open (or return the already-open) pull request for the agent's branch
   review               Run the agent backend's native diff review on the worktree
   release              Recommend the next SemVer release tag, then tag and push it on confirmation
-  guard                PreToolUse git-redirect guard (reads hook JSON on stdin)
 
 Flags:
   -h, --help   help for git

@@ -48,3 +48,27 @@ func TestGitToolsForwardExplicitDirAndSession(t *testing.T) {
 		})
 	}
 }
+
+func TestCreatePRToolForwards(t *testing.T) {
+	t.Setenv("WARDEN_SESSION_ID", "env-agent")
+	var path string
+	var body map[string]string
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path = r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		_, _ = w.Write([]byte(`{"branch":"b","base":"main","url":"https://x/pull/1","created":true}`))
+	}))
+	defer daemon.Close()
+	session := connectTo(t, daemon.URL)
+
+	res, err := session.CallTool(context.Background(), &mcpsdk.CallToolParams{Name: "create_pr", Arguments: map[string]any{"base": "integ", "title": "T", "body": "B"}})
+	require.NoError(t, err)
+	require.False(t, res.IsError, textOf(res))
+	require.Equal(t, "/api/v1/sessions/env-agent/create-pr", path)
+	require.Equal(t, map[string]string{"base": "integ", "title": "T", "body": "B"}, body)
+	require.Contains(t, textOf(res), "https://x/pull/1")
+
+	_, err = session.CallTool(context.Background(), &mcpsdk.CallToolParams{Name: "create_pr", Arguments: map[string]any{"ticket": "other"}})
+	require.NoError(t, err)
+	require.Equal(t, "/api/v1/sessions/other/create-pr", path)
+}

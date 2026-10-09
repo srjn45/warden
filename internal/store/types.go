@@ -356,6 +356,7 @@ type Session struct {
 	Repo             string           `json:"repo"`
 	Worktree         string           `json:"worktree"`                   // optional (empty = no worktree)
 	Branch           string           `json:"branch"`                     // optional
+	BaseBranch       string           `json:"base_branch,omitempty"`      // managed-worktree base; empty for legacy/plain sessions
 	WorktreeCreated  bool             `json:"worktree_created,omitempty"` // warden ran `git worktree add` (vs adopted a pre-existing one)
 	BranchCreated    bool             `json:"branch_created,omitempty"`   // warden/gh created Branch (vs checked out a user branch)
 	PR               string           `json:"pr"`                         // optional (pr-review)

@@ -70,3 +70,19 @@ func TestCheckDirOnlyNoSession(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	require.Equal(t, "/some/wt", fl.checkDir, "a human run with no session uses the provided dir")
 }
+
+func TestListChecksPinsToSessionWorkdir(t *testing.T) {
+	fs := newFakeStore()
+	_ = fs.Insert(context.Background(), &agentstore.Agent{ID: "A-1", Workdir: "/repo/.worktrees/A-1", Status: store.StatusWorking})
+	fl := &fakeLife{checkList: []lifecycle.CheckDefinition{{Name: "test", Cmd: "go test ./...", Dir: "pkg"}}}
+	ts := lifeServer(t, fs, fl)
+	defer ts.Close()
+	resp, err := http.Get(ts.URL + "/api/v1/check?session=A-1")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, "/repo/.worktrees/A-1", fl.checkDir)
+	var got []lifecycle.CheckDefinition
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+	require.Equal(t, fl.checkList, got)
+}

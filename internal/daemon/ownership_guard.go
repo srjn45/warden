@@ -149,6 +149,9 @@ func (s *Server) annotateAutopilotWorkerPrompt(ctx context.Context, sr *SpawnReq
 	if !ok {
 		return
 	}
+	if sr.BaseBranch == "" {
+		sr.BaseBranch = lp.IntegrationBranch
+	}
 	sr.Prompt = autopilot.AppendWorkerSpawnBranch(sr.Prompt, lp.IntegrationBranch)
 	// After an operator restart, workers get the same delimited section. The
 	// prompt reaches the agent via the file-backed prompt path, never the launch line.

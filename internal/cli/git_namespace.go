@@ -26,13 +26,15 @@ daemon-side session link — the high-frequency flat shortcuts ` + "`wd commit`"
 		canonicalGitCommand(newCommitCmd(), "commit"),
 		canonicalGitCommand(newPushCmd(), "push"),
 		canonicalGitCommand(newSyncCmd(), "sync"),
+		canonicalGitCommand(newPRCmd(), "pr"),
 		canonicalGitCommand(newReviewCmd(), "review"),
 		canonicalGitCommand(newReleaseCmd(), "release"),
 		canonicalGitHookCommand(newHookGitGuardCmd(), "guard", "git-guard"),
 	}
 	for i, child := range children {
 		kind := nodeKind(child)
-		if kind == NodeInternal {
+		if child.Annotations[AnnotationNodeKind] == NodeInternal {
+			kind = NodeInternal
 			child.Hidden = true
 		}
 		SetCommandHelpMetadata(child, "project", (i+1)*10, "warden git "+child.Name(), "", kind)

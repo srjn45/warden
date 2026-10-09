@@ -38,6 +38,14 @@ type RailsConfig struct {
 	IsolationGuard bool `yaml:"isolation_guard"`
 }
 
+// GitConfig groups lifecycle rails that apply to repository branches.
+// ProtectedBranches replaces the conventional main/master list; the remote's
+// default branch remains protected unless ProtectDefaultBranch is disabled.
+type GitConfig struct {
+	ProtectedBranches    []string `yaml:"protected_branches"`
+	ProtectDefaultBranch bool     `yaml:"protect_default_branch"`
+}
+
 // TokensConfig groups token-guard, budget-gate, and cost/savings settings.
 type TokensConfig struct {
 	Guard               bool    `yaml:"guard"`
@@ -415,6 +423,7 @@ type Config struct {
 	// devices — keep them generous, especially in large monorepos where git
 	// operations are slow.
 	Rails        RailsConfig        `yaml:"rails"`
+	Git          GitConfig          `yaml:"git"`
 	Tokens       TokensConfig       `yaml:"tokens"`
 	Notify       NotifyConfig       `yaml:"notify"`
 	Worktree     WorktreeConfig     `yaml:"worktree"`
@@ -474,6 +483,7 @@ var schema = []setting{
 
 	// Namespaced groups — each replaces a set of deprecated flat keys.
 	{"rails", "Guard and boundary-hook settings (previously flat keys: git_conventions, git_redirect, check_redirect, root_guard, isolation_guard). Sub-keys: git_conventions, git_redirect, check_redirect, root_guard, isolation_guard. Flat keys still load as deprecated aliases."},
+	{"git", "Git lifecycle settings. Sub-keys: protected_branches (list replacing the default main/master protected list) and protect_default_branch (default true; keeps the repository default branch protected even with a custom list). Applied live on config reload."},
 	{"tokens", "Token-guard, budget-gate, and cost/savings settings (previously flat keys: token_guard, token_warn_alert, token_auto_compact, token_force_compact, token_warn, token_critical, token_compact_resume_prompt, budget_gate, budget_daily_usd, budget_weekly_usd, savings, savings_samples). Sub-keys match without the token_ prefix. Flat keys still load as deprecated aliases."},
 	{"notify", "Notification settings (previously flat keys: notify, webhook_enabled, webhook_url). Sub-keys: enabled (was notify), webhook_enabled, webhook_url. Flat keys still load as deprecated aliases."},
 	{"worktree", "Worktree-retention and spawn-gate settings (previously flat keys: spawn_gate, spawn_gate_max_agents, worktree_keep_done, worktree_auto_prune). Sub-keys: spawn_gate, spawn_gate_max_agents, keep_done, auto_prune. Flat keys still load as deprecated aliases."},
@@ -546,6 +556,10 @@ func defaults() Config {
 			CheckRedirect:  true,
 			RootGuard:      true,
 			IsolationGuard: true,
+		},
+		Git: GitConfig{
+			ProtectedBranches:    []string{"main", "master"},
+			ProtectDefaultBranch: true,
 		},
 		Tokens: TokensConfig{
 			Guard:               true,
@@ -1669,6 +1683,14 @@ func (c Config) GetMemoryGround() bool { return c.Memory.Ground }
 // GetGitConventions reports whether the git-conventions hint (steer agents to
 // wd commit/push/sync over raw git Bash) is appended to spawned agents.
 func (c Config) GetGitConventions() bool { return c.Rails.GitConventions }
+
+// GetGitProtectedBranches returns the configured lifecycle branch rail list.
+// It replaces the conventional main/master list when configured.
+func (c Config) GetGitProtectedBranches() []string { return c.Git.ProtectedBranches }
+
+// GetGitProtectDefaultBranch reports whether each repository's remote default
+// branch remains protected in addition to the configured list.
+func (c Config) GetGitProtectDefaultBranch() bool { return c.Git.ProtectDefaultBranch }
 
 // GetGitRedirect reports whether the PreToolUse git-redirect hook is installed
 // into spawned agents (denies raw git commit/push/pull/rebase in Bash and points

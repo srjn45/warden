@@ -9,6 +9,7 @@ import (
 
 	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/daemon/oapi"
+	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/pressure"
@@ -42,7 +43,7 @@ func (s *Server) GitCommit(ctx context.Context, req oapi.GitCommitRequestObject)
 	}
 	meta.Workdir = dir
 	s.plugins.Dispatch(ctx, plugin.EventPreCommit, meta, map[string]string{"message": b.Message})
-	res, err := s.life.Commit(ctx, dir, b.Message)
+	res, err := s.life.CommitWith(ctx, dir, lifecycle.CommitOptions{Message: b.Message, Paths: b.Paths, Amend: b.Amend, Force: b.Force})
 	if err != nil {
 		return nil, errStatus(http.StatusConflict, err.Error())
 	}
@@ -97,15 +98,55 @@ func (s *Server) GitSync(ctx context.Context, req oapi.GitSyncRequestObject) (oa
 	if err != nil {
 		return nil, err
 	}
-	res, err := s.life.Sync(ctx, dir, b.Base)
+	cont, abort := b.Continue, b.Abort
+	if cont && abort {
+		return nil, errStatus(http.StatusBadRequest, "continue and abort are mutually exclusive")
+	}
+	if (cont || abort) && b.Base != "" {
+		return nil, errStatus(http.StatusBadRequest, "base cannot be combined with continue or abort")
+	}
+	var res lifecycle.SyncResult
+	switch {
+	case cont:
+		res, err = s.life.SyncContinue(ctx, dir)
+	case abort:
+		res, err = s.life.SyncAbort(ctx, dir)
+	default:
+		base, baseSource := s.resolveGitBase(ctx, dir, sess, b.Base)
+		res, err = s.life.Sync(ctx, dir, base)
+		res.BaseSource = baseSource
+	}
 	if err != nil {
 		return nil, errStatus(http.StatusConflict, err.Error())
 	}
 	if sess != nil && res.Updated {
-		s.recordGitEvent(sess.ID, "sync", "rebased onto "+res.Base)
+		detail := "rebased onto " + res.Base
+		if cont {
+			detail = "rebase continued on " + res.Branch
+		}
+		s.recordGitEvent(sess.ID, "sync", detail)
 	}
 	s.recordGitSavings(sess, res.RawBytes, res.RawSample, res)
 	return oapi.GitSync200JSONResponse(res), nil
+}
+
+// resolveGitBase picks the base branch for sync / PR creation: an explicit value
+// wins, then the session's recorded base, then its autopilot integration branch,
+// then the repository default. The second result names where it came from ("" when
+// explicit).
+func (s *Server) resolveGitBase(ctx context.Context, dir string, sess *agentstore.Agent, explicit string) (base, source string) {
+	if explicit != "" {
+		return explicit, ""
+	}
+	if sess != nil && sess.BaseBranch != "" {
+		return sess.BaseBranch, "recorded session base"
+	}
+	if sess != nil && sess.AutopilotRunID != "" && s.autopilot != nil {
+		if lp, ok := s.autopilot.LandParams(sess.AutopilotRunID); ok && lp.IntegrationBranch != "" {
+			return lp.IntegrationBranch, "autopilot integration branch"
+		}
+	}
+	return s.life.DefaultBranch(ctx, dir), "repository default"
 }
 
 // RunCheck implements POST /api/v1/check. No config / unknown name are
@@ -151,6 +192,20 @@ func (s *Server) RunCheck(ctx context.Context, req oapi.RunCheckRequestObject) (
 	return oapi.RunCheck200JSONResponse(res), nil
 }
 
+// ListChecks implements GET /api/v1/check. It uses the same pinned worktree
+// resolution as a check run, but never executes configured commands.
+func (s *Server) ListChecks(ctx context.Context, req oapi.ListChecksRequestObject) (oapi.ListChecksResponseObject, error) {
+	dir, _, err := s.pinnedGitTarget(ctx, req.Params.Session, req.Params.Dir)
+	if err != nil {
+		return nil, err
+	}
+	checks, err := s.life.ListChecks(ctx, dir)
+	if err != nil {
+		return nil, errStatus(http.StatusUnprocessableEntity, err.Error())
+	}
+	return oapi.ListChecks200JSONResponse(checks), nil
+}
+
 // CreatePR implements POST /api/v1/sessions/{id}/create-pr. Idempotent: an
 // already-open PR comes back as a non-error result.
 func (s *Server) CreatePR(ctx context.Context, req oapi.CreatePRRequestObject) (oapi.CreatePRResponseObject, error) {
@@ -169,6 +224,7 @@ func (s *Server) CreatePR(ctx context.Context, req oapi.CreatePRRequestObject) (
 	if _, err := s.life.Push(ctx, dir, false); err != nil {
 		return nil, errStatus(http.StatusConflict, "push failed: "+err.Error())
 	}
+	base, _ = s.resolveGitBase(ctx, dir, sess, base)
 	d := s.buildDigest(ctx, sess)
 	title, body := s.prContent(ctx, sess, d, dir, base, expTitle, expBody)
 	res, err := s.life.CreatePR(ctx, dir, title, body, base)
