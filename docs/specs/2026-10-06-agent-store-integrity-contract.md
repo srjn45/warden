@@ -21,6 +21,8 @@ tools (doctor, repair) may open the store.
 
 ## 2. Dependency matrix (ScrivaDB)
 
+> **Update (#834):** pin is now `scriva v1.4.0`, which provides `engine.VerifyDir`/`engine.Repair`; `RepairAvailable` is true and `repair agents` delegates to them. The text below records the original v1.2.1 analysis.
+
 Pinned: `github.com/srjn45/scriva v1.2.1` (never v1.2.0). v1.2.1 exports **no**
 exclusive-ownership, Verify, or Repair API (`scriva.DB`/`engine` have only
 `Rebuild` on internal index types; `scriva.Open` takes no lock). Upstream issue
@@ -106,6 +108,6 @@ touches tmux sessions. Fixture: `internal/daemon/testdata/incident_membership.js
 | TUI | degraded banner points to `warden doctor`; last-good snapshot retained |
 | CLI `repair agents` | gated by `CheckRepairAuthority` (data-dir owner/root) + ownership probe; audits `denied`/`refused_owned`/`unavailable`; never mutates |
 
-**Dependency (not implemented here):** the rebuild itself needs ScrivaDB
-Verify/Repair (§2). `agentstore.RepairAvailable` is the single flag; flipping it
-and replacing `RepairUnavailableError` is the follow-up once scriva ships them.
+**Dependency:** the rebuild is ScrivaDB's Verify/Repair (§2), available since
+v1.4.0 and wired in #834 (`agentstore.RepairAvailable` = true). Historical note: the
+original delivery shipped before those primitives existed.
