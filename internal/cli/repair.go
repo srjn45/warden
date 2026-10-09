@@ -25,6 +25,7 @@ func newRepairCmd() *cobra.Command {
 	root := &cobra.Command{Use: "repair", Short: "Offline, backup-first repair tools"}
 	root.AddCommand(newRepairSessionsCmd())
 	root.AddCommand(newRepairAgentsCmd())
+	root.AddCommand(newRepairBackendsCmd())
 	return root
 }
 

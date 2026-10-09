@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -90,7 +91,7 @@ Examples:
 				res, err = updater.Apply(opts)
 			}
 			_ = res
-			return err
+			return updateRecoveryGuidance(err)
 		},
 	}
 	cmd.Flags().BoolVar(&checkOnly, "check", false, "query and print whether an update is available without applying it")
@@ -98,6 +99,18 @@ Examples:
 	cmd.Flags().DurationVar(&ready, "ready-timeout", updater.DefaultReadyTimeout, "overall deadline for the restarted daemon to report healthy on the new version")
 	cmd.Flags().StringVar(&pin, "version", "", "install a specific release tag (e.g. 9.9.0 or v9.9.0)")
 	return cmd
+}
+
+// updateRecoveryGuidance appends the backend-registry recovery procedure
+// (exact command + report location) to an update failure caused by the
+// registry: the preflight blocker, or a new daemon that refused to start on it
+// (recognised in the captured journal/stderr tail). Other errors are unchanged.
+func updateRecoveryGuidance(err error) error {
+	var pe *updater.PreflightError
+	if errors.As(err, &pe) {
+		return fmt.Errorf("%w\n%s", err, backendRecoverySteps("", ""))
+	}
+	return withBackendRecoverySteps(err)
 }
 
 // backendPreflight is the read-only pre-swap check of the backend registry.
