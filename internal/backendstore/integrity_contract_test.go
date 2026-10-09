@@ -17,6 +17,8 @@ import (
 	"github.com/srjn45/scriva/engine"
 	"github.com/srjn45/scriva/query"
 	"github.com/stretchr/testify/require"
+
+	"github.com/srjn45/warden/internal/ownerlock"
 )
 
 // TestContractScrivaDependencyPin forces a re-audit of the contract doc (§3)
@@ -209,10 +211,23 @@ func TestContractRecoveryPreservesRegistry(t *testing.T) {
 	requireRegistryPreserved(t, want, snapshotRegistry(t, s))
 }
 
-// TestContractDaemonStartDoesNotRefuseOnDerivedStore: the daemon boots when the
-// backends registry has integrity findings (contract §6). TODO(t3).
+// TestContractDaemonStartDoesNotRefuseOnDerivedStore: the daemon's open path
+// (Open, called after the data-dir ownership lock) boots on a registry with
+// provably-stale regressions and preserves every user fact; it holds the same
+// lock Repair consults without refusing itself.
 func TestContractDaemonStartDoesNotRefuseOnDerivedStore(t *testing.T) {
-	t.Skip("pending: TODO(t3) daemon/CLI open policy (#841)")
+	src, want := damagedRegistry(t, "backends")
+	data := t.TempDir()
+	dir := filepath.Join(data, "backends")
+	require.NoError(t, os.Rename(src, dir))
+	lock, err := ownerlock.Acquire(data, ownerlock.Info{Kind: ownerlock.KindDaemon})
+	require.NoError(t, err)
+	defer lock.Release()
+	s, res, err := Open(dir, Options{BackupDir: t.TempDir()})
+	require.NoError(t, err)
+	defer s.Close()
+	require.True(t, res.Recovered)
+	requireRegistryPreserved(t, want, snapshotRegistry(t, s))
 }
 
 // TestContractUpdateSurfacesIntegrityFindings: `wd update` reports findings and

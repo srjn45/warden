@@ -37,6 +37,7 @@ import (
 	"github.com/srjn45/warden/internal/memory"
 	"github.com/srjn45/warden/internal/metrics"
 	"github.com/srjn45/warden/internal/notify"
+	"github.com/srjn45/warden/internal/ownerlock"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/planexport"
 	"github.com/srjn45/warden/internal/planstore"
@@ -136,6 +137,22 @@ func newDaemonRunCmd() *cobra.Command {
 			}
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
+
+			// ONE authoritative ownership lock over the whole data dir, taken
+			// before any store is opened (#841): a second daemon (e.g. a manual
+			// `warden daemon` racing the systemd service) exits here, promptly,
+			// having touched nothing.
+			own, err := ownerlock.Acquire(cfg.DataDir, ownerlock.Info{
+				Kind: ownerlock.KindDaemon, Version: version, Addr: cfg.Addr, Command: strings.Join(os.Args, " ")})
+			if err != nil {
+				var oe *ownerlock.OwnedError
+				if errors.As(err, &oe) {
+					slog.Error("audit: daemon startup refused", "audit", true, "action", "daemon_start",
+						"outcome", "refused_owned", "data_dir", oe.Dir)
+				}
+				return err
+			}
+			defer own.Release()
 
 			st, err := agentstore.New(cfg.DataDir)
 			if err != nil {
