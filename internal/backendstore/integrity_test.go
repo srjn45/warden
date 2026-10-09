@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/srjn45/scriva/engine"
 	"github.com/stretchr/testify/require"
 )
 
@@ -171,4 +172,104 @@ func TestRepairRefusesOwnedStore(t *testing.T) {
 	defer s.Close()
 	_, err = Repair(context.Background(), dir, quiet())
 	require.ErrorIs(t, err, ErrOwned)
+}
+
+// detectionOnly mimics a second daemon re-running detection: only rebuildable
+// fields differ from the newest revision.
+func detectionOnly(j int, _ uint64, d map[string]any) {
+	d["installed"] = j%2 == 0
+	d["binary_path"] = "/other/bin/" + string(rune('a'+j))
+	d["detected_at"] = time.Date(2026, 10, 9, 0, 0, j, 0, time.UTC).Format(time.RFC3339)
+}
+
+// TestIssue841ShapeRecoversWithDetectionOnlyDifferences is the real incident:
+// lower revisions written LATER (newer ts) by a second writer, differing from
+// the newest revision only in detection fields.
+func TestIssue841ShapeRecoversWithDetectionOnlyDifferences(t *testing.T) {
+	dir, want, n := divergentRegistry(t, detectionOnly)
+	require.Equal(t, 34, n, "fixture must inject 17 rev-68 writes after rev 70 for each backend")
+	rep, err := Verify(context.Background(), dir)
+	require.NoError(t, err)
+	regs := 0
+	for _, f := range rep.Integrity.AllFindings() {
+		if f.Code == engine.CodeConflictRevision {
+			regs++
+		}
+	}
+	require.Equal(t, 34, regs, "fixture must reproduce the 34 #841 revision-regression findings")
+	require.True(t, rep.Recoverable())
+	before := treeBytes(t, dir)
+
+	opts := quiet()
+	opts.BackupDir = t.TempDir()
+	s, res, err := Open(dir, opts) // the daemon path
+	require.NoError(t, err)
+	defer s.Close()
+	require.True(t, res.Recovered)
+	requireRegistryPreserved(t, want, snapshotRegistry(t, s))
+	require.Len(t, res.Discarded, n)
+	for _, d := range res.Discarded {
+		require.Equal(t, RulePreferencesEqual, d.DiscardedAs)
+		require.NotEmpty(t, d.DetectionDiffs)
+		require.Less(t, d.Rev, d.WinnerRev)
+		require.Equal(t, uint64(68), d.Rev)
+		require.Equal(t, uint64(70), d.WinnerRev)
+	}
+	require.Equal(t, before, treeBytes(t, res.BackupPath), "backup is a byte-identical verified copy")
+
+	raw, err := os.ReadFile(res.ReportPath)
+	require.NoError(t, err)
+	var doc struct{ Discarded []DiscardedRevision }
+	require.NoError(t, json.Unmarshal(raw, &doc))
+	require.Len(t, doc.Discarded, n, "report lists every per-id decision")
+
+	// Idempotent.
+	require.NoError(t, s.Close())
+	res2, err := Repair(context.Background(), dir, opts)
+	require.NoError(t, err)
+	require.False(t, res2.Recovered)
+	rep2, err := Verify(context.Background(), dir)
+	require.NoError(t, err)
+	require.True(t, rep2.Clean())
+}
+
+// TestIssue841ShapeWithPreferenceDifferenceIsRefused: same shape, but the later,
+// lower-revision write carries a different tier/enabled/default.
+func TestIssue841ShapeWithPreferenceDifferenceIsRefused(t *testing.T) {
+	mut := func(j int, id uint64, d map[string]any) {
+		detectionOnly(j, id, d)
+		if id == 1 && j == 3 {
+			d["tier"] = TierFree
+			d["enabled"] = false
+			d["default"] = !d["default"].(bool)
+		}
+	}
+	dir, _, _ := divergentRegistry(t, mut)
+	before := treeBytes(t, dir)
+
+	opts := quiet()
+	opts.BackupDir = t.TempDir()
+	_, _, err := Open(dir, opts)
+	var rre *RecoveryRequiredError
+	require.True(t, errors.As(err, &rre))
+	require.ErrorIs(t, err, ErrRecoveryRequired)
+	require.Equal(t, before, treeBytes(t, dir), "nothing mutated")
+	require.Empty(t, rre.BackupPath)
+
+	fields := map[string]FieldConflict{}
+	for _, c := range rre.Collections {
+		for _, fc := range c.Conflicts {
+			fields[fc.Field] = fc
+		}
+	}
+	require.Contains(t, fields, "tier")
+	require.Contains(t, fields, "enabled")
+	require.Contains(t, fields, "default")
+	require.Equal(t, TierFree, fields["tier"].Value)
+	require.Equal(t, TierSubscription, fields["tier"].WinnerValue)
+	require.Contains(t, err.Error(), "tier")
+
+	raw, err := os.ReadFile(rre.ReportPath)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), `"winner_value"`)
 }

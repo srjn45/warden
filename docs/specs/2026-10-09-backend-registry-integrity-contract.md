@@ -130,18 +130,20 @@ Per collection, from a full `engine.VerifyDir`:
 | `conflict-revision-regression` only | `recoverable` iff **every** regression line is provably stale, else `ambiguous` |
 | any finding outside the six registry collections | `ambiguous` |
 
-**Provably stale** (rule `newest-revision-with-concordant-timestamp`): a regression
-line is an `update` whose revision is lower than the id's newest revision **and**
-whose `ts` is older than that newest line's `ts`. Revision order, append order and
-wall clock then all agree which write is last, so the newest revision is
-unambiguously the latest writer and the older line is a superseded replay.
-**Ambiguous** (never resolved): equal revision with different content; a lower
-revision carrying a *newer* `ts` (a second writer's later, divergent write — which
-one the user meant is unknowable); a higher revision with an older `ts`; any
-delete on an affected id; unparseable lines; a pending compaction manifest.
-Note this means the most likely real-world shape (a stale-handle writer producing
-*new* low-revision writes with a *newer* timestamp) is deliberately refused with a
-diagnosis rather than guessed.
+**Provably stale** uses one of two per-line rules, recorded in the audit report.
+`newest-revision-with-concordant-timestamp` accepts an `update` whose revision is
+lower than the id's newest revision **and** whose `ts` is older than that newest
+line's `ts`. `preferences-equal-detection-only` accepts a lower-revision line even
+when its `ts` is newer if it agrees with the winner on every non-rebuildable field.
+For `backends`, only `installed`, `binary_path`, and `detected_at` are rebuildable;
+all other fields (including tier, enabled, default, settings, and limits) must be
+equal. Other registry collections have no rebuildable fields. Thus the exact #841
+shape—34 later revision-68 writes after revision 70 with only detection
+differences—is safe: recovery retains the revision-70 preference record, backs up
+first, and records every decision. **Ambiguous** (never resolved): any preference
+field differs (the report names each field and both values); equal revision with
+different content; a higher revision with an older `ts`; any delete on an affected
+id; unparseable lines; or a pending compaction manifest.
 
 ### 7.2 Repair sequence (`Repair`, offline only)
 
