@@ -20,9 +20,14 @@ type ScanSeam func(collection string)
 // "Update", "UpdateStatusIf", "FinalizeExit", "Archive", "Delete").
 type WriteSeam func(op string)
 
+// ReadSeam is invoked by snapshot read methods before loading the snapshot.
+// op names the method ("List", "Get", "GetByNameOrID", "ListClosed", "ListClosedDegraded").
+type ReadSeam func(op string)
+
 var (
 	scanSeam  atomic.Pointer[ScanSeam]
 	writeSeam atomic.Pointer[WriteSeam]
+	readSeam  atomic.Pointer[ReadSeam]
 )
 
 // SetScanSeam installs fn (nil clears) and returns a restore func.
@@ -47,6 +52,17 @@ func SetWriteSeam(fn WriteSeam) (restore func()) {
 	return func() { writeSeam.Store(prev) }
 }
 
+// SetReadSeam installs fn (nil clears) and returns a restore func.
+func SetReadSeam(fn ReadSeam) (restore func()) {
+	prev := readSeam.Load()
+	if fn == nil {
+		readSeam.Store(nil)
+	} else {
+		readSeam.Store(&fn)
+	}
+	return func() { readSeam.Store(prev) }
+}
+
 func fireScanSeam(collection string) {
 	if p := scanSeam.Load(); p != nil {
 		(*p)(collection)
@@ -55,6 +71,12 @@ func fireScanSeam(collection string) {
 
 func fireWriteSeam(op string) {
 	if p := writeSeam.Load(); p != nil {
+		(*p)(op)
+	}
+}
+
+func fireReadSeam(op string) {
+	if p := readSeam.Load(); p != nil {
 		(*p)(op)
 	}
 }

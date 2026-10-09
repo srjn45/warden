@@ -18,10 +18,9 @@ import (
 
 // I-1: a snapshot read never holds the write path.
 func TestContractContentionScanDoesNotBlockWriters(t *testing.T) {
-	t.Skip("gate: snapshot reads (contract I-1) — flips TestBaselineSlowScanBlocksWriters")
 	s := seededStore(t, 3)
 	ctx := context.Background()
-	g := slowScan(t)
+	g := slowRead(t)
 	go func() { _, _ = s.List(ctx) }()
 	g.waitEntered(t)
 	blocked, wait := stalled(stallProbe, func() error { return s.UpdateStatus(ctx, "a-0", store.StatusIdle) })
@@ -32,7 +31,6 @@ func TestContractContentionScanDoesNotBlockWriters(t *testing.T) {
 
 // I-2: readers never wait for an in-flight write.
 func TestContractContentionWriteDoesNotBlockReaders(t *testing.T) {
-	t.Skip("gate: snapshot reads (contract I-2) — flips TestBaselineSlowWriteBlocksReaders")
 	s := seededStore(t, 3)
 	ctx := context.Background()
 	g := slowWrite(t, "Update")
@@ -46,7 +44,6 @@ func TestContractContentionWriteDoesNotBlockReaders(t *testing.T) {
 
 // I-3: point reads are O(1) — no collection scan.
 func TestContractContentionGetIsPointRead(t *testing.T) {
-	t.Skip("gate: point reads (contract §5) — flips TestBaselineScanCountPerOperation")
 	s := seededStore(t, 5)
 	n := countScans(t)
 	_, err := s.Get(context.Background(), "a-1")

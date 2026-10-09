@@ -67,6 +67,14 @@ func slowScan(t testing.TB) *gate {
 	return g
 }
 
+// slowRead parks the first snapshot read until released.
+func slowRead(t testing.TB) *gate {
+	g := newGate()
+	restore := SetReadSeam(func(string) { g.hit() })
+	t.Cleanup(func() { g.release(); restore() })
+	return g
+}
+
 // slowWrite parks the first write whose op matches (all ops when op == "").
 func slowWrite(t testing.TB, op string) *gate {
 	g := newGate()

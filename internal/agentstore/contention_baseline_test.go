@@ -23,12 +23,11 @@ import (
 	"github.com/srjn45/warden/internal/store"
 )
 
-// B1: a scan (List) holds the single store mutex for its whole duration, so
-// every writer queues behind it.
+// B1: a read holds no mutex, so writers complete without waiting for the in-flight read.
 func TestBaselineSlowScanBlocksWriters(t *testing.T) {
 	s := seededStore(t, 5)
 	ctx := context.Background()
-	g := slowScan(t)
+	g := slowRead(t)
 
 	readDone := make(chan error, 1)
 	go func() { _, err := s.List(ctx); readDone <- err }()
@@ -48,20 +47,19 @@ func TestBaselineSlowScanBlocksWriters(t *testing.T) {
 	waits := map[string]func() (time.Duration, error){}
 	for name, fn := range writers {
 		blocked, wait := stalled(stallProbe, fn)
-		require.True(t, blocked, "%s must be blocked behind the in-flight scan (BASELINE defect)", name)
+		require.False(t, blocked, "%s must NOT be blocked behind the in-flight read", name)
 		waits[name] = wait
 	}
 	g.release()
 	require.NoError(t, <-readDone)
 	for name, wait := range waits {
-		el, err := wait()
+		_, err := wait()
 		require.NoError(t, err, name)
-		require.GreaterOrEqual(t, el, stallProbe, name)
 	}
 }
 
-// B2: a slow write holds the same mutex, so every reader (including the 1 s
-// Cockpit poll and the /healthz Ping probe) queues behind it.
+// B2: a slow write holds the write mutex, but readers load the snapshot
+// and do not wait for the write to finish.
 func TestBaselineSlowWriteBlocksReaders(t *testing.T) {
 	s := seededStore(t, 3)
 	ctx := context.Background()
@@ -81,7 +79,7 @@ func TestBaselineSlowWriteBlocksReaders(t *testing.T) {
 	waits := map[string]func() (time.Duration, error){}
 	for name, fn := range readers {
 		blocked, wait := stalled(stallProbe, fn)
-		require.True(t, blocked, "%s must be blocked behind the in-flight write (BASELINE defect)", name)
+		require.False(t, blocked, "%s must NOT be blocked behind the in-flight write", name)
 		waits[name] = wait
 	}
 	g.release()
@@ -92,11 +90,10 @@ func TestBaselineSlowWriteBlocksReaders(t *testing.T) {
 	}
 }
 
-// B3: readers do not run concurrently with each other either — N pollers cost
-// N sequential scans. Two 120 ms scans take >= 240 ms wall time.
+// B3: readers run concurrently from the atomic snapshot pointer without serialization.
 func TestBaselineReadersSerialize(t *testing.T) {
 	s := seededStore(t, 3)
-	restore := SetScanSeam(func(string) { time.Sleep(120 * time.Millisecond) })
+	restore := SetReadSeam(func(string) { time.Sleep(100 * time.Millisecond) })
 	defer restore()
 	var wg sync.WaitGroup
 	start := time.Now()
@@ -105,12 +102,12 @@ func TestBaselineReadersSerialize(t *testing.T) {
 		go func() { defer wg.Done(); _, _ = s.List(context.Background()) }()
 	}
 	wg.Wait()
-	require.GreaterOrEqual(t, time.Since(start), 240*time.Millisecond,
-		"two concurrent List calls overlapped; the baseline expected strict serialization")
+	require.Less(t, time.Since(start), 180*time.Millisecond,
+		"two concurrent List calls were serialized; expected parallel execution")
 }
 
-// B4: which methods pay for a full verified scan (O(N) under the mutex). Get is
-// a point read in name only: it scans the whole collection.
+// B4: which methods pay for a full verified scan (O(N) under the mutex).
+// With the snapshot read model, reads and Insert pay 0 collection scans.
 func TestBaselineScanCountPerOperation(t *testing.T) {
 	s := seededStore(t, 5)
 	ctx := context.Background()
@@ -120,14 +117,13 @@ func TestBaselineScanCountPerOperation(t *testing.T) {
 		want int64
 		fn   func() error
 	}{
-		{"Get", 1, func() error { _, err := s.Get(ctx, "a-1"); return err }},
-		{"List", 1, func() error { _, err := s.List(ctx); return err }},
-		{"GetByNameOrID(name hit)", 1, func() error { _, err := s.GetByNameOrID(ctx, "n-1"); return err }},
-		{"GetByNameOrID(id fallback)", 1, func() error { _, err := s.GetByNameOrID(ctx, "a-1"); return err }},
-		{"ListClosed", 1, func() error { _, err := s.ListClosed(ctx); return err }},
-		{"ListClosedDegraded", 1, func() error { _, _, err := s.ListClosedDegraded(ctx); return err }},
-		// Names are mandatory (store.ValidateName), so every Insert pays the scan.
-		{"Insert", 1, func() error { return s.Insert(ctx, &Agent{ID: "x1", Name: "x1"}) }},
+		{"Get", 0, func() error { _, err := s.Get(ctx, "a-1"); return err }},
+		{"List", 0, func() error { _, err := s.List(ctx); return err }},
+		{"GetByNameOrID(name hit)", 0, func() error { _, err := s.GetByNameOrID(ctx, "n-1"); return err }},
+		{"GetByNameOrID(id fallback)", 0, func() error { _, err := s.GetByNameOrID(ctx, "a-1"); return err }},
+		{"ListClosed", 0, func() error { _, err := s.ListClosed(ctx); return err }},
+		{"ListClosedDegraded", 0, func() error { _, _, err := s.ListClosedDegraded(ctx); return err }},
+		{"Insert", 0, func() error { return s.Insert(ctx, &Agent{ID: "x1", Name: "x1"}) }},
 		{"Update", 0, func() error { return s.UpdateStatus(ctx, "a-0", store.StatusIdle) }},
 		{"UpdateStatusIf", 0, func() error {
 			_, err := s.UpdateStatusIf(ctx, "a-0", store.StatusIdle, store.StatusWorking)
@@ -154,17 +150,16 @@ func TestBaselineContextIgnoredWhileQueued(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	blocked, wait := stalled(300*time.Millisecond, func() error { _, err := s.List(ctx); return err })
-	require.True(t, blocked, "List returned at its 50ms deadline; baseline expected it to stay queued (BASELINE defect)")
+	blocked, wait := stalled(300*time.Millisecond, func() error { return s.UpdateStatus(ctx, "a-1", store.StatusIdle) })
+	require.True(t, blocked, "UpdateStatus returned at its 50ms deadline; baseline expected it to stay queued (BASELINE defect)")
 	g.release()
 	el, err := wait()
-	require.NoError(t, err, "queued List with an expired ctx should currently still succeed")
+	require.NoError(t, err, "queued call with an expired ctx should currently still succeed")
 	require.Greater(t, el, 250*time.Millisecond)
 	require.Error(t, ctx.Err())
 }
 
-// B6: a cancelled Update whose fn is user code runs under the mutex, so a slow
-// fn is a slow write for everyone (see contract §3 invariant I-4).
+// B6: an Update whose fn is running does not block snapshot readers.
 func TestBaselineUpdateFnRunsUnderLock(t *testing.T) {
 	s := seededStore(t, 2)
 	ctx := context.Background()
@@ -174,7 +169,7 @@ func TestBaselineUpdateFnRunsUnderLock(t *testing.T) {
 	}()
 	<-in
 	blocked, wait := stalled(stallProbe, func() error { _, err := s.List(ctx); return err })
-	require.True(t, blocked, "reader must wait for an Update callback")
+	require.False(t, blocked, "reader must NOT wait for an Update callback")
 	close(out)
 	_, err := wait()
 	require.NoError(t, err)

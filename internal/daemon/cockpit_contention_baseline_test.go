@@ -59,20 +59,20 @@ func TestBaselineCockpitPollStallsBehindSlowStoreWrite(t *testing.T) {
 		t.Fatal("write seam never reached")
 	}
 
-	// Cockpit 1 s poll targets that read the active store (contract §2).
+	// Cockpit 1 s poll targets that read the active store (contract §2) answer from the snapshot without stalling.
 	for _, path := range []string{"/api/v1/sessions?all=true", "/api/v1/tree", "/api/v1/store/health", "/api/v1/approvals", "/api/v1/sessions/a1", "/healthz"} {
 		ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
 		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+path, nil)
-		start := time.Now()
 		resp, err := http.DefaultClient.Do(req)
+		cancel()
+		require.NoError(t, err, "%s must answer from snapshot without stalling while store write is parked", path)
+		require.Equal(t, http.StatusOK, resp.StatusCode, "%s status code", path)
 		if resp != nil {
 			resp.Body.Close()
 		}
-		cancel()
-		require.Error(t, err, "%s answered in %v while the store write was parked; baseline expects it to stall until the client timeout (BASELINE defect)", path, time.Since(start))
 	}
 
-	// Releasing the write releases the poll: the stall is pure lock wait, not failure.
+	// Releasing the write completes cleanly.
 	releaseOnce()
 	resp, err := http.Get(ts.URL + "/api/v1/sessions?all=true")
 	require.NoError(t, err)

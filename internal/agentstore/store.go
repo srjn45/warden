@@ -11,8 +11,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/srjn45/scriva"
@@ -38,16 +38,23 @@ const closedImportedMarker = ".archived-agents-from-sessions-imported"
 
 // Store owns the ScrivaDB "agents" and "closed" collections at <data>/agents-db.
 type Store struct {
-	mu        sync.Mutex
-	db        *scriva.DB
-	col       *engine.Collection
-	closed    *engine.Collection
-	lock      *flockFile
-	preflight *UnhealthyError
-	scratch   string // throwaway copy of a damaged agents-db; removed on Close
+	mu          sync.Mutex
+	snap        atomic.Pointer[Snapshot]
+	db          *scriva.DB
+	col         *engine.Collection
+	closed      *engine.Collection
+	lock        *flockFile
+	preflight   *UnhealthyError
+	scratch     string // throwaway copy of a damaged agents-db; removed on Close
+	closedState atomic.Bool
 }
 
 var _ AgentStore = (*Store)(nil)
+
+// Snapshot returns the current immutable published snapshot.
+func (s *Store) Snapshot() *Snapshot {
+	return s.snap.Load()
+}
 
 // New opens the agent collection and, once, imports the legacy active and closed
 // records whose Kind is not terminal. The marker is written last, making a failed
@@ -194,6 +201,20 @@ func openAt(dir, dbDir string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
+
+	activeRows, _, err := scanVerified(s.col, "agents", false)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	closedRows, skipped, err := scanVerified(s.closed, "closed", true)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	initSnap := buildSnapshot(1, time.Now().UTC(), activeRows, closedRows, skipped)
+	s.snap.Store(initSnap)
+
 	return s, nil
 }
 
@@ -329,17 +350,10 @@ func (s *Store) Insert(ctx context.Context, a *Agent) error {
 	} else if ok {
 		return ErrExists
 	}
-	if a.Name != "" {
-		rows, _, err := scanVerified(s.col, "agents", false)
-		if err != nil {
-			return err
-		}
-		{
-			for _, other := range rows {
-				if other.Name == a.Name && other.ID != a.ID {
-					return ErrNameExists
-				}
-			}
+	currentSnap := s.snap.Load()
+	if a.Name != "" && currentSnap != nil {
+		if other, ok := currentSnap.ByName[a.Name]; ok && other.ID != a.ID {
+			return ErrNameExists
 		}
 	}
 	now := time.Now().UTC()
@@ -359,7 +373,17 @@ func (s *Store) Insert(ctx context.Context, a *Agent) error {
 	if errors.Is(err, engine.ErrDuplicateKey) {
 		return ErrExists
 	}
-	return err
+	if err != nil {
+		return err
+	}
+
+	verified, err := s.get(a.ID)
+	if err != nil {
+		return err
+	}
+	*a = *cloneAgent(verified)
+	s.publishInsert(currentSnap, verified)
+	return nil
 }
 
 // Create reserves and persists an agent before its runtime has started. It is
@@ -423,21 +447,12 @@ func (s *Store) Get(ctx context.Context, id string) (*Agent, error) {
 	if err := store.SafeID(id); err != nil {
 		return nil, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	// A point lookup alone cannot distinguish a genuinely absent key from an
-	// index entry the engine discarded while reopening a corrupt index. Verify
-	// the complete indexed view first, then select the requested agent.
-	rows, _, err := scanVerified(s.col, "agents", false)
-	if err != nil {
-		return nil, err
+	fireReadSeam("Get")
+	snap := s.snap.Load()
+	if snap == nil {
+		return nil, ErrNotFound
 	}
-	for _, a := range rows {
-		if a.ID == id {
-			return a, nil
-		}
-	}
-	return nil, ErrNotFound
+	return snap.Get(id)
 }
 
 // List returns all agents newest-updated first.
@@ -448,14 +463,12 @@ func (s *Store) List(ctx context.Context) ([]*Agent, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	out, _, err := scanVerified(s.col, "agents", false)
-	if err != nil {
-		return nil, err
+	fireReadSeam("List")
+	snap := s.snap.Load()
+	if snap == nil {
+		return nil, nil
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
-	return out, nil
+	return snap.List(), nil
 }
 
 // Update atomically applies fn and stamps UpdatedAt.
@@ -476,17 +489,27 @@ func (s *Store) Update(ctx context.Context, id string, fn func(*Agent) error) er
 	if err != nil {
 		return err
 	}
-	if err := fn(a); err != nil {
+	aPrivate := cloneAgent(a)
+	if err := fn(aPrivate); err != nil {
 		return err
 	}
-	a.Status = a.Status.Canonical()
-	a.UpdatedAt = time.Now().UTC()
-	rec, err := toRecord(a)
+	aPrivate.Status = aPrivate.Status.Canonical()
+	aPrivate.UpdatedAt = time.Now().UTC()
+	rec, err := toRecord(aPrivate)
 	if err != nil {
 		return err
 	}
-	_, err = s.col.UpdateByKey(id, rec)
-	return err
+	if _, err := s.col.UpdateByKey(id, rec); err != nil {
+		return err
+	}
+
+	verified, err := s.get(id)
+	if err != nil {
+		return err
+	}
+	currentSnap := s.snap.Load()
+	s.publishUpdate(currentSnap, verified)
+	return nil
 }
 
 // GetByNameOrID looks up an agent by name first (exact case-sensitive match
@@ -502,18 +525,12 @@ func (s *Store) GetByNameOrID(ctx context.Context, nameOrID string) (*Agent, err
 	if nameOrID == "" {
 		return nil, ErrNotFound
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	rows, _, err := scanVerified(s.col, "agents", false)
-	if err != nil {
-		return nil, err
+	fireReadSeam("GetByNameOrID")
+	snap := s.snap.Load()
+	if snap == nil {
+		return nil, ErrNotFound
 	}
-	for _, a := range rows {
-		if a.Name == nameOrID {
-			return a, nil
-		}
-	}
-	return s.get(nameOrID)
+	return snap.GetByNameOrID(nameOrID)
 }
 
 // ListClosed returns all archived (closed) agents, newest updated first.
@@ -521,14 +538,12 @@ func (s *Store) ListClosed(ctx context.Context) ([]*Agent, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	out, _, err := scanVerified(s.closed, "closed", true)
-	if err != nil {
-		return nil, err
+	fireReadSeam("ListClosed")
+	snap := s.snap.Load()
+	if snap == nil {
+		return nil, nil
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
-	return out, nil
+	return snap.ListClosed(), nil
 }
 
 // ListClosedDegraded returns all archived agents, reporting how many records were skipped due to decode errors.
@@ -536,14 +551,13 @@ func (s *Store) ListClosedDegraded(ctx context.Context) ([]*Agent, int, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, 0, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	out, skipped, err := scanVerified(s.closed, "closed", true)
-	if err != nil {
-		return nil, 0, err
+	fireReadSeam("ListClosedDegraded")
+	snap := s.snap.Load()
+	if snap == nil {
+		return nil, 0, nil
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
-	return out, skipped, nil
+	list, skipped := snap.ListClosedDegraded()
+	return list, skipped, nil
 }
 
 // Archive moves the agent doc from active to closed collection.
@@ -571,7 +585,32 @@ func (s *Store) Archive(ctx context.Context, id string) error {
 	if _, err := s.closed.Upsert(id, rec); err != nil {
 		return err
 	}
-	return s.col.DeleteByKey(id)
+	rClosed, err := s.closed.GetByKey(id)
+	if err != nil {
+		return readFailure("closed", id, err)
+	}
+	if err := verifyRecord("closed", id, rClosed); err != nil {
+		return err
+	}
+	archivedAgent, err := fromRecord(rClosed.Data)
+	if err != nil {
+		return newUnhealthy(store.ScanFailure{Collection: "closed", Key: id, Class: store.DegradeDecode, Detail: err.Error()})
+	}
+
+	if err := s.col.DeleteByKey(id); err != nil {
+		return err
+	}
+	exists, err := s.col.Exists(id)
+	if err != nil {
+		return readFailure("agents", id, err)
+	}
+	if exists {
+		return newUnhealthy(integrityFailure("agents", id, "record still exists in index after DeleteByKey"))
+	}
+
+	currentSnap := s.snap.Load()
+	s.publishArchive(currentSnap, id, archivedAgent)
+	return nil
 }
 
 // UpdateStatus updates the status of an agent.
@@ -603,9 +642,10 @@ func (s *Store) UpdateStatusIf(ctx context.Context, id string, expected, next st
 	if a.Status.Canonical() != expected.Canonical() {
 		return false, nil
 	}
-	a.Status = next.Canonical()
-	a.UpdatedAt = time.Now().UTC()
-	rec, err := toRecord(a)
+	aPrivate := cloneAgent(a)
+	aPrivate.Status = next.Canonical()
+	aPrivate.UpdatedAt = time.Now().UTC()
+	rec, err := toRecord(aPrivate)
 	if err != nil {
 		return false, err
 	}
@@ -613,6 +653,13 @@ func (s *Store) UpdateStatusIf(ctx context.Context, id string, expected, next st
 	if err != nil {
 		return false, err
 	}
+
+	verified, err := s.get(id)
+	if err != nil {
+		return false, err
+	}
+	currentSnap := s.snap.Load()
+	s.publishUpdate(currentSnap, verified)
 	return true, nil
 }
 
@@ -637,18 +684,19 @@ func (s *Store) FinalizeExit(ctx context.Context, id string, expected, next stor
 	if a.Status.Canonical() != expected.Canonical() {
 		return false, nil
 	}
+	aPrivate := cloneAgent(a)
 	now := time.Now().UTC()
-	a.Status = next.Canonical()
-	a.ExitCode = &code
-	a.UpdatedAt = now
+	aPrivate.Status = next.Canonical()
+	aPrivate.ExitCode = &code
+	aPrivate.UpdatedAt = now
 	if code != 0 {
-		a.Events = append(a.Events, store.Event{
+		aPrivate.Events = append(aPrivate.Events, store.Event{
 			TS:     now,
 			Type:   "exit",
 			Detail: exitDetail(code),
 		})
 	}
-	rec, err := toRecord(a)
+	rec, err := toRecord(aPrivate)
 	if err != nil {
 		return false, err
 	}
@@ -656,6 +704,13 @@ func (s *Store) FinalizeExit(ctx context.Context, id string, expected, next stor
 	if err != nil {
 		return false, err
 	}
+
+	verified, err := s.get(id)
+	if err != nil {
+		return false, err
+	}
+	currentSnap := s.snap.Load()
+	s.publishUpdate(currentSnap, verified)
 	return true, nil
 }
 
@@ -786,9 +841,7 @@ func (s *Store) Ping(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.db == nil || s.col == nil {
+	if s.closedState.Load() {
 		return errors.New("agent store closed")
 	}
 	return nil
@@ -812,10 +865,25 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 	if errors.Is(err, engine.ErrKeyNotFound) {
 		return ErrNotFound
 	}
-	return err
+	if err != nil {
+		return err
+	}
+
+	exists, err := s.col.Exists(id)
+	if err != nil {
+		return readFailure("agents", id, err)
+	}
+	if exists {
+		return newUnhealthy(integrityFailure("agents", id, "record still exists in index after DeleteByKey"))
+	}
+
+	currentSnap := s.snap.Load()
+	s.publishDelete(currentSnap, id)
+	return nil
 }
 
 func (s *Store) Close() error {
+	s.closedState.Store(true)
 	err := s.db.Close()
 	if s.scratch != "" {
 		_ = os.RemoveAll(s.scratch)
