@@ -227,6 +227,7 @@ func newDaemonRunCmd() *cobra.Command {
 			pd := daemon.NewPollerDeps(st, runner, lc)
 			pl := poller.New(pd, 5*time.Minute)
 			pl.OnObservedQuotaScope = daemon.NewQuotaRebinder(st)
+			pl.ActivityEnabled = cfg.Activity.Enabled
 			pl.SummarizeAfter = cfg.ActivityIntervalDuration()
 			pl.TokenGuard = cfg.Tokens.Guard
 			pl.TokenWarn = cfg.Tokens.Warn
@@ -236,10 +237,15 @@ func newDaemonRunCmd() *cobra.Command {
 			pl.ForceCompact = cfg.Tokens.ForceCompact
 			pl.CompactResumePrompt = cfg.Tokens.CompactResumePrompt
 			pl.AutoApprovePolicy = cfg.AutoApprove
-			// Fast-Brain arbiter: one headless-claude runner serves both tiers
-			// (per-tier timeouts still apply). Inert unless auto_approve.use_fast_brain.
+			// The existing lifecycle runner supplies the native CLI, but internal
+			// consultations are admission-bounded so cosmetic work cannot stampede
+			// native CLI subprocesses.
 			fbRunner := fastbrain.RunnerFunc(lc.RunClaudeP)
-			fbEngine := fastbrain.NewEngine(fbRunner, fbRunner)
+			fbEngine := fastbrain.NewEngineWithOptions(fbRunner, fbRunner, fastbrain.EngineOptions{
+				FastTimeout:     cfg.FastBrainFastTimeoutDuration(),
+				ThinkingTimeout: cfg.FastBrainThinkingTimeoutDuration(),
+				MaxConcurrent:   cfg.FastBrainMaxConcurrent(),
+			})
 			pl.FastBrain = fbEngine
 			lc.FastBrain = fbEngine
 			pl.Version = version

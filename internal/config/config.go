@@ -143,7 +143,19 @@ type MemoryConfig struct {
 // badge shown next to each agent. Interval is the minimum gap between badge
 // refreshes per agent; refreshes only happen while the pane is changing.
 type ActivityConfig struct {
+	// Enabled is an explicit kill switch for cosmetic model-generated activity
+	// badges. It defaults to true for backwards compatibility.
+	Enabled  bool   `yaml:"enabled"`
 	Interval string `yaml:"interval"`
+}
+
+// FastBrainConfig bounds Warden's own short model consultations. It applies to
+// the daemon's internal decisions only; it does not alter any agent's model or
+// permission authority.
+type FastBrainConfig struct {
+	FastTimeout     string `yaml:"fast_timeout"`
+	ThinkingTimeout string `yaml:"thinking_timeout"`
+	MaxConcurrent   int    `yaml:"max_concurrent"`
 }
 
 // BranchTrackConfig groups the branch/CI tracker settings.
@@ -434,6 +446,7 @@ type Config struct {
 	Memory       MemoryConfig       `yaml:"memory"`
 	BranchTrack  BranchTrackConfig  `yaml:"branch_track"`
 	Activity     ActivityConfig     `yaml:"activity"`
+	FastBrain    FastBrainConfig    `yaml:"fast_brain"`
 	Relay        RelayConfig        `yaml:"relay"`
 	PlanSync     PlanSyncConfig     `yaml:"plan_sync"`
 	RateLimit    RateLimitConfig    `yaml:"rate_limit"`
@@ -493,7 +506,8 @@ var schema = []setting{
 	{"collab", "File-conflict collaboration settings (previously flat keys: collab_enabled, collab_interval, collab_hint). Sub-keys: enabled (warn agents editing the same file), interval (Go duration, e.g. 10s — watch reconcile + in-memory scan), git_reconcile_interval (Go duration, e.g. 2m — git diff backstop when fsnotify is active), hint (append the conflict-check hint to spawned agents). Flat keys still load as deprecated aliases."},
 	{"memory", "Project-memory (.warden/memory.md) settings (previously flat keys: memory_inject, memory_curate, memory_ground). Sub-keys: inject (project the repo's curated durable facts into every spawned agent via its system-prompt seam; off or an empty/absent file is byte-identical to no injection), curate (auto-propose UNVERIFIED entries from completion digests into the WORKING TREE only, gated by the committed diff — default OFF, opt-in), ground (answer project questions locally in `wd repl` on the local model, read-only, default ON — it REMOVES cloud round-trips). Flat keys still load as deprecated aliases. Values: true | false"},
 	{"branch_track", "Branch/CI tracker settings (previously flat keys: branch_track_enabled, branch_track_interval). Sub-keys: enabled (monitor each agent's branch for CI failures and drift from main, delivering informational inbox/desktop alerts), interval (Go duration, e.g. 2m — scan interval). Flat keys still load as deprecated aliases."},
-	{"activity", "Live activity-badge settings: the 3-5 word status badge shown next to each agent in the TUI. Sub-keys: interval (Go duration, e.g. 15s — minimum gap between badge refreshes per agent; refreshed only while the agent's pane is changing, so idle agents cost no calls)."},
+	{"activity", "Live activity-badge settings: the 3-5 word status badge shown next to each agent in the TUI. Sub-keys: enabled (default true; set false to make no cosmetic activity-summary model calls), interval (Go duration, e.g. 15s — minimum gap between badge refreshes per agent; refreshed only while the agent's pane is changing, so idle agents cost no calls)."},
+	{"fast_brain", "Bounds Warden's internal short model consultations; it never changes an agent's provider, model, permission authority, or Autopilot policy. Sub-keys: fast_timeout (default 10s), thinking_timeout (default 20s), max_concurrent (default 2). Identical in-flight decisions are coalesced; cosmetic activity summaries yield capacity to operational decisions."},
 	{"relay", "Hub-relay accept-side settings. The daemon dials the warden-hub relay and the hub opens per-client streams to it. Sub-keys: allow_web_terminated (allow KindWebTerminated streams — a hub-TLS-terminated browser stream the daemon cannot cryptographically verify, so it trusts the hub-asserted {grantee, scope} outright; a read-only grant still cannot attach). OFF by default: the daemon rejects such streams with relay close code 4004 until an operator opts in. KindNativeE2E streams, which carry an inner client cert the daemon verifies itself, are unaffected. Values: true | false"},
 	{"plan_sync", "Plan Hub sync provider (docs/specs/2026-09-30-plan-hub-sync-boundary.md). Sub-keys: provider (local | hub — default local; hub dials the configured Hub for Push/Pull/Discover of plan revision envelopes), hub_url (warden-hub base URL; required when provider=hub), token (bearer credential; prefer env WARDEN_PLAN_SYNC_TOKEN which overrides this when set — shown as set/unset in `warden config`). Default install stays provider=local with no network calls. SyncedAt/RemoteID are stamped only after a successful Hub Push/Pull."},
 	{"rate_limit", "Rate-limit auto-resume scheduler settings (previously flat keys: rate_limit_retry_interval, rate_limit_spend_retry_interval, rate_limit_buffer, rate_limit_auto_resume, rate_limit_resume_prompt). Sub-keys: retry_interval (Go duration, e.g. 30m — fallback wait before retrying a session/weekly limit whose reset time could not be parsed), spend_retry_interval (Go duration, e.g. 6h — longer fallback for a monthly spend cap, which carries no reset time), buffer (Go duration, e.g. 1m — extra wait on top of a parsed reset time), auto_resume (true | false — auto-pick the wait-for-reset menu choice and resume agents after any limit clears), resume_prompt (text to type when a limit clears so the agent picks its work back up; default \"continue\", set to empty for a bare keypress with no injected user turn), recovery (reactive hard-limit recovery engine settings — sub-keys: enabled, stabilization_window, usage_reconciliation {enabled (default false), interval (default 60s), stale_after (default 15m), max_parallel_swaps (default 3 — bounds concurrent backend-recovery candidate-selection/launch passes so a shared capacity-bucket loss affecting many agents at once cannot stampede every one of them onto the same limited alternative)}. Reconciliation records provider capacity snapshots, calculates bucket-to-agent impact, and advances every affected agent through the existing backend recovery coordinator — it never performs a second, direct hot-swap path). Flat keys still load as deprecated aliases."},
@@ -621,7 +635,13 @@ func defaults() Config {
 			Interval: "2m",
 		},
 		Activity: ActivityConfig{
+			Enabled:  true,
 			Interval: "15s",
+		},
+		FastBrain: FastBrainConfig{
+			FastTimeout:     "10s",
+			ThinkingTimeout: "20s",
+			MaxConcurrent:   2,
 		},
 		Relay: RelayConfig{
 			AllowWebTerminated: false, // opt-in: trusts hub-asserted scope for un-verifiable browser streams
@@ -1842,6 +1862,28 @@ func (c Config) BranchTrackIntervalDuration() time.Duration {
 // refreshes for one agent (default 15s).
 func (c Config) ActivityIntervalDuration() time.Duration {
 	return durOr(c.Activity.Interval, 15*time.Second)
+}
+
+// FastBrainFastTimeoutDuration returns the ceiling for ordinary bounded
+// Fast-Brain calls. A fresh native CLI invocation cannot reliably finish in
+// milliseconds, so the safe default is deliberately ten seconds.
+func (c Config) FastBrainFastTimeoutDuration() time.Duration {
+	return durOr(c.FastBrain.FastTimeout, 10*time.Second)
+}
+
+// FastBrainThinkingTimeoutDuration returns the ceiling for the more involved
+// prompt-recognition and reasoning calls.
+func (c Config) FastBrainThinkingTimeoutDuration() time.Duration {
+	return durOr(c.FastBrain.ThinkingTimeout, 20*time.Second)
+}
+
+// FastBrainMaxConcurrent returns a small process-wide admission bound. Zero or
+// a negative value is invalid and falls back to two.
+func (c Config) FastBrainMaxConcurrent() int {
+	if c.FastBrain.MaxConcurrent > 0 {
+		return c.FastBrain.MaxConcurrent
+	}
+	return 2
 }
 
 // RateLimitBufferDuration returns the buffer added to a parsed rate-limit reset.

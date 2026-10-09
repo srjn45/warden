@@ -3,6 +3,7 @@ package fastbrain
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -92,6 +93,61 @@ func TestDecideParentCancel(t *testing.T) {
 	r, err := e.Decide(ctx, req(TierFast))
 	require.NoError(t, err)
 	require.Equal(t, StatusCanceled, r.Status)
+}
+
+func TestDecideCoalescesIdenticalInflightRequests(t *testing.T) {
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	var calls atomic.Int32
+	eng := NewEngineWithOptions(RunnerFunc(func(context.Context, string) (string, error) {
+		calls.Add(1)
+		started <- struct{}{}
+		<-release
+		return `{"answer":"ok"}`, nil
+	}), nil, EngineOptions{MaxConcurrent: 2})
+
+	results := make(chan Response, 2)
+	for range 2 {
+		go func() {
+			r, err := eng.Decide(context.Background(), req(TierFast))
+			require.NoError(t, err)
+			results <- r
+		}()
+	}
+	<-started
+	// The second identical caller must join the first rather than start a
+	// second native CLI process.
+	time.Sleep(20 * time.Millisecond)
+	require.Equal(t, int32(1), calls.Load())
+	close(release)
+	for range 2 {
+		require.True(t, (<-results).OK())
+	}
+}
+
+func TestActivitySummaryYieldsReservedCapacity(t *testing.T) {
+	started := make(chan struct{}, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	eng := NewEngineWithOptions(RunnerFunc(func(ctx context.Context, _ string) (string, error) {
+		started <- struct{}{}
+		<-ctx.Done()
+		return "", ctx.Err()
+	}), nil, EngineOptions{MaxConcurrent: 2})
+
+	done := make(chan Response, 1)
+	go func() {
+		r, _ := eng.Decide(ctx, req(TierFast))
+		done <- r
+	}()
+	<-started
+	r, err := eng.Decide(context.Background(), Request{
+		Kind: KindSummarizeActivity, Tier: TierFast, Prompt: "cosmetic badge",
+	})
+	require.NoError(t, err)
+	require.Equal(t, StatusDeferred, r.Status)
+	cancel()
+	require.Equal(t, StatusCanceled, (<-done).Status)
 }
 
 func TestDecideSanitizesOutput(t *testing.T) {
