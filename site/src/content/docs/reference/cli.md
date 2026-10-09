@@ -61,7 +61,7 @@ Get started and interact:
   login                Authenticate this node with a warden-hub relay using the device flow
   setup                Install missing dependencies (tmux, git, claude; optional gh)
   tutorial             Run the first-run guided walkthrough of warden's core loop
-  doctor               Run preflight checks (required binaries, daemon, data dir, configured local model)
+  doctor               Run preflight checks (required binaries, daemon, data dir, agent store, backend registry integrity)
   tui                  Live terminal cockpit for agents
   update               Update the installed warden binary from GitHub Releases
   version              Print warden version and build information
@@ -4296,6 +4296,7 @@ Usage:
 
 Commands:
   agents               Verify or repair the agent store offline, backup-first
+  backends             Verify or repair the backend registry offline, backup-first
   sessions             Diagnose or reconstruct the offline session store
 
 Flags:
@@ -4324,6 +4325,63 @@ Flags:
       --json                 print the machine-readable Verify/Repair report
       --on-conflict string   report or abort on ambiguous history (default "report")
       --salvage              permit ScrivaDB's conflict-safe segment salvage
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden inspect repair backends
+
+```text
+Offline verify/repair of the backend registry (<data>/backends): backend rows,
+tiers, enabled flags, default backend, settings, models, role tiers, quotas,
+rate-limit cooldowns and handover settings.
+
+The daemon must be stopped: the command refuses while any process owns the data
+directory and names the owner and the stop command (with the systemd user
+service: systemctl --user stop warden). Never start a second "warden daemon"
+beside the service to work around it.
+
+  warden inspect repair backends --dry-run   read-only: classify every finding, change nothing
+  warden inspect repair backends             repair after an explicit confirmation
+
+Each finding is classified as safely-recoverable (provably stale revision
+history or a stale derived index) or recovery-required (ambiguous history or
+damaged bytes). Repair takes a verified backup first, removes only provably
+stale revisions (each one is listed in the report and kept in the backup), and
+verifies the result; on any failure the backup is restored. Ambiguous history is
+never resolved automatically: it is reported and the registry is left untouched.
+A clean registry is a no-op.
+
+Repair needs confirmation: answer the prompt, or pass --yes when not on a
+terminal. Without either it refuses and changes nothing.
+
+Exit codes:
+  0  clean (nothing to do), or repaired and verified
+  1  unexpected error
+  3  refused: a running process owns the data directory
+  4  recovery required: ambiguous findings, or the repair failed and was rolled back
+  5  confirmation missing or declined
+  6  --dry-run found safely recoverable findings (run without --dry-run to repair)
+
+Usage:
+  warden inspect repair backends [flags]
+
+Examples:
+  systemctl --user stop warden
+    warden inspect repair backends --dry-run
+    warden inspect repair backends
+    systemctl --user start warden
+  
+    warden inspect repair backends --yes --json
+
+Flags:
+      --backup-dir string   parent directory for the verified backup and the report (default <data>/backend-registry-backups; must be outside <data>/backends)
+      --dry-run             verify and report only; read-only, changes nothing
+  -h, --help                help for backends
+      --json                print the machine-readable report
+  -y, --yes                 confirm the repair without prompting (required when not on a terminal)
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -5316,7 +5374,7 @@ Inherited flags:
 ## warden doctor
 
 ```text
-Run preflight checks (required binaries, daemon, data dir, configured local model)
+Run preflight checks (required binaries, daemon, data dir, agent store, backend registry integrity)
 
 Usage:
   warden doctor [flags]
@@ -5761,6 +5819,7 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | `warden remove-worktree` | `warden agent remove-worktree` |
 | `warden repair` | `warden inspect repair` |
 | `warden repair agents` | `warden inspect repair agents` |
+| `warden repair backends` | `warden inspect repair backends` |
 | `warden repair sessions` | `warden inspect repair sessions` |
 | `warden repl` | `warden backend repl` |
 | `warden restore` | `warden agent restore` |

@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/srjn45/warden/internal/agentstore"
+	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/daemon"
@@ -131,6 +132,38 @@ func checkAgentStore(ctx context.Context, base, dataDir string) checkResult {
 	}
 }
 
+// checkBackendRegistry reports backend-registry integrity (#841) from a
+// read-only verification: it never opens, locks or changes the registry, so it
+// is safe beside a running daemon. Optional, like the agent-store line: a
+// finding is loud but does not fail the preflight; the fix is the offline
+// `warden repair backends`.
+func checkBackendRegistry(ctx context.Context, dataDir string) checkResult {
+	const name = "backend registry"
+	dir := filepath.Join(dataDir, "backends")
+	if _, err := os.Stat(dir); err != nil {
+		return checkResult{name: name, ok: true, detail: "no registry yet (created on first daemon start)"}
+	}
+	rep, err := backendstore.Verify(ctx, dir)
+	if err != nil {
+		return checkResult{name: name, ok: false, detail: fmt.Sprintf("verification failed: %v; stop the daemon, then run `%s`", err, backendstore.RepairDryRunCommand)}
+	}
+	var names []string
+	for _, c := range rep.Collections {
+		if c.Verdict != backendstore.VerdictClean {
+			names = append(names, c.Name+" ("+string(c.Verdict)+")")
+		}
+	}
+	switch {
+	case rep.Clean():
+		return checkResult{name: name, ok: true, detail: "clean (verify with `" + backendstore.RepairDryRunCommand + "`)"}
+	case rep.Recoverable():
+		return checkResult{name: name, ok: false, detail: fmt.Sprintf("safely recoverable findings in %s; the daemon repairs them backup-first on its next start, or stop the daemon and run `%s`",
+			strings.Join(names, ", "), backendstore.RepairCommand)}
+	}
+	return checkResult{name: name, ok: false, detail: fmt.Sprintf("RECOVERY REQUIRED in %s; a newer daemon will refuse to start. Stop the daemon, then run `%s` (read-only) and `%s`",
+		strings.Join(names, ", "), backendstore.RepairDryRunCommand, backendstore.RepairCommand)}
+}
+
 // allRequiredPass reports whether every required check passed (optional
 // failures are tolerated).
 func allRequiredPass(results []checkResult) bool {
@@ -170,7 +203,7 @@ func formatReport(version string, results []checkResult) string {
 func newDoctorCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "doctor",
-		Short: "Run preflight checks (required binaries, daemon, data dir, configured local model)",
+		Short: "Run preflight checks (required binaries, daemon, data dir, agent store, backend registry integrity)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg := config.Load(configPathFor(cmd))
@@ -203,6 +236,7 @@ func newDoctorCmd() *cobra.Command {
 			results = append(results, checkDaemon("http://"+cfg.Addr, httpGet))
 			results = append(results, checkDataDir(cfg.DataDir))
 			results = append(results, checkAgentStore(cmd.Context(), "http://"+cfg.Addr, cfg.DataDir))
+			results = append(results, checkBackendRegistry(cmd.Context(), cfg.DataDir))
 
 			fmt.Fprint(cmd.OutOrStdout(), formatReport(doctorVersion, results))
 			if !allRequiredPass(results) {

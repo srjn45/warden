@@ -357,7 +357,9 @@ func newDaemonRunCmd() *cobra.Command {
 			// a typed *backendstore.RecoveryRequiredError naming the repair command.
 			backendStore, _, err := backendstore.Open(filepath.Join(cfg.DataDir, "backends"), backendstore.Options{})
 			if err != nil {
-				return err
+				// Names `warden repair backends`, the report and the stop/verify/
+				// repair/start procedure; other errors pass through unchanged.
+				return withBackendRecoverySteps(err)
 			}
 			defer backendStore.Close()
 			if rerr := backendstore.Reconcile(backendStore, agentbackend.Detect(), time.Now()); rerr != nil {

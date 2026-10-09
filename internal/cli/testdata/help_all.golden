@@ -173,6 +173,7 @@ Complete command tree:
   warden inspect import                Insert agent session metadata from a JSON dump on stdin
   warden inspect repair                Offline, backup-first repair tools
   warden inspect repair agents         Verify or repair the agent store offline, backup-first
+  warden inspect repair backends       Verify or repair the backend registry offline, backup-first
   warden inspect repair sessions       Diagnose or reconstruct the offline session store
   warden backend                       Inspect and manage the agent-backend registry
   warden backend default               Set the default backend (rejects the reserved local row)
@@ -212,7 +213,7 @@ Complete command tree:
   warden login                         Authenticate this node with a warden-hub relay using the device flow
   warden setup                         Install missing dependencies (tmux, git, claude; optional gh)
   warden tutorial                      Run the first-run guided walkthrough of warden's core loop
-  warden doctor                        Run preflight checks (required binaries, daemon, data dir, configured local model)
+  warden doctor                        Run preflight checks (required binaries, daemon, data dir, agent store, backend registry integrity)
   warden tui                           Live terminal cockpit for agents
   warden update                        Update the installed warden binary from GitHub Releases
   warden version                       Print warden version and build information
@@ -329,6 +330,7 @@ Compatibility aliases:
   warden remove-worktree -> warden agent remove-worktree (compatibility)
   warden repair -> warden inspect repair (compatibility)
   warden repair agents -> warden inspect repair agents (compatibility)
+  warden repair backends -> warden inspect repair backends (compatibility)
   warden repair sessions -> warden inspect repair sessions (compatibility)
   warden repl -> warden backend repl (compatibility)
   warden restore -> warden agent restore (compatibility)
