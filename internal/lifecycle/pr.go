@@ -27,7 +27,7 @@ func (l *Lifecycle) CreatePR(ctx context.Context, dir, title, body, base string)
 	if branch == "" {
 		return PRResult{}, fmt.Errorf("not a git repository: %s", dir)
 	}
-	if protectedBranches[branch] {
+	if l.IsProtectedBranchInRepo(ctx, dir, branch) {
 		return PRResult{}, fmt.Errorf("refusing to open a PR from protected branch %q — an agent works on its own branch and a PR integrates it", branch)
 	}
 	if base == "" {
