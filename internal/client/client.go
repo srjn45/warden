@@ -355,15 +355,17 @@ func (c *Client) watch(ctx context.Context, all bool, onSnapshot func([]*store.S
 				Sessions []*store.Session `json:"sessions"`
 			}
 			if err := json.Unmarshal(data, &r); err == nil {
-				// The stream contains both tracked entity kinds for terminal-aware
-				// UIs. Watch is the agent-facing API, so retain only AI sessions.
-				agents := r.Sessions[:0]
-				for _, session := range r.Sessions {
-					if !session.IsTerminal() {
-						agents = append(agents, session)
+				var items []*store.Session
+				if all {
+					items = r.Sessions
+				} else {
+					for _, session := range r.Sessions {
+						if !session.IsTerminal() {
+							items = append(items, session)
+						}
 					}
 				}
-				if err := onSnapshot(agents); err != nil {
+				if err := onSnapshot(items); err != nil {
 					return err
 				}
 			}

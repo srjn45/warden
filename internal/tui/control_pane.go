@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -222,6 +223,14 @@ type controlPaneModel struct {
 	// pendingExec is set when the Bubble Tea loop should exit so RunControlPane
 	// can re-exec the binary in place (after an update or external upgrade).
 	pendingExec bool
+
+	// Refresh orchestration
+	refreshInFlight bool
+	refreshQueued   bool
+	refreshFailures int
+	sseActive       bool
+	sseChan         chan sseSnapshotMsg
+	jitterRand      func() float64
 }
 
 // quitCmd is what `q`/`ctrl+c` runs: tear the whole cockpit down (killCockpitCmd
@@ -256,6 +265,8 @@ func newListPane(a api, agentPane, terminalPane string) controlPaneModel {
 		plans:        make(map[string][]*planstore.Plan),
 		vp:           viewport.New(0, 0),
 		localVersion: localVersion,
+		sseChan:      make(chan sseSnapshotMsg, 8),
+		jitterRand:   rand.Float64,
 	}
 }
 
@@ -877,12 +888,51 @@ func (m *controlPaneModel) applyDefaultCollapse() {
 	}
 }
 
-func (m controlPaneModel) Init() tea.Cmd {
-	return tea.Batch(
+func (m controlPaneModel) scheduleTick() tea.Cmd {
+	interval := baseRefreshInterval
+	if m.sseActive {
+		interval = conservativeRefreshInterval
+	}
+	if m.refreshFailures > 0 {
+		interval = computeRefreshBackoff(interval, m.refreshFailures, maxRefreshBackoff, m.jitterRand)
+	}
+	return tickWithDuration(interval)
+}
+
+func (m controlPaneModel) fleetRefreshCmds() []tea.Cmd {
+	cmds := []tea.Cmd{
 		listCmd(m.api, true), pipelinesCmd(m.api), projectsCmd(m.api), projectGroupsCmd(m.api),
-		approvalsCmd(m.api), autopilotCmd(m.api), plansCmd(m.api, m.projects),
-		healthCmd(m.api), updateCheckCmd(m.localVersion), tick(),
-	)
+		approvalsCmd(m.api), pressureCmd(m.api), autopilotCmd(m.api), plansCmd(m.api, m.projects),
+	}
+	if m.daemonVersion == "" || m.fleet != fleetLive {
+		cmds = append(cmds, healthCmd(m.api))
+	}
+	if m.mode == modeInspector {
+		cmds = append(cmds, contextCmd(m.api), messagesCmd(m.api))
+	}
+	if m.mode == modeBackends {
+		cmds = append(cmds, backendsCmd(m.api)) // keep the table + limited-until countdown fresh
+	}
+	// Poll live cwd/branch for terminal names (§7) — only when a terminal pane
+	// exists and at least one terminal is live to read.
+	if m.terminalPane != "" {
+		if terms := m.liveTerminals(); len(terms) > 0 {
+			cmds = append(cmds, terminalInfoCmd(terms))
+		}
+	}
+	// GitHub release check is intentionally sparse (not every tick).
+	if m.lastUpdateCheck.IsZero() || time.Since(m.lastUpdateCheck) >= updateCheckInterval {
+		cmds = append(cmds, updateCheckCmd(m.localVersion))
+	}
+	return cmds
+}
+
+func (m controlPaneModel) Init() tea.Cmd {
+	cmds := append(m.fleetRefreshCmds(), m.scheduleTick())
+	if sseCmd := subscribeSSECmd(m.api, m.sseChan); sseCmd != nil {
+		cmds = append(cmds, sseCmd)
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -915,27 +965,15 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready = true
 		return m, nil
 	case tickMsg:
-		cmds := []tea.Cmd{listCmd(m.api, true), pipelinesCmd(m.api), projectsCmd(m.api), projectGroupsCmd(m.api), approvalsCmd(m.api), pressureCmd(m.api), autopilotCmd(m.api), plansCmd(m.api, m.projects), healthCmd(m.api), tick()}
-		if m.mode == modeInspector {
-			cmds = append(cmds, contextCmd(m.api), messagesCmd(m.api))
-		}
 		if m.mode == modeLogs {
 			m.refreshLogs(false)
 		}
-		if m.mode == modeBackends {
-			cmds = append(cmds, backendsCmd(m.api)) // keep the table + limited-until countdown fresh
+		if m.refreshInFlight {
+			m.refreshQueued = true
+			return m, m.scheduleTick()
 		}
-		// Poll live cwd/branch for terminal names (§7) — only when a terminal pane
-		// exists and at least one terminal is live to read.
-		if m.terminalPane != "" {
-			if terms := m.liveTerminals(); len(terms) > 0 {
-				cmds = append(cmds, terminalInfoCmd(terms))
-			}
-		}
-		// GitHub release check is intentionally sparse (not every 1s tick).
-		if m.lastUpdateCheck.IsZero() || time.Since(m.lastUpdateCheck) >= updateCheckInterval {
-			cmds = append(cmds, updateCheckCmd(m.localVersion))
-		}
+		m.refreshInFlight = true
+		cmds := append(m.fleetRefreshCmds(), m.scheduleTick())
 		return m, tea.Batch(cmds...)
 	case healthMsg:
 		if msg.err == nil && msg.version != "" {
@@ -1035,15 +1073,52 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case sseSnapshotMsg:
+		if msg.err != nil {
+			m.sseActive = false
+			m.refreshFailures++
+			return m, waitForSSEMsg(m.sseChan)
+		}
+		m.sseActive = true
+		m.refreshFailures = 0
+		m.fleet = fleetLive
+		m.lastCompleteAt = time.Now()
+		prev := m.selectedKey()
+		m.sessions = groupSort(msg.sessions)
+		m.repin(prev)
+		switch m.mode {
+		case modeDetails:
+			m.refreshDetail()
+		case modeEvents:
+			if s := m.selected(); s != nil {
+				m.vp.SetContent(eventsBody(s, m.vp.Width))
+			}
+		}
+		m.refreshInFlight = false
+		cmds := []tea.Cmd{m.reconcileTerminalPaneCmd(), m.reconcileAgentPaneCmd(), waitForSSEMsg(m.sseChan)}
+		if m.refreshQueued {
+			m.refreshQueued = false
+			m.refreshInFlight = true
+			cmds = append(cmds, m.fleetRefreshCmds()...)
+		}
+		return m, tea.Batch(cmds...)
 	case sessionsMsg:
+		m.refreshInFlight = false
 		if msg.err != nil {
 			// Last-known-good: a failed poll never clears rows or moves the cursor. We
 			// only classify why it failed (dead daemon / timed-out request / degraded
 			// store) so the banner can explain that the retained fleet may be stale.
 			// Rows are dropped only when a later *complete* snapshot omits them.
+			m.refreshFailures++
 			m.fleet = classifyFleetErr(msg.err)
+			if m.refreshQueued {
+				m.refreshQueued = false
+				m.refreshInFlight = true
+				return m, tea.Batch(m.fleetRefreshCmds()...)
+			}
 			return m, nil
 		}
+		m.refreshFailures = 0
 		// A successful list is complete and authoritative — the daemon is
 		// complete-or-error, so it never returns a silent partial fleet. It is safe
 		// to replace wholesale and clear the stale/degraded banner. Stamp the time so
@@ -1067,7 +1142,13 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// re-attach when the nested tmux attach died (e.g. after a daemon restart).
 		// Also re-attach the agent pane if it went dead (e.g. after a hot-swap killed
 		// and recreated the agent session — #503).
-		return m, tea.Batch(m.reconcileTerminalPaneCmd(), m.reconcileAgentPaneCmd())
+		cmds := []tea.Cmd{m.reconcileTerminalPaneCmd(), m.reconcileAgentPaneCmd()}
+		if m.refreshQueued {
+			m.refreshQueued = false
+			m.refreshInFlight = true
+			cmds = append(cmds, m.fleetRefreshCmds()...)
+		}
+		return m, tea.Batch(cmds...)
 	case terminalSpawnedMsg:
 		// Clear only the in-flight guard. Do NOT reset terminalSpawnAttempts /
 		// circuit-breaker state here (#465): a successful spawn callback can still
