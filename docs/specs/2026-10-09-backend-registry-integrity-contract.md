@@ -278,3 +278,28 @@ resolve release ─▶ capture ─▶ preflight ─▶ download+verify ─▶ sw
 Limitations: the preflight uses the installed binary's `Verify`, not the new
 binary's; a daemon-written startup-failure file is not required (journal/stderr
 capture covers supervised daemons).
+
+## 10. Release-gate validation (t6)
+
+Executable matrix: `internal/backendstore/release_gate_test.go`
+(`TestReleaseGateMatrix`, `TestReleaseGateOwnershipContention`). Each scenario
+runs the real `updater.Apply` transaction (download + checksum, swap, migrate,
+restart, readiness, rollback) against a real ScrivaDB registry in a temp data
+dir; the fake "daemon" opens the registry via `backendstore.Open` like the real one.
+
+| Scenario | Expected | Asserted |
+|---|---|---|
+| fresh data dir, normal update | updated, no recovery | binary swapped, `Result == nil` |
+| historical dir, normal update | updated | all preferences preserved |
+| delayed-but-ready daemon | updated after ≥8 probes | no rollback, preferences preserved |
+| never-ready daemon | bounded `readiness timeout`, rollback | prior binary restored, error is not a bare "connection refused" |
+| #841 shape (34 regressions) | preflight note, daemon auto-recovers | byte-identical backup, backup restores independently, preferences preserved |
+| repairable index defect | never ambiguous, updated | preferences preserved |
+| ambiguous conflict | `PreflightError` with repair command | binary, service and registry bytes untouched |
+| daemon exits before health (preflight bypassed) | `startup failure` + daemon's own refusal + repair command, rollback | prior daemon serving, registry bytes untouched |
+| migration failure | rollback, no restart | binary restored, preferences preserved |
+| restart failure (corrupt segment) | rollback with diagnostics | prior version healthy |
+| systemd / manual contention | second owner refused with owner + next step | never suggests deleting the lock |
+
+Subprocess-level contention (racing writers, SIGKILL) remains in
+`internal/ownerlock` and `contention_test.go`.
