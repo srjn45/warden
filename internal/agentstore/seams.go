@@ -20,9 +20,13 @@ type ScanSeam func(collection string)
 // "Update", "UpdateStatusIf", "FinalizeExit", "Archive", "Delete").
 type WriteSeam func(op string)
 
+// AuditSeam is invoked inside Auditor during verification passes.
+type AuditSeam func(phase string)
+
 var (
 	scanSeam  atomic.Pointer[ScanSeam]
 	writeSeam atomic.Pointer[WriteSeam]
+	auditSeam atomic.Pointer[AuditSeam]
 )
 
 // SetScanSeam installs fn (nil clears) and returns a restore func.
@@ -47,6 +51,17 @@ func SetWriteSeam(fn WriteSeam) (restore func()) {
 	return func() { writeSeam.Store(prev) }
 }
 
+// SetAuditSeam installs fn (nil clears) and returns a restore func.
+func SetAuditSeam(fn AuditSeam) (restore func()) {
+	prev := auditSeam.Load()
+	if fn == nil {
+		auditSeam.Store(nil)
+	} else {
+		auditSeam.Store(&fn)
+	}
+	return func() { auditSeam.Store(prev) }
+}
+
 func fireScanSeam(collection string) {
 	if p := scanSeam.Load(); p != nil {
 		(*p)(collection)
@@ -56,5 +71,11 @@ func fireScanSeam(collection string) {
 func fireWriteSeam(op string) {
 	if p := writeSeam.Load(); p != nil {
 		(*p)(op)
+	}
+}
+
+func fireAuditSeam(phase string) {
+	if p := auditSeam.Load(); p != nil {
+		(*p)(phase)
 	}
 }

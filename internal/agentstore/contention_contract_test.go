@@ -8,6 +8,9 @@ package agentstore
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -78,5 +81,78 @@ func TestContractContentionDegradedServesLabelledStale(t *testing.T) {
 // §6: periodic integrity audit runs off the request path and is the only
 // authority that can flip the store to degraded for non-read-failure causes.
 func TestContractContentionAuditIsOffRequestPath(t *testing.T) {
-	t.Skip("gate: integrity-audit authority (contract §6) — no auditor exists yet")
+	s := seededStore(t, 5)
+	ctx := context.Background()
+
+	// 1. Off request path: an in-flight audit does NOT block foreground reads or writes.
+	g := newGate()
+	restore := SetAuditSeam(func(phase string) { g.hit() })
+	t.Cleanup(func() { g.release(); restore() })
+
+	go func() {
+		_, _ = s.RunAudit(context.Background(), true)
+	}()
+	g.waitEntered(t)
+
+	// Foreground read completes while audit is in flight.
+	blocked, waitList := stalled(stallProbe, func() error {
+		_, err := s.List(ctx)
+		return err
+	})
+	require.False(t, blocked, "List must not block while audit is in flight")
+	_, err := waitList()
+	require.NoError(t, err)
+
+	// Foreground write completes while audit is in flight.
+	blocked, waitWrite := stalled(stallProbe, func() error {
+		return s.UpdateStatus(ctx, "a-0", store.StatusIdle)
+	})
+	require.False(t, blocked, "UpdateStatus must not block while audit is in flight")
+	_, err = waitWrite()
+	require.NoError(t, err)
+
+	g.release()
+
+	// Store remains in StateOK when audit is clean.
+	require.Equal(t, StateOK, s.State())
+
+	// 2. Corrupt a record on disk in the active agents collection.
+	entries, err := os.ReadDir(filepath.Join(s.DataDir(), "agents-db", "agents"))
+	require.NoError(t, err)
+	var segPath string
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".ndjson") || strings.HasSuffix(e.Name(), ".jsonl") || strings.Contains(e.Name(), "segment") {
+			segPath = filepath.Join(s.DataDir(), "agents-db", "agents", e.Name())
+			break
+		}
+	}
+	require.NotEmpty(t, segPath, "must find a segment file")
+	b, err := os.ReadFile(segPath)
+	require.NoError(t, err)
+	// Replace "a-0" in the record body with "corrupt-id" to produce a body ID mismatch.
+	corrupted := strings.Replace(string(b), `"id":"a-0"`, `"id":"corrupt-id"`, 1)
+	require.NotEqual(t, string(b), corrupted, "must replace id in segment")
+	require.NoError(t, os.WriteFile(segPath, []byte(corrupted), 0o644))
+
+	// Before the audit runs, the store is still StateOK (not degraded).
+	require.Equal(t, StateOK, s.State())
+
+	// A request-path notice can raise suspect, but cannot latch degraded.
+	s.TransitionSuspect()
+	require.Equal(t, StateSuspect, s.State())
+
+	// 3. Auditor is the sole authority to detect corruption and atomically transition to degraded.
+	rep, err := s.RunAudit(ctx, true)
+	require.NoError(t, err)
+	require.Equal(t, AuditResultFindings, rep.LastResult)
+	require.NotEmpty(t, rep.Findings)
+
+	// Store has transitioned to typed degraded state.
+	require.Equal(t, StateDegraded, s.State())
+	require.NotNil(t, s.DegradedError())
+
+	// Subsequent foreground mutations are refused with typed UnhealthyError.
+	err = s.UpdateStatus(ctx, "a-1", store.StatusIdle)
+	require.Error(t, err)
+	requireUnhealthy(t, err, store.DegradeIntegrity)
 }
