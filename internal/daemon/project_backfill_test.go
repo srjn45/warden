@@ -202,9 +202,12 @@ func TestReconcilePreservesForwardAuthority(t *testing.T) {
 	require.Equal(t, []string{"mixed-p"}, got.Pipelines)
 	require.Equal(t, mixed.Agents, got.Agents)
 	require.Equal(t, mixed.Terminals, got.Terminals)
-	for _, id := range []string{"z", "a1", "shared"} {
+	for _, id := range []string{"z", "a1"} {
 		require.Equal(t, "a", getSession(t, ctx, ss, id).ProjectID)
 	}
+	// "shared" is claimed by two projects: an explicit conflict, never restamped.
+	require.Equal(t, "b", getSession(t, ctx, ss, "shared").ProjectID)
+	require.Equal(t, []IdentityConflict{{Kind: ConflictAmbiguousMembership, ID: "shared", Detail: "claimed by projects [a b]"}}, rep.Conflicts)
 	for _, id := range []string{"excluded", "path-only", "excluded-mixed"} {
 		require.Empty(t, getSession(t, ctx, ss, id).ProjectID)
 	}
@@ -220,7 +223,8 @@ func TestReconcilePreservesForwardAuthority(t *testing.T) {
 	}
 	rep, err = ReconcileProjectMembership(ctx, ss, ps, nil, projects)
 	require.NoError(t, err)
-	require.Equal(t, MembershipReconcileReport{}, rep)
+	require.False(t, rep.Changed())
+	require.Len(t, rep.Conflicts, 1)
 }
 
 func TestReconcileUnavailableStoresRetainLegacyLists(t *testing.T) {

@@ -4295,10 +4295,35 @@ Usage:
   warden inspect repair [flags]
 
 Commands:
+  agents               Verify or repair the agent store offline, backup-first
   sessions             Diagnose or reconstruct the offline session store
 
 Flags:
   -h, --help   help for repair
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden inspect repair agents
+
+```text
+Offline repair of the agent store (<data>/agents-db).
+
+The daemon must be stopped. --dry-run is read-only; repair uses ScrivaDB's
+verified backup, atomic journaled repair, and conflict-preserving report.
+
+Usage:
+  warden inspect repair agents [flags]
+
+Flags:
+      --backup-dir string    parent directory for the verified repair backup
+      --dry-run              verify and report only; do not modify files
+  -h, --help                 help for agents
+      --json                 print the machine-readable Verify/Repair report
+      --on-conflict string   report or abort on ambiguous history (default "report")
+      --salvage              permit ScrivaDB's conflict-safe segment salvage
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -5724,6 +5749,7 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | `warden recover` | `warden agent recover` |
 | `warden remove-worktree` | `warden agent remove-worktree` |
 | `warden repair` | `warden inspect repair` |
+| `warden repair agents` | `warden inspect repair agents` |
 | `warden repair sessions` | `warden inspect repair sessions` |
 | `warden repl` | `warden backend repl` |
 | `warden restore` | `warden agent restore` |

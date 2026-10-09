@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/daemon/oapi"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -21,11 +22,13 @@ func (s *Server) GetStoreHealth(ctx context.Context, _ oapi.GetStoreHealthReques
 	_, err := s.store.List(ctx)
 	if err == nil {
 		return oapi.GetStoreHealth200JSONResponse{
-			Healthy:      true,
-			Degraded:     false,
-			FailureCount: 0,
-			Failures:     []oapi.StoreScanFailure{},
-			CheckedAt:    now,
+			Healthy:         true,
+			Degraded:        false,
+			FailureCount:    0,
+			Failures:        []oapi.StoreScanFailure{},
+			CheckedAt:       now,
+			RepairAvailable: agentstore.RepairAvailable,
+			NextStep:        "none — store is healthy",
 		}, nil
 	}
 
@@ -43,11 +46,13 @@ func (s *Server) GetStoreHealth(ctx context.Context, _ oapi.GetStoreHealthReques
 		}}
 	}
 	return oapi.GetStoreHealth200JSONResponse{
-		Healthy:      false,
-		Degraded:     true,
-		FailureCount: len(failures),
-		Failures:     failures,
-		CheckedAt:    now,
+		Healthy:         false,
+		Degraded:        true,
+		FailureCount:    len(failures),
+		Failures:        failures,
+		CheckedAt:       now,
+		RepairAvailable: agentstore.RepairAvailable,
+		NextStep:        agentstore.SafeNextStep,
 	}, nil
 }
 
@@ -57,8 +62,11 @@ func degradedFailuresToWire(d *store.DegradedScanError) []oapi.StoreScanFailure 
 	out := make([]oapi.StoreScanFailure, 0, len(d.Failures))
 	for _, f := range d.Failures {
 		class := oapi.Decode
-		if f.Class == store.DegradeRead {
+		switch f.Class {
+		case store.DegradeRead:
 			class = oapi.Read
+		case store.DegradeIntegrity:
+			class = oapi.Integrity
 		}
 		out = append(out, oapi.StoreScanFailure{
 			Collection: f.Collection,

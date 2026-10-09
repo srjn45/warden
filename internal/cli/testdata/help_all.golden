@@ -172,6 +172,7 @@ Complete command tree:
   warden inspect export                Serialize agent session metadata to JSON on stdout
   warden inspect import                Insert agent session metadata from a JSON dump on stdin
   warden inspect repair                Offline, backup-first repair tools
+  warden inspect repair agents         Verify or repair the agent store offline, backup-first
   warden inspect repair sessions       Diagnose or reconstruct the offline session store
   warden backend                       Inspect and manage the agent-backend registry
   warden backend default               Set the default backend (rejects the reserved local row)
@@ -327,6 +328,7 @@ Compatibility aliases:
   warden recover -> warden agent recover (compatibility)
   warden remove-worktree -> warden agent remove-worktree (compatibility)
   warden repair -> warden inspect repair (compatibility)
+  warden repair agents -> warden inspect repair agents (compatibility)
   warden repair sessions -> warden inspect repair sessions (compatibility)
   warden repl -> warden backend repl (compatibility)
   warden restore -> warden agent restore (compatibility)

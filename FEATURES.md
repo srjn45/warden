@@ -420,6 +420,7 @@ out / rotating the very token that guards the MCP and HTTP channels).
 | Configuration view / init / path | `config` | local file authoring | [env-vars](https://srjn45.github.io/warden/reference/env-vars/) |
 | **Live config hot-reload** (edit `~/.warden/config.yaml`, applied with no restart; bad edit keeps last-good) | automatic (`config` to edit) | daemon watches the file | [docs/FEATURES.md §12](docs/FEATURES.md#12-configuration-yaml-config-file) |
 | Health / environment doctor | `doctor` | host diagnostics | [troubleshooting](https://srjn45.github.io/warden/reference/troubleshooting/) |
+| Agent-store offline verify/repair (daemon stopped; `--dry-run`, verified backup, `--salvage`, `--json`) | `inspect repair agents` (alias `repair agents`) | offline, ownership-gated, destructive-capable; deliberately not over REST/MCP/TUI/Web | [agent-store-integrity](https://srjn45.github.io/warden/guides/agent-store-integrity/) |
 | Install missing dependencies | `setup` | installs host packages (brew/apt/dnf/pacman + official installers) | [install](https://srjn45.github.io/warden/start/install/) |
 | Local-LLM model picker (memory-ranked) | `llm suggest` | reads host hardware to size the orchestrator model | [repl](https://srjn45.github.io/warden/multi-agent/repl/) |
 | First-run tutorial | `tutorial` | interactive walkthrough | [quickstart](https://srjn45.github.io/warden/start/quickstart/) |

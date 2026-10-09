@@ -445,6 +445,17 @@ func (s *Server) registerExtraTools() {
 		return jsonResultAny(p)
 	})
 
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "store_health",
+		Description: "Agent-store integrity verdict (GET /api/v1/store/health): healthy/degraded, per-record failures, whether automated repair is available (repair_available is false until ScrivaDB ships Verify/Repair) and the safe next step. Read-only; running agents are unaffected by a degraded store. Repair is offline-only and is deliberately not an MCP action. Mirrors `warden doctor` and `warden repair agents`.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ listArgs) (*mcpsdk.CallToolResult, any, error) {
+		h, err := s.cl.StoreHealth(ctx)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(h)
+	})
+
 	// --- lifecycle / control ---
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{

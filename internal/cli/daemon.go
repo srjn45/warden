@@ -139,6 +139,14 @@ func newDaemonRunCmd() *cobra.Command {
 
 			st, err := agentstore.New(cfg.DataDir)
 			if err != nil {
+				var oe *agentstore.OwnershipError
+				if errors.As(err, &oe) {
+					// Refused before any listener, import, reconcile or goroutine:
+					// nothing was touched. Audit it and give the safe next step.
+					slog.Error("audit: daemon startup refused", "audit", true, "action", "daemon_start",
+						"outcome", "refused_owned", "data_dir", oe.Dir, "lock", oe.Lock)
+					return fmt.Errorf("%w\nnext step: %s", err, oe.NextStep())
+				}
 				return err
 			}
 			defer st.Close()
@@ -703,11 +711,16 @@ func newDaemonRunCmd() *cobra.Command {
 			// no writer contention.
 			if rep, rerr := daemon.ReconcileProjectMembership(ctx, st, pstore, planStore, projectStore); rerr != nil {
 				slog.Warn("daemon: project membership reconcile failed", "err", rerr)
-			} else if rep.Changed() {
-				slog.Info("daemon: project membership reconciled",
-					"sessions_stamped", rep.SessionsStamped,
-					"pipelines_stamped", rep.PipelinesStamped,
-					"projects_rebuilt", rep.ProjectsRebuilt)
+			} else {
+				for _, c := range rep.Conflicts {
+					slog.Warn("daemon: membership identity conflict left untouched", "kind", c.Kind, "id", c.ID, "detail", c.Detail)
+				}
+				if rep.Changed() {
+					slog.Info("daemon: project membership reconciled",
+						"sessions_stamped", rep.SessionsStamped,
+						"pipelines_stamped", rep.PipelinesStamped,
+						"projects_rebuilt", rep.ProjectsRebuilt)
+				}
 			}
 
 			// Live Autopilot entity store (plan-execution-entity-redesign): migrate

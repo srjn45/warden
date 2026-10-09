@@ -84,7 +84,7 @@ func fleetBannerDetail(f fleetStatus, lastCompleteAt time.Time) string {
 	}
 	switch f {
 	case fleetDegraded:
-		return "session store degraded" + stamp
+		return "session store degraded — run `warden doctor`" + stamp
 	case fleetTimeout:
 		return "daemon not responding — request timed out" + stamp
 	default: // fleetDisconnected

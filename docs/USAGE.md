@@ -1420,9 +1420,20 @@ slow, or crashing plugin is logged and skipped, never blocking an agent. Configu
 via `plugins.enabled` + a `plugins.registry` list; a worked example lives under
 `examples/plugins/`. See [FEATURES.md §26](FEATURES.md).
 
+### `warden inspect repair agents` (alias `warden repair agents`)
+Offline verify/repair of the agent store via ScrivaDB v1.4.0. Refuses unless you
+own the data dir and no warden process (daemon) owns the store. `--dry-run` is
+read-only; a real run takes a verified backup (`--backup-dir`, outside the data
+dir), rebuilds indexes atomically, journals progress and is safe to re-run after
+an interruption. `--on-conflict report|abort` (conflicts are never resolved),
+`--salvage` (opt-in, quarantines damaged originals), `--json` (machine-readable
+report). Audits every attempt. Not exposed over REST/MCP/TUI/Web. See the
+*Agent store integrity* guide for the full procedure.
+
 ### `warden doctor`
 Preflight checks — required binaries (`tmux`, `git`, `claude`), optional ones
-(`gh`, warn-only), daemon reachability, and the data directory.
+(`gh`, warn-only), daemon reachability, the data directory, and an **agent store**
+health/ownership line (see the *Agent store integrity* guide).
 
 Flags:
 - `--sessions` — diagnose the session store offline without modifying it

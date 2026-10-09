@@ -15,8 +15,8 @@ import (
 // Project membership reconciliation (spec D2/§6) treats non-nil forward lists
 // as authoritative, including empty lists. Only nil legacy lists are backfilled
 // from reverse edges and open-project path matches. Existing order and dangling
-// IDs survive every sweep. Conflicting forward claims choose the lowest project
-// ID for the reverse edge, without destructively rewriting either container.
+// IDs survive every sweep. Conflicting forward claims are reported as ambiguous_membership
+// conflicts and left untouched (no reverse restamp, no list rewrite).
 //
 // Plans[] is backfilled by scanning the plan store (plan ProjectID back-refs).
 // Autopilots[] is never inferred here — completed or deleted executors must not
@@ -33,6 +33,9 @@ type MembershipReconcileReport struct {
 	PipelinesStamped int
 	// ProjectsRebuilt counts projects with newly backfilled legacy lists.
 	ProjectsRebuilt int
+	// Conflicts lists identity ambiguities left untouched (see
+	// detectIdentityConflicts). They never count as changes.
+	Conflicts []IdentityConflict
 }
 
 // Changed reports whether the sweep made any write. A fully-reconciled store
@@ -65,11 +68,15 @@ func ReconcileProjectMembership(ctx context.Context, sstore *agentstore.Store, p
 
 	// Read all sources before writing. An unavailable store must not turn an
 	// unknown legacy list into an authoritative empty list.
-	var sessions []*agentstore.Agent
+	var sessions, archived []*agentstore.Agent
 	if sstore != nil {
 		sessions, err = sstore.List(ctx)
 		if err != nil {
 			return rep, fmt.Errorf("list sessions: %w", err)
+		}
+		archived, err = sstore.ListClosed(ctx)
+		if err != nil {
+			return rep, fmt.Errorf("list archived sessions: %w", err)
 		}
 	}
 	var pipelines []*pipeline.Pipeline
@@ -87,6 +94,10 @@ func ReconcileProjectMembership(ctx context.Context, sstore *agentstore.Store, p
 		}
 	}
 	sort.Slice(projs, func(i, j int) bool { return projs[i].ID < projs[j].ID })
+	// Only verified identities are reconciled; conflicted ids are reported and
+	// skipped everywhere below. Archived records are read-only here.
+	rep.Conflicts = detectIdentityConflicts(sessions, archived, projs)
+	conflicted := conflictedIDs(rep.Conflicts)
 	agentOwners, pipeOwners := map[string]string{}, map[string]string{}
 	byID := make(map[string]projectstore.Project, len(projs))
 	claim := func(owners map[string]string, ids []string, pid string) {
@@ -103,7 +114,7 @@ func ReconcileProjectMembership(ctx context.Context, sstore *agentstore.Store, p
 	}
 	repairFailed := false
 	for _, sess := range sessions {
-		if sess == nil {
+		if sess == nil || conflicted[sess.ID] {
 			continue
 		}
 		owners := agentOwners
@@ -171,7 +182,7 @@ func ReconcileProjectMembership(ctx context.Context, sstore *agentstore.Store, p
 	for _, proj := range projs {
 		changed := false
 		if sstore != nil {
-			agents := membersForProject(proj.ID, sessions)
+			agents := membersForProject(proj.ID, sessionsExcluding(sessions, conflicted))
 			if proj.Agents == nil {
 				proj.Agents = agents
 				changed = true
@@ -289,6 +300,20 @@ func firstSeenDedupe(ids []string) []string {
 		}
 		seen[id] = struct{}{}
 		out = append(out, id)
+	}
+	return out
+}
+
+// sessionsExcluding drops conflicted ids so backfill never trusts them.
+func sessionsExcluding(sessions []*agentstore.Agent, skip map[string]bool) []*agentstore.Agent {
+	if len(skip) == 0 {
+		return sessions
+	}
+	out := make([]*agentstore.Agent, 0, len(sessions))
+	for _, s := range sessions {
+		if s != nil && !skip[s.ID] {
+			out = append(out, s)
+		}
 	}
 	return out
 }
