@@ -323,6 +323,7 @@ func (s *Store) Insert(ctx context.Context, a *Agent) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	fireWriteSeam("Insert")
 	if ok, err := s.col.Exists(a.ID); err != nil {
 		return err
 	} else if ok {
@@ -470,6 +471,7 @@ func (s *Store) Update(ctx context.Context, id string, fn func(*Agent) error) er
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	fireWriteSeam("Update")
 	a, err := s.get(id)
 	if err != nil {
 		return err
@@ -557,6 +559,7 @@ func (s *Store) Archive(ctx context.Context, id string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	fireWriteSeam("Archive")
 	a, err := s.get(id)
 	if err != nil {
 		return err
@@ -589,6 +592,7 @@ func (s *Store) UpdateStatusIf(ctx context.Context, id string, expected, next st
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	fireWriteSeam("UpdateStatusIf")
 	a, err := s.get(id)
 	if errors.Is(err, ErrNotFound) {
 		return false, nil
@@ -622,6 +626,7 @@ func (s *Store) FinalizeExit(ctx context.Context, id string, expected, next stor
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	fireWriteSeam("FinalizeExit")
 	a, err := s.get(id)
 	if errors.Is(err, ErrNotFound) {
 		return false, nil
@@ -802,6 +807,7 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	fireWriteSeam("Delete")
 	err := s.col.DeleteByKey(id)
 	if errors.Is(err, engine.ErrKeyNotFound) {
 		return ErrNotFound
