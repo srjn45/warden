@@ -2458,6 +2458,18 @@ type ListModelsParams struct {
 	Tier string `form:"tier,omitempty" json:"tier,omitempty"`
 }
 
+// AddModelJSONBody defines parameters for AddModel.
+type AddModelJSONBody struct {
+	AutoAssign  bool   `json:"auto_assign,omitempty"`
+	BackendId   string `json:"backend_id"`
+	DisplayName string `json:"display_name,omitempty"`
+	ModelId     string `json:"model_id"`
+	QuotaScope  string `json:"quota_scope,omitempty"`
+
+	// Tier tier-1 | tier-2 | tier-3
+	Tier string `json:"tier"`
+}
+
 // SetModelTierJSONBody defines parameters for SetModelTier.
 type SetModelTierJSONBody struct {
 	// Tier tier-1 | tier-2 | tier-3
@@ -2762,6 +2774,9 @@ type GuardHookJSONRequestBody = GuardRequest
 // ImportSessionsJSONRequestBody defines body for ImportSessions for application/json ContentType.
 type ImportSessionsJSONRequestBody = Export
 
+// AddModelJSONRequestBody defines body for AddModel for application/json ContentType.
+type AddModelJSONRequestBody AddModelJSONBody
+
 // SetModelTierJSONRequestBody defines body for SetModelTier for application/json ContentType.
 type SetModelTierJSONRequestBody SetModelTierJSONBody
 
@@ -3037,6 +3052,9 @@ type ServerInterface interface {
 	// List models in the catalog and their assigned tiers
 	// (GET /api/v1/models)
 	ListModels(w http.ResponseWriter, r *http.Request, params ListModelsParams)
+	// Add a custom model to the catalog
+	// (POST /api/v1/models)
+	AddModel(w http.ResponseWriter, r *http.Request)
 	// Set a model's tier classification
 	// (PUT /api/v1/models/{backend}/{model}/tier)
 	SetModelTier(w http.ResponseWriter, r *http.Request, backend string, model string)
@@ -3589,6 +3607,12 @@ func (_ Unimplemented) GetMetricsHistory(w http.ResponseWriter, r *http.Request,
 // List models in the catalog and their assigned tiers
 // (GET /api/v1/models)
 func (_ Unimplemented) ListModels(w http.ResponseWriter, r *http.Request, params ListModelsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Add a custom model to the catalog
+// (POST /api/v1/models)
+func (_ Unimplemented) AddModel(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -5321,6 +5345,26 @@ func (siw *ServerInterfaceWrapper) ListModels(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListModels(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AddModel operation middleware
+func (siw *ServerInterfaceWrapper) AddModel(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AddModel(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -8842,6 +8886,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/api/v1/models", wrapper.ListModels)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/models", wrapper.AddModel)
+	})
+	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/api/v1/models/{backend}/{model}/tier", wrapper.SetModelTier)
 	})
 	r.Group(func(r chi.Router) {
@@ -10470,6 +10517,70 @@ func (response ListModels400JSONResponse) VisitListModelsResponse(w http.Respons
 type ListModels503JSONResponse Error
 
 func (response ListModels503JSONResponse) VisitListModelsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddModelRequestObject struct {
+	Body *AddModelJSONRequestBody
+}
+
+type AddModelResponseObject interface {
+	VisitAddModelResponse(w http.ResponseWriter) error
+}
+
+type AddModel201JSONResponse ModelEntry
+
+func (response AddModel201JSONResponse) VisitAddModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddModel400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response AddModel400JSONResponse) VisitAddModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddModel409JSONResponse Error
+
+func (response AddModel409JSONResponse) VisitAddModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddModel503JSONResponse Error
+
+func (response AddModel503JSONResponse) VisitAddModelResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -14965,6 +15076,9 @@ type StrictServerInterface interface {
 	// List models in the catalog and their assigned tiers
 	// (GET /api/v1/models)
 	ListModels(ctx context.Context, request ListModelsRequestObject) (ListModelsResponseObject, error)
+	// Add a custom model to the catalog
+	// (POST /api/v1/models)
+	AddModel(ctx context.Context, request AddModelRequestObject) (AddModelResponseObject, error)
 	// Set a model's tier classification
 	// (PUT /api/v1/models/{backend}/{model}/tier)
 	SetModelTier(ctx context.Context, request SetModelTierRequestObject) (SetModelTierResponseObject, error)
@@ -16462,6 +16576,37 @@ func (sh *strictHandler) ListModels(w http.ResponseWriter, r *http.Request, para
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListModelsResponseObject); ok {
 		if err := validResponse.VisitListModelsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AddModel operation middleware
+func (sh *strictHandler) AddModel(w http.ResponseWriter, r *http.Request) {
+	var request AddModelRequestObject
+
+	var body AddModelJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AddModel(ctx, request.(AddModelRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AddModel")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AddModelResponseObject); ok {
+		if err := validResponse.VisitAddModelResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
