@@ -3,8 +3,11 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -29,11 +32,18 @@ func emitJSON(cmd *cobra.Command, v any) error {
 	return enc.Encode(v)
 }
 
+// Short errors returned after the detail has already been printed, so the CLI
+// exits non-zero (HTTP/MCP results are unchanged: they still return the result).
+var (
+	errCommitRejected = errors.New("commit rejected by a pre-commit hook")
+	errSyncConflicts  = errors.New("sync stopped on conflicts")
+)
+
 func newCommitCmd() *cobra.Command {
 	var message string
-	var asJSON bool
+	var asJSON, amend, force bool
 	cmd := &cobra.Command{
-		Use:   "commit",
+		Use:   "commit [paths...]",
 		Short: "Stage and commit the worktree (warden rails + hooks + bookkeeping)",
 		Long: "Stage and commit every change in the current worktree on its branch.\n\n" +
 			"warden refuses protected branches (main/master), runs pre-commit hooks and\n" +
@@ -41,20 +51,45 @@ func newCommitCmd() *cobra.Command {
 			"of the git status/add/commit/rev-parse round-trips.\n\n" +
 			"Pass -m to author the message (best — you made the change). Omit it and warden\n" +
 			"writes one: the local model from the staged diff if configured, otherwise a\n" +
-			"deterministic conventional-commit message from the changed paths.",
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
+			"deterministic conventional-commit message from the changed paths.\n\n" +
+			"Give paths (relative to the current directory) to stage and commit only those;\n" +
+			"paths outside the repository are rejected. With no paths everything is staged.\n\n" +
+			"--amend rewrites the last commit, keeping its message unless -m is given. It is\n" +
+			"refused on a merge commit and on a commit already in the upstream branch unless\n" +
+			"--force (after which push needs --force-with-lease).",
+		Args: cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
 			dir, session := gitTarget()
-			res, err := clientFor(cmd).GitCommit(context.Background(), session, dir, message)
+			paths := make([]string, 0, len(args))
+			for _, a := range args {
+				if !filepath.IsAbs(a) {
+					a = filepath.Join(dir, a)
+				}
+				paths = append(paths, a)
+			}
+			if force && !amend {
+				return errors.New("--force only applies with --amend")
+			}
+			res, err := clientFor(cmd).GitCommitWith(context.Background(), session, dir, lifecycle.CommitOptions{Message: message, Paths: paths, Amend: amend, Force: force})
 			if err != nil {
 				return err
 			}
+			if res.Warning != "" && !asJSON {
+				fmt.Fprintln(cmd.ErrOrStderr(), "warning: "+res.Warning)
+			}
 			if asJSON {
-				return emitJSON(cmd, res)
+				if err := emitJSON(cmd, res); err != nil {
+					return err
+				}
+				if res.HookFailed {
+					return errCommitRejected
+				}
+				return nil
 			}
 			switch {
 			case res.HookFailed:
 				fmt.Fprintf(cmd.OutOrStdout(), "commit rejected by a pre-commit hook:\n%s\n", res.HookOutput)
+				return errCommitRejected
 			case !res.Committed:
 				fmt.Fprintln(cmd.OutOrStdout(), "nothing to commit (clean tree)")
 			default:
@@ -64,6 +99,8 @@ func newCommitCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&message, "message", "m", "", "commit message; if omitted, warden generates one from the diff")
+	cmd.Flags().BoolVar(&amend, "amend", false, "rewrite the last commit (keeps its message unless -m is given)")
+	cmd.Flags().BoolVar(&force, "force", false, "with --amend, allow amending a commit already in the upstream branch")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit the raw result as JSON")
 	return cmd
 }
@@ -90,7 +127,9 @@ func newPushCmd() *cobra.Command {
 			if asJSON {
 				return emitJSON(cmd, res)
 			}
-			if res.Forced {
+			if res.UpToDate {
+				fmt.Fprintf(cmd.OutOrStdout(), "already up to date: %s -> %s\n", res.Branch, res.Remote)
+			} else if res.Forced {
 				fmt.Fprintf(cmd.OutOrStdout(), "force-pushed (--force-with-lease) %s -> %s\n", res.Branch, res.Remote)
 			} else {
 				fmt.Fprintf(cmd.OutOrStdout(), "pushed %s -> %s\n", res.Branch, res.Remote)
@@ -105,34 +144,140 @@ func newPushCmd() *cobra.Command {
 
 func newSyncCmd() *cobra.Command {
 	var base string
-	var asJSON bool
+	var asJSON, cont, abort bool
 	cmd := &cobra.Command{
 		Use:   "sync",
 		Short: "Fetch and rebase the current branch onto its base (warden conflict detect)",
 		Long: "Fetch origin and rebase the current branch onto origin/<base> (default main).\n\n" +
 			"Refuses a dirty tree (commit first). On conflict warden leaves the rebase in\n" +
-			"progress and reports only the conflicting files for you to resolve.",
+			"progress and reports only the conflicting files for you to resolve.\n\n" +
+			"While a rebase is in progress, `wd sync --continue` stages your resolved files and\n" +
+			"finishes it (reporting any conflicts from the next commit), and `wd sync --abort`\n" +
+			"drops it and restores the branch. A plain sync or `wd commit` is refused until then.\n\n" +
+			"Exits non-zero when the rebase stops on conflicts.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if cont && abort {
+				return fmt.Errorf("--continue and --abort are mutually exclusive")
+			}
+			if (cont || abort) && base != "" {
+				return fmt.Errorf("--base cannot be combined with --continue or --abort")
+			}
 			dir, session := gitTarget()
-			res, err := clientFor(cmd).GitSync(context.Background(), session, dir, base)
+			var res lifecycle.SyncResult
+			var err error
+			switch {
+			case cont:
+				res, err = clientFor(cmd).GitSyncContinue(context.Background(), session, dir)
+			case abort:
+				res, err = clientFor(cmd).GitSyncAbort(context.Background(), session, dir)
+			default:
+				res, err = clientFor(cmd).GitSync(context.Background(), session, dir, base)
+			}
+			if err != nil {
+				return err
+			}
+			if asJSON {
+				if err := emitJSON(cmd, res); err != nil {
+					return err
+				}
+				if len(res.Conflicts) > 0 {
+					return errSyncConflicts
+				}
+				return nil
+			}
+			if len(res.Conflicts) > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(),
+					"rebase hit conflicts — resolve these files, then `wd sync --continue` (`git rebase --continue` also works), or `wd sync --abort`:\n  %s\n",
+					strings.Join(res.Conflicts, "\n  "))
+				return errSyncConflicts
+			}
+			if abort {
+				fmt.Fprintf(cmd.OutOrStdout(), "rebase aborted; %s restored\n", res.Branch)
+				return nil
+			}
+			if cont {
+				fmt.Fprintf(cmd.OutOrStdout(), "rebase continued; %s is up to date\n", res.Branch)
+				return nil
+			}
+			why := ""
+			if res.BaseSource != "" {
+				why = " (defaulted from " + res.BaseSource + ")"
+			}
+			if res.UpToDate {
+				fmt.Fprintf(cmd.OutOrStdout(), "already up to date with origin/%s\n", res.Base)
+				return nil
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "rebased %s onto origin/%s%s\n", res.Branch, res.Base, why)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&base, "base", "", "base branch to rebase onto (default main)")
+	cmd.Flags().BoolVar(&cont, "continue", false, "finish a conflicted rebase: stage resolved files and run git rebase --continue")
+	cmd.Flags().BoolVar(&abort, "abort", false, "drop a rebase in progress and restore the branch")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "emit the raw result as JSON")
+	return cmd
+}
+
+func newPRCmd() *cobra.Command {
+	var base, title, body, bodyFile string
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:   "pr [agent-id]",
+		Short: "Open (or return the already-open) pull request for the agent's branch",
+		Long: "Push the agent's branch and open a GitHub pull request for it, without ending the\n" +
+			"agent. Idempotent: when a PR is already open for the branch it is returned instead.\n\n" +
+			"The agent comes from WARDEN_SESSION_ID (set in every warden-spawned session) or the\n" +
+			"optional [agent-id] argument. Without either there is no agent to resolve a branch\n" +
+			"and base from, so use `gh pr create` directly.\n\n" +
+			"--base defaults like `wd git sync`: the agent's recorded base, its autopilot\n" +
+			"integration branch, then the repository default. --title / --body (or --body-file,\n" +
+			"`-` for stdin) are used verbatim; omitted ones are drafted from the agent's work.\n" +
+			"main/master are refused as the PR head.",
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if body != "" && bodyFile != "" {
+				return fmt.Errorf("--body and --body-file are mutually exclusive")
+			}
+			if bodyFile != "" {
+				var b []byte
+				var err error
+				if bodyFile == "-" {
+					b, err = io.ReadAll(cmd.InOrStdin())
+				} else {
+					b, err = os.ReadFile(bodyFile)
+				}
+				if err != nil {
+					return fmt.Errorf("read --body-file: %w", err)
+				}
+				body = string(b)
+			}
+			_, session := gitTarget()
+			if len(args) == 1 {
+				session = args[0]
+			}
+			if session == "" {
+				return errors.New("no agent session: WARDEN_SESSION_ID is unset and no agent id was given — run `gh pr create` directly, or pass an agent id")
+			}
+			res, err := clientFor(cmd).CreatePRWith(context.Background(), session, base, title, body)
 			if err != nil {
 				return err
 			}
 			if asJSON {
 				return emitJSON(cmd, res)
 			}
-			if len(res.Conflicts) > 0 {
-				fmt.Fprintf(cmd.OutOrStdout(),
-					"rebase onto origin/%s hit conflicts — resolve these files, then `git rebase --continue`:\n  %s\n",
-					res.Base, strings.Join(res.Conflicts, "\n  "))
-				return nil
+			verb := "opened"
+			if !res.Created {
+				verb = "already open:"
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "rebased %s onto origin/%s\n", res.Branch, res.Base)
+			fmt.Fprintf(cmd.OutOrStdout(), "PR %s %s (%s -> %s)\n", verb, res.URL, res.Branch, res.Base)
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&base, "base", "", "base branch to rebase onto (default main)")
+	cmd.Flags().StringVar(&base, "base", "", "PR base branch (default: the agent's recorded base, resolved as for git sync)")
+	cmd.Flags().StringVar(&title, "title", "", "PR title (default: drafted from the agent's work)")
+	cmd.Flags().StringVar(&body, "body", "", "PR body (default: drafted from the agent's work)")
+	cmd.Flags().StringVar(&bodyFile, "body-file", "", "read the PR body from a file (- for stdin)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit the raw result as JSON")
 	return cmd
 }
@@ -163,6 +308,36 @@ func newCheckRunCmd() *cobra.Command {
 				return emitJSON(cmd, res)
 			}
 			return printCheckResult(cmd, res)
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "emit the raw result as JSON")
+	return cmd
+}
+
+func newCheckListCmd() *cobra.Command {
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List configured project checks without running them",
+		Args:    cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			dir, session := gitTarget()
+			checks, err := clientFor(cmd).ListChecks(context.Background(), session, dir)
+			if err != nil {
+				return err
+			}
+			if asJSON {
+				return emitJSON(cmd, checks)
+			}
+			for _, check := range checks {
+				if check.Dir == "" {
+					fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t.\n", check.Name, check.Cmd)
+				} else {
+					fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\n", check.Name, check.Cmd, check.Dir)
+				}
+			}
+			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit the raw result as JSON")

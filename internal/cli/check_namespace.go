@@ -19,7 +19,8 @@ func newCheckNamespaceCmd() *cobra.Command {
 ` + "`wd check`" + ` (or ` + "`wd check run`" + `) executes the commands declared in .warden/check.yml
 and returns only failures. Guard subcommands are hook-facing entry points installed
 by warden; they preserve the stdin/stdout JSON protocol and fail-open semantics of
-the legacy ` + "`hook`" + ` paths.`,
+the legacy ` + "`hook`" + ` paths. A configured check named list, run, guard, boundary,
+or root-guard remains runnable as ` + "`wd check run <name>`" + `.`,
 		Args: runCmd.Args,
 		RunE: runCmd.RunE,
 	}
@@ -29,13 +30,15 @@ the legacy ` + "`hook`" + ` paths.`,
 
 	children := []*cobra.Command{
 		canonicalCheckCommand(newCheckRunCmd(), "run"),
+		newCheckListCmd(),
 		canonicalCheckHookCommand(newHookCheckGuardCmd(), "guard", "check-guard"),
 		canonicalCheckHookCommand(newHookGuardCmd(), "boundary", "guard"),
 		canonicalCheckHookCommand(newHookRootGuardCmd(), "root-guard", "root-guard"),
 	}
 	for i, child := range children {
 		kind := nodeKind(child)
-		if kind == NodeInternal {
+		if child.Annotations[AnnotationNodeKind] == NodeInternal {
+			kind = NodeInternal
 			child.Hidden = true
 		}
 		SetCommandHelpMetadata(child, "project", (i+1)*10, "warden check "+child.Name(), "", kind)

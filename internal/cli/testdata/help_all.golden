@@ -135,10 +135,12 @@ Complete command tree:
   warden git commit                    Stage and commit the worktree (warden rails + hooks + bookkeeping)
   warden git push                      Push the current branch to origin (warden rails + bookkeeping)
   warden git sync                      Fetch and rebase the current branch onto its base (warden conflict detect)
+  warden git pr                        Open (or return the already-open) pull request for the agent's branch
   warden git review                    Run the agent backend's native diff review on the worktree
   warden git release                   Recommend the next SemVer release tag, then tag and push it on confirmation
   warden check                         Run project checks and install hook guards
   warden check run                     Run the project's configured checks and report only failures
+  warden check list                    List configured project checks without running them
   warden context                       Read and write the shared context (a namespaced key/value store agents share)
   warden context set                   Set a context key (value inline, or --file / --stdin)
   warden context cas                   Set a key only if its current value matches --expected (atomic compare-and-set)
@@ -260,6 +262,7 @@ Compatibility aliases:
   warden backends rescan -> warden backend rescan (compatibility)
   warden backends tier -> warden backend tier (compatibility)
   warden branches -> warden workspace branches (compatibility)
+  warden check ls -> warden check list (compatibility)
   warden clean -> warden workspace clean (compatibility)
   warden collab -> warden workspace (compatibility)
   warden collab conflicts -> warden workspace conflicts (compatibility)
@@ -334,7 +337,6 @@ Compatibility aliases:
   warden repair sessions -> warden inspect repair sessions (compatibility)
   warden repl -> warden backend repl (compatibility)
   warden restore -> warden agent restore (compatibility)
-  warden review -> warden git review (compatibility)
   warden role -> warden agent role (compatibility)
   warden role list -> warden agent role list (compatibility)
   warden role set-tier -> warden agent role tier set (compatibility)

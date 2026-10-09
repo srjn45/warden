@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/require"
 )
 
 func executeHelp(t *testing.T, args ...string) (string, error) {
@@ -235,4 +236,19 @@ func TestAutopilotInitRemovedHint(t *testing.T) {
 		!strings.Contains(err.Error(), "wd plan run <plan-id> --mode autopilot") {
 		t.Fatalf("want unknown-command error pointing at plan create/run, got %v", err)
 	}
+}
+
+// TestNoInternalNodeLeaksIntoFocusedHelp: hook-facing NodeInternal commands stay
+// executable but must not be listed by any namespace's help.
+func TestNoInternalNodeLeaksIntoFocusedHelp(t *testing.T) {
+	root := newRootCmd()
+	WalkCommandTree(root, func(cmd *cobra.Command) {
+		if cmd.Annotations[AnnotationNodeKind] != NodeInternal {
+			return
+		}
+		parent := cmd.Parent()
+		var b strings.Builder
+		require.NoError(t, renderFocusedHelp(&b, parent))
+		require.NotContains(t, b.String(), "\n  "+cmd.Name()+" ", "%s leaks into %s help", cmd.CommandPath(), parent.CommandPath())
+	})
 }

@@ -508,8 +508,22 @@ func (c *Client) Guard(ctx context.Context, session, tool, path string) (GuardVe
 // action to that agent's own worktree. Uses longTimeout — commit runs the
 // repo's own pre-commit hooks, which in a large monorepo can take minutes.
 func (c *Client) GitCommit(ctx context.Context, session, dir, message string) (lifecycle.CommitResult, error) {
+	return c.GitCommitWith(ctx, session, dir, lifecycle.CommitOptions{Message: message})
+}
+
+// GitCommitWith is GitCommit with path-limited staging and amend support.
+func (c *Client) GitCommitWith(ctx context.Context, session, dir string, opts lifecycle.CommitOptions) (lifecycle.CommitResult, error) {
 	var res lifecycle.CommitResult
-	body := map[string]string{"session": session, "dir": dir, "message": message}
+	body := map[string]any{"session": session, "dir": dir, "message": opts.Message}
+	if len(opts.Paths) > 0 {
+		body["paths"] = opts.Paths
+	}
+	if opts.Amend {
+		body["amend"] = true
+	}
+	if opts.Force {
+		body["force"] = true
+	}
 	if err := c.doT(ctx, longTimeout, http.MethodPost, "/git/commit", body, &res); err != nil {
 		return lifecycle.CommitResult{}, err
 	}
@@ -540,6 +554,25 @@ func (c *Client) GitSync(ctx context.Context, session, dir, base string) (lifecy
 	return res, nil
 }
 
+// GitSyncContinue finishes a conflicted rebase left in progress (wd sync --continue).
+func (c *Client) GitSyncContinue(ctx context.Context, session, dir string) (lifecycle.SyncResult, error) {
+	return c.gitSyncMode(ctx, session, dir, "continue")
+}
+
+// GitSyncAbort drops a rebase left in progress (wd sync --abort).
+func (c *Client) GitSyncAbort(ctx context.Context, session, dir string) (lifecycle.SyncResult, error) {
+	return c.gitSyncMode(ctx, session, dir, "abort")
+}
+
+func (c *Client) gitSyncMode(ctx context.Context, session, dir, mode string) (lifecycle.SyncResult, error) {
+	var res lifecycle.SyncResult
+	body := map[string]any{"session": session, "dir": dir, mode: true}
+	if err := c.doT(ctx, longTimeout, http.MethodPost, "/git/sync", body, &res); err != nil {
+		return lifecycle.SyncResult{}, err
+	}
+	return res, nil
+}
+
 // Check runs the project's configured check command(s) in dir via the daemon and
 // returns a pass/fail summary with output only for the failures. name selects a
 // configured entry ("" runs all). Uses longTimeout — a check runs a test/build
@@ -550,6 +583,16 @@ func (c *Client) Check(ctx context.Context, session, dir, name string) (lifecycl
 	body := map[string]string{"session": session, "dir": dir, "name": name}
 	if err := c.doT(ctx, longTimeout, http.MethodPost, "/check", body, &res); err != nil {
 		return lifecycle.CheckResult{}, err
+	}
+	return res, nil
+}
+
+// ListChecks returns configured checks without executing them.
+func (c *Client) ListChecks(ctx context.Context, session, dir string) ([]lifecycle.CheckDefinition, error) {
+	var res []lifecycle.CheckDefinition
+	path := "/check?" + url.Values{"session": {session}, "dir": {dir}}.Encode()
+	if err := c.do(ctx, http.MethodGet, path, nil, &res); err != nil {
+		return nil, err
 	}
 	return res, nil
 }
@@ -751,8 +794,20 @@ func (c *Client) Digest(ctx context.Context, id string) (*digest.Digest, error) 
 // longTimeout — it pushes and shells gh over the network. An already-existing PR
 // comes back as a successful result with Created=false.
 func (c *Client) CreatePR(ctx context.Context, id, base string) (lifecycle.PRResult, error) {
+	return c.CreatePRWith(ctx, id, base, "", "")
+}
+
+// CreatePRWith is CreatePR with an explicit PR title and body (either may be ""
+// to let the daemon draft it). Empty base resolves daemon-side exactly like sync.
+func (c *Client) CreatePRWith(ctx context.Context, id, base, title, prBody string) (lifecycle.PRResult, error) {
 	var res lifecycle.PRResult
 	body := map[string]string{"base": base}
+	if title != "" {
+		body["title"] = title
+	}
+	if prBody != "" {
+		body["body"] = prBody
+	}
 	if err := c.doT(ctx, longTimeout, http.MethodPost, "/sessions/"+id+"/create-pr", body, &res); err != nil {
 		return lifecycle.PRResult{}, err
 	}

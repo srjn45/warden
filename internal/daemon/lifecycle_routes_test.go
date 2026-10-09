@@ -69,6 +69,7 @@ type fakeLife struct {
 	pruneErr          error
 	gitCommitDir      string
 	gitCommitMsg      string
+	gitCommitOpts     lifecycle.CommitOptions
 	gitCommitResult   lifecycle.CommitResult
 	gitCommitErr      error
 	gitPushDir        string
@@ -79,10 +80,13 @@ type fakeLife struct {
 	gitSyncBase       string
 	gitSyncResult     lifecycle.SyncResult
 	gitSyncErr        error
+	defaultBranch     string
 	checkDir          string
 	checkName         string
 	checkResult       lifecycle.CheckResult
 	checkErr          error
+	checkList         []lifecycle.CheckDefinition
+	checkListErr      error
 	prDir             string
 	prTitle           string
 	prBody            string
@@ -271,10 +275,10 @@ func (f *fakeLife) CommitWorktree(_ context.Context, dir, message string) (bool,
 	return f.commitResult, f.commitErr
 }
 
-func (f *fakeLife) Commit(_ context.Context, dir, message string) (lifecycle.CommitResult, error) {
+func (f *fakeLife) CommitWith(_ context.Context, dir string, opts lifecycle.CommitOptions) (lifecycle.CommitResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.gitCommitDir, f.gitCommitMsg = dir, message
+	f.gitCommitDir, f.gitCommitMsg, f.gitCommitOpts = dir, opts.Message, opts
 	return f.gitCommitResult, f.gitCommitErr
 }
 
@@ -290,6 +294,27 @@ func (f *fakeLife) Sync(_ context.Context, dir, base string) (lifecycle.SyncResu
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.gitSyncDir, f.gitSyncBase = dir, base
+	return f.gitSyncResult, f.gitSyncErr
+}
+
+func (f *fakeLife) DefaultBranch(_ context.Context, _ string) string {
+	if f.defaultBranch == "" {
+		return "main"
+	}
+	return f.defaultBranch
+}
+
+func (f *fakeLife) SyncContinue(_ context.Context, dir string) (lifecycle.SyncResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.gitSyncDir, f.gitSyncBase = dir, "continue"
+	return f.gitSyncResult, f.gitSyncErr
+}
+
+func (f *fakeLife) SyncAbort(_ context.Context, dir string) (lifecycle.SyncResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.gitSyncDir, f.gitSyncBase = dir, "abort"
 	return f.gitSyncResult, f.gitSyncErr
 }
 
@@ -309,6 +334,13 @@ func (f *fakeLife) Check(_ context.Context, dir, name string) (lifecycle.CheckRe
 	defer f.mu.Unlock()
 	f.checkDir, f.checkName = dir, name
 	return f.checkResult, f.checkErr
+}
+
+func (f *fakeLife) ListChecks(_ context.Context, dir string) ([]lifecycle.CheckDefinition, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.checkDir = dir
+	return f.checkList, f.checkListErr
 }
 
 func (f *fakeLife) HotSwap(_ context.Context, sess *agentstore.Agent, req lifecycle.SwapRequest) (*lifecycle.SwapResult, error) {

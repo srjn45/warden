@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -100,12 +101,60 @@ func TestCheckMalformedConfigErrors(t *testing.T) {
 
 func TestCheckScalarAndMappingEntries(t *testing.T) {
 	dir := writeCheckCfg(t, "check:\n  a: echo hi\n  b:\n    cmd: echo bye\n    dir: sub\n")
-	cfg, err := loadCheckConfig(dir)
+	cfg, _, err := loadCheckConfig(dir)
 	require.NoError(t, err)
 	require.Equal(t, "echo hi", cfg.Check["a"].Cmd)
 	require.Equal(t, "", cfg.Check["a"].Dir)
 	require.Equal(t, "echo bye", cfg.Check["b"].Cmd)
 	require.Equal(t, "sub", cfg.Check["b"].Dir)
+}
+
+func initCheckRepo(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	cmd := exec.Command("git", "init", "-q", dir)
+	require.NoError(t, cmd.Run())
+	return dir
+}
+
+func TestCheckResolvesRootConfigFromNestedDirectory(t *testing.T) {
+	root := initCheckRepo(t)
+	require.NoError(t, os.MkdirAll(filepath.Join(root, ".warden"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".warden", "check.yml"), []byte("check:\n  test: echo root\n"), 0o644))
+	nested := filepath.Join(root, "pkg", "nested")
+	require.NoError(t, os.MkdirAll(nested, 0o755))
+	fr := &FakeRunner{}
+	_, err := New(fr, &FakeConfig{}).Check(context.Background(), nested, "test")
+	require.NoError(t, err)
+	require.Equal(t, root, fr.Calls[0].Dir)
+	cmds, err := CheckCommands(nested)
+	require.NoError(t, err)
+	require.Equal(t, "echo root", cmds["test"])
+}
+
+func TestCheckCwdConfigWinsAndEntryDirUsesConfigLocation(t *testing.T) {
+	root := initCheckRepo(t)
+	require.NoError(t, os.MkdirAll(filepath.Join(root, ".warden"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".warden", "check.yml"), []byte("check:\n  test: echo root\n"), 0o644))
+	nested := filepath.Join(root, "service")
+	require.NoError(t, os.MkdirAll(filepath.Join(nested, ".warden"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(nested, ".warden", "check.yml"), []byte("check:\n  test:\n    cmd: echo nested\n    dir: tools\n"), 0o644))
+	fr := &FakeRunner{}
+	_, err := New(fr, &FakeConfig{}).Check(context.Background(), nested, "test")
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(nested, "tools"), fr.Calls[0].Dir)
+	require.Equal(t, []string{"sh", "-c", "echo nested"}, fr.Calls[0].Argv)
+}
+
+func TestListChecksAndNoConfigSearchedPath(t *testing.T) {
+	dir := writeCheckCfg(t, "check:\n  z: echo z\n  a:\n    cmd: echo a\n    dir: child\n")
+	defs, err := ListChecks(dir)
+	require.NoError(t, err)
+	require.Equal(t, []CheckDefinition{{Name: "a", Cmd: "echo a", Dir: "child"}, {Name: "z", Cmd: "echo z"}}, defs)
+	missing := t.TempDir()
+	_, err = New(&FakeRunner{}, &FakeConfig{}).Check(context.Background(), missing, "")
+	require.ErrorIs(t, err, ErrNoCheckConfig)
+	require.Contains(t, err.Error(), missing)
 }
 
 func TestTruncateTailKeepsTailWithMarker(t *testing.T) {

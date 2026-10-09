@@ -12,7 +12,7 @@ import (
 	_ "github.com/srjn45/warden/internal/agentbackend/backends" // register the adapters so agentbackend.Get resolves in-process
 )
 
-// reviewBackend resolves the agent.Backend this `wd review` runs for. An explicit
+// reviewBackend resolves the agent.Backend this `wd git review` runs for. An explicit
 // --backend wins (review a chosen backend, or run outside an agent); otherwise the
 // owning agent's WARDEN_SESSION_ID is looked up (an existing read — no new daemon
 // surface) and its recorded backend is used; failing both it falls through to the
@@ -28,6 +28,22 @@ var reviewBackend = func(cmd *cobra.Command, session, override string) (agentbac
 	return agentbackend.Get(id)
 }
 
+func init() {
+	removedCommandHints["warden"] = mergeHints(removedCommandHints["warden"], map[string]string{
+		"review": "`wd git review` moved: use `wd git review`",
+	})
+}
+
+func mergeHints(dst, src map[string]string) map[string]string {
+	if dst == nil {
+		dst = map[string]string{}
+	}
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
+}
+
 func newReviewCmd() *cobra.Command {
 	var base, prompt, backend string
 	var asJSON bool
@@ -36,7 +52,7 @@ func newReviewCmd() *cobra.Command {
 		Short: "Run the agent backend's native diff review on the worktree",
 		Long: "Ask this agent's backend to review its own diff — the agent-native counterpart\n" +
 			"to `wd check`. Where `wd check` runs the project's configured test/lint commands\n" +
-			"and `pr-review` stands up a whole reviewer session, `wd review` invokes the\n" +
+			"and a reviewer-role agent stands up a whole reviewer session, `wd git review` invokes the\n" +
 			"backend's OWN one-shot reviewer (Codex: `codex review`) against the worktree and\n" +
 			"streams its findings to you — additive and on-top, no review session to manage.\n\n" +
 			"By default it reviews the uncommitted working tree (staged + unstaged +\n" +
@@ -51,7 +67,7 @@ func newReviewCmd() *cobra.Command {
 			"quality rides the backend's configured model — a tiny local model may report no\n" +
 			"findings; the operator's real model is where this earns its keep.\n\n" +
 			"Backends without a native review (e.g. Claude) are not offered the verb — it\n" +
-			"exits non-zero pointing you at `wd check` or a `pr-review` agent.",
+			"exits non-zero pointing you at `wd check` or a reviewer-role agent.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			dir, session := gitTarget()
@@ -61,7 +77,7 @@ func newReviewCmd() *cobra.Command {
 			}
 			rv, ok := be.(agentbackend.Reviewer)
 			if !ok {
-				return fmt.Errorf("backend %q has no native review; use `wd check` or a `pr-review` agent", be.ID())
+				return fmt.Errorf("backend %q has no native review; use `wd check` or spawn a reviewer-role agent", be.ID())
 			}
 
 			opts := agentbackend.ReviewOpts{Scope: "uncommitted", Prompt: prompt, Structured: asJSON}
@@ -71,7 +87,7 @@ func newReviewCmd() *cobra.Command {
 			}
 			argv, ok := rv.ReviewCmd(opts)
 			if !ok || len(argv) == 0 {
-				return fmt.Errorf("backend %q has no native review; use `wd check` or a `pr-review` agent", be.ID())
+				return fmt.Errorf("backend %q has no native review; use `wd check` or spawn a reviewer-role agent", be.ID())
 			}
 
 			if asJSON {
@@ -97,7 +113,9 @@ func newReviewCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&base, "base", "", "review changes against this base branch (default: the uncommitted working tree)")
 	cmd.Flags().StringVar(&prompt, "prompt", "", "optional extra review instructions for the backend's reviewer")
-	cmd.Flags().StringVar(&backend, "backend", "", "review for this backend id (default: the current agent's backend)")
+	cmd.Flags().StringVar(&backend, "ai-cli", "", "review for this backend id (default: the current agent's backend)")
+	cmd.Flags().StringVar(&backend, "backend", "", "deprecated alias for --ai-cli")
+	_ = cmd.Flags().MarkHidden("backend")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit machine-readable findings (neutral JSON) instead of streaming the prose review")
 	return cmd
 }
@@ -109,7 +127,7 @@ func newReviewCmd() *cobra.Command {
 func runStructuredReview(cmd *cobra.Command, be agentbackend.Backend, dir string, argv []string) error {
 	sr, ok := be.(agentbackend.StructuredReviewer)
 	if !ok {
-		return fmt.Errorf("backend %q has no structured review; run `wd review` without --json", be.ID())
+		return fmt.Errorf("backend %q has no structured review; run `wd git review` without --json", be.ID())
 	}
 
 	// argv is a real argv (no shell). Send the backend's own progress to stderr so the
@@ -131,7 +149,7 @@ func runStructuredReview(cmd *cobra.Command, be agentbackend.Backend, dir string
 		return fmt.Errorf("read structured review output: %w", err)
 	}
 	if !ok {
-		return fmt.Errorf("%s produced no structured review output (the model may have emitted none); run `wd review` for the prose review", be.ID())
+		return fmt.Errorf("%s produced no structured review output (the model may have emitted none); run `wd git review` for the prose review", be.ID())
 	}
 
 	enc := json.NewEncoder(cmd.OutOrStdout())

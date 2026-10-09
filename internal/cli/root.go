@@ -142,9 +142,6 @@ func newRootCmd() *cobra.Command {
 	releaseCmd := newReleaseCmd()
 	markPermanentGitShortcut(releaseCmd, "warden git release")
 	root.AddCommand(commitCmd, pushCmd, syncCmd, releaseCmd)
-	reviewCmd := newReviewCmd()
-	markCompatibilityCommand(reviewCmd, "warden git review")
-	root.AddCommand(reviewCmd)
 	modelsCmd := newModelsCmd()
 	markCompatibilityCommand(modelsCmd, "warden backend model")
 	backendsCmd := newBackendsCmd()
@@ -226,7 +223,7 @@ func newRootCmd() *cobra.Command {
 	if err := installCommandHelp(root); err != nil {
 		panic(err)
 	}
-	root.Args = cobra.NoArgs
+	root.Args = unknownSubcommandArgs
 	var rootTmuxNative bool
 	root.Flags().BoolVar(&rootTmuxNative, "tmux-native", false, "lay the cockpit out as a native tmux window in the current session instead of a nested tmux (auto-enabled when launched inside tmux; requires $TMUX)")
 	root.RunE = func(cmd *cobra.Command, args []string) error {

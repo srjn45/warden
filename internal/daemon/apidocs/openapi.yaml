@@ -2499,6 +2499,25 @@ paths:
               schema: { $ref: "#/components/schemas/SyncResult" }
 
   /api/v1/check:
+    get:
+      operationId: listChecks
+      tags: [Git]
+      summary: List the project's configured check commands
+      parameters:
+        - name: dir
+          in: query
+          schema: { type: string }
+        - name: session
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Configured checks in stable name order
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/CheckDefinition" }
     post:
       operationId: runCheck
       tags: [Git]
@@ -4181,6 +4200,7 @@ components:
         repo: { type: string }
         worktree: { type: string }
         branch: { type: string }
+        base_branch: { type: string, description: "managed-worktree base branch, when known" }
         worktree_created: { type: boolean }
         branch_created: { type: boolean }
         pr: { type: string }
@@ -6359,6 +6379,9 @@ components:
         - type: object
           properties:
             message: { type: string }
+            paths: { type: array, items: { type: string }, description: "stage and commit only these paths (absolute, or relative to dir); outside-repo paths are rejected; omitted = stage everything" }
+            amend: { type: boolean, description: "rewrite HEAD; with no message the existing one is kept. Refused on a merge commit or a commit already in the upstream branch unless force" }
+            force: { type: boolean, description: "with amend, allow amending a commit already contained in the upstream branch (push then needs force-with-lease)" }
 
     GitSyncRequest:
       allOf:
@@ -6366,6 +6389,8 @@ components:
         - type: object
           properties:
             base: { type: string }
+            continue: { type: boolean, description: "finish a conflicted rebase left in progress (stage resolved files, git rebase --continue); mutually exclusive with abort and base" }
+            abort: { type: boolean, description: "drop a rebase left in progress (git rebase --abort); mutually exclusive with continue and base" }
 
     CheckRequest:
       allOf:
@@ -6387,6 +6412,8 @@ components:
         files: { type: array, items: { type: string } }
         hook_failed: { type: boolean }
         hook_output: { type: string }
+        amended: { type: boolean }
+        warning: { type: string }
 
     PushResult:
       x-go-type: lifecycle.PushResult
@@ -6399,6 +6426,7 @@ components:
         remote: { type: string }
         pushed: { type: boolean }
         forced: { type: boolean }
+        up_to_date: { type: boolean, description: "the remote already had the commit; nothing was pushed (pushed stays true)" }
         output: { type: string }
 
     SyncResult:
@@ -6410,7 +6438,9 @@ components:
       properties:
         branch: { type: string }
         base: { type: string }
+        base_source: { type: string, description: "why the daemon selected base when it was omitted" }
         updated: { type: boolean }
+        up_to_date: { type: boolean, description: "the rebase was a no-op; the branch already contained origin/base (updated stays true)" }
         conflicts: { type: array, items: { type: string } }
         output: { type: string }
 
@@ -6422,6 +6452,17 @@ components:
         passed: { type: boolean }
         exit_code: { type: integer }
         output: { type: string }
+
+    CheckDefinition:
+      x-go-type: lifecycle.CheckDefinition
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/lifecycle
+        name: lifecycle
+      type: object
+      properties:
+        name: { type: string }
+        cmd: { type: string }
+        dir: { type: string }
 
     CheckResult:
       x-go-type: lifecycle.CheckResult

@@ -12,20 +12,28 @@ All four are CLI commands **and** MCP tools, and all take `--json`. They run on 
 ```sh
 warden commit -m "fix: handle nil token"   # stage + commit the whole worktree
 warden commit                              # …or let warden write the message
+warden commit src/a.go docs/               # stage + commit only these paths
+warden commit --amend                      # rewrite the last commit (--force if already pushed)
 warden push                                # push the branch to origin (sets upstream)
 warden push --force-with-lease             # …after a rebase/amend (safe force)
 warden sync --base main                    # fetch + rebase onto origin/main
+warden sync                                # no --base: session base → integration branch → repo default
+warden sync --continue                     # finish a conflicted rebase (or --abort to drop it)
+warden git pr --title "…" --body-file pr.md  # open (or return) the PR without ending the agent; MCP: create_pr
 warden check                               # run every configured check
 warden check test                          # run one (test / lint / build / …)
+warden check list                          # list configured checks without running them
 ```
 
 ### Rails
 
 The verbs refuse the mistakes a raw git session makes:
 
-- **No commits or pushes on `main`/`master`** — push your agent branch and open a PR (this holds even for `--force-with-lease`).
+- **No commits or pushes on protected branches** — `main`/`master` by default; push your agent branch and open a PR (this holds even for `--force-with-lease`). Configure with `git.protected_branches` (replaces the default list) and `git.protect_default_branch` (default `true`: the repository's remote default branch stays protected too); both hot-reload.
 - **Force pushes use `--force-with-lease` only** — `warden push --force-with-lease` overwrites your own remote branch after a rebase/amend but aborts if a teammate pushed to it since your last fetch; warden never issues a bare `git push --force`.
-- **`sync` refuses a dirty tree** (commit first) and, on conflict, leaves the rebase in progress reporting *only* the conflicting files.
+- **`sync` refuses a dirty tree** (commit first) and, on conflict, leaves the rebase in progress reporting *only* the conflicting files and **exiting non-zero**. Resolve, then `warden sync --continue` (or `--abort`); raw `git rebase --continue` also works. A plain `sync` or `commit` during a rebase is refused with that hint. With no `--base`, the base is the session's recorded base, then its autopilot integration branch, then the repository default branch.
+- **`commit --amend`** is refused on a merge commit and on a commit already in the upstream branch unless `--force` (then push with `--force-with-lease`). A rejected commit exits non-zero and restores the index.
+- **`push` and `sync` report `up_to_date`** when nothing moved; `pushed`/`updated` keep their meaning.
 - **Pre-commit hooks run**, and a hook failure comes back as a structured result instead of a wall of output.
 - **Each action is linked to the agent** for the audit trail.
 
@@ -39,7 +47,7 @@ Omit `-m` and warden fills the message: Fast-Brain distils a Conventional-Commit
 
 ### `warden check` and `.warden/check.yml`
 
-`check` runs the commands declared in the project's `.warden/check.yml` and returns a pass/fail summary with captured output **for the failing checks only** — in place of the hundreds of lines a raw test run spills into the transcript (the single biggest token win). Commands come from the project, so warden stays language-agnostic; a repo with no `.warden/check.yml` has nothing to run. Per-entry `dir:` supports monorepos.
+`check` runs the commands declared in the project's `.warden/check.yml` and returns a pass/fail summary with captured output **for the failing checks only** — in place of the hundreds of lines a raw test run spills into the transcript (the single biggest token win). Commands come from the project, so warden stays language-agnostic; a repo with no `.warden/check.yml` has nothing to run. Per-entry `dir:` supports monorepos. The file is located from the repository root, so `warden check` works from any subdirectory, and `warden check list` (MCP `list_checks`) shows what is configured without running it.
 
 ### `warden git release` (alias `wd release`) — release tag advisor
 

@@ -305,9 +305,11 @@
   },
   {
     "path": "commit",
-    "use": "commit",
+    "use": "commit [paths...]",
     "runnable": true,
     "local_flags": [
+      "amend",
+      "force",
       "json",
       "message"
     ],
@@ -1266,22 +1268,6 @@
     ]
   },
   {
-    "path": "review",
-    "use": "review",
-    "runnable": true,
-    "local_flags": [
-      "backend",
-      "base",
-      "json",
-      "prompt"
-    ],
-    "inherited_flags": [
-      "addr",
-      "config"
-    ],
-    "json": true
-  },
-  {
     "path": "role",
     "use": "role",
     "inherited_flags": [
@@ -1702,7 +1688,9 @@
     "use": "sync",
     "runnable": true,
     "local_flags": [
+      "abort",
       "base",
+      "continue",
       "json"
     ],
     "inherited_flags": [

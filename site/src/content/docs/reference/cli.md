@@ -3331,9 +3331,9 @@ Commands:
   commit               Stage and commit the worktree (warden rails + hooks + bookkeeping)
   push                 Push the current branch to origin (warden rails + bookkeeping)
   sync                 Fetch and rebase the current branch onto its base (warden conflict detect)
+  pr                   Open (or return the already-open) pull request for the agent's branch
   review               Run the agent backend's native diff review on the worktree
   release              Recommend the next SemVer release tag, then tag and push it on confirmation
-  guard                PreToolUse git-redirect guard (reads hook JSON on stdin)
 
 Flags:
   -h, --help   help for git
@@ -3356,10 +3356,19 @@ Pass -m to author the message (best — you made the change). Omit it and warden
 writes one: the local model from the staged diff if configured, otherwise a
 deterministic conventional-commit message from the changed paths.
 
+Give paths (relative to the current directory) to stage and commit only those;
+paths outside the repository are rejected. With no paths everything is staged.
+
+--amend rewrites the last commit, keeping its message unless -m is given. It is
+refused on a merge commit and on a commit already in the upstream branch unless
+--force (after which push needs --force-with-lease).
+
 Usage:
-  warden git commit [flags]
+  warden git commit [paths...] [flags]
 
 Flags:
+      --amend            rewrite the last commit (keeps its message unless -m is given)
+      --force            with --amend, allow amending a commit already in the upstream branch
   -h, --help             help for commit
       --json             emit the raw result as JSON
   -m, --message string   commit message; if omitted, warden generates one from the diff
@@ -3402,13 +3411,52 @@ Fetch origin and rebase the current branch onto origin/<base> (default main).
 Refuses a dirty tree (commit first). On conflict warden leaves the rebase in
 progress and reports only the conflicting files for you to resolve.
 
+While a rebase is in progress, `wd git sync --continue` stages your resolved files and
+finishes it (reporting any conflicts from the next commit), and `wd git sync --abort`
+drops it and restores the branch. A plain sync or `wd commit` is refused until then.
+
+Exits non-zero when the rebase stops on conflicts.
+
 Usage:
   warden git sync [flags]
 
 Flags:
+      --abort         drop a rebase in progress and restore the branch
       --base string   base branch to rebase onto (default main)
+      --continue      finish a conflicted rebase: stage resolved files and run git rebase --continue
   -h, --help          help for sync
       --json          emit the raw result as JSON
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden git pr
+
+```text
+Push the agent's branch and open a GitHub pull request for it, without ending the
+agent. Idempotent: when a PR is already open for the branch it is returned instead.
+
+The agent comes from WARDEN_SESSION_ID (set in every warden-spawned session) or the
+optional [agent-id] argument. Without either there is no agent to resolve a branch
+and base from, so use `gh pr create` directly.
+
+--base defaults like `wd git sync`: the agent's recorded base, its autopilot
+integration branch, then the repository default. --title / --body (or --body-file,
+`-` for stdin) are used verbatim; omitted ones are drafted from the agent's work.
+main/master are refused as the PR head.
+
+Usage:
+  warden git pr [agent-id] [flags]
+
+Flags:
+      --base string        PR base branch (default: the agent's recorded base, resolved as for git sync)
+      --body string        PR body (default: drafted from the agent's work)
+      --body-file string   read the PR body from a file (- for stdin)
+  -h, --help               help for pr
+      --json               emit the raw result as JSON
+      --title string       PR title (default: drafted from the agent's work)
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -3420,7 +3468,7 @@ Inherited flags:
 ```text
 Ask this agent's backend to review its own diff — the agent-native counterpart
 to `wd check`. Where `wd check` runs the project's configured test/lint commands
-and `pr-review` stands up a whole reviewer session, `wd git review` invokes the
+and a reviewer-role agent stands up a whole reviewer session, `wd git review` invokes the
 backend's OWN one-shot reviewer (Codex: `codex review`) against the worktree and
 streams its findings to you — additive and on-top, no review session to manage.
 
@@ -3438,17 +3486,17 @@ quality rides the backend's configured model — a tiny local model may report n
 findings; the operator's real model is where this earns its keep.
 
 Backends without a native review (e.g. Claude) are not offered the verb — it
-exits non-zero pointing you at `wd check` or a `pr-review` agent.
+exits non-zero pointing you at `wd check` or a reviewer-role agent.
 
 Usage:
   warden git review [flags]
 
 Flags:
-      --backend string   review for this backend id (default: the current agent's backend)
-      --base string      review changes against this base branch (default: the uncommitted working tree)
-  -h, --help             help for review
-      --json             emit machine-readable findings (neutral JSON) instead of streaming the prose review
-      --prompt string    optional extra review instructions for the backend's reviewer
+      --ai-cli string   review for this backend id (default: the current agent's backend)
+      --base string     review changes against this base branch (default: the uncommitted working tree)
+  -h, --help            help for review
+      --json            emit machine-readable findings (neutral JSON) instead of streaming the prose review
+      --prompt string   optional extra review instructions for the backend's reviewer
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -3505,22 +3553,6 @@ Inherited flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden git guard
-
-```text
-PreToolUse git-redirect guard (reads hook JSON on stdin)
-
-Usage:
-  warden git guard [flags]
-
-Flags:
-  -h, --help   help for guard
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
 ## warden check
 
 ```text
@@ -3529,16 +3561,15 @@ Run project checks and install hook guards.
 `wd check` (or `wd check run`) executes the commands declared in .warden/check.yml
 and returns only failures. Guard subcommands are hook-facing entry points installed
 by warden; they preserve the stdin/stdout JSON protocol and fail-open semantics of
-the legacy `hook` paths.
+the legacy `hook` paths. A configured check named list, run, guard, boundary,
+or root-guard remains runnable as `wd check run <name>`.
 
 Usage:
   warden check [name] [flags]
 
 Commands:
   run                  Run the project's configured checks and report only failures
-  guard                PreToolUse check-redirect guard (reads hook JSON on stdin)
-  boundary             PreToolUse isolation guard (reads hook JSON on stdin)
-  root-guard           PreToolUse main-worktree guard (reads hook JSON on stdin)
+  list                 List configured project checks without running them
 
 Flags:
   -h, --help   help for check
@@ -3572,52 +3603,24 @@ Inherited flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden check guard
+## warden check list
 
 ```text
-PreToolUse check-redirect guard (reads hook JSON on stdin)
+List configured project checks without running them
 
 Usage:
-  warden check guard [flags]
+  warden check list [flags]
 
 Flags:
-  -h, --help   help for guard
+  -h, --help   help for list
+      --json   emit the raw result as JSON
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
-```
 
-## warden check boundary
-
-```text
-PreToolUse isolation guard (reads hook JSON on stdin)
-
-Usage:
-  warden check boundary [flags]
-
-Flags:
-  -h, --help   help for boundary
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden check root-guard
-
-```text
-PreToolUse main-worktree guard (reads hook JSON on stdin)
-
-Usage:
-  warden check root-guard [flags]
-
-Flags:
-  -h, --help   help for root-guard
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
+Aliases:
+  ls
 ```
 
 ## warden context
@@ -5598,10 +5601,19 @@ Pass -m to author the message (best — you made the change). Omit it and warden
 writes one: the local model from the staged diff if configured, otherwise a
 deterministic conventional-commit message from the changed paths.
 
+Give paths (relative to the current directory) to stage and commit only those;
+paths outside the repository are rejected. With no paths everything is staged.
+
+--amend rewrites the last commit, keeping its message unless -m is given. It is
+refused on a merge commit and on a commit already in the upstream branch unless
+--force (after which push needs --force-with-lease).
+
 Usage:
-  warden commit [flags]
+  warden commit [paths...] [flags]
 
 Flags:
+      --amend            rewrite the last commit (keeps its message unless -m is given)
+      --force            with --amend, allow amending a commit already in the upstream branch
   -h, --help             help for commit
       --json             emit the raw result as JSON
   -m, --message string   commit message; if omitted, warden generates one from the diff
@@ -5644,11 +5656,19 @@ Fetch origin and rebase the current branch onto origin/<base> (default main).
 Refuses a dirty tree (commit first). On conflict warden leaves the rebase in
 progress and reports only the conflicting files for you to resolve.
 
+While a rebase is in progress, `wd sync --continue` stages your resolved files and
+finishes it (reporting any conflicts from the next commit), and `wd sync --abort`
+drops it and restores the branch. A plain sync or `wd commit` is refused until then.
+
+Exits non-zero when the rebase stops on conflicts.
+
 Usage:
   warden sync [flags]
 
 Flags:
+      --abort         drop a rebase in progress and restore the branch
       --base string   base branch to rebase onto (default main)
+      --continue      finish a conflicted rebase: stage resolved files and run git rebase --continue
   -h, --help          help for sync
       --json          emit the raw result as JSON
 
@@ -5749,6 +5769,7 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | `warden backends rescan` | `warden backend rescan` |
 | `warden backends tier` | `warden backend tier` |
 | `warden branches` | `warden workspace branches` |
+| `warden check ls` | `warden check list` |
 | `warden clean` | `warden workspace clean` |
 | `warden collab` | `warden workspace` |
 | `warden collab conflicts` | `warden workspace conflicts` |
@@ -5823,7 +5844,6 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | `warden repair sessions` | `warden inspect repair sessions` |
 | `warden repl` | `warden backend repl` |
 | `warden restore` | `warden agent restore` |
-| `warden review` | `warden git review` |
 | `warden role` | `warden agent role` |
 | `warden role list` | `warden agent role list` |
 | `warden role set-tier` | `warden agent role tier set` |

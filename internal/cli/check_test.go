@@ -64,3 +64,21 @@ func TestCheckCmdSurfacesNoConfigError(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "no .warden/check.yml")
 }
+
+func TestCheckListTextAndJSON(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodGet, r.Method)
+		require.Equal(t, "/api/v1/check", r.URL.Path)
+		_ = json.NewEncoder(w).Encode([]map[string]string{{"name": "test", "cmd": "go test ./...", "dir": "pkg"}})
+	}))
+	defer srv.Close()
+	addr := strings.TrimPrefix(srv.URL, "http://")
+	out, err := runGit(t, addr, "check", "list")
+	require.NoError(t, err)
+	require.Equal(t, "test\tgo test ./...\tpkg\n", out)
+	out, err = runGit(t, addr, "check", "ls", "--json")
+	require.NoError(t, err)
+	var checks []map[string]string
+	require.NoError(t, json.Unmarshal([]byte(out), &checks))
+	require.Equal(t, "test", checks[0]["name"])
+}

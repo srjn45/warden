@@ -43,6 +43,9 @@ func TestDeterministicCommitMessage(t *testing.T) {
 		{"tests only", []string{"internal/foo_test.go"}, "test(internal): update foo_test.go"},
 		{"mixed dirs drop scope", []string{"internal/a.go", "cmd/b.go"}, "chore: update 2 files"},
 		{"mixed kinds are chore", []string{"docs/a.md", "main.go"}, "chore: update 2 files"},
+		{"txt is not docs", []string{"notes.txt"}, "chore: update notes.txt"},
+		{"txt under docs dir stays docs", []string{"docs/notes.txt"}, "docs(docs): update notes.txt"},
+		{"rst is docs", []string{"index.rst"}, "docs: update index.rst"},
 		{"no files", nil, "chore: update working tree"},
 	}
 	for _, c := range cases {

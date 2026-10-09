@@ -13,6 +13,7 @@ import (
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/client"
+	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/role"
 )
 
@@ -110,13 +111,22 @@ type gitCommitArgs struct {
 	Message string `json:"message,omitempty" jsonschema:"the commit message — best to pass it, you wrote the change so you know the intent; if omitted warden generates one from the diff"`
 	Dir     string `json:"dir,omitempty" jsonschema:"worktree to commit (absolute or relative); defaults to the current directory. When this agent has a session, an explicit dir must belong to the same git repository (linked worktree ok) or the daemon rejects it — it will not silently commit the session worktree."`
 }
+type gitCommitPathsArgs struct{}
 type gitPushArgs struct {
 	Dir   string `json:"dir,omitempty" jsonschema:"worktree to push; defaults to the current directory. Same-repo linked worktrees are honored; a dir outside this agent's repository is rejected."`
 	Force bool   `json:"force,omitempty" jsonschema:"push with --force-with-lease after a rebase or amend — overwrites your own remote branch but aborts if a teammate pushed to it since your last fetch"`
 }
 type gitSyncArgs struct {
-	Base string `json:"base,omitempty" jsonschema:"base branch to rebase onto; defaults to main"`
-	Dir  string `json:"dir,omitempty" jsonschema:"worktree to sync; defaults to the current directory. Same-repo linked worktrees are honored; a dir outside this agent's repository is rejected."`
+	Base     string `json:"base,omitempty" jsonschema:"base branch to rebase onto; defaults to main"`
+	Continue bool   `json:"continue,omitempty" jsonschema:"finish a conflicted rebase left in progress: stages the resolved files and runs git rebase --continue; refused while conflicts remain. Mutually exclusive with abort and base"`
+	Abort    bool   `json:"abort,omitempty" jsonschema:"drop a rebase left in progress (git rebase --abort), restoring the branch. Mutually exclusive with continue and base"`
+	Dir      string `json:"dir,omitempty" jsonschema:"worktree to sync; defaults to the current directory. Same-repo linked worktrees are honored; a dir outside this agent's repository is rejected."`
+}
+type createPRArgs struct {
+	Ticket string `json:"ticket,omitempty" jsonschema:"the agent's ticket / session id; defaults to this agent (WARDEN_SESSION_ID)"`
+	Base   string `json:"base,omitempty" jsonschema:"PR base branch; defaults like sync: the agent's recorded base, its autopilot integration branch, then the repository default"`
+	Title  string `json:"title,omitempty" jsonschema:"PR title, used verbatim; omit to draft one from the agent's work"`
+	Body   string `json:"body,omitempty" jsonschema:"PR body, used verbatim; omit to draft one from the agent's work"`
 }
 type checkArgs struct {
 	Name string `json:"name,omitempty" jsonschema:"the configured check to run (e.g. test, lint, build); omit to run them all"`
@@ -295,6 +305,18 @@ func NewServer(daemonBase string) *Server {
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "list_checks",
+		Description: "List configured project checks without running them. Optional `dir` selects a same-repo linked worktree. Returns [{name,cmd,dir}] in stable name order.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a checkArgs) (*mcpsdk.CallToolResult, any, error) {
+		res, err := s.cl.ListChecks(ctx, sessionID(), mcpDir(a.Dir))
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		r, err := jsonResult(res)
+		return r, nil, err
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name: "get_agent",
 		Description: "Get full detail (status, events, worktree, backend recovery) for one agent. " +
 			"The `backend_recovery` field is non-null during automatic hard-limit recovery and contains: " +
@@ -437,9 +459,39 @@ func NewServer(daemonBase string) *Server {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "sync",
-		Description: "Fetch origin and rebase the current branch onto origin/<base> (default main). Optional `dir` selects a same-repo linked worktree (validated); outside-repo paths are rejected. Refuses a dirty tree (commit first). On conflict warden leaves the rebase in progress and returns ONLY the conflicting files — resolve those, then `git rebase --continue`. Returns {branch, base, updated, conflicts}.",
+		Description: "Fetch origin and rebase the current branch onto origin/<base> (default main). Optional `dir` selects a same-repo linked worktree (validated); outside-repo paths are rejected. Refuses a dirty tree (commit first). On conflict warden leaves the rebase in progress and returns ONLY the conflicting files — resolve those, then call sync with continue=true (or `git rebase --continue`); call sync with abort=true to drop the rebase. While a rebase is in progress a plain sync/commit is refused. Returns {branch, base, updated, conflicts}.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a gitSyncArgs) (*mcpsdk.CallToolResult, any, error) {
-		res, err := s.cl.GitSync(ctx, sessionID(), mcpDir(a.Dir), a.Base)
+		var res lifecycle.SyncResult
+		var err error
+		switch {
+		case a.Continue && a.Abort, (a.Continue || a.Abort) && a.Base != "":
+			return textResult("error: continue and abort are mutually exclusive with each other and with base"), nil, nil
+		case a.Continue:
+			res, err = s.cl.GitSyncContinue(ctx, sessionID(), mcpDir(a.Dir))
+		case a.Abort:
+			res, err = s.cl.GitSyncAbort(ctx, sessionID(), mcpDir(a.Dir))
+		default:
+			res, err = s.cl.GitSync(ctx, sessionID(), mcpDir(a.Dir), a.Base)
+		}
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		r, err := jsonResult(res)
+		return r, nil, err
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "create_pr",
+		Description: "Push this agent's branch and open a GitHub pull request for it WITHOUT ending the agent (unlike stop_agent pr=true). Idempotent: an already-open PR for the branch is returned with created=false. Pass optional `ticket` to target another active agent; `base`, `title`, `body` are optional (base defaults like sync; title/body are drafted when omitted). main/master are refused as the PR head. Returns {branch, base, url, created}.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a createPRArgs) (*mcpsdk.CallToolResult, any, error) {
+		id := a.Ticket
+		if id == "" {
+			id = sessionID()
+		}
+		if id == "" {
+			return textResult("error: no agent session — pass ticket, or run `gh pr create` directly"), nil, nil
+		}
+		res, err := s.cl.CreatePRWith(ctx, id, a.Base, a.Title, a.Body)
 		if err != nil {
 			return textResult("error: " + err.Error()), nil, nil
 		}

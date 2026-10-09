@@ -39,6 +39,8 @@ Common settings (run `warden config` for the complete, live list):
 | `claude_projects_dir` | `~/.claude/projects` | Where the poller reads transcripts to generate subjects and the context gauge |
 | `model_default` | `claude-sonnet-4-6` | Default model for new agents (passed through verbatim to the AI CLI) |
 | `default_permission_mode` | `auto` | Default permission mode for new agents (`auto`/`default`/`acceptEdits`/`bypassPermissions`/`dontAsk`/`plan`) |
+| `git.protected_branches` | `main`, `master` | Branches lifecycle commands refuse to commit, push, or use as a PR head. Setting this list replaces those two defaults. |
+| `git.protect_default_branch` | `true` | Also protect the repository's remote default branch (for example `develop`) even when `git.protected_branches` is customized. Set `false` only when that branch may be changed by lifecycle commands. Both Git settings are hot-reloaded. |
 | `notify.enabled` | `false` | macOS/libnotify desktop notifications when an agent needs attention |
 | `notify.webhook_enabled` / `notify.webhook_url` | `false` / _(empty)_ | POST notifications to a webhook (a Slack incoming-webhook URL works out of the box) |
 | `approvals` | `true` | The approvals inbox: parse recognized tool-permission prompts and surface them for one-click answers |

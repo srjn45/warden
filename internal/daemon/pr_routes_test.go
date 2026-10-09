@@ -195,3 +195,38 @@ func TestCreatePRExplicitTitleAndBodyWin(t *testing.T) {
 	require.Equal(t, "my title", fl.prTitle)
 	require.Contains(t, fl.prBody, "## Why")
 }
+
+func TestCreatePRResolvesOmittedBaseLikeSync(t *testing.T) {
+	fs := newFakeStore()
+	_ = fs.Insert(context.Background(), &agentstore.Agent{ID: "A-1", Workdir: "/wt", BaseBranch: "integ", Status: store.StatusWorking})
+	_ = fs.Insert(context.Background(), &agentstore.Agent{ID: "A-2", Workdir: "/wt2", Status: store.StatusWorking})
+	fl := &fakeLife{defaultBranch: "trunk", prResult: lifecycle.PRResult{Created: true, URL: "u"}}
+	ts := lifeServer(t, fs, fl)
+	defer ts.Close()
+
+	postCreatePRTo(t, ts, "A-1", `{}`)
+	require.Equal(t, "integ", fl.prBase, "recorded session base")
+	postCreatePRTo(t, ts, "A-2", `{}`)
+	require.Equal(t, "trunk", fl.prBase, "repository default")
+	postCreatePRTo(t, ts, "A-1", `{"base":"explicit"}`)
+	require.Equal(t, "explicit", fl.prBase)
+}
+
+func TestCreatePRExplicitTitleBodyVerbatim(t *testing.T) {
+	fs := newFakeStore()
+	_ = fs.Insert(context.Background(), &agentstore.Agent{ID: "A-1", Workdir: "/wt", Status: store.StatusWorking})
+	fl := &fakeLife{prResult: lifecycle.PRResult{Created: true, URL: "u"}}
+	ts := lifeServer(t, fs, fl)
+	defer ts.Close()
+	postCreatePRTo(t, ts, "A-1", `{"title":"My title","body":"My body"}`)
+	require.Equal(t, "My title", fl.prTitle)
+	require.Equal(t, "My body", fl.prBody)
+}
+
+func postCreatePRTo(t *testing.T, ts *httptest.Server, id, body string) {
+	t.Helper()
+	resp, err := http.Post(ts.URL+"/api/v1/sessions/"+id+"/create-pr", "application/json", strings.NewReader(body))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+}
