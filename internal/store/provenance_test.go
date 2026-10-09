@@ -130,6 +130,7 @@ func TestProvenanceMigration(t *testing.T) {
 	writeLegacy(t, dir, "sessions", userBranch)
 	writeLegacy(t, dir, "closed", closedBranch)
 
+	require.NoError(t, LegacyImport.Import(dir))
 	st, err := NewFileStore(dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = st.Close(ctx) })

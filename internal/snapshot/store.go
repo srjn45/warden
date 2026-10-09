@@ -9,11 +9,11 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/srjn45/scriva"
 	"github.com/srjn45/scriva/engine"
 	"github.com/srjn45/scriva/query"
+	"github.com/srjn45/warden/internal/legacyimport"
 )
 
 // ErrNotFound is returned by Store.Get for an unknown snapshot id.
@@ -42,40 +42,17 @@ type Store struct {
 }
 
 // importedMarker names the sentinel written (last) once the one-time legacy-JSON
-// import into the ScrivaDB collection has completed. Its presence means the ScrivaDB is
-// authoritative and no re-import runs; its absence means the import never finished, so
-// the next open wipes the (derived) <dir>-db and retries from the intact legacy JSON.
-// See NewStore / importLegacy.
+// import into the ScrivaDB collection has completed.
 const importedMarker = ".snapshots-filedb-imported"
 
 // NewStore creates the snapshots dir (0700) — where transcript blobs live — and opens
 // (creating if needed) the ScrivaDB-backed metadata store in the sibling <dir>-db/
-// directory. On first open it imports any legacy <dir>/<id>.json metadata into the
-// collection. The import is guarded by importedMarker and is directory-atomic: if the
-// sentinel is absent (never imported, or a prior attempt died partway) the derived
-// <dir>-db is wiped and rebuilt from the read-only legacy JSON, then the sentinel is
-// written LAST — so a crash mid-import loses nothing. The legacy <id>.json files are
-// left in place as a read-only backup (transcripts were never touched).
+// directory.
 func NewStore(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
 	dbDir := dir + "-db"
-	sentinel := filepath.Join(filepath.Dir(dir), importedMarker)
-
-	imported, err := fileExists(sentinel)
-	if err != nil {
-		return nil, err
-	}
-	if !imported {
-		// Wipe any partial/failed prior attempt so the import starts from a clean
-		// slate (a half-loaded collection would abort LoadJSONL on ErrDuplicateKey).
-		// Safe: <dir>-db holds nothing not reproducible from the legacy JSON until the
-		// sentinel says the import finished.
-		if err := os.RemoveAll(dbDir); err != nil {
-			return nil, err
-		}
-	}
 	if err := os.MkdirAll(dbDir, 0o700); err != nil {
 		return nil, err
 	}
@@ -89,20 +66,50 @@ func NewStore(dir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	s := &Store{dir: dir, db: db, col: col}
+	return &Store{dir: dir, db: db, col: col}, nil
+}
 
-	if !imported {
-		if err := importLegacy(dir, col); err != nil {
-			db.Close()
-			return nil, err
+// LegacyImport is the snapshots/*.json -> snapshots-db import for the migration registry.
+var LegacyImport = legacyimport.Importer{
+	Present: func(dataDir string) (bool, error) {
+		dir := filepath.Join(dataDir, "snapshots")
+		return legacyimport.HasJSON(dir)
+	},
+	Import: func(dataDir string) error {
+		dir := filepath.Join(dataDir, "snapshots")
+		if ok, _ := legacyimport.HasJSON(dir); !ok {
+			return nil
 		}
-		// Sentinel LAST: only now is the ScrivaDB authoritative.
-		if err := os.WriteFile(sentinel, []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o600); err != nil {
-			db.Close()
-			return nil, err
+		s, err := NewStore(dir)
+		if err != nil {
+			return err
 		}
-	}
-	return s, nil
+		defer s.Close()
+		return importLegacy(dir, s.col)
+	},
+	Verify: func(dataDir string) error {
+		dir := filepath.Join(dataDir, "snapshots")
+		if ok, _ := legacyimport.HasJSON(dir); !ok {
+			return nil
+		}
+		s, err := NewStore(dir)
+		if err != nil {
+			return err
+		}
+		defer s.Close()
+		buf, err := legacyNDJSON(dir)
+		if err != nil {
+			return err
+		}
+		if buf.Len() == 0 {
+			return nil
+		}
+		missing, err := legacyimport.MissingJSONL(s.col, &buf, "id")
+		if err != nil {
+			return err
+		}
+		return legacyimport.VerifyNone("snapshots", missing)
+	},
 }
 
 // fileExists reports whether path exists, distinguishing a genuine stat error from a
@@ -120,10 +127,9 @@ func fileExists(path string) (bool, error) {
 // importLegacy performs the one-time import of the legacy per-file <dir>/<id>.json
 // metadata into the ScrivaDB collection. Each *.json is decoded individually (skip+warn
 // on corrupt/unsafe-id, matching the old List's corrupt-file tolerance — a bad file
-// never blocks the upgrade), then loaded into the collection with LoadJSONL, which is
-// atomic (all-or-nothing). A missing/empty dir (fresh install) is an empty import. The
-// .transcript blobs are ignored (the suffix filter skips them) — they stay put and the
-// imported records keep pointing at them via TranscriptPath.
+// never blocks the upgrade), then merged into the collection idempotently. A missing/empty dir
+// (fresh install) is an empty import. The .transcript blobs are ignored (the suffix filter skips them) —
+// they stay put and the imported records keep pointing at them via TranscriptPath.
 func importLegacy(dir string, col *engine.Collection) error {
 	buf, err := legacyNDJSON(dir)
 	if err != nil {
@@ -132,7 +138,7 @@ func importLegacy(dir string, col *engine.Collection) error {
 	if buf.Len() == 0 {
 		return nil // no legacy dir, or no readable records
 	}
-	_, err = col.LoadJSONL(&buf, "id")
+	_, err = legacyimport.MergeJSONL(col, &buf, "id")
 	return err
 }
 

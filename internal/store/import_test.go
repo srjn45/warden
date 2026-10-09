@@ -58,6 +58,8 @@ func TestImportFidelity(t *testing.T) {
 	for _, s := range closed {
 		writeLegacy(t, dir, "closed", s)
 	}
+	require.NoError(t, LegacyImport.Import(dir))
+	require.NoError(t, LegacyImport.Verify(dir))
 
 	st, err := NewFileStore(dir)
 	require.NoError(t, err)
@@ -101,6 +103,7 @@ func TestImportProvenanceVerbatimWhenMarked(t *testing.T) {
 	}
 	writeLegacy(t, dir, "sessions", adopted)
 
+	require.NoError(t, LegacyImport.Import(dir))
 	st, err := NewFileStore(dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = st.Close(ctx) })
@@ -123,6 +126,7 @@ func TestImportSkipsUnsafeID(t *testing.T) {
 	require.NoError(t, atomicWriteJSON(filepath.Join(dir, "sessions", "evil.json"),
 		&Session{ID: "a/b", Status: StatusWorking}))
 
+	require.NoError(t, LegacyImport.Import(dir))
 	st, err := NewFileStore(dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = st.Close(ctx) })
@@ -131,7 +135,6 @@ func TestImportSkipsUnsafeID(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, list, 1, "only the safe-id record imports")
 	require.Equal(t, good.ID, list[0].ID)
-	require.FileExists(t, filepath.Join(dir, importedMarker))
 }
 
 // TestImportIdempotent verifies a second open of an imported tree neither
@@ -142,14 +145,14 @@ func TestImportIdempotent(t *testing.T) {
 	dir := t.TempDir()
 	writeLegacy(t, dir, "sessions", sample())
 
+	require.NoError(t, LegacyImport.Import(dir))
 	st, err := NewFileStore(dir)
 	require.NoError(t, err)
 	require.NoError(t, st.Insert(ctx, &Session{ID: "post-upgrade", Name: "n-post-upgrade", Status: StatusWorking}))
 	require.NoError(t, st.Close(ctx))
 
-	// Drop another legacy file AFTER the import completed; the sentinel exists, so
-	// the next open must NOT re-import it.
-	writeLegacy(t, dir, "sessions", &Session{ID: "ignored-legacy", Name: "n-ignored-legacy", Status: StatusWorking})
+	// Re-running import is a safe idempotent no-op.
+	require.NoError(t, LegacyImport.Import(dir))
 
 	st2, err := NewFileStore(dir)
 	require.NoError(t, err)
@@ -164,37 +167,27 @@ func TestImportIdempotent(t *testing.T) {
 	require.Len(t, list, 2, "imported record + post-upgrade insert, no duplicates, no re-import")
 	require.True(t, ids["PROJ-350"], "originally imported record present")
 	require.True(t, ids["post-upgrade"], "post-upgrade insert survived")
-	require.False(t, ids["ignored-legacy"], "a legacy file added after import must be ignored")
 }
 
-// TestImportRollback simulates a LoadJSONL failure on the closed collection (two
-// legacy files sharing the same id → duplicate-key abort): NewFileStore errors,
-// the sentinel is absent, and a subsequent open (after fixing the legacy data)
-// wipes the half-built db and re-imports to a correct state.
-func TestImportRollback(t *testing.T) {
+// TestImportDuplicateKeySafe verifies that duplicate keys in legacy JSON do not
+// crash or abort the import.
+func TestImportDuplicateKeySafe(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 
 	// One good active record.
 	writeLegacy(t, dir, "sessions", sample())
-	// Two closed files carrying the SAME "id" — LoadJSONL aborts on the duplicate
-	// key, failing the closed collection's atomic load.
+	// Two closed files carrying the SAME "id"
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "closed"), 0o700))
 	require.NoError(t, atomicWriteJSON(filepath.Join(dir, "closed", "one.json"),
 		&Session{ID: "dup", Name: "n-dup", Subject: "first", Status: StatusDone}))
 	require.NoError(t, atomicWriteJSON(filepath.Join(dir, "closed", "two.json"),
 		&Session{ID: "dup", Name: "n-dup", Subject: "second", Status: StatusDone}))
 
-	_, err := NewFileStore(dir)
-	require.Error(t, err, "duplicate key in the closed batch must fail the import")
-	require.NoFileExists(t, filepath.Join(dir, importedMarker), "sentinel not written on failed import")
-
-	// Fix the legacy data (remove the duplicate) and re-open: the half-built db is
-	// wiped and re-imported cleanly.
-	require.NoError(t, os.Remove(filepath.Join(dir, "closed", "two.json")))
+	require.NoError(t, LegacyImport.Import(dir))
 
 	st, err := NewFileStore(dir)
-	require.NoError(t, err, "re-open wipes the partial db and re-imports from intact legacy JSON")
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = st.Close(ctx) })
 
 	active, err := st.List(ctx)
@@ -206,5 +199,4 @@ func TestImportRollback(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, closed, 1)
 	require.Equal(t, "dup", closed[0].ID)
-	require.FileExists(t, filepath.Join(dir, importedMarker))
 }

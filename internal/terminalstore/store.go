@@ -19,6 +19,7 @@ import (
 	"github.com/srjn45/scriva/engine"
 	"github.com/srjn45/scriva/query"
 
+	"github.com/srjn45/warden/internal/legacyimport"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -77,17 +78,6 @@ func New(dir string) (*Store, error) {
 		return nil, err
 	}
 	dbDir := filepath.Join(dir, "terminals-db")
-	marker := filepath.Join(dir, importedMarker)
-	_, err := os.Stat(marker)
-	imported := err == nil
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, err
-	}
-	if !imported {
-		if err := os.RemoveAll(dbDir); err != nil {
-			return nil, err
-		}
-	}
 	if err := os.MkdirAll(dbDir, 0o700); err != nil {
 		return nil, err
 	}
@@ -100,18 +90,67 @@ func New(dir string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	s := &Store{db: db, col: col}
-	if !imported {
-		if err := s.importActiveSessions(filepath.Join(dir, "sessions-db")); err != nil {
-			_ = db.Close()
-			return nil, err
+	return &Store{db: db, col: col}, nil
+}
+
+// LegacyImport is the kind=terminal sessions-db -> terminals-db import for the
+// migration registry. It is additive and safe to re-run after a crash.
+var LegacyImport = legacyimport.Importer{
+	Present: func(dir string) (bool, error) {
+		legacyDB := filepath.Join(dir, "sessions-db")
+		return legacyimport.Exists(legacyDB)
+	},
+	Import: func(dir string) error {
+		legacyDB := filepath.Join(dir, "sessions-db")
+		if ok, _ := legacyimport.Exists(legacyDB); !ok {
+			return nil
 		}
-		if err := os.WriteFile(marker, []byte("imported\n"), 0o600); err != nil {
-			_ = db.Close()
-			return nil, err
+		s, err := New(dir)
+		if err != nil {
+			return err
 		}
-	}
-	return s, nil
+		defer s.Close()
+		return s.importActiveSessions(legacyDB)
+	},
+	Verify: func(dir string) error {
+		legacyDB := filepath.Join(dir, "sessions-db")
+		if ok, _ := legacyimport.Exists(legacyDB); !ok {
+			return nil
+		}
+		s, err := New(dir)
+		if err != nil {
+			return err
+		}
+		defer s.Close()
+		db, err := scriva.Open(legacyDB, scriva.WithSyncMode(engine.SyncModeNone))
+		if err != nil {
+			return err
+		}
+		defer db.Close()
+		col, err := db.Collection("active")
+		if err != nil {
+			return nil
+		}
+		rows, err := col.Scan(query.MatchAll)
+		if err != nil {
+			return err
+		}
+		var missing []string
+		for _, row := range rows {
+			var session store.Session
+			if err := decodeRecord(row.Data, &session); err != nil || !session.IsTerminal() {
+				continue
+			}
+			ok, err := s.col.Exists(session.ID)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				missing = append(missing, session.ID)
+			}
+		}
+		return legacyimport.VerifyNone("terminals", missing)
+	},
 }
 
 // sessionToTerminal converts a legacy kind=terminal store.Session to a full

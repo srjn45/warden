@@ -43,6 +43,7 @@ func TestTypeRoleDeprecationAcceptance(t *testing.T) {
 	require.NoError(t, legacy.Close(ctx))
 
 	// --- Open agentstore (import + lazy Role backfill) ---------------------
+	require.NoError(t, agentstore.LegacyImport.Import(dir))
 	agents, err := agentstore.New(dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, agents.Close()) })

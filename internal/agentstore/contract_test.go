@@ -63,8 +63,12 @@ func TestContractLegacyLockDoesNotCoverAgentStore(t *testing.T) {
 	defer legacy.Close(context.Background())
 	// A live legacy owner blocks the import read, but the agent lock itself is
 	// a separate file.
-	_, err = New(dir)
+	err = LegacyImport.Import(dir)
 	require.ErrorIs(t, err, store.ErrStoreOwned)
+
+	st, err := New(dir)
+	require.NoError(t, err)
+	defer st.Close()
 	require.FileExists(t, filepath.Join(dir, ".agents-store.lock"))
 	require.FileExists(t, filepath.Join(dir, ".sessions-store.lock"))
 }

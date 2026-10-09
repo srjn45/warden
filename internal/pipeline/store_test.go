@@ -98,6 +98,13 @@ func TestStoreLegacyImport(t *testing.T) {
 		t.Fatalf("write bad: %v", err)
 	}
 
+	if err := LegacyImport.Import(root); err != nil {
+		t.Fatalf("LegacyImport.Import: %v", err)
+	}
+	if err := LegacyImport.Verify(root); err != nil {
+		t.Fatalf("LegacyImport.Verify: %v", err)
+	}
+
 	s, err := NewStore(dir)
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
@@ -111,10 +118,6 @@ func TestStoreLegacyImport(t *testing.T) {
 		t.Fatalf("List after import want 2, got %d", len(all))
 	}
 
-	sentinel := filepath.Join(root, importedMarker)
-	if _, err := os.Stat(sentinel); err != nil {
-		t.Fatalf("sentinel missing after import: %v", err)
-	}
 	// Legacy JSON is retained as a read-only backup.
 	if _, err := os.Stat(filepath.Join(dir, "p1.json")); err != nil {
 		t.Fatalf("legacy p1.json should be retained: %v", err)

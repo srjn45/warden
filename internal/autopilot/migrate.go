@@ -50,10 +50,12 @@ func MigrateLegacyPlans(ctx context.Context, env Env, c *Controller, configured 
 			}
 			fmt.Fprintf(out, "warning: migrated deprecated autopilot plan %s to %s; register plans directly and remove autopilot.plans[] from config\n", src, planPath)
 		}
-		if err := c.relocateStoredRun(repo, src, planPath); err != nil {
-			errs = append(errs, fmt.Sprintf("%s: relocate stored run: %v", configuredPath, err))
-			effective = append(effective, src)
-			continue
+		if c != nil {
+			if err := c.relocateStoredRun(repo, src, planPath); err != nil {
+				errs = append(errs, fmt.Sprintf("%s: relocate stored run: %v", configuredPath, err))
+				effective = append(effective, src)
+				continue
+			}
 		}
 		plan, err := LoadPlan(planPath)
 		if err != nil {
@@ -68,10 +70,12 @@ func MigrateLegacyPlans(ctx context.Context, env Env, c *Controller, configured 
 			effective = append(effective, planPath)
 			continue
 		}
-		if _, err := c.Register(ctx, RegisterRequest{Name: defaultRunName(planPath), Repo: repo, PlanFile: planPath}); err != nil {
-			errs = append(errs, fmt.Sprintf("%s: register: %v", configuredPath, err))
-			effective = append(effective, src)
-			continue
+		if c != nil {
+			if _, err := c.Register(ctx, RegisterRequest{Name: defaultRunName(planPath), Repo: repo, PlanFile: planPath}); err != nil {
+				errs = append(errs, fmt.Sprintf("%s: register: %v", configuredPath, err))
+				effective = append(effective, src)
+				continue
+			}
 		}
 		effective = append(effective, planPath)
 	}

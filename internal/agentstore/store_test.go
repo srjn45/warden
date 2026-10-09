@@ -3,8 +3,6 @@ package agentstore
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -112,6 +110,7 @@ func TestMigratesOnlyActiveNonTerminalSessions(t *testing.T) {
 	require.NoError(t, legacy.Archive(ctx, "agent-live"))
 	require.NoError(t, legacy.Insert(ctx, &store.Session{ID: "agent-current", Name: "n-agent-current", Status: store.StatusWorking, Tags: []string{"tag"}}))
 	require.NoError(t, legacy.Close(ctx))
+	require.NoError(t, LegacyImport.Import(dir))
 
 	agents, err := New(dir)
 	require.NoError(t, err)
@@ -131,6 +130,7 @@ func TestMigrationImportsExistingActiveAgentFields(t *testing.T) {
 	want := &store.Session{ID: "agent-live", Name: "n-agent-live", Status: store.StatusWorking, PipelineID: "pipe", JobID: "job", Tags: []string{"autopilot"}, ParentID: "parent", ChildAgents: []string{"child"}, ChildPipelines: []string{"pipeline"}, AutopilotRunID: "run", AutopilotSlot: store.AutopilotSlotWorker, ProjectID: "project"}
 	require.NoError(t, legacy.Insert(ctx, want))
 	require.NoError(t, legacy.Close(ctx))
+	require.NoError(t, LegacyImport.Import(dir))
 	agents, err := New(dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, agents.Close()) })
@@ -219,6 +219,7 @@ func TestMigrationPreservesAgentStatus(t *testing.T) {
 	// An agent that finished but has not been archived yet.
 	require.NoError(t, legacy.Insert(ctx, &store.Session{ID: "agent-done", Name: "n-agent-done", Status: store.StatusDone}))
 	require.NoError(t, legacy.Close(ctx))
+	require.NoError(t, LegacyImport.Import(dir))
 
 	agents, err := New(dir)
 	require.NoError(t, err)
@@ -238,6 +239,7 @@ func TestMigrationSkipsTerminalByKindField(t *testing.T) {
 	require.NoError(t, legacy.Insert(ctx, &store.Session{ID: "term-1", Name: "n-term-1", Kind: store.KindTerminal, Status: store.StatusIdle}))
 	require.NoError(t, legacy.Insert(ctx, &store.Session{ID: "agent-1", Name: "n-agent-1", Status: store.StatusWorking}))
 	require.NoError(t, legacy.Close(ctx))
+	require.NoError(t, LegacyImport.Import(dir))
 
 	agents, err := New(dir)
 	require.NoError(t, err)
@@ -358,8 +360,7 @@ func TestArchiveUpgradeAfterActiveMigration(t *testing.T) {
 		require.NoError(t, legacy.Archive(ctx, a.ID))
 	}
 	require.NoError(t, legacy.Close(ctx))
-	// Model an installation which already completed the active-only migration.
-	require.NoError(t, os.WriteFile(filepath.Join(dir, importedMarker), []byte("done"), 0600))
+	require.NoError(t, LegacyImport.Import(dir))
 	s, err := New(dir)
 	require.NoError(t, err)
 	require.NoError(t, s.Insert(ctx, &Agent{ID: "new-live", Name: "n-new-live", Subject: "must survive archive import"}))
@@ -375,9 +376,9 @@ func TestArchiveUpgradeAfterActiveMigration(t *testing.T) {
 	require.NoError(t, s.Update(ctx, "archived", func(a *Agent) error { a.Subject = "latest"; return nil }))
 	require.NoError(t, s.Archive(ctx, "archived"))
 	require.NoError(t, s.Close())
-	// Simulate an interrupted archive import (marker absent after data was copied).
-	require.NoError(t, os.Remove(filepath.Join(dir, closedImportedMarker)))
+	// Re-running import must not clobber newer edits.
 	for i := 0; i < 2; i++ {
+		require.NoError(t, LegacyImport.Import(dir))
 		s, err = New(dir)
 		require.NoError(t, err)
 		live, err := s.Get(ctx, "new-live")
@@ -498,6 +499,7 @@ func TestRoleBackfillFromLegacyMigration(t *testing.T) {
 		ID: "dev-agent", Name: "n-dev-agent", Status: store.StatusWorking, Type: store.TypeDevelopment,
 	}))
 	require.NoError(t, legacy.Close(ctx))
+	require.NoError(t, LegacyImport.Import(dir))
 
 	agents, err := New(dir)
 	require.NoError(t, err)
