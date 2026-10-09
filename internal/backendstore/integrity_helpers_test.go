@@ -16,9 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// registryCollections is every ScrivaDB collection opened by NewStore.
-var registryCollections = []string{"backends", "models", "role_tiers", "handover_settings", "quotas", "rl_cooldowns"}
-
 // Fixed identities used by buildRegistry; the preservation helpers key off them.
 const (
 	fxCustomBackend = "fx-custom"

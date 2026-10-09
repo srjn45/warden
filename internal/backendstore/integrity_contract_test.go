@@ -197,11 +197,12 @@ func TestContractUntouchedCollectionsStillOpenClean(t *testing.T) {
 
 // TestContractRecoveryPreservesRegistry: offline, backup-first recovery of a
 // regressed registry keeps every user-owned fact as of the LATEST writer
-// (contract §5). TODO(t2).
+// (contract §5).
 func TestContractRecoveryPreservesRegistry(t *testing.T) {
-	t.Skip("pending: TODO(t2) recovery implementation (#841)")
 	dir, want := damagedRegistry(t, "backends")
-	// t2: run recovery(dir, backupDir) then:
+	res, err := Repair(context.Background(), dir, Options{BackupDir: t.TempDir()})
+	require.NoError(t, err)
+	require.True(t, res.Recovered)
 	s, err := NewStore(dir)
 	require.NoError(t, err)
 	defer s.Close()
