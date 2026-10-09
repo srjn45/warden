@@ -297,3 +297,21 @@ func TestHandleSwitchSessionRoute(t *testing.T) {
 		fl.hotSwapErr = nil
 	})
 }
+
+func TestHandleAddModelRoute(t *testing.T) {
+	srv, bs := lifeServerBackends(t, newFakeStore(), &fakeLife{})
+	post := func(body string) int {
+		resp, err := http.Post(srv.URL+"/api/v1/models", "application/json", bytes.NewReader([]byte(body)))
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		return resp.StatusCode
+	}
+	require.Equal(t, http.StatusCreated, post(`{"backend_id":"claude","model_id":"zz-custom","tier":"tier-2","display_name":"ZZ"}`))
+	m, err := bs.GetModel("claude", "zz-custom")
+	require.NoError(t, err)
+	require.True(t, m.IsCustom)
+	require.Equal(t, backendstore.ModelTier("tier-2"), m.Tier)
+	require.Equal(t, http.StatusConflict, post(`{"backend_id":"claude","model_id":"zz-custom","tier":"tier-2"}`))
+	require.Equal(t, http.StatusBadRequest, post(`{"backend_id":"claude","model_id":"q","tier":"bogus"}`))
+	require.Equal(t, http.StatusBadRequest, post(`{"backend_id":"","model_id":"q","tier":"tier-1"}`))
+}

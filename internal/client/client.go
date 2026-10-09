@@ -2009,6 +2009,25 @@ func (c *Client) ListModels(ctx context.Context, tier string) ([]backendstore.Mo
 	return out, nil
 }
 
+// AddModel registers a custom model in the catalog (409 → *StatusError).
+func (c *Client) AddModel(ctx context.Context, backend, model, display, tier string, autoAssign bool, quotaScope string) (backendstore.ModelEntry, error) {
+	var out backendstore.ModelEntry
+	body := map[string]any{"backend_id": backend, "model_id": model, "tier": tier}
+	if display != "" {
+		body["display_name"] = display
+	}
+	if autoAssign {
+		body["auto_assign"] = true
+	}
+	if quotaScope != "" {
+		body["quota_scope"] = quotaScope
+	}
+	if err := c.do(ctx, http.MethodPost, "/models", body, &out); err != nil {
+		return backendstore.ModelEntry{}, err
+	}
+	return out, nil
+}
+
 // SetModelTier updates the tier for a specific model in the catalog.
 func (c *Client) SetModelTier(ctx context.Context, backend, model, tier string) (backendstore.ModelEntry, error) {
 	var out backendstore.ModelEntry

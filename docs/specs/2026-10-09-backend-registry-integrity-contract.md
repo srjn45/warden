@@ -209,9 +209,9 @@ All backend-registry writes go through `*backendstore.Store`; the only processes
 
 | Situation | Behaviour |
 |---|---|
-| Daemon owns dir, CLI **writer** (`models set/import`, `role set`) | refused: error names the daemon (PID/launch/addr) and points to daemon-backed REST/MCP (`set_model_tier`, `set_role_tier`, …) or stopping the daemon |
-| Daemon owns dir, CLI **read-only** (`models list`, `role list/show`) | currently the same refusal (the daemon is the only safe reader of a live engine); the REST/MCP equivalents (`list_models`, `list_roles`, `list_backends`) are the supported live view. Rerouting these CLI commands through `internal/client` is possible follow-up work |
-| No daemon | CLI takes the lock (kind=cli), runs, lock dropped at exit; a daemon started meanwhile is refused with "wait for the CLI command" |
+| Daemon owns dir (`ownerlock.Probe`), any registry command (`models list/tier/add/discover --import`, `agent role tier list/set`) | **routed through the daemon API** via `internal/client` (`GET/POST /models`, `PUT /models/{b}/{m}/tier`, `GET /roles/tiers`, `PUT /roles/tiers/{role}`); never opens the store. Sentinels are mapped back (404→`ErrModelNotFound`, 409→`ErrExists`) so text/`--json` output and errors match offline mode. `POST /models` (`addModel`) was added spec-first for `models add`/`--import` (t3b) |
+| Daemon owns dir but is unreachable (wrong `--addr`, hung) | refused with the actionable owner guidance (`*OwnedError` + "not reachable") |
+| No daemon owner | direct open (`openBackendStore`): CLI takes the lock (kind=cli), runs, lock dropped at exit; a daemon started meanwhile is refused with "wait for the CLI command" |
 | `Repair` with a daemon running | refused; `Verify` still allowed |
 
 ### 8.4 Tests
