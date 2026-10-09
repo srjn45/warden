@@ -363,6 +363,11 @@ Warden tracks daemon-registered checkout roots and remote repositories as first-
 - `warden project-groups create <name> [--project <id>]...` / `delete <id>` — create or remove groups.
 - `warden project-groups update <id> [--name <name>] [--project <id>]...` — bulk update name and/or projects.
 - `warden project-groups members add <id> <project-id>` / `remove <id> <project-id>` — manage group membership.
+- Agent-store repair (CLI-only, daemon must be stopped; never over MCP): `warden inspect repair agents --dry-run [--json]`
+  first, then `--backup-dir <dir outside data_dir>` (`--salvage` opt-in; `--on-conflict report|abort`). A daemon-owned store is
+  refused — stop the daemon, never delete `.agents-store.lock`. Re-run the same command after an interruption (journaled,
+  idempotent). Keep backup/report/quarantine as evidence. MCP `store_health` is read-only; degraded SSE sends `event: error`.
+  Guide: site `guides/agent-store-integrity`.
 - Membership repair (CLI-only): `warden doctor --reconcile-membership` stamps missing
   `project_id` onto legacy sessions/pipelines by path-matching open projects and
   backfills missing membership. Existing authoritative `agents[]`/`pipelines[]`/
