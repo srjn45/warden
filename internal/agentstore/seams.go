@@ -24,10 +24,14 @@ type WriteSeam func(op string)
 // op names the method ("List", "Get", "GetByNameOrID", "ListClosed", "ListClosedDegraded").
 type ReadSeam func(op string)
 
+// AuditSeam is invoked inside Auditor during verification passes.
+type AuditSeam func(phase string)
+
 var (
 	scanSeam  atomic.Pointer[ScanSeam]
 	writeSeam atomic.Pointer[WriteSeam]
 	readSeam  atomic.Pointer[ReadSeam]
+	auditSeam atomic.Pointer[AuditSeam]
 )
 
 // SetScanSeam installs fn (nil clears) and returns a restore func.
@@ -63,6 +67,17 @@ func SetReadSeam(fn ReadSeam) (restore func()) {
 	return func() { readSeam.Store(prev) }
 }
 
+// SetAuditSeam installs fn (nil clears) and returns a restore func.
+func SetAuditSeam(fn AuditSeam) (restore func()) {
+	prev := auditSeam.Load()
+	if fn == nil {
+		auditSeam.Store(nil)
+	} else {
+		auditSeam.Store(&fn)
+	}
+	return func() { auditSeam.Store(prev) }
+}
+
 func fireScanSeam(collection string) {
 	if p := scanSeam.Load(); p != nil {
 		(*p)(collection)
@@ -78,5 +93,11 @@ func fireWriteSeam(op string) {
 func fireReadSeam(op string) {
 	if p := readSeam.Load(); p != nil {
 		(*p)(op)
+	}
+}
+
+func fireAuditSeam(phase string) {
+	if p := auditSeam.Load(); p != nil {
+		(*p)(phase)
 	}
 }
