@@ -59,9 +59,10 @@ func TestDegradedStoreSurfacesAgree(t *testing.T) {
 			cfg := e.config(freeAddr(t), e.data)
 			out, _ = e.run(e.root, "--config", cfg, "doctor")
 			require.Contains(t, out, "store not owned", out)
-			out, code := e.run(e.root, "--config", cfg, "repair", "agents")
-			require.NotZero(t, code)
-			require.Contains(t, out, "repair is not available", out)
+			out, code := e.run(e.root, "--config", cfg, "repair", "agents", "--dry-run")
+			require.Zero(t, code, out)
+			require.Contains(t, out, "no files changed", out)
+			require.NotContains(t, out, "0 finding(s)", "dry-run must report the injected damage")
 			requireSame(t, before, agentsDB(t, e), "doctor/repair must not mutate agents-db")
 		})
 	}
@@ -181,12 +182,10 @@ func get1(d *daemon) { // one cheap, time-consuming probe to stagger the kill po
 	_, _ = httpGetQuiet(d.base() + "/healthz")
 }
 
-// KNOWN GAP (reported, not repaired): a primary-index entry that is simply
-// absent is indistinguishable from a deleted agent without ScrivaDB
-// Verify/Repair (srjn45/scriva#107), so the store reads as a complete,
-// healthy fleet of the remaining agents. This pins that limit so it is loud
-// when the dependency lands and the contract can tighten.
-func TestMissingIndexEntryIsUndetectedGap(t *testing.T) {
+// A primary-index entry that is simply absent is now caught by full ScrivaDB
+// Verify (srjn45/scriva#107), so the degraded store fails closed instead of
+// reading as a complete, healthy fleet of the remaining agents.
+func TestMissingIndexEntryIsDetected(t *testing.T) {
 	e := newEnv(t)
 	e.seed("a-1", "a-2", "a-3")
 	e.rewriteIndex("agents", func(m map[string]idxEntry) { delete(m, byOffset(m)[2]) })
@@ -194,9 +193,9 @@ func TestMissingIndexEntryIsUndetectedGap(t *testing.T) {
 	d := e.startDaemon(freeAddr(t), e.data, e.root)
 	d.waitUp()
 	code, body := get(t, d.base()+"/api/v1/sessions")
-	require.Equal(t, 200, code)
-	require.Equal(t, 2, strings.Count(string(body), `"tmux_session"`))
-	require.True(t, d.health().Healthy)
+	require.Equal(t, 503, code, string(body))
+	require.Zero(t, strings.Count(string(body), `"tmux_session"`), "degraded store must not present a short fleet")
+	require.False(t, d.health().Healthy)
 	d.stop()
 	requireSame(t, before, agentsDB(t, e), "read-only run must not mutate")
 }

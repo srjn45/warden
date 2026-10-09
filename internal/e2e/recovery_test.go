@@ -45,7 +45,7 @@ func TestRecoveryWhileTmuxSessionsExist(t *testing.T) {
 	h, herr := c.StoreHealth(ctx)
 	require.NoError(t, herr)
 	require.False(t, h.Healthy)
-	require.False(t, h.RepairAvailable)
+	require.True(t, h.RepairAvailable)
 	for _, p := range []string{"/api/v1/sessions", "/api/v1/tree"} {
 		code, _ := get(t, d.base()+p)
 		require.Equal(t, 503, code, p)
@@ -58,9 +58,10 @@ func TestRecoveryWhileTmuxSessionsExist(t *testing.T) {
 	d.stop()
 
 	cfg = e.config(freeAddr(t), e.data)
-	out, code := e.run(e.root, "--config", cfg, "repair", "agents")
-	require.NotZero(t, code)
-	require.Contains(t, out, "not available", out)
+	out, code := e.run(e.root, "--config", cfg, "repair", "agents", "--dry-run")
+	require.Zero(t, code, out)
+	require.Contains(t, out, "no files changed", out)
+	require.NotContains(t, out, "0 finding(s)", "dry-run must report the injected damage")
 	_, code = e.run(e.root, "--config", cfg, "doctor", "--reconcile-membership")
 	_ = code // no projects configured: nothing to reconcile either way
 

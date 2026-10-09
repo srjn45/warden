@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/srjn45/scriva/engine"
 	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/store"
@@ -258,25 +259,21 @@ func enrichSessionReconciliation(r *store.RecoveryReport) {
 }
 
 func newRepairAgentsCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "agents",
-		Short: "Check preconditions for offline agent-store repair (repair itself awaits ScrivaDB support)",
+		Short: "Verify or repair the agent store offline, backup-first",
 		Long: `Offline repair of the agent store (<data>/agents-db).
 
-This command enforces the repair preconditions and then reports honestly that
-the repair primitive is not available yet: rebuilding a corrupt index needs
-ScrivaDB Verify/Repair support that the pinned release does not export, and
-warden does not emulate it. Nothing is modified.
-
-Preconditions checked, in order:
-  1. you own the data directory (or are root)
-  2. no warden process owns the agent store (stop the daemon first)
-
-Running agents are never affected. See the "Agent store integrity" guide for
-the daemon-offline procedure.`,
+The daemon must be stopped. --dry-run is read-only; repair uses ScrivaDB's
+verified backup, atomic journaled repair, and conflict-preserving report.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg := config.Load(configPathFor(cmd))
+			dry, _ := cmd.Flags().GetBool("dry-run")
+			backup, _ := cmd.Flags().GetString("backup-dir")
+			salvage, _ := cmd.Flags().GetBool("salvage")
+			policy, _ := cmd.Flags().GetString("on-conflict")
+			jsonOut, _ := cmd.Flags().GetBool("json")
 			audit := func(outcome string, err error) {
 				slog.Warn("audit: agent-store repair attempt", "audit", true, "action", "repair_agents",
 					"outcome", outcome, "data_dir", cfg.DataDir, "uid", os.Geteuid(), "err", err)
@@ -293,8 +290,31 @@ the daemon-offline procedure.`,
 				}
 				return err
 			}
-			rerr := &agentstore.RepairUnavailableError{}
-			audit("unavailable", rerr)
-			return rerr
+			if dry {
+				rep, err := agentstore.VerifyAgentStore(cmd.Context(), cfg.DataDir)
+				audit("dry_run", err)
+				if jsonOut {
+					return json.NewEncoder(cmd.OutOrStdout()).Encode(rep)
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "agent-store repair dry-run: %d finding(s), worst=%s; no files changed\n", len(rep.AllFindings()), rep.MaxSeverity())
+				return err
+			}
+			if policy != "report" && policy != "abort" {
+				return fmt.Errorf("--on-conflict must be report or abort")
+			}
+			rep, err := agentstore.RepairAgentStore(cmd.Context(), cfg.DataDir, backup, salvage, engine.ConflictPolicy(policy))
+			audit("repair", err)
+			if jsonOut {
+				_ = json.NewEncoder(cmd.OutOrStdout()).Encode(rep)
+			} else if rep != nil {
+				fmt.Fprintf(cmd.OutOrStdout(), "agent-store repair complete: backup=%s blocked=%d\n", rep.BackupDir, len(rep.Blocked()))
+			}
+			return err
 		}}
+	cmd.Flags().Bool("dry-run", false, "verify and report only; do not modify files")
+	cmd.Flags().String("backup-dir", "", "parent directory for the verified repair backup")
+	cmd.Flags().Bool("salvage", false, "permit ScrivaDB's conflict-safe segment salvage")
+	cmd.Flags().String("on-conflict", "report", "report or abort on ambiguous history")
+	cmd.Flags().Bool("json", false, "print the machine-readable Verify/Repair report")
+	return cmd
 }

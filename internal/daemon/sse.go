@@ -44,6 +44,13 @@ func (s *Server) handleEventsStream(w http.ResponseWriter, r *http.Request) {
 			// desired behavior.
 			if d, ok := store.IsDegraded(err); ok {
 				logStoreDegraded(d)
+				// An initial degraded stream must be explicit: silence looks like a
+				// healthy empty fleet to EventSource consumers. Existing snapshots
+				// remain intact; clients can retain them while showing the error.
+				if _, werr := fmt.Fprintf(w, "event: error\ndata: {\"error\":%q,\"degraded\":true}\n\n", d.Error()); werr != nil {
+					return false
+				}
+				flusher.Flush()
 			}
 			return true // keep the stream open; retry on the next signal
 		}

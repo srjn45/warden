@@ -19,15 +19,12 @@ func TestProbeOwnership(t *testing.T) {
 	require.NoError(t, ProbeOwnership(dir), "released on close")
 }
 
-func TestRepairAuthorityAndUnavailable(t *testing.T) {
+func TestRepairAuthorityAndAvailability(t *testing.T) {
 	require.NoError(t, CheckRepairAuthority(t.TempDir()))
 	require.Error(t, CheckRepairAuthority(t.TempDir()+"/missing"))
 	if os.Geteuid() != 0 {
 		require.Error(t, CheckRepairAuthority("/"), "root-owned dir is denied to a normal user")
 	}
-	require.False(t, RepairAvailable, "no repair primitive exists; flip only when ScrivaDB ships Verify/Repair")
-	err := &RepairUnavailableError{}
-	require.ErrorIs(t, err, ErrRepairUnavailable)
-	require.Contains(t, err.Error(), "scriva#107")
-	require.Contains(t, unhealthyHint, "not yet available", "hint must not promise a repair that does not exist")
+	require.True(t, RepairAvailable)
+	require.Contains(t, unhealthyHint, "repair agents --dry-run")
 }

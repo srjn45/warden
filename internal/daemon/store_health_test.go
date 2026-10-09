@@ -103,7 +103,7 @@ func TestStoreHealthHealthy(t *testing.T) {
 	require.False(t, h.Degraded)
 	require.Equal(t, 0, h.FailureCount)
 	require.Empty(t, h.Failures)
-	require.False(t, h.RepairAvailable)
+	require.True(t, h.RepairAvailable)
 	require.NotEmpty(t, h.NextStep)
 }
 
@@ -123,7 +123,7 @@ func TestStoreHealthDegraded(t *testing.T) {
 	require.Equal(t, "active", h.Failures[0].Collection)
 	require.Equal(t, "corrupt-1", h.Failures[0].Key)
 	require.Equal(t, "decode", h.Failures[0].Class)
-	require.False(t, h.RepairAvailable, "repair primitive absent: must not be advertised")
+	require.True(t, h.RepairAvailable, "offline repair primitive is available and must be advertised")
 	require.Contains(t, h.NextStep, "stop the daemon")
 }
 

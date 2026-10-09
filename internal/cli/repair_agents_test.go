@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -26,11 +27,24 @@ func TestRepairAgentsRefusesWhileOwned(t *testing.T) {
 	require.Contains(t, err.Error(), "next step: stop the running warden daemon")
 }
 
-func TestRepairAgentsOfflineReportsUnavailable(t *testing.T) {
+func TestRepairAgentsDryRunHealthyStore(t *testing.T) {
 	dir := t.TempDir()
+	st, err := agentstore.New(dir)
+	require.NoError(t, err)
+	require.NoError(t, st.Close())
+
 	cmd := repairAgentsCmdFor(t, dir)
-	err := cmd.RunE(cmd, nil)
-	require.ErrorIs(t, err, agentstore.ErrRepairUnavailable)
+	require.NoError(t, cmd.Flags().Set("dry-run", "true"))
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	require.NoError(t, cmd.RunE(cmd, nil))
+	require.Contains(t, out.String(), "0 finding(s)")
+	require.Contains(t, out.String(), "no files changed")
+}
+
+func TestRepairAgentsMissingStoreFails(t *testing.T) {
+	cmd := repairAgentsCmdFor(t, t.TempDir())
+	require.Error(t, cmd.RunE(cmd, nil))
 }
 
 func TestCheckAgentStoreDaemonOfflineOwned(t *testing.T) {

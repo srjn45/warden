@@ -15,7 +15,7 @@ import (
 var ErrUnhealthy = errors.New("agent store unhealthy")
 
 // unhealthyHint is the operator-facing next step appended to every message.
-const unhealthyHint = SafeNextStep + "; automated repair is not yet available (run `warden repair agents` for status)"
+const unhealthyHint = SafeNextStep
 
 // UnhealthyError reports that the engine's index/segments disagree with what a
 // read needs (stale or corrupt index, an offset that no longer decodes to the
