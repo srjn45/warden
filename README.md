@@ -1110,13 +1110,18 @@ First-class, deterministic commands that move git and test/lint/build work off t
 ```sh
 warden commit            # stage + commit the agent's worktree (message auto-filled if omitted)
 warden commit -m "fix: …"
+warden commit -m "fix: …" src/a.go   # stage + commit only these paths
+warden commit --amend    # rewrite the last commit (--force if already pushed)
 warden push              # push the worktree's branch
 warden push --force-with-lease  # safe force after a rebase/amend
-warden sync              # rebase-sync against the upstream (refuses on a dirty tree)
+warden sync              # rebase onto the session/integration/default base (refuses on a dirty tree; non-zero on conflicts)
+warden sync --continue   # finish a conflicted rebase (or --abort to drop it)
+warden git pr            # open/return the PR without ending the agent (MCP create_pr)
 warden check [name]      # run the project's .warden/check.yml checks; reports only failures
+warden check list        # list configured checks without running them
 ```
 
-Rails: no commit/push on `main`/`master`, no dirty-tree sync, pre-commit-hook failures surfaced as a result. Force pushes are always `--force-with-lease` (never a bare `--force`), so a rebased branch can't clobber a teammate's push. All four are also MCP tools.
+Rails: no commit/push on `main`/`master`, no dirty-tree sync, pre-commit-hook failures surfaced as a result. Force pushes are always `--force-with-lease` (never a bare `--force`), so a rebased branch can't clobber a teammate's push. `commit`, `push`, `sync`, `check` and `git pr` (`create_pr`) are also MCP tools; `check` finds `.warden/check.yml` from the repository root even when run from a subdirectory. Which branches count as protected is configurable (`git.protected_branches`, `git.protect_default_branch`).
 
 ### Agent-native superpowers — `warden git review` / `warden backend model`
 

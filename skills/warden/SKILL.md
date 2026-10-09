@@ -57,9 +57,8 @@ The everyday verbs, so the common path needs no reference-file round-trip:
 | read / change per-agent settings | `warden agent get <id> [key]` · `warden agent set <id> <permission-mode\|compact\|role\|auto-approve> <value>` |
 | JSON output for scripting | `--json` on `agent start`/`fork`/`handoff`/`stop`/`terminate`/`role list`/`get` |
 | finish, keep worktree | `warden agent stop <id> --keep-worktree` (`--pr`) |
-| git lifecycle / checks | `wd commit` / `wd push` / `wd sync` / `wd check [name]` |
+| git lifecycle / checks | `wd commit [paths…] [--amend]` / `wd push [--force-with-lease]` / `wd sync [--base B \| --continue \| --abort]` / `wd check [name]` · `wd check list` (default sync base = session/integration branch; conflicts exit non-zero) |
 | open PR (agent keeps running) | `wd git pr [--base B --title T --body-file F]` (MCP `create_pr`) — no root shortcut; idempotent |
-| release tag advice (never `--yes` unless the operator asked to tag) | `wd release --dry-run` |
 | release tag advice (never `--yes` unless the operator asked to tag) | `wd release --dry-run` |
 | pipelines | `warden pipeline create spec.yaml` → `warden pipeline start/show <id>` (cancel/delete need `--yes`) |
 | projects / groups | `warden projects list` · `warden project-groups list` |
