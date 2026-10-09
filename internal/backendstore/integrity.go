@@ -661,16 +661,21 @@ func classifyRegressions(dir, col string) ([]DiscardedRevision, []FieldConflict,
 			switch {
 			case d.e.Rev < w.e.Rev && d.ts.Before(w.ts):
 				dr.DiscardedAs, usedTS = RuleOlderTimestamp, true
-			case len(prefs) == 0:
+			case d.e.Rev < w.e.Rev && len(prefs) == 0:
 				dr.DiscardedAs = RulePreferencesEqual
 			default:
 				okID = false
+				if d.e.Rev >= w.e.Rev {
+					reasons = append(reasons, fmt.Sprintf("id %d (%s): revision %d conflicts with winner revision %d", id, key, d.e.Rev, w.e.Rev))
+				}
 				for _, f := range prefs {
 					conflicts = append(conflicts, FieldConflict{ID: id, Key: key, Field: f, Rev: d.e.Rev, TS: d.e.TS,
 						Value: d.data[f], WinnerRev: w.e.Rev, WinnerTS: w.e.TS, WinnerValue: w.data[f]})
 				}
-				reasons = append(reasons, fmt.Sprintf("id %d (%s): rev %d at %s differs from rev %d at %s on preference field(s) %s",
-					id, key, d.e.Rev, d.e.TS, w.e.Rev, w.e.TS, strings.Join(prefs, ",")))
+				if len(prefs) > 0 {
+					reasons = append(reasons, fmt.Sprintf("id %d (%s): rev %d at %s differs from rev %d at %s on preference field(s) %s",
+						id, key, d.e.Rev, d.e.TS, w.e.Rev, w.e.TS, strings.Join(prefs, ",")))
+				}
 			}
 			idStale = append(idStale, dr)
 		}

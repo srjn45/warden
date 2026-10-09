@@ -187,16 +187,16 @@ func detectionOnly(j int, _ uint64, d map[string]any) {
 // the newest revision only in detection fields.
 func TestIssue841ShapeRecoversWithDetectionOnlyDifferences(t *testing.T) {
 	dir, want, n := divergentRegistry(t, detectionOnly)
+	require.Equal(t, 34, n, "fixture must inject 17 rev-68 writes after rev 70 for each backend")
 	rep, err := Verify(context.Background(), dir)
 	require.NoError(t, err)
-	require.GreaterOrEqual(t, n, 20)
 	regs := 0
 	for _, f := range rep.Integrity.AllFindings() {
 		if f.Code == engine.CodeConflictRevision {
 			regs++
 		}
 	}
-	require.GreaterOrEqual(t, regs, 20, "fixture must reproduce many revision-regression findings")
+	require.Equal(t, 34, regs, "fixture must reproduce the 34 #841 revision-regression findings")
 	require.True(t, rep.Recoverable())
 	before := treeBytes(t, dir)
 
@@ -212,6 +212,8 @@ func TestIssue841ShapeRecoversWithDetectionOnlyDifferences(t *testing.T) {
 		require.Equal(t, RulePreferencesEqual, d.DiscardedAs)
 		require.NotEmpty(t, d.DetectionDiffs)
 		require.Less(t, d.Rev, d.WinnerRev)
+		require.Equal(t, uint64(68), d.Rev)
+		require.Equal(t, uint64(70), d.WinnerRev)
 	}
 	require.Equal(t, before, treeBytes(t, res.BackupPath), "backup is a byte-identical verified copy")
 

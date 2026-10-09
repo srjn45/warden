@@ -203,9 +203,9 @@ func damagedRegistry(t *testing.T, cols ...string) (string, registrySnapshot) {
 	return dir, want
 }
 
-// injectDivergentWrites reproduces the real #841 shape: a second writer appends
-// n lower-revision updates PER ID with a NEWER timestamp (rev max-1 after rev
-// max). mutate edits the copied winner data of each injected line (index j).
+// injectDivergentWrites reproduces the exact #841 shape: a second writer appends
+// n revision-68 updates PER ID with a NEWER timestamp after revision 70.
+// mutate edits the copied winner data of each injected line (index j).
 // Derived index files are removed so the next open scans. It returns the number
 // of lines injected.
 func injectDivergentWrites(t *testing.T, dir, col string, n int, mutate func(j int, id uint64, data map[string]any)) int {
@@ -228,6 +228,30 @@ func injectDivergentWrites(t *testing.T, dir, col string, n int, mutate func(j i
 			wins[e.ID] = win{e.Rev, e.Data}
 		}
 	}
+	// The settings singleton shares the backends collection but was not part of
+	// the incident. Keep this fixture to the two actual backend rows: 17 each.
+	for id, w := range wins {
+		if key, _ := w.data["_key"].(string); key == "__settings__" {
+			delete(wins, id)
+		}
+	}
+	// Raise the original winning line to revision 70. The fixture's existing
+	// history remains monotone, then the stale writer appends rev 68 afterward.
+	var rewritten []byte
+	for _, l := range bytes.Split(bytes.TrimSpace(raw), []byte("\n")) {
+		var e store.Entry
+		require.NoError(t, json.Unmarshal(l, &e))
+		if w, ok := wins[e.ID]; ok && e.Rev == w.rev {
+			e.Rev = 70
+			b, err := store.Encode(e)
+			require.NoError(t, err)
+			rewritten = append(rewritten, b...)
+			continue
+		}
+		rewritten = append(rewritten, l...)
+		rewritten = append(rewritten, '\n')
+	}
+	require.NoError(t, os.WriteFile(last, rewritten, 0o600))
 	var extra []byte
 	count := 0
 	ids := make([]uint64, 0, len(wins))
@@ -237,14 +261,11 @@ func injectDivergentWrites(t *testing.T, dir, col string, n int, mutate func(j i
 	slices.Sort(ids)
 	for _, id := range ids {
 		w := wins[id]
-		if w.rev < 2 {
-			continue
-		}
 		for j := 0; j < n; j++ {
 			data := map[string]any{}
 			maps.Copy(data, w.data)
 			mutate(j, id, data)
-			b, err := store.Encode(store.Entry{ID: id, Op: store.OpUpdate, Ts: time.Now().UTC().Add(time.Hour + time.Duration(j)*time.Second), Rev: w.rev - 1, Data: data})
+			b, err := store.Encode(store.Entry{ID: id, Op: store.OpUpdate, Ts: time.Now().UTC().Add(time.Hour + time.Duration(j)*time.Second), Rev: 68, Data: data})
 			require.NoError(t, err)
 			extra = append(extra, b...)
 			count++
@@ -268,6 +289,6 @@ func divergentRegistry(t *testing.T, mutate func(j int, id uint64, data map[stri
 	t.Helper()
 	dir := t.TempDir()
 	want := buildRegistry(t, dir)
-	n := injectDivergentWrites(t, dir, "backends", 12, mutate)
+	n := injectDivergentWrites(t, dir, "backends", 17, mutate)
 	return dir, want, n
 }
