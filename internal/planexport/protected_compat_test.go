@@ -37,6 +37,8 @@ func compatRepoWithOrigin(t *testing.T, branch string) string {
 	dir := filepath.Join(base, "wt")
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	compatGit(t, dir, "init", "-q", "-b", branch)
+	compatGit(t, dir, "config", "user.email", "t@t")
+	compatGit(t, dir, "config", "user.name", "t")
 	compatGit(t, dir, "remote", "add", "origin", origin)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "seed"), []byte("s"), 0o644))
 	compatGit(t, dir, "add", ".")
