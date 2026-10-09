@@ -1,7 +1,7 @@
 # Warden Future Enhancements & Feature Roadmap
 
 **Last Updated:** 2026-10-09
-**Audited Against:** `main` at v9.18.0 (through PR #751)
+**Audited Against:** `main` at v9.28.0 (through PR #852)
 
 This document tracks **pending** improvements and new features for warden. Each
 item includes an effort estimate and implementation notes.
@@ -21,6 +21,14 @@ item includes an effort estimate and implementation notes.
 > issues), so removing a finished item leaves a gap rather than renumbering the
 > rest. That's intentional. A feature that shipped but left follow-ups keeps its
 > number, and its entry lists only what is still open.
+>
+> **2026-10-09 audit:** Re-checked every entry below against current `main`.
+> No implementation-complete entry remains in this file: the existing items are
+> either concrete open follow-ups or intentionally deferred work. In particular,
+> an activity *feed* does not complete the per-session web activity-badge
+> remainder; current browser PTY/tmux attachment does not complete Hub-backed
+> remote PTY streaming; and compatibility aliases or partial adapter behavior do
+> not complete the associated migration/hardening work.
 
 ---
 
