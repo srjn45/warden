@@ -1,6 +1,6 @@
 # Warden Future Enhancements & Feature Roadmap
 
-**Last Updated:** 2026-10-05
+**Last Updated:** 2026-10-09
 **Audited Against:** `main` at v9.18.0 (through PR #751)
 
 This document tracks **pending** improvements and new features for warden. Each
@@ -85,6 +85,48 @@ current scale.**
 ---
 
 ## 🧊 Parked (need a concrete demand signal)
+
+#### 56. Hub-backed remote PTY terminal streaming — *deferred until Hub work resumes*
+**Effort:** 2–4 weeks after the local Warden-owned PTY runtime is proven
+
+When Warden Hub is developed, extend the local Warden node with secure remote
+access to managed PTY sessions for web and mobile clients. This is explicitly
+**not** part of the local PTY runtime rollout.
+
+- The local daemon remains the sole owner of the AI CLI/PTY process and the
+  only component allowed to write terminal bytes. Hub is an authenticated relay
+  and fan-out control plane, never a direct shell, tmux, filesystem, or PTY
+  endpoint.
+- Use one authenticated, multiplexed node-to-Hub connection (WebSocket is an
+  acceptable initial transport). Logical channels will carry terminal render
+  output, normalized events, input, resize, controller leases, approvals,
+  lifecycle/status, and metrics. Consider WebTransport/QUIC only after the
+  initial design is working.
+- Separate observer access from interactive-controller access: default to one
+  controller and many viewers; require explicit request, takeover, revocation,
+  expiry, disconnect, local-user-priority, and audit semantics.
+- Remote input follows `web/mobile → Hub → local daemon → PTY`. The daemon must
+  recheck authorization, controller lease, input ownership, session state,
+  limits, prompt freshness, and the effective local permission posture before
+  every write. Permission approval remains distinct from raw terminal control.
+- Maintain two data paths: a low-latency, bounded, coalescible render stream
+  for interactive terminal display, and a durable, normalized, redacted,
+  ordered, cursor-addressable event history for replay, audit, decisions, and
+  debugging. Slow clients or Hub outages must never block the AI CLI or cause
+  unbounded resource use.
+- Web should support observe/control, reconnect/resume, resize, controller
+  state, and accessible approval/status views. Mobile should begin view-first,
+  with deliberately gated control rather than unrestricted desktop-terminal
+  emulation. Detach must never stop the local agent.
+- Design and test protocol versioning, reconnect/resume, frame loss/reorder,
+  stale input, controller races, authorization revocation, secret redaction,
+  audit/replay integrity, backpressure, resource pressure, and node/Hub/client
+  restart recovery.
+
+**Revisit only after:** `pty-runtime-and-permission-decision-engine` is merged,
+deployed, the authoritative local PTY attach/recovery path is proven, and Hub
+work is actively being planned. Build on the existing node/Hub remote-access
+identity and authorization boundaries rather than bypassing them.
 
 #### 14. Distributed warden (multi-machine) — *not started*
 **Effort:** 1–2 weeks
