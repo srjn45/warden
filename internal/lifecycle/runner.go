@@ -152,6 +152,10 @@ type FakeConfig struct {
 	// MemoryInjectOff disables .warden/memory.md projection; the zero value leaves
 	// it on, matching the production default.
 	MemoryInjectOff bool
+	// ProtectedBranches replaces the usual main/master list when non-nil.
+	ProtectedBranches []string
+	// ProtectDefaultBranchOff permits the remote default branch unless listed.
+	ProtectDefaultBranchOff bool
 }
 
 func (f *FakeConfig) GetDefaultPermissionMode() string {
@@ -174,6 +178,15 @@ func (f *FakeConfig) GetMemoryInject() bool { return !f.MemoryInjectOff }
 func (f *FakeConfig) GetIsolationGuard() bool { return !f.IsolationGuardOff }
 
 func (f *FakeConfig) GetGitConventions() bool { return !f.GitConventionsOff }
+
+func (f *FakeConfig) GetGitProtectedBranches() []string {
+	if f.ProtectedBranches != nil {
+		return f.ProtectedBranches
+	}
+	return []string{"main", "master"}
+}
+
+func (f *FakeConfig) GetGitProtectDefaultBranch() bool { return !f.ProtectDefaultBranchOff }
 
 func (f *FakeConfig) GetGitRedirect() bool { return !f.GitRedirectOff }
 
