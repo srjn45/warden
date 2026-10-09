@@ -18,6 +18,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -39,8 +40,14 @@ const RepairDryRunCommand = "warden repair backends --dry-run"
 // ones the recovery layer will touch.
 var registryCollections = []string{"backends", "models", "role_tiers", "handover_settings", "quotas", "rl_cooldowns"}
 
-// ResolutionRule names the only rule recovery applies to revision regressions.
-const ResolutionRule = "newest-revision-with-concordant-timestamp"
+// Resolution rules (see classifyRegressions). The winner of a regressed id is
+// always its highest-revision line.
+const (
+	RuleOlderTimestamp   = "newest-revision-with-concordant-timestamp"
+	RulePreferencesEqual = "preferences-equal-detection-only"
+	// ResolutionRule names the rule set recorded in the audit report.
+	ResolutionRule = RuleOlderTimestamp + "|" + RulePreferencesEqual
+)
 
 var (
 	// ErrRecoveryRequired matches (errors.Is) every *RecoveryRequiredError.
@@ -71,7 +78,24 @@ type DiscardedRevision struct {
 	TS          string `json:"ts"`
 	WinnerRev   uint64 `json:"winner_rev"`
 	WinnerTS    string `json:"winner_ts"`
-	DiscardedAs string `json:"rule"`
+	DiscardedAs string `json:"rule"` // RuleOlderTimestamp | RulePreferencesEqual
+	// DetectionDiffs lists rebuildable (detection) fields on which the discarded
+	// version differed from the winner; the next rescan refreshes them.
+	DetectionDiffs []string `json:"detection_diffs,omitempty"`
+}
+
+// FieldConflict is one non-rebuildable field on which two conflicting versions
+// of a record disagree; it is what an operator must choose between.
+type FieldConflict struct {
+	ID          uint64 `json:"id"`
+	Key         string `json:"key,omitempty"`
+	Field       string `json:"field"`
+	Rev         uint64 `json:"rev"` // the lower-revision (regressed) version
+	TS          string `json:"ts"`
+	Value       any    `json:"value"`
+	WinnerRev   uint64 `json:"winner_rev"` // the highest-revision version
+	WinnerTS    string `json:"winner_ts"`
+	WinnerValue any    `json:"winner_value"`
 }
 
 // CollectionVerdict is the classification of one collection.
@@ -82,6 +106,9 @@ type CollectionVerdict struct {
 	Codes      []string            `json:"codes,omitempty"`
 	Reasons    []string            `json:"reasons,omitempty"`
 	Stale      []DiscardedRevision `json:"stale,omitempty"`
+	// Conflicts names every preference field on which conflicting versions
+	// differ (both values), for an ambiguous verdict.
+	Conflicts []FieldConflict `json:"conflicts,omitempty"`
 }
 
 // Report is the read-only result of Verify.
@@ -292,10 +319,10 @@ func Verify(ctx context.Context, dir string) (*Report, error) {
 		case anyConflict && !conflictsOnlyRevision:
 			v.Verdict, v.Reasons = VerdictAmbiguous, []string{"history conflict other than revision regression (duplicate/reused/deleted id)"}
 		case anyConflict:
-			stale, reasons := classifyRegressions(dir, cr.Name)
+			stale, conflicts, reasons := classifyRegressions(dir, cr.Name)
 			v.Stale = stale
 			if len(reasons) > 0 {
-				v.Verdict, v.Reasons, v.Stale = VerdictAmbiguous, reasons, nil
+				v.Verdict, v.Reasons, v.Stale, v.Conflicts = VerdictAmbiguous, reasons, nil, conflicts
 			}
 		}
 		rep.Collections = append(rep.Collections, v)
@@ -481,40 +508,81 @@ type histEntry struct {
 	Data json.RawMessage `json:"data"`
 }
 
-type idState struct {
-	maxRev  uint64
-	maxTS   time.Time
-	maxTSs  string
-	maxData []byte
-	hasDel  bool
-	regress bool
-	tsInv   bool
-	stale   []DiscardedRevision
+// histLine is one parsed insert/update line of an id's history.
+type histLine struct {
+	seg  string
+	no   int // 1-based line number in seg
+	e    histEntry
+	ts   time.Time
+	data map[string]any
 }
 
-// classifyRegressions applies ResolutionRule to a collection. A regression line
-// is provably stale iff it is an update with a lower revision than the id's
-// newest AND an older timestamp than that newest line (append order, revision
-// and wall clock all agree which write is last). Anything else -- equal-revision
-// different content, a lower revision with a NEWER timestamp (a second writer's
-// later, divergent write), a revision that is higher but older, deletes in an
-// affected id, unparseable lines -- is ambiguous.
-func classifyRegressions(dir, col string) ([]DiscardedRevision, []string) {
+// rebuildableFields are the fields a rescan (Reconcile) regenerates; every other
+// field of a record is a user preference or non-derivable state. Only the
+// backends collection has a clear split (the settings and handover singletons
+// live there too, but carry no detection fields so they compare in full). Every
+// other collection has no rebuildable field: its versions must be identical.
+var rebuildableFields = map[string]map[string]bool{
+	"backends": {"installed": true, "binary_path": true, "detected_at": true},
+}
+
+// prefDiffs lists the non-rebuildable fields on which a and b disagree, and the
+// rebuildable (detection) fields on which they disagree.
+func prefDiffs(col string, a, b map[string]any) (prefs, detection []string) {
+	seen := map[string]bool{}
+	for k := range a {
+		seen[k] = true
+	}
+	for k := range b {
+		seen[k] = true
+	}
+	for k := range seen {
+		if reflect.DeepEqual(a[k], b[k]) {
+			continue
+		}
+		if rebuildableFields[col][k] {
+			detection = append(detection, k)
+		} else {
+			prefs = append(prefs, k)
+		}
+	}
+	sort.Strings(prefs)
+	sort.Strings(detection)
+	return prefs, detection
+}
+
+// classifyRegressions applies the two resolution rules to a collection. For an
+// id with regressed history the winner is the line with the highest revision
+// (the physically last one if several share it). Every other line that would
+// make the history non-monotone is dropped, but only if one of these proves the
+// winner is the right survivor:
+//
+//   - RuleOlderTimestamp: the line has a lower revision AND an older ts than
+//     the winner (revision, append order and wall clock all agree).
+//   - RulePreferencesEqual: the line and the winner agree on every
+//     non-rebuildable field, so the choice cannot change any preference; they
+//     differ at most in detection fields, which the next rescan refreshes.
+//
+// A dropped line proven by neither is an operator decision: it is returned as a
+// FieldConflict (field, both values) and the collection is ambiguous. Deletes
+// on an affected id, unparseable lines and compaction leftovers are always
+// ambiguous.
+func classifyRegressions(dir, col string) ([]DiscardedRevision, []FieldConflict, []string) {
 	cdir := filepath.Join(dir, col)
 	if _, err := os.Stat(filepath.Join(cdir, "compact.manifest")); err == nil {
-		return nil, []string{"pending compaction manifest; resolve it with scriva before recovery"}
+		return nil, nil, []string{"pending compaction manifest; resolve it with scriva before recovery"}
 	}
 	segs, err := filepath.Glob(filepath.Join(cdir, "seg_*.ndjson"))
 	if err != nil || len(segs) == 0 {
-		return nil, []string{"no readable segments to classify"}
+		return nil, nil, []string{"no readable segments to classify"}
 	}
 	sort.Strings(segs)
-	states := map[uint64]*idState{}
-	var reasons []string
+	hist := map[uint64][]histLine{}
+	deleted := map[uint64]bool{}
 	for _, seg := range segs {
 		raw, err := os.ReadFile(seg)
 		if err != nil {
-			return nil, []string{"segment unreadable: " + err.Error()}
+			return nil, nil, []string{"segment unreadable: " + err.Error()}
 		}
 		for i, l := range bytes.Split(raw, []byte("\n")) {
 			if len(bytes.TrimSpace(l)) == 0 {
@@ -522,67 +590,127 @@ func classifyRegressions(dir, col string) ([]DiscardedRevision, []string) {
 			}
 			var e histEntry
 			if err := json.Unmarshal(l, &e); err != nil {
-				return nil, []string{fmt.Sprintf("%s line %d does not parse: %v", filepath.Base(seg), i+1, err)}
-			}
-			ts, terr := time.Parse(time.RFC3339Nano, e.TS)
-			st := states[e.ID]
-			if st == nil {
-				st = &idState{}
-				states[e.ID] = st
+				return nil, nil, []string{fmt.Sprintf("%s line %d does not parse: %v", filepath.Base(seg), i+1, err)}
 			}
 			switch e.Op {
 			case "delete":
-				st.hasDel = true
+				deleted[e.ID] = true
 				continue
 			case "insert", "update":
 			default:
-				return nil, []string{fmt.Sprintf("%s line %d has unknown op %q", filepath.Base(seg), i+1, e.Op)}
+				return nil, nil, []string{fmt.Sprintf("%s line %d has unknown op %q", filepath.Base(seg), i+1, e.Op)}
 			}
-			if terr != nil {
-				return nil, []string{fmt.Sprintf("%s line %d has unparseable timestamp", filepath.Base(seg), i+1)}
+			ts, terr := time.Parse(time.RFC3339Nano, e.TS)
+			var data map[string]any
+			if terr != nil || json.Unmarshal(e.Data, &data) != nil {
+				return nil, nil, []string{fmt.Sprintf("%s line %d has unparseable timestamp or data", filepath.Base(seg), i+1)}
 			}
-			switch {
-			case st.maxRev == 0 || e.Rev > st.maxRev:
-				if st.maxRev != 0 && ts.Before(st.maxTS) {
-					st.tsInv = true
-				}
-				st.maxRev, st.maxTS, st.maxTSs, st.maxData = e.Rev, ts, e.TS, e.Data
-			case e.Op == "update" && e.Rev == st.maxRev && bytes.Equal(e.Data, st.maxData):
-				// identical repeat: scriva reports Info; keep.
-			case e.Op == "update" && e.Rev < st.maxRev && ts.Before(st.maxTS):
-				st.regress = true
-				var k struct {
-					Key string `json:"_key"`
-				}
-				_ = json.Unmarshal(e.Data, &k)
-				st.stale = append(st.stale, DiscardedRevision{Collection: col, Segment: filepath.Base(seg), Line: i + 1, ID: e.ID,
-					Key: k.Key, Rev: e.Rev, TS: e.TS, WinnerRev: st.maxRev, WinnerTS: st.maxTSs, DiscardedAs: ResolutionRule})
-			default:
-				reasons = append(reasons, fmt.Sprintf("id %d: %s line %d (rev %d, ts %s) is not provably older than rev %d (ts %s)",
-					e.ID, filepath.Base(seg), i+1, e.Rev, e.TS, st.maxRev, st.maxTSs))
-			}
+			hist[e.ID] = append(hist[e.ID], histLine{seg: filepath.Base(seg), no: i + 1, e: e, ts: ts, data: data})
 		}
 	}
-	var stale []DiscardedRevision
-	ids := make([]uint64, 0, len(states))
-	for id := range states {
+	ids := make([]uint64, 0, len(hist))
+	for id := range hist {
 		ids = append(ids, id)
 	}
 	slices.Sort(ids)
+
+	var stale []DiscardedRevision
+	var conflicts []FieldConflict
+	var reasons []string
 	for _, id := range ids {
-		st := states[id]
-		if st.regress && st.hasDel {
-			reasons = append(reasons, fmt.Sprintf("id %d: revision regression on an id that was deleted", id))
+		lines := hist[id]
+		win := 0
+		for i, l := range lines {
+			if l.e.Rev >= lines[win].e.Rev {
+				win = i
+			}
 		}
-		if st.regress && st.tsInv {
-			reasons = append(reasons, fmt.Sprintf("id %d: a higher revision carries an older timestamp; revision and wall clock disagree", id))
+		w := lines[win]
+		key, _ := w.data[engine.KeyField].(string)
+		var dropped []int
+		var runMax uint64
+		for i, l := range lines {
+			switch {
+			case i == win:
+				continue
+			case i > win:
+				dropped = append(dropped, i)
+			case l.e.Rev > runMax:
+				runMax = l.e.Rev
+			case l.e.Rev == runMax && reflect.DeepEqual(l.data, lines[kept(lines, dropped, i)].data):
+				// identical repeat of the running max: scriva reports Info; keep.
+			default:
+				dropped = append(dropped, i)
+			}
 		}
-		stale = append(stale, st.stale...)
+		if len(dropped) == 0 {
+			continue
+		}
+		if deleted[id] {
+			reasons = append(reasons, fmt.Sprintf("id %d (%s): revision regression on an id that was deleted", id, key))
+			continue
+		}
+		var idStale []DiscardedRevision
+		okID, usedTS := true, false
+		for _, i := range dropped {
+			d := lines[i]
+			dr := DiscardedRevision{Collection: col, Segment: d.seg, Line: d.no, ID: id, Key: key, Rev: d.e.Rev, TS: d.e.TS,
+				WinnerRev: w.e.Rev, WinnerTS: w.e.TS}
+			prefs, det := prefDiffs(col, d.data, w.data)
+			dr.DetectionDiffs = det
+			switch {
+			case d.e.Rev < w.e.Rev && d.ts.Before(w.ts):
+				dr.DiscardedAs, usedTS = RuleOlderTimestamp, true
+			case len(prefs) == 0:
+				dr.DiscardedAs = RulePreferencesEqual
+			default:
+				okID = false
+				for _, f := range prefs {
+					conflicts = append(conflicts, FieldConflict{ID: id, Key: key, Field: f, Rev: d.e.Rev, TS: d.e.TS,
+						Value: d.data[f], WinnerRev: w.e.Rev, WinnerTS: w.e.TS, WinnerValue: w.data[f]})
+				}
+				reasons = append(reasons, fmt.Sprintf("id %d (%s): rev %d at %s differs from rev %d at %s on preference field(s) %s",
+					id, key, d.e.Rev, d.e.TS, w.e.Rev, w.e.TS, strings.Join(prefs, ",")))
+			}
+			idStale = append(idStale, dr)
+		}
+		if okID && usedTS {
+			// The timestamp rule is only sound if no surviving earlier line is newer than the winner.
+			isDropped := map[int]bool{}
+			for _, i := range dropped {
+				isDropped[i] = true
+			}
+			for i, l := range lines {
+				if i != win && !isDropped[i] && l.ts.After(w.ts) {
+					okID = false
+					reasons = append(reasons, fmt.Sprintf("id %d (%s): a surviving line has a newer timestamp than the newest revision; revision and wall clock disagree", id, key))
+					break
+				}
+			}
+		}
+		if okID {
+			stale = append(stale, idStale...)
+		}
 	}
 	if len(reasons) == 0 && len(stale) == 0 {
-		reasons = append(reasons, "scriva reports a revision conflict that no stale line explains (e.g. two different updates at one revision)")
+		reasons = append(reasons, "scriva reports a revision conflict that no history line explains")
 	}
-	return stale, reasons
+	return stale, conflicts, reasons
+}
+
+// kept returns the index of the latest earlier non-dropped line before i (the
+// line currently defining the running max); i itself if none.
+func kept(lines []histLine, dropped []int, i int) int {
+	isDropped := map[int]bool{}
+	for _, d := range dropped {
+		isDropped[d] = true
+	}
+	for j := i - 1; j >= 0; j-- {
+		if !isDropped[j] {
+			return j
+		}
+	}
+	return i
 }
 
 // dropStale rewrites the affected segments without the stale lines (atomic
