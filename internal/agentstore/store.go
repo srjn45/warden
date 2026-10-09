@@ -44,6 +44,7 @@ type Store struct {
 	closed    *engine.Collection
 	lock      *flockFile
 	preflight *UnhealthyError
+	scratch   string // throwaway copy of a damaged agents-db; removed on Close
 }
 
 var _ AgentStore = (*Store)(nil)
@@ -69,14 +70,32 @@ func New(dir string) (*Store, error) {
 	// derived indexes at open, but that must not turn an already-damaged or
 	// missing index into a silently healthy fleet from Warden's perspective.
 	var preflight *UnhealthyError
-	if _, statErr := os.Stat(filepath.Join(canon, "agents-db")); statErr == nil {
+	_, markErr := os.Stat(filepath.Join(canon, importedMarker))
+	if _, statErr := os.Stat(filepath.Join(canon, "agents-db")); statErr == nil && markErr == nil {
 		if rep, verifyErr := VerifyAgentStore(context.Background(), canon); verifyErr != nil {
 			preflight = readFailure("agents", "", verifyErr)
 		} else if failures := ReportFailures(rep); len(failures) > 0 {
 			preflight = newUnhealthy(failures...)
 		}
 	}
-	s, err := open(canon)
+	var s *Store
+	if preflight != nil {
+		// ScrivaDB rebuilds a damaged index at open. Open a throwaway copy so
+		// the on-disk store stays byte-identical until an explicit repair.
+		scratch, cerr := copyTree(filepath.Join(canon, "agents-db"))
+		if cerr != nil {
+			_ = lock.release()
+			return nil, cerr
+		}
+		s, err = openAt(canon, filepath.Join(scratch, "agents-db"))
+		if err != nil {
+			_ = os.RemoveAll(scratch)
+		} else {
+			s.scratch = scratch
+		}
+	} else {
+		s, err = open(canon)
+	}
 	if err != nil {
 		_ = lock.release()
 		return nil, err
@@ -86,8 +105,40 @@ func New(dir string) (*Store, error) {
 	return s, nil
 }
 
-func open(dir string) (*Store, error) {
-	dbDir := filepath.Join(dir, "agents-db")
+func open(dir string) (*Store, error) { return openAt(dir, filepath.Join(dir, "agents-db")) }
+
+// copyTree copies src into <tmp>/agents-db and returns tmp.
+func copyTree(src string) (string, error) {
+	tmp, err := os.MkdirTemp("", "warden-agents-scratch-")
+	if err != nil {
+		return "", err
+	}
+	dst := filepath.Join(tmp, "agents-db")
+	err = filepath.WalkDir(src, func(p string, d os.DirEntry, werr error) error {
+		if werr != nil {
+			return werr
+		}
+		rel, _ := filepath.Rel(src, p)
+		if d.IsDir() {
+			return os.MkdirAll(filepath.Join(dst, rel), 0o700)
+		}
+		if !d.Type().IsRegular() {
+			return nil
+		}
+		b, rerr := os.ReadFile(p)
+		if rerr != nil {
+			return rerr
+		}
+		return os.WriteFile(filepath.Join(dst, rel), b, 0o600)
+	})
+	if err != nil {
+		_ = os.RemoveAll(tmp)
+		return "", err
+	}
+	return tmp, nil
+}
+
+func openAt(dir, dbDir string) (*Store, error) {
 	marker := filepath.Join(dir, importedMarker)
 	_, err := os.Stat(marker)
 	imported := err == nil
@@ -255,6 +306,9 @@ func (s *Store) get(id string) (*Agent, error) {
 
 // Insert creates an agent, initializing its lifecycle timestamps and events.
 func (s *Store) Insert(ctx context.Context, a *Agent) error {
+	if s.preflight != nil {
+		return s.preflight
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -405,6 +459,9 @@ func (s *Store) List(ctx context.Context) ([]*Agent, error) {
 
 // Update atomically applies fn and stamps UpdatedAt.
 func (s *Store) Update(ctx context.Context, id string, fn func(*Agent) error) error {
+	if s.preflight != nil {
+		return s.preflight
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -434,6 +491,9 @@ func (s *Store) Update(ctx context.Context, id string, fn func(*Agent) error) er
 // among active agents), falling back to ID lookup if no name matches.
 // Returns ErrNotFound if neither name nor ID match any active agent.
 func (s *Store) GetByNameOrID(ctx context.Context, nameOrID string) (*Agent, error) {
+	if s.preflight != nil {
+		return nil, s.preflight
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -486,6 +546,9 @@ func (s *Store) ListClosedDegraded(ctx context.Context) ([]*Agent, int, error) {
 
 // Archive moves the agent doc from active to closed collection.
 func (s *Store) Archive(ctx context.Context, id string) error {
+	if s.preflight != nil {
+		return s.preflight
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -728,6 +791,9 @@ func (s *Store) Ping(ctx context.Context) error {
 
 // Delete permanently removes an agent. A missing id returns ErrNotFound.
 func (s *Store) Delete(ctx context.Context, id string) error {
+	if s.preflight != nil {
+		return s.preflight
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -745,6 +811,9 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 
 func (s *Store) Close() error {
 	err := s.db.Close()
+	if s.scratch != "" {
+		_ = os.RemoveAll(s.scratch)
+	}
 	if lerr := s.lock.release(); err == nil {
 		err = lerr
 	}
