@@ -38,6 +38,39 @@ func (s *Server) ListModels(_ context.Context, req oapi.ListModelsRequestObject)
 	return oapi.ListModels200JSONResponse(models), nil
 }
 
+// AddModel implements POST /api/v1/models: register a custom model in the catalog.
+func (s *Server) AddModel(_ context.Context, req oapi.AddModelRequestObject) (oapi.AddModelResponseObject, error) {
+	if s.backends == nil {
+		return nil, errStatus(http.StatusServiceUnavailable, "backend registry not configured")
+	}
+	if req.Body == nil {
+		return nil, errStatus(http.StatusBadRequest, "request body is required")
+	}
+	b := req.Body
+	backendID, modelID := strings.TrimSpace(b.BackendId), strings.TrimSpace(b.ModelId)
+	if backendID == "" || modelID == "" {
+		return nil, errStatus(http.StatusBadRequest, "backend_id and model_id are required")
+	}
+	tier := backendstore.ModelTier(strings.TrimSpace(b.Tier))
+	if !tier.Valid() {
+		return nil, errStatus(http.StatusBadRequest, fmt.Sprintf("invalid tier %q (valid: tier-1, tier-2, tier-3)", b.Tier))
+	}
+	if err := s.backends.AddModel(backendID, modelID, b.DisplayName, tier, b.AutoAssign, b.QuotaScope); err != nil {
+		if errors.Is(err, backendstore.ErrExists) {
+			return nil, errStatus(http.StatusConflict, fmt.Sprintf("model %s/%s already exists in the catalog", backendID, modelID))
+		}
+		if errors.Is(err, backendstore.ErrInvalidTier) {
+			return nil, errStatus(http.StatusBadRequest, err.Error())
+		}
+		return nil, err
+	}
+	m, err := s.backends.GetModel(backendID, modelID)
+	if err != nil {
+		return nil, err
+	}
+	return oapi.AddModel201JSONResponse(m), nil
+}
+
 // SetModelTier implements PUT /api/v1/models/{backend}/{model}/tier: update a model's tier classification.
 func (s *Server) SetModelTier(_ context.Context, req oapi.SetModelTierRequestObject) (oapi.SetModelTierResponseObject, error) {
 	if s.backends == nil {

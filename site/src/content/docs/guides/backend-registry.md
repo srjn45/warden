@@ -117,6 +117,50 @@ thereafter, and the daemon logs a deprecation warning if the config still carrie
 them. Tier autopilot's backends with `warden backend tier` from then on.
 :::
 
+## Integrity, single-daemon rule, and offline repair
+
+The backend registry is opened by **exactly one** warden process at a time. The
+daemon takes an exclusive data-directory ownership lock
+(`<data_dir>/.warden-owner.lock`) at startup.
+
+:::caution[Single daemon per data directory]
+Run exactly one warden daemon per data directory. With the systemd user service,
+use `systemctl --user stop warden` and `systemctl --user start warden`, never a
+manual `warden daemon` beside it. Multiple concurrent writers can cause revision
+regressions in the underlying ScrivaDB store.
+:::
+
+Direct CLI operations (`wd models`, `wd role`) route transparently through the
+daemon's API when the daemon is running, avoiding split-brain writes. When the
+daemon is stopped, CLI commands take a temporary lock.
+
+If the registry suffers revision regressions or damage:
+- The daemon refuses to start on unresolvable/ambiguous damage with an actionable
+  error pointing to `warden repair backends`.
+- `warden doctor` inspects backend registry integrity in read-only mode.
+- `warden update` preflights registry integrity before swapping binaries.
+
+### Offline repair procedure
+
+Offline repair is backup-first, audited, and strictly offline:
+
+```sh
+# 1. Stop the daemon
+systemctl --user stop warden
+
+# 2. Inspect findings without modifying anything (read-only)
+warden repair backends --dry-run
+
+# 3. Repair with backup and confirmation (or pass --yes)
+warden repair backends
+
+# 4. Restart the daemon
+systemctl --user start warden
+```
+
+Each repair takes a verified backup first, removes only provably stale revisions,
+and writes an audit report. Ambiguous findings are never guessed.
+
 ## See also
 
 - [Agent backends](/warden/concepts/agent-backends/) — picking a backend per spawn and
@@ -125,6 +169,8 @@ them. Tier autopilot's backends with `warden backend tier` from then on.
   / tool / config surface.
 - [Autopilot](/warden/concepts/autopilot/) — the cost-tier ladder that reads this
   registry.
+- [Agent store integrity](/warden/guides/agent-store-integrity/) — integrity and
+  recovery for the agent sessions database.
 
 ## Perishable quota: reset-aware model selection
 

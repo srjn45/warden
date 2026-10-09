@@ -61,7 +61,7 @@ Get started and interact:
   login                Authenticate this node with a warden-hub relay using the device flow
   setup                Install missing dependencies (tmux, git, claude; optional gh)
   tutorial             Run the first-run guided walkthrough of warden's core loop
-  doctor               Run preflight checks (required binaries, daemon, data dir, configured local model)
+  doctor               Run preflight checks (required binaries, daemon, data dir, agent store, backend registry integrity)
   tui                  Live terminal cockpit for agents
   update               Update the installed warden binary from GitHub Releases
   version              Print warden version and build information
@@ -4299,6 +4299,7 @@ Usage:
 
 Commands:
   agents               Verify or repair the agent store offline, backup-first
+  backends             Verify or repair the backend registry offline, backup-first
   sessions             Diagnose or reconstruct the offline session store
 
 Flags:
@@ -4327,6 +4328,63 @@ Flags:
       --json                 print the machine-readable Verify/Repair report
       --on-conflict string   report or abort on ambiguous history (default "report")
       --salvage              permit ScrivaDB's conflict-safe segment salvage
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden inspect repair backends
+
+```text
+Offline verify/repair of the backend registry (<data>/backends): backend rows,
+tiers, enabled flags, default backend, settings, models, role tiers, quotas,
+rate-limit cooldowns and handover settings.
+
+The daemon must be stopped: the command refuses while any process owns the data
+directory and names the owner and the stop command (with the systemd user
+service: systemctl --user stop warden). Never start a second "warden daemon"
+beside the service to work around it.
+
+  warden inspect repair backends --dry-run   read-only: classify every finding, change nothing
+  warden inspect repair backends             repair after an explicit confirmation
+
+Each finding is classified as safely-recoverable (provably stale revision
+history or a stale derived index) or recovery-required (ambiguous history or
+damaged bytes). Repair takes a verified backup first, removes only provably
+stale revisions (each one is listed in the report and kept in the backup), and
+verifies the result; on any failure the backup is restored. Ambiguous history is
+never resolved automatically: it is reported and the registry is left untouched.
+A clean registry is a no-op.
+
+Repair needs confirmation: answer the prompt, or pass --yes when not on a
+terminal. Without either it refuses and changes nothing.
+
+Exit codes:
+  0  clean (nothing to do), or repaired and verified
+  1  unexpected error
+  3  refused: a running process owns the data directory
+  4  recovery required: ambiguous findings, or the repair failed and was rolled back
+  5  confirmation missing or declined
+  6  --dry-run found safely recoverable findings (run without --dry-run to repair)
+
+Usage:
+  warden inspect repair backends [flags]
+
+Examples:
+  systemctl --user stop warden
+    warden inspect repair backends --dry-run
+    warden inspect repair backends
+    systemctl --user start warden
+  
+    warden inspect repair backends --yes --json
+
+Flags:
+      --backup-dir string   parent directory for the verified backup and the report (default <data>/backend-registry-backups; must be outside <data>/backends)
+      --dry-run             verify and report only; read-only, changes nothing
+  -h, --help                help for backends
+      --json                print the machine-readable report
+  -y, --yes                 confirm the repair without prompting (required when not on a terminal)
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -5319,7 +5377,7 @@ Inherited flags:
 ## warden doctor
 
 ```text
-Run preflight checks (required binaries, daemon, data dir, configured local model)
+Run preflight checks (required binaries, daemon, data dir, agent store, backend registry integrity)
 
 Usage:
   warden doctor [flags]
@@ -5358,12 +5416,22 @@ Inherited flags:
 Download a verified GitHub release archive, atomically replace
 ~/.local/bin/warden, re-sign on macOS when the warden-codesign identity is
 present, run config migrations, restart the user-level daemon service, and
-probe /healthz — rolling the binary back if the new daemon is unhealthy.
+wait for /healthz to report ok on the new version.
+
+The update is a transaction. Before any change it records the current binary,
+service manager and daemon version, and verifies the backend store read-only:
+an unrecoverable store stops the update with the diagnosis and repair command
+instead of swapping into a daemon that cannot boot (auto-recoverable findings
+are reported, not blocking). After the restart the real daemon startup error
+(journal / stderr tail) is shown on failure. On ANY failure the previous binary
+is restored, the service restarted, and the old version verified healthy; both
+the original failure and the rollback outcome are reported.
 
 Flags:
   --check            report whether an update is available without applying it
   --version <tag>    install a specific release (e.g. 9.9.0 or v9.9.0)
   --force            reinstall even when already on the target version
+  --ready-timeout    overall deadline for the daemon to become healthy (default 90s)
 
 Examples:
   warden update
@@ -5375,10 +5443,11 @@ Usage:
   warden update [flags]
 
 Flags:
-      --check            query and print whether an update is available without applying it
-      --force            reinstall even when already on the target version
-  -h, --help             help for update
-      --version string   install a specific release tag (e.g. 9.9.0 or v9.9.0)
+      --check                    query and print whether an update is available without applying it
+      --force                    reinstall even when already on the target version
+  -h, --help                     help for update
+      --ready-timeout duration   overall deadline for the restarted daemon to report healthy on the new version (default 1m30s)
+      --version string           install a specific release tag (e.g. 9.9.0 or v9.9.0)
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -5771,6 +5840,7 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | `warden remove-worktree` | `warden agent remove-worktree` |
 | `warden repair` | `warden inspect repair` |
 | `warden repair agents` | `warden inspect repair agents` |
+| `warden repair backends` | `warden inspect repair backends` |
 | `warden repair sessions` | `warden inspect repair sessions` |
 | `warden repl` | `warden backend repl` |
 | `warden restore` | `warden agent restore` |

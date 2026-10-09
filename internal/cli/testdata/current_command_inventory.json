@@ -2022,6 +2022,22 @@
     "json": true
   },
   {
+    "path": "inspect repair backends",
+    "use": "backends",
+    "runnable": true,
+    "local_flags": [
+      "backup-dir",
+      "dry-run",
+      "json",
+      "yes"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
     "path": "inspect repair sessions",
     "use": "sessions",
     "runnable": true,
@@ -3626,6 +3642,23 @@
     "json": true
   },
   {
+    "path": "repair backends",
+    "use": "backends",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "backup-dir",
+      "dry-run",
+      "json",
+      "yes"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
     "path": "repair sessions",
     "use": "sessions",
     "hidden": true,
@@ -4287,6 +4320,7 @@
     "local_flags": [
       "check",
       "force",
+      "ready-timeout",
       "version"
     ],
     "inherited_flags": [

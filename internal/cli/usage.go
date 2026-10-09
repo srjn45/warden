@@ -25,6 +25,10 @@ func ExitCode(err error) int {
 	if errors.As(err, &partial) {
 		return 2
 	}
+	var coded *exitCodeError
+	if errors.As(err, &coded) {
+		return coded.code
+	}
 	return 1
 }
 

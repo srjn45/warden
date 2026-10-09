@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -17,13 +18,43 @@ import (
 	_ "github.com/srjn45/warden/internal/agentbackend/backends" // register the adapters so agentbackend.Get resolves in-process
 	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/config"
+	"github.com/srjn45/warden/internal/ownerlock"
 )
 
 // openBackendStore opens the backend registry store for CLI commands.
 // It is a package var so tests can stub it with a test store.
 var openBackendStore = func(cmd *cobra.Command) (*backendstore.Store, error) {
 	cfg := config.Load(configPathFor(cmd))
+	if err := ownCLIDataDir(cfg.DataDir); err != nil {
+		return nil, err
+	}
 	return backendstore.NewStore(filepath.Join(cfg.DataDir, "backends"))
+}
+
+// cliOwnership is the data-dir ownership lock held by this CLI process once it
+// has opened a store directly. It is held until the process exits (the kernel
+// drops it), so every direct open in one command shares it.
+var cliOwnership *ownerlock.Lock
+
+// ownCLIDataDir is the direct-open policy (#841): a CLI command may open the
+// backend registry itself only when no daemon owns the data dir; otherwise it
+// is refused with guidance (the daemon is the single writer). While the CLI
+// holds the lock a daemon start is refused, so no two processes ever write.
+func ownCLIDataDir(dataDir string) error {
+	if cliOwnership != nil {
+		return nil
+	}
+	l, err := ownerlock.Acquire(dataDir, ownerlock.Info{
+		Kind: ownerlock.KindCLI, Version: version, Command: strings.Join(os.Args, " ")})
+	if err != nil {
+		var oe *ownerlock.OwnedError
+		if errors.As(err, &oe) && oe.Owner != nil && oe.Owner.Kind == ownerlock.KindDaemon {
+			return fmt.Errorf("%w\nthe daemon is the single writer of the backend registry; use the daemon-backed interfaces (REST/MCP: list_backends, list_models, set_backend_tier, set_model_tier, set_role_tier, ...) or stop the daemon first", err)
+		}
+		return err
+	}
+	cliOwnership = l
+	return nil
 }
 
 // modelsBackend resolves the agent.Backend this `wd models` runs for, mirroring
@@ -107,7 +138,7 @@ func newModelsListCmd() *cobra.Command {
 		Aliases: []string{"ls"},
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			st, err := openBackendStore(cmd)
+			st, err := openRegistry(cmd)
 			if err != nil {
 				return err
 			}
@@ -184,7 +215,7 @@ Example:
 				return fmt.Errorf("invalid tier %q (valid: tier-1, tier-2, tier-3)", tierStr)
 			}
 
-			st, err := openBackendStore(cmd)
+			st, err := openRegistry(cmd)
 			if err != nil {
 				return err
 			}
@@ -235,7 +266,7 @@ Examples:
 				return fmt.Errorf("invalid tier %q (valid: tier-1, tier-2, tier-3); pass --tier", tier)
 			}
 
-			st, err := openBackendStore(cmd)
+			st, err := openRegistry(cmd)
 			if err != nil {
 				return err
 			}
@@ -300,7 +331,7 @@ Examples:
 				if !mt.Valid() {
 					return fmt.Errorf("--import requires --tier (tier-1|tier-2|tier-3)")
 				}
-				st, err := openBackendStore(cmd)
+				st, err := openRegistry(cmd)
 				if err != nil {
 					return err
 				}

@@ -1,13 +1,17 @@
 package cli
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/updater"
 )
@@ -17,6 +21,7 @@ func newUpdateCmd() *cobra.Command {
 		checkOnly bool
 		force     bool
 		pin       string
+		ready     time.Duration
 	)
 	cmd := &cobra.Command{
 		Use:   "update",
@@ -24,12 +29,22 @@ func newUpdateCmd() *cobra.Command {
 		Long: `Download a verified GitHub release archive, atomically replace
 ~/.local/bin/warden, re-sign on macOS when the warden-codesign identity is
 present, run config migrations, restart the user-level daemon service, and
-probe /healthz — rolling the binary back if the new daemon is unhealthy.
+wait for /healthz to report ok on the new version.
+
+The update is a transaction. Before any change it records the current binary,
+service manager and daemon version, and verifies the backend store read-only:
+an unrecoverable store stops the update with the diagnosis and repair command
+instead of swapping into a daemon that cannot boot (auto-recoverable findings
+are reported, not blocking). After the restart the real daemon startup error
+(journal / stderr tail) is shown on failure. On ANY failure the previous binary
+is restored, the service restarted, and the old version verified healthy; both
+the original failure and the rollback outcome are reported.
 
 Flags:
   --check            report whether an update is available without applying it
   --version <tag>    install a specific release (e.g. 9.9.0 or v9.9.0)
   --force            reinstall even when already on the target version
+  --ready-timeout    overall deadline for the daemon to become healthy (default 90s)
 
 Examples:
   warden update
@@ -51,7 +66,12 @@ Examples:
 				Force:          force,
 				CheckOnly:      checkOnly,
 				HealthURL:      healthURL,
-				Stdout:         cmd.OutOrStdout(),
+				ReadyTimeout:   ready,
+				Context:        cmd.Context(),
+				Preflight: func(ctx context.Context) (updater.PreflightResult, error) {
+					return backendPreflight(ctx, filepath.Join(cfg.DataDir, "backends"))
+				},
+				Stdout: cmd.OutOrStdout(),
 				Migrate: func() error {
 					return config.Reconcile(cfgPath)
 				},
@@ -70,17 +90,47 @@ Examples:
 			} else {
 				res, err = updater.Apply(opts)
 			}
-			if err != nil {
-				if res.RolledBack {
-					return fmt.Errorf("%s", res.Message)
-				}
-				return err
-			}
-			return nil
+			_ = res
+			return updateRecoveryGuidance(err)
 		},
 	}
 	cmd.Flags().BoolVar(&checkOnly, "check", false, "query and print whether an update is available without applying it")
 	cmd.Flags().BoolVar(&force, "force", false, "reinstall even when already on the target version")
+	cmd.Flags().DurationVar(&ready, "ready-timeout", updater.DefaultReadyTimeout, "overall deadline for the restarted daemon to report healthy on the new version")
 	cmd.Flags().StringVar(&pin, "version", "", "install a specific release tag (e.g. 9.9.0 or v9.9.0)")
 	return cmd
+}
+
+// updateRecoveryGuidance appends the backend-registry recovery procedure
+// (exact command + report location) to an update failure caused by the
+// registry: the preflight blocker, or a new daemon that refused to start on it
+// (recognised in the captured journal/stderr tail). Other errors are unchanged.
+func updateRecoveryGuidance(err error) error {
+	var pe *updater.PreflightError
+	if errors.As(err, &pe) {
+		return fmt.Errorf("%w\n%s", err, backendRecoverySteps("", ""))
+	}
+	return withBackendRecoverySteps(err)
+}
+
+// backendPreflight is the read-only pre-swap check of the backend registry.
+// Ambiguous or unreadable damage blocks the update; recoverable damage is
+// reported only (the new daemon repairs it itself on boot).
+func backendPreflight(ctx context.Context, dir string) (updater.PreflightResult, error) {
+	res := updater.PreflightResult{RepairCommand: backendstore.RepairCommand}
+	rep, err := backendstore.Verify(ctx, dir)
+	if err != nil {
+		res.Blockers = append(res.Blockers, fmt.Sprintf("%s: verification failed: %v", dir, err))
+		return res, nil
+	}
+	for _, c := range rep.Collections {
+		switch c.Verdict {
+		case backendstore.VerdictRecoverable:
+			res.Notes = append(res.Notes, fmt.Sprintf("%s: %s", c.Name, strings.Join(c.Codes, ", ")))
+		case backendstore.VerdictAmbiguous:
+			why := strings.Join(c.Reasons, "; ")
+			res.Blockers = append(res.Blockers, fmt.Sprintf("%s: %s (%s)", c.Name, strings.Join(c.Codes, ", "), why))
+		}
+	}
+	return res, nil
 }

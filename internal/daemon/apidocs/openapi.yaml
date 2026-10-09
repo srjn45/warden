@@ -727,6 +727,47 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
 
+    post:
+      operationId: addModel
+      tags: [Sessions]
+      summary: Add a custom model to the catalog
+      description: >
+        Registers a custom model (tier required). 409 if the model already
+        exists. Returns the created entry. Exists so the CLI can add models
+        through the daemon, the single writer of the backend registry.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [backend_id, model_id, tier]
+              properties:
+                backend_id: { type: string }
+                model_id: { type: string }
+                display_name: { type: string }
+                tier: { type: string, description: "tier-1 | tier-2 | tier-3" }
+                auto_assign: { type: boolean }
+                quota_scope: { type: string }
+      responses:
+        "201":
+          description: The created model entry
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ModelEntry" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409":
+          description: Model already exists
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          description: Backend registry unconfigured
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+
   /api/v1/models/{backend}/{model}/tier:
     put:
       operationId: setModelTier
