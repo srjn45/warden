@@ -5,6 +5,7 @@
 package updater
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -56,11 +57,20 @@ type Options struct {
 	HTTPClient *http.Client
 	Stdout     io.Writer
 
-	Restart     func() error
-	Codesign    func(bin string) error
-	Migrate     func() error
-	HealthProbe func(url string) error
-	Sleep       func(time.Duration)
+	// Context bounds the whole transaction (default Background).
+	Context context.Context
+	// ReadyTimeout is the overall readiness deadline (default DefaultReadyTimeout).
+	ReadyTimeout time.Duration
+	// Preflight runs before anything is downloaded or swapped; nil skips it.
+	Preflight func(ctx context.Context) (PreflightResult, error)
+
+	Service   ServiceController // default: systemd --user / launchd
+	Prober    Prober            // default: HTTP GET HealthURL
+	Installer BinaryInstaller   // default: atomic swap of InstallBin
+	Clock     Clock             // default: wall clock
+
+	Codesign func(bin string) error
+	Migrate  func() error
 }
 
 // Check reports whether an update is available without applying it.
@@ -110,60 +120,28 @@ func run(opts Options) (Result, error) {
 
 	fmt.Fprintf(out, "updating warden v%s → v%s…\n", res.CurrentVersion, res.TargetVersion)
 
+	ctx := opts.Context
+	t := &txn{
+		opts: opts, svc: opts.Service, probe: opts.Prober, inst: opts.Installer,
+		clock: opts.Clock, target: rel.Version,
+	}
+	t.capture(ctx)
+	if err := t.preflight(ctx); err != nil {
+		return res, err
+	}
+
 	staged, err := downloadAndVerify(opts, rel)
 	if err != nil {
 		return res, err
 	}
 	defer os.RemoveAll(staged.Dir)
 
-	backup, err := swapBinary(opts.InstallBin, staged.Binary)
+	rolledBack, err := t.apply(ctx, staged.Binary)
 	if err != nil {
+		res.RolledBack = rolledBack
+		res.Message = err.Error()
 		return res, err
 	}
-
-	rollback := func(reason error) (Result, error) {
-		res.RolledBack = true
-		if backup != "" {
-			if rbErr := restoreBackup(opts.InstallBin, backup); rbErr != nil {
-				return res, fmt.Errorf("%w (also failed to restore backup: %v)", reason, rbErr)
-			}
-		}
-		res.Message = fmt.Sprintf("update failed; rolled back to v%s: %v", res.CurrentVersion, reason)
-		fmt.Fprintln(out, res.Message)
-		return res, reason
-	}
-
-	if opts.Codesign != nil {
-		if err := opts.Codesign(opts.InstallBin); err != nil {
-			return rollback(fmt.Errorf("codesign: %w", err))
-		}
-	}
-
-	if opts.Migrate != nil {
-		fmt.Fprintln(out, "running migrations…")
-		if err := opts.Migrate(); err != nil {
-			return rollback(fmt.Errorf("migrate: %w", err))
-		}
-	}
-
-	if opts.Restart != nil {
-		fmt.Fprintln(out, "restarting service…")
-		if err := opts.Restart(); err != nil {
-			return rollback(fmt.Errorf("restart: %w", err))
-		}
-	}
-
-	if opts.HealthProbe != nil && opts.HealthURL != "" {
-		fmt.Fprintf(out, "probing %s…\n", opts.HealthURL)
-		if err := waitHealthy(opts); err != nil {
-			return rollback(fmt.Errorf("health check: %w", err))
-		}
-	}
-
-	if backup != "" {
-		_ = os.Remove(backup)
-	}
-
 	res.Updated = true
 	res.Message = fmt.Sprintf("updated to v%s", res.TargetVersion)
 	fmt.Fprintln(out, res.Message)
@@ -212,17 +190,30 @@ func normalizeOptions(opts *Options) error {
 	if opts.Stdout == nil {
 		opts.Stdout = io.Discard
 	}
-	if opts.Sleep == nil {
-		opts.Sleep = time.Sleep
+	if opts.Context == nil {
+		opts.Context = context.Background()
 	}
-	if opts.Restart == nil {
-		opts.Restart = restartService
+	if opts.ReadyTimeout <= 0 {
+		opts.ReadyTimeout = DefaultReadyTimeout
+	}
+	if opts.Clock == nil {
+		opts.Clock = realClock{}
+	}
+	if opts.Prober == nil {
+		opts.Prober = httpProber{url: opts.HealthURL}
+	}
+	if opts.Service == nil {
+		p := opts.Prober
+		opts.Service = newSystemController(opts.GOOS, func(ctx context.Context) bool {
+			h, err := p.Probe(ctx)
+			return err == nil && h.Status == "ok"
+		})
+	}
+	if opts.Installer == nil {
+		opts.Installer = fsInstaller{bin: opts.InstallBin}
 	}
 	if opts.Codesign == nil && opts.GOOS == "darwin" {
 		opts.Codesign = codesignBinary
-	}
-	if opts.HealthProbe == nil {
-		opts.HealthProbe = probeHealth
 	}
 	return nil
 }
@@ -233,20 +224,4 @@ func stripV(v string) string {
 
 func versionsEqual(a, b string) bool {
 	return stripV(a) == stripV(b)
-}
-
-func waitHealthy(opts Options) error {
-	var last error
-	for i := 0; i < 20; i++ {
-		if err := opts.HealthProbe(opts.HealthURL); err == nil {
-			return nil
-		} else {
-			last = err
-		}
-		opts.Sleep(500 * time.Millisecond)
-	}
-	if last == nil {
-		last = fmt.Errorf("timed out waiting for %s", opts.HealthURL)
-	}
-	return last
 }

@@ -5355,12 +5355,22 @@ Inherited flags:
 Download a verified GitHub release archive, atomically replace
 ~/.local/bin/warden, re-sign on macOS when the warden-codesign identity is
 present, run config migrations, restart the user-level daemon service, and
-probe /healthz — rolling the binary back if the new daemon is unhealthy.
+wait for /healthz to report ok on the new version.
+
+The update is a transaction. Before any change it records the current binary,
+service manager and daemon version, and verifies the backend store read-only:
+an unrecoverable store stops the update with the diagnosis and repair command
+instead of swapping into a daemon that cannot boot (auto-recoverable findings
+are reported, not blocking). After the restart the real daemon startup error
+(journal / stderr tail) is shown on failure. On ANY failure the previous binary
+is restored, the service restarted, and the old version verified healthy; both
+the original failure and the rollback outcome are reported.
 
 Flags:
   --check            report whether an update is available without applying it
   --version <tag>    install a specific release (e.g. 9.9.0 or v9.9.0)
   --force            reinstall even when already on the target version
+  --ready-timeout    overall deadline for the daemon to become healthy (default 90s)
 
 Examples:
   warden update
@@ -5372,10 +5382,11 @@ Usage:
   warden update [flags]
 
 Flags:
-      --check            query and print whether an update is available without applying it
-      --force            reinstall even when already on the target version
-  -h, --help             help for update
-      --version string   install a specific release tag (e.g. 9.9.0 or v9.9.0)
+      --check                    query and print whether an update is available without applying it
+      --force                    reinstall even when already on the target version
+  -h, --help                     help for update
+      --ready-timeout duration   overall deadline for the restarted daemon to report healthy on the new version (default 1m30s)
+      --version string           install a specific release tag (e.g. 9.9.0 or v9.9.0)
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
