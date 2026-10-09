@@ -20,9 +20,12 @@ worktree.
 
 | Tool | Does | Rails |
 |---|---|---|
-| `commit {message?, dir?}` | Stage + commit everything on the branch in one call. Returns `{committed, sha, branch, files}` or a hook failure to fix. | Refuses `main`/`master`; runs pre-commit hooks and returns **only** a failure; links the commit to the agent. **Pass `message` when you can** (you made the change, you know the intent); omit it and warden writes one from the diff (Fast-Brain, else a deterministic conventional-commit floor — a blank commit is impossible). |
-| `push {dir?, force?}` | Push the branch (sets upstream). Pass `force: true` after a rebase/amend to overwrite the remote branch. Returns `{branch, remote, pushed, forced}`. | Refuses `main`/`master`. Force is always `--force-with-lease` (never a bare `--force`), so it aborts if a teammate pushed to your branch since your last fetch. |
-| `sync {dir?}` | Rebase-sync onto the upstream. | Refuses a dirty tree; on conflict leaves it in progress carrying only the conflicting files (then resolve + continue). |
+| `commit {message?, paths?, amend?, force?, dir?}` | Stage + commit on the branch in one call — everything by default, or only `paths` (CLI `wd commit [paths…]`, relative to cwd; outside-repo paths rejected). `amend` rewrites the last commit (keeps its message unless `message` is given); refused on a merge commit, a protected branch, or a commit already in the upstream unless `force` (then push needs `force`/`--force-with-lease`). Returns `{committed, sha, branch, files, amended?, warning?}` or a hook failure to fix. | Refuses protected branches (`main`/`master` by default; config `git.protected_branches` replaces that list, `git.protect_default_branch` (default true) also protects the repo's default branch); runs pre-commit hooks and returns **only** a failure; links the commit to the agent. **Pass `message` when you can** (you made the change, you know the intent); omit it and warden writes one from the diff (Fast-Brain, else a deterministic conventional-commit floor — a blank commit is impossible). |
+| `push {dir?, force?}` | Push the branch (sets upstream). Pass `force: true` after a rebase/amend to overwrite the remote branch. Returns `{branch, remote, pushed, forced, up_to_date}`. | Refuses protected branches. Force is always `--force-with-lease` (never a bare `--force`), so it aborts if a teammate pushed to your branch since your last fetch. |
+| `sync {base?, continue?, abort?, dir?}` | Fetch + rebase onto `origin/<base>`. **Default base** (no `base`): the session's recorded base → its autopilot integration branch → the repo default branch; result `base_source` says which. `continue` stages your resolved files and finishes a conflicted rebase; `abort` drops it (both exclusive of each other and of `base`). Result adds `up_to_date`. | Refuses a dirty tree; on conflict leaves the rebase in progress carrying only the conflicting files (CLI **exits non-zero**) — resolve, then `wd sync --continue` (raw `git rebase --continue` also works, the guard allows it). A plain `sync`/`commit` mid-rebase is refused naming `--continue`/`--abort`. |
+| `create_pr {base?, title?, body?, ticket?}` | Open (or return the existing) PR for the agent branch **without ending the agent** (CLI `wd git pr [--base --title --body/--body-file]`; no root shortcut). Idempotent; base defaults like `sync`. | Refuses a protected branch as PR head. |
+
+**Exit codes:** `wd commit` (rejected), `wd sync` (conflicts) and `wd push` (rejected) exit non-zero; a rejected `commit` restores the index. A raw `git merge` with conflicts is concluded by `wd commit` once resolved.
 
 `wd agent stop <id> --keep-worktree --pr` pushes the branch and opens a GitHub PR before
 terminating the agent (see agents.md); Fast-Brain drafts the PR title/body when available, falling back per field to the digest, and an explicit title/body wins.
@@ -34,6 +37,9 @@ MCP `check {name?, dir?}` (CLI `wd check [name]`) runs the project's
 failing** checks (tail-truncated; oversized logs condensed by Fast-Brain when
 enabled). Pass `name` for one check (`test`/`lint`/`build`) or omit to run all.
 Per-entry `dir:` supports monorepos; config is the single source of truth.
+`.warden/check.yml` is found from the repository root, so `wd check` works from any
+subdirectory. `list_checks` (CLI `wd check list`) lists the configured checks without
+running them — use it to discover valid `name`s.
 
 **Use this instead of `go test` / `npm test` / `make verify` in Bash.** It is the
 biggest raw-token win — you read a compact summary, not hundreds of log lines.
