@@ -18,6 +18,7 @@ import (
 	"github.com/srjn45/scriva"
 	"github.com/srjn45/scriva/engine"
 	"github.com/srjn45/scriva/query"
+	"github.com/srjn45/warden/internal/legacyimport"
 )
 
 // ErrBadID is returned when a session id contains path separators or "..".
@@ -77,31 +78,24 @@ type FileStore struct {
 // flock on it is the authority (see storeLock).
 const storeLockName = ".sessions-store.lock"
 
-// importedMarker names the sentinel written (last) once the one-time legacy-JSON
-// import into the ScrivaDB collections has completed. Its presence means the
-// ScrivaDB is authoritative and no re-import runs; its absence means the import
-// never finished, so the next open wipes the (derived) sessions-db and retries
-// from the intact legacy JSON. See NewFileStore / importLegacy.
+// importedMarker names the sentinel the pre-ledger boot importer wrote once the
+// legacy-JSON import had completed. Nothing in this package reads it to decide
+// anything any more: the migration registry (internal/migrate) owns that import,
+// records it in the schema ledger, and treats the sentinel as "already done".
 const importedMarker = ".sessions-filedb-imported"
 
 // NewFileStore opens (creating if needed) the ScrivaDB-backed session store rooted
-// at <dir>/sessions-db/ and, on first open, imports any legacy <dir>/sessions/
-// and <dir>/closed/ JSON into it (subsuming the old provenance backfill). The
-// import is guarded by importedMarker and is directory-atomic: if the sentinel
-// is absent (never imported, or a prior attempt died partway) the derived
-// sessions-db is wiped and rebuilt from the read-only legacy JSON, then the
-// sentinel is written LAST — so a crash mid-import loses nothing.
+// at <dir>/sessions-db/. It never imports and never wipes: the legacy
+// <dir>/sessions/ and <dir>/closed/ JSON is brought in by LegacyImport, which
+// only the migration registry runs.
 func NewFileStore(dir string) (*FileStore, error) {
 	dbDir := filepath.Join(dir, "sessions-db")
-	sentinel := filepath.Join(dir, importedMarker)
 
-	// Take the exclusive writer lock FIRST — before the import-wipe below can
-	// RemoveAll the derived sessions-db — so exactly one process ever mutates the
+	// Take the exclusive writer lock FIRST so exactly one process ever mutates the
 	// live store. A second writable opener (a stray CLI, an offline repair run
 	// while the daemon is up) is rejected here with ErrStoreOwned rather than
 	// racing writes into the shared append-only segments. The data dir must exist
-	// to hold the lock file; create it before locking (never the db dir, which the
-	// import path may wipe).
+	// to hold the lock file; create it before locking.
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
@@ -112,22 +106,6 @@ func NewFileStore(dir string) (*FileStore, error) {
 	if err := recoverInterruptedSessionRepair(dir); err != nil {
 		_ = lock.release()
 		return nil, err
-	}
-
-	imported, err := fileExists(sentinel)
-	if err != nil {
-		_ = lock.release()
-		return nil, err
-	}
-	if !imported {
-		// Wipe any partial/failed prior attempt so the import starts from a clean
-		// slate (a half-loaded collection would abort LoadJSONL on ErrDuplicateKey).
-		// Safe: sessions-db holds nothing not reproducible from the legacy JSON
-		// until the sentinel says the import finished.
-		if err := os.RemoveAll(dbDir); err != nil {
-			_ = lock.release()
-			return nil, err
-		}
 	}
 	if err := os.MkdirAll(dbDir, 0o700); err != nil {
 		_ = lock.release()
@@ -151,22 +129,39 @@ func NewFileStore(dir string) (*FileStore, error) {
 		_ = lock.release()
 		return nil, err
 	}
-	fs := &FileStore{db: db, active: active, closed: closed, lock: lock}
+	return &FileStore{db: db, active: active, closed: closed, lock: lock}, nil
+}
 
-	if !imported {
-		if err := importLegacy(dir, active, closed); err != nil {
-			db.Close()
-			_ = lock.release()
-			return nil, err
+// LegacyImport is the sessions-JSON → ScrivaDB import for the migration
+// registry. It is additive (records already in sessions-db are left alone), so
+// it is safe to re-run after a crash.
+var LegacyImport = legacyimport.Importer{
+	Present: func(dir string) (bool, error) {
+		for _, sub := range []string{"sessions", "closed"} {
+			if ok, err := legacyimport.HasJSON(filepath.Join(dir, sub)); err != nil || ok {
+				return ok, err
+			}
 		}
-		// Sentinel LAST: only now is the ScrivaDB authoritative.
-		if err := os.WriteFile(sentinel, []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o600); err != nil {
-			db.Close()
-			_ = lock.release()
-			return nil, err
+		return false, nil
+	},
+	Import: func(dir string) error {
+		return withLegacySessions(dir, func(col *engine.Collection, buf *bytes.Buffer) error {
+			_, err := legacyimport.MergeJSONL(col, buf, "id")
+			return err
+		})
+	},
+	Verify: func(dir string) error {
+		var missing []string
+		err := withLegacySessions(dir, func(col *engine.Collection, buf *bytes.Buffer) error {
+			m, err := legacyimport.MissingJSONL(col, buf, "id")
+			missing = append(missing, m...)
+			return err
+		})
+		if err != nil {
+			return err
 		}
-	}
-	return fs, nil
+		return legacyimport.VerifyNone("sessions", missing)
+	},
 }
 
 // fileExists reports whether path exists, distinguishing a genuine stat error
@@ -199,13 +194,20 @@ func backfillProvenance(s *Session) {
 	s.BranchCreated = s.Branch != "" && s.Branch == s.ID
 }
 
-// importLegacy performs the one-time import of the legacy per-file JSON into the
-// ScrivaDB collections, folding the old provenance backfill into the same pass.
-// Each legacy dir is decoded file-by-file (skip+warn on corrupt/unsafe-id,
-// matching the old listDir), then loaded into its collection with LoadJSONL,
-// which is atomic per collection (all-or-nothing). A missing legacy dir (fresh
-// install) is simply an empty import.
-func importLegacy(dir string, active, closed *engine.Collection) error {
+// withLegacySessions opens the session store and hands fn each legacy dir's
+// records (as NDJSON, see legacyNDJSON) with the collection they belong in,
+// folding the old provenance backfill into the same pass. A missing legacy dir
+// is simply skipped.
+func withLegacySessions(dir string, fn func(col *engine.Collection, buf *bytes.Buffer) error) (retErr error) {
+	fs, err := NewFileStore(dir)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := fs.Close(context.Background()); retErr == nil {
+			retErr = err
+		}
+	}()
 	// Did the old code already backfill explicit provenance flags into the legacy
 	// JSON? If so, import them verbatim so an adopted (WorktreeCreated=false)
 	// record is never clobbered; otherwise infer them now.
@@ -217,8 +219,8 @@ func importLegacy(dir string, active, closed *engine.Collection) error {
 		dir string
 		col *engine.Collection
 	}{
-		{filepath.Join(dir, "sessions"), active},
-		{filepath.Join(dir, "closed"), closed},
+		{filepath.Join(dir, "sessions"), fs.active},
+		{filepath.Join(dir, "closed"), fs.closed},
 	}
 	for _, src := range srcs {
 		buf, err := legacyNDJSON(src.dir, provDone)
@@ -228,7 +230,7 @@ func importLegacy(dir string, active, closed *engine.Collection) error {
 		if buf.Len() == 0 {
 			continue // no legacy dir, or no readable records
 		}
-		if _, err := src.col.LoadJSONL(&buf, "id"); err != nil {
+		if err := fn(src.col, &buf); err != nil {
 			return err
 		}
 	}

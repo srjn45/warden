@@ -135,7 +135,7 @@ func TestStoreLegacyImport(t *testing.T) {
 	path := filepath.Join(dir, "schedules.json")
 
 	// Seed a legacy flat-JSON map keyed by schedule id, the format the old Store
-	// wrote and NewStore now imports once.
+	// wrote and LegacyImport now imports.
 	one := mustNew(t, "one")
 	two := mustNew(t, "two")
 	legacy := map[string]*Schedule{one.ID: one, two.ID: two}
@@ -147,9 +147,16 @@ func TestStoreLegacyImport(t *testing.T) {
 		t.Fatalf("seed legacy: %v", err)
 	}
 
+	if err := LegacyImport.Import(dir); err != nil {
+		t.Fatalf("LegacyImport.Import: %v", err)
+	}
+	if err := LegacyImport.Verify(dir); err != nil {
+		t.Fatalf("LegacyImport.Verify: %v", err)
+	}
+
 	st, err := NewStore(path)
 	if err != nil {
-		t.Fatalf("NewStore (import): %v", err)
+		t.Fatalf("NewStore: %v", err)
 	}
 	list, err := st.List()
 	if err != nil {
@@ -159,11 +166,6 @@ func TestStoreLegacyImport(t *testing.T) {
 		t.Fatalf("imported entries wrong: %+v", list)
 	}
 
-	// The sentinel now marks the ScrivaDB as authoritative.
-	sentinel := filepath.Join(dir, importedMarker)
-	if _, err := os.Stat(sentinel); err != nil {
-		t.Fatalf("import sentinel missing: %v", err)
-	}
 	// The legacy JSON is left untouched as a read-only backup.
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("legacy schedules.json must be preserved: %v", err)
@@ -172,12 +174,13 @@ func TestStoreLegacyImport(t *testing.T) {
 		t.Fatalf("close st: %v", err)
 	}
 
-	// A second open must not re-import (adding a schedule then reopening proves
-	// the second NewStore reads the live ScrivaDB, not the stale legacy JSON) and
-	// must not error.
+	// A second import must be idempotent (no duplicates or error).
+	if err := LegacyImport.Import(dir); err != nil {
+		t.Fatalf("second LegacyImport.Import: %v", err)
+	}
 	st2, err := NewStore(path)
 	if err != nil {
-		t.Fatalf("reopen must not re-import or error: %v", err)
+		t.Fatalf("reopen must not error: %v", err)
 	}
 	t.Cleanup(func() { _ = st2.Close() })
 	if err := st2.Create(mustNew(t, "three")); err != nil {

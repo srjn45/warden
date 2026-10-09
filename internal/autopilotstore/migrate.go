@@ -15,8 +15,108 @@ import (
 	"github.com/srjn45/scriva/engine"
 	"github.com/srjn45/scriva/query"
 
+	"github.com/srjn45/warden/internal/legacyimport"
 	"github.com/srjn45/warden/internal/planstore"
 )
+
+// LegacyImport adapts MigrateLegacyRuns to legacyimport.Importer.
+var LegacyImport = legacyimport.Importer{
+	Present: func(dataDir string) (bool, error) {
+		legacyDir := filepath.Join(dataDir, filepath.FromSlash(legacyRunsRelDir))
+		return legacyimport.Exists(legacyDir)
+	},
+	Import: func(dataDir string) error {
+		legacyDir := filepath.Join(dataDir, filepath.FromSlash(legacyRunsRelDir))
+		if ok, _ := legacyimport.Exists(legacyDir); !ok {
+			return nil
+		}
+		live, err := New(dataDir)
+		if err != nil {
+			return err
+		}
+		defer live.Close()
+		pStore, err := planstore.New(dataDir)
+		if err != nil {
+			return err
+		}
+		defer pStore.Close()
+		_, err = MigrateLegacyRuns(context.Background(), dataDir, live, pStore)
+		return err
+	},
+	Verify: func(dataDir string) error {
+		legacyDir := filepath.Join(dataDir, filepath.FromSlash(legacyRunsRelDir))
+		if ok, _ := legacyimport.Exists(legacyDir); !ok {
+			return nil
+		}
+		db, err := scriva.Open(legacyDir, scriva.WithSyncMode(engine.SyncModeNone))
+		if err != nil {
+			return err
+		}
+		defer db.Close()
+		col, err := db.Collection(legacyCollection)
+		if err != nil {
+			return err
+		}
+		rows, err := col.Scan(query.MatchAll)
+		if err != nil {
+			return err
+		}
+		if len(rows) == 0 {
+			return nil
+		}
+		live, err := New(dataDir)
+		if err != nil {
+			return err
+		}
+		defer live.Close()
+		archive, err := openLegacyArchive(dataDir)
+		if err != nil {
+			return err
+		}
+		defer archive.Close()
+		pStore, err := planstore.New(dataDir)
+		if err != nil {
+			return err
+		}
+		defer pStore.Close()
+		plans, _ := pStore.List(context.Background())
+
+		var missing []string
+		for _, row := range rows {
+			id, _ := row.Data[engine.KeyField].(string)
+			if id == "" {
+				if rID, ok := row.Data["run_id"].(string); ok {
+					id = rID
+				}
+			}
+			if id == "" {
+				continue
+			}
+			if _, err := live.Get(context.Background(), id); err == nil {
+				continue
+			}
+			if ok, err := archive.col.Exists(id); err == nil && ok {
+				continue
+			}
+			found := false
+			for _, p := range plans {
+				for _, h := range p.ExecutionHistory {
+					if h.ExecutorID == id || h.ID == legacyExecutionID(id) {
+						found = true
+						break
+					}
+				}
+				if found {
+					break
+				}
+			}
+			if !found {
+				missing = append(missing, id)
+			}
+		}
+		return legacyimport.VerifyNone("autopilot_runs", missing)
+	},
+}
 
 const (
 	legacyRunsRelDir   = "autopilot/runs-db"

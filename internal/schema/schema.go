@@ -111,8 +111,11 @@ func Load(dataDir string) (*Ledger, error) {
 	if err := json.Unmarshal(raw, &l); err != nil {
 		return nil, &CorruptError{Path: p, Err: err}
 	}
-	if l.SchemaVersion < 1 {
+	if l.SchemaVersion < 1 && l.InProgress == nil {
 		return nil, &CorruptError{Path: p, Err: fmt.Errorf("schema_version %d is not a positive integer", l.SchemaVersion)}
+	}
+	if l.SchemaVersion < 0 {
+		return nil, &CorruptError{Path: p, Err: fmt.Errorf("schema_version %d is negative", l.SchemaVersion)}
 	}
 	return &l, nil
 }
