@@ -118,7 +118,7 @@ Subcommands:
 
 When run without subcommands, ` + "`warden agent role tier`" + ` lists all mappings.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			st, err := openBackendStore(cmd)
+			st, err := openRegistry(cmd)
 			if err != nil {
 				return err
 			}
@@ -161,7 +161,7 @@ func newRoleTierListCmd() *cobra.Command {
 		Aliases: []string{"ls"},
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			st, err := openBackendStore(cmd)
+			st, err := openRegistry(cmd)
 			if err != nil {
 				return err
 			}
@@ -218,7 +218,7 @@ Example:
 				return fmt.Errorf("invalid tier %q (valid: tier-1, tier-2, tier-3)", tierStr)
 			}
 
-			st, err := openBackendStore(cmd)
+			st, err := openRegistry(cmd)
 			if err != nil {
 				return err
 			}

@@ -18,6 +18,8 @@ func TestMain(m *testing.M) {
 		os.Stdout.WriteString("OWNER\n")
 		select {}
 	}
+	// never probe the real data dir from CLI tests
+	probeDataDirOwner = func(string) (*ownerlock.OwnedError, error) { return nil, nil }
 	os.Exit(m.Run())
 }
 

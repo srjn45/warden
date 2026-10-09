@@ -138,7 +138,7 @@ func newModelsListCmd() *cobra.Command {
 		Aliases: []string{"ls"},
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			st, err := openBackendStore(cmd)
+			st, err := openRegistry(cmd)
 			if err != nil {
 				return err
 			}
@@ -215,7 +215,7 @@ Example:
 				return fmt.Errorf("invalid tier %q (valid: tier-1, tier-2, tier-3)", tierStr)
 			}
 
-			st, err := openBackendStore(cmd)
+			st, err := openRegistry(cmd)
 			if err != nil {
 				return err
 			}
@@ -266,7 +266,7 @@ Examples:
 				return fmt.Errorf("invalid tier %q (valid: tier-1, tier-2, tier-3); pass --tier", tier)
 			}
 
-			st, err := openBackendStore(cmd)
+			st, err := openRegistry(cmd)
 			if err != nil {
 				return err
 			}
@@ -331,7 +331,7 @@ Examples:
 				if !mt.Valid() {
 					return fmt.Errorf("--import requires --tier (tier-1|tier-2|tier-3)")
 				}
-				st, err := openBackendStore(cmd)
+				st, err := openRegistry(cmd)
 				if err != nil {
 					return err
 				}
