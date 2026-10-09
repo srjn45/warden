@@ -333,7 +333,6 @@ Compatibility aliases:
   warden repair sessions -> warden inspect repair sessions (compatibility)
   warden repl -> warden backend repl (compatibility)
   warden restore -> warden agent restore (compatibility)
-  warden review -> warden git review (compatibility)
   warden role -> warden agent role (compatibility)
   warden role list -> warden agent role list (compatibility)
   warden role set-tier -> warden agent role tier set (compatibility)

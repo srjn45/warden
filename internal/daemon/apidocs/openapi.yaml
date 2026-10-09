@@ -6374,6 +6374,7 @@ components:
         remote: { type: string }
         pushed: { type: boolean }
         forced: { type: boolean }
+        up_to_date: { type: boolean, description: "the remote already had the commit; nothing was pushed (pushed stays true)" }
         output: { type: string }
 
     SyncResult:
@@ -6387,6 +6388,7 @@ components:
         base: { type: string }
         base_source: { type: string, description: "why the daemon selected base when it was omitted" }
         updated: { type: boolean }
+        up_to_date: { type: boolean, description: "the rebase was a no-op; the branch already contained origin/base (updated stays true)" }
         conflicts: { type: array, items: { type: string } }
         output: { type: string }
 

@@ -133,13 +133,13 @@ func TestCompatResultJSONFieldSets(t *testing.T) {
 		}},
 		{"PushResult", PushResult{}, []compatField{
 			{"branch", "string", false}, {"remote", "string", false}, {"pushed", "bool", false},
-			{"forced", "bool", true}, {"output", "string", true},
+			{"forced", "bool", true}, {"output", "string", true}, {"up_to_date", "bool", false},
 		}},
 		{"SyncResult", SyncResult{}, []compatField{
 			// t5-sync-default-base adds an optional provenance field; existing
 			// result fields remain unchanged.
 			{"branch", "string", false}, {"base", "string", false}, {"base_source", "string", true},
-			{"updated", "bool", false}, {"conflicts", "[]string", true}, {"output", "string", true},
+			{"updated", "bool", false}, {"up_to_date", "bool", false}, {"conflicts", "[]string", true}, {"output", "string", true},
 		}},
 		{"CheckOutcome", CheckOutcome{}, []compatField{
 			{"name", "string", false}, {"cmd", "string", false}, {"passed", "bool", false},
@@ -166,11 +166,11 @@ func TestCompatResultJSONGolden(t *testing.T) {
 			`{"committed":true,"sha":"abc","branch":"b","files":["a"],"hook_failed":true,"hook_output":"x"}`},
 		{"CommitResult-zero", CommitResult{}, `{"committed":false,"branch":""}`},
 		{"PushResult-full", PushResult{Branch: "b", Remote: "origin", Pushed: true, Forced: true, Output: "o", RawBytes: 3, RawSample: "s"},
-			`{"branch":"b","remote":"origin","pushed":true,"forced":true,"output":"o"}`},
-		{"PushResult-zero", PushResult{}, `{"branch":"","remote":"","pushed":false}`},
+			`{"branch":"b","remote":"origin","pushed":true,"forced":true,"output":"o","up_to_date":false}`},
+		{"PushResult-zero", PushResult{}, `{"branch":"","remote":"","pushed":false,"up_to_date":false}`},
 		{"SyncResult-full", SyncResult{Branch: "b", Base: "main", Updated: true, Conflicts: []string{"c"}, Output: "o", RawBytes: 1, RawSample: "s"},
-			`{"branch":"b","base":"main","updated":true,"conflicts":["c"],"output":"o"}`},
-		{"SyncResult-zero", SyncResult{}, `{"branch":"","base":"","updated":false}`},
+			`{"branch":"b","base":"main","updated":true,"up_to_date":false,"conflicts":["c"],"output":"o"}`},
+		{"SyncResult-zero", SyncResult{}, `{"branch":"","base":"","updated":false,"up_to_date":false}`},
 		{"CheckOutcome-full", CheckOutcome{Name: "n", Cmd: "c", Passed: true, ExitCode: 2, Output: "o", RawBytes: 5, RawSample: "s"},
 			`{"name":"n","cmd":"c","passed":true,"exit_code":2,"output":"o"}`},
 		{"CheckResult-full", CheckResult{Passed: true, Checks: []CheckOutcome{{Name: "n", Cmd: "c", Passed: true}}},
@@ -501,4 +501,35 @@ func TestCommitAmendRefusesProtectedBranch(t *testing.T) {
 	r := newCompatRepo(t)
 	_, err := compatLife().CommitWith(context.Background(), r.dir, CommitOptions{Amend: true, Message: "x", Force: true})
 	require.ErrorContains(t, err, "protected branch")
+}
+
+func TestCompatPushAndSyncReportUpToDate(t *testing.T) {
+	r := newCompatRepo(t)
+	l := compatLife()
+	ctx := context.Background()
+	compatGit(t, r.dir, "checkout", "-b", "feature")
+	compatCommitFile(t, r.dir, "a.txt", "a\n", "a")
+
+	res, err := l.Push(ctx, r.dir, false)
+	require.NoError(t, err)
+	require.True(t, res.Pushed)
+	require.False(t, res.UpToDate, "first push moves the remote")
+
+	res, err = l.Push(ctx, r.dir, false)
+	require.NoError(t, err)
+	require.True(t, res.Pushed, "pushed keeps its existing meaning")
+	require.True(t, res.UpToDate)
+
+	sres, err := l.Sync(ctx, r.dir, "main")
+	require.NoError(t, err)
+	require.True(t, sres.Updated, "updated keeps its existing value")
+	require.True(t, sres.UpToDate, "no-op rebase")
+
+	other := r.otherClone(t)
+	compatCommitFile(t, other, "g.txt", "g\n", "remote g")
+	compatGit(t, other, "push", "origin", "main")
+	sres, err = l.Sync(ctx, r.dir, "main")
+	require.NoError(t, err)
+	require.True(t, sres.Updated)
+	require.False(t, sres.UpToDate, "a real rebase is not up to date")
 }

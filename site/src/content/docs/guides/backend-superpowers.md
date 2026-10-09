@@ -31,7 +31,7 @@ fork through either.
 | | Runs | Surface |
 |---|---|---|
 | `wd check` | the project's configured **test/lint/build** commands (`.warden/check.yml`) | local exec |
-| `pr-review` agent | a **whole reviewer session** (an isolated checkout you spawn) | a full agent |
+| reviewer-role agent | a **whole reviewer session** (an isolated checkout you spawn) | a full agent |
 | `wd git review` | the backend's **own one-shot reviewer** against the working diff | local exec |
 
 It resolves the agent's backend, type-asserts the additive `agentbackend.Reviewer`
@@ -44,7 +44,7 @@ $0-local Ollama rig and a paid setup both work unchanged.
 wd git review                       # review my uncommitted changes (staged + unstaged + untracked)
 wd git review --base main           # review this branch's changes against a base instead
 wd git review --prompt "focus on error handling and nil checks"
-wd git review --backend codex       # target a specific backend (default: the current agent's)
+wd git review --ai-cli codex       # target a specific backend (default: the current agent's)
 ```
 
 Backends **without** a native reviewer (e.g. Claude) are not offered the verb — it

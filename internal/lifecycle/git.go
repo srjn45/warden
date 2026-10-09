@@ -62,6 +62,9 @@ type PushResult struct {
 	Pushed bool   `json:"pushed"`
 	Forced bool   `json:"forced,omitempty"` // pushed with --force-with-lease
 	Output string `json:"output,omitempty"`
+	// UpToDate is additive: the remote already had the commit, so nothing moved.
+	// Pushed keeps its meaning (the push succeeded) for existing consumers.
+	UpToDate bool `json:"up_to_date"`
 	// RawBytes is the raw `git push` output warden consumed; see CommitResult.RawBytes.
 	RawBytes int `json:"-"`
 	// RawSample is a truncated head of that raw output; see CommitResult.RawSample.
@@ -78,6 +81,7 @@ type SyncResult struct {
 	Base       string   `json:"base"`
 	BaseSource string   `json:"base_source,omitempty"` // recorded session base or repository default when daemon selected it
 	Updated    bool     `json:"updated"`               // rebase completed cleanly
+	UpToDate   bool     `json:"up_to_date"`            // additive: the rebase was a no-op (Updated stays true)
 	Conflicts  []string `json:"conflicts,omitempty"`   // unresolved paths (rebase in progress)
 	Output     string   `json:"output,omitempty"`
 	// RawBytes is the combined fetch+rebase output warden consumed; see CommitResult.RawBytes.
@@ -413,7 +417,7 @@ func commitTypeForPaths(files []string) string {
 
 func isDocPath(f string) bool {
 	f = strings.ToLower(f)
-	return strings.HasSuffix(f, ".md") || strings.HasSuffix(f, ".rst") || strings.HasSuffix(f, ".txt") ||
+	return strings.HasSuffix(f, ".md") || strings.HasSuffix(f, ".rst") ||
 		strings.HasPrefix(f, "docs/") || strings.Contains(f, "/docs/")
 }
 
@@ -495,7 +499,19 @@ func (l *Lifecycle) Push(ctx context.Context, dir string, force bool) (PushResul
 	if err != nil {
 		return PushResult{}, fmt.Errorf("git push: %w: %s", err, strings.TrimSpace(out))
 	}
-	return PushResult{Branch: branch, Remote: "origin", Pushed: true, Forced: force, Output: strings.TrimSpace(out), RawBytes: len(out), RawSample: savings.TruncateSample(out)}, nil
+	return PushResult{Branch: branch, Remote: "origin", Pushed: true, Forced: force, UpToDate: pushUpToDate(out), Output: strings.TrimSpace(out), RawBytes: len(out), RawSample: savings.TruncateSample(out)}, nil
+}
+
+// pushUpToDate reports git's "Everything up-to-date" no-op push.
+func pushUpToDate(out string) bool {
+	return strings.Contains(out, "Everything up-to-date")
+}
+
+// rebaseUpToDate reports a no-op rebase ("Current branch X is up to date.").
+// A forced rebase ("is up to date, rebase forced") rewrote nothing meaningful
+// either, but git did replay commits, so it is not treated as a no-op.
+func rebaseUpToDate(out string) bool {
+	return strings.Contains(out, "is up to date.") && !strings.Contains(out, "rebase forced")
 }
 
 // Sync fetches origin/base and rebases dir's branch onto it. It refuses a dirty
@@ -545,7 +561,7 @@ func (l *Lifecycle) Sync(ctx context.Context, dir, base string) (SyncResult, err
 		}
 		return SyncResult{Branch: branch, Base: base, Conflicts: conflicts, Output: strings.TrimSpace(out), RawBytes: raw, RawSample: rawSample}, nil
 	}
-	return SyncResult{Branch: branch, Base: base, Updated: true, Output: strings.TrimSpace(out), RawBytes: raw, RawSample: rawSample}, nil
+	return SyncResult{Branch: branch, Base: base, Updated: true, UpToDate: rebaseUpToDate(out), Output: strings.TrimSpace(out), RawBytes: raw, RawSample: rawSample}, nil
 }
 
 // unmergedPaths lists files with merge conflicts in dir (best-effort, nil on error).
