@@ -25,6 +25,8 @@ import (
 
 	"github.com/srjn45/scriva"
 	"github.com/srjn45/scriva/engine"
+
+	"github.com/srjn45/warden/internal/ownerlock"
 )
 
 // RepairCommand is the operator-facing offline repair command (built by t5).
@@ -310,6 +312,11 @@ func Repair(ctx context.Context, dir string, opts Options) (*Result, error) {
 	log := opts.logger()
 	if err := checkAuthority(dir); err != nil {
 		return nil, err
+	}
+	if oe, perr := ownerlock.Probe(filepath.Dir(dir)); perr != nil {
+		return nil, perr
+	} else if oe != nil {
+		return nil, fmt.Errorf("%w: %w", ErrOwned, oe)
 	}
 	lock, err := acquireDirLock(dir)
 	if err != nil {
