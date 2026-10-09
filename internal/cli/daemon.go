@@ -335,7 +335,10 @@ func newDaemonRunCmd() *cobra.Command {
 			// to the Server. The local-model row is seeded from local_llm config
 			// (configured ⇒ Installed); actual reachability probing is left to later
 			// stages.
-			backendStore, err := backendstore.NewStore(filepath.Join(cfg.DataDir, "backends"))
+			// Open recovers a registry whose only problem is provably stale revision
+			// history (backup-first, audited); ambiguous history fails startup with
+			// a typed *backendstore.RecoveryRequiredError naming the repair command.
+			backendStore, _, err := backendstore.Open(filepath.Join(cfg.DataDir, "backends"), backendstore.Options{})
 			if err != nil {
 				return err
 			}
