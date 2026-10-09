@@ -6,8 +6,15 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/srjn45/scriva/engine"
 	"github.com/stretchr/testify/require"
 )
+
+func TestStoreUsesPerWriteDurability(t *testing.T) {
+	s := newTestStore(t)
+	require.Equal(t, engine.SyncModeAlways, s.col.Config().SyncMode)
+	require.Equal(t, engine.SyncModeAlways, s.events.Config().SyncMode)
+}
 
 func newTestStore(t *testing.T) *Store {
 	t.Helper()

@@ -27,6 +27,9 @@ var (
 	ErrExists      = errors.New("agent already exists")
 	ErrNameExists  = store.ErrNameExists
 	ErrInvalidName = store.ErrInvalidName
+	// ErrIdentityChanged prevents an update callback from writing an agent body
+	// under a different record key.
+	ErrIdentityChanged = errors.New("agent identity cannot change")
 	// ErrNotOrphaned prevents recovery from reviving an agent that was not
 	// explicitly marked orphaned. Recovery is deliberately narrower than a
 	// generic status update: it is the safe repair path after daemon loss.
@@ -153,7 +156,7 @@ func openAt(dir, dbDir string) (*Store, error) {
 	if err := os.MkdirAll(dbDir, 0o700); err != nil {
 		return nil, err
 	}
-	db, err := scriva.Open(dbDir, scriva.WithSyncMode(engine.SyncModeNone))
+	db, err := scriva.Open(dbDir, scriva.WithSyncMode(engine.SyncModeAlways))
 	if err != nil {
 		return nil, err
 	}
@@ -476,6 +479,9 @@ func (s *Store) Update(ctx context.Context, id string, fn func(*Agent) error) er
 	}
 	if err := fn(a); err != nil {
 		return err
+	}
+	if a.ID != id {
+		return ErrIdentityChanged
 	}
 	a.Status = a.Status.Canonical()
 	a.UpdatedAt = time.Now().UTC()

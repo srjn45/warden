@@ -56,7 +56,7 @@ func NewRunStore(dataDir string) (*RunStore, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	db, err := scriva.Open(dir, scriva.WithSyncMode(engine.SyncModeNone))
+	db, err := scriva.Open(dir, scriva.WithSyncMode(engine.SyncModeAlways))
 	if err != nil {
 		return nil, err
 	}

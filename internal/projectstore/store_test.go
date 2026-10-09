@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/srjn45/scriva/engine"
 	"github.com/stretchr/testify/require"
 )
 
@@ -13,6 +14,12 @@ func newTestStore(t *testing.T) *Store {
 	require.NoError(t, err)
 	t.Cleanup(func() { s.Close() })
 	return s
+}
+
+func TestStoreUsesPerWriteDurability(t *testing.T) {
+	s := newTestStore(t)
+	require.Equal(t, engine.SyncModeAlways, s.col.Config().SyncMode)
+	require.Equal(t, engine.SyncModeAlways, s.groups.Config().SyncMode)
 }
 
 func TestUpsertGetList(t *testing.T) {

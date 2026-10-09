@@ -6,7 +6,20 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/srjn45/scriva/engine"
 )
+
+func TestStoreUsesPerWriteDurability(t *testing.T) {
+	s, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if got := s.col.Config().SyncMode; got != engine.SyncModeAlways {
+		t.Fatalf("SyncMode = %q, want %q", got, engine.SyncModeAlways)
+	}
+}
 
 func TestNextIDUsesHighWaterMark(t *testing.T) {
 	// len+1 would collide after a drop; nextID must be max(existing ids)+1.

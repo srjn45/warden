@@ -31,7 +31,7 @@ func New(dir string) (*Store, error) {
 	if err := os.MkdirAll(dbDir, 0o700); err != nil {
 		return nil, err
 	}
-	db, err := scriva.Open(dbDir, scriva.WithSyncMode(engine.SyncModeNone))
+	db, err := scriva.Open(dbDir, scriva.WithSyncMode(engine.SyncModeAlways))
 	if err != nil {
 		return nil, err
 	}

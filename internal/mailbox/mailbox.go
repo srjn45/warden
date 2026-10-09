@@ -6,9 +6,8 @@
 // dir, each record keyed by "<to>:<id>" with a secondary index on the recipient
 // ("to") field for O(matches) per-inbox lookup. Appending a message writes a
 // single record instead of rewriting a recipient's whole inbox file. The
-// collection is opened with SyncModeNone: like the previous per-file
-// implementation this is a localhost session store, so the last write surviving
-// a power-loss is not a requirement (append-only segments rule out torn reads).
+// collection uses SyncModeAlways so a restart cannot recover a message segment
+// without its primary index, which would allow the next append to reuse a key.
 //
 // Compound operations (Append and its compaction, MarkRead, TakeFirstUnread,
 // DeleteInbox) are serialised by a store mutex, matching the previous
@@ -78,7 +77,7 @@ func New(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	db, err := scriva.Open(dir, scriva.WithSyncMode(engine.SyncModeNone))
+	db, err := scriva.Open(dir, scriva.WithSyncMode(engine.SyncModeAlways))
 	if err != nil {
 		return nil, err
 	}

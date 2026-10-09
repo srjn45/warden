@@ -36,9 +36,8 @@ var (
 )
 
 // Store persists projects as records in an embedded ScrivaDB "projects"
-// collection, one record per project keyed by its ID. Opened SyncModeNone: this
-// is a localhost daemon store, so last-write-survives-power-loss is not required
-// (append-only segments rule out torn reads regardless) — mirrors backendstore.
+// collection, one record per project keyed by its ID. It uses SyncModeAlways so
+// a crash cannot leave a recovered index behind its append-only history.
 //
 // A single mutex serialises the read-modify-write methods (OpenProject /
 // CloseProject) and the exists-check-then-write in Upsert; ScrivaDB does its own
@@ -59,7 +58,7 @@ func NewStore(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	db, err := scriva.Open(dir, scriva.WithSyncMode(engine.SyncModeNone))
+	db, err := scriva.Open(dir, scriva.WithSyncMode(engine.SyncModeAlways))
 	if err != nil {
 		return nil, err
 	}
