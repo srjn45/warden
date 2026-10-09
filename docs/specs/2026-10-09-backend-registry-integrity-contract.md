@@ -114,3 +114,66 @@ re-appended, derived index files removed so the open gate scans).
 - Which process produced the second writer (CLI direct open vs second daemon).
 - Whether to open `rl_cooldowns`/`quotas` (volatile) with a more tolerant policy
   than `backends`/`models`/`role_tiers`/`handover_settings` (user-owned).
+
+## 7. Recovery design (t2, implemented in `internal/backendstore/integrity.go`)
+
+### 7.1 Classification (`Verify`)
+
+Per collection, from a full `engine.VerifyDir`:
+
+| Findings | Verdict |
+|---|---|
+| none above info | `clean` |
+| only `repairable-index` (stale/missing index) | `recoverable` (scriva rebuild, lossless) |
+| `data-corruption` | `ambiguous` — salvage is never automatic |
+| `conflict` other than `conflict-revision-regression` (duplicate id, id reuse, write-after-delete) | `ambiguous` |
+| `conflict-revision-regression` only | `recoverable` iff **every** regression line is provably stale, else `ambiguous` |
+| any finding outside the six registry collections | `ambiguous` |
+
+**Provably stale** (rule `newest-revision-with-concordant-timestamp`): a regression
+line is an `update` whose revision is lower than the id's newest revision **and**
+whose `ts` is older than that newest line's `ts`. Revision order, append order and
+wall clock then all agree which write is last, so the newest revision is
+unambiguously the latest writer and the older line is a superseded replay.
+**Ambiguous** (never resolved): equal revision with different content; a lower
+revision carrying a *newer* `ts` (a second writer's later, divergent write — which
+one the user meant is unknowable); a higher revision with an older `ts`; any
+delete on an affected id; unparseable lines; a pending compaction manifest.
+Note this means the most likely real-world shape (a stale-handle writer producing
+*new* low-revision writes with a *newer* timestamp) is deliberately refused with a
+diagnosis rather than guessed.
+
+### 7.2 Repair sequence (`Repair`, offline only)
+
+1. Authority check + exclusive flock on the engine `LOCK` (live holder ⇒ `ErrOwned`).
+2. `Verify`. Clean ⇒ no-op (idempotent: no backup, no report). Any ambiguous
+   collection ⇒ `*RecoveryRequiredError`, **nothing mutated** (only a JSON report
+   is written next to the backups).
+3. Verified backup (copy + size/SHA-256 of every file) of the whole registry to
+   `<backups>/backends-backup-<UTC>/` (default parent
+   `<data>/backend-registry-backups`, never inside the registry dir).
+4. Remove the stale lines (atomic temp+rename), drop the collection's derived
+   index files, run `engine.Repair` (`ConflictAbort`, so it can never resolve a
+   conflict itself), recreate the `_key` unique index (scriva does not invent it;
+   without it keyed reads miss and the store would re-seed over user data), then
+   a full `VerifyDir` must be clean.
+5. Any failure ⇒ restore every collection from the backup (byte-identical) and
+   return `*RecoveryRequiredError` with `BackupPath`, `ReportPath`, `Cause`.
+6. Audit: one structured `slog` record per step (findings, backup, removed
+   revision count, result) plus `backend-registry-report-<UTC>.json` listing every
+   discarded line (segment, line, id, key, rev, ts, winner rev/ts, rule).
+
+### 7.3 Exported API (for t4 preflight and t5 command)
+
+```go
+backendstore.Open(dir, Options) (*Store, *Result, error) // strict; auto-recovers a recoverable registry (daemon)
+backendstore.Verify(ctx, dir) (*Report, error)           // read-only; Report.Clean()/Recoverable(), per-collection verdicts
+backendstore.Repair(ctx, dir, Options) (*Result, error)  // explicit, backup-first, offline
+backendstore.RecoveryRequiredError                       // errors.As; errors.Is(ErrRecoveryRequired); Collections, Severities,
+                                                         //   ReportPath, BackupPath, RepairCommand, Cause (keeps engine.ErrIntegrity)
+backendstore.RepairCommand       = "warden repair backends"
+backendstore.RepairDryRunCommand = "warden repair backends --dry-run"
+```
+`dir` is the registry directory (`<data>/backends`). `NewStore` is unchanged and
+strict; agent-store semantics are untouched. The daemon calls `Open`. CLI direct
+opens (`models`, `role`) stay strict (t3/t5).
