@@ -172,3 +172,50 @@ func TestAdversarial_ConcurrentMixAndRestart(t *testing.T) {
 		}
 	}
 }
+
+// Writes racing the audit's Count/Scan must never be mistaken for corruption:
+// the engine commit lands before the generation bump, so the auditor relies on
+// the write-slot epoch to detect a torn pass.
+func TestAdversarial_AuditNeverFalselyDegradesUnderWrites(t *testing.T) {
+	s := seededStore(t, 0)
+	a := NewAuditor(s, AuditorOptions{})
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 300; i++ {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			time.Sleep(time.Millisecond)
+			_ = s.Insert(context.Background(), &Agent{
+				ID: fmt.Sprintf("w-%d", i), Name: fmt.Sprintf("wn-%d", i), Status: store.StatusWorking,
+			})
+		}
+	}()
+	for i := 0; i < 40; i++ {
+		_, err := a.Audit(context.Background(), true)
+		require.NoError(t, err)
+		require.NotEqual(t, StateDegraded, s.State(), "audit %d falsely degraded: %v", i, s.DegradedError())
+	}
+	close(stop)
+	wg.Wait()
+}
+
+func TestWriteEpochOddWhileHeld(t *testing.T) {
+	s := seededStore(t, 1)
+	before := s.writeEpoch()
+	require.Zero(t, before%2)
+	g := slowWrite(t, "")
+	done := make(chan error, 1)
+	go func() { done <- s.UpdateStatus(context.Background(), "a-0", store.StatusIdle) }()
+	g.waitEntered(t)
+	require.Equal(t, uint64(1), s.writeEpoch()%2)
+	g.release()
+	require.NoError(t, <-done)
+	require.Zero(t, s.writeEpoch()%2)
+	require.Greater(t, s.writeEpoch(), before)
+}

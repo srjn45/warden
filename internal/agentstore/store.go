@@ -968,6 +968,14 @@ func (s *Store) DataDir() string {
 	return s.dataDir
 }
 
+// writeEpoch returns the write-slot seqlock counter (odd while a write is in flight).
+func (s *Store) writeEpoch() uint64 {
+	if s.gate == nil {
+		return 0
+	}
+	return s.gate.epoch.Load()
+}
+
 // Generation returns the monotonic count of committed mutations.
 func (s *Store) Generation() uint64 {
 	return s.gen.Load()

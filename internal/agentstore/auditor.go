@@ -229,6 +229,7 @@ func (a *Auditor) runAuditPass() (*AuditReport, error) {
 		}
 
 		genBefore := a.store.Generation()
+		epochBefore := a.store.writeEpoch()
 
 		curFailures, err := a.verifyStore(timeoutCtx)
 		if err != nil {
@@ -243,7 +244,11 @@ func (a *Auditor) runAuditPass() (*AuditReport, error) {
 
 		genAfter := a.store.Generation()
 
-		if genBefore == genAfter {
+		// Stable only if no writer held the slot at any point during the pass:
+		// the epoch was even (quiescent) before and unchanged after. The
+		// generation alone is bumped after the engine commit, so it can miss a
+		// write that landed between Count and Scan.
+		if genBefore == genAfter && epochBefore%2 == 0 && epochBefore == a.store.writeEpoch() {
 			// Observed a stable generation: count and scan saw consistent state.
 			failures = curFailures
 			break

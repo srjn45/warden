@@ -34,6 +34,11 @@ type writeGate struct {
 	holderOp  atomic.Pointer[string]
 	heldSince atomic.Int64 // unix nanos; 0 when free
 
+	// epoch is a seqlock over the write slot: odd while a writer holds the slot
+	// (engine mutated, generation possibly not yet bumped), even when quiescent.
+	// It lets the auditor tell a torn Count/Scan from real corruption.
+	epoch atomic.Uint64
+
 	metrics opMetrics
 }
 
@@ -96,6 +101,7 @@ func (s *Store) beginWrite(ctx context.Context, op string) (*writeTicket, error)
 		g.metrics.observeOp(op, "write", err, now.Sub(start))
 		return nil, err
 	}
+	g.epoch.Add(1)
 	g.holderOp.Store(&op)
 	g.heldSince.Store(now.UnixNano())
 	w := now.Sub(start)
@@ -107,6 +113,7 @@ func (s *Store) beginWrite(ctx context.Context, op string) (*writeTicket, error)
 func (t *writeTicket) release(errp *error) {
 	g := t.g
 	hold := time.Since(t.held)
+	g.epoch.Add(1)
 	g.heldSince.Store(0)
 	g.holderOp.Store(nil)
 	<-g.sem
