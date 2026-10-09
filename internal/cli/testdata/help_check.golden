@@ -12,9 +12,6 @@ Usage:
 Commands:
   run                  Run the project's configured checks and report only failures
   list                 List configured project checks without running them
-  guard                PreToolUse check-redirect guard (reads hook JSON on stdin)
-  boundary             PreToolUse isolation guard (reads hook JSON on stdin)
-  root-guard           PreToolUse main-worktree guard (reads hook JSON on stdin)
 
 Flags:
   -h, --help   help for check

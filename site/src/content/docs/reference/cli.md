@@ -3334,7 +3334,6 @@ Commands:
   pr                   Open (or return the already-open) pull request for the agent's branch
   review               Run the agent backend's native diff review on the worktree
   release              Recommend the next SemVer release tag, then tag and push it on confirmation
-  guard                PreToolUse git-redirect guard (reads hook JSON on stdin)
 
 Flags:
   -h, --help   help for git
@@ -3469,7 +3468,7 @@ Inherited flags:
 ```text
 Ask this agent's backend to review its own diff — the agent-native counterpart
 to `wd check`. Where `wd check` runs the project's configured test/lint commands
-and `pr-review` stands up a whole reviewer session, `wd git review` invokes the
+and a reviewer-role agent stands up a whole reviewer session, `wd git review` invokes the
 backend's OWN one-shot reviewer (Codex: `codex review`) against the worktree and
 streams its findings to you — additive and on-top, no review session to manage.
 
@@ -3487,17 +3486,17 @@ quality rides the backend's configured model — a tiny local model may report n
 findings; the operator's real model is where this earns its keep.
 
 Backends without a native review (e.g. Claude) are not offered the verb — it
-exits non-zero pointing you at `wd check` or a `pr-review` agent.
+exits non-zero pointing you at `wd check` or a reviewer-role agent.
 
 Usage:
   warden git review [flags]
 
 Flags:
-      --backend string   review for this backend id (default: the current agent's backend)
-      --base string      review changes against this base branch (default: the uncommitted working tree)
-  -h, --help             help for review
-      --json             emit machine-readable findings (neutral JSON) instead of streaming the prose review
-      --prompt string    optional extra review instructions for the backend's reviewer
+      --ai-cli string   review for this backend id (default: the current agent's backend)
+      --base string     review changes against this base branch (default: the uncommitted working tree)
+  -h, --help            help for review
+      --json            emit machine-readable findings (neutral JSON) instead of streaming the prose review
+      --prompt string   optional extra review instructions for the backend's reviewer
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -3554,22 +3553,6 @@ Inherited flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
-## warden git guard
-
-```text
-PreToolUse git-redirect guard (reads hook JSON on stdin)
-
-Usage:
-  warden git guard [flags]
-
-Flags:
-  -h, --help   help for guard
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
 ## warden check
 
 ```text
@@ -3587,9 +3570,6 @@ Usage:
 Commands:
   run                  Run the project's configured checks and report only failures
   list                 List configured project checks without running them
-  guard                PreToolUse check-redirect guard (reads hook JSON on stdin)
-  boundary             PreToolUse isolation guard (reads hook JSON on stdin)
-  root-guard           PreToolUse main-worktree guard (reads hook JSON on stdin)
 
 Flags:
   -h, --help   help for check
@@ -3641,54 +3621,6 @@ Inherited flags:
 
 Aliases:
   ls
-```
-
-## warden check guard
-
-```text
-PreToolUse check-redirect guard (reads hook JSON on stdin)
-
-Usage:
-  warden check guard [flags]
-
-Flags:
-  -h, --help   help for guard
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden check boundary
-
-```text
-PreToolUse isolation guard (reads hook JSON on stdin)
-
-Usage:
-  warden check boundary [flags]
-
-Flags:
-  -h, --help   help for boundary
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden check root-guard
-
-```text
-PreToolUse main-worktree guard (reads hook JSON on stdin)
-
-Usage:
-  warden check root-guard [flags]
-
-Flags:
-  -h, --help   help for root-guard
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
 ```
 
 ## warden context
@@ -5842,7 +5774,6 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | `warden repair sessions` | `warden inspect repair sessions` |
 | `warden repl` | `warden backend repl` |
 | `warden restore` | `warden agent restore` |
-| `warden review` | `warden git review` |
 | `warden role` | `warden agent role` |
 | `warden role list` | `warden agent role list` |
 | `warden role set-tier` | `warden agent role tier set` |

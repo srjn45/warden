@@ -127,7 +127,9 @@ func newPushCmd() *cobra.Command {
 			if asJSON {
 				return emitJSON(cmd, res)
 			}
-			if res.Forced {
+			if res.UpToDate {
+				fmt.Fprintf(cmd.OutOrStdout(), "already up to date: %s -> %s\n", res.Branch, res.Remote)
+			} else if res.Forced {
 				fmt.Fprintf(cmd.OutOrStdout(), "force-pushed (--force-with-lease) %s -> %s\n", res.Branch, res.Remote)
 			} else {
 				fmt.Fprintf(cmd.OutOrStdout(), "pushed %s -> %s\n", res.Branch, res.Remote)
@@ -201,6 +203,10 @@ func newSyncCmd() *cobra.Command {
 			why := ""
 			if res.BaseSource != "" {
 				why = " (defaulted from " + res.BaseSource + ")"
+			}
+			if res.UpToDate {
+				fmt.Fprintf(cmd.OutOrStdout(), "already up to date with origin/%s\n", res.Base)
+				return nil
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "rebased %s onto origin/%s%s\n", res.Branch, res.Base, why)
 			return nil
