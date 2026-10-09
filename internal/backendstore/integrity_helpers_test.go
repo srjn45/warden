@@ -8,11 +8,14 @@ package backendstore
 import (
 	"bytes"
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
+	"github.com/srjn45/scriva/store"
 	"github.com/stretchr/testify/require"
 )
 
@@ -198,4 +201,73 @@ func damagedRegistry(t *testing.T, cols ...string) (string, registrySnapshot) {
 		require.Positive(t, injectRevisionRegressions(t, dir, c), "fixture must create regressions in %s", c)
 	}
 	return dir, want
+}
+
+// injectDivergentWrites reproduces the real #841 shape: a second writer appends
+// n lower-revision updates PER ID with a NEWER timestamp (rev max-1 after rev
+// max). mutate edits the copied winner data of each injected line (index j).
+// Derived index files are removed so the next open scans. It returns the number
+// of lines injected.
+func injectDivergentWrites(t *testing.T, dir, col string, n int, mutate func(j int, id uint64, data map[string]any)) int {
+	t.Helper()
+	cdir := filepath.Join(dir, col)
+	segs, err := filepath.Glob(filepath.Join(cdir, "seg_*.ndjson"))
+	require.NoError(t, err)
+	last := segs[len(segs)-1]
+	raw, err := os.ReadFile(last)
+	require.NoError(t, err)
+	type win struct {
+		rev  uint64
+		data map[string]any
+	}
+	wins := map[uint64]win{}
+	for _, l := range bytes.Split(bytes.TrimSpace(raw), []byte("\n")) {
+		var e store.Entry
+		require.NoError(t, json.Unmarshal(l, &e))
+		if e.Rev >= wins[e.ID].rev {
+			wins[e.ID] = win{e.Rev, e.Data}
+		}
+	}
+	var extra []byte
+	count := 0
+	ids := make([]uint64, 0, len(wins))
+	for id := range wins {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	for _, id := range ids {
+		w := wins[id]
+		if w.rev < 2 {
+			continue
+		}
+		for j := 0; j < n; j++ {
+			data := map[string]any{}
+			maps.Copy(data, w.data)
+			mutate(j, id, data)
+			b, err := store.Encode(store.Entry{ID: id, Op: store.OpUpdate, Ts: time.Now().UTC().Add(time.Hour + time.Duration(j)*time.Second), Rev: w.rev - 1, Data: data})
+			require.NoError(t, err)
+			extra = append(extra, b...)
+			count++
+		}
+	}
+	f, err := os.OpenFile(last, os.O_APPEND|os.O_WRONLY, 0o600)
+	require.NoError(t, err)
+	_, err = f.Write(extra)
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+	idx, _ := filepath.Glob(filepath.Join(cdir, "index.json"))
+	sidx, _ := filepath.Glob(filepath.Join(cdir, "sidx_*.json"))
+	for _, p := range append(idx, sidx...) {
+		require.NoError(t, os.Remove(p))
+	}
+	return count
+}
+
+// divergentRegistry builds a registry then applies injectDivergentWrites to "backends".
+func divergentRegistry(t *testing.T, mutate func(j int, id uint64, data map[string]any)) (string, registrySnapshot, int) {
+	t.Helper()
+	dir := t.TempDir()
+	want := buildRegistry(t, dir)
+	n := injectDivergentWrites(t, dir, "backends", 12, mutate)
+	return dir, want, n
 }
