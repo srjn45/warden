@@ -10,12 +10,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"regexp"
-	"strings"
 	"testing"
 
-	"github.com/srjn45/scriva"
+	"github.com/srjn45/scriva/engine"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
@@ -48,16 +46,11 @@ func TestContractScrivaDependencyPin(t *testing.T) {
 	require.NoError(t, err)
 	m := regexp.MustCompile(`github.com/srjn45/scriva (v\S+)`).FindSubmatch(gomod)
 	require.NotNil(t, m)
-	require.Equal(t, "v1.2.1", string(m[1]),
+	require.Equal(t, "v1.4.0", string(m[1]),
 		"scriva bumped: re-audit docs/specs/2026-10-06-agent-store-integrity-contract.md §2 and update this pin")
 
-	typ := reflect.TypeOf(&scriva.DB{})
-	for i := 0; i < typ.NumMethod(); i++ {
-		n := strings.ToLower(typ.Method(i).Name)
-		for _, w := range []string{"verify", "repair", "lock", "reindex", "rebuild"} {
-			require.NotContains(t, n, w, "scriva.DB gained %s; contract §2 must be updated", typ.Method(i).Name)
-		}
-	}
+	_, err = engine.VerifyDir(context.Background(), t.TempDir(), engine.VerifyOptions{})
+	require.NoError(t, err)
 }
 
 // TestContractLegacyLockDoesNotCoverAgentStore pins that the legacy

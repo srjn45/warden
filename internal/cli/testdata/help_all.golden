@@ -172,7 +172,7 @@ Complete command tree:
   warden inspect export                Serialize agent session metadata to JSON on stdout
   warden inspect import                Insert agent session metadata from a JSON dump on stdin
   warden inspect repair                Offline, backup-first repair tools
-  warden inspect repair agents         Check preconditions for offline agent-store repair (repair itself awaits ScrivaDB support)
+  warden inspect repair agents         Verify or repair the agent store offline, backup-first
   warden inspect repair sessions       Diagnose or reconstruct the offline session store
   warden backend                       Inspect and manage the agent-backend registry
   warden backend default               Set the default backend (rejects the reserved local row)

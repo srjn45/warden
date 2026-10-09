@@ -38,11 +38,12 @@ const closedImportedMarker = ".archived-agents-from-sessions-imported"
 
 // Store owns the ScrivaDB "agents" and "closed" collections at <data>/agents-db.
 type Store struct {
-	mu     sync.Mutex
-	db     *scriva.DB
-	col    *engine.Collection
-	closed *engine.Collection
-	lock   *flockFile
+	mu        sync.Mutex
+	db        *scriva.DB
+	col       *engine.Collection
+	closed    *engine.Collection
+	lock      *flockFile
+	preflight *UnhealthyError
 }
 
 var _ AgentStore = (*Store)(nil)
@@ -64,12 +65,24 @@ func New(dir string) (*Store, error) {
 		return nil, err
 	}
 	defer func() { _ = legacy.release() }()
+	// Verify the persisted agent database before opening it. ScrivaDB may rebuild
+	// derived indexes at open, but that must not turn an already-damaged or
+	// missing index into a silently healthy fleet from Warden's perspective.
+	var preflight *UnhealthyError
+	if _, statErr := os.Stat(filepath.Join(canon, "agents-db")); statErr == nil {
+		if rep, verifyErr := VerifyAgentStore(context.Background(), canon); verifyErr != nil {
+			preflight = readFailure("agents", "", verifyErr)
+		} else if failures := ReportFailures(rep); len(failures) > 0 {
+			preflight = newUnhealthy(failures...)
+		}
+	}
 	s, err := open(canon)
 	if err != nil {
 		_ = lock.release()
 		return nil, err
 	}
 	s.lock = lock
+	s.preflight = preflight
 	return s, nil
 }
 
@@ -209,6 +222,9 @@ func fromRecord(rec map[string]any) (*Agent, error) {
 }
 
 func (s *Store) get(id string) (*Agent, error) {
+	if s.preflight != nil {
+		return nil, s.preflight
+	}
 	r, err := s.col.GetByKey(id)
 	if errors.Is(err, engine.ErrKeyNotFound) {
 		// The engine reports ErrKeyNotFound both for an absent index entry and
@@ -371,6 +387,9 @@ func (s *Store) Get(ctx context.Context, id string) (*Agent, error) {
 
 // List returns all agents newest-updated first.
 func (s *Store) List(ctx context.Context) ([]*Agent, error) {
+	if s.preflight != nil {
+		return nil, s.preflight
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
