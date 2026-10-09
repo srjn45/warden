@@ -11,15 +11,24 @@ import (
 	"github.com/srjn45/warden/internal/savings"
 )
 
-// protectedBranches are the long-lived integration branches an agent must never
-// commit to or push directly. An agent works on its own branch; a human (or a
-// reviewed PR) integrates. Keeps the wd commit / wd push rails deterministic and
-// language-agnostic.
-var protectedBranches = map[string]bool{"main": true, "master": true}
-
 // IsProtectedBranch reports whether branch is one warden refuses to mutate
-// directly. Exported so the daemon redirect hooks and tests share one list.
-func IsProtectedBranch(branch string) bool { return protectedBranches[branch] }
+// directly without a repository-specific configuration lookup. It remains for
+// compatibility; callers that have a repository directory use
+// IsProtectedBranchInRepo instead.
+func IsProtectedBranch(branch string) bool { return branch == "main" || branch == "master" }
+
+// IsProtectedBranchInRepo resolves the live configured branch rails for dir.
+// A custom list replaces main/master, while origin's advertised default branch
+// stays protected by default. Autopilot integration branches are ordinary
+// branches unless explicitly listed.
+func (l *Lifecycle) IsProtectedBranchInRepo(ctx context.Context, dir, branch string) bool {
+	for _, protected := range l.config().GetGitProtectedBranches() {
+		if branch == strings.TrimSpace(protected) {
+			return true
+		}
+	}
+	return l.config().GetGitProtectDefaultBranch() && branch == l.DefaultBranch(ctx, dir)
+}
 
 // CommitResult is the compact struct `wd commit` / `mcp__warden__commit` returns
 // — one value in place of the 4-6 git tool round-trips Claude would otherwise
@@ -172,7 +181,7 @@ func (l *Lifecycle) CommitWith(ctx context.Context, dir string, opts CommitOptio
 	if branch == "" {
 		return CommitResult{}, fmt.Errorf("not a git repository: %s", dir)
 	}
-	if protectedBranches[branch] {
+	if l.IsProtectedBranchInRepo(ctx, dir, branch) {
 		return CommitResult{}, fmt.Errorf("refusing to commit on protected branch %q — agents commit on their own branch and a human integrates", branch)
 	}
 	switch st := l.RepoState(ctx, dir); {
@@ -472,7 +481,7 @@ func (l *Lifecycle) Push(ctx context.Context, dir string, force bool) (PushResul
 	if branch == "" {
 		return PushResult{}, fmt.Errorf("not a git repository: %s", dir)
 	}
-	if protectedBranches[branch] {
+	if l.IsProtectedBranchInRepo(ctx, dir, branch) {
 		return PushResult{}, fmt.Errorf("refusing to push protected branch %q directly — push your agent branch and open a PR", branch)
 	}
 	args := []string{"push", "-u"}

@@ -33,6 +33,14 @@ func TestLoadAbsentFileReturnsDefaults(t *testing.T) {
 	require.Equal(t, 5, c.Worktree.SpawnGateMax)
 	require.Equal(t, "claude-sonnet-4-6", c.ModelDefault)
 	require.True(t, c.Pipeline.Hint)
+	require.Equal(t, []string{"main", "master"}, c.Git.ProtectedBranches)
+	require.True(t, c.Git.ProtectDefaultBranch)
+}
+
+func TestLoadGitProtectedBranches(t *testing.T) {
+	c := Load(tmpConfig(t, "git:\n  protected_branches: [release, production]\n  protect_default_branch: false\n"))
+	require.Equal(t, []string{"release", "production"}, c.Git.ProtectedBranches)
+	require.False(t, c.Git.ProtectDefaultBranch)
 }
 
 func TestLoadReadsFileValues(t *testing.T) {

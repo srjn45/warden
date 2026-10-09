@@ -945,6 +945,8 @@ type ConfigProvider interface {
 	GetMemoryInject() bool
 	GetIsolationGuard() bool
 	GetGitConventions() bool
+	GetGitProtectedBranches() []string
+	GetGitProtectDefaultBranch() bool
 	GetGitRedirect() bool
 	GetCheckRedirect() bool
 	GetRootGuard() bool
