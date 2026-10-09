@@ -17,7 +17,7 @@ import (
 func TestGitCheckNamespaceCanonicalAndCompatibilityPaths(t *testing.T) {
 	root := newRootCmd()
 	gitPairs := map[string]string{
-		"git commit": "commit", "git push": "push", "git sync": "sync", "git review": "review", "git release": "release",
+		"git commit": "commit", "git push": "push", "git sync": "sync", "git release": "release",
 		"git guard": "hook git-guard",
 	}
 	checkPairs := map[string]string{
@@ -30,12 +30,8 @@ func TestGitCheckNamespaceCanonicalAndCompatibilityPaths(t *testing.T) {
 	for canonical, legacy := range checkPairs {
 		assertCanonicalAliasPair(t, root, canonical, legacy, false)
 	}
-	reviewCmd := findExactCommand(t, root, "review")
-	if !reviewCmd.Hidden {
-		t.Fatal("legacy review must be hidden")
-	}
-	if got := reviewCmd.Annotations[AnnotationCanonicalPath]; got != "warden git review" {
-		t.Fatalf("review canonical=%q", got)
+	if cmd, _, err := root.Find([]string{"review"}); err == nil && cmd != root {
+		t.Fatalf("root `review` alias must be removed, resolved %q", cmd.CommandPath())
 	}
 }
 

@@ -1268,22 +1268,6 @@
     ]
   },
   {
-    "path": "review",
-    "use": "review",
-    "runnable": true,
-    "local_flags": [
-      "backend",
-      "base",
-      "json",
-      "prompt"
-    ],
-    "inherited_flags": [
-      "addr",
-      "config"
-    ],
-    "json": true
-  },
-  {
     "path": "role",
     "use": "role",
     "inherited_flags": [

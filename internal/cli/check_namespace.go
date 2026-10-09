@@ -37,7 +37,8 @@ or root-guard remains runnable as ` + "`wd check run <name>`" + `.`,
 	}
 	for i, child := range children {
 		kind := nodeKind(child)
-		if kind == NodeInternal {
+		if child.Annotations[AnnotationNodeKind] == NodeInternal {
+			kind = NodeInternal
 			child.Hidden = true
 		}
 		SetCommandHelpMetadata(child, "project", (i+1)*10, "warden check "+child.Name(), "", kind)
