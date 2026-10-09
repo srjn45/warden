@@ -8,9 +8,23 @@ import (
 	"testing"
 	"time"
 
+	"github.com/srjn45/scriva/engine"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
+
+func TestStoreUsesPerWriteDurabilityAndRejectsIdentityMutation(t *testing.T) {
+	s, err := New(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+	require.Equal(t, engine.SyncModeAlways, s.col.Config().SyncMode)
+	require.NoError(t, s.Insert(context.Background(), &Agent{ID: "agent-one", Name: "one"}))
+	err = s.Update(context.Background(), "agent-one", func(a *Agent) error { a.ID = "agent-two"; return nil })
+	require.ErrorIs(t, err, ErrIdentityChanged)
+	got, err := s.Get(context.Background(), "agent-one")
+	require.NoError(t, err)
+	require.Equal(t, "agent-one", got.ID)
+}
 
 func TestCRUD(t *testing.T) {
 	s, err := New(t.TempDir())

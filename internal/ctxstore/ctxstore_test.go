@@ -5,7 +5,20 @@ import (
 	"strconv"
 	"sync"
 	"testing"
+
+	"github.com/srjn45/scriva/engine"
 )
+
+func TestStoreUsesPerWriteDurability(t *testing.T) {
+	s, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if got := s.col.Config().SyncMode; got != engine.SyncModeAlways {
+		t.Fatalf("SyncMode = %q, want %q", got, engine.SyncModeAlways)
+	}
+}
 
 func TestSetThenGet(t *testing.T) {
 	s, err := New(t.TempDir())

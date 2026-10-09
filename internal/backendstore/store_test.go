@@ -4,8 +4,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/srjn45/scriva/engine"
 	"github.com/stretchr/testify/require"
 )
+
+func TestStoreUsesPerWriteDurability(t *testing.T) {
+	s := newTestStore(t)
+	if got := s.col.Config().SyncMode; got != engine.SyncModeAlways {
+		t.Fatalf("SyncMode = %q, want %q", got, engine.SyncModeAlways)
+	}
+}
 
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
