@@ -177,3 +177,102 @@ backendstore.RepairDryRunCommand = "warden repair backends --dry-run"
 `dir` is the registry directory (`<data>/backends`). `NewStore` is unchanged and
 strict; agent-store semantics are untouched. The daemon calls `Open`. CLI direct
 opens (`models`, `role`) stay strict (t3/t5).
+
+## 8. Data-directory ownership (t3, `internal/ownerlock`)
+
+### 8.1 Open-site map (every opener of `<data>`)
+
+| Site | What it opens | Role | Policy now |
+|---|---|---|---|
+| `internal/cli/daemon.go` (`warden daemon`) | every store: agent store, terminals, context, inbox, schedules, known-prompts, `backends` (via `backendstore.Open`), usage-snapshots, … | single writer | takes the ownership lock **first**, before `agentstore.New`; refusal exits before any store/listener/goroutine |
+| `openBackendStore` (`internal/cli/models.go`) → `wd models list/set/import…`, `wd role …` | `<data>/backends` only | direct CLI | `ownCLIDataDir`: refused with guidance while a daemon owns the dir; otherwise takes the same lock (kind=cli) for the command's life so a daemon cannot start mid-write |
+| `backendstore.Repair` / `Open`→Repair (`warden repair backends`, t5) | `<data>/backends`, offline | repair | probes the parent data dir; refuses (`ErrOwned`+`ownerlock.ErrOwned`) while a *foreign* process owns it; the owning process itself is exempt (the daemon's own `Open` auto-recovery) |
+| `backendstore.Verify` | read-only | verify | never takes or checks the lock (read-only scan; engine LOCK reported as Info) |
+| `doctor.go` (`agentstore.New`) | agent store | read | unchanged (agent-store lock, #795 semantics) |
+| `agentstore` writer lock `.agents-store.lock` | agent store | guard | unchanged; now nested **inside** the data-dir lock for the daemon |
+
+All backend-registry writes go through `*backendstore.Store`; the only processes that construct one are the daemon (after the lock) and `openBackendStore` (after the lock) — verified by grep of `backendstore.NewStore/Open` outside tests. Every other consumer receives the daemon's handle or goes through REST/MCP.
+
+### 8.2 Lock contract
+
+- File `<data>/.warden-owner.lock`, exclusive non-blocking `flock` (open-file-description scoped: a second acquire in the same process is also refused; the kernel releases on process death — **no stale-lock cleanup, no PID-liveness guessing**, so a crash can never cause a false refusal).
+- Content is advisory JSON `{pid, started, version, kind: daemon|cli, launch: systemd|manual, addr, command}`; it is only read while the flock is actually held by someone else. `launch` is `systemd` when `INVOCATION_ID`/`JOURNAL_STREAM` is set (systemd sets them for units), else `manual`.
+- `ownerlock.Acquire` → `*OwnedError` (wraps `ErrOwned`) with owner PID, launch mode, version, start time, address and `NextStep()`:
+  - systemd owner: `systemctl --user status warden`; stop with `systemctl --user stop warden` only to replace it; never start a second `warden daemon`.
+  - manual owner: stop that process (PID given) or use it; stop it before enabling the service.
+  - CLI owner: wait and retry.
+  - Never suggests deleting the lock file.
+- `ownerlock.Probe(dataDir)` is the non-blocking foreign-owner check; own-PID ownership reads as unowned.
+- The engine's own `<data>/backends/LOCK` (t2 `dirLock`) stays as an inner defence for the registry dir alone; the data-dir lock is the authority and sits above it (it spans every store, which engine LOCK cannot).
+
+### 8.3 Direct-CLI safe modes
+
+| Situation | Behaviour |
+|---|---|
+| Daemon owns dir, CLI **writer** (`models set/import`, `role set`) | refused: error names the daemon (PID/launch/addr) and points to daemon-backed REST/MCP (`set_model_tier`, `set_role_tier`, …) or stopping the daemon |
+| Daemon owns dir, CLI **read-only** (`models list`, `role list/show`) | currently the same refusal (the daemon is the only safe reader of a live engine); the REST/MCP equivalents (`list_models`, `list_roles`, `list_backends`) are the supported live view. Rerouting these CLI commands through `internal/client` is possible follow-up work |
+| No daemon | CLI takes the lock (kind=cli), runs, lock dropped at exit; a daemon started meanwhile is refused with "wait for the CLI command" |
+| `Repair` with a daemon running | refused; `Verify` still allowed |
+
+### 8.4 Tests
+
+`internal/ownerlock` (real subprocesses of the test binary): two/eight racing owners → exactly one, loser exits <5 s with PID + systemctl guidance; SIGKILL leaves no stuck lock; same-process re-acquire refused / own-probe nil. `internal/backendstore/contention_test.go`: six concurrent writer subprocesses × 3 rounds against one temp data dir under the lock → registry `Verify` stays clean (no revision regression, no split brain); `Repair` refused while a foreign process owns the dir. `internal/cli/ownership_test.go`: CLI direct open refused under a foreign daemon, and CLI-held lock blocks a daemon acquire. `TestContractDaemonStartDoesNotRefuseOnDerivedStore` (unskipped): the daemon open path recovers a regressed registry and preserves all user facts while holding the lock.
+
+### 8.5 Notes for t5/t6
+
+- Docs should state: "run exactly one daemon per data dir; with the systemd user service, use `systemctl --user …`, not `warden daemon`".
+- Not done here: a *degraded start* for **ambiguous** registry findings (contract §5.4). Daemon still exits with the typed `*RecoveryRequiredError` (repair command in message) in that case; recoverable regressions auto-heal. If a degraded mode is wanted it is a separate change.
+- `wd update` (t4) may `ownerlock.Probe(dataDir)` to report/anticipate the owner.
+
+## 9. `wd update` transaction contract (t4, `internal/updater/transaction.go`)
+
+`warden update` is an explicit transaction over small interfaces
+(`ServiceController`, `Prober`, `BinaryInstaller`, `Clock`; real implementations
+in `service.go`, fakes in the tests).
+
+```
+resolve release ─▶ capture ─▶ preflight ─▶ download+verify ─▶ swap ─▶ codesign ─▶ migrate
+                                   │                                                  │
+                          PreflightError (no change)                              restart
+                                                                                      │
+                                                  ┌── rollback ◀── any failure ── readiness
+                                                  ▼
+                               restore binary → restart service → verify PRIOR version healthy
+```
+
+1. **Capture**: binary path+version, service kind (`systemd-user` / `launchd` /
+   `manual` / `none`), whether the daemon answers `/healthz` and its version.
+2. **Preflight** (before download and swap): `backendstore.Verify` on
+   `<data_dir>/backends`, read-only, using the *running* binary's classification.
+   Ambiguous/unreadable findings → `PreflightError` with the findings and
+   `backendstore.RepairCommand`; nothing changes. Recoverable findings are
+   printed as notes and do not block (the new daemon's `Open` repairs them).
+3. **Swap/restart**: atomic binary swap (`.bak` kept until success), codesign,
+   config migrate, restart via the service manager. With no manager
+   (`ErrNoServiceManager`) the binary is updated and the user is told to restart
+   manually; no readiness check is possible.
+4. **Readiness**: bounded backoff (250ms ×1.5, cap 2s) under one overall deadline
+   (`--ready-timeout`, default 90s). Success needs `status == ok` **and**
+   advertised version == target. Each poll also checks whether the supervised
+   process exited.
+5. **Diagnostics**: on failure the journal tail (`journalctl --user -u warden`) or
+   `/tmp/warden.daemon.err` (launchd) is attached, so the real startup error
+   (e.g. the integrity refusal) is shown rather than "connection refused".
+6. **Rollback** (any failure after the swap): restore the previous binary; restart
+   the service if the new daemon had been started; if a daemon was serving before,
+   require it healthy on the prior version. The report always contains both the
+   original failure and the rollback outcome.
+
+### Error taxonomy (all `errors.As`-able; wrapped in `*FailureError` after a swap)
+
+| type | meaning | message headline |
+|---|---|---|
+| `*PreflightError` | store blocker; nothing swapped | `update blocked before any change` |
+| `*StartupFailureError` | process exited / restart command failed before healthy | `startup failure` |
+| `*ReadinessTimeoutError` | no healthy response by deadline | `readiness timeout` |
+| `*WrongVersionError` | healthy but advertises another version | `wrong version` |
+| `*RollbackError` | restoring the previous version failed | `ROLLBACK FAILED` |
+
+Limitations: the preflight uses the installed binary's `Verify`, not the new
+binary's; a daemon-written startup-failure file is not required (journal/stderr
+capture covers supervised daemons).

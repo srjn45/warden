@@ -34,10 +34,9 @@ func TestCheckLatestAvailable(t *testing.T) {
 		HTTPClient:     rewriteClient(srv.URL),
 		Stdout:         &buf,
 		// Prevent real side effects if Check somehow applied.
-		Restart:     func() error { t.Fatal("restart"); return nil },
-		Codesign:    func(string) error { t.Fatal("codesign"); return nil },
-		Migrate:     func() error { t.Fatal("migrate"); return nil },
-		HealthProbe: func(string) error { t.Fatal("health"); return nil },
+		Service:  &fakeSvc{t: t, failOnUse: true},
+		Codesign: func(string) error { t.Fatal("codesign"); return nil },
+		Migrate:  func() error { t.Fatal("migrate"); return nil },
 	})
 	require.NoError(t, err)
 	require.False(t, res.UpToDate)
@@ -65,8 +64,8 @@ func TestApplySuccess(t *testing.T) {
 	sum := sha256.Sum256(archiveBytes)
 	sumsBody := hex.EncodeToString(sum[:]) + "  warden_2.0.0_linux_amd64.tar.gz\n"
 
-	var healthOK atomic.Bool
-	healthOK.Store(true)
+	svc := &fakeSvc{}
+	probe := versionByRestarts(svc, "1.0.0", "2.0.0")
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/repos/srjn45/warden/releases/latest", func(w http.ResponseWriter, _ *http.Request) {
@@ -91,7 +90,7 @@ func TestApplySuccess(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(installBin), 0o755))
 	require.NoError(t, os.WriteFile(installBin, []byte("old"), 0o755))
 
-	var restarted, migrated atomic.Bool
+	var migrated atomic.Bool
 	var buf bytes.Buffer
 	res, err := Apply(Options{
 		CurrentVersion: "1.0.0",
@@ -102,19 +101,14 @@ func TestApplySuccess(t *testing.T) {
 		AssetBase:      srv.URL + "/download",
 		HTTPClient:     rewriteClient(srv.URL),
 		Stdout:         &buf,
-		Restart:        func() error { restarted.Store(true); return nil },
+		Service:        svc,
+		Prober:         probe,
+		Clock:          newFakeClock(),
 		Migrate:        func() error { migrated.Store(true); return nil },
-		HealthProbe: func(string) error {
-			if healthOK.Load() {
-				return nil
-			}
-			return fmt.Errorf("down")
-		},
-		Sleep: func(time.Duration) {},
 	})
 	require.NoError(t, err)
 	require.True(t, res.Updated)
-	require.True(t, restarted.Load())
+	require.Equal(t, 1, svc.count())
 	require.True(t, migrated.Load())
 
 	got, err := os.ReadFile(installBin)
@@ -156,6 +150,14 @@ func TestApplyRollbackOnHealthFailure(t *testing.T) {
 	old := []byte("good-old-binary")
 	require.NoError(t, os.WriteFile(installBin, old, 0o755))
 
+	svc := &fakeSvc{}
+	probe := &fakeProbe{fn: func() (Health, error) {
+		switch svc.count() {
+		case 1:
+			return Health{}, fmt.Errorf("unhealthy")
+		}
+		return Health{Status: "ok", Version: "2.0.0"}, nil
+	}}
 	var buf bytes.Buffer
 	res, err := Apply(Options{
 		CurrentVersion: "2.0.0",
@@ -167,10 +169,10 @@ func TestApplyRollbackOnHealthFailure(t *testing.T) {
 		AssetBase:      srv.URL + "/download",
 		HTTPClient:     srv.Client(),
 		Stdout:         &buf,
-		Restart:        func() error { return nil },
-		Migrate:        func() error { return nil },
-		HealthProbe:    func(string) error { return fmt.Errorf("unhealthy") },
-		Sleep:          func(time.Duration) {},
+		Service:        svc,
+		Prober:         probe,
+		Clock:          newFakeClock(),
+		ReadyTimeout:   5 * time.Second,
 	})
 	require.Error(t, err)
 	require.True(t, res.RolledBack)
@@ -179,7 +181,7 @@ func TestApplyRollbackOnHealthFailure(t *testing.T) {
 	got, readErr := os.ReadFile(installBin)
 	require.NoError(t, readErr)
 	require.Equal(t, old, got, "binary should be restored from backup")
-	require.Contains(t, buf.String(), "rolled back")
+	require.Contains(t, buf.String(), "rolling back")
 }
 
 func TestApplyForceReinstallSameVersion(t *testing.T) {
@@ -219,10 +221,9 @@ func TestApplyForceReinstallSameVersion(t *testing.T) {
 		AssetBase:      srv.URL + "/download",
 		HTTPClient:     srv.Client(),
 		Stdout:         io.Discard,
-		Restart:        func() error { return nil },
-		Migrate:        func() error { return nil },
-		HealthProbe:    func(string) error { return nil },
-		Sleep:          func(time.Duration) {},
+		Service:        &fakeSvc{},
+		Prober:         &fakeProbe{fn: func() (Health, error) { return Health{Status: "ok", Version: "1.0.0"}, nil }},
+		Clock:          newFakeClock(),
 	})
 	require.NoError(t, err)
 	require.True(t, res.Updated)
@@ -268,10 +269,9 @@ func TestVerifyChecksumRejectsBadDownload(t *testing.T) {
 		AssetBase:      srv.URL + "/download",
 		HTTPClient:     srv.Client(),
 		Stdout:         io.Discard,
-		Restart:        func() error { return nil },
-		Migrate:        func() error { return nil },
-		HealthProbe:    func(string) error { return nil },
-		Sleep:          func(time.Duration) {},
+		Service:        &fakeSvc{},
+		Prober:         &fakeProbe{fn: func() (Health, error) { return Health{Status: "ok", Version: "1.0.0"}, nil }},
+		Clock:          newFakeClock(),
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "SHA256 mismatch")
