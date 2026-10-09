@@ -55,7 +55,13 @@ type ServiceController interface {
 type Health struct {
 	Status  string
 	Version string
+	// SchemaVersion is the data-format version the daemon serves (internal/
+	// schema); 0 when the daemon predates the schema ledger and omits it.
+	SchemaVersion int
 }
+
+// schemaAny disables the schema half of the readiness check (no resolver).
+const schemaAny = -1
 
 // Prober queries the daemon's health endpoint.
 type Prober interface {
@@ -89,9 +95,13 @@ type PreState struct {
 	Service       ServiceState
 	DaemonRunning bool
 	DaemonVersion string
+	// DaemonSchema is the schema_version the running daemon advertised (0 when
+	// it predates the ledger). Informational, like DaemonVersion: the process
+	// may be older than the binary on disk.
+	DaemonSchema int
 }
 
-// Typed failures. FailureError wraps one of the first four.
+// Typed failures. FailureError wraps one of the first five.
 
 // PreflightError: the swap never happened.
 type PreflightError struct {
@@ -141,6 +151,22 @@ func (e *WrongVersionError) Error() string {
 	return fmt.Sprintf("daemon is healthy but advertises version %s, expected %s", got, e.Want)
 }
 
+// WrongSchemaError: a healthy daemon on the wanted version serves a data
+// schema other than the one the target binary writes. 0 means "not reported"
+// (a binary that predates the schema ledger).
+type WrongSchemaError struct{ Want, Got int }
+
+func (e *WrongSchemaError) Error() string {
+	return fmt.Sprintf("daemon is healthy but serves data schema %s, expected %s", schemaLabel(e.Got), schemaLabel(e.Want))
+}
+
+func schemaLabel(v int) string {
+	if v == 0 {
+		return "(none reported)"
+	}
+	return fmt.Sprint(v)
+}
+
 // RollbackError: restoring the previous version did not succeed.
 type RollbackError struct{ Cause error }
 
@@ -172,8 +198,11 @@ func headline(err error) string {
 		su *StartupFailureError
 		rt *ReadinessTimeoutError
 		wv *WrongVersionError
+		ws *WrongSchemaError
 	)
 	switch {
+	case errors.As(err, &ws):
+		return "wrong data schema"
 	case errors.As(err, &su):
 		return "startup failure"
 	case errors.As(err, &rt):
@@ -212,7 +241,7 @@ func (t *txn) logf(format string, a ...any) { fmt.Fprintf(t.opts.Stdout, format+
 func (t *txn) capture(ctx context.Context) {
 	t.pre = PreState{BinaryPath: t.opts.InstallBin, Version: stripV(t.opts.CurrentVersion), Service: t.svc.State(ctx)}
 	if h, err := t.probe.Probe(ctx); err == nil && h.Status == "ok" {
-		t.pre.DaemonRunning, t.pre.DaemonVersion = true, stripV(h.Version)
+		t.pre.DaemonRunning, t.pre.DaemonVersion, t.pre.DaemonSchema = true, stripV(h.Version), h.SchemaVersion
 	}
 	running := "not running"
 	if t.pre.DaemonRunning {
@@ -241,13 +270,16 @@ func (t *txn) preflight(ctx context.Context) error {
 }
 
 // waitReady polls with bounded backoff until health is ok on wantVersion
-// ("" = any version), the process exits, or the deadline passes.
-func (t *txn) waitReady(ctx context.Context, wantVersion string) error {
+// ("" = any version) AND wantSchema (schemaAny = any), the process exits, or
+// the deadline passes. Both must match: a daemon on the right binary serving
+// the wrong data format is not a finished update.
+func (t *txn) waitReady(ctx context.Context, wantVersion string, wantSchema int) error {
 	deadline := t.clock.Now().Add(t.opts.ReadyTimeout)
 	delay := 250 * time.Millisecond
 	var lastErr error
 	var gotVersion string
-	versionMismatch := false
+	var gotSchema int
+	versionMismatch, schemaMismatch := false, false
 	for {
 		if t.svc.Exited(ctx) {
 			return &StartupFailureError{Diagnostics: t.svc.Diagnostics(ctx)}
@@ -255,17 +287,22 @@ func (t *txn) waitReady(ctx context.Context, wantVersion string) error {
 		h, err := t.probe.Probe(ctx)
 		switch {
 		case err != nil:
-			lastErr, versionMismatch = err, false
+			lastErr, versionMismatch, schemaMismatch = err, false, false
 		case h.Status != "ok":
-			lastErr, versionMismatch = fmt.Errorf("health status %q", h.Status), false
+			lastErr, versionMismatch, schemaMismatch = fmt.Errorf("health status %q", h.Status), false, false
 		case wantVersion != "" && stripV(h.Version) != wantVersion:
-			versionMismatch, gotVersion = true, stripV(h.Version)
+			versionMismatch, schemaMismatch, gotVersion = true, false, stripV(h.Version)
+		case wantSchema != schemaAny && h.SchemaVersion != wantSchema:
+			versionMismatch, schemaMismatch, gotSchema = false, true, h.SchemaVersion
 		default:
 			return nil
 		}
 		if !t.clock.Now().Before(deadline) || ctx.Err() != nil {
 			if versionMismatch {
 				return &WrongVersionError{Want: wantVersion, Got: gotVersion}
+			}
+			if schemaMismatch {
+				return &WrongSchemaError{Want: wantSchema, Got: gotSchema}
 			}
 			return &ReadinessTimeoutError{Timeout: t.opts.ReadyTimeout, LastErr: lastErr, Diagnostics: t.svc.Diagnostics(ctx)}
 		}
@@ -295,7 +332,13 @@ func (t *txn) rollback(ctx context.Context, backup string, restarted bool) error
 	if want == "" || want == "dev" {
 		want = ""
 	}
-	if err := t.waitReady(ctx, want); err != nil {
+	// The restored binary is the one running this updater, so it must come
+	// back serving the schema that binary writes (nothing here migrates data).
+	wantSchema := schemaAny
+	if t.opts.TargetSchema != nil {
+		wantSchema = t.opts.CurrentSchema
+	}
+	if err := t.waitReady(ctx, want, wantSchema); err != nil {
 		return &RollbackError{Cause: fmt.Errorf("previous version not healthy after restore: %w", err)}
 	}
 	return nil
@@ -323,6 +366,14 @@ func (t *txn) apply(ctx context.Context, staged string) (rolledBack bool, err er
 			return fail(fmt.Errorf("migrate: %w", err))
 		}
 	}
+	wantSchema := schemaAny
+	if t.opts.TargetSchema != nil {
+		v, err := t.opts.TargetSchema(ctx, t.opts.InstallBin)
+		if err != nil {
+			return fail(fmt.Errorf("read the new binary's data schema version: %w", err))
+		}
+		wantSchema = v
+	}
 	t.logf("restarting service…")
 	restarted = true
 	if err := t.svc.Restart(ctx); err != nil {
@@ -337,8 +388,12 @@ func (t *txn) apply(ctx context.Context, staged string) (rolledBack bool, err er
 		}
 		return fail(&StartupFailureError{Diagnostics: diag})
 	}
-	t.logf("waiting up to %s for the daemon to report v%s…", t.opts.ReadyTimeout, t.target)
-	if err := t.waitReady(ctx, t.target); err != nil {
+	if wantSchema == schemaAny {
+		t.logf("waiting up to %s for the daemon to report v%s…", t.opts.ReadyTimeout, t.target)
+	} else {
+		t.logf("waiting up to %s for the daemon to report v%s on data schema %d…", t.opts.ReadyTimeout, t.target, wantSchema)
+	}
+	if err := t.waitReady(ctx, t.target, wantSchema); err != nil {
 		return fail(err)
 	}
 	t.inst.Discard(backup)

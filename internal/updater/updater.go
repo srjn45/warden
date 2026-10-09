@@ -71,6 +71,15 @@ type Options struct {
 
 	Codesign func(bin string) error
 	Migrate  func() error
+	// TargetSchema reports the data schema version the freshly installed binary
+	// writes (0 when it predates the schema ledger). Readiness then requires the
+	// restarted daemon to report that schema_version as well as the target
+	// version. nil checks the version only.
+	TargetSchema func(ctx context.Context, bin string) (int, error)
+	// CurrentSchema is the data schema version the running (pre-update) binary
+	// writes; a rollback must bring the daemon back on it. Used only when
+	// TargetSchema is set.
+	CurrentSchema int
 }
 
 // Check reports whether an update is available without applying it.

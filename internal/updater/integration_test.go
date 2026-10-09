@@ -154,7 +154,7 @@ func integrationEnv(t *testing.T, newMode, newAdvertised string) (*txn, *procSer
 	tx := &txn{opts: opts, svc: svc, probe: httpProber{url: "http://" + addr + "/healthz"},
 		inst: fsInstaller{bin: bin}, clock: realClock{}, target: "2.0.0"}
 	// wait for the v1 stub to come up so capture sees a running daemon
-	require.NoError(t, (&txn{opts: opts, svc: svc, probe: tx.probe, clock: realClock{}}).waitReady(context.Background(), "1.0.0"))
+	require.NoError(t, (&txn{opts: opts, svc: svc, probe: tx.probe, clock: realClock{}}).waitReady(context.Background(), "1.0.0", schemaAny))
 	return tx, svc, staged
 }
 

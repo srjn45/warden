@@ -335,6 +335,33 @@ func TestGetSessions(t *testing.T) {
 	require.Equal(t, "A-1", body.Sessions[0].ID)
 }
 
+func TestHealthzIncludesSchemaVersion(t *testing.T) {
+	srv := &Server{store: newFakeStore(), version: "9.9.0"}
+	srv.SetSchemaVersion(3)
+	ts := httptest.NewServer(srv.router())
+	t.Cleanup(ts.Close)
+	resp, err := http.Get(ts.URL + "/healthz")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var body map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	require.Equal(t, "ok", body["status"])
+	require.Equal(t, "9.9.0", body["version"])
+	require.EqualValues(t, 3, body["schema_version"])
+}
+
+// A server with no schema version set omits the field rather than reporting 0.
+func TestHealthzOmitsUnsetSchemaVersion(t *testing.T) {
+	ts := testServer(t, newFakeStore())
+	defer ts.Close()
+	resp, err := http.Get(ts.URL + "/healthz")
+	require.NoError(t, err)
+	var body map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	_, present := body["schema_version"]
+	require.False(t, present)
+}
+
 func TestGetSessionNotFound(t *testing.T) {
 	ts := testServer(t, newFakeStore())
 	defer ts.Close()

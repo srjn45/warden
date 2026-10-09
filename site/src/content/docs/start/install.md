@@ -63,7 +63,7 @@ warden update --version v9.9.0
 warden update --force  # reinstall the current / target version
 ```
 
-`warden update` queries GitHub Releases, verifies `checksums.txt`, downloads the archive for your `GOOS`/`GOARCH` into `~/.warden/tmp/`, atomically swaps `~/.local/bin/warden` (keeping a backup), re-signs on macOS when the `warden-codesign` identity is present, runs config migrations, restarts the user-level daemon service, and probes `/healthz` — rolling the binary back if the new daemon is unhealthy.
+`warden update` queries GitHub Releases, verifies `checksums.txt`, downloads the archive for your `GOOS`/`GOARCH` into `~/.warden/tmp/`, atomically swaps `~/.local/bin/warden` (keeping a backup), re-signs on macOS when the `warden-codesign` identity is present, runs config migrations, restarts the user-level daemon service, and probes `/healthz` — rolling the binary back unless the new daemon reports ok on the target version **and** on the data schema that binary writes (`schema_version`; `warden version` prints it).
 
 ### In-cockpit update & hot-reload
 

@@ -229,6 +229,9 @@ type Server struct {
 	// GET /healthz so the TUI can detect an external upgrade and prompt for
 	// in-place hot-reload. Empty ⇒ omitted from the health response.
 	version string
+	// schemaVersion is the data-format version (internal/schema) reported on
+	// GET /healthz; 0 = not set (omitted).
+	schemaVersion int
 	// usageReconciliation owns opt-in provider capacity polling. Unlike the
 	// legacy usage display path it never drives agent recovery or swaps.
 	usageReconciliationEnabled    bool
@@ -445,6 +448,10 @@ func (s *Server) SetAPIDocs(enabled bool) { s.apiDocs = enabled }
 
 // SetVersion records the daemon binary version advertised on GET /healthz.
 func (s *Server) SetVersion(v string) { s.version = v }
+
+// SetSchemaVersion records the data-format version (internal/schema ledger) of
+// the data dir this daemon serves, advertised on GET /healthz.
+func (s *Server) SetSchemaVersion(v int) { s.schemaVersion = v }
 
 // SetAuth configures the bearer tokens required for remote access. An empty
 // primary token disables authentication (the local-only default). When set,
@@ -701,10 +708,13 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusServiceUnavailable, "store unavailable: "+err.Error())
 		return
 	}
-	body := map[string]string{"status": "ok"}
-	if s.version != "" {
-		body["version"] = s.version
-	}
+	// Mirrors the spec's HealthResponse; healthz is public and hand-mounted, so
+	// it is excluded from strict generation (oapi/config.yaml) and has no DTO.
+	body := struct {
+		Status        string `json:"status"`
+		Version       string `json:"version,omitempty"`
+		SchemaVersion int    `json:"schema_version,omitempty"`
+	}{Status: "ok", Version: s.version, SchemaVersion: s.schemaVersion}
 	writeJSON(w, http.StatusOK, body)
 }
 

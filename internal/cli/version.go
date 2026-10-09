@@ -7,6 +7,8 @@ import (
 	"runtime/debug"
 
 	"github.com/spf13/cobra"
+
+	"github.com/srjn45/warden/internal/schema"
 )
 
 // Build metadata. version defaults to "dev" for source builds and is overridden
@@ -32,6 +34,11 @@ type buildInfo struct {
 	Date      string `json:"date"`
 	GoVersion string `json:"go"`
 	Platform  string `json:"platform"`
+	// SchemaVersion / MinSchema are the data format this binary writes and the
+	// oldest it can migrate from (internal/schema). `warden update` reads them
+	// from the freshly installed binary to know what the new daemon must report.
+	SchemaVersion int `json:"schema_version"`
+	MinSchema     int `json:"min_schema"`
 }
 
 // currentBuildInfo resolves the build metadata, preferring ldflags values and
@@ -44,6 +51,9 @@ func currentBuildInfo() buildInfo {
 		Date:      date,
 		GoVersion: runtime.Version(),
 		Platform:  runtime.GOOS + "/" + runtime.GOARCH,
+
+		SchemaVersion: schema.SchemaVersion,
+		MinSchema:     schema.MinSchema,
 	}
 	if bi.Commit == "" || bi.Date == "" {
 		if info, ok := debug.ReadBuildInfo(); ok {
@@ -73,8 +83,8 @@ func currentBuildInfo() buildInfo {
 // String renders the human-readable build info shown by `warden --version` and
 // the default `warden version` output.
 func (b buildInfo) String() string {
-	return fmt.Sprintf("warden %s\nCommit: %s\nBuilt: %s\nGo: %s  Platform: %s",
-		b.Version, b.Commit, b.Date, b.GoVersion, b.Platform)
+	return fmt.Sprintf("warden %s\nCommit: %s\nBuilt: %s\nGo: %s  Platform: %s\nData schema: %d (migrates from %d)",
+		b.Version, b.Commit, b.Date, b.GoVersion, b.Platform, b.SchemaVersion, b.MinSchema)
 }
 
 func newVersionCmd() *cobra.Command {

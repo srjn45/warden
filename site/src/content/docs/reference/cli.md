@@ -5416,7 +5416,8 @@ Inherited flags:
 Download a verified GitHub release archive, atomically replace
 ~/.local/bin/warden, re-sign on macOS when the warden-codesign identity is
 present, run config migrations, restart the user-level daemon service, and
-wait for /healthz to report ok on the new version.
+wait for /healthz to report ok on the new version AND on the data schema
+version the new binary writes (see "warden version").
 
 The update is a transaction. Before any change it records the current binary,
 service manager and daemon version, and verifies the backend store read-only:
