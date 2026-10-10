@@ -144,3 +144,15 @@ Classification is by **(agent backend, value)**, never by value alone, because o
 - Fix launch-seam fail-open (`agyPermFlag` default; `dontAsk` folding) behind the resolver so seams only see valid native modes.
 - Tests to add: per-path table tests (Restore/SwitchRole/HotSwap) asserting
   `ModeIntent(result).AtMost(I(stored))`, plus the §3.4 table as fixtures.
+
+## 5. Resolver landed (task `shared-safe-mode-resolver`)
+
+`lifecycle.ResolveRelaunchMode(RelaunchModeInput) (mode, RelaunchRationale, error)`
+(`internal/lifecycle/relaunch_mode.go`) implements §3.2 as a **pure** function: no
+store write, no event. It returns the accepted native mode plus a structured
+rationale (stored intent + source, accepted intent, outcome kept/translated/
+stepped-down/defaulted, role-tightened flag, reasons) and `ErrNoSafeMode` when the
+target has nothing at most as permissive. The legacy map of §3.4 lives in the
+resolver (keyed by backend id). It is not yet wired into Restore/SwitchRole/
+HotSwap, nor does it persist; those are follow-up tasks (persist only after a
+successful launch).
