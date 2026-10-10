@@ -116,6 +116,10 @@ fi
 # service starts so the daemon loads a fully-populated file.
 "$INSTALL_BIN" config init && info "config ready: ~/.warden/config.yaml"
 
+# Initialize the data directory by running the migration chain from schema 0
+# and writing the ledger, ensuring install and upgrade share one code path.
+"$INSTALL_BIN" init && info "data directory ready: ~/.warden"
+
 restart_service
 
 # Claude skill: symlink the repo copy in dev mode; materialize under

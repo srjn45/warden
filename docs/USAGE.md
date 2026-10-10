@@ -143,7 +143,10 @@ are **deprecated** — use the curl installer instead. See the
 
 ```sh
 warden update          # or: wd update
-warden update --check  # report only
+warden update --plan   # preview upgrade path, migrations, breaking changes & downtime
+warden update --check  # report only (query releases)
+warden update --yes    # non-interactive update without confirmation prompt
+warden update --version v9.9.0
 ```
 
 `warden update` downloads a verified release, atomically swaps the binary,
@@ -152,6 +155,13 @@ the daemon service, and rolls back unless `/healthz` reports ok on the new
 version **and** on the data schema the new binary writes. In the TUI cockpit,
 press **`u`** when an update chip appears, or **`r`** to hot-reload the
 cockpit after an external upgrade (active tmux agent sessions keep running).
+
+**Planned upgrade (`warden update --plan`).** Inspects the target release's
+manifest, computes waypoint hops (e.g. crossing major versions or legacy
+boundaries), warns of breaking daemon API changes, runs a whole-data preflight
+check against all ScrivaDB stores using the target binary's strictness, and
+reports estimated downtime and disk space requirements without mutating any state
+or stopping the daemon.
 
 **Data schema ledger.** `<data_dir>/schema.json` records the data dir's format
 as an integer `schema_version` — separate from the release version; many
@@ -175,6 +185,24 @@ changed, it restores data stores from the pre-update snapshot in
 `<data_dir>/backups/pre-<ver>-<ts>/` (warning that changes made since the update
 are lost, requiring confirmation unless `--yes` is passed) and restarts the daemon.
 Snapshots are retained for the last 2 updates or 14 days, whichever keeps more.
+
+**Data store migration & repair tools:**
+
+```sh
+# Offline data migrations (daemon stopped)
+warden migrate --check       # inspect data store schema status
+warden migrate --apply       # apply pending schema migrations
+warden migrate --resume      # resume interrupted migration
+warden migrate --restore     # restore pre-migration backup
+
+# Offline whole-database integrity repair
+warden repair all --resolve-history=live-wins  # resolve duplicate keys / revision regressions
+warden repair all --dry-run                    # preview repair actions
+warden repair all --backup-dir /path/to/backup # custom quarantine backup directory
+
+# Initialize data directory (shared install path)
+warden init                  # stamp schema ledger and initialize store directories
+```
 
 **Manual (for debugging — runs in the foreground):**
 
