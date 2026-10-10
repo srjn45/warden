@@ -140,7 +140,10 @@ the agent's **id** from `list_agents` (prompt-spawned ids look like
   injection** (`AGENTS.md`).
   A **terminal is a first-class session kind (`kind=terminal`), not a `--backend`
   value** — spawn it with `--kind terminal` / `spawn_agent {kind:"terminal"}` (the
-  legacy `--backend terminal` is a back-compat alias). It is **NOT an AI agent** — it
+  legacy `--backend terminal` is a back-compat alias). A terminal **always belongs to
+  a project**: pass `project_id` (must be a known project) or a `--dir` that resolves
+  to / registers one — otherwise the spawn is refused (`400`), never created
+  project-less. It is **NOT an AI agent** — it
   opens a plain interactive `$SHELL` (fallback `bash`) in the agent's directory,
   managed with warden's normal worktree/git/tmux lifecycle (attach, `commit`/`push`/`sync`,
   snapshot, teardown, cockpit listing). Every AI feature degrades off (no digests,
