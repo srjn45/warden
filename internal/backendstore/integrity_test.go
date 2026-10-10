@@ -273,3 +273,60 @@ func TestIssue841ShapeWithPreferenceDifferenceIsRefused(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(raw), `"winner_value"`)
 }
+
+// A running writer persists its index lazily, so Verify beside it reports stale
+// derived-index findings. That is expected lag, not damage: LiveIndexLag is true
+// while the directory is owned, and false for the very same files once the owner
+// is gone (where the findings genuinely mean an unclean stop).
+func TestLiveIndexLagOnlyWhileOwned(t *testing.T) {
+	dir := t.TempDir()
+	buildRegistry(t, dir)
+	s, err := NewStore(dir)
+	require.NoError(t, err)
+	// Appends that the lazily persisted index has not caught up with.
+	for _, tier := range []string{TierFree, TierSubscription, TierFree} {
+		require.NoError(t, s.SetTier("claude", tier))
+	}
+
+	rep, err := Verify(context.Background(), dir)
+	require.NoError(t, err)
+	if rep.Clean() {
+		t.Skip("engine persisted the index eagerly; no live lag to observe")
+	}
+	require.True(t, rep.Recoverable(), "stale index shapes classify as recoverable")
+	require.True(t, rep.LiveIndexLag(), "…but beside the running owner they are expected lag")
+
+	// Same bytes, owner gone: the registry may now be genuinely stale.
+	require.NoError(t, s.Close())
+	closed, err := Verify(context.Background(), dir)
+	require.NoError(t, err)
+	require.False(t, closed.LiveIndexLag(), "an unowned directory is never 'live lag'")
+}
+
+// Damage is never lag: a clean report, a nil report, and a report with a non-stale
+// index finding are all false even when the directory is owned.
+func TestLiveIndexLagIgnoresRealDamage(t *testing.T) {
+	require.False(t, (*Report)(nil).LiveIndexLag())
+	require.False(t, (&Report{}).LiveIndexLag())
+
+	owned := func(codes ...engine.FindingCode) *Report {
+		ir := &engine.IntegrityReport{Findings: []engine.Finding{{Severity: engine.SeverityInfo, Code: engine.CodeLockHeld}}}
+		cr := engine.CollectionReport{Name: "backends"}
+		for _, c := range codes {
+			cr.Findings = append(cr.Findings, engine.Finding{Severity: engine.SeverityRepairableIndex, Code: c})
+		}
+		ir.Collections = []engine.CollectionReport{cr}
+		return &Report{
+			Integrity:   ir,
+			Collections: []CollectionVerdict{{Name: "backends", Verdict: VerdictRecoverable}},
+		}
+	}
+	require.True(t, owned(engine.CodeIndexStaleTail, engine.CodeIndexStaleRecord, engine.CodeSidxStaleTail).LiveIndexLag())
+	require.False(t, owned(engine.CodeIndexStaleTail, engine.CodeIndexDanglingOffset).LiveIndexLag(),
+		"a dangling offset is real damage even beside a stale tail")
+	require.False(t, owned(engine.CodeIndexMissingRecord).LiveIndexLag())
+
+	unowned := owned(engine.CodeIndexStaleTail)
+	unowned.Integrity.Findings = nil
+	require.False(t, unowned.LiveIndexLag(), "without the lock-held finding it is not lag")
+}

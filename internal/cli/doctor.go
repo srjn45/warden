@@ -156,6 +156,11 @@ func checkBackendRegistry(ctx context.Context, dataDir string) checkResult {
 	switch {
 	case rep.Clean():
 		return checkResult{name: name, ok: true, detail: "clean (verify with `" + backendstore.RepairDryRunCommand + "`)"}
+	case rep.LiveIndexLag():
+		// A running daemon persists its index lazily, so beside it the persisted
+		// files legitimately trail its writes. That is not damage and needs no
+		// repair; it converges on the next index persist or a clean stop.
+		return checkResult{name: name, ok: true, detail: "clean (the running daemon's index is persisted lazily; verify offline with `" + backendstore.RepairDryRunCommand + "`)"}
 	case rep.Recoverable():
 		return checkResult{name: name, ok: false, detail: fmt.Sprintf("safely recoverable findings in %s; the daemon repairs them backup-first on its next start, or stop the daemon and run `%s`",
 			strings.Join(names, ", "), backendstore.RepairCommand)}

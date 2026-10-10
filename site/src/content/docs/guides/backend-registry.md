@@ -137,7 +137,10 @@ daemon is stopped, CLI commands take a temporary lock.
 If the registry suffers revision regressions or damage:
 - The daemon refuses to start on unresolvable/ambiguous damage with an actionable
   error pointing to `warden repair backends`.
-- `warden doctor` inspects backend registry integrity in read-only mode.
+- `warden doctor` inspects backend registry integrity in read-only mode. Beside a
+  running daemon the persisted index legitimately trails its latest writes (it is
+  persisted lazily), so `doctor` reports that as clean; only findings that remain
+  with the daemon stopped (`warden repair backends --dry-run`) call for a repair.
 - `warden update` preflights registry integrity before swapping binaries.
 
 ### Offline repair procedure

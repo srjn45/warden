@@ -333,3 +333,30 @@ func TestDoctorCheckBackendRegistry(t *testing.T) {
 	require.Contains(t, res.detail, backendstore.RepairDryRunCommand)
 	require.Contains(t, res.detail, backendstore.RepairCommand)
 }
+
+// Beside a running daemon the persisted registry index legitimately trails its
+// writes. doctor must not call that "recoverable" (nor promise a repair on next
+// start): it is a pass, and it is only a pass while the directory is owned.
+func TestDoctorCheckBackendRegistryLiveIndexLagIsNotAWarning(t *testing.T) {
+	dataDir := t.TempDir()
+	buildTestRegistry(t, dataDir)
+
+	owner, err := backendstore.NewStore(filepath.Join(dataDir, "backends"))
+	require.NoError(t, err)
+	for _, tier := range []string{backendstore.TierFree, backendstore.TierSubscription, backendstore.TierFree} {
+		require.NoError(t, owner.SetTier("claude", tier))
+	}
+
+	res := checkBackendRegistry(context.Background(), dataDir)
+	require.True(t, res.ok, "index lag beside the owner is not a finding: %s", res.detail)
+	require.NotContains(t, res.detail, "safely recoverable")
+	require.NotContains(t, res.detail, "next start")
+
+	// Update preflight must not list the lag as something to repair either.
+	pre, err := backendPreflight(context.Background(), filepath.Join(dataDir, "backends"))
+	require.NoError(t, err)
+	require.Empty(t, pre.Blockers)
+	require.Empty(t, pre.Notes, "live index lag is not an update note")
+
+	require.NoError(t, owner.Close())
+}
