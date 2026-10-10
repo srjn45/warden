@@ -1,6 +1,7 @@
 package migrate
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -29,8 +30,21 @@ func NewRunner(r *Registry) *Runner {
 }
 
 // Check evaluates read-only preflight checks on pending migrations from the
-// data directory's current version to targetVersion.
+// data directory's current version to targetVersion, as well as whole-store
+// verification across all ScrivaDB stores in dataDir.
 func (rn *Runner) Check(env Env, targetVersion int) ([]Finding, error) {
+	ctx := env.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	// 1. Whole-store verification across all stores
+	findings, err := VerifyAllStores(ctx, env.DataDir)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Migration preflight checks
 	l, err := schema.Load(env.DataDir)
 	current := 0
 	if err == nil {
@@ -44,7 +58,6 @@ func (rn *Runner) Check(env Env, targetVersion int) ([]Finding, error) {
 		return nil, err
 	}
 
-	var findings []Finding
 	for _, m := range plan {
 		if m.Check != nil {
 			findings = append(findings, m.Check(env)...)
@@ -101,6 +114,70 @@ func (rn *Runner) Resume(env Env) error {
 	}
 
 	return rn.runMigration(env, l, m, l.InProgress.Step)
+}
+
+// Restore rolls back an interrupted migration from its recorded snapshot/journal
+// and clears the in_progress journal entry.
+func (rn *Runner) Restore(env Env) error {
+	l, err := schema.Load(env.DataDir)
+	if errors.Is(err, schema.ErrNoLedger) {
+		return ErrNoInterruptedMigration
+	}
+	if err != nil {
+		return err
+	}
+	if l.InProgress == nil {
+		return ErrNoInterruptedMigration
+	}
+
+	if l.InProgress.Snapshot != "" {
+		snapDir := l.InProgress.Snapshot
+		if !filepath.IsAbs(snapDir) {
+			snapDir = filepath.Join(env.DataDir, filepath.FromSlash(snapDir))
+		}
+		if fi, err := os.Stat(snapDir); err == nil && fi.IsDir() {
+			if err := restoreSnapshot(snapDir, env.DataDir); err != nil {
+				return fmt.Errorf("migrate: restore snapshot: %w", err)
+			}
+		}
+	}
+
+	l.InProgress = nil
+	if err := schema.Save(env.DataDir, l); err != nil {
+		return fmt.Errorf("migrate: commit ledger after restore: %w", err)
+	}
+	return nil
+}
+
+func restoreSnapshot(srcDir, dstDir string) error {
+	return filepath.WalkDir(srcDir, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(srcDir, p)
+		if err != nil || rel == "." {
+			return nil
+		}
+		target := filepath.Join(dstDir, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o700)
+		}
+		if !d.Type().IsRegular() {
+			return nil
+		}
+		if d.Name() == ".owner.lock" || d.Name() == "LOCK" {
+			return nil
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		tmp := target + ".restore.tmp"
+		if err := os.WriteFile(tmp, data, 0o600); err != nil {
+			return err
+		}
+		return os.Rename(tmp, target)
+	})
 }
 
 func (rn *Runner) runMigration(env Env, l *schema.Ledger, m Migration, startStep string) error {

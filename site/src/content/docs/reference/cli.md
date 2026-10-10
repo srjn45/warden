@@ -64,6 +64,7 @@ Get started and interact:
   doctor               Run preflight checks (required binaries, daemon, data dir, agent store, backend registry integrity)
   tui                  Live terminal cockpit for agents
   update               Update the installed warden binary from GitHub Releases
+  migrate              Inspect, apply, resume, or restore data format migrations
   version              Print warden version and build information
 
 Shortcuts:
@@ -5449,6 +5450,35 @@ Flags:
   -h, --help                     help for update
       --ready-timeout duration   overall deadline for the restarted daemon to report healthy on the new version (default 1m30s)
       --version string           install a specific release tag (e.g. 9.9.0 or v9.9.0)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden migrate
+
+```text
+Run data format migrations for the Warden data directory.
+
+Actions (select one):
+  --check    Read-only preflight check across all stores and pending migrations
+  --apply    Apply pending migrations up to the target schema version
+  --resume   Resume an interrupted migration recorded in the ledger journal
+  --restore  Restore from pre-migration snapshot after an interrupted migration
+
+Usage:
+  warden migrate [flags]
+
+Flags:
+      --apply             apply pending migrations up to the target schema version
+      --check             run read-only preflight check across all stores and pending migrations
+      --data-dir string   path to the Warden data directory
+  -h, --help              help for migrate
+      --json              output results in JSON format
+      --restore           restore from pre-migration snapshot after an interrupted migration
+      --resume            resume an interrupted migration
+      --target int        target schema version to migrate to (default 1)
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
