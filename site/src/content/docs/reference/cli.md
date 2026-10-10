@@ -4159,6 +4159,7 @@ Commands:
   audit                Show recent audited actions, newest last
   export               Serialize agent session metadata to JSON on stdout
   import               Insert agent session metadata from a JSON dump on stdin
+  fastbrain            Fast-Brain/Thinking-Brain telemetry, traces and per-kind pause/resume
   repair               Offline, backup-first repair tools
 
 Flags:
@@ -4286,6 +4287,119 @@ Flags:
   -h, --help    help for import
       --json    output the import result as JSON
       --merge   overwrite existing records on id collision (default: skip)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden inspect fastbrain
+
+```text
+Inspect warden's own internal decisions (approval arbitration, stall triage,
+commit/PR drafting, activity summaries, ...) without exposing their content.
+
+status     per-kind attempts, outcomes, cache/coalesce/shed counters, queue
+           wait and run-time percentiles, runner circuit state and pauses
+decisions  the recent redacted decision trace (newest first)
+pause      pause one decision kind; its calls fail open without a model call
+resume     clear a pause
+
+Labels are bounded to decision kind, tier, outcome, provider (AI CLI) and
+model. Prompts, outputs, agent/session ids and paths are never reported. A
+pause defaults to 1h and is capped at 24h; a daemon restart clears operator
+pauses (config fast_brain.disabled_kinds pauses persist). Pausing never
+changes the destructive-action guard: paused arbitration escalates to a human.
+
+Usage:
+  warden inspect fastbrain [flags]
+
+Commands:
+  decisions            Show recent redacted decision traces
+  pause                Pause one decision kind (fails open, no model call)
+  resume               Resume a paused decision kind
+  status               Show Fast-Brain/Thinking-Brain telemetry
+
+Flags:
+  -h, --help   help for fastbrain
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden inspect fastbrain decisions
+
+```text
+Show recent redacted decision traces
+
+Usage:
+  warden inspect fastbrain decisions [flags]
+
+Flags:
+  -h, --help        help for decisions
+      --json        emit the decisions as JSON
+      --limit int   maximum decisions to show (default 50)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden inspect fastbrain pause
+
+```text
+Pause one decision kind for a bounded time (default 1h, max 24h). Calls of
+that kind return a deferred/fail-open result immediately without invoking a
+runner. Resume with "warden inspect fastbrain resume KIND"; a daemon restart
+also clears the pause. Audit-logged.
+
+Usage:
+  warden inspect fastbrain pause KIND [flags]
+
+Examples:
+  warden inspect fastbrain pause summarize_activity --for 2h
+
+Flags:
+      --for duration   pause duration (0 = default 1h, capped at 24h)
+  -h, --help           help for pause
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden inspect fastbrain resume
+
+```text
+Resume a paused decision kind
+
+Usage:
+  warden inspect fastbrain resume KIND [flags]
+
+Flags:
+  -h, --help   help for resume
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden inspect fastbrain status
+
+```text
+Show Fast-Brain/Thinking-Brain telemetry
+
+Usage:
+  warden inspect fastbrain status [flags]
+
+Examples:
+  warden inspect fastbrain status
+    warden inspect fastbrain status --json
+
+Flags:
+  -h, --help   help for status
+      --json   emit the snapshot as JSON
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)

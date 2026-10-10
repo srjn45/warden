@@ -24,6 +24,7 @@ import (
 	collab "github.com/srjn45/warden/internal/collab"
 	ctxstore "github.com/srjn45/warden/internal/ctxstore"
 	digest "github.com/srjn45/warden/internal/digest"
+	fastbrain "github.com/srjn45/warden/internal/fastbrain"
 	knownprompts "github.com/srjn45/warden/internal/knownprompts"
 	lifecycle "github.com/srjn45/warden/internal/lifecycle"
 	mailbox "github.com/srjn45/warden/internal/mailbox"
@@ -1208,6 +1209,15 @@ type ExportPlanBackupRequest struct {
 	PlanIds   []string `json:"plan_ids,omitempty"`
 	ProjectId string   `json:"project_id,omitempty"`
 }
+
+// FastBrainControl Operator control state of one decision kind.
+type FastBrainControl = fastbrain.KindControl
+
+// FastBrainDecision One redacted decision trace.
+type FastBrainDecision = fastbrain.Decision
+
+// FastBrainTelemetry Redacted engine telemetry snapshot.
+type FastBrainTelemetry = fastbrain.TelemetrySnapshot
 
 // FileChange defines model for FileChange.
 type FileChange struct {
@@ -2433,6 +2443,19 @@ type CasContextJSONBody struct {
 	Value    string `json:"value,omitempty"`
 }
 
+// SetFastBrainControlJSONBody defines parameters for SetFastBrainControl.
+type SetFastBrainControlJSONBody struct {
+	Paused bool `json:"paused"`
+
+	// TtlSeconds Pause duration; 0 = default 1h, capped at 24h
+	TtlSeconds int `json:"ttl_seconds,omitempty"`
+}
+
+// ListFastBrainDecisionsParams defines parameters for ListFastBrainDecisions.
+type ListFastBrainDecisionsParams struct {
+	Limit int `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // ListDirsParams defines parameters for ListDirs.
 type ListDirsParams struct {
 	// Path Directory to list (empty = the user's home directory)
@@ -2776,6 +2799,9 @@ type CasContextJSONRequestBody CasContextJSONBody
 // IngestEventJSONRequestBody defines body for IngestEvent for application/json ContentType.
 type IngestEventJSONRequestBody = EventRequest
 
+// SetFastBrainControlJSONRequestBody defines body for SetFastBrainControl for application/json ContentType.
+type SetFastBrainControlJSONRequestBody SetFastBrainControlJSONBody
+
 // CloneRepoJSONRequestBody defines body for CloneRepo for application/json ContentType.
 type CloneRepoJSONRequestBody = CloneRepoRequest
 
@@ -3027,6 +3053,15 @@ type ServerInterface interface {
 	// Ingest a Claude hook event
 	// (POST /api/v1/events)
 	IngestEvent(w http.ResponseWriter, r *http.Request)
+	// Pause or resume one decision kind
+	// (PUT /api/v1/fastbrain/controls/{kind})
+	SetFastBrainControl(w http.ResponseWriter, r *http.Request, kind string)
+	// Recent redacted Fast-Brain decision traces
+	// (GET /api/v1/fastbrain/decisions)
+	ListFastBrainDecisions(w http.ResponseWriter, r *http.Request, params ListFastBrainDecisionsParams)
+	// Redacted Fast-Brain / Thinking-Brain telemetry
+	// (GET /api/v1/fastbrain/metrics)
+	GetFastBrainMetrics(w http.ResponseWriter, r *http.Request)
 	// Clone a remote Git repository into the configured workspace directory
 	// (POST /api/v1/fs/clone)
 	CloneRepo(w http.ResponseWriter, r *http.Request)
@@ -3537,6 +3572,24 @@ func (_ Unimplemented) CasContext(w http.ResponseWriter, r *http.Request, key Ct
 // Ingest a Claude hook event
 // (POST /api/v1/events)
 func (_ Unimplemented) IngestEvent(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Pause or resume one decision kind
+// (PUT /api/v1/fastbrain/controls/{kind})
+func (_ Unimplemented) SetFastBrainControl(w http.ResponseWriter, r *http.Request, kind string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Recent redacted Fast-Brain decision traces
+// (GET /api/v1/fastbrain/decisions)
+func (_ Unimplemented) ListFastBrainDecisions(w http.ResponseWriter, r *http.Request, params ListFastBrainDecisionsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Redacted Fast-Brain / Thinking-Brain telemetry
+// (GET /api/v1/fastbrain/metrics)
+func (_ Unimplemented) GetFastBrainMetrics(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -4885,6 +4938,97 @@ func (siw *ServerInterfaceWrapper) IngestEvent(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.IngestEvent(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetFastBrainControl operation middleware
+func (siw *ServerInterfaceWrapper) SetFastBrainControl(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "kind" -------------
+	var kind string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "kind", chi.URLParam(r, "kind"), &kind, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "kind", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetFastBrainControl(w, r, kind)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListFastBrainDecisions operation middleware
+func (siw *ServerInterfaceWrapper) ListFastBrainDecisions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListFastBrainDecisionsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListFastBrainDecisions(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetFastBrainMetrics operation middleware
+func (siw *ServerInterfaceWrapper) GetFastBrainMetrics(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetFastBrainMetrics(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -8922,6 +9066,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/api/v1/events", wrapper.IngestEvent)
 	})
 	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/api/v1/fastbrain/controls/{kind}", wrapper.SetFastBrainControl)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/fastbrain/decisions", wrapper.ListFastBrainDecisions)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/fastbrain/metrics", wrapper.GetFastBrainMetrics)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/fs/clone", wrapper.CloneRepo)
 	})
 	r.Group(func(r chi.Router) {
@@ -10115,6 +10268,104 @@ type IngestEvent204Response struct {
 func (response IngestEvent204Response) VisitIngestEventResponse(w http.ResponseWriter) error {
 	w.WriteHeader(204)
 	return nil
+}
+
+type SetFastBrainControlRequestObject struct {
+	Kind string `json:"kind"`
+	Body *SetFastBrainControlJSONRequestBody
+}
+
+type SetFastBrainControlResponseObject interface {
+	VisitSetFastBrainControlResponse(w http.ResponseWriter) error
+}
+
+type SetFastBrainControl200JSONResponse struct {
+	Controls []FastBrainControl `json:"controls"`
+}
+
+func (response SetFastBrainControl200JSONResponse) VisitSetFastBrainControlResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetFastBrainControl400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response SetFastBrainControl400JSONResponse) VisitSetFastBrainControlResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetFastBrainControl404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response SetFastBrainControl404JSONResponse) VisitSetFastBrainControlResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListFastBrainDecisionsRequestObject struct {
+	Params ListFastBrainDecisionsParams
+}
+
+type ListFastBrainDecisionsResponseObject interface {
+	VisitListFastBrainDecisionsResponse(w http.ResponseWriter) error
+}
+
+type ListFastBrainDecisions200JSONResponse struct {
+	Decisions []FastBrainDecision `json:"decisions"`
+}
+
+func (response ListFastBrainDecisions200JSONResponse) VisitListFastBrainDecisionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetFastBrainMetricsRequestObject struct {
+}
+
+type GetFastBrainMetricsResponseObject interface {
+	VisitGetFastBrainMetricsResponse(w http.ResponseWriter) error
+}
+
+type GetFastBrainMetrics200JSONResponse FastBrainTelemetry
+
+func (response GetFastBrainMetrics200JSONResponse) VisitGetFastBrainMetricsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
 }
 
 type CloneRepoRequestObject struct {
@@ -15137,6 +15388,15 @@ type StrictServerInterface interface {
 	// Ingest a Claude hook event
 	// (POST /api/v1/events)
 	IngestEvent(ctx context.Context, request IngestEventRequestObject) (IngestEventResponseObject, error)
+	// Pause or resume one decision kind
+	// (PUT /api/v1/fastbrain/controls/{kind})
+	SetFastBrainControl(ctx context.Context, request SetFastBrainControlRequestObject) (SetFastBrainControlResponseObject, error)
+	// Recent redacted Fast-Brain decision traces
+	// (GET /api/v1/fastbrain/decisions)
+	ListFastBrainDecisions(ctx context.Context, request ListFastBrainDecisionsRequestObject) (ListFastBrainDecisionsResponseObject, error)
+	// Redacted Fast-Brain / Thinking-Brain telemetry
+	// (GET /api/v1/fastbrain/metrics)
+	GetFastBrainMetrics(ctx context.Context, request GetFastBrainMetricsRequestObject) (GetFastBrainMetricsResponseObject, error)
 	// Clone a remote Git repository into the configured workspace directory
 	// (POST /api/v1/fs/clone)
 	CloneRepo(ctx context.Context, request CloneRepoRequestObject) (CloneRepoResponseObject, error)
@@ -16243,6 +16503,89 @@ func (sh *strictHandler) IngestEvent(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(IngestEventResponseObject); ok {
 		if err := validResponse.VisitIngestEventResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetFastBrainControl operation middleware
+func (sh *strictHandler) SetFastBrainControl(w http.ResponseWriter, r *http.Request, kind string) {
+	var request SetFastBrainControlRequestObject
+
+	request.Kind = kind
+
+	var body SetFastBrainControlJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetFastBrainControl(ctx, request.(SetFastBrainControlRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetFastBrainControl")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetFastBrainControlResponseObject); ok {
+		if err := validResponse.VisitSetFastBrainControlResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListFastBrainDecisions operation middleware
+func (sh *strictHandler) ListFastBrainDecisions(w http.ResponseWriter, r *http.Request, params ListFastBrainDecisionsParams) {
+	var request ListFastBrainDecisionsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListFastBrainDecisions(ctx, request.(ListFastBrainDecisionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListFastBrainDecisions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListFastBrainDecisionsResponseObject); ok {
+		if err := validResponse.VisitListFastBrainDecisionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetFastBrainMetrics operation middleware
+func (sh *strictHandler) GetFastBrainMetrics(w http.ResponseWriter, r *http.Request) {
+	var request GetFastBrainMetricsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetFastBrainMetrics(ctx, request.(GetFastBrainMetricsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetFastBrainMetrics")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetFastBrainMetricsResponseObject); ok {
+		if err := validResponse.VisitGetFastBrainMetricsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

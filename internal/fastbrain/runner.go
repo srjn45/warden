@@ -29,6 +29,13 @@ type EngineOptions struct {
 	CancelGrace time.Duration
 	// Admission tunes queues, fairness and the result cache.
 	Admission AdmissionOptions
+	// Audit receives bounded operator-facing events (control changes, circuit
+	// transitions, abandoned runners). Nil disables them.
+	Audit AuditFunc
+	// HealthSnapshot supplies runner circuit state for telemetry. Optional.
+	HealthSnapshot func() []RunnerHealth
+	// PausedKinds are paused from start (config-driven, never auto-expire).
+	PausedKinds []DecisionKind
 }
 
 func (o EngineOptions) normalized() EngineOptions {
@@ -63,6 +70,7 @@ type engine struct {
 	fast, thinking Runner
 	opts           EngineOptions
 	adm            *admission
+	tel            *telemetry
 	abandoned      atomic.Int64 // runner calls abandoned after ignoring ctx (total)
 	abandonedLive  atomic.Int64 // abandoned calls whose goroutine is still running
 }
@@ -90,16 +98,65 @@ func NewEngine(fastRunner, thinkingRunner Runner) Engine {
 // queues, fairness, identity dedup and a small result cache.
 func NewEngineWithOptions(fastRunner, thinkingRunner Runner, opts EngineOptions) Engine {
 	opts = opts.normalized()
-	return &engine{
+	e := &engine{
 		fast: fastRunner, thinking: thinkingRunner, opts: opts,
 		adm: newAdmission(opts.MaxConcurrent, opts.Admission),
+		tel: newTelemetry(opts.Audit, opts.HealthSnapshot, nil),
 	}
+	for _, k := range opts.PausedKinds {
+		_ = e.tel.setPaused(k, true, 0, "config")
+	}
+	return e
+}
+
+// Inspector exposes redacted telemetry and per-kind operator controls. The
+// daemon engine implements it; test doubles need not.
+type Inspector interface {
+	Telemetry() TelemetrySnapshot
+	Decisions(limit int) []Decision
+	SetKindPaused(kind DecisionKind, paused bool, ttl time.Duration) error
+}
+
+// ErrUnknownKind is returned when a control names a kind the engine does not
+// know.
+var ErrUnknownKind = errors.New("fastbrain: unknown decision kind")
+
+// Telemetry returns the content-free operator snapshot (spec §8).
+func (e *engine) Telemetry() TelemetrySnapshot {
+	s := e.tel.snapshot()
+	a := e.adm.Snapshot()
+	s.MaxConcurrent, s.Active = e.opts.MaxConcurrent, a.Active
+	s.Admitted, s.Coalesced, s.CacheHits, s.Preempted = a.Admitted, a.Coalesced, a.CacheHits, a.Preempted
+	s.CacheItems, s.Shed = a.CacheItems, a.Shed
+	for c := ClassSafety; c <= ClassBestEffort; c++ {
+		s.Queues = append(s.Queues, QueueDepth{Class: c, Active: a.ActiveBy[c], Queued: a.Queued[c]})
+	}
+	cs := e.CancelStats()
+	s.Abandoned, s.AbandonedLive = cs.Abandoned, cs.Live
+	return s
+}
+
+// Decisions returns the most recent redacted decision traces, newest first.
+func (e *engine) Decisions(limit int) []Decision { return e.tel.decisions(limit) }
+
+// SetKindPaused pauses (bounded ttl) or resumes one decision kind. A paused
+// kind fails open without invoking a runner.
+func (e *engine) SetKindPaused(kind DecisionKind, paused bool, ttl time.Duration) error {
+	return e.tel.setPaused(kind, paused, ttl, "operator")
 }
 
 // AdmissionSnapshot reports the controller's content-free counters and gauges.
 func (e *engine) AdmissionSnapshot() AdmissionSnapshot { return e.adm.Snapshot() }
 
 func (e *engine) Decide(ctx context.Context, req Request) (Response, error) {
+	resp, err := e.decide(ctx, req)
+	if err == nil {
+		e.tel.observe(resp)
+	}
+	return resp, err
+}
+
+func (e *engine) decide(ctx context.Context, req Request) (Response, error) {
 	if req.Kind == "" {
 		return Response{}, fmt.Errorf("%w: empty kind", ErrInvalidRequest)
 	}
@@ -121,6 +178,12 @@ func (e *engine) Decide(ctx context.Context, req Request) (Response, error) {
 	}
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if e.tel.paused(req.Kind) {
+		return Response{
+			Kind: req.Kind, Tier: req.Tier, Status: StatusDeferred, Error: "kind paused by operator",
+			Admission: AdmissionInfo{Class: ClassOf(req.Kind), Reason: ShedPaused},
+		}, nil
 	}
 	if runner == nil {
 		return Response{

@@ -852,3 +852,24 @@ kbd {
     padding: .35rem 0; border-top: 1px solid var(--border); background: var(--bg);
   }
 }
+
+/* Fast / Thinking brain metrics card */
+.fb-summary { display: flex; flex-wrap: wrap; gap: .4rem 1rem; margin-bottom: .6rem; font-size: .85rem; }
+.fb-tiers { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: 1rem; }
+.fb-kind { margin-bottom: .6rem; }
+.fb-kind-head { display: flex; justify-content: space-between; gap: .5rem; flex-wrap: wrap; font-size: .85rem; }
+.fb-kind-foot { font-size: .75rem; }
+.fb-bar { display: flex; height: .5rem; border-radius: 3px; overflow: hidden; background: rgba(128,128,128,.2); margin: .2rem 0; }
+.fb-seg { display: block; background: #8b949e; }
+.fb-o-ok { background: #3fb950; }
+.fb-o-failed, .fb-o-error { background: #f85149; }
+.fb-o-deferred, .fb-o-paused, .fb-o-timeout { background: #d29922; }
+.fb-o-cached, .fb-o-coalesced { background: #4ea1ff; }
+.fb-table { width: 100%; border-collapse: collapse; font-size: .8rem; }
+.fb-table th, .fb-table td { text-align: left; padding: .15rem .4rem; }
+.fb-circuits, .fb-controls { display: flex; flex-wrap: wrap; gap: .4rem; margin: .4rem 0; }
+.fb-badge { padding: .1rem .5rem; border-radius: 999px; font-size: .75rem; background: rgba(128,128,128,.2); }
+.fb-closed { background: rgba(63,185,80,.25); }
+.fb-open { background: rgba(248,81,73,.3); }
+.fb-half_open { background: rgba(210,153,34,.3); }
+.fb-controls button.fb-paused { border-color: #f85149; }

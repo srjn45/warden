@@ -374,3 +374,12 @@ Warden tracks daemon-registered checkout roots and remote repositories as first-
   `terminals[]`/`plans[]`/`autopilots[]` lists, including dangling ids, are
   preserved (daemon must be stopped). The daemon also runs this reconcile at
   boot (`plans[]`/`autopilots[]` are normally maintained at scan/create/run/delete).
+
+## Fast-Brain observability & controls
+
+- `warden inspect fastbrain status` / `decisions` (MCP `fastbrain_status`) — redacted,
+  bounded-label telemetry: attempts/outcomes per kind and tier, cache, coalescing,
+  queue depth/delay, circuits, runner health, last 200 decisions. No prompts/paths/IDs.
+- `warden inspect fastbrain pause <kind> [--for 30m]` / `resume <kind>` (MCP
+  `fastbrain_control`) — a paused kind fails open to its fallback, never calls a
+  runner. Default TTL 1 h, max 24 h, audited. Persistent: `fast_brain.disabled_kinds`.
