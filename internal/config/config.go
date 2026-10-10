@@ -143,8 +143,8 @@ type MemoryConfig struct {
 // badge shown next to each agent. Interval is the minimum gap between badge
 // refreshes per agent; refreshes only happen while the pane is changing.
 type ActivityConfig struct {
-	// Enabled is an explicit kill switch for cosmetic model-generated activity
-	// badges. It defaults to true for backwards compatibility.
+	// Enabled opts in to cosmetic model-generated activity badges. It defaults
+	// to false so no summarize_activity model calls are made unless requested.
 	Enabled  bool   `yaml:"enabled"`
 	Interval string `yaml:"interval"`
 }

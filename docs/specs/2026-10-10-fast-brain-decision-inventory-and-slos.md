@@ -241,8 +241,8 @@ weakened.
   CLI-process engine? Currently separate; sharing needs a daemon API.
 - Whether P1 preemption may cancel a running P3 (not only P4) call; proposed
   answer: no, P1's reserved slot makes it unnecessary.
-- Whether `activity.enabled` should flip to default-off; deliberately left to a
-  separate decision.
+- ~~Whether `activity.enabled` should flip to default-off~~ — resolved: it now
+  defaults to `false` (commit 0372ca0c); operators opt in per §15.5.
 
 ## 11. Runner health and cancellation (delivered: runner-cancellation-and-health)
 
@@ -392,28 +392,26 @@ vocabulary additions are the shed reasons `queue_full`, `queue_wait_exceeded`,
 ### 15.4 Rollback
 
 Fastest first: (1) `warden inspect fastbrain pause <kind>` (in-memory, ≤ 24 h);
-(2) `fast_brain.disabled_kinds` for the kind(s), hot-reloaded; (3) set
+(2) `fast_brain.disabled_kinds` for the kind(s), hot-reloaded; (3) keep (or set back)
 `activity.enabled: false` to stop all `summarize_activity` calls; (4) downgrade
 the binary — nothing on disk needs reverting. Rollback triggers are the
 per-phase columns in §9, plus: `abandoned_live` stays > 0 for 10 min (a runner
 is wedged — disable its backend in the registry), or any P1 `canceled` caused
 by queueing.
 
-### 15.5 Activity summaries (re-enable criteria)
+### 15.5 Activity summaries (opt-in criteria)
 
 `summarize_activity` is the lowest-value kind (P4, cosmetic) and must be the
-first thing shed. Treat it as **off unless justified**: set `activity.enabled:
-false` (or add it to `fast_brain.disabled_kinds`) on any install that has not
-met every criterion below. Note the config default in code is still
-`activity.enabled: true` (§11 leaves flipping it to a separate decision); this
-section is the bar for *leaving it on* / turning it back on:
+first thing shed. `activity.enabled` **defaults to `false`**: no badge calls are
+made unless an operator opts in with `activity.enabled: true`. Enable it (or
+re-enable it after a rollback) only when every criterion below holds:
 
-- ≥ 7 days of telemetry with P1 p95 ≤ 8 s and P1 shed = 0 while it was on;
-- `summarize_activity` accounts for ≤ 20 % of runner calls and its shed rate
-  does not rise when agents ≥ 3 × `max_concurrent`;
+- ≥ 7 days of telemetry with P1 p95 ≤ 8 s and P1 shed = 0 on the install;
+- the expected `summarize_activity` volume is ≤ 20 % of runner calls and its
+  shed rate does not rise when agents ≥ 3 × `max_concurrent`;
 - `abandoned_live` has been 0 for the whole window and no circuit opened on a
   healthy provider;
 - payloads carry no repo content beyond the redacted, bounded pane tail (§7).
 
-Re-enable by removing the disable, watching the first hour; roll back with
-§15.4 step 1 if any criterion regresses.
+Enable and watch the first hour; roll back with §15.4 step 1 (pause) or by
+setting `activity.enabled: false` if any criterion regresses.

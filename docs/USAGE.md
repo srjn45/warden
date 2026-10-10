@@ -2249,7 +2249,7 @@ restart list; everything else takes effect on save.
 | `branch_track.enabled` | `false` | Enable the per-agent branch monitor (`warden workspace branches`): CI status + standing vs `origin/main`, with non-blocking inbox/desktop alerts |
 | `branch_track.interval` | `2m` | Poll interval for the branch monitor when `branch_track.enabled` is on |
 | `fast_brain.disabled_kinds` | `[]` | Decision kinds (e.g. `summarize_activity`) that never reach a runner; they fail open to their deterministic fallback. Never expires; see §Fast-Brain observability. |
-| `activity.enabled` | `true` | Enable cosmetic model-generated activity badges. Set `false` to prevent all `summarize_activity` Fast-Brain calls; agent status, approvals, prompt recognition, and Autopilot are unaffected. |
+| `activity.enabled` | `false` | Enable cosmetic model-generated activity badges (off by default). Set `true` to opt in; while `false` there are no `summarize_activity` Fast-Brain calls; agent status, approvals, prompt recognition, and Autopilot are unaffected. |
 | `activity.interval` | `15s` | Minimum gap between live activity-badge refreshes per agent (the 3-5 word status badge on each TUI agent row). Refreshes only while the agent's pane is changing, so idle agents cost no Fast-Brain calls; a failed/empty decision keeps the previous badge. |
 | `fast_brain.fast_timeout` | `10s` | Ceiling for ordinary Fast-Brain native-CLI decisions. |
 | `fast_brain.thinking_timeout` | `20s` | Ceiling for Fast-Brain reasoning and prompt-recognition decisions. |
