@@ -115,6 +115,7 @@ const (
 	ShedQueueFull        = "queue_full"
 	ShedQueueWait        = "queue_wait_exceeded"
 	ShedPreempted        = "preempted"
+	ShedRunnerWedged     = "runner_wedged"
 )
 
 type admCall struct {
