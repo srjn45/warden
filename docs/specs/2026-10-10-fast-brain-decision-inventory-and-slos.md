@@ -306,3 +306,36 @@ id via `RecognizePromptFor`; it still runs only after the backend parser and the
 known-prompts store miss, and its reading is discarded when the menu key moved on
 and re-verified against the live pane before use. Activity summaries remain
 governed by `activity.enabled`; no new event-driven path was added.
+
+## 14. Implementation status: metrics, audit and operator controls
+
+Task `metrics-audit-and-operator-controls` (`internal/fastbrain/telemetry.go`)
+delivers §8 on top of the admission controller (#876) and runner health (#875).
+
+- **Metrics** (`GET /api/v1/fastbrain/metrics`, MCP `fastbrain_status`,
+  `warden inspect fastbrain status`, Web Metrics tab): per kind×tier attempts,
+  outcome counts (ok/failed/deferred/cached/coalesced/paused…), shed reasons,
+  fallbacks, fail-open, cancel acknowledged/abandoned, queue-wait and run-time
+  histograms (p50/p95); per runner (provider/model) calls/ok/failed; circuit
+  state per provider; queue depth per class; admission counters.
+- **Labels are bounded**: decision kind (closed vocabulary, else `other`), tier,
+  outcome, provider, AI CLI, model — sanitised to `[a-z0-9._:-]`, ≤48 chars, ≤32
+  runner labels. Never agent/session IDs, prompts, paths, terminal content or
+  unbounded error text.
+- **Decision trace** (`GET /api/v1/fastbrain/decisions`, `warden inspect
+  fastbrain decisions`): ring of the last 200 decisions, newest first, with
+  kind, tier, class, outcome, final action (`decided|fail_open|cached|deferred`),
+  reason code, provider/model, queue wait, run time and cancel acknowledgement.
+- **Audit** (bounded detail only): `fastbrain_control` (pause/resume, actor),
+  `fastbrain_circuit` (provider circuit transitions), `fastbrain_cancel_abandoned`.
+- **Operator controls**: `PUT /api/v1/fastbrain/controls/{kind}`,
+  `warden inspect fastbrain pause|resume <kind>`, MCP `fastbrain_control`, Web
+  buttons. A paused kind fails open immediately (`StatusDeferred`, reason
+  `paused`) without invoking a runner. Default pause TTL 1 h, max 24 h; resume
+  clears it; pauses are in-memory (a daemon restart clears them). Persistent
+  disable: `fast_brain.disabled_kinds: [kind, ...]` (never expires; hot-reload
+  re-reads it). Controls never affect the destructive-action guard, and activity
+  summaries stay disabled by default.
+- **Recovery**: resume the kind (`wd inspect fastbrain resume <kind>`), remove it
+  from `disabled_kinds`, or restart the daemon.
+- **Deferred**: cockpit TUI panel (the CLI/Web surfaces are available).
