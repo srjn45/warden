@@ -425,3 +425,18 @@ func TestBootUnwritableLegacyDirStillBoots(t *testing.T) {
 		t.Fatalf("ledger = %+v", res.Ledger)
 	}
 }
+
+// A journal entry without a migration ID is the updater's snapshot marker, not
+// an interrupted migration: the guard must let the daemon boot.
+func TestCheckSnapshotMarkerIsNotInterrupted(t *testing.T) {
+	marker := &Ledger{SchemaVersion: SchemaVersion, InProgress: &InProgress{Step: "snapshot", Snapshot: "snapshots/x"}}
+	if err := Check(t.TempDir(), marker); err != nil {
+		t.Fatalf("snapshot marker must not refuse boot, got %v", err)
+	}
+	half := &Ledger{SchemaVersion: SchemaVersion, InProgress: &InProgress{Migration: "m", Step: "s"}}
+	var ge *GuardError
+	err := Check(t.TempDir(), half)
+	if !errors.As(err, &ge) || ge.Verdict != VerdictInterrupted {
+		t.Fatalf("half-applied migration must still refuse boot, got %v", err)
+	}
+}

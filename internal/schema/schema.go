@@ -74,6 +74,14 @@ type InProgress struct {
 	Snapshot  string `json:"snapshot,omitempty"`
 }
 
+// MigrationInterrupted reports whether the journal records a migration that
+// started and never finished. A journal entry with no migration ID is the
+// updater's pre-swap snapshot marker (it only records where the rollback
+// snapshot lives); it is not a half-applied migration and must not stop a boot.
+func (l *Ledger) MigrationInterrupted() bool {
+	return l.InProgress != nil && l.InProgress.Migration != ""
+}
+
 // ErrNoLedger is returned by Load when the data dir has no schema.json.
 var ErrNoLedger = errors.New("schema: no ledger")
 

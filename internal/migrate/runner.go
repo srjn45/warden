@@ -80,7 +80,7 @@ func (rn *Runner) Apply(env Env, targetVersion int) error {
 		return err
 	}
 
-	if l.InProgress != nil {
+	if l.MigrationInterrupted() {
 		return fmt.Errorf("%w: %s (step %s) is in progress; run resume or restore",
 			ErrInterruptedMigration, l.InProgress.Migration, l.InProgress.Step)
 	}
@@ -104,7 +104,7 @@ func (rn *Runner) Resume(env Env) error {
 	if err != nil {
 		return err
 	}
-	if l.InProgress == nil {
+	if !l.MigrationInterrupted() {
 		return ErrNoInterruptedMigration
 	}
 
