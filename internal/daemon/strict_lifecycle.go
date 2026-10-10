@@ -160,6 +160,13 @@ func (s *Server) SpawnAgent(ctx context.Context, req oapi.SpawnAgentRequestObjec
 		return nil, err
 	}
 	s.addProjectMembership(sess)
+	// A fork whose mode was translated/stepped down is audited now that its record
+	// exists (nothing is emitted for a failed spawn or insert).
+	if fe, ok := s.life.(interface {
+		EmitForkNormalization(context.Context, string)
+	}); ok {
+		fe.EmitForkNormalization(ctx, sess.ID)
+	}
 	// Wire the parent→child forward edge (spec D3/§6.1): a sub-agent spawned with a
 	// parent_id is appended to its parent's ChildAgents[]. No-op for a root spawn, a
 	// job agent, or a terminal (childOfParent).
