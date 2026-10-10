@@ -91,7 +91,9 @@ func TestContractContentionAuditIsOffRequestPath(t *testing.T) {
 	restore := SetAuditSeam(func(phase string) { g.hit() })
 	t.Cleanup(func() { g.release(); restore() })
 
+	auditDone := make(chan struct{})
 	go func() {
+		defer close(auditDone)
 		_, _ = s.RunAudit(context.Background(), true)
 	}()
 	g.waitEntered(t)
@@ -114,6 +116,7 @@ func TestContractContentionAuditIsOffRequestPath(t *testing.T) {
 	require.NoError(t, err)
 
 	g.release()
+	<-auditDone
 
 	// Store remains in StateOK when audit is clean.
 	require.Equal(t, StateOK, s.State())
