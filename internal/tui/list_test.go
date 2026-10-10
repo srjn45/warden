@@ -1439,25 +1439,6 @@ func TestKeyCollapseFromJobRepinsCursorToHeader(t *testing.T) {
 	require.True(t, mc.collapsed["pipeline:demo"], "h on a job collapses its parent pipeline")
 	require.NotNil(t, itemAt(mc.items(), mc.cursor).pipeline, "cursor re-pinned to the pipeline header, never a hidden row")
 }
-
-func TestFlatSessionsIncludesOrphanedPipelineAgents(t *testing.T) {
-	sessions := []*store.Session{
-		{ID: "plain"}, // not pipeline-owned → flat
-		{ID: "p1-a", PipelineID: "p1", JobID: "a"},     // owned by a live pipeline → not flat
-		{ID: "gone-x", PipelineID: "gone", JobID: "x"}, // pipeline deleted → orphan, must be flat
-	}
-	pipelines := []*pipeline.Pipeline{{ID: "p1"}}
-
-	got := flatSessions(sessions, pipelines)
-
-	ids := make([]string, len(got))
-	for i, s := range got {
-		ids[i] = s.ID
-	}
-	require.ElementsMatch(t, []string{"plain", "gone-x"}, ids,
-		"flat list must include un-owned agents and orphans of deleted pipelines, but not live-pipeline-owned agents")
-}
-
 func TestContextLabel(t *testing.T) {
 	cases := []struct {
 		tokens int
@@ -1489,25 +1470,6 @@ func TestTerminalDisplayName(t *testing.T) {
 		terminalDisplayName(1, "/home/u/warden", "/home/u/warden", ""), "no branch → repo only")
 	require.Equal(t, "3. /etc/x",
 		terminalDisplayName(3, "/etc/x", "", ""), "outside any git repo → abbreviated path")
-}
-
-func TestSplitByKind(t *testing.T) {
-	agents, terminals := splitByKind([]*store.Session{
-		{ID: "a1"},
-		{ID: "t1", Kind: store.KindTerminal},
-		{ID: "a2", Kind: store.KindAgent},
-	})
-	require.Equal(t, []string{"a1", "a2"}, itemSessionIDs(itemsFromSessions(agents)))
-	require.Equal(t, []string{"t1"}, itemSessionIDs(itemsFromSessions(terminals)))
-}
-
-// itemsFromSessions wraps sessions as bare items for id assertions.
-func itemsFromSessions(ss []*store.Session) []item {
-	out := make([]item, len(ss))
-	for i, s := range ss {
-		out[i] = item{session: s}
-	}
-	return out
 }
 
 // §4.1: a child in a DIFFERENT project than its parent is NOT nested; it surfaces
@@ -1565,9 +1527,8 @@ func TestBuildItemsSameProjectChildStillNestsWithRepo(t *testing.T) {
 	require.Equal(t, "", items[1].fromParent, "nested child carries no backlink")
 }
 
-// items() emits each tab's own section headers (§3 Phase 3): the Projects tab
-// shows the Agents section (and Pipelines when non-empty); the Terminals tab
-// shows only the Terminals section.
+// items() groups by project (§4) with no fixed top-level sections: terminals are
+// project members, not a section of their own.
 func TestItemsProjectsTabGroupsByProjectNoSections(t *testing.T) {
 	m := newListPane(&fakeAPI{}, "", "")
 	m.sessions = groupSort([]*store.Session{{ID: "a1", Repo: "/repoA", Status: store.StatusWorking}})
@@ -1591,34 +1552,32 @@ func TestItemsProjectsTabGroupsByProjectNoSections(t *testing.T) {
 	}
 	require.True(t, sawProject, "Projects tab renders a project/dir group header")
 
-	m.currentTab = tabTerminals
-	require.Equal(t, []string{secTerminals}, sectionsOf(m), "Terminals tab still shows only the Terminals section")
 }
 
-// A terminal-kind session renders under Terminals with its §7 name and never in
-// the Agents tree.
-func TestItemsTerminalsSection(t *testing.T) {
+// A terminal renders inside its project with its §7 name — never in a separate
+// Terminals section and never as an agent-style dir group of its own.
+func TestItemsTerminalInsideProjectWithName(t *testing.T) {
 	m := newListPane(&fakeAPI{}, "", "")
-	m.currentTab = tabTerminals // terminals live on their own tab now (§3 Phase 3)
+	m.projects = []projectstore.Project{{
+		ID: "proj-1", Name: "warden", Path: "/home/u/warden", Status: projectstore.StatusOpen,
+		Agents: []string{"a1"}, Terminals: []string{"t1"},
+	}}
+	m.collapsed["project:proj-1"] = false
 	m.sessions = groupSort([]*store.Session{
-		{ID: "a1", Repo: "/repoA", Status: store.StatusWorking},
-		{ID: "t1", Kind: store.KindTerminal, Repo: "/home/u/warden", Workdir: "/home/u/warden/site", Branch: "main", Status: store.StatusWorking},
+		{ID: "a1", Repo: "/home/u/warden", ProjectID: "proj-1", Status: store.StatusWorking},
+		{ID: "t1", Kind: store.KindTerminal, ProjectID: "proj-1", Repo: "/home/u/warden", Workdir: "/home/u/warden/site", Branch: "main", Status: store.StatusWorking},
 	})
 	items := m.items()
-	// The terminal appears as a Terminals row, with a §7 name, and carries no dir group.
 	var term *item
 	for i := range items {
+		require.NotEqual(t, secTerminals, items[i].section, "no top-level Terminals section")
 		if items[i].session != nil && items[i].session.ID == "t1" {
 			term = &items[i]
 		}
 	}
-	require.NotNil(t, term, "terminal-kind session appears in the list")
+	require.NotNil(t, term, "the terminal appears in its project")
 	require.Contains(t, term.termName, "warden:site/ (main)", "terminal row uses its §7 name")
-
-	// It must NOT be nested in the Agents dir tree: no agent-style dir group row for it.
-	out := renderList(items, 0, 120, 24)
-	require.Contains(t, out, secTerminals, "Terminals section header is shown")
-	require.Contains(t, out, "warden:site/ (main)")
+	require.Contains(t, renderList(items, 0, 120, 24), "warden:site/ (main)")
 }
 
 // Collapsing a section (its secKey) folds away its whole sub-tree.
@@ -1639,19 +1598,6 @@ func TestProjectGroupCollapseHidesChildren(t *testing.T) {
 		}
 	}
 	require.True(t, sawHeader, "the project group header stays present when collapsed")
-}
-
-// enter on a section header toggles its collapse.
-func TestEnterOnSectionToggles(t *testing.T) {
-	m := newListPane(&fakeAPI{}, "", "")
-	m.currentTab = tabTerminals // the Terminals section header still supports enter-toggle
-	m.sessions = []*store.Session{{ID: "t1", Kind: store.KindTerminal, Status: store.StatusWorking}}
-	// Toggle the Terminals section closed via enter.
-	m.cursor = cursorOn(m, func(it item) bool { return it.section == secTerminals })
-	require.GreaterOrEqual(t, m.cursor, 0, "the Terminals section header is present")
-	m2, _ := m.handleKey(key("enter"))
-	mc := m2.(controlPaneModel)
-	require.True(t, mc.collapsed[secKey(secTerminals)], "enter on a section header toggles its fold")
 }
 
 func TestEnterOnProjectHeaderIsReserved(t *testing.T) {

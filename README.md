@@ -534,8 +534,8 @@ warden start "implement the add function" --aicli goose --dir .
 
 > **Terminals are not a backend.** A plain interactive shell beside the fleet is a
 > first-class **terminal session** (`kind=terminal`), not an agent backend — so
-> `terminal` is no longer a `--backend` choice. Create one from the cockpit (the
-> default terminal on startup, `t`, or `Alt+t`) or over the API with
+> `terminal` is no longer a `--backend` choice. Create one from the cockpit (`t` on
+> a project row — a terminal always belongs to a project) or over the API with
 > `kind=terminal` (`backend=terminal` is still accepted as a back-compat alias).
 > Terminals get warden's normal worktree/git/tmux lifecycle (attach, commit/push/sync,
 > snapshot, teardown, cockpit listing) but no AI features. See the cockpit section below.
@@ -693,7 +693,7 @@ warden tui   # open the cockpit
 warden       # bare invocation — same thing
 ```
 
-`warden tui` (or bare `warden`) opens a **tmux-composited cockpit** — a dedicated tmux session with three panes: the **control** pane (top-left), a **terminal** pane (bottom-left), and a full-height **agent** pane (right). The control pane is a navigator tree with four fixed sections — **Approvals · Pipelines · Agents · Terminals** — that you browse freely with `↑`/`↓` without disturbing the viewports; press `Enter` to open the selected entity. Opening an **agent** attaches its interactive `claude` session in the agent pane (right); opening a **terminal** attaches it in the terminal pane (bottom-left). The cockpit always keeps at least one terminal — a default terminal in the launch directory opens on startup.
+`warden tui` (or bare `warden`) opens a **tmux-composited cockpit** — a dedicated tmux session with three panes: the **control** pane (top-left), a **terminal** pane (bottom-left), and a full-height **agent** pane (right). The control pane is a navigator tree grouped by project — each project's agents, pipelines, plans and **terminals** nest under it — that you browse freely with `↑`/`↓` without disturbing the viewports; press `Enter` to open the selected entity. Opening an **agent** attaches its interactive `claude` session in the agent pane (right); opening a **terminal** attaches it in the terminal pane (bottom-left). Terminals are created on demand with `t` (inside the project under the cursor, like `n`); nothing is auto-spawned.
 
 Agents spawned by another agent (via the `spawn_agent` MCP tool) **nest under their parent** as a collapsible sub-tree (`▸ / ▾`, indented per depth — the same affordance pipelines use), so you can see which agents an orchestrator fanned out. Deleting a parent that still has live children keeps it as a muted **terminated tombstone** header (`terminated · N running`) — no terminal/attach pane — so its children never vanish; the daemon reaps the tombstone once the whole sub-tree finishes.
 
@@ -708,7 +708,7 @@ The control pane polls the daemon about once a second. The daemon must be runnin
 | `↑` / `↓` or `j` / `k` | Move selection (the viewports are unaffected) |
 | `←` / `→` or `h` | Collapse / expand the section or the pipeline/agent sub-tree under the cursor |
 | `Enter` | Open the selected entity — an agent (or running pipeline job) attaches in the right agent pane; a terminal attaches in the bottom-left terminal pane; a finished agent or tombstone shows its stored detail instead of attaching |
-| `t` | New/focus a terminal in the opened agent's directory (`(c)reate` a fresh one or `(f)ocus` an existing one in that dir) |
+| `t` | Create a terminal inside the project under the cursor (same targeting as `n`); refused when the cursor is outside any project |
 | `n` | New agent — opens a prompt textarea; `ctrl+s` to submit, `esc` to cancel |
 | `o` | Open a directory as a group (becomes the spawn target for `n`) |
 | `s` | Send a message to the selected agent — `enter` to send, `esc` to cancel |

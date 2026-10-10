@@ -30,7 +30,6 @@ type treeViewOpts struct {
 	runs           []client.AutopilotRunStatus
 	plans          map[string][]*planstore.Plan
 	remotePlans    map[string][]plansync.Envelope
-	skipTerminals  bool // Projects tab: terminals live on the Terminals tab
 }
 
 // buildProjectItems is the N6 entry point: tree.Service.Build for structure, then
@@ -74,7 +73,6 @@ func buildProjectItems(
 		runs:           ap.Runs,
 		plans:          plans,
 		remotePlans:    remote,
-		skipTerminals:  true,
 	})
 }
 
@@ -137,7 +135,7 @@ func adaptTree(tr *tree.Tree, opts treeViewOpts) []item {
 		if root.Detail != nil && root.Detail.Closed {
 			// Spec D4: service keeps closed projects; TUI hides them. Park their
 			// visible children in the No-project bucket (prior Ungrouped behavior).
-			closedChildren = append(closedChildren, ctx.visibleChildren(root.Children)...)
+			closedChildren = append(closedChildren, root.Children...)
 			continue
 		}
 		seenProjects[root.ID] = true
@@ -154,7 +152,7 @@ func adaptTree(tr *tree.Tree, opts treeViewOpts) []item {
 			}
 		}
 		if len(closedChildren) > 0 {
-			merged := append([]*tree.Node{}, ctx.visibleChildren(syn.Children)...)
+			merged := append([]*tree.Node{}, syn.Children...)
 			merged = append(merged, closedChildren...)
 			syn = &tree.Node{
 				Type:     syn.Type,
@@ -183,7 +181,6 @@ type adaptCtx struct {
 	jobsByKey      map[string]*pipeline.Job // "pipeID/jobID"
 	plans          map[string][]*planstore.Plan
 	remotePlans    map[string][]plansync.Envelope
-	skipTerminals  bool
 }
 
 func newAdaptCtx(opts treeViewOpts) *adaptCtx {
@@ -198,7 +195,6 @@ func newAdaptCtx(opts treeViewOpts) *adaptCtx {
 		jobsByKey:      map[string]*pipeline.Job{},
 		plans:          opts.plans,
 		remotePlans:    opts.remotePlans,
-		skipTerminals:  opts.skipTerminals,
 	}
 	if ctx.collapsed == nil {
 		ctx.collapsed = map[string]bool{}
@@ -257,7 +253,7 @@ func (ctx *adaptCtx) adaptProject(n *tree.Node) []item {
 		}
 	}
 
-	children := ctx.visibleChildren(n.Children)
+	children := n.Children
 	hdr.agentCount, hdr.liveAgents = countAgents(children, ctx.sessionsByID)
 
 	collapsed, ok := ctx.collapsed[n.ID]
@@ -421,20 +417,6 @@ func (ctx *adaptCtx) adaptPlansBody(projectID string) []item {
 	return items
 }
 
-func (ctx *adaptCtx) visibleChildren(kids []*tree.Node) []*tree.Node {
-	if !ctx.skipTerminals {
-		return kids
-	}
-	out := make([]*tree.Node, 0, len(kids))
-	for _, ch := range kids {
-		if ch != nil && ch.Type == tree.NodeTypeTerminal {
-			continue
-		}
-		out = append(out, ch)
-	}
-	return out
-}
-
 func countAgents(nodes []*tree.Node, sessions map[string]*store.Session) (total, live int) {
 	var walk func([]*tree.Node)
 	walk = func(ns []*tree.Node) {
@@ -476,9 +458,6 @@ func (ctx *adaptCtx) adaptNode(n *tree.Node, depth int) []item {
 	case tree.NodeTypeTask:
 		return ctx.adaptTask(n, depth)
 	case tree.NodeTypeTerminal:
-		if ctx.skipTerminals {
-			return nil
-		}
 		return ctx.adaptTerminal(n)
 	case tree.NodeTypeJob:
 		return ctx.adaptJob(n, depth)
