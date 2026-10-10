@@ -22,10 +22,12 @@ type fakeSvc struct {
 
 	mu       sync.Mutex
 	restarts int
+	stops    int
 	state    ServiceState
 	diag     string
 	// restartErr/exited are consulted with the current restart count.
 	restartErr func(n int) error
+	stopErr    func() error
 	exited     func(n int) bool
 }
 
@@ -54,6 +56,17 @@ func (s *fakeSvc) Restart(context.Context) error {
 	s.mu.Unlock()
 	if s.restartErr != nil {
 		return s.restartErr(n)
+	}
+	return nil
+}
+
+func (s *fakeSvc) Stop(context.Context) error {
+	s.use()
+	s.mu.Lock()
+	s.stops++
+	s.mu.Unlock()
+	if s.stopErr != nil {
+		return s.stopErr()
 	}
 	return nil
 }

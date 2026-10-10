@@ -181,10 +181,16 @@ func restoreSnapshot(srcDir, dstDir string) error {
 }
 
 func (rn *Runner) runMigration(env Env, l *schema.Ledger, m Migration, startStep string) error {
+	snap := ""
+	if l.InProgress != nil {
+		snap = l.InProgress.Snapshot
+	}
+
 	// 1. Write journal before starting migration
 	l.InProgress = &schema.InProgress{
 		Migration: m.ID,
 		Step:      startStep,
+		Snapshot:  snap,
 	}
 	if err := schema.Save(env.DataDir, l); err != nil {
 		return fmt.Errorf("migrate: write journal: %w", err)
@@ -194,6 +200,7 @@ func (rn *Runner) runMigration(env Env, l *schema.Ledger, m Migration, startStep
 		l.InProgress = &schema.InProgress{
 			Migration: m.ID,
 			Step:      stepName,
+			Snapshot:  snap,
 		}
 		return schema.Save(env.DataDir, l)
 	}
@@ -241,6 +248,7 @@ func (rn *Runner) runMigration(env Env, l *schema.Ledger, m Migration, startStep
 		To:        m.To,
 		Migration: m.ID,
 		At:        time.Now().UTC(),
+		Backup:    snap,
 	})
 	if err := schema.Save(env.DataDir, l); err != nil {
 		return fmt.Errorf("migrate: commit ledger: %w", err)

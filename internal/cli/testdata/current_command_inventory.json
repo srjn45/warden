@@ -3793,6 +3793,21 @@
     ]
   },
   {
+    "path": "rollback",
+    "use": "rollback",
+    "runnable": true,
+    "local_flags": [
+      "json",
+      "ready-timeout",
+      "yes"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
     "path": "rotate",
     "use": "rotate",
     "hidden": true,

@@ -51,6 +51,7 @@ type Options struct {
 	GOARCH     string
 	InstallBin string // default ~/.local/bin/warden
 	StagingDir string // default ~/.warden/tmp
+	DataDir    string // default ~/.warden
 	HealthURL  string // default DefaultHealthURL
 	AssetBase  string // override download base (tests); empty → GitHub releases
 
@@ -195,6 +196,11 @@ func normalizeOptions(opts *Options) error {
 			return fmt.Errorf("resolve home directory: %w", err)
 		}
 		opts.StagingDir = filepath.Join(home, ".warden", "tmp")
+	}
+	if opts.DataDir == "" {
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			opts.DataDir = filepath.Join(home, ".warden")
+		}
 	}
 	if opts.HealthURL == "" {
 		opts.HealthURL = DefaultHealthURL

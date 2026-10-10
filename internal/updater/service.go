@@ -77,6 +77,23 @@ func (c *systemController) Restart(ctx context.Context) error {
 	return ErrNoServiceManager
 }
 
+func (c *systemController) Stop(ctx context.Context) error {
+	st := c.State(ctx)
+	switch st.Kind {
+	case ServiceSystemd:
+		if out, err := sh(ctx, "systemctl", "--user", "stop", systemdUnit); err != nil {
+			return fmt.Errorf("systemctl --user stop %s: %v: %s", systemdUnit, err, out)
+		}
+		return nil
+	case ServiceLaunchd:
+		if out, err := sh(ctx, "launchctl", "stop", LaunchdLabel); err != nil {
+			return fmt.Errorf("launchctl stop %s: %v: %s", LaunchdLabel, err, out)
+		}
+		return nil
+	}
+	return ErrNoServiceManager
+}
+
 func (c *systemController) Exited(ctx context.Context) bool {
 	switch c.goos {
 	case "linux":

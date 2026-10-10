@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/srjn45/warden/internal/schema"
 )
 
 // This file is the post-download half of `warden update`, modelled as an
@@ -43,6 +45,7 @@ var ErrNoServiceManager = errors.New("no service manager owns the warden daemon"
 type ServiceController interface {
 	State(ctx context.Context) ServiceState
 	Restart(ctx context.Context) error
+	Stop(ctx context.Context) error
 	// Exited reports whether the supervised process has stopped or is crash
 	// looping (best effort; false when unknown).
 	Exited(ctx context.Context) bool
@@ -168,9 +171,33 @@ func schemaLabel(v int) string {
 }
 
 // RollbackError: restoring the previous version did not succeed.
-type RollbackError struct{ Cause error }
+type RollbackError struct {
+	Cause       error
+	SnapshotDir string
+	InstallBin  string
+	DataDir     string
+}
 
-func (e *RollbackError) Error() string { return "rollback failed: " + e.Cause.Error() }
+func (e *RollbackError) Error() string {
+	msg := "rollback failed: " + e.Cause.Error()
+	if e.SnapshotDir != "" || e.InstallBin != "" {
+		snap := e.SnapshotDir
+		if snap == "" {
+			snap = "<snapshot>"
+		}
+		data := e.DataDir
+		if data == "" {
+			data = "<data-dir>"
+		}
+		bin := e.InstallBin
+		if bin == "" {
+			bin = "<install-bin>"
+		}
+		msg += fmt.Sprintf("\nmanual recovery:\n  1. copy data from %s to %s\n  2. restore binary from %s.bak to %s\n  3. restart the warden service",
+			snap, data, bin, bin)
+	}
+	return msg
+}
 func (e *RollbackError) Unwrap() error { return e.Cause }
 
 // FailureError reports both the original failure and the rollback outcome.
@@ -227,13 +254,15 @@ func indent(s string) string {
 
 // txn carries the collaborators for one run.
 type txn struct {
-	opts   Options
-	svc    ServiceController
-	probe  Prober
-	inst   BinaryInstaller
-	clock  Clock
-	pre    PreState
-	target string
+	opts        Options
+	svc         ServiceController
+	probe       Prober
+	inst        BinaryInstaller
+	clock       Clock
+	pre         PreState
+	target      string
+	snapshotDir string
+	stopped     bool
 }
 
 func (t *txn) logf(format string, a ...any) { fmt.Fprintf(t.opts.Stdout, format+"\n", a...) }
@@ -331,20 +360,39 @@ func (t *txn) waitReady(ctx context.Context, wantVersion string, wantSchema int)
 	}
 }
 
-// rollback restores the previous binary, explicitly restarts the service when
-// the new daemon had been started, and verifies the prior version is healthy.
-func (t *txn) rollback(ctx context.Context, backup string, restarted bool) error {
+// rollback restores the previous binary and data snapshot, explicitly restarts the service when
+// the new daemon had been started or was previously running, and verifies the prior version is healthy.
+func (t *txn) rollback(ctx context.Context, backup, snapDir string, restarted bool) error {
 	t.logf("rolling back to v%s…", t.pre.Version)
+	var rbErrs []error
 	if err := t.inst.Restore(backup); err != nil {
-		return &RollbackError{Cause: fmt.Errorf("restore binary: %w", err)}
+		rbErrs = append(rbErrs, fmt.Errorf("restore binary: %w", err))
 	}
-	if restarted {
-		if err := t.svc.Restart(ctx); err != nil && !errors.Is(err, ErrNoServiceManager) {
-			return &RollbackError{Cause: fmt.Errorf("restart previous service: %w", err)}
+	if snapDir != "" && t.opts.DataDir != "" {
+		if err := RestoreSnapshot(snapDir, t.opts.DataDir); err != nil {
+			rbErrs = append(rbErrs, fmt.Errorf("restore data snapshot: %w", err))
 		}
 	}
-	if !t.pre.DaemonRunning {
-		return nil // nothing was serving before; nothing to verify
+	if len(rbErrs) > 0 {
+		return &RollbackError{
+			Cause:       errors.Join(rbErrs...),
+			SnapshotDir: snapDir,
+			InstallBin:  t.opts.InstallBin,
+			DataDir:     t.opts.DataDir,
+		}
+	}
+	if restarted || t.stopped {
+		if err := t.svc.Restart(ctx); err != nil && !errors.Is(err, ErrNoServiceManager) {
+			return &RollbackError{
+				Cause:       fmt.Errorf("restart previous service: %w", err),
+				SnapshotDir: snapDir,
+				InstallBin:  t.opts.InstallBin,
+				DataDir:     t.opts.DataDir,
+			}
+		}
+	}
+	if !t.pre.DaemonRunning || (!restarted && !t.stopped) {
+		return nil // nothing was serving before or daemon was never touched; nothing to verify
 	}
 	want := t.pre.Version
 	if want == "" || want == "dev" {
@@ -357,20 +405,62 @@ func (t *txn) rollback(ctx context.Context, backup string, restarted bool) error
 		wantSchema = t.opts.CurrentSchema
 	}
 	if err := t.waitReady(ctx, want, wantSchema); err != nil {
-		return &RollbackError{Cause: fmt.Errorf("previous version not healthy after restore: %w", err)}
+		return &RollbackError{
+			Cause:       fmt.Errorf("previous version not healthy after restore: %w", err),
+			SnapshotDir: snapDir,
+			InstallBin:  t.opts.InstallBin,
+			DataDir:     t.opts.DataDir,
+		}
 	}
 	return nil
 }
 
-// apply runs swap → codesign → migrate → restart → readiness on a staged binary.
+// apply runs stop → snapshot → swap → codesign → migrate → restart → readiness on a staged binary.
 func (t *txn) apply(ctx context.Context, staged string) (rolledBack bool, err error) {
+	if t.opts.DataDir != "" && t.pre.DaemonRunning {
+		t.logf("stopping daemon…")
+		if err := t.svc.Stop(ctx); err != nil && !errors.Is(err, ErrNoServiceManager) {
+			return false, fmt.Errorf("stop daemon: %w", err)
+		}
+		t.stopped = true
+	}
+
+	var snapDir string
+	if t.opts.DataDir != "" {
+		t.logf("taking data snapshot…")
+		var err error
+		snapDir, err = SnapshotStores(t.opts.DataDir, t.pre.Version, t.opts.InstallBin)
+		if err != nil {
+			if t.stopped {
+				_ = t.svc.Restart(ctx)
+			}
+			return false, fmt.Errorf("snapshot data: %w", err)
+		}
+		t.snapshotDir = snapDir
+
+		// Record snapshot in ledger journal
+		if l, err := schema.Load(t.opts.DataDir); err == nil {
+			l.InProgress = &schema.InProgress{
+				Step:     "snapshot",
+				Snapshot: snapDir,
+			}
+			_ = schema.Save(t.opts.DataDir, l)
+		}
+	}
+
 	backup, err := t.inst.Swap(staged)
 	if err != nil {
+		if snapDir != "" && t.opts.DataDir != "" {
+			_ = RestoreSnapshot(snapDir, t.opts.DataDir)
+		}
+		if t.pre.DaemonRunning {
+			_ = t.svc.Restart(ctx)
+		}
 		return false, err
 	}
 	restarted := false
 	fail := func(cause error) (bool, error) {
-		rb := t.rollback(ctx, backup, restarted)
+		rb := t.rollback(ctx, backup, snapDir, restarted)
 		return rb == nil, &FailureError{Cause: cause, Rollback: rb, Prior: t.pre.Version}
 	}
 	if t.opts.Codesign != nil {
@@ -414,6 +504,18 @@ func (t *txn) apply(ctx context.Context, staged string) (rolledBack bool, err er
 	if err := t.waitReady(ctx, t.target, wantSchema); err != nil {
 		return fail(err)
 	}
+
+	if t.opts.DataDir != "" {
+		if l, err := schema.Load(t.opts.DataDir); err == nil && l.InProgress != nil {
+			l.InProgress = nil
+			_ = schema.Save(t.opts.DataDir, l)
+		}
+		pruned, _ := PruneSnapshots(t.opts.DataDir, t.clock, 2, 14*24*time.Hour)
+		if len(pruned) > 0 {
+			t.logf("pruned %d old snapshot(s)", len(pruned))
+		}
+	}
+
 	t.inst.Discard(backup)
 	return false, nil
 }

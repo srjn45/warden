@@ -85,6 +85,17 @@ func (d *gateDaemon) Restart(context.Context) error {
 	return nil
 }
 
+func (d *gateDaemon) Stop(context.Context) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.store != nil {
+		_ = d.store.Close()
+		d.store = nil
+	}
+	d.running = ""
+	return nil
+}
+
 func (d *gateDaemon) Exited(context.Context) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
