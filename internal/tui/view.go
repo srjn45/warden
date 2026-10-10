@@ -43,16 +43,15 @@ func pressureChip(p client.PressureStatus) string {
 func helpText() string {
 	return stPaneTitle.Render("Keys") + "\n" +
 		"  ↑/↓ or j/k   move selection\n" +
-		"  tab          switch tab: Projects (pipelines + agents) ⇄ Terminals\n" +
 		"  ←/→ or h     fold / unfold: a project group, a pipeline, an agent sub-tree,\n" +
-		"               or the Terminals section — whatever is under the cursor\n" +
+		"               — whatever is under the cursor\n" +
 		"  l            logs: scrollable TUI log tail (g/G top/bottom, esc/l close)\n" +
 		"  enter        open the selected entity — agent/worker/job in the agent pane; pipeline\n" +
 		"               or autopilot container opens its overview; a terminal opens in the\n" +
 		"               terminal pane (grabs focus); section headers toggle fold (reserved on\n" +
 		"               a project header for future project details)\n" +
 		"  n            new agent (prompt · ctrl+n name · ctrl+r role · ctrl+t tier · ctrl+s submit)\n" +
-		"  t            open a terminal in the focused agent's dir: (c)reate new or (f)ocus existing\n" +
+		"  t            new terminal in the project under the cursor (like n); refused outside a project\n" +
 		"  o            open a project: Local / Remote / New (↑/↓ or j/k · enter · esc)\n" +
 		"  s            send a message to the selected agent\n" +
 		"  a            full-screen attach to its tmux session (or a running pipeline job's session)\n" +
