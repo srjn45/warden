@@ -35,7 +35,7 @@ func (c *FastBrainChatter) Chat(ctx context.Context, msgs []llm.Message, tools [
 	if err := ctx.Err(); err != nil {
 		return llm.Reply{}, err
 	}
-	resp, err := c.eng.Decide(ctx, Request{Kind: KindReplTurn, Tier: TierFast, Prompt: replPrompt(msgs, tools)})
+	resp, err := c.eng.Decide(ctx, Request{Kind: KindReplTurn, Tier: TierFast, Prompt: replPrompt(msgs, tools), Timeout: ReplTurnDeadline})
 	if err != nil {
 		if cerr := ctx.Err(); cerr != nil {
 			return llm.Reply{}, cerr

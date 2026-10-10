@@ -23,9 +23,7 @@ func (n NameRunner) Run(ctx context.Context, prompt string) (string, error) {
 	if n.Engine == nil {
 		return "", errors.New("fastbrain: no engine")
 	}
-	resp, err := n.Engine.Decide(ctx, Request{
-		Kind: KindResolveAgentName, Tier: TierFast, Prompt: prompt + nameJSONSuffix,
-	})
+	resp, err := n.Engine.Decide(ctx, NewRequest(KindResolveAgentName, TierFast, prompt+nameJSONSuffix, ""))
 	if err != nil {
 		return "", err
 	}

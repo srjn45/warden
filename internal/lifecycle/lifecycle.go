@@ -1287,10 +1287,9 @@ func (l *Lifecycle) ensureWorktree(ctx context.Context, req SpawnRequest, id, re
 // model's label.
 func (l *Lifecycle) Classify(ctx context.Context, prompt string) (store.Type, error) {
 	if l.FastBrain != nil {
-		resp, err := l.FastBrain.Decide(ctx, fastbrain.Request{
-			Kind: fastbrain.KindClassifyTask, Tier: fastbrain.TierFast,
-			Prompt: fastbrain.ClassifyTaskPrompt(prompt),
-		})
+		resp, err := l.FastBrain.Decide(ctx, fastbrain.NewRequest(
+			fastbrain.KindClassifyTask, fastbrain.TierFast,
+			fastbrain.ClassifyTaskPrompt(prompt), ""))
 		if err != nil || !resp.OK() {
 			return store.TypeOther, nil
 		}
@@ -1340,10 +1339,9 @@ func (l *Lifecycle) Summarize(ctx context.Context, agent *agentstore.Agent) (str
 		return "", nil
 	}
 	if l.FastBrain != nil {
-		resp, err := l.FastBrain.Decide(ctx, fastbrain.Request{
-			Kind: fastbrain.KindSummarizeActivity, Tier: fastbrain.TierFast,
-			Prompt: fastbrain.ActivityBadgePrompt(text),
-		})
+		resp, err := l.FastBrain.Decide(ctx, fastbrain.NewRequest(
+			fastbrain.KindSummarizeActivity, fastbrain.TierFast,
+			fastbrain.ActivityBadgePrompt(text), agent.ID))
 		if err != nil || !resp.OK() {
 			return "", nil // fail open: caller keeps the previous badge
 		}
@@ -1393,10 +1391,9 @@ func (l *Lifecycle) GenerateName(ctx context.Context, prompt string) string {
 		return ""
 	}
 	if l.FastBrain != nil {
-		resp, err := l.FastBrain.Decide(ctx, fastbrain.Request{
-			Kind: fastbrain.KindResolveAgentName, Tier: fastbrain.TierFast,
-			Prompt: nameArg(prompt) + "\n\nReply with ONLY this JSON: {\"name\":\"<kebab-case-handle>\"}",
-		})
+		resp, err := l.FastBrain.Decide(ctx, fastbrain.NewRequest(
+			fastbrain.KindResolveAgentName, fastbrain.TierFast,
+			nameArg(prompt)+"\n\nReply with ONLY this JSON: {\"name\":\"<kebab-case-handle>\"}", ""))
 		if err == nil && resp.OK() {
 			var v struct {
 				Name string `json:"name"`
@@ -1487,10 +1484,9 @@ func (l *Lifecycle) summarizeCheckOutput(ctx context.Context, name, out string) 
 		if !oversizedOutput(out) {
 			return truncated
 		}
-		resp, err := l.FastBrain.Decide(ctx, fastbrain.Request{
-			Kind: fastbrain.KindSummarizeCheck, Tier: fastbrain.TierFast,
-			Prompt: fastbrain.SummarizeCheckPrompt(out),
-		})
+		resp, err := l.FastBrain.Decide(ctx, fastbrain.NewRequest(
+			fastbrain.KindSummarizeCheck, fastbrain.TierFast,
+			fastbrain.SummarizeCheckPrompt(out), ""))
 		if err != nil || !resp.OK() {
 			return truncated
 		}

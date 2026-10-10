@@ -314,7 +314,7 @@ func ClassifyCIFailure(ctx context.Context, e Engine, in CIInput) CIClassificati
 func classifyCI(ctx context.Context, d decider, in CIInput, fo func(string) CIClassification) CIClassification {
 	resp, err := d.Decide(ctx, Request{
 		Kind: KindClassifyCIFailure, Tier: TierFast, Prompt: ciPrompt(in),
-		Metadata: map[string]string{"agent_id": in.AgentID},
+		Metadata: AgentMeta(in.AgentID), Timeout: KindDeadline(KindClassifyCIFailure),
 	})
 	if err != nil {
 		return fo(FailOpenRunnerError)

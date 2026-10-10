@@ -227,7 +227,7 @@ func (p *Poller) announceKnown(ctx context.Context, s *agentstore.Agent, pane, k
 // recognize makes the model call for one menu and stores a verified reading.
 func (p *Poller) recognize(ctx context.Context, s *agentstore.Agent, pane, key string) {
 	var ap *agentbackend.Approval
-	r, ok, err := fastbrain.RecognizePrompt(ctx, p.FastBrain, pane)
+	r, ok, err := fastbrain.RecognizePromptFor(ctx, p.FastBrain, pane, s.ID)
 	if err != nil {
 		slog.Warn("prompt recognition error", "agent", s.ID, "err", err)
 	}

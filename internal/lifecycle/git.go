@@ -316,10 +316,9 @@ func (l *Lifecycle) commitMessage(ctx context.Context, dir string, files []strin
 		if err != nil || strings.TrimSpace(diff) == "" {
 			return floor
 		}
-		resp, err := l.FastBrain.Decide(ctx, fastbrain.Request{
-			Kind: fastbrain.KindCommitMessage, Tier: fastbrain.TierFast,
-			Prompt: fastbrain.CommitMessagePrompt(capDiff(diff)),
-		})
+		resp, err := l.FastBrain.Decide(ctx, fastbrain.NewRequest(
+			fastbrain.KindCommitMessage, fastbrain.TierFast,
+			fastbrain.CommitMessagePrompt(capDiff(diff)), ""))
 		if err != nil || !resp.OK() {
 			return floor
 		}

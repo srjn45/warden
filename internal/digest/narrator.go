@@ -24,11 +24,9 @@ type ClaudeNarrator struct {
 // Summarize asks the model for a 1–2 sentence "what this agent did" line.
 func (n ClaudeNarrator) Summarize(ctx context.Context, f Facts) (string, error) {
 	if n.FastBrain != nil {
-		resp, err := n.FastBrain.Decide(ctx, fastbrain.Request{
-			Kind:   fastbrain.KindSummarizeActivity,
-			Tier:   fastbrain.TierFast,
-			Prompt: fastbrain.SummarizeActivityPrompt(activityText(f)),
-		})
+		resp, err := n.FastBrain.Decide(ctx, fastbrain.NewRequest(
+			fastbrain.KindSummarizeActivity, fastbrain.TierFast,
+			fastbrain.SummarizeActivityPrompt(activityText(f)), ""))
 		if err != nil || !resp.OK() {
 			return "", nil
 		}

@@ -122,7 +122,7 @@ func diagnose(ctx context.Context, d decider, in CrashInput) (CrashDiagnosis, er
 	if d != nil {
 		resp, err := d.Decide(ctx, Request{
 			Kind: KindDiagnoseFailure, Tier: TierFast, Prompt: crashPrompt(in, excerpt),
-			Metadata: map[string]string{"agent_id": in.AgentID},
+			Metadata: AgentMeta(in.AgentID), Timeout: KindDeadline(KindDiagnoseFailure),
 		})
 		if err == nil && resp.OK() {
 			var m struct {
