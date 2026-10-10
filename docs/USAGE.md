@@ -446,8 +446,8 @@ warden start "implement the add function" --aicli goose --dir .
 > terminal gets warden's normal worktree/git/tmux lifecycle (attach, `wd commit`/
 > `push`/`sync`, snapshot, teardown, cockpit listing) but no AI features (no
 > digests, resume, model, priced spend, or approval parsing; the prompt is
-> ignored). The cockpit also opens a default terminal on startup and offers `t`
-> to create/focus one — see §7.
+> ignored). In the cockpit, terminals nest under their project and are
+> created on demand with `t` — see §7.
 >
 > ```sh
 > warden start --kind terminal --dir .   # a managed shell "human seat" in .
@@ -1545,7 +1545,7 @@ type).
 | `←`/`→` or `h` | Collapse / expand the section or the pipeline/agent sub-tree under the cursor |
 | `Enter` | Open the selected entity — an agent (or running pipeline job) attaches in the right agent pane; a terminal attaches in the bottom-left terminal pane; a finished agent or tombstone shows its stored detail instead of attaching |
 | `n` | New agent — opens a prompt textarea; `ctrl+s` to submit, `esc` to cancel |
-| `t` | New/focus a terminal in the opened agent's directory (`~` if none open) — inline `(c)reate` a fresh one or `(f)ocus` an existing one in that dir |
+| `t` | Create a terminal inside the project under the cursor (same targeting as `n`, using the row's directory) — refused with a status hint when the cursor is outside any project |
 | `o` | Open a directory as a group (becomes the spawn target for `n`) |
 | `s` | Send a message to the selected agent — `enter` to send, `esc` to cancel |
 | `a` | Attach — hands the whole client to the agent's/terminal's (or running job's) tmux session. Press **`Ctrl-b Enter`** to return to the dashboard (a hint flashes on attach). |
@@ -1593,16 +1593,18 @@ opens its stored detail instead of attaching to a dead session.
 
 **Bottom-left — terminal pane.** Terminals are first-class `kind=terminal`
 sessions (not a backend) — a plain interactive shell (`$SHELL`) beside the fleet,
-managed with warden's normal worktree/git/tmux lifecycle. The cockpit opens a
-**default terminal** in the launch directory on startup, lists it under the
-**Terminals** section, and shows it here. Use it for `warden` CLI commands, git
-status, or any other terminal work while monitoring your agents.
+managed with warden's normal worktree/git/tmux lifecycle. A terminal always
+belongs to a project and is listed inside that project in the control-pane tree
+(there is no separate Terminals tab); selecting it shows it here. Use it for
+`warden` CLI commands, git status, or any other terminal work while monitoring
+your agents.
 
-Press **`t`** in the control pane to create/focus a terminal in the opened
-agent's directory, and **`Alt+t`** to rotate the terminal pane over all live
-terminals. Each terminal's name updates live as its shell `cd`s
-(`<index>. <repo>:<rel>/ (<branch>)`). `x` on a selected terminal closes it; the
-cockpit always keeps at least one (closing the last recreates a default).
+Terminals are created **on demand only** — the cockpit never auto-spawns one.
+Press **`t`** with the cursor on a project (or on anything inside it) to create a
+terminal in that project, exactly like `n` targets a new agent; with the cursor
+outside any project it refuses. **`Alt+t`** rotates the terminal pane over all
+live terminals. Each terminal's name updates live as its shell `cd`s
+(`<index>. <repo>:<rel>/ (<branch>)`). `x` on a selected terminal closes it.
 
 **Right (full height) — agent pane.** When you press `Enter` on an
 agent in the control pane, a live, interactive terminal of that agent's `claude`
@@ -1639,7 +1641,7 @@ To move focus between panes without leaving the cockpit, use **Alt+←/→/↑/�
 
 Each cockpit launch creates an independent tmux session (named
 `warden-tui-<pid>`), so opening two terminals and running `warden tui` in
-each gives you two separate cockpits, each with its own default terminal.
+each gives you two separate cockpits.
 
 ### Launching from inside an existing tmux session
 
@@ -1666,7 +1668,7 @@ own-session cockpit instead (e.g. for a screen recording), unset `$TMUX`:
 
 > The native window is intentionally leaner than the classic cockpit: it has
 > **no terminal pane** (your own tmux already gives you shells a keypress away
-> with `Ctrl-b c`), so the default terminal, `t`, Enter-on-terminal, and the
+> with `Ctrl-b c`), so `t`, Enter-on-terminal, and the
 > `Alt+t`/`Alt+a`/`Alt+p` rotation bindings degrade to a status hint there (it
 > never touches your personal tmux config). Everything else — the control-pane
 > tree, new-agent form, approvals, digests, full-screen attach — works the same.

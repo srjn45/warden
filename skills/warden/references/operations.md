@@ -229,10 +229,10 @@ Tunnel rather than exposing it directly. Interactive OpenAPI docs at `/api/docs`
   overlay, archive & search, theme toggle, keyboard shortcuts (`?` for help), batch
   multi-select actions.
 - **Cockpit TUI** — `warden tui` (or bare `warden`): a tmux-composited cockpit with
-  a **control pane** (a navigator tree of four fixed sections — Approvals · Pipelines
-  · Agents · Terminals), a **terminal pane** (a live `kind=terminal` session; a
-  default terminal opens in the launch dir at startup), and a live **agent pane**.
-  `n` new, `t` create/focus a terminal in the opened agent's dir, `s` send, `a`
+  a **control pane** (a navigator tree grouped by project; a project's agents,
+  pipelines, plans and terminals nest under it), a **terminal pane** (a live
+  `kind=terminal` session; terminals are on-demand only, never auto-spawned), and a
+  live **agent pane**. `n` new, `t` create a terminal in the project under the cursor, `s` send, `a`
   attach, `d` digest, `i` approvals, `c` context/message inspector, `l` TUI log viewer, `x`
   terminate/cancel, `?` help; `Alt+←/→/↑/↓` move pane focus. **Global Alt rotation**
   (any pane, even while typing): `M-t` cycles the terminal pane over terminals, `M-a`

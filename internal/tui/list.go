@@ -104,6 +104,28 @@ func abbrevHomeWith(path, home string) string {
 	return path
 }
 
+// withTerminalsFrom returns fresh with the terminal sessions of prev appended.
+// The daemon's SSE fleet frame carries agents only, so a frame must not drop the
+// terminals the last complete REST list delivered. A terminal already present in
+// fresh (a daemon that does stream them) wins over the carried copy. fresh is not
+// mutated.
+func withTerminalsFrom(fresh, prev []*store.Session) []*store.Session {
+	have := make(map[string]bool, len(fresh))
+	for _, s := range fresh {
+		have[s.ID] = true
+	}
+	out := fresh
+	for _, s := range prev {
+		if s != nil && s.IsTerminal() && !have[s.ID] {
+			if len(out) == len(fresh) {
+				out = append(make([]*store.Session, 0, len(fresh)+1), fresh...)
+			}
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 // groupSort returns sessions re-ordered so agents sharing a sourceDir are
 // contiguous. Directory groups are ordered chronologically by their FIRST (oldest)
 // agent's CreatedAt (asc), so a directory holds its place in the list as new agents
@@ -156,25 +178,6 @@ func groupSort(sessions []*store.Session) []*store.Session {
 		}
 		return out[a].CreatedAt.Before(out[b].CreatedAt) // oldest agent first within its group
 	})
-	return out
-}
-
-// flatSessions returns the sessions that belong in the flat agent list: those
-// not owned by a pipeline, plus orphans whose owning pipeline no longer exists.
-// The latter case keeps a deleted pipeline's leftover agents visible (and
-// terminable) instead of hiding them — they have no pipeline header to render
-// under, so without this they'd vanish from the list while still being counted.
-func flatSessions(sessions []*store.Session, pipelines []*pipeline.Pipeline) []*store.Session {
-	known := make(map[string]bool, len(pipelines))
-	for _, p := range pipelines {
-		known[p.ID] = true
-	}
-	out := make([]*store.Session, 0, len(sessions))
-	for _, s := range sessions {
-		if s.PipelineID == "" || !known[s.PipelineID] {
-			out = append(out, s)
-		}
-	}
 	return out
 }
 
@@ -365,36 +368,37 @@ func parentLabel(p *store.Session) string {
 	return p.ID
 }
 
-// splitByKind partitions sessions into agents and terminals (spec §3). Terminals
-// leave the Agents tree entirely — they render only under the Terminals section —
-// so the agents slice feeds pipelineItems/buildItems and terminals feeds
-// terminalItems.
-func splitByKind(sessions []*store.Session) (agents, terminals []*store.Session) {
+// applyLiveTerminalNames rewrites the display name of every terminal row in items
+// (the rows the project tree emitted under their project) to the spec §7 form:
+// "<index>. <repo>:<rel>/ (<branch>)". Names prefer the live cwd/branch polled
+// from the running pane (info, keyed by session id) so a terminal's label tracks
+// the shell as it cds and checks out branches; a terminal with no live reading yet
+// falls back to the session's stored Workdir/Repo/Branch. The 1-based index is the
+// terminal's position among all terminals by CreatedAt, stable within a cockpit
+// session, so "terminal 2" means the same thing in the tree and in M-t rotation.
+func applyLiveTerminalNames(items []item, sessions []*store.Session, info map[string]terminalLiveInfo) {
+	var terms []*store.Session
 	for _, s := range sessions {
-		if s.IsTerminal() {
-			terminals = append(terminals, s)
-		} else {
-			agents = append(agents, s)
+		if s != nil && s.IsTerminal() {
+			terms = append(terms, s)
 		}
 	}
-	return agents, terminals
-}
-
-// terminalItems renders the Terminals section (spec §7). Terminals are sorted by
-// CreatedAt so their 1-based ordinal is stable within a cockpit session, and each
-// row carries its formatted display name. Names prefer the live cwd/branch polled
-// from the running pane (info, keyed by session id — §7); a terminal with no live
-// reading yet (info absent) falls back to the session's stored Workdir/Repo/Branch.
-func terminalItems(terminals []*store.Session, info map[string]terminalLiveInfo) []item {
-	sorted := make([]*store.Session, len(terminals))
-	copy(sorted, terminals)
-	sort.SliceStable(sorted, func(a, b int) bool { return sorted[a].CreatedAt.Before(sorted[b].CreatedAt) })
-	out := make([]item, 0, len(sorted))
-	for i, t := range sorted {
-		cwd, repoRoot, branch := terminalNameParts(t, info)
-		out = append(out, item{session: t, termName: terminalDisplayName(i+1, cwd, repoRoot, branch)})
+	if len(terms) == 0 {
+		return
 	}
-	return out
+	sort.SliceStable(terms, func(a, b int) bool { return terms[a].CreatedAt.Before(terms[b].CreatedAt) })
+	ordinal := make(map[string]int, len(terms))
+	for i, t := range terms {
+		ordinal[t.ID] = i + 1
+	}
+	for i := range items {
+		s := items[i].session
+		if s == nil || !s.IsTerminal() {
+			continue
+		}
+		cwd, repoRoot, branch := terminalNameParts(s, info)
+		items[i].termName = terminalDisplayName(ordinal[s.ID], cwd, repoRoot, branch)
+	}
 }
 
 // terminalNameParts picks the cwd/repo-root/branch a terminal's §7 name is built
