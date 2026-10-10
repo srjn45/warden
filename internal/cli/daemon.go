@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -270,6 +271,13 @@ func newDaemonRunCmd() *cobra.Command {
 			fbSource := newFastBrainCandidates(lc)
 			fbCandidates = fbSource
 			fbHealth := fastbrain.NewHealth(fastbrain.HealthOptions{})
+			// The audit writer is built later in this function; the engine's
+			// operator-event hook reads it through this pointer.
+			var fbAudit atomic.Pointer[audit.Writer]
+			fbDisabled := make([]fastbrain.DecisionKind, 0, len(cfg.FastBrain.DisabledKinds))
+			for _, k := range cfg.FastBrain.DisabledKinds {
+				fbDisabled = append(fbDisabled, fastbrain.DecisionKind(k))
+			}
 			fbEngine := fastbrain.NewEngineWithOptions(
 				fastbrain.NewPool(fastbrain.TierFast, fbSource.Candidates, fbHealth, fastbrain.PoolOptions{}),
 				fastbrain.NewPool(fastbrain.TierThinking, fbSource.Candidates, fbHealth, fastbrain.PoolOptions{}),
@@ -277,6 +285,16 @@ func newDaemonRunCmd() *cobra.Command {
 					FastTimeout:     cfg.FastBrainFastTimeoutDuration(),
 					ThinkingTimeout: cfg.FastBrainThinkingTimeoutDuration(),
 					MaxConcurrent:   cfg.FastBrainMaxConcurrent(),
+					PausedKinds:     fbDisabled,
+					HealthSnapshot:  fbHealth.Snapshot,
+					// Control changes are audited by the API handler (with the
+					// caller's actor); only runner-side events are logged here.
+					Audit: func(action, target string, detail map[string]string) {
+						if action == fastbrain.AuditControl {
+							return
+						}
+						fbAudit.Load().Log(audit.Event{Time: time.Now(), Action: action, Target: target, Detail: detail})
+					},
 				})
 			pl.FastBrain = fbEngine
 			lc.FastBrain = fbEngine
@@ -567,6 +585,7 @@ func newDaemonRunCmd() *cobra.Command {
 			srv.SetRelayPolicy(relay.Policy{AllowWebTerminated: cfg.Relay.AllowWebTerminated})
 			auditWriter := audit.NewWriter(filepath.Join(cfg.DataDir, "audit.jsonl"))
 			srv.SetAudit(auditWriter)
+			fbAudit.Store(auditWriter)
 			srv.SetAuditTrustedProxies(trustedProxies)
 			// Shared brain Consultor (docs/specs/2026-09-27-brain-consult.md): one
 			// instance for PipelineWatcher stuck recovery AND the autopilot

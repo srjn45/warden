@@ -156,6 +156,11 @@ type FastBrainConfig struct {
 	FastTimeout     string `yaml:"fast_timeout"`
 	ThinkingTimeout string `yaml:"thinking_timeout"`
 	MaxConcurrent   int    `yaml:"max_concurrent"`
+	// DisabledKinds lists decision kinds (e.g. "summarize_activity") that start
+	// paused on every daemon start: calls fail open without invoking a runner.
+	// An operator can still resume one at runtime (PUT /fastbrain/controls/{kind});
+	// the pause returns on the next restart. Default: none.
+	DisabledKinds []string `yaml:"disabled_kinds"`
 }
 
 // BranchTrackConfig groups the branch/CI tracker settings.

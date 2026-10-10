@@ -44,7 +44,7 @@ func TestExtraToolsRegistered(t *testing.T) {
 		"digest", "get_metrics", "savings", "spend", "search", "history", "audit_log",
 		"list_worktrees", "list_plugins", "get_pressure",
 		"set_auto_approve", "set_auto_approve_policy", "set_force_compact",
-		"set_permission_mode", "set_role", "list_roles", "list_known_prompts", "forget_known_prompt", "prune_worktrees",
+		"set_permission_mode", "set_role", "list_roles", "list_known_prompts", "forget_known_prompt", "fastbrain_status", "fastbrain_control", "prune_worktrees",
 		"recover_agents",
 		"usage_recover",
 		"export_sessions", "import_sessions", "rotate_agent", "handoff_agent",

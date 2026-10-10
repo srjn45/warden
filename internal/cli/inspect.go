@@ -26,6 +26,7 @@ Financial usage and provider quota snapshots live under ` + "`usage`" + `, not h
 		canonicalInspectCommand(newAuditLogCmd(), "audit log", "audit"),
 		canonicalInspectCommand(newExportCmd(), "export", "export"),
 		canonicalInspectCommand(newImportCmd(), "import", "import"),
+		newInspectFastBrainCmd(),
 		newInspectRepairCmd(),
 	}
 	for i, child := range children {

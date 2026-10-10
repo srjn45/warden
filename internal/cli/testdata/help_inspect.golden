@@ -13,6 +13,7 @@ Commands:
   audit                Show recent audited actions, newest last
   export               Serialize agent session metadata to JSON on stdout
   import               Insert agent session metadata from a JSON dump on stdin
+  fastbrain            Fast-Brain/Thinking-Brain telemetry, traces and per-kind pause/resume
   repair               Offline, backup-first repair tools
 
 Flags:
