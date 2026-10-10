@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -28,6 +27,8 @@ type EngineOptions struct {
 	// CancelGrace is how long the engine waits for a runner to return after
 	// its context ended before abandoning it. Zero means 500 ms.
 	CancelGrace time.Duration
+	// Admission tunes queues, fairness and the result cache.
+	Admission AdmissionOptions
 }
 
 func (o EngineOptions) normalized() EngineOptions {
@@ -61,19 +62,9 @@ func (f RunnerFunc) Run(ctx context.Context, prompt string) (string, error) { re
 type engine struct {
 	fast, thinking Runner
 	opts           EngineOptions
-	sem            chan struct{}
-	mu             sync.Mutex
-	active         int
-	inflight       map[string]*inflightCall
+	adm            *admission
 	abandoned      atomic.Int64 // runner calls abandoned after ignoring ctx (total)
 	abandonedLive  atomic.Int64 // abandoned calls whose goroutine is still running
-}
-
-type inflightCall struct {
-	done    chan struct{}
-	resp    Response
-	waiters int
-	cancel  context.CancelFunc
 }
 
 // CancelStats reports runner calls abandoned because they ignored their
@@ -94,16 +85,19 @@ func NewEngine(fastRunner, thinkingRunner Runner) Engine {
 	return NewEngineWithOptions(fastRunner, thinkingRunner, EngineOptions{})
 }
 
-// NewEngineWithOptions constructs a bounded, in-flight-coalescing engine.
-// Identical requests share one runner invocation; callers remain independently
-// cancellable while waiting for that result.
+// NewEngineWithOptions constructs an engine whose every call is admitted by the
+// central admission controller (admission.go): priority classes, bounded
+// queues, fairness, identity dedup and a small result cache.
 func NewEngineWithOptions(fastRunner, thinkingRunner Runner, opts EngineOptions) Engine {
 	opts = opts.normalized()
 	return &engine{
 		fast: fastRunner, thinking: thinkingRunner, opts: opts,
-		sem: make(chan struct{}, opts.MaxConcurrent), inflight: make(map[string]*inflightCall),
+		adm: newAdmission(opts.MaxConcurrent, opts.Admission),
 	}
 }
+
+// AdmissionSnapshot reports the controller's content-free counters and gauges.
+func (e *engine) AdmissionSnapshot() AdmissionSnapshot { return e.adm.Snapshot() }
 
 func (e *engine) Decide(ctx context.Context, req Request) (Response, error) {
 	if req.Kind == "" {
@@ -128,101 +122,21 @@ func (e *engine) Decide(ctx context.Context, req Request) (Response, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	key := requestKey(req)
-	e.mu.Lock()
-	call := e.inflight[key]
-	if call == nil {
-		// The call runs detached from any single caller's context so one
-		// caller canceling never cancels followers that are still waiting.
-		// It is canceled only when its last waiter goes away.
-		rc, cancel := context.WithCancel(context.WithoutCancel(ctx))
-		call = &inflightCall{done: make(chan struct{}), cancel: cancel}
-		e.inflight[key] = call
-		go func() {
-			resp := e.run(rc, req, runner, budget)
-			cancel()
-			e.mu.Lock()
-			call.resp = resp
-			if e.inflight[key] == call {
-				delete(e.inflight, key)
-			}
-			close(call.done)
-			e.mu.Unlock()
-		}()
+	if runner == nil {
+		return Response{
+			Kind: req.Kind, Tier: req.Tier, Status: StatusNoRunner, Error: "no runner configured for tier",
+			Admission: AdmissionInfo{Class: ClassOf(req.Kind)},
+		}, nil
 	}
-	call.waiters++
-	e.mu.Unlock()
-
-	select {
-	case <-call.done:
-		return call.resp, nil
-	case <-ctx.Done():
-		e.mu.Lock()
-		call.waiters--
-		if call.waiters == 0 {
-			call.cancel()
-			// Later identical requests must not join a call being torn down.
-			if e.inflight[key] == call {
-				delete(e.inflight, key)
-			}
-		}
-		e.mu.Unlock()
-		return Response{Kind: req.Kind, Tier: req.Tier, Status: StatusCanceled, Error: ctx.Err().Error()}, nil
-	}
+	return e.adm.submit(ctx, req, func(cctx context.Context) Response {
+		return e.execute(cctx, req, runner, budget)
+	}), nil
 }
 
-func (e *engine) run(ctx context.Context, req Request, runner Runner, budget time.Duration) Response {
+// execute runs one admitted call. ctx is owned by the admission controller and
+// ends only when every interested caller is gone (or on preemption).
+func (e *engine) execute(ctx context.Context, req Request, runner Runner, budget time.Duration) Response {
 	resp := Response{Kind: req.Kind, Tier: req.Tier}
-	start := time.Now()
-	defer func() {
-		resp.Duration = time.Since(start)
-		slog.Info("fastbrain decide",
-			"kind", req.Kind, "tier", req.Tier, "duration", resp.Duration,
-			"status", resp.Status, "prompt_hash", promptHash(req.Prompt))
-	}()
-
-	if runner == nil {
-		resp.Status, resp.Error = StatusNoRunner, "no runner configured for tier"
-		return resp
-	}
-
-	if req.Kind == KindSummarizeActivity {
-		// Cosmetic calls may never consume the final slot. This preserves a
-		// runner for prompt recognition and control-path decisions.
-		e.mu.Lock()
-		if e.active >= e.opts.MaxConcurrent-1 {
-			e.mu.Unlock()
-			resp.Status, resp.Error = StatusDeferred, "admission reserved capacity for operational decisions"
-			return resp
-		}
-		e.active++
-		e.mu.Unlock()
-		select {
-		case e.sem <- struct{}{}:
-		default:
-			e.mu.Lock()
-			e.active--
-			e.mu.Unlock()
-			resp.Status, resp.Error = StatusDeferred, "admission capacity unavailable"
-			return resp
-		}
-	} else {
-		select {
-		case e.sem <- struct{}{}:
-			e.mu.Lock()
-			e.active++
-			e.mu.Unlock()
-		case <-ctx.Done():
-			resp.Status, resp.Error = StatusCanceled, ctx.Err().Error()
-			return resp
-		}
-	}
-	defer func() {
-		<-e.sem
-		e.mu.Lock()
-		e.active--
-		e.mu.Unlock()
-	}()
 
 	rctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
@@ -313,11 +227,6 @@ func (e *engine) invoke(ctx context.Context, runner Runner, prompt string) (stri
 	e.abandoned.Add(1)
 	slog.Warn("fastbrain runner ignored cancellation; abandoned", "grace", e.opts.CancelGrace)
 	return "", Selection{}, CancelAbandoned, ctx.Err()
-}
-
-func requestKey(req Request) string {
-	sum := sha256.Sum256([]byte(string(req.Kind) + "\x00" + string(req.Tier) + "\x00" + req.Prompt))
-	return hex.EncodeToString(sum[:])
 }
 
 // promptHash is a short, non-reversible fingerprint so logs can correlate

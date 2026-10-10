@@ -163,6 +163,7 @@ func TestEngineMapsNoCandidateToNoRunner(t *testing.T) {
 }
 
 func TestEngineAbandonsContextIgnoringRunnerWithinBound(t *testing.T) {
+	// P3 kind: best-effort (P4) kinds never run at MaxConcurrent=1.
 	release := make(chan struct{})
 	stuck := RunnerFunc(func(context.Context, string) (string, error) {
 		<-release
@@ -170,7 +171,7 @@ func TestEngineAbandonsContextIgnoringRunnerWithinBound(t *testing.T) {
 	})
 	eng := NewEngineWithOptions(stuck, nil, EngineOptions{FastTimeout: 50 * time.Millisecond, CancelGrace: 50 * time.Millisecond, MaxConcurrent: 1})
 	start := time.Now()
-	r, _ := eng.Decide(context.Background(), Request{Kind: KindClassifyTask, Tier: TierFast, Prompt: "p"})
+	r, _ := eng.Decide(context.Background(), Request{Kind: KindCommitMessage, Tier: TierFast, Prompt: "p"})
 	require.Less(t, time.Since(start), time.Second)
 	require.Equal(t, StatusTimeout, r.Status)
 	require.Equal(t, CancelAbandoned, r.Cancel)
