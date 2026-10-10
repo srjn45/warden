@@ -131,6 +131,20 @@ func TestAdapterForkThreadsWorkdirAndBackend(t *testing.T) {
 	require.True(t, sawCodexFork, "fork inherits the source's codex backend even with no --backend on the request")
 }
 
+// TestAdapterForkInheritsSourcePermissionMode: a fork with no explicit mode runs at the
+// source's stored mode (resolved for the same backend), not the config default.
+func TestAdapterForkInheritsSourcePermissionMode(t *testing.T) {
+	src := &agentstore.Agent{
+		ID: "src-agent", AiCli: "codex", Repo: "/repo", Workdir: "/repo/.worktrees/src-agent",
+		Branch: "src-branch", AICLISessionID: "11111111-2222-3333-4444-555555555555",
+		PermissionMode: "read-only",
+	}
+	a, _ := newForkAdapter(t, src)
+	got, err := a.Spawn(context.Background(), SpawnRequest{Type: "development", Ticket: "fork-1", ForkFrom: "src-agent"})
+	require.NoError(t, err)
+	require.Equal(t, "read-only", got.PermissionMode)
+}
+
 // TestAdapterForkSourceNotPinned proves the §5 guard: a source whose backend session
 // id is not yet discovered → ErrForkSourceNotPinned, before any spawn side effects.
 func TestAdapterForkSourceNotPinned(t *testing.T) {

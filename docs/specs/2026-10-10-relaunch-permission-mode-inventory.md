@@ -179,3 +179,42 @@ operator restore, model switch, brain rotate, poller hot-swap) reaches one of th
 - **Behaviour changes** (all non-escalating): claude `auto`/`dontAsk` and other modes
   no longer fold upward on cursor/codex/etc.; a target with no mode at most as
   permissive as the stored intent (e.g. claude `plan` → aider) refuses the swap.
+
+## 7. Regression validation and compatibility (task `backend-mode-regression-validation`)
+
+### 7.1 Seam audit (every existing-agent relaunch)
+
+| Seam | Mode source | Status |
+|---|---|---|
+| restore / auto-restart / rate-limit resume / hibernation reopen / recover / backend-recovery same-pool | `Lifecycle.Restore` → `ResolveRelaunchMode` | covered (§6) |
+| switch-role | `Lifecycle.SwitchRole` → resolver | covered (§6) |
+| hot-swap: model switch, brain rotate, poller swap, backend-recovery other pool, **handoff/rotate** | `Lifecycle.HotSwap` → resolver | covered (§6) |
+| adopt (resume mode) | resolver on the default backend | covered (§6) |
+| **fork** (`fork_from`) | previously the request mode, else the raw Claude-vocabulary config default — the fork could run **wider** than a restricted source | **fixed here**: the adapter threads `ForkSourceMode`; with no explicit mode the fork resolves it through `ResolveRelaunchMode` on the source's backend (same-backend, role tightening only) and refuses with `ErrNoSafeMode` before any side effect. The "explicit mode" test is taken *before* role defaults fill the request, so a worker/autopilot fork of a read-only source stays read-only (role only tightens). An explicit `--permission-mode` is the operator's choice and is kept. A translated/defaulted fork mode is audited (`relaunch-permission-mode` event + `relaunch_mode_normalized`, path `fork`) via `Lifecycle.EmitForkNormalization`, called by the spawn route after the record is stored; a failed launch/insert emits nothing. |
+
+Fresh spawns (`Spawn`, `SpawnJob`) are not relaunches of an existing agent and keep
+request → role → config-default behaviour.
+
+### 7.2 Compatibility
+
+- Stored modes that are valid for the agent's backend are launched byte-for-byte; no
+  record changes and no audit is emitted (`outcome=kept`).
+- Invalid/legacy/foreign-vocabulary values are translated by intent; a target without
+  an equivalent steps strictly **down**; if nothing is at most as permissive the
+  relaunch is refused (`ErrNoSafeMode`) and the live agent keeps running.
+- A corrected mode is persisted, and `relaunch-permission-mode` /
+  `relaunch_mode_normalized` audited, only after the replacement process launched.
+  Failed or refused relaunches leave the stored mode and audit untouched.
+- Empty stored mode is not frozen: it keeps tracking the configured default.
+- Fork inherits the source's mode instead of the config default (new, tightening only).
+
+### 7.3 `done_when` evidence
+
+| Requirement | Test |
+|---|---|
+| lifecycle across supported backends, invalid legacy modes, role fallbacks | `TestRelaunchSeams_LifecycleMatrix` (restore + switch-role × every backend × own/foreign/legacy/unknown/empty modes × role ``/planner), `TestResolveRelaunchMode_Table`, `TestResolveRelaunchMode_RoleConfigFallbacks` |
+| successful translation audit | `TestHotSwap_TranslationAudit`, `TestRestoreNormalizesStoredModeAfterSuccessfulLaunch` |
+| launch failure preserves stored mode and audit | `TestRelaunch_LaunchFailurePreservesStoredModeAndAudit`, `TestHotSwap_LaunchFailureKeepsModeAndAudit`, `TestRestoreLaunchFailureDoesNotPersistOrReport` |
+| unrepresentable restrictive intent rejected | `TestRelaunch_UnrepresentableRestrictiveIntentRefused` |
+| strict non-escalation | `TestResolveRelaunchMode_NonEscalationMatrix` (all backends × modes × roles), plus the `AtMost` assertions in every matrix/translation test |
+| fork seam | `TestSpawnFork_InheritsSourceModeNeverWider`, `TestSpawnFork_ExplicitModeWins`, `TestSpawnFork_RoleDefaultsNeverWidenSource`, `TestSpawnFork_NormalizationAuditedAfterStore`, `TestSpawnFork_LaunchFailureEmitsNothing`, `TestAdapterForkInheritsSourcePermissionMode` |
