@@ -293,3 +293,16 @@ G5, G7's Prometheus surface and G8's engine-level redaction remain.
   never exposed. `Response.Admission` and `AdmissionSnapshot()` expose content-
   free counters (admitted, coalesced, cache hits, preempted, shed by reason,
   queue depth) for the metrics task.
+
+## 13. Implementation status: caller contract
+
+Every Fast-Brain caller now builds its request through `fastbrain.NewRequest`
+(`internal/fastbrain/contract.go`), which sets `Metadata["agent_id"]` (per-agent
+fairness in the admission controller) and a per-kind caller deadline from
+`KindDeadline` (route_tier 1.5 s; P3 operational kinds 10 s; P4 best-effort kinds
+8 s; P1/P2 kinds keep the tier ceiling, `repl_turn` 20 s). Deadlines only lower
+the tier budget; no tier timeout is enlarged. Prompt recognition passes the agent
+id via `RecognizePromptFor`; it still runs only after the backend parser and the
+known-prompts store miss, and its reading is discarded when the menu key moved on
+and re-verified against the live pane before use. Activity summaries remain
+governed by `activity.enabled`; no new event-driven path was added.
