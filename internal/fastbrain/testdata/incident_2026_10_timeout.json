@@ -1,0 +1,13 @@
+{
+  "name": "october-2026-fast-brain-timeout-incident",
+  "description": "Native-CLI Fast-Brain calls pile up faster than the process-wide admission bound drains; permission arbitration waits behind them until its caller gives up. Durations are scaled down so the fixture is deterministic.",
+  "engine": {"max_concurrent": 2, "fast_timeout_ms": 400, "thinking_timeout_ms": 800},
+  "stampede": {"kind": "summarize_activity", "distinct_prompts": 20},
+  "starvation": {
+    "occupiers": [
+      {"kind": "commit_message", "tier": "fast"},
+      {"kind": "classify_task", "tier": "fast"}
+    ],
+    "victim": {"kind": "arbitrate_approval", "tier": "fast", "caller_deadline_ms": 150}
+  }
+}
