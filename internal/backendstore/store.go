@@ -97,9 +97,9 @@ type Settings struct {
 
 // Store persists the registry as records in an embedded ScrivaDB "backends"
 // collection, one record per backend keyed by its ID plus the reserved
-// SettingsKey record. Opened SyncModeNone: this is a localhost daemon store, so
-// last-write-survives-power-loss is not required (append-only segments rule out
-// torn reads regardless).
+// SettingsKey record. It uses SyncModeAlways: the primary index and append-only
+// history must survive a crash together so a restart cannot reuse a stale
+// revision or create a second live key.
 //
 // A single mutex serialises the compound read-modify-write methods (SetTier /
 // SetEnabled / SetDefault / SetThinkingMode) and the exists-check-then-write in
@@ -124,7 +124,7 @@ func NewStore(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	db, err := scriva.Open(dir, scriva.WithSyncMode(engine.SyncModeNone))
+	db, err := scriva.Open(dir, scriva.WithSyncMode(engine.SyncModeAlways))
 	if err != nil {
 		return nil, err
 	}

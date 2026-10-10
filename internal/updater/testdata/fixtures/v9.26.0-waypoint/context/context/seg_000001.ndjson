@@ -1,0 +1,2 @@
+{"id":1,"op":"insert","ts":"2026-09-15T12:00:00Z","rev":1,"data":{"_key":"ctx-1","content":"Updated","id":"ctx-1","title":"Waypoint Context"},"crc":303673415}
+{"id":2,"op":"insert","ts":"2026-09-15T12:00:00Z","rev":1,"data":{"_key":"ctx-2","content":"Data","id":"ctx-2","title":"Second Doc"},"crc":3984842348}

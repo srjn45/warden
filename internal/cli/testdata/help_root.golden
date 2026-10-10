@@ -29,10 +29,13 @@ bug-report
 Get
 login
 setup
+init
 tutorial
 doctor
 tui
 update
+migrate
+rollback
 version
 Shortcuts:
 start

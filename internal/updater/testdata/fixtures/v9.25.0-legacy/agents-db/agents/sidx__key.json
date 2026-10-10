@@ -1,0 +1,1 @@
+{"field":"_key","unique":true,"kind":"string","version":2,"buckets":{"ag-1":[1]},"coverage":[{"segment":"seg_000001.ndjson","size":145,"checksum":"f37c1ff05191cbb1fdc7ead3de17c5497a84c0fd92610432902d5bc52169b9cd"}],"checksum":"3a9ba35521fc148b8b18810bb018aaa51b9133806637180e643129d5e5c023ab"}

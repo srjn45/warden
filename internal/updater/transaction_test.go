@@ -285,3 +285,134 @@ func TestApplyPreflightBlockerBeforeDownload(t *testing.T) {
 	require.Equal(t, "old", string(b))
 	require.Equal(t, 0, svc.count())
 }
+
+// schemaProbe scripts a daemon that serves (oldVer, oldSchema) until the first
+// restart and (newVer, newSchema) afterwards; a rollback restart (the second)
+// brings the old pair back.
+func schemaProbe(oldSchema, newSchema int) func(e *txEnv) func() (Health, error) {
+	return func(e *txEnv) func() (Health, error) {
+		return func() (Health, error) {
+			if e.svc.count() == 1 {
+				return Health{Status: "ok", Version: "2.0.0", SchemaVersion: newSchema}, nil
+			}
+			return Health{Status: "ok", Version: "1.0.0", SchemaVersion: oldSchema}, nil
+		}
+	}
+}
+
+func targetSchema(v int) func(context.Context, string) (int, error) {
+	return func(context.Context, string) (int, error) { return v, nil }
+}
+
+func TestTxnReadyRequiresVersionAndSchema(t *testing.T) {
+	e := newTxEnv(t, schemaProbe(1, 2))
+	e.txn.opts.TargetSchema = targetSchema(2)
+	rb, err := e.run()
+	require.NoError(t, err)
+	require.False(t, rb)
+	require.Equal(t, "new", e.binary())
+	require.Equal(t, 1, e.txn.pre.DaemonSchema, "pre-update schema captured")
+	require.Contains(t, e.out.String(), "v2.0.0 on data schema 2")
+}
+
+// The right version on the wrong data schema is not a finished update.
+func TestTxnWrongSchemaRollsBack(t *testing.T) {
+	e := newTxEnv(t, schemaProbe(1, 1)) // new binary, but data still at schema 1
+	e.txn.opts.TargetSchema, e.txn.opts.CurrentSchema = targetSchema(2), 1
+	rb, err := e.run()
+	var ws *WrongSchemaError
+	require.ErrorAs(t, err, &ws)
+	require.Equal(t, 2, ws.Want)
+	require.Equal(t, 1, ws.Got)
+	require.True(t, rb, "rolled back and the old daemon verified on its old schema")
+	require.Contains(t, err.Error(), "wrong data schema")
+	require.Equal(t, "old", e.binary())
+	require.Equal(t, 2, e.svc.count())
+}
+
+// A daemon that omits schema_version (0) does not satisfy a target that has one.
+func TestTxnMissingSchemaRollsBack(t *testing.T) {
+	e := newTxEnv(t, schemaProbe(1, 0))
+	e.txn.opts.TargetSchema, e.txn.opts.CurrentSchema = targetSchema(1), 1
+	_, err := e.run()
+	var ws *WrongSchemaError
+	require.ErrorAs(t, err, &ws)
+	require.Contains(t, err.Error(), "(none reported)")
+	require.Equal(t, "old", e.binary())
+}
+
+// Pinning a release that predates the ledger: the target reports no schema (0)
+// and so does its daemon — an exact match, the downgrade is healthy.
+func TestTxnPreLedgerTargetMatchesOnZero(t *testing.T) {
+	e := newTxEnv(t, schemaProbe(1, 0))
+	e.txn.opts.TargetSchema = targetSchema(0)
+	rb, err := e.run()
+	require.NoError(t, err)
+	require.False(t, rb)
+	require.Equal(t, "new", e.binary())
+}
+
+// Rollback verifies the restored daemon on the schema the old binary writes.
+func TestTxnRollbackRequiresCurrentSchema(t *testing.T) {
+	e := newTxEnv(t, func(e *txEnv) func() (Health, error) {
+		return func() (Health, error) {
+			if e.svc.count() < 2 {
+				return Health{Status: "ok", Version: "1.0.0", SchemaVersion: 1}, nil // wrong version → rollback
+			}
+			return Health{Status: "ok", Version: "1.0.0", SchemaVersion: 2}, nil // old binary, changed data
+		}
+	})
+	e.txn.opts.TargetSchema, e.txn.opts.CurrentSchema = targetSchema(1), 1
+	rb, err := e.run()
+	var fe *FailureError
+	require.ErrorAs(t, err, &fe)
+	require.False(t, rb)
+	var re *RollbackError
+	require.ErrorAs(t, fe.Rollback, &re)
+	require.ErrorContains(t, re, "serves data schema 2, expected 1")
+}
+
+// The daemon process may predate the binary on disk (and the ledger): the
+// rollback target is what the restored binary writes, not what that process
+// happened to advertise.
+func TestTxnRollbackIgnoresStaleDaemonSchema(t *testing.T) {
+	e := newTxEnv(t, func(e *txEnv) func() (Health, error) {
+		return func() (Health, error) {
+			switch e.svc.count() {
+			case 0:
+				return Health{Status: "ok", Version: "1.0.0"}, nil // stale pre-ledger process
+			case 1:
+				return Health{Status: "ok", Version: "2.0.0", SchemaVersion: 1}, nil // target wants 2
+			}
+			return Health{Status: "ok", Version: "1.0.0", SchemaVersion: 1}, nil
+		}
+	})
+	e.txn.opts.TargetSchema, e.txn.opts.CurrentSchema = targetSchema(2), 1
+	rb, err := e.run()
+	var ws *WrongSchemaError
+	require.ErrorAs(t, err, &ws)
+	require.True(t, rb, "rollback verified against the old binary's schema")
+}
+
+func TestTxnTargetSchemaErrorRollsBackWithoutRestart(t *testing.T) {
+	e := newTxEnv(t, func(*txEnv) func() (Health, error) {
+		return func() (Health, error) { return Health{Status: "ok", Version: "1.0.0", SchemaVersion: 1}, nil }
+	})
+	e.txn.opts.TargetSchema = func(context.Context, string) (int, error) { return 0, errors.New("exec format error") }
+	e.txn.opts.CurrentSchema = 1
+	rb, err := e.run()
+	require.ErrorContains(t, err, "data schema version")
+	require.True(t, rb)
+	require.Equal(t, "old", e.binary())
+	require.Equal(t, 0, e.svc.count(), "the service was never restarted")
+}
+
+func TestHTTPProberDecodesSchemaVersion(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"status":"ok","version":"9.29.0","schema_version":3}`)
+	}))
+	defer ts.Close()
+	h, err := httpProber{url: ts.URL}.Probe(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, Health{Status: "ok", Version: "9.29.0", SchemaVersion: 3}, h)
+}

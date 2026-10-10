@@ -8,11 +8,11 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/srjn45/scriva"
 	"github.com/srjn45/scriva/engine"
 	"github.com/srjn45/scriva/query"
+	"github.com/srjn45/warden/internal/legacyimport"
 )
 
 var (
@@ -49,34 +49,13 @@ type Store struct {
 // NewStore opens (creating if needed) the ScrivaDB-backed schedule store. The path
 // argument is the legacy schedules.json location (unchanged call site): the
 // ScrivaDB directory is derived as a sibling of it (schedules.json → schedules-db/,
-// mirroring the sessions store's sessions-db/ naming), and the legacy JSON, if
-// present, is imported once on first open.
-//
-// The import is guarded by importedMarker and is directory-atomic: if the
-// sentinel is absent (never imported, or a prior attempt died partway) the
-// derived schedules-db is wiped and rebuilt from the read-only legacy JSON, then
-// the sentinel is written LAST — so a crash mid-import loses nothing. The legacy
-// schedules.json is left in place as a read-only backup (same policy as sessions).
+// mirroring the sessions store's sessions-db/ naming).
 func NewStore(path string) (*Store, error) {
 	dir := filepath.Dir(path)
 	dbDir := strings.TrimSuffix(path, filepath.Ext(path)) + "-db"
-	sentinel := filepath.Join(dir, importedMarker)
 
 	if dir != "" {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
-			return nil, err
-		}
-	}
-
-	imported, err := fileExists(sentinel)
-	if err != nil {
-		return nil, err
-	}
-	if !imported {
-		// Wipe any partial/failed prior attempt so the import starts from a clean
-		// slate. Safe: schedules-db holds nothing not reproducible from the legacy
-		// JSON until the sentinel says the import finished.
-		if err := os.RemoveAll(dbDir); err != nil {
 			return nil, err
 		}
 	}
@@ -93,20 +72,60 @@ func NewStore(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	s := &Store{db: db, col: col}
+	return &Store{db: db, col: col}, nil
+}
 
-	if !imported {
-		if err := importLegacy(path, col); err != nil {
-			db.Close()
-			return nil, err
+// LegacyImport is the schedules.json -> schedules-db import for the migration registry.
+var LegacyImport = legacyimport.Importer{
+	Present: func(dir string) (bool, error) {
+		return legacyimport.Exists(filepath.Join(dir, "schedules.json"))
+	},
+	Import: func(dir string) error {
+		path := filepath.Join(dir, "schedules.json")
+		if ok, _ := legacyimport.Exists(path); !ok {
+			return nil
 		}
-		// Sentinel LAST: only now is the ScrivaDB authoritative.
-		if err := os.WriteFile(sentinel, []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o600); err != nil {
-			db.Close()
-			return nil, err
+		s, err := NewStore(path)
+		if err != nil {
+			return err
 		}
-	}
-	return s, nil
+		defer s.Close()
+		return importLegacy(path, s.col)
+	},
+	Verify: func(dir string) error {
+		path := filepath.Join(dir, "schedules.json")
+		if ok, _ := legacyimport.Exists(path); !ok {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if len(data) == 0 {
+			return nil
+		}
+		var m map[string]*Schedule
+		if err := json.Unmarshal(data, &m); err != nil {
+			return err
+		}
+		s, err := NewStore(path)
+		if err != nil {
+			return err
+		}
+		defer s.Close()
+		var missing []string
+		for id := range m {
+			if exists, err := s.col.Exists(id); err != nil {
+				return err
+			} else if !exists {
+				missing = append(missing, id)
+			}
+		}
+		return legacyimport.VerifyNone("schedules", missing)
+	},
 }
 
 // fileExists reports whether path exists, distinguishing a genuine stat error
@@ -149,6 +168,9 @@ func importLegacy(path string, col *engine.Collection) error {
 			return err
 		}
 		if _, _, err := col.InsertWithKey(id, rec); err != nil {
+			if errors.Is(err, engine.ErrDuplicateKey) {
+				continue
+			}
 			return err
 		}
 	}

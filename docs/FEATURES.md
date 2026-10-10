@@ -53,7 +53,9 @@ on-disk state:
 | **`warden factory-reset`** | Scoped wipe back toward a fresh install: drain live agents/pipelines/autopilot/schedules via the daemon, then offline-remove on-disk stores (`--scope runtime|data|full`). Optional `--backup`, `--keep-config`, `--keep-backends`, `--prune-worktrees`. Requires `--yes`. **CLI-only** — destructive; the daemon must be stopped for the wipe phase. |
 | **`warden inspect repair agents`** (alias `warden repair agents`) | Offline verify/repair of the agent store via ScrivaDB v1.4.0: `--dry-run`, SHA-256-verified backup (`--backup-dir`), atomic journaled restartable repair, `--on-conflict report\|abort`, opt-in `--salvage` (quarantine, never delete), `--json`. Refuses a daemon-owned store; CLI-only. See the *Agent store integrity* guide. |
 | **`warden setup`** | Verifies the install with doctor's checks, then installs whatever is missing (idempotent — only touches absent deps). Confirm-each prompts (or `--yes` for automation); auto-detects Homebrew (macOS, never auto-bootstrapped) / `apt`/`dnf`/`pacman` (Linux); Claude Code via its official installer. Re-runs the checks and prints a doctor-style report. **CLI-only** (installs host packages) — not exposed over MCP/daemon. |
-| **`warden version`** | Prints version + build metadata (commit, build date, Go version, platform); `--version` shows the same, `version --json` for scripting. Stamped via ldflags (goreleaser + `make build`) with a VCS-stamp fallback. |
+| **Data schema ledger + boot guard** | `<data_dir>/schema.json` records the data format as an integer `schema_version` (separate from semver; many releases share one), the `binary_version` that last wrote it, a `history[]` and an `in_progress` migration journal; written atomically (temp + fsync + rename). Each binary embeds `SchemaVersion` / `MinSchema` (`internal/schema`). Before opening any store the daemon applies a guard: equal → start; data newer → refuse; data older → refuse and point at `warden update` (the daemon never migrates at boot); below `MinSchema` → refuse; interrupted migration → refuse. A refused boot changes nothing. A pre-ledger install is recognised by its importer sentinels, stamped once at its baseline and boots normally; a fresh data dir is stamped at current. `GET /healthz` reports `schema_version`, and `warden update` now requires version **and** schema to match before calling the new daemon healthy. Spec: `docs/specs/2026-10-09-update-process.md`. |
+| **Update snapshot & rollback (`warden rollback` / `wd rollback`)** | Transactional upgrade with automatic pre-update data snapshotting (`<data>/backups/pre-<ver>-<ts>/`) using checksum verification, journaled in the schema ledger `in_progress`. Any failure restores binary and data snapshot, restarting the previous daemon. `wd rollback` performs a plain binary swap when no schema change happened, or restores the snapshot with a loss-of-changes confirmation prompt. Snapshots are retained for the last 2 updates or 14 days, whichever keeps more. |
+| **`warden version`** | Prints version + build metadata (commit, build date, Go version, platform, data schema written / oldest migratable); `--version` shows the same, `version --json` for scripting. Stamped via ldflags (goreleaser + `make build`) with a VCS-stamp fallback. |
 
 ---
 
@@ -1883,3 +1885,18 @@ See [`docs/specs/2026-09-29-plan-execution-entity-redesign.md`](specs/2026-09-29
 for ownership rules and the `ai_cli` alias table. Plan definition/lifecycle
 authority cutover is frozen in
 [`docs/specs/2026-09-30-scrivadb-canonical-plans.md`](specs/2026-09-30-scrivadb-canonical-plans.md).
+
+---
+
+## 39. Data-safe update architecture & migration registry
+
+Redesigns `wd update` into a data-safe, planned upgrade process:
+
+- **Data schema ledger (`<data>/schema.json`)**: tracks integer `schema_version` separate from binary semver, binary version, migration history, in-progress migration journal, and legacy sentinels baseline inference stamped once.
+- **Boot guard table**: daemon compares on-disk schema against binary `SchemaVersion` and `MinSchema`; refuses to start on unmigrated data, newer data, or interrupted migrations before touching any store.
+- **Migration registry (`internal/migrate`)**: explicit migrations (ID, From, To, Kind, Check, Run, Verify) run only via `warden update` / `warden migrate`; daemon never runs destructive migrations at boot.
+- **Waypoint path planner (`wd update --plan`)**: queries release manifests, computes minimal hop trajectories through required waypoints (e.g. crossing major versions), warns on breaking daemon API changes, runs whole-data preflight checks, and estimates downtime and disk space without modifying state.
+- **Update transaction snapshot & rollback (`wd rollback`)**: creates transactional hardlink/reflink backups in `<data>/backups/pre-<ver>-<ts>/` before mutating binary or data; rolls back automatically on healthz failure or manually with confirmation; retains last 2 updates or 14 days.
+- **Whole-store repair (`warden repair all --resolve-history=live-wins`)**: verifies and repairs all ScrivaDB stores with live-wins resolution and quarantined backup manifests.
+- **Install parity (`warden init`)**: single shared code path for fresh initialization and legacy upgrades between `scripts/install.sh` and the CLI.
+

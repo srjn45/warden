@@ -89,3 +89,30 @@ func TestBackendPreflightCorruptStoreBlocks(t *testing.T) {
 	require.NotEmpty(t, res.Blockers, "damaged store must block the update")
 	require.Equal(t, backendstore.RepairCommand, res.RepairCommand)
 }
+
+func TestWholeStorePreflightClean(t *testing.T) {
+	t.Parallel()
+	dataDir := t.TempDir()
+	res, err := wholeStorePreflight(context.Background(), dataDir)
+	require.NoError(t, err)
+	require.Empty(t, res.Blockers)
+}
+
+func TestWholeStorePreflightConflictBlocksWithRepairCommand(t *testing.T) {
+	t.Parallel()
+	dataDir := t.TempDir()
+
+	// Corrupt a store other than backends (e.g. context)
+	ctxDir := filepath.Join(dataDir, "context", "context")
+	require.NoError(t, os.MkdirAll(ctxDir, 0o700))
+	seg := filepath.Join(ctxDir, "seg_000001.ndjson")
+	lines := "{\"id\":1,\"op\":\"insert\",\"rev\":1,\"ts\":\"2026-10-09T10:00:00Z\",\"data\":{\"_key\":\"k1\"}}\n" +
+		"{\"id\":1,\"op\":\"update\",\"rev\":3,\"ts\":\"2026-10-09T10:01:00Z\",\"data\":{\"_key\":\"k1\"}}\n" +
+		"{\"id\":1,\"op\":\"update\",\"rev\":2,\"ts\":\"2026-10-09T10:02:00Z\",\"data\":{\"_key\":\"k1\"}}\n"
+	require.NoError(t, os.WriteFile(seg, []byte(lines), 0o600))
+
+	res, err := wholeStorePreflight(context.Background(), dataDir)
+	require.NoError(t, err)
+	require.NotEmpty(t, res.Blockers, "latent conflict must block preflight")
+	require.Equal(t, "warden repair all --resolve-history=live-wins", res.RepairCommand)
+}

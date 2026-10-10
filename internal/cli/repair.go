@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 	"github.com/srjn45/scriva/engine"
 	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/config"
+	"github.com/srjn45/warden/internal/repair"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -26,6 +28,7 @@ func newRepairCmd() *cobra.Command {
 	root.AddCommand(newRepairSessionsCmd())
 	root.AddCommand(newRepairAgentsCmd())
 	root.AddCommand(newRepairBackendsCmd())
+	root.AddCommand(newRepairAllCmd())
 	return root
 }
 
@@ -317,5 +320,105 @@ verified backup, atomic journaled repair, and conflict-preserving report.`,
 	cmd.Flags().Bool("salvage", false, "permit ScrivaDB's conflict-safe segment salvage")
 	cmd.Flags().String("on-conflict", "report", "report or abort on ambiguous history")
 	cmd.Flags().Bool("json", false, "print the machine-readable Verify/Repair report")
+	return cmd
+}
+
+func newRepairAllCmd() *cobra.Command {
+	var (
+		resolveHistory string
+		backupDir      string
+		dryRun         bool
+		jsonOut        bool
+		yes            bool
+	)
+	cmd := &cobra.Command{
+		Use:   "all",
+		Short: "Rebuild all ScrivaDB stores offline using live-wins record resolution",
+		Long: `Offline, backup-first rebuild of all ScrivaDB stores in the Warden data directory.
+
+Scans every ScrivaDB collection across all stores, keeping the latest valid record
+for each _key and discarding stale revision regressions and stray records (where body id != _key).
+Before modifying any files, a full backup of the stores is taken. Existing segment and index
+files are quarantined into <collection>/quarantine/<runID>/ with a manifest, and clean segment
+and index files are rebuilt and verified.
+
+The daemon must be stopped before running this command.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if resolveHistory != "live-wins" {
+				return fmt.Errorf("unsupported --resolve-history policy %q: only 'live-wins' is supported", resolveHistory)
+			}
+
+			cfg := config.Load(configPathFor(cmd))
+
+			if !dryRun && !yes {
+				if stdinIsInteractive(cmd.InOrStdin()) {
+					fmt.Fprintf(cmd.ErrOrStderr(), "Rebuild all ScrivaDB stores at %s using live-wins policy? A full backup is taken first. [y/N]: ", cfg.DataDir)
+					line, _ := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
+					ans := strings.ToLower(strings.TrimSpace(line))
+					if ans != "y" && ans != "yes" {
+						return errors.New("repair declined")
+					}
+				} else {
+					return errors.New("repair all requires confirmation: pass --yes when not on an interactive terminal")
+				}
+			}
+
+			opts := repair.Options{
+				DataDir:        cfg.DataDir,
+				ResolveHistory: resolveHistory,
+				BackupParent:   backupDir,
+				DryRun:         dryRun,
+				Version:        version,
+				Stdout:         cmd.OutOrStdout(),
+			}
+
+			rep, err := repair.RepairAll(cmd.Context(), opts)
+			if err != nil {
+				if jsonOut && rep != nil {
+					_ = json.NewEncoder(cmd.OutOrStdout()).Encode(rep)
+				}
+				return err
+			}
+
+			if jsonOut {
+				enc := json.NewEncoder(cmd.OutOrStdout())
+				enc.SetIndent("", "  ")
+				return enc.Encode(rep)
+			}
+
+			if dryRun {
+				fmt.Fprintf(cmd.OutOrStdout(), "Repair all [dry-run] complete for %s\n", cfg.DataDir)
+			} else {
+				fmt.Fprintf(cmd.OutOrStdout(), "Repair all complete for %s\nBackup saved to: %s\n", cfg.DataDir, rep.BackupDir)
+			}
+
+			for storeName, colls := range rep.Stores {
+				for _, c := range colls {
+					if c.DroppedCount > 0 {
+						fmt.Fprintf(cmd.OutOrStdout(), "  %s/%s: read %d, kept %d, dropped %d conflicting records\n",
+							storeName, c.Name, c.TotalRead, c.KeptRecords, c.DroppedCount)
+						if c.QuarantineDir != "" {
+							fmt.Fprintf(cmd.OutOrStdout(), "    quarantine: %s\n", c.QuarantineDir)
+						}
+					}
+				}
+			}
+
+			if !rep.Clean {
+				return fmt.Errorf("repair all completed with verification warnings: %s", rep.ErrorMessage)
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&resolveHistory, "resolve-history", "live-wins", "resolution policy for conflicting revision history (only 'live-wins' supported)")
+	cmd.Flags().StringVar(&backupDir, "backup-dir", "", "parent directory for pre-repair backup (default <data>/backups)")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "inspect and report repair actions without modifying data")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "print the machine-readable repair report as JSON")
+	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "confirm repair without interactive prompt")
+	cmd.Flags().String("config", "", "config file path")
+
 	return cmd
 }

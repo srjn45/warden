@@ -205,7 +205,10 @@ func TestLegacyJSONImport(t *testing.T) {
 	// A corrupt legacy file must be skipped, not abort the whole import.
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "snap-bad.json"), []byte("{not json"), 0o600))
 
-	// First open imports the legacy JSON into ScrivaDB and drops the sentinel.
+	// Import legacy JSON into ScrivaDB via LegacyImport.
+	require.NoError(t, LegacyImport.Import(parent))
+	require.NoError(t, LegacyImport.Verify(parent))
+
 	st, err := NewStore(dir)
 	require.NoError(t, err)
 
@@ -227,20 +230,16 @@ func TestLegacyJSONImport(t *testing.T) {
 	// The legacy JSON is left in place as a read-only backup (not deleted).
 	_, err = os.Stat(filepath.Join(dir, "snap-legacy1.json"))
 	require.NoError(t, err, "legacy JSON must be preserved as a backup")
-
-	// Sentinel written last, at the parent of dir.
-	_, err = os.Stat(filepath.Join(parent, importedMarker))
-	require.NoError(t, err, "import sentinel must exist after a successful import")
 	require.NoError(t, st.Close())
 
-	// A second open must NOT re-import: a legacy file added after the first import
-	// stays invisible because the sentinel short-circuits the scan.
-	seedJSON(filepath.Join(dir, "snap-legacy2.json"), &Snapshot{ID: "snap-legacy2", SessionID: "agent-1"})
+	// A second import must be idempotent (no error, still 1 record).
+	require.NoError(t, LegacyImport.Import(parent))
 	st2, err := NewStore(dir)
 	require.NoError(t, err)
 	defer st2.Close()
-	_, err = st2.Get("snap-legacy2")
-	require.ErrorIs(t, err, ErrNotFound, "second open must not re-scan legacy JSON")
+	list2, err := st2.List("agent-1")
+	require.NoError(t, err)
+	require.Equal(t, []string{"snap-legacy1"}, idsOf(list2))
 	got, err = st2.Get("snap-legacy1")
 	require.NoError(t, err, "the originally imported record is still served from ScrivaDB")
 	require.Equal(t, "old checkpoint", got.Message)

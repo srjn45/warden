@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "binary_version": "9.27.0",
+  "history": [
+    {
+      "from": 0,
+      "to": 1,
+      "migration": "baseline-legacy",
+      "at": "2026-09-20T10:00:00Z"
+    }
+  ],
+  "in_progress": null
+}

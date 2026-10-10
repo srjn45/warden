@@ -77,7 +77,11 @@ paths:
       operationId: healthz
       tags: [Health]
       summary: Liveness probe
-      description: Public. Pings the store; returns 503 if the store is unavailable.
+      description: >
+        Public. Pings the store; returns 503 if the store is unavailable. Also
+        reports the daemon's binary `version` and the data-format
+        `schema_version` it is serving, which `warden update` requires to match
+        the target release before it calls an update healthy.
       security: []
       responses:
         "200":
@@ -3850,8 +3854,21 @@ components:
 
     HealthResponse:
       type: object
+      required: [status]
       properties:
         status: { type: string, example: ok }
+        version:
+          type: string
+          example: 9.29.0
+          description: The daemon binary's release version. Omitted when unknown.
+        schema_version:
+          type: integer
+          example: 1
+          description: >
+            The data-format version of the data dir this daemon is serving
+            (`<data>/schema.json`). A monotonically increasing integer, separate
+            from the release semver: many releases share one value. Omitted by
+            daemons that predate the schema ledger.
 
     CapabilitiesResponse:
       type: object

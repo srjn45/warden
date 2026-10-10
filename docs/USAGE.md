@@ -108,7 +108,7 @@ claude --version     # the agent runtime
 tmux -V              # every agent lives in a tmux window (≥ 3.1 for the cockpit)
 git --version        # worktree creation/cleanup
 gh --version         # only needed for pr-review agents
-curl -s localhost:8765/healthz   # → {"status":"ok"} means the daemon is up
+curl -s localhost:8765/healthz   # → {"status":"ok",…} means the daemon is up
 ```
 
 `warden doctor` runs these binary checks for you (plus daemon + data-dir
@@ -143,14 +143,66 @@ are **deprecated** — use the curl installer instead. See the
 
 ```sh
 warden update          # or: wd update
-warden update --check  # report only
+warden update --plan   # preview upgrade path, migrations, breaking changes & downtime
+warden update --check  # report only (query releases)
+warden update --yes    # non-interactive update without confirmation prompt
+warden update --version v9.9.0
 ```
 
 `warden update` downloads a verified release, atomically swaps the binary,
 re-signs on macOS when `warden-codesign` is present, runs migrations, restarts
-the daemon service, and rolls back if `/healthz` fails. In the TUI cockpit,
+the daemon service, and rolls back unless `/healthz` reports ok on the new
+version **and** on the data schema the new binary writes. In the TUI cockpit,
 press **`u`** when an update chip appears, or **`r`** to hot-reload the
 cockpit after an external upgrade (active tmux agent sessions keep running).
+
+**Planned upgrade (`warden update --plan`).** Inspects the target release's
+manifest, computes waypoint hops (e.g. crossing major versions or legacy
+boundaries), warns of breaking daemon API changes, runs a whole-data preflight
+check against all ScrivaDB stores using the target binary's strictness, and
+reports estimated downtime and disk space requirements without mutating any state
+or stopping the daemon.
+
+**Data schema ledger.** `<data_dir>/schema.json` records the data dir's format
+as an integer `schema_version` — separate from the release version; many
+releases share one value. `warden version` prints the schema a binary writes
+and the oldest it can migrate from. At boot the daemon compares the two before
+opening any store and **refuses to start** (touching nothing) when the data is
+newer than the binary, older than the binary (migrations run from
+`warden update`, never at daemon boot), or has an interrupted migration
+recorded; the error names the next step. An install that predates the ledger
+is stamped at its baseline on first boot and starts as before.
+
+**Roll back an update:**
+
+```sh
+warden rollback        # or: wd rollback (-y to skip confirmation)
+```
+
+`warden rollback` restores the previous binary (`.bak`). If no schema change
+occurred during the update, it performs a plain binary swap. If the data format
+changed, it restores data stores from the pre-update snapshot in
+`<data_dir>/backups/pre-<ver>-<ts>/` (warning that changes made since the update
+are lost, requiring confirmation unless `--yes` is passed) and restarts the daemon.
+Snapshots are retained for the last 2 updates or 14 days, whichever keeps more.
+
+**Data store migration & repair tools:**
+
+```sh
+# Offline data migrations (daemon stopped)
+warden migrate --check       # inspect data store schema status
+warden migrate --apply       # apply pending schema migrations
+warden migrate --resume      # resume interrupted migration
+warden migrate --restore     # restore pre-migration backup
+
+# Offline whole-database integrity repair
+warden repair all --resolve-history=live-wins  # resolve duplicate keys / revision regressions
+warden repair all --dry-run                    # preview repair actions
+warden repair all --backup-dir /path/to/backup # custom quarantine backup directory
+
+# Initialize data directory (shared install path)
+warden init                  # stamp schema ledger and initialize store directories
+```
 
 **Manual (for debugging — runs in the foreground):**
 
@@ -161,7 +213,7 @@ warden daemon      # or: warden daemon --addr 127.0.0.1:9000
 Verify and inspect logs:
 
 ```sh
-curl -s localhost:8765/healthz         # {"status":"ok"}
+curl -s localhost:8765/healthz         # {"status":"ok","version":"…","schema_version":1}
 # macOS (launchd) — logs are files under /tmp:
 tail -f /tmp/warden.daemon.log         # stdout
 tail -f /tmp/warden.daemon.err         # stderr
@@ -2406,6 +2458,7 @@ warden agent stop prreview-... --keep-worktree
 | Symptom | Likely cause / fix |
 |---|---|
 | Any command hangs or errors connecting | Daemon not running. `curl localhost:8765/healthz`; start it (§3). |
+| Daemon exits with `refusing to start: data dir … is at schema N` | The data format and the binary disagree (`<data_dir>/schema.json` vs `warden version`). Data newer → run `warden update` to get a binary that reads it; never open it with the older one. Data older or an interrupted migration → follow the command in the error. Nothing in the data dir was changed by the refused boot. |
 | `healthz` fails / daemon won't start | Data dir not writable. Check the `data_dir` config setting (default `~/.warden`) and the daemon logs — macOS: `/tmp/warden.daemon.err`; Linux: `journalctl --user -u warden -e`. |
 | New agent stuck at `classifying…` / type is `other` | `claude` not on the daemon's PATH. Type falls back to `other`; functionality is otherwise fine. |
 | `SUBJECT` stays empty | Poller hasn't refreshed yet (it's throttled and only runs when pane content changes), or the `claude_projects_dir` config setting is wrong. |

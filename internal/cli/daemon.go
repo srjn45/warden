@@ -49,6 +49,7 @@ import (
 	"github.com/srjn45/warden/internal/router"
 	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/schedule"
+	"github.com/srjn45/warden/internal/schema"
 	"github.com/srjn45/warden/internal/snapshot"
 	"github.com/srjn45/warden/internal/spend"
 	"github.com/srjn45/warden/internal/store"
@@ -153,6 +154,31 @@ func newDaemonRunCmd() *cobra.Command {
 				return err
 			}
 			defer own.Release()
+
+			// Data-format guard (docs/specs/2026-10-09-update-process.md §3), under
+			// the ownership lock and before any store is opened: a data dir this
+			// binary must not touch stops the boot here, having changed nothing. A
+			// pre-ledger install is stamped at its baseline and boots as before.
+			// Nothing is migrated at boot — that is `wd update` / `warden migrate`.
+			schemaBoot, err := schema.Boot(cfg.DataDir, version)
+			if err != nil {
+				outcome := "refused_schema"
+				var ge *schema.GuardError
+				if errors.As(err, &ge) {
+					outcome = "refused_schema_" + ge.Verdict.String()
+				}
+				slog.Error("audit: daemon startup refused", "audit", true, "action", "daemon_start",
+					"outcome", outcome, "data_dir", cfg.DataDir)
+				return err
+			}
+			switch {
+			case schemaBoot.StampErr != nil:
+				slog.Warn("schema: could not write the data-format ledger (continuing; will retry next boot)",
+					"err", schemaBoot.StampErr, "schema_version", schemaBoot.Ledger.SchemaVersion)
+			case schemaBoot.Stamped:
+				slog.Info("schema: stamped data-format ledger", "path", schema.Path(cfg.DataDir),
+					"schema_version", schemaBoot.Ledger.SchemaVersion, "baseline", schemaBoot.Ledger.History[0].Migration)
+			}
 
 			st, err := agentstore.New(cfg.DataDir)
 			if err != nil {
@@ -272,6 +298,7 @@ func newDaemonRunCmd() *cobra.Command {
 			}
 			srv := daemon.NewServer(st, life, pl, 10*time.Second, cfg.ApprovalsEnabled, cstore, mbox, nil)
 			srv.SetVersion(version)
+			srv.SetSchemaVersion(schemaBoot.Ledger.SchemaVersion)
 			srv.SetTerminals(termStore)
 			// TerminalWatcher polls terminalstore (not the agent session store) via
 			// the shared tmuxproc.Host for liveness/capture.
@@ -489,28 +516,6 @@ func newDaemonRunCmd() *cobra.Command {
 				srv.Notify()
 				slog.Info("hot-swap completed", "agent", sess.ID, "from_backend", res.FromBackend, "to_backend", res.ToBackend, "to_model", res.ToModel, "handoff", res.HandoffPath)
 			}
-			// Autopilot cost-tier ladder unification (docs/specs/
-			// 2026-08-06-backend-registry.md §8): fold the deprecated
-			// autopilot.brain.backends ladder + allow_pay_per_use gate into the
-			// registry ONCE, on the first boot after upgrade, so the store becomes the
-			// single source of truth. A sentinel guards re-runs — later user tier / gate
-			// edits in the store are authoritative and never re-clobbered by config.
-			apLadder := cfg.AutopilotBrainBackends()
-			if ran, merr := backendstore.MigrateAutopilotLadder(
-				backendStore,
-				filepath.Join(cfg.DataDir, "backends", backendstore.AutopilotLadderMarker),
-				apLadder.Free, apLadder.Subscription, apLadder.PayPerUse,
-				cfg.AutopilotAllowPayPerUse(),
-			); merr != nil {
-				slog.Warn("autopilot: backend-ladder migration failed (will retry next boot)", "err", merr)
-			} else {
-				if ran {
-					slog.Info("autopilot: imported cost-tier ladder from config into the backend registry (store is now authoritative)")
-				}
-				if err := config.RemoveDeprecatedAutopilotBrainKeys(cfgPath); err != nil {
-					slog.Warn("autopilot: could not remove imported deprecated brain config", "err", err)
-				}
-			}
 			// Autopilot (docs/specs/autopilot.md): construct the master-switch
 			// Controller from config. S1 is inert — the switch + preflight exist on
 			// every surface but no brain spawns yet. baseDir anchors relative plan
@@ -520,22 +525,6 @@ func newDaemonRunCmd() *cobra.Command {
 			defer apCtrl.Close()
 			apCtrl.SetFastBrain(lc.FastBrain)
 			srv.SetAutopilotController(apCtrl)
-			// Legacy plan migration and the per-repo boot re-enable below can shell
-			// out to git/gh (MigrateLegacyPlans, Enable's preflight gate check),
-			// which must not delay the HTTP listener from coming up. Run them in
-			// the background — apCtrl already has its config-driven plans from
-			// NewController above, so it's usable immediately; Reconfigure picks up
-			// the migrated legacy plans once ready, same pattern the config
-			// hot-reload watcher below already uses for re-migration.
-			go func() {
-				migratedPlans, err := autopilot.MigrateLegacyPlans(ctx, autopilot.NewExecEnv(), apCtrl, cfg.AutopilotPlanFiles(), apBaseDir, os.Stderr)
-				if err != nil {
-					slog.Warn("autopilot: legacy plan migration incomplete (will retry next boot)", "err", err)
-				}
-				apCfg := buildAutopilotControllerConfig(cfg, apBaseDir, lc.Resolver)
-				apCfg.Plans = migratedPlans
-				apCtrl.Reconfigure(ctx, apCfg)
-			}()
 			// Plugin system (#47): only wired when the operator opts in (plugins
 			// execute external code). On a config error we log and continue with
 			// plugins off rather than refusing to start the daemon. Once loaded,
@@ -703,11 +692,6 @@ func newDaemonRunCmd() *cobra.Command {
 				// autopilot plan/manager/merge template + per-repo reconcile (the
 				// persisted enable set is preserved — config only carries the template).
 				apCfg := buildAutopilotControllerConfig(c, apBaseDir, lc.Resolver)
-				if plans, err := autopilot.MigrateLegacyPlans(ctx, autopilot.NewExecEnv(), apCtrl, apCfg.Plans, apBaseDir, os.Stderr); err != nil {
-					slog.Warn("autopilot: legacy plan migration incomplete after config reload", "err", err)
-				} else {
-					apCfg.Plans = plans
-				}
 				apCtrl.Reconfigure(ctx, apCfg)
 			})
 			srv.AddReloadHook(func(c config.Config) {
@@ -760,14 +744,6 @@ func newDaemonRunCmd() *cobra.Command {
 				slog.Warn("daemon: autopilotstore open failed", "err", aperr)
 			} else {
 				defer apLive.Close()
-				if apRep, merr := autopilotstore.MigrateLegacyRuns(ctx, cfg.DataDir, apLive, planStore); merr != nil {
-					slog.Warn("daemon: autopilot legacy-run migration failed", "err", merr)
-				} else if apRep.Changed() {
-					slog.Info("daemon: autopilot legacy runs migrated",
-						"live_created", apRep.LiveCreated,
-						"history_attached", apRep.HistoryAttached,
-						"archived_unmatched", apRep.ArchivedUnmatched)
-				}
 				apCtrl.SetLiveStore(apLive)
 				if planStore != nil {
 					apCtrl.SetPlanSource(planStore)

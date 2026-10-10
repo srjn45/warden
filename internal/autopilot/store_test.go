@@ -9,8 +9,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/srjn45/scriva/engine"
 	"github.com/stretchr/testify/require"
 )
+
+func TestRunStoreUsesPerWriteDurability(t *testing.T) {
+	s, err := NewRunStore(t.TempDir())
+	require.NoError(t, err)
+	defer s.Close()
+	require.Equal(t, engine.SyncModeAlways, s.col.Config().SyncMode)
+}
 
 func TestRunStoreReopenAndConcurrentRMW(t *testing.T) {
 	dir := t.TempDir()

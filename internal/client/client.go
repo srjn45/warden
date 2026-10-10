@@ -836,6 +836,9 @@ func (c *Client) Pressure(ctx context.Context) (PressureStatus, error) {
 type HealthStatus struct {
 	Status  string `json:"status"`
 	Version string `json:"version,omitempty"`
+	// SchemaVersion is the data-format version the daemon serves; 0 when the
+	// daemon predates the schema ledger.
+	SchemaVersion int `json:"schema_version,omitempty"`
 }
 
 // Health probes GET /healthz and returns the daemon's advertised version when set.

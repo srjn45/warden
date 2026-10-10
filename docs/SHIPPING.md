@@ -431,8 +431,28 @@ priority `feat`, `fix`, `perf`, `revert`, `refactor`, `docs`, `test`, `build`,
 `ci`, `chore`; shared scope; `!` when breaking). **Squash-merge it**: `wd release`
 reads that subject, and also the `* type(scope): …` bullet list in a squash commit
 body, to recommend the bump. Editing the PR title before merging changes the
-recommended bump. Tagging still needs maintainer confirmation (`wd release
---dry-run` first).
+### Release manifest and waypoint tagging
+
+Every release publishes `manifest.json` checksummed alongside the release archives.
+The manifest records:
+- `version`: release semver (e.g. `9.28.0`)
+- `schema_version`: data format schema version written by the binary
+- `min_schema`: oldest schema format supported for direct migration
+- `min_upgrade_from`: oldest release that may upgrade directly to this one (calculated per support-window policy: higher of 3 minors back or start of current major; crossing a major always routes through the last release of the previous major)
+- `waypoint`: boolean flag marking whether this release is a waypoint
+- `breaking`: boolean flag indicating breaking changes
+- `notes`: migration and release notes
+- `api_compat`: connected client compatibility notes (Hub API, Android app)
+- `requires.manual`: required manual operator actions if any
+
+**Flagging a release as a waypoint:**
+Waypoints carry migrations bridging a compatibility window so old migration code can be pruned at subsequent waypoints.
+Policy:
+1. Mark a release as a waypoint whenever it introduces breaking data format changes.
+2. The last release of any major (`(X-1).last`) is automatically a waypoint for crossing into major `X`.
+3. When releasing via `cmd/genmanifest`, pass `-waypoint=true` (or configure release flags in CI).
+4. `wd update --plan` inspects the waypoint chain and computes minimal hop trajectories before applying updates.
+
 ## 5. Suggested sequencing
 
 The original sequencing (§4.1 version/doctor → de-hardcode → GoReleaser →

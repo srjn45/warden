@@ -18,6 +18,7 @@ import (
 	"github.com/srjn45/scriva/engine"
 	"github.com/srjn45/scriva/query"
 
+	"github.com/srjn45/warden/internal/legacyimport"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -26,6 +27,9 @@ var (
 	ErrExists      = errors.New("agent already exists")
 	ErrNameExists  = store.ErrNameExists
 	ErrInvalidName = store.ErrInvalidName
+	// ErrIdentityChanged prevents an update callback from writing an agent body
+	// under a different record key.
+	ErrIdentityChanged = errors.New("agent identity cannot change")
 	// ErrNotOrphaned prevents recovery from reviving an agent that was not
 	// explicitly marked orphaned. Recovery is deliberately narrower than a
 	// generic status update: it is the safe repair path after daemon loss.
@@ -71,18 +75,11 @@ func New(dir string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	legacy, err := acquireLegacyRead(canon)
-	if err != nil {
-		_ = lock.release()
-		return nil, err
-	}
-	defer func() { _ = legacy.release() }()
 	// Verify the persisted agent database before opening it. ScrivaDB may rebuild
 	// derived indexes at open, but that must not turn an already-damaged or
 	// missing index into a silently healthy fleet from Warden's perspective.
 	var preflight *UnhealthyError
-	_, markErr := os.Stat(filepath.Join(canon, importedMarker))
-	if _, statErr := os.Stat(filepath.Join(canon, "agents-db")); statErr == nil && markErr == nil {
+	if _, statErr := os.Stat(filepath.Join(canon, "agents-db")); statErr == nil {
 		if rep, verifyErr := VerifyAgentStore(context.Background(), canon); verifyErr != nil {
 			preflight = readFailure("agents", "", verifyErr)
 		} else if failures := ReportFailures(rep); len(failures) > 0 {
@@ -163,21 +160,10 @@ func copyTree(src string) (string, error) {
 }
 
 func openAt(dir, dbDir string) (*Store, error) {
-	marker := filepath.Join(dir, importedMarker)
-	_, err := os.Stat(marker)
-	imported := err == nil
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, err
-	}
-	if !imported {
-		if err := os.RemoveAll(dbDir); err != nil {
-			return nil, err
-		}
-	}
 	if err := os.MkdirAll(dbDir, 0o700); err != nil {
 		return nil, err
 	}
-	db, err := scriva.Open(dbDir, scriva.WithSyncMode(engine.SyncModeNone))
+	db, err := scriva.Open(dbDir, scriva.WithSyncMode(engine.SyncModeAlways))
 	if err != nil {
 		return nil, err
 	}
@@ -192,33 +178,6 @@ func openAt(dir, dbDir string) (*Store, error) {
 		return nil, err
 	}
 	s := &Store{db: db, col: col, closed: closed, gate: newWriteGate()}
-	if !imported {
-		if err := s.importSessions(filepath.Join(dir, "sessions-db"), "active", s.col); err != nil {
-			_ = db.Close()
-			return nil, err
-		}
-		if err := os.WriteFile(marker, []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o600); err != nil {
-			_ = db.Close()
-			return nil, err
-		}
-	}
-	// Archive import has its own marker: the earlier Agent store imported only
-	// active records. Never rebuild or overwrite live agents during this upgrade.
-	closedMarker := filepath.Join(dir, closedImportedMarker)
-	if _, err := os.Stat(closedMarker); errors.Is(err, os.ErrNotExist) {
-		if err := s.importSessions(filepath.Join(dir, "sessions-db"), "closed", s.closed); err != nil {
-			_ = db.Close()
-			return nil, err
-		}
-		if err := os.WriteFile(closedMarker, []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o600); err != nil {
-			_ = db.Close()
-			return nil, err
-		}
-	} else if err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-
 	activeRows, _, err := scanVerified(s.col, "agents", false)
 	if err != nil {
 		_ = db.Close()
@@ -233,6 +192,96 @@ func openAt(dir, dbDir string) (*Store, error) {
 	s.snap.Store(initSnap)
 
 	return s, nil
+}
+
+// LegacyImport is the legacy sessions-db -> agents-db import for the migration
+// registry. It is additive and safe to re-run after a crash.
+var LegacyImport = legacyimport.Importer{
+	Present: func(dir string) (bool, error) {
+		legacyDB := filepath.Join(dir, "sessions-db")
+		return legacyimport.Exists(legacyDB)
+	},
+	Import: func(dir string) error {
+		return importLegacySessions(dir)
+	},
+	Verify: func(dir string) error {
+		return verifyLegacySessions(dir)
+	},
+}
+
+func importLegacySessions(dir string) error {
+	legacyDB := filepath.Join(dir, "sessions-db")
+	if ok, _ := legacyimport.Exists(legacyDB); !ok {
+		return nil
+	}
+	legacyLock, err := acquireLegacyRead(dir)
+	if err != nil {
+		return err
+	}
+	if legacyLock != nil {
+		defer func() { _ = legacyLock.release() }()
+	}
+	s, err := open(dir)
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+	if err := s.importSessions(legacyDB, "active", s.col); err != nil {
+		return err
+	}
+	return s.importSessions(legacyDB, "closed", s.closed)
+}
+
+func verifyLegacySessions(dir string) error {
+	legacyDB := filepath.Join(dir, "sessions-db")
+	if ok, _ := legacyimport.Exists(legacyDB); !ok {
+		return nil
+	}
+	s, err := open(dir)
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+
+	db, err := scriva.Open(legacyDB, scriva.WithSyncMode(engine.SyncModeNone))
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	checkCol := func(legacyCol string, dest *engine.Collection) error {
+		source, err := db.Collection(legacyCol)
+		if err != nil {
+			return nil
+		}
+		rows, err := source.Scan(query.MatchAll)
+		if err != nil {
+			return err
+		}
+		var missing []string
+		for _, row := range rows {
+			if isTerminalRecord(row.Data) {
+				continue
+			}
+			id, _ := row.Data["id"].(string)
+			if id == "" {
+				continue
+			}
+			ok, err := dest.Exists(id)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				missing = append(missing, id)
+			}
+		}
+		return legacyimport.VerifyNone("agents ("+legacyCol+")", missing)
+	}
+
+	if err := checkCol("active", s.col); err != nil {
+		return err
+	}
+	return checkCol("closed", s.closed)
 }
 
 // isTerminalRecord probes a raw DB record for kind=terminal without decoding
@@ -519,6 +568,9 @@ func (s *Store) Update(ctx context.Context, id string, fn func(*Agent) error) (r
 	aPrivate := cloneAgent(a)
 	if err := fn(aPrivate); err != nil {
 		return err
+	}
+	if aPrivate.ID != id {
+		return ErrIdentityChanged
 	}
 	if err := tk.ctxErr(ctx, "callback"); err != nil {
 		return err

@@ -190,17 +190,40 @@ registers the MCP server, and probes `/healthz`. Pin a release with
 
 ```sh
 warden update          # or: wd update
-warden update --check  # report only
+warden update --plan   # preview upgrade path, migrations, breaking changes & downtime
+warden update --check  # report only (query releases)
+warden update --yes    # non-interactive update without confirmation prompt
 warden update --version v9.9.0
 ```
 
 `warden update` verifies checksums, atomically swaps the binary, re-signs on
 macOS when the `warden-codesign` identity is present, runs config migrations,
-restarts the daemon service, and rolls back if `/healthz` fails. In the TUI
+restarts the daemon service, and rolls back unless `/healthz` reports ok on the
+new version and its data schema (`schema_version`). In the TUI
 cockpit, press **`u`** when the footer shows an update chip
 (`[u] Update to vX.Y.Z available`), or **`r`** to hot-reload the cockpit
 in place after an external upgrade (`syscall.Exec` — active tmux agent
 sessions keep running).
+
+To preview the planned upgrade without mutating state or stopping the daemon:
+
+```sh
+warden update --plan
+```
+
+To roll back an update, run `warden rollback` (or `wd rollback`). It performs a
+plain binary swap when no data format changed, or restores the pre-update
+data snapshot (`<data>/backups/pre-<ver>-<ts>/`) with confirmation when the schema
+advanced.
+
+For offline data migrations and store repairs:
+
+```sh
+warden migrate --check       # inspect data store schema status
+warden migrate --apply       # apply pending data migrations
+warden repair all --resolve-history=live-wins  # repair conflicting keys across all stores
+warden init                  # initialize fresh data dir or verify baseline migrations
+```
 
 > **Deprecated:** Homebrew, apt/deb, rpm, and AUR packages are no longer
 > published. Use the curl installer and `warden update` instead. Existing

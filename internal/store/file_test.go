@@ -146,6 +146,7 @@ func TestFileImportSkipsCorruptLegacyFile(t *testing.T) {
 	writeLegacy(t, dir, "sessions", sample())
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "sessions", "broken.json"), []byte("{not json"), 0o644))
 
+	require.NoError(t, LegacyImport.Import(dir))
 	st, err := NewFileStore(dir)
 	require.NoError(t, err, "one corrupt legacy file must not fail import")
 	t.Cleanup(func() { _ = st.Close(ctx) })
@@ -154,7 +155,6 @@ func TestFileImportSkipsCorruptLegacyFile(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, list, 1, "the good legacy record imported; the corrupt one was skipped")
 	require.Equal(t, "PROJ-350", list[0].ID)
-	require.FileExists(t, filepath.Join(dir, importedMarker), "import still writes the sentinel")
 }
 
 func TestFileArchiveRemovesFromActive(t *testing.T) {

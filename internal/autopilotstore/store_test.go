@@ -22,6 +22,13 @@ func TestDisplayName(t *testing.T) {
 	require.Equal(t, "AP:unnamed", DisplayName("  "))
 }
 
+func TestStoreUsesPerWriteDurability(t *testing.T) {
+	s, err := New(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+	require.Equal(t, engine.SyncModeAlways, s.col.Config().SyncMode)
+}
+
 func TestIsLiveState(t *testing.T) {
 	for _, s := range []string{"starting", "active", "healing", "degraded", "paused"} {
 		require.True(t, IsLiveState(s), s)

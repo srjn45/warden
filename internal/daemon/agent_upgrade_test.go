@@ -29,6 +29,9 @@ func TestArchivedAgentLifecycleAfterUpgrade(t *testing.T) {
 	}))
 	require.NoError(t, legacy.Close(ctx))
 
+	require.NoError(t, agentstore.LegacyImport.Import(dir))
+	require.NoError(t, terminalstore.LegacyImport.Import(dir))
+
 	agents, err := agentstore.New(dir)
 	require.NoError(t, err)
 	require.NoError(t, agents.Close())

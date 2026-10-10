@@ -2,9 +2,11 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -13,12 +15,16 @@ import (
 
 	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/config"
+	"github.com/srjn45/warden/internal/migrate"
+	"github.com/srjn45/warden/internal/schema"
 	"github.com/srjn45/warden/internal/updater"
 )
 
 func newUpdateCmd() *cobra.Command {
 	var (
 		checkOnly bool
+		planOnly  bool
+		yes       bool
 		force     bool
 		pin       string
 		ready     time.Duration
@@ -29,7 +35,8 @@ func newUpdateCmd() *cobra.Command {
 		Long: `Download a verified GitHub release archive, atomically replace
 ~/.local/bin/warden, re-sign on macOS when the warden-codesign identity is
 present, run config migrations, restart the user-level daemon service, and
-wait for /healthz to report ok on the new version.
+wait for /healthz to report ok on the new version AND on the data schema
+version the new binary writes (see "warden version").
 
 The update is a transaction. Before any change it records the current binary,
 service manager and daemon version, and verifies the backend store read-only:
@@ -42,6 +49,8 @@ the original failure and the rollback outcome are reported.
 
 Flags:
   --check            report whether an update is available without applying it
+  --plan             inspect the planned upgrade path, breaking changes, downtime, and disk needed
+  --yes              skip confirmation for breaking or data-touching updates
   --version <tag>    install a specific release (e.g. 9.9.0 or v9.9.0)
   --force            reinstall even when already on the target version
   --ready-timeout    overall deadline for the daemon to become healthy (default 90s)
@@ -49,6 +58,7 @@ Flags:
 Examples:
   warden update
   warden update --check
+  warden update --plan
   warden update --version v9.9.0
   wd update --force`,
 		Args: cobra.NoArgs,
@@ -67,38 +77,89 @@ Examples:
 				CheckOnly:      checkOnly,
 				HealthURL:      healthURL,
 				ReadyTimeout:   ready,
+				DataDir:        cfg.DataDir,
 				Context:        cmd.Context(),
 				Preflight: func(ctx context.Context) (updater.PreflightResult, error) {
-					return backendPreflight(ctx, filepath.Join(cfg.DataDir, "backends"))
+					return wholeStorePreflight(ctx, cfg.DataDir)
+				},
+				TargetPreflight: func(ctx context.Context, targetBin string) (updater.PreflightResult, error) {
+					return targetBinaryPreflight(ctx, targetBin, cfg.DataDir)
 				},
 				Stdout: cmd.OutOrStdout(),
 				Migrate: func() error {
 					return config.Reconcile(cfgPath)
 				},
+				TargetSchema:  binarySchemaVersion,
+				CurrentSchema: schema.SchemaVersion,
 			}
 			if home, err := os.UserHomeDir(); err == nil && home != "" {
 				opts.StagingDir = filepath.Join(home, ".warden", "tmp")
 				opts.InstallBin = filepath.Join(home, ".local", "bin", "warden")
 			}
 
-			var (
-				res updater.Result
-				err error
-			)
-			if checkOnly {
-				res, err = updater.Check(opts)
-			} else {
-				res, err = updater.Apply(opts)
+			if planOnly {
+				p, err := updater.BuildPlan(opts)
+				if err != nil {
+					return err
+				}
+				fmt.Fprint(cmd.OutOrStdout(), updater.FormatPlanText(p))
+				return nil
 			}
+
+			if checkOnly {
+				res, err := updater.Check(opts)
+				_ = res
+				return updateRecoveryGuidance(err)
+			}
+
+			// Pre-evaluate plan to check if confirmation is required for breaking/data-touching updates
+			if !yes {
+				if p, err := updater.BuildPlan(opts); err == nil && p.RequiresConfirm {
+					fmt.Fprint(cmd.OutOrStdout(), updater.FormatPlanText(p))
+					ok, err := confirmOrYes(cmd, false, "Proceed with update? [y/N]: ")
+					if err != nil {
+						return err
+					}
+					if !ok {
+						fmt.Fprintln(cmd.OutOrStdout(), "update cancelled")
+						return nil
+					}
+				}
+			}
+
+			res, err := updater.Apply(opts)
 			_ = res
 			return updateRecoveryGuidance(err)
 		},
 	}
 	cmd.Flags().BoolVar(&checkOnly, "check", false, "query and print whether an update is available without applying it")
+	cmd.Flags().BoolVar(&planOnly, "plan", false, "inspect planned upgrade path, breaking changes, downtime, and disk needed without changing anything")
+	cmd.Flags().BoolVar(&yes, "yes", false, "automatically confirm updates that require confirmation")
 	cmd.Flags().BoolVar(&force, "force", false, "reinstall even when already on the target version")
 	cmd.Flags().DurationVar(&ready, "ready-timeout", updater.DefaultReadyTimeout, "overall deadline for the restarted daemon to report healthy on the new version")
 	cmd.Flags().StringVar(&pin, "version", "", "install a specific release tag (e.g. 9.9.0 or v9.9.0)")
 	return cmd
+}
+
+// binarySchemaVersion asks an installed warden binary which data schema it
+// writes (`warden version --json`). The running updater is the OLD binary, so
+// the target's schema can only come from the target itself. A release that
+// predates the schema ledger has no such field and reports 0, which is also
+// what its daemon's /healthz reports — the readiness comparison stays exact.
+func binarySchemaVersion(ctx context.Context, bin string) (int, error) {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, bin, "version", "--json").Output()
+	if err != nil {
+		return 0, fmt.Errorf("%s version --json: %w", bin, err)
+	}
+	var bi struct {
+		SchemaVersion int `json:"schema_version"`
+	}
+	if err := json.Unmarshal(out, &bi); err != nil {
+		return 0, fmt.Errorf("decode %s version --json: %w", bin, err)
+	}
+	return bi.SchemaVersion, nil
 }
 
 // updateRecoveryGuidance appends the backend-registry recovery procedure
@@ -108,9 +169,84 @@ Examples:
 func updateRecoveryGuidance(err error) error {
 	var pe *updater.PreflightError
 	if errors.As(err, &pe) {
+		if pe.RepairCommand != "" && !strings.Contains(pe.RepairCommand, "repair backends") {
+			return err
+		}
 		return fmt.Errorf("%w\n%s", err, backendRecoverySteps("", ""))
 	}
 	return withBackendRecoverySteps(err)
+}
+
+// wholeStorePreflight runs read-only verification across all ScrivaDB stores.
+func wholeStorePreflight(ctx context.Context, dataDir string) (updater.PreflightResult, error) {
+	runner := migrate.NewRunner(nil)
+	findings, err := runner.Check(migrate.Env{DataDir: dataDir, Context: ctx}, schema.SchemaVersion)
+	if err != nil {
+		return updater.PreflightResult{
+			Blockers: []string{fmt.Sprintf("verification failed: %v", err)},
+		}, nil
+	}
+	return findingsToPreflightResult(findings), nil
+}
+
+// targetBinaryPreflight runs `targetBin migrate --check --data-dir <dataDir> --json`.
+func targetBinaryPreflight(ctx context.Context, targetBin, dataDir string) (updater.PreflightResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, targetBin, "migrate", "--check", "--data-dir", dataDir, "--json")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		// If command output contains valid JSON report, decode it to extract findings
+		var rep migrateCheckReport
+		if jerr := json.Unmarshal(out, &rep); jerr == nil && len(rep.Findings) > 0 {
+			return findingsToPreflightResult(rep.Findings), nil
+		}
+		// If binary doesn't support migrate subcommand (older binary), fall back to in-process check
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && strings.Contains(string(out), "unknown command") {
+			return wholeStorePreflight(ctx, dataDir)
+		}
+		// Otherwise report failure
+		return updater.PreflightResult{
+			Blockers: []string{fmt.Sprintf("%s migrate --check: %v (%s)", targetBin, err, strings.TrimSpace(string(out)))},
+		}, nil
+	}
+
+	var rep migrateCheckReport
+	if jerr := json.Unmarshal(out, &rep); jerr != nil {
+		// Output wasn't JSON or check produced text; fall back
+		return wholeStorePreflight(ctx, dataDir)
+	}
+
+	return findingsToPreflightResult(rep.Findings), nil
+}
+
+func findingsToPreflightResult(findings []migrate.Finding) updater.PreflightResult {
+	res := updater.PreflightResult{}
+	repairCommands := make(map[string]bool)
+
+	for _, f := range findings {
+		switch f.Severity {
+		case migrate.SeverityAuto:
+			res.Notes = append(res.Notes, fmt.Sprintf("%s: %s", f.Store, f.Message))
+		case migrate.SeverityRepairable, migrate.SeverityBlocking:
+			res.Blockers = append(res.Blockers, fmt.Sprintf("%s: %s", f.Store, f.Message))
+			if f.Command != "" {
+				repairCommands[f.Command] = true
+			}
+		}
+	}
+
+	if len(repairCommands) == 1 {
+		for cmd := range repairCommands {
+			res.RepairCommand = cmd
+		}
+	} else if len(repairCommands) > 1 {
+		res.RepairCommand = "warden repair all --resolve-history=live-wins"
+	}
+
+	return res
 }
 
 // backendPreflight is the read-only pre-swap check of the backend registry.

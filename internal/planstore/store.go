@@ -208,7 +208,7 @@ func New(dir string) (*Store, error) {
 		return nil, err
 	}
 	db, err := scriva.Open(dbDir,
-		scriva.WithSyncMode(engine.SyncModeNone),
+		scriva.WithSyncMode(engine.SyncModeAlways),
 		scriva.WithCompactInterval(2*time.Minute),
 		scriva.WithSegmentMaxSize(512*1024),
 	)

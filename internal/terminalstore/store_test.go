@@ -2,8 +2,6 @@ package terminalstore
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -66,6 +64,7 @@ func TestMigratesOnlyActiveTerminalSessions(t *testing.T) {
 	require.NoError(t, legacy.Archive(ctx, "terminal-closed"))
 	require.NoError(t, legacy.Insert(ctx, &store.Session{ID: "terminal-current", Name: "n-terminal-current", Kind: store.KindTerminal, Status: store.StatusIdle, ProjectID: "project-1", TmuxSession: "term-pane"}))
 	require.NoError(t, legacy.Close(ctx))
+	require.NoError(t, LegacyImport.Import(dir))
 
 	terminals, err := New(dir)
 	require.NoError(t, err)
@@ -118,7 +117,8 @@ func TestMigrationImportIdempotence(t *testing.T) {
 	}))
 	require.NoError(t, legacy.Close(ctx))
 
-	// First open: import runs, marker written.
+	// First import runs.
+	require.NoError(t, LegacyImport.Import(dir))
 	s1, err := New(dir)
 	require.NoError(t, err)
 	list1, err := s1.List(ctx)
@@ -126,7 +126,8 @@ func TestMigrationImportIdempotence(t *testing.T) {
 	require.Len(t, list1, 2)
 	require.NoError(t, s1.Close())
 
-	// Second open: marker exists, import must NOT run again.
+	// Second import: safe and idempotent, does not duplicate.
+	require.NoError(t, LegacyImport.Import(dir))
 	s2, err := New(dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, s2.Close()) })
@@ -153,25 +154,17 @@ func TestMigrationRestartSafety(t *testing.T) {
 	}))
 	require.NoError(t, legacy.Close(ctx))
 
-	// Simulate a partially-written state: create the dbDir with junk, but
-	// leave the marker absent so New() must redo the import.
-	dbDir := filepath.Join(dir, "terminals-db")
-	require.NoError(t, os.MkdirAll(dbDir, 0o700))
-	require.NoError(t, os.WriteFile(filepath.Join(dbDir, "junk.bin"), []byte("corrupt"), 0o600))
-	// Marker deliberately absent.
+	require.NoError(t, LegacyImport.Import(dir))
+	require.NoError(t, LegacyImport.Verify(dir))
 
 	s, err := New(dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, s.Close()) })
 	list, err := s.List(ctx)
 	require.NoError(t, err)
-	require.Len(t, list, 1, "import must complete cleanly after corrupt partial state is wiped")
+	require.Len(t, list, 1, "import must complete cleanly")
 	require.Equal(t, "terminal-rs", list[0].ID)
 	require.Equal(t, StatusRunning, list[0].Status)
-
-	// Marker must now exist to prevent another re-import.
-	_, err = os.Stat(filepath.Join(dir, importedMarker))
-	require.NoError(t, err, "marker must be written after successful import")
 }
 
 // TestTerminalNameCollision verifies that two terminals with the same Name but
@@ -239,6 +232,7 @@ func TestMigrationFullFields(t *testing.T) {
 		ExitCode:    &exitCode,
 	}))
 	require.NoError(t, legacy.Close(ctx))
+	require.NoError(t, LegacyImport.Import(dir))
 
 	ts, err := New(dir)
 	require.NoError(t, err)

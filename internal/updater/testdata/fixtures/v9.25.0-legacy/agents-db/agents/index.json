@@ -1,0 +1,1 @@
+{"version":2,"entries":{"1":{"segment":"testdata/fixtures/v9.25.0-legacy/agents-db/agents/seg_000001.ndjson","offset":0,"rev":1}},"coverage":[{"segment":"seg_000001.ndjson","size":145,"checksum":"f37c1ff05191cbb1fdc7ead3de17c5497a84c0fd92610432902d5bc52169b9cd"}],"checksum":"01ee9c16c75d034123da1eca643b3eab64431656789c545fe023f2e9f5e87afb"}

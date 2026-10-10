@@ -73,6 +73,9 @@ func simulateDaemonBoot(t *testing.T, dataDir, plansDir, projectsDir, pipesDir s
 	ctx := context.Background()
 	out := &upgradeBootResult{}
 
+	require.NoError(t, agentstore.LegacyImport.Import(dataDir))
+	require.NoError(t, terminalstore.LegacyImport.Import(dataDir))
+
 	agents, err := agentstore.New(dataDir)
 	require.NoError(t, err)
 	out.Agents = agents

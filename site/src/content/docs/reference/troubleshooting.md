@@ -23,7 +23,7 @@ claude --version     # the agent runtime
 tmux -V              # every agent lives in a tmux window (≥ 3.1 for the cockpit)
 git --version        # worktree creation/cleanup
 gh --version         # only needed for pr-review agents
-curl -s localhost:8765/healthz   # → {"status":"ok"} means the daemon is up
+curl -s localhost:8765/healthz   # → {"status":"ok",…} means the daemon is up
 ```
 
 ## Install missing dependencies: `warden setup`
@@ -41,6 +41,7 @@ warden setup --yes      # non-interactive: install all missing deps
 |---|---|
 | Any command hangs or errors connecting | Daemon not running. `curl localhost:8765/healthz`; start it (`curl -fsSL https://raw.githubusercontent.com/srjn45/warden/main/scripts/install.sh \| bash`, or `warden daemon`). |
 | `healthz` fails / daemon won't start | Data dir not writable. Check `WARDEN_DATA_DIR` (default `~/.warden`) and the daemon logs — macOS: `/tmp/warden.daemon.err`; Linux: `journalctl --user -u warden -e`. |
+| Daemon exits with `refusing to start: data dir … is at schema N` | The data format and the binary disagree. `<data>/schema.json` records the data dir's integer `schema_version` (separate from the release version); `warden version` prints what the binary writes. Data newer → `warden update` to a binary that reads it; never open it with the older one. Data older, or an interrupted migration → follow the command in the error. The refused boot changed nothing. An install that predates the ledger is stamped on first boot and starts normally. |
 | Daemon exits at boot with backend registry integrity error / `warden update` blocked | Revision regression or damage in `<data>/backends`. Run `warden doctor` to inspect, then stop the daemon (`systemctl --user stop warden`), inspect with `warden repair backends --dry-run`, and repair with `warden repair backends`. See [Backend registry guide](/warden/guides/backend-registry/#integrity-single-daemon-rule-and-offline-repair). |
 | New agent stuck at `classifying…` / type is `other` | `claude` not on the daemon's PATH. Type falls back to `other`; functionality is otherwise fine. |
 | `SUBJECT` stays empty | Poller hasn't refreshed yet (it's throttled and only runs when pane content changes), or `CLAUDE_PROJECTS_DIR` is wrong. |

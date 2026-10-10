@@ -1,6 +1,8 @@
 # Update process redesign — versioned data, planned upgrade paths, data-safe rollback
 
-Status: DRAFT for review (2026-10-09). No code yet.
+Status: DRAFT for review (2026-10-09). Step 1 of §12 (schema ledger, `/healthz`
+`schema_version`, boot guard, legacy baseline) is implemented in
+`internal/schema`; the rest is not built yet.
 
 ## 1. Why (the incident that prompted this)
 
@@ -64,6 +66,34 @@ Root causes in the current process:
   stamped with an inferred baseline version once; the sentinels are then
   retired.
 
+As implemented (`internal/schema`):
+
+- `SchemaVersion` and `MinSchema` both start at **1**. Every release that
+  predates the ledger wrote format 1, so the legacy baseline is the constant
+  `LegacyBaseline = 1` — it does not vary with which sentinels are present
+  (the one-time boot importers are idempotent and keep running at boot until
+  §4 ports them). A data dir with **no** warden data is stamped at the current
+  `SchemaVersion` instead.
+- The stamp is written exactly once, by the daemon at boot, under the data-dir
+  ownership lock and before any store is opened. It adds one `history` entry:
+  `{"from": 0, "to": N, "migration": "baseline-legacy" | "baseline-fresh",
+  "at": ..., "sentinels": [...]}` — `sentinels` records which markers were
+  found, for the migration registry to consume. The sentinel files themselves
+  are left in place (retiring them belongs to §4).
+- **An existing install is never bricked by the ledger's arrival:** it is
+  stamped and boots as before; if the stamp cannot be written the daemon logs
+  a warning, boots on the inferred baseline, and retries next boot.
+- The daemon never rewrites an existing ledger. `binary_version` is therefore
+  the version that last *wrote* it (the stamp, later a migration), not the
+  binary currently running.
+- Writes are atomic: temp file in the data dir → fsync → rename (the first
+  stamp uses an exclusive hard link so it cannot overwrite a ledger).
+- A ledger that exists but cannot be parsed refuses the boot. The daemon does
+  not guess a data format.
+- `warden version` (`--json`: `schema_version`, `min_schema`) prints what a
+  binary embeds; `GET /healthz` reports the `schema_version` of the data dir
+  being served.
+
 Daemon boot guard:
 
 | data schema vs binary          | behaviour                                          |
@@ -73,6 +103,10 @@ Daemon boot guard:
 | data older, within MinSchema   | refuse: "run `warden migrate` (or `wd update`)"    |
 | data older, below MinSchema    | refuse: "unsupported direct upgrade, see path"     |
 | `in_progress` set              | refuse: "interrupted migration; `warden migrate --resume` / `--restore`" |
+
+An interrupted migration outranks the version comparison: with `in_progress`
+set the daemon refuses whatever `schema_version` says. Every refusal happens
+before any store is opened and leaves the data dir untouched.
 
 Only trivially safe, non-lossy maintenance (rebuilding a derived index) may
 still happen at boot.
@@ -109,6 +143,11 @@ produced by GoReleaser):
 ```
 
 - `min_upgrade_from`: oldest version that may upgrade **directly** to this one.
+- **Support window:** direct upgrade is allowed from the higher (nearer) of
+  3 minors back or the start of the current major; crossing a major always
+  goes through the last release of the previous major, which is automatically
+  a waypoint. So `min_upgrade_from` for `X.Y.z` is `X.max(Y-3, 0).0`, and
+  `(X-1).last` is the only entry point into major `X`.
 - **Waypoints** are releases that carry the migrations bridging a compatibility
   window and are guaranteed to run on data from the previous window. Policy:
   a waypoint at every breaking change and at least every N minors.
@@ -153,7 +192,12 @@ produced by GoReleaser):
 6. **Migrate** the chain. Each step: write journal → `Run` → `Verify` → advance
    ledger. Any failure triggers restore from the snapshot.
 7. **Swap + start + readiness.** `/healthz` reports `version` and
-   `schema_version`; both must match the target. Today only version is checked.
+   `schema_version`; both must match the target. (Implemented: the updater
+   reads the target's schema from the freshly installed binary's
+   `warden version --json` — it will come from the manifest once §5 lands — and
+   a mismatch is a `wrong data schema` failure that rolls back. A release that
+   predates the ledger reports no schema on either side, which still compares
+   equal.)
 8. **Commit** and keep the snapshot for a retention window (default: last 2 or
    14 days), then prune.
 
@@ -222,8 +266,10 @@ therefore cannot drift.
    downloads several binaries on a long jump.
 2. **Boot-time auto-migrate vs. update-only.** Recommended: update/`warden
    migrate` only; daemon refuses with a clear message.
-3. **Support window.** Recommended: direct upgrade from the last 3 minors,
-   waypoint at every breaking change.
+3. **Support window.** DECIDED: direct upgrade allowed from the higher
+   (nearer) of 3 minors back or the start of the current major; crossing a
+   major always goes through the last release of the previous major, which is
+   automatically a waypoint (see §5).
 4. **Snapshot retention.** Recommended: keep last 2 or 14 days.
 5. **Connected clients** (hub, Android app): include an API-version
    compatibility note in the manifest and have the plan warn when a breaking

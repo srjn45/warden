@@ -3,10 +3,13 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/srjn45/warden/internal/schema"
 )
 
 func runVersion(t *testing.T, args ...string) string {
@@ -27,6 +30,7 @@ func TestVersionCommandText(t *testing.T) {
 	require.Contains(t, out, "Built:")
 	require.Contains(t, out, "Go: ")
 	require.Contains(t, out, "Platform:")
+	require.Contains(t, out, fmt.Sprintf("Data schema: %d (migrates from %d)", schema.SchemaVersion, schema.MinSchema))
 }
 
 func TestVersionCommandJSON(t *testing.T) {
@@ -38,6 +42,13 @@ func TestVersionCommandJSON(t *testing.T) {
 	require.NotEmpty(t, bi.Date)
 	require.NotEmpty(t, bi.GoVersion)
 	require.Contains(t, bi.Platform, "/")
+	require.Equal(t, schema.SchemaVersion, bi.SchemaVersion)
+	require.Equal(t, schema.MinSchema, bi.MinSchema)
+
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal([]byte(out), &raw))
+	require.Contains(t, raw, "schema_version")
+	require.Contains(t, raw, "min_schema")
 }
 
 // currentBuildInfo fills empty commit/date with "unknown" rather than leaving

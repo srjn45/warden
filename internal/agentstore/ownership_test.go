@@ -41,8 +41,8 @@ func TestOwnershipRejectedOpenerDoesNotWipe(t *testing.T) {
 	first, err := New(dir)
 	require.NoError(t, err)
 	defer first.Close()
-	// Marker removal would make a naive opener RemoveAll agents-db.
-	require.NoError(t, os.Remove(filepath.Join(dir, importedMarker)))
+	// Even without marker, opener must not wipe agents-db.
+	_ = os.Remove(filepath.Join(dir, importedMarker))
 	_, err = New(dir)
 	require.ErrorIs(t, err, store.ErrStoreOwned)
 	require.DirExists(t, filepath.Join(dir, "agents-db"))

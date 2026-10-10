@@ -6,10 +6,10 @@
 // Entries are persisted as records in an embedded ScrivaDB "context" collection
 // (github.com/srjn45/scriva), one append-only NDJSON collection under the data
 // dir — each key is a record keyed by the context key, so a write appends a
-// single record instead of rewriting a whole-store map. The collection is opened
-// with SyncModeNone: like the previous single-file implementation this is a
-// localhost session store, so the last write surviving a power-loss is not a
-// requirement (append-only segments rule out torn reads regardless).
+// single record instead of rewriting a whole-store map. The collection uses
+// SyncModeAlways: a later restart must never recover a segment write without
+// the matching primary-index update, which could otherwise make a subsequent
+// update reuse an old revision or insert a duplicate key.
 //
 // The `updated_by` field is advisory provenance, not an authenticated identity:
 // warden assumes a single trusted local user, so callers must not make security
@@ -80,7 +80,7 @@ func New(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	db, err := scriva.Open(dir, scriva.WithSyncMode(engine.SyncModeNone))
+	db, err := scriva.Open(dir, scriva.WithSyncMode(engine.SyncModeAlways))
 	if err != nil {
 		return nil, err
 	}

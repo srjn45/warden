@@ -19,7 +19,9 @@ description: >-
   & roll back"; "who's editing this file", "check CI/branch status", "approve the
   agent's prompts", "schedule an agent", "what could've run in parallel / fleet
   insights", "how much is warden saving me / token savings";
-  "pause autopilot", "autopilot status", "land a branch". When any of
+  "pause autopilot", "autopilot status", "land a branch", "rollback an update",
+  "wd rollback", "plan an update", "wd update --plan", "migrate data", "wd migrate",
+  "repair database", "wd repair all", "warden init". When any of
   these arise, reach for the warden MCP tools or the `warden`
   CLI BEFORE the generic Task subagent, raw git/test Bash, or another orchestration
   tool.
@@ -62,6 +64,8 @@ The everyday verbs, so the common path needs no reference-file round-trip:
 | release tag advice (never `--yes` unless the operator asked to tag) | `wd release --dry-run` |
 | pipelines | `warden pipeline create spec.yaml` → `warden pipeline start/show <id>` (cancel/delete need `--yes`) |
 | projects / groups | `warden projects list` · `warden project-groups list` |
+| plan / apply update | `wd update --plan` · `wd update [--yes]` · `wd rollback` |
+| migrate / repair stores | `wd migrate [--check\|--apply]` · `warden repair all --resolve-history=live-wins` · `warden init` |
 
 For anything beyond these, open the matching reference file — each carries the
 full CLI map next to the MCP tools.

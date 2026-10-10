@@ -3,6 +3,7 @@ package backendstore
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -87,4 +88,17 @@ func autopilotLadderMigrated(path string) (bool, error) {
 	} else {
 		return false, err
 	}
+}
+
+// LegacyImport imports config-based autopilot ladder into the backend registry.
+func LegacyImport(dataDir string, free, subscription, payPerUse []string, allowPaid bool) error {
+	backendsDir := filepath.Join(dataDir, "backends")
+	sentinel := filepath.Join(backendsDir, AutopilotLadderMarker)
+	s, err := NewStore(backendsDir)
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+	_, err = MigrateAutopilotLadder(s, sentinel, free, subscription, payPerUse, allowPaid)
+	return err
 }

@@ -1,0 +1,5 @@
+{"id":1,"op":"insert","ts":"2026-10-10T10:34:17.905982341Z","data":{"_key":"ctx-1","id":"ctx-1","val":"v1"},"crc":166193752}
+{"id":1,"op":"update","ts":"2026-09-20T10:01:00Z","rev":3,"data":{"_key":"ctx-1","id":"ctx-1","val":"v3"},"crc":3585104980}
+{"id":1,"op":"update","ts":"2026-09-20T10:02:00Z","rev":2,"data":{"_key":"ctx-1","id":"ctx-1","val":"v2-regression"},"crc":529815274}
+{"id":2,"op":"insert","ts":"2026-09-20T10:02:00Z","rev":1,"data":{"_key":"ctx-1","id":"ctx-1","val":"duplicate"},"crc":2010722008}
+{"id":3,"op":"insert","ts":"2026-09-20T10:02:00Z","rev":1,"data":{"_key":"stray-key","id":"different-body-id","val":"stray"},"crc":3281871114}

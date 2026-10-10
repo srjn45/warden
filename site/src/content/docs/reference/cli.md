@@ -60,10 +60,13 @@ Operate warden:
 Get started and interact:
   login                Authenticate this node with a warden-hub relay using the device flow
   setup                Install missing dependencies (tmux, git, claude; optional gh)
+  init                 Initialize the Warden data directory and schema ledger
   tutorial             Run the first-run guided walkthrough of warden's core loop
   doctor               Run preflight checks (required binaries, daemon, data dir, agent store, backend registry integrity)
   tui                  Live terminal cockpit for agents
   update               Update the installed warden binary from GitHub Releases
+  migrate              Inspect, apply, resume, or restore data format migrations
+  rollback             Roll back the previous warden update
   version              Print warden version and build information
 
 Shortcuts:
@@ -4299,6 +4302,7 @@ Usage:
 
 Commands:
   agents               Verify or repair the agent store offline, backup-first
+  all                  Rebuild all ScrivaDB stores offline using live-wins record resolution
   backends             Verify or repair the backend registry offline, backup-first
   sessions             Diagnose or reconstruct the offline session store
 
@@ -4332,6 +4336,35 @@ Flags:
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden inspect repair all
+
+```text
+Offline, backup-first rebuild of all ScrivaDB stores in the Warden data directory.
+
+Scans every ScrivaDB collection across all stores, keeping the latest valid record
+for each _key and discarding stale revision regressions and stray records (where body id != _key).
+Before modifying any files, a full backup of the stores is taken. Existing segment and index
+files are quarantined into <collection>/quarantine/<runID>/ with a manifest, and clean segment
+and index files are rebuilt and verified.
+
+The daemon must be stopped before running this command.
+
+Usage:
+  warden inspect repair all [flags]
+
+Flags:
+      --backup-dir string        parent directory for pre-repair backup (default <data>/backups)
+      --config string            config file path
+      --dry-run                  inspect and report repair actions without modifying data
+  -h, --help                     help for all
+      --json                     print the machine-readable repair report as JSON
+      --resolve-history string   resolution policy for conflicting revision history (only 'live-wins' supported) (default "live-wins")
+  -y, --yes                      confirm repair without interactive prompt
+
+Inherited flags:
+      --addr string   daemon address (overrides the addr config setting)
 ```
 
 ## warden inspect repair backends
@@ -5352,6 +5385,31 @@ Inherited flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
+## warden init
+
+```text
+Initialize the Warden data directory (~/.warden) and schema ledger.
+
+On a fresh install, builds the data directory by running the migration chain from schema 0
+and records the initial schema ledger (schema.json). On an existing installation without a ledger,
+infers and stamps the baseline ledger from existing sentinel files. If migrations are pending,
+applies them to bring the data directory up to the binary's schema version.
+
+Upgrade and fresh install share the same migration code path.
+
+Usage:
+  warden init [flags]
+
+Flags:
+      --data-dir string   data directory (default from config: ~/.warden)
+  -h, --help              help for init
+      --json              print machine-readable JSON output
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
 ## warden tutorial
 
 ```text
@@ -5416,7 +5474,8 @@ Inherited flags:
 Download a verified GitHub release archive, atomically replace
 ~/.local/bin/warden, re-sign on macOS when the warden-codesign identity is
 present, run config migrations, restart the user-level daemon service, and
-wait for /healthz to report ok on the new version.
+wait for /healthz to report ok on the new version AND on the data schema
+version the new binary writes (see "warden version").
 
 The update is a transaction. Before any change it records the current binary,
 service manager and daemon version, and verifies the backend store read-only:
@@ -5429,6 +5488,8 @@ the original failure and the rollback outcome are reported.
 
 Flags:
   --check            report whether an update is available without applying it
+  --plan             inspect the planned upgrade path, breaking changes, downtime, and disk needed
+  --yes              skip confirmation for breaking or data-touching updates
   --version <tag>    install a specific release (e.g. 9.9.0 or v9.9.0)
   --force            reinstall even when already on the target version
   --ready-timeout    overall deadline for the daemon to become healthy (default 90s)
@@ -5436,6 +5497,7 @@ Flags:
 Examples:
   warden update
   warden update --check
+  warden update --plan
   warden update --version v9.9.0
   wd update --force
 
@@ -5446,8 +5508,63 @@ Flags:
       --check                    query and print whether an update is available without applying it
       --force                    reinstall even when already on the target version
   -h, --help                     help for update
+      --plan                     inspect planned upgrade path, breaking changes, downtime, and disk needed without changing anything
       --ready-timeout duration   overall deadline for the restarted daemon to report healthy on the new version (default 1m30s)
       --version string           install a specific release tag (e.g. 9.9.0 or v9.9.0)
+      --yes                      automatically confirm updates that require confirmation
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden migrate
+
+```text
+Run data format migrations for the Warden data directory.
+
+Actions (select one):
+  --check    Read-only preflight check across all stores and pending migrations
+  --apply    Apply pending migrations up to the target schema version
+  --resume   Resume an interrupted migration recorded in the ledger journal
+  --restore  Restore from pre-migration snapshot after an interrupted migration
+
+Usage:
+  warden migrate [flags]
+
+Flags:
+      --apply             apply pending migrations up to the target schema version
+      --check             run read-only preflight check across all stores and pending migrations
+      --data-dir string   path to the Warden data directory
+  -h, --help              help for migrate
+      --json              output results in JSON format
+      --restore           restore from pre-migration snapshot after an interrupted migration
+      --resume            resume an interrupted migration
+      --target int        target schema version to migrate to (default 1)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden rollback
+
+```text
+Roll back the most recent warden update.
+
+Restores the previous binary (.bak). If no schema change happened it is a
+plain binary swap. Otherwise it restores the pre-update snapshot and warns
+that changes made since the update are lost, requiring confirmation (--yes
+to skip confirmation).
+
+Usage:
+  warden rollback [flags]
+
+Flags:
+  -h, --help                     help for rollback
+      --json                     output result as JSON
+      --ready-timeout duration   overall deadline for the restored daemon to report healthy (default 1m30s)
+  -y, --yes                      skip loss-of-changes confirmation prompt
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -5840,6 +5957,7 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | `warden remove-worktree` | `warden agent remove-worktree` |
 | `warden repair` | `warden inspect repair` |
 | `warden repair agents` | `warden inspect repair agents` |
+| `warden repair all` | `warden inspect repair all` |
 | `warden repair backends` | `warden inspect repair backends` |
 | `warden repair sessions` | `warden inspect repair sessions` |
 | `warden repl` | `warden backend repl` |

@@ -75,21 +75,10 @@ func acquireLegacyRead(dir string) (*flockFile, error) {
 	if err != nil {
 		return nil, err
 	}
-	need := false
-	for _, m := range []string{importedMarker, closedImportedMarker} {
-		if _, err := os.Stat(filepath.Join(dir, m)); errors.Is(err, os.ErrNotExist) {
-			need = true
-		} else if err != nil {
-			return nil, err
-		}
-	}
-	if !need {
-		return nil, nil
-	}
 	path := filepath.Join(dir, legacyLockName)
 	l, err := acquireFlock(path)
 	if errors.Is(err, errLockHeld) {
-		return nil, &OwnershipError{Dir: dir, Lock: path}
+		return nil, store.ErrStoreOwned
 	}
 	return l, err
 }

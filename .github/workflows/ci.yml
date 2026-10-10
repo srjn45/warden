@@ -84,9 +84,21 @@ jobs:
       - name: Web unit tests
         run: cd web && npm ci && npm test
 
+  upgrade-fixtures:
+    name: Upgrade fixtures & rollback gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Run upgrade fixture integration tests
+        run: go test -v ./internal/updater -run 'TestUpgradeFixtures|TestMultiHopUpgrade|TestTxnFault'
+
   build:
     name: Release build
-    needs: [lint, test-go, test-web]
+    needs: [lint, test-go, test-web, upgrade-fixtures]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

@@ -51,6 +51,7 @@ type Options struct {
 	GOARCH     string
 	InstallBin string // default ~/.local/bin/warden
 	StagingDir string // default ~/.warden/tmp
+	DataDir    string // default ~/.warden
 	HealthURL  string // default DefaultHealthURL
 	AssetBase  string // override download base (tests); empty → GitHub releases
 
@@ -63,6 +64,8 @@ type Options struct {
 	ReadyTimeout time.Duration
 	// Preflight runs before anything is downloaded or swapped; nil skips it.
 	Preflight func(ctx context.Context) (PreflightResult, error)
+	// TargetPreflight runs the target binary's preflight against the live data dir; nil skips it.
+	TargetPreflight func(ctx context.Context, targetBin string) (PreflightResult, error)
 
 	Service   ServiceController // default: systemd --user / launchd
 	Prober    Prober            // default: HTTP GET HealthURL
@@ -71,6 +74,15 @@ type Options struct {
 
 	Codesign func(bin string) error
 	Migrate  func() error
+	// TargetSchema reports the data schema version the freshly installed binary
+	// writes (0 when it predates the schema ledger). Readiness then requires the
+	// restarted daemon to report that schema_version as well as the target
+	// version. nil checks the version only.
+	TargetSchema func(ctx context.Context, bin string) (int, error)
+	// CurrentSchema is the data schema version the running (pre-update) binary
+	// writes; a rollback must bring the daemon back on it. Used only when
+	// TargetSchema is set.
+	CurrentSchema int
 }
 
 // Check reports whether an update is available without applying it.
@@ -136,6 +148,10 @@ func run(opts Options) (Result, error) {
 	}
 	defer os.RemoveAll(staged.Dir)
 
+	if err := t.targetPreflight(ctx, staged.Binary); err != nil {
+		return res, err
+	}
+
 	rolledBack, err := t.apply(ctx, staged.Binary)
 	if err != nil {
 		res.RolledBack = rolledBack
@@ -180,6 +196,11 @@ func normalizeOptions(opts *Options) error {
 			return fmt.Errorf("resolve home directory: %w", err)
 		}
 		opts.StagingDir = filepath.Join(home, ".warden", "tmp")
+	}
+	if opts.DataDir == "" {
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			opts.DataDir = filepath.Join(home, ".warden")
+		}
 	}
 	if opts.HealthURL == "" {
 		opts.HealthURL = DefaultHealthURL
