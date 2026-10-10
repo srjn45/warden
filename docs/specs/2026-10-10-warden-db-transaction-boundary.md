@@ -96,10 +96,68 @@ transaction, outcome in a second one).
 | projection-update | projects, project_views | `project_views` row equals the project's derived state and version, in the same tx as every project write | `CheckProjection` |
 | audit-event-append | plans, events | plan `Revision` equals its event count; event ids `<plan>@<rev>` are contiguous | `CheckAuditTrail` |
 
-Not covered: the R2 job↔agent binding, crash/fsync/concurrent-writer matrices (`crash-validation`), metrics
-(`observability`).
+Not covered: the R2 job↔agent binding, metrics (`observability`). Crash/fault/concurrent matrices: see below.
+
+## Crash and fault validation
+
+Test-only suite: `internal/dbtx/crashtest` (no production change). Every scenario iterates `workflows.All()` and
+asserts **all-or-nothing**: after the fault and a reopen the data is exactly the PRE or exactly the POST snapshot,
+every workflow checker holds, `Outcome(key)` agrees with the state (POST ⇒ COMMITTED, PRE ⇒ not COMMITTED/PENDING),
+reopening is idempotent, and re-running the workflow converges to POST. A reported success is never absent after
+reopen, and a final failure is never present unless it was `outcome_unknown`.
+
+| # | Scenario | Test | Method |
+|---|---|---|---|
+| 1 | Process crash before/during/after commit | `TestRealProcessCrash`, `TestFirstCommitCrashWindow` | real `SIGKILL` of a helper subprocess at: staged-before-commit, ack-after-commit, first segment growth, first journal growth, ± sub-ms delays, seeded random delays |
+| 2 | Failed commits, every error class | `TestInjectedCommitFaults` | `NewWithEngine` seam: conflict, exhausted, durability (once / always), too_large, collection_not_found, untyped, outcome_unknown resolving COMMITTED / ABORTED / UNKNOWN / PENDING, in-progress, deadline + late commit |
+| 3 | Torn / damaged journal | `TestJournalDamage` | crash-image copy (taken with the DB still open), then truncate / flip / delete / zero `xtx.journal` |
+| 4 | Conflicts | `TestConflictsRaceBetweenRebuildAndCommit` | `Interfere` in `BeforeCommit`: once → converges; single attempt → typed conflict; every attempt → `exhausted`; state never changes on failure |
+| 5 | Concurrent writers | `TestConcurrentSameWorkflow`, `TestConcurrentAllWorkflows`, `TestInverseParticipantOrderNoDeadlock` | N goroutines same workflow; all workflows at once vs a sequential reference; two writers staging two collections in opposite order on contended fenced records (bounded timeout, counters exact, pairs intact) |
+| 6 | Reopen idempotence | every `verifyReopened` | several close/open cycles, byte-stable snapshot |
+
+**Result:** 7 workflows × all scenarios pass under `-race`; the whole package runs in ~30 s. Crash outcomes are a
+mix of PRE and POST, never MIXED.
+
+Run: `go test -race ./internal/dbtx/crashtest` (default, CI-sized). Soak (≈60 extra random kill points per workflow,
+more reopen cycles, more concurrent goroutines): `WARDEN_CRASH_SOAK=1 go test -race -timeout 30m ./internal/dbtx/crashtest`.
+
+### Observed journal-damage behaviour (scenario 3)
+
+Scriva exposes no crash hooks, so crash points come from real kill timing plus file-level damage of a crash image.
+
+| Damage to `xtx.journal` (COMMIT record just written) | Reopen |
+|---|---|
+| tail truncated 1 byte / mid-record / header only / record removed | opens; state **PRE** (torn tail dropped, presumed abort) |
+| garbage appended after a complete COMMIT record | opens; state **POST** |
+| byte flipped inside the COMMIT record | **fails closed**: `ErrXTxJournalCorrupt` (checksum mismatch) |
+| file deleted while stamped entries exist | **fails closed**: `ErrXTxJournalMissing` |
+| file truncated to 0 | opens; state **PRE** (every un-checkpointed commit is rolled back, including earlier ones — destroying the journal is a rollback, by design) |
+
+After a *clean* close the engine checkpoints and the stamps are gone, so journal damage then no longer affects data.
+
+### Findings and residual risks
+
+- **F1 — upstream scriva defect (reproduced; no Warden production change).** A `SIGKILL` between creation of
+  `xtx.format` and `xtx.journal` (i.e. during the database's **first-ever** cross-collection commit) leaves a root
+  where `scriva.Open` succeeds but every `db.Collection(name)` on the façade fails permanently with
+  `ErrXTxRecoveryRequired` ("open via engine.Open"): the façade only supplies recovery decisions when the journal
+  exists. Data stays all-or-nothing (PRE) at the engine level; the store is merely unusable via the façade until a
+  journal exists. Pinned by `TestFacadeFormatWithoutJournal` (skips citing F1 while present; asserts usability once
+  fixed). `TestFirstCommitCrashWindow` tolerates it and verifies the engine-level state. Mitigation to adopt in the
+  owner conversion (not done here): bootstrap the XTx root (one warm commit) at store creation, before any owner
+  workflow, or fix upstream (`CollectionWithConfig` should create/recover the journal).
+- **I2 — no cross-collection read snapshot (audit gap).** An ungated reader scanning several collections during a
+  commit can see a torn *view*; the suite samples checkers mid-run **gated** (valid probe, asserted) and **ungated**
+  (informational; violation counts are logged, not asserted).
+- **`Interfere` is an unfenced competing write**; running it concurrently with a commit races its own
+  read-modify-write and can clobber the committed counters (test artifact, not a boundary defect). It is therefore
+  used only inside `BeforeCommit`.
+- **SIGKILL is not power loss.** A killed process keeps its page-cache writes, so unsynced-write loss and
+  reordering are not exercised; journal truncation models torn tails only. fsync-ordering faults need an upstream
+  fault-FS hook (unexported today).
+- Scenario matrix is fixed-seed (`20261010`) for reproducibility; soak widens coverage, it does not prove absence.
 
 ## Deferred
 
 Metrics/audit events (`observability`), production owner conversions (the fixtures above are the template),
-crash/fault matrix (`crash-validation`), re-pin to a tagged scriva (G13).
+re-pin to a tagged scriva (G13).
