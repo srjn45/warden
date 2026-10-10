@@ -1,0 +1,1 @@
+{"field":"_key","unique":true,"kind":"string","version":2,"buckets":{"ctx-1":[1],"ctx-2":[2]},"coverage":[{"segment":"seg_000001.ndjson","size":310,"checksum":"e92dcb0822fbdec0133d71c32e283d9e681138a5852d96db3d651a7171e51aa2"}],"checksum":"d67e517f8a8b9d392ccf5c7a9f659034d7d0aee2a093edb0f01477aa10eb474f"}
