@@ -269,6 +269,24 @@ func (t *txn) preflight(ctx context.Context) error {
 	return nil
 }
 
+func (t *txn) targetPreflight(ctx context.Context, targetBin string) error {
+	if t.opts.TargetPreflight == nil {
+		return nil
+	}
+	res, err := t.opts.TargetPreflight(ctx, targetBin)
+	if err != nil {
+		return fmt.Errorf("target preflight: %w", err)
+	}
+	for _, n := range res.Notes {
+		t.logf("target preflight: auto-recoverable (not blocking): %s", n)
+	}
+	if len(res.Blockers) > 0 {
+		return &PreflightError{Blockers: res.Blockers, RepairCommand: res.RepairCommand}
+	}
+	t.logf("target preflight: all stores ok")
+	return nil
+}
+
 // waitReady polls with bounded backoff until health is ok on wantVersion
 // ("" = any version) AND wantSchema (schemaAny = any), the process exits, or
 // the deadline passes. Both must match: a daemon on the right binary serving

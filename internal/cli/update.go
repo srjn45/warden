@@ -15,6 +15,7 @@ import (
 
 	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/config"
+	"github.com/srjn45/warden/internal/migrate"
 	"github.com/srjn45/warden/internal/schema"
 	"github.com/srjn45/warden/internal/updater"
 )
@@ -73,7 +74,10 @@ Examples:
 				ReadyTimeout:   ready,
 				Context:        cmd.Context(),
 				Preflight: func(ctx context.Context) (updater.PreflightResult, error) {
-					return backendPreflight(ctx, filepath.Join(cfg.DataDir, "backends"))
+					return wholeStorePreflight(ctx, cfg.DataDir)
+				},
+				TargetPreflight: func(ctx context.Context, targetBin string) (updater.PreflightResult, error) {
+					return targetBinaryPreflight(ctx, targetBin, cfg.DataDir)
 				},
 				Stdout: cmd.OutOrStdout(),
 				Migrate: func() error {
@@ -135,9 +139,84 @@ func binarySchemaVersion(ctx context.Context, bin string) (int, error) {
 func updateRecoveryGuidance(err error) error {
 	var pe *updater.PreflightError
 	if errors.As(err, &pe) {
+		if pe.RepairCommand != "" && !strings.Contains(pe.RepairCommand, "repair backends") {
+			return err
+		}
 		return fmt.Errorf("%w\n%s", err, backendRecoverySteps("", ""))
 	}
 	return withBackendRecoverySteps(err)
+}
+
+// wholeStorePreflight runs read-only verification across all ScrivaDB stores.
+func wholeStorePreflight(ctx context.Context, dataDir string) (updater.PreflightResult, error) {
+	runner := migrate.NewRunner(nil)
+	findings, err := runner.Check(migrate.Env{DataDir: dataDir, Context: ctx}, schema.SchemaVersion)
+	if err != nil {
+		return updater.PreflightResult{
+			Blockers: []string{fmt.Sprintf("verification failed: %v", err)},
+		}, nil
+	}
+	return findingsToPreflightResult(findings), nil
+}
+
+// targetBinaryPreflight runs `targetBin migrate --check --data-dir <dataDir> --json`.
+func targetBinaryPreflight(ctx context.Context, targetBin, dataDir string) (updater.PreflightResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, targetBin, "migrate", "--check", "--data-dir", dataDir, "--json")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		// If command output contains valid JSON report, decode it to extract findings
+		var rep migrateCheckReport
+		if jerr := json.Unmarshal(out, &rep); jerr == nil && len(rep.Findings) > 0 {
+			return findingsToPreflightResult(rep.Findings), nil
+		}
+		// If binary doesn't support migrate subcommand (older binary), fall back to in-process check
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && strings.Contains(string(out), "unknown command") {
+			return wholeStorePreflight(ctx, dataDir)
+		}
+		// Otherwise report failure
+		return updater.PreflightResult{
+			Blockers: []string{fmt.Sprintf("%s migrate --check: %v (%s)", targetBin, err, strings.TrimSpace(string(out)))},
+		}, nil
+	}
+
+	var rep migrateCheckReport
+	if jerr := json.Unmarshal(out, &rep); jerr != nil {
+		// Output wasn't JSON or check produced text; fall back
+		return wholeStorePreflight(ctx, dataDir)
+	}
+
+	return findingsToPreflightResult(rep.Findings), nil
+}
+
+func findingsToPreflightResult(findings []migrate.Finding) updater.PreflightResult {
+	res := updater.PreflightResult{}
+	repairCommands := make(map[string]bool)
+
+	for _, f := range findings {
+		switch f.Severity {
+		case migrate.SeverityAuto:
+			res.Notes = append(res.Notes, fmt.Sprintf("%s: %s", f.Store, f.Message))
+		case migrate.SeverityRepairable, migrate.SeverityBlocking:
+			res.Blockers = append(res.Blockers, fmt.Sprintf("%s: %s", f.Store, f.Message))
+			if f.Command != "" {
+				repairCommands[f.Command] = true
+			}
+		}
+	}
+
+	if len(repairCommands) == 1 {
+		for cmd := range repairCommands {
+			res.RepairCommand = cmd
+		}
+	} else if len(repairCommands) > 1 {
+		res.RepairCommand = "warden repair all --resolve-history=live-wins"
+	}
+
+	return res
 }
 
 // backendPreflight is the read-only pre-swap check of the backend registry.

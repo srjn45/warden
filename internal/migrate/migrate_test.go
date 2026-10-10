@@ -383,3 +383,45 @@ func TestRunner_IdempotentReRun(t *testing.T) {
 	require.Equal(t, 1, l.SchemaVersion)
 	require.Len(t, l.History, 1)
 }
+
+func TestRunner_Restore(t *testing.T) {
+	dir := t.TempDir()
+	env := Env{DataDir: dir, BinaryVersion: "9.29.0"}
+	rn := NewRunner(NewRegistry())
+
+	// No in_progress: errors
+	require.ErrorIs(t, rn.Restore(env), ErrNoInterruptedMigration)
+
+	// Create snapshot dir with initial state
+	snapDir := filepath.Join(dir, "backups", "snap1")
+	require.NoError(t, os.MkdirAll(snapDir, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(snapDir, "test.txt"), []byte("original"), 0o600))
+
+	// Live data has mutated file
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "test.txt"), []byte("corrupted_mutation"), 0o600))
+
+	// Ledger records in_progress with snapshot
+	l := &schema.Ledger{
+		SchemaVersion: 1,
+		BinaryVersion: "9.28.0",
+		InProgress: &schema.InProgress{
+			Migration: "0002",
+			Step:      "step1",
+			Snapshot:  "backups/snap1",
+		},
+	}
+	require.NoError(t, schema.Save(dir, l))
+
+	// Run restore
+	require.NoError(t, rn.Restore(env))
+
+	// Verify restored file
+	content, err := os.ReadFile(filepath.Join(dir, "test.txt"))
+	require.NoError(t, err)
+	require.Equal(t, "original", string(content))
+
+	// Verify ledger in_progress is cleared
+	lAfter, err := schema.Load(dir)
+	require.NoError(t, err)
+	require.Nil(t, lAfter.InProgress)
+}

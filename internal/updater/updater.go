@@ -63,6 +63,8 @@ type Options struct {
 	ReadyTimeout time.Duration
 	// Preflight runs before anything is downloaded or swapped; nil skips it.
 	Preflight func(ctx context.Context) (PreflightResult, error)
+	// TargetPreflight runs the target binary's preflight against the live data dir; nil skips it.
+	TargetPreflight func(ctx context.Context, targetBin string) (PreflightResult, error)
 
 	Service   ServiceController // default: systemd --user / launchd
 	Prober    Prober            // default: HTTP GET HealthURL
@@ -144,6 +146,10 @@ func run(opts Options) (Result, error) {
 		return res, err
 	}
 	defer os.RemoveAll(staged.Dir)
+
+	if err := t.targetPreflight(ctx, staged.Binary); err != nil {
+		return res, err
+	}
 
 	rolledBack, err := t.apply(ctx, staged.Binary)
 	if err != nil {
