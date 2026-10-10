@@ -1989,6 +1989,13 @@ fallback, exactly like any other fail-open path; the destructive-action guard is
 never affected. Pause, resume and circuit transitions are written to the audit
 log (`fastbrain_control`, `fastbrain_circuit`, `fastbrain_cancel_abandoned`).
 
+Safety bounds worth knowing: every prompt is redacted and capped at 32 KiB by
+the engine itself; calls that ignore cancellation are abandoned after a short
+grace, and if too many such calls are still running (a wedged runner) new
+decisions fail open as `deferred` (`runner_wedged`) until they return. See
+`docs/specs/2026-10-10-fast-brain-decision-inventory-and-slos.md` §15 for the
+staged rollout, rollback and activity-summary re-enable criteria.
+
 > **Retired:** `local_llm.*` (Ollama) is no longer a warden dependency. Legacy
 > `local_llm` YAML keys still parse but are ignored, `wd doctor` / `wd setup` no
 > longer check for or install Ollama, and `wd backend suggest` is a no-op stub.

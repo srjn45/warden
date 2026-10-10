@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 )
 
 // Default per-tier ceilings. They suit a fresh native AI CLI process; callers
@@ -73,6 +74,37 @@ type engine struct {
 	tel            *telemetry
 	abandoned      atomic.Int64 // runner calls abandoned after ignoring ctx (total)
 	abandonedLive  atomic.Int64 // abandoned calls whose goroutine is still running
+}
+
+// maxAbandonedLive bounds abandoned-but-still-running runner calls. Generous:
+// it only trips when a runner is persistently wedged.
+func (e *engine) maxAbandonedLive() int {
+	if n := 4 * e.opts.MaxConcurrent; n > 8 {
+		return n
+	}
+	return 8
+}
+
+// MaxPromptBytes is the whole-prompt ceiling enforced by the engine (spec §7.2).
+const MaxPromptBytes = 32 << 10
+
+// BoundPrompt keeps a prompt within MaxPromptBytes by dropping the middle,
+// preserving the head (instructions) and the tail (the freshest content).
+func BoundPrompt(p string) string {
+	if len(p) <= MaxPromptBytes {
+		return p
+	}
+	const marker = "\n[…truncated…]\n"
+	head := MaxPromptBytes / 4
+	tail := MaxPromptBytes - head - len(marker)
+	h, t := p[:head], p[len(p)-tail:]
+	for len(h) > 0 && !utf8.ValidString(h) {
+		h = h[:len(h)-1]
+	}
+	for len(t) > 0 && !utf8.ValidString(t) {
+		t = t[1:]
+	}
+	return h + marker + t
 }
 
 // CancelStats reports runner calls abandoned because they ignored their
@@ -179,6 +211,9 @@ func (e *engine) decide(ctx context.Context, req Request) (Response, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	// Spec §7: every prompt is redacted and bounded once, here, so no caller
+	// (and no future caller) can ship a secret or an unbounded payload.
+	req.Prompt = BoundPrompt(Sanitize(req.Prompt))
 	if e.tel.paused(req.Kind) {
 		return Response{
 			Kind: req.Kind, Tier: req.Tier, Status: StatusDeferred, Error: "kind paused by operator",
@@ -189,6 +224,15 @@ func (e *engine) decide(ctx context.Context, req Request) (Response, error) {
 		return Response{
 			Kind: req.Kind, Tier: req.Tier, Status: StatusNoRunner, Error: "no runner configured for tier",
 			Admission: AdmissionInfo{Class: ClassOf(req.Kind)},
+		}, nil
+	}
+	if e.abandonedLive.Load() >= int64(e.maxAbandonedLive()) {
+		// Runners that ignore cancellation are still holding goroutines/processes:
+		// starting more would grow them without bound. Fail open (deferred) until
+		// some return; this only triggers in the extreme wedged-runner case.
+		return Response{
+			Kind: req.Kind, Tier: req.Tier, Status: StatusDeferred, Error: "runner wedged: too many abandoned calls still running",
+			Admission: AdmissionInfo{Class: ClassOf(req.Kind), Reason: ShedRunnerWedged},
 		}, nil
 	}
 	return e.adm.submit(ctx, req, func(cctx context.Context) Response {

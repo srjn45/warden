@@ -339,3 +339,81 @@ delivers §8 on top of the admission controller (#876) and runner health (#875).
 - **Recovery**: resume the kind (`wd inspect fastbrain resume <kind>`), remove it
   from `disabled_kinds`, or restart the daemon.
 - **TUI**: cockpit `F` page (status, recent decisions, `p` pause/resume per kind; config-disabled kinds are read-only).
+
+## 15. Verification, rollout, migration and rollback
+
+Task `load-leak-and-integration-verification` adds the deterministic suites
+below and closes the last two gaps they exposed.
+
+### 15.1 What is verified
+
+`internal/fastbrain/verify_test.go` (run with `-race`), `internal/poller/
+recognize_load_test.go`, and `internal/lifecycle/procgroup_unix_test.go`:
+
+| Concern | Assertion |
+|---------|-----------|
+| Context-ignoring runners | abandoned-but-running calls ≤ `max(8, 4×max_concurrent)`; beyond that new calls fail open as `deferred` / `runner_wedged` with no runner call; goroutines return to baseline once runners unblock; engine admits again |
+| Redaction / bound | runners never see credentials or `/home/<user>` paths; prompts ≤ 32 KiB (head + tail kept); identity dedup is on the redacted prompt |
+| Unchanged-pane bursts | 400 identical decisions from 25 agents → 1 runner call; poller ticks 40 sessions × 5 rounds never wait on the model and ask once |
+| Prompt change mid-decision | no cross-talk between callers; the poller drops a reading whose menu moved on |
+| Followers | any subset (leader included) may cancel; the last waiter alone cancels the runner |
+| Priority | with every non-P1 slot wedged and all queues saturated, P1 still runs; queues stay ≤ bound |
+| Shutdown | cancelling all callers empties slots, queues, runners and goroutines |
+| Subprocesses | a SIGTERM-ignoring process group (with a grandchild) is gone shortly after the deadline |
+| Recovery | provider outage opens the circuit (0 calls while open); a half-open probe closes it |
+| Restart | config pauses return; operator pauses and cache do not survive |
+| Responsiveness | `Telemetry`, `Decisions`, controls and `AdmissionSnapshot` return promptly with every slot held |
+
+### 15.2 Staged rollout
+
+The admission, runner-health, caller-contract and telemetry work is already on
+by default (no flag): it only adds bounds. Operators promote the *optional*
+behaviours in this order, each only when the previous stage's thresholds in §9
+hold for ≥ 7 days or ≥ 500 P1 decisions:
+
+1. **Observe** — deploy; watch `warden inspect fastbrain status`. Expect
+   `abandoned_live = 0`, P1 shed = 0.
+2. **Bound** — keep `fast_brain.max_concurrent` at 2; only raise it when P2
+   queue-wait p95 > 3 s with P1 healthy.
+3. **Trim** — if a kind misbehaves, `disabled_kinds` it (persistent) rather than
+   tuning timeouts; every kind has a deterministic fallback.
+4. **Providers** — enable additional free/local backends in the registry; the
+   per-runner circuit keeps a bad one from costing P1 latency.
+
+### 15.3 Migration
+
+No data migration: the engine is in-memory (cache, queues, pauses, circuit
+state) and no store schema changed. Upgrading a daemon = restart; operator
+pauses are cleared, `fast_brain.disabled_kinds` is re-applied. New config keys
+are optional; omitting them keeps the previous behaviour. The only visible
+vocabulary additions are the shed reasons `queue_full`, `queue_wait_exceeded`,
+`reserved_capacity`, `preempted`, `paused` and `runner_wedged`.
+
+### 15.4 Rollback
+
+Fastest first: (1) `warden inspect fastbrain pause <kind>` (in-memory, ≤ 24 h);
+(2) `fast_brain.disabled_kinds` for the kind(s), hot-reloaded; (3) set
+`activity.enabled: false` to stop all `summarize_activity` calls; (4) downgrade
+the binary — nothing on disk needs reverting. Rollback triggers are the
+per-phase columns in §9, plus: `abandoned_live` stays > 0 for 10 min (a runner
+is wedged — disable its backend in the registry), or any P1 `canceled` caused
+by queueing.
+
+### 15.5 Activity summaries (re-enable criteria)
+
+`summarize_activity` is the lowest-value kind (P4, cosmetic) and must be the
+first thing shed. Treat it as **off unless justified**: set `activity.enabled:
+false` (or add it to `fast_brain.disabled_kinds`) on any install that has not
+met every criterion below. Note the config default in code is still
+`activity.enabled: true` (§11 leaves flipping it to a separate decision); this
+section is the bar for *leaving it on* / turning it back on:
+
+- ≥ 7 days of telemetry with P1 p95 ≤ 8 s and P1 shed = 0 while it was on;
+- `summarize_activity` accounts for ≤ 20 % of runner calls and its shed rate
+  does not rise when agents ≥ 3 × `max_concurrent`;
+- `abandoned_live` has been 0 for the whole window and no circuit opened on a
+  healthy provider;
+- payloads carry no repo content beyond the redacted, bounded pane tail (§7).
+
+Re-enable by removing the disable, watching the first hour; roll back with
+§15.4 step 1 if any criterion regresses.
