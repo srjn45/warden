@@ -356,23 +356,28 @@ func TestHotSwapSameBackendKeepsMode(t *testing.T) {
 	require.Empty(t, res.ModeNote)
 }
 
-// No equivalent: claude "dontAsk" has no codex counterpart → config default if
-// codex accepts it, else codex's own default posture; never the claude string.
-func TestHotSwapNoEquivalentModeFallsBack(t *testing.T) {
+// claude "dontAsk" means deny unapproved tools: it must translate to codex's
+// read-only, never be folded upward to a more permissive sandbox.
+func TestHotSwapRestrictiveModeStaysRestrictive(t *testing.T) {
 	_, fr, sess, res := swapWithMode(t, "claude", "dontAsk", "codex")
 	require.NotContains(t, swapLaunchLine(t, fr, sess.ID), "dontAsk")
-	require.True(t, agentbackend.ModeAccepted(mustBackend(t, "codex"), sess.PermissionMode), sess.PermissionMode)
-	require.Contains(t, res.ModeNote, "no equivalent")
+	require.Equal(t, "read-only", sess.PermissionMode)
+	require.Contains(t, res.ModeNote, "translated")
 }
 
-// A weaker stored intent must not fall back to a skip-all default.
-func TestHotSwapFallbackNotMorePermissive(t *testing.T) {
-	lc, _, sess := newSwapLC(t)
+// A weaker stored intent is never widened: aider has nothing at most as
+// permissive as plan, so the swap is refused BEFORE the old CLI is retired.
+func TestHotSwapRefusesWhenNoSafeMode(t *testing.T) {
+	lc, fr, sess := newSwapLC(t)
 	lc.SetConfig(&FakeConfig{PermissionMode: "yolo"})
 	sess.AiCli, sess.PermissionMode = "claude", "plan"
 	_, err := lc.HotSwap(context.Background(), sess, SwapRequest{Backend: "aider", Model: "m"})
-	require.NoError(t, err)
-	require.Equal(t, "default", sess.PermissionMode, "plan has no aider equivalent; must not become yes-always")
+	require.ErrorIs(t, err, ErrNoSafeMode)
+	require.Equal(t, "plan", sess.PermissionMode)
+	require.Equal(t, "claude", sess.AiCli)
+	for _, c := range fr.Calls {
+		require.False(t, len(c.Argv) > 1 && c.Argv[1] == "kill-session", "old session must not be retired")
+	}
 }
 
 func mustBackend(t *testing.T, id string) agentbackend.Backend {

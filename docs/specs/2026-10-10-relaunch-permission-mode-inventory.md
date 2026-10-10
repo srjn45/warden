@@ -156,3 +156,26 @@ target has nothing at most as permissive. The legacy map of §3.4 lives in the
 resolver (keyed by backend id). It is not yet wired into Restore/SwitchRole/
 HotSwap, nor does it persist; those are follow-up tasks (persist only after a
 successful launch).
+
+## 6. Resolver wired into every relaunch path (task `apply-to-all-relaunch-paths`)
+
+`Lifecycle.Restore`, `SwitchRole`, `HotSwap` and resume-mode `Adopt` now all call
+`ResolveRelaunchMode`; the old `successorMode`/`fallbackMode` and the raw
+`agent.PermissionMode || config default` launches are gone. Every daemon relaunch
+(auto-restart, rate-limit resume, hibernation reopen, backend recovery, recover,
+operator restore, model switch, brain rotate, poller hot-swap) reaches one of these.
+
+- **Refuse before retiring.** `ErrNoSafeMode` is returned before the tmux session is
+  created (Restore) or killed (SwitchRole, HotSwap), so a refusal leaves a live agent running.
+- **Persist only after launch.** The corrected mode is applied to the record, and
+  `Lifecycle.OnModeNormalized` fires, only after the replacement launched (HotSwap:
+  after the liveness verify). A failed launch changes nothing and emits nothing.
+- **Durable record.** The daemon hook (`daemon.NewModeNormalizedHook`) persists the
+  mode, appends an agent event `relaunch-permission-mode`, and writes an audit record
+  `relaunch_mode_normalized` (path, from/to mode, outcome, intents, backends).
+- **Empty stored mode** launches with the configured default when the target accepts
+  it (byte-compatible with before), otherwise a rendered, never-wider mode. It is
+  audited but not persisted, so the record keeps tracking the config default.
+- **Behaviour changes** (all non-escalating): claude `auto`/`dontAsk` and other modes
+  no longer fold upward on cursor/codex/etc.; a target with no mode at most as
+  permissive as the stored intent (e.g. claude `plan` → aider) refuses the swap.

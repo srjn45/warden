@@ -1209,7 +1209,7 @@ func TestRestoreAllowsResumeWithoutStructuredTranscript(t *testing.T) {
 
 	require.Empty(t, lc.transcriptPath(sess), "Cursor has no structured transcript path")
 	require.NoError(t, lc.Restore(context.Background(), sess))
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "agent-cursor", "cursor-agent --continue -f --sandbox disabled --trust --approve-mcps", "Enter"})
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "agent-cursor", "cursor-agent --continue --sandbox disabled --trust --approve-mcps", "Enter"})
 }
 
 // SwitchRole shares Restore's transcript precondition: Cursor's resumable

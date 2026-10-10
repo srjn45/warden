@@ -1,11 +1,13 @@
 package lifecycle
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/srjn45/warden/internal/agentbackend"
+	"github.com/srjn45/warden/internal/agentstore"
 )
 
 // ErrNoSafeMode is returned by ResolveRelaunchMode when the target backend has no
@@ -211,6 +213,17 @@ func ResolveRelaunchMode(in RelaunchModeInput) (string, RelaunchRationale, error
 		intent = ri
 	}
 
+	// 2b. Nothing stored: the configured default is what launched before this
+	// resolver existed, so keep it byte-for-byte when the target accepts it and it
+	// is no more permissive than the resolved intent (the role posture may have
+	// tightened it; a stepped-down default is rendered in step 4 instead).
+	if in.StoredMode == "" && in.DefaultMode != "" && agentbackend.ModeAccepted(target, in.DefaultMode) {
+		if i, _, ok := classifyOwn(target, in.DefaultMode); ok && i.AtMost(intent) {
+			rat.AcceptedIntent, rat.Outcome = i, OutcomeDefaulted
+			return in.DefaultMode, rat, nil
+		}
+	}
+
 	// 3. Same backend, valid stored mode, no tightening: keep byte-for-byte.
 	if sameBackend && storedValid && !rat.RoleTightened {
 		rat.AcceptedIntent, rat.Outcome = intent, OutcomeKept
@@ -264,4 +277,51 @@ func intentKey(i agentbackend.PermissionIntent) agentbackend.PermissionIntent {
 		return i
 	}
 	return agentbackend.IntentSkipAll
+}
+
+// ModeNormalization describes a relaunch whose launched mode differs from the
+// stored one (or was defaulted). It is delivered to Lifecycle.OnModeNormalized
+// only after the replacement process launched successfully.
+type ModeNormalization struct {
+	AgentID string
+	// Path names the relaunch path: restore, switch-role or hot-swap.
+	Path string
+	// From is the stored mode ("" when none); To is the mode launched with.
+	From, To string
+	// Persist is true when To should replace the stored mode. It is false when
+	// nothing was stored: the default keeps tracking config rather than freezing.
+	Persist   bool
+	Rationale RelaunchRationale
+}
+
+// resolveRelaunchMode runs the shared resolver for an existing agent. stored is
+// the backend the agent's mode is expressed in, target the one it launches on.
+func (l *Lifecycle) resolveRelaunchMode(agent *agentstore.Agent, stored, target agentbackend.Backend) (string, RelaunchRationale, error) {
+	return ResolveRelaunchMode(RelaunchModeInput{
+		StoredMode:    agent.PermissionMode,
+		StoredBackend: stored,
+		Target:        target,
+		Role:          agent.Role,
+		DefaultMode:   l.config().GetDefaultPermissionMode(),
+	})
+}
+
+// commitRelaunchMode records a successful relaunch's mode: it updates the
+// in-memory record and notifies OnModeNormalized when the resolver changed or
+// defaulted the mode. It must only be called after the launch succeeded.
+func (l *Lifecycle) commitRelaunchMode(ctx context.Context, agent *agentstore.Agent, from, mode string, rat RelaunchRationale, path string) {
+	if rat.Outcome == OutcomeKept {
+		return
+	}
+	n := ModeNormalization{
+		AgentID: agent.ID, Path: path, From: from, To: mode,
+		Persist:   from != "" && mode != from || path == "hot-swap",
+		Rationale: rat,
+	}
+	if n.Persist {
+		agent.PermissionMode = mode
+	}
+	if l.OnModeNormalized != nil {
+		l.OnModeNormalized(ctx, n)
+	}
 }

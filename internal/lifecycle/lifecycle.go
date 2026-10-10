@@ -880,6 +880,13 @@ type Lifecycle struct {
 	// failure and notify the operator. Called from the seeding goroutine; nil in
 	// tests / `wd switch` (the outcome is then only logged).
 	OnSeed func(SeedOutcome)
+	// OnModeNormalized, when set, is called after an existing agent's relaunch
+	// (Restore, SwitchRole, HotSwap) has SUCCESSFULLY launched with a permission
+	// mode that differs from the stored one or was defaulted (see
+	// ResolveRelaunchMode). The daemon persists the corrected mode (when
+	// ModeNormalization.Persist) and records a durable audit event. It is never
+	// called for a failed launch. nil in tests / `wd switch`.
+	OnModeNormalized func(ctx context.Context, n ModeNormalization)
 	// ExitsDir is a shared dir (the daemon sets it, e.g. ~/.warden/exits) where
 	// each agent's shell records claude's exit status, keyed by agent id. Empty
 	// (tests) disables exit capture — agents then fall back to orphaned-only
@@ -2308,11 +2315,15 @@ func (l *Lifecycle) Restore(ctx context.Context, agent *agentstore.Agent) error 
 	if b.Capabilities().StructuredTranscript && l.transcriptPath(agent) == "" {
 		return ErrNoTranscript
 	}
-	mode := agent.PermissionMode
-	if mode == "" {
-		mode = l.config().GetDefaultPermissionMode()
+	mode, rat, err := l.resolveRelaunchMode(agent, b, b)
+	if err != nil {
+		return err
 	}
-	return l.resumeInTmux(ctx, b, agent.ID, agent.Workdir, agent.AICLISessionID, agent.Model, mode, launchNetwork(agent))
+	if err := l.resumeInTmux(ctx, b, agent.ID, agent.Workdir, agent.AICLISessionID, agent.Model, mode, launchNetwork(agent)); err != nil {
+		return err
+	}
+	l.commitRelaunchMode(ctx, agent, agent.PermissionMode, mode, rat, "restore")
+	return nil
 }
 
 // SwitchRole re-injects the persona for agent.Role (already persisted by the caller
@@ -2341,6 +2352,11 @@ func (l *Lifecycle) SwitchRole(ctx context.Context, agent *agentstore.Agent) err
 	if b.Capabilities().StructuredTranscript && l.transcriptPath(agent) == "" {
 		return ErrNoTranscript
 	}
+	// Resolve before retiring the live session so ErrNoSafeMode leaves it running.
+	mode, rat, err := l.resolveRelaunchMode(agent, b, b)
+	if err != nil {
+		return err
+	}
 	// Kill the live tmux session (if any) so the relaunch below re-creates it. Unlike
 	// Restore we do NOT refuse a running agent — switching a role deliberately
 	// relaunches it.
@@ -2362,10 +2378,6 @@ func (l *Lifecycle) SwitchRole(ctx context.Context, agent *agentstore.Agent) err
 	); err != nil {
 		slog.Warn("switch-role: context injection failed", "agent", agent.ID, "backend", b.ID(), "err", err)
 	}
-	mode := agent.PermissionMode
-	if mode == "" {
-		mode = l.config().GetDefaultPermissionMode()
-	}
 	hints := l.systemPromptHints(ctx, b, agent.ID,
 		hintSpec{persona != "", persona},
 		hintSpec{l.config().GetPipelineHint(), pipelineHintGuidance},
@@ -2373,7 +2385,11 @@ func (l *Lifecycle) SwitchRole(ctx context.Context, agent *agentstore.Agent) err
 		hintSpec{l.config().GetGitConventions(), gitConventionsGuidance},
 		hintSpec{l.config().GetMemoryInject(), mem},
 		hintSpec{peers != "", peers})
-	return l.resumeInTmuxWithHints(ctx, b, agent.ID, agent.Workdir, agent.AICLISessionID, agent.Model, mode, launchNetwork(agent), hints)
+	if err := l.resumeInTmuxWithHints(ctx, b, agent.ID, agent.Workdir, agent.AICLISessionID, agent.Model, mode, launchNetwork(agent), hints); err != nil {
+		return err
+	}
+	l.commitRelaunchMode(ctx, agent, agent.PermissionMode, mode, rat, "switch-role")
+	return nil
 }
 
 // AdoptRequest carries the resolved inputs for Adopt. TmuxSession == "" selects
@@ -2430,7 +2446,14 @@ func (l *Lifecycle) Adopt(ctx context.Context, req AdoptRequest) (*agentstore.Ag
 		agent.Status = store.StatusSpawning
 		// Adopt registers a Claude session warden did not spawn, so resume always
 		// goes through the default (Claude) backend.
-		if err := l.resumeInTmux(ctx, l.backend, id, req.Cwd, aicliSessionID, req.Model, l.config().GetDefaultPermissionMode(), launchNetwork(agent)); err != nil {
+		// The config default is Claude vocabulary; resolve it for the backend actually
+		// launched. The record is unpersisted here (the caller stores it), so there is
+		// nothing to normalize or audit — only a mode that is safe to launch with.
+		mode, _, rerr := l.resolveRelaunchMode(agent, l.backend, l.backend)
+		if rerr != nil {
+			return nil, rerr
+		}
+		if err := l.resumeInTmux(ctx, l.backend, id, req.Cwd, aicliSessionID, req.Model, mode, launchNetwork(agent)); err != nil {
 			return nil, err
 		}
 		return agent, nil
