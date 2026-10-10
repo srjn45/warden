@@ -35,7 +35,7 @@ func TestLoadAbsentFileReturnsDefaults(t *testing.T) {
 	require.True(t, c.Pipeline.Hint)
 	require.Equal(t, []string{"main", "master"}, c.Git.ProtectedBranches)
 	require.True(t, c.Git.ProtectDefaultBranch)
-	require.True(t, c.Activity.Enabled)
+	require.False(t, c.Activity.Enabled)
 	require.Equal(t, 10*time.Second, c.FastBrainFastTimeoutDuration())
 	require.Equal(t, 20*time.Second, c.FastBrainThinkingTimeoutDuration())
 	require.Equal(t, 2, c.FastBrainMaxConcurrent())
