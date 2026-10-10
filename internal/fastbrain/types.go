@@ -97,8 +97,26 @@ type Response struct {
 	Rationale  string  // from the model's optional "rationale" field
 	Status     Status
 	Error      string // human-readable cause when Status != StatusOK
-	Duration   time.Duration
+	// Duration is end-to-end: queue wait plus run time.
+	Duration time.Duration
+	// Selection records which runner candidate served the call and why others
+	// were rejected; zero for runners that are not pool-backed.
+	Selection Selection
+	// Cancel records how a runner stop request ended; CancelNone when the
+	// runner finished without being asked to stop.
+	Cancel CancelOutcome
+	// Admission records how the admission controller treated the call.
+	Admission AdmissionInfo
 }
+
+// CancelOutcome describes how the runner responded when its context ended.
+type CancelOutcome string
+
+const (
+	CancelNone         CancelOutcome = ""
+	CancelAcknowledged CancelOutcome = "acknowledged" // runner returned within the grace period
+	CancelAbandoned    CancelOutcome = "abandoned"    // runner ignored ctx; engine moved on (bounded fallback)
+)
 
 // OK reports whether the decision completed with valid JSON output.
 func (r Response) OK() bool { return r.Status == StatusOK }

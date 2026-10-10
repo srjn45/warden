@@ -124,6 +124,9 @@ type controlPaneModel struct {
 	lastBugScan        time.Time
 	backendsState      client.BackendsState           // agent-backend registry snapshot (modeBackends)
 	backendCursor      int                            // focused row in the Backends page
+	fbTel              fastbrain.TelemetrySnapshot    // Fast-Brain telemetry snapshot (modeFastBrain)
+	fbDecisions        []fastbrain.Decision           // recent decision trace (modeFastBrain)
+	fbCursor           int                            // focused kind row in the FastBrain page
 	plans              map[string][]*planstore.Plan   // projectID → plans
 	remotePlans        map[string][]plansync.Envelope // projectID → Hub Discover results
 	openedPlan         string
@@ -730,6 +733,9 @@ func (m controlPaneModel) fleetRefreshCmds() []tea.Cmd {
 	if m.mode == modeInspector {
 		cmds = append(cmds, contextCmd(m.api), messagesCmd(m.api))
 	}
+	if m.mode == modeFastBrain {
+		cmds = append(cmds, fastBrainCmd(m.api))
+	}
 	if m.mode == modeBackends {
 		cmds = append(cmds, backendsCmd(m.api)) // keep the table + limited-until countdown fresh
 	}
@@ -850,6 +856,24 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = verb + " " + msg.runID
 		}
 		return m, autopilotCmd(m.api)
+	case fastBrainMsg:
+		if msg.err != nil {
+			if msg.action {
+				m.status = "fastbrain: " + msg.err.Error()
+			}
+			return m, nil
+		}
+		m.fbTel, m.fbDecisions = msg.tel, msg.decisions
+		if m.fbCursor >= len(m.fbTel.Controls) {
+			m.fbCursor = len(m.fbTel.Controls) - 1
+		}
+		if m.fbCursor < 0 {
+			m.fbCursor = 0
+		}
+		if msg.action {
+			m.status = ""
+		}
+		return m, nil
 	case backendsMsg:
 		if msg.err != nil {
 			// Surface an action's failure (a rejected default, a bad tier); on a
@@ -1785,6 +1809,41 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case modeFastBrain:
+		switch msg.String() {
+		case "q", "ctrl+c":
+			return m, m.quitCmd()
+		case "esc", "F":
+			m.mode = modeNormal
+			m.status = ""
+			return m, nil
+		case "down", "j":
+			if m.fbCursor < len(m.fbTel.Controls)-1 {
+				m.fbCursor++
+			}
+		case "up", "k":
+			if m.fbCursor > 0 {
+				m.fbCursor--
+			}
+		case "r":
+			return m, fastBrainCmd(m.api)
+		case "p", "enter", " ":
+			c, ok := m.fbRow()
+			if !ok {
+				return m, nil
+			}
+			if c.Paused && c.Source == "config" {
+				m.status = string(c.Kind) + " is disabled in config (fast_brain.disabled_kinds)"
+				return m, nil
+			}
+			verb := "pausing "
+			if c.Paused {
+				verb = "resuming "
+			}
+			m.status = verb + string(c.Kind)
+			return m, fastBrainControlCmd(m.api, string(c.Kind), !c.Paused)
+		}
+		return m, nil
 	case modeBackends:
 		switch msg.String() {
 		case "q", "ctrl+c":
@@ -2357,6 +2416,11 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.vp.SetContent(m.bugReviewBody())
 		m.vp.GotoTop()
 		return m, nil
+	case "F":
+		m.mode = modeFastBrain
+		m.fbCursor = 0
+		m.status = "loading fast-brain…"
+		return m, fastBrainCmd(m.api)
 	case "b":
 		// Open the agent-backend registry page and kick off an immediate load (the
 		// tick keeps it fresh — including the limited-until countdown — while open).
@@ -2457,6 +2521,14 @@ func (m controlPaneModel) View() string {
 	if m.mode == modeApprovals {
 		body := titleBox("Approvals", approvalsBody(recognizedApprovals(m.approvals), m.apprCursor, m.w-2), m.w, bodyH)
 		return header + "\n" + body + "\n" + stMuted.Render("1-9 answer · tab next · p/esc back · q quit")
+	}
+	if m.mode == modeFastBrain {
+		body := titleBox("Fast-Brain", fastBrainBody(m.fbTel, m.fbDecisions, m.fbCursor), m.w, bodyH)
+		footer := stMuted.Render("↑/↓ move · p pause/resume · r refresh · F/esc back")
+		if m.status != "" {
+			footer = stStatus.Render(m.status)
+		}
+		return header + "\n" + body + "\n" + footer
 	}
 	if m.mode == modeBackends {
 		body := titleBox("Backends", backendsBody(m.backendsState, m.backendCursor), m.w, bodyH)

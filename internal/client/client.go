@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/srjn45/warden/internal/fastbrain"
 	"io"
 	"net/http"
 	"net/url"
@@ -2378,6 +2379,42 @@ func (c *Client) ForgetAllKnownPrompts(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	return resp.Removed, nil
+}
+
+// FastBrainMetrics fetches the redacted internal-decision telemetry
+// (GET /fastbrain/metrics).
+func (c *Client) FastBrainMetrics(ctx context.Context) (fastbrain.TelemetrySnapshot, error) {
+	var out fastbrain.TelemetrySnapshot
+	err := c.do(ctx, http.MethodGet, "/fastbrain/metrics", nil, &out)
+	return out, err
+}
+
+// FastBrainDecisions fetches recent redacted decision traces, newest first.
+func (c *Client) FastBrainDecisions(ctx context.Context, limit int) ([]fastbrain.Decision, error) {
+	var resp struct {
+		Decisions []fastbrain.Decision `json:"decisions"`
+	}
+	path := "/fastbrain/decisions"
+	if limit > 0 {
+		path += "?limit=" + strconv.Itoa(limit)
+	}
+	if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Decisions, nil
+}
+
+// SetFastBrainControl pauses (ttlSeconds 0 = daemon default) or resumes one
+// decision kind and returns every kind's control state.
+func (c *Client) SetFastBrainControl(ctx context.Context, kind string, paused bool, ttlSeconds int) ([]fastbrain.KindControl, error) {
+	var resp struct {
+		Controls []fastbrain.KindControl `json:"controls"`
+	}
+	body := map[string]any{"paused": paused, "ttl_seconds": ttlSeconds}
+	if err := c.do(ctx, http.MethodPut, "/fastbrain/controls/"+url.PathEscape(kind), body, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Controls, nil
 }
 
 // StoreHealth mirrors GET /api/v1/store/health: the daemon's verdict on whether

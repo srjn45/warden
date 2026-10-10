@@ -173,6 +173,11 @@ Complete command tree:
   warden inspect audit                 Show recent audited actions, newest last
   warden inspect export                Serialize agent session metadata to JSON on stdout
   warden inspect import                Insert agent session metadata from a JSON dump on stdin
+  warden inspect fastbrain             Fast-Brain/Thinking-Brain telemetry, traces and per-kind pause/resume
+  warden inspect fastbrain decisions   Show recent redacted decision traces
+  warden inspect fastbrain pause       Pause one decision kind (fails open, no model call)
+  warden inspect fastbrain resume      Resume a paused decision kind
+  warden inspect fastbrain status      Show Fast-Brain/Thinking-Brain telemetry
   warden inspect repair                Offline, backup-first repair tools
   warden inspect repair agents         Verify or repair the agent store offline, backup-first
   warden inspect repair all            Rebuild all ScrivaDB stores offline using live-wins record resolution

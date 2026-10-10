@@ -8,6 +8,7 @@ import (
 	"github.com/srjn45/warden/internal/backendusage"
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/digest"
+	"github.com/srjn45/warden/internal/fastbrain"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/projectstore"
@@ -67,6 +68,9 @@ type api interface {
 	PlanAssess(ctx context.Context, projectID, planID string) (*planstore.Plan, error)
 	PlanRun(ctx context.Context, projectID, planID string, req client.PlanRunRequest) error
 	PlansSyncDiscover(ctx context.Context, req client.PlanSyncRequest) (*client.PlanSyncEnvelopes, error)
+	FastBrainMetrics(ctx context.Context) (fastbrain.TelemetrySnapshot, error)
+	FastBrainDecisions(ctx context.Context, limit int) ([]fastbrain.Decision, error)
+	SetFastBrainControl(ctx context.Context, kind string, paused bool, ttlSeconds int) ([]fastbrain.KindControl, error)
 }
 
 type mode int
@@ -97,6 +101,7 @@ const (
 	modeDetails               // scrollable full detail view for the selected agent
 	modeEvents                // the selected agent's event log (opened from modeDetails)
 	modeBackends              // agent-backend registry page (list, tier, default, enabled)
+	modeFastBrain             // `F`: Fast-Brain telemetry + per-kind pause/resume page
 	modePlanRunMode           // `r` on a plan: execution mode picker
 	modePlanDetail            // in-pane full plan detail view
 	modeConfirmUpdate         // y/N confirm before applying warden update + hot-reload

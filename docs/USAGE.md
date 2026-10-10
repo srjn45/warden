@@ -1968,6 +1968,34 @@ message to a path-derived Conventional-Commits subject — so a slow or unavaila
 backend never blocks an agent. Fast-Brain is never used to decide code changes or
 rewrite the operator's intent.
 
+**Observability & operator controls.** `warden inspect fastbrain status` (also
+`GET /api/v1/fastbrain/metrics`, MCP `fastbrain_status`, and the **Metrics** tab
+in the web GUI, and the cockpit's `F` page) shows redacted, bounded-label telemetry: attempts and outcomes
+per decision kind and tier (fast vs thinking), cache hits, coalesced calls,
+queue depth and delay, timeouts, cancellation acknowledgement, circuit state,
+runner health and selection. `warden inspect fastbrain decisions` lists the last
+200 decisions (kind, outcome, final action, provider, timings) — never prompts,
+paths, terminal content or agent IDs. To stop one kind of call quickly:
+
+```bash
+warden inspect fastbrain pause summarize_activity --for 30m   # fails open, no runner call
+warden inspect fastbrain resume summarize_activity
+```
+
+Pauses default to 1 h and are capped at 24 h; they are in-memory, so a daemon
+restart clears them. For a persistent switch set `fast_brain.disabled_kinds`
+(list of kind names) in config. A paused/disabled kind returns its deterministic
+fallback, exactly like any other fail-open path; the destructive-action guard is
+never affected. Pause, resume and circuit transitions are written to the audit
+log (`fastbrain_control`, `fastbrain_circuit`, `fastbrain_cancel_abandoned`).
+
+Safety bounds worth knowing: every prompt is redacted and capped at 32 KiB by
+the engine itself; calls that ignore cancellation are abandoned after a short
+grace, and if too many such calls are still running (a wedged runner) new
+decisions fail open as `deferred` (`runner_wedged`) until they return. See
+`docs/specs/2026-10-10-fast-brain-decision-inventory-and-slos.md` §15 for the
+staged rollout, rollback and activity-summary re-enable criteria.
+
 > **Retired:** `local_llm.*` (Ollama) is no longer a warden dependency. Legacy
 > `local_llm` YAML keys still parse but are ignored, `wd doctor` / `wd setup` no
 > longer check for or install Ollama, and `wd backend suggest` is a no-op stub.
@@ -2220,7 +2248,8 @@ restart list; everything else takes effect on save.
 | `scheduler_enabled` | `false` | Enable the native cron/at scheduler (`warden schedule create/list/show/run/edit/enable/disable/delete`). Off → the schedule routes 403 and the reconcile loop is a no-op |
 | `branch_track.enabled` | `false` | Enable the per-agent branch monitor (`warden workspace branches`): CI status + standing vs `origin/main`, with non-blocking inbox/desktop alerts |
 | `branch_track.interval` | `2m` | Poll interval for the branch monitor when `branch_track.enabled` is on |
-| `activity.enabled` | `true` | Enable cosmetic model-generated activity badges. Set `false` to prevent all `summarize_activity` Fast-Brain calls; agent status, approvals, prompt recognition, and Autopilot are unaffected. |
+| `fast_brain.disabled_kinds` | `[]` | Decision kinds (e.g. `summarize_activity`) that never reach a runner; they fail open to their deterministic fallback. Never expires; see §Fast-Brain observability. |
+| `activity.enabled` | `false` | Enable cosmetic model-generated activity badges (off by default). Set `true` to opt in; while `false` there are no `summarize_activity` Fast-Brain calls; agent status, approvals, prompt recognition, and Autopilot are unaffected. |
 | `activity.interval` | `15s` | Minimum gap between live activity-badge refreshes per agent (the 3-5 word status badge on each TUI agent row). Refreshes only while the agent's pane is changing, so idle agents cost no Fast-Brain calls; a failed/empty decision keeps the previous badge. |
 | `fast_brain.fast_timeout` | `10s` | Ceiling for ordinary Fast-Brain native-CLI decisions. |
 | `fast_brain.thinking_timeout` | `20s` | Ceiling for Fast-Brain reasoning and prompt-recognition decisions. |

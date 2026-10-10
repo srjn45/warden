@@ -11,6 +11,7 @@ import {
   type AgentSeries, type TotalSeries, type ContextPoint,
 } from '../lib/metricsSeries';
 import { axis, agentColor, contextStateColor, featureColor, useUplot } from '../lib/uplot';
+import FastBrainCard from './FastBrainCard';
 import ResourcesPanel from './ResourcesPanel';
 
 // MetricsTab is a responsive grid of self-contained uPlot chart cards (spec
@@ -101,6 +102,7 @@ export default function MetricsTab({ contextHistory }: { contextHistory: Context
         onWin={setSavingsWin}
       />
       <SavingsBreakdownCard summary={savings} err={savingsErr} />
+      <FastBrainCard />
       <ResourcesCard />
     </div>
   );

@@ -45,11 +45,9 @@ type LLMProposer struct {
 // entries tagged with this batch's provenance and today's date.
 func (p LLMProposer) Propose(ctx context.Context, in ProposeInput) ([]memory.Entry, error) {
 	if p.FastBrain != nil {
-		resp, err := p.FastBrain.Decide(ctx, fastbrain.Request{
-			Kind:   fastbrain.KindCurateExtract,
-			Tier:   fastbrain.TierThinking,
-			Prompt: fastbrain.CurateExtractPrompt(extractionContext(in)),
-		})
+		resp, err := p.FastBrain.Decide(ctx, fastbrain.NewRequest(
+			fastbrain.KindCurateExtract, fastbrain.TierThinking,
+			fastbrain.CurateExtractPrompt(extractionContext(in)), ""))
 		if err != nil || !resp.OK() {
 			return nil, nil // fail open: skip this pass
 		}

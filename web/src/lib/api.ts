@@ -1,3 +1,4 @@
+import type { FBControl, FBDecision, FBTelemetry } from './fastbrain';
 import type { Session, ApprovalView, Pipeline, Digest, ContextEntry, Message, Conflict } from './types';
 import type { ProjectTree } from './tree';
 import type { Verdict, PressureStatus } from './pressure';
@@ -230,6 +231,32 @@ export async function getSavings(sinceISO?: string, bucket?: 'day' | 'hour'): Pr
 // Metrics tab turns into an enable hint.
 export async function getSpend(): Promise<SpendReport> {
   return parse<SpendReport>(await apiFetch('/spend'));
+}
+
+// getFastBrainMetrics returns the redacted Fast-Brain / Thinking-Brain telemetry
+// snapshot (GET /fastbrain/metrics): bounded-label counters, latency histograms,
+// queue depth, runner health and per-kind operator controls.
+export async function getFastBrainMetrics(): Promise<FBTelemetry> {
+  return parse<FBTelemetry>(await apiFetch('/fastbrain/metrics'));
+}
+
+// listFastBrainDecisions returns the recent redacted decision trace, newest first.
+export async function listFastBrainDecisions(limit = 50): Promise<FBDecision[]> {
+  const data = await parse<{ decisions: FBDecision[] | null }>(
+    await apiFetch(`/fastbrain/decisions?limit=${limit}`),
+  );
+  return data.decisions ?? [];
+}
+
+// setFastBrainControl pauses/resumes one decision kind (PUT
+// /fastbrain/controls/{kind}). ttlSeconds bounds a pause; omitted = daemon default.
+export async function setFastBrainControl(kind: string, paused: boolean, ttlSeconds?: number): Promise<FBControl[]> {
+  const data = await parse<{ controls: FBControl[] | null }>(await apiFetch(`/fastbrain/controls/${encodeURIComponent(kind)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ paused, ttl_seconds: ttlSeconds ?? 0 }),
+  }));
+  return data.controls ?? [];
 }
 
 export async function listApprovals(): Promise<{ enabled: boolean; approvals: ApprovalView[] }> {

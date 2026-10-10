@@ -189,3 +189,31 @@ so subscription quota isn't wasted. Candidates fall into two classes:
 Class A is tried before Class B. The **10% safety floor** means a nearly
 exhausted pool is never prioritized just because it resets soon — that would
 only cause an immediate rate-limit stall.
+
+## Fast-Brain metrics and controls
+
+Everything warden thinks internally (classification, naming, commit messages,
+narration) runs on Fast-Brain and is observable without exposing content.
+
+```bash
+warden inspect fastbrain status          # attempts/outcomes per kind and tier, queue, cache, circuits, runners
+warden inspect fastbrain decisions       # last 200 decisions, newest first
+warden inspect fastbrain pause summarize_activity --for 30m
+warden inspect fastbrain resume summarize_activity
+```
+
+The cockpit's `F` page shows the summary, circuits, per-kind controls (`p` pause/resume) and recent decisions. The **Metrics** tab of the web GUI shows the same data: separate Fast-brain and
+Thinking-brain views with outcome bars and latency percentiles, circuit badges,
+per-kind pause buttons and a recent-decisions table.
+
+- **Privacy:** labels are limited to decision kind, tier, outcome, provider, AI
+  CLI and model. Prompts, terminal content, paths and agent/session IDs never
+  appear in metrics, the decision trace, audit entries or cache keys.
+- **Controls fail open:** a paused kind returns its deterministic fallback with
+  reason `paused` and never invokes a runner. Pauses default to 1 hour and are
+  capped at 24 hours; a daemon restart clears them. Each pause/resume and each
+  provider circuit transition is written to the audit log.
+- **Persistent disable:** list kinds under `fast_brain.disabled_kinds` in the
+  config file; these never expire. Activity summaries remain disabled by default.
+- **Recovery:** `resume` the kind, remove it from `disabled_kinds`, or restart
+  the daemon.

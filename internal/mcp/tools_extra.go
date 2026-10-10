@@ -75,6 +75,14 @@ type forgetKnownArgs struct {
 	ID  string `json:"id,omitempty" jsonschema:"the known-prompt id from list_known_prompts"`
 	All bool   `json:"all,omitempty" jsonschema:"forget every learned prompt shape instead of one"`
 }
+type fastBrainStatusArgs struct {
+	Decisions int `json:"decisions,omitempty" jsonschema:"also return this many recent redacted decision traces (0 = none)"`
+}
+type fastBrainControlArgs struct {
+	Kind       string `json:"kind" jsonschema:"decision kind to pause or resume (e.g. summarize_activity); see the controls list in fastbrain_status"`
+	Paused     bool   `json:"paused" jsonschema:"true pauses the kind (fails open, no model call); false resumes it"`
+	TTLSeconds int    `json:"ttl_seconds,omitempty" jsonschema:"pause duration in seconds (0 = default 1h, capped at 24h)"`
+}
 type digestArgs struct {
 	Ticket string `json:"ticket" jsonschema:"the agent's ticket / session id to summarize"`
 }
@@ -664,6 +672,40 @@ func (s *Server) registerExtraTools() {
 			return textResult("error: " + err.Error()), nil, nil
 		}
 		return textResult("forgot " + id), nil, nil
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "fastbrain_status",
+		Description: "Redacted Fast-Brain/Thinking-Brain telemetry: per decision kind+tier attempts, outcomes, cache/coalesce/shed counters, queue-wait and run-time histograms; per provider/model runner stats; runner circuit state; per-class queue depth; per-kind operator pauses. Labels are bounded (kind, tier, outcome, provider, model) — never prompts, ids or paths. Set decisions=N to include recent redacted traces. Read-only.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a fastBrainStatusArgs) (*mcpsdk.CallToolResult, any, error) {
+		snap, err := s.cl.FastBrainMetrics(ctx)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		out := map[string]any{"metrics": snap}
+		if a.Decisions > 0 {
+			ds, err := s.cl.FastBrainDecisions(ctx, a.Decisions)
+			if err != nil {
+				return textResult("error: " + err.Error()), nil, nil
+			}
+			out["decisions"] = ds
+		}
+		return jsonResultAny(out)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "fastbrain_control",
+		Description: "Pause or resume ONE internal decision kind. A paused kind fails open (deferred/escalate) without calling a model; the pause defaults to 1h, is capped at 24h and is cleared by a daemon restart. Audit-logged. Never touches the destructive-action guard.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a fastBrainControlArgs) (*mcpsdk.CallToolResult, any, error) {
+		kind := strings.TrimSpace(a.Kind)
+		if kind == "" {
+			return textResult("error: kind is required"), nil, nil
+		}
+		controls, err := s.cl.SetFastBrainControl(ctx, kind, a.Paused, a.TTLSeconds)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(map[string]any{"controls": controls})
 	})
 
 	// --- backend registry (docs/specs/2026-08-06-backend-registry.md) ---

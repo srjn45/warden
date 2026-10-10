@@ -2335,6 +2335,92 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/MetricsSample" }
 
+  /api/v1/fastbrain/metrics:
+    get:
+      operationId: getFastBrainMetrics
+      tags: [Observability]
+      summary: Redacted Fast-Brain / Thinking-Brain telemetry
+      description: >
+        Content-free internal-decision telemetry: per (kind, tier) attempts,
+        outcomes, cache/coalesce/shed counters and queue-wait / run-time
+        histograms; per (provider, model) runner stats; circuit state; per-class
+        queue depth; per-kind operator pauses. Labels are bounded to decision
+        kind, tier, outcome, provider (AI CLI) and model - never prompts, ids,
+        paths or raw errors. Empty when the daemon engine is not wired.
+      responses:
+        "200":
+          description: Telemetry snapshot
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FastBrainTelemetry" }
+
+  /api/v1/fastbrain/decisions:
+    get:
+      operationId: listFastBrainDecisions
+      tags: [Observability]
+      summary: Recent redacted Fast-Brain decision traces
+      description: >
+        A bounded in-memory ring (newest first) of redacted decision traces:
+        kind, tier, outcome, final action, provider/model, queue wait, run time,
+        coalesce/cache/fallback flags and the runner selection trail. Cleared on
+        daemon restart.
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Recent decisions
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [decisions]
+                properties:
+                  decisions:
+                    type: array
+                    items: { $ref: "#/components/schemas/FastBrainDecision" }
+
+  /api/v1/fastbrain/controls/{kind}:
+    put:
+      operationId: setFastBrainControl
+      tags: [Observability]
+      summary: Pause or resume one decision kind
+      description: >
+        Pausing a kind makes its calls fail open (StatusDeferred, reason
+        "paused") without invoking any runner. A pause defaults to 1h and is
+        capped at 24h; resuming clears it. Audit-logged. Never changes the
+        destructive-action guard.
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [paused]
+              properties:
+                paused: { type: boolean }
+                ttl_seconds: { type: integer, description: "Pause duration; 0 = default 1h, capped at 24h" }
+      responses:
+        "200":
+          description: Updated controls for every kind
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [controls]
+                properties:
+                  controls:
+                    type: array
+                    items: { $ref: "#/components/schemas/FastBrainControl" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /api/v1/metrics/history:
     get:
       operationId: getMetricsHistory
@@ -5969,6 +6055,30 @@ components:
         system: { type: object }
         agents: { type: array, items: { type: object } }
         daemon: { type: object }
+
+    FastBrainTelemetry:
+      x-go-type: fastbrain.TelemetrySnapshot
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/fastbrain
+        name: fastbrain
+      type: object
+      description: Redacted engine telemetry snapshot.
+
+    FastBrainDecision:
+      x-go-type: fastbrain.Decision
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/fastbrain
+        name: fastbrain
+      type: object
+      description: One redacted decision trace.
+
+    FastBrainControl:
+      x-go-type: fastbrain.KindControl
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/fastbrain
+        name: fastbrain
+      type: object
+      description: Operator control state of one decision kind.
 
     MetricsHistoryResponse:
       type: object

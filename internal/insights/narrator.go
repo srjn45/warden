@@ -40,11 +40,9 @@ func NarrateWithBrain(ctx context.Context, eng fastbrain.Engine, r Report) strin
 	if eng == nil {
 		return floor
 	}
-	resp, err := eng.Decide(ctx, fastbrain.Request{
-		Kind:   fastbrain.KindSummarizeActivity,
-		Tier:   fastbrain.TierFast,
-		Prompt: fastbrain.SummarizeActivityPrompt(narratorFacts(r)),
-	})
+	resp, err := eng.Decide(ctx, fastbrain.NewRequest(
+		fastbrain.KindSummarizeActivity, fastbrain.TierFast,
+		fastbrain.SummarizeActivityPrompt(narratorFacts(r)), ""))
 	if err != nil || !resp.OK() {
 		return floor
 	}

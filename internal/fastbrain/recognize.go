@@ -75,13 +75,22 @@ func recognizePrompt(pane string) string {
 func RecognizePrompt(ctx context.Context, e interface {
 	Decide(ctx context.Context, req Request) (Response, error)
 }, pane string) (Recognition, bool, error) {
+	return RecognizePromptFor(ctx, e, pane, "")
+}
+
+// RecognizePromptFor is RecognizePrompt with the owning agent's id, so the
+// admission controller's per-agent fairness sees the call. The id is only a
+// fairness bucket; it is never logged or used as a metric label.
+func RecognizePromptFor(ctx context.Context, e interface {
+	Decide(ctx context.Context, req Request) (Response, error)
+}, pane, agentID string) (Recognition, bool, error) {
 	if e == nil {
 		return Recognition{}, false, fmt.Errorf("%w: nil engine", ErrInvalidRequest)
 	}
 	if strings.TrimSpace(pane) == "" {
 		return Recognition{}, false, nil
 	}
-	resp, err := e.Decide(ctx, Request{Kind: KindRecognizePrompt, Tier: TierThinking, Prompt: recognizePrompt(pane)})
+	resp, err := e.Decide(ctx, NewRequest(KindRecognizePrompt, TierThinking, recognizePrompt(pane), agentID))
 	if err != nil {
 		return Recognition{}, false, err
 	}
