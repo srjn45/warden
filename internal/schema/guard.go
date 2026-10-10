@@ -104,7 +104,7 @@ func Check(dataDir string, l *Ledger) error {
 }
 
 func check(dataDir string, l *Ledger, binary, minSchema int) error {
-	v := Decide(l.SchemaVersion, binary, minSchema, l.InProgress != nil)
+	v := Decide(l.SchemaVersion, binary, minSchema, l.MigrationInterrupted())
 	if v == VerdictStart {
 		return nil
 	}

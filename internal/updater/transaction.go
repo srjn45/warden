@@ -476,6 +476,17 @@ func (t *txn) apply(ctx context.Context, staged string) (rolledBack bool, err er
 			return fail(fmt.Errorf("migrate: %w", err))
 		}
 	}
+	// The snapshot marker has done its job once migrations finish: the new
+	// binary must not boot onto a journal entry. Rollback uses snapDir, not
+	// the ledger.
+	if t.opts.DataDir != "" {
+		if l, err := schema.Load(t.opts.DataDir); err == nil && l.InProgress != nil && !l.MigrationInterrupted() {
+			l.InProgress = nil
+			if err := schema.Save(t.opts.DataDir, l); err != nil {
+				return fail(fmt.Errorf("clear snapshot marker: %w", err))
+			}
+		}
+	}
 	wantSchema := schemaAny
 	if t.opts.TargetSchema != nil {
 		v, err := t.opts.TargetSchema(ctx, t.opts.InstallBin)
