@@ -216,3 +216,43 @@ func TestSSEWatchStreamContractEndToEnd(t *testing.T) {
 	require.Len(t, m.sessions, 1, "fleet is retained across degraded error frame")
 	require.Equal(t, "s-live", m.sessions[0].ID)
 }
+
+// TestSSEInterleavedFramesKeepSelectionTerminalsAndPanes replays a hostile
+// interleaving of session frames, degraded errors, transport drops, and a
+// reconnect, asserting the selected agent, the opened agent pane, and the
+// terminal row are never lost and nothing is spawned.
+func TestSSEInterleavedFramesKeepSelectionTerminalsAndPanes(t *testing.T) {
+	f := &fakeAPI{}
+	m := terminalProjectPane(f, "%1")
+	idx := cursorOn(m, func(it item) bool { return it.session != nil && it.session.ID == "a1" })
+	require.GreaterOrEqual(t, idx, 0)
+	m.cursor = idx
+	m.openedAgent = "a1"
+
+	agentFrame := func() sseSnapshotMsg {
+		a := liveAgent("a1", "/alpha")
+		a.ProjectID = "proj-1"
+		return sseSnapshotMsg{sessions: []*store.Session{a}}
+	}
+	steps := []sseSnapshotMsg{
+		agentFrame(),
+		{err: &client.StreamError{Message: "degraded", Degraded: true}},
+		{err: errors.New("unexpected EOF")},
+		agentFrame(),                 // reconnect delivers a fresh agents-only frame
+		{err: &client.StreamError{}}, // malformed error frame
+		{err: client.ErrDaemonDown},
+		agentFrame(),
+	}
+	for i, st := range steps {
+		nm, _ := m.Update(st)
+		m = nm.(controlPaneModel)
+		ids := itemSessionIDs(m.items())
+		require.Contains(t, ids, "a1", "step %d: agent row", i)
+		require.Contains(t, ids, "t1", "step %d: terminal row", i)
+		require.Equal(t, "a1", m.selectedID(), "step %d: selection", i)
+		require.Equal(t, "a1", m.openedAgent, "step %d: agent pane", i)
+		require.Nil(t, f.spawned, "step %d: nothing spawned", i)
+	}
+	require.Equal(t, fleetLive, m.fleet, "final good frame restores live health")
+	require.True(t, m.sseActive)
+}

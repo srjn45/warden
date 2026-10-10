@@ -192,3 +192,64 @@ func (s *streamRecorder) WriteHeader(code int)        { s.code = code }
 func (s *streamRecorder) Write(b []byte) (int, error) { return s.pw.Write(b) }
 func (s *streamRecorder) Flush()                      {}
 func (s *streamRecorder) reader() io.Reader           { return s.pr }
+
+// TestSSEInterleavedDefaultTreeAndErrorFrames pins the wire contract on a real
+// handler: across healthy → degraded → recovered, every unnamed frame is a
+// {"sessions":[…]} snapshot (never a tree/error payload), tree frames are named,
+// and the degraded period emits a named error rather than an empty snapshot.
+func TestSSEInterleavedDefaultTreeAndErrorFrames(t *testing.T) {
+	fs := newFakeStore()
+	fs.data["A-1"] = &agentstore.Agent{ID: "A-1", Status: store.StatusWorking}
+	srv := sseServer(t, fs)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "/events/stream", nil)
+	rec := newStreamRecorder()
+	go srv.handleEventsStream(rec, req)
+	r := bufio.NewReader(rec.reader())
+
+	requireSnapshot := func(want string) {
+		t.Helper()
+		var frame struct {
+			Sessions []store.Session `json:"sessions"`
+			Error    string          `json:"error"`
+			Projects json.RawMessage `json:"projects"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(readEvent(t, r)), &frame))
+		require.Empty(t, frame.Error, "default frame must not carry error payloads")
+		require.Nil(t, frame.Projects, "default frame must not carry tree payloads")
+		ids := []string{}
+		for _, s := range frame.Sessions {
+			ids = append(ids, s.ID)
+		}
+		require.Contains(t, ids, want)
+	}
+	requireSnapshot("A-1")
+
+	fs.mu.Lock()
+	fs.data["B-2"] = &agentstore.Agent{ID: "B-2", Status: store.StatusIdle}
+	fs.mu.Unlock()
+	srv.hub.publish()
+	requireSnapshot("B-2")
+
+	// Reconnect while degraded: the stream opens with a named error, no snapshot.
+	fs.mu.Lock()
+	fs.listErr = degradedErr()
+	fs.mu.Unlock()
+	req2, _ := http.NewRequestWithContext(ctx, http.MethodGet, "/events/stream", nil)
+	rec2 := newStreamRecorder()
+	go srv.handleEventsStream(rec2, req2)
+	r2 := bufio.NewReader(rec2.reader())
+	var ev sseErrorPayload
+	require.NoError(t, json.Unmarshal([]byte(readNamedEvent(t, r2, sseEventError)), &ev))
+	require.True(t, ev.Degraded)
+
+	// Recovery on that connection resumes with a complete snapshot.
+	fs.mu.Lock()
+	fs.listErr = nil
+	fs.mu.Unlock()
+	srv.hub.publish()
+	r = r2
+	requireSnapshot("A-1")
+}

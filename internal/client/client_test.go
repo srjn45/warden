@@ -675,3 +675,62 @@ func TestMsgRecentOmitsLimitWhenNonPositive(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, msgs)
 }
+
+// TestWatchInterleavedFramesAcrossReconnect drives adversarial interleavings
+// through two consecutive connections (a reconnect): named tree/unknown frames,
+// malformed unnamed and named frames, comments, then a degraded error frame.
+// Only well-formed unnamed frames may reach the callback; the degraded error
+// ends the first stream typed; the second stream resumes cleanly.
+func TestWatchInterleavedFramesAcrossReconnect(t *testing.T) {
+	conns := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		conns++
+		var frames []string
+		if conns == 1 {
+			frames = []string{
+				"event: tree\ndata: {\"sessions\":[]}\n\n", // tree payload that looks like a snapshot
+				": ping\n\n",
+				"data: {\"sessions\":[{\"id\":\"A-1\",\"status\":\"working\"},{\"id\":\"T-1\",\"status\":\"working\",\"kind\":\"terminal\"}]}\n\n",
+				"data: {not json\n\n",
+				"event: tree\ndata: garbage\n\n",
+				"event: mystery\ndata: {\"error\":\"x\",\"degraded\":true}\n\n",
+				"event: error\ndata: {\"error\":\"store degraded\",\"degraded\":true}\n\n",
+				"data: {\"sessions\":[]}\n\n", // after the error: must never be delivered
+			}
+		} else {
+			frames = []string{
+				"event: tree\ndata: {}\n\n",
+				"data: {\"sessions\":[{\"id\":\"A-1\",\"status\":\"working\"},{\"id\":\"A-2\",\"status\":\"idle\"}]}\n\n",
+			}
+		}
+		fl := w.(http.Flusher)
+		for _, f := range frames {
+			_, _ = io.WriteString(w, f)
+			fl.Flush()
+		}
+	}))
+	defer ts.Close()
+
+	var got [][]string
+	collect := func(ss []*store.Session) error {
+		ids := make([]string, len(ss))
+		for i, s := range ss {
+			ids[i] = s.ID
+		}
+		got = append(got, ids)
+		return nil
+	}
+
+	err := New(ts.URL).WatchAll(t.Context(), collect)
+	var se *StreamError
+	require.ErrorAs(t, err, &se)
+	require.True(t, se.Degraded)
+	require.Equal(t, "store degraded", se.Message)
+	require.Equal(t, [][]string{{"A-1", "T-1"}}, got, "no tree/malformed/unknown/post-error frame may yield a snapshot")
+
+	// Reconnect: a fresh stream resumes; the stream ends with EOF, not an error.
+	got = nil
+	require.NoError(t, New(ts.URL).WatchAll(t.Context(), collect))
+	require.Equal(t, [][]string{{"A-1", "A-2"}}, got)
+}
