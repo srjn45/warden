@@ -78,7 +78,28 @@ afresh — never a blind replay.
    `ErrNoChange`.
 4. Keep XTx off hot streams (usage/spend/events; G11). Split >1000-op cascades into journal-driven steps (G9).
 
+## Representative workflows
+
+Fixtures (not a production migration) in `internal/dbtx/workflows`: each workflow is ONE `Run` transaction with a
+rebuild callback (ExpectedRev fencing, idempotent via `ErrNoChange`), plus an exported checker valid on any state.
+`workflows.All()` returns `{Name, Seed, Run, Check}` for `crash-validation`; `Setup(db)` creates the shared schema.
+Every record has a unique logical `id`; external effects are only `operations` journal rows (intent in the
+transaction, outcome in a second one).
+
+| Workflow | Participant collections | Invariant | Checker |
+| --- | --- | --- | --- |
+| project-child-creation | projects, agents, project_views | every agent has an existing, open project; `live_agents` equals live rows; view matches project | `CheckProjectChildren` |
+| autopilot-startup | autopilot_runs, plans, projects, agents, operations, events | one live run per plan (unique `live_plan`); run, plan binding, agent and launch-intent op exist together | `CheckAutopilotStartup` |
+| pipeline-linkage | pipelines, pipeline_jobs, plans, events | pipeline and jobs link to a ready plan both ways; a plan links to at most one pipeline | `CheckPipelineLinkage` |
+| archive-restore | agents, agents_archive, projects, project_views | an agent is in exactly one of live/archive; counters equal rows; restore is the exact inverse (delete+insert move) | `CheckArchive` |
+| project-closure | projects, agents, agents_archive, plans, autopilot_runs, project_views | a closed project has no live children, runs or open plans; closure over `MaxOps` fails typed `too_large` (caller-driven drain, never partial) | `CheckProjectClosure` |
+| projection-update | projects, project_views | `project_views` row equals the project's derived state and version, in the same tx as every project write | `CheckProjection` |
+| audit-event-append | plans, events | plan `Revision` equals its event count; event ids `<plan>@<rev>` are contiguous | `CheckAuditTrail` |
+
+Not covered: the R2 job↔agent binding, crash/fsync/concurrent-writer matrices (`crash-validation`), metrics
+(`observability`).
+
 ## Deferred
 
-Metrics/audit events (`observability`), owner conversions (`invariant-workflows`), crash/fault matrix
-(`crash-validation`), re-pin to a tagged scriva (G13).
+Metrics/audit events (`observability`), production owner conversions (the fixtures above are the template),
+crash/fault matrix (`crash-validation`), re-pin to a tagged scriva (G13).
