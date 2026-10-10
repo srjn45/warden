@@ -49,6 +49,10 @@ func classifyFleetErr(err error) fleetStatus {
 	if errors.As(err, &se) && se.Code == http.StatusServiceUnavailable {
 		return fleetDegraded
 	}
+	var ste *client.StreamError
+	if errors.As(err, &ste) && ste.Degraded {
+		return fleetDegraded
+	}
 	// Our own bg() deadline, or any other transport error, means the daemon did
 	// not answer cleanly but isn't provably down.
 	return fleetTimeout

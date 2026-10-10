@@ -3,9 +3,13 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
@@ -107,6 +111,20 @@ func TestSSESnapshotErrorFallsBack(t *testing.T) {
 
 	require.False(t, m.sseActive, "SSE error must deactivate sseActive")
 	require.Equal(t, 1, m.refreshFailures)
+	require.Equal(t, fleetTimeout, m.fleet)
+}
+
+func TestSSESnapshotDegradedStreamErrorSetsDegradedFleet(t *testing.T) {
+	f := &fakeAPI{}
+	m := newListPane(f, "%9", "")
+	m.sseActive = true
+
+	nm, _ := m.Update(sseSnapshotMsg{err: &client.StreamError{Message: "session store degraded", Degraded: true}})
+	m = nm.(controlPaneModel)
+
+	require.False(t, m.sseActive, "SSE error must deactivate sseActive")
+	require.Equal(t, 1, m.refreshFailures)
+	require.Equal(t, fleetDegraded, m.fleet)
 }
 
 type fakeWatcherAPI struct {
@@ -130,4 +148,71 @@ func TestSubscribeSSECmd(t *testing.T) {
 	require.Len(t, msg.sessions, 1)
 	require.Equal(t, "watched-1", msg.sessions[0].ID)
 	require.True(t, fw.watchCalled)
+}
+
+// TestSSEWatchStreamContractEndToEnd tests the typed SSE streaming contract end-to-end:
+// tree and unknown named events are ignored, session frames deliver snapshots to the TUI,
+// and named error frames return StreamErrors that transition TUI to degraded while retaining the fleet.
+func TestSSEWatchStreamContractEndToEnd(t *testing.T) {
+	frames := []string{
+		// 1. tree frame (named) - must be ignored, no empty snapshot
+		"event: tree\ndata: {\"projects\":[{\"id\":\"proj-1\"}]}\n\n",
+		// 2. unknown named event - must be ignored
+		"event: custom_unknown\ndata: {\"foo\":\"bar\"}\n\n",
+		// 3. ping comment - ignored
+		": ping\n\n",
+		// 4. unnamed session snapshot frame - delivered
+		"data: {\"sessions\":[{\"id\":\"s-live\",\"status\":\"working\",\"workdir\":\"/work\",\"tmuxSession\":\"s-live\",\"updatedAt\":\"2026-08-31T18:00:00Z\"}]}\n\n",
+		// 5. named error frame with degraded metadata - returns StreamError
+		"event: error\ndata: {\"error\":\"session store degraded\",\"degraded\":true}\n\n",
+	}
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, ok := w.(http.Flusher)
+		require.True(t, ok)
+		for _, frame := range frames {
+			_, _ = fmt.Fprint(w, frame)
+			flusher.Flush()
+		}
+	}))
+	defer ts.Close()
+
+	cl := client.New(ts.URL)
+	var snapshots [][]*store.Session
+
+	err := cl.WatchAll(context.Background(), func(ss []*store.Session) error {
+		snapshots = append(snapshots, ss)
+		return nil
+	})
+
+	// WatchAll should have received the error event and returned a typed *StreamError
+	require.Error(t, err)
+	var se *client.StreamError
+	require.True(t, errors.As(err, &se))
+	require.True(t, se.Degraded)
+	require.Equal(t, "session store degraded", se.Message)
+
+	// Exactly ONE session snapshot should have been delivered (the unnamed one), not the tree frame
+	require.Len(t, snapshots, 1)
+	require.Len(t, snapshots[0], 1)
+	require.Equal(t, "s-live", snapshots[0][0].ID)
+
+	// Now drive the TUI model through this sequence
+	m := newListPane(&fakeAPI{}, "%9", "")
+	// Deliver the session snapshot
+	nm, _ := m.Update(sseSnapshotMsg{sessions: snapshots[0]})
+	m = nm.(controlPaneModel)
+	require.Equal(t, fleetLive, m.fleet)
+	require.True(t, m.sseActive)
+	require.Len(t, m.sessions, 1)
+	require.Equal(t, "s-live", m.sessions[0].ID)
+
+	// Deliver the StreamError
+	nm, _ = m.Update(sseSnapshotMsg{err: err})
+	m = nm.(controlPaneModel)
+	require.Equal(t, fleetDegraded, m.fleet)
+	require.False(t, m.sseActive)
+	require.Len(t, m.sessions, 1, "fleet is retained across degraded error frame")
+	require.Equal(t, "s-live", m.sessions[0].ID)
 }
