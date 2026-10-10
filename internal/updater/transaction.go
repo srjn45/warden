@@ -269,8 +269,10 @@ func (t *txn) logf(format string, a ...any) { fmt.Fprintf(t.opts.Stdout, format+
 
 func (t *txn) capture(ctx context.Context) {
 	t.pre = PreState{BinaryPath: t.opts.InstallBin, Version: stripV(t.opts.CurrentVersion), Service: t.svc.State(ctx)}
-	if h, err := t.probe.Probe(ctx); err == nil && h.Status == "ok" {
-		t.pre.DaemonRunning, t.pre.DaemonVersion, t.pre.DaemonSchema = true, stripV(h.Version), h.SchemaVersion
+	if t.probe != nil {
+		if h, err := t.probe.Probe(ctx); err == nil && h.Status == "ok" {
+			t.pre.DaemonRunning, t.pre.DaemonVersion, t.pre.DaemonSchema = true, stripV(h.Version), h.SchemaVersion
+		}
 	}
 	running := "not running"
 	if t.pre.DaemonRunning {

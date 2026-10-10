@@ -197,17 +197,47 @@ func ComputePath(currentVer string, currentSchema int, targetManifest Manifest, 
 				}
 			}
 		} else {
-			// Same major: look for waypoint between currSem and minDirect (or nearest waypoint <= minDirect)
-			for i := len(all) - 1; i >= 0; i-- {
+			// Same major: find the earliest waypoint reachable that can reach targetS directly (>= minDirect)
+			for i := 0; i < len(all); i++ {
 				candSem, cerr := ParseSemver(all[i].Version)
 				if cerr != nil {
 					continue
 				}
-				if candSem.Compare(targetS) < 0 && candSem.Compare(currSem) >= 0 {
-					if all[i].Waypoint || candSem.Compare(minDirect) >= 0 {
+				if candSem.Compare(targetS) < 0 && candSem.Compare(currSem) >= 0 && candSem.Compare(minDirect) >= 0 {
+					if all[i].Waypoint {
 						cand := all[i]
 						best = &cand
 						break
+					}
+				}
+			}
+			if best == nil {
+				// Fallback: earliest release in window that can reach targetS directly
+				for i := 0; i < len(all); i++ {
+					candSem, cerr := ParseSemver(all[i].Version)
+					if cerr != nil {
+						continue
+					}
+					if candSem.Compare(targetS) < 0 && candSem.Compare(currSem) >= 0 && candSem.Compare(minDirect) >= 0 {
+						cand := all[i]
+						best = &cand
+						break
+					}
+				}
+			}
+			if best == nil {
+				// Otherwise walk backwards from targetS looking for waypoint
+				for i := len(all) - 1; i >= 0; i-- {
+					candSem, cerr := ParseSemver(all[i].Version)
+					if cerr != nil {
+						continue
+					}
+					if candSem.Compare(targetS) < 0 && candSem.Compare(currSem) >= 0 {
+						if all[i].Waypoint {
+							cand := all[i]
+							best = &cand
+							break
+						}
 					}
 				}
 			}

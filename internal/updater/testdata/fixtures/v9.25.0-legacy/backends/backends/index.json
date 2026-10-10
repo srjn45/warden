@@ -1,0 +1,1 @@
+{"version":2,"entries":{"1":{"segment":"testdata/fixtures/v9.25.0-legacy/backends/backends/seg_000001.ndjson","offset":0,"rev":1}},"coverage":[{"segment":"seg_000001.ndjson","size":157,"checksum":"ec7160b446aeb1f7056d31237ffd93b8241e227bd5e8649d079842d209d865cd"}],"checksum":"373d1c52b275f3f16bc4f1cbffb0bde0fac24c0ea237b74b400ef8284a22cf9c"}
