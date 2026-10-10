@@ -22,6 +22,7 @@ type Tx struct {
 	b       *Boundary
 	ctx     context.Context
 	started time.Time
+	intent  string
 
 	mu       sync.Mutex
 	finished bool
@@ -43,6 +44,20 @@ func (b *Boundary) Begin(ctx context.Context) (*Tx, error) {
 // Begin on an open Tx is always nested.
 func (t *Tx) Begin() (*Tx, error) { return nil, internal(ErrNestedTx) }
 
+// SetIntent sets the logical intent for the transaction (used for metrics/audit correlation).
+func (t *Tx) SetIntent(intent string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.intent = intent
+}
+
+// Intent returns the current transaction intent.
+func (t *Tx) Intent() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.intent
+}
+
 // Context is the context to pass to code running inside the transaction; it
 // carries the re-entrancy marker.
 func (t *Tx) Context() context.Context { return t.ctx }
@@ -53,9 +68,28 @@ func (t *Tx) isFinished() bool { t.mu.Lock(); defer t.mu.Unlock(); return t.fini
 // `defer tx.Rollback()` is safe.
 func (t *Tx) Rollback() error {
 	t.mu.Lock()
-	defer t.mu.Unlock()
+	if t.finished {
+		t.mu.Unlock()
+		return nil
+	}
 	t.finished = true
+	ops := t.ops
 	t.ops = nil
+	started := t.started
+	intent := t.intent
+	b := t.b
+	t.mu.Unlock()
+
+	if b != nil && b.obs != nil {
+		ev := Event{
+			Intent:   intent,
+			Ops:      len(ops),
+			Outcome:  OutcomeRolledBack,
+			Duration: time.Since(started),
+		}
+		ev.Participants, _ = estimate(ops)
+		safeObserve(b.obs, ev)
+	}
 	return nil
 }
 
@@ -167,7 +201,7 @@ func (t *Tx) Commit(ctx context.Context, intent string) (res *Result, err error)
 				ev.Resolved = be.Outcome != ""
 			}
 		}
-		b.obs.Observe(ev)
+		safeObserve(b.obs, ev)
 	}()
 
 	if intent == "" {

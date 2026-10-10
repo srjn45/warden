@@ -49,6 +49,9 @@ const (
 	ActionFastBrainControl           = "fastbrain_control"          // an operator paused/resumed a decision kind
 	ActionFastBrainCircuit           = "fastbrain_circuit"          // a runner circuit changed state
 	ActionFastBrainAbandoned         = "fastbrain_cancel_abandoned" // a runner ignored cancellation and was abandoned
+	ActionTxRecovery                 = "tx_recovery"                // cross-collection transaction outcome resolved via status lookup/recovery
+	ActionTxAbandoned                = "tx_abandoned"               // cross-collection transaction aborted, timed out, or uncommitted
+	ActionTxOutcome                  = "tx_outcome"                 // significant cross-collection transaction outcome event
 )
 
 // Event is one audit record: who (Actor) did what (Action) when (Time) to which

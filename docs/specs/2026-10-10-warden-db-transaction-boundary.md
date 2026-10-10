@@ -157,7 +157,53 @@ After a *clean* close the engine checkpoints and the stamps are gone, so journal
   fault-FS hook (unexported today).
 - Scenario matrix is fixed-seed (`20261010`) for reproducibility; soak widens coverage, it does not prove absence.
 
+## Observability
+
+The transaction boundary exports metrics and audit events through the `Observer` interface (`type Observer interface{ Observe(Event) }`).
+Telemetry is non-blocking and safe by construction: observer panics or failures never disrupt transactions (`safeObserve`).
+
+### Metrics (`dbtx.MetricsCollector`)
+
+The in-memory collector (`dbtx.NewMetricsCollector`) aggregates point-in-time snapshots (`Snapshot()`):
+
+- **Transaction latency histogram (`Histogram`)**: Fixed 12-bucket histogram (`[1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000] ms` + `+Inf`).
+  Computes `Count`, `SumMs`, `MinMs`, `MaxMs`, `P50Ms`, `P95Ms`, and `P99Ms` with zero runtime allocations during observation.
+- **Conflict counters (`conflicts_total`)**: Monotonically increasing count of `ClassConflict` errors, tracked globally and broken down per normalized intent.
+- **Rollback counters (`rollbacks_total`)**: Tracks explicit rollbacks (`tx.Rollback()` on uncommitted staged writes), build-stage errors in `Run`, and failed commit rollbacks.
+- **Recovery metrics (`recoveries_total`)**: Incremented when a transaction outcome is established via status lookup/recovery (`ev.Resolved == true`).
+- **Abandoned operation metrics (`abandoned_total`)**: Tracks operations aborted before completion, timed out (`ErrCommitDeadline`), expired staging (`ErrStagingExpired`), or unresolved `OutcomeUnknown`.
+- **Error classification (`by_class` / `errors_total`)**: Breakdown across all closed failure classes (`conflict`, `exhausted`, `durability`, `too_large`, `outcome_unknown`, `collection_not_found`, `internal`).
+
+### Safe Cardinality Guarantees
+
+To eliminate cardinality explosion and unbounded memory growth:
+
+1. **Intent normalization (`NormalizeIntent`)**:
+   - Known static workflow intents (`project-child-creation`, `autopilot-startup`, `pipeline-linkage`, `archive-restore`, `project-closure`, `projection-update`, `audit-event-append`) are preserved verbatim.
+   - Dynamic operation journal intents (`<id>/<step>`, e.g. `op-01928374/launch`, `plan-abcd/step`) are mapped to canonical family names (`operation/launch`, `plan/step`, `agent`, `project`, `pipeline`, etc.).
+   - Pure hex/numeric hashes and UUIDs are mapped to `"custom"`.
+   - All labels are sanitized and length-capped (`maxIntentLen = 48`).
+2. **Strict label set bounding (`maxIntentBuckets = 64`)**:
+   - The metrics collector caps the distinct intent buckets to 64. Any unrecognized or overflow intents beyond the cap are routed to `"other"`.
+   - Memory consumption of the metrics collector is strictly $O(1)$.
+3. **Closed outcome vocabulary (`NormalizeOutcome`)**:
+   - Strictly bounded to `"committed"`, `"rolled_back"`, `"abandoned"`, `"no_change"`, the 7 typed `Class` strings, and `"other"`.
+4. **Never raw payloads or secrets in labels**:
+   - Raw transaction payloads, cryptographic key hashes, user inputs, and credentials NEVER enter metrics labels.
+
+### Audit Events (`dbtx.AuditObserver`)
+
+Significant lifecycle events are written best-effort to `~/.warden/audit.jsonl` using `dbtx.NewAuditObserver(auditWriter)` (or configured via `dbtx.WithAudit(writer)` / `dbtx.DefaultObserver(writer)`):
+
+| Action | Constant | Trigger | Target | Details |
+|---|---|---|---|---|
+| `tx_recovery` | `audit.ActionTxRecovery` | Outcome established via status lookup / recovery (`Resolved: true`) | TxID or intent | `intent`, `outcome`, `tx_id`, `duration`, `ops`, `resolved` |
+| `tx_abandoned` | `audit.ActionTxAbandoned` | Transaction aborted, timed out, expired staging, or `outcome_unknown` | TxID or intent | `intent`, `outcome`, `tx_id`, `duration`, `ops` |
+| `tx_outcome` | `audit.ActionTxOutcome` | Severe durability errors (`ClassDurability`) or oversized limit breaches | TxID or intent | `intent`, `outcome`, `tx_id`, `duration`, `ops` |
+
+All audit details pass through `audit.SafeDetail` and `audit.RedactSecrets` to strip forbidden keys (tokens, authorization headers, passwords) and redact sensitive values before persistence.
+
 ## Deferred
 
-Metrics/audit events (`observability`), production owner conversions (the fixtures above are the template),
-re-pin to a tagged scriva (G13).
+Production owner conversions (the fixtures above are the template), re-pin to a tagged scriva (G13).
+
