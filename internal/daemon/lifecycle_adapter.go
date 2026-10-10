@@ -281,9 +281,8 @@ func (a *lifecycleAdapter) HotSwap(ctx context.Context, sess *agentstore.Agent, 
 		}); err != nil {
 			return nil, fmt.Errorf("persist hot-swap session: %w", err)
 		}
-		if res.ModeNote != "" {
-			_ = a.store.AppendEvent(ctx, sess.ID, store.Event{Type: "hot-swap-permission-mode", Detail: res.ModeNote})
-		}
+		// The permission-mode translation event is emitted by lifecycle's
+		// OnModeNormalized hook (NewModeNormalizedHook), once, after the launch.
 	}
 	return res, nil
 }
