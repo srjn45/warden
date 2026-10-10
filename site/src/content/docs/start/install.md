@@ -58,12 +58,39 @@ Keep a curl-installed binary current with the first-class updater:
 
 ```sh
 warden update          # or: wd update
+warden update --plan   # preview upgrade path, migrations, breaking changes & downtime
 warden update --check  # report only — no download
+warden update --yes    # non-interactive update without confirmation prompt
 warden update --version v9.9.0
 warden update --force  # reinstall the current / target version
 ```
 
 `warden update` queries GitHub Releases, verifies `checksums.txt`, downloads the archive for your `GOOS`/`GOARCH` into `~/.warden/tmp/`, atomically swaps `~/.local/bin/warden` (keeping a backup), re-signs on macOS when the `warden-codesign` identity is present, runs config migrations, restarts the user-level daemon service, and probes `/healthz` — rolling the binary back unless the new daemon reports ok on the target version **and** on the data schema that binary writes (`schema_version`; `warden version` prints it).
+
+To inspect the upgrade plan without mutating state or stopping the daemon:
+
+```sh
+warden update --plan
+```
+
+### Rollback & Data Maintenance
+
+To roll back an update, run:
+
+```sh
+warden rollback        # or: wd rollback (-y to skip confirmation)
+```
+
+`warden rollback` restores the previous binary. If no schema changed, it swaps binaries directly. If the schema advanced, it restores data from `<data>/backups/pre-<ver>-<ts>/` with confirmation.
+
+For offline data migrations and whole-store repairs:
+
+```sh
+warden migrate --check       # inspect data store schema status
+warden migrate --apply       # apply pending schema migrations
+warden repair all --resolve-history=live-wins  # repair conflicting keys across all stores
+warden init                  # initialize fresh data dir or verify baseline migrations
+```
 
 ### In-cockpit update & hot-reload
 

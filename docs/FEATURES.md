@@ -1885,3 +1885,18 @@ See [`docs/specs/2026-09-29-plan-execution-entity-redesign.md`](specs/2026-09-29
 for ownership rules and the `ai_cli` alias table. Plan definition/lifecycle
 authority cutover is frozen in
 [`docs/specs/2026-09-30-scrivadb-canonical-plans.md`](specs/2026-09-30-scrivadb-canonical-plans.md).
+
+---
+
+## 39. Data-safe update architecture & migration registry
+
+Redesigns `wd update` into a data-safe, planned upgrade process:
+
+- **Data schema ledger (`<data>/schema.json`)**: tracks integer `schema_version` separate from binary semver, binary version, migration history, in-progress migration journal, and legacy sentinels baseline inference stamped once.
+- **Boot guard table**: daemon compares on-disk schema against binary `SchemaVersion` and `MinSchema`; refuses to start on unmigrated data, newer data, or interrupted migrations before touching any store.
+- **Migration registry (`internal/migrate`)**: explicit migrations (ID, From, To, Kind, Check, Run, Verify) run only via `warden update` / `warden migrate`; daemon never runs destructive migrations at boot.
+- **Waypoint path planner (`wd update --plan`)**: queries release manifests, computes minimal hop trajectories through required waypoints (e.g. crossing major versions), warns on breaking daemon API changes, runs whole-data preflight checks, and estimates downtime and disk space without modifying state.
+- **Update transaction snapshot & rollback (`wd rollback`)**: creates transactional hardlink/reflink backups in `<data>/backups/pre-<ver>-<ts>/` before mutating binary or data; rolls back automatically on healthz failure or manually with confirmation; retains last 2 updates or 14 days.
+- **Whole-store repair (`warden repair all --resolve-history=live-wins`)**: verifies and repairs all ScrivaDB stores with live-wins resolution and quarantined backup manifests.
+- **Install parity (`warden init`)**: single shared code path for fresh initialization and legacy upgrades between `scripts/install.sh` and the CLI.
+

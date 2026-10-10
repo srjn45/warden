@@ -60,6 +60,7 @@ Operate warden:
 Get started and interact:
   login                Authenticate this node with a warden-hub relay using the device flow
   setup                Install missing dependencies (tmux, git, claude; optional gh)
+  init                 Initialize the Warden data directory and schema ledger
   tutorial             Run the first-run guided walkthrough of warden's core loop
   doctor               Run preflight checks (required binaries, daemon, data dir, agent store, backend registry integrity)
   tui                  Live terminal cockpit for agents
@@ -5378,6 +5379,31 @@ Usage:
 Flags:
   -h, --help   help for setup
       --yes    install all missing dependencies without prompting (non-interactive)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden init
+
+```text
+Initialize the Warden data directory (~/.warden) and schema ledger.
+
+On a fresh install, builds the data directory by running the migration chain from schema 0
+and records the initial schema ledger (schema.json). On an existing installation without a ledger,
+infers and stamps the baseline ledger from existing sentinel files. If migrations are pending,
+applies them to bring the data directory up to the binary's schema version.
+
+Upgrade and fresh install share the same migration code path.
+
+Usage:
+  warden init [flags]
+
+Flags:
+      --data-dir string   data directory (default from config: ~/.warden)
+  -h, --help              help for init
+      --json              print machine-readable JSON output
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
