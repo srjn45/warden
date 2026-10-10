@@ -1309,6 +1309,18 @@ func TestRestoreTerminalSendKeysFailureCleansUpSession(t *testing.T) {
 	require.Less(t, listIdx, killIdx, "list-clients must precede kill-session")
 }
 
+func TestSpawnTerminalAssignsNameWhenCallerOmitsOne(t *testing.T) {
+	fr := &FakeRunner{Responses: map[string]FakeResp{
+		"tmux has-session -t terminal-nameless": {Err: errStub("no session")},
+	}}
+	lc := New(fr, &FakeConfig{})
+
+	term, err := lc.SpawnTerminal(context.Background(), SpawnRequest{Ticket: "terminal-nameless", Cwd: t.TempDir()})
+	require.NoError(t, err)
+	require.Regexp(t, `^terminal-[a-f0-9]{8}$`, term.Name)
+	require.NotEmpty(t, term.ID)
+}
+
 func TestRemoveWorktreeRefusesIfAlive(t *testing.T) {
 	// has-session succeeds (FakeRunner default) → agent alive → refuse.
 	fr := &FakeRunner{}
