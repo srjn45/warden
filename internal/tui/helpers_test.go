@@ -10,6 +10,7 @@ import (
 	"github.com/srjn45/warden/internal/backendusage"
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/digest"
+	"github.com/srjn45/warden/internal/fastbrain"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/plansync"
@@ -102,6 +103,11 @@ type fakeAPI struct {
 	roleTiersErr error
 	usageSnap    backendusage.Snapshot
 	usageErr     error
+
+	fbTel          fastbrain.TelemetrySnapshot
+	fbDecisions    []fastbrain.Decision
+	fbErr          error
+	fbControlCalls []string
 
 	// projects (Phase 4 tree nesting)
 	projects         []projectstore.Project
@@ -300,6 +306,17 @@ func (f *fakeAPI) ListRoleTiers(context.Context) ([]backendstore.RoleTierMapping
 }
 func (f *fakeAPI) Usage(_ context.Context, _ bool) (backendusage.Snapshot, error) {
 	return f.usageSnap, f.usageErr
+}
+
+func (f *fakeAPI) FastBrainMetrics(context.Context) (fastbrain.TelemetrySnapshot, error) {
+	return f.fbTel, f.fbErr
+}
+func (f *fakeAPI) FastBrainDecisions(context.Context, int) ([]fastbrain.Decision, error) {
+	return f.fbDecisions, nil
+}
+func (f *fakeAPI) SetFastBrainControl(_ context.Context, kind string, paused bool, _ int) ([]fastbrain.KindControl, error) {
+	f.fbControlCalls = append(f.fbControlCalls, fmt.Sprintf("%s=%v", kind, paused))
+	return nil, f.fbErr
 }
 
 func (f *fakeAPI) PlanList(_ context.Context, projectID string, _ client.PlanListParams) ([]*planstore.Plan, error) {

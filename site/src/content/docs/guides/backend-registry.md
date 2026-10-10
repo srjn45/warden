@@ -202,7 +202,7 @@ warden inspect fastbrain pause summarize_activity --for 30m
 warden inspect fastbrain resume summarize_activity
 ```
 
-The **Metrics** tab of the web GUI shows the same data: separate Fast-brain and
+The cockpit's `F` page shows the summary, circuits, per-kind controls (`p` pause/resume) and recent decisions. The **Metrics** tab of the web GUI shows the same data: separate Fast-brain and
 Thinking-brain views with outcome bars and latency percentiles, circuit badges,
 per-kind pause buttons and a recent-decisions table.
 

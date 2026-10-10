@@ -1970,7 +1970,7 @@ rewrite the operator's intent.
 
 **Observability & operator controls.** `warden inspect fastbrain status` (also
 `GET /api/v1/fastbrain/metrics`, MCP `fastbrain_status`, and the **Metrics** tab
-in the web GUI) shows redacted, bounded-label telemetry: attempts and outcomes
+in the web GUI, and the cockpit's `F` page) shows redacted, bounded-label telemetry: attempts and outcomes
 per decision kind and tier (fast vs thinking), cache hits, coalesced calls,
 queue depth and delay, timeouts, cancellation acknowledgement, circuit state,
 runner health and selection. `warden inspect fastbrain decisions` lists the last

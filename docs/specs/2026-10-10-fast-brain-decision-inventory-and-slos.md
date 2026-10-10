@@ -338,4 +338,4 @@ delivers §8 on top of the admission controller (#876) and runner health (#875).
   summaries stay disabled by default.
 - **Recovery**: resume the kind (`wd inspect fastbrain resume <kind>`), remove it
   from `disabled_kinds`, or restart the daemon.
-- **Deferred**: cockpit TUI panel (the CLI/Web surfaces are available).
+- **TUI**: cockpit `F` page (status, recent decisions, `p` pause/resume per kind; config-disabled kinds are read-only).
