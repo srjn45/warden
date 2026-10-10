@@ -23,7 +23,7 @@ func TestRootHelpOffersExactlyTheApprovedSurface(t *testing.T) {
 	for _, name := range canonicalNamespaces {
 		want[name] = true
 	}
-	for _, name := range []string{"login", "setup", "tutorial", "doctor", "factory-reset", "tui", "update", "migrate", "version", "bug-report"} {
+	for _, name := range []string{"login", "setup", "tutorial", "doctor", "factory-reset", "tui", "update", "migrate", "version", "bug-report", "rollback"} {
 		want[name] = true
 	}
 	for _, name := range []string{"start", "ls", "status", "send", "commit", "push", "sync", "release"} {

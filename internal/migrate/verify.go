@@ -64,7 +64,7 @@ func DiscoverStores(dataDir string) ([]string, error) {
 		}
 
 		base := filepath.Base(p)
-		if strings.HasPrefix(base, ".") || base == "backups" || base == "tmp" || base == "scratch" {
+		if strings.HasPrefix(base, ".") || base == "backups" || base == "tmp" || base == "scratch" || base == "quarantine" {
 			return filepath.SkipDir
 		}
 
@@ -99,7 +99,7 @@ func isScrivaStore(dir string) bool {
 		return false
 	}
 	for _, e := range entries {
-		if !e.IsDir() {
+		if !e.IsDir() || e.Name() == "quarantine" || strings.HasPrefix(e.Name(), ".") {
 			continue
 		}
 		subDir := filepath.Join(dir, e.Name())

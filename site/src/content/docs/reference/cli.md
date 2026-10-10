@@ -4301,6 +4301,7 @@ Usage:
 
 Commands:
   agents               Verify or repair the agent store offline, backup-first
+  all                  Rebuild all ScrivaDB stores offline using live-wins record resolution
   backends             Verify or repair the backend registry offline, backup-first
   sessions             Diagnose or reconstruct the offline session store
 
@@ -4334,6 +4335,35 @@ Flags:
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
       --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden inspect repair all
+
+```text
+Offline, backup-first rebuild of all ScrivaDB stores in the Warden data directory.
+
+Scans every ScrivaDB collection across all stores, keeping the latest valid record
+for each _key and discarding stale revision regressions and stray records (where body id != _key).
+Before modifying any files, a full backup of the stores is taken. Existing segment and index
+files are quarantined into <collection>/quarantine/<runID>/ with a manifest, and clean segment
+and index files are rebuilt and verified.
+
+The daemon must be stopped before running this command.
+
+Usage:
+  warden inspect repair all [flags]
+
+Flags:
+      --backup-dir string        parent directory for pre-repair backup (default <data>/backups)
+      --config string            config file path
+      --dry-run                  inspect and report repair actions without modifying data
+  -h, --help                     help for all
+      --json                     print the machine-readable repair report as JSON
+      --resolve-history string   resolution policy for conflicting revision history (only 'live-wins' supported) (default "live-wins")
+  -y, --yes                      confirm repair without interactive prompt
+
+Inherited flags:
+      --addr string   daemon address (overrides the addr config setting)
 ```
 
 ## warden inspect repair backends
@@ -5901,6 +5931,7 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | `warden remove-worktree` | `warden agent remove-worktree` |
 | `warden repair` | `warden inspect repair` |
 | `warden repair agents` | `warden inspect repair agents` |
+| `warden repair all` | `warden inspect repair all` |
 | `warden repair backends` | `warden inspect repair backends` |
 | `warden repair sessions` | `warden inspect repair sessions` |
 | `warden repl` | `warden backend repl` |

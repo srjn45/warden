@@ -75,3 +75,42 @@ func TestCopyTreePreservesPermissionsAndSymlinks(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "record", link)
 }
+
+func TestRepairAllCmd_FlagsAndValidation(t *testing.T) {
+	tmp := t.TempDir()
+	cfgPath := filepath.Join(tmp, "config.yaml")
+	require.NoError(t, os.WriteFile(cfgPath, []byte("data_dir: "+tmp+"\n"), 0o644))
+
+	cmd1 := newRepairAllCmd()
+	require.NotNil(t, cmd1.Flag("resolve-history"))
+	require.NotNil(t, cmd1.Flag("backup-dir"))
+	require.NotNil(t, cmd1.Flag("dry-run"))
+	require.NotNil(t, cmd1.Flag("json"))
+	require.NotNil(t, cmd1.Flag("yes"))
+
+	// Non-live-wins policy must fail
+	cmd1.SetArgs([]string{"--config=" + cfgPath, "--resolve-history=abort", "--yes"})
+	err := cmd1.Execute()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unsupported --resolve-history policy")
+
+	// Without --yes and non-interactive stdin, must refuse
+	cmd2 := newRepairAllCmd()
+	cmd2.SetIn(&bytes.Buffer{})
+	cmd2.SetArgs([]string{"--config=" + cfgPath, "--resolve-history=live-wins"})
+	err = cmd2.Execute()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "requires confirmation")
+
+	// With --yes on empty store, executes cleanly
+	cmd3 := newRepairAllCmd()
+	cmd3.SetArgs([]string{"--config=" + cfgPath, "--resolve-history=live-wins", "--yes"})
+	err = cmd3.Execute()
+	require.NoError(t, err)
+
+	// Dry run also executes cleanly without --yes
+	cmd4 := newRepairAllCmd()
+	cmd4.SetArgs([]string{"--config=" + cfgPath, "--resolve-history=live-wins", "--dry-run"})
+	err = cmd4.Execute()
+	require.NoError(t, err)
+}
