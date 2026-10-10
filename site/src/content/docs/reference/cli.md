@@ -5432,6 +5432,8 @@ the original failure and the rollback outcome are reported.
 
 Flags:
   --check            report whether an update is available without applying it
+  --plan             inspect the planned upgrade path, breaking changes, downtime, and disk needed
+  --yes              skip confirmation for breaking or data-touching updates
   --version <tag>    install a specific release (e.g. 9.9.0 or v9.9.0)
   --force            reinstall even when already on the target version
   --ready-timeout    overall deadline for the daemon to become healthy (default 90s)
@@ -5439,6 +5441,7 @@ Flags:
 Examples:
   warden update
   warden update --check
+  warden update --plan
   warden update --version v9.9.0
   wd update --force
 
@@ -5449,8 +5452,10 @@ Flags:
       --check                    query and print whether an update is available without applying it
       --force                    reinstall even when already on the target version
   -h, --help                     help for update
+      --plan                     inspect planned upgrade path, breaking changes, downtime, and disk needed without changing anything
       --ready-timeout duration   overall deadline for the restarted daemon to report healthy on the new version (default 1m30s)
       --version string           install a specific release tag (e.g. 9.9.0 or v9.9.0)
+      --yes                      automatically confirm updates that require confirmation
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)

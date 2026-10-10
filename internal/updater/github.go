@@ -72,3 +72,39 @@ func assetURL(opts Options, rel Release, name string) string {
 func archiveName(rel Release, goos, goarch string) string {
 	return fmt.Sprintf("warden_%s_%s_%s.tar.gz", rel.Version, goos, goarch)
 }
+
+func fetchReleases(opts Options) ([]Release, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/releases?per_page=100", opts.Repo)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "warden-updater")
+
+	resp, err := opts.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("query GitHub releases: %w", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 5<<20))
+	if err != nil {
+		return nil, fmt.Errorf("read GitHub releases response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GitHub releases API returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var grs []githubRelease
+	if err := json.Unmarshal(body, &grs); err != nil {
+		return nil, fmt.Errorf("parse GitHub releases response: %w", err)
+	}
+	var res []Release
+	for _, gr := range grs {
+		tag := strings.TrimSpace(gr.TagName)
+		if tag != "" {
+			ver := stripV(tag)
+			res = append(res, Release{Tag: "v" + ver, Version: ver})
+		}
+	}
+	return res, nil
+}
