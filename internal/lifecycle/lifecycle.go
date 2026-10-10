@@ -53,6 +53,34 @@ func (l *Lifecycle) runClaudeP(ctx context.Context, arg string) (string, error) 
 	return l.run.Run(cctx, "", argv[0], argv[1:]...)
 }
 
+// RunHeadless runs the named backend's headless one-shot with the same bounded
+// timeout as RunClaudeP. It exists so Fast-Brain candidate selection can target a
+// specific registered backend rather than only the lifecycle's default.
+func (l *Lifecycle) RunHeadless(ctx context.Context, backendID, arg string) (string, error) {
+	b, err := agentbackend.Get(backendID)
+	if err != nil {
+		return "", err
+	}
+	argv, ok := b.HeadlessCmd(arg)
+	if !ok {
+		return "", fmt.Errorf("backend %s has no headless mode", backendID)
+	}
+	cctx, cancel := context.WithTimeout(ctx, claudeCallTimeout)
+	defer cancel()
+	return l.run.Run(cctx, "", argv[0], argv[1:]...)
+}
+
+// HasHeadless reports whether the named registered backend has a headless
+// one-shot mode.
+func (l *Lifecycle) HasHeadless(backendID string) bool {
+	b, err := agentbackend.Get(backendID)
+	if err != nil {
+		return false
+	}
+	_, ok := b.HeadlessCmd("probe")
+	return ok
+}
+
 // PermissionModes is the canonical set of accepted claude permission modes.
 // It is the single source of truth for both the spawn-time validation gate and
 // the live PATCH /permission-mode handler.

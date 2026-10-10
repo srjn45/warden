@@ -243,3 +243,22 @@ weakened.
   answer: no, P1's reserved slot makes it unnecessary.
 - Whether `activity.enabled` should flip to default-off; deliberately left to a
   separate decision.
+
+## 11. Runner health and cancellation (delivered: runner-cancellation-and-health)
+
+- `fastbrain.Health` (per-candidate circuit: 3 consecutive or ≥ 50 %/10 failures
+  open it; single half-open probe after 30 s → 2 min → 10 min) and
+  `fastbrain.Pool` (policy-ordered candidates, each tried at most once per
+  decision, first attempt capped at 60 % of the remaining deadline when a healthy
+  fallback exists, `ErrNoCandidate` → `StatusNoRunner` fail-open) close G3 and
+  G5 for the daemon runner. Caller cancellation is never a health failure.
+- Candidates come from the backend registry (`internal/cli/fastbrain_candidates.go`):
+  free → subscription; the registry default leads the thinking tier; pay-per-use,
+  unclassified, disabled, uninstalled, rate-limited and headless-less backends
+  are rejected with a bounded reason recorded in `Response.Selection.Trail`.
+- `Response.Cancel` records `acknowledged` vs `abandoned`; an engine abandons a
+  context-ignoring runner after `CancelGrace` (500 ms) so it never pins a slot.
+  `ExecRunner` kills the child's whole process group on cancel and bounds output
+  drain with `WaitDelay`.
+- Coalesced calls are detached from the leader's context and canceled only when
+  the last waiter leaves (closes the leader-context-coupling gap).
