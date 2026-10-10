@@ -15,6 +15,7 @@ import (
 
 	"github.com/srjn45/scriva"
 	"github.com/srjn45/scriva/engine"
+	"github.com/srjn45/warden/internal/audit"
 )
 
 // Limits mirrored from the engine (audit G9); enforced before the engine call.
@@ -76,7 +77,32 @@ type Observer interface{ Observe(Event) }
 // Option configures a Boundary.
 type Option func(*Boundary)
 
-func WithObserver(o Observer) Option           { return func(b *Boundary) { b.obs = o } }
+func WithObserver(o Observer) Option { return func(b *Boundary) { b.obs = o } }
+func WithAudit(w *audit.Writer) Option {
+	return func(b *Boundary) {
+		if w == nil {
+			return
+		}
+		ao := NewAuditObserver(w)
+		if b.obs == nil {
+			b.obs = ao
+		} else {
+			b.obs = MultiObserver(b.obs, ao)
+		}
+	}
+}
+func WithTelemetry(c *MetricsCollector) Option {
+	return func(b *Boundary) {
+		if c == nil {
+			return
+		}
+		if b.obs == nil {
+			b.obs = c
+		} else {
+			b.obs = MultiObserver(b.obs, c)
+		}
+	}
+}
 func WithMaxAttempts(n int) Option             { return func(b *Boundary) { b.maxAttempts = n } }
 func WithMaxStagingAge(d time.Duration) Option { return func(b *Boundary) { b.maxStaging = d } }
 func WithCommitTimeout(d time.Duration) Option { return func(b *Boundary) { b.commitTimeout = d } }
@@ -170,6 +196,7 @@ func (b *Boundary) Run(ctx context.Context, intent string, build func(ctx contex
 		if err != nil {
 			return nil, err
 		}
+		tx.SetIntent(intent)
 		if err := build(tx.Context(), tx); err != nil {
 			_ = tx.Rollback()
 			if err == ErrNoChange {
