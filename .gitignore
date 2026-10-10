@@ -6,6 +6,7 @@ web/dist/*
 
 bin/
 dist/
+manifest.json
 .claude/
 
 # warden runtime state / worktrees (created when running agents from this checkout)
