@@ -198,7 +198,7 @@ func secKey(name string) string { return "sec\x00" + name }
 // item is one navigable row: a real agent (session != nil) or a placeholder for
 // an opened directory that currently has no agents (session == nil). dir is the
 // group directory and is always set. A terminal-kind session (session.IsTerminal)
-// renders under the Terminals section with its §7 display name in termName.
+// renders inside its project with its §7 display name in termName.
 type item struct {
 	session *store.Session
 	dir     string

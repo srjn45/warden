@@ -23,13 +23,13 @@ type cockpitOpts struct {
 	session   string // tmux session name, e.g. "warden-tui-1234"
 	self      string // absolute path to the warden binary
 	homeDir   string // cwd for the control pane process
-	launchCwd string // cwd the terminal pane's default terminal opens in (the launching shell's dir)
+	launchCwd string // cwd the control pane runs in, so spawns launch from the launching shell's dir
 }
 
 // controlPaneCmd is the shell command tmux runs for the top-left control pane. It
 // is told both viewport panes' ids so it can drive (respawn) them: the agent pane
 // when the user opens an agent with Enter, and the terminal pane when it opens a
-// terminal (or the default terminal at startup). An empty terminalPane (the
+// terminal. An empty terminalPane (the
 // tmux-native cockpit, which has no terminal pane) omits the flag entirely so the
 // control pane degrades its terminal features to a status hint.
 func controlPaneCmd(self, agentPane, terminalPane string) string {
@@ -48,11 +48,11 @@ func agentPlaceholderCmd() string {
 }
 
 // terminalPlaceholderCmd keeps the bottom-left terminal pane alive until the
-// control pane opens a terminal session into it (the default terminal at startup,
-// or one picked with Enter/`t`). `exec sleep` so it is cleanly replaceable by
+// control pane opens a terminal session into it (an existing one adopted at
+// startup, or one picked with Enter / created on demand with `t`). `exec sleep` so it is cleanly replaceable by
 // `respawn-pane`, exactly like the agent pane's placeholder.
 func terminalPlaceholderCmd() string {
-	return `sh -c 'printf "Opening a terminal here…\n\nPress t in the control pane for a terminal in the focused agent'\''s dir.\n"; exec sleep 2147483647'`
+	return `sh -c 'printf "No terminal open.\n\nPress t in the control pane, with the cursor on a project, to create one in that project.\n"; exec sleep 2147483647'`
 }
 
 // runPaneCreate runs a pane-creating tmux command (-P -F '#{pane_id}') and
@@ -75,8 +75,8 @@ func runPaneCreate(ctx context.Context, run lifecycle.Runner, args ...string) (s
 // Panes are created right-to-left so the control pane (created last) can be handed
 // both viewport pane ids (--agent-pane, --terminal-pane) and drive them via
 // respawn-pane. The agent and terminal panes start as placeholders; the control
-// pane opens an agent into the agent pane on Enter and the default terminal into
-// the terminal pane at startup. The caller attaches afterwards.
+// pane opens an agent into the agent pane on Enter and a terminal into the
+// terminal pane on Enter or `t`. The caller attaches afterwards.
 func buildCockpit(ctx context.Context, run lifecycle.Runner, o cockpitOpts) error {
 	// 1. Agent pane fills the window initially (placeholder); capture its id.
 	agentPaneID, err := runPaneCreate(ctx, run,
@@ -86,8 +86,8 @@ func buildCockpit(ctx context.Context, run lifecycle.Runner, o cockpitOpts) erro
 		return err
 	}
 	// 2. Terminal pane to the LEFT of the agent pane (-b), 40% width, in the launch dir.
-	// Starts as a placeholder; the control pane opens the default terminal session
-	// into it at startup (and terminals picked with Enter/`t` thereafter).
+	// Starts as a placeholder; the control pane adopts an existing live terminal
+	// into it at startup, and opens terminals picked with Enter or created with `t`.
 	terminalPaneID, err := runPaneCreate(ctx, run,
 		"split-window", "-h", "-b", "-l", "40%", "-t", agentPaneID, "-c", o.launchCwd,
 		"-P", "-F", "#{pane_id}", terminalPlaceholderCmd())
@@ -96,7 +96,7 @@ func buildCockpit(ctx context.Context, run lifecycle.Runner, o cockpitOpts) erro
 	}
 	// 3. Control pane ABOVE the terminal pane (-b), 50% of the left column; it gets
 	// both viewport pane ids (agent + terminal). It runs in launchCwd (the launching
-	// shell's dir) so agents and the default terminal spawned from it launch in that
+	// shell's dir) so agents and terminals spawned from it launch in that
 	// dir — os.Getwd() in the pane is what spawnCmd sends.
 	controlPaneID, err := runPaneCreate(ctx, run,
 		"split-window", "-v", "-b", "-l", "50%", "-t", terminalPaneID, "-c", o.launchCwd,
@@ -105,8 +105,8 @@ func buildCockpit(ctx context.Context, run lifecycle.Runner, o cockpitOpts) erro
 		return err
 	}
 	// Keep the terminal pane alive (showing [exited]) instead of collapsing the
-	// layout when an opened terminal's attach exits — the control pane recreates a
-	// default terminal so the pane is never permanently empty (§11).
+	// layout when an opened terminal's attach exits. The control pane does not
+	// recreate one: terminals are created on demand only.
 	if out, err := run.Run(ctx, "", "tmux", "set-option", "-p", "-t", terminalPaneID, "remain-on-exit", "on"); err != nil {
 		return fmt.Errorf("tmux set-option remain-on-exit (terminal): %w: %s", err, out)
 	}

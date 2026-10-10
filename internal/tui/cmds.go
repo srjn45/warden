@@ -82,7 +82,7 @@ func spawnCmd(a api, prompt, name, cwd, role, tier, projectID string, force bool
 
 // terminalSpawnedMsg reports the outcome of spawning a Kind=terminal session.
 // focus carries whether the caller wants the terminal pane focused once opened
-// (true for an explicit `t`/create, false for the default terminal at startup).
+// (true for an explicit `t`/create).
 type terminalSpawnedMsg struct {
 	id    string
 	focus bool
