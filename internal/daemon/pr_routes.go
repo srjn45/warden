@@ -85,10 +85,8 @@ func (s *Server) draftPR(ctx context.Context, sess *agentstore.Agent, d digest.D
 	}
 	prompt := fastbrain.PRSummaryPrompt(task, stat, commits)
 	for _, tier := range []fastbrain.Tier{fastbrain.TierFast, fastbrain.TierThinking} {
-		resp, err := s.fastBrain.Decide(ctx, fastbrain.Request{
-			Kind: fastbrain.KindPRSummary, Tier: tier, Prompt: prompt,
-			Metadata: map[string]string{"agent": sess.ID},
-		})
+		resp, err := s.fastBrain.Decide(ctx, fastbrain.NewRequest(
+			fastbrain.KindPRSummary, tier, prompt, sess.ID))
 		if err != nil {
 			continue
 		}
