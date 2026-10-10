@@ -94,8 +94,9 @@ runs on Fast-Brain, independent of the registry.)
 > A plain **terminal** is not an AI CLI choice — it's a first-class session kind
 > (`kind=terminal`): a managed `$SHELL` seat beside the fleet with warden's normal
 > worktree/git/tmux lifecycle but no AI features. Spawn one with `warden start --kind
-> terminal` / `spawn_agent {kind:"terminal"}`. See the [TUI cockpit
-> guide](/warden/guides/tui-cockpit/).
+> terminal` / `spawn_agent {kind:"terminal"}`. A terminal always belongs to a
+> project: pass `project_id` or a directory that resolves to one, otherwise the
+> spawn is refused. See the [TUI cockpit guide](/warden/guides/tui-cockpit/).
 
 ```sh
 # Claude (default)

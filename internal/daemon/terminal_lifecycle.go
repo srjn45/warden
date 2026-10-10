@@ -6,8 +6,10 @@ import (
 	"github.com/srjn45/warden/internal/daemon/oapi"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
+	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/srjn45/warden/internal/terminalstore"
 )
@@ -189,6 +191,39 @@ func (s *Server) resolveSessionDTO(ctx context.Context, ref string) (*store.Sess
 	return a.ToSession(), nil
 }
 
+// resolveTerminalProject returns the id of the project a new terminal joins. A
+// terminal always belongs to a project, so the project is resolved (and opened or
+// registered) BEFORE any tmux session exists, and a terminal that cannot be given
+// one is refused rather than created project-less:
+//
+//   - an explicit req.ProjectID must name a known project (reopened if hibernated;
+//     an absolute path that is not yet registered is registered);
+//   - otherwise the project is path-matched/registered from req.Cwd, as for agents;
+//   - when nothing resolves (empty or unregisterable cwd) the spawn is a 400.
+//
+// A daemon with no project store wired (embedded/test setups) has no project
+// membership at all, so the guard cannot apply and the request id passes through.
+func (s *Server) resolveTerminalProject(req SpawnRequest) (id string, code int, msg string) {
+	if s.projects == nil {
+		return req.ProjectID, 0, ""
+	}
+	if req.ProjectID != "" {
+		id = s.ensureExplicitProjectID(req.ProjectID)
+		if _, err := s.projects.Get(id); err != nil {
+			if errors.Is(err, projectstore.ErrNotFound) {
+				return "", http.StatusBadRequest, "unknown project " + req.ProjectID + ": a terminal must belong to an existing project"
+			}
+			return "", http.StatusInternalServerError, "resolve project: " + err.Error()
+		}
+		return id, 0, ""
+	}
+	if id = s.ensureProjectID(req.Cwd, "terminal"); id == "" {
+		return "", http.StatusBadRequest, "a terminal must belong to a project: cwd " + strconv.Quote(req.Cwd) +
+			" could not be resolved to one — pass project_id or a working directory that can be registered as a project"
+	}
+	return id, 0, ""
+}
+
 func (s *Server) spawnTerminal(ctx context.Context, req SpawnRequest) (oapi.SpawnAgentResponseObject, error) {
 	if s.terminals == nil {
 		return nil, errStatus(http.StatusServiceUnavailable, "terminal store unavailable")
@@ -197,21 +232,31 @@ func (s *Server) spawnTerminal(ctx context.Context, req SpawnRequest) (oapi.Spaw
 	if code, msg := s.validateSpawnRequest(ctx, req); code != 0 {
 		return nil, errStatus(code, msg)
 	}
+	// Resolve the owning project first: refuse before creating a pane, so a
+	// rejected spawn leaves no tmux session or record to clean up.
+	projectID, code, msg := s.resolveTerminalProject(req)
+	if code != 0 {
+		return nil, errStatus(code, msg)
+	}
+	req.ProjectID = projectID
 	t, err := s.life.SpawnTerminal(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	if t.ProjectID == "" {
-		t.ProjectID = s.ensureProjectID(t.Workdir, t.ID)
-	} else {
-		t.ProjectID = s.ensureExplicitProjectID(t.ProjectID)
-	}
+	t.ProjectID = projectID
 	if err := s.terminals.Spawn(ctx, t, t.TmuxSession); err != nil {
 		_ = s.life.Terminate(ctx, t.TmuxSession)
 		return nil, err
 	}
 	if s.projects != nil && t.ProjectID != "" {
-		_, _ = s.projects.AddTerminalToProject(t.ProjectID, t.ID)
+		if _, err := s.projects.AddTerminalToProject(t.ProjectID, t.ID); err != nil {
+			// Project.Terminals is the authoritative membership edge; a terminal that
+			// cannot be recorded there would be an orphan of its own project, so roll
+			// the spawn back instead of leaving a half-registered shell.
+			_ = s.life.Terminate(ctx, t.TmuxSession)
+			_ = s.terminals.Delete(ctx, t.ID)
+			return nil, errStatus(http.StatusInternalServerError, "record terminal in project "+t.ProjectID+": "+err.Error())
+		}
 	}
 	s.notify()
 	return oapi.SpawnAgent201JSONResponse(*sessionFromTerminal(t)), nil

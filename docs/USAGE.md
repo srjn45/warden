@@ -452,6 +452,14 @@ warden start "implement the add function" --aicli goose --dir .
 > ```sh
 > warden start --kind terminal --dir .   # a managed shell "human seat" in .
 > ```
+>
+> **A terminal always belongs to a project.** The daemon resolves the project
+> before creating the shell: an explicit `project_id` must name a known project
+> (a hibernated one is reopened); otherwise the working directory is matched to —
+> or registered as — a project. A spawn that cannot be given a project (an unknown
+> `project_id`, or an empty/unregisterable directory) is refused with `400` and
+> creates no pane or record. The terminal is recorded in the project's
+> `terminals` list.
 
 Over MCP, pass the `backend` param (kept at parity with the CLI):
 

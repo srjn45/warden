@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"github.com/srjn45/warden/internal/agentstore"
+	"net/http"
 	"testing"
 	"time"
 
@@ -181,3 +182,115 @@ func (f *fakeTmuxHost) KillSession(context.Context, string) error               
 func (f *fakeTmuxHost) HasSession(_ context.Context, name string) bool              { return f.alive[name] }
 func (f *fakeTmuxHost) CapturePane(context.Context, string) (string, error)         { return "", nil }
 func (f *fakeTmuxHost) SendKeys(context.Context, string, ...string) error           { return nil }
+
+// terminalGuardServer wires a Server with real project + terminal stores and a
+// fake lifecycle, for the "a terminal always belongs to a project" guard.
+func terminalGuardServer(t *testing.T) (*Server, *fakeLife, *projectstore.Store, *terminalstore.Store) {
+	t.Helper()
+	ts, err := terminalstore.New(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ts.Close() })
+	ps, err := projectstore.NewStore(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { ps.Close() })
+	fl := &fakeLife{}
+	srv := &Server{store: newFakeStore(), life: fl, projects: ps, terminals: ts, hub: newHub(), done: make(chan struct{})}
+	return srv, fl, ps, ts
+}
+
+func spawnTerminalReq(cwd, projectID string) oapi.SpawnAgentRequestObject {
+	return oapi.SpawnAgentRequestObject{Body: &oapi.SpawnRequest{
+		Cwd: cwd, Kind: oapi.SpawnRequestKindTerminal, ProjectId: projectID,
+	}}
+}
+
+func requireBadRequest(t *testing.T, err error) {
+	t.Helper()
+	var ae apiError
+	require.ErrorAs(t, err, &ae)
+	require.Equal(t, http.StatusBadRequest, ae.code, ae.msg)
+}
+
+// A terminal with no project_id joins the project its cwd resolves to (registering
+// it when new) and is recorded in Project.Terminals.
+func TestSpawnTerminalRegistersCwdProjectAndMembership(t *testing.T) {
+	ctx := context.Background()
+	srv, _, ps, ts := terminalGuardServer(t)
+	dir := t.TempDir()
+
+	resp, err := srv.SpawnAgent(ctx, spawnTerminalReq(dir, ""))
+	require.NoError(t, err)
+	created := resp.(oapi.SpawnAgent201JSONResponse)
+
+	rec, err := ts.Get(ctx, created.ID)
+	require.NoError(t, err)
+	require.NotEmpty(t, rec.ProjectID, "a terminal is never created project-less")
+	proj, err := ps.Get(rec.ProjectID)
+	require.NoError(t, err)
+	require.Contains(t, proj.Terminals, created.ID, "membership is recorded on the project")
+}
+
+// An explicit project id that names no project is refused before any shell pane
+// exists: no lifecycle spawn, no terminal record.
+func TestSpawnTerminalUnknownProjectIsRefusedBeforeSpawn(t *testing.T) {
+	ctx := context.Background()
+	srv, fl, _, ts := terminalGuardServer(t)
+
+	_, err := srv.SpawnAgent(ctx, spawnTerminalReq(t.TempDir(), "no-such-project"))
+	requireBadRequest(t, err)
+	require.Empty(t, fl.spawnedCwd, "no pane is created for a refused terminal")
+	all, lerr := ts.List(ctx)
+	require.NoError(t, lerr)
+	require.Empty(t, all, "no terminal record is written")
+}
+
+// With neither a project id nor a usable cwd there is nothing to attach the
+// terminal to, so it is refused rather than created project-less.
+func TestSpawnTerminalWithoutProjectOrCwdIsRefused(t *testing.T) {
+	ctx := context.Background()
+	srv, fl, _, ts := terminalGuardServer(t)
+
+	_, err := srv.SpawnAgent(ctx, spawnTerminalReq("", ""))
+	requireBadRequest(t, err)
+	require.Empty(t, fl.spawnedCwd)
+	all, lerr := ts.List(ctx)
+	require.NoError(t, lerr)
+	require.Empty(t, all)
+}
+
+// An explicit id naming a hibernated project reopens it and joins it.
+func TestSpawnTerminalReopensHibernatedProject(t *testing.T) {
+	ctx := context.Background()
+	srv, _, ps, ts := terminalGuardServer(t)
+	dir := t.TempDir()
+	proj, err := ps.OpenProject(dir, "proj", dir)
+	require.NoError(t, err)
+	_, err = ps.CloseProject(proj.ID)
+	require.NoError(t, err)
+
+	resp, err := srv.SpawnAgent(ctx, spawnTerminalReq(dir, proj.ID))
+	require.NoError(t, err)
+	created := resp.(oapi.SpawnAgent201JSONResponse)
+
+	got, err := ps.Get(proj.ID)
+	require.NoError(t, err)
+	require.Equal(t, projectstore.StatusOpen, projectstore.NormalizeStatus(got.Status))
+	require.Contains(t, got.Terminals, created.ID)
+	rec, err := ts.Get(ctx, created.ID)
+	require.NoError(t, err)
+	require.Equal(t, proj.ID, rec.ProjectID)
+}
+
+// A daemon with no project store cannot hold project membership, so the guard does
+// not apply and the terminal is created as before.
+func TestSpawnTerminalWithoutProjectStoreStillSpawns(t *testing.T) {
+	ctx := context.Background()
+	srv, _, _, ts := terminalGuardServer(t)
+	srv.projects = nil
+
+	resp, err := srv.SpawnAgent(ctx, spawnTerminalReq(t.TempDir(), ""))
+	require.NoError(t, err)
+	created := resp.(oapi.SpawnAgent201JSONResponse)
+	_, err = ts.Get(ctx, created.ID)
+	require.NoError(t, err)
+}
