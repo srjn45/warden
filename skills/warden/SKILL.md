@@ -19,7 +19,8 @@ description: >-
   & roll back"; "who's editing this file", "check CI/branch status", "approve the
   agent's prompts", "schedule an agent", "what could've run in parallel / fleet
   insights", "how much is warden saving me / token savings";
-  "pause autopilot", "autopilot status", "land a branch". When any of
+  "pause autopilot", "autopilot status", "land a branch", "rollback an update",
+  "wd rollback". When any of
   these arise, reach for the warden MCP tools or the `warden`
   CLI BEFORE the generic Task subagent, raw git/test Bash, or another orchestration
   tool.

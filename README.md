@@ -203,6 +203,11 @@ cockpit, press **`u`** when the footer shows an update chip
 in place after an external upgrade (`syscall.Exec` — active tmux agent
 sessions keep running).
 
+To roll back an update, run `warden rollback` (or `wd rollback`). It performs a
+plain binary swap when no data format changed, or restores the pre-update
+data snapshot (`<data>/backups/pre-<ver>-<ts>/`) with confirmation when the schema
+advanced.
+
 > **Deprecated:** Homebrew, apt/deb, rpm, and AUR packages are no longer
 > published. Use the curl installer and `warden update` instead. Existing
 > package installs still run; migrate with the one-liner above.

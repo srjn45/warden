@@ -219,6 +219,7 @@ Complete command tree:
   warden tui                           Live terminal cockpit for agents
   warden update                        Update the installed warden binary from GitHub Releases
   warden migrate                       Inspect, apply, resume, or restore data format migrations
+  warden rollback                      Roll back the previous warden update
   warden version                       Print warden version and build information
   warden start                         Spawn an agent — `start --role <ROLE> "<prompt>"` (free-form), `start --role <ROLE> --dir <path>` (interactive), or `start --role worker --repo <PATH>` (managed worktree)
   warden ls                            List all active agent sessions

@@ -72,6 +72,7 @@ Examples:
 				CheckOnly:      checkOnly,
 				HealthURL:      healthURL,
 				ReadyTimeout:   ready,
+				DataDir:        cfg.DataDir,
 				Context:        cmd.Context(),
 				Preflight: func(ctx context.Context) (updater.PreflightResult, error) {
 					return wholeStorePreflight(ctx, cfg.DataDir)

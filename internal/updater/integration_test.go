@@ -113,6 +113,7 @@ func (p *procService) State(context.Context) ServiceState {
 	return ServiceState{Kind: ServiceSystemd, Active: true}
 }
 func (p *procService) Restart(context.Context) error { return p.start() }
+func (p *procService) Stop(context.Context) error    { p.stop(); return nil }
 func (p *procService) Exited(context.Context) bool {
 	p.mu.Lock()
 	done := p.done

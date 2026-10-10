@@ -163,6 +163,19 @@ newer than the binary, older than the binary (migrations run from
 recorded; the error names the next step. An install that predates the ledger
 is stamped at its baseline on first boot and starts as before.
 
+**Roll back an update:**
+
+```sh
+warden rollback        # or: wd rollback (-y to skip confirmation)
+```
+
+`warden rollback` restores the previous binary (`.bak`). If no schema change
+occurred during the update, it performs a plain binary swap. If the data format
+changed, it restores data stores from the pre-update snapshot in
+`<data_dir>/backups/pre-<ver>-<ts>/` (warning that changes made since the update
+are lost, requiring confirmation unless `--yes` is passed) and restarts the daemon.
+Snapshots are retained for the last 2 updates or 14 days, whichever keeps more.
+
 **Manual (for debugging — runs in the foreground):**
 
 ```sh

@@ -65,6 +65,7 @@ Get started and interact:
   tui                  Live terminal cockpit for agents
   update               Update the installed warden binary from GitHub Releases
   migrate              Inspect, apply, resume, or restore data format migrations
+  rollback             Roll back the previous warden update
   version              Print warden version and build information
 
 Shortcuts:
@@ -5479,6 +5480,30 @@ Flags:
       --restore           restore from pre-migration snapshot after an interrupted migration
       --resume            resume an interrupted migration
       --target int        target schema version to migrate to (default 1)
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden rollback
+
+```text
+Roll back the most recent warden update.
+
+Restores the previous binary (.bak). If no schema change happened it is a
+plain binary swap. Otherwise it restores the pre-update snapshot and warns
+that changes made since the update are lost, requiring confirmation (--yes
+to skip confirmation).
+
+Usage:
+  warden rollback [flags]
+
+Flags:
+  -h, --help                     help for rollback
+      --json                     output result as JSON
+      --ready-timeout duration   overall deadline for the restored daemon to report healthy (default 1m30s)
+  -y, --yes                      skip loss-of-changes confirmation prompt
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
