@@ -635,6 +635,9 @@ func newDaemonRunCmd() *cobra.Command {
 			// A typed-prompt seed that exhausts its retries is persisted on the
 			// session, audited and announced once (never silent).
 			lc.OnSeed = daemon.NewSeedOutcomeHook(st, auditWriter, notifSwitch)
+			// A relaunch that launched with a translated/defaulted permission mode
+			// persists the corrected mode and is audited, after the launch succeeded.
+			lc.OnModeNormalized = daemon.NewModeNormalizedHook(st, auditWriter)
 			restarter := daemon.NewRestarter(life, st, cfg.AutoRestart.Max, cfg.AutoRestartResetDuration())
 			srv.SetRestarter(restarter)
 			rateLimitSched := daemon.NewRateLimitScheduler(life, st, cfg.RateLimitRetryIntervalDuration(), cfg.RateLimitSpendRetryIntervalDuration(), cfg.RateLimitBufferDuration(), cfg.RateLimit.AutoResume, cfg.RateLimit.ResumePrompt)

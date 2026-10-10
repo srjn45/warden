@@ -181,6 +181,15 @@ func (l *Lifecycle) HotSwap(ctx context.Context, agent *agentstore.Agent, req Sw
 		return nil, fmt.Errorf("hot-swap: persist handoff: %w", err)
 	}
 
+	// Resolve the successor's mode before retiring the old CLI so a refusal
+	// (ErrNoSafeMode) leaves the current agent running untouched.
+	fromMode := agent.PermissionMode
+	toMode, rat, err := l.resolveRelaunchMode(agent, l.backendFor(fromBackend), toBackend)
+	if err != nil {
+		return nil, fmt.Errorf("hot-swap: %w", err)
+	}
+	modeNote := rat.Note()
+
 	// 4. Retire the active CLI (kill the tmux session if it is alive).
 	if l.Proc().HasSession(ctx, agent.TmuxSession) {
 		l.killSession(agent.TmuxSession)
@@ -191,8 +200,6 @@ func (l *Lifecycle) HotSwap(ctx context.Context, agent *agentstore.Agent, req Sw
 	//    is only mutated once the successor is confirmed running, so a failed swap
 	//    leaves the previous backend/model/mode intact for retry or restore.
 	prevSessionID := agent.AICLISessionID
-	fromMode := agent.PermissionMode
-	toMode, modeNote := l.successorMode(agent, l.backendFor(fromBackend), toBackend)
 	if err := l.launchSuccessor(ctx, agent, toBackend, toModel, toMode, handoffPath, h, req); err != nil {
 		agent.AICLISessionID = prevSessionID
 		return nil, fmt.Errorf("hot-swap: launch successor %s: %w", toBackend.ID(), err)
@@ -214,6 +221,7 @@ func (l *Lifecycle) HotSwap(ctx context.Context, agent *agentstore.Agent, req Sw
 		agent.QuotaBinding = binding
 	}
 	agent.UpdatedAt = l.nowUTC()
+	l.commitRelaunchMode(ctx, agent, fromMode, toMode, rat, "hot-swap")
 
 	return &SwapResult{
 		Agent:        agent,
@@ -229,84 +237,6 @@ func (l *Lifecycle) HotSwap(ctx context.Context, agent *agentstore.Agent, req Sw
 		ToMode:       toMode,
 		ModeNote:     modeNote,
 	}, nil
-}
-
-// successorMode returns the permission mode the successor launches with plus a note
-// when it differs from the stored one. A same-backend swap keeps the stored mode
-// (config default when none). A cross-backend swap translates the stored mode by
-// intent through the backends' own tables; with no equivalent it falls back to the
-// role default, then the config default for the successor — never a mode the
-// successor does not accept, and never more permissive than a known weaker intent.
-func (l *Lifecycle) successorMode(agent *agentstore.Agent, from, to agentbackend.Backend) (mode, note string) {
-	stored := agent.PermissionMode
-	if from.ID() == to.ID() {
-		if stored == "" {
-			stored = l.config().GetDefaultPermissionMode()
-		}
-		return stored, ""
-	}
-	if stored != "" {
-		if m, ok := agentbackend.TranslateMode(from, to, stored); ok {
-			if m == stored {
-				return m, ""
-			}
-			return m, fmt.Sprintf("permission_mode %q (%s) translated to %q (%s) by intent", stored, from.ID(), m, to.ID())
-		}
-	}
-	// Intent of the stored mode bounds the fallback so it is not more permissive.
-	var storedIntent agentbackend.PermissionIntent
-	if fm, ok := from.(agentbackend.PermissionMapper); ok && stored != "" {
-		storedIntent, _ = fm.ModeIntent(stored)
-	}
-	m := l.fallbackMode(agent.Role, to, storedIntent)
-	if stored == "" {
-		return m, ""
-	}
-	return m, fmt.Sprintf("permission_mode %q (%s) has no equivalent on %s; fell back to %q", stored, from.ID(), to.ID(), m)
-}
-
-// fallbackMode picks a valid mode for to: the role default, then the config
-// default (translated from the config's Claude vocabulary when needed), then the
-// backend's own default posture. A candidate whose intent is skip-all is rejected
-// when the stored intent is known and weaker.
-func (l *Lifecycle) fallbackMode(role string, to agentbackend.Backend, storedIntent agentbackend.PermissionIntent) string {
-	tm, _ := to.(agentbackend.PermissionMapper)
-	allowed := func(m string) bool {
-		if m == "" || !agentbackend.ModeAccepted(to, m) {
-			return false
-		}
-		if tm != nil && storedIntent != "" && storedIntent != agentbackend.IntentSkipAll {
-			if i, ok := tm.ModeIntent(m); ok && i == agentbackend.IntentSkipAll {
-				return false
-			}
-		}
-		return true
-	}
-	if role != "" {
-		req := &SpawnRequest{Role: role, Backend: to.ID()}
-		applyRoleBackendMode(req)
-		if allowed(req.PermissionMode) {
-			return req.PermissionMode
-		}
-	}
-	cfg := l.config().GetDefaultPermissionMode()
-	if allowed(cfg) {
-		return cfg
-	}
-	if cfg != "" {
-		if m, ok := agentbackend.TranslateMode(l.backendFor(""), to, cfg); ok && allowed(m) {
-			return m
-		}
-	}
-	if tm != nil {
-		if m, ok := tm.ModeForIntent(agentbackend.IntentDefault); ok && allowed(m) {
-			return m
-		}
-	}
-	if modes := to.Capabilities().PermissionModes; len(modes) > 0 {
-		return modes[0]
-	}
-	return ""
 }
 
 // defaultSwapVerifyWindow bounds the post-launch liveness check: a CLI that rejects

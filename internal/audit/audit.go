@@ -43,6 +43,7 @@ const (
 	ActionPlanRestart                = "plan_restart"
 	ActionBrainConsult               = "brain_consult"
 	ActionPromptSeedFailed           = "prompt_seed_failed"
+	ActionRelaunchModeNormalized     = "relaunch_mode_normalized"   // a relaunch launched with a translated/defaulted permission mode
 	ActionKnownPromptForget          = "known_prompt_forget"        // one learned prompt shape removed
 	ActionKnownPromptForgetAll       = "known_prompt_forget_all"    // the whole known-prompts store emptied
 	ActionFastBrainControl           = "fastbrain_control"          // an operator paused/resumed a decision kind

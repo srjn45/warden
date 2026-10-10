@@ -85,7 +85,8 @@ func (a *lifecycleAdapter) Spawn(ctx context.Context, req SpawnRequest) (*agents
 		lr.ForkSourceSessionID = src.AICLISessionID
 		lr.ForkSourceBranch = src.Branch
 		lr.ForkSourceWorkdir = src.Workdir // read-side of the PR-2 dirty-tree carry (§7)
-		lr.Repo = src.Repo                 // base + worktree live in the source agent's repo
+		lr.ForkSourceMode = src.PermissionMode
+		lr.Repo = src.Repo // base + worktree live in the source agent's repo
 		// A fork MUST run the source's backend — the SessionForker that minted the
 		// session is the only one that can branch it (forking a codex session with the
 		// claude backend would hit the clean "cannot fork"). Pin it from the source so
@@ -93,6 +94,12 @@ func (a *lifecycleAdapter) Spawn(ctx context.Context, req SpawnRequest) (*agents
 		lr.Backend = src.AiCli
 	}
 	return a.lc.Spawn(ctx, lr)
+}
+
+// EmitForkNormalization forwards to the lifecycle: the spawn route calls it once the
+// fork's record is stored so the mode audit/event land on an existing agent.
+func (a *lifecycleAdapter) EmitForkNormalization(ctx context.Context, agentID string) {
+	a.lc.EmitForkNormalization(ctx, agentID)
 }
 
 func (a *lifecycleAdapter) Classify(ctx context.Context, prompt string) (store.Type, error) {
@@ -281,9 +288,8 @@ func (a *lifecycleAdapter) HotSwap(ctx context.Context, sess *agentstore.Agent, 
 		}); err != nil {
 			return nil, fmt.Errorf("persist hot-swap session: %w", err)
 		}
-		if res.ModeNote != "" {
-			_ = a.store.AppendEvent(ctx, sess.ID, store.Event{Type: "hot-swap-permission-mode", Detail: res.ModeNote})
-		}
+		// The permission-mode translation event is emitted by lifecycle's
+		// OnModeNormalized hook (NewModeNormalizedHook), once, after the launch.
 	}
 	return res, nil
 }

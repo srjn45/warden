@@ -16,6 +16,30 @@ const (
 	IntentSkipAll     PermissionIntent = "skip-all"     // every permission prompt skipped
 )
 
+// Rank orders intents by how much authority they grant the agent without asking:
+// plan = read-only (0) < default (1) < accept-edits (2) < skip-all (3). plan and
+// read-only are the same rank because neither may write. An unknown intent ranks
+// as skip-all so a caller comparing it can never treat it as safe (fail closed).
+func (i PermissionIntent) Rank() int {
+	switch i {
+	case IntentPlan, IntentReadOnly:
+		return 0
+	case IntentDefault:
+		return 1
+	case IntentAcceptEdits:
+		return 2
+	default:
+		return 3
+	}
+}
+
+// AtMost reports whether i grants no more authority than limit. This is the
+// non-escalation test a relaunch/translation must satisfy against the stored
+// agent intent.
+func (i PermissionIntent) AtMost(limit PermissionIntent) bool {
+	return i.Rank() <= limit.Rank()
+}
+
 // PermissionMapper is an optional Backend extension: a backend that implements it
 // can classify its own modes and render an intent as one of its own modes.
 type PermissionMapper interface {

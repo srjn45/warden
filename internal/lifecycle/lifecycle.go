@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 	"unicode/utf8"
@@ -826,6 +827,9 @@ type Lifecycle struct {
 	// mode, and the hint gates without a daemon restart. Read through config();
 	// an atomic pointer keeps the swap race-free against concurrent spawns.
 	cfg atomic.Pointer[ConfigProvider]
+	// forkNorms holds fork mode normalizations (agent id → ModeNormalization)
+	// between a successful Spawn and the caller storing the record.
+	forkNorms sync.Map
 	// backend is the default agent backend (Claude) resolved from the registry.
 	// Per-session backends are resolved via backendFor; in Phase 0 every session
 	// is Claude, so this is also the effective backend everywhere.
@@ -880,6 +884,13 @@ type Lifecycle struct {
 	// failure and notify the operator. Called from the seeding goroutine; nil in
 	// tests / `wd switch` (the outcome is then only logged).
 	OnSeed func(SeedOutcome)
+	// OnModeNormalized, when set, is called after an existing agent's relaunch
+	// (Restore, SwitchRole, HotSwap) has SUCCESSFULLY launched with a permission
+	// mode that differs from the stored one or was defaulted (see
+	// ResolveRelaunchMode). The daemon persists the corrected mode (when
+	// ModeNormalization.Persist) and records a durable audit event. It is never
+	// called for a failed launch. nil in tests / `wd switch`.
+	OnModeNormalized func(ctx context.Context, n ModeNormalization)
 	// ExitsDir is a shared dir (the daemon sets it, e.g. ~/.warden/exits) where
 	// each agent's shell records claude's exit status, keyed by agent id. Empty
 	// (tests) disables exit capture — agents then fall back to orphaned-only
@@ -1067,6 +1078,11 @@ type SpawnRequest struct {
 	// live state. The adapter resolves it from the source session (lifecycle stays
 	// store-free). Empty ⇒ carry nothing (HEAD-only fork, the PR-1 behavior).
 	ForkSourceWorkdir string
+	// ForkSourceMode is the source agent's stored permission mode. A fork whose
+	// request carries no explicit mode inherits it (resolved through
+	// ResolveRelaunchMode, never widened) instead of falling to the configured
+	// default, which is Claude vocabulary and may be wider than the source.
+	ForkSourceMode string
 }
 
 func worktreeRel(id string) string { return filepath.Join(".worktrees", id) }
@@ -1821,6 +1837,10 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*agentstore.Ag
 	if req.AiCli != "" {
 		req.Backend = req.AiCli
 	}
+	// Remember whether the caller chose a mode BEFORE role defaults fill it in: a
+	// fork without an explicit mode must inherit (never widen) its source's mode
+	// even when a role default has since populated req.PermissionMode.
+	explicitMode := req.PermissionMode != ""
 	// Resolve the role FIRST: its defaults fill unset request fields (model /
 	// permission_mode / auto_approve / tags). Worktree-owning roles enter the
 	// managed path without a Type, so this must precede the freeMode decision.
@@ -1864,6 +1884,21 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*agentstore.Ag
 	// Remap the role's canonical permission posture onto the resolved AI CLI's
 	// native vocabulary (Codex sandbox, Antigravity --mode, Goose GOOSE_MODE, …).
 	applyRoleBackendMode(&req)
+	var forkRat *RelaunchRationale
+	if req.ForkFrom != "" && !explicitMode {
+		fb := l.backendFor(req.Backend)
+		mode, rat, err := ResolveRelaunchMode(RelaunchModeInput{
+			StoredMode: req.ForkSourceMode, StoredBackend: fb, Target: fb,
+			Role: req.Role, DefaultMode: l.config().GetDefaultPermissionMode(),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("fork %s: %w", req.ForkFrom, err)
+		}
+		req.PermissionMode = mode
+		if rat.Outcome != OutcomeKept {
+			forkRat = &rat
+		}
+	}
 	var binding *capacity.QuotaBinding
 	if l.CapacityResolver != nil {
 		var bindErr error
@@ -1931,7 +1966,28 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*agentstore.Ag
 	if freeMode {
 		return l.spawnFreeForm(ctx, req, agent)
 	}
-	return l.spawnTyped(ctx, req, agent)
+	spawned, err := l.spawnTyped(ctx, req, agent)
+	if err == nil && forkRat != nil {
+		// Held until the caller has stored the record (EmitForkNormalization): the
+		// durable event/audit need the agent to exist, and a failed launch or insert
+		// must emit nothing.
+		l.forkNorms.Store(spawned.ID, ModeNormalization{
+			AgentID: spawned.ID, Path: "fork", From: req.ForkSourceMode, To: spawned.PermissionMode,
+			Rationale: *forkRat,
+		})
+	}
+	return spawned, err
+}
+
+// EmitForkNormalization delivers (once) the permission-mode normalization a
+// successful fork produced to OnModeNormalized. The daemon calls it after the fork's
+// record is stored. The mode is already on the record, so Persist is false.
+func (l *Lifecycle) EmitForkNormalization(ctx context.Context, agentID string) {
+	v, ok := l.forkNorms.LoadAndDelete(agentID)
+	if !ok || l.OnModeNormalized == nil {
+		return
+	}
+	l.OnModeNormalized(ctx, v.(ModeNormalization))
 }
 
 // spawnFreeForm launches a plain claude agent in the caller's cwd with NO git
@@ -2308,11 +2364,15 @@ func (l *Lifecycle) Restore(ctx context.Context, agent *agentstore.Agent) error 
 	if b.Capabilities().StructuredTranscript && l.transcriptPath(agent) == "" {
 		return ErrNoTranscript
 	}
-	mode := agent.PermissionMode
-	if mode == "" {
-		mode = l.config().GetDefaultPermissionMode()
+	mode, rat, err := l.resolveRelaunchMode(agent, b, b)
+	if err != nil {
+		return err
 	}
-	return l.resumeInTmux(ctx, b, agent.ID, agent.Workdir, agent.AICLISessionID, agent.Model, mode, launchNetwork(agent))
+	if err := l.resumeInTmux(ctx, b, agent.ID, agent.Workdir, agent.AICLISessionID, agent.Model, mode, launchNetwork(agent)); err != nil {
+		return err
+	}
+	l.commitRelaunchMode(ctx, agent, agent.PermissionMode, mode, rat, "restore")
+	return nil
 }
 
 // SwitchRole re-injects the persona for agent.Role (already persisted by the caller
@@ -2341,6 +2401,11 @@ func (l *Lifecycle) SwitchRole(ctx context.Context, agent *agentstore.Agent) err
 	if b.Capabilities().StructuredTranscript && l.transcriptPath(agent) == "" {
 		return ErrNoTranscript
 	}
+	// Resolve before retiring the live session so ErrNoSafeMode leaves it running.
+	mode, rat, err := l.resolveRelaunchMode(agent, b, b)
+	if err != nil {
+		return err
+	}
 	// Kill the live tmux session (if any) so the relaunch below re-creates it. Unlike
 	// Restore we do NOT refuse a running agent — switching a role deliberately
 	// relaunches it.
@@ -2362,10 +2427,6 @@ func (l *Lifecycle) SwitchRole(ctx context.Context, agent *agentstore.Agent) err
 	); err != nil {
 		slog.Warn("switch-role: context injection failed", "agent", agent.ID, "backend", b.ID(), "err", err)
 	}
-	mode := agent.PermissionMode
-	if mode == "" {
-		mode = l.config().GetDefaultPermissionMode()
-	}
 	hints := l.systemPromptHints(ctx, b, agent.ID,
 		hintSpec{persona != "", persona},
 		hintSpec{l.config().GetPipelineHint(), pipelineHintGuidance},
@@ -2373,7 +2434,11 @@ func (l *Lifecycle) SwitchRole(ctx context.Context, agent *agentstore.Agent) err
 		hintSpec{l.config().GetGitConventions(), gitConventionsGuidance},
 		hintSpec{l.config().GetMemoryInject(), mem},
 		hintSpec{peers != "", peers})
-	return l.resumeInTmuxWithHints(ctx, b, agent.ID, agent.Workdir, agent.AICLISessionID, agent.Model, mode, launchNetwork(agent), hints)
+	if err := l.resumeInTmuxWithHints(ctx, b, agent.ID, agent.Workdir, agent.AICLISessionID, agent.Model, mode, launchNetwork(agent), hints); err != nil {
+		return err
+	}
+	l.commitRelaunchMode(ctx, agent, agent.PermissionMode, mode, rat, "switch-role")
+	return nil
 }
 
 // AdoptRequest carries the resolved inputs for Adopt. TmuxSession == "" selects
@@ -2430,7 +2495,14 @@ func (l *Lifecycle) Adopt(ctx context.Context, req AdoptRequest) (*agentstore.Ag
 		agent.Status = store.StatusSpawning
 		// Adopt registers a Claude session warden did not spawn, so resume always
 		// goes through the default (Claude) backend.
-		if err := l.resumeInTmux(ctx, l.backend, id, req.Cwd, aicliSessionID, req.Model, l.config().GetDefaultPermissionMode(), launchNetwork(agent)); err != nil {
+		// The config default is Claude vocabulary; resolve it for the backend actually
+		// launched. The record is unpersisted here (the caller stores it), so there is
+		// nothing to normalize or audit — only a mode that is safe to launch with.
+		mode, _, rerr := l.resolveRelaunchMode(agent, l.backend, l.backend)
+		if rerr != nil {
+			return nil, rerr
+		}
+		if err := l.resumeInTmux(ctx, l.backend, id, req.Cwd, aicliSessionID, req.Model, mode, launchNetwork(agent)); err != nil {
 			return nil, err
 		}
 		return agent, nil
