@@ -199,7 +199,7 @@ func newGateEnv(t *testing.T, reg string) *gateEnv {
 	t.Cleanup(e.d.stop)
 	e.opts = updater.Options{
 		CurrentVersion: "1.0.0", TargetVersion: "2.0.0", GOOS: "linux", GOARCH: "amd64",
-		InstallBin: e.bin, StagingDir: filepath.Join(home, "tmp"), AssetBase: srv.URL,
+		InstallBin: e.bin, StagingDir: filepath.Join(home, "tmp"), DataDir: e.dataDir, AssetBase: srv.URL,
 		HTTPClient: srv.Client(), Stdout: e.out, Service: e.d, Prober: e.d,
 		Clock: &gateClock{now: time.Unix(1_700_000_000, 0)}, ReadyTimeout: 30 * time.Second,
 		Preflight: gatePreflight(reg),
@@ -403,7 +403,8 @@ func TestReleaseGateMatrix(t *testing.T) {
 			require.True(t, res.RolledBack)
 			require.Contains(t, err.Error(), "migrate")
 			require.Equal(t, "old", e.installed())
-			require.Equal(t, 0, e.d.restarts, "no restart attempted after a failed migration")
+			require.Equal(t, 1, e.d.restarts, "prior daemon restarted after a failed migration")
+			require.Equal(t, "1.0.0", e.d.running, "prior daemon serving again")
 			requireRegistryPreserved(t, want, e.reopenSnapshot())
 		}},
 		{"rollback after restart failure", historical, func(t *testing.T, e *gateEnv, want registrySnapshot) {
