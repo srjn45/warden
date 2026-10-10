@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -332,9 +333,13 @@ func (a *Auditor) verifyCollection(ctx context.Context, col *engine.Collection, 
 
 	rows, err := col.Scan(query.MatchAll)
 	if err != nil {
+		class := store.DegradeRead
+		if strings.Contains(err.Error(), "decode") {
+			class = store.DegradeDecode
+		}
 		failures = append(failures, store.ScanFailure{
 			Collection: name,
-			Class:      store.DegradeRead,
+			Class:      class,
 			Detail:     fmt.Sprintf("scan failed: %v", err),
 		})
 		return failures, nil
