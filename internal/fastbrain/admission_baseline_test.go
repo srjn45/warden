@@ -165,42 +165,48 @@ func TestIncidentCosmeticStampedeLeavesCapacityForOperationalDecisions(t *testin
 	require.Equal(t, int32(1), other.Load())
 }
 
-// Gap: admission is a bare semaphore with no priority classes. Non-cosmetic
-// work (commit messages, task classification, ...) can hold every slot, and a
-// permission arbitration then waits for the whole of its caller's deadline
-// without ever reaching a runner. This is the residual shape of the October
-// incident after #858.
-func TestIncidentSemaphoreOnlyAdmissionStarvesArbitrationGap(t *testing.T) {
+// Formerly gap G1 (semaphore-only admission): operational/best-effort work
+// could hold every slot and starve a permission arbitration. P1 now owns a
+// reserved slot, so the victim reaches the runner immediately and the
+// best-effort occupier is shed rather than queued.
+func TestIncidentArbitrationReachesRunnerDespiteOccupiers(t *testing.T) {
 	f := loadIncident(t)
 	rec := newPromptRecorder()
 	eng := NewEngineWithOptions(rec, rec, f.options())
 
 	var wg sync.WaitGroup
+	var deferred atomic.Int32
 	for i, o := range f.Starvation.Occupiers {
 		wg.Add(1)
 		go func(i int, o incidentCall) {
 			defer wg.Done()
-			_, _ = eng.Decide(context.Background(), Request{Kind: o.Kind, Tier: o.Tier, Prompt: fmt.Sprintf("occ-%d", i)})
+			r, _ := eng.Decide(context.Background(), Request{Kind: o.Kind, Tier: o.Tier, Prompt: fmt.Sprintf("occ-%d", i)})
+			if r.Status == StatusDeferred {
+				deferred.Add(1)
+			}
 		}(i, o)
+		if i == 0 {
+			waitStarted(t, rec, 1) // operational occupier takes the slot first
+		}
 	}
-	waitStarted(t, rec, len(f.Starvation.Occupiers))
+	// One non-P1 slot exists: the best-effort occupier is shed.
+	require.Eventually(t, func() bool { return deferred.Load() == 1 }, time.Second, time.Millisecond)
 
 	v := f.Starvation.Victim
-	deadline := time.Duration(v.CallerDeadlineMS) * time.Millisecond
-	ctx, cancel := context.WithTimeout(context.Background(), deadline)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(v.CallerDeadlineMS)*time.Millisecond)
 	defer cancel()
-	start := time.Now()
-	r, err := eng.Decide(ctx, Request{Kind: v.Kind, Tier: v.Tier, Prompt: "victim-arbitration"})
-	require.NoError(t, err)
-	require.Equal(t, StatusCanceled, r.Status, "victim burns its whole deadline queued")
-	require.GreaterOrEqual(t, time.Since(start), deadline-20*time.Millisecond)
-	require.Zero(t, rec.count("victim"), "the model was never consulted")
-	// Telemetry gap: run() sets Duration in a deferred closure on a value
-	// return, so the returned Response never carries it — it exists only in
-	// the log line, and there it is queue wait + run time combined.
-	require.Zero(t, r.Duration)
-
+	done := make(chan Response, 1)
+	go func() {
+		r, _ := eng.Decide(ctx, Request{Kind: v.Kind, Tier: v.Tier, Prompt: "victim-arbitration"})
+		done <- r
+	}()
+	waitStarted(t, rec, 1)
+	require.Equal(t, 1, rec.count("victim"), "the model is consulted immediately")
 	close(rec.release)
+	r := <-done
+	require.True(t, r.OK())
+	require.NotZero(t, r.Duration, "Duration is now end-to-end (gap G7 for the response value)")
+	require.Equal(t, ClassSafety, r.Admission.Class)
 	wg.Wait()
 }
 
@@ -218,10 +224,8 @@ func TestActivityNeverRunsWhenMaxConcurrentIsOne(t *testing.T) {
 	require.Zero(t, calls.Load())
 }
 
-// Closed gap (runner-cancellation-and-health): a coalesced call is detached
-// from any single caller's context. When the leader's caller cancels, a
-// follower whose own context is alive still receives the shared result and the
-// runner is not canceled.
+// Formerly gap G4: a coalesced follower no longer inherits the leader's
+// context. The shared call is engine-owned and survives the leader leaving.
 func TestCoalescedFollowerSurvivesLeaderCancellation(t *testing.T) {
 	rec := newPromptRecorder()
 	eng := NewEngineWithOptions(rec, nil, EngineOptions{MaxConcurrent: 2})
@@ -240,20 +244,24 @@ func TestCoalescedFollowerSurvivesLeaderCancellation(t *testing.T) {
 		r, _ := eng.Decide(followerCtx, Request{Kind: KindArbitrateApproval, Tier: TierFast, Prompt: "same"})
 		follower <- r
 	}()
-	time.Sleep(30 * time.Millisecond) // let the follower join the in-flight call
+	require.Eventually(t, func() bool {
+		return eng.(interface{ AdmissionSnapshot() AdmissionSnapshot }).AdmissionSnapshot().Coalesced == 1
+	}, time.Second, time.Millisecond)
 	cancelLeader()
 
 	require.Equal(t, StatusCanceled, (<-leader).Status)
 	close(rec.release)
 	fr := <-follower
-	require.Equal(t, StatusOK, fr.Status, "follower keeps the shared result")
+	require.True(t, fr.OK(), "follower gets the shared result, got %s", fr.Status)
+	require.True(t, fr.Admission.Coalesced)
 	require.Equal(t, 1, rec.count("same"))
 }
 
-// Gap: nothing is remembered after completion — no result cache, no negative
-// cache, no per-runner health. Identical sequential requests and a runner that
-// fails every time are each re-executed in full.
-func TestNoCacheAndNoCircuitHealthGap(t *testing.T) {
+// Formerly the cache half of gap G3: pure-content kinds are served from a
+// bounded result cache, and terminal failures are remembered briefly so a dead
+// provider is not re-invoked per request. (A per-runner circuit/health state
+// remains runner-cancellation-and-health work.)
+func TestResultAndTerminalFailureAreCached(t *testing.T) {
 	var ok, bad atomic.Int32
 	eng := NewEngineWithOptions(
 		RunnerFunc(func(_ context.Context, p string) (string, error) {
@@ -264,16 +272,17 @@ func TestNoCacheAndNoCircuitHealthGap(t *testing.T) {
 			bad.Add(1)
 			return "", errors.New("claude: unavailable")
 		}), nil, EngineOptions{})
-	for range 3 {
+	for i := range 3 {
 		r, _ := eng.Decide(context.Background(), Request{Kind: KindClassifyTask, Tier: TierFast, Prompt: "ok same"})
 		require.True(t, r.OK())
+		require.Equal(t, i > 0, r.Admission.Cached)
 	}
-	require.Equal(t, int32(3), ok.Load(), "no result cache")
+	require.Equal(t, int32(1), ok.Load())
 	for range 6 {
 		r, _ := eng.Decide(context.Background(), Request{Kind: KindClassifyTask, Tier: TierFast, Prompt: "bad same"})
 		require.Equal(t, StatusRunnerError, r.Status)
 	}
-	require.Equal(t, int32(6), bad.Load(), "no circuit breaker / negative cache")
+	require.Equal(t, int32(1), bad.Load())
 }
 
 // Gap: distinct prompts of the same kind are never coalesced, so N agents
@@ -290,20 +299,28 @@ func TestDistinctPromptsAreNotCoalescedGap(t *testing.T) {
 	require.Equal(t, int32(4), calls.Load())
 }
 
-// Gap: the thinking tier is not an independent pool — both tiers draw from the
-// same semaphore (and, in the daemon, the same runner).
-func TestTiersShareOneAdmissionPoolGap(t *testing.T) {
+// Tiers still share one pool (by design: max_concurrent is a daemon-wide
+// process bound), but a P1 thinking call is never queued behind a fast P3 one.
+func TestTiersShareOnePoolButSafetyIsNotQueuedBehindOperational(t *testing.T) {
 	rec := newPromptRecorder()
-	eng := NewEngineWithOptions(rec, rec, EngineOptions{MaxConcurrent: 1, FastTimeout: 150 * time.Millisecond})
+	eng := NewEngineWithOptions(rec, rec, EngineOptions{MaxConcurrent: 1, FastTimeout: time.Second})
 	go func() {
-		_, _ = eng.Decide(context.Background(), Request{Kind: KindClassifyTask, Tier: TierFast, Prompt: "f"})
+		_, _ = eng.Decide(context.Background(), Request{Kind: KindCommitMessage, Tier: TierFast, Prompt: "f"})
 	}()
 	waitStarted(t, rec, 1)
-	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
-	defer cancel()
-	r, _ := eng.Decide(ctx, Request{Kind: KindRecognizePrompt, Tier: TierThinking, Prompt: "t"})
-	require.Equal(t, StatusCanceled, r.Status)
+	// max=1: the single slot is held by P3. P1 is the only class that may
+	// still start (total < max is false) so it queues, and is admitted the
+	// moment the slot frees — ahead of any later operational call.
+	res := make(chan Response, 1)
+	go func() {
+		r, _ := eng.Decide(context.Background(), Request{Kind: KindRecognizePrompt, Tier: TierThinking, Prompt: "t"})
+		res <- r
+	}()
+	require.Eventually(t, func() bool {
+		return eng.(interface{ AdmissionSnapshot() AdmissionSnapshot }).AdmissionSnapshot().Queued[ClassSafety] == 1
+	}, time.Second, time.Millisecond)
 	close(rec.release)
+	require.True(t, (<-res).OK())
 }
 
 // Privacy/bound baseline. Redaction + clipping are applied per prompt builder,

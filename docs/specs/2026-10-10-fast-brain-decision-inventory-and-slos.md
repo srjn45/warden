@@ -39,10 +39,10 @@ model call and is not overridable).
 
 | # | Gap | Pinned by | Consequence |
 |---|-----|-----------|-------------|
-| G1 | **Semaphore-only admission.** One pool; no priority class, no queue discipline; only `summarize_activity` is treated specially. Any non-cosmetic work can hold every slot. | `TestIncidentSemaphoreOnlyAdmissionStarvesArbitrationGap`, `TestTiersShareOneAdmissionPoolGap` | A permission arbitration queues behind `commit_message`/`classify_task` and burns its caller deadline without reaching a model. |
-| G2 | **Exact, in-flight-only coalescing.** Key = sha256(kind, tier, prompt). No semantic grouping, no result cache. | `TestDistinctPromptsAreNotCoalescedGap`, `TestNoCacheAndNoCircuitHealthGap` | N agents asking N slightly different questions cost N calls; a repeat one tick later costs a second call. |
-| G3 | **No cache or circuit/health state.** A runner that fails or times out every time is invoked in full on each request; no negative cache, no backoff. | `TestNoCacheAndNoCircuitHealthGap` | During a provider outage every decision pays its full timeout, serially through 2 slots. |
-| G4 | **Leader-context coupling.** A coalesced follower returns the leader's `Response`, including the leader's `StatusCanceled`/timeout, even if the follower's own context is live. | `TestCoalescedFollowerInheritsLeaderCancellationGap` | One caller's cancel can fail an unrelated high-priority waiter; the fail-open path then escalates to a human needlessly. |
+| G1 | **Semaphore-only admission.** One pool; no priority class, no queue discipline; only `summarize_activity` is treated specially. Any non-cosmetic work can hold every slot. | `TestIncidentArbitrationReachesRunnerDespiteOccupiers (was *Gap)`, `TestTiersShareOnePoolButSafetyIsNotQueuedBehindOperational (was *Gap)` | A permission arbitration queues behind `commit_message`/`classify_task` and burns its caller deadline without reaching a model. |
+| G2 | **Exact, in-flight-only coalescing.** Key = sha256(kind, tier, prompt). No semantic grouping, no result cache. | `TestDistinctPromptsAreNotCoalescedGap`, `TestResultAndTerminalFailureAreCached (was *Gap)` | N agents asking N slightly different questions cost N calls; a repeat one tick later costs a second call. |
+| G3 | **No cache or circuit/health state.** A runner that fails or times out every time is invoked in full on each request; no negative cache, no backoff. | `TestResultAndTerminalFailureAreCached (was *Gap)` | During a provider outage every decision pays its full timeout, serially through 2 slots. |
+| G4 | **Leader-context coupling.** A coalesced follower returns the leader's `Response`, including the leader's `StatusCanceled`/timeout, even if the follower's own context is live. | `TestCoalescedFollowerSurvivesLeaderCancellation (was *Gap)` | One caller's cancel can fail an unrelated high-priority waiter; the fail-open path then escalates to a human needlessly. |
 | G5 | **Claude-only daemon runner wiring.** The daemon builds one `RunnerFunc(lc.RunClaudeP)` and passes it as both fast and thinking runner (`cli/daemon.go:269`). `RunClaudeP` uses the lifecycle's single backend `HeadlessCmd` with a fixed 30 s `claudeCallTimeout`; there is no per-kind model/provider choice and the backend registry/tier ladder is not consulted. The REPL builds its own engine (`cli/repl.go:57`) with fast tier only. | – (wiring) | "Fast" and "thinking" differ only in timeout; cost and latency are those of the default backend CLI cold start. |
 | G6 | **No per-agent fairness or priority queue.** One noisy agent can fill the pool; waiters are served in Go channel order. | G1 tests | Fleet-wide head-of-line blocking. |
 | G7 | **Limited telemetry.** One `slog.Info` line per call (kind, tier, duration, status, prompt hash). `Response.Duration` is **always zero** (set in a deferred closure after the value return in `run`, so only the log line sees it, and there it is queue wait + run time combined); no queue-wait/run split, no coalesced/deferred/dropped counters, no per-kind histogram, nothing on `/metrics`. | `…StarvesArbitrationGap` (asserts `Duration == 0`) | Cannot measure any SLO below from production. |
@@ -262,3 +262,34 @@ weakened.
   drain with `WaitDelay`.
 - Coalesced calls are detached from the leader's context and canceled only when
   the last waiter leaves (closes the leader-context-coupling gap).
+
+## 12. Implementation status: central admission controller
+
+Task `central-admission-dedup-and-priority` (`internal/fastbrain/admission.go`)
+implements phases 1, 2 (follower detachment, queued-cancel) and 5 (per-agent
+fairness) of §9 and the cache half of G3. Gaps **G1, G2 (identity dedup + cache),
+G4, G6, G9** are closed; G3's circuit/health state (runner-cancellation-and-health),
+G5, G7's Prometheus surface and G8's engine-level redaction remain.
+
+- **Classes** come from `ClassOf(kind)` and match the inventory (drift-tested).
+- **Slots**: `max_concurrent` stays the global bound. P1 may use all slots;
+  non-P1 work is capped at `max(1, max-1)` (the reserved P1 slot); P4 needs
+  `active < max-1` (the #858 rule, so `max=1` never runs P4).
+- **Queues**: bounded per class (16; 64 for P1). Full queue → `StatusDeferred`
+  with reason `queue_full`. Max wait: P1 caller-only, P2 3 s, P3 5 s → deferred
+  `queue_wait_exceeded`; P4 is never queued, only shed (`reserved_capacity`).
+- **Preemption**: a running P4 call is cancelled (→ `StatusDeferred`,
+  `preempted`) when a P1/P2 call is blocked on capacity.
+- **Fairness / limits**: within a class the agent (`Metadata["agent_id"]`, else
+  `run_id`) with the fewest in-flight calls is served first; P2–P4 agents are
+  capped at ⌈max/2⌉ slots; P4 kinds run one at a time.
+- **Dedup**: key = SHA-256(kind, tier, `Sanitize(prompt)`). The shared call is
+  engine-owned; a leader leaving never cancels interested followers, and it is
+  cancelled (and dequeued) only when the last caller is gone. A more important
+  follower promotes a queued call.
+- **Cache**: pure-content kinds only (not approval, recognition, REPL, stall
+  triage, naming): success 2 m, terminal failure (`invalid_json`,
+  `runner_error`, `timeout`) 15 s, ≤128 entries, outputs ≤64 KiB; keyed by hash,
+  never exposed. `Response.Admission` and `AdmissionSnapshot()` expose content-
+  free counters (admitted, coalesced, cache hits, preempted, shed by reason,
+  queue depth) for the metrics task.
