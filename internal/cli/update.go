@@ -23,6 +23,8 @@ import (
 func newUpdateCmd() *cobra.Command {
 	var (
 		checkOnly bool
+		planOnly  bool
+		yes       bool
 		force     bool
 		pin       string
 		ready     time.Duration
@@ -47,6 +49,8 @@ the original failure and the rollback outcome are reported.
 
 Flags:
   --check            report whether an update is available without applying it
+  --plan             inspect the planned upgrade path, breaking changes, downtime, and disk needed
+  --yes              skip confirmation for breaking or data-touching updates
   --version <tag>    install a specific release (e.g. 9.9.0 or v9.9.0)
   --force            reinstall even when already on the target version
   --ready-timeout    overall deadline for the daemon to become healthy (default 90s)
@@ -54,6 +58,7 @@ Flags:
 Examples:
   warden update
   warden update --check
+  warden update --plan
   warden update --version v9.9.0
   wd update --force`,
 		Args: cobra.NoArgs,
@@ -92,20 +97,44 @@ Examples:
 				opts.InstallBin = filepath.Join(home, ".local", "bin", "warden")
 			}
 
-			var (
-				res updater.Result
-				err error
-			)
-			if checkOnly {
-				res, err = updater.Check(opts)
-			} else {
-				res, err = updater.Apply(opts)
+			if planOnly {
+				p, err := updater.BuildPlan(opts)
+				if err != nil {
+					return err
+				}
+				fmt.Fprint(cmd.OutOrStdout(), updater.FormatPlanText(p))
+				return nil
 			}
+
+			if checkOnly {
+				res, err := updater.Check(opts)
+				_ = res
+				return updateRecoveryGuidance(err)
+			}
+
+			// Pre-evaluate plan to check if confirmation is required for breaking/data-touching updates
+			if !yes {
+				if p, err := updater.BuildPlan(opts); err == nil && p.RequiresConfirm {
+					fmt.Fprint(cmd.OutOrStdout(), updater.FormatPlanText(p))
+					ok, err := confirmOrYes(cmd, false, "Proceed with update? [y/N]: ")
+					if err != nil {
+						return err
+					}
+					if !ok {
+						fmt.Fprintln(cmd.OutOrStdout(), "update cancelled")
+						return nil
+					}
+				}
+			}
+
+			res, err := updater.Apply(opts)
 			_ = res
 			return updateRecoveryGuidance(err)
 		},
 	}
 	cmd.Flags().BoolVar(&checkOnly, "check", false, "query and print whether an update is available without applying it")
+	cmd.Flags().BoolVar(&planOnly, "plan", false, "inspect planned upgrade path, breaking changes, downtime, and disk needed without changing anything")
+	cmd.Flags().BoolVar(&yes, "yes", false, "automatically confirm updates that require confirmation")
 	cmd.Flags().BoolVar(&force, "force", false, "reinstall even when already on the target version")
 	cmd.Flags().DurationVar(&ready, "ready-timeout", updater.DefaultReadyTimeout, "overall deadline for the restarted daemon to report healthy on the new version")
 	cmd.Flags().StringVar(&pin, "version", "", "install a specific release tag (e.g. 9.9.0 or v9.9.0)")

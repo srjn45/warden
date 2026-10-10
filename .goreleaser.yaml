@@ -9,6 +9,8 @@ before:
     # Build the web UI first so go:embed bakes the real dashboard into the
     # binary (the Go build embeds web/dist).
     - sh -c "cd web && npm ci && npm run build"
+    # Generate release manifest.json published and checksummed with the archives.
+    - sh -c "mkdir -p dist && go run ./cmd/genmanifest -version '{{ .Version }}' -out ./dist/manifest.json"
 
 builds:
   - id: warden
@@ -65,6 +67,7 @@ release:
   # the cross-compiled archives and checksums.txt.
   extra_files:
     - glob: ./scripts/install.sh
+    - glob: ./dist/manifest.json
   # keep-existing lets a re-run for the same tag skip assets that already
   # uploaded successfully instead of failing with 422 already_exists.
   mode: keep-existing

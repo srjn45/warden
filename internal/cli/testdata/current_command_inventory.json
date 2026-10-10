@@ -4354,8 +4354,10 @@
     "local_flags": [
       "check",
       "force",
+      "plan",
       "ready-timeout",
-      "version"
+      "version",
+      "yes"
     ],
     "inherited_flags": [
       "addr",
