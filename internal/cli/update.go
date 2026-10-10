@@ -259,9 +259,15 @@ func backendPreflight(ctx context.Context, dir string) (updater.PreflightResult,
 		res.Blockers = append(res.Blockers, fmt.Sprintf("%s: verification failed: %v", dir, err))
 		return res, nil
 	}
+	// Index lag beside the running daemon is expected, not something the new
+	// daemon has to repair — keep it out of the update notes.
+	lag := rep.LiveIndexLag()
 	for _, c := range rep.Collections {
 		switch c.Verdict {
 		case backendstore.VerdictRecoverable:
+			if lag {
+				continue
+			}
 			res.Notes = append(res.Notes, fmt.Sprintf("%s: %s", c.Name, strings.Join(c.Codes, ", ")))
 		case backendstore.VerdictAmbiguous:
 			why := strings.Join(c.Reasons, "; ")

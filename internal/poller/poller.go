@@ -154,10 +154,14 @@ type Poller struct {
 	// detection (classify) and approval parsing (tryAutoApprove). Defaults in New
 	// to the agentbackend registry (with the Claude default for an empty/unknown
 	// id); tests may override it with a fake backend.
-	Backend        func(s *agentstore.Agent) agentbackend.Backend
-	stuckAfter     time.Duration
-	SummarizeAfter time.Duration        // throttle for activity-badge refresh (0 = every change); cfg activity.interval
-	lastSummary    map[string]time.Time // touched only by the tick goroutine
+	Backend    func(s *agentstore.Agent) agentbackend.Backend
+	stuckAfter time.Duration
+	// ActivityEnabled is the explicit operator kill switch for cosmetic
+	// model-generated activity badges. It is intentionally independent of
+	// status, approval, and prompt-recognition behavior.
+	ActivityEnabled bool
+	SummarizeAfter  time.Duration        // throttle for activity-badge refresh (0 = every change); cfg activity.interval
+	lastSummary     map[string]time.Time // touched only by the tick goroutine
 	// OnChange, if set, is called once after a tick that changed any session
 	// (status or pane), and again from a summarizer worker when it refreshes a
 	// subject. The daemon wires this to hub.publish for SSE.
@@ -526,6 +530,7 @@ func New(d Deps, stuckAfter time.Duration) *Poller {
 		deps:            d,
 		Backend:         resolveBackend,
 		stuckAfter:      stuckAfter,
+		ActivityEnabled: true,
 		SummarizeAfter:  15 * time.Second,
 		lastSummary:     map[string]time.Time{},
 		inflight:        map[string]struct{}{},
@@ -1212,7 +1217,7 @@ func (p *Poller) tick(ctx context.Context) error {
 				}
 			}
 		}
-		if alive && paneChanged && now.Sub(p.lastSummary[s.ID]) >= p.SummarizeAfter {
+		if p.ActivityEnabled && alive && paneChanged && now.Sub(p.lastSummary[s.ID]) >= p.SummarizeAfter {
 			p.dispatchSummary(ctx, s, now)
 		}
 		if p.ctxGuard().Guard && alive && p.CheckEvery >= 0 && now.Sub(p.lastCtxCheck[s.ID]) >= p.CheckEvery {

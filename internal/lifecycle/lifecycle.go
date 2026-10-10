@@ -3129,6 +3129,17 @@ func (l *Lifecycle) SpawnTerminal(ctx context.Context, req SpawnRequest) (*termi
 	if err != nil {
 		return nil, err
 	}
+	// Terminals are created by the TUI without a caller-supplied name. Give them
+	// the same durable, human-readable identity guarantee as agents rather than
+	// rejecting an otherwise valid terminal spawn. Keep this separate from
+	// assignSpawnName: a terminal must never invoke a model-backed name resolver.
+	if strings.TrimSpace(req.Name) == "" {
+		suffix, err := shortID()
+		if err != nil {
+			return nil, err
+		}
+		req.Name = "terminal-" + suffix
+	}
 	if err := store.ValidateName(req.Name); err != nil {
 		return nil, err
 	}

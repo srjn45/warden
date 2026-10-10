@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ProjectTree } from '../lib/tree';
 import type { Session } from '../lib/types';
 import { listSessions, getTree, subscribeSessions } from '../lib/api';
+import { FleetRefreshCoordinator, type FleetStatus } from '../lib/refresh';
 import { hasToken, clearToken, onAuthRequired } from '../lib/token';
 import {
   useRoute, navigate, redirectRootToDefault, DEFAULT_ROUTE, type Route,
@@ -42,8 +43,11 @@ export default function Dashboard() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [tree, setTree] = useState<ProjectTree | null>(null);
   const [treeError, setTreeError] = useState<string | null>(null);
+  const [fleetStatus, setFleetStatus] = useState<FleetStatus>('connecting');
+  const [lastCompleteAt, setLastCompleteAt] = useState<Date | null>(null);
+  const coordinatorRef = useRef<FleetRefreshCoordinator | null>(null);
   const [terminalFocus, setTerminalFocus] = useState<string | null>(null);
-  const [connected, setConnected] = useState(false);
+  const connected = fleetStatus === 'live';
   const [showCreate, setShowCreate] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [showContext, setShowContext] = useState(false);
@@ -95,7 +99,7 @@ export default function Dashboard() {
   const cycleTheme = () => setTheme((t) => nextTheme(t));
 
   // Manual refetch of the fleet (the `r` shortcut); SSE keeps it live otherwise.
-  const refresh = () => { listSessions().then(setSessions).catch(() => { /* SSE will populate */ }); };
+  const refresh = () => { coordinatorRef.current?.refresh(true); };
 
   // Open (pin + activate) an agent pane: add to the pinned list and navigate to
   // its URL. Closing removes the pin and, if it was the active pane, returns to
@@ -177,23 +181,26 @@ export default function Dashboard() {
   // A 401 from any REST call surfaces the token-entry modal.
   useEffect(() => onAuthRequired(() => setAuthRequired(true)), []);
 
-  // Live session list over SSE. Re-runs after a new token is saved (authNonce)
-  // so the stream and the initial load reconnect with the new credential.
+  // Live session list over SSE with coalesced fallback polling and backoff.
+  // Re-runs after a new token is saved (authNonce).
   useEffect(() => {
-    let active = true;
-    let streamedTree = false;
-    listSessions().then((data) => { if (active) setSessions(data); }).catch(() => { /* SSE will populate */ });
-    getTree().then((data) => {
-      if (active && !streamedTree) { setTree(data); setTreeError(null); }
-    }).catch(() => {
-      if (active && !streamedTree) setTreeError('Project hierarchy unavailable. Reconnecting…');
+    const coord = new FleetRefreshCoordinator();
+    coordinatorRef.current = coord;
+    const unsub = coord.subscribe((state) => {
+      setSessions(state.sessions);
+      setTree(state.tree);
+      setTreeError(state.treeError);
+      setFleetStatus(state.status);
+      setLastCompleteAt(state.lastCompleteAt);
     });
-    const unsub = subscribeSessions(setSessions, () => setConnected(false), () => setConnected(true), setAutopilotLive, (data) => {
-      streamedTree = true;
-      setTree(data);
-      setTreeError(null);
-    });
-    return () => { active = false; unsub(); };
+    coord.start(setAutopilotLive);
+    return () => {
+      unsub();
+      coord.stop();
+      if (coordinatorRef.current === coord) {
+        coordinatorRef.current = null;
+      }
+    };
   }, [authNonce]);
 
   function onTokenSaved() {
@@ -289,7 +296,7 @@ export default function Dashboard() {
       <main className="tab-content">
         {route.kind === 'others' && <OthersTab sessions={agents} onSelect={select} />}
         {route.kind === 'cockpit' && <CockpitTab sessions={sessions} tree={tree} treeError={treeError}
-          stale={!connected} onSelect={select} onCreated={select}
+          stale={!connected} lastCompleteAt={lastCompleteAt} fleetStatus={fleetStatus} onSelect={select} onCreated={select}
           onTerminalSelect={(id) => { setTerminalFocus(id); navigate({ kind: 'terminals' }); }} />}
         {route.kind === 'pipelines' && <PipelinesTab onSelect={select} />}
         {route.kind === 'terminals' && <TerminalsTab terminals={terminals} initialSelected={terminalFocus} />}

@@ -97,7 +97,6 @@ const (
 	modeDetails               // scrollable full detail view for the selected agent
 	modeEvents                // the selected agent's event log (opened from modeDetails)
 	modeBackends              // agent-backend registry page (list, tier, default, enabled)
-	modeTerminalChoice        // `t`: (c)reate a terminal in the opened agent's dir or (f)ocus an existing one
 	modePlanRunMode           // `r` on a plan: execution mode picker
 	modePlanDetail            // in-pane full plan detail view
 	modeConfirmUpdate         // y/N confirm before applying warden update + hot-reload

@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,18 +29,6 @@ import (
 	"github.com/srjn45/warden/internal/role"
 	"github.com/srjn45/warden/internal/store"
 )
-
-// Terminal auto-spawn rate limit / circuit breaker (#465). Without these,
-// reconcile fired spawnTerminalCmd on every empty list poll and could create
-// ~150 terminals in seconds when the daemon was slow or the listing raced.
-const (
-	terminalSpawnInitialBackoff = 2 * time.Second
-	terminalSpawnMaxBackoff     = 30 * time.Second
-	terminalSpawnMaxAttempts    = 3
-)
-
-// terminalSpawnNow is the clock used by the auto-spawn backoff (overridable in tests).
-var terminalSpawnNow = time.Now
 
 // Agent-pane reattach backoff: prevents flood-reattach when the pane is
 // repeatedly dead (e.g. during a hot-swap or a transient daemon restart storm).
@@ -142,40 +131,18 @@ type controlPaneModel struct {
 	targetPlanID       string
 	planRunModeIdx     int
 	planDetailExpanded bool
-	// currentTab selects which domain the navigator shows (§3 Phase 3): the
-	// Projects tab lists everything except plain terminal sessions (pipelines +
-	// agents); the Terminals tab lists only terminal sessions. Tab (modeNormal)
-	// cycles it. The zero value is tabProjects, so a fresh cockpit opens on Projects.
-	currentTab tab
-	w, h       int
-	ready      bool
+	w, h               int
+	ready              bool
 	// focused becomes true once the cursor has landed on a real row. Until then
 	// (a freshly-loaded cockpit) the cursor auto-snaps to the first entity rather
 	// than sitting on the always-present Approvals section header — so opening the
 	// cockpit lands you on the first agent/pipeline, matching pre-sections UX.
 	focused bool
-	// defaultTerminalReady records that the startup ensure step (§5) has run: on the
-	// first session list we either adopt an existing live terminal into the terminal
-	// pane or spawn a default one in the launch cwd.
+	// defaultTerminalReady records that the startup adopt step (§5) has run: on the
+	// first session list an existing live terminal is adopted into the terminal
+	// pane. Terminals are never auto-spawned — they are created on demand with `t`.
 	defaultTerminalReady bool
-	// terminalSpawnPending guards reconcile from firing another default-terminal
-	// spawn while one is already in flight (the list may still show zero live
-	// terminals until the spawn completes and is polled).
-	terminalSpawnPending bool
-	// terminalSpawnAttempts counts consecutive auto-spawn tries that have not yet
-	// been followed by a confirmed live terminal in m.sessions (#465).
-	terminalSpawnAttempts int
-	// terminalLastSpawnAt is when the last auto-spawn was fired (backoff anchor).
-	terminalLastSpawnAt time.Time
-	// terminalSpawnBackoff is the minimum wait before the next auto-spawn after
-	// terminalLastSpawnAt. Starts at terminalSpawnInitialBackoff and doubles up
-	// to terminalSpawnMaxBackoff on each attempt.
-	terminalSpawnBackoff time.Duration
-	// terminalSpawnCircuitOpen suspends auto-spawning after terminalSpawnMaxAttempts
-	// consecutive failures/empty listings. Cleared when a live terminal appears or
-	// the user manually requests a terminal (`t` → create).
-	terminalSpawnCircuitOpen bool
-	showSystemAgents         bool // toggled with S; reveals system agents in the flat fleet
+	showSystemAgents     bool // toggled with S; reveals system agents in the flat fleet
 	// openedAgent is the id of the agent currently shown in the agent pane; it
 	// anchors §8 M-a/M-p rotation (advance from here) and is set on every agent
 	// open/rotate. Empty until the first agent is opened.
@@ -186,13 +153,6 @@ type controlPaneModel struct {
 	// openedTerminal is the id of the terminal currently shown in the terminal pane
 	// (anchors §8 rotation, added in stage 5; set on open/create here).
 	openedTerminal string
-	// termChoiceDir is the dir the modeTerminalChoice prompt (`t`) will create/focus
-	// a terminal in.
-	termChoiceDir string
-	// termChoiceProjectID is the project the modeTerminalChoice prompt (`t`) stamps a
-	// newly-created terminal into — the opened agent's project, so the terminal joins
-	// the same project deterministically. "" = daemon path-matches by dir.
-	termChoiceProjectID string
 	// termInfo holds each terminal's live cwd/branch (polled from its tmux pane on
 	// the tick, §7), keyed by session id; feeds the Terminals-section names.
 	termInfo map[string]terminalLiveInfo
@@ -222,6 +182,14 @@ type controlPaneModel struct {
 	// pendingExec is set when the Bubble Tea loop should exit so RunControlPane
 	// can re-exec the binary in place (after an update or external upgrade).
 	pendingExec bool
+
+	// Refresh orchestration
+	refreshInFlight bool
+	refreshQueued   bool
+	refreshFailures int
+	sseActive       bool
+	sseChan         chan sseSnapshotMsg
+	jitterRand      func() float64
 }
 
 // quitCmd is what `q`/`ctrl+c` runs: tear the whole cockpit down (killCockpitCmd
@@ -256,6 +224,8 @@ func newListPane(a api, agentPane, terminalPane string) controlPaneModel {
 		plans:        make(map[string][]*planstore.Plan),
 		vp:           viewport.New(0, 0),
 		localVersion: localVersion,
+		sseChan:      make(chan sseSnapshotMsg, 8),
+		jitterRand:   rand.Float64,
 	}
 }
 
@@ -267,60 +237,13 @@ func (m controlPaneModel) updateState() updateState {
 	}
 }
 
-// tab identifies which domain the navigator is showing (§3 Phase 3). The two
-// tabs live on the pane's top border (see tabBarTitle); Tab cycles between them.
-type tab int
-
-const (
-	tabProjects  tab = iota // pipelines + agents (everything except plain terminals)
-	tabTerminals            // only Kind=terminal sessions
-	tabCount                // sentinel: number of tabs, for wrap-around cycling
-)
-
-// cockpitTabs is the ordered tab-label catalog, indexed by tab. Order matches the
-// tab constants above so tabBarTitle can index it directly.
-var cockpitTabs = []string{tabProjects: "Projects", tabTerminals: "Terminals"}
-
-// tabBarTitle renders the horizontal border tabs spliced into the pane's top
-// border (§3.1): the active tab is bracketed, the rest plain, joined by border
-// dashes — e.g. `Projects ─[ Terminals ]` becomes `╭─ Projects ─[ Terminals ]─╮`
-// once titleBox insets it. Brackets (not ANSI) mark the active tab because
-// spliceTitle overwrites the border rune-by-rune and colour escapes would
-// misalign it.
-func tabBarTitle(active tab) string {
-	parts := make([]string, len(cockpitTabs))
-	for i, name := range cockpitTabs {
-		if tab(i) == active {
-			parts[i] = stCursor.Render("[ " + name + " ]")
-		} else {
-			parts[i] = " " + name + " "
-		}
-	}
-	// Trim the outer padding so titleBox's own single-space inset lands the first
-	// tab flush after `╭─ ` (and the last flush before the trailing border fill).
-	return strings.Trim(strings.Join(parts, "─"), " ")
-}
-
-// items assembles the control-pane navigator for the active tab (§3 Phase 3). The
-// Terminals tab shows only the Terminals section (plain shells, named per §7); the
-// Projects tab shows everything else — the Pipelines and Agents sections. Each
-// section header is always present within its tab; collapsing one (its secKey in
-// m.collapsed) folds away its whole sub-tree.
+// items assembles the control-pane navigator: the project hierarchy
+// (tree.Service.Build + view adapter, N6). Terminals are project members and
+// render inside their project alongside agents, pipelines and plans; there is no
+// separate Terminals tab.
 func (m controlPaneModel) items() []item {
-	// ── Terminals tab: plain shells only, named per §7 (live cwd/branch from termInfo).
-	if m.currentTab == tabTerminals {
-		_, terminals := splitByKind(flatSessions(m.sessions, m.pipelines))
-		termCollapsed := m.collapsed[secKey(secTerminals)]
-		out := []item{{section: secTerminals, secCount: len(terminals), collapsed: termCollapsed}}
-		if !termCollapsed {
-			out = append(out, terminalItems(terminals, m.termInfo)...)
-		}
-		markOpened(out, m.openedAgent, m.openedTerminal, m.openedPlan)
-		return out
-	}
-
-	// ── Projects tab: tree.Service.Build + view adapter (N6).
 	items := buildProjectItems(m.projects, m.projectGroups, m.sessions, m.pipelines, m.autopilot, m.plans, m.openedDirs, m.collapsed, m.showSystemAgents, m.remotePlans)
+	applyLiveTerminalNames(items, m.sessions, m.termInfo)
 	markOpened(items, m.openedAgent, m.openedTerminal, m.openedPlan)
 	return items
 }
@@ -435,21 +358,6 @@ func (m controlPaneModel) activeDir() string {
 // rather than resolved by the daemon's path-match.
 func (m controlPaneModel) activeProjectID() string {
 	return activeProjectID(m.items(), m.cursor)
-}
-
-// projectIDForSession returns the stamped project id of the session with id, or ""
-// if it is unknown or project-less. Used by the terminal (t) path, which launches
-// into the currently-opened agent's dir and should join that agent's project.
-func (m controlPaneModel) projectIDForSession(id string) string {
-	if id == "" {
-		return ""
-	}
-	for _, s := range m.sessions {
-		if s.ID == id {
-			return s.ProjectID
-		}
-	}
-	return ""
 }
 
 // closeProjectFromHeader handles x on a project group header (§4.4): a loose
@@ -573,8 +481,9 @@ func (m controlPaneModel) rotateTerminal(step int) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.openedTerminal = next.ID
-	m.currentTab = tabTerminals
-	delete(m.collapsed, secKey(secTerminals))
+	if next.ProjectID != "" {
+		delete(m.collapsed, projNodeID(next.ProjectID))
+	}
 	items := m.items()
 	for i, it := range items {
 		if it.session != nil && it.session.ID == next.ID {
@@ -601,7 +510,6 @@ func (m controlPaneModel) rotateAgent(set []*store.Session, emptyMsg string, ste
 	}
 	m.openedAgent = next.ID
 	m.openedAgentDir = sourceDir(next)
-	m.currentTab = tabProjects
 	if next.ProjectID != "" {
 		delete(m.collapsed, projNodeID(next.ProjectID))
 	}
@@ -623,25 +531,6 @@ func (m controlPaneModel) rotateAgent(set []*store.Session, emptyMsg string, ste
 	return m, openInDetailCmd(m.agentPane, next.TmuxSession, true)
 }
 
-// termDir is a terminal's directory for §6.1 matching: its live pane cwd when
-// polled (termInfo), else its stored cwd.
-func (m controlPaneModel) termDir(t *store.Session) string {
-	if li, ok := m.termInfo[t.ID]; ok && li.cwd != "" {
-		return li.cwd
-	}
-	return terminalCwd(t)
-}
-
-// liveTerminalInDir returns the first live terminal whose dir matches dir, or nil.
-func (m controlPaneModel) liveTerminalInDir(dir string) *store.Session {
-	for _, t := range m.liveTerminals() {
-		if m.termDir(t) == dir {
-			return t
-		}
-	}
-	return nil
-}
-
 // liveTerminalByID returns the live terminal with id, or nil when it is absent or
 // no longer live.
 func (m controlPaneModel) liveTerminalByID(id string) *store.Session {
@@ -653,25 +542,15 @@ func (m controlPaneModel) liveTerminalByID(id string) *store.Session {
 	return nil
 }
 
-// resetTerminalAutoSpawn clears the #465 backoff / circuit-breaker state after a
-// live terminal is confirmed (or the user manually requests one).
-func (m *controlPaneModel) resetTerminalAutoSpawn() {
-	m.terminalSpawnAttempts = 0
-	m.terminalLastSpawnAt = time.Time{}
-	m.terminalSpawnBackoff = 0
-	m.terminalSpawnCircuitOpen = false
-}
-
 // reconcileTerminalPaneCmd keeps the terminal pane healthy (§5 startup + §11
-// ongoing): always maintain ≥1 live terminal, clear a stale openedTerminal when
-// its session exits, and re-attach when the pane is dead ([exited]) after a daemon
-// restart or attach dropout. A no-op in the tmux-native cockpit (no terminal pane).
-// Re-opens never steal focus — the control pane stays focused unless the user
-// explicitly opens or rotates a terminal.
+// ongoing): clear a stale openedTerminal when its session exits and re-attach
+// when the pane is dead ([exited]) after a daemon restart or attach dropout. A
+// no-op in the tmux-native cockpit (no terminal pane). Re-opens never steal
+// focus — the control pane stays focused unless the user explicitly opens or
+// rotates a terminal.
 //
-// Auto-spawn is rate-limited with exponential backoff and a circuit breaker (#465)
-// so an empty listing (daemon lag, listing error, startup race) cannot fire
-// unbounded spawnTerminalCmd calls on every poll cycle.
+// It NEVER creates a terminal: terminals belong to a project and are created on
+// demand (`t` on a project row). An empty or stale listing must not spawn anything.
 func (m *controlPaneModel) reconcileTerminalPaneCmd() tea.Cmd {
 	if m.terminalPane == "" {
 		return nil
@@ -685,11 +564,8 @@ func (m *controlPaneModel) reconcileTerminalPaneCmd() tea.Cmd {
 	}
 
 	if len(live) == 0 {
-		return m.autoSpawnTerminalCmd()
+		return nil
 	}
-	// A confirmed live terminal resets the runaway-spawn circuit (#465).
-	m.resetTerminalAutoSpawn()
-	m.terminalSpawnPending = false
 
 	// First successful session list at startup: adopt without stealing focus (§5).
 	if !m.defaultTerminalReady {
@@ -784,51 +660,6 @@ func (m *controlPaneModel) reconcileAgentPaneCmd() tea.Cmd {
 	return nil
 }
 
-// autoSpawnTerminalCmd fires a default terminal spawn when none are live, subject
-// to in-flight guard, exponential backoff, and the #465 circuit breaker.
-func (m *controlPaneModel) autoSpawnTerminalCmd() tea.Cmd {
-	if m.terminalSpawnCircuitOpen {
-		return nil
-	}
-	if m.terminalSpawnPending {
-		return nil
-	}
-	if m.terminalSpawnAttempts >= terminalSpawnMaxAttempts {
-		m.terminalSpawnCircuitOpen = true
-		m.status = "terminal auto-spawn suspended — press t to create one manually"
-		slog.Warn("terminal auto-spawn circuit breaker tripped",
-			"attempts", m.terminalSpawnAttempts,
-			"backoff", m.terminalSpawnBackoff.String())
-		return nil
-	}
-	if m.terminalSpawnAttempts > 0 {
-		wait := m.terminalSpawnBackoff
-		if wait <= 0 {
-			wait = terminalSpawnInitialBackoff
-		}
-		if terminalSpawnNow().Sub(m.terminalLastSpawnAt) < wait {
-			return nil
-		}
-	}
-
-	m.defaultTerminalReady = true
-	m.terminalSpawnPending = true
-	m.terminalSpawnAttempts++
-	m.terminalLastSpawnAt = terminalSpawnNow()
-	if m.terminalSpawnBackoff <= 0 {
-		m.terminalSpawnBackoff = terminalSpawnInitialBackoff
-	} else {
-		next := m.terminalSpawnBackoff * 2
-		if next > terminalSpawnMaxBackoff {
-			next = terminalSpawnMaxBackoff
-		}
-		m.terminalSpawnBackoff = next
-	}
-	// The startup terminal opens in the daemon's cwd with no project context; the
-	// daemon path-matches it if that cwd is an open project.
-	return spawnTerminalCmd(m.api, m.fallbackDir(), "", false)
-}
-
 // bodyH is the height of the framed pane body, shared by View and the inspector
 // viewport sizing so the two never disagree.
 func (m controlPaneModel) bodyH() int {
@@ -877,12 +708,51 @@ func (m *controlPaneModel) applyDefaultCollapse() {
 	}
 }
 
-func (m controlPaneModel) Init() tea.Cmd {
-	return tea.Batch(
+func (m controlPaneModel) scheduleTick() tea.Cmd {
+	interval := baseRefreshInterval
+	if m.sseActive {
+		interval = conservativeRefreshInterval
+	}
+	if m.refreshFailures > 0 {
+		interval = computeRefreshBackoff(interval, m.refreshFailures, maxRefreshBackoff, m.jitterRand)
+	}
+	return tickWithDuration(interval)
+}
+
+func (m controlPaneModel) fleetRefreshCmds() []tea.Cmd {
+	cmds := []tea.Cmd{
 		listCmd(m.api, true), pipelinesCmd(m.api), projectsCmd(m.api), projectGroupsCmd(m.api),
-		approvalsCmd(m.api), autopilotCmd(m.api), plansCmd(m.api, m.projects),
-		healthCmd(m.api), updateCheckCmd(m.localVersion), tick(),
-	)
+		approvalsCmd(m.api), pressureCmd(m.api), autopilotCmd(m.api), plansCmd(m.api, m.projects),
+	}
+	if m.daemonVersion == "" || m.fleet != fleetLive {
+		cmds = append(cmds, healthCmd(m.api))
+	}
+	if m.mode == modeInspector {
+		cmds = append(cmds, contextCmd(m.api), messagesCmd(m.api))
+	}
+	if m.mode == modeBackends {
+		cmds = append(cmds, backendsCmd(m.api)) // keep the table + limited-until countdown fresh
+	}
+	// Poll live cwd/branch for terminal names (§7) — only when a terminal pane
+	// exists and at least one terminal is live to read.
+	if m.terminalPane != "" {
+		if terms := m.liveTerminals(); len(terms) > 0 {
+			cmds = append(cmds, terminalInfoCmd(terms))
+		}
+	}
+	// GitHub release check is intentionally sparse (not every tick).
+	if m.lastUpdateCheck.IsZero() || time.Since(m.lastUpdateCheck) >= updateCheckInterval {
+		cmds = append(cmds, updateCheckCmd(m.localVersion))
+	}
+	return cmds
+}
+
+func (m controlPaneModel) Init() tea.Cmd {
+	cmds := append(m.fleetRefreshCmds(), m.scheduleTick())
+	if sseCmd := subscribeSSECmd(m.api, m.sseChan); sseCmd != nil {
+		cmds = append(cmds, sseCmd)
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -915,27 +785,15 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready = true
 		return m, nil
 	case tickMsg:
-		cmds := []tea.Cmd{listCmd(m.api, true), pipelinesCmd(m.api), projectsCmd(m.api), projectGroupsCmd(m.api), approvalsCmd(m.api), pressureCmd(m.api), autopilotCmd(m.api), plansCmd(m.api, m.projects), healthCmd(m.api), tick()}
-		if m.mode == modeInspector {
-			cmds = append(cmds, contextCmd(m.api), messagesCmd(m.api))
-		}
 		if m.mode == modeLogs {
 			m.refreshLogs(false)
 		}
-		if m.mode == modeBackends {
-			cmds = append(cmds, backendsCmd(m.api)) // keep the table + limited-until countdown fresh
+		if m.refreshInFlight {
+			m.refreshQueued = true
+			return m, m.scheduleTick()
 		}
-		// Poll live cwd/branch for terminal names (§7) — only when a terminal pane
-		// exists and at least one terminal is live to read.
-		if m.terminalPane != "" {
-			if terms := m.liveTerminals(); len(terms) > 0 {
-				cmds = append(cmds, terminalInfoCmd(terms))
-			}
-		}
-		// GitHub release check is intentionally sparse (not every 1s tick).
-		if m.lastUpdateCheck.IsZero() || time.Since(m.lastUpdateCheck) >= updateCheckInterval {
-			cmds = append(cmds, updateCheckCmd(m.localVersion))
-		}
+		m.refreshInFlight = true
+		cmds := append(m.fleetRefreshCmds(), m.scheduleTick())
 		return m, tea.Batch(cmds...)
 	case healthMsg:
 		if msg.err == nil && msg.version != "" {
@@ -1035,15 +893,56 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case sseSnapshotMsg:
+		if msg.err != nil {
+			m.sseActive = false
+			m.refreshFailures++
+			return m, waitForSSEMsg(m.sseChan)
+		}
+		m.sseActive = true
+		m.refreshFailures = 0
+		m.fleet = fleetLive
+		m.lastCompleteAt = time.Now()
+		prev := m.selectedKey()
+		// The SSE fleet frame is agents-only (terminals are a separate entity kept
+		// in terminalstore and merged only by the REST list). Carry the terminals
+		// from the last complete list across the frame so they do not flicker out of
+		// the project tree; the REST list stays authoritative for them.
+		m.sessions = groupSort(withTerminalsFrom(msg.sessions, m.sessions))
+		m.repin(prev)
+		switch m.mode {
+		case modeDetails:
+			m.refreshDetail()
+		case modeEvents:
+			if s := m.selected(); s != nil {
+				m.vp.SetContent(eventsBody(s, m.vp.Width))
+			}
+		}
+		m.refreshInFlight = false
+		cmds := []tea.Cmd{m.reconcileTerminalPaneCmd(), m.reconcileAgentPaneCmd(), waitForSSEMsg(m.sseChan)}
+		if m.refreshQueued {
+			m.refreshQueued = false
+			m.refreshInFlight = true
+			cmds = append(cmds, m.fleetRefreshCmds()...)
+		}
+		return m, tea.Batch(cmds...)
 	case sessionsMsg:
+		m.refreshInFlight = false
 		if msg.err != nil {
 			// Last-known-good: a failed poll never clears rows or moves the cursor. We
 			// only classify why it failed (dead daemon / timed-out request / degraded
 			// store) so the banner can explain that the retained fleet may be stale.
 			// Rows are dropped only when a later *complete* snapshot omits them.
+			m.refreshFailures++
 			m.fleet = classifyFleetErr(msg.err)
+			if m.refreshQueued {
+				m.refreshQueued = false
+				m.refreshInFlight = true
+				return m, tea.Batch(m.fleetRefreshCmds()...)
+			}
 			return m, nil
 		}
+		m.refreshFailures = 0
 		// A successful list is complete and authoritative — the daemon is
 		// complete-or-error, so it never returns a silent partial fleet. It is safe
 		// to replace wholesale and clear the stale/degraded banner. Stamp the time so
@@ -1067,14 +966,14 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// re-attach when the nested tmux attach died (e.g. after a daemon restart).
 		// Also re-attach the agent pane if it went dead (e.g. after a hot-swap killed
 		// and recreated the agent session — #503).
-		return m, tea.Batch(m.reconcileTerminalPaneCmd(), m.reconcileAgentPaneCmd())
+		cmds := []tea.Cmd{m.reconcileTerminalPaneCmd(), m.reconcileAgentPaneCmd()}
+		if m.refreshQueued {
+			m.refreshQueued = false
+			m.refreshInFlight = true
+			cmds = append(cmds, m.fleetRefreshCmds()...)
+		}
+		return m, tea.Batch(cmds...)
 	case terminalSpawnedMsg:
-		// Clear only the in-flight guard. Do NOT reset terminalSpawnAttempts /
-		// circuit-breaker state here (#465): a successful spawn callback can still
-		// be followed by empty/stale listings, and resetting the budget on the
-		// callback alone would re-enable unbounded auto-spawn. Attempts reset only
-		// when reconcile confirms a live terminal in m.sessions.
-		m.terminalSpawnPending = false
 		if msg.err != nil {
 			m.status = "terminal failed: " + msg.err.Error()
 			return m, nil
@@ -1082,9 +981,10 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.openedTerminal = msg.id
 		m.status = ""
 		// The spawned terminal's tmux session is its id (lifecycle sets
-		// TmuxSession=id). Refresh the list so it appears under Terminals and open
-		// it in the terminal pane (focusing it only on an explicit create/`t`).
-		cmds := []tea.Cmd{listCmd(m.api, true)}
+		// TmuxSession=id). Refresh the list and projects so it appears under its
+		// project and open it in the terminal pane (focused: it is always an
+		// explicit `t` create).
+		cmds := []tea.Cmd{listCmd(m.api, true), projectsCmd(m.api)}
 		if m.terminalPane != "" {
 			cmds = append(cmds, openInTerminalCmd(m.terminalPane, msg.id, msg.focus))
 		}
@@ -1931,40 +1831,6 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, setBackendEnabledCmd(m.api, b.ID, !b.Enabled)
 		}
 		return m, nil
-	case modeTerminalChoice:
-		switch msg.String() {
-		case "q", "ctrl+c":
-			return m, m.quitCmd()
-		case "esc", "n", "N":
-			m.mode = modeNormal
-			m.status = ""
-			return m, nil
-		case "c", "C":
-			// Create a fresh terminal in the chosen dir and open it (focused).
-			// A manual request clears the #465 circuit breaker so auto-spawn can
-			// resume after this create is confirmed (or retry with a fresh budget).
-			dir := m.termChoiceDir
-			m.mode = modeNormal
-			m.status = "opening terminal in " + abbrevHome(dir)
-			m.resetTerminalAutoSpawn()
-			m.terminalSpawnPending = true
-			return m, spawnTerminalCmd(m.api, dir, m.termChoiceProjectID, true)
-		case "f", "F":
-			// Focus an existing live terminal in that dir, else fall back to create.
-			dir := m.termChoiceDir
-			m.mode = modeNormal
-			if t := m.liveTerminalInDir(dir); t != nil {
-				m.openedTerminal = t.ID
-				m.status = ""
-				m.resetTerminalAutoSpawn()
-				return m, openInTerminalCmd(m.terminalPane, t.TmuxSession, true)
-			}
-			m.status = "no terminal in " + abbrevHome(dir) + " — creating one"
-			m.resetTerminalAutoSpawn()
-			m.terminalSpawnPending = true
-			return m, spawnTerminalCmd(m.api, dir, m.termChoiceProjectID, true)
-		}
-		return m, nil
 	case modeHelp:
 		m.mode = modeNormal
 		return m, nil
@@ -2060,14 +1926,6 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "alt+P":
 		// §8 reverse: Alt+Shift+p (tmux M-P) steps the pipeline-agent rotation backward.
 		return m.rotateAgent(m.pipelineAgents(), "no pipeline agents", -1)
-	case "tab":
-		// §3.3: cycle the navigator's active tab (Projects → Terminals → …). Reset
-		// focus so repin snaps the cursor to the first entity of the tab we land on
-		// rather than a stale index that may no longer exist there.
-		m.currentTab = (m.currentTab + 1) % tabCount
-		m.focused = false
-		m.repin("")
-		return m, nil
 	case "c":
 		// Open the read-only shared-context + message-traffic inspector and
 		// kick off an immediate fetch (the tick keeps it fresh while open).
@@ -2500,21 +2358,27 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.status = "loading backends…"
 		return m, backendsCmd(m.api)
 	case "t":
-		// Open a terminal in the currently-opened agent's dir (§6.1). Not available
-		// in the tmux-native cockpit, which has no terminal pane.
+		// Create a terminal inside the project the cursor is in — the same targeting
+		// as `n` (new agent): the project owning the cursor row, with the row's dir
+		// (project root, worktree or agent dir) as the shell's cwd. Terminals always
+		// belong to a project, so a cursor outside any project is refused rather than
+		// creating an orphan. Not available in the tmux-native cockpit (no terminal
+		// pane).
 		if m.terminalPane == "" {
 			m.status = "terminals need the cockpit terminal pane (unavailable in the tmux-native cockpit)"
 			return m, nil
 		}
-		m.termChoiceDir = m.openedAgentDir
-		if m.termChoiceDir == "" {
-			m.termChoiceDir = homeDir()
+		projectID := m.activeProjectID()
+		if projectID == "" {
+			m.status = "select a project (or something inside one) to create a terminal"
+			return m, nil
 		}
-		// A terminal opened from an agent joins that agent's project, so a created
-		// terminal's membership is stamped deterministically; empty when the opened
-		// agent is project-less (or none is open) and the daemon then path-matches.
-		m.termChoiceProjectID = m.projectIDForSession(m.openedAgent)
-		m.mode = modeTerminalChoice
+		dir := m.activeDir()
+		if dir == "" {
+			dir = homeDir()
+		}
+		m.status = "opening terminal in " + abbrevHome(dir)
+		return m, spawnTerminalCmd(m.api, dir, projectID, true)
 	case "?":
 		m.mode = modeHelp
 	}
@@ -2595,7 +2459,7 @@ func (m controlPaneModel) View() string {
 		}
 		return header + "\n" + body + "\n" + footer
 	}
-	body := titleBox(tabBarTitle(m.currentTab), renderList(m.items(), m.cursor, m.w-2, bodyH-2), m.w, bodyH)
+	body := titleBox("Projects", renderList(m.items(), m.cursor, m.w-2, bodyH-2), m.w, bodyH)
 
 	// Lean teaser — the full keymap (o/d/i/c/r/x/←→/D…) lives in the ? overlay, so
 	// this stays short enough to fit the narrow control pane and always show `? help`.
@@ -2646,8 +2510,6 @@ func (m controlPaneModel) View() string {
 			filepath.Base(m.pendingCloseID), m.pendingCloseN))
 	case modeConfirmUpdate:
 		footer = stAttention.Render(fmt.Sprintf("Update warden to v%s and reload TUI? y / N", stripVer(m.availableVersion)))
-	case modeTerminalChoice:
-		footer = stPaneTitle.Render("Terminal in " + abbrevHome(m.termChoiceDir) + ":  (c)reate new  ·  (f)ocus existing  ·  esc cancel")
 	case modePlanRunMode:
 		footer = stPaneTitle.Render(fmt.Sprintf("Run plan %s (←/→ or h/l select · enter · esc):", m.targetPlanID)) + "\n" + m.planRunModeMenuView()
 	}

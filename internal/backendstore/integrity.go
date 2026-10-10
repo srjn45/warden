@@ -143,6 +143,54 @@ func (r *Report) Recoverable() bool {
 	return need
 }
 
+// liveLagCodes are the derived-index findings a running writer produces by
+// design: it appends to the segment and persists the primary and secondary index
+// lazily, so for a short window the persisted index trails the log. Only these
+// "stale" shapes qualify; a dangling, missing, wrong or unreadable index entry is
+// real damage and never counts as lag.
+var liveLagCodes = map[engine.FindingCode]bool{
+	engine.CodeIndexStaleTail:   true,
+	engine.CodeIndexStaleRecord: true,
+	engine.CodeSidxStaleTail:    true,
+}
+
+// LiveIndexLag reports that the registry directory is open in a running process
+// and EVERY finding behind a non-clean verdict is expected index lag
+// (liveLagCodes). Such a report is not damage: the writer's in-memory state is
+// ahead of the persisted index and a clean close or the next index persist
+// converges it, so `warden doctor` and the update preflight must not present it
+// as something to repair. Repair itself is unaffected — it refuses an owned
+// directory and classifies on the stopped store, where these findings genuinely
+// mean an unclean stop. A clean report, any other finding code, or an unowned
+// directory is false.
+func (r *Report) LiveIndexLag() bool {
+	if r == nil || r.Integrity == nil || r.Clean() {
+		return false
+	}
+	held := false
+	for _, f := range r.Integrity.Findings {
+		if f.Code == engine.CodeLockHeld || f.Code == engine.CodeLockHeldByThisProc {
+			held = true
+		}
+	}
+	if !held {
+		return false
+	}
+	any := false
+	for _, c := range r.Integrity.Collections {
+		for _, f := range c.Findings {
+			if f.Severity == engine.SeverityInfo {
+				continue
+			}
+			if !liveLagCodes[f.Code] {
+				return false
+			}
+			any = true
+		}
+	}
+	return any
+}
+
 func (r *Report) ambiguous() []CollectionVerdict {
 	var out []CollectionVerdict
 	for _, c := range r.Collections {

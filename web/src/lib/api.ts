@@ -66,13 +66,13 @@ async function parse<T>(res: Response): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export async function listSessions(): Promise<Session[]> {
-  const data = await parse<{ sessions: Session[] | null }>(await apiFetch('/sessions'));
+export async function listSessions(signal?: AbortSignal): Promise<Session[]> {
+  const data = await parse<{ sessions: Session[] | null }>(await apiFetch('/sessions', { signal }));
   return data.sessions ?? [];
 }
 
-export async function getTree(): Promise<ProjectTree> {
-  return parse<ProjectTree>(await apiFetch('/tree'));
+export async function getTree(signal?: AbortSignal): Promise<ProjectTree> {
+  return parse<ProjectTree>(await apiFetch('/tree', { signal }));
 }
 
 export async function getSession(id: string): Promise<Session> {

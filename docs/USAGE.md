@@ -498,12 +498,20 @@ warden start "implement the add function" --aicli goose --dir .
 > terminal gets warden's normal worktree/git/tmux lifecycle (attach, `wd commit`/
 > `push`/`sync`, snapshot, teardown, cockpit listing) but no AI features (no
 > digests, resume, model, priced spend, or approval parsing; the prompt is
-> ignored). The cockpit also opens a default terminal on startup and offers `t`
-> to create/focus one — see §7.
+> ignored). In the cockpit, terminals nest under their project and are
+> created on demand with `t` — see §7.
 >
 > ```sh
 > warden start --kind terminal --dir .   # a managed shell "human seat" in .
 > ```
+>
+> **A terminal always belongs to a project.** The daemon resolves the project
+> before creating the shell: an explicit `project_id` must name a known project
+> (a hibernated one is reopened); otherwise the working directory is matched to —
+> or registered as — a project. A spawn that cannot be given a project (an unknown
+> `project_id`, or an empty/unregisterable directory) is refused with `400` and
+> creates no pane or record. The terminal is recorded in the project's
+> `terminals` list.
 
 Over MCP, pass the `backend` param (kept at parity with the CLI):
 
@@ -1597,7 +1605,7 @@ type).
 | `←`/`→` or `h` | Collapse / expand the section or the pipeline/agent sub-tree under the cursor |
 | `Enter` | Open the selected entity — an agent (or running pipeline job) attaches in the right agent pane; a terminal attaches in the bottom-left terminal pane; a finished agent or tombstone shows its stored detail instead of attaching |
 | `n` | New agent — opens a prompt textarea; `ctrl+s` to submit, `esc` to cancel |
-| `t` | New/focus a terminal in the opened agent's directory (`~` if none open) — inline `(c)reate` a fresh one or `(f)ocus` an existing one in that dir |
+| `t` | Create a terminal inside the project under the cursor (same targeting as `n`, using the row's directory) — refused with a status hint when the cursor is outside any project |
 | `o` | Open a directory as a group (becomes the spawn target for `n`) |
 | `s` | Send a message to the selected agent — `enter` to send, `esc` to cancel |
 | `a` | Attach — hands the whole client to the agent's/terminal's (or running job's) tmux session. Press **`Ctrl-b Enter`** to return to the dashboard (a hint flashes on attach). |
@@ -1645,16 +1653,18 @@ opens its stored detail instead of attaching to a dead session.
 
 **Bottom-left — terminal pane.** Terminals are first-class `kind=terminal`
 sessions (not a backend) — a plain interactive shell (`$SHELL`) beside the fleet,
-managed with warden's normal worktree/git/tmux lifecycle. The cockpit opens a
-**default terminal** in the launch directory on startup, lists it under the
-**Terminals** section, and shows it here. Use it for `warden` CLI commands, git
-status, or any other terminal work while monitoring your agents.
+managed with warden's normal worktree/git/tmux lifecycle. A terminal always
+belongs to a project and is listed inside that project in the control-pane tree
+(there is no separate Terminals tab); selecting it shows it here. Use it for
+`warden` CLI commands, git status, or any other terminal work while monitoring
+your agents.
 
-Press **`t`** in the control pane to create/focus a terminal in the opened
-agent's directory, and **`Alt+t`** to rotate the terminal pane over all live
-terminals. Each terminal's name updates live as its shell `cd`s
-(`<index>. <repo>:<rel>/ (<branch>)`). `x` on a selected terminal closes it; the
-cockpit always keeps at least one (closing the last recreates a default).
+Terminals are created **on demand only** — the cockpit never auto-spawns one.
+Press **`t`** with the cursor on a project (or on anything inside it) to create a
+terminal in that project, exactly like `n` targets a new agent; with the cursor
+outside any project it refuses. **`Alt+t`** rotates the terminal pane over all
+live terminals. Each terminal's name updates live as its shell `cd`s
+(`<index>. <repo>:<rel>/ (<branch>)`). `x` on a selected terminal closes it.
 
 **Right (full height) — agent pane.** When you press `Enter` on an
 agent in the control pane, a live, interactive terminal of that agent's `claude`
@@ -1691,7 +1701,7 @@ To move focus between panes without leaving the cockpit, use **Alt+←/→/↑/�
 
 Each cockpit launch creates an independent tmux session (named
 `warden-tui-<pid>`), so opening two terminals and running `warden tui` in
-each gives you two separate cockpits, each with its own default terminal.
+each gives you two separate cockpits.
 
 ### Launching from inside an existing tmux session
 
@@ -1718,7 +1728,7 @@ own-session cockpit instead (e.g. for a screen recording), unset `$TMUX`:
 
 > The native window is intentionally leaner than the classic cockpit: it has
 > **no terminal pane** (your own tmux already gives you shells a keypress away
-> with `Ctrl-b c`), so the default terminal, `t`, Enter-on-terminal, and the
+> with `Ctrl-b c`), so `t`, Enter-on-terminal, and the
 > `Alt+t`/`Alt+a`/`Alt+p` rotation bindings degrade to a status hint there (it
 > never touches your personal tmux config). Everything else — the control-pane
 > tree, new-agent form, approvals, digests, full-screen attach — works the same.
@@ -2210,7 +2220,11 @@ restart list; everything else takes effect on save.
 | `scheduler_enabled` | `false` | Enable the native cron/at scheduler (`warden schedule create/list/show/run/edit/enable/disable/delete`). Off → the schedule routes 403 and the reconcile loop is a no-op |
 | `branch_track.enabled` | `false` | Enable the per-agent branch monitor (`warden workspace branches`): CI status + standing vs `origin/main`, with non-blocking inbox/desktop alerts |
 | `branch_track.interval` | `2m` | Poll interval for the branch monitor when `branch_track.enabled` is on |
-| `activity.interval` | `15s` | Minimum gap between live activity-badge refreshes per agent (the 3-5 word status badge on each TUI agent row). Refreshes only while the agent's pane is changing, so idle agents cost no Fast-Brain calls; a failed/empty decision keeps the previous badge |
+| `activity.enabled` | `true` | Enable cosmetic model-generated activity badges. Set `false` to prevent all `summarize_activity` Fast-Brain calls; agent status, approvals, prompt recognition, and Autopilot are unaffected. |
+| `activity.interval` | `15s` | Minimum gap between live activity-badge refreshes per agent (the 3-5 word status badge on each TUI agent row). Refreshes only while the agent's pane is changing, so idle agents cost no Fast-Brain calls; a failed/empty decision keeps the previous badge. |
+| `fast_brain.fast_timeout` | `10s` | Ceiling for ordinary Fast-Brain native-CLI decisions. |
+| `fast_brain.thinking_timeout` | `20s` | Ceiling for Fast-Brain reasoning and prompt-recognition decisions. |
+| `fast_brain.max_concurrent` | `2` | Process-wide cap on concurrent internal model calls. Identical in-flight decisions are coalesced, and cosmetic activity work yields capacity to operational decisions. |
 | `router.use_fast_brain` | `false` | Opt-in Fast-Brain prompt-complexity tier routing for unpinned spawns (lowest precedence; confidence ≥ 0.8; see §5.3) |
 | `snapshots` | `true` | Enable the worktree+transcript checkpoint store (`warden workspace snapshot`) and its `snapshot_*` MCP tools |
 | `insights` | `true` | Enable history-mined insights (`warden usage insights` + the `insights` MCP tool) |

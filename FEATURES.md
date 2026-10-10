@@ -68,7 +68,7 @@ default; each in its own tmux session, most in a git worktree).
 | List the backend's live model menu | `models` (`--backend`, `--json`) | **CLI-only** (agent-native; local worktree exec, no daemon round-trip) | ✓ | — | — | [backend-superpowers](https://srjn45.github.io/warden/guides/backend-superpowers/) |
 | Tiered model routing — pin the model **tier** (`auto` / `tier-1`/`2`/`3`) for quota-balanced resolver | `start --tier` (also pipeline `tier:`) | routes by `role` only (no `tier` param) | ✓ | — | `ctrl+t` (new-agent; live candidate table) | [agent-roles](https://srjn45.github.io/warden/guides/agent-roles/) |
 | Backend selection (Claude / Aider / OpenCode / Codex / Crush / Goose / Cursor / Antigravity) | `start --aicli` | `spawn_agent` (`backend`) | ✓ | — | — (CLI/MCP pin; TUI is tier-first) | [agent-backends](https://srjn45.github.io/warden/concepts/agent-backends/) — `claude`, `codex`, `cursor`, and `antigravity` are ✅ stable; `aider`, `opencode`, `crush`, and `goose` are 🧪 experimental |
-| Terminal session (plain `$SHELL`, `kind=terminal` — not a backend) | `start --kind terminal` | `spawn_agent` (`kind`) | ✓ | ✓ (Terminals tab) | `t` / default terminal | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
+| Terminal session (plain `$SHELL`, `kind=terminal` — not a backend) | `start --kind terminal` | `spawn_agent` (`kind`) | ✓ | ✓ (Terminals tab) | `t` (in the project under the cursor) | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
 | Handoff — delegate (new / `--to` existing) or retire self (`--retire`) | `handoff` | `handoff_agent` | ✓ | — | — | [rotation-digests](https://srjn45.github.io/warden/guides/rotation-digests/) |
 | Self-rotation (retire → successor) — alias for `handoff --retire` | `rotate` | `rotate_agent` | ✓ | — | — | [rotation-digests](https://srjn45.github.io/warden/guides/rotation-digests/) |
 | Fork an agent's session into a new managed agent (Codex-only; branches the conversation, source keeps running; dirty-tree carry) | `fork` | `fork_agent` | ✓ | — | — | [backend-superpowers](https://srjn45.github.io/warden/guides/backend-superpowers/) |
@@ -261,13 +261,14 @@ spawn modal, bulk actions, keyboard shortcuts, and theming.
 ## 13. TUI cockpit (`warden tui`)
 
 A terminal mission-control. The **control** pane (left) is a tree of four fixed
-sections — **Approvals · Pipelines · Agents · Terminals**; opening an agent
-attaches it in the **agent** pane (right), opening a terminal attaches it in the
-**terminal** pane (bottom-left). A default terminal opens in the launch directory
-at startup. Keys: `n` spawn · `enter` open/attach · `t` new/focus terminal in the
-opened agent's dir · `i` info/inspector · `a` approve · `x` terminate/close ·
+sections and project groups; a project's agents, pipelines, plans and
+**terminals** nest under the project. Opening an agent attaches it in the
+**agent** pane (right), opening a terminal attaches it in the **terminal** pane
+(bottom-left). Terminals are created on demand only — never auto-spawned. Keys:
+`n` spawn · `enter` open/attach · `t` new terminal in the project under the
+cursor · `i` info/inspector · `a` approve · `x` terminate/close ·
 `D` delete · `d` digest · `r` refresh · `f` filter · `g`/`G` top/bottom ·
-`o`/`p` panes · `s` sort · `c` context · `tab` switch view · `?` help · `q` quit.
+`o`/`p` panes · `s` sort · `c` context · `?` help · `q` quit.
 Global **Alt** rotation: `Alt+t` cycles the terminal pane over terminals,
 `Alt+a` the agent pane over agents, `Alt+p` the agent pane over pipeline agents
 (add **Shift** to rotate in reverse); each grabs focus on the pane it drives.

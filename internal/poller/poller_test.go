@@ -728,6 +728,23 @@ func TestTickRefreshesSubjectWhenPaneChangedAndDue(t *testing.T) {
 	require.Equal(t, "doing the thing", d.subjects["A-1"])
 }
 
+func TestTickSkipsActivitySummaryWhenDisabled(t *testing.T) {
+	d := &stubDeps{
+		sessions: []*agentstore.Agent{{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking, LastPaneExcerpt: "old"}},
+		alive:    map[string]bool{"A-1": true},
+		panes:    map[string]string{"A-1": "new pane text"},
+		updates:  map[string]store.Status{},
+		summary:  "must not be requested",
+	}
+	p := New(d, 5*time.Minute)
+	p.ActivityEnabled = false
+	p.SummarizeAfter = 0
+	require.NoError(t, p.tick(context.Background()))
+	p.wg.Wait()
+	require.Equal(t, 0, d.summarizeN)
+	require.Empty(t, d.subjects)
+}
+
 func TestTickSkipsSummaryWhenPaneUnchanged(t *testing.T) {
 	d := &stubDeps{
 		sessions: []*agentstore.Agent{{ID: "A-1", TmuxSession: "A-1", Status: store.StatusWorking, LastPaneExcerpt: "same"}},
@@ -1757,7 +1774,9 @@ func TestClassify_Antigravity_BannerDetected(t *testing.T) {
 }
 
 func TestNewDefaultsActivityCadenceTo15s(t *testing.T) {
-	require.Equal(t, 15*time.Second, New(&stubDeps{}, time.Minute).SummarizeAfter)
+	p := New(&stubDeps{}, time.Minute)
+	require.True(t, p.ActivityEnabled)
+	require.Equal(t, 15*time.Second, p.SummarizeAfter)
 }
 
 func TestSummaryFailOpenKeepsPreviousBadge(t *testing.T) {

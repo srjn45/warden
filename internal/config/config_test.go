@@ -35,6 +35,27 @@ func TestLoadAbsentFileReturnsDefaults(t *testing.T) {
 	require.True(t, c.Pipeline.Hint)
 	require.Equal(t, []string{"main", "master"}, c.Git.ProtectedBranches)
 	require.True(t, c.Git.ProtectDefaultBranch)
+	require.True(t, c.Activity.Enabled)
+	require.Equal(t, 10*time.Second, c.FastBrainFastTimeoutDuration())
+	require.Equal(t, 20*time.Second, c.FastBrainThinkingTimeoutDuration())
+	require.Equal(t, 2, c.FastBrainMaxConcurrent())
+}
+
+func TestLoadActivityAndFastBrainControls(t *testing.T) {
+	c := Load(tmpConfig(t, `
+activity:
+  enabled: false
+  interval: 1m
+fast_brain:
+  fast_timeout: 7s
+  thinking_timeout: 17s
+  max_concurrent: 3
+`))
+	require.False(t, c.Activity.Enabled)
+	require.Equal(t, time.Minute, c.ActivityIntervalDuration())
+	require.Equal(t, 7*time.Second, c.FastBrainFastTimeoutDuration())
+	require.Equal(t, 17*time.Second, c.FastBrainThinkingTimeoutDuration())
+	require.Equal(t, 3, c.FastBrainMaxConcurrent())
 }
 
 func TestLoadGitProtectedBranches(t *testing.T) {
