@@ -393,9 +393,10 @@ func (c *Client) watch(ctx context.Context, all bool, onSnapshot func([]*store.S
 				}
 			case "error":
 				var event StreamError
-				if err := json.Unmarshal(data, &event); err == nil && event.Message != "" {
-					return &event
+				if err := json.Unmarshal(data, &event); err != nil || event.Message == "" {
+					event.Message = "malformed error event"
 				}
+				return &event
 			}
 			data = data[:0]
 			name = ""

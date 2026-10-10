@@ -163,6 +163,20 @@ func TestWatchSkipsNamedPayloadsAndRejectsNamedError(t *testing.T) {
 	require.Equal(t, [][]string{{"A-1"}}, snapshots, "named payloads must never reach session consumers")
 }
 
+func TestWatchMalformedErrorFrameStillErrors(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "event: error\ndata: not-json\n\n")
+	}))
+	defer ts.Close()
+
+	called := false
+	err := New(ts.URL).Watch(t.Context(), func([]*store.Session) error { called = true; return nil })
+	var streamErr *StreamError
+	require.ErrorAs(t, err, &streamErr)
+	require.False(t, called)
+}
+
 func TestWatchPropagatesCallbackError(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fl := w.(http.Flusher)
