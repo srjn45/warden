@@ -50,6 +50,21 @@ type StatusError struct {
 	Body []byte // raw response body (for structured 4xx payloads)
 }
 
+// StreamError is metadata from a named `error` event on the daemon SSE stream.
+// It is deliberately distinct from StatusError: the HTTP stream was established
+// successfully, but the daemon could not produce a complete snapshot.
+type StreamError struct {
+	Message  string `json:"error"`
+	Degraded bool   `json:"degraded"`
+}
+
+func (e *StreamError) Error() string {
+	if e.Degraded {
+		return "daemon stream degraded: " + e.Message
+	}
+	return "daemon stream error: " + e.Message
+}
+
 func (e *StatusError) Error() string {
 	return fmt.Sprintf("daemon error (%d): %s", e.Code, e.Msg)
 }
@@ -292,8 +307,10 @@ func (c *Client) Import(ctx context.Context, env *store.Export, merge bool) (*st
 }
 
 // Watch opens the daemon's SSE session stream (GET /events/stream) and invokes
-// onSnapshot once for the initial snapshot and again for every state change the
-// daemon pushes. It blocks until ctx is cancelled, the connection drops, or
+// onSnapshot for unnamed session-snapshot events only. Named events are a
+// separate contract: `tree` carries a project tree and is ignored here, `error`
+// returns a StreamError, and unknown named events are ignored for forward
+// compatibility. It blocks until ctx is cancelled, the connection drops, or
 // onSnapshot returns an error (which it returns). A ctx cancellation surfaces as
 // ctx.Err(); callers that cancel deliberately (e.g. on Ctrl+C) should treat
 // context.Canceled as a clean stop.
@@ -337,39 +354,54 @@ func (c *Client) watch(ctx context.Context, all bool, onSnapshot func([]*store.S
 	}
 
 	// Parse the SSE stream: accumulate "data:" lines until a blank line ends the
-	// event, then decode the joined payload as a sessions snapshot. Comment lines
-	// (": ping" heartbeats) are ignored.
+	// event. Only the unnamed default event is a sessions snapshot; named events
+	// have their own payload contracts. Comment lines (": ping" heartbeats) are
+	// ignored.
 	sc := bufio.NewScanner(resp.Body)
 	// Snapshots carry every session's full event log, so a default 64KB token can
 	// overflow with many busy agents — give the scanner room to grow.
 	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	var data []byte
+	var name string
 	for sc.Scan() {
 		line := sc.Bytes()
 		switch {
 		case len(line) == 0:
 			if len(data) == 0 {
+				name = ""
 				continue
 			}
-			var r struct {
-				Sessions []*store.Session `json:"sessions"`
-			}
-			if err := json.Unmarshal(data, &r); err == nil {
-				var items []*store.Session
-				if all {
-					items = r.Sessions
-				} else {
-					for _, session := range r.Sessions {
-						if !session.IsTerminal() {
-							items = append(items, session)
+			switch name {
+			case "":
+				var r struct {
+					Sessions []*store.Session `json:"sessions"`
+				}
+				if err := json.Unmarshal(data, &r); err == nil {
+					var items []*store.Session
+					if all {
+						items = r.Sessions
+					} else {
+						for _, session := range r.Sessions {
+							if !session.IsTerminal() {
+								items = append(items, session)
+							}
 						}
 					}
+					if err := onSnapshot(items); err != nil {
+						return err
+					}
 				}
-				if err := onSnapshot(items); err != nil {
-					return err
+			case "error":
+				var event StreamError
+				if err := json.Unmarshal(data, &event); err != nil || event.Message == "" {
+					event.Message = "malformed error event"
 				}
+				return &event
 			}
 			data = data[:0]
+			name = ""
+		case bytes.HasPrefix(line, []byte("event:")):
+			name = string(bytes.TrimSpace(bytes.TrimPrefix(line, []byte("event:"))))
 		case bytes.HasPrefix(line, []byte("data:")):
 			v := bytes.TrimPrefix(line, []byte("data:"))
 			v = bytes.TrimPrefix(v, []byte(" "))

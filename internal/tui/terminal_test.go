@@ -1,9 +1,11 @@
 package tui
 
 import (
+	"errors"
 	"testing"
 	"time"
 
+	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
@@ -200,6 +202,50 @@ func TestSSEFrameKeepsTerminalsAndNeverSpawns(t *testing.T) {
 	}
 	require.Contains(t, itemSessionIDs(m.items()), "t1", "the terminal survives agents-only SSE frames")
 	require.Nil(t, f.spawned, "an agents-only SSE frame must not spawn a terminal")
+}
+
+// TestSSEErrorOrDropRetainsTerminalsAndNeverRunsFalseReconciliation: when an SSE
+// stream encounters an error or drops, the existing fleet and terminals are retained,
+// the opened terminal is not wiped out, and no false pane reconciliation is run.
+func TestSSEErrorOrDropRetainsTerminalsAndNeverRunsFalseReconciliation(t *testing.T) {
+	f := &fakeAPI{}
+	m := terminalProjectPane(f, "%1")
+	m.openedTerminal = "t1"
+	require.Contains(t, itemSessionIDs(m.items()), "t1")
+	require.Equal(t, "t1", m.openedTerminal)
+
+	// Degraded stream error
+	nm, cmd := m.Update(sseSnapshotMsg{err: &client.StreamError{Message: "store degraded", Degraded: true}})
+	m = nm.(controlPaneModel)
+	require.Equal(t, fleetDegraded, m.fleet)
+	require.False(t, m.sseActive)
+	require.Equal(t, "t1", m.openedTerminal, "opened terminal must be preserved across SSE error")
+	require.Contains(t, itemSessionIDs(m.items()), "t1")
+	require.Contains(t, itemSessionIDs(m.items()), "a1")
+	require.Nil(t, f.spawned)
+	if cmd != nil {
+		_ = cmd
+	}
+
+	// Transport drop
+	nm, _ = m.Update(sseSnapshotMsg{err: errors.New("connection reset by peer")})
+	m = nm.(controlPaneModel)
+	require.Equal(t, fleetTimeout, m.fleet)
+	require.False(t, m.sseActive)
+	require.Equal(t, "t1", m.openedTerminal, "opened terminal must be preserved across stream drop")
+	require.Contains(t, itemSessionIDs(m.items()), "t1")
+	require.Contains(t, itemSessionIDs(m.items()), "a1")
+	require.Nil(t, f.spawned)
+
+	// Disconnect
+	nm, _ = m.Update(sseSnapshotMsg{err: client.ErrDaemonDown})
+	m = nm.(controlPaneModel)
+	require.Equal(t, fleetDisconnected, m.fleet)
+	require.False(t, m.sseActive)
+	require.Equal(t, "t1", m.openedTerminal, "opened terminal must be preserved across disconnect")
+	require.Contains(t, itemSessionIDs(m.items()), "t1")
+	require.Contains(t, itemSessionIDs(m.items()), "a1")
+	require.Nil(t, f.spawned)
 }
 
 // withTerminalsFrom carries previous terminals across a frame without mutating

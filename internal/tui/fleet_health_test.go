@@ -23,6 +23,8 @@ func TestClassifyFleetErr(t *testing.T) {
 	require.Equal(t, fleetDisconnected, classifyFleetErr(client.ErrDaemonDown))
 	require.Equal(t, fleetDisconnected, classifyFleetErr(fmt.Errorf("wrap: %w", client.ErrDaemonDown)))
 	require.Equal(t, fleetDegraded, classifyFleetErr(&client.StatusError{Code: http.StatusServiceUnavailable, Msg: "session store degraded"}))
+	require.Equal(t, fleetDegraded, classifyFleetErr(&client.StreamError{Message: "session store degraded", Degraded: true}))
+	require.Equal(t, fleetTimeout, classifyFleetErr(&client.StreamError{Message: "stream error", Degraded: false}))
 	require.Equal(t, fleetTimeout, classifyFleetErr(context.DeadlineExceeded))
 	require.Equal(t, fleetTimeout, classifyFleetErr(fmt.Errorf("wrap: %w", context.DeadlineExceeded)))
 	// A reachable daemon returning a non-503 status is not "down": treat as stale.
@@ -160,4 +162,78 @@ func TestControlPaneBannerRendersInView(t *testing.T) {
 
 	m = lstep(m, sessionsMsg{sessions: threeAgents()})
 	require.NotContains(t, m.View(), "session store degraded", "banner clears after a complete refresh")
+}
+
+// TestControlPaneSSERetainsFleetOnDegradedStreamError: a named SSE error frame
+// carrying degraded store metadata must NOT clear rows or move cursor; it updates
+// health to fleetDegraded and leaves lastCompleteAt cited in the banner.
+func TestControlPaneSSERetainsFleetOnDegradedStreamError(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9", "")
+	m = lstep(m, sessionsMsg{sessions: threeAgents()})
+	require.Equal(t, fleetLive, m.fleet)
+	before := ids(m.sessions)
+
+	m.cursor = cursorOn(m, func(it item) bool { return it.session != nil && it.session.ID == "a2" })
+	require.Equal(t, "a2", m.selectedID())
+
+	m = lstep(m, sseSnapshotMsg{err: &client.StreamError{Message: "session store degraded: corrupt record", Degraded: true}})
+
+	require.Equal(t, fleetDegraded, m.fleet)
+	require.False(t, m.sseActive)
+	require.Equal(t, 1, m.refreshFailures)
+	require.Equal(t, before, ids(m.sessions), "degraded SSE error frame must retain every row")
+	require.Equal(t, "a2", m.selectedID(), "cursor/selection is preserved during SSE degradation")
+}
+
+// TestControlPaneSSERetainsFleetOnDisconnect: an SSE connection refusal retains fleet.
+func TestControlPaneSSERetainsFleetOnDisconnect(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9", "")
+	m = lstep(m, sessionsMsg{sessions: threeAgents()})
+	before := ids(m.sessions)
+
+	m = lstep(m, sseSnapshotMsg{err: client.ErrDaemonDown})
+
+	require.Equal(t, fleetDisconnected, m.fleet)
+	require.False(t, m.sseActive)
+	require.Equal(t, before, ids(m.sessions), "SSE disconnect must retain fleet")
+}
+
+// TestControlPaneSSERetainsFleetOnStreamDrop: an SSE transport drop retains fleet.
+func TestControlPaneSSERetainsFleetOnStreamDrop(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9", "")
+	m = lstep(m, sessionsMsg{sessions: threeAgents()})
+	before := ids(m.sessions)
+
+	m = lstep(m, sseSnapshotMsg{err: errors.New("stream EOF / drop")})
+
+	require.Equal(t, fleetTimeout, m.fleet)
+	require.False(t, m.sseActive)
+	require.Equal(t, before, ids(m.sessions), "SSE stream drop must retain fleet")
+}
+
+// TestControlPaneSSERecoversAfterDegradedStreamError: after a degraded SSE error,
+// a subsequent valid SSE snapshot frame recovers health to fleetLive.
+func TestControlPaneSSERecoversAfterDegradedStreamError(t *testing.T) {
+	m := newListPane(&fakeAPI{}, "%9", "")
+	m = lstep(m, sessionsMsg{sessions: threeAgents()})
+	firstStamp := m.lastCompleteAt
+
+	m = lstep(m, sseSnapshotMsg{err: &client.StreamError{Message: "degraded", Degraded: true}})
+	require.Equal(t, fleetDegraded, m.fleet)
+	require.False(t, m.sseActive)
+	require.Len(t, m.sessions, 3)
+
+	time.Sleep(2 * time.Millisecond)
+
+	now := time.Now()
+	m = lstep(m, sseSnapshotMsg{sessions: []*store.Session{
+		{ID: "a1", Workdir: "/w", UpdatedAt: now},
+		{ID: "a3", Workdir: "/w", UpdatedAt: now.Add(-time.Minute)},
+	}})
+
+	require.Equal(t, fleetLive, m.fleet, "valid SSE snapshot clears degraded state")
+	require.True(t, m.sseActive, "valid SSE snapshot sets sseActive")
+	require.Equal(t, 0, m.refreshFailures)
+	require.Equal(t, []string{"a1", "a3"}, ids(m.sessions))
+	require.True(t, m.lastCompleteAt.After(firstStamp))
 }

@@ -897,7 +897,14 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.sseActive = false
 			m.refreshFailures++
-			return m, waitForSSEMsg(m.sseChan)
+			m.fleet = classifyFleetErr(msg.err)
+			cmds := []tea.Cmd{waitForSSEMsg(m.sseChan)}
+			if m.refreshQueued {
+				m.refreshQueued = false
+				m.refreshInFlight = true
+				cmds = append(cmds, m.fleetRefreshCmds()...)
+			}
+			return m, tea.Batch(cmds...)
 		}
 		m.sseActive = true
 		m.refreshFailures = 0

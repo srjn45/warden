@@ -480,10 +480,16 @@ export async function patchBackend(
   }));
 }
 
-// subscribeSessions opens an SSE connection. Returns an unsubscribe function.
+// SSEStreamError is metadata from the named `error` SSE event. A transport
+// failure has no metadata; named events that are not handled below are ignored.
+export type SSEStreamError = { error: string; degraded?: boolean };
+
+// subscribeSessions opens an SSE connection. The unnamed/default event is the
+// session snapshot; named events have independent schemas. Returns an
+// unsubscribe function.
 export function subscribeSessions(
   onData: (sessions: Session[]) => void,
-  onError: () => void,
+  onError: (error?: SSEStreamError) => void,
   onOpen: () => void,
 	onAutopilot?: (status: AutopilotStatus) => void,
   onTree?: (tree: ProjectTree) => void,
@@ -501,6 +507,14 @@ export function subscribeSessions(
     try { onTree(JSON.parse((event as MessageEvent).data) as ProjectTree); }
     catch { /* ignore malformed frame; retain the last complete tree */ }
   });
-  es.onerror = () => onError();
+  // EventSource routes a server-sent `event: error` here as well as transport
+  // failures. Preserve its metadata without treating it as a session frame.
+  es.onerror = (event) => {
+    if (event instanceof MessageEvent) {
+      try { onError(JSON.parse(event.data) as SSEStreamError); return; }
+      catch { /* malformed named error; report the failure without metadata */ }
+    }
+    onError();
+  };
   return () => es.close();
 }
