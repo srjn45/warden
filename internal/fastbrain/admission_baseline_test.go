@@ -218,10 +218,11 @@ func TestActivityNeverRunsWhenMaxConcurrentIsOne(t *testing.T) {
 	require.Zero(t, calls.Load())
 }
 
-// Gap: coalescing is exact-key and in-flight only. A follower inherits the
-// leader's context: when the leader's caller cancels, a follower whose own
-// context is alive still receives StatusCanceled.
-func TestCoalescedFollowerInheritsLeaderCancellationGap(t *testing.T) {
+// Closed gap (runner-cancellation-and-health): a coalesced call is detached
+// from any single caller's context. When the leader's caller cancels, a
+// follower whose own context is alive still receives the shared result and the
+// runner is not canceled.
+func TestCoalescedFollowerSurvivesLeaderCancellation(t *testing.T) {
 	rec := newPromptRecorder()
 	eng := NewEngineWithOptions(rec, nil, EngineOptions{MaxConcurrent: 2})
 	leaderCtx, cancelLeader := context.WithCancel(context.Background())
@@ -243,9 +244,9 @@ func TestCoalescedFollowerInheritsLeaderCancellationGap(t *testing.T) {
 	cancelLeader()
 
 	require.Equal(t, StatusCanceled, (<-leader).Status)
+	close(rec.release)
 	fr := <-follower
-	require.Equal(t, StatusCanceled, fr.Status, "follower is canceled by the leader's context")
-	require.NoError(t, followerCtx.Err(), "…although its own context is still live")
+	require.Equal(t, StatusOK, fr.Status, "follower keeps the shared result")
 	require.Equal(t, 1, rec.count("same"))
 }
 

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -24,6 +25,9 @@ type EngineOptions struct {
 	FastTimeout     time.Duration
 	ThinkingTimeout time.Duration
 	MaxConcurrent   int
+	// CancelGrace is how long the engine waits for a runner to return after
+	// its context ended before abandoning it. Zero means 500 ms.
+	CancelGrace time.Duration
 }
 
 func (o EngineOptions) normalized() EngineOptions {
@@ -35,6 +39,9 @@ func (o EngineOptions) normalized() EngineOptions {
 	}
 	if o.MaxConcurrent <= 0 {
 		o.MaxConcurrent = 2
+	}
+	if o.CancelGrace <= 0 {
+		o.CancelGrace = 500 * time.Millisecond
 	}
 	return o
 }
@@ -58,11 +65,27 @@ type engine struct {
 	mu             sync.Mutex
 	active         int
 	inflight       map[string]*inflightCall
+	abandoned      atomic.Int64 // runner calls abandoned after ignoring ctx (total)
+	abandonedLive  atomic.Int64 // abandoned calls whose goroutine is still running
 }
 
 type inflightCall struct {
-	done chan struct{}
-	resp Response
+	done    chan struct{}
+	resp    Response
+	waiters int
+	cancel  context.CancelFunc
+}
+
+// CancelStats reports runner calls abandoned because they ignored their
+// context. Live > 0 means a runner is still holding a goroutine/process.
+type CancelStats struct {
+	Abandoned int64
+	Live      int64
+}
+
+// CancelStats returns the engine's abandoned-runner counters.
+func (e *engine) CancelStats() CancelStats {
+	return CancelStats{Abandoned: e.abandoned.Load(), Live: e.abandonedLive.Load()}
 }
 
 // NewEngine returns the Engine routing TierFast/TierThinking to the given
@@ -107,26 +130,45 @@ func (e *engine) Decide(ctx context.Context, req Request) (Response, error) {
 	}
 	key := requestKey(req)
 	e.mu.Lock()
-	if existing := e.inflight[key]; existing != nil {
-		e.mu.Unlock()
-		select {
-		case <-existing.done:
-			return existing.resp, nil
-		case <-ctx.Done():
-			return Response{Kind: req.Kind, Tier: req.Tier, Status: StatusCanceled, Error: ctx.Err().Error()}, nil
-		}
+	call := e.inflight[key]
+	if call == nil {
+		// The call runs detached from any single caller's context so one
+		// caller canceling never cancels followers that are still waiting.
+		// It is canceled only when its last waiter goes away.
+		rc, cancel := context.WithCancel(context.WithoutCancel(ctx))
+		call = &inflightCall{done: make(chan struct{}), cancel: cancel}
+		e.inflight[key] = call
+		go func() {
+			resp := e.run(rc, req, runner, budget)
+			cancel()
+			e.mu.Lock()
+			call.resp = resp
+			if e.inflight[key] == call {
+				delete(e.inflight, key)
+			}
+			close(call.done)
+			e.mu.Unlock()
+		}()
 	}
-	call := &inflightCall{done: make(chan struct{})}
-	e.inflight[key] = call
+	call.waiters++
 	e.mu.Unlock()
 
-	resp := e.run(ctx, req, runner, budget)
-	e.mu.Lock()
-	call.resp = resp
-	delete(e.inflight, key)
-	close(call.done)
-	e.mu.Unlock()
-	return resp, nil
+	select {
+	case <-call.done:
+		return call.resp, nil
+	case <-ctx.Done():
+		e.mu.Lock()
+		call.waiters--
+		if call.waiters == 0 {
+			call.cancel()
+			// Later identical requests must not join a call being torn down.
+			if e.inflight[key] == call {
+				delete(e.inflight, key)
+			}
+		}
+		e.mu.Unlock()
+		return Response{Kind: req.Kind, Tier: req.Tier, Status: StatusCanceled, Error: ctx.Err().Error()}, nil
+	}
 }
 
 func (e *engine) run(ctx context.Context, req Request, runner Runner, budget time.Duration) Response {
@@ -184,10 +226,13 @@ func (e *engine) run(ctx context.Context, req Request, runner Runner, budget tim
 
 	rctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
-	raw, err := runner.Run(rctx, req.Prompt)
+	raw, sel, cancelOutcome, err := e.invoke(rctx, runner, req.Prompt)
 	resp.Output.Raw = raw
+	resp.Selection, resp.Cancel = sel, cancelOutcome
 	if err != nil {
 		switch {
+		case errors.Is(err, ErrNoCandidate):
+			resp.Status = StatusNoRunner
 		case errors.Is(ctx.Err(), context.Canceled) || errors.Is(err, context.Canceled):
 			resp.Status = StatusCanceled
 		case errors.Is(err, context.DeadlineExceeded) || errors.Is(rctx.Err(), context.DeadlineExceeded):
@@ -218,6 +263,56 @@ func (e *engine) run(ctx context.Context, req Request, runner Runner, budget tim
 	resp.Confidence, resp.Rationale = extractMeta(obj)
 	resp.Status = StatusOK
 	return resp
+}
+
+// invoke runs the runner, returning when it finishes or, if it ignores ctx,
+// after the cancel grace period so a context-ignoring runner can neither pin an
+// admission slot nor stall the caller past its deadline. The returned
+// CancelOutcome records whether the stop was acknowledged or abandoned.
+func (e *engine) invoke(ctx context.Context, runner Runner, prompt string) (string, Selection, CancelOutcome, error) {
+	type result struct {
+		raw string
+		sel Selection
+		err error
+	}
+	ch := make(chan result, 1)
+	var state atomic.Int32 // 0 running, 1 finished, 2 abandoned by the engine
+	go func() {
+		var r result
+		if dr, ok := runner.(DetailedRunner); ok {
+			r.raw, r.sel, r.err = dr.RunDetailed(ctx, prompt)
+		} else {
+			r.raw, r.err = runner.Run(ctx, prompt)
+		}
+		if !state.CompareAndSwap(0, 1) {
+			e.abandonedLive.Add(-1)
+		}
+		ch <- r
+	}()
+	select {
+	case r := <-ch:
+		if ctx.Err() != nil {
+			return r.raw, r.sel, CancelAcknowledged, r.err
+		}
+		return r.raw, r.sel, CancelNone, r.err
+	case <-ctx.Done():
+	}
+	timer := time.NewTimer(e.opts.CancelGrace)
+	defer timer.Stop()
+	select {
+	case r := <-ch:
+		return r.raw, r.sel, CancelAcknowledged, r.err
+	case <-timer.C:
+	}
+	if !state.CompareAndSwap(0, 2) {
+		// Finished just as the grace period ended.
+		r := <-ch
+		return r.raw, r.sel, CancelAcknowledged, r.err
+	}
+	e.abandonedLive.Add(1)
+	e.abandoned.Add(1)
+	slog.Warn("fastbrain runner ignored cancellation; abandoned", "grace", e.opts.CancelGrace)
+	return "", Selection{}, CancelAbandoned, ctx.Err()
 }
 
 func requestKey(req Request) string {

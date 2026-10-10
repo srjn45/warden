@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // Runner executes an external command in an optional working directory and
@@ -28,10 +29,19 @@ func (ExecRunner) Run(ctx context.Context, dir, name string, args ...string) (st
 	cmd.Dir = dir
 	if isTmuxCommand(name) {
 		cmd.Env = scrubTMUXFromEnviron(os.Environ())
+	} else {
+		// Kill the whole process group on cancellation and bound the wait for
+		// output pipes held open by orphaned grandchildren.
+		ownProcessGroup(cmd)
+		cmd.WaitDelay = cancelWaitDelay
 	}
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
+
+// cancelWaitDelay bounds how long Run waits for stdout/stderr to drain after
+// the context ended and the process group was killed.
+const cancelWaitDelay = 2 * time.Second
 
 // isTmuxCommand reports whether name invokes the tmux client (path-safe).
 func isTmuxCommand(name string) bool {
