@@ -22,6 +22,23 @@ guard (`make generate-check`) fails the build if the generated code falls out of
 sync with the spec. Response schemas alias the actual Go types, so the reference
 and the wire format are the same thing by construction.
 
+## Server-sent event stream
+
+`GET /api/v1/events/stream` is an SSE snapshot stream. Its event name is part of
+the payload contract:
+
+| SSE event | Payload | Consumer behavior |
+|---|---|---|
+| *(unnamed/default)* | `{ "sessions": [...], "autopilot"?: ... }` | A complete session snapshot. This is the only event session-list consumers decode. |
+| `tree` | The same project-tree object returned by `GET /api/v1/tree`. | Handle through a `tree` listener; it is not a session envelope. |
+| `error` | `{ "error": "...", "degraded": true }` | Stream/store failure metadata. Keep the last complete snapshots; reconnect or surface the degraded state. |
+
+Frames are full snapshots, not deltas, and the session and tree frames are
+deduplicated independently. A client must ignore unknown named events for forward
+compatibility. In particular, it must never decode every `data:` block as a
+session list: named events may have unrelated schemas. SSE comments are heartbeats
+and carry no payload.
+
 ## Base path
 
 Every data/action endpoint is served under a versioned prefix: **`/api/v1`**

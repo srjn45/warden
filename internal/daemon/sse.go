@@ -10,8 +10,22 @@ import (
 	"github.com/srjn45/warden/internal/store"
 )
 
+const (
+	sseEventTree  = "tree"
+	sseEventError = "error"
+)
+
+// sseErrorPayload is the wire contract for the named `error` event. The
+// unnamed/default event remains reserved for complete session snapshots.
+type sseErrorPayload struct {
+	Error    string `json:"error"`
+	Degraded bool   `json:"degraded"`
+}
+
 // handleEventsStream streams the full session list as SSE. It sends an initial
 // snapshot, then a new one whenever the hub fires (deduped), plus a heartbeat.
+// The unnamed/default event carries only session snapshots; `tree` and `error`
+// are named events with their own payload schemas.
 func (s *Server) handleEventsStream(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -47,7 +61,8 @@ func (s *Server) handleEventsStream(w http.ResponseWriter, r *http.Request) {
 				// An initial degraded stream must be explicit: silence looks like a
 				// healthy empty fleet to EventSource consumers. Existing snapshots
 				// remain intact; clients can retain them while showing the error.
-				if _, werr := fmt.Fprintf(w, "event: error\ndata: {\"error\":%q,\"degraded\":true}\n\n", d.Error()); werr != nil {
+				payload, _ := json.Marshal(sseErrorPayload{Error: d.Error(), Degraded: true})
+				if _, werr := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", sseEventError, payload); werr != nil {
 					return false
 				}
 				flusher.Flush()
@@ -89,7 +104,7 @@ func (s *Server) handleEventsStream(w http.ResponseWriter, r *http.Request) {
 		t := treeService.Build(in, "")
 		if tpayload, merr := json.Marshal(t); merr == nil && !bytes.Equal(tpayload, lastTree) {
 			lastTree = tpayload
-			if _, werr := fmt.Fprintf(w, "event: tree\ndata: %s\n\n", tpayload); werr != nil {
+			if _, werr := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", sseEventTree, tpayload); werr != nil {
 				return false
 			}
 			flusher.Flush()

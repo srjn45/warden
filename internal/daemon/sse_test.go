@@ -3,6 +3,7 @@ package daemon
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"github.com/srjn45/warden/internal/agentstore"
 	"io"
 	"net/http"
@@ -126,6 +127,25 @@ func TestSSERetainsLastKnownGoodOnDegraded(t *testing.T) {
 	next := readEvent(t, r)
 	require.Contains(t, next, `"B-2"`)
 	require.Contains(t, next, `"C-3"`)
+}
+
+func TestSSEDegradedEmitsNamedErrorMetadata(t *testing.T) {
+	fs := newFakeStore()
+	fs.listErr = degradedErr()
+	srv := sseServer(t, fs)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "/events/stream", nil)
+	rec := newStreamRecorder()
+	go srv.handleEventsStream(rec, req)
+
+	r := bufio.NewReader(rec.reader())
+	payload := readNamedEvent(t, r, sseEventError)
+	var event sseErrorPayload
+	require.NoError(t, json.Unmarshal([]byte(payload), &event))
+	require.True(t, event.Degraded)
+	require.NotEmpty(t, event.Error)
 }
 
 func TestSSEReleasedOnServerShutdown(t *testing.T) {

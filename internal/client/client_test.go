@@ -133,6 +133,36 @@ func TestWatchAllRetainsTerminalSessions(t *testing.T) {
 	require.Equal(t, [][]string{{"A-1", "T-1"}}, snaps, "WatchAll must keep terminal sessions")
 }
 
+func TestWatchSkipsNamedPayloadsAndRejectsNamedError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fl := w.(http.Flusher)
+		w.Header().Set("Content-Type", "text/event-stream")
+		// A tree happens to decode into a session envelope with a nil Sessions
+		// field, so this catches the regression where the parser ignores event:.
+		_, _ = io.WriteString(w, "event: tree\ndata: {\"roots\":[{\"id\":\"project-1\"}]}\n\n")
+		_, _ = io.WriteString(w, "event: future-feature\ndata: {\"anything\":true}\n\n")
+		_, _ = io.WriteString(w, "data: {\"sessions\":[{\"id\":\"A-1\"}]}\n\n")
+		_, _ = io.WriteString(w, "event: error\ndata: {\"error\":\"active store is degraded\",\"degraded\":true}\n\n")
+		fl.Flush()
+	}))
+	defer ts.Close()
+
+	var snapshots [][]string
+	err := New(ts.URL).WatchAll(t.Context(), func(sessions []*store.Session) error {
+		ids := make([]string, len(sessions))
+		for i, session := range sessions {
+			ids[i] = session.ID
+		}
+		snapshots = append(snapshots, ids)
+		return nil
+	})
+	var streamErr *StreamError
+	require.ErrorAs(t, err, &streamErr)
+	require.Equal(t, "active store is degraded", streamErr.Message)
+	require.True(t, streamErr.Degraded)
+	require.Equal(t, [][]string{{"A-1"}}, snapshots, "named payloads must never reach session consumers")
+}
+
 func TestWatchPropagatesCallbackError(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fl := w.(http.Flusher)
