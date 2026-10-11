@@ -33,6 +33,23 @@ Blocking findings: data dir owned by a running process; no/corrupt/interrupted/a
 
 `warden migrate --plan [--json]` prints the plan (sources, target, backup path, the rules above, findings with remediation) and exits non-zero when blocked. It acquires no lock and writes nothing.
 
+## 4a. Strict preflight (`migrate.PreflightSchema2`)
+
+`--plan` and `BeginSchema2` (re-run under the lock, before any backup byte is written) run PlanSchema2 plus a strict, read-only verification. Nothing is repaired, rebuilt, quarantined or deleted; every refusal carries a `class` and remediation text:
+
+| Class | Refused when |
+|---|---|
+| `corruption` | torn/undecodable segment regions, invalid flat JSON/JSONL, unreadable index with data behind it |
+| `ambiguity` | conflicting history (revision regression, write-after-delete) — no winner is chosen |
+| `duplicate_identity` | duplicate live key/id in a store, or the same `id` in two flat `sessions/`/`snapshots/` files |
+| `stale_derived_state` | an index that open would rebuild/replay (stale tail, missing index) — run `warden repair` first; preflight never salvages |
+| `unsupported_layout` | a source of the wrong shape (file vs dir) or a ScrivaDB store outside the inventory (it would be orphaned) |
+| `unsafe_artifact` | symlink/special file at top level or in plan/runtime trees, transcript pointer outside the data dir or through a symlink |
+| `owned` | the ownership lock is held, including a process that took it during verification |
+| `unverifiable` | verification itself failed (I/O, permissions) |
+
+Operator copies (`*.bak-*`, `*-backup`, …), `backups/`, `quarantine/` and `tmp/` are external and not verified. A missing transcript is a note, not a block.
+
 ## 5. Out of scope (dependent tasks)
 
-Import transaction groups, validation, ledger stamp to schema 2, phase journaling and crash-resume, bumping `schema.SchemaVersion`, and the cutover `--apply` wiring.
+Staging export, import transaction groups, validation, ledger stamp to schema 2, phase journaling and crash-resume, bumping `schema.SchemaVersion`, and the cutover `--apply` wiring.

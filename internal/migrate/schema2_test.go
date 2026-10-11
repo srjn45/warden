@@ -3,9 +3,11 @@ package migrate
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/srjn45/scriva/engine"
 	"github.com/stretchr/testify/require"
 
 	"github.com/srjn45/warden/internal/ownerlock"
@@ -27,13 +29,23 @@ func legacyDir(t *testing.T) string {
 	t.Helper()
 	d := t.TempDir()
 	require.NoError(t, schema.Save(d, &schema.Ledger{SchemaVersion: 1, BinaryVersion: "v9", History: []schema.HistoryEntry{}}))
-	writeFile(t, d, "agents-db/agents/seg_000001.ndjson", `{"id":"a"}`+"\n")
-	writeFile(t, d, "pipelines-db/pipelines/index.json", "{}")
+	validStore(t, d, "agents-db", "agents", map[string]any{"v": 1})
+	validStore(t, d, "pipelines-db", "pipelines", map[string]any{"v": 1})
 	writeFile(t, d, "snapshots/x.json", `{}`)
 	writeFile(t, d, "snapshots/x.transcript", "transcript bytes")
 	writeFile(t, d, "audit.jsonl", "audit\n")
 	writeFile(t, d, "prompts/p.txt", "p")
 	return d
+}
+
+// validStore creates a clean, closed ScrivaDB collection at <d>/<store>/<col>.
+func validStore(t *testing.T, d, store, col string, rec map[string]any) {
+	t.Helper()
+	c, err := engine.OpenCollection(col, filepath.Join(d, filepath.FromSlash(store)), engine.CollectionConfig{})
+	require.NoError(t, err)
+	_, _, err = c.Insert(rec)
+	require.NoError(t, err)
+	require.NoError(t, c.Close())
 }
 
 func TestWardenDBDirNamePinned(t *testing.T) {
@@ -125,7 +137,11 @@ func TestBeginSchema2_BackupAndManifest(t *testing.T) {
 		paths[f.Path] = true
 		require.Len(t, f.SHA256, 64)
 	}
-	require.True(t, paths["agents-db/agents/seg_000001.ndjson"])
+	var sawSeg bool
+	for p := range paths {
+		sawSeg = sawSeg || strings.HasPrefix(p, "agents-db/agents/seg_")
+	}
+	require.True(t, sawSeg)
 	require.True(t, paths["schema.json"])
 	require.False(t, paths["snapshots/x.transcript"], "external transcripts are not copied")
 	require.False(t, paths["audit.jsonl"])
@@ -197,10 +213,13 @@ func TestVerifySchema2Backup_Detects(t *testing.T) {
 	})
 	t.Run("tampered", func(t *testing.T) {
 		dir := setup(t)
-		p := filepath.Join(dir, "data", "agents-db", "agents", "seg_000001.ndjson")
+		segs, err := filepath.Glob(filepath.Join(dir, "data", "agents-db", "agents", "seg_*.ndjson"))
+		require.NoError(t, err)
+		require.NotEmpty(t, segs)
+		p := segs[0]
 		require.NoError(t, os.Chmod(p, 0o600))
 		require.NoError(t, os.WriteFile(p, []byte("changed"), 0o600))
-		_, err := VerifySchema2Backup(dir)
+		_, err = VerifySchema2Backup(dir)
 		require.ErrorIs(t, err, ErrBackupInvalid)
 	})
 	t.Run("extra file", func(t *testing.T) {

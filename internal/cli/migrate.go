@@ -45,6 +45,8 @@ func newMigrateCmd() *cobra.Command {
 Actions (select one):
   --check    Read-only preflight check across all stores and pending migrations
   --plan     Read-only schema-2 (warden-db) cutover plan: source/target inventory,
+             strict verification of every legacy store (corruption, ambiguity,
+             duplicate identities, unsupported layouts, unsafe artifacts),
              backup location and blocking conditions. Writes nothing
   --apply    Apply pending migrations up to the target schema version
   --resume   Resume an interrupted migration recorded in the ledger journal
@@ -246,7 +248,7 @@ Actions (select one):
 // runSchema2Plan prints the read-only schema-2 cutover plan. It acquires no
 // lock and writes nothing; a blocked plan exits non-zero so scripts can gate.
 func runSchema2Plan(cmd *cobra.Command, dataDir string, asJSON bool) error {
-	plan, err := migrate.PlanSchema2(dataDir, time.Now())
+	plan, err := migrate.PreflightSchema2(cmd.Context(), dataDir, time.Now())
 	if err != nil {
 		return fmt.Errorf("migrate: plan failed: %w", err)
 	}
@@ -278,6 +280,9 @@ func runSchema2Plan(cmd *cobra.Command, dataDir string, asJSON bool) error {
 			fmt.Fprintln(out, "\nfindings:")
 			for _, f := range plan.Findings {
 				tag := map[migrate.Severity]string{migrate.SeverityBlocking: "BLOCKING", migrate.SeverityRepairable: "NOTE", migrate.SeverityAuto: "INFO"}[f.Severity]
+				if f.Class != "" {
+					tag += ":" + f.Class
+				}
 				fmt.Fprintf(out, "  [%s] %s: %s\n", tag, f.Store, f.Message)
 				if f.Details != "" {
 					for _, ln := range strings.Split(f.Details, "\n") {
