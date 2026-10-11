@@ -104,7 +104,7 @@ func TestAdversarial_DelayedScanIsolated(t *testing.T) {
 // across a close/reopen (daemon restart).
 func TestAdversarial_ConcurrentMixAndRestart(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New(dir)
+	s, err := newTestStore(dir)
 	require.NoError(t, err)
 	const n = 40
 	for i := 0; i < n; i++ {
@@ -159,7 +159,7 @@ func TestAdversarial_ConcurrentMixAndRestart(t *testing.T) {
 	rw.Wait()
 	require.NoError(t, s.Close())
 
-	s2, err := New(dir)
+	s2, err := newTestStore(dir)
 	require.NoError(t, err)
 	defer s2.Close()
 	require.Equal(t, StateOK, s2.State())

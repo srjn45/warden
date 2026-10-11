@@ -16,7 +16,7 @@ import (
 // seededStore opens a store in a temp dir holding n agents (named a-0..a-n-1).
 func seededStore(t testing.TB, n int) *Store {
 	t.Helper()
-	s, err := New(t.TempDir())
+	s, err := newTestStore(t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, s.Close()) })
 	for i := 0; i < n; i++ {
