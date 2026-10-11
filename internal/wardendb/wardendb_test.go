@@ -196,8 +196,8 @@ func TestRegistryRules(t *testing.T) {
 // The registry must match the collection contract §2 exactly.
 func TestCatalogueMatchesContract(t *testing.T) {
 	got := Catalogue()
-	if len(got) != 26 {
-		t.Fatalf("catalogue has %d collections, contract has 26", len(got))
+	if len(got) != 27 {
+		t.Fatalf("catalogue has %d collections, contract has 27 (26 + operations)", len(got))
 	}
 	seen := map[string]bool{}
 	for _, n := range got {

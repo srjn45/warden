@@ -54,6 +54,8 @@ var catalogue = []string{
 	"plan_sync_envelopes",
 	"metrics_samples",
 	"id_sequences",
+	// Added by the operation-journal contract §1.2.
+	"operations",
 }
 
 // Catalogue returns the names of every collection that may be registered.
