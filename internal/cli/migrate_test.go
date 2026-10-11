@@ -188,6 +188,21 @@ func TestMigrateCommand_MutuallyExclusiveFlags(t *testing.T) {
 	require.Error(t, cmd.ExecuteContext(context.Background()))
 }
 
+func TestMigrateCommand_StagingExport(t *testing.T) {
+	dataDir := t.TempDir()
+	targetDir := filepath.Join(t.TempDir(), "staging")
+
+	cmd := newMigrateCmd()
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetArgs([]string{"--staging-export", "--data-dir", dataDir, "--staging-dir", targetDir})
+
+	require.NoError(t, cmd.ExecuteContext(context.Background()))
+	require.Contains(t, buf.String(), "schema-2 staging export")
+	_, statErr := os.Stat(targetDir)
+	require.NoError(t, statErr)
+}
+
 func TestMigrateCommand_PlanRefusesCorruptionWithClassAndRemediation(t *testing.T) {
 	dataDir := t.TempDir()
 	require.NoError(t, schema.Save(dataDir, &schema.Ledger{SchemaVersion: 1, BinaryVersion: "9.29.0", History: []schema.HistoryEntry{}}))
