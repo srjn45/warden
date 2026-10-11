@@ -8,7 +8,7 @@ import (
 
 func TestStoreRecordAndEvents(t *testing.T) {
 	dir := t.TempDir()
-	s, err := NewStore(filepath.Join(dir, "savings"))
+	s, err := openTestStore(t, filepath.Join(dir, "savings"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestStoreRecordAndEvents(t *testing.T) {
 
 func TestStoreEventsSinceFilter(t *testing.T) {
 	dir := t.TempDir()
-	s, err := NewStore(filepath.Join(dir, "savings"))
+	s, err := openTestStore(t, filepath.Join(dir, "savings"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestStoreEventsSinceFilter(t *testing.T) {
 
 func TestStoreCalibrationSamples(t *testing.T) {
 	dir := t.TempDir()
-	s, err := NewStore(filepath.Join(dir, "savings"))
+	s, err := openTestStore(t, filepath.Join(dir, "savings"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestStoreCalibrationSamples(t *testing.T) {
 	if _, ok, err := s.Calibration(); err != nil || ok {
 		t.Fatalf("fresh store Calibration: ok=%v err=%v, want ok=false", ok, err)
 	}
-	if err := SaveCalibration(filepath.Join(dir, "savings"), Calibration{BytesPerToken: 3.5, Samples: 2, Model: CalibrationModel}); err != nil {
+	if err := s.SaveCalibration(Calibration{BytesPerToken: 3.5, Samples: 2, Model: CalibrationModel}); err != nil {
 		t.Fatal(err)
 	}
 	cal, ok, err := s.Calibration()
@@ -116,7 +116,7 @@ func TestStoreCalibrationSamples(t *testing.T) {
 
 func TestStoreSummary(t *testing.T) {
 	dir := t.TempDir()
-	s, err := NewStore(filepath.Join(dir, "savings"))
+	s, err := openTestStore(t, filepath.Join(dir, "savings"))
 	if err != nil {
 		t.Fatal(err)
 	}

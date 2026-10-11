@@ -42,7 +42,7 @@ func exhausted(rev uint64, provider, fingerprint, route, bucket, source string) 
 
 func TestReconcileImpactTwoAccountsSameAICLI(t *testing.T) {
 	dir := t.TempDir()
-	fences, err := NewDurableFenceStore(dir)
+	fences, err := openTestStore(t, dir)
 	require.NoError(t, err)
 
 	acctA := "sha256:account-a"
@@ -62,7 +62,7 @@ func TestReconcileImpactTwoAccountsSameAICLI(t *testing.T) {
 }
 
 func TestReconcileImpactSharedVersusModelSpecificBuckets(t *testing.T) {
-	fences, err := NewDurableFenceStore(t.TempDir())
+	fences, err := openTestStore(t, t.TempDir())
 	require.NoError(t, err)
 	fp := "sha256:shared"
 	agents := []AgentView{
@@ -81,7 +81,7 @@ func TestReconcileImpactSharedVersusModelSpecificBuckets(t *testing.T) {
 }
 
 func TestReconcileImpactMultipleMandatoryBuckets(t *testing.T) {
-	fences, err := NewDurableFenceStore(t.TempDir())
+	fences, err := openTestStore(t, t.TempDir())
 	require.NoError(t, err)
 	fp := "sha256:multi"
 	agents := []AgentView{
@@ -106,7 +106,7 @@ func TestReconcileImpactMultipleMandatoryBuckets(t *testing.T) {
 }
 
 func TestReconcileImpactSkipsIneligibleAndUnbound(t *testing.T) {
-	fences, err := NewDurableFenceStore(t.TempDir())
+	fences, err := openTestStore(t, t.TempDir())
 	require.NoError(t, err)
 	fp := "sha256:skip"
 	agents := []AgentView{
@@ -131,7 +131,7 @@ func TestReconcileImpactSkipsIneligibleAndUnbound(t *testing.T) {
 }
 
 func TestReconcileImpactRepeatedObservationsIdempotent(t *testing.T) {
-	fences, err := NewDurableFenceStore(t.TempDir())
+	fences, err := openTestStore(t, t.TempDir())
 	require.NoError(t, err)
 	fp := "sha256:idem"
 	agents := []AgentView{live("agent-1", "working", binding("claude", fp, "sonnet", "weekly"))}
@@ -149,7 +149,7 @@ func TestReconcileImpactRepeatedObservationsIdempotent(t *testing.T) {
 }
 
 func TestReconcileImpactSimultaneousAPIAndPaneTriggers(t *testing.T) {
-	fences, err := NewDurableFenceStore(t.TempDir())
+	fences, err := openTestStore(t, t.TempDir())
 	require.NoError(t, err)
 	fp := "sha256:dual"
 	agents := []AgentView{
@@ -185,7 +185,7 @@ func TestReconcileImpactSimultaneousAPIAndPaneTriggers(t *testing.T) {
 
 func TestReconcileImpactDaemonRestartHalfway(t *testing.T) {
 	dir := t.TempDir()
-	fences, err := NewDurableFenceStore(dir)
+	fences, err := openTestStore(t, dir)
 	require.NoError(t, err)
 	fp := "sha256:restart"
 	agents := []AgentView{
@@ -208,7 +208,7 @@ func TestReconcileImpactDaemonRestartHalfway(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, claimed)
 
-	restarted, err := NewDurableFenceStore(dir)
+	restarted, err := openTestStore(t, dir)
 	require.NoError(t, err)
 	got, err := ReconcileImpact(agents, obs, restarted)
 	require.NoError(t, err)
@@ -216,7 +216,7 @@ func TestReconcileImpactDaemonRestartHalfway(t *testing.T) {
 	require.Equal(t, SkipAlreadyReconciled, skipReasons(got)["agent-1"])
 
 	// A second restart must not re-select anyone.
-	again, err := NewDurableFenceStore(dir)
+	again, err := openTestStore(t, dir)
 	require.NoError(t, err)
 	second, err := ReconcileImpact(agents, obs, again)
 	require.NoError(t, err)
@@ -224,7 +224,7 @@ func TestReconcileImpactDaemonRestartHalfway(t *testing.T) {
 }
 
 func TestReconcileImpactStaleUnknownNotExhaustion(t *testing.T) {
-	fences, err := NewDurableFenceStore(t.TempDir())
+	fences, err := openTestStore(t, t.TempDir())
 	require.NoError(t, err)
 	fp := "sha256:stale"
 	agents := []AgentView{live("agent-1", "working", binding("claude", fp, "sonnet", "weekly"))}
@@ -274,12 +274,12 @@ func skipReasons(r ImpactResult) map[string]string {
 
 func TestDurableFenceStorePersistsAcrossOpen(t *testing.T) {
 	dir := t.TempDir()
-	a, err := NewDurableFenceStore(dir)
+	a, err := openTestStore(t, dir)
 	require.NoError(t, err)
 	ok, err := a.Claim(FenceRecord{SnapshotRevision: 1, DomainKey: "d", BucketKey: "b", AgentID: "a1", RecoveryGeneration: 0})
 	require.NoError(t, err)
 	require.True(t, ok)
-	b, err := NewDurableFenceStore(dir)
+	b, err := openTestStore(t, dir)
 	require.NoError(t, err)
 	ok, err = b.Claim(FenceRecord{SnapshotRevision: 1, DomainKey: "d", BucketKey: "b", AgentID: "a1", RecoveryGeneration: 0})
 	require.NoError(t, err)

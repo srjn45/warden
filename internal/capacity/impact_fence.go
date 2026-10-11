@@ -28,6 +28,10 @@ type FenceRecord struct {
 type DurableFenceStore struct {
 	mu   sync.Mutex
 	path string
+	// shared, when non-nil, is the warden-db backing
+	// (NewDurableFenceStoreFromDB); the JSONL log is used otherwise and remains
+	// the production default.
+	shared docs
 }
 
 // NewDurableFenceStore opens (or creates) the fence log under dir.
@@ -55,6 +59,12 @@ func (s *DurableFenceStore) Claim(rec FenceRecord) (bool, error) {
 		if sameRevisionFence(prev, rec) || sameGenerationFence(prev, rec) {
 			return false, nil
 		}
+	}
+	if s.shared != nil {
+		if err := s.sharedInsert(rec); err != nil {
+			return false, err
+		}
+		return true, nil
 	}
 	all = append(all, rec)
 	if err := s.writeLocked(all); err != nil {
@@ -118,6 +128,9 @@ func sameGenerationFence(a, b FenceRecord) bool {
 }
 
 func (s *DurableFenceStore) readLocked() ([]FenceRecord, error) {
+	if s.shared != nil {
+		return s.sharedRead()
+	}
 	f, err := os.Open(s.path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
