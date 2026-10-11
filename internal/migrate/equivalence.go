@@ -95,7 +95,7 @@ func VerifySchema2Equivalence(ctx context.Context, dataDir, targetDir string) (*
 	}
 	// Reject target-only collections too: they are evidence of a stale or mixed
 	// staging directory, not harmless noise.
-	for _, name := range []string{"projects", "project_groups", "agents", "terminals", "pipelines", "pipeline_jobs"} {
+	for _, name := range wardendb.Catalogue() {
 		if _, expected := want[name]; expected {
 			continue
 		}
