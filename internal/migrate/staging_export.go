@@ -56,11 +56,14 @@ type stagingRow struct {
 
 type stagingSet struct {
 	rows     []stagingRow
+	rowKeys  map[string]string
 	agents   map[string]map[string]any
 	terms    map[string]map[string]any
 	projects map[string]map[string]any
+	plans    map[string]map[string]any
 	pipes    map[string]map[string]any
 	jobs     map[string]map[string]any
+	runs     map[string]map[string]any
 	findings []Finding
 }
 
@@ -160,9 +163,11 @@ func ExportSchema2Staging(ctx context.Context, dataDir string, opts StagingExpor
 
 func buildStagingSet(ctx context.Context, dataDir string) (*stagingSet, error) {
 	set := &stagingSet{
-		agents: map[string]map[string]any{}, terms: map[string]map[string]any{},
-		projects: map[string]map[string]any{}, pipes: map[string]map[string]any{},
-		jobs: map[string]map[string]any{},
+		rowKeys: map[string]string{},
+		agents:  map[string]map[string]any{}, terms: map[string]map[string]any{},
+		projects: map[string]map[string]any{}, plans: map[string]map[string]any{},
+		pipes: map[string]map[string]any{}, jobs: map[string]map[string]any{},
+		runs: map[string]map[string]any{},
 	}
 	if err := loadProjects(dataDir, set); err != nil {
 		return nil, err
@@ -174,6 +179,9 @@ func buildStagingSet(ctx context.Context, dataDir string) (*stagingSet, error) {
 		return nil, err
 	}
 	if err := loadPipelines(dataDir, set); err != nil {
+		return nil, err
+	}
+	if err := loadMappedMigratedSources(ctx, dataDir, set); err != nil {
 		return nil, err
 	}
 	validateStagingRelationships(set)
@@ -361,6 +369,286 @@ func loadPipelines(dataDir string, set *stagingSet) error {
 	return nil
 }
 
+type collectionMapping struct {
+	source string
+	target string
+}
+
+var migratedCollectionMappings = map[string][]collectionMapping{
+	"plans/plans-db": {
+		{"plans", "plans"},
+		{"plan-events", "plan_events"},
+		{"plan-notes", "plan_notes"},
+	},
+	"plans/plan-exports-db": {{"plan-exports", "plan_exports"}},
+	"autopilots-db":         {{"autopilot_runs", "autopilot_runs"}},
+	"autopilot/runs-db":     {{"autopilot_runs", "autopilot_runs"}},
+	"context": {
+		{"context", "context_entries"},
+		{"context_entries", "context_entries"},
+	},
+	"inbox": {
+		{"messages", "messages"},
+		{"id_sequences", "id_sequences"},
+	},
+	"backends": {
+		{"backends", "backends"},
+		{"models", "backend_models"},
+		{"role_tiers", "backend_roles"},
+		{"handover_settings", "backend_settings"},
+		{"quotas", "backend_quotas"},
+		{"rl_cooldowns", "backend_rl_cooldowns"},
+	},
+	"usage-snapshots":  {{"usage_snapshots", "usage_snapshots"}},
+	"quota-impact":     {{"quota_impact_fences", "quota_impact_fences"}},
+	"snapshots-db":     {{"snapshots", "snapshots"}},
+	"savings":          {{"savings_events", "savings_events"}, {"savings_calibration", "savings_calibration"}},
+	"spend":            {{"spend_records", "spend_records"}},
+	"schedules-db":     {{"schedules", "schedules"}},
+	"known-prompts-db": {{"known_prompts", "known_prompts"}},
+	"metrics":          {{"metrics_samples", "metrics_samples"}},
+}
+
+var migratedFlatMappings = map[string]string{
+	"plan-sync-hub":  "plan_sync_envelopes",
+	"schedules.json": "schedules",
+	"snapshots":      "snapshots",
+}
+
+func loadMappedMigratedSources(ctx context.Context, dataDir string, set *stagingSet) error {
+	handled := map[string]bool{
+		"agents-db": true, "terminals-db": true, "projects": true, "pipelines-db": true,
+		"autopilot": true,
+	}
+	for rel, mappings := range migratedCollectionMappings {
+		handled[rel] = true
+		if err := loadMappedScrivaStore(ctx, dataDir, rel, mappings, set); err != nil {
+			return err
+		}
+	}
+	for rel, target := range migratedFlatMappings {
+		handled[rel] = true
+		if err := loadFlatJSONRecords(ctx, dataDir, rel, target, set); err != nil {
+			return err
+		}
+	}
+	for _, s := range schema2Sources {
+		if s.Disposition != DispositionMigrated || handled[s.Path] {
+			continue
+		}
+		hasData, err := migratedSourceHasData(dataDir, s.Path)
+		if err != nil {
+			return err
+		}
+		if hasData {
+			set.block(s.Path, s.Path+": migrated source has data but staging export has no safe mapping to "+s.Destination, ClassUnsupportedLayout)
+		}
+	}
+	return nil
+}
+
+func loadMappedScrivaStore(ctx context.Context, dataDir, rel string, mappings []collectionMapping, set *stagingSet) error {
+	dbDir := filepath.Join(dataDir, filepath.FromSlash(rel))
+	db, err := openIfExists(dbDir)
+	if err != nil || db == nil {
+		return err
+	}
+	defer db.Close()
+	allowed := map[string]string{}
+	for _, m := range mappings {
+		allowed[m.source] = m.target
+		if err := copyCollection(ctx, dbDir, db, m.source, m.target, set); err != nil {
+			return err
+		}
+	}
+	return blockUnmappedCollections(ctx, dbDir, db, rel, allowed, set)
+}
+
+func copyCollection(ctx context.Context, dbDir string, db *scriva.DB, source, target string, set *stagingSet) error {
+	if _, err := os.Stat(filepath.Join(dbDir, source)); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	col, err := db.Collection(source)
+	if err != nil {
+		return err
+	}
+	rows, err := col.Scan(query.MatchAll)
+	if err != nil {
+		return err
+	}
+	for _, rec := range rows {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		body := cloneMap(rec.Data)
+		key := str(body["_key"])
+		delete(body, "_key")
+		if key == "" {
+			key = str(body["id"])
+		}
+		if key == "" {
+			set.block(target, source+": record is missing stable key and id", ClassAmbiguity)
+			continue
+		}
+		if set.add(target, key, body) {
+			rememberStagingRow(set, target, key, body)
+		}
+	}
+	return nil
+}
+
+func blockUnmappedCollections(ctx context.Context, dbDir string, db *scriva.DB, rel string, allowed map[string]string, set *stagingSet) error {
+	entries, err := os.ReadDir(dbDir)
+	if err != nil {
+		return err
+	}
+	for _, de := range entries {
+		if !de.IsDir() || allowed[de.Name()] != "" || strings.HasPrefix(de.Name(), ".") {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		col, err := db.Collection(de.Name())
+		if err != nil {
+			return err
+		}
+		rows, err := col.Scan(query.MatchAll)
+		if err != nil {
+			return err
+		}
+		if len(rows) != 0 {
+			set.block(rel, rel+"/"+de.Name()+": collection has data but no safe staging mapping", ClassUnsupportedLayout)
+		}
+	}
+	return nil
+}
+
+func loadFlatJSONRecords(ctx context.Context, dataDir, rel, target string, set *stagingSet) error {
+	root := filepath.Join(dataDir, filepath.FromSlash(rel))
+	fi, err := os.Stat(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	if fi.IsDir() {
+		return filepath.WalkDir(root, func(path string, de os.DirEntry, err error) error {
+			if err != nil || de.IsDir() {
+				return err
+			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if !strings.HasSuffix(de.Name(), ".json") {
+				if !strings.HasSuffix(de.Name(), ".transcript") {
+					set.block(rel, relPath(dataDir, path)+": file has no safe staging mapping", ClassUnsupportedLayout)
+				}
+				return nil
+			}
+			return loadFlatJSONFile(dataDir, path, target, set)
+		})
+	}
+	return loadFlatJSONFile(dataDir, root, target, set)
+}
+
+func loadFlatJSONFile(dataDir, path, target string, set *stagingSet) error {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var v any
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	add := func(body map[string]any, fallback string) {
+		key := str(body["id"])
+		if key == "" {
+			key = str(body["run_id"])
+		}
+		if key == "" {
+			key = fallback
+		}
+		rememberStagingRow(set, target, key, body)
+		set.add(target, key, body)
+	}
+	switch x := v.(type) {
+	case map[string]any:
+		if target == "schedules" && str(x["id"]) == "" {
+			for key, item := range x {
+				body, ok := item.(map[string]any)
+				if !ok {
+					set.block(target, relPath(dataDir, path)+": schedule "+key+" is not an object", ClassCorruption)
+					continue
+				}
+				add(body, key)
+			}
+			return nil
+		}
+		if records, ok := x["records"].([]any); ok {
+			for i, item := range records {
+				body, ok := item.(map[string]any)
+				if !ok {
+					set.block(target, relPath(dataDir, path)+": records entry is not an object", ClassCorruption)
+					continue
+				}
+				add(body, fmt.Sprintf("%s:%06d", relPath(dataDir, path), i))
+			}
+			return nil
+		}
+		add(x, strings.TrimSuffix(relPath(dataDir, path), ".json"))
+	case []any:
+		for i, item := range x {
+			body, ok := item.(map[string]any)
+			if !ok {
+				set.block(target, relPath(dataDir, path)+": array entry is not an object", ClassCorruption)
+				continue
+			}
+			add(body, fmt.Sprintf("%s:%06d", relPath(dataDir, path), i))
+		}
+	default:
+		set.block(target, relPath(dataDir, path)+": JSON value is not an object or array", ClassUnsupportedLayout)
+	}
+	return nil
+}
+
+func migratedSourceHasData(dataDir, rel string) (bool, error) {
+	root := filepath.Join(dataDir, filepath.FromSlash(rel))
+	fi, err := os.Stat(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+	if !fi.IsDir() {
+		return fi.Size() > 0, nil
+	}
+	has := false
+	err = filepath.WalkDir(root, func(path string, de os.DirEntry, err error) error {
+		if err != nil || has || de.IsDir() {
+			return err
+		}
+		info, err := de.Info()
+		if err != nil {
+			return err
+		}
+		has = info.Size() > 0
+		return nil
+	})
+	return has, err
+}
+
+func rememberStagingRow(set *stagingSet, target, key string, body map[string]any) {
+	switch target {
+	case "plans":
+		set.plans[key] = body
+	case "autopilot_runs":
+		set.runs[key] = body
+	}
+}
+
 func validateStagingRelationships(set *stagingSet) {
 	tmux := map[string]string{}
 	for id, a := range set.agents {
@@ -410,6 +698,25 @@ func validateStagingRelationships(set *stagingSet) {
 			}
 		}
 	}
+	for id, p := range set.plans {
+		if pid := str(p["project_id"]); pid != "" {
+			if _, ok := set.projects[pid]; !ok {
+				set.block("plans", id+": project_id "+pid+" does not exist", ClassAmbiguity)
+			}
+		}
+	}
+	for id, r := range set.runs {
+		if pid := str(r["project_id"]); pid != "" {
+			if _, ok := set.projects[pid]; !ok {
+				set.block("autopilot_runs", id+": project_id "+pid+" does not exist", ClassAmbiguity)
+			}
+		}
+		if planID := str(r["plan_id"]); planID != "" {
+			if _, ok := set.plans[planID]; !ok {
+				set.block("autopilot_runs", id+": plan_id "+planID+" does not exist", ClassAmbiguity)
+			}
+		}
+	}
 	for key, j := range set.jobs {
 		pipeID := str(j["pipeline_id"])
 		if _, ok := set.pipes[pipeID]; !ok {
@@ -426,6 +733,14 @@ func validateStagingRelationships(set *stagingSet) {
 			}
 		}
 	}
+}
+
+func relPath(root, path string) string {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return filepath.ToSlash(path)
+	}
+	return filepath.ToSlash(rel)
 }
 
 func openIfExists(path string) (*scriva.DB, error) {
@@ -466,8 +781,15 @@ func scanCollection[T any](dbDir string, db *scriva.DB, name string) ([]T, error
 	return out, nil
 }
 
-func (s *stagingSet) add(collection, key string, body map[string]any) {
+func (s *stagingSet) add(collection, key string, body map[string]any) bool {
+	k := collection + "\x00" + key
+	if prior, dup := s.rowKeys[k]; dup {
+		s.block(collection, key+": duplicate staging identity from "+prior, ClassDuplicateIdentity)
+		return false
+	}
+	s.rowKeys[k] = collection + "/" + key
 	s.rows = append(s.rows, stagingRow{collection: collection, key: key, body: body})
+	return true
 }
 
 func (s *stagingSet) block(store, msg string, class FindingClass) {
@@ -492,8 +814,11 @@ func ensureStagingIndexes(col *engine.Collection, name string) error {
 		"terminals":      {"project_id", "tmux_session", "status"},
 		"projects":       {"status", "group_id"},
 		"project_groups": {"name"},
+		"plans":          {"project_id", "status"},
 		"pipelines":      {"project_id", "parent_agent_id", "status"},
 		"pipeline_jobs":  {"pipeline_id", "agent_id", "status"},
+		"autopilot_runs": {"project_id", "plan_id", "state"},
+		"messages":       {"to"},
 	}
 	for _, f := range indexes[name] {
 		if err := col.EnsureIndex(f); err != nil {
