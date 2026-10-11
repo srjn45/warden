@@ -20,11 +20,37 @@
 // opens the database and never takes ownership, so it is safe to call from a
 // CLI while the daemon is running.
 //
+// # Strict open
+//
+// The handle is fail-closed, and the policy is applied by this package so that
+// no Option and no Spec can weaken it:
+//
+//   - durability: every collection runs under SyncMode (fsync before a write
+//     is acknowledged). Register appends the policy after a Spec's own options,
+//     so it overrides them, and then checks the configuration the collection
+//     is actually running under (*PolicyError);
+//   - integrity: Open verifies the whole directory read-only before the engine
+//     opens it, and Register verifies each collection against its segment
+//     bytes before handing it out. Corrupt bytes or ambiguous history yield
+//     *IntegrityError and the operation is refused with the data left exactly
+//     as found. Nothing is salvaged, truncated, skipped or repaired; the only
+//     thing the engine reconciles on its own is what a crash legitimately
+//     leaves behind over intact data (a torn tail that was never acknowledged,
+//     a derived index that lags its segments, an undecided transaction), and
+//     that is reported as ActionRecovery, never silently. A violation on an
+//     open handle retires it: every later use returns the *IntegrityError.
+//     OpenForRepair is the one reserved, separately named entry point for
+//     tolerant access, and it is not implemented yet;
+//   - compaction: the background cadence and dirty threshold come from
+//     CompactionLimits (WithCompaction), bounded and conservative by default;
+//   - observability: lifecycle and integrity events go to an Auditor and a
+//     Metrics sink (WithAuditor, WithMetrics). Both default to discarding.
+//
 // The package is additive and inert: nothing opens it unless a caller does so
 // explicitly, it reads and writes no schema-1 store, and it is not canonical
-// for any data yet. Durability/integrity policy (strict open), verification,
-// backup/restore and the operation journal are layered on by later work
-// through Option; cross-collection writes go through internal/dbtx on Handle.
+// for any data yet. Verification/repair, backup/restore and the operation
+// journal are layered on by later work; cross-collection writes go through
+// internal/dbtx on Handle.
 package wardendb
 
 import (
@@ -32,7 +58,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/srjn45/scriva"
 	"github.com/srjn45/scriva/engine"
@@ -75,12 +103,14 @@ func (e *LockedError) Unwrap() []error { return []error{ErrLocked, e.cause} }
 func Dir(dataDir string) string { return filepath.Join(dataDir, DirName) }
 
 type config struct {
-	owner ownerlock.Info
-	trace func(step string)
+	owner      ownerlock.Info
+	trace      func(step string)
+	compaction CompactionLimits
+	auditor    Auditor
+	metrics    Metrics
 }
 
-// Option configures Open. Options are the extension point for later open
-// policy (durability, integrity callbacks, compaction, audit/metrics).
+// Option configures Open. No Option can weaken the strict open policy.
 type Option func(*config)
 
 // WithOwner sets the advisory owner metadata recorded in the lock file and
@@ -91,8 +121,10 @@ func WithOwner(info ownerlock.Info) Option {
 
 // DB is the owned warden-db handle. It is safe for concurrent use.
 type DB struct {
-	dir   string
-	trace func(string)
+	dir        string
+	trace      func(string)
+	mon        *monitor
+	compaction CompactionLimits
 
 	mu      sync.RWMutex
 	closing bool
@@ -112,8 +144,9 @@ type closeStep struct {
 }
 
 // Open takes exclusive ownership of <dataDir>/warden-db (creating the
-// directory if needed) and opens its ScrivaDB handle. A live owner yields
-// *LockedError. The caller must Close the returned DB.
+// directory if needed), verifies it and opens its ScrivaDB handle under the
+// strict policy. A live owner yields *LockedError; corrupt data yields
+// *IntegrityError and is left untouched. The caller must Close the returned DB.
 func Open(dataDir string, opts ...Option) (*DB, error) {
 	if dataDir == "" {
 		return nil, errors.New("wardendb: empty data directory")
@@ -124,7 +157,13 @@ func Open(dataDir string, opts ...Option) (*DB, error) {
 			o(&cfg)
 		}
 	}
+	limits, err := cfg.compaction.resolve()
+	if err != nil {
+		return nil, err
+	}
+	start := time.Now()
 	dir := Dir(dataDir)
+	mon := &monitor{dir: dir, auditor: cfg.auditor, metrics: cfg.metrics}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("wardendb: create %s: %w", dir, err)
 	}
@@ -132,27 +171,56 @@ func Open(dataDir string, opts ...Option) (*DB, error) {
 	if err != nil {
 		var owned *ownerlock.OwnedError
 		if errors.As(err, &owned) {
-			return nil, &LockedError{Dir: dir, Owner: owned.Owner, cause: err}
+			return nil, mon.locked(&LockedError{Dir: dir, Owner: owned.Owner, cause: err})
 		}
 		return nil, fmt.Errorf("wardendb: lock %s: %w", dir, err)
 	}
-	handle, err := scriva.Open(dir)
+	recovered, err := mon.preflight()
+	if err != nil {
+		_ = lock.Release()
+		return nil, err
+	}
+	handle, err := scriva.Open(dir, mon.engineOptions(limits)...)
 	if err != nil {
 		_ = lock.Release()
 		// The engine's own directory lock is the backstop where the
 		// ownership lock offers no exclusion.
 		if errors.Is(err, engine.ErrDatabaseLocked) {
-			return nil, &LockedError{Dir: dir, cause: err}
+			return nil, mon.locked(&LockedError{Dir: dir, cause: err})
+		}
+		if ie := mon.engineIntegrity(StageOpen, "", err); ie != nil {
+			return nil, mon.refuse(ie)
 		}
 		return nil, fmt.Errorf("wardendb: open %s: %w", dir, err)
 	}
+	if len(recovered) > 0 {
+		mon.emit(ActionRecovery, "", map[string]string{"findings": strings.Join(recovered, ",")})
+	}
+	mon.emit(ActionOpen, "", map[string]string{
+		"sync_mode":           syncModeName(SyncMode),
+		"integrity_policy":    string(IntegrityPolicy),
+		"compact_interval":    limits.Interval.String(),
+		"compact_dirty_ratio": fmt.Sprint(limits.DirtyRatio),
+	})
+	mon.observe(MetricOpenDuration, "", time.Since(start))
 	return &DB{
-		dir:     dir,
-		trace:   cfg.trace,
-		handle:  handle,
-		lock:    lock,
-		entries: map[string]*entry{},
+		dir:        dir,
+		trace:      cfg.trace,
+		mon:        mon,
+		compaction: limits,
+		handle:     handle,
+		lock:       lock,
+		entries:    map[string]*entry{},
 	}, nil
+}
+
+// usableLocked returns ErrClosed once Close has begun and the *IntegrityError
+// once an integrity violation has retired the handle. db.mu must be held.
+func (db *DB) usableLocked() error {
+	if db.closing || db.handle == nil {
+		return ErrClosed
+	}
+	return db.mon.faultErr()
 }
 
 // Dir returns the directory this handle owns.
@@ -160,15 +228,17 @@ func (db *DB) Dir() string { return db.dir }
 
 // Handle returns the owned ScrivaDB handle, for the transaction boundary
 // (internal/dbtx). The caller must not Close it and must not retain it past
-// Close; it fails with ErrClosed once Close has begun.
+// Close; it fails with ErrClosed once Close has begun. A collection must be
+// declared with Register, never opened on the returned handle: only Register
+// applies and checks the strict policy.
 func (db *DB) Handle() (*scriva.DB, error) {
 	if db == nil {
 		return nil, ErrClosed
 	}
 	db.mu.RLock()
 	defer db.mu.RUnlock()
-	if db.closing || db.handle == nil {
-		return nil, ErrClosed
+	if err := db.usableLocked(); err != nil {
+		return nil, err
 	}
 	return db.handle, nil
 }
@@ -231,6 +301,11 @@ func (db *DB) Close() error {
 			errs = append(errs, fmt.Errorf("wardendb: release lock: %w", err))
 		}
 		db.closeErr = errors.Join(errs...)
+		detail := map[string]string{}
+		if db.closeErr != nil {
+			detail["error"] = db.closeErr.Error()
+		}
+		db.mon.emit(ActionClose, "", detail)
 	})
 	return db.closeErr
 }

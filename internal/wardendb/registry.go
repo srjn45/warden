@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strconv"
 
 	"github.com/srjn45/scriva"
 	"github.com/srjn45/scriva/engine"
@@ -74,8 +75,9 @@ type Spec struct {
 	// Version is the collection's record-schema version (>= 1), recorded in
 	// the registry for the owning package and for diagnostics.
 	Version int
-	// Options are the collection's engine options (unique indexes, limits,
-	// per-collection durability).
+	// Options are the collection's engine options (unique indexes, record and
+	// byte limits). Durability and compaction cadence belong to the strict
+	// policy: an option that sets them is overridden.
 	Options []scriva.CollectionOption
 }
 
@@ -106,6 +108,11 @@ type Collection[T any] struct {
 // name must be in the catalogue (ErrUnknownCollection), the spec must be well
 // formed (ErrInvalidSpec) and the collection must not already be registered
 // (ErrDuplicateCollection). Registration order defines close order.
+//
+// The collection is opened under the strict policy and verified against its
+// segment bytes first. One that is not running under the policy is refused
+// with *PolicyError; one that holds corrupt data is refused with
+// *IntegrityError, which also retires the handle.
 func Register[T any](db *DB, spec Spec) (*Collection[T], error) {
 	if db == nil {
 		return nil, ErrClosed
@@ -121,15 +128,27 @@ func Register[T any](db *DB, spec Spec) (*Collection[T], error) {
 	}
 	db.mu.Lock()
 	defer db.mu.Unlock()
-	if db.closing || db.handle == nil {
-		return nil, ErrClosed
+	if err := db.usableLocked(); err != nil {
+		return nil, err
 	}
 	if _, dup := db.entries[spec.Name]; dup {
 		return nil, fmt.Errorf("%w: %q", ErrDuplicateCollection, spec.Name)
 	}
-	col, err := db.handle.Collection(spec.Name, spec.Options...)
+	col, err := db.handle.Collection(spec.Name, collectionOptions(spec.Options, db.compaction)...)
 	if err != nil {
+		if ie := db.mon.engineIntegrity(StageRegister, spec.Name, err); ie != nil {
+			return nil, db.mon.fail(ie)
+		}
 		return nil, fmt.Errorf("wardendb: open collection %q: %w", spec.Name, err)
+	}
+	if err := checkPolicy(spec.Name, col.Config(), db.compaction); err != nil {
+		var pe *PolicyError
+		errors.As(err, &pe)
+		db.mon.emit(ActionPolicyRefused, spec.Name, map[string]string{"setting": pe.Setting, "got": pe.Got, "want": pe.Want})
+		return nil, err
+	}
+	if ie := db.mon.verifyCollection(col); ie != nil {
+		return nil, db.mon.fail(ie)
 	}
 	e := &entry{spec: spec, typ: reflect.TypeFor[T](), col: col}
 	db.entries[spec.Name] = e
@@ -140,6 +159,7 @@ func Register[T any](db *DB, spec Spec) (*Collection[T], error) {
 		db.mu.Unlock()
 		return nil
 	}})
+	db.mon.emit(ActionRegister, spec.Name, map[string]string{"version": strconv.Itoa(spec.Version)})
 	return &Collection[T]{db: db, e: e}, nil
 }
 
@@ -152,8 +172,8 @@ func Lookup[T any](db *DB, name string) (*Collection[T], error) {
 	}
 	db.mu.RLock()
 	defer db.mu.RUnlock()
-	if db.closing || db.handle == nil {
-		return nil, ErrClosed
+	if err := db.usableLocked(); err != nil {
+		return nil, err
 	}
 	e, ok := db.entries[name]
 	if !ok {
@@ -192,14 +212,18 @@ func (c *Collection[T]) Name() string { return c.e.spec.Name }
 // Version returns the registered record-schema version.
 func (c *Collection[T]) Version() int { return c.e.spec.Version }
 
-// Engine returns the underlying engine collection, or ErrClosed once Close
-// has retired this collection. Callers must re-fetch it per operation rather
-// than retain it, so use after Close is always caught here.
+// Engine returns the underlying engine collection, ErrClosed once Close has
+// retired this collection, or the *IntegrityError that retired the handle.
+// Callers must re-fetch it per operation rather than retain it, so use after
+// either is always caught here.
 func (c *Collection[T]) Engine() (*engine.Collection, error) {
 	c.db.mu.RLock()
 	defer c.db.mu.RUnlock()
 	if c.e.closed || c.db.handle == nil {
 		return nil, ErrClosed
+	}
+	if err := c.db.mon.faultErr(); err != nil {
+		return nil, err
 	}
 	return c.e.col, nil
 }
