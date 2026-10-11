@@ -42,7 +42,7 @@ type BackendRecoveryCoordinator struct {
 	locks               map[string]*sync.Mutex
 	timers              map[string]*time.Timer
 	pendingEvidence     map[string]RecoveryEvidence
-	audit               *audit.Writer
+	audit               audit.Trail
 	stabilizationWindow time.Duration
 	// advanceSem bounds how many advance() passes (fresh capacity snapshot +
 	// candidate selection + launch) run concurrently across every agent the
@@ -79,7 +79,7 @@ func (c *BackendRecoveryCoordinator) SetNotify(fn func()) { c.notifyFn = fn }
 
 // SetAudit wires the append-only audit writer used for Phase 9 recovery
 // observability. A nil writer leaves audit emission as a no-op.
-func (c *BackendRecoveryCoordinator) SetAudit(w *audit.Writer) {
+func (c *BackendRecoveryCoordinator) SetAudit(w audit.Trail) {
 	if c != nil {
 		c.audit = w
 	}

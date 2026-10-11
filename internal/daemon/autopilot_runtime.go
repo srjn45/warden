@@ -280,11 +280,10 @@ func (rt autopilotRuntime) RunAgents(ctx context.Context, runID string) ([]autop
 // targeting one of the run's agents or the autopilot switch itself. Best-effort —
 // a read error only degrades the digest's observability.
 func (rt autopilotRuntime) RecentAudit(ctx context.Context, runID string, limit int) ([]autopilot.AuditEntry, error) {
-	path := rt.s.audit.Path()
-	if path == "" {
+	if rt.s.audit == nil {
 		return nil, nil
 	}
-	events, err := audit.Read(path, audit.Filter{})
+	events, err := rt.s.audit.Read(audit.Filter{})
 	if err != nil {
 		return nil, err
 	}

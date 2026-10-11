@@ -40,6 +40,7 @@ var catalogue = []string{
 	"pipelines",
 	"pipeline_jobs",
 	"autopilot_runs",
+	"autopilots",
 	"context_entries",
 	"messages",
 	"backends",
