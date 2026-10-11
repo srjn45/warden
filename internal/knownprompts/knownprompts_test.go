@@ -51,7 +51,7 @@ func agyReading() Reading {
 
 func newStore(t *testing.T) *Store {
 	t.Helper()
-	s, err := New(t.TempDir())
+	s, err := openTestStore(t, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +196,7 @@ func TestOneRecordPerShape(t *testing.T) {
 
 func TestHitDeleteAndReload(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New(dir)
+	s, err := openTestStore(t, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +210,7 @@ func TestHitDeleteAndReload(t *testing.T) {
 	}
 	_ = s.Close()
 
-	s, err = New(dir)
+	s, err = openTestStore(t, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,7 +253,7 @@ func TestLearnRejects(t *testing.T) {
 
 func TestOnlyShapeIsPersisted(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New(dir)
+	s, err := openTestStore(t, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,7 +292,7 @@ func TestMatchRejectsTrailingExtraOption(t *testing.T) {
 }
 
 func TestStoreEvictsLeastRecentlySeen(t *testing.T) {
-	s, err := New(t.TempDir())
+	s, err := openTestStore(t, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -328,7 +328,7 @@ func TestStoreEvictsLeastRecentlySeen(t *testing.T) {
 
 func TestStorePrunesStaleEntries(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New(dir)
+	s, err := openTestStore(t, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -350,7 +350,7 @@ func TestStorePrunesStaleEntries(t *testing.T) {
 		t.Fatalf("prune removed %d, left %v", n, s.List())
 	}
 	_ = s.Close()
-	s2, err := New(dir) // the deletion is durable
+	s2, err := openTestStore(t, dir) // the deletion is durable
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -361,7 +361,7 @@ func TestStorePrunesStaleEntries(t *testing.T) {
 }
 
 func TestDeleteAll(t *testing.T) {
-	s, err := New(t.TempDir())
+	s, err := openTestStore(t, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
