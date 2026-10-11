@@ -183,6 +183,7 @@ Complete command tree:
   warden inspect repair all            Rebuild all ScrivaDB stores offline using live-wins record resolution
   warden inspect repair backends       Verify or repair the backend registry offline, backup-first
   warden inspect repair sessions       Diagnose or reconstruct the offline session store
+  warden inspect repair warden-db      Verify or repair unified storage offline, backup-first
   warden backend                       Inspect and manage the agent-backend registry
   warden backend default               Set the default backend (rejects the reserved local row)
   warden backend disable               Disable a backend so it is no longer used
@@ -345,6 +346,7 @@ Compatibility aliases:
   warden repair all -> warden inspect repair all (compatibility)
   warden repair backends -> warden inspect repair backends (compatibility)
   warden repair sessions -> warden inspect repair sessions (compatibility)
+  warden repair warden-db -> warden inspect repair warden-db (compatibility)
   warden repl -> warden backend repl (compatibility)
   warden restore -> warden agent restore (compatibility)
   warden role -> warden agent role (compatibility)
