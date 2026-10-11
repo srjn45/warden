@@ -17,6 +17,7 @@ import (
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/daemon"
+	"github.com/srjn45/warden/internal/schema"
 	"github.com/srjn45/warden/internal/storage"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/srjn45/warden/internal/wardendb"
@@ -295,6 +296,10 @@ func newDoctorCmd() *cobra.Command {
 // re-run; a fully-consistent store reports no changes. The daemon runs the same
 // reconcile automatically at boot.
 func runMembershipReconcile(cmd *cobra.Command, dataDir string) error {
+	// Same refusal as daemon boot, before any legacy store is opened.
+	if err := schema.Guard(dataDir); err != nil {
+		return err
+	}
 	stores, err := storage.Open(dataDir)
 	if err != nil {
 		return fmt.Errorf("open storage: %w", err)

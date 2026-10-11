@@ -2370,8 +2370,11 @@
       "check",
       "data-dir",
       "json",
+      "plan",
       "restore",
       "resume",
+      "staging-dir",
+      "staging-export",
       "target"
     ],
     "inherited_flags": [

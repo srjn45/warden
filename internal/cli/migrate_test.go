@@ -187,3 +187,66 @@ func TestMigrateCommand_MutuallyExclusiveFlags(t *testing.T) {
 	cmd.SetArgs([]string{"--check", "--apply"})
 	require.Error(t, cmd.ExecuteContext(context.Background()))
 }
+
+func TestMigrateCommand_StagingExport(t *testing.T) {
+	dataDir := t.TempDir()
+	targetDir := filepath.Join(t.TempDir(), "staging")
+
+	cmd := newMigrateCmd()
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetArgs([]string{"--staging-export", "--data-dir", dataDir, "--staging-dir", targetDir})
+
+	require.NoError(t, cmd.ExecuteContext(context.Background()))
+	require.Contains(t, buf.String(), "schema-2 staging export")
+	_, statErr := os.Stat(targetDir)
+	require.NoError(t, statErr)
+}
+
+func TestMigrateCommand_PlanRefusesCorruptionWithClassAndRemediation(t *testing.T) {
+	dataDir := t.TempDir()
+	require.NoError(t, schema.Save(dataDir, &schema.Ledger{SchemaVersion: 1, BinaryVersion: "9.29.0", History: []schema.HistoryEntry{}}))
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "schedules.json"), []byte("{nope"), 0o600))
+	require.NoError(t, os.MkdirAll(filepath.Join(dataDir, "prompts"), 0o700))
+	require.NoError(t, os.Symlink("/etc/hostname", filepath.Join(dataDir, "prompts", "p.link")))
+
+	cmd := newMigrateCmd()
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+	cmd.SetArgs([]string{"--plan", "--data-dir", dataDir})
+	err := cmd.ExecuteContext(context.Background())
+	require.Error(t, err)
+
+	out := buf.String()
+	require.Contains(t, out, "[BLOCKING:corruption] schedules.json")
+	require.Contains(t, out, "[BLOCKING:unsafe_artifact] prompts/p.link")
+	require.Contains(t, out, "result: BLOCKED — nothing was changed")
+	require.Contains(t, out, "never salvages") // remediation text is shown
+
+	_, statErr := os.Stat(filepath.Join(dataDir, "backups"))
+	require.True(t, os.IsNotExist(statErr), "--plan must not create a backup")
+	b, _ := os.ReadFile(filepath.Join(dataDir, "schedules.json"))
+	require.Equal(t, "{nope", string(b), "corrupt source is never rewritten")
+}
+
+func TestMigrateCommand_PlanJSONCarriesClass(t *testing.T) {
+	dataDir := t.TempDir()
+	require.NoError(t, schema.Save(dataDir, &schema.Ledger{SchemaVersion: 1, BinaryVersion: "9.29.0", History: []schema.HistoryEntry{}}))
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "schedules.json"), []byte("{nope"), 0o600))
+
+	cmd := newMigrateCmd()
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetArgs([]string{"--plan", "--json", "--data-dir", dataDir})
+	require.Error(t, cmd.ExecuteContext(context.Background()))
+
+	var plan migrate.Schema2Plan
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &plan))
+	require.True(t, plan.Blocked)
+	var got bool
+	for _, f := range plan.Findings {
+		got = got || (f.Class == "corruption" && f.Store == "schedules.json")
+	}
+	require.True(t, got, "%+v", plan.Findings)
+}

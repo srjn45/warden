@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/srjn45/warden/internal/config"
@@ -25,12 +27,15 @@ type migrateCheckReport struct {
 func newMigrateCmd() *cobra.Command {
 	var (
 		checkFlag   bool
+		planFlag    bool
+		stagingFlag bool
 		applyFlag   bool
 		resumeFlag  bool
 		restoreFlag bool
 		jsonFlag    bool
 		targetVer   int
 		dataDirFlag string
+		stagingDir  string
 	)
 
 	cmd := &cobra.Command{
@@ -42,6 +47,14 @@ func newMigrateCmd() *cobra.Command {
 
 Actions (select one):
   --check    Read-only preflight check across all stores and pending migrations
+  --plan     Read-only schema-2 (warden-db) cutover plan: source/target inventory,
+             strict verification of every legacy store (corruption, ambiguity,
+             duplicate identities, unsupported layouts, unsafe artifacts),
+             backup location and blocking conditions. Writes nothing
+  --staging-export
+             Export normalized schema-2 staging collections into a separate
+             review directory. Refuses relationship violations and divergent
+             existing staging records. Never writes legacy sources or schema.json
   --apply    Apply pending migrations up to the target schema version
   --resume   Resume an interrupted migration recorded in the ledger journal
   --restore  Restore from pre-migration snapshot after an interrupted migration`,
@@ -49,6 +62,12 @@ Actions (select one):
 			// Validate mutually exclusive flags
 			count := 0
 			if checkFlag {
+				count++
+			}
+			if planFlag {
+				count++
+			}
+			if stagingFlag {
 				count++
 			}
 			if applyFlag {
@@ -62,7 +81,7 @@ Actions (select one):
 			}
 
 			if count > 1 {
-				return errors.New("cannot specify more than one of --check, --apply, --resume, --restore")
+				return errors.New("cannot specify more than one of --check, --plan, --apply, --resume, --restore")
 			}
 			if count == 0 {
 				checkFlag = true // Default action is read-only check
@@ -86,6 +105,12 @@ Actions (select one):
 			runner := migrate.NewRunner(nil)
 
 			switch {
+			case planFlag:
+				return runSchema2Plan(cmd, dataDir, jsonFlag)
+
+			case stagingFlag:
+				return runSchema2StagingExport(cmd, dataDir, stagingDir, jsonFlag)
+
 			case checkFlag:
 				findings, err := runner.Check(env, targetVer)
 				if err != nil {
@@ -222,12 +247,119 @@ Actions (select one):
 	}
 
 	cmd.Flags().BoolVar(&checkFlag, "check", false, "run read-only preflight check across all stores and pending migrations")
+	cmd.Flags().BoolVar(&planFlag, "plan", false, "show the read-only schema-2 (warden-db) cutover plan and what blocks it")
+	cmd.Flags().BoolVar(&stagingFlag, "staging-export", false, "export normalized schema-2 staging collections without touching legacy sources")
 	cmd.Flags().BoolVar(&applyFlag, "apply", false, "apply pending migrations up to the target schema version")
 	cmd.Flags().BoolVar(&resumeFlag, "resume", false, "resume an interrupted migration")
 	cmd.Flags().BoolVar(&restoreFlag, "restore", false, "restore from pre-migration snapshot after an interrupted migration")
 	cmd.Flags().BoolVar(&jsonFlag, "json", false, "output results in JSON format")
 	cmd.Flags().IntVar(&targetVer, "target", schema.SchemaVersion, "target schema version to migrate to")
 	cmd.Flags().StringVar(&dataDirFlag, "data-dir", "", "path to the Warden data directory")
+	cmd.Flags().StringVar(&stagingDir, "staging-dir", "", "target directory for --staging-export (default: <data-dir>/warden-db-staging)")
 
 	return cmd
+}
+
+func runSchema2StagingExport(cmd *cobra.Command, dataDir, targetDir string, asJSON bool) error {
+	rep, err := migrate.ExportSchema2Staging(cmd.Context(), dataDir, migrate.StagingExportOptions{
+		TargetDir: targetDir,
+		Now:       time.Now(),
+	})
+	out := cmd.OutOrStdout()
+	if asJSON {
+		enc, jerr := json.MarshalIndent(rep, "", "  ")
+		if jerr != nil {
+			return jerr
+		}
+		fmt.Fprintln(out, string(enc))
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+	if rep != nil {
+		fmt.Fprintf(out, "schema-2 staging export for %s -> %s\n", rep.DataDir, rep.TargetDir)
+		for _, name := range sortedStringKeys(rep.Records) {
+			fmt.Fprintf(out, "  %s: %d record(s)\n", name, rep.Records[name])
+		}
+		for _, f := range rep.Findings {
+			tag := map[migrate.Severity]string{migrate.SeverityBlocking: "BLOCKING", migrate.SeverityRepairable: "NOTE", migrate.SeverityAuto: "INFO"}[f.Severity]
+			if tag == "" {
+				tag = string(f.Severity)
+			}
+			if f.Store != "" {
+				fmt.Fprintf(out, "  [%s] %s: %s\n", tag, f.Store, f.Message)
+			} else {
+				fmt.Fprintf(out, "  [%s] %s\n", tag, f.Message)
+			}
+		}
+	}
+	return err
+}
+
+func sortedStringKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// runSchema2Plan prints the read-only schema-2 cutover plan. It acquires no
+// lock and writes nothing; a blocked plan exits non-zero so scripts can gate.
+func runSchema2Plan(cmd *cobra.Command, dataDir string, asJSON bool) error {
+	plan, err := migrate.PreflightSchema2(cmd.Context(), dataDir, time.Now())
+	if err != nil {
+		return fmt.Errorf("migrate: plan failed: %w", err)
+	}
+	out := cmd.OutOrStdout()
+	if asJSON {
+		enc, err := json.MarshalIndent(plan, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(out, string(enc))
+	} else {
+		fmt.Fprintf(out, "schema-2 cutover plan for %s (schema %d -> %d)\n", plan.DataDir, plan.From, plan.To)
+		fmt.Fprintf(out, "  target:  %s (collections: %d, exists: %v)\n", plan.Target.Dir, len(plan.Target.Collections), plan.Target.Exists)
+		fmt.Fprintf(out, "  backup:  %s (created exclusively, never reused, read-only)\n", plan.BackupDir)
+		fmt.Fprintln(out, "  rules:   daemon must be stopped; no online or dual-writer migration;")
+		fmt.Fprintln(out, "           nothing is overwritten, merged, salvaged or deleted; legacy data stays intact until you remove it.")
+		fmt.Fprintln(out, "\nsources:")
+		for _, e := range plan.Sources {
+			if !e.Present {
+				continue
+			}
+			fmt.Fprintf(out, "  %-12s %-28s %5d files %10d bytes", e.Disposition, e.Path, e.Files, e.Bytes)
+			if e.Destination != "" {
+				fmt.Fprintf(out, "  -> %s", e.Destination)
+			}
+			fmt.Fprintln(out)
+		}
+		if len(plan.Findings) > 0 {
+			fmt.Fprintln(out, "\nfindings:")
+			for _, f := range plan.Findings {
+				tag := map[migrate.Severity]string{migrate.SeverityBlocking: "BLOCKING", migrate.SeverityRepairable: "NOTE", migrate.SeverityAuto: "INFO"}[f.Severity]
+				if f.Class != "" {
+					tag += ":" + f.Class
+				}
+				fmt.Fprintf(out, "  [%s] %s: %s\n", tag, f.Store, f.Message)
+				if f.Details != "" {
+					for _, ln := range strings.Split(f.Details, "\n") {
+						fmt.Fprintf(out, "      %s\n", ln)
+					}
+				}
+			}
+		}
+		if plan.Blocked {
+			fmt.Fprintln(out, "\nresult: BLOCKED — nothing was changed")
+		} else {
+			fmt.Fprintln(out, "\nresult: ready — nothing was changed (this command is read-only)")
+		}
+	}
+	if plan.Blocked {
+		return errors.New("migrate: schema-2 cutover is blocked")
+	}
+	return nil
 }

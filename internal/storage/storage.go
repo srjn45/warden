@@ -156,6 +156,12 @@ func Open(dataDir string, opts ...wardendb.Option) (*Stores, error) {
 func sharedMode(dataDir string) (bool, error) {
 	l, err := schema.Load(dataDir)
 	if err == nil {
+		if l.SchemaVersion < wardendb.SchemaVersion && !l.MigrationInterrupted() && schema.WardenDBPresent(dataDir) {
+			// Two candidate authorities: never fall back to the legacy stores
+			// (nor adopt warden-db) on a guess. The operator decides.
+			return false, &schema.GuardError{Verdict: schema.VerdictSchema2Residue, DataDir: dataDir,
+				Ledger: *l, Binary: schema.SchemaVersion, Min: schema.MinSchema}
+		}
 		return l.SchemaVersion >= wardendb.SchemaVersion, nil
 	}
 	if !errors.Is(err, schema.ErrNoLedger) {

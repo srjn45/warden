@@ -36,10 +36,12 @@ const (
 // Finding is a preflight inspection finding.
 type Finding struct {
 	Severity Severity `json:"severity"`
-	Store    string   `json:"store,omitempty"`
-	Message  string   `json:"message"`
-	Details  string   `json:"details,omitempty"`
-	Command  string   `json:"command,omitempty"`
+	// Class is the stable strict-preflight reason (schema-2 cutover only).
+	Class   string `json:"class,omitempty"`
+	Store   string `json:"store,omitempty"`
+	Message string `json:"message"`
+	Details string `json:"details,omitempty"`
+	Command string `json:"command,omitempty"`
 }
 
 // Step is one named, journaled sub-step of a Migration.
@@ -56,6 +58,17 @@ type Env struct {
 	Logger        *slog.Logger
 	Context       context.Context
 	StepFn        func(name string) error
+	// SnapshotFn records the immutable rollback source in the schema journal.
+	// A migration must call it immediately after creating a backup, before it
+	// makes any live-state change.
+	SnapshotFn func(path string) error
+}
+
+func (e Env) Snapshot(path string) error {
+	if e.SnapshotFn != nil {
+		return e.SnapshotFn(path)
+	}
+	return nil
 }
 
 // Step records step progress in the journal.

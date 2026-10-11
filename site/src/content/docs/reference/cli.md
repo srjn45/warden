@@ -5663,6 +5663,14 @@ Run data format migrations for the Warden data directory.
 
 Actions (select one):
   --check    Read-only preflight check across all stores and pending migrations
+  --plan     Read-only schema-2 (warden-db) cutover plan: source/target inventory,
+             strict verification of every legacy store (corruption, ambiguity,
+             duplicate identities, unsupported layouts, unsafe artifacts),
+             backup location and blocking conditions. Writes nothing
+  --staging-export
+             Export normalized schema-2 staging collections into a separate
+             review directory. Refuses relationship violations and divergent
+             existing staging records. Never writes legacy sources or schema.json
   --apply    Apply pending migrations up to the target schema version
   --resume   Resume an interrupted migration recorded in the ledger journal
   --restore  Restore from pre-migration snapshot after an interrupted migration
@@ -5671,14 +5679,17 @@ Usage:
   warden migrate [flags]
 
 Flags:
-      --apply             apply pending migrations up to the target schema version
-      --check             run read-only preflight check across all stores and pending migrations
-      --data-dir string   path to the Warden data directory
-  -h, --help              help for migrate
-      --json              output results in JSON format
-      --restore           restore from pre-migration snapshot after an interrupted migration
-      --resume            resume an interrupted migration
-      --target int        target schema version to migrate to (default 1)
+      --apply                apply pending migrations up to the target schema version
+      --check                run read-only preflight check across all stores and pending migrations
+      --data-dir string      path to the Warden data directory
+  -h, --help                 help for migrate
+      --json                 output results in JSON format
+      --plan                 show the read-only schema-2 (warden-db) cutover plan and what blocks it
+      --restore              restore from pre-migration snapshot after an interrupted migration
+      --resume               resume an interrupted migration
+      --staging-dir string   target directory for --staging-export (default: <data-dir>/warden-db-staging)
+      --staging-export       export normalized schema-2 staging collections without touching legacy sources
+      --target int           target schema version to migrate to (default 1)
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)

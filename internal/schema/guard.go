@@ -3,7 +3,22 @@ package schema
 import (
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 )
+
+// Schema2 is the data format whose authority is the single warden-db store
+// (docs/specs/2026-10-10-warden-db-schema-2-migration-acceptance.md). A binary
+// whose SchemaVersion is below it must never open a data dir that is at, or is
+// becoming, schema 2: it would start schema-1 stores beside warden-db and fork
+// the data.
+const Schema2 = 2
+
+// WardenDBDir is the schema-2 store directory inside the data dir. It mirrors
+// wardendb.DirName (this package cannot import wardendb); a migrate test pins
+// the two together.
+const WardenDBDir = "warden-db"
 
 // Verdict is one row of the daemon boot guard table (spec §3).
 type Verdict int
@@ -19,6 +34,11 @@ const (
 	VerdictUnsupported
 	// VerdictInterrupted: the journal shows a migration that never finished.
 	VerdictInterrupted
+	// VerdictSchema2Residue: warden-db exists but the ledger does not say
+	// schema 2 (absent, or still schema 1). Whatever left it — an aborted
+	// migration, a restored ledger, a manual copy — the data dir has two
+	// candidate authorities, and this binary will not pick one.
+	VerdictSchema2Residue
 )
 
 func (v Verdict) String() string {
@@ -33,6 +53,8 @@ func (v Verdict) String() string {
 		return "unsupported_upgrade"
 	case VerdictInterrupted:
 		return "interrupted_migration"
+	case VerdictSchema2Residue:
+		return "schema2_residue"
 	}
 	return "unknown"
 }
@@ -74,6 +96,12 @@ func (e *GuardError) Error() string {
 		if e.Ledger.BinaryVersion != "" {
 			by = " (" + e.Ledger.BinaryVersion + ")"
 		}
+		if e.Ledger.SchemaVersion >= Schema2 {
+			return head + fmt.Sprintf("\nthe data was migrated to schema 2 (warden-db) by a newer warden%s; "+
+				"this binary only knows the schema-1 stores and will not open them — it would fork the data. "+
+				"Upgrade this binary (`wd update`). Schema 2 has no automatic downgrade; the pre-migration "+
+				"copy of the schema-1 stores is under %s", by, filepath.Join(e.DataDir, "backups"))
+		}
 		return head + fmt.Sprintf("\nthe data was written by a newer warden%s; upgrade this binary (`wd update`) — "+
 			"an older warden must not open it", by)
 	case VerdictNeedsMigration:
@@ -93,6 +121,12 @@ func (e *GuardError) Error() string {
 		return fmt.Sprintf("refusing to start: %s on data dir %s was interrupted\n"+
 			"finish it with `warden migrate --resume`, or go back to the pre-migration snapshot with `warden migrate --restore`",
 			what, e.DataDir)
+	case VerdictSchema2Residue:
+		return fmt.Sprintf("refusing to start: data dir %s holds %s/ but its schema ledger is at schema %d, not %d\n"+
+			"this looks like a schema-2 migration that did not finish, or a ledger restored over migrated data. "+
+			"Nothing was opened or changed. Run `warden migrate --plan` to inspect; do not delete %s/ or the "+
+			"legacy stores by hand — the pre-migration backup under %s is the rollback source",
+			e.DataDir, WardenDBDir, e.Ledger.SchemaVersion, Schema2, WardenDBDir, filepath.Join(e.DataDir, "backups"))
 	}
 	return head
 }
@@ -105,6 +139,9 @@ func Check(dataDir string, l *Ledger) error {
 
 func check(dataDir string, l *Ledger, binary, minSchema int) error {
 	v := Decide(l.SchemaVersion, binary, minSchema, l.MigrationInterrupted())
+	if v == VerdictStart && l.SchemaVersion < Schema2 && WardenDBPresent(dataDir) {
+		v = VerdictSchema2Residue
+	}
 	if v == VerdictStart {
 		return nil
 	}
@@ -127,6 +164,13 @@ type BootResult struct {
 // non-nil error (a *GuardError or a *CorruptError) means the daemon must exit
 // without touching the data.
 func Boot(dataDir, binaryVersion string) (BootResult, error) {
+	// A ledger-less dir that already holds warden-db must not be "stamped
+	// fresh" at schema 1: the stamp would bless it and the schema-1 stores
+	// would be opened next to it. Refuse before writing anything.
+	if _, err := Load(dataDir); errors.Is(err, ErrNoLedger) && WardenDBPresent(dataDir) {
+		return BootResult{}, &GuardError{Verdict: VerdictSchema2Residue, DataDir: dataDir,
+			Ledger: Ledger{}, Binary: SchemaVersion, Min: MinSchema}
+	}
 	l, stamped, err := Ensure(dataDir, binaryVersion)
 	res := BootResult{Ledger: l, Stamped: stamped}
 	if err != nil {
@@ -140,4 +184,29 @@ func Boot(dataDir, binaryVersion string) (BootResult, error) {
 		return BootResult{}, err
 	}
 	return res, nil
+}
+
+// WardenDBPresent reports whether the schema-2 store directory exists. An
+// unstatable path counts as present: when unsure, refuse.
+func WardenDBPresent(dataDir string) bool {
+	_, err := os.Lstat(filepath.Join(dataDir, WardenDBDir))
+	return err == nil || !errors.Is(err, fs.ErrNotExist)
+}
+
+// Guard is the read-only form of Boot for CLI paths that open stores outside
+// the daemon: it loads the ledger and applies the same table, but never stamps,
+// migrates or writes. A ledger-less dir passes unless it holds warden-db. A nil
+// error means this binary may open the legacy stores.
+func Guard(dataDir string) error {
+	l, err := Load(dataDir)
+	switch {
+	case errors.Is(err, ErrNoLedger):
+		if WardenDBPresent(dataDir) {
+			return &GuardError{Verdict: VerdictSchema2Residue, DataDir: dataDir, Binary: SchemaVersion, Min: MinSchema}
+		}
+		return nil
+	case err != nil:
+		return err
+	}
+	return Check(dataDir, l)
 }
