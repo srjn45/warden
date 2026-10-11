@@ -33,6 +33,7 @@ import (
 	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/schedule"
+	"github.com/srjn45/warden/internal/schema"
 	"github.com/srjn45/warden/internal/snapshot"
 	"github.com/srjn45/warden/internal/spend"
 	"github.com/srjn45/warden/internal/store"
@@ -451,4 +452,18 @@ func TestDaemonWiringDoesNotImportEngine(t *testing.T) {
 		}
 		require.NoError(t, err)
 	}
+}
+
+// A schema-1 ledger beside warden-db is two candidate authorities: Open must
+// refuse rather than silently fall back to (and start) the legacy stores.
+func TestOpenRefusesSchema1LedgerBesideWardenDB(t *testing.T) {
+	d := t.TempDir()
+	require.NoError(t, schema.Save(d, &schema.Ledger{SchemaVersion: 1}))
+	require.NoError(t, os.MkdirAll(wardendb.Dir(d), 0o700))
+	_, err := Open(d)
+	var ge *schema.GuardError
+	require.ErrorAs(t, err, &ge)
+	require.Equal(t, schema.VerdictSchema2Residue, ge.Verdict)
+	_, statErr := os.Stat(filepath.Join(d, "agents-db"))
+	require.True(t, os.IsNotExist(statErr), "legacy stores must not be created")
 }
