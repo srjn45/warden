@@ -127,7 +127,10 @@ var (
 	ErrPolicy = errors.New("wardendb: strict policy violation")
 	// ErrInvalidOption: an Option carries a value outside its bounds.
 	ErrInvalidOption = errors.New("wardendb: invalid option")
-	// ErrRepairNotImplemented is returned by OpenForRepair.
+	// ErrRepairNotImplemented was returned by OpenForRepair while it was a
+	// reserved stub.
+	//
+	// Deprecated: OpenForRepair is implemented; nothing returns this error.
 	ErrRepairNotImplemented = errors.New("wardendb: repair entry point is not implemented")
 )
 
@@ -223,13 +226,16 @@ func (e *PolicyError) Error() string {
 // Unwrap exposes ErrPolicy.
 func (e *PolicyError) Unwrap() error { return ErrPolicy }
 
-// OpenForRepair is the only entry point that may ever open warden-db
-// tolerantly — salvaging, truncating or rebuilding around corrupt data. It is
-// reserved for the verification/repair work and is not implemented: it always
-// fails with ErrRepairNotImplemented and touches nothing. Open and Register
+// OpenForRepair is the only entry point that opens a warden-db it had to
+// repair first — rebuilding derived structures and, when asked, salvaging
+// around damaged segment bytes. It runs Repair with the RepairOptions given by
+// WithRepair and then a strict Open, so the returned handle is under exactly
+// the same policy as any other. Without WithRepair it fails with
+// ErrRepairBackupRequired and touches nothing; whatever Repair refuses stays
+// refused (ErrRepairRefused) and no handle is returned. Open and Register
 // never salvage.
 func OpenForRepair(dataDir string, opts ...Option) (*DB, error) {
-	return nil, fmt.Errorf("%w: %s", ErrRepairNotImplemented, Dir(dataDir))
+	return openForRepair(dataDir, opts)
 }
 
 // monitor fans events out to the auditor and metrics sinks and holds the
