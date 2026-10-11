@@ -36,8 +36,11 @@ type RecordStore interface {
 // Store is the ScrivaDB-backed RecordStore at <dir>/plan-exports-db.
 type Store struct {
 	mu  sync.Mutex
-	db  *scriva.DB
-	col *engine.Collection
+	db  *scriva.DB // nil on the shared-handle path (the handle owner closes it)
+	col docs
+	// release runs on Close; nil for a shared-handle store, whose DB is owned
+	// and closed by whoever opened the wardendb handle.
+	release func() error
 }
 
 var _ RecordStore = (*Store)(nil)
@@ -68,6 +71,9 @@ func (s *Store) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.db == nil {
+		if s.release != nil {
+			return s.release() // test seam: lets tests reopen the same dir
+		}
 		return nil
 	}
 	err := s.db.Close()

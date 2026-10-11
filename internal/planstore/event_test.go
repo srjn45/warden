@@ -171,7 +171,7 @@ func TestSeqCounter_persists(t *testing.T) {
 	ctx := context.Background()
 
 	// First store: append three events.
-	s1, err := New(dir)
+	s1, err := openTestStore(t, dir)
 	require.NoError(t, err)
 	for range 3 {
 		ev := newTestEvent("plan-persist", "pe-persist01", EventKindAgentSpawned)
@@ -180,7 +180,7 @@ func TestSeqCounter_persists(t *testing.T) {
 	require.NoError(t, s1.Close())
 
 	// Second store: seqCounter must start above 3.
-	s2, err := New(dir)
+	s2, err := openTestStore(t, dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, s2.Close()) })
 

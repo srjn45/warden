@@ -40,8 +40,11 @@ var (
 // the mutex only guards those read-then-write critical sections.
 type Store struct {
 	mu  sync.Mutex
-	db  *scriva.DB
-	col *engine.Collection
+	db  *scriva.DB // nil on the shared-handle path (the handle owner closes it)
+	col docs
+	// release runs on Close; nil for a shared-handle store, whose DB is owned
+	// and closed by whoever opened the wardendb handle.
+	release func() error
 }
 
 // importedMarker names the sentinel written (last) once the one-time legacy-JSON
@@ -98,7 +101,11 @@ var LegacyImport = legacyimport.Importer{
 			return err
 		}
 		defer s.Close()
-		return importLegacy(pipesDir, s.col)
+		col, err := s.engineCollection()
+		if err != nil {
+			return err
+		}
+		return importLegacy(pipesDir, col)
 	},
 	Verify: func(dir string) error {
 		pipesDir := filepath.Join(dir, "pipelines")
@@ -117,7 +124,11 @@ var LegacyImport = legacyimport.Importer{
 		if buf.Len() == 0 {
 			return nil
 		}
-		missing, err := legacyimport.MissingJSONL(s.col, &buf, "id")
+		col, err := s.engineCollection()
+		if err != nil {
+			return err
+		}
+		missing, err := legacyimport.MissingJSONL(col, &buf, "id")
 		if err != nil {
 			return err
 		}
@@ -332,5 +343,21 @@ func (s *Store) Delete(id string) error {
 // Close flushes the ScrivaDB index and stops its background compaction goroutine.
 // The daemon defers it on shutdown.
 func (s *Store) Close() error {
+	if s.db == nil {
+		if s.release != nil {
+			return s.release() // test seam: lets tests reopen the same dir
+		}
+		return nil // shared-handle store: the handle owner closes the DB
+	}
 	return s.db.Close()
+}
+
+// engineCollection returns the legacy engine collection for the legacy import
+// helpers, which only ever run against a store opened by NewStore.
+func (s *Store) engineCollection() (*engine.Collection, error) {
+	col, ok := s.col.(*engine.Collection)
+	if !ok {
+		return nil, errors.New("pipeline store: legacy import requires a path-opened store")
+	}
+	return col, nil
 }

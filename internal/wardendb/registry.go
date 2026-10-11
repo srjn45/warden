@@ -56,6 +56,10 @@ var catalogue = []string{
 	"id_sequences",
 	// Added by the operation-journal contract §1.2.
 	"operations",
+	// Plan child collections (schema-1 plans-db "plan-events"/"plan-notes"),
+	// added when internal/planstore was ported to the shared handle.
+	"plan_events",
+	"plan_notes",
 }
 
 // Catalogue returns the names of every collection that may be registered.
