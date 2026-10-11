@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -27,12 +28,14 @@ func newMigrateCmd() *cobra.Command {
 	var (
 		checkFlag   bool
 		planFlag    bool
+		stagingFlag bool
 		applyFlag   bool
 		resumeFlag  bool
 		restoreFlag bool
 		jsonFlag    bool
 		targetVer   int
 		dataDirFlag string
+		stagingDir  string
 	)
 
 	cmd := &cobra.Command{
@@ -48,6 +51,10 @@ Actions (select one):
              strict verification of every legacy store (corruption, ambiguity,
              duplicate identities, unsupported layouts, unsafe artifacts),
              backup location and blocking conditions. Writes nothing
+  --staging-export
+             Export normalized schema-2 staging collections into a separate
+             review directory. Refuses relationship violations and divergent
+             existing staging records. Never writes legacy sources or schema.json
   --apply    Apply pending migrations up to the target schema version
   --resume   Resume an interrupted migration recorded in the ledger journal
   --restore  Restore from pre-migration snapshot after an interrupted migration`,
@@ -58,6 +65,9 @@ Actions (select one):
 				count++
 			}
 			if planFlag {
+				count++
+			}
+			if stagingFlag {
 				count++
 			}
 			if applyFlag {
@@ -97,6 +107,9 @@ Actions (select one):
 			switch {
 			case planFlag:
 				return runSchema2Plan(cmd, dataDir, jsonFlag)
+
+			case stagingFlag:
+				return runSchema2StagingExport(cmd, dataDir, stagingDir, jsonFlag)
 
 			case checkFlag:
 				findings, err := runner.Check(env, targetVer)
@@ -235,14 +248,62 @@ Actions (select one):
 
 	cmd.Flags().BoolVar(&checkFlag, "check", false, "run read-only preflight check across all stores and pending migrations")
 	cmd.Flags().BoolVar(&planFlag, "plan", false, "show the read-only schema-2 (warden-db) cutover plan and what blocks it")
+	cmd.Flags().BoolVar(&stagingFlag, "staging-export", false, "export normalized schema-2 staging collections without touching legacy sources")
 	cmd.Flags().BoolVar(&applyFlag, "apply", false, "apply pending migrations up to the target schema version")
 	cmd.Flags().BoolVar(&resumeFlag, "resume", false, "resume an interrupted migration")
 	cmd.Flags().BoolVar(&restoreFlag, "restore", false, "restore from pre-migration snapshot after an interrupted migration")
 	cmd.Flags().BoolVar(&jsonFlag, "json", false, "output results in JSON format")
 	cmd.Flags().IntVar(&targetVer, "target", schema.SchemaVersion, "target schema version to migrate to")
 	cmd.Flags().StringVar(&dataDirFlag, "data-dir", "", "path to the Warden data directory")
+	cmd.Flags().StringVar(&stagingDir, "staging-dir", "", "target directory for --staging-export (default: <data-dir>/warden-db-staging)")
 
 	return cmd
+}
+
+func runSchema2StagingExport(cmd *cobra.Command, dataDir, targetDir string, asJSON bool) error {
+	rep, err := migrate.ExportSchema2Staging(cmd.Context(), dataDir, migrate.StagingExportOptions{
+		TargetDir: targetDir,
+		Now:       time.Now(),
+	})
+	out := cmd.OutOrStdout()
+	if asJSON {
+		enc, jerr := json.MarshalIndent(rep, "", "  ")
+		if jerr != nil {
+			return jerr
+		}
+		fmt.Fprintln(out, string(enc))
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+	if rep != nil {
+		fmt.Fprintf(out, "schema-2 staging export for %s -> %s\n", rep.DataDir, rep.TargetDir)
+		for _, name := range sortedStringKeys(rep.Records) {
+			fmt.Fprintf(out, "  %s: %d record(s)\n", name, rep.Records[name])
+		}
+		for _, f := range rep.Findings {
+			tag := map[migrate.Severity]string{migrate.SeverityBlocking: "BLOCKING", migrate.SeverityRepairable: "NOTE", migrate.SeverityAuto: "INFO"}[f.Severity]
+			if tag == "" {
+				tag = string(f.Severity)
+			}
+			if f.Store != "" {
+				fmt.Fprintf(out, "  [%s] %s: %s\n", tag, f.Store, f.Message)
+			} else {
+				fmt.Fprintf(out, "  [%s] %s\n", tag, f.Message)
+			}
+		}
+	}
+	return err
+}
+
+func sortedStringKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // runSchema2Plan prints the read-only schema-2 cutover plan. It acquires no
