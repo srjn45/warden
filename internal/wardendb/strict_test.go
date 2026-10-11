@@ -605,10 +605,10 @@ func TestDefaultSinksAreInert(t *testing.T) {
 	}
 }
 
-func TestOpenForRepairIsReservedAndInert(t *testing.T) {
+func TestOpenForRepairWithoutRepairOptionsIsInert(t *testing.T) {
 	dataDir := t.TempDir()
 	db, err := OpenForRepair(dataDir)
-	if db != nil || !errors.Is(err, ErrRepairNotImplemented) {
+	if db != nil || !errors.Is(err, ErrRepairBackupRequired) {
 		t.Fatalf("OpenForRepair = %v, %v", db, err)
 	}
 	if _, err := os.Stat(Dir(dataDir)); !errors.Is(err, os.ErrNotExist) {

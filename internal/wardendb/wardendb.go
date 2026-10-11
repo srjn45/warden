@@ -39,18 +39,34 @@
 //     a derived index that lags its segments, an undecided transaction), and
 //     that is reported as ActionRecovery, never silently. A violation on an
 //     open handle retires it: every later use returns the *IntegrityError.
-//     OpenForRepair is the one reserved, separately named entry point for
-//     tolerant access, and it is not implemented yet;
+//     Repair, and OpenForRepair on top of it, are the only separately named
+//     entry points that may change damaged data (see below);
 //   - compaction: the background cadence and dirty threshold come from
 //     CompactionLimits (WithCompaction), bounded and conservative by default;
 //   - observability: lifecycle and integrity events go to an Auditor and a
 //     Metrics sink (WithAuditor, WithMetrics). Both default to discarding.
 //
+// # Verification, repair, backup
+//
+//   - Verify (read-only, on an unowned or even a live directory) and DB.Verify
+//     (on the owning handle) check every collection and the cross-collection
+//     transaction state and return a VerifyResult, classified by Health.
+//     Diagnose renders it as a Report: JSON-serializable, with no record
+//     payloads, engine messages or owner command lines;
+//   - Repair is the only path that may change a damaged directory. It needs
+//     exclusive ownership and a backup location, decides per FindingClass
+//     before writing anything, backs the whole directory up first and refuses
+//     whatever it cannot repair without guessing. OpenForRepair is Repair
+//     followed by a strict Open;
+//   - DB.Backup (online, one consistent cut) and Backup (offline, exact copy)
+//     write a checksummed backup with a BackupManifest; Restore verifies the
+//     manifest and the restored data, and never overwrites a live database or,
+//     unless asked, existing data.
+//
 // The package is additive and inert: nothing opens it unless a caller does so
 // explicitly, it reads and writes no schema-1 store, and it is not canonical
-// for any data yet. Verification/repair, backup/restore and the operation
-// journal are layered on by later work; cross-collection writes go through
-// internal/dbtx on Handle.
+// for any data yet. The operation journal is layered on by later work;
+// cross-collection writes go through internal/dbtx on Handle.
 package wardendb
 
 import (
@@ -108,6 +124,7 @@ type config struct {
 	compaction CompactionLimits
 	auditor    Auditor
 	metrics    Metrics
+	repair     *RepairOptions // read by OpenForRepair only
 }
 
 // Option configures Open. No Option can weaken the strict open policy.
