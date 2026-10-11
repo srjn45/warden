@@ -19,7 +19,10 @@ import (
 type Store struct {
 	mu  sync.Mutex
 	db  *scriva.DB
-	col *engine.Collection
+	col docs
+	// release runs on Close; nil for a shared-handle store, whose DB is owned
+	// and closed by whoever opened the wardendb handle.
+	release func() error
 }
 
 // New opens (creating if needed) the live Autopilot store at dir.
@@ -214,9 +217,16 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 	return err
 }
 
-// Close releases the ScrivaDB handle.
+// Close releases the ScrivaDB handle. A shared-handle store (NewStoreFromDB)
+// owns nothing: Close is a no-op unless a test hook set release.
 func (s *Store) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.db.Close()
+	if s.release != nil {
+		return s.release()
+	}
+	if s.db != nil {
+		return s.db.Close()
+	}
+	return nil
 }

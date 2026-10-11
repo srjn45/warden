@@ -48,7 +48,10 @@ type RunRecord struct {
 type RunStore struct {
 	mu  sync.Mutex
 	db  *scriva.DB
-	col *engine.Collection
+	col runDocs
+	// release runs on Close; nil for a shared-handle store, whose DB is owned
+	// and closed by whoever opened the wardendb handle.
+	release func() error
 }
 
 func NewRunStore(dataDir string) (*RunStore, error) {
@@ -167,8 +170,17 @@ func (s *RunStore) Delete(id string) error {
 	return err
 }
 
+// Close releases the ScrivaDB handle. A shared-handle store
+// (NewRunStoreFromDB) owns nothing: Close is a no-op unless a test hook set
+// release.
 func (s *RunStore) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.db.Close()
+	if s.release != nil {
+		return s.release()
+	}
+	if s.db != nil {
+		return s.db.Close()
+	}
+	return nil
 }
