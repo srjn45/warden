@@ -11,7 +11,7 @@ import (
 
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
-	st, err := NewStore(filepath.Join(t.TempDir(), "schedules.json"))
+	st, err := openTestStore(t, filepath.Join(t.TempDir(), "schedules.json"))
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestStoreDelete(t *testing.T) {
 // mirroring a daemon restart) sees what the first wrote.
 func TestStorePersistsAcrossInstances(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "schedules.json")
-	st1, err := NewStore(path)
+	st1, err := openTestStore(t, path)
 	if err != nil {
 		t.Fatalf("open st1: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestStorePersistsAcrossInstances(t *testing.T) {
 		t.Fatalf("close st1: %v", err)
 	}
 
-	st2, err := NewStore(path)
+	st2, err := openTestStore(t, path)
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
@@ -131,6 +131,9 @@ func TestStorePersistsAcrossInstances(t *testing.T) {
 // the import sentinel must now exist, the legacy JSON must be left in place as a
 // read-only backup, and a second NewStore must not re-import or error.
 func TestStoreLegacyImport(t *testing.T) {
+	if useShared {
+		t.Skip("legacy schedules.json import targets the path-opened schedules-db store; the shared handle has no legacy import")
+	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "schedules.json")
 
@@ -154,7 +157,7 @@ func TestStoreLegacyImport(t *testing.T) {
 		t.Fatalf("LegacyImport.Verify: %v", err)
 	}
 
-	st, err := NewStore(path)
+	st, err := openTestStore(t, path)
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
@@ -178,7 +181,7 @@ func TestStoreLegacyImport(t *testing.T) {
 	if err := LegacyImport.Import(dir); err != nil {
 		t.Fatalf("second LegacyImport.Import: %v", err)
 	}
-	st2, err := NewStore(path)
+	st2, err := openTestStore(t, path)
 	if err != nil {
 		t.Fatalf("reopen must not error: %v", err)
 	}

@@ -20,7 +20,7 @@ import (
 func seeded(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	s, err := New(dir)
+	s, err := newTestStore(dir)
 	require.NoError(t, err)
 	for _, id := range []string{"a-1", "a-2", "a-3"} {
 		require.NoError(t, s.Insert(context.Background(), &Agent{ID: id, Name: "n-" + id, Status: store.StatusWorking}))
@@ -71,7 +71,7 @@ func byOffset(m map[string]idxEntry) []string {
 
 func reopen(t *testing.T, dir string) *Store {
 	t.Helper()
-	s, err := New(dir)
+	s, err := newTestStore(dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = s.Close() })
 	return s
@@ -97,6 +97,7 @@ func requireUnhealthy(t *testing.T, err error, class store.DegradationClass) *Un
 // A checksum-valid index whose offset lands inside the segment but mid-record:
 // the engine reopens it happily; lookups and scans must error, not lie.
 func TestInvalidInRangeOffset(t *testing.T) {
+	skipShared(t)
 	dir := seeded(t)
 	rewriteIndex(t, dir, "agents", func(m map[string]idxEntry) {
 		for id, e := range m {
@@ -124,6 +125,7 @@ func TestInvalidInRangeOffset(t *testing.T) {
 
 // An index entry pointing at ANOTHER valid record: identity mismatch.
 func TestIdentityMismatch(t *testing.T) {
+	skipShared(t)
 	dir := seeded(t)
 	var victim string
 	rewriteIndex(t, dir, "agents", func(m map[string]idxEntry) {
@@ -141,6 +143,7 @@ func TestIdentityMismatch(t *testing.T) {
 // scan-vs-count check cannot see that, so the stale-offset variant is the one
 // that exercises the omission path: the entry exists but never matches a record.
 func TestSilentScanOmission(t *testing.T) {
+	skipShared(t)
 	dir := seeded(t)
 	rewriteIndex(t, dir, "agents", func(m map[string]idxEntry) {
 		ids := byOffset(m)

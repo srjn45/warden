@@ -35,6 +35,11 @@ func TestMain(m *testing.M) {
 		violations = append(violations, runID+": "+v+" in "+strings.Join(tests, ","))
 	}
 	code := m.Run()
+	if code == 0 {
+		// Run the whole suite again with RunStores on the shared warden-db handle.
+		useShared = true
+		code = m.Run()
+	}
 	violationsMu.Lock()
 	defer violationsMu.Unlock()
 	if len(violations) > 0 && code == 0 {

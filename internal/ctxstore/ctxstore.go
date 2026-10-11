@@ -70,8 +70,11 @@ type Entry struct {
 
 // Store persists all entries in an embedded ScrivaDB "context" collection.
 type Store struct {
-	db  *scriva.DB
-	col *engine.Collection
+	db  *scriva.DB // nil on the shared-handle path (the handle owner closes it)
+	col docs
+	// release runs on Close; nil for a shared-handle store, whose DB is owned
+	// and closed by whoever opened the wardendb handle (tests set it to reopen).
+	release func() error
 }
 
 // New creates dir (if needed) and returns a store backed by a ScrivaDB "context"
@@ -91,6 +94,9 @@ func New(dir string) (*Store, error) {
 	}
 	return &Store{db: db, col: col}, nil
 }
+
+// newStore wraps a shared-handle collection resolver.
+func newStore(col docs) *Store { return &Store{col: col} }
 
 // data builds a record body for value/by at the given time.
 func data(value, by string, at time.Time) map[string]any {
@@ -272,5 +278,11 @@ func (s *Store) Del(key string) error {
 // Close flushes and releases the underlying ScrivaDB collection (stopping its
 // background compaction goroutine). The daemon calls it on shutdown.
 func (s *Store) Close() error {
+	if s.db == nil {
+		if s.release != nil {
+			return s.release()
+		}
+		return nil // shared-handle store: the handle owner closes the DB
+	}
 	return s.db.Close()
 }

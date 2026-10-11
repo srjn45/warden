@@ -29,6 +29,9 @@ var (
 // schema-2 collections are added here together with their contract.
 var catalogue = []string{
 	"agents",
+	// Legacy agents-db "closed" collection (inventory §4.1: kept separate until
+	// the schema-2 in-place archive migration merges it into "agents").
+	"archived_agents",
 	"terminals",
 	"projects",
 	"project_groups",
@@ -37,12 +40,17 @@ var catalogue = []string{
 	"pipelines",
 	"pipeline_jobs",
 	"autopilot_runs",
+	"autopilots",
 	"context_entries",
 	"messages",
 	"backends",
 	"backend_models",
 	"backend_roles",
 	"backend_settings",
+	// Legacy backends-db quota windows and reactive rate-limit cooldowns, added
+	// when internal/backendstore was ported to the shared handle.
+	"backend_quotas",
+	"backend_rl_cooldowns",
 	"usage_snapshots",
 	"quota_impact_fences",
 	"snapshots",
@@ -56,6 +64,13 @@ var catalogue = []string{
 	"id_sequences",
 	// Added by the operation-journal contract §1.2.
 	"operations",
+	// Plan child collections (schema-1 plans-db "plan-events"/"plan-notes"),
+	// added when internal/planstore was ported to the shared handle.
+	"plan_events",
+	"plan_notes",
+	// Structured audit events, added when internal/audit gained a shared-handle
+	// implementation. Non-canonical: audit.jsonl stays the on-disk trail.
+	"audit_events",
 }
 
 // Catalogue returns the names of every collection that may be registered.

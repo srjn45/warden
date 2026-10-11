@@ -141,7 +141,7 @@ func mapAllowed(in []oapi.BrainConsultRequestAllowed) []brainconsult.Action {
 // lifecycle/audit surface. Role follows the frozen Phase 1 default
 // (autopilotBrainRole / "autopilot") so consult spawns share the same Lifecycle
 // Role surface as SpawnBrain without touching the manager slot (empty Ticket).
-func newBrainConsultor(life Lifecycle, st agentstore.AgentStore, aw *audit.Writer, cfg config.BrainConsultConfig) brainconsult.Consultor {
+func newBrainConsultor(life Lifecycle, st agentstore.AgentStore, aw audit.Trail, cfg config.BrainConsultConfig) brainconsult.Consultor {
 	timeout := 10 * time.Minute
 	if d, err := time.ParseDuration(cfg.Timeout); err == nil && d > 0 {
 		timeout = d

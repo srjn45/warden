@@ -306,7 +306,7 @@ func (a *Auditor) verifyStore(ctx context.Context) ([]store.ScanFailure, error) 
 	return allFailures, nil
 }
 
-func (a *Auditor) verifyCollection(ctx context.Context, col *engine.Collection, name string, tolerateDecode bool) ([]store.ScanFailure, error) {
+func (a *Auditor) verifyCollection(ctx context.Context, col docs, name string, tolerateDecode bool) ([]store.ScanFailure, error) {
 	var failures []store.ScanFailure
 
 	// 1. Online engine-level integrity check (segment extents, checksums, secondary indexes).

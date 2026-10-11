@@ -17,10 +17,9 @@ import (
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/daemon"
-	"github.com/srjn45/warden/internal/pipeline"
-	"github.com/srjn45/warden/internal/planstore"
-	"github.com/srjn45/warden/internal/projectstore"
+	"github.com/srjn45/warden/internal/storage"
 	"github.com/srjn45/warden/internal/store"
+	"github.com/srjn45/warden/internal/wardendb"
 )
 
 // doctorVersion is the reported warden version. There is no build-stamped
@@ -169,6 +168,34 @@ func checkBackendRegistry(ctx context.Context, dataDir string) checkResult {
 		strings.Join(names, ", "), backendstore.RepairDryRunCommand, backendstore.RepairCommand)}
 }
 
+// checkUnifiedStorage verifies an existing schema-2 database without opening
+// it. Schema-1 installations deliberately have no warden-db, so they retain
+// the legacy checks above and are never initialized merely by running doctor.
+func checkUnifiedStorage(ctx context.Context, dataDir string) checkResult {
+	const name = "unified storage"
+	st, err := wardendb.Probe(dataDir)
+	if err != nil {
+		return checkResult{name: name, ok: false, detail: "probe failed: " + err.Error()}
+	}
+	if !st.Exists {
+		return checkResult{name: name, ok: true, detail: "not enabled (schema-1 compatibility mode)"}
+	}
+	rep, err := wardendb.Verify(ctx, dataDir)
+	if err != nil {
+		return checkResult{name: name, ok: false, detail: "verification failed: " + err.Error()}
+	}
+	if rep.Blocking > 0 {
+		return checkResult{name: name, ok: false, detail: fmt.Sprintf("CORRUPT: %d blocking finding(s); stop the daemon, then run `warden repair warden-db`", rep.Blocking)}
+	}
+	if rep.Recoverable > 0 {
+		return checkResult{name: name, ok: true, detail: fmt.Sprintf("recoverable: %d finding(s); a strict open reconciles intact data", rep.Recoverable)}
+	}
+	if rep.Lock.State != wardendb.LockUnowned {
+		return checkResult{name: name, ok: true, detail: "healthy (owned by a running daemon)"}
+	}
+	return checkResult{name: name, ok: true, detail: "healthy (read-only verification complete)"}
+}
+
 // allRequiredPass reports whether every required check passed (optional
 // failures are tolerated).
 func allRequiredPass(results []checkResult) bool {
@@ -242,6 +269,7 @@ func newDoctorCmd() *cobra.Command {
 			results = append(results, checkDataDir(cfg.DataDir))
 			results = append(results, checkAgentStore(cmd.Context(), "http://"+cfg.Addr, cfg.DataDir))
 			results = append(results, checkBackendRegistry(cmd.Context(), cfg.DataDir))
+			results = append(results, checkUnifiedStorage(cmd.Context(), cfg.DataDir))
 
 			fmt.Fprint(cmd.OutOrStdout(), formatReport(doctorVersion, results))
 			if !allRequiredPass(results) {
@@ -267,35 +295,13 @@ func newDoctorCmd() *cobra.Command {
 // re-run; a fully-consistent store reports no changes. The daemon runs the same
 // reconcile automatically at boot.
 func runMembershipReconcile(cmd *cobra.Command, dataDir string) error {
-	sstore, err := agentstore.New(dataDir)
+	stores, err := storage.Open(dataDir)
 	if err != nil {
-		var oe *agentstore.OwnershipError
-		if errors.As(err, &oe) {
-			return fmt.Errorf("%w\nnext step: %s", err, oe.NextStep())
-		}
-		return fmt.Errorf("open agent store: %w", err)
+		return fmt.Errorf("open storage: %w", err)
 	}
-	defer sstore.Close()
+	defer stores.Close()
 
-	pstore, err := pipeline.NewStore(filepath.Join(dataDir, "pipelines"))
-	if err != nil {
-		return fmt.Errorf("open pipeline store: %w", err)
-	}
-	defer pstore.Close()
-
-	plans, err := planstore.New(filepath.Join(dataDir, "plans"))
-	if err != nil {
-		return fmt.Errorf("open plan store: %w", err)
-	}
-	defer plans.Close()
-
-	projects, err := projectstore.NewStore(filepath.Join(dataDir, "projects"))
-	if err != nil {
-		return fmt.Errorf("open project store: %w", err)
-	}
-	defer projects.Close()
-
-	rep, err := daemon.ReconcileProjectMembership(cmd.Context(), sstore, pstore, plans, projects)
+	rep, err := daemon.ReconcileProjectMembership(cmd.Context(), stores.Agents, stores.Pipelines, stores.Plans, stores.Projects)
 	if err != nil {
 		return fmt.Errorf("reconcile project membership: %w", err)
 	}

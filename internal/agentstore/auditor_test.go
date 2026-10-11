@@ -32,6 +32,7 @@ func findSegmentFile(t testing.TB, s *Store, col string) string {
 
 // 1. Detection of silent index omission (count != scan).
 func TestAuditorDetectionSilentOmission(t *testing.T) {
+	skipShared(t)
 	dir := seeded(t)
 	rewriteIndex(t, dir, "agents", func(m map[string]idxEntry) {
 		ids := byOffset(m)
@@ -60,6 +61,7 @@ func TestAuditorDetectionSilentOmission(t *testing.T) {
 
 // 2. Detection of identity mismatch (body ID does not match logical key).
 func TestAuditorDetectionIdentityMismatch(t *testing.T) {
+	skipShared(t)
 	s := seededStore(t, 3)
 	ctx := context.Background()
 
@@ -88,6 +90,7 @@ func TestAuditorDetectionIdentityMismatch(t *testing.T) {
 
 // 3. Detection of duplicate identity.
 func TestAuditorDetectionDuplicateIdentity(t *testing.T) {
+	skipShared(t)
 	dir := seeded(t)
 	rewriteIndex(t, dir, "agents", func(m map[string]idxEntry) {
 		ids := byOffset(m)
@@ -105,6 +108,7 @@ func TestAuditorDetectionDuplicateIdentity(t *testing.T) {
 
 // 4. Detection of decode failure (undecodable JSON in active collection).
 func TestAuditorDetectionDecodeFailure(t *testing.T) {
+	skipShared(t)
 	s := seededStore(t, 3)
 	ctx := context.Background()
 
@@ -134,6 +138,7 @@ func TestAuditorDetectionDecodeFailure(t *testing.T) {
 
 // 5. Single-flight: concurrent audit calls join into 1 execution pass.
 func TestAuditorSingleFlight(t *testing.T) {
+	skipShared(t)
 	s := seededStore(t, 3)
 	ctx := context.Background()
 
@@ -198,6 +203,7 @@ func TestAuditorRateLimitedDebounce(t *testing.T) {
 
 // 7. Timeout does NOT degrade the store.
 func TestAuditorTimeoutDoesNotDegrade(t *testing.T) {
+	skipShared(t)
 	s := seededStore(t, 3)
 	ctx := context.Background()
 

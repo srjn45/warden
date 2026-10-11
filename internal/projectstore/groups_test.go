@@ -141,13 +141,13 @@ func TestAddRemoveProjectGroupErrors(t *testing.T) {
 
 func TestGroupsPersistAcrossReopen(t *testing.T) {
 	dir := t.TempDir()
-	s, err := NewStore(dir)
+	s, err := openTestStore(t, dir)
 	require.NoError(t, err)
 	g, err := s.CreateGroup(ProjectGroup{Name: "Persisted", ProjectIDs: []string{"p1"}})
 	require.NoError(t, err)
 	require.NoError(t, s.Close())
 
-	s2, err := NewStore(dir)
+	s2, err := openTestStore(t, dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { s2.Close() })
 	got, err := s2.GetGroup(g.ID)

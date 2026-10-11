@@ -23,7 +23,7 @@ func TestDisplayName(t *testing.T) {
 }
 
 func TestStoreUsesPerWriteDurability(t *testing.T) {
-	s, err := New(t.TempDir())
+	s, err := openTestStore(t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, s.Close()) })
 	require.Equal(t, engine.SyncModeAlways, s.col.Config().SyncMode)
@@ -39,7 +39,7 @@ func TestIsLiveState(t *testing.T) {
 }
 
 func TestCreateRequiresPlanID(t *testing.T) {
-	s, err := New(t.TempDir())
+	s, err := openTestStore(t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, s.Close()) })
 	ctx := context.Background()
@@ -63,7 +63,7 @@ func TestParentAgentIDPersistence(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, string(raw), "parent_agent_id")
 
-	s, err := New(t.TempDir())
+	s, err := openTestStore(t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, s.Close()) })
 	ctx := context.Background()
@@ -81,7 +81,7 @@ func TestParentAgentIDPersistence(t *testing.T) {
 }
 
 func TestCRUDAndListFilters(t *testing.T) {
-	s, err := New(t.TempDir())
+	s, err := openTestStore(t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, s.Close()) })
 	ctx := context.Background()

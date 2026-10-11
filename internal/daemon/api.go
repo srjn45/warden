@@ -159,7 +159,7 @@ type Server struct {
 	// metrics collection (resource observability). nil collector ⇒ /metrics
 	// returns an empty sample; nil recorder ⇒ no on-disk recording.
 	mcollector *metrics.Collector
-	mrecorder  *metrics.Recorder
+	mrecorder  metrics.SampleStore
 	metricsOn  bool // metrics config setting — gates the disk recorder goroutine
 	// HTTP write budgets (http_timeout_fast / http_timeout_slow config settings);
 	// zero values fall back to writeTimeoutDur / slowWriteTimeoutDur in router().
@@ -192,7 +192,7 @@ type Server struct {
 	relayPolicy relay.Policy
 	// audit is the append-only action trail (audit.jsonl). nil ⇒ auditing off;
 	// recordAudit is then a no-op. See audit_hook.go.
-	audit *audit.Writer
+	audit audit.Trail
 	// auditTrustedProxies lists proxy/tunnel nets whose X-Forwarded-For the audit
 	// actor resolution trusts (see auditActor). nil ⇒ actor is the peer address.
 	auditTrustedProxies []*net.IPNet

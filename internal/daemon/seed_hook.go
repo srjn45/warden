@@ -16,7 +16,7 @@ import (
 // seed outcome (seed_status / seed_error) on the session and, on a failure, writes
 // one audit event and sends one operator notification naming the agent and the
 // saved prompt file. a and n may be nil (audit / notifications off).
-func NewSeedOutcomeHook(st *agentstore.Store, a *audit.Writer, n notify.Notifier) func(lifecycle.SeedOutcome) {
+func NewSeedOutcomeHook(st *agentstore.Store, a audit.Trail, n notify.Notifier) func(lifecycle.SeedOutcome) {
 	return func(o lifecycle.SeedOutcome) {
 		err := st.Update(context.Background(), o.AgentID, func(s *agentstore.Agent) error {
 			s.SeedStatus, s.SeedError = o.Status, o.Err

@@ -44,6 +44,9 @@ type Store struct {
 	mu   sync.Mutex
 	path string
 	now  func() time.Time
+	// shared, when non-nil, is the warden-db backing (NewStoreFromDB); the
+	// spend.json path is used otherwise and remains the production default.
+	shared docs
 }
 
 // NewStore creates the spend dir (0700) and returns a tracker rooted at
@@ -102,6 +105,9 @@ func (s *Store) Record(sessionID, backend, model, repo string, inputTokens, outp
 		return nil // nothing higher to persist (rotation/partial-read guard)
 	}
 	m[sessionID] = e
+	if s.shared != nil {
+		return s.sharedSave(sessionID, e)
+	}
 	return s.save(m)
 }
 
@@ -144,6 +150,9 @@ func (s *Store) Sessions() ([]SessionSpend, error) {
 // failing every future update — spend is a best-effort gauge, so a single bad
 // write, or a format upgrade, must not wedge it.
 func (s *Store) load() (map[string]Entry, error) {
+	if s.shared != nil {
+		return s.sharedLoad()
+	}
 	b, err := os.ReadFile(s.path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {

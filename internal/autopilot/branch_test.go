@@ -96,7 +96,7 @@ func TestTwoPlansInOneRepoResolveDistinctBranches(t *testing.T) {
 	dir := t.TempDir()
 	p1 := writePlan(t, dir, "alpha.yaml", "alpha goal")
 	p2 := writePlan(t, dir, "beta.yaml", "beta goal")
-	runStore, err := NewRunStore(t.TempDir())
+	runStore, err := openTestRunStore(t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = runStore.Close() })
 
@@ -133,7 +133,7 @@ func TestTwoPlansInOneRepoResolveDistinctBranches(t *testing.T) {
 func TestRegisterPersistsDerivedBranchAndLandUsesStoredValue(t *testing.T) {
 	repo := t.TempDir()
 	plan := writePlan(t, repo, "ship.yaml", "ship")
-	runStore, err := NewRunStore(t.TempDir())
+	runStore, err := openTestRunStore(t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = runStore.Close() })
 	c := NewController(ControllerConfig{BaseDir: repo, RunStore: runStore}, &fakeEnv{})
@@ -225,7 +225,7 @@ func TestCustomGlobalCollisionWarns(t *testing.T) {
 		Plans:             []string{p1, p2},
 		IntegrationBranch: "ap/shared",
 		BaseDir:           dir,
-		RunStore:          func() *RunStore { s, err := NewRunStore(t.TempDir()); require.NoError(t, err); return s }(),
+		RunStore:          func() *RunStore { s, err := openTestRunStore(t.TempDir()); require.NoError(t, err); return s }(),
 	}, &fakeEnv{})
 
 	st, err := c.ReconcileConfiguredPlans(context.Background(), dir)

@@ -55,6 +55,10 @@ type Snapshot struct {
 	DirtyFiles      []string `json:"dirty_files,omitempty"`     // paths with uncommitted changes at capture
 	TranscriptPath  string   `json:"transcript_path,omitempty"` // saved transcript blob (empty if none captured)
 	TranscriptLines int      `json:"transcript_lines,omitempty"`
+	// Artifacts are canonical references to the external blobs this snapshot owns
+	// (transcript, worktree archive, logs). The blobs stay on disk; the record
+	// carries only the reference. Additive: schema-1 records without it decode.
+	Artifacts []ArtifactRef `json:"artifacts,omitempty"`
 }
 
 // RestoreResult is the compact struct `wd snapshot restore` returns. A clean

@@ -95,8 +95,9 @@ type indexed struct {
 // Store is the persistent set of known prompts.
 type Store struct {
 	mu      sync.RWMutex
-	db      *scriva.DB
-	col     *engine.Collection
+	db      *scriva.DB // nil on the shared-handle path (the handle owner closes it)
+	col     docs
+	release func() error // Close hook for shared-handle stores (tests reopen a dir)
 	byID    map[string]*Entry
 	backend map[string][]*indexed
 	now     func() time.Time
@@ -129,10 +130,20 @@ func New(dir string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	s := &Store{db: db, col: col, byID: map[string]*Entry{}, backend: map[string][]*indexed{}, now: time.Now, maxEntries: DefaultMaxEntries, pruneAfter: DefaultPruneAfter}
-	rows, err := col.Scan(query.MatchAll)
+	s, err := loadStore(col)
 	if err != nil {
 		_ = db.Close()
+		return nil, err
+	}
+	s.db = db
+	return s, nil
+}
+
+// loadStore wraps a collection and loads the in-memory index from it.
+func loadStore(col docs) (*Store, error) {
+	s := &Store{col: col, byID: map[string]*Entry{}, backend: map[string][]*indexed{}, now: time.Now, maxEntries: DefaultMaxEntries, pruneAfter: DefaultPruneAfter}
+	rows, err := col.Scan(query.MatchAll)
+	if err != nil {
 		return nil, err
 	}
 	for _, row := range rows {
@@ -146,7 +157,15 @@ func New(dir string) (*Store, error) {
 }
 
 // Close releases the database.
-func (s *Store) Close() error { return s.db.Close() }
+func (s *Store) Close() error {
+	if s.db == nil {
+		if s.release != nil {
+			return s.release()
+		}
+		return nil // shared-handle store: the handle owner closes the DB
+	}
+	return s.db.Close()
+}
 
 func encode(v any) (map[string]any, error) {
 	b, err := json.Marshal(v)

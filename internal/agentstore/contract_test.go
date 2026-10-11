@@ -27,7 +27,7 @@ func TestContractHolderProcess(t *testing.T) {
 	if dir == "" {
 		t.Skip("helper process only")
 	}
-	s, err := New(dir)
+	s, err := newTestStore(dir)
 	if err != nil {
 		os.Stdout.WriteString("ERR " + err.Error() + "\n")
 		return
@@ -57,6 +57,7 @@ func TestContractScrivaDependencyPin(t *testing.T) {
 // .sessions-store.lock held by store.FileStore does not protect agents-db, so
 // the new lock must be its own file (contract §3).
 func TestContractLegacyLockDoesNotCoverAgentStore(t *testing.T) {
+	skipShared(t)
 	dir := t.TempDir()
 	legacy, err := store.NewFileStore(dir)
 	require.NoError(t, err)
@@ -66,7 +67,7 @@ func TestContractLegacyLockDoesNotCoverAgentStore(t *testing.T) {
 	err = LegacyImport.Import(dir)
 	require.ErrorIs(t, err, store.ErrStoreOwned)
 
-	st, err := New(dir)
+	st, err := newTestStore(dir)
 	require.NoError(t, err)
 	defer st.Close()
 	require.FileExists(t, filepath.Join(dir, ".agents-store.lock"))
@@ -77,11 +78,12 @@ func TestContractLegacyLockDoesNotCoverAgentStore(t *testing.T) {
 // openers get an ownership error without touching data; Close or process exit
 // releases the lock.
 func TestContractExclusiveOwnership(t *testing.T) {
+	skipShared(t)
 	dir := t.TempDir()
-	first, err := New(dir)
+	first, err := newTestStore(dir)
 	require.NoError(t, err)
 
-	_, err = New(dir)
+	_, err = newTestStore(dir)
 	require.ErrorIs(t, err, store.ErrStoreOwned)
 
 	cmd := exec.Command(os.Args[0], "-test.run=TestContractHolderProcess")
@@ -91,7 +93,7 @@ func TestContractExclusiveOwnership(t *testing.T) {
 	require.Contains(t, string(out), "ERR", "cross-process opener must be rejected")
 
 	require.NoError(t, first.Close())
-	again, err := New(dir)
+	again, err := newTestStore(dir)
 	require.NoError(t, err)
 	require.NoError(t, again.Close())
 }
@@ -100,6 +102,7 @@ func TestContractExclusiveOwnership(t *testing.T) {
 // rows than the primary index holds must surface as an error, never a short
 // list (contract §4).
 func TestContractListCompleteOrError(t *testing.T) {
+	skipShared(t)
 	dir := seeded(t)
 	rewriteIndex(t, dir, "agents", func(m map[string]idxEntry) {
 		ids := byOffset(m)

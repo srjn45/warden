@@ -18,7 +18,7 @@ func TestStoreUsesPerWriteDurability(t *testing.T) {
 
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
-	s, err := New(t.TempDir())
+	s, err := openTestStore(t, t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, s.Close()) })
 	return s

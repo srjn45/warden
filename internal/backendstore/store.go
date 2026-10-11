@@ -108,13 +108,16 @@ type Settings struct {
 // a behaviour-identical mutex model.
 type Store struct {
 	mu             sync.Mutex
-	db             *scriva.DB
-	col            *engine.Collection
-	modelsCol      *engine.Collection
-	rolesCol       *engine.Collection
-	handoverCol    *engine.Collection
-	quotasCol      *engine.Collection
-	rlCooldownsCol *engine.Collection
+	db             *scriva.DB // nil for a shared-handle store (owner closes it)
+	col            docs
+	modelsCol      docs
+	rolesCol       docs
+	handoverCol    docs
+	quotasCol      docs
+	rlCooldownsCol docs
+	// release runs on Close; nil for production shared-handle stores, whose DB
+	// is owned by the handle owner. Tests use it to release a per-store handle.
+	release func() error
 }
 
 // NewStore opens (creating if needed) the ScrivaDB-backed backend registry at
@@ -944,5 +947,11 @@ func (s *Store) seedDefaultsIfEmpty() error {
 
 // Close flushes the ScrivaDB index and stops its background compaction goroutine.
 func (s *Store) Close() error {
+	if s.db == nil {
+		if s.release != nil {
+			return s.release()
+		}
+		return nil
+	}
 	return s.db.Close()
 }

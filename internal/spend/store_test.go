@@ -7,7 +7,7 @@ import (
 )
 
 func TestStoreRecordAndTotal(t *testing.T) {
-	s, err := NewStore(t.TempDir())
+	s, err := openTestStore(t, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestStoreRecordAndTotal(t *testing.T) {
 }
 
 func TestStoreRecordNeverLowers(t *testing.T) {
-	s, _ := NewStore(t.TempDir())
+	s, _ := openTestStore(t, t.TempDir())
 	_ = s.Record("a1", "claude", "opus", "/x", 1500, 500)
 	// A momentarily smaller reading (rotated/partial transcript) must not lower the
 	// established cumulative figure on either axis.
@@ -47,7 +47,7 @@ func TestStoreRecordNeverLowers(t *testing.T) {
 }
 
 func TestStoreRecordIgnoresEmptyAndNonPositive(t *testing.T) {
-	s, _ := NewStore(t.TempDir())
+	s, _ := openTestStore(t, t.TempDir())
 	_ = s.Record("", "claude", "opus", "/x", 1000, 0)  // no session id
 	_ = s.Record("a1", "claude", "opus", "/x", 0, 0)   // unmeasurable on both axes
 	_ = s.Record("a1", "claude", "opus", "/x", -5, -5) // never
@@ -57,7 +57,7 @@ func TestStoreRecordIgnoresEmptyAndNonPositive(t *testing.T) {
 }
 
 func TestStoreSessionsStampsModelRepoDay(t *testing.T) {
-	s, _ := NewStore(t.TempDir())
+	s, _ := openTestStore(t, t.TempDir())
 	_ = s.Record("a1", "claude", "opus", "/x", 800, 200)
 	sessions, err := s.Sessions()
 	if err != nil {
@@ -77,10 +77,10 @@ func TestStoreSessionsStampsModelRepoDay(t *testing.T) {
 
 func TestStorePersistsAcrossInstances(t *testing.T) {
 	dir := t.TempDir()
-	s1, _ := NewStore(dir)
+	s1, _ := openTestStore(t, dir)
 	_ = s1.Record("a1", "claude", "opus", "/x", 1000, 234)
 	// A second store rooted at the same dir reads the persisted figure.
-	s2, _ := NewStore(dir)
+	s2, _ := openTestStore(t, dir)
 	if total, _ := s2.Total(); total != 1234 {
 		t.Fatalf("reloaded Total=%d, want 1234", total)
 	}
@@ -91,7 +91,7 @@ func TestStoreToleratesCorruptFile(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "spend.json"), []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	s, _ := NewStore(dir)
+	s, _ := openTestStore(t, dir)
 	// A corrupt file degrades to empty rather than erroring, and a fresh Record
 	// recovers the gauge.
 	if total, err := s.Total(); err != nil || total != 0 {

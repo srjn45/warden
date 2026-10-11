@@ -28,6 +28,9 @@ type Store struct {
 	// retention that bounds growth even when the gate is on. Both guarded by mu.
 	samples     bool
 	sampleCount int
+	// shared, when non-nil, is the warden-db backing (NewStoreFromDB); the JSONL
+	// path is used otherwise and remains the production default.
+	shared *sharedLedger
 }
 
 // SetSampling toggles whether Record persists the opt-in provenance samples
@@ -60,6 +63,9 @@ func (s *Store) Record(ev Event) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.gateSampleLocked(&ev)
+	if s.shared != nil {
+		return s.shared.record(ev)
+	}
 	line, err := json.Marshal(ev)
 	if err != nil {
 		return err
@@ -82,6 +88,9 @@ func (s *Store) Record(ev Event) error {
 func (s *Store) Events(since time.Time) ([]Event, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.shared != nil {
+		return s.shared.read(since)
+	}
 	f, err := os.Open(s.path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -161,6 +170,9 @@ func (s *Store) CalibrationSamples(since time.Time) ([]string, error) {
 // exists yet. The daemon calls this at report time to stamp the summary's basis
 // and to refresh the live estimation factor.
 func (s *Store) Calibration() (Calibration, bool, error) {
+	if s.shared != nil {
+		return s.shared.calibration()
+	}
 	return LoadCalibration(filepath.Dir(s.path))
 }
 
@@ -191,4 +203,13 @@ func (s *Store) Report(since time.Time, bucket string, samples bool) (Summary, e
 		sum.Samples = collectSamples(evs)
 	}
 	return sum, nil
+}
+
+// SaveCalibration persists the calibration factor through this store's backing:
+// the sidecar file next to the ledger, or the shared warden-db record.
+func (s *Store) SaveCalibration(c Calibration) error {
+	if s.shared != nil {
+		return s.shared.saveCalibration(c)
+	}
+	return SaveCalibration(filepath.Dir(s.path), c)
 }

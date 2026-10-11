@@ -10,9 +10,10 @@ import (
 )
 
 func TestProbeOwnership(t *testing.T) {
+	skipShared(t)
 	dir := t.TempDir()
 	require.NoError(t, ProbeOwnership(dir), "free store probes clean")
-	st, err := New(dir)
+	st, err := newTestStore(dir)
 	require.NoError(t, err)
 	require.ErrorIs(t, ProbeOwnership(dir), store.ErrStoreOwned, "live-owned store is refused")
 	require.NoError(t, st.Close())

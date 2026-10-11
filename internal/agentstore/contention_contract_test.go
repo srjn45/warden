@@ -83,6 +83,7 @@ func TestContractContentionDegradedServesLabelledStale(t *testing.T) {
 // §6: periodic integrity audit runs off the request path and is the only
 // authority that can flip the store to degraded for non-read-failure causes.
 func TestContractContentionAuditIsOffRequestPath(t *testing.T) {
+	skipShared(t)
 	s := seededStore(t, 5)
 	ctx := context.Background()
 

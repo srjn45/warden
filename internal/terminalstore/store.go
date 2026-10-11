@@ -66,8 +66,11 @@ const importedMarker = ".terminals-from-sessions-imported"
 // Store owns the ScrivaDB "terminals" collection at <data>/terminals-db.
 type Store struct {
 	mu  sync.Mutex
-	db  *scriva.DB
-	col *engine.Collection
+	db  *scriva.DB // nil for a shared-handle store (the handle owner closes it)
+	col docs
+	// release runs on Close for a shared-handle store; nil in production, where
+	// the handle owner closes the DB. Tests use it to release a handle they own.
+	release func() error
 }
 
 // New opens the terminal collection and imports terminal sessions once. The
@@ -392,4 +395,12 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 	return err
 }
 
-func (s *Store) Close() error { return s.db.Close() }
+func (s *Store) Close() error {
+	if s.release != nil {
+		return s.release()
+	}
+	if s.db == nil {
+		return nil
+	}
+	return s.db.Close()
+}

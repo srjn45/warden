@@ -11,7 +11,7 @@ import (
 )
 
 func TestStoreUsesPerWriteDurability(t *testing.T) {
-	s, err := New(t.TempDir())
+	s, err := openTestStore(t, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestCompactKeepsUnreadEvenPastCap(t *testing.T) {
 }
 
 func TestAppendAssignsIDAndTS(t *testing.T) {
-	s, err := New(t.TempDir())
+	s, err := openTestStore(t, t.TempDir())
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestAppendAssignsIDAndTS(t *testing.T) {
 }
 
 func TestMessagesChronologicalPerRecipient(t *testing.T) {
-	s, _ := New(t.TempDir())
+	s, _ := openTestStore(t, t.TempDir())
 	s.Append(Message{To: "agent-1", From: "x", Body: "a"})
 	s.Append(Message{To: "agent-1", From: "y", Body: "b"})
 	s.Append(Message{To: "agent-2", From: "z", Body: "c"})
@@ -113,7 +113,7 @@ func TestMessagesChronologicalPerRecipient(t *testing.T) {
 }
 
 func TestMessagesEmptyReturnsEmptySlice(t *testing.T) {
-	s, _ := New(t.TempDir())
+	s, _ := openTestStore(t, t.TempDir())
 	got, err := s.Messages("nobody")
 	if err != nil {
 		t.Fatalf("Messages: %v", err)
@@ -124,7 +124,7 @@ func TestMessagesEmptyReturnsEmptySlice(t *testing.T) {
 }
 
 func TestAppendBadRecipientRejected(t *testing.T) {
-	s, _ := New(t.TempDir())
+	s, _ := openTestStore(t, t.TempDir())
 	if _, err := s.Append(Message{To: "a/b", From: "x", Body: "v"}); !errors.Is(err, ErrBadRecipient) {
 		t.Fatalf("want ErrBadRecipient, got %v", err)
 	}
@@ -132,14 +132,14 @@ func TestAppendBadRecipientRejected(t *testing.T) {
 
 func TestPersistsAcrossReopen(t *testing.T) {
 	dir := t.TempDir()
-	s1, _ := New(dir)
+	s1, _ := openTestStore(t, dir)
 	s1.Append(Message{To: "agent-1", From: "x", Body: "kept"})
 	// The store is now embedded (ScrivaDB): a reopen models a daemon restart, so
 	// close the first handle (flushing its index) before opening a new one.
 	if err := s1.Close(); err != nil {
 		t.Fatalf("close: %v", err)
 	}
-	s2, err := New(dir)
+	s2, err := openTestStore(t, dir)
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestPersistsAcrossReopen(t *testing.T) {
 }
 
 func TestMarkRead(t *testing.T) {
-	s, _ := New(t.TempDir())
+	s, _ := openTestStore(t, t.TempDir())
 	m1, _ := s.Append(Message{To: "a", From: "x", Body: "1"})
 	s.Append(Message{To: "a", From: "x", Body: "2"})
 
@@ -164,7 +164,7 @@ func TestMarkRead(t *testing.T) {
 }
 
 func TestTakeFirstUnreadOrderAndMarks(t *testing.T) {
-	s, _ := New(t.TempDir())
+	s, _ := openTestStore(t, t.TempDir())
 	s.Append(Message{To: "a", From: "x", Body: "first"})
 	s.Append(Message{To: "a", From: "x", Body: "second"})
 
@@ -184,7 +184,7 @@ func TestTakeFirstUnreadOrderAndMarks(t *testing.T) {
 }
 
 func TestTakeFirstUnreadFromFilter(t *testing.T) {
-	s, _ := New(t.TempDir())
+	s, _ := openTestStore(t, t.TempDir())
 	s.Append(Message{To: "a", From: "x", Body: "from-x"})
 	s.Append(Message{To: "a", From: "y", Body: "from-y"})
 
@@ -200,14 +200,14 @@ func TestTakeFirstUnreadFromFilter(t *testing.T) {
 }
 
 func TestTakeFirstUnreadEmpty(t *testing.T) {
-	s, _ := New(t.TempDir())
+	s, _ := openTestStore(t, t.TempDir())
 	if _, ok, err := s.TakeFirstUnread("nobody", ""); ok || err != nil {
 		t.Fatalf("want (false,nil), got ok=%v err=%v", ok, err)
 	}
 }
 
 func TestAllGathersEveryInbox(t *testing.T) {
-	s, _ := New(t.TempDir())
+	s, _ := openTestStore(t, t.TempDir())
 	s.Append(Message{To: "agent-1", From: "x", Body: "a"})
 	s.Append(Message{To: "agent-1", From: "y", Body: "b"})
 	s.Append(Message{To: "agent-2", From: "z", Body: "c"})
@@ -229,7 +229,7 @@ func TestAllGathersEveryInbox(t *testing.T) {
 }
 
 func TestAllEmptyDir(t *testing.T) {
-	s, _ := New(t.TempDir())
+	s, _ := openTestStore(t, t.TempDir())
 	all, err := s.All()
 	if err != nil || len(all) != 0 {
 		t.Fatalf("want ([],nil), got len=%d err=%v", len(all), err)
@@ -237,7 +237,7 @@ func TestAllEmptyDir(t *testing.T) {
 }
 
 func TestAllIgnoresTempFiles(t *testing.T) {
-	s, _ := New(t.TempDir())
+	s, _ := openTestStore(t, t.TempDir())
 	s.Append(Message{To: "agent-1", From: "x", Body: "a"})
 	// A leftover atomic-write temp file must not be parsed as an inbox.
 	if err := os.WriteFile(filepath.Join(s.dir, ".tmp-garbage"), []byte("not json"), 0o644); err != nil {
@@ -254,7 +254,7 @@ func TestAllIgnoresTempFiles(t *testing.T) {
 
 func TestDeleteInboxRemovesMessages(t *testing.T) {
 	dir := t.TempDir()
-	s, _ := New(dir)
+	s, _ := openTestStore(t, dir)
 	s.Append(Message{To: "agent-x", From: "y", Body: "hi"})
 	if msgs, _ := s.Messages("agent-x"); len(msgs) != 1 {
 		t.Fatalf("inbox should have 1 message before delete, got %d", len(msgs))
@@ -277,14 +277,14 @@ func TestDeleteInboxRemovesMessages(t *testing.T) {
 }
 
 func TestDeleteInboxMissingIsNoError(t *testing.T) {
-	s, _ := New(t.TempDir())
+	s, _ := openTestStore(t, t.TempDir())
 	if err := s.DeleteInbox("never-used"); err != nil {
 		t.Fatalf("deleting a missing inbox must be a no-op, got %v", err)
 	}
 }
 
 func TestDeleteInboxBadRecipient(t *testing.T) {
-	s, _ := New(t.TempDir())
+	s, _ := openTestStore(t, t.TempDir())
 	if err := s.DeleteInbox("../escape"); !errors.Is(err, ErrBadRecipient) {
 		t.Fatalf("want ErrBadRecipient, got %v", err)
 	}
