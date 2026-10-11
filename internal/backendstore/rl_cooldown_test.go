@@ -9,7 +9,7 @@ import (
 )
 
 func TestRLCooldown_SetIsActiveExpireClear(t *testing.T) {
-	s, err := backendstore.NewStore(t.TempDir())
+	s, err := backendstore.NewTestStore(t.TempDir())
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -34,12 +34,12 @@ func TestRLCooldown_SurvivesReopen(t *testing.T) {
 	dir := t.TempDir()
 	until := time.Now().Add(time.Hour).UTC()
 
-	s1, err := backendstore.NewStore(dir)
+	s1, err := backendstore.NewTestStore(dir)
 	require.NoError(t, err)
 	require.NoError(t, s1.SetRLCooldown("claude", "claude-model", until))
 	require.NoError(t, s1.Close())
 
-	s2, err := backendstore.NewStore(dir)
+	s2, err := backendstore.NewTestStore(dir)
 	require.NoError(t, err)
 	defer s2.Close()
 	require.True(t, s2.IsRLCoolingDown("claude", "claude-model", time.Now()), "cooldown must survive store reopen")

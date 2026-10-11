@@ -10,7 +10,7 @@ import (
 )
 
 func TestStore_DefaultQuotasSeeded(t *testing.T) {
-	s, err := backendstore.NewStore(t.TempDir())
+	s, err := backendstore.NewTestStore(t.TempDir())
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -52,7 +52,7 @@ func TestStore_DefaultQuotasSeeded(t *testing.T) {
 }
 
 func TestStore_ClaudeRolling5HourWindow(t *testing.T) {
-	s, err := backendstore.NewStore(t.TempDir())
+	s, err := backendstore.NewTestStore(t.TempDir())
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -103,7 +103,7 @@ func TestStore_ClaudeRolling5HourWindow(t *testing.T) {
 }
 
 func TestStore_AntigravityGeminiRollingWindow(t *testing.T) {
-	s, err := backendstore.NewStore(t.TempDir())
+	s, err := backendstore.NewTestStore(t.TempDir())
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -127,7 +127,7 @@ func TestStore_AntigravityGeminiRollingWindow(t *testing.T) {
 }
 
 func TestStore_CursorMonthlyWindow(t *testing.T) {
-	s, err := backendstore.NewStore(t.TempDir())
+	s, err := backendstore.NewTestStore(t.TempDir())
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -161,7 +161,7 @@ func TestStore_CursorMonthlyWindow(t *testing.T) {
 }
 
 func TestStore_LimitedUntilCooldown(t *testing.T) {
-	s, err := backendstore.NewStore(t.TempDir())
+	s, err := backendstore.NewTestStore(t.TempDir())
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -186,7 +186,7 @@ func TestStore_LimitedUntilCooldown(t *testing.T) {
 }
 
 func TestStore_SetQuotaLimitAndReset(t *testing.T) {
-	s, err := backendstore.NewStore(t.TempDir())
+	s, err := backendstore.NewTestStore(t.TempDir())
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -243,7 +243,7 @@ func TestBackendQuota_ScopedRoundTripMarshal(t *testing.T) {
 }
 
 func TestStore_GetModelHeadroomPerScope(t *testing.T) {
-	s, err := backendstore.NewStore(t.TempDir())
+	s, err := backendstore.NewTestStore(t.TempDir())
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -303,7 +303,7 @@ func TestStore_GetModelHeadroomPerScope(t *testing.T) {
 }
 
 func TestStore_GetHeadroomMinAcrossScopes(t *testing.T) {
-	s, err := backendstore.NewStore(t.TempDir())
+	s, err := backendstore.NewTestStore(t.TempDir())
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -331,7 +331,7 @@ func TestStore_GetHeadroomMinAcrossScopes(t *testing.T) {
 }
 
 func TestStore_GetModelHeadroomMinAcrossWindows(t *testing.T) {
-	s, err := backendstore.NewStore(t.TempDir())
+	s, err := backendstore.NewTestStore(t.TempDir())
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -357,7 +357,7 @@ func TestStore_GetModelHeadroomMinAcrossWindows(t *testing.T) {
 }
 
 func TestStore_MigrateScopeLessQuota(t *testing.T) {
-	s, err := backendstore.NewStore(t.TempDir())
+	s, err := backendstore.NewTestStore(t.TempDir())
 	require.NoError(t, err)
 	defer s.Close()
 

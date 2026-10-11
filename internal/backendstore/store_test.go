@@ -17,7 +17,7 @@ func TestStoreUsesPerWriteDurability(t *testing.T) {
 
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
-	s, err := NewStore(t.TempDir())
+	s, err := openTestStore(t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { s.Close() })
 	return s
@@ -155,13 +155,13 @@ func TestSettingsExcludedFromList(t *testing.T) {
 
 func TestReopenPersists(t *testing.T) {
 	dir := t.TempDir()
-	s, err := NewStore(dir)
+	s, err := openTestStore(dir)
 	require.NoError(t, err)
 	require.NoError(t, s.Upsert(Backend{ID: "claude", Installed: true, Tier: "free", Enabled: true, Default: true}))
 	require.NoError(t, s.SetThinkingMode(ThinkingModeLocalOnly))
 	require.NoError(t, s.Close())
 
-	s2, err := NewStore(dir)
+	s2, err := openTestStore(dir)
 	require.NoError(t, err)
 	defer s2.Close()
 
