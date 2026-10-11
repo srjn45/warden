@@ -67,6 +67,9 @@ var catalogue = []string{
 	// added when internal/planstore was ported to the shared handle.
 	"plan_events",
 	"plan_notes",
+	// Structured audit events, added when internal/audit gained a shared-handle
+	// implementation. Non-canonical: audit.jsonl stays the on-disk trail.
+	"audit_events",
 }
 
 // Catalogue returns the names of every collection that may be registered.
