@@ -14,11 +14,39 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"sync"
 
 	"github.com/srjn45/warden/internal/dbtx"
 )
 
 var ErrProjectionTransaction = errors.New("wardendb: project projection update requires a transaction")
+
+// ErrProjectViewReadLimit protects hot aggregate surfaces from accidentally
+// turning a requested-project read into an unbounded cache scan.
+var ErrProjectViewReadLimit = errors.New("wardendb: project view read exceeds limit")
+
+// ViewFreshness tells a read surface whether the derived view matches the
+// revision it expected. It is metadata only: callers must still use canonical
+// records and validators for lifecycle or membership decisions.
+type ViewFreshness string
+
+const (
+	ViewFreshnessFresh   ViewFreshness = "fresh"
+	ViewFreshnessStale   ViewFreshness = "stale"
+	ViewFreshnessMissing ViewFreshness = "missing"
+)
+
+// ProjectViewRead is the bounded read contract for project aggregate
+// surfaces. ExpectedRevision is supplied by the caller's event/checkpoint
+// cursor; an empty expected revision accepts the newest local derived view.
+// A missing result deliberately contains no fallback child lists; a stale
+// result retains its snapshot so callers can render it clearly as stale.
+type ProjectViewRead struct {
+	ProjectID string        `json:"project_id"`
+	View      *ProjectView  `json:"view,omitempty"`
+	Revision  string        `json:"revision,omitempty"`
+	Freshness ViewFreshness `json:"freshness"`
+}
 
 // ProjectCounters are derived counts, grouped by the child lifecycle. They
 // are convenience data only and are never used to validate a write.
@@ -47,7 +75,10 @@ type ProjectView struct {
 
 // ProjectViewProjection is an in-memory derived cache. Its map must never be
 // persisted as membership authority.
-type ProjectViewProjection struct{ views map[string]ProjectView }
+type ProjectViewProjection struct {
+	mu    sync.RWMutex
+	views map[string]ProjectView
+}
 
 func NewProjectViewProjection() *ProjectViewProjection {
 	return &ProjectViewProjection{views: make(map[string]ProjectView)}
@@ -67,7 +98,9 @@ func (p *ProjectViewProjection) Apply(tx *dbtx.Tx, state RelationshipState) erro
 	if err != nil {
 		return err
 	}
+	p.mu.Lock()
 	p.views = views
+	p.mu.Unlock()
 	return nil
 }
 
@@ -76,8 +109,46 @@ func (p *ProjectViewProjection) View(projectID string) (ProjectView, bool) {
 	if p == nil {
 		return ProjectView{}, false
 	}
+	p.mu.RLock()
 	v, ok := p.views[projectID]
+	p.mu.RUnlock()
 	return cloneProjectView(v), ok
+}
+
+// Read returns one derived view by exact project key. It never scans the cache,
+// so it is suitable for API, MCP, Cockpit, and TUI aggregate reads.
+func (p *ProjectViewProjection) Read(projectID, expectedRevision string) ProjectViewRead {
+	out := ProjectViewRead{ProjectID: projectID, Freshness: ViewFreshnessMissing}
+	if p == nil || projectID == "" {
+		return out
+	}
+	p.mu.RLock()
+	v, ok := p.views[projectID]
+	p.mu.RUnlock()
+	if !ok {
+		return out
+	}
+	copy := cloneProjectView(v)
+	out.View, out.Revision = &copy, copy.Revision
+	if expectedRevision != "" && expectedRevision != copy.Revision {
+		out.Freshness = ViewFreshnessStale
+		return out
+	}
+	out.Freshness = ViewFreshnessFresh
+	return out
+}
+
+// ReadMany is a bounded collection of exact-key reads. Duplicate project IDs
+// are retained so the response stays positional for callers batching requests.
+func (p *ProjectViewProjection) ReadMany(projectIDs []string, expectedRevision string, limit int) ([]ProjectViewRead, error) {
+	if limit < 0 || len(projectIDs) > limit {
+		return nil, ErrProjectViewReadLimit
+	}
+	out := make([]ProjectViewRead, len(projectIDs))
+	for i, id := range projectIDs {
+		out[i] = p.Read(id, expectedRevision)
+	}
+	return out, nil
 }
 
 // RebuildProjectViews derives every view from canonical child-to-parent

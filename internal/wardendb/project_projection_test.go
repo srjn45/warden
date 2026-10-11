@@ -91,3 +91,41 @@ func TestProjectViewComparisonRejectsUnexpectedCachedProject(t *testing.T) {
 		t.Fatal("unexpected view compared equal")
 	}
 }
+
+func TestProjectViewProjectionReadReportsFreshnessWithoutFallback(t *testing.T) {
+	p := NewProjectViewProjection()
+	if err := p.Apply(&dbtx.Tx{}, projectionState()); err != nil {
+		t.Fatal(err)
+	}
+	v, ok := p.View("p1")
+	if !ok {
+		t.Fatal("missing p1 view")
+	}
+
+	fresh := p.Read("p1", v.Revision)
+	if fresh.Freshness != ViewFreshnessFresh || fresh.View == nil || fresh.Revision != v.Revision {
+		t.Fatalf("fresh read = %#v", fresh)
+	}
+	stale := p.Read("p1", "pv:old")
+	if stale.Freshness != ViewFreshnessStale || stale.View == nil {
+		t.Fatalf("stale read = %#v; stale is metadata, not a reason to invent a fallback aggregate", stale)
+	}
+	missing := p.Read("absent", "")
+	if missing.Freshness != ViewFreshnessMissing || missing.View != nil {
+		t.Fatalf("missing read = %#v; missing views must not expose an authoritative-looking empty child list", missing)
+	}
+}
+
+func TestProjectViewProjectionReadManyIsBounded(t *testing.T) {
+	p := NewProjectViewProjection()
+	if reads, err := p.ReadMany([]string{"p1", "p2"}, "", 1); !errors.Is(err, ErrProjectViewReadLimit) || reads != nil {
+		t.Fatalf("over-limit ReadMany = %#v, %v", reads, err)
+	}
+	reads, err := p.ReadMany([]string{"p1", "p1"}, "", 2)
+	if err != nil || len(reads) != 2 || reads[0].ProjectID != "p1" || reads[1].ProjectID != "p1" {
+		t.Fatalf("bounded positional ReadMany = %#v, %v", reads, err)
+	}
+	if _, err := p.ReadMany(nil, "", -1); !errors.Is(err, ErrProjectViewReadLimit) {
+		t.Fatalf("negative bound error = %v", err)
+	}
+}
