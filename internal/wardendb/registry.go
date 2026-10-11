@@ -46,6 +46,10 @@ var catalogue = []string{
 	"backend_models",
 	"backend_roles",
 	"backend_settings",
+	// Legacy backends-db quota windows and reactive rate-limit cooldowns, added
+	// when internal/backendstore was ported to the shared handle.
+	"backend_quotas",
+	"backend_rl_cooldowns",
 	"usage_snapshots",
 	"quota_impact_fences",
 	"snapshots",

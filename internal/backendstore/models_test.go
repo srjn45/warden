@@ -289,12 +289,12 @@ func TestAddModel(t *testing.T) {
 
 func TestAddModelSurvivesReseed(t *testing.T) {
 	dir := t.TempDir()
-	s, err := NewStore(dir)
+	s, err := openTestStore(dir)
 	require.NoError(t, err)
 	require.NoError(t, s.AddModel("opencode", "ollama/qwen", "Qwen Local", Tier3, true, "default"))
 	require.NoError(t, s.Close())
 
-	s2, err := NewStore(dir)
+	s2, err := openTestStore(dir)
 	require.NoError(t, err)
 	defer s2.Close()
 	m, err := s2.GetModel("opencode", "ollama/qwen")
@@ -359,7 +359,7 @@ func TestHandoverSettingsOperations(t *testing.T) {
 
 func TestReopenPreservesModelAndTierChanges(t *testing.T) {
 	dir := t.TempDir()
-	s, err := NewStore(dir)
+	s, err := openTestStore(dir)
 	require.NoError(t, err)
 
 	// Modify model, role tier, and handover settings
@@ -376,7 +376,7 @@ func TestReopenPreservesModelAndTierChanges(t *testing.T) {
 	require.NoError(t, s.Close())
 
 	// Reopen store
-	s2, err := NewStore(dir)
+	s2, err := openTestStore(dir)
 	require.NoError(t, err)
 	defer s2.Close()
 
@@ -401,7 +401,7 @@ func TestReopenPreservesModelAndTierChanges(t *testing.T) {
 
 func TestReopenSyncsMissingSeedModelsCleanly(t *testing.T) {
 	dir := t.TempDir()
-	s, err := NewStore(dir)
+	s, err := openTestStore(dir)
 	require.NoError(t, err)
 
 	// 1. Mutate an existing default model and role tier
@@ -449,7 +449,7 @@ func TestReopenSyncsMissingSeedModelsCleanly(t *testing.T) {
 	require.NoError(t, s.Close())
 
 	// 4. Reopen the store
-	s2, err := NewStore(dir)
+	s2, err := openTestStore(dir)
 	require.NoError(t, err)
 	defer s2.Close()
 
@@ -560,7 +560,7 @@ func TestCursorSeedCatalogFacesAndPrune(t *testing.T) {
 
 func TestCursorSeedPruneAndPreserveMutatedComposer(t *testing.T) {
 	dir := t.TempDir()
-	s, err := NewStore(dir)
+	s, err := openTestStore(dir)
 	require.NoError(t, err)
 
 	require.NoError(t, s.UpsertModel(ModelEntry{
@@ -577,7 +577,7 @@ func TestCursorSeedPruneAndPreserveMutatedComposer(t *testing.T) {
 	require.ErrorIs(t, err, ErrModelNotFound)
 	require.NoError(t, s.Close())
 
-	s2, err := NewStore(dir)
+	s2, err := openTestStore(dir)
 	require.NoError(t, err)
 	defer s2.Close()
 

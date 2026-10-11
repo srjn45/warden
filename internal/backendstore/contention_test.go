@@ -39,7 +39,7 @@ func init() {
 		}
 		defer l.Release()
 	}
-	s, err := NewStore(filepath.Join(data, "backends"))
+	s, err := openTestStore(filepath.Join(data, "backends"))
 	if err != nil {
 		fmt.Println("OPENFAIL", err)
 		os.Exit(0)
@@ -81,7 +81,7 @@ func runWriters(t *testing.T, data string, n int, guarded bool) []string {
 func TestContentionGuardedWritersNeverRegress(t *testing.T) {
 	data := t.TempDir()
 	dir := filepath.Join(data, "backends")
-	s, err := NewStore(dir)
+	s, err := openTestStore(dir)
 	require.NoError(t, err)
 	require.NoError(t, Reconcile(s, nil, time.Now()))
 	require.NoError(t, s.Close())
@@ -106,7 +106,7 @@ func TestContentionGuardedWritersNeverRegress(t *testing.T) {
 func TestRepairRefusedWhileDaemonOwns(t *testing.T) {
 	data := t.TempDir()
 	dir := filepath.Join(data, "backends")
-	s, err := NewStore(dir)
+	s, err := openTestStore(dir)
 	require.NoError(t, err)
 	require.NoError(t, s.Close())
 
