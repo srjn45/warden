@@ -103,7 +103,7 @@ Twenty-six collections. "Archive" refers to §5. Retention classes are those of 
 
 - **`plan_events`, `plan_notes`** (catalogue-only additions, not numbered above): schema-1 `plans-db` `plan-events` (append-only execution audit log, key = event id) and `plan-notes` (attributed agent prose, key = note id) are plan child collections owned by `internal/planstore`, both with a `plan_id` index. Added to the registry so the planstore port needs no embedded copy.
 Decisions closing inventory open questions:
-- **`archived` agents** are **not** a separate collection: one `agents` collection with `status` + `archived_at` (§5.1). The schema-1 `agents-db/archived` collection is merged on migration.
+- **`archived` agents** are **not** a separate collection: one `agents` collection with `status` + `archived_at` (§5.1). The schema-1 `agents-db/archived` collection is merged on migration. Until that migration, the domain-store port keeps the legacy `closed` collection as the catalogued `archived_agents` collection (schema-1 shaped, registry version 1); it disappears when migration merges it into `agents`.
 - **`pipeline_jobs` is a separate collection** (not embedded). This removes the forbidden embedded child list, makes per-job status writes O(1), and lets `agents.job_id`/`pipeline_jobs.agent_id` be checked as FKs.
 - **`autopilot_runs`** unifies schema-1 `autopilots` (identity/links) and `runs-db` (run state). Their ids already coincide (`ap-<12hex>`).
 - **Project group membership** is `projects.group_id` (a project belongs to zero or one group — existing behaviour), not a list on the group.

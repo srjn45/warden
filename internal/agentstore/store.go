@@ -41,12 +41,15 @@ const closedImportedMarker = ".archived-agents-from-sessions-imported"
 
 // Store owns the ScrivaDB "agents" and "closed" collections at <data>/agents-db.
 type Store struct {
-	gate        *writeGate
-	snap        atomic.Pointer[Snapshot]
-	dataDir     string
-	db          *scriva.DB
-	col         *engine.Collection
-	closed      *engine.Collection
+	gate    *writeGate
+	snap    atomic.Pointer[Snapshot]
+	dataDir string
+	db      *scriva.DB // nil for a shared-handle store (the handle owner closes it)
+	col     docs
+	closed  docs
+	// release runs on Close of a shared-handle store; nil in production, where
+	// the handle owner closes the DB. Tests use it to release a handle they own.
+	release     func() error
 	lock        *flockFile
 	preflight   *UnhealthyError
 	scratch     string // throwaway copy of a damaged agents-db; removed on Close
@@ -178,20 +181,25 @@ func openAt(dir, dbDir string) (*Store, error) {
 		return nil, err
 	}
 	s := &Store{db: db, col: col, closed: closed, gate: newWriteGate()}
-	activeRows, _, err := scanVerified(s.col, "agents", false)
-	if err != nil {
+	if err := s.loadInitialSnapshot(); err != nil {
 		_ = db.Close()
 		return nil, err
+	}
+	return s, nil
+}
+
+// loadInitialSnapshot scans both collections and publishes the first snapshot.
+func (s *Store) loadInitialSnapshot() error {
+	activeRows, _, err := scanVerified(s.col, "agents", false)
+	if err != nil {
+		return err
 	}
 	closedRows, skipped, err := scanVerified(s.closed, "closed", true)
 	if err != nil {
-		_ = db.Close()
-		return nil, err
+		return err
 	}
-	initSnap := buildSnapshot(1, time.Now().UTC(), activeRows, closedRows, skipped)
-	s.snap.Store(initSnap)
-
-	return s, nil
+	s.snap.Store(buildSnapshot(1, time.Now().UTC(), activeRows, closedRows, skipped))
+	return nil
 }
 
 // LegacyImport is the legacy sessions-db -> agents-db import for the migration
@@ -249,7 +257,7 @@ func verifyLegacySessions(dir string) error {
 	}
 	defer db.Close()
 
-	checkCol := func(legacyCol string, dest *engine.Collection) error {
+	checkCol := func(legacyCol string, dest docs) error {
 		source, err := db.Collection(legacyCol)
 		if err != nil {
 			return nil
@@ -292,7 +300,7 @@ func isTerminalRecord(data map[string]any) bool {
 	return kind == string(store.KindTerminal)
 }
 
-func (s *Store) importSessions(legacyDB, collection string, destination *engine.Collection) error {
+func (s *Store) importSessions(legacyDB, collection string, destination docs) error {
 	if _, err := os.Stat(legacyDB); errors.Is(err, os.ErrNotExist) {
 		return nil
 	} else if err != nil {
@@ -1005,12 +1013,20 @@ func (s *Store) Close() error {
 		case <-time.After(5 * time.Second):
 		}
 	}
-	err := s.db.Close()
+	var err error
+	switch {
+	case s.release != nil:
+		err = s.release()
+	case s.db != nil:
+		err = s.db.Close()
+	}
 	if s.scratch != "" {
 		_ = os.RemoveAll(s.scratch)
 	}
-	if lerr := s.lock.release(); err == nil {
-		err = lerr
+	if s.lock != nil {
+		if lerr := s.lock.release(); err == nil {
+			err = lerr
+		}
 	}
 	return err
 }

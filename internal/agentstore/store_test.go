@@ -12,7 +12,7 @@ import (
 )
 
 func TestStoreUsesPerWriteDurabilityAndRejectsIdentityMutation(t *testing.T) {
-	s, err := New(t.TempDir())
+	s, err := newTestStore(t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, s.Close()) })
 	require.Equal(t, engine.SyncModeAlways, s.col.Config().SyncMode)
@@ -25,7 +25,7 @@ func TestStoreUsesPerWriteDurabilityAndRejectsIdentityMutation(t *testing.T) {
 }
 
 func TestCRUD(t *testing.T) {
-	s, err := New(t.TempDir())
+	s, err := newTestStore(t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, s.Close()) })
 	ctx := context.Background()
@@ -48,7 +48,7 @@ func TestCRUD(t *testing.T) {
 }
 
 func TestSpawnCreatesAndInitializesAgent(t *testing.T) {
-	s, err := New(t.TempDir())
+	s, err := newTestStore(t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, s.Close()) })
 
@@ -61,7 +61,7 @@ func TestSpawnCreatesAndInitializesAgent(t *testing.T) {
 }
 
 func TestCreateCanonicalizesStatusAliases(t *testing.T) {
-	s, err := New(t.TempDir())
+	s, err := newTestStore(t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, s.Close()) })
 	require.NoError(t, s.Create(context.Background(), &Agent{ID: "busy-agent", Name: "n-busy-agent", Status: store.Status("busy")}))
@@ -71,7 +71,7 @@ func TestCreateCanonicalizesStatusAliases(t *testing.T) {
 }
 
 func TestTerminateAndDelete(t *testing.T) {
-	s, err := New(t.TempDir())
+	s, err := newTestStore(t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, s.Close()) })
 	ctx := context.Background()
@@ -86,7 +86,7 @@ func TestTerminateAndDelete(t *testing.T) {
 }
 
 func TestRecoverOnlyRevivesOrphanedAgent(t *testing.T) {
-	s, err := New(t.TempDir())
+	s, err := newTestStore(t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, s.Close()) })
 	ctx := context.Background()
@@ -101,6 +101,7 @@ func TestRecoverOnlyRevivesOrphanedAgent(t *testing.T) {
 }
 
 func TestMigratesOnlyActiveNonTerminalSessions(t *testing.T) {
+	skipShared(t)
 	dir := t.TempDir()
 	legacy, err := store.NewFileStore(dir)
 	require.NoError(t, err)
@@ -112,7 +113,7 @@ func TestMigratesOnlyActiveNonTerminalSessions(t *testing.T) {
 	require.NoError(t, legacy.Close(ctx))
 	require.NoError(t, LegacyImport.Import(dir))
 
-	agents, err := New(dir)
+	agents, err := newTestStore(dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, agents.Close()) })
 	list, err := agents.List(ctx)
@@ -123,6 +124,7 @@ func TestMigratesOnlyActiveNonTerminalSessions(t *testing.T) {
 }
 
 func TestMigrationImportsExistingActiveAgentFields(t *testing.T) {
+	skipShared(t)
 	dir := t.TempDir()
 	legacy, err := store.NewFileStore(dir)
 	require.NoError(t, err)
@@ -131,7 +133,7 @@ func TestMigrationImportsExistingActiveAgentFields(t *testing.T) {
 	require.NoError(t, legacy.Insert(ctx, want))
 	require.NoError(t, legacy.Close(ctx))
 	require.NoError(t, LegacyImport.Import(dir))
-	agents, err := New(dir)
+	agents, err := newTestStore(dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, agents.Close()) })
 	got, err := agents.Get(ctx, want.ID)
@@ -150,11 +152,11 @@ func TestMigrationMarkerPreventsDuplicateImport(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, legacy.Insert(context.Background(), &store.Session{ID: "agent-1", Name: "n-agent-1"}))
 	require.NoError(t, legacy.Close(context.Background()))
-	s, err := New(dir)
+	s, err := newTestStore(dir)
 	require.NoError(t, err)
 	require.NoError(t, s.Close())
 	// Reopen verifies the completed migration rather than trying to insert rows again.
-	s, err = New(dir)
+	s, err = newTestStore(dir)
 	require.NoError(t, err)
 	require.NoError(t, s.Close())
 }
@@ -212,6 +214,7 @@ func TestMarshalEmitsLegacyAliases(t *testing.T) {
 // TestMigrationPreservesAgentStatus verifies that active sessions whose Status
 // is non-zero (e.g. done) are imported with their status intact.
 func TestMigrationPreservesAgentStatus(t *testing.T) {
+	skipShared(t)
 	dir := t.TempDir()
 	legacy, err := store.NewFileStore(dir)
 	require.NoError(t, err)
@@ -221,7 +224,7 @@ func TestMigrationPreservesAgentStatus(t *testing.T) {
 	require.NoError(t, legacy.Close(ctx))
 	require.NoError(t, LegacyImport.Import(dir))
 
-	agents, err := New(dir)
+	agents, err := newTestStore(dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, agents.Close()) })
 	got, err := agents.Get(ctx, "agent-done")
@@ -232,6 +235,7 @@ func TestMigrationPreservesAgentStatus(t *testing.T) {
 // TestMigrationSkipsTerminalByKindField verifies that legacy records whose raw
 // "kind" field is "terminal" are excluded even when the full decode succeeds.
 func TestMigrationSkipsTerminalByKindField(t *testing.T) {
+	skipShared(t)
 	dir := t.TempDir()
 	legacy, err := store.NewFileStore(dir)
 	require.NoError(t, err)
@@ -241,7 +245,7 @@ func TestMigrationSkipsTerminalByKindField(t *testing.T) {
 	require.NoError(t, legacy.Close(ctx))
 	require.NoError(t, LegacyImport.Import(dir))
 
-	agents, err := New(dir)
+	agents, err := newTestStore(dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, agents.Close()) })
 	list, err := agents.List(ctx)
@@ -255,7 +259,7 @@ func TestMigrationSkipsTerminalByKindField(t *testing.T) {
 }
 
 func TestArchiveAndListClosed(t *testing.T) {
-	s, err := New(t.TempDir())
+	s, err := newTestStore(t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, s.Close()) })
 	ctx := context.Background()
@@ -291,7 +295,7 @@ func TestArchiveAndListClosed(t *testing.T) {
 }
 
 func TestUpdateStatusIfAndFinalizeExit(t *testing.T) {
-	s, err := New(t.TempDir())
+	s, err := newTestStore(t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, s.Close()) })
 	ctx := context.Background()
@@ -348,6 +352,7 @@ func TestSessionConverters(t *testing.T) {
 }
 
 func TestArchiveUpgradeAfterActiveMigration(t *testing.T) {
+	skipShared(t)
 	ctx := context.Background()
 	dir := t.TempDir()
 	legacy, err := store.NewFileStore(dir)
@@ -361,7 +366,7 @@ func TestArchiveUpgradeAfterActiveMigration(t *testing.T) {
 	}
 	require.NoError(t, legacy.Close(ctx))
 	require.NoError(t, LegacyImport.Import(dir))
-	s, err := New(dir)
+	s, err := newTestStore(dir)
 	require.NoError(t, err)
 	require.NoError(t, s.Insert(ctx, &Agent{ID: "new-live", Name: "n-new-live", Subject: "must survive archive import"}))
 	closed, err := s.ListClosed(ctx)
@@ -379,7 +384,7 @@ func TestArchiveUpgradeAfterActiveMigration(t *testing.T) {
 	// Re-running import must not clobber newer edits.
 	for i := 0; i < 2; i++ {
 		require.NoError(t, LegacyImport.Import(dir))
-		s, err = New(dir)
+		s, err = newTestStore(dir)
 		require.NoError(t, err)
 		live, err := s.Get(ctx, "new-live")
 		require.NoError(t, err)
@@ -394,7 +399,7 @@ func TestArchiveUpgradeAfterActiveMigration(t *testing.T) {
 
 func TestLifecycleMutationsPreserveLegacySemantics(t *testing.T) {
 	ctx := context.Background()
-	s, err := New(t.TempDir())
+	s, err := newTestStore(t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = s.Close() })
 	changed, err := s.UpdateStatusIf(ctx, "missing", store.StatusWorking, store.StatusDone)
@@ -451,7 +456,7 @@ func TestRoleBackfillFromLegacyType(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(string(tc.typ), func(t *testing.T) {
-			s, err := New(t.TempDir())
+			s, err := newTestStore(t.TempDir())
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, s.Close()) })
 			ctx := context.Background()
@@ -470,7 +475,7 @@ func TestRoleBackfillFromLegacyType(t *testing.T) {
 // TestRoleBackfillDoesNotOverwriteExplicitRole verifies that a record with an
 // explicit Role is never overwritten by the Type→Role backfill.
 func TestRoleBackfillDoesNotOverwriteExplicitRole(t *testing.T) {
-	s, err := New(t.TempDir())
+	s, err := newTestStore(t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, s.Close()) })
 	ctx := context.Background()
@@ -488,6 +493,7 @@ func TestRoleBackfillDoesNotOverwriteExplicitRole(t *testing.T) {
 // TestRoleBackfillFromLegacyMigration verifies that legacy Session records with
 // a Type but no Role are backfilled at import time.
 func TestRoleBackfillFromLegacyMigration(t *testing.T) {
+	skipShared(t)
 	dir := t.TempDir()
 	legacy, err := store.NewFileStore(dir)
 	require.NoError(t, err)
@@ -501,7 +507,7 @@ func TestRoleBackfillFromLegacyMigration(t *testing.T) {
 	require.NoError(t, legacy.Close(ctx))
 	require.NoError(t, LegacyImport.Import(dir))
 
-	agents, err := New(dir)
+	agents, err := newTestStore(dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, agents.Close()) })
 

@@ -29,6 +29,9 @@ var (
 // schema-2 collections are added here together with their contract.
 var catalogue = []string{
 	"agents",
+	// Legacy agents-db "closed" collection (inventory §4.1: kept separate until
+	// the schema-2 in-place archive migration merges it into "agents").
+	"archived_agents",
 	"terminals",
 	"projects",
 	"project_groups",

@@ -10,7 +10,7 @@ import (
 )
 
 func TestCRUD(t *testing.T) {
-	s, err := New(t.TempDir())
+	s, err := newTestStore(t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, s.Close()) })
 	ctx := context.Background()
@@ -43,7 +43,7 @@ func TestCRUD(t *testing.T) {
 }
 
 func TestSpawnCreatesAndInitializesTerminal(t *testing.T) {
-	s, err := New(t.TempDir())
+	s, err := newTestStore(t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, s.Close()) })
 
@@ -55,6 +55,7 @@ func TestSpawnCreatesAndInitializesTerminal(t *testing.T) {
 }
 
 func TestMigratesOnlyActiveTerminalSessions(t *testing.T) {
+	skipShared(t)
 	dir := t.TempDir()
 	legacy, err := store.NewFileStore(dir)
 	require.NoError(t, err)
@@ -66,7 +67,7 @@ func TestMigratesOnlyActiveTerminalSessions(t *testing.T) {
 	require.NoError(t, legacy.Close(ctx))
 	require.NoError(t, LegacyImport.Import(dir))
 
-	terminals, err := New(dir)
+	terminals, err := newTestStore(dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, terminals.Close()) })
 	list, err := terminals.List(ctx)
@@ -80,15 +81,16 @@ func TestMigratesOnlyActiveTerminalSessions(t *testing.T) {
 }
 
 func TestMigrationMarkerPreventsDuplicateImport(t *testing.T) {
+	skipShared(t)
 	dir := t.TempDir()
 	legacy, err := store.NewFileStore(dir)
 	require.NoError(t, err)
 	require.NoError(t, legacy.Insert(context.Background(), &store.Session{ID: "terminal-1", Name: "n-terminal-1", Kind: store.KindTerminal}))
 	require.NoError(t, legacy.Close(context.Background()))
-	s, err := New(dir)
+	s, err := newTestStore(dir)
 	require.NoError(t, err)
 	require.NoError(t, s.Close())
-	s, err = New(dir)
+	s, err = newTestStore(dir)
 	require.NoError(t, err)
 	require.NoError(t, s.Close())
 }
@@ -97,6 +99,7 @@ func TestMigrationMarkerPreventsDuplicateImport(t *testing.T) {
 // marker is written yields exactly the same records — no duplicates appear even
 // when the legacy store still contains terminal sessions.
 func TestMigrationImportIdempotence(t *testing.T) {
+	skipShared(t)
 	dir := t.TempDir()
 	legacy, err := store.NewFileStore(dir)
 	require.NoError(t, err)
@@ -119,7 +122,7 @@ func TestMigrationImportIdempotence(t *testing.T) {
 
 	// First import runs.
 	require.NoError(t, LegacyImport.Import(dir))
-	s1, err := New(dir)
+	s1, err := newTestStore(dir)
 	require.NoError(t, err)
 	list1, err := s1.List(ctx)
 	require.NoError(t, err)
@@ -128,7 +131,7 @@ func TestMigrationImportIdempotence(t *testing.T) {
 
 	// Second import: safe and idempotent, does not duplicate.
 	require.NoError(t, LegacyImport.Import(dir))
-	s2, err := New(dir)
+	s2, err := newTestStore(dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, s2.Close()) })
 	list2, err := s2.List(ctx)
@@ -141,6 +144,7 @@ func TestMigrationImportIdempotence(t *testing.T) {
 // TestMigrationRestartSafety verifies that a partially-written terminals-db
 // (marker absent) is fully discarded and cleanly re-imported on the next open.
 func TestMigrationRestartSafety(t *testing.T) {
+	skipShared(t)
 	dir := t.TempDir()
 	legacy, err := store.NewFileStore(dir)
 	require.NoError(t, err)
@@ -157,7 +161,7 @@ func TestMigrationRestartSafety(t *testing.T) {
 	require.NoError(t, LegacyImport.Import(dir))
 	require.NoError(t, LegacyImport.Verify(dir))
 
-	s, err := New(dir)
+	s, err := newTestStore(dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, s.Close()) })
 	list, err := s.List(ctx)
@@ -170,7 +174,7 @@ func TestMigrationRestartSafety(t *testing.T) {
 // TestTerminalNameCollision verifies that two terminals with the same Name but
 // different IDs coexist without error; the Name field is not a unique key.
 func TestTerminalNameCollision(t *testing.T) {
-	s, err := New(t.TempDir())
+	s, err := newTestStore(t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, s.Close()) })
 	ctx := context.Background()
@@ -193,6 +197,7 @@ func TestTerminalNameCollision(t *testing.T) {
 // TestMigrationStatusMapping verifies that each legacy store.Status value maps
 // to the correct terminal-specific Status.
 func TestMigrationStatusMapping(t *testing.T) {
+	skipShared(t)
 	cases := []struct {
 		input store.Status
 		want  Status
@@ -215,6 +220,7 @@ func TestMigrationStatusMapping(t *testing.T) {
 // TestMigrationFullFields verifies that all populated store.Session fields are
 // carried into the Terminal record during import.
 func TestMigrationFullFields(t *testing.T) {
+	skipShared(t)
 	dir := t.TempDir()
 	legacy, err := store.NewFileStore(dir)
 	require.NoError(t, err)
@@ -234,7 +240,7 @@ func TestMigrationFullFields(t *testing.T) {
 	require.NoError(t, legacy.Close(ctx))
 	require.NoError(t, LegacyImport.Import(dir))
 
-	ts, err := New(dir)
+	ts, err := newTestStore(dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, ts.Close()) })
 	got, err := ts.Get(ctx, "terminal-full")

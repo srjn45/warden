@@ -12,8 +12,9 @@ import (
 )
 
 func TestOwnershipAliasesAndTypedError(t *testing.T) {
+	skipShared(t)
 	dir := t.TempDir()
-	first, err := New(dir)
+	first, err := newTestStore(dir)
 	require.NoError(t, err)
 
 	link := filepath.Join(t.TempDir(), "alias")
@@ -23,7 +24,7 @@ func TestOwnershipAliasesAndTypedError(t *testing.T) {
 	require.NoError(t, err)
 
 	for _, alias := range []string{link, rel, dir + "/./"} {
-		_, err := New(alias)
+		_, err := newTestStore(alias)
 		require.ErrorIs(t, err, store.ErrStoreOwned, alias)
 		var oe *OwnershipError
 		require.True(t, errors.As(err, &oe))
@@ -31,19 +32,20 @@ func TestOwnershipAliasesAndTypedError(t *testing.T) {
 	}
 
 	require.NoError(t, first.Close())
-	again, err := New(link)
+	again, err := newTestStore(link)
 	require.NoError(t, err)
 	require.NoError(t, again.Close())
 }
 
 func TestOwnershipRejectedOpenerDoesNotWipe(t *testing.T) {
+	skipShared(t)
 	dir := t.TempDir()
-	first, err := New(dir)
+	first, err := newTestStore(dir)
 	require.NoError(t, err)
 	defer first.Close()
 	// Even without marker, opener must not wipe agents-db.
 	_ = os.Remove(filepath.Join(dir, importedMarker))
-	_, err = New(dir)
+	_, err = newTestStore(dir)
 	require.ErrorIs(t, err, store.ErrStoreOwned)
 	require.DirExists(t, filepath.Join(dir, "agents-db"))
 }
