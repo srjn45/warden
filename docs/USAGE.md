@@ -180,6 +180,8 @@ beside warden-db. The schema-2 cutover requires the daemon stopped, takes an
 exclusive, read-only, checksummed backup under
 `<data_dir>/backups/pre-schema2-<ts>/`, and never overwrites, merges or deletes
 existing data. `warden migrate --plan` shows what it would do and what blocks it
+(strict verification of every legacy store; corruption, ambiguity, duplicate
+identities, unsupported layouts and unsafe artifacts are refused, never salvaged)
 without changing anything. See `docs/specs/2026-10-11-warden-db-schema-2-migration-contract.md`.
 
 **Roll back an update:**

@@ -17,6 +17,7 @@ package migrate
 //     finding, never something to adopt, merge into or replace.
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -411,7 +412,7 @@ func BeginSchema2(dataDir, binaryVersion string, now time.Time) (*Schema2Run, er
 	fail := func(err error) (*Schema2Run, error) { _ = run.Release(); return nil, err }
 
 	// Under our own lock the probe in PlanSchema2 reports "self" as unowned.
-	plan, err := PlanSchema2(dataDir, now)
+	plan, err := PreflightSchema2(context.Background(), dataDir, now)
 	if err != nil {
 		return fail(err)
 	}

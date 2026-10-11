@@ -5664,6 +5664,8 @@ Run data format migrations for the Warden data directory.
 Actions (select one):
   --check    Read-only preflight check across all stores and pending migrations
   --plan     Read-only schema-2 (warden-db) cutover plan: source/target inventory,
+             strict verification of every legacy store (corruption, ambiguity,
+             duplicate identities, unsupported layouts, unsafe artifacts),
              backup location and blocking conditions. Writes nothing
   --apply    Apply pending migrations up to the target schema version
   --resume   Resume an interrupted migration recorded in the ledger journal
