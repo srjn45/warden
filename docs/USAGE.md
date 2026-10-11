@@ -173,6 +173,15 @@ newer than the binary, older than the binary (migrations run from
 recorded; the error names the next step. An install that predates the ledger
 is stamped at its baseline on first boot and starts as before.
 
+**Schema 2 (warden-db).** A binary that reads schema 1 also refuses a data dir
+that is at schema 2, or that holds `warden-db/` while its ledger says anything
+else — before it opens or stamps anything, so legacy stores are never started
+beside warden-db. The schema-2 cutover requires the daemon stopped, takes an
+exclusive, read-only, checksummed backup under
+`<data_dir>/backups/pre-schema2-<ts>/`, and never overwrites, merges or deletes
+existing data. `warden migrate --plan` shows what it would do and what blocks it
+without changing anything. See `docs/specs/2026-10-11-warden-db-schema-2-migration-contract.md`.
+
 **Roll back an update:**
 
 ```sh
@@ -191,6 +200,7 @@ Snapshots are retained for the last 2 updates or 14 days, whichever keeps more.
 ```sh
 # Offline data migrations (daemon stopped)
 warden migrate --check       # inspect data store schema status
+warden migrate --plan        # read-only schema-2 (warden-db) cutover plan + blockers
 warden migrate --apply       # apply pending schema migrations
 warden migrate --resume      # resume interrupted migration
 warden migrate --restore     # restore pre-migration backup

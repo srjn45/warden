@@ -2370,6 +2370,7 @@
       "check",
       "data-dir",
       "json",
+      "plan",
       "restore",
       "resume",
       "target"
