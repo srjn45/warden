@@ -49,7 +49,7 @@ commit whenever dependencies change; CI fails if this file is stale._
 | `github.com/segmentio/encoding` | MIT | [link](https://github.com/segmentio/encoding/blob/v0.5.4/LICENSE) |
 | `github.com/spf13/cobra` | Apache-2.0 | [link](https://github.com/spf13/cobra/blob/v1.10.2/LICENSE.txt) |
 | `github.com/spf13/pflag` | BSD-3-Clause | [link](https://github.com/spf13/pflag/blob/v1.0.9/LICENSE) |
-| `github.com/srjn45/scriva` | MIT | [link](https://github.com/srjn45/scriva/blob/v1.4.0/LICENSE) |
+| `github.com/srjn45/scriva` | MIT | [link](https://github.com/srjn45/scriva/blob/4ca8d00d1197/LICENSE) |
 | `github.com/standard-webhooks/standard-webhooks/libraries/go` | MIT | [link](https://github.com/standard-webhooks/standard-webhooks/blob/libraries/v0.0.1/libraries/LICENSE) |
 | `github.com/tidwall/gjson` | MIT | [link](https://github.com/tidwall/gjson/blob/v1.18.0/LICENSE) |
 | `github.com/tidwall/match` | MIT | [link](https://github.com/tidwall/match/blob/v1.1.1/LICENSE) |
@@ -60,6 +60,6 @@ commit whenever dependencies change; CI fails if this file is stale._
 | `go.yaml.in/yaml/v4` | MIT | [link](https://github.com/yaml/go-yaml/blob/v4.0.0-rc.2/LICENSE) |
 | `golang.org/x/crypto` | BSD-3-Clause | [link](https://cs.opensource.google/go/x/crypto/+/v0.46.0:LICENSE) |
 | `golang.org/x/oauth2` | BSD-3-Clause | [link](https://cs.opensource.google/go/x/oauth2/+/v0.35.0:LICENSE) |
-| `golang.org/x/sync/errgroup` | BSD-3-Clause | [link](https://cs.opensource.google/go/x/sync/+/v0.19.0:LICENSE) |
+| `golang.org/x/sync` | BSD-3-Clause | [link](https://cs.opensource.google/go/x/sync/+/v0.19.0:LICENSE) |
 | `golang.org/x/sys` | BSD-3-Clause | [link](https://cs.opensource.google/go/x/sys/+/v0.44.0:LICENSE) |
 | `gopkg.in/yaml.v3` | MIT | [link](https://github.com/go-yaml/yaml/blob/v3.0.1/LICENSE) |

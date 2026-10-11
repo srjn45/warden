@@ -23,6 +23,8 @@ tools (doctor, repair) may open the store.
 
 > **Update (#834):** pin is now `scriva v1.4.0`, which provides `engine.VerifyDir`/`engine.Repair`; `RepairAvailable` is true and `repair agents` delegates to them. The text below records the original v1.2.1 analysis.
 
+> **Update (cross-collection transaction audit, 2026-10-10):** scriva is re-pinned to `v1.4.1-0.20261010192719-4ca8d00d1197` (untagged `main` @ `4ca8d00`) to adopt cross-collection transactions; see `2026-10-10-scrivadb-cross-collection-transaction-capability-audit.md`. Re-audit result: for roots that never ran `CommitXTx` (every Warden store today) `Open`/`VerifyDir`/`Repair`/lock behavior is unchanged; XTx-specific refusals only apply once `xtx.journal` exists. Re-pin to the tagged release when cut.
+
 Pinned: `github.com/srjn45/scriva v1.2.1` (never v1.2.0). v1.2.1 exports **no**
 exclusive-ownership, Verify, or Repair API (`scriva.DB`/`engine` have only
 `Rebuild` on internal index types; `scriva.Open` takes no lock). Upstream issue
