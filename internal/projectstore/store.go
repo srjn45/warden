@@ -46,10 +46,13 @@ var (
 // mutex model.
 type Store struct {
 	mu     sync.Mutex
-	db     *scriva.DB
-	col    *engine.Collection // "projects": one record per project
-	groups *engine.Collection // "project_groups": one record per group (Phase 1)
-	now    func() time.Time   // injectable clock for tests; defaults to time.Now
+	db     *scriva.DB       // nil on the shared-handle path (the handle owner closes it)
+	col    docs             // "projects": one record per project
+	groups docs             // "project_groups": one record per group (Phase 1)
+	now    func() time.Time // injectable clock for tests; defaults to time.Now
+	// release runs on Close; nil for a shared-handle store, whose DB is owned
+	// and closed by whoever opened the wardendb handle.
+	release func() error
 }
 
 // NewStore opens (creating if needed) the ScrivaDB-backed project store at dir
@@ -298,5 +301,11 @@ func (s *Store) Delete(id string) error {
 // This shuts down the DB — it is unrelated to CloseProject (which hibernates one
 // project row).
 func (s *Store) Close() error {
-	return s.db.Close()
+	if s.release != nil {
+		return s.release()
+	}
+	if s.db != nil {
+		return s.db.Close()
+	}
+	return nil
 }
