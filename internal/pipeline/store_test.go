@@ -9,7 +9,7 @@ import (
 )
 
 func TestStoreCreateGetList(t *testing.T) {
-	s, err := NewStore(t.TempDir())
+	s, err := openTestStore(t, t.TempDir())
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestStoreCreateGetList(t *testing.T) {
 }
 
 func TestStoreUpdate(t *testing.T) {
-	s, _ := NewStore(t.TempDir())
+	s, _ := openTestStore(t, t.TempDir())
 	s.Create(&Pipeline{ID: "p1", Name: "p1", Repo: "/r", Status: StatusPending,
 		Jobs: []Job{{ID: "a", Prompt: "x", Worktree: "none", Status: JobPending}}})
 	if err := s.Update("p1", func(p *Pipeline) {
@@ -51,7 +51,7 @@ func TestStoreUpdate(t *testing.T) {
 }
 
 func TestStoreDelete(t *testing.T) {
-	s, _ := NewStore(t.TempDir())
+	s, _ := openTestStore(t, t.TempDir())
 	s.Create(&Pipeline{ID: "p1", Name: "p1", Repo: "/r", Status: StatusDone,
 		Jobs: []Job{{ID: "a", Prompt: "x", Worktree: "none", Status: JobDone}}})
 	if err := s.Delete("p1"); err != nil {
@@ -83,6 +83,9 @@ func seedLegacy(t *testing.T, dir string, p *Pipeline) {
 // sentinel is written, the legacy files are left as a backup, and a second open
 // does not re-import.
 func TestStoreLegacyImport(t *testing.T) {
+	if useShared {
+		t.Skip("legacy JSON import targets the path-opened <dir>-db store; the shared handle has no legacy import")
+	}
 	// dir mirrors the daemon's <data>/pipelines; the sentinel lands in its parent.
 	root := t.TempDir()
 	dir := filepath.Join(root, "pipelines")
@@ -105,7 +108,7 @@ func TestStoreLegacyImport(t *testing.T) {
 		t.Fatalf("LegacyImport.Verify: %v", err)
 	}
 
-	s, err := NewStore(dir)
+	s, err := openTestStore(t, dir)
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
@@ -130,7 +133,7 @@ func TestStoreLegacyImport(t *testing.T) {
 	if err := os.Remove(filepath.Join(dir, "p2.json")); err != nil {
 		t.Fatalf("rm legacy p2: %v", err)
 	}
-	s2, err := NewStore(dir)
+	s2, err := openTestStore(t, dir)
 	if err != nil {
 		t.Fatalf("reopen NewStore: %v", err)
 	}
@@ -149,7 +152,7 @@ func TestStoreLegacyImport(t *testing.T) {
 // TestStoreFreshEmptyDir confirms the common test case — a brand-new empty dir
 // with no legacy files and no sentinel — works with zero special-casing.
 func TestStoreFreshEmptyDir(t *testing.T) {
-	s, err := NewStore(t.TempDir())
+	s, err := openTestStore(t, t.TempDir())
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}

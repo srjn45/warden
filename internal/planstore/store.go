@@ -191,11 +191,14 @@ func PlanID(projectID, planName string) string {
 // survive executor teardown because they are not stored per-executor.
 type Store struct {
 	mu         sync.Mutex
-	db         *scriva.DB
-	col        *engine.Collection // "plans"
-	events     *engine.Collection // "plan-events"  (append-only audit log)
-	notes      *engine.Collection // "plan-notes"   (attributed agent prose)
-	seqCounter int64              // monotonic event sequence, guarded by mu
+	db         *scriva.DB // nil on the shared-handle path (the handle owner closes it)
+	col        docs       // "plans"
+	events     docs       // "plan-events"  (append-only audit log)
+	notes      docs       // "plan-notes"   (attributed agent prose)
+	seqCounter int64      // monotonic event sequence, guarded by mu
+	// release runs on Close; nil for a shared-handle store, whose DB is owned
+	// and closed by whoever opened the wardendb handle.
+	release func() error
 }
 
 // New opens (creating if needed) the ScrivaDB-backed plan store at dir.
@@ -240,7 +243,7 @@ func New(dir string) (*Store, error) {
 
 // initSeqCounter scans existing events to find the current high-water seq so
 // that new events continue from where the previous store instance left off.
-func initSeqCounter(col *engine.Collection) (int64, error) {
+func initSeqCounter(col docs) (int64, error) {
 	rows, err := col.Scan(query.MatchAll)
 	if err != nil {
 		return 0, err
@@ -504,4 +507,12 @@ func (s *Store) RestorePlan(ctx context.Context, p *Plan) error {
 	return err
 }
 
-func (s *Store) Close() error { return s.db.Close() }
+func (s *Store) Close() error {
+	if s.db == nil {
+		if s.release != nil {
+			return s.release() // test seam: lets tests reopen the same dir
+		}
+		return nil // shared-handle store: the handle owner closes the DB
+	}
+	return s.db.Close()
+}

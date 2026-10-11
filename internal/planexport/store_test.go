@@ -12,7 +12,7 @@ import (
 
 func TestRecordStore_upsertFindList(t *testing.T) {
 	dir := t.TempDir()
-	st, err := NewStore(dir)
+	st, err := openTestStore(t, dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = st.Close() })
 
@@ -73,14 +73,18 @@ func TestRecordStore_upsertFindList(t *testing.T) {
 
 	// Re-open from disk.
 	require.NoError(t, st.Close())
-	st2, err := NewStore(dir)
+	st2, err := openTestStore(t, dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = st2.Close() })
 	got, err = st2.Get(ctx, rec.ID)
 	require.NoError(t, err)
 	require.Equal(t, OutcomeSkipped, got.Outcome)
 
-	// Ensure DB landed under the expected subdir.
+	// Ensure DB landed under the expected subdir (legacy path layout only; the
+	// shared handle owns its own directory layout).
+	if useShared {
+		return
+	}
 	_, err = os.Stat(filepath.Join(dir, "plan-exports-db"))
 	require.NoError(t, err)
 }
