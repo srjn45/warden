@@ -10,7 +10,7 @@ import (
 
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
-	s, err := NewStore(t.TempDir())
+	s, err := openTestStore(t, t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { s.Close() })
 	return s
@@ -131,14 +131,14 @@ func TestDeleteIdempotent(t *testing.T) {
 
 func TestPersistenceAcrossReopen(t *testing.T) {
 	dir := t.TempDir()
-	s, err := NewStore(dir)
+	s, err := openTestStore(t, dir)
 	require.NoError(t, err)
 	_, err = s.OpenProject("p1", "Persisted", "/p1")
 	require.NoError(t, err)
 	require.NoError(t, s.Close())
 
 	// Reopen the DB and confirm the row survived.
-	s2, err := NewStore(dir)
+	s2, err := openTestStore(t, dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { s2.Close() })
 	got, err := s2.Get("p1")
