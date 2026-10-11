@@ -37,8 +37,15 @@ var ErrBadID = errors.New("invalid snapshot id")
 // flat file.
 type Store struct {
 	dir string // original dir; transcript blobs live directly under it
-	db  *scriva.DB
-	col *engine.Collection
+	// dataDir is the warden data directory external artifact references are
+	// relative to (the parent of the snapshots dir by layout convention).
+	dataDir string
+	db      *scriva.DB         // nil on the shared-handle path (the handle owner closes it)
+	legacy  *engine.Collection // non-nil only on the legacy path (legacy import helpers)
+	col     docs
+	// release runs on Close; nil for a shared-handle store, whose DB is owned
+	// and closed by whoever opened the wardendb handle (tests set it to reopen).
+	release func() error
 }
 
 // importedMarker names the sentinel written (last) once the one-time legacy-JSON
@@ -66,7 +73,7 @@ func NewStore(dir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	return &Store{dir: dir, db: db, col: col}, nil
+	return &Store{dir: dir, dataDir: filepath.Dir(dir), db: db, legacy: col, col: col}, nil
 }
 
 // LegacyImport is the snapshots/*.json -> snapshots-db import for the migration registry.
@@ -85,7 +92,7 @@ var LegacyImport = legacyimport.Importer{
 			return err
 		}
 		defer s.Close()
-		return importLegacy(dir, s.col)
+		return importLegacy(dir, s.legacy)
 	},
 	Verify: func(dataDir string) error {
 		dir := filepath.Join(dataDir, "snapshots")
@@ -104,7 +111,7 @@ var LegacyImport = legacyimport.Importer{
 		if buf.Len() == 0 {
 			return nil
 		}
-		missing, err := legacyimport.MissingJSONL(s.col, &buf, "id")
+		missing, err := legacyimport.MissingJSONL(s.legacy, &buf, "id")
 		if err != nil {
 			return err
 		}
@@ -208,6 +215,7 @@ func (s *Store) Put(snap *Snapshot, transcript string) error {
 		}
 		snap.TranscriptPath = s.transcriptPath(snap.ID)
 		snap.TranscriptLines = countLines(transcript)
+		snap.Artifacts = withArtifact(snap.Artifacts, s.transcriptRef(snap.ID, transcript))
 	}
 	rec, err := toRecord(snap)
 	if err != nil {
@@ -260,7 +268,15 @@ func (s *Store) List(sessionID string) ([]*Snapshot, error) {
 
 // Close flushes the ScrivaDB index and stops its background compaction goroutine. The
 // daemon defers it on shutdown.
-func (s *Store) Close() error { return s.db.Close() }
+func (s *Store) Close() error {
+	if s.db == nil {
+		if s.release != nil {
+			return s.release()
+		}
+		return nil // shared-handle store: the handle owner closes the DB
+	}
+	return s.db.Close()
+}
 
 // readSnapshot loads and decodes a legacy snapshot JSON file, mapping a missing file
 // to ErrNotFound. It backs the one-time legacy import.

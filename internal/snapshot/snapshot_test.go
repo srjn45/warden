@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/srjn45/warden/internal/lifecycle"
+	"github.com/srjn45/warden/internal/wardendb"
 )
 
 // calledArgs flattens a FakeRunner's recorded calls to argv slices for assertions.
@@ -23,8 +24,28 @@ func calledArgs(fr *lifecycle.FakeRunner) [][]string {
 	return out
 }
 
+// useShared switches newTestStore to the shared-handle implementation; TestMain
+// runs the whole suite once per implementation.
+var useShared bool
+
+func TestMain(m *testing.M) {
+	if code := m.Run(); code != 0 {
+		os.Exit(code)
+	}
+	useShared = true
+	os.Exit(m.Run())
+}
+
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
+	if useShared {
+		db, err := wardendb.Open(t.TempDir())
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = db.Close() })
+		st, err := NewStoreFromDB(db)
+		require.NoError(t, err)
+		return st
+	}
 	st, err := NewStore(filepath.Join(t.TempDir(), "snapshots"))
 	require.NoError(t, err)
 	return st
