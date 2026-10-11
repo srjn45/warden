@@ -21,6 +21,7 @@ import (
 	"github.com/srjn45/warden/internal/prompttemplate"
 	"github.com/srjn45/warden/internal/schedule"
 	"github.com/srjn45/warden/internal/store"
+	"github.com/srjn45/warden/internal/wardendb"
 )
 
 // Scope selects how much of warden's on-disk state to remove.
@@ -224,6 +225,7 @@ func RelPaths(scope Scope, keepBackends bool) []string {
 
 func dataPaths(keepBackends bool) []string {
 	paths := []string{
+		"warden-db",
 		"sessions-db",
 		"sessions",
 		"closed",
@@ -273,6 +275,16 @@ func Wipe(opts Options) error {
 	scope := opts.Scope
 	if scope != ScopeRuntime && scope != ScopeData && scope != ScopeFull {
 		return fmt.Errorf("factory reset: unknown scope %q", scope)
+	}
+	status, err := wardendb.Probe(dataDir)
+	if err != nil {
+		return fmt.Errorf("factory reset: probe %s: %w", wardendb.DirName, err)
+	}
+	if status.Exists && scope == ScopeRuntime {
+		return fmt.Errorf("factory reset: runtime scope is not available for unified storage; use --scope data")
+	}
+	if status.Exists && opts.KeepBackends {
+		return fmt.Errorf("factory reset: --keep-backends is not available for unified storage; backend records share %s", wardendb.DirName)
 	}
 
 	for _, rel := range RelPaths(scope, opts.KeepBackends) {

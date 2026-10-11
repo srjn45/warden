@@ -21,6 +21,7 @@ import (
 	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/repair"
 	"github.com/srjn45/warden/internal/store"
+	"github.com/srjn45/warden/internal/wardendb"
 )
 
 func newRepairCmd() *cobra.Command {
@@ -28,8 +29,57 @@ func newRepairCmd() *cobra.Command {
 	root.AddCommand(newRepairSessionsCmd())
 	root.AddCommand(newRepairAgentsCmd())
 	root.AddCommand(newRepairBackendsCmd())
+	root.AddCommand(newRepairWardenDBCmd())
 	root.AddCommand(newRepairAllCmd())
 	return root
+}
+
+func newRepairWardenDBCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "warden-db",
+		Short: "Verify or repair unified storage offline, backup-first",
+		Long: `Offline repair of the schema-2 unified store (<data>/warden-db).
+
+The daemon must be stopped. --dry-run is read-only. Repair requires a backup
+directory outside warden-db and refuses ambiguous history rather than guessing.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg := config.Load(configPathFor(cmd))
+			dry, _ := cmd.Flags().GetBool("dry-run")
+			backup, _ := cmd.Flags().GetString("backup-dir")
+			salvage, _ := cmd.Flags().GetBool("salvage")
+			jsonOut, _ := cmd.Flags().GetBool("json")
+			if dry {
+				rep, err := wardendb.Verify(cmd.Context(), cfg.DataDir)
+				if jsonOut {
+					if encodeErr := json.NewEncoder(cmd.OutOrStdout()).Encode(rep); encodeErr != nil {
+						return encodeErr
+					}
+					return err
+				}
+				if err != nil {
+					return err
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "warden-db repair dry-run: health=%s blocking=%d recoverable=%d; no files changed\n", rep.Health, rep.Blocking, rep.Recoverable)
+				return nil
+			}
+			if backup == "" {
+				return errors.New("repair warden-db requires --backup-dir")
+			}
+			rep, err := wardendb.Repair(cmd.Context(), cfg.DataDir, wardendb.RepairOptions{BackupDir: backup, Salvage: salvage})
+			if jsonOut {
+				_ = json.NewEncoder(cmd.OutOrStdout()).Encode(rep)
+			} else if rep != nil {
+				fmt.Fprintf(cmd.OutOrStdout(), "warden-db repair complete: changed=%t backup=%s refused=%d\n", rep.Changed, rep.BackupDir, len(rep.Refused))
+			}
+			return err
+		},
+	}
+	cmd.Flags().Bool("dry-run", false, "verify and report only; do not modify files")
+	cmd.Flags().String("backup-dir", "", "directory for the verified pre-repair backup")
+	cmd.Flags().Bool("salvage", false, "permit quarantining damaged segments after backing up valid records")
+	cmd.Flags().Bool("json", false, "print the machine-readable Verify/Repair report")
+	return cmd
 }
 
 func newRepairSessionsCmd() *cobra.Command {

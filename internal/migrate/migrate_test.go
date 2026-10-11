@@ -14,6 +14,7 @@ import (
 	"github.com/srjn45/warden/internal/schedule"
 	"github.com/srjn45/warden/internal/schema"
 	"github.com/srjn45/warden/internal/snapshot"
+	"github.com/srjn45/warden/internal/wardendb"
 )
 
 func TestRegistry_RegisterAndPlan(t *testing.T) {
@@ -65,6 +66,17 @@ func TestRegistry_RegisterAndPlan(t *testing.T) {
 	// Missing path error
 	_, err = reg.Plan(0, 3)
 	require.ErrorIs(t, err, ErrInvalidPath)
+}
+
+func TestVerifyAllStoresRecognizesWardenDB(t *testing.T) {
+	dir := t.TempDir()
+	db, err := wardendb.Open(dir)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	findings, err := VerifyAllStores(context.Background(), dir)
+	require.NoError(t, err)
+	require.Empty(t, findings)
 }
 
 func TestRunner_Check(t *testing.T) {
