@@ -4419,6 +4419,7 @@ Commands:
   all                  Rebuild all ScrivaDB stores offline using live-wins record resolution
   backends             Verify or repair the backend registry offline, backup-first
   sessions             Diagnose or reconstruct the offline session store
+  warden-db            Verify or repair unified storage offline, backup-first
 
 Flags:
   -h, --help   help for repair
@@ -4552,6 +4553,29 @@ Flags:
       --dry-run         diagnose and report without changing session data
   -h, --help            help for sessions
       --json            print the machine-readable recovery report
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden inspect repair warden-db
+
+```text
+Offline repair of the schema-2 unified store (<data>/warden-db).
+
+The daemon must be stopped. --dry-run is read-only. Repair requires a backup
+directory outside warden-db and refuses ambiguous history rather than guessing.
+
+Usage:
+  warden inspect repair warden-db [flags]
+
+Flags:
+      --backup-dir string   directory for the verified pre-repair backup
+      --dry-run             verify and report only; do not modify files
+  -h, --help                help for warden-db
+      --json                print the machine-readable Verify/Repair report
+      --salvage             permit quarantining damaged segments after backing up valid records
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -6074,6 +6098,7 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | `warden repair all` | `warden inspect repair all` |
 | `warden repair backends` | `warden inspect repair backends` |
 | `warden repair sessions` | `warden inspect repair sessions` |
+| `warden repair warden-db` | `warden inspect repair warden-db` |
 | `warden repl` | `warden backend repl` |
 | `warden restore` | `warden agent restore` |
 | `warden role` | `warden agent role` |
