@@ -12,6 +12,7 @@ import (
 
 	"github.com/srjn45/scriva/engine"
 	"github.com/srjn45/warden/internal/backendstore"
+	"github.com/srjn45/warden/internal/wardendb"
 )
 
 // KnownStores lists the relative paths of standard ScrivaDB stores within a Warden data directory.
@@ -121,6 +122,8 @@ func isScrivaStore(dir string) bool {
 func RepairCommandFor(store string) string {
 	store = filepath.ToSlash(store)
 	switch {
+	case store == wardendb.DirName || strings.HasPrefix(store, wardendb.DirName+"/"):
+		return "warden repair warden-db"
 	case store == "backends" || strings.HasPrefix(store, "backends/"):
 		return "warden repair backends"
 	case store == "agents-db" || strings.HasPrefix(store, "agents-db/") || store == "agents":
@@ -146,9 +149,26 @@ func VerifyAllStores(ctx context.Context, dataDir string) ([]Finding, error) {
 	}
 
 	var findings []Finding
+	if status, err := wardendb.Probe(dataDir); err != nil {
+		return nil, fmt.Errorf("verify %s: %w", wardendb.DirName, err)
+	} else if status.Exists {
+		dbFindings, err := verifyWardenDB(ctx, dataDir)
+		if err != nil {
+			findings = append(findings, Finding{Severity: SeverityBlocking, Store: wardendb.DirName, Message: fmt.Sprintf("%s: verification failed: %v", wardendb.DirName, err), Command: RepairCommandFor(wardendb.DirName)})
+		} else {
+			findings = append(findings, dbFindings...)
+		}
+	}
 
 	for _, storeRel := range stores {
 		fullPath := filepath.Join(dataDir, filepath.FromSlash(storeRel))
+
+		// warden-db is a single, cross-collection database. Verify it through its
+		// own read-only verifier so transaction state and ownership are reported
+		// correctly instead of treating its collections as unrelated Scriva stores.
+		if storeRel == wardendb.DirName {
+			continue
+		}
 
 		// Special-cased verify for backend registry to preserve its recoverable vs ambiguous classification
 		if storeRel == "backends" {
@@ -179,6 +199,31 @@ func VerifyAllStores(ctx context.Context, dataDir string) ([]Finding, error) {
 		}
 	}
 
+	return findings, nil
+}
+
+func verifyWardenDB(ctx context.Context, dataDir string) ([]Finding, error) {
+	rep, err := wardendb.Verify(ctx, dataDir)
+	if err != nil {
+		return nil, err
+	}
+	var findings []Finding
+	for _, f := range append(append([]wardendb.Finding(nil), rep.Database.Blocking...), rep.Database.Recoverable...) {
+		severity := SeverityAuto
+		if f.Severity != string(engine.SeverityRepairableIndex) && f.Code != "xtx-undecided-run" {
+			severity = SeverityBlocking
+		}
+		findings = append(findings, Finding{Severity: severity, Store: wardendb.DirName, Message: f.String(), Command: RepairCommandFor(wardendb.DirName)})
+	}
+	for _, c := range rep.Collections {
+		for _, f := range append(append([]wardendb.Finding(nil), c.Blocking...), c.Recoverable...) {
+			severity := SeverityAuto
+			if f.Severity != string(engine.SeverityRepairableIndex) && f.Code != "xtx-undecided-run" {
+				severity = SeverityBlocking
+			}
+			findings = append(findings, Finding{Severity: severity, Store: wardendb.DirName + "/" + c.Name, Message: f.String(), Command: RepairCommandFor(wardendb.DirName)})
+		}
+	}
 	return findings, nil
 }
 

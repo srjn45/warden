@@ -18,6 +18,7 @@ import (
 	"github.com/srjn45/scriva/store"
 	"github.com/srjn45/warden/internal/migrate"
 	"github.com/srjn45/warden/internal/ownerlock"
+	"github.com/srjn45/warden/internal/wardendb"
 )
 
 // DroppedRecord describes a record excluded during rebuild with rationale.
@@ -106,6 +107,13 @@ func RepairAll(ctx context.Context, opts Options) (*Report, error) {
 	stores, err := migrate.DiscoverStores(opts.DataDir)
 	if err != nil {
 		return nil, fmt.Errorf("repair all: discover stores: %w", err)
+	}
+	status, err := wardendb.Probe(opts.DataDir)
+	if err != nil {
+		return nil, fmt.Errorf("repair all: probe %s: %w", wardendb.DirName, err)
+	}
+	if status.Exists {
+		return nil, fmt.Errorf("repair all: %s uses cross-collection integrity rules; run `warden repair warden-db` instead", wardendb.DirName)
 	}
 
 	if opts.DryRun {

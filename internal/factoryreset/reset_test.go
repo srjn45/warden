@@ -13,6 +13,7 @@ import (
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/schedule"
 	"github.com/srjn45/warden/internal/store"
+	"github.com/srjn45/warden/internal/wardendb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -23,6 +24,7 @@ func TestRelPathsScopes(t *testing.T) {
 	require.NotContains(t, runtime, "projects")
 
 	data := RelPaths(ScopeData, true)
+	require.Contains(t, data, "warden-db")
 	require.Contains(t, data, "sessions-db")
 	require.Contains(t, data, "projects")
 	require.NotContains(t, data, "backends")
@@ -84,6 +86,18 @@ func TestWipeRuntimeKeepsClosedAndProjects(t *testing.T) {
 	_, err = os.Stat(filepath.Join(dir, "projects"))
 	require.NoError(t, err)
 	require.NoFileExists(t, filepath.Join(dir, "sessions-db", "active", "keep"))
+}
+
+func TestWipeUnifiedStorageProtectsUnsupportedPartialScopes(t *testing.T) {
+	dir := t.TempDir()
+	db, err := wardendb.Open(dir)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	require.ErrorContains(t, Wipe(Options{DataDir: dir, Scope: ScopeRuntime}), "runtime scope")
+	require.ErrorContains(t, Wipe(Options{DataDir: dir, Scope: ScopeData, KeepBackends: true}), "keep-backends")
+	require.NoError(t, Wipe(Options{DataDir: dir, Scope: ScopeData}))
+	require.NoDirExists(t, filepath.Join(dir, wardendb.DirName))
 }
 
 func TestWipeFullResetsConfig(t *testing.T) {

@@ -1,12 +1,15 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/srjn45/warden/internal/wardendb"
 )
 
 func TestCheckBinary(t *testing.T) {
@@ -18,6 +21,26 @@ func TestCheckBinary(t *testing.T) {
 	}
 	if r := checkBinary("foo", false, missLook); r.ok || r.required {
 		t.Fatalf("missing optional should be not-ok, not-required: %+v", r)
+	}
+}
+
+func TestCheckUnifiedStorage(t *testing.T) {
+	legacy := checkUnifiedStorage(context.Background(), t.TempDir())
+	if !legacy.ok || !strings.Contains(legacy.detail, "schema-1 compatibility") {
+		t.Fatalf("legacy check = %+v", legacy)
+	}
+
+	dir := t.TempDir()
+	db, err := wardendb.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	shared := checkUnifiedStorage(context.Background(), dir)
+	if !shared.ok || !strings.Contains(shared.detail, "healthy") {
+		t.Fatalf("shared check = %+v", shared)
 	}
 }
 
