@@ -108,6 +108,33 @@ func TestExportSchema2Staging_RefusesDivergentTarget(t *testing.T) {
 	requireBlocking(t, rep.Findings, "agents", "differs")
 }
 
+func TestVerifySchema2Equivalence_ReportsStableCountsHashesAndTampering(t *testing.T) {
+	d := stagingLegacyDir(t)
+	target := filepath.Join(t.TempDir(), "staging")
+	_, err := ExportSchema2Staging(context.Background(), d, StagingExportOptions{TargetDir: target, Now: t0})
+	require.NoError(t, err)
+
+	rep, err := VerifySchema2Equivalence(context.Background(), d, target)
+	require.NoError(t, err)
+	require.True(t, rep.Passed, "%+v", rep.Findings)
+	require.Equal(t, rep.SourceCounts, rep.TargetCounts)
+	require.Equal(t, rep.SourceHashes, rep.TargetHashes)
+	require.Equal(t, 2, rep.SourceCounts["agents"])
+
+	db, err := scriva.Open(target, scriva.WithSyncMode(engine.SyncModeAlways))
+	require.NoError(t, err)
+	col, err := db.Collection("agents")
+	require.NoError(t, err)
+	_, err = col.Upsert("agent-1", map[string]any{"id": "agent-1", "subject": "tampered"})
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	rep, err = VerifySchema2Equivalence(context.Background(), d, target)
+	require.ErrorIs(t, err, ErrStagingExportRefused)
+	require.False(t, rep.Passed)
+	requireBlocking(t, rep.Findings, "agents", "count or canonical hash differs")
+}
+
 func stagingLegacyDir(t *testing.T) string {
 	t.Helper()
 	d := t.TempDir()
