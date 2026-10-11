@@ -35,6 +35,9 @@ type AgentRecord struct {
 	PipelineID    string `json:"pipeline_id,omitempty"`
 	JobID         string `json:"job_id,omitempty"`
 	Lifecycle     string `json:"lifecycle"`
+	ArchivedAt    string `json:"archived_at,omitempty"`
+	ArchivedFrom  string `json:"archived_from_status,omitempty"`
+	Scope         string `json:"scope,omitempty"`
 	Revision      uint64 `json:"revision"`
 }
 
