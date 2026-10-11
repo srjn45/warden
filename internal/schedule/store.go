@@ -42,8 +42,11 @@ const importedMarker = ".schedules-filedb-imported"
 // faithful port of the previous mutex model.
 type Store struct {
 	mu  sync.Mutex
-	db  *scriva.DB
-	col *engine.Collection
+	db  *scriva.DB // nil on the shared-handle path (the handle owner closes it)
+	col docs
+	// release runs on Close; nil for a shared-handle store, whose DB is owned
+	// and closed by whoever opened the wardendb handle (tests set it to reopen).
+	release func() error
 }
 
 // NewStore opens (creating if needed) the ScrivaDB-backed schedule store. The path
@@ -90,7 +93,11 @@ var LegacyImport = legacyimport.Importer{
 			return err
 		}
 		defer s.Close()
-		return importLegacy(path, s.col)
+		col, err := s.engineCollection()
+		if err != nil {
+			return err
+		}
+		return importLegacy(path, col)
 	},
 	Verify: func(dir string) error {
 		path := filepath.Join(dir, "schedules.json")
@@ -298,5 +305,24 @@ func (s *Store) Delete(id string) error {
 
 // Close flushes the ScrivaDB index and stops its background compaction goroutine.
 func (s *Store) Close() error {
+	if s.db == nil {
+		if s.release != nil {
+			return s.release()
+		}
+		return nil // shared-handle store: the handle owner closes the DB
+	}
 	return s.db.Close()
+}
+
+// newStore wraps a shared-handle collection resolver.
+func newStore(col docs) *Store { return &Store{col: col} }
+
+// engineCollection returns the legacy engine collection for the legacy import
+// helper, which only ever runs against a store opened by NewStore.
+func (s *Store) engineCollection() (*engine.Collection, error) {
+	col, ok := s.col.(*engine.Collection)
+	if !ok {
+		return nil, errors.New("schedule store: legacy import requires a path-opened store")
+	}
+	return col, nil
 }
