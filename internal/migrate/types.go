@@ -58,6 +58,17 @@ type Env struct {
 	Logger        *slog.Logger
 	Context       context.Context
 	StepFn        func(name string) error
+	// SnapshotFn records the immutable rollback source in the schema journal.
+	// A migration must call it immediately after creating a backup, before it
+	// makes any live-state change.
+	SnapshotFn func(path string) error
+}
+
+func (e Env) Snapshot(path string) error {
+	if e.SnapshotFn != nil {
+		return e.SnapshotFn(path)
+	}
+	return nil
 }
 
 // Step records step progress in the journal.
