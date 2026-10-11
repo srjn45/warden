@@ -25,7 +25,7 @@ const (
 // nil (recording disabled); collector may be nil (live snapshot returns empty).
 // tokenWarn/tokenCrit are the context-token bands the history anomaly detector
 // reuses (0 disables the matching check).
-func (s *Server) SetMetrics(c *metrics.Collector, r *metrics.Recorder, enabled bool, tokenWarn, tokenCrit int) {
+func (s *Server) SetMetrics(c *metrics.Collector, r metrics.SampleStore, enabled bool, tokenWarn, tokenCrit int) {
 	s.mcollector = c
 	s.mrecorder = r
 	s.metricsOn = enabled

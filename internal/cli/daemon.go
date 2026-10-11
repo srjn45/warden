@@ -20,41 +20,31 @@ import (
 	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/auth"
 	"github.com/srjn45/warden/internal/autopilot"
-	"github.com/srjn45/warden/internal/autopilotstore"
 	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/backendusage"
 	"github.com/srjn45/warden/internal/capacity"
 	"github.com/srjn45/warden/internal/config"
-	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/ctxtokens"
 	"github.com/srjn45/warden/internal/curate"
 	"github.com/srjn45/warden/internal/daemon"
 	"github.com/srjn45/warden/internal/digest"
 	"github.com/srjn45/warden/internal/fastbrain"
-	"github.com/srjn45/warden/internal/knownprompts"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/logging"
-	"github.com/srjn45/warden/internal/mailbox"
 	"github.com/srjn45/warden/internal/memory"
 	"github.com/srjn45/warden/internal/metrics"
 	"github.com/srjn45/warden/internal/notify"
 	"github.com/srjn45/warden/internal/ownerlock"
-	"github.com/srjn45/warden/internal/pipeline"
-	"github.com/srjn45/warden/internal/planexport"
-	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/plansync"
 	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/poller"
-	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/relay"
 	"github.com/srjn45/warden/internal/router"
 	"github.com/srjn45/warden/internal/savings"
-	"github.com/srjn45/warden/internal/schedule"
 	"github.com/srjn45/warden/internal/schema"
 	"github.com/srjn45/warden/internal/snapshot"
-	"github.com/srjn45/warden/internal/spend"
+	"github.com/srjn45/warden/internal/storage"
 	"github.com/srjn45/warden/internal/store"
-	"github.com/srjn45/warden/internal/terminalstore"
 	"github.com/srjn45/warden/internal/tmuxproc"
 )
 
@@ -182,42 +172,12 @@ func newDaemonRunCmd() *cobra.Command {
 					"schema_version", schemaBoot.Ledger.SchemaVersion, "baseline", schemaBoot.Ledger.History[0].Migration)
 			}
 
-			st, err := agentstore.New(cfg.DataDir)
+			stores, err := storage.Open(cfg.DataDir)
 			if err != nil {
-				var oe *agentstore.OwnershipError
-				if errors.As(err, &oe) {
-					// Refused before any listener, import, reconcile or goroutine:
-					// nothing was touched. Audit it and give the safe next step.
-					slog.Error("audit: daemon startup refused", "audit", true, "action", "daemon_start",
-						"outcome", "refused_owned", "data_dir", oe.Dir, "lock", oe.Lock)
-					return fmt.Errorf("%w\nnext step: %s", err, oe.NextStep())
-				}
-				return err
+				return withBackendRecoverySteps(err)
 			}
-			defer st.Close()
-
-			termStore, err := terminalstore.New(cfg.DataDir)
-			if err != nil {
-				return err
-			}
-			defer termStore.Close()
-
-			cstore, err := ctxstore.New(filepath.Join(cfg.DataDir, "context"))
-			if err != nil {
-				return err
-			}
-
-			// ctxstore is now an embedded ScrivaDB store with background goroutines;
-			// close it on shutdown to flush its index and stop the compaction loop.
-			defer cstore.Close()
-
-			mbox, err := mailbox.New(filepath.Join(cfg.DataDir, "inbox"))
-			if err != nil {
-				return err
-			}
-
-			// mailbox is an embedded ScrivaDB store (see cstore above); close on shutdown.
-			defer mbox.Close()
+			defer stores.Close()
+			st, termStore, cstore, mbox := stores.Agents, stores.Terminals, stores.Context, stores.Mailbox
 
 			runner := lifecycle.HintingExecRunner{Inner: lifecycle.ExecRunner{}}
 			lc := lifecycle.New(runner, cfg)
@@ -273,7 +233,8 @@ func newDaemonRunCmd() *cobra.Command {
 			fbHealth := fastbrain.NewHealth(fastbrain.HealthOptions{})
 			// The audit writer is built later in this function; the engine's
 			// operator-event hook reads it through this pointer.
-			var fbAudit atomic.Pointer[audit.Writer]
+			var fbAudit atomic.Value
+			fbAudit.Store(audit.Trail((*audit.Writer)(nil)))
 			fbDisabled := make([]fastbrain.DecisionKind, 0, len(cfg.FastBrain.DisabledKinds))
 			for _, k := range cfg.FastBrain.DisabledKinds {
 				fbDisabled = append(fbDisabled, fastbrain.DecisionKind(k))
@@ -293,7 +254,7 @@ func newDaemonRunCmd() *cobra.Command {
 						if action == fastbrain.AuditControl {
 							return
 						}
-						fbAudit.Load().Log(audit.Event{Time: time.Now(), Action: action, Target: target, Detail: detail})
+						fbAudit.Load().(audit.Trail).Log(audit.Event{Time: time.Now(), Action: action, Target: target, Detail: detail})
 					},
 				})
 			pl.FastBrain = fbEngine
@@ -302,21 +263,11 @@ func newDaemonRunCmd() *cobra.Command {
 			pl.RateLimitAutoResume = cfg.RateLimit.AutoResume
 			pl.SetTrustWorkspace(cfg.TrustWorkspace)
 			pl.SetRecognizePrompts(cfg.RecognizePrompts)
-			knownStore, err := knownprompts.New(cfg.DataDir)
-			if err != nil {
-				return err
-			}
-			defer knownStore.Close()
+			knownStore := stores.KnownPrompts
 			knownStore.SetLimits(cfg.KnownPromptsMax, time.Duration(cfg.KnownPromptsPruneDays)*24*time.Hour)
 			knownStore.Prune()
 			pl.Known = knownStore
-			pstore, err := pipeline.NewStore(filepath.Join(cfg.DataDir, "pipelines"))
-			if err != nil {
-				return err
-			}
-			// pstore is now an embedded ScrivaDB store with background goroutines
-			// (see cstore above); close it on shutdown to flush and stop compaction.
-			defer pstore.Close()
+			pstore := stores.Pipelines
 			if err := daemon.HardenDataDir(cfg.DataDir); err != nil {
 				return err
 			}
@@ -342,21 +293,12 @@ func newDaemonRunCmd() *cobra.Command {
 			} else {
 				srv.SetCollabInterval(0)
 			}
-			snapStore, err := snapshot.NewStore(filepath.Join(cfg.DataDir, "snapshots"))
-			if err != nil {
-				return err
-			}
-			// snapshot metadata is now an embedded ScrivaDB store (see cstore above);
-			// close it on shutdown to flush its index and stop the compaction loop.
-			defer snapStore.Close()
+			snapStore := stores.Snapshots
 			srv.SetSnapshots(cfg.Snapshots, snapshot.New(runner, snapStore))
 			// Token-savings ledger: the store is created regardless of the gate so
 			// toggling savings on later doesn't lose prior data; the gate decides
 			// whether features record and GET /savings serves.
-			savStore, err := savings.NewStore(filepath.Join(cfg.DataDir, "savings"))
-			if err != nil {
-				return err
-			}
+			savStore := stores.Savings
 			srv.SetSavings(cfg.Tokens.Savings, savStore, cfg.Tokens.SavingsSamples)
 			// Apply a previously-derived calibration factor (wd savings --calibrate)
 			// so a freshly started daemon prices new events by this workload's measured
@@ -369,10 +311,7 @@ func newDaemonRunCmd() *cobra.Command {
 			// read from agents' transcripts, feeding the savings report's denominator.
 			// Created regardless of the gate (like the ledger) so toggling savings on
 			// later doesn't lose prior data; recording is gate-aware on the Server.
-			spendStore, err := spend.NewStore(filepath.Join(cfg.DataDir, "spend"))
-			if err != nil {
-				return err
-			}
+			spendStore := stores.Spend
 			srv.SetSpend(spendStore)
 			pl.OnSpend = srv.RecordSpend
 			// Let the LLM-offload sites (Classify/Summarize) inside lifecycle record
@@ -395,11 +334,7 @@ func newDaemonRunCmd() *cobra.Command {
 			// Native scheduler (#15): opt-in (scheduler_enabled, default off). The
 			// store file is created regardless so toggling the gate on doesn't lose a
 			// prior schedules.json; the gate decides whether the routes + loop run.
-			schedStore, err := schedule.NewStore(filepath.Join(cfg.DataDir, "schedules.json"))
-			if err != nil {
-				return err
-			}
-			defer schedStore.Close()
+			schedStore := stores.Schedules
 			srv.SetScheduler(cfg.SchedulerEnabled, schedStore, time.Minute)
 
 			// Backend registry (docs/specs/2026-08-06-backend-registry.md): the DB
@@ -412,13 +347,7 @@ func newDaemonRunCmd() *cobra.Command {
 			// Open recovers a registry whose only problem is provably stale revision
 			// history (backup-first, audited); ambiguous history fails startup with
 			// a typed *backendstore.RecoveryRequiredError naming the repair command.
-			backendStore, _, err := backendstore.Open(filepath.Join(cfg.DataDir, "backends"), backendstore.Options{})
-			if err != nil {
-				// Names `warden repair backends`, the report and the stop/verify/
-				// repair/start procedure; other errors pass through unchanged.
-				return withBackendRecoverySteps(err)
-			}
-			defer backendStore.Close()
+			backendStore := stores.Backends
 			if rerr := backendstore.Reconcile(backendStore, agentbackend.Detect(), time.Now()); rerr != nil {
 				return rerr
 			}
@@ -427,10 +356,7 @@ func newDaemonRunCmd() *cobra.Command {
 				fbCandidates.SetStore(backendStore)
 			}
 			usageService := backendusage.NewService(backendStore)
-			usageSnapshots, err := backendusage.NewSnapshotStore(filepath.Join(cfg.DataDir, "usage-snapshots"))
-			if err != nil {
-				return err
-			}
+			usageSnapshots := stores.UsageSnapshots
 			usageService.SetSnapshotStore(usageSnapshots)
 			srv.SetUsageService(usageService)
 			srv.SetUsageReconciliation(
@@ -438,10 +364,7 @@ func newDaemonRunCmd() *cobra.Command {
 				cfg.UsageReconciliationIntervalDuration(),
 				cfg.UsageReconciliationStaleAfterDuration(),
 			)
-			impactFences, err := capacity.NewDurableFenceStore(filepath.Join(cfg.DataDir, "quota-impact"))
-			if err != nil {
-				return err
-			}
+			impactFences := stores.ImpactFences
 			srv.SetImpactFences(impactFences)
 			lc.Resolver = router.NewResolver(backendStore)
 			lc.CapacityResolver = capacity.NewResolver(backendStore, nil)
@@ -450,27 +373,15 @@ func newDaemonRunCmd() *cobra.Command {
 			// Phase 1): the parent entity agents and pipelines group under via
 			// ProjectID. A fresh embedded ScrivaDB store; the /api/v1/projects routes
 			// guard on it.
-			projectStore, err := projectstore.NewStore(filepath.Join(cfg.DataDir, "projects"))
-			if err != nil {
-				return err
-			}
-			defer projectStore.Close()
+			projectStore := stores.Projects
 			srv.SetProjects(projectStore)
 
 			// Plan store (docs/specs/2026-09-28-plans-first-class.md Phase 1).
 			// Opened alongside the project store; the daemon auto-scans plans/ for
 			// every known project at startup when both stores are wired.
-			planStore, err := planstore.New(filepath.Join(cfg.DataDir, "plans"))
-			if err != nil {
-				return err
-			}
-			defer planStore.Close()
+			planStore := stores.Plans
 			srv.SetPlanStore(planStore)
-			planExportStore, err := planexport.NewStore(filepath.Join(cfg.DataDir, "plans"))
-			if err != nil {
-				return err
-			}
-			defer planExportStore.Close()
+			planExportStore := stores.PlanExports
 			srv.SetPlanExportStore(planExportStore)
 			planSyncProvider, err := plansync.New(plansync.ClientConfig{
 				Provider: cfg.PlanSync.Provider,
@@ -548,7 +459,9 @@ func newDaemonRunCmd() *cobra.Command {
 			// every surface but no brain spawns yet. baseDir anchors relative plan
 			// paths to the daemon's working directory.
 			apBaseDir, _ := os.Getwd()
-			apCtrl := autopilot.NewController(buildAutopilotControllerConfig(cfg, apBaseDir, lc.Resolver), nil)
+			apCfg := buildAutopilotControllerConfig(cfg, apBaseDir, lc.Resolver)
+			apCfg.RunStore = stores.AutopilotRuns
+			apCtrl := autopilot.NewController(apCfg, nil)
 			defer apCtrl.Close()
 			apCtrl.SetFastBrain(lc.FastBrain)
 			srv.SetAutopilotController(apCtrl)
@@ -583,7 +496,7 @@ func newDaemonRunCmd() *cobra.Command {
 			srv.SetBudget(cfg.Tokens.BudgetGate, cfg.Tokens.BudgetDailyUSD, cfg.Tokens.BudgetWeeklyUSD)
 			srv.SetWorktreeRetention(cfg.Worktree.KeepDone, cfg.Worktree.AutoPrune)
 			srv.SetRelayPolicy(relay.Policy{AllowWebTerminated: cfg.Relay.AllowWebTerminated})
-			auditWriter := audit.NewWriter(filepath.Join(cfg.DataDir, "audit.jsonl"))
+			auditWriter := stores.Audit
 			srv.SetAudit(auditWriter)
 			fbAudit.Store(auditWriter)
 			srv.SetAuditTrustedProxies(trustedProxies)
@@ -592,10 +505,7 @@ func newDaemonRunCmd() *cobra.Command {
 			// manager's POST /autopilot/brain-consult entry point (Phase 3 / D5).
 			srv.ConfigureBrainConsult(cfg.BrainConsult)
 			mcol := metrics.NewCollector(runner, daemon.NewAgentLister(st), srv.PressureName)
-			mrec, err := metrics.NewRecorder(filepath.Join(cfg.DataDir, "metrics"))
-			if err != nil {
-				return err
-			}
+			mrec := stores.Metrics
 			srv.SetMetrics(mcol, mrec, cfg.MetricsEnabled, cfg.Tokens.Warn, cfg.Tokens.Critical)
 			exec.SetDigestFn(srv.BuildDigest)
 			exec.SetKeepDoneAgents(cfg.Pipeline.KeepDone)
@@ -770,18 +680,12 @@ func newDaemonRunCmd() *cobra.Command {
 			// legacy RunRecords, then wire the store into the controller so Plan
 			// run mode=autopilot creates live Autopilot + manager (not plan-file
 			// registration alone). Best-effort — never blocks boot.
-			apLive, aperr := autopilotstore.New(cfg.DataDir)
-			if aperr != nil {
-				slog.Warn("daemon: autopilotstore open failed", "err", aperr)
-			} else {
-				defer apLive.Close()
-				apCtrl.SetLiveStore(apLive)
-				if planStore != nil {
-					apCtrl.SetPlanSource(planStore)
-				}
-				if rerr := apCtrl.RecoverLiveAutopilots(ctx); rerr != nil {
-					slog.Warn("daemon: live Autopilot recovery failed", "err", rerr)
-				}
+			apCtrl.SetLiveStore(stores.Autopilots)
+			if planStore != nil {
+				apCtrl.SetPlanSource(planStore)
+			}
+			if rerr := apCtrl.RecoverLiveAutopilots(ctx); rerr != nil {
+				slog.Warn("daemon: live Autopilot recovery failed", "err", rerr)
 			}
 
 			slog.Info("warden daemon listening", "addr", cfg.Addr)

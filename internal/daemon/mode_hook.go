@@ -19,7 +19,7 @@ const EventRelaunchPermissionMode = "relaunch-permission-mode"
 // resolution says to), appends an agent event and writes an audit record. The
 // lifecycle only calls it post-launch, so a failed relaunch leaves the stored
 // mode and the event log untouched.
-func NewModeNormalizedHook(st *agentstore.Store, a *audit.Writer) func(context.Context, lifecycle.ModeNormalization) {
+func NewModeNormalizedHook(st *agentstore.Store, a audit.Trail) func(context.Context, lifecycle.ModeNormalization) {
 	return func(ctx context.Context, n lifecycle.ModeNormalization) {
 		if n.Persist {
 			err := st.Update(ctx, n.AgentID, func(s *agentstore.Agent) error {

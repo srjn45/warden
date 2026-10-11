@@ -15,11 +15,10 @@ import (
 )
 
 const (
-	// autopilotsCollection is the contract catalogue name. The catalogue has a
-	// single autopilot_runs collection that unifies this identity store with
-	// autopilot.RunRecord; the two schema-1 record types cannot share one
-	// registration, so unification is the cutover task's job.
-	autopilotsCollection = "autopilot_runs"
+	// autopilotsCollection preserves the legacy live identity-store domain.
+	// It is distinct from autopilot_runs, the run ledger owned by autopilot.
+	// Any semantic unification is a schema-2 cutover concern.
+	autopilotsCollection = "autopilots"
 	recordSchemaVersion  = 1
 )
 

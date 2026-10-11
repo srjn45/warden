@@ -156,7 +156,7 @@ func (o *Options) role() string {
 
 // New returns a Consultor backed by spawner, writing audit events via aw.
 // aw may be nil (auditing disabled). opts tunes timeout and spawn parameters.
-func New(spawner Spawner, aw *audit.Writer, opts Options) Consultor {
+func New(spawner Spawner, aw audit.Trail, opts Options) Consultor {
 	return &consultor{
 		spawner: spawner,
 		aw:      aw,
@@ -166,7 +166,7 @@ func New(spawner Spawner, aw *audit.Writer, opts Options) Consultor {
 
 type consultor struct {
 	spawner Spawner
-	aw      *audit.Writer
+	aw      audit.Trail
 	opts    Options
 }
 
