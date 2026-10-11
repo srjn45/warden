@@ -99,10 +99,14 @@ func strictRemediation(c FindingClass) string {
 // legacy store. It is read-only and holds no lock; BeginSchema2 re-runs it
 // under the ownership lock. The returned plan is Blocked when anything refuses.
 func PreflightSchema2(ctx context.Context, dataDir string, now time.Time) (*Schema2Plan, error) {
+	return preflightSchema2(ctx, dataDir, now, false)
+}
+
+func preflightSchema2(ctx context.Context, dataDir string, now time.Time, allowOwnSchema2Journal bool) (*Schema2Plan, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	p, err := PlanSchema2(dataDir, now)
+	p, err := planSchema2(dataDir, now, allowOwnSchema2Journal)
 	if err != nil {
 		return nil, err
 	}

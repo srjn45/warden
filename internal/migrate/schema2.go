@@ -186,6 +186,15 @@ func backupDirName(t time.Time) string {
 
 // PlanSchema2 inspects dataDir without modifying it.
 func PlanSchema2(dataDir string, now time.Time) (*Schema2Plan, error) {
+	return planSchema2(dataDir, now, false)
+}
+
+// planSchema2 has one narrow internal exception for the migration runner. The
+// runner journals 0002 before it creates the immutable backup; that journal is
+// evidence that this exact cutover owns the directory, not a prior migration
+// for an operator to resolve. Public planning always reports every interrupted
+// migration as blocking.
+func planSchema2(dataDir string, now time.Time, allowOwnSchema2Journal bool) (*Schema2Plan, error) {
 	p := &Schema2Plan{
 		DataDir:   dataDir,
 		From:      schema.SchemaVersion,
@@ -224,7 +233,7 @@ func PlanSchema2(dataDir string, now time.Time) (*Schema2Plan, error) {
 	default:
 		p.Ledger = LedgerView{Present: true, SchemaVersion: l.SchemaVersion, BinaryVersion: l.BinaryVersion, Interrupted: l.MigrationInterrupted()}
 		switch {
-		case l.MigrationInterrupted():
+		case l.MigrationInterrupted() && !(allowOwnSchema2Journal && l.SchemaVersion == p.From && l.InProgress.Migration == Migration0002ID):
 			block(schema.FileName, "a previous migration was interrupted ("+l.InProgress.Migration+")",
 				"finish it with `warden migrate --resume`, or go back with `warden migrate --restore`")
 		case l.SchemaVersion >= schema.Schema2:
@@ -429,7 +438,7 @@ func beginSchema2Locked(dataDir, binaryVersion string, now time.Time) (*Schema2R
 	fail := func(err error) (*Schema2Run, error) { _ = run.Release(); return nil, err }
 
 	// Under our own lock the probe in PlanSchema2 reports "self" as unowned.
-	plan, err := PreflightSchema2(context.Background(), dataDir, now)
+	plan, err := preflightSchema2(context.Background(), dataDir, now, true)
 	if err != nil {
 		return fail(err)
 	}
