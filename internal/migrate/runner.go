@@ -136,6 +136,20 @@ func (rn *Runner) Restore(env Env) error {
 			snapDir = filepath.Join(env.DataDir, filepath.FromSlash(snapDir))
 		}
 		if fi, err := os.Stat(snapDir); err == nil && fi.IsDir() {
+			if l.InProgress.Migration == Migration0002ID {
+				if _, err := VerifySchema2Backup(snapDir); err != nil {
+					return fmt.Errorf("migrate: refuse schema-2 restore from invalid backup: %w", err)
+				}
+				// Never leave a schema-2 target beside the restored schema-1
+				// ledger. Preserve it for forensics rather than deleting it.
+				target := filepath.Join(env.DataDir, "warden-db")
+				if _, err := os.Lstat(target); err == nil {
+					moved := filepath.Join(env.DataDir, "backups", "abandoned-schema2-"+time.Now().UTC().Format("20060102T150405.000000000Z"))
+					if err := os.Rename(target, moved); err != nil {
+						return fmt.Errorf("migrate: preserve interrupted schema-2 target: %w", err)
+					}
+				}
+			}
 			if err := restoreSnapshot(snapDir, env.DataDir); err != nil {
 				return fmt.Errorf("migrate: restore snapshot: %w", err)
 			}
@@ -205,6 +219,10 @@ func (rn *Runner) runMigration(env Env, l *schema.Ledger, m Migration, startStep
 		return schema.Save(env.DataDir, l)
 	}
 	env.StepFn = stepRecorder
+	env.SnapshotFn = func(path string) error {
+		snap = path
+		return stepRecorder(l.InProgress.Step)
+	}
 
 	// 2. Execute steps or Run func
 	if len(m.Steps) > 0 {

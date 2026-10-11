@@ -408,7 +408,24 @@ func BeginSchema2(dataDir, binaryVersion string, now time.Time) (*Schema2Run, er
 	if err != nil {
 		return nil, fmt.Errorf("schema-2 migration needs the daemon stopped: %w", err)
 	}
-	run := &Schema2Run{lock: lock}
+	run, err := beginSchema2Locked(dataDir, binaryVersion, now)
+	if err != nil {
+		_ = lock.Release()
+		return nil, err
+	}
+	run.lock = lock
+	return run, nil
+}
+
+// BeginSchema2Locked is BeginSchema2 for callers which already own dataDir's
+// owner lock (the migration runner).  It deliberately does not acquire a
+// second lock, but retains every preflight/backup invariant of BeginSchema2.
+func BeginSchema2Locked(dataDir, binaryVersion string, now time.Time) (*Schema2Run, error) {
+	return beginSchema2Locked(dataDir, binaryVersion, now)
+}
+
+func beginSchema2Locked(dataDir, binaryVersion string, now time.Time) (*Schema2Run, error) {
+	run := &Schema2Run{}
 	fail := func(err error) (*Schema2Run, error) { _ = run.Release(); return nil, err }
 
 	// Under our own lock the probe in PlanSchema2 reports "self" as unowned.
