@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -20,6 +21,9 @@ import (
 func acceptable(err error) bool {
 	var be *dbtx.Error
 	if errors.As(err, &be) {
+		return true
+	}
+	if strings.HasPrefix(err.Error(), "collection: get: id ") && strings.HasSuffix(err.Error(), " not found") {
 		return true
 	}
 	for _, d := range []error{

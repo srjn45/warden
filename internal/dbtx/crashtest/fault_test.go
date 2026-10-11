@@ -141,15 +141,20 @@ func TestInjectedCommitFaults(t *testing.T) {
 					dir := b.fresh(t)
 					fe := &faultEngine{commit: fc.commit, status: fc.status}
 					release := make(chan struct{})
+					var cancelLateCommit context.CancelFunc
 					if fc.lateCommit {
 						fe.commit = func(call int, f *faultEngine, key string, ops []engine.XTxOp) (*engine.XTxResult, error) {
+							cancelLateCommit()
 							<-release
 							return f.Engine.CommitXTx(key, ops)
 						}
 					}
 					s := mustOpen(t, dir, func(in dbtx.Engine) dbtx.Engine { fe.Engine = in; return fe }, fc.opts...)
 					ctx := bg
-					if fc.ctxTimeout > 0 {
+					if fc.lateCommit {
+						ctx, cancelLateCommit = context.WithCancel(bg)
+						defer cancelLateCommit()
+					} else if fc.ctxTimeout > 0 {
 						var cancel context.CancelFunc
 						ctx, cancel = context.WithTimeout(bg, fc.ctxTimeout)
 						defer cancel()
