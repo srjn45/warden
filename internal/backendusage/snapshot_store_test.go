@@ -11,7 +11,7 @@ import (
 
 func TestSnapshotStoreAdapterContracts(t *testing.T) {
 	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
-	store, err := NewSnapshotStore(t.TempDir())
+	store, err := openTestStore(t, t.TempDir())
 	require.NoError(t, err)
 	rolling, weekly := 20.0, 100.0
 	reset := now.Add(5 * time.Hour)
@@ -50,7 +50,7 @@ func TestSnapshotStoreAdapterContracts(t *testing.T) {
 
 func TestSnapshotStoreFailedUnsupportedPartialAndStaleAreNotExhaustion(t *testing.T) {
 	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
-	store, err := NewSnapshotStore(t.TempDir())
+	store, err := openTestStore(t, t.TempDir())
 	require.NoError(t, err)
 	d := CapacityDomain{Provider: "cursor", ProfileFingerprint: "p"}
 	used := 35.0
@@ -74,7 +74,7 @@ func TestSnapshotStoreFailedUnsupportedPartialAndStaleAreNotExhaustion(t *testin
 func TestSnapshotStoreConflictingReadingFailsClosedAndSurvivesRestart(t *testing.T) {
 	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
 	dir := t.TempDir()
-	store, err := NewSnapshotStore(dir)
+	store, err := openTestStore(t, dir)
 	require.NoError(t, err)
 	d := CapacityDomain{Provider: "codex", ProfileFingerprint: "p"}
 	used, remaining := 1.0, 99.0
@@ -84,7 +84,7 @@ func TestSnapshotStoreConflictingReadingFailsClosedAndSurvivesRestart(t *testing
 	require.Equal(t, BucketExhausted, b.State)
 	_, err = store.Record(UsageSnapshot{Domain: d, ObservedAt: now, RecordedAt: now, SourceStatus: StatusRateLimited, Authoritative: true, Freshness: FreshnessFresh, Buckets: []CapacityBucket{b}})
 	require.NoError(t, err)
-	store, err = NewSnapshotStore(dir)
+	store, err = openTestStore(t, dir)
 	require.NoError(t, err)
 	got, ok, err := store.Latest(d, now, FreshTTL)
 	require.NoError(t, err)
@@ -93,7 +93,7 @@ func TestSnapshotStoreConflictingReadingFailsClosedAndSurvivesRestart(t *testing
 }
 
 func TestSnapshotStoreLatestAllMarksFreshness(t *testing.T) {
-	store, err := NewSnapshotStore(t.TempDir())
+	store, err := openTestStore(t, t.TempDir())
 	require.NoError(t, err)
 	now := time.Now().UTC()
 	used := 100.0
@@ -114,7 +114,7 @@ func TestSnapshotStoreLatestAllMarksFreshness(t *testing.T) {
 
 func TestSnapshotStorePrunesExpiredHistoryButKeepsRecentObservations(t *testing.T) {
 	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
-	store, err := NewSnapshotStore(t.TempDir())
+	store, err := openTestStore(t, t.TempDir())
 	require.NoError(t, err)
 	store.retention = time.Hour
 	d := CapacityDomain{Provider: "claude"}

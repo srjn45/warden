@@ -116,7 +116,7 @@ func TestTruncateSample(t *testing.T) {
 // but with sampling off the store strips it before writing — the ledger never
 // persists raw/kept output unless opted in.
 func TestStoreSampleGateOff(t *testing.T) {
-	s, err := NewStore(filepath.Join(t.TempDir(), "savings"))
+	s, err := openTestStore(t, filepath.Join(t.TempDir(), "savings"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func TestStoreSampleGateOff(t *testing.T) {
 // sampleEvery sample-eligible events keeps its sample (the 1st, then every Nth),
 // bounding ledger growth.
 func TestStoreSampleGateOnRetainsSampled(t *testing.T) {
-	s, err := NewStore(filepath.Join(t.TempDir(), "savings"))
+	s, err := openTestStore(t, filepath.Join(t.TempDir(), "savings"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +173,7 @@ func TestStoreSampleGateOnRetainsSampled(t *testing.T) {
 // TestStoreReport checks Report fans a single ledger scan into the summary, the
 // per-day buckets, and the retained samples together.
 func TestStoreReport(t *testing.T) {
-	s, err := NewStore(filepath.Join(t.TempDir(), "savings"))
+	s, err := openTestStore(t, filepath.Join(t.TempDir(), "savings"))
 	if err != nil {
 		t.Fatal(err)
 	}

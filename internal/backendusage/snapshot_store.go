@@ -21,6 +21,9 @@ type SnapshotStore struct {
 	mu        sync.Mutex
 	path      string
 	retention time.Duration
+	// shared, when non-nil, is the warden-db backing (NewSnapshotStoreFromDB);
+	// the JSONL path is used otherwise and remains the production default.
+	shared docs
 }
 
 func NewSnapshotStore(dir string) (*SnapshotStore, error) {
@@ -79,8 +82,14 @@ func (s *SnapshotStore) Record(in UsageSnapshot) (UsageSnapshot, error) {
 			}
 		}
 	}
-	all = append(all, in)
 	cutoff := in.RecordedAt.Add(-s.retention)
+	if s.shared != nil {
+		if err := s.sharedWrite(all, in, cutoff); err != nil {
+			return UsageSnapshot{}, err
+		}
+		return in, nil
+	}
+	all = append(all, in)
 	kept := all[:0]
 	for _, v := range all {
 		if !v.RecordedAt.Before(cutoff) {
@@ -162,6 +171,9 @@ func freshnessAt(out UsageSnapshot, now time.Time, staleAfter time.Duration) Fre
 }
 
 func (s *SnapshotStore) readLocked() ([]UsageSnapshot, error) {
+	if s.shared != nil {
+		return s.sharedRead()
+	}
 	f, err := os.Open(s.path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
