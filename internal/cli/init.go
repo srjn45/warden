@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/migrate"
+	"github.com/srjn45/warden/internal/ownerlock"
 	"github.com/srjn45/warden/internal/schema"
 )
 
@@ -55,6 +56,16 @@ Upgrade and fresh install share the same migration code path.`,
 
 			migrated := false
 			if l.SchemaVersion < schema.SchemaVersion {
+				// A migration (notably the schema-2 cutover) must own the data dir
+				// exclusively, exactly like `warden migrate --apply`: refuse while
+				// a daemon or another CLI holds it.
+				lock, err := ownerlock.Acquire(dataDir, ownerlock.Info{
+					Kind: ownerlock.KindCLI, Version: version, Command: "warden init",
+				})
+				if err != nil {
+					return fmt.Errorf("cannot migrate the data directory while the daemon is running: %w", err)
+				}
+				defer lock.Release()
 				rn := migrate.NewRunner(nil)
 				if err := rn.Apply(migrate.Env{
 					DataDir:       dataDir,
@@ -69,9 +80,13 @@ Upgrade and fresh install share the same migration code path.`,
 				}
 			}
 
-			// Ensure standard ScrivaDB store directories exist
-			for _, storeRel := range migrate.KnownStores {
-				_ = os.MkdirAll(filepath.Join(dataDir, filepath.FromSlash(storeRel)), 0o700)
+			// Schema 1 keeps one directory per store; schema 2 has a single
+			// warden-db that the daemon creates on first open, and pre-creating
+			// the legacy directories beside it would only mislead the guards.
+			if l.SchemaVersion < schema.Schema2 {
+				for _, storeRel := range migrate.KnownStores {
+					_ = os.MkdirAll(filepath.Join(dataDir, filepath.FromSlash(storeRel)), 0o700)
+				}
 			}
 
 			out := initOutput{

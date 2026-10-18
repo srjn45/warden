@@ -105,6 +105,12 @@ func (e *GuardError) Error() string {
 		return head + fmt.Sprintf("\nthe data was written by a newer warden%s; upgrade this binary (`wd update`) — "+
 			"an older warden must not open it", by)
 	case VerdictNeedsMigration:
+		if e.Binary >= Schema2 && e.Ledger.SchemaVersion < Schema2 {
+			return head + "\nthe data is still on the schema-1 stores and must be cut over to the single warden-db first. " +
+				"With the daemon stopped, run `warden migrate --plan` to inspect, then `warden migrate --apply` " +
+				"(`wd update` from a release that knows the cutover does this for you). " +
+				"A verified, immutable copy of the schema-1 stores is taken first and nothing is deleted"
+		}
 		return head + "\nthe data needs migrating first: run `warden migrate` (or `wd update`, which migrates for you)"
 	case VerdictUnsupported:
 		return head + fmt.Sprintf("\nunsupported direct upgrade: this warden can migrate from schema %d at the oldest; "+
@@ -139,7 +145,11 @@ func Check(dataDir string, l *Ledger) error {
 
 func check(dataDir string, l *Ledger, binary, minSchema int) error {
 	v := Decide(l.SchemaVersion, binary, minSchema, l.MigrationInterrupted())
-	if v == VerdictStart && l.SchemaVersion < Schema2 && WardenDBPresent(dataDir) {
+	// Two candidate authorities outrank both "start" and "needs migration": a
+	// cutover would refuse to merge into an existing warden-db, so pointing the
+	// operator at `migrate --apply` here would be wrong. An interrupted
+	// migration still outranks this (its journal explains the warden-db).
+	if (v == VerdictStart || v == VerdictNeedsMigration) && l.SchemaVersion < Schema2 && WardenDBPresent(dataDir) {
 		v = VerdictSchema2Residue
 	}
 	if v == VerdictStart {

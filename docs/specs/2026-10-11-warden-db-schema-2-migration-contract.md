@@ -50,6 +50,14 @@ Blocking findings: data dir owned by a running process; no/corrupt/interrupted/a
 
 Operator copies (`*.bak-*`, `*-backup`, …), `backups/`, `quarantine/` and `tmp/` are external and not verified. A missing transcript is a note, not a block.
 
-## 5. Out of scope (dependent tasks)
+## 5. Activation (implemented)
 
-Staging export, import transaction groups, validation, ledger stamp to schema 2, phase journaling and crash-resume, bumping `schema.SchemaVersion`, and the cutover `--apply` wiring.
+Staging export, the import transaction/promotion, validation, the ledger stamp to schema 2, phase journaling and crash-resume, `schema.SchemaVersion = 2`, and the `--apply` / `wd update` wiring are specified in [schema-2 activation](2026-10-18-schema-2-activation.md) and the [release runbook](../RELEASE_NOTES-schema2-migration.md). Legacy-store cleanup (Plan 07) remains out of scope.
+
+Amendments made by the activation work (the shared runtime stores are still schema-1 shaped, so the migration must produce what they read):
+
+* `agents-db/closed` → `archived_agents` (1:1), not an in-place `status=archived` row in `agents`.
+* `autopilots-db/autopilots` → `autopilots` and `autopilot/runs-db/autopilot_runs` → `autopilot_runs` stay two collections.
+* Membership lists on `projects`, `project_groups.project_ids`, agent `child_*` and embedded `pipeline.jobs` are carried verbatim; `projects.group_id/group_order` and `pipeline_jobs` are additive projections.
+* The JSONL/JSON sources (`usage-snapshots`, `quota-impact`, `savings`, `spend`, `metrics`) are imported from their real flat formats, and `audit.jsonl` is copied into `audit_events` (the file stays the external stream and keeps receiving events).
+* `sessions-db`, `sessions/`, `closed/` are import-time copies: reported, not re-imported.

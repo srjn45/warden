@@ -55,9 +55,21 @@ Actions (select one):
              Export normalized schema-2 staging collections into a separate
              review directory. Refuses relationship violations and divergent
              existing staging records. Never writes legacy sources or schema.json
-  --apply    Apply pending migrations up to the target schema version
+  --apply    Apply pending migrations up to the target schema version. For a
+             schema-1 data dir this is the schema-2 cutover to the single
+             warden-db: the daemon must be stopped; strict preflight, then an
+             immutable checksummed backup under backups/pre-schema2-*, staging
+             export, counts/hash/reference verification, atomic promotion, and
+             only then the ledger moves to schema 2. Legacy stores are kept
+             (nothing is deleted). Any refusal before promotion leaves the data
+             exactly as it was
   --resume   Resume an interrupted migration recorded in the ledger journal
-  --restore  Restore from pre-migration snapshot after an interrupted migration`,
+  --restore  Restore from pre-migration snapshot after an interrupted migration
+             (a promoted warden-db is preserved under backups/, never deleted)
+
+Older binaries refuse a schema-2 data dir before opening any store; there is no
+automatic downgrade. "wd update" runs the cutover for you (via the new binary)
+and rolls the binary and data back if it fails.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Validate mutually exclusive flags
 			count := 0

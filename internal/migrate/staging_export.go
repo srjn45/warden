@@ -184,6 +184,12 @@ func buildStagingSet(ctx context.Context, dataDir string) (*stagingSet, error) {
 	if err := loadMappedMigratedSources(ctx, dataDir, set); err != nil {
 		return nil, err
 	}
+	if err := loadFlatSources(ctx, dataDir, set); err != nil {
+		return nil, err
+	}
+	if err := loadLegacySessionCopies(ctx, dataDir, set); err != nil {
+		return nil, err
+	}
 	validateStagingRelationships(set)
 	return set, nil
 }
@@ -214,7 +220,8 @@ func loadProjects(dataDir string, set *stagingSet) error {
 		if err != nil {
 			return err
 		}
-		delete(row, "project_ids")
+		// project_ids stays: the shared projectstore (schema-1 shaped) reads
+		// membership from it. group_id/group_order on projects are additive.
 		set.add("project_groups", g.ID, row)
 		for i, pid := range g.ProjectIDs {
 			if pid == "" {
@@ -240,9 +247,9 @@ func loadProjects(dataDir string, set *stagingSet) error {
 		if err != nil {
 			return err
 		}
-		for _, k := range []string{"agents", "pipelines", "terminals", "plans", "autopilots"} {
-			delete(row, k)
-		}
+		// The shared projectstore is still schema-1 shaped: its membership
+		// lists are authoritative at runtime, so they are carried over verbatim.
+		// Dropping them would orphan every agent/plan/pipeline from its project.
 		if g, ok := groupFor[p.ID]; ok {
 			row["group_id"] = g.id
 			row["group_order"] = g.order
@@ -254,13 +261,15 @@ func loadProjects(dataDir string, set *stagingSet) error {
 }
 
 func loadAgents(ctx context.Context, dataDir string, set *stagingSet) error {
-	if err := scanAgentCollection(ctx, dataDir, "agents-db", "agents", false, set); err != nil {
+	if err := scanAgentCollection(ctx, dataDir, "agents-db", "agents", "agents", set); err != nil {
 		return err
 	}
-	return scanAgentCollection(ctx, dataDir, "agents-db", "archived", true, set)
+	// The schema-1 archive collection is "closed"; the shared runtime reads it
+	// from "archived_agents" (internal/agentstore/shared.go maps it 1:1).
+	return scanAgentCollection(ctx, dataDir, "agents-db", "closed", "archived_agents", set)
 }
 
-func scanAgentCollection(ctx context.Context, dataDir, storeDir, colName string, archived bool, set *stagingSet) error {
+func scanAgentCollection(ctx context.Context, dataDir, storeDir, colName, target string, set *stagingSet) error {
 	db, err := openIfExists(filepath.Join(dataDir, storeDir))
 	if err != nil || db == nil {
 		return err
@@ -278,24 +287,12 @@ func scanAgentCollection(ctx context.Context, dataDir, storeDir, colName string,
 		if err != nil {
 			return err
 		}
-		for _, k := range []string{"child_agents", "child_pipelines", "child_autopilots"} {
-			delete(row, k)
-		}
-		if archived {
-			if _, ok := row["archived_from_status"]; !ok && a.Status != "" {
-				row["archived_from_status"] = string(a.Status)
-			}
-			row["status"] = "archived"
-			if _, ok := row["archived_at"]; !ok {
-				row["archived_at"] = timeOr(a.UpdatedAt, a.CreatedAt).UTC().Format(time.RFC3339)
-			}
-		}
 		if _, dup := set.agents[a.ID]; dup {
 			set.block("agents", a.ID+": duplicate agent identity across active/archived stores", ClassDuplicateIdentity)
 			continue
 		}
 		set.agents[a.ID] = row
-		set.add("agents", a.ID, row)
+		set.add(target, a.ID, row)
 	}
 	return nil
 }
@@ -339,7 +336,9 @@ func loadPipelines(dataDir string, set *stagingSet) error {
 		if err != nil {
 			return err
 		}
-		delete(row, "jobs")
+		// jobs stay embedded: the shared pipeline store (schema-1 shaped) reads
+		// the whole Pipeline. pipeline_jobs below is an additive relationship
+		// projection used for validation; the runtime does not read it yet.
 		set.pipes[p.ID] = row
 		set.add("pipelines", p.ID, row)
 		seenJobs := map[string]bool{}
@@ -381,8 +380,10 @@ var migratedCollectionMappings = map[string][]collectionMapping{
 		{"plan-notes", "plan_notes"},
 	},
 	"plans/plan-exports-db": {{"plan-exports", "plan_exports"}},
-	"autopilots-db":         {{"autopilot_runs", "autopilot_runs"}},
-	"autopilot/runs-db":     {{"autopilot_runs", "autopilot_runs"}},
+	// The shared runtime keeps the identity store ("autopilots") and the run
+	// ledger ("autopilot_runs") as two collections; they are never merged.
+	"autopilots-db":     {{"autopilots", "autopilots"}},
+	"autopilot/runs-db": {{"autopilot_runs", "autopilot_runs"}},
 	"context": {
 		{"context", "context_entries"},
 		{"context_entries", "context_entries"},
@@ -399,14 +400,9 @@ var migratedCollectionMappings = map[string][]collectionMapping{
 		{"quotas", "backend_quotas"},
 		{"rl_cooldowns", "backend_rl_cooldowns"},
 	},
-	"usage-snapshots":  {{"usage_snapshots", "usage_snapshots"}},
-	"quota-impact":     {{"quota_impact_fences", "quota_impact_fences"}},
 	"snapshots-db":     {{"snapshots", "snapshots"}},
-	"savings":          {{"savings_events", "savings_events"}, {"savings_calibration", "savings_calibration"}},
-	"spend":            {{"spend_records", "spend_records"}},
 	"schedules-db":     {{"schedules", "schedules"}},
 	"known-prompts-db": {{"known_prompts", "known_prompts"}},
-	"metrics":          {{"metrics_samples", "metrics_samples"}},
 }
 
 var migratedFlatMappings = map[string]string{
@@ -419,6 +415,10 @@ func loadMappedMigratedSources(ctx context.Context, dataDir string, set *staging
 	handled := map[string]bool{
 		"agents-db": true, "terminals-db": true, "projects": true, "pipelines-db": true,
 		"autopilot": true,
+		// flat JSON/JSONL sources, loaded by loadFlatSources
+		"usage-snapshots": true, "quota-impact": true, "savings": true, "spend": true, "metrics": true,
+		// pre-agents-db session copies, reconciled by loadLegacySessionCopies
+		"sessions-db": true, "sessions": true, "closed": true,
 	}
 	for rel, mappings := range migratedCollectionMappings {
 		handled[rel] = true
@@ -909,11 +909,4 @@ func stringSlice(v any) []string {
 		return out
 	}
 	return nil
-}
-
-func timeOr(a, b time.Time) time.Time {
-	if !a.IsZero() {
-		return a
-	}
-	return b
 }

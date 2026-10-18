@@ -5624,6 +5624,15 @@ are reported, not blocking). After the restart the real daemon startup error
 is restored, the service restarted, and the old version verified healthy; both
 the original failure and the rollback outcome are reported.
 
+When the new release moves the data to a newer schema (the schema-2 cutover to
+the single warden-db), the daemon is stopped first, a data snapshot is taken,
+and the NEW binary runs "migrate --apply" (strict preflight, an immutable
+checksummed backup, staged export with count/hash/reference verification, atomic
+promotion, then the ledger). The daemon is restarted only afterwards and must
+report the new schema. If the migration or the restart fails, the previous
+binary and data are restored (a promoted warden-db is preserved under backups/,
+never deleted). Legacy stores are kept after the cutover.
+
 Flags:
   --check            report whether an update is available without applying it
   --plan             inspect the planned upgrade path, breaking changes, downtime, and disk needed
@@ -5671,9 +5680,21 @@ Actions (select one):
              Export normalized schema-2 staging collections into a separate
              review directory. Refuses relationship violations and divergent
              existing staging records. Never writes legacy sources or schema.json
-  --apply    Apply pending migrations up to the target schema version
+  --apply    Apply pending migrations up to the target schema version. For a
+             schema-1 data dir this is the schema-2 cutover to the single
+             warden-db: the daemon must be stopped; strict preflight, then an
+             immutable checksummed backup under backups/pre-schema2-*, staging
+             export, counts/hash/reference verification, atomic promotion, and
+             only then the ledger moves to schema 2. Legacy stores are kept
+             (nothing is deleted). Any refusal before promotion leaves the data
+             exactly as it was
   --resume   Resume an interrupted migration recorded in the ledger journal
   --restore  Restore from pre-migration snapshot after an interrupted migration
+             (a promoted warden-db is preserved under backups/, never deleted)
+
+Older binaries refuse a schema-2 data dir before opening any store; there is no
+automatic downgrade. "wd update" runs the cutover for you (via the new binary)
+and rolls the binary and data back if it fails.
 
 Usage:
   warden migrate [flags]
@@ -5689,7 +5710,7 @@ Flags:
       --resume               resume an interrupted migration
       --staging-dir string   target directory for --staging-export (default: <data-dir>/warden-db-staging)
       --staging-export       export normalized schema-2 staging collections without touching legacy sources
-      --target int           target schema version to migrate to (default 1)
+      --target int           target schema version to migrate to (default 2)
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)

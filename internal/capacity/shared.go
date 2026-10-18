@@ -77,6 +77,10 @@ func NewDurableFenceStoreFromDB(db *wardendb.DB) (*DurableFenceStore, error) {
 	return &DurableFenceStore{shared: sharedDocs{get: col.Engine}}, nil
 }
 
+// FenceKey is the shared-store key of r; the schema-2 migration uses it so
+// imported fences collide with live claims exactly as native ones do.
+func FenceKey(r FenceRecord) string { return fenceKey(r) }
+
 // fenceKey is unambiguous (JSON array) even when keys contain separators.
 func fenceKey(r FenceRecord) string {
 	b, _ := json.Marshal([]any{r.SnapshotRevision, r.DomainKey, r.BucketKey, r.AgentID})

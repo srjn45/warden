@@ -197,7 +197,7 @@ func PlanSchema2(dataDir string, now time.Time) (*Schema2Plan, error) {
 func planSchema2(dataDir string, now time.Time, allowOwnSchema2Journal bool) (*Schema2Plan, error) {
 	p := &Schema2Plan{
 		DataDir:   dataDir,
-		From:      schema.SchemaVersion,
+		From:      schema.LegacyBaseline,
 		To:        schema.Schema2,
 		BackupDir: filepath.Join(dataDir, "backups", backupDirName(now)),
 		Target: TargetInventory{

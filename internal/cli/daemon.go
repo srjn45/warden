@@ -233,8 +233,12 @@ func newDaemonRunCmd() *cobra.Command {
 			fbHealth := fastbrain.NewHealth(fastbrain.HealthOptions{})
 			// The audit writer is built later in this function; the engine's
 			// operator-event hook reads it through this pointer.
+			// atomic.Value panics on a second store of a different concrete type, and
+			// the trail's type differs per schema (file Writer / warden-db Tee), so it
+			// is stored behind one fixed wrapper type.
+			type auditHolder struct{ t audit.Trail }
 			var fbAudit atomic.Value
-			fbAudit.Store(audit.Trail((*audit.Writer)(nil)))
+			fbAudit.Store(auditHolder{audit.Trail((*audit.Writer)(nil))})
 			fbDisabled := make([]fastbrain.DecisionKind, 0, len(cfg.FastBrain.DisabledKinds))
 			for _, k := range cfg.FastBrain.DisabledKinds {
 				fbDisabled = append(fbDisabled, fastbrain.DecisionKind(k))
@@ -254,7 +258,7 @@ func newDaemonRunCmd() *cobra.Command {
 						if action == fastbrain.AuditControl {
 							return
 						}
-						fbAudit.Load().(audit.Trail).Log(audit.Event{Time: time.Now(), Action: action, Target: target, Detail: detail})
+						fbAudit.Load().(auditHolder).t.Log(audit.Event{Time: time.Now(), Action: action, Target: target, Detail: detail})
 					},
 				})
 			pl.FastBrain = fbEngine
@@ -498,7 +502,7 @@ func newDaemonRunCmd() *cobra.Command {
 			srv.SetRelayPolicy(relay.Policy{AllowWebTerminated: cfg.Relay.AllowWebTerminated})
 			auditWriter := stores.Audit
 			srv.SetAudit(auditWriter)
-			fbAudit.Store(auditWriter)
+			fbAudit.Store(auditHolder{auditWriter})
 			srv.SetAuditTrustedProxies(trustedProxies)
 			// Shared brain Consultor (docs/specs/2026-09-27-brain-consult.md): one
 			// instance for PipelineWatcher stuck recovery AND the autopilot

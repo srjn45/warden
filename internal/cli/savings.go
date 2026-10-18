@@ -232,6 +232,9 @@ func basisLine(sum *savings.Summary) string {
 func runCalibrate(cmd *cobra.Command, sinceStr string, since time.Time, maxCalls int) error {
 	out := cmd.OutOrStdout()
 	cfg := config.Load(configPathFor(cmd))
+	if err := requireSchema1Stores(cfg.DataDir, "wd savings --calibrate (reads the legacy ledger.jsonl)"); err != nil {
+		return err
+	}
 	dir := filepath.Join(cfg.DataDir, "savings")
 
 	store, err := savings.NewStore(dir)

@@ -47,6 +47,13 @@ func main() {
 		minUpgrade = updater.DefaultSupportWindowMinUpgradeFrom(sem).String()
 	}
 
+	// A new major (X.0.0) is breaking by definition: it is where data-format
+	// changes such as the schema-2 warden-db cutover land, and the planner must
+	// ask for confirmation and route through the previous major's last release.
+	if err == nil && isMajorRelease(sem) {
+		breakingFlag = true
+	}
+
 	var notes []string
 	if notesFlag != "" {
 		for _, n := range strings.Split(notesFlag, ",") {
@@ -89,3 +96,6 @@ func main() {
 	}
 	fmt.Printf("genmanifest: wrote release manifest to %s\n", outFlag)
 }
+
+// isMajorRelease reports a release that opens a new major (X.0.0, X >= 1).
+func isMajorRelease(s updater.Semver) bool { return s.Major >= 1 && s.Minor == 0 && s.Patch == 0 }

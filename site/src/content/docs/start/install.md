@@ -67,6 +67,8 @@ warden update --force  # reinstall the current / target version
 
 `warden update` queries GitHub Releases, verifies `checksums.txt`, downloads the archive for your `GOOS`/`GOARCH` into `~/.warden/tmp/`, atomically swaps `~/.local/bin/warden` (keeping a backup), re-signs on macOS when the `warden-codesign` identity is present, runs config migrations, restarts the user-level daemon service, and probes `/healthz` — rolling the binary back unless the new daemon reports ok on the target version **and** on the data schema that binary writes (`schema_version`; `warden version` prints it).
 
+The v11 major moves all data into a single `warden-db`; `warden update` runs that one-time, verified cutover for you and rolls everything back on failure — see [Schema 2 upgrade](/warden/guides/schema-2-upgrade/).
+
 To inspect the upgrade plan without mutating state or stopping the daemon:
 
 ```sh

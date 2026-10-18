@@ -25,6 +25,9 @@ import (
 // It is a package var so tests can stub it with a test store.
 var openBackendStore = func(cmd *cobra.Command) (*backendstore.Store, error) {
 	cfg := config.Load(configPathFor(cmd))
+	if err := requireSchema1Stores(cfg.DataDir, "direct backend-registry access"); err != nil {
+		return nil, err
+	}
 	if err := ownCLIDataDir(cfg.DataDir); err != nil {
 		return nil, err
 	}

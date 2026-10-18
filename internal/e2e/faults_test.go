@@ -23,7 +23,7 @@ type idxEntry struct {
 // verification can notice. The daemon MUST be stopped.
 func (e *env) rewriteIndex(col string, edit func(map[string]idxEntry)) {
 	e.t.Helper()
-	path := filepath.Join(e.data, "agents-db", col, "index.json")
+	path := filepath.Join(e.data, "warden-db", col, "index.json")
 	b, err := os.ReadFile(path)
 	require.NoError(e.t, err)
 	var file struct {

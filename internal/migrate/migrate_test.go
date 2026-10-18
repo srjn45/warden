@@ -138,10 +138,9 @@ func TestRunner_Apply_AdvancesLedgerAndAppendsHistory(t *testing.T) {
 	require.Equal(t, "0001", l.History[0].Migration)
 	require.False(t, l.History[0].At.IsZero())
 
-	// Boot guard allows startup
-	bootRes, err := schema.Boot(dir, "9.29.0")
-	require.NoError(t, err)
-	require.Equal(t, 1, bootRes.Ledger.SchemaVersion)
+	// A binary that writes schema 1 starts on it (this fixture registry is a
+	// schema-0 -> 1 chain; the real binary is past it, see TestSchema2ReleaseAcceptance).
+	require.Equal(t, schema.VerdictStart, schema.Decide(l.SchemaVersion, 1, 1, l.MigrationInterrupted()))
 }
 
 func TestRunner_VerifyFailure_LeavesJournalAndDoesNotAdvance(t *testing.T) {
@@ -268,10 +267,8 @@ func TestRunner_CrashAndResumeAtEachStep(t *testing.T) {
 	err = rn.Resume(env)
 	require.ErrorIs(t, err, ErrNoInterruptedMigration)
 
-	// 8. Boot succeeds cleanly
-	bootRes, err := schema.Boot(dir, "9.29.0")
-	require.NoError(t, err)
-	require.Equal(t, 1, bootRes.Ledger.SchemaVersion)
+	// 8. The guard no longer sees an interrupted migration
+	require.Equal(t, schema.VerdictStart, schema.Decide(l.SchemaVersion, 1, 1, l.MigrationInterrupted()))
 }
 
 func Test0001_LegacyImport_EndToEnd(t *testing.T) {

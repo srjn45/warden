@@ -56,7 +56,11 @@ func openMode(t *testing.T, shared bool) (*Stores, string) {
 	if shared {
 		d = sharedDir(t)
 	}
-	s, err := Open(d)
+	open := OpenLegacy
+	if shared {
+		open = func(d string) (*Stores, error) { return Open(d) }
+	}
+	s, err := open(d)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = s.Close() })
 	require.Equal(t, shared, s.DB != nil, "mode selection")
@@ -68,6 +72,65 @@ func TestModeSelection(t *testing.T) {
 	require.Nil(t, compat.DB)
 	shared, _ := openMode(t, true)
 	require.NotNil(t, shared.DB)
+}
+
+// Open is warden-db only: a fresh data dir starts directly on schema 2, and
+// anything still on the schema-1 stores is refused instead of silently opened.
+func TestOpenIsSharedOnlyAndNeverFallsBack(t *testing.T) {
+	var ge *schema.GuardError
+
+	fresh := t.TempDir()
+	s, err := Open(fresh)
+	require.NoError(t, err, "a fresh data dir starts on schema 2")
+	require.NotNil(t, s.DB)
+	require.NoError(t, s.Close())
+	require.DirExists(t, wardendb.Dir(fresh))
+
+	for name, prep := range map[string]func(d string){
+		"schema-1 ledger": func(d string) {
+			require.NoError(t, schema.Save(d, &schema.Ledger{SchemaVersion: 1}))
+		},
+		"legacy stores, no ledger": func(d string) {
+			require.NoError(t, os.MkdirAll(filepath.Join(d, "agents-db"), 0o700))
+		},
+		"legacy sentinel, no ledger": func(d string) {
+			require.NoError(t, os.WriteFile(filepath.Join(d, ".sessions-filedb-imported"), nil, 0o600))
+		},
+	} {
+		d := t.TempDir()
+		prep(d)
+		before := dirNames(t, d)
+		_, err := Open(d)
+		require.ErrorAs(t, err, &ge, name)
+		require.Equal(t, schema.VerdictNeedsMigration, ge.Verdict, name)
+		require.Equal(t, before, dirNames(t, d), "%s: a refused Open must create nothing", name)
+	}
+
+	// An interrupted migration is refused whichever side of the promotion it
+	// stopped on, and the legacy opener refuses a schema-2 dir symmetrically.
+	d := t.TempDir()
+	require.NoError(t, schema.Save(d, &schema.Ledger{SchemaVersion: 1, InProgress: &schema.InProgress{Migration: "0002-schema2-cutover", Step: "promoted"}}))
+	require.NoError(t, os.MkdirAll(wardendb.Dir(d), 0o700))
+	_, err = Open(d)
+	require.ErrorAs(t, err, &ge)
+	require.Equal(t, schema.VerdictInterrupted, ge.Verdict)
+	_, err = OpenLegacy(d)
+	require.ErrorAs(t, err, &ge)
+
+	d2 := sharedDir(t)
+	_, err = OpenLegacy(d2)
+	require.ErrorAs(t, err, &ge, "the legacy opener must not start beside warden-db")
+}
+
+func dirNames(t *testing.T, d string) []string {
+	t.Helper()
+	des, err := os.ReadDir(d)
+	require.NoError(t, err)
+	var out []string
+	for _, de := range des {
+		out = append(out, de.Name())
+	}
+	return out
 }
 
 // The same CLI/API-facing operations must behave identically in schema-1
@@ -201,11 +264,11 @@ func TestUnifiedCloseOrderAndIdempotence(t *testing.T) {
 
 func TestCompatCloseReleasesEverythingOnce(t *testing.T) {
 	d := t.TempDir()
-	s, err := Open(d)
+	s, err := OpenLegacy(d)
 	require.NoError(t, err)
 	require.NoError(t, s.Close())
 	require.NotPanics(t, func() { _ = s.Close() })
-	s2, err := Open(d)
+	s2, err := OpenLegacy(d)
 	require.NoError(t, err, "compat locks must be released by Close")
 	require.NoError(t, s2.Close())
 }
@@ -224,7 +287,7 @@ func TestNoDuplicateOpenWhileOwned(t *testing.T) {
 	})
 	t.Run("compat", func(t *testing.T) {
 		_, d := openMode(t, false)
-		s2, err := Open(d)
+		s2, err := OpenLegacy(d)
 		if err == nil {
 			_ = s2.Close()
 		}
@@ -466,4 +529,54 @@ func TestOpenRefusesSchema1LedgerBesideWardenDB(t *testing.T) {
 	require.Equal(t, schema.VerdictSchema2Residue, ge.Verdict)
 	_, statErr := os.Stat(filepath.Join(d, "agents-db"))
 	require.True(t, os.IsNotExist(statErr), "legacy stores must not be created")
+}
+
+// Schema 2 keeps appending to audit.jsonl (the independent external stream that
+// `warden audit` and the MCP audit tool read directly) while serving queries
+// from warden-db, so neither view goes stale after the cutover.
+func TestUnifiedAuditAlsoAppendsToAuditJSONL(t *testing.T) {
+	s, d := openMode(t, true)
+	at := time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
+	s.Audit.Log(audit.Event{Time: at, Action: "spawn", Target: "a1"})
+
+	db, err := s.Audit.Read(audit.Filter{})
+	require.NoError(t, err)
+	require.Len(t, db, 1)
+	file, err := audit.Read(filepath.Join(d, "audit.jsonl"), audit.Filter{})
+	require.NoError(t, err)
+	require.Len(t, file, 1)
+	require.Equal(t, "spawn", file[0].Action)
+}
+
+// A fresh install starts directly on schema 2: boot stamps the ledger at 2,
+// Open creates only warden-db (no schema-1 store directories), and a restart
+// keeps working without any migration.
+func TestFreshInstallStartsOnSchema2(t *testing.T) {
+	d := filepath.Join(t.TempDir(), "data")
+	res, err := schema.Boot(d, "11.0.0")
+	require.NoError(t, err)
+	require.True(t, res.Stamped)
+	require.Equal(t, schema.Schema2, res.Ledger.SchemaVersion)
+	require.Equal(t, schema.MigrationBaselineFresh, res.Ledger.History[0].Migration)
+
+	for round := 0; round < 2; round++ { // second round = restart
+		s, err := Open(d)
+		require.NoError(t, err)
+		require.NotNil(t, s.DB)
+		if round == 0 {
+			require.NoError(t, s.Agents.Create(context.Background(), &agentstore.Agent{ID: "a1", Name: "n", Status: store.StatusWorking}))
+		} else {
+			_, err := s.Agents.Get(context.Background(), "a1")
+			require.NoError(t, err)
+		}
+		require.NoError(t, s.Close())
+		res, err = schema.Boot(d, "11.0.0")
+		require.NoError(t, err)
+		require.False(t, res.Stamped)
+	}
+	names := dirNames(t, d)
+	require.Contains(t, names, wardendb.DirName)
+	for _, legacy := range []string{"agents-db", "context", "inbox", "projects", "plans", "backends", "sessions-db"} {
+		require.NotContains(t, names, legacy)
+	}
 }

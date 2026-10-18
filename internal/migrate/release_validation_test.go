@@ -46,7 +46,8 @@ func TestSchema2ReleaseAcceptance(t *testing.T) {
 	report, err := VerifySchema2Equivalence(context.Background(), dir, wardendb.Dir(dir))
 	require.NoError(t, err)
 	require.True(t, report.Passed)
-	require.Equal(t, 514, report.TargetCounts["agents"])
+	require.Equal(t, 513, report.TargetCounts["agents"])
+	require.Equal(t, 1, report.TargetCounts["archived_agents"])
 }
 
 func seedLargeAgentsStore(t *testing.T, dataDir string, n int) {

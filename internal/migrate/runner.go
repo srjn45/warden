@@ -49,7 +49,14 @@ func (rn *Runner) Check(env Env, targetVersion int) ([]Finding, error) {
 	current := 0
 	if err == nil {
 		current = l.SchemaVersion
-	} else if !errors.Is(err, schema.ErrNoLedger) {
+	} else if errors.Is(err, schema.ErrNoLedger) {
+		// A fresh install is stamped straight at the current schema (Apply/boot),
+		// so there is nothing pending for it; any other ledger-less dir plans
+		// from schema 0 like Apply does.
+		if targetVersion == schema.SchemaVersion && schema.InferBaseline(env.DataDir).Fresh {
+			return findings, nil
+		}
+	} else {
 		return nil, err
 	}
 
@@ -69,6 +76,14 @@ func (rn *Runner) Check(env Env, targetVersion int) ([]Finding, error) {
 // Apply runs all migrations from current schema version to targetVersion.
 func (rn *Runner) Apply(env Env, targetVersion int) error {
 	l, err := schema.Load(env.DataDir)
+	if errors.Is(err, schema.ErrNoLedger) && targetVersion == schema.SchemaVersion && schema.InferBaseline(env.DataDir).Fresh {
+		// A fresh install starts directly on the current schema: stamp it
+		// instead of building the legacy stores just to cut them over.
+		if _, _, err := schema.Ensure(env.DataDir, env.BinaryVersion); err != nil {
+			return err
+		}
+		return nil
+	}
 	if errors.Is(err, schema.ErrNoLedger) {
 		// No ledger: start from schema 0
 		l = &schema.Ledger{
@@ -150,7 +165,14 @@ func (rn *Runner) Restore(env Env) error {
 					}
 				}
 			}
-			if err := restoreSnapshot(snapDir, env.DataDir); err != nil {
+			src := snapDir
+			if l.InProgress.Migration == Migration0002ID {
+				// A schema-2 backup mirrors the data dir under data/ beside its
+				// MANIFEST.json; restoring the backup root would litter the data
+				// dir with that wrapper.
+				src = filepath.Join(snapDir, schema2BackupData)
+			}
+			if err := restoreSnapshot(src, env.DataDir); err != nil {
 				return fmt.Errorf("migrate: restore snapshot: %w", err)
 			}
 		}
@@ -195,10 +217,15 @@ func restoreSnapshot(srcDir, dstDir string) error {
 }
 
 func (rn *Runner) runMigration(env Env, l *schema.Ledger, m Migration, startStep string) error {
+	// Only this migration's own journal carries a snapshot forward (resume). A
+	// journal with no migration id is the updater's pre-swap rollback marker; it
+	// is not a backup this migration made or verified, so it is never inherited.
 	snap := ""
-	if l.InProgress != nil {
+	if l.InProgress != nil && l.InProgress.Migration == m.ID {
 		snap = l.InProgress.Snapshot
 	}
+
+	prior := l.InProgress // the updater's rollback marker, or nil
 
 	// 1. Write journal before starting migration
 	l.InProgress = &schema.InProgress{
@@ -246,6 +273,14 @@ func (rn *Runner) runMigration(env Env, l *schema.Ledger, m Migration, startStep
 		}
 	} else if m.Run != nil {
 		if err := m.Run(env); err != nil {
+			if errors.Is(err, ErrRefusedBeforeChange) && startStep == "" {
+				// A pure refusal changed nothing: restore the pre-run journal so
+				// the ledger reads exactly as it did.
+				l.InProgress = prior
+				if serr := schema.Save(env.DataDir, l); serr != nil {
+					return fmt.Errorf("migration %s refused (%v) and its journal could not be cleared: %w", m.ID, err, serr)
+				}
+			}
 			return fmt.Errorf("migration %s run failed: %w", m.ID, err)
 		}
 	}
