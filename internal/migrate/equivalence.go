@@ -53,7 +53,7 @@ func VerifySchema2Equivalence(ctx context.Context, dataDir, targetDir string) (*
 		Quarantined: append([]QuarantinedRecord(nil), set.quarantined...),
 	}
 	if countBlocking(rep.Findings) != 0 {
-		return rep, fmt.Errorf("%w: source has blocking relationship finding", ErrStagingExportRefused)
+		return rep, &RefusalError{Findings: rep.Findings}
 	}
 	want := map[string]map[string]map[string]any{}
 	for _, row := range set.rows {
@@ -115,7 +115,7 @@ func VerifySchema2Equivalence(ctx context.Context, dataDir, targetDir string) (*
 	}
 	rep.Passed = countBlocking(rep.Findings) == 0
 	if !rep.Passed {
-		return rep, fmt.Errorf("%w: equivalence verification failed", ErrStagingExportRefused)
+		return rep, fmt.Errorf("equivalence verification failed: %w", &RefusalError{Findings: rep.Findings})
 	}
 	return rep, nil
 }

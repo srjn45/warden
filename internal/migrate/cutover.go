@@ -112,7 +112,45 @@ func checkSchema2Cutover(env Env) []Finding {
 		}
 		out = append(out, f)
 	}
+	// The mapping (pipeline references, legacy copies, relationships) is only
+	// meaningful once the stores themselves verify; run it on a private copy so
+	// a blocker is reported now, before the updater stops anything.
+	if !planBlockedBesidesOwner(plan) {
+		out = append(out, mappingFindings(ctx, env.DataDir, initialOwned)...)
+	}
 	return out
+}
+
+// planBlockedBesidesOwner reports whether the strict preflight already refuses
+// for a reason other than a running daemon.
+func planBlockedBesidesOwner(plan *Schema2Plan) bool {
+	for _, f := range plan.Findings {
+		if f.Severity != SeverityBlocking || isExpectedLiveLag(f) {
+			continue
+		}
+		if f.Class == string(ClassOwned) || f.Store == ownerlock.FileName || f.Store == "owner.lock" {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// mappingFindings is PreflightStagingMapping as preflight findings. While a
+// daemon owns the data the copy is a point-in-time view of live files, so a
+// failure to preview is a note, not a refusal; the cutover re-runs the mapping
+// strictly after the daemon is stopped.
+func mappingFindings(ctx context.Context, dataDir string, live bool) []Finding {
+	findings, err := PreflightStagingMapping(ctx, dataDir)
+	if err != nil {
+		sev := SeverityBlocking
+		if live {
+			sev = SeverityRepairable
+		}
+		return []Finding{{Severity: sev, Class: string(ClassUnverifiable), Store: "warden-db",
+			Message: "schema-2 mapping preflight could not run: " + boundText(err.Error()), Details: strictRemediation(ClassUnverifiable)}}
+	}
+	return findings
 }
 
 func runSchema2Cutover(env Env) error {

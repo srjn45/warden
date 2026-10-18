@@ -5671,15 +5671,23 @@ Inherited flags:
 Run data format migrations for the Warden data directory.
 
 Actions (select one):
-  --check    Read-only preflight check across all stores and pending migrations
+  --check    Read-only preflight check across all stores and pending migrations,
+             including a preview of the schema-2 mapping (pipeline references,
+             legacy pipelines/*.json copies, relationships) on a private copy,
+             so a blocker is reported before anything is stopped
   --plan     Read-only schema-2 (warden-db) cutover plan: source/target inventory,
              strict verification of every legacy store (corruption, ambiguity,
              duplicate identities, unsupported layouts, unsafe artifacts),
              backup location and blocking conditions. Writes nothing
   --staging-export
              Export normalized schema-2 staging collections into a separate
-             review directory. Refuses relationship violations and divergent
-             existing staging records. Never writes legacy sources or schema.json
+             review directory. Reconciles pipelines-db with the legacy
+             pipelines/*.json copies (identical copies dedupe, deleted pipelines
+             are not resurrected and keep a historical_pipeline provenance on
+             archived agents/plans; conflicts, unproven deletions and live
+             records of a missing pipeline refuse). Refuses relationship
+             violations and divergent existing staging records. Never writes
+             legacy sources or schema.json
   --apply    Apply pending migrations up to the target schema version. For a
              schema-1 data dir this is the schema-2 cutover to the single
              warden-db: the daemon must be stopped; strict preflight, then an

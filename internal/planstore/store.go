@@ -27,6 +27,8 @@ import (
 	"github.com/srjn45/scriva"
 	"github.com/srjn45/scriva/engine"
 	"github.com/srjn45/scriva/query"
+
+	"github.com/srjn45/warden/internal/wardendb"
 )
 
 // PlanStatus is the Plan lifecycle field. After the ScrivaDB-canonical cutover
@@ -87,7 +89,10 @@ type Plan struct {
 	// At most one execution link is set at a time.
 	AutopilotRunID string `json:"autopilot_run_id,omitempty"`
 	PipelineID     string `json:"pipeline_id,omitempty"`
-	OrchestratorID string `json:"orchestrator_id,omitempty"`
+	// HistoricalPipeline replaces PipelineID once the pipeline is gone (set only
+	// by the schema-2 cutover, for completed or archived plans).
+	HistoricalPipeline *wardendb.HistoricalRef `json:"historical_pipeline,omitempty"`
+	OrchestratorID     string                  `json:"orchestrator_id,omitempty"`
 
 	// Per-task progress: task id → "pending"|"in_progress"|"done"|"skipped".
 	TaskProgress map[string]string `json:"task_progress,omitempty"`

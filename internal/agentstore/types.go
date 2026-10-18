@@ -8,6 +8,7 @@ import (
 
 	"github.com/srjn45/warden/internal/capacity"
 	"github.com/srjn45/warden/internal/store"
+	"github.com/srjn45/warden/internal/wardendb"
 )
 
 // CapacityDomain and QuotaBinding are re-exported from the canonical persisted
@@ -64,10 +65,13 @@ type Agent struct {
 	ForceCompact     *bool                  `json:"force_compact,omitempty"`
 	PipelineID       string                 `json:"pipeline_id,omitempty"`
 	JobID            string                 `json:"job_id,omitempty"`
-	PlanID           string                 `json:"plan_id,omitempty"`
-	ScheduleID       string                 `json:"schedule_id,omitempty"`
-	ScheduleName     string                 `json:"schedule_name,omitempty"`
-	ParentID         string                 `json:"parent_id,omitempty"`
+	// HistoricalPipeline replaces PipelineID/JobID once the pipeline is gone
+	// (set only by the schema-2 cutover, for archived or finished agents).
+	HistoricalPipeline *wardendb.HistoricalRef `json:"historical_pipeline,omitempty"`
+	PlanID             string                  `json:"plan_id,omitempty"`
+	ScheduleID         string                  `json:"schedule_id,omitempty"`
+	ScheduleName       string                  `json:"schedule_name,omitempty"`
+	ParentID           string                  `json:"parent_id,omitempty"`
 	// ChildAgents, ChildPipelines, and ChildAutopilots preserve nil-vs-empty-slice
 	// semantics: nil = legacy record (no authoritative list), []string{} =
 	// authoritative empty.

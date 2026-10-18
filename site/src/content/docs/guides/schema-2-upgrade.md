@@ -64,6 +64,27 @@ promotes it to `warden-db/`; verifies again; and only then moves the schema ledg
 | `wd update` | non-quarantineable JSONL or genuine index damage | refuses preflight before any change; points directly to store without broad repair |
 | `wd update` | rogue process taking lock post-stop | cutover refuses without mutation; updater rolls back cleanly |
 
+## Pipelines deleted after an earlier import
+
+Schema 1 kept a pipeline twice: `pipelines-db` and the old `pipelines/<id>.json` files.
+The cutover treats `pipelines-db` as authoritative only where the files agree with it,
+and never guesses between them:
+
+| Situation | Outcome |
+| --- | --- |
+| a file identical to its `pipelines-db` record | deduplicated |
+| a file that differs from its record (`pipeline_legacy_conflict`) | refuses; names the differing fields, never their values |
+| a file for a pipeline `pipelines-db` shows was deleted (delete tombstone) | not resurrected; the file stays untouched |
+| a file with no record and no tombstone (`pipeline_unproven_deletion`) | refuses: it cannot be proven deleted rather than never imported |
+| an archived or finished agent or plan of a deleted pipeline | kept; its `pipeline_id`/`job_id` move to a `historical_pipeline` provenance record |
+| a live agent or plan of a missing pipeline (`pipeline_active_ref`) | refuses; the reference is never nulled and no parent is invented |
+
+`warden migrate --check` previews all of this on a private copy before anything is stopped,
+and a refused cutover lists its blockers (first ten) in the error. To resolve a
+conflict or an unproven deletion, move the stale `pipelines/<id>.json` aside (the
+cutover never modifies it) or, if the pipeline must be kept, restore it into
+`pipelines-db` with the schema-1 binary first.
+
 ## If it is interrupted
 
 Power loss or a killed process leaves the migration journaled. No daemon will start
