@@ -4161,6 +4161,7 @@ Commands:
   import               Insert agent session metadata from a JSON dump on stdin
   fastbrain            Fast-Brain/Thinking-Brain telemetry, traces and per-kind pause/resume
   repair               Offline, backup-first repair tools
+  legacy               Read-only inspection of retained schema-1 stores vs warden-db
 
 Flags:
   -h, --help   help for inspect
@@ -4415,10 +4416,10 @@ Usage:
   warden inspect repair [flags]
 
 Commands:
-  agents               Verify or repair the agent store offline, backup-first
-  all                  Rebuild all ScrivaDB stores offline using live-wins record resolution
-  backends             Verify or repair the backend registry offline, backup-first
-  sessions             Diagnose or reconstruct the offline session store
+  agents               [schema 1 only; on schema 2 use `repair warden-db`] Verify or repair the agent store offline, backup-first
+  all                  [schema 1 only; on schema 2 use `repair warden-db`] Rebuild all ScrivaDB stores offline using live-wins record resolution
+  backends             [schema 1 only; on schema 2 use `repair warden-db`] Verify or repair the backend registry offline, backup-first
+  sessions             [schema 1 only; on schema 2 use `repair warden-db`] Diagnose or reconstruct the offline session store
   warden-db            Verify or repair unified storage offline, backup-first
 
 Flags:
@@ -4542,7 +4543,7 @@ Inherited flags:
 ## warden inspect repair sessions
 
 ```text
-Diagnose or reconstruct the offline session store
+[schema 1 only; on schema 2 use `repair warden-db`] Diagnose or reconstruct the offline session store
 
 Usage:
   warden inspect repair sessions [flags]
@@ -4576,6 +4577,32 @@ Flags:
   -h, --help                help for warden-db
       --json                print the machine-readable Verify/Repair report
       --salvage             permit quarantining damaged segments after backing up valid records
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden inspect legacy
+
+```text
+Inspect the legacy schema-1 stores kept on disk after the schema-2 cutover:
+legacy source paths, per-collection record counts compared with the canonical
+warden-db, and the cutover backup's verification evidence.
+
+Strictly read-only and never an authority: legacy stores are opened only
+through private copies, nothing is written to the data dir (a before/after
+fingerprint must match), and a data dir that has not cut over to schema 2 is
+refused because there the legacy stores are the live authority. Canonical-only
+records are expected after runtime use. Legacy data is never deleted.
+
+Usage:
+  warden inspect legacy [flags]
+
+Flags:
+      --data-dir string   path to the Warden data directory
+  -h, --help              help for legacy
+      --json              output results in JSON format
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -5696,6 +5723,20 @@ Actions (select one):
              only then the ledger moves to schema 2. Legacy stores are kept
              (nothing is deleted). Any refusal before promotion leaves the data
              exactly as it was
+  --retirement
+             Read-only legacy-store retirement entry-criteria report: schema-2
+             active, warden-db present, backup verified, migration succeeded,
+             no unresolved failures or rollbacks, zero legacy opens, runtime
+             observed, support window elapsed. Deletes nothing
+  --cleanup-legacy
+             Explicit, backup-gated removal of the retained schema-1 stores. Re-runs
+             the --retirement gate, verifies warden-db and re-verifies the cutover
+             backup against its MANIFEST, lists the exact paths, asks for
+             confirmation (or --yes), then MOVES them to
+             backups/legacy-quarantine-<time>/ (never deletes) and records an audit
+             event. --dry-run only reports. Refuses on any unmet criterion;
+             re-running when nothing remains is a no-op. Recover by moving paths
+             back from the quarantine or restoring the pre-schema2 backup
   --resume   Resume an interrupted migration recorded in the ledger journal
   --restore  Restore from pre-migration snapshot after an interrupted migration
              (a promoted warden-db is preserved under backups/, never deleted)
@@ -5710,15 +5751,19 @@ Usage:
 Flags:
       --apply                apply pending migrations up to the target schema version
       --check                run read-only preflight check across all stores and pending migrations
+      --cleanup-legacy       move retired schema-1 stores to a quarantine dir after verifying warden-db and the cutover backup (needs confirmation)
       --data-dir string      path to the Warden data directory
+      --dry-run              with --cleanup-legacy: report what would move; change nothing
   -h, --help                 help for migrate
       --json                 output results in JSON format
       --plan                 show the read-only schema-2 (warden-db) cutover plan and what blocks it
       --restore              restore from pre-migration snapshot after an interrupted migration
       --resume               resume an interrupted migration
+      --retirement           report legacy-store retirement entry criteria (read-only; deletes nothing)
       --staging-dir string   target directory for --staging-export (default: <data-dir>/warden-db-staging)
       --staging-export       export normalized schema-2 staging collections without touching legacy sources
       --target int           target schema version to migrate to (default 2)
+      --yes                  with --cleanup-legacy: confirm without prompting
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)

@@ -214,13 +214,19 @@ runbook and known limits: `docs/RELEASE_NOTES-schema2-migration.md`.
 
 ```sh
 # Offline data migrations (daemon stopped)
-warden migrate --check       # inspect data store schema status
-warden migrate --plan        # read-only schema-2 (warden-db) cutover plan + blockers
-warden migrate --apply       # apply pending schema migrations
-warden migrate --resume      # resume interrupted migration
-warden migrate --restore     # restore pre-migration backup
+warden migrate --check          # inspect data store schema status
+warden migrate --plan           # read-only schema-2 (warden-db) cutover plan + blockers
+warden migrate --apply          # apply pending schema migrations
+warden migrate --resume         # resume interrupted migration
+warden migrate --restore        # restore pre-migration backup
+warden migrate --retirement     # evaluate legacy-store retirement entry criteria
+warden migrate --cleanup-legacy # backup-gated cleanup of retired legacy stores
+warden inspect legacy           # read-only comparison of retained legacy stores vs warden-db
 
-# Offline whole-database integrity repair
+# Offline integrity repair. On schema 2 (the default) warden-db is the only
+# authority: use `warden repair warden-db --dry-run`, then --backup-dir to repair.
+# The commands below are the schema-1 tools, kept only for pre-cutover installs;
+# they refuse on schema 2 (legacy stores are never a runtime fallback).
 warden repair all --resolve-history=live-wins  # resolve duplicate keys / revision regressions
 warden repair all --dry-run                    # preview repair actions
 warden repair all --backup-dir /path/to/backup # custom quarantine backup directory

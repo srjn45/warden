@@ -235,7 +235,8 @@ warden migrate --plan        # read-only schema-2 cutover plan (what would move,
 warden migrate --apply       # apply pending data migrations (schema-2 cutover; daemon stopped)
 warden migrate --resume      # continue an interrupted migration (or --restore to go back)
 warden repair warden-db --dry-run  # verify the schema-2 store
-warden repair all --resolve-history=live-wins  # repair conflicting keys across all stores
+warden repair warden-db --dry-run              # schema 2: verify unified store (repair all/agents/... = pre-cutover schema 1 only)
+warden repair all --resolve-history=live-wins  # schema 1 only: repair conflicting keys across all stores
 warden init                  # initialize fresh data dir or verify baseline migrations
 ```
 

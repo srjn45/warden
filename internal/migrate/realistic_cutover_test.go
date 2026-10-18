@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/srjn45/warden/internal/adoption"
 	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/autopilot"
@@ -176,7 +177,7 @@ func TestRealisticCutover_PreservesLogicalDataset(t *testing.T) {
 	}
 	for rel := range legacyAfter {
 		if _, existed := legacyBefore[rel]; !existed {
-			require.True(t, rel == schema.FileName || strings.HasPrefix(rel, schema.WardenDBDir+"/"), "unexpected new path %s", rel)
+			require.True(t, rel == schema.FileName || rel == adoption.FileName || strings.HasPrefix(rel, schema.WardenDBDir+"/"), "unexpected new path %s", rel)
 		}
 	}
 

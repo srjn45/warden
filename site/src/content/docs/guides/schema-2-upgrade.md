@@ -104,3 +104,65 @@ The schema-1 tools (`warden repair sessions|agents|backends|all`, offline
 `wd models`, `wd savings --calibrate`) refuse on schema 2 with guidance, because the
 legacy directories are now inert copies. Use the daemon-backed interfaces, or
 `warden repair warden-db --dry-run` to verify the store offline.
+
+## Legacy store retirement and safe cleanup
+
+After cutover, legacy stores (`agents-db`, `projects`, `backends`, `plans/plans-db`, etc.)
+and the immutable `backups/pre-schema2-*` backup are kept for at least **90 days**.
+Legacy stores are never an active runtime fallback.
+
+### 1. Inspecting legacy stores (`warden inspect legacy`)
+
+Inspect the retained schema-1 stores and compare per-collection records against `warden-db`:
+
+```sh
+warden inspect legacy          # read-only summary
+warden inspect legacy --json   # machine-readable inspection
+```
+
+This command opens only temporary private copies, fingerprints before and after to guarantee
+zero mutations, re-verifies the cutover backup against its SHA-256 manifest, and refuses on any
+directory that is not at schema 2.
+
+### 2. Evaluating retirement criteria (`warden migrate --retirement`)
+
+Before removing legacy stores, verify that your installation satisfies all 9 retirement criteria:
+
+```sh
+warden migrate --retirement          # check criteria status
+warden migrate --retirement --json   # machine-readable criteria evaluation
+```
+
+Retirement requires:
+- `schema2_active`: ledger is schema ≥ 2 without an open migration journal
+- `warden_db_present`: `warden-db/` exists
+- `migration_succeeded`: cutover committed in ledger history
+- `backup_verified`: `backups/pre-schema2-*` verifies against `MANIFEST.sha256`
+- `no_unresolved_failures`: no migration or recovery failures since cutover
+- `no_rollback`: no updater rollbacks or abandoned targets
+- `zero_legacy_runtime_opens`: zero legacy open attempts on schema 2
+- `schema2_runtime_observed`: at least 3 daemon boots on schema 2
+- `support_window_elapsed`: at least 90 days elapsed since cutover
+
+### 3. Safe backup-gated cleanup (`warden migrate --cleanup-legacy`)
+
+When `warden migrate --retirement` reports `eligible: true`:
+
+```sh
+# Preview what would be moved
+warden migrate --cleanup-legacy --dry-run
+
+# Confirm and quarantine legacy stores
+warden migrate --cleanup-legacy --yes
+```
+
+Safety guarantees:
+- **Never deletes directly:** Migrated legacy directories are moved to
+  `backups/legacy-quarantine-<timestamp>/`.
+- **Preserves external content:** Directories holding external content not in `warden-db`
+  (such as `snapshots/*.transcript`) remain in place.
+- **Audit logged:** A `legacy_cleanup` event is recorded in `audit.jsonl` and `.adoption-evidence.jsonl`.
+- **Idempotent:** Re-running when already clean is a no-op.
+- **Uninterrupted operation:** `warden-db` continues serving your agents and pipelines uninterrupted.
+- **Recoverable:** Restore by moving directories back from `backups/legacy-quarantine-*` or
+  restoring the immutable pre-schema2 backup. Once verified, delete the quarantine directory manually.

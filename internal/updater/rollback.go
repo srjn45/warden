@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/srjn45/warden/internal/adoption"
 	"github.com/srjn45/warden/internal/schema"
 )
 
@@ -159,6 +160,7 @@ func Rollback(opts RollbackOptions) (RollbackResult, error) {
 			return RollbackResult{}, fmt.Errorf("restore data snapshot: %w", err)
 		}
 		dataRestored = true
+		_ = adoption.Record(opts.DataDir, adoption.Event{Kind: adoption.UpdaterRollback, Backup: filepath.Base(snapDir)})
 	}
 
 	// Restore binary

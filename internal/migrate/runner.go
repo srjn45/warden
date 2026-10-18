@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/srjn45/warden/internal/adoption"
 	"github.com/srjn45/warden/internal/schema"
 )
 
@@ -106,11 +107,37 @@ func (rn *Runner) Apply(env Env, targetVersion int) error {
 	}
 
 	for _, m := range plan {
-		if err := rn.runMigration(env, l, m, ""); err != nil {
+		if err := rn.runRecorded(env, l, m, ""); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// runRecorded wraps runMigration with adoption evidence. Evidence is
+// best-effort and never changes the migration's outcome.
+func (rn *Runner) runRecorded(env Env, l *schema.Ledger, m Migration, startStep string) error {
+	from := l.SchemaVersion
+	err := rn.runMigration(env, l, m, startStep)
+	ev := adoption.Event{Migration: m.ID, BinaryVersion: env.BinaryVersion, FromSchema: from, ToSchema: m.To, Step: startStep}
+	switch {
+	case err == nil:
+		ev.Kind = adoption.MigrationApplied
+		if n := len(l.History); n > 0 {
+			ev.Backup = l.History[n-1].Backup
+		}
+		if startStep != "" {
+			_ = adoption.Record(env.DataDir, adoption.Event{Kind: adoption.RecoveryResumed, Migration: m.ID, BinaryVersion: env.BinaryVersion, FromSchema: from, ToSchema: m.To, Step: startStep})
+		}
+	case errors.Is(err, ErrRefusedBeforeChange):
+		// A pure refusal changes nothing in the data dir, including this log;
+		// the refusal is in the command's own output.
+		return err
+	default:
+		ev.Kind, ev.Error = adoption.MigrationFailed, err.Error()
+	}
+	_ = adoption.Record(env.DataDir, ev)
+	return err
 }
 
 // Resume continues an interrupted migration recorded in the ledger journal.
@@ -128,12 +155,25 @@ func (rn *Runner) Resume(env Env) error {
 		return fmt.Errorf("migrate: interrupted migration %q not found in registry", l.InProgress.Migration)
 	}
 
-	return rn.runMigration(env, l, m, l.InProgress.Step)
+	return rn.runRecorded(env, l, m, l.InProgress.Step)
 }
 
 // Restore rolls back an interrupted migration from its recorded snapshot/journal
 // and clears the in_progress journal entry.
-func (rn *Runner) Restore(env Env) error {
+func (rn *Runner) Restore(env Env) (err error) {
+	l, err := schema.Load(env.DataDir)
+	if err == nil && l.InProgress != nil {
+		prog := *l.InProgress
+		defer func() {
+			if err != nil {
+				_ = adoption.Record(env.DataDir, adoption.Event{Kind: adoption.RecoveryFailed, Migration: prog.Migration, BinaryVersion: env.BinaryVersion, Backup: prog.Snapshot, Step: prog.Step, Error: err.Error()})
+			}
+		}()
+	}
+	return rn.restore(env)
+}
+
+func (rn *Runner) restore(env Env) error {
 	l, err := schema.Load(env.DataDir)
 	if errors.Is(err, schema.ErrNoLedger) {
 		return ErrNoInterruptedMigration
@@ -178,10 +218,12 @@ func (rn *Runner) Restore(env Env) error {
 		}
 	}
 
+	restored := l.InProgress
 	l.InProgress = nil
 	if err := schema.Save(env.DataDir, l); err != nil {
 		return fmt.Errorf("migrate: commit ledger after restore: %w", err)
 	}
+	_ = adoption.Record(env.DataDir, adoption.Event{Kind: adoption.RecoveryRestored, Migration: restored.Migration, BinaryVersion: env.BinaryVersion, Backup: restored.Snapshot, Step: restored.Step})
 	return nil
 }
 
