@@ -1,0 +1,45 @@
+{
+  "fingerprint": "fp1:5a9eacefe23e5d09734f0779",
+  "shape_version": 1,
+  "instance_key": "ik1:59e74221b59c80c3a706464f",
+  "backend": "claude",
+  "class": "permission",
+  "capabilities": [
+    "other"
+  ],
+  "subject": "MysteryTool",
+  "target": "frobnicate",
+  "question": "Do you want to proceed?",
+  "options": [
+    {
+      "index": 1,
+      "label": "Yes",
+      "key": "1",
+      "semantic": "allow_once",
+      "scope": "once",
+      "default": true
+    },
+    {
+      "index": 2,
+      "label": "Yes, and don't ask again this session",
+      "key": "2",
+      "semantic": "allow_session",
+      "scope": "session"
+    },
+    {
+      "index": 3,
+      "label": "No, and tell Claude what to do differently (esc)",
+      "key": "3",
+      "semantic": "deny_feedback"
+    }
+  ],
+  "cancel_path": {
+    "key": "Escape"
+  },
+  "provenance": "parser",
+  "confidence": 1,
+  "verified": true,
+  "evidence": {
+    "raw": ""
+  }
+}

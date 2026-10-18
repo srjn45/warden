@@ -1,0 +1,3 @@
+{"v":1,"session_id":"s-1","epoch":1,"seq":1,"mono_ns":10000000,"wall":"2026-10-19T12:00:00.01Z","kind":"lifecycle","lifecycle":{"phase":"spawned","pid":4242,"backend":"claude","presentation":"direct"},"redacted":true}
+{"v":1,"session_id":"s-1","epoch":1,"seq":2,"mono_ns":20000000,"wall":"2026-10-19T12:00:00.02Z","kind":"output","output":{"data":"YQ=="},"redacted":true}
+{"v":1,"session_id":"s-1","epoch":1,"seq":3,"mono_ns":15000000,"wall":"2026-10-19T12:00:00.015Z","kind":"output","output":{"data":"Yg=="},"redacted":true}

@@ -1,0 +1,37 @@
+{
+  "fingerprint": "fp1:25b49a88e85a755cac0df0f5",
+  "shape_version": 1,
+  "instance_key": "ik1:fe811107cdc071593fb850b8",
+  "backend": "claude",
+  "class": "permission",
+  "capabilities": [
+    "execute"
+  ],
+  "subject": "Bash",
+  "target": "make build",
+  "question": "Do you want to proceed?",
+  "options": [
+    {
+      "index": 1,
+      "label": "Run",
+      "key": "1",
+      "semantic": "allow_once",
+      "default": true
+    },
+    {
+      "index": 2,
+      "label": "Abort turn",
+      "key": "2",
+      "semantic": "cancel"
+    }
+  ],
+  "cancel_path": {
+    "key": "Escape"
+  },
+  "provenance": "parser",
+  "confidence": 1,
+  "verified": true,
+  "evidence": {
+    "raw": ""
+  }
+}

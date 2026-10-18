@@ -1,0 +1,38 @@
+{
+  "fingerprint": "fp1:08b1acb7eb242ac60fecab34",
+  "shape_version": 1,
+  "instance_key": "ik1:32b09da74aedc27cf3ffb1f4",
+  "backend": "claude",
+  "class": "permission",
+  "capabilities": [
+    "write"
+  ],
+  "subject": "Edit",
+  "target": "src/main.go",
+  "question": "Do you want to proceed?",
+  "options": [
+    {
+      "index": 1,
+      "label": "Yes, allow all edits during this session",
+      "key": "1",
+      "semantic": "allow_session",
+      "scope": "session",
+      "default": true
+    },
+    {
+      "index": 2,
+      "label": "No",
+      "key": "2",
+      "semantic": "deny"
+    }
+  ],
+  "cancel_path": {
+    "key": "Escape"
+  },
+  "provenance": "parser",
+  "confidence": 1,
+  "verified": true,
+  "evidence": {
+    "raw": ""
+  }
+}
