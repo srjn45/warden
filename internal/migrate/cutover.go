@@ -140,9 +140,11 @@ func runSchema2Cutover(env Env) error {
 			// Our own scratch directory from this very call; the legacy sources
 			// and the verified backup are untouched.
 			_ = os.RemoveAll(staging)
+			_ = os.RemoveAll(filepath.Join(env.DataDir, "quarantine", "savings"))
 			return fmt.Errorf("%w: %w", ErrRefusedBeforeChange, err)
 		}
-		if _, err := ExportSchema2Staging(ctx, env.DataDir, StagingExportOptions{TargetDir: staging, Now: time.Now()}); err != nil {
+		rep, err := ExportSchema2Staging(ctx, env.DataDir, StagingExportOptions{TargetDir: staging, Now: time.Now()})
+		if err != nil {
 			return refuse(err)
 		}
 		if _, err := VerifySchema2Equivalence(ctx, env.DataDir, staging); err != nil {
@@ -150,6 +152,11 @@ func runSchema2Cutover(env Env) error {
 		}
 		if err := env.Step("promoting"); err != nil {
 			return err
+		}
+		if len(rep.Quarantined) > 0 {
+			if err := writeSavingsQuarantine(env.DataDir, rep.Quarantined); err != nil {
+				return refuse(fmt.Errorf("write savings quarantine: %w; ensure data dir is writable and has free space", err))
+			}
 		}
 		// staging and target are siblings, therefore Rename is same-filesystem
 		// and atomic. Sync the parent to make the namespace update durable.
@@ -167,8 +174,12 @@ func runSchema2Cutover(env Env) error {
 	} else if ledger.InProgress == nil || (ledger.InProgress.Step != "promoting" && ledger.InProgress.Step != "promoted") {
 		return errors.New("schema-2 target appeared outside this journaled promotion; refusing to adopt it")
 	}
-	if _, err := VerifySchema2Equivalence(ctx, env.DataDir, target); err != nil {
+	if eq, err := VerifySchema2Equivalence(ctx, env.DataDir, target); err != nil {
 		return fmt.Errorf("schema-2 promoted target verification: %w", err)
+	} else if len(eq.Quarantined) > 0 {
+		if err := writeSavingsQuarantine(env.DataDir, eq.Quarantined); err != nil {
+			return fmt.Errorf("write savings quarantine on resume: %w", err)
+		}
 	}
 	return nil
 }

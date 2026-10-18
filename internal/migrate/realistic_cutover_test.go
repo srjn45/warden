@@ -436,7 +436,7 @@ func TestRealisticCutover_CrashAfterPromotionResumesAndRestoreIsReversible(t *te
 func TestRealisticCutover_RefusalLeavesEverythingUntouched(t *testing.T) {
 	dir := t.TempDir()
 	seedRealisticLegacy(t, dir)
-	writeFile(t, dir, "savings/ledger.jsonl", "{\"ts\":\"2026-10-17T09:00:00Z\"}\nnot json at all\n")
+	writeFile(t, dir, "savings/calibration.json", "{\"bytes_per_token\": not json}\n")
 	before := snapshotTree(t, dir)
 
 	err := NewRunner(DefaultRegistry).Apply(Env{DataDir: dir, BinaryVersion: "11.0.0", Context: context.Background()}, schema.Schema2)
