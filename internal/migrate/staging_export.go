@@ -29,6 +29,38 @@ import (
 // guessing, merging, overwriting, or violating the schema-2 relationship rules.
 var ErrStagingExportRefused = errors.New("migrate: schema-2 staging export refused")
 
+// RefusalError is ErrStagingExportRefused together with the blocking findings
+// that caused it, so a caller (the cutover, the updater, an operator reading the
+// error) sees *why* and not only that. errors.Is(err, ErrStagingExportRefused)
+// still holds; errors.As recovers the full list.
+type RefusalError struct {
+	Findings []Finding
+}
+
+// maxRefusalListed bounds how many blockers the error text names.
+const maxRefusalListed = 10
+
+func (e *RefusalError) Unwrap() error { return ErrStagingExportRefused }
+
+func (e *RefusalError) Error() string {
+	var blockers []Finding
+	for _, f := range e.Findings {
+		if f.Severity == SeverityBlocking {
+			blockers = append(blockers, f)
+		}
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%v: %d blocking finding(s)", ErrStagingExportRefused, len(blockers))
+	for i, f := range blockers {
+		if i == maxRefusalListed {
+			fmt.Fprintf(&b, "; and %d more (see the report findings)", len(blockers)-maxRefusalListed)
+			break
+		}
+		fmt.Fprintf(&b, "; [%s] %s: %s", f.Class, f.Store, boundText(f.Message))
+	}
+	return b.String()
+}
+
 // StagingExportOptions configures ExportSchema2Staging.
 type StagingExportOptions struct {
 	// TargetDir defaults to <dataDir>/warden-db-staging. It is deliberately not
@@ -57,17 +89,26 @@ type stagingRow struct {
 }
 
 type stagingSet struct {
-	rows        []stagingRow
-	rowKeys     map[string]string
-	agents      map[string]map[string]any
-	terms       map[string]map[string]any
-	projects    map[string]map[string]any
-	plans       map[string]map[string]any
-	pipes       map[string]map[string]any
-	jobs        map[string]map[string]any
-	runs        map[string]map[string]any
-	findings    []Finding
-	quarantined []QuarantinedRecord
+	rows     []stagingRow
+	rowKeys  map[string]string
+	agents   map[string]map[string]any
+	terms    map[string]map[string]any
+	projects map[string]map[string]any
+	plans    map[string]map[string]any
+	pipes    map[string]map[string]any
+	jobs     map[string]map[string]any
+	runs     map[string]map[string]any
+	// archivedAgents are the agents loaded from the archive collection.
+	archivedAgents map[string]bool
+	// pipeTombstones are the pipelines-db delete tombstones (see
+	// reconcileLegacyPipelines); pipeUnresolved are legacy pipeline ids whose
+	// reconciliation already refused; refReported marks agent/plan references
+	// already diagnosed, so the generic validator does not repeat them.
+	pipeTombstones map[string]pipelineTombstone
+	pipeUnresolved map[string]bool
+	refReported    map[string]bool
+	findings       []Finding
+	quarantined    []QuarantinedRecord
 }
 
 // ExportSchema2Staging maps the legacy schema-1 stores into a fresh schema-2
@@ -106,7 +147,7 @@ func ExportSchema2Staging(ctx context.Context, dataDir string, opts StagingExpor
 		}
 	}
 	if rep.Blocked {
-		return rep, fmt.Errorf("%w: %d blocking finding(s)", ErrStagingExportRefused, countBlocking(rep.Findings))
+		return rep, &RefusalError{Findings: rep.Findings}
 	}
 
 	if err := os.MkdirAll(opts.TargetDir, 0o700); err != nil {
@@ -126,7 +167,11 @@ func ExportSchema2Staging(ctx context.Context, dataDir string, opts StagingExpor
 		if err := ctx.Err(); err != nil {
 			return rep, err
 		}
-		col, err := db.Collection(name, scriva.WithUniqueIndex("id"))
+		var opts []scriva.CollectionOption
+		if !stagingNoUniqueID[name] {
+			opts = append(opts, scriva.WithUniqueIndex("id"))
+		}
+		col, err := db.Collection(name, opts...)
 		if err != nil {
 			return rep, err
 		}
@@ -147,7 +192,7 @@ func ExportSchema2Staging(ctx context.Context, dataDir string, opts StagingExpor
 				}
 			} else if errors.Is(err, engine.ErrKeyNotFound) {
 				if _, _, err := col.InsertWithKey(row.key, body); err != nil {
-					return rep, err
+					return rep, fmt.Errorf("%w: write %s/%s: %v", ErrStagingExportRefused, name, row.key, err)
 				}
 			} else {
 				return rep, err
@@ -170,13 +215,21 @@ func ExportSchema2Staging(ctx context.Context, dataDir string, opts StagingExpor
 	return rep, nil
 }
 
+// stagingNoUniqueID lists the collections whose runtime spec declares no unique
+// "id": ids there repeat across a natural scope (mailbox message ids count per
+// recipient, the stable key is "<recipient>:<n>"), so a blanket unique index
+// would refuse real data the runtime accepts.
+var stagingNoUniqueID = map[string]bool{"messages": true}
+
 func buildStagingSet(ctx context.Context, dataDir string) (*stagingSet, error) {
 	set := &stagingSet{
 		rowKeys: map[string]string{},
 		agents:  map[string]map[string]any{}, terms: map[string]map[string]any{},
 		projects: map[string]map[string]any{}, plans: map[string]map[string]any{},
 		pipes: map[string]map[string]any{}, jobs: map[string]map[string]any{},
-		runs: map[string]map[string]any{},
+		runs:           map[string]map[string]any{},
+		archivedAgents: map[string]bool{}, pipeTombstones: map[string]pipelineTombstone{},
+		pipeUnresolved: map[string]bool{}, refReported: map[string]bool{},
 	}
 	if err := loadProjects(dataDir, set); err != nil {
 		return nil, err
@@ -190,6 +243,9 @@ func buildStagingSet(ctx context.Context, dataDir string) (*stagingSet, error) {
 	if err := loadPipelines(dataDir, set); err != nil {
 		return nil, err
 	}
+	if err := reconcileLegacyPipelines(dataDir, set); err != nil {
+		return nil, err
+	}
 	if err := loadMappedMigratedSources(ctx, dataDir, set); err != nil {
 		return nil, err
 	}
@@ -199,6 +255,7 @@ func buildStagingSet(ctx context.Context, dataDir string) (*stagingSet, error) {
 	if err := loadLegacySessionCopies(ctx, dataDir, set); err != nil {
 		return nil, err
 	}
+	resolveHistoricalPipelineRefs(set)
 	validateStagingRelationships(set)
 	return set, nil
 }
@@ -301,6 +358,9 @@ func scanAgentCollection(ctx context.Context, dataDir, storeDir, colName, target
 			continue
 		}
 		set.agents[a.ID] = row
+		if target == "archived_agents" {
+			set.archivedAgents[a.ID] = true
+		}
 		set.add(target, a.ID, row)
 	}
 	return nil
@@ -423,6 +483,8 @@ var migratedFlatMappings = map[string]string{
 func loadMappedMigratedSources(ctx context.Context, dataDir string, set *stagingSet) error {
 	handled := map[string]bool{
 		"agents-db": true, "terminals-db": true, "projects": true, "pipelines-db": true,
+		// legacy pipelines/*.json, reconciled by reconcileLegacyPipelines
+		"pipelines": true,
 		"autopilot": true,
 		// flat JSON/JSONL sources, loaded by loadFlatSources
 		"usage-snapshots": true, "quota-impact": true, "savings": true, "spend": true, "metrics": true,
@@ -675,7 +737,9 @@ func validateStagingRelationships(set *stagingSet) {
 		if pipeID := str(a["pipeline_id"]); pipeID != "" {
 			jobID := str(a["job_id"])
 			if _, ok := set.pipes[pipeID]; !ok {
-				set.block("agents", id+": pipeline_id "+pipeID+" does not exist", ClassAmbiguity)
+				if !set.refReported["agent\x00"+id] {
+					set.block("agents", id+": pipeline_id "+pipeID+" does not exist", ClassAmbiguity)
+				}
 			} else if jobID != "" {
 				key := pipeID + ":" + jobID
 				j, ok := set.jobs[key]
@@ -711,6 +775,11 @@ func validateStagingRelationships(set *stagingSet) {
 		if pid := str(p["project_id"]); pid != "" {
 			if _, ok := set.projects[pid]; !ok {
 				set.block("plans", id+": project_id "+pid+" does not exist", ClassAmbiguity)
+			}
+		}
+		if pipeID := str(p["pipeline_id"]); pipeID != "" {
+			if _, ok := set.pipes[pipeID]; !ok && !set.refReported["plan\x00"+id] {
+				set.block("plans", id+": pipeline_id "+pipeID+" does not exist", ClassAmbiguity)
 			}
 		}
 	}

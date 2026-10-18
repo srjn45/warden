@@ -31,6 +31,10 @@ type recoveryLife struct {
 	st       *fakeStore // used to write Backend/Model under the store lock (avoids race with snapSession)
 	swaps    []store.BackendCandidate
 	failures map[string]error
+	// gate, when non-nil, blocks HotSwap after it records the swap until closed,
+	// so tests can fire events while a switchover is provably in flight.
+	gate    chan struct{}
+	entered chan struct{} // receives once per HotSwap entry when non-nil
 }
 
 var _ backendRecoveryLife = (*recoveryLife)(nil)
@@ -42,7 +46,14 @@ func (f *recoveryLife) HotSwap(_ context.Context, sess *agentstore.Agent, req li
 	target := store.BackendCandidate{BackendID: req.Backend, ModelID: req.Model}
 	f.swaps = append(f.swaps, target)
 	err := f.failures[candidateKey(req.Backend, req.Model)]
+	gate, entered := f.gate, f.entered
 	f.mu.Unlock()
+	if entered != nil {
+		entered <- struct{}{}
+	}
+	if gate != nil {
+		<-gate
+	}
 	if err != nil {
 		return nil, err
 	}
