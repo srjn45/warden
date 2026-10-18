@@ -197,6 +197,19 @@ changed, it restores data stores from the pre-update snapshot in
 are lost, requiring confirmation unless `--yes` is passed) and restarts the daemon.
 Snapshots are retained for the last 2 updates or 14 days, whichever keeps more.
 
+**Schema 2 cutover (`wd update` to the v11 major):** the daemon is stopped, a data
+snapshot is taken, the binary is swapped, and the new binary runs `warden migrate
+--apply` — strict preflight, an immutable checksummed backup under
+`<data>/backups/pre-schema2-<ts>/`, a staged export proven equal (counts, hashes,
+references) to the legacy stores, atomic promotion to `<data>/warden-db/`, then the
+ledger moves to schema 2. The restarted daemon must report the new version **and**
+`schema_version: 2`, otherwise the binary and data are rolled back (a promoted
+`warden-db/` is preserved under `backups/`). Legacy store directories are kept
+untouched. An older binary refuses schema-2 data; there is no automatic downgrade.
+`warden migrate --plan` shows the plan read-only; if a cutover is interrupted run
+`warden migrate --resume` or `--restore` (no daemon starts until you do). Full
+runbook and known limits: `docs/RELEASE_NOTES-schema2-migration.md`.
+
 **Data store migration & repair tools:**
 
 ```sh

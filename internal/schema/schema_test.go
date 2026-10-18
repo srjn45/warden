@@ -23,9 +23,11 @@ func touch(t *testing.T, dir, rel string) {
 	}
 }
 
-func TestConstantsStartAtOne(t *testing.T) {
-	if SchemaVersion != 1 || MinSchema != 1 || LegacyBaseline != 1 {
-		t.Fatalf("SchemaVersion=%d MinSchema=%d LegacyBaseline=%d, want all 1", SchemaVersion, MinSchema, LegacyBaseline)
+// SchemaVersion is the single warden-db format; MinSchema/LegacyBaseline stay
+// at 1 because every schema-1 install migrates through the cutover.
+func TestConstants(t *testing.T) {
+	if SchemaVersion != Schema2 || MinSchema != 1 || LegacyBaseline != 1 {
+		t.Fatalf("SchemaVersion=%d MinSchema=%d LegacyBaseline=%d, want %d/1/1", SchemaVersion, MinSchema, LegacyBaseline, Schema2)
 	}
 	if MinSchema > SchemaVersion || LegacyBaseline > SchemaVersion {
 		t.Fatal("MinSchema and LegacyBaseline must not exceed SchemaVersion")
@@ -124,12 +126,12 @@ func TestBootLegacyInstallStampedAndBoots(t *testing.T) {
 	for _, s := range LegacySentinels {
 		touch(t, dir, s)
 	}
-	res, err := Boot(dir, "9.29.0")
-	if err != nil {
-		t.Fatalf("an existing install must boot after being stamped: %v", err)
-	}
-	if !res.Stamped {
-		t.Fatal("legacy install was not stamped")
+	// A pre-ledger install is stamped at its schema-1 baseline and then refused
+	// (it must be cut over to warden-db first); the stamp is still written.
+	_, err := Boot(dir, "9.29.0")
+	var ge *GuardError
+	if !errors.As(err, &ge) || ge.Verdict != VerdictNeedsMigration {
+		t.Fatalf("a legacy install must be told to migrate, got %v", err)
 	}
 	l, err := Load(dir)
 	if err != nil {
@@ -414,9 +416,14 @@ func TestBootUnwritableLegacyDirStillBoots(t *testing.T) {
 	}
 	defer os.Chmod(dir, 0o700)
 	res, err := Boot(dir, "9.29.0")
-	if err != nil {
-		t.Fatalf("Boot refused an existing install: %v", err)
+	var ge *GuardError
+	if !errors.As(err, &ge) || ge.Verdict != VerdictNeedsMigration {
+		t.Fatalf("an unstamped legacy install must be told to migrate, got %v", err)
 	}
+	// Boot returns no result on a refusal; the unwritable stamp is observable
+	// through Ensure, which reports it alongside the inferred ledger.
+	l, _, serr := Ensure(dir, "9.29.0")
+	res = BootResult{Ledger: l, StampErr: serr}
 	var se *StampError
 	if res.Stamped || !errors.As(res.StampErr, &se) {
 		t.Fatalf("stamped=%v stampErr=%v, want an unstamped boot with StampError", res.Stamped, res.StampErr)

@@ -217,11 +217,24 @@ plain binary swap when no data format changed, or restores the pre-update
 data snapshot (`<data>/backups/pre-<ver>-<ts>/`) with confirmation when the schema
 advanced.
 
+**Schema 2 (single `warden-db`).** The major release that moves every store into
+one database (`<data>/warden-db/`) cuts an existing data dir over once, offline
+and verified: `warden update` stops the daemon, snapshots, swaps the binary, and
+the *new* binary runs `migrate --apply` (strict preflight, immutable
+`backups/pre-schema2-*` copy, staged export with count/hash/reference proof,
+atomic promotion) before the daemon restarts on schema 2; any failure restores
+the previous binary and data. Legacy stores are kept (nothing is deleted) and
+older binaries refuse schema-2 data. Runbook:
+[`docs/RELEASE_NOTES-schema2-migration.md`](docs/RELEASE_NOTES-schema2-migration.md).
+
 For offline data migrations and store repairs:
 
 ```sh
 warden migrate --check       # inspect data store schema status
-warden migrate --apply       # apply pending data migrations
+warden migrate --plan        # read-only schema-2 cutover plan (what would move, what blocks)
+warden migrate --apply       # apply pending data migrations (schema-2 cutover; daemon stopped)
+warden migrate --resume      # continue an interrupted migration (or --restore to go back)
+warden repair warden-db --dry-run  # verify the schema-2 store
 warden repair all --resolve-history=live-wins  # repair conflicting keys across all stores
 warden init                  # initialize fresh data dir or verify baseline migrations
 ```

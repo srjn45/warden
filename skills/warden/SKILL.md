@@ -65,7 +65,7 @@ The everyday verbs, so the common path needs no reference-file round-trip:
 | pipelines | `warden pipeline create spec.yaml` → `warden pipeline start/show <id>` (cancel/delete need `--yes`) |
 | projects / groups | `warden projects list` · `warden project-groups list` |
 | plan / apply update | `wd update --plan` · `wd update [--yes]` · `wd rollback` |
-| migrate / repair stores | `wd migrate [--check\|--apply]` · `warden repair all --resolve-history=live-wins` · `warden init` |
+| migrate / repair stores | `wd migrate [--check\|--plan\|--apply\|--resume\|--restore]` · `warden repair warden-db --dry-run` (schema 2) · `warden repair all --resolve-history=live-wins` (schema 1 only) · `warden init`. **Never run `migrate --apply` on a live data dir or hand-edit `warden-db/`**: the schema-2 cutover is offline (daemon stopped) and `wd update` runs it for you; schema-1 repair tools refuse on schema 2 |
 
 For anything beyond these, open the matching reference file — each carries the
 full CLI map next to the MCP tools.

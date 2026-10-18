@@ -9,6 +9,7 @@ package storage
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 
 	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/audit"
@@ -69,17 +70,14 @@ func (s *Stores) Close() error {
 	return s.close()
 }
 
-// Open selects compatibility mode for schema-1 data.  A schema-2 ledger, or
-// an already-created warden-db directory, selects shared mode.  The latter is
-// intentionally a non-user-facing test/migration marker: this binary still
-// writes schema-1 ledgers for real fresh data directories.
+// Open opens the single canonical warden-db (schema 2). It never falls back to
+// the schema-1 stores: data that is still on them (a schema-1 ledger, an
+// interrupted migration, or legacy stores with no ledger) is refused with the
+// boot guard's error so the operator runs the journaled cutover instead of
+// the process silently running a second, divergent store set.
 func Open(dataDir string, opts ...wardendb.Option) (*Stores, error) {
-	shared, err := sharedMode(dataDir)
-	if err != nil {
+	if err := requireSharedMode(dataDir); err != nil {
 		return nil, err
-	}
-	if !shared {
-		return openCompat(dataDir)
 	}
 	db, err := wardendb.Open(dataDir, opts...)
 	if err != nil {
@@ -147,26 +145,69 @@ func Open(dataDir string, opts ...wardendb.Option) (*Stores, error) {
 	if s.Autopilots, err = autopilotstore.NewStoreFromDB(db); err != nil {
 		return fail(err)
 	}
-	if s.Audit, err = auditstore.NewStoreFromDB(db); err != nil {
+	// Queryable events live in warden-db; audit.jsonl stays the append-only
+	// external stream (migration contract): keep appending to it so the files
+	// every operator tool reads never go stale after the cutover.
+	auditDB, err := auditstore.NewStoreFromDB(db)
+	if err != nil {
 		return fail(err)
 	}
+	s.Audit = audit.NewTee(auditDB, audit.NewWriter(filepath.Join(dataDir, "audit.jsonl")))
 	return s, nil
 }
 
-func sharedMode(dataDir string) (bool, error) {
+// OpenLegacy opens the schema-1 per-store layout. It exists for offline
+// tooling and for fixtures that must produce authentic schema-1 data for the
+// cutover; no daemon path calls it. It refuses a data dir that is (becoming)
+// schema 2, so it can never create a second writer beside warden-db.
+func OpenLegacy(dataDir string) (*Stores, error) {
+	l, err := schema.Load(dataDir)
+	switch {
+	case err == nil && (l.SchemaVersion >= schema.Schema2 || l.MigrationInterrupted()):
+		return nil, &schema.GuardError{Verdict: schema.VerdictDataNewer, DataDir: dataDir, Ledger: *l, Binary: schema.LegacyBaseline, Min: schema.MinSchema}
+	case err != nil && !errors.Is(err, schema.ErrNoLedger):
+		return nil, fmt.Errorf("storage: schema state: %w", err)
+	}
+	if schema.WardenDBPresent(dataDir) {
+		return nil, &schema.GuardError{Verdict: schema.VerdictSchema2Residue, DataDir: dataDir, Binary: schema.LegacyBaseline, Min: schema.MinSchema}
+	}
+	return openCompat(dataDir)
+}
+
+// requireSharedMode proves dataDir is safe to open as warden-db and returns the
+// boot guard's refusal when it is not.
+func requireSharedMode(dataDir string) error {
 	l, err := schema.Load(dataDir)
 	if err == nil {
-		if l.SchemaVersion < wardendb.SchemaVersion && !l.MigrationInterrupted() && schema.WardenDBPresent(dataDir) {
+		switch {
+		case l.MigrationInterrupted():
+			// Never open stores in the middle of a migration, whichever side of
+			// the promotion it stopped on.
+			return &schema.GuardError{Verdict: schema.VerdictInterrupted, DataDir: dataDir, Ledger: *l, Binary: schema.SchemaVersion, Min: schema.MinSchema}
+		case l.SchemaVersion >= wardendb.SchemaVersion:
+			return nil
+		case schema.WardenDBPresent(dataDir):
 			// Two candidate authorities: never fall back to the legacy stores
 			// (nor adopt warden-db) on a guess. The operator decides.
-			return false, &schema.GuardError{Verdict: schema.VerdictSchema2Residue, DataDir: dataDir,
-				Ledger: *l, Binary: schema.SchemaVersion, Min: schema.MinSchema}
+			return &schema.GuardError{Verdict: schema.VerdictSchema2Residue, DataDir: dataDir, Ledger: *l, Binary: schema.SchemaVersion, Min: schema.MinSchema}
 		}
-		return l.SchemaVersion >= wardendb.SchemaVersion, nil
+		return &schema.GuardError{Verdict: schema.VerdictNeedsMigration, DataDir: dataDir, Ledger: *l, Binary: schema.SchemaVersion, Min: schema.MinSchema}
 	}
 	if !errors.Is(err, schema.ErrNoLedger) {
-		return false, fmt.Errorf("storage: schema state: %w", err)
+		return fmt.Errorf("storage: schema state: %w", err)
 	}
-	p, err := wardendb.Probe(dataDir)
-	return p.Exists, err
+	// No ledger. An existing warden-db is the canonical store; a data dir with
+	// no data at all is a fresh install and starts directly on schema 2; legacy
+	// stores without a ledger need the cutover (the boot guard stamps them at
+	// the schema-1 baseline first).
+	if p, err := wardendb.Probe(dataDir); err != nil {
+		return err
+	} else if p.Exists {
+		return nil
+	}
+	if b := schema.InferBaseline(dataDir); !b.Fresh {
+		return &schema.GuardError{Verdict: schema.VerdictNeedsMigration, DataDir: dataDir,
+			Ledger: schema.Ledger{SchemaVersion: b.Version}, Binary: schema.SchemaVersion, Min: schema.MinSchema}
+	}
+	return nil
 }

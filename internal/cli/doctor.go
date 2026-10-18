@@ -17,6 +17,7 @@ import (
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/daemon"
+	"github.com/srjn45/warden/internal/ownerlock"
 	"github.com/srjn45/warden/internal/schema"
 	"github.com/srjn45/warden/internal/storage"
 	"github.com/srjn45/warden/internal/store"
@@ -119,6 +120,16 @@ func checkAgentStore(ctx context.Context, base, dataDir string) checkResult {
 		if _, serr := os.Stat(dataDir); serr != nil {
 			return checkResult{name: "agent store", ok: true, detail: "daemon offline; no data dir yet"}
 		}
+		if onSchema2(dataDir) {
+			// Schema 2 has no per-store lock: the data-dir ownership lock is the
+			// single authority over warden-db.
+			if oe, perr := ownerlock.Probe(dataDir); perr != nil {
+				return checkResult{name: "agent store", ok: false, detail: "ownership probe failed: " + perr.Error()}
+			} else if oe != nil {
+				return checkResult{name: "agent store", ok: false, detail: "owned by another warden process although the daemon is not reachable at " + base + "; " + oe.NextStep()}
+			}
+			return checkResult{name: "agent store", ok: true, detail: "daemon offline; store not owned (safe for offline tools)"}
+		}
 		if oerr := agentstore.ProbeOwnership(dataDir); oerr != nil {
 			var oe *agentstore.OwnershipError
 			if errors.As(oerr, &oe) {
@@ -139,6 +150,9 @@ func checkAgentStore(ctx context.Context, base, dataDir string) checkResult {
 // `warden repair backends`.
 func checkBackendRegistry(ctx context.Context, dataDir string) checkResult {
 	const name = "backend registry"
+	if onSchema2(dataDir) {
+		return checkResult{name: name, ok: true, detail: "schema 2: the registry lives in warden-db (verify offline with `warden repair warden-db --dry-run`)"}
+	}
 	dir := filepath.Join(dataDir, "backends")
 	if _, err := os.Stat(dir); err != nil {
 		return checkResult{name: name, ok: true, detail: "no registry yet (created on first daemon start)"}

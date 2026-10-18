@@ -452,6 +452,16 @@ Policy:
 2. The last release of any major (`(X-1).last`) is automatically a waypoint for crossing into major `X`.
 3. When releasing via `cmd/genmanifest`, pass `-waypoint=true` (or configure release flags in CI).
 4. `wd update --plan` inspects the waypoint chain and computes minimal hop trajectories before applying updates.
+5. `genmanifest` marks every `X.0.0` release `breaking` automatically (the planner then asks for
+   confirmation and routes through the previous major's last release).
+
+**Schema-2 major (v11.0.0).** The updater that is *running* performs the swap, so an
+already-shipped updater cannot run the schema-2 cutover. Before tagging v11.0.0, release a
+v10.x waypoint that contains the updater hook (`runUpdateMigrations` in
+`internal/cli/update.go`; it does not depend on the schema bump) so `wd update` can hand the
+cutover to the new binary. Users on older updaters are stopped by `migrate --check` before any
+change and given the manual steps. Never push the tag without maintainer confirmation; see
+`docs/RELEASE_NOTES-schema2-migration.md` for the runbook and release evidence.
 
 ## 5. Suggested sequencing
 

@@ -90,6 +90,11 @@ func NewSnapshotStoreFromDB(db *wardendb.DB) (*SnapshotStore, error) {
 
 func snapshotKey(rev uint64) string { return fmt.Sprintf("%020d", rev) }
 
+// SnapshotKey is the shared-store key of the observation with revision rev; the
+// schema-2 migration uses it so imported observations sort and collide like
+// native ones.
+func SnapshotKey(rev uint64) string { return snapshotKey(rev) }
+
 // sharedRead returns every retained observation; an undecodable record is
 // skipped like a corrupt JSONL line.
 func (s *SnapshotStore) sharedRead() ([]UsageSnapshot, error) {

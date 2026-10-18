@@ -1,38 +1,141 @@
-# Schema-2 migration release validation
+# Schema 2 (single `warden-db`) — release notes and upgrade runbook
 
-Schema 2 is an offline, journaled cutover from the schema-1 store layout to
-`warden-db/`. The daemon does not migrate data at startup.
+> **Intended for the schema-breaking major release (v11.0.0). Not yet tagged or released.**
 
-## Operator runbook
+Schema 2 moves every durable store (agents, terminals, projects/groups, plans,
+pipelines, autopilot runs, context, mailbox, backend registry, usage/savings/spend,
+schedules, snapshots metadata, audit/metrics, …) into **one** ScrivaDB
+(`<data>/warden-db/`). This release is the first whose `schema.SchemaVersion` is
+**2**: the daemon runs **only** on `warden-db`, and a schema-1 data dir is cut over
+**once**, offline, by a journaled, verified migration. There is no dual-writer
+mode, no silent fallback to the legacy stores, and no automatic downgrade.
 
-1. Stop the daemon and take the normal operator backup.
-2. Run `warden migrate --plan` and resolve every blocking finding. A corrupt
-   source is intentionally left untouched; repair or restore it before retrying.
-3. Run `warden migrate --apply`. The migration creates and verifies its own
-   immutable pre-schema-2 backup before it can promote the target.
-4. If the command or host is interrupted, do not start the daemon. Run
-   `warden migrate --resume` to continue the recorded phase, or
-   `warden migrate --restore` to restore the verified pre-migration snapshot.
-   Restore preserves a partially promoted `warden-db/` under `backups/` for
-   forensics instead of deleting it.
-5. Start a schema-2-capable binary only after apply or resume completes. A
-   schema-1 binary refuses a schema-2 data directory; there is no automatic
-   downgrade.
+## What changes for operators
 
-## Release acceptance evidence
+| Situation | Behaviour |
+| --- | --- |
+| Fresh install | Stamped at schema 2 on first boot; only `warden-db/` is created. |
+| Existing install, `wd update` from a release that knows the cutover | Daemon stopped → data snapshot → binary swap → the **new** binary runs `migrate --apply` → daemon restarted → must report `schema_version 2` and the new version; any failure restores the previous binary **and** data. |
+| Existing install, manual binary swap | The new daemon refuses to start (`must be cut over to the single warden-db`) without opening any store. Run `warden migrate --plan`, then `warden migrate --apply` (daemon stopped). |
+| Older (schema-1) binary on schema-2 data | Refuses before opening any legacy store (`data_newer`, "no automatic downgrade"). |
+| `warden-db/` beside a schema-1 ledger | Refused by every binary (`schema2_residue`): two candidate authorities, nothing is adopted or merged. |
+| Legacy store directories after the cutover | **Kept, untouched, inert.** Cleanup is a separate post-adoption plan; nothing is deleted. |
 
-The focused migration suite supplies the release evidence below:
+## Upgrade runbook
+
+1. **Update path.** `wd update --plan` shows the hops. A major boundary routes
+   through the **last v10.x release**, which must carry the updater hook
+   (`runUpdateMigrations`). Releases built before that hook cannot run the cutover:
+   their updater applies a config-only `Migrate`, the new daemon refuses schema-1
+   data, readiness fails and the updater **rolls back** (binary + data, verified
+   healthy). With this release's `migrate --check` the old updater now stops
+   **before** any change (`schema2_cutover_pending` is a non-clean finding), with the
+   manual steps in step 3.
+2. **Before you start.** Nothing to do for `wd update`; it takes an updater snapshot
+   (`backups/pre-v<ver>-<ts>/`) **and** the cutover takes its own immutable,
+   SHA-256-manifested copy (`backups/pre-schema2-<ts>/`, files `0400`, manifest last).
+3. **Manual / old-updater path** (daemon stopped, new binary on `PATH`):
+   ```sh
+   warden daemon stop            # or: systemctl --user stop warden
+   warden migrate --plan         # read-only: sources, target, backup path, blockers
+   warden migrate --apply        # strict preflight → backup → stage → verify → promote → ledger
+   warden version                # Data schema: 2
+   # then start the new daemon (systemctl --user start warden)
+   ```
+4. **If it is interrupted** (power loss, kill): do **not** start any daemon (they all
+   refuse: `interrupted_migration`). Run `warden migrate --resume` to continue from the
+   journaled step, or `warden migrate --restore` to go back (a promoted `warden-db/`
+   is moved to `backups/abandoned-schema2-<ts>/`, never deleted; the legacy stores
+   and ledger are restored from the verified backup). A pure refusal before any live
+   change (corrupt/ambiguous source, relationship violation) leaves the ledger exactly
+   as it was — no journal to clear.
+5. **After.** Verify with `warden doctor` and `GET /healthz` (`schema_version: 2`).
+   Keep `backups/pre-schema2-*` and the legacy directories until you decide to clean
+   up (out of scope here).
+
+## What the cutover guarantees
+
+* **Daemon stopped, one owner.** The data-dir ownership lock is held for the whole
+  operation; a running daemon makes it refuse.
+* **Strict preflight** (`corruption`, `ambiguity`, `duplicate_identity`,
+  `stale_derived_state`, `unsupported_layout`, `unsafe_artifact`, `owned`,
+  `unverifiable`): nothing is repaired, salvaged, merged or deleted to get past it.
+* **Immutable backup first**, journaled in the ledger **before** any live change.
+* **Staging export → equivalence proof** (record counts, canonical hashes, relationship
+  checks) against the legacy sources, then **atomic promotion** (same-filesystem
+  rename) and a second equivalence check on the promoted target, **then** the ledger
+  moves to 2. The ledger is the commit point.
+* **Active work is not touched.** Running/idle/rate-limited agents, non-terminal
+  autopilot runs, terminals, worktrees, tmux sessions, transcripts, prompts, hints,
+  exits, settings and session logs are copied or referenced as-is; the migration never
+  marks, terminates or deletes them.
+* **Updater rollback** after a promoted cutover restores the binary and the
+  pre-update snapshot and **moves the promoted `warden-db/` aside** so the previous
+  binary does not see two authorities; the immutable `pre-schema2-*` backup is never
+  pruned and never chosen as an updater rollback snapshot.
+
+## Data coverage (what is migrated, and where it lands)
+
+Every row below is exercised by `internal/migrate` `TestRealisticCutover_*`, which
+seeds a schema-1 dir through the **real** compat stores and compares through the
+**real** schema-2 stores.
+
+| Schema-1 source | Schema-2 collection(s) |
+| --- | --- |
+| `agents-db/agents`, `agents-db/closed` | `agents`, `archived_agents` (1:1, as the shared runtime reads them) |
+| `terminals-db` | `terminals` |
+| `projects` (projects + groups) | `projects` (+ additive `group_id`/`group_order`), `project_groups` — membership lists kept |
+| `plans/plans-db` (plans, events, notes), `plans/plan-exports-db` | `plans`, `plan_events`, `plan_notes`, `plan_exports` |
+| `pipelines-db` | `pipelines` (jobs stay embedded) + additive `pipeline_jobs` projection |
+| `autopilots-db`, `autopilot/runs-db` | `autopilots` (identity), `autopilot_runs` (run ledger) — two collections, as the runtime uses them |
+| `context`, `inbox`, `backends`, `schedules-db`, `known-prompts-db`, `snapshots-db` | `context_entries`, `messages`+`id_sequences`, `backends`/`backend_models`/`backend_roles`/`backend_settings`/`backend_quotas`/`backend_rl_cooldowns`, `schedules`, `known_prompts`, `snapshots` |
+| `usage-snapshots/*.jsonl`, `quota-impact/*.jsonl`, `savings/ledger.jsonl`+`calibration.json`, `spend/spend.json`, `metrics/*.jsonl` | `usage_snapshots`, `quota_impact_fences`, `savings_events`+`savings_calibration`, `spend_records`, `metrics_samples` (flat files, under the runtime's own keys) |
+| `audit.jsonl` | copied into `audit_events` (file kept; the daemon keeps **appending to both**) |
+| `sessions-db`, `sessions/`, `closed/` (import-time copies) | not re-imported (would resurrect deleted agents); ids found only there are **reported** and stay in place and in the backup |
+| `snapshots/*.transcript`, `prompts/`, `hints/`, `exits/`, `settings/`, `session-logs/`, `plans/<status>/` YAML, `config.yaml`, `backups/`, `quarantine/` | external: referenced or preserved in place, byte-identical |
+
+## Known limits and follow-ups (documented, not hidden)
+
+* **The updater that already shipped (≤ v10.0.1) cannot run the cutover.** Ship a v10.x
+  waypoint carrying `runUpdateMigrations` first (it is independent of the schema
+  bump), then v11.0.0. Without it users take the manual path above; nothing is lost
+  either way (preflight blocks, or the updater rolls back).
+* **Schema-1-shaped runtime records.** The ported stores still read membership lists
+  (`project.agents/pipelines/…`, group `project_ids`, embedded `pipeline.jobs`,
+  agent `child_*`). The migration carries these verbatim; the normalized-FK reshape
+  of the original contract remains future work. `pipeline_jobs` and the staging
+  `group_id` are additive and not read by the runtime.
+* **Direct-disk CLI paths** that read legacy store directories are refused on schema 2
+  instead of reading frozen data: offline `wd models`/backend registry, `warden repair
+  sessions|agents|backends|all`, `wd savings --calibrate`. Use the daemon-backed
+  interfaces or `warden repair warden-db`. Porting `savings --calibrate` to the daemon
+  is a follow-up.
+* **`plan-sync-hub`** is still served from its file hub; its envelopes are also staged
+  into `plan_sync_envelopes` (not yet read by the runtime).
+* **Index lies are healed, data lies are refused.** On `warden-db` a wrong primary
+  index is rebuilt from the append-only segments at open (segments untouched); corrupt
+  record bytes make the daemon refuse to start and change nothing.
+* Leftover `.schema2-staging-*` directories from a crashed attempt are hidden scratch
+  space (excluded from updater snapshots); remove them by hand once no attempt is
+  journaled.
+* The pre-ledger path (a data dir with no `schema.json` and legacy stores) is stamped at
+  the schema-1 baseline and then refused until migrated; installs older than the
+  support window must hop through a v10.x release so the boot importers run first.
+
+## Release evidence
 
 | Risk | Evidence |
 | --- | --- |
-| Interrupted phases and resume | `TestRunner_CrashAndResumeAtEachStep` |
-| Restore from an interrupted journal | `TestRunner_Restore` |
-| Immutable backup corruption detection | `TestVerifySchema2Backup_Detects` |
-| Corrupt legacy source is actionable and unchanged | `TestPlanSchema2_Blocks`, `TestV925ToV928FailurePreflightCatchesWithZeroDowntime` |
-| Corrupt or divergent target is rejected | `TestVerifySchema2Equivalence_*` |
-| End-to-end cutover, restart, downgrade refusal, and large input | `TestSchema2ReleaseAcceptance` |
-
-`TestSchema2ReleaseAcceptance` migrates 514 legacy agent records, proves a
-schema-2-capable restart needs no further migration, asserts a schema-1 binary
-receives the `data_newer` refusal, and verifies the promoted target's canonical
-equivalence.
+| Realistic dataset preserved (live agents, autopilot run, plan/project/pipeline links, audit, savings, spend, metrics, usage, fences, snapshots, exports, prompts) | `TestRealisticCutover_PreservesLogicalDataset` |
+| Legacy files byte-identical, external artifacts untouched | same test (`legacyBefore` / `externalBefore`) |
+| Updater rollback marker never mistaken for a backup | `TestRealisticCutover_IgnoresUpdaterSnapshotMarker` |
+| Interrupted → refuse → resume; crash after promotion → resume; restore reversible, re-cutover possible | `TestRealisticCutover_InterruptedAndResumed`, `…_CrashAfterPromotionResumesAndRestoreIsReversible` |
+| Refusal changes no source byte, leaves ledger as found | `TestRealisticCutover_RefusalLeavesEverythingUntouched` |
+| Updater: cutover then readiness on schema 2; rollback after cutover preserves `warden-db`; failed cutover rolls back; immutable backup never pruned | `internal/updater` `TestTxnSchema2*`, `TestPruneAndLatestSnapshotIgnoreSchema2Backup` |
+| Updater hook runs the **target** binary once, verifies the ledger, skips fresh/at-target/pre-ledger targets, refuses interrupted journals | `internal/cli` `TestUpdateMigrations*` |
+| Target preflight and boot guard agree before and after | `TestSchema2CheckAndBootGuardAgree` |
+| Fresh install on schema 2 and restart | `TestFreshInstallStartsOnSchema2`, `TestInitCmd_*` |
+| Old binaries / compat opener refuse schema-2 data | `internal/schema` guard tests, `TestOpenIsSharedOnlyAndNeverFallsBack` |
+| Real binaries: refuse → plan → apply → serve the same fleet on schema 2, tmux untouched, apply beside a daemon refused | `internal/e2e` `TestCutoverThenSchema2DaemonServesTheSameFleet` |
+| Daemon boots on `warden-db` (previously crashed on a non-file audit trail) | all `internal/e2e` tests |
+| 514-record scale + downgrade refusal | `TestSchema2ReleaseAcceptance` |

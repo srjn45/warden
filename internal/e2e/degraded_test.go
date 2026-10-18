@@ -1,71 +1,83 @@
 package e2e
 
 import (
+	"bytes"
 	"encoding/json"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
-
-	"github.com/srjn45/warden/internal/agentstore"
 )
 
-// Every degraded surface must agree: lookup, list, tree, SSE, health, doctor
-// all say "degraded, fail closed" — none serves a partial fleet as complete —
-// and no process mutates the store while reporting it.
-func TestDegradedStoreSurfacesAgree(t *testing.T) {
+// Schema 2 (warden-db) heals LYING DERIVED STATE and refuses LYING DATA. An index
+// that points at the wrong record is rebuilt from the append-only segments on
+// open, so the daemon serves the full, correct fleet (never a wrong or short
+// one) and the segments — the truth — stay byte-identical. The schema-1 tools
+// refuse on a schema-2 dir instead of touching the inert legacy copies, and
+// `repair warden-db` is the offline verifier.
+func TestIndexFaultsNeverServeWrongData(t *testing.T) {
 	for name, inject := range faults {
 		t.Run(name, func(t *testing.T) {
 			e := newEnv(t)
 			e.seed("a-1", "a-2", "a-3")
 			inject(e)
-			before := agentsDB(t, e)
+			before := segments(t, e)
 
 			d := e.startDaemon(freeAddr(t), e.data, e.root)
 			d.waitUp()
 
+			code, got := fleet(t, d)
+			require.Equal(t, 200, code)
+			require.Equal(t, []string{"tm-a-1", "tm-a-2", "tm-a-3"}, got, "daemon must serve the full, correct fleet")
 			h := d.health()
-			require.False(t, h.Healthy, "health must be unhealthy")
-			require.True(t, h.Degraded)
-			require.Positive(t, h.FailureCount)
-			require.Equal(t, agentstore.RepairAvailable, h.RepairAvailable)
-
-			// list, lookup and tree fail closed with 503 — never a partial 200.
-			for _, p := range []string{"/api/v1/sessions", "/api/v1/tree"} {
-				code, body := get(t, d.base()+p)
-				require.Equal(t, 503, code, "%s: %s", p, body)
-			}
-			// SSE must not stream a (partial) fleet as if complete: it emits no
-			// sessions frame (silence or an error), never a subset of agents.
-			_, frame := firstSSE(t, d.base()+"/api/v1/events/stream")
-			require.NotContains(t, frame, `"id":"a-`, "SSE streamed agents from a degraded store")
-			// single-agent lookup of the corrupted key must not return a wrong record.
-			if code, body := get(t, d.base()+"/api/v1/sessions/a-1"); code == 200 {
-				var s struct{ ID string }
-				require.NoError(t, json.Unmarshal(body, &s))
-				require.Equal(t, "a-1", s.ID, "lookup returned another agent's record")
-			}
-
-			// doctor (daemon up) reports DEGRADED but is not a hard failure.
-			out, _ := e.run(e.root, "--config", e.config(d.addr, e.data), "doctor")
-			require.Contains(t, out, "DEGRADED", out)
+			require.True(t, h.Healthy, "a healed derived index is not degradation: %+v", h)
+			// single-agent lookup returns that agent's own record.
+			code, body := get(t, d.base()+"/api/v1/sessions/a-1")
+			require.Equal(t, 200, code, string(body))
+			var s struct{ ID string }
+			require.NoError(t, json.Unmarshal(body, &s))
+			require.Equal(t, "a-1", s.ID, "lookup returned another agent's record")
 
 			d.stop()
-			requireSame(t, before, agentsDB(t, e), "degraded daemon run must not mutate agents-db")
+			requireSame(t, before, segments(t, e), "an index fault must never change record segments")
 
-			// offline: doctor probes ownership only; repair reports unavailable.
 			cfg := e.config(freeAddr(t), e.data)
-			out, _ = e.run(e.root, "--config", cfg, "doctor")
-			require.Contains(t, out, "store not owned", out)
-			out, code := e.run(e.root, "--config", cfg, "repair", "agents", "--dry-run")
+			out, code := e.run(e.root, "--config", cfg, "repair", "warden-db", "--dry-run")
 			require.Zero(t, code, out)
-			require.Contains(t, out, "no files changed", out)
-			require.NotContains(t, out, "0 finding(s)", "dry-run must report the injected damage")
-			requireSame(t, before, agentsDB(t, e), "doctor/repair must not mutate agents-db")
+			out, code = e.run(e.root, "--config", cfg, "repair", "agents", "--dry-run")
+			require.NotZero(t, code, out)
+			require.Contains(t, out, "schema 2", out)
+			requireSame(t, before, segments(t, e), "repair --dry-run / refused schema-1 tools must not mutate")
 		})
 	}
+}
+
+// Corrupt record DATA is never healed or guessed: the daemon refuses to start
+// naming the segment region, changes nothing, and the offline verifier reports
+// the same damage.
+func TestCorruptSegmentRefusesToStartAndChangesNothing(t *testing.T) {
+	e := newEnv(t)
+	e.seed("a-1", "a-2", "a-3")
+	seg := filepath.Join(e.data, "warden-db", "agents", "seg_000001.ndjson")
+	b, err := os.ReadFile(seg)
+	require.NoError(t, err)
+	at := bytes.Index(b[600:], []byte(`"name"`)) + 600
+	copy(b[at:], []byte(`"na!!`))
+	require.NoError(t, os.WriteFile(seg, b, 0o600))
+	before := agentsDB(t, e)
+
+	d := e.startDaemon(freeAddr(t), e.data, e.root)
+	log := d.waitExit()
+	require.Contains(t, log, "integrity violation", log)
+	require.Contains(t, log, "nothing was modified or salvaged", log)
+	requireSame(t, before, agentsDB(t, e), "a refused open must not mutate the store")
+
+	out, _ := e.run(e.root, "--config", e.config(freeAddr(t), e.data), "repair", "warden-db", "--dry-run")
+	require.Contains(t, out, "health=corrupt", "the verifier must report the injected damage")
+	requireSame(t, before, agentsDB(t, e), "verification is read-only")
 }
 
 // Repair/doctor refuse while a daemon owns the store, from any alias, and the
@@ -96,7 +108,7 @@ func TestOwnedStoreRefusedAcrossAliases(t *testing.T) {
 			require.Contains(t, log, "next step", log)
 
 			cfg := e.config(freeAddr(t), alias)
-			out, code := e.run(e.root, "--config", cfg, "repair", "agents")
+			out, code := e.run(e.root, "--config", cfg, "repair", "warden-db", "--backup-dir", filepath.Join(e.root, "bk-"+name))
 			require.NotZero(t, code)
 			require.Contains(t, out, "owned", out)
 			out, code = e.run(e.root, "--config", cfg, "doctor", "--reconcile-membership")
@@ -140,21 +152,22 @@ func TestLockReleasedAfterSIGKILL(t *testing.T) {
 }
 
 // A daemon killed at arbitrary points of startup never leaves the store owned
-// or damaged: a healthy store stays healthy and a degraded one stays
-// byte-identical (no half-applied "repair").
+// or damaged: record segments stay byte-identical (a lying index is derived
+// state the next open simply rebuilds) and the final daemon serves the full,
+// correct fleet.
 func TestStartupInterruption(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		inject func(*env)
 	}{
 		{"healthy", func(*env) {}},
-		{"degraded", faults["in-range-wrong-record"]},
+		{"stale-index", faults["in-range-wrong-record"]},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newEnv(t)
 			e.seed("a-1", "a-2", "a-3")
 			tc.inject(e)
-			before := agentsDB(t, e)
+			before := segments(t, e)
 			for i := 0; i < 8; i++ {
 				d := e.startDaemon(freeAddr(t), e.data, e.root)
 				// kill at staggered points from "just forked" to "serving".
@@ -163,16 +176,15 @@ func TestStartupInterruption(t *testing.T) {
 				}
 				d.kill()
 			}
-			if tc.name == "degraded" {
-				requireSame(t, before, agentsDB(t, e), "interrupted startups mutated agents-db")
-			}
+			requireSame(t, before, segments(t, e), "interrupted startups mutated record segments")
 			final := e.startDaemon(freeAddr(t), e.data, e.root)
 			final.waitUp()
-			require.Equal(t, tc.name == "healthy", final.health().Healthy)
+			require.True(t, final.health().Healthy)
+			code, got := fleet(t, final)
+			require.Equal(t, 200, code)
+			require.Equal(t, []string{"tm-a-1", "tm-a-2", "tm-a-3"}, got)
 			final.stop()
-			if tc.name == "degraded" {
-				requireSame(t, before, agentsDB(t, e), "final run mutated agents-db")
-			}
+			requireSame(t, before, segments(t, e), "final run mutated record segments")
 		})
 	}
 }
@@ -182,20 +194,20 @@ func get1(d *daemon) { // one cheap, time-consuming probe to stagger the kill po
 	_, _ = httpGetQuiet(d.base() + "/healthz")
 }
 
-// A primary-index entry that is simply absent is now caught by full ScrivaDB
-// Verify (srjn45/scriva#107), so the degraded store fails closed instead of
-// reading as a complete, healthy fleet of the remaining agents.
-func TestMissingIndexEntryIsDetected(t *testing.T) {
+// A primary-index entry that is simply absent is derived-state damage: the
+// engine rebuilds it from the segments on open, so the daemon serves the FULL
+// fleet — never a short one presented as complete.
+func TestMissingIndexEntryIsHealedNotServedShort(t *testing.T) {
 	e := newEnv(t)
 	e.seed("a-1", "a-2", "a-3")
 	e.rewriteIndex("agents", func(m map[string]idxEntry) { delete(m, byOffset(m)[2]) })
-	before := agentsDB(t, e)
+	before := segments(t, e)
 	d := e.startDaemon(freeAddr(t), e.data, e.root)
 	d.waitUp()
-	code, body := get(t, d.base()+"/api/v1/sessions")
-	require.Equal(t, 503, code, string(body))
-	require.Zero(t, strings.Count(string(body), `"tmux_session"`), "degraded store must not present a short fleet")
-	require.False(t, d.health().Healthy)
+	code, got := fleet(t, d)
+	require.Equal(t, 200, code)
+	require.Equal(t, []string{"tm-a-1", "tm-a-2", "tm-a-3"}, got, "must not present a short fleet")
+	require.True(t, d.health().Healthy)
 	d.stop()
-	requireSame(t, before, agentsDB(t, e), "read-only run must not mutate")
+	requireSame(t, before, segments(t, e), "record segments must not mutate")
 }

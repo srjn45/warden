@@ -21,6 +21,19 @@ var (
 	ErrNoSnapshot = errors.New("no snapshot found")
 )
 
+// schema2BackupPrefix names the immutable pre-schema-2 backups written by the
+// cutover (internal/migrate). They share the "pre-" prefix with updater
+// snapshots but are a different layout (data/ + MANIFEST.json), are the
+// permanent rollback source for the cutover, and are only ever removed by the
+// operator (post-adoption cleanup) — never pruned, and never chosen by
+// `wd rollback` as an updater snapshot.
+const schema2BackupPrefix = "pre-schema2-"
+
+// isUpdaterSnapshotDir reports whether a backups/ entry is an updater snapshot.
+func isUpdaterSnapshotDir(e os.DirEntry) bool {
+	return e.IsDir() && strings.HasPrefix(e.Name(), "pre-") && !strings.HasPrefix(e.Name(), schema2BackupPrefix)
+}
+
 // SnapshotManifest records the files and checksums captured in a snapshot.
 type SnapshotManifest struct {
 	CreatedAt     time.Time         `json:"created_at"`
@@ -75,6 +88,14 @@ func SnapshotStores(dataDir, preVersion, installBin string) (string, error) {
 
 		// Exclude backups, tmp, and transcripts
 		if firstPart == "backups" || firstPart == "tmp" || firstPart == "transcripts" {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		// A half-built schema-2 staging directory is transient scratch space.
+		if strings.HasPrefix(firstPart, ".schema2-staging-") {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
@@ -212,6 +233,35 @@ func RestoreSnapshot(snapDir, dataDir string) error {
 		_ = schema.Save(dataDir, l)
 	}
 
+	return preserveAbandonedWardenDB(dataDir)
+}
+
+// preserveAbandonedWardenDB makes a restored schema-1 data dir bootable. When
+// the update had already promoted warden-db, restoring the schema-1 ledger and
+// stores leaves two candidate authorities, which every binary refuses. The
+// promoted warden-db is moved (never deleted) under backups/ so whatever the
+// failed schema-2 daemon wrote stays recoverable, and the legacy stores are
+// the only authority again. A restored ledger that already says schema 2 keeps
+// its warden-db.
+func preserveAbandonedWardenDB(dataDir string) error {
+	l, err := schema.Load(dataDir)
+	if err == nil && l.SchemaVersion >= schema.Schema2 {
+		return nil
+	}
+	if err != nil && !errors.Is(err, schema.ErrNoLedger) {
+		return fmt.Errorf("restore snapshot: read restored ledger: %w", err)
+	}
+	if !schema.WardenDBPresent(dataDir) {
+		return nil
+	}
+	target := filepath.Join(dataDir, schema.WardenDBDir)
+	moved := filepath.Join(dataDir, "backups", "abandoned-schema2-"+time.Now().UTC().Format("20060102T150405.000000000Z"))
+	if err := os.MkdirAll(filepath.Dir(moved), 0o700); err != nil {
+		return fmt.Errorf("restore snapshot: %w", err)
+	}
+	if err := os.Rename(target, moved); err != nil {
+		return fmt.Errorf("restore snapshot: preserve %s: %w", schema.WardenDBDir, err)
+	}
 	return nil
 }
 
@@ -244,7 +294,7 @@ func PruneSnapshots(dataDir string, clock Clock, keepMin int, retention time.Dur
 	}
 	var snaps []snapInfo
 	for _, e := range entries {
-		if !e.IsDir() || !strings.HasPrefix(e.Name(), "pre-") {
+		if !isUpdaterSnapshotDir(e) {
 			continue
 		}
 		p := filepath.Join(backupsDir, e.Name())
@@ -299,7 +349,7 @@ func LatestSnapshot(dataDir string) (string, error) {
 	}
 	var snaps []snapInfo
 	for _, e := range entries {
-		if !e.IsDir() || !strings.HasPrefix(e.Name(), "pre-") {
+		if !isUpdaterSnapshotDir(e) {
 			continue
 		}
 		p := filepath.Join(backupsDir, e.Name())

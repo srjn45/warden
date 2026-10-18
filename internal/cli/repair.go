@@ -26,11 +26,20 @@ import (
 
 func newRepairCmd() *cobra.Command {
 	root := &cobra.Command{Use: "repair", Short: "Offline, backup-first repair tools"}
-	root.AddCommand(newRepairSessionsCmd())
-	root.AddCommand(newRepairAgentsCmd())
-	root.AddCommand(newRepairBackendsCmd())
+	// The schema-1 repair tools operate on the per-store directories, which on a
+	// schema-2 data dir are inert copies; only `repair warden-db` applies there.
+	// (Wrapping RunE keeps the root's PersistentPreRun hooks intact.)
+	for _, c := range []*cobra.Command{newRepairSessionsCmd(), newRepairAgentsCmd(), newRepairBackendsCmd(), newRepairAllCmd()} {
+		inner := c.RunE
+		c.RunE = func(cmd *cobra.Command, args []string) error {
+			if err := requireSchema1Stores(config.Load(configPathFor(cmd)).DataDir, "warden repair "+cmd.Name()); err != nil {
+				return err
+			}
+			return inner(cmd, args)
+		}
+		root.AddCommand(c)
+	}
 	root.AddCommand(newRepairWardenDBCmd())
-	root.AddCommand(newRepairAllCmd())
 	return root
 }
 

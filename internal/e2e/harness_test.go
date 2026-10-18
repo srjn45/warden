@@ -27,7 +27,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/srjn45/warden/internal/agentstore"
+	"github.com/srjn45/warden/internal/projectstore"
+	"github.com/srjn45/warden/internal/schema"
 	"github.com/srjn45/warden/internal/store"
+	"github.com/srjn45/warden/internal/wardendb"
 )
 
 var wardenBin string
@@ -289,17 +292,44 @@ func (d *daemon) health() health {
 	return h
 }
 
+// openShared opens the schema-2 warden-db in THIS process (stamping the ledger
+// at schema 2 first, as a booted daemon would), so a test can seed it before the
+// daemon under test becomes the only owner. The returned closer releases it.
+func (e *env) openShared() (*agentstore.Store, func()) {
+	e.t.Helper()
+	if _, err := schema.Load(e.data); err != nil {
+		require.NoError(e.t, schema.Save(e.data, &schema.Ledger{SchemaVersion: schema.Schema2, BinaryVersion: "e2e",
+			History: []schema.HistoryEntry{{From: 0, To: schema.Schema2, Migration: schema.MigrationBaselineFresh}}}))
+	}
+	db, err := wardendb.Open(e.data)
+	require.NoError(e.t, err)
+	s, err := agentstore.NewStoreFromDB(db)
+	require.NoError(e.t, err)
+	return s, func() { require.NoError(e.t, db.Close()) }
+}
+
+// openSharedProjects is openShared for the project store.
+func (e *env) openSharedProjects() (*projectstore.Store, func()) {
+	e.t.Helper()
+	_, closeAgents := e.openShared() // stamps the ledger
+	closeAgents()
+	db, err := wardendb.Open(e.data)
+	require.NoError(e.t, err)
+	ps, err := projectstore.NewStoreFromDB(db)
+	require.NoError(e.t, err)
+	return ps, func() { require.NoError(e.t, db.Close()) }
+}
+
 // seed opens the store in THIS process, inserts the agents, and closes it, so
 // the daemon under test is the only owner afterwards.
 func (e *env) seed(ids ...string) {
 	e.t.Helper()
-	s, err := agentstore.New(e.data)
-	require.NoError(e.t, err)
+	s, closeDB := e.openShared()
 	for _, id := range ids {
 		require.NoError(e.t, s.Insert(context.Background(), &agentstore.Agent{ID: id, Name: "n-" + id, Status: store.StatusWorking,
 			TmuxSession: "tm-" + id, CreatedAt: time.Now(), UpdatedAt: time.Now()}))
 	}
-	require.NoError(e.t, s.Close())
+	closeDB()
 }
 
 // snapshot hashes every file under dir (path -> sha256) so tests can prove the
@@ -345,10 +375,21 @@ func requireSame(t *testing.T, before, after map[string]string, msg string) {
 	}
 }
 
-// agentsDB restricts a snapshot to the agent store files.
+// agentsDB restricts a snapshot to the agent collections of warden-db (the
+// daemon registers every other collection on first open, which is not a
+// mutation of the agent store under test).
 func agentsDB(t *testing.T, e *env) map[string]string {
-	all := snapshot(t, filepath.Join(e.data, "agents-db"))
-	return all
+	out := map[string]string{}
+	for _, col := range []string{"agents", "archived_agents"} {
+		dir := filepath.Join(e.data, wardendb.DirName, col)
+		if _, err := os.Stat(dir); err != nil {
+			continue
+		}
+		for k, v := range snapshot(t, dir) {
+			out[col+"/"+k] = v
+		}
+	}
+	return out
 }
 
 func httpGetQuiet(url string) (int, error) {
@@ -359,4 +400,39 @@ func httpGetQuiet(url string) (int, error) {
 	}
 	r.Body.Close()
 	return r.StatusCode, nil
+}
+
+// segments restricts agentsDB to the append-only record segments: the truth.
+// Indexes and secondary indexes are derived state the engine may rebuild on open.
+func segments(t *testing.T, e *env) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	for k, v := range agentsDB(t, e) {
+		if strings.Contains(filepath.Base(k), "seg_") {
+			out[k] = v
+		}
+	}
+	require.NotEmpty(t, out)
+	return out
+}
+
+// fleet returns the tmux sessions of the agents the daemon lists (sorted), or
+// the HTTP status when the listing is refused.
+func fleet(t *testing.T, d *daemon) (int, []string) {
+	t.Helper()
+	code, body := get(t, d.base()+"/api/v1/sessions")
+	var out struct {
+		Sessions []struct {
+			TmuxSession string `json:"tmux_session"`
+		} `json:"sessions"`
+	}
+	if code == 200 {
+		require.NoError(t, json.Unmarshal(body, &out), string(body))
+	}
+	var ids []string
+	for _, s := range out.Sessions {
+		ids = append(ids, s.TmuxSession)
+	}
+	sort.Strings(ids)
+	return code, ids
 }
