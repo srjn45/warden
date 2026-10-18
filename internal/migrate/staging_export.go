@@ -33,19 +33,21 @@ var ErrStagingExportRefused = errors.New("migrate: schema-2 staging export refus
 type StagingExportOptions struct {
 	// TargetDir defaults to <dataDir>/warden-db-staging. It is deliberately not
 	// wardendb.Dir(dataDir): staging is review material, never cutover.
-	TargetDir string
-	Now       time.Time
+	TargetDir     string
+	QuarantineDir string
+	Now           time.Time
 }
 
 // StagingExportReport is the deterministic summary of one staging export run.
 type StagingExportReport struct {
-	DataDir   string            `json:"data_dir"`
-	TargetDir string            `json:"target_dir"`
-	StartedAt time.Time         `json:"started_at"`
-	Records   map[string]int    `json:"records"`
-	Findings  []Finding         `json:"findings,omitempty"`
-	Checksums map[string]string `json:"checksums"`
-	Blocked   bool              `json:"blocked"`
+	DataDir     string              `json:"data_dir"`
+	TargetDir   string              `json:"target_dir"`
+	StartedAt   time.Time           `json:"started_at"`
+	Records     map[string]int      `json:"records"`
+	Findings    []Finding           `json:"findings,omitempty"`
+	Checksums   map[string]string   `json:"checksums"`
+	Blocked     bool                `json:"blocked"`
+	Quarantined []QuarantinedRecord `json:"quarantined,omitempty"`
 }
 
 type stagingRow struct {
@@ -55,16 +57,17 @@ type stagingRow struct {
 }
 
 type stagingSet struct {
-	rows     []stagingRow
-	rowKeys  map[string]string
-	agents   map[string]map[string]any
-	terms    map[string]map[string]any
-	projects map[string]map[string]any
-	plans    map[string]map[string]any
-	pipes    map[string]map[string]any
-	jobs     map[string]map[string]any
-	runs     map[string]map[string]any
-	findings []Finding
+	rows        []stagingRow
+	rowKeys     map[string]string
+	agents      map[string]map[string]any
+	terms       map[string]map[string]any
+	projects    map[string]map[string]any
+	plans       map[string]map[string]any
+	pipes       map[string]map[string]any
+	jobs        map[string]map[string]any
+	runs        map[string]map[string]any
+	findings    []Finding
+	quarantined []QuarantinedRecord
 }
 
 // ExportSchema2Staging maps the legacy schema-1 stores into a fresh schema-2
@@ -95,6 +98,7 @@ func ExportSchema2Staging(ctx context.Context, dataDir string, opts StagingExpor
 	if err != nil {
 		return rep, err
 	}
+	rep.Quarantined = append([]QuarantinedRecord(nil), set.quarantined...)
 	rep.Findings = append(rep.Findings, set.findings...)
 	for _, f := range rep.Findings {
 		if f.Severity == SeverityBlocking {
@@ -157,6 +161,11 @@ func ExportSchema2Staging(ctx context.Context, dataDir string, opts StagingExpor
 			rep.Records[name]++
 		}
 		rep.Checksums[name] = hex.EncodeToString(h.Sum(nil))
+	}
+	if opts.QuarantineDir != "" && len(set.quarantined) > 0 {
+		if err := writeSavingsQuarantineDir(opts.QuarantineDir, set.quarantined); err != nil {
+			return rep, fmt.Errorf("%w: write quarantine: %v", ErrStagingExportRefused, err)
+		}
 	}
 	return rep, nil
 }

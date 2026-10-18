@@ -22,6 +22,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -406,6 +408,29 @@ func (pf *preflight) checkFlatFiles() {
 					}
 				}
 			case strings.HasSuffix(p, ".jsonl"):
+				if rel == "savings/ledger.jsonl" {
+					lines, err := readSavingsLinesWithOffsets(p)
+					if err != nil {
+						if os.IsPermission(err) {
+							pf.block(ClassUnverifiable, rel, rel+": unreadable: "+err.Error(), "")
+						} else {
+							pf.block(ClassCorruption, rel, fmt.Sprintf("%s: %v", rel, err),
+								"restore savings/ledger.jsonl from backup or repair file boundaries; safe quarantine requires valid line boundaries")
+						}
+						return
+					}
+					for _, sl := range lines {
+						var m map[string]any
+						if err := json.Unmarshal(sl.raw, &m); err != nil || m == nil {
+							sha := sha256.Sum256(sl.raw)
+							shaHex := hex.EncodeToString(sha[:])
+							pf.add(SeverityRepairable, ClassCorruption, rel,
+								fmt.Sprintf("%s: line %d (offset %d): malformed JSON record; will be quarantined during cutover (sha256:%s)", rel, sl.lineNum, sl.offset, shaHex[:12]),
+								"malformed savings records will be preserved in quarantine/savings/ during migration; exact raw bytes and provenance remain recoverable")
+						}
+					}
+					return
+				}
 				f, err := os.Open(p)
 				if err != nil {
 					pf.block(ClassUnverifiable, rel, rel+": unreadable: "+err.Error(), "")

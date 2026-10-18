@@ -44,6 +44,19 @@ type Finding struct {
 	Command string `json:"command,omitempty"`
 }
 
+// QuarantinedRecord is the immutable audit record of a malformed source record
+// preserved during migration.
+type QuarantinedRecord struct {
+	SourcePath string `json:"source_path"`
+	Line       int    `json:"line"`
+	Offset     int64  `json:"offset"`
+	Length     int    `json:"length"`
+	RawBytes   string `json:"raw_bytes"`
+	RawHex     string `json:"raw_hex"`
+	SHA256     string `json:"sha256"`
+	Reason     string `json:"reason"`
+}
+
 // Step is one named, journaled sub-step of a Migration.
 type Step struct {
 	Name string

@@ -23,14 +23,15 @@ import (
 // Hashes include the stable key, so an identical payload under a different
 // identity cannot pass verification.
 type EquivalenceReport struct {
-	DataDir      string            `json:"data_dir"`
-	TargetDir    string            `json:"target_dir"`
-	SourceCounts map[string]int    `json:"source_counts"`
-	TargetCounts map[string]int    `json:"target_counts"`
-	SourceHashes map[string]string `json:"source_hashes"`
-	TargetHashes map[string]string `json:"target_hashes"`
-	Findings     []Finding         `json:"findings,omitempty"`
-	Passed       bool              `json:"passed"`
+	DataDir      string              `json:"data_dir"`
+	TargetDir    string              `json:"target_dir"`
+	SourceCounts map[string]int      `json:"source_counts"`
+	TargetCounts map[string]int      `json:"target_counts"`
+	SourceHashes map[string]string   `json:"source_hashes"`
+	TargetHashes map[string]string   `json:"target_hashes"`
+	Findings     []Finding           `json:"findings,omitempty"`
+	Passed       bool                `json:"passed"`
+	Quarantined  []QuarantinedRecord `json:"quarantined,omitempty"`
 }
 
 // VerifySchema2Equivalence compares a legacy source with an existing staging
@@ -44,7 +45,13 @@ func VerifySchema2Equivalence(ctx context.Context, dataDir, targetDir string) (*
 	if err != nil {
 		return nil, err
 	}
-	rep := &EquivalenceReport{DataDir: dataDir, TargetDir: targetDir, SourceCounts: map[string]int{}, TargetCounts: map[string]int{}, SourceHashes: map[string]string{}, TargetHashes: map[string]string{}, Findings: append([]Finding(nil), set.findings...)}
+	rep := &EquivalenceReport{
+		DataDir: dataDir, TargetDir: targetDir,
+		SourceCounts: map[string]int{}, TargetCounts: map[string]int{},
+		SourceHashes: map[string]string{}, TargetHashes: map[string]string{},
+		Findings:    append([]Finding(nil), set.findings...),
+		Quarantined: append([]QuarantinedRecord(nil), set.quarantined...),
+	}
 	if countBlocking(rep.Findings) != 0 {
 		return rep, fmt.Errorf("%w: source has blocking relationship finding", ErrStagingExportRefused)
 	}
