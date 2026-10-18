@@ -42,6 +42,19 @@ Never started in mixed mode: the new daemon only starts after step 3 succeeded, 
 
 `owner lock → strict preflight → immutable backup + MANIFEST (journaled) → staging export → equivalence (counts/hashes/relationships) → promote (rename) → promoted-target equivalence → ledger := 2`. Resume continues the journaled phase from the same backup; restore verifies the backup, preserves any promoted target, restores the legacy files and clears the journal.
 
+### 4.1 Pipeline reconciliation (added after the first live cutover attempt)
+
+The first real cutover refused with seven blockers: `pipelines/` held six JSON files `pipelines-db` no longer had, and six archived agents still named a deleted pipeline. Evidence from the data: `pipelines-db` carried a delete tombstone for every one of those ids (the legacy import is additive and sentinel-guarded, so the database is authoritative once imported and the JSON directory is a stale backup). The exporter now reconciles instead of ignoring or blindly unioning (`internal/migrate/pipeline_reconcile.go`):
+
+* identical file/record pairs dedupe; a differing pair is a `pipeline_legacy_conflict` (no winner, no "newest");
+* a file whose pipeline has a tombstone is superseded, not resurrected; with no tombstone the deletion is unproven (`pipeline_unproven_deletion`) and the export refuses;
+* agents/plans of a missing pipeline: archived/finished (`done`/`errored`/`orphaned` agents, `completed`/`archived` plans) keep the history as `historical_pipeline` (`wardendb.HistoricalRef`: id, job id, reason `deleted`|`unrecorded`, evidence, migration id) and lose the dangling `pipeline_id`/`job_id`, which the relationship validator (unchanged) requires to resolve; anything live refuses (`pipeline_active_ref`);
+* `agentstore.Agent` and `planstore.Plan` gained the optional `historical_pipeline` field so the runtime round-trips it; the equivalence hashes are computed over the same reconciled rows, so staging, verification and the promoted target agree;
+* diagnostics are typed (`FindingClass`), bounded (25 per kind, 10 in the error text, 200 chars of any source text), and never copy record values;
+* the refusal error (`migrate.RefusalError`) now carries the findings that the cutover used to drop, and `Migration0002.Check` runs the same mapping on a private copy of the sources (`PreflightStagingMapping`) so the updater sees a blocker before it stops anything.
+
+Also fixed: `messages` is no longer given a unique `id` index in staging (mailbox ids repeat per recipient; the runtime spec has none), which refused any real inbox.
+
 ## 5. Direct-disk consumers on schema 2
 
 Anything that read a legacy store directory straight from disk is either re-pointed or refuses: `audit` readers keep working (file still appended), `doctor` ownership uses the data-dir lock, offline `models`/backend registry, `repair sessions|agents|backends|all` and `savings --calibrate` refuse with guidance (`requireSchema1Stores`). `repair warden-db` is the offline verifier/repairer.
