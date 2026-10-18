@@ -221,7 +221,13 @@ func planSchema2(dataDir string, now time.Time, allowOwnSchema2Journal bool) (*S
 	case err != nil:
 		return nil, fmt.Errorf("schema2 plan: probe ownership lock: %w", err)
 	case oe != nil:
-		block("owner.lock", "the data dir is owned by a running warden process", oe.Error()+"\n"+oe.NextStep())
+		p.Findings = append(p.Findings, Finding{
+			Severity: SeverityBlocking,
+			Class:    string(ClassOwned),
+			Store:    ownerlock.FileName,
+			Message:  "the data dir is owned by a running warden process",
+			Details:  oe.Error() + "\n" + oe.NextStep(),
+		})
 	}
 
 	// Ledger.

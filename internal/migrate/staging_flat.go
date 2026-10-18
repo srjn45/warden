@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -67,9 +68,7 @@ func loadFlatSources(ctx context.Context, dataDir string, set *stagingSet) error
 			})
 		},
 		func() error {
-			return loadJSONL(dataDir, "savings/ledger.jsonl", "savings_events", set, func(n int, _ []byte, _ map[string]any) (string, error) {
-				return fmt.Sprintf("%012d", n), nil
-			})
+			return loadSavingsLedger(dataDir, set)
 		},
 		func() error {
 			return loadSingletonJSON(dataDir, "savings/calibration.json", "savings_calibration", "current", set)
@@ -429,4 +428,213 @@ func firstNonEmpty(vs ...string) string {
 		}
 	}
 	return ""
+}
+
+type savingsLine struct {
+	lineNum int
+	offset  int64
+	length  int
+	raw     []byte
+}
+
+func readSavingsLinesWithOffsets(path string) ([]savingsLine, error) {
+	f, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	r := bufio.NewReaderSize(f, 64*1024)
+	var lines []savingsLine
+	var curOffset int64
+	lineNum := 0
+	maxLineLen := 16 * 1024 * 1024 // 16 MiB line safety limit
+	for {
+		lineNum++
+		startOffset := curOffset
+		rawWithDelim, readErr := r.ReadBytes('\n')
+		if len(rawWithDelim) == 0 && readErr != nil {
+			if errors.Is(readErr, io.EOF) {
+				break
+			}
+			return nil, fmt.Errorf("read %s at line %d (offset %d): %w", path, lineNum, startOffset, readErr)
+		}
+		curOffset += int64(len(rawWithDelim))
+		if len(rawWithDelim) > maxLineLen {
+			return nil, fmt.Errorf("line %d (offset %d) exceeds 16MiB limit; line boundaries cannot be safely determined", lineNum, startOffset)
+		}
+		raw := bytes.TrimRight(rawWithDelim, "\r\n")
+		if len(bytes.TrimSpace(raw)) == 0 {
+			if readErr != nil {
+				if errors.Is(readErr, io.EOF) {
+					break
+				}
+				return nil, fmt.Errorf("read %s at line %d (offset %d): %w", path, lineNum, startOffset, readErr)
+			}
+			continue
+		}
+		lines = append(lines, savingsLine{
+			lineNum: lineNum,
+			offset:  startOffset,
+			length:  len(raw),
+			raw:     append([]byte(nil), raw...),
+		})
+		if readErr != nil {
+			if errors.Is(readErr, io.EOF) {
+				break
+			}
+			return nil, fmt.Errorf("read %s at line %d (offset %d): %w", path, lineNum, startOffset, readErr)
+		}
+	}
+	return lines, nil
+}
+
+func loadSavingsLedger(dataDir string, set *stagingSet) error {
+	path := filepath.Join(dataDir, "savings", "ledger.jsonl")
+	lines, err := readSavingsLinesWithOffsets(path)
+	if err != nil {
+		set.block("savings_events", fmt.Sprintf("savings/ledger.jsonl: %v", err), ClassCorruption)
+		return nil
+	}
+	validCount := 0
+	for _, sl := range lines {
+		m, decErr := decodeObject(sl.raw)
+		if decErr != nil {
+			sha := sha256.Sum256(sl.raw)
+			shaHex := hex.EncodeToString(sha[:])
+			q := QuarantinedRecord{
+				SourcePath: "savings/ledger.jsonl",
+				Line:       sl.lineNum,
+				Offset:     sl.offset,
+				Length:     sl.length,
+				RawBytes:   string(sl.raw),
+				RawHex:     hex.EncodeToString(sl.raw),
+				SHA256:     shaHex,
+				Reason:     decErr.Error(),
+			}
+			set.quarantined = append(set.quarantined, q)
+			set.findings = append(set.findings, Finding{
+				Severity: SeverityRepairable,
+				Class:    string(ClassCorruption),
+				Store:    "savings/ledger.jsonl",
+				Message:  fmt.Sprintf("savings/ledger.jsonl: line %d (offset %d): malformed JSON record quarantined (%s)", sl.lineNum, sl.offset, shaHex[:12]),
+				Details:  fmt.Sprintf("raw: %q; reason: %v; preserved in quarantine", string(sl.raw), decErr),
+			})
+			continue
+		}
+		validCount++
+		key := fmt.Sprintf("%012d", validCount)
+		set.add("savings_events", key, m)
+	}
+	return nil
+}
+
+func writeSavingsQuarantine(dataDir string, records []QuarantinedRecord) error {
+	return writeSavingsQuarantineDir(filepath.Join(dataDir, "quarantine", "savings"), records)
+}
+
+func writeSavingsQuarantineDir(quarDir string, records []QuarantinedRecord) error {
+	if len(records) == 0 {
+		return nil
+	}
+	if err := os.MkdirAll(quarDir, 0o700); err != nil {
+		return fmt.Errorf("create quarantine dir %s: %w", quarDir, err)
+	}
+
+	for _, rec := range records {
+		rawFileName := fmt.Sprintf("line_%06d_offset_%012d_%s.raw", rec.Line, rec.Offset, rec.SHA256[:8])
+		rawPath := filepath.Join(quarDir, rawFileName)
+		rawBytes, err := hex.DecodeString(rec.RawHex)
+		if err != nil {
+			rawBytes = []byte(rec.RawBytes)
+		}
+		sum := sha256.Sum256(rawBytes)
+		if hex.EncodeToString(sum[:]) != rec.SHA256 {
+			return fmt.Errorf("quarantine checksum mismatch for line %d: got %s, want %s", rec.Line, hex.EncodeToString(sum[:]), rec.SHA256)
+		}
+		if err := atomicWriteFile(rawPath, rawBytes, 0o600); err != nil {
+			return fmt.Errorf("write quarantine raw file %s: %w", rawPath, err)
+		}
+	}
+
+	var jsonlBuf bytes.Buffer
+	for _, rec := range records {
+		b, err := json.Marshal(rec)
+		if err != nil {
+			return fmt.Errorf("marshal quarantine record: %w", err)
+		}
+		jsonlBuf.Write(b)
+		jsonlBuf.WriteByte('\n')
+	}
+	if err := atomicWriteFile(filepath.Join(quarDir, "records.jsonl"), jsonlBuf.Bytes(), 0o600); err != nil {
+		return fmt.Errorf("write quarantine records.jsonl: %w", err)
+	}
+
+	manifest := struct {
+		SourcePath    string              `json:"source_path"`
+		QuarantinedAt time.Time           `json:"quarantined_at"`
+		TotalRecords  int                 `json:"total_records"`
+		Records       []QuarantinedRecord `json:"records"`
+	}{
+		SourcePath:    "savings/ledger.jsonl",
+		QuarantinedAt: time.Now().UTC(),
+		TotalRecords:  len(records),
+		Records:       records,
+	}
+	mb, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal quarantine manifest: %w", err)
+	}
+	if err := atomicWriteFile(filepath.Join(quarDir, "manifest.json"), append(mb, '\n'), 0o600); err != nil {
+		return fmt.Errorf("write quarantine manifest.json: %w", err)
+	}
+
+	if err := syncDirectory(quarDir); err != nil {
+		return err
+	}
+	parent := filepath.Dir(quarDir)
+	if err := syncDirectory(parent); err != nil {
+		return err
+	}
+	return syncDirectory(filepath.Dir(parent))
+}
+
+func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmpName)
+		}
+	}()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmpName, perm); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return err
+	}
+	cleanup = false
+	return nil
 }

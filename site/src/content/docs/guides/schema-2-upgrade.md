@@ -17,12 +17,17 @@ immutable, checksummed copy is taken first under `backups/pre-schema2-<timestamp
 
 ## The normal path: `warden update`
 
-`warden update` handles the whole thing: it stops the daemon, takes a data snapshot,
-swaps the binary, and the **new** binary runs `warden migrate --apply`. The daemon is
-restarted only afterwards and must report the new version **and** `schema_version: 2`.
-If anything fails, the previous binary and data are restored and the old daemon is
-verified healthy again (a promoted `warden-db/` is moved to
-`backups/abandoned-schema2-<timestamp>/`, never deleted).
+`warden update` handles the whole thing: it inspects the data directory before stopping the
+daemon, recognizing the running daemon and expected live index lag as non-blocking notes
+(genuine corruption safely blocks before any binary swap or modification). It then stops the
+daemon, takes a data snapshot, swaps the binary, and the **new** binary runs `warden migrate --apply`
+under the ownership lock. Malformed records in `savings/ledger.jsonl` with valid line boundaries
+are safely quarantined into `<data_dir>/quarantine/savings/` with SHA-256 manifests while valid
+events are preserved. Post-stop verification is strict: any foreign lock or unquarantineable
+corruption safely refuses before change (`ErrRefusedBeforeChange`). The daemon is restarted only
+afterwards and must report the new version **and** `schema_version: 2`. If anything fails, the
+previous binary and data are restored without mutation and the old daemon is verified healthy
+again (a promoted `warden-db/` is moved to `backups/abandoned-schema2-<timestamp>/`, never deleted).
 
 Preview first with `warden update --plan`.
 
@@ -56,6 +61,8 @@ promotes it to `warden-db/`; verifies again; and only then moves the schema ledg
 | old daemon | schema-2 data | refuses (`data_newer`): there is no automatic downgrade |
 | any binary | `warden-db/` beside a schema-1 ledger | refuses (`schema2_residue`): two candidate authorities, nothing is adopted |
 | any binary | an interrupted migration | refuses until you `--resume` or `--restore` |
+| `wd update` | non-quarantineable JSONL or genuine index damage | refuses preflight before any change; points directly to store without broad repair |
+| `wd update` | rogue process taking lock post-stop | cutover refuses without mutation; updater rolls back cleanly |
 
 ## If it is interrupted
 

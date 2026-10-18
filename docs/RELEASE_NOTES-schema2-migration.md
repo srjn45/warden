@@ -15,7 +15,7 @@ mode, no silent fallback to the legacy stores, and no automatic downgrade.
 | Situation | Behaviour |
 | --- | --- |
 | Fresh install | Stamped at schema 2 on first boot; only `warden-db/` is created. |
-| Existing install, `wd update` from a release that knows the cutover | Daemon stopped → data snapshot → binary swap → the **new** binary runs `migrate --apply` → daemon restarted → must report `schema_version 2` and the new version; any failure restores the previous binary **and** data. |
+| Existing install, `wd update` from a release that knows the cutover | Target preflight verifies live data (daemon ownership and expected live index lag reported as non-blocking notes; genuine corruption blocks before changes) → daemon stopped → data snapshot → binary swap → the **new** binary runs `migrate --apply` (strict post-stop verification under ownership lock; explicit quarantine of malformed savings JSONL rows) → daemon restarted → must report `schema_version 2` and the new version; any failure restores previous binary **and** data without mutation. |
 | Existing install, manual binary swap | The new daemon refuses to start (`must be cut over to the single warden-db`) without opening any store. Run `warden migrate --plan`, then `warden migrate --apply` (daemon stopped). |
 | Older (schema-1) binary on schema-2 data | Refuses before opening any legacy store (`data_newer`, "no automatic downgrade"). |
 | `warden-db/` beside a schema-1 ledger | Refused by every binary (`schema2_residue`): two candidate authorities, nothing is adopted or merged. |
@@ -57,6 +57,25 @@ mode, no silent fallback to the legacy stores, and no automatic downgrade.
 
 * **Daemon stopped, one owner.** The data-dir ownership lock is held for the whole
   operation; a running daemon makes it refuse.
+* **Active daemon preflight & live index lag.** The updater inspects the data directory
+  before stopping the daemon. Ownership by the running daemon and expected live index
+  lag (`index_stale_tail`, `index_stale_record`, `sidx_stale_tail`) are reported as
+  non-blocking auto-recoverable notes. Genuine index damage (e.g. dangling offsets),
+  unowned index lag, or unquarantineable source corruption block preflight before any
+  binary swap or modification, pointing directly to the affected store without broad
+  repair suggestions.
+* **Safe savings JSONL quarantine.** Malformed records in `savings/ledger.jsonl` with
+  valid line boundaries (<=16MiB) are preserved byte-for-byte in `<dataDir>/quarantine/savings/`
+  with SHA-256 manifests, while valid events are imported into `savings_events`. Records
+  exceeding the 16MiB line limit or lacking valid line boundaries safely block preflight
+  with targeted error guidance; live-wins or broad repair are never used to bypass
+  malformed JSONL.
+* **Post-stop strict cutover & no-mutation rollback.** After the daemon is stopped,
+  the new binary runs `warden migrate --apply` under the data-dir ownership lock. It
+  re-verifies all stores strictly; unexpected foreign ownership or unrecoverable damage
+  refuses the cutover before changes (`ErrRefusedBeforeChange`). Any migration or
+  readiness failure triggers updater rollback, restoring the previous binary and data
+  snapshot while moving an abandoned `warden-db/` aside without mutating legacy stores.
 * **Strict preflight** (`corruption`, `ambiguity`, `duplicate_identity`,
   `stale_derived_state`, `unsupported_layout`, `unsafe_artifact`, `owned`,
   `unverifiable`): nothing is repaired, salvaged, merged or deleted to get past it.
@@ -139,3 +158,7 @@ seeds a schema-1 dir through the **real** compat stores and compares through the
 | Real binaries: refuse → plan → apply → serve the same fleet on schema 2, tmux untouched, apply beside a daemon refused | `internal/e2e` `TestCutoverThenSchema2DaemonServesTheSameFleet` |
 | Daemon boots on `warden-db` (previously crashed on a non-file audit trail) | all `internal/e2e` tests |
 | 514-record scale + downgrade refusal | `TestSchema2ReleaseAcceptance` |
+| Live owner and live index lag preflight non-blocking; offline lag or genuine index damage blocks with direct diagnostics | `TestUpdaterTargetPreflight_*` |
+| Safe savings JSONL quarantine preserves raw bytes and hashes; line-length limit blocks before change | `TestSavingsQuarantine_*` |
+| Exact reported update path acceptance (active preflight, active agent/autopilot/project/plan state, stale derived index lag, malformed savings JSONL quarantine, post-stop strict cutover, and no-mutation rollback on failure) | `TestReleaseRegressionAcceptance_*`, `TestReleaseAcceptance_ReportedUpdatePath_*` |
+
