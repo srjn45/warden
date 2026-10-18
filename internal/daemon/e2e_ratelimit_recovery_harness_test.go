@@ -76,7 +76,7 @@ func TestE2EHarness_ConfirmedBannerToSwitchover(t *testing.T) {
 
 	sched := e2eSched(st)
 	sched.OnHardLimit = func(sess *agentstore.Agent, until time.Time) bool {
-		return c.OnHardLimit(sess, until)
+		return c.OnObservedHardLimit(sess, until)
 	}
 
 	require.NoError(t, st.UpdateStatus(context.Background(), "agent-1", store.StatusRateLimited))
@@ -119,7 +119,7 @@ func TestE2EHarness_StaleUnrelatedPanesNoSwitchover(t *testing.T) {
 
 	sched := e2eSched(st)
 	sched.OnHardLimit = func(sess *agentstore.Agent, until time.Time) bool {
-		return c.OnHardLimit(sess, until)
+		return c.OnObservedHardLimit(sess, until)
 	}
 
 	sess := st.snapSession("agent-1")
@@ -166,7 +166,7 @@ func TestE2EHarness_TerminalSessionIndependentOfRecovery(t *testing.T) {
 	onHardLimitCalled := 0
 	sched.OnHardLimit = func(sess *agentstore.Agent, until time.Time) bool {
 		onHardLimitCalled++
-		return c.OnHardLimit(sess, until)
+		return c.OnObservedHardLimit(sess, until)
 	}
 
 	// Terminal session whose pane contains rate-limit-shaped text — simulates a
@@ -216,35 +216,91 @@ func TestE2EHarness_OneSwitchoverPerGeneration(t *testing.T) {
 
 	sched := e2eSched(st)
 	sched.OnHardLimit = func(sess *agentstore.Agent, until time.Time) bool {
-		return c.OnHardLimit(sess, until)
+		return c.OnObservedHardLimit(sess, until)
 	}
+
+	// Hold the swap open so the duplicate observations deterministically land
+	// while the switchover is in flight, then again after it has completed.
+	life.gate = make(chan struct{})
+	life.entered = make(chan struct{}, 4)
 
 	require.NoError(t, st.UpdateStatus(context.Background(), "agent-1", store.StatusRateLimited))
 
 	obs := poller.NewRateLimitObservation("agent-1", confirmBanner)
 
-	// Fire the same observation twice in quick succession — simulates two
-	// consecutive poller ticks before the status transitions away.
 	sched.OnRateLimitObservation(obs)
-	sched.OnRateLimitObservation(obs)
+	select {
+	case <-life.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("HotSwap never started")
+	}
+	// Duplicate arrives mid-switch; it queues on the session lock behind advance().
+	dup := make(chan struct{})
+	go func() { defer close(dup); sched.OnRateLimitObservation(obs) }()
+	close(life.gate)
+	select {
+	case <-dup:
+	case <-time.After(5 * time.Second):
+		t.Fatal("duplicate observation never returned")
+	}
 
 	require.Eventually(t, func() bool {
 		s := st.snapSession("agent-1")
-		life.mu.Lock()
-		n := len(life.swaps)
-		life.mu.Unlock()
-		return s != nil && s.BackendRecovery != nil &&
-			(s.BackendRecovery.Phase == recoveryStabilizing ||
-				s.BackendRecovery.Phase == recoverySwitching) && n == 1
-	}, time.Second, 5*time.Millisecond)
+		return s != nil && s.BackendRecovery != nil && s.BackendRecovery.Phase == recoveryStabilizing &&
+			s.Status == store.StatusSpawning
+	}, 5*time.Second, time.Millisecond)
 
-	time.Sleep(30 * time.Millisecond) // allow any spurious second advance() to complete
+	// A further duplicate after the swap completed (status no longer rate_limited)
+	// must also be absorbed by the active generation.
+	sched.OnRateLimitObservation(obs)
 
+	// Drain any spuriously dispatched advance() before asserting.
+	time.Sleep(30 * time.Millisecond)
 	life.mu.Lock()
 	swapCount := len(life.swaps)
 	life.mu.Unlock()
 	require.Equal(t, 1, swapCount,
 		"duplicate observations must not trigger more than one HotSwap per generation")
+	require.Equal(t, uint64(1), st.snapSession("agent-1").BackendRecovery.Generation)
+}
+
+// TestE2EHarness_ImmediateHardLimitOnCandidateAdvances is the counterpart of
+// OneSwitchoverPerGeneration: once the swapped-in candidate itself transitions
+// back into rate_limited, the next observation is a genuine immediate hard limit
+// and must advance within the same generation to the next candidate.
+func TestE2EHarness_ImmediateHardLimitOnCandidateAdvances(t *testing.T) {
+	c, st, life := recoveryFixture(t, map[string][]backendusage.Limit{
+		"codex":  {{ID: "weekly", Scope: "weekly", Label: "Weekly", UsedPercent: used(100)}},
+		"claude": {{ID: "weekly", Scope: "weekly", Label: "Weekly", UsedPercent: used(20)}},
+	})
+
+	sched := e2eSched(st)
+	sched.OnHardLimit = func(sess *agentstore.Agent, until time.Time) bool {
+		return c.OnObservedHardLimit(sess, until)
+	}
+
+	require.NoError(t, st.UpdateStatus(context.Background(), "agent-1", store.StatusRateLimited))
+	obs := poller.NewRateLimitObservation("agent-1", confirmBanner)
+	sched.OnRateLimitObservation(obs)
+	require.Eventually(t, func() bool {
+		s := st.snapSession("agent-1")
+		return s != nil && s.BackendRecovery != nil && s.BackendRecovery.Phase == recoveryStabilizing &&
+			s.Status == store.StatusSpawning && s.AiCli == "claude"
+	}, 5*time.Second, time.Millisecond)
+
+	require.NoError(t, st.UpdateStatus(context.Background(), "agent-1", store.StatusRateLimited))
+	sched.OnRateLimitObservation(obs)
+	require.Eventually(t, func() bool {
+		s := st.snapSession("agent-1")
+		return s != nil && s.BackendRecovery != nil && s.BackendRecovery.Phase == recoveryStabilizing &&
+			s.AiCli == "antigravity"
+	}, 5*time.Second, time.Millisecond)
+
+	life.mu.Lock()
+	swapCount := len(life.swaps)
+	life.mu.Unlock()
+	require.Equal(t, 2, swapCount)
+	require.Equal(t, uint64(1), st.snapSession("agent-1").BackendRecovery.Generation)
 }
 
 // TestE2EHarness_FreshExcerptDrivesResetParse demonstrates that the
@@ -355,7 +411,7 @@ func TestE2EHarness_CooldownFromParsedReset(t *testing.T) {
 
 	sched := NewRateLimitScheduler(nil, st, 30*time.Minute, 6*time.Hour, 0, false, "")
 	sched.OnHardLimit = func(sess *agentstore.Agent, until time.Time) bool {
-		return c.OnHardLimit(sess, until)
+		return c.OnObservedHardLimit(sess, until)
 	}
 
 	require.NoError(t, st.UpdateStatus(context.Background(), "agent-1", store.StatusRateLimited))
