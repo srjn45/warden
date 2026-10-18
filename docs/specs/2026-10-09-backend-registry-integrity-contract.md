@@ -48,6 +48,8 @@ raw open of this dir):
 
 > **Update (cross-collection transaction audit, 2026-10-10):** scriva is re-pinned to `v1.4.1-0.20261010192719-4ca8d00d1197` (untagged `main` @ `4ca8d00`) to adopt cross-collection transactions; see `2026-10-10-scrivadb-cross-collection-transaction-capability-audit.md`. Re-audit result: for roots that never ran `CommitXTx` (every Warden store today) `Open`/`VerifyDir`/`Repair`/lock behavior is unchanged; XTx-specific refusals only apply once `xtx.journal` exists. Re-pin to the tagged release when cut.
 
+> **Update (2026-10-18):** re-pinned to the tagged release `v1.5.1`, which includes the XTx journal-damage regression fix; verified by `go test ./internal/dbtx/crashtest -run TestJournalDamage`. No change to schema activation or migration semantics.
+
 ## 3. What scriva v1.4.0 can and cannot repair
 
 Observed by `integrity_contract_test.go` against a programmatically built
