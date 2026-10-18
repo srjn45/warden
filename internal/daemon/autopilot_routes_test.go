@@ -271,6 +271,50 @@ func TestAutopilotRunStatusSlotFieldsREST(t *testing.T) {
 	require.Equal(t, run.ManagerSlotID, st.Runs[0].ManagerSlotID)
 }
 
+// TestAutopilotStatusRESTSupervisorIsTruthful is the S1/S4 daemon-level check:
+// the wire status names the daemon supervisor, never emits guardian_id, and the
+// reserved guardian slot resolves to no session.
+func TestAutopilotStatusRESTSupervisorIsTruthful(t *testing.T) {
+	dir := t.TempDir()
+	plan := filepath.Join(dir, "plan.yaml")
+	require.NoError(t, os.WriteFile(plan, []byte("version: 1\ngoal: ship\n"), 0o644))
+	c := autopilot.NewController(autopilot.ControllerConfig{
+		Plans: []string{plan}, BaseDir: dir, IntegrationBranch: autopilot.DefaultIntegrationBranch,
+		Resolver: autopilotTestResolver{},
+	}, &apFakeEnv{repo: dir})
+	srv := &Server{store: newFakeStore(), life: &fakeLife{}, hub: newHub(), done: make(chan struct{})}
+	srv.SetAutopilotController(c)
+	_, err := c.ReconcileConfiguredPlans(context.Background(), dir)
+	require.NoError(t, err)
+
+	ts := httptest.NewServer(srv.router())
+	defer ts.Close()
+	var raw struct {
+		Runs []map[string]any `json:"runs"`
+	}
+	apGetJSON(t, ts.URL+"/api/v1/autopilot", &raw)
+	require.Len(t, raw.Runs, 1)
+	run := raw.Runs[0]
+	require.NotContains(t, run, "guardian_id")
+	sup, ok := run["supervisor"].(map[string]any)
+	require.True(t, ok, "status carries a supervisor object")
+	require.Equal(t, "daemon", sup["kind"])
+	require.Equal(t, false, sup["addressable"])
+	require.NotContains(t, sup, "session_id")
+	require.Equal(t, "unknown", sup["health"], "no supervisor tick yet since boot")
+	if ns, ok := run["next_step"].(map[string]any); ok {
+		require.NotEqual(t, "guardian", ns["owner"])
+		require.NotContains(t, ns, "addressable_session_id")
+	}
+
+	slot, _ := run["guardian_slot_id"].(string)
+	require.Equal(t, "plan-guardian", slot)
+	got, err := srv.GetSession(context.Background(), oapi.GetSessionRequestObject{Id: slot})
+	require.NoError(t, err)
+	_, isSession := got.(oapi.GetSession200JSONResponse)
+	require.False(t, isSession, "the reserved guardian slot is not an addressable session: %T", got)
+}
+
 // --- small JSON helpers ---
 
 func apGetJSON(t *testing.T, url string, out any) {
