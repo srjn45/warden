@@ -31,6 +31,7 @@ func newRepairCmd() *cobra.Command {
 	// (Wrapping RunE keeps the root's PersistentPreRun hooks intact.)
 	for _, c := range []*cobra.Command{newRepairSessionsCmd(), newRepairAgentsCmd(), newRepairBackendsCmd(), newRepairAllCmd()} {
 		inner := c.RunE
+		c.Short = "[schema 1 only; on schema 2 use `repair warden-db`] " + c.Short
 		c.RunE = func(cmd *cobra.Command, args []string) error {
 			if err := requireSchema1Stores(config.Load(configPathFor(cmd)).DataDir, "warden repair "+cmd.Name()); err != nil {
 				return err

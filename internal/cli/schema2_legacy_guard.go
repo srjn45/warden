@@ -19,7 +19,7 @@ func onSchema2(dataDir string) bool {
 // write one the daemon never looks at (a silent second writer), so they refuse.
 func errLegacyStoreInert(what string) error {
 	return fmt.Errorf("%s: this data directory is on schema 2 (warden-db); the schema-1 store directories are inert copies kept from the migration "+
-		"and are no longer read or written. Use the daemon-backed interfaces (REST/MCP/TUI), or for offline verification/repair `warden repair warden-db`", what)
+		"and are no longer read or written (legacy runtime fallback is retired; the copies are only ever removed by an explicit operator action once `warden migrate --retirement` reports eligible). Use the daemon-backed interfaces (REST/MCP/TUI), or for offline verification/repair `warden repair warden-db`", what)
 }
 
 // requireSchema1Stores returns errLegacyStoreInert when dataDir is on schema 2.

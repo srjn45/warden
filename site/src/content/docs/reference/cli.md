@@ -4415,10 +4415,10 @@ Usage:
   warden inspect repair [flags]
 
 Commands:
-  agents               Verify or repair the agent store offline, backup-first
-  all                  Rebuild all ScrivaDB stores offline using live-wins record resolution
-  backends             Verify or repair the backend registry offline, backup-first
-  sessions             Diagnose or reconstruct the offline session store
+  agents               [schema 1 only; on schema 2 use `repair warden-db`] Verify or repair the agent store offline, backup-first
+  all                  [schema 1 only; on schema 2 use `repair warden-db`] Rebuild all ScrivaDB stores offline using live-wins record resolution
+  backends             [schema 1 only; on schema 2 use `repair warden-db`] Verify or repair the backend registry offline, backup-first
+  sessions             [schema 1 only; on schema 2 use `repair warden-db`] Diagnose or reconstruct the offline session store
   warden-db            Verify or repair unified storage offline, backup-first
 
 Flags:
@@ -4542,7 +4542,7 @@ Inherited flags:
 ## warden inspect repair sessions
 
 ```text
-Diagnose or reconstruct the offline session store
+[schema 1 only; on schema 2 use `repair warden-db`] Diagnose or reconstruct the offline session store
 
 Usage:
   warden inspect repair sessions [flags]

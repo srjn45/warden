@@ -220,7 +220,10 @@ warden migrate --apply       # apply pending schema migrations
 warden migrate --resume      # resume interrupted migration
 warden migrate --restore     # restore pre-migration backup
 
-# Offline whole-database integrity repair
+# Offline integrity repair. On schema 2 (the default) warden-db is the only
+# authority: use `warden repair warden-db --dry-run`, then --backup-dir to repair.
+# The commands below are the schema-1 tools, kept only for pre-cutover installs;
+# they refuse on schema 2 (legacy stores are never a runtime fallback).
 warden repair all --resolve-history=live-wins  # resolve duplicate keys / revision regressions
 warden repair all --dry-run                    # preview repair actions
 warden repair all --backup-dir /path/to/backup # custom quarantine backup directory
