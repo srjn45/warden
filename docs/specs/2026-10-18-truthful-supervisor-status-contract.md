@@ -1,6 +1,6 @@
 # Truthful Supervisor Status Contract
 
-- **Status:** Proposed (audit + contract; docs only, no production code)
+- **Status:** Accepted; P1 and P2 implemented (removal timeline: §4.1)
 - **Plan:** `autopilot-supervisor-status-contract` (run `ap-71ce8558e6a0`)
 - **Builds on:** [`2026-09-26-drop-guardian-session.md`](2026-09-26-drop-guardian-session.md), [`2026-10-05-autopilot-run-to-final-pr.md`](2026-10-05-autopilot-run-to-final-pr.md) §J
 - **Feeds:** `truthful-supervisor-status`, `legacy-migration-and-consumer-compatibility`, `supervision-recovery-validation`
@@ -223,6 +223,24 @@ Compatibility rules:
 5. Audit action `autopilot.guardian_diagnosis` and `autopilot.guardian.*`
    config keys are **not renamed** (stable contracts). Docs may describe
    "the daemon supervisor (config key `guardian`)".
+
+### 4.1 Deprecation and removal timeline
+
+Latest release at the time of writing: `v11.1.1`.
+
+| Field / value | Deprecated | Stops being emitted | Deleted (Go/OpenAPI/TS) |
+|---|---|---|---|
+| `guardian_id` | P1 (next release, `v11.2.0`) | P1 (`v11.2.0`) | **`v11.3.0`** — the first minor after P2; not before |
+| `next_step.owner = "guardian"` | P1 (`v11.2.0`) | P1 (`v11.2.0`; `daemon` replaces it) | **`v11.3.0`** — consumers stop aliasing it |
+| `guardian_slot_id` | P1 (`v11.2.0`), description corrected | kept as a reservation marker | kept until `v11.3.0`, then reservation-only or deleted |
+| `autopilot_slot = "guardian"` (legacy sessions) | already | never written | kept read-compat indefinitely |
+
+P2 (this task) ships in `v11.2.0`: every in-tree consumer (CLI, TUI/Cockpit,
+web) reads `supervisor` and aliases `guardian` -> `daemon`, and synthesises a
+non-addressable `daemon` supervisor against older servers
+(`AutopilotRunStatus.EffectiveSupervisor`, web `runSupervisor`). The removal
+release is postponed, not skipped, if the hub/Android check in §7.2 finds a
+literal reader. No persisted data changes (§2.6).
 
 Surface-specific changes:
 

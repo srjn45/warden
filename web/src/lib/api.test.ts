@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { listSessions, spawn, listRoles, listDirs, terminate, removeWorktree, deleteSession, ApiError, listApprovals, approve, listPipelines, cancelPipeline, deletePipeline, retryJob, createPipeline, startPipeline, pausePipeline, resumePipeline, listConflicts, controlPlan, subscribeSessions } from './api';
+import { listSessions, spawn, listRoles, listDirs, terminate, removeWorktree, deleteSession, ApiError, listApprovals, approve, listPipelines, cancelPipeline, deletePipeline, retryJob, createPipeline, startPipeline, pausePipeline, resumePipeline, listConflicts, controlPlan, subscribeSessions, runSupervisor, normalizeOwner, type AutopilotRun } from './api';
 import { setToken, clearToken, onAuthRequired } from './token';
 
 function authHeader(call: unknown[]): string | null {
@@ -313,5 +313,24 @@ describe('pipelines api', () => {
     const [url, opts] = fetchMock.mock.calls[0];
     expect(url).toBe('/api/v1/pipelines/demo/start');
     expect(opts.method).toBe('POST');
+  });
+});
+
+describe('supervisor compatibility', () => {
+  const base = { run_id: 'ap-1', state: 'active', backoff: null } as unknown as AutopilotRun;
+  it('synthesises a non-addressable daemon supervisor for old servers', () => {
+    const sv = runSupervisor(base);
+    expect(sv.kind).toBe('daemon');
+    expect(sv.addressable).toBe(false);
+    expect(sv.state).toBe('supervising');
+  });
+  it('prefers the server supervisor when present', () => {
+    const sv = { kind: 'none', addressable: false, state: 'suspended', health: 'unknown' };
+    expect(runSupervisor({ ...base, supervisor: sv })).toBe(sv);
+  });
+  it('treats the legacy guardian owner as daemon', () => {
+    expect(normalizeOwner('guardian')).toBe('daemon');
+    expect(normalizeOwner('operator')).toBe('operator');
+    expect(normalizeOwner(undefined)).toBe('');
   });
 });

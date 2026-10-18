@@ -102,3 +102,20 @@ func TestJobIsTerminal(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderAutopilotRunSupervisorAndNextStep(t *testing.T) {
+	// Old server: no supervisor, legacy "guardian" owner → daemon, no id shown.
+	out := renderAutopilotRun(&client.AutopilotRunStatus{
+		RunID: "ap-1", State: "active",
+		NextStep: &client.AutopilotNextStep{Action: "supervise", Owner: "guardian"},
+	}, 80, 0)
+	require.Contains(t, out, "supervisor: daemon (unknown)")
+	require.Contains(t, out, "next: supervise (daemon)")
+	require.NotContains(t, out, "guardian")
+
+	out = renderAutopilotRun(&client.AutopilotRunStatus{
+		RunID: "ap-1", State: "active",
+		Supervisor: &client.AutopilotSupervisor{Kind: "daemon", Health: "healing", HealStage: "nudged"},
+	}, 80, 0)
+	require.Contains(t, out, "supervisor: daemon (healing, heal stage nudged)")
+}

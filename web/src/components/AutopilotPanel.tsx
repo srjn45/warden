@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  getAutopilot, autopilotLive, controlPlan,
+  getAutopilot, autopilotLive, controlPlan, runSupervisor, normalizeOwner,
   type AutopilotStatus, type AutopilotRun,
 } from '../lib/api';
 import type { Session } from '../lib/types';
@@ -67,9 +67,9 @@ export default function AutopilotPanel({ onClose, liveStatus, sessions, stale }:
 function RunCard({ run, sessions, onChanged, onError }: { run: AutopilotRun; sessions: Session[]; onChanged: () => void; onError: (message: string | null) => void }) {
 	const [busy, setBusy] = useState(false);
 	const tree = buildRunTree(run, sessions);
-	const guardians = tree.guardians.length > 0
-		? tree.guardians
-		: (run.guardian_id ? [{ id: run.guardian_id, name: run.guardian_id, status: ['stopped','complete'].includes(run.state) ? 'done' : 'idle' } as Session] : []);
+	const guardians = tree.guardians; // legacy pre-drop sessions only
+	const sup = runSupervisor(run);
+	const nextOwner = normalizeOwner(run.next_step?.owner);
 	async function act(action: 'pause'|'resume'|'stop') {
 		onError(null); setBusy(true);
 		try { if (!run.plan_id) throw new Error('this run has no plan to control');
@@ -82,6 +82,9 @@ function RunCard({ run, sessions, onChanged, onError }: { run: AutopilotRun; ses
       <div className="autopilot-run-head">
         <span className={`autopilot-run-state state-${run.state}`}>{run.state}</span>
 		<span className="muted" title={run.repo}>{run.name || run.plan_file}</span>
+        <span className={sup.health === 'parked' ? 'warn' : 'muted'} title={`The daemon's supervisor is not an agent session and cannot be messaged.${sup.persisted === false ? ' Heal state is rebuilt after a daemon restart.' : ''}`}>
+          Supervisor: {sup.kind}{sup.kind !== 'none' && ` · ${sup.health}`}{sup.heal_stage && sup.heal_stage !== 'none' ? ` (${sup.heal_stage})` : ''}
+        </span>
         <span className="muted">gate: {run.gate}</span>
 		{run.integration_branch && <span className="muted" title="integration branch">base: {run.integration_branch}</span>}
 		{run.gate_warning && <span className="warn" title={run.gate_warning}>gate warning</span>}
@@ -93,6 +96,11 @@ function RunCard({ run, sessions, onChanged, onError }: { run: AutopilotRun; ses
 		)}
 		{(run.resolver?.attempts ?? 0) > 0 && <span className="muted" title={`last: ${run.resolver?.last_outcome ?? ''} ${run.resolver?.last_class ?? ''}`}>resolver ×{run.resolver?.attempts}</span>}
       </div>
+	  {run.next_step && (
+		<div className="autopilot-run-next muted">
+			next: {run.next_step.action}{run.next_step.at ? ` at ${run.next_step.at}` : ''}{nextOwner ? ` (${nextOwner})` : ''}
+		</div>
+	  )}
 	  {run.last_diagnosis && (
 		<div className="autopilot-run-diagnosis muted" title={run.last_diagnosis.rationale}>
 			diagnosis: {run.last_diagnosis.action} ({Math.round(run.last_diagnosis.confidence * 100)}%{run.last_diagnosis.source ? `, ${run.last_diagnosis.source}` : ''}) {relativeTime(run.last_diagnosis.at)}
@@ -139,7 +147,7 @@ function RunCard({ run, sessions, onChanged, onError }: { run: AutopilotRun; ses
 		))}
 		{guardians.map((a) => (
 		  <div key={a.id} className="autopilot-tree-slot">
-			<span className="muted">guardian</span> <strong>{a.name || a.id}</strong> <span>{a.status}</span>
+			<span className="muted">guardian (legacy)</span> <strong>{a.name || a.id}</strong> <span>{a.status}</span>
 		  </div>
 		))}
 		<div className="autopilot-tree-node">plan</div>

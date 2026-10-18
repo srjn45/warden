@@ -235,8 +235,8 @@ run status and `wd plan show`. Switch it off with
 `autopilot.guardian.progress_watchdog_enabled: false`; both keys hot-reload.
 
 The TUI cockpit (`warden tui`) shows each run as a **plan-scoped tree** — manager
-(`<scope>-autopilot`), guardian (`<scope>-guardian`), plan checklist, and workers
-grouped by ledger state. The web dashboard shows an **Autopilot** panel when a run
+(`<scope>-autopilot`), plan checklist, and workers
+grouped by ledger state; the daemon supervisor (health, heal stage, next step) is shown as a status line, not a node. The web dashboard shows an **Autopilot** panel when a run
 is active.
 
 ---

@@ -147,32 +147,15 @@ func printAutopilotRuns(w io.Writer, st client.AutopilotStatus) error {
 // autopilotRunDetails are the per-run detail lines (no leading indent).
 func autopilotRunDetails(r client.AutopilotRunStatus) []string {
 	var out []string
-	if sv := r.Supervisor; sv != nil {
-		line := "supervisor: " + sv.Kind
-		if sv.Kind != "none" {
-			line += " (" + sv.Health
-			if sv.HealStage != "" && sv.HealStage != "none" {
-				line += ", heal stage " + sv.HealStage
-			}
-			line += ")"
-		}
-		out = append(out, line)
-	}
+	out = append(out, r.SupervisorLine())
 	if r.Backoff != nil {
 		out = append(out, "backoff: "+backoffSummary(r.Backoff))
 	}
 	if r.LastProgressAt != "" {
 		out = append(out, fmt.Sprintf("last progress: %s (watchdog: %s)", r.LastProgressAt, dash(r.Watchdog)))
 	}
-	if r.NextStep != nil {
-		line := "next: " + r.NextStep.Action
-		if r.NextStep.At != "" {
-			line += " at " + r.NextStep.At
-		}
-		if owner := r.NextStep.NormalizedOwner(); owner != "" {
-			line += " (" + owner + ")"
-		}
-		out = append(out, line)
+	if l := r.NextStepLine(); l != "" {
+		out = append(out, l)
 	}
 	if r.RestingUntil != "" {
 		out = append(out, "resting until: "+r.RestingUntil)

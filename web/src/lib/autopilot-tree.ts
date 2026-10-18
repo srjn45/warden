@@ -21,7 +21,6 @@ export function isAutopilotOwned(s: Session): boolean {
 
 export function sessionSlot(s: Session, run: AutopilotRun): AutopilotSlot {
   if (s.autopilot_slot) return s.autopilot_slot;
-  if (run.guardian_id && s.id === run.guardian_id) return 'guardian';
   if (run.brain?.agent_id && s.id === run.brain.agent_id) return 'autopilot';
   if (s.role === 'autopilot') return 'autopilot';
   return 'worker';
@@ -34,13 +33,14 @@ export interface WorkerGroup {
 }
 
 export interface RunTree {
+  // guardians holds only legacy pre-drop sessions (autopilot_slot === 'guardian').
   managers: Session[];
   guardians: Session[];
   workerGroups: WorkerGroup[];
 }
 
 export function buildRunTree(run: AutopilotRun, sessions: Session[]): RunTree {
-  const owned = sessions.filter((s) => sessionRunID(s) === run.run_id || s.id === run.guardian_id);
+  const owned = sessions.filter((s) => sessionRunID(s) === run.run_id);
   const managers: Session[] = [];
   const guardians: Session[] = [];
   const workers: Session[] = [];

@@ -238,7 +238,7 @@ daemon-internal **overwatch** backstop nudges the manager to tend workers that
 fall idle or wait on input (automatic; generous cadences — a backstop, not a
 pacer). Multiple named runs can be active in one repo concurrently — each gets
 its own integration branch and plan-scoped tree (`<scope>-autopilot`,
-`<scope>-guardian`, plan checklist, workers grouped by ledger state).
+plan checklist, workers grouped by ledger state). The daemon's supervisor is not an agent and cannot be messaged — read it from the run's `supervisor` and `next_step` status fields.
 
 > ⚠️ **Unattended operation is inherently risky.** Always confirm the user
 > understands how to pause (`plan pause`) before starting a run. Under autopilot, landing is daemon-owned: workers do not merge — they push and end with `wd job done` — and the manager calls `land` only as an escape hatch (`landing: disabled`). Workers never merge to `main`
