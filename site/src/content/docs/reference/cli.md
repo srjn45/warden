@@ -2149,8 +2149,8 @@ Inherited flags:
 The all-runs view: one table row per autopilot run (run id, name, state, plan,
 gate, branch and task progress; the repo column appears only when runs span
 more than one repo). Runs that are waiting, degraded or need attention print
-indented detail lines under their row (next step, resting until, the guardian's
-diagnosis, the final PR). Use `wd plan show <id> --watch` for the view of one
+indented detail lines under their row (supervisor, next step, resting until, the
+daemon supervisor's diagnosis, the final PR). Use `wd plan show <id> --watch` for the view of one
 plan. --json emits the raw result.
 
 Usage:

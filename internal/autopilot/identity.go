@@ -18,7 +18,8 @@ var reservedPlanSuffixes = []string{managerSlotSuffix, guardianSlotSuffix}
 // ManagerSlotID returns the stable manager session id for a slot scope.
 func ManagerSlotID(scope string) string { return scope + managerSlotSuffix }
 
-// GuardianSlotID returns the stable guardian session id for a slot scope.
+// GuardianSlotID returns the reserved guardian slot name for a slot scope. No session
+// with this id exists; it only reserves the name in the claim registry.
 func GuardianSlotID(scope string) string { return scope + guardianSlotSuffix }
 
 func managerSlotIDOrEmpty(scope string) string {

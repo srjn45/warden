@@ -39,7 +39,7 @@ func TestSlotSpawnFirstStartCreatesSlotIds(t *testing.T) {
 	managerID := ManagerSlotID(scope)
 	guardianID := GuardianSlotID(scope)
 	require.Equal(t, managerID, c.Status().Runs[0].Brain.AgentID)
-	require.Equal(t, guardianID, c.Status().Runs[0].GuardianID)
+	require.Equal(t, guardianID, c.Status().Runs[0].GuardianSlotID)
 	require.Len(t, rt.spawned, 1)
 	require.Equal(t, scope, rt.spawned[0].SlotScope)
 

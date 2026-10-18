@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// NextStep is the guardian's scheduled next action for a run and its owner
+// NextStep is the daemon supervisor's scheduled next action for a run and its owner
 // (spec 2026-10-05 §J.2). A run that is not complete, paused, stopped, parked
 // (needs-attention) or merely registered always carries one.
 type NextStep struct {
@@ -13,8 +13,12 @@ type NextStep struct {
 	// At is the RFC3339 instant the action fires; empty only when the action
 	// waits for an operator (a parked run).
 	At string `json:"at,omitempty"`
-	// Owner is who performs it: guardian | overwatch | operator.
+	// Owner is who performs it: daemon | manager | worker | operator. The daemon
+	// supervisor is not a session and cannot be messaged. (The legacy value
+	// "guardian" is no longer emitted; consumers treat it as "daemon".)
 	Owner string `json:"owner"`
+	// AddressableSessionID is set only when Owner is manager or worker.
+	AddressableSessionID string `json:"addressable_session_id,omitempty"`
 }
 
 // nextStepLocked derives r's next scheduled action from its state, heal stage and
@@ -41,7 +45,7 @@ func (c *Controller) nextStepLocked(r *run, now time.Time) *NextStep {
 		if at.IsZero() {
 			at = tick
 		}
-		return &NextStep{Action: action, At: rfc3339OrEmpty(at), Owner: "guardian"}
+		return &NextStep{Action: action, At: rfc3339OrEmpty(at), Owner: "daemon"}
 	}
 	if at, ok := r.earliestResting(); ok {
 		return step("resume or switch a rate-limited agent", at)
@@ -74,7 +78,13 @@ func (c *Controller) nextStepLocked(r *run, now time.Time) *NextStep {
 // stricter: it must carry backoffNextRetry (healNextAt alone is not enough).
 func (c *Controller) nextStepViolation(r *run, now time.Time) string {
 	ns := c.nextStepLocked(r, now)
-	if ns == nil || ns.Owner == "operator" {
+	if ns == nil {
+		return ""
+	}
+	if (ns.Owner == "operator") != (r.needsAttention != "") {
+		return "operator next_step owner out of sync with needs_attention"
+	}
+	if ns.Owner == "operator" {
 		return ""
 	}
 	if r.restingNow(now) {
@@ -84,7 +94,7 @@ func (c *Controller) nextStepViolation(r *run, now time.Time) string {
 		return "backoff without a retry time"
 	}
 	if ns.At == "" {
-		return "guardian next_step missing at"
+		return "daemon next_step missing at"
 	}
 	return ""
 }

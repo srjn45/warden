@@ -174,6 +174,7 @@ type run struct {
 	lastHeartbeat    time.Time      // most recent brain heartbeat seen by the guardian
 	contextLevel     string         // brain context-window level seen by the guardian
 	healStage        healStage      // current position on the heal ladder
+	lastTickAt       time.Time      // last guardianTick that visited this run (in-memory only)
 	healNextAt       time.Time      // earliest instant the next heal step may fire
 	backoffStage     int            // capped-exponential backoff exponent (stage 4)
 	backoffNextRetry time.Time      // when the current backoff wait elapses
@@ -1027,10 +1028,10 @@ func (c *Controller) statusLocked() Status {
 			ResolverAttempts:  copyAttempts(r.resolverAttempts),
 			LastProgressAt:    rfc3339OrEmpty(r.lastProgressAt),
 			Watchdog:          c.watchdogState(r, c.now()),
+			Supervisor:        c.supervisorLocked(r),
 			NextStep:          c.nextStepLocked(r, c.now()),
 			RestingUntil:      rfc3339OrEmpty(restingUntil(r)),
 			PlanTasks:         append([]PlanTask(nil), r.plan.Tasks...),
-			GuardianID:        guardianSlotIDOrEmpty(r.slotScope),
 			SlotScope:         r.slotScope,
 			IntegrationBranch: r.integrationBranch,
 			GateWarning:       r.gateWarning,
