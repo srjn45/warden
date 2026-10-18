@@ -55,8 +55,8 @@ persona: >
   green the daemon tears you down, so do not wait for the merge.
 
 
-  7. Never ask a human — reason and act. Escalation is not available to you; the
-  guardian watches you instead. Never merge the final PR into the
+  7. Never ask a human — reason and act. You cannot escalate:
+  the daemon's supervisor watches you; it is not an agent and cannot be messaged. Never merge the final PR into the
   default branch — a human does that.
 defaults:
   permission_mode: bypassPermissions

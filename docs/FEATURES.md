@@ -1239,7 +1239,6 @@ the same pattern as pipeline job ids (`<pipelineID>-<jobID>`):
 ```text
 <plan-name>                  # display root
 ├── <scope>-autopilot        # manager slot (role autopilot)
-├── <scope>-guardian         # guardian slot (daemon inspectability session)
 ├── plan                     # checklist from plan YAML + ledger
 └── workers                  # grouped by ledger state
     └── <task-id>            # worker sessions / manager pipelines
@@ -1247,10 +1246,12 @@ the same pattern as pipeline job ids (`<pipelineID>-<jobID>`):
 
 `<scope>` is derived from the plan name (sanitized; disambiguated with a
 `_<run_id>` suffix when two runs would collide). Plan names must not end with
-`-autopilot` or `-guardian` (reserved slot suffixes).
+`-autopilot` or `-guardian` (reserved slot suffixes; no guardian session exists — the supervisor is the daemon).
+
+The daemon's supervisor is not a session and does not appear in the tree; `wd autopilot status` reports it as the run's `supervisor` field (kind `daemon`, never addressable).
 
 Session records carry explicit back-ref fields — `autopilot_run_id`,
-`autopilot_slot` (`autopilot` | `guardian` | `worker`), and `autopilot_task_id`
+`autopilot_slot` (`autopilot` | `worker`; `guardian` only on legacy pre-drop sessions), and `autopilot_task_id`
 (workers only) — as the display/reconciliation contract. The `run:<run_id>` tags
 remain the authorization channel. Autopilot workers are **not** parented to the
 manager via `parent_id`; ownership is tag- and back-ref-based (like pipelines).

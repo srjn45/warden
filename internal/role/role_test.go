@@ -128,3 +128,16 @@ func TestNonGeneralHavePersona(t *testing.T) {
 		}
 	}
 }
+
+func TestAutopilotRoleNeverPointsAtGuardianSession(t *testing.T) {
+	r, ok := Get("autopilot")
+	if !ok {
+		t.Fatal("autopilot role missing")
+	}
+	if strings.Contains(strings.ToLower(r.Persona), "guardian") {
+		t.Errorf("autopilot persona must not reference a guardian: it is not an addressable agent")
+	}
+	if !strings.Contains(r.Persona, "cannot be messaged") {
+		t.Errorf("autopilot persona should say the daemon supervisor cannot be messaged")
+	}
+}

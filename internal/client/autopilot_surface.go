@@ -165,3 +165,53 @@ func firstNonEmptyStr(a, b string) string {
 	}
 	return b
 }
+
+// EffectiveSupervisor returns the run's supervisor, synthesising the
+// non-addressable daemon supervisor for older servers that predate the field.
+func (r AutopilotRunStatus) EffectiveSupervisor() AutopilotSupervisor {
+	if r.Supervisor != nil {
+		return *r.Supervisor
+	}
+	sv := AutopilotSupervisor{Kind: "daemon", State: "supervising", Health: "unknown"}
+	switch r.State {
+	case "paused", "stopped", "complete":
+		sv.State = "suspended"
+	}
+	if r.Backoff != nil {
+		sv.Health = "backoff"
+	}
+	return sv
+}
+
+// SupervisorLine renders the supervisor as a one-line summary, e.g.
+// "supervisor: daemon (healthy)". The daemon supervisor is not a session, so no
+// id is ever shown.
+func (r AutopilotRunStatus) SupervisorLine() string {
+	sv := r.EffectiveSupervisor()
+	line := "supervisor: " + sv.Kind
+	if sv.Kind != "none" {
+		line += " (" + sv.Health
+		if sv.HealStage != "" && sv.HealStage != "none" {
+			line += ", heal stage " + sv.HealStage
+		}
+		line += ")"
+	}
+	return line
+}
+
+// NextStepLine renders the scheduled next action ("" when none); the deprecated
+// "guardian" owner is shown as "daemon".
+func (r AutopilotRunStatus) NextStepLine() string {
+	n := r.NextStep
+	if n == nil || n.Action == "" {
+		return ""
+	}
+	line := "next: " + n.Action
+	if n.At != "" {
+		line += " at " + n.At
+	}
+	if owner := n.NormalizedOwner(); owner != "" {
+		line += " (" + owner + ")"
+	}
+	return line
+}

@@ -44,7 +44,6 @@ describe('sessionRunID / isAutopilotOwned', () => {
 describe('buildRunTree', () => {
   it('matches the §4 shape and orders workers by ledger state', () => {
     const r = run({
-      guardian_id: 'grd-1',
       brain: { agent_id: 'mgr-1', backend: 'claude', tier: 'pro', last_heartbeat: '', context_level: 'ok' },
       plan_tasks: [{ id: 'docs', prompt: 'Docs', after: [], status: 'pending' }, { id: 'ship', prompt: 'Ship', after: [], status: 'active' }],
       ledger_tasks: [{ id: 'docs', state: 'pending' }, { id: 'ship', state: 'in_progress' }],
@@ -52,7 +51,7 @@ describe('buildRunTree', () => {
     const sessions = [
       sess({ id: 'w-ship', autopilot_run_id: 'ap-1', autopilot_slot: 'worker', autopilot_task_id: 'ship' }),
       sess({ id: 'mgr-1', role: 'autopilot', tags: ['run:ap-1'] }),
-      sess({ id: 'grd-1', tags: ['system:true', 'autopilot-run:ap-1'] }),
+      sess({ id: 'grd-1', autopilot_run_id: 'ap-1', autopilot_slot: 'guardian' }),
       sess({ id: 'w-docs', autopilot_run_id: 'ap-1', autopilot_slot: 'worker', autopilot_task_id: 'docs' }),
       sess({ id: 'plain' }),
     ];
@@ -65,9 +64,11 @@ describe('buildRunTree', () => {
   });
 
   it('infers slots from tags when back-refs are empty', () => {
-    const r = run({ guardian_id: 'g1', brain: { agent_id: 'b1', backend: 'claude', tier: '', last_heartbeat: '', context_level: '' } });
+    const r = run({ brain: { agent_id: 'b1', backend: 'claude', tier: '', last_heartbeat: '', context_level: '' } });
     expect(sessionSlot(sess({ id: 'b1', tags: ['run:ap-1'] }), r)).toBe('autopilot');
-    expect(sessionSlot(sess({ id: 'g1', tags: ['autopilot-run:ap-1'] }), r)).toBe('guardian');
+    // A synthetic guardian id no longer classifies a session; only the legacy slot does.
+    expect(sessionSlot(sess({ id: 'g1', tags: ['autopilot-run:ap-1'] }), { ...r, guardian_id: 'g1' })).toBe('worker');
+    expect(sessionSlot(sess({ id: 'g1', autopilot_slot: 'guardian' }), r)).toBe('guardian');
     expect(sessionSlot(sess({ id: 'w1', tags: ['run:ap-1'] }), r)).toBe('worker');
   });
 });

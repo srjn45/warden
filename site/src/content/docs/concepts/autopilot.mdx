@@ -199,7 +199,6 @@ MCP, and CLI:
 ```text
 <plan-name>
 ├── <scope>-autopilot        # manager slot (role autopilot)
-├── <scope>-guardian         # guardian inspectability session
 ├── plan                     # checklist from plan YAML + ledger
 └── workers                  # grouped by ledger state
     └── <task-id>
@@ -207,9 +206,11 @@ MCP, and CLI:
 
 `<scope>` is derived from the plan name (sanitized; disambiguated when two runs
 would collide). Session records carry explicit back-refs — `autopilot_run_id`,
-`autopilot_slot` (`autopilot` | `guardian` | `worker`), and `autopilot_task_id`
+`autopilot_slot` (`autopilot` | `worker`; `guardian` only on legacy pre-drop sessions), and `autopilot_task_id`
 (workers) — as the display contract. The `run:<run_id>` tags remain the
 authorization channel. Workers are not parented to the manager via `parent_id`.
+
+The daemon's supervisor is not a session and does not appear in the tree; `wd autopilot status` reports it as the run's `supervisor` field (kind `daemon`, never addressable).
 
 ### Manager
 

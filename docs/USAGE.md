@@ -2761,15 +2761,13 @@ Each registered plan is a stable tree root on every surface (TUI, web, REST, MCP
 ```text
 <plan-name>
 ├── <scope>-autopilot        # manager slot
-├── <scope>-guardian         # guardian inspectability session
 ├── plan                     # checklist from plan YAML + ledger
 └── workers                  # grouped by ledger state
     └── <task-id>
 ```
 
 Session records carry `autopilot_run_id`, `autopilot_slot`
-(`autopilot` | `guardian` | `worker`), and `autopilot_task_id` (workers). Guardian
-heal-ladder stages 2–3 **hot-swap** into the manager slot in-place — the slot id
+(`autopilot` | `worker`; `guardian` only on pre-drop legacy sessions), and `autopilot_task_id` (workers). The daemon's supervisor is not a session and does not appear in the tree; `wd autopilot status` reports it as the run's `supervisor` field (kind `daemon`, never addressable). The daemon supervisor's heal-ladder stages 2–3 **hot-swap** into the manager slot in-place — the slot id
 survives rotation and daemon restarts.
 
 **Missing manager session (no heartbeat wait).** Each guardian tick also checks that the manager's session still exists. If it was deleted or archived, was terminated (`terminate_agent`, or a `done`/`errored`/`orphaned` record), or its tmux session is gone (tmux death, reboot or daemon-down loss; a tmux-gone observation must persist 20s so an out-of-band hot-swap is not mistaken for a death), the guardian does not wait for the heartbeat timeout and does not nudge a ghost: it clears the stale manager record, writes an `autopilot.manager_missing` audit event, and goes straight to the respawn step in the same slot; once the successor is up it writes `autopilot.manager_respawned` naming the cause (`missing`, `terminal`, `tmux_gone`). The successor's digest tells it to reconcile the ledger, open PRs and live workers before acting. `wd agent terminate <manager>` is therefore not a stop — use `wd plan pause`/`stop`, which the guardian honours. While the slot is empty `warden autopilot status` reports the run as `healing` with no manager id (never an id that resolves to nothing); if the respawn fails it becomes `degraded` with the usual backoff. Only a definitive "not found" counts — a store error or daemon restart is treated as unknown and ignored — and a manager that exists but is quiet, busy, rate-limited or mid hot-swap still follows the normal ladder.

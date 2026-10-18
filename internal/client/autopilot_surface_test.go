@@ -37,3 +37,16 @@ func TestSurfaceLines(t *testing.T) {
 	require.Contains(t, lines[3], "task t1: gate=clear")
 	require.Contains(t, lines[4], "resolver: attempts=1 last=started")
 }
+
+func TestEffectiveSupervisorOldServerFallback(t *testing.T) {
+	sv := AutopilotRunStatus{State: "active"}.EffectiveSupervisor()
+	if sv.Kind != "daemon" || sv.Addressable || sv.State != "supervising" {
+		t.Fatalf("fallback = %+v", sv)
+	}
+	if got := (AutopilotRunStatus{State: "paused"}).EffectiveSupervisor().State; got != "suspended" {
+		t.Fatalf("paused state = %q", got)
+	}
+	if got := (AutopilotRunStatus{NextStep: &AutopilotNextStep{Action: "x", Owner: "guardian"}}).NextStepLine(); got != "next: x (daemon)" {
+		t.Fatalf("next line = %q", got)
+	}
+}
