@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -69,6 +71,10 @@ Examples:
 			if strings.TrimSpace(cfg.Addr) == "" {
 				healthURL = updater.DefaultHealthURL
 			}
+			var installBin string
+			if home, err := os.UserHomeDir(); err == nil && home != "" {
+				installBin = filepath.Join(home, ".local", "bin", "warden")
+			}
 
 			opts := updater.Options{
 				CurrentVersion: version,
@@ -87,14 +93,14 @@ Examples:
 				},
 				Stdout: cmd.OutOrStdout(),
 				Migrate: func() error {
-					return config.Reconcile(cfgPath)
+					return runUpdateMigrations(cmd.Context(), cfgPath, cfg.DataDir, installBin, cmd.OutOrStdout())
 				},
 				TargetSchema:  binarySchemaVersion,
 				CurrentSchema: schema.SchemaVersion,
 			}
 			if home, err := os.UserHomeDir(); err == nil && home != "" {
 				opts.StagingDir = filepath.Join(home, ".warden", "tmp")
-				opts.InstallBin = filepath.Join(home, ".local", "bin", "warden")
+				opts.InstallBin = installBin
 			}
 
 			if planOnly {
@@ -162,6 +168,78 @@ func binarySchemaVersion(ctx context.Context, bin string) (int, error) {
 	return bi.SchemaVersion, nil
 }
 
+// Seams for the update data-migration step. Tests replace these so they never
+// execute a binary against anything except fixture data.
+var (
+	targetBinarySchema = binarySchemaVersion
+	runTargetMigrate   = execTargetMigrate
+)
+
+// runUpdateMigrations is called after the old daemon has stopped and the new
+// binary has been installed. Config reconciliation remains first; when the new
+// binary writes a newer schema, that binary owns the journaled migration.
+func runUpdateMigrations(ctx context.Context, cfgPath, dataDir, installBin string, out io.Writer) error {
+	if err := config.Reconcile(cfgPath); err != nil {
+		return err
+	}
+	if dataDir == "" || installBin == "" {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	target, err := targetBinarySchema(ctx, installBin)
+	if err != nil {
+		return fmt.Errorf("read the new binary's data schema: %w", err)
+	}
+	current := 0
+	switch l, err := schema.Load(dataDir); {
+	case err == nil:
+		current = l.SchemaVersion
+		if l.MigrationInterrupted() {
+			return fmt.Errorf("a previous migration (%s) was interrupted; run `warden migrate --resume` or `--restore` before updating", l.InProgress.Migration)
+		}
+	case errors.Is(err, schema.ErrNoLedger):
+		if schema.InferBaseline(dataDir).Fresh {
+			return nil
+		}
+	default:
+		return fmt.Errorf("read schema ledger: %w", err)
+	}
+	if target == 0 || current >= target {
+		return nil
+	}
+	fmt.Fprintf(out, "migrating data schema %d → %d with the new binary…\n", current, target)
+	if err := runTargetMigrate(ctx, installBin, dataDir, out); err != nil {
+		return fmt.Errorf("data migration to schema %d failed (the previous binary and data are restored): %w", target, err)
+	}
+	l, err := schema.Load(dataDir)
+	if err != nil {
+		return fmt.Errorf("verify migrated ledger: %w", err)
+	}
+	if l.SchemaVersion != target || l.MigrationInterrupted() {
+		return fmt.Errorf("migration finished but the ledger is at schema %d (interrupted=%v), want %d", l.SchemaVersion, l.MigrationInterrupted(), target)
+	}
+	return nil
+}
+
+// execTargetMigrate runs the newly installed binary's migration while the
+// service is still stopped. Its output is retained in the updater diagnostics.
+func execTargetMigrate(ctx context.Context, bin, dataDir string, out io.Writer) error {
+	cmd := exec.CommandContext(ctx, bin, "migrate", "--apply", "--data-dir", dataDir)
+	var buf bytes.Buffer
+	cmd.Stdout = io.MultiWriter(out, &buf)
+	cmd.Stderr = io.MultiWriter(out, &buf)
+	if err := cmd.Run(); err != nil {
+		tail := strings.TrimSpace(buf.String())
+		if len(tail) > 2000 {
+			tail = tail[len(tail)-2000:]
+		}
+		return fmt.Errorf("%s migrate --apply: %w\n%s", bin, err, tail)
+	}
+	return nil
+}
+
 // updateRecoveryGuidance appends the backend-registry recovery procedure
 // (exact command + report location) to an update failure caused by the
 // registry: the preflight blocker, or a new daemon that refused to start on it
@@ -169,10 +247,22 @@ func binarySchemaVersion(ctx context.Context, bin string) (int, error) {
 func updateRecoveryGuidance(err error) error {
 	var pe *updater.PreflightError
 	if errors.As(err, &pe) {
-		if pe.RepairCommand != "" && !strings.Contains(pe.RepairCommand, "repair backends") {
-			return err
+		isBackend := strings.Contains(pe.RepairCommand, "repair backends")
+		if !isBackend && len(pe.Blockers) > 0 {
+			hasBackend, hasNonBackend := false, false
+			for _, b := range pe.Blockers {
+				if strings.HasPrefix(b, "backends") || strings.Contains(b, "backends/") {
+					hasBackend = true
+				} else {
+					hasNonBackend = true
+				}
+			}
+			isBackend = hasBackend && !hasNonBackend
 		}
-		return fmt.Errorf("%w\n%s", err, backendRecoverySteps("", ""))
+		if isBackend {
+			return fmt.Errorf("%w\n%s", err, backendRecoverySteps("", ""))
+		}
+		return err
 	}
 	return withBackendRecoverySteps(err)
 }
@@ -227,11 +317,27 @@ func findingsToPreflightResult(findings []migrate.Finding) updater.PreflightResu
 	repairCommands := make(map[string]bool)
 
 	for _, f := range findings {
+		entry := f.Message
+		if f.Store != "" && !strings.HasPrefix(entry, f.Store) {
+			entry = fmt.Sprintf("%s: %s", f.Store, entry)
+		}
+		// The cutover-pending marker only stops updaters that cannot run the
+		// cutover; this updater runs it after the binary swap, so it is a note.
+		if f.Class == migrate.ClassSchema2CutoverPending {
+			res.Notes = append(res.Notes, fmt.Sprintf("%s: schema-2 cutover will run after the binary swap", f.Store))
+			continue
+		}
 		switch f.Severity {
 		case migrate.SeverityAuto:
-			res.Notes = append(res.Notes, fmt.Sprintf("%s: %s", f.Store, f.Message))
+			res.Notes = append(res.Notes, entry)
 		case migrate.SeverityRepairable, migrate.SeverityBlocking:
-			res.Blockers = append(res.Blockers, fmt.Sprintf("%s: %s", f.Store, f.Message))
+			// Repairable with no manual command is preserved/quarantined by the
+			// target migration itself: a note, not a blocker.
+			if f.Severity == migrate.SeverityRepairable && f.Command == "" {
+				res.Notes = append(res.Notes, entry)
+				continue
+			}
+			res.Blockers = append(res.Blockers, entry)
 			if f.Command != "" {
 				repairCommands[f.Command] = true
 			}
