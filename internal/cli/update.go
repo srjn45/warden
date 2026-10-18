@@ -269,10 +269,25 @@ func execTargetMigrate(ctx context.Context, bin, dataDir string, out io.Writer) 
 func updateRecoveryGuidance(err error) error {
 	var pe *updater.PreflightError
 	if errors.As(err, &pe) {
-		if pe.RepairCommand != "" && !strings.Contains(pe.RepairCommand, "repair backends") {
-			return err
+		isBackend := strings.Contains(pe.RepairCommand, "repair backends")
+		if !isBackend && len(pe.Blockers) > 0 {
+			hasBackend := false
+			hasNonBackend := false
+			for _, b := range pe.Blockers {
+				if strings.HasPrefix(b, "backends") || strings.Contains(b, "backends/") {
+					hasBackend = true
+				} else {
+					hasNonBackend = true
+				}
+			}
+			if hasBackend && !hasNonBackend {
+				isBackend = true
+			}
 		}
-		return fmt.Errorf("%w\n%s", err, backendRecoverySteps("", ""))
+		if isBackend {
+			return fmt.Errorf("%w\n%s", err, backendRecoverySteps("", ""))
+		}
+		return err
 	}
 	return withBackendRecoverySteps(err)
 }
@@ -335,9 +350,27 @@ func findingsToPreflightResult(findings []migrate.Finding) updater.PreflightResu
 		}
 		switch f.Severity {
 		case migrate.SeverityAuto:
-			res.Notes = append(res.Notes, fmt.Sprintf("%s: %s", f.Store, f.Message))
+			msg := f.Message
+			if f.Store != "" && !strings.HasPrefix(msg, f.Store) {
+				msg = fmt.Sprintf("%s: %s", f.Store, msg)
+			}
+			res.Notes = append(res.Notes, msg)
 		case migrate.SeverityRepairable, migrate.SeverityBlocking:
-			res.Blockers = append(res.Blockers, fmt.Sprintf("%s: %s", f.Store, f.Message))
+			// If it's a repairable finding that will be quarantined during cutover or kept as-is,
+			// and requires no manual command, treat as note.
+			if f.Severity == migrate.SeverityRepairable && f.Command == "" {
+				msg := f.Message
+				if f.Store != "" && !strings.HasPrefix(msg, f.Store) {
+					msg = fmt.Sprintf("%s: %s", f.Store, msg)
+				}
+				res.Notes = append(res.Notes, msg)
+				continue
+			}
+			entry := f.Message
+			if f.Store != "" && !strings.HasPrefix(entry, f.Store) {
+				entry = fmt.Sprintf("%s: %s", f.Store, entry)
+			}
+			res.Blockers = append(res.Blockers, entry)
 			if f.Command != "" {
 				repairCommands[f.Command] = true
 			}

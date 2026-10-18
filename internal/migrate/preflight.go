@@ -218,8 +218,14 @@ func (pf *preflight) verifyStore(rel string) {
 		case f.Location.Segment != "":
 			loc = " (" + f.Location.Segment + ")"
 		}
-		pf.block(class, target, fmt.Sprintf("%s: %s%s", target, f.Message, loc),
-			fmt.Sprintf("code: %s\n%s", f.Code, strictRemediation(class)))
+		pf.plan.Findings = append(pf.plan.Findings, Finding{
+			Severity: SeverityBlocking,
+			Class:    string(class),
+			Store:    target,
+			Message:  fmt.Sprintf("%s: %s%s", target, f.Message, loc),
+			Details:  fmt.Sprintf("code: %s\n%s", f.Code, strictRemediation(class)),
+			Code:     string(f.Code),
+		})
 	}
 	for _, f := range rep.Findings {
 		emit("", f)
@@ -481,7 +487,7 @@ func (pf *preflight) checkOwnerAgain() {
 		pf.block(ClassUnverifiable, ownerlock.FileName, "cannot probe the ownership lock: "+err.Error(), "")
 	case oe != nil:
 		for _, f := range pf.plan.Findings {
-			if f.Store == ownerlock.FileName && f.Severity == SeverityBlocking {
+			if (f.Store == ownerlock.FileName || f.Class == string(ClassOwned)) && f.Severity == SeverityBlocking {
 				return // already reported by the plan
 			}
 		}
