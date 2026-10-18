@@ -4161,6 +4161,7 @@ Commands:
   import               Insert agent session metadata from a JSON dump on stdin
   fastbrain            Fast-Brain/Thinking-Brain telemetry, traces and per-kind pause/resume
   repair               Offline, backup-first repair tools
+  legacy               Read-only inspection of retained schema-1 stores vs warden-db
 
 Flags:
   -h, --help   help for inspect
@@ -4576,6 +4577,32 @@ Flags:
   -h, --help                help for warden-db
       --json                print the machine-readable Verify/Repair report
       --salvage             permit quarantining damaged segments after backing up valid records
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
+## warden inspect legacy
+
+```text
+Inspect the legacy schema-1 stores kept on disk after the schema-2 cutover:
+legacy source paths, per-collection record counts compared with the canonical
+warden-db, and the cutover backup's verification evidence.
+
+Strictly read-only and never an authority: legacy stores are opened only
+through private copies, nothing is written to the data dir (a before/after
+fingerprint must match), and a data dir that has not cut over to schema 2 is
+refused because there the legacy stores are the live authority. Canonical-only
+records are expected after runtime use. Legacy data is never deleted.
+
+Usage:
+  warden inspect legacy [flags]
+
+Flags:
+      --data-dir string   path to the Warden data directory
+  -h, --help              help for legacy
+      --json              output results in JSON format
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)

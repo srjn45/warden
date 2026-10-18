@@ -165,4 +165,4 @@ seeds a schema-1 dir through the **real** compat stores and compares through the
 
 ## Legacy-store retirement gate
 
-Legacy stores and the `pre-schema2-*` backup are kept for at least 90 days after your cutover. `warden migrate --retirement` (read-only) reports whether an install meets the entry criteria for eventual cleanup; it deletes nothing. See [the retirement evidence spec](specs/2026-10-18-legacy-store-retirement-evidence.md).
+Legacy stores and the `pre-schema2-*` backup are kept for at least 90 days after your cutover. `warden migrate --retirement` (read-only) reports whether an install meets the entry criteria for eventual cleanup; it deletes nothing. See [the retirement evidence spec](specs/2026-10-18-legacy-store-retirement-evidence.md). `warden inspect legacy` (read-only) lets you look at the retained legacy stores and compare them with warden-db; it can never serve as a runtime fallback.
