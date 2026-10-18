@@ -5696,6 +5696,11 @@ Actions (select one):
              only then the ledger moves to schema 2. Legacy stores are kept
              (nothing is deleted). Any refusal before promotion leaves the data
              exactly as it was
+  --retirement
+             Read-only legacy-store retirement entry-criteria report: schema-2
+             active, warden-db present, backup verified, migration succeeded,
+             no unresolved failures or rollbacks, zero legacy opens, runtime
+             observed, support window elapsed. Deletes nothing
   --resume   Resume an interrupted migration recorded in the ledger journal
   --restore  Restore from pre-migration snapshot after an interrupted migration
              (a promoted warden-db is preserved under backups/, never deleted)
@@ -5716,6 +5721,7 @@ Flags:
       --plan                 show the read-only schema-2 (warden-db) cutover plan and what blocks it
       --restore              restore from pre-migration snapshot after an interrupted migration
       --resume               resume an interrupted migration
+      --retirement           report legacy-store retirement entry criteria (read-only; deletes nothing)
       --staging-dir string   target directory for --staging-export (default: <data-dir>/warden-db-staging)
       --staging-export       export normalized schema-2 staging collections without touching legacy sources
       --target int           target schema version to migrate to (default 2)
