@@ -5728,6 +5728,15 @@ Actions (select one):
              active, warden-db present, backup verified, migration succeeded,
              no unresolved failures or rollbacks, zero legacy opens, runtime
              observed, support window elapsed. Deletes nothing
+  --cleanup-legacy
+             Explicit, backup-gated removal of the retained schema-1 stores. Re-runs
+             the --retirement gate, verifies warden-db and re-verifies the cutover
+             backup against its MANIFEST, lists the exact paths, asks for
+             confirmation (or --yes), then MOVES them to
+             backups/legacy-quarantine-<time>/ (never deletes) and records an audit
+             event. --dry-run only reports. Refuses on any unmet criterion;
+             re-running when nothing remains is a no-op. Recover by moving paths
+             back from the quarantine or restoring the pre-schema2 backup
   --resume   Resume an interrupted migration recorded in the ledger journal
   --restore  Restore from pre-migration snapshot after an interrupted migration
              (a promoted warden-db is preserved under backups/, never deleted)
@@ -5742,7 +5751,9 @@ Usage:
 Flags:
       --apply                apply pending migrations up to the target schema version
       --check                run read-only preflight check across all stores and pending migrations
+      --cleanup-legacy       move retired schema-1 stores to a quarantine dir after verifying warden-db and the cutover backup (needs confirmation)
       --data-dir string      path to the Warden data directory
+      --dry-run              with --cleanup-legacy: report what would move; change nothing
   -h, --help                 help for migrate
       --json                 output results in JSON format
       --plan                 show the read-only schema-2 (warden-db) cutover plan and what blocks it
@@ -5752,6 +5763,7 @@ Flags:
       --staging-dir string   target directory for --staging-export (default: <data-dir>/warden-db-staging)
       --staging-export       export normalized schema-2 staging collections without touching legacy sources
       --target int           target schema version to migrate to (default 2)
+      --yes                  with --cleanup-legacy: confirm without prompting
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)

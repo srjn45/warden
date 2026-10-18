@@ -45,6 +45,9 @@ const (
 	LegacyOpenRefused Kind = "legacy_open_refused"
 	// RuntimeBoot: the daemon booted on warden-db (adoption heartbeat).
 	RuntimeBoot Kind = "runtime_boot"
+	// LegacyCleanup: an operator quarantined retired legacy stores after the
+	// retirement gate passed (Step carries the quarantine directory).
+	LegacyCleanup Kind = "legacy_cleanup"
 )
 
 // Event is one evidence record. Details never carry record values, only ids,
