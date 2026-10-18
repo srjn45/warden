@@ -44,6 +44,11 @@ type Finding struct {
 	Command string `json:"command,omitempty"`
 }
 
+// ClassSchema2CutoverPending is the Finding.Class a schema-2 target binary
+// reports for the expected schema-1 -> schema-2 cutover marker. Value matches
+// the target release's constant so its JSON report decodes here.
+const ClassSchema2CutoverPending = "schema2_cutover_pending"
+
 // Step is one named, journaled sub-step of a Migration.
 type Step struct {
 	Name string
