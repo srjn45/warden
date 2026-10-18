@@ -75,6 +75,7 @@ func (c *Controller) guardianTick(ctx context.Context) {
 		if r.state == StatePaused || r.state == StateStopped || r.state == StateComplete || r.state == StateRegistered {
 			continue
 		}
+		r.lastTickAt = now
 		// A run waiting only for its final PR to be merged has no agent to
 		// supervise: no manager respawn, heal, nudge or progress watchdog.
 		if r.state == StateActive && c.awaitingMergeLocked(r) {

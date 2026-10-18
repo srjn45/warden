@@ -29,13 +29,12 @@ func TestGolden_RFC18PopulatedTree(t *testing.T) {
 		Autopilot: autopilot.Status{
 			Runs: []autopilot.RunStatus{
 				{
-					RunID:      "ap-42",
-					Name:       "recovery-finish",
-					Repo:       "/home/u/dev/warden",
-					State:      autopilot.StateActive,
-					Gate:       "auto",
-					Brain:      &autopilot.BrainStatus{AgentID: "ap-42-brain"},
-					GuardianID: "ap-42-guard",
+					RunID: "ap-42",
+					Name:  "recovery-finish",
+					Repo:  "/home/u/dev/warden",
+					State: autopilot.StateActive,
+					Gate:  "auto",
+					Brain: &autopilot.BrainStatus{AgentID: "ap-42-brain"},
 					PlanTasks: []autopilot.PlanTask{
 						{
 							ID:     "t1",

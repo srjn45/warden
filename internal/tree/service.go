@@ -172,11 +172,6 @@ func (s *Service) Build(in Inputs, projectID string) *Tree {
 	if len(liveAutopilots) == 0 {
 		for i := range legacyRuns {
 			r := &legacyRuns[i]
-			if r.GuardianID != "" {
-				if sess := sessionByID[r.GuardianID]; sess != nil {
-					claimAutopilot(r.RunID, sess)
-				}
-			}
 			if r.Brain != nil && r.Brain.AgentID != "" {
 				if sess := sessionByID[r.Brain.AgentID]; sess != nil {
 					claimAutopilot(r.RunID, sess)

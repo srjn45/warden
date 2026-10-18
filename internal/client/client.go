@@ -1601,25 +1601,27 @@ func (s AutopilotStatus) Live() bool {
 
 // AutopilotRunStatus is one run's slice of AutopilotStatus.
 type AutopilotRunStatus struct {
-	RunID             string                `json:"run_id"`
-	Name              string                `json:"name"`
-	PlanFile          string                `json:"plan_file"`
-	Repo              string                `json:"repo"`
-	PlanID            string                `json:"plan_id,omitempty"`
-	State             string                `json:"state"`
-	Gate              string                `json:"gate"`
-	Brain             *AutopilotBrain       `json:"brain"`
-	WorkersInFlight   int                   `json:"workers_in_flight"`
-	Tasks             AutopilotTaskCounts   `json:"tasks"`
-	Backoff           *AutopilotBackoff     `json:"backoff"`
-	NeedsAttention    string                `json:"needs_attention,omitempty"`
-	LastProgressAt    string                `json:"last_progress_at,omitempty"`
-	Watchdog          string                `json:"watchdog,omitempty"`
-	NextStep          *AutopilotNextStep    `json:"next_step,omitempty"`
-	RestingUntil      string                `json:"resting_until,omitempty"`
-	LandedTotal       int                   `json:"landed_total"`
-	PlanTasks         []AutopilotPlanTask   `json:"plan_tasks"`
+	RunID           string              `json:"run_id"`
+	Name            string              `json:"name"`
+	PlanFile        string              `json:"plan_file"`
+	Repo            string              `json:"repo"`
+	PlanID          string              `json:"plan_id,omitempty"`
+	State           string              `json:"state"`
+	Gate            string              `json:"gate"`
+	Brain           *AutopilotBrain     `json:"brain"`
+	WorkersInFlight int                 `json:"workers_in_flight"`
+	Tasks           AutopilotTaskCounts `json:"tasks"`
+	Backoff         *AutopilotBackoff   `json:"backoff"`
+	NeedsAttention  string              `json:"needs_attention,omitempty"`
+	LastProgressAt  string              `json:"last_progress_at,omitempty"`
+	Watchdog        string              `json:"watchdog,omitempty"`
+	NextStep        *AutopilotNextStep  `json:"next_step,omitempty"`
+	RestingUntil    string              `json:"resting_until,omitempty"`
+	LandedTotal     int                 `json:"landed_total"`
+	PlanTasks       []AutopilotPlanTask `json:"plan_tasks"`
+	// GuardianID is deprecated and no longer emitted: no guardian session exists.
 	GuardianID        string                `json:"guardian_id,omitempty"`
+	Supervisor        *AutopilotSupervisor  `json:"supervisor,omitempty"`
 	SlotScope         string                `json:"slot_scope,omitempty"`
 	ManagerSlotID     string                `json:"manager_slot_id,omitempty"`
 	GuardianSlotID    string                `json:"guardian_slot_id,omitempty"`
@@ -2347,11 +2349,35 @@ func (c *Client) PlanRun(ctx context.Context, projectID, planID string, req Plan
 	return c.do(ctx, http.MethodPost, "/projects/"+url.PathEscape(projectID)+"/plans/"+url.PathEscape(planID)+"/run", req, nil)
 }
 
-// AutopilotNextStep is the guardian's scheduled next action for a run.
+// AutopilotNextStep is the daemon supervisor's scheduled next action for a run.
+// Owner is daemon | manager | worker | operator; an old daemon may still send the
+// deprecated "guardian", which means daemon (see NormalizedOwner).
 type AutopilotNextStep struct {
-	Action string `json:"action"`
-	At     string `json:"at,omitempty"`
-	Owner  string `json:"owner,omitempty"`
+	Action               string `json:"action"`
+	At                   string `json:"at,omitempty"`
+	Owner                string `json:"owner,omitempty"`
+	AddressableSessionID string `json:"addressable_session_id,omitempty"`
+}
+
+// NormalizedOwner maps the deprecated "guardian" owner to "daemon".
+func (n AutopilotNextStep) NormalizedOwner() string {
+	if n.Owner == "guardian" {
+		return "daemon"
+	}
+	return n.Owner
+}
+
+// AutopilotSupervisor describes what supervises a run. Addressable is true only
+// for kind=session; the daemon supervisor is never a session.
+type AutopilotSupervisor struct {
+	Kind        string `json:"kind"`
+	Addressable bool   `json:"addressable"`
+	SessionID   string `json:"session_id,omitempty"`
+	State       string `json:"state"`
+	Health      string `json:"health"`
+	HealStage   string `json:"heal_stage"`
+	LastTickAt  string `json:"last_tick_at,omitempty"`
+	Persisted   bool   `json:"persisted"`
 }
 
 // KnownPrompts lists the learned prompt shapes (GET /known-prompts), oldest first.
