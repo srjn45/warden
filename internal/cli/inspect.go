@@ -28,6 +28,7 @@ Financial usage and provider quota snapshots live under ` + "`usage`" + `, not h
 		canonicalInspectCommand(newImportCmd(), "import", "import"),
 		newInspectFastBrainCmd(),
 		newInspectRepairCmd(),
+		newInspectLegacyCmd(),
 	}
 	for i, child := range children {
 		SetCommandHelpMetadata(child, "observe", (i+1)*10, "warden inspect "+child.Name(), "", nodeKind(child))

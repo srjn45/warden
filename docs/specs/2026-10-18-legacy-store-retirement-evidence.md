@@ -22,6 +22,8 @@
 
 `warden migrate --retirement [--json]` (read-only) evaluates `migrate.EvaluateRetirement`. Criterion IDs are stable.
 
+`warden inspect legacy [--json]` is the retained read-only legacy inspector for the support window: it lists the retained schema-1 sources, diffs per-collection record keys against warden-db, and re-verifies the cutover backup. It opens legacy and canonical stores only through private copies, fingerprints the data dir before/after (a change is an error), and refuses any data dir not at schema 2 (`ErrLegacyLiveAuthority`) so it can never act as a fallback or dual authority. It has no write flags and deletes nothing.
+
 | ID | Met when |
 | --- | --- |
 | `schema2_active` | ledger is schema ≥ 2 with no open migration journal |

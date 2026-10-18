@@ -184,6 +184,7 @@ Complete command tree:
   warden inspect repair backends       [schema 1 only; on schema 2 use `repair warden-db`] Verify or repair the backend registry offline, backup-first
   warden inspect repair sessions       [schema 1 only; on schema 2 use `repair warden-db`] Diagnose or reconstruct the offline session store
   warden inspect repair warden-db      Verify or repair unified storage offline, backup-first
+  warden inspect legacy                Read-only inspection of retained schema-1 stores vs warden-db
   warden backend                       Inspect and manage the agent-backend registry
   warden backend default               Set the default backend (rejects the reserved local row)
   warden backend disable               Disable a backend so it is no longer used
