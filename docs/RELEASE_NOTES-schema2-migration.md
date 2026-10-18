@@ -162,3 +162,7 @@ seeds a schema-1 dir through the **real** compat stores and compares through the
 | Safe savings JSONL quarantine preserves raw bytes and hashes; line-length limit blocks before change | `TestSavingsQuarantine_*` |
 | Exact reported update path acceptance (active preflight, active agent/autopilot/project/plan state, stale derived index lag, malformed savings JSONL quarantine, post-stop strict cutover, and no-mutation rollback on failure) | `TestReleaseRegressionAcceptance_*`, `TestReleaseAcceptance_ReportedUpdatePath_*` |
 
+
+## Legacy-store retirement gate
+
+Legacy stores and the `pre-schema2-*` backup are kept for at least 90 days after your cutover. `warden migrate --retirement` (read-only) reports whether an install meets the entry criteria for eventual cleanup; it deletes nothing. See [the retirement evidence spec](specs/2026-10-18-legacy-store-retirement-evidence.md).

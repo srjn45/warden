@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/srjn45/warden/internal/adoption"
 	"github.com/srjn45/warden/internal/schema"
 )
 
@@ -386,6 +388,8 @@ func (t *txn) rollback(ctx context.Context, backup, snapDir string, restarted bo
 	if snapDir != "" && t.opts.DataDir != "" {
 		if err := RestoreSnapshot(snapDir, t.opts.DataDir); err != nil {
 			rbErrs = append(rbErrs, fmt.Errorf("restore data snapshot: %w", err))
+		} else {
+			_ = adoption.Record(t.opts.DataDir, adoption.Event{Kind: adoption.UpdaterRollback, Backup: filepath.Base(snapDir)})
 		}
 	}
 	if len(rbErrs) > 0 {

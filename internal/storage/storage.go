@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/srjn45/warden/internal/adoption"
 	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/audit/auditstore"
@@ -164,6 +165,9 @@ func OpenLegacy(dataDir string) (*Stores, error) {
 	l, err := schema.Load(dataDir)
 	switch {
 	case err == nil && (l.SchemaVersion >= schema.Schema2 || l.MigrationInterrupted()):
+		if l.SchemaVersion >= schema.Schema2 {
+			_ = adoption.Record(dataDir, adoption.Event{Kind: adoption.LegacyOpenRefused, ToSchema: l.SchemaVersion})
+		}
 		return nil, &schema.GuardError{Verdict: schema.VerdictDataNewer, DataDir: dataDir, Ledger: *l, Binary: schema.LegacyBaseline, Min: schema.MinSchema}
 	case err != nil && !errors.Is(err, schema.ErrNoLedger):
 		return nil, fmt.Errorf("storage: schema state: %w", err)

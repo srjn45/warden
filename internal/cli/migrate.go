@@ -26,16 +26,17 @@ type migrateCheckReport struct {
 
 func newMigrateCmd() *cobra.Command {
 	var (
-		checkFlag   bool
-		planFlag    bool
-		stagingFlag bool
-		applyFlag   bool
-		resumeFlag  bool
-		restoreFlag bool
-		jsonFlag    bool
-		targetVer   int
-		dataDirFlag string
-		stagingDir  string
+		checkFlag      bool
+		planFlag       bool
+		retirementFlag bool
+		stagingFlag    bool
+		applyFlag      bool
+		resumeFlag     bool
+		restoreFlag    bool
+		jsonFlag       bool
+		targetVer      int
+		dataDirFlag    string
+		stagingDir     string
 	)
 
 	cmd := &cobra.Command{
@@ -71,6 +72,11 @@ Actions (select one):
              only then the ledger moves to schema 2. Legacy stores are kept
              (nothing is deleted). Any refusal before promotion leaves the data
              exactly as it was
+  --retirement
+             Read-only legacy-store retirement entry-criteria report: schema-2
+             active, warden-db present, backup verified, migration succeeded,
+             no unresolved failures or rollbacks, zero legacy opens, runtime
+             observed, support window elapsed. Deletes nothing
   --resume   Resume an interrupted migration recorded in the ledger journal
   --restore  Restore from pre-migration snapshot after an interrupted migration
              (a promoted warden-db is preserved under backups/, never deleted)
@@ -96,12 +102,15 @@ and rolls the binary and data back if it fails.`,
 			if resumeFlag {
 				count++
 			}
+			if retirementFlag {
+				count++
+			}
 			if restoreFlag {
 				count++
 			}
 
 			if count > 1 {
-				return errors.New("cannot specify more than one of --check, --plan, --apply, --resume, --restore")
+				return errors.New("cannot specify more than one of --check, --plan, --retirement, --apply, --resume, --restore")
 			}
 			if count == 0 {
 				checkFlag = true // Default action is read-only check
@@ -125,6 +134,18 @@ and rolls the binary and data back if it fails.`,
 			runner := migrate.NewRunner(nil)
 
 			switch {
+			case retirementFlag:
+				rep, err := migrate.EvaluateRetirement(dataDir, migrate.RetirementOptions{})
+				if err != nil {
+					return err
+				}
+				if jsonFlag {
+					enc := json.NewEncoder(cmd.OutOrStdout())
+					enc.SetIndent("", "  ")
+					return enc.Encode(rep)
+				}
+				fmt.Fprint(cmd.OutOrStdout(), rep.Summary())
+				return nil
 			case planFlag:
 				return runSchema2Plan(cmd, dataDir, jsonFlag)
 
@@ -269,6 +290,7 @@ and rolls the binary and data back if it fails.`,
 	cmd.Flags().BoolVar(&checkFlag, "check", false, "run read-only preflight check across all stores and pending migrations")
 	cmd.Flags().BoolVar(&planFlag, "plan", false, "show the read-only schema-2 (warden-db) cutover plan and what blocks it")
 	cmd.Flags().BoolVar(&stagingFlag, "staging-export", false, "export normalized schema-2 staging collections without touching legacy sources")
+	cmd.Flags().BoolVar(&retirementFlag, "retirement", false, "report legacy-store retirement entry criteria (read-only; deletes nothing)")
 	cmd.Flags().BoolVar(&applyFlag, "apply", false, "apply pending migrations up to the target schema version")
 	cmd.Flags().BoolVar(&resumeFlag, "resume", false, "resume an interrupted migration")
 	cmd.Flags().BoolVar(&restoreFlag, "restore", false, "restore from pre-migration snapshot after an interrupted migration")

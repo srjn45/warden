@@ -6,6 +6,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/srjn45/warden/internal/adoption"
 )
 
 // Schema2 is the data format whose authority is the single warden-db store
@@ -192,6 +194,10 @@ func Boot(dataDir, binaryVersion string) (BootResult, error) {
 	}
 	if err := Check(dataDir, l); err != nil {
 		return BootResult{}, err
+	}
+	if l != nil && l.SchemaVersion >= Schema2 {
+		// Adoption heartbeat; best-effort, never blocks a boot.
+		_ = adoption.Record(dataDir, adoption.Event{Kind: adoption.RuntimeBoot, BinaryVersion: binaryVersion, ToSchema: l.SchemaVersion})
 	}
 	return res, nil
 }

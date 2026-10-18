@@ -4,8 +4,11 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/srjn45/warden/internal/adoption"
 )
 
 func TestGuard_Schema2Residue(t *testing.T) {
@@ -61,4 +64,14 @@ func TestGuard_CleanDirs(t *testing.T) {
 	require.True(t, os.IsNotExist(err))
 	require.NoError(t, Save(d, &Ledger{SchemaVersion: Schema2}))
 	require.NoError(t, Guard(d))
+}
+
+func TestBoot_RecordsRuntimeBootOnSchema2Only(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, Save(dir, &Ledger{SchemaVersion: Schema2, BinaryVersion: "11", History: []HistoryEntry{}}))
+	_, err := Boot(dir, "11.0.0")
+	require.NoError(t, err)
+	log, err := adoption.Read(dir)
+	require.NoError(t, err)
+	require.Equal(t, 1, log.Count(adoption.RuntimeBoot, time.Time{}))
 }
