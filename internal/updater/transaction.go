@@ -113,8 +113,21 @@ type PreflightError struct {
 }
 
 func (e *PreflightError) Error() string {
-	msg := "update blocked before any change: the backend store cannot be opened by a new daemon:\n  - " +
-		strings.Join(e.Blockers, "\n  - ")
+	subject := "the store"
+	if len(e.Blockers) > 0 {
+		allBackend := true
+		for _, b := range e.Blockers {
+			if !strings.HasPrefix(b, "backends") && !strings.Contains(b, "backends/") {
+				allBackend = false
+				break
+			}
+		}
+		if allBackend {
+			subject = "the backend store"
+		}
+	}
+	msg := fmt.Sprintf("update blocked before any change: %s cannot be opened by a new daemon:\n  - %s",
+		subject, strings.Join(e.Blockers, "\n  - "))
 	if e.RepairCommand != "" {
 		msg += "\nrepair it, then re-run the update:\n  " + e.RepairCommand
 	}

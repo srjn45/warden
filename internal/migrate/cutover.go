@@ -12,8 +12,10 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"github.com/srjn45/scriva/engine"
 	"github.com/srjn45/warden/internal/ownerlock"
 	"github.com/srjn45/warden/internal/schema"
 	"github.com/srjn45/warden/internal/wardendb"
@@ -50,6 +52,24 @@ var Migration0002 = Migration{
 	},
 }
 
+func isExpectedLiveLag(f Finding) bool {
+	if f.Class != string(ClassStaleDerivedState) {
+		return false
+	}
+	switch f.Code {
+	case string(engine.CodeIndexStaleTail),
+		string(engine.CodeIndexStaleRecord),
+		string(engine.CodeSidxStaleTail):
+		return true
+	}
+	if strings.Contains(f.Details, string(engine.CodeIndexStaleTail)) ||
+		strings.Contains(f.Details, string(engine.CodeIndexStaleRecord)) ||
+		strings.Contains(f.Details, string(engine.CodeSidxStaleTail)) {
+		return true
+	}
+	return false
+}
+
 // checkSchema2Cutover is the read-only preflight of the cutover as `migrate
 // --check` and the updater see it. It runs the same strict preflight as
 // `migrate --plan`, with one difference: the updater checks BEFORE it stops the
@@ -67,10 +87,13 @@ func checkSchema2Cutover(env Env) []Finding {
 		return []Finding{{Severity: SeverityBlocking, Class: string(ClassUnverifiable), Store: "warden-db",
 			Message: "schema-2 preflight failed: " + err.Error(), Details: strictRemediation(ClassUnverifiable)}}
 	}
-	owned := false
+	initialOwned := false
 	for _, f := range plan.Findings {
-		if f.Severity == SeverityBlocking && (f.Class == string(ClassOwned) || f.Store == ownerlock.FileName) {
-			owned = true
+		if f.Severity == SeverityBlocking && (f.Class == string(ClassOwned) || f.Store == ownerlock.FileName || f.Store == "owner.lock") {
+			if !strings.Contains(f.Message, "took the data dir during verification") {
+				initialOwned = true
+				break
+			}
 		}
 	}
 	out := []Finding{{
@@ -80,9 +103,12 @@ func checkSchema2Cutover(env Env) []Finding {
 		Command: "warden daemon stop && warden migrate --apply",
 	}}
 	for _, f := range plan.Findings {
-		if owned && f.Severity == SeverityBlocking && (f.Class == string(ClassOwned) || f.Store == ownerlock.FileName || f.Class == string(ClassStaleDerivedState)) {
-			f.Severity = SeverityAuto
-			f.Message += " (a running daemon is expected here; the updater stops it before the cutover, which re-verifies strictly)"
+		if initialOwned && f.Severity == SeverityBlocking {
+			isInitialOwner := (f.Class == string(ClassOwned) || f.Store == ownerlock.FileName || f.Store == "owner.lock") && !strings.Contains(f.Message, "took the data dir during verification")
+			if isInitialOwner || isExpectedLiveLag(f) {
+				f.Severity = SeverityAuto
+				f.Message += " (a running daemon is expected here; the updater stops it before the cutover, which re-verifies strictly)"
+			}
 		}
 		out = append(out, f)
 	}

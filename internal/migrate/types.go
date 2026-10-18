@@ -42,6 +42,7 @@ type Finding struct {
 	Message string `json:"message"`
 	Details string `json:"details,omitempty"`
 	Command string `json:"command,omitempty"`
+	Code    string `json:"code,omitempty"`
 }
 
 // QuarantinedRecord is the immutable audit record of a malformed source record
