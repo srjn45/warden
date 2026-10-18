@@ -46,7 +46,7 @@ func TestContractScrivaDependencyPin(t *testing.T) {
 	require.NoError(t, err)
 	m := regexp.MustCompile(`github.com/srjn45/scriva (v\S+)`).FindSubmatch(gomod)
 	require.NotNil(t, m)
-	require.Equal(t, "v1.4.1-0.20261010192719-4ca8d00d1197", string(m[1]),
+	require.Equal(t, "v1.5.1", string(m[1]),
 		"scriva bumped: re-audit docs/specs/2026-10-06-agent-store-integrity-contract.md §2 and update this pin")
 
 	_, err = engine.VerifyDir(context.Background(), t.TempDir(), engine.VerifyOptions{})
