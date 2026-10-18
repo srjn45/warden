@@ -10,6 +10,7 @@ import (
 const autopilotStatusBody = `{"runs":[` +
 	`{"run_id":"ap-1","name":"demo","state":"degraded","plan_id":"plan-9","repo":"/r","gate":"ci",` +
 	`"integration_branch":"autopilot/demo","backoff":{"stage":2,"next_retry_at":"T","last_error":"boom"},` +
+	`"supervisor":{"kind":"daemon","addressable":false,"state":"supervising","health":"backoff","heal_stage":"backoff","persisted":false},` +
 	`"next_step":{"action":"retry the backend ladder from the top","at":"T","owner":"guardian"},` +
 	`"resting_until":"T2"}]}`
 
@@ -25,7 +26,8 @@ func TestAutopilotStatusShowsRunColumns(t *testing.T) {
 		"RUN", "NAME", "STATE", "PLAN", "GATE", "BRANCH", "PROGRESS",
 		"ap-1", "demo", "degraded", "plan-9", "ci", "autopilot/demo",
 		"backoff: stage 2 retry T (boom)",
-		"next: retry the backend ladder from the top at T (guardian)",
+		"next: retry the backend ladder from the top at T (daemon)", // legacy "guardian" owner is shown as daemon
+		"supervisor: daemon (backoff, heal stage backoff)",
 		"resting until: T2",
 	} {
 		if !strings.Contains(out, want) {

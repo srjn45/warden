@@ -6910,7 +6910,22 @@ components:
         gate: { type: string }
         slot_scope: { type: string, description: "stable scope token for manager/guardian slot ids" }
         manager_slot_id: { type: string, description: "stable manager session id (<scope>-autopilot)" }
-        guardian_slot_id: { type: string, description: "stable guardian session id (<scope>-guardian)" }
+        guardian_slot_id: { type: string, description: "reserved slot name; not an addressable session" }
+        supervisor:
+                  type: object
+                  description: >
+                    what supervises this run. The daemon supervisor is an in-process goroutine, not a
+                    session: it is never addressable. Heal state is in-memory and rebuilt after a daemon restart.
+                  required: [kind, addressable, state, health, heal_stage, persisted]
+                  properties:
+                    kind: { type: string, enum: [daemon, session, none] }
+                    addressable: { type: boolean, description: "true iff kind is session" }
+                    session_id: { type: string, description: "only for kind=session" }
+                    state: { type: string, enum: [supervising, idle, suspended, disabled] }
+                    health: { type: string, enum: [healthy, healing, backoff, parked, unknown] }
+                    heal_stage: { type: string, enum: [none, nudged, restarted, rotated, backoff] }
+                    last_tick_at: { type: string, description: "RFC3339 time of the last guardian tick that visited this run; empty until the first tick after daemon start" }
+                    persisted: { type: boolean, description: "always false" }
         integration_branch: { type: string, description: "resolved per-plan merge target workers must base PRs on" }
         gate_warning: { type: string, description: "set when gate auto downgraded to local because workflows do not cover the integration branch" }
         workers:
@@ -6985,11 +7000,12 @@ components:
               watchdog: { type: string, enum: [disabled, idle, armed, escalating, parked], description: "progress watchdog state" }
               next_step:
                 type: object
-                description: the guardian's scheduled next action for this run (absent for complete, paused, stopped or registered runs)
+                description: the daemon supervisor's scheduled next action for this run (absent for complete, paused, stopped or registered runs)
                 properties:
                   action: { type: string }
                   at: { type: string, description: "RFC3339 time the action fires; empty when it waits for an operator" }
-                  owner: { type: string, description: "guardian | overwatch | operator" }
+                  owner: { type: string, enum: [daemon, manager, worker, operator, guardian], description: "who performs it; guardian is a deprecated alias of daemon and is no longer emitted" }
+                  addressable_session_id: { type: string, description: "set only when owner is manager or worker" }
               final_pr:
                 type: object
                 description: the single final PR (integration -> default branch) once autopilot opened it; persisted across daemon restarts
@@ -7038,10 +7054,25 @@ components:
                   last_at: { type: string }
               resting_until: { type: string, description: "RFC3339 time the guardian next resumes or re-switches a rate-limited agent of this run" }
               landed_total: { type: integer }
-              guardian_id: { type: string }
+              guardian_id: { type: string, deprecated: true, description: "Removed: no guardian session exists; see supervisor" }
               slot_scope: { type: string, description: "stable scope token for manager/guardian slot ids" }
               manager_slot_id: { type: string, description: "stable manager session id (<scope>-autopilot)" }
-              guardian_slot_id: { type: string, description: "stable guardian session id (<scope>-guardian)" }
+              guardian_slot_id: { type: string, description: "reserved slot name; not an addressable session" }
+              supervisor:
+                              type: object
+                              description: >
+                                what supervises this run. The daemon supervisor is an in-process goroutine, not a
+                                session: it is never addressable. Heal state is in-memory and rebuilt after a daemon restart.
+                              required: [kind, addressable, state, health, heal_stage, persisted]
+                              properties:
+                                kind: { type: string, enum: [daemon, session, none] }
+                                addressable: { type: boolean, description: "true iff kind is session" }
+                                session_id: { type: string, description: "only for kind=session" }
+                                state: { type: string, enum: [supervising, idle, suspended, disabled] }
+                                health: { type: string, enum: [healthy, healing, backoff, parked, unknown] }
+                                heal_stage: { type: string, enum: [none, nudged, restarted, rotated, backoff] }
+                                last_tick_at: { type: string, description: "RFC3339 time of the last guardian tick that visited this run; empty until the first tick after daemon start" }
+                                persisted: { type: boolean, description: "always false" }
               integration_branch: { type: string, description: "resolved per-plan merge target workers must base PRs on" }
               gate_warning: { type: string, description: "set when gate auto downgraded to local because workflows do not cover the integration branch" }
               workers:

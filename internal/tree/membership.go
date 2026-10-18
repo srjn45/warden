@@ -351,9 +351,6 @@ func runSessionSlot(s *store.Session, r *autopilot.RunStatus) string {
 	if s.AutopilotSlot != "" {
 		return s.AutopilotSlot
 	}
-	if r.GuardianID != "" && s.ID == r.GuardianID {
-		return store.AutopilotSlotGuardian
-	}
 	if r.Brain != nil && s.ID == r.Brain.AgentID {
 		return store.AutopilotSlotManager
 	}

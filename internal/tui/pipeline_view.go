@@ -80,6 +80,10 @@ func renderAutopilotRun(r *client.AutopilotRunStatus, width, height int) string 
 	if r.Watchdog != "" {
 		b.WriteString(stMuted.Render("watchdog: "+r.Watchdog) + "\n")
 	}
+	b.WriteString(stMuted.Render(r.SupervisorLine()) + "\n")
+	if l := r.NextStepLine(); l != "" {
+		b.WriteString(stMuted.Render(l) + "\n")
+	}
 	for _, l := range r.SurfaceLines() {
 		b.WriteString(stMuted.Render(l) + "\n")
 	}

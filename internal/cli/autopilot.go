@@ -68,8 +68,8 @@ func newAutopilotStatusCmd() *cobra.Command {
 		Long: "The all-runs view: one table row per autopilot run (run id, name, state, plan,\n" +
 			"gate, branch and task progress; the repo column appears only when runs span\n" +
 			"more than one repo). Runs that are waiting, degraded or need attention print\n" +
-			"indented detail lines under their row (next step, resting until, the guardian's\n" +
-			"diagnosis, the final PR). Use `wd plan show <id> --watch` for the view of one\n" +
+			"indented detail lines under their row (supervisor, next step, resting until, the\n" +
+			"daemon supervisor's diagnosis, the final PR). Use `wd plan show <id> --watch` for the view of one\n" +
 			"plan. --json emits the raw result.",
 		Args: cobra.NoArgs,
 		RunE: runAutopilotStatus,
@@ -147,21 +147,15 @@ func printAutopilotRuns(w io.Writer, st client.AutopilotStatus) error {
 // autopilotRunDetails are the per-run detail lines (no leading indent).
 func autopilotRunDetails(r client.AutopilotRunStatus) []string {
 	var out []string
+	out = append(out, r.SupervisorLine())
 	if r.Backoff != nil {
 		out = append(out, "backoff: "+backoffSummary(r.Backoff))
 	}
 	if r.LastProgressAt != "" {
 		out = append(out, fmt.Sprintf("last progress: %s (watchdog: %s)", r.LastProgressAt, dash(r.Watchdog)))
 	}
-	if r.NextStep != nil {
-		line := "next: " + r.NextStep.Action
-		if r.NextStep.At != "" {
-			line += " at " + r.NextStep.At
-		}
-		if r.NextStep.Owner != "" {
-			line += " (" + r.NextStep.Owner + ")"
-		}
-		out = append(out, line)
+	if l := r.NextStepLine(); l != "" {
+		out = append(out, l)
 	}
 	if r.RestingUntil != "" {
 		out = append(out, "resting until: "+r.RestingUntil)

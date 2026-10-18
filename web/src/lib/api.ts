@@ -366,7 +366,7 @@ export interface AutopilotTaskCounts {
 
 export interface AutopilotPlanTask { id: string; prompt: string; after: string[]; status: string; landed_pr?: number; }
 
-// AutopilotBackoff describes the guardian's capped backoff (null unless degraded).
+// AutopilotBackoff describes the daemon supervisor's capped backoff (null unless degraded).
 export interface AutopilotBackoff {
   stage: number;
   next_retry_at: string;
@@ -388,7 +388,10 @@ export interface AutopilotRun {
   backoff: AutopilotBackoff | null;
   landed_total: number;
 	plan_tasks: AutopilotPlanTask[];
+	/** @deprecated No guardian session exists; the server no longer sends this. Use `supervisor`. */
 	guardian_id?: string;
+	supervisor?: AutopilotSupervisor;
+	next_step?: AutopilotNextStep;
 	integration_branch?: string;
 	gate_warning?: string;
 	ledger_tasks?: AutopilotLedgerTask[];
@@ -397,6 +400,38 @@ export interface AutopilotRun {
 	last_diagnosis?: AutopilotDiagnosis;
 	fix?: AutopilotFixStatus[];
 	resolver?: AutopilotResolverStatus;
+}
+
+export interface AutopilotSupervisor {
+  kind: 'daemon' | 'session' | 'none' | string;
+  addressable: boolean;
+  session_id?: string;
+  state: string;
+  health: string;
+  heal_stage?: string;
+  last_tick_at?: string;
+  persisted?: boolean;
+}
+export interface AutopilotNextStep { action: string; at?: string; owner?: string; addressable_session_id?: string; }
+
+/** Maps the deprecated "guardian" next-step owner to "daemon". */
+export function normalizeOwner(owner?: string): string {
+  return owner === 'guardian' ? 'daemon' : (owner ?? '');
+}
+
+/**
+ * runSupervisor returns the run's supervisor, synthesising a non-addressable
+ * daemon supervisor for older servers that predate the field.
+ */
+export function runSupervisor(run: AutopilotRun): AutopilotSupervisor {
+  if (run.supervisor) return run.supervisor;
+  const suspended = ['paused', 'stopped', 'complete'].includes(run.state);
+  return {
+    kind: 'daemon',
+    addressable: false,
+    state: suspended ? 'suspended' : 'supervising',
+    health: run.backoff ? 'backoff' : 'unknown',
+  };
 }
 
 export interface AutopilotFinalPR { number: number; url?: string; head_sha?: string; gate: 'pending' | 'red' | 'green' | string; fix_attempts: number; }
