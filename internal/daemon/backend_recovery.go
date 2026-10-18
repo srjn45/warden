@@ -194,6 +194,22 @@ func (c *BackendRecoveryCoordinator) sessionLock(id string) *sync.Mutex {
 // RateLimitScheduler that this coordinator owns switching/waiting and its legacy
 // resume timer must not also run.
 func (c *BackendRecoveryCoordinator) OnHardLimit(sess *agentstore.Agent, fallbackAt time.Time) bool {
+	return c.onHardLimit(sess, fallbackAt, false)
+}
+
+// OnObservedHardLimit is the RateLimitScheduler entry point: every caller
+// reports that the session just transitioned into rate_limited. While a
+// candidate is stabilizing, the report only counts as an immediate hard limit
+// on that candidate when the live status (read under the session lock) is still
+// rate_limited. advance() moves the session to spawning under the same lock
+// once the swap lands, so a duplicate observation of the banner that started
+// this generation — queued behind the in-flight swap — is absorbed as already
+// owned instead of burning a second candidate.
+func (c *BackendRecoveryCoordinator) OnObservedHardLimit(sess *agentstore.Agent, fallbackAt time.Time) bool {
+	return c.onHardLimit(sess, fallbackAt, true)
+}
+
+func (c *BackendRecoveryCoordinator) onHardLimit(sess *agentstore.Agent, fallbackAt time.Time, requireRateLimited bool) bool {
 	if c == nil || c.store == nil || c.backends == nil || c.usage == nil || c.life == nil || sess == nil {
 		return false
 	}
@@ -208,7 +224,8 @@ func (c *BackendRecoveryCoordinator) OnHardLimit(sess *agentstore.Agent, fallbac
 	generation := current.BackendRecoveryGeneration + 1
 	if current.BackendRecovery != nil {
 		generation = current.BackendRecovery.Generation
-		if current.BackendRecovery.Phase == recoveryStabilizing && current.BackendRecovery.Current != nil {
+		if current.BackendRecovery.Phase == recoveryStabilizing && current.BackendRecovery.Current != nil &&
+			(!requireRateLimited || current.Status == store.StatusRateLimited) {
 			attempt := store.RecoveryAttempt{Candidate: *current.BackendRecovery.Current, Round: current.BackendRecovery.Round, StartedAt: now, Outcome: "immediate_hard_limit"}
 			_ = c.store.Update(context.Background(), current.ID, func(s *agentstore.Agent) error {
 				if s.BackendRecovery == nil || s.BackendRecovery.Generation != generation {

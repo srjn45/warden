@@ -60,7 +60,7 @@ func TestRateLimitCodexPaneThroughSchedulerToRecovery(t *testing.T) {
 		return b
 	}
 	sched.OnHardLimit = func(sess *agentstore.Agent, until time.Time) bool {
-		return c.OnHardLimit(sess, until)
+		return c.OnObservedHardLimit(sess, until)
 	}
 
 	require.NoError(t, st.UpdateStatus(context.Background(), "agent-1", store.StatusWorking))

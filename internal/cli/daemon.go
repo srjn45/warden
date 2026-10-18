@@ -572,7 +572,7 @@ func newDaemonRunCmd() *cobra.Command {
 			recoveryCoordinator.SetNotify(srv.Notify)
 			recoveryCoordinator.SetAudit(auditWriter)
 			srv.SetBackendRecovery(recoveryCoordinator)
-			rateLimitSched.OnHardLimit = recoveryCoordinator.OnHardLimit
+			rateLimitSched.OnHardLimit = recoveryCoordinator.OnObservedHardLimit
 			rateLimitSched.PrepareHardLimit = func(sess *agentstore.Agent, source string) {
 				if sess == nil {
 					return

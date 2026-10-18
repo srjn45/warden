@@ -44,7 +44,7 @@ func TestPaneSignalFusion_WeeklyResetMenuTriggersRecoveryWithoutBanner(t *testin
 
 	sched := e2eSched(st)
 	sched.OnHardLimit = func(sess *agentstore.Agent, until time.Time) bool {
-		return c.OnHardLimit(sess, until)
+		return c.OnObservedHardLimit(sess, until)
 	}
 
 	require.NoError(t, st.UpdateStatus(context.Background(), "agent-1", store.StatusRateLimited))
@@ -92,7 +92,7 @@ func TestPaneSignalFusion_UsageTriggeredRecoveryThenMenuSignalIsIdempotent(t *te
 
 	sched := e2eSched(st)
 	sched.OnHardLimit = func(sess *agentstore.Agent, until time.Time) bool {
-		return c.OnHardLimit(sess, until)
+		return c.OnObservedHardLimit(sess, until)
 	}
 
 	require.NoError(t, st.UpdateStatus(context.Background(), "agent-1", store.StatusRateLimited))
@@ -154,7 +154,7 @@ func TestPaneSignalFusion_SimultaneousMenuAndBannerSignalsOneGeneration(t *testi
 
 	sched := e2eSched(st)
 	sched.OnHardLimit = func(sess *agentstore.Agent, until time.Time) bool {
-		return c.OnHardLimit(sess, until)
+		return c.OnObservedHardLimit(sess, until)
 	}
 
 	require.NoError(t, st.UpdateStatus(context.Background(), "agent-1", store.StatusRateLimited))
@@ -206,7 +206,7 @@ func TestPaneSignalFusion_StaleRepeatedMenuSignalDoesNotDuplicateGeneration(t *t
 
 	sched := e2eSched(st)
 	sched.OnHardLimit = func(sess *agentstore.Agent, until time.Time) bool {
-		return c.OnHardLimit(sess, until)
+		return c.OnObservedHardLimit(sess, until)
 	}
 
 	require.NoError(t, st.UpdateStatus(context.Background(), "agent-1", store.StatusRateLimited))
