@@ -15,6 +15,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/migrate"
@@ -247,24 +248,52 @@ func execTargetMigrate(ctx context.Context, bin, dataDir string, out io.Writer) 
 func updateRecoveryGuidance(err error) error {
 	var pe *updater.PreflightError
 	if errors.As(err, &pe) {
-		isBackend := strings.Contains(pe.RepairCommand, "repair backends")
-		if !isBackend && len(pe.Blockers) > 0 {
-			hasBackend, hasNonBackend := false, false
-			for _, b := range pe.Blockers {
-				if strings.HasPrefix(b, "backends") || strings.Contains(b, "backends/") {
-					hasBackend = true
-				} else {
-					hasNonBackend = true
-				}
-			}
-			isBackend = hasBackend && !hasNonBackend
-		}
-		if isBackend {
+		if isBackendPreflightFailure(pe) {
 			return fmt.Errorf("%w\n%s", err, backendRecoverySteps("", ""))
 		}
 		return err
 	}
 	return withBackendRecoverySteps(err)
+}
+
+// isBackendPreflightFailure only examines the structured fields produced by
+// findingsToPreflightResult. In particular, it never searches arbitrary command
+// output: a JSON report can mention backends while describing an unrelated
+// failure, and must not cause backend-specific recovery advice.
+func isBackendPreflightFailure(pe *updater.PreflightError) bool {
+	if pe.RepairCommand == backendstore.RepairCommand {
+		return true
+	}
+	if len(pe.Blockers) == 0 {
+		return false
+	}
+	for _, blocker := range pe.Blockers {
+		if !isBackendBlocker(blocker) {
+			return false
+		}
+	}
+	return true
+}
+
+func isBackendBlocker(blocker string) bool {
+	blocker = strings.TrimSpace(blocker)
+	if blocker == "" || strings.ContainsAny(blocker, "\r\n") {
+		return false
+	}
+	pathPart, _, found := strings.Cut(blocker, ":")
+	if !found {
+		return false
+	}
+	pathPart = strings.TrimSpace(pathPart)
+	if pathPart == "backends" {
+		return true
+	}
+	for _, segment := range strings.Split(filepath.ToSlash(pathPart), "/") {
+		if segment == "backends" {
+			return true
+		}
+	}
+	return false
 }
 
 // wholeStorePreflight runs read-only verification across all ScrivaDB stores.
@@ -285,31 +314,29 @@ func targetBinaryPreflight(ctx context.Context, targetBin, dataDir string) (upda
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, targetBin, "migrate", "--check", "--data-dir", dataDir, "--json")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		// If command output contains valid JSON report, decode it to extract findings
-		var rep migrateCheckReport
-		if jerr := json.Unmarshal(out, &rep); jerr == nil && len(rep.Findings) > 0 {
-			return findingsToPreflightResult(rep.Findings), nil
-		}
-		// If binary doesn't support migrate subcommand (older binary), fall back to in-process check
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) && strings.Contains(string(out), "unknown command") {
-			return wholeStorePreflight(ctx, dataDir)
-		}
-		// Otherwise report failure
-		return updater.PreflightResult{
-			Blockers: []string{fmt.Sprintf("%s migrate --check: %v (%s)", targetBin, err, strings.TrimSpace(string(out)))},
-		}, nil
-	}
-
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
 	var rep migrateCheckReport
-	if jerr := json.Unmarshal(out, &rep); jerr != nil {
-		// Output wasn't JSON or check produced text; fall back
-		return wholeStorePreflight(ctx, dataDir)
+	if jerr := json.Unmarshal(stdout.Bytes(), &rep); jerr == nil {
+		// `migrate --check` intentionally exits nonzero when it reports findings.
+		// Its report is always stdout; Cobra's human-readable error is stderr.
+		return findingsToPreflightResult(rep.Findings), nil
 	}
+	return updater.PreflightResult{Blockers: []string{targetPreflightDiagnostic(targetBin, err, stderr.String())}}, nil
+}
 
-	return findingsToPreflightResult(rep.Findings), nil
+func targetPreflightDiagnostic(targetBin string, runErr error, stderr string) string {
+	const maxStderr = 1000
+	stderr = strings.TrimSpace(audit.RedactSecrets(stderr))
+	if len(stderr) > maxStderr {
+		stderr = stderr[len(stderr)-maxStderr:] + " …(truncated)"
+	}
+	if stderr == "" {
+		return fmt.Sprintf("%s migrate --check failed: %v (no stderr)", targetBin, runErr)
+	}
+	return fmt.Sprintf("%s migrate --check failed: %v (stderr: %s)", targetBin, runErr, stderr)
 }
 
 func findingsToPreflightResult(findings []migrate.Finding) updater.PreflightResult {
