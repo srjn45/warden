@@ -2382,7 +2382,9 @@
     "local_flags": [
       "apply",
       "check",
+      "cleanup-legacy",
       "data-dir",
+      "dry-run",
       "json",
       "plan",
       "restore",
@@ -2390,7 +2392,8 @@
       "retirement",
       "staging-dir",
       "staging-export",
-      "target"
+      "target",
+      "yes"
     ],
     "inherited_flags": [
       "addr",

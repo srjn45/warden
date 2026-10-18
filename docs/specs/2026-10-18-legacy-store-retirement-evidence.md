@@ -56,11 +56,25 @@ Local, append-only JSON Lines at `<data-dir>/.adoption-evidence.jsonl` (mode 060
 | `updater_rollback` | updater transaction and `wd rollback` restoring a data snapshot |
 | `legacy_open_refused` | `storage.OpenLegacy` refusing a schema-2 dir |
 | `runtime_boot` | `schema.Boot` on a schema-2 dir (daemon start) |
+| `legacy_cleanup` | `warden migrate --cleanup-legacy` after quarantining legacy stores (`step` = quarantine dir) |
 
 Rules: values never include record contents; error text is bounded; writes are best-effort and never alter a migration's outcome; a **pure refusal before any live change writes nothing** (a refused cutover must leave the data dir byte-identical — the refusal is in the command output); malformed lines are counted (`malformed_log_lines`), never fatal.
 
-## 5. Cleanup entry procedure (for the future removal change)
+## 5. Cleanup procedure
 
 1. `warden migrate --retirement --json` shows `eligible: true`.
 2. Operator confirms the backup is stored off-host.
 3. Removal tooling must re-run the evaluation itself, refuse on any unmet criterion, and move (not delete) legacy stores to a quarantine directory first.
+
+### `warden migrate --cleanup-legacy [--dry-run] [--yes] [--json]`
+
+Implemented by `migrate.CleanupLegacy`. It is the only code that removes retained legacy sources and never runs automatically.
+
+1. Re-runs `EvaluateRetirement`; any unmet criterion refuses (`ErrCleanupNotEligible`).
+2. Verifies `warden-db` exists and has no blocking findings (`wardendb.Verify`), and re-verifies the ledger-recorded `backups/pre-schema2-*` against its MANIFEST (`VerifySchema2Backup`). Either failure refuses before anything moves.
+3. Enumerates the exact paths (`migrate.CleanupCandidates`): every *migrated* source still on disk (`agents-db`, `closed`, `sessions-db`, `sessions`, `terminals-db`, `projects`, `plans/plans-db`, `plans/plan-exports-db`, `pipelines-db`, `pipelines`, `autopilots-db`, `autopilot`, `context`, `inbox`, `backends`, …). Sources that also hold content not in warden-db (`snapshots`, whose `*.transcript` files are external and not in the backup) are listed as "kept" and never moved.
+4. `--dry-run` stops here. Otherwise the operator confirms (interactive `[y/N]`, or `--yes`; a non-interactive stdin without `--yes` refuses).
+5. Paths are **moved**, not deleted, to `backups/legacy-quarantine-<UTC time>/<same relative path>`. The operator deletes the quarantine manually once satisfied; recovery is moving paths back, or restoring the pre-schema2 backup.
+6. Records an `legacy_cleanup` audit event in `audit.jsonl` (actor, quarantine, exact paths, backup) and a `legacy_cleanup` adoption-evidence event.
+
+Re-running when no legacy path remains is a no-op that records nothing. No legacy store is ever a runtime fallback: the command refuses any data dir that is not at schema 2.

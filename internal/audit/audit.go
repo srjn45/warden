@@ -51,6 +51,7 @@ const (
 	ActionFastBrainAbandoned         = "fastbrain_cancel_abandoned" // a runner ignored cancellation and was abandoned
 	ActionTxRecovery                 = "tx_recovery"                // cross-collection transaction outcome resolved via status lookup/recovery
 	ActionTxAbandoned                = "tx_abandoned"               // cross-collection transaction aborted, timed out, or uncommitted
+	ActionLegacyCleanup              = "legacy_cleanup"             // retired schema-1 stores quarantined by an operator
 	ActionTxOutcome                  = "tx_outcome"                 // significant cross-collection transaction outcome event
 )
 

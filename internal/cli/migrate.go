@@ -29,6 +29,9 @@ func newMigrateCmd() *cobra.Command {
 		checkFlag      bool
 		planFlag       bool
 		retirementFlag bool
+		cleanupFlag    bool
+		dryRunFlag     bool
+		yesFlag        bool
 		stagingFlag    bool
 		applyFlag      bool
 		resumeFlag     bool
@@ -77,6 +80,15 @@ Actions (select one):
              active, warden-db present, backup verified, migration succeeded,
              no unresolved failures or rollbacks, zero legacy opens, runtime
              observed, support window elapsed. Deletes nothing
+  --cleanup-legacy
+             Explicit, backup-gated removal of the retained schema-1 stores. Re-runs
+             the --retirement gate, verifies warden-db and re-verifies the cutover
+             backup against its MANIFEST, lists the exact paths, asks for
+             confirmation (or --yes), then MOVES them to
+             backups/legacy-quarantine-<time>/ (never deletes) and records an audit
+             event. --dry-run only reports. Refuses on any unmet criterion;
+             re-running when nothing remains is a no-op. Recover by moving paths
+             back from the quarantine or restoring the pre-schema2 backup
   --resume   Resume an interrupted migration recorded in the ledger journal
   --restore  Restore from pre-migration snapshot after an interrupted migration
              (a promoted warden-db is preserved under backups/, never deleted)
@@ -108,9 +120,12 @@ and rolls the binary and data back if it fails.`,
 			if restoreFlag {
 				count++
 			}
+			if cleanupFlag {
+				count++
+			}
 
 			if count > 1 {
-				return errors.New("cannot specify more than one of --check, --plan, --retirement, --apply, --resume, --restore")
+				return errors.New("cannot specify more than one of --check, --plan, --retirement, --cleanup-legacy, --apply, --resume, --restore")
 			}
 			if count == 0 {
 				checkFlag = true // Default action is read-only check
@@ -146,6 +161,8 @@ and rolls the binary and data back if it fails.`,
 				}
 				fmt.Fprint(cmd.OutOrStdout(), rep.Summary())
 				return nil
+			case cleanupFlag:
+				return runLegacyCleanup(cmd, dataDir, dryRunFlag, yesFlag, jsonFlag)
 			case planFlag:
 				return runSchema2Plan(cmd, dataDir, jsonFlag)
 
@@ -291,6 +308,9 @@ and rolls the binary and data back if it fails.`,
 	cmd.Flags().BoolVar(&planFlag, "plan", false, "show the read-only schema-2 (warden-db) cutover plan and what blocks it")
 	cmd.Flags().BoolVar(&stagingFlag, "staging-export", false, "export normalized schema-2 staging collections without touching legacy sources")
 	cmd.Flags().BoolVar(&retirementFlag, "retirement", false, "report legacy-store retirement entry criteria (read-only; deletes nothing)")
+	cmd.Flags().BoolVar(&cleanupFlag, "cleanup-legacy", false, "move retired schema-1 stores to a quarantine dir after verifying warden-db and the cutover backup (needs confirmation)")
+	cmd.Flags().BoolVar(&dryRunFlag, "dry-run", false, "with --cleanup-legacy: report what would move; change nothing")
+	cmd.Flags().BoolVar(&yesFlag, "yes", false, "with --cleanup-legacy: confirm without prompting")
 	cmd.Flags().BoolVar(&applyFlag, "apply", false, "apply pending migrations up to the target schema version")
 	cmd.Flags().BoolVar(&resumeFlag, "resume", false, "resume an interrupted migration")
 	cmd.Flags().BoolVar(&restoreFlag, "restore", false, "restore from pre-migration snapshot after an interrupted migration")
@@ -300,6 +320,44 @@ and rolls the binary and data back if it fails.`,
 	cmd.Flags().StringVar(&stagingDir, "staging-dir", "", "target directory for --staging-export (default: <data-dir>/warden-db-staging)")
 
 	return cmd
+}
+
+// runLegacyCleanup previews the cleanup (a dry run through the same gate),
+// asks for confirmation, then performs it.
+func runLegacyCleanup(cmd *cobra.Command, dataDir string, dryRun, yes, asJSON bool) error {
+	out := cmd.OutOrStdout()
+	opt := migrate.CleanupOptions{DryRun: true, BinaryVersion: version, Actor: "cli"}
+	rep, err := migrate.CleanupLegacy(cmd.Context(), dataDir, opt)
+	if err != nil {
+		if rep != nil && rep.Retirement != nil && !asJSON {
+			fmt.Fprint(out, rep.Retirement.Summary())
+		}
+		return err
+	}
+	if !dryRun && len(rep.Paths) > 0 {
+		if !asJSON {
+			fmt.Fprint(out, rep.Summary())
+		}
+		prompt := fmt.Sprintf("Move %d legacy path(s) to quarantine? Backup %s was verified. [y/N] ", len(rep.Paths), rep.Backup)
+		ok, cerr := confirmOrYes(cmd, yes, prompt)
+		if cerr != nil {
+			return cerr
+		}
+		if !ok {
+			return migrate.ErrCleanupUnconfirmed
+		}
+		opt.DryRun, opt.Confirm = false, true
+		if rep, err = migrate.CleanupLegacy(cmd.Context(), dataDir, opt); err != nil {
+			return err
+		}
+	}
+	if asJSON {
+		enc := json.NewEncoder(out)
+		enc.SetIndent("", "  ")
+		return enc.Encode(rep)
+	}
+	fmt.Fprint(out, rep.Summary())
+	return nil
 }
 
 func runSchema2StagingExport(cmd *cobra.Command, dataDir, targetDir string, asJSON bool) error {
