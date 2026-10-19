@@ -200,7 +200,9 @@ Complete command tree:
   warden backend model                 Inspect and manage model catalog and live model menus
   warden backend model add             Register a custom model in the catalog
   warden backend model discover        Probe installed AI CLIs for live model menus
+  warden backend model history         Show catalog evidence and revision history
   warden backend model list            List models in the catalog and their assigned tiers
+  warden backend model rollback        Roll back a catalog policy revision
   warden backend model tier            Set a model's tier classification (tier-1|tier-2|tier-3)
   warden backend suggest               Retired — Fast-Brain replaced local_llm
   warden backend repl                  Interactive REPL for agents, pipelines, and the git/check lifecycle (Fast-Brain + `/` commands).
@@ -321,8 +323,10 @@ Compatibility aliases:
   warden models -> warden backend model (compatibility)
   warden models add -> warden backend model add (compatibility)
   warden models discover -> warden backend model discover (compatibility)
+  warden models history -> warden backend model history (compatibility)
   warden models list -> warden backend model list (compatibility)
   warden models ls -> warden backend model list (compatibility)
+  warden models rollback -> warden backend model rollback (compatibility)
   warden models tier -> warden backend model tier (compatibility)
   warden msg -> warden message (compatibility)
   warden msg inbox -> warden message inbox (compatibility)
