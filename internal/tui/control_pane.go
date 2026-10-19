@@ -121,6 +121,7 @@ type controlPaneModel struct {
 	digestID           string                  // agent id the digest is for
 	detailSel          int                     // focused control row in modeDetails (0 auto-approve, 1 force-compact, 2 events)
 	autopilot          client.AutopilotStatus  // last fetched autopilot status
+	autopilotErr       error                   // independent status failure; sessions may still be live
 	bugDrafts          []*fastbrain.IssueDraft // staged crash drafts read from disk (badge + B modal)
 	bugDismissed       map[string]bool
 	lastBugScan        time.Time
@@ -247,10 +248,23 @@ func (m controlPaneModel) updateState() updateState {
 // render inside their project alongside agents, pipelines and plans; there is no
 // separate Terminals tab.
 func (m controlPaneModel) items() []item {
-	items := buildProjectItems(m.projects, m.projectGroups, m.sessions, m.pipelines, m.autopilot, m.plans, m.openedDirs, m.collapsed, m.showSystemAgents, m.remotePlans)
+	items := buildProjectItems(m.projects, m.projectGroups, m.sessions, m.pipelines, m.autopilotView(), m.plans, m.openedDirs, m.collapsed, m.showSystemAgents, m.remotePlans)
 	applyLiveTerminalNames(items, m.sessions, m.termInfo)
 	markOpened(items, m.openedAgent, m.openedTerminal, m.openedPlan)
 	return items
+}
+
+// Keep the last successful response untouched. During an outage it is identity
+// evidence, not current executor state (and must not authorize run actions).
+func (m controlPaneModel) autopilotView() client.AutopilotStatus {
+	st := m.autopilot
+	if m.autopilotErr != nil {
+		st.Runs = append([]client.AutopilotRunStatus(nil), st.Runs...)
+		for i := range st.Runs {
+			st.Runs[i].State = autopilotStatusUnavailable
+		}
+	}
+	return st
 }
 
 // groupLabels maps each member project id to the name of the group it belongs to
@@ -851,6 +865,7 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case autopilotMsg:
+		m.autopilotErr = msg.err
 		if msg.err == nil {
 			m.autopilot = msg.status
 		}
@@ -2103,6 +2118,10 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		// Container overviews open in the agent pane (collapse stays on Left/Right).
 		if it.apRun != nil && m.agentPane != "" {
+			if it.apRun.State == autopilotStatusUnavailable {
+				m.status = "autopilot status unavailable; expand the run to attach its manager or workers"
+				return m, nil
+			}
 			return m, openAutopilotDetailCmd(m.agentPane, it.apRun.RunID)
 		}
 		if it.pipeline != nil && m.agentPane != "" {
@@ -2293,6 +2312,10 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		it := itemAt(m.items(), m.cursor)
 		switch {
 		case it.apRun != nil:
+			if it.apRun.State == autopilotStatusUnavailable {
+				m.status = "autopilot status unavailable; cannot stop from an unverified run row"
+				return m, nil
+			}
 			if it.apRun.PlanID == "" {
 				m.status = it.apRun.Name + " has no plan to stop"
 				return m, nil
@@ -2341,6 +2364,10 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if it.apRun != nil {
+			if it.apRun.State == autopilotStatusUnavailable {
+				m.status = "autopilot status unavailable; cannot pause/resume from an unverified run row"
+				return m, nil
+			}
 			action := "resume"
 			if it.apRun.State != "paused" {
 				action = "pause"
@@ -2486,7 +2513,9 @@ func (m controlPaneModel) View() string {
 	if chip := pressureChip(m.pressure); chip != "" {
 		header += "  " + chip
 	}
-	if badge := autopilotBadge(m.autopilot); badge != "" {
+	if m.autopilotErr != nil {
+		header += "  " + stAttention.Render("autopilot: status unavailable (cached/session evidence)")
+	} else if badge := autopilotBadge(m.autopilot); badge != "" {
 		header += "  " + badge
 	}
 	// Persistent, non-blocking last-known-good banner: on a disconnected/timed-out/

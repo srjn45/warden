@@ -885,11 +885,16 @@ func renderItemLine(it item, selected bool, width int) string {
 		line = "      · " + it.remotePlan.Name + stMuted.Render("  "+string(it.remotePlan.Lifecycle)+" · Hub")
 	case it.apRun != nil:
 		r := it.apRun
-		line = collapsePrefix(it.depth, it.collapsed) + stPaneTitle.Render(r.Name) + "  " + stStatus.Render(r.State) + stMuted.Render(fmt.Sprintf("  %d/%d tasks · %d workers", r.Tasks.Landed, len(r.PlanTasks), r.WorkersInFlight))
+		line = collapsePrefix(it.depth, it.collapsed) + stPaneTitle.Render(r.Name) + "  " + stStatus.Render(r.State)
+		if r.State == autopilotStatusUnavailable {
+			line += stMuted.Render(" · session/cached evidence only")
+		} else {
+			line += stMuted.Render(fmt.Sprintf("  %d/%d tasks · %d workers", r.Tasks.Landed, len(r.PlanTasks), r.WorkersInFlight))
+		}
 		if r.IntegrationBranch != "" {
 			line += stMuted.Render(" · " + r.IntegrationBranch)
 		}
-		if badge := r.SurfaceBadge(); badge != "" {
+		if badge := r.SurfaceBadge(); badge != "" && r.State != autopilotStatusUnavailable {
 			line += stMuted.Render(" · " + badge)
 		}
 	case it.apPlan:
