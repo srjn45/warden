@@ -8,7 +8,7 @@ Complete command tree:
   warden agent restore                 Recreate and resume a lost/orphaned agent (resumes its AI CLI session)
   warden agent recover                 Revive archived orphaned agent records whose tmux session is still alive (dry run unless --apply)
   warden agent adopt                   Register the AI CLI session in this directory (resume it under tmux, or register the current tmux session live)
-  warden agent attach                  Attach to the agent's tmux session
+  warden agent attach                  Attach to the agent's or terminal's live session
   warden agent stop                    Tear down an agent (default: terminate + clear record + remove worktree; --keep-* flags keep parts)
   warden agent terminate               Stop an agent: kill its tmux+AI CLI session (keeps the record and worktree)
   warden agent done                    Terminate an agent and clear its record, keeping the worktree (same as `stop --keep-worktree`)
@@ -92,6 +92,7 @@ Complete command tree:
   warden schedule enable               Enable a schedule so it fires again (re-arms next run)
   warden schedule disable              Disable a schedule so it stops firing (history preserved)
   warden schedule delete               Delete a schedule
+  warden ptyholder                     internal: own one PTY session's master (started by the daemon)
   warden project                       Manage repo-local warden configuration: memory, presets, templates, and plugins
   warden project memory                Show or edit this repo's warden project memory (.warden/memory.md)
   warden project preset                Save and list named spawn configs (replay with `warden start --preset <name>`)

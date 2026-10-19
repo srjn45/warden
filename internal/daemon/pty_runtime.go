@@ -121,15 +121,49 @@ func (s *Server) recoverPTY(ctx context.Context) {
 		if t.Status != terminalstore.StatusRunning || t.Workdir == "" || !s.pty.HasDirectJournal(t.TmuxSession) {
 			continue
 		}
+		if s.pty.HolderHosted(t.TmuxSession) {
+			// The shell's PTY master belongs to an independent holder: adopt the
+			// SAME process. Never relaunch — a failed adoption is reported with its
+			// cause and the terminal is left restorable, not silently replaced.
+			s.adoptDirectTerminal(ctx, t)
+			continue
+		}
 		if err := s.life.RestoreTerminal(ctx, t.ID, t.Workdir); err != nil {
 			if !errors.Is(err, lifecycle.ErrAlreadyRunning) {
 				slog.Warn("ptyhost: recover direct terminal failed", "terminal", t.ID, "err", err)
 			}
 			continue
 		}
-		// Relaunch, not survival: the direct shell died with the previous daemon
-		// (plan 02 t3 closes that); this is a fresh shell on the same journal.
+		// Relaunch, not survival: this shell was a child of the previous daemon
+		// (started before holders existed, or WARDEN_PTY_HOLDER=off), so it died
+		// with it; this is a fresh shell on the same journal.
 		slog.Info("ptyhost: recovered direct terminal onto its journal (fresh shell, relaunch)", "terminal", t.ID)
+	}
+}
+
+// adoptDirectTerminal re-attaches to a holder-hosted terminal's live process
+// after a daemon restart/update/crash.
+func (s *Server) adoptDirectTerminal(ctx context.Context, t *terminalstore.Terminal) {
+	name := t.TmuxSession
+	if err := s.pty.AdoptDirect(ctx, name); err != nil {
+		detail := "cannot re-adopt the shell (" + err.Error() + "); its PTY holder is unavailable — " +
+			"run `warden agent restore " + t.ID + "` to start a fresh shell (the old process is not restarted automatically)"
+		slog.Error("ptyhost: direct terminal could not be adopted; not relaunching", "terminal", t.ID, "err", err)
+		_ = s.pty.MarkDirectLost(name, detail)
+		s.recordDirectTerminalEnd(name, &ptyevent.Lifecycle{Phase: ptyevent.PhaseCrashed, Detail: detail})
+		return
+	}
+	slog.Info("ptyhost: re-adopted live direct terminal (same process, no relaunch)", "terminal", t.ID)
+	// It may have exited while the daemon was away: the exit was journaled during
+	// adoption, before the stream watcher could see it.
+	if d := s.pty.Direct(name); d != nil {
+		go func() {
+			select {
+			case <-d.Done():
+				s.recordDirectTerminalEnd(name, d.Exit())
+			case <-s.done:
+			}
+		}()
 	}
 }
 

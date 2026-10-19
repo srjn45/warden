@@ -104,6 +104,9 @@ type Input struct {
 	// entirely and only its length is kept.
 	Secret    bool `json:"secret,omitempty"`
 	SecretLen int  `json:"secret_len,omitempty"`
+	// InputID is the fenced client's per-client write id (never content): it lets
+	// a re-adopted session drop a write a reconnecting client resends.
+	InputID uint64 `json:"input_id,omitempty"`
 }
 
 // Resize is a window-size change.

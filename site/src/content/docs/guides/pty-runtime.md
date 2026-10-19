@@ -118,14 +118,52 @@ Alert rules and a Grafana dashboard live in
 the full reference (migration, learned-shape safeguards, recovery) is
 [`docs/PTY_OBSERVABILITY.md`](https://github.com/srjn45/warden/blob/main/docs/PTY_OBSERVABILITY.md).
 
+## Survival: the PTY holder
+
+With `runtime.pty: on`, each plain terminal runs under its own small **holder** process
+(`warden ptyholder`, started in its own session). The holder — not the daemon — owns the
+PTY master and the shell, so **restarting, updating or crashing the daemon does not touch
+your shells**: the next daemon authenticates to the holder (private `0600` socket, peer uid,
+a per-session credential, the recorded pid and start time of both holder and shell),
+gets the master back and carries on with the same process, same working directory, same
+scrollback and a new journal epoch (`lifecycle{recovered}`). It never relaunches a live
+shell. If the holder is gone, the terminal is shown as `orphaned` with a journal entry that
+names the cause and the next step (`wd agent restore <id>` starts a fresh shell) —
+reconnecting is never silently replaced by a new shell. `WARDEN_PTY_HOLDER=off` keeps shells
+as children of the daemon (they then die with it, as before).
+
+Agents stay in tmux; the tmux server is their holder, and a restarted daemon re-mirrors a
+pane only if its process (pid + start time) is the one it recorded.
+
+Project close/reopen is a different thing: it deliberately ends the shell and starts a fresh
+one (identity kept). It is never used for a daemon restart.
+
+## Attaching: `wd attach`, the cockpit, controller lease
+
+`wd attach <id>` attaches your terminal to a direct terminal natively: the local tty goes
+raw (Ctrl-C, Ctrl-D, Ctrl-Z, full-screen programs, UTF-8/ANSI all behave as in a local
+shell — signals and job control are the shell's PTY's), output is replayed then live
+without gaps or repeats, window resizes follow your terminal, and the terminal is restored
+on every way out. **Ctrl-]** then **.** detaches (the shell keeps running), **Ctrl-]** then
+**t** takes control back, **Ctrl-] Ctrl-]** sends a literal Ctrl-]. `WARDEN_ATTACH=observe` watches
+read-only. Tmux-hosted sessions still attach with tmux.
+
+A session has any number of viewers and one **controller**. Attaching takes control
+(human precedence) and demotes the previous controller, which keeps watching; its
+keystrokes and resizes are rejected, never delivered. Input is tagged with the lease
+generation and a per-client id, so a flaky connection that resends a command does not run
+it twice — also across a daemon restart. Raw bytes shown to you are the program's own
+(faithful); the journal, snapshots, audit and anything remote-safe are redacted, and typed
+secrets are journaled as a length only.
+
 ## Compatibility
 
 - `GET /api/v1/sessions/{id}/attach` keeps working for every session. For a direct
   terminal it bridges the same raw protocol to the runtime (current screen first, then
   live bytes), so the web UI and the Android app need no change.
 - `wd send`/session input and output also route to a direct terminal.
-- A direct terminal has **no tmux session**, so `tmux attach` (and the cockpit's tmux
-  attach of that terminal) is not available for it in `on` mode — attach through the
-  daemon instead. Use `shadow` if you rely on tmux attach for terminals.
+- A direct terminal has **no tmux session**, so `tmux attach` does not apply to it. Use
+  `wd attach <id>` (below) — the cockpit's terminal pane does exactly that — or the
+  daemon's `/attach` / `/pty` endpoints. Use `shadow` if you prefer tmux for terminals.
 - The design and the event contract are in
   [`docs/specs/2026-10-19-pty-runtime-contract.md`](https://github.com/srjn45/warden/blob/main/docs/specs/2026-10-19-pty-runtime-contract.md).

@@ -40,11 +40,12 @@
 | `P13` | terminal watcher | restore | host | lost pane restored | `terminal_poller_deps.go` |
 | `P14` | API `GET /attach` (raw WS) | attach | host | direct sessions bridged via `BridgeLegacy` | `attach.go` |
 | `P15` | API `GET /sessions/{id}/pty` (§6) | attach | host | cursor/epoch replay; `interactive`/`observe` | `ptyhost/transport.go` |
-| `P16` | TUI/cockpit terminal pane | attach | **tmux** | `tmux attach`; **unavailable for direct sessions** (`G9`) | `internal/tui/control_pane.go` |
+| `P16` | TUI/cockpit terminal pane | attach | host | `warden attach` in the pane: native §6 attach for direct sessions, `tmux attach` for tmux-hosted ones (`G9` closed by t3) | `internal/tui/control_pane.go` |
 | `P17` | API list `?kind=terminal`, SSE | list | n/a | `terminalstore` projected to Session DTO | `terminal_lifecycle.go` |
 | `P18` | project tree | list | n/a | terminal node | `internal/tree/service.go` |
 | `P19` | project membership edge `Project.Terminals[]` | create | n/a | authoritative; spawn rolls back if it cannot be recorded | `terminal_lifecycle.go` |
 | `P20` | API terminate | stop | host | kill + delete record + drop membership | `terminal_lifecycle.go` |
+| `P21` | CLI `wd attach <id>` | attach | host | direct sessions attach natively over `/pty` (raw mode, controller lease, ordered replay); tmux-hosted fall back to `tmux attach`; `WARDEN_ATTACH=observe` read-only | `internal/cli/lifecycle.go` |
 
 Findings from the inventory:
 
@@ -109,16 +110,16 @@ Verified at `dae3cbd4`. `Closed` flips only when the owner's fixtures exist (`Te
 
 | ID | Severity | Gap | Owner | Fixtures |
 |---|---|---|---|---|
-| `G1` | **release-critical** | Daemon holds the PTY master; direct shell dies with the daemon; recovery relaunches a fresh shell | t3 | `F-SURV-01` `F-SURV-02` `F-SURV-03` |
-| `G2` | **release-critical** | Agents stay in tmux in `on`; mirrors are observe-only; no warden-owned PTY to adopt | t3 | `F-SURV-04` |
-| `G3` | **release-critical** | No authenticated adoption (pid reuse, foreign process, other uid) | t3 | `F-AUTH-01` `F-AUTH-02` `F-AUTH-03` |
-| `G4` | **release-critical** | No controller lease generation / input fencing; concurrent humans; stale clients can type | t3 | `F-FENCE-01` `F-FENCE-02` `F-FENCE-03` `F-ATTACH-03` |
+| `G1` | **release-critical** | Daemon holds the PTY master; direct shell dies with the daemon; recovery relaunches a fresh shell | t3 ✔ closed | `F-SURV-01` `F-SURV-02` `F-SURV-03` |
+| `G2` | **release-critical** | Agents stay in tmux in `on`; mirrors are observe-only; no warden-owned PTY to adopt | t3 ✔ closed | `F-SURV-04` |
+| `G3` | **release-critical** | No authenticated adoption (pid reuse, foreign process, other uid) | t3 ✔ closed | `F-AUTH-01` `F-AUTH-02` `F-AUTH-03` |
+| `G4` | **release-critical** | No controller lease generation / input fencing; concurrent humans; stale clients can type | t3 ✔ closed | `F-FENCE-01` `F-FENCE-02` `F-FENCE-03` `F-ATTACH-03` |
 | `G5` | **release-critical** | Shell/AI boundary is incidental (no agent record), not structural | t2 ✔ closed | `F-KIND-01` (sealed now) `F-KIND-02` `F-KIND-03` |
 | `G6` | **release-critical** | Hibernate kills + relaunches; must stay explicit and off the restart path | t2 ✔ closed | `F-LIFE-03` |
 | `G7` | **release-critical** | Restore is check-then-act across four triggers; double process possible | t2 ✔ closed | `F-LIFE-01` `F-LIFE-02` |
-| `G8` | hardening | `Screen` is a minimal VT: 1 cell/rune (wide/combining wrong), attributes dropped, simplified scroll regions — snapshots lossy for full-screen TUIs (live raw bytes unaffected) | t3 | `F-VT-01` `F-VT-02` `F-VT-03` |
-| `G9` | hardening | Cockpit/TUI attach is `tmux attach`; a direct terminal can't be shown | t3 | `F-ATTACH-01` |
-| `G10` | hardening | Legacy `/attach` on a direct session is a raw bridge without §6 resync | t3 | `F-ATTACH-02` |
+| `G8` | hardening | `Screen` is a minimal VT: 1 cell/rune (wide/combining wrong), attributes dropped, simplified scroll regions — snapshots lossy for full-screen TUIs (live raw bytes unaffected) | t3 ✔ closed | `F-VT-01` `F-VT-02` `F-VT-03` |
+| `G9` | hardening | Cockpit/TUI attach is `tmux attach`; a direct terminal can't be shown | t3 ✔ closed | `F-ATTACH-01` |
+| `G10` | hardening | Legacy `/attach` on a direct session is a raw bridge without §6 resync | t3 ✔ closed | `F-ATTACH-02` |
 | `G11` | hardening | Global mode switch; no per-session runtime pin, cohort record or broker protocol version | t4 | `F-ROLL-01` `F-ROLL-02` |
 | `G12` | hardening | Direct shell exit code journaled but `terminalstore.ExitCode` set only by the tmux exit-file path | t2 ✔ closed | `F-LIFE-04` |
 
@@ -137,6 +138,38 @@ Closed by t2 (`internal/terminalcontract.Gaps` flipped; fixtures now have test a
 - **Funnel.** `TestTerminalLaunchFunnel` fails if any new source file calls `RestoreTerminal` or wires `TerminalHost()`.
 - **Environment (`F-LIFE-05`).** Session id env (`WARDEN_SESSION_ID`, `AGENTCTL_SESSION_ID`) and cwd are identical for tmux and direct. `TERM` is intentionally excluded: tmux sets its own, the direct host pins `xterm-256color`. The tmux path inherits the tmux *server* environment, the direct path the daemon's; that difference is inherent to the two hosts and unchanged.
 - **Live legacy sessions** are untouched: nothing here converts, kills or restarts a running tmux terminal.
+
+### 5.2 t3 outcome (attach, survival, adoption, fencing)
+
+Closed by t3 (`internal/terminalcontract.Gaps` flipped; every fixture has a test anchor).
+
+**Who holds the PTY master (documented, tested).**
+
+| Session | Master held by | Survives daemon restart / update / SIGKILL | Re-adoption |
+|---|---|---|---|
+| plain terminal, `runtime.pty: on`, holder enabled (default) | the **`warden ptyholder`** process (own session, `Setsid`) *and* a dup in the daemon | **yes** — the holder keeps the master and the child; the daemon's copy is disposable | `recoverPTY` → `Manager.AdoptDirect` → `Host.Adopt`: credential + peer-uid + holder/child identity, then `lifecycle{recovered}` (epoch+1), reset + snapshot, SIGWINCH redraw. **No relaunch, no kill.** |
+| plain terminal with `WARDEN_PTY_HOLDER=off`, or one started before holders existed | the daemon | no (labelled relaunch, as in t2) | `RestoreTerminal` fresh shell on the same journal |
+| agent (every mode) | the **tmux server** (the explicit *tmux-compat holder*; agents are not moved onto a warden holder) | yes (tmux outlives the daemon) | `RecoverShadow` re-mirrors it only after `Shadow.VerifyPane`: the pane's `(pid, start-time)` recorded at mirror start must still match — a recycled or replaced pane is refused and journaled |
+
+Reconnect alone is never taken as survival evidence: `F-SURV-01` SIGKILLs a real stand-in daemon process and checks the shell pid is alive *before* anything adopts it; `F-SURV-04` does the same for a process tree and for the tmux pane identity.
+
+**Holder protocol (`internal/ptyholder`).** `Run` creates the PTY, starts the command as its child, listens on a `0600` socket in a `0700` directory and keeps the master and wait status. The daemon asks it for the master over `SCM_RIGHTS` (`adopt`), long-polls the exit status (`wait`), and ends it (`release`) after an explicit kill. A holder lingers `ExitedLinger` (24 h) after its child exits so a daemon that was away can still collect the real exit status. Output produced while no daemon reads sits in the kernel PTY buffer (the program blocks when it is full — normal terminal back-pressure); it is read on adoption. The spec file (which may carry environment secrets) is deleted as soon as the holder has read it; state files are `0600`.
+
+**Authentication / identity (`G3`).** Peer uid (`SO_PEERCRED` / `LOCAL_PEERCRED`) and a 256-bit per-session credential (constant-time compare) are checked by the holder; the daemon checks the socket is a `0600` socket it owns, that the listener is the recorded holder pid with the recorded start time, that the child it is handed has the recorded `(pid, start-time)`, and the protocol version. Refusals go to `<id>.audit` (reason, peer uid, time — no credential, no bytes). Failures surface as `ErrGone | ErrAuth | ErrIdentity | ErrProto | ErrInsecure`.
+
+**Supervisors.** Holders are started with `Setsid`, so they leave the daemon's session and process group. The shipped systemd units use `KillMode=process` (a service restart signals only the daemon), and launchd signals the job's own process group; a unit that sets `KillMode=control-group` would kill holders and shells on restart and must not be used.
+
+**Holder death (`F-SURV-03`).** `ErrGone` → the terminal is *not* relaunched: its journal gets `lifecycle{crashed}` with the cause and the next step (`warden agent restore <id>`), the record becomes `orphaned` (restorable). If only the holder dies later, the daemon keeps its master dup, watches the process by identity, and journals `crashed` ("exit status unknown") when it ends.
+
+**Controller lease and input fencing (`G4`).** One controller per session, many viewers (`ptyruntime.Session.Acquire`). Generations live in `epoch<<32 | n`, so a takeover *and* an epoch change (daemon restart, respawn) both advance them. An `interactive` hello is granted the lease when free or with `takeover`; otherwise the client is a viewer (raw feed, no input, no resize). Keystrokes are written only under the held generation; fenced `input` frames add a per-client monotonic `id` recorded in the journal's `input` event (never content), so after a reconnect — or a daemon restart, where ids are restored from the journal tail — a resend is a no-op and `plan.last_input_id` tells the client what to resend. A demoted socket gets a `demoted` frame and its bytes are dropped. Takeover is journaled (`controller gen=N takeover from X`). Human > operator > warden is plan 01's `Arbitrate`, unchanged, and holds on adopted sessions. Legacy `/attach` is the compat human: it takes the lease at connect and writes unfenced. Window: an input applied to the PTY but not yet journaled when the daemon is SIGKILLed can be applied twice on resend (id recorded *after* the write).
+
+**Attach (`G9`, `G10`).** `internal/ptyattach` is the local client: raw mode restored on every exit path (detach, process exit, error, context, SIGTERM/SIGHUP/SIGINT), Ctrl-C/Ctrl-D/Ctrl-Z reach the *remote* line discipline as bytes so signals, EOF, process groups and job control are the PTY's own, resize follows SIGWINCH to the controller, replay (journal, redacted) and live (raw, faithful) meet at a quiescent cut (`Session.AttachQuiesced`: journal head, screen and raw registration under one lock after the writer has caught up and nothing is held back), reconnect resumes from the cursor and resends only unacknowledged input. `wd attach` and the cockpit terminal pane use it for direct sessions and `tmux attach` otherwise; the legacy bridge resyncs a lagging viewer instead of dropping it. Residual window: under continuous output the cut cannot quiesce within ~200 ms and registration proceeds (`exact=false`); the viewer then relies on the stream's resync.
+
+**Terminal model (`G8`).** `Screen` now has a cell grid: wide (CJK, emoji) characters take two cells, combining marks attach to the previous cell, SGR attributes are kept per cell, and DECSTBM / IL / DL / ICH / DCH / ECH / SU / SD / IND / RI are implemented. `String()` (journal snapshots, every redacted/remote-safe view) is plain text; `StyledString()` re-emits SGR for the local authorized view only. Still out of scope: DEC line drawing sets, double-width lines, grapheme-cluster width tables beyond the ranges in `runeWidth`, scrollback.
+
+**Process-group limits.** `Close` signals the leader's process group (SIGHUP, SIGTERM, SIGKILL after `KillGrace`). With job control on, a background job is its own group and is reached by the shell's own SIGHUP forwarding — identical to tmux. `F-SURV-04` therefore keeps its descendant in the leader's group (`set +m`).
+
+**Durable vs local.** The local authorized view (raw frames, `StyledString`) is faithful; everything durable or remote-safe (journal, snapshots, SSE, audit, holder state, diagnostics) is redacted or content-free: fenced typed secrets are journaled as length + input id only (`TestFencedSecretInputNeverReachesTheJournal`), the holder state holds no environment secret or terminal byte (`TestHolderStateNeverHoldsEnvironmentSecrets`). Secret-detection limits in §6 are unchanged. Hub/WebSocket remote infrastructure is untouched.
 
 ## 6. Privacy and retention boundaries
 
@@ -200,16 +233,16 @@ Deterministic = injected clocks / event waits (no sleep-for-correctness), fixed 
 
 | Fixture | Class | Kinds | Asserts | Owner | Gate | |
 |---|---|---|---|---|---|---|
-| `F-SURV-01` | survival | terminal | SIGKILL daemon: same shell pid, child alive, re-adopted, scrollback intact | t3 | `S2` | |
-| `F-SURV-02` | survival | terminal | graceful stop + binary swap: no relaunch/duplicate | t3 | `S2` | |
-| `F-SURV-03` | survival | both | broker death: actionable error, never silent relaunch | t3 | `S2` | |
-| `F-SURV-04` | survival | agent | agent tree survives daemon SIGKILL | t3 | `S2` | |
-| `F-AUTH-01` | auth | both | credential required; refusal journaled | t3 | `S2` | |
-| `F-AUTH-02` | auth | both | recycled pid not adopted | t3 | `S2` | |
-| `F-AUTH-03` | auth | both | socket 0600, peer-uid checked | t3 | `S2` | |
-| `F-FENCE-01` | fence | both | one controller; takeover bumps generation | t3 | `S2` | |
-| `F-FENCE-02` | fence | both | stale-generation write rejected | t3 | `S2` | |
-| `F-FENCE-03` | fence | both | reconnect never duplicates input | t3 | `S2` | |
+| `F-SURV-01` | survival | terminal | SIGKILL daemon: same shell pid, child alive, re-adopted, scrollback intact | t3 | `S2` | ✔ |
+| `F-SURV-02` | survival | terminal | graceful stop + binary swap: no relaunch/duplicate | t3 | `S2` | ✔ |
+| `F-SURV-03` | survival | both | broker death: actionable error, never silent relaunch | t3 | `S2` | ✔ |
+| `F-SURV-04` | survival | agent | agent tree survives daemon SIGKILL | t3 | `S2` | ✔ |
+| `F-AUTH-01` | auth | both | credential required; refusal journaled | t3 | `S2` | ✔ |
+| `F-AUTH-02` | auth | both | recycled pid not adopted | t3 | `S2` | ✔ |
+| `F-AUTH-03` | auth | both | socket 0600, peer-uid checked | t3 | `S2` | ✔ |
+| `F-FENCE-01` | fence | both | one controller; takeover bumps generation | t3 | `S2` | ✔ |
+| `F-FENCE-02` | fence | both | stale-generation write rejected | t3 | `S2` | ✔ |
+| `F-FENCE-03` | fence | both | reconnect never duplicates input | t3 | `S2` | ✔ |
 | `F-FENCE-04` | fence | both | human > operator > warden | plan 01 | `S2` | ✔ |
 | `F-KIND-01` | kind | terminal | shell screens never reach prompt engine | t1 | `S2` | ✔ |
 | `F-KIND-02` | kind | terminal | name collision with an agent still no prompt | t2 | `S2` | |
@@ -219,12 +252,12 @@ Deterministic = injected clocks / event waits (no sleep-for-correctness), fixed 
 | `F-LIFE-03` | lifecycle | terminal | hibernate→reopen keeps identity, labelled relaunch | t2 | `S2` | |
 | `F-LIFE-04` | lifecycle | terminal | `exit 3` → ExitCode 3 | t2 | `S2` | |
 | `F-LIFE-05` | lifecycle | terminal | id/name/project/cwd/shell/env identical tmux vs direct | t2 | `S2` | |
-| `F-VT-01` | vt | both | alt-screen traces round-trip | t3 | `S2` | |
-| `F-VT-02` | vt | both | wide/combining/emoji cells | t3 | `S2` | |
-| `F-VT-03` | vt | both | SGR kept locally, dropped in redacted views | t3 | `S2` | |
-| `F-ATTACH-01` | attach | terminal | cockpit drives a direct terminal; raw mode restored; Ctrl-C/EOF/job control | t3 | `S2` | |
-| `F-ATTACH-02` | attach | both | replay→live order across epoch reset; slow viewer bounded | t3 | `S2` | |
-| `F-ATTACH-03` | attach | both | resize arbitration, SIGWINCH | t3 | `S2` | |
+| `F-VT-01` | vt | both | alt-screen traces round-trip | t3 | `S2` | ✔ |
+| `F-VT-02` | vt | both | wide/combining/emoji cells | t3 | `S2` | ✔ |
+| `F-VT-03` | vt | both | SGR kept locally, dropped in redacted views | t3 | `S2` | ✔ |
+| `F-ATTACH-01` | attach | terminal | cockpit drives a direct terminal; raw mode restored; Ctrl-C/EOF/job control | t3 | `S2` | ✔ |
+| `F-ATTACH-02` | attach | both | replay→live order across epoch reset; slow viewer bounded | t3 | `S2` | ✔ |
+| `F-ATTACH-03` | attach | both | resize arbitration, SIGWINCH | t3 | `S2` | ✔ |
 | `F-ROLL-01` | rollout | both | per-session runtime pin | t4 | `S3` | |
 | `F-ROLL-02` | rollout | both | broker protocol handshake refusal | t4 | `S3` | |
 | `F-ROLL-03` | rollout | both | shadow mutates nothing, sends nothing | t4 | `S1` | |
@@ -238,6 +271,6 @@ Deterministic = injected clocks / event waits (no sleep-for-correctness), fixed 
 ## 8. Hand-off per task
 
 - **t2 (done, §5.1):** make `G5`/`G6`/`G7`/`G12` structural; keep `spawnTerminal` as the only funnel (`P01`–`P06`); serialize restore; record direct exit codes; equalize shell/env (`F-LIFE-05`); keep legacy tmux terminals untouched.
-- **t3:** build the broker holder + authenticated adoption + lease generation/input fencing (`G1`–`G4`) reusing plan 01's journal/transport/arbitration; fix `G8`–`G10`.
+- **t3 (done, §5.2):** per-session PTY holder + authenticated adoption + controller lease generation/input fencing (`G1`–`G4`) reusing plan 01's journal/transport/arbitration; native attach for the TUI/CLI and the legacy bridge (`G9`, `G10`); the screen model upgraded (`G8`).
 - **t4:** per-session runtime pin + cohort record + protocol versioning (`G11`); apply §7.1; parity artifacts.
 - **t5:** run the whole matrix, soak, privacy audit, runbook; gate plan 03 on both plans merged **and** deployed with drain evidence. Nothing here authorizes cleanup or deploy.

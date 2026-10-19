@@ -2,6 +2,7 @@ package ptyhost
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -15,6 +16,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/srjn45/warden/internal/ptyevent"
+	"github.com/srjn45/warden/internal/ptyholder"
 	"github.com/srjn45/warden/internal/ptyruntime"
 	"github.com/srjn45/warden/internal/tmuxproc"
 )
@@ -123,7 +125,71 @@ func (sh *Shadow) Start(ctx context.Context, name string, recover bool) (*ptyrun
 	sh.mu.Lock()
 	sh.mirrors[name] = mr
 	sh.mu.Unlock()
+	if !recover {
+		sh.recordPane(ctx, name)
+	}
 	return m, nil
+}
+
+// The tmux server is the process that holds a mirrored pane's PTY master (the
+// "tmux-compat holder": agents are never moved onto a warden holder). It has no
+// warden credential, but the pane can still be identified: its process (pid and
+// start time) is recorded when the mirror starts and checked before a restart
+// re-adopts it, so a pane that was replaced by an unrelated process under the
+// same name is never claimed as the old agent. The tmux socket itself is
+// private to this uid (tmux creates its directory 0700).
+
+const paneIdentityFile = "pane.json"
+
+type paneIdentity struct {
+	PID   int    `json:"pid"`
+	Start uint64 `json:"start"`
+}
+
+func (sh *Shadow) panePID(ctx context.Context, name string) (int, bool) {
+	out, err := sh.run.Run(ctx, "", "tmux", "display-message", "-p", "-t", name, "#{pane_pid}")
+	if err != nil {
+		return 0, false
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(out))
+	return pid, err == nil && pid > 0
+}
+
+func (sh *Shadow) recordPane(ctx context.Context, name string) {
+	pid, ok := sh.panePID(ctx, name)
+	if !ok {
+		return
+	}
+	start, err := ptyholder.StartTime(pid)
+	if err != nil {
+		return
+	}
+	b, _ := json.Marshal(paneIdentity{PID: pid, Start: start})
+	_ = os.WriteFile(filepath.Join(sh.journalDir(name), paneIdentityFile), b, 0o600)
+}
+
+// VerifyPane checks that the live pane under name is the process that was
+// mirrored. A pane with no recorded identity (mirrored before this check
+// existed) is accepted; a different or recycled process is refused with the
+// reason.
+func (sh *Shadow) VerifyPane(ctx context.Context, name string) error {
+	b, err := os.ReadFile(filepath.Join(sh.journalDir(name), paneIdentityFile))
+	if err != nil {
+		return nil
+	}
+	var want paneIdentity
+	if json.Unmarshal(b, &want) != nil {
+		return fmt.Errorf("pane identity record for %s is unreadable", name)
+	}
+	pid, ok := sh.panePID(ctx, name)
+	if !ok {
+		return fmt.Errorf("tmux pane %s has no process", name)
+	}
+	start, err := ptyholder.StartTime(pid)
+	if pid != want.PID || err != nil || start != want.Start {
+		return fmt.Errorf("tmux pane %s is now pid %d, not the mirrored pid %d (start time differs): not adopting a different process", name, pid, want.PID)
+	}
+	return nil
 }
 
 // openFIFO (re)creates name's FIFO and opens the mirror's read end plus the

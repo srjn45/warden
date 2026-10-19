@@ -1924,9 +1924,25 @@ rolled out behind `runtime.pty: off|shadow|on` (default `off` — no behavior ch
   snapshot seeded from the live screen).
 - **On.** Shadow for agents, plus plain-shell terminals (`kind=terminal`) hosted
   directly on a warden-owned PTY (`internal/ptyhost`): launch, input, capture, resize,
-  teardown and restart recovery (the next daemon respawns the shell on the same journal
-  under a new epoch). `/attach`, session input and output route to it; tmux attach does
-  not exist for such a terminal.
+  teardown and restart recovery. `/attach`, session input and output route to it; tmux
+  attach does not exist for such a terminal — `warden attach <id>` (and the cockpit's
+  terminal pane) attaches natively instead.
+- **Survival & adoption (plan 02 t3).** Each direct terminal runs under an independent
+  `warden ptyholder` process (`internal/ptyholder`) that owns the PTY master and the shell;
+  the daemon holds a disposable dup. A daemon restart/update/SIGKILL leaves the shell
+  running and the next daemon re-adopts it (private socket, peer uid, per-session
+  credential, pid + start-time identity, protocol version; refusals audited) on a new
+  epoch — no relaunch. A lost holder is reported (journal `crashed` with cause and next
+  step, record `orphaned`), never silently replaced. Agents keep tmux as holder, with a
+  pane `(pid, start-time)` check before re-mirroring. `WARDEN_PTY_HOLDER=off` reverts.
+- **Attach & fencing (plan 02 t3).** `warden attach` / the cockpit terminal pane
+  (`internal/ptyattach`): raw mode restored on every exit, signals/EOF/job control are the
+  remote PTY's, SIGWINCH follows the controller, replay and live meet at a quiescent cut,
+  reconnect resumes from the cursor. One controller lease per session (generation =
+  `epoch<<32|n`), fenced input ids dedupe resends (restored from the journal after a
+  restart), human > operator > warden unchanged; a demoted client's bytes are dropped. The
+  screen model handles wide/combining characters, SGR (local view only) and scroll regions.
+  Spec: [`docs/specs/2026-10-19-plain-terminal-inventory-and-contract.md`](specs/2026-10-19-plain-terminal-inventory-and-contract.md) §5.2.
 - **Stream.** `GET /api/v1/sessions/{id}/pty` (WebSocket, §6 of the spec):
   `hello{cursor?, mode, cols, rows, client_id?}` → `plan{mode, head, …}` → redacted
   replay → live events; `ack{seq}` checkpoints, `resize`, `reject`/`resync`. Interactive

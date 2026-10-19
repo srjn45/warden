@@ -3217,6 +3217,15 @@ runtime:
   (no tmux session; attach through the daemon — the web UI and app work unchanged).
 - The setting hot-reloads and applies to sessions created afterwards; `off` stops the
   mirrors.
+- Direct terminals run under a per-session **PTY holder** (`warden ptyholder`, hidden) that
+  owns the master and shell, so a daemon restart/update/crash does not kill them: the next
+  daemon re-adopts the same process (authenticated; no relaunch). A lost holder leaves the
+  terminal `orphaned` with an actionable journal entry — never a silent fresh shell.
+  `WARDEN_PTY_HOLDER=off` reverts to daemon-owned shells.
+- `warden attach <id>` attaches natively to a direct terminal (raw mode, Ctrl-C/Ctrl-D/Ctrl-Z
+  and full-screen programs as in a local shell; **Ctrl-]** `.` detaches, `t` takes control,
+  `WARDEN_ATTACH=observe` is read-only). One controller per session; attaching demotes the previous
+  one. The cockpit's terminal pane uses it. Tmux-hosted sessions still use tmux.
 
 Stream a journaled session with a WebSocket client (`websocat` shown):
 

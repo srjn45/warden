@@ -2,11 +2,13 @@ package ptyruntime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/srjn45/warden/internal/ptyevent"
 	"github.com/srjn45/warden/internal/tmuxproc"
@@ -27,6 +29,10 @@ type Host struct {
 	Rows      uint16
 	Retention Retention
 	Options   Options
+	// Launcher, when set, hosts every new session in an independent PTY holder
+	// process (it owns the master and the child) so the session survives this
+	// process; nil keeps the process a child of this one.
+	Launcher Launcher
 
 	mu       sync.Mutex
 	sessions map[string]*hosted
@@ -37,7 +43,23 @@ type hosted struct {
 	j *Journal
 }
 
+// Launcher starts and re-adopts processes owned by an independent holder (see
+// internal/ptyholder; the interface keeps ptyruntime free of that dependency).
+type Launcher interface {
+	// Launch starts argv under a holder and adopts it.
+	Launch(ctx context.Context, name string, argv []string, cwd string, env []string, cols, rows uint16) (*Adoption, error)
+	// Adopt authenticates to name's existing holder and adopts the live process.
+	Adopt(ctx context.Context, name string) (*Adoption, error)
+	// Has reports whether a holder record exists for name (it may be dead).
+	Has(name string) bool
+	// Release tells the holder the session is over so it exits and forgets it.
+	Release(ctx context.Context, name string)
+}
+
 var _ tmuxproc.Host = (*Host)(nil)
+
+// ErrNoHolder: the session has no holder record, so there is nothing to adopt.
+var ErrNoHolder = errors.New("ptyruntime: no PTY holder record for session")
 
 func (h *Host) shell() []string {
 	if len(h.Shell) > 0 {
@@ -50,7 +72,7 @@ func (h *Host) shell() []string {
 }
 
 // NewSession implements tmuxproc.Host.
-func (h *Host) NewSession(_ context.Context, name, cwd string, env ...string) error {
+func (h *Host) NewSession(ctx context.Context, name, cwd string, env ...string) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.sessions == nil {
@@ -67,8 +89,55 @@ func (h *Host) NewSession(_ context.Context, name, cwd string, env ...string) er
 		return err
 	}
 	full := append(os.Environ(), "WARDEN_SESSION_ID="+name, "AGENTCTL_SESSION_ID="+name)
-	s, err := Start(Config{Journal: j, Argv: h.shell(), Dir: cwd, Env: append(full, env...),
-		Cols: h.Cols, Rows: h.Rows, Options: h.Options})
+	cfg := Config{Journal: j, Argv: h.shell(), Dir: cwd, Env: append(full, env...),
+		Cols: h.Cols, Rows: h.Rows, Options: h.Options}
+	if h.Launcher != nil {
+		ad, err := h.Launcher.Launch(ctx, name, cfg.Argv, cwd, cfg.Env, cfg.Cols, cfg.Rows)
+		if err != nil {
+			_ = j.Close()
+			return err
+		}
+		cfg.Adopt = ad
+	}
+	s, err := Start(cfg)
+	if err != nil {
+		_ = j.Close()
+		if h.Launcher != nil {
+			h.Launcher.Release(ctx, name)
+		}
+		return err
+	}
+	h.sessions[name] = &hosted{s: s, j: j}
+	return nil
+}
+
+// Adopt re-attaches to name's live holder-hosted process after this process
+// restarted (or crashed): same process, same journal, a new epoch with
+// lifecycle{recovered}. It never starts a process. Errors are the holder's
+// (gone, refused, identity) so the caller can report cause and next step.
+func (h *Host) Adopt(ctx context.Context, name string) error {
+	if h.Launcher == nil || !h.Launcher.Has(name) {
+		return ErrNoHolder
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.sessions == nil {
+		h.sessions = map[string]*hosted{}
+	}
+	if old, ok := h.sessions[name]; ok && old.s.Alive() {
+		return nil // already adopted: idempotent
+	}
+	ad, err := h.Launcher.Adopt(ctx, name)
+	if err != nil {
+		return err
+	}
+	ad.Recovered = true
+	j, err := OpenJournal(filepath.Join(h.JournalDir, name), name, h.Retention)
+	if err != nil {
+		_ = ad.Master.Close()
+		return err
+	}
+	s, err := Start(Config{Journal: j, Options: h.Options, Adopt: ad})
 	if err != nil {
 		_ = j.Close()
 		return err
@@ -77,11 +146,44 @@ func (h *Host) NewSession(_ context.Context, name, cwd string, env ...string) er
 	return nil
 }
 
+// HolderHosted reports whether name has a holder record.
+func (h *Host) HolderHosted(name string) bool { return h.Launcher != nil && h.Launcher.Has(name) }
+
+// MarkLost journals that name's process was lost without a recorded exit (the
+// holder is gone or refused adoption): a crashed lifecycle event carrying detail
+// (cause and next step), so a client sees why instead of a silent relaunch.
+func (h *Host) MarkLost(name, detail string) error {
+	return MarkLost(filepath.Join(h.JournalDir, name), name, h.Retention, ptyevent.PresentationDirect, detail)
+}
+
+// MarkLost appends lifecycle{crashed, detail} to the journal at dir when its
+// newest epoch has not ended. It is how a process warden can no longer reach
+// (or refused to adopt) is reported instead of silently replaced.
+func MarkLost(dir, name string, ret Retention, pres ptyevent.Presentation, detail string) error {
+	j, err := OpenJournal(dir, name, ret)
+	if err != nil {
+		return err
+	}
+	defer j.Close()
+	last := j.Last()
+	if last.Seq == 0 || j.Ended() {
+		return nil
+	}
+	ev := ptyevent.Event{V: ptyevent.SchemaVersion, SessionID: name, Epoch: last.Epoch, Seq: j.NextSeq(),
+		MonoNS: last.MonoNS, Wall: time.Now(), Kind: ptyevent.KindLifecycle, Redacted: true,
+		Lifecycle: &ptyevent.Lifecycle{Phase: ptyevent.PhaseCrashed, Detail: detail, Presentation: pres}}
+	_, err = j.Append(ev)
+	return err
+}
+
 // release closes a session and its journal. Caller holds mu.
 func (h *Host) release(name string, hs *hosted) {
 	_ = hs.s.Close()
 	_ = hs.j.Close()
 	delete(h.sessions, name)
+	if h.Launcher != nil {
+		h.Launcher.Release(context.Background(), name)
+	}
 }
 
 // Session returns the hosted session by name (nil if none).
@@ -132,11 +234,19 @@ func (h *Host) SendKeys(ctx context.Context, name string, keys ...string) error 
 	return s.WriteWait(ctx, Write{Origin: ptyevent.OriginOperator, Data: KeyBytes(keys...)})
 }
 
-// Close closes every hosted session and journal.
+// Close closes every hosted session and journal. A holder-hosted session is
+// DETACHED, not ended: its process and holder keep running and the next daemon
+// adopts them. Only KillSession ends a process.
 func (h *Host) Close() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for name, hs := range h.sessions {
+		if hs.s.adopt != nil {
+			_ = hs.s.Detach()
+			_ = hs.j.Close()
+			delete(h.sessions, name)
+			continue
+		}
 		h.release(name, hs)
 	}
 }
