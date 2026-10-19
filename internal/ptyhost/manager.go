@@ -53,7 +53,15 @@ type Manager struct {
 	acks   acks
 
 	omu       sync.RWMutex
-	observers []Observer
+	observers []observer
+
+	// kind records which sessions are plain shells (kmu guards both fields).
+	// Shell/AI is decided by how a session was created or by its record — never
+	// by its name or screen — and AI-only observers (the state classifier and
+	// everything behind it) are never shown a shell's events.
+	kmu      sync.Mutex
+	kinds    map[string]bool // name -> isTerminal (cached lookups + explicit marks)
+	kindFunc func(name string) bool
 
 	wmu      sync.Mutex
 	watching map[string]*watch
@@ -125,11 +133,73 @@ func (m *Manager) SetMode(mode Mode) {
 	}
 }
 
-// Observe registers an observer for every runtime-backed session.
+type observer struct {
+	fn         Observer
+	agentsOnly bool
+}
+
+// Observe registers an observer for every runtime-backed session, shells
+// included. Use it only for lifecycle bookkeeping that is kind-neutral.
 func (m *Manager) Observe(o Observer) {
 	m.omu.Lock()
-	m.observers = append(m.observers, o)
+	m.observers = append(m.observers, observer{fn: o})
 	m.omu.Unlock()
+}
+
+// ObserveAgents registers an observer that never sees plain-shell terminals.
+// Anything that classifies output, detects prompts or may type on a session's
+// behalf must register here: a shell is human-controlled and its output must
+// never reach an AI permission/strategic path.
+func (m *Manager) ObserveAgents(o Observer) {
+	m.omu.Lock()
+	m.observers = append(m.observers, observer{fn: o, agentsOnly: true})
+	m.omu.Unlock()
+}
+
+// SetTerminalResolver tells the manager how to recognise an existing plain
+// terminal that was not created in this process (daemon restart): the durable
+// terminal record. Set before sessions are recovered.
+func (m *Manager) SetTerminalResolver(fn func(name string) bool) {
+	m.kmu.Lock()
+	m.kindFunc = fn
+	m.kmu.Unlock()
+}
+
+// MarkTerminal records name as a plain shell. Called when a terminal is created
+// through TerminalHost, before any event of the session can be dispatched.
+func (m *Manager) MarkTerminal(name string) {
+	m.kmu.Lock()
+	if m.kinds == nil {
+		m.kinds = map[string]bool{}
+	}
+	m.kinds[name] = true
+	m.kmu.Unlock()
+}
+
+// IsTerminal reports whether name is a plain-shell terminal session.
+func (m *Manager) IsTerminal(name string) bool {
+	m.kmu.Lock()
+	defer m.kmu.Unlock()
+	if v, ok := m.kinds[name]; ok {
+		return v
+	}
+	if m.kindFunc == nil {
+		return false
+	}
+	// Resolve once and cache both answers: a name only becomes a terminal
+	// through MarkTerminal, which overwrites a cached negative.
+	v := m.kindFunc(name)
+	if m.kinds == nil {
+		m.kinds = map[string]bool{}
+	}
+	m.kinds[name] = v
+	return v
+}
+
+func (m *Manager) forgetKind(name string) {
+	m.kmu.Lock()
+	delete(m.kinds, name)
+	m.kmu.Unlock()
 }
 
 // Host is the routed tmuxproc.Host for every pane: creation goes to tmux
@@ -295,8 +365,17 @@ func (m *Manager) dispatch(name string, ev ptyevent.Event) {
 	m.omu.RLock()
 	obs := m.observers
 	m.omu.RUnlock()
+	var term, known bool
 	for _, o := range obs {
-		o(name, ev)
+		if o.agentsOnly {
+			if !known {
+				term, known = m.IsTerminal(name), true
+			}
+			if term {
+				continue
+			}
+		}
+		o.fn(name, ev)
 	}
 }
 
@@ -318,6 +397,12 @@ type routed struct {
 
 var _ tmuxproc.Host = routed{}
 
+// HostedDirectly reports whether name is a shell whose process IS the session
+// (direct PTY). The launcher must not type a nested `${SHELL}` line into it:
+// the session's shell is already the user's shell, and nesting would make
+// `exit` return to an outer shell instead of ending the session with its status.
+func (r routed) HostedDirectly(name string) bool { return r.m.direct.Session(name) != nil }
+
 // directEnv is added to a direct terminal: the daemon (launchd/systemd) often
 // has no TERM, and the rendering end is always an xterm-compatible client.
 var directEnv = []string{"TERM=xterm-256color"}
@@ -325,6 +410,11 @@ var directEnv = []string{"TERM=xterm-256color"}
 func (r routed) NewSession(ctx context.Context, name, cwd string, env ...string) error {
 	m := r.m
 	mode := m.Mode()
+	if r.terminal {
+		m.MarkTerminal(name)
+	} else {
+		m.forgetKind(name) // an agent reusing a name never inherits a stale shell mark
+	}
 	if r.terminal && mode == ModeOn {
 		if err := m.direct.NewSession(ctx, name, cwd, append(append([]string{}, directEnv...), env...)...); err != nil {
 			return err

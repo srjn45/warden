@@ -62,6 +62,15 @@ func (s *Server) SetPTYRuntime(m *ptyhost.Manager) {
 		s.classifier.OnDisagreement = func(string, ptyevent.State, store.Status) {
 			s.ptyMetrics.Inc(ptyobs.MFallback, "unknown", "shadow_disagreement")
 		}
+		// Kind comes from the durable record, not from names or screens, so a
+		// shell is recognised across daemon restarts and agent-name collisions.
+		m.SetTerminalResolver(func(name string) bool {
+			if s.terminals == nil {
+				return false
+			}
+			t, err := s.terminals.Get(context.Background(), name)
+			return err == nil && t != nil
+		})
 		m.Observe(s.onPTYEvent)
 	}
 }
@@ -118,7 +127,9 @@ func (s *Server) recoverPTY(ctx context.Context) {
 			}
 			continue
 		}
-		slog.Info("ptyhost: recovered direct terminal onto its journal", "terminal", t.ID)
+		// Relaunch, not survival: the direct shell died with the previous daemon
+		// (plan 02 t3 closes that); this is a fresh shell on the same journal.
+		slog.Info("ptyhost: recovered direct terminal onto its journal (fresh shell, relaunch)", "terminal", t.ID)
 	}
 }
 
@@ -139,17 +150,43 @@ func (s *Server) onPTYEvent(name string, ev ptyevent.Event) {
 	}
 	if ev.Lifecycle.Phase.Terminal() && s.terminals != nil && s.pty != nil {
 		if d := s.pty.Direct(name); d != nil && d.Epoch() == ev.Epoch {
-			if t, err := s.terminals.Get(context.Background(), name); err == nil && t.Status != terminalstore.StatusOrphaned {
-				prev := sessionStatusFromTerminal(t.Status)
-				deps := &terminalPollerDeps{terms: s.terminals}
-				if ok, _ := deps.UpdateStatusIf(context.Background(), t.ID, prev, store.StatusOrphaned); ok &&
-					s.terminalWatcher != nil && s.terminalWatcher.OnTransition != nil {
-					s.terminalWatcher.OnTransition(sessionFromTerminal(t), prev, store.StatusOrphaned)
-				}
-			}
+			s.recordDirectTerminalEnd(name, ev.Lifecycle)
 		}
 	}
 	s.notify()
+}
+
+// recordDirectTerminalEnd persists how a direct shell ended with the same
+// compare-and-swap the terminal watcher uses, so whichever sees the end first
+// wins and the other is a no-op. A shell that exited on its own with a status
+// is `exited` with that ExitCode (G12); a signal or lost process stays
+// `orphaned` (restorable). Lifecycle carries the code only — never input or
+// output bytes.
+func (s *Server) recordDirectTerminalEnd(name string, lc *ptyevent.Lifecycle) {
+	ctx := context.Background()
+	t, err := s.terminals.Get(ctx, name)
+	if err != nil || t.Status != terminalstore.StatusRunning {
+		return
+	}
+	next := terminalstore.StatusOrphaned
+	var code *int
+	if lc != nil && lc.Phase == ptyevent.PhaseExited && lc.ExitCode != nil {
+		next, code = terminalstore.StatusExited, lc.ExitCode
+	}
+	swapped := false
+	if err := s.terminals.Update(ctx, t.ID, func(u *terminalstore.Terminal) error {
+		if u.Status != terminalstore.StatusRunning {
+			return nil
+		}
+		u.Status, u.ExitCode, u.UpdatedAt = next, code, time.Now().UTC()
+		swapped = true
+		return nil
+	}); err != nil || !swapped {
+		return
+	}
+	if s.terminalWatcher != nil && s.terminalWatcher.OnTransition != nil {
+		s.terminalWatcher.OnTransition(sessionFromTerminal(t), sessionStatusFromTerminal(terminalstore.StatusRunning), sessionStatusFromTerminal(next))
+	}
 }
 
 // handlePTYStream serves GET /api/v1/sessions/{id}/pty: the §6 event stream

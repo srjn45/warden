@@ -35,7 +35,7 @@
 | `P08` | project open / clone / scaffold | — | n/a | **spawns no terminal** (D10: no auto-spawn) | `strict_projects.go` |
 | `P09` | project close (hibernate) | stop | host | record kept `orphaned`; shell **killed** | `terminal_lifecycle.go` |
 | `P10` | project reopen | restore | host | same id/workdir, **fresh shell** | `terminal_lifecycle.go` |
-| `P11` | API `POST /sessions/{id}/restore` | restore | host | orphaned only (else 409) | `strict_lifecycle.go` |
+| `P11` | API `POST /sessions/{id}/restore` | restore | host | orphaned or exited (409 while running); idempotent: an already-running shell is success | `strict_lifecycle.go` |
 | `P12` | daemon start `recoverPTY` | restore | host | running direct terminal → new shell on same journal | `pty_runtime.go` |
 | `P13` | terminal watcher | restore | host | lost pane restored | `terminal_poller_deps.go` |
 | `P14` | API `GET /attach` (raw WS) | attach | host | direct sessions bridged via `BridgeLegacy` | `attach.go` |
@@ -113,18 +113,30 @@ Verified at `dae3cbd4`. `Closed` flips only when the owner's fixtures exist (`Te
 | `G2` | **release-critical** | Agents stay in tmux in `on`; mirrors are observe-only; no warden-owned PTY to adopt | t3 | `F-SURV-04` |
 | `G3` | **release-critical** | No authenticated adoption (pid reuse, foreign process, other uid) | t3 | `F-AUTH-01` `F-AUTH-02` `F-AUTH-03` |
 | `G4` | **release-critical** | No controller lease generation / input fencing; concurrent humans; stale clients can type | t3 | `F-FENCE-01` `F-FENCE-02` `F-FENCE-03` `F-ATTACH-03` |
-| `G5` | **release-critical** | Shell/AI boundary is incidental (no agent record), not structural | t2 | `F-KIND-01` (sealed now) `F-KIND-02` `F-KIND-03` |
-| `G6` | **release-critical** | Hibernate kills + relaunches; must stay explicit and off the restart path | t2 | `F-LIFE-03` |
-| `G7` | **release-critical** | Restore is check-then-act across four triggers; double process possible | t2 | `F-LIFE-01` `F-LIFE-02` |
+| `G5` | **release-critical** | Shell/AI boundary is incidental (no agent record), not structural | t2 ✔ closed | `F-KIND-01` (sealed now) `F-KIND-02` `F-KIND-03` |
+| `G6` | **release-critical** | Hibernate kills + relaunches; must stay explicit and off the restart path | t2 ✔ closed | `F-LIFE-03` |
+| `G7` | **release-critical** | Restore is check-then-act across four triggers; double process possible | t2 ✔ closed | `F-LIFE-01` `F-LIFE-02` |
 | `G8` | hardening | `Screen` is a minimal VT: 1 cell/rune (wide/combining wrong), attributes dropped, simplified scroll regions — snapshots lossy for full-screen TUIs (live raw bytes unaffected) | t3 | `F-VT-01` `F-VT-02` `F-VT-03` |
 | `G9` | hardening | Cockpit/TUI attach is `tmux attach`; a direct terminal can't be shown | t3 | `F-ATTACH-01` |
 | `G10` | hardening | Legacy `/attach` on a direct session is a raw bridge without §6 resync | t3 | `F-ATTACH-02` |
 | `G11` | hardening | Global mode switch; no per-session runtime pin, cohort record or broker protocol version | t4 | `F-ROLL-01` `F-ROLL-02` |
-| `G12` | hardening | Direct shell exit code journaled but `terminalstore.ExitCode` set only by the tmux exit-file path | t2 | `F-LIFE-04` |
+| `G12` | hardening | Direct shell exit code journaled but `terminalstore.ExitCode` set only by the tmux exit-file path | t2 ✔ closed | `F-LIFE-04` |
 
 **Recording in plan 01:** plan 01's canonical record is ScrivaDB state owned by its active run and is deliberately **not edited** (constraint: do not modify, stop or restart plan 01). The gaps are recorded here, in `internal/terminalcontract.Gaps`, and as plan 02 task ownership; the plan 01 run's own review can cite this file. Release-critical gaps are covered by **plan 02 tasks**, not assumed solved.
 
 **Incremental VT interpretation.** Where plan 01 interprets the screen incrementally (`ptyruntime.Screen`), it is a hand-written minimal parser fed *redacted* bytes; it exists only to produce snapshots/`CapturePane`. It is not authoritative for rendering — attached clients render the raw byte stream — but resync after `reset`/cursor loss uses it, hence `G8`. t3 must either upgrade it to cover the `F-VT-*` traces or restrict snapshots to what it can represent and say so.
+
+### 5.1 t2 outcome (plain-terminal lifecycle)
+
+Closed by t2 (`internal/terminalcontract.Gaps` flipped; fixtures now have test anchors):
+
+- **`G7` serialized launch.** `Lifecycle.RestoreTerminal` holds a per-id lock across `HasSession`→`NewSession`; poller restore, `POST /restore`, project reopen and startup recovery converge on it. `restoreTerminalRecord` treats `ErrAlreadyRunning` as success and brings the record to `running` exactly once.
+- **`G5` structural kind gate.** `ptyhost.Manager.ObserveAgents` never delivers a shell's events; the state classifier registers there. Kind comes from the creation path (`TerminalHost` → `MarkTerminal`) or the durable `terminalstore` record (`SetTerminalResolver`, survives daemon restart) — never from name or screen, so an agent record with the same name does not matter. `TestTerminalPathsDoNotImportDecisionPackages` pins that terminal sources cannot import `promptengine`/`decisionrouter`/`stateclassifier`/brain.
+- **`G12` exit status.** A direct shell that exits records `exited` + `ExitCode`; a signal/crash stays `orphaned`. `exited` terminals are restorable via `POST /restore`, and the terminal watcher no longer rewrites `exited` to `orphaned`. Direct sessions no longer get a nested `${SHELL}` line typed in (their process *is* the shell), so `exit N` ends the session with status N.
+- **`G6` labelled relaunch.** Hibernate→reopen, restore and startup recovery log that a *fresh shell* was started (`process state not preserved`); the identity (id, name, project, workdir) is unchanged. Survival across daemon restart is **not** claimed here — that is t3 (`G1`).
+- **Funnel.** `TestTerminalLaunchFunnel` fails if any new source file calls `RestoreTerminal` or wires `TerminalHost()`.
+- **Environment (`F-LIFE-05`).** Session id env (`WARDEN_SESSION_ID`, `AGENTCTL_SESSION_ID`) and cwd are identical for tmux and direct. `TERM` is intentionally excluded: tmux sets its own, the direct host pins `xterm-256color`. The tmux path inherits the tmux *server* environment, the direct path the daemon's; that difference is inherent to the two hosts and unchanged.
+- **Live legacy sessions** are untouched: nothing here converts, kills or restarts a running tmux terminal.
 
 ## 6. Privacy and retention boundaries
 
@@ -225,7 +237,7 @@ Deterministic = injected clocks / event waits (no sleep-for-correctness), fixed 
 
 ## 8. Hand-off per task
 
-- **t2:** make `G5`/`G6`/`G7`/`G12` structural; keep `spawnTerminal` as the only funnel (`P01`–`P06`); serialize restore; record direct exit codes; equalize shell/env (`F-LIFE-05`); keep legacy tmux terminals untouched.
+- **t2 (done, §5.1):** make `G5`/`G6`/`G7`/`G12` structural; keep `spawnTerminal` as the only funnel (`P01`–`P06`); serialize restore; record direct exit codes; equalize shell/env (`F-LIFE-05`); keep legacy tmux terminals untouched.
 - **t3:** build the broker holder + authenticated adoption + lease generation/input fencing (`G1`–`G4`) reusing plan 01's journal/transport/arbitration; fix `G8`–`G10`.
 - **t4:** per-session runtime pin + cohort record + protocol versioning (`G11`); apply §7.1; parity artifacts.
 - **t5:** run the whole matrix, soak, privacy audit, runbook; gate plan 03 on both plans merged **and** deployed with drain evidence. Nothing here authorizes cleanup or deploy.

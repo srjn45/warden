@@ -123,10 +123,10 @@ func (m *fakeMgr) Mode() ptyhost.Mode {
 func (m *fakeMgr) Lookup(string) (ptyhost.Target, bool) {
 	return ptyhost.Target{Stream: m.st, Presentation: ptyevent.PresentationTmux}, true
 }
-func (m *fakeMgr) Observe(o ptyhost.Observer)   { m.obs = append(m.obs, o) }
-func (m *fakeMgr) IsAuthoritative(string) bool  { return m.auth }
-func (m *fakeMgr) Target(string) (Target, bool) { return Target{Stream: m.st, Writer: m.w}, true }
-func (m *fakeMgr) Authoritative(n string) bool  { return m.auth }
+func (m *fakeMgr) ObserveAgents(o ptyhost.Observer) { m.obs = append(m.obs, o) }
+func (m *fakeMgr) IsAuthoritative(string) bool      { return m.auth }
+func (m *fakeMgr) Target(string) (Target, bool)     { return Target{Stream: m.st, Writer: m.w}, true }
+func (m *fakeMgr) Authoritative(n string) bool      { return m.auth }
 
 type fakeAgents struct {
 	mu sync.Mutex

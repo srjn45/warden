@@ -46,7 +46,9 @@ type Stream interface {
 type Manager interface {
 	Mode() ptyhost.Mode
 	Lookup(name string) (ptyhost.Target, bool)
-	Observe(ptyhost.Observer)
+	// ObserveAgents registers for AI sessions only: plain-shell terminals are
+	// never delivered, so shell output cannot reach any decision path.
+	ObserveAgents(ptyhost.Observer)
 	IsAuthoritative(name string) bool
 }
 

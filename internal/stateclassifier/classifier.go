@@ -78,7 +78,7 @@ func New(cfg Config, mgr Manager, st Store, br BackendResolver, pi ProcessInspec
 		sessions:    make(map[string]*sessionState),
 	}
 	if mgr != nil {
-		mgr.Observe(c.OnPTYEvent)
+		mgr.ObserveAgents(c.OnPTYEvent)
 	}
 	return c
 }
