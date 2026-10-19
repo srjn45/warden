@@ -250,6 +250,23 @@ func TestTransportReplayIsRedacted(t *testing.T) {
 		t.Fatal("live event frames carried the unredacted secret")
 	}
 	live.close()
+	// The server journals the detach and then its snapshot asynchronously after
+	// the socket closes; re-attach only once the snapshot exists, or a loaded
+	// machine can win the race and see "no snapshot".
+	eventually(t, "detach snapshot", func() bool {
+		tg, ok := m.Lookup("term-1")
+		if !ok {
+			return false
+		}
+		var snap bool
+		_ = tg.Stream.Journal().Read(1, func(ev ptyevent.Event) error {
+			if ev.Kind == ptyevent.KindMarker && ev.Marker != nil && ev.Marker.Type == ptyevent.MarkerSnapshot {
+				snap = true
+			}
+			return nil
+		})
+		return snap
+	})
 
 	replay := dial(t, url)
 	replay.send(ClientFrame{Type: "hello", Mode: ModeInteractive})
