@@ -155,6 +155,79 @@ func TestProtocolMismatchRefused(t *testing.T) {
 	}
 }
 
+// F-ROLL-02: old-binary/new-broker and new-binary/old-broker protocol handshake:
+// refuse with version error (ErrProto), never misparse, and leave the process untouched.
+func TestF_ROLL_02_ProtocolHandshakeRefusalOnVersionMismatch(t *testing.T) {
+	// Case 1: New binary client adopting an old-broker session (meta Proto older than ProtoVersion).
+	root, h, pid := launched(t, "roll02-old-broker")
+	p := metaPath(root, "roll02-old-broker")
+	b, _ := os.ReadFile(p)
+	var m Meta
+	_ = json.Unmarshal(b, &m)
+	m.Proto = ProtoVersion - 1
+	nb, _ := json.Marshal(m)
+	_ = os.WriteFile(p, nb, 0o600)
+	if _, err := h.Adopt(context.Background(), true); !errors.Is(err, ErrProto) {
+		t.Fatalf("old broker meta protocol %d: got %v, want ErrProto", m.Proto, err)
+	}
+	if !alive(pid) {
+		t.Fatal("process must stay alive after old-broker adoption refusal")
+	}
+
+	// Case 2: New binary client adopting a future-broker session (meta Proto newer than ProtoVersion).
+	m.Proto = ProtoVersion + 1
+	nb, _ = json.Marshal(m)
+	_ = os.WriteFile(p, nb, 0o600)
+	if _, err := h.Adopt(context.Background(), true); !errors.Is(err, ErrProto) {
+		t.Fatalf("future broker meta protocol %d: got %v, want ErrProto", m.Proto, err)
+	}
+	if !alive(pid) {
+		t.Fatal("process must stay alive after future-broker adoption refusal")
+	}
+
+	// Restore metadata so teardown works
+	_ = os.WriteFile(p, b, 0o600)
+
+	// Case 3: Old binary client (speaks ProtoVersion - 1) dials new broker directly.
+	// Broker checks req.Proto and refuses with version error; audits refusal; child stays alive.
+	root2, h2, pid2 := launched(t, "roll02-old-client")
+	m2, err := h2.meta()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := h2.dial(context.Background(), m2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	// Send an adopt request stamped with older ProtoVersion - 1
+	oldReq, _ := json.Marshal(request{Op: "adopt", Proto: ProtoVersion - 1, ID: h2.ID, Cred: h2.cred})
+	oldReq = append(oldReq, '\n')
+	if _, err := c.Write(oldReq); err != nil {
+		t.Fatal(err)
+	}
+	r, files, err := readReply(c)
+	for _, f := range files {
+		_ = f.Close()
+	}
+	if err != nil {
+		t.Fatalf("readReply: %v", err)
+	}
+	if err := classify(r); !errors.Is(err, ErrProto) {
+		t.Fatalf("old binary client request: got %v, want ErrProto", err)
+	}
+	if !alive(pid2) {
+		t.Fatal("process must stay alive after old-client rejection")
+	}
+
+	// Audit file should record the protocol refusal
+	audit, err := os.ReadFile(auditPath(root2, "roll02-old-client"))
+	if err != nil || !strings.Contains(string(audit), "protocol") {
+		t.Fatalf("audit file must record protocol mismatch refusal: %q", string(audit))
+	}
+}
+
 // Durable data boundary: a secret passed to the shell through its environment
 // is never written beside the holder state (the spec file is removed once
 // read; the credential file holds only the credential), and the audit log
