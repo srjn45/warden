@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/srjn45/warden/internal/agentstore"
+	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/ptyevent"
 	"github.com/srjn45/warden/internal/ptyobs"
 )
@@ -67,5 +69,26 @@ func (s *Server) countPTYEvent(ev ptyevent.Event) {
 		if ev.Lifecycle != nil && ev.Lifecycle.Phase == ptyevent.PhaseRecovered {
 			m.Inc(ptyobs.MReconnects, "resumed")
 		}
+	}
+}
+
+// decorateApproval adds the operator view to an approval: effective posture and
+// danger banner (always), the route of the latest decision, and - when the
+// runtime has the prompt normalised - the permission summary.
+func (s *Server) decorateApproval(v *approval.View, sess *agentstore.Agent) {
+	posture := effectivePosture(sess.PermissionPosture)
+	v.Posture = string(posture)
+	if posture == ptyevent.PostureDangerouslyExecuteAll {
+		v.Danger, v.DangerBanner = true, ptyobs.DangerBanner
+	}
+	if rec, ok := s.lastDecision(sess.TmuxSession); ok {
+		v.Route = string(rec.Route)
+	}
+	if s.classifier == nil {
+		return
+	}
+	if st, ok := s.classifier.Status(sess.TmuxSession); ok && st.Prompt != nil {
+		sum := ptyobs.Summarize(st.Prompt, 0)
+		v.Summary = &sum
 	}
 }

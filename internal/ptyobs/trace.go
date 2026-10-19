@@ -252,12 +252,17 @@ func (t *Trace) countLines(p string) int {
 	for sc.Scan() {
 		n++
 	}
+	_ = sc.Err() // an over-long line only under-counts; compaction re-reads and checks
 	return n
 }
 
 // compactLocked applies retention: keep the newest MaxRecords within MaxAge.
 func (t *Trace) compactLocked(p string) {
-	recs := readFile(p)
+	recs, err := readFileErr(p)
+	if err != nil {
+		t.fail(err) // keep the file as is rather than truncate it from a partial read
+		return
+	}
 	if t.cfg.MaxAge > 0 {
 		cut := t.cfg.Clock().Add(-t.cfg.MaxAge)
 		kept := recs[:0]
@@ -374,9 +379,16 @@ func (t *Trace) Delete(session string) error {
 }
 
 func readFile(p string) []TraceRecord {
+	recs, _ := readFileErr(p)
+	return recs
+}
+
+// readFileErr is readFile plus whether the scan stopped early (an unreadable or
+// over-long line), so compaction never rewrites a file from a partial read.
+func readFileErr(p string) ([]TraceRecord, error) {
 	f, err := os.Open(p)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer f.Close()
 	var out []TraceRecord
@@ -388,5 +400,5 @@ func readFile(p string) []TraceRecord {
 			out = append(out, r)
 		}
 	}
-	return out
+	return out, sc.Err()
 }
