@@ -410,6 +410,9 @@ func resolveRole(req *SpawnRequest) (role.Role, error) {
 		req.Role = r.Name
 	}
 	d := r.Defaults
+	if !req.PermissionPosture.Valid() && d.PermissionPosture.Valid() {
+		req.PermissionPosture = d.PermissionPosture
+	}
 	if req.Model == "" {
 		req.Model = d.Model
 	}

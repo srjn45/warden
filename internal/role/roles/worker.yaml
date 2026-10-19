@@ -27,4 +27,5 @@ persona: >
   coordinator instead.
 defaults:
   permission_mode: auto
+  permission_posture: allowlisted
   auto_approve: true

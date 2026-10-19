@@ -60,6 +60,7 @@ persona: >
   default branch — a human does that.
 defaults:
   permission_mode: bypassPermissions
+  permission_posture: dangerously-execute-all
   auto_approve: true
   tags:
     - autopilot

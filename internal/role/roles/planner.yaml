@@ -11,3 +11,4 @@ persona: |
   workers can implement from.
 defaults:
   permission_mode: plan
+  permission_posture: read-only
