@@ -15,6 +15,7 @@ import (
 	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/plansync"
 	"github.com/srjn45/warden/internal/projectstore"
+	"github.com/srjn45/warden/internal/ptyobs"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -70,6 +71,8 @@ type fakeAPI struct {
 	deletedPipe      string // pid of the last PipelineDelete
 	deletePErr       error  // error PipelineDelete returns (e.g. simulating a 409)
 	digest           *digest.Digest
+	runtime          ptyobs.RuntimeView
+	runtimeErr       error
 	digestErr        error
 	pressure         client.PressureStatus
 	pressureErr      error
@@ -243,6 +246,9 @@ func (f *fakeAPI) PipelineDelete(_ context.Context, pid string) error {
 	}
 	f.deletedPipe = pid
 	return nil
+}
+func (f *fakeAPI) SessionRuntime(_ context.Context, id string) (ptyobs.RuntimeView, error) {
+	return f.runtime, f.runtimeErr
 }
 func (f *fakeAPI) Digest(_ context.Context, _ string) (*digest.Digest, error) {
 	return f.digest, f.digestErr
