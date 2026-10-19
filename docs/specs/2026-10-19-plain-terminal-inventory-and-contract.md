@@ -182,6 +182,16 @@ Closed by t4 (`internal/terminalcontract.Gaps` flipped; `G11` closed; `F-ROLL-01
 - **`F-PAR-01` golden byte stream parity.** Tested in `internal/ptyhost`: byte-exact visible output between legacy tmux and direct PTY paths across standard text, multiline outputs, ANSI control sequences, and formatted output (`ParityByteExactPct` = 100).
 - **`F-PAR-02` labelled AI prompt corpus accuracy.** Tested in `internal/stateclassifier`: labelled AI prompt corpus against state classifier and legacy poller achieves >= 98% accuracy (`StateAccuracyPct`), 0 false approvals (`PromptFalseApprovals` = 0), and ensures plain shell screens produce 0 prompt events (`ShellClassifierEvents` = 0).
 
+### 5.4 t5 outcome (release validation, mixed fleet, resource soak, and privacy audit)
+
+Closed by t5 (every fixture in §7.2 now has a passing test anchor in `internal/terminalcontract.Fixtures`):
+
+- **`F-ROLL-04` mixed legacy+PTY fleet:** Tested in `internal/ptyhost`: mixed fleet containing legacy tmux terminals, direct PTY terminals, and agent sessions operates with full consistency across lookup, send-keys, capture-pane, §6 WebSocket attach, and termination.
+- **`F-RES-01` 50-session soak & leak verification:** Tested in `internal/ptyhost`: 50 concurrent idle sessions (`SoakSessions` = 50) verified within resource bounds (`PerSessionGoroutines` ≤ 6, `PerSessionFDs` ≤ 6, `PerSessionRSSKiB` ≤ 16 MiB) with 0 leaked goroutines or descriptors across full lifecycle teardown (`-race` clean).
+- **`F-RES-02` journal retention bound under output flood:** Tested in `internal/ptyhost`: journal disk retention strictly respects `JournalMaxBytes` (64 MiB default) under a 10× output flood, pruning oldest segments while preserving stream contract validity (`ptyevent.ValidateStream`).
+- **`F-PRIV-01` planted secret privacy audit:** Tested in `internal/ptyhost`: planted secrets across no-echo password input, environment variables (`ANTHROPIC_API_KEY`), and stdout API tokens are verified completely absent from durable journals, raw disk segments, audit logs, screen snapshots, and remote WebSocket replay (`SecretLeaksInDurable` = 0).
+- **Plan 03 Release Gate:** Plan 03 is explicitly gated on BOTH Plan 01 and Plan 02 merged, released, and deployed with production soak and natural legacy session drain evidence. Legacy runtime is retained throughout Plan 02.
+
 ## 6. Privacy and retention boundaries
 
 - **Local authorized view is faithful.** Live raw frames and the in-memory screen are not redacted; an authorized local operator sees what the program wrote.
@@ -272,16 +282,16 @@ Deterministic = injected clocks / event waits (no sleep-for-correctness), fixed 
 | `F-ROLL-01` | rollout | both | per-session runtime pin | t4 | `S3` | ✔ |
 | `F-ROLL-02` | rollout | both | broker protocol handshake refusal | t4 | `S3` | ✔ |
 | `F-ROLL-03` | rollout | both | shadow mutates nothing, sends nothing | t4 | `S1` | ✔ |
-| `F-ROLL-04` | rollout | both | mixed legacy+PTY fleet fully operable | t5 | `S3` | |
+| `F-ROLL-04` | rollout | both | mixed legacy+PTY fleet fully operable | t5 | `S3` | ✔ |
 | `F-PAR-01` | parity | both | golden byte stream tmux vs direct | t4 | `S3` | ✔ |
 | `F-PAR-02` | parity | agent | labelled AI prompt corpus accuracy | t4 | `S3` | ✔ |
-| `F-RES-01` | resource | both | 50-session soak, `-race`, no leak | t5 | `S3` | |
-| `F-RES-02` | resource | both | journal bound under 10× flood | t5 | `S3` | |
-| `F-PRIV-01` | privacy | both | planted secrets absent from durable/remote views | t5 | `S3` | |
+| `F-RES-01` | resource | both | 50-session soak, `-race`, no leak | t5 | `S3` | ✔ |
+| `F-RES-02` | resource | both | journal bound under 10× flood | t5 | `S3` | ✔ |
+| `F-PRIV-01` | privacy | both | planted secrets absent from durable/remote views | t5 | `S3` | ✔ |
 
 ## 8. Hand-off per task
 
 - **t2 (done, §5.1):** make `G5`/`G6`/`G7`/`G12` structural; keep `spawnTerminal` as the only funnel (`P01`–`P06`); serialize restore; record direct exit codes; equalize shell/env (`F-LIFE-05`); keep legacy tmux terminals untouched.
 - **t3 (done, §5.2):** per-session PTY holder + authenticated adoption + controller lease generation/input fencing (`G1`–`G4`) reusing plan 01's journal/transport/arbitration; native attach for the TUI/CLI and the legacy bridge (`G9`, `G10`); the screen model upgraded (`G8`).
 - **t4 (done, §5.3):** per-session runtime pin + cohort record + protocol versioning (`G11`); apply §7.1; parity artifacts.
-- **t5:** run the whole matrix, soak, privacy audit, runbook; gate plan 03 on both plans merged **and** deployed with drain evidence. Nothing here authorizes cleanup or deploy.
+- **t5 (done, §5.4):** run the whole matrix, soak, privacy audit, runbook; gate plan 03 on both plans merged **and** deployed with drain evidence. Retain legacy runtime.

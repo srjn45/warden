@@ -63,7 +63,7 @@ func TestF_PAR_01_GoldenByteStreamParityTmuxVsDirect(t *testing.T) {
 		"printf 'alpha\\tbeta\\tgamma\\n'",
 		"printf 'OldText\\rNewText\\n'",
 		"printf '\\033[32mGREEN\\033[0m \\033[1mBOLD\\033[0m\\n'",
-		"printf 'DONE_PARITY_MARKER\\n'",
+		"printf 'PARITY_%s\\n' 'MARKER_DONE'",
 	}
 
 	for _, cmd := range commands {
@@ -76,8 +76,8 @@ func TestF_PAR_01_GoldenByteStreamParityTmuxVsDirect(t *testing.T) {
 		pTmux, err1 := m.Host().CapturePane(ctx, tmuxName)
 		pDirect, err2 := m.Host().CapturePane(ctx, directName)
 		return err1 == nil && err2 == nil &&
-			strings.Contains(pTmux, "DONE_PARITY_MARKER") &&
-			strings.Contains(pDirect, "DONE_PARITY_MARKER")
+			strings.Contains(pTmux, "PARITY_MARKER_DONE") &&
+			strings.Contains(pDirect, "PARITY_MARKER_DONE")
 	}, waitFor, 20*time.Millisecond)
 
 	paneTmux, err := m.Host().CapturePane(ctx, tmuxName)
@@ -117,7 +117,7 @@ func TestF_PAR_01_GoldenByteStreamParityTmuxVsDirect(t *testing.T) {
 				strings.Contains(trimmed, "alpha") ||
 				strings.Contains(trimmed, "NewText") ||
 				strings.Contains(trimmed, "GREEN") ||
-				strings.Contains(trimmed, "DONE_PARITY_MARKER") {
+				strings.Contains(trimmed, "PARITY_MARKER_DONE") {
 				filtered = append(filtered, trimmed)
 			}
 		}
