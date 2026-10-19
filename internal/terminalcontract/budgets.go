@@ -29,6 +29,9 @@ type Budgets struct {
 	ResizeToSIGWINCHP99  time.Duration // resize frame -> process observes new size
 	AdoptAfterRestoreP99 time.Duration // daemon up -> broker session adopted & attachable
 	LeaseTakeoverP99     time.Duration // controller request -> previous holder fenced
+	// 02b additions (§6.9)
+	RuntimeIdentityResolveP99 time.Duration // runtime identity resolve (no process exec) <= 5ms
+	AgentLaunchToFirstByteP99 time.Duration // agent launch -> first journal byte (excl. CLI startup) <= 500ms
 
 	// --- Resource ---
 	// Per live session, steady state, idle shell.
@@ -43,6 +46,9 @@ type Budgets struct {
 	SlowViewerMaxBytes int
 	// A stalled viewer must never delay the PTY read loop beyond this.
 	SlowViewerPTYStall time.Duration
+	// 02b additions (§6.9)
+	ViewersPerSession int   // subscribers/viewers per session <= 16
+	SnapshotMaxBytes  int64 // snapshot size (plain text) <= 1 MiB
 
 	// --- Error / survival ---
 	// SurvivalLossPct: shells+agents lost across daemon restart/update/crash in
@@ -62,6 +68,8 @@ type Budgets struct {
 	// RecoveryBound: max time a recovery attempt may run before it must fail
 	// with an actionable error rather than hang.
 	RecoveryBound time.Duration
+	// 02b additions (§6.9)
+	DaemonAbsentSpoolMaxBytes int64 // daemon-absent output policy spool <= 8 MiB
 
 	// --- Rollout gates ---
 	// Minimum observed sample before a stage may advance (per cohort).
@@ -81,11 +89,13 @@ var Default = Budgets{
 	PromptFalseApprovals:  0,
 	ShellClassifierEvents: 0,
 
-	KeystrokeEchoP99:     50 * time.Millisecond,
-	AttachToFirstByteP99: 250 * time.Millisecond,
-	ResizeToSIGWINCHP99:  100 * time.Millisecond,
-	AdoptAfterRestoreP99: 2 * time.Second,
-	LeaseTakeoverP99:     200 * time.Millisecond,
+	KeystrokeEchoP99:          50 * time.Millisecond,
+	AttachToFirstByteP99:      250 * time.Millisecond,
+	ResizeToSIGWINCHP99:       100 * time.Millisecond,
+	AdoptAfterRestoreP99:      2 * time.Second,
+	LeaseTakeoverP99:          200 * time.Millisecond,
+	RuntimeIdentityResolveP99: 5 * time.Millisecond,
+	AgentLaunchToFirstByteP99: 500 * time.Millisecond,
 
 	PerSessionRSSKiB:     16 * 1024,
 	PerSessionFDs:        6,
@@ -94,14 +104,17 @@ var Default = Budgets{
 	SoakSessions:         50,
 	SlowViewerMaxBytes:   4 << 20,
 	SlowViewerPTYStall:   10 * time.Millisecond,
+	ViewersPerSession:    16,
+	SnapshotMaxBytes:     1 << 20,
 
-	SurvivalLossPct:       0,
-	DuplicateProcesses:    0,
-	DuplicateInputBytes:   0,
-	StaleControllerWrites: 0,
-	SecretLeaksInDurable:  0,
-	ActionableErrorPct:    100,
-	RecoveryBound:         30 * time.Second,
+	SurvivalLossPct:           0,
+	DuplicateProcesses:        0,
+	DuplicateInputBytes:       0,
+	StaleControllerWrites:     0,
+	SecretLeaksInDurable:      0,
+	ActionableErrorPct:        100,
+	RecoveryBound:             30 * time.Second,
+	DaemonAbsentSpoolMaxBytes: 8 << 20,
 
 	MinSessionsPerStage:  20,
 	MinSoakHoursPerStage: 24,

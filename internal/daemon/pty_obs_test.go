@@ -15,6 +15,8 @@ import (
 	"github.com/srjn45/warden/internal/ptyevent"
 	"github.com/srjn45/warden/internal/ptyhost"
 	"github.com/srjn45/warden/internal/ptyobs"
+	"github.com/srjn45/warden/internal/store"
+	"github.com/srjn45/warden/internal/terminalstore"
 )
 
 func getBody(t *testing.T, url string) (int, string) {
@@ -104,4 +106,64 @@ func TestPTYMetricsEndpoints(t *testing.T) {
 	require.Equal(t, http.StatusOK, code)
 	require.True(t, strings.Contains(body, "# TYPE warden_pty_events_total counter"), body)
 	require.Contains(t, body, `warden_pty_redactions_total{kind="jwt"} 2`)
+}
+
+func TestPTYRuntimeViewActualKindTruthfulWhenGlobalModeDiffers(t *testing.T) {
+	srv, m, ts, fs := ptyServer(t, ptyhost.ModeOn)
+	tstore, err := terminalstore.New(t.TempDir())
+	require.NoError(t, err)
+	srv.terminals = tstore
+
+	ctx := context.Background()
+	// 1. Live direct terminal created when mode was on
+	th := m.TerminalHost()
+	termID := "term-direct"
+	require.NoError(t, th.NewSession(ctx, termID, t.TempDir()))
+	now := time.Now().UTC()
+	require.NoError(t, tstore.Insert(ctx, &terminalstore.Terminal{
+		ID:          termID,
+		TmuxSession: termID,
+		Status:      terminalstore.StatusRunning,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+		Runtime: &store.SessionRuntime{
+			Kind:       "direct",
+			PinnedMode: "on",
+		},
+	}))
+
+	// Flip global mode to off: session reality is direct, global mode is off
+	m.SetMode(ptyhost.ModeOff)
+
+	code, body := getBody(t, ts.URL+"/api/v1/sessions/"+termID+"/runtime")
+	require.Equal(t, http.StatusOK, code)
+	var rv ptyobs.RuntimeView
+	require.NoError(t, json.Unmarshal([]byte(body), &rv))
+	require.Equal(t, "off", rv.Mode, "mode reports requested global mode for back-compat")
+	require.Equal(t, "off", rv.RequestedMode, "requested_mode reports requested global mode")
+	require.Equal(t, "direct", rv.ActualKind, "actual_kind is truthful even when global mode is off")
+	require.Equal(t, "daemon", rv.ProcessOwner)
+
+	// 2. Mirrored agent under tmux
+	agentID := "agent-tmux"
+	require.NoError(t, fs.Insert(ctx, &agentstore.Agent{
+		ID:          agentID,
+		TmuxSession: agentID,
+		Status:      store.StatusWorking,
+		Runtime: &store.SessionRuntime{
+			Kind:       "tmux",
+			PinnedMode: "shadow",
+		},
+	}))
+
+	// Set global mode to on: session reality is tmux, global mode is on
+	m.SetMode(ptyhost.ModeOn)
+
+	code, body = getBody(t, ts.URL+"/api/v1/sessions/"+agentID+"/runtime")
+	require.Equal(t, http.StatusOK, code)
+	require.NoError(t, json.Unmarshal([]byte(body), &rv))
+	require.Equal(t, "on", rv.Mode, "mode reports requested global mode for back-compat")
+	require.Equal(t, "on", rv.RequestedMode, "requested_mode reports requested global mode")
+	require.Equal(t, "tmux", rv.ActualKind, "actual_kind is truthful even when global mode is on")
+	require.Equal(t, "tmux", rv.ProcessOwner)
 }

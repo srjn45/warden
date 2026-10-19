@@ -217,8 +217,15 @@ func TestF_ATTACH_01_RawModeRestoredOnEveryExit(t *testing.T) {
 		})
 		eventually(t, "terminal to go raw", func() bool { return tm.isRaw(t) })
 		r.down.Store(true) // the daemon is gone: every re-dial is refused
+		eventually(t, "first connection established", func() bool {
+			mu.Lock()
+			defer mu.Unlock()
+			return first != nil
+		})
 		mu.Lock()
-		_ = first.CloseNow()
+		if first != nil {
+			_ = first.CloseNow()
+		}
 		mu.Unlock()
 		res := wait(t, done)
 		if res.err == nil {

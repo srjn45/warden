@@ -1,0 +1,18 @@
+{
+  "id": "terminal-new-002",
+  "name": "new-term",
+  "tmux_session": "terminal-new-002",
+  "workdir": "/tmp",
+  "shell": "/bin/bash",
+  "status": "running",
+  "created_at": "2026-10-19T12:00:00Z",
+  "updated_at": "2026-10-19T12:00:00Z",
+  "runtime": {
+    "kind": "direct",
+    "pinned_mode": "on",
+    "holder_pid": 12345,
+    "holder_start": 67890,
+    "proto": 1,
+    "launched_at": "2026-10-19T12:00:00Z"
+  }
+}

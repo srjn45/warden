@@ -4123,7 +4123,9 @@ components:
             (the GET /api/v1/store/health endpoint + complete-or-error active
             reads / 503 on degradation), "backend-recovery" (the session
             `backend_recovery` field is present and SSE fires on recovery phase
-            changes — reactive hard-limit provider switching is active).
+            changes — reactive hard-limit provider switching is active),
+            "runtime-identity" (session `runtime` identity and process ownership
+            support — see §6.2).
 
     StoreScanFailure:
       type: object
@@ -4613,7 +4615,46 @@ components:
             after all candidates were exhausted.
             SSE (GET /api/v1/events) fires on phase transitions — subscribe there
             rather than polling. Requires the "backend-recovery" capability flag.
+        runtime:
+          allOf:
+            - $ref: "#/components/schemas/SessionRuntime"
+          nullable: true
+          description: >
+            Additive runtime identity and process ownership metadata (§6.2).
+            Null when not populated or on legacy records.
       required: [id, status, created_at, updated_at]
+
+    SessionRuntime:
+      x-go-type: store.SessionRuntime
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/store
+        name: store
+      type: object
+      description: >
+        Additive runtime identity and process ownership metadata (§6.2).
+      properties:
+        kind:
+          type: string
+          description: actual runtime kind (direct, tmux, unknown).
+        pinned_mode:
+          type: string
+          description: durable per-session runtime mode pin (off, shadow, on).
+        launch_id:
+          type: string
+          description: caller-generated idempotency token.
+        holder_pid:
+          type: integer
+          description: PID of the PTY holder process if holder-hosted.
+        holder_start:
+          type: integer
+          description: holder process start time.
+        proto:
+          type: integer
+          description: holder protocol version.
+        launched_at:
+          type: string
+          format: date-time
+          description: launch timestamp.
 
     SessionList:
       type: object

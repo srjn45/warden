@@ -230,6 +230,8 @@ Values are generous round numbers — they fire on real regressions, not noise. 
 | | `ResizeToSIGWINCHP99` | ≤ 100 ms |
 | | `AdoptAfterRestoreP99` | ≤ 2 s |
 | | `LeaseTakeoverP99` | ≤ 200 ms |
+| | `RuntimeIdentityResolveP99` | ≤ 5 ms |
+| | `AgentLaunchToFirstByteP99` | ≤ 500 ms |
 | Resource (idle shell, steady) | `PerSessionRSSKiB` | ≤ 16 MiB |
 | | `PerSessionFDs` | ≤ 6 |
 | | `PerSessionGoroutines` | ≤ 6 |
@@ -237,6 +239,8 @@ Values are generous round numbers — they fire on real regressions, not noise. 
 | | `SoakSessions` | 50 concurrent |
 | | `SlowViewerMaxBytes` | ≤ 4 MiB pinned, then `ErrResync` |
 | | `SlowViewerPTYStall` | ≤ 10 ms PTY read delay |
+| | `ViewersPerSession` | ≤ 16 |
+| | `SnapshotMaxBytes` | ≤ 1 MiB |
 | Error / survival | `SurvivalLossPct` | 0 |
 | | `DuplicateProcesses` | 0 |
 | | `DuplicateInputBytes` | 0 |
@@ -244,6 +248,7 @@ Values are generous round numbers — they fire on real regressions, not noise. 
 | | `SecretLeaksInDurable` | 0 |
 | | `ActionableErrorPct` | 100 (cause + next step) |
 | | `RecoveryBound` | ≤ 30 s then fail loudly |
+| | `DaemonAbsentSpoolMaxBytes` | ≤ 8 MiB |
 | Rollout gates | `MinSessionsPerStage` | ≥ 20 |
 | | `MinSoakHoursPerStage` | ≥ 24 |
 | | `MaxStageErrorRatePct` | > 1 aborts the stage |

@@ -393,19 +393,19 @@ All values inherit `terminalcontract.Default` (`internal/terminalcontract/budget
 | | attach → first byte | ≤ 250 ms | both |
 | | resize → SIGWINCH | ≤ 100 ms | both |
 | | lease takeover | ≤ 200 ms | both |
-| | **runtime identity resolve (no process exec)** | **≤ 5 ms** | **new** |
-| | **agent launch → first journal byte** (excl. CLI startup) | **≤ 500 ms** | **new** |
+| | **runtime identity resolve (no process exec)** | **≤ 5 ms** | **new** (`RuntimeIdentityResolveP99`) |
+| | **agent launch → first journal byte** (excl. CLI startup) | **≤ 500 ms** | **new** (`AgentLaunchToFirstByteP99`) |
 | | **agent adopt after daemon restart** | **≤ 2 s** (= `AdoptAfterRestoreP99`) | agents + terminals |
 | Resource (idle, steady) | RSS / FDs / goroutines per session | ≤ 16 MiB / ≤ 6 / ≤ 6 | both; **re-measure for a busy AI CLI** (new) |
 | | journal per session | ≤ 64 MiB | both |
 | | soak | 50 concurrent, `-race`, 0 leaks | mixed agent+terminal (new mix) |
-| | viewers per session | ≤ **16** | **new** |
+| | viewers per session | ≤ **16** | **new** (`ViewersPerSession`) |
 | | slow viewer | ≤ 4 MiB pinned then `resync`; PTY read stall ≤ 10 ms | both |
-| | snapshot size (plain text) | ≤ **1 MiB** | **new** |
+| | snapshot size (plain text) | ≤ **1 MiB** | **new** (`SnapshotMaxBytes`) |
 | Recovery | survival loss / duplicate processes / duplicate input bytes / stale-controller writes / secret leaks in durable | 0 / 0 / 0 / 0 / 0 | both |
 | | actionable errors | 100 % (cause + next step) | both |
 | | recovery bound | ≤ 30 s then fail loudly | both |
-| | **daemon-absent output policy** | block ≤ kernel PTY buffer **or** spool ≤ **8 MiB**/session with a `gap` marker — 02b-03 must pick one, measure, and document; unbounded loss or unbounded blocking is not allowed | **agents (new)** |
+| | **daemon-absent output policy** | block ≤ kernel PTY buffer **or** spool ≤ **8 MiB**/session with a `gap` marker — 02b-03 must pick one, measure, and document; unbounded loss or unbounded blocking is not allowed | **agents (new)** (`DaemonAbsentSpoolMaxBytes`) |
 | Rollout | min sessions / soak hours per stage | ≥ 20 / ≥ 24 h per cohort | observed evidence only |
 | | stage abort | error > 1 %, fallback > 5 % | observed |
 

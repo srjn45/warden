@@ -62,3 +62,23 @@ func (l *Launcher) Release(ctx context.Context, name string) {
 	}
 	Forget(l.Root, name)
 }
+
+// VerifyHolder verifies that name's holder process is alive and matches the recorded identity.
+func (l *Launcher) VerifyHolder(name string) (pid int, start uint64, proto int, ok bool) {
+	if !l.Has(name) {
+		return 0, 0, 0, false
+	}
+	h, err := Open(l.Root, name)
+	if err != nil {
+		return 0, 0, 0, false
+	}
+	m, ok := h.Meta()
+	if !ok {
+		return 0, 0, 0, false
+	}
+	st, err := StartTime(m.HolderPID)
+	if err != nil || st != m.HolderStart {
+		return 0, 0, 0, false
+	}
+	return m.HolderPID, m.HolderStart, m.Proto, true
+}

@@ -33,32 +33,44 @@ func (s *Server) lastDecision(tmuxName string) (ptyobs.TraceRecord, bool) {
 }
 
 // runtimeView assembles the operator view of one session.
-func (s *Server) runtimeView(id, tmuxName string, posture ptyevent.Posture) ptyobs.RuntimeView {
+func (s *Server) runtimeView(id, key string, posture ptyevent.Posture) ptyobs.RuntimeView {
 	posture = effectivePosture(posture)
 	v := ptyobs.RuntimeView{
-		SessionID: id,
-		Mode:      "off",
-		Posture:   string(posture),
-		Danger:    posture == ptyevent.PostureDangerouslyExecuteAll,
+		SessionID:     id,
+		Mode:          "off",
+		RequestedMode: "off",
+		ActualKind:    "unknown",
+		ProcessOwner:  "none",
+		Posture:       string(posture),
+		Danger:        posture == ptyevent.PostureDangerouslyExecuteAll,
 	}
 	if v.Danger {
 		v.DangerBanner = ptyobs.DangerBanner
 	}
 	// The decision trace outlives the stream: report the latest decision even
 	// when the session is no longer supervised.
-	if rec, ok := s.lastDecision(tmuxName); ok {
+	if rec, ok := s.lastDecision(key); ok {
 		v.Route, v.LastOutcome = string(rec.Route), string(rec.Outcome)
 	}
 	if s.pty == nil {
 		return v
 	}
 	v.Mode = string(s.pty.Mode())
-	t, ok := s.pty.Lookup(tmuxName)
+	v.RequestedMode = string(s.pty.Mode())
+
+	info := s.pty.Resolve(context.Background(), id)
+	v.ActualKind = info.Kind
+	v.ProcessOwner = info.ProcessOwner
+	if info.RequestedMode != "" {
+		v.RequestedMode = info.RequestedMode
+	}
+
+	t, ok := s.pty.Lookup(key)
 	if !ok {
 		return v
 	}
 	v.Supervised = true
-	v.Authoritative = s.pty.IsAuthoritative(tmuxName)
+	v.Authoritative = s.pty.IsAuthoritative(key)
 	v.Presentation = string(t.Presentation)
 	// Input ownership is only arbitrated for a warden-hosted PTY; a mirrored tmux
 	// pane has no lease (humans type into tmux directly).
@@ -73,7 +85,7 @@ func (s *Server) runtimeView(id, tmuxName string, posture ptyevent.Posture) ptyo
 		v.InputOwner = "tmux"
 	}
 	if s.classifier != nil {
-		if st, ok := s.classifier.Status(tmuxName); ok {
+		if st, ok := s.classifier.Status(key); ok {
 			v.State = string(st.Snapshot.State)
 			v.Reason = string(st.Snapshot.Reason)
 			v.Since = st.Snapshot.Since
@@ -103,7 +115,7 @@ func (s *Server) GetSessionRuntime(ctx context.Context, req oapi.GetSessionRunti
 	if err != nil {
 		return nil, err
 	}
-	return oapi.GetSessionRuntime200JSONResponse(s.runtimeView(sess.ID, sess.TmuxSession, sess.PermissionPosture)), nil
+	return oapi.GetSessionRuntime200JSONResponse(s.runtimeView(sess.ID, sess.RuntimeKey(), sess.PermissionPosture)), nil
 }
 
 // ListSessionDecisions implements GET /api/v1/sessions/{id}/decisions.
@@ -117,7 +129,7 @@ func (s *Server) ListSessionDecisions(ctx context.Context, req oapi.ListSessionD
 	}
 	recs := []ptyobs.TraceRecord{}
 	if s.ptyTrace != nil {
-		recs = s.ptyTrace.Query(sess.TmuxSession, ptyobs.Query{
+		recs = s.ptyTrace.Query(sess.RuntimeKey(), ptyobs.Query{
 			Limit:   req.Params.Limit,
 			Since:   req.Params.Since,
 			Outcome: ptyobs.Outcome(req.Params.Outcome),

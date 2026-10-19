@@ -34,6 +34,9 @@ func (ExecRunner) Run(ctx context.Context, dir, name string, args ...string) (st
 		// output pipes held open by orphaned grandchildren.
 		ownProcessGroup(cmd)
 		cmd.WaitDelay = cancelWaitDelay
+		if name == "git" {
+			cmd.Env = append(os.Environ(), "GIT_EDITOR=true")
+		}
 	}
 	out, err := cmd.CombinedOutput()
 	return string(out), err

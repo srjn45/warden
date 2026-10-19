@@ -815,10 +815,10 @@ Every other session (agents, tmux-hosted terminals) attaches with tmux as before
 			if err != nil {
 				return err
 			}
-			// Resolve name/id/ticket to the tmux session via the daemon; fall back
-			// to the raw argument (a tmux session name) if the daemon cannot.
-			if gerr == nil && sess.TmuxSession != "" {
-				target = sess.TmuxSession
+			// Resolve name/id/ticket to the session via the daemon; fall back
+			// to the raw argument if the daemon cannot.
+			if gerr == nil && sess.RuntimeKey() != "" {
+				target = sess.RuntimeKey()
 			}
 			c := exec.Command(tmux, "attach", "-t", target)
 			c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr

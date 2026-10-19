@@ -68,6 +68,9 @@ type Manager struct {
 	kinds    map[string]bool // name -> isTerminal (cached lookups + explicit marks)
 	kindFunc func(name string) bool
 
+	rmu            sync.RWMutex
+	recordResolver RecordResolver
+
 	// RollbackRecord records a runtime mode rollback event (global or cohort-scoped).
 	// Rollback affects future launches only; live sessions keep their runtime and control.
 	pmu       sync.RWMutex
@@ -334,7 +337,9 @@ func isRollback(from, to Mode) bool {
 	return rank(to) < rank(from)
 }
 
-func (m *Manager) effectiveMode(name string) Mode {
+// EffectiveMode returns the runtime mode for name, honoring per-session pins
+// and cohorts before falling back to the global mode.
+func (m *Manager) EffectiveMode(name string) Mode {
 	m.pmu.RLock()
 	defer m.pmu.RUnlock()
 	if pin, ok := m.pins[name]; ok {
@@ -432,11 +437,11 @@ func (m *Manager) MarkDirectLost(name, detail string) error { return m.direct.Ma
 // marker{reset} and a snapshot seeded from the live screen. A no-op when the
 // mode does not mirror.
 func (m *Manager) RecoverShadow(ctx context.Context, names []string) int {
-	if !m.Mode().mirrors() {
-		return 0
-	}
 	n := 0
 	for _, name := range names {
+		if !m.EffectiveMode(name).mirrors() {
+			continue
+		}
 		if !m.shadow.HasJournal(name) || m.shadow.Mirror(name) != nil || !m.tmux.HasSession(ctx, name) {
 			continue
 		}
@@ -596,13 +601,44 @@ var _ tmuxproc.Host = routed{}
 // `exit` return to an outer shell instead of ending the session with its status.
 func (r routed) HostedDirectly(name string) bool { return r.m.direct.Session(name) != nil }
 
+// PinnedMode returns the pinned runtime mode for name.
+func (r routed) PinnedMode(name string) string {
+	if mode, ok := r.m.PinnedRuntime(name); ok {
+		return string(mode)
+	}
+	return string(r.m.EffectiveMode(name))
+}
+
+// HolderMeta returns holder process identity if name is holder-hosted.
+func (r routed) HolderMeta(name string) (int, uint64, int, bool) {
+	if r.m.direct != nil && r.m.direct.Launcher != nil {
+		if hv, ok := r.m.direct.Launcher.(interface {
+			VerifyHolder(string) (int, uint64, int, bool)
+		}); ok {
+			return hv.VerifyHolder(name)
+		}
+	}
+	return 0, 0, 0, false
+}
+
 // directEnv is added to a direct terminal: the daemon (launchd/systemd) often
 // has no TERM, and the rendering end is always an xterm-compatible client.
 var directEnv = []string{"TERM=xterm-256color"}
 
 func (r routed) NewSession(ctx context.Context, name, cwd string, env ...string) error {
 	m := r.m
-	mode := m.effectiveMode(name)
+	// Same-name reuse of a record id starts a new pin only after the previous
+	// runtime is verified gone (§6.5).
+	if s := m.direct.Session(name); s != nil && !s.Alive() {
+		m.unwatch(name)
+		_ = m.direct.KillSession(ctx, name)
+		m.forgetSession(name)
+	} else if mr := m.shadow.Mirror(name); mr != nil && !m.tmux.HasSession(ctx, name) {
+		m.unwatch(name)
+		m.shadow.Stop(ctx, name, nil)
+		m.forgetSession(name)
+	}
+	mode := m.EffectiveMode(name)
 	m.SetSessionRuntimePin(name, mode)
 	if r.terminal {
 		m.MarkTerminal(name)
