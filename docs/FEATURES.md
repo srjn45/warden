@@ -1950,7 +1950,9 @@ The binding baseline audit and the follow-on identity/attach contract are in
   replay → live events; `ack{seq}` checkpoints, `resize`, `reject`/`resync`. Interactive
   clients of a direct terminal also receive the live raw bytes and type as `human`
   (input ownership: human always wins). Shadow sessions and read-only tokens are
-  observe-only.
+  observe-only. `plan.fidelity` is additive (`redacted-text` for journal material,
+  `exact-live` for a tail), so clients predating it remain wire-compatible; the legacy
+  `/attach` raw bridge remains frozen for existing clients.
 - **Consumers.** The daemon subscribes to every stream (`ptyhost.Manager.Observe`) and,
   for now, only refreshes SSE on lifecycle changes and moves an exited direct terminal
   to `orphaned` with the watcher's compare-and-swap; classification from the stream is

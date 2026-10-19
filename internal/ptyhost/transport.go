@@ -82,6 +82,10 @@ type PlanFrame struct {
 	Interactive  bool                  `json:"interactive"`
 	ClientID     string                `json:"client_id"`
 	Reason       string                `json:"reason,omitempty"`
+	// Fidelity labels the replay plane. It is additive: clients written before
+	// this field ignore it. Journal replay/snapshots are redacted text, while a
+	// tail plan renders only authenticated live bytes after Head.
+	Fidelity string `json:"fidelity,omitempty"`
 	// Controller: this socket holds the controller lease (Generation is its
 	// fence). Holder names the current controller when it does not.
 	Controller bool   `json:"controller,omitempty"`
@@ -344,9 +348,13 @@ func (m *Manager) stream(ctx context.Context, t Target, cur ptyevent.Cursor, int
 	}
 	sub := t.Stream.Subscribe(cur)
 	defer sub.Close()
+	fidelity := "exact-live"
+	if sub.Plan.Mode == ptyevent.ResumeSnapshot || sub.Plan.Mode == ptyevent.ResumeReplay {
+		fidelity = "redacted-text"
+	}
 	plan := &PlanFrame{Mode: sub.Plan.Mode, FromSeq: sub.Plan.FromSeq, Head: sub.Head, SessionID: t.Stream.Journal().SessionID(),
 		Epoch: t.Stream.Epoch(), Presentation: t.Presentation, Interactive: interactive, ClientID: clientID, Reason: sub.Plan.Reason,
-		Controller: ci.controller, Generation: ci.gen, Holder: ci.holder, LastInputID: ci.lastInput}
+		Controller: ci.controller, Generation: ci.gen, Holder: ci.holder, LastInputID: ci.lastInput, Fidelity: fidelity}
 	if sub.Plan.Mode == ptyevent.ResumeReject {
 		_ = writeText(ServerFrame{Type: "reject", Plan: plan, Reason: sub.Plan.Reason})
 		return nil // the client may send a fresh hello

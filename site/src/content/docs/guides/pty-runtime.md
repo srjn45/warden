@@ -56,7 +56,9 @@ of the API; `409` when the session has no journal). The client speaks first:
 ```
 
 The server answers with a `plan` (`tail`, `replay` or `snapshot`, plus `head`, the
-replay/live boundary), then one `{"type":"event","event":{…}}` frame per journaled
+replay/live boundary). Its additive `fidelity` is `redacted-text` for journal replay
+or snapshots and `exact-live` for a live tail; older clients safely ignore that field.
+It then sends one `{"type":"event","event":{…}}` frame per journaled
 event in `seq` order — the replay from your cursor, then live. Keep the last `seq` you
 saw: reconnecting with it resumes exactly where you left off. `{"type":"ack","seq":N}`
 stores that checkpoint server-side for your `client_id`, so a later `hello` without a
@@ -160,7 +162,8 @@ secrets are journaled as a length only.
 
 - `GET /api/v1/sessions/{id}/attach` keeps working for every session. For a direct
   terminal it bridges the same raw protocol to the runtime (current screen first, then
-  live bytes), so the web UI and the Android app need no change.
+  live bytes), so the web UI and the Android app need no change. This legacy bridge is
+  intentionally frozen; new attach/control clients use `/pty`.
 - `wd send`/session input and output also route to a direct terminal.
 - A direct terminal has **no tmux session**, so `tmux attach` does not apply to it. Use
   `wd attach <id>` (below) — the cockpit's terminal pane does exactly that — or the
