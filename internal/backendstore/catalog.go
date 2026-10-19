@@ -182,6 +182,28 @@ func (s *Store) ListCatalogSnapshots(aiCli, scopeFP string) ([]CatalogSnapshot, 
 	return s.listCatalogSnapshotsLocked(aiCli, scopeFP)
 }
 
+// ListCatalogRevisions returns catalog policy history oldest-first.  History is
+// operational metadata: unlike snapshots it does not include account secrets.
+func (s *Store) ListCatalogRevisions() ([]CatalogRevision, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rows, err := s.catalogRevisionsCol.Scan(query.MatchAll)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]CatalogRevision, 0, len(rows))
+	for _, row := range rows {
+		v, err := catalogRecord[CatalogRevision](row.Data)
+		// The head marker has no timestamp or kind; scan records do not expose
+		// their collection key, so identify the marker from its reserved shape.
+		if err == nil && (!v.CreatedAt.IsZero() || v.Kind != "") {
+			out = append(out, v)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Rev < out[j].Rev })
+	return out, nil
+}
+
 func (s *Store) listCatalogSnapshotsLocked(aiCli, scopeFP string) ([]CatalogSnapshot, error) {
 	rows, err := s.catalogSnapshotsCol.Scan(query.MatchAll)
 	if err != nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -21,6 +22,9 @@ type registryAPI interface {
 	ListModels(tier backendstore.ModelTier) ([]backendstore.ModelEntry, error)
 	SetModelTier(backendID, modelID string, tier backendstore.ModelTier) error
 	AddModel(backendID, modelID, displayName string, tier backendstore.ModelTier, autoAssign bool, quotaScope string) error
+	ListCatalogSnapshots(aiCli, scopeFP string) ([]backendstore.CatalogSnapshot, error)
+	ListCatalogRevisions() ([]backendstore.CatalogRevision, error)
+	RollbackCatalogRevision(rev uint64, now time.Time) (backendstore.CatalogRevision, error)
 	ListRoleTiers() ([]backendstore.RoleTierMapping, error)
 	SetRoleTier(role string, tier backendstore.ModelTier) error
 	Close() error
@@ -89,6 +93,19 @@ func (d *daemonRegistry) SetModelTier(b, m string, t backendstore.ModelTier) err
 func (d *daemonRegistry) AddModel(b, m, display string, t backendstore.ModelTier, auto bool, scope string) error {
 	_, err := d.c.AddModel(context.Background(), b, m, display, string(t), auto, scope)
 	return d.wrap(err)
+}
+
+func (d *daemonRegistry) ListCatalogSnapshots(aiCli, _ string) ([]backendstore.CatalogSnapshot, error) {
+	h, err := d.c.ListModelCatalogHistory(context.Background(), aiCli)
+	return h.Snapshots, d.wrap(err)
+}
+func (d *daemonRegistry) ListCatalogRevisions() ([]backendstore.CatalogRevision, error) {
+	h, err := d.c.ListModelCatalogHistory(context.Background(), "")
+	return h.Revisions, d.wrap(err)
+}
+func (d *daemonRegistry) RollbackCatalogRevision(rev uint64, _ time.Time) (backendstore.CatalogRevision, error) {
+	r, err := d.c.RollbackModelCatalogRevision(context.Background(), rev)
+	return r, d.wrap(err)
 }
 
 func (d *daemonRegistry) ListRoleTiers() ([]backendstore.RoleTierMapping, error) {
