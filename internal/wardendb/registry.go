@@ -51,6 +51,13 @@ var catalogue = []string{
 	// when internal/backendstore was ported to the shared handle.
 	"backend_quotas",
 	"backend_rl_cooldowns",
+	// AI CLI model-catalog evidence and policy history deliberately remain
+	// outside the legacy backend collection rename series.
+	"model_catalog_scopes",
+	"model_catalog_snapshots",
+	"model_catalog_observations",
+	"model_catalog_proposals",
+	"model_catalog_revisions",
 	"usage_snapshots",
 	"quota_impact_fences",
 	"snapshots",
