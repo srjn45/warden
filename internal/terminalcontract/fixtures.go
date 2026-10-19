@@ -60,13 +60,13 @@ var Fixtures = []Fixture{
 	{"F-ROLL-01", "rollout", both, "per-session runtime pin: flipping runtime.pty affects future launches only; live sessions keep runtime and control", "", "t4", "S3", Anchor{"internal/ptyhost/rollout_test.go", "func TestF_ROLL_01_PerSessionRuntimePinAndCohortRollback"}},
 	{"F-ROLL-02", "rollout", both, "old-binary/new-broker and new-binary/old-broker protocol handshake: refuse with version error, never misparse", "", "t4", "S3", Anchor{"internal/ptyholder/auth_test.go", "func TestF_ROLL_02_ProtocolHandshakeRefusalOnVersionMismatch"}},
 	{"F-ROLL-03", "rollout", both, "shadow never mutates authoritative status and never sends input", "", "t4", "S1", Anchor{"internal/ptyhost/rollout_test.go", "func TestF_ROLL_03_ShadowNeverMutatesAuthoritativeStatusOrSendsInput"}},
-	{"F-ROLL-04", "rollout", both, "mixed legacy+PTY fleet: list/attach/send/approve/kill all work for both", "", "t5", "S3", Anchor{}},
+	{"F-ROLL-04", "rollout", both, "mixed legacy+PTY fleet: list/attach/send/approve/kill all work for both", "", "t5", "S3", Anchor{"internal/ptyhost/rollout_test.go", "func TestF_ROLL_04_MixedLegacyAndPTYFleet"}},
 	// Parity / resource / privacy.
 	{"F-PAR-01", "parity", both, "golden byte stream: tmux path vs direct path produce identical visible output", "ParityByteExactPct", "t4", "S3", Anchor{"internal/ptyhost/parity_test.go", "func TestF_PAR_01_GoldenByteStreamParityTmuxVsDirect"}},
 	{"F-PAR-02", "parity", []string{"agent"}, "labelled AI prompt corpus: state + permission accuracy vs legacy poller", "StateAccuracyPct,PromptFalseApprovals", "t4", "S3", Anchor{"internal/stateclassifier/parity_test.go", "func TestF_PAR_02_LabelledAIPromptCorpusAccuracyVsLegacyPoller"}},
-	{"F-RES-01", "resource", both, "SoakSessions idle sessions: RSS/FD/goroutine per session within budget; no leak after teardown (-race)", "PerSessionRSSKiB,PerSessionFDs,PerSessionGoroutines", "t5", "S3", Anchor{}},
-	{"F-RES-02", "resource", both, "journal retention holds at JournalMaxBytes under 10x output flood", "JournalMaxBytes", "t5", "S3", Anchor{}},
-	{"F-PRIV-01", "privacy", both, "planted secrets (typed no-echo password, env token, API-key output) absent from journal, audit, diagnostics, SSE and remote-safe views", "SecretLeaksInDurable", "t5", "S3", Anchor{}},
+	{"F-RES-01", "resource", both, "SoakSessions idle sessions: RSS/FD/goroutine per session within budget; no leak after teardown (-race)", "PerSessionRSSKiB,PerSessionFDs,PerSessionGoroutines", "t5", "S3", Anchor{"internal/ptyhost/resource_test.go", "func TestF_RES_01_SoakSessionsResourceLimitsAndNoLeaks"}},
+	{"F-RES-02", "resource", both, "journal retention holds at JournalMaxBytes under 10x output flood", "JournalMaxBytes", "t5", "S3", Anchor{"internal/ptyhost/resource_test.go", "func TestF_RES_02_JournalRetentionHoldsUnderOutputFlood"}},
+	{"F-PRIV-01", "privacy", both, "planted secrets (typed no-echo password, env token, API-key output) absent from journal, audit, diagnostics, SSE and remote-safe views", "SecretLeaksInDurable", "t5", "S3", Anchor{"internal/ptyhost/privacy_test.go", "func TestF_PRIV_01_PlantedSecretsAbsentFromDurableAndRemoteViews"}},
 }
 
 // SecretDetectionLimits documents what redaction cannot promise (spec §9).
