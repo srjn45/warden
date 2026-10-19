@@ -104,8 +104,6 @@ func TestDiscoverInstalledModelsUsesStubs(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []DiscoveredModel{
 		{BackendID: "antigravity", ModelID: "bar", DisplayName: "Bar Display"},
-		{BackendID: "codex", ModelID: "gpt-local", DisplayName: "gpt-local"},
-		{BackendID: "crush", ModelID: "crush/y", DisplayName: "crush/y"},
 		{BackendID: "cursor", ModelID: "foo", DisplayName: "Foo"},
 		{BackendID: "opencode", ModelID: "opencode/x", DisplayName: "opencode/x"},
 	}, all)

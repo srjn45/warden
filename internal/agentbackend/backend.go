@@ -314,6 +314,81 @@ type ModelLister interface {
 	ListModels() (models []string, ok bool)
 }
 
+// SourceKind identifies where a model observation came from.  It is deliberately
+// evidence, rather than a statement that a model can be launched: callers must
+// retain the source and completeness when making routing decisions.
+type SourceKind string
+
+const (
+	SourceLiveCommand     SourceKind = "live_command"
+	SourceCLICache        SourceKind = "cli_cache"
+	SourceProviderCatalog SourceKind = "provider_catalog"
+	SourceBundled         SourceKind = "bundled"
+	SourceConfigHint      SourceKind = "config_hint"
+	SourceLaunchRejection SourceKind = "launch_rejection"
+)
+
+// CatalogCompleteness says how safely an observation describes an account.  In
+// particular, only Complete evidence may ever support absence-based retirement.
+type CatalogCompleteness string
+
+const (
+	CatalogComplete CatalogCompleteness = "complete"
+	CatalogPartial  CatalogCompleteness = "partial"
+	CatalogEmpty    CatalogCompleteness = "empty"
+	CatalogFailed   CatalogCompleteness = "failed"
+)
+
+// CatalogError is deliberately structured so consumers can distinguish an empty
+// menu from missing software, authentication, a changed format, or a deadline.
+// Detail is safe for an operator but must not contain credentials.
+type CatalogError struct {
+	Class  string `json:"class"`
+	Detail string `json:"detail,omitempty"`
+}
+
+// CatalogScope contains non-secret account and profile facts. AccountRef and
+// Profile are raw only at the adapter boundary; persistence code hashes them.
+type CatalogScope struct {
+	AiCli      string `json:"ai_cli"`
+	AuthMode   string `json:"auth_mode,omitempty"`
+	AccountRef string `json:"account_ref,omitempty"`
+	Profile    string `json:"profile,omitempty"`
+	PlanLabel  string `json:"plan_label,omitempty"`
+	CLIVersion string `json:"cli_version,omitempty"`
+}
+
+// ObservedModel is provider-declared metadata for an exact launchable id.
+// Empty values mean unknown; adapters must never infer capabilities from names.
+type ObservedModel struct {
+	ModelID          string            `json:"model_id"`
+	DisplayName      string            `json:"display_name,omitempty"`
+	Visibility       string            `json:"visibility,omitempty"`
+	ReasoningLevels  []string          `json:"reasoning_levels,omitempty"`
+	DefaultReasoning string            `json:"default_reasoning,omitempty"`
+	ContextWindow    int               `json:"context_window,omitempty"`
+	UpgradeTo        string            `json:"upgrade_to,omitempty"`
+	Raw              map[string]string `json:"raw,omitempty"`
+}
+
+// CatalogObservation is one bounded, non-generating discovery attempt.
+type CatalogObservation struct {
+	Source          SourceKind          `json:"source"`
+	SourceDetail    string              `json:"source_detail,omitempty"`
+	SourceFetchedAt time.Time           `json:"source_fetched_at,omitempty"`
+	Completeness    CatalogCompleteness `json:"completeness"`
+	Err             *CatalogError       `json:"error,omitempty"`
+	Models          []ObservedModel     `json:"models"`
+}
+
+// ModelCatalogSource is an optional Backend extension for explicit,
+// operator-triggered model discovery. Implementations must only use local files
+// and provider metadata commands: never prompts, sessions, login, or token reads.
+type ModelCatalogSource interface {
+	ResolveScope(ctx context.Context) (CatalogScope, error)
+	DiscoverModels(ctx context.Context, scope CatalogScope) CatalogObservation
+}
+
 // UsageLimit is one distinct provider-owned allowance/reset window returned by
 // an agent backend's native usage interface.
 type UsageLimit struct {
