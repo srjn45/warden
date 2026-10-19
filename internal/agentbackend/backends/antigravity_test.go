@@ -528,11 +528,12 @@ func TestParseAgyModelsTrimsAndDropsBlanks(t *testing.T) {
 // TestAntigravityListModels drives ListModels through the stubbed `agy models` runner
 // (the fixture stands in for the live binary) and asserts it normalizes the menu.
 func TestAntigravityListModels(t *testing.T) {
-	orig := agyModelsCmd
-	t.Cleanup(func() { agyModelsCmd = orig })
-	agyModelsCmd = func() ([]byte, error) {
+	withCatalogRunner(t, func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		if len(args) == 1 && args[0] == "--version" {
+			return []byte("test\n"), nil
+		}
 		return []byte(agyFixture(t, "models.txt")), nil
-	}
+	})
 	models, ok := Antigravity{}.ListModels()
 	require.True(t, ok)
 	require.Len(t, models, 8)
@@ -543,11 +544,9 @@ func TestAntigravityListModels(t *testing.T) {
 // TestAntigravityListModelsDegradesOnError: a command error (binary missing / not
 // signed in) returns ok=false so `wd models` reports a clean degrade, never a crash.
 func TestAntigravityListModelsDegradesOnError(t *testing.T) {
-	orig := agyModelsCmd
-	t.Cleanup(func() { agyModelsCmd = orig })
-	agyModelsCmd = func() ([]byte, error) {
+	withCatalogRunner(t, func(_ context.Context, _ string, _ ...string) ([]byte, error) {
 		return nil, errors.New("exec: agy: not found")
-	}
+	})
 	_, ok := Antigravity{}.ListModels()
 	require.False(t, ok, "a command error degrades to ok=false")
 }
