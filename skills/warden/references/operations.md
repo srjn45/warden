@@ -383,3 +383,14 @@ Warden tracks daemon-registered checkout roots and remote repositories as first-
 - `warden inspect fastbrain pause <kind> [--for 30m]` / `resume <kind>` (MCP
   `fastbrain_control`) — a paused kind fails open to its fallback, never calls a
   runner. Default TTL 1 h, max 24 h, audited. Persistent: `fast_brain.disabled_kinds`.
+
+## PTY runtime status — `session_runtime` / `session_decisions` / `pty_metrics`
+
+With `runtime.pty` shadow|on, `wd inspect pty runtime <id>` (MCP `session_runtime`) gives the
+live stream state, typed waiting reason + evidence, input owner, decision route and effective
+posture; `wd inspect pty decisions <id>` (`session_decisions`) is the redacted decision trace;
+`wd inspect pty metrics` (`pty_metrics`) the `warden_pty_*` snapshot. `supervised:false` means
+the session predates the runtime (tmux polling still applies). A `danger:true` view means
+`dangerously-execute-all`: surface the banner to the user. Strategic questions are never
+auto-answered - only permission/trust prompts - so route them to the human.
+

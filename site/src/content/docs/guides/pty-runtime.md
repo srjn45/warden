@@ -92,6 +92,32 @@ the router from the prompt stream. Formats warden has not seen are classified by
 Fast-Brain on a redacted screen and only become learned shapes after deterministic
 fixture replay, with an expiry and confidence floor.
 
+## Observing the runtime
+
+Every client renders the same documents:
+
+```sh
+warden inspect pty runtime <id>      # state, typed waiting reason, evidence, input owner, route, posture
+warden inspect pty decisions <id>    # redacted, append-only decision trace (newest first)
+warden inspect pty metrics           # warden_pty_* snapshot (Prometheus text at /api/v1/pty/metrics.prom)
+```
+
+The TUI info pane, the web Agent tab (runtime card + decision table) and the approvals
+views show the same data, plus a human-readable summary of the pending permission and
+its decision route. A session on `dangerously-execute-all` carries a conspicuous red
+**DANGER** banner everywhere; the numbered answer buttons stay available.
+
+The trace is bounded by `runtime.trace_max_records` (default 5000) and
+`runtime.trace_max_age_days` (default 30), stores a description of the chosen input and
+never raw bytes or secrets, and a write failure never blocks a decision (it increments
+`warden_pty_decision_trace_errors_total`). Metric labels are closed vocabularies - no
+prompt text, paths or secrets. Strategic questions (plan or design choices) are never
+auto-answered in any posture; only permission and workspace-trust prompts are.
+Alert rules and a Grafana dashboard live in
+[`deploy/observability/`](https://github.com/srjn45/warden/tree/main/deploy/observability);
+the full reference (migration, learned-shape safeguards, recovery) is
+[`docs/PTY_OBSERVABILITY.md`](https://github.com/srjn45/warden/blob/main/docs/PTY_OBSERVABILITY.md).
+
 ## Compatibility
 
 - `GET /api/v1/sessions/{id}/attach` keeps working for every session. For a direct

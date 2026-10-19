@@ -3230,6 +3230,18 @@ Each event arrives as `{"type":"event","event":{…}}`; reconnect with
 resume after event `N`. See the [PTY runtime guide](https://srjn45.github.io/warden/guides/pty-runtime/)
 for the full protocol (interactive mode, ack, resize, reject/resync).
 
+### Inspecting the runtime
+
+```sh
+warden inspect pty runtime <id>     # state, waiting reason, evidence, input owner, route, posture
+warden inspect pty decisions <id>   # redacted decision trace (--limit, --outcome)
+warden inspect pty metrics          # warden_pty_* snapshot
+```
+
+`dangerously-execute-all` sessions show a DANGER banner in `warden approvals`, the TUI and
+the web UI. Trace retention is `runtime.trace_max_records` / `trace_max_age_days`. Details:
+[PTY_OBSERVABILITY.md](PTY_OBSERVABILITY.md).
+
 ## Cleaning merged branches and stale worktrees
 
 `warden workspace clean` (alias `warden clean`) previews, then — after a `[y/N]` confirmation (`--yes` skips it) — removes stale worktrees and deletes merged local and `origin` branches, including squash merges. Flags: `--dry-run`, `--json`, `--local-only`, `--force` (dirty worktrees), `--repo`. Protected branches (`main`, `master`, `develop`, `release/*`, base, current) are never deleted. Not to be confused with `warden workspace prune`, which reclaims orphaned warden worktrees.
