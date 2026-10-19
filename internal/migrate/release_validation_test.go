@@ -77,9 +77,13 @@ func TestSchema2ReleaseAcceptance(t *testing.T) {
 func seedLargeAgentsStore(t *testing.T, dataDir string, n int) {
 	t.Helper()
 	root := filepath.Join(dataDir, "agents-db")
-	col, err := engine.OpenCollection("agents", root, engine.CollectionConfig{})
+	// These fixtures already contain transaction state; recover at DB scope.
+	require.NoError(t, os.MkdirAll(root, 0o700))
+	db, err := engine.Open(root, engine.CollectionConfig{})
 	require.NoError(t, err)
-	defer col.Close()
+	defer db.Close()
+	col, err := db.Collection("agents")
+	require.NoError(t, err)
 	for i := 0; i < n; i++ {
 		_, _, err := col.Insert(map[string]any{"id": fmt.Sprintf("agent-%03d", i), "project_id": "/repo", "v": i})
 		require.NoError(t, err)
@@ -325,11 +329,14 @@ func startOwnerHolder(t *testing.T, dir string) *exec.Cmd {
 
 func createStoreWithLiveLag(t *testing.T, storeDir, colName string) {
 	t.Helper()
-	col, err := engine.OpenCollection(colName, storeDir, engine.CollectionConfig{})
+	require.NoError(t, os.MkdirAll(storeDir, 0o700))
+	db, err := engine.Open(storeDir, engine.CollectionConfig{})
+	require.NoError(t, err)
+	col, err := db.Collection(colName)
 	require.NoError(t, err)
 	id, _, err := col.InsertWithKey("live_lag_key", map[string]any{"val": "v1"})
 	require.NoError(t, err)
-	require.NoError(t, col.Close())
+	require.NoError(t, db.Close())
 
 	colDir := filepath.Join(storeDir, colName)
 
@@ -344,7 +351,9 @@ func createStoreWithLiveLag(t *testing.T, storeDir, colName string) {
 
 func healStoreLiveLag(t *testing.T, storeDir, colName string) {
 	t.Helper()
-	col, err := engine.OpenCollection(colName, storeDir, engine.CollectionConfig{})
+	db, err := engine.Open(storeDir, engine.CollectionConfig{})
 	require.NoError(t, err)
-	require.NoError(t, col.Close())
+	_, err = db.Collection(colName)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
 }

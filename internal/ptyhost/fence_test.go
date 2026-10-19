@@ -143,6 +143,14 @@ func TestF_FENCE_03_ReconnectNeverDuplicatesInput(t *testing.T) {
 	a.inputFrame(pa.Generation, 1, "echo once\r")
 	a.waitRaw("said:once")
 	a.close() // network drop
+	// The client's close handshake does not wait for Serve's deferred lease
+	// release. Reconnect only after that server-side disconnect has completed;
+	// otherwise Acquire can correctly return the still-current lease instead
+	// of issuing the newer generation this test is meant to exercise.
+	eventually(t, "disconnected controller lease released", func() bool {
+		holder, _ := m.Direct("term-f").ControllerInfo()
+		return holder == ""
+	})
 
 	a2 := dial(t, url+"?c=a2")
 	a2.send(ClientFrame{Type: "hello", Mode: ModeInteractive, ClientID: "laptop"})
