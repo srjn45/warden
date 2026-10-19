@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -264,5 +265,118 @@ func TestSpecMentionsEverything(t *testing.T) {
 	}
 	if len(SecretDetectionLimits) < 3 {
 		t.Error("secret-detection limits must be documented")
+	}
+}
+
+// Test02bBudgetsAgreeWithSpec verifies that the 02b audit and runtime contract (§6.9)
+// table and terminalcontract.Budgets / Default agree on all budget bounds.
+func Test02bBudgetsAgreeWithSpec(t *testing.T) {
+	spec02b := read(t, "docs/specs/2026-10-19-pty-02b-audit-and-runtime-contract.md")
+
+	cases := []struct {
+		name       string
+		field      string
+		docBound   string
+		checkValue func() bool
+	}{
+		{
+			name:       "RuntimeIdentityResolveP99",
+			field:      "`RuntimeIdentityResolveP99`",
+			docBound:   "≤ 5 ms",
+			checkValue: func() bool { return Default.RuntimeIdentityResolveP99 == 5*time.Millisecond },
+		},
+		{
+			name:       "AgentLaunchToFirstByteP99",
+			field:      "`AgentLaunchToFirstByteP99`",
+			docBound:   "≤ 500 ms",
+			checkValue: func() bool { return Default.AgentLaunchToFirstByteP99 == 500*time.Millisecond },
+		},
+		{
+			name:       "ViewersPerSession",
+			field:      "`ViewersPerSession`",
+			docBound:   "≤ **16**",
+			checkValue: func() bool { return Default.ViewersPerSession == 16 },
+		},
+		{
+			name:       "SnapshotMaxBytes",
+			field:      "`SnapshotMaxBytes`",
+			docBound:   "≤ **1 MiB**",
+			checkValue: func() bool { return Default.SnapshotMaxBytes == 1<<20 },
+		},
+		{
+			name:       "DaemonAbsentSpoolMaxBytes",
+			field:      "`DaemonAbsentSpoolMaxBytes`",
+			docBound:   "8 MiB",
+			checkValue: func() bool { return Default.DaemonAbsentSpoolMaxBytes == 8<<20 },
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if !strings.Contains(spec02b, tc.field) {
+				t.Errorf("spec does not mention budget field %s", tc.field)
+			}
+			if !strings.Contains(spec02b, tc.docBound) {
+				t.Errorf("spec does not contain expected bound %s for %s", tc.docBound, tc.name)
+			}
+			if !tc.checkValue() {
+				t.Errorf("Default struct budget value does not agree with spec for %s", tc.name)
+			}
+		})
+	}
+}
+
+// TestNoRuntimeInferringTmuxSessionCheck is a lint-style test that ensures no new
+// runtime-inferring reads of TmuxSession != "" are introduced outside the allowed set (§8.1 #6).
+func TestNoRuntimeInferringTmuxSessionCheck(t *testing.T) {
+	root := repoRoot(t)
+	allowedFiles := map[string]bool{
+		"internal/agentstore/types.go":               true, // RuntimeKey fallback
+		"internal/terminalstore/store.go":            true, // RuntimeKey fallback
+		"internal/store/types.go":                    true, // RuntimeKey fallback
+		"internal/ptyhost/resolve.go":                true, // SessionRecord.RuntimeKey fallback
+		"internal/cli/repair.go":                     true,
+		"internal/daemon/autopilot_reconcile.go":     true,
+		"internal/daemon/autopilot_runtime.go":       true,
+		"internal/daemon/executor_restart.go":        true,
+		"internal/daemon/fix_runtime.go":             true,
+		"internal/daemon/plan_restart.go":            true,
+		"internal/snapshot/snapshot.go":              true,
+		"internal/terminalcontract/contract_test.go": true,
+	}
+
+	pattern := regexp.MustCompile(`\.TmuxSession\s*!=\s*""`)
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			base := filepath.Base(path)
+			if strings.HasPrefix(base, ".") || base == "testdata" || base == "vendor" || base == "node_modules" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if pattern.Match(b) {
+			if !allowedFiles[rel] {
+				t.Errorf("unauthorized runtime-inferring .TmuxSession != \"\" found in %s; use resolver or RuntimeKey() accessor instead (§8.1 #6)", rel)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk failed: %v", err)
 	}
 }

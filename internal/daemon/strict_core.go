@@ -41,7 +41,7 @@ import (
 // feed carries the same shape as a named `tree` event. Clients feature-detect
 // this exact string and, if absent, prompt to upgrade the node (there is no
 // client-side tree-assembly fallback).
-var serverCapabilities = []string{"terminal-sessions", "scheduled-agents", "store-health", "backend-recovery", "project-tree"}
+var serverCapabilities = []string{"terminal-sessions", "scheduled-agents", "store-health", "backend-recovery", "project-tree", "runtime-identity"}
 
 // GetCapabilities implements GET /api/v1/capabilities.
 func (s *Server) GetCapabilities(_ context.Context, _ oapi.GetCapabilitiesRequestObject) (oapi.GetCapabilitiesResponseObject, error) {

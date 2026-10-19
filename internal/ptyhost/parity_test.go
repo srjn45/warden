@@ -71,20 +71,6 @@ func TestF_PAR_01_GoldenByteStreamParityTmuxVsDirect(t *testing.T) {
 		require.NoError(t, m.Host().SendKeys(ctx, directName, cmd, "Enter"))
 	}
 
-	// 4. Wait for the marker to appear in both panes.
-	require.Eventually(t, func() bool {
-		pTmux, err1 := m.Host().CapturePane(ctx, tmuxName)
-		pDirect, err2 := m.Host().CapturePane(ctx, directName)
-		return err1 == nil && err2 == nil &&
-			strings.Contains(pTmux, "PARITY_MARKER_DONE") &&
-			strings.Contains(pDirect, "PARITY_MARKER_DONE")
-	}, waitFor, 20*time.Millisecond)
-
-	paneTmux, err := m.Host().CapturePane(ctx, tmuxName)
-	require.NoError(t, err)
-	paneDirect, err := m.Host().CapturePane(ctx, directName)
-	require.NoError(t, err)
-
 	expandTabs := func(s string) string {
 		var b strings.Builder
 		col := 0
@@ -110,6 +96,9 @@ func TestF_PAR_01_GoldenByteStreamParityTmuxVsDirect(t *testing.T) {
 		var filtered []string
 		for _, l := range lines {
 			trimmed := expandTabs(strings.TrimRight(l, " \t"))
+			if strings.Contains(trimmed, "printf ") {
+				continue
+			}
 			if strings.Contains(trimmed, "Hello Parity Test") ||
 				strings.Contains(trimmed, "Line 1") ||
 				strings.Contains(trimmed, "Line 2") ||
@@ -124,8 +113,20 @@ func TestF_PAR_01_GoldenByteStreamParityTmuxVsDirect(t *testing.T) {
 		return filtered
 	}
 
-	tmuxFiltered := cleanLines(paneTmux)
-	directFiltered := cleanLines(paneDirect)
+	var paneTmux, paneDirect string
+	var tmuxFiltered, directFiltered []string
+	// 4. Wait for the marker and all output lines to appear in both panes.
+	require.Eventually(t, func() bool {
+		var err1, err2 error
+		paneTmux, err1 = m.Host().CapturePane(ctx, tmuxName)
+		paneDirect, err2 = m.Host().CapturePane(ctx, directName)
+		if err1 != nil || err2 != nil {
+			return false
+		}
+		tmuxFiltered = cleanLines(paneTmux)
+		directFiltered = cleanLines(paneDirect)
+		return len(tmuxFiltered) == 8 && len(directFiltered) == 8
+	}, waitFor, 20*time.Millisecond)
 
 	require.NotEmpty(t, tmuxFiltered)
 	require.NotEmpty(t, directFiltered)

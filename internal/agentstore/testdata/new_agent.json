@@ -1,0 +1,15 @@
+{
+  "id": "agent-new-002",
+  "name": "new-agent",
+  "tmux_session": "agent-new-002",
+  "prompt": "implement feature",
+  "subject": "implement feature",
+  "status": "working",
+  "created_at": "2026-10-19T12:00:00Z",
+  "updated_at": "2026-10-19T12:00:00Z",
+  "runtime": {
+    "kind": "tmux",
+    "pinned_mode": "shadow",
+    "launched_at": "2026-10-19T12:00:00Z"
+  }
+}

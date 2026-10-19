@@ -20,8 +20,11 @@ type TrailEntry struct {
 // document every client (TUI, web, CLI, MCP) renders.
 type RuntimeView struct {
 	SessionID string `json:"session_id"`
-	// Mode is the daemon's runtime.pty mode (off|shadow|on).
-	Mode string `json:"mode"`
+	// Mode is the daemon's runtime.pty mode (off|shadow|on). Kept for backward compatibility.
+	Mode          string `json:"mode"`
+	RequestedMode string `json:"requested_mode,omitempty"`
+	ActualKind    string `json:"actual_kind,omitempty"`
+	ProcessOwner  string `json:"process_owner,omitempty"`
 	// Supervised is false when no event stream backs the session (runtime off
 	// at spawn); the remaining fields are then zero.
 	Supervised    bool   `json:"supervised"`

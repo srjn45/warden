@@ -84,9 +84,10 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	key := sess.RuntimeKey()
 	// A terminal hosted directly on the PTY runtime (runtime.pty: on) has no
 	// tmux session: bridge the same raw protocol to the runtime instead.
-	if d := s.directSession(sess.TmuxSession); d != nil {
+	if d := s.directSession(key); d != nil {
 		conn, err := websocket.Accept(w, r, nil)
 		if err != nil {
 			return
@@ -105,8 +106,8 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 	// matching the cockpit/TUI's existing behavior. Best-effort; failure is
 	// non-fatal. The cockpit path (handleCockpitAttach) is intentionally left
 	// alone — its TUI manages the mouse itself.
-	_ = exec.Command("tmux", "set-option", "-t", sess.TmuxSession, "mouse", "on").Run()
-	s.bridgeTmux(w, r, sess.TmuxSession, false)
+	_ = exec.Command("tmux", "set-option", "-t", key, "mouse", "on").Run()
+	s.bridgeTmux(w, r, key, false)
 }
 
 // handleCockpitAttach bridges an interactive attach to the daemon-owned web
