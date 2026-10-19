@@ -120,6 +120,7 @@ type Store struct {
 	catalogObservationsCol docs
 	catalogProposalsCol    docs
 	catalogRevisionsCol    docs
+	catalogMetrics         *CatalogMetrics
 	// release runs on Close; nil for production shared-handle stores, whose DB
 	// is owned by the handle owner. Tests use it to release a per-store handle.
 	release func() error
@@ -202,6 +203,7 @@ func NewStore(dir string) (*Store, error) {
 		catalogScopesCol: catalogScopesCol, catalogSnapshotsCol: catalogSnapshotsCol,
 		catalogObservationsCol: catalogObservationsCol, catalogProposalsCol: catalogProposalsCol,
 		catalogRevisionsCol: catalogRevisionsCol,
+		catalogMetrics:      NewCatalogMetrics(),
 	}
 	if err := s.seedDefaultsIfEmpty(); err != nil {
 		db.Close()

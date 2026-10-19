@@ -178,7 +178,7 @@ func NewStoreFromDB(db *wardendb.DB) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Store{col: col, modelsCol: modelsCol, rolesCol: rolesCol, handoverCol: handoverCol, quotasCol: quotasCol, rlCooldownsCol: rlCol, catalogScopesCol: scopes, catalogSnapshotsCol: snaps, catalogObservationsCol: obs, catalogProposalsCol: props, catalogRevisionsCol: revs}
+	s := &Store{col: col, modelsCol: modelsCol, rolesCol: rolesCol, handoverCol: handoverCol, quotasCol: quotasCol, rlCooldownsCol: rlCol, catalogScopesCol: scopes, catalogSnapshotsCol: snaps, catalogObservationsCol: obs, catalogProposalsCol: props, catalogRevisionsCol: revs, catalogMetrics: NewCatalogMetrics()}
 	if err := s.seedDefaultsIfEmpty(); err != nil {
 		return nil, err
 	}

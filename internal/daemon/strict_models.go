@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/srjn45/warden/internal/agentstore"
+	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/daemon/oapi"
 	"github.com/srjn45/warden/internal/lifecycle"
@@ -59,6 +61,7 @@ func (s *Server) PreviewModelCatalog(_ context.Context, req oapi.PreviewModelCat
 	if err != nil {
 		return nil, errStatus(http.StatusBadRequest, err.Error())
 	}
+	s.recordCatalogAudit(audit.ActionModelCatalogRefresh, p, nil)
 	out, err := catalogOAPI[oapi.CatalogProposal](p)
 	if err != nil {
 		return nil, err
@@ -81,6 +84,11 @@ func (s *Server) ApplyModelCatalogProposal(_ context.Context, req oapi.ApplyMode
 			return nil, errStatus(http.StatusConflict, err.Error())
 		}
 		return nil, err
+	}
+	if p, getErr := s.backends.GetCatalogProposal(req.ProposalId); getErr == nil {
+		s.recordCatalogAudit(audit.ActionModelCatalogApply, p, &r)
+	} else {
+		s.recordCatalogRevisionAudit(audit.ActionModelCatalogApply, r)
 	}
 	out, err := catalogOAPI[oapi.CatalogRevision](r)
 	if err != nil {
@@ -115,6 +123,7 @@ func (s *Server) RollbackModelCatalogRevision(_ context.Context, req oapi.Rollba
 	if req.Revision < 1 {
 		return nil, errStatus(http.StatusBadRequest, "revision must be positive")
 	}
+	prior, _ := s.backends.GetCatalogRevision(uint64(req.Revision))
 	r, err := s.backends.RollbackCatalogRevision(uint64(req.Revision), time.Now().UTC())
 	if err != nil {
 		if errors.Is(err, backendstore.ErrNotFound) {
@@ -125,11 +134,50 @@ func (s *Server) RollbackModelCatalogRevision(_ context.Context, req oapi.Rollba
 		}
 		return nil, err
 	}
+	if prior.ProposalID != "" {
+		if p, getErr := s.backends.GetCatalogProposal(prior.ProposalID); getErr == nil {
+			s.recordCatalogAudit(audit.ActionModelCatalogRollback, p, &r)
+		} else {
+			s.recordCatalogRevisionAudit(audit.ActionModelCatalogRollback, r)
+		}
+	} else {
+		s.recordCatalogRevisionAudit(audit.ActionModelCatalogRollback, r)
+	}
 	out, err := catalogOAPI[oapi.CatalogRevision](r)
 	if err != nil {
 		return nil, err
 	}
 	return oapi.RollbackModelCatalogRevision200JSONResponse(out), nil
+}
+
+// recordCatalogAudit keeps the rich, non-secret decision provenance in audit,
+// not in metric labels. The target is an opaque proposal/revision id and the
+// account scope is already a one-way fingerprint.
+func (s *Server) recordCatalogAudit(action string, p backendstore.CatalogProposal, r *backendstore.CatalogRevision) {
+	if s == nil || s.audit == nil {
+		return
+	}
+	d := map[string]string{"aicli": p.Scope.AiCli, "scope_fingerprint": p.Scope.ActiveScopeFP, "snapshot_ids": strings.Join(p.Snapshots, ","), "proposal_state": p.State, "ops": strconv.Itoa(len(p.Ops)), "blocked": strconv.Itoa(len(p.Blocked))}
+	if r != nil {
+		d["revision"] = strconv.FormatUint(r.Rev, 10)
+		d["parent_revision"] = strconv.FormatUint(r.ParentRev, 10)
+	}
+	for i, op := range p.Ops {
+		if i == 20 {
+			d["operations_truncated"] = "true"
+			break
+		}
+		d["op_"+strconv.Itoa(i)] = op.Op + ":" + op.Key + ":" + strings.Join(op.Reasons, "+")
+	}
+	s.audit.Log(audit.Event{Action: action, Target: p.ID, Detail: audit.SafeDetail(d)})
+}
+
+func (s *Server) recordCatalogRevisionAudit(action string, r backendstore.CatalogRevision) {
+	p := backendstore.CatalogProposal{ID: r.ProposalID, State: r.Kind, Snapshots: r.Snapshots, Ops: r.Ops}
+	if len(r.Ops) > 0 && r.Ops[0].After != nil {
+		p.Scope.AiCli = r.Ops[0].After.BackendID
+	}
+	s.recordCatalogAudit(action, p, &r)
 }
 
 // ListModels implements GET /api/v1/models: list models in the catalog and their assigned tiers.
