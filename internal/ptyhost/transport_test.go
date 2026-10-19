@@ -172,6 +172,9 @@ func TestTransportInteractiveInputResizeAndReplay(t *testing.T) {
 	if !plan.Interactive || plan.Presentation != ptyevent.PresentationDirect || plan.ClientID != "sock-a" {
 		t.Fatalf("plan = %+v", plan)
 	}
+	if plan.Fidelity != "redacted-text" {
+		t.Fatalf("fresh plan fidelity = %q, want redacted-text", plan.Fidelity)
+	}
 	c.waitEventOutput("ready") // fresh attach replays from the start
 	c.keys("echo over-ws\r")
 	c.waitRaw("said:over-ws")         // live, unredacted bytes
@@ -202,7 +205,7 @@ func TestTransportInteractiveInputResizeAndReplay(t *testing.T) {
 	_ = m.Host().SendKeys(context.Background(), "term-1", "echo while-away", "Enter")
 	c2 := dial(t, url+"?c=b")
 	c2.send(ClientFrame{Type: "hello", Mode: ModeObserve, Cursor: &cur})
-	if p := c2.waitPlans(1)[0]; p.Mode != ptyevent.ResumeReplay || p.Interactive {
+	if p := c2.waitPlans(1)[0]; p.Mode != ptyevent.ResumeReplay || p.Interactive || p.Fidelity != "redacted-text" {
 		t.Fatalf("reconnect plan = %+v, want observe replay", p)
 	}
 	c2.waitEventOutput("said:while-away")
@@ -225,6 +228,27 @@ func TestTransportInteractiveInputResizeAndReplay(t *testing.T) {
 	c3.send(ClientFrame{Type: "hello", Mode: ModeObserve, ClientID: "sock-a"})
 	if p := c3.waitPlans(1)[0]; p.Mode != ptyevent.ResumeReplay || p.FromSeq != cur.Seq+1 {
 		t.Fatalf("ack resume plan = %+v, want replay from %d", p, cur.Seq+1)
+	}
+}
+
+func TestPlanFrameFidelityIsAdditiveForOlderClients(t *testing.T) {
+	frame, err := json.Marshal(ServerFrame{Type: "plan", Plan: &PlanFrame{Mode: ptyevent.ResumeTail, Fidelity: "exact-live"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// This is the pre-fidelity wire shape. json ignores the new field, which
+	// pins compatibility with already-released /pty clients.
+	var old struct {
+		Type string `json:"type"`
+		Plan *struct {
+			Mode ptyevent.ResumeMode `json:"mode"`
+		} `json:"plan"`
+	}
+	if err := json.Unmarshal(frame, &old); err != nil {
+		t.Fatal(err)
+	}
+	if old.Type != "plan" || old.Plan == nil || old.Plan.Mode != ptyevent.ResumeTail {
+		t.Fatalf("old client decoded %+v from %s", old, frame)
 	}
 }
 

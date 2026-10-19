@@ -5,10 +5,12 @@ package ptyattach
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -235,6 +237,34 @@ func TestF_ATTACH_01_RawModeRestoredOnEveryExit(t *testing.T) {
 			t.Fatal("terminal left in raw mode after the daemon vanished")
 		}
 	})
+}
+
+func TestClientRuntimeRoutingAndFallback(t *testing.T) {
+	c := Open("http://127.0.0.1:8765", "token")
+	tmux := Target{SessionID: "agent-1", Info: ptyhost.RuntimeInfo{Kind: "tmux", Key: "legacy-pane"}}
+	if _, err := c.Attach(context.Background(), tmux, Options{}); !errors.Is(err, ErrNotDirect) {
+		t.Fatalf("tmux Attach error = %v, want ErrNotDirect", err)
+	}
+	if got, ok := c.Fallback(tmux); !ok || !reflect.DeepEqual(got, []string{"tmux", "attach", "-t", "legacy-pane"}) {
+		t.Fatalf("Fallback(tmux) = %q, %v", got, ok)
+	}
+	unknown := Target{SessionID: "missing", Info: ptyhost.RuntimeInfo{Kind: "unknown", Reason: "session is no longer live"}}
+	if _, err := c.Attach(context.Background(), unknown, Options{}); !errors.Is(err, ErrUnknownRuntime) || !strings.Contains(err.Error(), unknown.Info.Reason) {
+		t.Fatalf("unknown Attach error = %v, want ErrUnknownRuntime with reason", err)
+	}
+	if got, ok := c.Fallback(unknown); ok || got != nil {
+		t.Fatalf("Fallback(unknown) = %q, %v, want nil false", got, ok)
+	}
+}
+
+func TestAttachURL(t *testing.T) {
+	got, err := attachURL("https://daemon.example/base", "term-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "wss://daemon.example/base/api/v1/sessions/term-1/pty"; got != want {
+		t.Fatalf("attachURL = %q, want %q", got, want)
+	}
 }
 
 // Ctrl-C and Ctrl-D reach the REMOTE line discipline as bytes (the local tty is
