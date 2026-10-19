@@ -6,8 +6,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/srjn45/warden/internal/agentbackend"
+	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/stretchr/testify/require"
 )
 
@@ -16,6 +18,38 @@ func withCatalogRunner(t *testing.T, f func(context.Context, string, ...string) 
 	old := modelCatalogRun
 	modelCatalogRun = f
 	t.Cleanup(func() { modelCatalogRun = old })
+}
+
+func TestSlowCatalogProviderDoesNotBlockCatalogStoreReaders(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	withCatalogRunner(t, func(_ context.Context, _ string, _ ...string) ([]byte, error) {
+		close(entered)
+		<-release
+		return []byte("Available Models\ngpt-test - Test\n"), nil
+	})
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = (Cursor{}).DiscoverModels(context.Background(), agentbackend.CatalogScope{})
+	}()
+	<-entered
+
+	// Discovery is adapter I/O and is intentionally outside backendstore.Store.mu.
+	// This is deterministic: the provider remains blocked until after the reader
+	// returns, proving catalog reads/sessions need not wait for it.
+	s, err := backendstore.NewStore(t.TempDir())
+	require.NoError(t, err)
+	read := make(chan struct{})
+	go func() { _, _ = s.ListModels(backendstore.ModelTier("")); close(read) }()
+	select {
+	case <-read:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("catalog store reader blocked behind slow provider")
+	}
+	close(release)
+	<-done
 }
 
 func TestCodexCatalogUsesCodexHomeCacheNotConfigDefault(t *testing.T) {
