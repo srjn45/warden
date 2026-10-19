@@ -1207,11 +1207,16 @@ func detailBody(s *store.Session, sel, width int) string {
 	if permMode == "" {
 		permMode = "default"
 	}
+	posture := string(s.PermissionPosture)
+	if posture == "" {
+		posture = "allowlisted (legacy)"
+	}
 	title := s.ID
 	if s.Name != "" {
 		title = s.ID + " (" + s.Name + ")"
 	}
-	b.WriteString(stPaneTitle.Render(title) + "  " + st.Render(label) + " · " + permMode + "\n\n")
+	b.WriteString(stPaneTitle.Render(title) + "  " + st.Render(label) + " · " + posture + "\n")
+	b.WriteString(stMuted.Render("launch mode: ") + permMode + "\n\n")
 
 	// controls — the three per-agent overrides/actions (interactive when sel >= 0).
 	b.WriteString(stPaneTitle.Render("controls") + "\n")

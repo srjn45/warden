@@ -529,6 +529,30 @@ func (e SpawnRequestKind) Valid() bool {
 	}
 }
 
+// Defines values for SpawnRequestPermissionPosture.
+const (
+	SpawnRequestPermissionPostureAllowlisted           SpawnRequestPermissionPosture = "allowlisted"
+	SpawnRequestPermissionPostureDangerouslyExecuteAll SpawnRequestPermissionPosture = "dangerously-execute-all"
+	SpawnRequestPermissionPostureReadOnly              SpawnRequestPermissionPosture = "read-only"
+	SpawnRequestPermissionPostureReadWrite             SpawnRequestPermissionPosture = "read-write"
+)
+
+// Valid indicates whether the value is a known member of the SpawnRequestPermissionPosture enum.
+func (e SpawnRequestPermissionPosture) Valid() bool {
+	switch e {
+	case SpawnRequestPermissionPostureAllowlisted:
+		return true
+	case SpawnRequestPermissionPostureDangerouslyExecuteAll:
+		return true
+	case SpawnRequestPermissionPostureReadOnly:
+		return true
+	case SpawnRequestPermissionPostureReadWrite:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for Status.
 const (
 	StatusDone            Status = "done"
@@ -832,6 +856,54 @@ func (e SetPermissionModeJSONBodyPermissionMode) Valid() bool {
 	case SetPermissionModeJSONBodyPermissionModeDontAsk:
 		return true
 	case SetPermissionModeJSONBodyPermissionModePlan:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SetPermissionPostureJSONBodyPermissionPosture.
+const (
+	SetPermissionPostureJSONBodyPermissionPostureAllowlisted           SetPermissionPostureJSONBodyPermissionPosture = "allowlisted"
+	SetPermissionPostureJSONBodyPermissionPostureDangerouslyExecuteAll SetPermissionPostureJSONBodyPermissionPosture = "dangerously-execute-all"
+	SetPermissionPostureJSONBodyPermissionPostureReadOnly              SetPermissionPostureJSONBodyPermissionPosture = "read-only"
+	SetPermissionPostureJSONBodyPermissionPostureReadWrite             SetPermissionPostureJSONBodyPermissionPosture = "read-write"
+)
+
+// Valid indicates whether the value is a known member of the SetPermissionPostureJSONBodyPermissionPosture enum.
+func (e SetPermissionPostureJSONBodyPermissionPosture) Valid() bool {
+	switch e {
+	case SetPermissionPostureJSONBodyPermissionPostureAllowlisted:
+		return true
+	case SetPermissionPostureJSONBodyPermissionPostureDangerouslyExecuteAll:
+		return true
+	case SetPermissionPostureJSONBodyPermissionPostureReadOnly:
+		return true
+	case SetPermissionPostureJSONBodyPermissionPostureReadWrite:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SetPermissionPosture200JSONResponseBodyPermissionPosture.
+const (
+	Allowlisted           SetPermissionPosture200JSONResponseBodyPermissionPosture = "allowlisted"
+	DangerouslyExecuteAll SetPermissionPosture200JSONResponseBodyPermissionPosture = "dangerously-execute-all"
+	ReadOnly              SetPermissionPosture200JSONResponseBodyPermissionPosture = "read-only"
+	ReadWrite             SetPermissionPosture200JSONResponseBodyPermissionPosture = "read-write"
+)
+
+// Valid indicates whether the value is a known member of the SetPermissionPosture200JSONResponseBodyPermissionPosture enum.
+func (e SetPermissionPosture200JSONResponseBodyPermissionPosture) Valid() bool {
+	switch e {
+	case Allowlisted:
+		return true
+	case DangerouslyExecuteAll:
+		return true
+	case ReadOnly:
+		return true
+	case ReadWrite:
 		return true
 	default:
 		return false
@@ -2083,6 +2155,9 @@ type SpawnRequest struct {
 	ParentId       string `json:"parent_id,omitempty"`
 	PermissionMode string `json:"permission_mode,omitempty"`
 
+	// PermissionPosture Explicit Warden permission posture. It controls which confidently classified permission prompts Warden may answer; it is distinct from the backend-native permission_mode used to launch the AI CLI.
+	PermissionPosture SpawnRequestPermissionPosture `json:"permission_posture,omitempty"`
+
 	// PlanId optional back-ref to a planstore plan in the same project. Empty is always valid (planless agent). A non-empty value must name an existing plan whose ProjectID matches the resolved project for this spawn; otherwise the request is rejected with 400. Does not change execution behavior — adapters that drive plan-bound runs set this later.
 	PlanId string `json:"plan_id,omitempty"`
 	Pr     string `json:"pr,omitempty"`
@@ -2113,6 +2188,9 @@ type SpawnRequest struct {
 
 // SpawnRequestKind session kind. Empty or "agent" (the default) creates an AI agent with the chosen AI CLI. "terminal" creates a plain interactive shell (${SHELL:-bash}) in `cwd` — NOT an AI agent: `ai_cli`/`backend`, `model`, `role`, and `prompt` are ignored, and it is excluded from every AI-centric surface (spend, state, approvals, digests). A terminal is created here, not via an AI CLI id — the `terminal` backend was removed (advertised by the `terminal-sessions` capability, see GET /api/v1/capabilities).
 type SpawnRequestKind string
+
+// SpawnRequestPermissionPosture Explicit Warden permission posture. It controls which confidently classified permission prompts Warden may answer; it is distinct from the backend-native permission_mode used to launch the AI CLI.
+type SpawnRequestPermissionPosture string
 
 // SpendBucket One cost rollup row — an agent, repo, or day — with priced spend.
 type SpendBucket = spend.Bucket
@@ -2698,6 +2776,17 @@ type SetPermissionModeJSONBody struct {
 // SetPermissionModeJSONBodyPermissionMode defines parameters for SetPermissionMode.
 type SetPermissionModeJSONBodyPermissionMode string
 
+// SetPermissionPostureJSONBody defines parameters for SetPermissionPosture.
+type SetPermissionPostureJSONBody struct {
+	PermissionPosture SetPermissionPostureJSONBodyPermissionPosture `json:"permission_posture"`
+}
+
+// SetPermissionPostureJSONBodyPermissionPosture defines parameters for SetPermissionPosture.
+type SetPermissionPostureJSONBodyPermissionPosture string
+
+// SetPermissionPosture200JSONResponseBodyPermissionPosture defines parameters for SetPermissionPosture.
+type SetPermissionPosture200JSONResponseBodyPermissionPosture string
+
 // SetRoleJSONBody defines parameters for SetRole.
 type SetRoleJSONBody struct {
 	// Role built-in role name (general|orchestrator|implementer|auto-merger|reviewer); empty = general
@@ -2951,6 +3040,9 @@ type SetNameJSONRequestBody SetNameJSONBody
 
 // SetPermissionModeJSONRequestBody defines body for SetPermissionMode for application/json ContentType.
 type SetPermissionModeJSONRequestBody SetPermissionModeJSONBody
+
+// SetPermissionPostureJSONRequestBody defines body for SetPermissionPosture for application/json ContentType.
+type SetPermissionPostureJSONRequestBody SetPermissionPostureJSONBody
 
 // RemoveWorktreeJSONRequestBody defines body for RemoveWorktree for application/json ContentType.
 type RemoveWorktreeJSONRequestBody = RemoveWorktreeRequest
@@ -3368,6 +3460,9 @@ type ServerInterface interface {
 	// Set an agent's permission mode
 	// (PATCH /api/v1/sessions/{id}/permission-mode)
 	SetPermissionMode(w http.ResponseWriter, r *http.Request, id SessionId)
+	// Set an agent's explicit Warden permission posture
+	// (PATCH /api/v1/sessions/{id}/permission-posture)
+	SetPermissionPosture(w http.ResponseWriter, r *http.Request, id SessionId)
 	// Remove the session's git worktree + branch
 	// (POST /api/v1/sessions/{id}/remove-worktree)
 	RemoveWorktree(w http.ResponseWriter, r *http.Request, id SessionId)
@@ -4202,6 +4297,12 @@ func (_ Unimplemented) GetOutput(w http.ResponseWriter, r *http.Request, id Sess
 // Set an agent's permission mode
 // (PATCH /api/v1/sessions/{id}/permission-mode)
 func (_ Unimplemented) SetPermissionMode(w http.ResponseWriter, r *http.Request, id SessionId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Set an agent's explicit Warden permission posture
+// (PATCH /api/v1/sessions/{id}/permission-posture)
+func (_ Unimplemented) SetPermissionPosture(w http.ResponseWriter, r *http.Request, id SessionId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -8413,6 +8514,38 @@ func (siw *ServerInterfaceWrapper) SetPermissionMode(w http.ResponseWriter, r *h
 	handler.ServeHTTP(w, r)
 }
 
+// SetPermissionPosture operation middleware
+func (siw *ServerInterfaceWrapper) SetPermissionPosture(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id SessionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetPermissionPosture(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // RemoveWorktree operation middleware
 func (siw *ServerInterfaceWrapper) RemoveWorktree(w http.ResponseWriter, r *http.Request) {
 
@@ -9379,6 +9512,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/api/v1/sessions/{id}/permission-mode", wrapper.SetPermissionMode)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/api/v1/sessions/{id}/permission-posture", wrapper.SetPermissionPosture)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/sessions/{id}/remove-worktree", wrapper.RemoveWorktree)
@@ -14654,6 +14790,59 @@ func (response SetPermissionMode404JSONResponse) VisitSetPermissionModeResponse(
 	return err
 }
 
+type SetPermissionPostureRequestObject struct {
+	Id   SessionId `json:"id"`
+	Body *SetPermissionPostureJSONRequestBody
+}
+
+type SetPermissionPostureResponseObject interface {
+	VisitSetPermissionPostureResponse(w http.ResponseWriter) error
+}
+
+type SetPermissionPosture200JSONResponse struct {
+	PermissionPosture SetPermissionPosture200JSONResponseBodyPermissionPosture `json:"permission_posture"`
+}
+
+func (response SetPermissionPosture200JSONResponse) VisitSetPermissionPostureResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetPermissionPosture400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response SetPermissionPosture400JSONResponse) VisitSetPermissionPostureResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetPermissionPosture404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response SetPermissionPosture404JSONResponse) VisitSetPermissionPostureResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type RemoveWorktreeRequestObject struct {
 	Id   SessionId `json:"id"`
 	Body *RemoveWorktreeJSONRequestBody
@@ -15703,6 +15892,9 @@ type StrictServerInterface interface {
 	// Set an agent's permission mode
 	// (PATCH /api/v1/sessions/{id}/permission-mode)
 	SetPermissionMode(ctx context.Context, request SetPermissionModeRequestObject) (SetPermissionModeResponseObject, error)
+	// Set an agent's explicit Warden permission posture
+	// (PATCH /api/v1/sessions/{id}/permission-posture)
+	SetPermissionPosture(ctx context.Context, request SetPermissionPostureRequestObject) (SetPermissionPostureResponseObject, error)
 	// Remove the session's git worktree + branch
 	// (POST /api/v1/sessions/{id}/remove-worktree)
 	RemoveWorktree(ctx context.Context, request RemoveWorktreeRequestObject) (RemoveWorktreeResponseObject, error)
@@ -19573,6 +19765,39 @@ func (sh *strictHandler) SetPermissionMode(w http.ResponseWriter, r *http.Reques
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SetPermissionModeResponseObject); ok {
 		if err := validResponse.VisitSetPermissionModeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetPermissionPosture operation middleware
+func (sh *strictHandler) SetPermissionPosture(w http.ResponseWriter, r *http.Request, id SessionId) {
+	var request SetPermissionPostureRequestObject
+
+	request.Id = id
+
+	var body SetPermissionPostureJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetPermissionPosture(ctx, request.(SetPermissionPostureRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetPermissionPosture")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetPermissionPostureResponseObject); ok {
+		if err := validResponse.VisitSetPermissionPostureResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

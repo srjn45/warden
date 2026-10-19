@@ -1892,6 +1892,12 @@ func (c *Client) SetPermissionMode(ctx context.Context, id string, mode string) 
 	return c.do(ctx, http.MethodPatch, "/sessions/"+id+"/permission-mode", body, nil)
 }
 
+// SetPermissionPosture sets Warden's explicit permission posture for an agent.
+func (c *Client) SetPermissionPosture(ctx context.Context, id, posture string) error {
+	body := map[string]string{"permission_posture": posture}
+	return c.do(ctx, http.MethodPatch, "/sessions/"+id+"/permission-posture", body, nil)
+}
+
 // RoleInfo is a built-in agent role for a picker (name + one-line description),
 // mirroring the daemon's GET /roles response items.
 type RoleInfo struct {

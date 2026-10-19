@@ -4180,6 +4180,16 @@
     ]
   },
   {
+    "path": "set-permission-posture",
+    "use": "set-permission-posture \u003cAGENT\u003e \u003cposture\u003e",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
     "path": "set-role",
     "use": "set-role \u003cAGENT\u003e \u003crole\u003e",
     "hidden": true,

@@ -2,9 +2,37 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
+
+func newSetPermissionPostureCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "set-permission-posture <AGENT> <posture>",
+		Short: "Set Warden's explicit permission posture for an agent",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			valid := []string{"read-only", "read-write", "allowlisted", "dangerously-execute-all"}
+			posture := args[1]
+			ok := false
+			for _, candidate := range valid {
+				if posture == candidate {
+					ok = true
+					break
+				}
+			}
+			if !ok {
+				return fmt.Errorf("invalid permission posture %q, must be one of: %s", posture, strings.Join(valid, ", "))
+			}
+			if err := clientFor(cmd).SetPermissionPosture(cmd.Context(), args[0], posture); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "permission posture set to %q for %s\n", posture, args[0])
+			return nil
+		},
+	}
+}
 
 func newSetPermissionModeCmd() *cobra.Command {
 	return &cobra.Command{

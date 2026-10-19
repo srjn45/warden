@@ -124,7 +124,7 @@ func checkInvariants(t *testing.T, c matrixCase, pos Posture, p *Prompt, d Decis
 		if p.Class != ClassPermission {
 			t.Errorf("%s: approved a %s prompt", where, p.Class)
 		}
-		if c.allow == AllowlistDeny {
+		if c.allow == AllowlistDeny && pos != PostureDangerouslyExecuteAll {
 			t.Errorf("%s: approved despite a deny rule", where)
 		}
 		if o := p.Options[d.OptionIndex-1]; !o.Semantic.Allows() {
@@ -157,7 +157,7 @@ func checkInvariants(t *testing.T, c matrixCase, pos Posture, p *Prompt, d Decis
 	if confident && p.Class == ClassDecision && d.Action != ActionRouteDecision {
 		t.Errorf("%s: decision prompt got %s, want route_decision", where, d.Action)
 	}
-	if confident && p.Class == ClassPermission && pos == PostureDangerouslyExecuteAll && c.allow != AllowlistDeny && d.Action != ActionApprove {
+	if confident && p.Class == ClassPermission && pos == PostureDangerouslyExecuteAll && d.Action != ActionApprove {
 		t.Errorf("%s: dangerously-execute-all did not approve a confident permission (%s)", where, d.Rule)
 	}
 }
@@ -180,7 +180,7 @@ func TestDecideEdgeCases(t *testing.T) {
 		{"allowlisted destructive still asks", DecideInput{Posture: PostureAllowlisted, Prompt: ps["claude_bash_rm"], Allowlist: AllowlistAllow}, ActionAskHuman, RuleDestructiveHuman},
 		{"read-only denies a write", DecideInput{Posture: PostureReadOnly, Prompt: ps["claude_edit"]}, ActionDeny, RuleForbiddenDeny},
 		{"read-only cannot deny without refusal", DecideInput{Posture: PostureReadOnly, Prompt: ps["no_refusal_option"]}, ActionAskHuman, RuleForbiddenNoPath},
-		{"deny rule without refusal option", DecideInput{Posture: PostureDangerouslyExecuteAll, Prompt: ps["no_refusal_option"], Allowlist: AllowlistDeny}, ActionAskHuman, RuleDenyNoPath},
+		{"dangerous ignores deny rule", DecideInput{Posture: PostureDangerouslyExecuteAll, Prompt: ps["claude_bash_rm"], Allowlist: AllowlistDeny}, ActionApprove, RulePermitted},
 		{"standing grant needs permission", DecideInput{Posture: PostureReadWrite, Prompt: ps["only_standing_allow"]}, ActionAskHuman, RuleStandingForbidden},
 		{"learned unusable shape is unconfident", DecideInput{Posture: PostureDangerouslyExecuteAll, Prompt: ps["learned_verified"]}, ActionNeedsAttention, RuleUnconfident},
 		{"dangerous never answers a plan approval", DecideInput{Posture: PostureDangerouslyExecuteAll, Prompt: ps["decision_plan_approval"], Allowlist: AllowlistAllow}, ActionRouteDecision, RuleDecisionPrompt},

@@ -566,6 +566,41 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /api/v1/sessions/{id}/permission-posture:
+    patch:
+      operationId: setPermissionPosture
+      tags: [Approvals]
+      summary: Set an agent's explicit Warden permission posture
+      description: >
+        Sets the permission posture used by Warden's classified prompt decision
+        router. dangerously-execute-all is intentionally named to mark its risk.
+      parameters: [{ $ref: "#/components/parameters/SessionId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [permission_posture]
+              properties:
+                permission_posture:
+                  type: string
+                  enum: [read-only, read-write, allowlisted, dangerously-execute-all]
+      responses:
+        "200":
+          description: The new Warden permission posture
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [permission_posture]
+                properties:
+                  permission_posture:
+                    type: string
+                    enum: [read-only, read-write, allowlisted, dangerously-execute-all]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /api/v1/sessions/{id}/role:
     patch:
       operationId: setRole
@@ -4531,6 +4566,13 @@ components:
         prompt: { type: string }
         cwd: { type: string }
         permission_mode: { type: string }
+        permission_posture:
+          type: string
+          enum: [read-only, read-write, allowlisted, dangerously-execute-all]
+          description: >
+            Explicit Warden permission posture. It controls which confidently
+            classified permission prompts Warden may answer; it is distinct from
+            the backend-native permission_mode used to launch the AI CLI.
         auto_restart: { type: boolean }
         force: { type: boolean, description: "bypass the memory-pressure spawn gate" }
         model: { type: string }

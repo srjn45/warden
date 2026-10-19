@@ -109,9 +109,11 @@ const (
 //  1. invalid posture, no prompt, unknown class, or unconfident → needs_attention
 //  2. decision prompts → route_decision (every posture, including
 //     dangerously-execute-all)
-//  3. an allowlist DENY match → deny (every posture), or ask_human when the
-//     prompt offers no refusal option
-//  4. every requested capability permitted by the posture → approve with the
+//  3. dangerously-execute-all approves every classified permission using an
+//     extracted allow option. Legacy allow/deny rules never constrain it.
+//  4. an allowlist DENY match → deny, or ask_human when the prompt offers no
+//     refusal option
+//  5. every requested capability permitted by the posture → approve with the
 //     least-privilege allow option (once ≻ session ≻ always; standing only when
 //     allowed — see standingOK), else ask_human
 //  5. otherwise: read-only denies (ask_human for trust / when it cannot refuse);
@@ -129,6 +131,17 @@ func Decide(in DecideInput) Decision {
 		return Decision{Action: ActionNeedsAttention, Rule: RuleUnconfident, Reason: "classification below confidence floor or unverified"}
 	case p.Class == ClassDecision:
 		return Decision{Action: ActionRouteDecision, Rule: RuleDecisionPrompt, Reason: "strategic/multiple-choice prompts are never auto-answered"}
+	}
+	// This posture is intentionally loud because it is exceptional: it is the
+	// one explicit operator choice that is not filtered through the legacy rule
+	// policy. It still needs a confidently extracted allow option; Warden never
+	// invents a menu index or answers a strategic/unclassified prompt.
+	if in.Posture == PostureDangerouslyExecuteAll {
+		idx, rule := allowOption(p, true)
+		if idx == 0 {
+			return Decision{Action: ActionAskHuman, Rule: rule, Reason: "dangerously-execute-all found no extracted allow option"}
+		}
+		return Decision{Action: ActionApprove, OptionIndex: idx, Rule: RulePermitted, Reason: "dangerously-execute-all approves every classified permission"}
 	}
 
 	if in.Allowlist == AllowlistDeny {

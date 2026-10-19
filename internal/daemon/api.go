@@ -38,6 +38,7 @@ import (
 	"github.com/srjn45/warden/internal/poller"
 	"github.com/srjn45/warden/internal/pressure"
 	"github.com/srjn45/warden/internal/projectstore"
+	"github.com/srjn45/warden/internal/ptyevent"
 	"github.com/srjn45/warden/internal/ptyhost"
 	"github.com/srjn45/warden/internal/relay"
 	"github.com/srjn45/warden/internal/savings"
@@ -51,35 +52,36 @@ import (
 
 // SpawnRequest is the body for POST /spawn.
 type SpawnRequest struct {
-	Type            string   `json:"type"`                  // typed mode: task type (normalized); empty = free-form
-	Ticket          string   `json:"ticket"`                // optional; becomes the id when present
-	Name            string   `json:"name"`                  // optional; human-readable name for the agent
-	Repo            string   `json:"repo"`                  // required in typed mode
-	Branch          string   `json:"branch"`                // optional; development branch / pr-review checkout
-	BaseBranch      string   `json:"base_branch,omitempty"` // managed-worktree base
-	PR              string   `json:"pr"`                    // optional; pr-review
-	Worktree        bool     `json:"worktree"`              // analysis/spike opt-in
-	InRepo          bool     `json:"in_repo"`               // write-agent opt-out: share the repo instead of isolating (ignored for pr-review)
-	Prompt          string   `json:"prompt"`                // free-form: the agent's initial prompt; empty = interactive
-	Cwd             string   `json:"cwd"`                   // free-form: dir to launch claude from (caller cwd / web pick)
-	PermissionMode  string   `json:"permission_mode"`       // explicit permission mode; empty = use global default
-	AutoRestart     bool     `json:"auto_restart"`          // opt-in: auto-resume on error (capped)
-	Force           bool     `json:"force"`                 // bypass the memory-pressure spawn gate
-	Model           string   `json:"model"`                 // claude model (opus/sonnet/haiku or full ID); empty = default
-	AiCli           string   `json:"ai_cli"`                // canonical AI CLI id (claude, aider, …); empty = daemon default
-	Backend         string   `json:"backend"`               // deprecated alias for ai_cli; accepted for one release
-	Kind            string   `json:"kind"`                  // "" / "agent" ⇒ AI agent; "terminal" ⇒ plain ${SHELL:-bash} pane (ai_cli/model/role/prompt ignored)
-	Tags            []string `json:"tags"`                  // optional free-form labels for grouping/filtering (#30)
-	ParentID        string   `json:"parent_id"`             // id of the agent that spawned this one; empty = root (operator/CLI spawn)
-	ProjectID       string   `json:"project_id,omitempty"`  // id of the project this session joins; empty = resolve by path-match to an open project
-	PlanID          string   `json:"plan_id,omitempty"`     // id of the plan that spawned this session; empty for ordinary spawns
-	AutopilotRunID  string   `json:"autopilot_run_id,omitempty"`
-	AutopilotSlot   string   `json:"autopilot_slot,omitempty"`
-	AutopilotTaskID string   `json:"autopilot_task_id,omitempty"`
-	ForkFrom        string   `json:"fork_from"` // id of an existing agent whose recorded session to FORK (codex fork); empty = normal spawn
-	Role            string   `json:"role"`      // built-in role name; empty = general (no persona). Persona injected + role defaults fill unset fields.
-	Tier            string   `json:"tier"`      // explicit model tier ("tier-1"/"tier-2"/"tier-3") for the quota-balanced resolver; empty = derive from task/role
-	Task            string   `json:"task"`      // task name (task registry) for tier routing via task.TierFor; empty = none
+	Type              string           `json:"type"`                         // typed mode: task type (normalized); empty = free-form
+	Ticket            string           `json:"ticket"`                       // optional; becomes the id when present
+	Name              string           `json:"name"`                         // optional; human-readable name for the agent
+	Repo              string           `json:"repo"`                         // required in typed mode
+	Branch            string           `json:"branch"`                       // optional; development branch / pr-review checkout
+	BaseBranch        string           `json:"base_branch,omitempty"`        // managed-worktree base
+	PR                string           `json:"pr"`                           // optional; pr-review
+	Worktree          bool             `json:"worktree"`                     // analysis/spike opt-in
+	InRepo            bool             `json:"in_repo"`                      // write-agent opt-out: share the repo instead of isolating (ignored for pr-review)
+	Prompt            string           `json:"prompt"`                       // free-form: the agent's initial prompt; empty = interactive
+	Cwd               string           `json:"cwd"`                          // free-form: dir to launch claude from (caller cwd / web pick)
+	PermissionMode    string           `json:"permission_mode"`              // explicit permission mode; empty = use global default
+	PermissionPosture ptyevent.Posture `json:"permission_posture,omitempty"` // named authority for Warden's decision router
+	AutoRestart       bool             `json:"auto_restart"`                 // opt-in: auto-resume on error (capped)
+	Force             bool             `json:"force"`                        // bypass the memory-pressure spawn gate
+	Model             string           `json:"model"`                        // claude model (opus/sonnet/haiku or full ID); empty = default
+	AiCli             string           `json:"ai_cli"`                       // canonical AI CLI id (claude, aider, …); empty = daemon default
+	Backend           string           `json:"backend"`                      // deprecated alias for ai_cli; accepted for one release
+	Kind              string           `json:"kind"`                         // "" / "agent" ⇒ AI agent; "terminal" ⇒ plain ${SHELL:-bash} pane (ai_cli/model/role/prompt ignored)
+	Tags              []string         `json:"tags"`                         // optional free-form labels for grouping/filtering (#30)
+	ParentID          string           `json:"parent_id"`                    // id of the agent that spawned this one; empty = root (operator/CLI spawn)
+	ProjectID         string           `json:"project_id,omitempty"`         // id of the project this session joins; empty = resolve by path-match to an open project
+	PlanID            string           `json:"plan_id,omitempty"`            // id of the plan that spawned this session; empty for ordinary spawns
+	AutopilotRunID    string           `json:"autopilot_run_id,omitempty"`
+	AutopilotSlot     string           `json:"autopilot_slot,omitempty"`
+	AutopilotTaskID   string           `json:"autopilot_task_id,omitempty"`
+	ForkFrom          string           `json:"fork_from"` // id of an existing agent whose recorded session to FORK (codex fork); empty = normal spawn
+	Role              string           `json:"role"`      // built-in role name; empty = general (no persona). Persona injected + role defaults fill unset fields.
+	Tier              string           `json:"tier"`      // explicit model tier ("tier-1"/"tier-2"/"tier-3") for the quota-balanced resolver; empty = derive from task/role
+	Task              string           `json:"task"`      // task name (task registry) for tier routing via task.TierFor; empty = none
 }
 
 // AdoptParams are the resolved inputs the handler passes to Lifecycle.Adopt.

@@ -12,6 +12,7 @@ func TestAgentSetRoundTripsThroughLegacyRequests(t *testing.T) {
 		path       string
 	}{
 		{"permission-mode", "acceptEdits", []string{"set-permission-mode", "A-1", "acceptEdits"}, "/api/v1/sessions/A-1/permission-mode"},
+		{"permission-posture", "dangerously-execute-all", []string{"set-permission-posture", "A-1", "dangerously-execute-all"}, "/api/v1/sessions/A-1/permission-posture"},
 		{"compact", "on", []string{"force-compact", "A-1", "on"}, "/api/v1/sessions/A-1/force-compact"},
 		{"role", "reviewer", []string{"set-role", "A-1", "reviewer"}, "/api/v1/sessions/A-1/role"},
 		{"auto-approve", "on", []string{"auto-approve", "A-1", "on"}, "/api/v1/sessions/A-1/auto-approve"},
@@ -41,7 +42,7 @@ func TestAgentSetRoundTripsThroughLegacyRequests(t *testing.T) {
 
 func TestAgentSetUnknownKeyAndValueListChoices(t *testing.T) {
 	_, err := runCLI(t, "", "agent", "set", "A-1", "bogus", "x")
-	if err == nil || !strings.Contains(err.Error(), "permission-mode, compact, role, auto-approve") {
+	if err == nil || !strings.Contains(err.Error(), "permission-mode, permission-posture, compact, role, auto-approve") {
 		t.Fatalf("unknown key err: %v", err)
 	}
 	_, err = runCLI(t, "", "agent", "set", "A-1", "permission-mode", "nope")
