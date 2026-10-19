@@ -150,3 +150,134 @@ func TestF_ROLL_03_ShadowNeverMutatesAuthoritativeStatusOrSendsInput(t *testing.
 	require.False(t, strings.Contains(pane, "secret-keystroke"), "shadow transport must never deliver keys to the pane")
 	require.False(t, strings.Contains(pane, "bad-input"), "shadow transport must never deliver input to the pane")
 }
+
+// F-ROLL-04: mixed legacy+PTY fleet: list/attach/send/approve/kill all work for both.
+func TestF_ROLL_04_MixedLegacyAndPTYFleet(t *testing.T) {
+	noLeaks(t)
+	run := newTmux(t)
+	dir := filepath.Join(t.TempDir(), "pty")
+	m := newManager(t, run, dir, ModeOn)
+	defer m.Close()
+
+	ctx := context.Background()
+
+	// 1. Setup mixed fleet:
+	// - term-legacy: plain terminal pinned to ModeOff (runs in tmux)
+	// - term-pty: plain terminal in ModeOn (runs on direct PTY)
+	// - agent-legacy: agent session in tmux (runs in tmux via Host)
+	const termLegacy = "term-legacy"
+	const termPTY = "term-pty"
+	const agentLegacy = "agent-legacy"
+
+	m.SetSessionRuntimePin(termLegacy, ModeOff)
+	require.NoError(t, m.TerminalHost().NewSession(ctx, termLegacy, t.TempDir()))
+	defer func() { _ = m.TerminalHost().KillSession(ctx, termLegacy) }()
+
+	require.NoError(t, m.TerminalHost().NewSession(ctx, termPTY, t.TempDir()))
+	defer func() { _ = m.TerminalHost().KillSession(ctx, termPTY) }()
+
+	require.NoError(t, m.Host().NewSession(ctx, agentLegacy, t.TempDir()))
+	defer func() { _ = m.Host().KillSession(ctx, agentLegacy) }()
+
+	// 2. List & Inspect:
+	// Verify all sessions exist in their respective hosts and report correct runtime.
+	require.True(t, m.TerminalHost().HasSession(ctx, termLegacy))
+	require.Nil(t, m.Direct(termLegacy), "term-legacy must not have a direct PTY session")
+	require.False(t, m.IsAuthoritative(termLegacy))
+
+	tgPTY, ok2 := m.Lookup(termPTY)
+	require.True(t, ok2)
+	require.NotNil(t, tgPTY.Direct)
+	require.Equal(t, ptyevent.PresentationDirect, tgPTY.Presentation)
+	require.True(t, m.IsAuthoritative(termPTY))
+
+	tgAgent, ok3 := m.Lookup(agentLegacy)
+	require.True(t, ok3)
+	require.Nil(t, tgAgent.Direct)
+	require.Equal(t, ptyevent.PresentationTmux, tgAgent.Presentation)
+	require.False(t, m.IsAuthoritative(agentLegacy))
+
+	// 3. Send & Capture:
+	// Both legacy and PTY sessions receive input and produce screen output.
+	require.NoError(t, m.TerminalHost().SendKeys(ctx, termLegacy, "echo legacy-ok", "Enter"))
+	require.Eventually(t, func() bool {
+		pane, err := m.TerminalHost().CapturePane(ctx, termLegacy)
+		return err == nil && strings.Contains(pane, "legacy-ok")
+	}, waitFor, 20*time.Millisecond)
+
+	require.NoError(t, m.TerminalHost().SendKeys(ctx, termPTY, "echo pty-ok", "Enter"))
+	require.Eventually(t, func() bool {
+		pane, err := m.TerminalHost().CapturePane(ctx, termPTY)
+		return err == nil && strings.Contains(pane, "pty-ok")
+	}, waitFor, 20*time.Millisecond)
+
+	require.NoError(t, m.Host().SendKeys(ctx, agentLegacy, "echo agent-ok", "Enter"))
+	require.Eventually(t, func() bool {
+		pane, err := m.Host().CapturePane(ctx, agentLegacy)
+		return err == nil && strings.Contains(pane, "agent-ok")
+	}, waitFor, 20*time.Millisecond)
+
+	// 4. Attach:
+	// Connect §6 WebSocket clients to mirrored agent session (tmux presentation) and direct PTY session.
+	urlAgent := wsServer(t, func() *Manager { return m }, agentLegacy, false)
+	cAgent := dial(t, urlAgent)
+	defer cAgent.close()
+	cAgent.send(ClientFrame{Type: "hello", Mode: ModeObserve})
+	require.Eventually(t, func() bool {
+		cAgent.mu.Lock()
+		defer cAgent.mu.Unlock()
+		return len(cAgent.plans) > 0
+	}, waitFor, 10*time.Millisecond)
+
+	cAgent.mu.Lock()
+	planAgent := cAgent.plans[0]
+	cAgent.mu.Unlock()
+	require.Equal(t, ptyevent.PresentationTmux, planAgent.Presentation)
+
+	urlPTY := wsServer(t, func() *Manager { return m }, termPTY, false)
+	cPTY := dial(t, urlPTY)
+	defer cPTY.close()
+	cPTY.send(ClientFrame{Type: "hello", Mode: ModeInteractive, ClientID: "ctl-1"})
+	require.Eventually(t, func() bool {
+		cPTY.mu.Lock()
+		defer cPTY.mu.Unlock()
+		return len(cPTY.plans) > 0
+	}, waitFor, 10*time.Millisecond)
+
+	cPTY.mu.Lock()
+	planPTY := cPTY.plans[0]
+	cPTY.mu.Unlock()
+	require.Equal(t, ptyevent.PresentationDirect, planPTY.Presentation)
+	require.True(t, planPTY.Controller)
+
+	// 5. Approve / Fencing:
+	// Direct PTY controller writes fenced input; a second client is a viewer.
+	cPTY2 := dial(t, urlPTY)
+	defer cPTY2.close()
+	cPTY2.send(ClientFrame{Type: "hello", Mode: ModeInteractive, ClientID: "ctl-2"})
+	require.Eventually(t, func() bool {
+		cPTY2.mu.Lock()
+		defer cPTY2.mu.Unlock()
+		return len(cPTY2.plans) > 0
+	}, waitFor, 10*time.Millisecond)
+	cPTY2.mu.Lock()
+	require.False(t, cPTY2.plans[0].Controller, "second client must not receive controller lease without takeover")
+	cPTY2.mu.Unlock()
+
+	// Controller 1 writes input successfully.
+	cPTY.send(ClientFrame{Type: "input", Gen: planPTY.Generation, ID: 1, Data: []byte("echo fenced-ok\n")})
+	require.Eventually(t, func() bool {
+		pane, err := m.TerminalHost().CapturePane(ctx, termPTY)
+		return err == nil && strings.Contains(pane, "fenced-ok")
+	}, waitFor, 20*time.Millisecond)
+
+	// 6. Kill / Teardown:
+	// Stop all sessions cleanly.
+	require.NoError(t, m.TerminalHost().KillSession(ctx, termLegacy))
+	require.NoError(t, m.TerminalHost().KillSession(ctx, termPTY))
+	require.NoError(t, m.Host().KillSession(ctx, agentLegacy))
+
+	require.False(t, m.TerminalHost().HasSession(ctx, termLegacy))
+	require.False(t, m.TerminalHost().HasSession(ctx, termPTY))
+	require.False(t, m.Host().HasSession(ctx, agentLegacy))
+}
