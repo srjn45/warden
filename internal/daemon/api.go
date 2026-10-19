@@ -41,6 +41,7 @@ import (
 	"github.com/srjn45/warden/internal/promptengine"
 	"github.com/srjn45/warden/internal/ptyevent"
 	"github.com/srjn45/warden/internal/ptyhost"
+	"github.com/srjn45/warden/internal/ptyobs"
 	"github.com/srjn45/warden/internal/relay"
 	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/schedule"
@@ -136,6 +137,13 @@ type Server struct {
 	pty *ptyhost.Manager
 	// classifier is the event-driven activity/quiescence state classifier (t3).
 	classifier *stateclassifier.Classifier
+	// ptyTrace is the per-session decision trace; ptyMetrics the bounded-label
+	// PTY metrics registry (t7). traceMax/traceAgeDays are the live retention
+	// limits (runtime.trace_max_records / trace_max_age_days; 0 = defaults).
+	ptyTrace     *ptyobs.Trace
+	ptyMetrics   *ptyobs.Metrics
+	traceMax     int
+	traceAgeDays int
 	// promptEngine answers classified prompts for runtime-backed sessions
 	// (nil until Run wires it).
 	promptEngine *promptengine.Engine

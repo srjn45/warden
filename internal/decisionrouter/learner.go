@@ -178,6 +178,16 @@ type Learner struct {
 	Fixtures FixtureStore
 	Policy   ptyevent.ShapePolicy
 	Clock    func() time.Time
+	// Outcome, when set, is told each lifecycle outcome (candidate, pinned,
+	// rejected, regression_failed) with the backend id, for metrics. It must not
+	// block and receives no prompt content.
+	Outcome func(backend, outcome string)
+}
+
+func (l *Learner) report(backend, outcome string) {
+	if l.Outcome != nil {
+		l.Outcome(backend, outcome)
+	}
 }
 
 func (l *Learner) now() time.Time {
@@ -231,6 +241,9 @@ func (l *Learner) Observe(req ClassifyRequest, res ClassifyResult) error {
 		}
 	}
 	_, err = l.Shapes.AttachFixture(res.CandidateShape.Fingerprint, fx.ID)
+	if err == nil {
+		l.report(fx.Backend, "candidate")
+	}
 	return err
 }
 
@@ -326,9 +339,11 @@ func (l *Learner) Promote(ctx context.Context, fp, cliVersion string, kind ptyev
 		for _, id := range sh.Fixtures {
 			fx, err := l.Fixtures.Load(id)
 			if err != nil {
+				l.report(sh.Backend, "regression_failed")
 				return sh, fmt.Errorf("fixture %s: %w", id, err)
 			}
 			if err := fx.Replay(ctx, now); err != nil {
+				l.report(sh.Backend, "regression_failed")
 				return sh, err
 			}
 		}
@@ -336,10 +351,18 @@ func (l *Learner) Promote(ctx context.Context, fp, cliVersion string, kind ptyev
 	if sh.Status == ptyevent.ShapeCandidate {
 		var err error
 		if sh, err = l.Shapes.Validate(sh.ID, now, l.policy()); err != nil {
+			l.report(sh.Backend, "rejected")
 			return sh, err
 		}
+		l.report(sh.Backend, "validated")
 	}
-	return l.Shapes.Pin(sh.ID, now, cliVersion, kind, scopeID, ttl, l.policy())
+	pinned, err := l.Shapes.Pin(sh.ID, now, cliVersion, kind, scopeID, ttl, l.policy())
+	if err != nil {
+		l.report(sh.Backend, "rejected")
+		return pinned, err
+	}
+	l.report(sh.Backend, "pinned")
+	return pinned, nil
 }
 
 // RegressionCheck replays every stored fixture and reports the first drift.
@@ -354,6 +377,7 @@ func (l *Learner) RegressionCheck(ctx context.Context) error {
 	now := l.now()
 	for _, fx := range all {
 		if err := fx.Replay(ctx, now); err != nil {
+			l.report(fx.Backend, "regression_failed")
 			return err
 		}
 	}

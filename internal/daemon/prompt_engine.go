@@ -15,6 +15,7 @@ import (
 	"github.com/srjn45/warden/internal/decisionrouter"
 	"github.com/srjn45/warden/internal/promptengine"
 	"github.com/srjn45/warden/internal/ptyhost"
+	"github.com/srjn45/warden/internal/ptyobs"
 )
 
 // wirePromptEngine connects the state classifier's prompt reports to the
@@ -45,7 +46,8 @@ func (s *Server) wirePromptEngine() {
 		Consultor:  s.brainConsultor,
 		HumanInbox: promptengine.HumanNotifier{Notify: s.notify},
 	})
-	learner := &decisionrouter.Learner{Shapes: shapes, Fixtures: fixtures}
+	learner := &decisionrouter.Learner{Shapes: shapes, Fixtures: fixtures,
+		Outcome: func(backend, outcome string) { s.ptyMetrics.Inc(ptyobs.MLearnedShape, backend, outcome) }}
 
 	rt := &ptyRuntime{m: s.pty}
 	eng := promptengine.New(promptengine.Config{
@@ -66,6 +68,8 @@ func (s *Server) wirePromptEngine() {
 		},
 		CLIVersion: newVersionProbe().Version,
 		Notify:     s.notify,
+		Trace:      s.openDecisionTrace(),
+		Metrics:    s.ptyMetrics,
 	}, rt, s.store, router, classif, learner)
 	s.promptEngine = eng
 	s.classifier.OnPrompt = eng.OnPrompt

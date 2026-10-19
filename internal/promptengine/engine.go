@@ -14,6 +14,7 @@ import (
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/decisionrouter"
 	"github.com/srjn45/warden/internal/ptyevent"
+	"github.com/srjn45/warden/internal/ptyobs"
 	"github.com/srjn45/warden/internal/ptyruntime"
 	"github.com/srjn45/warden/internal/tmuxproc"
 )
@@ -57,6 +58,10 @@ type Config struct {
 	Backend func(*agentstore.Agent) agentbackend.Backend
 	// CLIVersion reports the installed CLI version for learned-shape pinning.
 	CLIVersion func(backendID string) string
+	// Trace, when set, receives a redacted record for every attempt/outcome.
+	Trace *ptyobs.Trace
+	// Metrics, when set, counts prompts, decisions and escalations (bounded labels).
+	Metrics *ptyobs.Metrics
 	// Notify is called when an outcome should refresh clients.
 	Notify func()
 	Clock  func() time.Time
@@ -176,10 +181,13 @@ func (e *Engine) handle(ctx context.Context, name string, p *ptyevent.Prompt) {
 		e.learner.ParserAgreement(p)
 	}
 	req := e.routeRequest(ag, name, tgt, p)
+	started := e.cfg.Clock()
+	e.countPrompt(req.BackendID, req.CLIVersion, p)
 	res, err := e.router.Route(ctx, req)
 	if err != nil {
 		slog.Warn("promptengine: route failed", "session", name, "err", err)
 	}
+	e.observe(attempt{session: name, ag: ag, req: req, started: started, prompt: p}, res, err)
 	e.record(name, p, res, err)
 	if e.cfg.Notify != nil {
 		e.cfg.Notify()
@@ -302,10 +310,23 @@ func (e *Engine) handleUnreadable(ctx context.Context, name, screen string) {
 		Screen: screen, Backend: b, BackendID: req.BackendID, CLIVersion: req.CLIVersion,
 		SessionID: name, ProjectID: ag.Workdir, Workdir: ag.Workdir, AgentID: ag.ID, Now: e.cfg.Clock(),
 	}
+	started := e.cfg.Clock()
 	cres, err := e.classif.Classify(ctx, creq)
 	if err != nil || cres.IsInformational || cres.Prompt == nil {
+		if err == nil && cres.IsInformational {
+			return
+		}
+		// A blocking screen nothing could read: measured, traced, escalated.
+		reason := "no parser or learned shape recognized the prompt format"
+		if err != nil {
+			reason = "prompt recognition failed"
+		}
+		e.countUnrecognized(req.BackendID, req.CLIVersion)
+		e.observe(attempt{session: name, ag: ag, req: req, started: started, unreadable: reason},
+			decisionrouter.RouteResult{}, nil)
 		return
 	}
+	e.countPrompt(req.BackendID, req.CLIVersion, cres.Prompt)
 	if e.learner != nil {
 		if lerr := e.learner.Observe(creq, cres); lerr != nil {
 			slog.Warn("promptengine: learner observe failed", "session", name, "err", lerr)
@@ -316,6 +337,7 @@ func (e *Engine) handleUnreadable(ctx context.Context, name, screen string) {
 	// A fastbrain/learned reading is not state-machine evidence yet, so the
 	// router's live check (labels re-located, target visible) is the guard.
 	res, rerr := e.router.Route(ctx, req)
+	e.observe(attempt{session: name, ag: ag, req: req, started: started, prompt: cres.Prompt}, res, rerr)
 	e.record(name, cres.Prompt, res, rerr)
 	if e.cfg.Notify != nil {
 		e.cfg.Notify()

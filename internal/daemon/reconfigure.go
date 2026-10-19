@@ -93,6 +93,7 @@ func (s *Server) ApplyConfig(cfg config.Config) {
 	if s.pty != nil {
 		s.pty.SetMode(ptyhost.ParseMode(cfg.Runtime.PTY))
 	}
+	s.SetTraceLimits(cfg.Runtime.TraceMaxRecords, cfg.Runtime.TraceMaxAgeDays)
 	// Public OpenAPI docs route gate.
 	s.SetAPIDocs(cfg.ApiDocs)
 	// Scheduler ROUTE gate (403 when off) — a single bool, set like SetAPIDocs.

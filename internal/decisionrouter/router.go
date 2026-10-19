@@ -149,13 +149,16 @@ func (r *Router) Route(ctx context.Context, req RouteRequest) (RouteResult, erro
 		AllowStanding: req.AllowlistPolicy.AllowSticky,
 	})
 
+	res.Route = "posture"
 	// 5. Strategic decisions routing
 	if dec.Action == ptyevent.ActionRouteDecision || prompt.Class == ptyevent.ClassDecision {
 		if req.IsAutopilot || req.RunID != "" {
 			// Autopilot runs route to Tier-1 manager / brain consult
+			res.Route = "brain"
 			dec = r.routeToBrainConsult(ctx, req, prompt)
 		} else {
 			// Plain agents & pipeline jobs route to human approval/inbox UI
+			res.Route = "human"
 			dec = r.routeToHumanInbox(ctx, req, prompt)
 		}
 	}
