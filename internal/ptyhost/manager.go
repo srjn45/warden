@@ -66,12 +66,14 @@ type watch struct {
 	stop chan struct{}
 }
 
-// Stream is a journaled session the §6 transport can serve.
+// Stream is a journaled session the §6 transport and classifiers can serve.
 type Stream interface {
 	ID() string
 	Epoch() uint64
 	Journal() *ptyruntime.Journal
 	Subscribe(ptyevent.Cursor) *ptyruntime.Subscription
+	Screen() string
+	Emit(ptyevent.Event) (uint64, error)
 }
 
 // Target is what Lookup resolves a session name to.
@@ -145,6 +147,16 @@ func (m *Manager) Lookup(name string) (Target, bool) {
 		return Target{Name: name, Presentation: ptyevent.PresentationTmux, Stream: mr}, true
 	}
 	return Target{}, false
+}
+
+// IsAuthoritative reports whether the runtime owns the authoritative status
+// for name (mode on and name has a runtime-backed stream).
+func (m *Manager) IsAuthoritative(name string) bool {
+	if m == nil || m.Mode() != ModeOn {
+		return false
+	}
+	_, ok := m.Lookup(name)
+	return ok
 }
 
 // Direct returns the direct PTY session for name (nil if it is not hosted

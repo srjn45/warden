@@ -221,3 +221,33 @@ func TestDirectTerminalExitDoesNotFightTheWatcher(t *testing.T) {
 	defer mu.Unlock()
 	require.Equal(t, 1, transitions, "exactly one orphaned transition")
 }
+
+func TestPTYRuntimeWiresClassifierAndPollerAuthoritative(t *testing.T) {
+	srv, m, _, fs := ptyServer(t, ptyhost.ModeOn)
+	pl := poller.New(nil, time.Minute)
+	srv.poller = pl
+	srv.SetPTYRuntime(m)
+
+	require.NotNil(t, srv.Classifier(), "classifier must be instantiated")
+	require.NotNil(t, pl.Authoritative, "poller Authoritative guard must be set")
+
+	ctx := context.Background()
+	require.NoError(t, m.TerminalHost().NewSession(ctx, "T-1", t.TempDir()))
+	_ = fs.Insert(ctx, &agentstore.Agent{ID: "T-1", TmuxSession: "T-1"})
+
+	// ModeOn makes T-1 authoritative.
+	require.True(t, pl.Authoritative("T-1"))
+
+	// OnPTYEvent dispatches to classifier.
+	srv.onPTYEvent("T-1", ptyevent.Event{
+		Kind: ptyevent.KindLifecycle,
+		Lifecycle: &ptyevent.Lifecycle{
+			Phase: ptyevent.PhaseSpawned,
+			PID:   1234,
+		},
+	})
+	snap, ok := srv.Classifier().CurrentState("T-1")
+	require.True(t, ok)
+	require.Equal(t, ptyevent.StateWaiting, snap.State)
+	require.Equal(t, ptyevent.ReasonStartup, snap.Reason)
+}
