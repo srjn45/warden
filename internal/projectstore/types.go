@@ -47,6 +47,9 @@ type Project struct {
 	ID string `json:"id"`
 	// Name is the human-friendly display name.
 	Name string `json:"name"`
+	// PermissionPosture is an optional project-level default for newly spawned
+	// agents. Per-agent and role choices take precedence; empty inherits global.
+	PermissionPosture string `json:"permission_posture,omitempty"`
 	// Path is the local absolute path of the project's main checkout in the
 	// workspace (may be empty for a remote not yet cloned — filled in by Phase 2).
 	Path string `json:"path"`

@@ -76,7 +76,7 @@ func (s *Server) approvalView(sess *agentstore.Agent, pane string) approval.View
 	if !ok || ap == nil {
 		return approval.View{ID: id, Recognized: false}
 	}
-	return approval.View{
+	v := approval.View{
 		ID:          id,
 		Action:      ap.Action,
 		Question:    ap.Question,
@@ -84,6 +84,8 @@ func (s *Server) approvalView(sess *agentstore.Agent, pane string) approval.View
 		Fingerprint: approval.Fingerprint(ap.Options),
 		Recognized:  true,
 	}
+	s.decorateApproval(&v, sess)
+	return v
 }
 
 // ListSessions implements GET /api/v1/sessions. store.List returns pointers; the

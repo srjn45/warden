@@ -587,6 +587,7 @@ guardian tick `interval`.
 | `metrics` | `true` | Record per-agent metrics to disk |
 | `pipeline.keep_done` / `pipeline.hint` | `false` / `true` | Keep a job's agent after completion / append the decomposition hint |
 | `pipeline.brain_consult` | `true` | Per-pipeline override for brain consult. Set `false` to silence brain consult for every job in this pipeline (global `brain_consult.enabled` still wins if false) |
+| `runtime.pty` | `off` | Warden-owned PTY runtime (see §40): `off` = tmux only, no journal; `shadow` = tmux panes unchanged, output mirrored into a redacted, replayable per-session event journal (`pipe-pane`), observe-only; `on` = shadow plus plain-shell terminals hosted directly on a warden PTY. Hot-reloaded; applies to sessions created afterwards |
 | `brain_consult.enabled` | `true` | Global kill-switch for pipeline stuck-job brain consult. Set `false` to disable all consults across all pipelines |
 | `brain_consult.timeout` | `10m` | Per-consult deadline (Go duration string). The spawned `role=brain` agent is torn down unconditionally when this window elapses |
 | `brain_consult.max_concurrent` | `1` | Maximum simultaneous brain-consult agents across all pipelines. Default 1 — one consult at a time is almost always correct |
@@ -1901,4 +1902,69 @@ Redesigns `wd update` into a data-safe, planned upgrade process:
 - **Update transaction snapshot & rollback (`wd rollback`)**: creates transactional hardlink/reflink backups in `<data>/backups/pre-<ver>-<ts>/` before mutating binary or data; rolls back automatically on healthz failure or manually with confirmation; retains last 2 updates or 14 days.
 - **Whole-store repair (`warden repair all --resolve-history=live-wins`)**: verifies and repairs all ScrivaDB stores with live-wins resolution and quarantined backup manifests.
 - **Install parity (`warden init`)**: single shared code path for fresh initialization and legacy upgrades between `scripts/install.sh` and the CLI.
+
+## 40. PTY runtime (`runtime.pty`)
+
+The event-driven replacement for capture-pane polling
+([`docs/specs/2026-10-19-pty-runtime-contract.md`](specs/2026-10-19-pty-runtime-contract.md)),
+rolled out behind `runtime.pty: off|shadow|on` (default `off` — no behavior change).
+
+- **Journal.** Every runtime-backed session gets an append-only JSONL event log under
+  `<data_dir>/pty/{direct,shadow}/<id>` (`internal/ptyruntime`): `output`, `input`,
+  `resize`, `lifecycle` and `marker` events with a session-wide `seq` and a per-process
+  `epoch`, redacted **before** they are written (typed secret kinds become
+  `[REDACTED:<kind>]`; secret input is journaled as its length only). Snapshot markers
+  every 256 KiB of output and on clean detach let a client resume without the full
+  history; retention trims whole snapshot-led segments.
+- **Shadow (M1).** For every new tmux pane the daemon runs `tmux pipe-pane -O` into a
+  FIFO and mirrors the bytes through the same writer pipeline (`ptyruntime.Mirror`).
+  The launch path is unchanged and nothing is written to the pane; the pollers stay
+  authoritative. A pane that dies is reaped within seconds (`lifecycle{exited}`); after
+  a daemon restart live panes are re-adopted on epoch+1 (`recovered`, `reset`, a
+  snapshot seeded from the live screen).
+- **On.** Shadow for agents, plus plain-shell terminals (`kind=terminal`) hosted
+  directly on a warden-owned PTY (`internal/ptyhost`): launch, input, capture, resize,
+  teardown and restart recovery (the next daemon respawns the shell on the same journal
+  under a new epoch). `/attach`, session input and output route to it; tmux attach does
+  not exist for such a terminal.
+- **Stream.** `GET /api/v1/sessions/{id}/pty` (WebSocket, §6 of the spec):
+  `hello{cursor?, mode, cols, rows, client_id?}` → `plan{mode, head, …}` → redacted
+  replay → live events; `ack{seq}` checkpoints, `resize`, `reject`/`resync`. Interactive
+  clients of a direct terminal also receive the live raw bytes and type as `human`
+  (input ownership: human always wins). Shadow sessions and read-only tokens are
+  observe-only.
+- **Consumers.** The daemon subscribes to every stream (`ptyhost.Manager.Observe`) and,
+  for now, only refreshes SSE on lifecycle changes and moves an exited direct terminal
+  to `orphaned` with the watcher's compare-and-swap; classification from the stream is
+  the next step (t3).
+- **Adapter integration (t6).** The state classifier's `OnPrompt`/`OnUnreadable` hooks feed
+  `internal/promptengine`, which normalizes each parsed approval through the adapter's
+  `PromptShaper` (`internal/decisionrouter/normalize.go`; Antigravity states capability,
+  target, option semantics and cancel path explicitly, anything unrecognised falls back to
+  conservative heuristics and fails to `needs_attention`), then runs the t4 router
+  (`Decide → Revalidate → Arbitrate → write`). Revalidation re-reads the live screen, so
+  a stale, changed or moved prompt is never answered. In `shadow` the engine is a dry
+  run (decisions are journaled, nothing is typed); in `on` it answers, with
+  `dangerously-execute-all` launching agy in its native bypass mode and still handling
+  the residual permission and workspace-trust prompts. Strategic menus (plans, "which
+  approach?") are decision-class and never auto-approved. Unknown formats go to Fast-Brain
+  on a redacted screen; its candidates become **learned shapes** (scoped, versioned,
+  expiring, confidence-gated, persisted under `<data_dir>/pty/learned/`) only after
+  deterministic fixture replay and a parser/human agreement. Posture→native-mode
+  mapping is audited for all eight backends (`agentbackend.SupportForPosture`);
+  unsupported mappings (e.g. `allowlisted`) are explicitly degraded, with the router
+  enforcing the posture from the prompt stream. No new API or CLI surface.
+
+### 40.1 Observability (t7)
+
+See [`docs/PTY_OBSERVABILITY.md`](PTY_OBSERVABILITY.md). Live runtime status
+(`GET /sessions/{id}/runtime`, `warden inspect pty runtime`, MCP `session_runtime`): stream
+state, typed waiting reason, evidence, input owner, decision route, effective posture and
+the pending permission summary. A redacted, append-only per-session decision trace
+(`GET /sessions/{id}/decisions`, `warden inspect pty decisions`, MCP `session_decisions`)
+bounded by `runtime.trace_max_records` / `runtime.trace_max_age_days`. Stable
+`warden_pty_*` metrics (`/pty/metrics`, `/pty/metrics.prom`, `warden inspect pty metrics`,
+MCP `pty_metrics`) with closed label vocabularies; alerts and a dashboard in
+`deploy/observability/`. `dangerously-execute-all` shows a DANGER banner on the TUI, web
+and approval views. Strategic prompts are never auto-answered; only permission/trust ones.
 

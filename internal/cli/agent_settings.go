@@ -11,6 +11,7 @@ import (
 )
 
 var permissionModeChoices = []string{"acceptEdits", "auto", "bypassPermissions", "default", "dontAsk", "plan"}
+var permissionPostureChoices = []string{"read-only", "read-write", "allowlisted", "dangerously-execute-all"}
 
 // agentSetting is one per-agent setting reachable through `agent set` / `agent get`.
 // run delegates to the legacy command's RunE so both paths share one client call.
@@ -22,15 +23,21 @@ type agentSetting struct {
 }
 
 type settingSnapshot struct {
-	PermissionMode string
-	Compact        string
-	Role           string
-	AutoApprove    string
+	PermissionMode    string
+	PermissionPosture string
+	Compact           string
+	Role              string
+	AutoApprove       string
 }
 
 var agentSettings = []agentSetting{
 	{"permission-mode", func() []string { return permissionModeChoices }, newSetPermissionModeCmd,
 		func(s settingSnapshot) string { return s.PermissionMode }},
+	{"permission-posture", func() []string { return permissionPostureChoices }, newSetPermissionPostureCmd,
+		func(s settingSnapshot) string { return s.PermissionPosture }},
+	// The native permission-mode command remains the compatibility surface.
+	// Posture is displayed explicitly so operators never mistake auto-approve
+	// participation for an authority grant.
 	{"compact", func() []string { return []string{"on", "off", "inherit"} }, newForceCompactCmd,
 		func(s settingSnapshot) string { return s.Compact }},
 	{"role", func() []string { return role.Names() }, newSetRoleCmd,
@@ -59,11 +66,12 @@ func findAgentSetting(key string) (agentSetting, error) {
 func newAgentSetCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "set <AGENT> <key> <value>",
-		Short: "Change one per-agent setting (permission-mode, compact, role, auto-approve)",
+		Short: "Change one per-agent setting (including permission-posture)",
 		Long: `Change one per-agent setting. Each key runs the same code path as its older command.
 
 Keys and values:
   permission-mode  ` + strings.Join(permissionModeChoices, " | ") + `
+  permission-posture ` + strings.Join(permissionPostureChoices, " | ") + `
   compact          on | off | inherit
   role             ` + strings.Join(role.Names(), " | ") + `
   auto-approve     on | off
@@ -76,6 +84,7 @@ Warnings:
 
 Examples:
   warden agent set abc123 permission-mode acceptEdits
+  warden agent set abc123 permission-posture dangerously-execute-all
   warden agent set abc123 compact inherit
   warden agent set abc123 role reviewer
   warden agent set abc123 auto-approve on
@@ -109,7 +118,7 @@ func newAgentGetCmd() *cobra.Command {
 	var asJSON bool
 	cmd := &cobra.Command{
 		Use:   "get <AGENT> [key]",
-		Short: "Show one or all per-agent settings (permission-mode, compact, role, auto-approve)",
+		Short: "Show one or all per-agent settings, including permission-posture",
 		Long: `Show the current value of one or all per-agent settings, read from the agent's
 status record.
 
@@ -138,10 +147,11 @@ Examples:
 				return err
 			}
 			snap := settingSnapshot{
-				PermissionMode: sess.PermissionMode,
-				Compact:        "inherit",
-				Role:           sess.Role,
-				AutoApprove:    "off",
+				PermissionMode:    sess.PermissionMode,
+				PermissionPosture: string(sess.PermissionPosture),
+				Compact:           "inherit",
+				Role:              sess.Role,
+				AutoApprove:       "off",
 			}
 			if snap.Role == "" {
 				snap.Role = "general"
@@ -151,6 +161,9 @@ Examples:
 			}
 			if sess.AutoApprove {
 				snap.AutoApprove = "on"
+			}
+			if snap.PermissionPosture == "" {
+				snap.PermissionPosture = "allowlisted (legacy)"
 			}
 			out := cmd.OutOrStdout()
 			if want != nil {

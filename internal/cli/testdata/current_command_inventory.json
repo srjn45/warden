@@ -382,6 +382,7 @@
       "model",
       "name",
       "permission-mode",
+      "permission-posture",
       "plan",
       "pr",
       "preset",
@@ -2081,6 +2082,55 @@
     "json": true
   },
   {
+    "path": "inspect pty",
+    "use": "pty",
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
+    "path": "inspect pty decisions",
+    "use": "decisions \u003cid\u003e",
+    "runnable": true,
+    "local_flags": [
+      "json",
+      "limit",
+      "outcome"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "inspect pty metrics",
+    "use": "metrics",
+    "runnable": true,
+    "local_flags": [
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "inspect pty runtime",
+    "use": "runtime \u003cid\u003e",
+    "runnable": true,
+    "local_flags": [
+      "json"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
     "path": "inspect repair",
     "use": "repair",
     "inherited_flags": [
@@ -2232,6 +2282,7 @@
       "in-repo",
       "model",
       "permission-mode",
+      "permission-posture",
       "supervised",
       "type",
       "worktree"
@@ -3302,6 +3353,7 @@
       "in-repo",
       "model",
       "permission-mode",
+      "permission-posture",
       "supervised",
       "type",
       "worktree"
@@ -3346,6 +3398,7 @@
       "in-repo",
       "model",
       "permission-mode",
+      "permission-posture",
       "supervised",
       "type",
       "worktree"
@@ -3425,6 +3478,7 @@
       "in-repo",
       "model",
       "permission-mode",
+      "permission-posture",
       "supervised",
       "type",
       "worktree"
@@ -4180,6 +4234,16 @@
     ]
   },
   {
+    "path": "set-permission-posture",
+    "use": "set-permission-posture \u003cAGENT\u003e \u003cposture\u003e",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
     "path": "set-role",
     "use": "set-role \u003cAGENT\u003e \u003crole\u003e",
     "hidden": true,
@@ -4289,6 +4353,7 @@
       "model",
       "name",
       "permission-mode",
+      "permission-posture",
       "plan",
       "pr",
       "preset",

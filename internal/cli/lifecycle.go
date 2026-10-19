@@ -164,6 +164,7 @@ maturity labels: see 'warden backend --help'.`,
 				name, _ := cmd.Flags().GetString("name")
 				supervised, _ := cmd.Flags().GetBool("supervised")
 				permissionMode := stringFlagOr(cmd, "permission-mode", pre.PermissionMode)
+				permissionPosture := stringFlagOr(cmd, "permission-posture", string(pre.PermissionPosture))
 				// --supervised is an alias for --permission-mode acceptEdits
 				if supervised && permissionMode == "" {
 					permissionMode = "acceptEdits"
@@ -181,7 +182,7 @@ maturity labels: see 'warden backend --help'.`,
 					}
 				}
 				planID, _ := cmd.Flags().GetString("plan")
-				s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{Name: name, Prompt: prompt, Cwd: dir, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model, AiCli: aiCli, Backend: aiCli, Kind: kind, Tags: parseTags(tagsFlag), Role: roleName, Tier: tier, Task: taskName, ProjectID: projectID, PlanID: planID, ParentID: os.Getenv("WARDEN_SESSION_ID")})
+				s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{Name: name, Prompt: prompt, Cwd: dir, PermissionMode: permissionMode, PermissionPosture: permissionPosture, AutoRestart: autoRestart, Force: force, Model: model, AiCli: aiCli, Backend: aiCli, Kind: kind, Tags: parseTags(tagsFlag), Role: roleName, Tier: tier, Task: taskName, ProjectID: projectID, PlanID: planID, ParentID: os.Getenv("WARDEN_SESSION_ID")})
 				if err != nil {
 					var cre *client.ErrConfirmationRequired
 					if errors.As(err, &cre) {
@@ -215,6 +216,7 @@ maturity labels: see 'warden backend --help'.`,
 			inRepo := boolFlagOr(cmd, "in-repo", pre.InRepo)
 			supervised, _ := cmd.Flags().GetBool("supervised")
 			permissionMode := stringFlagOr(cmd, "permission-mode", pre.PermissionMode)
+			permissionPosture := stringFlagOr(cmd, "permission-posture", string(pre.PermissionPosture))
 			// --supervised is an alias for --permission-mode acceptEdits
 			if supervised && permissionMode == "" {
 				permissionMode = "acceptEdits"
@@ -239,7 +241,7 @@ maturity labels: see 'warden backend --help'.`,
 			}
 			planID, _ := cmd.Flags().GetString("plan")
 			s, err := clientFor(cmd).Spawn(cmd.Context(), client.SpawnParams{
-				Name: name, Type: typ, Ticket: ticket, Repo: repo, Branch: branch, PR: pr, Worktree: worktree, InRepo: inRepo, PermissionMode: permissionMode, AutoRestart: autoRestart, Force: force, Model: model, AiCli: aiCli, Backend: aiCli, Tags: parseTags(tagsFlag), ForkFrom: forkFrom, Role: roleName, Tier: tier, Task: taskName, ProjectID: projectID, PlanID: planID, ParentID: os.Getenv("WARDEN_SESSION_ID"),
+				Name: name, Type: typ, Ticket: ticket, Repo: repo, Branch: branch, PR: pr, Worktree: worktree, InRepo: inRepo, PermissionMode: permissionMode, PermissionPosture: permissionPosture, AutoRestart: autoRestart, Force: force, Model: model, AiCli: aiCli, Backend: aiCli, Tags: parseTags(tagsFlag), ForkFrom: forkFrom, Role: roleName, Tier: tier, Task: taskName, ProjectID: projectID, PlanID: planID, ParentID: os.Getenv("WARDEN_SESSION_ID"),
 			})
 			if err != nil {
 				var cre *client.ErrConfirmationRequired
@@ -272,6 +274,7 @@ maturity labels: see 'warden backend --help'.`,
 	cmd.Flags().Bool("supervised", false, "alias for --permission-mode acceptEdits (kept for backwards compatibility)")
 	_ = cmd.Flags().MarkHidden("supervised")
 	cmd.Flags().String("permission-mode", "", "permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan (default: from config or 'auto')")
+	cmd.Flags().String("permission-posture", "", "Warden prompt authority: read-only|read-write|allowlisted|dangerously-execute-all (default: role/config/legacy-mode mapping)")
 	cmd.Flags().Bool("auto-restart", false, "auto-resume this agent if it crashes (errored), capped at a few attempts")
 	cmd.Flags().Bool("force", false, "spawn even when the memory-pressure gate warns")
 	cmd.Flags().String("model", "", "model ID for the chosen AI CLI (requires --aicli). Empty lets the tier resolver pick an explicit model")

@@ -17,6 +17,7 @@ import (
 	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/plansync"
 	"github.com/srjn45/warden/internal/projectstore"
+	"github.com/srjn45/warden/internal/ptyevent"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -1202,16 +1203,24 @@ func detailBody(s *store.Session, sel, width int) string {
 	}
 
 	var b strings.Builder
+	if s.PermissionPosture == ptyevent.PostureDangerouslyExecuteAll {
+		b.WriteString(dangerBanner() + "\n")
+	}
 	label, st := badge(s.Status, s.ExitCode)
 	permMode := s.PermissionMode
 	if permMode == "" {
 		permMode = "default"
 	}
+	posture := string(s.PermissionPosture)
+	if posture == "" {
+		posture = "allowlisted (legacy)"
+	}
 	title := s.ID
 	if s.Name != "" {
 		title = s.ID + " (" + s.Name + ")"
 	}
-	b.WriteString(stPaneTitle.Render(title) + "  " + st.Render(label) + " · " + permMode + "\n\n")
+	b.WriteString(stPaneTitle.Render(title) + "  " + st.Render(label) + " · " + posture + "\n")
+	b.WriteString(stMuted.Render("launch mode: ") + permMode + "\n\n")
 
 	// controls — the three per-agent overrides/actions (interactive when sel >= 0).
 	b.WriteString(stPaneTitle.Render("controls") + "\n")
@@ -1467,7 +1476,16 @@ func approvalsBody(rec []approval.View, cursor, width int) string {
 	if len(rec) > 1 {
 		b.WriteString(stMuted.Render(fmt.Sprintf("%d of %d waiting (tab for next)", cursor+1, len(rec))) + "\n")
 	}
+	if v.Danger {
+		b.WriteString(dangerBanner() + "\n")
+	}
 	b.WriteString(stPaneTitle.Render(v.ID) + "\n")
+	if v.Summary != nil && v.Summary.Text != "" {
+		b.WriteString(v.Summary.Text + "\n")
+	}
+	if v.Posture != "" || v.Route != "" {
+		b.WriteString(stMuted.Render("posture "+v.Posture+" · route "+v.Route) + "\n")
+	}
 	if v.Question != "" {
 		b.WriteString(v.Question + "\n")
 	}

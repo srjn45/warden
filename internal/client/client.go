@@ -29,6 +29,7 @@ import (
 	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/pressure"
 	"github.com/srjn45/warden/internal/projectstore"
+	"github.com/srjn45/warden/internal/ptyobs"
 	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/schedule"
 	"github.com/srjn45/warden/internal/snapshot"
@@ -434,31 +435,32 @@ func (c *Client) Get(ctx context.Context, id string) (*store.Session, error) {
 // SpawnParams mirrors the daemon's /spawn body (kept in the client package so
 // the CLI and MCP server don't import the daemon package).
 type SpawnParams struct {
-	Type           string
-	Ticket         string
-	Name           string
-	Repo           string
-	Branch         string
-	PR             string
-	Worktree       bool
-	InRepo         bool
-	Prompt         string
-	Cwd            string
-	PermissionMode string
-	AutoRestart    bool
-	Force          bool
-	Model          string
-	AiCli          string // canonical AI CLI id; preferred over Backend
-	Backend        string // deprecated alias for AiCli
-	Kind           string // "" / "agent" ⇒ AI agent; "terminal" ⇒ plain ${SHELL:-bash} pane (ai_cli/model/role/prompt ignored)
-	Tags           []string
-	ParentID       string
-	ProjectID      string // id of the project this session joins; empty = daemon resolves it by path-match to an open project
-	PlanID         string // optional back-ref to a planstore plan in the same project; empty = planless
-	ForkFrom       string // id of an existing agent whose recorded session to FORK (codex fork); empty = normal spawn
-	Role           string // built-in role name; empty = general (no persona). Persona injected + role defaults fill unset fields.
-	Tier           string // explicit model tier ("tier-1"/"tier-2"/"tier-3") for the quota-balanced resolver; empty = derive from task/role
-	Task           string // task name (task registry) for tier routing via task.TierFor; empty = none
+	Type              string
+	Ticket            string
+	Name              string
+	Repo              string
+	Branch            string
+	PR                string
+	Worktree          bool
+	InRepo            bool
+	Prompt            string
+	Cwd               string
+	PermissionMode    string
+	PermissionPosture string
+	AutoRestart       bool
+	Force             bool
+	Model             string
+	AiCli             string // canonical AI CLI id; preferred over Backend
+	Backend           string // deprecated alias for AiCli
+	Kind              string // "" / "agent" ⇒ AI agent; "terminal" ⇒ plain ${SHELL:-bash} pane (ai_cli/model/role/prompt ignored)
+	Tags              []string
+	ParentID          string
+	ProjectID         string // id of the project this session joins; empty = daemon resolves it by path-match to an open project
+	PlanID            string // optional back-ref to a planstore plan in the same project; empty = planless
+	ForkFrom          string // id of an existing agent whose recorded session to FORK (codex fork); empty = normal spawn
+	Role              string // built-in role name; empty = general (no persona). Persona injected + role defaults fill unset fields.
+	Tier              string // explicit model tier ("tier-1"/"tier-2"/"tier-3") for the quota-balanced resolver; empty = derive from task/role
+	Task              string // task name (task registry) for tier routing via task.TierFor; empty = none
 }
 
 func (c *Client) Spawn(ctx context.Context, p SpawnParams) (*store.Session, error) {
@@ -470,7 +472,7 @@ func (c *Client) Spawn(ctx context.Context, p SpawnParams) (*store.Session, erro
 	body := map[string]any{
 		"type": p.Type, "ticket": p.Ticket, "name": p.Name, "repo": p.Repo,
 		"branch": p.Branch, "pr": p.PR, "worktree": p.Worktree, "in_repo": p.InRepo,
-		"prompt": p.Prompt, "cwd": p.Cwd, "permission_mode": p.PermissionMode,
+		"prompt": p.Prompt, "cwd": p.Cwd, "permission_mode": p.PermissionMode, "permission_posture": p.PermissionPosture,
 		"auto_restart": p.AutoRestart, "force": p.Force,
 		"model": p.Model, "ai_cli": aiCli, "backend": aiCli, "kind": p.Kind, "tags": p.Tags, "parent_id": p.ParentID,
 		"project_id": p.ProjectID, "plan_id": p.PlanID,
@@ -1892,6 +1894,12 @@ func (c *Client) SetPermissionMode(ctx context.Context, id string, mode string) 
 	return c.do(ctx, http.MethodPatch, "/sessions/"+id+"/permission-mode", body, nil)
 }
 
+// SetPermissionPosture sets Warden's explicit permission posture for an agent.
+func (c *Client) SetPermissionPosture(ctx context.Context, id, posture string) error {
+	body := map[string]string{"permission_posture": posture}
+	return c.do(ctx, http.MethodPatch, "/sessions/"+id+"/permission-posture", body, nil)
+}
+
 // RoleInfo is a built-in agent role for a picker (name + one-line description),
 // mirroring the daemon's GET /roles response items.
 type RoleInfo struct {
@@ -2465,4 +2473,42 @@ func (c *Client) StoreHealth(ctx context.Context) (StoreHealth, error) {
 	var h StoreHealth
 	err := c.do(ctx, http.MethodGet, "/store/health", nil, &h)
 	return h, err
+}
+
+// SessionRuntime fetches a session's live PTY-runtime status
+// (GET /sessions/{id}/runtime).
+func (c *Client) SessionRuntime(ctx context.Context, id string) (ptyobs.RuntimeView, error) {
+	var out ptyobs.RuntimeView
+	err := c.do(ctx, http.MethodGet, "/sessions/"+url.PathEscape(id)+"/runtime", nil, &out)
+	return out, err
+}
+
+// SessionDecisions fetches a session's auto-approve decision trace, newest
+// first (GET /sessions/{id}/decisions). limit<=0 and outcome=="" take defaults.
+func (c *Client) SessionDecisions(ctx context.Context, id string, limit int, outcome string) ([]ptyobs.TraceRecord, error) {
+	q := url.Values{}
+	if limit > 0 {
+		q.Set("limit", strconv.Itoa(limit))
+	}
+	if outcome != "" {
+		q.Set("outcome", outcome)
+	}
+	path := "/sessions/" + url.PathEscape(id) + "/decisions"
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	var resp struct {
+		Records []ptyobs.TraceRecord `json:"records"`
+	}
+	if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Records, nil
+}
+
+// PTYMetrics fetches the warden_pty_* metrics snapshot (GET /pty/metrics).
+func (c *Client) PTYMetrics(ctx context.Context) (ptyobs.Snapshot, error) {
+	var out ptyobs.Snapshot
+	err := c.do(ctx, http.MethodGet, "/pty/metrics", nil, &out)
+	return out, err
 }

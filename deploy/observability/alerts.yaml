@@ -1,0 +1,28 @@
+groups:
+  - name: warden-pty
+    rules:
+      - alert: WardenPTYTraceErrors
+        expr: increase(warden_pty_decision_trace_errors_total[15m]) > 0
+        labels: {severity: warning}
+        annotations:
+          summary: "Decision trace writes are failing; decisions are not being recorded"
+      - alert: WardenPTYBackpressure
+        expr: increase(warden_pty_backpressure_total[10m]) > 0
+        labels: {severity: warning}
+        annotations:
+          summary: "A PTY consumer fell behind and the journal recorded a gap"
+      - alert: WardenPTYEscalationSpike
+        expr: sum(increase(warden_pty_escalations_total[30m])) > 20
+        labels: {severity: warning}
+        annotations:
+          summary: "Unusually many prompts are escalating to a human"
+      - alert: WardenPTYUnrecognizedPrompts
+        expr: sum(increase(warden_pty_unrecognized_prompts_total[30m])) > 10
+        labels: {severity: info}
+        annotations:
+          summary: "Prompt formats the adapters do not recognise (possible CLI upgrade)"
+      - alert: WardenPTYReconnectChurn
+        expr: sum(increase(warden_pty_reconnects_total[10m])) > 10
+        labels: {severity: warning}
+        annotations:
+          summary: "PTY sessions are repeatedly re-adopted"

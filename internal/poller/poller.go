@@ -154,8 +154,13 @@ type Poller struct {
 	// detection (classify) and approval parsing (tryAutoApprove). Defaults in New
 	// to the agentbackend registry (with the Claude default for an empty/unknown
 	// id); tests may override it with a fake backend.
-	Backend    func(s *agentstore.Agent) agentbackend.Backend
-	stuckAfter time.Duration
+	Backend func(s *agentstore.Agent) agentbackend.Backend
+	// Authoritative, if set, reports whether an event-driven classifier owns
+	// status for the session. When true, the poller tick skips pane capture and
+	// classification for that session (the classifier is authoritative and the
+	// poller cannot fight it).
+	Authoritative func(tmuxSession string) bool
+	stuckAfter    time.Duration
 	// ActivityEnabled is the explicit operator kill switch for cosmetic
 	// model-generated activity badges. It is intentionally independent of
 	// status, approval, and prompt-recognition behavior.
@@ -1119,6 +1124,12 @@ func (p *Poller) tick(ctx context.Context) error {
 					p.OnTransition(s, s.Status, next)
 				}
 			}
+			continue
+		}
+		if p.Authoritative != nil && p.Authoritative(s.TmuxSession) {
+			// An event-driven state classifier is authoritative for this runtime-backed
+			// session (spec §12 M2). The poller skips pane capture and status
+			// classification so it cannot fight the authoritative state stream.
 			continue
 		}
 		alive := p.deps.SessionAlive(ctx, s.TmuxSession)

@@ -60,6 +60,7 @@ export default defineConfig({
           { label: 'Agent roles', slug: 'guides/agent-roles' },
           { label: 'The TUI cockpit', slug: 'guides/tui-cockpit' },
           { label: 'Web mission control', slug: 'guides/web-mission-control' },
+          { label: 'PTY runtime (event journal)', slug: 'guides/pty-runtime' },
           { label: 'Approvals & supervised mode', slug: 'guides/approvals-supervised' },
           { label: 'Lifecycle commands & rails', slug: 'guides/lifecycle-and-rails' },
           { label: 'Backend superpowers (review & models)', slug: 'guides/backend-superpowers' },

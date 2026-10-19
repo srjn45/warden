@@ -179,6 +179,7 @@ func isStreamingPath(r *http.Request) bool {
 	p := r.URL.Path
 	return strings.HasSuffix(p, "/events/stream") ||
 		strings.HasSuffix(p, "/attach") ||
+		strings.HasSuffix(p, "/pty") ||
 		strings.HasSuffix(p, "/messages/wait")
 }
 

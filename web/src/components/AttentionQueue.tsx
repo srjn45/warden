@@ -49,6 +49,13 @@ export default function AttentionQueue({ sessions, onSelect }: {
             <div className="attn-card-head">
               <b>{s.id}</b> <BusyIdleBadge status={s.status} exitCode={s.exit_code} />
             </div>
+            {v?.danger && (
+              <div className="danger-banner" role="alert">{v.danger_banner || 'DANGER: dangerously-execute-all'}</div>
+            )}
+            {v?.summary?.text && <div className="attn-summary">{v.summary.text}</div>}
+            {v && (v.posture || v.route) && (
+              <div className="muted attn-card-sub">posture {v.posture || '—'} · route {v.route || '—'}</div>
+            )}
             <div className="muted attn-card-sub">
               {(v && (v.action || v.question)) || s.subject || s.prompt || s.type || '—'}
             </div>

@@ -18,6 +18,7 @@ import (
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/plugin"
+	"github.com/srjn45/warden/internal/ptyevent"
 	"github.com/srjn45/warden/internal/role"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/srjn45/warden/internal/terminalstore"
@@ -34,31 +35,32 @@ func spawnRequestFromOAPI(b oapi.SpawnRequest) SpawnRequest {
 		aiCli = strings.TrimSpace(b.Backend)
 	}
 	return SpawnRequest{
-		Type:           b.Type,
-		Ticket:         b.Ticket,
-		Name:           b.Name,
-		Repo:           b.Repo,
-		Branch:         b.Branch,
-		PR:             b.Pr,
-		Worktree:       b.Worktree,
-		InRepo:         b.InRepo,
-		Prompt:         b.Prompt,
-		Cwd:            b.Cwd,
-		PermissionMode: b.PermissionMode,
-		AutoRestart:    b.AutoRestart,
-		Force:          b.Force,
-		Model:          b.Model,
-		Backend:        aiCli, // deprecated alias field kept for lifecycle adapters
-		AiCli:          aiCli,
-		Kind:           string(b.Kind),
-		Tags:           b.Tags,
-		ParentID:       b.ParentId,
-		ProjectID:      b.ProjectId,
-		PlanID:         b.PlanId,
-		ForkFrom:       b.ForkFrom,
-		Role:           resolveRoleCanonical(b.Role, b.Type),
-		Tier:           b.Tier,
-		Task:           b.Task,
+		Type:              b.Type,
+		Ticket:            b.Ticket,
+		Name:              b.Name,
+		Repo:              b.Repo,
+		Branch:            b.Branch,
+		PR:                b.Pr,
+		Worktree:          b.Worktree,
+		InRepo:            b.InRepo,
+		Prompt:            b.Prompt,
+		Cwd:               b.Cwd,
+		PermissionMode:    b.PermissionMode,
+		PermissionPosture: ptyevent.Posture(b.PermissionPosture),
+		AutoRestart:       b.AutoRestart,
+		Force:             b.Force,
+		Model:             b.Model,
+		Backend:           aiCli, // deprecated alias field kept for lifecycle adapters
+		AiCli:             aiCli,
+		Kind:              string(b.Kind),
+		Tags:              b.Tags,
+		ParentID:          b.ParentId,
+		ProjectID:         b.ProjectId,
+		PlanID:            b.PlanId,
+		ForkFrom:          b.ForkFrom,
+		Role:              resolveRoleCanonical(b.Role, b.Type),
+		Tier:              b.Tier,
+		Task:              b.Task,
 	}
 }
 
@@ -558,7 +560,11 @@ func (s *Server) SendInput(ctx context.Context, req oapi.SendInputRequestObject)
 	if req.Body != nil {
 		text = req.Body.Text
 	}
-	if err := s.life.Input(ctx, sess.TmuxSession, text); err != nil {
+	if d := s.directSession(sess.TmuxSession); d != nil {
+		if err := directInput(ctx, d, text); err != nil {
+			return nil, err
+		}
+	} else if err := s.life.Input(ctx, sess.TmuxSession, text); err != nil {
 		return nil, err
 	}
 	s.notify()
@@ -578,6 +584,9 @@ func (s *Server) GetOutput(ctx context.Context, req oapi.GetOutputRequestObject)
 	lines := 200
 	if req.Params.Lines != 0 {
 		lines = req.Params.Lines
+	}
+	if d := s.directSession(sess.TmuxSession); d != nil {
+		return oapi.GetOutput200JSONResponse{Output: directOutput(d, lines)}, nil
 	}
 	out, err := s.life.Output(ctx, sess.TmuxSession, lines)
 	if err != nil {
@@ -738,6 +747,35 @@ func (s *Server) SetPermissionMode(ctx context.Context, req oapi.SetPermissionMo
 	}
 	s.notify()
 	return oapi.SetPermissionMode200JSONResponse{PermissionMode: mode}, nil
+}
+
+// SetPermissionPosture sets the provider-neutral authority used by Warden's
+// decision router. The dangerous posture remains explicit in the API and audit
+// record so it cannot be confused with legacy auto-approve participation.
+func (s *Server) SetPermissionPosture(ctx context.Context, req oapi.SetPermissionPostureRequestObject) (oapi.SetPermissionPostureResponseObject, error) {
+	if req.Body == nil {
+		return nil, errStatus(http.StatusBadRequest, "permission_posture is required")
+	}
+	posture := ptyevent.Posture(req.Body.PermissionPosture)
+	if !posture.Valid() {
+		return nil, errStatus(http.StatusBadRequest, "invalid permission posture")
+	}
+	target, err := s.resolveSession(ctx, req.Id)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.store.Update(ctx, target.ID, func(a *agentstore.Agent) error {
+		a.PermissionPosture = posture
+		return nil
+	}); err != nil {
+		if errors.Is(err, agentstore.ErrNotFound) {
+			return nil, errStatus(http.StatusNotFound, "session not found")
+		}
+		return nil, err
+	}
+	s.notify()
+	s.recordAuditCtx(ctx, audit.ActionPermissionPosture, target.ID, map[string]string{"permission_posture": string(posture)})
+	return oapi.SetPermissionPosture200JSONResponse{PermissionPosture: oapi.SetPermissionPosture200JSONResponseBodyPermissionPosture(posture)}, nil
 }
 
 // SetRole implements PATCH /api/v1/sessions/{id}/role. It validates the role name

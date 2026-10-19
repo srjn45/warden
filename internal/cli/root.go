@@ -167,6 +167,7 @@ func newRootCmd() *cobra.Command {
 	}{
 		{newForceCompactCmd(), "warden agent set"},
 		{newSetPermissionModeCmd(), "warden agent set"},
+		{newSetPermissionPostureCmd(), "warden agent set"},
 		{newSetRoleCmd(), "warden agent set"}, {newRoleCmd(), "warden agent role"},
 		{newRotateCmd(), "warden agent rotate"}, {newHandoffCmd(), "warden agent handoff"},
 		{newSwitchCmd(), "warden agent switch"},

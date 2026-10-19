@@ -27,6 +27,9 @@ func spawnAuditDetail(sess *agentstore.Agent, req SpawnRequest) map[string]strin
 	if req.Type != "" {
 		d["type"] = req.Type
 	}
+	if sess.PermissionPosture != "" {
+		d["permission_posture"] = string(sess.PermissionPosture)
+	}
 	if len(d) == 0 {
 		return nil
 	}
@@ -66,6 +69,10 @@ func (s *Server) validateSpawnRequestOpts(ctx context.Context, req SpawnRequest,
 	if !lifecycle.ValidPermissionMode(req.PermissionMode) {
 		return http.StatusBadRequest, "invalid permission mode " + req.PermissionMode +
 			"; valid: acceptEdits, auto, bypassPermissions, default, dontAsk, plan"
+	}
+	if req.PermissionPosture != "" && !req.PermissionPosture.Valid() {
+		return http.StatusBadRequest, "invalid permission posture " + string(req.PermissionPosture) +
+			"; valid: read-only, read-write, allowlisted, dangerously-execute-all"
 	}
 	// Explicit names: validate format and uniqueness (409 on collision).
 	// Empty names are filled synchronously in prepareSpawnName before Spawn —

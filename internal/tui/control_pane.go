@@ -26,6 +26,7 @@ import (
 	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/plansync"
 	"github.com/srjn45/warden/internal/projectstore"
+	"github.com/srjn45/warden/internal/ptyobs"
 	"github.com/srjn45/warden/internal/role"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -116,6 +117,7 @@ type controlPaneModel struct {
 	apprEnabled        bool                    // approvals config setting on
 	apprCursor         int                     // focused recognized approval (modeApprovals)
 	digest             *digest.Digest          // last fetched digest (modeDigest)
+	runtime            *ptyobs.RuntimeView     // live PTY-runtime view of the agent shown in modeDetails
 	digestID           string                  // agent id the digest is for
 	detailSel          int                     // focused control row in modeDetails (0 auto-approve, 1 force-compact, 2 events)
 	autopilot          client.AutopilotStatus  // last fetched autopilot status
@@ -321,8 +323,17 @@ func (m controlPaneModel) backendRow() (client.Backend, bool) {
 // pipeline-job detail (selected() is nil there); that path keeps its stored body.
 func (m *controlPaneModel) refreshDetail() {
 	if s := m.selected(); s != nil {
-		m.vp.SetContent(detailBody(s, m.detailSel, m.vp.Width))
+		m.vp.SetContent(m.detailContent(s))
 	}
+}
+
+// detailContent is the details body plus, once fetched, the live runtime section.
+func (m controlPaneModel) detailContent(s *store.Session) string {
+	body := detailBody(s, m.detailSel, m.vp.Width)
+	if m.runtime != nil && m.runtime.SessionID == s.ID {
+		body += "\n" + runtimeBody(*m.runtime)
+	}
+	return body
 }
 
 // openEvents switches to the event-list view for the selected agent (control
@@ -1118,6 +1129,15 @@ func (m controlPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.apprCursor = 0
 			}
 			m.repin(prev) // the approvals row appearing/disappearing shifts indices
+		}
+		return m, nil
+	case runtimeMsg:
+		if msg.err == nil {
+			rv := msg.v
+			m.runtime = &rv
+			if m.mode == modeDetails {
+				m.refreshDetail()
+			}
 		}
 		return m, nil
 	case digestMsg:
@@ -2375,8 +2395,10 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case it.session != nil:
 			m.mode = modeDetails
 			m.detailSel = 0
+			m.runtime = nil
 			m.vp.SetContent(detailBody(it.session, m.detailSel, m.vp.Width))
 			m.vp.GotoTop()
+			return m, runtimeCmd(m.api, it.session.ID)
 		case it.pjJob != nil:
 			m.mode = modeDetails
 			m.detailSel = -1 // pipeline-job detail is read-only (no editable overrides)

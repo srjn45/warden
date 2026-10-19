@@ -362,6 +362,92 @@ paths:
           description: Switching Protocols (WebSocket)
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /api/v1/sessions/{id}/pty:
+    get:
+      operationId: streamSessionPty
+      tags: [Sessions]
+      summary: Stream a session's PTY event journal (WebSocket)
+      description: |
+        Upgrades to a WebSocket speaking the PTY runtime attach protocol
+        (docs/specs/2026-10-19-pty-runtime-contract.md §6). Available for
+        sessions started while `runtime.pty` was `shadow` or `on`; otherwise 409
+        (use `/attach`).
+
+        Client text frames: `{"type":"hello","cursor":{"session_id","epoch","seq"}?,"cols","rows","mode":"interactive"|"observe","client_id"?}`
+        (re-sent to resume after a `resync`), `{"type":"resize","cols","rows"}`,
+        `{"type":"ack","seq"}` (a per-client resume checkpoint). Client binary
+        frames are human keystrokes (interactive only).
+
+        Server text frames: `{"type":"plan","plan":{mode,from_seq,head,session_id,epoch,presentation,interactive,client_id}}`,
+        then `{"type":"event","event":{...}}` for every journaled, redacted
+        event in seq order (replay from the cursor, then live), `reject` (attach
+        fresh) and `resync` (re-send hello with the last cursor). Interactive
+        clients of a directly hosted session also get the live, unredacted PTY
+        bytes as binary frames after the replay boundary (`head`). Shadow
+        (tmux-mirrored) sessions and read-only tokens are observe-only. Not a
+        request/response endpoint; a successful handshake returns 101.
+      parameters: [{ $ref: "#/components/parameters/SessionId" }]
+      responses:
+        "101":
+          description: Switching Protocols (WebSocket)
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: The session has no PTY event journal (runtime.pty was off when it started).
+
+  /api/v1/sessions/{id}/runtime:
+    get:
+      operationId: getSessionRuntime
+      tags: [Sessions]
+      summary: Live PTY-runtime status of a session
+      description: |
+        The operator view every client renders: the classifier's live state with
+        its typed waiting reason and evidence trail, who owns the input line
+        (human / operator / warden / free), the effective permission posture
+        (with a `danger` flag and banner for `dangerously-execute-all`), the
+        route and outcome of the latest decision, and a human-readable summary
+        of the permission prompt on screen (capability, target/scope, offered
+        options). `supervised` is false when no event stream backs the session
+        (runtime.pty was off when it started); the posture is still reported.
+      parameters: [{ $ref: "#/components/parameters/SessionId" }]
+      responses:
+        "200":
+          description: Runtime status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PTYRuntimeView" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/sessions/{id}/decisions:
+    get:
+      operationId: listSessionDecisions
+      tags: [Sessions]
+      summary: Per-session auto-approve decision trace (newest first)
+      description: |
+        The append-only, redacted decision trace: one record per auto-approve
+        attempt/outcome with correlation id, prompt fingerprint and shape
+        version, classification, provenance and confidence, extracted
+        capability/scope/options, effective policy, selected action/input,
+        revalidation and arbitration result, latency, route and the
+        rejection/escalation reason. Raw keystrokes and secrets are never stored.
+        Retention is bounded by `runtime.trace_max_records` and
+        `runtime.trace_max_age_days`.
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 1000 } }
+        - { name: since, in: query, description: RFC 3339 lower bound, schema: { type: string, format: date-time } }
+        - name: outcome
+          in: query
+          schema:
+            type: string
+            enum: [approved, denied, dry_run, deferred, escalated_human, needs_attention, routed_brain, error]
+      responses:
+        "200":
+          description: Decision trace
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PTYDecisionList" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /api/v1/cockpit/attach:
     get:
       operationId: attachCockpit
@@ -531,6 +617,41 @@ paths:
                 required: [permission_mode]
                 properties:
                   permission_mode: { type: string }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/sessions/{id}/permission-posture:
+    patch:
+      operationId: setPermissionPosture
+      tags: [Approvals]
+      summary: Set an agent's explicit Warden permission posture
+      description: >
+        Sets the permission posture used by Warden's classified prompt decision
+        router. dangerously-execute-all is intentionally named to mark its risk.
+      parameters: [{ $ref: "#/components/parameters/SessionId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [permission_posture]
+              properties:
+                permission_posture:
+                  type: string
+                  enum: [read-only, read-write, allowlisted, dangerously-execute-all]
+      responses:
+        "200":
+          description: The new Warden permission posture
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [permission_posture]
+                properties:
+                  permission_posture:
+                    type: string
+                    enum: [read-only, read-write, allowlisted, dangerously-execute-all]
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
 
@@ -2334,6 +2455,38 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/MetricsSample" }
+
+  /api/v1/pty/metrics:
+    get:
+      operationId: getPTYMetrics
+      tags: [Observability]
+      summary: PTY runtime and permission-decision metrics (JSON)
+      description: >
+        Stable `warden_pty_*` metric families: stream events, state transitions
+        and detection latency, quiescence investigations, prompts and
+        unrecognized prompts by adapter/version/classification, learned-shape
+        outcomes, auto-answer / escalation / redaction counters, reconnects and
+        backpressure. Labels are closed vocabularies - never prompt text,
+        paths, session ids or secrets.
+      responses:
+        "200":
+          description: Metrics snapshot
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PTYMetricsSnapshot" }
+
+  /api/v1/pty/metrics.prom:
+    get:
+      operationId: getPTYMetricsPrometheus
+      tags: [Observability]
+      summary: PTY runtime metrics in the Prometheus text format
+      description: Same families as `/pty/metrics`, scrape-ready.
+      responses:
+        "200":
+          description: Prometheus text exposition
+          content:
+            text/plain:
+              schema: { type: string }
 
   /api/v1/fastbrain/metrics:
     get:
@@ -4499,6 +4652,13 @@ components:
         prompt: { type: string }
         cwd: { type: string }
         permission_mode: { type: string }
+        permission_posture:
+          type: string
+          enum: [read-only, read-write, allowlisted, dangerously-execute-all]
+          description: >
+            Explicit Warden permission posture. It controls which confidently
+            classified permission prompts Warden may answer; it is distinct from
+            the backend-native permission_mode used to launch the AI CLI.
         auto_restart: { type: boolean }
         force: { type: boolean, description: "bypass the memory-pressure spawn gate" }
         model: { type: string }
@@ -6127,6 +6287,52 @@ components:
       properties:
         dir: { type: string, description: "Absolute path the repo was cloned into" }
 
+    PermissionSummary:
+      x-go-type: ptyobs.PermissionSummary
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/ptyobs
+        name: ptyobs
+      type: object
+      description: >
+        Human-readable permission prompt: class, capabilities, subject, target,
+        scope, question, offered options (with the chosen one), fingerprint,
+        provenance, confidence and a one-sentence text.
+
+    PTYRuntimeView:
+      x-go-type: ptyobs.RuntimeView
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/ptyobs
+        name: ptyobs
+      type: object
+      description: >
+        Live runtime status (state, typed reason, evidence trail, input owner,
+        posture/danger, decision route, prompt summary).
+
+    PTYDecisionRecord:
+      x-go-type: ptyobs.TraceRecord
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/ptyobs
+        name: ptyobs
+      type: object
+      description: One redacted decision-trace record.
+
+    PTYDecisionList:
+      type: object
+      required: [session_id, records]
+      properties:
+        session_id: { type: string }
+        records:
+          type: array
+          items: { $ref: "#/components/schemas/PTYDecisionRecord" }
+
+    PTYMetricsSnapshot:
+      x-go-type: ptyobs.Snapshot
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/ptyobs
+        name: ptyobs
+      type: object
+      description: Point-in-time copy of every warden_pty_* metric family.
+
     ApprovalView:
       x-go-type: approval.View
       x-go-type-import:
@@ -6140,6 +6346,11 @@ components:
         options: { type: array, items: { type: string } }
         fingerprint: { type: string }
         recognized: { type: boolean }
+        posture: { type: string, description: Effective permission posture of the session. }
+        danger: { type: boolean, description: True for dangerously-execute-all. }
+        danger_banner: { type: string }
+        route: { type: string, description: "Who resolved the latest prompt: posture, brain, human or none." }
+        summary: { $ref: "#/components/schemas/PermissionSummary" }
 
     ApprovalsResponse:
       type: object

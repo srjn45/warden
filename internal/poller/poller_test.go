@@ -1794,3 +1794,37 @@ func TestSummaryFailOpenKeepsPreviousBadge(t *testing.T) {
 	require.Equal(t, 1, d.summarizeN)
 	require.Empty(t, d.subjects, "empty badge must not overwrite the previous one")
 }
+
+func TestPollerSkipsAuthoritativeSessions(t *testing.T) {
+	d := &stubDeps{
+		sessions: []*agentstore.Agent{
+			{ID: "legacy-1", TmuxSession: "legacy-1", Status: store.StatusWorking},
+			{ID: "auth-1", TmuxSession: "auth-1", Status: store.StatusWorking},
+		},
+		alive: map[string]bool{
+			"legacy-1": true,
+			"auth-1":   true,
+		},
+		panes: map[string]string{
+			// Both panes show idle prompt
+			"legacy-1": "❯ \n",
+			"auth-1":   "❯ \n",
+		},
+		updates: map[string]store.Status{},
+	}
+	p := New(d, 5*time.Minute)
+	p.Backend = func(s *agentstore.Agent) agentbackend.Backend {
+		return fakeBackend{state: agentbackend.StateIdle}
+	}
+	p.Authoritative = func(tmuxSession string) bool {
+		return tmuxSession == "auth-1"
+	}
+
+	require.NoError(t, p.tick(context.Background()))
+
+	// legacy-1 was classified to idle by poller
+	require.Equal(t, store.StatusIdle, d.updates["legacy-1"], "legacy session must be classified by poller")
+	// auth-1 was skipped by poller — poller never captured pane or updated status
+	_, authUpdated := d.updates["auth-1"]
+	require.False(t, authUpdated, "authoritative session must be skipped by poller and cannot be updated")
+}

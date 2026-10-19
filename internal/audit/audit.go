@@ -24,6 +24,7 @@ const (
 	ActionTerminate                  = "terminate"
 	ActionDelete                     = "delete"
 	ActionApprove                    = "approve"
+	ActionPermissionPosture          = "permission_posture"
 	ActionPipelineStart              = "pipeline_start"
 	ActionPipelineCancel             = "pipeline_cancel"
 	ActionScheduleCreate             = "schedule_create"

@@ -1,0 +1,39 @@
+{
+  "fingerprint": "fp1:64f0d54ee24cc7d18049590a",
+  "shape_version": 1,
+  "instance_key": "ik1:937d4cf5fc6b513939dafa5f",
+  "backend": "antigravity",
+  "class": "permission",
+  "capabilities": [
+    "trust"
+  ],
+  "subject": "workspace",
+  "target": "/home/me",
+  "question": "Do you trust the contents of this project?",
+  "options": [
+    {
+      "index": 1,
+      "label": "Yes, I trust this folder",
+      "semantic": "allow_always",
+      "scope": "workspace",
+      "default": true
+    },
+    {
+      "index": 2,
+      "label": "No, exit",
+      "semantic": "cancel"
+    }
+  ],
+  "cancel_path": {
+    "option_index": 2
+  },
+  "navigate": true,
+  "provenance": "parser",
+  "confidence": 1,
+  "verified": true,
+  "evidence": {
+    "raw": "Accessing workspace:\n\n/work/proj\n\nDo you trust the contents of this project?\n\nAntigravity CLI requires permission to read, edit, and execute files here.\n\n\u003e Yes, I trust this folder\n  No, exit\n\n  ↑/↓ Navigate · enter Confirm",
+    "from_seq": 3,
+    "to_seq": 5
+  }
+}

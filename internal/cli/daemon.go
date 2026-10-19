@@ -38,6 +38,7 @@ import (
 	"github.com/srjn45/warden/internal/plansync"
 	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/poller"
+	"github.com/srjn45/warden/internal/ptyhost"
 	"github.com/srjn45/warden/internal/relay"
 	"github.com/srjn45/warden/internal/router"
 	"github.com/srjn45/warden/internal/savings"
@@ -45,7 +46,6 @@ import (
 	"github.com/srjn45/warden/internal/snapshot"
 	"github.com/srjn45/warden/internal/storage"
 	"github.com/srjn45/warden/internal/store"
-	"github.com/srjn45/warden/internal/tmuxproc"
 )
 
 // requireTokenForNonLoopback rejects a non-loopback bind that has no bearer
@@ -211,6 +211,16 @@ func newDaemonRunCmd() *cobra.Command {
 			if exe, err := os.Executable(); err == nil {
 				lc.WardenBin = exe
 			}
+			// Warden-owned PTY runtime (runtime.pty: off|shadow|on). Off routes
+			// every pane op straight to tmux exactly as before.
+			ptyMgr := ptyhost.New(ptyhost.Config{
+				Mode: ptyhost.ParseMode(cfg.Runtime.PTY),
+				Dir:  filepath.Join(cfg.DataDir, "pty"),
+				Run:  runner,
+			})
+			defer ptyMgr.Close()
+			lc.SetProcessHost(ptyMgr.Host())
+			lc.SetTerminalHost(ptyMgr.TerminalHost())
 			life := daemon.NewLifecycleAdapter(lc, st)
 			pd := daemon.NewPollerDeps(st, runner, lc)
 			pl := poller.New(pd, 5*time.Minute)
@@ -282,8 +292,10 @@ func newDaemonRunCmd() *cobra.Command {
 			// TerminalWatcher polls terminalstore (not the agent session store) via
 			// the shared tmuxproc.Host for liveness/capture.
 			srv.SetTerminalWatcher(poller.NewTerminalWatcher(
-				daemon.NewTerminalPollerDeps(termStore, tmuxproc.New(runner), lc),
+				daemon.NewTerminalPollerDeps(termStore, ptyMgr.Host(), lc),
 			))
+			srv.SetPTYRuntime(ptyMgr)
+			srv.SetTraceLimits(cfg.Runtime.TraceMaxRecords, cfg.Runtime.TraceMaxAgeDays)
 			srv.SetAuth(authToken, readonlyToken)
 			srv.SetWriteTimeouts(cfg.HTTPTimeoutFastDuration(), cfg.HTTPTimeoutSlowDuration())
 			// Persist auto-approve policy changes (PUT /auto-approve/policy) back to

@@ -16,6 +16,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/srjn45/warden/internal/ptyevent"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -37,10 +39,11 @@ const Default = "general"
 // (lifecycle.RoleOwnsWorktree / wantWorktree), and model tiering is driven by
 // Role + Task — not by a deprecated type default on the role.
 type Defaults struct {
-	Model          string   `yaml:"model"`
-	PermissionMode string   `yaml:"permission_mode"`
-	AutoApprove    bool     `yaml:"auto_approve"`
-	Tags           []string `yaml:"tags"`
+	Model             string           `yaml:"model"`
+	PermissionMode    string           `yaml:"permission_mode"`
+	PermissionPosture ptyevent.Posture `yaml:"permission_posture"`
+	AutoApprove       bool             `yaml:"auto_approve"`
+	Tags              []string         `yaml:"tags"`
 }
 
 // Role is one built-in role: its name, a one-line description, the persona

@@ -13,6 +13,7 @@ import (
 	"github.com/creack/pty"
 	"github.com/go-chi/chi/v5"
 	"github.com/srjn45/warden/internal/lifecycle"
+	"github.com/srjn45/warden/internal/ptyhost"
 	"github.com/srjn45/warden/internal/tui"
 )
 
@@ -81,6 +82,17 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	// A terminal hosted directly on the PTY runtime (runtime.pty: on) has no
+	// tmux session: bridge the same raw protocol to the runtime instead.
+	if d := s.directSession(sess.TmuxSession); d != nil {
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.CloseNow()
+		ptyhost.BridgeLegacy(r.Context(), conn, d, newPTYClientID())
 		return
 	}
 	// Enable tmux mouse mode on the agent session so wheel/scroll events from a

@@ -1,0 +1,7 @@
+{"v":1,"session_id":"s-1","epoch":1,"seq":1,"mono_ns":10000000,"wall":"2026-10-19T12:00:00.01Z","kind":"lifecycle","lifecycle":{"phase":"spawned","pid":4242,"backend":"claude","presentation":"direct"},"redacted":true}
+{"v":1,"session_id":"s-1","epoch":1,"seq":2,"mono_ns":20000000,"wall":"2026-10-19T12:00:00.02Z","kind":"output","output":{"data":"aGVsbG8="},"redacted":true}
+{"v":1,"session_id":"s-1","epoch":1,"seq":3,"mono_ns":30000000,"wall":"2026-10-19T12:00:00.03Z","kind":"lifecycle","lifecycle":{"phase":"crashed","pid":4242,"backend":"claude","presentation":"direct"},"redacted":true}
+{"v":1,"session_id":"s-1","epoch":2,"seq":4,"mono_ns":10000000,"wall":"2026-10-19T12:00:00.01Z","kind":"lifecycle","lifecycle":{"phase":"recovered","pid":4242,"backend":"claude","presentation":"direct"},"redacted":true}
+{"v":1,"session_id":"s-1","epoch":2,"seq":5,"mono_ns":20000000,"wall":"2026-10-19T12:00:00.02Z","kind":"marker","marker":{"type":"reset"},"redacted":true}
+{"v":1,"session_id":"s-1","epoch":2,"seq":6,"mono_ns":30000000,"wall":"2026-10-19T12:00:00.03Z","kind":"marker","marker":{"type":"snapshot","to_seq":5,"snapshot":"hello","cols":80,"rows":24},"redacted":true}
+{"v":1,"session_id":"s-1","epoch":2,"seq":7,"mono_ns":40000000,"wall":"2026-10-19T12:00:00.04Z","kind":"output","output":{"data":"d29ybGQ="},"redacted":true}
