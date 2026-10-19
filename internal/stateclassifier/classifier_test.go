@@ -616,7 +616,8 @@ func TestApprovalToPromptTrust(t *testing.T) {
 	require.Equal(t, ptyevent.SemAllowAlways, prompt.Options[0].Semantic)
 	require.Equal(t, ptyevent.ScopeWorkspace, prompt.Options[0].Scope)
 	require.True(t, prompt.Options[0].Default)
-	require.Equal(t, ptyevent.SemDeny, prompt.Options[1].Semantic)
+	// "…and exit" quits the CLI: the contract's cancel, which auto-deny never picks.
+	require.Equal(t, ptyevent.SemCancel, prompt.Options[1].Semantic)
 }
 
 func TestProcessHierarchyParsing(t *testing.T) {

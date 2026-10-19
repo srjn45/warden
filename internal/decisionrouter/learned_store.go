@@ -60,8 +60,13 @@ func (s *MemoryLearnedShapeStore) AddCandidate(shape ptyevent.LearnedShape) (pty
 			s.shapes[existingID] = existing
 			return existing, nil
 		}
-		// If existing is already validated/versioned, return it
-		return existing, nil
+		if existing.Status != ptyevent.ShapeRetired {
+			// Validated/versioned shapes are returned untouched.
+			return existing, nil
+		}
+		// A retired shape is terminal: re-learning starts a fresh candidate
+		// under a new ID (contract §9.6).
+		shape.ID = fmt.Sprintf("shape-%s-r%d", shape.Fingerprint, len(s.shapes))
 	}
 
 	if shape.ID == "" {
@@ -177,4 +182,25 @@ func (s *MemoryLearnedShapeStore) FindUsable(q ptyevent.ShapeQuery) []ptyevent.L
 		}
 	}
 	return usable
+}
+
+// AttachFixture records a regression fixture id for fp without counting it as
+// a new sighting.
+func (s *MemoryLearnedShapeStore) AttachFixture(fp, fixtureID string) (ptyevent.LearnedShape, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	id, ok := s.byFP[fp]
+	if !ok {
+		return ptyevent.LearnedShape{}, fmt.Errorf("no shape found for fingerprint %s", fp)
+	}
+	sh := s.shapes[id]
+	for _, f := range sh.Fixtures {
+		if f == fixtureID {
+			return sh, nil
+		}
+	}
+	sh.Fixtures = append(sh.Fixtures, fixtureID)
+	s.shapes[id] = sh
+	return sh, nil
 }

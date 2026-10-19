@@ -38,6 +38,7 @@ import (
 	"github.com/srjn45/warden/internal/poller"
 	"github.com/srjn45/warden/internal/pressure"
 	"github.com/srjn45/warden/internal/projectstore"
+	"github.com/srjn45/warden/internal/promptengine"
 	"github.com/srjn45/warden/internal/ptyevent"
 	"github.com/srjn45/warden/internal/ptyhost"
 	"github.com/srjn45/warden/internal/relay"
@@ -135,6 +136,9 @@ type Server struct {
 	pty *ptyhost.Manager
 	// classifier is the event-driven activity/quiescence state classifier (t3).
 	classifier *stateclassifier.Classifier
+	// promptEngine answers classified prompts for runtime-backed sessions
+	// (nil until Run wires it).
+	promptEngine *promptengine.Engine
 	// restarter auto-resumes opted-in sessions on errored; wired by SetRestarter.
 	// Read by the terminalWatcher.OnTransition closure — must be set before
 	// ListenAndServe starts the watcher.

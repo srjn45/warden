@@ -256,8 +256,16 @@ func (r *Router) Route(ctx context.Context, req RouteRequest) (RouteResult, erro
 		liveState = ptyevent.StateWaitingForPermission
 	}
 
+	// Re-read the prompt from the LIVE screen right now. Revalidating the
+	// prompt against itself would prove nothing: the point of §11 is that the
+	// pane may have changed (a different command in the same box, a redrawn
+	// menu, a human who answered first) since the decision was made.
+	livePrompt := prompt
+	if req.Stream != nil {
+		livePrompt = r.readLive(ctx, req, prompt)
+	}
 	live := ptyevent.Live{
-		Prompt:   prompt,
+		Prompt:   livePrompt,
 		State:    liveState,
 		HumanSeq: req.HumanSeq,
 		Now:      now,
@@ -291,6 +299,24 @@ func (r *Router) Route(ctx context.Context, req RouteRequest) (RouteResult, erro
 			Revalidation: revalCode,
 		}
 		res.DecisionEvent = decEv
+		r.emitDecision(req.Stream, decEv)
+		return res, nil
+	}
+
+	if req.DryRun {
+		decEv := &ptyevent.DecisionEvent{
+			ID:           newDecisionID(),
+			Fingerprint:  prompt.Fingerprint,
+			Posture:      req.Posture,
+			Action:       dec.Action,
+			OptionIndex:  dec.OptionIndex,
+			Rule:         dec.Rule,
+			Reason:       dec.Reason + " [dry-run: not delivered]",
+			DecidedAtSeq: headSeq,
+			Revalidation: ptyevent.RevalOK,
+		}
+		res.DecisionEvent = decEv
+		res.RevalidationCode = ptyevent.RevalOK
 		r.emitDecision(req.Stream, decEv)
 		return res, nil
 	}
@@ -644,4 +670,53 @@ func newDecisionID() string {
 	b := make([]byte, 8)
 	_, _ = rand.Read(b)
 	return "dec-" + hex.EncodeToString(b)
+}
+
+// readLive re-reads the prompt currently on screen. nil means no prompt is on
+// screen (Revalidate reports prompt-gone).
+//
+// A parser-sourced prompt is re-parsed deterministically from the screen, so a
+// reworded question, moved option or different command changes the fingerprint
+// or instance key. A learned or Fast-Brain prompt has no deterministic parser
+// to re-run (a model call here would be slow and non-reproducible), so its
+// own labels are re-located on the live screen and its target must still be
+// visible; anything less is a changed prompt.
+func (r *Router) readLive(ctx context.Context, req RouteRequest, p *ptyevent.Prompt) *ptyevent.Prompt {
+	screen := req.Stream.Screen()
+	if strings.TrimSpace(screen) == "" {
+		return nil
+	}
+	if p.Provenance == ptyevent.ProvParser && r.classifier != nil {
+		cres, err := r.classifier.Classify(ctx, ClassifyRequest{
+			Screen:        screen,
+			Backend:       req.Backend,
+			BackendID:     req.BackendID,
+			CLIVersion:    req.CLIVersion,
+			SessionID:     req.SessionID,
+			ProjectID:     req.Workdir,
+			Workdir:       req.Workdir,
+			AgentID:       req.AgentID,
+			Now:           r.clock(),
+			Deterministic: true,
+		})
+		if err != nil || cres.IsInformational || cres.Prompt == nil {
+			return nil
+		}
+		return cres.Prompt
+	}
+
+	loc, verified := agentbackend.LocateOptions(screen, extractLabels(p.Options))
+	if !verified {
+		return nil
+	}
+	cp := *p
+	cp.Options = append([]ptyevent.Option(nil), p.Options...)
+	for i := range cp.Options {
+		cp.Options[i].Default = cp.Options[i].Index == loc.Selected
+	}
+	cp.Verified = true
+	if p.Target != "" && !strings.Contains(screen, p.Target) {
+		cp.InstanceKey = ptyevent.InstanceKey(p.Fingerprint, p.Subject, "\x00target-missing")
+	}
+	return &cp
 }

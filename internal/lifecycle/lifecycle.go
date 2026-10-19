@@ -462,6 +462,26 @@ func applyRoleBackendMode(req *SpawnRequest) {
 	}
 }
 
+// applyPostureBackendMode realizes an explicitly requested permission posture
+// with the backend's native mode when it has an exact one (Antigravity
+// dangerously-execute-all → --dangerously-skip-permissions, read-only → --mode
+// plan, …). It only fills a mode nobody chose: an explicit or role-derived
+// native mode always wins, and a posture the backend cannot enforce natively
+// (allowlisted, or a degraded mapping) leaves the ordinary launch untouched —
+// the PTY router then enforces the posture from the prompt stream.
+func applyPostureBackendMode(req *SpawnRequest) {
+	if req.PermissionMode != "" || !req.PermissionPosture.Valid() {
+		return
+	}
+	b, err := agentbackend.Get(req.Backend)
+	if err != nil {
+		return
+	}
+	if sup := agentbackend.SupportForPosture(b, req.PermissionPosture); sup.Native && !sup.Degraded && sup.Mode != "" {
+		req.PermissionMode = sup.Mode
+	}
+}
+
 // plannerModeForBackend is the read-only planning posture for each AI CLI:
 // Claude/Cursor/Antigravity/OpenCode use plan; Codex uses -s read-only; Goose
 // uses GOOSE_MODE=chat.
@@ -1923,6 +1943,7 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*agentstore.Ag
 	// Remap the role's canonical permission posture onto the resolved AI CLI's
 	// native vocabulary (Codex sandbox, Antigravity --mode, Goose GOOSE_MODE, …).
 	applyRoleBackendMode(&req)
+	applyPostureBackendMode(&req)
 	var forkRat *RelaunchRationale
 	if req.ForkFrom != "" && !explicitMode {
 		fb := l.backendFor(req.Backend)

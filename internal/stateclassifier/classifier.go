@@ -8,6 +8,7 @@ import (
 
 	"github.com/srjn45/warden/internal/agentbackend"
 	"github.com/srjn45/warden/internal/agentstore"
+	"github.com/srjn45/warden/internal/decisionrouter"
 	"github.com/srjn45/warden/internal/ptyevent"
 	"github.com/srjn45/warden/internal/ptyhost"
 	"github.com/srjn45/warden/internal/store"
@@ -28,6 +29,13 @@ type Classifier struct {
 
 	// OnTransition is called whenever a transition commits.
 	OnTransition func(name string, ch *ptyevent.StateChange)
+	// OnPrompt is called on every investigation that finds a normalized prompt
+	// on screen (not only the first), so a decision that was deferred can be
+	// retried. It runs under the session lock and MUST NOT block.
+	OnPrompt func(name string, p *ptyevent.Prompt)
+	// OnUnreadable is called when the backend reports a blocking screen that no
+	// parser (and no usable learned shape) could read. Same contract as OnPrompt.
+	OnUnreadable func(name, screen string)
 	// OnDisagreement is called in shadow mode when classifier state differs from store status.
 	OnDisagreement func(name string, classifierState ptyevent.State, pollerStatus store.Status)
 }
@@ -35,6 +43,7 @@ type Classifier struct {
 type sessionState struct {
 	name          string
 	rootPID       int
+	workdir       string
 	snapshot      ptyevent.Snapshot
 	lastActivity  time.Time
 	lastInput     time.Time
@@ -279,6 +288,9 @@ func (c *Classifier) Investigate(ctx context.Context, name string) {
 
 	// 2. Screen & backend state detection
 	backend := c.backendFor(name)
+	if ag := c.agentRecord(name); ag != nil {
+		s.workdir = ag.Workdir
+	}
 	if screen != "" && backend != nil {
 		st := backend.DetectState(screen)
 		switch st {
@@ -289,18 +301,32 @@ func (c *Classifier) Investigate(ctx context.Context, name string) {
 		case agentbackend.StateNeedsInput:
 			app, ok := backend.ParseApproval(screen)
 			if ok && app != nil {
-				prompt, err := ApprovalToPrompt(app, backend.ID(), screen, true)
+				prompt, err := decisionrouter.NormalizeApproval(backend, app, decisionrouter.NormalizeContext{
+					BackendID:         backend.ID(),
+					Screen:            screen,
+					Workdir:           s.workdir,
+					TargetInWorkspace: s.workdir == "",
+				})
 				if err == nil && prompt != nil && prompt.Validate() == nil {
 					if s.currentPrompt == nil || s.currentPrompt.InstanceKey != prompt.InstanceKey {
 						s.currentPrompt = prompt
 						c.emitPrompt(target, ptyevent.PromptObserved, prompt)
 					}
 					evs = append(evs, ptyevent.Evidence{Kind: ptyevent.EvPrompt, Prompt: prompt})
+					if c.OnPrompt != nil {
+						c.OnPrompt(name, prompt)
+					}
 				} else {
 					evs = append(evs, ptyevent.Evidence{Kind: ptyevent.EvUncertain})
+					if c.OnUnreadable != nil {
+						c.OnUnreadable(name, screen)
+					}
 				}
 			} else {
 				evs = append(evs, ptyevent.Evidence{Kind: ptyevent.EvUncertain})
+				if c.OnUnreadable != nil {
+					c.OnUnreadable(name, screen)
+				}
 			}
 		}
 

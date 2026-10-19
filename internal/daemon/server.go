@@ -175,6 +175,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	// PTY runtime: re-adopt mirrored panes / recover direct terminals before the
 	// watchers' first tick, then reap dead shadow panes in the background.
 	if s.pty != nil {
+		s.wirePromptEngine()
 		s.recoverPTY(runCtx)
 		go s.pty.Run(runCtx)
 	}

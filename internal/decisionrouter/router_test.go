@@ -525,7 +525,9 @@ func TestBreakerAndArbiterDowngrades(t *testing.T) {
 
 func TestInputDeliveryAndDecisionEventEmission(t *testing.T) {
 	now := time.Now()
-	stream := &mockStream{}
+	// The router re-reads the live screen before writing (TOCTOU, §11), so the
+	// stream must actually show the prompt.
+	stream := &mockStream{screen: "Bash(echo ok)\nRun command?\n> 1. Yes\n  2. No\n"}
 	writer := &mockInputWriter{}
 	prompt := samplePermissionPrompt("Bash", "echo ok", ptyevent.CapExecute)
 
