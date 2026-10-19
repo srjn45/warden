@@ -194,6 +194,19 @@ poller-era auto-approve interface.
 
 ---
 
+## 🚀 Planned products & active roadmaps
+
+#### 58. Warden Web IDE — *next-gen IDE experience launched alongside existing web portal, replacing web-tui*
+**Effort:** 10 decoupled milestones (see spec in [`specs/2026-10-19-web-ide-design-and-tech-spec.md`](specs/2026-10-19-web-ide-design-and-tech-spec.md))
+
+A modern, VS Code-inspired web IDE built with Vite + React 19 + TypeScript + `react-resizable-panels` + `@xterm/xterm` + Monaco Editor:
+- **Persistent Activity Bar & Project Pane:** Project switcher, hierarchical tree for Plans, Agents (Autopilot/Pipeline/Agents), and Code directory explorer.
+- **Detail Pane:** Multi-view workspace with live Agent AICLI PTY streaming, Monaco Code Editor, and Monaco `<DiffEditor />` for side-by-side git diff review of agent changes before commit/PR.
+- **Project-Scoped Terminal Pane:** Native Go PTY (`creack/pty`) with daemon-side circular ring buffering and resize synchronization, replacing `tmux`.
+- **Dual Deployment & Real-time Sync:** Local loopback serving (embedded via Go `embed.FS`) and remote access via `warden-hub` reverse tunnels. Real-time state reflection via WebSockets/SSE into TanStack Query.
+
+---
+
 ## 🧊 Parked (need a concrete demand signal)
 
 #### 56. Hub-backed remote PTY terminal streaming — *deferred until Hub work resumes*
