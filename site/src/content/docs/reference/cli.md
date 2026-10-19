@@ -108,7 +108,7 @@ Commands:
   restore              Recreate and resume a lost/orphaned agent (resumes its AI CLI session)
   recover              Revive archived orphaned agent records whose tmux session is still alive (dry run unless --apply)
   adopt                Register the AI CLI session in this directory (resume it under tmux, or register the current tmux session live)
-  attach               Attach to the agent's tmux session
+  attach               Attach to the agent's or terminal's live session
   stop                 Tear down an agent (default: terminate + clear record + remove worktree; --keep-* flags keep parts)
   terminate            Stop an agent: kill its tmux+AI CLI session (keeps the record and worktree)
   send                 Type a message into an agent's AI CLI session and press Enter
@@ -375,7 +375,18 @@ Inherited flags:
 ## warden agent attach
 
 ```text
-Attach to the agent's tmux session
+Attach your terminal to a running session.
+
+A plain terminal hosted on warden's own PTY runtime (runtime.pty: on) is attached
+natively: your terminal goes raw so Ctrl-C, Ctrl-D, Ctrl-Z and full-screen
+programs behave exactly as in a local shell, the replay and live output are
+ordered without gaps, and you hold the session's controller lease. Press Ctrl-]
+then '.' to detach (the shell keeps running), Ctrl-] then 't' to take control
+back if another client took it, Ctrl-] Ctrl-] to send a literal Ctrl-].
+Set WARDEN_ATTACH=observe to watch read-only, or WARDEN_ATTACH=tmux to skip the
+native attach.
+
+Every other session (agents, tmux-hosted terminals) attaches with tmux as before.
 
 Usage:
   warden agent attach <AGENT> [flags]

@@ -31,6 +31,9 @@ func (h *hub) subscribe() (<-chan struct{}, func()) {
 }
 
 func (h *hub) publish() {
+	if h == nil {
+		return
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for ch := range h.subs {

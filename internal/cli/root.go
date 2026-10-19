@@ -186,6 +186,7 @@ func newRootCmd() *cobra.Command {
 	mcpAlias := newMCPCmd()
 	markCompatibilityCommand(mcpAlias, "warden daemon mcp")
 	root.AddCommand(mcpAlias)
+	root.AddCommand(newPTYHolderCmd())
 	tuiCmd := newTUICmd()
 	markEntryPoint(tuiCmd, 40)
 	root.AddCommand(tuiCmd)

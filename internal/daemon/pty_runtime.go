@@ -62,6 +62,15 @@ func (s *Server) SetPTYRuntime(m *ptyhost.Manager) {
 		s.classifier.OnDisagreement = func(string, ptyevent.State, store.Status) {
 			s.ptyMetrics.Inc(ptyobs.MFallback, "unknown", "shadow_disagreement")
 		}
+		// Kind comes from the durable record, not from names or screens, so a
+		// shell is recognised across daemon restarts and agent-name collisions.
+		m.SetTerminalResolver(func(name string) bool {
+			if s.terminals == nil {
+				return false
+			}
+			t, err := s.terminals.Get(context.Background(), name)
+			return err == nil && t != nil
+		})
 		m.Observe(s.onPTYEvent)
 	}
 }
@@ -112,13 +121,49 @@ func (s *Server) recoverPTY(ctx context.Context) {
 		if t.Status != terminalstore.StatusRunning || t.Workdir == "" || !s.pty.HasDirectJournal(t.TmuxSession) {
 			continue
 		}
+		if s.pty.HolderHosted(t.TmuxSession) {
+			// The shell's PTY master belongs to an independent holder: adopt the
+			// SAME process. Never relaunch — a failed adoption is reported with its
+			// cause and the terminal is left restorable, not silently replaced.
+			s.adoptDirectTerminal(ctx, t)
+			continue
+		}
 		if err := s.life.RestoreTerminal(ctx, t.ID, t.Workdir); err != nil {
 			if !errors.Is(err, lifecycle.ErrAlreadyRunning) {
 				slog.Warn("ptyhost: recover direct terminal failed", "terminal", t.ID, "err", err)
 			}
 			continue
 		}
-		slog.Info("ptyhost: recovered direct terminal onto its journal", "terminal", t.ID)
+		// Relaunch, not survival: this shell was a child of the previous daemon
+		// (started before holders existed, or WARDEN_PTY_HOLDER=off), so it died
+		// with it; this is a fresh shell on the same journal.
+		slog.Info("ptyhost: recovered direct terminal onto its journal (fresh shell, relaunch)", "terminal", t.ID)
+	}
+}
+
+// adoptDirectTerminal re-attaches to a holder-hosted terminal's live process
+// after a daemon restart/update/crash.
+func (s *Server) adoptDirectTerminal(ctx context.Context, t *terminalstore.Terminal) {
+	name := t.TmuxSession
+	if err := s.pty.AdoptDirect(ctx, name); err != nil {
+		detail := "cannot re-adopt the shell (" + err.Error() + "); its PTY holder is unavailable — " +
+			"run `warden agent restore " + t.ID + "` to start a fresh shell (the old process is not restarted automatically)"
+		slog.Error("ptyhost: direct terminal could not be adopted; not relaunching", "terminal", t.ID, "err", err)
+		_ = s.pty.MarkDirectLost(name, detail)
+		s.recordDirectTerminalEnd(name, &ptyevent.Lifecycle{Phase: ptyevent.PhaseCrashed, Detail: detail})
+		return
+	}
+	slog.Info("ptyhost: re-adopted live direct terminal (same process, no relaunch)", "terminal", t.ID)
+	// It may have exited while the daemon was away: the exit was journaled during
+	// adoption, before the stream watcher could see it.
+	if d := s.pty.Direct(name); d != nil {
+		go func() {
+			select {
+			case <-d.Done():
+				s.recordDirectTerminalEnd(name, d.Exit())
+			case <-s.done:
+			}
+		}()
 	}
 }
 
@@ -139,17 +184,43 @@ func (s *Server) onPTYEvent(name string, ev ptyevent.Event) {
 	}
 	if ev.Lifecycle.Phase.Terminal() && s.terminals != nil && s.pty != nil {
 		if d := s.pty.Direct(name); d != nil && d.Epoch() == ev.Epoch {
-			if t, err := s.terminals.Get(context.Background(), name); err == nil && t.Status != terminalstore.StatusOrphaned {
-				prev := sessionStatusFromTerminal(t.Status)
-				deps := &terminalPollerDeps{terms: s.terminals}
-				if ok, _ := deps.UpdateStatusIf(context.Background(), t.ID, prev, store.StatusOrphaned); ok &&
-					s.terminalWatcher != nil && s.terminalWatcher.OnTransition != nil {
-					s.terminalWatcher.OnTransition(sessionFromTerminal(t), prev, store.StatusOrphaned)
-				}
-			}
+			s.recordDirectTerminalEnd(name, ev.Lifecycle)
 		}
 	}
 	s.notify()
+}
+
+// recordDirectTerminalEnd persists how a direct shell ended with the same
+// compare-and-swap the terminal watcher uses, so whichever sees the end first
+// wins and the other is a no-op. A shell that exited on its own with a status
+// is `exited` with that ExitCode (G12); a signal or lost process stays
+// `orphaned` (restorable). Lifecycle carries the code only — never input or
+// output bytes.
+func (s *Server) recordDirectTerminalEnd(name string, lc *ptyevent.Lifecycle) {
+	ctx := context.Background()
+	t, err := s.terminals.Get(ctx, name)
+	if err != nil || t.Status != terminalstore.StatusRunning {
+		return
+	}
+	next := terminalstore.StatusOrphaned
+	var code *int
+	if lc != nil && lc.Phase == ptyevent.PhaseExited && lc.ExitCode != nil {
+		next, code = terminalstore.StatusExited, lc.ExitCode
+	}
+	swapped := false
+	if err := s.terminals.Update(ctx, t.ID, func(u *terminalstore.Terminal) error {
+		if u.Status != terminalstore.StatusRunning {
+			return nil
+		}
+		u.Status, u.ExitCode, u.UpdatedAt = next, code, time.Now().UTC()
+		swapped = true
+		return nil
+	}); err != nil || !swapped {
+		return
+	}
+	if s.terminalWatcher != nil && s.terminalWatcher.OnTransition != nil {
+		s.terminalWatcher.OnTransition(sessionFromTerminal(t), sessionStatusFromTerminal(terminalstore.StatusRunning), sessionStatusFromTerminal(next))
+	}
 }
 
 // handlePTYStream serves GET /api/v1/sessions/{id}/pty: the §6 event stream

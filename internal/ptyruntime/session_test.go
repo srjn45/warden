@@ -733,3 +733,65 @@ func lastSegment(t *testing.T, dir string) string {
 	}
 	return names[len(names)-1]
 }
+
+// AttachQuiesced registers the raw feed and reads the screen at one cut: the
+// screen has everything before it, the feed carries only what follows.
+func TestAttachQuiescedCutsScreenAndFeed(t *testing.T) {
+	r := startFake(t, Options{})
+	r.waitOutput("ready")
+	r.human("say before-the-cut")
+	r.waitOutput("before-the-cut")
+	raw, screen, head, exact, err := r.s.AttachQuiesced("viewer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	if !exact {
+		t.Fatal("an idle session must quiesce")
+	}
+	if !strings.Contains(screen, "before-the-cut") || head != r.j.Last().Seq {
+		t.Fatalf("cut: screen=%q head=%d journal=%d", screen, head, r.j.Last().Seq)
+	}
+	r.human("say after-the-cut")
+	var got strings.Builder
+	for !strings.Contains(got.String(), "after-the-cut") {
+		select {
+		case b := <-raw.C:
+			got.Write(b)
+		case <-time.After(waitFor):
+			t.Fatalf("raw feed never delivered the post-cut output; got %q", got.String())
+		}
+	}
+	if strings.Contains(got.String(), "before-the-cut\r\nready") || strings.Count(got.String(), "before-the-cut") > 1 {
+		// "before-the-cut" may appear once more only as the typed-line echo of
+		// the post-cut command — never as the pre-cut output repeated.
+		t.Fatalf("pre-cut output repeated in the feed: %q", got.String())
+	}
+}
+
+// A lagging raw viewer is cut off (never stalling the PTY) and can re-register
+// at a fresh cut to resynchronize.
+func TestLaggedRawViewerResyncsAtAFreshCut(t *testing.T) {
+	r := startFake(t, Options{RawBuffer: 2})
+	r.waitOutput("ready")
+	v, _, _, _, err := r.s.AttachQuiesced("v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.human("flood 2000") // v1 never reads
+	r.waitOutput("flood-done")
+	for range v.C {
+	}
+	if !v.Lagged() {
+		t.Fatal("slow viewer not cut off")
+	}
+	v.Close()
+	v2, screen, _, exact, err := r.s.AttachQuiesced("v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer v2.Close()
+	if !exact || !strings.Contains(screen, "xxxxxxxx") {
+		t.Fatalf("resync cut exact=%v screen=%q", exact, screen)
+	}
+}

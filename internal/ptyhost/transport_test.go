@@ -50,6 +50,7 @@ type wsClient struct {
 	events []ptyevent.Event
 	plans  []PlanFrame
 	kinds  []string
+	srv    []ServerFrame // every text frame, for tests that need frame fields
 	cancel context.CancelFunc
 	done   chan struct{}
 }
@@ -83,6 +84,7 @@ func dial(t *testing.T, url string) *wsClient {
 				var f ServerFrame
 				if json.Unmarshal(data, &f) == nil {
 					c.kinds = append(c.kinds, f.Type)
+					c.srv = append(c.srv, f)
 					switch {
 					case f.Type == "event" && f.Event != nil:
 						c.events = append(c.events, *f.Event)

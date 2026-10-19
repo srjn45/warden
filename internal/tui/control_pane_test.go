@@ -543,6 +543,13 @@ func TestRespawnDetailArgs(t *testing.T) {
 		respawnDetailArgs("%9", "agent-4f98"))
 }
 
+func TestRespawnTerminalArgsAttachesThroughWarden(t *testing.T) {
+	require.Equal(t,
+		[]string{"respawn-pane", "-k", "-t", "%7", "env -u TMUX '/opt/w d/warden' attach 'terminal-ab12'"},
+		respawnTerminalArgs("%7", "/opt/w d/warden", "terminal-ab12"))
+	require.Equal(t, `'it'\''s'`, shellSingleQuote("it's"))
+}
+
 func TestListPaneCollapsesCompletedPipelinesByDefault(t *testing.T) {
 	m := newListPane(&fakeAPI{}, "%9", "")
 	m = lstep(m, pipelinesMsg{pipelines: []*pipeline.Pipeline{

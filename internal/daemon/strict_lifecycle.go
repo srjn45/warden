@@ -480,18 +480,10 @@ func (s *Server) RemoveWorktree(ctx context.Context, req oapi.RemoveWorktreeRequ
 // call lifecycle.Restore directly and are not gated here.
 func (s *Server) RestoreSession(ctx context.Context, req oapi.RestoreSessionRequestObject) (oapi.RestoreSessionResponseObject, error) {
 	if t, err := s.lookupTerminal(ctx, req.Id); err == nil {
-		if t.Status != terminalstore.StatusOrphaned {
+		if t.Status == terminalstore.StatusRunning {
 			return nil, errStatus(http.StatusConflict, lifecycle.ErrNotOrphaned.Error())
 		}
-		if err := s.life.RestoreTerminal(ctx, t.ID, t.Workdir); err != nil {
-			return nil, err
-		}
-		if err := s.terminals.Update(ctx, t.ID, func(t *terminalstore.Terminal) error {
-			t.Status = terminalstore.StatusRunning
-			t.TmuxSession = t.ID
-			t.ExitCode = nil
-			return nil
-		}); err != nil {
+		if err := s.restoreTerminalRecord(ctx, t); err != nil {
 			return nil, err
 		}
 		s.notify()

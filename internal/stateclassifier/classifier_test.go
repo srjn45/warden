@@ -94,7 +94,7 @@ func (m *fakeManager) SetTarget(name string, t ptyhost.Target, auth bool) {
 	m.authoritative[name] = auth
 }
 
-func (m *fakeManager) Observe(o ptyhost.Observer) {
+func (m *fakeManager) ObserveAgents(o ptyhost.Observer) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.observers = append(m.observers, o)

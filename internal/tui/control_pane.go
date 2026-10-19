@@ -2783,6 +2783,19 @@ func respawnDetailArgs(agentPane, agentSession string) []string {
 		"env -u TMUX tmux attach -t " + agentSession}
 }
 
+// respawnTerminalArgs builds the tmux args that replace the terminal pane's
+// process with `warden attach <session>`. attach shows a terminal hosted on
+// warden's own PTY runtime natively (shared §6 transport: ordered replay, a
+// controller lease, raw mode restored on exit) and falls back to `tmux attach`
+// for a tmux-hosted one, so the cockpit drives both kinds without knowing which.
+func respawnTerminalArgs(terminalPane, self, session string) []string {
+	return []string{"respawn-pane", "-k", "-t", terminalPane,
+		"env -u TMUX " + shellSingleQuote(self) + " attach " + shellSingleQuote(session)}
+}
+
+// shellSingleQuote quotes s for a POSIX shell command line.
+func shellSingleQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+
 // openInDetailCmd opens the given agent's live session in the agent pane. When
 // focus is set it then selects the agent pane so the user lands in it — the Alt
 // rotation (§8) passes focus=true so cycling agents drops you straight into the
@@ -2807,7 +2820,11 @@ func openInDetailCmd(agentPane, agentSession string, focus bool) tea.Cmd {
 // the control pane keeps focus.
 func openInTerminalCmd(terminalPane, tmuxSession string, focus bool) tea.Cmd {
 	return func() tea.Msg {
-		if err := exec.Command("tmux", respawnDetailArgs(terminalPane, tmuxSession)...).Run(); err != nil {
+		args := respawnDetailArgs(terminalPane, tmuxSession)
+		if self, err := os.Executable(); err == nil {
+			args = respawnTerminalArgs(terminalPane, self, tmuxSession)
+		}
+		if err := exec.Command("tmux", args...).Run(); err != nil {
 			return attachDoneMsg{err: err}
 		}
 		if focus {

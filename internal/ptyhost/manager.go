@@ -31,6 +31,11 @@ type Config struct {
 	Options   ptyruntime.Options
 	// Shell overrides the direct-terminal shell (tests); default $SHELL.
 	Shell []string
+	// Launcher, when set, hosts every direct session in an independent PTY holder
+	// process (internal/ptyholder) so the shell survives a daemon restart,
+	// update or crash and is re-adopted. nil keeps the shell a child of the
+	// daemon (plan 01 behavior).
+	Launcher ptyruntime.Launcher
 	// ReconcileEvery is how often dead shadow panes are reaped (default 2s).
 	ReconcileEvery time.Duration
 }
@@ -53,12 +58,38 @@ type Manager struct {
 	acks   acks
 
 	omu       sync.RWMutex
-	observers []Observer
+	observers []observer
+
+	// kind records which sessions are plain shells (kmu guards both fields).
+	// Shell/AI is decided by how a session was created or by its record — never
+	// by its name or screen — and AI-only observers (the state classifier and
+	// everything behind it) are never shown a shell's events.
+	kmu      sync.Mutex
+	kinds    map[string]bool // name -> isTerminal (cached lookups + explicit marks)
+	kindFunc func(name string) bool
+
+	// RollbackRecord records a runtime mode rollback event (global or cohort-scoped).
+	// Rollback affects future launches only; live sessions keep their runtime and control.
+	pmu       sync.RWMutex
+	pins      map[string]Mode
+	cohorts   map[string]Mode
+	cohortOf  map[string]string
+	rollbacks []RollbackRecord
 
 	wmu      sync.Mutex
 	watching map[string]*watch
 	wg       sync.WaitGroup
 	closed   bool
+}
+
+// RollbackRecord records a runtime mode rollback event (global or cohort-scoped).
+// Rollback affects future launches only; live sessions keep their runtime and control.
+type RollbackRecord struct {
+	Cohort string    `json:"cohort,omitempty"`
+	From   Mode      `json:"from"`
+	To     Mode      `json:"to"`
+	At     time.Time `json:"at"`
+	Reason string    `json:"reason,omitempty"`
 }
 
 type watch struct {
@@ -95,8 +126,9 @@ func New(cfg Config) *Manager {
 		cfg.ReconcileEvery = 2 * time.Second
 	}
 	m := &Manager{dir: cfg.Dir, run: cfg.Run, tmux: cfg.Tmux, every: cfg.ReconcileEvery, watching: map[string]*watch{},
+		pins: make(map[string]Mode), cohorts: make(map[string]Mode), cohortOf: make(map[string]string),
 		direct: &ptyruntime.Host{JournalDir: filepath.Join(cfg.Dir, "direct"), Shell: cfg.Shell,
-			Retention: cfg.Retention, Options: cfg.Options},
+			Retention: cfg.Retention, Options: cfg.Options, Launcher: cfg.Launcher},
 		shadow: newShadow(cfg.Run, filepath.Join(cfg.Dir, "shadow"), cfg.Retention, cfg.Options)}
 	m.SetMode(cfg.Mode)
 	return m
@@ -116,6 +148,9 @@ func (m *Manager) SetMode(mode Mode) {
 	prev, _ := m.mode.Swap(mode).(Mode)
 	if prev != "" && prev != mode {
 		slog.Info("ptyhost: runtime.pty mode changed (applies to new sessions)", "from", prev, "to", mode)
+		if isRollback(prev, mode) {
+			m.RecordRollback("", prev, mode, "global runtime.pty mode change")
+		}
 	}
 	if mode == ModeOff && prev.mirrors() {
 		for _, name := range m.shadow.Names() {
@@ -125,11 +160,200 @@ func (m *Manager) SetMode(mode Mode) {
 	}
 }
 
-// Observe registers an observer for every runtime-backed session.
+type observer struct {
+	fn         Observer
+	agentsOnly bool
+}
+
+// Observe registers an observer for every runtime-backed session, shells
+// included. Use it only for lifecycle bookkeeping that is kind-neutral.
 func (m *Manager) Observe(o Observer) {
 	m.omu.Lock()
-	m.observers = append(m.observers, o)
+	m.observers = append(m.observers, observer{fn: o})
 	m.omu.Unlock()
+}
+
+// ObserveAgents registers an observer that never sees plain-shell terminals.
+// Anything that classifies output, detects prompts or may type on a session's
+// behalf must register here: a shell is human-controlled and its output must
+// never reach an AI permission/strategic path.
+func (m *Manager) ObserveAgents(o Observer) {
+	m.omu.Lock()
+	m.observers = append(m.observers, observer{fn: o, agentsOnly: true})
+	m.omu.Unlock()
+}
+
+// SetTerminalResolver tells the manager how to recognise an existing plain
+// terminal that was not created in this process (daemon restart): the durable
+// terminal record. Set before sessions are recovered.
+func (m *Manager) SetTerminalResolver(fn func(name string) bool) {
+	m.kmu.Lock()
+	m.kindFunc = fn
+	m.kmu.Unlock()
+}
+
+// MarkTerminal records name as a plain shell. Called when a terminal is created
+// through TerminalHost, before any event of the session can be dispatched.
+func (m *Manager) MarkTerminal(name string) {
+	m.kmu.Lock()
+	if m.kinds == nil {
+		m.kinds = map[string]bool{}
+	}
+	m.kinds[name] = true
+	m.kmu.Unlock()
+}
+
+// IsTerminal reports whether name is a plain-shell terminal session.
+func (m *Manager) IsTerminal(name string) bool {
+	m.kmu.Lock()
+	defer m.kmu.Unlock()
+	if v, ok := m.kinds[name]; ok {
+		return v
+	}
+	if m.kindFunc == nil {
+		return false
+	}
+	// Resolve once and cache both answers: a name only becomes a terminal
+	// through MarkTerminal, which overwrites a cached negative.
+	v := m.kindFunc(name)
+	if m.kinds == nil {
+		m.kinds = map[string]bool{}
+	}
+	m.kinds[name] = v
+	return v
+}
+
+func (m *Manager) forgetKind(name string) {
+	m.kmu.Lock()
+	delete(m.kinds, name)
+	m.kmu.Unlock()
+}
+
+// SetSessionRuntimePin pins the runtime mode for a specific session name.
+// Pinning takes precedence over the global mode or cohort defaults.
+func (m *Manager) SetSessionRuntimePin(name string, mode Mode) {
+	m.pmu.Lock()
+	defer m.pmu.Unlock()
+	if m.pins == nil {
+		m.pins = make(map[string]Mode)
+	}
+	m.pins[name] = ParseMode(string(mode))
+}
+
+// PinnedRuntime returns the pinned runtime mode for name, if any.
+func (m *Manager) PinnedRuntime(name string) (Mode, bool) {
+	m.pmu.RLock()
+	defer m.pmu.RUnlock()
+	mode, ok := m.pins[name]
+	return mode, ok
+}
+
+// SetSessionCohort associates a session name with a named rollout cohort.
+func (m *Manager) SetSessionCohort(name, cohort string) {
+	m.pmu.Lock()
+	defer m.pmu.Unlock()
+	if m.cohortOf == nil {
+		m.cohortOf = make(map[string]string)
+	}
+	m.cohortOf[name] = cohort
+}
+
+// SessionCohort returns the cohort assigned to name, or empty string.
+func (m *Manager) SessionCohort(name string) string {
+	m.pmu.RLock()
+	defer m.pmu.RUnlock()
+	return m.cohortOf[name]
+}
+
+// SetCohortMode configures the runtime mode for a cohort. When rolling back
+// a cohort to a lower mode (e.g. on -> off), existing sessions in that cohort
+// retain their pinned runtime; only future launches in the cohort adopt the new mode.
+func (m *Manager) SetCohortMode(cohort string, mode Mode) {
+	mode = ParseMode(string(mode))
+	m.pmu.Lock()
+	defer m.pmu.Unlock()
+	if m.cohorts == nil {
+		m.cohorts = make(map[string]Mode)
+	}
+	prev := m.cohorts[cohort]
+	if prev == "" {
+		prev = m.Mode()
+	}
+	m.cohorts[cohort] = mode
+	if isRollback(prev, mode) {
+		m.rollbacks = append(m.rollbacks, RollbackRecord{
+			Cohort: cohort,
+			From:   prev,
+			To:     mode,
+			At:     time.Now().UTC(),
+			Reason: "cohort rollback",
+		})
+		slog.Warn("ptyhost: cohort rolled back (live sessions retain runtime)", "cohort", cohort, "from", prev, "to", mode)
+	}
+}
+
+// CohortMode returns the mode configured for cohort, if any.
+func (m *Manager) CohortMode(cohort string) (Mode, bool) {
+	m.pmu.RLock()
+	defer m.pmu.RUnlock()
+	mode, ok := m.cohorts[cohort]
+	return mode, ok
+}
+
+// Rollbacks returns a copy of the rollback records ledger.
+func (m *Manager) Rollbacks() []RollbackRecord {
+	m.pmu.RLock()
+	defer m.pmu.RUnlock()
+	return append([]RollbackRecord(nil), m.rollbacks...)
+}
+
+// RecordRollback explicitly records a rollback event in the ledger.
+func (m *Manager) RecordRollback(cohort string, from, to Mode, reason string) {
+	m.pmu.Lock()
+	defer m.pmu.Unlock()
+	m.rollbacks = append(m.rollbacks, RollbackRecord{
+		Cohort: cohort,
+		From:   from,
+		To:     to,
+		At:     time.Now().UTC(),
+		Reason: reason,
+	})
+}
+
+func isRollback(from, to Mode) bool {
+	rank := func(m Mode) int {
+		switch m {
+		case ModeOn:
+			return 2
+		case ModeShadow:
+			return 1
+		default:
+			return 0
+		}
+	}
+	return rank(to) < rank(from)
+}
+
+func (m *Manager) effectiveMode(name string) Mode {
+	m.pmu.RLock()
+	defer m.pmu.RUnlock()
+	if pin, ok := m.pins[name]; ok {
+		return pin
+	}
+	if cohort := m.cohortOf[name]; cohort != "" {
+		if cm, ok := m.cohorts[cohort]; ok {
+			return cm
+		}
+	}
+	return m.Mode()
+}
+
+func (m *Manager) forgetSession(name string) {
+	m.forgetKind(name)
+	m.pmu.Lock()
+	delete(m.pins, name)
+	delete(m.cohortOf, name)
+	m.pmu.Unlock()
 }
 
 // Host is the routed tmuxproc.Host for every pane: creation goes to tmux
@@ -152,14 +376,21 @@ func (m *Manager) Lookup(name string) (Target, bool) {
 	return Target{}, false
 }
 
-// IsAuthoritative reports whether the runtime owns the authoritative status
-// for name (mode on and name has a runtime-backed stream).
+// IsAuthoritative reports whether the runtime owns authoritative status and control
+// for name. Direct sessions (plain terminals hosted on the direct PTY) are authoritative
+// because warden owns their PTY master and process lifecycle. This holds even if the
+// global mode or cohort was subsequently flipped or rolled back (per-session runtime pin:
+// cohort rollback affects future launches only). Shadow sessions (agents or plain terminals
+// mirrored from tmux) are observe-only mirrors and are never authoritative (no impossible
+// dual ownership of one PTY master).
 func (m *Manager) IsAuthoritative(name string) bool {
-	if m == nil || m.Mode() != ModeOn {
+	if m == nil {
 		return false
 	}
-	_, ok := m.Lookup(name)
-	return ok
+	if m.direct != nil && m.direct.Session(name) != nil {
+		return true
+	}
+	return false
 }
 
 // Direct returns the direct PTY session for name (nil if it is not hosted
@@ -173,6 +404,29 @@ func (m *Manager) HasDirectJournal(name string) bool {
 	return err == nil && fi.IsDir()
 }
 
+// HolderHosted reports whether name is a direct session owned by a PTY holder
+// (its process survives this daemon).
+func (m *Manager) HolderHosted(name string) bool { return m.direct.HolderHosted(name) }
+
+// AdoptDirect re-attaches to name's live holder-hosted process after a daemon
+// restart: the same process on its journal (epoch+1, lifecycle{recovered}), no
+// relaunch. The caller reports a failure with its cause; nothing is started.
+func (m *Manager) AdoptDirect(ctx context.Context, name string) error {
+	m.MarkTerminal(name) // direct sessions are plain shells
+	m.SetSessionRuntimePin(name, ModeOn)
+	if err := m.direct.Adopt(ctx, name); err != nil {
+		return err
+	}
+	if s := m.direct.Session(name); s != nil {
+		m.watchStream(name, s)
+	}
+	return nil
+}
+
+// MarkDirectLost journals that name's holder-hosted process could not be
+// adopted (detail names the cause and the next step).
+func (m *Manager) MarkDirectLost(name, detail string) error { return m.direct.MarkLost(name, detail) }
+
 // RecoverShadow re-adopts the live tmux panes among names that were mirrored
 // before (daemon restart): each opens a new epoch with lifecycle{recovered},
 // marker{reset} and a snapshot seeded from the live screen. A no-op when the
@@ -184,6 +438,13 @@ func (m *Manager) RecoverShadow(ctx context.Context, names []string) int {
 	n := 0
 	for _, name := range names {
 		if !m.shadow.HasJournal(name) || m.shadow.Mirror(name) != nil || !m.tmux.HasSession(ctx, name) {
+			continue
+		}
+		if err := m.shadow.VerifyPane(ctx, name); err != nil {
+			// Not the process we mirrored: leave the pane alone and say why in the
+			// journal instead of silently claiming (or relaunching) anything.
+			slog.Error("ptyhost: refusing to re-adopt pane", "session", name, "err", err)
+			_ = ptyruntime.MarkLost(m.shadow.journalDir(name), name, m.shadow.ret, ptyevent.PresentationTmux, err.Error())
 			continue
 		}
 		mr, err := m.shadow.Start(ctx, name, true)
@@ -224,7 +485,9 @@ func (m *Manager) endShadow(ctx context.Context, name, detail string) {
 	m.unwatch(name)
 }
 
-// Close ends every direct session (journaling its exit) and stops every
+// Close detaches from every holder-hosted direct session (the process keeps
+// running for the next daemon), ends every other direct session (journaling its
+// exit) and stops every
 // shadow mirror (leaving the tmux panes and their epochs open for
 // re-adoption), then waits for every consumer.
 func (m *Manager) Close() {
@@ -295,8 +558,17 @@ func (m *Manager) dispatch(name string, ev ptyevent.Event) {
 	m.omu.RLock()
 	obs := m.observers
 	m.omu.RUnlock()
+	var term, known bool
 	for _, o := range obs {
-		o(name, ev)
+		if o.agentsOnly {
+			if !known {
+				term, known = m.IsTerminal(name), true
+			}
+			if term {
+				continue
+			}
+		}
+		o.fn(name, ev)
 	}
 }
 
@@ -318,13 +590,25 @@ type routed struct {
 
 var _ tmuxproc.Host = routed{}
 
+// HostedDirectly reports whether name is a shell whose process IS the session
+// (direct PTY). The launcher must not type a nested `${SHELL}` line into it:
+// the session's shell is already the user's shell, and nesting would make
+// `exit` return to an outer shell instead of ending the session with its status.
+func (r routed) HostedDirectly(name string) bool { return r.m.direct.Session(name) != nil }
+
 // directEnv is added to a direct terminal: the daemon (launchd/systemd) often
 // has no TERM, and the rendering end is always an xterm-compatible client.
 var directEnv = []string{"TERM=xterm-256color"}
 
 func (r routed) NewSession(ctx context.Context, name, cwd string, env ...string) error {
 	m := r.m
-	mode := m.Mode()
+	mode := m.effectiveMode(name)
+	m.SetSessionRuntimePin(name, mode)
+	if r.terminal {
+		m.MarkTerminal(name)
+	} else {
+		m.forgetKind(name) // an agent reusing a name never inherits a stale shell mark
+	}
 	if r.terminal && mode == ModeOn {
 		if err := m.direct.NewSession(ctx, name, cwd, append(append([]string{}, directEnv...), env...)...); err != nil {
 			return err
@@ -358,12 +642,15 @@ func (r routed) KillSession(ctx context.Context, name string) error {
 	m := r.m
 	if m.direct.Session(name) != nil {
 		m.unwatch(name)
-		return m.direct.KillSession(ctx, name)
+		err := m.direct.KillSession(ctx, name)
+		m.forgetSession(name)
+		return err
 	}
 	err := m.tmux.KillSession(ctx, name)
 	if m.shadow.Mirror(name) != nil {
 		m.endShadow(ctx, name, "killed")
 	}
+	m.forgetSession(name)
 	return err
 }
 

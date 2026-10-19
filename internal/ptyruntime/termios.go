@@ -46,3 +46,15 @@ func control(f *os.File, fn func(fd int) error) error {
 	}
 	return ferr
 }
+
+// getWinsize reads the PTY's current window size.
+func getWinsize(f *os.File) (cols, rows uint16, err error) {
+	err = control(f, func(fd int) error {
+		ws, e := unix.IoctlGetWinsize(fd, unix.TIOCGWINSZ)
+		if e == nil {
+			cols, rows = ws.Col, ws.Row
+		}
+		return e
+	})
+	return
+}
