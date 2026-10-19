@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/projectstore"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/srjn45/warden/internal/terminalstore"
@@ -135,6 +136,25 @@ func (s *Server) hibernateProjectTerminals(ctx context.Context, projectID string
 	}
 }
 
+// restoreTerminalRecord is the single operator-facing relaunch path for a
+// terminal record (reopen, API restore). Same id, name, project and workdir; a
+// FRESH shell — process state is not preserved, and the log says so (G6). It is
+// idempotent: a shell that is already running (another trigger won the race) is
+// success, and the record is brought to running exactly once.
+func (s *Server) restoreTerminalRecord(ctx context.Context, t *terminalstore.Terminal) error {
+	if err := s.life.RestoreTerminal(ctx, t.ID, t.Workdir); err != nil && !errors.Is(err, lifecycle.ErrAlreadyRunning) {
+		return err
+	}
+	slog.Info("daemon: terminal relaunched with a fresh shell (process state not preserved)", "terminal", t.ID, "was", t.Status)
+	return s.terminals.Update(ctx, t.ID, func(u *terminalstore.Terminal) error {
+		u.Status = terminalstore.StatusRunning
+		u.TmuxSession = t.ID
+		u.ExitCode = nil
+		u.UpdatedAt = time.Now().UTC()
+		return nil
+	})
+}
+
 // restoreHibernatedTerminals respawns orphaned terminals for project p after
 // reopen. Best-effort per terminal.
 func (s *Server) restoreHibernatedTerminals(ctx context.Context, projectID string) {
@@ -155,18 +175,8 @@ func (s *Server) restoreHibernatedTerminals(ctx context.Context, projectID strin
 		if workdir == "" {
 			continue
 		}
-		if err := s.life.RestoreTerminal(ctx, t.ID, workdir); err != nil {
+		if err := s.restoreTerminalRecord(ctx, t); err != nil {
 			slog.Warn("daemon: restore terminals: restore failed", "terminal", t.ID, "err", err)
-			continue
-		}
-		if err := s.terminals.Update(ctx, t.ID, func(u *terminalstore.Terminal) error {
-			u.Status = terminalstore.StatusRunning
-			u.TmuxSession = t.ID
-			u.ExitCode = nil
-			u.UpdatedAt = time.Now().UTC()
-			return nil
-		}); err != nil {
-			slog.Warn("daemon: restore terminals: status update failed", "terminal", t.ID, "err", err)
 			continue
 		}
 		restored = true

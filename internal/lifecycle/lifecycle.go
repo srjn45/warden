@@ -872,6 +872,10 @@ type Lifecycle struct {
 	// forkNorms holds fork mode normalizations (agent id → ModeNormalization)
 	// between a successful Spawn and the caller storing the record.
 	forkNorms sync.Map
+
+	// termLaunch serializes RestoreTerminal per terminal id (id -> *sync.Mutex)
+	// so the HasSession check and the NewSession it guards are one atomic step.
+	termLaunch sync.Map
 	// backend is the default agent backend (Claude) resolved from the registry.
 	// Per-session backends are resolved via backendFor; in Phase 0 every session
 	// is Claude, so this is also the effective backend everywhere.
@@ -2304,15 +2308,31 @@ func (l *Lifecycle) newAgentSession(ctx context.Context, runDir, id, cwd string,
 // RestoreTerminal recreates a lost terminal pane in its original workdir and
 // relaunches ${SHELL:-bash}. Unlike Restore (AI resume-only), a terminal has no
 // conversation to pin — this is a fresh shell in the same identity/tmux name.
+//
+// It is idempotent and race-free per id: poller restore, operator restore,
+// project reopen and startup recovery may all fire at once, and exactly one of
+// them launches a shell — the rest get ErrAlreadyRunning (plain-terminal
+// contract G7 / F-LIFE-01).
 func (l *Lifecycle) RestoreTerminal(ctx context.Context, id, workdir string) error {
+	mu, _ := l.termLaunch.LoadOrStore(id, &sync.Mutex{})
+	m := mu.(*sync.Mutex)
+	m.Lock()
+	defer m.Unlock()
 	if l.Proc().HasSession(ctx, id) {
 		return ErrAlreadyRunning
 	}
 	if fi, err := os.Stat(workdir); err != nil || !fi.IsDir() {
 		return ErrWorkdirMissing
 	}
-	if err := l.terminalProc().NewSession(ctx, id, workdir); err != nil {
+	th := l.terminalProc()
+	if err := th.NewSession(ctx, id, workdir); err != nil {
 		return err
+	}
+	// A direct PTY session already runs the user's shell as its process: typing
+	// the nested launch line would add a second shell level (so `exit` would not
+	// end the session) and the exit-file capture would shadow the real status.
+	if d, ok := th.(interface{ HostedDirectly(string) bool }); ok && d.HostedDirectly(id) {
+		return nil
 	}
 	launch := agentbackend.TerminalBackend().LaunchCmd(agentbackend.LaunchOpts{Name: id}) + l.exitSuffix(id)
 	if err := l.Proc().SendKeys(ctx, id, launch, "Enter"); err != nil {

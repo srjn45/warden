@@ -71,8 +71,8 @@ func (w *TerminalWatcher) tick(ctx context.Context) {
 
 		alive := w.deps.SessionAlive(ctx, s.TmuxSession)
 		if !alive {
-			if s.Status == store.StatusOrphaned {
-				continue // already orphaned; no double-transition
+			if s.Status == store.StatusOrphaned || s.Status == store.StatusDone {
+				continue // already orphaned / exited with a recorded status; no double-transition
 			}
 			prev := s.Status
 			ok, err := w.deps.UpdateStatusIf(ctx, s.ID, prev, store.StatusOrphaned)

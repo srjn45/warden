@@ -45,7 +45,7 @@ var Paths = []Path{
 	{"P08", "daemon", OpAuto, "n/a", "project open/clone/scaffold spawns no terminal", Anchor{"internal/daemon/strict_projects.go", "do not auto-spawn"}},
 	{"P09", "daemon", OpStop, "host", "hibernate: record kept, shell killed", Anchor{"internal/daemon/terminal_lifecycle.go", "func (s *Server) hibernateProjectTerminals"}},
 	{"P10", "daemon", OpRestore, "host", "project reopen: fresh shell, same id/workdir", Anchor{"internal/daemon/terminal_lifecycle.go", "func (s *Server) restoreHibernatedTerminals"}},
-	{"P11", "api", OpRestore, "host", "operator restore, orphaned only (409 otherwise)", Anchor{"internal/daemon/strict_lifecycle.go", "s.life.RestoreTerminal(ctx, t.ID, t.Workdir)"}},
+	{"P11", "api", OpRestore, "host", "operator restore, orphaned or exited (409 while running)", Anchor{"internal/daemon/strict_lifecycle.go", "s.restoreTerminalRecord(ctx, t)"}},
 	{"P12", "daemon", OpRestore, "host", "daemon start: running direct terminal re-spawned onto its journal", Anchor{"internal/daemon/pty_runtime.go", "recovered direct terminal onto its journal"}},
 	{"P13", "daemon", OpRestore, "host", "terminal watcher: lost pane restored", Anchor{"internal/daemon/terminal_poller_deps.go", "func (d *terminalPollerDeps) Restore"}},
 	{"P14", "api", OpAttach, "host", "legacy raw WS /attach; direct sessions bridged via BridgeLegacy", Anchor{"internal/daemon/attach.go", "ptyhost.BridgeLegacy"}},

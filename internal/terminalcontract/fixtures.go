@@ -40,14 +40,14 @@ var Fixtures = []Fixture{
 	{"F-FENCE-04", "fence", both, "human always wins over operator/warden input (sealed by plan 01 Arbitrate)", "", "plan01", "S2", Anchor{"internal/ptyevent/input_test.go", "func Test"}},
 	// Shell vs AI kind boundary (G5).
 	{"F-KIND-01", "kind", []string{"terminal"}, "approval/trust/password-shaped screen on a shell session with NO agent record: no prompt event, no decision, no keystrokes", "ShellClassifierEvents,PromptFalseApprovals", "t1", "S2", Anchor{"internal/stateclassifier/terminal_boundary_test.go", "func TestShellSessionNeverReachesPromptEngine"}},
-	{"F-KIND-02", "kind", []string{"terminal"}, "same screen on a shell whose NAME collides with an agent record: still no prompt (kind, not name, gates)", "ShellClassifierEvents", "t2", "S2", Anchor{}},
-	{"F-KIND-03", "kind", []string{"terminal"}, "claude/codex launched manually inside a shell: no auto-approve, session stays kind=terminal", "PromptFalseApprovals", "t2", "S2", Anchor{}},
+	{"F-KIND-02", "kind", []string{"terminal"}, "same screen on a shell whose NAME collides with an agent record: still no prompt (kind, not name, gates)", "ShellClassifierEvents", "t2", "S2", Anchor{"internal/stateclassifier/terminal_kind_test.go", "func TestManuallyLaunchedAICLIInShellGetsNoAutomation"}},
+	{"F-KIND-03", "kind", []string{"terminal"}, "claude/codex launched manually inside a shell: no auto-approve, session stays kind=terminal", "PromptFalseApprovals", "t2", "S2", Anchor{"internal/stateclassifier/terminal_kind_test.go", "func TestManuallyLaunchedAICLIInShellGetsNoAutomation"}},
 	// Lifecycle (G6, G7, G12).
-	{"F-LIFE-01", "lifecycle", []string{"terminal"}, "concurrent restore x3 (poller, operator, startup): exactly one process", "DuplicateProcesses", "t2", "S2", Anchor{}},
-	{"F-LIFE-02", "lifecycle", []string{"terminal"}, "spawn rollback: store/project failure leaves no process and no record", "DuplicateProcesses", "t2", "S2", Anchor{}},
-	{"F-LIFE-03", "lifecycle", []string{"terminal"}, "hibernate -> reopen preserves id/name/project/workdir and is labelled a relaunch", "", "t2", "S2", Anchor{}},
-	{"F-LIFE-04", "lifecycle", []string{"terminal"}, "exit code recorded for direct shells; `exit 3` -> ExitCode=3, status exited", "", "t2", "S2", Anchor{}},
-	{"F-LIFE-05", "lifecycle", []string{"terminal"}, "identity: id, auto name terminal-<hex>, project membership, cwd, $SHELL, TERM, WARDEN_SESSION_ID identical for tmux and direct paths", "", "t2", "S2", Anchor{}},
+	{"F-LIFE-01", "lifecycle", []string{"terminal"}, "concurrent restore x3 (poller, operator, startup): exactly one process", "DuplicateProcesses", "t2", "S2", Anchor{"internal/lifecycle/terminal_idempotent_test.go", "func TestRestoreTerminalConcurrentLaunchesExactlyOnce"}},
+	{"F-LIFE-02", "lifecycle", []string{"terminal"}, "spawn rollback: store/project failure leaves no process and no record", "DuplicateProcesses", "t2", "S2", Anchor{"internal/daemon/terminal_ptylife_test.go", "func TestSpawnTerminalRollbackLeavesNothing"}},
+	{"F-LIFE-03", "lifecycle", []string{"terminal"}, "hibernate -> reopen preserves id/name/project/workdir and is labelled a relaunch", "", "t2", "S2", Anchor{"internal/daemon/terminal_ptylife_test.go", "func TestHibernateReopenKeepsIdentity"}},
+	{"F-LIFE-04", "lifecycle", []string{"terminal"}, "exit code recorded for direct shells; `exit 3` -> ExitCode=3, status exited", "", "t2", "S2", Anchor{"internal/daemon/terminal_ptylife_test.go", "func TestDirectTerminalExitRecordsStatus"}},
+	{"F-LIFE-05", "lifecycle", []string{"terminal"}, "identity: id, auto name terminal-<hex>, project membership, cwd, $SHELL, TERM, WARDEN_SESSION_ID identical for tmux and direct paths", "", "t2", "S2", Anchor{"internal/ptyhost/identity_test.go", "func TestTerminalIdentityEqualTmuxAndDirect"}},
 	// Terminal emulation (G8).
 	{"F-VT-01", "vt", both, "snapshot after vim/htop/less alt-screen traces round-trips to the same visible cells", "ParityByteExactPct", "t3", "S2", Anchor{}},
 	{"F-VT-02", "vt", both, "wide (CJK), combining and emoji sequences occupy correct cells in a snapshot", "", "t3", "S2", Anchor{}},

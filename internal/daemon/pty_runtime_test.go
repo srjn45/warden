@@ -183,7 +183,7 @@ func TestDirectTerminalInputOutputAndLegacyAttach(t *testing.T) {
 
 // When a direct terminal's shell exits, the stream consumer and the terminal
 // watcher both see it; the shared compare-and-swap means exactly one
-// running → orphaned transition, whoever wins.
+// running → exited transition (with the shell's exit status), whoever wins.
 func TestDirectTerminalExitDoesNotFightTheWatcher(t *testing.T) {
 	srv, m, _, _ := ptyServer(t, ptyhost.ModeOn)
 	ctx := context.Background()
@@ -200,7 +200,7 @@ func TestDirectTerminalExitDoesNotFightTheWatcher(t *testing.T) {
 	var mu sync.Mutex
 	transitions := 0
 	tw.OnTransition = func(_ *store.Session, _, to store.Status) {
-		if to == store.StatusOrphaned {
+		if to == store.StatusDone {
 			mu.Lock()
 			transitions++
 			mu.Unlock()
@@ -215,12 +215,16 @@ func TestDirectTerminalExitDoesNotFightTheWatcher(t *testing.T) {
 	require.NoError(t, m.Host().SendKeys(ctx, "T-1", "exit", "Enter"))
 	require.Eventually(t, func() bool {
 		got, err := terms.Get(ctx, "T-1")
-		return err == nil && got.Status == terminalstore.StatusOrphaned
+		return err == nil && got.Status == terminalstore.StatusExited
 	}, 10*time.Second, 20*time.Millisecond)
 	time.Sleep(200 * time.Millisecond) // let the slower observer land too
+	got, err := terms.Get(ctx, "T-1")
+	require.NoError(t, err)
+	require.NotNil(t, got.ExitCode, "a direct shell's exit status is recorded")
+	require.Equal(t, 0, *got.ExitCode)
 	mu.Lock()
 	defer mu.Unlock()
-	require.Equal(t, 1, transitions, "exactly one orphaned transition")
+	require.Equal(t, 1, transitions, "exactly one exited transition")
 }
 
 func TestPTYRuntimeWiresClassifierAndPollerAuthoritative(t *testing.T) {
