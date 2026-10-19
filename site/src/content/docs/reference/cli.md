@@ -4914,7 +4914,9 @@ Usage:
 Commands:
   add                  Register a custom model in the catalog
   discover             Probe installed AI CLIs for live model menus
+  history              Show catalog evidence and revision history
   list                 List models in the catalog and their assigned tiers
+  rollback             Roll back a catalog policy revision
   tier                 Set a model's tier classification (tier-1|tier-2|tier-3)
 
 Flags:
@@ -4999,6 +5001,24 @@ Inherited flags:
       --config string   config file path (default ~/.warden/config.yaml)
 ```
 
+## warden backend model history
+
+```text
+Show catalog evidence and revision history
+
+Usage:
+  warden backend model history [flags]
+
+Flags:
+      --aicli string   filter evidence by AI CLI (account-safe; no credentials are shown)
+  -h, --help           help for history
+      --json           emit structured history
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
+```
+
 ## warden backend model list
 
 ```text
@@ -5020,6 +5040,24 @@ Inherited flags:
 
 Aliases:
   ls
+```
+
+## warden backend model rollback
+
+```text
+Roll back a catalog policy revision
+
+Usage:
+  warden backend model rollback <revision> [flags]
+
+Flags:
+  -h, --help   help for rollback
+      --json   emit structured result
+      --yes    confirm the catalog-policy rollback
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
 ```
 
 ## warden backend model tier
@@ -6263,8 +6301,10 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | `warden models` | `warden backend model` |
 | `warden models add` | `warden backend model add` |
 | `warden models discover` | `warden backend model discover` |
+| `warden models history` | `warden backend model history` |
 | `warden models list` | `warden backend model list` |
 | `warden models ls` | `warden backend model list` |
+| `warden models rollback` | `warden backend model rollback` |
 | `warden models tier` | `warden backend model tier` |
 | `warden msg` | `warden message` |
 | `warden msg inbox` | `warden message inbox` |
