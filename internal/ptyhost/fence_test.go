@@ -172,6 +172,12 @@ func TestF_ATTACH_03_ResizeArbitrationAndSIGWINCH(t *testing.T) {
 	if err := m.TerminalHost().NewSession(context.Background(), "term-r", t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
+	// The shell installs its WINCH trap immediately before printing ready. Do
+	// not race the first hello resize against process startup: that can lose a
+	// legitimate SIGWINCH before the fixture is capable of observing it.
+	eventually(t, "WINCH trap installed", func() bool {
+		return strings.Contains(outputOf(liveEvents(t, m, "term-r")), "ready")
+	})
 	url := wsServer(t, func() *Manager { return m }, "term-r", false)
 
 	a := dial(t, url+"?c=a")
