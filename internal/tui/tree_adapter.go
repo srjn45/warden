@@ -51,6 +51,7 @@ func buildProjectItems(
 		remote = remotePlans[0]
 	}
 	filtered := filterTreeSessions(sessions, showSystem)
+	ap = autopilotWithSessionFallback(ap, filtered, projects, plans)
 	var allPlans []*planstore.Plan
 	for _, ps := range plans {
 		allPlans = append(allPlans, ps...)
