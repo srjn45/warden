@@ -454,6 +454,14 @@ Every attempt emits an agent event `model_launch_attempt {n, aicli, model, outco
 
 ---
 
+### 9.4 Implementation status (follow-up)
+
+Implemented: `agentbackend.LaunchRejectionDetector`, `router.ResolveOptions.ExcludeRoutes`, and `internal/lifecycle/model_recovery.go` (wired into Spawn free-form/typed and SpawnJob; evidence via `backendstore.RecordLaunchEvidence`). A rejection counts only when the CLI exited non-zero, no ready marker or transcript exists, the adapter's anchored signature names the attempted model, and (for a launch carrying a prompt) the adapter attests `RejectsBeforePrompt()`; otherwise recovery fails closed. Attempts are hard-capped at 3. Recovery picks another model of the same aicli and tier only; pins and forks fail with `model_rejected`.
+
+**Status: NOT complete.** Safe future seam (not built): for a detector-capable backend, launch WITHOUT the positional prompt, wait for either the exact-model rejection or the adapter's positive `InputReady(pane)`, then deliver the stored prompt once through the existing Input path; if neither is observed, fail closed (no retry, no duplicate prompt). This needs session-registration care and a launch-path refactor, so it is deferred.
+
+Known gaps: **no production adapter implements the detector** (no captured, versioned rejection fixture exists; live probing is forbidden, so recovery is dormant in production until one is supplied and reviewed); `model_recovery.*` config keys are not yet exposed (defaults 3 / 3m / 60s / 24h are compiled in); Restore, restart and hot-swap/handoff relaunches and cross-aicli recovery are not wired (they keep today's behaviour).
+
 ## 10. Startup readiness and pickers
 
 - Daemon start **does not** run discovery. Seeding (D4-fixed) and routing read only stored observations.

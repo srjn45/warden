@@ -391,6 +391,7 @@ func newDaemonRunCmd() *cobra.Command {
 			impactFences := stores.ImpactFences
 			srv.SetImpactFences(impactFences)
 			lc.Resolver = router.NewResolver(backendStore)
+			lc.Evidence = backendStore
 			lc.CapacityResolver = capacity.NewResolver(backendStore, nil)
 
 			// First-class project store (docs/specs/2026-08-28-project-centric-ui.md

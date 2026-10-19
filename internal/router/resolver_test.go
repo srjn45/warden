@@ -758,3 +758,19 @@ func TestResolver_ClassBRoundRobinTie(t *testing.T) {
 	require.NotContains(t, a.Reason, "perishable")
 	require.ElementsMatch(t, []string{"claude", "antigravity"}, []string{a.BackendID, b.BackendID})
 }
+
+func TestResolveExcludeRoutesNeverReturnsAttemptedPair(t *testing.T) {
+	s := setupTestStore(t)
+	r := router.NewResolver(s)
+	first, err := r.Resolve(context.Background(), router.ResolveOptions{Tier: backendstore.Tier1})
+	require.NoError(t, err)
+	ex := []router.Route{{BackendID: first.BackendID, ModelID: first.ModelID}}
+	for i := 0; i < 20; i++ {
+		next, err := r.Resolve(context.Background(), router.ResolveOptions{Tier: backendstore.Tier1, ExcludeRoutes: ex})
+		if err != nil {
+			require.ErrorIs(t, err, router.ErrAllExhausted)
+			return
+		}
+		require.False(t, next.BackendID == first.BackendID && next.ModelID == first.ModelID)
+	}
+}

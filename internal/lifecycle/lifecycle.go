@@ -989,6 +989,11 @@ type Lifecycle struct {
 	// See SuccessorResolver.
 	Resolver         SuccessorResolver
 	CapacityResolver *capacity.Resolver
+	// Evidence records scope-local launch observations from bounded startup
+	// recovery (nil disables recording); ModelRecovery bounds that recovery.
+	Evidence      LaunchEvidenceRecorder
+	ModelRecovery ModelRecoveryConfig
+	recoveryPoll  time.Duration
 	// goos and readPSI are the platform seams for MemoryPressure: runtime.GOOS
 	// and a /proc/pressure/memory read in production, injected by tests so both
 	// kernel sources are exercised on any host.
@@ -1088,6 +1093,9 @@ func (l *Lifecycle) backendFor(id string) agentbackend.Backend {
 
 // SpawnRequest is the type-aware input to Spawn (design §2 / §6).
 type SpawnRequest struct {
+	// startupPinned is set by Spawn when the caller chose the model (exact pin,
+	// role model or fork): startup recovery then reports, never substitutes.
+	startupPinned  bool
 	Type           store.Type
 	Ticket         string // optional; becomes the id when present
 	Name           string // optional; human-readable name for the agent
@@ -1940,6 +1948,7 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*agentstore.Ag
 	// Lowest-precedence tier input: Fast-Brain prompt-complexity routing (opt-in,
 	// only for a spawn that pins nothing; see routeTierByPrompt).
 	routeDecision := l.applyRouteTier(ctx, &req)
+	req.startupPinned = req.ForkFrom != "" || (strings.TrimSpace(req.Backend) != "" && strings.TrimSpace(req.Model) != "")
 	req.Backend, req.Model, resolveErr = l.resolveSpawnTarget(ctx, req.Role, req.Task, req.Tier, req.Backend, req.Model)
 	if resolveErr != nil {
 		return nil, resolveErr
@@ -2138,6 +2147,25 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, agent *
 		l.cleanupFailedSpawn(agent, true, false)
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
 	}
+	if err := l.superviseStartup(ctx, startupRun{
+		Agent: agent, B: b, Pinned: req.startupPinned, Role: req.Role, Task: req.Task, Tier: req.Tier,
+		Relaunch: func(rctx context.Context, model string) error {
+			if err := l.newAgentSession(rctx, "", agent.ID, req.Cwd); err != nil {
+				return err
+			}
+			cmd := b.LaunchCmd(agentbackend.LaunchOpts{
+				SessionID: agent.AICLISessionID, Name: agent.ID, Model: l.launchModel(b, model), Mode: mode, Network: launchNetwork(agent),
+				LogFile: l.sessionLogFile(b, agent.ID),
+			}) + hints + l.promptArg(b, promptFile) + l.exitSuffix(agent.ID)
+			if out, err := l.run.Run(rctx, "", "tmux", "send-keys", "-t", agent.ID, cmd, "Enter"); err != nil {
+				return fmt.Errorf("tmux send-keys relaunch: %w: %s", err, out)
+			}
+			return nil
+		},
+	}); err != nil {
+		l.cleanupFailedSpawn(agent, true, false)
+		return nil, err
+	}
 	l.seedInteractivePrompt(b, agent, req.Prompt)
 	return agent, nil
 }
@@ -2242,6 +2270,28 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, agent *age
 	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", agent.ID, launch, "Enter"); err != nil {
 		l.cleanupFailedSpawn(agent, true, worktreeCreated)
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
+	}
+	if err := l.superviseStartup(ctx, startupRun{
+		Agent: agent, B: b, Pinned: req.startupPinned, Role: req.Role, Task: req.Task, Tier: req.Tier,
+		Relaunch: func(rctx context.Context, model string) error {
+			if err := l.newAgentSession(rctx, req.Repo, agent.ID, workdir); err != nil {
+				return err
+			}
+			rreq := req
+			rreq.Model = model
+			rbase, err := l.buildLaunch(b, rreq, agent, mode)
+			if err != nil {
+				return err
+			}
+			cmd := rbase + hints + l.guardSettings(b, agent.ID) + l.promptArg(b, promptFile) + l.exitSuffix(agent.ID)
+			if out, err := l.run.Run(rctx, req.Repo, "tmux", "send-keys", "-t", agent.ID, cmd, "Enter"); err != nil {
+				return fmt.Errorf("tmux send-keys relaunch: %w: %s", err, out)
+			}
+			return nil
+		},
+	}); err != nil {
+		l.cleanupFailedSpawn(agent, true, worktreeCreated)
+		return nil, err
 	}
 	l.seedInteractivePrompt(b, agent, req.Prompt)
 	return agent, nil
@@ -3177,6 +3227,7 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*agentst
 	// absence/errors degrade to defaults so a job spawn never hard-fails on
 	// resolution alone.
 	var resolveErr error
+	jobPinned := strings.TrimSpace(req.Backend) != "" && strings.TrimSpace(req.Model) != ""
 	req.Backend, req.Model, resolveErr = l.resolveSpawnTarget(ctx, req.Role, req.Task, req.Tier, req.Backend, req.Model)
 	if resolveErr != nil {
 		return nil, resolveErr
@@ -3294,6 +3345,27 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*agentst
 	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", id, launch, "Enter"); err != nil {
 		l.cleanupFailedSpawn(agent, true, worktreeCreated)
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
+	}
+	if err := l.superviseStartup(ctx, startupRun{
+		Agent: agent, B: b, Pinned: jobPinned, Role: req.Role, Task: req.Task, Tier: req.Tier,
+		Relaunch: func(rctx context.Context, model string) error {
+			if err := l.newAgentSession(rctx, req.Repo, id, workdir,
+				"WARDEN_PIPELINE_ID="+req.PipelineID, "WARDEN_JOB_ID="+req.JobID,
+				"AGENTCTL_PIPELINE_ID="+req.PipelineID, "AGENTCTL_JOB_ID="+req.JobID); err != nil {
+				return err
+			}
+			cmd := b.LaunchCmd(agentbackend.LaunchOpts{
+				SessionID: agent.AICLISessionID, Name: id, Model: l.launchModel(b, model), Mode: mode, Network: launchNetwork(agent),
+				LogFile: l.sessionLogFile(b, id),
+			}) + hints + l.promptArg(b, promptFile) + l.exitSuffix(id)
+			if out, err := l.run.Run(rctx, req.Repo, "tmux", "send-keys", "-t", id, cmd, "Enter"); err != nil {
+				return fmt.Errorf("tmux send-keys relaunch: %w: %s", err, out)
+			}
+			return nil
+		},
+	}); err != nil {
+		l.cleanupFailedSpawn(agent, true, worktreeCreated)
+		return nil, err
 	}
 	l.seedInteractivePrompt(b, agent, req.Prompt)
 	return agent, nil

@@ -1,0 +1,254 @@
+package lifecycle
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"strings"
+	"time"
+
+	"github.com/srjn45/warden/internal/agentbackend"
+	"github.com/srjn45/warden/internal/agentstore"
+	"github.com/srjn45/warden/internal/backendstore"
+	"github.com/srjn45/warden/internal/router"
+	"github.com/srjn45/warden/internal/store"
+)
+
+// Bounded startup failure recovery (docs/specs/2026-10-19-aicli-model-catalog-refresh.md §9).
+//
+// Safety envelope, deliberately narrower than the spec's universal retry:
+//   - only an adapter implementing agentbackend.LaunchRejectionDetector takes part
+//     (none does in production until a captured, versioned fixture exists);
+//   - a rejection counts only when the CLI has EXITED non-zero, no ready marker
+//     was seen, no transcript exists, the anchored signature matches, AND (when
+//     the launch carries a prompt) the adapter attests via RejectsBeforePrompt
+//     that the signature precedes any prompt handling. The lifecycle cannot
+//     prove "prompt not accepted" from the pane alone, so absent the attestation
+//     it fails closed and does not retry;
+//   - recovery only picks another model of the SAME aicli and tier (permission
+//     mode, billing and session wiring are unchanged); anything else fails typed;
+//   - exact pins and recorded-model relaunches are never substituted.
+
+// maxModelAttempts is the hard cap on distinct pre-task attempts.
+const maxModelAttempts = 3
+
+// ModelRecoveryConfig bounds startup recovery. Zero fields take the defaults.
+type ModelRecoveryConfig struct {
+	MaxAttempts    int           // distinct (aicli, model) attempts including the first (default and hard cap 3)
+	Deadline       time.Duration // shared deadline from the first launch (default 3m)
+	AttemptTimeout time.Duration // per-attempt observation window (default 60s)
+	RejectionTTL   time.Duration // negative-evidence lifetime (default 24h)
+}
+
+func (c ModelRecoveryConfig) norm() ModelRecoveryConfig {
+	if c.MaxAttempts <= 0 {
+		c.MaxAttempts = 3
+	}
+	if c.MaxAttempts > maxModelAttempts {
+		c.MaxAttempts = maxModelAttempts
+	}
+	if c.Deadline <= 0 {
+		c.Deadline = 3 * time.Minute
+	}
+	if c.AttemptTimeout <= 0 {
+		c.AttemptTimeout = 60 * time.Second
+	}
+	if c.RejectionTTL <= 0 {
+		c.RejectionTTL = 24 * time.Hour
+	}
+	return c
+}
+
+// LaunchEvidenceRecorder persists scope-local launch observations
+// (*backendstore.Store implements it).
+type LaunchEvidenceRecorder interface {
+	RecordLaunchEvidence(aiCli, modelID string, evidence backendstore.LaunchEvidence, rejectFor time.Duration) error
+}
+
+// ModelAttempt is one audited startup attempt.
+type ModelAttempt struct {
+	AiCli   string `json:"aicli"`
+	Model   string `json:"model"`
+	Outcome string `json:"outcome"`
+	Reason  string `json:"reason,omitempty"`
+}
+
+// ModelRecoveryExhaustedError: every allowed pre-task attempt was rejected or no
+// further eligible same-aicli/same-tier model exists. Needs operator attention.
+type ModelRecoveryExhaustedError struct{ Attempts []ModelAttempt }
+
+func (e *ModelRecoveryExhaustedError) Error() string {
+	parts := make([]string, 0, len(e.Attempts))
+	for _, a := range e.Attempts {
+		parts = append(parts, fmt.Sprintf("%s/%s: %s", a.AiCli, a.Model, a.Reason))
+	}
+	return "model_recovery_exhausted: " + strings.Join(parts, "; ")
+}
+
+// ModelRejectedError: a pinned or recorded model was rejected at startup. It is
+// reported, never substituted.
+type ModelRejectedError struct {
+	AiCli, Model, Reason string
+	Suggestions          []string
+}
+
+func (e *ModelRejectedError) Error() string {
+	return fmt.Sprintf("model_rejected: %s/%s: %s", e.AiCli, e.Model, e.Reason)
+}
+
+// IsModelRecoveryError reports whether err is one of the typed recovery errors.
+func IsModelRecoveryError(err error) bool {
+	var a *ModelRecoveryExhaustedError
+	var r *ModelRejectedError
+	return errors.As(err, &a) || errors.As(err, &r)
+}
+
+// startupRun describes one launched agent whose startup is to be supervised.
+type startupRun struct {
+	Agent  *agentstore.Agent
+	B      agentbackend.Backend
+	Pinned bool // exact pin / recorded model: report, never substitute
+	Role   string
+	Task   string
+	Tier   string
+	// Relaunch starts the same agent again (fresh pane, same worktree) on model.
+	Relaunch func(ctx context.Context, model string) error
+}
+
+// awaitStartup watches the pane until the attempt resolves. It reports a
+// rejection only for an exited, non-zero CLI whose pane carries an anchored
+// signature and never showed the ready marker.
+func (l *Lifecycle) awaitStartup(ctx context.Context, agent *agentstore.Agent, id string, det agentbackend.LaunchRejectionDetector, ready string) (string, bool) {
+	poll := l.recoveryPoll
+	if poll <= 0 {
+		poll = 500 * time.Millisecond
+	}
+	tick := time.NewTicker(poll)
+	defer tick.Stop()
+	for {
+		pane, err := l.run.Run(ctx, "", "tmux", "capture-pane", "-p", "-t", id)
+		if err == nil {
+			if ready != "" && strings.Contains(pane, ready) {
+				return "", false
+			}
+			if code, exited := l.ReadExit(id); exited {
+				if code == 0 || l.transcriptPath(agent) != "" {
+					return "", false
+				}
+				return det.DetectModelRejection(pane, agent.Model)
+			}
+		}
+		select {
+		case <-tick.C:
+		case <-ctx.Done():
+			return "", false
+		}
+	}
+}
+
+func (l *Lifecycle) attemptEvent(agent *agentstore.Agent, n int, outcome, reason string) {
+	agent.Events = append(agent.Events, store.Event{
+		TS:   time.Now().UTC(),
+		Type: "model_launch_attempt",
+		Detail: fmt.Sprintf("n=%d aicli=%s model=%s outcome=%s reason=%q",
+			n, agent.AiCli, agent.Model, outcome, reason),
+	})
+}
+
+// superviseStartup returns nil when startup is not rejected (or the adapter has
+// no detector). On a typed error the caller must clean the failed spawn up.
+func (l *Lifecycle) superviseStartup(ctx context.Context, s startupRun) error {
+	det, ok := s.B.(agentbackend.LaunchRejectionDetector)
+	if !ok {
+		return nil
+	}
+	if s.Agent.Prompt != "" && !det.RejectsBeforePrompt() {
+		return nil // cannot prove the prompt was not accepted: fail closed
+	}
+	cfg := l.ModelRecovery.norm()
+	dctx, cancel := context.WithTimeout(ctx, cfg.Deadline)
+	defer cancel()
+	ready := ""
+	if ps, ok := s.B.(agentbackend.PromptSeeder); ok {
+		ready = ps.ReadyMarker()
+	}
+	var tried []router.Route
+	var attempts []ModelAttempt
+	for n := 1; ; n++ {
+		a := s.Agent
+		cur := router.Route{BackendID: a.AiCli, ModelID: a.Model}
+		tried = append(tried, cur)
+		actx, acancel := context.WithTimeout(dctx, cfg.AttemptTimeout)
+		reason, rejected := l.awaitStartup(actx, a, a.ID, det, ready)
+		acancel()
+		if !rejected {
+			l.attemptEvent(a, n, "started", "")
+			return nil
+		}
+		attempts = append(attempts, ModelAttempt{AiCli: a.AiCli, Model: a.Model, Outcome: "rejected", Reason: reason})
+		l.attemptEvent(a, n, "rejected", reason)
+		if l.Evidence != nil && a.Model != "" {
+			if err := l.Evidence.RecordLaunchEvidence(a.AiCli, a.Model, backendstore.LaunchEvidence{
+				Kind: backendstore.LaunchFailureInvalidModel, Summary: reason, PreTask: true, ObservedAt: time.Now().UTC(),
+			}, cfg.RejectionTTL); err != nil {
+				slog.Warn("model recovery: record launch evidence failed", "agent", a.ID, "err", err)
+			}
+		}
+		// Reap the failed child, its PTY and the tmux shell before anything else.
+		l.killSession(a.ID)
+		if s.Pinned {
+			return &ModelRejectedError{AiCli: a.AiCli, Model: a.Model, Reason: reason, Suggestions: l.suggestions(a, s.Tier)}
+		}
+		if n >= cfg.MaxAttempts || dctx.Err() != nil || l.Resolver == nil || s.Relaunch == nil {
+			return &ModelRecoveryExhaustedError{Attempts: attempts}
+		}
+		res, err := l.Resolver.Resolve(dctx, router.ResolveOptions{
+			Role: s.Role, Task: s.Task, Tier: backendstore.ModelTier(s.Tier),
+			PreferredBackend: a.AiCli, AllowFallback: false, ExcludeRoutes: tried,
+		})
+		if err != nil || res == nil || res.ModelID == "" || res.BackendID != a.AiCli || routeSeen(tried, res.BackendID, res.ModelID) {
+			attempts = append(attempts, ModelAttempt{AiCli: a.AiCli, Outcome: "no_candidate", Reason: "no further eligible model for this aicli and tier"})
+			return &ModelRecoveryExhaustedError{Attempts: attempts}
+		}
+		a.Model = res.ModelID
+		if l.CapacityResolver != nil {
+			if b, err := l.CapacityResolver.Resolve(dctx, a.AiCli, a.Model); err == nil {
+				a.QuotaBinding = b
+			}
+		}
+		if err := s.Relaunch(dctx, a.Model); err != nil {
+			return err
+		}
+	}
+}
+
+func routeSeen(tried []router.Route, backend, model string) bool {
+	for _, t := range tried {
+		if t.BackendID == backend && t.ModelID == model {
+			return true
+		}
+	}
+	return false
+}
+
+// suggestions lists same-tier models for the pinned aicli that are not rejected.
+func (l *Lifecycle) suggestions(a *agentstore.Agent, tier string) []string {
+	if l.Resolver == nil || tier == "" {
+		return nil
+	}
+	var out []string
+	var tried []router.Route
+	tried = append(tried, router.Route{BackendID: a.AiCli, ModelID: a.Model})
+	for i := 0; i < 3; i++ {
+		res, err := l.Resolver.Resolve(context.Background(), router.ResolveOptions{
+			Tier: backendstore.ModelTier(tier), PreferredBackend: a.AiCli, ExcludeRoutes: tried,
+		})
+		if err != nil || res == nil || res.ModelID == "" {
+			break
+		}
+		out = append(out, res.ModelID)
+		tried = append(tried, router.Route{BackendID: res.BackendID, ModelID: res.ModelID})
+	}
+	return out
+}
