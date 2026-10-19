@@ -39,6 +39,10 @@ store; audit consumers must retain only the configured operational window.
 
 ## Release gate
 
-Run `wd check` before release. Do not use a fixture as proof that a provider is
-currently reachable. Any opt-in live check must identify itself as live evidence
-in its operator record; CI uses fixtures only.
+Run `wd check` before release. The operator sequence is tested as preview →
+inspect proposal/blocked entries → explicit apply by exact id → history → new
+session routing → revision-safe rollback. Do not use a fixture as proof that a
+provider is currently reachable. Any opt-in live check must identify itself as
+live evidence in its operator record; CI uses fixtures only. The release gate
+does not authorize a deployment, tag, local configuration change, login, paid
+probe, CLI update, or restart.

@@ -64,6 +64,7 @@ export default defineConfig({
           { label: 'Approvals & supervised mode', slug: 'guides/approvals-supervised' },
           { label: 'Lifecycle commands & rails', slug: 'guides/lifecycle-and-rails' },
           { label: 'Backend superpowers (review & models)', slug: 'guides/backend-superpowers' },
+	          { label: 'AI CLI model-catalog rollout', slug: 'guides/model-catalog-rollout' },
           { label: 'Backend registry', slug: 'guides/backend-registry' },
           { label: 'Backend hard-limit recovery', slug: 'guides/backend-recovery' },
           { label: 'Fleet operations', slug: 'guides/fleet-operations' },
