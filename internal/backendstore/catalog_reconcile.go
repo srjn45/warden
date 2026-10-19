@@ -55,6 +55,7 @@ func proposalKey(ai, id string) string { return ai + ":" + id }
 // quota, router state, or sessions. In particular, an incomplete response can
 // add positive observations but can never turn an absent model unavailable.
 func (s *Store) Preview(refresh CatalogRefresh, now time.Time) (CatalogProposal, error) {
+	started := time.Now()
 	if refresh.Scope.AiCli == "" {
 		return CatalogProposal{}, errors.New("catalog scope AI CLI cannot be empty")
 	}
@@ -68,6 +69,10 @@ func (s *Store) Preview(refresh CatalogRefresh, now time.Time) (CatalogProposal,
 	if o.Completeness == "" {
 		o.Completeness = CompletenessFailed
 	}
+	var changes []ObservationChange
+	// Count every completed refresh attempt, including failures in the short
+	// persistence phase. Provider I/O has already happened before Preview.
+	defer func() { s.catalogMetrics.observeRefresh(refresh.Scope.AiCli, o, time.Since(started), changes) }()
 	snap := CatalogSnapshot{ID: refresh.SnapshotID, AiCli: refresh.Scope.AiCli, ScopeFP: refresh.Scope.ScopeFP(), AuthMode: refresh.Scope.AuthMode, PlanLabel: refresh.Scope.PlanLabel, CLIVersion: refresh.Scope.CLIVersion, Source: o.Source, SourceDetail: o.SourceDetail, SourceFetchedAt: o.SourceFetchedAt, ObservedAt: refresh.ObservedAt, Completeness: o.Completeness, Err: o.Err, Models: append([]ObservedModel(nil), o.Models...)}
 	if snap.ID == "" {
 		snap.ID = snapshotID(snap)
@@ -327,7 +332,8 @@ func (s *Store) recommendLocked(scope CatalogScope, snap CatalogSnapshot, models
 // Apply is deliberately authorization-shaped: callers must name the exact
 // proposal they previewed. A changed head, account scope, row, expiry, or prior
 // proposal state fails closed and requires a new preview.
-func (s *Store) ApplyCatalogProposal(id string, now time.Time) (CatalogRevision, error) {
+func (s *Store) ApplyCatalogProposal(id string, now time.Time) (out CatalogRevision, err error) {
+	defer func() { s.catalogMetrics.observeConflict(err) }()
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
@@ -400,7 +406,8 @@ func (s *Store) ApplyCatalogProposal(id string, now time.Time) (CatalogRevision,
 // RollbackCatalogRevision restores catalog policy rows only. It intentionally
 // never touches quota usage, observations, snapshots, routes already chosen, or
 // running sessions.
-func (s *Store) RollbackCatalogRevision(rev uint64, now time.Time) (CatalogRevision, error) {
+func (s *Store) RollbackCatalogRevision(rev uint64, now time.Time) (out CatalogRevision, err error) {
+	defer func() { s.catalogMetrics.observeConflict(err) }()
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}

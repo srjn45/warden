@@ -54,6 +54,9 @@ const (
 	ActionTxAbandoned                = "tx_abandoned"               // cross-collection transaction aborted, timed out, or uncommitted
 	ActionLegacyCleanup              = "legacy_cleanup"             // retired schema-1 stores quarantined by an operator
 	ActionTxOutcome                  = "tx_outcome"                 // significant cross-collection transaction outcome event
+	ActionModelCatalogRefresh        = "model_catalog_refresh"      // catalog evidence previewed
+	ActionModelCatalogApply          = "model_catalog_apply"        // catalog policy revision applied
+	ActionModelCatalogRollback       = "model_catalog_rollback"     // catalog policy revision rolled back
 )
 
 // Event is one audit record: who (Actor) did what (Action) when (Time) to which

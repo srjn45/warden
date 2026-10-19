@@ -1,0 +1,44 @@
+# AI CLI model catalog verification matrix
+
+This matrix records evidence for the catalog-refresh feature. Fixture evidence
+is deterministic and offline; it is not evidence that an installed provider is
+currently live. No daemon boot, background tick, or ordinary cached launch runs
+scheduled discovery or an LLM call. A live smoke check is an operator-authorized
+`aicli models discover` action only.
+
+| Contract area | Evidence | Status / limit |
+| --- | --- | --- |
+| Offline, stale, malformed, partial and capped output | `modelcatalog_adapters_test.go`; 4 MiB cap, timeout classification and partial-result handling | Fixture-proven. Provider output is discarded after parsing. |
+| Paginated/provider registries | Crush configured-provider filtering | Partial only; no adapter claims a complete dynamic provider registry. |
+| Hidden/special models, cache identity drift, reappearance | adapter and `catalog_reconcile_test.go` | Fixture-proven. Hidden is never auto-assigned. |
+| Account/profile switch between observation and apply | scope fingerprint and proposal CAS in `catalog_reconcile.go` | Fixture-proven by scope-specific observations; account references are never persisted. |
+| Shared quota windows and exhaustion | existing `backendusage` fixture suites and resolver tests | Fixture-proven; catalog discovery itself does not make usage calls. |
+| Pins, seed reinitialization, downgrade/rollback | model policy, seeder and reconciliation tests | Fixture-proven. Explicit pins remain an operator choice. |
+| Unsupported providers | adapter capability declarations | Explicitly unsupported/non-dynamic: Claude, Aider and Goose. They remain display/config surfaces, not live catalog sources. |
+| Concurrent refresh/apply and stale proposal | `catalog_reconcile_test.go` | Store mutex + proposal/head/pre-hash CAS; stale side loses without partial policy mutation. |
+| Crash mid-apply | Scriva sync-mode and transaction test harness | Storage-level atomicity is covered; this feature does not claim provider-side atomicity. |
+| Slow provider responsiveness | `TestSlowCatalogProviderDoesNotBlockCatalogStoreReaders`; discovery runs before `backendstore.Store.mu` | Deterministic fixture proves a blocked adapter does not block a catalog reader. Task 9 still needs a daemon-level sessions/approvals/tree concurrent-request regression. |
+| Spawn/process leaks, cancellation, output caps | catalog runner tests and lifecycle recovery tests | Output cap and child reaping fixture-proven; cancellation is bounded by the command context. |
+| CLI updates/profile switch and cache schema drift | version/identity/stale-cache adapter tests | Drift degrades to partial/failed; it never authorizes retirement. |
+| No background discovery | daemon has no catalog scheduler or adapter wiring | Code-path reviewed, not yet an injectable daemon lifecycle regression. Task 9 must add a boot/tick/cached-launch call-counter test. |
+| Startup retry, fallback and exact pins | launch-evidence and router eligibility tests | Scope-local rejection is fixture-proven; task 9 must add end-to-end ≤3-attempt, exact-pin/no-substitution and retry-exhaustion launch tests. |
+
+## Bounded telemetry and audit
+
+`backendstore.CatalogMetrics` has only bounded labels: known AI CLI, completeness,
+cache freshness, and classified error. It reports refresh totals, discovered,
+unavailable and unknown transitions, partial results, timeouts, reconciliation
+conflicts, and a fixed-bucket duration histogram. It deliberately excludes model
+ids, account identifiers, profiles, prompts, raw command output and credentials.
+
+The append-only audit records `model_catalog_refresh`, `model_catalog_apply`, and
+`model_catalog_rollback`. They carry proposal/revision/snapshot provenance, a
+redacted scope fingerprint, bounded operation/rationale detail, and never raw
+account references or provider output. Snapshot retention is bounded in the
+store; audit consumers must retain only the configured operational window.
+
+## Release gate
+
+Run `wd check` before release. Do not use a fixture as proof that a provider is
+currently reachable. Any opt-in live check must identify itself as live evidence
+in its operator record; CI uses fixtures only.

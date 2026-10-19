@@ -52,6 +52,15 @@ raw open of this dir):
 
 ## 3. What scriva v1.4.0 can and cannot repair
 
+Re-audit (2026-10-19, v1.6.0): the strict-open, revision-conflict,
+backup-first recovery and registry-preservation assertions remain executable
+in `integrity_contract_test.go`. The dependency pin now targets v1.6.0.
+Transaction-enabled roots must be opened through `engine.Open`, not a standalone
+`engine.OpenCollection`, so DB-level journal recovery cannot be bypassed. Legacy
+standalone fixture collections require their parent directory to exist. Update
+and migration fixtures follow those guards; no live-store integrity policy,
+schema version, or automatic-repair policy is relaxed by this dependency bump.
+
 Observed by `integrity_contract_test.go` against a programmatically built
 damaged store (no real data dir is ever read):
 
