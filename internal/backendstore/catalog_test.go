@@ -25,6 +25,35 @@ func TestCatalogObservationLongKeyAndRoundTrip(t *testing.T) {
 	require.Equal(t, modelID, got.ModelID)
 }
 
+func TestLaunchEvidenceIsModelScopedBoundedAndSuccessSupersedesIt(t *testing.T) {
+	s := newTestStore(t)
+	now := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
+	require.NoError(t, s.PutCatalogScope(ActiveCatalogScope{AiCli: "codex", ActiveScopeFP: "scope"}))
+	require.NoError(t, s.RecordLaunchEvidence("codex", "gone", LaunchEvidence{Kind: LaunchFailureInvalidModel, PreTask: true, ObservedAt: now}, time.Hour))
+	got, err := s.GetCatalogObservation("codex", "scope", "gone")
+	require.NoError(t, err)
+	require.Equal(t, AvailabilityUnavailable, got.Availability)
+	require.Equal(t, now.Add(time.Hour), got.LaunchRejectedUntil)
+	require.Equal(t, "invalid_model", got.LaunchRejectionReason)
+
+	// A real successful startup is newer, stronger evidence for the exact same
+	// account/model, and must re-enable it without affecting any backend row.
+	require.NoError(t, s.RecordLaunchEvidence("codex", "gone", LaunchEvidence{Succeeded: true, PreTask: true, ObservedAt: now.Add(time.Minute)}, time.Hour))
+	got, err = s.GetCatalogObservation("codex", "scope", "gone")
+	require.NoError(t, err)
+	require.Equal(t, AvailabilityAvailable, got.Availability)
+	require.True(t, got.LaunchRejectedUntil.IsZero())
+}
+
+func TestClassifyLaunchFailureIsConservative(t *testing.T) {
+	require.Equal(t, LaunchFailureInvalidModel, ClassifyLaunchFailure("error: model gpt-old is not available for this account"))
+	require.Equal(t, LaunchFailureQuota, ClassifyLaunchFailure("HTTP 429 rate limit exceeded"))
+	require.Equal(t, LaunchFailureReasoning, ClassifyLaunchFailure("reasoning effort is unsupported"))
+	require.Equal(t, LaunchFailureOther, ClassifyLaunchFailure("process exited with status 1"))
+	// A backend-level unsupported error is not proof about the selected model.
+	require.Equal(t, LaunchFailureOther, ClassifyLaunchFailure("unsupported command"))
+}
+
 func TestCatalogSnapshotRetentionKeepsRecentAndReferencedEvidence(t *testing.T) {
 	s := newTestStore(t)
 	now := time.Now().UTC().Truncate(time.Second)

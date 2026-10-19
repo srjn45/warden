@@ -91,6 +91,25 @@ func TestResolverCatalogAvailabilityRejectsButExactPinsRemainOperatorControlled(
 	require.ErrorIs(t, err, router.ErrAllExhausted)
 }
 
+func TestResolverLaunchRejectionExpiresWithoutPermanentCatalogExclusion(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+	now := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
+	require.NoError(t, s.PutCatalogScope(backendstore.ActiveCatalogScope{AiCli: "codex", ActiveScopeFP: "scope"}))
+	require.NoError(t, s.PutCatalogObservation(backendstore.StoredObservation{
+		AiCli: "codex", ScopeFP: "scope", ModelID: "gpt-5.5", Availability: backendstore.AvailabilityUnavailable,
+		LaunchRejectionReason: "invalid_model", LaunchRejectedUntil: now.Add(time.Minute),
+	}))
+	r := router.NewResolver(s).WithNow(func() time.Time { return now })
+	_, err := r.Resolve(context.Background(), router.ResolveOptions{Tier: backendstore.Tier1, PreferredBackend: "codex"})
+	require.ErrorIs(t, err, router.ErrAllExhausted)
+
+	r.WithNow(func() time.Time { return now.Add(2 * time.Minute) })
+	res, err := r.Resolve(context.Background(), router.ResolveOptions{Tier: backendstore.Tier1, PreferredBackend: "codex"})
+	require.NoError(t, err)
+	require.Equal(t, "gpt-5.5", res.ModelID)
+}
+
 func TestResolverCatalogLifecycleRejectsAutomaticRouting(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()

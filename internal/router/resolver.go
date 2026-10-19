@@ -237,7 +237,17 @@ func (r *Resolver) EvaluateCandidates(ctx context.Context, targetTier backendsto
 			evals = append(evals, eval)
 			continue
 		}
-		if eval.Availability == backendstore.AvailabilityUnavailable && !explicit {
+		// A discovery result of unavailable remains authoritative. A launch
+		// rejection, however, is deliberately short-lived negative evidence: once
+		// its circuit window expires it must not permanently remove the model from
+		// automatic routing.
+		launchRejected := false
+		if os, ok := r.store.(observationStore); ok {
+			if o, e := os.GetActiveCatalogObservation(m.BackendID, m.ModelID); e == nil {
+				launchRejected = o.LaunchRejectionReason != "" && o.LaunchRejectedUntil.After(now)
+			}
+		}
+		if eval.Availability == backendstore.AvailabilityUnavailable && !explicit && !launchRejected && !isExpiredLaunchOnlyObservation(r.store, m.BackendID, m.ModelID, now) {
 			eval.Eligible = false
 			eval.RejectReason = "model unavailable for active account"
 			evals = append(evals, eval)
@@ -363,6 +373,19 @@ func (r *Resolver) EvaluateCandidates(ctx context.Context, targetTier backendsto
 	}
 
 	return evals, nil
+}
+
+// isExpiredLaunchOnlyObservation distinguishes a provider/discovery statement
+// that a model is unavailable from a temporary launch circuit. It intentionally
+// lives at the resolver boundary, where expiry is applied, so persisted evidence
+// survives a daemon restart without a background mutation.
+func isExpiredLaunchOnlyObservation(s Store, aiCli, modelID string, now time.Time) bool {
+	os, ok := s.(observationStore)
+	if !ok {
+		return false
+	}
+	o, err := os.GetActiveCatalogObservation(aiCli, modelID)
+	return err == nil && o.Availability == backendstore.AvailabilityUnavailable && o.LaunchRejectionReason != "" && !o.LaunchRejectedUntil.IsZero() && !o.LaunchRejectedUntil.After(now)
 }
 
 // Resolve evaluates candidates according to opts and selects the winning candidate using weighted headroom and round-robin tie-breaking.
