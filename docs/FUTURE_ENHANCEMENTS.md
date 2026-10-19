@@ -205,6 +205,78 @@ A modern, VS Code-inspired web IDE built with Vite + React 19 + TypeScript + `re
 - **Project-Scoped Terminal Pane:** Native Go PTY (`creack/pty`) with daemon-side circular ring buffering and resize synchronization, replacing `tmux`.
 - **Dual Deployment & Real-time Sync:** Local loopback serving (embedded via Go `embed.FS`) and remote access via `warden-hub` reverse tunnels. Real-time state reflection via WebSockets/SSE into TanStack Query.
 
+**Delivery priority:** Complete and stabilize the PTY runtime, plain-terminal
+migration, and legacy-retirement plans first. Build the Web IDE next as the
+primary richer, more flexible operator interface while preserving native AI CLI
+and shell interaction. Revisit the TUI only after the Web IDE is usable, and
+only where there is still a concrete need. Hub integration remains separately
+gated; it must not be required for a local-only Web IDE.
+
+**Flexible workspace and native terminal experience:**
+
+- Support collapsible project/navigation and log panels, nested horizontal and
+  vertical terminal splits, keyboard and mouse resizing, terminal tabs/groups,
+  focus/zoom with layout restoration, and saved workspace layouts.
+- Treat panes as views, not process owners: collapsing, closing, rearranging,
+  or reconnecting a view must not terminate its agent or shell. The PTY broker
+  owns session lifetime independently of the browser.
+- Provide mouse-drag selection confined to a single terminal pane, double-click
+  word selection, and triple-click line selection. Preserve selection while new
+  output arrives, including selection that spans scrollback.
+- Provide searchable scrollback, keyboard selection/copy mode, and predictable
+  mouse-wheel/trackpad scrolling. Scrolling up pauses automatic following;
+  indicate new output and offer an explicit jump back to the live bottom.
+- Copy only selected terminal content, never pane borders or neighboring panes.
+  Distinguish real newlines from soft wraps so copied commands and text are not
+  corrupted by display wrapping; test resize/reflow and Unicode selection.
+- Support explicit copy/paste shortcuts and context-menu actions. Handle browser
+  clipboard permissions, secure-context requirements, denied access and manual
+  fallbacks. Validate local and future remote/SSH-backed sessions rather than
+  assuming one clipboard mechanism works everywhere.
+- Preserve multiline and bracketed-paste semantics where the application
+  supports them; do not add an implicit Enter or silently alter pasted text.
+  Make terminal-versus-IDE shortcut ownership clear, keeping Ctrl-C available
+  for process interruption when no explicit copy action is intended.
+- Preserve native terminal behavior: ANSI/VT rendering, cursor movement, colors,
+  alternate screens/fullscreen applications, Unicode, focus, mouse reporting,
+  resize and signals. Define how selection mode overrides an application's
+  mouse capture without breaking its normal interaction.
+- Keep input focus and controller ownership explicit. Reconnect/replay must not
+  duplicate input or mix historical output with live output out of order; slow
+  viewers must not block the process or create unbounded scrollback buffers.
+- Prototype and acceptance-test copy/paste, selection, scrolling, reflow and
+  fullscreen AI CLI interaction before committing to an engine. Include common
+  browsers, keyboard-only operation and realistic high-output sessions.
+
+**Engine direction, not a blanket commitment:** Use
+[`xterm.js`](https://xtermjs.org/docs/api/terminal/classes/terminal/) as the
+initial Web IDE candidate. Its terminal/selection/scrolling APIs are a starting
+point, not a guarantee of the complete UX above; clipboard integration, layout,
+focus, retention and session transport remain Warden responsibilities. Reuse the
+shared PTY broker rather than creating a separate browser-owned runtime.
+
+#### 59. Native TUI terminal workspace — *deferred until after the Web IDE*
+
+If still needed after the Web IDE is delivered, evaluate a complete Bubble Tea
+workspace with direct PTY-backed panes and optional tmux presentation. Carry
+forward **all terminal-experience requirements above**, including selection,
+clipboard, scrollback/search, paste, flexible/collapsible layouts, focus and
+session-independent pane lifetime.
+
+Bubble Tea handles application state, layout and input routing; embedded panes
+also require terminal emulation and screen/scrollback state. Evaluate Charm's
+experimental [`x/vt`](https://github.com/charmbracelet/x) first for Go integration,
+but choose only after a compatibility/UX prototype. Compare tview if its widget
+model materially helps; Ratatui entails a Rust frontend, and libghostty is a
+separate embedding option rather than a drop-in Bubble Tea widget. Do not switch
+frameworks merely to obtain collapsible panels or assume an emulator provides
+selection/clipboard UX automatically.
+
+Test cooperation with the outer terminal's mouse capture, selection, scrolling,
+clipboard/OSC 52 policy and SSH behavior, with explicit fallbacks and documented
+limitations. Do not promise desktop/browser-quality interaction from a terminal
+emulation library alone. Tmux may remain a user choice, not session authority.
+
 ---
 
 ## 🧊 Parked (need a concrete demand signal)
