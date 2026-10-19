@@ -31,6 +31,11 @@ type Config struct {
 	Options   ptyruntime.Options
 	// Shell overrides the direct-terminal shell (tests); default $SHELL.
 	Shell []string
+	// Launcher, when set, hosts every direct session in an independent PTY holder
+	// process (internal/ptyholder) so the shell survives a daemon restart,
+	// update or crash and is re-adopted. nil keeps the shell a child of the
+	// daemon (plan 01 behavior).
+	Launcher ptyruntime.Launcher
 	// ReconcileEvery is how often dead shadow panes are reaped (default 2s).
 	ReconcileEvery time.Duration
 }
@@ -104,7 +109,7 @@ func New(cfg Config) *Manager {
 	}
 	m := &Manager{dir: cfg.Dir, run: cfg.Run, tmux: cfg.Tmux, every: cfg.ReconcileEvery, watching: map[string]*watch{},
 		direct: &ptyruntime.Host{JournalDir: filepath.Join(cfg.Dir, "direct"), Shell: cfg.Shell,
-			Retention: cfg.Retention, Options: cfg.Options},
+			Retention: cfg.Retention, Options: cfg.Options, Launcher: cfg.Launcher},
 		shadow: newShadow(cfg.Run, filepath.Join(cfg.Dir, "shadow"), cfg.Retention, cfg.Options)}
 	m.SetMode(cfg.Mode)
 	return m
@@ -243,6 +248,28 @@ func (m *Manager) HasDirectJournal(name string) bool {
 	return err == nil && fi.IsDir()
 }
 
+// HolderHosted reports whether name is a direct session owned by a PTY holder
+// (its process survives this daemon).
+func (m *Manager) HolderHosted(name string) bool { return m.direct.HolderHosted(name) }
+
+// AdoptDirect re-attaches to name's live holder-hosted process after a daemon
+// restart: the same process on its journal (epoch+1, lifecycle{recovered}), no
+// relaunch. The caller reports a failure with its cause; nothing is started.
+func (m *Manager) AdoptDirect(ctx context.Context, name string) error {
+	m.MarkTerminal(name) // direct sessions are plain shells
+	if err := m.direct.Adopt(ctx, name); err != nil {
+		return err
+	}
+	if s := m.direct.Session(name); s != nil {
+		m.watchStream(name, s)
+	}
+	return nil
+}
+
+// MarkDirectLost journals that name's holder-hosted process could not be
+// adopted (detail names the cause and the next step).
+func (m *Manager) MarkDirectLost(name, detail string) error { return m.direct.MarkLost(name, detail) }
+
 // RecoverShadow re-adopts the live tmux panes among names that were mirrored
 // before (daemon restart): each opens a new epoch with lifecycle{recovered},
 // marker{reset} and a snapshot seeded from the live screen. A no-op when the
@@ -254,6 +281,13 @@ func (m *Manager) RecoverShadow(ctx context.Context, names []string) int {
 	n := 0
 	for _, name := range names {
 		if !m.shadow.HasJournal(name) || m.shadow.Mirror(name) != nil || !m.tmux.HasSession(ctx, name) {
+			continue
+		}
+		if err := m.shadow.VerifyPane(ctx, name); err != nil {
+			// Not the process we mirrored: leave the pane alone and say why in the
+			// journal instead of silently claiming (or relaunching) anything.
+			slog.Error("ptyhost: refusing to re-adopt pane", "session", name, "err", err)
+			_ = ptyruntime.MarkLost(m.shadow.journalDir(name), name, m.shadow.ret, ptyevent.PresentationTmux, err.Error())
 			continue
 		}
 		mr, err := m.shadow.Start(ctx, name, true)
@@ -294,7 +328,9 @@ func (m *Manager) endShadow(ctx context.Context, name, detail string) {
 	m.unwatch(name)
 }
 
-// Close ends every direct session (journaling its exit) and stops every
+// Close detaches from every holder-hosted direct session (the process keeps
+// running for the next daemon), ends every other direct session (journaling its
+// exit) and stops every
 // shadow mirror (leaving the tmux panes and their epochs open for
 // re-adoption), then waits for every consumer.
 func (m *Manager) Close() {

@@ -25,18 +25,18 @@ var both = []string{"agent", "terminal"}
 // no task can claim the gap closed without them.
 var Fixtures = []Fixture{
 	// Survival (G1, G2): the process tree and PTY master outlive the daemon.
-	{"F-SURV-01", "survival", []string{"terminal"}, "SIGKILL the daemon; shell pid, cwd, env and a running `sleep` child are alive; broker re-adopted; scrollback intact", "SurvivalLossPct,AdoptAfterRestoreP99", "t3", "S2", Anchor{}},
-	{"F-SURV-02", "survival", []string{"terminal"}, "graceful daemon stop + binary swap + start (update path): same shell pid, no relaunch, no duplicate", "SurvivalLossPct,DuplicateProcesses", "t3", "S2", Anchor{}},
-	{"F-SURV-03", "survival", both, "broker crash (not daemon): sessions are reported lost with an actionable error, never silently relaunched", "ActionableErrorPct", "t3", "S2", Anchor{}},
-	{"F-SURV-04", "survival", []string{"agent"}, "agent process tree survives daemon SIGKILL under the same ownership model as shells (or documented tmux-compat holder)", "SurvivalLossPct", "t3", "S2", Anchor{}},
+	{"F-SURV-01", "survival", []string{"terminal"}, "SIGKILL the daemon; shell pid, cwd, env and a running `sleep` child are alive; broker re-adopted; scrollback intact", "SurvivalLossPct,AdoptAfterRestoreP99", "t3", "S2", Anchor{"internal/ptyholder/survive_test.go", "func TestF_SURV_01_DaemonSIGKILLShellSurvivesAndIsAdopted"}},
+	{"F-SURV-02", "survival", []string{"terminal"}, "graceful daemon stop + binary swap + start (update path): same shell pid, no relaunch, no duplicate", "SurvivalLossPct,DuplicateProcesses", "t3", "S2", Anchor{"internal/ptyholder/survive_test.go", "func TestF_SURV_02_GracefulStopAndRestartKeepsTheProcess"}},
+	{"F-SURV-03", "survival", both, "broker crash (not daemon): sessions are reported lost with an actionable error, never silently relaunched", "ActionableErrorPct", "t3", "S2", Anchor{"internal/ptyholder/survive_test.go", "func TestF_SURV_03_HolderDeathIsActionableNeverRelaunched"}},
+	{"F-SURV-04", "survival", []string{"agent"}, "agent process tree survives daemon SIGKILL under the same ownership model as shells (or documented tmux-compat holder)", "SurvivalLossPct", "t3", "S2", Anchor{"internal/ptyhost/fence_test.go", "func TestF_SURV_04_AgentPaneAdoptionChecksIdentity"}},
 	// Authenticated adoption (G3).
-	{"F-AUTH-01", "auth", both, "adoption presents the per-session credential; wrong/missing credential is refused and journaled", "", "t3", "S2", Anchor{}},
-	{"F-AUTH-02", "auth", both, "pid reuse: a recycled pid with a different start-time/identity is NOT adopted", "DuplicateProcesses", "t3", "S2", Anchor{}},
-	{"F-AUTH-03", "auth", both, "broker socket is 0600, owner-checked (SO_PEERCRED/LOCAL_PEERCRED); other uid refused", "", "t3", "S2", Anchor{}},
+	{"F-AUTH-01", "auth", both, "adoption presents the per-session credential; wrong/missing credential is refused and journaled", "", "t3", "S2", Anchor{"internal/ptyholder/auth_test.go", "func TestF_AUTH_01_CredentialRequiredAndRefusalAudited"}},
+	{"F-AUTH-02", "auth", both, "pid reuse: a recycled pid with a different start-time/identity is NOT adopted", "DuplicateProcesses", "t3", "S2", Anchor{"internal/ptyholder/auth_test.go", "func TestF_AUTH_02_RecycledPidNotAdopted"}},
+	{"F-AUTH-03", "auth", both, "broker socket is 0600, owner-checked (SO_PEERCRED/LOCAL_PEERCRED); other uid refused", "", "t3", "S2", Anchor{"internal/ptyholder/auth_test.go", "func TestF_AUTH_03_SocketPrivateAndOwnerChecked"}},
 	// Input fencing / controller lease (G4).
-	{"F-FENCE-01", "fence", both, "two interactive clients: one controller, the other demoted to observe; lease generation increments on takeover", "LeaseTakeoverP99", "t3", "S2", Anchor{}},
-	{"F-FENCE-02", "fence", both, "stale controller (older generation) write after takeover/epoch reset is rejected, not delivered", "StaleControllerWrites", "t3", "S2", Anchor{}},
-	{"F-FENCE-03", "fence", both, "reconnect with the same client_id replays no input twice (idempotent input ids)", "DuplicateInputBytes", "t3", "S2", Anchor{}},
+	{"F-FENCE-01", "fence", both, "two interactive clients: one controller, the other demoted to observe; lease generation increments on takeover", "LeaseTakeoverP99", "t3", "S2", Anchor{"internal/ptyhost/fence_test.go", "func TestF_FENCE_01_OneControllerTakeoverBumpsGeneration"}},
+	{"F-FENCE-02", "fence", both, "stale controller (older generation) write after takeover/epoch reset is rejected, not delivered", "StaleControllerWrites", "t3", "S2", Anchor{"internal/ptyhost/fence_test.go", "func TestF_FENCE_02_StaleGenerationRejected"}},
+	{"F-FENCE-03", "fence", both, "reconnect with the same client_id replays no input twice (idempotent input ids)", "DuplicateInputBytes", "t3", "S2", Anchor{"internal/ptyhost/fence_test.go", "func TestF_FENCE_03_ReconnectNeverDuplicatesInput"}},
 	{"F-FENCE-04", "fence", both, "human always wins over operator/warden input (sealed by plan 01 Arbitrate)", "", "plan01", "S2", Anchor{"internal/ptyevent/input_test.go", "func Test"}},
 	// Shell vs AI kind boundary (G5).
 	{"F-KIND-01", "kind", []string{"terminal"}, "approval/trust/password-shaped screen on a shell session with NO agent record: no prompt event, no decision, no keystrokes", "ShellClassifierEvents,PromptFalseApprovals", "t1", "S2", Anchor{"internal/stateclassifier/terminal_boundary_test.go", "func TestShellSessionNeverReachesPromptEngine"}},
@@ -49,13 +49,13 @@ var Fixtures = []Fixture{
 	{"F-LIFE-04", "lifecycle", []string{"terminal"}, "exit code recorded for direct shells; `exit 3` -> ExitCode=3, status exited", "", "t2", "S2", Anchor{"internal/daemon/terminal_ptylife_test.go", "func TestDirectTerminalExitRecordsStatus"}},
 	{"F-LIFE-05", "lifecycle", []string{"terminal"}, "identity: id, auto name terminal-<hex>, project membership, cwd, $SHELL, TERM, WARDEN_SESSION_ID identical for tmux and direct paths", "", "t2", "S2", Anchor{"internal/ptyhost/identity_test.go", "func TestTerminalIdentityEqualTmuxAndDirect"}},
 	// Terminal emulation (G8).
-	{"F-VT-01", "vt", both, "snapshot after vim/htop/less alt-screen traces round-trips to the same visible cells", "ParityByteExactPct", "t3", "S2", Anchor{}},
-	{"F-VT-02", "vt", both, "wide (CJK), combining and emoji sequences occupy correct cells in a snapshot", "", "t3", "S2", Anchor{}},
-	{"F-VT-03", "vt", both, "SGR attributes survive snapshot for the local authorized view; redacted views drop them", "", "t3", "S2", Anchor{}},
+	{"F-VT-01", "vt", both, "snapshot after vim/htop/less alt-screen traces round-trips to the same visible cells", "ParityByteExactPct", "t3", "S2", Anchor{"internal/ptyruntime/screen_vt_test.go", "func TestF_VT_01_FullscreenTracesRoundTrip"}},
+	{"F-VT-02", "vt", both, "wide (CJK), combining and emoji sequences occupy correct cells in a snapshot", "", "t3", "S2", Anchor{"internal/ptyruntime/screen_vt_test.go", "func TestF_VT_02_WideCombiningEmojiCells"}},
+	{"F-VT-03", "vt", both, "SGR attributes survive snapshot for the local authorized view; redacted views drop them", "", "t3", "S2", Anchor{"internal/ptyruntime/screen_vt_test.go", "func TestF_VT_03_SGRKeptLocallyDroppedInRedactedViews"}},
 	// Attach (G9, G10).
-	{"F-ATTACH-01", "attach", []string{"terminal"}, "cockpit/TUI shows and drives a direct terminal (raw mode restored on detach, Ctrl-C/EOF/job control)", "", "t3", "S2", Anchor{}},
-	{"F-ATTACH-02", "attach", both, "replay-then-live ordering with a cursor across epoch reset; slow viewer bounded then ErrResync", "ReplayOrderViolations,SlowViewerMaxBytes,SlowViewerPTYStall", "t3", "S2", Anchor{}},
-	{"F-ATTACH-03", "attach", both, "resize arbitration: last controller wins, SIGWINCH delivered, journaled with origin", "ResizeToSIGWINCHP99", "t3", "S2", Anchor{}},
+	{"F-ATTACH-01", "attach", []string{"terminal"}, "cockpit/TUI shows and drives a direct terminal (raw mode restored on detach, Ctrl-C/EOF/job control)", "", "t3", "S2", Anchor{"internal/ptyattach/attach_test.go", "func TestF_ATTACH_01_RawModeRestoredOnEveryExit"}},
+	{"F-ATTACH-02", "attach", both, "replay-then-live ordering with a cursor across epoch reset; slow viewer bounded then ErrResync", "ReplayOrderViolations,SlowViewerMaxBytes,SlowViewerPTYStall", "t3", "S2", Anchor{"internal/ptyattach/attach_test.go", "func TestReplayThenLiveOrderingMidStream"}},
+	{"F-ATTACH-03", "attach", both, "resize arbitration: last controller wins, SIGWINCH delivered, journaled with origin", "ResizeToSIGWINCHP99", "t3", "S2", Anchor{"internal/ptyhost/fence_test.go", "func TestF_ATTACH_03_ResizeArbitrationAndSIGWINCH"}},
 	// Rollout / compatibility (G11).
 	{"F-ROLL-01", "rollout", both, "per-session runtime pin: flipping runtime.pty affects future launches only; live sessions keep runtime and control", "", "t4", "S3", Anchor{}},
 	{"F-ROLL-02", "rollout", both, "old-binary/new-broker and new-binary/old-broker protocol handshake: refuse with version error, never misparse", "", "t4", "S3", Anchor{}},

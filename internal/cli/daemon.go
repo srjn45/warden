@@ -38,6 +38,7 @@ import (
 	"github.com/srjn45/warden/internal/plansync"
 	"github.com/srjn45/warden/internal/plugin"
 	"github.com/srjn45/warden/internal/poller"
+	"github.com/srjn45/warden/internal/ptyholder"
 	"github.com/srjn45/warden/internal/ptyhost"
 	"github.com/srjn45/warden/internal/relay"
 	"github.com/srjn45/warden/internal/router"
@@ -213,11 +214,18 @@ func newDaemonRunCmd() *cobra.Command {
 			}
 			// Warden-owned PTY runtime (runtime.pty: off|shadow|on). Off routes
 			// every pane op straight to tmux exactly as before.
-			ptyMgr := ptyhost.New(ptyhost.Config{
+			ptyCfg := ptyhost.Config{
 				Mode: ptyhost.ParseMode(cfg.Runtime.PTY),
 				Dir:  filepath.Join(cfg.DataDir, "pty"),
 				Run:  runner,
-			})
+			}
+			// Direct shells live in an independent PTY holder process so they
+			// survive this daemon (restart, update, crash) and are re-adopted.
+			// WARDEN_PTY_HOLDER=off is the escape hatch back to daemon-owned shells.
+			if os.Getenv("WARDEN_PTY_HOLDER") != "off" {
+				ptyCfg.Launcher = &ptyholder.Launcher{Root: filepath.Join(cfg.DataDir, "pty", "holder")}
+			}
+			ptyMgr := ptyhost.New(ptyCfg)
 			defer ptyMgr.Close()
 			lc.SetProcessHost(ptyMgr.Host())
 			lc.SetTerminalHost(ptyMgr.TerminalHost())

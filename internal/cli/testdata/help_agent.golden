@@ -21,7 +21,7 @@ Commands:
   restore              Recreate and resume a lost/orphaned agent (resumes its AI CLI session)
   recover              Revive archived orphaned agent records whose tmux session is still alive (dry run unless --apply)
   adopt                Register the AI CLI session in this directory (resume it under tmux, or register the current tmux session live)
-  attach               Attach to the agent's tmux session
+  attach               Attach to the agent's or terminal's live session
   stop                 Tear down an agent (default: terminate + clear record + remove worktree; --keep-* flags keep parts)
   terminate            Stop an agent: kill its tmux+AI CLI session (keeps the record and worktree)
   send                 Type a message into an agent's AI CLI session and press Enter

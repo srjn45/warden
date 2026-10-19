@@ -3748,6 +3748,16 @@
     "json": true
   },
   {
+    "path": "ptyholder",
+    "use": "ptyholder \u003cspec-file\u003e",
+    "hidden": true,
+    "runnable": true,
+    "inherited_flags": [
+      "addr",
+      "config"
+    ]
+  },
+  {
     "path": "push",
     "use": "push",
     "runnable": true,

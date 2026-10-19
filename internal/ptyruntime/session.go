@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -109,6 +110,42 @@ type Config struct {
 	// Backend labels the lifecycle events (informational).
 	Backend string
 	Options Options
+	// Adopt, when set, hosts a process this runtime did not start: another
+	// process (the PTY holder) owns the master and the child, and this Session
+	// is a client of them. Argv/Dir/Env are ignored.
+	Adopt *Adoption
+}
+
+// ExitStatus is how a hosted leader ended.
+type ExitStatus struct {
+	Code   int
+	Signal string // name of the terminating signal ("" for a normal exit)
+	// Unknown: the process is gone but its status was lost (its reaper died).
+	Unknown bool
+	// Lost: the channel that reports the status broke while the process may
+	// still be running. Only an Adoption's Wait returns it.
+	Lost bool
+}
+
+// Adoption is a process whose PTY master and wait status belong to someone
+// else. The Session holds its own dup of the master, so ending the Session
+// (Detach) leaves the process and the owner's master untouched: the daemon can
+// die, restart or be replaced and the process tree keeps running.
+type Adoption struct {
+	// Master is this process's own pollable master descriptor.
+	Master *os.File
+	PID    int
+	// Recovered journals lifecycle{recovered} (a re-adoption: same process, new
+	// epoch) instead of lifecycle{spawned}.
+	Recovered bool
+	// Wait blocks until the leader's exit is known. It returns Lost when the
+	// channel broke or Abort was called.
+	Wait func() ExitStatus
+	// Abort unblocks Wait.
+	Abort func()
+	// Alive reports whether the very same process is still running (identity
+	// checked, never a recycled pid). Nil falls back to a signal-0 probe.
+	Alive func() bool
 }
 
 // Session errors.
@@ -129,7 +166,8 @@ type item struct {
 // subscriber sees it.
 type Session struct {
 	writer
-	cmd    *exec.Cmd
+	cmd    *exec.Cmd // nil for an adopted process
+	adopt  *Adoption
 	master *os.File
 	pid    int
 	queue  chan item
@@ -140,12 +178,24 @@ type Session struct {
 	ended      bool
 	exitEv     *ptyevent.Lifecycle
 
-	waitDone   chan struct{} // leader reaped (state set)
-	state      *os.ProcessState
+	waitDone   chan struct{} // leader reaped (exit set)
+	exit       ExitStatus
+	detachCh   chan struct{} // closed by Detach: end the Session, leave the process
+	detached   bool
 	readDone   chan struct{}
 	writerDone chan struct{}
 	exited     chan struct{} // exit journaled
 	closeOnce  sync.Once
+
+	// enq/done count raw reads handed to the writer and fully applied by it:
+	// equal means the journal and screen have caught up with everything the
+	// reader published (AttachQuiesced).
+	enq, done atomic.Int64
+
+	// Controller lease (guarded by writer.mu): one controller per session.
+	ctl       controller
+	genSeq    uint64
+	lastInput map[string]uint64 // client -> highest applied fenced input id
 }
 
 // Start launches cfg.Argv on a new PTY and starts journaling. The first event
@@ -157,7 +207,7 @@ func Start(cfg Config) (*Session, error) {
 	if cfg.Journal == nil {
 		return nil, errors.New("ptyruntime: Config.Journal is required")
 	}
-	if len(cfg.Argv) == 0 {
+	if cfg.Adopt == nil && len(cfg.Argv) == 0 {
 		return nil, errors.New("ptyruntime: Config.Argv is empty")
 	}
 	if cfg.Cols == 0 {
@@ -167,43 +217,70 @@ func Start(cfg Config) (*Session, error) {
 		cfg.Rows = 24
 	}
 	opt := cfg.Options.withDefaults()
-	master, tty, err := openPTY()
-	if err != nil {
-		return nil, err
+	var (
+		master *os.File
+		cmd    *exec.Cmd
+		pid    int
+	)
+	if ad := cfg.Adopt; ad != nil {
+		if ad.Master == nil || ad.PID <= 0 || ad.Wait == nil {
+			return nil, errors.New("ptyruntime: Config.Adopt needs a master, a pid and Wait")
+		}
+		master, pid = ad.Master, ad.PID
+		// The process keeps the size its clients last gave it.
+		if c, r, err := getWinsize(master); err == nil && c > 0 && r > 0 {
+			cfg.Cols, cfg.Rows = c, r
+		}
+	} else {
+		var tty *os.File
+		var err error
+		master, tty, err = openPTY()
+		if err != nil {
+			return nil, err
+		}
+		if err := setWinsize(master, cfg.Cols, cfg.Rows); err != nil {
+			master.Close()
+			tty.Close()
+			return nil, err
+		}
+		cmd = exec.Command(cfg.Argv[0], cfg.Argv[1:]...)
+		cmd.Dir, cmd.Env = cfg.Dir, cfg.Env
+		cmd.Stdin, cmd.Stdout, cmd.Stderr = tty, tty, tty
+		// A new session with the PTY as controlling terminal: the child leads its
+		// own process group (pgid == pid), which is what liveness and teardown
+		// signal.
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
+		if err := cmd.Start(); err != nil {
+			master.Close()
+			tty.Close()
+			return nil, err
+		}
+		tty.Close() // the child holds the slave; EOF/EIO on master once it is gone
+		pid = cmd.Process.Pid
 	}
-	if err := setWinsize(master, cfg.Cols, cfg.Rows); err != nil {
-		master.Close()
-		tty.Close()
-		return nil, err
-	}
-	cmd := exec.Command(cfg.Argv[0], cfg.Argv[1:]...)
-	cmd.Dir, cmd.Env = cfg.Dir, cfg.Env
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = tty, tty, tty
-	// A new session with the PTY as controlling terminal: the child leads its
-	// own process group (pgid == pid), which is what liveness and teardown
-	// signal.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
-	if err := cmd.Start(); err != nil {
-		master.Close()
-		tty.Close()
-		return nil, err
-	}
-	tty.Close() // the child holds the slave; EOF/EIO on master once it is gone
 
 	last := cfg.Journal.Last()
 	s := &Session{
-		writer: newWriter(opt, cfg.Journal, cfg.Cols, cfg.Rows), cmd: cmd, master: master, pid: cmd.Process.Pid,
+		writer: newWriter(opt, cfg.Journal, cfg.Cols, cfg.Rows), cmd: cmd, adopt: cfg.Adopt, master: master, pid: pid,
 		queue: make(chan item, opt.QueueDepth), waitDone: make(chan struct{}), readDone: make(chan struct{}),
-		writerDone: make(chan struct{}), exited: make(chan struct{}),
+		writerDone: make(chan struct{}), exited: make(chan struct{}), detachCh: make(chan struct{}),
+		lastInput: map[string]uint64{},
 	}
+	s.genSeq = s.epoch << 32
 	s.mu.Lock()
-	err = s.open(last, cfg)
+	err := s.open(last, cfg)
 	s.mu.Unlock()
 	if err != nil {
-		_ = unix.Kill(-s.pid, unix.SIGKILL)
-		_ = cmd.Wait()
+		if cfg.Adopt == nil {
+			_ = unix.Kill(-s.pid, unix.SIGKILL)
+			_ = cmd.Wait()
+		}
 		master.Close()
 		return nil, err
+	}
+	if cfg.Adopt != nil && cfg.Adopt.Recovered {
+		s.restoreInputIDs(last)
+		s.nudgeRedraw()
 	}
 	go s.waitLoop()
 	go s.readLoop()
@@ -233,7 +310,8 @@ func openPTY() (master, tty *os.File, err error) {
 }
 
 func (s *Session) open(last ptyevent.Event, cfg Config) error {
-	if last.Seq != 0 && !s.j.Ended() {
+	recovered := cfg.Adopt != nil && cfg.Adopt.Recovered
+	if last.Seq != 0 && !s.j.Ended() && !recovered {
 		ev := s.event(ptyevent.KindLifecycle)
 		ev.Epoch, ev.MonoNS = last.Epoch, last.MonoNS
 		ev.Lifecycle = &ptyevent.Lifecycle{Phase: ptyevent.PhaseCrashed, Backend: cfg.Backend,
@@ -243,7 +321,11 @@ func (s *Session) open(last ptyevent.Event, cfg Config) error {
 		}
 	}
 	ev := s.event(ptyevent.KindLifecycle)
-	ev.Lifecycle = &ptyevent.Lifecycle{Phase: ptyevent.PhaseSpawned, PID: s.pid, Backend: cfg.Backend,
+	phase := ptyevent.PhaseSpawned
+	if recovered {
+		phase = ptyevent.PhaseRecovered
+	}
+	ev.Lifecycle = &ptyevent.Lifecycle{Phase: phase, PID: s.pid, Backend: cfg.Backend,
 		Presentation: ptyevent.PresentationDirect}
 	if err := s.commit(ev); err != nil {
 		return err
@@ -312,6 +394,9 @@ type Write struct {
 	// FirstDeferredAt is when this write was first deferred (zero on the
 	// first try); WriteWait maintains it.
 	FirstDeferredAt time.Time
+	// Fence, when set, makes the write conditional on the client still holding
+	// the controller lease it was issued under, and de-duplicates resent input.
+	Fence *Fence
 }
 
 // Input arbitrates w against the input lease (human always wins; automatic
@@ -326,6 +411,9 @@ func (s *Session) Input(w Write) (ptyevent.Arbitration, error) {
 	defer s.mu.Unlock()
 	if s.ended || s.closed {
 		return ptyevent.Arbitration{}, ErrExited
+	}
+	if err := s.checkFence(w); err != nil {
+		return ptyevent.Arbitration{Verdict: ptyevent.VerdictReject, Reason: err.Error()}, err
 	}
 	if s.pendingGap {
 		_ = s.gap()
@@ -348,6 +436,10 @@ func (s *Session) Input(w Write) (ptyevent.Arbitration, error) {
 	}
 	payload, reds := ptyevent.RedactInput(w.Data, w.Origin, mode, secret)
 	payload.ClientID, payload.DecisionID = w.ClientID, w.DecisionID
+	if w.Fence != nil && w.Fence.InputID != 0 {
+		payload.InputID = w.Fence.InputID
+		s.lastInput[w.ClientID] = w.Fence.InputID
+	}
 	ev := s.event(ptyevent.KindInput)
 	ev.Input, ev.Redactions = &payload, reds
 	return arb, s.commit(ev)
@@ -411,10 +503,14 @@ func (s *Session) Resize(cols, rows uint16, origin ptyevent.Origin, clientID str
 // Attach registers an interactive client for the live, unredacted byte feed
 // and journals lifecycle{attached}.
 func (s *Session) Attach(clientID string) (*RawSubscription, error) {
-	ch := make(chan []byte, s.opt.RawBuffer)
-	r := &RawSubscription{C: ch, ClientID: clientID, ch: ch, s: s}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.attachLocked(clientID)
+}
+
+func (s *Session) attachLocked(clientID string) (*RawSubscription, error) {
+	ch := make(chan []byte, s.opt.RawBuffer)
+	r := &RawSubscription{C: ch, ClientID: clientID, ch: ch, s: s}
 	if s.closed {
 		return nil, ErrClosed
 	}
@@ -427,6 +523,37 @@ func (s *Session) Attach(clientID string) (*RawSubscription, error) {
 		return nil, ErrClosed
 	}
 	return r, nil
+}
+
+// quiesceTries bounds how long AttachQuiesced waits for the writer to catch up
+// (2ms apart, so ~200ms: longer than the 100ms idle flush): a session printing continuously never quiesces and falls back to
+// the plain registration (the stream's resync path covers it).
+const quiesceTries = 100
+
+// AttachQuiesced is Attach, registered at a cut where the writer has applied
+// every read the reader published: the journal head and the screen model
+// include everything before the cut and the raw feed carries everything after
+// it, so a snapshot (or replay) followed by the feed neither loses nor repeats
+// output. It returns the screen model (StyledString: attributes kept — the local view, never a journal) and the journal head at the cut. Under continuous output the
+// cut can't be found within ~100ms and the registration proceeds anyway
+// (exact=false): a viewer then relies on resync.
+func (s *Session) AttachQuiesced(clientID string) (r *RawSubscription, screen string, head uint64, exact bool, err error) {
+	for i := 0; ; i++ {
+		s.mu.Lock()
+		// Quiet: every read is applied AND nothing is held back (a partial line or
+		// UTF-8 tail the redactor releases on its idle flush) — otherwise those
+		// bytes would be in neither the replay nor the raw feed.
+		quiet := s.enq.Load() == s.done.Load() && !s.in.pending()
+		if quiet || i >= quiesceTries {
+			exact = quiet
+			r, err = s.attachLocked(clientID)
+			head, screen = s.j.Last().Seq, s.screen.StyledString() // local authorized view: keeps SGR
+			s.mu.Unlock()
+			return r, screen, head, exact, err
+		}
+		s.mu.Unlock()
+		time.Sleep(2 * time.Millisecond)
+	}
 }
 
 func (s *Session) detach(r *RawSubscription) {
@@ -448,9 +575,50 @@ func (s *Session) detach(r *RawSubscription) {
 // --- goroutines ------------------------------------------------------------
 
 func (s *Session) waitLoop() {
-	_ = s.cmd.Wait()
-	s.state = s.cmd.ProcessState
+	if s.adopt == nil {
+		err := s.cmd.Wait()
+		_ = err
+		s.exit = exitFromState(s.cmd.ProcessState)
+		close(s.waitDone)
+		return
+	}
+	st := s.adopt.Wait()
+	if st.Lost {
+		// The owner of the process is gone (or Detach aborted the wait). A
+		// detach ends quietly; otherwise watch the process itself: its status
+		// is lost, but it must still be reported when it ends — never silently
+		// relaunched.
+		for s.adopt.alive(s.pid) {
+			select {
+			case <-s.detachCh:
+				return
+			case <-time.After(200 * time.Millisecond):
+			}
+		}
+		select {
+		case <-s.detachCh:
+			return
+		default:
+		}
+		st = ExitStatus{Unknown: true}
+	}
+	s.exit = st
 	close(s.waitDone)
+}
+
+func (a *Adoption) alive(pid int) bool {
+	if a.Alive != nil {
+		return a.Alive()
+	}
+	err := unix.Kill(pid, 0)
+	return err == nil || errors.Is(err, unix.EPERM)
+}
+
+func exitFromState(ps *os.ProcessState) ExitStatus {
+	if ws, ok := ps.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+		return ExitStatus{Signal: unix.SignalName(ws.Signal())}
+	}
+	return ExitStatus{Code: ps.ExitCode()}
 }
 
 // readLoop never blocks on the writer: a full queue drops the read and
@@ -479,12 +647,14 @@ func (s *Session) readLoop() {
 		n, err := s.master.Read(buf)
 		if n > 0 {
 			chunk := buf[:n]
+			s.enq.Add(1) // before the raw publish: a registration that sees enq==done saw everything
 			s.hub.raw(chunk)
 			select {
 			case s.queue <- item{data: chunk, dropped: dropped}:
 				dropped = 0
 			default:
 				dropped += n
+				s.done.Add(1) // dropped: the writer will never apply it
 			}
 		}
 		if errors.Is(err, os.ErrDeadlineExceeded) {
@@ -492,7 +662,10 @@ func (s *Session) readLoop() {
 		}
 		if err != nil {
 			if dropped > 0 {
-				s.queue <- item{dropped: dropped} // the writer drains until readDone
+				select {
+				case s.queue <- item{dropped: dropped}: // the writer drains until readDone
+				case <-s.detachCh:
+				}
 			}
 			return
 		}
@@ -508,6 +681,9 @@ func (s *Session) writeLoop() {
 	waitDone, readDone := s.waitDone, s.readDone
 	reaped, eof, done := false, false, false
 	handle := func(it item) {
+		if len(it.data) > 0 {
+			defer s.done.Add(1) // after mu is released: "done" means applied to journal and screen
+		}
 		if s.opt.beforeOutput != nil {
 			s.opt.beforeOutput()
 		}
@@ -530,6 +706,18 @@ func (s *Session) writeLoop() {
 		}
 	}
 	for !(done && eof) {
+		select {
+		case <-s.detachCh:
+			// Detach: leave the process alone, keep the journal's epoch open (the
+			// next daemon recovers it) and journal nothing more.
+			s.mu.Lock()
+			if !s.ended {
+				s.flushOutput()
+			}
+			s.mu.Unlock()
+			return
+		default:
+		}
 		if reaped && eof && !done {
 			s.finish()
 			done = true
@@ -544,6 +732,7 @@ func (s *Session) writeLoop() {
 				s.flushOutput()
 			}
 			s.mu.Unlock()
+		case <-s.detachCh:
 		case <-waitDone:
 			waitDone, reaped = nil, true
 			drain = time.After(s.opt.DrainGrace)
@@ -574,10 +763,14 @@ func (s *Session) finish() {
 	defer s.mu.Unlock()
 	s.flushOutput()
 	lc := &ptyevent.Lifecycle{Phase: ptyevent.PhaseExited, PID: s.pid}
-	if ws, ok := s.state.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
-		lc.Phase, lc.Signal = ptyevent.PhaseSignaled, unix.SignalName(ws.Signal())
-	} else {
-		code := s.state.ExitCode()
+	switch {
+	case s.exit.Unknown:
+		lc.Phase = ptyevent.PhaseCrashed
+		lc.Detail = "process ended after its PTY holder was lost; exit status unknown"
+	case s.exit.Signal != "":
+		lc.Phase, lc.Signal = ptyevent.PhaseSignaled, s.exit.Signal
+	default:
+		code := s.exit.Code
 		lc.ExitCode = &code
 	}
 	ev := s.event(ptyevent.KindLifecycle)
@@ -585,6 +778,35 @@ func (s *Session) finish() {
 	_ = s.commit(ev)
 	s.ended, s.exitEv = true, lc
 	close(s.exited)
+}
+
+// Detach ends this Session WITHOUT touching the process: the daemon's dup of
+// the master is closed, goroutines and subscriptions end, and the journal's
+// epoch stays open so the next daemon adopts the very same process (epoch+1,
+// lifecycle{recovered}). Only an adopted session can detach — a session whose
+// process is its own child has nothing to leave it to.
+func (s *Session) Detach() error {
+	if s.adopt == nil {
+		return s.Close()
+	}
+	s.closeOnce.Do(func() {
+		s.mu.Lock()
+		s.detached = true
+		s.mu.Unlock()
+		close(s.detachCh)
+		if s.adopt.Abort != nil {
+			s.adopt.Abort()
+		}
+		_ = s.master.Close()
+		<-s.writerDone
+		s.mu.Lock()
+		s.closed = true
+		s.mu.Unlock()
+		close(s.closing)
+		s.hub.close()
+		s.wg.Wait()
+	})
+	return nil
 }
 
 // Close tears the session down deterministically: SIGHUP+SIGTERM to the

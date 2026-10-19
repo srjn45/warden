@@ -3,17 +3,21 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/srjn45/warden/internal/auth"
 	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/client"
+	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/preset"
 	"github.com/srjn45/warden/internal/prompttemplate"
+	"github.com/srjn45/warden/internal/ptyattach"
 	"github.com/srjn45/warden/internal/role"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/srjn45/warden/internal/task"
@@ -773,11 +777,39 @@ func newDoneCmd() *cobra.Command {
 }
 
 func newAttachCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "attach <AGENT>",
-		Short: "Attach to the agent's tmux session",
-		Args:  cobra.ExactArgs(1),
+		Short: "Attach to the agent's or terminal's live session",
+		Long: `Attach your terminal to a running session.
+
+A plain terminal hosted on warden's own PTY runtime (runtime.pty: on) is attached
+natively: your terminal goes raw so Ctrl-C, Ctrl-D, Ctrl-Z and full-screen
+programs behave exactly as in a local shell, the replay and live output are
+ordered without gaps, and you hold the session's controller lease. Press Ctrl-]
+then '.' to detach (the shell keeps running), Ctrl-] then 't' to take control
+back if another client took it, Ctrl-] Ctrl-] to send a literal Ctrl-].
+Set WARDEN_ATTACH=observe to watch read-only, or WARDEN_ATTACH=tmux to skip the
+native attach.
+
+Every other session (agents, tmux-hosted terminals) attaches with tmux as before.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			target := args[0]
+			sess, gerr := clientFor(cmd).Get(cmd.Context(), target)
+			// WARDEN_ATTACH=tmux skips the native attach; WARDEN_ATTACH=observe
+			// watches a PTY-hosted session read-only. (Environment, not flags: the
+			// attach command's flag set is part of the frozen legacy surface.)
+			mode := os.Getenv("WARDEN_ATTACH")
+			if gerr == nil && sess.IsTerminal() && mode != "tmux" {
+				err := attachDirect(cmd, sess.ID, mode == "observe")
+				if err == nil {
+					return nil
+				}
+				if !errors.Is(err, ptyattach.ErrNotDirect) {
+					return err
+				}
+				// Hosted by tmux: fall through to the tmux attach below.
+			}
 			// Replaces the current process with an interactive tmux attach.
 			tmux, err := exec.LookPath("tmux")
 			if err != nil {
@@ -785,8 +817,7 @@ func newAttachCmd() *cobra.Command {
 			}
 			// Resolve name/id/ticket to the tmux session via the daemon; fall back
 			// to the raw argument (a tmux session name) if the daemon cannot.
-			target := args[0]
-			if sess, gerr := clientFor(cmd).Get(cmd.Context(), target); gerr == nil && sess.TmuxSession != "" {
+			if gerr == nil && sess.TmuxSession != "" {
 				target = sess.TmuxSession
 			}
 			c := exec.Command(tmux, "attach", "-t", target)
@@ -794,6 +825,36 @@ func newAttachCmd() *cobra.Command {
 			return c.Run()
 		},
 	}
+	return cmd
+}
+
+// attachDirect attaches the local terminal to a PTY-hosted session over the
+// daemon's /pty stream. It returns ptyattach.ErrNotDirect for a tmux-hosted one.
+func attachDirect(cmd *cobra.Command, id string, observe bool) error {
+	if !ptyattach.IsTerminal(os.Stdin) {
+		return fmt.Errorf("attach needs an interactive terminal on stdin")
+	}
+	cfg := config.Load(configPathFor(cmd))
+	if a, _ := cmd.Flags().GetString("addr"); a != "" {
+		cfg.Addr = a
+	}
+	res, err := ptyattach.Run(cmd.Context(), ptyattach.Options{
+		URL:      "ws://" + cfg.Addr + "/api/v1/sessions/" + url.PathEscape(id) + "/pty",
+		Token:    auth.ResolveToken(),
+		In:       os.Stdin,
+		Out:      os.Stdout,
+		Status:   os.Stderr,
+		Observe:  observe,
+		Takeover: true,
+		Signals:  true,
+	})
+	if err != nil {
+		return err
+	}
+	if res.Reason == "detached" {
+		fmt.Fprintln(os.Stderr, "\r\n[warden] detached — the session keeps running")
+	}
+	return nil
 }
 
 // currentTmuxSession returns the running tmux session name when invoked inside
