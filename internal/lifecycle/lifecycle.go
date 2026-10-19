@@ -29,6 +29,7 @@ import (
 	"github.com/srjn45/warden/internal/llm"
 	"github.com/srjn45/warden/internal/memory"
 	"github.com/srjn45/warden/internal/pressure"
+	"github.com/srjn45/warden/internal/ptyevent"
 	"github.com/srjn45/warden/internal/role"
 	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/store"
@@ -99,6 +100,20 @@ func ValidPermissionMode(mode string) bool {
 		}
 	}
 	return false
+}
+
+// effectivePosture preserves a caller's explicit posture and otherwise maps
+// the backend launch mode into the stable capability taxonomy. This is the
+// compatibility migration: persisted native modes still launch unchanged, but
+// decisions are made against a named, auditable posture.
+func effectivePosture(req SpawnRequest) ptyevent.Posture {
+	if req.PermissionPosture.Valid() {
+		return req.PermissionPosture
+	}
+	if backend, err := agentbackend.Get(req.Backend); err == nil {
+		return agentbackend.PostureForMode(backend, req.PermissionMode)
+	}
+	return ptyevent.PostureAllowlisted
 }
 
 // The claude command/resume/headless builders that used to live here now belong
@@ -1046,35 +1061,38 @@ func (l *Lifecycle) backendFor(id string) agentbackend.Backend {
 
 // SpawnRequest is the type-aware input to Spawn (design §2 / §6).
 type SpawnRequest struct {
-	Type             store.Type
-	Ticket           string // optional; becomes the id when present
-	Name             string // optional; human-readable name for the agent
-	Repo             string
-	Branch           string                 // optional; development branch / pr-review checkout target
-	BaseBranch       string                 // managed-worktree base branch, when known
-	PR               string                 // optional; pr-review
-	Worktree         bool                   // analysis/spike opt-in
-	InRepo           bool                   // write-agent opt-out: share the repo instead of isolating in a worktree (ignored for pr-review)
-	Prompt           string                 // free-form: the agent's initial prompt (no repo/worktree); empty = interactive
-	Cwd              string                 // free-form: dir to launch claude from (the caller's "master shell"); required
-	PermissionMode   string                 // explicit mode override; empty = use global default
-	ExecutionProfile store.ExecutionProfile // optional pin (none|full); empty stamps loopback on Warden-managed spawn
-	AutoRestart      bool                   // opt-in: auto-resume this agent when it errors (capped)
-	AutoApprove      bool                   // opt-in: auto-approve yes/no prompts (also filled by a role default)
-	Model            string                 // claude model (opus/sonnet/haiku or full ID); empty = default
-	Backend          string                 // agent backend id (claude, aider, …); empty = claude (deprecated alias)
-	AiCli            string                 // canonical agent backend id (claude, aider, …); empty = claude
-	Kind             store.SessionKind      // "" ⇒ agent (the default); "terminal" ⇒ a plain ${SHELL:-bash} pane, not an AI agent
-	Tags             []string               // optional free-form labels for grouping/filtering (#30)
-	Role             string                 // built-in role (persona + default flags); empty = "general" (no persona)
-	Tier             string                 // explicit model tier ("tier-1"/"tier-2"/"tier-3") for the quota-balanced resolver; empty = derive from task/role
-	Task             string                 // task name (task registry) for tier routing via task.TierFor; empty = none
-	ParentID         string                 // id of the agent that spawned this one; empty = root (operator/CLI spawn)
-	ProjectID        string                 // id of the first-class project this session joins; empty = the daemon resolves it by path-match (lifecycle is store-free, so it only stamps what it is handed)
-	PlanID           string                 // id of the plan that spawned this session; empty for ordinary spawns
-	AutopilotRunID   string                 // owning ap- run id (autopilot back-ref)
-	AutopilotSlot    string                 // autopilot | guardian | worker
-	AutopilotTaskID  string                 // plan task id (workers only)
+	Type           store.Type
+	Ticket         string // optional; becomes the id when present
+	Name           string // optional; human-readable name for the agent
+	Repo           string
+	Branch         string // optional; development branch / pr-review checkout target
+	BaseBranch     string // managed-worktree base branch, when known
+	PR             string // optional; pr-review
+	Worktree       bool   // analysis/spike opt-in
+	InRepo         bool   // write-agent opt-out: share the repo instead of isolating in a worktree (ignored for pr-review)
+	Prompt         string // free-form: the agent's initial prompt (no repo/worktree); empty = interactive
+	Cwd            string // free-form: dir to launch claude from (the caller's "master shell"); required
+	PermissionMode string // explicit mode override; empty = use global default
+	// PermissionPosture is the named router authority. Empty retains a
+	// compatibility-derived posture from PermissionMode.
+	PermissionPosture ptyevent.Posture
+	ExecutionProfile  store.ExecutionProfile // optional pin (none|full); empty stamps loopback on Warden-managed spawn
+	AutoRestart       bool                   // opt-in: auto-resume this agent when it errors (capped)
+	AutoApprove       bool                   // opt-in: auto-approve yes/no prompts (also filled by a role default)
+	Model             string                 // claude model (opus/sonnet/haiku or full ID); empty = default
+	Backend           string                 // agent backend id (claude, aider, …); empty = claude (deprecated alias)
+	AiCli             string                 // canonical agent backend id (claude, aider, …); empty = claude
+	Kind              store.SessionKind      // "" ⇒ agent (the default); "terminal" ⇒ a plain ${SHELL:-bash} pane, not an AI agent
+	Tags              []string               // optional free-form labels for grouping/filtering (#30)
+	Role              string                 // built-in role (persona + default flags); empty = "general" (no persona)
+	Tier              string                 // explicit model tier ("tier-1"/"tier-2"/"tier-3") for the quota-balanced resolver; empty = derive from task/role
+	Task              string                 // task name (task registry) for tier routing via task.TierFor; empty = none
+	ParentID          string                 // id of the agent that spawned this one; empty = root (operator/CLI spawn)
+	ProjectID         string                 // id of the first-class project this session joins; empty = the daemon resolves it by path-match (lifecycle is store-free, so it only stamps what it is handed)
+	PlanID            string                 // id of the plan that spawned this session; empty for ordinary spawns
+	AutopilotRunID    string                 // owning ap- run id (autopilot back-ref)
+	AutopilotSlot     string                 // autopilot | guardian | worker
+	AutopilotTaskID   string                 // plan task id (workers only)
 	// ExistingNames lists names already taken by active agents. When non-nil,
 	// auto-generated names are disambiguated against it (never 409). Explicit
 	// caller names ignore this map — collisions stay the caller's 409.
@@ -1928,26 +1946,27 @@ func (l *Lifecycle) Spawn(ctx context.Context, req SpawnRequest) (*agentstore.Ag
 
 	agent := &agentstore.Agent{
 		ChildAgents: []string{}, ChildPipelines: []string{}, ChildAutopilots: []string{},
-		ID:               id,
-		Name:             req.Name,
-		Type:             req.Type,
-		Ticket:           req.Ticket,
-		TmuxSession:      id,
-		Repo:             req.Repo,
-		PR:               req.PR,
-		Prompt:           req.Prompt,
-		Subject:          spawnSubject(req.Prompt),
-		Tags:             store.NormalizeTags(req.Tags),
-		Status:           store.StatusSpawning,
-		PermissionMode:   req.PermissionMode,
-		ExecutionProfile: stampSpawnExecutionProfile(req.ExecutionProfile),
-		AutoRestart:      req.AutoRestart,
-		AutoApprove:      req.AutoApprove,
-		Model:            req.Model,
-		AiCli:            req.Backend,
-		QuotaBinding:     binding,
-		Role:             req.Role,
-		Task:             req.Task,
+		ID:                id,
+		Name:              req.Name,
+		Type:              req.Type,
+		Ticket:            req.Ticket,
+		TmuxSession:       id,
+		Repo:              req.Repo,
+		PR:                req.PR,
+		Prompt:            req.Prompt,
+		Subject:           spawnSubject(req.Prompt),
+		Tags:              store.NormalizeTags(req.Tags),
+		Status:            store.StatusSpawning,
+		PermissionMode:    req.PermissionMode,
+		PermissionPosture: effectivePosture(req),
+		ExecutionProfile:  stampSpawnExecutionProfile(req.ExecutionProfile),
+		AutoRestart:       req.AutoRestart,
+		AutoApprove:       req.AutoApprove,
+		Model:             req.Model,
+		AiCli:             req.Backend,
+		QuotaBinding:      binding,
+		Role:              req.Role,
+		Task:              req.Task,
 	}
 	// Record provenance, but never let an agent be its own parent (a self-id would
 	// create a degenerate cycle in the sub-tree view).

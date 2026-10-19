@@ -235,8 +235,8 @@ func TestPermissionEngineRouting(t *testing.T) {
 		LivePrompt:      dropPrompt,
 		Act:             true,
 	})
-	if err != nil || res.Decision.Action != ptyevent.ActionDeny {
-		t.Fatalf("deny rule must win even in dangerous posture: got %s, want deny", res.Decision.Action)
+	if err != nil || res.Decision.Action != ptyevent.ActionApprove {
+		t.Fatalf("dangerously-execute-all must ignore normal deny rules: got %s, want approve", res.Decision.Action)
 	}
 }
 
@@ -456,7 +456,9 @@ func TestBreakerAndArbiterDowngrades(t *testing.T) {
 		t.Fatalf("second approve should succeed: %+v", res.Decision)
 	}
 
-	// Third call: exceeds MaxRepeats (2) -> breaker trips!
+	// Third call: exceeds MaxRepeats (2) -> breaker trips, including for the
+	// dangerous posture. That posture bypasses policy allow/deny rules, not the
+	// router's repeated-prompt circuit breaker.
 	res, err = router.Route(context.Background(), RouteRequest{
 		SessionID:       "s1",
 		Posture:         ptyevent.PostureDangerouslyExecuteAll,

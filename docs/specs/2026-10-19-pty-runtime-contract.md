@@ -366,9 +366,10 @@ Postures: `read-only` · `read-write` · `allowlisted` · `dangerously-execute-a
 
 1. Invalid posture / no prompt / class unknown / **not confident** → `needs_attention` (fail closed).
 2. Class `decision` → `route_decision` in **every** posture.
-3. Allowlist **deny** match → `deny` (with a refusal option), else `ask_human`. A deny rule wins in every posture, including dangerous.
-4. All capabilities permitted → `approve` with the **least-privilege allow option**: `allow_once` ≻ `allow_session` ≻ `allow_always`. Standing grants are allowed only if `AllowStanding` (today's `allow_sticky`), or the posture is dangerous, or the prompt is trust-only (trust is inherently standing). Otherwise `ask_human` (`standing-grant-not-allowed` / `no-least-privilege-allow`).
-5. Not permitted → `read-only`: `deny` (`posture-forbids`), or `ask_human` for trust/other or when no refusal option exists. Other postures: `ask_human`.
+3. `dangerously-execute-all` → `approve` every confident permission, including trust, using the extracted allow option. It is deliberately not constrained by legacy allow/deny policy.
+4. Allowlist **deny** match → `deny` (with a refusal option), else `ask_human`.
+5. All capabilities permitted → `approve` with the **least-privilege allow option**: `allow_once` ≻ `allow_session` ≻ `allow_always`. Standing grants are allowed only if `AllowStanding` (today's `allow_sticky`), or the posture is dangerous, or the prompt is trust-only (trust is inherently standing). Otherwise `ask_human` (`standing-grant-not-allowed` / `no-least-privilege-allow`).
+6. Not permitted → `read-only`: `deny` (`posture-forbids`), or `ask_human` for trust/other or when no refusal option exists. Other postures: `ask_human`.
 
 ### 10.2 Posture × capability ("✓" = pre-approved)
 
@@ -388,7 +389,7 @@ The full prompt-fixture × allowlist × posture matrix (~270 rows) is pinned in 
 - deny ⇒ a refusal-semantic option;
 - unconfident ⇒ `needs_attention`;
 - confident decision ⇒ `route_decision`;
-- **dangerously-execute-all approves every confident permission without a deny rule (trust included) and nothing else.**
+- **dangerously-execute-all approves every confident permission regardless of allow/deny rules (trust included), and nothing else.**
 
 ### 10.3 Mapping today's configuration (t5)
 

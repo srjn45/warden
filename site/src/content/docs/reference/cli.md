@@ -116,8 +116,8 @@ Commands:
   handoff              Hand off work: delegate to a new/existing agent (--to), or retire self into a successor (--retire)
   rotate               Retire this agent and hand its work to a fresh successor in the same workspace (alias for `warden agent handoff --retire`)
   switch               Hot-swap an agent session to a different AI CLI, model, or tier mid-task
-  set                  Change one per-agent setting (permission-mode, compact, role, auto-approve)
-  get                  Show one or all per-agent settings (permission-mode, compact, role, auto-approve)
+  set                  Change one per-agent setting (including permission-posture)
+  get                  Show one or all per-agent settings, including permission-posture
   role                 Inspect warden's built-in agent roles and tier mappings
 
 Flags:
@@ -595,6 +595,7 @@ Change one per-agent setting. Each key runs the same code path as its older comm
 
 Keys and values:
   permission-mode  acceptEdits | auto | bypassPermissions | default | dontAsk | plan
+  permission-posture read-only | read-write | allowlisted | dangerously-execute-all
   compact          on | off | inherit
   role             general | autopilot | brain | orchestrator | planner | worker
   auto-approve     on | off
@@ -607,6 +608,7 @@ Warnings:
 
 Examples:
   warden agent set abc123 permission-mode acceptEdits
+  warden agent set abc123 permission-posture dangerously-execute-all
   warden agent set abc123 compact inherit
   warden agent set abc123 role reviewer
   warden agent set abc123 auto-approve on
@@ -630,7 +632,7 @@ Inherited flags:
 Show the current value of one or all per-agent settings, read from the agent's
 status record.
 
-Keys: permission-mode, compact, role, auto-approve
+Keys: permission-mode, permission-posture, compact, role, auto-approve
 
 An empty permission-mode means no per-agent override (the global default applies);
 compact "inherit" means the global token_force_compact setting applies; role
@@ -6199,6 +6201,7 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | `warden schedule rm` | `warden schedule delete` |
 | `warden search` | `warden inspect search` |
 | `warden set-permission-mode` | `warden agent set` |
+| `warden set-permission-posture` | `warden agent set` |
 | `warden set-role` | `warden agent set` |
 | `warden snapshot` | `warden workspace snapshot` |
 | `warden snapshot create` | `warden workspace snapshot create` |

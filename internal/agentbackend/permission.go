@@ -1,5 +1,7 @@
 package agentbackend
 
+import "github.com/srjn45/warden/internal/ptyevent"
+
 // PermissionIntent is the backend-neutral meaning of a backend-native permission
 // mode. A cross-backend hot-swap translates a stored mode by intent (claude's
 // "bypassPermissions" and antigravity's "dangerously-skip-permissions" are both
@@ -38,6 +40,37 @@ func (i PermissionIntent) Rank() int {
 // agent intent.
 func (i PermissionIntent) AtMost(limit PermissionIntent) bool {
 	return i.Rank() <= limit.Rank()
+}
+
+// PostureForIntent is the compatibility bridge from a backend-native launch
+// mode to the explicit, provider-neutral permission posture used by the PTY
+// decision router. It deliberately makes the old "auto" mode allowlisted:
+// existing approval rules remain implementation machinery, not an implicit
+// grant of unrelated authority.
+func PostureForIntent(i PermissionIntent) ptyevent.Posture {
+
+	switch i {
+	case IntentPlan, IntentReadOnly:
+		return ptyevent.PostureReadOnly
+	case IntentAcceptEdits:
+		return ptyevent.PostureReadWrite
+	case IntentSkipAll:
+		return ptyevent.PostureDangerouslyExecuteAll
+	default:
+		return ptyevent.PostureAllowlisted
+	}
+}
+
+// PostureForMode returns the explicit posture corresponding to mode. Unknown
+// modes fail closed to allowlisted; callers must still validate the native mode
+// at their normal launch boundary.
+func PostureForMode(b Backend, mode string) ptyevent.Posture {
+	if mapper, ok := b.(PermissionMapper); ok {
+		if intent, ok := mapper.ModeIntent(mode); ok {
+			return PostureForIntent(intent)
+		}
+	}
+	return ptyevent.PostureAllowlisted
 }
 
 // PermissionMapper is an optional Backend extension: a backend that implements it
