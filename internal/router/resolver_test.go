@@ -77,6 +77,35 @@ func TestResolver_RoleToTierResolution(t *testing.T) {
 	require.Equal(t, backendstore.Tier2, res.Tier)
 }
 
+func TestResolverCatalogAvailabilityRejectsButExactPinsRemainOperatorControlled(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+	require.NoError(t, s.PutCatalogScope(backendstore.ActiveCatalogScope{AiCli: "codex", ActiveScopeFP: "scope"}))
+	require.NoError(t, s.PutCatalogObservation(backendstore.StoredObservation{AiCli: "codex", ScopeFP: "scope", ModelID: "gpt-5.5", Availability: backendstore.AvailabilityUnavailable}))
+
+	r := router.NewResolver(s)
+	_, err := r.Resolve(context.Background(), router.ResolveOptions{Tier: backendstore.Tier1, PreferredBackend: "codex", PreferredModel: "gpt-5.5"})
+	require.NoError(t, err, "an exact operator pin may override stale account evidence")
+
+	_, err = r.Resolve(context.Background(), router.ResolveOptions{Tier: backendstore.Tier1, PreferredBackend: "codex"})
+	require.ErrorIs(t, err, router.ErrAllExhausted)
+}
+
+func TestResolverCatalogLifecycleRejectsAutomaticRouting(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+	m, err := s.GetModel("codex", "gpt-5.5")
+	require.NoError(t, err)
+	m.Lifecycle, m.Enabled, m.AutoAssign = backendstore.ModelLifecycleRetired, false, false
+	require.NoError(t, s.UpsertModel(m))
+
+	r := router.NewResolver(s)
+	_, err = r.Resolve(context.Background(), router.ResolveOptions{Tier: backendstore.Tier1, PreferredBackend: "codex"})
+	require.ErrorIs(t, err, router.ErrAllExhausted)
+	_, err = r.Resolve(context.Background(), router.ResolveOptions{Tier: backendstore.Tier1, PreferredBackend: "codex", PreferredModel: "gpt-5.5"})
+	require.NoError(t, err)
+}
+
 // TestResolver_DetermineTargetTierPrecedence verifies the tier precedence chain:
 // explicit tier > task tier (task.TierFor) > role tier (GetRoleTier) > Tier2 default.
 func TestResolver_DetermineTargetTierPrecedence(t *testing.T) {

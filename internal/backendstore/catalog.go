@@ -126,6 +126,24 @@ func (s *Store) GetCatalogObservation(aiCli, scopeFP, modelID string) (StoredObs
 	return catalogRecord[StoredObservation](r.Data)
 }
 
+// GetActiveCatalogObservation returns the evidence for the currently active
+// account scope. Missing scope/evidence is intentionally reported as unknown:
+// it must not be mistaken for fresh quota or account entitlement.
+func (s *Store) GetActiveCatalogObservation(aiCli, modelID string) (StoredObservation, error) {
+	scope, err := s.GetCatalogScope(aiCli)
+	if err == ErrNotFound || scope.ActiveScopeFP == "" {
+		return StoredObservation{AiCli: aiCli, ModelID: modelID, Availability: AvailabilityUnknown}, nil
+	}
+	if err != nil {
+		return StoredObservation{AiCli: aiCli, ModelID: modelID, Availability: AvailabilityUnknown}, err
+	}
+	o, err := s.GetCatalogObservation(aiCli, scope.ActiveScopeFP, modelID)
+	if err == ErrNotFound {
+		return StoredObservation{AiCli: aiCli, ModelID: modelID, Availability: AvailabilityUnknown}, nil
+	}
+	return o, err
+}
+
 // PutCatalogSnapshot persists an immutable evidence snapshot. Replaying the
 // same ID is idempotent; retention is invoked only on refresh writes, never on
 // startup.
