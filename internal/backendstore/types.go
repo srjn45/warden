@@ -186,18 +186,48 @@ type CatalogSnapshot struct {
 	SchemaVersion   int             `json:"schema_version,omitempty"`
 }
 type CatalogProposal struct {
-	ID        string    `json:"id"`
-	State     string    `json:"state"`
-	CreatedAt time.Time `json:"created_at"`
-	ExpiresAt time.Time `json:"expires_at"`
-	AiClis    []string  `json:"ai_clis,omitempty"`
-	Snapshots []string  `json:"snapshots,omitempty"`
+	ID            string              `json:"id"`
+	State         string              `json:"state"`
+	CreatedAt     time.Time           `json:"created_at"`
+	ExpiresAt     time.Time           `json:"expires_at"`
+	AiClis        []string            `json:"ai_clis,omitempty"`
+	Snapshots     []string            `json:"snapshots,omitempty"`
+	BaseRev       uint64              `json:"base_rev,omitempty"`
+	PolicyVersion string              `json:"policy_version,omitempty"`
+	Scope         ActiveCatalogScope  `json:"scope,omitempty"`
+	ScopeFP       string              `json:"scope_fp,omitempty"`
+	Ops           []CatalogProposalOp `json:"ops,omitempty"`
+	Blocked       []CatalogBlockedOp  `json:"blocked,omitempty"`
+	Observations  []ObservationChange `json:"observation_changes,omitempty"`
+}
+
+// CatalogProposalOp is a fully explained, compare-and-swap protected catalog
+// row change. Before/After deliberately retain the complete row so revisions
+// can roll it back without reconstructing policy from future evidence.
+type CatalogProposalOp struct {
+	Op       string      `json:"op"`
+	Key      string      `json:"key"`
+	PreHash  string      `json:"pre_hash"`
+	Before   *ModelEntry `json:"before,omitempty"`
+	After    *ModelEntry `json:"after,omitempty"`
+	Reasons  []string    `json:"reasons,omitempty"`
+	Evidence string      `json:"evidence,omitempty"`
+}
+type CatalogBlockedOp struct{ Key, Op, Reason string }
+type ObservationChange struct {
+	Key  string       `json:"key"`
+	From Availability `json:"from"`
+	To   Availability `json:"to"`
 }
 type CatalogRevision struct {
-	Rev       uint64    `json:"rev"`
-	ParentRev uint64    `json:"parent_rev,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	Snapshots []string  `json:"snapshots,omitempty"`
+	Rev        uint64              `json:"rev"`
+	ParentRev  uint64              `json:"parent_rev,omitempty"`
+	CreatedAt  time.Time           `json:"created_at"`
+	Snapshots  []string            `json:"snapshots,omitempty"`
+	Kind       string              `json:"kind,omitempty"`
+	ProposalID string              `json:"proposal_id,omitempty"`
+	Reverts    uint64              `json:"reverts,omitempty"`
+	Ops        []CatalogProposalOp `json:"ops,omitempty"`
 }
 
 // RoleTierMapping maps an agent role to its default model tier.
