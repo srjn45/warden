@@ -15,6 +15,42 @@ export interface ApprovalView {
   options: string[];
   fingerprint: string;
   recognized: boolean;
+  posture?: string;
+  danger?: boolean;
+  danger_banner?: string;
+  route?: string;
+  summary?: { text: string; class?: string };
+}
+
+export interface RuntimeView {
+  session_id: string;
+  mode: string;
+  supervised: boolean;
+  authoritative: boolean;
+  state?: string;
+  reason?: string;
+  evidence?: string[];
+  quiet_seconds?: number;
+  input_owner?: string;
+  posture: string;
+  danger: boolean;
+  danger_banner?: string;
+  route?: string;
+  last_outcome?: string;
+  prompt?: { text: string };
+}
+
+export interface TraceRecord {
+  id: string;
+  time: string;
+  outcome: string;
+  route?: string;
+  action?: string;
+  reason?: string;
+  posture?: string;
+  danger?: boolean;
+  latency_ms: number;
+  permission: { text?: string };
 }
 
 export interface FileChange {
