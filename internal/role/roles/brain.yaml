@@ -24,4 +24,5 @@ persona: >
   spawn further resolvers.
 defaults:
   permission_mode: bypassPermissions
+  permission_posture: dangerously-execute-all
   auto_approve: true

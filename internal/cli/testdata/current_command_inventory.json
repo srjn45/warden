@@ -382,6 +382,7 @@
       "model",
       "name",
       "permission-mode",
+      "permission-posture",
       "plan",
       "pr",
       "preset",
@@ -2232,6 +2233,7 @@
       "in-repo",
       "model",
       "permission-mode",
+      "permission-posture",
       "supervised",
       "type",
       "worktree"
@@ -3302,6 +3304,7 @@
       "in-repo",
       "model",
       "permission-mode",
+      "permission-posture",
       "supervised",
       "type",
       "worktree"
@@ -3346,6 +3349,7 @@
       "in-repo",
       "model",
       "permission-mode",
+      "permission-posture",
       "supervised",
       "type",
       "worktree"
@@ -3425,6 +3429,7 @@
       "in-repo",
       "model",
       "permission-mode",
+      "permission-posture",
       "supervised",
       "type",
       "worktree"
@@ -4299,6 +4304,7 @@
       "model",
       "name",
       "permission-mode",
+      "permission-posture",
       "plan",
       "pr",
       "preset",

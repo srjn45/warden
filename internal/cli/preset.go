@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/srjn45/warden/internal/preset"
+	"github.com/srjn45/warden/internal/ptyevent"
 )
 
 // presetPathFor resolves the presets file path for a command. Presets live
@@ -41,6 +42,7 @@ func newPresetSaveCmd() *cobra.Command {
 			name := args[0]
 			supervised, _ := cmd.Flags().GetBool("supervised")
 			permissionMode, _ := cmd.Flags().GetString("permission-mode")
+			permissionPosture, _ := cmd.Flags().GetString("permission-posture")
 			// --supervised is an alias for --permission-mode acceptEdits, resolved
 			// at save time so the stored preset records the canonical mode.
 			if supervised && permissionMode == "" {
@@ -53,12 +55,13 @@ func newPresetSaveCmd() *cobra.Command {
 			inRepo, _ := cmd.Flags().GetBool("in-repo")
 
 			p := preset.Preset{
-				Type:           typ,
-				Model:          model,
-				PermissionMode: permissionMode,
-				AutoRestart:    autoRestart,
-				Worktree:       worktree,
-				InRepo:         inRepo,
+				Type:              typ,
+				Model:             model,
+				PermissionMode:    permissionMode,
+				PermissionPosture: ptyevent.Posture(permissionPosture),
+				AutoRestart:       autoRestart,
+				Worktree:          worktree,
+				InRepo:            inRepo,
 			}
 			path := presetPathFor(cmd)
 			store, err := preset.Load(path)
@@ -83,6 +86,7 @@ func newPresetSaveCmd() *cobra.Command {
 	cmd.Flags().String("model", "", "claude model: opus, sonnet, haiku, fable, or full model ID")
 	cmd.Flags().Bool("supervised", false, "alias for --permission-mode acceptEdits")
 	cmd.Flags().String("permission-mode", "", "permission mode: acceptEdits|auto|bypassPermissions|default|dontAsk|plan")
+	cmd.Flags().String("permission-posture", "", "Warden posture: read-only|read-write|allowlisted|dangerously-execute-all")
 	cmd.Flags().Bool("auto-restart", false, "auto-resume this agent if it crashes (errored)")
 	cmd.Flags().Bool("worktree", false, "create a scratch worktree for analysis/spike")
 	cmd.Flags().Bool("in-repo", false, "run in the shared repo instead of an isolated worktree")
@@ -150,6 +154,9 @@ func presetSummary(p preset.Preset) string {
 	}
 	if p.PermissionMode != "" {
 		parts = append(parts, "permission-mode="+p.PermissionMode)
+	}
+	if p.PermissionPosture != "" {
+		parts = append(parts, "permission-posture="+string(p.PermissionPosture))
 	}
 	if p.AutoRestart {
 		parts = append(parts, "auto-restart")

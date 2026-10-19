@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/srjn45/warden/internal/ptyevent"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -20,12 +22,13 @@ import (
 // inputs (ticket, branch, pr, dir) are intentionally not stored — a preset
 // captures the reusable shape of a spawn, not its one-off target.
 type Preset struct {
-	Type           string `yaml:"type,omitempty"`
-	Model          string `yaml:"model,omitempty"`
-	PermissionMode string `yaml:"permission_mode,omitempty"`
-	AutoRestart    bool   `yaml:"auto_restart,omitempty"`
-	Worktree       bool   `yaml:"worktree,omitempty"`
-	InRepo         bool   `yaml:"in_repo,omitempty"`
+	Type              string           `yaml:"type,omitempty"`
+	Model             string           `yaml:"model,omitempty"`
+	PermissionMode    string           `yaml:"permission_mode,omitempty"`
+	PermissionPosture ptyevent.Posture `yaml:"permission_posture,omitempty"`
+	AutoRestart       bool             `yaml:"auto_restart,omitempty"`
+	Worktree          bool             `yaml:"worktree,omitempty"`
+	InRepo            bool             `yaml:"in_repo,omitempty"`
 }
 
 // Store is the on-disk view of presets.yaml: a name→Preset mapping.
