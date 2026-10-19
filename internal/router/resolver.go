@@ -38,6 +38,12 @@ type Store interface {
 	GetModelBottleneckReset(backendID, modelID string, now time.Time) (time.Time, error)
 }
 
+// observationStore is deliberately optional for compatibility with stores
+// predating catalog discovery. Absence means unknown, never available.
+type observationStore interface {
+	GetActiveCatalogObservation(aiCli, modelID string) (backendstore.StoredObservation, error)
+}
+
 // ResolveOptions configures the resolution request.
 type ResolveOptions struct {
 	Role             string                 // agent role (e.g. "general", "orchestrator", "worker")
@@ -52,22 +58,24 @@ type ResolveOptions struct {
 
 // CandidateEvaluation represents the status and scoring of a candidate model during resolution.
 type CandidateEvaluation struct {
-	BackendID    string                 `json:"backend_id"`
-	ModelID      string                 `json:"model_id"`
-	DisplayName  string                 `json:"display_name"`
-	Tier         backendstore.ModelTier `json:"tier"`
-	Installed    bool                   `json:"installed"`
-	Enabled      bool                   `json:"enabled"`
-	BackendTier  string                 `json:"backend_tier"` // "subscription", "free", "pay_per_use"
-	Used         float64                `json:"used"`
-	Limit        float64                `json:"limit"`
-	Headroom     float64                `json:"headroom"`    // 1.0 - (used / limit)
-	UsageRatio   float64                `json:"usage_ratio"` // used / limit
-	Limited      bool                   `json:"limited"`
-	LimitedUntil time.Time              `json:"limited_until,omitempty"`
-	ResetsAt     *time.Time             `json:"resets_at,omitempty"` // reset time of the bottleneck quota window
-	Eligible     bool                   `json:"eligible"`
-	RejectReason string                 `json:"reject_reason,omitempty"`
+	BackendID    string                    `json:"backend_id"`
+	ModelID      string                    `json:"model_id"`
+	DisplayName  string                    `json:"display_name"`
+	Tier         backendstore.ModelTier    `json:"tier"`
+	Installed    bool                      `json:"installed"`
+	Enabled      bool                      `json:"enabled"`
+	BackendTier  string                    `json:"backend_tier"` // "subscription", "free", "pay_per_use"
+	Used         float64                   `json:"used"`
+	Limit        float64                   `json:"limit"`
+	Headroom     float64                   `json:"headroom"`    // 1.0 - (used / limit)
+	UsageRatio   float64                   `json:"usage_ratio"` // used / limit
+	Limited      bool                      `json:"limited"`
+	LimitedUntil time.Time                 `json:"limited_until,omitempty"`
+	ResetsAt     *time.Time                `json:"resets_at,omitempty"` // reset time of the bottleneck quota window
+	Eligible     bool                      `json:"eligible"`
+	RejectReason string                    `json:"reject_reason,omitempty"`
+	Availability backendstore.Availability `json:"availability,omitempty"`
+	Lifecycle    string                    `json:"lifecycle,omitempty"`
 }
 
 // Resolution is the output of the resolver selection process.
@@ -189,6 +197,15 @@ func (r *Resolver) EvaluateCandidates(ctx context.Context, targetTier backendsto
 			DisplayName: m.DisplayName,
 			Tier:        m.Tier,
 			Enabled:     m.Enabled,
+			Lifecycle:   m.EffectiveLifecycle(),
+		}
+		if os, ok := r.store.(observationStore); ok {
+			if o, oErr := os.GetActiveCatalogObservation(m.BackendID, m.ModelID); oErr == nil {
+				eval.Availability = o.Availability
+				if o.LaunchRejectedUntil.After(now) {
+					eval.LimitedUntil = o.LaunchRejectedUntil
+				}
+			}
 		}
 
 		b, found := backendMap[m.BackendID]
@@ -205,11 +222,34 @@ func (r *Resolver) EvaluateCandidates(ctx context.Context, targetTier backendsto
 		// quota record exists (D6).
 		eval.LimitedUntil = b.LimitedUntil
 
-		if !m.Enabled {
+		// Only an exact pair is an operator override. A backend preference still
+		// goes through safe catalog eligibility for the model selected within it.
+		explicit := opts.PreferredBackend == m.BackendID && opts.PreferredModel != "" && opts.PreferredModel == m.ModelID
+		if !m.Enabled && !(explicit && (m.EffectiveLifecycle() == backendstore.ModelLifecycleRetired || m.EffectiveLifecycle() == backendstore.ModelLifecycleExcluded)) {
 			eval.Eligible = false
 			eval.RejectReason = "model disabled"
 			evals = append(evals, eval)
 			continue
+		}
+		if (m.EffectiveLifecycle() == backendstore.ModelLifecycleRetired || m.EffectiveLifecycle() == backendstore.ModelLifecycleExcluded) && !explicit {
+			eval.Eligible = false
+			eval.RejectReason = "model retired"
+			evals = append(evals, eval)
+			continue
+		}
+		if eval.Availability == backendstore.AvailabilityUnavailable && !explicit {
+			eval.Eligible = false
+			eval.RejectReason = "model unavailable for active account"
+			evals = append(evals, eval)
+			continue
+		}
+		if os, ok := r.store.(observationStore); ok {
+			if o, e := os.GetActiveCatalogObservation(m.BackendID, m.ModelID); e == nil && o.LaunchRejectedUntil.After(now) && !explicit {
+				eval.Eligible = false
+				eval.RejectReason = fmt.Sprintf("model rejected at launch until %s", o.LaunchRejectedUntil.Format(time.RFC3339))
+				evals = append(evals, eval)
+				continue
+			}
 		}
 
 		if !m.AutoAssign && !(opts.PreferredBackend == m.BackendID && opts.PreferredModel == m.ModelID) && !(opts.PreferredBackend == "" && opts.PreferredModel == m.ModelID) {
@@ -417,6 +457,11 @@ func (r *Resolver) Resolve(ctx context.Context, opts ResolveOptions) (*Resolutio
 		}
 	}
 	topTied := pool
+	// Provider-confirmed availability breaks otherwise equal quota ties. Unknown
+	// remains eligible, but never outranks account evidence.
+	sort.SliceStable(topTied, func(i, j int) bool {
+		return topTied[i].Availability == backendstore.AvailabilityAvailable && topTied[j].Availability != backendstore.AvailabilityAvailable
+	})
 
 	// Sort tied candidates deterministically by BackendID, ModelID
 	sort.Slice(topTied, func(i, j int) bool {
