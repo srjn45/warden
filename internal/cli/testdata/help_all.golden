@@ -178,6 +178,10 @@ Complete command tree:
   warden inspect fastbrain pause       Pause one decision kind (fails open, no model call)
   warden inspect fastbrain resume      Resume a paused decision kind
   warden inspect fastbrain status      Show Fast-Brain/Thinking-Brain telemetry
+  warden inspect pty                   PTY runtime status, decision trace and metrics
+  warden inspect pty decisions         Show a session's redacted auto-approve decision trace
+  warden inspect pty metrics           Show the warden_pty_* metrics
+  warden inspect pty runtime           Show a session's live PTY-runtime status
   warden inspect repair                Offline, backup-first repair tools
   warden inspect repair agents         [schema 1 only; on schema 2 use `repair warden-db`] Verify or repair the agent store offline, backup-first
   warden inspect repair all            [schema 1 only; on schema 2 use `repair warden-db`] Rebuild all ScrivaDB stores offline using live-wins record resolution

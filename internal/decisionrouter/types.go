@@ -132,6 +132,9 @@ type RouteResult struct {
 	Downgraded         bool
 	DowngradeReason    string
 	BrainConsultResult *brainconsult.Result
+	// Route is who resolved or owns the prompt: "posture" (the permission
+	// engine), "brain" (autopilot Tier-1 consult) or "human" (the inbox).
+	Route string
 }
 
 // Config tunes the decision router behavior.

@@ -67,7 +67,20 @@ func formatApprovalsList(enabled bool, views []approval.View) string {
 // formatApproval renders one recognized prompt block.
 func formatApproval(v approval.View) string {
 	var b strings.Builder
+	if v.Danger {
+		fmt.Fprintf(&b, "!!! %s !!!\n", v.DangerBanner)
+	}
 	fmt.Fprintf(&b, "%s  %s\n", v.ID, v.Question)
+	if v.Summary != nil && v.Summary.Text != "" {
+		fmt.Fprintf(&b, "  summary: %s\n", v.Summary.Text)
+	}
+	if v.Posture != "" {
+		fmt.Fprintf(&b, "  posture: %s", v.Posture)
+		if v.Route != "" {
+			fmt.Fprintf(&b, "  route: %s", v.Route)
+		}
+		b.WriteString("\n")
+	}
 	for i, opt := range v.Options {
 		fmt.Fprintf(&b, "  %d. %s\n", i+1, opt)
 	}

@@ -394,6 +394,60 @@ paths:
         "409":
           description: The session has no PTY event journal (runtime.pty was off when it started).
 
+  /api/v1/sessions/{id}/runtime:
+    get:
+      operationId: getSessionRuntime
+      tags: [Sessions]
+      summary: Live PTY-runtime status of a session
+      description: |
+        The operator view every client renders: the classifier's live state with
+        its typed waiting reason and evidence trail, who owns the input line
+        (human / operator / warden / free), the effective permission posture
+        (with a `danger` flag and banner for `dangerously-execute-all`), the
+        route and outcome of the latest decision, and a human-readable summary
+        of the permission prompt on screen (capability, target/scope, offered
+        options). `supervised` is false when no event stream backs the session
+        (runtime.pty was off when it started); the posture is still reported.
+      parameters: [{ $ref: "#/components/parameters/SessionId" }]
+      responses:
+        "200":
+          description: Runtime status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PTYRuntimeView" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/sessions/{id}/decisions:
+    get:
+      operationId: listSessionDecisions
+      tags: [Sessions]
+      summary: Per-session auto-approve decision trace (newest first)
+      description: |
+        The append-only, redacted decision trace: one record per auto-approve
+        attempt/outcome with correlation id, prompt fingerprint and shape
+        version, classification, provenance and confidence, extracted
+        capability/scope/options, effective policy, selected action/input,
+        revalidation and arbitration result, latency, route and the
+        rejection/escalation reason. Raw keystrokes and secrets are never stored.
+        Retention is bounded by `runtime.trace_max_records` and
+        `runtime.trace_max_age_days`.
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 1000 } }
+        - { name: since, in: query, description: RFC 3339 lower bound, schema: { type: string, format: date-time } }
+        - name: outcome
+          in: query
+          schema:
+            type: string
+            enum: [approved, denied, dry_run, deferred, escalated_human, needs_attention, routed_brain, error]
+      responses:
+        "200":
+          description: Decision trace
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PTYDecisionList" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /api/v1/cockpit/attach:
     get:
       operationId: attachCockpit
@@ -2401,6 +2455,38 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/MetricsSample" }
+
+  /api/v1/pty/metrics:
+    get:
+      operationId: getPTYMetrics
+      tags: [Observability]
+      summary: PTY runtime and permission-decision metrics (JSON)
+      description: >
+        Stable `warden_pty_*` metric families: stream events, state transitions
+        and detection latency, quiescence investigations, prompts and
+        unrecognized prompts by adapter/version/classification, learned-shape
+        outcomes, auto-answer / escalation / redaction counters, reconnects and
+        backpressure. Labels are closed vocabularies - never prompt text,
+        paths, session ids or secrets.
+      responses:
+        "200":
+          description: Metrics snapshot
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PTYMetricsSnapshot" }
+
+  /api/v1/pty/metrics.prom:
+    get:
+      operationId: getPTYMetricsPrometheus
+      tags: [Observability]
+      summary: PTY runtime metrics in the Prometheus text format
+      description: Same families as `/pty/metrics`, scrape-ready.
+      responses:
+        "200":
+          description: Prometheus text exposition
+          content:
+            text/plain:
+              schema: { type: string }
 
   /api/v1/fastbrain/metrics:
     get:
@@ -6201,6 +6287,52 @@ components:
       properties:
         dir: { type: string, description: "Absolute path the repo was cloned into" }
 
+    PermissionSummary:
+      x-go-type: ptyobs.PermissionSummary
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/ptyobs
+        name: ptyobs
+      type: object
+      description: >
+        Human-readable permission prompt: class, capabilities, subject, target,
+        scope, question, offered options (with the chosen one), fingerprint,
+        provenance, confidence and a one-sentence text.
+
+    PTYRuntimeView:
+      x-go-type: ptyobs.RuntimeView
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/ptyobs
+        name: ptyobs
+      type: object
+      description: >
+        Live runtime status (state, typed reason, evidence trail, input owner,
+        posture/danger, decision route, prompt summary).
+
+    PTYDecisionRecord:
+      x-go-type: ptyobs.TraceRecord
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/ptyobs
+        name: ptyobs
+      type: object
+      description: One redacted decision-trace record.
+
+    PTYDecisionList:
+      type: object
+      required: [session_id, records]
+      properties:
+        session_id: { type: string }
+        records:
+          type: array
+          items: { $ref: "#/components/schemas/PTYDecisionRecord" }
+
+    PTYMetricsSnapshot:
+      x-go-type: ptyobs.Snapshot
+      x-go-type-import:
+        path: github.com/srjn45/warden/internal/ptyobs
+        name: ptyobs
+      type: object
+      description: Point-in-time copy of every warden_pty_* metric family.
+
     ApprovalView:
       x-go-type: approval.View
       x-go-type-import:
@@ -6214,6 +6346,11 @@ components:
         options: { type: array, items: { type: string } }
         fingerprint: { type: string }
         recognized: { type: boolean }
+        posture: { type: string, description: Effective permission posture of the session. }
+        danger: { type: boolean, description: True for dangerously-execute-all. }
+        danger_banner: { type: string }
+        route: { type: string, description: "Who resolved the latest prompt: posture, brain, human or none." }
+        summary: { $ref: "#/components/schemas/PermissionSummary" }
 
     ApprovalsResponse:
       type: object

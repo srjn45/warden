@@ -23,6 +23,7 @@ import (
 	"github.com/srjn45/warden/internal/poller"
 	"github.com/srjn45/warden/internal/ptyevent"
 	"github.com/srjn45/warden/internal/ptyhost"
+	"github.com/srjn45/warden/internal/ptyobs"
 	"github.com/srjn45/warden/internal/ptyruntime"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/srjn45/warden/internal/terminalstore"
@@ -238,14 +239,19 @@ func TestPTYRuntimeWiresClassifierAndPollerAuthoritative(t *testing.T) {
 	// ModeOn makes T-1 authoritative.
 	require.True(t, pl.Authoritative("T-1"))
 
-	// OnPTYEvent dispatches to classifier.
-	srv.onPTYEvent("T-1", ptyevent.Event{
+	// The classifier observes the manager itself (stateclassifier.New); the
+	// daemon's onPTYEvent must NOT feed it a second time. Deliver once to the
+	// classifier, and once through onPTYEvent (metrics only).
+	ev := ptyevent.Event{
 		Kind: ptyevent.KindLifecycle,
 		Lifecycle: &ptyevent.Lifecycle{
 			Phase: ptyevent.PhaseSpawned,
 			PID:   1234,
 		},
-	})
+	}
+	srv.Classifier().OnPTYEvent("T-1", ev)
+	srv.onPTYEvent("T-1", ev)
+	require.EqualValues(t, 1, srv.ptyMetrics.Snapshot().Total(ptyobs.MEvents, "kind", "lifecycle"))
 	snap, ok := srv.Classifier().CurrentState("T-1")
 	require.True(t, ok)
 	require.Equal(t, ptyevent.StateWaiting, snap.State)

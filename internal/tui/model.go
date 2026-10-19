@@ -12,6 +12,7 @@ import (
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/projectstore"
+	"github.com/srjn45/warden/internal/ptyobs"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -46,6 +47,7 @@ type api interface {
 	PipelineCancel(ctx context.Context, pid string) error
 	PipelineDelete(ctx context.Context, pid string) error
 	Digest(ctx context.Context, id string) (*digest.Digest, error)
+	SessionRuntime(ctx context.Context, id string) (ptyobs.RuntimeView, error)
 	Pressure(ctx context.Context) (client.PressureStatus, error)
 	CtxList(ctx context.Context, prefix string) ([]client.ContextEntry, error)
 	MsgRecent(ctx context.Context, limit int) ([]client.Message, error)

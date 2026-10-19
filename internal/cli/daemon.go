@@ -295,6 +295,7 @@ func newDaemonRunCmd() *cobra.Command {
 				daemon.NewTerminalPollerDeps(termStore, ptyMgr.Host(), lc),
 			))
 			srv.SetPTYRuntime(ptyMgr)
+			srv.SetTraceLimits(cfg.Runtime.TraceMaxRecords, cfg.Runtime.TraceMaxAgeDays)
 			srv.SetAuth(authToken, readonlyToken)
 			srv.SetWriteTimeouts(cfg.HTTPTimeoutFastDuration(), cfg.HTTPTimeoutSlowDuration())
 			// Persist auto-approve policy changes (PUT /auto-approve/policy) back to

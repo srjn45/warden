@@ -14,6 +14,7 @@ Commands:
   export               Serialize agent session metadata to JSON on stdout
   import               Insert agent session metadata from a JSON dump on stdin
   fastbrain            Fast-Brain/Thinking-Brain telemetry, traces and per-kind pause/resume
+  pty                  PTY runtime status, decision trace and metrics
   repair               Offline, backup-first repair tools
   legacy               Read-only inspection of retained schema-1 stores vs warden-db
 

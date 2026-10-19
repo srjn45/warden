@@ -109,6 +109,12 @@ type RuntimeConfig struct {
 	// terminals hosted directly on a warden-owned PTY). A change applies to
 	// sessions created afterwards.
 	PTY string `yaml:"pty"`
+	// TraceMaxRecords caps each session's decision trace (default 5000); the
+	// oldest records are compacted away past 125% of the cap.
+	TraceMaxRecords int `yaml:"trace_max_records"`
+	// TraceMaxAgeDays drops decision-trace records older than this at
+	// compaction (default 30).
+	TraceMaxAgeDays int `yaml:"trace_max_age_days"`
 }
 
 // PipelineConfig groups pipeline-execution settings.
@@ -534,7 +540,7 @@ var schema = []setting{
 	{"backends", "Agent-backend registry / internal-thinking router settings (docs/specs/2026-08-06-backend-registry.md §10). Warden's own internal thinking (task classification, activity summaries, agent naming, digest narration, memory curation) is routed STRICTLY through free/local backends — it never makes a paid call. Sub-keys: limit_retry (Go duration, e.g. 15m — how long a free CLI backend is skipped by the router after it returns a rate-limit / spend signal, before it is retried)."},
 	{"autopilot", "Autopilot defaults for named, durably registered runs. Create plans with `warden plan create` and start them with `warden plan run <plan-id> --mode autopilot`. Sub-keys: enabled (legacy per-repo switch), plans (DEPRECATED compatibility list; migrated into plans/ and the run store on boot), brain (role, headless, max_parallel_workers; backend tiers live in the backend registry), merge (target_branch, strategy, gate, delete_branch), guardian (interval, heartbeat_timeout, backoff_min, backoff_max, rotate_at_context, notify_each_escalation, max_identical_failures, progress_watchdog_enabled, progress_watchdog_window, use_fast_brain [default true: Fast-Brain triage picks the recovery action before an escalation; false = plain ladder], max_waits [3], max_wait_total [30m]), completion (merge_default [true], manager_verify_timeout [30m], merge_poll_interval [2m, floor 30s] — how often to poll a green final PR while awaiting owner merge; all hot-reloaded)."},
 	{"router", "Spawn-time model-tier routing. Sub-keys: use_fast_brain (true | false, default false — when true, a spawn that pins no tier, task, role, model or ai_cli has Fast-Brain rate the prompt's complexity and pick tier-1 (trivial tweaks), tier-2 (standard work) or tier-3 (deep refactors/architecture), applied only at confidence >= 0.8; it is the lowest-precedence input, so any explicit pin wins, and the decision is recorded on the agent's event log. Hot-reloaded: applies from the next spawn)."},
-	{"runtime", "Warden-owned PTY runtime (docs/specs/2026-10-19-pty-runtime-contract.md). Sub-keys: pty (off | shadow | on, default off). off: every session runs in tmux exactly as before and no event journal is written. shadow: sessions still launch in tmux unchanged, and each new pane's output is mirrored into a redacted, replayable per-session event journal (tmux pipe-pane) served over GET /api/v1/sessions/{id}/pty; warden writes nothing to a pane through it, and the pollers stay authoritative. on: shadow for agents, plus plain-shell terminals are hosted directly on a warden-owned PTY (tmux attach is not available for those; attach through the daemon). A change applies to sessions created afterwards; turning it off stops the mirrors."},
+	{"runtime", "Warden-owned PTY runtime (docs/specs/2026-10-19-pty-runtime-contract.md). Sub-keys: pty (off | shadow | on, default off). off: every session runs in tmux exactly as before and no event journal is written. shadow: sessions still launch in tmux unchanged, and each new pane's output is mirrored into a redacted, replayable per-session event journal (tmux pipe-pane) served over GET /api/v1/sessions/{id}/pty; warden writes nothing to a pane through it, and the pollers stay authoritative. on: shadow for agents, plus plain-shell terminals are hosted directly on a warden-owned PTY (tmux attach is not available for those; attach through the daemon). A change applies to sessions created afterwards; turning it off stops the mirrors. trace_max_records (default 5000) and trace_max_age_days (default 30) bound each session's redacted, append-only auto-approve decision trace (GET /api/v1/sessions/{id}/decisions)."},
 	{"brain_consult", "Shared need-based brain consult settings (docs/specs/2026-09-27-brain-consult.md §D7). When enabled, stuck pipeline jobs that have exhausted the one deterministic auto-retry can consult a short-lived role=brain agent once per stuck episode. Sub-keys: enabled (true | false — global kill-switch; default true; set false to disable globally), timeout (Go duration, e.g. 10m — per-consult deadline; generous default because consults are infrequent), max_concurrent (integer >= 1 — max simultaneous brain consult agents across all pipelines; default 1). Per-pipeline opt-out: pipeline.brain_consult (true | false)."},
 }
 
@@ -667,7 +673,7 @@ func defaults() Config {
 		PlanSync: PlanSyncConfig{
 			Provider: "local",
 		},
-		Runtime: RuntimeConfig{PTY: "off"},
+		Runtime: RuntimeConfig{PTY: "off", TraceMaxRecords: 5000, TraceMaxAgeDays: 30},
 		RateLimit: RateLimitConfig{
 			RetryInterval:      "30m",
 			SpendRetryInterval: "6h",
@@ -871,6 +877,12 @@ func validate(c *Config) {
 	c.Log.Format = validLogFormat(c.Log.Format, d.Log.Format)
 	c.PlanSync.Provider = validPlanSyncProvider(c.PlanSync.Provider, d.PlanSync.Provider)
 	c.Runtime.PTY = validRuntimePTY(c.Runtime.PTY, d.Runtime.PTY)
+	if c.Runtime.TraceMaxRecords <= 0 {
+		c.Runtime.TraceMaxRecords = d.Runtime.TraceMaxRecords
+	}
+	if c.Runtime.TraceMaxAgeDays <= 0 {
+		c.Runtime.TraceMaxAgeDays = d.Runtime.TraceMaxAgeDays
+	}
 	c.AutoRestart.Reset = validDuration(c.AutoRestart.Reset, d.AutoRestart.Reset)
 	c.Collab.Interval = validDuration(c.Collab.Interval, d.Collab.Interval)
 	c.Collab.GitReconcileInterval = validDuration(c.Collab.GitReconcileInterval, d.Collab.GitReconcileInterval)

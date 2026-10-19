@@ -1954,3 +1954,17 @@ rolled out behind `runtime.pty: off|shadow|on` (default `off` — no behavior ch
   mapping is audited for all eight backends (`agentbackend.SupportForPosture`);
   unsupported mappings (e.g. `allowlisted`) are explicitly degraded, with the router
   enforcing the posture from the prompt stream. No new API or CLI surface.
+
+### 40.1 Observability (t7)
+
+See [`docs/PTY_OBSERVABILITY.md`](PTY_OBSERVABILITY.md). Live runtime status
+(`GET /sessions/{id}/runtime`, `warden inspect pty runtime`, MCP `session_runtime`): stream
+state, typed waiting reason, evidence, input owner, decision route, effective posture and
+the pending permission summary. A redacted, append-only per-session decision trace
+(`GET /sessions/{id}/decisions`, `warden inspect pty decisions`, MCP `session_decisions`)
+bounded by `runtime.trace_max_records` / `runtime.trace_max_age_days`. Stable
+`warden_pty_*` metrics (`/pty/metrics`, `/pty/metrics.prom`, `warden inspect pty metrics`,
+MCP `pty_metrics`) with closed label vocabularies; alerts and a dashboard in
+`deploy/observability/`. `dangerously-execute-all` shows a DANGER banner on the TUI, web
+and approval views. Strategic prompts are never auto-answered; only permission/trust ones.
+

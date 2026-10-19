@@ -873,3 +873,9 @@ kbd {
 .fb-open { background: rgba(248,81,73,.3); }
 .fb-half_open { background: rgba(210,153,34,.3); }
 .fb-controls button.fb-paused { border-color: #f85149; }
+
+.danger-banner { background: #b00020; color: #fff; font-weight: 700; padding: .4rem .6rem; border-radius: 4px; margin: .3rem 0; }
+.attn-summary { font-weight: 500; }
+.runtime-card { padding: .3rem 0; }
+.decision-trace { width: 100%; font-size: .8rem; border-collapse: collapse; }
+.decision-trace th, .decision-trace td { text-align: left; padding: .15rem .4rem; }

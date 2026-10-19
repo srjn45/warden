@@ -34,6 +34,7 @@ import (
 	planstore "github.com/srjn45/warden/internal/planstore"
 	pressure "github.com/srjn45/warden/internal/pressure"
 	projectstore "github.com/srjn45/warden/internal/projectstore"
+	ptyobs "github.com/srjn45/warden/internal/ptyobs"
 	savings "github.com/srjn45/warden/internal/savings"
 	schedule "github.com/srjn45/warden/internal/schedule"
 	snapshot "github.com/srjn45/warden/internal/snapshot"
@@ -790,6 +791,42 @@ func (e ListSessionsParamsKind) Valid() bool {
 	}
 }
 
+// Defines values for ListSessionDecisionsParamsOutcome.
+const (
+	ListSessionDecisionsParamsOutcomeApproved       ListSessionDecisionsParamsOutcome = "approved"
+	ListSessionDecisionsParamsOutcomeDeferred       ListSessionDecisionsParamsOutcome = "deferred"
+	ListSessionDecisionsParamsOutcomeDenied         ListSessionDecisionsParamsOutcome = "denied"
+	ListSessionDecisionsParamsOutcomeDryRun         ListSessionDecisionsParamsOutcome = "dry_run"
+	ListSessionDecisionsParamsOutcomeError          ListSessionDecisionsParamsOutcome = "error"
+	ListSessionDecisionsParamsOutcomeEscalatedHuman ListSessionDecisionsParamsOutcome = "escalated_human"
+	ListSessionDecisionsParamsOutcomeNeedsAttention ListSessionDecisionsParamsOutcome = "needs_attention"
+	ListSessionDecisionsParamsOutcomeRoutedBrain    ListSessionDecisionsParamsOutcome = "routed_brain"
+)
+
+// Valid indicates whether the value is a known member of the ListSessionDecisionsParamsOutcome enum.
+func (e ListSessionDecisionsParamsOutcome) Valid() bool {
+	switch e {
+	case ListSessionDecisionsParamsOutcomeApproved:
+		return true
+	case ListSessionDecisionsParamsOutcomeDeferred:
+		return true
+	case ListSessionDecisionsParamsOutcomeDenied:
+		return true
+	case ListSessionDecisionsParamsOutcomeDryRun:
+		return true
+	case ListSessionDecisionsParamsOutcomeError:
+		return true
+	case ListSessionDecisionsParamsOutcomeEscalatedHuman:
+		return true
+	case ListSessionDecisionsParamsOutcomeNeedsAttention:
+		return true
+	case ListSessionDecisionsParamsOutcomeRoutedBrain:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SetForceCompactJSONBodyState.
 const (
 	SetForceCompactJSONBodyStateInherit SetForceCompactJSONBodyState = "inherit"
@@ -1522,6 +1559,24 @@ type OutputResponse struct {
 
 // PRResult defines model for PRResult.
 type PRResult = lifecycle.PRResult
+
+// PTYDecisionList defines model for PTYDecisionList.
+type PTYDecisionList struct {
+	Records   []PTYDecisionRecord `json:"records"`
+	SessionId string              `json:"session_id"`
+}
+
+// PTYDecisionRecord One redacted decision-trace record.
+type PTYDecisionRecord = ptyobs.TraceRecord
+
+// PTYMetricsSnapshot Point-in-time copy of every warden_pty_* metric family.
+type PTYMetricsSnapshot = ptyobs.Snapshot
+
+// PTYRuntimeView Live runtime status (state, typed reason, evidence trail, input owner, posture/danger, decision route, prompt summary).
+type PTYRuntimeView = ptyobs.RuntimeView
+
+// PermissionSummary Human-readable permission prompt: class, capabilities, subject, target, scope, question, offered options (with the chosen one), fingerprint, provenance, confidence and a one-sentence text.
+type PermissionSummary = ptyobs.PermissionSummary
 
 // Pipeline defines model for Pipeline.
 type Pipeline = pipeline.Pipeline
@@ -2725,6 +2780,18 @@ type CreatePRJSONBody struct {
 	Title string `json:"title,omitempty"`
 }
 
+// ListSessionDecisionsParams defines parameters for ListSessionDecisions.
+type ListSessionDecisionsParams struct {
+	Limit int `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Since RFC 3339 lower bound
+	Since   time.Time                         `form:"since,omitempty" json:"since,omitempty"`
+	Outcome ListSessionDecisionsParamsOutcome `form:"outcome,omitempty" json:"outcome,omitempty"`
+}
+
+// ListSessionDecisionsParamsOutcome defines parameters for ListSessionDecisions.
+type ListSessionDecisionsParamsOutcome string
+
 // SetForceCompactJSONBody defines parameters for SetForceCompact.
 type SetForceCompactJSONBody struct {
 	State SetForceCompactJSONBodyState `json:"state"`
@@ -3373,6 +3440,12 @@ type ServerInterface interface {
 	// Reclaim orphan worktrees
 	// (POST /api/v1/prune)
 	PruneWorktrees(w http.ResponseWriter, r *http.Request)
+	// PTY runtime and permission-decision metrics (JSON)
+	// (GET /api/v1/pty/metrics)
+	GetPTYMetrics(w http.ResponseWriter, r *http.Request)
+	// PTY runtime metrics in the Prometheus text format
+	// (GET /api/v1/pty/metrics.prom)
+	GetPTYMetricsPrometheus(w http.ResponseWriter, r *http.Request)
 	// Revive archived orphaned agent records whose tmux session is still alive
 	// (POST /api/v1/recover)
 	RecoverAgents(w http.ResponseWriter, r *http.Request)
@@ -3430,6 +3503,9 @@ type ServerInterface interface {
 	// Open a GitHub PR for the agent's branch
 	// (POST /api/v1/sessions/{id}/create-pr)
 	CreatePR(w http.ResponseWriter, r *http.Request, id SessionId)
+	// Per-session auto-approve decision trace (newest first)
+	// (GET /api/v1/sessions/{id}/decisions)
+	ListSessionDecisions(w http.ResponseWriter, r *http.Request, id SessionId, params ListSessionDecisionsParams)
 	// Delete a session record
 	// (POST /api/v1/sessions/{id}/delete)
 	DeleteSession(w http.ResponseWriter, r *http.Request, id SessionId)
@@ -3472,6 +3548,9 @@ type ServerInterface interface {
 	// Set an agent's built-in role
 	// (PATCH /api/v1/sessions/{id}/role)
 	SetRole(w http.ResponseWriter, r *http.Request, id SessionId)
+	// Live PTY-runtime status of a session
+	// (GET /api/v1/sessions/{id}/runtime)
+	GetSessionRuntime(w http.ResponseWriter, r *http.Request, id SessionId)
 	// Hot-swap an agent session to a different backend, model, or tier mid-task
 	// (POST /api/v1/sessions/{id}/switch)
 	SwitchSession(w http.ResponseWriter, r *http.Request, id SessionId)
@@ -4126,6 +4205,18 @@ func (_ Unimplemented) PruneWorktrees(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// PTY runtime and permission-decision metrics (JSON)
+// (GET /api/v1/pty/metrics)
+func (_ Unimplemented) GetPTYMetrics(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// PTY runtime metrics in the Prometheus text format
+// (GET /api/v1/pty/metrics.prom)
+func (_ Unimplemented) GetPTYMetricsPrometheus(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Revive archived orphaned agent records whose tmux session is still alive
 // (POST /api/v1/recover)
 func (_ Unimplemented) RecoverAgents(w http.ResponseWriter, r *http.Request) {
@@ -4240,6 +4331,12 @@ func (_ Unimplemented) CreatePR(w http.ResponseWriter, r *http.Request, id Sessi
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Per-session auto-approve decision trace (newest first)
+// (GET /api/v1/sessions/{id}/decisions)
+func (_ Unimplemented) ListSessionDecisions(w http.ResponseWriter, r *http.Request, id SessionId, params ListSessionDecisionsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Delete a session record
 // (POST /api/v1/sessions/{id}/delete)
 func (_ Unimplemented) DeleteSession(w http.ResponseWriter, r *http.Request, id SessionId) {
@@ -4321,6 +4418,12 @@ func (_ Unimplemented) RestoreSession(w http.ResponseWriter, r *http.Request, id
 // Set an agent's built-in role
 // (PATCH /api/v1/sessions/{id}/role)
 func (_ Unimplemented) SetRole(w http.ResponseWriter, r *http.Request, id SessionId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Live PTY-runtime status of a session
+// (GET /api/v1/sessions/{id}/runtime)
+func (_ Unimplemented) GetSessionRuntime(w http.ResponseWriter, r *http.Request, id SessionId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -7512,6 +7615,46 @@ func (siw *ServerInterfaceWrapper) PruneWorktrees(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// GetPTYMetrics operation middleware
+func (siw *ServerInterfaceWrapper) GetPTYMetrics(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPTYMetrics(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetPTYMetricsPrometheus operation middleware
+func (siw *ServerInterfaceWrapper) GetPTYMetricsPrometheus(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPTYMetricsPrometheus(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // RecoverAgents operation middleware
 func (siw *ServerInterfaceWrapper) RecoverAgents(w http.ResponseWriter, r *http.Request) {
 
@@ -8133,6 +8276,80 @@ func (siw *ServerInterfaceWrapper) CreatePR(w http.ResponseWriter, r *http.Reque
 	handler.ServeHTTP(w, r)
 }
 
+// ListSessionDecisions operation middleware
+func (siw *ServerInterfaceWrapper) ListSessionDecisions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id SessionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListSessionDecisionsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "since" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "since", r.URL.Query(), &params.Since, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "since"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "since", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "outcome" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "outcome", r.URL.Query(), &params.Outcome, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "outcome"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "outcome", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListSessionDecisions(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // DeleteSession operation middleware
 func (siw *ServerInterfaceWrapper) DeleteSession(w http.ResponseWriter, r *http.Request) {
 
@@ -8633,6 +8850,38 @@ func (siw *ServerInterfaceWrapper) SetRole(w http.ResponseWriter, r *http.Reques
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SetRole(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetSessionRuntime operation middleware
+func (siw *ServerInterfaceWrapper) GetSessionRuntime(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id SessionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSessionRuntime(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -9427,6 +9676,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/api/v1/prune", wrapper.PruneWorktrees)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/pty/metrics", wrapper.GetPTYMetrics)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/pty/metrics.prom", wrapper.GetPTYMetricsPrometheus)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/recover", wrapper.RecoverAgents)
 	})
 	r.Group(func(r chi.Router) {
@@ -9484,6 +9739,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/api/v1/sessions/{id}/create-pr", wrapper.CreatePR)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/sessions/{id}/decisions", wrapper.ListSessionDecisions)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/sessions/{id}/delete", wrapper.DeleteSession)
 	})
 	r.Group(func(r chi.Router) {
@@ -9524,6 +9782,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/api/v1/sessions/{id}/role", wrapper.SetRole)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/sessions/{id}/runtime", wrapper.GetSessionRuntime)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/sessions/{id}/switch", wrapper.SwitchSession)
@@ -13594,6 +13855,45 @@ func (response PruneWorktrees200JSONResponse) VisitPruneWorktreesResponse(w http
 	return err
 }
 
+type GetPTYMetricsRequestObject struct {
+}
+
+type GetPTYMetricsResponseObject interface {
+	VisitGetPTYMetricsResponse(w http.ResponseWriter) error
+}
+
+type GetPTYMetrics200JSONResponse PTYMetricsSnapshot
+
+func (response GetPTYMetrics200JSONResponse) VisitGetPTYMetricsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPTYMetricsPrometheusRequestObject struct {
+}
+
+type GetPTYMetricsPrometheusResponseObject interface {
+	VisitGetPTYMetricsPrometheusResponse(w http.ResponseWriter) error
+}
+
+type GetPTYMetricsPrometheus200TextResponse string
+
+func (response GetPTYMetricsPrometheus200TextResponse) VisitGetPTYMetricsPrometheusResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(200)
+
+	_, err := w.Write([]byte(response))
+	return err
+}
+
 type RecoverAgentsRequestObject struct {
 	Body *RecoverAgentsJSONRequestBody
 }
@@ -14418,6 +14718,43 @@ func (response CreatePR404JSONResponse) VisitCreatePRResponse(w http.ResponseWri
 	return err
 }
 
+type ListSessionDecisionsRequestObject struct {
+	Id     SessionId `json:"id"`
+	Params ListSessionDecisionsParams
+}
+
+type ListSessionDecisionsResponseObject interface {
+	VisitListSessionDecisionsResponse(w http.ResponseWriter) error
+}
+
+type ListSessionDecisions200JSONResponse PTYDecisionList
+
+func (response ListSessionDecisions200JSONResponse) VisitListSessionDecisionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionDecisions404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListSessionDecisions404JSONResponse) VisitListSessionDecisionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type DeleteSessionRequestObject struct {
 	Id   SessionId `json:"id"`
 	Body *DeleteSessionJSONRequestBody
@@ -14986,6 +15323,42 @@ func (response SetRole400JSONResponse) VisitSetRoleResponse(w http.ResponseWrite
 type SetRole404JSONResponse struct{ NotFoundJSONResponse }
 
 func (response SetRole404JSONResponse) VisitSetRoleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionRuntimeRequestObject struct {
+	Id SessionId `json:"id"`
+}
+
+type GetSessionRuntimeResponseObject interface {
+	VisitGetSessionRuntimeResponse(w http.ResponseWriter) error
+}
+
+type GetSessionRuntime200JSONResponse PTYRuntimeView
+
+func (response GetSessionRuntime200JSONResponse) VisitGetSessionRuntimeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionRuntime404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetSessionRuntime404JSONResponse) VisitGetSessionRuntimeResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -15805,6 +16178,12 @@ type StrictServerInterface interface {
 	// Reclaim orphan worktrees
 	// (POST /api/v1/prune)
 	PruneWorktrees(ctx context.Context, request PruneWorktreesRequestObject) (PruneWorktreesResponseObject, error)
+	// PTY runtime and permission-decision metrics (JSON)
+	// (GET /api/v1/pty/metrics)
+	GetPTYMetrics(ctx context.Context, request GetPTYMetricsRequestObject) (GetPTYMetricsResponseObject, error)
+	// PTY runtime metrics in the Prometheus text format
+	// (GET /api/v1/pty/metrics.prom)
+	GetPTYMetricsPrometheus(ctx context.Context, request GetPTYMetricsPrometheusRequestObject) (GetPTYMetricsPrometheusResponseObject, error)
 	// Revive archived orphaned agent records whose tmux session is still alive
 	// (POST /api/v1/recover)
 	RecoverAgents(ctx context.Context, request RecoverAgentsRequestObject) (RecoverAgentsResponseObject, error)
@@ -15862,6 +16241,9 @@ type StrictServerInterface interface {
 	// Open a GitHub PR for the agent's branch
 	// (POST /api/v1/sessions/{id}/create-pr)
 	CreatePR(ctx context.Context, request CreatePRRequestObject) (CreatePRResponseObject, error)
+	// Per-session auto-approve decision trace (newest first)
+	// (GET /api/v1/sessions/{id}/decisions)
+	ListSessionDecisions(ctx context.Context, request ListSessionDecisionsRequestObject) (ListSessionDecisionsResponseObject, error)
 	// Delete a session record
 	// (POST /api/v1/sessions/{id}/delete)
 	DeleteSession(ctx context.Context, request DeleteSessionRequestObject) (DeleteSessionResponseObject, error)
@@ -15904,6 +16286,9 @@ type StrictServerInterface interface {
 	// Set an agent's built-in role
 	// (PATCH /api/v1/sessions/{id}/role)
 	SetRole(ctx context.Context, request SetRoleRequestObject) (SetRoleResponseObject, error)
+	// Live PTY-runtime status of a session
+	// (GET /api/v1/sessions/{id}/runtime)
+	GetSessionRuntime(ctx context.Context, request GetSessionRuntimeRequestObject) (GetSessionRuntimeResponseObject, error)
 	// Hot-swap an agent session to a different backend, model, or tier mid-task
 	// (POST /api/v1/sessions/{id}/switch)
 	SwitchSession(ctx context.Context, request SwitchSessionRequestObject) (SwitchSessionResponseObject, error)
@@ -18925,6 +19310,54 @@ func (sh *strictHandler) PruneWorktrees(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
+// GetPTYMetrics operation middleware
+func (sh *strictHandler) GetPTYMetrics(w http.ResponseWriter, r *http.Request) {
+	var request GetPTYMetricsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetPTYMetrics(ctx, request.(GetPTYMetricsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetPTYMetrics")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetPTYMetricsResponseObject); ok {
+		if err := validResponse.VisitGetPTYMetricsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetPTYMetricsPrometheus operation middleware
+func (sh *strictHandler) GetPTYMetricsPrometheus(w http.ResponseWriter, r *http.Request) {
+	var request GetPTYMetricsPrometheusRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetPTYMetricsPrometheus(ctx, request.(GetPTYMetricsPrometheusRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetPTYMetricsPrometheus")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetPTYMetricsPrometheusResponseObject); ok {
+		if err := validResponse.VisitGetPTYMetricsPrometheusResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // RecoverAgents operation middleware
 func (sh *strictHandler) RecoverAgents(w http.ResponseWriter, r *http.Request) {
 	var request RecoverAgentsRequestObject
@@ -19464,6 +19897,33 @@ func (sh *strictHandler) CreatePR(w http.ResponseWriter, r *http.Request, id Ses
 	}
 }
 
+// ListSessionDecisions operation middleware
+func (sh *strictHandler) ListSessionDecisions(w http.ResponseWriter, r *http.Request, id SessionId, params ListSessionDecisionsParams) {
+	var request ListSessionDecisionsRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListSessionDecisions(ctx, request.(ListSessionDecisionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListSessionDecisions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListSessionDecisionsResponseObject); ok {
+		if err := validResponse.VisitListSessionDecisionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // DeleteSession operation middleware
 func (sh *strictHandler) DeleteSession(w http.ResponseWriter, r *http.Request, id SessionId) {
 	var request DeleteSessionRequestObject
@@ -19893,6 +20353,32 @@ func (sh *strictHandler) SetRole(w http.ResponseWriter, r *http.Request, id Sess
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SetRoleResponseObject); ok {
 		if err := validResponse.VisitSetRoleResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetSessionRuntime operation middleware
+func (sh *strictHandler) GetSessionRuntime(w http.ResponseWriter, r *http.Request, id SessionId) {
+	var request GetSessionRuntimeRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetSessionRuntime(ctx, request.(GetSessionRuntimeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetSessionRuntime")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetSessionRuntimeResponseObject); ok {
+		if err := validResponse.VisitGetSessionRuntimeResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -1,5 +1,5 @@
 import type { FBControl, FBDecision, FBTelemetry } from './fastbrain';
-import type { Session, ApprovalView, Pipeline, Digest, ContextEntry, Message, Conflict } from './types';
+import type { RuntimeView, TraceRecord, Session, ApprovalView, Pipeline, Digest, ContextEntry, Message, Conflict } from './types';
 import type { ProjectTree } from './tree';
 import type { Verdict, PressureStatus } from './pressure';
 import type { MetricsSample } from './metrics';
@@ -579,4 +579,14 @@ export function subscribeSessions(
     onError();
   };
   return () => es.close();
+}
+
+export async function getSessionRuntime(id: string): Promise<RuntimeView> {
+  return parse<RuntimeView>(await apiFetch(`/sessions/${encodeURIComponent(id)}/runtime`));
+}
+
+export async function getSessionDecisions(id: string, limit = 50): Promise<TraceRecord[]> {
+  const data = await parse<{ records: TraceRecord[] | null }>(
+    await apiFetch(`/sessions/${encodeURIComponent(id)}/decisions?limit=${limit}`));
+  return data.records ?? [];
 }

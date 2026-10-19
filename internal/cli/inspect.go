@@ -27,6 +27,7 @@ Financial usage and provider quota snapshots live under ` + "`usage`" + `, not h
 		canonicalInspectCommand(newExportCmd(), "export", "export"),
 		canonicalInspectCommand(newImportCmd(), "import", "import"),
 		newInspectFastBrainCmd(),
+		newInspectPTYCmd(),
 		newInspectRepairCmd(),
 		newInspectLegacyCmd(),
 	}

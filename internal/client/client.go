@@ -29,6 +29,7 @@ import (
 	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/pressure"
 	"github.com/srjn45/warden/internal/projectstore"
+	"github.com/srjn45/warden/internal/ptyobs"
 	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/schedule"
 	"github.com/srjn45/warden/internal/snapshot"
@@ -2472,4 +2473,42 @@ func (c *Client) StoreHealth(ctx context.Context) (StoreHealth, error) {
 	var h StoreHealth
 	err := c.do(ctx, http.MethodGet, "/store/health", nil, &h)
 	return h, err
+}
+
+// SessionRuntime fetches a session's live PTY-runtime status
+// (GET /sessions/{id}/runtime).
+func (c *Client) SessionRuntime(ctx context.Context, id string) (ptyobs.RuntimeView, error) {
+	var out ptyobs.RuntimeView
+	err := c.do(ctx, http.MethodGet, "/sessions/"+url.PathEscape(id)+"/runtime", nil, &out)
+	return out, err
+}
+
+// SessionDecisions fetches a session's auto-approve decision trace, newest
+// first (GET /sessions/{id}/decisions). limit<=0 and outcome=="" take defaults.
+func (c *Client) SessionDecisions(ctx context.Context, id string, limit int, outcome string) ([]ptyobs.TraceRecord, error) {
+	q := url.Values{}
+	if limit > 0 {
+		q.Set("limit", strconv.Itoa(limit))
+	}
+	if outcome != "" {
+		q.Set("outcome", outcome)
+	}
+	path := "/sessions/" + url.PathEscape(id) + "/decisions"
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	var resp struct {
+		Records []ptyobs.TraceRecord `json:"records"`
+	}
+	if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Records, nil
+}
+
+// PTYMetrics fetches the warden_pty_* metrics snapshot (GET /pty/metrics).
+func (c *Client) PTYMetrics(ctx context.Context) (ptyobs.Snapshot, error) {
+	var out ptyobs.Snapshot
+	err := c.do(ctx, http.MethodGet, "/pty/metrics", nil, &out)
+	return out, err
 }

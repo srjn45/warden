@@ -17,6 +17,7 @@ import (
 	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/plansync"
 	"github.com/srjn45/warden/internal/projectstore"
+	"github.com/srjn45/warden/internal/ptyobs"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -476,6 +477,22 @@ func deletePipelineCmd(a api, pid string) tea.Cmd {
 func retryJobCmd(a api, pid, job string) tea.Cmd {
 	return func() tea.Msg {
 		return pipelineActionMsg{err: a.PipelineRetry(context.Background(), pid, job)}
+	}
+}
+
+// runtimeMsg carries a session's live PTY-runtime view. A failure is silent: the
+// details pane simply omits the runtime section (older daemon / runtime off).
+type runtimeMsg struct {
+	v   ptyobs.RuntimeView
+	err error
+}
+
+func runtimeCmd(a api, id string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := bg()
+		defer cancel()
+		v, err := a.SessionRuntime(ctx, id)
+		return runtimeMsg{v: v, err: err}
 	}
 }
 

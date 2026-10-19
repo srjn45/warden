@@ -11,6 +11,7 @@ import (
 	"github.com/srjn45/warden/internal/decisionrouter"
 	"github.com/srjn45/warden/internal/ptyevent"
 	"github.com/srjn45/warden/internal/ptyhost"
+	"github.com/srjn45/warden/internal/ptyobs"
 	"github.com/srjn45/warden/internal/store"
 )
 
@@ -36,6 +37,9 @@ type Classifier struct {
 	// OnUnreadable is called when the backend reports a blocking screen that no
 	// parser (and no usable learned shape) could read. Same contract as OnPrompt.
 	OnUnreadable func(name, screen string)
+	// Metrics, when set, counts transitions, investigations and detection
+	// latency (bounded labels; see internal/ptyobs).
+	Metrics *ptyobs.Metrics
 	// OnDisagreement is called in shadow mode when classifier state differs from store status.
 	OnDisagreement func(name string, classifierState ptyevent.State, pollerStatus store.Status)
 }
@@ -381,7 +385,8 @@ func (c *Classifier) Investigate(ctx context.Context, name string) {
 		Seq:      seq,
 		Evidence: evs,
 	}
-	c.stepSession(s, obs)
+	changed := c.stepSession(s, obs)
+	c.countInvestigation(name, evs, changed, s.snapshot.State)
 
 	// Reschedule next investigation if still quiet and not exited
 	if s.snapshot.State != ptyevent.StateExited {
@@ -389,12 +394,12 @@ func (c *Classifier) Investigate(ctx context.Context, name string) {
 	}
 }
 
-func (c *Classifier) stepSession(s *sessionState, obs ptyevent.Observation) {
+func (c *Classifier) stepSession(s *sessionState, obs ptyevent.Observation) bool {
 	next, ch := ptyevent.Step(s.snapshot, obs, c.cfg.Hysteresis)
 	s.snapshot = next
 
 	if ch == nil {
-		return
+		return false
 	}
 
 	// Explainable evidence trail
@@ -407,6 +412,10 @@ func (c *Classifier) stepSession(s *sessionState, obs ptyevent.Observation) {
 		Seq:      obs.Seq,
 	}
 	s.trail = append(s.trail, rec)
+	if len(s.trail) > maxTrail {
+		s.trail = append(s.trail[:0], s.trail[len(s.trail)-maxTrail:]...)
+	}
+	c.countTransition(s, obs, ch)
 
 	slog.Info("stateclassifier: committed transition",
 		"session", s.name,
@@ -455,6 +464,7 @@ func (c *Classifier) stepSession(s *sessionState, obs ptyevent.Observation) {
 	if c.OnTransition != nil {
 		c.OnTransition(s.name, ch)
 	}
+	return true
 }
 
 func (c *Classifier) emitPrompt(target ptyhost.Target, phase ptyevent.PromptPhase, p *ptyevent.Prompt) {

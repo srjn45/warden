@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/srjn45/warden/internal/ptyobs"
 )
 
 // Approval is a recognized numbered tool-permission prompt.
@@ -209,6 +211,15 @@ type View struct {
 	Options     []string `json:"options"`
 	Fingerprint string   `json:"fingerprint"`
 	Recognized  bool     `json:"recognized"`
+	// Runtime-supervised sessions additionally carry the operator view (t7):
+	// the session's effective posture, whether it is the dangerous one, who
+	// resolved the last prompt, and a human-readable permission summary
+	// (capability, target/scope, offered options). All omitted otherwise.
+	Posture      string                    `json:"posture,omitempty"`
+	Danger       bool                      `json:"danger,omitempty"`
+	DangerBanner string                    `json:"danger_banner,omitempty"`
+	Route        string                    `json:"route,omitempty"`
+	Summary      *ptyobs.PermissionSummary `json:"summary,omitempty"`
 }
 
 // Fingerprint is a stable short hash of the option labels. The UI echoes it back

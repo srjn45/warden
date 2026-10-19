@@ -78,6 +78,14 @@ type forgetKnownArgs struct {
 type fastBrainStatusArgs struct {
 	Decisions int `json:"decisions,omitempty" jsonschema:"also return this many recent redacted decision traces (0 = none)"`
 }
+type sessionRuntimeArgs struct {
+	ID string `json:"id" jsonschema:"agent/session id"`
+}
+type sessionDecisionsArgs struct {
+	ID      string `json:"id" jsonschema:"agent/session id"`
+	Limit   int    `json:"limit,omitempty" jsonschema:"maximum records, newest first (default 50)"`
+	Outcome string `json:"outcome,omitempty" jsonschema:"only this outcome: approved, denied, dry_run, deferred, escalated_human, needs_attention, routed_brain, error"`
+}
 type fastBrainControlArgs struct {
 	Kind       string `json:"kind" jsonschema:"decision kind to pause or resume (e.g. summarize_activity); see the controls list in fastbrain_status"`
 	Paused     bool   `json:"paused" jsonschema:"true pauses the kind (fails open, no model call); false resumes it"`
@@ -691,6 +699,39 @@ func (s *Server) registerExtraTools() {
 			out["decisions"] = ds
 		}
 		return jsonResultAny(out)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "session_runtime",
+		Description: "Live PTY-runtime status of one session: classifier state with typed waiting reason and evidence trail, who owns the input line (human/operator/warden/free), the effective permission posture (danger=true + danger_banner for dangerously-execute-all), the route/outcome of the latest decision, and a human-readable summary (capability, target/scope, offered options) of the permission prompt on screen. Read-only.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a sessionRuntimeArgs) (*mcpsdk.CallToolResult, any, error) {
+		v, err := s.cl.SessionRuntime(ctx, strings.TrimSpace(a.ID))
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(v)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "session_decisions",
+		Description: "The append-only, redacted auto-approve decision trace of one session (newest first): correlation id, prompt fingerprint/shape version, classification + provenance + confidence, capability/scope/options, effective policy, selected action, revalidation result, latency, route and the rejection/escalation reason. Never contains raw keystrokes or secrets. Read-only.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a sessionDecisionsArgs) (*mcpsdk.CallToolResult, any, error) {
+		recs, err := s.cl.SessionDecisions(ctx, strings.TrimSpace(a.ID), a.Limit, a.Outcome)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(map[string]any{"session_id": a.ID, "records": recs})
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "pty_metrics",
+		Description: "Stable warden_pty_* metrics: stream events, state transitions and detection latency, quiescence investigations, prompts and unrecognized prompts by adapter/version/classification, learned-shape outcomes, auto-answer/escalation/redaction counters, reconnects and backpressure. Labels are bounded - no secrets. Read-only.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ struct{}) (*mcpsdk.CallToolResult, any, error) {
+		snap, err := s.cl.PTYMetrics(ctx)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(snap)
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{

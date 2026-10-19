@@ -18,6 +18,7 @@ import (
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/ptyevent"
 	"github.com/srjn45/warden/internal/ptyhost"
+	"github.com/srjn45/warden/internal/ptyobs"
 	"github.com/srjn45/warden/internal/ptyruntime"
 	"github.com/srjn45/warden/internal/stateclassifier"
 	"github.com/srjn45/warden/internal/store"
@@ -54,6 +55,12 @@ func (s *Server) SetPTYRuntime(m *ptyhost.Manager) {
 		)
 		s.classifier.OnTransition = func(name string, ch *ptyevent.StateChange) {
 			s.notify()
+		}
+		s.ptyMetrics = ptyobs.NewMetrics()
+		s.ptyMetrics.GaugeFunc(s.classifier.StateCounts)
+		s.classifier.Metrics = s.ptyMetrics
+		s.classifier.OnDisagreement = func(string, ptyevent.State, store.Status) {
+			s.ptyMetrics.Inc(ptyobs.MFallback, "unknown", "shadow_disagreement")
 		}
 		m.Observe(s.onPTYEvent)
 	}
@@ -123,9 +130,10 @@ func (s *Server) recoverPTY(ctx context.Context) {
 // terminal watcher uses, so whichever sees the exit first wins and the other
 // is a no-op. Classifier-driven state (t3) plugs in here.
 func (s *Server) onPTYEvent(name string, ev ptyevent.Event) {
-	if s.classifier != nil {
-		s.classifier.OnPTYEvent(name, ev)
-	}
+	// The classifier registered itself with the manager in stateclassifier.New;
+	// feeding it here as well would double every observation and halve the
+	// hysteresis it is meant to enforce.
+	s.countPTYEvent(ev)
 	if ev.Kind != ptyevent.KindLifecycle {
 		return
 	}
