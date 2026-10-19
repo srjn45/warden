@@ -455,6 +455,8 @@ Adapters (t6) extend the corpus with `testdata/prompts/<backend>_*.json` produce
 ## 14. Hand-off notes per task
 
 - **t2 runtime:** implement `tmuxproc.Host` + journal writer + §6 transport. The writer must emit only events that pass `Validate`, and streams must pass `ValidateStream`. Use `SplitUTF8 → Redactor → ControlScanner` in that order. Flush the redactor on a ~100 ms idle timer. Read termios for `SecretInput`.
+  - *t2-1 (landed as `internal/ptyruntime`, library only):* `Session` (direct PTY host, writer pipeline, termios-gated input, `Arbitrate`, resize, exit/teardown), `Journal` (JSONL segments, each after the first starting at a snapshot marker so retention drops whole segments; torn-tail recovery), `Subscribe`/`Attach` fan-out (redacted replay→live, unredacted live-only; overflow cuts the subscriber with `ErrResync`), and `Host` (a `tmuxproc.Host` over sessions). Snapshot markers carry `to_seq = seq-1`, so `PlanResume`'s `FromSeq` is the snapshot event itself. Dropped output is journaled as a one-seq hole (`marker{gap, from=to=seq+1}`) followed by a forced snapshot.
+  - *t2-2:* wire `runtime.pty: off|shadow|on` (M1 shadow via `pipe-pane`), lifecycle/poller hookup and the §6 WebSocket transport.
 - **t3 classifier:** produce `Observation`s on events and fold them with `Step(DefaultHysteresis)`. Emit `Prompt`s that `Validate`. Never emit transitions from silence.
 - **t4 router:** `Decide → Revalidate → Arbitrate → write`, journaling `DecisionEvent`. The breaker and arbiter may only downgrade.
 - **t5 postures:** the config/API surface for `Posture` per session/role, plus the §10.3 mapping.
