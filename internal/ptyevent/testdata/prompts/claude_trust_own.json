@@ -1,0 +1,40 @@
+{
+  "fingerprint": "fp1:1d91f323f3c0e76a02f03fd7",
+  "shape_version": 1,
+  "instance_key": "ik1:510c5a8f870e8f98ad70ab49",
+  "backend": "claude",
+  "class": "permission",
+  "capabilities": [
+    "trust"
+  ],
+  "subject": "workspace",
+  "target": "/work/proj",
+  "target_in_workspace": true,
+  "question": "Do you trust the files in this folder?",
+  "options": [
+    {
+      "index": 1,
+      "label": "Yes, proceed",
+      "key": "1",
+      "semantic": "allow_always",
+      "scope": "workspace",
+      "default": true
+    },
+    {
+      "index": 2,
+      "label": "No, exit",
+      "key": "2",
+      "semantic": "cancel"
+    }
+  ],
+  "cancel_path": {
+    "key": "Escape",
+    "option_index": 2
+  },
+  "provenance": "parser",
+  "confidence": 1,
+  "verified": true,
+  "evidence": {
+    "raw": ""
+  }
+}
