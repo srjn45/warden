@@ -30,7 +30,8 @@ func noLeaks(t *testing.T) {
 			stacks := string(buf[:runtime.Stack(buf, true)])
 			var leaked []string
 			for _, g := range strings.Split(stacks, "\n\n") {
-				if strings.Contains(g, "ptyruntime.(*Session)") || strings.Contains(g, "ptyruntime.(*hub)") {
+				if strings.Contains(g, "ptyruntime.(*Session)") || strings.Contains(g, "ptyruntime.(*writer)") ||
+					strings.Contains(g, "ptyruntime.(*Mirror)") || strings.Contains(g, "ptyruntime.(*hub)") {
 					leaked = append(leaked, g)
 				}
 			}

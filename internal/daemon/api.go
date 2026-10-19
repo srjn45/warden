@@ -38,6 +38,7 @@ import (
 	"github.com/srjn45/warden/internal/poller"
 	"github.com/srjn45/warden/internal/pressure"
 	"github.com/srjn45/warden/internal/projectstore"
+	"github.com/srjn45/warden/internal/ptyhost"
 	"github.com/srjn45/warden/internal/relay"
 	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/schedule"
@@ -126,6 +127,9 @@ type Server struct {
 	// Constructed and wired via SetTerminalWatcher; nil disables the goroutine.
 	terminalWatcher      *poller.TerminalWatcher
 	terminalPollInterval time.Duration
+	// pty is the warden-owned PTY runtime (runtime.pty: shadow mirrors, direct
+	// terminals, the §6 stream); nil when not wired.
+	pty *ptyhost.Manager
 	// restarter auto-resumes opted-in sessions on errored; wired by SetRestarter.
 	// Read by the terminalWatcher.OnTransition closure — must be set before
 	// ListenAndServe starts the watcher.
@@ -666,6 +670,7 @@ func (s *Server) router() http.Handler {
 		ar.Use(stashRequest)     // expose *http.Request to strict handlers (audit IP)
 		ar.Get("/api/v1/events/stream", s.handleEventsStream)
 		ar.Get("/api/v1/sessions/{id}/attach", s.handleAttach)
+		ar.Get("/api/v1/sessions/{id}/pty", s.handlePTYStream)
 		ar.Get("/api/v1/cockpit/attach", s.handleCockpitAttach)
 		// Explicit local operator verbs. These are deliberately distinct from the
 		// Hub service paths mounted below: callers act on their configured client.

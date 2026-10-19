@@ -822,6 +822,10 @@ type Lifecycle struct {
 	// Constructed from run in New; tests that swap run after New also get a
 	// matching Host via Proc() which rebuilds from the live Runner.
 	proc tmuxproc.Host
+	// termProc, when set, creates plain-shell terminal panes (RestoreTerminal);
+	// every other pane op still goes through proc. The daemon points it at the
+	// PTY runtime's terminal host (runtime.pty: on hosts terminals directly).
+	termProc tmuxproc.Host
 	// cfg is the live config provider, swappable via SetConfig so a config
 	// hot-reload re-applies rails toggles, model_default, the default permission
 	// mode, and the hint gates without a daemon restart. Read through config();
@@ -1004,6 +1008,20 @@ func (l *Lifecycle) Proc() tmuxproc.Host {
 		l.proc = tmuxproc.New(l.run)
 	}
 	return l.proc
+}
+
+// SetProcessHost replaces the shared pane host (the daemon installs the PTY
+// runtime's routed host, which falls back to tmux for every tmux pane).
+func (l *Lifecycle) SetProcessHost(h tmuxproc.Host) { l.proc = h }
+
+// SetTerminalHost sets the host new plain-shell terminal panes are created on.
+func (l *Lifecycle) SetTerminalHost(h tmuxproc.Host) { l.termProc = h }
+
+func (l *Lifecycle) terminalProc() tmuxproc.Host {
+	if l.termProc != nil {
+		return l.termProc
+	}
+	return l.Proc()
 }
 
 // config returns the live config provider. Never nil after New; swapped
@@ -2250,7 +2268,7 @@ func (l *Lifecycle) RestoreTerminal(ctx context.Context, id, workdir string) err
 	if fi, err := os.Stat(workdir); err != nil || !fi.IsDir() {
 		return ErrWorkdirMissing
 	}
-	if err := l.Proc().NewSession(ctx, id, workdir); err != nil {
+	if err := l.terminalProc().NewSession(ctx, id, workdir); err != nil {
 		return err
 	}
 	launch := agentbackend.TerminalBackend().LaunchCmd(agentbackend.LaunchOpts{Name: id}) + l.exitSuffix(id)

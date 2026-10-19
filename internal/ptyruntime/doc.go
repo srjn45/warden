@@ -1,7 +1,7 @@
 // Package ptyruntime is the warden-owned PTY runtime core (t2-1 of the PTY
-// runtime contract, docs/specs/2026-10-19-pty-runtime-contract.md). It is a
-// library: nothing in session lifecycle, the pollers or the daemon uses it yet
-// (that wiring is t2-2, behind `runtime.pty: off|shadow|on`).
+// runtime contract, docs/specs/2026-10-19-pty-runtime-contract.md). The
+// daemon wires it in through internal/ptyhost behind `runtime.pty:
+// off|shadow|on`.
 //
 // Pieces:
 //
@@ -19,6 +19,8 @@
 //   - Input goes through ptyevent.Arbitrate (human always wins; automatic
 //     input defers to a typing human) and ptyevent.RedactInput with the PTY's
 //     live termios (SecretInput), so typed secrets never reach the journal.
+//   - Mirror journals a tmux pane it does not host (shadow mode) through the
+//     same writer core, fed by a pipe-pane byte stream; it is observe-only.
 //   - Host adapts a set of Sessions to tmuxproc.Host so lifecycle code can be
 //     pointed at the PTY runtime without knowing about it.
 //

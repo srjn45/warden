@@ -2139,3 +2139,39 @@ func TestInputLargeTextRealTmux(t *testing.T) {
 	b, _ := os.ReadFile(out)
 	require.Equal(t, text, string(b))
 }
+
+// recordingHost is a tmuxproc.Host that records which host each call hit.
+type recordingHost struct {
+	label string
+	calls *[]string
+	alive bool
+}
+
+func (h recordingHost) rec(op string) { *h.calls = append(*h.calls, h.label+":"+op) }
+func (h recordingHost) NewSession(context.Context, string, string, ...string) error {
+	h.rec("new")
+	return nil
+}
+func (h recordingHost) KillSession(context.Context, string) error { h.rec("kill"); return nil }
+func (h recordingHost) HasSession(context.Context, string) bool   { h.rec("has"); return h.alive }
+func (h recordingHost) CapturePane(context.Context, string) (string, error) {
+	h.rec("capture")
+	return "", nil
+}
+func (h recordingHost) SendKeys(context.Context, string, ...string) error { h.rec("keys"); return nil }
+
+// The PTY runtime seam: a terminal pane is created on the terminal host
+// (runtime.pty: on hosts it directly), every other op goes through the shared
+// process host, and the agent path never touches the terminal host.
+func TestRestoreTerminalUsesTerminalHost(t *testing.T) {
+	var calls []string
+	lc := New(&FakeRunner{}, &FakeConfig{})
+	lc.SetProcessHost(recordingHost{label: "proc", calls: &calls})
+	lc.SetTerminalHost(recordingHost{label: "term", calls: &calls})
+	require.NoError(t, lc.RestoreTerminal(context.Background(), "term-1", t.TempDir()))
+	require.Equal(t, []string{"proc:has", "term:new", "proc:keys"}, calls)
+
+	calls = nil
+	require.NoError(t, lc.Terminate(context.Background(), "term-1"))
+	require.Equal(t, []string{"proc:kill"}, calls, "teardown routes through the shared host")
+}
