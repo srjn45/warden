@@ -103,6 +103,9 @@ func New(cfg Config) *Manager {
 }
 
 // Mode is the current mode.
+// Dir is the runtime's data directory (journals and learned-prompt state live under it).
+func (m *Manager) Dir() string { return m.dir }
+
 func (m *Manager) Mode() Mode { return m.mode.Load().(Mode) }
 
 // SetMode switches the mode for sessions created from now on. Turning it off

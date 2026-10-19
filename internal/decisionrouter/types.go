@@ -7,6 +7,7 @@ import (
 	"github.com/srjn45/warden/internal/agentbackend"
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/brainconsult"
+	"github.com/srjn45/warden/internal/fastbrain"
 	"github.com/srjn45/warden/internal/ptyevent"
 	"github.com/srjn45/warden/internal/ptyruntime"
 )
@@ -44,12 +45,19 @@ type ClassifyRequest struct {
 	TargetInWorkspace bool
 	AgentID           string
 	Now               time.Time
+	// Deterministic restricts classification to the backend parser: no
+	// Fast-Brain call, no learned-shape lookup. Used to re-read the live screen
+	// right before input is written.
+	Deterministic bool
 }
 
 // ClassifyResult is the result of prompt classification.
 type ClassifyResult struct {
-	Prompt          *ptyevent.Prompt
-	CandidateShape  *ptyevent.LearnedShape
+	Prompt         *ptyevent.Prompt
+	CandidateShape *ptyevent.LearnedShape
+	// Recognition is the (redacted-input) Fast-Brain reading behind a
+	// fastbrain-provenance prompt; the Learner freezes it into a fixture.
+	Recognition     *fastbrain.Recognition
 	IsInformational bool
 	RawScreen       string
 }
@@ -69,6 +77,8 @@ type LearnedShapeStore interface {
 	Pin(id string, now time.Time, cliVersion string, kind ptyevent.ShapeScopeKind, scopeID string, ttl time.Duration, pol ptyevent.ShapePolicy) (ptyevent.LearnedShape, error)
 	Retire(id string, now time.Time, reason string) (ptyevent.LearnedShape, error)
 	FindUsable(q ptyevent.ShapeQuery) []ptyevent.LearnedShape
+	// AttachFixture records a regression fixture id without counting a sighting.
+	AttachFixture(fp, fixtureID string) (ptyevent.LearnedShape, error)
 }
 
 // RouteRequest is the full context required to route and execute a decision.
@@ -103,6 +113,11 @@ type RouteRequest struct {
 	InputWriter InputWriter
 	HumanSeq    uint64
 	LiveState   ptyevent.State
+
+	// DryRun runs the whole decision (classification, posture, guards, live
+	// revalidation) but never writes input. Shadow mode uses it to compare the
+	// router with the legacy poller without acting.
+	DryRun bool
 }
 
 // RouteResult describes the complete outcome of the decision router.

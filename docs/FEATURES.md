@@ -1937,3 +1937,20 @@ rolled out behind `runtime.pty: off|shadow|on` (default `off` — no behavior ch
   for now, only refreshes SSE on lifecycle changes and moves an exited direct terminal
   to `orphaned` with the watcher's compare-and-swap; classification from the stream is
   the next step (t3).
+- **Adapter integration (t6).** The state classifier's `OnPrompt`/`OnUnreadable` hooks feed
+  `internal/promptengine`, which normalizes each parsed approval through the adapter's
+  `PromptShaper` (`internal/decisionrouter/normalize.go`; Antigravity states capability,
+  target, option semantics and cancel path explicitly, anything unrecognised falls back to
+  conservative heuristics and fails to `needs_attention`), then runs the t4 router
+  (`Decide → Revalidate → Arbitrate → write`). Revalidation re-reads the live screen, so
+  a stale, changed or moved prompt is never answered. In `shadow` the engine is a dry
+  run (decisions are journaled, nothing is typed); in `on` it answers, with
+  `dangerously-execute-all` launching agy in its native bypass mode and still handling
+  the residual permission and workspace-trust prompts. Strategic menus (plans, "which
+  approach?") are decision-class and never auto-approved. Unknown formats go to Fast-Brain
+  on a redacted screen; its candidates become **learned shapes** (scoped, versioned,
+  expiring, confidence-gated, persisted under `<data_dir>/pty/learned/`) only after
+  deterministic fixture replay and a parser/human agreement. Posture→native-mode
+  mapping is audited for all eight backends (`agentbackend.SupportForPosture`);
+  unsupported mappings (e.g. `allowlisted`) are explicitly degraded, with the router
+  enforcing the posture from the prompt stream. No new API or CLI surface.

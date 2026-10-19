@@ -463,4 +463,5 @@ Adapters (t6) extend the corpus with `testdata/prompts/<backend>_*.json` produce
 - **t4 router:** `Decide → Revalidate → Arbitrate → write`, journaling `DecisionEvent`. The breaker and arbiter may only downgrade.
 - **t5 postures:** the config/API surface for `Posture` per session/role, plus the §10.3 mapping.
 - **t6 adapters (Antigravity first):** map the parser output to `Prompt` with capabilities, semantics, cancel path and `target_in_workspace`. Add fixtures.
+  - *t6 (landed):* `agentbackend.PromptShaper`/`PostureMapper` (Antigravity implements both), the single `decisionrouter.NormalizeApproval` path, router revalidation against the live screen, `internal/promptengine` (shadow = dry run), file-backed learned shapes + fixture replay (`decisionrouter.Learner`), and `lifecycle.applyPostureBackendMode` for native launch modes. Audit: all 8 backends × 4 postures asserted in `backends/posture_audit_test.go`.
 - **t7 UI:** additive API for the fine states, prompts and decisions. Render "quiet for X" as advisory, never as a state.

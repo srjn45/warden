@@ -75,6 +75,23 @@ with `seq <= head` from the event data and everything after from the binary fram
 
 Shadow (tmux-mirrored) sessions and **read-only tokens** are always observe-only.
 
+## Prompt engine and permission postures
+
+With `runtime.pty: on`, prompts read from the stream are normalized (capability,
+target, option meaning, cancel path), re-validated against the live screen right
+before any key is typed, and answered according to the session's permission posture.
+A stale, changed, ambiguous or unrecognised prompt is never answered; it surfaces as
+needs-attention. Strategic questions are never treated as permissions. In `shadow`
+the engine only journals what it would have done.
+
+Antigravity (`agy`) is integrated first: `dangerously-execute-all` uses its native
+bypass mode and still answers the remaining permission and workspace-trust prompts;
+`read-only` and `read-write` map to `plan` and `accept-edits`. Postures without an
+exact native mode (such as `allowlisted`) are reported as degraded and enforced by
+the router from the prompt stream. Formats warden has not seen are classified by
+Fast-Brain on a redacted screen and only become learned shapes after deterministic
+fixture replay, with an expiry and confidence floor.
+
 ## Compatibility
 
 - `GET /api/v1/sessions/{id}/attach` keeps working for every session. For a direct

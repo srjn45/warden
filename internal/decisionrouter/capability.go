@@ -220,12 +220,21 @@ func IsTargetInWorkspace(target, workdir string) bool {
 // InferOptionSemantic determines the semantics of an option label given class and context.
 // Invariant: Never infer an answer merely from y/n text without semantic verification.
 func InferOptionSemantic(class ptyevent.PromptClass, idx int, label string, totalOptions int) ptyevent.OptionSemantic {
+	sem, _ := inferOptionSemantic(class, idx, label, totalOptions)
+	return sem
+}
+
+// inferOptionSemantic is InferOptionSemantic plus a flag that is true when the
+// meaning came from the option's POSITION alone (first = allow, last = deny)
+// rather than from its wording. A positional reading is a guess; the
+// normalizer treats a permission menu that needed one as ambiguous.
+func inferOptionSemantic(class ptyevent.PromptClass, idx int, label string, totalOptions int) (ptyevent.OptionSemantic, bool) {
 	if class == ptyevent.ClassDecision {
 		l := strings.ToLower(strings.TrimSpace(label))
 		if strings.HasPrefix(l, "type ") || strings.Contains(l, "freeform") || strings.Contains(l, "custom") {
-			return ptyevent.SemFreeform
+			return ptyevent.SemFreeform, false
 		}
-		return ptyevent.SemChoice
+		return ptyevent.SemChoice, false
 	}
 
 	l := strings.ToLower(strings.TrimSpace(label))
@@ -234,34 +243,34 @@ func InferOptionSemantic(class ptyevent.PromptClass, idx int, label string, tota
 	if strings.Contains(l, "always") || strings.Contains(l, "don't ask again") ||
 		strings.Contains(l, "remember") || strings.Contains(l, "trust this folder") ||
 		strings.Contains(l, "trust this directory") || strings.Contains(l, "trust project") {
-		return ptyevent.SemAllowAlways
+		return ptyevent.SemAllowAlways, false
 	}
 
 	// Explicit session grant tokens
 	if strings.Contains(l, "for the rest of this session") || strings.Contains(l, "this session") ||
 		strings.Contains(l, "allow session") {
-		return ptyevent.SemAllowSession
+		return ptyevent.SemAllowSession, false
 	}
 
 	// Feedback tokens
 	if strings.Contains(l, "tell ") || strings.Contains(l, "feedback") {
-		return ptyevent.SemDenyFeedback
+		return ptyevent.SemDenyFeedback, false
 	}
 
 	// Cancel / Abort tokens
 	if strings.Contains(l, "cancel") || strings.Contains(l, "abort") || strings.Contains(l, "exit") {
-		return ptyevent.SemCancel
+		return ptyevent.SemCancel, false
 	}
 
 	// Freeform input tokens
 	if strings.HasPrefix(l, "type ") || strings.Contains(l, "freeform") || strings.Contains(l, "other") {
-		return ptyevent.SemFreeform
+		return ptyevent.SemFreeform, false
 	}
 
 	// Explicit Deny tokens
 	if strings.HasPrefix(l, "deny") || strings.Contains(l, "reject") || strings.Contains(l, "refuse") ||
 		strings.Contains(l, "don't allow") || strings.Contains(l, "do not allow") {
-		return ptyevent.SemDeny
+		return ptyevent.SemDeny, false
 	}
 
 	// Standard Allow tokens (qualified)
@@ -269,25 +278,25 @@ func InferOptionSemantic(class ptyevent.PromptClass, idx int, label string, tota
 		strings.Contains(l, "proceed") || strings.Contains(l, "confirm") ||
 		strings.Contains(l, "run command") || strings.Contains(l, "yes, proceed") ||
 		strings.Contains(l, "yes, continue") {
-		return ptyevent.SemAllowOnce
+		return ptyevent.SemAllowOnce, false
 	}
 
 	// Sole "Yes" or "No" labels when structured in a standard 2-option permission menu
 	// Note: We only treat them as allow/deny if context is a validated permission class
 	if l == "yes" || strings.HasPrefix(l, "yes,") {
-		return ptyevent.SemAllowOnce
+		return ptyevent.SemAllowOnce, false
 	}
 	if l == "no" || strings.HasPrefix(l, "no,") {
-		return ptyevent.SemDeny
+		return ptyevent.SemDeny, false
 	}
 
 	// If unmapped in a multi-option permission, default to choice/unknown
 	if idx == 1 && totalOptions > 1 {
-		return ptyevent.SemAllowOnce
+		return ptyevent.SemAllowOnce, true
 	}
 	if idx == totalOptions && totalOptions > 1 {
-		return ptyevent.SemDeny
+		return ptyevent.SemDeny, true
 	}
 
-	return ptyevent.SemChoice
+	return ptyevent.SemChoice, true
 }

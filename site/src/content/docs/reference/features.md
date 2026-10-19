@@ -189,6 +189,7 @@ default; each in its own tmux session, most in a git worktree).
 | Action audit trail | `audit log` | `audit_log` | ✓ | — | — | [observability](https://srjn45.github.io/warden/reference/observability/) |
 | Event stream (SSE) | — | — | — | ✓ | — | [observability](https://srjn45.github.io/warden/reference/observability/) |
 | PTY event journal & stream (`runtime.pty: shadow\|on`; redacted, replayable, cursor-resumable WS at `/api/v1/sessions/{id}/pty`) | config (`runtime.pty`) | — | — | API | — | [pty-runtime](https://srjn45.github.io/warden/guides/pty-runtime/) |
+| PTY prompt engine: adapter-normalized prompts, TOCTOU-revalidated auto-answers, learned shapes, native posture modes (`runtime.pty: on`; agy first) | config (`runtime.pty`) | — | — | — | — | [pty-runtime](https://srjn45.github.io/warden/guides/pty-runtime/) |
 | Desktop / webhook / Slack notifications | config (`notify.enabled`, `notify.webhook_*`) | automatic | ✓ | ✓ | — | [observability](https://srjn45.github.io/warden/reference/observability/) |
 | Context/token guard (gauge, alert, auto-`/compact`) | config (`tokens.guard`) | automatic | ✓ | ✓ | gauge | [observability](https://srjn45.github.io/warden/reference/observability/) |
 | Force-compact a busy critical agent (interrupt→`/compact`→resume) | `force-compact` (config `tokens.force_compact`) | `set_force_compact` | ✓ | — | — | [observability](https://srjn45.github.io/warden/reference/observability/) |
