@@ -63,11 +63,14 @@ func writeIdxFile(t *testing.T, path string, entries map[string]idxEntry) {
 // with the latest appended record in seg_000001.ndjson, yielding CodeIndexStaleTail.
 func createStoreWithLiveLag(t *testing.T, storeDir, colName string) {
 	t.Helper()
-	col, err := engine.OpenCollection(colName, storeDir, engine.CollectionConfig{})
+	require.NoError(t, os.MkdirAll(storeDir, 0o700))
+	db, err := engine.Open(storeDir, engine.CollectionConfig{})
+	require.NoError(t, err)
+	col, err := db.Collection(colName)
 	require.NoError(t, err)
 	_, _, err = col.InsertWithKey("k1", map[string]any{"data": "v1"})
 	require.NoError(t, err)
-	require.NoError(t, col.Close())
+	require.NoError(t, db.Close())
 
 	colDir := filepath.Join(storeDir, colName)
 

@@ -41,7 +41,10 @@ func legacyDir(t *testing.T) string {
 // validStore creates a clean, closed ScrivaDB collection at <d>/<store>/<col>.
 func validStore(t *testing.T, d, store, col string, rec map[string]any) {
 	t.Helper()
-	c, err := engine.OpenCollection(col, filepath.Join(d, filepath.FromSlash(store)), engine.CollectionConfig{})
+	storeDir := filepath.Join(d, filepath.FromSlash(store))
+	// Standalone legacy collections require an existing database directory.
+	require.NoError(t, os.MkdirAll(storeDir, 0o700))
+	c, err := engine.OpenCollection(col, storeDir, engine.CollectionConfig{})
 	require.NoError(t, err)
 	_, _, err = c.Insert(rec)
 	require.NoError(t, err)
