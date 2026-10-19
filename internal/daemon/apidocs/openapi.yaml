@@ -937,6 +937,104 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
 
+  /api/v1/model-catalog/proposals:
+    post:
+      operationId: previewModelCatalog
+      tags: [Sessions]
+      summary: Preview a catalog reconciliation proposal
+      description: >
+        Records bounded, structured discovery evidence and returns a proposed catalog
+        change. This never mutates catalog policy, quotas, routing, or live sessions.
+        Apply the returned proposal_id explicitly to commit the proposal; live-session
+        recovery is not performed by this API.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CatalogRefreshRequest" }
+      responses:
+        "200":
+          description: Proposed reconciliation and the evidence snapshot it references
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CatalogProposal" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "503":
+          description: Backend registry unconfigured
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+
+  /api/v1/model-catalog/proposals/{proposal_id}/apply:
+    post:
+      operationId: applyModelCatalogProposal
+      tags: [Sessions]
+      summary: Apply an exact previewed catalog proposal
+      description: >
+        Mutates catalog policy only. The proposal must be open, unexpired and based on
+        the current revision. This endpoint never switches or recovers live sessions.
+      parameters:
+        - name: proposal_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Applied catalog revision
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CatalogRevision" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/BadRequest" }
+        "503":
+          description: Backend registry unconfigured
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+
+  /api/v1/model-catalog/history:
+    get:
+      operationId: listModelCatalogHistory
+      tags: [Sessions]
+      summary: List catalog evidence and revision history
+      description: Read-only history. Account identity is represented by a non-secret scope fingerprint.
+      parameters:
+        - name: aicli
+          in: query
+          required: false
+          schema: { type: string }
+          description: Optional AI CLI filter.
+      responses:
+        "200":
+          description: Catalog snapshots and revisions
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CatalogHistory" }
+        "503":
+          description: Backend registry unconfigured
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+
+  /api/v1/model-catalog/revisions/{revision}/rollback:
+    post:
+      operationId: rollbackModelCatalogRevision
+      tags: [Sessions]
+      summary: Roll back a catalog revision
+      description: >
+        Restores catalog policy rows only after compare-and-swap validation. It does
+        not alter discovery evidence, quota state, routing decisions, or live sessions.
+      parameters:
+        - name: revision
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: New rollback revision
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CatalogRevision" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/BadRequest" }
+        "503":
+          description: Backend registry unconfigured
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+
   /api/v1/handover/settings:
     get:
       operationId: getHandoverSettings
@@ -5210,6 +5308,12 @@ components:
             multi-task creates with no after edges are auto-chained in declaration
             order. Cycles are rejected.
 
+    PlanArchivedFrom:
+      type: string
+      enum: [pending, in_progress, completed]
+      x-enum-varnames: [PlanArchivedFromPending, PlanArchivedFromInProgress, PlanArchivedFromCompleted]
+      description: "status the plan was archived from; unarchive restores it (absent on legacy records)"
+
     PlanArchiveReport:
       type: object
       properties:
@@ -5285,8 +5389,7 @@ components:
         completed_at: { type: string, format: date-time, nullable: true }
         archived_at: { type: string, format: date-time, nullable: true }
         archived_from:
-          type: string
-          enum: [pending, in_progress, completed]
+          $ref: "#/components/schemas/PlanArchivedFrom"
           description: "status the plan was archived from; unarchive restores it (absent on legacy records)"
         archive_report:
           x-go-type-skip-optional-pointer: false
@@ -7411,3 +7514,86 @@ components:
           enum: [gate_pending, gate_red, ci_missing, not_mergeable, not_found, not_owned, run_disabled, wrong_base]
         detail: { type: string }
       required: [error, kind]
+
+    CatalogRefreshRequest:
+      type: object
+      description: >
+        Structured discovery evidence. No executable, file path, raw subprocess output,
+        credential, account reference, or profile may be supplied here.
+      required: [aicli, observation]
+      properties:
+        aicli: { type: string, description: Installed AI CLI identifier. }
+        auth_mode: { type: string, description: Non-secret authentication mode label. }
+        plan_label: { type: string, description: Account-safe plan label. }
+        cli_version: { type: string }
+        observed_at: { type: string, format: date-time }
+        snapshot_id: { type: string, description: Optional deterministic evidence id. }
+        observation:
+          type: object
+          required: [source, completeness]
+          properties:
+            source: { type: string, enum: [live_command, cli_cache, provider_catalog, bundled, config_hint, launch_rejection] }
+            source_detail: { type: string }
+            source_fetched_at: { type: string, format: date-time }
+            completeness: { type: string, enum: [complete, partial, empty, failed] }
+            error: { $ref: "#/components/schemas/CatalogError" }
+            models:
+              type: array
+              items: { $ref: "#/components/schemas/CatalogObservedModel" }
+
+    CatalogError:
+      type: object
+      properties:
+        code: { type: string }
+        message: { type: string }
+      required: [code]
+
+    CatalogObservedModel:
+      type: object
+      required: [model_id]
+      properties:
+        model_id: { type: string }
+        display_name: { type: string }
+        visibility: { type: string }
+        reasoning_levels: { type: array, items: { type: string } }
+        default_reasoning: { type: string }
+        context_window: { type: integer }
+        upgrade_to: { type: string }
+
+    CatalogProposal:
+      type: object
+      required: [id, state, created_at]
+      properties:
+        id: { type: string, description: Proposal identifier required by apply. }
+        state: { type: string, enum: [open, applied, expired, superseded] }
+        created_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+        ai_clis: { type: array, items: { type: string } }
+        snapshots: { type: array, items: { type: string } }
+        base_rev: { type: integer, format: int64 }
+        policy_version: { type: string }
+        scope: { type: object, additionalProperties: true }
+        scope_fp: { type: string, description: Non-secret account scope fingerprint. }
+        ops: { type: array, items: { type: object, additionalProperties: true } }
+        blocked: { type: array, items: { type: object, additionalProperties: true } }
+        observation_changes: { type: array, items: { type: object, additionalProperties: true } }
+
+    CatalogRevision:
+      type: object
+      required: [rev, created_at]
+      properties:
+        rev: { type: integer, format: int64 }
+        parent_rev: { type: integer, format: int64 }
+        created_at: { type: string, format: date-time }
+        snapshots: { type: array, items: { type: string } }
+        kind: { type: string, enum: [apply, rollback] }
+        proposal_id: { type: string }
+        reverts: { type: integer, format: int64 }
+        ops: { type: array, items: { type: object, additionalProperties: true } }
+
+    CatalogHistory:
+      type: object
+      required: [snapshots, revisions]
+      properties:
+        snapshots: { type: array, items: { type: object, additionalProperties: true } }
+        revisions: { type: array, items: { $ref: "#/components/schemas/CatalogRevision" } }

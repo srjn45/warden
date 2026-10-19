@@ -287,6 +287,15 @@ type setModelTierArgs struct {
 	Model   string `json:"model" jsonschema:"the model id (e.g. sonnet)"`
 	Tier    string `json:"tier" jsonschema:"the model tier: tier-1 | tier-2 | tier-3"`
 }
+type catalogProposalArgs struct {
+	ProposalID string `json:"proposal_id" jsonschema:"exact proposal id returned by preview_model_catalog; applies catalog policy only and never performs live-session recovery"`
+}
+type catalogRollbackArgs struct {
+	Revision uint64 `json:"revision" jsonschema:"exact catalog revision to roll back; rollback changes catalog policy only, never live sessions"`
+}
+type catalogHistoryArgs struct {
+	AiCli string `json:"ai_cli,omitempty" jsonschema:"optional installed AI CLI filter; returns account-safe scope fingerprints, not credentials"`
+}
 type setRoleTierArgs struct {
 	Role string `json:"role" jsonschema:"the agent role name (e.g. general, orchestrator, planner, worker)"`
 	Tier string `json:"tier" jsonschema:"the default model tier: tier-1 | tier-2 | tier-3"`
@@ -828,6 +837,39 @@ func (s *Server) registerExtraTools() {
 			return textResult("error: " + err.Error()), nil, nil
 		}
 		return jsonResultAny(m)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "model_catalog_history",
+		Description: "Read catalog discovery snapshots and policy revisions. Results use account-safe scope fingerprints; unknown or stale evidence is not presented as verified availability.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a catalogHistoryArgs) (*mcpsdk.CallToolResult, any, error) {
+		h, err := s.cl.ListModelCatalogHistory(ctx, a.AiCli)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(h)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "apply_model_catalog_proposal",
+		Description: "Apply the exact previewed proposal by proposal_id. This is a catalog mutation, requires a current open proposal, and does not perform live-session recovery or switching.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a catalogProposalArgs) (*mcpsdk.CallToolResult, any, error) {
+		r, err := s.cl.ApplyModelCatalogProposal(ctx, a.ProposalID)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(r)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "rollback_model_catalog_revision",
+		Description: "Roll back one catalog policy revision after compare-and-swap validation. It never changes discovery evidence, quota state, routing already chosen, or live sessions.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a catalogRollbackArgs) (*mcpsdk.CallToolResult, any, error) {
+		r, err := s.cl.RollbackModelCatalogRevision(ctx, a.Revision)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(r)
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{

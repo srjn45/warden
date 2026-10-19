@@ -221,6 +221,102 @@ func (e CIStatusState) Valid() bool {
 	}
 }
 
+// Defines values for CatalogProposalState.
+const (
+	Applied    CatalogProposalState = "applied"
+	Expired    CatalogProposalState = "expired"
+	Open       CatalogProposalState = "open"
+	Superseded CatalogProposalState = "superseded"
+)
+
+// Valid indicates whether the value is a known member of the CatalogProposalState enum.
+func (e CatalogProposalState) Valid() bool {
+	switch e {
+	case Applied:
+		return true
+	case Expired:
+		return true
+	case Open:
+		return true
+	case Superseded:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CatalogRefreshRequestObservationCompleteness.
+const (
+	CatalogRefreshRequestObservationCompletenessComplete CatalogRefreshRequestObservationCompleteness = "complete"
+	CatalogRefreshRequestObservationCompletenessEmpty    CatalogRefreshRequestObservationCompleteness = "empty"
+	CatalogRefreshRequestObservationCompletenessFailed   CatalogRefreshRequestObservationCompleteness = "failed"
+	CatalogRefreshRequestObservationCompletenessPartial  CatalogRefreshRequestObservationCompleteness = "partial"
+)
+
+// Valid indicates whether the value is a known member of the CatalogRefreshRequestObservationCompleteness enum.
+func (e CatalogRefreshRequestObservationCompleteness) Valid() bool {
+	switch e {
+	case CatalogRefreshRequestObservationCompletenessComplete:
+		return true
+	case CatalogRefreshRequestObservationCompletenessEmpty:
+		return true
+	case CatalogRefreshRequestObservationCompletenessFailed:
+		return true
+	case CatalogRefreshRequestObservationCompletenessPartial:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CatalogRefreshRequestObservationSource.
+const (
+	Bundled         CatalogRefreshRequestObservationSource = "bundled"
+	CliCache        CatalogRefreshRequestObservationSource = "cli_cache"
+	ConfigHint      CatalogRefreshRequestObservationSource = "config_hint"
+	LaunchRejection CatalogRefreshRequestObservationSource = "launch_rejection"
+	LiveCommand     CatalogRefreshRequestObservationSource = "live_command"
+	ProviderCatalog CatalogRefreshRequestObservationSource = "provider_catalog"
+)
+
+// Valid indicates whether the value is a known member of the CatalogRefreshRequestObservationSource enum.
+func (e CatalogRefreshRequestObservationSource) Valid() bool {
+	switch e {
+	case Bundled:
+		return true
+	case CliCache:
+		return true
+	case ConfigHint:
+		return true
+	case LaunchRejection:
+		return true
+	case LiveCommand:
+		return true
+	case ProviderCatalog:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CatalogRevisionKind.
+const (
+	Apply    CatalogRevisionKind = "apply"
+	Rollback CatalogRevisionKind = "rollback"
+)
+
+// Valid indicates whether the value is a known member of the CatalogRevisionKind enum.
+func (e CatalogRevisionKind) Valid() bool {
+	switch e {
+	case Apply:
+		return true
+	case Rollback:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for GuardVerdictDecision.
 const (
 	Allow GuardVerdictDecision = "allow"
@@ -332,27 +428,6 @@ func (e PipelineJobRunIf) Valid() bool {
 	}
 }
 
-// Defines values for PlanArchivedFrom.
-const (
-	PlanArchivedFromCompleted  PlanArchivedFrom = "completed"
-	PlanArchivedFromInProgress PlanArchivedFrom = "in_progress"
-	PlanArchivedFromPending    PlanArchivedFrom = "pending"
-)
-
-// Valid indicates whether the value is a known member of the PlanArchivedFrom enum.
-func (e PlanArchivedFrom) Valid() bool {
-	switch e {
-	case PlanArchivedFromCompleted:
-		return true
-	case PlanArchivedFromInProgress:
-		return true
-	case PlanArchivedFromPending:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for PlanExecutionMode.
 const (
 	PlanExecutionModeAutopilot          PlanExecutionMode = "autopilot"
@@ -392,6 +467,27 @@ func (e PlanExportStatus) Valid() bool {
 	case None:
 		return true
 	case Stale:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PlanArchivedFrom.
+const (
+	PlanArchivedFromCompleted  PlanArchivedFrom = "completed"
+	PlanArchivedFromInProgress PlanArchivedFrom = "in_progress"
+	PlanArchivedFromPending    PlanArchivedFrom = "pending"
+)
+
+// Valid indicates whether the value is a known member of the PlanArchivedFrom enum.
+func (e PlanArchivedFrom) Valid() bool {
+	switch e {
+	case PlanArchivedFromCompleted:
+		return true
+	case PlanArchivedFromInProgress:
+		return true
+	case PlanArchivedFromPending:
 		return true
 	default:
 		return false
@@ -1178,6 +1274,99 @@ type CapacityDomain = backendusage.CapacityDomain
 // CapacityUsageSnapshot One durable provider capacity observation for a CapacityDomain. Only authoritative + fresh snapshots may force exhaustion / recovery.
 type CapacityUsageSnapshot = backendusage.UsageSnapshot
 
+// CatalogError defines model for CatalogError.
+type CatalogError struct {
+	Code    string `json:"code"`
+	Message string `json:"message,omitempty"`
+}
+
+// CatalogHistory defines model for CatalogHistory.
+type CatalogHistory struct {
+	Revisions []CatalogRevision        `json:"revisions"`
+	Snapshots []map[string]interface{} `json:"snapshots"`
+}
+
+// CatalogObservedModel defines model for CatalogObservedModel.
+type CatalogObservedModel struct {
+	ContextWindow    int      `json:"context_window,omitempty"`
+	DefaultReasoning string   `json:"default_reasoning,omitempty"`
+	DisplayName      string   `json:"display_name,omitempty"`
+	ModelId          string   `json:"model_id"`
+	ReasoningLevels  []string `json:"reasoning_levels,omitempty"`
+	UpgradeTo        string   `json:"upgrade_to,omitempty"`
+	Visibility       string   `json:"visibility,omitempty"`
+}
+
+// CatalogProposal defines model for CatalogProposal.
+type CatalogProposal struct {
+	AiClis    []string                 `json:"ai_clis,omitempty"`
+	BaseRev   int64                    `json:"base_rev,omitempty"`
+	Blocked   []map[string]interface{} `json:"blocked,omitempty"`
+	CreatedAt time.Time                `json:"created_at"`
+	ExpiresAt time.Time                `json:"expires_at,omitempty"`
+
+	// Id Proposal identifier required by apply.
+	Id                 string                   `json:"id"`
+	ObservationChanges []map[string]interface{} `json:"observation_changes,omitempty"`
+	Ops                []map[string]interface{} `json:"ops,omitempty"`
+	PolicyVersion      string                   `json:"policy_version,omitempty"`
+	Scope              map[string]interface{}   `json:"scope,omitempty"`
+
+	// ScopeFp Non-secret account scope fingerprint.
+	ScopeFp   string               `json:"scope_fp,omitempty"`
+	Snapshots []string             `json:"snapshots,omitempty"`
+	State     CatalogProposalState `json:"state"`
+}
+
+// CatalogProposalState defines model for CatalogProposal.State.
+type CatalogProposalState string
+
+// CatalogRefreshRequest Structured discovery evidence. No executable, file path, raw subprocess output, credential, account reference, or profile may be supplied here.
+type CatalogRefreshRequest struct {
+	// Aicli Installed AI CLI identifier.
+	Aicli string `json:"aicli"`
+
+	// AuthMode Non-secret authentication mode label.
+	AuthMode    string `json:"auth_mode,omitempty"`
+	CliVersion  string `json:"cli_version,omitempty"`
+	Observation struct {
+		Completeness    CatalogRefreshRequestObservationCompleteness `json:"completeness"`
+		Error           CatalogError                                 `json:"error,omitempty"`
+		Models          []CatalogObservedModel                       `json:"models,omitempty"`
+		Source          CatalogRefreshRequestObservationSource       `json:"source"`
+		SourceDetail    string                                       `json:"source_detail,omitempty"`
+		SourceFetchedAt time.Time                                    `json:"source_fetched_at,omitempty"`
+	} `json:"observation"`
+	ObservedAt time.Time `json:"observed_at,omitempty"`
+
+	// PlanLabel Account-safe plan label.
+	PlanLabel string `json:"plan_label,omitempty"`
+
+	// SnapshotId Optional deterministic evidence id.
+	SnapshotId string `json:"snapshot_id,omitempty"`
+}
+
+// CatalogRefreshRequestObservationCompleteness defines model for CatalogRefreshRequest.Observation.Completeness.
+type CatalogRefreshRequestObservationCompleteness string
+
+// CatalogRefreshRequestObservationSource defines model for CatalogRefreshRequest.Observation.Source.
+type CatalogRefreshRequestObservationSource string
+
+// CatalogRevision defines model for CatalogRevision.
+type CatalogRevision struct {
+	CreatedAt  time.Time                `json:"created_at"`
+	Kind       CatalogRevisionKind      `json:"kind,omitempty"`
+	Ops        []map[string]interface{} `json:"ops,omitempty"`
+	ParentRev  int64                    `json:"parent_rev,omitempty"`
+	ProposalId string                   `json:"proposal_id,omitempty"`
+	Rev        int64                    `json:"rev"`
+	Reverts    int64                    `json:"reverts,omitempty"`
+	Snapshots  []string                 `json:"snapshots,omitempty"`
+}
+
+// CatalogRevisionKind defines model for CatalogRevision.Kind.
+type CatalogRevisionKind string
+
 // CheckDefinition defines model for CheckDefinition.
 type CheckDefinition = lifecycle.CheckDefinition
 
@@ -1708,9 +1897,6 @@ type Plan struct {
 	Warnings []string `json:"warnings,omitempty"`
 }
 
-// PlanArchivedFrom status the plan was archived from; unarchive restores it (absent on legacy records)
-type PlanArchivedFrom string
-
 // PlanExecutionMode defines model for Plan.ExecutionMode.
 type PlanExecutionMode string
 
@@ -1731,6 +1917,9 @@ type PlanArchiveReport struct {
 	RemovedBranches []string                `json:"removed_branches,omitempty"`
 	RemovedExecutor string                  `json:"removed_executor,omitempty"`
 }
+
+// PlanArchivedFrom status the plan was archived from; unarchive restores it (absent on legacy records)
+type PlanArchivedFrom string
 
 // PlanBackupBundle Versioned Plan backup bundle for local backup / machine transfer.
 type PlanBackupBundle = planbackup.Bundle
@@ -2632,6 +2821,12 @@ type GetMetricsHistoryParams struct {
 	Agent string `form:"agent,omitempty" json:"agent,omitempty"`
 }
 
+// ListModelCatalogHistoryParams defines parameters for ListModelCatalogHistory.
+type ListModelCatalogHistoryParams struct {
+	// Aicli Optional AI CLI filter.
+	Aicli string `form:"aicli,omitempty" json:"aicli,omitempty"`
+}
+
 // ListModelsParams defines parameters for ListModels.
 type ListModelsParams struct {
 	Tier string `form:"tier,omitempty" json:"tier,omitempty"`
@@ -2979,6 +3174,9 @@ type GuardHookJSONRequestBody = GuardRequest
 // ImportSessionsJSONRequestBody defines body for ImportSessions for application/json ContentType.
 type ImportSessionsJSONRequestBody = Export
 
+// PreviewModelCatalogJSONRequestBody defines body for PreviewModelCatalog for application/json ContentType.
+type PreviewModelCatalogJSONRequestBody = CatalogRefreshRequest
+
 // AddModelJSONRequestBody defines body for AddModel for application/json ContentType.
 type AddModelJSONRequestBody AddModelJSONBody
 
@@ -3269,6 +3467,18 @@ type ServerInterface interface {
 	// Recorded metrics samples or per-agent summaries
 	// (GET /api/v1/metrics/history)
 	GetMetricsHistory(w http.ResponseWriter, r *http.Request, params GetMetricsHistoryParams)
+	// List catalog evidence and revision history
+	// (GET /api/v1/model-catalog/history)
+	ListModelCatalogHistory(w http.ResponseWriter, r *http.Request, params ListModelCatalogHistoryParams)
+	// Preview a catalog reconciliation proposal
+	// (POST /api/v1/model-catalog/proposals)
+	PreviewModelCatalog(w http.ResponseWriter, r *http.Request)
+	// Apply an exact previewed catalog proposal
+	// (POST /api/v1/model-catalog/proposals/{proposal_id}/apply)
+	ApplyModelCatalogProposal(w http.ResponseWriter, r *http.Request, proposalId string)
+	// Roll back a catalog revision
+	// (POST /api/v1/model-catalog/revisions/{revision}/rollback)
+	RollbackModelCatalogRevision(w http.ResponseWriter, r *http.Request, revision int64)
 	// List models in the catalog and their assigned tiers
 	// (GET /api/v1/models)
 	ListModels(w http.ResponseWriter, r *http.Request, params ListModelsParams)
@@ -3860,6 +4070,30 @@ func (_ Unimplemented) GetMetrics(w http.ResponseWriter, r *http.Request) {
 // Recorded metrics samples or per-agent summaries
 // (GET /api/v1/metrics/history)
 func (_ Unimplemented) GetMetricsHistory(w http.ResponseWriter, r *http.Request, params GetMetricsHistoryParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List catalog evidence and revision history
+// (GET /api/v1/model-catalog/history)
+func (_ Unimplemented) ListModelCatalogHistory(w http.ResponseWriter, r *http.Request, params ListModelCatalogHistoryParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Preview a catalog reconciliation proposal
+// (POST /api/v1/model-catalog/proposals)
+func (_ Unimplemented) PreviewModelCatalog(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Apply an exact previewed catalog proposal
+// (POST /api/v1/model-catalog/proposals/{proposal_id}/apply)
+func (_ Unimplemented) ApplyModelCatalogProposal(w http.ResponseWriter, r *http.Request, proposalId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Roll back a catalog revision
+// (POST /api/v1/model-catalog/revisions/{revision}/rollback)
+func (_ Unimplemented) RollbackModelCatalogRevision(w http.ResponseWriter, r *http.Request, revision int64) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -5738,6 +5972,129 @@ func (siw *ServerInterfaceWrapper) GetMetricsHistory(w http.ResponseWriter, r *h
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetMetricsHistory(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListModelCatalogHistory operation middleware
+func (siw *ServerInterfaceWrapper) ListModelCatalogHistory(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListModelCatalogHistoryParams
+
+	// ------------- Optional query parameter "aicli" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "aicli", r.URL.Query(), &params.Aicli, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "aicli"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "aicli", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListModelCatalogHistory(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PreviewModelCatalog operation middleware
+func (siw *ServerInterfaceWrapper) PreviewModelCatalog(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PreviewModelCatalog(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ApplyModelCatalogProposal operation middleware
+func (siw *ServerInterfaceWrapper) ApplyModelCatalogProposal(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "proposal_id" -------------
+	var proposalId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "proposal_id", chi.URLParam(r, "proposal_id"), &proposalId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "proposal_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ApplyModelCatalogProposal(w, r, proposalId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RollbackModelCatalogRevision operation middleware
+func (siw *ServerInterfaceWrapper) RollbackModelCatalogRevision(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "revision" -------------
+	var revision int64
+
+	err = runtime.BindStyledParameterWithOptions("simple", "revision", chi.URLParam(r, "revision"), &revision, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "revision", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RollbackModelCatalogRevision(w, r, revision)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -9505,6 +9862,18 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/api/v1/metrics/history", wrapper.GetMetricsHistory)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/model-catalog/history", wrapper.ListModelCatalogHistory)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/model-catalog/proposals", wrapper.PreviewModelCatalog)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/model-catalog/proposals/{proposal_id}/apply", wrapper.ApplyModelCatalogProposal)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/model-catalog/revisions/{revision}/rollback", wrapper.RollbackModelCatalogRevision)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/models", wrapper.ListModels)
 	})
 	r.Group(func(r chi.Router) {
@@ -11231,6 +11600,220 @@ func (response GetMetricsHistory400JSONResponse) VisitGetMetricsHistoryResponse(
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListModelCatalogHistoryRequestObject struct {
+	Params ListModelCatalogHistoryParams
+}
+
+type ListModelCatalogHistoryResponseObject interface {
+	VisitListModelCatalogHistoryResponse(w http.ResponseWriter) error
+}
+
+type ListModelCatalogHistory200JSONResponse CatalogHistory
+
+func (response ListModelCatalogHistory200JSONResponse) VisitListModelCatalogHistoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListModelCatalogHistory503JSONResponse Error
+
+func (response ListModelCatalogHistory503JSONResponse) VisitListModelCatalogHistoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PreviewModelCatalogRequestObject struct {
+	Body *PreviewModelCatalogJSONRequestBody
+}
+
+type PreviewModelCatalogResponseObject interface {
+	VisitPreviewModelCatalogResponse(w http.ResponseWriter) error
+}
+
+type PreviewModelCatalog200JSONResponse CatalogProposal
+
+func (response PreviewModelCatalog200JSONResponse) VisitPreviewModelCatalogResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PreviewModelCatalog400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response PreviewModelCatalog400JSONResponse) VisitPreviewModelCatalogResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PreviewModelCatalog503JSONResponse Error
+
+func (response PreviewModelCatalog503JSONResponse) VisitPreviewModelCatalogResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApplyModelCatalogProposalRequestObject struct {
+	ProposalId string `json:"proposal_id"`
+}
+
+type ApplyModelCatalogProposalResponseObject interface {
+	VisitApplyModelCatalogProposalResponse(w http.ResponseWriter) error
+}
+
+type ApplyModelCatalogProposal200JSONResponse CatalogRevision
+
+func (response ApplyModelCatalogProposal200JSONResponse) VisitApplyModelCatalogProposalResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApplyModelCatalogProposal404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ApplyModelCatalogProposal404JSONResponse) VisitApplyModelCatalogProposalResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApplyModelCatalogProposal409JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ApplyModelCatalogProposal409JSONResponse) VisitApplyModelCatalogProposalResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApplyModelCatalogProposal503JSONResponse Error
+
+func (response ApplyModelCatalogProposal503JSONResponse) VisitApplyModelCatalogProposalResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RollbackModelCatalogRevisionRequestObject struct {
+	Revision int64 `json:"revision"`
+}
+
+type RollbackModelCatalogRevisionResponseObject interface {
+	VisitRollbackModelCatalogRevisionResponse(w http.ResponseWriter) error
+}
+
+type RollbackModelCatalogRevision200JSONResponse CatalogRevision
+
+func (response RollbackModelCatalogRevision200JSONResponse) VisitRollbackModelCatalogRevisionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RollbackModelCatalogRevision404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RollbackModelCatalogRevision404JSONResponse) VisitRollbackModelCatalogRevisionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RollbackModelCatalogRevision409JSONResponse struct{ BadRequestJSONResponse }
+
+func (response RollbackModelCatalogRevision409JSONResponse) VisitRollbackModelCatalogRevisionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RollbackModelCatalogRevision503JSONResponse Error
+
+func (response RollbackModelCatalogRevision503JSONResponse) VisitRollbackModelCatalogRevisionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -16007,6 +16590,18 @@ type StrictServerInterface interface {
 	// Recorded metrics samples or per-agent summaries
 	// (GET /api/v1/metrics/history)
 	GetMetricsHistory(ctx context.Context, request GetMetricsHistoryRequestObject) (GetMetricsHistoryResponseObject, error)
+	// List catalog evidence and revision history
+	// (GET /api/v1/model-catalog/history)
+	ListModelCatalogHistory(ctx context.Context, request ListModelCatalogHistoryRequestObject) (ListModelCatalogHistoryResponseObject, error)
+	// Preview a catalog reconciliation proposal
+	// (POST /api/v1/model-catalog/proposals)
+	PreviewModelCatalog(ctx context.Context, request PreviewModelCatalogRequestObject) (PreviewModelCatalogResponseObject, error)
+	// Apply an exact previewed catalog proposal
+	// (POST /api/v1/model-catalog/proposals/{proposal_id}/apply)
+	ApplyModelCatalogProposal(ctx context.Context, request ApplyModelCatalogProposalRequestObject) (ApplyModelCatalogProposalResponseObject, error)
+	// Roll back a catalog revision
+	// (POST /api/v1/model-catalog/revisions/{revision}/rollback)
+	RollbackModelCatalogRevision(ctx context.Context, request RollbackModelCatalogRevisionRequestObject) (RollbackModelCatalogRevisionResponseObject, error)
 	// List models in the catalog and their assigned tiers
 	// (GET /api/v1/models)
 	ListModels(ctx context.Context, request ListModelsRequestObject) (ListModelsResponseObject, error)
@@ -17608,6 +18203,115 @@ func (sh *strictHandler) GetMetricsHistory(w http.ResponseWriter, r *http.Reques
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetMetricsHistoryResponseObject); ok {
 		if err := validResponse.VisitGetMetricsHistoryResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListModelCatalogHistory operation middleware
+func (sh *strictHandler) ListModelCatalogHistory(w http.ResponseWriter, r *http.Request, params ListModelCatalogHistoryParams) {
+	var request ListModelCatalogHistoryRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListModelCatalogHistory(ctx, request.(ListModelCatalogHistoryRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListModelCatalogHistory")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListModelCatalogHistoryResponseObject); ok {
+		if err := validResponse.VisitListModelCatalogHistoryResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PreviewModelCatalog operation middleware
+func (sh *strictHandler) PreviewModelCatalog(w http.ResponseWriter, r *http.Request) {
+	var request PreviewModelCatalogRequestObject
+
+	var body PreviewModelCatalogJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PreviewModelCatalog(ctx, request.(PreviewModelCatalogRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PreviewModelCatalog")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PreviewModelCatalogResponseObject); ok {
+		if err := validResponse.VisitPreviewModelCatalogResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ApplyModelCatalogProposal operation middleware
+func (sh *strictHandler) ApplyModelCatalogProposal(w http.ResponseWriter, r *http.Request, proposalId string) {
+	var request ApplyModelCatalogProposalRequestObject
+
+	request.ProposalId = proposalId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ApplyModelCatalogProposal(ctx, request.(ApplyModelCatalogProposalRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ApplyModelCatalogProposal")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ApplyModelCatalogProposalResponseObject); ok {
+		if err := validResponse.VisitApplyModelCatalogProposalResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RollbackModelCatalogRevision operation middleware
+func (sh *strictHandler) RollbackModelCatalogRevision(w http.ResponseWriter, r *http.Request, revision int64) {
+	var request RollbackModelCatalogRevisionRequestObject
+
+	request.Revision = revision
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RollbackModelCatalogRevision(ctx, request.(RollbackModelCatalogRevisionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RollbackModelCatalogRevision")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RollbackModelCatalogRevisionResponseObject); ok {
+		if err := validResponse.VisitRollbackModelCatalogRevisionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

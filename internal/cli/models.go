@@ -9,8 +9,10 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -125,7 +127,69 @@ func newModelsCmd() *cobra.Command {
 	cmd.Flags().StringVar(&backend, "backend", "", "list models for this backend id (default: the current agent's backend)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit the menu as a JSON array instead of one id per line")
 
-	cmd.AddCommand(newModelsListCmd(), newModelsTierCmd(), newModelsAddCmd(), newModelsDiscoverCmd())
+	cmd.AddCommand(newModelsListCmd(), newModelsTierCmd(), newModelsAddCmd(), newModelsDiscoverCmd(), newModelsHistoryCmd(), newModelsRollbackCmd())
+	return cmd
+}
+
+func newModelsHistoryCmd() *cobra.Command {
+	var aicli string
+	var asJSON bool
+	cmd := &cobra.Command{Use: "history", Short: "Show catalog evidence and revision history", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		st, err := openRegistry(cmd)
+		if err != nil {
+			return err
+		}
+		defer st.Close()
+		snaps, err := st.ListCatalogSnapshots(aicli, "")
+		if err != nil {
+			return err
+		}
+		revs, err := st.ListCatalogRevisions()
+		if err != nil {
+			return err
+		}
+		if asJSON {
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"snapshots": snaps, "revisions": revs})
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "catalog snapshots: %d\ncatalog revisions: %d\n", len(snaps), len(revs))
+		for _, r := range revs {
+			fmt.Fprintf(cmd.OutOrStdout(), "rev %d\t%s\tproposal=%s\n", r.Rev, r.Kind, r.ProposalID)
+		}
+		return nil
+	}}
+	cmd.Flags().StringVar(&aicli, "aicli", "", "filter evidence by AI CLI (account-safe; no credentials are shown)")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "emit structured history")
+	return cmd
+}
+
+func newModelsRollbackCmd() *cobra.Command {
+	var yes bool
+	var asJSON bool
+	cmd := &cobra.Command{Use: "rollback <revision>", Short: "Roll back a catalog policy revision", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		if !yes {
+			return fmt.Errorf("rollback changes catalog policy; re-run with --yes (it does not recover live sessions)")
+		}
+		rev, err := strconv.ParseUint(args[0], 10, 64)
+		if err != nil || rev == 0 {
+			return fmt.Errorf("revision must be a positive integer")
+		}
+		st, err := openRegistry(cmd)
+		if err != nil {
+			return err
+		}
+		defer st.Close()
+		r, err := st.RollbackCatalogRevision(rev, time.Now().UTC())
+		if err != nil {
+			return err
+		}
+		if asJSON {
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(r)
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "rolled back catalog revision %d as revision %d (live sessions unchanged)\n", rev, r.Rev)
+		return nil
+	}}
+	cmd.Flags().BoolVar(&yes, "yes", false, "confirm the catalog-policy rollback")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "emit structured result")
 	return cmd
 }
 
