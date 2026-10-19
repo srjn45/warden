@@ -1908,6 +1908,8 @@ Redesigns `wd update` into a data-safe, planned upgrade process:
 The event-driven replacement for capture-pane polling
 ([`docs/specs/2026-10-19-pty-runtime-contract.md`](specs/2026-10-19-pty-runtime-contract.md)),
 rolled out behind `runtime.pty: off|shadow|on` (default `off` — no behavior change).
+The binding baseline audit and the follow-on identity/attach contract are in
+[`docs/specs/2026-10-19-pty-02b-audit-and-runtime-contract.md`](specs/2026-10-19-pty-02b-audit-and-runtime-contract.md).
 
 - **Journal.** Every runtime-backed session gets an append-only JSONL event log under
   `<data_dir>/pty/{direct,shadow}/<id>` (`internal/ptyruntime`): `output`, `input`,
@@ -1983,4 +1985,3 @@ bounded by `runtime.trace_max_records` / `runtime.trace_max_age_days`. Stable
 MCP `pty_metrics`) with closed label vocabularies; alerts and a dashboard in
 `deploy/observability/`. `dangerously-execute-all` shows a DANGER banner on the TUI, web
 and approval views. Strategic prompts are never auto-answered; only permission/trust ones.
-
