@@ -68,10 +68,28 @@ type Manager struct {
 	kinds    map[string]bool // name -> isTerminal (cached lookups + explicit marks)
 	kindFunc func(name string) bool
 
+	// RollbackRecord records a runtime mode rollback event (global or cohort-scoped).
+	// Rollback affects future launches only; live sessions keep their runtime and control.
+	pmu       sync.RWMutex
+	pins      map[string]Mode
+	cohorts   map[string]Mode
+	cohortOf  map[string]string
+	rollbacks []RollbackRecord
+
 	wmu      sync.Mutex
 	watching map[string]*watch
 	wg       sync.WaitGroup
 	closed   bool
+}
+
+// RollbackRecord records a runtime mode rollback event (global or cohort-scoped).
+// Rollback affects future launches only; live sessions keep their runtime and control.
+type RollbackRecord struct {
+	Cohort string    `json:"cohort,omitempty"`
+	From   Mode      `json:"from"`
+	To     Mode      `json:"to"`
+	At     time.Time `json:"at"`
+	Reason string    `json:"reason,omitempty"`
 }
 
 type watch struct {
@@ -108,6 +126,7 @@ func New(cfg Config) *Manager {
 		cfg.ReconcileEvery = 2 * time.Second
 	}
 	m := &Manager{dir: cfg.Dir, run: cfg.Run, tmux: cfg.Tmux, every: cfg.ReconcileEvery, watching: map[string]*watch{},
+		pins: make(map[string]Mode), cohorts: make(map[string]Mode), cohortOf: make(map[string]string),
 		direct: &ptyruntime.Host{JournalDir: filepath.Join(cfg.Dir, "direct"), Shell: cfg.Shell,
 			Retention: cfg.Retention, Options: cfg.Options, Launcher: cfg.Launcher},
 		shadow: newShadow(cfg.Run, filepath.Join(cfg.Dir, "shadow"), cfg.Retention, cfg.Options)}
@@ -129,6 +148,9 @@ func (m *Manager) SetMode(mode Mode) {
 	prev, _ := m.mode.Swap(mode).(Mode)
 	if prev != "" && prev != mode {
 		slog.Info("ptyhost: runtime.pty mode changed (applies to new sessions)", "from", prev, "to", mode)
+		if isRollback(prev, mode) {
+			m.RecordRollback("", prev, mode, "global runtime.pty mode change")
+		}
 	}
 	if mode == ModeOff && prev.mirrors() {
 		for _, name := range m.shadow.Names() {
@@ -207,6 +229,133 @@ func (m *Manager) forgetKind(name string) {
 	m.kmu.Unlock()
 }
 
+// SetSessionRuntimePin pins the runtime mode for a specific session name.
+// Pinning takes precedence over the global mode or cohort defaults.
+func (m *Manager) SetSessionRuntimePin(name string, mode Mode) {
+	m.pmu.Lock()
+	defer m.pmu.Unlock()
+	if m.pins == nil {
+		m.pins = make(map[string]Mode)
+	}
+	m.pins[name] = ParseMode(string(mode))
+}
+
+// PinnedRuntime returns the pinned runtime mode for name, if any.
+func (m *Manager) PinnedRuntime(name string) (Mode, bool) {
+	m.pmu.RLock()
+	defer m.pmu.RUnlock()
+	mode, ok := m.pins[name]
+	return mode, ok
+}
+
+// SetSessionCohort associates a session name with a named rollout cohort.
+func (m *Manager) SetSessionCohort(name, cohort string) {
+	m.pmu.Lock()
+	defer m.pmu.Unlock()
+	if m.cohortOf == nil {
+		m.cohortOf = make(map[string]string)
+	}
+	m.cohortOf[name] = cohort
+}
+
+// SessionCohort returns the cohort assigned to name, or empty string.
+func (m *Manager) SessionCohort(name string) string {
+	m.pmu.RLock()
+	defer m.pmu.RUnlock()
+	return m.cohortOf[name]
+}
+
+// SetCohortMode configures the runtime mode for a cohort. When rolling back
+// a cohort to a lower mode (e.g. on -> off), existing sessions in that cohort
+// retain their pinned runtime; only future launches in the cohort adopt the new mode.
+func (m *Manager) SetCohortMode(cohort string, mode Mode) {
+	mode = ParseMode(string(mode))
+	m.pmu.Lock()
+	defer m.pmu.Unlock()
+	if m.cohorts == nil {
+		m.cohorts = make(map[string]Mode)
+	}
+	prev := m.cohorts[cohort]
+	if prev == "" {
+		prev = m.Mode()
+	}
+	m.cohorts[cohort] = mode
+	if isRollback(prev, mode) {
+		m.rollbacks = append(m.rollbacks, RollbackRecord{
+			Cohort: cohort,
+			From:   prev,
+			To:     mode,
+			At:     time.Now().UTC(),
+			Reason: "cohort rollback",
+		})
+		slog.Warn("ptyhost: cohort rolled back (live sessions retain runtime)", "cohort", cohort, "from", prev, "to", mode)
+	}
+}
+
+// CohortMode returns the mode configured for cohort, if any.
+func (m *Manager) CohortMode(cohort string) (Mode, bool) {
+	m.pmu.RLock()
+	defer m.pmu.RUnlock()
+	mode, ok := m.cohorts[cohort]
+	return mode, ok
+}
+
+// Rollbacks returns a copy of the rollback records ledger.
+func (m *Manager) Rollbacks() []RollbackRecord {
+	m.pmu.RLock()
+	defer m.pmu.RUnlock()
+	return append([]RollbackRecord(nil), m.rollbacks...)
+}
+
+// RecordRollback explicitly records a rollback event in the ledger.
+func (m *Manager) RecordRollback(cohort string, from, to Mode, reason string) {
+	m.pmu.Lock()
+	defer m.pmu.Unlock()
+	m.rollbacks = append(m.rollbacks, RollbackRecord{
+		Cohort: cohort,
+		From:   from,
+		To:     to,
+		At:     time.Now().UTC(),
+		Reason: reason,
+	})
+}
+
+func isRollback(from, to Mode) bool {
+	rank := func(m Mode) int {
+		switch m {
+		case ModeOn:
+			return 2
+		case ModeShadow:
+			return 1
+		default:
+			return 0
+		}
+	}
+	return rank(to) < rank(from)
+}
+
+func (m *Manager) effectiveMode(name string) Mode {
+	m.pmu.RLock()
+	defer m.pmu.RUnlock()
+	if pin, ok := m.pins[name]; ok {
+		return pin
+	}
+	if cohort := m.cohortOf[name]; cohort != "" {
+		if cm, ok := m.cohorts[cohort]; ok {
+			return cm
+		}
+	}
+	return m.Mode()
+}
+
+func (m *Manager) forgetSession(name string) {
+	m.forgetKind(name)
+	m.pmu.Lock()
+	delete(m.pins, name)
+	delete(m.cohortOf, name)
+	m.pmu.Unlock()
+}
+
 // Host is the routed tmuxproc.Host for every pane: creation goes to tmux
 // (mirrored in shadow/on), every other call goes to whichever host owns the
 // name.
@@ -227,14 +376,21 @@ func (m *Manager) Lookup(name string) (Target, bool) {
 	return Target{}, false
 }
 
-// IsAuthoritative reports whether the runtime owns the authoritative status
-// for name (mode on and name has a runtime-backed stream).
+// IsAuthoritative reports whether the runtime owns authoritative status and control
+// for name. Direct sessions (plain terminals hosted on the direct PTY) are authoritative
+// because warden owns their PTY master and process lifecycle. This holds even if the
+// global mode or cohort was subsequently flipped or rolled back (per-session runtime pin:
+// cohort rollback affects future launches only). Shadow sessions (agents or plain terminals
+// mirrored from tmux) are observe-only mirrors and are never authoritative (no impossible
+// dual ownership of one PTY master).
 func (m *Manager) IsAuthoritative(name string) bool {
-	if m == nil || m.Mode() != ModeOn {
+	if m == nil {
 		return false
 	}
-	_, ok := m.Lookup(name)
-	return ok
+	if m.direct != nil && m.direct.Session(name) != nil {
+		return true
+	}
+	return false
 }
 
 // Direct returns the direct PTY session for name (nil if it is not hosted
@@ -257,6 +413,7 @@ func (m *Manager) HolderHosted(name string) bool { return m.direct.HolderHosted(
 // relaunch. The caller reports a failure with its cause; nothing is started.
 func (m *Manager) AdoptDirect(ctx context.Context, name string) error {
 	m.MarkTerminal(name) // direct sessions are plain shells
+	m.SetSessionRuntimePin(name, ModeOn)
 	if err := m.direct.Adopt(ctx, name); err != nil {
 		return err
 	}
@@ -445,7 +602,8 @@ var directEnv = []string{"TERM=xterm-256color"}
 
 func (r routed) NewSession(ctx context.Context, name, cwd string, env ...string) error {
 	m := r.m
-	mode := m.Mode()
+	mode := m.effectiveMode(name)
+	m.SetSessionRuntimePin(name, mode)
 	if r.terminal {
 		m.MarkTerminal(name)
 	} else {
@@ -484,12 +642,15 @@ func (r routed) KillSession(ctx context.Context, name string) error {
 	m := r.m
 	if m.direct.Session(name) != nil {
 		m.unwatch(name)
-		return m.direct.KillSession(ctx, name)
+		err := m.direct.KillSession(ctx, name)
+		m.forgetSession(name)
+		return err
 	}
 	err := m.tmux.KillSession(ctx, name)
 	if m.shadow.Mirror(name) != nil {
 		m.endShadow(ctx, name, "killed")
 	}
+	m.forgetSession(name)
 	return err
 }
 

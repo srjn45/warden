@@ -59,7 +59,7 @@ func ptyServer(t *testing.T, mode ptyhost.Mode) (*Server, *ptyhost.Manager, *htt
 	m := ptyhost.New(ptyhost.Config{Mode: mode, Dir: filepath.Join(t.TempDir(), "pty"), Run: run, Shell: []string{"/bin/sh"},
 		Options: ptyruntime.Options{IdleFlush: 20 * time.Millisecond, KillGrace: 300 * time.Millisecond, DrainGrace: 200 * time.Millisecond}})
 	fs := newFakeStore()
-	srv := &Server{store: fs, life: &fakeLife{}}
+	srv := &Server{store: fs, life: &fakeLife{}, hub: newHub()}
 	srv.SetPTYRuntime(m)
 	ts := httptest.NewServer(srv.router())
 	t.Cleanup(func() { ts.Close(); m.Close() })

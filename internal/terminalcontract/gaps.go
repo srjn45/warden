@@ -53,7 +53,7 @@ var Gaps = []Gap{
 	{"G10", Hardening, "Legacy /attach on a direct session loses structured resync (raw bridge); only /pty speaks the §6 protocol",
 		Anchor{"internal/daemon/attach.go", "ptyhost.BridgeLegacy"}, "t3", []string{"F-ATTACH-02"}, true},
 	{"G11", Hardening, "Mode is a global hot-reloaded switch applying to sessions created afterwards; there is no per-session/cohort runtime pin or rollback record, and no old-binary/broker protocol version",
-		Anchor{"internal/ptyhost/mode.go", "ModeOn"}, "t4", []string{"F-ROLL-01", "F-ROLL-02"}, false},
+		Anchor{"internal/ptyhost/manager.go", "func (m *Manager) SetSessionRuntimePin"}, "t4", []string{"F-ROLL-01", "F-ROLL-02"}, true},
 	{"G12", Hardening, "Exit status of a direct terminal is journaled but terminalstore.ExitCode is only set by the tmux exit-file watcher path",
 		Anchor{"internal/daemon/pty_runtime.go", "func (s *Server) onPTYEvent"}, "t2", []string{"F-LIFE-04"}, true},
 }

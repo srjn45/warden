@@ -120,7 +120,7 @@ Verified at `dae3cbd4`. `Closed` flips only when the owner's fixtures exist (`Te
 | `G8` | hardening | `Screen` is a minimal VT: 1 cell/rune (wide/combining wrong), attributes dropped, simplified scroll regions — snapshots lossy for full-screen TUIs (live raw bytes unaffected) | t3 ✔ closed | `F-VT-01` `F-VT-02` `F-VT-03` |
 | `G9` | hardening | Cockpit/TUI attach is `tmux attach`; a direct terminal can't be shown | t3 ✔ closed | `F-ATTACH-01` |
 | `G10` | hardening | Legacy `/attach` on a direct session is a raw bridge without §6 resync | t3 ✔ closed | `F-ATTACH-02` |
-| `G11` | hardening | Global mode switch; no per-session runtime pin, cohort record or broker protocol version | t4 | `F-ROLL-01` `F-ROLL-02` |
+| `G11` | hardening | Global mode switch; no per-session runtime pin, cohort record or broker protocol version | t4 ✔ closed | `F-ROLL-01` `F-ROLL-02` |
 | `G12` | hardening | Direct shell exit code journaled but `terminalstore.ExitCode` set only by the tmux exit-file path | t2 ✔ closed | `F-LIFE-04` |
 
 **Recording in plan 01:** plan 01's canonical record is ScrivaDB state owned by its active run and is deliberately **not edited** (constraint: do not modify, stop or restart plan 01). The gaps are recorded here, in `internal/terminalcontract.Gaps`, and as plan 02 task ownership; the plan 01 run's own review can cite this file. Release-critical gaps are covered by **plan 02 tasks**, not assumed solved.
@@ -170,6 +170,17 @@ Reconnect alone is never taken as survival evidence: `F-SURV-01` SIGKILLs a real
 **Process-group limits.** `Close` signals the leader's process group (SIGHUP, SIGTERM, SIGKILL after `KillGrace`). With job control on, a background job is its own group and is reached by the shell's own SIGHUP forwarding — identical to tmux. `F-SURV-04` therefore keeps its descendant in the leader's group (`set +m`).
 
 **Durable vs local.** The local authorized view (raw frames, `StyledString`) is faithful; everything durable or remote-safe (journal, snapshots, SSE, audit, holder state, diagnostics) is redacted or content-free: fenced typed secrets are journaled as length + input id only (`TestFencedSecretInputNeverReachesTheJournal`), the holder state holds no environment secret or terminal byte (`TestHolderStateNeverHoldsEnvironmentSecrets`). Secret-detection limits in §6 are unchanged. Hub/WebSocket remote infrastructure is untouched.
+
+### 5.3 t4 outcome (staged rollout, runtime pinning, and parity)
+
+Closed by t4 (`internal/terminalcontract.Gaps` flipped; `G11` closed; `F-ROLL-01`..`03`, `F-PAR-01`..`02` anchored).
+
+- **`G11` per-session runtime pin & cohort record.** A session's runtime is pinned at creation time (`SetSessionRuntimePin` / `PinnedRuntime`). Flipping `runtime.pty` or rolling back a cohort affects future launches only. Already running direct sessions remain hosted on direct PTY, remain authoritative (`IsAuthoritative` returns true for direct sessions regardless of global mode flip), and retain full control (`SendKeys`, `CapturePane`, `KillSession`). Cohort mode mappings and rollback events are recorded (`SetCohortMode`, `RecordRollback`, `Rollbacks`).
+- **`F-ROLL-01` per-session runtime pin & cohort rollback.** Tested in `internal/ptyhost`: flipping global mode or rolling back a cohort does not mutate, demote, or interrupt running direct sessions; newly launched sessions adopt the updated cohort/global mode.
+- **`F-ROLL-02` broker protocol handshake & downgrade boundary.** Tested in `internal/ptyholder`: version mismatches (`ProtoVersion`) in both directions (old client to new broker, and new client to old broker) are cleanly refused with `ErrProto` without misparsing, corruption, or touching the child process.
+- **`F-ROLL-03` observational shadow non-authoritative & input-isolated.** Tested in `internal/ptyhost`: shadow sessions (Stage `S1`) are observe-only; `IsAuthoritative` is false; shadow streams reject/drop input frames and never mutate store or poller status; no impossible dual ownership of a PTY master is created.
+- **`F-PAR-01` golden byte stream parity.** Tested in `internal/ptyhost`: byte-exact visible output between legacy tmux and direct PTY paths across standard text, multiline outputs, ANSI control sequences, and formatted output (`ParityByteExactPct` = 100).
+- **`F-PAR-02` labelled AI prompt corpus accuracy.** Tested in `internal/stateclassifier`: labelled AI prompt corpus against state classifier and legacy poller achieves >= 98% accuracy (`StateAccuracyPct`), 0 false approvals (`PromptFalseApprovals` = 0), and ensures plain shell screens produce 0 prompt events (`ShellClassifierEvents` = 0).
 
 ## 6. Privacy and retention boundaries
 
@@ -258,12 +269,12 @@ Deterministic = injected clocks / event waits (no sleep-for-correctness), fixed 
 | `F-ATTACH-01` | attach | terminal | cockpit drives a direct terminal; raw mode restored; Ctrl-C/EOF/job control | t3 | `S2` | ✔ |
 | `F-ATTACH-02` | attach | both | replay→live order across epoch reset; slow viewer bounded | t3 | `S2` | ✔ |
 | `F-ATTACH-03` | attach | both | resize arbitration, SIGWINCH | t3 | `S2` | ✔ |
-| `F-ROLL-01` | rollout | both | per-session runtime pin | t4 | `S3` | |
-| `F-ROLL-02` | rollout | both | broker protocol handshake refusal | t4 | `S3` | |
-| `F-ROLL-03` | rollout | both | shadow mutates nothing, sends nothing | t4 | `S1` | |
+| `F-ROLL-01` | rollout | both | per-session runtime pin | t4 | `S3` | ✔ |
+| `F-ROLL-02` | rollout | both | broker protocol handshake refusal | t4 | `S3` | ✔ |
+| `F-ROLL-03` | rollout | both | shadow mutates nothing, sends nothing | t4 | `S1` | ✔ |
 | `F-ROLL-04` | rollout | both | mixed legacy+PTY fleet fully operable | t5 | `S3` | |
-| `F-PAR-01` | parity | both | golden byte stream tmux vs direct | t4 | `S3` | |
-| `F-PAR-02` | parity | agent | labelled AI prompt corpus accuracy | t4 | `S3` | |
+| `F-PAR-01` | parity | both | golden byte stream tmux vs direct | t4 | `S3` | ✔ |
+| `F-PAR-02` | parity | agent | labelled AI prompt corpus accuracy | t4 | `S3` | ✔ |
 | `F-RES-01` | resource | both | 50-session soak, `-race`, no leak | t5 | `S3` | |
 | `F-RES-02` | resource | both | journal bound under 10× flood | t5 | `S3` | |
 | `F-PRIV-01` | privacy | both | planted secrets absent from durable/remote views | t5 | `S3` | |
@@ -272,5 +283,5 @@ Deterministic = injected clocks / event waits (no sleep-for-correctness), fixed 
 
 - **t2 (done, §5.1):** make `G5`/`G6`/`G7`/`G12` structural; keep `spawnTerminal` as the only funnel (`P01`–`P06`); serialize restore; record direct exit codes; equalize shell/env (`F-LIFE-05`); keep legacy tmux terminals untouched.
 - **t3 (done, §5.2):** per-session PTY holder + authenticated adoption + controller lease generation/input fencing (`G1`–`G4`) reusing plan 01's journal/transport/arbitration; native attach for the TUI/CLI and the legacy bridge (`G9`, `G10`); the screen model upgraded (`G8`).
-- **t4:** per-session runtime pin + cohort record + protocol versioning (`G11`); apply §7.1; parity artifacts.
+- **t4 (done, §5.3):** per-session runtime pin + cohort record + protocol versioning (`G11`); apply §7.1; parity artifacts.
 - **t5:** run the whole matrix, soak, privacy audit, runbook; gate plan 03 on both plans merged **and** deployed with drain evidence. Nothing here authorizes cleanup or deploy.

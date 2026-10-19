@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -292,6 +293,9 @@ func readReply(c *net.UnixConn) (reply, []*os.File, error) {
 func classify(r reply) error {
 	if r.OK {
 		return nil
+	}
+	if strings.Contains(r.Err, "protocol") {
+		return fmt.Errorf("%w: %s", ErrProto, r.Err)
 	}
 	return fmt.Errorf("%w: %s", ErrAuth, r.Err)
 }
