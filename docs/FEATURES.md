@@ -587,6 +587,7 @@ guardian tick `interval`.
 | `metrics` | `true` | Record per-agent metrics to disk |
 | `pipeline.keep_done` / `pipeline.hint` | `false` / `true` | Keep a job's agent after completion / append the decomposition hint |
 | `pipeline.brain_consult` | `true` | Per-pipeline override for brain consult. Set `false` to silence brain consult for every job in this pipeline (global `brain_consult.enabled` still wins if false) |
+| `runtime.pty` | `off` | Warden-owned PTY runtime (see §40): `off` = tmux only, no journal; `shadow` = tmux panes unchanged, output mirrored into a redacted, replayable per-session event journal (`pipe-pane`), observe-only; `on` = shadow plus plain-shell terminals hosted directly on a warden PTY. Hot-reloaded; applies to sessions created afterwards |
 | `brain_consult.enabled` | `true` | Global kill-switch for pipeline stuck-job brain consult. Set `false` to disable all consults across all pipelines |
 | `brain_consult.timeout` | `10m` | Per-consult deadline (Go duration string). The spawned `role=brain` agent is torn down unconditionally when this window elapses |
 | `brain_consult.max_concurrent` | `1` | Maximum simultaneous brain-consult agents across all pipelines. Default 1 — one consult at a time is almost always correct |
@@ -1902,3 +1903,37 @@ Redesigns `wd update` into a data-safe, planned upgrade process:
 - **Whole-store repair (`warden repair all --resolve-history=live-wins`)**: verifies and repairs all ScrivaDB stores with live-wins resolution and quarantined backup manifests.
 - **Install parity (`warden init`)**: single shared code path for fresh initialization and legacy upgrades between `scripts/install.sh` and the CLI.
 
+## 40. PTY runtime (`runtime.pty`)
+
+The event-driven replacement for capture-pane polling
+([`docs/specs/2026-10-19-pty-runtime-contract.md`](specs/2026-10-19-pty-runtime-contract.md)),
+rolled out behind `runtime.pty: off|shadow|on` (default `off` — no behavior change).
+
+- **Journal.** Every runtime-backed session gets an append-only JSONL event log under
+  `<data_dir>/pty/{direct,shadow}/<id>` (`internal/ptyruntime`): `output`, `input`,
+  `resize`, `lifecycle` and `marker` events with a session-wide `seq` and a per-process
+  `epoch`, redacted **before** they are written (typed secret kinds become
+  `[REDACTED:<kind>]`; secret input is journaled as its length only). Snapshot markers
+  every 256 KiB of output and on clean detach let a client resume without the full
+  history; retention trims whole snapshot-led segments.
+- **Shadow (M1).** For every new tmux pane the daemon runs `tmux pipe-pane -O` into a
+  FIFO and mirrors the bytes through the same writer pipeline (`ptyruntime.Mirror`).
+  The launch path is unchanged and nothing is written to the pane; the pollers stay
+  authoritative. A pane that dies is reaped within seconds (`lifecycle{exited}`); after
+  a daemon restart live panes are re-adopted on epoch+1 (`recovered`, `reset`, a
+  snapshot seeded from the live screen).
+- **On.** Shadow for agents, plus plain-shell terminals (`kind=terminal`) hosted
+  directly on a warden-owned PTY (`internal/ptyhost`): launch, input, capture, resize,
+  teardown and restart recovery (the next daemon respawns the shell on the same journal
+  under a new epoch). `/attach`, session input and output route to it; tmux attach does
+  not exist for such a terminal.
+- **Stream.** `GET /api/v1/sessions/{id}/pty` (WebSocket, §6 of the spec):
+  `hello{cursor?, mode, cols, rows, client_id?}` → `plan{mode, head, …}` → redacted
+  replay → live events; `ack{seq}` checkpoints, `resize`, `reject`/`resync`. Interactive
+  clients of a direct terminal also receive the live raw bytes and type as `human`
+  (input ownership: human always wins). Shadow sessions and read-only tokens are
+  observe-only.
+- **Consumers.** The daemon subscribes to every stream (`ptyhost.Manager.Observe`) and,
+  for now, only refreshes SSE on lifecycle changes and moves an exited direct terminal
+  to `orphaned` with the watcher's compare-and-swap; classification from the stream is
+  the next step (t3).

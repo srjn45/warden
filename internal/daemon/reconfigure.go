@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/srjn45/warden/internal/config"
+	"github.com/srjn45/warden/internal/ptyhost"
 )
 
 // SetBaselineConfig records the config the daemon applied at startup as the
@@ -87,6 +88,10 @@ func (s *Server) ApplyConfig(cfg config.Config) {
 			cfg.Tokens.ForceCompact,
 			cfg.Tokens.CompactResumePrompt,
 		)
+	}
+	// runtime.pty: applies to sessions created from now on.
+	if s.pty != nil {
+		s.pty.SetMode(ptyhost.ParseMode(cfg.Runtime.PTY))
 	}
 	// Public OpenAPI docs route gate.
 	s.SetAPIDocs(cfg.ApiDocs)

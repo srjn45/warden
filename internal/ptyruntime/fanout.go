@@ -29,6 +29,9 @@ type Subscription struct {
 	// Plan is how the cursor was resolved. For ResumeSnapshot the first event
 	// is the snapshot marker the client must reset its terminal model to.
 	Plan ptyevent.ResumePlan
+	// Head is the journal head when the subscription was made: events up to
+	// it are replayed from the journal, later ones come from the live feed.
+	Head uint64
 
 	live   chan ptyevent.Event
 	done   chan struct{}

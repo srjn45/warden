@@ -19,6 +19,7 @@ output-options:
   exclude-operation-ids:
     - streamEvents
     - attachSession
+    - streamSessionPty
     - attachCockpit
     - healthz
     - getApiDocs

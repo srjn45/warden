@@ -362,6 +362,38 @@ paths:
           description: Switching Protocols (WebSocket)
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /api/v1/sessions/{id}/pty:
+    get:
+      operationId: streamSessionPty
+      tags: [Sessions]
+      summary: Stream a session's PTY event journal (WebSocket)
+      description: |
+        Upgrades to a WebSocket speaking the PTY runtime attach protocol
+        (docs/specs/2026-10-19-pty-runtime-contract.md §6). Available for
+        sessions started while `runtime.pty` was `shadow` or `on`; otherwise 409
+        (use `/attach`).
+
+        Client text frames: `{"type":"hello","cursor":{"session_id","epoch","seq"}?,"cols","rows","mode":"interactive"|"observe","client_id"?}`
+        (re-sent to resume after a `resync`), `{"type":"resize","cols","rows"}`,
+        `{"type":"ack","seq"}` (a per-client resume checkpoint). Client binary
+        frames are human keystrokes (interactive only).
+
+        Server text frames: `{"type":"plan","plan":{mode,from_seq,head,session_id,epoch,presentation,interactive,client_id}}`,
+        then `{"type":"event","event":{...}}` for every journaled, redacted
+        event in seq order (replay from the cursor, then live), `reject` (attach
+        fresh) and `resync` (re-send hello with the last cursor). Interactive
+        clients of a directly hosted session also get the live, unredacted PTY
+        bytes as binary frames after the replay boundary (`head`). Shadow
+        (tmux-mirrored) sessions and read-only tokens are observe-only. Not a
+        request/response endpoint; a successful handshake returns 101.
+      parameters: [{ $ref: "#/components/parameters/SessionId" }]
+      responses:
+        "101":
+          description: Switching Protocols (WebSocket)
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: The session has no PTY event journal (runtime.pty was off when it started).
+
   /api/v1/cockpit/attach:
     get:
       operationId: attachCockpit

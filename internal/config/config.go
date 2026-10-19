@@ -100,6 +100,17 @@ type RouterConfig struct {
 	UseFastBrain bool `yaml:"use_fast_brain"`
 }
 
+// RuntimeConfig groups the warden-owned PTY runtime settings
+// (docs/specs/2026-10-19-pty-runtime-contract.md §12).
+type RuntimeConfig struct {
+	// PTY selects the migration phase: off (default — tmux only, no journal),
+	// shadow (tmux panes mirrored into per-session event journals via
+	// pipe-pane; nothing is written to a pane) or on (shadow, plus plain-shell
+	// terminals hosted directly on a warden-owned PTY). A change applies to
+	// sessions created afterwards.
+	PTY string `yaml:"pty"`
+}
+
 // PipelineConfig groups pipeline-execution settings.
 type PipelineConfig struct {
 	KeepDone     bool `yaml:"keep_done"`
@@ -462,6 +473,7 @@ type Config struct {
 	Backends     BackendsConfig     `yaml:"backends"`
 	BrainConsult BrainConsultConfig `yaml:"brain_consult"`
 	Router       RouterConfig       `yaml:"router"`
+	Runtime      RuntimeConfig      `yaml:"runtime"`
 }
 
 // setting describes one config key for file generation/migration: its YAML key
@@ -522,6 +534,7 @@ var schema = []setting{
 	{"backends", "Agent-backend registry / internal-thinking router settings (docs/specs/2026-08-06-backend-registry.md §10). Warden's own internal thinking (task classification, activity summaries, agent naming, digest narration, memory curation) is routed STRICTLY through free/local backends — it never makes a paid call. Sub-keys: limit_retry (Go duration, e.g. 15m — how long a free CLI backend is skipped by the router after it returns a rate-limit / spend signal, before it is retried)."},
 	{"autopilot", "Autopilot defaults for named, durably registered runs. Create plans with `warden plan create` and start them with `warden plan run <plan-id> --mode autopilot`. Sub-keys: enabled (legacy per-repo switch), plans (DEPRECATED compatibility list; migrated into plans/ and the run store on boot), brain (role, headless, max_parallel_workers; backend tiers live in the backend registry), merge (target_branch, strategy, gate, delete_branch), guardian (interval, heartbeat_timeout, backoff_min, backoff_max, rotate_at_context, notify_each_escalation, max_identical_failures, progress_watchdog_enabled, progress_watchdog_window, use_fast_brain [default true: Fast-Brain triage picks the recovery action before an escalation; false = plain ladder], max_waits [3], max_wait_total [30m]), completion (merge_default [true], manager_verify_timeout [30m], merge_poll_interval [2m, floor 30s] — how often to poll a green final PR while awaiting owner merge; all hot-reloaded)."},
 	{"router", "Spawn-time model-tier routing. Sub-keys: use_fast_brain (true | false, default false — when true, a spawn that pins no tier, task, role, model or ai_cli has Fast-Brain rate the prompt's complexity and pick tier-1 (trivial tweaks), tier-2 (standard work) or tier-3 (deep refactors/architecture), applied only at confidence >= 0.8; it is the lowest-precedence input, so any explicit pin wins, and the decision is recorded on the agent's event log. Hot-reloaded: applies from the next spawn)."},
+	{"runtime", "Warden-owned PTY runtime (docs/specs/2026-10-19-pty-runtime-contract.md). Sub-keys: pty (off | shadow | on, default off). off: every session runs in tmux exactly as before and no event journal is written. shadow: sessions still launch in tmux unchanged, and each new pane's output is mirrored into a redacted, replayable per-session event journal (tmux pipe-pane) served over GET /api/v1/sessions/{id}/pty; warden writes nothing to a pane through it, and the pollers stay authoritative. on: shadow for agents, plus plain-shell terminals are hosted directly on a warden-owned PTY (tmux attach is not available for those; attach through the daemon). A change applies to sessions created afterwards; turning it off stops the mirrors."},
 	{"brain_consult", "Shared need-based brain consult settings (docs/specs/2026-09-27-brain-consult.md §D7). When enabled, stuck pipeline jobs that have exhausted the one deterministic auto-retry can consult a short-lived role=brain agent once per stuck episode. Sub-keys: enabled (true | false — global kill-switch; default true; set false to disable globally), timeout (Go duration, e.g. 10m — per-consult deadline; generous default because consults are infrequent), max_concurrent (integer >= 1 — max simultaneous brain consult agents across all pipelines; default 1). Per-pipeline opt-out: pipeline.brain_consult (true | false)."},
 }
 
@@ -654,6 +667,7 @@ func defaults() Config {
 		PlanSync: PlanSyncConfig{
 			Provider: "local",
 		},
+		Runtime: RuntimeConfig{PTY: "off"},
 		RateLimit: RateLimitConfig{
 			RetryInterval:      "30m",
 			SpendRetryInterval: "6h",
@@ -856,6 +870,7 @@ func validate(c *Config) {
 	c.Log.Level = validLogLevel(c.Log.Level, d.Log.Level)
 	c.Log.Format = validLogFormat(c.Log.Format, d.Log.Format)
 	c.PlanSync.Provider = validPlanSyncProvider(c.PlanSync.Provider, d.PlanSync.Provider)
+	c.Runtime.PTY = validRuntimePTY(c.Runtime.PTY, d.Runtime.PTY)
 	c.AutoRestart.Reset = validDuration(c.AutoRestart.Reset, d.AutoRestart.Reset)
 	c.Collab.Interval = validDuration(c.Collab.Interval, d.Collab.Interval)
 	c.Collab.GitReconcileInterval = validDuration(c.Collab.GitReconcileInterval, d.Collab.GitReconcileInterval)
@@ -947,6 +962,17 @@ func validPlanSyncProvider(v, def string) string {
 		return def
 	}
 	slog.Warn("config: invalid plan_sync.provider, using default", "value", v, "default", def)
+	return def
+}
+
+func validRuntimePTY(v, def string) string {
+	switch m := strings.ToLower(strings.TrimSpace(v)); m {
+	case "off", "shadow", "on":
+		return m
+	case "":
+		return def
+	}
+	slog.Warn("config: invalid runtime.pty, using default", "value", v, "default", def)
 	return def
 }
 
@@ -1737,6 +1763,9 @@ func (c Config) GetRootGuard() bool { return c.Rails.RootGuard }
 // GetRouteTierUseFastBrain reports whether Fast-Brain may pick the model tier of
 // an otherwise-unpinned spawn (router.use_fast_brain). Default false.
 func (c Config) GetRouteTierUseFastBrain() bool { return c.Router.UseFastBrain }
+
+// GetRuntimePTY returns the runtime.pty mode: off, shadow or on. Default off.
+func (c Config) GetRuntimePTY() string { return c.Runtime.PTY }
 
 // GetSavings reports whether the token-savings ledger is enabled (the default).
 // When off, lifecycle features record no savings and GET /savings returns 403.

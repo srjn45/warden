@@ -3200,6 +3200,36 @@ wd plan list
 | `wd plan assess <id>` | Brain-assisted task progress |
 
 
+## PTY runtime (`runtime.pty`)
+
+warden can journal what each session's terminal shows — an ordered, redacted,
+replayable event log — instead of only polling tmux. It is off by default:
+
+```yaml
+runtime:
+  pty: shadow   # off (default) | shadow | on
+```
+
+- `shadow` — agents and terminals still run in tmux exactly as before; each new pane's
+  output is also mirrored into `<data_dir>/pty/shadow/<id>` via `tmux pipe-pane`.
+  Nothing is typed into a pane; status and approvals still come from the pollers.
+- `on` — as shadow, and new plain-shell terminals run directly on a warden-owned PTY
+  (no tmux session; attach through the daemon — the web UI and app work unchanged).
+- The setting hot-reloads and applies to sessions created afterwards; `off` stops the
+  mirrors.
+
+Stream a journaled session with a WebSocket client (`websocat` shown):
+
+```sh
+websocat "ws://127.0.0.1:8765/api/v1/sessions/<id>/pty?token=$WARDEN_TOKEN"
+{"type":"hello","mode":"observe"}
+```
+
+Each event arrives as `{"type":"event","event":{…}}`; reconnect with
+`{"type":"hello","mode":"observe","cursor":{"session_id":"<id>","epoch":E,"seq":N}}` to
+resume after event `N`. See the [PTY runtime guide](https://srjn45.github.io/warden/guides/pty-runtime/)
+for the full protocol (interactive mode, ack, resize, reject/resync).
+
 ## Cleaning merged branches and stale worktrees
 
 `warden workspace clean` (alias `warden clean`) previews, then — after a `[y/N]` confirmation (`--yes` skips it) — removes stale worktrees and deletes merged local and `origin` branches, including squash merges. Flags: `--dry-run`, `--json`, `--local-only`, `--force` (dirty worktrees), `--repo`. Protected branches (`main`, `master`, `develop`, `release/*`, base, current) are never deleted. Not to be confused with `warden workspace prune`, which reclaims orphaned warden worktrees.

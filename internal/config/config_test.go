@@ -1108,3 +1108,17 @@ func TestPlanSyncConfigDefaultsAndLoad(t *testing.T) {
 	c = Load(tmpConfig(t, "plan_sync:\n  provider: bogus\n"))
 	require.Equal(t, "local", c.PlanSync.Provider, "invalid provider falls back to local")
 }
+
+func TestRuntimePTYMode(t *testing.T) {
+	require.Equal(t, "off", defaults().GetRuntimePTY(), "default is off: no behavior change")
+	// An existing config with no runtime block stays valid and stays off.
+	c := Load(tmpConfig(t, "approvals: true\n"))
+	require.Equal(t, "off", c.Runtime.PTY)
+	for in, want := range map[string]string{"off": "off", "shadow": "shadow", "ON": "on", " Shadow ": "shadow", "bogus": "off", "": "off"} {
+		c = Load(tmpConfig(t, "runtime:\n  pty: \""+in+"\"\n"))
+		require.Equal(t, want, c.GetRuntimePTY(), "runtime.pty %q", in)
+	}
+	// Unquoted YAML on/off must not turn into booleans.
+	require.Equal(t, "on", Load(tmpConfig(t, "runtime:\n  pty: on\n")).GetRuntimePTY())
+	require.Equal(t, "off", Load(tmpConfig(t, "runtime:\n  pty: off\n")).GetRuntimePTY())
+}
