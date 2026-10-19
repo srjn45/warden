@@ -5,6 +5,7 @@
 - **Entry gate:** plan 01 (`01-pty-runtime-and-permission-decision-engine`) is merged — PR #979 is `dae3cbd4` on `origin/main`. Audited at that commit. Plan 01 is **frozen**: nothing here modifies, stops or restarts it; its shortfalls are recorded as gaps below and **owned by plan 02 tasks**.
 - **Consumers:** t2 lifecycle · t3 attach/recovery · t4 rollout/parity · t5 validation.
 - **Rule of change:** this document, `internal/terminalcontract` and the fixtures change together. Every path/gap/fixture/stage ID and every budget field is back-ticked here and the test fails if one is missing; every code anchor is re-checked, so moving code without updating the matrix fails CI.
+- **Follow-on audit & contract:** [`2026-10-19-pty-02b-audit-and-runtime-contract.md`](2026-10-19-pty-02b-audit-and-runtime-contract.md) (acceptance audit of plans 01/02 and 02b runtime identity/attach contract).
 
 ---
 

@@ -4,6 +4,7 @@
 - **Date:** 2026-10-19
 - **Consumers:** t2 PTY runtime · t3 state/prompt classifier · t4 decision router · t5 permission postures · t6 backend adapters (Antigravity first) · t7 UI/observability.
 - **Rule of change:** this document, `internal/ptyevent`, and the golden fixtures under `internal/ptyevent/testdata/` change **together**. A golden diff is a contract diff (`go test ./internal/ptyevent -run . -update`, then review it).
+- **Follow-on audit & contract:** [`2026-10-19-pty-02b-audit-and-runtime-contract.md`](2026-10-19-pty-02b-audit-and-runtime-contract.md) (acceptance audit of plans 01/02 and 02b runtime identity/attach contract).
 
 ---
 
