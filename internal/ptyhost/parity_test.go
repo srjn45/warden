@@ -3,6 +3,7 @@ package ptyhost
 import (
 	"context"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -28,10 +29,15 @@ func TestF_PAR_01_GoldenByteStreamParityTmuxVsDirect(t *testing.T) {
 
 	ctx := context.Background()
 
-	// 1. Launch tmux session (via Host in ModeOff or with explicit pin)
+	// 1. Launch a tmux shell with no prompt. The normal interactive shell prompt
+	// redraws asynchronously and can land in the middle of the golden output;
+	// this fixture compares terminal rendering, not prompt rendering.
 	const tmuxName = "term-tmux"
 	m.SetSessionRuntimePin(tmuxName, ModeOff)
-	require.NoError(t, m.Host().NewSession(ctx, tmuxName, t.TempDir()))
+	tmuxCWD := t.TempDir()
+	_, err := run.Run(ctx, tmuxCWD, "tmux", "new-session", "-d", "-s", tmuxName, "-c", tmuxCWD,
+		"/bin/sh", "-c", `while IFS= read -r line; do eval "$line"; done`)
+	require.NoError(t, err)
 	defer func() { _ = m.Host().KillSession(ctx, tmuxName) }()
 
 	// 2. Launch direct terminal session (via TerminalHost in ModeOn)
@@ -64,6 +70,16 @@ func TestF_PAR_01_GoldenByteStreamParityTmuxVsDirect(t *testing.T) {
 		"printf 'OldText\\rNewText\\n'",
 		"printf '\\033[32mGREEN\\033[0m \\033[1mBOLD\\033[0m\\n'",
 		"printf 'PARITY_%s\\n' 'MARKER_DONE'",
+	}
+	expected := []string{
+		"Hello Parity Test",
+		"Line 1",
+		"Line 2",
+		"Line 3",
+		"alpha   beta    gamma",
+		"NewText",
+		"GREEN BOLD",
+		"PARITY_MARKER_DONE",
 	}
 
 	for _, cmd := range commands {
@@ -115,7 +131,10 @@ func TestF_PAR_01_GoldenByteStreamParityTmuxVsDirect(t *testing.T) {
 
 	var paneTmux, paneDirect string
 	var tmuxFiltered, directFiltered []string
-	// 4. Wait for the marker and all output lines to appear in both panes.
+	// 4. Wait for a stable, complete screen in both panes. In particular, a
+	// tmux capture during prompt redraw can contain the same eight markers with
+	// transient "$ " prefixes or a partially-overwritten "NewTextxt". Those
+	// are not the completed golden stream and must be retried, not compared.
 	require.Eventually(t, func() bool {
 		var err1, err2 error
 		paneTmux, err1 = m.Host().CapturePane(ctx, tmuxName)
@@ -125,7 +144,7 @@ func TestF_PAR_01_GoldenByteStreamParityTmuxVsDirect(t *testing.T) {
 		}
 		tmuxFiltered = cleanLines(paneTmux)
 		directFiltered = cleanLines(paneDirect)
-		return len(tmuxFiltered) == 8 && len(directFiltered) == 8
+		return stableParityCapture(tmuxFiltered, expected) && stableParityCapture(directFiltered, expected)
 	}, waitFor, 20*time.Millisecond)
 
 	require.NotEmpty(t, tmuxFiltered)
@@ -158,4 +177,18 @@ func TestF_PAR_01_GoldenByteStreamParityTmuxVsDirect(t *testing.T) {
 	budget := terminalcontract.Default.ParityByteExactPct
 	require.GreaterOrEqual(t, parityPct, budget, "visible output parity must meet budget ParityByteExactPct (100%%)")
 	require.Equal(t, tmuxFiltered, directFiltered, "golden byte stream output lines must match 100%% byte-exact")
+}
+
+func stableParityCapture(got, want []string) bool {
+	return slices.Equal(got, want)
+}
+
+func TestStableParityCaptureRejectsPromptRedrawContamination(t *testing.T) {
+	want := []string{"Hello Parity Test", "NewText", "PARITY_MARKER_DONE"}
+	if stableParityCapture([]string{"$ Hello Parity Test", "NewTextxt", "$ PARITY_MARKER_DONE"}, want) {
+		t.Fatal("prompt/redraw-contaminated tmux capture was accepted as stable")
+	}
+	if !stableParityCapture(append([]string(nil), want...), want) {
+		t.Fatal("completed golden capture was not accepted")
+	}
 }

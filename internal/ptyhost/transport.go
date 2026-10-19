@@ -231,7 +231,11 @@ func (m *Manager) Serve(ctx context.Context, conn *websocket.Conn, t Target, cli
 		}
 		var f ClientFrame
 		if err := json.Unmarshal(data, &f); err != nil {
-			continue
+			// Text WebSocket messages are complete frames. A malformed (including
+			// truncated/partial) protocol frame is not recoverable: close this
+			// client rather than letting it keep an ambiguous controller lease.
+			_ = conn.Close(websocket.StatusUnsupportedData, "invalid pty client frame")
+			return nil
 		}
 		if f.Type == "" && f.Cols > 0 && f.Rows > 0 {
 			f.Type = "resize" // legacy attach body
