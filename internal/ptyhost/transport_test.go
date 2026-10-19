@@ -1,6 +1,7 @@
 package ptyhost
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -413,6 +414,98 @@ func TestTransportRequiresHello(t *testing.T) {
 	c := dial(t, wsServer(t, func() *Manager { return m }, "term-1", false))
 	c.send(ClientFrame{Type: "ack", Seq: 1})
 	eventually(t, "reject", func() bool { _, _, _, k := c.snapshot(); return len(k) > 0 && k[0] == "reject" })
+}
+
+// Malformed text messages (including a truncated JSON object) and frames over
+// the 1 MiB protocol bound are isolated to that viewer. Neither may crash or
+// stop the direct shell another client is attached to.
+func TestTransportClosesInvalidAndOversizedClientFrames(t *testing.T) {
+	noLeaks(t)
+	run := newTmux(t)
+	m := newManager(t, run, filepath.Join(t.TempDir(), "pty"), ModeOn)
+	defer m.Close()
+	startDirect(t, m, "term-1")
+	url := wsServer(t, func() *Manager { return m }, "term-1", false)
+
+	for _, payload := range [][]byte{
+		[]byte(`{"type":"hello"`), // incomplete JSON is a partial protocol frame
+		bytes.Repeat([]byte("x"), 1<<20+1),
+	} {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		conn, _, err := websocket.Dial(ctx, url, nil)
+		if err != nil {
+			cancel()
+			t.Fatal(err)
+		}
+		if err := conn.Write(ctx, websocket.MessageText, payload); err != nil {
+			_ = conn.CloseNow()
+			cancel()
+			t.Fatalf("write malformed client frame: %v", err)
+		}
+		_, _, err = conn.Read(ctx)
+		_ = conn.CloseNow()
+		cancel()
+		if err == nil {
+			t.Fatal("malformed client frame left its socket open")
+		}
+	}
+
+	// The existing shell remains live and attachable after both hostile viewers.
+	c := dial(t, url)
+	c.send(ClientFrame{Type: "hello", Mode: ModeInteractive})
+	c.waitPlans(1)
+	c.keys("echo survived-bad-viewer\r")
+	c.waitRaw("said:survived-bad-viewer")
+}
+
+// The frozen /attach bridge remains a raw binary protocol: a released client
+// receives the existing screen/live byte stream and can send its old-style
+// binary keystrokes without knowing any /pty control frames.
+func TestBridgeLegacyGoldenRawProtocol(t *testing.T) {
+	noLeaks(t)
+	run := newTmux(t)
+	m := newManager(t, run, filepath.Join(t.TempDir(), "pty"), ModeOn)
+	defer m.Close()
+	startDirect(t, m, "term-1")
+	target, ok := m.Lookup("term-1")
+	if !ok || target.Direct == nil {
+		t.Fatal("direct terminal missing legacy bridge target")
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.CloseNow()
+		BridgeLegacy(r.Context(), conn, target.Direct, "legacy-golden")
+	}))
+	defer srv.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.CloseNow()
+	readUntil := func(want string) {
+		t.Helper()
+		var got strings.Builder
+		for !strings.Contains(got.String(), want) {
+			typ, data, err := conn.Read(ctx)
+			if err != nil {
+				t.Fatalf("legacy bridge read before %q: %v (got %q)", want, err, got.String())
+			}
+			if typ != websocket.MessageBinary {
+				t.Fatalf("legacy bridge frame type = %v, want binary", typ)
+			}
+			got.Write(data)
+		}
+	}
+	readUntil("ready")
+	if err := conn.Write(ctx, websocket.MessageBinary, []byte("echo legacy-golden\r")); err != nil {
+		t.Fatal(err)
+	}
+	readUntil("said:legacy-golden")
 }
 
 // screenText is everything a replaying client renders: snapshot text and

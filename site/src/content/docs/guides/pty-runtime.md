@@ -150,6 +150,12 @@ on every way out. **Ctrl-]** then **.** detaches (the shell keeps running), **Ct
 **t** takes control back, **Ctrl-] Ctrl-]** sends a literal Ctrl-]. `WARDEN_ATTACH=observe` watches
 read-only. Tmux-hosted sessions still attach with tmux.
 
+The shared `ptyattach.Client` is the single runtime-aware attach decision point:
+direct sessions use `/pty`; `kind=tmux` returns `tmux attach -t <key>`; and an
+unknown runtime returns `ErrUnknownRuntime` with the resolver's reason rather than
+guessing. `WARDEN_ATTACH_DETACH_KEY` accepts one byte or caret notation (for example
+`^]`); an explicit client option takes precedence.
+
 A session has any number of viewers and one **controller**. Attaching takes control
 (human precedence) and demotes the previous controller, which keeps watching; its
 keystrokes and resizes are rejected, never delivered. Input is tagged with the lease
@@ -157,6 +163,26 @@ generation and a per-client id, so a flaky connection that resends a command doe
 it twice — also across a daemon restart. Raw bytes shown to you are the program's own
 (faithful); the journal, snapshots, audit and anything remote-safe are redacted, and typed
 secrets are journaled as a length only.
+
+### §8.2 fixture map
+
+The following named fixtures are the acceptance evidence for the shared protocol;
+they intentionally exercise both a direct shell and the mirrored legacy-agent path.
+
+| Requirement | Fixture evidence |
+|---|---|
+| viewers, controller, takeover, handoff and stale/expired fencing | `TestF_FENCE_01_OneControllerTakeoverBumpsGeneration`, `TestF_FENCE_02_StaleGenerationRejected` |
+| reconnect dedupe, replay ordering and ack resume | `TestF_FENCE_03_ReconnectNeverDuplicatesInput`, `TestTransportInteractiveInputResizeAndReplay`, `TestReplayThenLiveOrderingMidStream` |
+| direct shell vs mirrored legacy agent observe-only; read-only bearer | `TestTransportShadowIsObserveOnly`, `TestF_ROLL_03_ShadowNeverMutatesAuthoritativeStatusOrSendsInput`, `TestF_SURV_04_AgentPaneAdoptionChecksIdentity`, `TestPTYStreamReadonlyTokenIsObserveOnly` |
+| malformed/partial and oversized frames; viewer close does not stop shell | `TestTransportClosesInvalidAndOversizedClientFrames` |
+| human precedence, cancellation and secret boundaries | `TestInputOwnership`, `TestFencedSecretInputNeverReachesTheJournal`, `TestF_PRIV_01_PlantedSecretsAbsentFromDurableAndRemoteViews` |
+| detach chord, reconnect, raw-terminal restoration and signals | `TestF_ATTACH_01_RawModeRestoredOnEveryExit`, `TestReconnectResumesWithoutDuplicatingInput`, `TestDetachKeyFromEnv` |
+| epoch/adoption, too-old/slow-viewer resync and snapshot fidelity | `TestTransportReconnectAcrossDaemonRestart`, `TestShadowReadoptsAcrossDaemonRestart`, `TestLaggedRawViewerResyncsAtAFreshCut`, `TestPlanFrameFidelityIsAdditiveForOlderClients`, `TestTransportReplayIsRedacted` |
+| legacy raw compatibility | `TestBridgeLegacyGoldenRawProtocol` (the `/attach` golden) |
+
+These tests pin that closing a viewer only closes its socket, and reconnect/adoption
+does not launch a replacement child. The legacy `/attach` test remains deliberately
+separate from the `/pty` protocol fixtures.
 
 ## Compatibility
 

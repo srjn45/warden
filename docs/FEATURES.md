@@ -1944,6 +1944,10 @@ The binding baseline audit and the follow-on identity/attach contract are in
   `epoch<<32|n`), fenced input ids dedupe resends (restored from the journal after a
   restart), human > operator > warden unchanged; a demoted client's bytes are dropped. The
   screen model handles wide/combining characters, SGR (local view only) and scroll regions.
+  The reusable `ptyattach.Client` selects `/pty` for direct sessions, returns `tmux attach
+  -t <key>` only for `kind=tmux`, and returns `ErrUnknownRuntime` with the resolver reason
+  for unknown sessions. Ctrl-] then `.` detaches, `t` takes control, and doubled Ctrl-] is
+  literal; `WARDEN_ATTACH_DETACH_KEY` accepts a one-byte/caret-notation override.
   Spec: [`docs/specs/2026-10-19-plain-terminal-inventory-and-contract.md`](specs/2026-10-19-plain-terminal-inventory-and-contract.md) §5.2.
 - **Stream.** `GET /api/v1/sessions/{id}/pty` (WebSocket, §6 of the spec):
   `hello{cursor?, mode, cols, rows, client_id?}` → `plan{mode, head, …}` → redacted

@@ -112,7 +112,7 @@ func Run(ctx context.Context, o Options) (res Result, err error) {
 		o.ClientID = fmt.Sprintf("attach-%d", os.Getpid())
 	}
 	if o.DetachKey == 0 {
-		o.DetachKey = DefaultDetachKey
+		o.DetachKey = detachKeyFromEnv(os.Getenv("WARDEN_ATTACH_DETACH_KEY"))
 	}
 	if o.MaxReconnects <= 0 {
 		o.MaxReconnects = 8
@@ -230,6 +230,18 @@ func Run(ctx context.Context, o Options) (res Result, err error) {
 			return Result{Reason: "detached"}, nil
 		}
 	}
+}
+
+// detachKeyFromEnv accepts one literal byte or caret notation (for example
+// "^]" for Ctrl-]). Invalid values deliberately retain the safe default.
+func detachKeyFromEnv(v string) byte {
+	if len(v) == 1 {
+		return v[0]
+	}
+	if len(v) == 2 && v[0] == '^' {
+		return v[1] & 0x1f
+	}
+	return DefaultDetachKey
 }
 
 // readKeys forwards the user's keystrokes as fenced input, handling the detach

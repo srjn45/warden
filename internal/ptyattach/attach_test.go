@@ -245,15 +245,15 @@ func TestClientRuntimeRoutingAndFallback(t *testing.T) {
 	if _, err := c.Attach(context.Background(), tmux, Options{}); !errors.Is(err, ErrNotDirect) {
 		t.Fatalf("tmux Attach error = %v, want ErrNotDirect", err)
 	}
-	if got, ok := c.Fallback(tmux); !ok || !reflect.DeepEqual(got, []string{"tmux", "attach", "-t", "legacy-pane"}) {
-		t.Fatalf("Fallback(tmux) = %q, %v", got, ok)
+	if got, err := c.Fallback(tmux); err != nil || !reflect.DeepEqual(got, []string{"tmux", "attach", "-t", "legacy-pane"}) {
+		t.Fatalf("Fallback(tmux) = %q, %v", got, err)
 	}
 	unknown := Target{SessionID: "missing", Info: ptyhost.RuntimeInfo{Kind: "unknown", Reason: "session is no longer live"}}
 	if _, err := c.Attach(context.Background(), unknown, Options{}); !errors.Is(err, ErrUnknownRuntime) || !strings.Contains(err.Error(), unknown.Info.Reason) {
 		t.Fatalf("unknown Attach error = %v, want ErrUnknownRuntime with reason", err)
 	}
-	if got, ok := c.Fallback(unknown); ok || got != nil {
-		t.Fatalf("Fallback(unknown) = %q, %v, want nil false", got, ok)
+	if got, err := c.Fallback(unknown); got != nil || !errors.Is(err, ErrUnknownRuntime) || !strings.Contains(err.Error(), unknown.Info.Reason) {
+		t.Fatalf("Fallback(unknown) = %q, %v, want ErrUnknownRuntime with reason", got, err)
 	}
 }
 
@@ -264,6 +264,22 @@ func TestAttachURL(t *testing.T) {
 	}
 	if want := "wss://daemon.example/base/api/v1/sessions/term-1/pty"; got != want {
 		t.Fatalf("attachURL = %q, want %q", got, want)
+	}
+}
+
+func TestDetachKeyFromEnv(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		want  byte
+	}{
+		{"", DefaultDetachKey},
+		{"^]", DefaultDetachKey},
+		{"~", '~'},
+		{"too-long", DefaultDetachKey},
+	} {
+		if got := detachKeyFromEnv(tc.value); got != tc.want {
+			t.Errorf("detachKeyFromEnv(%q) = %#x, want %#x", tc.value, got, tc.want)
+		}
 	}
 }
 

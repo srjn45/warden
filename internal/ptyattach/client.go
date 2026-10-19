@@ -31,7 +31,10 @@ type Target struct {
 // already own a fully formed WebSocket URL.
 type Client interface {
 	Attach(context.Context, Target, Options) (Result, error)
-	Fallback(Target) (argv []string, ok bool)
+	// Fallback returns the compatibility command for a tmux target. Unknown
+	// targets return ErrUnknownRuntime (with the resolver reason) so callers
+	// never silently guess a tmux target.
+	Fallback(Target) (argv []string, err error)
 }
 
 type client struct {
@@ -73,18 +76,25 @@ func (c *client) Attach(ctx context.Context, t Target, o Options) (Result, error
 	}
 }
 
-func (c *client) Fallback(t Target) ([]string, bool) {
+func (c *client) Fallback(t Target) ([]string, error) {
+	if t.Info.Kind == "unknown" || t.Info.Kind == "" {
+		reason := t.Info.Reason
+		if reason == "" {
+			reason = "the daemon did not report a supported runtime kind"
+		}
+		return nil, fmt.Errorf("%w: %s", ErrUnknownRuntime, reason)
+	}
 	if t.Info.Kind != "tmux" {
-		return nil, false
+		return nil, nil
 	}
 	key := t.Info.Key
 	if key == "" {
 		key = t.SessionID
 	}
 	if key == "" {
-		return nil, false
+		return nil, fmt.Errorf("%w: tmux runtime has no attach key", ErrUnknownRuntime)
 	}
-	return []string{"tmux", "attach", "-t", key}, true
+	return []string{"tmux", "attach", "-t", key}, nil
 }
 
 func attachURL(daemonURL, sessionID string) (string, error) {

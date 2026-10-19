@@ -368,7 +368,7 @@ Keep the existing §6 WebSocket protocol as the **one** wire protocol (`ptyhost/
 type Target struct { SessionID string; Info ptyhost.RuntimeInfo }          // from Resolve
 type Client interface {
     Attach(ctx context.Context, t Target, o Options) (Result, error)        // interactive or observe
-    Fallback(t Target) (argv []string, ok bool)                              // e.g. ["tmux","attach","-t",key] for runtime.kind==tmux
+    Fallback(t Target) (argv []string, err error)                            // tmux argv; unknown -> ErrUnknownRuntime
 }
 func Open(daemonURL, token string) Client
 ```

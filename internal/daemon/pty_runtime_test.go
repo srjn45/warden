@@ -142,6 +142,47 @@ func TestPTYStreamShadowSessionThroughDaemon(t *testing.T) {
 	require.Equal(t, ptyevent.PresentationTmux, plan.Presentation)
 }
 
+// A read-only bearer can observe the event stream, but the route removes the
+// direct session before Serve sees it: it cannot acquire a lease, resize, send
+// input, or receive live raw bytes.
+func TestPTYStreamReadonlyTokenIsObserveOnly(t *testing.T) {
+	srv, m, ts, fs := ptyServer(t, ptyhost.ModeOn)
+	srv.SetAuth("full-token", "readonly-token")
+	ctx := context.Background()
+	require.NoError(t, m.TerminalHost().NewSession(ctx, "T-readonly", t.TempDir()))
+	_ = fs.Insert(ctx, &agentstore.Agent{ID: "T-readonly", TmuxSession: "T-readonly"})
+
+	headers := http.Header{"Authorization": []string{"Bearer readonly-token"}}
+	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(ts.URL, "http")+"/api/v1/sessions/T-readonly/pty", &websocket.DialOptions{HTTPHeader: headers})
+	require.NoError(t, err)
+	defer conn.CloseNow()
+	hello, _ := json.Marshal(ptyhost.ClientFrame{Type: "hello", Mode: ptyhost.ModeInteractive})
+	require.NoError(t, conn.Write(ctx, websocket.MessageText, hello))
+	// A read-only client attempting human input must not affect the shell.
+	require.NoError(t, conn.Write(ctx, websocket.MessageBinary, []byte("echo forbidden\r")))
+
+	rctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	for {
+		typ, data, err := conn.Read(rctx)
+		require.NoError(t, err)
+		require.Equal(t, websocket.MessageText, typ, "read-only stream must never receive raw bytes")
+		var f ptyhost.ServerFrame
+		require.NoError(t, json.Unmarshal(data, &f))
+		if f.Type == "plan" {
+			require.NotNil(t, f.Plan)
+			require.False(t, f.Plan.Interactive)
+			require.False(t, f.Plan.Controller)
+			break
+		}
+	}
+	target, ok := m.Lookup("T-readonly")
+	require.True(t, ok)
+	owner, _ := target.Direct.ControllerInfo()
+	require.Empty(t, owner, "read-only stream must never acquire the controller lease")
+	require.NotContains(t, target.Direct.Screen(), "forbidden", "read-only bytes reached the shell")
+}
+
 // A direct terminal (mode on) has no tmux session: input, output and the
 // legacy raw attach all route to the PTY runtime.
 func TestDirectTerminalInputOutputAndLegacyAttach(t *testing.T) {
