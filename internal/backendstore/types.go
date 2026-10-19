@@ -160,6 +160,34 @@ type StoredObservation struct {
 	LaunchRejectionReason string            `json:"launch_rejection_reason,omitempty"`
 	Capabilities          ModelCapabilities `json:"capabilities,omitempty"`
 }
+
+// LaunchFailureKind is the carefully narrow classification used for failures
+// observed while starting a session.  Only InvalidModel is safe to use as
+// negative catalog evidence: quota, authentication, connectivity and prompt
+// failures say nothing about whether this particular model exists.
+type LaunchFailureKind string
+
+const (
+	LaunchFailureUnknown        LaunchFailureKind = "unknown"
+	LaunchFailureInvalidModel   LaunchFailureKind = "invalid_model"
+	LaunchFailureQuota          LaunchFailureKind = "quota"
+	LaunchFailureAuthentication LaunchFailureKind = "authentication"
+	LaunchFailureNetwork        LaunchFailureKind = "network"
+	LaunchFailureReasoning      LaunchFailureKind = "reasoning_incompatible"
+	LaunchFailureTrustPrompt    LaunchFailureKind = "trust_prompt"
+	LaunchFailureOther          LaunchFailureKind = "other"
+)
+
+// LaunchEvidence is the structured result of a launch observation. It is kept
+// deliberately free of raw CLI output: callers may retain that separately for
+// diagnostics without persisting credentials or task text in catalog evidence.
+type LaunchEvidence struct {
+	Kind       LaunchFailureKind `json:"kind"`
+	Summary    string            `json:"summary,omitempty"`
+	ObservedAt time.Time         `json:"observed_at"`
+	PreTask    bool              `json:"pre_task"`
+	Succeeded  bool              `json:"succeeded,omitempty"`
+}
 type ActiveCatalogScope struct {
 	AiCli         string    `json:"ai_cli"`
 	ActiveScopeFP string    `json:"active_scope_fp,omitempty"`

@@ -416,20 +416,23 @@ func (l *Lifecycle) resolveSpawnTarget(ctx context.Context, roleName, taskName, 
 			Task:             taskName,
 			Tier:             backendstore.ModelTier(tier),
 			PreferredBackend: backend,
-			AllowFallback:    true,
+			// Startup recovery is only allowed to try another eligible model in
+			// this tier. Crossing a tier changes the promise made by the role and
+			// is especially surprising for a backend-pinned launch.
+			AllowFallback: false,
 		})
 		if resErr != nil || res == nil || res.BackendID == "" || res.ModelID == "" {
 			if resErr != nil {
-				slog.Debug("spawn: resolver declined preferred aicli, using default model",
-					"aicli", backend, "role", roleName, "task", taskName, "tier", tier, "err", resErr)
+				return "", "", fmt.Errorf("resolve startup model for %s: %w", backend, resErr)
 			}
-			return backend, l.resolveDefaultModel(), nil
+			return "", "", fmt.Errorf("resolve startup model for %s: no eligible catalog candidate; refresh the model catalog and retry", backend)
 		}
 		return res.BackendID, res.ModelID, nil
 	}
 
-	// d) Neither pinned — let the router pick both. Degrade to defaults when it
-	// can't so the spawn still proceeds (e: model is never empty).
+	// d) Neither pinned — let the router pick both. A configured resolver is the
+	// launch authority: do not bypass its cached catalog result by silently
+	// launching a default model after it says no candidate is eligible.
 	if l.Resolver == nil {
 		return "", l.resolveDefaultModel(), nil
 	}
@@ -437,14 +440,13 @@ func (l *Lifecycle) resolveSpawnTarget(ctx context.Context, roleName, taskName, 
 		Role:          roleName,
 		Task:          taskName,
 		Tier:          backendstore.ModelTier(tier),
-		AllowFallback: true,
+		AllowFallback: false,
 	})
 	if resErr != nil || res == nil || res.BackendID == "" || res.ModelID == "" {
 		if resErr != nil {
-			slog.Debug("spawn: resolver declined, using request defaults",
-				"role", roleName, "task", taskName, "tier", tier, "err", resErr)
+			return "", "", fmt.Errorf("resolve startup model: %w", resErr)
 		}
-		return "", l.resolveDefaultModel(), nil
+		return "", "", fmt.Errorf("resolve startup model: no eligible catalog candidate; refresh the model catalog and retry")
 	}
 	return res.BackendID, res.ModelID, nil
 }
