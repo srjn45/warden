@@ -21,6 +21,14 @@ tools (doctor, repair) may open the store.
 
 ## 2. Dependency matrix (ScrivaDB)
 
+Re-audit (2026-10-19): current pin is **v1.6.0**. Exclusive ownership,
+strict integrity verification, complete-or-error reads and backup-first repair
+remain required and covered by the executable contract tests. Transaction-enabled
+databases must be opened at DB scope for journal recovery; standalone collection
+opens cannot bypass that guard. The dependency bump does not alter Warden's
+schema version, migrate live data, or relax its integrity/repair policies.
+Earlier version notes below are historical baselines.
+
 > **Update (#834):** pin is now `scriva v1.4.0`, which provides `engine.VerifyDir`/`engine.Repair`; `RepairAvailable` is true and `repair agents` delegates to them. The text below records the original v1.2.1 analysis.
 
 > **Update (cross-collection transaction audit, 2026-10-10):** scriva is re-pinned to `v1.4.1-0.20261010192719-4ca8d00d1197` (untagged `main` @ `4ca8d00`) to adopt cross-collection transactions; see `2026-10-10-scrivadb-cross-collection-transaction-capability-audit.md`. Re-audit result: for roots that never ran `CommitXTx` (every Warden store today) `Open`/`VerifyDir`/`Repair`/lock behavior is unchanged; XTx-specific refusals only apply once `xtx.journal` exists. Re-pin to the tagged release when cut.
