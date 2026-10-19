@@ -245,6 +245,9 @@ func TestEventValidate(t *testing.T) {
 		{"observed prompt without prompt", func(e *Event) {
 			e.Kind, e.Output, e.Prompt = KindPrompt, nil, &PromptEvent{Phase: PromptObserved}
 		}, ErrPayload},
+		{"snapshot exceeds cap", func(e *Event) {
+			e.Kind, e.Output, e.Marker = KindMarker, nil, &Marker{Type: MarkerSnapshot, Snapshot: string(make([]byte, 1<<20+1))}
+		}, ErrSnapshotTooLarge},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

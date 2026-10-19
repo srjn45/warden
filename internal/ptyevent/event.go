@@ -246,18 +246,19 @@ type Marker struct {
 
 // Validation errors. Validate wraps them with the offending field.
 var (
-	ErrVersion      = errors.New("unsupported event version")
-	ErrSession      = errors.New("missing session id")
-	ErrSeq          = errors.New("seq must be >= 1")
-	ErrKind         = errors.New("unknown kind")
-	ErrPayload      = errors.New("payload does not match kind")
-	ErrNotRedacted  = errors.New("event has not passed the redaction boundary")
-	ErrBadRedaction = errors.New("redaction span out of range")
-	ErrResize       = errors.New("resize must be non-zero")
-	ErrOrigin       = errors.New("unknown input origin")
-	ErrSecretData   = errors.New("secret input must not carry data")
-	ErrPhase        = errors.New("unknown lifecycle phase")
-	ErrMonotonic    = errors.New("mono_ns must be >= 0")
+	ErrVersion          = errors.New("unsupported event version")
+	ErrSession          = errors.New("missing session id")
+	ErrSeq              = errors.New("seq must be >= 1")
+	ErrKind             = errors.New("unknown kind")
+	ErrPayload          = errors.New("payload does not match kind")
+	ErrNotRedacted      = errors.New("event has not passed the redaction boundary")
+	ErrBadRedaction     = errors.New("redaction span out of range")
+	ErrResize           = errors.New("resize must be non-zero")
+	ErrOrigin           = errors.New("unknown input origin")
+	ErrSecretData       = errors.New("secret input must not carry data")
+	ErrPhase            = errors.New("unknown lifecycle phase")
+	ErrMonotonic        = errors.New("mono_ns must be >= 0")
+	ErrSnapshotTooLarge = errors.New("ptyevent: snapshot size exceeded 1 MiB limit; reduce terminal dimensions or clear scrollback")
 )
 
 // payloads returns the number of set payload pointers and whether the one
@@ -347,6 +348,10 @@ func (e Event) Validate() error {
 			if err := e.Prompt.Prompt.Validate(); err != nil {
 				return err
 			}
+		}
+	case KindMarker:
+		if e.Marker != nil && e.Marker.Type == MarkerSnapshot && len(e.Marker.Snapshot) > 1<<20 {
+			return ErrSnapshotTooLarge
 		}
 	}
 	return nil
