@@ -13,6 +13,7 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/audit"
+	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/knownprompts"
@@ -289,6 +290,33 @@ type setModelTierArgs struct {
 }
 type catalogProposalArgs struct {
 	ProposalID string `json:"proposal_id" jsonschema:"exact proposal id returned by preview_model_catalog; applies catalog policy only and never performs live-session recovery"`
+}
+type catalogObservedModelArgs struct {
+	ModelID          string   `json:"model_id" jsonschema:"exact model id accepted by the AI CLI; required"`
+	DisplayName      string   `json:"display_name,omitempty" jsonschema:"provider display name, if known"`
+	Visibility       string   `json:"visibility,omitempty" jsonschema:"provider visibility (for example listed or hidden), if known"`
+	ReasoningLevels  []string `json:"reasoning_levels,omitempty" jsonschema:"provider-declared reasoning levels only; never infer values"`
+	DefaultReasoning string   `json:"default_reasoning,omitempty" jsonschema:"provider-declared default reasoning level"`
+	ContextWindow    int      `json:"context_window,omitempty" jsonschema:"provider-declared context window; zero means unknown"`
+	UpgradeTo        string   `json:"upgrade_to,omitempty" jsonschema:"provider-declared successor model id"`
+}
+type catalogObservationArgs struct {
+	Source          string                     `json:"source" jsonschema:"REQUIRED — live_command | cli_cache | provider_catalog | bundled | config_hint | launch_rejection"`
+	SourceDetail    string                     `json:"source_detail,omitempty" jsonschema:"safe source label; never include command output, paths containing secrets, or credentials"`
+	SourceFetchedAt string                     `json:"source_fetched_at,omitempty" jsonschema:"RFC3339 timestamp for cached evidence"`
+	Completeness    string                     `json:"completeness" jsonschema:"REQUIRED — complete | partial | empty | failed"`
+	ErrorCode       string                     `json:"error_code,omitempty" jsonschema:"classified error code; absence/error never authorizes retirement"`
+	ErrorMessage    string                     `json:"error_message,omitempty" jsonschema:"safe, redacted error summary"`
+	Models          []catalogObservedModelArgs `json:"models,omitempty" jsonschema:"observed models; provider metadata only"`
+}
+type catalogPreviewArgs struct {
+	AiCli       string                 `json:"ai_cli" jsonschema:"REQUIRED — installed AI CLI identifier"`
+	AuthMode    string                 `json:"auth_mode,omitempty" jsonschema:"non-secret auth mode label"`
+	PlanLabel   string                 `json:"plan_label,omitempty" jsonschema:"account-safe plan label"`
+	CLIVersion  string                 `json:"cli_version,omitempty" jsonschema:"installed AI CLI version"`
+	ObservedAt  string                 `json:"observed_at,omitempty" jsonschema:"RFC3339 observation time; empty uses the daemon time"`
+	SnapshotID  string                 `json:"snapshot_id,omitempty" jsonschema:"optional deterministic evidence id"`
+	Observation catalogObservationArgs `json:"observation" jsonschema:"REQUIRED — structured, non-secret discovery evidence; this tool never executes a provider command"`
 }
 type catalogRollbackArgs struct {
 	Revision uint64 `json:"revision" jsonschema:"exact catalog revision to roll back; rollback changes catalog policy only, never live sessions"`
@@ -837,6 +865,40 @@ func (s *Server) registerExtraTools() {
 			return textResult("error: " + err.Error()), nil, nil
 		}
 		return jsonResultAny(m)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "preview_model_catalog",
+		Description: "Record operator-supplied, structured discovery evidence and preview a catalog proposal. This never runs a provider command, mutates catalog policy, changes routing, or recovers live sessions. Inspect the returned ops, blocked entries, and evidence before explicitly applying the proposal.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a catalogPreviewArgs) (*mcpsdk.CallToolResult, any, error) {
+		observedAt := time.Time{}
+		if a.ObservedAt != "" {
+			var err error
+			observedAt, err = time.Parse(time.RFC3339, a.ObservedAt)
+			if err != nil {
+				return textResult("error: observed_at must be RFC3339: " + err.Error()), nil, nil
+			}
+		}
+		fetchedAt := time.Time{}
+		if a.Observation.SourceFetchedAt != "" {
+			var err error
+			fetchedAt, err = time.Parse(time.RFC3339, a.Observation.SourceFetchedAt)
+			if err != nil {
+				return textResult("error: source_fetched_at must be RFC3339: " + err.Error()), nil, nil
+			}
+		}
+		observation := backendstore.CatalogObservation{Source: backendstore.SourceKind(a.Observation.Source), SourceDetail: a.Observation.SourceDetail, SourceFetchedAt: fetchedAt, Completeness: backendstore.Completeness(a.Observation.Completeness)}
+		if a.Observation.ErrorCode != "" || a.Observation.ErrorMessage != "" {
+			observation.Err = &backendstore.CatalogError{Code: a.Observation.ErrorCode, Message: a.Observation.ErrorMessage}
+		}
+		for _, model := range a.Observation.Models {
+			observation.Models = append(observation.Models, backendstore.ObservedModel{ModelID: model.ModelID, DisplayName: model.DisplayName, Visibility: model.Visibility, ReasoningLevels: model.ReasoningLevels, DefaultReasoning: model.DefaultReasoning, ContextWindow: model.ContextWindow, UpgradeTo: model.UpgradeTo})
+		}
+		p, err := s.cl.PreviewModelCatalog(ctx, backendstore.CatalogRefresh{Scope: backendstore.CatalogScope{AiCli: a.AiCli, AuthMode: a.AuthMode, PlanLabel: a.PlanLabel, CLIVersion: a.CLIVersion}, Observation: observation, ObservedAt: observedAt, SnapshotID: a.SnapshotID})
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(p)
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{

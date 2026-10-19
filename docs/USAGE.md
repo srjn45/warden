@@ -1074,7 +1074,7 @@ warden backend model --backend antigravity # e.g. Gemini 3.5 Flash (Low), Claude
 warden backend model --backend cursor --json
 ```
 
-### `warden backend model list|tier|add|discover` (model catalog)
+### `warden backend model list|tier|add|discover|history|rollback` (model catalog)
 
 Inspect and extend warden's **tiered model catalog** (ScrivaDB `models` collection) —
 the seed list used by quota-balanced routing (`--task` / `--tier`). Distinct from the
@@ -1088,12 +1088,20 @@ warden backend model add cursor my-model --tier tier-2 --display "My Model" --au
 warden backend model discover                              # probe installed AI CLIs
 warden backend model discover --backend opencode --json
 warden backend model discover --import --tier tier-2       # register missing ids as custom
+warden backend model history --aicli codex --json
+warden backend model rollback 42 --yes                      # policy only; live sessions unchanged
 ```
 
 `add` inserts a custom row (`IsCustom=true`) so seed pruning never removes it.
 `discover` soft-fails missing tools and parses: `cursor-agent --list-models`,
 `agy models`, `opencode models`, `crush models`, and the top-level `model = "…"`
 from `~/.codex/config.toml`.
+
+For the safe reconciliation workflow — structured evidence preview, inspection,
+explicit apply, new-session verification, and revision-safe rollback — see the
+[AI CLI model-catalog rollout runbook](RUNBOOK-aicli-model-catalog.md). It is
+deliberately API/MCP-first in this release; `discover` is not evidence of
+account entitlement and does not automatically reconcile routing policy.
 
 ### `warden backend list|rescan|tier|default|enable|disable` (backend registry)
 
