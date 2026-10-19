@@ -305,6 +305,16 @@ func outputHas(s string) func(ptyevent.Event) bool {
 	}
 }
 
+func replHas(s string) func(ptyevent.Event) bool {
+	return func(ev ptyevent.Event) bool {
+		if ev.Kind != ptyevent.KindOutput {
+			return false
+		}
+		data := string(ev.Output.Data)
+		return data == s || strings.Contains(data, "\n"+s)
+	}
+}
+
 func TestReplayFromCursorThenLive(t *testing.T) {
 	r := startFake(t, Options{})
 	r.waitOutput("ready")
@@ -320,7 +330,7 @@ func TestReplayFromCursorThenLive(t *testing.T) {
 		t.Fatalf("plan = %+v", sub.Plan)
 	}
 	r.human("say two")
-	got := collect(t, sub, outputHas("two\r\n"))
+	got := collect(t, sub, replHas("two\r\n"))
 	if got[0].Seq != mid+1 {
 		t.Fatalf("replay starts at %d, want %d", got[0].Seq, mid+1)
 	}
@@ -338,7 +348,7 @@ func TestReplayFromCursorThenLive(t *testing.T) {
 	}
 	next := r.j.NextSeq()
 	r.human("say three")
-	if got := collect(t, tail, outputHas("three\r\n")); got[0].Seq != next {
+	if got := collect(t, tail, replHas("three\r\n")); got[0].Seq != next {
 		t.Fatalf("tail starts at %d, want %d", got[0].Seq, next)
 	}
 

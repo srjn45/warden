@@ -13,10 +13,13 @@ import (
 	"github.com/coder/websocket"
 	"github.com/go-chi/chi/v5"
 
+	"github.com/srjn45/warden/internal/agentbackend"
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/ptyevent"
 	"github.com/srjn45/warden/internal/ptyhost"
 	"github.com/srjn45/warden/internal/ptyruntime"
+	"github.com/srjn45/warden/internal/stateclassifier"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/srjn45/warden/internal/terminalstore"
 )
@@ -27,9 +30,37 @@ import (
 func (s *Server) SetPTYRuntime(m *ptyhost.Manager) {
 	s.pty = m
 	if m != nil {
+		if s.poller != nil {
+			s.poller.Authoritative = m.IsAuthoritative
+		}
+		backendResolver := func(ag *agentstore.Agent) agentbackend.Backend {
+			if s.poller != nil && s.poller.Backend != nil {
+				return s.poller.Backend(ag)
+			}
+			if ag != nil {
+				if b, err := agentbackend.Get(ag.AiCli); err == nil && b != nil {
+					return b
+				}
+			}
+			return agentbackend.Default()
+		}
+		s.classifier = stateclassifier.New(
+			stateclassifier.DefaultConfig(),
+			m,
+			s.store,
+			backendResolver,
+			stateclassifier.NewOSProcessInspector(),
+			nil,
+		)
+		s.classifier.OnTransition = func(name string, ch *ptyevent.StateChange) {
+			s.notify()
+		}
 		m.Observe(s.onPTYEvent)
 	}
 }
+
+// Classifier returns the event-driven activity/quiescence state classifier, if wired.
+func (s *Server) Classifier() *stateclassifier.Classifier { return s.classifier }
 
 // recoverPTY runs once at startup, before the pollers' first tick:
 //
@@ -92,6 +123,9 @@ func (s *Server) recoverPTY(ctx context.Context) {
 // terminal watcher uses, so whichever sees the exit first wins and the other
 // is a no-op. Classifier-driven state (t3) plugs in here.
 func (s *Server) onPTYEvent(name string, ev ptyevent.Event) {
+	if s.classifier != nil {
+		s.classifier.OnPTYEvent(name, ev)
+	}
 	if ev.Kind != ptyevent.KindLifecycle {
 		return
 	}

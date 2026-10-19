@@ -44,6 +44,7 @@ import (
 	"github.com/srjn45/warden/internal/schedule"
 	"github.com/srjn45/warden/internal/snapshot"
 	"github.com/srjn45/warden/internal/spend"
+	"github.com/srjn45/warden/internal/stateclassifier"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/srjn45/warden/internal/terminalstore"
 )
@@ -130,6 +131,8 @@ type Server struct {
 	// pty is the warden-owned PTY runtime (runtime.pty: shadow mirrors, direct
 	// terminals, the §6 stream); nil when not wired.
 	pty *ptyhost.Manager
+	// classifier is the event-driven activity/quiescence state classifier (t3).
+	classifier *stateclassifier.Classifier
 	// restarter auto-resumes opted-in sessions on errored; wired by SetRestarter.
 	// Read by the terminalWatcher.OnTransition closure — must be set before
 	// ListenAndServe starts the watcher.
