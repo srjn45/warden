@@ -178,6 +178,13 @@ type rig struct {
 
 func newRig(t *testing.T, posture ptyevent.Posture, act bool, workdir string) *rig {
 	t.Helper()
+	return newRigCfg(t, posture, act, workdir, nil)
+}
+
+// newRigCfg is newRig with a hook to adjust the engine config (e.g. attach a
+// decision trace and metrics) before the engine is built.
+func newRigCfg(t *testing.T, posture ptyevent.Posture, act bool, workdir string, mutate func(*Config)) *rig {
+	t.Helper()
 	r := &rig{t: t, st: &scriptStream{}, w: &recWriter{}, consult: &fakeConsult{}}
 	r.mgr = &fakeMgr{st: r.st, w: r.w, auth: true}
 	r.agent = &agentstore.Agent{ID: "a1", Name: "a1", AiCli: "antigravity", Workdir: workdir,
@@ -198,11 +205,16 @@ func newRig(t *testing.T, posture ptyevent.Posture, act bool, workdir string) *r
 	shapes := decisionrouter.NewMemoryLearnedShapeStore()
 	pc := decisionrouter.NewPromptClassifierWith(shapes, nil)
 	router := decisionrouter.New(decisionrouter.RouterOptions{Classifier: pc, ShapeStore: shapes, Consultor: r.consult})
-	r.eng = New(Config{
+	ecfg := Config{
 		Settle: time.Hour, Retry: time.Millisecond,
 		Policy:  func(*agentstore.Agent) approval.Policy { return approval.Policy{} },
 		Backend: func(*agentstore.Agent) agentbackend.Backend { return be },
-	}, r.mgr, ag, router, pc, nil)
+	}
+	if mutate != nil {
+		mutate(&ecfg)
+	}
+	r.cls.Metrics = ecfg.Metrics
+	r.eng = New(ecfg, r.mgr, ag, router, pc, nil)
 	r.cls.OnPrompt = r.eng.OnPrompt
 	r.cls.OnUnreadable = r.eng.OnUnreadable
 	return r
