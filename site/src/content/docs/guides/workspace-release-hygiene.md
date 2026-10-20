@@ -33,13 +33,7 @@ wd workspace clean --dry-run
 wd clean --dry-run
 ```
 
-The report separates stale worktrees, merged local branches, and merged remote branches. Without `--dry-run`, warden shows the same preview and asks for confirmation before it removes worktrees, then deletes local branches, then deletes remote branches.
-
-```sh
-wd clean                 # preview, then answer the confirmation prompt
-wd clean --local-only    # do not fetch or inspect/delete origin branches
-wd clean --json          # machine-readable report or result
-```
+The report separates stale worktrees, merged local branches, and merged remote branches. Without `--dry-run`, warden shows the same preview and asks for confirmation before it removes worktrees, then deletes local branches, then deletes remote branches. Keep cleanup execution with the repository owner rather than copying a destructive command from a guide.
 
 `clean` fetches and prunes `origin` before its normal detection. It never deletes `main`, `master`, `develop`, `release/*`, the base branch, or the primary worktree's branch. Dirty worktrees are retained unless `--force` is supplied; `--force` still does not bypass branch protection.
 
