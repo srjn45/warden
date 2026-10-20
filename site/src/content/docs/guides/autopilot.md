@@ -48,7 +48,7 @@ manager to tend workers that fall idle or wait on input. It is **fully automatic
 no user action needed** — and its cadences are generous (a backstop, not a pacer).
 
 For the underlying design — manager/worker/resolver topology, overwatch, ledger,
-guardian, cost-tier ladder — see [Autopilot concepts](../concepts/autopilot).
+guardian, cost-tier ladder — see [Autopilot concepts](/warden/concepts/autopilot/).
 
 ---
 
@@ -125,8 +125,9 @@ tasks:
     after: [ui]
 ```
 
-The plan file is **owner-editable while pending** — a running plan's definition
-cannot be edited.
+The definition is editable only while the canonical Plan is **pending**; a
+running plan cannot be edited. A YAML file is merely an input to `wd plan update
+--file` or an optional export—it never becomes execution authority.
 
 ---
 
@@ -218,6 +219,15 @@ A `definition_error`, or the same `spawn_error` text repeated
 it shows as *waiting* in the tree. To clear it, change the plan in ScrivaDB, run
 `wd plan resume` (or `pause` then `resume`), or restart the daemon — each retries
 the heal ladder from the top.
+
+**Usage limits and waiting workers.** A rate- or usage-limit banner is treated as
+a recoverable stall. Guardian/overwatch triage can resume an eligible session;
+if the manager cannot resume, the guardian can hot-swap it down the configured
+cost ladder or enter capped backoff. Check `backoff.kind`, `last_error`, and the
+supervisor's next step in `wd autopilot status`; use `wd plan show <id> --watch`
+to see the affected worker and PR. This is why a transient
+`backend_unavailable` should be allowed to retry, while a definition error or
+repeated identical spawn error needs an operator correction.
 
 **Progress watchdog.** A manager can heartbeat forever while the run goes
 nowhere, so the guardian also tracks per-run *progress*: a ledger task state
@@ -319,7 +329,11 @@ plus `restarts:` (count, last reason, time) once a plan has been restarted.
 
 Landing is daemon-owned: workers open a PR against the integration branch and end with
 `wd job done` — they never merge — and warden gates, fixes red CI, and lands the PR for the
-manager. `land` is an escape hatch (for when status reports `landing: disabled`). You can
+manager. For a red gate, the daemon collects failure evidence, may rerun a failure
+classified as flaky or infrastructure, and otherwise returns the evidence to the
+owning worker for a bounded sequence of fixes. A conflict follows the same bounded
+loop. Exhaustion leaves the task visible for resolver or operator triage; it is
+never auto-landed red. `land` is an escape hatch (for when status reports `landing: disabled`). You can
 also call it manually to land a specific worker (e.g.
 to bypass a stuck gate, or to pre-land a branch you've already reviewed):
 
@@ -353,12 +367,10 @@ Over MCP: `land { ticket: "<agent-or-branch>" }`.
 
 When the manager has verified the plan's `done_when` criteria it declares the run
 done (`autopilot_complete`) and the daemon opens, gates and waits on the final PR
-(next section). The run is **complete** only once that PR is merged: the daemon then
-writes an in-place `status: complete` marker (plus a `completed_at` timestamp) into
-your plan file — preserving your other keys, ordering, and comments — and retains the
-ledger. A plan carrying `status: complete` is **skipped by preflight**, so a finished
-run is never re-run by mistake on a future plan run or daemon restart. To re-run it,
-remove the `status: complete` line (or point the config at a fresh plan file).
+(next section). The run is **complete** only once that PR is merged. The daemon
+records the final PR and branch outcome in the canonical Plan execution summary;
+an optional YAML export is not updated and cannot make a completed Plan runnable
+again. Create a new Plan when you want to run the work again.
 
 ### After the final PR is green: awaiting merge
 
@@ -449,7 +461,7 @@ is heading in the wrong direction.
 | `run_plan { plan_id, execution_mode }` | Start plan execution |
 | `control_plan { plan_id, action }` | Pause, resume, or stop an in-progress plan |
 | `autopilot_status` | Return each run's state, manager id, task counts |
-| `autopilot_complete` | Manager-only: declare the caller's run complete once `done_when` is met (writes the in-place `status: complete` marker, tears down the manager) |
+| `autopilot_complete` | Manager-only: declare the caller's run done once `done_when` is met; the daemon opens and gates the final PR, then waits for the operator to merge it |
 | `land { ticket: "<agent-or-branch>" }` | Land a worker branch |
 
 ## Config hot-reload
