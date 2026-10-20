@@ -456,6 +456,54 @@ Each item is a merge requirement for its task's PR. "Fixture" = deterministic, l
 - [ ] Production AI launch stays tmux; no TUI/Cockpit rewiring in this task (02b-02 consumes the interface).
 - [ ] `wd check`, `make verify-fast`, `-race` on `ptyattach`, `ptyhost`, `ptyruntime`.
 
+### 8.3 02b-02 entry audit — operator attach contract (2026-10-20)
+
+This is the bounded handoff from `02b-01` to `02b-02`, not an assertion that
+the operator surfaces are already migrated.  It was re-audited at source
+**`c01ef360c8431dbcc895aeffc7702881219fff9b`** (the merged 02b-01 final PR
+**#1006**) with the original release evidence still anchored at
+**`0d531421`** / **v11.5.0**.  `d2abd5ec` (PR **#986**) is also in the entry
+history and supplies the last-complete-fleet retention behavior; it does not
+make attach runtime-aware.
+
+| Surface / entrypoint | Current source evidence | Required shared-runtime contract | Present result / 02b-02 handoff |
+|---|---|---|---|
+| CLI `warden attach <id>` | `internal/cli/lifecycle.go:newAttachCmd` only tries native `/pty` for `IsTerminal()`, then invokes `tmux attach -t RuntimeKey()` | Resolve by stable session id; use `ptyattach.Client.Attach` for `direct`, `Fallback` only for `tmux`, and show `ErrUnknownRuntime` reason | Agent direct fixtures are not supported by this branch; migrate without changing aliases or launching behavior. |
+| CLI list/status/tail/send | `internal/cli/commands*.go`, `internal/cli/talk.go`, daemon `strict_lifecycle.go:SendInput/Output` | Membership remains store-backed; runtime is optional truthful metadata; I/O uses the same resolved runtime and never treats a tmux name as liveness | `SendInput`/`Output` already resolve a runtime key; audit every user-facing error and status rendering in the next task. |
+| TUI list/project/run/pipeline tree and selection | `internal/tui/list.go`, `control_pane.go`, `fleet_health_test.go` | Stable record id owns membership/selection; an unavailable controller/status response preserves the last complete tree and never manufactures a tmux-backed row | #986 retention covers later errors and stale selection.  First-error/empty and mixed-runtime fixtures below make the entry condition explicit. |
+| TUI embedded agent/detail pane, focus and rotation | `internal/tui/control_pane.go:openInDetailCmd`, `respawnDetailArgs`, `switchClientCmd` | The cockpit remains a tmux **presentation** layout, but its pane runs the shared attach client (`env -u TMUX warden attach <stable-id>`); closing/replacing that viewer must not kill the child | Current agent pane uses nested `tmux attach`, so it cannot present a direct agent absent from tmux.  02b-02 owns this migration. |
+| TUI terminal pane, cwd/branch/liveness | `internal/tui/cmds.go:terminalInfoCmd`, `tmuxPanePath` | Direct metadata must have a runtime/process source or display explicit `unavailable`; tmux introspection is only for actual tmux sessions | Current terminal presentation is partly runtime-aware via `warden attach`, but cwd/branch/liveness still probe tmux. |
+| Browser per-session terminal | `internal/daemon/attach.go:handleAttach`, `web/src/components/PtyTerminal.tsx` | Select `/pty` for direct and the frozen `/attach` tmux bridge only for actual tmux; viewer close only detaches | Direct shells already bridge through the legacy endpoint.  Direct-agent and unknown-runtime browser semantics belong to 02b-02. |
+| Browser Cockpit | `internal/daemon/attach.go:handleCockpitAttach` | The browser renders the same presentation pane contract as the TUI; no session type is inferred from Cockpit tmux existence | It currently bridges the Cockpit tmux session, whose agent pane is tmux-only. |
+
+**Familiar operator shortcuts.**  The shared client keeps **Ctrl-] then `.`**
+as detach (the child continues), **Ctrl-] then `t`** as takeover,
+**Ctrl-] Ctrl-]** as a literal Ctrl-], and permits a one-byte/caret-notation
+`WARDEN_ATTACH_DETACH_KEY` override.  In the current tmux presentation,
+`Ctrl-b Enter` returns from the classic Cockpit's switched client and `Ctrl-b L`
+does so in the tmux-native layout.  Those are presentation shortcuts only;
+they must not be used as proof of session ownership or liveness.
+
+**Characterization fixtures (green by design).**
+`internal/tui/runtime_attach_contract_test.go` records: (a) a direct session
+with no `TmuxSession` remains addressable by stable id in a mixed fleet, (b) a
+first status error creates no phantom selection, (c) a later status error
+retains the last complete mixed fleet and its selected session, and (d) a
+complete refresh dropping the selected session leaves no stale id.  The same
+test has a skipped, named unknown-runtime attach case: current
+`openInDetailCmd` still constructs `tmux attach`; making that case pass is the
+deliberate 02b-02 implementation work, not a failing test smuggled into this
+predecessor/audit task.
+
+**Limits and next-task acceptance.**  This task neither changes `runtime.pty`
+nor starts/restarts a daemon or agent, and it does not claim a production direct
+AI-agent launch.  Before 02b-02 closes its work, scripted CLI/TUI/browser
+coverage must exercise direct-without-tmux, legacy tmux, a three-kind mixed
+fleet, first error, status degradation, stale selection, pane close/reopen,
+detach/return, and unknown-runtime error presentation.  Keep #918/#919 outside
+this change; if either affects a scenario, record it as blocked evidence rather
+than masking it with a restart or recovery change.
+
 ---
 
 ## 9. Remaining readiness gates for later plans
